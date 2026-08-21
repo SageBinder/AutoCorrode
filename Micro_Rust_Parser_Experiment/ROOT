@@ -15,7 +15,6 @@ session Micro_Rust_Parser_Experiment = HOL +
   theories [document = false]
     Experiment
     Conformance_Corpus
-    Toy_Lex_Yacc0
-    Toy_Lex_Yacc1
-    Toy_Lex_Yacc2
-    Toy_Lex_Yacc3
+    Toy_Lex_Yacc
+    Micro_Rust_Parser
+    Micro_Rust_Parser_Conformance
