@@ -11,6 +11,11 @@ session Micro_Rust_Parser_Experiment = HOL +
     Crush
     Lenses_And_Other_Optics
     Byte_Level_Encoding
+    "Isabelle_Lex-Yacc"
   theories [document = false]
     Experiment
     Conformance_Corpus
+    Toy_Lex_Yacc0
+    Toy_Lex_Yacc1
+    Toy_Lex_Yacc2
+    Toy_Lex_Yacc3
