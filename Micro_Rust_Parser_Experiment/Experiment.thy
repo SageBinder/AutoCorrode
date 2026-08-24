@@ -127,4 +127,10 @@ lemma match_binder_captures_antiquotation:
 
 end
 
+text \<open>Need to be careful with binders here:\<close>
+
+definition \<open>special_num \<equiv> 1 :: nat\<close>
+
+(* term\<open>case Some 1 of Some special_num \<Rightarrow> 0\<close> *)
+
 end

@@ -25,7 +25,7 @@
    them. See notes/urust-parser-plan.md and notes/isabelle-lex-yacc-notes.md. *)
 
 theory Toy_Lex_Yacc
-  imports "Isabelle_Lex-Yacc.LexYacc"
+  imports "Isabelle_Lex-Yacc.LexYacc" Parser_Utils
   keywords
     "toy_def" :: thy_decl
     and "toy_demo_inspect" :: diag
@@ -54,69 +54,31 @@ end
 
 SML_import \<open> structure Toy_AST = Toy_AST \<close>
 SML_import \<open> structure Input = struct open Input end \<close>   \<comment>\<open> re-import for the position map (idempotent) \<close>
+SML_import \<open> structure Parser_Lex_Util = Parser_Lex_Util \<close>  \<comment>\<open> shared lexer position math \<close>
 
 text\<open> Lexer. The corrected fixed_pos / tokF / tok_valF position layer (below) keeps PIDE markup
-aligned across multi-char Isabelle-symbol escapes; those helpers are local to this generated lexer. \<close>
+aligned across multi-char Isabelle-symbol escapes; those helpers are local to this generated lexer.
+NOTE: this position layer is INTENTIONALLY DUPLICATED with Micro_Rust_Parser.thy -- it runs in the SML
+environment of this one ml_lex_yacc block and is scoped to it, so it cannot move into the shared
+Parser_Utils (plain Isabelle/ML). The elaborator helpers, which are plain ML, DID move there. \<close>
 ml_lex_yacc "Toy" where
 lex_user_declarations\<open>
 val aq_buf = ref ""
 val aq_pos = ref 0
 val aq_start = ref 0   (* char offset of the antiquotation BODY start (just after the opener) *)
 
-(* Corrected position mapping: map the per-CHARACTER yypos to the position of the containing Isabelle
-   symbol, so markup after a multi-char escape does not drift. (The framework's own get_pos indexes a
-   per-symbol vector with the per-character yypos, which drifts.) *)
+(* Per-lexer source ref + set-shadow (SML environment). The corrected char-vs-symbol position MATH is
+   shared in Parser_Lex_Util (see Parser_Utils) and reused by every ml_lex_yacc parser; these thin
+   wrappers just pass the current source. tok_id keeps this lexer's own Tokens.TID constructor (emits no
+   colour: the elaborator colours each identifier once it knows its role). *)
 val the_src = ref (Input.string "")
 fun set source ctxt = (Isabelle_lex_yacc.set source ctxt; the_src := source)
 
-fun inner_syms () =
-  let val syms = Input.source_explode (!the_src)
-  in if length syms >= 2 then List.take (tl syms, length syms - 2) else syms end
-
-fun fixed_pos yypos =
-  let
-    val syms = inner_syms ()
-    val target = yypos - 1
-    fun go _ [] = Input.pos_of (!the_src)
-      | go _ [(_, p)] = p
-      | go acc ((s, p) :: rest) = if target < acc + size s then p else go (acc + size s) rest
-  in
-    if null syms then Input.pos_of (!the_src)
-    else if target < 0 then #2 (hd syms)
-    else go 0 syms
-  end
-
-fun report_fixed (yypos, len, markup, typ, sort) =
-  if 0 < len then
-    (* End of the range is start_offset + len, NOT a second fixed_pos (yypos + len): the latter maps
-       to the symbol FOLLOWING the token, so its result depends on the trailing character (leaving the
-       token's last char uncoloured, and shifting with trailing whitespace). These tokens are ASCII,
-       so symbol count = len and end_offset is exclusive. *)
-    let
-      val {line, offset, props, ...} = Position.dest (fixed_pos yypos)
-      val p = Position.make {line = line, offset = offset, end_offset = offset + len, props = props}
-    in Position.report p markup;
-       Position.report_text p Markup.typing typ;
-       Position.report_text p Markup.sorting sort
-    end
-  else ()
-
-fun tokF (yypos, yytext, markup, typ, sort, cons) =
-  (report_fixed (yypos, size yytext, markup, typ, sort);
-   cons (fixed_pos yypos, fixed_pos (yypos + size yytext)))
-
-fun tok_valF (yypos, yytext, markup, typ, sort, cons, value) =
-  (report_fixed (yypos, size yytext, markup, typ, sort);
-   cons (value, fixed_pos yypos, fixed_pos yypos))
-
-(* Identifier token: carry a FULL-RANGE position (offset + length) but emit NO colour here. The lexer
-   cannot tell a `let` binder / bound use (green, Markup.bound) from a genuine free (blue, Markup.free);
-   only the elaborator knows the role, so it colours each identifier (see Toy_Translate). The full range
-   makes both the colour and the click-to-definition entity markup cover the whole identifier. *)
+fun fixed_pos yypos = Parser_Lex_Util.fixed_pos (!the_src) yypos
+fun tokF args       = Parser_Lex_Util.tokF (!the_src) args
+fun tok_valF args   = Parser_Lex_Util.tok_valF (!the_src) args
 fun tok_id (yypos, yytext) =
-  let
-    val {line, offset, props, ...} = Position.dest (fixed_pos yypos)
-    val p = Position.make {line = line, offset = offset, end_offset = offset + size yytext, props = props}
+  let val p = Parser_Lex_Util.ident_pos (!the_src) (yypos, yytext)
   in Tokens.TID (yytext, p, p) end
 \<close>
 lex_definitions\<open>
@@ -200,75 +162,14 @@ struct
   open Toy_AST
   fun mk_binop c a b = Const (c, dummyT) $ a $ b
 
-  (* PIDE click-to-definition: link each let-bound variable USE to its binder via a shared serial --
-     a `def` entity markup at the binder's name position and a `ref` at each use (carrying the binder
-     position), so ctrl-click on a use jumps to its `let`. Colour is separate (the lexer's Markup.free
-     on TID); this only adds navigation. Same recipe Isabelle's own calculation.ML uses. *)
-  val toy_varN = "toy_var"
-  (* Binder-GENERIC variable machinery (not `let`-specific): a bound name -- at its binder and at every
-     use, including inside antiquotations -- is coloured GREEN (Markup.bound, like Isabelle's own bound
-     variables / the frontend's resolve_bound) and carries a def/ref entity pair (shared serial) for
-     ctrl-click navigation. A genuine free / call head is coloured blue (Markup.free), below. *)
-  fun report_def ctxt id (x, def_pos) =
-    (Context_Position.report ctxt def_pos Markup.bound;
-     Context_Position.report ctxt def_pos (Position.make_entity_markup {def = true} id toy_varN (x, def_pos)))
-  fun report_ref ctxt id (x, def_pos) use_pos =
-    (Context_Position.report ctxt use_pos Markup.bound;
-     Context_Position.report ctxt use_pos (Position.make_entity_markup {def = false} id toy_varN (x, def_pos)))
-
-  (* Register a binder occurrence: fresh serial, def markup at its name position, env entry; returns
-     (its Free, the extended env). EVERY binding construct should go through this -- `let` today, and
-     future closures / for-loops / match patterns -- so colour, click-to-def, capture, and
-     antiquotation handling are uniform and binder-generic. *)
-  fun bind_var ctxt env (x, def_pos) =
-    let
-      val id   = serial ()
-      val _    = report_def ctxt id (x, def_pos)
-      val free = Free (x, dummyT)
-    in (free, Symtab.update (x, {free = free, def_pos = def_pos, id = id}) env) end
-
-  (* Multi-variable binders (tuple `let (a, b) = …`, a match arm `Some(x, y) => …`) register EACH
-     bound variable through bind_var, threading the env; this returns the Frees (binder order) and the
-     env extended with all of them. Colour / click-to-def / capture / antiquotation handling then work
-     for every variable uniformly. NOTE: this is only the per-variable REGISTRATION; how the N Frees
-     are abstracted into the term (nested Term.lambda, case_prod, a pattern combinator, …) is
-     necessarily construct-specific and is the binder's own job. *)
-  fun bind_vars ctxt xps env = fold_map (fn xp => fn e => bind_var ctxt e xp) xps env
-
-  (* Colour every enclosing-`let`-bound variable GREEN wherever it occurs in an antiquotation body --
-     at ANY depth (`⟪x⟫`, `⟪x + 1⟫`, `⟪f x (g y)⟫`). Syntax.parse_term gives the correct term and full
-     inner-HOL highlighting, but colours a captured variable blue: it parses the body in isolation,
-     unaware of the µRust binder. So after parsing we overlay Markup.bound at each bound-variable
-     occurrence, computed from the body's OWN per-symbol positions (Input.source_explode) -- no position
-     surgery, general for arbitrary bodies. Reported after the parse, it is the innermost markup and so
-     wins over parse_term's blue (Rendering.select picks the innermost). Markup-only: the term is
-     exactly parse_term's, so capture / conformance is unaffected. *)
-  fun mark_bound ctxt env src =
-    let
-      fun is_start c = Symbol.is_ascii_letter c orelse c = "_"
-      fun is_cont c  = is_start c orelse Symbol.is_ascii_digit c
-      fun span [] = ([], [])
-        | span (sp :: r) =
-            if is_cont (#1 sp) then let val (a, b) = span r in (sp :: a, b) end else ([], sp :: r)
-      fun go [] = ()
-        | go (sp :: r) =
-            if is_start (#1 sp) then
-              let
-                val (idsyms, rest) = span (sp :: r)
-                val nm = Symbol_Pos.content idsyms
-              in
-                (case Symtab.lookup env nm of
-                   SOME {def_pos, id, ...} =>   (* green + click-to-def, like an ordinary bound use *)
-                     report_ref ctxt id (nm, def_pos) (Position.range_position (Symbol_Pos.range idsyms))
-                 | NONE => ());
-                go rest
-              end
-            else go r
-    in go (Input.source_explode src) end
-
-  fun parse_antiq ctxt env src =
-    let val t = Syntax.parse_term ctxt (Syntax.implode_input src)
-    in mark_bound ctxt env src; t end
+  (* Binder / markup / antiquotation helpers are shared with Micro_Rust_Parser via Parser_Utils (plain
+     Isabelle/ML; see that theory). Partially apply the def/ref entity-kind string once -- the call
+     sites below are then unchanged. report_def / bind_vars / mark_bound are used internally by
+     bind_var / parse_antiq, so only these three are needed here. *)
+  val vkind       = "toy_var"
+  val report_ref  = Parser_Utils.report_ref vkind
+  val bind_var    = Parser_Utils.bind_var vkind
+  val parse_antiq = Parser_Utils.parse_antiq vkind
 
   (* env : source name -> { its Free, the binder's name position, its def serial } *)
   fun mk ctxt env e =
@@ -297,15 +198,12 @@ struct
 end
 \<close>
 
-text\<open> The command, serialized behind a mutex (the Isabelle_lex_yacc runtime holds global refs). Each
-toy theory is self-contained, so it declares its own lock. \<close>
+text\<open> The command, serialized behind the SHARED parser mutex (Parser_Utils.with_parser_lock): the
+Isabelle_lex_yacc runtime holds global refs, so ALL ml_lex_yacc parsers (toy + uRust + a future C
+parser) must serialize against the same lock, not per-parser ones. \<close>
 ML\<open>
-val toy_lock = Synchronized.var "toy_lock" ()
-fun with_toy_lock (f : unit -> 'a) : 'a =
-  Synchronized.change_result toy_lock (fn () => (f (), ()))
-
 fun define_toy (binding, source) lthy =
-  with_toy_lock (fn () =>
+  Parser_Utils.with_parser_lock (fn () =>
     (case Toy.parse_source lthy source of
        SOME ast =>
          let
@@ -448,7 +346,7 @@ val _ = Outer_Syntax.command \<^command_keyword>\<open>toy_demo_inspect\<close>
           "Parse a Toy expression and print its input string, SML AST, and HOL term"
           (Parse.input Parse.cartouche >> (fn source =>
              Toplevel.keep (fn st =>
-               with_toy_lock (fn () => toy_demo (Toplevel.context_of st) source))))
+               Parser_Utils.with_parser_lock (fn () => toy_demo (Toplevel.context_of st) source))))
 \<close>
 
 toy_demo_inspect \<open> -2 * 3 + -4 \<close>            \<comment>\<open> unary vs binary minus, precedence \<close>

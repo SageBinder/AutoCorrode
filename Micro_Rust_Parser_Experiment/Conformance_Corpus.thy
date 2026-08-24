@@ -216,6 +216,34 @@ lemma \<open>undefined = \<lbrakk> let a = \<llangle>0x00 :: 8 word\<rrangle>; !
 lemma \<open>undefined = \<lbrakk> let a = \<llangle>1 :: 32 word\<rrangle>; a << \<llangle>4 :: 64 word\<rrangle> \<rbrakk>\<close> sorry
 lemma \<open>undefined = \<lbrakk> let a = \<llangle>16 :: 32 word\<rrangle>; a >> \<llangle>2 :: 64 word\<rrangle> \<rbrakk>\<close> sorry
 
+subsection\<open>Operator Precedence and Associativity\<close>
+
+text\<open>Mixed-operator probes: the golden \<open>\<lbrakk> src \<rbrakk>\<close> pins the frontend's grouping. Fixities are
+\<open>* / %\<close> (infixl 50) > \<open>+ -\<close> (49) > \<open><< >>\<close> (48) > \<open>&\<close> (47) > \<open>^\<close> (46) > \<open>|\<close> (45) >
+\<open>== != < <= > >=\<close> (infix 44, non-assoc) > \<open>&&\<close> (43) > \<open>||\<close> (42); prefix \<open>!\<close> tighter than all
+binary. Non-associativity of comparisons (\<open>a == b == c\<close>) is a reject, in the negative tier.\<close>
+
+subsubsection\<open>Associativity (binary operators are left-associative)\<close>
+
+lemma \<open>undefined = \<lbrakk> \<llangle>9 :: 32 word\<rrangle> - \<llangle>3 :: 32 word\<rrangle> - \<llangle>2 :: 32 word\<rrangle> \<rbrakk>\<close> sorry
+lemma \<open>undefined = \<lbrakk> \<llangle>12 :: 32 word\<rrangle> / \<llangle>3 :: 32 word\<rrangle> / \<llangle>2 :: 32 word\<rrangle> \<rbrakk>\<close> sorry
+lemma \<open>undefined = \<lbrakk> \<llangle>1 :: 32 word\<rrangle> << \<llangle>1 :: 64 word\<rrangle> << \<llangle>1 :: 64 word\<rrangle> \<rbrakk>\<close> sorry
+lemma \<open>undefined = \<lbrakk> \<llangle>True\<rrangle> && \<llangle>True\<rrangle> && \<llangle>False\<rrangle> \<rbrakk>\<close> sorry
+lemma \<open>undefined = \<lbrakk> \<llangle>True\<rrangle> || \<llangle>True\<rrangle> || \<llangle>False\<rrangle> \<rbrakk>\<close> sorry
+
+subsubsection\<open>Cross-tier precedence (the tighter operator groups first)\<close>
+
+lemma \<open>undefined = \<lbrakk> \<llangle>1 :: 32 word\<rrangle> + \<llangle>2 :: 32 word\<rrangle> * \<llangle>3 :: 32 word\<rrangle> \<rbrakk>\<close> sorry
+lemma \<open>undefined = \<lbrakk> \<llangle>1 :: 32 word\<rrangle> + \<llangle>2 :: 32 word\<rrangle> << \<llangle>1 :: 64 word\<rrangle> \<rbrakk>\<close> sorry
+lemma \<open>undefined = \<lbrakk> \<llangle>1 :: 32 word\<rrangle> & \<llangle>2 :: 32 word\<rrangle> << \<llangle>1 :: 64 word\<rrangle> \<rbrakk>\<close> sorry
+lemma \<open>undefined = \<lbrakk> \<llangle>1 :: 32 word\<rrangle> ^ \<llangle>2 :: 32 word\<rrangle> & \<llangle>3 :: 32 word\<rrangle> \<rbrakk>\<close> sorry
+lemma \<open>undefined = \<lbrakk> \<llangle>1 :: 32 word\<rrangle> | \<llangle>2 :: 32 word\<rrangle> ^ \<llangle>3 :: 32 word\<rrangle> \<rbrakk>\<close> sorry
+lemma \<open>undefined = \<lbrakk> \<llangle>1 :: 32 word\<rrangle> | \<llangle>2 :: 32 word\<rrangle> == \<llangle>3 :: 32 word\<rrangle> \<rbrakk>\<close> sorry
+lemma \<open>undefined = \<lbrakk> \<llangle>1 :: 32 word\<rrangle> == \<llangle>2 :: 32 word\<rrangle> && \<llangle>True\<rrangle> \<rbrakk>\<close> sorry
+lemma \<open>undefined = \<lbrakk> \<llangle>True\<rrangle> || \<llangle>True\<rrangle> && \<llangle>False\<rrangle> \<rbrakk>\<close> sorry
+lemma \<open>undefined = \<lbrakk> !\<llangle>True\<rrangle> && \<llangle>False\<rrangle> \<rbrakk>\<close> sorry
+lemma \<open>undefined = \<lbrakk> !\<llangle>True\<rrangle> == \<llangle>False\<rrangle> \<rbrakk>\<close> sorry
+
 subsection\<open>Assignment Operators\<close>
 
 subsubsection\<open>Simple Assignment\<close>
@@ -443,6 +471,76 @@ end
 
 lemma \<open>undefined = \<lbrakk> let zero = \<llangle>0 :: 32 word\<rrangle>; let one = \<llangle>1 :: 32 word\<rrangle>; let res = match Some(one) { Some(x) if x > zero \<Rightarrow> x, _ \<Rightarrow> zero }; assert!(res == one) \<rbrakk>\<close> sorry
 lemma \<open>undefined = \<lbrakk> let zero = \<llangle>0 :: 32 word\<rrangle>; let res = match Some(zero) { Some(x) if x > zero \<Rightarrow> \<llangle>1 :: 32 word\<rrangle>, Some(x) \<Rightarrow> x, _ \<Rightarrow> \<llangle>2 :: 32 word\<rrangle> }; assert!(res == zero) \<rbrakk>\<close> sorry
+
+subsubsection\<open>Nested Match Expressions\<close>
+
+text\<open>A general, edge-case-driven collection, orthogonal to the corpus's nested \<^emph>\<open>patterns\<close>
+(\<open>Some(Some(x))\<close>): here a \<open>match\<close> re-enters the expression grammar in an arm body, scrutinee,
+guard, or \<open>let\<close>-RHS. The oracle (upstream frontend) supports guards, tuple patterns, and nested
+constructor patterns, so these are exercised \<^emph>\<open>in combination with\<close> nested matches — including
+shapes the downstream model avoids (downstream flattens nested patterns into two matches, a usage convention of the
+model, not a frontend limitation, so it does not constrain this general suite). The downstream-specific,
+provenance-cited nested-match mirrors live separately in the private, git-ignored
+\<^verbatim>\<open>a downstream-only corpus\<close> (kept out of this public corpus).\<close>
+
+datatype nm_case = NmA "32 word" | NmB "32 word" | NmC
+
+\<comment>\<open>Position of the inner match: arm body, scrutinee, let-RHS, guard, sequenced.\<close>
+context
+  fixes r :: \<open>(32 word option, unit) result\<close>
+begin
+lemma \<open>undefined = \<lbrakk> match r { Ok(ov) \<Rightarrow> match ov { Some(x) \<Rightarrow> x, None \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }, Err(_) \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<rbrakk>\<close> sorry
+end
+
+lemma \<open>undefined = \<lbrakk> match (match Some(\<llangle>1 :: 32 word\<rrangle>) { Some(y) \<Rightarrow> y, None \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }) { z \<Rightarrow> z } \<rbrakk>\<close> sorry
+lemma \<open>undefined = \<lbrakk> match Some(\<llangle>1 :: 32 word\<rrangle>) { Some(x) \<Rightarrow> { let t = match Ok(x) { Ok(v) \<Rightarrow> v, Err(_) \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }; t }, None \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<rbrakk>\<close> sorry
+
+context
+  fixes x :: \<open>32 word\<close>
+begin
+lemma \<open>undefined = \<lbrakk> match Some(x) { Some(y) if (match Some(y) { Some(_) \<Rightarrow> True, None \<Rightarrow> False }) \<Rightarrow> y, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<rbrakk>\<close> sorry
+end
+
+lemma \<open>undefined = \<lbrakk> match Some(\<llangle>1 :: 32 word\<rrangle>) { Some(x) \<Rightarrow> { match Some(x) { Some(_) \<Rightarrow> (), None \<Rightarrow> () }; match Ok(x) { Ok(_) \<Rightarrow> (), Err(_) \<Rightarrow> () } }, None \<Rightarrow> () } \<rbrakk>\<close> sorry
+
+\<comment>\<open>Nesting depth / breadth: depth-3, depth-4, and inner matches in multiple arms.\<close>
+context
+  fixes z :: \<open>32 word\<close>
+  fixes a3 :: \<open>((32 word option, unit) result, unit) result\<close>
+  fixes a4 :: \<open>(((32 word option, unit) result, unit) result, unit) result\<close>
+  fixes r2 :: \<open>(32 word option, 32 word option) result\<close>
+begin
+lemma \<open>undefined = \<lbrakk> match a3 { Ok(b) \<Rightarrow> match b { Ok(c) \<Rightarrow> match c { Some(v) \<Rightarrow> v, None \<Rightarrow> z }, Err(_) \<Rightarrow> z }, Err(_) \<Rightarrow> z } \<rbrakk>\<close> sorry
+lemma \<open>undefined = \<lbrakk> match a4 { Ok(b) \<Rightarrow> match b { Ok(c) \<Rightarrow> match c { Ok(d) \<Rightarrow> match d { Some(v) \<Rightarrow> v, None \<Rightarrow> z }, Err(_) \<Rightarrow> z }, Err(_) \<Rightarrow> z }, Err(_) \<Rightarrow> z } \<rbrakk>\<close> sorry
+lemma \<open>undefined = \<lbrakk> match r2 { Ok(ov) \<Rightarrow> match ov { Some(x) \<Rightarrow> x, None \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }, Err(e) \<Rightarrow> match e { Some(x) \<Rightarrow> x, None \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } } \<rbrakk>\<close> sorry
+end
+
+\<comment>\<open>Interaction with other pattern features:
+    nested/constructor, tuple, guard, or-patterns; local datatype; and match_switch both ways.\<close>
+lemma \<open>undefined = \<lbrakk> match Some(Some(\<llangle>1 :: 32 word\<rrangle>)) { Some(Some(x)) \<Rightarrow> match Some(x) { Some(y) \<Rightarrow> y, None \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<rbrakk>\<close> sorry
+
+context
+  fixes p q :: \<open>32 word option\<close>
+begin
+lemma \<open>undefined = \<lbrakk> match (p, q) { (Some(x), qq) \<Rightarrow> match qq { Some(y) \<Rightarrow> x + y, None \<Rightarrow> x }, (None, _) \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<rbrakk>\<close> sorry
+end
+
+context
+  fixes ov :: \<open>32 word option\<close>
+begin
+lemma \<open>undefined = \<lbrakk> match ov { Some(y) if y > \<llangle>0 :: 32 word\<rrangle> \<Rightarrow> match Some(y) { Some(v) \<Rightarrow> v, None \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<rbrakk>\<close> sorry
+end
+
+lemma \<open>undefined = \<lbrakk> match \<llangle>NmA (1 :: 32 word)\<rrangle> { NmA(n) | NmB(n) \<Rightarrow> match Some(n) { Some(v) \<Rightarrow> v, None \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }, NmC \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<rbrakk>\<close> sorry
+lemma \<open>undefined = \<lbrakk> match Some(\<llangle>Foo (1 :: 32 word) 2\<rrangle>) { Some(s) \<Rightarrow> match s { Foo { foo: fp, goo: gq } \<Rightarrow> fp + gq, Other \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }, None \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<rbrakk>\<close> sorry
+
+context
+  fixes n :: \<open>32 word\<close>
+  fixes ov :: \<open>32 word option\<close>
+begin
+lemma \<open>undefined = \<lbrakk> match ov { Some(x) \<Rightarrow> match_switch x { 0 \<Rightarrow> \<llangle>10 :: 32 word\<rrangle>, _ \<Rightarrow> x }, None \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<rbrakk>\<close> sorry
+lemma \<open>undefined = \<lbrakk> match_switch n { 0 \<Rightarrow> match ov { Some(x) \<Rightarrow> x, None \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }, _ \<Rightarrow> \<llangle>1 :: 32 word\<rrangle> } \<rbrakk>\<close> sorry
+end
 
 subsection\<open>Control Flow - Loops\<close>
 
@@ -1108,7 +1206,6 @@ lemma \<open>undefined = \<lbrakk>
 \<rbrakk>\<close> sorry
 end
 
-
 section\<open>Negative tier — inputs the parser must also reject\<close>
 
 ML\<open>
@@ -1121,6 +1218,8 @@ ML\<open>
   val _ = \<^assert> (rejected "\<lbrakk> 1 + \<rbrakk>");
   val _ = \<^assert> (rejected "\<lbrakk> if True \<rbrakk>");
   val _ = \<^assert> (rejected "\<lbrakk> let x = \<rbrakk>");
+  \<comment>\<open>Comparisons are non-associative (infix 44): chaining them is a syntax error.\<close>
+  val _ = \<^assert> (rejected "\<lbrakk> \<llangle>1 :: 32 word\<rrangle> == \<llangle>2 :: 32 word\<rrangle> == \<llangle>3 :: 32 word\<rrangle> \<rbrakk>");
 \<close>
 
 end
