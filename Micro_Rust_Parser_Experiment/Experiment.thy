@@ -133,4 +133,66 @@ definition \<open>special_num \<equiv> 1 :: nat\<close>
 
 (* term\<open>case Some 1 of Some special_num \<Rightarrow> 0\<close> *)
 
+section \<open>Match-arm binder vs. an EXISTING name: does the binder shadow a HOL constant / a \<mu>Rust notation?\<close>
+
+text \<open>The \<open>match_binder_captures_antiquotation\<close> lemma above binds a fresh context-fixed \<open>y\<close>. Here we
+  sharpen the question: what if the match-arm pattern binds a name that ALREADY MEANS something —
+  (a) a HOL constant (\<open>id\<close> = \<^const>\<open>Fun.id\<close>), or (b) a registered \<open>micro_rust_notation\<close> — and we then
+  reference that name in the arm body, both as a bare \<mu>Rust identifier and inside a value
+  antiquotation \<open>\<llangle>\<dots>\<rrangle>\<close>? Does the arm binder win (lexical capture / witness-precedence), or does the
+  pre-existing meaning?
+
+  Result (all four probes below): the arm binder ALWAYS wins. Each arm elaborates to
+  \<open>Abs (name, _, literal (Bound 0))\<close> — the reference is the bound pattern variable, identical to a
+  fresh-named oracle — so the binder shadows both the HOL constant and the registered notation, in
+  BOTH the bare and the antiquotation positions. The antiquotation case is the notable one: \<open>\<llangle>id\<rrangle>\<close>
+  captures the binder even though \<open>id\<close> is a genuine HOL constant, which means the frontend parses the
+  antiquotation body with the arm binder already fixed in the context (so the fixed \<open>id\<close> shadows
+  \<^const>\<open>Fun.id\<close>). Each capture is proved by a shadowing \<open>refl\<close> lemma: clash-name LHS = fresh-name RHS
+  holds iff the clash name was captured (had the pre-existing meaning won, the two sides would differ
+  and \<open>refl\<close> would fail).\<close>
+
+definition exp_backend :: nat where \<open> exp_backend \<equiv> 7 \<close>
+micro_rust_notation (literal) exp_backend ("clash")
+
+text \<open>(a) HOL constant \<open>id\<close> as the arm binder — bare and via antiquotation. Both capture (a captured
+  \<open>Bound 0\<close>, not \<^const>\<open>Fun.id\<close>); the ML dump exposes the decisive antiquotation case.\<close>
+term \<open> \<lbrakk> match (Some(5)) { Some(id) \<Rightarrow> id, None \<Rightarrow> \<llangle>0\<rrangle> } \<rbrakk> \<close>
+term \<open> \<lbrakk> match (Some(5)) { Some(id) \<Rightarrow> \<llangle>id\<rrangle>, None \<Rightarrow> \<llangle>0\<rrangle> } \<rbrakk> \<close>
+ML \<open>writeln ("a-aq (const id via antiquotation): " ^
+  @{make_string} @{term \<open> \<lbrakk> match (Some(5)) { Some(id) \<Rightarrow> \<llangle>id\<rrangle>, None \<Rightarrow> \<llangle>0\<rrangle> } \<rbrakk> \<close>})\<close>
+
+lemma match_binder_shadows_hol_const_bare:
+  shows \<open> \<lbrakk> match (Some(5)) { Some(id) \<Rightarrow> id, None \<Rightarrow> \<llangle>0\<rrangle> } \<rbrakk>
+        = \<lbrakk> match (Some(5)) { Some(qq) \<Rightarrow> qq, None \<Rightarrow> \<llangle>0\<rrangle> } \<rbrakk> \<close>
+  by (rule refl)
+
+lemma match_binder_shadows_hol_const_antiquotation:
+  shows \<open> \<lbrakk> match (Some(5)) { Some(id) \<Rightarrow> \<llangle>id\<rrangle>, None \<Rightarrow> \<llangle>0\<rrangle> } \<rbrakk>
+        = \<lbrakk> match (Some(5)) { Some(qq) \<Rightarrow> \<llangle>qq\<rrangle>, None \<Rightarrow> \<llangle>0\<rrangle> } \<rbrakk> \<close>
+  by (rule refl)
+
+text \<open>(b) A registered \<mu>Rust notation \<open>clash\<close> (\<rightarrow> \<^const>\<open>exp_backend\<close>) as the arm binder. Bare, the
+  binder wins over the notation-dispatch; inside \<open>\<llangle>\<dots>\<rrangle>\<close>, \<open>clash\<close> is just HOL (the notation is a
+  \<mu>Rust-surface concept, absent inside the antiquotation) and is captured like any free name.\<close>
+term \<open> \<lbrakk> match (Some(5)) { Some(clash) \<Rightarrow> clash, None \<Rightarrow> \<llangle>0\<rrangle> } \<rbrakk> \<close>
+term \<open> \<lbrakk> match (Some(5)) { Some(clash) \<Rightarrow> \<llangle>clash\<rrangle>, None \<Rightarrow> \<llangle>0\<rrangle> } \<rbrakk> \<close>
+
+lemma match_binder_shadows_notation_bare:
+  shows \<open> \<lbrakk> match (Some(5)) { Some(clash) \<Rightarrow> clash, None \<Rightarrow> \<llangle>0\<rrangle> } \<rbrakk>
+        = \<lbrakk> match (Some(5)) { Some(qq) \<Rightarrow> qq, None \<Rightarrow> \<llangle>0\<rrangle> } \<rbrakk> \<close>
+  by (rule refl)
+
+lemma match_binder_shadows_notation_antiquotation:
+  shows \<open> \<lbrakk> match (Some(5)) { Some(clash) \<Rightarrow> \<llangle>clash\<rrangle>, None \<Rightarrow> \<llangle>0\<rrangle> } \<rbrakk>
+        = \<lbrakk> match (Some(5)) { Some(qq) \<Rightarrow> \<llangle>qq\<rrangle>, None \<Rightarrow> \<llangle>0\<rrangle> } \<rbrakk> \<close>
+  by (rule refl)
+
+text \<open>Relevance to the custom parser: this confirms the frontend's rule the custom parser must
+  reproduce — a \<mu>Rust binder takes precedence over BOTH a HOL constant and a registered notation for
+  its whole scope (identifier dispatch + witness-precedence). The bare cases match the custom parser's
+  env-lookup-before-dispatch design. The antiquotation-over-a-HOL-constant case (\<open>\<llangle>id\<rrangle>\<close> capturing)
+  is the subtle one: the frontend fixes the binder in the parse context, so it shadows even a
+  constant — a behaviour worth checking the custom parser reproduces once it has \<open>match\<close>.\<close>
+
 end

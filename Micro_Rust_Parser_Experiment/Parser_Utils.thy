@@ -168,9 +168,21 @@ fun mark_bound kind ctxt (env : var_info Symtab.table) src =
   in go (Input.source_explode src) end
 
 (* Parse an antiquotation body (HOL) as a POSITIONED source (so the inner HOL is syntax-highlighted),
-   then overlay the green/click markup for any enclosing bound variable it mentions. *)
+   then overlay the green/click markup for any enclosing bound variable it mentions.
+
+   FIX the enclosing binder names in the context BEFORE parsing (Variable.add_fixes_direct on the env
+   keys): this reproduces the frontend's single-context HOAS, where a binder shadows a same-named HOL
+   constant / registered notation. Without it, `Syntax.parse_term` parses the body in isolation and a
+   binder name that ALSO names a const/notation (e.g. `let id = ...; \<open>\<llangle>id\<rrangle>\<close>`, id = Fun.id)
+   promotes to that Const/dispatch instead of the bound Free -- so the enclosing Term.lambda cannot
+   capture it and the term silently diverges from the frontend (old<->new divergence D-3). Fixing the
+   name forces `id` to parse as `Free "id"`, reducing it to the already-working non-const case (the
+   Term.lambda captures the Free; mark_bound still overlays the green bound-var markup, which wins over
+   the fixed-var colour parse_term would report). Markup context stays the ORIGINAL ctxt. *)
 fun parse_antiq kind ctxt env src =
-  let val t = Syntax.parse_term ctxt (Syntax.implode_input src)
+  let
+    val ctxt' = Variable.add_fixes_direct (Symtab.keys env) ctxt
+    val t = Syntax.parse_term ctxt' (Syntax.implode_input src)
   in mark_bound kind ctxt env src; t end
 
 (* A SINGLE mutex shared by every ml_lex_yacc parser command (uRust, the toy, a future C parser). It

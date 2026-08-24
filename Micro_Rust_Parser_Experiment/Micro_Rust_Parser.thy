@@ -33,9 +33,9 @@ theory Micro_Rust_Parser
     "micro_rust_expr" :: thy_decl
 begin
 
-section\<open> Reified AST (literal tier) \<close>
+section\<open> Reified AST \<close>
 
-text\<open> One constructor per dispatch-free literal form. Positions are carried for markup/diagnostics. \<close>
+text\<open> One constructor per uRust surface form. Positions are carried for markup/diagnostics. \<close>
 ML\<open>
 structure URust_AST =
 struct
@@ -79,6 +79,14 @@ struct
     | UE_If        of ur_expr * ur_expr * ur_expr option * Position.T
                                                               (* if c {t} [else {e} | else if ...];
                                                                  NONE else-branch -> skip (one-armed) *)
+    | UE_Call      of string * Position.T * ur_expr list * Position.T
+                                                              (* f(a0, ..., aN) -> funcallN f a0 ... aN.
+                                                                 The callee is an IDENTIFIER (name, name-pos);
+                                                                 resolved in NFunction (call) context, NOT
+                                                                 wrapped in `literal`. args, then call-pos.
+                                                                 Non-identifier callees (method x.m(a),
+                                                                 antiquotation eps<g>(a), turbofish, path)
+                                                                 don't parse into this node -- deferred. *)
 end
 \<close>
 
@@ -114,7 +122,6 @@ ml_lex_yacc block's SML environment and is scoped to it, so it cannot move into 
 ml_lex_yacc "URust" where
 lex_user_declarations\<open>
 val aq_buf = ref ""
-val aq_pos = ref 0
 val aq_start = ref 0   (* char offset of the antiquotation BODY start (just after the opener) *)
 
 (* Parse a suffixed integer literal lexeme, e.g. "0x4_u8" / "1_usize", to (value, width). *)
@@ -189,10 +196,11 @@ lex_rules\<open>
 <INITIAL>{idstart}{idchar}* => (tok_ident (yypos, yytext));
 <INITIAL>"("      => (tokF (yypos, yytext, Markup.delimiter, "LPAR", "", Tokens.LPAR));
 <INITIAL>")"      => (tokF (yypos, yytext, Markup.delimiter, "RPAR", "", Tokens.RPAR));
+<INITIAL>","      => (tokF (yypos, yytext, Markup.delimiter, "COMMA", "", Tokens.COMMA));
 <INITIAL>"{"      => (tokF (yypos, yytext, Markup.delimiter, "TLBRACE", "", Tokens.TLBRACE));
 <INITIAL>"}"      => (tokF (yypos, yytext, Markup.delimiter, "TRBRACE", "", Tokens.TRBRACE));
-<INITIAL>\\"<llangle>"          => (aq_buf := ""; aq_pos := yypos; aq_start := yypos + size yytext; YYBEGIN VAQ; lex());
-<INITIAL>\\"<epsilon>"\\"<open>" => (report_colour (yypos, 1, Markup.literal); aq_buf := ""; aq_pos := yypos; aq_start := yypos + size yytext; YYBEGIN EAQ; lex());
+<INITIAL>\\"<llangle>"          => (aq_buf := ""; aq_start := yypos + size yytext; YYBEGIN VAQ; lex());
+<INITIAL>\\"<epsilon>"\\"<open>" => (report_colour (yypos, 1, Markup.literal); aq_buf := ""; aq_start := yypos + size yytext; YYBEGIN EAQ; lex());
 <INITIAL>.        => (URust_Err.lex_error yytext (fixed_pos yypos));
 <VAQ>\\"<rrangle>" => (YYBEGIN INITIAL;
     let val p = fixed_pos (!aq_start) val q = fixed_pos yypos
@@ -230,7 +238,7 @@ yacc_definitions\<open>
 %term NUM of int | NUMSFX of int * int | IDENT of string | LPAR | RPAR
     | VALAQ of Input.source | EXPRAQ of Input.source
     | TLET | TCONST | TEQ | TSEMI | EOF
-    | TIF | TELSE | TLBRACE | TRBRACE
+    | TIF | TELSE | TLBRACE | TRBRACE | COMMA
     | TPLUS | TMINUS | TSTAR | TSLASH | TPERCENT
     | TSHL | TSHR | TAMP | TBAR | TCARET
     | TEQEQ | TNE | TLT | TLE | TGT | TGE
@@ -238,6 +246,7 @@ yacc_definitions\<open>
 %nonterm ustart of URust_AST.ur_expr option
        | ustmt of URust_AST.ur_expr
        | uexp of URust_AST.ur_expr
+       | arglist of URust_AST.ur_expr list
        | ublock of URust_AST.ur_expr
        | uif of URust_AST.ur_expr
 \<close>
@@ -252,6 +261,8 @@ yacc_rules\<open>
   uexp : NUM        (UE_Num (NUM, NUMleft))
        | NUMSFX     (UE_NumSfx (#1 NUMSFX, #2 NUMSFX, NUMSFXleft))
        | IDENT      (UE_Ident (IDENT, IDENTleft))
+       | IDENT LPAR RPAR          (UE_Call (IDENT, IDENTleft, [], IDENTleft))
+       | IDENT LPAR arglist RPAR  (UE_Call (IDENT, IDENTleft, arglist, IDENTleft))
        | LPAR RPAR  (UE_Unit LPARleft)
        | LPAR uexp RPAR (uexp)
        | VALAQ      (UE_ValAntiq VALAQ)
@@ -286,14 +297,21 @@ yacc_rules\<open>
   uif : TIF uexp ublock                     (UE_If (uexp, ublock, NONE, TIFleft))
       | TIF uexp ublock TELSE ublock        (UE_If (uexp, ublock1, SOME ublock2, TIFleft))
       | TIF uexp ublock TELSE uif           (UE_If (uexp, ublock, SOME uif, TIFleft))
+  (* Call argument list, right-nested (source order preserved), mirroring the frontend's
+     _urust_args_single / _urust_args_app (Micro_Rust_Syntax.thy:229-232). Conflict-free: the call
+     productions are IDENTIFIER-headed (IDENT LPAR ...), so LPAR is never in FOLLOW(uexp) as a postfix
+     operator -- no operator-vs-call shift/reduce and no precedence directive needed (cf. Toy_Lex_Yacc). *)
+  arglist : uexp               ([uexp])
+          | uexp COMMA arglist (uexp :: arglist)
 \<close>
 
-section\<open> Elaborator (AST -> shallow `literal` terms) \<close>
+section\<open> Elaborator (AST -> shallow terms) \<close>
 
-text\<open> Every form lowers to CONST literal (or, for a suffixed literal, literal at a fixed word width --
-alpha-equal to the golden ascribeuN, which is an abbreviation of literal). The value type of a bare
-numeral is left POLYMORPHIC (matching the frontend's open "what type by default" choice). Built with
-dummyT; a single Syntax.check_term runs in the command. \<close>
+text\<open> Each form lowers to the existing shallow HOL const(s): literals -> literal (bare numerals stay
+POLYMORPHIC, matching the frontend's open "what type by default"; suffixed literals pin an N word,
+alpha-equal to the golden ascribeuN abbreviation); let/const -> bind, sequencing -> sequence; operators
+-> the binop_const/unop_const targets; blocks ERASE to their body; if/else -> two_armed_conditional.
+Everything is built with dummyT; a single Syntax.check_term runs in the command. \<close>
 ML\<open>
 structure URust_Translate =
 struct
@@ -302,6 +320,31 @@ struct
   (* All Core terms are built with dummyT; a single Syntax.check_term (in the command) resolves types. *)
   fun mk_const name args = Term.list_comb (Const (name, dummyT), args)
   fun mk_literal v = mk_const \<^const_name>\<open>literal\<close> [v]
+
+  (* Arity -> the funcallN const for a call `f(a0,...,a{N-1})` -> funcallN f a0 ... a{N-1}. Cap is 14
+     (NOT 16): Core_Expression defines funcall0..16, but Core_Syntax wires the surface `_urust_shallow_fun_*`
+     lowering only up to funcall14, so the frontend `<<...>>` produces no golden beyond 14 -- a >14 call has
+     nothing to conform against. Hand-enumerated so each const name is compile-checked. (TODO: a generic
+     `funcall<n>`-with-declared-check would drop the table and auto-track the backend family;
+     notes/claude/urust-todos.md.) *)
+  fun funcall_const _   0  = \<^const_name>\<open>funcall0\<close>
+    | funcall_const _   1  = \<^const_name>\<open>funcall1\<close>
+    | funcall_const _   2  = \<^const_name>\<open>funcall2\<close>
+    | funcall_const _   3  = \<^const_name>\<open>funcall3\<close>
+    | funcall_const _   4  = \<^const_name>\<open>funcall4\<close>
+    | funcall_const _   5  = \<^const_name>\<open>funcall5\<close>
+    | funcall_const _   6  = \<^const_name>\<open>funcall6\<close>
+    | funcall_const _   7  = \<^const_name>\<open>funcall7\<close>
+    | funcall_const _   8  = \<^const_name>\<open>funcall8\<close>
+    | funcall_const _   9  = \<^const_name>\<open>funcall9\<close>
+    | funcall_const _   10 = \<^const_name>\<open>funcall10\<close>
+    | funcall_const _   11 = \<^const_name>\<open>funcall11\<close>
+    | funcall_const _   12 = \<^const_name>\<open>funcall12\<close>
+    | funcall_const _   13 = \<^const_name>\<open>funcall13\<close>
+    | funcall_const _   14 = \<^const_name>\<open>funcall14\<close>
+    | funcall_const pos n  =
+        error ("micro_rust_expr: unsupported call arity " ^ string_of_int n ^
+               " (max 14; the frontend's surface lowering caps here)" ^ Position.here pos)
 
   fun word_typ 8  = \<^typ>\<open>8 word\<close>
     | word_typ 16 = \<^typ>\<open>16 word\<close>
@@ -333,7 +376,20 @@ struct
      the token's full range `pos`, so it can't split. Registered names are styled by the dispatch
      resolver (emit_use_markup_at_pos). Unregistered names we style ourselves: a resolved HOL Const
      gets the standard const entity markup (colour + ctrl-click to its definition), matching the
-     frontend; anything else (a context-fixed / genuine free) gets Markup.free.
+     frontend; a context-fixed FREE gets colour + ctrl-click-to-its-`fixes` (see below); a genuine
+     (unfixed) free gets plain Markup.free.
+
+     FREE-VARIABLE NAVIGATION (context-fixed frees). The frontend gives ctrl-click nav for a
+     context-fixed free `foo` -> its `fixes` declaration. That nav comes from `Syntax_Phases.markup_free`
+     (Variable.markup_fixed = the entity ref markup + Variable.markup = the colour), reported by
+     `decode_term` during check. In OUR pipeline the final check_term DOES run decode_term, but it emits
+     that markup at Position.none: we hand `Syntax.parse_term` a bare `name` string with no source
+     position, so the parsed Free carries no position and the auto-report is dropped -- exactly why D14/D15
+     re-emit markup manually here at the real `pos`. Previously this branch emitted only Markup.free
+     (colour), losing the nav. Fix: reproduce decode_term's Free case verbatim (syntax_phases.ML:304-313)
+     -- intern the source name via `Proof_Context.lookup_free`; if fixed, report every markup in
+     `Syntax_Phases.markup_free ctxt x` at `pos` (nav entity + colour); if not fixed, plain Markup.free.
+     Reuses the frontend mechanism rather than hand-rolling the entity markup.
 
      To decide which, we must look at the LEAF the name resolved to -- but `Syntax.parse_term` wraps a
      resolved constant in a `_type_constraint_` node (carrying its most-general type), and
@@ -347,18 +403,31 @@ struct
        Const (\<^syntax_const>\<open>_type_constraint_\<close>, _) $ u => ident_leaf u
      | u => u)
 
-  fun ident_term ctxt name pos =
-    (case Micro_Rust_Names.lookups ctxt Micro_Rust_Names.NLiteral name of
+  (* Resolve a bare identifier in a dispatch CONTEXT (`kind`): NLiteral for a value-position id,
+     NFunction for a call callee. Same markup logic for both (registered -> dispatch marker; unregistered
+     Const -> const nav; context-fixed free -> markup_free nav; else Markup.free). The CALLER decides the
+     `literal` wrapper (value position wraps; a call callee does NOT). *)
+  fun ident_term ctxt kind name pos =
+    (case Micro_Rust_Names.lookups ctxt kind name of
        [] =>
          let val t = Syntax.parse_term ctxt name in
            (case ident_leaf t of
               Const (c, _) =>
                 Context_Position.report ctxt pos
                   (Name_Space.markup (Consts.space_of (Proof_Context.consts_of ctxt)) c)
+            | Free (a, _) =>
+                (* decode_term's Free case (syntax_phases.ML:304-313): intern the source name; a
+                   context-fixed free reports markup_free = [markup_fixed (ctrl-click nav to the
+                   `fixes`), markup (colour)]; a genuine free just Markup.free. *)
+                (case Proof_Context.lookup_free ctxt a of
+                   SOME x =>
+                     List.app (Context_Position.report ctxt pos)
+                       (Syntax_Phases.markup_free ctxt x)
+                 | NONE => Context_Position.report ctxt pos Markup.free)
             | _ => Context_Position.report ctxt pos Markup.free);
            t
          end
-     | _  => Micro_Rust_Dispatch.mk_marker Micro_Rust_Names.NLiteral name pos (Free (name, dummyT)))
+     | _  => Micro_Rust_Dispatch.mk_marker kind name pos (Free (name, dummyT)))
 
   (* `let x = e; k` / `const x = e; k` -> bind e (\<lambda>x. k)  (HOAS; SE:431-434). MUST be `bind` and
      `e1; e2` MUST be `sequence` (a non-simp definition) to be alpha-equal to the frontend -- emitting
@@ -432,7 +501,7 @@ struct
      | UE_Ident (name, pos) =>
          (case Symtab.lookup env name of
             SOME {free, def_pos, id} => (report_ref ctxt id (name, def_pos) pos; mk_literal free)
-          | NONE => mk_literal (ident_term ctxt name pos))
+          | NONE => mk_literal (ident_term ctxt Micro_Rust_Names.NLiteral name pos))
      | UE_ValAntiq src     => mk_literal (parse_antiq ctxt env src)
      | UE_ExprAntiq src    => parse_antiq ctxt env src
      | UE_Seq (e1, e2)     => mk_sequence (mk ctxt env e1) (mk ctxt env e2)
@@ -443,7 +512,19 @@ struct
          mk_two_armed (mk ctxt env c) (mk ctxt env t)
            (case eopt of SOME e => mk ctxt env e | NONE => mk_literal HOLogic.unit)
      | UE_Let bnd          => elab_let ctxt env bnd
-     | UE_Const bnd        => elab_let ctxt env bnd   (* same desugaring as let today (SE:433-434) *))
+     | UE_Const bnd        => elab_let ctxt env bnd   (* same desugaring as let today (SE:433-434) *)
+     | UE_Call (name, npos, args, cpos) =>
+         (* f(a0,...,a{N-1}) -> funcallN func <<a0>> ... <<a{N-1}>>  (Core_Syntax.thy:503-587).
+            The callee `func` resolves in NFunction (call) context and is NOT wrapped in `literal`:
+            a let-bound callee -> its env Free (+ nav); else ident_term NFunction (registered call
+            notation -> dispatch marker; unregistered -> parse_term = fixed Free / Const). Args are
+            ordinary value expressions (mk), so nested calls f(g(c),b) fall out of the recursion. *)
+         let
+           val func =
+             (case Symtab.lookup env name of
+                SOME {free, def_pos, id} => (report_ref ctxt id (name, def_pos) npos; free)
+              | NONE => ident_term ctxt Micro_Rust_Names.NFunction name npos)
+         in mk_const (funcall_const cpos (length args)) (func :: map (mk ctxt env) args) end)
 
   (* `let`/`const` <pat> = rhs; body  ->  bind rhs (<pat-abstraction> body). Shared by both so they
      stay DRY while remaining distinct AST nodes (UE_Let / UE_Const). *)
@@ -466,18 +547,21 @@ not want corpus defs in the global simp set). Serialized behind the shared Parse
 (the Isabelle_lex_yacc runtime holds global refs, shared across all ml_lex_yacc parsers). \<close>
 ML\<open>
 fun define_urust (binding, source) lthy =
-  Parser_Utils.with_parser_lock (fn () =>
-    (case URust.parse_source lthy source of
-       SOME ast =>
-         let
-           val t = Syntax.check_term lthy (URust_Translate.mk_closed lthy ast)
-           val ((_, _), lthy') =
-             Local_Theory.define ((binding, NoSyn), ((Thm.def_binding binding, []), t)) lthy
-         in lthy' end
-     | NONE => error ("micro_rust_expr: empty expression" ^ Position.here (Input.pos_of source))))
+  (* Only `parse_source` touches the Isabelle_lex_yacc global refs (src/ctxt/the_src), so ONLY it is
+     serialized. Elaboration (mk_closed, incl. its Syntax.parse_term calls), check_term, and define are
+     pure w.r.t. those globals -- holding the lock across them would needlessly serialize the (slower)
+     type-checking of every micro_rust_expr theory-wide, throttling parallel checking at corpus scale. *)
+  (case Parser_Utils.with_parser_lock (fn () => URust.parse_source lthy source) of
+     SOME ast =>
+       let
+         val t = Syntax.check_term lthy (URust_Translate.mk_closed lthy ast)
+         val ((_, _), lthy') =
+           Local_Theory.define ((binding, NoSyn), ((Thm.def_binding binding, []), t)) lthy
+       in lthy' end
+   | NONE => error ("micro_rust_expr: empty expression" ^ Position.here (Input.pos_of source)))
 
 val _ = Outer_Syntax.local_theory \<^command_keyword>\<open>micro_rust_expr\<close>
-          "Parse a uRust expression (literal tier) and define it as a HOL constant"
+          "Parse a uRust expression and define it as a HOL constant"
           (Parse.binding -- Parse.input Parse.cartouche >> define_urust)
 \<close>
 
