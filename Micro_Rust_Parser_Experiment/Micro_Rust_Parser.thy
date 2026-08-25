@@ -197,6 +197,7 @@ lex_rules\<open>
 <INITIAL>"("      => (tokF (yypos, yytext, Markup.delimiter, "LPAR", "", Tokens.LPAR));
 <INITIAL>")"      => (tokF (yypos, yytext, Markup.delimiter, "RPAR", "", Tokens.RPAR));
 <INITIAL>","      => (tokF (yypos, yytext, Markup.delimiter, "COMMA", "", Tokens.COMMA));
+<INITIAL>"."      => (tokF (yypos, yytext, Markup.delimiter, "TDOT", "", Tokens.TDOT));
 <INITIAL>"{"      => (tokF (yypos, yytext, Markup.delimiter, "TLBRACE", "", Tokens.TLBRACE));
 <INITIAL>"}"      => (tokF (yypos, yytext, Markup.delimiter, "TRBRACE", "", Tokens.TRBRACE));
 <INITIAL>\\"<llangle>"          => (aq_buf := ""; aq_start := yypos + size yytext; YYBEGIN VAQ; lex());
@@ -234,11 +235,14 @@ yacc_definitions\<open>
 %left TPLUS TMINUS
 %left TSTAR TSLASH TPERCENT
 %right TBANG
+%left TDOT    (* method access `.` binds tightest -- tighter than prefix `!` and every binary op:
+                 `a + b.m(c)` = `a + (b.m(c))`, `!x.m()` = `!(x.m())`. Resolves the `uexp . TDOT`
+                 shift/reduce against operators by precedence (no reported conflict). *)
 
 %term NUM of int | NUMSFX of int * int | IDENT of string | LPAR | RPAR
     | VALAQ of Input.source | EXPRAQ of Input.source
     | TLET | TCONST | TEQ | TSEMI | EOF
-    | TIF | TELSE | TLBRACE | TRBRACE | COMMA
+    | TIF | TELSE | TLBRACE | TRBRACE | COMMA | TDOT
     | TPLUS | TMINUS | TSTAR | TSLASH | TPERCENT
     | TSHL | TSHR | TAMP | TBAR | TCARET
     | TEQEQ | TNE | TLT | TLE | TGT | TGE
@@ -263,6 +267,14 @@ yacc_rules\<open>
        | IDENT      (UE_Ident (IDENT, IDENTleft))
        | IDENT LPAR RPAR          (UE_Call (IDENT, IDENTleft, [], IDENTleft))
        | IDENT LPAR arglist RPAR  (UE_Call (IDENT, IDENTleft, arglist, IDENTleft))
+       (* Method call `recv.m(args)` = a plain call to `m` with the RECEIVER PREPENDED as the first arg
+          (SE:380-381,416-417): `x.m(a) = funcall2 m <<x>> <<a>>`, `x.m() = funcall1 m <<x>>`. The method
+          name resolves in NFunction (call) context like any callee; the receiver is an ordinary value
+          expression. So it desugars into the existing UE_Call node -- no new AST/elaborator machinery.
+          Field access `x.f` (no parens) is a DIFFERENT construct (NField/lens) and is deferred (parse
+          error here). Postfix on any uexp receiver, so `g(c).f(b)` and chains `x.m().n()` work. *)
+       | uexp TDOT IDENT LPAR RPAR         (UE_Call (IDENT, IDENTleft, [uexp], IDENTleft))
+       | uexp TDOT IDENT LPAR arglist RPAR (UE_Call (IDENT, IDENTleft, uexp :: arglist, IDENTleft))
        | LPAR RPAR  (UE_Unit LPARleft)
        | LPAR uexp RPAR (uexp)
        | VALAQ      (UE_ValAntiq VALAQ)
@@ -291,8 +303,9 @@ yacc_rules\<open>
   (* Block { stmts }: erases to <stmts> (see UE_Block). if / else: two-armed, one-armed (no else),
      and else-if (the else branch is itself a uif -> nested UE_If). No dangling-else conflict arises:
      because the branches are BRACE-DELIMITED (ublock), TELSE is not in FOLLOW(uif), so after
-     `TIF uexp ublock` the parser shifts TELSE unambiguously -- verified conflict-free via [verbose]
-     grm.desc (76 states, zero shift/reduce or reduce/reduce). *)
+     `TIF uexp ublock` the parser shifts TELSE unambiguously. The whole grammar is verified conflict-free
+     (zero shift/reduce or reduce/reduce) via the [verbose] grm.desc export; re-check it after any grammar
+     change (state count grows with each tier, so it is not pinned here). *)
   ublock : TLBRACE ustmt TRBRACE            (UE_Block (ustmt, TLBRACEleft))
   uif : TIF uexp ublock                     (UE_If (uexp, ublock, NONE, TIFleft))
       | TIF uexp ublock TELSE ublock        (UE_If (uexp, ublock1, SOME ublock2, TIFleft))
