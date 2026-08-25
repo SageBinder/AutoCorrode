@@ -129,6 +129,33 @@ object Client {
       socket_path.expand.implode + " (server not running, or socket stale?)"))
 
 
+  /* ==================== the I/R pointer ============================
+   * A check answers with a verdict; a REPL step answers with the goal state. A
+   * located failure is where the caller decides what to do next, so that is where
+   * `check status` offers the REPL as a ready-to-run command.
+   */
+
+  /** The `repl-create` pointer, anchored at `line` of `file`. Best-effort: the
+   *  named command is normally forkable (a command that FAILED has finished
+   *  evaluating), but a check aborted while an earlier command was still forked
+   *  can leave it reminted and unevaluated, in which case `repl-create` says so
+   *  and exits 3. The REPL is named after the line, so successive laps of the
+   *  loop — and two proofs in flight at once — do not collide on one name. */
+  private def repl_hint(name: String, file: String, line: Int): List[String] =
+    List(
+      "hint: fork an I/R REPL to iterate on the proof itself — one prover",
+      "      round-trip per step, no client JVM, nothing downstream re-run:",
+      "        isabelle ic2 repl-create " + file + ":" + line + " r" + line + " -n " + name,
+      "      step / state / sledgehammer there, then `check` once, when it is written.")
+
+  /** A `file:line` anchor from the retained `error` object, when it names both. */
+  private def anchor_of(o: JSON.Object.T): Option[(String, Int)] =
+    for {
+      file <- JSON.string(o, "file")
+      line <- JSON.int(o, "line") if line > 0
+    } yield (file, line)
+
+
   /* ============================ check ============================== */
 
   private val check_usage_text: String = """
@@ -138,9 +165,11 @@ Usage: isabelle ic2 check [OPTIONS] FILE...
     -n NAME             server name (default: the sole running server)
     --line N            check only the prefix of the (single) FILE up to
                         and including the command that ends on or before
-                        source line N (1-based). Fast partial check for
-                        iterative development. Commands after line N are left
-                        UNPROCESSED. Requires exactly one FILE.
+                        source line N (1-based). Commands after line N are
+                        left UNPROCESSED. Requires exactly one FILE.
+                        Use it after a STRUCTURAL edit (a changed definition,
+                        a new lemma, a moved block); for tactic iteration use
+                        `repl-create`.
     --command-timeout SECS
                         abort the whole check if any individual command runs
                         longer than SECS (default 5; 0 disables). Decimal
@@ -149,6 +178,14 @@ Usage: isabelle ic2 check [OPTIONS] FILE...
   Submit a type-check of the given .thy files to the running server and return
   immediately. Track progress with `isabelle ic2 check status`; abort the
   in-flight check with `isabelle ic2 check cancel`.
+
+  Check once per theory, then iterate on a proof in an I/R REPL, where a step is
+  one prover round-trip and returns the goal state (`isabelle ic2 --help`):
+
+    isabelle ic2 check status                        # -> fails at MyThy.thy:87
+    isabelle ic2 repl-create /abs/MyThy.thy:87 r     # iterate here
+    <paste the finished proof into MyThy.thy>
+    isabelle ic2 check /abs/MyThy.thy                # confirm, once
 
   Live output is only available via `isabelle ic2 check attach`, which requires
   an interactive terminal with normal terminal capabilities and is intended for
@@ -234,6 +271,26 @@ Usage: isabelle ic2 check [OPTIONS] FILE...
     }
   }
 
+  /** A nested JSON object by key, if present. */
+  private def sub_object(t: JSON.T, key: String): Option[JSON.Object.T] =
+    JSON.value(t, key).flatMap(JSON.Object.unapply)
+
+  /** The retained command-timeout culprit as display lines: which command tripped
+   *  the watchdog, where, for how long, and its source preview. Shared by the
+   *  one-shot `check status` frame and the streaming `check attach` tail, so a
+   *  `command_timeout` outcome never arrives without naming the command. */
+  private def format_command_timeout(timeout: JSON.T): List[String] = {
+    val theory = JSON.string(timeout, "theory").getOrElse("?")
+    val line = JSON.int(timeout, "line").getOrElse(0)
+    val loc = JSON.string(timeout, "file").getOrElse(theory) +
+      (if (line > 0) ":" + line else "")
+    val keyword = JSON.string(timeout, "keyword").getOrElse("?")
+    val limit = JSON.double(timeout, "limit_s").getOrElse(0.0)
+    val elapsed = JSON.double(timeout, "elapsed_s").getOrElse(0.0)
+    f"command timeout: $loc%s: $keyword%s exceeded $limit%.1fs ($elapsed%.1fs elapsed)" ::
+      JSON.string(timeout, "preview").filter(_.nonEmpty).map("  " + _).toList
+  }
+
   /** Read the check event stream from `io`, rendering started/progress/error to
    *  `ui` and reporting the terminal `finished` via setOk/setReason. Used by
    *  `check attach`. Returns when `finished` or EOF. */
@@ -258,6 +315,11 @@ Usage: isabelle ic2 check [OPTIONS] FILE...
             case Some("finished") =>
               val ok = JSON.bool(t, "ok").getOrElse(false)
               val reason = JSON.string(t, "reason").getOrElse("")
+              // A `command_timeout` reason on its own says nothing about WHICH
+              // command tripped the watchdog; the culprit rides along with the
+              // terminal event, so report it before the UI closes.
+              sub_object(t, "timeout")
+                .foreach(timeout => format_command_timeout(timeout).foreach(ui.note))
               setOk(ok)
               setReason(reason)
               done = true
@@ -425,9 +487,10 @@ Usage: isabelle ic2 $cmd [-n NAME] [-c N] [--long-running SECS]
     // (a finished/idle check has nothing in flight to draw).
     if (state == "running" && nodes.nonEmpty)
       render_progress_frame(nodes, bars).foreach(Output.writeln(_))
+    val error = sub_object(reply, "error")
     // Retained first error: WHERE (theory + file:line) and WHY (message), so a
     // detached poll sees the failure without needing to have been subscribed.
-    JSON.value(reply, "error").flatMap(JSON.Object.unapply).foreach { err =>
+    error.foreach { err =>
       val thy = JSON.string(err, "theory").getOrElse("?")
       val loc = JSON.string(err, "file") match {
         case Some(f) => f + JSON.int(err, "line").map(":" + _).getOrElse("")
@@ -437,19 +500,14 @@ Usage: isabelle ic2 $cmd [-n NAME] [-c N] [--long-running SECS]
       Output.writeln("error: " + loc)
       msg.linesIterator.foreach(l => Output.writeln("  " + l))
     }
-    JSON.value(reply, "timeout").flatMap(JSON.Object.unapply).foreach { timeout =>
-      val theory = JSON.string(timeout, "theory").getOrElse("?")
-      val line = JSON.int(timeout, "line").getOrElse(0)
-      val loc = JSON.string(timeout, "file").getOrElse(theory) +
-        (if (line > 0) ":" + line else "")
-      val keyword = JSON.string(timeout, "keyword").getOrElse("?")
-      val limit = JSON.double(timeout, "limit_s").getOrElse(0.0)
-      val elapsed = JSON.double(timeout, "elapsed_s").getOrElse(0.0)
-      Output.writeln(
-        f"command timeout: $loc%s: $keyword%s exceeded $limit%.1fs ($elapsed%.1fs elapsed)")
-      JSON.string(timeout, "preview").filter(_.nonEmpty)
-        .foreach(preview => Output.writeln("  " + preview))
-    }
+    sub_object(reply, "timeout")
+      .foreach(t => format_command_timeout(t).foreach(l => Output.writeln(l)))
+    // The REPL alternative, anchored at the command that FAILED. Not at a
+    // command-timeout culprit: the watchdog cancels that command mid-eval, and
+    // `repl-create` rejects a command whose eval never finished (ir.ML:
+    // "is still being evaluated").
+    error.flatMap(anchor_of)
+      .foreach { case (file, at) => repl_hint(name, file, at).foreach(l => Output.writeln(l)) }
     sys.exit(0)
   }
 
@@ -791,7 +849,9 @@ Usage: isabelle ic2 $cmd [-n NAME] [-c N] [--long-running SECS]
    *  session + the I/R client); the bare `repl.py cli` cannot, so this is the
    *  way to start a REPL at a `.thy` position. Prints the REPL's initial state
    *  AND the exact `repl.py cli` commands to drive it. FILE must be a loaded
-   *  node — check it first. */
+   *  node — check it first. This is the entry point for working ON a proof:
+   *  anything iterative belongs here, and only the finished proof goes back into
+   *  the .thy for a single confirming `check`. */
   def repl_create(args: List[String]): Unit = {
     def usage(): Nothing = {
       Output.writeln(
@@ -800,6 +860,8 @@ Usage: isabelle ic2 $cmd [-n NAME] [-c N] [--long-running SECS]
         "  command on LINE (1-based) of the theory FILE (a loaded/checked node).\n" +
         "  Prints the REPL's initial state and the `repl.py cli` commands to\n" +
         "  drive it (step/state/text/...).\n\n" +
+        "  Use this to work on a proof: a step is one prover round-trip and returns\n" +
+        "  the new goal state. Iterate here, then `check` the file once to confirm.\n\n" +
         "  -n SERVER   server name (default: the sole running server)\n", stdout = true)
       sys.exit(2)
     }
