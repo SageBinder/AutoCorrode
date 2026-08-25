@@ -715,26 +715,36 @@ incompatible types) the case is recorded via whichever of \<open>micro_rust_expr
 \<open>undefined = \<lbrakk> src \<rbrakk>\<close> stub (frontend accepts) builds, plus a comment. Canonical tracker:
 \<open>notes/claude/urust-old-new-divergences.md\<close>. \<close>
 
-subsection\<open> D-1: \<open>if\<close>/\<open>else\<close> as a binary-operator operand -- parser OVER-accepts (frontend rejects) \<close>
+subsection\<open> D-1 (RESOLVED 2026-08-25): \<open>if\<close> as a binary-operator operand -- both now reject \<close>
 
-text\<open> Source: \<open>if \<llangle>True\<rrangle> { \<llangle>1::32 word\<rrangle> } else { \<llangle>2::32 word\<rrangle> } + \<llangle>3::32 word\<rrangle>\<close>. The frontend
-REJECTS this (its \<open>if\<close> mixfix result-priority 21 is too low to be a \<open>+\<close> operand without parens), so the
-golden \<open>\<lbrakk> ... + ... \<rbrakk>\<close> does NOT parse and no \<open>= \<lbrakk> src \<rbrakk>\<close> lemma (even \<open>sorry\<close>'d) can be written. Our
-parser accepts it as \<open>(if...) + 3\<close>; on inputs both accept, the terms are alpha-equal. Recorded via the
-\<open>micro_rust_expr\<close> that succeeds. General fix (deferred): stratify control-flow vs operator expressions. \<close>
-micro_rust_expr div_if_operand
-  \<open> if \<llangle>True\<rrangle> { \<llangle>1 :: 32 word\<rrangle> } else { \<llangle>2 :: 32 word\<rrangle> } + \<llangle>3 :: 32 word\<rrangle> \<close>
-  \<comment> \<open>parser accepts (defines \<open>urust_add (two_armed_conditional ...) (\<up>3)\<close>); the frontend rejects the
-     same source with an inner-syntax error, so there is no golden RHS to equate against.\<close>
+text\<open> WAS a divergence: \<open>if \<llangle>True\<rrangle> { \<llangle>1::32 word\<rrangle> } else { \<llangle>2::32 word\<rrangle> } + \<llangle>3::32 word\<rrangle>\<close> --
+the frontend REJECTS it (its \<open>if\<close> result-priority 21 < the \<open>+\<close> operand floor 49) but our flat parser
+accepted it as \<open>(if...)+3\<close>. FIXED by the control-flow stratification (D25): \<open>if\<close> (a with-block form,
+nonterminal \<open>uif\<close>) is no longer a bare operand (\<open>uexp\<close>), so the parser now ALSO rejects the unparenthesized
+form with a parse error -- matching the frontend. This rejection is checked OUT-OF-BAND (a parse error, not
+a refl row, like the \<open>a == b == c\<close> non-associativity case): running \<open>micro_rust_expr\<close> on
+\<open>if \<llangle>True\<rrangle> {\<llangle>1::32 word\<rrangle>} else {\<llangle>2::32 word\<rrangle>} + \<llangle>3::32 word\<rrangle>\<close> errors. Parenthesising
+restores it (a paren-wrapped \<open>uval\<close> is a \<open>uexp\<close> operand), and that IS a passing row: \<close>
+micro_rust_expr d1_paren_operand
+  \<open> (if \<llangle>True\<rrangle> { \<llangle>1 :: 32 word\<rrangle> } else { \<llangle>2 :: 32 word\<rrangle> }) + \<llangle>3 :: 32 word\<rrangle> \<close>
+lemma \<open> d1_paren_operand = \<lbrakk> (if \<llangle>True\<rrangle> { \<llangle>1 :: 32 word\<rrangle> } else { \<llangle>2 :: 32 word\<rrangle> }) + \<llangle>3 :: 32 word\<rrangle> \<rbrakk> \<close>
+  unfolding d1_paren_operand_def by (rule refl)
 
-subsection\<open> D-2: no-\<open>;\<close> sequencing of block-like expressions -- parser UNDER-accepts (frontend accepts) \<close>
+subsection\<open> D-2 (RESOLVED 2026-08-25): no-\<open>;\<close> sequencing of block-like expressions -- now accepted \<close>
 
-text\<open> Source: \<open>{ () } { () }\<close>. The frontend accepts it as sequencing (\<open>\<up>() ; \<up>()\<close>); our parser REJECTS
-it (a block/\<open>if\<close> in statement position currently needs a trailing \<open>;\<close> -- the deferred no-\<open>;\<close> "optional
-semicolon after a block-like expression" feature). \<open>micro_rust_expr\<close> on it would error, so we record only
-the frontend golden as a \<open>sorry\<close>'d stub. \<close>
-lemma \<open> undefined = \<lbrakk> { () } { () } \<rbrakk> \<close> sorry
-  \<comment> \<open>frontend sequences the two blocks; parser rejects (deferred feature, not a bug).\<close>
+text\<open> WAS a divergence: the frontend accepts a block-like expr in STATEMENT position without a trailing
+\<open>;\<close> (Rust's optional semicolon; frontend \<open>_urust_sequence_scoping\<close> / \<open>_urust_sequence_if_*\<close>) but our
+parser required the \<open>;\<close>. FIXED by the stratification (D25): \<open>ustmt\<close> gained no-\<open>;\<close> productions
+\<open>ublock ustmt\<close> / \<open>uif ustmt\<close> that desugar to the same \<open>sequence\<close> an explicit \<open>;\<close> would. Now passing
+rows: block-then-block, if-then-then-stmt, if-else-then-stmt (each = \<open>sequence \<lbrakk>block-like\<rbrakk> \<lbrakk>next\<rbrakk>\<close>). \<close>
+micro_rust_expr d2_blk_seq \<open> { () } { () } \<close>
+lemma \<open> d2_blk_seq = \<lbrakk> { () } { () } \<rbrakk> \<close> unfolding d2_blk_seq_def by (rule refl)
+
+micro_rust_expr d2_if_seq \<open> if \<llangle>True\<rrangle> { () } () \<close>
+lemma \<open> d2_if_seq = \<lbrakk> if \<llangle>True\<rrangle> { () } () \<rbrakk> \<close> unfolding d2_if_seq_def by (rule refl)
+
+micro_rust_expr d2_ifelse_seq \<open> if \<llangle>True\<rrangle> { () } else { () } () \<close>
+lemma \<open> d2_ifelse_seq = \<lbrakk> if \<llangle>True\<rrangle> { () } else { () } () \<rbrakk> \<close> unfolding d2_ifelse_seq_def by (rule refl)
 
 subsection\<open> D-3 (RESOLVED 2026-08-24): a HOL-const-named binder IS captured in an antiquotation \<close>
 

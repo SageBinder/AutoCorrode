@@ -249,6 +249,7 @@ yacc_definitions\<open>
     | TAMPAMP | TBARBAR | TBANG
 %nonterm ustart of URust_AST.ur_expr option
        | ustmt of URust_AST.ur_expr
+       | uval of URust_AST.ur_expr
        | uexp of URust_AST.ur_expr
        | arglist of URust_AST.ur_expr list
        | ublock of URust_AST.ur_expr
@@ -257,11 +258,26 @@ yacc_definitions\<open>
 yacc_rules\<open>
   ustart : ustmt (SOME ustmt)
          | (NONE)
-  ustmt : uexp                              (uexp)
-        | uexp TSEMI ustmt                  (UE_Seq (uexp, ustmt))
-        | uexp TSEMI                        (UE_Seq (uexp, UE_Unit TSEMIleft))
-        | TLET IDENT TEQ uexp TSEMI ustmt   (UE_Let (P_Var (IDENT, IDENTleft), uexp, ustmt))
-        | TCONST IDENT TEQ uexp TSEMI ustmt (UE_Const (P_Var (IDENT, IDENTleft), uexp, ustmt))
+  (* Statements. A statement is a VALUE expression `uval` (an operand `uexp` OR a with-block control-flow
+     expr `uif`), sequenced with `;` -- OR a with-block form (`ublock`/`uif`) in statement position with
+     NO trailing `;` followed by more statements (Rust's optional semicolon after a block-like expr; the
+     frontend `_urust_sequence_scoping`/`_urust_sequence_if_*`, closing divergence D-2). The no-`;` forms
+     desugar to the same `sequence` as an explicit `;` would. Block `{...}` is operand-legal (it is a
+     `uexp` atom, frontend priority 1000) AND has a no-`;` statement form -- the `ublock`-as-operand vs
+     `ublock ustmt` decision is resolved by lookahead (operator/`;`/`}`/EOF -> operand; a statement-start
+     token -> no-`;` sequence). *)
+  ustmt : uval                              (uval)
+        | uval TSEMI ustmt                  (UE_Seq (uval, ustmt))
+        | uval TSEMI                        (UE_Seq (uval, UE_Unit TSEMIleft))
+        | ublock ustmt                      (UE_Seq (ublock, ustmt))
+        | uif ustmt                         (UE_Seq (uif, ustmt))
+        | TLET IDENT TEQ uval TSEMI ustmt   (UE_Let (P_Var (IDENT, IDENTleft), uval, ustmt))
+        | TCONST IDENT TEQ uval TSEMI ustmt (UE_Const (P_Var (IDENT, IDENTleft), uval, ustmt))
+  (* Value position: an operand OR a with-block control-flow expr. `uval` is where `if` (and later
+     `match`/loops) is admitted -- at let-RHS, condition, call args, and parens -- WITHOUT being a bare
+     binary-operator operand (that stays `uexp`, closing divergence D-1). *)
+  uval : uexp (uexp)
+       | uif  (uif)
   uexp : NUM        (UE_Num (NUM, NUMleft))
        | NUMSFX     (UE_NumSfx (#1 NUMSFX, #2 NUMSFX, NUMSFXleft))
        | IDENT      (UE_Ident (IDENT, IDENTleft))
@@ -276,11 +292,13 @@ yacc_rules\<open>
        | uexp TDOT IDENT LPAR RPAR         (UE_Call (IDENT, IDENTleft, [uexp], IDENTleft))
        | uexp TDOT IDENT LPAR arglist RPAR (UE_Call (IDENT, IDENTleft, uexp :: arglist, IDENTleft))
        | LPAR RPAR  (UE_Unit LPARleft)
-       | LPAR uexp RPAR (uexp)
+       | LPAR uval RPAR (uval)      (* parens wrap a uval: `(if ...)` becomes a usable operand -- the D-1 escape *)
        | VALAQ      (UE_ValAntiq VALAQ)
        | EXPRAQ     (UE_ExprAntiq EXPRAQ)
-       | ublock     (ublock)
-       | uif        (uif)
+       | ublock     (ublock)        (* block STAYS an operand atom (frontend priority 1000): `{e} + x` parses *)
+       (* NOTE: `uif` is deliberately NOT a `uexp` alternative -- a with-block control-flow expr is not a
+          bare binary-operator operand (closes D-1). It reaches value positions only via `uval`, and
+          operand position only when parenthesized (`LPAR uval RPAR`). match / loops will join `uval`. *)
        | uexp TPLUS uexp     (UE_Bin (Add,  uexp1, uexp2, TPLUSleft))
        | uexp TMINUS uexp    (UE_Bin (Sub,  uexp1, uexp2, TMINUSleft))
        | uexp TSTAR uexp     (UE_Bin (Mul,  uexp1, uexp2, TSTARleft))
@@ -307,15 +325,17 @@ yacc_rules\<open>
      (zero shift/reduce or reduce/reduce) via the [verbose] grm.desc export; re-check it after any grammar
      change (state count grows with each tier, so it is not pinned here). *)
   ublock : TLBRACE ustmt TRBRACE            (UE_Block (ustmt, TLBRACEleft))
-  uif : TIF uexp ublock                     (UE_If (uexp, ublock, NONE, TIFleft))
-      | TIF uexp ublock TELSE ublock        (UE_If (uexp, ublock1, SOME ublock2, TIFleft))
-      | TIF uexp ublock TELSE uif           (UE_If (uexp, ublock, SOME uif, TIFleft))
+  (* Condition is `uval` (frontend condition priority 20 admits an `if` at 21), so `if if c {..} {..}`
+     parses; branches are brace-delimited `ublock`. *)
+  uif : TIF uval ublock                     (UE_If (uval, ublock, NONE, TIFleft))
+      | TIF uval ublock TELSE ublock        (UE_If (uval, ublock1, SOME ublock2, TIFleft))
+      | TIF uval ublock TELSE uif           (UE_If (uval, ublock, SOME uif, TIFleft))
   (* Call argument list, right-nested (source order preserved), mirroring the frontend's
      _urust_args_single / _urust_args_app (Micro_Rust_Syntax.thy:229-232). Conflict-free: the call
      productions are IDENTIFIER-headed (IDENT LPAR ...), so LPAR is never in FOLLOW(uexp) as a postfix
      operator -- no operator-vs-call shift/reduce and no precedence directive needed (cf. Toy_Lex_Yacc). *)
-  arglist : uexp               ([uexp])
-          | uexp COMMA arglist (uexp :: arglist)
+  arglist : uval               ([uval])
+          | uval COMMA arglist (uval :: arglist)
 \<close>
 
 section\<open> Elaborator (AST -> shallow terms) \<close>
