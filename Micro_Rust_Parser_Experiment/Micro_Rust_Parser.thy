@@ -1,7 +1,7 @@
 (* The custom uRust parser (Phase 1, in progress).
 
    A real uRust parser built as an ml_lex_yacc lexer + LALR grammar -> reified SML AST -> elaboration
-   into the EXISTING shallow terms, exposed as an outer-syntax command `micro_rust_expr NAME <src>`.
+   into the EXISTING shallow terms, exposed as an outer-syntax command `urust_expr NAME <src>`.
    The governing invariant is that the elaborated term is ALPHA-EQUAL to what the inner-syntax bracket
    `\<lbrakk> src \<rbrakk>` produces today -- validated by the companion Micro_Rust_Parser_Conformance.thy
    (each row closes by `unfolding NAME_def by (rule refl)`).
@@ -30,7 +30,7 @@ theory Micro_Rust_Parser
     "Isabelle_Lex-Yacc.LexYacc"
     Parser_Utils
   keywords
-    "micro_rust_expr" :: thy_decl
+    "urust_expr" :: thy_decl
 begin
 
 section\<open> Reified AST \<close>
@@ -57,6 +57,11 @@ struct
     | Eq | Ne | Lt | Le | Gt | Ge              (* == != < <= > >= *)
     | And | Or                                 (* && ||           *)
   datatype unop = Not                          (* !  (and !! = !(!_)) *)
+
+  (* A match_switch arm's key(s) (D26). A numeral pattern -> Some <numeral>; `_` -> None. An or-pattern
+     `k1 | k2 | ...` carries multiple keys, each expanding to its own (key, body) pair. `SK_Name` covers
+     `_` (wildcard) and, later, const-id / path keys (currently rejected in the elaborator). *)
+  datatype ur_switch_key = SK_Num of int * Position.T | SK_Name of string * Position.T
 
   datatype ur_expr =
       UE_Num       of int * Position.T                (* bare decimal: 0, 1, 42 *)
@@ -87,6 +92,12 @@ struct
                                                                  Non-identifier callees (method x.m(a),
                                                                  antiquotation eps<g>(a), turbofish, path)
                                                                  don't parse into this node -- deferred. *)
+    | UE_MatchSwitch of ur_expr * (ur_switch_key list * ur_expr) list * Position.T
+                                                              (* match_switch scrut { keys => body, ... } ->
+                                                                 bind <<scrut>> (ncase_selector
+                                                                   [(Some k, <<body>>) ... (None, <<body>>)]).
+                                                                 Numeric / wildcard only; NO binders, first-order
+                                                                 (D26). An arm = (keys, body); keys > 1 = or-pattern. *)
 end
 \<close>
 
@@ -103,7 +114,7 @@ ML\<open>
 structure URust_Err =
 struct
   fun lex_error text pos =
-    error ("micro_rust_expr: unexpected input " ^ quote text ^ Position.here pos)
+    error ("urust_expr: unexpected input " ^ quote text ^ Position.here pos)
 end
 \<close>
 SML_import \<open> structure URust_Err = URust_Err \<close>
@@ -131,7 +142,7 @@ fun parse_sfx s =
     val numstr = Substring.string numSS
     val sfx = Substring.string (Substring.triml 2 sfxSS)   (* drop "_u" *)
     val width = (case sfx of "8" => 8 | "16" => 16 | "32" => 32 | "64" => 64 | "size" => 64
-                           | other => raise Fail ("micro_rust_expr: unsupported integer width _u" ^ other))
+                           | other => raise Fail ("urust_expr: unsupported integer width _u" ^ other))
     val value =
       if String.isPrefix "0x" numstr
       then valOf (StringCvt.scanString (Int.scan StringCvt.HEX) (String.extract (numstr, 2, NONE)))
@@ -172,6 +183,7 @@ lex_rules\<open>
 <INITIAL>"const"  => (tokF (yypos, yytext, Markup.keyword1, "TCONST", "", Tokens.TCONST));
 <INITIAL>"if"     => (tokF (yypos, yytext, Markup.keyword1, "TIF", "", Tokens.TIF));
 <INITIAL>"else"   => (tokF (yypos, yytext, Markup.keyword1, "TELSE", "", Tokens.TELSE));
+<INITIAL>"match_switch" => (tokF (yypos, yytext, Markup.keyword1, "TMATCHSWITCH", "", Tokens.TMATCHSWITCH));
 <INITIAL>"="      => (tokF (yypos, yytext, Markup.keyword2, "TEQ", "", Tokens.TEQ));
 <INITIAL>";"      => (tokF (yypos, yytext, Markup.delimiter, "TSEMI", "", Tokens.TSEMI));
 <INITIAL>"<<"     => (tokF (yypos, yytext, Markup.operator, "TSHL", "", Tokens.TSHL));
@@ -202,6 +214,8 @@ lex_rules\<open>
 <INITIAL>"}"      => (tokF (yypos, yytext, Markup.delimiter, "TRBRACE", "", Tokens.TRBRACE));
 <INITIAL>\\"<llangle>"          => (aq_buf := ""; aq_start := yypos + size yytext; YYBEGIN VAQ; lex());
 <INITIAL>\\"<epsilon>"\\"<open>" => (report_colour (yypos, 1, Markup.literal); aq_buf := ""; aq_start := yypos + size yytext; YYBEGIN EAQ; lex());
+<INITIAL>\\"<Rightarrow>" => (report_colour (yypos, 1, Markup.keyword2);
+    Tokens.TARROW (fixed_pos yypos, fixed_pos (yypos + size yytext)));
 <INITIAL>.        => (URust_Err.lex_error yytext (fixed_pos yypos));
 <VAQ>\\"<rrangle>" => (YYBEGIN INITIAL;
     let val p = fixed_pos (!aq_start) val q = fixed_pos yypos
@@ -247,6 +261,7 @@ yacc_definitions\<open>
     | TSHL | TSHR | TAMP | TBAR | TCARET
     | TEQEQ | TNE | TLT | TLE | TGT | TGE
     | TAMPAMP | TBARBAR | TBANG
+    | TMATCHSWITCH | TARROW
 %nonterm ustart of URust_AST.ur_expr option
        | ustmt of URust_AST.ur_expr
        | uval of URust_AST.ur_expr
@@ -254,6 +269,9 @@ yacc_definitions\<open>
        | arglist of URust_AST.ur_expr list
        | ublock of URust_AST.ur_expr
        | uif of URust_AST.ur_expr
+       | umatchsw of URust_AST.ur_expr
+       | swarms of (URust_AST.ur_switch_key list * URust_AST.ur_expr) list
+       | swpat of URust_AST.ur_switch_key list
 \<close>
 yacc_rules\<open>
   ustart : ustmt (SOME ustmt)
@@ -271,6 +289,10 @@ yacc_rules\<open>
         | uval TSEMI                        (UE_Seq (uval, UE_Unit TSEMIleft))
         | ublock ustmt                      (UE_Seq (ublock, ustmt))
         | uif ustmt                         (UE_Seq (uif, ustmt))
+        (* NOTE: no `umatchsw ustmt` (no-`;` match_switch statement): the frontend has
+           `_urust_sequence_scoping`/`_urust_sequence_if_*` but NO no-`;` sequencing for the `match_switch`
+           keyword, so `match_switch … {} stmt` is a frontend PARSE ERROR -- match_switch in statement
+           position needs a trailing `;` (via `uval TSEMI ustmt`), matching the frontend. *)
         | TLET IDENT TEQ uval TSEMI ustmt   (UE_Let (P_Var (IDENT, IDENTleft), uval, ustmt))
         | TCONST IDENT TEQ uval TSEMI ustmt (UE_Const (P_Var (IDENT, IDENTleft), uval, ustmt))
   (* Value position: an operand OR a with-block control-flow expr. `uval` is where `if` (and later
@@ -278,6 +300,7 @@ yacc_rules\<open>
      binary-operator operand (that stays `uexp`, closing divergence D-1). *)
   uval : uexp (uexp)
        | uif  (uif)
+       | umatchsw (umatchsw)
   uexp : NUM        (UE_Num (NUM, NUMleft))
        | NUMSFX     (UE_NumSfx (#1 NUMSFX, #2 NUMSFX, NUMSFXleft))
        | IDENT      (UE_Ident (IDENT, IDENTleft))
@@ -336,6 +359,17 @@ yacc_rules\<open>
      operator -- no operator-vs-call shift/reduce and no precedence directive needed (cf. Toy_Lex_Yacc). *)
   arglist : uval               ([uval])
           | uval COMMA arglist (uval :: arglist)
+  (* match_switch (numeric/wildcard match, D26): a with-block form, so it joins `uval` (value position)
+     and the no-`;` statement level -- NOT `uexp` (it is not a bare operator operand, like `if`).
+     `scrut { arm, ... }`, each arm `keys => body`; a key is a numeral, `_`, or an or-`|` list. Lowers to
+     `bind <<scrut>> (ncase_selector [(Some k, <<body>>) ..])`. The or-`|` reuses the TBAR token (disjoint
+     nonterminal context from the bitwise-or operator -- verify conflict-free via grm.desc). *)
+  umatchsw : TMATCHSWITCH uval TLBRACE swarms TRBRACE  (UE_MatchSwitch (uval, swarms, TMATCHSWITCHleft))
+  swarms : swpat TARROW uval               ([(swpat, uval)])
+         | swpat TARROW uval COMMA swarms  ((swpat, uval) :: swarms)
+  swpat : NUM               ([SK_Num (NUM, NUMleft)])
+        | IDENT             ([SK_Name (IDENT, IDENTleft)])   (* `_` = wildcard; other id -> elaborator errors (const-id keys deferred) *)
+        | swpat TBAR swpat  (swpat1 @ swpat2)                (* or-pattern: concatenate the alternatives' keys *)
 \<close>
 
 section\<open> Elaborator (AST -> shallow terms) \<close>
@@ -376,14 +410,14 @@ struct
     | funcall_const _   13 = \<^const_name>\<open>funcall13\<close>
     | funcall_const _   14 = \<^const_name>\<open>funcall14\<close>
     | funcall_const pos n  =
-        error ("micro_rust_expr: unsupported call arity " ^ string_of_int n ^
+        error ("urust_expr: unsupported call arity " ^ string_of_int n ^
                " (max 14; the frontend's surface lowering caps here)" ^ Position.here pos)
 
   fun word_typ 8  = \<^typ>\<open>8 word\<close>
     | word_typ 16 = \<^typ>\<open>16 word\<close>
     | word_typ 32 = \<^typ>\<open>32 word\<close>
     | word_typ 64 = \<^typ>\<open>64 word\<close>            (* u64 and usize (usize -> 64 in parse_sfx) *)
-    | word_typ w  = error ("micro_rust_expr: unsupported integer width u" ^ string_of_int w)
+    | word_typ w  = error ("urust_expr: unsupported integer width u" ^ string_of_int w)
 
   (* A bare identifier at value position lowers exactly as the frontend's lookup_id_tr
      (Micro_Rust_Shallow_Embedding.thy:911-930): if (NLiteral, name) has a registered backend, emit
@@ -475,6 +509,17 @@ struct
      emit `literal ()` (the same builder as UE_Unit). else-if is a nested UE_If -> nested two_armed. *)
   fun mk_two_armed c t e = mk_const \<^const_name>\<open>two_armed_conditional\<close> [c, t, e]
 
+  (* match_switch scrut { keys => body, ... } -> bind <<scrut>> (ncase_selector <list of (key, body) pairs>)
+     (D26; SE:829-830, Core_Syntax.thy:655-685, Num_Case_Expression.thy). A numeral key -> Some <numeral>,
+     `_` -> None; an or-pattern's keys each get their own pair with the SAME body. First-order: no binders,
+     no case skeleton. `ncase_selector` is reachable via the Micro_Rust_Shallow_Embedding import. *)
+  fun mk_some v = mk_const \<^const_name>\<open>Option.Some\<close> [v]
+  val mk_none   = Const (\<^const_name>\<open>Option.None\<close>, dummyT)
+  fun mk_pair a b = mk_const \<^const_name>\<open>Product_Type.Pair\<close> [a, b]
+  fun mk_cons h t = mk_const \<^const_name>\<open>List.Cons\<close> [h, t]
+  val mk_nil      = Const (\<^const_name>\<open>List.Nil\<close>, dummyT)
+  fun mk_ncase_selector lst = mk_const \<^const_name>\<open>ncase_selector\<close> [lst]
+
   (* Operator -> HOL const, one row per operator (the frontend's shallow-embedding targets). `+` heads
      with the overloaded urust_add (adhoc-overloaded to word_add_no_wrap); the other arithmetic / shift
      / bitwise ops are the direct Numeric_Types word combinators; comparisons and logical connectives
@@ -557,7 +602,21 @@ struct
              (case Symtab.lookup env name of
                 SOME {free, def_pos, id} => (report_ref ctxt id (name, def_pos) npos; free)
               | NONE => ident_term ctxt Micro_Rust_Names.NFunction name npos)
-         in mk_const (funcall_const cpos (length args)) (func :: map (mk ctxt env) args) end)
+         in mk_const (funcall_const cpos (length args)) (func :: map (mk ctxt env) args) end
+     | UE_MatchSwitch (scrut, arms, _) =>
+         (* bind <<scrut>> (ncase_selector [(Some k0, <<e0>>), ..., (None, <<en>>)]). A numeral key ->
+            Some <numeral>; `_` -> None; a non-`_` identifier key is a const-id/path (deferred) -> error.
+            An or-pattern's keys each pair with the SAME (elaborated-once) body. *)
+         let
+           fun key (SK_Num (n, _))       = mk_some (HOLogic.mk_number dummyT n)
+             | key (SK_Name ("_", _))    = mk_none
+             | key (SK_Name (s, pos))    =
+                 error ("urust_expr: unsupported match_switch key " ^ quote s ^
+                        " (numeral or `_` only; const-id / path keys not yet supported)" ^ Position.here pos)
+           fun arm_pairs (keys, body) =
+             let val b = mk ctxt env body in map (fn k => mk_pair (key k) b) keys end
+           val lst = fold_rev mk_cons (maps arm_pairs arms) mk_nil
+         in mk_bind (mk ctxt env scrut) (mk_ncase_selector lst) end)
 
   (* `let`/`const` <pat> = rhs; body  ->  bind rhs (<pat-abstraction> body). Shared by both so they
      stay DRY while remaining distinct AST nodes (UE_Let / UE_Const). *)
@@ -574,7 +633,7 @@ end
 
 section\<open> The command \<close>
 
-text\<open> `micro_rust_expr NAME <src>` parses the source, elaborates to a term, type-checks it once, and
+text\<open> `urust_expr NAME <src>` parses the source, elaborates to a term, type-checks it once, and
 defines NAME := <term>. No attributes (the conformance refl proof uses the primitive NAME_def; we do
 not want corpus defs in the global simp set). Serialized behind the shared Parser_Utils.with_parser_lock
 (the Isabelle_lex_yacc runtime holds global refs, shared across all ml_lex_yacc parsers). \<close>
@@ -583,7 +642,7 @@ fun define_urust (binding, source) lthy =
   (* Only `parse_source` touches the Isabelle_lex_yacc global refs (src/ctxt/the_src), so ONLY it is
      serialized. Elaboration (mk_closed, incl. its Syntax.parse_term calls), check_term, and define are
      pure w.r.t. those globals -- holding the lock across them would needlessly serialize the (slower)
-     type-checking of every micro_rust_expr theory-wide, throttling parallel checking at corpus scale. *)
+     type-checking of every urust_expr theory-wide, throttling parallel checking at corpus scale. *)
   (case Parser_Utils.with_parser_lock (fn () => URust.parse_source lthy source) of
      SOME ast =>
        let
@@ -591,9 +650,9 @@ fun define_urust (binding, source) lthy =
          val ((_, _), lthy') =
            Local_Theory.define ((binding, NoSyn), ((Thm.def_binding binding, []), t)) lthy
        in lthy' end
-   | NONE => error ("micro_rust_expr: empty expression" ^ Position.here (Input.pos_of source)))
+   | NONE => error ("urust_expr: empty expression" ^ Position.here (Input.pos_of source)))
 
-val _ = Outer_Syntax.local_theory \<^command_keyword>\<open>micro_rust_expr\<close>
+val _ = Outer_Syntax.local_theory \<^command_keyword>\<open>urust_expr\<close>
           "Parse a uRust expression and define it as a HOL constant"
           (Parse.binding -- Parse.input Parse.cartouche >> define_urust)
 \<close>
@@ -602,9 +661,9 @@ section\<open> Smoke test \<close>
 
 text\<open> A few definitions to confirm the command works in isolation; the real conformance check (against
 the frontend's golden terms) lives in Micro_Rust_Parser_Conformance.thy. \<close>
-micro_rust_expr smoke_num  \<open> 42 \<close>
-micro_rust_expr smoke_sfx  \<open> 1_u32 \<close>
-micro_rust_expr smoke_unit \<open> () \<close>
+urust_expr smoke_num  \<open> 42 \<close>
+urust_expr smoke_sfx  \<open> 1_u32 \<close>
+urust_expr smoke_unit \<open> () \<close>
 thm smoke_num_def smoke_sfx_def smoke_unit_def
 
 end
