@@ -14,11 +14,14 @@
        constant -> its Const, else a Free);
      * let / const bindings and statement sequencing (`;`, trailing `;`);
      * pure-value operators (arithmetic / bitwise / shifts / comparison / logical + unary `!`);
-     * block expressions { stmts } (erase to their body) and if / else (two-armed, one-armed, else-if).
+     * block expressions { stmts } (erase to their body), if / else (two-armed, one-armed, else-if) and
+       no-`;` block-like statement sequencing;
+     * function calls f(a..) and method calls x.m(a..) (funcallN);
+     * match_switch (numeric / wildcard / or-pattern) and match_case (binding patterns: wildcard /
+       variable / nullary + single-level constructor, via the Ctr_Sugar case skeleton).
    Deferred (later steps -- notes/urust-parser-plan.md): the reference tier (`*` deref, `&`/`&mut`,
-   `=`/compound-assign, `?`), let mut, tuple/constructor patterns, match / loops, calls, return,
-   panic!/strings, paths Foo::Bar, and the no-semicolon "optional `;` after a block-like expression"
-   sequencing (a block/if in statement position currently requires a trailing `;`).
+   `=`/compound-assign, `?`), let mut, let/tuple destructuring, the bare `match` keyword + guards /
+   disjunction / nested / literal / struct / slice patterns, loops, return, panic!/strings, paths Foo::Bar.
 
    Technique carried over from Toy_Lex_Yacc: the corrected symbol-position layer (fixed_pos / tokF /
    tok_valF), the antiquotation start-state lexing, dummyT + a single Syntax.check_term, and the
@@ -39,13 +42,19 @@ text\<open> One constructor per uRust surface form. Positions are carried for ma
 ML\<open>
 structure URust_AST =
 struct
-  (* Binder pattern. Currently only a single variable; this is the EXTENSION POINT for tuple /
-     constructor / wildcard patterns (tuple `let (a, b)`, match arms `Some(x, y)`, `_`). Adding a
-     constructor here + a case in bind_pat (the elaborator) generalises every binding construct
-     (let/const, and future closures / for-loops / match) at once -- the binders themselves are
-     unchanged. *)
+  (* Binder pattern. `P_Var` is the irrefutable let/const binder (a single variable). `P_Ident` /
+     `P_Constr` are REFUTABLE match-arm patterns (D27): `P_Ident` is a bare id classified in the
+     elaborator (via Code.is_constr) as `_` -> wildcard, a nullary constructor, or a variable binder;
+     `P_Constr` is `C(args)` (Tier-0: args are P_Ident). The irrefutable let path (bind_pat) and the
+     refutable match path (bind_case_pat) BOTH reuse the shared per-variable registration (bind_var /
+     bind_vars) but build DIFFERENT abstractions -- a plain lambda for let, the Ctr_Sugar
+     case_abs/case_elem skeleton for match -- so they are distinct elaborator clauses, not one shared
+     bind_pat. Extending the match pattern set (tuple / nested / literal / guard / disjunction) adds a
+     ur_pat constructor + a bind_case_pat clause. *)
   datatype ur_pat =
-      P_Var of string * Position.T                    (* x  (its name position, for def markup) *)
+      P_Var    of string * Position.T                 (* x  (irrefutable let/const binder; name pos) *)
+    | P_Ident  of string * Position.T                 (* match arm bare id: `_` / nullary ctor / binder *)
+    | P_Constr of string * Position.T * ur_pat list * Position.T  (* C(args); Tier-0 args are P_Ident *)
 
   (* Pure-value operators (arithmetic / bitwise / comparison / logical + unary !). Data-driven: the
      elaborator maps each to a single HOL const (URust_Translate.binop_const / unop_const), so adding
@@ -98,6 +107,14 @@ struct
                                                                    [(Some k, <<body>>) ... (None, <<body>>)]).
                                                                  Numeric / wildcard only; NO binders, first-order
                                                                  (D26). An arm = (keys, body); keys > 1 = or-pattern. *)
+    | UE_MatchCase of ur_expr * (ur_pat * ur_expr) list * Position.T
+                                                              (* match_case scrut { pat => body, ... } ->
+                                                                 bind <<scrut>> (\<lambda>anon. case_guard True anon
+                                                                   (case_cons B1 ... (case_cons Bn case_nil))),
+                                                                 each Bi the Ctr_Sugar case branch for its arm;
+                                                                 Case_Translation folds to case_<T> at check_term.
+                                                                 Binding patterns (D27): wildcard / var / nullary
+                                                                 ctor / single-level ctor with binder|_ args. *)
 end
 \<close>
 
@@ -160,7 +177,7 @@ fun set source ctxt = (Isabelle_lex_yacc.set source ctxt; the_src := source)
 fun fixed_pos yypos = Parser_Lex_Util.fixed_pos (!the_src) yypos
 fun tokF args       = Parser_Lex_Util.tokF (!the_src) args
 fun tok_valF args   = Parser_Lex_Util.tok_valF (!the_src) args
-fun report_colour args = Parser_Lex_Util.report_colour (!the_src) args
+fun report_fixed args  = Parser_Lex_Util.report_fixed (!the_src) args
 fun tok_ident (yypos, yytext) =
   let val p = Parser_Lex_Util.ident_pos (!the_src) (yypos, yytext)
   in Tokens.IDENT (yytext, p, p) end
@@ -184,7 +201,8 @@ lex_rules\<open>
 <INITIAL>"if"     => (tokF (yypos, yytext, Markup.keyword1, "TIF", "", Tokens.TIF));
 <INITIAL>"else"   => (tokF (yypos, yytext, Markup.keyword1, "TELSE", "", Tokens.TELSE));
 <INITIAL>"match_switch" => (tokF (yypos, yytext, Markup.keyword1, "TMATCHSWITCH", "", Tokens.TMATCHSWITCH));
-<INITIAL>"="      => (tokF (yypos, yytext, Markup.keyword2, "TEQ", "", Tokens.TEQ));
+<INITIAL>"match_case"   => (tokF (yypos, yytext, Markup.keyword1, "TMATCHCASE", "", Tokens.TMATCHCASE));
+<INITIAL>"="      => (tokF (yypos, yytext, Markup.delimiter, "TEQ", "", Tokens.TEQ));
 <INITIAL>";"      => (tokF (yypos, yytext, Markup.delimiter, "TSEMI", "", Tokens.TSEMI));
 <INITIAL>"<<"     => (tokF (yypos, yytext, Markup.operator, "TSHL", "", Tokens.TSHL));
 <INITIAL>">>"     => (tokF (yypos, yytext, Markup.operator, "TSHR", "", Tokens.TSHR));
@@ -212,17 +230,17 @@ lex_rules\<open>
 <INITIAL>"."      => (tokF (yypos, yytext, Markup.delimiter, "TDOT", "", Tokens.TDOT));
 <INITIAL>"{"      => (tokF (yypos, yytext, Markup.delimiter, "TLBRACE", "", Tokens.TLBRACE));
 <INITIAL>"}"      => (tokF (yypos, yytext, Markup.delimiter, "TRBRACE", "", Tokens.TRBRACE));
-<INITIAL>\\"<llangle>"          => (aq_buf := ""; aq_start := yypos + size yytext; YYBEGIN VAQ; lex());
-<INITIAL>\\"<epsilon>"\\"<open>" => (report_colour (yypos, 1, Markup.literal); aq_buf := ""; aq_start := yypos + size yytext; YYBEGIN EAQ; lex());
-<INITIAL>\\"<Rightarrow>" => (report_colour (yypos, 1, Markup.keyword2);
+<INITIAL>\\"<llangle>"          => (report_fixed (yypos, 1, Markup.delimiter, "VALAQ", ""); aq_buf := ""; aq_start := yypos + size yytext; YYBEGIN VAQ; lex());
+<INITIAL>\\"<epsilon>"\\"<open>" => (report_fixed (yypos, 1, Markup.literal, "EXPRAQ", ""); aq_buf := ""; aq_start := yypos + size yytext; YYBEGIN EAQ; lex());
+<INITIAL>\\"<Rightarrow>" => (report_fixed (yypos, 1, Markup.delimiter, "TARROW", "");
     Tokens.TARROW (fixed_pos yypos, fixed_pos (yypos + size yytext)));
 <INITIAL>.        => (URust_Err.lex_error yytext (fixed_pos yypos));
-<VAQ>\\"<rrangle>" => (YYBEGIN INITIAL;
+<VAQ>\\"<rrangle>" => (YYBEGIN INITIAL; report_fixed (yypos, 1, Markup.delimiter, "VALAQ", "");
     let val p = fixed_pos (!aq_start) val q = fixed_pos yypos
     in Tokens.VALAQ (Input.source true (!aq_buf) (Position.range (p, q)), p, q) end);
 <VAQ>\n           => (aq_buf := !aq_buf ^ "\n"; lex());
 <VAQ>.            => (aq_buf := !aq_buf ^ yytext; lex());
-<EAQ>\\"<close>"   => (YYBEGIN INITIAL;
+<EAQ>\\"<close>"   => (YYBEGIN INITIAL; report_fixed (yypos, 1, Markup.delimiter, "EXPRAQ", "");
     let val p = fixed_pos (!aq_start) val q = fixed_pos yypos
     in Tokens.EXPRAQ (Input.source true (!aq_buf) (Position.range (p, q)), p, q) end);
 <EAQ>\n           => (aq_buf := !aq_buf ^ "\n"; lex());
@@ -261,7 +279,7 @@ yacc_definitions\<open>
     | TSHL | TSHR | TAMP | TBAR | TCARET
     | TEQEQ | TNE | TLT | TLE | TGT | TGE
     | TAMPAMP | TBARBAR | TBANG
-    | TMATCHSWITCH | TARROW
+    | TMATCHSWITCH | TMATCHCASE | TARROW
 %nonterm ustart of URust_AST.ur_expr option
        | ustmt of URust_AST.ur_expr
        | uval of URust_AST.ur_expr
@@ -272,6 +290,10 @@ yacc_definitions\<open>
        | umatchsw of URust_AST.ur_expr
        | swarms of (URust_AST.ur_switch_key list * URust_AST.ur_expr) list
        | swpat of URust_AST.ur_switch_key list
+       | umatchcase of URust_AST.ur_expr
+       | casearms of (URust_AST.ur_pat * URust_AST.ur_expr) list
+       | casepat of URust_AST.ur_pat
+       | patargs of URust_AST.ur_pat list
 \<close>
 yacc_rules\<open>
   ustart : ustmt (SOME ustmt)
@@ -301,6 +323,7 @@ yacc_rules\<open>
   uval : uexp (uexp)
        | uif  (uif)
        | umatchsw (umatchsw)
+       | umatchcase (umatchcase)
   uexp : NUM        (UE_Num (NUM, NUMleft))
        | NUMSFX     (UE_NumSfx (#1 NUMSFX, #2 NUMSFX, NUMSFXleft))
        | IDENT      (UE_Ident (IDENT, IDENTleft))
@@ -370,6 +393,22 @@ yacc_rules\<open>
   swpat : NUM               ([SK_Num (NUM, NUMleft)])
         | IDENT             ([SK_Name (IDENT, IDENTleft)])   (* `_` = wildcard; other id -> elaborator errors (const-id keys deferred) *)
         | swpat TBAR swpat  (swpat1 @ swpat2)                (* or-pattern: concatenate the alternatives' keys *)
+  (* match_case (binding match, D27): like match_switch a with-block form joining `uval`. Arm patterns
+     BIND variables (wildcard `_` / variable / nullary constructor / single-level `C(args)`); lowers to
+     the Ctr_Sugar case skeleton (bind + case_guard/case_cons/case_abs/case_elem/case_nil), folded to
+     case_<T> at check_term. `casepat`/`patargs` are their OWN nonterminals, disjoint from `uexp` -- so
+     a constructor pattern `IDENT LPAR ... RPAR` (only reachable between `{`/COMMA and TARROW) does not
+     clash with the `IDENT LPAR arglist RPAR` call production (verify conflict-free via grm.desc). No
+     `umatchcase ustmt` no-`;` form: match_case in statement position needs a trailing `;` (like
+     match_switch, D26). Nested constructor args / literal / guard / disjunction patterns are gated in
+     the elaborator (positioned errors), not the grammar. *)
+  umatchcase : TMATCHCASE uval TLBRACE casearms TRBRACE  (UE_MatchCase (uval, casearms, TMATCHCASEleft))
+  casearms : casepat TARROW uval                 ([(casepat, uval)])
+           | casepat TARROW uval COMMA casearms  ((casepat, uval) :: casearms)
+  casepat : IDENT                    (P_Ident (IDENT, IDENTleft))
+          | IDENT LPAR patargs RPAR  (P_Constr (IDENT, IDENTleft, patargs, IDENTleft))
+  patargs : casepat                  ([casepat])
+          | casepat COMMA patargs    (casepat :: patargs)
 \<close>
 
 section\<open> Elaborator (AST -> shallow terms) \<close>
@@ -496,6 +535,35 @@ struct
          end
      | _  => Micro_Rust_Dispatch.mk_marker kind name pos (Free (name, dummyT)))
 
+  (* Classify a bare match-pattern identifier as a data constructor (reproducing the frontend's
+     resolve_constructor_id, SE:960-988): intern the name and test Code.is_constr -- the SAME oracle the
+     frontend uses. A constructor resolves to its RAW Const (NOT the lift_fun1 value embedding a value-
+     position id would get via ident_term/NLiteral -- a pattern head must be the bare constructor); a
+     non-constructor id (`y`, `_`) yields NONE and is a variable binder. Used only by bind_case_pat. *)
+  fun resolve_ctor ctxt name =
+    let val thy = Proof_Context.theory_of ctxt in
+      (case try (Proof_Context.read_const {proper = true, strict = false} ctxt) name of
+         SOME (Const (full, _)) => if Code.is_constr thy full then SOME (Const (full, dummyT)) else NONE
+       | _ => NONE)
+    end
+
+  (* Report the const ENTITY markup (colour + ctrl-click-to-definition) for a resolved pattern
+     constructor at its name position — the SAME `Name_Space.markup` ident_term emits for a resolved HOL
+     Const, so a match-arm constructor head (`Some`, `None`, `Ok`, `Err`, a user `datatype` ctor)
+     navigates to its declaration like any other const. `resolve_ctor` stays pure (it is also used only to
+     CLASSIFY, in `binder_names`); the markup is emitted once, here, when a branch actually resolves the
+     head — not during classification. *)
+  fun report_ctor_markup ctxt pos (Const (c, _)) =
+        Context_Position.report ctxt pos
+          (Name_Space.markup (Consts.space_of (Proof_Context.consts_of ctxt)) c)
+    | report_ctor_markup _ _ _ = ()
+
+  (* A wildcard `_` binds nothing referenceable, so bind_var's colour/nav do not apply; still emit a
+     typing tooltip at its position so ctrl-hover identifies it (the same Markup.typing channel tokF uses
+     for a token's kind string, e.g. `=` -> " :: TEQ") instead of falling through to the enclosing command
+     span. `pos` is the IDENT token's full range (tok_ident builds it, so IDENTleft spans the whole `_`). *)
+  fun report_wildcard ctxt pos = Context_Position.report_text ctxt pos Markup.typing "wildcard pattern"
+
   (* `let x = e; k` / `const x = e; k` -> bind e (\<lambda>x. k)  (HOAS; SE:431-434). MUST be `bind` and
      `e1; e2` MUST be `sequence` (a non-simp definition) to be alpha-equal to the frontend -- emitting
      `bind e (\<lambda>_. k)` for sequencing would be definitionally-but-not-alpha-equal. Trailing `;` ->
@@ -519,6 +587,18 @@ struct
   fun mk_cons h t = mk_const \<^const_name>\<open>List.Cons\<close> [h, t]
   val mk_nil      = Const (\<^const_name>\<open>List.Nil\<close>, dummyT)
   fun mk_ncase_selector lst = mk_const \<^const_name>\<open>ncase_selector\<close> [lst]
+
+  (* Ctr_Sugar case skeleton (match_case, D27). case_guard / case_cons / case_nil / case_elem / case_abs
+     are the uninterpreted HOL markers (HOL.Ctr_Sugar; no defining equations). The Case_Translation
+     term-check phase folds a well-formed `case_guard True scrut (case_cons ... case_nil)` tree into the
+     datatype's concrete `case_<T>` combinator DURING our single Syntax.check_term -- so we build exactly
+     the skeleton the frontend builds and never construct case_option / case_result ourselves
+     (SE:780-830, Core_Syntax.thy:688-1137, Basic_Case_Expression.thy:113-350). *)
+  fun mk_case_guard b s cs = mk_const \<^const_name>\<open>case_guard\<close> [b, s, cs]
+  fun mk_case_cons h t     = mk_const \<^const_name>\<open>case_cons\<close> [h, t]
+  val mk_case_nil          = Const (\<^const_name>\<open>case_nil\<close>, dummyT)
+  fun mk_case_elem p b     = mk_const \<^const_name>\<open>case_elem\<close> [p, b]
+  fun mk_case_abs f        = mk_const \<^const_name>\<open>case_abs\<close> [f]
 
   (* Operator -> HOL const, one row per operator (the frontend's shallow-embedding targets). `+` heads
      with the overloaded urust_add (adhoc-overloaded to word_add_no_wrap); the other arithmetic / shift
@@ -565,6 +645,67 @@ struct
   fun bind_pat ctxt env (P_Var (x, def_pos)) =
         let val (free, env') = bind_var ctxt env (x, def_pos)
         in (fn body => Term.lambda free body, env') end
+    | bind_pat _ _ p =
+        error ("urust_expr: refutable pattern in an irrefutable (let/const) binder position" ^
+               (case p of P_Ident (_, q) => Position.here q | P_Constr (_, q, _, _) => Position.here q
+                        | P_Var (_, q) => Position.here q))
+
+  (* Elaborate a REFUTABLE match-arm pattern (D27) into a Ctr_Sugar case branch. Reuses bind_var (the
+     shared per-variable registration -- markup / click-to-def / capture) but, UNLIKE bind_pat (the
+     irrefutable let binder, a plain lambda), builds the case_abs/case_elem skeleton. Returns (a branch
+     builder taking the elaborated arm body, extended env). Tier-0 patterns: wildcard `_`, variable
+     binder, nullary constructor, single-level constructor with binder/`_` args; nested-constructor args,
+     let-patterns, and (grammar-unreachable today) other shapes raise positioned errors. Fresh wildcard
+     binders are named from a Name.context seeded with this pattern's binder names (+ the proof context),
+     so `_` never collides with a sibling binder (mirrors the frontend's collect_ids_from_pattern). *)
+  fun bind_case_pat ctxt env pat =
+    let
+      fun binder_names (P_Ident (a, _)) =
+            if a = "_" then [] else (case resolve_ctor ctxt a of SOME _ => [] | NONE => [a])
+        | binder_names (P_Constr (_, _, args, _)) = maps binder_names args
+        | binder_names (P_Var (a, _)) = [a]
+      val names0 = fold Name.declare (binder_names pat) (Variable.names_of ctxt)
+      fun fresh names = let val (n, names') = Name.variant "uu" names in (Free (n, dummyT), names') end
+    in
+      (case pat of
+         P_Ident ("_", pos) =>
+           (report_wildcard ctxt pos;
+            let val (f, _) = fresh names0
+            in (fn body => mk_case_abs (Term.lambda f (mk_case_elem f body)), env) end)
+       | P_Ident (name, pos) =>
+           (case resolve_ctor ctxt name of
+              SOME c => (report_ctor_markup ctxt pos c;                      (* nullary constructor *)
+                         (fn body => mk_case_elem c body, env))
+            | NONE =>                                                        (* variable binder *)
+                let val (f, env') = bind_var ctxt env (name, pos)
+                in (fn body => mk_case_abs (Term.lambda f (mk_case_elem f body)), env') end)
+       | P_Constr (name, pos, args, _) =>
+           (case resolve_ctor ctxt name of
+              NONE => error ("urust_expr: `" ^ name ^ "` is not a known constructor" ^ Position.here pos)
+            | SOME c =>
+                let
+                  val _ = report_ctor_markup ctxt pos c
+                  fun arg (P_Ident ("_", pos)) (env, names) =
+                        (report_wildcard ctxt pos;
+                         let val (f, names') = fresh names in (f, (env, names')) end)
+                    | arg (P_Ident (a, ap)) (env, names) =
+                        (case resolve_ctor ctxt a of
+                           SOME _ => error ("urust_expr: nested nullary-constructor pattern `" ^ a ^
+                                       "` not yet supported (Tier-0: binder / `_` constructor args only)" ^
+                                       Position.here ap)
+                         | NONE => let val (f, env') = bind_var ctxt env (a, ap) in (f, (env', names)) end)
+                    | arg (P_Constr (_, _, _, cp)) _ =
+                        error ("urust_expr: nested constructor pattern not yet supported (Tier-0)" ^
+                               Position.here cp)
+                    | arg (P_Var (_, vp)) _ =
+                        error ("urust_expr: unexpected let-pattern in a match arm" ^ Position.here vp)
+                  val (frees, (env', _)) = fold_map arg args (env, names0)
+                  val pat_term = Term.list_comb (c, frees)
+                in
+                  (fn body => fold_rev (fn f => fn t => mk_case_abs (Term.lambda f t)) frees
+                                (mk_case_elem pat_term body), env')
+                end))
+    end
 
   (* env : source name -> { free, def_pos, id } for the enclosing `let` binders (lexical scope). A
      let-bound use resolves to its binder's Free (+ nav markup); it is NOT sent through dispatch --
@@ -609,14 +750,31 @@ struct
             An or-pattern's keys each pair with the SAME (elaborated-once) body. *)
          let
            fun key (SK_Num (n, _))       = mk_some (HOLogic.mk_number dummyT n)
-             | key (SK_Name ("_", _))    = mk_none
+             | key (SK_Name ("_", pos))  = (report_wildcard ctxt pos; mk_none)
              | key (SK_Name (s, pos))    =
                  error ("urust_expr: unsupported match_switch key " ^ quote s ^
                         " (numeral or `_` only; const-id / path keys not yet supported)" ^ Position.here pos)
            fun arm_pairs (keys, body) =
              let val b = mk ctxt env body in map (fn k => mk_pair (key k) b) keys end
            val lst = fold_rev mk_cons (maps arm_pairs arms) mk_nil
-         in mk_bind (mk ctxt env scrut) (mk_ncase_selector lst) end)
+         in mk_bind (mk ctxt env scrut) (mk_ncase_selector lst) end
+     | UE_MatchCase (scrut, arms, _) =>
+         (* bind <<scrut>> (\<lambda>anon. case_guard True anon (case_cons B1 ... (case_cons Bn case_nil))),
+            each Bi the Ctr_Sugar case branch for its arm, its body elaborated in the pattern-extended
+            env' (the scrutinee stays in the OUTER env, mirroring elab_let). Case_Translation folds the
+            skeleton to case_<T> at check_term (D27). The `anon` scrutinee binder is named to avoid the
+            branches' free names (so it can never capture); its name is alpha-irrelevant to `refl`. *)
+         let
+           fun arm (pat, body) =
+             let val (absf, env') = bind_case_pat ctxt env pat
+             in absf (mk ctxt env' body) end
+           val branches = fold_rev (fn a => fn acc => mk_case_cons (arm a) acc) arms mk_case_nil
+           val anon =
+             Free (singleton (Name.variant_list (Term.add_free_names branches [])) "anon_case", dummyT)
+         in
+           mk_bind (mk ctxt env scrut)
+             (Term.lambda anon (mk_case_guard \<^term>\<open>True\<close> anon branches))
+         end)
 
   (* `let`/`const` <pat> = rhs; body  ->  bind rhs (<pat-abstraction> body). Shared by both so they
      stay DRY while remaining distinct AST nodes (UE_Let / UE_Const). *)

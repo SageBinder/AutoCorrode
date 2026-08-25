@@ -743,6 +743,59 @@ lemma \<open> msw_stmt = \<lbrakk> match_switch n { 0 \<Rightarrow> () , _ \<Rig
 end
 
 
+section\<open> Match \<open>match_case\<close> (Corpus "Match Expressions" -- binding patterns, D27) \<close>
+
+text\<open> \<open>match_case scrut { pat \<Rightarrow> e, ... }\<close> -> \<open>bind \<lbrakk>scrut\<rbrakk> (\<lambda>anon. case_guard True anon
+(case_cons B1 ... (case_cons Bn case_nil)))\<close>, each arm \<open>Bi\<close> the Ctr_Sugar case skeleton
+(\<open>case_abs\<close>/\<open>case_elem\<close>) which \<open>Case_Translation\<close> folds to \<open>case_\<langle>T\<rangle>\<close> at check_term -- so the elaborated
+term is \<alpha>-equal to the frontend golden (D27). Tier-0 patterns: wildcard \<open>_\<close>, variable binder, nullary
+constructor, and single-level constructor \<open>C(args)\<close> with binder / \<open>_\<close> args. Deferred to later increments:
+the bare \<open>match\<close> keyword (switch-vs-case disambiguation), guards, disjunction, and nested / literal /
+struct / slice patterns. \<close>
+
+datatype pair2 = P2 nat nat   \<comment>\<open> a 2-ary constructor, to exercise the multi-binder (leftmost-outermost) arm path \<close>
+
+context fixes x :: \<open>nat option\<close> and xr :: \<open>(nat, nat) result\<close> and p :: \<open>pair2\<close>
+begin
+
+text\<open> Option: variable binder + nullary constructor. \<close>
+urust_expr mc_opt \<open> match_case x { Some(y) \<Rightarrow> y, None \<Rightarrow> 0 } \<close>
+lemma \<open> mc_opt = \<lbrakk> match_case x { Some(y) \<Rightarrow> y, None \<Rightarrow> 0 } \<rbrakk> \<close>
+  unfolding mc_opt_def by (rule refl)
+
+text\<open> Result: two variable-binding constructors. \<close>
+urust_expr mc_res \<open> match_case xr { Ok(v) \<Rightarrow> v, Err(e) \<Rightarrow> e } \<close>
+lemma \<open> mc_res = \<lbrakk> match_case xr { Ok(v) \<Rightarrow> v, Err(e) \<Rightarrow> e } \<rbrakk> \<close>
+  unfolding mc_res_def by (rule refl)
+
+text\<open> Wildcard \<open>_\<close> arm. \<close>
+urust_expr mc_wild \<open> match_case x { Some(y) \<Rightarrow> y, _ \<Rightarrow> 0 } \<close>
+lemma \<open> mc_wild = \<lbrakk> match_case x { Some(y) \<Rightarrow> y, _ \<Rightarrow> 0 } \<rbrakk> \<close>
+  unfolding mc_wild_def by (rule refl)
+
+text\<open> Constructor with a wildcard argument \<open>Some(_)\<close>. \<close>
+urust_expr mc_cwild \<open> match_case x { Some(_) \<Rightarrow> \<llangle>True\<rrangle>, None \<Rightarrow> \<llangle>False\<rrangle> } \<close>
+lemma \<open> mc_cwild = \<lbrakk> match_case x { Some(_) \<Rightarrow> \<llangle>True\<rrangle>, None \<Rightarrow> \<llangle>False\<rrangle> } \<rbrakk> \<close>
+  unfolding mc_cwild_def by (rule refl)
+
+text\<open> Single-level 2-ary constructor: two binders (leftmost outermost). \<close>
+urust_expr mc_pair \<open> match_case p { P2(a, b) \<Rightarrow> a } \<close>
+lemma \<open> mc_pair = \<lbrakk> match_case p { P2(a, b) \<Rightarrow> a } \<rbrakk> \<close>
+  unfolding mc_pair_def by (rule refl)
+
+text\<open> As a value (let-RHS). \<close>
+urust_expr mc_let \<open> let r = match_case x { Some(y) \<Rightarrow> y, None \<Rightarrow> 0 }; r \<close>
+lemma \<open> mc_let = \<lbrakk> let r = match_case x { Some(y) \<Rightarrow> y, None \<Rightarrow> 0 }; r \<rbrakk> \<close>
+  unfolding mc_let_def by (rule refl)
+
+text\<open> As a \<open>;\<close>-terminated statement (the \<open>match_case\<close> keyword has no no-\<open>;\<close> form, like \<open>match_switch\<close>). \<close>
+urust_expr mc_stmt \<open> match_case x { Some(_) \<Rightarrow> () , None \<Rightarrow> () } ; () \<close>
+lemma \<open> mc_stmt = \<lbrakk> match_case x { Some(_) \<Rightarrow> () , None \<Rightarrow> () } ; () \<rbrakk> \<close>
+  unfolding mc_stmt_def by (rule refl)
+
+end
+
+
 section\<open> Known parser divergences (old frontend vs new parser) -- recorded, not proven \<close>
 
 text\<open> Per \<open>urust-rules-and-conventions.md\<close> (C2): a divergence between the inner-syntax frontend and the
@@ -831,5 +884,21 @@ text\<open> Distinct from the method call \<open>x.f()\<close>: the parser's \<o
 (NField dispatch -> \<open>bindlift1 (focus_lens_const f) \<up>x\<close>, Core_Syntax.thy:439-440), NOT a funcall.
 Deferred to the optics/lens tier; recorded as a note (a runnable golden needs a registered field notation
 / concrete lens types). \<close>
+
+subsection\<open> D-7: bare \<open>match\<close> keyword + richer \<open>match_case\<close> patterns -- parser UNDER-accepts (frontend accepts) \<close>
+
+text\<open> Only the explicit \<open>match_switch\<close> (D26) and \<open>match_case\<close> (D27) keywords are lexed, and \<open>match_case\<close>
+accepts Tier-0 patterns only (wildcard / variable / nullary + single-level \<open>C(binder|_)\<close>). The frontend
+additionally accepts: the BARE \<open>match\<close> keyword (disambiguated to switch/case by a parse-AST translation,
+Micro_Rust_Syntax.thy:1209-1294); match guards \<open>p if c \<Rightarrow> e\<close>; case-pattern disjunction \<open>Some(x) | None\<close>;
+NESTED constructor args \<open>Some(Some(y))\<close> (via its guarded compilation path, Core_Syntax.thy:963-1123); and
+literal/range/\<open>@\<close>/borrow/struct/slice patterns. Here the bare \<open>match\<close> lexes as a plain IDENT (so
+\<open>match x {...}\<close> is a parse error), and a nested/guarded/disjunctive pattern raises a positioned elaborator
+error. The two directly-expressible cases are kept as \<open>sorry\<close>'d golden stubs; the rest are notes.
+Canonical tracker: \<open>urust-old-new-divergences.md\<close> (D-7). \<close>
+lemma \<open> undefined = \<lbrakk> match \<llangle>Some (0::nat)\<rrangle> { Some(y) \<Rightarrow> y, None \<Rightarrow> 0 } \<rbrakk> \<close> sorry
+  \<comment> \<open>frontend: disambiguates the bare \<open>match\<close> to \<open>match_case\<close> -> the case skeleton; the parser lexes \<open>match\<close> as an IDENT, so \<open>match x {..}\<close> is a parse error.\<close>
+lemma \<open> undefined = \<lbrakk> match_case \<llangle>Some (Some (0::nat))\<rrangle> { Some(Some(y)) \<Rightarrow> y, _ \<Rightarrow> 0 } \<rbrakk> \<close> sorry
+  \<comment> \<open>frontend: accepts the nested pattern via its guarded compilation path; the parser raises "nested constructor pattern not yet supported (Tier-0)".\<close>
 
 end
