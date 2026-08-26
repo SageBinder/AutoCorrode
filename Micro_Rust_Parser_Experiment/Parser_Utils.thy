@@ -1,75 +1,69 @@
-(* Parser_Utils: the language-agnostic layer shared by every ml_lex_yacc-based parser here -- the toy
-   sandbox (Toy_Lex_Yacc.thy), the uRust parser (Micro_Rust_Parser.thy), and a future C frontend. Two
-   structures: `Parser_Lex_Util` (lexer position math, SML_imported into each generated lexer) and
-   `Parser_Utils` (elaborator helpers: binders, markup, antiquotations, the parser mutex). The only
-   per-language parameter is the def/ref entity-KIND string ("urust_var" / "toy_var"), threaded first so
-   each caller partially applies it once.
-
-   NOT shared: each lexer's `the_src` ref + `set` shadow + `Tokens.*` wrappers, which live inside its
-   `ml_lex_yacc` block's SML environment and do not carry to another block. Rationale + history:
-   notes/agent-notes/urust-parser-design-decisions.md (D19, D28, D29). ASCII escape form throughout. *)
+(* Language-agnostic lexer and elaborator support for ml_lex_yacc parsers. Per-lexer `set` shadows and
+   `Tokens.*` constructors remain inside each generated lexer's SML environment. *)
 
 theory Parser_Utils
   imports Main
 begin
 
-text\<open> Lexer position math, shared by every ml_lex_yacc parser. It corrects a char-vs-symbol drift in the
-\<open>Isabelle_Lex-Yacc\<close> AFP entry, whose \<open>get_pos\<close> indexes a per-symbol vector with the per-character
-\<open>yypos\<close>, so markup after a multi-char Isabelle-symbol escape drifts (D19; isabelle-lex-yacc-notes.md
-\<open>\<section>2\<close>). Each lexer keeps its own \<open>the_src\<close> ref and passes the source in. \<close>
+text\<open> The generated lexer reports character offsets, while Isabelle positions index symbols. Build one
+character-to-symbol map per source and use binary search for token positions. \<close>
 ML\<open>
 structure Parser_Lex_Util =
 struct
-  (* Symbols of the source with the two cartouche-delimiter markers dropped. *)
+  type position_map = {fallback : Position.T, spans : (int * Position.T) vector}
+
   fun inner_syms src =
     let val syms = Input.source_explode src
     in if length syms >= 2 then List.take (tl syms, length syms - 2) else syms end
 
-  (* Map a per-CHARACTER yypos to the Position.T of the containing Isabelle symbol. *)
-  fun fixed_pos src yypos =
+  fun make_position_map src =
     let
-      val syms = inner_syms src
-      val target = yypos - 1
-      fun go _ [] = Input.pos_of src
-        | go _ [(_, p)] = p
-        | go acc ((s, p) :: rest) = if target < acc + size s then p else go (acc + size s) rest
-    in
-      if null syms then Input.pos_of src
-      else if target < 0 then #2 (hd syms)
-      else go 0 syms
-    end
+      fun build _ [] = []
+        | build offset ((s, pos) :: rest) =
+            let val stop = offset + size s
+            in (stop, pos) :: build stop rest end
+    in {fallback = Input.pos_of src, spans = Vector.fromList (build 0 (inner_syms src))} end
 
-  (* Report colour + typing/sorting markup over [start, start+len) symbols. WARNING: the end must be
-     start_offset + len, NOT a second fixed_pos (yypos+len) -- that maps to the symbol FOLLOWING the
-     token, so the result depends on the trailing character (last char uncoloured, span shifting with
-     whitespace). ASCII tokens => symbol count = len. *)
-  fun report_fixed src (yypos, len, markup, typ, sort) =
+  fun fixed_pos ({fallback, spans} : position_map) yypos =
+    if Vector.length spans = 0 then fallback
+    else
+      let
+        val target = yypos - 1
+        val n = Vector.length spans
+        fun search lo hi =
+          if lo >= hi then lo
+          else
+            let val mid = (lo + hi) div 2
+            in if target < #1 (Vector.sub (spans, mid))
+               then search lo mid
+               else search (mid + 1) hi
+            end
+        val i = search 0 n
+      in #2 (Vector.sub (spans, Int.min (i, n - 1))) end
+
+  (* Derive the report end from the token length. Looking up yypos+len would select the next symbol. *)
+  fun report_fixed pos_map (yypos, len, markup, typ) =
     if 0 < len then
       let
-        val {line, offset, props, ...} = Position.dest (fixed_pos src yypos)
+        val {line, offset, props, ...} = Position.dest (fixed_pos pos_map yypos)
         val p = Position.make {line = line, offset = offset, end_offset = offset + len, props = props}
-      in Position.report p markup;
-         Position.report_text p Markup.typing typ;
-         Position.report_text p Markup.sorting sort
+      in
+        Position.report p markup;
+        Position.report_text p Markup.typing typ
       end
     else ()
 
-  (* Token builders; `cons` is the parser-specific Tokens constructor, so these stay language-agnostic.
-     tokF for value-less tokens, tok_valF for value-carrying ones. tok_valF deliberately passes the REAL
-     end position: Isabelle_Lex-Yacc's own tok_val passes the start for both ends, collapsing `Xright` to
-     `Xleft` and any span built from it (D29). *)
-  fun tokF src (yypos, yytext, markup, typ, sort, cons) =
-    (report_fixed src (yypos, size yytext, markup, typ, sort);
-     cons (fixed_pos src yypos, fixed_pos src (yypos + size yytext)))
+  fun tokF pos_map (yypos, yytext, markup, typ, cons) =
+    (report_fixed pos_map (yypos, size yytext, markup, typ);
+     cons (fixed_pos pos_map yypos, fixed_pos pos_map (yypos + size yytext)))
 
-  fun tok_valF src (yypos, yytext, markup, typ, sort, cons, value) =
-    (report_fixed src (yypos, size yytext, markup, typ, sort);
-     cons (value, fixed_pos src yypos, fixed_pos src (yypos + size yytext)))
+  (* Isabelle_Lex-Yacc's tok_val uses the start for both ends; preserve the real right position. *)
+  fun tok_valF pos_map (yypos, yytext, markup, typ, cons, value) =
+    (report_fixed pos_map (yypos, size yytext, markup, typ);
+     cons (value, fixed_pos pos_map yypos, fixed_pos pos_map (yypos + size yytext)))
 
-  (* Full-range identifier position with NO markup: the elaborator colours an identifier once it knows
-     its role (bound / const / free), so it emits exactly one correctly-ranged report (D14). *)
-  fun ident_pos src (yypos, yytext) =
-    let val {line, offset, props, ...} = Position.dest (fixed_pos src yypos)
+  fun ident_pos pos_map (yypos, yytext) =
+    let val {line, offset, props, ...} = Position.dest (fixed_pos pos_map yypos)
     in Position.make {line = line, offset = offset, end_offset = offset + size yytext, props = props} end
 end
 \<close>
@@ -78,13 +72,8 @@ ML\<open>
 structure Parser_Utils =
 struct
 
-(* Per-binder record in the elaboration env: the binder's source-named Free, its name position (the
-   click-to-def target), and a serial linking each use (ref) to that def. *)
 type var_info = { free : term, def_pos : Position.T, id : int }
 
-(* A bound name -- at its binder and at every use, including inside antiquotations -- is GREEN
-   (Markup.bound) and carries a def/ref entity pair for ctrl-click nav; same recipe as Isabelle's
-   calculation.ML. `kind` is the entity-kind string. *)
 fun report_def kind ctxt id (x, def_pos) =
   (Context_Position.report ctxt def_pos Markup.bound;
    Context_Position.report ctxt def_pos
@@ -95,9 +84,6 @@ fun report_ref kind ctxt id (x, def_pos) use_pos =
    Context_Position.report ctxt use_pos
      (Position.make_entity_markup {def = false} id kind (x, def_pos)))
 
-(* Register a NAMED binder occurrence: fresh serial, def markup, env entry; returns its Free and the
-   extended env. Every binding construct goes through this, so colour / nav / capture / antiquotation
-   handling is uniform and binder-generic. *)
 fun bind_var kind ctxt (env : var_info Symtab.table) (x, def_pos) =
   let
     val id   = serial ()
@@ -105,18 +91,11 @@ fun bind_var kind ctxt (env : var_info Symtab.table) (x, def_pos) =
     val free = Free (x, dummyT)
   in (free, Symtab.update (x, {free = free, def_pos = def_pos, id = id}) env) end
 
-(* ANONYMOUS binders (a `_` pattern, or one a desugaring invents) get NO name: build the abstraction
-   directly as `Abs`, with a `Bound` index at each reference. TRAP -- do not "improve" this into a fresh
-   INVENTED name: the enclosing uRust binders live in this env as source-named Frees, NOT in the proof
-   context, so any name-seeding scheme can pick one of them and silently capture (it did: D28). Nameless
-   makes capture structurally impossible. `Abs`'s name is a printing hint only (alpha-irrelevant, so
-   `refl` conformance is unaffected); Name.uu is Isabelle's own internal-anonymous convention. *)
+(* Do not represent anonymous binders with invented Frees: such a name can capture a source binder held
+   only in the elaboration environment. *)
 fun anon_abs body = Abs (Name.uu, dummyT, body)
 
-(* Colour every enclosing bound variable GREEN + click-to-def wherever it occurs in an antiquotation
-   body, at any depth. Syntax.parse_term gives the right term and full inner-HOL highlighting but paints
-   a captured variable blue (it parses the body in isolation); we overlay Markup.bound afterwards from
-   the body's OWN per-symbol positions, so it is the innermost markup and wins. Markup-only. *)
+(* Overlay binding markup after the HOL parser has marked the antiquotation body. *)
 fun mark_bound kind ctxt (env : var_info Symtab.table) src =
   let
     fun is_start c = Symbol.is_ascii_letter c orelse c = "_"
@@ -140,20 +119,14 @@ fun mark_bound kind ctxt (env : var_info Symtab.table) src =
           else go r
   in go (Input.source_explode src) end
 
-(* Parse an antiquotation body as a POSITIONED source (so the inner HOL is highlighted), then overlay the
-   bound-variable markup. Enclosing binder names are FIXED in the context before parsing: that reproduces
-   the frontend's single-context HOAS, where a binder shadows a same-named const / registered notation --
-   without it such a name promotes to that Const and the enclosing Term.lambda cannot capture it
-   (divergence D-3). Markup context stays the original ctxt. *)
+(* Fix enclosing binder names so they shadow same-named HOL constants while parsing. *)
 fun parse_antiq kind ctxt env src =
   let
     val ctxt' = Variable.add_fixes_direct (Symtab.keys env) ctxt
     val t = Syntax.parse_term ctxt' (Syntax.implode_input src)
   in mark_bound kind ctxt env src; t end
 
-(* ONE mutex for every ml_lex_yacc parser command. It MUST be shared, not per-parser: the
-   Isabelle_lex_yacc runtime holds GLOBAL refs set per parse, so concurrent parses in DIFFERENT generated
-   parsers would clobber each other. *)
+(* Generated parsers share mutable Isabelle_Lex-Yacc runtime state. *)
 val parser_lock = Synchronized.var "parser_lock" ()
 fun with_parser_lock (f : unit -> 'a) : 'a =
   Synchronized.change_result parser_lock (fn () => (f (), ()))

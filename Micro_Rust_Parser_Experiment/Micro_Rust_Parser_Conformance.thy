@@ -1,25 +1,6 @@
-(* Conformance of the custom µRust parser against the inner-syntax frontend.
-
-   For every implemented construct we `urust_expr NAME <src>` (defining a constant via the custom
-   parser: ml_lex_yacc URust grammar -> reified URust_AST -> URust_Translate -> shallow term, dummyT +
-   one check_term) and then prove `NAME = \<lbrakk> src \<rbrakk>` by `unfolding NAME_def by (rule refl)`.
-   Unfolding rewrites the goal to `<parser term> = <frontend golden term>`, which `refl` closes IFF the
-   two are ALPHA-EQUAL -- i.e. the kernel checks that the parser reproduces the frontend's `\<lbrakk> _ \<rbrakk>`
-   elaboration exactly. Conformance_Corpus.thy is the pristine oracle (its `undefined = \<lbrakk> src \<rbrakk> sorry`
-   stubs); rows whose `src` uses only implemented features are mirrored here as proved `refl` rows.
-
-   Coverage (each a section below): numeric / suffixed / unit literals; value + expression antiquotations;
-   bare identifiers (dispatch); sequencing / `let` / `const`; pure-value operators (arithmetic, bitwise,
-   comparison, boolean, unary) with antiquotation / let-bound / context-fixed operands, and precedence /
-   associativity probes; blocks; `if` / `else`; function calls; method calls; a cross-feature robustness
-   tier; and the "Known parser divergences" tier (recorded, not all proved -- per rule C2).
-
-   Definability note (R1): `urust_expr` DEFINES a constant, so a `src` leaving a free type variable
-   NOT in the result type (e.g. an unused polymorphic binder, or a call arg whose type is absorbed into a
-   polymorphic callee) cannot be `definition`'d cleanly -- `Local_Theory.define` reflects it as a spurious
-   `itself` argument and `refl` fails to type-check. The corpus dodges this (its `undefined` is fully
-   polymorphic). We pin such types (word widths, `\<llangle>_ :: T\<rrangle>` on arguments) so every row is a
-   clean named definition. *)
+(* Positive conformance against the inner-syntax frontend. Each `urust_expr` definition is unfolded and
+   proved alpha-equal to `\<lbrakk> src \<rbrakk>` by `refl`. Type annotations avoid hidden type variables
+   that `Local_Theory.define` cannot expose cleanly. *)
 
 theory Micro_Rust_Parser_Conformance
   imports Micro_Rust_Parser
@@ -35,6 +16,9 @@ lemma \<open> lit_1  = \<lbrakk> 1 \<rbrakk> \<close> unfolding lit_1_def  by (r
 
 urust_expr lit_42 \<open> 42 \<close>
 lemma \<open> lit_42 = \<lbrakk> 42 \<rbrakk> \<close> unfolding lit_42_def by (rule refl)
+
+urust_expr lit_hex \<open> 0xff \<close>
+lemma \<open> lit_hex = \<lbrakk> 0xff \<rbrakk> \<close> unfolding lit_hex_def by (rule refl)
 
 
 section\<open> Suffixed integer literals (Corpus PART I, "Numeric Ascriptions") \<close>
@@ -121,12 +105,25 @@ text\<open> Passthrough (no \<open>literal\<close> wrapper): the body already de
 urust_expr lit_eaq_true \<open> \<epsilon>\<open>Bool_Type.true\<close> \<close>
 lemma \<open> lit_eaq_true = \<lbrakk> \<epsilon>\<open>Bool_Type.true\<close> \<rbrakk> \<close> unfolding lit_eaq_true_def by (rule refl)
 
+urust_expr aq_nested_value
+  \<open> \<llangle> \<lbrakk> \<llangle>1 :: nat\<rrangle> \<rbrakk> \<rrangle> \<close>
+lemma \<open> aq_nested_value =
+    \<lbrakk> \<llangle> \<lbrakk> \<llangle>1 :: nat\<rrangle> \<rbrakk> \<rrangle> \<rbrakk> \<close>
+  unfolding aq_nested_value_def by (rule refl)
+
+urust_expr aq_nested_expr
+  \<open> \<epsilon>\<open> \<lbrakk> \<epsilon>\<open>\<up>(1 :: nat)\<close> \<rbrakk> \<close> \<close>
+lemma \<open> aq_nested_expr =
+    \<lbrakk> \<epsilon>\<open> \<lbrakk> \<epsilon>\<open>\<up>(1 :: nat)\<close> \<rbrakk> \<close> \<rbrakk> \<close>
+  unfolding aq_nested_expr_def by (rule refl)
+
 
 section\<open> Bare identifiers at value position (dispatch reuse) \<close>
 
-text\<open> Unregistered HOL constants: the parser emits a bare \<open>Free name\<close>, which \<open>check_term\<close> promotes to
-the corresponding \<open>Const\<close> (exactly as the frontend's \<open>lookup_id_tr\<close> fallback does). Rows True / False /
-None mirror Corpus PART I "Boolean Literals" / "Option and Result". \<close>
+text\<open>
+For unregistered HOL constants, \<open>check_term\<close> promotes the parser's bare
+\<open>Free\<close> to the same \<open>Const\<close> as the frontend fallback.
+\<close>
 
 urust_expr lit_true  \<open> True \<close>
 lemma \<open> lit_true  = \<lbrakk> True \<rbrakk> \<close> unfolding lit_true_def  by (rule refl)
@@ -145,9 +142,9 @@ urust_expr lit_ctx \<open> foo \<close>
 lemma \<open> lit_ctx = \<lbrakk> foo \<rbrakk> \<close> unfolding lit_ctx_def by (rule refl)
 end
 
-text\<open> A registered \<open>micro_rust_notation\<close>: the parser emits a \<open>urust_dispatch\<close> marker that the
-globally-installed \<open>term_check\<close> phases resolve to the registered backend -- the dispatch path,
-reproduced without reimplementing dispatch. \<close>
+text\<open>
+Registered names use the existing \<open>urust_dispatch\<close> term-check phase.
+\<close>
 definition my_backend :: nat where \<open> my_backend \<equiv> 7 \<close>
 micro_rust_notation (literal) my_backend ("myReg")
 
@@ -157,8 +154,10 @@ lemma \<open> lit_reg = \<lbrakk> myReg \<rbrakk> \<close> unfolding lit_reg_def
 
 section\<open> Sequencing, `let` and `const` bindings \<close>
 
-text\<open> Sequencing (Corpus PART I "Sequencing"): \<open>e1; e2\<close> -> \<open>sequence e1 e2\<close>; a trailing \<open>;\<close> ->
-\<open>sequence e skip\<close> (\<open>skip = literal ()\<close>). \<close>
+text\<open>
+\<open>e1; e2\<close> lowers to \<open>sequence e1 e2\<close>; a trailing semicolon
+sequences with \<open>skip = literal ()\<close>.
+\<close>
 
 urust_expr seq_unit \<open> (); () \<close>
 lemma \<open> seq_unit = \<lbrakk> (); () \<rbrakk> \<close> unfolding seq_unit_def by (rule refl)
@@ -166,8 +165,10 @@ lemma \<open> seq_unit = \<lbrakk> (); () \<rbrakk> \<close> unfolding seq_unit_
 urust_expr seq_trailing \<open> (); (); \<close>
 lemma \<open> seq_trailing = \<lbrakk> (); (); \<rbrakk> \<close> unfolding seq_trailing_def by (rule refl)
 
-text\<open> Plain immutable \<open>let x = e; k\<close> -> \<open>bind e (\<lambda>x. k)\<close> (HOAS); a bound-variable use in the body is
-captured by the enclosing binder. An UNUSED binder's type is pinned via \<open>\<llangle>_ :: nat\<rrangle>\<close> (R1). \<close>
+text\<open>
+\<open>let x = e; k\<close> lowers to HOAS \<open>bind e (\<lambda>x. k)\<close>.
+Unused binders need a type pin (R1).
+\<close>
 
 urust_expr let_use \<open> let x = 5; x \<close>
 lemma \<open> let_use = \<lbrakk> let x = 5; x \<rbrakk> \<close> unfolding let_use_def by (rule refl)
@@ -180,8 +181,10 @@ text\<open> \<open>const x = e; k\<close> desugars byte-for-byte as \<open>let\<
 urust_expr const_foo \<open> const FOO = \<llangle>5 :: nat\<rrangle>; () \<close>
 lemma \<open> const_foo = \<lbrakk> const FOO = \<llangle>5 :: nat\<rrangle>; () \<rbrakk> \<close> unfolding const_foo_def by (rule refl)
 
-text\<open> Antiquotation capture under \<open>let\<close>: the HOL \<open>x\<close> inside \<open>\<llangle>x\<rrangle>\<close> is captured by the enclosing
-binder (\<open>Term.lambda\<close> over \<open>Free x\<close>), both as a bare \<open>\<llangle>x\<rrangle>\<close> and buried in a larger body. \<close>
+text\<open>
+An enclosing \<open>let\<close> captures \<open>x\<close> inside both direct and nested
+antiquotations.
+\<close>
 
 urust_expr let_cap \<open> let x = \<llangle>5 :: nat\<rrangle>; \<llangle>x\<rrangle> \<close>
 lemma \<open> let_cap = \<lbrakk> let x = \<llangle>5 :: nat\<rrangle>; \<llangle>x\<rrangle> \<rbrakk> \<close> unfolding let_cap_def by (rule refl)
@@ -189,31 +192,28 @@ lemma \<open> let_cap = \<lbrakk> let x = \<llangle>5 :: nat\<rrangle>; \<llangl
 urust_expr let_cap_deep \<open> let x = \<llangle>5 :: nat\<rrangle>; \<llangle>x + 1\<rrangle> \<close>
 lemma \<open> let_cap_deep = \<lbrakk> let x = \<llangle>5 :: nat\<rrangle>; \<llangle>x + 1\<rrangle> \<rbrakk> \<close> unfolding let_cap_deep_def by (rule refl)
 
-text\<open> \<open>let _ = e; k\<close> -- the binder position is the SHARED pattern nonterminal, so \<open>_\<close> is a genuine
-wildcard here (an anonymous, hygienically-named lambda) rather than a variable literally named \<open>_\<close>. \<close>
+text\<open>
+In the shared pattern grammar, \<open>let _\<close> creates an anonymous hygienic lambda,
+not a variable named \<open>_\<close>.
+\<close>
 
 urust_expr let_wild \<open> let _ = \<llangle>5 :: nat\<rrangle>; () \<close>
 lemma \<open> let_wild = \<lbrakk> let _ = \<llangle>5 :: nat\<rrangle>; () \<rbrakk> \<close> unfolding let_wild_def by (rule refl)
 
-text\<open> ... and it cannot capture an enclosing binder either (the anonymous lambda is built as \<open>Abs\<close> +
-\<open>Bound\<close>, so there is no name to collide with \<open>uu\<close> below). \<close>
+text\<open> Its \<open>Abs\<close>/\<open>Bound\<close> representation cannot capture an outer binder. \<close>
 urust_expr let_wild_hyg \<open> let uu = \<llangle>5 :: nat\<rrangle>; let _ = \<llangle>7 :: nat\<rrangle>; uu \<close>
 lemma \<open> let_wild_hyg = \<lbrakk> let uu = \<llangle>5 :: nat\<rrangle>; let _ = \<llangle>7 :: nat\<rrangle>; uu \<rbrakk> \<close>
   unfolding let_wild_hyg_def by (rule refl)
 
-text\<open> A REFUTABLE pattern in a \<open>let\<close> is rejected by BOTH (so not a divergence), but the shared pattern
-grammar turns the parser's rejection from a bare "syntax error" into a positioned elaborator message:
-\<open>let Some(y) = \<llangle>Some (5::nat)\<rrangle>; y\<close> and \<open>let 1 = \<llangle>5::nat\<rrangle>; ()\<close> now parse and report
-"refutable pattern in an irrefutable (let/const) binder position" at the pattern. Checked out-of-band (an
-error, not a \<open>refl\<close> row) -- as with the \<open>a == b == c\<close> and D-1 rejections. Likewise a BINDING pattern under
-\<open>match_switch\<close> (e.g. \<open>Some(y)\<close>) and a NUMERAL pattern under \<open>match_case\<close> are now positioned elaborator
-errors naming the flavour, instead of parse errors. \<close>
+text\<open> Refutable \<open>let\<close> patterns and patterns unsupported by a selected match lowering have positioned
+rows in \<open>Micro_Rust_Parser_Negative_Conformance.thy\<close>. \<close>
 
 
 section\<open> Pure-value operators (Corpus PART I: Arithmetic / Bitwise / Comparison / Boolean) \<close>
 
-text\<open> Each \<open>a <op> b\<close> -> the frontend's operator const applied to the two elaborated operands. Word
-operands are pinned via value antiquotations (no unused binders, so no type pins needed). \<close>
+text\<open>
+Binary operators lower to the frontend constants; value antiquotations pin word types.
+\<close>
 
 subsection\<open> Arithmetic \<close>
 
@@ -391,16 +391,13 @@ urust_expr ext_not_nested \<open> !(!x == x^y) \<close>
 lemma \<open> ext_not_nested = \<lbrakk> !(!x == x^y) \<rbrakk> \<close> unfolding ext_not_nested_def by (rule refl)
 end
 
-subsection\<open> Operator precedence and associativity probes (grouping = frontend, kernel-checked) \<close>
+subsection\<open> Precedence and associativity \<close>
 
-text\<open> Each row proves the new parser groups a MIXED-operator expression IDENTICALLY to the frontend
-(the oracle). Together they pin every adjacent precedence tier and each associativity, against the
-frontend fixities (Micro_Rust_Syntax.thy:543-603):
-  \<open>|| (infixl 42)\<close> < \<open>&& (43)\<close> < \<open>== != < <= > >= (infix 44, NON-assoc)\<close> < \<open>| (45)\<close> < \<open>^ (46)\<close> <
-  \<open>& (47)\<close> < \<open><< >> (48)\<close> < \<open>+ - (49)\<close> < \<open>* / % (50)\<close>; prefix \<open>!\<close> (300) tighter than all binary.
-Comparison non-associativity (\<open>a == b == c\<close>) is rejected by BOTH (a parse error), so it is checked
-out-of-band, not as a refl row. \<open>op_add3\<close>/\<open>op_precmul\<close>/\<open>op_prec\<close> above cover \<open>+\<close>-assoc / \<open>*\<close>>\<open>+\<close> /
-\<open>&&\<close>>\<open>||\<close>. \<close>
+text\<open>
+Rows cover every adjacent frontend precedence tier, from \<open>||\<close> (42) through
+\<open>* / %\<close> (50); prefix \<open>!\<close> is tightest. The negative harness covers
+non-associative comparisons.
+\<close>
 
 urust_expr prec_sub_assoc \<open> \<llangle>9 :: 32 word\<rrangle> - \<llangle>3 :: 32 word\<rrangle> - \<llangle>2 :: 32 word\<rrangle> \<close>
 lemma \<open> prec_sub_assoc = \<lbrakk> \<llangle>9 :: 32 word\<rrangle> - \<llangle>3 :: 32 word\<rrangle> - \<llangle>2 :: 32 word\<rrangle> \<rbrakk> \<close> unfolding prec_sub_assoc_def by (rule refl)
@@ -444,9 +441,11 @@ lemma \<open> prec_not_cmp = \<lbrakk> !\<llangle>True\<rrangle> == \<llangle>Fa
 
 section\<open> Block expressions (Corpus "Scoping and Block Expressions") \<close>
 
-text\<open> Blocks ERASE: the frontend \<open>_urust_scoping\<close> is the identity (SE:360-362), so \<open>{ e }\<close> elaborates
-to exactly \<open>\<lbrakk> e \<rbrakk>\<close> -- no \<open>scoped\<close> wrapper. Statements inside sequence via \<open>;\<close>. Blocks (frontend
-priority 1000) are valid operator operands (AGREE). \<close>
+text\<open>
+Because frontend \<open>_urust_scoping\<close> is the identity (SE:360-362), blocks
+erase without a \<open>scoped\<close> wrapper. Their statements sequence with semicolons,
+and blocks may be operator operands.
+\<close>
 
 urust_expr blk_lit \<open> { \<llangle>1 :: nat\<rrangle> } \<close>
 lemma \<open> blk_lit = \<lbrakk> { \<llangle>1 :: nat\<rrangle> } \<rbrakk> \<close> unfolding blk_lit_def by (rule refl)
@@ -481,11 +480,11 @@ lemma \<open> ext_not_blk = \<lbrakk> !{ \<llangle>True\<rrangle> } \<rbrakk> \<
 
 section\<open> \<open>if\<close> / \<open>else\<close> (Corpus "Control Flow - Conditionals") \<close>
 
-text\<open> \<open>if c { t } else { e }\<close> -> \<open>two_armed_conditional \<lbrakk>c\<rbrakk> \<lbrakk>t\<rbrakk> \<lbrakk>e\<rbrakk>\<close> (Bool_Type.thy:30-35, via
-SE:364-365). One-armed \<open>if c { t }\<close> fills the missing else with \<open>skip = literal ()\<close> (NOT the
-\<open>one_armed_conditional\<close> const); since \<open>two_armed_conditional\<close> needs both arms at the SAME value type and
-the implicit else is unit-typed, a no-\<open>else\<close> \<open>if\<close> is only well-typed with a UNIT then-branch -- exactly
-Rust's rule. else-if desugars to a nested \<open>if\<close> (SYN:661-662). \<close>
+text\<open>
+Two-armed \<open>if\<close> lowers to \<open>two_armed_conditional\<close>. A missing else becomes
+\<open>skip\<close>, so the then-branch must be unit-typed. Else-if nests another
+\<open>if\<close> (SE:364-365; SYN:661-662).
+\<close>
 
 urust_expr if_two \<open> if \<llangle>True\<rrangle> { \<llangle>1 :: nat\<rrangle> } else { \<llangle>2 :: nat\<rrangle> } \<close>
 lemma \<open> if_two = \<lbrakk> if \<llangle>True\<rrangle> { \<llangle>1 :: nat\<rrangle> } else { \<llangle>2 :: nat\<rrangle> } \<rbrakk> \<close> unfolding if_two_def by (rule refl)
@@ -508,8 +507,9 @@ lemma \<open> ext_elif_word = \<lbrakk> if False { \<llangle>0 :: 32 word\<rrang
 urust_expr ext_elif3 \<open> if False { \<llangle>0 :: 32 word\<rrangle> } else if False { \<llangle>1 :: 32 word\<rrangle> } else if True { \<llangle>2 :: 32 word\<rrangle> } else { \<llangle>3 :: 32 word\<rrangle> } \<close>
 lemma \<open> ext_elif3 = \<lbrakk> if False { \<llangle>0 :: 32 word\<rrangle> } else if False { \<llangle>1 :: 32 word\<rrangle> } else if True { \<llangle>2 :: 32 word\<rrangle> } else { \<llangle>3 :: 32 word\<rrangle> } \<rbrakk> \<close> unfolding ext_elif3_def by (rule refl)
 
-text\<open> Condition is an arbitrary expression (comparison / parenthesized boolean / an \<open>if\<close>-expression);
-nested \<open>if\<close> in a branch; deep block branch; \<open>if\<close> as a \<open>let\<close>-RHS; \<open>if\<close> sequenced inside a block. \<close>
+text\<open>
+Rows cover compound conditions, nested branches, deep blocks, let RHSs, and sequencing.
+\<close>
 
 urust_expr if_cmp \<open> if \<llangle>1 :: 32 word\<rrangle> == \<llangle>2 :: 32 word\<rrangle> { () } else { () } \<close>
 lemma \<open> if_cmp = \<lbrakk> if \<llangle>1 :: 32 word\<rrangle> == \<llangle>2 :: 32 word\<rrangle> { () } else { () } \<rbrakk> \<close> unfolding if_cmp_def by (rule refl)
@@ -535,11 +535,11 @@ lemma \<open> ext_seq_if = \<lbrakk> { if \<llangle>True\<rrangle> { () } else {
 
 section\<open> Function calls (Corpus "Functions", "Option and Result") \<close>
 
-text\<open> \<open>f(a0, ..., a{N-1})\<close> -> \<open>funcallN f \<lbrakk>a0\<rbrakk> ... \<lbrakk>a{N-1}\<rbrakk>\<close> (Core_Syntax.thy:503-587). The callee
-resolves in the NFunction (\<open>call\<close>) dispatch context and is NOT \<open>literal\<close>-wrapped; arguments are ordinary
-value expressions (so nested calls fall out of the recursion). To keep the emitted \<open>definition\<close>
-well-formed (R1), callee value types are concrete (\<open>64 word\<close>) and arguments are pinned. Concrete callees
-are built with \<open>lift_funN\<close> (Core_Expression.thy:404-445), the idiom the corpus uses. \<close>
+text\<open>
+Calls lower to \<open>funcallN\<close>; callees resolve in NFunction context without a
+\<open>literal\<close> wrapper, and arguments are ordinary value expressions. Fixtures use
+concrete \<open>64 word\<close> types and \<open>lift_funN\<close> to satisfy R1.
+\<close>
 
 definition cf0 :: \<open>(unit, 64 word, unit, unit, unit) function_body\<close>
   where \<open> cf0 \<equiv> lift_fun0 0 \<close>
@@ -554,9 +554,10 @@ definition cf4 :: \<open>64 word \<Rightarrow> 64 word \<Rightarrow> 64 word \<R
 definition cf5 :: \<open>64 word \<Rightarrow> 64 word \<Rightarrow> 64 word \<Rightarrow> 64 word \<Rightarrow> 64 word \<Rightarrow> (unit, 64 word, unit, unit, unit) function_body\<close>
   where \<open> cf5 \<equiv> lift_fun5 (\<lambda>a b c d e. a + b + c + d + e) \<close>
 
-text\<open> Arity 0..5, unregistered global-constant callee: both the parser (NFunction lookup miss ->
-\<open>Syntax.parse_term\<close>) and the frontend (\<open>lookup_id_tr\<close> miss -> bare \<open>Free\<close> promoted by \<open>decode_term\<close>)
-resolve the bare name to the SAME \<open>Const\<close>. \<close>
+text\<open>
+For unregistered global callees, parser and frontend fallbacks resolve the same
+\<open>Const\<close>. Rows cover arities 0 through 5 and 14.
+\<close>
 urust_expr call0 \<open> cf0() \<close>
 lemma \<open> call0 = \<lbrakk> cf0() \<rbrakk> \<close> unfolding call0_def by (rule refl)
 
@@ -575,13 +576,25 @@ lemma \<open> call4 = \<lbrakk> cf4(\<llangle>1 :: 64 word\<rrangle>, \<llangle>
 urust_expr call5 \<open> cf5(\<llangle>1 :: 64 word\<rrangle>, \<llangle>2 :: 64 word\<rrangle>, \<llangle>3 :: 64 word\<rrangle>, \<llangle>4 :: 64 word\<rrangle>, \<llangle>5 :: 64 word\<rrangle>) \<close>
 lemma \<open> call5 = \<lbrakk> cf5(\<llangle>1 :: 64 word\<rrangle>, \<llangle>2 :: 64 word\<rrangle>, \<llangle>3 :: 64 word\<rrangle>, \<llangle>4 :: 64 word\<rrangle>, \<llangle>5 :: 64 word\<rrangle>) \<rbrakk> \<close> unfolding call5_def by (rule refl)
 
+context
+  fixes cf14 :: \<open>
+    nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow>
+    nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow>
+    (unit, nat, unit, unit, unit) function_body \<close>
+begin
+urust_expr call14 \<open> cf14(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13) \<close>
+lemma \<open> call14 = \<lbrakk> cf14(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13) \<rbrakk> \<close>
+  unfolding call14_def by (rule refl)
+end
+
 text\<open> Nested call \<open>f(g(c), b)\<close>: the inner call is an ordinary argument expression. \<close>
 urust_expr call_nested \<open> cf2(cf1(\<llangle>1 :: 64 word\<rrangle>), \<llangle>2 :: 64 word\<rrangle>) \<close>
 lemma \<open> call_nested = \<lbrakk> cf2(cf1(\<llangle>1 :: 64 word\<rrangle>), \<llangle>2 :: 64 word\<rrangle>) \<rbrakk> \<close> unfolding call_nested_def by (rule refl)
 
-text\<open> Registered \<open>(call)\<close>-notation callees: the parser emits a \<open>urust_dispatch\<close> NFunction marker resolved
-by the installed \<open>term_check\<close> phases -- the \<open>myReg\<close> dispatch path, in call context. Both a locally
-registered notation and the std-library \<open>Some\<close> / \<open>Ok\<close> / \<open>Err\<close> constructors (\<open>lift_fun1\<close> notations). \<close>
+text\<open>
+Registered callees use NFunction dispatch. Rows cover a local notation and the
+\<open>Some\<close>, \<open>Ok\<close>, and \<open>Err\<close> call notations.
+\<close>
 micro_rust_notation (call) cf1 ("regCall")
 urust_expr call_reg \<open> regCall(\<llangle>3 :: 64 word\<rrangle>) \<close>
 lemma \<open> call_reg = \<lbrakk> regCall(\<llangle>3 :: 64 word\<rrangle>) \<rbrakk> \<close> unfolding call_reg_def by (rule refl)
@@ -595,14 +608,16 @@ lemma \<open> call_ok = \<lbrakk> Ok(\<llangle>42 :: nat\<rrangle>) \<rbrakk> \<
 urust_expr call_err \<open> Err(\<llangle>42 :: nat\<rrangle>) \<close>
 lemma \<open> call_err = \<lbrakk> Err(\<llangle>42 :: nat\<rrangle>) \<rbrakk> \<close> unfolding call_err_def by (rule refl)
 
-text\<open> A \<open>let\<close>-bound callee: lexical scope wins (env \<open>Free\<close>, no dispatch, no \<open>literal\<close> wrapper), matching
-the frontend's witness-precedence for a bound name in call position. \<close>
+text\<open>
+A let-bound callee uses lexical scope without dispatch or a \<open>literal\<close> wrapper.
+\<close>
 urust_expr call_letbound \<open> let h = \<llangle>cf1\<rrangle>; h(\<llangle>4 :: 64 word\<rrangle>) \<close>
 lemma \<open> call_letbound = \<lbrakk> let h = \<llangle>cf1\<rrangle>; h(\<llangle>4 :: 64 word\<rrangle>) \<rbrakk> \<close> unfolding call_letbound_def by (rule refl)
 
-text\<open> Context-fixed callees (function-typed frees): stay a \<open>Free\<close> on both sides (the
-\<open>Syntax.parse_term\<close> / \<open>lookup_free\<close> fallback). A \<open>64 word\<close> callee; and (Corpus PART I "Unit Literal")
-callees applied to unit / boolean literal arguments. \<close>
+text\<open>
+Context-fixed, function-typed callees remain \<open>Free\<close>. Rows cover word, unit,
+and boolean arguments.
+\<close>
 context fixes g :: \<open>64 word \<Rightarrow> (unit, 64 word, unit, unit, unit) function_body\<close>
 begin
 urust_expr call_ctx \<open> g(\<llangle>5 :: 64 word\<rrangle>) \<close>
@@ -623,10 +638,11 @@ end
 
 section\<open> Method calls (Corpus "Method-Style Calls") \<close>
 
-text\<open> \<open>recv.m(args)\<close> desugars to a plain call to the method name \<open>m\<close> (NFunction context) with the
-RECEIVER PREPENDED as the first argument (SE:380-381, 416-417): \<open>x.m(a) = funcall2 m \<up>x \<up>a\<close>,
-\<open>x.m() = funcall1 m \<up>x\<close>. Reuses \<open>cf1\<close> / \<open>cf2\<close> as method backends. Method access binds tighter than
-operators. Field access \<open>x.f\<close> (no parens) is a DIFFERENT construct (NField/lens), deferred (see D-6). \<close>
+text\<open>
+Method syntax prepends the receiver to a plain NFunction call (SE:380-381,
+416-417). It binds tighter than operators. Bare field access is a separate deferred
+NField/lens construct (D-6).
+\<close>
 
 urust_expr mcall0 \<open> \<llangle>5 :: 64 word\<rrangle>.cf1() \<close>
 lemma \<open> mcall0 = \<lbrakk> \<llangle>5 :: 64 word\<rrangle>.cf1() \<rbrakk> \<close> unfolding mcall0_def by (rule refl)
@@ -634,8 +650,7 @@ lemma \<open> mcall0 = \<lbrakk> \<llangle>5 :: 64 word\<rrangle>.cf1() \<rbrakk
 urust_expr mcall1 \<open> \<llangle>1 :: 64 word\<rrangle>.cf2(\<llangle>2 :: 64 word\<rrangle>) \<close>
 lemma \<open> mcall1 = \<lbrakk> \<llangle>1 :: 64 word\<rrangle>.cf2(\<llangle>2 :: 64 word\<rrangle>) \<rbrakk> \<close> unfolding mcall1_def by (rule refl)
 
-text\<open> Method on a call result (receiver is itself a call), a method chain \<open>x.m().n()\<close>, and precedence
-(\<open>.\<close> binds tighter than \<open>+\<close>). \<close>
+text\<open> Rows cover call-result receivers, method chains, and operator precedence. \<close>
 urust_expr mcall_on_call \<open> cf1(\<llangle>1 :: 64 word\<rrangle>).cf1() \<close>
 lemma \<open> mcall_on_call = \<lbrakk> cf1(\<llangle>1 :: 64 word\<rrangle>).cf1() \<rbrakk> \<close> unfolding mcall_on_call_def by (rule refl)
 
@@ -645,8 +660,7 @@ lemma \<open> mcall_chain = \<lbrakk> \<llangle>5 :: 64 word\<rrangle>.cf1().cf1
 urust_expr mcall_operand \<open> \<llangle>1 :: 64 word\<rrangle>.cf1() + \<llangle>2 :: 64 word\<rrangle> \<close>
 lemma \<open> mcall_operand = \<lbrakk> \<llangle>1 :: 64 word\<rrangle>.cf1() + \<llangle>2 :: 64 word\<rrangle> \<rbrakk> \<close> unfolding mcall_operand_def by (rule refl)
 
-text\<open> Context-fixed method name + receiver (Corpus PART I "Equality"): arity-0 method, and a method call
-in an \<open>if\<close> condition compared with \<open>==\<close>. \<close>
+text\<open> Context-fixed methods are tested alone and in an equality condition. \<close>
 context fixes m n :: \<open>nat\<close> and h :: \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
 begin
 urust_expr mcall_ctx \<open> m.h() \<close>
@@ -659,12 +673,10 @@ end
 
 section\<open> Cross-feature robustness (calls / methods x operators / control-flow / binders) \<close>
 
-text\<open> Deeper combinations of the implemented tiers, all \<open>refl\<close> against the frontend golden. These stress
-the interaction points most likely to hide a bug: operator precedence with call/method operands (calls at
-result-priority 999 / methods at 1000 ARE valid operator operands -- unlike \<open>if\<close>, D-1), binder CAPTURE
-inside call/method arguments and receivers (the elaborator must thread \<open>ctxt env\<close> through every arg), and
-deep argument nesting. Callees are the concrete \<open>cf0\<close> / \<open>cf1\<close> / \<open>cf2\<close> above; argument value types are
-pinned (R1). \<close>
+text\<open>
+Cross-feature rows stress call/method precedence, binder capture in arguments and
+receivers, and deep nesting. Concrete callees and pinned arguments satisfy R1.
+\<close>
 
 subsection\<open> Calls as / with operators (precedence) \<close>
 
@@ -727,12 +739,11 @@ lemma \<open> rc_m_prec = \<lbrakk> \<llangle>1 :: 64 word\<rrangle>.cf1() + \<l
 
 section\<open> Match \<open>match_switch\<close> (Corpus "Match Expressions" -- numeric/wildcard, first-order) \<close>
 
-text\<open> \<open>match_switch scrut { k ⇒ e, …, _ ⇒ e }\<close> -> \<open>bind \<lbrakk>scrut\<rbrakk> (ncase_selector [(Some k, \<lbrakk>e\<rbrakk>), …,
-(None, \<lbrakk>e\<rbrakk>)])\<close> (D26; SE:829-830, Core_Syntax.thy:655-685, Num_Case_Expression.thy). A numeral key ->
-\<open>Some\<close>, \<open>_\<close> -> \<open>None\<close>; an or-pattern's alternatives each get their own pair with the same body. NO binders
-(first-order). \<open>match_switch\<close> is a with-block form (joins \<open>uval\<close>, not a bare operand). Scope: the
-\<open>match_switch\<close> keyword only + numeral/`_`/or-patterns; the bare \<open>match\<close> keyword (switch-vs-case
-disambiguation), const-id/path keys, and \<open>match_case\<close> binding patterns are the next increment. \<close>
+text\<open>
+\<open>match_switch\<close> binds the scrutinee into \<open>ncase_selector\<close> (D26).
+Numerals become \<open>Some\<close> keys, wildcard becomes \<open>None\<close>, and or-patterns
+duplicate the key/body pair. It is first-order; constant and path keys remain deferred.
+\<close>
 
 urust_expr msw_lit \<open> match_switch \<llangle>1 :: nat\<rrangle> { 1 \<Rightarrow> \<llangle>True\<rrangle>, _ \<Rightarrow> \<llangle>False\<rrangle> } \<close>
 lemma \<open> msw_lit = \<lbrakk> match_switch \<llangle>1 :: nat\<rrangle> { 1 \<Rightarrow> \<llangle>True\<rrangle>, _ \<Rightarrow> \<llangle>False\<rrangle> } \<rbrakk> \<close>
@@ -746,13 +757,19 @@ urust_expr msw_multi \<open> match_switch n { 0 \<Rightarrow> \<llangle>False\<r
 lemma \<open> msw_multi = \<lbrakk> match_switch n { 0 \<Rightarrow> \<llangle>False\<rrangle>, 1 \<Rightarrow> \<llangle>True\<rrangle>, 2 \<Rightarrow> \<llangle>False\<rrangle>, _ \<Rightarrow> \<llangle>True\<rrangle> } \<rbrakk> \<close>
   unfolding msw_multi_def by (rule refl)
 
+urust_expr msw_hex \<open> match_switch n { 0xff \<Rightarrow> \<llangle>True\<rrangle>, _ \<Rightarrow> \<llangle>False\<rrangle> } \<close>
+lemma \<open> msw_hex = \<lbrakk> match_switch n { 0xff \<Rightarrow> \<llangle>True\<rrangle>, _ \<Rightarrow> \<llangle>False\<rrangle> } \<rbrakk> \<close>
+  unfolding msw_hex_def by (rule refl)
+
 text\<open> Or-pattern: \<open>1 | 2 | 3\<close> expands to three \<open>(Some _, body)\<close> pairs sharing the arm body. \<close>
 urust_expr msw_or \<open> match_switch n { 1 | 2 | 3 \<Rightarrow> \<llangle>True\<rrangle>, _ \<Rightarrow> \<llangle>False\<rrangle> } \<close>
 lemma \<open> msw_or = \<lbrakk> match_switch n { 1 | 2 | 3 \<Rightarrow> \<llangle>True\<rrangle>, _ \<Rightarrow> \<llangle>False\<rrangle> } \<rbrakk> \<close>
   unfolding msw_or_def by (rule refl)
 
-text\<open> As a value (let-RHS) and as a `;`-terminated statement. (Unlike `{}`/`if`, the `match_switch`
-keyword has NO no-`;` sequencing in the frontend, so a match_switch statement needs the `;`.) \<close>
+text\<open>
+Rows cover a let RHS and statement position, where explicit \<open>match_switch\<close>
+requires a semicolon.
+\<close>
 urust_expr msw_let \<open> let r = match_switch n { 0 \<Rightarrow> \<llangle>True\<rrangle>, _ \<Rightarrow> \<llangle>False\<rrangle> }; r \<close>
 lemma \<open> msw_let = \<lbrakk> let r = match_switch n { 0 \<Rightarrow> \<llangle>True\<rrangle>, _ \<Rightarrow> \<llangle>False\<rrangle> }; r \<rbrakk> \<close>
   unfolding msw_let_def by (rule refl)
@@ -765,13 +782,12 @@ end
 
 section\<open> Match \<open>match_case\<close> (Corpus "Match Expressions" -- binding patterns, D27) \<close>
 
-text\<open> \<open>match_case scrut { pat \<Rightarrow> e, ... }\<close> -> \<open>bind \<lbrakk>scrut\<rbrakk> (\<lambda>anon. case_guard True anon
-(case_cons B1 ... (case_cons Bn case_nil)))\<close>, each arm \<open>Bi\<close> the Ctr_Sugar case skeleton
-(\<open>case_abs\<close>/\<open>case_elem\<close>) which \<open>Case_Translation\<close> folds to \<open>case_\<langle>T\<rangle>\<close> at check_term -- so the elaborated
-term is \<alpha>-equal to the frontend golden (D27). Tier-0 patterns: wildcard \<open>_\<close>, variable binder, nullary
-constructor, and single-level constructor \<open>C(args)\<close> with binder / \<open>_\<close> args. Deferred to later increments:
-the bare \<open>match\<close> keyword (switch-vs-case disambiguation), guards, disjunction, and nested / literal /
-struct / slice patterns. \<close>
+text\<open>
+\<open>match_case\<close> builds the Ctr_Sugar skeleton that \<open>Case_Translation\<close>
+folds to the frontend term (D27). Tier 0 supports wildcard, variable, nullary
+constructor, and single-level constructor patterns with variable or wildcard arguments.
+Guards, disjunction, and richer patterns remain deferred.
+\<close>
 
 datatype pair2 = P2 nat nat   \<comment>\<open> a 2-ary constructor, to exercise the multi-binder (leftmost-outermost) arm path \<close>
 
@@ -803,6 +819,24 @@ urust_expr mc_pair \<open> match_case p { P2(a, b) \<Rightarrow> a } \<close>
 lemma \<open> mc_pair = \<lbrakk> match_case p { P2(a, b) \<Rightarrow> a } \<rbrakk> \<close>
   unfolding mc_pair_def by (rule refl)
 
+urust_expr mc_var \<open> match_case x { y \<Rightarrow> y } \<close>
+lemma \<open> mc_var = \<lbrakk> match_case x { y \<Rightarrow> y } \<rbrakk> \<close>
+  unfolding mc_var_def by (rule refl)
+
+urust_expr mc_pair_left \<open> match_case p { P2(a, _) \<Rightarrow> a } \<close>
+lemma \<open> mc_pair_left = \<lbrakk> match_case p { P2(a, _) \<Rightarrow> a } \<rbrakk> \<close>
+  unfolding mc_pair_left_def by (rule refl)
+
+urust_expr mc_pair_right \<open> match_case p { P2(_, b) \<Rightarrow> b } \<close>
+lemma \<open> mc_pair_right = \<lbrakk> match_case p { P2(_, b) \<Rightarrow> b } \<rbrakk> \<close>
+  unfolding mc_pair_right_def by (rule refl)
+
+urust_expr mc_shadow
+  \<open> let y = \<llangle>7 :: nat\<rrangle>; match_case x { Some(y) \<Rightarrow> y, None \<Rightarrow> y } \<close>
+lemma \<open> mc_shadow =
+    \<lbrakk> let y = \<llangle>7 :: nat\<rrangle>; match_case x { Some(y) \<Rightarrow> y, None \<Rightarrow> y } \<rbrakk> \<close>
+  unfolding mc_shadow_def by (rule refl)
+
 text\<open> As a value (let-RHS). \<close>
 urust_expr mc_let \<open> let r = match_case x { Some(y) \<Rightarrow> y, None \<Rightarrow> 0 }; r \<close>
 lemma \<open> mc_let = \<lbrakk> let r = match_case x { Some(y) \<Rightarrow> y, None \<Rightarrow> 0 }; r \<rbrakk> \<close>
@@ -813,41 +847,33 @@ urust_expr mc_stmt \<open> match_case x { Some(_) \<Rightarrow> () , None \<Righ
 lemma \<open> mc_stmt = \<lbrakk> match_case x { Some(_) \<Rightarrow> () , None \<Rightarrow> () } ; () \<rbrakk> \<close>
   unfolding mc_stmt_def by (rule refl)
 
-subsection\<open> Binder hygiene: an INVENTED binder must not capture an enclosing \<open>let\<close> (fixed 2026-08-26) \<close>
+subsection\<open> Anonymous-binder hygiene \<close>
 
-text\<open> A \<open>_\<close> pattern and the \<open>match_case\<close> desugaring's scrutinee binder have no source name. They are
-abstracted DIRECTLY as \<open>Abs\<close> + \<open>Bound\<close> (\<open>Parser_Utils.anon_abs\<close> / \<open>abs_slots\<close>), never via a named
-\<open>Free\<close>, so they cannot capture anything: there is no name to coincide with a source binder's.
-An earlier version instead invented a FRESH name, seeded from the proof context -- which does NOT contain
-the enclosing uRust \<open>let\<close> binders (they live in the elaborator's \<open>env\<close> as source-named \<open>Free\<close>s). So a
-\<open>_\<close> arm under \<open>let uu = ...\<close> was itself named \<open>uu\<close> and the arm body's \<open>uu\<close> was rebound by the
-wildcard's own \<open>Term.lambda\<close>, SILENTLY changing the term: the first row below collapsed to
-\<open>bind (\<up>x) literal\<close>, discarding the arm body entirely, and the third failed to type-check with the arm
-body taking the scrutinee's type. These rows pin the fix; all close by \<open>refl\<close>. \<close>
+text\<open>
+Wildcards and desugaring binders use \<open>Abs\<close>/\<open>Bound\<close>, preventing name capture.
+Rows cover wildcard arms, constructor slots, differing types, and sibling binders.
+\<close>
 
 urust_expr mc_hyg_wild \<open> let uu = \<llangle>Some 5 :: nat option\<rrangle>; match_case x { _ \<Rightarrow> uu } \<close>
 lemma \<open> mc_hyg_wild = \<lbrakk> let uu = \<llangle>Some 5 :: nat option\<rrangle>; match_case x { _ \<Rightarrow> uu } \<rbrakk> \<close>
   unfolding mc_hyg_wild_def by (rule refl)
 
-text\<open> Same, for a \<open>_\<close> in CONSTRUCTOR-ARGUMENT position (a separate naming path: the arg slots). \<close>
+text\<open> Wildcard constructor argument. \<close>
 urust_expr mc_hyg_ctor_arg \<open> let uu = \<llangle>7 :: nat\<rrangle>; match_case x { Some(_) \<Rightarrow> uu, None \<Rightarrow> uu } \<close>
 lemma \<open> mc_hyg_ctor_arg = \<lbrakk> let uu = \<llangle>7 :: nat\<rrangle>; match_case x { Some(_) \<Rightarrow> uu, None \<Rightarrow> uu } \<rbrakk> \<close>
   unfolding mc_hyg_ctor_arg_def by (rule refl)
 
-text\<open> Differing types make the old capture a TYPE error rather than a silent term change: the scrutinee is
-\<open>nat option\<close> and the arm body a \<open>nat\<close>. \<close>
+text\<open> Scrutinee and result types differ. \<close>
 urust_expr mc_hyg_typed \<open> let uu = \<llangle>7 :: nat\<rrangle>; match_case x { _ \<Rightarrow> uu } \<close>
 lemma \<open> mc_hyg_typed = \<lbrakk> let uu = \<llangle>7 :: nat\<rrangle>; match_case x { _ \<Rightarrow> uu } \<rbrakk> \<close>
   unfolding mc_hyg_typed_def by (rule refl)
 
-text\<open> The invented SCRUTINEE binder is on the same hygiene path (it already scanned the branches, so this
-is a regression guard): a \<open>let\<close> binder named exactly like the invented scrutinee name. \<close>
+text\<open> Source binder with the former scrutinee hint name. \<close>
 urust_expr mc_hyg_scrut \<open> let anon_case = \<llangle>7 :: nat\<rrangle>; match_case x { Some(y) \<Rightarrow> anon_case, None \<Rightarrow> anon_case } \<close>
 lemma \<open> mc_hyg_scrut = \<lbrakk> let anon_case = \<llangle>7 :: nat\<rrangle>; match_case x { Some(y) \<Rightarrow> anon_case, None \<Rightarrow> anon_case } \<rbrakk> \<close>
   unfolding mc_hyg_scrut_def by (rule refl)
 
-text\<open> A \<open>_\<close> must also not collide with a SIBLING binder of the same pattern that the body never mentions
-(such a name is absent from the body's frees, so the pattern's own binder names are seeded too). \<close>
+text\<open> Named and anonymous sibling slots. \<close>
 urust_expr mc_hyg_sibling \<open> match_case p { P2(uu, _) \<Rightarrow> \<llangle>0 :: nat\<rrangle> } \<close>
 lemma \<open> mc_hyg_sibling = \<lbrakk> match_case p { P2(uu, _) \<Rightarrow> \<llangle>0 :: nat\<rrangle> } \<rbrakk> \<close>
   unfolding mc_hyg_sibling_def by (rule refl)
@@ -857,10 +883,11 @@ end
 
 section\<open> Bare \<open>match\<close> (automatic case/switch routing, D32) \<close>
 
-text\<open> Bare \<open>match\<close> classifies the syntactic heads of all arm patterns before reusing the existing
-\<open>match_case\<close> or \<open>match_switch\<close> lowering unchanged. Constructor/disjunction heads are case-only,
-numerals are switch-only, and identifier/wildcard heads fit both so case wins. Only bare \<open>match\<close> has
-the frontend's semicolon-free statement sequencing form. \<close>
+text\<open>
+Bare \<open>match\<close> routes constructor/disjunction heads to case and numerals to switch;
+ambiguous identifier/wildcard heads default to case. It alone supports semicolon-free
+statement sequencing.
+\<close>
 
 context fixes x :: \<open>nat option\<close> and n :: nat
 begin
@@ -900,26 +927,16 @@ lemma \<open> ma_nested =
 end
 
 
-section\<open> Known parser divergences (old frontend vs new parser) -- recorded, not proven \<close>
+section\<open> Regression and divergence cases \<close>
 
-text\<open> Per \<open>urust-rules-and-conventions.md\<close> (C2): a divergence between the inner-syntax frontend and the
-new parser is NEVER silently dropped -- it is kept here as a test case. Where a well-typed
-\<open>NAME = \<lbrakk> src \<rbrakk>\<close> goal can be stated it is a \<open>sorry\<close>'d lemma; where it CANNOT (the frontend rejects
-\<open>src\<close> so \<open>\<lbrakk> src \<rbrakk>\<close> does not parse / the parser rejects \<open>src\<close> so the command errors / the two terms have
-incompatible types) the case is recorded via whichever of \<open>urust_expr\<close> (parser accepts) or a golden
-\<open>undefined = \<lbrakk> src \<rbrakk>\<close> stub (frontend accepts) builds, plus a comment. Canonical tracker:
-\<open>notes/agent-notes/urust-old-new-divergences.md\<close>. \<close>
+text\<open>
+Resolved divergences stay positive; current rejections use the negative harness or
+frontend-only golden stubs.
+\<close>
 
 subsection\<open> D-1 (RESOLVED 2026-08-25): \<open>if\<close> as a binary-operator operand -- both now reject \<close>
 
-text\<open> WAS a divergence: \<open>if \<llangle>True\<rrangle> { \<llangle>1::32 word\<rrangle> } else { \<llangle>2::32 word\<rrangle> } + \<llangle>3::32 word\<rrangle>\<close> --
-the frontend REJECTS it (its \<open>if\<close> result-priority 21 < the \<open>+\<close> operand floor 49) but our flat parser
-accepted it as \<open>(if...)+3\<close>. FIXED by the control-flow stratification (D25): \<open>if\<close> (a with-block form,
-nonterminal \<open>uif\<close>) is no longer a bare operand (\<open>uexp\<close>), so the parser now ALSO rejects the unparenthesized
-form with a parse error -- matching the frontend. That rejection is no longer checked out-of-band: it is a
-build-guarded \<open>urust_expr_rejects\<close> row (expected \<open>syntax error found at TPLUS\<close>) in
-Micro_Rust_Parser_Negative_Conformance.thy, alongside the \<open>a == b == c\<close> non-associativity case.
-Parenthesising restores it (a paren-wrapped \<open>uval\<close> is a \<open>uexp\<close> operand), and that IS a passing row: \<close>
+text\<open> An unparenthesized \<open>if\<close> operand is rejected by both parsers; parentheses make it an operand. \<close>
 urust_expr d1_paren_operand
   \<open> (if \<llangle>True\<rrangle> { \<llangle>1 :: 32 word\<rrangle> } else { \<llangle>2 :: 32 word\<rrangle> }) + \<llangle>3 :: 32 word\<rrangle> \<close>
 lemma \<open> d1_paren_operand = \<lbrakk> (if \<llangle>True\<rrangle> { \<llangle>1 :: 32 word\<rrangle> } else { \<llangle>2 :: 32 word\<rrangle> }) + \<llangle>3 :: 32 word\<rrangle> \<rbrakk> \<close>
@@ -927,11 +944,7 @@ lemma \<open> d1_paren_operand = \<lbrakk> (if \<llangle>True\<rrangle> { \<llan
 
 subsection\<open> D-2 (RESOLVED 2026-08-25): no-\<open>;\<close> sequencing of block-like expressions -- now accepted \<close>
 
-text\<open> WAS a divergence: the frontend accepts a block-like expr in STATEMENT position without a trailing
-\<open>;\<close> (Rust's optional semicolon; frontend \<open>_urust_sequence_scoping\<close> / \<open>_urust_sequence_if_*\<close>) but our
-parser required the \<open>;\<close>. FIXED by the stratification (D25): \<open>ustmt\<close> gained no-\<open>;\<close> productions
-\<open>ublock ustmt\<close> / \<open>uif ustmt\<close> that desugar to the same \<open>sequence\<close> an explicit \<open>;\<close> would. Now passing
-rows: block-then-block, if-then-then-stmt, if-else-then-stmt (each = \<open>sequence \<lbrakk>block-like\<rbrakk> \<lbrakk>next\<rbrakk>\<close>). \<close>
+text\<open> Block-like statements sequence without a trailing \<open>;\<close>, matching the frontend. \<close>
 urust_expr d2_blk_seq \<open> { () } { () } \<close>
 lemma \<open> d2_blk_seq = \<lbrakk> { () } { () } \<rbrakk> \<close> unfolding d2_blk_seq_def by (rule refl)
 
@@ -943,13 +956,7 @@ lemma \<open> d2_ifelse_seq = \<lbrakk> if \<llangle>True\<rrangle> { () } else 
 
 subsection\<open> D-3 (RESOLVED 2026-08-24): a HOL-const-named binder IS captured in an antiquotation \<close>
 
-text\<open> WAS a divergence: \<open>let id = \<llangle>5::nat\<rrangle>; \<llangle>id\<rrangle>\<close> (binder \<open>id\<close> = HOL \<open>Fun.id\<close>) elaborated to
-\<open>bind (\<up>5) (\<lambda>id. \<up>Fun.id)\<close> -- \<open>id\<close> resolved to the CONSTANT, NOT captured. FIXED:
-\<open>Parser_Utils.parse_antiq\<close> now \<open>Variable.add_fixes_direct\<close>es the enclosing binder names before
-\<open>Syntax.parse_term\<close>, so a binder shadows a same-named HOL constant. The intended equalities now close by
-\<open>refl\<close>. Only genuine HOL-CONSTANT binder names were affected: a registered \<open>micro_rust_notation\<close> SURFACE
-name (e.g. \<open>myReg\<close>) is not a HOL const, so \<open>Syntax.parse_term\<close> already freed it -- \<open>cap_notation\<close> guards
-this. See \<open>urust-old-new-divergences.md\<close> (D-3). \<close>
+text\<open> Enclosing binders shadow same-named HOL constants and registered notation names in antiquotations. \<close>
 urust_expr div_binder_const \<open> let id = \<llangle>5 :: nat\<rrangle>; \<llangle>id\<rrangle> \<close>
 lemma \<open> div_binder_const = \<lbrakk> let id = \<llangle>5 :: nat\<rrangle>; \<llangle>id\<rrangle> \<rbrakk> \<close> unfolding div_binder_const_def by (rule refl)
 
@@ -962,47 +969,44 @@ lemma \<open> cap_const_deep = \<lbrakk> let id = \<llangle>5 :: nat\<rrangle>; 
 urust_expr cap_notation \<open> let myReg = \<llangle>5 :: nat\<rrangle>; \<llangle>myReg\<rrangle> \<close>  \<comment>\<open> binder name = a registered notation surface name (guard) \<close>
 lemma \<open> cap_notation = \<lbrakk> let myReg = \<llangle>5 :: nat\<rrangle>; \<llangle>myReg\<rrangle> \<rbrakk> \<close> unfolding cap_notation_def by (rule refl)
 
-subsection\<open> D-4: antiquotation start-states do not balance nested delimiters (RUNNABLE) \<close>
-
-text\<open> An antiquotation body containing a NESTED antiquotation of the same kind closes on the FIRST closer,
-truncating the body. Two runnable triggers now exist and BOTH are build-guarded \<open>urust_expr_rejects\<close> rows
-in Micro_Rust_Parser_Negative_Conformance.thy; probing them (2026-08-26) also corrected the reading recorded
-here: the frontend ACCEPTS both sources, and the parser's failure is LOUD (a positioned
-\<open>unexpected input\<close> on the leftover symbol), not a silent mis-parse. The depth-counting fix (TODO T-10)
-belongs with the nested-antiquotation tier; it must REPLACE those rows with positive rows, since the message
-they assert is accidental. \<close>
-
 subsection\<open> D-5: non-identifier / non-method call callees -- parser UNDER-accepts (frontend accepts) \<close>
 
-text\<open> The call grammar accepts identifier callees \<open>f(args)\<close> AND method calls \<open>recv.m(args)\<close>. Of the
-frontend's remaining \<open>urust_callable\<close> forms (Micro_Rust_Syntax.thy:221-258) the following are still
-deferred: antiquotation callee \<open>\<epsilon>\<open>g\<close>(a)\<close>, function antiquotation \<open>\<llangle>f\<rrangle>\<^sub>N(a)\<close> (deferred by
-decision -- an off-critical-path antiquotation form), turbofish \<open>f::\<open>N\<close>(a)\<close>, and macros \<open>m!(...)\<close>.
-(\<open>f(a)(b)\<close> / \<open>(g)(x)\<close> are rejected by BOTH -- not divergences.) The directly expressible
-antiquotation-callee form is kept as a \<open>sorry\<close>'d golden stub; the rest are notes (turbofish/paths need
-\<open>::\<close>, macros need \<open>!\<close> -- unlexable). Canonical tracker: \<open>urust-old-new-divergences.md\<close> (D-5). \<close>
+text\<open>
+D-5: identifier and method callees work; deferred frontend forms are expression and
+function antiquotations, turbofish, and macros. Nested-callable forms
+\<open>f(a)(b)\<close> and \<open>(g)(x)\<close> are rejected by both parsers. The expressible
+antiquotation case remains a golden stub; other forms are not yet lexable. See
+\<open>urust-old-new-divergences.md\<close>.
+\<close>
 lemma \<open> undefined = \<lbrakk> \<epsilon>\<open>cf1\<close>(\<llangle>1 :: 64 word\<rrangle>) \<rbrakk> \<close> sorry
   \<comment> \<open>frontend: \<open>funcall1 cf1 (\<up>1)\<close>; parser rejects (callee must be an identifier or a method call).\<close>
 
 subsection\<open> D-6: field access \<open>x.f\<close> (no parens) -- parser UNDER-accepts (frontend accepts) \<close>
 
-text\<open> Distinct from the method call \<open>x.f()\<close>: the parser's \<open>.\<close> is only followed by a method call
-(\<open>TDOT IDENT LPAR ...\<close>), so a bare \<open>x.f\<close> is a parse error. The frontend lowers it to a lens focus
-(NField dispatch -> \<open>bindlift1 (focus_lens_const f) \<up>x\<close>, Core_Syntax.thy:439-440), NOT a funcall.
-Deferred to the optics/lens tier; recorded as a note (a runnable golden needs a registered field notation
-/ concrete lens types). \<close>
+text\<open>
+D-6: bare \<open>x.f\<close> is not method syntax and currently fails to parse. The frontend
+lowers it through NField to a lens focus (Core_Syntax.thy:439-440). It remains deferred;
+a runnable golden needs field notation and concrete lens types.
+\<close>
 
 subsection\<open> D-7: richer match patterns -- parser UNDER-accepts (frontend accepts) \<close>
 
-text\<open> The bare \<open>match\<close> keyword and its switch/case routing are now implemented (D32), but every
-lowering retains its Tier-0 pattern limits. The frontend additionally accepts match guards
-\<open>p if c \<Rightarrow> e\<close>; case-pattern disjunction \<open>Some(x) | None\<close>; NESTED constructor args
-\<open>Some(Some(y))\<close> (via its guarded compilation path, Core_Syntax.thy:963-1123); and literal/range/
-\<open>@\<close>/borrow/struct/slice patterns. Bare matches with nested/disjunctive patterns route to case and then
-raise the same positioned Tier-0 diagnostics as explicit \<open>match_case\<close>; both paths have negative rows.
-The directly-expressible nested case remains as a \<open>sorry\<close>'d golden stub. Canonical tracker:
-\<open>urust-old-new-divergences.md\<close> (D-7). \<close>
+text\<open>
+D-7: bare match routing is implemented, but both lowerings retain Tier-0 patterns. The
+frontend also accepts guards, case disjunction, nested constructors, and literal, range,
+\<open>@\<close>, borrow, struct, and slice patterns. Nested/disjunctive bare matches route to
+case and produce the same positioned diagnostics as explicit \<open>match_case\<close>; both have
+negative rows. The nested case remains a golden stub. See
+\<open>urust-old-new-divergences.md\<close>.
+\<close>
 lemma \<open> undefined = \<lbrakk> match_case \<llangle>Some (Some (0::nat))\<rrangle> { Some(Some(y)) \<Rightarrow> y, _ \<Rightarrow> 0 } \<rbrakk> \<close> sorry
   \<comment> \<open>frontend: accepts the nested pattern via its guarded compilation path; the parser raises "nested constructor pattern not yet supported (Tier-0)".\<close>
+
+subsection\<open> Deferred frontend surface \<close>
+
+text\<open>
+\<open>Conformance_Corpus.thy\<close> owns deferred-feature goldens. Add negative rows here
+only when the parser has a stable diagnostic.
+\<close>
 
 end

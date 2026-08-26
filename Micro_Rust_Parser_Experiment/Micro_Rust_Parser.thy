@@ -40,7 +40,7 @@ struct
   datatype ur_pat =
       P_Wild   of Position.T                          (* _ *)
     | P_Ident  of string * Position.T                 (* bare id: nullary ctor OR variable binder *)
-    | P_Lit    of int * Position.T                    (* numeral pattern (a match_switch key) *)
+    | P_Lit    of string * Position.T                 (* numeral pattern (a match_switch key) *)
     | P_Constr of string * Position.T * ur_pat list   (* C(args): name, name-pos, args *)
     | P_Or     of ur_pat list * Position.T            (* p | q | r  (flattened; source order) *)
 
@@ -68,7 +68,7 @@ struct
   datatype unop = Not                          (* !  (and !! = !(!_)) *)
 
   datatype ur_expr =
-      UE_Num       of int * Position.T                (* bare decimal: 0, 1, 42 *)
+      UE_Num       of string * Position.T             (* raw decimal or hexadecimal numeral *)
     | UE_NumSfx    of string * Position.T             (* RAW lexeme of a suffixed int (1_u32 / 0x4_u8);
                                                          split + typed by parse_int_lit -- ALL suffix
                                                          knowledge sits in that one table (D29) *)
@@ -106,7 +106,7 @@ end
 SML_import \<open> structure URust_AST = URust_AST \<close>
 SML_import \<open> structure Input = struct open Input end \<close>       \<comment>\<open> for the corrected position map \<close>
 SML_import \<open> structure Position = struct open Position end \<close> \<comment>\<open> report / range / T \<close>
-SML_import \<open> structure Markup = struct open Markup end \<close>     \<comment>\<open> typing / sorting \<close>
+SML_import \<open> structure Markup = struct open Markup end \<close>     \<comment>\<open> token reports \<close>
 
 ML\<open>
 (* Positioned lexer error for the catch-all rule: an unrecognized character must ABORT with a clickable
@@ -123,33 +123,35 @@ SML_import \<open> structure Parser_Lex_Util = Parser_Lex_Util \<close>  \<comme
 
 section\<open> Lexer + grammar \<close>
 
-text\<open> The antiquotation brackets are the Isabelle symbols \<open>\<llangle>\<close>/\<open>\<rrangle>\<close> (value
-escape) and \<open>\<epsilon>\<close> + \<open>\<open>\<close>/\<open>\<close>\<close> (expression escape); each has an explicit
-escape rule and captures its body with a start state, without lexing the HOL inside. Operator precedence
-is declared once with yacc directives, reproducing the frontend's infix priorities
-(\<open>Micro_Rust_Syntax.thy:559-603\<close>). The \<open>the_src\<close>/\<open>tokF\<close>/\<open>tok_ident\<close> shims below must stay HERE (not in
-\<open>Parser_Utils\<close>): they run in this \<open>ml_lex_yacc\<close> block's SML environment and each lexer's \<open>Tokens\<close>
-constructors differ; only the position MATH is shared (D19). \<close>
+text\<open>
+Lexer start states capture value and expression antiquotation bodies without lexing their
+HOL content. Yacc directives reproduce the frontend precedence
+(\<open>Micro_Rust_Syntax.thy:559-603\<close>). Only token shims remain lexer-local; positions use
+\<open>Parser_Lex_Util\<close>.
+\<close>
 ml_lex_yacc [verbose] "URust" where
 lex_user_declarations\<open>
 val aq_buf = ref ""
 val aq_start = ref 0   (* char offset of the antiquotation BODY start (just after the opener) *)
+val aq_depth = ref 0
 
 (* A suffixed integer literal is deliberately NOT interpreted here: the lexer captures the raw lexeme and
    URust_Translate.parse_int_lit reads it against the single int_suffix_typ table, so an unknown suffix is
    a POSITIONED elaborator error rather than an unpositioned `raise Fail` in lexer code (D29).
 
-   Per-lexer source ref + set-shadow; the position MATH is shared (Parser_Lex_Util). tok_ident emits NO
+   Per-lexer position-map ref + set-shadow; the position MATH is shared (Parser_Lex_Util). tok_ident emits NO
    colour -- ident_term does that once it knows the name's role, so the markup cannot split (D14). *)
-val the_src = ref (Input.string "")
-fun set source ctxt = (Isabelle_lex_yacc.set source ctxt; the_src := source)
+val pos_map = ref (Parser_Lex_Util.make_position_map (Input.string ""))
+fun set source ctxt =
+  (Isabelle_lex_yacc.set source ctxt;
+   pos_map := Parser_Lex_Util.make_position_map source)
 
-fun fixed_pos yypos = Parser_Lex_Util.fixed_pos (!the_src) yypos
-fun tokF args       = Parser_Lex_Util.tokF (!the_src) args
-fun tok_valF args   = Parser_Lex_Util.tok_valF (!the_src) args
-fun report_fixed args  = Parser_Lex_Util.report_fixed (!the_src) args
+fun fixed_pos yypos = Parser_Lex_Util.fixed_pos (!pos_map) yypos
+fun tokF args       = Parser_Lex_Util.tokF (!pos_map) args
+fun tok_valF args   = Parser_Lex_Util.tok_valF (!pos_map) args
+fun report_fixed args = Parser_Lex_Util.report_fixed (!pos_map) args
 fun tok_ident (yypos, yytext) =
-  let val p = Parser_Lex_Util.ident_pos (!the_src) (yypos, yytext)
+  let val p = Parser_Lex_Util.ident_pos (!pos_map) (yypos, yytext)
   in Tokens.IDENT (yytext, p, p) end
 \<close>
 lex_definitions\<open>
@@ -164,56 +166,63 @@ lex_rules\<open>
 <INITIAL>\n       => (lex());
 <INITIAL>{ws}+    => (lex());
 <INITIAL>({digit}+|"0x"{hexdigit}+)"_"{idchar}+ =>
-    (tok_valF (yypos, yytext, Markup.numeral, "NUMSFX", "", Tokens.NUMSFX, yytext));
-<INITIAL>{digit}+ => (tok_valF (yypos, yytext, Markup.numeral, "NUM", "", Tokens.NUM, valOf (Int.fromString yytext)));
-<INITIAL>"let"    => (tokF (yypos, yytext, Markup.keyword1, "TLET", "", Tokens.TLET));
-<INITIAL>"const"  => (tokF (yypos, yytext, Markup.keyword1, "TCONST", "", Tokens.TCONST));
-<INITIAL>"if"     => (tokF (yypos, yytext, Markup.keyword1, "TIF", "", Tokens.TIF));
-<INITIAL>"else"   => (tokF (yypos, yytext, Markup.keyword1, "TELSE", "", Tokens.TELSE));
-<INITIAL>"match"        => (tokF (yypos, yytext, Markup.keyword1, "TMATCH", "", Tokens.TMATCH));
-<INITIAL>"match_switch" => (tokF (yypos, yytext, Markup.keyword1, "TMATCHSWITCH", "", Tokens.TMATCHSWITCH));
-<INITIAL>"match_case"   => (tokF (yypos, yytext, Markup.keyword1, "TMATCHCASE", "", Tokens.TMATCHCASE));
-<INITIAL>"="      => (tokF (yypos, yytext, Markup.delimiter, "TEQ", "", Tokens.TEQ));
-<INITIAL>";"      => (tokF (yypos, yytext, Markup.delimiter, "TSEMI", "", Tokens.TSEMI));
-<INITIAL>"<<"     => (tokF (yypos, yytext, Markup.operator, "TSHL", "", Tokens.TSHL));
-<INITIAL>">>"     => (tokF (yypos, yytext, Markup.operator, "TSHR", "", Tokens.TSHR));
-<INITIAL>"<="     => (tokF (yypos, yytext, Markup.operator, "TLE", "", Tokens.TLE));
-<INITIAL>">="     => (tokF (yypos, yytext, Markup.operator, "TGE", "", Tokens.TGE));
-<INITIAL>"=="     => (tokF (yypos, yytext, Markup.operator, "TEQEQ", "", Tokens.TEQEQ));
-<INITIAL>"!="     => (tokF (yypos, yytext, Markup.operator, "TNE", "", Tokens.TNE));
-<INITIAL>"&&"     => (tokF (yypos, yytext, Markup.operator, "TAMPAMP", "", Tokens.TAMPAMP));
-<INITIAL>"||"     => (tokF (yypos, yytext, Markup.operator, "TBARBAR", "", Tokens.TBARBAR));
-<INITIAL>"+"      => (tokF (yypos, yytext, Markup.operator, "TPLUS", "", Tokens.TPLUS));
-<INITIAL>"-"      => (tokF (yypos, yytext, Markup.operator, "TMINUS", "", Tokens.TMINUS));
-<INITIAL>"*"      => (tokF (yypos, yytext, Markup.operator, "TSTAR", "", Tokens.TSTAR));
-<INITIAL>"/"      => (tokF (yypos, yytext, Markup.operator, "TSLASH", "", Tokens.TSLASH));
-<INITIAL>"%"      => (tokF (yypos, yytext, Markup.operator, "TPERCENT", "", Tokens.TPERCENT));
-<INITIAL>"<"      => (tokF (yypos, yytext, Markup.operator, "TLT", "", Tokens.TLT));
-<INITIAL>">"      => (tokF (yypos, yytext, Markup.operator, "TGT", "", Tokens.TGT));
-<INITIAL>"&"      => (tokF (yypos, yytext, Markup.operator, "TAMP", "", Tokens.TAMP));
-<INITIAL>"|"      => (tokF (yypos, yytext, Markup.operator, "TBAR", "", Tokens.TBAR));
-<INITIAL>"^"      => (tokF (yypos, yytext, Markup.operator, "TCARET", "", Tokens.TCARET));
-<INITIAL>"!"      => (tokF (yypos, yytext, Markup.operator, "TBANG", "", Tokens.TBANG));
+    (tok_valF (yypos, yytext, Markup.numeral, "NUMSFX", Tokens.NUMSFX, yytext));
+<INITIAL>({digit}+|"0x"{hexdigit}+) =>
+    (tok_valF (yypos, yytext, Markup.numeral, "NUM", Tokens.NUM, yytext));
+<INITIAL>"let"    => (tokF (yypos, yytext, Markup.keyword1, "TLET", Tokens.TLET));
+<INITIAL>"const"  => (tokF (yypos, yytext, Markup.keyword1, "TCONST", Tokens.TCONST));
+<INITIAL>"if"     => (tokF (yypos, yytext, Markup.keyword1, "TIF", Tokens.TIF));
+<INITIAL>"else"   => (tokF (yypos, yytext, Markup.keyword1, "TELSE", Tokens.TELSE));
+<INITIAL>"match"        => (tokF (yypos, yytext, Markup.keyword1, "TMATCH", Tokens.TMATCH));
+<INITIAL>"match_switch" => (tokF (yypos, yytext, Markup.keyword1, "TMATCHSWITCH", Tokens.TMATCHSWITCH));
+<INITIAL>"match_case"   => (tokF (yypos, yytext, Markup.keyword1, "TMATCHCASE", Tokens.TMATCHCASE));
+<INITIAL>"="      => (tokF (yypos, yytext, Markup.delimiter, "TEQ", Tokens.TEQ));
+<INITIAL>";"      => (tokF (yypos, yytext, Markup.delimiter, "TSEMI", Tokens.TSEMI));
+<INITIAL>"<<"     => (tokF (yypos, yytext, Markup.operator, "TSHL", Tokens.TSHL));
+<INITIAL>">>"     => (tokF (yypos, yytext, Markup.operator, "TSHR", Tokens.TSHR));
+<INITIAL>"<="     => (tokF (yypos, yytext, Markup.operator, "TLE", Tokens.TLE));
+<INITIAL>">="     => (tokF (yypos, yytext, Markup.operator, "TGE", Tokens.TGE));
+<INITIAL>"=="     => (tokF (yypos, yytext, Markup.operator, "TEQEQ", Tokens.TEQEQ));
+<INITIAL>"!="     => (tokF (yypos, yytext, Markup.operator, "TNE", Tokens.TNE));
+<INITIAL>"&&"     => (tokF (yypos, yytext, Markup.operator, "TAMPAMP", Tokens.TAMPAMP));
+<INITIAL>"||"     => (tokF (yypos, yytext, Markup.operator, "TBARBAR", Tokens.TBARBAR));
+<INITIAL>"+"      => (tokF (yypos, yytext, Markup.operator, "TPLUS", Tokens.TPLUS));
+<INITIAL>"-"      => (tokF (yypos, yytext, Markup.operator, "TMINUS", Tokens.TMINUS));
+<INITIAL>"*"      => (tokF (yypos, yytext, Markup.operator, "TSTAR", Tokens.TSTAR));
+<INITIAL>"/"      => (tokF (yypos, yytext, Markup.operator, "TSLASH", Tokens.TSLASH));
+<INITIAL>"%"      => (tokF (yypos, yytext, Markup.operator, "TPERCENT", Tokens.TPERCENT));
+<INITIAL>"<"      => (tokF (yypos, yytext, Markup.operator, "TLT", Tokens.TLT));
+<INITIAL>">"      => (tokF (yypos, yytext, Markup.operator, "TGT", Tokens.TGT));
+<INITIAL>"&"      => (tokF (yypos, yytext, Markup.operator, "TAMP", Tokens.TAMP));
+<INITIAL>"|"      => (tokF (yypos, yytext, Markup.operator, "TBAR", Tokens.TBAR));
+<INITIAL>"^"      => (tokF (yypos, yytext, Markup.operator, "TCARET", Tokens.TCARET));
+<INITIAL>"!"      => (tokF (yypos, yytext, Markup.operator, "TBANG", Tokens.TBANG));
 <INITIAL>{idstart}{idchar}* => (tok_ident (yypos, yytext));
-<INITIAL>"("      => (tokF (yypos, yytext, Markup.delimiter, "LPAR", "", Tokens.LPAR));
-<INITIAL>")"      => (tokF (yypos, yytext, Markup.delimiter, "RPAR", "", Tokens.RPAR));
-<INITIAL>","      => (tokF (yypos, yytext, Markup.delimiter, "COMMA", "", Tokens.COMMA));
-<INITIAL>"."      => (tokF (yypos, yytext, Markup.delimiter, "TDOT", "", Tokens.TDOT));
-<INITIAL>"{"      => (tokF (yypos, yytext, Markup.delimiter, "TLBRACE", "", Tokens.TLBRACE));
-<INITIAL>"}"      => (tokF (yypos, yytext, Markup.delimiter, "TRBRACE", "", Tokens.TRBRACE));
-<INITIAL>\\"<llangle>"          => (report_fixed (yypos, 1, Markup.delimiter, "VALAQ", ""); aq_buf := ""; aq_start := yypos + size yytext; YYBEGIN VAQ; lex());
-<INITIAL>\\"<epsilon>"\\"<open>" => (report_fixed (yypos, 1, Markup.literal, "EXPRAQ", ""); aq_buf := ""; aq_start := yypos + size yytext; YYBEGIN EAQ; lex());
-<INITIAL>\\"<Rightarrow>" => (report_fixed (yypos, 1, Markup.delimiter, "TARROW", "");
+<INITIAL>"("      => (tokF (yypos, yytext, Markup.delimiter, "LPAR", Tokens.LPAR));
+<INITIAL>")"      => (tokF (yypos, yytext, Markup.delimiter, "RPAR", Tokens.RPAR));
+<INITIAL>","      => (tokF (yypos, yytext, Markup.delimiter, "COMMA", Tokens.COMMA));
+<INITIAL>"."      => (tokF (yypos, yytext, Markup.delimiter, "TDOT", Tokens.TDOT));
+<INITIAL>"{"      => (tokF (yypos, yytext, Markup.delimiter, "TLBRACE", Tokens.TLBRACE));
+<INITIAL>"}"      => (tokF (yypos, yytext, Markup.delimiter, "TRBRACE", Tokens.TRBRACE));
+<INITIAL>\\"<llangle>"          => (report_fixed (yypos, 1, Markup.delimiter, "VALAQ"); aq_buf := ""; aq_depth := 0; aq_start := yypos + size yytext; YYBEGIN VAQ; lex());
+<INITIAL>\\"<epsilon>"\\"<open>" => (report_fixed (yypos, 1, Markup.literal, "EXPRAQ"); aq_buf := ""; aq_depth := 0; aq_start := yypos + size yytext; YYBEGIN EAQ; lex());
+<INITIAL>\\"<Rightarrow>" => (report_fixed (yypos, 1, Markup.delimiter, "TARROW");
     Tokens.TARROW (fixed_pos yypos, fixed_pos (yypos + size yytext)));
 <INITIAL>.        => (URust_Err.lex_error yytext (fixed_pos yypos));
-<VAQ>\\"<rrangle>" => (YYBEGIN INITIAL; report_fixed (yypos, 1, Markup.delimiter, "VALAQ", "");
-    let val p = fixed_pos (!aq_start) val q = fixed_pos yypos
-    in Tokens.VALAQ (Input.source true (!aq_buf) (Position.range (p, q)), p, q) end);
+<VAQ>\\"<llangle>" => (aq_depth := !aq_depth + 1; aq_buf := !aq_buf ^ yytext; lex());
+<VAQ>\\"<rrangle>" =>
+    (if !aq_depth > 0 then (aq_depth := !aq_depth - 1; aq_buf := !aq_buf ^ yytext; lex())
+     else (YYBEGIN INITIAL; report_fixed (yypos, 1, Markup.delimiter, "VALAQ");
+       let val p = fixed_pos (!aq_start) val q = fixed_pos yypos
+       in Tokens.VALAQ (Input.source true (!aq_buf) (Position.range (p, q)), p, q) end));
 <VAQ>\n           => (aq_buf := !aq_buf ^ "\n"; lex());
 <VAQ>.            => (aq_buf := !aq_buf ^ yytext; lex());
-<EAQ>\\"<close>"   => (YYBEGIN INITIAL; report_fixed (yypos, 1, Markup.delimiter, "EXPRAQ", "");
-    let val p = fixed_pos (!aq_start) val q = fixed_pos yypos
-    in Tokens.EXPRAQ (Input.source true (!aq_buf) (Position.range (p, q)), p, q) end);
+<EAQ>\\"<open>"    => (aq_depth := !aq_depth + 1; aq_buf := !aq_buf ^ yytext; lex());
+<EAQ>\\"<close>"   =>
+    (if !aq_depth > 0 then (aq_depth := !aq_depth - 1; aq_buf := !aq_buf ^ yytext; lex())
+     else (YYBEGIN INITIAL; report_fixed (yypos, 1, Markup.delimiter, "EXPRAQ");
+       let val p = fixed_pos (!aq_start) val q = fixed_pos yypos
+       in Tokens.EXPRAQ (Input.source true (!aq_buf) (Position.range (p, q)), p, q) end));
 <EAQ>\n           => (aq_buf := !aq_buf ^ "\n"; lex());
 <EAQ>.            => (aq_buf := !aq_buf ^ yytext; lex());
 \<close>
@@ -240,7 +249,7 @@ yacc_definitions\<open>
 %left TDOT    (* method `.` binds tightest, tighter than prefix `!`: `a + b.m(c)` = `a + (b.m(c))`,
                  `!x.m()` = `!(x.m())`. This is what resolves `uexp . TDOT` against the operators. *)
 
-%term NUM of int | NUMSFX of string | IDENT of string | LPAR | RPAR
+%term NUM of string | NUMSFX of string | IDENT of string | LPAR | RPAR
     | VALAQ of Input.source | EXPRAQ of Input.source
     | TLET | TCONST | TEQ | TSEMI | EOF
     | TIF | TELSE | TLBRACE | TRBRACE | COMMA | TDOT
@@ -370,10 +379,12 @@ yacc_rules\<open>
 
 section\<open> Elaborator (AST -> shallow terms) \<close>
 
-text\<open> Each form lowers to the EXISTING shallow HOL consts -- see the per-node table in
-\<open>urust-parser-design-decisions.md\<close> \<open>\<section>2\<close>. Bare numerals stay POLYMORPHIC (matching the frontend's
-open default); suffixed ones pin an \<open>N word\<close>. Everything is built with \<open>dummyT\<close>; a single
-\<open>Syntax.check_term\<close> runs in the command. \<close>
+text\<open>
+Each node lowers to the existing shallow HOL constants listed in
+\<open>urust-parser-design-decisions.md\<close> \<open>\<section>2\<close>. Bare numerals remain
+polymorphic; suffixes pin \<open>N word\<close>. One final \<open>Syntax.check_term\<close> resolves
+the \<open>dummyT\<close>-based term.
+\<close>
 ML\<open>
 structure URust_Translate =
 struct
@@ -383,18 +394,20 @@ struct
   fun mk_const name args = Term.list_comb (Const (name, dummyT), args)
   fun mk_literal v = mk_const \<^const_name>\<open>literal\<close> [v]
 
-  (* Arity -> the funcallN const, DERIVED from the family's `<prefix><n>` naming rather than 15 rows; the
-     prefix comes from an antiquoted const name and the derived name at the cap is asserted against its own
-     antiquotation at build time, so a rename breaks the build here (D29). The cap is 14, NOT 16:
-     Core_Expression defines funcall0..16 but the frontend's surface lowering stops at 14, so a >14 call has
-     no golden to conform against. *)
-  val max_funcall_arity = 14
-  val funcall_prefix = unsuffix "0" \<^const_name>\<open>funcall0\<close>
-  val _ = funcall_prefix ^ string_of_int max_funcall_arity = \<^const_name>\<open>funcall14\<close> orelse
-            error "urust_expr: the funcallN const family no longer follows the <prefix><n> naming"
+  (* The frontend surface supports arities 0..14. Keep every HOL target compile-checked. *)
+  val funcall_consts = Vector.fromList
+    [\<^const_name>\<open>funcall0\<close>,  \<^const_name>\<open>funcall1\<close>,
+     \<^const_name>\<open>funcall2\<close>,  \<^const_name>\<open>funcall3\<close>,
+     \<^const_name>\<open>funcall4\<close>,  \<^const_name>\<open>funcall5\<close>,
+     \<^const_name>\<open>funcall6\<close>,  \<^const_name>\<open>funcall7\<close>,
+     \<^const_name>\<open>funcall8\<close>,  \<^const_name>\<open>funcall9\<close>,
+     \<^const_name>\<open>funcall10\<close>, \<^const_name>\<open>funcall11\<close>,
+     \<^const_name>\<open>funcall12\<close>, \<^const_name>\<open>funcall13\<close>,
+     \<^const_name>\<open>funcall14\<close>]
+  val max_funcall_arity = Vector.length funcall_consts - 1
 
   fun funcall_const pos n =
-    if 0 <= n andalso n <= max_funcall_arity then funcall_prefix ^ string_of_int n
+    if 0 <= n andalso n <= max_funcall_arity then Vector.sub (funcall_consts, n)
     else error ("urust_expr: unsupported call arity " ^ string_of_int n ^ " (max " ^
                 string_of_int max_funcall_arity ^
                 "; the frontend's surface lowering caps here)" ^ Position.here pos)
@@ -408,15 +421,13 @@ struct
     | int_suffix_typ "usize" = SOME \<^typ>\<open>64 word\<close>   (* usize is modelled as 64-bit *)
     | int_suffix_typ _       = NONE
 
-  (* A suffixed integer lexeme ("0x4_u8" / "1_usize") -> (value, type). Splits at the FIRST `_`; digits are
-     decimal, or hex with an `0x` prefix. Malformed digits and unknown suffix both error WITH a position. *)
+  (* A decimal/hex lexeme, optionally followed by a uRust width suffix. *)
   fun parse_int_lit pos lexeme =
     let
       val (numstr, sfx) =
         (case first_field "_" lexeme of
-           SOME (a, b) => (a, b)
-         | NONE => error ("urust_expr: malformed suffixed integer literal " ^ quote lexeme ^
-                          Position.here pos))
+           SOME (a, b) => (a, SOME b)
+         | NONE => (lexeme, NONE))
       val value =
         (case (if String.isPrefix "0x" numstr
                then StringCvt.scanString (Int.scan StringCvt.HEX) (String.extract (numstr, 2, NONE))
@@ -424,10 +435,14 @@ struct
            SOME v => v
          | NONE => error ("urust_expr: cannot read integer literal " ^ quote numstr ^ Position.here pos))
     in
-      (case int_suffix_typ sfx of
-         SOME T => (value, T)
-       | NONE => error ("urust_expr: unsupported integer-literal suffix " ^ quote ("_" ^ sfx) ^
-                        " (supported: _u8 _u16 _u32 _u64 _usize)" ^ Position.here pos))
+      (case sfx of
+         NONE => (value, NONE)
+       | SOME suffix =>
+           (case int_suffix_typ suffix of
+              SOME T => (value, SOME T)
+            | NONE => error ("urust_expr: unsupported integer-literal suffix " ^
+                quote ("_" ^ suffix) ^ " (supported: _u8 _u16 _u32 _u64 _usize)" ^
+                Position.here pos)))
     end
 
   (* Peel the `_type_constraint_` wrapper (and positions) to reach the leaf a name resolved to. TRAP:
@@ -680,12 +695,16 @@ struct
   (* env : source name -> var_info for the enclosing binders (lexical scope). A bound use resolves to its
      binder's Free + nav markup and is NOT sent through dispatch -- lexical scoping wins, matching the
      frontend's witness precedence. Capture is by construction: the enclosing Term.lambda abstracts the
-     `Free name` returned here (and any a nested antiquotation parses). *)
+     `Free name` returned here, including one parsed inside a nested antiquotation. *)
   fun mk ctxt env e =
     (case e of
-       UE_Num (n, _)       => mk_literal (HOLogic.mk_number dummyT n)
+       UE_Num (lexeme, pos) =>
+         let val (v, _) = parse_int_lit pos lexeme
+         in mk_literal (HOLogic.mk_number dummyT v) end
      | UE_NumSfx (lexeme, pos) =>
-         let val (v, T) = parse_int_lit pos lexeme in mk_literal (HOLogic.mk_number T v) end
+         (case parse_int_lit pos lexeme of
+            (v, SOME T) => mk_literal (HOLogic.mk_number T v)
+          | (_, NONE) => error ("urust_expr: internal missing integer suffix" ^ Position.here pos))
      | UE_Unit _           => mk_literal HOLogic.unit
      | UE_Ident (name, pos) =>
          (case Symtab.lookup env name of
@@ -723,7 +742,9 @@ struct
                  binding pattern is rejected WITH ITS POSITION -- the point of sharing the grammar (D26). *)
               MF_Switch =>
                 let
-                  fun key (P_Lit (n, _))    = mk_some (HOLogic.mk_number dummyT n)
+                  fun key (P_Lit (lexeme, pos)) =
+                        let val (n, _) = parse_int_lit pos lexeme
+                        in mk_some (HOLogic.mk_number dummyT n) end
                     | key (P_Wild pos)      = (report_wildcard ctxt pos; mk_none)
                     | key (P_Ident (s, pos)) =
                         error ("urust_expr: unsupported match_switch key " ^ quote s ^
@@ -770,9 +791,10 @@ end
 
 section\<open> The command \<close>
 
-text\<open> `urust_expr NAME <src>` parses, elaborates, type-checks once, and defines NAME := <term>. No
-attributes: the conformance proof uses the primitive \<open>NAME_def\<close> and corpus defs must stay out of the
-global simp set. \<close>
+text\<open>
+\<open>urust_expr NAME src\<close> parses, elaborates, checks once, and defines \<open>NAME\<close>.
+It adds no attributes, keeping generated definitions out of the global simp set.
+\<close>
 ML\<open>
 (* THE pipeline, exported: every uRust command runs source through exactly this function, so the positive
    harness (`urust_expr`) and the negative one (`urust_expr_rejects`, Micro_Rust_Parser_Negative_Conformance)
@@ -801,8 +823,10 @@ val _ = Outer_Syntax.local_theory \<^command_keyword>\<open>urust_expr\<close>
 
 section\<open> Smoke test \<close>
 
-text\<open> A few definitions to confirm the command works in isolation; the real conformance check (against
-the frontend's golden terms) lives in Micro_Rust_Parser_Conformance.thy. \<close>
+text\<open>
+Smoke definitions only; frontend conformance is tested in
+\<open>Micro_Rust_Parser_Conformance.thy\<close>.
+\<close>
 urust_expr smoke_num  \<open> 42 \<close>
 urust_expr smoke_sfx  \<open> 1_u32 \<close>
 urust_expr smoke_unit \<open> () \<close>

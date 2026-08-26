@@ -5,32 +5,19 @@ theory Conformance_Corpus
   imports Shallow_Micro_Rust.Micro_Rust_Shallow_Embedding
 begin
 
-section\<open>A conformance / differential corpus for the µRust frontend\<close>
+section\<open> Conformance corpus \<close>
 
-text\<open>Test corpus for the future custom µRust parser; the oracle is the current inner-syntax
-frontend.
-
-  • PART I mirrors every parsing/elaboration probe of
-    \<open>Shallow_Micro_Rust.Micro_Rust_Shallow_Embedding_Tests\<close> as a lemma stub of the form
-    \<open>lemma \<open>undefined = \<lbrakk> <src> \<rbrakk>\<close> sorry\<close>. The bracket content is the source the parser will
-    consume; \<open>\<lbrakk> src \<rbrakk>\<close> is the current frontend's elaboration (the golden RHS), which must
-    type-check for the stub to be well-formed. When the parser lands, replace \<open>undefined\<close> with
-    \<open>parse ''<src>''\<close> and \<open>sorry\<close> with \<open>by (rule refl)\<close>. (Bare-HOL \<open>term\<close> probes from that theory
-    that do not contain \<open>\<lbrakk>\<dots>\<rbrakk>\<close> — e.g. lens sanity checks — are omitted, as they test no µRust
-    surface.)
-
-  • PART II adds definition-level tiers that theory does not cover: function headers, record
-    definitions, and enum definitions. A Rust signature / \<open>struct\<close> / \<open>enum\<close> maps to Isabelle
-    declarations *outside* \<open>\<lbrakk>\<dots>\<rbrakk>\<close>, so the (later) test compares the parser's generated
-    declarations against the hand-written goldens here — a declaration-level comparison.
-
-  • The negative tier lists inputs the parser must also reject.
-
-Note: \<open>**\<close> = double-deref, \<open>!!\<close> = double-negation — there is no power operator. Proofs are
-\<open>sorry\<close> stubs, so headless builds need \<open>quick_and_dirty\<close> (set in this session's ROOT).\<close>
+text\<open>
+The inner-syntax frontend is the oracle. Expression goldens use
+\<open>undefined = \<lbrakk>src\<rbrakk>\<close>; parser equality is tested in
+\<open>Micro_Rust_Parser_Conformance.thy\<close>. Definition goldens specify future item
+commands, and the final tier records frontend rejections. Proofs remain \<open>sorry\<close>,
+so the session uses \<open>quick_and_dirty\<close>. \<open>**\<close> and \<open>!!\<close> mean double
+dereference and negation.
+\<close>
 
 
-section\<open>PART I — Expression tier (mirror of Micro_Rust_Shallow_Embedding_Tests)\<close>
+section\<open> Expression goldens \<close>
 
 subsection\<open>Literals and Basic Values\<close>
 
@@ -39,6 +26,7 @@ subsubsection\<open>Numeric Literals\<close>
 lemma \<open>undefined = \<lbrakk> 0 \<rbrakk>\<close> sorry
 lemma \<open>undefined = \<lbrakk> 1 \<rbrakk>\<close> sorry
 lemma \<open>undefined = \<lbrakk> 42 \<rbrakk>\<close> sorry
+lemma \<open>undefined = \<lbrakk> 0xff \<rbrakk>\<close> sorry
 lemma \<open>undefined = \<lbrakk> \<llangle>0 :: 32 word\<rrangle> \<rbrakk>\<close> sorry
 lemma \<open>undefined = \<lbrakk> \<llangle>1 :: 64 word\<rrangle> \<rbrakk>\<close> sorry
 lemma \<open>undefined = \<lbrakk> \<llangle>255 :: 8 word\<rrangle> \<rbrakk>\<close> sorry
@@ -80,6 +68,10 @@ subsubsection\<open>HOL Value Injection (Antiquotation)\<close>
 lemma \<open>undefined = \<lbrakk> \<llangle>0 :: 32 word\<rrangle> \<rbrakk>\<close> sorry
 lemma \<open>undefined = \<lbrakk> \<llangle>True\<rrangle> \<rbrakk>\<close> sorry
 lemma \<open>undefined = \<lbrakk> \<llangle>Some (0 :: nat)\<rrangle> \<rbrakk>\<close> sorry
+lemma \<open>undefined =
+  \<lbrakk> \<llangle> \<lbrakk> \<llangle>1 :: nat\<rrangle> \<rbrakk> \<rrangle> \<rbrakk>\<close> sorry
+lemma \<open>undefined =
+  \<lbrakk> \<epsilon>\<open> \<lbrakk> \<epsilon>\<open>\<up>(1 :: nat)\<close> \<rbrakk> \<close> \<rbrakk>\<close> sorry
 
 subsection\<open>Type Casts and Ascriptions\<close>
 
@@ -218,10 +210,13 @@ lemma \<open>undefined = \<lbrakk> let a = \<llangle>16 :: 32 word\<rrangle>; a 
 
 subsection\<open>Operator Precedence and Associativity\<close>
 
-text\<open>Mixed-operator probes: the golden \<open>\<lbrakk> src \<rbrakk>\<close> pins the frontend's grouping. Fixities are
-\<open>* / %\<close> (infixl 50) > \<open>+ -\<close> (49) > \<open><< >>\<close> (48) > \<open>&\<close> (47) > \<open>^\<close> (46) > \<open>|\<close> (45) >
-\<open>== != < <= > >=\<close> (infix 44, non-assoc) > \<open>&&\<close> (43) > \<open>||\<close> (42); prefix \<open>!\<close> tighter than all
-binary. Non-associativity of comparisons (\<open>a == b == c\<close>) is a reject, in the negative tier.\<close>
+text\<open>
+Goldens pin this precedence:
+\<open>* / %\<close> (50) > \<open>+ -\<close> (49) > \<open><< >>\<close> (48) > \<open>&\<close> (47) >
+\<open>^\<close> (46) > \<open>|\<close> (45) > comparisons (44) > \<open>&&\<close> (43) >
+\<open>||\<close> (42); prefix \<open>!\<close> is tightest. Comparisons are non-associative
+and covered by the negative tier.
+\<close>
 
 subsubsection\<open>Associativity (binary operators are left-associative)\<close>
 
@@ -474,14 +469,10 @@ lemma \<open>undefined = \<lbrakk> let zero = \<llangle>0 :: 32 word\<rrangle>; 
 
 subsubsection\<open>Nested Match Expressions\<close>
 
-text\<open>A general, edge-case-driven collection, orthogonal to the corpus's nested \<^emph>\<open>patterns\<close>
-(\<open>Some(Some(x))\<close>): here a \<open>match\<close> re-enters the expression grammar in an arm body, scrutinee,
-guard, or \<open>let\<close>-RHS. The oracle (upstream frontend) supports guards, tuple patterns, and nested
-constructor patterns, so these are exercised \<^emph>\<open>in combination with\<close> nested matches — including
-shapes the downstream model avoids (downstream flattens nested patterns into two matches, a usage convention of the
-model, not a frontend limitation, so it does not constrain this general suite). The downstream-specific,
-provenance-cited nested-match mirrors live separately in the private, git-ignored
-\<^verbatim>\<open>a downstream-only corpus\<close> (kept out of this public corpus).\<close>
+text\<open>
+These tests place nested \<open>match\<close> expressions in arm bodies, scrutinees, guards,
+and \<open>let\<close> RHSs; nested patterns are covered separately.
+\<close>
 
 datatype nm_case = NmA "32 word" | NmB "32 word" | NmC
 
@@ -661,6 +652,15 @@ lemma \<open>undefined = \<lbrakk> h(a, b, c, a) \<rbrakk>\<close> sorry
 lemma \<open>undefined = \<lbrakk> i(a, b, c, a, b) \<rbrakk>\<close> sorry
 lemma \<open>undefined = \<lbrakk> \<epsilon>\<open>g\<close>(c); g(c); f(a,b); a.f(b); f(g(c),b); g(c).f(b) \<rbrakk>\<close> sorry
 lemma \<open>undefined = \<lbrakk> f(g(c),b) \<rbrakk>\<close> sorry
+end
+
+context
+  fixes f14 :: \<open>
+    nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow>
+    nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow>
+    (unit, nat, unit, unit, unit) function_body \<close>
+begin
+lemma \<open>undefined = \<lbrakk> f14(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13) \<rbrakk>\<close> sorry
 end
 
 subsubsection\<open>Method-Style Calls\<close>
@@ -1108,13 +1108,14 @@ lemma \<open>undefined = \<lbrakk> let mut (x, y) = (\<llangle>1 :: 32 word\<rra
 lemma \<open>undefined = \<lbrakk> let mut (a, b, c) = (\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>, \<llangle>3 :: nat\<rrangle>); a \<rbrakk>\<close> sorry
 
 
-section\<open>PART II — Definition-level tiers (function headers, records, enums)\<close>
+section\<open> Definition goldens \<close>
 
 subsection\<open>Function-definition tier — Rust fn \<rightarrow> Isabelle definition + FunctionBody\<close>
 
-text\<open>The signature (parameter types + return type) is the HOL type + parameter binding; only the
-body lives in \<open>FunctionBody \<lbrakk>\<dots>\<rbrakk>\<close>. Each golden is the manual mirror; the parser must reproduce the
-whole definition.\<close>
+text\<open>
+The HOL type and parameter binding encode the signature; only the body is embedded in
+\<open>FunctionBody \<lbrakk>\<dots>\<rbrakk>\<close>. Future item parsing must reproduce each definition.
+\<close>
 
 \<comment>\<open>rust:  fn answer() -> u32 { 42 }\<close>
 definition answer :: \<open>('s, 32 word, 'abort, 'i, 'o) function_body\<close> where
@@ -1138,10 +1139,11 @@ definition safe_div :: \<open>32 word \<Rightarrow> 32 word \<Rightarrow> ('s, (
 
 subsection\<open>Record-definition tier — Rust struct \<rightarrow> datatype_record + micro_rust_record\<close>
 
-text\<open>A Rust \<open>struct\<close> maps to a \<open>datatype_record\<close> plus a \<open>micro_rust_record\<close> declaration (which
-generates the field lenses and registers the field names). The HOL field names are record-prefixed
-while the µRust names are the bare Rust names, via the \<open>(hol_field = "urust_name", \<dots>)\<close> override.
-The field-access stubs check the registrations resolve.\<close>
+text\<open>
+A Rust \<open>struct\<close> maps to \<open>datatype_record\<close> plus \<open>micro_rust_record\<close>,
+which generates lenses and registers bare Rust field names. Overrides map prefixed HOL
+fields to those names; field-access stubs test resolution.
+\<close>
 
 \<comment>\<open>rust:  struct Point { x: u32, y: u32 }\<close>
 datatype_record point =
@@ -1188,9 +1190,11 @@ end
 
 subsection\<open>Enum-definition tier — Rust enum \<rightarrow> datatype + micro_rust_notation\<close>
 
-text\<open>A Rust \<open>enum\<close> maps to a HOL \<open>datatype\<close> plus a \<open>micro_rust_notation\<close> registration per variant,
-so the path-qualified variant name resolves in µRust. The stubs cover variant construction and a
-\<open>match\<close> over the variants.\<close>
+text\<open>
+A Rust \<open>enum\<close> maps to a HOL \<open>datatype\<close> with one
+\<open>micro_rust_notation\<close> registration per path-qualified variant. Stubs cover
+construction and matching.
+\<close>
 
 \<comment>\<open>rust:  enum Color { Red, Green, Blue }\<close>
 datatype color = Red | Green | Blue
@@ -1206,7 +1210,7 @@ lemma \<open>undefined = \<lbrakk>
 \<rbrakk>\<close> sorry
 end
 
-section\<open>Negative tier — inputs the parser must also reject\<close>
+section\<open> Frontend rejections \<close>
 
 ML\<open>
   \<comment>\<open>\<open>src\<close> must fail to elaborate through the current frontend.\<close>
@@ -1218,9 +1222,9 @@ ML\<open>
   val _ = \<^assert> (rejected "\<lbrakk> 1 + \<rbrakk>");
   val _ = \<^assert> (rejected "\<lbrakk> if True \<rbrakk>");
   val _ = \<^assert> (rejected "\<lbrakk> let x = \<rbrakk>");
+  val _ = \<^assert> (rejected "\<lbrakk> {} \<rbrakk>");
   \<comment>\<open>Comparisons are non-associative (infix 44): chaining them is a syntax error.\<close>
   val _ = \<^assert> (rejected "\<lbrakk> \<llangle>1 :: 32 word\<rrangle> == \<llangle>2 :: 32 word\<rrangle> == \<llangle>3 :: 32 word\<rrangle> \<rbrakk>");
 \<close>
 
 end
-
