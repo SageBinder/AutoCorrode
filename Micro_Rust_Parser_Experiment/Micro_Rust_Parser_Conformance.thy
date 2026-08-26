@@ -189,6 +189,26 @@ lemma \<open> let_cap = \<lbrakk> let x = \<llangle>5 :: nat\<rrangle>; \<llangl
 urust_expr let_cap_deep \<open> let x = \<llangle>5 :: nat\<rrangle>; \<llangle>x + 1\<rrangle> \<close>
 lemma \<open> let_cap_deep = \<lbrakk> let x = \<llangle>5 :: nat\<rrangle>; \<llangle>x + 1\<rrangle> \<rbrakk> \<close> unfolding let_cap_deep_def by (rule refl)
 
+text\<open> \<open>let _ = e; k\<close> -- the binder position is the SHARED pattern nonterminal, so \<open>_\<close> is a genuine
+wildcard here (an anonymous, hygienically-named lambda) rather than a variable literally named \<open>_\<close>. \<close>
+
+urust_expr let_wild \<open> let _ = \<llangle>5 :: nat\<rrangle>; () \<close>
+lemma \<open> let_wild = \<lbrakk> let _ = \<llangle>5 :: nat\<rrangle>; () \<rbrakk> \<close> unfolding let_wild_def by (rule refl)
+
+text\<open> ... and it cannot capture an enclosing binder either (the anonymous lambda is built as \<open>Abs\<close> +
+\<open>Bound\<close>, so there is no name to collide with \<open>uu\<close> below). \<close>
+urust_expr let_wild_hyg \<open> let uu = \<llangle>5 :: nat\<rrangle>; let _ = \<llangle>7 :: nat\<rrangle>; uu \<close>
+lemma \<open> let_wild_hyg = \<lbrakk> let uu = \<llangle>5 :: nat\<rrangle>; let _ = \<llangle>7 :: nat\<rrangle>; uu \<rbrakk> \<close>
+  unfolding let_wild_hyg_def by (rule refl)
+
+text\<open> A REFUTABLE pattern in a \<open>let\<close> is rejected by BOTH (so not a divergence), but the shared pattern
+grammar turns the parser's rejection from a bare "syntax error" into a positioned elaborator message:
+\<open>let Some(y) = \<llangle>Some (5::nat)\<rrangle>; y\<close> and \<open>let 1 = \<llangle>5::nat\<rrangle>; ()\<close> now parse and report
+"refutable pattern in an irrefutable (let/const) binder position" at the pattern. Checked out-of-band (an
+error, not a \<open>refl\<close> row) -- as with the \<open>a == b == c\<close> and D-1 rejections. Likewise a BINDING pattern under
+\<open>match_switch\<close> (e.g. \<open>Some(y)\<close>) and a NUMERAL pattern under \<open>match_case\<close> are now positioned elaborator
+errors naming the flavour, instead of parse errors. \<close>
+
 
 section\<open> Pure-value operators (Corpus PART I: Arithmetic / Bitwise / Comparison / Boolean) \<close>
 
@@ -793,6 +813,45 @@ urust_expr mc_stmt \<open> match_case x { Some(_) \<Rightarrow> () , None \<Righ
 lemma \<open> mc_stmt = \<lbrakk> match_case x { Some(_) \<Rightarrow> () , None \<Rightarrow> () } ; () \<rbrakk> \<close>
   unfolding mc_stmt_def by (rule refl)
 
+subsection\<open> Binder hygiene: an INVENTED binder must not capture an enclosing \<open>let\<close> (fixed 2026-08-26) \<close>
+
+text\<open> A \<open>_\<close> pattern and the \<open>match_case\<close> desugaring's scrutinee binder have no source name. They are
+abstracted DIRECTLY as \<open>Abs\<close> + \<open>Bound\<close> (\<open>Parser_Utils.anon_abs\<close> / \<open>abs_slots\<close>), never via a named
+\<open>Free\<close>, so they cannot capture anything: there is no name to coincide with a source binder's.
+An earlier version instead invented a FRESH name, seeded from the proof context -- which does NOT contain
+the enclosing uRust \<open>let\<close> binders (they live in the elaborator's \<open>env\<close> as source-named \<open>Free\<close>s). So a
+\<open>_\<close> arm under \<open>let uu = ...\<close> was itself named \<open>uu\<close> and the arm body's \<open>uu\<close> was rebound by the
+wildcard's own \<open>Term.lambda\<close>, SILENTLY changing the term: the first row below collapsed to
+\<open>bind (\<up>x) literal\<close>, discarding the arm body entirely, and the third failed to type-check with the arm
+body taking the scrutinee's type. These rows pin the fix; all close by \<open>refl\<close>. \<close>
+
+urust_expr mc_hyg_wild \<open> let uu = \<llangle>Some 5 :: nat option\<rrangle>; match_case x { _ \<Rightarrow> uu } \<close>
+lemma \<open> mc_hyg_wild = \<lbrakk> let uu = \<llangle>Some 5 :: nat option\<rrangle>; match_case x { _ \<Rightarrow> uu } \<rbrakk> \<close>
+  unfolding mc_hyg_wild_def by (rule refl)
+
+text\<open> Same, for a \<open>_\<close> in CONSTRUCTOR-ARGUMENT position (a separate naming path: the arg slots). \<close>
+urust_expr mc_hyg_ctor_arg \<open> let uu = \<llangle>7 :: nat\<rrangle>; match_case x { Some(_) \<Rightarrow> uu, None \<Rightarrow> uu } \<close>
+lemma \<open> mc_hyg_ctor_arg = \<lbrakk> let uu = \<llangle>7 :: nat\<rrangle>; match_case x { Some(_) \<Rightarrow> uu, None \<Rightarrow> uu } \<rbrakk> \<close>
+  unfolding mc_hyg_ctor_arg_def by (rule refl)
+
+text\<open> Differing types make the old capture a TYPE error rather than a silent term change: the scrutinee is
+\<open>nat option\<close> and the arm body a \<open>nat\<close>. \<close>
+urust_expr mc_hyg_typed \<open> let uu = \<llangle>7 :: nat\<rrangle>; match_case x { _ \<Rightarrow> uu } \<close>
+lemma \<open> mc_hyg_typed = \<lbrakk> let uu = \<llangle>7 :: nat\<rrangle>; match_case x { _ \<Rightarrow> uu } \<rbrakk> \<close>
+  unfolding mc_hyg_typed_def by (rule refl)
+
+text\<open> The invented SCRUTINEE binder is on the same hygiene path (it already scanned the branches, so this
+is a regression guard): a \<open>let\<close> binder named exactly like the invented scrutinee name. \<close>
+urust_expr mc_hyg_scrut \<open> let anon_case = \<llangle>7 :: nat\<rrangle>; match_case x { Some(y) \<Rightarrow> anon_case, None \<Rightarrow> anon_case } \<close>
+lemma \<open> mc_hyg_scrut = \<lbrakk> let anon_case = \<llangle>7 :: nat\<rrangle>; match_case x { Some(y) \<Rightarrow> anon_case, None \<Rightarrow> anon_case } \<rbrakk> \<close>
+  unfolding mc_hyg_scrut_def by (rule refl)
+
+text\<open> A \<open>_\<close> must also not collide with a SIBLING binder of the same pattern that the body never mentions
+(such a name is absent from the body's frees, so the pattern's own binder names are seeded too). \<close>
+urust_expr mc_hyg_sibling \<open> match_case p { P2(uu, _) \<Rightarrow> \<llangle>0 :: nat\<rrangle> } \<close>
+lemma \<open> mc_hyg_sibling = \<lbrakk> match_case p { P2(uu, _) \<Rightarrow> \<llangle>0 :: nat\<rrangle> } \<rbrakk> \<close>
+  unfolding mc_hyg_sibling_def by (rule refl)
+
 end
 
 
@@ -812,10 +871,10 @@ text\<open> WAS a divergence: \<open>if \<llangle>True\<rrangle> { \<llangle>1::
 the frontend REJECTS it (its \<open>if\<close> result-priority 21 < the \<open>+\<close> operand floor 49) but our flat parser
 accepted it as \<open>(if...)+3\<close>. FIXED by the control-flow stratification (D25): \<open>if\<close> (a with-block form,
 nonterminal \<open>uif\<close>) is no longer a bare operand (\<open>uexp\<close>), so the parser now ALSO rejects the unparenthesized
-form with a parse error -- matching the frontend. This rejection is checked OUT-OF-BAND (a parse error, not
-a refl row, like the \<open>a == b == c\<close> non-associativity case): running \<open>urust_expr\<close> on
-\<open>if \<llangle>True\<rrangle> {\<llangle>1::32 word\<rrangle>} else {\<llangle>2::32 word\<rrangle>} + \<llangle>3::32 word\<rrangle>\<close> errors. Parenthesising
-restores it (a paren-wrapped \<open>uval\<close> is a \<open>uexp\<close> operand), and that IS a passing row: \<close>
+form with a parse error -- matching the frontend. That rejection is no longer checked out-of-band: it is a
+build-guarded \<open>urust_expr_rejects\<close> row (expected \<open>syntax error found at TPLUS\<close>) in
+Micro_Rust_Parser_Negative_Conformance.thy, alongside the \<open>a == b == c\<close> non-associativity case.
+Parenthesising restores it (a paren-wrapped \<open>uval\<close> is a \<open>uexp\<close> operand), and that IS a passing row: \<close>
 urust_expr d1_paren_operand
   \<open> (if \<llangle>True\<rrangle> { \<llangle>1 :: 32 word\<rrangle> } else { \<llangle>2 :: 32 word\<rrangle> }) + \<llangle>3 :: 32 word\<rrangle> \<close>
 lemma \<open> d1_paren_operand = \<lbrakk> (if \<llangle>True\<rrangle> { \<llangle>1 :: 32 word\<rrangle> } else { \<llangle>2 :: 32 word\<rrangle> }) + \<llangle>3 :: 32 word\<rrangle> \<rbrakk> \<close>
@@ -858,12 +917,15 @@ lemma \<open> cap_const_deep = \<lbrakk> let id = \<llangle>5 :: nat\<rrangle>; 
 urust_expr cap_notation \<open> let myReg = \<llangle>5 :: nat\<rrangle>; \<llangle>myReg\<rrangle> \<close>  \<comment>\<open> binder name = a registered notation surface name (guard) \<close>
 lemma \<open> cap_notation = \<lbrakk> let myReg = \<llangle>5 :: nat\<rrangle>; \<llangle>myReg\<rrangle> \<rbrakk> \<close> unfolding cap_notation_def by (rule refl)
 
-subsection\<open> D-4: antiquotation start-states do not balance nested delimiters (LATENT) \<close>
+subsection\<open> D-4: antiquotation start-states do not balance nested delimiters (RUNNABLE) \<close>
 
-text\<open> A \<open>\<epsilon>\<open> ... \<close>\<close> body containing an inner cartouche (or a \<open>\<llangle>...\<rrangle>\<close> body containing a nested
-\<open>\<llangle>\<close>/\<open>\<rrangle>\<close>) closes on the FIRST closer and silently mis-parses the tail. No current row triggers it
-(real HOL bodies here contain no nested cartouche), so it is recorded as a note; a runnable trigger + the
-depth-counting fix belong with the nested-antiquotation tier. \<close>
+text\<open> An antiquotation body containing a NESTED antiquotation of the same kind closes on the FIRST closer,
+truncating the body. Two runnable triggers now exist and BOTH are build-guarded \<open>urust_expr_rejects\<close> rows
+in Micro_Rust_Parser_Negative_Conformance.thy; probing them (2026-08-26) also corrected the reading recorded
+here: the frontend ACCEPTS both sources, and the parser's failure is LOUD (a positioned
+\<open>unexpected input\<close> on the leftover symbol), not a silent mis-parse. The depth-counting fix (TODO T-10)
+belongs with the nested-antiquotation tier; it must REPLACE those rows with positive rows, since the message
+they assert is accidental. \<close>
 
 subsection\<open> D-5: non-identifier / non-method call callees -- parser UNDER-accepts (frontend accepts) \<close>
 

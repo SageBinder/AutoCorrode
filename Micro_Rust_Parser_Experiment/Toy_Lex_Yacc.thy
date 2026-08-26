@@ -162,10 +162,8 @@ struct
   open Toy_AST
   fun mk_binop c a b = Const (c, dummyT) $ a $ b
 
-  (* Binder / markup / antiquotation helpers are shared with Micro_Rust_Parser via Parser_Utils (plain
-     Isabelle/ML; see that theory). Partially apply the def/ref entity-kind string once -- the call
-     sites below are then unchanged. report_def / bind_vars / mark_bound are used internally by
-     bind_var / parse_antiq, so only these three are needed here. *)
+  (* Shared binder / markup / antiquotation helpers (Parser_Utils, see there); the entity-kind string is
+     partially applied once so the call sites below read unchanged. *)
   val vkind       = "toy_var"
   val report_ref  = Parser_Utils.report_ref vkind
   val bind_var    = Parser_Utils.bind_var vkind

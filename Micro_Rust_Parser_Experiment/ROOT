@@ -19,3 +19,4 @@ session Micro_Rust_Parser_Experiment = HOL +
     Toy_Lex_Yacc
     Micro_Rust_Parser
     Micro_Rust_Parser_Conformance
+    Micro_Rust_Parser_Negative_Conformance

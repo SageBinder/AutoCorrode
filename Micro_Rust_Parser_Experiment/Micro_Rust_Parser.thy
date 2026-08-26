@@ -1,31 +1,19 @@
 (* The custom uRust parser (Phase 1, in progress).
 
-   A real uRust parser built as an ml_lex_yacc lexer + LALR grammar -> reified SML AST -> elaboration
-   into the EXISTING shallow terms, exposed as an outer-syntax command `urust_expr NAME <src>`.
-   The governing invariant is that the elaborated term is ALPHA-EQUAL to what the inner-syntax bracket
-   `\<lbrakk> src \<rbrakk>` produces today -- validated by the companion Micro_Rust_Parser_Conformance.thy
-   (each row closes by `unfolding NAME_def by (rule refl)`).
+   An ml_lex_yacc lexer + LALR grammar -> reified SML AST -> elaboration into the EXISTING shallow terms,
+   exposed as an outer-syntax command `urust_expr NAME <src>`. The governing invariant: the elaborated
+   term is ALPHA-EQUAL to what the inner-syntax bracket `\<lbrakk> src \<rbrakk>` produces today -- validated
+   by Micro_Rust_Parser_Conformance.thy (each row closes `unfolding NAME_def by (rule refl)`).
 
-   Constructs covered so far (see the surface-grammar BNF in notes/urust-parser-design-decisions.md):
-     * literals -- bare decimal numerals, suffixed integer literals (decimal + hex), unit ();
-     * value / expression antiquotations <<v>> / eps<e> (raw HOL spliced in);
-     * bare identifiers -- registered (literal) micro_rust_notation names resolve via the frontend's
-       urust_dispatch term_check phases (reused, not reimplemented); otherwise parsed as HOL (a known
-       constant -> its Const, else a Free);
-     * let / const bindings and statement sequencing (`;`, trailing `;`);
-     * pure-value operators (arithmetic / bitwise / shifts / comparison / logical + unary `!`);
-     * block expressions { stmts } (erase to their body), if / else (two-armed, one-armed, else-if) and
-       no-`;` block-like statement sequencing;
-     * function calls f(a..) and method calls x.m(a..) (funcallN);
-     * match_switch (numeric / wildcard / or-pattern) and match_case (binding patterns: wildcard /
-       variable / nullary + single-level constructor, via the Ctr_Sugar case skeleton).
-   Deferred (later steps -- notes/urust-parser-plan.md): the reference tier (`*` deref, `&`/`&mut`,
-   `=`/compound-assign, `?`), let mut, let/tuple destructuring, the bare `match` keyword + guards /
-   disjunction / nested / literal / struct / slice patterns, loops, return, panic!/strings, paths Foo::Bar.
+   Notes (do not duplicate them here): coverage + deferred work = notes/claude/urust-parser-features.md
+   and urust-parser-plan.md; the surface BNF, the AST table, and the per-decision rationale (`D*`) =
+   urust-parser-design-decisions.md; cross-cutting rules (markup classes C1, divergences C2) =
+   urust-rules-and-conventions.md. Comments below are limited to what a future editor would otherwise
+   BREAK; the `D*` tags point at the full story.
 
-   Technique carried over from Toy_Lex_Yacc: the corrected symbol-position layer (fixed_pos / tokF /
-   tok_valF), the antiquotation start-state lexing, dummyT + a single Syntax.check_term, and the
-   command mutex. ASCII escape form throughout (isabelle build rejects raw UTF-8 cartouche delimiters). *)
+   Shared with Toy_Lex_Yacc (and a future C frontend) via Parser_Utils: the corrected symbol-position
+   layer, binder/markup/antiquotation helpers, the command mutex. ASCII escape form throughout
+   (isabelle build rejects raw UTF-8 cartouche delimiters). *)
 
 theory Micro_Rust_Parser
   imports
@@ -42,23 +30,34 @@ text\<open> One constructor per uRust surface form. Positions are carried for ma
 ML\<open>
 structure URust_AST =
 struct
-  (* Binder pattern. `P_Var` is the irrefutable let/const binder (a single variable). `P_Ident` /
-     `P_Constr` are REFUTABLE match-arm patterns (D27): `P_Ident` is a bare id classified in the
-     elaborator (via Code.is_constr) as `_` -> wildcard, a nullary constructor, or a variable binder;
-     `P_Constr` is `C(args)` (Tier-0: args are P_Ident). The irrefutable let path (bind_pat) and the
-     refutable match path (bind_case_pat) BOTH reuse the shared per-variable registration (bind_var /
-     bind_vars) but build DIFFERENT abstractions -- a plain lambda for let, the Ctr_Sugar
-     case_abs/case_elem skeleton for match -- so they are distinct elaborator clauses, not one shared
-     bind_pat. Extending the match pattern set (tuple / nested / literal / guard / disjunction) adds a
-     ur_pat constructor + a bind_case_pat clause. *)
+  (* THE pattern language: ONE datatype for EVERY binding site (let / const binder, match_switch key,
+     match_case arm, and later closure params, `for` patterns, fn parameters) -- Rust has one pattern
+     grammar, whose sites differ only in which patterns are LEGAL there, so each site's elaborator gates
+     what it accepts with a positioned error instead of the grammar forking (D28). A bare id's ROLE
+     (nullary ctor vs variable binder) needs `Code.is_constr`, invisible to the parser -- hence one
+     `P_Ident`. Adding a pattern form = ONE constructor here + one clause per consuming site. *)
   datatype ur_pat =
-      P_Var    of string * Position.T                 (* x  (irrefutable let/const binder; name pos) *)
-    | P_Ident  of string * Position.T                 (* match arm bare id: `_` / nullary ctor / binder *)
-    | P_Constr of string * Position.T * ur_pat list * Position.T  (* C(args); Tier-0 args are P_Ident *)
+      P_Wild   of Position.T                          (* _ *)
+    | P_Ident  of string * Position.T                 (* bare id: nullary ctor OR variable binder *)
+    | P_Lit    of int * Position.T                    (* numeral pattern (a match_switch key) *)
+    | P_Constr of string * Position.T * ur_pat list   (* C(args): name, name-pos, args *)
+    | P_Or     of ur_pat list * Position.T            (* p | q | r  (flattened; source order) *)
 
-  (* Pure-value operators (arithmetic / bitwise / comparison / logical + unary !). Data-driven: the
-     elaborator maps each to a single HOL const (URust_Translate.binop_const / unop_const), so adding
-     an operator is one datatype line + one table row, not a bespoke case. *)
+  (* Which `match` surface keyword an arm set came from; the two lower DIFFERENTLY (see UE_Match), so the
+     flavour is a tag rather than separate AST nodes -- the bare `match` keyword then becomes a third
+     flavour that CLASSIFIES its arms into one of these two lowerings (D28). *)
+  datatype match_flavour = MF_Switch | MF_Case
+
+  (* `_` lexes as an ordinary IDENT: normalise to P_Wild in ONE place, not an `= "_"` test at every site. *)
+  fun mk_ident_pat (s, pos) = if s = "_" then P_Wild pos else P_Ident (s, pos)
+
+  (* Flatten nested or-patterns so `a | b | c` is one P_Or in source order, whatever %left TBAR bracketed. *)
+  fun mk_or_pat (p, q, pos) =
+    let fun alts (P_Or (ps, _)) = ps | alts p = [p]
+    in P_Or (alts p @ alts q, pos) end
+
+  (* Pure-value operators. Data-driven: each maps to one HOL const via URust_Translate.binop_const /
+     unop_const, so adding an operator is one datatype line + one table row (D20). *)
   datatype binop =
       Add | Sub | Mul | Div | Mod              (* + - * / %       *)
     | Shl | Shr                                (* << >>           *)
@@ -67,54 +66,39 @@ struct
     | And | Or                                 (* && ||           *)
   datatype unop = Not                          (* !  (and !! = !(!_)) *)
 
-  (* A match_switch arm's key(s) (D26). A numeral pattern -> Some <numeral>; `_` -> None. An or-pattern
-     `k1 | k2 | ...` carries multiple keys, each expanding to its own (key, body) pair. `SK_Name` covers
-     `_` (wildcard) and, later, const-id / path keys (currently rejected in the elaborator). *)
-  datatype ur_switch_key = SK_Num of int * Position.T | SK_Name of string * Position.T
-
   datatype ur_expr =
       UE_Num       of int * Position.T                (* bare decimal: 0, 1, 42 *)
-    | UE_NumSfx    of int * int * Position.T          (* value, width; 1_u32 / 0x4_u8; usize -> 64 *)
-    | UE_Unit      of Position.T                       (* () *)
+    | UE_NumSfx    of string * Position.T             (* RAW lexeme of a suffixed int (1_u32 / 0x4_u8);
+                                                         split + typed by parse_int_lit -- ALL suffix
+                                                         knowledge sits in that one table (D29) *)
+    | UE_Unit      of Position.T                      (* () *)
     | UE_Ident     of string * Position.T             (* bare identifier at value position *)
     | UE_ValAntiq  of Input.source                    (* <<v>>  body as a POSITIONED source -> literal v *)
     | UE_ExprAntiq of Input.source                    (* eps<e> body as a POSITIONED source -> e *)
     | UE_Let       of ur_pat * ur_expr * ur_expr      (* let <pat> = rhs; body -> bind *)
-    | UE_Const     of ur_pat * ur_expr * ur_expr      (* const <pat> = rhs; body; SAME desugaring as
-                                                          let today (SE:433-434) -- kept a distinct
-                                                          node so the source keyword is preserved for
-                                                          when const diverges (item-level const, B7) *)
+    | UE_Const     of ur_pat * ur_expr * ur_expr      (* const: same desugaring as let today; distinct node
+                                                         keeps the keyword for when it diverges (B7) *)
     | UE_Seq       of ur_expr * ur_expr               (* e1; e2 -> sequence (trailing `;`: e2 = unit) *)
     | UE_Bin       of binop * ur_expr * ur_expr * Position.T   (* a <binop> b *)
     | UE_Un        of unop * ur_expr * Position.T              (* !a  (and !!a = !(!a)) *)
-    | UE_Block     of ur_expr * Position.T                    (* { stmts } -- ERASES to <stmts> (no
-                                                                 `scoped` wrapper); frontend
-                                                                 `_urust_scoping` is identity (SE:360-362) *)
+    | UE_Block     of ur_expr * Position.T            (* { stmts } -- ERASES to <stmts>, no `scoped`
+                                                         wrapper: `_urust_scoping` is identity (D22) *)
     | UE_If        of ur_expr * ur_expr * ur_expr option * Position.T
-                                                              (* if c {t} [else {e} | else if ...];
-                                                                 NONE else-branch -> skip (one-armed) *)
+                                                      (* NONE else-branch = one-armed -> skip (D22) *)
     | UE_Call      of string * Position.T * ur_expr list * Position.T
-                                                              (* f(a0, ..., aN) -> funcallN f a0 ... aN.
-                                                                 The callee is an IDENTIFIER (name, name-pos);
-                                                                 resolved in NFunction (call) context, NOT
-                                                                 wrapped in `literal`. args, then call-pos.
-                                                                 Non-identifier callees (method x.m(a),
-                                                                 antiquotation eps<g>(a), turbofish, path)
-                                                                 don't parse into this node -- deferred. *)
-    | UE_MatchSwitch of ur_expr * (ur_switch_key list * ur_expr) list * Position.T
-                                                              (* match_switch scrut { keys => body, ... } ->
-                                                                 bind <<scrut>> (ncase_selector
-                                                                   [(Some k, <<body>>) ... (None, <<body>>)]).
-                                                                 Numeric / wildcard only; NO binders, first-order
-                                                                 (D26). An arm = (keys, body); keys > 1 = or-pattern. *)
-    | UE_MatchCase of ur_expr * (ur_pat * ur_expr) list * Position.T
-                                                              (* match_case scrut { pat => body, ... } ->
-                                                                 bind <<scrut>> (\<lambda>anon. case_guard True anon
-                                                                   (case_cons B1 ... (case_cons Bn case_nil))),
-                                                                 each Bi the Ctr_Sugar case branch for its arm;
-                                                                 Case_Translation folds to case_<T> at check_term.
-                                                                 Binding patterns (D27): wildcard / var / nullary
-                                                                 ctor / single-level ctor with binder|_ args. *)
+                                                      (* f(a0..aN) -> funcallN. Callee is an IDENTIFIER
+                                                         (name, name-pos) resolved in NFunction context;
+                                                         then args and the SPAN of the whole call, so an
+                                                         arity error underlines the call, not just the name
+                                                         (D23/D29). Non-identifier callees (antiquotation,
+                                                         turbofish, path) are deferred -- D-5. *)
+    | UE_Match     of match_flavour * ur_expr * (ur_pat * ur_expr) list * Position.T
+                                                      (* match_<flavour> scrut { pat => body, .. }. ONE node
+                                                         for both keywords; only the LOWERING differs --
+                                                         MF_Switch -> ncase_selector (first-order, D26),
+                                                         MF_Case -> the Ctr_Sugar case skeleton (D27). Each
+                                                         flavour's elaborator gates the patterns it cannot
+                                                         lower with a positioned error. *)
 end
 \<close>
 
@@ -124,10 +108,9 @@ SML_import \<open> structure Position = struct open Position end \<close> \<comm
 SML_import \<open> structure Markup = struct open Markup end \<close>     \<comment>\<open> typing / sorting \<close>
 
 ML\<open>
-(* Positioned lexer error, raised from the catch-all lex rule so an unrecognized character ABORTS with
-   a clickable position instead of being silently skipped (the parser's whole rationale includes
-   positioned diagnostics). Defined in Isabelle/ML -- where `error` / `quote` / `Position.here` are in
-   scope -- and SML_imported for the lexer's SML environment. *)
+(* Positioned lexer error for the catch-all rule: an unrecognized character must ABORT with a clickable
+   position, not be silently skipped (D21). In Isabelle/ML because `error`/`quote`/`Position.here` are not
+   in the lexer's SML environment; SML_imported below. *)
 structure URust_Err =
 struct
   fun lex_error text pos =
@@ -140,37 +123,23 @@ SML_import \<open> structure Parser_Lex_Util = Parser_Lex_Util \<close>  \<comme
 section\<open> Lexer + grammar \<close>
 
 text\<open> The antiquotation brackets are the Isabelle symbols \<open>\<llangle>\<close>/\<open>\<rrangle>\<close> (value
-escape) and \<open>\<epsilon>\<close> + \<open>\<open>\<close>/\<open>\<close>\<close> (expression escape); each is matched by an
-explicit escape rule and its body captured with a start state, without lexing the HOL inside.
-Operator precedence is declared once with yacc %left/%nonassoc/%right directives, reproducing the
-frontend's infix priorities (Micro_Rust_Syntax.thy:559-603). The fixed_pos / report_fixed / tokF /
-tok_valF / tok_ident position layer is INTENTIONALLY DUPLICATED with Toy_Lex_Yacc: it runs in this
-ml_lex_yacc block's SML environment and is scoped to it, so it cannot move into the shared Parser_Utils
-(plain Isabelle/ML) -- the elaborator helpers, which are plain ML, did move there. \<close>
+escape) and \<open>\<epsilon>\<close> + \<open>\<open>\<close>/\<open>\<close>\<close> (expression escape); each has an explicit
+escape rule and captures its body with a start state, without lexing the HOL inside. Operator precedence
+is declared once with yacc directives, reproducing the frontend's infix priorities
+(\<open>Micro_Rust_Syntax.thy:559-603\<close>). The \<open>the_src\<close>/\<open>tokF\<close>/\<open>tok_ident\<close> shims below must stay HERE (not in
+\<open>Parser_Utils\<close>): they run in this \<open>ml_lex_yacc\<close> block's SML environment and each lexer's \<open>Tokens\<close>
+constructors differ; only the position MATH is shared (D19). \<close>
 ml_lex_yacc "URust" where
 lex_user_declarations\<open>
 val aq_buf = ref ""
 val aq_start = ref 0   (* char offset of the antiquotation BODY start (just after the opener) *)
 
-(* Parse a suffixed integer literal lexeme, e.g. "0x4_u8" / "1_usize", to (value, width). *)
-fun parse_sfx s =
-  let
-    val (numSS, sfxSS) = Substring.position "_u" (Substring.full s)
-    val numstr = Substring.string numSS
-    val sfx = Substring.string (Substring.triml 2 sfxSS)   (* drop "_u" *)
-    val width = (case sfx of "8" => 8 | "16" => 16 | "32" => 32 | "64" => 64 | "size" => 64
-                           | other => raise Fail ("urust_expr: unsupported integer width _u" ^ other))
-    val value =
-      if String.isPrefix "0x" numstr
-      then valOf (StringCvt.scanString (Int.scan StringCvt.HEX) (String.extract (numstr, 2, NONE)))
-      else valOf (Int.fromString numstr)
-  in (value, width) end
+(* A suffixed integer literal is deliberately NOT interpreted here: the lexer captures the raw lexeme and
+   URust_Translate.parse_int_lit reads it against the single int_suffix_typ table, so an unknown suffix is
+   a POSITIONED elaborator error rather than an unpositioned `raise Fail` in lexer code (D29).
 
-(* Per-lexer source ref + set-shadow (SML environment). The corrected char-vs-symbol position MATH is
-   shared in Parser_Lex_Util (see Parser_Utils); these thin wrappers pass the current source. tok_ident
-   keeps this lexer's Tokens.IDENT constructor and emits NO colour -- URust_Translate.ident_term colours
-   each identifier once it knows the name's role (registered notation / HOL const / free), producing one
-   correctly-ranged markup (eager Markup.free here previously split the highlight on registered names). *)
+   Per-lexer source ref + set-shadow; the position MATH is shared (Parser_Lex_Util). tok_ident emits NO
+   colour -- ident_term does that once it knows the name's role, so the markup cannot split (D14). *)
 val the_src = ref (Input.string "")
 fun set source ctxt = (Isabelle_lex_yacc.set source ctxt; the_src := source)
 
@@ -193,8 +162,8 @@ ws = [\ \t\r];
 lex_rules\<open>
 <INITIAL>\n       => (lex());
 <INITIAL>{ws}+    => (lex());
-<INITIAL>({digit}+|"0x"{hexdigit}+)"_u"("8"|"16"|"32"|"64"|"size") =>
-    (tok_valF (yypos, yytext, Markup.numeral, "NUMSFX", "", Tokens.NUMSFX, parse_sfx yytext));
+<INITIAL>({digit}+|"0x"{hexdigit}+)"_"{idchar}+ =>
+    (tok_valF (yypos, yytext, Markup.numeral, "NUMSFX", "", Tokens.NUMSFX, yytext));
 <INITIAL>{digit}+ => (tok_valF (yypos, yytext, Markup.numeral, "NUM", "", Tokens.NUM, valOf (Int.fromString yytext)));
 <INITIAL>"let"    => (tokF (yypos, yytext, Markup.keyword1, "TLET", "", Tokens.TLET));
 <INITIAL>"const"  => (tokF (yypos, yytext, Markup.keyword1, "TCONST", "", Tokens.TCONST));
@@ -253,10 +222,9 @@ yacc_definitions\<open>
 %eop EOF
 %noshift EOF
 
-(* Operator precedence, loosest -> tightest (reproduces the frontend's infix priorities,
-   Micro_Rust_Syntax.thy:559-603). Comparisons are non-associative (Rust rejects `a == b == c`);
-   prefix `!` binds tighter than every binary operator. The ambiguous `uexp OP uexp` productions are
-   resolved by these directives, keeping the LALR construction conflict-free. *)
+(* Operator precedence, loosest -> tightest (the frontend's infix priorities). Comparisons are
+   non-associative (Rust rejects `a == b == c`); prefix `!` binds tighter than every binary operator.
+   These directives are what keep the ambiguous `uexp OP uexp` productions conflict-free. *)
 %left TBARBAR
 %left TAMPAMP
 %nonassoc TEQEQ TNE TLT TLE TGT TGE
@@ -267,11 +235,10 @@ yacc_definitions\<open>
 %left TPLUS TMINUS
 %left TSTAR TSLASH TPERCENT
 %right TBANG
-%left TDOT    (* method access `.` binds tightest -- tighter than prefix `!` and every binary op:
-                 `a + b.m(c)` = `a + (b.m(c))`, `!x.m()` = `!(x.m())`. Resolves the `uexp . TDOT`
-                 shift/reduce against operators by precedence (no reported conflict). *)
+%left TDOT    (* method `.` binds tightest, tighter than prefix `!`: `a + b.m(c)` = `a + (b.m(c))`,
+                 `!x.m()` = `!(x.m())`. This is what resolves `uexp . TDOT` against the operators. *)
 
-%term NUM of int | NUMSFX of int * int | IDENT of string | LPAR | RPAR
+%term NUM of int | NUMSFX of string | IDENT of string | LPAR | RPAR
     | VALAQ of Input.source | EXPRAQ of Input.source
     | TLET | TCONST | TEQ | TSEMI | EOF
     | TIF | TELSE | TLBRACE | TRBRACE | COMMA | TDOT
@@ -288,63 +255,58 @@ yacc_definitions\<open>
        | ublock of URust_AST.ur_expr
        | uif of URust_AST.ur_expr
        | umatchsw of URust_AST.ur_expr
-       | swarms of (URust_AST.ur_switch_key list * URust_AST.ur_expr) list
-       | swpat of URust_AST.ur_switch_key list
        | umatchcase of URust_AST.ur_expr
-       | casearms of (URust_AST.ur_pat * URust_AST.ur_expr) list
-       | casepat of URust_AST.ur_pat
-       | patargs of URust_AST.ur_pat list
+       | uarms of (URust_AST.ur_pat * URust_AST.ur_expr) list
+       | upat of URust_AST.ur_pat
+       | upats of URust_AST.ur_pat list
 \<close>
 yacc_rules\<open>
   ustart : ustmt (SOME ustmt)
          | (NONE)
-  (* Statements. A statement is a VALUE expression `uval` (an operand `uexp` OR a with-block control-flow
-     expr `uif`), sequenced with `;` -- OR a with-block form (`ublock`/`uif`) in statement position with
-     NO trailing `;` followed by more statements (Rust's optional semicolon after a block-like expr; the
-     frontend `_urust_sequence_scoping`/`_urust_sequence_if_*`, closing divergence D-2). The no-`;` forms
-     desugar to the same `sequence` as an explicit `;` would. Block `{...}` is operand-legal (it is a
-     `uexp` atom, frontend priority 1000) AND has a no-`;` statement form -- the `ublock`-as-operand vs
-     `ublock ustmt` decision is resolved by lookahead (operator/`;`/`}`/EOF -> operand; a statement-start
-     token -> no-`;` sequence). *)
+  (* Statements: a value expression `uval` sequenced with `;`, OR a with-block form (`ublock`/`uif`) in
+     statement position with NO trailing `;` (Rust's optional semicolon after a block-like expr; closes
+     divergence D-2 -- D25). Both desugar to the same `sequence`. The `ublock`-as-operand vs `ublock
+     ustmt` decision resolves by lookahead (operator/`;`/`}`/EOF -> operand; statement-start -> sequence). *)
   ustmt : uval                              (uval)
         | uval TSEMI ustmt                  (UE_Seq (uval, ustmt))
         | uval TSEMI                        (UE_Seq (uval, UE_Unit TSEMIleft))
         | ublock ustmt                      (UE_Seq (ublock, ustmt))
         | uif ustmt                         (UE_Seq (uif, ustmt))
-        (* NOTE: no `umatchsw ustmt` (no-`;` match_switch statement): the frontend has
-           `_urust_sequence_scoping`/`_urust_sequence_if_*` but NO no-`;` sequencing for the `match_switch`
-           keyword, so `match_switch … {} stmt` is a frontend PARSE ERROR -- match_switch in statement
-           position needs a trailing `;` (via `uval TSEMI ustmt`), matching the frontend. *)
-        | TLET IDENT TEQ uval TSEMI ustmt   (UE_Let (P_Var (IDENT, IDENTleft), uval, ustmt))
-        | TCONST IDENT TEQ uval TSEMI ustmt (UE_Const (P_Var (IDENT, IDENTleft), uval, ustmt))
-  (* Value position: an operand OR a with-block control-flow expr. `uval` is where `if` (and later
-     `match`/loops) is admitted -- at let-RHS, condition, call args, and parens -- WITHOUT being a bare
-     binary-operator operand (that stays `uexp`, closing divergence D-1). *)
+        (* NO `umatchsw ustmt` form: the frontend has no no-`;` sequencing for the match keywords, so a
+           match in statement position needs a trailing `;` -- matching the frontend (D26). *)
+        (* The binder is the SHARED `upat`, not an inline IDENT, so `let (a, b) = ..` / `let mut x` become
+           pattern-datatype extensions rather than new productions per site; bind_pat gates refutable
+           patterns with a positioned error (D28). *)
+        | TLET upat TEQ uval TSEMI ustmt   (UE_Let (upat, uval, ustmt))
+        | TCONST upat TEQ uval TSEMI ustmt (UE_Const (upat, uval, ustmt))
+  (* Value position: an operand OR a with-block control-flow expr. `uval` is where `if`/`match` (later
+     loops) are admitted -- let-RHS, condition, call args, parens -- WITHOUT being a bare binary-operator
+     operand (that stays `uexp`, closing divergence D-1 -- D25). *)
   uval : uexp (uexp)
        | uif  (uif)
        | umatchsw (umatchsw)
        | umatchcase (umatchcase)
   uexp : NUM        (UE_Num (NUM, NUMleft))
-       | NUMSFX     (UE_NumSfx (#1 NUMSFX, #2 NUMSFX, NUMSFXleft))
+       | NUMSFX     (UE_NumSfx (NUMSFX, NUMSFXleft))
        | IDENT      (UE_Ident (IDENT, IDENTleft))
-       | IDENT LPAR RPAR          (UE_Call (IDENT, IDENTleft, [], IDENTleft))
-       | IDENT LPAR arglist RPAR  (UE_Call (IDENT, IDENTleft, arglist, IDENTleft))
-       (* Method call `recv.m(args)` = a plain call to `m` with the RECEIVER PREPENDED as the first arg
-          (SE:380-381,416-417): `x.m(a) = funcall2 m <<x>> <<a>>`, `x.m() = funcall1 m <<x>>`. The method
-          name resolves in NFunction (call) context like any callee; the receiver is an ordinary value
-          expression. So it desugars into the existing UE_Call node -- no new AST/elaborator machinery.
-          Field access `x.f` (no parens) is a DIFFERENT construct (NField/lens) and is deferred (parse
-          error here). Postfix on any uexp receiver, so `g(c).f(b)` and chains `x.m().n()` work. *)
-       | uexp TDOT IDENT LPAR RPAR         (UE_Call (IDENT, IDENTleft, [uexp], IDENTleft))
-       | uexp TDOT IDENT LPAR arglist RPAR (UE_Call (IDENT, IDENTleft, uexp :: arglist, IDENTleft))
+       | IDENT LPAR RPAR          (UE_Call (IDENT, IDENTleft, [],
+                                     Position.range_position (IDENTleft, RPARright)))
+       | IDENT LPAR arglist RPAR  (UE_Call (IDENT, IDENTleft, arglist,
+                                     Position.range_position (IDENTleft, RPARright)))
+       (* Method call `recv.m(args)` = a plain call to `m` with the RECEIVER PREPENDED as first arg, so it
+          reuses UE_Call with no new machinery (D24). Postfix on any `uexp` receiver, so `g(c).f(b)` and
+          chains work. Field access `x.f` (no parens) is a different construct (NField/lens) -- deferred. *)
+       | uexp TDOT IDENT LPAR RPAR         (UE_Call (IDENT, IDENTleft, [uexp],
+                                              Position.range_position (uexpleft, RPARright)))
+       | uexp TDOT IDENT LPAR arglist RPAR (UE_Call (IDENT, IDENTleft, uexp :: arglist,
+                                              Position.range_position (uexpleft, RPARright)))
        | LPAR RPAR  (UE_Unit LPARleft)
        | LPAR uval RPAR (uval)      (* parens wrap a uval: `(if ...)` becomes a usable operand -- the D-1 escape *)
        | VALAQ      (UE_ValAntiq VALAQ)
        | EXPRAQ     (UE_ExprAntiq EXPRAQ)
        | ublock     (ublock)        (* block STAYS an operand atom (frontend priority 1000): `{e} + x` parses *)
-       (* NOTE: `uif` is deliberately NOT a `uexp` alternative -- a with-block control-flow expr is not a
-          bare binary-operator operand (closes D-1). It reaches value positions only via `uval`, and
-          operand position only when parenthesized (`LPAR uval RPAR`). match / loops will join `uval`. *)
+       (* `uif` is deliberately NOT a `uexp` alternative (closes D-1): it reaches value position via `uval`
+          and operand position only when parenthesized. Loops will join `uval` the same way. *)
        | uexp TPLUS uexp     (UE_Bin (Add,  uexp1, uexp2, TPLUSleft))
        | uexp TMINUS uexp    (UE_Bin (Sub,  uexp1, uexp2, TMINUSleft))
        | uexp TSTAR uexp     (UE_Bin (Mul,  uexp1, uexp2, TSTARleft))
@@ -364,60 +326,47 @@ yacc_rules\<open>
        | uexp TAMPAMP uexp   (UE_Bin (And,  uexp1, uexp2, TAMPAMPleft))
        | uexp TBARBAR uexp   (UE_Bin (Or,   uexp1, uexp2, TBARBARleft))
        | TBANG uexp          (UE_Un (Not, uexp, TBANGleft))
-  (* Block { stmts }: erases to <stmts> (see UE_Block). if / else: two-armed, one-armed (no else),
-     and else-if (the else branch is itself a uif -> nested UE_If). No dangling-else conflict arises:
-     because the branches are BRACE-DELIMITED (ublock), TELSE is not in FOLLOW(uif), so after
-     `TIF uexp ublock` the parser shifts TELSE unambiguously. The whole grammar is verified conflict-free
-     (zero shift/reduce or reduce/reduce) via the [verbose] grm.desc export; re-check it after any grammar
-     change (state count grows with each tier, so it is not pinned here). *)
+  (* No dangling-else conflict: the branches are BRACE-DELIMITED, so TELSE is not in FOLLOW(uif) and the
+     parser shifts it unambiguously. The whole grammar is verified conflict-free via the [verbose] grm.desc
+     export -- RE-CHECK IT after any grammar change. *)
   ublock : TLBRACE ustmt TRBRACE            (UE_Block (ustmt, TLBRACEleft))
-  (* Condition is `uval` (frontend condition priority 20 admits an `if` at 21), so `if if c {..} {..}`
-     parses; branches are brace-delimited `ublock`. *)
+  (* Condition is `uval` (the frontend's condition priority admits an `if`), so `if if c {..} {..}` parses. *)
   uif : TIF uval ublock                     (UE_If (uval, ublock, NONE, TIFleft))
       | TIF uval ublock TELSE ublock        (UE_If (uval, ublock1, SOME ublock2, TIFleft))
       | TIF uval ublock TELSE uif           (UE_If (uval, ublock, SOME uif, TIFleft))
-  (* Call argument list, right-nested (source order preserved), mirroring the frontend's
-     _urust_args_single / _urust_args_app (Micro_Rust_Syntax.thy:229-232). Conflict-free: the call
-     productions are IDENTIFIER-headed (IDENT LPAR ...), so LPAR is never in FOLLOW(uexp) as a postfix
-     operator -- no operator-vs-call shift/reduce and no precedence directive needed (cf. Toy_Lex_Yacc). *)
+  (* Call arguments, right-nested (source order preserved). Conflict-free because the call productions are
+     IDENTIFIER-headed, so LPAR is never in FOLLOW(uexp) as a postfix operator -- no precedence directive
+     needed here (D23). *)
   arglist : uval               ([uval])
           | uval COMMA arglist (uval :: arglist)
-  (* match_switch (numeric/wildcard match, D26): a with-block form, so it joins `uval` (value position)
-     and the no-`;` statement level -- NOT `uexp` (it is not a bare operator operand, like `if`).
-     `scrut { arm, ... }`, each arm `keys => body`; a key is a numeral, `_`, or an or-`|` list. Lowers to
-     `bind <<scrut>> (ncase_selector [(Some k, <<body>>) ..])`. The or-`|` reuses the TBAR token (disjoint
-     nonterminal context from the bitwise-or operator -- verify conflict-free via grm.desc). *)
-  umatchsw : TMATCHSWITCH uval TLBRACE swarms TRBRACE  (UE_MatchSwitch (uval, swarms, TMATCHSWITCHleft))
-  swarms : swpat TARROW uval               ([(swpat, uval)])
-         | swpat TARROW uval COMMA swarms  ((swpat, uval) :: swarms)
-  swpat : NUM               ([SK_Num (NUM, NUMleft)])
-        | IDENT             ([SK_Name (IDENT, IDENTleft)])   (* `_` = wildcard; other id -> elaborator errors (const-id keys deferred) *)
-        | swpat TBAR swpat  (swpat1 @ swpat2)                (* or-pattern: concatenate the alternatives' keys *)
-  (* match_case (binding match, D27): like match_switch a with-block form joining `uval`. Arm patterns
-     BIND variables (wildcard `_` / variable / nullary constructor / single-level `C(args)`); lowers to
-     the Ctr_Sugar case skeleton (bind + case_guard/case_cons/case_abs/case_elem/case_nil), folded to
-     case_<T> at check_term. `casepat`/`patargs` are their OWN nonterminals, disjoint from `uexp` -- so
-     a constructor pattern `IDENT LPAR ... RPAR` (only reachable between `{`/COMMA and TARROW) does not
-     clash with the `IDENT LPAR arglist RPAR` call production (verify conflict-free via grm.desc). No
-     `umatchcase ustmt` no-`;` form: match_case in statement position needs a trailing `;` (like
-     match_switch, D26). Nested constructor args / literal / guard / disjunction patterns are gated in
-     the elaborator (positioned errors), not the grammar. *)
-  umatchcase : TMATCHCASE uval TLBRACE casearms TRBRACE  (UE_MatchCase (uval, casearms, TMATCHCASEleft))
-  casearms : casepat TARROW uval                 ([(casepat, uval)])
-           | casepat TARROW uval COMMA casearms  ((casepat, uval) :: casearms)
-  casepat : IDENT                    (P_Ident (IDENT, IDENTleft))
-          | IDENT LPAR patargs RPAR  (P_Constr (IDENT, IDENTleft, patargs, IDENTleft))
-  patargs : casepat                  ([casepat])
-          | casepat COMMA patargs    (casepat :: patargs)
+  (* Both `match` keywords are with-block forms, so they join `uval`, not `uexp`. They share ONE arms
+     nonterminal over the unified pattern language and differ only in the flavour tag; the lowering split
+     and the per-flavour pattern gate live in the elaborator (D28). *)
+  umatchsw   : TMATCHSWITCH uval TLBRACE uarms TRBRACE
+                 (UE_Match (MF_Switch, uval, uarms, Position.range_position (TMATCHSWITCHleft, TRBRACEright)))
+  umatchcase : TMATCHCASE uval TLBRACE uarms TRBRACE
+                 (UE_Match (MF_Case, uval, uarms, Position.range_position (TMATCHCASEleft, TRBRACEright)))
+  uarms : upat TARROW uval               ([(upat, uval)])
+        | upat TARROW uval COMMA uarms   ((upat, uval) :: uarms)
+  (* The single pattern grammar, shared by every binding site above (D28). Its own nonterminals, disjoint
+     from `uexp`, so the constructor pattern cannot clash with the call production nor or-`|` with bitwise
+     or. It deliberately ACCEPTS more than any one site can lower (a numeral in `let`, a constructor under
+     `match_switch`); each site's elaborator rejects the rest WITH A POSITION, which beats a bare "syntax
+     error" and keeps one grammar for one language. *)
+  upat : IDENT                    (mk_ident_pat (IDENT, IDENTleft))   (* `_` normalises to P_Wild *)
+       | NUM                      (P_Lit (NUM, NUMleft))
+       | IDENT LPAR upats RPAR    (P_Constr (IDENT, IDENTleft, upats))
+       | upat TBAR upat           (mk_or_pat (upat1, upat2, TBARleft))
+  upats : upat                    ([upat])
+        | upat COMMA upats        (upat :: upats)
 \<close>
 
 section\<open> Elaborator (AST -> shallow terms) \<close>
 
-text\<open> Each form lowers to the existing shallow HOL const(s): literals -> literal (bare numerals stay
-POLYMORPHIC, matching the frontend's open "what type by default"; suffixed literals pin an N word,
-alpha-equal to the golden ascribeuN abbreviation); let/const -> bind, sequencing -> sequence; operators
--> the binop_const/unop_const targets; blocks ERASE to their body; if/else -> two_armed_conditional.
-Everything is built with dummyT; a single Syntax.check_term runs in the command. \<close>
+text\<open> Each form lowers to the EXISTING shallow HOL consts -- see the per-node table in
+\<open>urust-parser-design-decisions.md\<close> \<open>\<section>2\<close>. Bare numerals stay POLYMORPHIC (matching the frontend's
+open default); suffixed ones pin an \<open>N word\<close>. Everything is built with \<open>dummyT\<close>; a single
+\<open>Syntax.check_term\<close> runs in the command. \<close>
 ML\<open>
 structure URust_Translate =
 struct
@@ -427,92 +376,74 @@ struct
   fun mk_const name args = Term.list_comb (Const (name, dummyT), args)
   fun mk_literal v = mk_const \<^const_name>\<open>literal\<close> [v]
 
-  (* Arity -> the funcallN const for a call `f(a0,...,a{N-1})` -> funcallN f a0 ... a{N-1}. Cap is 14
-     (NOT 16): Core_Expression defines funcall0..16, but Core_Syntax wires the surface `_urust_shallow_fun_*`
-     lowering only up to funcall14, so the frontend `<<...>>` produces no golden beyond 14 -- a >14 call has
-     nothing to conform against. Hand-enumerated so each const name is compile-checked. (TODO: a generic
-     `funcall<n>`-with-declared-check would drop the table and auto-track the backend family;
-     notes/claude/urust-todos.md.) *)
-  fun funcall_const _   0  = \<^const_name>\<open>funcall0\<close>
-    | funcall_const _   1  = \<^const_name>\<open>funcall1\<close>
-    | funcall_const _   2  = \<^const_name>\<open>funcall2\<close>
-    | funcall_const _   3  = \<^const_name>\<open>funcall3\<close>
-    | funcall_const _   4  = \<^const_name>\<open>funcall4\<close>
-    | funcall_const _   5  = \<^const_name>\<open>funcall5\<close>
-    | funcall_const _   6  = \<^const_name>\<open>funcall6\<close>
-    | funcall_const _   7  = \<^const_name>\<open>funcall7\<close>
-    | funcall_const _   8  = \<^const_name>\<open>funcall8\<close>
-    | funcall_const _   9  = \<^const_name>\<open>funcall9\<close>
-    | funcall_const _   10 = \<^const_name>\<open>funcall10\<close>
-    | funcall_const _   11 = \<^const_name>\<open>funcall11\<close>
-    | funcall_const _   12 = \<^const_name>\<open>funcall12\<close>
-    | funcall_const _   13 = \<^const_name>\<open>funcall13\<close>
-    | funcall_const _   14 = \<^const_name>\<open>funcall14\<close>
-    | funcall_const pos n  =
-        error ("urust_expr: unsupported call arity " ^ string_of_int n ^
-               " (max 14; the frontend's surface lowering caps here)" ^ Position.here pos)
+  (* Arity -> the funcallN const, DERIVED from the family's `<prefix><n>` naming rather than 15 rows; the
+     prefix comes from an antiquoted const name and the derived name at the cap is asserted against its own
+     antiquotation at build time, so a rename breaks the build here (D29). The cap is 14, NOT 16:
+     Core_Expression defines funcall0..16 but the frontend's surface lowering stops at 14, so a >14 call has
+     no golden to conform against. *)
+  val max_funcall_arity = 14
+  val funcall_prefix = unsuffix "0" \<^const_name>\<open>funcall0\<close>
+  val _ = funcall_prefix ^ string_of_int max_funcall_arity = \<^const_name>\<open>funcall14\<close> orelse
+            error "urust_expr: the funcallN const family no longer follows the <prefix><n> naming"
 
-  fun word_typ 8  = \<^typ>\<open>8 word\<close>
-    | word_typ 16 = \<^typ>\<open>16 word\<close>
-    | word_typ 32 = \<^typ>\<open>32 word\<close>
-    | word_typ 64 = \<^typ>\<open>64 word\<close>            (* u64 and usize (usize -> 64 in parse_sfx) *)
-    | word_typ w  = error ("urust_expr: unsupported integer width u" ^ string_of_int w)
+  fun funcall_const pos n =
+    if 0 <= n andalso n <= max_funcall_arity then funcall_prefix ^ string_of_int n
+    else error ("urust_expr: unsupported call arity " ^ string_of_int n ^ " (max " ^
+                string_of_int max_funcall_arity ^
+                "; the frontend's surface lowering caps here)" ^ Position.here pos)
 
-  (* A bare identifier at value position lowers exactly as the frontend's lookup_id_tr
-     (Micro_Rust_Shallow_Embedding.thy:911-930): if (NLiteral, name) has a registered backend, emit
-     the urust_dispatch marker carrying the source-named Free as witness -- resolved by the
-     GLOBALLY-INSTALLED term_check phases during check_term (Micro_Rust_Notations.thy:820-826), which
-     we reuse rather than reimplement. The caller wraps the result in `literal`, matching SE:502-503
-     `_urust_identifier \<rightharpoonup> literal (_shallow_identifier_as_literal ident)`.
+  (* Integer-literal SUFFIX -> HOL type: the SINGLE place suffix knowledge lives, so adding `u128` or the
+     signed `i*` types is ONE row here + a conformance golden (D29). *)
+  fun int_suffix_typ "u8"    = SOME \<^typ>\<open>8 word\<close>
+    | int_suffix_typ "u16"   = SOME \<^typ>\<open>16 word\<close>
+    | int_suffix_typ "u32"   = SOME \<^typ>\<open>32 word\<close>
+    | int_suffix_typ "u64"   = SOME \<^typ>\<open>64 word\<close>
+    | int_suffix_typ "usize" = SOME \<^typ>\<open>64 word\<close>   (* usize is modelled as 64-bit *)
+    | int_suffix_typ _       = NONE
 
-     UNREGISTERED fallback: because we build the term directly, we bypass Syntax_Phases.decode_term,
-     which in the frontend's parse pipeline promotes a bare `Free name` to the HOL `Const` of that
-     name (or resolves a context-fixed variable). A raw `Free name` would instead survive as an extra
-     free variable and be rejected by the definition (e.g. `\<up>True` with `True` free). So we run
-     `Syntax.parse_term ctxt name` for the fallback: parsing the identifier as ordinary HOL reproduces
-     exactly that promotion (`True`/`None` -> Const, `foo` under `context fixes` -> the fixed Free).
+  (* A suffixed integer lexeme ("0x4_u8" / "1_usize") -> (value, type). Splits at the FIRST `_`; digits are
+     decimal, or hex with an `0x` prefix. Malformed digits and unknown suffix both error WITH a position. *)
+  fun parse_int_lit pos lexeme =
+    let
+      val (numstr, sfx) =
+        (case first_field "_" lexeme of
+           SOME (a, b) => (a, b)
+         | NONE => error ("urust_expr: malformed suffixed integer literal " ^ quote lexeme ^
+                          Position.here pos))
+      val value =
+        (case (if String.isPrefix "0x" numstr
+               then StringCvt.scanString (Int.scan StringCvt.HEX) (String.extract (numstr, 2, NONE))
+               else Int.fromString numstr) of
+           SOME v => v
+         | NONE => error ("urust_expr: cannot read integer literal " ^ quote numstr ^ Position.here pos))
+    in
+      (case int_suffix_typ sfx of
+         SOME T => (value, T)
+       | NONE => error ("urust_expr: unsupported integer-literal suffix " ^ quote ("_" ^ sfx) ^
+                        " (supported: _u8 _u16 _u32 _u64 _usize)" ^ Position.here pos))
+    end
 
-     REGISTERED (marker) witness: kept as a bare `Free (name, dummyT)`, NOT parse_term'd. The witness
-     must stay a Free so a future enclosing `Term.lambda (Free (name, T))` (from a `let`) captures it
-     into a Bound, at which point resolve_bound makes the binder win (the frontend's
-     witness-precedence). Its Free-vs-Const shape does not affect the top-level resolved result -- only
-     a Bound witness takes precedence; a Free/Const one defers to the table.
-
-     MARKUP: the IDENT token carries no colour markup (see tok_ident) -- we emit exactly one here, over
-     the token's full range `pos`, so it can't split. Registered names are styled by the dispatch
-     resolver (emit_use_markup_at_pos). Unregistered names we style ourselves: a resolved HOL Const
-     gets the standard const entity markup (colour + ctrl-click to its definition), matching the
-     frontend; a context-fixed FREE gets colour + ctrl-click-to-its-`fixes` (see below); a genuine
-     (unfixed) free gets plain Markup.free.
-
-     FREE-VARIABLE NAVIGATION (context-fixed frees). The frontend gives ctrl-click nav for a
-     context-fixed free `foo` -> its `fixes` declaration. That nav comes from `Syntax_Phases.markup_free`
-     (Variable.markup_fixed = the entity ref markup + Variable.markup = the colour), reported by
-     `decode_term` during check. In OUR pipeline the final check_term DOES run decode_term, but it emits
-     that markup at Position.none: we hand `Syntax.parse_term` a bare `name` string with no source
-     position, so the parsed Free carries no position and the auto-report is dropped -- exactly why D14/D15
-     re-emit markup manually here at the real `pos`. Previously this branch emitted only Markup.free
-     (colour), losing the nav. Fix: reproduce decode_term's Free case verbatim (syntax_phases.ML:304-313)
-     -- intern the source name via `Proof_Context.lookup_free`; if fixed, report every markup in
-     `Syntax_Phases.markup_free ctxt x` at `pos` (nav entity + colour); if not fixed, plain Markup.free.
-     Reuses the frontend mechanism rather than hand-rolling the entity markup.
-
-     To decide which, we must look at the LEAF the name resolved to -- but `Syntax.parse_term` wraps a
-     resolved constant in a `_type_constraint_` node (carrying its most-general type), and
-     `Term_Position.strip_positions` does NOT remove that wrapper. So a naive `Const (c,_)` match sees
-     the wrapper's application `_type_constraint_ $ Const ...`, fails, and mis-paints a genuine HOL
-     constant (`True`/`False`/`None`/...) as a blue Markup.free. `ident_leaf` peels the type-constraint
-     wrapper (and positions) to reach the real leaf; the returned term `t` still carries the wrapper,
-     which the command's final `check_term` consumes -- so this affects markup only, not the term. *)
+  (* Peel the `_type_constraint_` wrapper (and positions) to reach the leaf a name resolved to. TRAP:
+     `Syntax.parse_term` wraps a resolved constant in `_type_constraint_` and `Term_Position.strip_positions`
+     does NOT remove it, so a naive `Const (c,_)` match falls through and mis-paints `True`/`None`/... as a
+     blue free. Markup only -- the returned `t` keeps the wrapper for check_term (D14). *)
   fun ident_leaf t =
     (case Term_Position.strip_positions t of
        Const (\<^syntax_const>\<open>_type_constraint_\<close>, _) $ u => ident_leaf u
      | u => u)
 
-  (* Resolve a bare identifier in a dispatch CONTEXT (`kind`): NLiteral for a value-position id,
-     NFunction for a call callee. Same markup logic for both (registered -> dispatch marker; unregistered
-     Const -> const nav; context-fixed free -> markup_free nav; else Markup.free). The CALLER decides the
-     `literal` wrapper (value position wraps; a call callee does NOT). *)
+  (* Resolve a bare identifier in a dispatch CONTEXT (`kind`): NLiteral at value position, NFunction for a
+     call callee; the CALLER decides the `literal` wrapper (value position wraps, a callee does not). Three
+     things here are load-bearing (D13/D14; full rationale in the design-decisions doc):
+       - REGISTERED -> the frontend's urust_dispatch marker, resolved by its globally-installed term_check
+         phases (reused, not reimplemented). Its witness must stay a bare `Free`, NOT parse_term'd, so an
+         enclosing `Term.lambda` can capture it into a `Bound` -- that is what makes a binder outrank the
+         notation table (witness precedence).
+       - UNREGISTERED -> `Syntax.parse_term`, because building terms directly bypasses
+         `Syntax_Phases.decode_term`, which is what promotes a bare `Free name` to the HOL `Const` (or the
+         context-fixed variable). A raw Free would survive as an extra free variable and be rejected.
+       - MARKUP is emitted HERE, once, over the token's full range: the token carries none (tok_ident), and
+         decode_term's own report lands at Position.none because we hand parse_term a positionless name. *)
   fun ident_term ctxt kind name pos =
     (case Micro_Rust_Names.lookups ctxt kind name of
        [] =>
@@ -522,9 +453,8 @@ struct
                 Context_Position.report ctxt pos
                   (Name_Space.markup (Consts.space_of (Proof_Context.consts_of ctxt)) c)
             | Free (a, _) =>
-                (* decode_term's Free case (syntax_phases.ML:304-313): intern the source name; a
-                   context-fixed free reports markup_free = [markup_fixed (ctrl-click nav to the
-                   `fixes`), markup (colour)]; a genuine free just Markup.free. *)
+                (* decode_term's Free case, reproduced (syntax_phases.ML:304-313): a context-fixed free gets
+                   markup_free = nav-to-`fixes` + colour; a genuine free just Markup.free. *)
                 (case Proof_Context.lookup_free ctxt a of
                    SOME x =>
                      List.app (Context_Position.report ctxt pos)
@@ -535,11 +465,10 @@ struct
          end
      | _  => Micro_Rust_Dispatch.mk_marker kind name pos (Free (name, dummyT)))
 
-  (* Classify a bare match-pattern identifier as a data constructor (reproducing the frontend's
-     resolve_constructor_id, SE:960-988): intern the name and test Code.is_constr -- the SAME oracle the
-     frontend uses. A constructor resolves to its RAW Const (NOT the lift_fun1 value embedding a value-
-     position id would get via ident_term/NLiteral -- a pattern head must be the bare constructor); a
-     non-constructor id (`y`, `_`) yields NONE and is a variable binder. Used only by bind_case_pat. *)
+  (* Is a bare pattern identifier a data constructor? `Code.is_constr` is the SAME oracle the frontend's
+     resolve_constructor_id uses. A constructor resolves to its RAW Const -- not the value embedding a
+     value-position id gets, since a pattern head must be the bare constructor; anything else is NONE = a
+     variable binder (D27). *)
   fun resolve_ctor ctxt name =
     let val thy = Proof_Context.theory_of ctxt in
       (case try (Proof_Context.read_const {proper = true, strict = false} ctxt) name of
@@ -547,40 +476,30 @@ struct
        | _ => NONE)
     end
 
-  (* Report the const ENTITY markup (colour + ctrl-click-to-definition) for a resolved pattern
-     constructor at its name position — the SAME `Name_Space.markup` ident_term emits for a resolved HOL
-     Const, so a match-arm constructor head (`Some`, `None`, `Ok`, `Err`, a user `datatype` ctor)
-     navigates to its declaration like any other const. `resolve_ctor` stays pure (it is also used only to
-     CLASSIFY, in `binder_names`); the markup is emitted once, here, when a branch actually resolves the
-     head — not during classification. *)
+  (* Const entity markup (colour + ctrl-click-to-definition) for a resolved pattern constructor head, so
+     `Some`/`Ok`/a user ctor navigates like any const. Emitted here rather than in `resolve_ctor`, which
+     stays pure because it is also used merely to CLASSIFY (C1). *)
   fun report_ctor_markup ctxt pos (Const (c, _)) =
         Context_Position.report ctxt pos
           (Name_Space.markup (Consts.space_of (Proof_Context.consts_of ctxt)) c)
     | report_ctor_markup _ _ _ = ()
 
-  (* A wildcard `_` binds nothing referenceable, so bind_var's colour/nav do not apply; still emit a
-     typing tooltip at its position so ctrl-hover identifies it (the same Markup.typing channel tokF uses
-     for a token's kind string, e.g. `=` -> " :: TEQ") instead of falling through to the enclosing command
-     span. `pos` is the IDENT token's full range (tok_ident builds it, so IDENTleft spans the whole `_`). *)
+  (* A wildcard binds nothing, so bind_var's colour/nav do not apply -- but it must still get a typing
+     tooltip, or ctrl-hover falls through to the enclosing command span (rule C3). *)
   fun report_wildcard ctxt pos = Context_Position.report_text ctxt pos Markup.typing "wildcard pattern"
 
-  (* `let x = e; k` / `const x = e; k` -> bind e (\<lambda>x. k)  (HOAS; SE:431-434). MUST be `bind` and
-     `e1; e2` MUST be `sequence` (a non-simp definition) to be alpha-equal to the frontend -- emitting
-     `bind e (\<lambda>_. k)` for sequencing would be definitionally-but-not-alpha-equal. Trailing `;` ->
-     `sequence e (literal ())` (skip is an (input) abbreviation for `literal ()`). *)
+  (* `let x = e; k` -> bind e (\<lambda>x. k) (HOAS). Sequencing MUST be `sequence`, not `bind e (\<lambda>_. k)`:
+     the latter is definitionally but NOT alpha-equal to the frontend, so `refl` conformance would fail. *)
   fun mk_bind e f     = mk_const \<^const_name>\<open>Core_Expression.bind\<close> [e, f]
   fun mk_sequence a b = mk_const \<^const_name>\<open>Core_Expression.sequence\<close> [a, b]
 
-  (* if c {t} else {e} -> two_armed_conditional c t e (Bool_Type.thy:30-35, via SE:364-365). A one-armed
-     `if c {t}` fills the else with skip; the frontend `{...}`-path emits `two_armed_conditional c t skip`
-     (NOT the one_armed_conditional const), and `skip` is an (input) abbreviation for `literal ()`, so we
-     emit `literal ()` (the same builder as UE_Unit). else-if is a nested UE_If -> nested two_armed. *)
+  (* if c {t} else {e} -> two_armed_conditional. A one-armed `if` fills the else with `skip`: the frontend's
+     `{..}` path emits two_armed_conditional c t skip, NOT one_armed_conditional, and `skip` is an (input)
+     abbreviation for `literal ()` -- so we must emit `literal ()` here (D22). *)
   fun mk_two_armed c t e = mk_const \<^const_name>\<open>two_armed_conditional\<close> [c, t, e]
 
-  (* match_switch scrut { keys => body, ... } -> bind <<scrut>> (ncase_selector <list of (key, body) pairs>)
-     (D26; SE:829-830, Core_Syntax.thy:655-685, Num_Case_Expression.thy). A numeral key -> Some <numeral>,
-     `_` -> None; an or-pattern's keys each get their own pair with the SAME body. First-order: no binders,
-     no case skeleton. `ncase_selector` is reachable via the Micro_Rust_Shallow_Embedding import. *)
+  (* match_switch -> bind <<scrut>> (ncase_selector [(key, body), ..]): numeral key -> Some n, `_` -> None,
+     each or-alternative its own pair with the same body. First-order -- no binders, no case skeleton (D26). *)
   fun mk_some v = mk_const \<^const_name>\<open>Option.Some\<close> [v]
   val mk_none   = Const (\<^const_name>\<open>Option.None\<close>, dummyT)
   fun mk_pair a b = mk_const \<^const_name>\<open>Product_Type.Pair\<close> [a, b]
@@ -588,23 +507,19 @@ struct
   val mk_nil      = Const (\<^const_name>\<open>List.Nil\<close>, dummyT)
   fun mk_ncase_selector lst = mk_const \<^const_name>\<open>ncase_selector\<close> [lst]
 
-  (* Ctr_Sugar case skeleton (match_case, D27). case_guard / case_cons / case_nil / case_elem / case_abs
-     are the uninterpreted HOL markers (HOL.Ctr_Sugar; no defining equations). The Case_Translation
-     term-check phase folds a well-formed `case_guard True scrut (case_cons ... case_nil)` tree into the
-     datatype's concrete `case_<T>` combinator DURING our single Syntax.check_term -- so we build exactly
-     the skeleton the frontend builds and never construct case_option / case_result ourselves
-     (SE:780-830, Core_Syntax.thy:688-1137, Basic_Case_Expression.thy:113-350). *)
+  (* Ctr_Sugar case skeleton (match_case, D27): case_guard/case_cons/case_nil/case_elem/case_abs are
+     uninterpreted HOL markers, and the Case_Translation term-check phase folds a well-formed tree into the
+     datatype's concrete `case_<T>` DURING our single check_term. So we build exactly the frontend's
+     skeleton and never construct case_option / case_result ourselves. *)
   fun mk_case_guard b s cs = mk_const \<^const_name>\<open>case_guard\<close> [b, s, cs]
   fun mk_case_cons h t     = mk_const \<^const_name>\<open>case_cons\<close> [h, t]
   val mk_case_nil          = Const (\<^const_name>\<open>case_nil\<close>, dummyT)
   fun mk_case_elem p b     = mk_const \<^const_name>\<open>case_elem\<close> [p, b]
   fun mk_case_abs f        = mk_const \<^const_name>\<open>case_abs\<close> [f]
 
-  (* Operator -> HOL const, one row per operator (the frontend's shallow-embedding targets). `+` heads
-     with the overloaded urust_add (adhoc-overloaded to word_add_no_wrap); the other arithmetic / shift
-     / bitwise ops are the direct Numeric_Types word combinators; comparisons and logical connectives
-     are the comp_* / urust_* combinators. Each operand is an elaborated expression, so mk_bin / mk_un
-     just apply the const to the elaborated arguments. *)
+  (* Operator -> HOL const, one row each (the frontend's shallow-embedding targets: `+` is the overloaded
+     urust_add, other arithmetic/shift/bitwise are the Numeric_Types word combinators, comparisons and
+     connectives the comp_*/urust_* ones). *)
   fun binop_const Add  = \<^const_name>\<open>urust_add\<close>
     | binop_const Sub  = \<^const_name>\<open>word_minus_no_wrap\<close>
     | binop_const Mul  = \<^const_name>\<open>word_mul_no_wrap\<close>
@@ -627,51 +542,71 @@ struct
   fun mk_bin bop a b = mk_const (binop_const bop) [a, b]
   fun mk_un uop a    = mk_const (unop_const uop) [a]
 
-  (* Binder / markup / antiquotation helpers shared with Toy_Lex_Yacc via Parser_Utils (plain
-     Isabelle/ML; see that theory). Partially apply the def/ref entity-kind string once -- the call
-     sites below are then unchanged. report_def / bind_vars / mark_bound are used internally by
-     bind_var / parse_antiq, so only these three are surfaced here. *)
+  (* Shared binder / markup / antiquotation helpers (Parser_Utils, see there); the entity-kind string is
+     partially applied once so the call sites below read unchanged. *)
   val vkind       = "urust_var"
   val report_ref  = Parser_Utils.report_ref vkind
   val bind_var    = Parser_Utils.bind_var vkind
   val parse_antiq = Parser_Utils.parse_antiq vkind
+  val anon_abs    = Parser_Utils.anon_abs
 
-  (* Elaborate a binder PATTERN: register its variable(s) and return (a) an abstraction builder that
-     wraps the binder's body, and (b) the extended env. The abstraction is the pattern-specific part:
-     for a single variable it is `Term.lambda free`; a tuple pattern would `bind_vars` all names and
-     wrap with nested lambdas under `case_prod` (etc.). This is the SINGLE pattern-generic seam --
-     adding tuple / constructor / wildcard patterns is a case here, and the let/const/match/closure
-     elaborators stay unchanged. *)
-  fun bind_pat ctxt env (P_Var (x, def_pos)) =
-        let val (free, env') = bind_var ctxt env (x, def_pos)
-        in (fn body => Term.lambda free body, env') end
-    | bind_pat _ _ p =
-        error ("urust_expr: refutable pattern in an irrefutable (let/const) binder position" ^
-               (case p of P_Ident (_, q) => Position.here q | P_Constr (_, q, _, _) => Position.here q
-                        | P_Var (_, q) => Position.here q))
+  (* Abstract a mixed list of binder SLOTS over an inner term, leftmost binder OUTERMOST: `SOME free` is a
+     NAMED source binder (abstracted by name, so its occurrences anywhere inside are captured -- HOAS),
+     `NONE` an ANONYMOUS one, referenced only through the `Bound` index handed to `mk_inner`. `wrap` goes
+     around each abstraction (Ctr_Sugar's `case_abs` here). For a SINGLE binder, abstract directly instead
+     (`Term.lambda` / `anon_abs`); this exists for the several-binders case, where the indices interact.
 
-  (* Elaborate a REFUTABLE match-arm pattern (D27) into a Ctr_Sugar case branch. Reuses bind_var (the
-     shared per-variable registration -- markup / click-to-def / capture) but, UNLIKE bind_pat (the
-     irrefutable let binder, a plain lambda), builds the case_abs/case_elem skeleton. Returns (a branch
-     builder taking the elaborated arm body, extended env). Tier-0 patterns: wildcard `_`, variable
-     binder, nullary constructor, single-level constructor with binder/`_` args; nested-constructor args,
-     let-patterns, and (grammar-unreachable today) other shapes raise positioned errors. Fresh wildcard
-     binders are named from a Name.context seeded with this pattern's binder names (+ the proof context),
-     so `_` never collides with a sibling binder (mirrors the frontend's collect_ids_from_pattern). *)
-  fun bind_case_pat ctxt env pat =
+     Mixing the two kinds is sound because the indices handed out are the FINAL ones (counting all `n`
+     abstractions): `Term.abstract_over` (behind `Term.lambda`) tracks its own level as it descends and
+     LEAVES existing `Bound`s untouched (Pure/term.ML:841-852), while each `Abs` binds the loose index 0 of
+     its body. So a pre-placed index still denotes its slot after any number of outer abstractions.
+     uRust-specific (the only caller is the constructor-pattern branch below), so it lives here rather than
+     in the shared Parser_Utils layer. *)
+  fun abs_slots wrap slots mk_inner =
     let
-      fun binder_names (P_Ident (a, _)) =
-            if a = "_" then [] else (case resolve_ctor ctxt a of SOME _ => [] | NONE => [a])
-        | binder_names (P_Constr (_, _, args, _)) = maps binder_names args
-        | binder_names (P_Var (a, _)) = [a]
-      val names0 = fold Name.declare (binder_names pat) (Variable.names_of ctxt)
-      fun fresh names = let val (n, names') = Name.variant "uu" names in (Free (n, dummyT), names') end
+      val n = length slots
+      val args = map_index (fn (_, SOME free) => free | (j, NONE) => Bound (n - 1 - j)) slots
     in
+      fold_rev (fn slot => fn t =>
+          wrap (case slot of SOME free => Term.lambda free t | NONE => anon_abs t))
+        slots (mk_inner args)
+    end
+
+  (* The IRREFUTABLE pattern seam (`let`/`const`, later closure and `fn` parameters): register the
+     pattern's variable(s), return an abstraction builder for the binder's body + the extended env.
+     `bind_case_pat` below is the refutable (match-arm) seam and the `MF_Switch` `key` function the
+     first-order one; all three consume the SAME `ur_pat`, so a new pattern form is one constructor + one
+     clause per seam, with every binding SITE unchanged (D28). *)
+  fun pat_pos (P_Wild pos) = pos
+    | pat_pos (P_Ident (_, pos)) = pos
+    | pat_pos (P_Lit (_, pos)) = pos
+    | pat_pos (P_Constr (_, pos, _)) = pos
+    | pat_pos (P_Or (_, pos)) = pos
+
+  fun bind_pat ctxt env pat =
+    (case pat of
+       (* A bare id here is ALWAYS a variable binder, deliberately NOT run through resolve_ctor: the
+          frontend's `let` binder is a plain identifier, so `let None = e; ..` binds a variable named
+          `None`, and rejecting it as a nullary constructor would be a DIVERGENCE, not extra fidelity. *)
+       P_Ident (x, def_pos) =>
+         let val (free, env') = bind_var ctxt env (x, def_pos)
+         in (fn body => Term.lambda free body, env') end
+       (* `let _ = e; k` binds nothing: an anonymous lambda, NOT a variable literally named "_" (that
+          leaked a `Free "_"` into the defined term). *)
+     | P_Wild _ => (fn body => anon_abs body, env)
+     | _ =>
+         error ("urust_expr: refutable pattern in an irrefutable (let/const) binder position" ^
+                Position.here (pat_pos pat)))
+
+  (* The REFUTABLE (match-arm) seam: a pattern -> a Ctr_Sugar case branch builder + the extended env.
+     Reuses bind_var for per-variable registration but builds the case_abs/case_elem skeleton instead of a
+     plain lambda. Tier-0 = wildcard / variable / nullary ctor / single-level ctor with binder-or-`_` args;
+     everything else errors WITH a position (D27). *)
+  fun bind_case_pat ctxt env pat =
       (case pat of
-         P_Ident ("_", pos) =>
+         P_Wild pos =>
            (report_wildcard ctxt pos;
-            let val (f, _) = fresh names0
-            in (fn body => mk_case_abs (Term.lambda f (mk_case_elem f body)), env) end)
+            (fn body => mk_case_abs (anon_abs (mk_case_elem (Bound 0) body)), env))
        | P_Ident (name, pos) =>
            (case resolve_ctor ctxt name of
               SOME c => (report_ctor_markup ctxt pos c;                      (* nullary constructor *)
@@ -679,43 +614,51 @@ struct
             | NONE =>                                                        (* variable binder *)
                 let val (f, env') = bind_var ctxt env (name, pos)
                 in (fn body => mk_case_abs (Term.lambda f (mk_case_elem f body)), env') end)
-       | P_Constr (name, pos, args, _) =>
+       | P_Constr (name, pos, args) =>
            (case resolve_ctor ctxt name of
               NONE => error ("urust_expr: `" ^ name ^ "` is not a known constructor" ^ Position.here pos)
             | SOME c =>
                 let
                   val _ = report_ctor_markup ctxt pos c
-                  fun arg (P_Ident ("_", pos)) (env, names) =
-                        (report_wildcard ctxt pos;
-                         let val (f, names') = fresh names in (f, (env, names')) end)
-                    | arg (P_Ident (a, ap)) (env, names) =
+                  (* Each arg is a SLOT: `SOME free` = a named source binder, `NONE` = a `_` (anonymous). *)
+                  fun arg (P_Wild pos) env = (report_wildcard ctxt pos; (NONE, env))
+                    | arg (P_Ident (a, ap)) env =
                         (case resolve_ctor ctxt a of
                            SOME _ => error ("urust_expr: nested nullary-constructor pattern `" ^ a ^
                                        "` not yet supported (Tier-0: binder / `_` constructor args only)" ^
                                        Position.here ap)
-                         | NONE => let val (f, env') = bind_var ctxt env (a, ap) in (f, (env', names)) end)
-                    | arg (P_Constr (_, _, _, cp)) _ =
-                        error ("urust_expr: nested constructor pattern not yet supported (Tier-0)" ^
-                               Position.here cp)
-                    | arg (P_Var (_, vp)) _ =
-                        error ("urust_expr: unexpected let-pattern in a match arm" ^ Position.here vp)
-                  val (frees, (env', _)) = fold_map arg args (env, names0)
-                  val pat_term = Term.list_comb (c, frees)
+                         | NONE => let val (f, env') = bind_var ctxt env (a, ap) in (SOME f, env') end)
+                    | arg p _ =
+                        error ("urust_expr: nested " ^
+                               (case p of P_Constr _ => "constructor" | P_Lit _ => "literal"
+                                        | P_Or _ => "or-" | _ => "") ^
+                               " pattern not yet supported (Tier-0: binder / `_` constructor args only)" ^
+                               Position.here (pat_pos p))
+                  val (slots, env') = fold_map arg args env
                 in
-                  (fn body => fold_rev (fn f => fn t => mk_case_abs (Term.lambda f t)) frees
-                                (mk_case_elem pat_term body), env')
-                end))
-    end
+                  (* the one shape where several binders nest and mix named with anonymous -- hence
+                     abs_slots (rows `mc_pair`, `mc_hyg_sibling`) *)
+                  (fn body =>
+                     abs_slots mk_case_abs slots
+                       (fn ps => mk_case_elem (Term.list_comb (c, ps)) body), env')
+                end)
+       (* Parseable (the pattern grammar is shared) but not yet lowerable here, so: positioned errors. A
+          literal pattern needs the frontend's guarded path; an or-pattern needs arm duplication. *)
+       | P_Lit (_, pos) =>
+           error ("urust_expr: literal patterns are not yet supported in `match_case`" ^
+                  " (numeral patterns belong to `match_switch` today)" ^ Position.here pos)
+       | P_Or (_, pos) =>
+           error ("urust_expr: or-patterns are not yet supported in `match_case`" ^ Position.here pos))
 
-  (* env : source name -> { free, def_pos, id } for the enclosing `let` binders (lexical scope). A
-     let-bound use resolves to its binder's Free (+ nav markup); it is NOT sent through dispatch --
-     lexical scoping wins, matching the frontend's witness-precedence. Non-let names fall through to
-     ident_term (dispatch/parse). Capture is by construction: the enclosing Term.lambda abstracts the
-     `Free name` this returns (and any `Free name` a nested antiquotation parses). *)
+  (* env : source name -> var_info for the enclosing binders (lexical scope). A bound use resolves to its
+     binder's Free + nav markup and is NOT sent through dispatch -- lexical scoping wins, matching the
+     frontend's witness precedence. Capture is by construction: the enclosing Term.lambda abstracts the
+     `Free name` returned here (and any a nested antiquotation parses). *)
   fun mk ctxt env e =
     (case e of
        UE_Num (n, _)       => mk_literal (HOLogic.mk_number dummyT n)
-     | UE_NumSfx (v, w, _) => mk_literal (HOLogic.mk_number (word_typ w) v)
+     | UE_NumSfx (lexeme, pos) =>
+         let val (v, T) = parse_int_lit pos lexeme in mk_literal (HOLogic.mk_number T v) end
      | UE_Unit _           => mk_literal HOLogic.unit
      | UE_Ident (name, pos) =>
          (case Symtab.lookup env name of
@@ -733,51 +676,55 @@ struct
      | UE_Let bnd          => elab_let ctxt env bnd
      | UE_Const bnd        => elab_let ctxt env bnd   (* same desugaring as let today (SE:433-434) *)
      | UE_Call (name, npos, args, cpos) =>
-         (* f(a0,...,a{N-1}) -> funcallN func <<a0>> ... <<a{N-1}>>  (Core_Syntax.thy:503-587).
-            The callee `func` resolves in NFunction (call) context and is NOT wrapped in `literal`:
-            a let-bound callee -> its env Free (+ nav); else ident_term NFunction (registered call
-            notation -> dispatch marker; unregistered -> parse_term = fixed Free / Const). Args are
-            ordinary value expressions (mk), so nested calls f(g(c),b) fall out of the recursion. *)
+         (* The callee resolves in NFunction context and is NOT wrapped in `literal` (a bound callee -> its
+            env Free). Args are ordinary value expressions, so nested calls fall out of the recursion. *)
          let
            val func =
              (case Symtab.lookup env name of
                 SOME {free, def_pos, id} => (report_ref ctxt id (name, def_pos) npos; free)
               | NONE => ident_term ctxt Micro_Rust_Names.NFunction name npos)
          in mk_const (funcall_const cpos (length args)) (func :: map (mk ctxt env) args) end
-     | UE_MatchSwitch (scrut, arms, _) =>
-         (* bind <<scrut>> (ncase_selector [(Some k0, <<e0>>), ..., (None, <<en>>)]). A numeral key ->
-            Some <numeral>; `_` -> None; a non-`_` identifier key is a const-id/path (deferred) -> error.
-            An or-pattern's keys each pair with the SAME (elaborated-once) body. *)
-         let
-           fun key (SK_Num (n, _))       = mk_some (HOLogic.mk_number dummyT n)
-             | key (SK_Name ("_", pos))  = (report_wildcard ctxt pos; mk_none)
-             | key (SK_Name (s, pos))    =
-                 error ("urust_expr: unsupported match_switch key " ^ quote s ^
-                        " (numeral or `_` only; const-id / path keys not yet supported)" ^ Position.here pos)
-           fun arm_pairs (keys, body) =
-             let val b = mk ctxt env body in map (fn k => mk_pair (key k) b) keys end
-           val lst = fold_rev mk_cons (maps arm_pairs arms) mk_nil
-         in mk_bind (mk ctxt env scrut) (mk_ncase_selector lst) end
-     | UE_MatchCase (scrut, arms, _) =>
-         (* bind <<scrut>> (\<lambda>anon. case_guard True anon (case_cons B1 ... (case_cons Bn case_nil))),
-            each Bi the Ctr_Sugar case branch for its arm, its body elaborated in the pattern-extended
-            env' (the scrutinee stays in the OUTER env, mirroring elab_let). Case_Translation folds the
-            skeleton to case_<T> at check_term (D27). The `anon` scrutinee binder is named to avoid the
-            branches' free names (so it can never capture); its name is alpha-irrelevant to `refl`. *)
-         let
-           fun arm (pat, body) =
-             let val (absf, env') = bind_case_pat ctxt env pat
-             in absf (mk ctxt env' body) end
-           val branches = fold_rev (fn a => fn acc => mk_case_cons (arm a) acc) arms mk_case_nil
-           val anon =
-             Free (singleton (Name.variant_list (Term.add_free_names branches [])) "anon_case", dummyT)
-         in
-           mk_bind (mk ctxt env scrut)
-             (Term.lambda anon (mk_case_guard \<^term>\<open>True\<close> anon branches))
-         end)
+     (* ONE match clause; the flavour picks the lowering. Both are `bind <<scrut>> <selector>` with the
+        scrutinee in the OUTER env (as elab_let does) and each arm body in the env its own pattern extends. *)
+     | UE_Match (flavour, scrut, arms, _) =>
+         mk_bind (mk ctxt env scrut)
+           (case flavour of
+              (* MF_Switch: first-order, so a pattern must be a numeral, `_`, or an or-list of those; a
+                 binding pattern is rejected WITH ITS POSITION -- the point of sharing the grammar (D26). *)
+              MF_Switch =>
+                let
+                  fun key (P_Lit (n, _))    = mk_some (HOLogic.mk_number dummyT n)
+                    | key (P_Wild pos)      = (report_wildcard ctxt pos; mk_none)
+                    | key (P_Ident (s, pos)) =
+                        error ("urust_expr: unsupported match_switch key " ^ quote s ^
+                               " (numeral or `_` only; const-id / path keys not yet supported)" ^
+                               Position.here pos)
+                    | key p =
+                        error ("urust_expr: unsupported match_switch pattern" ^
+                               " (numeral, `_`, or an or-list of those; binding patterns need" ^
+                               " `match_case`)" ^ Position.here (pat_pos p))
+                  (* one (key, body) pair per or-alternative, sharing the body elaborated ONCE *)
+                  fun arm_pairs (pat, body) =
+                    let val b = mk ctxt env body
+                    in map (fn k => mk_pair (key k) b)
+                         (case pat of P_Or (ps, _) => ps | p => [p])
+                    end
+                in mk_ncase_selector (fold_rev mk_cons (maps arm_pairs arms) mk_nil) end
+              (* MF_Case (D27): \<lambda>anon. case_guard True anon (case_cons B1 .. case_nil), each Bi from
+                 bind_case_pat; Case_Translation folds it to case_<T> during check_term. *)
+            | MF_Case =>
+                let
+                  fun arm (pat, body) =
+                    let val (absf, env') = bind_case_pat ctxt env pat
+                    in absf (mk ctxt env' body) end
+                  val branches = fold_rev (fn a => fn acc => mk_case_cons (arm a) acc) arms mk_case_nil
+                in
+                  (* the invented scrutinee binder is ANONYMOUS (`Abs` + `Bound`), never a named Free, so it
+                     cannot capture anything in the branches -- see anon_abs *)
+                  anon_abs (mk_case_guard \<^term>\<open>True\<close> (Bound 0) branches)
+                end))
 
-  (* `let`/`const` <pat> = rhs; body  ->  bind rhs (<pat-abstraction> body). Shared by both so they
-     stay DRY while remaining distinct AST nodes (UE_Let / UE_Const). *)
+  (* `let`/`const` <pat> = rhs; body -> bind rhs (<pat-abstraction> body); shared by both nodes. *)
   and elab_let ctxt env (pat, rhs, body) =
     let
       val rhs'         = mk ctxt env rhs        (* rhs is in the OUTER scope (pat not yet visible) *)
@@ -791,24 +738,29 @@ end
 
 section\<open> The command \<close>
 
-text\<open> `urust_expr NAME <src>` parses the source, elaborates to a term, type-checks it once, and
-defines NAME := <term>. No attributes (the conformance refl proof uses the primitive NAME_def; we do
-not want corpus defs in the global simp set). Serialized behind the shared Parser_Utils.with_parser_lock
-(the Isabelle_lex_yacc runtime holds global refs, shared across all ml_lex_yacc parsers). \<close>
+text\<open> `urust_expr NAME <src>` parses, elaborates, type-checks once, and defines NAME := <term>. No
+attributes: the conformance proof uses the primitive \<open>NAME_def\<close> and corpus defs must stay out of the
+global simp set. \<close>
 ML\<open>
-fun define_urust (binding, source) lthy =
-  (* Only `parse_source` touches the Isabelle_lex_yacc global refs (src/ctxt/the_src), so ONLY it is
-     serialized. Elaboration (mk_closed, incl. its Syntax.parse_term calls), check_term, and define are
-     pure w.r.t. those globals -- holding the lock across them would needlessly serialize the (slower)
-     type-checking of every urust_expr theory-wide, throttling parallel checking at corpus scale. *)
+(* THE pipeline, exported: every uRust command runs source through exactly this function, so the positive
+   harness (`urust_expr`) and the negative one (`urust_expr_rejects`, Micro_Rust_Parser_Negative_Conformance)
+   can never drift on WHAT they exercise -- only on how they interpret success/failure. Raises (positioned)
+   on any rejection: lexer (URust_Err.lex_error), yacc (parse_source's print_error), elaborator, or
+   check_term.
+   ONLY `parse_source` touches the Isabelle_lex_yacc global refs, so only it is serialized; elaboration and
+   check_term are pure w.r.t. those, and holding the lock across them would serialize the (slower)
+   type-checking of every uRust command theory-wide. *)
+fun elab_urust lthy source : term =
   (case Parser_Utils.with_parser_lock (fn () => URust.parse_source lthy source) of
-     SOME ast =>
-       let
-         val t = Syntax.check_term lthy (URust_Translate.mk_closed lthy ast)
-         val ((_, _), lthy') =
-           Local_Theory.define ((binding, NoSyn), ((Thm.def_binding binding, []), t)) lthy
-       in lthy' end
+     SOME ast => Syntax.check_term lthy (URust_Translate.mk_closed lthy ast)
    | NONE => error ("urust_expr: empty expression" ^ Position.here (Input.pos_of source)))
+
+fun define_urust (binding, source) lthy =
+  let
+    val ((_, _), lthy') =
+      Local_Theory.define
+        ((binding, NoSyn), ((Thm.def_binding binding, []), elab_urust lthy source)) lthy
+  in lthy' end
 
 val _ = Outer_Syntax.local_theory \<^command_keyword>\<open>urust_expr\<close>
           "Parse a uRust expression and define it as a HOL constant"
