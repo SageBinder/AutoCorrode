@@ -84,9 +84,30 @@ urust_expr_rejects \<open> let Some(x) = \<llangle>Some (0 :: nat)\<rrangle>; ()
        though less cleanly -- an uncaught \<open>TERM\<close> exception out of \<open>abs_tr _shallow_let_pattern\<close>. \<close>
 
 urust_expr_rejects \<open> match_case \<llangle>0 :: nat\<rrangle> { 0 \<Rightarrow> (), _ \<Rightarrow> () } \<close>
-  \<open> literal patterns are not yet supported in `match_case` \<close>
+  \<open> numeric pattern in match_case: 0 \<close>
   \<comment> \<open> [FIDELITY] a numeral belongs to \<open>match_switch\<close>; the frontend agrees ("Error in shallow match
        translation: numeric pattern in match_case: 0"). \<close>
+
+urust_expr_rejects \<open> match_case \<llangle>1 :: nat\<rrangle> { 1 \<Rightarrow> (), _ \<Rightarrow> () } \<close>
+  \<open> numeric pattern in match_case: 1 \<close>
+  \<comment> \<open> [FIDELITY] literal \<open>1\<close> has the same dedicated case-pattern node and rejection boundary as
+       literal \<open>0\<close>. \<close>
+
+urust_expr_rejects \<open> match_case \<llangle>2 :: nat\<rrangle> { 2 \<Rightarrow> (), _ \<Rightarrow> () } \<close>
+  \<open> numeric pattern in match_case: 2 \<close>
+  \<comment> \<open> [FIDELITY] the frontend's attempted guarded lowering retains the raw token and rejects with
+       \<open>Undefined constant: "2"\<close>; the parser gives the same accept-set boundary a positioned diagnostic. \<close>
+
+urust_expr_rejects
+  \<open> match_case \<llangle>Some (2 :: nat)\<rrangle> { Some(2) \<Rightarrow> (), _ \<Rightarrow> () } \<close>
+  \<open> numeric pattern in match_case: 2 \<close>
+  \<comment> \<open> [FIDELITY] constructor-nested numerals hit the same frontend raw-token rejection. \<close>
+
+urust_expr_rejects
+  \<open> match_switch \<llangle>2 :: nat\<rrangle> { 2 if True \<Rightarrow> (), _ \<Rightarrow> () } \<close>
+  \<open> guards are not supported in explicit `match_switch` \<close>
+  \<comment> \<open> [FIDELITY] guards force bare \<open>match\<close> to case lowering, but the explicit switch form rejects
+       them rather than changing lowering. \<close>
 
 urust_expr_rejects \<open> match_case \<llangle>Some (0 :: nat)\<rrangle> { NoSuchCtor(x) \<Rightarrow> (), _ \<Rightarrow> () } \<close>
   \<open> `NoSuchCtor` is not a known constructor \<close>
@@ -98,32 +119,11 @@ urust_expr_rejects \<open> match_switch \<llangle>0 :: nat\<rrangle> { x \<Right
   \<comment> \<open> [DIVERGENT] the frontend accepts a binding key under \<open>match_switch\<close>; here switch keys are
        numeral / \<open>_\<close> only (binding patterns need \<open>match_case\<close>). \<close>
 
-urust_expr_rejects \<open> match_case \<llangle>Some (Some (0 :: nat))\<rrangle> { Some(Some(y)) \<Rightarrow> (), _ \<Rightarrow> () } \<close>
-  \<open> nested constructor pattern not yet supported \<close>
-  \<comment> \<open> [DIVERGENT] frontend accepts (guarded compilation path); parser is Tier-0. Divergence D-7. \<close>
-
-urust_expr_rejects \<open> match_case \<llangle>Some (0 :: nat)\<rrangle> { None | None \<Rightarrow> (), _ \<Rightarrow> () } \<close>
-  \<open> or-patterns are not yet supported in `match_case` \<close>
-  \<comment> \<open> [DIVERGENT] frontend accepts case-pattern disjunction (\<open>match_switch\<close> keys may be or-lists here,
-       \<open>match_case\<close> arms may not). Divergence D-7. \<close>
-
 urust_expr_rejects
   \<open> match \<llangle>Some (0 :: nat)\<rrangle> { 0 \<Rightarrow> (), Some(x) \<Rightarrow> () } \<close>
   \<open> mixed numeral and constructor patterns in bare `match` \<close>
   \<comment> \<open> [FIDELITY] bare-match routing cannot select one lowering for numeral and constructor heads;
        the frontend reports the same mixed-match category. \<close>
-
-urust_expr_rejects
-  \<open> match \<llangle>Some (Some (0 :: nat))\<rrangle> { Some(Some(y)) \<Rightarrow> (), _ \<Rightarrow> () } \<close>
-  \<open> nested constructor pattern not yet supported \<close>
-  \<comment> \<open> [DIVERGENT] bare \<open>match\<close> correctly routes constructor heads to case, then reaches the
-       existing Tier-0 nested-pattern diagnostic. Divergence D-7. \<close>
-
-urust_expr_rejects
-  \<open> match \<llangle>Some (0 :: nat)\<rrangle> { None | None \<Rightarrow> (), _ \<Rightarrow> () } \<close>
-  \<open> or-patterns are not yet supported in `match_case` \<close>
-  \<comment> \<open> [DIVERGENT] a disjunction head is case-compatible, so bare \<open>match\<close> reaches the existing
-       Tier-0 case-disjunction diagnostic. Divergence D-7. \<close>
 
 section\<open> Calls \<close>
 

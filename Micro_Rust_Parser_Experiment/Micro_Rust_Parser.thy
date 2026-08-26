@@ -93,13 +93,15 @@ struct
                                                          arity error underlines the call, not just the name
                                                          (D23/D29). Non-identifier callees (antiquotation,
                                                          turbofish, path) are deferred -- D-5. *)
-    | UE_Match     of match_flavour * ur_expr * (ur_pat * ur_expr) list * Position.T
+    | UE_Match     of match_flavour * ur_expr * ur_arm list * Position.T
                                                       (* match_<flavour> scrut { pat => body, .. }. ONE node
                                                          for both keywords; only the LOWERING differs --
                                                          MF_Switch -> ncase_selector (first-order, D26),
                                                          MF_Case -> the Ctr_Sugar case skeleton (D27). Each
                                                          flavour's elaborator gates the patterns it cannot
                                                          lower with a positioned error. *)
+  and ur_arm =
+      UR_Arm of ur_pat * (ur_expr * Position.T) option * ur_expr
 end
 \<close>
 
@@ -236,6 +238,7 @@ yacc_definitions\<open>
 (* Operator precedence, loosest -> tightest (the frontend's infix priorities). Comparisons are
    non-associative (Rust rejects `a == b == c`); prefix `!` binds tighter than every binary operator.
    These directives are what keep the ambiguous `uexp OP uexp` productions conflict-free. *)
+%right TIF
 %left TBARBAR
 %left TAMPAMP
 %nonassoc TEQEQ TNE TLT TLE TGT TGE
@@ -268,7 +271,8 @@ yacc_definitions\<open>
        | umatch of URust_AST.ur_expr
        | umatchsw of URust_AST.ur_expr
        | umatchcase of URust_AST.ur_expr
-       | uarms of (URust_AST.ur_pat * URust_AST.ur_expr) list
+       | uguard of URust_AST.ur_expr
+       | uarms of URust_AST.ur_arm list
        | upat of URust_AST.ur_pat
        | upats of URust_AST.ur_pat list
 \<close>
@@ -296,8 +300,8 @@ yacc_rules\<open>
      loops) are admitted -- let-RHS, condition, call args, parens -- WITHOUT being a bare binary-operator
      operand (that stays `uexp`, closing divergence D-1 -- D25). *)
   uval : uexp (uexp)
-       | uif  (uif)
-       | umatch (umatch)
+       | uif %prec TIF (uif)
+       | umatch %prec TIF (umatch)
        | umatchsw (umatchsw)
        | umatchcase (umatchcase)
   uexp : NUM        (UE_Num (NUM, NUMleft))
@@ -318,7 +322,9 @@ yacc_rules\<open>
        | LPAR uval RPAR (uval)      (* parens wrap a uval: `(if ...)` becomes a usable operand -- the D-1 escape *)
        | VALAQ      (UE_ValAntiq VALAQ)
        | EXPRAQ     (UE_ExprAntiq EXPRAQ)
-       | ublock     (ublock)        (* block STAYS an operand atom (frontend priority 1000): `{e} + x` parses *)
+       | ublock %prec TIF (ublock)  (* block STAYS an operand atom (frontend priority 1000): `{e} + x`
+                                       parses. Equal right precedence makes a following `if` shift into
+                                       semicolon-free statement sequencing without a conflict. *)
        (* `uif` is deliberately NOT a `uexp` alternative (closes D-1): it reaches value position via `uval`
           and operand position only when parenthesized. Loops will join `uval` the same way. *)
        | uexp TPLUS uexp     (UE_Bin (Add,  uexp1, uexp2, TPLUSleft))
@@ -362,8 +368,19 @@ yacc_rules\<open>
                  (UE_Match (MF_Switch, uval, uarms, Position.range_position (TMATCHSWITCHleft, TRBRACEright)))
   umatchcase : TMATCHCASE uval TLBRACE uarms TRBRACE
                  (UE_Match (MF_Case, uval, uarms, Position.range_position (TMATCHCASEleft, TRBRACEright)))
-  uarms : upat TARROW uval               ([(upat, uval)])
-        | upat TARROW uval COMMA uarms   ((upat, uval) :: uarms)
+  uguard : uexp (uexp)
+         | uif (uif)
+         | umatch (umatch)
+         | umatchsw (umatchsw)
+         | umatchcase (umatchcase)
+  uarms : upat TARROW uval
+             ([UR_Arm (upat, NONE, uval)])
+        | upat TARROW uval COMMA uarms
+             (UR_Arm (upat, NONE, uval) :: uarms)
+        | upat TIF uguard TARROW uval
+             ([UR_Arm (upat, SOME (uguard, TIFleft), uval)])
+        | upat TIF uguard TARROW uval COMMA uarms
+             (UR_Arm (upat, SOME (uguard, TIFleft), uval) :: uarms)
   (* The single pattern grammar, shared by every binding site above (D28). Its own nonterminals, disjoint
      from `uexp`, so the constructor pattern cannot clash with the call production nor or-`|` with bitwise
      or. It deliberately ACCEPTS more than any one site can lower (a numeral in `let`, a constructor under
@@ -389,6 +406,16 @@ ML\<open>
 structure URust_Translate =
 struct
   open URust_AST
+
+  datatype basic_case_pat =
+      BCP_Wild of Position.T option
+    | BCP_Ident of string * Position.T
+    | BCP_Constr of string * Position.T * basic_case_pat list
+
+  datatype case_pat_tree =
+      CPT_Const of term
+    | CPT_Slot of int
+    | CPT_App of term * case_pat_tree list
 
   (* All Core terms are built with dummyT; a single Syntax.check_term (in the command) resolves types. *)
   fun mk_const name args = Term.list_comb (Const (name, dummyT), args)
@@ -582,8 +609,8 @@ struct
      abstractions): `Term.abstract_over` (behind `Term.lambda`) tracks its own level as it descends and
      LEAVES existing `Bound`s untouched (Pure/term.ML:841-852), while each `Abs` binds the loose index 0 of
      its body. So a pre-placed index still denotes its slot after any number of outer abstractions.
-     uRust-specific (the only caller is the constructor-pattern branch below), so it lives here rather than
-     in the shared Parser_Utils layer. *)
+     uRust-specific (the only caller is the recursive case-pattern compiler below), so it lives here
+     rather than in the shared Parser_Utils layer. *)
   fun abs_slots wrap slots mk_inner =
     let
       val n = length slots
@@ -596,18 +623,21 @@ struct
 
   (* The IRREFUTABLE pattern seam (`let`/`const`, later closure and `fn` parameters): register the
      pattern's variable(s), return an abstraction builder for the binder's body + the extended env.
-     `bind_case_pat` below is the refutable (match-arm) seam and the `MF_Switch` `key` function the
-     first-order one; all three consume the SAME `ur_pat`, so a new pattern form is one constructor + one
-     clause per seam, with every binding SITE unchanged (D28). *)
+     Case normalization below is the refutable (match-arm) seam and the `MF_Switch` `key` function the
+     first-order one; all three consume the SAME `ur_pat`, so a new pattern form is one constructor plus
+     one clause per seam, with every binding SITE unchanged (D28). *)
   fun pat_pos (P_Wild pos) = pos
     | pat_pos (P_Ident (_, pos)) = pos
     | pat_pos (P_Lit (_, pos)) = pos
     | pat_pos (P_Constr (_, pos, _)) = pos
     | pat_pos (P_Or (_, pos)) = pos
 
-  (* Bare `match` mirrors the frontend's syntactic head-based router. Identifiers and `_` fit either
-     lowering, so case wins; a disjunction is case-shaped even when its alternatives are numerals, leaving
-     the existing Tier-0 `MF_Case` diagnostic to reject it. *)
+  fun arm_pat (UR_Arm (pat, _, _)) = pat
+  fun arm_guard (UR_Arm (_, guard, _)) = guard
+
+  (* Bare `match` mirrors the frontend's syntactic head-based router. Any guard forces case lowering.
+     Otherwise identifiers and `_` fit either lowering, so case wins; a disjunction is case-shaped even
+     when its alternatives are numerals. *)
   fun classify_match arms pos =
     let
       fun case_compatible (P_Lit _) = false
@@ -616,9 +646,10 @@ struct
         | switch_compatible (P_Ident _) = true
         | switch_compatible (P_Wild _) = true
         | switch_compatible _ = false
-      val pats = map #1 arms
+      val pats = map arm_pat arms
     in
-      if List.all case_compatible pats then MF_Case
+      if List.exists (is_some o arm_guard) arms then MF_Case
+      else if List.all case_compatible pats then MF_Case
       else if List.all switch_compatible pats then MF_Switch
       else
         error ("urust_expr: mixed numeral and constructor patterns in bare `match`" ^
@@ -640,57 +671,75 @@ struct
          error ("urust_expr: refutable pattern in an irrefutable (let/const) binder position" ^
                 Position.here (pat_pos pat)))
 
-  (* The REFUTABLE (match-arm) seam: a pattern -> a Ctr_Sugar case branch builder + the extended env.
-     Reuses bind_var for per-variable registration but builds the case_abs/case_elem skeleton instead of a
-     plain lambda. Tier-0 = wildcard / variable / nullary ctor / single-level ctor with binder-or-`_` args;
-     everything else errors WITH a position (D27). *)
-  fun bind_case_pat ctxt env pat =
-      (case pat of
-         P_Wild pos =>
-           (report_wildcard ctxt pos;
-            (fn body => mk_case_abs (anon_abs (mk_case_elem (Bound 0) body)), env))
-       | P_Ident (name, pos) =>
-           (case resolve_ctor ctxt name of
-              SOME c => (report_ctor_markup ctxt pos c;                      (* nullary constructor *)
-                         (fn body => mk_case_elem c body, env))
-            | NONE =>                                                        (* variable binder *)
-                let val (f, env') = bind_var ctxt env (name, pos)
-                in (fn body => mk_case_abs (Term.lambda f (mk_case_elem f body)), env') end)
-       | P_Constr (name, pos, args) =>
-           (case resolve_ctor ctxt name of
-              NONE => error ("urust_expr: `" ^ name ^ "` is not a known constructor" ^ Position.here pos)
-            | SOME c =>
-                let
-                  val _ = report_ctor_markup ctxt pos c
-                  (* Each arg is a SLOT: `SOME free` = a named source binder, `NONE` = a `_` (anonymous). *)
-                  fun arg (P_Wild pos) env = (report_wildcard ctxt pos; (NONE, env))
-                    | arg (P_Ident (a, ap)) env =
-                        (case resolve_ctor ctxt a of
-                           SOME _ => error ("urust_expr: nested nullary-constructor pattern `" ^ a ^
-                                       "` not yet supported (Tier-0: binder / `_` constructor args only)" ^
-                                       Position.here ap)
-                         | NONE => let val (f, env') = bind_var ctxt env (a, ap) in (SOME f, env') end)
-                    | arg p _ =
-                        error ("urust_expr: nested " ^
-                               (case p of P_Constr _ => "constructor" | P_Lit _ => "literal"
-                                        | P_Or _ => "or-" | _ => "") ^
-                               " pattern not yet supported (Tier-0: binder / `_` constructor args only)" ^
-                               Position.here (pat_pos p))
-                  val (slots, env') = fold_map arg args env
-                in
-                  (* the one shape where several binders nest and mix named with anonymous -- hence
-                     abs_slots (rows `mc_pair`, `mc_hyg_sibling`) *)
-                  (fn body =>
-                     abs_slots mk_case_abs slots
-                       (fn ps => mk_case_elem (Term.list_comb (c, ps)) body), env')
-                end)
-       (* Parseable (the pattern grammar is shared) but not yet lowerable here, so: positioned errors. A
-          literal pattern needs the frontend's guarded path; an or-pattern needs arm duplication. *)
-       | P_Lit (_, pos) =>
-           error ("urust_expr: literal patterns are not yet supported in `match_case`" ^
-                  " (numeral patterns belong to `match_switch` today)" ^ Position.here pos)
-       | P_Or (_, pos) =>
-           error ("urust_expr: or-patterns are not yet supported in `match_case`" ^ Position.here pos))
+  (* Expand every disjunction before binding. Constructor arguments use a left-to-right Cartesian product,
+     matching the frontend's source ordering. Each resulting arm is elaborated independently. *)
+  fun expand_case_pat pat =
+    let
+      fun products [] = [[]]
+        | products (xs :: xss) =
+            maps (fn x => map (fn ys => x :: ys) (products xss)) xs
+      fun expand (P_Or (ps, _)) = maps expand ps
+        | expand (P_Constr (name, pos, args)) =
+            map (fn args' => P_Constr (name, pos, args'))
+              (products (map expand args))
+        | expand p = [p]
+    in expand pat end
+
+  (* Register every source binder once for an expanded alternative. Guard and body elaboration then reuse
+     the same Free, preserving capture and source navigation, including inside antiquotations. *)
+  fun bind_case_vars ctxt pat env =
+    (case pat of
+       P_Wild _ => env
+     | P_Lit _ => env
+     | P_Ident (name, pos) =>
+         (case resolve_ctor ctxt name of
+            SOME _ => env
+          | NONE => #2 (bind_var ctxt env (name, pos)))
+     | P_Constr (name, pos, args) =>
+         (case resolve_ctor ctxt name of
+            NONE => error ("urust_expr: `" ^ name ^ "` is not a known constructor" ^
+                           Position.here pos)
+          | SOME _ => fold (bind_case_vars ctxt) args env)
+     | P_Or (_, pos) =>
+         error ("urust_expr: internal unexpanded case or-pattern" ^ Position.here pos))
+
+  fun instantiate_case_pat args tree =
+    (case tree of
+       CPT_Const t => t
+     | CPT_Slot i => nth args i
+     | CPT_App (c, ts) => Term.list_comb (c, map (instantiate_case_pat args) ts))
+
+  (* Convert one normalized basic pattern into the Ctr_Sugar branch skeleton. Slots are collected in
+     depth-first source order; named slots use their source Free and wildcards use final Bound indices. *)
+  fun bind_basic_case_pat ctxt env pat =
+    let
+      fun add_slot slot (slots, n) = (CPT_Slot n, (slots @ [slot], n + 1))
+      fun walk (BCP_Wild pos_opt) state =
+            (case pos_opt of SOME pos => report_wildcard ctxt pos | NONE => ();
+             add_slot NONE state)
+        | walk (BCP_Ident (name, pos)) state =
+            (case resolve_ctor ctxt name of
+               SOME c => (report_ctor_markup ctxt pos c; (CPT_Const c, state))
+             | NONE =>
+                 (case Symtab.lookup env name of
+                    SOME {free, ...} => add_slot (SOME free) state
+                  | NONE => error ("urust_expr: internal unregistered case binder " ^ quote name ^
+                                    Position.here pos)))
+        | walk (BCP_Constr (name, pos, args)) state =
+            (case resolve_ctor ctxt name of
+               NONE => error ("urust_expr: `" ^ name ^ "` is not a known constructor" ^
+                              Position.here pos)
+             | SOME c =>
+                 let
+                   val _ = report_ctor_markup ctxt pos c
+                   val (trees, state') = fold_map walk args state
+                 in (CPT_App (c, trees), state') end)
+      val (tree, (slots, _)) = walk pat ([], 0)
+    in
+      fn body =>
+        abs_slots mk_case_abs slots
+          (fn args => mk_case_elem (instantiate_case_pat args tree) body)
+    end
 
   (* env : source name -> var_info for the enclosing binders (lexical scope). A bound use resolves to its
      binder's Free + nav markup and is NOT sent through dispatch -- lexical scoping wins, matching the
@@ -730,52 +779,7 @@ struct
                 SOME {free, def_pos, id} => (report_ref ctxt id (name, def_pos) npos; free)
               | NONE => ident_term ctxt Micro_Rust_Names.NFunction name npos)
          in mk_const (funcall_const cpos (length args)) (func :: map (mk ctxt env) args) end
-     (* ONE match clause; the flavour picks the lowering. Both are `bind <<scrut>> <selector>` with the
-        scrutinee in the OUTER env (as elab_let does) and each arm body in the env its own pattern extends. *)
-     | UE_Match (flavour, scrut, arms, pos) =>
-         let
-           val selected = (case flavour of MF_Auto => classify_match arms pos | explicit => explicit)
-         in
-           mk_bind (mk ctxt env scrut)
-           (case selected of
-              (* MF_Switch: first-order, so a pattern must be a numeral, `_`, or an or-list of those; a
-                 binding pattern is rejected WITH ITS POSITION -- the point of sharing the grammar (D26). *)
-              MF_Switch =>
-                let
-                  fun key (P_Lit (lexeme, pos)) =
-                        let val (n, _) = parse_int_lit pos lexeme
-                        in mk_some (HOLogic.mk_number dummyT n) end
-                    | key (P_Wild pos)      = (report_wildcard ctxt pos; mk_none)
-                    | key (P_Ident (s, pos)) =
-                        error ("urust_expr: unsupported match_switch key " ^ quote s ^
-                               " (numeral or `_` only; const-id / path keys not yet supported)" ^
-                               Position.here pos)
-                    | key p =
-                        error ("urust_expr: unsupported match_switch pattern" ^
-                               " (numeral, `_`, or an or-list of those; binding patterns need" ^
-                               " `match_case`)" ^ Position.here (pat_pos p))
-                  (* one (key, body) pair per or-alternative, sharing the body elaborated ONCE *)
-                  fun arm_pairs (pat, body) =
-                    let val b = mk ctxt env body
-                    in map (fn k => mk_pair (key k) b)
-                         (case pat of P_Or (ps, _) => ps | p => [p])
-                    end
-                in mk_ncase_selector (fold_rev mk_cons (maps arm_pairs arms) mk_nil) end
-              (* MF_Case (D27): \<lambda>anon. case_guard True anon (case_cons B1 .. case_nil), each Bi from
-                 bind_case_pat; Case_Translation folds it to case_<T> during check_term. *)
-            | MF_Case =>
-                let
-                  fun arm (pat, body) =
-                    let val (absf, env') = bind_case_pat ctxt env pat
-                    in absf (mk ctxt env' body) end
-                  val branches = fold_rev (fn a => fn acc => mk_case_cons (arm a) acc) arms mk_case_nil
-                in
-                  (* the invented scrutinee binder is ANONYMOUS (`Abs` + `Bound`), never a named Free, so it
-                     cannot capture anything in the branches -- see anon_abs *)
-                  anon_abs (mk_case_guard \<^term>\<open>True\<close> (Bound 0) branches)
-                end
-            | MF_Auto => error "urust_expr: internal unresolved auto match flavour")
-         end)
+     | UE_Match args => elab_match ctxt env args)
 
   (* `let`/`const` <pat> = rhs; body -> bind rhs (<pat-abstraction> body); shared by both nodes. *)
   and elab_let ctxt env (pat, rhs, body) =
@@ -784,6 +788,126 @@ struct
       val (absf, env') = bind_pat ctxt env pat  (* register pattern vars; get body abstraction *)
       val body'        = mk ctxt env' body      (* innermost binding wins -> shadowing-correct *)
     in mk_bind rhs' (absf body') end
+
+  (* ONE match entry point. Switch lowering remains first-order and unchanged; case lowering expands each
+     disjunctive alternative into an independent arm before entering the staged compiler below. *)
+  and elab_match ctxt env (flavour, scrut, arms, pos) =
+    let
+      val selected = (case flavour of MF_Auto => classify_match arms pos | explicit => explicit)
+      fun guarded_pos [] = NONE
+        | guarded_pos (UR_Arm (_, SOME (_, gpos), _) :: _) = SOME gpos
+        | guarded_pos (_ :: rest) = guarded_pos rest
+      val _ =
+        (case (selected, guarded_pos arms) of
+           (MF_Switch, SOME gpos) =>
+             error ("urust_expr: guards are not supported in explicit `match_switch`" ^
+                    Position.here gpos)
+         | _ => ())
+      val scrut' = mk ctxt env scrut
+    in
+      (case selected of
+         MF_Switch =>
+           let
+             fun key (P_Lit (lexeme, p)) =
+                   let val (n, _) = parse_int_lit p lexeme
+                   in mk_some (HOLogic.mk_number dummyT n) end
+               | key (P_Wild p) = (report_wildcard ctxt p; mk_none)
+               | key (P_Ident (name, p)) =
+                   error ("urust_expr: unsupported match_switch key " ^ quote name ^
+                          " (numeral or `_` only; const-id / path keys not yet supported)" ^
+                          Position.here p)
+               | key p =
+                   error ("urust_expr: unsupported match_switch pattern" ^
+                          " (numeral, `_`, or an or-list of those; binding patterns need" ^
+                          " `match_case`)" ^ Position.here (pat_pos p))
+             fun arm_pairs (UR_Arm (pat, NONE, body)) =
+                   let val body' = mk ctxt env body
+                   in map (fn p => mk_pair (key p) body')
+                        (case pat of P_Or (ps, _) => ps | p => [p])
+                   end
+               | arm_pairs (UR_Arm (_, SOME (_, gpos), _)) =
+                   error ("urust_expr: guards are not supported in explicit `match_switch`" ^
+                          Position.here gpos)
+             val pairs = maps arm_pairs arms
+           in mk_bind scrut' (mk_ncase_selector (fold_rev mk_cons pairs mk_nil)) end
+       | MF_Case =>
+           let
+             fun expand_arm (UR_Arm (pat, guard, body)) =
+               map (fn pat' =>
+                 (pat', true,
+                  (case guard of
+                     SOME (g, _) => SOME (fn env' => mk ctxt env' g)
+                   | NONE => NONE),
+                  fn env' => mk ctxt env' body))
+                 (expand_case_pat pat)
+           in compile_case ctxt env scrut' (maps expand_arm arms) end
+       | MF_Auto => error "urust_expr: internal unresolved auto match flavour")
+    end
+
+  (* Compile normalized branches either as one Ctr_Sugar case tree (the fast unguarded path) or as ordered
+     cases whose guarded bodies fall through to the remaining tree. `value` starts as an internal Free and
+     is abstracted last, so references under any number of case_abs binders receive the correct index. *)
+  and compile_case ctxt env scrut arms =
+    let
+      val value = Free ("_urust_case_value_" ^ string_of_int (serial ()), dummyT)
+      val normalized = map (normalize_case_arm ctxt env) arms
+      fun case_term branches =
+        mk_case_guard \<^term>\<open>True\<close> value
+          (fold_rev mk_case_cons branches mk_case_nil)
+      fun generated_wild rhs = bind_basic_case_pat ctxt env (BCP_Wild NONE) rhs
+      val undefined = Const (\<^const_name>\<open>undefined\<close>, dummyT)
+      fun process [] = error "urust_expr: internal empty case branch list"
+        | process [(wild, absf, NONE, rhs)] =
+            if wild then rhs else case_term [absf rhs]
+        | process [(wild, absf, SOME guard, rhs)] =
+            let val guarded = mk_two_armed guard rhs undefined
+            in
+              if wild then guarded
+              else case_term [absf guarded, generated_wild undefined]
+            end
+        | process ((wild, absf, guard, rhs) :: rest) =
+            let
+              val rest_case = process rest
+              val rhs' =
+                (case guard of
+                   SOME g => mk_two_armed g rhs rest_case
+                 | NONE => rhs)
+            in
+              if wild then rhs'
+              else case_term [absf rhs', generated_wild rest_case]
+            end
+      val selector =
+        if List.exists (fn (_, _, guard, _) => is_some guard) normalized
+        then process normalized
+        else case_term (map (fn (_, absf, _, rhs) => absf rhs) normalized)
+    in mk_bind scrut (Term.lambda value selector) end
+
+  and normalize_case_arm ctxt env (pat, register_vars, guardf, bodyf) =
+    let
+      val env' = if register_vars then bind_case_vars ctxt pat env else env
+      val basic_pat =
+        (case pat of
+           P_Lit (lexeme, p) =>
+             error ("urust_expr: numeric pattern in match_case: " ^ lexeme ^ Position.here p)
+         | _ => normalize_case_pattern pat)
+      val absf = bind_basic_case_pat ctxt env' basic_pat
+      val guard = Option.map (fn f => f env') guardf
+      val rhs = bodyf env'
+      val wild = (case basic_pat of BCP_Wild _ => true | _ => false)
+    in (wild, absf, guard, rhs) end
+
+  (* Preserve recursive constructors in the basic case tree. Case numerals are rejected at any depth,
+     matching the frontend acceptance boundary; switch numerals continue to use `ncase_selector`. *)
+  and normalize_case_pattern pat =
+    (case pat of
+       P_Wild p => BCP_Wild (SOME p)
+     | P_Ident id => BCP_Ident id
+     | P_Lit (lexeme, p) =>
+         error ("urust_expr: numeric pattern in match_case: " ^ lexeme ^ Position.here p)
+     | P_Or (_, p) =>
+         error ("urust_expr: internal unexpanded case or-pattern" ^ Position.here p)
+     | P_Constr (name, p, args) =>
+         BCP_Constr (name, p, map normalize_case_pattern args))
 
   fun mk_closed ctxt = mk ctxt Symtab.empty
 end

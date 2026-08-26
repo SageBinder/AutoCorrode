@@ -881,6 +881,210 @@ lemma \<open> mc_hyg_sibling = \<lbrakk> match_case p { P2(uu, _) \<Rightarrow> 
 end
 
 
+section\<open> Rich case-pattern lowering \<close>
+
+text\<open>
+Case arms are normalized in stages: recursive disjunction expansion, recursive
+constructor compilation, and ordered guard fall-through. Case numerals remain
+frontend-fidelity rejections. These rows replace the four former D-7 negative tests.
+\<close>
+
+subsection\<open> Former D-7 rejection rows \<close>
+
+urust_expr rich_explicit_nested
+  \<open> match_case \<llangle>Some (Some (0 :: nat))\<rrangle> { Some(Some(y)) \<Rightarrow> (), _ \<Rightarrow> () } \<close>
+lemma \<open> rich_explicit_nested =
+    \<lbrakk> match_case \<llangle>Some (Some (0 :: nat))\<rrangle> { Some(Some(y)) \<Rightarrow> (), _ \<Rightarrow> () } \<rbrakk> \<close>
+  unfolding rich_explicit_nested_def by (rule refl)
+
+urust_expr rich_explicit_or
+  \<open> match_case \<llangle>Some (0 :: nat)\<rrangle> { Some(_) | None \<Rightarrow> () } \<close>
+lemma \<open> rich_explicit_or =
+    \<lbrakk> match_case \<llangle>Some (0 :: nat)\<rrangle> { Some(_) | None \<Rightarrow> () } \<rbrakk> \<close>
+  unfolding rich_explicit_or_def by (rule refl)
+
+urust_expr rich_bare_nested
+  \<open> match \<llangle>Some (Some (0 :: nat))\<rrangle> { Some(Some(y)) \<Rightarrow> (), _ \<Rightarrow> () } \<close>
+lemma \<open> rich_bare_nested =
+    \<lbrakk> match \<llangle>Some (Some (0 :: nat))\<rrangle> { Some(Some(y)) \<Rightarrow> (), _ \<Rightarrow> () } \<rbrakk> \<close>
+  unfolding rich_bare_nested_def by (rule refl)
+
+urust_expr rich_bare_or
+  \<open> match \<llangle>Some (0 :: nat)\<rrangle> { Some(_) | None \<Rightarrow> () } \<close>
+lemma \<open> rich_bare_or =
+    \<lbrakk> match \<llangle>Some (0 :: nat)\<rrangle> { Some(_) | None \<Rightarrow> () } \<rbrakk> \<close>
+  unfolding rich_bare_or_def by (rule refl)
+
+subsection\<open> Guards \<close>
+
+context fixes x :: \<open>32 word option\<close>
+begin
+
+urust_expr rich_guard_scope
+  \<open> let floor = \<llangle>0 :: 32 word\<rrangle>; match x { Some(y) if y > floor \<Rightarrow> y, _ \<Rightarrow> floor } \<close>
+lemma \<open> rich_guard_scope =
+    \<lbrakk> let floor = \<llangle>0 :: 32 word\<rrangle>; match x { Some(y) if y > floor \<Rightarrow> y, _ \<Rightarrow> floor } \<rbrakk> \<close>
+  unfolding rich_guard_scope_def by (rule refl)
+
+urust_expr rich_guard_fallthrough
+  \<open> match x { Some(y) if False \<Rightarrow> \<llangle>1 :: 32 word\<rrangle>, Some(y) \<Rightarrow> y, _ \<Rightarrow> \<llangle>2 :: 32 word\<rrangle> } \<close>
+lemma \<open> rich_guard_fallthrough =
+    \<lbrakk> match x { Some(y) if False \<Rightarrow> \<llangle>1 :: 32 word\<rrangle>, Some(y) \<Rightarrow> y, _ \<Rightarrow> \<llangle>2 :: 32 word\<rrangle> } \<rbrakk> \<close>
+  unfolding rich_guard_fallthrough_def by (rule refl)
+
+urust_expr rich_guard_multi_fallthrough
+  \<open> match x { Some(y) if False \<Rightarrow> \<llangle>1 :: 32 word\<rrangle>, Some(y) if False \<Rightarrow> \<llangle>2 :: 32 word\<rrangle>, Some(y) if True \<Rightarrow> y, _ \<Rightarrow> \<llangle>3 :: 32 word\<rrangle> } \<close>
+lemma \<open> rich_guard_multi_fallthrough =
+    \<lbrakk> match x { Some(y) if False \<Rightarrow> \<llangle>1 :: 32 word\<rrangle>, Some(y) if False \<Rightarrow> \<llangle>2 :: 32 word\<rrangle>, Some(y) if True \<Rightarrow> y, _ \<Rightarrow> \<llangle>3 :: 32 word\<rrangle> } \<rbrakk> \<close>
+  unfolding rich_guard_multi_fallthrough_def by (rule refl)
+
+urust_expr rich_guard_intervening_pattern
+  \<open> match x { Some(y) if False \<Rightarrow> \<llangle>1 :: 32 word\<rrangle>, None \<Rightarrow> \<llangle>2 :: 32 word\<rrangle>, Some(y) \<Rightarrow> y, _ \<Rightarrow> \<llangle>3 :: 32 word\<rrangle> } \<close>
+lemma \<open> rich_guard_intervening_pattern =
+    \<lbrakk> match x { Some(y) if False \<Rightarrow> \<llangle>1 :: 32 word\<rrangle>, None \<Rightarrow> \<llangle>2 :: 32 word\<rrangle>, Some(y) \<Rightarrow> y, _ \<Rightarrow> \<llangle>3 :: 32 word\<rrangle> } \<rbrakk> \<close>
+  unfolding rich_guard_intervening_pattern_def by (rule refl)
+
+urust_expr rich_guard_wild_fallthrough
+  \<open> match x { _ if False \<Rightarrow> \<llangle>1 :: 32 word\<rrangle>, Some(y) \<Rightarrow> y, None \<Rightarrow> \<llangle>2 :: 32 word\<rrangle> } \<close>
+lemma \<open> rich_guard_wild_fallthrough =
+    \<lbrakk> match x { _ if False \<Rightarrow> \<llangle>1 :: 32 word\<rrangle>, Some(y) \<Rightarrow> y, None \<Rightarrow> \<llangle>2 :: 32 word\<rrangle> } \<rbrakk> \<close>
+  unfolding rich_guard_wild_fallthrough_def by (rule refl)
+
+urust_expr rich_guard_if
+  \<open> match x { Some(y) if (if True { True } else { False }) \<Rightarrow> y, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<close>
+lemma \<open> rich_guard_if =
+    \<lbrakk> match x { Some(y) if (if True { True } else { False }) \<Rightarrow> y, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<rbrakk> \<close>
+  unfolding rich_guard_if_def by (rule refl)
+
+urust_expr rich_guard_match
+  \<open> match x { Some(y) if (match Some(y) { Some(_) \<Rightarrow> True, None \<Rightarrow> False }) \<Rightarrow> y, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<close>
+lemma \<open> rich_guard_match =
+    \<lbrakk> match x { Some(y) if (match Some(y) { Some(_) \<Rightarrow> True, None \<Rightarrow> False }) \<Rightarrow> y, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<rbrakk> \<close>
+  unfolding rich_guard_match_def by (rule refl)
+
+end
+
+subsection\<open> Disjunction expansion \<close>
+
+datatype rich_case = RMA "32 word" | RMB "32 word" | RMD "32 word" | RMC
+datatype rich_leaf = RLA | RLB | RLC
+datatype rich_pair = RP rich_leaf rich_leaf
+
+context fixes r :: rich_case and ro :: \<open>rich_case option\<close> and rp :: rich_pair
+begin
+
+urust_expr rich_or_top
+  \<open> match_case r { RMA(x) | RMB(x) \<Rightarrow> x, RMC \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<close>
+lemma \<open> rich_or_top =
+    \<lbrakk> match_case r { RMA(x) | RMB(x) \<Rightarrow> x, RMC \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<rbrakk> \<close>
+  unfolding rich_or_top_def by (rule refl)
+
+urust_expr rich_or_three_top
+  \<open> match_case r { RMA(x) | RMB(x) | RMD(x) \<Rightarrow> x, RMC \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<close>
+lemma \<open> rich_or_three_top =
+    \<lbrakk> match_case r { RMA(x) | RMB(x) | RMD(x) \<Rightarrow> x, RMC \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<rbrakk> \<close>
+  unfolding rich_or_three_top_def by (rule refl)
+
+urust_expr rich_or_nested
+  \<open> match_case ro { Some(RMA(x) | RMB(x)) \<Rightarrow> x, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<close>
+lemma \<open> rich_or_nested =
+    \<lbrakk> match_case ro { Some(RMA(x) | RMB(x)) \<Rightarrow> x, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<rbrakk> \<close>
+  unfolding rich_or_nested_def by (rule refl)
+
+urust_expr rich_or_guarded
+  \<open> match r { RMA(x) | RMB(x) if x > \<llangle>0 :: 32 word\<rrangle> \<Rightarrow> x, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<close>
+lemma \<open> rich_or_guarded =
+    \<lbrakk> match r { RMA(x) | RMB(x) if x > \<llangle>0 :: 32 word\<rrangle> \<Rightarrow> x, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<rbrakk> \<close>
+  unfolding rich_or_guarded_def by (rule refl)
+
+urust_expr rich_or_nested_slot
+  \<open> match_case rp { RP(RLA, RLA | RLB) \<Rightarrow> True, _ \<Rightarrow> False } \<close>
+lemma \<open> rich_or_nested_slot =
+    \<lbrakk> match_case rp { RP(RLA, RLA | RLB) \<Rightarrow> True, _ \<Rightarrow> False } \<rbrakk> \<close>
+  unfolding rich_or_nested_slot_def by (rule refl)
+
+urust_expr rich_or_three_nested_slot
+  \<open> match_case rp { RP(RLA, RLA | RLB | RLC) \<Rightarrow> True, _ \<Rightarrow> False } \<close>
+lemma \<open> rich_or_three_nested_slot =
+    \<lbrakk> match_case rp { RP(RLA, RLA | RLB | RLC) \<Rightarrow> True, _ \<Rightarrow> False } \<rbrakk> \<close>
+  unfolding rich_or_three_nested_slot_def by (rule refl)
+
+urust_expr rich_or_three_guard_fallthrough
+  \<open> match r { RMA(x) | RMB(x) | RMD(x) if False \<Rightarrow> \<llangle>1 :: 32 word\<rrangle>, RMA(x) | RMB(x) | RMD(x) \<Rightarrow> x, RMC \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<close>
+lemma \<open> rich_or_three_guard_fallthrough =
+    \<lbrakk> match r { RMA(x) | RMB(x) | RMD(x) if False \<Rightarrow> \<llangle>1 :: 32 word\<rrangle>, RMA(x) | RMB(x) | RMD(x) \<Rightarrow> x, RMC \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<rbrakk> \<close>
+  unfolding rich_or_three_guard_fallthrough_def by (rule refl)
+
+end
+
+context fixes outer :: nat and x :: \<open>nat option\<close>
+begin
+urust_expr rich_or_independent
+  \<open> match_case x { Some(outer) | None \<Rightarrow> outer } \<close>
+lemma \<open> rich_or_independent =
+    \<lbrakk> match_case x { Some(outer) | None \<Rightarrow> outer } \<rbrakk> \<close>
+  unfolding rich_or_independent_def by (rule refl)
+end
+
+subsection\<open> Recursive constructors and capture \<close>
+
+context
+  fixes deep2 :: \<open>nat option option\<close>
+  fixes deep3 :: \<open>nat option option option\<close>
+  fixes mixed :: \<open>pair2 option\<close>
+begin
+
+urust_expr rich_depth_two
+  \<open> match_case deep2 { Some(Some(y)) \<Rightarrow> y, _ \<Rightarrow> 0 } \<close>
+lemma \<open> rich_depth_two =
+    \<lbrakk> match_case deep2 { Some(Some(y)) \<Rightarrow> y, _ \<Rightarrow> 0 } \<rbrakk> \<close>
+  unfolding rich_depth_two_def by (rule refl)
+
+urust_expr rich_depth_three
+  \<open> match_case deep3 { Some(Some(Some(_))) \<Rightarrow> True, _ \<Rightarrow> False } \<close>
+lemma \<open> rich_depth_three =
+    \<lbrakk> match_case deep3 { Some(Some(Some(_))) \<Rightarrow> True, _ \<Rightarrow> False } \<rbrakk> \<close>
+  unfolding rich_depth_three_def by (rule refl)
+
+urust_expr rich_mixed_slots
+  \<open> match_case mixed { Some(P2(_, y)) \<Rightarrow> y, _ \<Rightarrow> 0 } \<close>
+lemma \<open> rich_mixed_slots =
+    \<lbrakk> match_case mixed { Some(P2(_, y)) \<Rightarrow> y, _ \<Rightarrow> 0 } \<rbrakk> \<close>
+  unfolding rich_mixed_slots_def by (rule refl)
+
+urust_expr rich_antiquotation_capture
+  \<open> match_case deep2 { Some(Some(y)) \<Rightarrow> \<llangle>y\<rrangle>, _ \<Rightarrow> 0 } \<close>
+lemma \<open> rich_antiquotation_capture =
+    \<lbrakk> match_case deep2 { Some(Some(y)) \<Rightarrow> \<llangle>y\<rrangle>, _ \<Rightarrow> 0 } \<rbrakk> \<close>
+  unfolding rich_antiquotation_capture_def by (rule refl)
+
+urust_expr rich_shadow
+  \<open> let y = \<llangle>7 :: nat\<rrangle>; match_case deep2 { Some(Some(y)) \<Rightarrow> \<llangle>y\<rrangle>, _ \<Rightarrow> y } \<close>
+lemma \<open> rich_shadow =
+    \<lbrakk> let y = \<llangle>7 :: nat\<rrangle>; match_case deep2 { Some(Some(y)) \<Rightarrow> \<llangle>y\<rrangle>, _ \<Rightarrow> y } \<rbrakk> \<close>
+  unfolding rich_shadow_def by (rule refl)
+
+end
+
+subsection\<open> Numeric switch boundary \<close>
+
+text\<open>
+Bare numeric matches continue to select switch lowering. Explicit or constructor-nested
+case numerals are pinned as frontend-fidelity rejections in the negative theory.
+\<close>
+
+context fixes n :: nat
+begin
+
+urust_expr rich_numeric_switch
+  \<open> match n { 2 \<Rightarrow> True, _ \<Rightarrow> False } \<close>
+lemma \<open> rich_numeric_switch =
+    \<lbrakk> match n { 2 \<Rightarrow> True, _ \<Rightarrow> False } \<rbrakk> \<close>
+  unfolding rich_numeric_switch_def by (rule refl)
+
+end
+
+
 section\<open> Bare \<open>match\<close> (automatic case/switch routing, D32) \<close>
 
 text\<open>
@@ -989,18 +1193,15 @@ lowers it through NField to a lens focus (Core_Syntax.thy:439-440). It remains d
 a runnable golden needs field notation and concrete lens types.
 \<close>
 
-subsection\<open> D-7: richer match patterns -- parser UNDER-accepts (frontend accepts) \<close>
+subsection\<open> D-7: remaining richer match patterns -- parser UNDER-accepts \<close>
 
 text\<open>
-D-7: bare match routing is implemented, but both lowerings retain Tier-0 patterns. The
-frontend also accepts guards, case disjunction, nested constructors, and literal, range,
-\<open>@\<close>, borrow, struct, and slice patterns. Nested/disjunctive bare matches route to
-case and produce the same positioned diagnostics as explicit \<open>match_case\<close>; both have
-negative rows. The nested case remains a golden stub. See
-\<open>urust-old-new-divergences.md\<close>.
+D-7 now excludes guards, case disjunction, and recursive constructors. Remaining
+frontend-accepted forms include boolean, string, antiquotation, tuple, struct, slice,
+range, alias, grouped, and borrow patterns. They remain corpus stubs until their syntax
+and lowering are implemented. Case numerals are not part of this divergence because the
+frontend rejects them. See \<open>urust-old-new-divergences.md\<close>.
 \<close>
-lemma \<open> undefined = \<lbrakk> match_case \<llangle>Some (Some (0::nat))\<rrangle> { Some(Some(y)) \<Rightarrow> y, _ \<Rightarrow> 0 } \<rbrakk> \<close> sorry
-  \<comment> \<open>frontend: accepts the nested pattern via its guarded compilation path; the parser raises "nested constructor pattern not yet supported (Tier-0)".\<close>
 
 subsection\<open> Deferred frontend surface \<close>
 
