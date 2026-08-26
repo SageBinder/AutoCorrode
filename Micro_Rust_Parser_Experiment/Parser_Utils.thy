@@ -7,7 +7,7 @@
 
    NOT shared: each lexer's `the_src` ref + `set` shadow + `Tokens.*` wrappers, which live inside its
    `ml_lex_yacc` block's SML environment and do not carry to another block. Rationale + history:
-   notes/claude/urust-parser-design-decisions.md (D19, D28, D29). ASCII escape form throughout. *)
+   notes/agent-notes/urust-parser-design-decisions.md (D19, D28, D29). ASCII escape form throughout. *)
 
 theory Parser_Utils
   imports Main

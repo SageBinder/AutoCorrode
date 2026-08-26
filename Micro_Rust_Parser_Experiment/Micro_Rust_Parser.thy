@@ -3,9 +3,10 @@
    An ml_lex_yacc lexer + LALR grammar -> reified SML AST -> elaboration into the EXISTING shallow terms,
    exposed as an outer-syntax command `urust_expr NAME <src>`. The governing invariant: the elaborated
    term is ALPHA-EQUAL to what the inner-syntax bracket `\<lbrakk> src \<rbrakk>` produces today -- validated
-   by Micro_Rust_Parser_Conformance.thy (each row closes `unfolding NAME_def by (rule refl)`).
+   by Micro_Rust_Parser_Conformance.thy (each row closes `unfolding NAME_def by (rule refl)`), with the
+   accept-set boundary build-guarded in Micro_Rust_Parser_Negative_Conformance.thy.
 
-   Notes (do not duplicate them here): coverage + deferred work = notes/claude/urust-parser-features.md
+   Notes (do not duplicate them here): coverage + deferred work = notes/agent-notes/urust-parser-features.md
    and urust-parser-plan.md; the surface BNF, the AST table, and the per-decision rationale (`D*`) =
    urust-parser-design-decisions.md; cross-cutting rules (markup classes C1, divergences C2) =
    urust-rules-and-conventions.md. Comments below are limited to what a future editor would otherwise
@@ -45,8 +46,8 @@ struct
 
   (* Which `match` surface keyword an arm set came from; the two lower DIFFERENTLY (see UE_Match), so the
      flavour is a tag rather than separate AST nodes -- the bare `match` keyword then becomes a third
-     flavour that CLASSIFIES its arms into one of these two lowerings (D28). *)
-  datatype match_flavour = MF_Switch | MF_Case
+     flavour that CLASSIFIES its arms into one of these two lowerings (D28/D32). *)
+  datatype match_flavour = MF_Switch | MF_Case | MF_Auto
 
   (* `_` lexes as an ordinary IDENT: normalise to P_Wild in ONE place, not an `= "_"` test at every site. *)
   fun mk_ident_pat (s, pos) = if s = "_" then P_Wild pos else P_Ident (s, pos)
@@ -129,7 +130,7 @@ is declared once with yacc directives, reproducing the frontend's infix prioriti
 (\<open>Micro_Rust_Syntax.thy:559-603\<close>). The \<open>the_src\<close>/\<open>tokF\<close>/\<open>tok_ident\<close> shims below must stay HERE (not in
 \<open>Parser_Utils\<close>): they run in this \<open>ml_lex_yacc\<close> block's SML environment and each lexer's \<open>Tokens\<close>
 constructors differ; only the position MATH is shared (D19). \<close>
-ml_lex_yacc "URust" where
+ml_lex_yacc [verbose] "URust" where
 lex_user_declarations\<open>
 val aq_buf = ref ""
 val aq_start = ref 0   (* char offset of the antiquotation BODY start (just after the opener) *)
@@ -169,6 +170,7 @@ lex_rules\<open>
 <INITIAL>"const"  => (tokF (yypos, yytext, Markup.keyword1, "TCONST", "", Tokens.TCONST));
 <INITIAL>"if"     => (tokF (yypos, yytext, Markup.keyword1, "TIF", "", Tokens.TIF));
 <INITIAL>"else"   => (tokF (yypos, yytext, Markup.keyword1, "TELSE", "", Tokens.TELSE));
+<INITIAL>"match"        => (tokF (yypos, yytext, Markup.keyword1, "TMATCH", "", Tokens.TMATCH));
 <INITIAL>"match_switch" => (tokF (yypos, yytext, Markup.keyword1, "TMATCHSWITCH", "", Tokens.TMATCHSWITCH));
 <INITIAL>"match_case"   => (tokF (yypos, yytext, Markup.keyword1, "TMATCHCASE", "", Tokens.TMATCHCASE));
 <INITIAL>"="      => (tokF (yypos, yytext, Markup.delimiter, "TEQ", "", Tokens.TEQ));
@@ -246,7 +248,7 @@ yacc_definitions\<open>
     | TSHL | TSHR | TAMP | TBAR | TCARET
     | TEQEQ | TNE | TLT | TLE | TGT | TGE
     | TAMPAMP | TBARBAR | TBANG
-    | TMATCHSWITCH | TMATCHCASE | TARROW
+    | TMATCH | TMATCHSWITCH | TMATCHCASE | TARROW
 %nonterm ustart of URust_AST.ur_expr option
        | ustmt of URust_AST.ur_expr
        | uval of URust_AST.ur_expr
@@ -254,6 +256,7 @@ yacc_definitions\<open>
        | arglist of URust_AST.ur_expr list
        | ublock of URust_AST.ur_expr
        | uif of URust_AST.ur_expr
+       | umatch of URust_AST.ur_expr
        | umatchsw of URust_AST.ur_expr
        | umatchcase of URust_AST.ur_expr
        | uarms of (URust_AST.ur_pat * URust_AST.ur_expr) list
@@ -272,8 +275,9 @@ yacc_rules\<open>
         | uval TSEMI                        (UE_Seq (uval, UE_Unit TSEMIleft))
         | ublock ustmt                      (UE_Seq (ublock, ustmt))
         | uif ustmt                         (UE_Seq (uif, ustmt))
-        (* NO `umatchsw ustmt` form: the frontend has no no-`;` sequencing for the match keywords, so a
-           match in statement position needs a trailing `;` -- matching the frontend (D26). *)
+        | umatch ustmt                      (UE_Seq (umatch, ustmt))
+        (* NO `umatchsw ustmt` / `umatchcase ustmt` forms: only the bare `match` keyword has the
+           frontend's no-`;` sequencing production. The explicit forms still need a trailing `;`. *)
         (* The binder is the SHARED `upat`, not an inline IDENT, so `let (a, b) = ..` / `let mut x` become
            pattern-datatype extensions rather than new productions per site; bind_pat gates refutable
            patterns with a positioned error (D28). *)
@@ -284,6 +288,7 @@ yacc_rules\<open>
      operand (that stays `uexp`, closing divergence D-1 -- D25). *)
   uval : uexp (uexp)
        | uif  (uif)
+       | umatch (umatch)
        | umatchsw (umatchsw)
        | umatchcase (umatchcase)
   uexp : NUM        (UE_Num (NUM, NUMleft))
@@ -339,9 +344,11 @@ yacc_rules\<open>
      needed here (D23). *)
   arglist : uval               ([uval])
           | uval COMMA arglist (uval :: arglist)
-  (* Both `match` keywords are with-block forms, so they join `uval`, not `uexp`. They share ONE arms
+  (* All three `match` keywords are with-block forms, so they join `uval`, not `uexp`. They share ONE arms
      nonterminal over the unified pattern language and differ only in the flavour tag; the lowering split
-     and the per-flavour pattern gate live in the elaborator (D28). *)
+     and the per-flavour pattern gate live in the elaborator (D28/D32). *)
+  umatch     : TMATCH uval TLBRACE uarms TRBRACE
+                 (UE_Match (MF_Auto, uval, uarms, Position.range_position (TMATCHleft, TRBRACEright)))
   umatchsw   : TMATCHSWITCH uval TLBRACE uarms TRBRACE
                  (UE_Match (MF_Switch, uval, uarms, Position.range_position (TMATCHSWITCHleft, TRBRACEright)))
   umatchcase : TMATCHCASE uval TLBRACE uarms TRBRACE
@@ -583,6 +590,26 @@ struct
     | pat_pos (P_Constr (_, pos, _)) = pos
     | pat_pos (P_Or (_, pos)) = pos
 
+  (* Bare `match` mirrors the frontend's syntactic head-based router. Identifiers and `_` fit either
+     lowering, so case wins; a disjunction is case-shaped even when its alternatives are numerals, leaving
+     the existing Tier-0 `MF_Case` diagnostic to reject it. *)
+  fun classify_match arms pos =
+    let
+      fun case_compatible (P_Lit _) = false
+        | case_compatible _ = true
+      fun switch_compatible (P_Lit _) = true
+        | switch_compatible (P_Ident _) = true
+        | switch_compatible (P_Wild _) = true
+        | switch_compatible _ = false
+      val pats = map #1 arms
+    in
+      if List.all case_compatible pats then MF_Case
+      else if List.all switch_compatible pats then MF_Switch
+      else
+        error ("urust_expr: mixed numeral and constructor patterns in bare `match`" ^
+               Position.here pos)
+    end
+
   fun bind_pat ctxt env pat =
     (case pat of
        (* A bare id here is ALWAYS a variable binder, deliberately NOT run through resolve_ctor: the
@@ -686,9 +713,12 @@ struct
          in mk_const (funcall_const cpos (length args)) (func :: map (mk ctxt env) args) end
      (* ONE match clause; the flavour picks the lowering. Both are `bind <<scrut>> <selector>` with the
         scrutinee in the OUTER env (as elab_let does) and each arm body in the env its own pattern extends. *)
-     | UE_Match (flavour, scrut, arms, _) =>
-         mk_bind (mk ctxt env scrut)
-           (case flavour of
+     | UE_Match (flavour, scrut, arms, pos) =>
+         let
+           val selected = (case flavour of MF_Auto => classify_match arms pos | explicit => explicit)
+         in
+           mk_bind (mk ctxt env scrut)
+           (case selected of
               (* MF_Switch: first-order, so a pattern must be a numeral, `_`, or an or-list of those; a
                  binding pattern is rejected WITH ITS POSITION -- the point of sharing the grammar (D26). *)
               MF_Switch =>
@@ -722,7 +752,9 @@ struct
                   (* the invented scrutinee binder is ANONYMOUS (`Abs` + `Bound`), never a named Free, so it
                      cannot capture anything in the branches -- see anon_abs *)
                   anon_abs (mk_case_guard \<^term>\<open>True\<close> (Bound 0) branches)
-                end))
+                end
+            | MF_Auto => error "urust_expr: internal unresolved auto match flavour")
+         end)
 
   (* `let`/`const` <pat> = rhs; body -> bind rhs (<pat-abstraction> body); shared by both nodes. *)
   and elab_let ctxt env (pat, rhs, body) =

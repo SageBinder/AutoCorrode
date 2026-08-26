@@ -25,7 +25,7 @@
      [DIVERGENT] the frontend ACCEPTS `src`; the parser under-accepts (a recorded divergence, per rule C2).
                  The row guards the CURRENT behaviour, so the divergence cannot silently change shape;
                  when the construct lands, the row moves to the positive file as a `refl` row.
-   Canonical trackers: notes/claude/urust-old-new-divergences.md, urust-parser-design-decisions.md (D31).
+   Canonical trackers: notes/agent-notes/urust-old-new-divergences.md, urust-parser-design-decisions.md (D31).
    ASCII escape form throughout (isabelle build rejects raw UTF-8 cartouche delimiters). *)
 
 theory Micro_Rust_Parser_Negative_Conformance
@@ -151,6 +151,24 @@ urust_expr_rejects \<open> match_case \<llangle>Some (0 :: nat)\<rrangle> { None
   \<comment> \<open> [DIVERGENT] frontend accepts case-pattern disjunction (\<open>match_switch\<close> keys may be or-lists here,
        \<open>match_case\<close> arms may not). Divergence D-7. \<close>
 
+urust_expr_rejects
+  \<open> match \<llangle>Some (0 :: nat)\<rrangle> { 0 \<Rightarrow> (), Some(x) \<Rightarrow> () } \<close>
+  \<open> mixed numeral and constructor patterns in bare `match` \<close>
+  \<comment> \<open> [FIDELITY] bare-match routing cannot select one lowering for numeral and constructor heads;
+       the frontend reports the same mixed-match category. \<close>
+
+urust_expr_rejects
+  \<open> match \<llangle>Some (Some (0 :: nat))\<rrangle> { Some(Some(y)) \<Rightarrow> (), _ \<Rightarrow> () } \<close>
+  \<open> nested constructor pattern not yet supported \<close>
+  \<comment> \<open> [DIVERGENT] bare \<open>match\<close> correctly routes constructor heads to case, then reaches the
+       existing Tier-0 nested-pattern diagnostic. Divergence D-7. \<close>
+
+urust_expr_rejects
+  \<open> match \<llangle>Some (0 :: nat)\<rrangle> { None | None \<Rightarrow> (), _ \<Rightarrow> () } \<close>
+  \<open> or-patterns are not yet supported in `match_case` \<close>
+  \<comment> \<open> [DIVERGENT] a disjunction head is case-compatible, so bare \<open>match\<close> reaches the existing
+       Tier-0 case-disjunction diagnostic. Divergence D-7. \<close>
+
 section\<open> Calls \<close>
 
 definition ncf1 :: \<open> 64 word \<Rightarrow> (unit, 64 word, unit, unit, unit) function_body \<close>
@@ -187,11 +205,6 @@ section\<open> Under-accepted constructs (frontend accepts) \<close>
 text\<open> These rows do NOT assert conformance -- they pin the CURRENT rejection of a construct the frontend
 accepts, so a recorded divergence (rule C2) cannot silently change shape. Each moves to the positive file
 as a \<open>refl\<close> row when its construct lands. \<close>
-
-urust_expr_rejects \<open> match \<llangle>Some (0 :: nat)\<rrangle> { Some(y) \<Rightarrow> (), None \<Rightarrow> () } \<close>
-  \<open> syntax error: deleting \<close>
-  \<comment> \<open> [DIVERGENT] D-7: the bare \<open>match\<close> keyword is not lexed (it lexes as a plain IDENT), so
-       \<open>match x { .. }\<close> is a parse error; the frontend disambiguates it to \<open>match_case\<close>/\<open>match_switch\<close>. \<close>
 
 urust_expr_rejects \<open> \<llangle>0 :: nat\<rrangle>.f \<close> \<open> syntax error found at EOF \<close>
   \<comment> \<open> [DIVERGENT] D-6: \<open>.\<close> must be followed by a method call (\<open>TDOT IDENT LPAR\<close>), so a bare field

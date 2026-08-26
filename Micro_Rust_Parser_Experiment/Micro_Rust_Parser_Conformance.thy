@@ -855,6 +855,51 @@ lemma \<open> mc_hyg_sibling = \<lbrakk> match_case p { P2(uu, _) \<Rightarrow> 
 end
 
 
+section\<open> Bare \<open>match\<close> (automatic case/switch routing, D32) \<close>
+
+text\<open> Bare \<open>match\<close> classifies the syntactic heads of all arm patterns before reusing the existing
+\<open>match_case\<close> or \<open>match_switch\<close> lowering unchanged. Constructor/disjunction heads are case-only,
+numerals are switch-only, and identifier/wildcard heads fit both so case wins. Only bare \<open>match\<close> has
+the frontend's semicolon-free statement sequencing form. \<close>
+
+context fixes x :: \<open>nat option\<close> and n :: nat
+begin
+
+text\<open> Constructor and binding patterns route to the case lowering. \<close>
+urust_expr ma_case \<open> match x { Some(y) \<Rightarrow> y, None \<Rightarrow> 0 } \<close>
+lemma \<open> ma_case = \<lbrakk> match x { Some(y) \<Rightarrow> y, None \<Rightarrow> 0 } \<rbrakk> \<close>
+  unfolding ma_case_def by (rule refl)
+
+text\<open> Numeral and wildcard patterns route to the switch lowering. \<close>
+urust_expr ma_switch \<open> match n { 0 \<Rightarrow> \<llangle>False\<rrangle>, _ \<Rightarrow> \<llangle>True\<rrangle> } \<close>
+lemma \<open> ma_switch = \<lbrakk> match n { 0 \<Rightarrow> \<llangle>False\<rrangle>, _ \<Rightarrow> \<llangle>True\<rrangle> } \<rbrakk> \<close>
+  unfolding ma_switch_def by (rule refl)
+
+text\<open> Identifier/wildcard arms are compatible with both lowerings and deliberately default to case. \<close>
+urust_expr ma_ambiguous \<open> match x { None \<Rightarrow> 0, _ \<Rightarrow> 1 } \<close>
+lemma \<open> ma_ambiguous = \<lbrakk> match x { None \<Rightarrow> 0, _ \<Rightarrow> 1 } \<rbrakk> \<close>
+  unfolding ma_ambiguous_def by (rule refl)
+
+text\<open> Bare \<open>match\<close> in a let RHS. \<close>
+urust_expr ma_let \<open> let r = match x { Some(y) \<Rightarrow> y, None \<Rightarrow> 0 }; r \<close>
+lemma \<open> ma_let = \<lbrakk> let r = match x { Some(y) \<Rightarrow> y, None \<Rightarrow> 0 }; r \<rbrakk> \<close>
+  unfolding ma_let_def by (rule refl)
+
+text\<open> Bare \<open>match\<close> is a semicolon-free block-like statement; the explicit forms remain unchanged. \<close>
+urust_expr ma_stmt \<open> match x { Some(_) \<Rightarrow> (), None \<Rightarrow> () } () \<close>
+lemma \<open> ma_stmt = \<lbrakk> match x { Some(_) \<Rightarrow> (), None \<Rightarrow> () } () \<rbrakk> \<close>
+  unfolding ma_stmt_def by (rule refl)
+
+text\<open> Nested bare matches re-enter \<open>uval\<close>; the outer arms route to case and the inner arms to switch. \<close>
+urust_expr ma_nested
+  \<open> match x { Some(y) \<Rightarrow> match y { 0 \<Rightarrow> 1, _ \<Rightarrow> 2 }, None \<Rightarrow> 0 } \<close>
+lemma \<open> ma_nested =
+    \<lbrakk> match x { Some(y) \<Rightarrow> match y { 0 \<Rightarrow> 1, _ \<Rightarrow> 2 }, None \<Rightarrow> 0 } \<rbrakk> \<close>
+  unfolding ma_nested_def by (rule refl)
+
+end
+
+
 section\<open> Known parser divergences (old frontend vs new parser) -- recorded, not proven \<close>
 
 text\<open> Per \<open>urust-rules-and-conventions.md\<close> (C2): a divergence between the inner-syntax frontend and the
@@ -863,7 +908,7 @@ new parser is NEVER silently dropped -- it is kept here as a test case. Where a 
 \<open>src\<close> so \<open>\<lbrakk> src \<rbrakk>\<close> does not parse / the parser rejects \<open>src\<close> so the command errors / the two terms have
 incompatible types) the case is recorded via whichever of \<open>urust_expr\<close> (parser accepts) or a golden
 \<open>undefined = \<lbrakk> src \<rbrakk>\<close> stub (frontend accepts) builds, plus a comment. Canonical tracker:
-\<open>notes/claude/urust-old-new-divergences.md\<close>. \<close>
+\<open>notes/agent-notes/urust-old-new-divergences.md\<close>. \<close>
 
 subsection\<open> D-1 (RESOLVED 2026-08-25): \<open>if\<close> as a binary-operator operand -- both now reject \<close>
 
@@ -947,19 +992,16 @@ text\<open> Distinct from the method call \<open>x.f()\<close>: the parser's \<o
 Deferred to the optics/lens tier; recorded as a note (a runnable golden needs a registered field notation
 / concrete lens types). \<close>
 
-subsection\<open> D-7: bare \<open>match\<close> keyword + richer \<open>match_case\<close> patterns -- parser UNDER-accepts (frontend accepts) \<close>
+subsection\<open> D-7: richer match patterns -- parser UNDER-accepts (frontend accepts) \<close>
 
-text\<open> Only the explicit \<open>match_switch\<close> (D26) and \<open>match_case\<close> (D27) keywords are lexed, and \<open>match_case\<close>
-accepts Tier-0 patterns only (wildcard / variable / nullary + single-level \<open>C(binder|_)\<close>). The frontend
-additionally accepts: the BARE \<open>match\<close> keyword (disambiguated to switch/case by a parse-AST translation,
-Micro_Rust_Syntax.thy:1209-1294); match guards \<open>p if c \<Rightarrow> e\<close>; case-pattern disjunction \<open>Some(x) | None\<close>;
-NESTED constructor args \<open>Some(Some(y))\<close> (via its guarded compilation path, Core_Syntax.thy:963-1123); and
-literal/range/\<open>@\<close>/borrow/struct/slice patterns. Here the bare \<open>match\<close> lexes as a plain IDENT (so
-\<open>match x {...}\<close> is a parse error), and a nested/guarded/disjunctive pattern raises a positioned elaborator
-error. The two directly-expressible cases are kept as \<open>sorry\<close>'d golden stubs; the rest are notes.
-Canonical tracker: \<open>urust-old-new-divergences.md\<close> (D-7). \<close>
-lemma \<open> undefined = \<lbrakk> match \<llangle>Some (0::nat)\<rrangle> { Some(y) \<Rightarrow> y, None \<Rightarrow> 0 } \<rbrakk> \<close> sorry
-  \<comment> \<open>frontend: disambiguates the bare \<open>match\<close> to \<open>match_case\<close> -> the case skeleton; the parser lexes \<open>match\<close> as an IDENT, so \<open>match x {..}\<close> is a parse error.\<close>
+text\<open> The bare \<open>match\<close> keyword and its switch/case routing are now implemented (D32), but every
+lowering retains its Tier-0 pattern limits. The frontend additionally accepts match guards
+\<open>p if c \<Rightarrow> e\<close>; case-pattern disjunction \<open>Some(x) | None\<close>; NESTED constructor args
+\<open>Some(Some(y))\<close> (via its guarded compilation path, Core_Syntax.thy:963-1123); and literal/range/
+\<open>@\<close>/borrow/struct/slice patterns. Bare matches with nested/disjunctive patterns route to case and then
+raise the same positioned Tier-0 diagnostics as explicit \<open>match_case\<close>; both paths have negative rows.
+The directly-expressible nested case remains as a \<open>sorry\<close>'d golden stub. Canonical tracker:
+\<open>urust-old-new-divergences.md\<close> (D-7). \<close>
 lemma \<open> undefined = \<lbrakk> match_case \<llangle>Some (Some (0::nat))\<rrangle> { Some(Some(y)) \<Rightarrow> y, _ \<Rightarrow> 0 } \<rbrakk> \<close> sorry
   \<comment> \<open>frontend: accepts the nested pattern via its guarded compilation path; the parser raises "nested constructor pattern not yet supported (Tier-0)".\<close>
 
