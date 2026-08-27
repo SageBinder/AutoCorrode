@@ -30,7 +30,7 @@ urust_expr showoff_expression
   \<close>
 
 
-subsection\<open> Calls and methods \<close>
+subsection\<open> Calls, methods, and propagation \<close>
 
 definition showoff_bump ::
     \<open>64 word \<Rightarrow> (unit, 64 word, unit, unit, unit) function_body\<close>
@@ -42,23 +42,26 @@ definition showoff_mix ::
 
 text\<open>
 Features: a let-bound callee, nested calls, receiver-prepended method calls,
-method chaining, a conditional argument, comparisons, and lexical binders.
+method chaining, Option propagation around call and method results, propagation
+followed directly by a method, a conditional argument, comparisons, and lexical
+binders.
 \<close>
 
 urust_expr showoff_calls
   \<open>
     let seed = 5_u64;
     let callable = \<llangle>showoff_bump\<rrangle>;
-    let direct = callable(seed);
+    let direct = Some(callable(seed))?;
     let chained =
-      direct.showoff_mix(showoff_bump(2_u64)).showoff_bump();
+      Some(direct.showoff_mix(showoff_bump(2_u64)))?.showoff_bump();
     if chained >= 20_u64 {
-      showoff_mix(
-        chained,
-        (if true { 1_u64 } else { 0_u64 })
-      )
+      Some(
+        chained.showoff_mix(
+          (if true { Some(1_u64)? } else { Some(0_u64)? })
+        )
+      )?
     } else {
-      showoff_bump(showoff_bump(seed))
+      Some(seed.showoff_bump().showoff_bump())?
     }
   \<close>
 
@@ -157,16 +160,17 @@ lemma showoff_calls_frontend:
     \<lbrakk>
       let seed = 5_u64;
       let callable = \<llangle>showoff_bump\<rrangle>;
-      let direct = callable(seed);
+      let direct = Some(callable(seed))?;
       let chained =
-        direct.showoff_mix(showoff_bump(2_u64)).showoff_bump();
+        (Some(direct.showoff_mix(showoff_bump(2_u64)))?).showoff_bump();
       if chained >= 20_u64 {
-        showoff_mix(
-          chained,
-          (if true { 1_u64 } else { 0_u64 })
-        )
+        Some(
+          chained.showoff_mix(
+            (if true { Some(1_u64)? } else { Some(0_u64)? })
+          )
+        )?
       } else {
-        showoff_bump(showoff_bump(seed))
+        Some(seed.showoff_bump().showoff_bump())?
       }
     \<rbrakk> \<close>
   unfolding showoff_calls_def by (rule refl)

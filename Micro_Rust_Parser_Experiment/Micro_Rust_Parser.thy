@@ -114,6 +114,8 @@ struct
                                                          arity error underlines the call, not just the name
                                                          (D23/D29). Non-identifier callees (antiquotation,
                                                          turbofish, path) are deferred -- D-5. *)
+    | UE_Field     of ur_expr * string * Position.T   (* e.field -> NField lens focus *)
+    | UE_Propagate of ur_expr * Position.T            (* e? -> overloaded propagate_const *)
     | UE_Match     of match_flavour * ur_expr * ur_arm list * Position.T
                                                       (* match_<flavour> scrut { pat => body, .. }. ONE node
                                                          for both keywords; only the LOWERING differs --
@@ -133,6 +135,10 @@ struct
     P_Alias (name, pos, inner, at_pos)
   fun mk_struct_pat (PI (name, pos), fields) =
     P_Struct (name, pos, fields)
+  fun mk_call (name, name_pos, args, left, right) =
+    UE_Call (name, name_pos, args, Position.range_position (left, right))
+  fun mk_method_call (receiver, name, name_pos, args, left, right) =
+    mk_call (name, name_pos, receiver :: args, left, right)
 
   (* Flatten nested or-patterns so `a | b | c` is one P_Or in source order, whatever %left TBAR bracketed. *)
   fun mk_or_pat (p, q, pos) =
@@ -243,6 +249,7 @@ lex_rules\<open>
 <INITIAL>"|"      => (tokF (yypos, yytext, Markup.operator, "TBAR", Tokens.TBAR));
 <INITIAL>"^"      => (tokF (yypos, yytext, Markup.operator, "TCARET", Tokens.TCARET));
 <INITIAL>"!"      => (tokF (yypos, yytext, Markup.operator, "TBANG", Tokens.TBANG));
+<INITIAL>"?"      => (tokF (yypos, yytext, Markup.operator, "TQUESTION", Tokens.TQUESTION));
 <INITIAL>"\""([^\"\\\n]|\\.)*"\"" =>
     (tok_valF (yypos, yytext, Markup.inner_string, "STRING", Tokens.STRING, yytext));
 <INITIAL>"\""     => (URust_Err.string_error (fixed_pos yypos));
@@ -301,8 +308,6 @@ yacc_definitions\<open>
 %left TPLUS TMINUS
 %left TSTAR TSLASH TPERCENT
 %right TBANG
-%left TDOT    (* method `.` binds tightest, tighter than prefix `!`: `a + b.m(c)` = `a + (b.m(c))`,
-                 `!x.m()` = `!(x.m())`. This is what resolves `uexp . TDOT` against the operators. *)
 %nonassoc TDOTDOT TDOTDOTEQ
 
 %term NUM of string | NUMSFX of string | STRING of string | IDENT of string | LPAR | RPAR
@@ -312,14 +317,17 @@ yacc_definitions\<open>
     | TPLUS | TMINUS | TSTAR | TSLASH | TPERCENT
     | TSHL | TSHR | TAMP | TBAR | TCARET
     | TEQEQ | TNE | TLT | TLE | TGT | TGE
-    | TAMPAMP | TBARBAR | TBANG
+    | TAMPAMP | TBARBAR | TBANG | TQUESTION
     | TMATCH | TMATCHSWITCH | TMATCHCASE | TARROW
     | TDOTDOT | TDOTDOTEQ | TMUT | TPATCONTEXT
 %nonterm ustart of URust_AST.ur_expr option
        | ustmt of URust_AST.ur_expr
        | uval of URust_AST.ur_expr
        | uexp of URust_AST.ur_expr
+       | upostfix of URust_AST.ur_expr
+       | uatom of URust_AST.ur_expr
        | arglist of URust_AST.ur_expr list
+       | ucallargs of URust_AST.ur_expr list
        | ublock of URust_AST.ur_expr
        | uif of URust_AST.ur_expr
        | umatch of URust_AST.ur_expr
@@ -367,32 +375,35 @@ yacc_rules\<open>
        | umatch %prec TIF (umatch)
        | umatchsw (umatchsw)
        | umatchcase (umatchcase)
-  uexp : NUM        (UE_Num (NUM, NUMleft))
-       | NUMSFX     (UE_NumSfx (NUMSFX, NUMSFXleft))
-       | TTRUE      (UE_Literal (LP_Bool (true, TTRUEleft)))
-       | TFALSE     (UE_Literal (LP_Bool (false, TFALSEleft)))
-       | STRING     (UE_Literal (LP_String (STRING, STRINGleft)))
-       | IDENT      (UE_Ident (IDENT, IDENTleft))
-       | IDENT LPAR RPAR          (UE_Call (IDENT, IDENTleft, [],
-                                     Position.range_position (IDENTleft, RPARright)))
-       | IDENT LPAR arglist RPAR  (UE_Call (IDENT, IDENTleft, arglist,
-                                     Position.range_position (IDENTleft, RPARright)))
-       (* Method call `recv.m(args)` = a plain call to `m` with the RECEIVER PREPENDED as first arg, so it
-          reuses UE_Call with no new machinery (D24). Postfix on any `uexp` receiver, so `g(c).f(b)` and
-          chains work. Field access `x.f` (no parens) is a different construct (NField/lens) -- deferred. *)
-       | uexp TDOT IDENT LPAR RPAR         (UE_Call (IDENT, IDENTleft, [uexp],
-                                              Position.range_position (uexpleft, RPARright)))
-       | uexp TDOT IDENT LPAR arglist RPAR (UE_Call (IDENT, IDENTleft, uexp :: arglist,
-                                              Position.range_position (uexpleft, RPARright)))
-       | LPAR RPAR  (UE_Unit LPARleft)
-       | LPAR uval COMMA arglist RPAR
-           (UE_Tuple (uval :: arglist, Position.range_position (LPARleft, RPARright)))
-       | LPAR uval RPAR (uval)      (* parens wrap a uval: `(if ...)` becomes a usable operand -- the D-1 escape *)
-       | VALAQ      (UE_Literal (LP_ValAntiq VALAQ))
-       | EXPRAQ     (UE_ExprAntiq EXPRAQ)
-       | ublock %prec TIF (ublock)  (* block STAYS an operand atom (frontend priority 1000): `{e} + x`
-                                       parses. Equal right precedence makes a following `if` shift into
-                                       semicolon-free statement sequencing without a conflict. *)
+  (* Postfixes form a structural tier above atoms, so `?`, field access, and methods compose
+     left-to-right and bind tighter than prefix/binary operators. A dotted identifier followed by
+     parentheses is a method; without parentheses it is an NField lens access. *)
+  upostfix : uatom (uatom)
+           | upostfix TQUESTION
+               (UE_Propagate (upostfix, TQUESTIONleft))
+           | upostfix TDOT IDENT
+               (UE_Field (upostfix, IDENT, IDENTleft))
+           | upostfix TDOT IDENT LPAR ucallargs RPAR
+               (mk_method_call
+                  (upostfix, IDENT, IDENTleft, ucallargs, upostfixleft, RPARright))
+  uatom : NUM        (UE_Num (NUM, NUMleft))
+        | NUMSFX     (UE_NumSfx (NUMSFX, NUMSFXleft))
+        | TTRUE      (UE_Literal (LP_Bool (true, TTRUEleft)))
+        | TFALSE     (UE_Literal (LP_Bool (false, TFALSEleft)))
+        | STRING     (UE_Literal (LP_String (STRING, STRINGleft)))
+        | IDENT      (UE_Ident (IDENT, IDENTleft))
+        | IDENT LPAR ucallargs RPAR
+            (mk_call (IDENT, IDENTleft, ucallargs, IDENTleft, RPARright))
+        | LPAR RPAR  (UE_Unit LPARleft)
+        | LPAR uval COMMA arglist RPAR
+            (UE_Tuple (uval :: arglist, Position.range_position (LPARleft, RPARright)))
+        | LPAR uval RPAR (uval)      (* parens wrap a uval: `(if ...)` becomes a usable operand -- the D-1 escape *)
+        | VALAQ      (UE_Literal (LP_ValAntiq VALAQ))
+        | EXPRAQ     (UE_ExprAntiq EXPRAQ)
+        | ublock %prec TIF (ublock)  (* block STAYS an operand atom (frontend priority 1000): `{e} + x`
+                                        parses. Equal right precedence makes a following `if` shift into
+                                        semicolon-free statement sequencing without a conflict. *)
+  uexp : upostfix (upostfix)
        (* `uif` is deliberately NOT a `uexp` alternative (closes D-1): it reaches value position via `uval`
           and operand position only when parenthesized. Loops will join `uval` the same way. *)
        | uexp TPLUS uexp     (UE_Bin (Add,  uexp1, uexp2, TPLUSleft))
@@ -427,6 +438,8 @@ yacc_rules\<open>
      needed here (D23). *)
   arglist : uval               ([uval])
           | uval COMMA arglist (uval :: arglist)
+  ucallargs : ([])
+            | arglist (arglist)
   (* A tuple has one element before the comma and a nonempty `arglist` after it. This requires at least
      two elements while sharing the existing comma-list grammar used by calls. *)
   (* All three `match` keywords are with-block forms, so they join `uval`, not `uexp`. They share ONE arms
@@ -528,7 +541,13 @@ struct
   (* Generic term construction *)
   (* All Core terms are built with dummyT; a single Syntax.check_term (in the command) resolves types. *)
   fun mk_const name args = Term.list_comb (Const (name, dummyT), args)
+  (* Direct check_term input uses the post-parse representation of source positions: an internal type
+     constraint whose TFree is decoded by Type_Infer_Context.prepare_positions. *)
+  fun mk_const_at name pos args =
+    let val posT = TFree (Term_Position.encode_syntax [pos], dummyS)
+    in Term.list_comb (Type.constraint posT (Const (name, dummyT)), args) end
   fun mk_literal v = mk_const \<^const_name>\<open>literal\<close> [v]
+  fun mk_bindlift1 f e = mk_const \<^const_name>\<open>bindlift1\<close> [f, e]
 
   (* Calls and integer literals *)
   (* The frontend surface supports arities 0..14. Keep every HOL target compile-checked. *)
@@ -593,8 +612,9 @@ struct
      | u => u)
 
   (* Resolve a bare identifier in a dispatch CONTEXT (`kind`): NLiteral at value position, NFunction for a
-     call callee; the CALLER decides the `literal` wrapper (value position wraps, a callee does not). Three
-     things here are load-bearing (D13/D14; full rationale in the design-decisions doc):
+     call callee, or NField after `.`; the CALLER decides the `literal` wrapper (value position wraps, a
+     callee/field does not). Three things here are load-bearing (D13/D14; full rationale in the
+     design-decisions doc):
        - REGISTERED -> the frontend's urust_dispatch marker, resolved by its globally-installed term_check
          phases (reused, not reimplemented). Its witness must stay a bare `Free`, NOT parse_term'd, so an
          enclosing `Term.lambda` can capture it into a `Bound` -- that is what makes a binder outrank the
@@ -1265,8 +1285,7 @@ struct
     | extend_case_guard generated (SOME source) = SOME (mk_bin And source generated)
 
   fun mk_rev_expr expr =
-    mk_const \<^const_name>\<open>bindlift1\<close>
-      [Const (\<^const_name>\<open>List.rev\<close>, dummyT), expr]
+    mk_bindlift1 (Const (\<^const_name>\<open>List.rev\<close>, dummyT)) expr
 
   fun alias_wrapper env expr name pos rhs =
     (case Symtab.lookup env name of
@@ -1434,6 +1453,13 @@ struct
                 SOME {free, def_pos, id} => (report_ref ctxt id (name, def_pos) npos; free)
               | NONE => ident_term ctxt Micro_Rust_Names.NFunction name npos)
          in mk_const (funcall_const cpos (length args)) (func :: map (mk ctxt env) args) end
+     | UE_Field (receiver, name, pos) =>
+         let
+           val field = ident_term ctxt Micro_Rust_Names.NField name pos
+           val focus = mk_const \<^const_name>\<open>focus_lens_const\<close> [field]
+         in mk_bindlift1 focus (mk ctxt env receiver) end
+     | UE_Propagate (expr, pos) =>
+         mk_const_at \<^const_name>\<open>propagate_const\<close> pos [mk ctxt env expr]
      | UE_Match args => elab_match ctxt env args)
 
   (* `let`/`const` <pat> = rhs; body -> bind rhs (<pat-abstraction> body); shared by both nodes. *)

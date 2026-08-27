@@ -318,6 +318,17 @@ urust_expr_rejects \<open> zz(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0) \<clo
   \<comment> \<open> [FIDELITY] the arity cap is ONE policy number derived from the frontend's surface lowering (D29);
        the frontend rejects 15 args too ("Undefined constant: _urust_shallow_fun_with_args"). \<close>
 
+urust_expr_rejects
+  \<open> 0.zz(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14) \<close>
+  \<open> unsupported call arity 15 \<close>
+  \<comment> \<open> [FIDELITY] 14 explicit method arguments plus the prepended receiver exceed
+       the inclusive \<open>funcall14\<close> limit by one. \<close>
+
+urust_expr_rejects
+  \<open> 0.zz(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15) \<close>
+  \<open> unsupported call arity 16 \<close>
+  \<comment> \<open> [FIDELITY] the 15-explicit-argument boundary lowers to 16 total arguments. \<close>
+
 urust_expr_rejects \<open> ncf1(\<llangle>1 :: 64 word\<rrangle>)(\<llangle>2 :: 64 word\<rrangle>) \<close>
   \<open> syntax error found at LPAR \<close>
   \<comment> \<open> [FIDELITY] curried application \<open>f(a)(b)\<close>: rejected by both (a call result is not a callee). \<close>
@@ -350,17 +361,5 @@ urust_expr_rejects \<open> {} \<close> \<open> syntax error found at TRBRACE \<c
 urust_expr_rejects \<open> \<close> \<open> empty expression \<close>
   \<comment> \<open> [FIDELITY] \<open>parse_source\<close> returns NONE on blank input; the frontend's empty bracket is an
        inner-syntax error. \<close>
-
-section\<open> Under-accepted constructs (frontend accepts) \<close>
-
-text\<open>
-These rows pin current rejections of frontend-accepted syntax. Move each to positive
-conformance when implemented.
-\<close>
-
-urust_expr_rejects_parser_only \<open> \<llangle>0 :: nat\<rrangle>.f \<close> \<open> syntax error found at EOF \<close>
-  \<comment> \<open> [DIVERGENT] D-6: \<open>.\<close> must be followed by a method call (\<open>TDOT IDENT LPAR\<close>), so a bare field
-       access is a parse error. The frontend PARSES it (lowering to a lens focus \<open>focus_lens_const f\<close>)
-       and here fails only later, for the unrelated reason that no field notation \<open>f\<close> is registered. \<close>
 
 end

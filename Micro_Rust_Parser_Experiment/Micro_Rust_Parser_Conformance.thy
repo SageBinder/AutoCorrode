@@ -736,8 +736,8 @@ section\<open> Method calls (Corpus "Method-Style Calls") \<close>
 
 text\<open>
 Method syntax prepends the receiver to a plain NFunction call (SE:380-381,
-416-417). It binds tighter than operators. Bare field access is a separate deferred
-NField/lens construct (D-6).
+416-417). It binds tighter than operators. Bare field access uses the composable
+NField/lens postfix added below (D37).
 \<close>
 
 urust_expr mcall0 \<open> \<llangle>5 :: 64 word\<rrangle>.cf1() \<close>
@@ -745,6 +745,22 @@ lemma \<open> mcall0 = \<lbrakk> \<llangle>5 :: 64 word\<rrangle>.cf1() \<rbrakk
 
 urust_expr mcall1 \<open> \<llangle>1 :: 64 word\<rrangle>.cf2(\<llangle>2 :: 64 word\<rrangle>) \<close>
 lemma \<open> mcall1 = \<lbrakk> \<llangle>1 :: 64 word\<rrangle>.cf2(\<llangle>2 :: 64 word\<rrangle>) \<rbrakk> \<close> unfolding mcall1_def by (rule refl)
+
+text\<open>
+The inclusive \<open>funcall14\<close> limit permits 13 explicit method arguments because
+the receiver is prepended as the first lowered argument.
+\<close>
+context
+  fixes receiver :: nat
+  fixes m14 :: \<open>
+    nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow>
+    nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow>
+    (unit, nat, unit, unit, unit) function_body \<close>
+begin
+urust_expr mcall13 \<open> receiver.m14(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13) \<close>
+lemma \<open> mcall13 = \<lbrakk> receiver.m14(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13) \<rbrakk> \<close>
+  unfolding mcall13_def by (rule refl)
+end
 
 text\<open> Rows cover call-result receivers, method chains, and operator precedence. \<close>
 urust_expr mcall_on_call \<open> cf1(\<llangle>1 :: 64 word\<rrangle>).cf1() \<close>
@@ -764,6 +780,128 @@ lemma \<open> mcall_ctx = \<lbrakk> m.h() \<rbrakk> \<close> unfolding mcall_ctx
 
 urust_expr mcall_if \<open> if m.h() == n { m } else { n } \<close>
 lemma \<open> mcall_if = \<lbrakk> if m.h() == n { m } else { n } \<rbrakk> \<close> unfolding mcall_if_def by (rule refl)
+end
+
+
+section\<open> Postfix propagation and field access \<close>
+
+subsection\<open> Error propagation \<close>
+
+context
+  fixes opt :: \<open>nat option\<close>
+  fixes res :: \<open>(nat, bool) result\<close>
+begin
+urust_expr postfix_option \<open> opt? \<close>
+lemma \<open> postfix_option = \<lbrakk> opt? \<rbrakk> \<close>
+  unfolding postfix_option_def by (rule refl)
+
+urust_expr postfix_result \<open> res? \<close>
+lemma \<open> postfix_result = \<lbrakk> res? \<rbrakk> \<close>
+  unfolding postfix_result_def by (rule refl)
+
+urust_expr postfix_block \<open> { opt }? \<close>
+lemma \<open> postfix_block = \<lbrakk> { opt }? \<rbrakk> \<close>
+  unfolding postfix_block_def by (rule refl)
+
+urust_expr postfix_parenthesized_if \<open> (if true { opt } else { opt })? \<close>
+lemma \<open> postfix_parenthesized_if = \<lbrakk> (if true { opt } else { opt })? \<rbrakk> \<close>
+  unfolding postfix_parenthesized_if_def by (rule refl)
+end
+
+context
+  fixes next_opt :: \<open>(unit, nat option, unit, unit, unit) function_body\<close>
+  fixes nested_opt :: \<open>nat option option\<close>
+begin
+urust_expr postfix_after_call \<open> next_opt()? \<close>
+lemma \<open> postfix_after_call = \<lbrakk> next_opt()? \<rbrakk> \<close>
+  unfolding postfix_after_call_def by (rule refl)
+
+urust_expr postfix_repeated \<open> nested_opt?? \<close>
+lemma \<open> postfix_repeated = \<lbrakk> nested_opt?? \<rbrakk> \<close>
+  unfolding postfix_repeated_def by (rule refl)
+end
+
+context
+  fixes flag :: \<open>bool option\<close>
+  fixes lhs :: \<open>64 word option\<close>
+  fixes rhs :: \<open>64 word\<close>
+begin
+urust_expr postfix_unary_precedence \<open> !flag? \<close>
+lemma \<open> postfix_unary_precedence = \<lbrakk> !flag? \<rbrakk> \<close>
+  unfolding postfix_unary_precedence_def by (rule refl)
+
+urust_expr postfix_binary_precedence \<open> lhs? + rhs \<close>
+lemma \<open> postfix_binary_precedence = \<lbrakk> lhs? + rhs \<rbrakk> \<close>
+  unfolding postfix_binary_precedence_def by (rule refl)
+end
+
+subsection\<open> Field registrations and composition \<close>
+
+datatype_record postfix_default =
+  postfix_default_value :: \<open>64 word\<close>
+micro_rust_record postfix_default
+
+datatype_record postfix_inner =
+  postfix_inner_value :: \<open>64 word\<close>
+  postfix_inner_secondary :: \<open>64 word\<close>
+micro_rust_record postfix_inner
+  (postfix_inner_value = "value",
+   postfix_inner_secondary = "secondary")
+
+datatype_record postfix_outer =
+  postfix_outer_inner :: postfix_inner
+  postfix_outer_optional :: \<open>postfix_inner option\<close>
+micro_rust_record postfix_outer
+  (postfix_outer_inner = "inner",
+   postfix_outer_optional = "optional")
+
+datatype_record postfix_dual =
+  postfix_dual_pick :: \<open>64 word\<close>
+micro_rust_record postfix_dual (postfix_dual_pick = "pick")
+
+definition postfix_pick_method ::
+  \<open>postfix_dual \<Rightarrow> (unit, 64 word, unit, unit, unit) function_body\<close>
+  where \<open> postfix_pick_method \<equiv> lift_fun1 postfix_dual_pick \<close>
+micro_rust_notation (call) postfix_pick_method ("pick")
+
+definition postfix_to_value ::
+  \<open>postfix_inner \<Rightarrow> (unit, 64 word, unit, unit, unit) function_body\<close>
+  where \<open> postfix_to_value \<equiv> lift_fun1 postfix_inner_value \<close>
+micro_rust_notation (call) postfix_to_value ("to_value")
+
+context
+  fixes d :: postfix_default
+  fixes i :: postfix_inner
+  fixes self :: postfix_outer
+  fixes dual :: postfix_dual
+begin
+urust_expr postfix_field_default \<open> d.postfix_default_value \<close>
+lemma \<open> postfix_field_default = \<lbrakk> d.postfix_default_value \<rbrakk> \<close>
+  unfolding postfix_field_default_def by (rule refl)
+
+urust_expr postfix_field_renamed \<open> i.value \<close>
+lemma \<open> postfix_field_renamed = \<lbrakk> i.value \<rbrakk> \<close>
+  unfolding postfix_field_renamed_def by (rule refl)
+
+urust_expr postfix_field_nested \<open> self.inner.value \<close>
+lemma \<open> postfix_field_nested = \<lbrakk> self.inner.value \<rbrakk> \<close>
+  unfolding postfix_field_nested_def by (rule refl)
+
+urust_expr postfix_field_then_propagate \<open> self.optional? \<close>
+lemma \<open> postfix_field_then_propagate = \<lbrakk> self.optional? \<rbrakk> \<close>
+  unfolding postfix_field_then_propagate_def by (rule refl)
+
+urust_expr postfix_propagate_then_field \<open> self.optional?.secondary \<close>
+lemma \<open> postfix_propagate_then_field = \<lbrakk> self.optional?.secondary \<rbrakk> \<close>
+  unfolding postfix_propagate_then_field_def by (rule refl)
+
+urust_expr postfix_field_disambiguation \<open> dual.pick \<close>
+lemma \<open> postfix_field_disambiguation = \<lbrakk> dual.pick \<rbrakk> \<close>
+  unfolding postfix_field_disambiguation_def by (rule refl)
+
+urust_expr postfix_method_disambiguation \<open> dual.pick() \<close>
+lemma \<open> postfix_method_disambiguation = \<lbrakk> dual.pick() \<rbrakk> \<close>
+  unfolding postfix_method_disambiguation_def by (rule refl)
 end
 
 
@@ -1580,14 +1718,6 @@ antiquotation case remains a golden stub; other forms are not yet lexable. See
 \<close>
 lemma \<open> undefined = \<lbrakk> \<epsilon>\<open>cf1\<close>(\<llangle>1 :: 64 word\<rrangle>) \<rbrakk> \<close> sorry
   \<comment> \<open>frontend: \<open>funcall1 cf1 (\<up>1)\<close>; parser rejects (callee must be an identifier or a method call).\<close>
-
-subsection\<open> D-6: field access \<open>x.f\<close> (no parens) -- parser UNDER-accepts (frontend accepts) \<close>
-
-text\<open>
-D-6: bare \<open>x.f\<close> is not method syntax and currently fails to parse. The frontend
-lowers it through NField to a lens focus (Core_Syntax.thy:439-440). It remains deferred;
-a runnable golden needs field notation and concrete lens types.
-\<close>
 
 subsection\<open> D-7: advanced patterns -- resolved for current consumers \<close>
 

@@ -1,5 +1,5 @@
 theory Micro_Rust_Parser_Improvements
-  imports Micro_Rust_Parser
+  imports Micro_Rust_Parser_Conformance
   keywords
     "old_urust_rejects" :: thy_decl
 begin
@@ -140,5 +140,26 @@ old_urust_rejects
         \<llangle>ImprovementEmpty\<rrangle>
     }
   \<close>
+
+
+section\<open> Composable postfix expressions \<close>
+
+text\<open>
+The custom parser treats propagation, fields, and methods as one left-associative
+postfix tier. The old frontend requires parentheses after propagation before a method
+postfix.
+\<close>
+
+context fixes self :: postfix_outer
+begin
+urust_expr improvement_propagate_method
+  \<open> self.optional?.to_value() \<close>
+
+lemma \<open> improvement_propagate_method = \<lbrakk> (self.optional?).to_value() \<rbrakk> \<close>
+  unfolding improvement_propagate_method_def by (rule refl)
+
+old_urust_rejects
+  \<open> self.optional?.to_value() \<close>
+end
 
 end

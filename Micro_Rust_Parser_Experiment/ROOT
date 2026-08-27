@@ -22,3 +22,5 @@ session Micro_Rust_Parser_Experiment = HOL +
     Struct_Ambiguity_Right
     Micro_Rust_Parser_Conformance
     Micro_Rust_Parser_Negative_Conformance
+    Micro_Rust_Parser_Improvements
+    Micro_Rust_Parser_Showoff
