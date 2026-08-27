@@ -50,14 +50,6 @@ struct
      flavour that CLASSIFIES its arms into one of these two lowerings (D28/D32). *)
   datatype match_flavour = MF_Switch | MF_Case | MF_Auto
 
-  (* `_` lexes as an ordinary IDENT: normalise to P_Wild in ONE place, not an `= "_"` test at every site. *)
-  fun mk_ident_pat (s, pos) = if s = "_" then P_Wild pos else P_Ident (s, pos)
-
-  (* Flatten nested or-patterns so `a | b | c` is one P_Or in source order, whatever %left TBAR bracketed. *)
-  fun mk_or_pat (p, q, pos) =
-    let fun alts (P_Or (ps, _)) = ps | alts p = [p]
-    in P_Or (alts p @ alts q, pos) end
-
   (* Pure-value operators. Data-driven: each maps to one HOL const via URust_Translate.binop_const /
      unop_const, so adding an operator is one datatype line + one table row (D20). *)
   datatype binop =
@@ -104,6 +96,14 @@ struct
                                                          lower with a positioned error. *)
   and ur_arm =
       UR_Arm of ur_pat * (ur_expr * Position.T) option * ur_expr
+
+  (* `_` lexes as an ordinary IDENT: normalise to P_Wild in ONE place, not an `= "_"` test at every site. *)
+  fun mk_ident_pat (s, pos) = if s = "_" then P_Wild pos else P_Ident (s, pos)
+
+  (* Flatten nested or-patterns so `a | b | c` is one P_Or in source order, whatever %left TBAR bracketed. *)
+  fun mk_or_pat (p, q, pos) =
+    let fun alts (P_Or (ps, _)) = ps | alts p = [p]
+    in P_Or (alts p @ alts q, pos) end
 end
 \<close>
 
@@ -415,21 +415,12 @@ structure URust_Translate =
 struct
   open URust_AST
 
-  datatype basic_case_pat =
-      BCP_Wild of Position.T option
-    | BCP_Ident of string * Position.T
-    | BCP_Constr of string * Position.T * basic_case_pat list
-    | BCP_Tuple of basic_case_pat list
-
-  datatype case_pat_tree =
-      CPT_Const of term
-    | CPT_Slot of int
-    | CPT_App of term * case_pat_tree list
-
+  (* Generic term construction *)
   (* All Core terms are built with dummyT; a single Syntax.check_term (in the command) resolves types. *)
   fun mk_const name args = Term.list_comb (Const (name, dummyT), args)
   fun mk_literal v = mk_const \<^const_name>\<open>literal\<close> [v]
 
+  (* Calls and integer literals *)
   (* The frontend surface supports arities 0..14. Keep every HOL target compile-checked. *)
   val funcall_consts = Vector.fromList
     [\<^const_name>\<open>funcall0\<close>,  \<^const_name>\<open>funcall1\<close>,
@@ -481,6 +472,7 @@ struct
                 Position.here pos)))
     end
 
+  (* Name resolution and markup *)
   (* Peel the `_type_constraint_` wrapper (and positions) to reach the leaf a name resolved to. TRAP:
      `Syntax.parse_term` wraps a resolved constant in `_type_constraint_` and `Term_Position.strip_positions`
      does NOT remove it, so a naive `Const (c,_)` match falls through and mis-paints `True`/`None`/... as a
@@ -546,6 +538,16 @@ struct
      tooltip, or ctrl-hover falls through to the enclosing command span (rule C3). *)
   fun report_wildcard ctxt pos = Context_Position.report_text ctxt pos Markup.typing "wildcard pattern"
 
+  (* Binding environment *)
+  (* Shared binder / markup / antiquotation helpers (Parser_Utils, see there); the entity-kind string is
+     partially applied once so the call sites below read unchanged. *)
+  val vkind       = "urust_var"
+  val report_ref  = Parser_Utils.report_ref vkind
+  val bind_var    = Parser_Utils.bind_var vkind
+  val parse_antiq = Parser_Utils.parse_antiq vkind
+  val anon_abs    = Parser_Utils.anon_abs
+
+  (* Core expression constructors *)
   (* `let x = e; k` -> bind e (\<lambda>x. k) (HOAS). Sequencing MUST be `sequence`, not `bind e (\<lambda>_. k)`:
      the latter is definitionally but NOT alpha-equal to the frontend, so `refl` conformance would fail. *)
   fun mk_bind e f     = mk_const \<^const_name>\<open>Core_Expression.bind\<close> [e, f]
@@ -573,25 +575,7 @@ struct
      abbreviation for `literal ()` -- so we must emit `literal ()` here (D22). *)
   fun mk_two_armed c t e = mk_const \<^const_name>\<open>two_armed_conditional\<close> [c, t, e]
 
-  (* match_switch -> bind <<scrut>> (ncase_selector [(key, body), ..]): numeral key -> Some n, `_` -> None,
-     each or-alternative its own pair with the same body. First-order -- no binders, no case skeleton (D26). *)
-  fun mk_some v = mk_const \<^const_name>\<open>Option.Some\<close> [v]
-  val mk_none   = Const (\<^const_name>\<open>Option.None\<close>, dummyT)
-  fun mk_pair a b = mk_const \<^const_name>\<open>Product_Type.Pair\<close> [a, b]
-  fun mk_cons h t = mk_const \<^const_name>\<open>List.Cons\<close> [h, t]
-  val mk_nil      = Const (\<^const_name>\<open>List.Nil\<close>, dummyT)
-  fun mk_ncase_selector lst = mk_const \<^const_name>\<open>ncase_selector\<close> [lst]
-
-  (* Ctr_Sugar case skeleton (match_case, D27): case_guard/case_cons/case_nil/case_elem/case_abs are
-     uninterpreted HOL markers, and the Case_Translation term-check phase folds a well-formed tree into the
-     datatype's concrete `case_<T>` DURING our single check_term. So we build exactly the frontend's
-     skeleton and never construct case_option / case_result ourselves. *)
-  fun mk_case_guard b s cs = mk_const \<^const_name>\<open>case_guard\<close> [b, s, cs]
-  fun mk_case_cons h t     = mk_const \<^const_name>\<open>case_cons\<close> [h, t]
-  val mk_case_nil          = Const (\<^const_name>\<open>case_nil\<close>, dummyT)
-  fun mk_case_elem p b     = mk_const \<^const_name>\<open>case_elem\<close> [p, b]
-  fun mk_case_abs f        = mk_const \<^const_name>\<open>case_abs\<close> [f]
-
+  (* Operators *)
   (* Operator -> HOL const, one row each (the frontend's shallow-embedding targets: `+` is the overloaded
      urust_add, other arithmetic/shift/bitwise are the Numeric_Types word combinators, comparisons and
      connectives the comp_*/urust_* ones). *)
@@ -617,36 +601,7 @@ struct
   fun mk_bin bop a b = mk_const (binop_const bop) [a, b]
   fun mk_un uop a    = mk_const (unop_const uop) [a]
 
-  (* Shared binder / markup / antiquotation helpers (Parser_Utils, see there); the entity-kind string is
-     partially applied once so the call sites below read unchanged. *)
-  val vkind       = "urust_var"
-  val report_ref  = Parser_Utils.report_ref vkind
-  val bind_var    = Parser_Utils.bind_var vkind
-  val parse_antiq = Parser_Utils.parse_antiq vkind
-  val anon_abs    = Parser_Utils.anon_abs
-
-  (* Abstract a mixed list of binder SLOTS over an inner term, leftmost binder OUTERMOST: `SOME free` is a
-     NAMED source binder (abstracted by name, so its occurrences anywhere inside are captured -- HOAS),
-     `NONE` an ANONYMOUS one, referenced only through the `Bound` index handed to `mk_inner`. `wrap` goes
-     around each abstraction (Ctr_Sugar's `case_abs` here). For a SINGLE binder, abstract directly instead
-     (`Term.lambda` / `anon_abs`); this exists for the several-binders case, where the indices interact.
-
-     Mixing the two kinds is sound because the indices handed out are the FINAL ones (counting all `n`
-     abstractions): `Term.abstract_over` (behind `Term.lambda`) tracks its own level as it descends and
-     LEAVES existing `Bound`s untouched (Pure/term.ML:841-852), while each `Abs` binds the loose index 0 of
-     its body. So a pre-placed index still denotes its slot after any number of outer abstractions.
-     uRust-specific (the only caller is the recursive case-pattern compiler below), so it lives here
-     rather than in the shared Parser_Utils layer. *)
-  fun abs_slots wrap slots mk_inner =
-    let
-      val n = length slots
-      val args = map_index (fn (_, SOME free) => free | (j, NONE) => Bound (n - 1 - j)) slots
-    in
-      fold_rev (fn slot => fn t =>
-          wrap (case slot of SOME free => Term.lambda free t | NONE => anon_abs t))
-        slots (mk_inner args)
-    end
-
+  (* Patterns and match routing *)
   (* The IRREFUTABLE pattern seam (`let`/`const`, later closure and `fn` parameters): register the
      pattern's variable(s), return an abstraction builder for the binder's body + the extended env.
      Case normalization below is the refutable (match-arm) seam and the `MF_Switch` `key` function the
@@ -705,6 +660,60 @@ struct
          error ("urust_expr: refutable pattern in an irrefutable (let/const) binder position" ^
                 Position.here (pat_pos pat)))
 
+  (* Match-switch lowering *)
+  (* match_switch -> bind <<scrut>> (ncase_selector [(key, body), ..]): numeral key -> Some n, `_` -> None,
+     each or-alternative its own pair with the same body. First-order -- no binders, no case skeleton (D26). *)
+  fun mk_some v = mk_const \<^const_name>\<open>Option.Some\<close> [v]
+  val mk_none   = Const (\<^const_name>\<open>Option.None\<close>, dummyT)
+  fun mk_pair a b = mk_const \<^const_name>\<open>Product_Type.Pair\<close> [a, b]
+  fun mk_cons h t = mk_const \<^const_name>\<open>List.Cons\<close> [h, t]
+  val mk_nil      = Const (\<^const_name>\<open>List.Nil\<close>, dummyT)
+  fun mk_ncase_selector lst = mk_const \<^const_name>\<open>ncase_selector\<close> [lst]
+
+  (* Match-case lowering *)
+  datatype basic_case_pat =
+      BCP_Wild of Position.T option
+    | BCP_Ident of string * Position.T
+    | BCP_Constr of string * Position.T * basic_case_pat list
+    | BCP_Tuple of basic_case_pat list
+
+  datatype case_pat_tree =
+      CPT_Const of term
+    | CPT_Slot of int
+    | CPT_App of term * case_pat_tree list
+
+  (* Ctr_Sugar case skeleton (match_case, D27): case_guard/case_cons/case_nil/case_elem/case_abs are
+     uninterpreted HOL markers, and the Case_Translation term-check phase folds a well-formed tree into the
+     datatype's concrete `case_<T>` DURING our single check_term. So we build exactly the frontend's
+     skeleton and never construct case_option / case_result ourselves. *)
+  fun mk_case_guard b s cs = mk_const \<^const_name>\<open>case_guard\<close> [b, s, cs]
+  fun mk_case_cons h t     = mk_const \<^const_name>\<open>case_cons\<close> [h, t]
+  val mk_case_nil          = Const (\<^const_name>\<open>case_nil\<close>, dummyT)
+  fun mk_case_elem p b     = mk_const \<^const_name>\<open>case_elem\<close> [p, b]
+  fun mk_case_abs f        = mk_const \<^const_name>\<open>case_abs\<close> [f]
+
+  (* Abstract a mixed list of binder SLOTS over an inner term, leftmost binder OUTERMOST: `SOME free` is a
+     NAMED source binder (abstracted by name, so its occurrences anywhere inside are captured -- HOAS),
+     `NONE` an ANONYMOUS one, referenced only through the `Bound` index handed to `mk_inner`. `wrap` goes
+     around each abstraction (Ctr_Sugar's `case_abs` here). For a SINGLE binder, abstract directly instead
+     (`Term.lambda` / `anon_abs`); this exists for the several-binders case, where the indices interact.
+
+     Mixing the two kinds is sound because the indices handed out are the FINAL ones (counting all `n`
+     abstractions): `Term.abstract_over` (behind `Term.lambda`) tracks its own level as it descends and
+     LEAVES existing `Bound`s untouched (Pure/term.ML:841-852), while each `Abs` binds the loose index 0 of
+     its body. So a pre-placed index still denotes its slot after any number of outer abstractions.
+     uRust-specific (the only caller is the recursive case-pattern compiler below), so it lives here
+     rather than in the shared Parser_Utils layer. *)
+  fun abs_slots wrap slots mk_inner =
+    let
+      val n = length slots
+      val args = map_index (fn (_, SOME free) => free | (j, NONE) => Bound (n - 1 - j)) slots
+    in
+      fold_rev (fn slot => fn t =>
+          wrap (case slot of SOME free => Term.lambda free t | NONE => anon_abs t))
+        slots (mk_inner args)
+    end
+
   (* Expand every disjunction before binding. Constructor arguments use a left-to-right Cartesian product,
      matching the frontend's source ordering. Each resulting arm is elaborated independently. *)
   fun expand_case_pat pat =
@@ -740,6 +749,21 @@ struct
      | P_Tuple (args, _) => fold (bind_case_vars ctxt) args env
      | P_Or (_, pos) =>
          error ("urust_expr: internal unexpanded case or-pattern" ^ Position.here pos))
+
+  (* Preserve recursive constructors in the basic case tree. Case numerals are rejected at any depth,
+     matching the frontend acceptance boundary; switch numerals continue to use `ncase_selector`. *)
+  fun normalize_case_pattern pat =
+    (case pat of
+       P_Wild p => BCP_Wild (SOME p)
+     | P_Ident id => BCP_Ident id
+     | P_Lit (lexeme, p) =>
+         error ("urust_expr: numeric pattern in match_case: " ^ lexeme ^ Position.here p)
+     | P_Or (_, p) =>
+         error ("urust_expr: internal unexpanded case or-pattern" ^ Position.here p)
+     | P_Constr (name, p, args) =>
+         BCP_Constr (name, p, map normalize_case_pattern args)
+     | P_Tuple (args, _) =>
+         BCP_Tuple (map normalize_case_pattern args))
 
   fun instantiate_case_pat args tree =
     (case tree of
@@ -793,6 +817,59 @@ struct
           (fn args => mk_case_elem (instantiate_case_pat args tree) body)
     end
 
+  fun normalize_case_arm ctxt env (pat, register_vars, guardf, bodyf) =
+    let
+      val env' = if register_vars then bind_case_vars ctxt pat env else env
+      val basic_pat =
+        (case pat of
+           P_Lit (lexeme, p) =>
+             error ("urust_expr: numeric pattern in match_case: " ^ lexeme ^ Position.here p)
+         | _ => normalize_case_pattern pat)
+      val absf = bind_basic_case_pat ctxt env' basic_pat
+      val guard = Option.map (fn f => f env') guardf
+      val rhs = bodyf env'
+      val wild = (case basic_pat of BCP_Wild _ => true | _ => false)
+    in (wild, absf, guard, rhs) end
+
+  (* Compile normalized branches either as one Ctr_Sugar case tree (the fast unguarded path) or as ordered
+     cases whose guarded bodies fall through to the remaining tree. `value` starts as an internal Free and
+     is abstracted last, so references under any number of case_abs binders receive the correct index. *)
+  fun compile_case ctxt env scrut arms =
+    let
+      val value = Free ("_urust_case_value_" ^ string_of_int (serial ()), dummyT)
+      val normalized = map (normalize_case_arm ctxt env) arms
+      fun case_term branches =
+        mk_case_guard \<^term>\<open>True\<close> value
+          (fold_rev mk_case_cons branches mk_case_nil)
+      fun generated_wild rhs = bind_basic_case_pat ctxt env (BCP_Wild NONE) rhs
+      val undefined = Const (\<^const_name>\<open>undefined\<close>, dummyT)
+      fun process [] = error "urust_expr: internal empty case branch list"
+        | process [(wild, absf, NONE, rhs)] =
+            if wild then rhs else case_term [absf rhs]
+        | process [(wild, absf, SOME guard, rhs)] =
+            let val guarded = mk_two_armed guard rhs undefined
+            in
+              if wild then guarded
+              else case_term [absf guarded, generated_wild undefined]
+            end
+        | process ((wild, absf, guard, rhs) :: rest) =
+            let
+              val rest_case = process rest
+              val rhs' =
+                (case guard of
+                   SOME g => mk_two_armed g rhs rest_case
+                 | NONE => rhs)
+            in
+              if wild then rhs'
+              else case_term [absf rhs', generated_wild rest_case]
+            end
+      val selector =
+        if List.exists (fn (_, _, guard, _) => is_some guard) normalized
+        then process normalized
+        else case_term (map (fn (_, absf, _, rhs) => absf rhs) normalized)
+    in mk_bind scrut (Term.lambda value selector) end
+
+  (* Recursive AST elaboration *)
   (* env : source name -> var_info for the enclosing binders (lexical scope). A bound use resolves to its
      binder's Free + nav markup and is NOT sent through dispatch -- lexical scoping wins, matching the
      frontend's witness precedence. Capture is by construction: the enclosing Term.lambda abstracts the
@@ -897,73 +974,7 @@ struct
        | MF_Auto => error "urust_expr: internal unresolved auto match flavour")
     end
 
-  (* Compile normalized branches either as one Ctr_Sugar case tree (the fast unguarded path) or as ordered
-     cases whose guarded bodies fall through to the remaining tree. `value` starts as an internal Free and
-     is abstracted last, so references under any number of case_abs binders receive the correct index. *)
-  and compile_case ctxt env scrut arms =
-    let
-      val value = Free ("_urust_case_value_" ^ string_of_int (serial ()), dummyT)
-      val normalized = map (normalize_case_arm ctxt env) arms
-      fun case_term branches =
-        mk_case_guard \<^term>\<open>True\<close> value
-          (fold_rev mk_case_cons branches mk_case_nil)
-      fun generated_wild rhs = bind_basic_case_pat ctxt env (BCP_Wild NONE) rhs
-      val undefined = Const (\<^const_name>\<open>undefined\<close>, dummyT)
-      fun process [] = error "urust_expr: internal empty case branch list"
-        | process [(wild, absf, NONE, rhs)] =
-            if wild then rhs else case_term [absf rhs]
-        | process [(wild, absf, SOME guard, rhs)] =
-            let val guarded = mk_two_armed guard rhs undefined
-            in
-              if wild then guarded
-              else case_term [absf guarded, generated_wild undefined]
-            end
-        | process ((wild, absf, guard, rhs) :: rest) =
-            let
-              val rest_case = process rest
-              val rhs' =
-                (case guard of
-                   SOME g => mk_two_armed g rhs rest_case
-                 | NONE => rhs)
-            in
-              if wild then rhs'
-              else case_term [absf rhs', generated_wild rest_case]
-            end
-      val selector =
-        if List.exists (fn (_, _, guard, _) => is_some guard) normalized
-        then process normalized
-        else case_term (map (fn (_, absf, _, rhs) => absf rhs) normalized)
-    in mk_bind scrut (Term.lambda value selector) end
-
-  and normalize_case_arm ctxt env (pat, register_vars, guardf, bodyf) =
-    let
-      val env' = if register_vars then bind_case_vars ctxt pat env else env
-      val basic_pat =
-        (case pat of
-           P_Lit (lexeme, p) =>
-             error ("urust_expr: numeric pattern in match_case: " ^ lexeme ^ Position.here p)
-         | _ => normalize_case_pattern pat)
-      val absf = bind_basic_case_pat ctxt env' basic_pat
-      val guard = Option.map (fn f => f env') guardf
-      val rhs = bodyf env'
-      val wild = (case basic_pat of BCP_Wild _ => true | _ => false)
-    in (wild, absf, guard, rhs) end
-
-  (* Preserve recursive constructors in the basic case tree. Case numerals are rejected at any depth,
-     matching the frontend acceptance boundary; switch numerals continue to use `ncase_selector`. *)
-  and normalize_case_pattern pat =
-    (case pat of
-       P_Wild p => BCP_Wild (SOME p)
-     | P_Ident id => BCP_Ident id
-     | P_Lit (lexeme, p) =>
-         error ("urust_expr: numeric pattern in match_case: " ^ lexeme ^ Position.here p)
-     | P_Or (_, p) =>
-         error ("urust_expr: internal unexpanded case or-pattern" ^ Position.here p)
-     | P_Constr (name, p, args) =>
-         BCP_Constr (name, p, map normalize_case_pattern args)
-     | P_Tuple (args, _) =>
-         BCP_Tuple (map normalize_case_pattern args))
-
+  (* Public entry point *)
   fun mk_closed ctxt = mk ctxt Symtab.empty
 end
 \<close>
