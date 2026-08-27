@@ -83,6 +83,29 @@ urust_expr_rejects \<open> let Some(x) = \<llangle>Some (0 :: nat)\<rrangle>; ()
   \<comment> \<open> [FIDELITY] the site gate on the ONE pattern language (D28). The frontend rejects it as well,
        though less cleanly -- an uncaught \<open>TERM\<close> exception out of \<open>abs_tr _shallow_let_pattern\<close>. \<close>
 
+urust_expr_rejects
+  \<open> let (Some(x), y) = \<llangle>(Some (0 :: nat), (True, TNil))\<rrangle>; () \<close>
+  \<open> refutable pattern in an irrefutable (let/const) binder position \<close>
+  \<comment> \<open> [FIDELITY] tuple binders recurse through the irrefutability gate, so the constructor component
+       is rejected at its own source position. \<close>
+
+urust_expr_rejects
+  \<open> match_switch \<llangle>(0 :: nat, (True, TNil))\<rrangle> { (x, y) \<Rightarrow> () } \<close>
+  \<open> unsupported match_switch pattern \<close>
+  \<comment> \<open> [FIDELITY] tuple patterns require case lowering; explicit \<open>match_switch\<close> remains
+       first-order and rejects them with its stable positioned diagnostic. \<close>
+
+urust_expr_rejects \<open> (\<llangle>1 :: nat\<rrangle>,) \<close> \<open> syntax error found at RPAR \<close>
+  \<comment> \<open> [FIDELITY] singleton tuples are outside the current frontend tuple grammar. \<close>
+
+urust_expr_rejects
+  \<open> (\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>,) \<close>
+  \<open> syntax error found at RPAR \<close>
+  \<comment> \<open> [FIDELITY] trailing-comma tuples are outside the current frontend tuple grammar. \<close>
+
+urust_expr_rejects \<open> let () = (); () \<close> \<open> syntax error \<close>
+  \<comment> \<open> [FIDELITY] unit is an expression but not a pattern in the current frontend. \<close>
+
 urust_expr_rejects \<open> match_case \<llangle>0 :: nat\<rrangle> { 0 \<Rightarrow> (), _ \<Rightarrow> () } \<close>
   \<open> numeric pattern in match_case: 0 \<close>
   \<comment> \<open> [FIDELITY] a numeral belongs to \<open>match_switch\<close>; the frontend agrees ("Error in shallow match

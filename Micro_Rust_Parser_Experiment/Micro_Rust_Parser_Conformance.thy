@@ -208,6 +208,79 @@ lemma \<open> let_wild_hyg = \<lbrakk> let uu = \<llangle>5 :: nat\<rrangle>; le
 text\<open> Refutable \<open>let\<close> patterns and patterns unsupported by a selected match lowering have positioned
 rows in \<open>Micro_Rust_Parser_Negative_Conformance.thy\<close>. \<close>
 
+section\<open> Tuple values and irrefutable tuple binders \<close>
+
+text\<open>
+Tuple values lower to the frontend's right-nested product ending in \<open>TNil\<close>.
+Tuple binders recursively admit names, wildcards, and nested tuples.
+\<close>
+
+urust_expr tuple_value_two
+  \<open> (\<llangle>1 :: nat\<rrangle>, \<llangle>True\<rrangle>) \<close>
+lemma \<open> tuple_value_two =
+    \<lbrakk> (\<llangle>1 :: nat\<rrangle>, \<llangle>True\<rrangle>) \<rbrakk> \<close>
+  unfolding tuple_value_two_def by (rule refl)
+
+urust_expr tuple_value_four
+  \<open> (\<llangle>1 :: nat\<rrangle>, \<llangle>True\<rrangle>, \<llangle>2 :: nat\<rrangle>, \<llangle>False\<rrangle>) \<close>
+lemma \<open> tuple_value_four =
+    \<lbrakk> (\<llangle>1 :: nat\<rrangle>, \<llangle>True\<rrangle>, \<llangle>2 :: nat\<rrangle>, \<llangle>False\<rrangle>) \<rbrakk> \<close>
+  unfolding tuple_value_four_def by (rule refl)
+
+urust_expr tuple_value_nested
+  \<open> ((\<llangle>1 :: nat\<rrangle>, \<llangle>True\<rrangle>), \<llangle>False\<rrangle>) \<close>
+lemma \<open> tuple_value_nested =
+    \<lbrakk> ((\<llangle>1 :: nat\<rrangle>, \<llangle>True\<rrangle>), \<llangle>False\<rrangle>) \<rbrakk> \<close>
+  unfolding tuple_value_nested_def by (rule refl)
+
+urust_expr tuple_let_two
+  \<open> let (x, y) = (\<llangle>1 :: nat\<rrangle>, \<llangle>True\<rrangle>); x \<close>
+lemma \<open> tuple_let_two =
+    \<lbrakk> let (x, y) = (\<llangle>1 :: nat\<rrangle>, \<llangle>True\<rrangle>); x \<rbrakk> \<close>
+  unfolding tuple_let_two_def by (rule refl)
+
+urust_expr tuple_let_three
+  \<open> let (x, y, z) = (\<llangle>1 :: nat\<rrangle>, \<llangle>True\<rrangle>, \<llangle>2 :: nat\<rrangle>); z \<close>
+lemma \<open> tuple_let_three =
+    \<lbrakk> let (x, y, z) = (\<llangle>1 :: nat\<rrangle>, \<llangle>True\<rrangle>, \<llangle>2 :: nat\<rrangle>); z \<rbrakk> \<close>
+  unfolding tuple_let_three_def by (rule refl)
+
+urust_expr tuple_const_three
+  \<open> const (x, y, z) = (\<llangle>1 :: nat\<rrangle>, \<llangle>True\<rrangle>, \<llangle>2 :: nat\<rrangle>); x \<close>
+lemma \<open> tuple_const_three =
+    \<lbrakk> const (x, y, z) = (\<llangle>1 :: nat\<rrangle>, \<llangle>True\<rrangle>, \<llangle>2 :: nat\<rrangle>); x \<rbrakk> \<close>
+  unfolding tuple_const_three_def by (rule refl)
+
+urust_expr tuple_let_nested
+  \<open> let (x, (y, z)) = (\<llangle>1 :: nat\<rrangle>, (\<llangle>2 :: nat\<rrangle>, \<llangle>3 :: nat\<rrangle>)); y \<close>
+lemma \<open> tuple_let_nested =
+    \<lbrakk> let (x, (y, z)) = (\<llangle>1 :: nat\<rrangle>, (\<llangle>2 :: nat\<rrangle>, \<llangle>3 :: nat\<rrangle>)); y \<rbrakk> \<close>
+  unfolding tuple_let_nested_def by (rule refl)
+
+urust_expr tuple_const_nested
+  \<open> const (x, (_, z)) = (\<llangle>1 :: nat\<rrangle>, (\<llangle>True\<rrangle>, \<llangle>3 :: nat\<rrangle>)); z \<close>
+lemma \<open> tuple_const_nested =
+    \<lbrakk> const (x, (_, z)) = (\<llangle>1 :: nat\<rrangle>, (\<llangle>True\<rrangle>, \<llangle>3 :: nat\<rrangle>)); z \<rbrakk> \<close>
+  unfolding tuple_const_nested_def by (rule refl)
+
+urust_expr tuple_let_wildcards
+  \<open> let (_, y, _) = (\<llangle>1 :: nat\<rrangle>, \<llangle>True\<rrangle>, \<llangle>2 :: nat\<rrangle>); y \<close>
+lemma \<open> tuple_let_wildcards =
+    \<lbrakk> let (_, y, _) = (\<llangle>1 :: nat\<rrangle>, \<llangle>True\<rrangle>, \<llangle>2 :: nat\<rrangle>); y \<rbrakk> \<close>
+  unfolding tuple_let_wildcards_def by (rule refl)
+
+urust_expr tuple_let_shadow
+  \<open> let x = \<llangle>0 :: nat\<rrangle>; let (x, y) = (\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>); x \<close>
+lemma \<open> tuple_let_shadow =
+    \<lbrakk> let x = \<llangle>0 :: nat\<rrangle>; let (x, y) = (\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>); x \<rbrakk> \<close>
+  unfolding tuple_let_shadow_def by (rule refl)
+
+urust_expr tuple_let_antiquotation
+  \<open> let (x, y) = (\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>); \<llangle>x + y\<rrangle> \<close>
+lemma \<open> tuple_let_antiquotation =
+    \<lbrakk> let (x, y) = (\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>); \<llangle>x + y\<rrangle> \<rbrakk> \<close>
+  unfolding tuple_let_antiquotation_def by (rule refl)
+
 
 section\<open> Pure-value operators (Corpus PART I: Arithmetic / Bitwise / Comparison / Boolean) \<close>
 
@@ -1083,6 +1156,55 @@ lemma \<open> rich_numeric_switch =
   unfolding rich_numeric_switch_def by (rule refl)
 
 end
+
+section\<open> Tuple case patterns \<close>
+
+text\<open>
+Tuple case patterns lower to generated \<open>Pair\<close>/\<open>TNil\<close> trees. They compose
+recursively with constructors and disjunction expansion.
+\<close>
+
+urust_expr tuple_match_explicit
+  \<open> match_case \<llangle>(1 :: nat, (True, TNil))\<rrangle> { (x, _) \<Rightarrow> x } \<close>
+lemma \<open> tuple_match_explicit =
+    \<lbrakk> match_case \<llangle>(1 :: nat, (True, TNil))\<rrangle> { (x, _) \<Rightarrow> x } \<rbrakk> \<close>
+  unfolding tuple_match_explicit_def by (rule refl)
+
+urust_expr tuple_match_bare
+  \<open> match \<llangle>(1 :: nat, (True, TNil))\<rrangle> { (_, y) \<Rightarrow> y } \<close>
+lemma \<open> tuple_match_bare =
+    \<lbrakk> match \<llangle>(1 :: nat, (True, TNil))\<rrangle> { (_, y) \<Rightarrow> y } \<rbrakk> \<close>
+  unfolding tuple_match_bare_def by (rule refl)
+
+urust_expr tuple_match_three
+  \<open> match_case \<llangle>(1 :: nat, (True, (2 :: nat, TNil)))\<rrangle> { (x, _, z) \<Rightarrow> z } \<close>
+lemma \<open> tuple_match_three =
+    \<lbrakk> match_case \<llangle>(1 :: nat, (True, (2 :: nat, TNil)))\<rrangle> { (x, _, z) \<Rightarrow> z } \<rbrakk> \<close>
+  unfolding tuple_match_three_def by (rule refl)
+
+urust_expr tuple_match_nested
+  \<open> match_case \<llangle>(1 :: nat, ((True, (2 :: nat, TNil)), TNil))\<rrangle> { (x, (_, z)) \<Rightarrow> z } \<close>
+lemma \<open> tuple_match_nested =
+    \<lbrakk> match_case \<llangle>(1 :: nat, ((True, (2 :: nat, TNil)), TNil))\<rrangle> { (x, (_, z)) \<Rightarrow> z } \<rbrakk> \<close>
+  unfolding tuple_match_nested_def by (rule refl)
+
+urust_expr tuple_match_in_constructor
+  \<open> match_case \<llangle>Some (1 :: nat, (True, TNil))\<rrangle> { Some((x, y)) \<Rightarrow> x, None \<Rightarrow> 0 } \<close>
+lemma \<open> tuple_match_in_constructor =
+    \<lbrakk> match_case \<llangle>Some (1 :: nat, (True, TNil))\<rrangle> { Some((x, y)) \<Rightarrow> x, None \<Rightarrow> 0 } \<rbrakk> \<close>
+  unfolding tuple_match_in_constructor_def by (rule refl)
+
+urust_expr tuple_match_constructor_inside
+  \<open> match_case \<llangle>(Some (1 :: nat), (True, TNil))\<rrangle> { (Some(x), _) \<Rightarrow> x, (None, _) \<Rightarrow> 0 } \<close>
+lemma \<open> tuple_match_constructor_inside =
+    \<lbrakk> match_case \<llangle>(Some (1 :: nat), (True, TNil))\<rrangle> { (Some(x), _) \<Rightarrow> x, (None, _) \<Rightarrow> 0 } \<rbrakk> \<close>
+  unfolding tuple_match_constructor_inside_def by (rule refl)
+
+urust_expr tuple_match_or_inside
+  \<open> match_case \<llangle>(Some (1 :: nat), (True, TNil))\<rrangle> { (Some(_) | None, y) \<Rightarrow> y } \<close>
+lemma \<open> tuple_match_or_inside =
+    \<lbrakk> match_case \<llangle>(Some (1 :: nat), (True, TNil))\<rrangle> { (Some(_) | None, y) \<Rightarrow> y } \<rbrakk> \<close>
+  unfolding tuple_match_or_inside_def by (rule refl)
 
 
 section\<open> Bare \<open>match\<close> (automatic case/switch routing, D32) \<close>

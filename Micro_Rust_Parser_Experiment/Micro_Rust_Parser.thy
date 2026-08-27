@@ -42,6 +42,7 @@ struct
     | P_Ident  of string * Position.T                 (* bare id: nullary ctor OR variable binder *)
     | P_Lit    of string * Position.T                 (* numeral pattern (a match_switch key) *)
     | P_Constr of string * Position.T * ur_pat list   (* C(args): name, name-pos, args *)
+    | P_Tuple  of ur_pat list * Position.T            (* (p0, p1, ..), at least two elements *)
     | P_Or     of ur_pat list * Position.T            (* p | q | r  (flattened; source order) *)
 
   (* Which `match` surface keyword an arm set came from; the two lower DIFFERENTLY (see UE_Match), so the
@@ -73,6 +74,7 @@ struct
                                                          split + typed by parse_int_lit -- ALL suffix
                                                          knowledge sits in that one table (D29) *)
     | UE_Unit      of Position.T                      (* () *)
+    | UE_Tuple     of ur_expr list * Position.T       (* (e0, e1, ..), at least two elements *)
     | UE_Ident     of string * Position.T             (* bare identifier at value position *)
     | UE_ValAntiq  of Input.source                    (* <<v>>  body as a POSITIONED source -> literal v *)
     | UE_ExprAntiq of Input.source                    (* eps<e> body as a POSITIONED source -> e *)
@@ -319,6 +321,8 @@ yacc_rules\<open>
        | uexp TDOT IDENT LPAR arglist RPAR (UE_Call (IDENT, IDENTleft, uexp :: arglist,
                                               Position.range_position (uexpleft, RPARright)))
        | LPAR RPAR  (UE_Unit LPARleft)
+       | LPAR uval COMMA arglist RPAR
+           (UE_Tuple (uval :: arglist, Position.range_position (LPARleft, RPARright)))
        | LPAR uval RPAR (uval)      (* parens wrap a uval: `(if ...)` becomes a usable operand -- the D-1 escape *)
        | VALAQ      (UE_ValAntiq VALAQ)
        | EXPRAQ     (UE_ExprAntiq EXPRAQ)
@@ -359,6 +363,8 @@ yacc_rules\<open>
      needed here (D23). *)
   arglist : uval               ([uval])
           | uval COMMA arglist (uval :: arglist)
+  (* A tuple has one element before the comma and a nonempty `arglist` after it. This requires at least
+     two elements while sharing the existing comma-list grammar used by calls. *)
   (* All three `match` keywords are with-block forms, so they join `uval`, not `uexp`. They share ONE arms
      nonterminal over the unified pattern language and differ only in the flavour tag; the lowering split
      and the per-flavour pattern gate live in the elaborator (D28/D32). *)
@@ -389,6 +395,8 @@ yacc_rules\<open>
   upat : IDENT                    (mk_ident_pat (IDENT, IDENTleft))   (* `_` normalises to P_Wild *)
        | NUM                      (P_Lit (NUM, NUMleft))
        | IDENT LPAR upats RPAR    (P_Constr (IDENT, IDENTleft, upats))
+       | LPAR upat COMMA upats RPAR
+           (P_Tuple (upat :: upats, Position.range_position (LPARleft, RPARright)))
        | upat TBAR upat           (mk_or_pat (upat1, upat2, TBARleft))
   upats : upat                    ([upat])
         | upat COMMA upats        (upat :: upats)
@@ -411,6 +419,7 @@ struct
       BCP_Wild of Position.T option
     | BCP_Ident of string * Position.T
     | BCP_Constr of string * Position.T * basic_case_pat list
+    | BCP_Tuple of basic_case_pat list
 
   datatype case_pat_tree =
       CPT_Const of term
@@ -541,6 +550,23 @@ struct
      the latter is definitionally but NOT alpha-equal to the frontend, so `refl` conformance would fail. *)
   fun mk_bind e f     = mk_const \<^const_name>\<open>Core_Expression.bind\<close> [e, f]
   fun mk_sequence a b = mk_const \<^const_name>\<open>Core_Expression.sequence\<close> [a, b]
+  fun mk_case_prod f  = mk_const \<^const_name>\<open>case_prod\<close> [f]
+
+  fun mk_tuple_lift terminal a b =
+    let
+      val x = Free ("x", dummyT)
+      val y = Free ("y", dummyT)
+      fun pair u v = mk_const \<^const_name>\<open>Product_Type.Pair\<close> [u, v]
+      val result =
+        if terminal
+        then pair x (pair y (Const (\<^const_name>\<open>TNil\<close>, dummyT)))
+        else pair x y
+      val f = Term.lambda x (Term.lambda y result)
+    in mk_const \<^const_name>\<open>bindlift2\<close> [f, a, b] end
+
+  fun mk_tuple [a, b] = mk_tuple_lift true a b
+    | mk_tuple (a :: rest) = mk_tuple_lift false a (mk_tuple rest)
+    | mk_tuple _ = error "urust_expr: internal tuple with fewer than two elements"
 
   (* if c {t} else {e} -> two_armed_conditional. A one-armed `if` fills the else with `skip`: the frontend's
      `{..}` path emits two_armed_conditional c t skip, NOT one_armed_conditional, and `skip` is an (input)
@@ -630,6 +656,7 @@ struct
     | pat_pos (P_Ident (_, pos)) = pos
     | pat_pos (P_Lit (_, pos)) = pos
     | pat_pos (P_Constr (_, pos, _)) = pos
+    | pat_pos (P_Tuple (_, pos)) = pos
     | pat_pos (P_Or (_, pos)) = pos
 
   fun arm_pat (UR_Arm (pat, _, _)) = pat
@@ -667,6 +694,13 @@ struct
        (* `let _ = e; k` binds nothing: an anonymous lambda, NOT a variable literally named "_" (that
           leaked a `Free "_"` into the defined term). *)
      | P_Wild _ => (fn body => anon_abs body, env)
+     | P_Tuple (pats, _) =>
+         let
+           val (absfs, env') = fold_map (fn p => fn env' => bind_pat ctxt env' p) pats env
+           fun tuple_abs [absf] body = mk_case_prod (absf (anon_abs body))
+             | tuple_abs (absf :: rest) body = mk_case_prod (absf (tuple_abs rest body))
+             | tuple_abs [] _ = error "urust_expr: internal empty tuple pattern"
+         in (fn body => tuple_abs absfs body, env') end
      | _ =>
          error ("urust_expr: refutable pattern in an irrefutable (let/const) binder position" ^
                 Position.here (pat_pos pat)))
@@ -681,6 +715,9 @@ struct
       fun expand (P_Or (ps, _)) = maps expand ps
         | expand (P_Constr (name, pos, args)) =
             map (fn args' => P_Constr (name, pos, args'))
+              (products (map expand args))
+        | expand (P_Tuple (args, pos)) =
+            map (fn args' => P_Tuple (args', pos))
               (products (map expand args))
         | expand p = [p]
     in expand pat end
@@ -700,6 +737,7 @@ struct
             NONE => error ("urust_expr: `" ^ name ^ "` is not a known constructor" ^
                            Position.here pos)
           | SOME _ => fold (bind_case_vars ctxt) args env)
+     | P_Tuple (args, _) => fold (bind_case_vars ctxt) args env
      | P_Or (_, pos) =>
          error ("urust_expr: internal unexpanded case or-pattern" ^ Position.here pos))
 
@@ -734,6 +772,20 @@ struct
                    val _ = report_ctor_markup ctxt pos c
                    val (trees, state') = fold_map walk args state
                  in (CPT_App (c, trees), state') end)
+        | walk (BCP_Tuple args) state =
+            let
+              fun tuple_tree [] state' =
+                    (CPT_Const (Const (\<^const_name>\<open>TNil\<close>, dummyT)), state')
+                | tuple_tree (arg :: rest) state' =
+                    let
+                      val (arg_tree, state'') = walk arg state'
+                      val (rest_tree, state''') = tuple_tree rest state''
+                    in
+                      (CPT_App (Const (\<^const_name>\<open>Product_Type.Pair\<close>, dummyT),
+                                [arg_tree, rest_tree]),
+                       state''')
+                    end
+            in tuple_tree args state end
       val (tree, (slots, _)) = walk pat ([], 0)
     in
       fn body =>
@@ -755,6 +807,7 @@ struct
             (v, SOME T) => mk_literal (HOLogic.mk_number T v)
           | (_, NONE) => error ("urust_expr: internal missing integer suffix" ^ Position.here pos))
      | UE_Unit _           => mk_literal HOLogic.unit
+     | UE_Tuple (args, _)   => mk_tuple (map (mk ctxt env) args)
      | UE_Ident (name, pos) =>
          (case Symtab.lookup env name of
             SOME {free, def_pos, id} => (report_ref ctxt id (name, def_pos) pos; mk_literal free)
@@ -907,7 +960,9 @@ struct
      | P_Or (_, p) =>
          error ("urust_expr: internal unexpanded case or-pattern" ^ Position.here p)
      | P_Constr (name, p, args) =>
-         BCP_Constr (name, p, map normalize_case_pattern args))
+         BCP_Constr (name, p, map normalize_case_pattern args)
+     | P_Tuple (args, _) =>
+         BCP_Tuple (map normalize_case_pattern args))
 
   fun mk_closed ctxt = mk ctxt Symtab.empty
 end
