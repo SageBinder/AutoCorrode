@@ -241,27 +241,11 @@ lemma \<open>undefined = \<lbrakk> !\<llangle>True\<rrangle> == \<llangle>False\
 
 subsection\<open>Assignment Operators\<close>
 
-subsubsection\<open>Simple Assignment\<close>
-
-context
-  fixes r :: \<open>('s, 'b, integer) Global_Store.ref\<close>
-begin
-private definition dummy_dereference_assign :: \<open>('s, 'b, 'v) Global_Store.ref \<Rightarrow> ('s, 'v, unit, unit, unit) function_body\<close> where
-  \<open>dummy_dereference_assign \<equiv> undefined\<close>
-adhoc_overloading store_dereference_const \<rightleftharpoons> dummy_dereference_assign
-lemma \<open>undefined = \<lbrakk> r = 10 \<rbrakk>\<close> sorry
-lemma \<open>undefined = \<lbrakk> r = *r \<rbrakk>\<close> sorry
-lemma \<open>undefined = \<lbrakk> (r) = *r \<rbrakk>\<close> sorry
-no_adhoc_overloading store_dereference_const \<rightleftharpoons> dummy_dereference_assign
-end
-
-subsubsection\<open>Place Assignment Forms\<close>
-
-context
-  fixes a b :: \<open>32 word\<close>
-begin
-lemma \<open>undefined = \<lbrakk> let mut x = a; (*x) = b; *x \<rbrakk>\<close> sorry
-end
+text\<open>
+Simple assignment and its identifier, grouped, dereferenced, field, antiquotation,
+precedence, associativity, and composition boundaries have runnable frontend-equivalence
+coverage in \<open>Micro_Rust_Parser_Conformance.thy\<close>.
+\<close>
 
 subsubsection\<open>Compound Assignment\<close>
 
@@ -703,12 +687,10 @@ end
 subsection\<open>References and Mutation\<close>
 
 text\<open>
-Mutable allocation, borrow, read-dereference, and binary-operator preservation have runnable
-frontend-equivalence coverage in \<open>Micro_Rust_Parser_Conformance.thy\<close>. The remaining row depends on
-place assignment.
+Mutable allocation, borrow, read-dereference, simple assignment, and binary-operator
+preservation have runnable frontend-equivalence coverage in
+\<open>Micro_Rust_Parser_Conformance.thy\<close>.
 \<close>
-
-lemma \<open>undefined = \<lbrakk> let mut x = \<llangle>0 :: 32 word\<rrangle>; *x = \<llangle>42 :: 32 word\<rrangle>; x \<rbrakk>\<close> sorry
 
 subsection\<open>Field Access and Records\<close>
 
@@ -760,13 +742,8 @@ lemma \<open>undefined = \<lbrakk> r.f(10) \<rbrakk>\<close> sorry
 lemma \<open>undefined = \<lbrakk> *(s. field3_lens) \<rbrakk>\<close> sorry
 lemma \<open>undefined = \<lbrakk> (*s). field3_lens \<rbrakk>\<close> sorry
 lemma \<open>undefined = \<lbrakk> *r \<rbrakk>\<close> sorry
-lemma \<open>undefined = \<lbrakk> r = *r \<rbrakk>\<close> sorry
-lemma \<open>undefined = \<lbrakk> r = (*s).field3_lens.field1_lens \<rbrakk>\<close> sorry
-lemma \<open>undefined = \<lbrakk> r = *s.field3_lens.field1_lens \<rbrakk>\<close> sorry
-lemma \<open>undefined = \<lbrakk> r = 10 \<rbrakk>\<close> sorry
 lemma \<open>undefined = \<lbrakk> *(s.field4_lens) \<rbrakk>\<close> sorry
 lemma \<open>undefined = \<lbrakk> (*s).field4_lens \<rbrakk>\<close> sorry
-lemma \<open>undefined = \<lbrakk> s.field3_lens.field1_lens = *r \<rbrakk>\<close> sorry
 lemma \<open>undefined = \<lbrakk> s.field3_lens \<rbrakk>\<close> sorry
 lemma \<open>undefined = \<lbrakk> s.field3_lens.field2_lens \<rbrakk>\<close> sorry
 no_adhoc_overloading store_dereference_const \<rightleftharpoons> dummy_dereference_field

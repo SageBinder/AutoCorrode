@@ -86,6 +86,7 @@ struct
     | Eq | Ne | Lt | Le | Gt | Ge              (* == != < <= > >= *)
     | And | Or                                 (* && ||           *)
   datatype unop = Not                          (* !  (and !! = !(!_)) *)
+  datatype assignop = Assign                   (* =; extended by compound assignment in the next increment *)
 
   datatype ur_expr =
       UE_Num       of string * Position.T             (* raw decimal or hexadecimal numeral *)
@@ -107,6 +108,7 @@ struct
     | UE_Un        of unop * ur_expr * Position.T              (* !a  (and !!a = !(!a)) *)
     | UE_Borrow    of borrow_mode * ur_expr * Position.T       (* &a / & mut a *)
     | UE_Deref     of ur_expr * Position.T                      (* *a *)
+    | UE_Group     of ur_expr * Position.T                      (* (a), transparent during lowering *)
     | UE_Block     of ur_expr * Position.T            (* { stmts } -- ERASES to <stmts>, no `scoped`
                                                          wrapper: `_urust_scoping` is identity (D22) *)
     | UE_If        of ur_expr * ur_expr * ur_expr option * Position.T
@@ -120,6 +122,8 @@ struct
                                                          turbofish, path) are deferred -- D-5. *)
     | UE_Field     of ur_expr * string * Position.T   (* e.field -> NField lens focus *)
     | UE_Propagate of ur_expr * Position.T            (* e? -> overloaded propagate_const *)
+    | UE_Assign    of assignop * ur_place * ur_expr * Position.T
+                                                      (* place = rhs, at the assignment operator *)
     | UE_Match     of match_flavour * ur_expr * ur_arm list * Position.T
                                                       (* match_<flavour> scrut { pat => body, .. }. ONE node
                                                          for both keywords; only the LOWERING differs --
@@ -127,8 +131,54 @@ struct
                                                          MF_Case -> the Ctr_Sugar case skeleton (D27). Each
                                                          flavour's elaborator gates the patterns it cannot
                                                          lower with a positioned error. *)
+  and ur_place =
+      UP_Ident of string * Position.T
+    | UP_Deref of ur_expr * Position.T
+    | UP_Field of ur_place * string * Position.T
+    | UP_Antiq of Input.source
   and ur_arm =
       UR_Arm of ur_pat * (ur_expr * Position.T) option * ur_expr
+
+  fun expr_pos (UE_Num (_, pos)) = pos
+    | expr_pos (UE_NumSfx (_, pos)) = pos
+    | expr_pos (UE_Unit pos) = pos
+    | expr_pos (UE_Tuple (_, pos)) = pos
+    | expr_pos (UE_Ident (_, pos)) = pos
+    | expr_pos (UE_Literal (LP_Bool (_, pos))) = pos
+    | expr_pos (UE_Literal (LP_String (_, pos))) = pos
+    | expr_pos (UE_Literal (LP_ValAntiq src)) = Input.pos_of src
+    | expr_pos (UE_ExprAntiq src) = Input.pos_of src
+    | expr_pos (UE_Let _) = Position.none
+    | expr_pos (UE_LetMut (_, _, _, pos)) = pos
+    | expr_pos (UE_Const _) = Position.none
+    | expr_pos (UE_Seq _) = Position.none
+    | expr_pos (UE_Bin (_, _, _, pos)) = pos
+    | expr_pos (UE_Un (_, _, pos)) = pos
+    | expr_pos (UE_Borrow (_, _, pos)) = pos
+    | expr_pos (UE_Deref (_, pos)) = pos
+    | expr_pos (UE_Group (_, pos)) = pos
+    | expr_pos (UE_Block (_, pos)) = pos
+    | expr_pos (UE_If (_, _, _, pos)) = pos
+    | expr_pos (UE_Call (_, _, _, pos)) = pos
+    | expr_pos (UE_Field (_, _, pos)) = pos
+    | expr_pos (UE_Propagate (_, pos)) = pos
+    | expr_pos (UE_Assign (_, _, _, pos)) = pos
+    | expr_pos (UE_Match (_, _, _, pos)) = pos
+
+  (* Assignment parses an ordinary expression on the left, then crosses this one validation boundary.
+     Keeping target recognition out of the grammar gives every invalid expression a stable positioned
+     diagnostic and lets grouped/dereferenced field chains compose without parallel productions. *)
+  fun expr_to_place (UE_Ident id) = UP_Ident id
+    | expr_to_place (UE_ExprAntiq src) = UP_Antiq src
+    | expr_to_place (UE_Group (expr, _)) = expr_to_place expr
+    | expr_to_place (UE_Deref (expr, pos)) = UP_Deref (expr, pos)
+    | expr_to_place (UE_Field (base, name, pos)) =
+        UP_Field (expr_to_place base, name, pos)
+    | expr_to_place expr =
+        error ("urust_expr: invalid assignment target" ^ Position.here (expr_pos expr))
+
+  fun mk_assign (lhs, rhs, pos) =
+    UE_Assign (Assign, expr_to_place lhs, rhs, pos)
 
   (* `_` lexes as an ordinary IDENT: normalise to P_Wild in ONE place, not an `= "_"` test at every site. *)
   fun mk_ident_pat (s, pos) = if s = "_" then P_Wild pos else P_Ident (s, pos)
@@ -327,6 +377,7 @@ yacc_definitions\<open>
 %nonterm ustart of URust_AST.ur_expr option
        | ustmt of URust_AST.ur_expr
        | uval of URust_AST.ur_expr
+       | uassign of URust_AST.ur_expr
        | uexp of URust_AST.ur_expr
        | urefprefix of URust_AST.ur_expr
        | unotprefix of URust_AST.ur_expr
@@ -378,11 +429,16 @@ yacc_rules\<open>
   (* Value position: an operand OR a with-block control-flow expr. `uval` is where `if`/`match` (later
      loops) are admitted -- let-RHS, condition, call args, parens -- WITHOUT being a bare binary-operator
      operand (that stays `uexp`, closing divergence D-1 -- D25). *)
-  uval : uexp (uexp)
+  uval : uassign (uassign)
        | uif %prec TIF (uif)
        | umatch %prec TIF (umatch)
        | umatchsw (umatchsw)
        | umatchcase (umatchcase)
+  (* Assignment is below every pure operator and recurses through its own tier on the right. Blocks
+     remain ordinary expression atoms, while lower-priority `if`/`match` forms require parentheses on
+     the RHS, matching the frontend's priority-40 boundary. The LHS crosses expr_to_place exactly once. *)
+  uassign : uexp (uexp)
+          | uexp TEQ uassign (mk_assign (uexp, uassign, TEQleft))
   (* Postfixes form a structural tier above atoms, so `?`, field access, and methods compose
      left-to-right and bind tighter than prefix/binary operators. A dotted identifier followed by
      parentheses is a method; without parentheses it is an NField lens access. *)
@@ -405,7 +461,8 @@ yacc_rules\<open>
         | LPAR RPAR  (UE_Unit LPARleft)
         | LPAR uval COMMA arglist RPAR
             (UE_Tuple (uval :: arglist, Position.range_position (LPARleft, RPARright)))
-        | LPAR uval RPAR (uval)      (* parens wrap a uval: `(if ...)` becomes a usable operand -- the D-1 escape *)
+        | LPAR uval RPAR
+            (UE_Group (uval, Position.range_position (LPARleft, RPARright)))
         | VALAQ      (UE_Literal (LP_ValAntiq VALAQ))
         | EXPRAQ     (UE_ExprAntiq EXPRAQ)
         | ublock %prec TIF (ublock)  (* block STAYS an operand atom (frontend priority 1000): `{e} + x`
@@ -471,7 +528,7 @@ yacc_rules\<open>
                  (UE_Match (MF_Switch, uval, uarms, Position.range_position (TMATCHSWITCHleft, TRBRACEright)))
   umatchcase : TMATCHCASE uval TLBRACE uarms TRBRACE
                  (UE_Match (MF_Case, uval, uarms, Position.range_position (TMATCHCASEleft, TRBRACEright)))
-  uguard : uexp (uexp)
+  uguard : uassign (uassign)
          | uif (uif)
          | umatch (umatch)
          | umatchsw (umatchsw)
@@ -896,6 +953,23 @@ struct
       (mk_const \<^const_name>\<open>deep_compose1\<close>
         [Const (\<^const_name>\<open>call\<close>, dummyT),
          mk_const_at \<^const_name>\<open>store_dereference_const\<close> pos []])
+  fun mk_update pos place rhs =
+    mk_const \<^const_name>\<open>bind2\<close>
+      [mk_const \<^const_name>\<open>deep_compose2\<close>
+        [Const (\<^const_name>\<open>call\<close>, dummyT),
+         mk_const_at \<^const_name>\<open>store_update_const\<close> pos []],
+       place, rhs]
+
+  fun mk_ident_expr ctxt env (name, pos) =
+    (case Symtab.lookup env name of
+       SOME {free, def_pos, id} => (report_ref ctxt id (name, def_pos) pos; mk_literal free)
+     | NONE => mk_literal (ident_term ctxt Micro_Rust_Names.NLiteral name pos))
+
+  fun mk_field ctxt receiver name pos =
+    let
+      val field = ident_term ctxt Micro_Rust_Names.NField name pos
+      val focus = mk_const \<^const_name>\<open>focus_lens_const\<close> [field]
+    in mk_bindlift1 focus receiver end
 
   fun mk_tuple_lift terminal a b =
     let
@@ -1467,10 +1541,7 @@ struct
           | (_, NONE) => error ("urust_expr: internal missing integer suffix" ^ Position.here pos))
      | UE_Unit _           => mk_literal HOLogic.unit
      | UE_Tuple (args, _)   => mk_tuple (map (mk ctxt env) args)
-     | UE_Ident (name, pos) =>
-         (case Symtab.lookup env name of
-            SOME {free, def_pos, id} => (report_ref ctxt id (name, def_pos) pos; mk_literal free)
-          | NONE => mk_literal (ident_term ctxt Micro_Rust_Names.NLiteral name pos))
+     | UE_Ident id          => mk_ident_expr ctxt env id
      | UE_Literal payload  => literal_expr ctxt env payload
      | UE_ExprAntiq src    => parse_antiq ctxt env src
      | UE_Seq (e1, e2)     => mk_sequence (mk ctxt env e1) (mk ctxt env e2)
@@ -1478,6 +1549,7 @@ struct
      | UE_Un (uop, a, _)     => mk_un uop (mk ctxt env a)
      | UE_Borrow (mode, a, pos) => mk_borrow mode pos (mk ctxt env a)
      | UE_Deref (a, pos)      => mk_deref pos (mk ctxt env a)
+     | UE_Group (e1, _)    => mk ctxt env e1
      | UE_Block (e1, _)    => mk ctxt env e1          (* erase: alpha-equal to the frontend `{ e } = e` *)
      | UE_If (c, t, eopt, _) =>
          mk_two_armed (mk ctxt env c) (mk ctxt env t)
@@ -1495,13 +1567,20 @@ struct
               | NONE => ident_term ctxt Micro_Rust_Names.NFunction name npos)
          in mk_const (funcall_const cpos (length args)) (func :: map (mk ctxt env) args) end
      | UE_Field (receiver, name, pos) =>
-         let
-           val field = ident_term ctxt Micro_Rust_Names.NField name pos
-           val focus = mk_const \<^const_name>\<open>focus_lens_const\<close> [field]
-         in mk_bindlift1 focus (mk ctxt env receiver) end
+         mk_field ctxt (mk ctxt env receiver) name pos
      | UE_Propagate (expr, pos) =>
          mk_const_at \<^const_name>\<open>propagate_const\<close> pos [mk ctxt env expr]
+     | UE_Assign (Assign, place, rhs, pos) =>
+         mk_update pos (mk_place ctxt env place) (mk ctxt env rhs)
      | UE_Match args => elab_match ctxt env args)
+
+  and mk_place ctxt env place =
+    (case place of
+       UP_Ident id => mk_ident_expr ctxt env id
+     | UP_Deref (expr, _) => mk ctxt env expr
+     | UP_Field (base, name, pos) =>
+         mk_field ctxt (mk_place ctxt env base) name pos
+     | UP_Antiq src => parse_antiq ctxt env src)
 
   (* `let`/`const` <pat> = rhs; body -> bind rhs (<pat-abstraction> body); shared by both nodes. *)
   and elab_let ctxt env (pat, rhs, body) =

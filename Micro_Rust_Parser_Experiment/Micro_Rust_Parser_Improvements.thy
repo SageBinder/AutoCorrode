@@ -222,6 +222,73 @@ end
 no_adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
 
 
+section\<open> Expression-antiquotation places \<close>
+
+text\<open>
+The old frontend declares an internal expression-antiquotation place constructor and
+lowers it correctly, but exposes no concrete-syntax production for that constructor.
+The custom parser makes the intended surface reachable. These rows compare its exact
+term against the equivalent identifier-place frontend term, including capture of a
+mutable local inside the antiquotation body.
+\<close>
+
+adhoc_overloading store_reference_const \<rightleftharpoons> parser_reference_fixture
+adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
+adhoc_overloading store_update_const \<rightleftharpoons> parser_update_fixture
+
+context
+  fixes r :: \<open>(unit, unit, 32 word) Global_Store.ref\<close>
+    and lhs rhs :: \<open>32 word\<close>
+begin
+
+urust_expr improvement_antiquotation_place \<open> \<epsilon>\<open>\<up>r\<close> = rhs \<close>
+lemma \<open> improvement_antiquotation_place = \<lbrakk> r = rhs \<rbrakk> \<close>
+  unfolding improvement_antiquotation_place_def by (rule refl)
+old_urust_rejects \<open> \<epsilon>\<open>\<up>r\<close> = rhs \<close>
+
+urust_expr improvement_antiquotation_place_capture
+  \<open> let mut x = lhs; \<epsilon>\<open>\<up>x\<close> = rhs; *x \<close>
+lemma \<open> improvement_antiquotation_place_capture =
+    \<lbrakk> let mut x = lhs; x = rhs; *x \<rbrakk> \<close>
+  unfolding improvement_antiquotation_place_capture_def by (rule refl)
+old_urust_rejects \<open> let mut x = lhs; \<epsilon>\<open>\<up>x\<close> = rhs; *x \<close>
+
+end
+
+no_adhoc_overloading store_reference_const \<rightleftharpoons> parser_reference_fixture
+no_adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
+no_adhoc_overloading store_update_const \<rightleftharpoons> parser_update_fixture
+
+
+section\<open> Compositional field places \<close>
+
+text\<open>
+The explicit place conversion admits a field chain whose base is a parenthesized
+dereference. The old frontend declares all of those place constructors, but its
+concrete grammar cannot compose a field postfix after that parenthesized base.
+The accepted frontend spelling dereferences the complete field chain instead; both
+lower to the same focused reference before update.
+\<close>
+
+adhoc_overloading store_update_const \<rightleftharpoons> parser_update_fixture
+
+context
+  fixes rp :: \<open>(unit, unit, postfix_outer) Global_Store.ref\<close>
+    and field_value :: \<open>64 word\<close>
+begin
+
+urust_expr improvement_grouped_deref_field_place
+  \<open> (*rp).inner.value = field_value \<close>
+lemma \<open> improvement_grouped_deref_field_place =
+    \<lbrakk> (*rp.inner.value) = field_value \<rbrakk> \<close>
+  unfolding improvement_grouped_deref_field_place_def by (rule refl)
+old_urust_rejects \<open> (*rp).inner.value = field_value \<close>
+
+end
+
+no_adhoc_overloading store_update_const \<rightleftharpoons> parser_update_fixture
+
+
 section\<open> Composable postfix expressions \<close>
 
 text\<open>

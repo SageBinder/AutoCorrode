@@ -382,6 +382,78 @@ urust_expr_rejects \<open> ncf1(\<llangle>1 :: 64 word\<rrangle>)(\<llangle>2 ::
 urust_expr_rejects \<open> (ncf1)(\<llangle>1 :: 64 word\<rrangle>) \<close> \<open> syntax error found at LPAR \<close>
   \<comment> \<open> [FIDELITY] parenthesised callee \<open>(g)(x)\<close>: rejected by both (\<open>urust_callable\<close> has no paren form). \<close>
 
+section\<open> Assignment right-hand control-flow precedence \<close>
+
+text\<open>
+The frontend's priority-40 assignment accepts block expressions directly, but
+priority-20/21 control-flow expressions require parentheses on the right-hand
+side. Assignment remains right-associative by recursing through its own tier.
+\<close>
+
+urust_expr_rejects
+  \<open> r = match flag { true \<Rightarrow> lhs, false \<Rightarrow> rhs } \<close>
+  \<open> syntax error: deleting  TMATCH \<close>
+  \<comment> \<open> [FIDELITY] bare match forms have the same assignment-RHS boundary as \<open>if\<close>. \<close>
+
+urust_expr_rejects
+  \<open> r = if flag { lhs } else { rhs } \<close>
+  \<open> syntax error: deleting  TIF \<close>
+  \<comment> \<open> [FIDELITY] a bare \<open>if\<close> is too weak to be an assignment RHS; the grouped form is positive. \<close>
+
+section\<open> Invalid assignment targets \<close>
+
+text\<open>
+Assignment parses below pure operators, then one \<open>expr_to_place\<close> conversion rejects
+every non-place expression with the same positioned diagnostic.
+\<close>
+
+urust_expr_rejects \<open> 0 = rhs \<close> \<open> invalid assignment target \<close>
+  \<comment> \<open> [FIDELITY] numeric literals are values, not places. \<close>
+
+urust_expr_rejects \<open> true = rhs \<close> \<open> invalid assignment target \<close>
+  \<comment> \<open> [FIDELITY] boolean literals are not places. \<close>
+
+urust_expr_rejects \<open> \<llangle>r\<rrangle> = rhs \<close> \<open> invalid assignment target \<close>
+  \<comment> \<open> [FIDELITY] value antiquotations are values; only expression antiquotations can be places. \<close>
+
+urust_expr_rejects \<open> ncf1(\<llangle>1 :: 64 word\<rrangle>) = rhs \<close>
+  \<open> invalid assignment target \<close>
+  \<comment> \<open> [FIDELITY] call results are not assignment targets. \<close>
+
+urust_expr_rejects \<open> receiver.ncf1() = rhs \<close> \<open> invalid assignment target \<close>
+  \<comment> \<open> [FIDELITY] method-call results are not assignment targets. \<close>
+
+urust_expr_rejects \<open> opt? = rhs \<close> \<open> invalid assignment target \<close>
+  \<comment> \<open> [FIDELITY] propagation is value-only. \<close>
+
+urust_expr_rejects \<open> &r = rhs \<close> \<open> invalid assignment target \<close>
+  \<comment> \<open> [FIDELITY] borrowing produces a value and cannot head a place. \<close>
+
+urust_expr_rejects \<open> !r = rhs \<close> \<open> invalid assignment target \<close>
+  \<comment> \<open> [FIDELITY] unary negation is not a place. \<close>
+
+urust_expr_rejects \<open> r + other = rhs \<close> \<open> invalid assignment target \<close>
+  \<comment> \<open> [FIDELITY] assignment is below pure operators, so the full binary expression is rejected. \<close>
+
+urust_expr_rejects \<open> (r, other) = rhs \<close> \<open> invalid assignment target \<close>
+  \<comment> \<open> [FIDELITY] tuple values are not destructuring assignment targets. \<close>
+
+urust_expr_rejects \<open> { r } = rhs \<close> \<open> invalid assignment target \<close>
+  \<comment> \<open> [FIDELITY] blocks remain value expressions, not places. \<close>
+
+urust_expr_rejects
+  \<open> (if true { r } else { other }) = rhs \<close>
+  \<open> invalid assignment target \<close>
+  \<comment> \<open> [FIDELITY] grouping admits the control-flow expression to operand position but does not
+       make it a place. \<close>
+
+urust_expr_rejects \<open> (r = rhs) = other \<close> \<open> invalid assignment target \<close>
+  \<comment> \<open> [FIDELITY] an assignment result cannot itself be assigned through. \<close>
+
+urust_expr_rejects \<open> ncf1(\<llangle>1 :: 64 word\<rrangle>).field = rhs \<close>
+  \<open> invalid assignment target \<close>
+  \<comment> \<open> [FIDELITY] field-place validation recursively rejects an invalid call-result base. \<close>
+
 section\<open> Lexer and whole-input failures \<close>
 
 urust_expr_rejects \<open> "bad\q" \<close> \<open> bad escape character in string \<close>

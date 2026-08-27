@@ -1058,6 +1058,168 @@ end
 no_adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
 
 
+section\<open> Explicit places and simple assignment \<close>
+
+definition parser_update_fixture ::
+  \<open>(unit, unit, 'v) Global_Store.ref \<Rightarrow> 'v \<Rightarrow>
+    (unit, unit, unit, unit, unit) function_body\<close>
+  where \<open> parser_update_fixture \<equiv> undefined \<close>
+
+definition assignment_sink ::
+  \<open>unit \<Rightarrow> (unit, unit, unit, unit, unit) function_body\<close>
+  where \<open> assignment_sink \<equiv> lift_fun1 (\<lambda>_. ()) \<close>
+
+definition assignment_shadow_backend ::
+  \<open>(unit, unit, 32 word) Global_Store.ref\<close>
+  where \<open> assignment_shadow_backend \<equiv> undefined \<close>
+
+micro_rust_notation (literal) assignment_shadow_backend ("assignmentPlace")
+
+adhoc_overloading store_reference_const \<rightleftharpoons> parser_reference_fixture
+adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
+adhoc_overloading store_update_const \<rightleftharpoons> parser_update_fixture
+
+subsection\<open> Identifier, grouping, and dereference places \<close>
+
+context
+  fixes r :: \<open>(unit, unit, 32 word) Global_Store.ref\<close>
+    and rhs other :: \<open>32 word\<close>
+begin
+
+urust_expr assign_identifier \<open> r = rhs \<close>
+lemma \<open> assign_identifier = \<lbrakk> r = rhs \<rbrakk> \<close>
+  unfolding assign_identifier_def by (rule refl)
+
+urust_expr assign_grouped \<open> (r) = rhs \<close>
+lemma \<open> assign_grouped = \<lbrakk> (r) = rhs \<rbrakk> \<close>
+  unfolding assign_grouped_def by (rule refl)
+
+urust_expr assign_nested_groups \<open> (((r))) = rhs \<close>
+lemma \<open> assign_nested_groups = \<lbrakk> (((r))) = rhs \<rbrakk> \<close>
+  unfolding assign_nested_groups_def by (rule refl)
+
+urust_expr assign_deref \<open> *r = rhs \<close>
+lemma \<open> assign_deref = \<lbrakk> *r = rhs \<rbrakk> \<close>
+  unfolding assign_deref_def by (rule refl)
+
+urust_expr assign_grouped_deref \<open> (*r) = rhs \<close>
+lemma \<open> assign_grouped_deref = \<lbrakk> (*r) = rhs \<rbrakk> \<close>
+  unfolding assign_grouped_deref_def by (rule refl)
+
+urust_expr assign_deref_group \<open> *(r) = rhs \<close>
+lemma \<open> assign_deref_group = \<lbrakk> *(r) = rhs \<rbrakk> \<close>
+  unfolding assign_deref_group_def by (rule refl)
+
+urust_expr assign_rhs_operator \<open> r = rhs + other \<close>
+lemma \<open> assign_rhs_operator = \<lbrakk> r = rhs + other \<rbrakk> \<close>
+  unfolding assign_rhs_operator_def by (rule refl)
+
+urust_expr assign_block_rhs \<open> r = { rhs } \<close>
+lemma \<open> assign_block_rhs = \<lbrakk> r = { rhs } \<rbrakk> \<close>
+  unfolding assign_block_rhs_def by (rule refl)
+
+urust_expr assign_sequence \<open> r = rhs; *r \<close>
+lemma \<open> assign_sequence = \<lbrakk> r = rhs; *r \<rbrakk> \<close>
+  unfolding assign_sequence_def by (rule refl)
+
+urust_expr assign_block \<open> { r = rhs; *r } \<close>
+lemma \<open> assign_block = \<lbrakk> { r = rhs; *r } \<rbrakk> \<close>
+  unfolding assign_block_def by (rule refl)
+
+urust_expr assign_call_argument \<open> assignment_sink(r = rhs) \<close>
+lemma \<open> assign_call_argument = \<lbrakk> assignment_sink(r = rhs) \<rbrakk> \<close>
+  unfolding assign_call_argument_def by (rule refl)
+
+urust_expr assign_lexical_shadow
+  \<open> let assignmentPlace = \<llangle>r\<rrangle>; assignmentPlace = rhs \<close>
+lemma \<open> assign_lexical_shadow =
+    \<lbrakk> let assignmentPlace = \<llangle>r\<rrangle>; assignmentPlace = rhs \<rbrakk> \<close>
+  unfolding assign_lexical_shadow_def by (rule refl)
+
+end
+
+urust_expr assign_notation_target \<open> assignmentPlace = \<llangle>7 :: 32 word\<rrangle> \<close>
+lemma \<open> assign_notation_target =
+    \<lbrakk> assignmentPlace = \<llangle>7 :: 32 word\<rrangle> \<rbrakk> \<close>
+  unfolding assign_notation_target_def by (rule refl)
+
+subsection\<open> Associativity and composition \<close>
+
+context
+  fixes outer :: \<open>(unit, unit, unit) Global_Store.ref\<close>
+    and inner :: \<open>(unit, unit, 32 word) Global_Store.ref\<close>
+    and rhs :: \<open>32 word\<close>
+begin
+
+urust_expr assign_right_associative \<open> outer = inner = rhs \<close>
+lemma \<open> assign_right_associative = \<lbrakk> outer = inner = rhs \<rbrakk> \<close>
+  unfolding assign_right_associative_def by (rule refl)
+
+end
+
+context
+  fixes r :: \<open>(unit, unit, 32 word) Global_Store.ref\<close>
+    and lhs rhs :: \<open>32 word\<close>
+    and flag :: bool
+begin
+
+urust_expr assign_if_branches
+  \<open> if flag { r = lhs } else { r = rhs } \<close>
+lemma \<open> assign_if_branches =
+    \<lbrakk> if flag { r = lhs } else { r = rhs } \<rbrakk> \<close>
+  unfolding assign_if_branches_def by (rule refl)
+
+urust_expr assign_match_arms
+  \<open> match flag { true \<Rightarrow> r = lhs, false \<Rightarrow> r = rhs } \<close>
+lemma \<open> assign_match_arms =
+    \<lbrakk> match flag { true \<Rightarrow> r = lhs, false \<Rightarrow> r = rhs } \<rbrakk> \<close>
+  unfolding assign_match_arms_def by (rule refl)
+
+urust_expr assign_control_rhs
+  \<open> r = (if flag { lhs } else { rhs }) \<close>
+lemma \<open> assign_control_rhs =
+    \<lbrakk> r = (if flag { lhs } else { rhs }) \<rbrakk> \<close>
+  unfolding assign_control_rhs_def by (rule refl)
+
+urust_expr assign_mutable_binding
+  \<open> let mut x = lhs; *x = rhs; *x \<close>
+lemma \<open> assign_mutable_binding =
+    \<lbrakk> let mut x = lhs; *x = rhs; *x \<rbrakk> \<close>
+  unfolding assign_mutable_binding_def by (rule refl)
+
+end
+
+subsection\<open> Field places \<close>
+
+context
+  fixes rp :: \<open>(unit, unit, postfix_outer) Global_Store.ref\<close>
+    and field_value :: \<open>64 word\<close>
+begin
+
+urust_expr assign_field \<open> rp.inner = \<llangle>undefined :: postfix_inner\<rrangle> \<close>
+lemma \<open> assign_field =
+    \<lbrakk> rp.inner = \<llangle>undefined :: postfix_inner\<rrangle> \<rbrakk> \<close>
+  unfolding assign_field_def by (rule refl)
+
+urust_expr assign_field_chain \<open> rp.inner.value = field_value \<close>
+lemma \<open> assign_field_chain = \<lbrakk> rp.inner.value = field_value \<rbrakk> \<close>
+  unfolding assign_field_chain_def by (rule refl)
+
+urust_expr assign_grouped_deref_field \<open> (*rp.inner.value) = field_value \<close>
+lemma \<open> assign_grouped_deref_field = \<lbrakk> (*rp.inner.value) = field_value \<rbrakk> \<close>
+  unfolding assign_grouped_deref_field_def by (rule refl)
+
+urust_expr assign_deref_field_chain \<open> *rp.inner.value = field_value \<close>
+lemma \<open> assign_deref_field_chain = \<lbrakk> *rp.inner.value = field_value \<rbrakk> \<close>
+  unfolding assign_deref_field_chain_def by (rule refl)
+
+end
+
+no_adhoc_overloading store_reference_const \<rightleftharpoons> parser_reference_fixture
+no_adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
+no_adhoc_overloading store_update_const \<rightleftharpoons> parser_update_fixture
+
+
 section\<open> Cross-feature robustness (calls / methods x operators / control-flow / binders) \<close>
 
 text\<open>
