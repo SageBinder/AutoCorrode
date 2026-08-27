@@ -1,9 +1,9 @@
 (* Rejection tests for the custom uRust parser. Normal rows require both `elab_urust` and the existing
    frontend to reject; the new parser's error must contain a stable substring. [DIVERGENT] rows use the
-   parser-only command to record an under-acceptance. *)
+   parser-only command to record an intentional acceptance-boundary difference. *)
 
 theory Micro_Rust_Parser_Negative_Conformance
-  imports Micro_Rust_Parser
+  imports Struct_Ambiguity_Left Struct_Ambiguity_Right
   keywords
     "urust_expr_rejects" :: thy_decl
     and "urust_expr_rejects_parser_only" :: thy_decl
@@ -14,7 +14,7 @@ section\<open> The command \<close>
 text\<open>
 \<open>urust_expr_rejects source expected\<close> requires both frontends to reject and
 checks the new parser's reason. The parser-only variant is reserved for documented
-under-acceptances.
+acceptance-boundary differences.
 \<close>
 ML\<open>
 fun negative_frontend_source source = "\<lbrakk> " ^ source ^ " \<rbrakk>"
@@ -136,6 +136,18 @@ urust_expr_rejects
   \<open> let \<llangle>2 :: nat\<rrangle> = \<llangle>2 :: nat\<rrangle>; () \<close>
   \<open> refutable pattern in an irrefutable (let/const) binder position \<close>
   \<comment> \<open> [FIDELITY] value-antiquotation patterns are refutable. \<close>
+
+urust_expr_rejects
+  \<open> let &x = \<llangle>1 :: nat\<rrangle>; x \<close>
+  \<open> refutable pattern in an irrefutable (let/const) binder position \<close>
+  \<comment> \<open> [FIDELITY] borrow-pattern stripping is a case-pattern translation in the frontend, not an
+       irrefutable let/const rule. \<close>
+
+urust_expr_rejects
+  \<open> match \<llangle>1 :: nat\<rrangle> { &1 \<Rightarrow> \<llangle>True\<rrangle>, _ \<Rightarrow> \<llangle>False\<rrangle> } \<close>
+  \<open> numeric pattern in match_case: 1 \<close>
+  \<comment> \<open> [FIDELITY] bare-match routing unwraps groups but not borrow patterns, so this selects case
+       lowering and reaches the frontend's numeric-case rejection. \<close>
 
 urust_expr_rejects
   \<open> match_switch \<llangle>(0 :: nat, (True, TNil))\<rrangle> { (x, y) \<Rightarrow> () } \<close>
@@ -283,6 +295,18 @@ urust_expr_rejects
   \<open> match_switch \<llangle>NegativeStruct 1 2\<rrangle> { NegativeStruct { negative_left: x, .. } \<Rightarrow> () } \<close>
   \<open> unsupported match_switch pattern \<close>
   \<comment> \<open> [FIDELITY] struct patterns require case lowering. \<close>
+
+urust_expr_rejects
+  \<open> match_switch \<llangle>1 :: nat\<rrangle> { &1 \<Rightarrow> \<llangle>True\<rrangle>, _ \<Rightarrow> \<llangle>False\<rrangle> } \<close>
+  \<open> unsupported match_switch pattern \<close>
+  \<comment> \<open> [FIDELITY] explicit switch conversion accepts grouped numeric keys but has no borrow-pattern
+       conversion rule. \<close>
+
+urust_expr_rejects_parser_only
+  \<open> match_case \<llangle>undefined\<rrangle> { AmbiguousStruct { ambiguous_field: x } \<Rightarrow> x } \<close>
+  \<open> Struct_Ambiguity_Left.struct_ambiguity_left.AmbiguousStruct \<close>
+  \<comment> \<open> [DIVERGENT] the existing frontend silently picks one of two same-basename constructors.
+       The new parser rejects and reports their qualified identities instead. \<close>
 
 section\<open> Calls \<close>
 

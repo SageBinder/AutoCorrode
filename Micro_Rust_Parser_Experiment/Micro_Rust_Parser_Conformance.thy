@@ -1322,6 +1322,12 @@ urust_expr adv_grouped_let \<open> let (x) = \<llangle>7 :: nat\<rrangle>; x \<c
 lemma \<open> adv_grouped_let = \<lbrakk> let (x) = \<llangle>7 :: nat\<rrangle>; x \<rbrakk> \<close>
   unfolding adv_grouped_let_def by (rule refl)
 
+urust_expr adv_grouped_switch
+  \<open> match_switch \<llangle>1 :: nat\<rrangle> { (1) \<Rightarrow> \<llangle>True\<rrangle>, (_) \<Rightarrow> \<llangle>False\<rrangle> } \<close>
+lemma \<open> adv_grouped_switch =
+    \<lbrakk> match_switch \<llangle>1 :: nat\<rrangle> { (1) \<Rightarrow> \<llangle>True\<rrangle>, (_) \<Rightarrow> \<llangle>False\<rrangle> } \<rbrakk> \<close>
+  unfolding adv_grouped_switch_def by (rule refl)
+
 urust_expr adv_borrow
   \<open> match_case \<llangle>Some (7 :: nat)\<rrangle> { Some(&x) \<Rightarrow> x, _ \<Rightarrow> 0 } \<close>
 lemma \<open> adv_borrow =

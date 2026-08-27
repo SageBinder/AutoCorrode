@@ -52,15 +52,15 @@ struct
     | P_Value  of literal_payload                     (* bool / string / <<value>> equality pattern *)
     | P_Constr of string * Position.T * ur_pat list   (* C(args): name, name-pos, args *)
     | P_Tuple  of ur_pat list * Position.T            (* (p0, p1, ..), at least two elements *)
-    | P_Group  of ur_pat * Position.T                 (* (p), retained for markup/site gates *)
+    | P_Group  of ur_pat                              (* (p), transparent wrapper *)
     | P_Borrow of borrow_mode * ur_pat * Position.T   (* &p / & mut p; syntax-only today *)
     | P_Alias  of string * Position.T * ur_pat * Position.T
                                                        (* name @ p: name-pos, inner, @-pos *)
     | P_Range  of range_kind * ur_pat * ur_pat * Position.T
                                                        (* lo..hi / lo..=hi, at operator *)
     | P_Slice  of slice_item list * Position.T        (* [p, .., q], at full span *)
-    | P_Struct of string * Position.T * struct_field list * Position.T
-                                                       (* Head { fields }, head-pos + full span *)
+    | P_Struct of string * Position.T * struct_field list
+                                                       (* Head { fields }, at head-pos *)
     | P_Or     of ur_pat list * Position.T            (* p | q | r  (flattened; source order) *)
   and slice_item =
       SI_Pat of ur_pat
@@ -131,8 +131,8 @@ struct
   fun mk_ctor_pat (PI (name, pos), args) = P_Constr (name, pos, args)
   fun mk_alias_pat (PI (name, pos), inner, at_pos) =
     P_Alias (name, pos, inner, at_pos)
-  fun mk_struct_pat (PI (name, pos), fields, right) =
-    P_Struct (name, pos, fields, Position.range_position (pos, right))
+  fun mk_struct_pat (PI (name, pos), fields) =
+    P_Struct (name, pos, fields)
 
   (* Flatten nested or-patterns so `a | b | c` is one P_Or in source order, whatever %left TBAR bracketed. *)
   fun mk_or_pat (p, q, pos) =
@@ -483,7 +483,7 @@ yacc_rules\<open>
              | upat_ident TAT upat_alias
                  (mk_alias_pat (upat_ident, upat_alias, TATleft))
              | LPAR upat RPAR
-                 (P_Group (upat, Position.range_position (LPARleft, RPARright)))
+                 (P_Group upat)
              | LPAR upat COMMA upats RPAR
                  (P_Tuple (upat :: upats, Position.range_position (LPARleft, RPARright)))
              | TLBRACK TRBRACK
@@ -491,7 +491,7 @@ yacc_rules\<open>
              | TLBRACK uslice_items TRBRACK
                  (P_Slice (uslice_items, Position.range_position (TLBRACKleft, TRBRACKright)))
              | upat_ident TLBRACE ustruct_fields TRBRACE
-                 (mk_struct_pat (upat_ident, ustruct_fields, TRBRACEright))
+                 (mk_struct_pat (upat_ident, ustruct_fields))
   upat_ident : IDENT              (PI (IDENT, IDENTleft))
   upats : upat %prec TPATCONTEXT ([upat])
         | upat COMMA upats        (upat :: upats)
@@ -711,7 +711,7 @@ struct
               (case term_name_of ctr of
                  SOME ctor_name =>
                    if name_matches ctor_name id_name'
-                   then SOME (canonical_name ctor_name, ctr, sels)
+                   then SOME (ctor_name, ctr, sels)
                    else NONE
                | NONE => NONE)) entries
           val fallback =
@@ -720,7 +720,7 @@ struct
                  if ty_name = id_name'
                  then
                    (case term_name_of ctr of
-                      SOME ctor_name => [(canonical_name ctor_name, ctr, sels)]
+                      SOME ctor_name => [(ctor_name, ctr, sels)]
                     | NONE => [])
                  else []
              | _ => [])
@@ -735,7 +735,6 @@ struct
             (case resolved_name_opt of
                SOME resolved_name => Record.get_info thy resolved_name
              | NONE => Record.get_info thy rec_name)
-          val key_name = the_default rec_name resolved_name_opt
         in
           (case info_opt of
              NONE => NONE
@@ -744,7 +743,7 @@ struct
                  val (ext_name, _) = #extension info
                  val field_names = map fst (#fields info) @ ["more"]
                in
-                 SOME (canonical_name key_name,
+                 SOME (ext_name,
                    Const (ext_name, dummyT),
                    map (fn field => Const (field, dummyT)) field_names)
                end)
@@ -901,17 +900,21 @@ struct
     | pat_pos (P_Value payload) = literal_pos payload
     | pat_pos (P_Constr (_, pos, _)) = pos
     | pat_pos (P_Tuple (_, pos)) = pos
-    | pat_pos (P_Group (_, pos)) = pos
+    | pat_pos (P_Group pat) = pat_pos pat
     | pat_pos (P_Borrow (_, _, pos)) = pos
-    | pat_pos (P_Alias (_, pos, _, _)) = pos
+    | pat_pos (P_Alias (_, _, _, pos)) = pos
     | pat_pos (P_Range (_, _, _, pos)) = pos
     | pat_pos (P_Slice (_, pos)) = pos
-    | pat_pos (P_Struct (_, pos, _, _)) = pos
+    | pat_pos (P_Struct (_, pos, _)) = pos
     | pat_pos (P_Or (_, pos)) = pos
 
-  fun strip_transparent_pat (P_Group (pat, _)) = strip_transparent_pat pat
-    | strip_transparent_pat (P_Borrow (_, pat, _)) = strip_transparent_pat pat
-    | strip_transparent_pat pat = pat
+  fun strip_group_pat (P_Group pat) = strip_group_pat pat
+    | strip_group_pat pat = pat
+
+  fun strip_case_transparent_pat pat =
+    (case strip_group_pat pat of
+       P_Borrow (_, inner, _) => strip_case_transparent_pat inner
+     | inner => inner)
 
   fun arm_pat (UR_Arm (pat, _, _)) = pat
   fun arm_guard (UR_Arm (_, guard, _)) = guard
@@ -922,9 +925,9 @@ struct
   fun classify_match arms pos =
     let
       fun case_compatible pat =
-        (case strip_transparent_pat pat of P_Lit _ => false | _ => true)
+        (case strip_group_pat pat of P_Lit _ => false | _ => true)
       fun switch_compatible pat =
-        (case strip_transparent_pat pat of
+        (case strip_group_pat pat of
            P_Lit _ => true
          | P_Ident _ => true
          | P_Wild _ => true
@@ -940,7 +943,7 @@ struct
     end
 
   fun bind_pat ctxt env pat =
-    (case pat of
+    (case strip_group_pat pat of
        (* A bare id here is ALWAYS a variable binder, deliberately NOT run through resolve_ctor: the
           frontend's `let` binder is a plain identifier, so `let None = e; ..` binds a variable named
           `None`, and rejecting it as a nullary constructor would be a DIVERGENCE, not extra fidelity. *)
@@ -957,8 +960,6 @@ struct
              | tuple_abs (absf :: rest) body = mk_case_prod (absf (tuple_abs rest body))
              | tuple_abs [] _ = error "urust_expr: internal empty tuple pattern"
          in (fn body => tuple_abs absfs body, env') end
-     | P_Group (inner, _) => bind_pat ctxt env inner
-     | P_Borrow (_, inner, _) => bind_pat ctxt env inner
      | _ =>
          error ("urust_expr: refutable pattern in an irrefutable (let/const) binder position" ^
                 Position.here (pat_pos pat)))
@@ -1045,8 +1046,8 @@ struct
         | expand (P_Tuple (args, pos)) =
             map (fn args' => P_Tuple (args', pos))
               (products (map expand args))
-        | expand (P_Group (inner, pos)) =
-            map (fn inner' => P_Group (inner', pos)) (expand inner)
+        | expand (P_Group inner) =
+            map P_Group (expand inner)
         | expand (P_Borrow (mode, inner, pos)) =
             map (fn inner' => P_Borrow (mode, inner', pos)) (expand inner)
         | expand (P_Alias (name, npos, inner, apos)) =
@@ -1060,13 +1061,13 @@ struct
                 | item_alts (SI_Rest p) = [SI_Rest p]
             in map (fn items' => P_Slice (items', pos))
                  (products (map item_alts items)) end
-        | expand (P_Struct (name, npos, fields, pos)) =
+        | expand (P_Struct (name, npos, fields)) =
             let
               fun field_alts (SF_Field (field, fpos, p)) =
                     map (fn p' => SF_Field (field, fpos, p')) (expand p)
                 | field_alts (SF_Shorthand field) = [SF_Shorthand field]
                 | field_alts (SF_Rest p) = [SF_Rest p]
-            in map (fn fields' => P_Struct (name, npos, fields', pos))
+            in map (fn fields' => P_Struct (name, npos, fields'))
                  (products (map field_alts fields)) end
         | expand p = [p]
     in expand pat end
@@ -1074,7 +1075,7 @@ struct
   (* Register every source binder once for an expanded alternative. Guard and body elaboration then reuse
      the same Free, preserving capture and source navigation, including inside antiquotations. *)
   fun bind_case_vars ctxt pat env =
-    (case pat of
+    (case strip_case_transparent_pat pat of
        P_Wild _ => env
      | P_Lit _ => env
      | P_Value _ => env
@@ -1088,8 +1089,6 @@ struct
                            Position.here pos)
           | SOME _ => fold (bind_case_vars ctxt) args env)
      | P_Tuple (args, _) => fold (bind_case_vars ctxt) args env
-     | P_Group (inner, _) => bind_case_vars ctxt inner env
-     | P_Borrow (_, inner, _) => bind_case_vars ctxt inner env
      | P_Alias ("_", pos, _, _) =>
          error ("urust_expr: alias pattern binder cannot be `_`" ^ Position.here pos)
      | P_Alias (name, pos, inner, _) =>
@@ -1101,7 +1100,7 @@ struct
            fun bind_item (SI_Pat p) env' = bind_case_vars ctxt p env'
              | bind_item (SI_Rest _) env' = env'
          in fold bind_item items env end
-     | P_Struct (name, pos, fields, _) =>
+     | P_Struct (name, pos, fields) =>
          let
            val (_, ordered) = resolve_struct_pattern ctxt (name, pos, fields)
          in fold (fn (_, _, p) => bind_case_vars ctxt p) ordered env end
@@ -1111,7 +1110,7 @@ struct
   (* Literal payloads are elaborated once after the arm's source binders have been registered. Nested
      guard/extraction matches then reuse the resulting term, preserving antiquotation capture and markup. *)
   fun pattern_value_expr ctxt env pat =
-    (case pat of
+    (case strip_group_pat pat of
        P_Lit (lexeme, pos) =>
          let val (value, _) = parse_int_lit pos lexeme
          in mk_literal (HOLogic.mk_number dummyT value) end
@@ -1121,14 +1120,12 @@ struct
             SOME {free, def_pos, id} =>
               (report_ref ctxt id (name, def_pos) pos; mk_literal free)
           | NONE => mk_literal (ident_term ctxt Micro_Rust_Names.NLiteral name pos))
-     | P_Group (inner, _) => pattern_value_expr ctxt env inner
-     | P_Borrow (_, inner, _) => pattern_value_expr ctxt env inner
      | _ =>
          error ("urust_expr: invalid range-pattern endpoint" ^
                 Position.here (pat_pos pat)))
 
   fun prepare_case_pattern ctxt env pat =
-    (case pat of
+    (case strip_case_transparent_pat pat of
        P_Wild p => CP_Wild p
      | P_Ident id => CP_Ident id
      | P_Lit lit => CP_Lit lit
@@ -1137,8 +1134,6 @@ struct
          CP_Constr (name, p, map (prepare_case_pattern ctxt env) args)
      | P_Tuple (args, _) =>
          CP_Tuple (map (prepare_case_pattern ctxt env) args)
-     | P_Group (inner, _) => prepare_case_pattern ctxt env inner
-     | P_Borrow (_, inner, _) => prepare_case_pattern ctxt env inner
      | P_Alias (name, pos, inner, _) =>
          CP_Alias (name, pos, prepare_case_pattern ctxt env inner)
      | P_Range (_, P_Range _, _, pos) =>
@@ -1148,24 +1143,21 @@ struct
      | P_Slice (items, _) =>
          let
            val (prefix, rest_pos, suffix) = split_slice_items items
-           fun closed [] = CP_Resolved (Const (\<^const_name>\<open>List.Nil\<close>, dummyT), [])
-             | closed (p :: ps) =
+           fun cons_chain pats tail =
+             fold_rev (fn p => fn rest =>
                  CP_Resolved (Const (\<^const_name>\<open>List.Cons\<close>, dummyT),
-                   [prepare_case_pattern ctxt env p, closed ps])
-           fun open_prefix [] tail = tail
-             | open_prefix (p :: ps) tail =
-                 CP_Resolved (Const (\<^const_name>\<open>List.Cons\<close>, dummyT),
-                   [prepare_case_pattern ctxt env p, open_prefix ps tail])
+                   [prepare_case_pattern ctxt env p, rest])) pats tail
+           val nil_pat = CP_Resolved (Const (\<^const_name>\<open>List.Nil\<close>, dummyT), [])
          in
            (case rest_pos of
-              NONE => closed prefix
+              NONE => cons_chain prefix nil_pat
             | SOME _ =>
                 if null suffix
-                then open_prefix prefix (CP_Wild Position.none)
-                else open_prefix prefix
-                  (CP_SliceSuffix (closed (rev suffix))))
+                then cons_chain prefix (CP_Wild Position.none)
+                else cons_chain prefix
+                  (CP_SliceSuffix (cons_chain (rev suffix) nil_pat)))
          end
-     | P_Struct (name, pos, fields, _) =>
+     | P_Struct (name, pos, fields) =>
          let
            val (ctor, ordered) = resolve_struct_pattern ctxt (name, pos, fields)
            val _ = report_ctor_markup ctxt pos ctor
@@ -1472,7 +1464,7 @@ struct
          MF_Switch =>
            let
              fun key pat =
-               (case strip_transparent_pat pat of
+               (case strip_group_pat pat of
                   P_Lit (lexeme, p) =>
                    let val (n, _) = parse_int_lit p lexeme
                    in mk_some (HOLogic.mk_number dummyT n) end
@@ -1486,8 +1478,7 @@ struct
                           " (numeral, `_`, or an or-list of those; binding patterns need" ^
                           " `match_case`)" ^ Position.here (pat_pos unsupported)))
              fun switch_alts (P_Or (ps, _)) = maps switch_alts ps
-               | switch_alts (P_Group (p, _)) = switch_alts p
-               | switch_alts (P_Borrow (_, p, _)) = switch_alts p
+               | switch_alts (P_Group p) = switch_alts p
                | switch_alts p = [p]
              fun arm_pairs (UR_Arm (pat, NONE, body)) =
                    let val body' = mk ctxt env body
