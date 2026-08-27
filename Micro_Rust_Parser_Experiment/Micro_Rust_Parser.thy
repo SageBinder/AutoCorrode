@@ -86,7 +86,14 @@ struct
     | Eq | Ne | Lt | Le | Gt | Ge              (* == != < <= > >= *)
     | And | Or                                 (* && ||           *)
   datatype unop = Not                          (* !  (and !! = !(!_)) *)
-  datatype assignop = Assign                   (* =; extended by compound assignment in the next increment *)
+  datatype assign_binop =
+      AssignSub | AssignMul | AssignMod
+    | AssignBAnd | AssignBOr | AssignBXor
+    | AssignShl | AssignShr
+  datatype assignop =
+      Assign
+    | AssignAdd
+    | AssignBin of assign_binop
 
   datatype ur_expr =
       UE_Num       of string * Position.T             (* raw decimal or hexadecimal numeral *)
@@ -123,7 +130,7 @@ struct
     | UE_Field     of ur_expr * string * Position.T   (* e.field -> NField lens focus *)
     | UE_Propagate of ur_expr * Position.T            (* e? -> overloaded propagate_const *)
     | UE_Assign    of assignop * ur_place * ur_expr * Position.T
-                                                      (* place = rhs, at the assignment operator *)
+                                                      (* place assignment-op rhs, at the operator *)
     | UE_Match     of match_flavour * ur_expr * ur_arm list * Position.T
                                                       (* match_<flavour> scrut { pat => body, .. }. ONE node
                                                          for both keywords; only the LOWERING differs --
@@ -177,8 +184,8 @@ struct
     | expr_to_place expr =
         error ("urust_expr: invalid assignment target" ^ Position.here (expr_pos expr))
 
-  fun mk_assign (lhs, rhs, pos) =
-    UE_Assign (Assign, expr_to_place lhs, rhs, pos)
+  fun mk_assign (aop, pos) lhs rhs =
+    UE_Assign (aop, expr_to_place lhs, rhs, pos)
 
   (* `_` lexes as an ordinary IDENT: normalise to P_Wild in ONE place, not an `= "_"` test at every site. *)
   fun mk_ident_pat (s, pos) = if s = "_" then P_Wild pos else P_Ident (s, pos)
@@ -227,7 +234,7 @@ section\<open> Lexer + grammar \<close>
 text\<open>
 Lexer start states capture value and expression antiquotation bodies without lexing their
 HOL content. Yacc directives reproduce the frontend precedence
-(\<open>Micro_Rust_Syntax.thy:559-603\<close>). Only token shims remain lexer-local; positions use
+(\<open>Micro_Rust_Syntax.thy:559-639\<close>). Only token shims remain lexer-local; positions use
 \<open>Parser_Lex_Util\<close>.
 \<close>
 ml_lex_yacc [verbose] "URust" where
@@ -280,6 +287,15 @@ lex_rules\<open>
 <INITIAL>"match_switch" => (tokF (yypos, yytext, Markup.keyword1, "TMATCHSWITCH", Tokens.TMATCHSWITCH));
 <INITIAL>"match_case"   => (tokF (yypos, yytext, Markup.keyword1, "TMATCHCASE", Tokens.TMATCHCASE));
 <INITIAL>"mut"    => (tokF (yypos, yytext, Markup.keyword1, "TMUT", Tokens.TMUT));
+<INITIAL>"<<="    => (tokF (yypos, yytext, Markup.operator, "TSHLEQ", Tokens.TSHLEQ));
+<INITIAL>">>="    => (tokF (yypos, yytext, Markup.operator, "TSHREQ", Tokens.TSHREQ));
+<INITIAL>"+="     => (tokF (yypos, yytext, Markup.operator, "TPLUSEQ", Tokens.TPLUSEQ));
+<INITIAL>"-="     => (tokF (yypos, yytext, Markup.operator, "TMINUSEQ", Tokens.TMINUSEQ));
+<INITIAL>"*="     => (tokF (yypos, yytext, Markup.operator, "TSTAREQ", Tokens.TSTAREQ));
+<INITIAL>"%="     => (tokF (yypos, yytext, Markup.operator, "TPERCENTEQ", Tokens.TPERCENTEQ));
+<INITIAL>"&="     => (tokF (yypos, yytext, Markup.operator, "TAMPEQ", Tokens.TAMPEQ));
+<INITIAL>"|="     => (tokF (yypos, yytext, Markup.operator, "TBAREQ", Tokens.TBAREQ));
+<INITIAL>"^="     => (tokF (yypos, yytext, Markup.operator, "TCARETEQ", Tokens.TCARETEQ));
 <INITIAL>"="      => (tokF (yypos, yytext, Markup.delimiter, "TEQ", Tokens.TEQ));
 <INITIAL>";"      => (tokF (yypos, yytext, Markup.delimiter, "TSEMI", Tokens.TSEMI));
 <INITIAL>"..="    => (tokF (yypos, yytext, Markup.operator, "TDOTDOTEQ", Tokens.TDOTDOTEQ));
@@ -370,6 +386,8 @@ yacc_definitions\<open>
     | TIF | TELSE | TLBRACE | TRBRACE | TLBRACK | TRBRACK | COMMA | TDOT | TCOLON | TAT
     | TPLUS | TMINUS | TSTAR | TSLASH | TPERCENT
     | TSHL | TSHR | TAMP | TBAR | TCARET
+    | TPLUSEQ | TMINUSEQ | TSTAREQ | TPERCENTEQ
+    | TAMPEQ | TBAREQ | TCARETEQ | TSHLEQ | TSHREQ
     | TEQEQ | TNE | TLT | TLE | TGT | TGE
     | TAMPAMP | TBARBAR | TBANG | TQUESTION
     | TMATCH | TMATCHSWITCH | TMATCHCASE | TARROW
@@ -378,6 +396,7 @@ yacc_definitions\<open>
        | ustmt of URust_AST.ur_expr
        | uval of URust_AST.ur_expr
        | uassign of URust_AST.ur_expr
+       | uassignop of URust_AST.assignop * Position.T
        | uexp of URust_AST.ur_expr
        | urefprefix of URust_AST.ur_expr
        | unotprefix of URust_AST.ur_expr
@@ -438,7 +457,17 @@ yacc_rules\<open>
      remain ordinary expression atoms, while lower-priority `if`/`match` forms require parentheses on
      the RHS, matching the frontend's priority-40 boundary. The LHS crosses expr_to_place exactly once. *)
   uassign : uexp (uexp)
-          | uexp TEQ uassign (mk_assign (uexp, uassign, TEQleft))
+          | uexp uassignop uassign (mk_assign uassignop uexp uassign)
+  uassignop : TEQ        ((Assign, TEQleft))
+            | TPLUSEQ    ((AssignAdd, TPLUSEQleft))
+            | TMINUSEQ   ((AssignBin AssignSub, TMINUSEQleft))
+            | TSTAREQ    ((AssignBin AssignMul, TSTAREQleft))
+            | TPERCENTEQ ((AssignBin AssignMod, TPERCENTEQleft))
+            | TAMPEQ     ((AssignBin AssignBAnd, TAMPEQleft))
+            | TBAREQ     ((AssignBin AssignBOr, TBAREQleft))
+            | TCARETEQ   ((AssignBin AssignBXor, TCARETEQleft))
+            | TSHLEQ     ((AssignBin AssignShl, TSHLEQleft))
+            | TSHREQ     ((AssignBin AssignShr, TSHREQleft))
   (* Postfixes form a structural tier above atoms, so `?`, field access, and methods compose
      left-to-right and bind tighter than prefix/binary operators. A dotted identifier followed by
      parentheses is a method; without parentheses it is an NField lens access. *)
@@ -959,6 +988,9 @@ struct
         [Const (\<^const_name>\<open>call\<close>, dummyT),
          mk_const_at \<^const_name>\<open>store_update_const\<close> pos []],
        place, rhs]
+  fun mk_assign_add pos place rhs =
+    mk_const \<^const_name>\<open>funcall2\<close>
+      [mk_const_at \<^const_name>\<open>assign_add_const\<close> pos [], place, rhs]
 
   fun mk_ident_expr ctxt env (name, pos) =
     (case Symtab.lookup env name of
@@ -1015,6 +1047,14 @@ struct
     | binop_const And  = \<^const_name>\<open>urust_conj\<close>
     | binop_const Or   = \<^const_name>\<open>urust_disj\<close>
   fun unop_const Not = \<^const_name>\<open>negation_const\<close>
+  fun binop_of_assign_binop AssignSub  = Sub
+    | binop_of_assign_binop AssignMul  = Mul
+    | binop_of_assign_binop AssignMod  = Mod
+    | binop_of_assign_binop AssignBAnd = BAnd
+    | binop_of_assign_binop AssignBOr  = BOr
+    | binop_of_assign_binop AssignBXor = BXor
+    | binop_of_assign_binop AssignShl  = Shl
+    | binop_of_assign_binop AssignShr  = Shr
   fun mk_bin bop a b = mk_const (binop_const bop) [a, b]
   fun mk_un uop a    = mk_const (unop_const uop) [a]
 
@@ -1570,8 +1610,18 @@ struct
          mk_field ctxt (mk ctxt env receiver) name pos
      | UE_Propagate (expr, pos) =>
          mk_const_at \<^const_name>\<open>propagate_const\<close> pos [mk ctxt env expr]
-     | UE_Assign (Assign, place, rhs, pos) =>
-         mk_update pos (mk_place ctxt env place) (mk ctxt env rhs)
+     | UE_Assign (aop, place, rhs, pos) =>
+         let
+           val place' = mk_place ctxt env place
+           val rhs' = mk ctxt env rhs
+         in
+           (case aop of
+              Assign => mk_update pos place' rhs'
+            | AssignAdd => mk_assign_add pos place' rhs'
+            | AssignBin bop =>
+                mk_update pos place'
+                  (mk_bin (binop_of_assign_binop bop) (mk_deref pos place') rhs'))
+         end
      | UE_Match args => elab_match ctxt env args)
 
   and mk_place ctxt env place =

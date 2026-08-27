@@ -400,6 +400,20 @@ urust_expr_rejects
   \<open> syntax error: deleting  TIF \<close>
   \<comment> \<open> [FIDELITY] a bare \<open>if\<close> is too weak to be an assignment RHS; the grouped form is positive. \<close>
 
+urust_expr_rejects
+  \<open> r += match flag { true \<Rightarrow> lhs, false \<Rightarrow> rhs } \<close>
+  \<open> syntax error: deleting  TMATCH \<close>
+  \<comment> \<open> [FIDELITY] compound assignment has the same bare-match RHS boundary. \<close>
+
+urust_expr_rejects
+  \<open> r += if flag { lhs } else { rhs } \<close>
+  \<open> syntax error: deleting  TIF \<close>
+  \<comment> \<open> [FIDELITY] compound assignment recurses through \<open>uassign\<close>, not lower-priority control flow. \<close>
+
+urust_expr_rejects \<open> r /= rhs \<close> \<open> TEQ \<close>
+  \<comment> \<open> [FIDELITY] the current frontend has no \<open>/=\<close> production; this remains a post-parity
+       Rust-facing extension. \<close>
+
 section\<open> Invalid assignment targets \<close>
 
 text\<open>
@@ -453,6 +467,13 @@ urust_expr_rejects \<open> (r = rhs) = other \<close> \<open> invalid assignment
 urust_expr_rejects \<open> ncf1(\<llangle>1 :: 64 word\<rrangle>).field = rhs \<close>
   \<open> invalid assignment target \<close>
   \<comment> \<open> [FIDELITY] field-place validation recursively rejects an invalid call-result base. \<close>
+
+urust_expr_rejects \<open> 0 += rhs \<close> \<open> invalid assignment target \<close>
+  \<comment> \<open> [FIDELITY] compound assignment uses the same literal-target rejection path. \<close>
+
+urust_expr_rejects \<open> r + other *= rhs \<close> \<open> invalid assignment target \<close>
+  \<comment> \<open> [FIDELITY] pure operators bind above every assignment operator, so the complete binary LHS
+       reaches the shared place validator. \<close>
 
 section\<open> Lexer and whole-input failures \<close>
 

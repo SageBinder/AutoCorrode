@@ -249,30 +249,14 @@ coverage in \<open>Micro_Rust_Parser_Conformance.thy\<close>.
 
 subsubsection\<open>Compound Assignment\<close>
 
-context
-  fixes a b :: \<open>'s\<close>
-begin
-lemma \<open>undefined = \<lbrakk> let mut x = a; x += b; *x \<rbrakk>\<close> sorry
-end
-
-context
-  fixes a b :: \<open>32 word\<close>
-begin
-lemma \<open>undefined = \<lbrakk> let mut x = a; x -= b; *x \<rbrakk>\<close> sorry
-lemma \<open>undefined = \<lbrakk> let mut x = a; x *= b; *x \<rbrakk>\<close> sorry
-lemma \<open>undefined = \<lbrakk> let mut x = a; x %= b; *x \<rbrakk>\<close> sorry
-lemma \<open>undefined = \<lbrakk> let mut x = a; x |= b; *x \<rbrakk>\<close> sorry
-lemma \<open>undefined = \<lbrakk> let mut x = a; x &= b; *x \<rbrakk>\<close> sorry
-lemma \<open>undefined = \<lbrakk> let mut x = a; x ^= b; *x \<rbrakk>\<close> sorry
-end
-
-context
-  fixes a :: \<open>32 word\<close>
-  fixes b :: \<open>64 word\<close>
-begin
-lemma \<open>undefined = \<lbrakk> let mut x = a; x <<= b; *x \<rbrakk>\<close> sorry
-lemma \<open>undefined = \<lbrakk> let mut x = a; x >>= b; *x \<rbrakk>\<close> sorry
-end
+text\<open>
+The frontend-supported operators \<open>+= -= *= %= &= |= ^= <<= >>=\<close> and their
+place, precedence, associativity, mutable-binding, and control-flow boundaries have
+runnable frontend-equivalence coverage in
+\<open>Micro_Rust_Parser_Conformance.thy\<close>. The frontend does not provide \<open>/=\<close>;
+its fidelity rejection is checked in
+\<open>Micro_Rust_Parser_Negative_Conformance.thy\<close>.
+\<close>
 
 subsection\<open>Control Flow - Conditionals\<close>
 

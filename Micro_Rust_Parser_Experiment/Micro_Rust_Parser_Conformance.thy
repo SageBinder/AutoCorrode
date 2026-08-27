@@ -1065,6 +1065,11 @@ definition parser_update_fixture ::
     (unit, unit, unit, unit, unit) function_body\<close>
   where \<open> parser_update_fixture \<equiv> undefined \<close>
 
+definition parser_assign_add_fixture ::
+  \<open>(unit, unit, 'v) Global_Store.ref \<Rightarrow> 'w \<Rightarrow>
+    (unit, unit, unit, unit, unit) function_body\<close>
+  where \<open> parser_assign_add_fixture \<equiv> undefined \<close>
+
 definition assignment_sink ::
   \<open>unit \<Rightarrow> (unit, unit, unit, unit, unit) function_body\<close>
   where \<open> assignment_sink \<equiv> lift_fun1 (\<lambda>_. ()) \<close>
@@ -1078,6 +1083,7 @@ micro_rust_notation (literal) assignment_shadow_backend ("assignmentPlace")
 adhoc_overloading store_reference_const \<rightleftharpoons> parser_reference_fixture
 adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
 adhoc_overloading store_update_const \<rightleftharpoons> parser_update_fixture
+adhoc_overloading assign_add_const \<rightleftharpoons> parser_assign_add_fixture
 
 subsection\<open> Identifier, grouping, and dereference places \<close>
 
@@ -1215,9 +1221,131 @@ lemma \<open> assign_deref_field_chain = \<lbrakk> *rp.inner.value = field_value
 
 end
 
+section\<open> Compound assignment \<close>
+
+subsection\<open> Supported operators and places \<close>
+
+context
+  fixes r :: \<open>(unit, unit, 32 word) Global_Store.ref\<close>
+    and rhs other :: \<open>32 word\<close>
+begin
+
+urust_expr compound_add_identifier \<open> r += rhs \<close>
+lemma \<open> compound_add_identifier = \<lbrakk> r += rhs \<rbrakk> \<close>
+  unfolding compound_add_identifier_def by (rule refl)
+
+urust_expr compound_sub_grouped \<open> (r) -= rhs \<close>
+lemma \<open> compound_sub_grouped = \<lbrakk> (r) -= rhs \<rbrakk> \<close>
+  unfolding compound_sub_grouped_def by (rule refl)
+
+urust_expr compound_mul_deref \<open> *r *= rhs \<close>
+lemma \<open> compound_mul_deref = \<lbrakk> *r *= rhs \<rbrakk> \<close>
+  unfolding compound_mul_deref_def by (rule refl)
+
+urust_expr compound_mod_identifier \<open> r %= rhs \<close>
+lemma \<open> compound_mod_identifier = \<lbrakk> r %= rhs \<rbrakk> \<close>
+  unfolding compound_mod_identifier_def by (rule refl)
+
+urust_expr compound_and_identifier \<open> r &= rhs \<close>
+lemma \<open> compound_and_identifier = \<lbrakk> r &= rhs \<rbrakk> \<close>
+  unfolding compound_and_identifier_def by (rule refl)
+
+urust_expr compound_or_identifier \<open> r |= rhs \<close>
+lemma \<open> compound_or_identifier = \<lbrakk> r |= rhs \<rbrakk> \<close>
+  unfolding compound_or_identifier_def by (rule refl)
+
+urust_expr compound_xor_identifier \<open> r ^= rhs \<close>
+lemma \<open> compound_xor_identifier = \<lbrakk> r ^= rhs \<rbrakk> \<close>
+  unfolding compound_xor_identifier_def by (rule refl)
+
+urust_expr compound_rhs_precedence \<open> r -= rhs * other \<close>
+lemma \<open> compound_rhs_precedence = \<lbrakk> r -= rhs * other \<rbrakk> \<close>
+  unfolding compound_rhs_precedence_def by (rule refl)
+
+urust_expr compound_block_rhs \<open> r ^= { rhs } \<close>
+lemma \<open> compound_block_rhs = \<lbrakk> r ^= { rhs } \<rbrakk> \<close>
+  unfolding compound_block_rhs_def by (rule refl)
+
+end
+
+context
+  fixes r :: \<open>(unit, unit, 32 word) Global_Store.ref\<close>
+    and shift :: \<open>64 word\<close>
+begin
+
+urust_expr compound_shift_left \<open> r <<= shift \<close>
+lemma \<open> compound_shift_left = \<lbrakk> r <<= shift \<rbrakk> \<close>
+  unfolding compound_shift_left_def by (rule refl)
+
+urust_expr compound_shift_right \<open> r >>= shift \<close>
+lemma \<open> compound_shift_right = \<lbrakk> r >>= shift \<rbrakk> \<close>
+  unfolding compound_shift_right_def by (rule refl)
+
+end
+
+context
+  fixes rp :: \<open>(unit, unit, postfix_outer) Global_Store.ref\<close>
+    and field_value :: \<open>64 word\<close>
+begin
+
+urust_expr compound_field_chain \<open> rp.inner.value %= field_value \<close>
+lemma \<open> compound_field_chain = \<lbrakk> rp.inner.value %= field_value \<rbrakk> \<close>
+  unfolding compound_field_chain_def by (rule refl)
+
+end
+
+subsection\<open> Mutable locals, associativity, and control-flow boundaries \<close>
+
+context
+  fixes a b :: \<open>32 word\<close>
+begin
+
+urust_expr compound_mutable_local
+  \<open> let mut x = a; x += b; *x \<close>
+lemma \<open> compound_mutable_local =
+    \<lbrakk> let mut x = a; x += b; *x \<rbrakk> \<close>
+  unfolding compound_mutable_local_def by (rule refl)
+
+end
+
+context
+  fixes outer :: \<open>(unit, unit, unit) Global_Store.ref\<close>
+    and inner :: \<open>(unit, unit, 32 word) Global_Store.ref\<close>
+    and rhs :: \<open>32 word\<close>
+begin
+
+urust_expr compound_simple_then_compound \<open> outer = inner -= rhs \<close>
+lemma \<open> compound_simple_then_compound = \<lbrakk> outer = inner -= rhs \<rbrakk> \<close>
+  unfolding compound_simple_then_compound_def by (rule refl)
+
+urust_expr compound_then_simple \<open> outer += inner = rhs \<close>
+lemma \<open> compound_then_simple = \<lbrakk> outer += inner = rhs \<rbrakk> \<close>
+  unfolding compound_then_simple_def by (rule refl)
+
+urust_expr compound_right_associative \<open> outer += inner += rhs \<close>
+lemma \<open> compound_right_associative = \<lbrakk> outer += inner += rhs \<rbrakk> \<close>
+  unfolding compound_right_associative_def by (rule refl)
+
+end
+
+context
+  fixes r :: \<open>(unit, unit, 32 word) Global_Store.ref\<close>
+    and lhs rhs :: \<open>32 word\<close>
+    and flag :: bool
+begin
+
+urust_expr compound_grouped_control_rhs
+  \<open> r |= (if flag { lhs } else { rhs }) \<close>
+lemma \<open> compound_grouped_control_rhs =
+    \<lbrakk> r |= (if flag { lhs } else { rhs }) \<rbrakk> \<close>
+  unfolding compound_grouped_control_rhs_def by (rule refl)
+
+end
+
 no_adhoc_overloading store_reference_const \<rightleftharpoons> parser_reference_fixture
 no_adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
 no_adhoc_overloading store_update_const \<rightleftharpoons> parser_update_fixture
+no_adhoc_overloading assign_add_const \<rightleftharpoons> parser_assign_add_fixture
 
 
 section\<open> Cross-feature robustness (calls / methods x operators / control-flow / binders) \<close>
