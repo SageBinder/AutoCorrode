@@ -880,9 +880,9 @@ section\<open> Match \<open>match_case\<close> (Corpus "Match Expressions" -- bi
 
 text\<open>
 \<open>match_case\<close> builds the Ctr_Sugar skeleton that \<open>Case_Translation\<close>
-folds to the frontend term (D27). Tier 0 supports wildcard, variable, nullary
-constructor, and single-level constructor patterns with variable or wildcard arguments.
-Guards, disjunction, and richer patterns remain deferred.
+folds to the frontend term (D27). These baseline rows cover wildcard, variable,
+nullary-constructor, and single-level constructor patterns. Later sections exercise
+recursive, guarded, value, tuple, alias, range, slice, and struct patterns.
 \<close>
 
 datatype pair2 = P2 nat nat   \<comment>\<open> a 2-ary constructor, to exercise the multi-binder (leftmost-outermost) arm path \<close>
@@ -1308,6 +1308,173 @@ lemma \<open> tuple_match_or_inside =
   unfolding tuple_match_or_inside_def by (rule refl)
 
 
+section\<open> Advanced pattern parity \<close>
+
+subsection\<open> Grouped, borrow, alias, and range patterns \<close>
+
+urust_expr adv_grouped
+  \<open> match_case \<llangle>Some (7 :: nat)\<rrangle> { (Some(x)) \<Rightarrow> x, (_) \<Rightarrow> 0 } \<close>
+lemma \<open> adv_grouped =
+    \<lbrakk> match_case \<llangle>Some (7 :: nat)\<rrangle> { (Some(x)) \<Rightarrow> x, (_) \<Rightarrow> 0 } \<rbrakk> \<close>
+  unfolding adv_grouped_def by (rule refl)
+
+urust_expr adv_grouped_let \<open> let (x) = \<llangle>7 :: nat\<rrangle>; x \<close>
+lemma \<open> adv_grouped_let = \<lbrakk> let (x) = \<llangle>7 :: nat\<rrangle>; x \<rbrakk> \<close>
+  unfolding adv_grouped_let_def by (rule refl)
+
+urust_expr adv_borrow
+  \<open> match_case \<llangle>Some (7 :: nat)\<rrangle> { Some(&x) \<Rightarrow> x, _ \<Rightarrow> 0 } \<close>
+lemma \<open> adv_borrow =
+    \<lbrakk> match_case \<llangle>Some (7 :: nat)\<rrangle> { Some(&x) \<Rightarrow> x, _ \<Rightarrow> 0 } \<rbrakk> \<close>
+  unfolding adv_borrow_def by (rule refl)
+
+urust_expr adv_borrow_mut
+  \<open> match_case \<llangle>Some (7 :: nat)\<rrangle> { Some(& mut x) \<Rightarrow> x, _ \<Rightarrow> 0 } \<close>
+lemma \<open> adv_borrow_mut =
+    \<lbrakk> match_case \<llangle>Some (7 :: nat)\<rrangle> { Some(& mut x) \<Rightarrow> x, _ \<Rightarrow> 0 } \<rbrakk> \<close>
+  unfolding adv_borrow_mut_def by (rule refl)
+
+urust_expr adv_alias
+  \<open> match \<llangle>Some (7 :: nat)\<rrangle> { whole @ Some(v) \<Rightarrow> whole, _ \<Rightarrow> None } \<close>
+lemma \<open> adv_alias =
+    \<lbrakk> match \<llangle>Some (7 :: nat)\<rrangle> { whole @ Some(v) \<Rightarrow> whole, _ \<Rightarrow> None } \<rbrakk> \<close>
+  unfolding adv_alias_def by (rule refl)
+
+urust_expr adv_alias_nested
+  \<open> match \<llangle>Some (Some (7 :: nat))\<rrangle> { Some(whole @ Some(v)) \<Rightarrow> \<llangle>whole\<rrangle>, _ \<Rightarrow> \<llangle>None\<rrangle> } \<close>
+lemma \<open> adv_alias_nested =
+    \<lbrakk> match \<llangle>Some (Some (7 :: nat))\<rrangle> { Some(whole @ Some(v)) \<Rightarrow> \<llangle>whole\<rrangle>, _ \<Rightarrow> \<llangle>None\<rrangle> } \<rbrakk> \<close>
+  unfolding adv_alias_nested_def by (rule refl)
+
+urust_expr adv_alias_shadow
+  \<open> let whole = \<llangle>None :: nat option\<rrangle>; match \<llangle>Some (7 :: nat)\<rrangle> { whole @ Some(v) \<Rightarrow> whole, _ \<Rightarrow> whole } \<close>
+lemma \<open> adv_alias_shadow =
+    \<lbrakk> let whole = \<llangle>None :: nat option\<rrangle>; match \<llangle>Some (7 :: nat)\<rrangle> { whole @ Some(v) \<Rightarrow> whole, _ \<Rightarrow> whole } \<rbrakk> \<close>
+  unfolding adv_alias_shadow_def by (rule refl)
+
+urust_expr adv_range_exclusive
+  \<open> match_case \<llangle>Some (7 :: nat)\<rrangle> { Some(5..7) \<Rightarrow> \<llangle>False\<rrangle>, _ \<Rightarrow> \<llangle>True\<rrangle> } \<close>
+lemma \<open> adv_range_exclusive =
+    \<lbrakk> match_case \<llangle>Some (7 :: nat)\<rrangle> { Some(5..7) \<Rightarrow> \<llangle>False\<rrangle>, _ \<Rightarrow> \<llangle>True\<rrangle> } \<rbrakk> \<close>
+  unfolding adv_range_exclusive_def by (rule refl)
+
+urust_expr adv_range_inclusive
+  \<open> match_case \<llangle>Some (7 :: nat)\<rrangle> { Some(5..=7) \<Rightarrow> \<llangle>True\<rrangle>, _ \<Rightarrow> \<llangle>False\<rrangle> } \<close>
+lemma \<open> adv_range_inclusive =
+    \<lbrakk> match_case \<llangle>Some (7 :: nat)\<rrangle> { Some(5..=7) \<Rightarrow> \<llangle>True\<rrangle>, _ \<Rightarrow> \<llangle>False\<rrangle> } \<rbrakk> \<close>
+  unfolding adv_range_inclusive_def by (rule refl)
+
+urust_expr adv_range_guard
+  \<open> match_case \<llangle>Some (6 :: nat)\<rrangle> { Some(5..=7) if True \<Rightarrow> \<llangle>1 :: nat\<rrangle>, Some(5..=7) \<Rightarrow> \<llangle>2 :: nat\<rrangle>, _ \<Rightarrow> \<llangle>3 :: nat\<rrangle> } \<close>
+lemma \<open> adv_range_guard =
+    \<lbrakk> match_case \<llangle>Some (6 :: nat)\<rrangle> { Some(5..=7) if True \<Rightarrow> \<llangle>1 :: nat\<rrangle>, Some(5..=7) \<Rightarrow> \<llangle>2 :: nat\<rrangle>, _ \<Rightarrow> \<llangle>3 :: nat\<rrangle> } \<rbrakk> \<close>
+  unfolding adv_range_guard_def by (rule refl)
+
+urust_expr adv_range_nested
+  \<open> match \<llangle>Some (6 :: nat)\<rrangle> { Some(5..=7) \<Rightarrow> \<llangle>True\<rrangle>, _ \<Rightarrow> \<llangle>False\<rrangle> } \<close>
+lemma \<open> adv_range_nested =
+    \<lbrakk> match \<llangle>Some (6 :: nat)\<rrangle> { Some(5..=7) \<Rightarrow> \<llangle>True\<rrangle>, _ \<Rightarrow> \<llangle>False\<rrangle> } \<rbrakk> \<close>
+  unfolding adv_range_nested_def by (rule refl)
+
+subsection\<open> Slice patterns \<close>
+
+urust_expr adv_slice_empty
+  \<open> match \<llangle>([] :: nat list)\<rrangle> { [] \<Rightarrow> \<llangle>True\<rrangle>, _ \<Rightarrow> \<llangle>False\<rrangle> } \<close>
+lemma \<open> adv_slice_empty =
+    \<lbrakk> match \<llangle>([] :: nat list)\<rrangle> { [] \<Rightarrow> \<llangle>True\<rrangle>, _ \<Rightarrow> \<llangle>False\<rrangle> } \<rbrakk> \<close>
+  unfolding adv_slice_empty_def by (rule refl)
+
+urust_expr adv_slice_closed
+  \<open> match \<llangle>[1 :: nat, 2]\<rrangle> { [x, y] \<Rightarrow> x, _ \<Rightarrow> 0 } \<close>
+lemma \<open> adv_slice_closed =
+    \<lbrakk> match \<llangle>[1 :: nat, 2]\<rrangle> { [x, y] \<Rightarrow> x, _ \<Rightarrow> 0 } \<rbrakk> \<close>
+  unfolding adv_slice_closed_def by (rule refl)
+
+urust_expr adv_slice_prefix
+  \<open> match \<llangle>[1 :: nat, 2, 3]\<rrangle> { [head, ..] \<Rightarrow> head, _ \<Rightarrow> 0 } \<close>
+lemma \<open> adv_slice_prefix =
+    \<lbrakk> match \<llangle>[1 :: nat, 2, 3]\<rrangle> { [head, ..] \<Rightarrow> head, _ \<Rightarrow> 0 } \<rbrakk> \<close>
+  unfolding adv_slice_prefix_def by (rule refl)
+
+urust_expr adv_slice_suffix
+  \<open> match \<llangle>[1 :: nat, 2, 3]\<rrangle> { [.., y, z] \<Rightarrow> y, _ \<Rightarrow> 0 } \<close>
+lemma \<open> adv_slice_suffix =
+    \<lbrakk> match \<llangle>[1 :: nat, 2, 3]\<rrangle> { [.., y, z] \<Rightarrow> y, _ \<Rightarrow> 0 } \<rbrakk> \<close>
+  unfolding adv_slice_suffix_def by (rule refl)
+
+urust_expr adv_slice_middle
+  \<open> match \<llangle>[1 :: nat, 2, 3, 4]\<rrangle> { [a, b, .., y, z] \<Rightarrow> z, _ \<Rightarrow> 0 } \<close>
+lemma \<open> adv_slice_middle =
+    \<lbrakk> match \<llangle>[1 :: nat, 2, 3, 4]\<rrangle> { [a, b, .., y, z] \<Rightarrow> z, _ \<Rightarrow> 0 } \<rbrakk> \<close>
+  unfolding adv_slice_middle_def by (rule refl)
+
+urust_expr adv_slice_short
+  \<open> match \<llangle>[1 :: nat, 2, 3]\<rrangle> { [a, b, .., y, z] \<Rightarrow> \<llangle>True\<rrangle>, _ \<Rightarrow> \<llangle>False\<rrangle> } \<close>
+lemma \<open> adv_slice_short =
+    \<lbrakk> match \<llangle>[1 :: nat, 2, 3]\<rrangle> { [a, b, .., y, z] \<Rightarrow> \<llangle>True\<rrangle>, _ \<Rightarrow> \<llangle>False\<rrangle> } \<rbrakk> \<close>
+  unfolding adv_slice_short_def by (rule refl)
+
+urust_expr adv_slice_nested
+  \<open> match \<llangle>Some [1 :: nat, 2, 3]\<rrangle> { Some([a, .., z]) \<Rightarrow> z, _ \<Rightarrow> 0 } \<close>
+lemma \<open> adv_slice_nested =
+    \<lbrakk> match \<llangle>Some [1 :: nat, 2, 3]\<rrangle> { Some([a, .., z]) \<Rightarrow> z, _ \<Rightarrow> 0 } \<rbrakk> \<close>
+  unfolding adv_slice_nested_def by (rule refl)
+
+urust_expr adv_slice_guard_or
+  \<open> match \<llangle>[1 :: nat, 2]\<rrangle> { [x, ..] | [] if True \<Rightarrow> \<llangle>True\<rrangle>, _ \<Rightarrow> \<llangle>False\<rrangle> } \<close>
+lemma \<open> adv_slice_guard_or =
+    \<lbrakk> match \<llangle>[1 :: nat, 2]\<rrangle> { [x, ..] | [] if True \<Rightarrow> \<llangle>True\<rrangle>, _ \<Rightarrow> \<llangle>False\<rrangle> } \<rbrakk> \<close>
+  unfolding adv_slice_guard_or_def by (rule refl)
+
+subsection\<open> Struct patterns \<close>
+
+datatype adv_struct_fixture =
+  AdvStruct (adv_left: nat) (adv_right: nat)
+| AdvOther
+
+datatype adv_nested_fixture =
+  AdvNested (adv_option: "nat option") (adv_values: "nat list")
+
+datatype_record adv_datatype_record =
+  adv_dr_left :: nat
+  adv_dr_right :: nat
+
+urust_expr adv_struct_reordered
+  \<open> match \<llangle>AdvStruct 1 2\<rrangle> { AdvStruct { adv_right: y, adv_left: x } \<Rightarrow> x, _ \<Rightarrow> 0 } \<close>
+lemma \<open> adv_struct_reordered =
+    \<lbrakk> match \<llangle>AdvStruct 1 2\<rrangle> { AdvStruct { adv_right: y, adv_left: x } \<Rightarrow> x, _ \<Rightarrow> 0 } \<rbrakk> \<close>
+  unfolding adv_struct_reordered_def by (rule refl)
+
+urust_expr adv_struct_shorthand
+  \<open> match \<llangle>AdvStruct 1 2\<rrangle> { AdvStruct { adv_left, adv_right } \<Rightarrow> adv_right, _ \<Rightarrow> 0 } \<close>
+lemma \<open> adv_struct_shorthand =
+    \<lbrakk> match \<llangle>AdvStruct 1 2\<rrangle> { AdvStruct { adv_left, adv_right } \<Rightarrow> adv_right, _ \<Rightarrow> 0 } \<rbrakk> \<close>
+  unfolding adv_struct_shorthand_def by (rule refl)
+
+urust_expr adv_struct_rest
+  \<open> match \<llangle>AdvStruct 1 2\<rrangle> { AdvStruct { adv_left, .. } \<Rightarrow> adv_left, _ \<Rightarrow> 0 } \<close>
+lemma \<open> adv_struct_rest =
+    \<lbrakk> match \<llangle>AdvStruct 1 2\<rrangle> { AdvStruct { adv_left, .. } \<Rightarrow> adv_left, _ \<Rightarrow> 0 } \<rbrakk> \<close>
+  unfolding adv_struct_rest_def by (rule refl)
+
+urust_expr adv_struct_nested
+  \<open> match \<llangle>AdvNested (Some (3 :: nat)) [4, 5]\<rrangle> { AdvNested { adv_option: Some(x), adv_values: [y, .., z] } if True \<Rightarrow> z, _ \<Rightarrow> 0 } \<close>
+lemma \<open> adv_struct_nested =
+    \<lbrakk> match \<llangle>AdvNested (Some (3 :: nat)) [4, 5]\<rrangle> { AdvNested { adv_option: Some(x), adv_values: [y, .., z] } if True \<Rightarrow> z, _ \<Rightarrow> 0 } \<rbrakk> \<close>
+  unfolding adv_struct_nested_def by (rule refl)
+
+urust_expr adv_struct_or
+  \<open> match \<llangle>AdvStruct 1 2\<rrangle> { AdvStruct { adv_left: _, adv_right: _ } | AdvOther \<Rightarrow> \<llangle>True\<rrangle> } \<close>
+lemma \<open> adv_struct_or =
+    \<lbrakk> match \<llangle>AdvStruct 1 2\<rrangle> { AdvStruct { adv_left: _, adv_right: _ } | AdvOther \<Rightarrow> \<llangle>True\<rrangle> } \<rbrakk> \<close>
+  unfolding adv_struct_or_def by (rule refl)
+
+urust_expr adv_struct_datatype_record
+  \<open> match \<llangle>make_adv_datatype_record 3 4\<rrangle> { adv_datatype_record { adv_dr_right: y, adv_dr_left: x } \<Rightarrow> y } \<close>
+lemma \<open> adv_struct_datatype_record =
+    \<lbrakk> match \<llangle>make_adv_datatype_record 3 4\<rrangle> { adv_datatype_record { adv_dr_right: y, adv_dr_left: x } \<Rightarrow> y } \<rbrakk> \<close>
+  unfolding adv_struct_datatype_record_def by (rule refl)
+
 section\<open> Bare \<open>match\<close> (automatic case/switch routing, D32) \<close>
 
 text\<open>
@@ -1416,13 +1583,14 @@ lowers it through NField to a lens focus (Core_Syntax.thy:439-440). It remains d
 a runnable golden needs field notation and concrete lens types.
 \<close>
 
-subsection\<open> D-7: remaining richer match patterns -- parser UNDER-accepts \<close>
+subsection\<open> D-7: advanced patterns -- resolved for current consumers \<close>
 
 text\<open>
-D-7 now excludes value patterns, tuples, guards, case disjunction, and recursive constructors.
-Remaining frontend-accepted forms include struct, slice, range, alias, grouped, and borrow patterns.
-They remain corpus stubs until their syntax and lowering are implemented. Case numerals are not part
-of this divergence because the frontend rejects them. See \<open>urust-old-new-divergences.md\<close>.
+D-7 is closed for \<open>match\<close>, \<open>match_case\<close>, \<open>match_switch\<close>,
+\<open>let\<close>, and \<open>const\<close>. Grouped and borrow patterns are transparent; aliases,
+ranges, slices, and structs use case lowering and remain refutable at binder and switch
+sites. Case numerals are fidelity rejections, not part of this divergence. See
+\<open>urust-old-new-divergences.md\<close>.
 \<close>
 
 subsection\<open> Deferred frontend surface \<close>
