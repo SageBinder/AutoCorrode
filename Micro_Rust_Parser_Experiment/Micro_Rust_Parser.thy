@@ -31,6 +31,11 @@ text\<open> One constructor per uRust surface form. Positions are carried for ma
 ML\<open>
 structure URust_AST =
 struct
+  datatype literal_payload =
+      LP_Bool     of bool * Position.T
+    | LP_String   of string * Position.T
+    | LP_ValAntiq of Input.source
+
   (* THE pattern language: ONE datatype for EVERY binding site (let / const binder, match_switch key,
      match_case arm, and later closure params, `for` patterns, fn parameters) -- Rust has one pattern
      grammar, whose sites differ only in which patterns are LEGAL there, so each site's elaborator gates
@@ -41,6 +46,7 @@ struct
       P_Wild   of Position.T                          (* _ *)
     | P_Ident  of string * Position.T                 (* bare id: nullary ctor OR variable binder *)
     | P_Lit    of string * Position.T                 (* numeral pattern (a match_switch key) *)
+    | P_Value  of literal_payload                     (* bool / string / <<value>> equality pattern *)
     | P_Constr of string * Position.T * ur_pat list   (* C(args): name, name-pos, args *)
     | P_Tuple  of ur_pat list * Position.T            (* (p0, p1, ..), at least two elements *)
     | P_Or     of ur_pat list * Position.T            (* p | q | r  (flattened; source order) *)
@@ -68,7 +74,7 @@ struct
     | UE_Unit      of Position.T                      (* () *)
     | UE_Tuple     of ur_expr list * Position.T       (* (e0, e1, ..), at least two elements *)
     | UE_Ident     of string * Position.T             (* bare identifier at value position *)
-    | UE_ValAntiq  of Input.source                    (* <<v>>  body as a POSITIONED source -> literal v *)
+    | UE_Literal   of literal_payload                 (* true / false / string / <<value>> *)
     | UE_ExprAntiq of Input.source                    (* eps<e> body as a POSITIONED source -> e *)
     | UE_Let       of ur_pat * ur_expr * ur_expr      (* let <pat> = rhs; body -> bind *)
     | UE_Const     of ur_pat * ur_expr * ur_expr      (* const: same desugaring as let today; distinct node
@@ -120,6 +126,9 @@ structure URust_Err =
 struct
   fun lex_error text pos =
     error ("urust_expr: unexpected input " ^ quote text ^ Position.here pos)
+
+  fun string_error pos =
+    error ("urust_expr: malformed or unterminated string literal" ^ Position.here pos)
 end
 \<close>
 SML_import \<open> structure URust_Err = URust_Err \<close>
@@ -173,6 +182,8 @@ lex_rules\<open>
     (tok_valF (yypos, yytext, Markup.numeral, "NUMSFX", Tokens.NUMSFX, yytext));
 <INITIAL>({digit}+|"0x"{hexdigit}+) =>
     (tok_valF (yypos, yytext, Markup.numeral, "NUM", Tokens.NUM, yytext));
+<INITIAL>"true"   => (tokF (yypos, yytext, Markup.keyword1, "TTRUE", Tokens.TTRUE));
+<INITIAL>"false"  => (tokF (yypos, yytext, Markup.keyword1, "TFALSE", Tokens.TFALSE));
 <INITIAL>"let"    => (tokF (yypos, yytext, Markup.keyword1, "TLET", Tokens.TLET));
 <INITIAL>"const"  => (tokF (yypos, yytext, Markup.keyword1, "TCONST", Tokens.TCONST));
 <INITIAL>"if"     => (tokF (yypos, yytext, Markup.keyword1, "TIF", Tokens.TIF));
@@ -201,6 +212,9 @@ lex_rules\<open>
 <INITIAL>"|"      => (tokF (yypos, yytext, Markup.operator, "TBAR", Tokens.TBAR));
 <INITIAL>"^"      => (tokF (yypos, yytext, Markup.operator, "TCARET", Tokens.TCARET));
 <INITIAL>"!"      => (tokF (yypos, yytext, Markup.operator, "TBANG", Tokens.TBANG));
+<INITIAL>"\""([^\"\\\n]|\\.)*"\"" =>
+    (tok_valF (yypos, yytext, Markup.inner_string, "STRING", Tokens.STRING, yytext));
+<INITIAL>"\""     => (URust_Err.string_error (fixed_pos yypos));
 <INITIAL>{idstart}{idchar}* => (tok_ident (yypos, yytext));
 <INITIAL>"("      => (tokF (yypos, yytext, Markup.delimiter, "LPAR", Tokens.LPAR));
 <INITIAL>")"      => (tokF (yypos, yytext, Markup.delimiter, "RPAR", Tokens.RPAR));
@@ -254,9 +268,9 @@ yacc_definitions\<open>
 %left TDOT    (* method `.` binds tightest, tighter than prefix `!`: `a + b.m(c)` = `a + (b.m(c))`,
                  `!x.m()` = `!(x.m())`. This is what resolves `uexp . TDOT` against the operators. *)
 
-%term NUM of string | NUMSFX of string | IDENT of string | LPAR | RPAR
+%term NUM of string | NUMSFX of string | STRING of string | IDENT of string | LPAR | RPAR
     | VALAQ of Input.source | EXPRAQ of Input.source
-    | TLET | TCONST | TEQ | TSEMI | EOF
+    | TTRUE | TFALSE | TLET | TCONST | TEQ | TSEMI | EOF
     | TIF | TELSE | TLBRACE | TRBRACE | COMMA | TDOT
     | TPLUS | TMINUS | TSTAR | TSLASH | TPERCENT
     | TSHL | TSHR | TAMP | TBAR | TCARET
@@ -308,6 +322,9 @@ yacc_rules\<open>
        | umatchcase (umatchcase)
   uexp : NUM        (UE_Num (NUM, NUMleft))
        | NUMSFX     (UE_NumSfx (NUMSFX, NUMSFXleft))
+       | TTRUE      (UE_Literal (LP_Bool (true, TTRUEleft)))
+       | TFALSE     (UE_Literal (LP_Bool (false, TFALSEleft)))
+       | STRING     (UE_Literal (LP_String (STRING, STRINGleft)))
        | IDENT      (UE_Ident (IDENT, IDENTleft))
        | IDENT LPAR RPAR          (UE_Call (IDENT, IDENTleft, [],
                                      Position.range_position (IDENTleft, RPARright)))
@@ -324,7 +341,7 @@ yacc_rules\<open>
        | LPAR uval COMMA arglist RPAR
            (UE_Tuple (uval :: arglist, Position.range_position (LPARleft, RPARright)))
        | LPAR uval RPAR (uval)      (* parens wrap a uval: `(if ...)` becomes a usable operand -- the D-1 escape *)
-       | VALAQ      (UE_ValAntiq VALAQ)
+       | VALAQ      (UE_Literal (LP_ValAntiq VALAQ))
        | EXPRAQ     (UE_ExprAntiq EXPRAQ)
        | ublock %prec TIF (ublock)  (* block STAYS an operand atom (frontend priority 1000): `{e} + x`
                                        parses. Equal right precedence makes a following `if` shift into
@@ -394,6 +411,10 @@ yacc_rules\<open>
      error" and keeps one grammar for one language. *)
   upat : IDENT                    (mk_ident_pat (IDENT, IDENTleft))   (* `_` normalises to P_Wild *)
        | NUM                      (P_Lit (NUM, NUMleft))
+       | TTRUE                    (P_Value (LP_Bool (true, TTRUEleft)))
+       | TFALSE                   (P_Value (LP_Bool (false, TFALSEleft)))
+       | STRING                   (P_Value (LP_String (STRING, STRINGleft)))
+       | VALAQ                    (P_Value (LP_ValAntiq VALAQ))
        | IDENT LPAR upats RPAR    (P_Constr (IDENT, IDENTleft, upats))
        | LPAR upat COMMA upats RPAR
            (P_Tuple (upat :: upats, Position.range_position (LPARleft, RPARright)))
@@ -547,6 +568,34 @@ struct
   val parse_antiq = Parser_Utils.parse_antiq vkind
   val anon_abs    = Parser_Utils.anon_abs
 
+  fun literal_pos (LP_Bool (_, pos)) = pos
+    | literal_pos (LP_String (_, pos)) = pos
+    | literal_pos (LP_ValAntiq src) = Input.pos_of src
+
+  fun mk_string_value raw pos =
+    let
+      fun mk_bit b =
+        Const (if b = 1 then \<^const_name>\<open>True\<close> else \<^const_name>\<open>False\<close>, dummyT)
+      fun mk_char c =
+        mk_const \<^const_name>\<open>Char\<close>
+          (map mk_bit (Integer.radicify 2 8 (String_Syntax.ascii_ord_of c)))
+      val chars = map fst (Lexicon.explode_string (raw, pos))
+      val list = fold_rev (fn c => fn cs =>
+          mk_const \<^const_name>\<open>List.Cons\<close> [mk_char c, cs])
+        chars (Const (\<^const_name>\<open>List.Nil\<close>, dummyT))
+    in mk_const \<^const_name>\<open>String.implode\<close> [list] end
+
+  fun literal_value ctxt env payload =
+    (case payload of
+       LP_Bool (b, _) => if b then \<^term>\<open>True\<close> else \<^term>\<open>False\<close>
+     | LP_String (raw, pos) => mk_string_value raw pos
+     | LP_ValAntiq src => parse_antiq ctxt env src)
+
+  fun literal_expr _ _ (LP_Bool (b, _)) =
+        Const (if b then \<^const_name>\<open>Bool_Type.true\<close>
+               else \<^const_name>\<open>Bool_Type.false\<close>, dummyT)
+    | literal_expr ctxt env payload = mk_literal (literal_value ctxt env payload)
+
   (* Core expression constructors *)
   (* `let x = e; k` -> bind e (\<lambda>x. k) (HOAS). Sequencing MUST be `sequence`, not `bind e (\<lambda>_. k)`:
      the latter is definitionally but NOT alpha-equal to the frontend, so `refl` conformance would fail. *)
@@ -610,6 +659,7 @@ struct
   fun pat_pos (P_Wild pos) = pos
     | pat_pos (P_Ident (_, pos)) = pos
     | pat_pos (P_Lit (_, pos)) = pos
+    | pat_pos (P_Value payload) = literal_pos payload
     | pat_pos (P_Constr (_, pos, _)) = pos
     | pat_pos (P_Tuple (_, pos)) = pos
     | pat_pos (P_Or (_, pos)) = pos
@@ -674,8 +724,17 @@ struct
   datatype basic_case_pat =
       BCP_Wild of Position.T option
     | BCP_Ident of string * Position.T
+    | BCP_Generated of term
     | BCP_Constr of string * Position.T * basic_case_pat list
     | BCP_Tuple of basic_case_pat list
+
+  datatype case_pat =
+      CP_Wild of Position.T
+    | CP_Ident of string * Position.T
+    | CP_Lit of string * Position.T
+    | CP_Value of term * Position.T
+    | CP_Constr of string * Position.T * case_pat list
+    | CP_Tuple of case_pat list
 
   datatype case_pat_tree =
       CPT_Const of term
@@ -737,6 +796,7 @@ struct
     (case pat of
        P_Wild _ => env
      | P_Lit _ => env
+     | P_Value _ => env
      | P_Ident (name, pos) =>
          (case resolve_ctor ctxt name of
             SOME _ => env
@@ -750,20 +810,35 @@ struct
      | P_Or (_, pos) =>
          error ("urust_expr: internal unexpanded case or-pattern" ^ Position.here pos))
 
+  (* Literal payloads are elaborated once after the arm's source binders have been registered. Nested
+     guard/extraction matches then reuse the resulting term, preserving antiquotation capture and markup. *)
+  fun prepare_case_pattern ctxt env pat =
+    (case pat of
+       P_Wild p => CP_Wild p
+     | P_Ident id => CP_Ident id
+     | P_Lit lit => CP_Lit lit
+     | P_Value payload => CP_Value (literal_value ctxt env payload, literal_pos payload)
+     | P_Constr (name, p, args) =>
+         CP_Constr (name, p, map (prepare_case_pattern ctxt env) args)
+     | P_Tuple (args, _) =>
+         CP_Tuple (map (prepare_case_pattern ctxt env) args)
+     | P_Or (_, p) =>
+         error ("urust_expr: internal unexpanded case or-pattern" ^ Position.here p))
+
   (* Preserve recursive constructors in the basic case tree. Case numerals are rejected at any depth,
      matching the frontend acceptance boundary; switch numerals continue to use `ncase_selector`. *)
-  fun normalize_case_pattern pat =
+  fun normalize_basic_case_pattern pat =
     (case pat of
-       P_Wild p => BCP_Wild (SOME p)
-     | P_Ident id => BCP_Ident id
-     | P_Lit (lexeme, p) =>
+       CP_Wild p => BCP_Wild (SOME p)
+     | CP_Ident id => BCP_Ident id
+     | CP_Lit (lexeme, p) =>
          error ("urust_expr: numeric pattern in match_case: " ^ lexeme ^ Position.here p)
-     | P_Or (_, p) =>
-         error ("urust_expr: internal unexpanded case or-pattern" ^ Position.here p)
-     | P_Constr (name, p, args) =>
-         BCP_Constr (name, p, map normalize_case_pattern args)
-     | P_Tuple (args, _) =>
-         BCP_Tuple (map normalize_case_pattern args))
+     | CP_Value (_, p) =>
+         error ("urust_expr: internal unnormalized value pattern" ^ Position.here p)
+     | CP_Constr (name, p, args) =>
+         BCP_Constr (name, p, map normalize_basic_case_pattern args)
+     | CP_Tuple args =>
+         BCP_Tuple (map normalize_basic_case_pattern args))
 
   fun instantiate_case_pat args tree =
     (case tree of
@@ -787,6 +862,7 @@ struct
                     SOME {free, ...} => add_slot (SOME free) state
                   | NONE => error ("urust_expr: internal unregistered case binder " ^ quote name ^
                                     Position.here pos)))
+        | walk (BCP_Generated free) state = add_slot (SOME free) state
         | walk (BCP_Constr (name, pos, args)) state =
             (case resolve_ctor ctxt name of
                NONE => error ("urust_expr: `" ^ name ^ "` is not a known constructor" ^
@@ -817,31 +893,27 @@ struct
           (fn args => mk_case_elem (instantiate_case_pat args tree) body)
     end
 
-  fun normalize_case_arm ctxt env (pat, register_vars, guardf, bodyf) =
-    let
-      val env' = if register_vars then bind_case_vars ctxt pat env else env
-      val basic_pat =
-        (case pat of
-           P_Lit (lexeme, p) =>
-             error ("urust_expr: numeric pattern in match_case: " ^ lexeme ^ Position.here p)
-         | _ => normalize_case_pattern pat)
-      val absf = bind_basic_case_pat ctxt env' basic_pat
-      val guard = Option.map (fn f => f env') guardf
-      val rhs = bodyf env'
-      val wild = (case basic_pat of BCP_Wild _ => true | _ => false)
-    in (wild, absf, guard, rhs) end
+  fun case_requires_nested pat =
+    (case pat of
+       CP_Value _ => true
+     | CP_Constr (_, _, args) => List.exists case_requires_nested args
+     | CP_Tuple args => List.exists case_requires_nested args
+     | _ => false)
+
+  fun extend_case_guard generated NONE = SOME generated
+    | extend_case_guard generated (SOME source) = SOME (mk_bin And source generated)
 
   (* Compile normalized branches either as one Ctr_Sugar case tree (the fast unguarded path) or as ordered
-     cases whose guarded bodies fall through to the remaining tree. `value` starts as an internal Free and
-     is abstracted last, so references under any number of case_abs binders receive the correct index. *)
-  fun compile_case ctxt env scrut arms =
+     cases whose guarded bodies fall through to the remaining tree. Extended value patterns recursively
+     invoke this compiler for the frontend's nested guard/extraction wrappers. *)
+  fun compile_case ctxt scrut arms =
     let
       val value = Free ("_urust_case_value_" ^ string_of_int (serial ()), dummyT)
-      val normalized = map (normalize_case_arm ctxt env) arms
+      val normalized = map (normalize_case_arm ctxt value) arms
       fun case_term branches =
         mk_case_guard \<^term>\<open>True\<close> value
           (fold_rev mk_case_cons branches mk_case_nil)
-      fun generated_wild rhs = bind_basic_case_pat ctxt env (BCP_Wild NONE) rhs
+      fun generated_wild rhs = bind_basic_case_pat ctxt Symtab.empty (BCP_Wild NONE) rhs
       val undefined = Const (\<^const_name>\<open>undefined\<close>, dummyT)
       fun process [] = error "urust_expr: internal empty case branch list"
         | process [(wild, absf, NONE, rhs)] =
@@ -869,6 +941,61 @@ struct
         else case_term (map (fn (_, absf, _, rhs) => absf rhs) normalized)
     in mk_bind scrut (Term.lambda value selector) end
 
+  and normalize_case_arm ctxt value (pat, env, source_guard, rhs) =
+    let
+      val (basic_pat, generated_guards, wrappers) =
+        (case pat of
+           CP_Value (literal, _) =>
+             (BCP_Wild NONE,
+              [mk_bin Eq (mk_literal value) (mk_literal literal)],
+              [])
+         | _ => normalize_pattern_for_nested ctxt env pat)
+      val absf = bind_basic_case_pat ctxt env basic_pat
+      val guard = fold extend_case_guard generated_guards source_guard
+      val rhs' = fold_rev (fn wrap => fn body => wrap body) wrappers rhs
+      val wild = (case basic_pat of BCP_Wild _ => true | _ => false)
+    in (wild, absf, guard, rhs') end
+
+  and normalize_pattern_for_nested ctxt env pat =
+    (case pat of
+       CP_Constr (name, pos, args) =>
+         let
+           val (args', guards, wrappers) = normalize_args_for_nested ctxt env args
+         in (BCP_Constr (name, pos, args'), guards, wrappers) end
+     | CP_Tuple args =>
+         let
+           val (args', guards, wrappers) = normalize_args_for_nested ctxt env args
+         in (BCP_Tuple args', guards, wrappers) end
+     | _ => (normalize_basic_case_pattern pat, [], []))
+
+  and normalize_args_for_nested _ _ [] = ([], [], [])
+    | normalize_args_for_nested ctxt env (arg :: rest) =
+        let
+          val (arg', guards0, wrappers0) = normalize_arg_for_nested ctxt env arg
+          val (rest', guards1, wrappers1) = normalize_args_for_nested ctxt env rest
+        in (arg' :: rest', guards0 @ guards1, wrappers0 @ wrappers1) end
+
+  and normalize_arg_for_nested ctxt env pat =
+    if case_requires_nested pat then
+      let
+        val tmp = Free ("_urust_pat_" ^ string_of_int (serial ()), dummyT)
+        val tmp_expr = mk_literal tmp
+        val guard = mk_nested_match_guard ctxt env tmp_expr pat
+        fun wrapper rhs = mk_nested_match_extract ctxt env tmp_expr pat rhs
+      in (BCP_Generated tmp, [guard], [wrapper]) end
+    else normalize_pattern_for_nested ctxt env pat
+
+  and mk_nested_match_guard ctxt env expr pat =
+    compile_case ctxt expr
+      [(pat, env, NONE, mk_literal \<^term>\<open>True\<close>),
+       (CP_Wild Position.none, env, NONE, mk_literal \<^term>\<open>False\<close>)]
+
+  and mk_nested_match_extract ctxt env expr pat rhs =
+    compile_case ctxt expr
+      [(pat, env, NONE, rhs),
+       (CP_Wild Position.none, env, NONE,
+        Const (\<^const_name>\<open>undefined\<close>, dummyT))]
+
   (* Recursive AST elaboration *)
   (* env : source name -> var_info for the enclosing binders (lexical scope). A bound use resolves to its
      binder's Free + nav markup and is NOT sent through dispatch -- lexical scoping wins, matching the
@@ -889,7 +1016,7 @@ struct
          (case Symtab.lookup env name of
             SOME {free, def_pos, id} => (report_ref ctxt id (name, def_pos) pos; mk_literal free)
           | NONE => mk_literal (ident_term ctxt Micro_Rust_Names.NLiteral name pos))
-     | UE_ValAntiq src     => mk_literal (parse_antiq ctxt env src)
+     | UE_Literal payload  => literal_expr ctxt env payload
      | UE_ExprAntiq src    => parse_antiq ctxt env src
      | UE_Seq (e1, e2)     => mk_sequence (mk ctxt env e1) (mk ctxt env e2)
      | UE_Bin (bop, a, b, _) => mk_bin bop (mk ctxt env a) (mk ctxt env b)
@@ -964,13 +1091,14 @@ struct
            let
              fun expand_arm (UR_Arm (pat, guard, body)) =
                map (fn pat' =>
-                 (pat', true,
-                  (case guard of
-                     SOME (g, _) => SOME (fn env' => mk ctxt env' g)
-                   | NONE => NONE),
-                  fn env' => mk ctxt env' body))
+                 let
+                   val env' = bind_case_vars ctxt pat' env
+                   val pat'' = prepare_case_pattern ctxt env' pat'
+                   val guard' = Option.map (fn (g, _) => mk ctxt env' g) guard
+                   val body' = mk ctxt env' body
+                 in (pat'', env', guard', body') end)
                  (expand_case_pat pat)
-           in compile_case ctxt env scrut' (maps expand_arm arms) end
+           in compile_case ctxt scrut' (maps expand_arm arms) end
        | MF_Auto => error "urust_expr: internal unresolved auto match flavour")
     end
 

@@ -75,6 +75,29 @@ urust_expr lit_unit \<open> () \<close>
 lemma \<open> lit_unit = \<lbrakk> () \<rbrakk> \<close> unfolding lit_unit_def by (rule refl)
 
 
+section\<open> Boolean and string literals \<close>
+
+urust_expr lit_bool_true \<open> true \<close>
+lemma \<open> lit_bool_true = \<lbrakk> true \<rbrakk> \<close> unfolding lit_bool_true_def by (rule refl)
+
+urust_expr lit_bool_false \<open> false \<close>
+lemma \<open> lit_bool_false = \<lbrakk> false \<rbrakk> \<close> unfolding lit_bool_false_def by (rule refl)
+
+urust_expr lit_string_empty \<open> "" \<close>
+lemma \<open> lit_string_empty = \<lbrakk> "" \<rbrakk> \<close> unfolding lit_string_empty_def by (rule refl)
+
+urust_expr lit_string_text \<open> "micro rust" \<close>
+lemma \<open> lit_string_text = \<lbrakk> "micro rust" \<rbrakk> \<close> unfolding lit_string_text_def by (rule refl)
+
+urust_expr lit_string_quote \<open> "say: \"hi\"" \<close>
+lemma \<open> lit_string_quote = \<lbrakk> "say: \"hi\"" \<rbrakk> \<close>
+  unfolding lit_string_quote_def by (rule refl)
+
+urust_expr lit_string_backslash \<open> "a\\b" \<close>
+lemma \<open> lit_string_backslash = \<lbrakk> "a\\b" \<rbrakk> \<close>
+  unfolding lit_string_backslash_def by (rule refl)
+
+
 section\<open> Value antiquotation \<open>\<llangle>_\<rrangle>\<close> (Corpus PART I, "HOL Value Injection") \<close>
 
 text\<open> A HOL value lifted to a µRust literal; word widths 8 / 32 / 64, a boolean, and a compound value. \<close>
@@ -1157,6 +1180,84 @@ lemma \<open> rich_numeric_switch =
 
 end
 
+section\<open> Value patterns \<close>
+
+text\<open>
+Boolean, string, and value-antiquotation patterns lower through equality guards.
+Nested forms reproduce the frontend's generated argument binding, nested match guard,
+and RHS extraction wrapper.
+\<close>
+
+datatype value_pat_pair = VPP bool String.literal | VPOther
+
+context
+  fixes b :: bool
+  fixes s :: String.literal
+  fixes n :: nat
+  fixes ob :: \<open>bool option\<close>
+  fixes on :: \<open>nat option\<close>
+begin
+
+urust_expr value_pat_bool
+  \<open> match b { true \<Rightarrow> "yes", false \<Rightarrow> "no" } \<close>
+lemma \<open> value_pat_bool =
+    \<lbrakk> match b { true \<Rightarrow> "yes", false \<Rightarrow> "no" } \<rbrakk> \<close>
+  unfolding value_pat_bool_def by (rule refl)
+
+urust_expr value_pat_string_explicit
+  \<open> match_case s { "ok" \<Rightarrow> True, _ \<Rightarrow> False } \<close>
+lemma \<open> value_pat_string_explicit =
+    \<lbrakk> match_case s { "ok" \<Rightarrow> True, _ \<Rightarrow> False } \<rbrakk> \<close>
+  unfolding value_pat_string_explicit_def by (rule refl)
+
+urust_expr value_pat_antiquotation
+  \<open> match n { \<llangle>(2 :: nat)\<rrangle> \<Rightarrow> True, _ \<Rightarrow> False } \<close>
+lemma \<open> value_pat_antiquotation =
+    \<lbrakk> match n { \<llangle>(2 :: nat)\<rrangle> \<Rightarrow> True, _ \<Rightarrow> False } \<rbrakk> \<close>
+  unfolding value_pat_antiquotation_def by (rule refl)
+
+urust_expr value_pat_nested_constructor
+  \<open> match ob { Some(true) \<Rightarrow> False, Some(false) \<Rightarrow> True, None \<Rightarrow> False } \<close>
+lemma \<open> value_pat_nested_constructor =
+    \<lbrakk> match ob { Some(true) \<Rightarrow> False, Some(false) \<Rightarrow> True, None \<Rightarrow> False } \<rbrakk> \<close>
+  unfolding value_pat_nested_constructor_def by (rule refl)
+
+urust_expr value_pat_disjunction
+  \<open> match b { true | false \<Rightarrow> True } \<close>
+lemma \<open> value_pat_disjunction =
+    \<lbrakk> match b { true | false \<Rightarrow> True } \<rbrakk> \<close>
+  unfolding value_pat_disjunction_def by (rule refl)
+
+urust_expr value_pat_source_guard
+  \<open> match b { true if False \<Rightarrow> True, _ \<Rightarrow> False } \<close>
+lemma \<open> value_pat_source_guard =
+    \<lbrakk> match b { true if False \<Rightarrow> True, _ \<Rightarrow> False } \<rbrakk> \<close>
+  unfolding value_pat_source_guard_def by (rule refl)
+
+urust_expr value_pat_capture
+  \<open> let needle = \<llangle>2 :: nat\<rrangle>; match on { Some(\<llangle>needle\<rrangle>) \<Rightarrow> needle, _ \<Rightarrow> 0 } \<close>
+lemma \<open> value_pat_capture =
+    \<lbrakk> let needle = \<llangle>2 :: nat\<rrangle>; match on { Some(\<llangle>needle\<rrangle>) \<Rightarrow> needle, _ \<Rightarrow> 0 } \<rbrakk> \<close>
+  unfolding value_pat_capture_def by (rule refl)
+
+end
+
+urust_expr value_pat_nested_tuple
+  \<open> match_case \<llangle>(True, (Some False, TNil))\<rrangle> {
+      (true, Some(x)) \<Rightarrow> x, _ \<Rightarrow> False } \<close>
+lemma \<open> value_pat_nested_tuple =
+    \<lbrakk> match_case \<llangle>(True, (Some False, TNil))\<rrangle> {
+      (true, Some(x)) \<Rightarrow> x, _ \<Rightarrow> False } \<rbrakk> \<close>
+  unfolding value_pat_nested_tuple_def by (rule refl)
+
+urust_expr value_pat_guard_order
+  \<open> match \<llangle>VPP True (String.implode ''ok'')\<rrangle> {
+      VPP(true, "ok") if True \<Rightarrow> True, _ \<Rightarrow> False } \<close>
+lemma \<open> value_pat_guard_order =
+    \<lbrakk> match \<llangle>VPP True (String.implode ''ok'')\<rrangle> {
+      VPP(true, "ok") if True \<Rightarrow> True, _ \<Rightarrow> False } \<rbrakk> \<close>
+  unfolding value_pat_guard_order_def by (rule refl)
+
 section\<open> Tuple case patterns \<close>
 
 text\<open>
@@ -1318,11 +1419,10 @@ a runnable golden needs field notation and concrete lens types.
 subsection\<open> D-7: remaining richer match patterns -- parser UNDER-accepts \<close>
 
 text\<open>
-D-7 now excludes guards, case disjunction, and recursive constructors. Remaining
-frontend-accepted forms include boolean, string, antiquotation, tuple, struct, slice,
-range, alias, grouped, and borrow patterns. They remain corpus stubs until their syntax
-and lowering are implemented. Case numerals are not part of this divergence because the
-frontend rejects them. See \<open>urust-old-new-divergences.md\<close>.
+D-7 now excludes value patterns, tuples, guards, case disjunction, and recursive constructors.
+Remaining frontend-accepted forms include struct, slice, range, alias, grouped, and borrow patterns.
+They remain corpus stubs until their syntax and lowering are implemented. Case numerals are not part
+of this divergence because the frontend rejects them. See \<open>urust-old-new-divergences.md\<close>.
 \<close>
 
 subsection\<open> Deferred frontend surface \<close>

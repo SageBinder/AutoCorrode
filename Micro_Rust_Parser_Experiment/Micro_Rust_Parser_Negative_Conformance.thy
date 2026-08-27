@@ -89,11 +89,37 @@ urust_expr_rejects
   \<comment> \<open> [FIDELITY] tuple binders recurse through the irrefutability gate, so the constructor component
        is rejected at its own source position. \<close>
 
+urust_expr_rejects \<open> let true = true; () \<close>
+  \<open> refutable pattern in an irrefutable (let/const) binder position \<close>
+  \<comment> \<open> [FIDELITY] boolean value patterns are refutable. \<close>
+
+urust_expr_rejects \<open> const "ok" = "ok"; () \<close>
+  \<open> refutable pattern in an irrefutable (let/const) binder position \<close>
+  \<comment> \<open> [FIDELITY] string value patterns are refutable. \<close>
+
+urust_expr_rejects
+  \<open> let \<llangle>2 :: nat\<rrangle> = \<llangle>2 :: nat\<rrangle>; () \<close>
+  \<open> refutable pattern in an irrefutable (let/const) binder position \<close>
+  \<comment> \<open> [FIDELITY] value-antiquotation patterns are refutable. \<close>
+
 urust_expr_rejects
   \<open> match_switch \<llangle>(0 :: nat, (True, TNil))\<rrangle> { (x, y) \<Rightarrow> () } \<close>
   \<open> unsupported match_switch pattern \<close>
   \<comment> \<open> [FIDELITY] tuple patterns require case lowering; explicit \<open>match_switch\<close> remains
        first-order and rejects them with its stable positioned diagnostic. \<close>
+
+urust_expr_rejects \<open> match_switch true { true \<Rightarrow> () } \<close>
+  \<open> unsupported match_switch pattern \<close>
+  \<comment> \<open> [FIDELITY] boolean patterns require equality-guard case lowering. \<close>
+
+urust_expr_rejects \<open> match_switch "ok" { "ok" \<Rightarrow> () } \<close>
+  \<open> unsupported match_switch pattern \<close>
+  \<comment> \<open> [FIDELITY] string patterns require equality-guard case lowering. \<close>
+
+urust_expr_rejects
+  \<open> match_switch \<llangle>2 :: nat\<rrangle> { \<llangle>2 :: nat\<rrangle> \<Rightarrow> () } \<close>
+  \<open> unsupported match_switch pattern \<close>
+  \<comment> \<open> [FIDELITY] value-antiquotation patterns require equality-guard case lowering. \<close>
 
 urust_expr_rejects \<open> (\<llangle>1 :: nat\<rrangle>,) \<close> \<open> syntax error found at RPAR \<close>
   \<comment> \<open> [FIDELITY] singleton tuples are outside the current frontend tuple grammar. \<close>
@@ -166,6 +192,17 @@ urust_expr_rejects \<open> (ncf1)(\<llangle>1 :: 64 word\<rrangle>) \<close> \<o
   \<comment> \<open> [FIDELITY] parenthesised callee \<open>(g)(x)\<close>: rejected by both (\<open>urust_callable\<close> has no paren form). \<close>
 
 section\<open> Lexer and whole-input failures \<close>
+
+urust_expr_rejects \<open> "bad\q" \<close> \<open> bad escape character in string \<close>
+  \<comment> \<open> [FIDELITY] malformed escapes are rejected by the same Isabelle string decoder. \<close>
+
+urust_expr_rejects \<open> "unterminated \<close> \<open> malformed or unterminated string literal \<close>
+  \<comment> \<open> [FIDELITY] the opening quote receives a positioned lexer diagnostic. \<close>
+
+urust_expr_rejects
+  \<open> match_case true { \<epsilon>\<open>Bool_Type.true\<close> \<Rightarrow> () } \<close>
+  \<open> EXPRAQ TARROW \<close>
+  \<comment> \<open> [FIDELITY] expression antiquotation remains expression-only. \<close>
 
 urust_expr_rejects \<open> 1 @ 2 \<close> \<open> unexpected input "@" \<close>
   \<comment> \<open> [FIDELITY] the lexer's \<open><INITIAL>.\<close> catch-all aborts with a POSITIONED error
