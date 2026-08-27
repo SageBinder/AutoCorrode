@@ -1,43 +1,75 @@
-(* Rejection tests for the custom uRust parser. Each row runs `elab_urust` and requires a stable error
-   substring. [FIDELITY] means the frontend also rejects; [DIVERGENT] records an under-acceptance. *)
+(* Rejection tests for the custom uRust parser. Normal rows require both `elab_urust` and the existing
+   frontend to reject; the new parser's error must contain a stable substring. [DIVERGENT] rows use the
+   parser-only command to record an under-acceptance. *)
 
 theory Micro_Rust_Parser_Negative_Conformance
   imports Micro_Rust_Parser
   keywords
     "urust_expr_rejects" :: thy_decl
+    and "urust_expr_rejects_parser_only" :: thy_decl
 begin
 
 section\<open> The command \<close>
 
-text\<open> \<open>urust_expr_rejects <src> <expected>\<close> requires rejection containing \<open>expected\<close>. \<close>
+text\<open>
+\<open>urust_expr_rejects source expected\<close> requires both frontends to reject and
+checks the new parser's reason. The parser-only variant is reserved for documented
+under-acceptances.
+\<close>
 ML\<open>
-fun urust_rejects (source, expected) lthy =
+fun negative_frontend_source source = "\<lbrakk> " ^ source ^ " \<rbrakk>"
+
+val _ = Syntax.read_term \<^context> (negative_frontend_source "()")
+
+fun urust_rejects check_frontend (source, expected) lthy =
   let
     val pos      = Input.pos_of source
     (* trim: the cartouche-spacing convention pads content with a blank on each side *)
     val expected = Symbol.trim_blanks (Input.string_of expected)
     fun fail msg = error ("urust_expr_rejects: " ^ msg ^ Position.here pos)
+
+    fun check_parser_rejection () =
+      (* Lexer, parser, elaborator, and type errors are all valid new-parser rejections. *)
+      (case Exn.result (fn () => elab_urust lthy source) () of
+         Exn.Res t =>
+           fail ("expected the new parser to reject, but it accepted and elaborated to: " ^
+                 Syntax.string_of_term lthy t)
+       | Exn.Exn exn =>
+           if Exn.is_interrupt exn then Exn.reraise exn
+           else
+             let val msg = Runtime.exn_message exn in
+               if String.isSubstring expected msg
+               then writeln ("new parser rejected as expected: " ^ msg)
+               else fail ("new parser rejected, but not for the expected reason.\n" ^
+                          "  expected substring: " ^ quote expected ^
+                          "\n  actual message: " ^ msg)
+             end)
+
+    fun check_frontend_rejection () =
+      (case Exn.result (Syntax.read_term lthy)
+              (negative_frontend_source (Input.string_of source)) of
+         Exn.Res t =>
+           fail ("expected the existing frontend to reject, but it accepted and elaborated to: " ^
+                 Syntax.string_of_term lthy t)
+       | Exn.Exn exn =>
+           if Exn.is_interrupt exn then Exn.reraise exn
+           else writeln ("existing frontend rejected as expected: " ^ Runtime.exn_message exn))
+
+    val _ = check_parser_rejection ()
+    val _ = if check_frontend then check_frontend_rejection () else ()
   in
-    (* Preserve interrupts; lexer, parser, elaborator, and type errors are all valid rejections. *)
-    (case Exn.result (fn () => elab_urust lthy source) () of
-       Exn.Res t =>
-         fail ("expected a REJECTION, but the source was ACCEPTED and elaborated to: " ^
-               Syntax.string_of_term lthy t)
-     | Exn.Exn exn =>
-         if Exn.is_interrupt exn then Exn.reraise exn
-         else
-           let val msg = Runtime.exn_message exn in
-             if String.isSubstring expected msg
-             (* the caught message goes to PIDE / the session log, so a reader sees WHY it was rejected *)
-             then (writeln ("rejected as expected: " ^ msg); lthy)
-             else fail ("rejected, but not for the expected reason.\n  expected substring: " ^
-                        quote expected ^ "\n  actual message: " ^ msg)
-           end)
+    lthy
   end
 
+val rejection_args = Parse.input Parse.cartouche -- Parse.input Parse.cartouche
+
 val _ = Outer_Syntax.local_theory \<^command_keyword>\<open>urust_expr_rejects\<close>
-          "Assert that the uRust parser rejects a source, with the expected reason"
-          (Parse.input Parse.cartouche -- Parse.input Parse.cartouche >> urust_rejects)
+          "Assert that both uRust frontends reject; check the new parser's reason"
+          (rejection_args >> urust_rejects true)
+
+val _ = Outer_Syntax.local_theory \<^command_keyword>\<open>urust_expr_rejects_parser_only\<close>
+          "Assert that the new uRust parser rejects without checking the existing frontend"
+          (rejection_args >> urust_rejects false)
 \<close>
 
 section\<open> Non-associative operators \<close>
@@ -77,6 +109,9 @@ urust_expr_rejects \<open> 1_u7 \<close> \<open> unsupported integer-literal suf
        numeral-ascription syntax rejects it too. Adding \<open>u7\<close> would break this row -- deliberately. \<close>
 
 section\<open> Patterns \<close>
+
+datatype negative_struct_fixture =
+  NegativeStruct (negative_left: nat) (negative_right: nat)
 
 urust_expr_rejects \<open> let Some(x) = \<llangle>Some (0 :: nat)\<rrangle>; () \<close>
   \<open> refutable pattern in an irrefutable (let/const) binder position \<close>
@@ -163,7 +198,7 @@ urust_expr_rejects \<open> match_case \<llangle>Some (0 :: nat)\<rrangle> { NoSu
   \<comment> \<open> [FIDELITY] \<open>Code.is_constr\<close> decides ctor-vs-binder; the frontend agrees ("Error in case
        expression: Not a datatype constructor"). \<close>
 
-urust_expr_rejects \<open> match_switch \<llangle>0 :: nat\<rrangle> { x \<Rightarrow> () } \<close>
+urust_expr_rejects_parser_only \<open> match_switch \<llangle>0 :: nat\<rrangle> { x \<Rightarrow> () } \<close>
   \<open> unsupported match_switch key "x" \<close>
   \<comment> \<open> [DIVERGENT] the frontend accepts a binding key under \<open>match_switch\<close>; here switch keys are
        numeral / \<open>_\<close> only (binding patterns need \<open>match_case\<close>). \<close>
@@ -173,6 +208,81 @@ urust_expr_rejects
   \<open> mixed numeral and constructor patterns in bare `match` \<close>
   \<comment> \<open> [FIDELITY] bare-match routing cannot select one lowering for numeral and constructor heads;
        the frontend reports the same mixed-match category. \<close>
+
+urust_expr_rejects
+  \<open> match_case \<llangle>Some (2 :: nat)\<rrangle> { Some(1..2..3) \<Rightarrow> (), _ \<Rightarrow> () } \<close>
+  \<open> range patterns are non-associative \<close>
+  \<comment> \<open> [FIDELITY] range patterns are non-associative. \<close>
+
+urust_expr_rejects
+  \<open> match_case \<llangle>[1 :: nat]\<rrangle> { [.., ..] \<Rightarrow> (), _ \<Rightarrow> () } \<close>
+  \<open> slice pattern has multiple `..` rest entries \<close>
+  \<comment> \<open> [FIDELITY] a slice has at most one rest marker. \<close>
+
+urust_expr_rejects
+  \<open> match_case \<llangle>NegativeStruct 1 2\<rrangle> { NegativeStruct { negative_left: x, negative_left: y, .. } \<Rightarrow> x } \<close>
+  \<open> has duplicate field "negative_left" \<close>
+  \<comment> \<open> [FIDELITY] duplicate struct fields reject at the repeated field. \<close>
+
+urust_expr_rejects
+  \<open> match_case \<llangle>NegativeStruct 1 2\<rrangle> { NegativeStruct { negative_left: x } \<Rightarrow> x } \<close>
+  \<open> is missing field(s): negative_right \<close>
+  \<comment> \<open> [FIDELITY] omitted fields require a struct rest marker. \<close>
+
+urust_expr_rejects
+  \<open> match_case \<llangle>NegativeStruct 1 2\<rrangle> { NegativeStruct { unknown: x, .. } \<Rightarrow> x } \<close>
+  \<open> has unknown field "unknown" \<close>
+  \<comment> \<open> [FIDELITY] selector metadata validates struct field names. \<close>
+
+urust_expr_rejects
+  \<open> match_case \<llangle>NegativeStruct 1 2\<rrangle> { NoSuchStruct { field: x, .. } \<Rightarrow> x } \<close>
+  \<open> no matching constructor or single-constructor record/datatype found \<close>
+  \<comment> \<open> [FIDELITY] struct heads must resolve through constructor/type metadata. \<close>
+
+urust_expr_rejects
+  \<open> match_case \<llangle>NegativeStruct 1 2\<rrangle> { NegativeStruct { .., .. } \<Rightarrow> () } \<close>
+  \<open> struct pattern has multiple `..` rest entries \<close>
+  \<comment> \<open> [FIDELITY] a struct has at most one rest entry. \<close>
+
+urust_expr_rejects
+  \<open> let whole @ x = \<llangle>1 :: nat\<rrangle>; x \<close>
+  \<open> refutable pattern in an irrefutable (let/const) binder position \<close>
+  \<comment> \<open> [FIDELITY] aliases remain outside irrefutable let binders. \<close>
+
+urust_expr_rejects
+  \<open> const (1..=2) = \<llangle>1 :: nat\<rrangle>; () \<close>
+  \<open> refutable pattern in an irrefutable (let/const) binder position \<close>
+  \<comment> \<open> [FIDELITY] ranges remain outside irrefutable const binders. \<close>
+
+urust_expr_rejects
+  \<open> let [x, ..] = \<llangle>[1 :: nat]\<rrangle>; x \<close>
+  \<open> refutable pattern in an irrefutable (let/const) binder position \<close>
+  \<comment> \<open> [FIDELITY] slices remain outside irrefutable let binders. \<close>
+
+urust_expr_rejects
+  \<open> const NegativeStruct { negative_left: x, .. } = \<llangle>NegativeStruct 1 2\<rrangle>; () \<close>
+  \<open> refutable pattern in an irrefutable (let/const) binder position \<close>
+  \<comment> \<open> [FIDELITY] structs remain outside irrefutable const binders. \<close>
+
+urust_expr_rejects
+  \<open> match_switch \<llangle>Some (1 :: nat)\<rrangle> { whole @ Some(x) \<Rightarrow> () } \<close>
+  \<open> unsupported match_switch pattern \<close>
+  \<comment> \<open> [FIDELITY] aliases require case lowering. \<close>
+
+urust_expr_rejects
+  \<open> match_switch \<llangle>1 :: nat\<rrangle> { 1..=2 \<Rightarrow> () } \<close>
+  \<open> unsupported match_switch pattern \<close>
+  \<comment> \<open> [FIDELITY] ranges require case lowering. \<close>
+
+urust_expr_rejects
+  \<open> match_switch \<llangle>[1 :: nat]\<rrangle> { [x, ..] \<Rightarrow> () } \<close>
+  \<open> unsupported match_switch pattern \<close>
+  \<comment> \<open> [FIDELITY] slices require case lowering. \<close>
+
+urust_expr_rejects
+  \<open> match_switch \<llangle>NegativeStruct 1 2\<rrangle> { NegativeStruct { negative_left: x, .. } \<Rightarrow> () } \<close>
+  \<open> unsupported match_switch pattern \<close>
+  \<comment> \<open> [FIDELITY] struct patterns require case lowering. \<close>
 
 section\<open> Calls \<close>
 
@@ -204,10 +314,8 @@ urust_expr_rejects
   \<open> EXPRAQ TARROW \<close>
   \<comment> \<open> [FIDELITY] expression antiquotation remains expression-only. \<close>
 
-urust_expr_rejects \<open> 1 @ 2 \<close> \<open> unexpected input "@" \<close>
-  \<comment> \<open> [FIDELITY] the lexer's \<open><INITIAL>.\<close> catch-all aborts with a POSITIONED error
-       (\<open>URust_Err.lex_error\<close>) rather than looping or silently dropping the character; the frontend
-       rejects \<open>@\<close> too. This row is what keeps that catch-all honest. \<close>
+urust_expr_rejects \<open> 1 @ 2 \<close> \<open> syntax error found at TAT \<close>
+  \<comment> \<open> [FIDELITY] \<open>@\<close> is pattern-only; expression position rejects it after lexing. \<close>
 
 urust_expr_rejects \<open> { () \<close> \<open> syntax error found at EOF \<close>
   \<comment> \<open> [FIDELITY] unbalanced brace -- input must be consumed to EOF by a complete derivation. \<close>
@@ -226,7 +334,7 @@ These rows pin current rejections of frontend-accepted syntax. Move each to posi
 conformance when implemented.
 \<close>
 
-urust_expr_rejects \<open> \<llangle>0 :: nat\<rrangle>.f \<close> \<open> syntax error found at EOF \<close>
+urust_expr_rejects_parser_only \<open> \<llangle>0 :: nat\<rrangle>.f \<close> \<open> syntax error found at EOF \<close>
   \<comment> \<open> [DIVERGENT] D-6: \<open>.\<close> must be followed by a method call (\<open>TDOT IDENT LPAR\<close>), so a bare field
        access is a parse error. The frontend PARSES it (lowering to a lens focus \<open>focus_lens_const f\<close>)
        and here fails only later, for the unrelated reason that no field notation \<open>f\<close> is registered. \<close>
