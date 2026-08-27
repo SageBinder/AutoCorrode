@@ -702,38 +702,11 @@ end
 
 subsection\<open>References and Mutation\<close>
 
-lemma \<open>undefined = \<lbrakk> let mut x = \<llangle>0 :: 32 word\<rrangle>; x \<rbrakk>\<close> sorry
-
-context
-  fixes r :: \<open>('s, 'b, integer) Global_Store.ref\<close>
-  fixes x y :: \<open>32 word\<close>
-begin
-lemma \<open>undefined = \<lbrakk> &r \<rbrakk>\<close> sorry
-lemma \<open>undefined = \<lbrakk> &mut r \<rbrakk>\<close> sorry
-lemma \<open>undefined = \<lbrakk> x & y \<rbrakk>\<close> sorry
-end
-
-lemma \<open>undefined = \<lbrakk> let mut x = \<llangle>0 :: 32 word\<rrangle>; let xr = &x; let xw = &mut x; xw \<rbrakk>\<close> sorry
-
-context
-  fixes r :: \<open>('s, 'b, integer) Global_Store.ref\<close>
-begin
-private definition dummy_dereference_ref :: \<open>('s, 'b, 'v) Global_Store.ref \<Rightarrow> ('s, 'v, unit, unit, unit) function_body\<close> where
-  \<open>dummy_dereference_ref \<equiv> undefined\<close>
-adhoc_overloading store_dereference_const \<rightleftharpoons> dummy_dereference_ref
-lemma \<open>undefined = \<lbrakk> *r \<rbrakk>\<close> sorry
-no_adhoc_overloading store_dereference_const \<rightleftharpoons> dummy_dereference_ref
-end
-
-context
-  fixes rr :: \<open>('s, 'b, ('s, 'b, integer) Global_Store.ref) Global_Store.ref\<close>
-begin
-private definition dummy_dereference_ref2 :: \<open>('s, 'b, 'v) Global_Store.ref \<Rightarrow> ('s, 'v, unit, unit, unit) function_body\<close> where
-  \<open>dummy_dereference_ref2 \<equiv> undefined\<close>
-adhoc_overloading store_dereference_const \<rightleftharpoons> dummy_dereference_ref2
-lemma \<open>undefined = \<lbrakk> **rr \<rbrakk>\<close> sorry
-no_adhoc_overloading store_dereference_const \<rightleftharpoons> dummy_dereference_ref2
-end
+text\<open>
+Mutable allocation, borrow, read-dereference, and binary-operator preservation have runnable
+frontend-equivalence coverage in \<open>Micro_Rust_Parser_Conformance.thy\<close>. The remaining row depends on
+place assignment.
+\<close>
 
 lemma \<open>undefined = \<lbrakk> let mut x = \<llangle>0 :: 32 word\<rrangle>; *x = \<llangle>42 :: 32 word\<rrangle>; x \<rbrakk>\<close> sorry
 

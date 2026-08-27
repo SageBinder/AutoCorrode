@@ -305,6 +305,148 @@ lemma \<open> tuple_let_antiquotation =
   unfolding tuple_let_antiquotation_def by (rule refl)
 
 
+section\<open> References and mutable bindings \<close>
+
+definition parser_reference_fixture ::
+  \<open>'v \<Rightarrow> (unit, (unit, unit, 'v) Global_Store.ref, unit, unit, unit) function_body\<close>
+  where \<open> parser_reference_fixture \<equiv> undefined \<close>
+
+definition parser_dereference_fixture ::
+  \<open>(unit, unit, 'v) Global_Store.ref \<Rightarrow> (unit, 'v, unit, unit, unit) function_body\<close>
+  where \<open> parser_dereference_fixture \<equiv> undefined \<close>
+
+adhoc_overloading store_reference_const \<rightleftharpoons> parser_reference_fixture
+adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
+
+subsection\<open> Mutable allocation and binders \<close>
+
+urust_expr mut_scalar
+  \<open> let mut x = \<llangle>0 :: 32 word\<rrangle>; x \<close>
+lemma \<open> mut_scalar = \<lbrakk> let mut x = \<llangle>0 :: 32 word\<rrangle>; x \<rbrakk> \<close>
+  unfolding mut_scalar_def by (rule refl)
+
+urust_expr mut_capture
+  \<open> let mut x = \<llangle>0 :: 32 word\<rrangle>; \<llangle>x\<rrangle> \<close>
+lemma \<open> mut_capture =
+    \<lbrakk> let mut x = \<llangle>0 :: 32 word\<rrangle>; \<llangle>x\<rrangle> \<rbrakk> \<close>
+  unfolding mut_capture_def by (rule refl)
+
+urust_expr mut_shadow
+  \<open> let x = \<llangle>1 :: 32 word\<rrangle>; let mut x = \<llangle>2 :: 32 word\<rrangle>; x \<close>
+lemma \<open> mut_shadow =
+    \<lbrakk> let x = \<llangle>1 :: 32 word\<rrangle>; let mut x = \<llangle>2 :: 32 word\<rrangle>; x \<rbrakk> \<close>
+  unfolding mut_shadow_def by (rule refl)
+
+urust_expr mut_tuple
+  \<open> let mut (x, y) = (\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>); x \<close>
+lemma \<open> mut_tuple =
+    \<lbrakk> let mut (x, y) = (\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>); x \<rbrakk> \<close>
+  unfolding mut_tuple_def by (rule refl)
+
+urust_expr mut_tuple_nested
+  \<open> let mut (x, (_, z)) = (\<llangle>1 :: nat\<rrangle>, (\<llangle>True\<rrangle>, \<llangle>3 :: nat\<rrangle>)); z \<close>
+lemma \<open> mut_tuple_nested =
+    \<lbrakk> let mut (x, (_, z)) = (\<llangle>1 :: nat\<rrangle>, (\<llangle>True\<rrangle>, \<llangle>3 :: nat\<rrangle>)); z \<rbrakk> \<close>
+  unfolding mut_tuple_nested_def by (rule refl)
+
+urust_expr mut_borrow_chain
+  \<open>
+    let mut x = \<llangle>0 :: 32 word\<rrangle>;
+    let xr = &x;
+    let xw = & mut x;
+    xw
+  \<close>
+lemma \<open> mut_borrow_chain =
+    \<lbrakk>
+      let mut x = \<llangle>0 :: 32 word\<rrangle>;
+      let xr = &x;
+      let xw = & mut x;
+      xw
+    \<rbrakk> \<close>
+  unfolding mut_borrow_chain_def by (rule refl)
+
+subsection\<open> Borrow, dereference, and precedence \<close>
+
+context
+  fixes r :: \<open>(unit, unit, 32 word) Global_Store.ref\<close>
+    and rr :: \<open>(unit, unit, (unit, unit, 32 word) Global_Store.ref) Global_Store.ref\<close>
+    and rb :: \<open>(unit, unit, bool) Global_Store.ref\<close>
+    and ropt :: \<open>(unit, unit, 32 word) Global_Store.ref option\<close>
+    and rhs :: \<open>32 word\<close>
+begin
+
+urust_expr ref_borrow \<open> &r \<close>
+lemma \<open> ref_borrow = \<lbrakk> &r \<rbrakk> \<close>
+  unfolding ref_borrow_def by (rule refl)
+
+urust_expr ref_borrow_mut \<open> & mut r \<close>
+lemma \<open> ref_borrow_mut = \<lbrakk> & mut r \<rbrakk> \<close>
+  unfolding ref_borrow_mut_def by (rule refl)
+
+urust_expr ref_borrow_group \<open> &(r) \<close>
+lemma \<open> ref_borrow_group = \<lbrakk> &(r) \<rbrakk> \<close>
+  unfolding ref_borrow_group_def by (rule refl)
+
+urust_expr ref_borrow_block \<open> &{ r } \<close>
+lemma \<open> ref_borrow_block = \<lbrakk> &{ r } \<rbrakk> \<close>
+  unfolding ref_borrow_block_def by (rule refl)
+
+urust_expr ref_borrow_if \<open> &(if true { r } else { r }) \<close>
+lemma \<open> ref_borrow_if = \<lbrakk> &(if true { r } else { r }) \<rbrakk> \<close>
+  unfolding ref_borrow_if_def by (rule refl)
+
+urust_expr ref_deref \<open> *r \<close>
+lemma \<open> ref_deref = \<lbrakk> *r \<rbrakk> \<close>
+  unfolding ref_deref_def by (rule refl)
+
+urust_expr ref_double_deref \<open> **rr \<close>
+lemma \<open> ref_double_deref = \<lbrakk> **rr \<rbrakk> \<close>
+  unfolding ref_double_deref_def by (rule refl)
+
+urust_expr ref_deref_group \<open> *(r) \<close>
+lemma \<open> ref_deref_group = \<lbrakk> *(r) \<rbrakk> \<close>
+  unfolding ref_deref_group_def by (rule refl)
+
+urust_expr ref_deref_block \<open> *{ r } \<close>
+lemma \<open> ref_deref_block = \<lbrakk> *{ r } \<rbrakk> \<close>
+  unfolding ref_deref_block_def by (rule refl)
+
+urust_expr ref_deref_if \<open> *(if true { r } else { r }) \<close>
+lemma \<open> ref_deref_if = \<lbrakk> *(if true { r } else { r }) \<rbrakk> \<close>
+  unfolding ref_deref_if_def by (rule refl)
+
+urust_expr ref_deref_postfix \<open> *ropt? \<close>
+lemma \<open> ref_deref_postfix = \<lbrakk> *ropt? \<rbrakk> \<close>
+  unfolding ref_deref_postfix_def by (rule refl)
+
+urust_expr ref_deref_add \<open> *r + rhs \<close>
+lemma \<open> ref_deref_add = \<lbrakk> *r + rhs \<rbrakk> \<close>
+  unfolding ref_deref_add_def by (rule refl)
+
+urust_expr ref_deref_mul \<open> *r * rhs \<close>
+lemma \<open> ref_deref_mul = \<lbrakk> *r * rhs \<rbrakk> \<close>
+  unfolding ref_deref_mul_def by (rule refl)
+
+urust_expr ref_deref_band \<open> *r & rhs \<close>
+lemma \<open> ref_deref_band = \<lbrakk> *r & rhs \<rbrakk> \<close>
+  unfolding ref_deref_band_def by (rule refl)
+
+urust_expr ref_not_grouped_deref \<open> !(*rb) \<close>
+lemma \<open> ref_not_grouped_deref = \<lbrakk> !(*rb) \<rbrakk> \<close>
+  unfolding ref_not_grouped_deref_def by (rule refl)
+
+urust_expr ref_match_scrutinee
+  \<open> match_switch *r { 0 \<Rightarrow> true, _ \<Rightarrow> false } \<close>
+lemma \<open> ref_match_scrutinee =
+    \<lbrakk> match_switch *r { 0 \<Rightarrow> true, _ \<Rightarrow> false } \<rbrakk> \<close>
+  unfolding ref_match_scrutinee_def by (rule refl)
+
+end
+
+no_adhoc_overloading store_reference_const \<rightleftharpoons> parser_reference_fixture
+no_adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
+
+
 section\<open> Pure-value operators (Corpus PART I: Arithmetic / Bitwise / Comparison / Boolean) \<close>
 
 text\<open>
@@ -903,6 +1045,17 @@ urust_expr postfix_method_disambiguation \<open> dual.pick() \<close>
 lemma \<open> postfix_method_disambiguation = \<lbrakk> dual.pick() \<rbrakk> \<close>
   unfolding postfix_method_disambiguation_def by (rule refl)
 end
+
+adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
+
+context fixes rp :: \<open>(unit, unit, postfix_inner) Global_Store.ref\<close>
+begin
+urust_expr ref_deref_field_postfix \<open> *rp.value \<close>
+lemma \<open> ref_deref_field_postfix = \<lbrakk> *rp.value \<rbrakk> \<close>
+  unfolding ref_deref_field_postfix_def by (rule refl)
+end
+
+no_adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
 
 
 section\<open> Cross-feature robustness (calls / methods x operators / control-flow / binders) \<close>

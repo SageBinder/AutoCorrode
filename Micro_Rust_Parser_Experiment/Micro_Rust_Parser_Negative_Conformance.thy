@@ -84,6 +84,20 @@ urust_expr_rejects \<open> 1 == 2 == 3 \<close> \<open> syntax error found at TE
 urust_expr_rejects \<open> 1 < 2 < 3 \<close> \<open> syntax error found at TLT \<close>
   \<comment> \<open> [FIDELITY] chained \<open><\<close>; same on both sides. \<close>
 
+section\<open> Reference-prefix precedence \<close>
+
+text\<open>
+The frontend gives \<open>!\<close> a tighter prefix tier than borrow and dereference.
+Parentheses make the converse composition explicit; its positive row is
+\<open>ref_not_grouped_deref\<close>.
+\<close>
+
+urust_expr_rejects \<open> ! *r \<close> \<open> syntax error found at TSTAR \<close>
+  \<comment> \<open> [FIDELITY] an unparenthesized dereference cannot be the operand of tighter \<open>!\<close>. \<close>
+
+urust_expr_rejects \<open> ! &r \<close> \<open> syntax error found at TAMP \<close>
+  \<comment> \<open> [FIDELITY] borrow has the same boundary relative to \<open>!\<close>. \<close>
+
 section\<open> Control-flow stratification (D25 / divergence D-1) \<close>
 
 text\<open>
@@ -136,6 +150,38 @@ urust_expr_rejects
   \<open> let \<llangle>2 :: nat\<rrangle> = \<llangle>2 :: nat\<rrangle>; () \<close>
   \<open> refutable pattern in an irrefutable (let/const) binder position \<close>
   \<comment> \<open> [FIDELITY] value-antiquotation patterns are refutable. \<close>
+
+urust_expr_rejects
+  \<open> let mut (x) = \<llangle>1 :: nat\<rrangle>; x \<close>
+  \<open> invalid mutable binding pattern \<close>
+  \<comment> \<open> [FIDELITY] the frontend accepts a scalar mutable identifier or an actual top-level tuple,
+       not a grouped scalar. The diagnostic is positioned at the grouped pattern. \<close>
+
+urust_expr_rejects
+  \<open> let mut Some(x) = \<llangle>Some (1 :: nat)\<rrangle>; x \<close>
+  \<open> invalid mutable binding pattern \<close>
+  \<comment> \<open> [FIDELITY] constructor patterns are not mutable binding heads. \<close>
+
+urust_expr_rejects
+  \<open> let mut &x = \<llangle>1 :: nat\<rrangle>; x \<close>
+  \<open> invalid mutable binding pattern \<close>
+  \<comment> \<open> [FIDELITY] a borrow pattern is not accepted at a mutable binding site. \<close>
+
+urust_expr_rejects
+  \<open> let mut whole @ x = \<llangle>1 :: nat\<rrangle>; x \<close>
+  \<open> invalid mutable binding pattern \<close>
+  \<comment> \<open> [FIDELITY] aliases are rejected by the mutable-site gate. \<close>
+
+urust_expr_rejects
+  \<open> let mut [x, ..] = \<llangle>[1 :: nat]\<rrangle>; x \<close>
+  \<open> invalid mutable binding pattern \<close>
+  \<comment> \<open> [FIDELITY] slice patterns are rejected by the mutable-site gate. \<close>
+
+urust_expr_rejects
+  \<open> let mut (Some(x), y) = \<llangle>(Some (1 :: nat), (2 :: nat, TNil))\<rrangle>; x \<close>
+  \<open> refutable pattern in an irrefutable (let/const) binder position \<close>
+  \<comment> \<open> [FIDELITY] top-level tuple \<open>mut\<close> is erased, after which the ordinary recursive
+       irrefutability gate rejects a constructor component at its own position. \<close>
 
 urust_expr_rejects
   \<open> let &x = \<llangle>1 :: nat\<rrangle>; x \<close>

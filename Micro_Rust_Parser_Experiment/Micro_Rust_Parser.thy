@@ -98,11 +98,15 @@ struct
     | UE_Literal   of literal_payload                 (* true / false / string / <<value>> *)
     | UE_ExprAntiq of Input.source                    (* eps<e> body as a POSITIONED source -> e *)
     | UE_Let       of ur_pat * ur_expr * ur_expr      (* let <pat> = rhs; body -> bind *)
+    | UE_LetMut    of ur_pat * ur_expr * ur_expr * Position.T
+                                                      (* let mut <pat> = rhs; body *)
     | UE_Const     of ur_pat * ur_expr * ur_expr      (* const: same desugaring as let today; distinct node
                                                          keeps the keyword for when it diverges (B7) *)
     | UE_Seq       of ur_expr * ur_expr               (* e1; e2 -> sequence (trailing `;`: e2 = unit) *)
     | UE_Bin       of binop * ur_expr * ur_expr * Position.T   (* a <binop> b *)
     | UE_Un        of unop * ur_expr * Position.T              (* !a  (and !!a = !(!a)) *)
+    | UE_Borrow    of borrow_mode * ur_expr * Position.T       (* &a / & mut a *)
+    | UE_Deref     of ur_expr * Position.T                      (* *a *)
     | UE_Block     of ur_expr * Position.T            (* { stmts } -- ERASES to <stmts>, no `scoped`
                                                          wrapper: `_urust_scoping` is identity (D22) *)
     | UE_If        of ur_expr * ur_expr * ur_expr option * Position.T
@@ -294,8 +298,8 @@ yacc_definitions\<open>
 %noshift EOF
 
 (* Operator precedence, loosest -> tightest (the frontend's infix priorities). Comparisons are
-   non-associative (Rust rejects `a == b == c`); prefix `!` binds tighter than every binary operator.
-   These directives are what keep the ambiguous `uexp OP uexp` productions conflict-free. *)
+   non-associative (Rust rejects `a == b == c`). Reference prefixes and `!` use structural tiers below;
+   these directives keep the ambiguous `uexp OP uexp` productions conflict-free. *)
 %right TIF
 %left TBARBAR
 %left TAMPAMP
@@ -324,6 +328,8 @@ yacc_definitions\<open>
        | ustmt of URust_AST.ur_expr
        | uval of URust_AST.ur_expr
        | uexp of URust_AST.ur_expr
+       | urefprefix of URust_AST.ur_expr
+       | unotprefix of URust_AST.ur_expr
        | upostfix of URust_AST.ur_expr
        | uatom of URust_AST.ur_expr
        | arglist of URust_AST.ur_expr list
@@ -366,6 +372,8 @@ yacc_rules\<open>
            pattern-datatype extensions rather than new productions per site; bind_pat gates refutable
            patterns with a positioned error (D28). *)
         | TLET upat TEQ uval TSEMI ustmt   (UE_Let (upat, uval, ustmt))
+        | TLET TMUT upat TEQ uval TSEMI ustmt
+            (UE_LetMut (upat, uval, ustmt, TMUTleft))
         | TCONST upat TEQ uval TSEMI ustmt (UE_Const (upat, uval, ustmt))
   (* Value position: an operand OR a with-block control-flow expr. `uval` is where `if`/`match` (later
      loops) are admitted -- let-RHS, condition, call args, parens -- WITHOUT being a bare binary-operator
@@ -403,7 +411,20 @@ yacc_rules\<open>
         | ublock %prec TIF (ublock)  (* block STAYS an operand atom (frontend priority 1000): `{e} + x`
                                         parses. Equal right precedence makes a following `if` shift into
                                         semicolon-free statement sequencing without a conflict. *)
-  uexp : upostfix (upostfix)
+  (* Reference prefixes bind tighter than every binary operator and looser than `!`, matching the
+     frontend priorities. Recursing through this tier makes `**x` two ordinary dereference nodes while
+     preserving the binary meanings of `*` and `&`; mixed and deeper recursion is a documented
+     accepted-surface improvement over the frontend's fixed prefix productions. *)
+  unotprefix : upostfix (upostfix)
+             | TBANG unotprefix (UE_Un (Not, unotprefix, TBANGleft))
+  urefprefix : unotprefix (unotprefix)
+             | TAMP urefprefix
+                 (UE_Borrow (BM_Imm, urefprefix, TAMPleft))
+             | TAMP TMUT urefprefix
+                 (UE_Borrow (BM_Mut, urefprefix, TAMPleft))
+             | TSTAR urefprefix
+                 (UE_Deref (urefprefix, TSTARleft))
+  uexp : urefprefix (urefprefix)
        (* `uif` is deliberately NOT a `uexp` alternative (closes D-1): it reaches value position via `uval`
           and operand position only when parenthesized. Loops will join `uval` the same way. *)
        | uexp TPLUS uexp     (UE_Bin (Add,  uexp1, uexp2, TPLUSleft))
@@ -424,7 +445,6 @@ yacc_rules\<open>
        | uexp TGE uexp       (UE_Bin (Ge,   uexp1, uexp2, TGEleft))
        | uexp TAMPAMP uexp   (UE_Bin (And,  uexp1, uexp2, TAMPAMPleft))
        | uexp TBARBAR uexp   (UE_Bin (Or,   uexp1, uexp2, TBARBARleft))
-       | TBANG uexp          (UE_Un (Not, uexp, TBANGleft))
   (* No dangling-else conflict: the branches are BRACE-DELIMITED, so TELSE is not in FOLLOW(uif) and the
      parser shifts it unambiguously. The whole grammar is verified conflict-free via the [verbose] grm.desc
      export -- RE-CHECK IT after any grammar change. *)
@@ -860,6 +880,22 @@ struct
   fun mk_bind e f     = mk_const \<^const_name>\<open>Core_Expression.bind\<close> [e, f]
   fun mk_sequence a b = mk_const \<^const_name>\<open>Core_Expression.sequence\<close> [a, b]
   fun mk_case_prod f  = mk_const \<^const_name>\<open>case_prod\<close> [f]
+  fun mk_ref_new pos e =
+    mk_const \<^const_name>\<open>funcall1\<close>
+      [mk_const_at \<^const_name>\<open>store_reference_const\<close> pos [], e]
+  fun mk_borrow mode pos e =
+    mk_bindlift1
+      (mk_const_at
+        (case mode of
+           BM_Imm => \<^const_name>\<open>ro_ref_from_ref\<close>
+         | BM_Mut => \<^const_name>\<open>mut_ref_from_ref\<close>)
+        pos [])
+      e
+  fun mk_deref pos e =
+    mk_bind e
+      (mk_const \<^const_name>\<open>deep_compose1\<close>
+        [Const (\<^const_name>\<open>call\<close>, dummyT),
+         mk_const_at \<^const_name>\<open>store_dereference_const\<close> pos []])
 
   fun mk_tuple_lift terminal a b =
     let
@@ -972,7 +1008,9 @@ struct
          in (fn body => Term.lambda free body, env') end
        (* `let _ = e; k` binds nothing: an anonymous lambda, NOT a variable literally named "_" (that
           leaked a `Free "_"` into the defined term). *)
-     | P_Wild _ => (fn body => anon_abs body, env)
+     | P_Wild pos =>
+         (report_wildcard ctxt pos;
+          (fn body => anon_abs body, env))
      | P_Tuple (pats, _) =>
          let
            val (absfs, env') = fold_map (fn p => fn env' => bind_pat ctxt env' p) pats env
@@ -1438,11 +1476,14 @@ struct
      | UE_Seq (e1, e2)     => mk_sequence (mk ctxt env e1) (mk ctxt env e2)
      | UE_Bin (bop, a, b, _) => mk_bin bop (mk ctxt env a) (mk ctxt env b)
      | UE_Un (uop, a, _)     => mk_un uop (mk ctxt env a)
+     | UE_Borrow (mode, a, pos) => mk_borrow mode pos (mk ctxt env a)
+     | UE_Deref (a, pos)      => mk_deref pos (mk ctxt env a)
      | UE_Block (e1, _)    => mk ctxt env e1          (* erase: alpha-equal to the frontend `{ e } = e` *)
      | UE_If (c, t, eopt, _) =>
          mk_two_armed (mk ctxt env c) (mk ctxt env t)
            (case eopt of SOME e => mk ctxt env e | NONE => mk_literal HOLogic.unit)
      | UE_Let bnd          => elab_let ctxt env bnd
+     | UE_LetMut bnd       => elab_let_mut ctxt env bnd
      | UE_Const bnd        => elab_let ctxt env bnd   (* same desugaring as let today (SE:433-434) *)
      | UE_Call (name, npos, args, cpos) =>
          (* The callee resolves in NFunction context and is NOT wrapped in `literal` (a bound callee -> its
@@ -1469,6 +1510,27 @@ struct
       val (absf, env') = bind_pat ctxt env pat  (* register pattern vars; get body abstraction *)
       val body'        = mk ctxt env' body      (* innermost binding wins -> shadowing-correct *)
     in mk_bind rhs' (absf body') end
+
+  (* Scalar mutable bindings allocate one store reference. The frontend drops `mut` from a top-level
+     tuple destructure, so that case deliberately reuses immutable-let lowering. No mutability metadata
+     is needed in the lexical environment: every later use denotes the allocated reference value. *)
+  and elab_let_mut ctxt env (pat, rhs, body, mut_pos) =
+    let
+      fun allocate () =
+        let
+          val rhs' = mk_ref_new mut_pos (mk ctxt env rhs)
+          val (absf, env') = bind_pat ctxt env pat
+        in mk_bind rhs' (absf (mk ctxt env' body)) end
+    in
+      (case pat of
+         P_Ident _ => allocate ()
+       | P_Wild _ => allocate ()
+       | P_Tuple _ => elab_let ctxt env (pat, rhs, body)
+       | _ =>
+           error ("urust_expr: invalid mutable binding pattern" ^
+             " (expected identifier, `_`, or top-level tuple destructuring)" ^
+             Position.here (pat_pos pat)))
+    end
 
   (* ONE match entry point. Switch lowering remains first-order and unchanged; case lowering expands each
      disjunctive alternative into an independent arm before entering the staged compiler below. *)

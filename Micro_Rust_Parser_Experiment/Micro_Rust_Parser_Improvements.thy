@@ -142,6 +142,86 @@ old_urust_rejects
   \<close>
 
 
+section\<open> Hygienic mutable wildcard \<close>
+
+definition improvement_reference_fixture ::
+  \<open>'v \<Rightarrow> (unit, (unit, unit, 'v) Global_Store.ref, unit, unit, unit) function_body\<close>
+  where \<open> improvement_reference_fixture \<equiv> undefined \<close>
+
+adhoc_overloading store_reference_const \<rightleftharpoons> improvement_reference_fixture
+
+text\<open>
+The custom pattern AST gives \<open>let mut _\<close> the same allocated-reference term shape
+as a legacy mutable name that is not used, while representing the continuation binder
+as an anonymous abstraction. The old frontend has no wildcard production at this site.
+\<close>
+
+urust_expr improvement_mutable_wildcard
+  \<open>
+    let keep = \<llangle>5 :: nat\<rrangle>;
+    let mut _ = \<llangle>7 :: nat\<rrangle>;
+    keep
+  \<close>
+
+lemma \<open> improvement_mutable_wildcard =
+    \<lbrakk>
+      let keep = \<llangle>5 :: nat\<rrangle>;
+      let mut ignored = \<llangle>7 :: nat\<rrangle>;
+      keep
+    \<rbrakk> \<close>
+  unfolding improvement_mutable_wildcard_def by (rule refl)
+
+old_urust_rejects
+  \<open>
+    let keep = \<llangle>5 :: nat\<rrangle>;
+    let mut _ = \<llangle>7 :: nat\<rrangle>;
+    keep
+  \<close>
+
+no_adhoc_overloading store_reference_const \<rightleftharpoons> improvement_reference_fixture
+
+
+section\<open> Recursive reference-prefix composition \<close>
+
+text\<open>
+The recursive reference-prefix tier accepts mixed and deeper unparenthesized
+compositions. The old frontend has individual single-prefix productions and one
+dedicated double-dereference production, so it requires explicit parentheses for
+the equivalent mixed terms and cannot spell a triple dereference directly.
+\<close>
+
+adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
+
+context
+  fixes rr ::
+    \<open>(unit, unit, (unit, unit, 32 word) Global_Store.ref) Global_Store.ref\<close>
+    and rrr ::
+      \<open>(unit, unit,
+          (unit, unit, (unit, unit, 32 word) Global_Store.ref) Global_Store.ref)
+        Global_Store.ref\<close>
+    and r :: \<open>(unit, unit, 32 word) Global_Store.ref\<close>
+begin
+
+urust_expr improvement_recursive_borrow_deref \<open> &*rr \<close>
+lemma \<open> improvement_recursive_borrow_deref = \<lbrakk> &(*rr) \<rbrakk> \<close>
+  unfolding improvement_recursive_borrow_deref_def by (rule refl)
+old_urust_rejects \<open> &*rr \<close>
+
+urust_expr improvement_recursive_deref_mut_borrow \<open> *& mut r \<close>
+lemma \<open> improvement_recursive_deref_mut_borrow = \<lbrakk> *(& mut r) \<rbrakk> \<close>
+  unfolding improvement_recursive_deref_mut_borrow_def by (rule refl)
+old_urust_rejects \<open> *& mut r \<close>
+
+urust_expr improvement_recursive_triple_deref \<open> ***rrr \<close>
+lemma \<open> improvement_recursive_triple_deref = \<lbrakk> *(*(*rrr)) \<rbrakk> \<close>
+  unfolding improvement_recursive_triple_deref_def by (rule refl)
+old_urust_rejects \<open> ***rrr \<close>
+
+end
+
+no_adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
+
+
 section\<open> Composable postfix expressions \<close>
 
 text\<open>
