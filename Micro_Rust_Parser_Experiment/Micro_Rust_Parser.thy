@@ -224,6 +224,9 @@ struct
 
   fun string_error pos =
     error ("urust_expr: malformed or unterminated string literal" ^ Position.here pos)
+
+  fun antiquotation_error kind pos =
+    error ("urust_expr: unterminated " ^ kind ^ " antiquotation" ^ Position.here pos)
 end
 \<close>
 SML_import \<open> structure URust_Err = URust_Err \<close>
@@ -239,9 +242,21 @@ HOL content. Yacc directives reproduce the frontend precedence
 \<close>
 ml_lex_yacc [verbose] "URust" where
 lex_user_declarations\<open>
-val aq_buf = ref ""
+datatype aq_kind = No_AQ | Value_AQ | Expr_AQ
+val aq_kind = ref No_AQ
+val aq_buf = ref ([] : string list)
 val aq_start = ref 0   (* char offset of the antiquotation BODY start (just after the opener) *)
+val aq_open = ref 0
 val aq_depth = ref 0
+
+fun reset_aq () =
+  (aq_kind := No_AQ; aq_buf := []; aq_start := 0; aq_open := 0; aq_depth := 0)
+fun start_aq kind open_pos body_pos =
+  (aq_kind := kind; aq_buf := []; aq_start := body_pos; aq_open := open_pos; aq_depth := 0)
+fun push_aq fragment = aq_buf := fragment :: !aq_buf
+fun take_aq () =
+  let val body = String.concat (rev (!aq_buf))
+  in reset_aq (); body end
 
 (* A suffixed integer literal is deliberately NOT interpreted here: the lexer captures the raw lexeme and
    URust_Translate.parse_int_lit reads it against the single int_suffix_typ table, so an unknown suffix is
@@ -252,7 +267,8 @@ val aq_depth = ref 0
 val pos_map = ref (Parser_Lex_Util.make_position_map (Input.string ""))
 fun set source ctxt =
   (Isabelle_lex_yacc.set source ctxt;
-   pos_map := Parser_Lex_Util.make_position_map source)
+   pos_map := Parser_Lex_Util.make_position_map source;
+   reset_aq ())
 
 fun fixed_pos yypos = Parser_Lex_Util.fixed_pos (!pos_map) yypos
 fun tokF args       = Parser_Lex_Util.tokF (!pos_map) args
@@ -261,6 +277,12 @@ fun report_fixed args = Parser_Lex_Util.report_fixed (!pos_map) args
 fun tok_ident (yypos, yytext) =
   let val p = Parser_Lex_Util.ident_pos (!pos_map) (yypos, yytext)
   in Tokens.IDENT (yytext, p, p) end
+
+fun eof () =
+  (case !aq_kind of
+     No_AQ => Tokens.EOF (Position.none, Position.none)
+   | Value_AQ => URust_Err.antiquotation_error "value" (fixed_pos (!aq_open))
+   | Expr_AQ => URust_Err.antiquotation_error "expression" (fixed_pos (!aq_open)))
 \<close>
 lex_definitions\<open>
 %s VAQ EAQ;
@@ -334,27 +356,27 @@ lex_rules\<open>
 <INITIAL>"]"      => (tokF (yypos, yytext, Markup.delimiter, "TRBRACK", Tokens.TRBRACK));
 <INITIAL>"{"      => (tokF (yypos, yytext, Markup.delimiter, "TLBRACE", Tokens.TLBRACE));
 <INITIAL>"}"      => (tokF (yypos, yytext, Markup.delimiter, "TRBRACE", Tokens.TRBRACE));
-<INITIAL>\\"<llangle>"          => (report_fixed (yypos, 1, Markup.delimiter, "VALAQ"); aq_buf := ""; aq_depth := 0; aq_start := yypos + size yytext; YYBEGIN VAQ; lex());
-<INITIAL>\\"<epsilon>"\\"<open>" => (report_fixed (yypos, 1, Markup.literal, "EXPRAQ"); aq_buf := ""; aq_depth := 0; aq_start := yypos + size yytext; YYBEGIN EAQ; lex());
+<INITIAL>\\"<llangle>"          => (report_fixed (yypos, 1, Markup.delimiter, "VALAQ"); start_aq Value_AQ yypos (yypos + size yytext); YYBEGIN VAQ; lex());
+<INITIAL>\\"<epsilon>"\\"<open>" => (report_fixed (yypos, 1, Markup.literal, "EXPRAQ"); start_aq Expr_AQ yypos (yypos + size yytext); YYBEGIN EAQ; lex());
 <INITIAL>\\"<Rightarrow>" => (report_fixed (yypos, 1, Markup.delimiter, "TARROW");
     Tokens.TARROW (fixed_pos yypos, fixed_pos (yypos + size yytext)));
 <INITIAL>.        => (URust_Err.lex_error yytext (fixed_pos yypos));
-<VAQ>\\"<llangle>" => (aq_depth := !aq_depth + 1; aq_buf := !aq_buf ^ yytext; lex());
+<VAQ>\\"<llangle>" => (aq_depth := !aq_depth + 1; push_aq yytext; lex());
 <VAQ>\\"<rrangle>" =>
-    (if !aq_depth > 0 then (aq_depth := !aq_depth - 1; aq_buf := !aq_buf ^ yytext; lex())
+    (if !aq_depth > 0 then (aq_depth := !aq_depth - 1; push_aq yytext; lex())
      else (YYBEGIN INITIAL; report_fixed (yypos, 1, Markup.delimiter, "VALAQ");
-       let val p = fixed_pos (!aq_start) val q = fixed_pos yypos
-       in Tokens.VALAQ (Input.source true (!aq_buf) (Position.range (p, q)), p, q) end));
-<VAQ>\n           => (aq_buf := !aq_buf ^ "\n"; lex());
-<VAQ>.            => (aq_buf := !aq_buf ^ yytext; lex());
-<EAQ>\\"<open>"    => (aq_depth := !aq_depth + 1; aq_buf := !aq_buf ^ yytext; lex());
+       let val p = fixed_pos (!aq_start) val q = fixed_pos yypos val body = take_aq ()
+       in Tokens.VALAQ (Input.source true body (Position.range (p, q)), p, q) end));
+<VAQ>\n           => (push_aq "\n"; lex());
+<VAQ>.            => (push_aq yytext; lex());
+<EAQ>\\"<open>"    => (aq_depth := !aq_depth + 1; push_aq yytext; lex());
 <EAQ>\\"<close>"   =>
-    (if !aq_depth > 0 then (aq_depth := !aq_depth - 1; aq_buf := !aq_buf ^ yytext; lex())
+    (if !aq_depth > 0 then (aq_depth := !aq_depth - 1; push_aq yytext; lex())
      else (YYBEGIN INITIAL; report_fixed (yypos, 1, Markup.delimiter, "EXPRAQ");
-       let val p = fixed_pos (!aq_start) val q = fixed_pos yypos
-       in Tokens.EXPRAQ (Input.source true (!aq_buf) (Position.range (p, q)), p, q) end));
-<EAQ>\n           => (aq_buf := !aq_buf ^ "\n"; lex());
-<EAQ>.            => (aq_buf := !aq_buf ^ yytext; lex());
+       let val p = fixed_pos (!aq_start) val q = fixed_pos yypos val body = take_aq ()
+       in Tokens.EXPRAQ (Input.source true body (Position.range (p, q)), p, q) end));
+<EAQ>\n           => (push_aq "\n"; lex());
+<EAQ>.            => (push_aq yytext; lex());
 \<close>
 and yacc_user_declarations\<open>
 open URust_AST
@@ -819,25 +841,51 @@ struct
   fun type_name_of (Type (name, _)) = SOME name
     | type_name_of _ = NONE
 
+  datatype struct_candidate =
+      Constructor_Candidate of {ctor: term, selectors: term list}
+    | Record_Candidate of {record_name: string, fields: term list}
+
+  datatype resolved_struct_pattern =
+      Resolved_Constructor_Struct of term * (term * Position.T option * ur_pat) list
+    | Resolved_Record_Struct of string * (term * Position.T option * ur_pat) list
+
   (* Struct heads accept either a constructor name or the type name of a single-constructor datatype.
-     HOL records need Record.get_info because they are not uniformly represented by Ctr_Sugar. *)
+     Records come only from Record.get_info; Ctr_Sugar's record entry describes a different lowering
+     domain and must not compete with ordinary constructor candidates. *)
   fun resolve_struct_constructor ctxt (id_name, pos) =
     let
       val id_name' = canonical_name id_name
       val thy = Proof_Context.theory_of ctxt
       val sugars = Ctr_Sugar.ctr_sugars_of ctxt
 
-      fun from_sugar ({T, ctrs, selss, ...} : Ctr_Sugar.ctr_sugar) =
+      fun named_const role term =
+        (case term_name_of term of
+           SOME name => Const (name, dummyT)
+         | NONE =>
+             error ("urust_expr: unnamed " ^ role ^ " in constructor metadata" ^
+               Position.here pos))
+      fun constructor_candidate ctor_name selectors =
+        Constructor_Candidate
+          {ctor = Const (ctor_name, dummyT),
+           selectors = map (named_const "selector") selectors}
+      fun from_sugar ({kind = Ctr_Sugar.Record, ...} : Ctr_Sugar.ctr_sugar) = []
+        | from_sugar ({T, ctrs, selss, ...} : Ctr_Sugar.ctr_sugar) =
         let
           val ty_name_opt = Option.map canonical_name (type_name_of T)
+          (* Old_Datatype uses an empty outer selector list; otherwise rows align with constructors. *)
           val entries =
-            map_index (fn (i, ctr) => (ctr, nth selss i handle Subscript => [])) ctrs
+            if null selss then map (fn ctr => (ctr, [])) ctrs
+            else if length ctrs = length selss then ListPair.zip (ctrs, selss)
+            else
+              error ("urust_expr: inconsistent constructor/selector metadata for " ^
+                quote (the_default id_name (type_name_of T)) ^ Position.here pos)
           val direct =
             map_filter (fn (ctr, sels) =>
               (case term_name_of ctr of
                  SOME ctor_name =>
                    if name_matches ctor_name id_name'
-                   then SOME (ctor_name, ctr, sels)
+                   then
+                     SOME (ctor_name, constructor_candidate ctor_name sels)
                    else NONE
                | NONE => NONE)) entries
           val fallback =
@@ -846,7 +894,8 @@ struct
                  if ty_name = id_name'
                  then
                    (case term_name_of ctr of
-                      SOME ctor_name => [(ctor_name, ctr, sels)]
+                      SOME ctor_name =>
+                        [(ctor_name, constructor_candidate ctor_name sels)]
                     | NONE => [])
                  else []
              | _ => [])
@@ -857,43 +906,71 @@ struct
           val resolved_name_opt =
             (type_name_of (Proof_Context.read_type_name {proper = true, strict = false} ctxt rec_name)
               handle ERROR _ => NONE)
-          val info_opt =
+          val (record_name, info_opt) =
             (case resolved_name_opt of
-               SOME resolved_name => Record.get_info thy resolved_name
-             | NONE => Record.get_info thy rec_name)
+               SOME resolved_name => (resolved_name, Record.get_info thy resolved_name)
+             | NONE => (rec_name, Record.get_info thy rec_name))
         in
           (case info_opt of
              NONE => NONE
            | SOME info =>
-               let
-                 val (ext_name, _) = #extension info
-                 val field_names = map fst (#fields info) @ ["more"]
-               in
-                 SOME (ext_name,
-                   Const (ext_name, dummyT),
-                   map (fn field => Const (field, dummyT)) field_names)
-               end)
+               SOME (record_name,
+                 Record_Candidate
+                   {record_name = record_name,
+                    fields = map (fn (field, _) => Const (field, dummyT)) (#fields info)}))
         end
 
-      fun insert_unique (key, value) acc =
-        if AList.defined (op =) acc key then acc
-        else AList.update (op =) (key, value) acc
+      fun same_candidate
+          (Constructor_Candidate {ctor = ctor1, selectors = selectors1},
+           Constructor_Candidate {ctor = ctor2, selectors = selectors2}) =
+            ctor1 aconv ctor2 andalso eq_list (op aconv) (selectors1, selectors2)
+        | same_candidate
+          (Record_Candidate {record_name = name1, fields = fields1},
+           Record_Candidate {record_name = name2, fields = fields2}) =
+            name1 = name2 andalso eq_list (op aconv) (fields1, fields2)
+        | same_candidate _ = false
+
+      fun candidate_description (Constructor_Candidate {ctor, selectors}) =
+            "constructor " ^ quote (the_default "<unnamed>" (term_name_of ctor)) ^
+              " with selectors [" ^
+              space_implode ", " (map (the_default "<unnamed>" o term_name_of) selectors) ^ "]"
+        | candidate_description (Record_Candidate {record_name, fields}) =
+            "record " ^ quote record_name ^ " with fields [" ^
+              space_implode ", " (map (the_default "<unnamed>" o term_name_of) fields) ^ "]"
+
+      fun candidate_key (Constructor_Candidate {ctor, ...}) =
+            "C:" ^ the_default "<unnamed>" (term_name_of ctor)
+        | candidate_key (Record_Candidate {record_name, ...}) = "R:" ^ record_name
+
+      fun add_candidate (display_name, candidate) candidates =
+        let val key = candidate_key candidate in
+          (case Symtab.lookup candidates key of
+             NONE => Symtab.update (key, (display_name, candidate)) candidates
+           | SOME (_, existing) =>
+               if same_candidate (existing, candidate) then candidates
+               else
+                 error ("urust_expr: inconsistent struct metadata for " ^ quote display_name ^
+                   ": " ^ candidate_description existing ^ " versus " ^
+                   candidate_description candidate ^ Position.here pos))
+        end
+
       val record_candidates =
         map_filter record_candidate (distinct (op =) [id_name, id_name'])
-      val unique_candidates =
-        fold (fn (key, ctr, sels) => insert_unique (key, (ctr, sels)))
-          (maps from_sugar sugars @ record_candidates) []
+      val candidates =
+        fold add_candidate (maps from_sugar sugars @ record_candidates) Symtab.empty
+        |> Symtab.dest
+        |> map snd
     in
-      (case unique_candidates of
+      (case candidates of
          [] =>
            error ("urust_expr: struct pattern " ^ quote id_name ^
              ": no matching constructor or single-constructor record/datatype found" ^
              Position.here pos)
-       | [(_, result)] => result
-       | candidates =>
+       | [(_, candidate)] => candidate
+       | _ =>
            error ("urust_expr: struct pattern " ^ quote id_name ^
              " is ambiguous; candidates: " ^
-             space_implode ", " (rev (map fst candidates)) ^ Position.here pos))
+             space_implode ", " (map fst candidates) ^ Position.here pos))
     end
 
   fun split_slice_items items =
@@ -912,15 +989,28 @@ struct
 
   fun resolve_struct_pattern ctxt (head, head_pos, fields) =
     let
-      val (ctor, selectors) = resolve_struct_constructor ctxt (head, head_pos)
-      val ctor_name = the_default head (Option.map canonical_name (term_name_of ctor))
-      val selector_names = map (canonical_name o the o term_name_of) selectors
+      val candidate = resolve_struct_constructor ctxt (head, head_pos)
+      val (display_name, selectors) =
+        (case candidate of
+           Constructor_Candidate {ctor, selectors} =>
+             (the_default head (Option.map canonical_name (term_name_of ctor)), selectors)
+         | Record_Candidate {record_name, fields} =>
+             (canonical_name record_name, fields))
+
+      fun selector_entry selector =
+        (case term_name_of selector of
+           SOME name => (canonical_name name, selector)
+         | NONE =>
+             error ("urust_expr: unnamed selector in struct metadata for " ^
+               quote display_name ^ Position.here head_pos))
+      val selector_entries = map selector_entry selectors
+      val selector_names = map fst selector_entries
 
       fun add_field (name, pos, pat) (entries, rest_pos) =
         let val field = canonical_name name in
           (case AList.lookup (op =) entries field of
              SOME _ =>
-               error ("urust_expr: struct pattern for " ^ quote ctor_name ^
+               error ("urust_expr: struct pattern for " ^ quote display_name ^
                  " has duplicate field " ^ quote field ^ Position.here pos)
            | NONE => ((field, (pos, pat)) :: entries, rest_pos))
         end
@@ -941,24 +1031,32 @@ struct
         (case unknown of
            NONE => ()
          | SOME (name, pos) =>
-             error ("urust_expr: struct pattern for " ^ quote ctor_name ^
+             error ("urust_expr: struct pattern for " ^ quote display_name ^
                " has unknown field " ^ quote name ^ Position.here pos))
-      fun optional name = name = "more"
       val missing =
         if is_some rest_pos then []
-        else filter (fn name =>
-          not (AList.defined (op =) entries name) andalso not (optional name)) selector_names
+        else filter_out (AList.defined (op =) entries) selector_names
       val _ =
         if null missing then ()
-        else error ("urust_expr: struct pattern for " ^ quote ctor_name ^
+        else error ("urust_expr: struct pattern for " ^ quote display_name ^
           " is missing field(s): " ^ space_implode ", " missing ^ Position.here head_pos)
       val ordered =
-        map (fn (selector, name) =>
+        map (fn (name, selector) =>
           (case AList.lookup (op =) entries name of
              SOME (pos, pat) => (selector, SOME pos, pat)
            | NONE => (selector, NONE, P_Wild Position.none)))
-          (selectors ~~ selector_names)
-    in (ctor, ordered) end
+          selector_entries
+    in
+      (case candidate of
+         Constructor_Candidate {ctor, ...} =>
+           Resolved_Constructor_Struct (ctor, ordered)
+       | Record_Candidate {record_name, ...} =>
+           Resolved_Record_Struct (record_name, ordered))
+    end
+
+  fun unsupported_record_pattern record_name pos =
+    error ("urust_expr: HOL record pattern " ^ quote (canonical_name record_name) ^
+      " requires selector-based lowering" ^ Position.here pos)
 
   (* Core expression constructors *)
   (* `let x = e; k` -> bind e (\<lambda>x. k) (HOAS). Sequencing MUST be `sequence`, not `bind e (\<lambda>_. k)`:
@@ -1210,7 +1308,8 @@ struct
     let
       fun products [] = [[]]
         | products (xs :: xss) =
-            maps (fn x => map (fn ys => x :: ys) (products xss)) xs
+            let val tails = products xss
+            in maps (fn x => map (fn ys => x :: ys) tails) xs end
       fun expand (P_Or (ps, _)) = maps expand ps
         | expand (P_Constr (name, pos, args)) =
             map (fn args' => P_Constr (name, pos, args'))
@@ -1273,9 +1372,11 @@ struct
              | bind_item (SI_Rest _) env' = env'
          in fold bind_item items env end
      | P_Struct (name, pos, fields) =>
-         let
-           val (_, ordered) = resolve_struct_pattern ctxt (name, pos, fields)
-         in fold (fn (_, _, p) => bind_case_vars ctxt p) ordered env end
+         (case resolve_struct_pattern ctxt (name, pos, fields) of
+            Resolved_Constructor_Struct (_, ordered) =>
+              fold (fn (_, _, p) => bind_case_vars ctxt p) ordered env
+          | Resolved_Record_Struct (record_name, _) =>
+              unsupported_record_pattern record_name pos)
      | P_Or (_, pos) =>
          error ("urust_expr: internal unexpanded case or-pattern" ^ Position.here pos))
 
@@ -1330,15 +1431,18 @@ struct
                   (CP_SliceSuffix (cons_chain (rev suffix) nil_pat)))
          end
      | P_Struct (name, pos, fields) =>
-         let
-           val (ctor, ordered) = resolve_struct_pattern ctxt (name, pos, fields)
-           val _ = report_ctor_markup ctxt pos ctor
-           fun prepare_field (selector, field_pos, field_pat) =
-             (case field_pos of
-                SOME p => report_ctor_markup ctxt p selector
-              | NONE => ();
-              prepare_case_pattern ctxt env field_pat)
-         in CP_Resolved (ctor, map prepare_field ordered) end
+         (case resolve_struct_pattern ctxt (name, pos, fields) of
+            Resolved_Constructor_Struct (ctor, ordered) =>
+              let
+                val _ = report_ctor_markup ctxt pos ctor
+                fun prepare_field (selector, field_pos, field_pat) =
+                  (case field_pos of
+                     SOME p => report_ctor_markup ctxt p selector
+                   | NONE => ();
+                   prepare_case_pattern ctxt env field_pat)
+              in CP_Resolved (ctor, map prepare_field ordered) end
+          | Resolved_Record_Struct (record_name, _) =>
+              unsupported_record_pattern record_name pos)
      | P_Or (_, p) =>
          error ("urust_expr: internal unexpanded case or-pattern" ^ Position.here p))
 
@@ -1375,7 +1479,7 @@ struct
      depth-first source order; named slots use their source Free and wildcards use final Bound indices. *)
   fun bind_basic_case_pat ctxt env pat =
     let
-      fun add_slot slot (slots, n) = (CPT_Slot n, (slots @ [slot], n + 1))
+      fun add_slot slot (slots_rev, n) = (CPT_Slot n, (slot :: slots_rev, n + 1))
       fun walk (BCP_Wild pos_opt) state =
             (case pos_opt of SOME pos => report_wildcard ctxt pos | NONE => ();
              add_slot NONE state)
@@ -1415,10 +1519,10 @@ struct
                        state''')
                     end
             in tuple_tree args state end
-      val (tree, (slots, _)) = walk pat ([], 0)
+      val (tree, (slots_rev, _)) = walk pat ([], 0)
     in
       fn body =>
-        abs_slots mk_case_abs slots
+        abs_slots mk_case_abs (rev slots_rev)
           (fn args => mk_case_elem (instantiate_case_pat args tree) body)
     end
 

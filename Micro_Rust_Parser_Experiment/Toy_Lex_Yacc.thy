@@ -38,6 +38,9 @@ structure Toy_Err =
 struct
   fun lex_error text pos =
     error ("Toy parser: unexpected input " ^ quote text ^ Position.here pos)
+
+  fun antiquotation_error pos =
+    error ("Toy parser: unterminated antiquotation" ^ Position.here pos)
 end
 \<close>
 SML_import \<open> structure Toy_Err = Toy_Err \<close>
@@ -45,16 +48,28 @@ SML_import \<open> structure Toy_Err = Toy_Err \<close>
 text\<open> The generated lexer keeps only its source map and \<open>Tokens\<close> wrappers locally. \<close>
 ml_lex_yacc "Toy" where
 lex_user_declarations\<open>
-val aq_buf = ref ""
+val aq_active = ref false
+val aq_buf = ref ([] : string list)
 val aq_start = ref 0   (* char offset of the antiquotation BODY start (just after the opener) *)
+val aq_open = ref 0
 val aq_depth = ref 0
+
+fun reset_aq () =
+  (aq_active := false; aq_buf := []; aq_start := 0; aq_open := 0; aq_depth := 0)
+fun start_aq open_pos body_pos =
+  (aq_active := true; aq_buf := []; aq_start := body_pos; aq_open := open_pos; aq_depth := 0)
+fun push_aq fragment = aq_buf := fragment :: !aq_buf
+fun take_aq () =
+  let val body = String.concat (rev (!aq_buf))
+  in reset_aq (); body end
 
 (* Keep generated Tokens constructors local; share position conversion. Identifiers are marked after
    their role is known. *)
 val pos_map = ref (Parser_Lex_Util.make_position_map (Input.string ""))
 fun set source ctxt =
   (Isabelle_lex_yacc.set source ctxt;
-   pos_map := Parser_Lex_Util.make_position_map source)
+   pos_map := Parser_Lex_Util.make_position_map source;
+   reset_aq ())
 
 fun fixed_pos yypos = Parser_Lex_Util.fixed_pos (!pos_map) yypos
 fun tokF args       = Parser_Lex_Util.tokF (!pos_map) args
@@ -63,6 +78,10 @@ fun report_fixed args = Parser_Lex_Util.report_fixed (!pos_map) args
 fun tok_id (yypos, yytext) =
   let val p = Parser_Lex_Util.ident_pos (!pos_map) (yypos, yytext)
   in Tokens.TID (yytext, p, p) end
+
+fun eof () =
+  if !aq_active then Toy_Err.antiquotation_error (fixed_pos (!aq_open))
+  else Tokens.EOF (Position.none, Position.none)
 \<close>
 lex_definitions\<open>
 %s AQ;
@@ -85,16 +104,16 @@ lex_rules\<open>
 <INITIAL>")"      => (tokF (yypos, yytext, Markup.delimiter, "TRPAR", Tokens.TRPAR));
 <INITIAL>{alpha}({alpha}|{digit})* => (tok_id (yypos, yytext));
 <INITIAL>\\"<llangle>" => (report_fixed (yypos, 1, Markup.delimiter, "TAQ");
-    aq_buf := ""; aq_depth := 0; aq_start := yypos + size yytext; YYBEGIN AQ; lex());
+    start_aq yypos (yypos + size yytext); YYBEGIN AQ; lex());
 <INITIAL>.        => (Toy_Err.lex_error yytext (fixed_pos yypos));
-<AQ>\\"<llangle>" => (aq_depth := !aq_depth + 1; aq_buf := !aq_buf ^ yytext; lex());
+<AQ>\\"<llangle>" => (aq_depth := !aq_depth + 1; push_aq yytext; lex());
 <AQ>\\"<rrangle>" =>
-    (if !aq_depth > 0 then (aq_depth := !aq_depth - 1; aq_buf := !aq_buf ^ yytext; lex())
+    (if !aq_depth > 0 then (aq_depth := !aq_depth - 1; push_aq yytext; lex())
      else (YYBEGIN INITIAL; report_fixed (yypos, 1, Markup.delimiter, "TAQ");
-       let val p = fixed_pos (!aq_start) val q = fixed_pos yypos
-       in Tokens.TAQ (Input.source true (!aq_buf) (Position.range (p, q)), p, q) end));
-<AQ>\n            => (aq_buf := !aq_buf ^ "\n"; lex());
-<AQ>.             => (aq_buf := !aq_buf ^ yytext; lex());
+       let val p = fixed_pos (!aq_start) val q = fixed_pos yypos val body = take_aq ()
+       in Tokens.TAQ (Input.source true body (Position.range (p, q)), p, q) end));
+<AQ>\n            => (push_aq "\n"; lex());
+<AQ>.             => (push_aq yytext; lex());
 \<close>
 and yacc_user_declarations\<open>
 open Toy_AST

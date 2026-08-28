@@ -127,6 +127,13 @@ section\<open> Patterns \<close>
 datatype negative_struct_fixture =
   NegativeStruct (negative_left: nat) (negative_right: nat)
 
+datatype negative_more_selector_fixture =
+  NegativeMoreSelector (negative_more_required: nat) (more: nat)
+
+record negative_record_fixture =
+  negative_record_left :: nat
+  negative_record_right :: nat
+
 urust_expr_rejects \<open> let Some(x) = \<llangle>Some (0 :: nat)\<rrangle>; () \<close>
   \<open> refutable pattern in an irrefutable (let/const) binder position \<close>
   \<comment> \<open> [FIDELITY] the site gate on the ONE pattern language (D28). The frontend rejects it as well,
@@ -286,6 +293,18 @@ urust_expr_rejects
   \<open> match_case \<llangle>NegativeStruct 1 2\<rrangle> { NegativeStruct { negative_left: x } \<Rightarrow> x } \<close>
   \<open> is missing field(s): negative_right \<close>
   \<comment> \<open> [FIDELITY] omitted fields require a struct rest marker. \<close>
+
+urust_expr_rejects_parser_only
+  \<open> match_case \<llangle>NegativeMoreSelector 1 2\<rrangle> { NegativeMoreSelector { negative_more_required: x } \<Rightarrow> x } \<close>
+  \<open> is missing field(s): more \<close>
+  \<comment> \<open> [DIVERGENT] an ordinary datatype selector named \<open>more\<close> is required. The frontend
+       mistakes its basename for HOL record-extension metadata and accepts the omission. \<close>
+
+urust_expr_rejects
+  \<open> match_case \<llangle>\<lparr>negative_record_left = 1, negative_record_right = 2\<rparr>\<rrangle> { negative_record_fixture { negative_record_left: x, negative_record_right: _ } \<Rightarrow> x } \<close>
+  \<open> HOL record pattern "negative_record_fixture" requires selector-based lowering \<close>
+  \<comment> \<open> [FIDELITY] both frontends reject HOL record extension constructors. The custom parser
+       exposes the explicit boundary for future selector-based lowering (T-29). \<close>
 
 urust_expr_rejects
   \<open> match_case \<llangle>NegativeStruct 1 2\<rrangle> { NegativeStruct { unknown: x, .. } \<Rightarrow> x } \<close>
@@ -482,6 +501,30 @@ urust_expr_rejects \<open> "bad\q" \<close> \<open> bad escape character in stri
 
 urust_expr_rejects \<open> "unterminated \<close> \<open> malformed or unterminated string literal \<close>
   \<comment> \<open> [FIDELITY] the opening quote receives a positioned lexer diagnostic. \<close>
+
+urust_expr_rejects \<open> \<llangle>1 :: nat \<close> \<open> unterminated value antiquotation \<close>
+  \<comment> \<open> [FIDELITY] EOF in a value antiquotation is diagnosed at its opening delimiter. \<close>
+
+ML\<open>
+local
+  fun expect_rejection text expected =
+    (case Exn.result (fn () => elab_urust \<^context> (Input.string text)) () of
+       Exn.Res _ => error ("expected direct parser rejection containing " ^ quote expected)
+     | Exn.Exn exn =>
+         if Exn.is_interrupt exn then Exn.reraise exn
+         else
+           let val message = Runtime.exn_message exn
+           in
+             if String.isSubstring expected message then ()
+             else error ("expected direct parser rejection containing " ^ quote expected ^
+               ", but got " ^ quote message)
+           end)
+  val _ =
+    expect_rejection ("\<epsilon>" ^ Symbol.open_ ^ "True")
+      "unterminated expression antiquotation"
+  val _ = ignore (elab_urust \<^context> (Input.string "()"))
+in end
+\<close>
 
 urust_expr_rejects
   \<open> match_case true { \<epsilon>\<open>Bool_Type.true\<close> \<Rightarrow> () } \<close>

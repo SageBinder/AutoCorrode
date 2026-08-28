@@ -2030,6 +2030,35 @@ datatype_record adv_datatype_record =
   adv_dr_left :: nat
   adv_dr_right :: nat
 
+record adv_record_fixture =
+  adv_rec_left :: nat
+  adv_rec_right :: nat
+
+text\<open>
+This direct resolver regression checks that an HOL record uses the record-specific result variant and
+contains only its two source-visible fields, rather than generic constructor metadata or a synthetic
+extension slot.
+\<close>
+
+ML\<open>
+val _ =
+  let
+    val wildcard = URust_AST.P_Wild Position.none
+    val fields =
+      [URust_AST.SF_Field ("adv_rec_left", Position.none, wildcard),
+       URust_AST.SF_Field ("adv_rec_right", Position.none, wildcard)]
+  in
+    (case URust_Translate.resolve_struct_pattern
+        \<^context> ("adv_record_fixture", Position.none, fields) of
+       URust_Translate.Resolved_Record_Struct (record_name, ordered) =>
+         if Long_Name.base_name record_name = "adv_record_fixture" andalso length ordered = 2
+         then ()
+         else error "record struct-pattern metadata has the wrong source-visible fields"
+     | URust_Translate.Resolved_Constructor_Struct _ =>
+         error "HOL record resolved through generic constructor metadata")
+  end
+\<close>
+
 urust_expr adv_struct_reordered
   \<open> match \<llangle>AdvStruct 1 2\<rrangle> { AdvStruct { adv_right: y, adv_left: x } \<Rightarrow> x, _ \<Rightarrow> 0 } \<close>
 lemma \<open> adv_struct_reordered =
