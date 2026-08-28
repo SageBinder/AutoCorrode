@@ -28,16 +28,7 @@ struct
      environment returned by pattern binding. Case alternatives follow the same rule independently. *)
   fun lower_expression ctxt environment expression =
     (case expression of
-       UE_Num (lexeme, pos) =>
-         let val (value, _) = T.parse_integer pos lexeme
-         in T.literal (HOLogic.mk_number dummyT value) end
-     | UE_NumSfx (lexeme, pos) =>
-         (case T.parse_integer pos lexeme of
-            (value, SOME typ) => T.literal (HOLogic.mk_number typ value)
-          | (_, NONE) =>
-              error ("urust_expr: internal missing integer suffix" ^
-                Position.here pos))
-     | UE_Unit _ =>
+       UE_Unit _ =>
          T.literal HOLogic.unit
      | UE_Tuple (arguments, _) =>
          T.tuple (map (lower_expression ctxt environment) arguments)

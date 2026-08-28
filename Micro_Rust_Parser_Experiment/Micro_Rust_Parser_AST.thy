@@ -9,9 +9,15 @@ ML\<open>
 structure URust_AST =
 struct
   datatype literal_payload =
-      LP_Bool     of bool * Position.T
+      LP_Integer  of string * Position.T
+    | LP_Bool     of bool * Position.T
     | LP_String   of string * Position.T
     | LP_ValAntiq of Input.source
+
+  fun literal_position (LP_Integer (_, pos)) = pos
+    | literal_position (LP_Bool (_, pos)) = pos
+    | literal_position (LP_String (_, pos)) = pos
+    | literal_position (LP_ValAntiq source) = Input.pos_of source
 
   (* THE pattern language: ONE datatype for EVERY binding site (let / const binder, match_switch key,
      match_case arm, and later closure params, `for` patterns, fn parameters) -- Rust has one pattern
@@ -25,8 +31,7 @@ struct
   datatype ur_pat =
       P_Wild   of Position.T                          (* _ *)
     | P_Ident  of string * Position.T                 (* bare id: nullary ctor OR variable binder *)
-    | P_Lit    of string * Position.T                 (* numeral pattern (a match_switch key) *)
-    | P_Value  of literal_payload                     (* bool / string / <<value>> equality pattern *)
+    | P_Literal of literal_payload                    (* numeral switch key or equality pattern *)
     | P_Constr of string * Position.T * ur_pat list   (* C(args): name, name-pos, args *)
     | P_Tuple  of ur_pat list * Position.T            (* (p0, p1, ..), at least two elements *)
     | P_Group  of ur_pat                              (* (p), transparent wrapper *)
@@ -73,14 +78,10 @@ struct
     | AssignBin of assign_binop
 
   datatype ur_expr =
-      UE_Num       of string * Position.T             (* raw decimal or hexadecimal numeral *)
-    | UE_NumSfx    of string * Position.T             (* RAW lexeme of a suffixed int (1_u32 / 0x4_u8);
-                                                         split + typed by parse_int_lit -- ALL suffix
-                                                         knowledge sits in that one table (D29) *)
-    | UE_Unit      of Position.T                      (* () *)
+      UE_Unit      of Position.T                      (* () *)
     | UE_Tuple     of ur_expr list * Position.T       (* (e0, e1, ..), at least two elements *)
     | UE_Ident     of string * Position.T             (* bare identifier at value position *)
-    | UE_Literal   of literal_payload                 (* true / false / string / <<value>> *)
+    | UE_Literal   of literal_payload                 (* integer / bool / string / <<value>> *)
     | UE_ExprAntiq of Input.source                    (* eps<e> body as a POSITIONED source -> e *)
     | UE_Let       of ur_pat * ur_expr * ur_expr      (* let <pat> = rhs; body -> bind *)
     | UE_LetMut    of ur_pat * ur_expr * ur_expr * Position.T
@@ -123,14 +124,10 @@ struct
   and ur_arm =
       UR_Arm of ur_pat * (ur_expr * Position.T) option * ur_expr
 
-  fun expr_pos (UE_Num (_, pos)) = pos
-    | expr_pos (UE_NumSfx (_, pos)) = pos
-    | expr_pos (UE_Unit pos) = pos
+  fun expr_pos (UE_Unit pos) = pos
     | expr_pos (UE_Tuple (_, pos)) = pos
     | expr_pos (UE_Ident (_, pos)) = pos
-    | expr_pos (UE_Literal (LP_Bool (_, pos))) = pos
-    | expr_pos (UE_Literal (LP_String (_, pos))) = pos
-    | expr_pos (UE_Literal (LP_ValAntiq src)) = Input.pos_of src
+    | expr_pos (UE_Literal payload) = literal_position payload
     | expr_pos (UE_ExprAntiq src) = Input.pos_of src
     | expr_pos (UE_Let _) = Position.none
     | expr_pos (UE_LetMut (_, _, _, pos)) = pos

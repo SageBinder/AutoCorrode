@@ -60,8 +60,7 @@ struct
 
   fun position (P_Wild pos) = pos
     | position (P_Ident (_, pos)) = pos
-    | position (P_Lit (_, pos)) = pos
-    | position (P_Value payload) = R.literal_position payload
+    | position (P_Literal payload) = literal_position payload
     | position (P_Constr (_, pos, _)) = pos
     | position (P_Tuple (_, pos)) = pos
     | position (P_Group pattern) = position pattern
@@ -88,10 +87,12 @@ struct
   fun classify_match arms pos =
     let
       fun case_compatible pattern =
-        (case strip_groups pattern of P_Lit _ => false | _ => true)
+        (case strip_groups pattern of
+           P_Literal (LP_Integer _) => false
+         | _ => true)
       fun switch_compatible pattern =
         (case strip_groups pattern of
-           P_Lit _ => true
+           P_Literal (LP_Integer _) => true
          | P_Ident _ => true
          | P_Wild _ => true
          | _ => false)
@@ -159,9 +160,8 @@ struct
 
   fun switch_key ctxt pattern =
     (case strip_groups pattern of
-       P_Lit (lexeme, pos) =>
-         let val (value, _) = T.parse_integer pos lexeme
-         in T.option_some (HOLogic.mk_number dummyT value) end
+       P_Literal (LP_Integer (lexeme, pos)) =>
+         T.option_some (T.integer_value pos lexeme)
      | P_Wild pos => (R.report_wildcard ctxt pos; T.option_none)
      | P_Ident (name, pos) =>
          error ("urust_expr: unsupported match_switch key " ^ quote name ^
@@ -308,8 +308,7 @@ struct
   fun bind_case_variables ctxt pattern environment =
     (case strip_case_transparency pattern of
        P_Wild _ => environment
-     | P_Lit _ => environment
-     | P_Value _ => environment
+     | P_Literal _ => environment
      | P_Ident (name, pos) =>
          (case R.resolve_constructor ctxt name of
             SOME _ => environment
@@ -351,10 +350,7 @@ struct
   (* Value payloads are elaborated after all source binders for this alternative have been registered. *)
   fun pattern_value_expression ctxt environment pattern =
     (case strip_groups pattern of
-       P_Lit (lexeme, pos) =>
-         let val (value, _) = T.parse_integer pos lexeme
-         in T.literal (HOLogic.mk_number dummyT value) end
-     | P_Value payload =>
+       P_Literal payload =>
          T.literal (R.literal_value ctxt environment payload)
      | P_Ident identifier =>
          R.literal_identifier ctxt environment identifier
@@ -366,11 +362,11 @@ struct
     (case strip_case_transparency pattern of
        P_Wild pos => Case_Wild pos
      | P_Ident identifier => Case_Ident identifier
-     | P_Lit literal => Case_Literal literal
-     | P_Value payload =>
+     | P_Literal (LP_Integer literal) => Case_Literal literal
+     | P_Literal payload =>
          Case_Value
            (R.literal_value ctxt environment payload,
-            R.literal_position payload)
+            literal_position payload)
      | P_Constr (name, pos, arguments) =>
          Case_Constructor
            (name, pos, map (prepare_case_pattern ctxt environment) arguments)

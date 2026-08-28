@@ -21,7 +21,6 @@ sig
   val anonymous_abstraction: term -> term
 
   val report_wildcard: Proof.context -> Position.T -> unit
-  val literal_position: URust_AST.literal_payload -> Position.T
   val literal_value:
     Proof.context -> environment -> URust_AST.literal_payload -> term
   val literal_expression:
@@ -151,13 +150,10 @@ struct
   fun report_wildcard ctxt pos =
     Context_Position.report_text ctxt pos Markup.typing "wildcard pattern"
 
-  fun literal_position (LP_Bool (_, pos)) = pos
-    | literal_position (LP_String (_, pos)) = pos
-    | literal_position (LP_ValAntiq source) = Input.pos_of source
-
   fun literal_value ctxt environment payload =
     (case payload of
-       LP_Bool (value, _) => if value then T.true_value else T.false_value
+       LP_Integer (lexeme, pos) => T.integer_value pos lexeme
+     | LP_Bool (value, _) => if value then T.true_value else T.false_value
      | LP_String (raw, pos) => T.string_value raw pos
      | LP_ValAntiq source => parse_antiquotation ctxt environment source)
 

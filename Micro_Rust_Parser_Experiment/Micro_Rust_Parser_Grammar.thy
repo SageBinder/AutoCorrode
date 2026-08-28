@@ -298,8 +298,8 @@ yacc_rules\<open>
            | upostfix TDOT IDENT LPAR ucallargs RPAR
                (mk_method_call
                   (upostfix, IDENT, IDENTleft, ucallargs, upostfixleft, RPARright))
-  uatom : NUM        (UE_Num (NUM, NUMleft))
-        | NUMSFX     (UE_NumSfx (NUMSFX, NUMSFXleft))
+  uatom : NUM        (UE_Literal (LP_Integer (NUM, NUMleft)))
+        | NUMSFX     (UE_Literal (LP_Integer (NUMSFX, NUMSFXleft)))
         | TTRUE      (UE_Literal (LP_Bool (true, TTRUEleft)))
         | TFALSE     (UE_Literal (LP_Bool (false, TFALSEleft)))
         | STRING     (UE_Literal (LP_String (STRING, STRINGleft)))
@@ -411,11 +411,11 @@ yacc_rules\<open>
                | TAMP TMUT upat_prefix
                    (P_Borrow (BM_Mut, upat_prefix, TAMPleft))
   upat_atom : upat_ident          (mk_bare_ident_pat upat_ident)   (* `_` normalises to P_Wild *)
-             | NUM                (P_Lit (NUM, NUMleft))
-             | TTRUE              (P_Value (LP_Bool (true, TTRUEleft)))
-             | TFALSE             (P_Value (LP_Bool (false, TFALSEleft)))
-             | STRING             (P_Value (LP_String (STRING, STRINGleft)))
-             | VALAQ              (P_Value (LP_ValAntiq VALAQ))
+             | NUM                (P_Literal (LP_Integer (NUM, NUMleft)))
+             | TTRUE              (P_Literal (LP_Bool (true, TTRUEleft)))
+             | TFALSE             (P_Literal (LP_Bool (false, TFALSEleft)))
+             | STRING             (P_Literal (LP_String (STRING, STRINGleft)))
+             | VALAQ              (P_Literal (LP_ValAntiq VALAQ))
              | upat_ident LPAR upats RPAR
                  (mk_ctor_pat (upat_ident, upats))
              | upat_ident TAT upat_alias

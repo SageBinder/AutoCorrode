@@ -12,7 +12,7 @@ sig
   val literal: term -> term
   val boolean_expression: bool -> term
   val string_value: string -> Position.T -> term
-  val parse_integer: Position.T -> string -> int * typ option
+  val integer_value: Position.T -> string -> term
 
   val function_call: Position.T -> term -> term list -> term
   val bind: term -> term -> term
@@ -152,6 +152,11 @@ struct
                   quote ("_" ^ suffix_text) ^
                   " (supported: _u8 _u16 _u32 _u64 _usize)" ^ Position.here pos)))
     end
+
+  fun integer_value pos lexeme =
+    (case parse_integer pos lexeme of
+       (value, NONE) => HOLogic.mk_number dummyT value
+     | (value, SOME typ) => HOLogic.mk_number typ value)
 
   (* Sequencing must use sequence: replacing it with an anonymous bind changes the generated term. *)
   fun bind expression abstraction =
