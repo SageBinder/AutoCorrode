@@ -427,6 +427,10 @@ urust_expr ref_deref_mul \<open> *r * rhs \<close>
 lemma \<open> ref_deref_mul = \<lbrakk> *r * rhs \<rbrakk> \<close>
   unfolding ref_deref_mul_def by (rule refl)
 
+urust_expr ref_deref_mul2 \<open> rhs * *r \<close>
+lemma \<open> ref_deref_mul2 = \<lbrakk> rhs * *r \<rbrakk> \<close>
+  unfolding ref_deref_mul2_def by (rule refl)
+
 urust_expr ref_deref_band \<open> *r & rhs \<close>
 lemma \<open> ref_deref_band = \<lbrakk> *r & rhs \<rbrakk> \<close>
   unfolding ref_deref_band_def by (rule refl)
