@@ -56,8 +56,8 @@ fun take_aq () =
   in reset_aq (); body end
 
 (* A suffixed integer literal is deliberately NOT interpreted here: the lexer captures the raw lexeme and
-   URust_Translate.parse_int_lit reads it against the single int_suffix_typ table, so an unknown suffix is
-   a POSITIONED elaborator error rather than an unpositioned `raise Fail` in lexer code (D29).
+   the elaboration term layer reads it against the single suffix table, so an unknown suffix is a
+   POSITIONED elaborator error rather than an unpositioned `raise Fail` in lexer code (D29).
 
    Per-lexer position-map ref + set-shadow; the position MATH is shared (Parser_Lex_Util). tok_ident emits NO
    colour -- ident_term does that once it knows the name's role, so the markup cannot split (D14). *)

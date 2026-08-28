@@ -119,7 +119,7 @@ urust_expr_rejects \<open> match_switch \<llangle>0 :: nat\<rrangle> { _ \<Right
 section\<open> Integer literals \<close>
 
 urust_expr_rejects \<open> 1_u7 \<close> \<open> unsupported integer-literal suffix "_u7" \<close>
-  \<comment> \<open> [FIDELITY] unknown width suffix, from the single \<open>int_suffix_typ\<close> table (D29); the frontend's
+  \<comment> \<open> [FIDELITY] unknown width suffix, from the single term-layer suffix table (D29); the frontend's
        numeral-ascription syntax rejects it too. Adding \<open>u7\<close> would break this row -- deliberately. \<close>
 
 section\<open> Patterns \<close>

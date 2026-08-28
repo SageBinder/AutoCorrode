@@ -2048,13 +2048,13 @@ val _ =
       [URust_AST.SF_Field ("adv_rec_left", Position.none, wildcard),
        URust_AST.SF_Field ("adv_rec_right", Position.none, wildcard)]
   in
-    (case URust_Translate.resolve_struct_pattern
+    (case URust_Resolution.resolve_struct_pattern
         \<^context> ("adv_record_fixture", Position.none, fields) of
-       URust_Translate.Resolved_Record_Struct (record_name, ordered) =>
+       URust_Resolution.Resolved_Record_Struct (record_name, ordered) =>
          if Long_Name.base_name record_name = "adv_record_fixture" andalso length ordered = 2
          then ()
          else error "record struct-pattern metadata has the wrong source-visible fields"
-     | URust_Translate.Resolved_Constructor_Struct _ =>
+     | URust_Resolution.Resolved_Constructor_Struct _ =>
          error "HOL record resolved through generic constructor metadata")
   end
 \<close>

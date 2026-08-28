@@ -54,7 +54,7 @@ struct
      flavour that CLASSIFIES its arms into one of these two lowerings (D28/D32). *)
   datatype match_flavour = MF_Switch | MF_Case | MF_Auto
 
-  (* Pure-value operators. Data-driven: each maps to one HOL const via URust_Translate.binop_const /
+  (* Pure-value operators. Data-driven: each maps to one HOL const in URust_Elab_Terms /
      unop_const, so adding an operator is one datatype line + one table row (D20). *)
   datatype binop =
       Add | Sub | Mul | Div | Mod              (* + - * / %       *)
