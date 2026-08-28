@@ -59,15 +59,19 @@ struct
      flavour that CLASSIFIES its arms into one of these two lowerings (D28/D32). *)
   datatype match_flavour = MF_Switch | MF_Case | MF_Auto
 
-  (* Pure-value operators. Data-driven: each maps to one HOL const in URust_Elab_Terms /
-     unop_const, so adding an operator is one datatype line + one table row (D20). *)
+  (* Binary operators map to HOL constants. Unary source forms share one tagged node while the grammar
+     retains their distinct prefix/postfix fixity and precedence tiers. *)
   datatype binop =
       Add | Sub | Mul | Div | Mod              (* + - * / %       *)
     | Shl | Shr                                (* << >>           *)
     | BAnd | BOr | BXor                        (* & | ^  (infix)  *)
     | Eq | Ne | Lt | Le | Gt | Ge              (* == != < <= > >= *)
     | And | Or                                 (* && ||           *)
-  datatype unop = Not                          (* !  (and !! = !(!_)) *)
+  datatype unaryop =
+      U_Not
+    | U_Borrow of borrow_mode
+    | U_Deref
+    | U_Propagate
   datatype assign_binop =
       AssignSub | AssignMul | AssignMod
     | AssignBAnd | AssignBOr | AssignBXor
@@ -90,9 +94,8 @@ struct
                                                          keeps the keyword for when it diverges (B7) *)
     | UE_Seq       of ur_expr * ur_expr               (* e1; e2 -> sequence (trailing `;`: e2 = unit) *)
     | UE_Bin       of binop * ur_expr * ur_expr * Position.T   (* a <binop> b *)
-    | UE_Un        of unop * ur_expr * Position.T              (* !a  (and !!a = !(!a)) *)
-    | UE_Borrow    of borrow_mode * ur_expr * Position.T       (* &a / & mut a *)
-    | UE_Deref     of ur_expr * Position.T                      (* *a *)
+    | UE_Unary     of unaryop * ur_expr * Position.T
+                                                      (* !a / &a / & mut a / *a / a? *)
     | UE_Group     of ur_expr * Position.T                      (* (a), transparent during lowering *)
     | UE_Block     of ur_expr * Position.T            (* { stmts } -- ERASES to <stmts>, no `scoped`
                                                          wrapper: `_urust_scoping` is identity (D22) *)
@@ -106,7 +109,6 @@ struct
                                                          (D23/D29). Non-identifier callees (antiquotation,
                                                          turbofish, path) are deferred -- D-5. *)
     | UE_Field     of ur_expr * string * Position.T   (* e.field -> NField lens focus *)
-    | UE_Propagate of ur_expr * Position.T            (* e? -> overloaded propagate_const *)
     | UE_Assign    of assignop * ur_place * ur_expr * Position.T
                                                       (* place assignment-op rhs, at the operator *)
     | UE_Match     of match_flavour * ur_expr * ur_arm list * Position.T
@@ -134,15 +136,12 @@ struct
     | expr_pos (UE_Const _) = Position.none
     | expr_pos (UE_Seq _) = Position.none
     | expr_pos (UE_Bin (_, _, _, pos)) = pos
-    | expr_pos (UE_Un (_, _, pos)) = pos
-    | expr_pos (UE_Borrow (_, _, pos)) = pos
-    | expr_pos (UE_Deref (_, pos)) = pos
+    | expr_pos (UE_Unary (_, _, pos)) = pos
     | expr_pos (UE_Group (_, pos)) = pos
     | expr_pos (UE_Block (_, pos)) = pos
     | expr_pos (UE_If (_, _, _, pos)) = pos
     | expr_pos (UE_Call (_, _, _, pos)) = pos
     | expr_pos (UE_Field (_, _, pos)) = pos
-    | expr_pos (UE_Propagate (_, pos)) = pos
     | expr_pos (UE_Assign (_, _, _, pos)) = pos
     | expr_pos (UE_Match (_, _, _, pos)) = pos
 
@@ -152,7 +151,7 @@ struct
   fun expr_to_place (UE_Ident id) = UP_Ident id
     | expr_to_place (UE_ExprAntiq src) = UP_Antiq src
     | expr_to_place (UE_Group (expr, _)) = expr_to_place expr
-    | expr_to_place (UE_Deref (expr, pos)) = UP_Deref (expr, pos)
+    | expr_to_place (UE_Unary (U_Deref, expr, pos)) = UP_Deref (expr, pos)
     | expr_to_place (UE_Field (base, name, pos)) =
         UP_Field (expr_to_place base, name, pos)
     | expr_to_place expr =

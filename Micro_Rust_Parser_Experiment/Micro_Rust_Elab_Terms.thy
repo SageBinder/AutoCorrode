@@ -19,16 +19,13 @@ sig
   val sequence: term -> term -> term
   val case_product: term -> term
   val allocate_reference: Position.T -> term -> term
-  val borrow: URust_AST.borrow_mode -> Position.T -> term -> term
-  val dereference: Position.T -> term -> term
   val update: Position.T -> term -> term -> term
   val assign_add: Position.T -> term -> term -> term
   val focus_field: term -> term -> term
   val tuple: term list -> term
   val conditional: term -> term -> term -> term
-  val propagate: Position.T -> term -> term
   val binary: URust_AST.binop -> term -> term -> term
-  val unary: URust_AST.unop -> term -> term
+  val unary: URust_AST.unaryop -> Position.T -> term -> term
   val assignment_binary: URust_AST.assign_binop -> term -> term -> term
 
   val option_some: term -> term
@@ -222,6 +219,12 @@ struct
   fun propagate pos expression =
     positioned_constant \<^const_name>\<open>propagate_const\<close> pos [expression]
 
+  fun unary U_Not _ expression =
+        constant \<^const_name>\<open>negation_const\<close> [expression]
+    | unary (U_Borrow mode) pos expression = borrow mode pos expression
+    | unary U_Deref pos expression = dereference pos expression
+    | unary U_Propagate pos expression = propagate pos expression
+
   fun binary_constant Add = \<^const_name>\<open>urust_add\<close>
     | binary_constant Sub = \<^const_name>\<open>word_minus_no_wrap\<close>
     | binary_constant Mul = \<^const_name>\<open>word_mul_no_wrap\<close>
@@ -241,8 +244,6 @@ struct
     | binary_constant And = \<^const_name>\<open>urust_conj\<close>
     | binary_constant Or = \<^const_name>\<open>urust_disj\<close>
 
-  fun unary_constant Not = \<^const_name>\<open>negation_const\<close>
-
   fun assigned_binary_operator AssignSub = Sub
     | assigned_binary_operator AssignMul = Mul
     | assigned_binary_operator AssignMod = Mod
@@ -253,7 +254,6 @@ struct
     | assigned_binary_operator AssignShr = Shr
 
   fun binary operator left right = constant (binary_constant operator) [left, right]
-  fun unary operator expression = constant (unary_constant operator) [expression]
   fun assignment_binary operator left right =
     binary (assigned_binary_operator operator) left right
 

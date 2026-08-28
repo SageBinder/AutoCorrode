@@ -292,7 +292,7 @@ yacc_rules\<open>
      parentheses is a method; without parentheses it is an NField lens access. *)
   upostfix : uatom (uatom)
            | upostfix TQUESTION
-               (UE_Propagate (upostfix, TQUESTIONleft))
+               (UE_Unary (U_Propagate, upostfix, TQUESTIONleft))
            | upostfix TDOT IDENT
                (UE_Field (upostfix, IDENT, IDENTleft))
            | upostfix TDOT IDENT LPAR ucallargs RPAR
@@ -321,14 +321,14 @@ yacc_rules\<open>
      preserving the binary meanings of `*` and `&`; mixed and deeper recursion is a documented
      accepted-surface improvement over the frontend's fixed prefix productions. *)
   unotprefix : upostfix (upostfix)
-             | TBANG unotprefix (UE_Un (Not, unotprefix, TBANGleft))
+             | TBANG unotprefix (UE_Unary (U_Not, unotprefix, TBANGleft))
   urefprefix : unotprefix (unotprefix)
              | TAMP urefprefix
-                 (UE_Borrow (BM_Imm, urefprefix, TAMPleft))
+                 (UE_Unary (U_Borrow BM_Imm, urefprefix, TAMPleft))
              | TAMP TMUT urefprefix
-                 (UE_Borrow (BM_Mut, urefprefix, TAMPleft))
+                 (UE_Unary (U_Borrow BM_Mut, urefprefix, TAMPleft))
              | TSTAR urefprefix
-                 (UE_Deref (urefprefix, TSTARleft))
+                 (UE_Unary (U_Deref, urefprefix, TSTARleft))
   uexp : urefprefix (urefprefix)
        (* `uif` is deliberately NOT a `uexp` alternative (closes D-1): it reaches value position via `uval`
           and operand position only when parenthesized. Loops will join `uval` the same way. *)

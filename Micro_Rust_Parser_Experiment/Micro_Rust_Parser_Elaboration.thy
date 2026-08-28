@@ -46,12 +46,8 @@ struct
          T.binary operator
            (lower_expression ctxt environment left)
            (lower_expression ctxt environment right)
-     | UE_Un (operator, operand, _) =>
-         T.unary operator (lower_expression ctxt environment operand)
-     | UE_Borrow (mode, operand, pos) =>
-         T.borrow mode pos (lower_expression ctxt environment operand)
-     | UE_Deref (operand, pos) =>
-         T.dereference pos (lower_expression ctxt environment operand)
+     | UE_Unary (operator, operand, pos) =>
+         T.unary operator pos (lower_expression ctxt environment operand)
      | UE_Group (inner, _) =>
          lower_expression ctxt environment inner
      | UE_Block (inner, _) =>
@@ -79,8 +75,6 @@ struct
      | UE_Field (receiver, name, pos) =>
          R.field_expression ctxt
            (lower_expression ctxt environment receiver) name pos
-     | UE_Propagate (inner, pos) =>
-         T.propagate pos (lower_expression ctxt environment inner)
      | UE_Assign (operator, place, rhs, pos) =>
          let
            val lowered_place = lower_place ctxt environment place
@@ -92,7 +86,7 @@ struct
             | AssignBin binary_operator =>
                 T.update pos lowered_place
                   (T.assignment_binary binary_operator
-                    (T.dereference pos lowered_place) lowered_rhs))
+                    (T.unary U_Deref pos lowered_place) lowered_rhs))
          end
      | UE_Match match =>
          lower_match ctxt environment match)
