@@ -65,14 +65,11 @@ struct
 
   val variable_entity_kind = "urust_var"
   val report_reference = Parser_Utils.report_ref variable_entity_kind
-  val bind_variable = Parser_Utils.bind_var variable_entity_kind
-  val parse_bound_antiquotation = Parser_Utils.parse_antiq variable_entity_kind
+  val bind_local = Parser_Utils.bind_var variable_entity_kind
+  val parse_antiquotation = Parser_Utils.parse_antiq variable_entity_kind
 
   val empty_environment = Symtab.empty
   val anonymous_abstraction = Parser_Utils.anon_abs
-
-  fun bind_local ctxt environment binding =
-    bind_variable ctxt environment binding
 
   fun use_local ctxt environment (name, pos) =
     (case Symtab.lookup environment name of
@@ -82,9 +79,6 @@ struct
 
   fun lookup_local environment name =
     Option.map #free (Symtab.lookup environment name)
-
-  fun parse_antiquotation ctxt environment source =
-    parse_bound_antiquotation ctxt environment source
 
   (* Syntax.parse_term wraps resolved constants in an internal type constraint. This helper is used only
      for markup; the returned identifier term retains the wrapper for the final check_term. *)
@@ -162,7 +156,7 @@ struct
     | literal_expression ctxt environment payload =
         T.literal (literal_value ctxt environment payload)
 
-  fun canonical_name name = Long_Name.base_name name
+  val canonical_name = Long_Name.base_name
   fun name_matches left right =
     left = right orelse canonical_name left = canonical_name right
 
