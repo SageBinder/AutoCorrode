@@ -17,6 +17,10 @@ session Micro_Rust_Parser_Experiment = HOL +
     Conformance_Corpus
     Parser_Utils
     Toy_Lex_Yacc
+    Micro_Rust_Parser_AST
+    Micro_Rust_Parser_Grammar
+    Micro_Rust_Parser_Elaboration
+    Micro_Rust_Parser_Command
     Micro_Rust_Parser
     Struct_Ambiguity_Left
     Struct_Ambiguity_Right
