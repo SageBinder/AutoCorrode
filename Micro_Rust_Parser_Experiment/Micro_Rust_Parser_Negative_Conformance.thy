@@ -193,6 +193,52 @@ record negative_record_fixture =
   negative_record_left :: nat
   negative_record_right :: nat
 
+subsection\<open> Cycle 1 atomic binder validation (C1-I1--C1-I3) \<close>
+
+text\<open>
+Every alternative is validated before Resolution allocates any local. These rows pin duplicate
+diagnostics across the recursive shapes and binding sites that currently consume patterns.
+\<close>
+
+new_urust_rejects
+  \<open> let (x, x) = \<llangle>(1 :: nat, (2 :: nat, TNil))\<rrangle>; x \<close>
+  \<open> duplicate pattern binder "x" \<close>
+
+new_urust_rejects
+  \<open> const x @ x = \<llangle>1 :: nat\<rrangle>; x \<close>
+  \<open> duplicate pattern binder "x" \<close>
+
+new_urust_rejects
+  \<open> for (x, x) in \<llangle>[(1 :: nat, (2 :: nat, TNil))]\<rrangle> { () } \<close>
+  \<open> duplicate pattern binder "x" \<close>
+
+new_urust_rejects
+  \<open>
+    #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let Some((x, x)) =
+      \<llangle>Some (1 :: nat, (2 :: nat, TNil))\<rrangle> { () }
+  \<close>
+  \<open> duplicate pattern binder "x" \<close>
+
+new_urust_rejects
+  \<open> match_case \<llangle>[1 :: nat, 2]\<rrangle> { [x, x] \<Rightarrow> x, _ \<Rightarrow> 0 } \<close>
+  \<open> duplicate pattern binder "x" \<close>
+
+new_urust_rejects
+  \<open>
+    match_case \<llangle>NegativeStruct 1 2\<rrangle> {
+      NegativeStruct(x, x) \<Rightarrow> x
+    }
+  \<close>
+  \<open> duplicate pattern binder "x" \<close>
+
+new_urust_rejects
+  \<open>
+    match_case \<llangle>NegativeStruct 1 2\<rrangle> {
+      NegativeStruct { negative_left: x, negative_right: x } \<Rightarrow> x
+    }
+  \<close>
+  \<open> duplicate pattern binder "x" \<close>
+
 urust_expr_rejects \<open> let Some(x) = \<llangle>Some (0 :: nat)\<rrangle>; () \<close>
   \<open> unsupported or refutable pattern in an irrefutable (let/const) binder position \<close>
   \<comment> \<open> [FIDELITY] the site gate on the ONE pattern language (D28). The frontend rejects it as well,
@@ -230,8 +276,8 @@ urust_expr_rejects
 
 urust_expr_rejects
   \<open> let mut &x = \<llangle>1 :: nat\<rrangle>; x \<close>
-  \<open> invalid mutable binding pattern \<close>
-  \<comment> \<open> [FIDELITY] a borrow pattern is not accepted at a mutable binding site. \<close>
+  \<open> reference patterns are not implemented \<close>
+  \<comment> \<open> [FIDELITY] reference-pattern syntax has no current binding semantics. \<close>
 
 urust_expr_rejects
   \<open> let mut whole @ x = \<llangle>1 :: nat\<rrangle>; x \<close>
@@ -251,15 +297,18 @@ urust_expr_rejects
 
 urust_expr_rejects
   \<open> let &x = \<llangle>1 :: nat\<rrangle>; x \<close>
-  \<open> unsupported or refutable pattern in an irrefutable (let/const) binder position \<close>
-  \<comment> \<open> [FIDELITY] borrow-pattern stripping is a case-pattern translation in the frontend, not an
-       irrefutable let/const rule. \<close>
+  \<open> reference patterns are not implemented \<close>
+  \<comment> \<open> [FIDELITY] reference-pattern syntax has no current binding semantics. \<close>
 
-urust_expr_rejects
+new_urust_rejects
   \<open> match \<llangle>1 :: nat\<rrangle> { &1 \<Rightarrow> \<llangle>True\<rrangle>, _ \<Rightarrow> \<llangle>False\<rrangle> } \<close>
-  \<open> numeric pattern in match_case: 1 \<close>
-  \<comment> \<open> [FIDELITY] bare-match routing unwraps groups but not borrow patterns, so this selects case
-       lowering and reaches the frontend's numeric-case rejection. \<close>
+  \<open> reference patterns are not implemented \<close>
+  \<comment> \<open> [DIVERGENT] the old frontend erases this reference-pattern syntax. \<close>
+
+new_urust_rejects
+  \<open> match_case \<llangle>Some (1 :: nat)\<rrangle> { Some(&x) \<Rightarrow> x, _ \<Rightarrow> 0 } \<close>
+  \<open> reference patterns are not implemented \<close>
+  \<comment> \<open> [DIVERGENT] nested case reference patterns are rejected before lowering. \<close>
 
 urust_expr_rejects
   \<open> match_switch \<llangle>(0 :: nat, (True, TNil))\<rrangle> { (x, y) \<Rightarrow> () } \<close>
@@ -322,23 +371,23 @@ urust_expr_rejects \<open> let () = (); () \<close> \<open> syntax error \<close
   \<comment> \<open> [FIDELITY] unit is an expression but not a pattern in the current frontend. \<close>
 
 urust_expr_rejects \<open> match_case \<llangle>0 :: nat\<rrangle> { 0 \<Rightarrow> (), _ \<Rightarrow> () } \<close>
-  \<open> numeric pattern in match_case: 0 \<close>
-  \<comment> \<open> [FIDELITY] a numeral belongs to \<open>match_switch\<close>; the frontend agrees ("Error in shallow match
-       translation: numeric pattern in match_case: 0"). \<close>
+  \<open> numeric patterns are not supported in case patterns \<close>
+  \<comment> \<open> [FIDELITY] a numeral belongs to \<open>match_switch\<close>; source validation rejects it before
+       generated case clauses are constructed. \<close>
 
 urust_expr_rejects \<open> match_case \<llangle>1 :: nat\<rrangle> { 1 \<Rightarrow> (), _ \<Rightarrow> () } \<close>
-  \<open> numeric pattern in match_case: 1 \<close>
+  \<open> numeric patterns are not supported in case patterns \<close>
   \<comment> \<open> [FIDELITY] literal \<open>1\<close> has the same dedicated case-pattern node and rejection boundary as
        literal \<open>0\<close>. \<close>
 
 urust_expr_rejects \<open> match_case \<llangle>2 :: nat\<rrangle> { 2 \<Rightarrow> (), _ \<Rightarrow> () } \<close>
-  \<open> numeric pattern in match_case: 2 \<close>
+  \<open> numeric patterns are not supported in case patterns \<close>
   \<comment> \<open> [FIDELITY] the frontend's attempted guarded lowering retains the raw token and rejects with
        \<open>Undefined constant: "2"\<close>; the parser gives the same accept-set boundary a positioned diagnostic. \<close>
 
 urust_expr_rejects
   \<open> match_case \<llangle>Some (2 :: nat)\<rrangle> { Some(2) \<Rightarrow> (), _ \<Rightarrow> () } \<close>
-  \<open> numeric pattern in match_case: 2 \<close>
+  \<open> numeric patterns are not supported in case patterns \<close>
   \<comment> \<open> [FIDELITY] constructor-nested numerals hit the same frontend raw-token rejection. \<close>
 
 urust_expr_rejects
@@ -452,9 +501,8 @@ urust_expr_rejects
 
 urust_expr_rejects
   \<open> match_switch \<llangle>1 :: nat\<rrangle> { &1 \<Rightarrow> \<llangle>True\<rrangle>, _ \<Rightarrow> \<llangle>False\<rrangle> } \<close>
-  \<open> unsupported match_switch pattern \<close>
-  \<comment> \<open> [FIDELITY] explicit switch conversion accepts grouped numeric keys but has no borrow-pattern
-       conversion rule. \<close>
+  \<open> reference patterns are not implemented \<close>
+  \<comment> \<open> [FIDELITY] explicit switch conversion rejects reference syntax before key lowering. \<close>
 
 new_urust_rejects
   \<open> match_case \<llangle>undefined\<rrangle> { AmbiguousStruct { ambiguous_field: x } \<Rightarrow> x } \<close>
@@ -606,8 +654,31 @@ urust_expr_rejects
 
 urust_expr_rejects
   \<open> for &value in \<llangle>[1 :: nat]\<rrangle> { () } \<close>
+  \<open> reference patterns are not implemented \<close>
+  \<comment> \<open> [FIDELITY] reference-pattern syntax has no current loop-binding semantics. \<close>
+
+new_urust_rejects
+  \<open> for None in \<llangle>[None :: nat option]\<rrangle> { () } \<close>
   \<open> unsupported or refutable pattern in a `for` binder position \<close>
-  \<comment> \<open> [FIDELITY] borrow syntax remains unsupported in \<open>for\<close> binders. \<close>
+  \<comment> \<open> [DIVERGENT] a known nullary constructor is resolved before binder classification. \<close>
+
+new_urust_rejects
+  \<open> match_case \<llangle>Some (1 :: nat)\<rrangle> { Some(x) | None \<Rightarrow> x } \<close>
+  \<open> or-pattern alternative is missing binder "x" \<close>
+  \<comment> \<open> [DIVERGENT] all alternatives of one source arm must bind the same names and modes. \<close>
+
+new_urust_rejects
+  \<open> match \<llangle>[1 :: nat, 2]\<rrangle> { [x, ..] | [] if True \<Rightarrow> True, _ \<Rightarrow> False } \<close>
+  \<open> or-pattern alternative is missing binder "x" \<close>
+  \<comment> \<open> [DIVERGENT] nested slice alternatives obey the same exact binder-set rule. \<close>
+
+new_urust_rejects
+  \<open>
+    #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let &Some(value) =
+      \<llangle>Some (1 :: nat)\<rrangle> { () }
+  \<close>
+  \<open> reference patterns are not implemented \<close>
+  \<comment> \<open> [DIVERGENT] nested while-let reference patterns are rejected before case lowering. \<close>
 
 new_urust_rejects
   \<open> for value in \<llangle>1 :: nat\<rrangle> .. \<llangle>3 :: nat\<rrangle> { () } \<close>
@@ -665,7 +736,7 @@ urust_expr_rejects
 urust_expr_rejects
   \<open> #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let 0 =
     \<llangle>0 :: nat\<rrangle> { () } \<close>
-  \<open> numeric pattern in match_case \<close>
+  \<open> numeric patterns are not supported in case patterns \<close>
   \<comment> \<open> [FIDELITY] case numerals retain the existing frontend rejection. \<close>
 
 urust_expr_rejects

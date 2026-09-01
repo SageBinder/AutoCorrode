@@ -10,10 +10,14 @@ ML\<open>
 signature URUST_RESOLUTION =
 sig
   type environment
+  datatype binding_mode = Binding_By_Value
+  type binding_signature = string * Position.T * binding_mode
 
   val empty_environment: environment
   val bind_local:
     Proof.context -> environment -> string * Position.T -> term * environment
+  val allocate_locals:
+    Proof.context -> environment -> binding_signature list -> environment
   val use_local:
     Proof.context -> environment -> string * Position.T -> term option
   val lookup_local: environment -> string -> term option
@@ -32,12 +36,17 @@ sig
   val field_expression:
     Proof.context -> term -> string -> Position.T -> term
 
-  val resolve_constructor: Proof.context -> string -> term option
-  val report_constructor: Proof.context -> Position.T -> term -> unit
+  type constructor_info
+  val resolve_constructor: Proof.context -> string -> constructor_info option
+  val constructor_term: constructor_info -> term
+  val constructor_arity: constructor_info -> int
+  val constructor_family: constructor_info -> (string * term list) option
+  val report_constructor: Proof.context -> Position.T -> constructor_info -> unit
+  val report_selector: Proof.context -> Position.T -> term -> unit
 
   datatype resolved_struct_pattern =
       Resolved_Constructor_Struct of
-        term * (term * Position.T option * URust_AST.ur_pat) list
+        constructor_info * (term * Position.T option * URust_AST.ur_pat) list
     | Resolved_Record_Struct of
         string * (term * Position.T option * URust_AST.ur_pat) list
 
@@ -62,6 +71,8 @@ struct
   structure T = URust_Elab_Terms
 
   type environment = Parser_Utils.var_info Symtab.table
+  datatype binding_mode = Binding_By_Value
+  type binding_signature = string * Position.T * binding_mode
 
   val variable_entity_kind = "urust_var"
   val report_reference = Parser_Utils.report_ref variable_entity_kind
@@ -70,6 +81,19 @@ struct
 
   val empty_environment = Symtab.empty
   val anonymous_abstraction = Parser_Utils.anon_abs
+
+  fun allocate_locals ctxt environment signatures =
+    let
+      fun validate (name, pos, _) seen =
+        (case Symtab.lookup seen name of
+           NONE => Symtab.update (name, pos) seen
+         | SOME original_pos =>
+             error ("urust_expr: duplicate pattern binder " ^ quote name ^
+               Position.here pos ^ "\nThe original binder is here" ^
+               Position.here original_pos))
+      val _ = fold validate signatures Symtab.empty
+      fun allocate (name, pos, _) env = #2 (bind_local ctxt env (name, pos))
+    in fold allocate signatures environment end
 
   fun use_local ctxt environment (name, pos) =
     (case Symtab.lookup environment name of
@@ -126,20 +150,66 @@ struct
       (resolve_identifier ctxt Micro_Rust_Names.NField name pos)
       receiver
 
+  type constructor_info =
+    {constructor: term, arity: int, family: (string * term list) option}
+
+  fun constructor_term ({constructor, ...} : constructor_info) = constructor
+  fun constructor_arity ({arity, ...} : constructor_info) = arity
+  fun constructor_family ({family, ...} : constructor_info) = family
+
+  fun term_name_of (Const (name, _)) = SOME name
+    | term_name_of (Free (name, _)) = SOME name
+    | term_name_of _ = NONE
+
+  fun type_name_of (Type (name, _)) = SOME name
+    | type_name_of _ = NONE
+
+  fun normalize_constructor (Const (name, _)) = Const (name, dummyT)
+    | normalize_constructor term = term
+
+  fun family_of_constructor ctxt constructor_name =
+    let
+      fun family
+          ({kind = Ctr_Sugar.Record, ...} : Ctr_Sugar.ctr_sugar) = NONE
+        | family ({T, ctrs, ...} : Ctr_Sugar.ctr_sugar) =
+            if List.exists
+                (fn constructor =>
+                  term_name_of constructor = SOME constructor_name) ctrs
+            then
+              Option.map
+                (fn type_name =>
+                  (type_name, map normalize_constructor ctrs))
+                (type_name_of T)
+            else NONE
+    in get_first family (Ctr_Sugar.ctr_sugars_of ctxt) end
+
+  fun make_constructor_info ctxt constructor =
+    (case constructor of
+       Const (name, typ) =>
+         {constructor = Const (name, dummyT),
+          arity = length (binder_types typ),
+          family = family_of_constructor ctxt name}
+     | _ => error "urust_expr: internal unnamed constructor")
+
   fun resolve_constructor ctxt name =
     let val theory = Proof_Context.theory_of ctxt in
       (case try (Proof_Context.read_const {proper = true, strict = false} ctxt) name of
-         SOME (Const (full_name, _)) =>
+         SOME (constructor as Const (full_name, _)) =>
            if Code.is_constr theory full_name
-           then SOME (Const (full_name, dummyT))
+           then SOME (make_constructor_info ctxt constructor)
            else NONE
        | _ => NONE)
     end
 
-  fun report_constructor ctxt pos (Const (name, _)) =
+  fun report_named_term ctxt pos (Const (name, _)) =
         Context_Position.report ctxt pos
           (Name_Space.markup (Consts.space_of (Proof_Context.consts_of ctxt)) name)
-    | report_constructor _ _ _ = ()
+    | report_named_term _ _ _ = ()
+
+  fun report_constructor ctxt pos info =
+    report_named_term ctxt pos (constructor_term info)
+
+  val report_selector = report_named_term
 
   fun report_wildcard ctxt pos =
     Context_Position.report_text ctxt pos Markup.typing "wildcard pattern"
@@ -160,20 +230,13 @@ struct
   fun name_matches left right =
     left = right orelse canonical_name left = canonical_name right
 
-  fun term_name_of (Const (name, _)) = SOME name
-    | term_name_of (Free (name, _)) = SOME name
-    | term_name_of _ = NONE
-
-  fun type_name_of (Type (name, _)) = SOME name
-    | type_name_of _ = NONE
-
   datatype struct_candidate =
-      Constructor_Candidate of {ctor: term, selectors: term list}
+      Constructor_Candidate of {info: constructor_info, selectors: term list}
     | Record_Candidate of {record_name: string, fields: term list}
 
   datatype resolved_struct_pattern =
       Resolved_Constructor_Struct of
-        term * (term * Position.T option * ur_pat) list
+        constructor_info * (term * Position.T option * ur_pat) list
     | Resolved_Record_Struct of
         string * (term * Position.T option * ur_pat) list
 
@@ -193,9 +256,9 @@ struct
              error ("urust_expr: unnamed " ^ role ^ " in constructor metadata" ^
                Position.here pos))
 
-      fun constructor_candidate constructor_name selectors =
+      fun constructor_candidate constructor selectors =
         Constructor_Candidate
-          {ctor = Const (constructor_name, dummyT),
+          {info = make_constructor_info ctxt constructor,
            selectors = map (named_constant "selector") selectors}
 
       fun from_sugar ({kind = Ctr_Sugar.Record, ...} : Ctr_Sugar.ctr_sugar) = []
@@ -217,7 +280,7 @@ struct
                    then
                      SOME
                        (constructor_name,
-                        constructor_candidate constructor_name selectors)
+                        constructor_candidate constructor selectors)
                    else NONE
                | NONE => NONE)) entries
           val fallback =
@@ -228,7 +291,7 @@ struct
                    (case term_name_of constructor of
                       SOME constructor_name =>
                         [(constructor_name,
-                          constructor_candidate constructor_name selectors)]
+                          constructor_candidate constructor selectors)]
                     | NONE => [])
                  else []
              | _ => [])
@@ -259,9 +322,9 @@ struct
         end
 
       fun same_candidate
-          (Constructor_Candidate {ctor = left_ctor, selectors = left_selectors},
-           Constructor_Candidate {ctor = right_ctor, selectors = right_selectors}) =
-            left_ctor aconv right_ctor andalso
+          (Constructor_Candidate {info = left_info, selectors = left_selectors},
+           Constructor_Candidate {info = right_info, selectors = right_selectors}) =
+            constructor_term left_info aconv constructor_term right_info andalso
               eq_list (op aconv) (left_selectors, right_selectors)
         | same_candidate
           (Record_Candidate {record_name = left_name, fields = left_fields},
@@ -270,8 +333,10 @@ struct
               eq_list (op aconv) (left_fields, right_fields)
         | same_candidate _ = false
 
-      fun candidate_description (Constructor_Candidate {ctor, selectors}) =
-            "constructor " ^ quote (the_default "<unnamed>" (term_name_of ctor)) ^
+      fun candidate_description (Constructor_Candidate {info, selectors}) =
+            "constructor " ^
+              quote (the_default "<unnamed>"
+                (term_name_of (constructor_term info))) ^
               " with selectors [" ^
               space_implode ", "
                 (map (the_default "<unnamed>" o term_name_of) selectors) ^ "]"
@@ -280,8 +345,9 @@ struct
               space_implode ", "
                 (map (the_default "<unnamed>" o term_name_of) fields) ^ "]"
 
-      fun candidate_key (Constructor_Candidate {ctor, ...}) =
-            "C:" ^ the_default "<unnamed>" (term_name_of ctor)
+      fun candidate_key (Constructor_Candidate {info, ...}) =
+            "C:" ^ the_default "<unnamed>"
+              (term_name_of (constructor_term info))
         | candidate_key (Record_Candidate {record_name, ...}) =
             "R:" ^ record_name
 
@@ -322,8 +388,10 @@ struct
       val candidate = resolve_struct_constructor ctxt (head, head_pos)
       val (display_name, selectors) =
         (case candidate of
-           Constructor_Candidate {ctor, selectors} =>
-             (the_default head (Option.map canonical_name (term_name_of ctor)),
+           Constructor_Candidate {info, selectors} =>
+             (the_default head
+                (Option.map canonical_name
+                  (term_name_of (constructor_term info))),
               selectors)
          | Record_Candidate {record_name, fields} =>
              (canonical_name record_name, fields))
@@ -387,8 +455,8 @@ struct
           selector_entries
     in
       (case candidate of
-         Constructor_Candidate {ctor, ...} =>
-           Resolved_Constructor_Struct (ctor, ordered)
+         Constructor_Candidate {info, ...} =>
+           Resolved_Constructor_Struct (info, ordered)
        | Record_Candidate {record_name, ...} =>
            Resolved_Record_Struct (record_name, ordered))
     end

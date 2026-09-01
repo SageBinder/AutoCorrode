@@ -661,40 +661,6 @@ old_urust_rejects
     }
   \<close>
 
-urust_expr improvement_while_let_borrow
-  \<open>
-    #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let &value =
-      \<llangle>1 :: nat\<rrangle> {
-      let _ = value;
-      ()
-    }
-  \<close>
-old_urust_rejects
-  \<open>
-    #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let &value =
-      \<llangle>1 :: nat\<rrangle> {
-      let _ = value;
-      ()
-    }
-  \<close>
-
-urust_expr improvement_while_let_borrow_mut
-  \<open>
-    #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let & mut value =
-      \<llangle>1 :: nat\<rrangle> {
-      let _ = value;
-      ()
-    }
-  \<close>
-old_urust_rejects
-  \<open>
-    #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let & mut value =
-      \<llangle>1 :: nat\<rrangle> {
-      let _ = value;
-      ()
-    }
-  \<close>
-
 urust_expr improvement_while_let_nested_range
   \<open>
     #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let Some(1..=3) =

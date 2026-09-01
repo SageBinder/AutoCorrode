@@ -1244,12 +1244,6 @@ urust_expr_with_check rich_or_three_guard_fallthrough
 
 end
 
-context fixes outer :: nat and x :: \<open>nat option\<close>
-begin
-urust_expr_with_check rich_or_independent
-  \<open> match_case x { Some(outer) | None \<Rightarrow> outer } \<close>
-end
-
 subsection\<open> Recursive constructors and capture \<close>
 
 context
@@ -1370,7 +1364,7 @@ urust_expr_with_check tuple_match_or_inside
 
 section\<open> Advanced pattern parity \<close>
 
-subsection\<open> Grouped, borrow, alias, and range patterns \<close>
+subsection\<open> Grouped, alias, and range patterns \<close>
 
 urust_expr_with_check adv_grouped
   \<open> match_case \<llangle>Some (7 :: nat)\<rrangle> { (Some(x)) \<Rightarrow> x, (_) \<Rightarrow> 0 } \<close>
@@ -1379,12 +1373,6 @@ urust_expr_with_check adv_grouped_let \<open> let (x) = \<llangle>7 :: nat\<rran
 
 urust_expr_with_check adv_grouped_switch
   \<open> match_switch \<llangle>1 :: nat\<rrangle> { (1) \<Rightarrow> \<llangle>True\<rrangle>, (_) \<Rightarrow> \<llangle>False\<rrangle> } \<close>
-
-urust_expr_with_check adv_borrow
-  \<open> match_case \<llangle>Some (7 :: nat)\<rrangle> { Some(&x) \<Rightarrow> x, _ \<Rightarrow> 0 } \<close>
-
-urust_expr_with_check adv_borrow_mut
-  \<open> match_case \<llangle>Some (7 :: nat)\<rrangle> { Some(& mut x) \<Rightarrow> x, _ \<Rightarrow> 0 } \<close>
 
 urust_expr_with_check adv_alias
   \<open> match \<llangle>Some (7 :: nat)\<rrangle> { whole @ Some(v) \<Rightarrow> whole, _ \<Rightarrow> None } \<close>
@@ -1444,9 +1432,6 @@ urust_expr_with_check adv_slice_short
 
 urust_expr_with_check adv_slice_nested
   \<open> match \<llangle>Some [1 :: nat, 2, 3]\<rrangle> { Some([a, .., z]) \<Rightarrow> z, _ \<Rightarrow> 0 } \<close>
-
-urust_expr_with_check adv_slice_guard_or
-  \<open> match \<llangle>[1 :: nat, 2]\<rrangle> { [x, ..] | [] if True \<Rightarrow> \<llangle>True\<rrangle>, _ \<Rightarrow> \<llangle>False\<rrangle> } \<close>
 
 subsection\<open> Struct patterns \<close>
 
@@ -2088,15 +2073,6 @@ urust_expr_with_check while_let_refutable_alias
     }
   \<close>
 
-urust_expr_with_check while_let_refutable_borrow
-  \<open>
-    #[fuel(\<epsilon>\<open>n\<close>)] while let &Some(value) =
-      \<llangle>Some g\<rrangle> {
-      let _ = value;
-      ()
-    }
-  \<close>
-
 urust_expr_with_check while_let_refutable_literal
   \<open> #[fuel(\<epsilon>\<open>n\<close>)] while let true = true { () } \<close>
 
@@ -2263,9 +2239,10 @@ subsection\<open> D-7: advanced patterns -- resolved for current consumers \<clo
 
 text\<open>
 D-7 is closed for \<open>match\<close>, \<open>match_case\<close>, \<open>match_switch\<close>,
-\<open>let\<close>, and \<open>const\<close>. Grouped and borrow patterns are transparent; aliases,
-ranges, slices, and structs use case lowering and remain refutable at binder and switch
-sites. Case numerals are fidelity rejections, not part of this divergence. See
+\<open>let\<close>, and \<open>const\<close>. Grouped patterns are transparent; aliases, ranges,
+slices, and structs use case lowering and remain refutable at binder and switch sites.
+Reference-pattern syntax is retained but rejected until it has semantics. Case numerals
+are fidelity rejections, not part of this divergence. See
 \<open>urust-old-new-divergences.md\<close>.
 \<close>
 
