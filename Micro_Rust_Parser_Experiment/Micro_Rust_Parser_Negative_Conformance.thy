@@ -165,6 +165,12 @@ urust_expr_rejects \<open> 1_000 \<close> \<open> unsupported integer-literal su
 urust_expr_rejects \<open> 0xff_00 \<close> \<open> unsupported integer-literal suffix "_00" \<close>
   \<comment> \<open> [FIDELITY] numeric separators remain out of scope for hexadecimal literals too. \<close>
 
+urust_expr_rejects \<open> 1_ \<close> \<open> unsupported integer-literal suffix "_" \<close>
+  \<comment> \<open> [FIDELITY] a compatibility underscore must introduce one of the supported suffixes. \<close>
+
+urust_expr_rejects \<open> 0xff_ \<close> \<open> unsupported integer-literal suffix "_" \<close>
+  \<comment> \<open> [FIDELITY] a trailing underscore is not an empty hexadecimal suffix. \<close>
+
 urust_expr_rejects
   \<open> match_switch \<llangle>1 :: nat\<rrangle> { 1u8 \<Rightarrow> (), _ \<Rightarrow> () } \<close>
   \<open> NUMSFX TARROW \<close>

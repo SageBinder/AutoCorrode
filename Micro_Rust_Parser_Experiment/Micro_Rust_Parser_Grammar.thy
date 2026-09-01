@@ -73,6 +73,7 @@ fun fixed_pos yypos = Parser_Lex_Util.fixed_pos (!pos_map) yypos
 fun tokF args       = Parser_Lex_Util.tokF (!pos_map) args
 fun tok_valF args   = Parser_Lex_Util.tok_valF (!pos_map) args
 fun report_fixed args = Parser_Lex_Util.report_fixed (!pos_map) args
+fun report_fixed_text args = Parser_Lex_Util.report_fixed_text (!pos_map) args
 fun tok_ident (yypos, yytext) =
   let val p = Parser_Lex_Util.ident_pos (!pos_map) (yypos, yytext)
   in Tokens.IDENT (yytext, p, p) end
@@ -95,7 +96,7 @@ lex_rules\<open>
 <INITIAL>\n       => (lex());
 <INITIAL>{ws}+    => (lex());
 <INITIAL>"//"[^\n]* =>
-    (report_fixed (yypos, size yytext, Markup.comment1, "line comment"); lex());
+    (report_fixed_text (yypos, yytext, Markup.comment1, "line comment"); lex());
 <INITIAL>"0x"{hexdigit}+ =>
     (tok_valF (yypos, yytext, Markup.numeral, "NUM", Tokens.NUM, yytext));
 <INITIAL>{digit}+{idstart}{idchar}* =>

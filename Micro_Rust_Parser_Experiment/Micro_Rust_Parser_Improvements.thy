@@ -97,7 +97,7 @@ old_urust_rejects
 
 urust_expr improvement_line_comment_operator_text
   \<open>
-    () // += => /= /* block-shaped text */
+    () // += => \<Rightarrow> /= /* block-shaped text */
   \<close>
 
 lemma \<open> improvement_line_comment_operator_text = \<lbrakk> () \<rbrakk> \<close>
@@ -105,7 +105,7 @@ lemma \<open> improvement_line_comment_operator_text = \<lbrakk> () \<rbrakk> \<
 
 old_urust_rejects
   \<open>
-    () // += => /= /* block-shaped text */
+    () // += => \<Rightarrow> /= /* block-shaped text */
   \<close>
 
 urust_expr improvement_line_comment_empty

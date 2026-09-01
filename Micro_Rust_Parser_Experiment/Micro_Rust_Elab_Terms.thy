@@ -175,7 +175,7 @@ struct
              error ("urust_expr: cannot read integer literal " ^ quote number_text ^
                Position.here pos))
     in
-      if suffix = ""
+      if suffix_spelling = ""
       then (value, NONE)
       else
         (case integer_suffix_type suffix of

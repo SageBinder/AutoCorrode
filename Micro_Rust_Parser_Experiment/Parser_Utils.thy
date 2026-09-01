@@ -53,6 +53,9 @@ struct
       end
     else ()
 
+  fun report_fixed_text pos_map (yypos, text, markup, typ) =
+    report_fixed pos_map (yypos, length (Symbol.explode text), markup, typ)
+
   fun tokF pos_map (yypos, yytext, markup, typ, cons) =
     (report_fixed pos_map (yypos, size yytext, markup, typ);
      cons (fixed_pos pos_map yypos, fixed_pos pos_map (yypos + size yytext)))
