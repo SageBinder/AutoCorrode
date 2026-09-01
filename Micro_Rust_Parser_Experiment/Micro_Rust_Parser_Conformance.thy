@@ -2076,6 +2076,36 @@ urust_expr_with_check while_let_tuple
 urust_expr_with_check while_let_terminal
   \<open> #[fuel(\<epsilon>\<open>n\<close>)] while let None = \<llangle>None :: nat option\<rrangle> { () } \<close>
 
+text\<open>
+C1-I6 recognizes only conservative resolved-pattern coverage. Sole-constructor families and complete
+constructor-family or-patterns omit the generated false fallback; this is not a general Rust
+exhaustiveness checker.
+\<close>
+
+urust_expr while_let_exhaustive_tnil
+  \<open>
+    #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let TNil = TNil {
+      ()
+    }
+  \<close>
+
+urust_expr while_let_exhaustive_option
+  \<open>
+    #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let Some(_) | None =
+      \<llangle>Some (1 :: nat)\<rrangle> {
+      ()
+    }
+  \<close>
+
+urust_expr while_let_nested_exhaustive_option
+  \<open>
+    #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let
+      Some(Some(_) | None) | None =
+      \<llangle>Some (None :: nat option)\<rrangle> {
+      ()
+    }
+  \<close>
+
 urust_expr_with_check while_let_grouped_refutable_tuple
   \<open>
     #[fuel(\<epsilon>\<open>n\<close>)] while let ((Some(value), other)) =

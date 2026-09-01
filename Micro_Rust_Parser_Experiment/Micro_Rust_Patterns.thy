@@ -57,8 +57,15 @@ sig
   val prepared_body: prepared_case_arm -> URust_AST.ur_expr
   val prepared_direct_abstraction:
     prepared_case_arm -> (term -> term) option
+  val prepared_is_total: prepared_case_arm -> bool
   val compile_case:
     Proof.context ->
+      term ->
+      (prepared_case_arm * term option * term) list ->
+      term
+  val compile_case_with_fallback:
+    Proof.context ->
+      term ->
       term ->
       (prepared_case_arm * term option * term) list ->
       term
@@ -196,6 +203,12 @@ struct
       Resolved_Slice_Pattern of resolved_pattern
     | Resolved_Slice_Rest of Position.T
 
+  datatype resolved_coverage =
+      Coverage_Total
+    | Coverage_Family of
+        {name: string, members: term list, covered: term list}
+    | Coverage_Partial
+
   fun resolved_position (Resolved_Wild pos) = pos
     | resolved_position (Resolved_Bind (_, pos, _)) = pos
     | resolved_position (Resolved_Constructor (_, pos, _)) = pos
@@ -205,6 +218,89 @@ struct
     | resolved_position (Resolved_Range (_, _, _, pos)) = pos
     | resolved_position (Resolved_Slice (_, pos)) = pos
     | resolved_position (Resolved_Or (_, pos)) = pos
+
+  fun coverage_is_total Coverage_Total = true
+    | coverage_is_total _ = false
+
+  fun family_complete members covered =
+    List.all
+      (fn member =>
+        List.exists (fn constructor => constructor aconv member) covered)
+      members
+
+  fun family_coverage name members covered =
+    let
+      val covered' =
+        fold (fn constructor => insert (op aconv) constructor)
+          covered []
+    in
+      if family_complete members covered'
+      then Coverage_Total
+      else
+        Coverage_Family
+          {name = name, members = members, covered = covered'}
+    end
+
+  fun same_family
+      ({name = left_name, members = left_members, covered = _},
+       {name = right_name, members = right_members, covered = _}) =
+    left_name = right_name andalso
+      eq_list (op aconv) (left_members, right_members)
+
+  fun resolved_coverage pattern =
+    let
+      fun coverage (Resolved_Wild _) = Coverage_Total
+        | coverage (Resolved_Bind _) = Coverage_Total
+        | coverage
+            (Resolved_Constructor (info, _, arguments)) =
+            if List.all (coverage_is_total o coverage) arguments
+            then
+              (case R.constructor_family info of
+                 SOME (name, members) =>
+                   family_coverage name members
+                     [R.constructor_term info]
+               | NONE => Coverage_Partial)
+            else Coverage_Partial
+        | coverage (Resolved_Tuple (arguments, _)) =
+            if List.all (coverage_is_total o coverage) arguments
+            then Coverage_Total
+            else Coverage_Partial
+        | coverage (Resolved_Alias (_, inner, _)) = coverage inner
+        | coverage (Resolved_Value _) = Coverage_Partial
+        | coverage (Resolved_Range _) = Coverage_Partial
+        | coverage (Resolved_Slice _) = Coverage_Partial
+        | coverage (Resolved_Or (alternatives, _)) =
+            let
+              val alternatives' = map coverage alternatives
+              val total =
+                List.exists coverage_is_total alternatives'
+              val partial =
+                List.exists
+                  (fn Coverage_Partial => true | _ => false)
+                  alternatives'
+              val families =
+                map_filter
+                  (fn Coverage_Family family => SOME family
+                    | _ => NONE)
+                  alternatives'
+            in
+              if total then Coverage_Total
+              else if partial orelse null families
+              then Coverage_Partial
+              else
+                let
+                  val first = hd families
+                in
+                  if List.all (fn family =>
+                        same_family (first, family)) (tl families)
+                  then
+                    family_coverage
+                      (#name first) (#members first)
+                      (maps #covered families)
+                  else Coverage_Partial
+                end
+            end
+    in coverage pattern end
 
   fun binding name pos =
     (name, pos, R.Binding_By_Value)
@@ -595,7 +691,8 @@ struct
        binders: term list,
        guard: (ur_expr * Position.T) option,
        body: ur_expr,
-       direct_abstraction: (term -> term) option}
+       direct_abstraction: (term -> term) option,
+       total: bool}
 
   fun split_resolved_slice_items items =
     let
@@ -733,6 +830,8 @@ struct
         map (lookup_signature arm_environment) signatures
       val direct =
         direct_abstraction ctxt false true arm_environment resolved
+      val total =
+        coverage_is_total (resolved_coverage resolved)
     in
       Prepared_Case_Arm
         {patterns = patterns,
@@ -740,7 +839,8 @@ struct
          binders = binders,
          guard = guard,
          body = body,
-         direct_abstraction = direct}
+         direct_abstraction = direct,
+         total = total}
     end
 
   fun prepared_environment
@@ -752,6 +852,8 @@ struct
   fun prepared_direct_abstraction
       (Prepared_Case_Arm {direct_abstraction, ...}) =
         direct_abstraction
+  fun prepared_is_total
+      (Prepared_Case_Arm {total, ...}) = total
 
   fun normalize_basic_pattern pattern =
     (case pattern of
@@ -1110,7 +1212,7 @@ struct
                 abstraction rhs) normalized)
     in T.bind scrutinee (Term.lambda value selector) end
 
-  fun compile_case ctxt scrutinee arms =
+  fun compile_case_internal ctxt explicit_fallback scrutinee arms =
     let
       val value =
         Free
@@ -1197,7 +1299,10 @@ struct
                        generated_wild next_alternative]
                 end)
 
-      fun compile_guarded_sources [] = T.undefined_value
+      val fallback =
+        the_default T.undefined_value explicit_fallback
+
+      fun compile_guarded_sources [] = fallback
         | compile_guarded_sources
             ({alternatives, binders, source_guard, rhs} :: rest) =
             share_term "_urust_next_arm_"
@@ -1212,7 +1317,11 @@ struct
       fun compile_unguarded_sources sources =
         let
           fun install [] branches =
-                case_term (maps I (rev branches))
+                case_term
+                  (maps I (rev branches) @
+                    (case explicit_fallback of
+                       SOME term => [generated_wild term]
+                     | NONE => []))
             | install
                 ({alternatives, binders, source_guard = NONE, rhs} :: rest)
                 branches =
@@ -1241,6 +1350,12 @@ struct
     in
       T.bind scrutinee (Term.lambda value selector)
     end
+
+  fun compile_case ctxt scrutinee arms =
+    compile_case_internal ctxt NONE scrutinee arms
+
+  fun compile_case_with_fallback ctxt scrutinee fallback arms =
+    compile_case_internal ctxt (SOME fallback) scrutinee arms
 end
 \<close>
 

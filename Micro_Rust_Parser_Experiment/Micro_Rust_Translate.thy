@@ -85,10 +85,6 @@ struct
         (P.binding_abstraction prepared lowered_body)
     end
 
-  datatype while_let_alternative =
-      While_Let_Success
-    | While_Let_Fallback
-
   fun lower_while_let lower ctxt environment
       (fuel, pattern, scrutinee, body) =
     let
@@ -97,39 +93,25 @@ struct
       val prepared =
         P.prepare_case_arm ctxt environment
           (UR_Arm (pattern, NONE, body))
+      val body_environment =
+        P.prepared_environment prepared
+      val success =
+        T.sequence (lower body_environment body)
+          (T.literal T.true_value)
       val condition =
         (case P.prepared_direct_abstraction prepared of
            SOME abstraction =>
-             let
-               val body_environment =
-                 P.prepared_environment prepared
-               val success =
-                 T.sequence (lower body_environment body)
-                   (T.literal T.true_value)
-             in
-               T.bind lowered_scrutinee (abstraction success)
-             end
+             T.bind lowered_scrutinee (abstraction success)
          | NONE =>
-          let
-            val fallback =
-              P.prepare_case_arm ctxt environment
-                (UR_Arm
-                  (P_Wild Position.none, NONE,
-                   UE_Unit Position.none))
-            val alternatives =
-              [(While_Let_Success, prepared),
-               (While_Let_Fallback, fallback)]
-            fun lower_result While_Let_Success arm_environment prepared =
-                  (NONE,
-                   T.sequence
-                     (lower arm_environment (P.prepared_body prepared))
-                     (T.literal T.true_value))
-              | lower_result While_Let_Fallback _ _ =
-                  (NONE, T.literal T.false_value)
-          in
-            lower_prepared_case ctxt lowered_scrutinee
-              lower_result alternatives
-          end)
+             let
+               val arm = (prepared, NONE, success)
+             in
+               if P.prepared_is_total prepared
+               then P.compile_case ctxt lowered_scrutinee [arm]
+               else
+                 P.compile_case_with_fallback ctxt lowered_scrutinee
+                   (T.literal T.false_value) [arm]
+             end)
     in T.bounded_while lowered_fuel condition T.skip end
 
   (* Mutable scalar bindings allocate one store reference. Top-level tuple mutability remains erased,

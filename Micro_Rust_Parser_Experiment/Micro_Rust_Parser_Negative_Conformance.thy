@@ -740,13 +740,6 @@ urust_expr_rejects
   \<comment> \<open> [FIDELITY] case numerals retain the existing frontend rejection. \<close>
 
 urust_expr_rejects
-  \<open> #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let Some(_) | None =
-    \<llangle>Some (1 :: nat)\<rrangle> { () } \<close>
-  \<open> clauses are redundant \<close>
-  \<comment> \<open> [FIDELITY] datatype/or-pattern exhaustiveness remains deferred to resolved-pattern
-    analysis; the generated false fallback is still rejected as redundant. \<close>
-
-urust_expr_rejects
   \<open> for value in \<llangle>[1 :: nat]\<rrangle> { () } 1 2 \<close>
   \<open> syntax error found at NUM \<close>
   \<comment> \<open> [FIDELITY] semicolon-free sequencing does not admit value juxtaposition. \<close>

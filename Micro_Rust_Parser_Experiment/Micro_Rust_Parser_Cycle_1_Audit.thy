@@ -26,6 +26,7 @@ consts
   cycle1_first_body :: nat
   cycle1_next_body :: nat
   cycle1_last_body :: nat
+  cycle1_while_body_marker :: unit
 
 ML_val\<open>
   local
@@ -247,6 +248,116 @@ ML_val\<open>
       writeln
         ("Cycle 1 guarded-case audit sizes (source arms): " ^
          commas (map string_of_int arm_sizes))
+  end
+\<close>
+
+section\<open> Conservative while-let coverage \<close>
+
+text\<open>
+C1-I6 removes the false continuation only for coverage proved by the resolved-pattern metadata.
+The condition still sequences the source body with true, and the bounded loop body remains skip.
+Partial patterns retain exactly one false fallback.
+\<close>
+
+ML_val\<open>
+  local
+    val ctxt = \<^context>
+
+    fun audit_assert message condition =
+      if condition then ()
+      else error ("Cycle 1 while-let audit: " ^ message)
+
+    fun checked source =
+      elab_urust ctxt (Input.string source)
+
+    fun antiquotation source =
+      "\<llangle>" ^ source ^ "\<rrangle>"
+
+    fun count_constant name term =
+      Term.fold_aterms
+        (fn Const (candidate, _) =>
+              if candidate = name then Integer.add 1 else I
+          | _ => I)
+        term 0
+
+    fun loop_source pattern scrutinee =
+      "#[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let " ^
+      pattern ^ " = " ^ scrutinee ^ " { let _ = " ^
+      antiquotation "cycle1_while_body_marker" ^ "; () }"
+
+    fun bounded_while_arguments term =
+      let
+        fun find
+            (Const (name, _) $ fuel $ condition $ body) =
+              if name = \<^const_name>\<open>bounded_while\<close>
+              then SOME (fuel, condition, body)
+              else
+                get_first find [fuel, condition, body]
+          | find (left $ right) =
+              (case find left of
+                 SOME result => SOME result
+               | NONE => find right)
+          | find (Abs (_, _, body)) = find body
+          | find _ = NONE
+      in
+        (case find term of
+           SOME result => result
+         | NONE => error "Cycle 1 while-let audit: bounded_while was not generated")
+      end
+
+    fun is_skip term =
+      (case Term.strip_comb term of
+         (Const (literal_name, _), [Const (unit_name, _)]) =>
+           literal_name = \<^const_name>\<open>literal\<close> andalso
+             unit_name = \<^const_name>\<open>Product_Type.Unity\<close>
+       | _ => false)
+
+    fun check_exhaustive label source =
+      let
+        val term = checked source
+        val (_, condition, body) = bounded_while_arguments term
+      in
+        audit_assert (label ^ " retained a false fallback")
+          (count_constant \<^const_name>\<open>False\<close> term = 0);
+        audit_assert (label ^ " moved the source body out of the condition")
+          (count_constant
+             \<^const_name>\<open>cycle1_while_body_marker\<close>
+             condition = 1);
+        audit_assert (label ^ " did not keep skip as the bounded loop body")
+          (is_skip body)
+      end
+
+    val _ =
+      check_exhaustive "TNil"
+        (loop_source "TNil" "TNil")
+    val _ =
+      check_exhaustive "complete option family"
+        (loop_source "Some(_) | None"
+          (antiquotation "Some (1 :: nat)"))
+    val _ =
+      check_exhaustive "nested complete option family"
+        (loop_source "Some(Some(_) | None) | None"
+          (antiquotation "Some (None :: nat option)"))
+
+    val partial =
+      checked
+        (loop_source "Some(_)"
+          (antiquotation "None :: nat option"))
+    val (_, partial_condition, partial_body) =
+      bounded_while_arguments partial
+    val _ =
+      audit_assert "a partial while-let pattern lost its false fallback"
+        (count_constant \<^const_name>\<open>False\<close> partial = 1)
+    val _ =
+      audit_assert "a partial while-let moved the source body out of the condition"
+        (count_constant
+           \<^const_name>\<open>cycle1_while_body_marker\<close>
+           partial_condition = 1)
+    val _ =
+      audit_assert "a partial while-let did not keep skip as the bounded loop body"
+        (is_skip partial_body)
+  in
+    val _ = writeln "Cycle 1 conservative while-let coverage audit passed"
   end
 \<close>
 
