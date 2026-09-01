@@ -103,6 +103,7 @@ lex_rules\<open>
 <INITIAL>"return" => (tokF (yypos, yytext, Markup.keyword1, "TRETURN", Tokens.TRETURN));
 <INITIAL>"if"     => (tokF (yypos, yytext, Markup.keyword1, "TIF", Tokens.TIF));
 <INITIAL>"else"   => (tokF (yypos, yytext, Markup.keyword1, "TELSE", Tokens.TELSE));
+<INITIAL>"unsafe" => (tokF (yypos, yytext, Markup.keyword1, "TUNSAFE", Tokens.TUNSAFE));
 <INITIAL>"match"        => (tokF (yypos, yytext, Markup.keyword1, "TMATCH", Tokens.TMATCH));
 <INITIAL>"match_switch" => (tokF (yypos, yytext, Markup.keyword1, "TMATCHSWITCH", Tokens.TMATCHSWITCH));
 <INITIAL>"match_case"   => (tokF (yypos, yytext, Markup.keyword1, "TMATCHCASE", Tokens.TMATCHCASE));
@@ -190,7 +191,7 @@ yacc_definitions\<open>
    `a == b == c`). Reference prefixes and `!` use structural tiers below; these directives keep the
    ambiguous `uexp OP uexp` productions conflict-free. *)
 %right TRETURN
-%right TIF TLBRACE
+%right TIF TLBRACE TUNSAFE
 %left TBARBAR
 %left TAMPAMP
 %nonassoc TEQEQ TNE TLT TLE TGT TGE
@@ -214,7 +215,7 @@ yacc_definitions\<open>
     | TAMPEQ | TBAREQ | TCARETEQ | TSHLEQ | TSHREQ
     | TEQEQ | TNE | TLT | TLE | TGT | TGE
     | TAMPAMP | TBARBAR | TBANG | TQUESTION
-    | TMATCH | TMATCHSWITCH | TMATCHCASE | TARROW
+    | TUNSAFE | TMATCH | TMATCHSWITCH | TMATCHCASE | TARROW
     | TDOTDOT | TDOTDOTEQ | TMUT | TPATCONTEXT
 %nonterm ustart of URust_AST.ur_expr option
        | ustmt of URust_AST.ur_expr
@@ -229,6 +230,7 @@ yacc_definitions\<open>
        | arglist of URust_AST.ur_expr list
        | ucallargs of URust_AST.ur_expr list
        | ublock of URust_AST.ur_expr
+       | uunsafe of URust_AST.ur_expr
        | uif of URust_AST.ur_expr
        | umatch of URust_AST.ur_expr
        | umatchsw of URust_AST.ur_expr
@@ -250,7 +252,7 @@ yacc_definitions\<open>
 yacc_rules\<open>
   ustart : ustmt (SOME ustmt)
          | (NONE)
-  (* Statements: a value expression `uval` sequenced with `;`, OR a with-block form (`ublock`/`uif`) in
+  (* Statements: a value expression `uval` sequenced with `;`, OR a block-like form in
      statement position with NO trailing `;` (Rust's optional semicolon after a block-like expr; closes
      divergence D-2 -- D25). Both desugar to the same `sequence`. The `ublock`-as-operand vs `ublock
      ustmt` decision resolves by lookahead (operator/`;`/`}`/EOF -> operand; statement-start -> sequence). *)
@@ -258,6 +260,7 @@ yacc_rules\<open>
         | uval TSEMI ustmt                  (UE_Seq (uval, ustmt))
         | uval TSEMI                        (finish_statement (uval, TSEMIleft))
         | ublock ustmt                      (UE_Seq (ublock, ustmt))
+        | uunsafe ustmt                     (UE_Seq (uunsafe, ustmt))
         | uif ustmt                         (UE_Seq (uif, ustmt))
         | umatch ustmt                      (UE_Seq (umatch, ustmt))
         (* NO `umatchsw ustmt` / `umatchcase ustmt` forms: only the bare `match` keyword has the
@@ -323,6 +326,7 @@ yacc_rules\<open>
         | ublock %prec TIF (ublock)  (* block STAYS an operand atom (frontend priority 1000): `{e} + x`
                                         parses. Equal right precedence makes a following `if` shift into
                                         semicolon-free statement sequencing without a conflict. *)
+        | uunsafe %prec TIF (uunsafe)
   (* Reference prefixes bind tighter than every binary operator and looser than `!`, matching the
      frontend priorities. Recursing through this tier makes `**x` two ordinary dereference nodes while
      preserving the binary meanings of `*` and `&`; mixed and deeper recursion is a documented
@@ -362,6 +366,9 @@ yacc_rules\<open>
      export -- RE-CHECK IT after any grammar change. *)
   ublock : TLBRACE ustmt TRBRACE            (UE_Block (ustmt, TLBRACEleft))
          | TLBRACE TRBRACE                  (UE_Block (UE_Unit TLBRACEleft, TLBRACEleft))
+  (* Unsafe is block-like in operand and statement positions, but deliberately remains distinct from
+     `ublock`: branch delimiters still require ordinary braces. Its frontend semantics are block erasure. *)
+  uunsafe : TUNSAFE ublock                  (ublock)
   (* Condition is `uval` (the frontend's condition priority admits an `if`), so `if if c {..} {..}` parses. *)
   uif : TIF uval ublock                     (UE_If (uval, ublock, NONE, TIFleft))
       | TIF uval ublock TELSE ublock        (UE_If (uval, ublock1, SOME ublock2, TIFleft))

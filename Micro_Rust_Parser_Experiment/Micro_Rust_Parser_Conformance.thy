@@ -507,6 +507,32 @@ urust_expr_with_check ext_blk_operand_r \<open> \<llangle>1 :: 32 word\<rrangle>
 urust_expr_with_check ext_not_blk \<open> !{ \<llangle>True\<rrangle> } \<close>
 
 
+section\<open> Unsafe blocks \<close>
+
+text\<open>
+Unsafe blocks are a distinct block-like grammar category but reuse ordinary block
+lowering because the frontend treats \<open>unsafe\<close> as a semantic no-op.
+\<close>
+
+urust_expr_with_check unsafe_operand
+  \<open> unsafe { \<llangle>1 :: 32 word\<rrangle> } + \<llangle>2 :: 32 word\<rrangle> \<close>
+
+urust_expr_with_check unsafe_nested
+  \<open> unsafe { unsafe { \<llangle>1 :: nat\<rrangle> } } \<close>
+
+urust_expr_with_check unsafe_branch_body
+  \<open>
+    if \<llangle>True\<rrangle> {
+      unsafe { \<llangle>1 :: nat\<rrangle> }
+    } else {
+      unsafe { \<llangle>2 :: nat\<rrangle> }
+    }
+  \<close>
+
+urust_expr_with_check unsafe_statement
+  \<open> unsafe { () } () \<close>
+
+
 section\<open> \<open>if\<close> / \<open>else\<close> (Corpus "Control Flow - Conditionals") \<close>
 
 text\<open>
