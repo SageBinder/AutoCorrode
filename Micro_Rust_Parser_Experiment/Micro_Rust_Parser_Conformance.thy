@@ -1230,7 +1230,12 @@ urust_expr_with_check rich_or_three_top
 urust_expr_with_check rich_or_nested
   \<open> match_case ro { Some(RMA(x) | RMB(x)) \<Rightarrow> x, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<close>
 
-urust_expr_with_check rich_or_guarded
+text\<open>
+C1-I5 intentionally differs from the old frontend here: a false source guard skips the whole
+or-pattern arm instead of retrying the guard through a sibling alternative.
+\<close>
+
+urust_expr rich_or_guarded
   \<open> match r { RMA(x) | RMB(x) if x > \<llangle>0 :: 32 word\<rrangle> \<Rightarrow> x, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<close>
 
 urust_expr_with_check rich_or_nested_slot
@@ -1239,7 +1244,7 @@ urust_expr_with_check rich_or_nested_slot
 urust_expr_with_check rich_or_three_nested_slot
   \<open> match_case rp { RP(RLA, RLA | RLB | RLC) \<Rightarrow> True, _ \<Rightarrow> False } \<close>
 
-urust_expr_with_check rich_or_three_guard_fallthrough
+urust_expr rich_or_three_guard_fallthrough
   \<open> match r { RMA(x) | RMB(x) | RMD(x) if False \<Rightarrow> \<llangle>1 :: 32 word\<rrangle>, RMA(x) | RMB(x) | RMD(x) \<Rightarrow> x, RMC \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<close>
 
 end
@@ -1317,7 +1322,13 @@ urust_expr_with_check value_pat_nested_constructor
 urust_expr_with_check value_pat_disjunction
   \<open> match b { true | false \<Rightarrow> True } \<close>
 
-urust_expr_with_check value_pat_source_guard
+text\<open>
+C1-I5 runs generated pattern tests before the one shared source-arm guard. The old frontend
+conjoined them in the opposite syntactic order, so guarded extended-pattern rows are checked by
+the cycle audit rather than by legacy-term reflection.
+\<close>
+
+urust_expr value_pat_source_guard
   \<open> match b { true if False \<Rightarrow> True, _ \<Rightarrow> False } \<close>
 
 urust_expr_with_check value_pat_capture
@@ -1329,7 +1340,7 @@ urust_expr_with_check value_pat_nested_tuple
   \<open> match_case \<llangle>(True, (Some False, TNil))\<rrangle> {
       (true, Some(x)) \<Rightarrow> x, _ \<Rightarrow> False } \<close>
 
-urust_expr_with_check value_pat_guard_order
+urust_expr value_pat_guard_order
   \<open> match \<llangle>VPP True (String.implode ''ok'')\<rrangle> {
       VPP(true, "ok") if True \<Rightarrow> True, _ \<Rightarrow> False } \<close>
 
@@ -1389,7 +1400,7 @@ urust_expr_with_check adv_range_exclusive
 urust_expr_with_check adv_range_inclusive
   \<open> match_case \<llangle>Some (7 :: nat)\<rrangle> { Some(5..=7) \<Rightarrow> \<llangle>True\<rrangle>, _ \<Rightarrow> \<llangle>False\<rrangle> } \<close>
 
-urust_expr_with_check adv_range_guard
+urust_expr adv_range_guard
   \<open> match_case \<llangle>Some (6 :: nat)\<rrangle> { Some(5..=7) if True \<Rightarrow> \<llangle>1 :: nat\<rrangle>, Some(5..=7) \<Rightarrow> \<llangle>2 :: nat\<rrangle>, _ \<Rightarrow> \<llangle>3 :: nat\<rrangle> } \<close>
 
 urust_expr_with_check adv_range_nested
@@ -1484,7 +1495,7 @@ urust_expr_with_check adv_struct_shorthand
 urust_expr_with_check adv_struct_rest
   \<open> match \<llangle>AdvStruct 1 2\<rrangle> { AdvStruct { adv_left, .. } \<Rightarrow> adv_left, _ \<Rightarrow> 0 } \<close>
 
-urust_expr_with_check adv_struct_nested
+urust_expr adv_struct_nested
   \<open> match \<llangle>AdvNested (Some (3 :: nat)) [4, 5]\<rrangle> { AdvNested { adv_option: Some(x), adv_values: [y, .., z] } if True \<Rightarrow> z, _ \<Rightarrow> 0 } \<close>
 
 urust_expr_with_check adv_struct_or
@@ -1671,7 +1682,12 @@ urust_expr_with_check bind_match_scrutinee_outer
     match x { Some(x) \<Rightarrow> x, None \<Rightarrow> \<llangle>0 :: nat\<rrangle> }
   \<close>
 
-urust_expr_with_check bind_match_guard_shadow
+text\<open>
+C1-I1/C1-I5 keep the outer \<open>x\<close> in the next-arm continuation distinct from the guarded
+arm binder. The old frontend accidentally captured that fallback while expanding the guard.
+\<close>
+
+urust_expr bind_match_guard_shadow
   \<open>
     let x = \<llangle>0 :: nat\<rrangle>;
     match \<llangle>Some (1 :: nat)\<rrangle> {
@@ -1743,7 +1759,12 @@ urust_expr_with_check bind_match_alias_shadow
     }
   \<close>
 
-urust_expr_with_check bind_match_slice_shadow
+text\<open>
+The generated suffix test also keeps its next-arm continuation outside the pattern binder scope;
+the old frontend captured the outer \<open>head\<close> in that continuation.
+\<close>
+
+urust_expr bind_match_slice_shadow
   \<open>
     let head = \<llangle>0 :: nat\<rrangle>;
     let tail = \<llangle>0 :: nat\<rrangle>;
@@ -1774,7 +1795,7 @@ urust_expr_with_check bind_match_struct_shorthand_shadow
     }
   \<close>
 
-urust_expr_with_check bind_match_or_shadow
+urust_expr bind_match_or_shadow
   \<open>
     let x = \<llangle>0 :: 32 word\<rrangle>;
     match \<llangle>RMA (1 :: 32 word)\<rrangle> {
@@ -1830,7 +1851,7 @@ urust_expr_with_check bind_hol_tuple_shadow
 urust_expr_with_check bind_hol_match_shadow
   \<open> match Some(x) { Some(x) \<Rightarrow> \<llangle>x\<rrangle>, None \<Rightarrow> x } \<close>
 
-urust_expr_with_check bind_hol_match_guard_shadow
+urust_expr bind_hol_match_guard_shadow
   \<open>
     match Some(x) {
       Some(x) if x == \<llangle>x\<rrangle> \<Rightarrow> x,

@@ -56,7 +56,8 @@ fun define_urust_with_frontend_check (binding, new_source, old_frontend_source) 
     val conformance =
       Goal.prove lthy' [] [] (HOLogic.mk_Trueprop equality)
         (fn {context = ctxt, ...} =>
-          Local_Defs.unfold_tac ctxt [def_thm] THEN
+          Local_Defs.unfold_tac ctxt
+            [def_thm, @{thm urust_admin_let_def}] THEN
           resolve_tac ctxt [@{thm refl}] 1)
     val (_, lthy'') =
       Local_Theory.note

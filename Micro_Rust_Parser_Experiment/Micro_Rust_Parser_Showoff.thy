@@ -79,7 +79,12 @@ value patterns, or-patterns, guards, nested matches, ordered fall-through, and
 antiquotation capture of both a let-bound variable and an arm binder.
 \<close>
 
-urust_expr_with_check showoff_matches
+text\<open>
+C1-I5 gives a guarded or-pattern one source-arm guard and next-arm fall-through, so this showcase
+uses the corrected semantics instead of asserting equality with the old alternative expansion.
+\<close>
+
+urust_expr showoff_matches
   \<open>
     let floor = \<llangle>2 :: nat\<rrangle>;
     match \<llangle>ShowoffData (Some 7) True\<rrangle> {
@@ -117,7 +122,7 @@ Features: struct, slice-rest, constructor, and or-patterns in one match, followe
 by a guard and antiquotation capture of bindings from deep inside the pattern.
 \<close>
 
-urust_expr_with_check showoff_patterns
+urust_expr showoff_patterns
   \<open>
     match \<llangle>ShowoffPacket 2 [3, 5, 8] (Some 13)\<rrangle> {
       ShowoffPacket {

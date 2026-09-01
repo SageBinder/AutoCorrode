@@ -107,7 +107,11 @@ fun bind_var kind ctxt (env : var_info Symtab.table) (x, def_pos) =
   let
     val id   = serial ()
     val _    = report_def kind ctxt id (x, def_pos)
-    val free = Free (x, dummyT)
+    (* Source spelling belongs in the environment and markup, not in Free identity. Distinct
+       identities prevent a later Term.lambda for a shadowing binder from capturing an outer
+       same-spelled local that has been placed in a shared continuation. *)
+    val free =
+      Free ("_urust_local_" ^ string_of_int id ^ "_" ^ x, dummyT)
   in (free, Symtab.update (x, {free = free, def_pos = def_pos, id = id}) env) end
 
 (* Do not represent anonymous binders with invented Frees: such a name can capture a source binder held

@@ -406,7 +406,12 @@ call, arm, struct, constructor, and slice lists, including a guarded arm and a
 method call. The witness removes separators only.
 \<close>
 
-urust_expr_with_check' improvement_trailing_composed
+text\<open>
+C1-I5 checks this guarded extended pattern with the shared source-arm handler; its checked term
+is intentionally no longer the old frontend's syntactic conjunction order.
+\<close>
+
+urust_expr improvement_trailing_composed
   \<open>
     let (x, y,) = (\<llangle>1 :: 64 word\<rrangle>, \<llangle>2 :: 64 word\<rrangle>,);
     cf2(
@@ -421,23 +426,6 @@ urust_expr_with_check' improvement_trailing_composed
       },
       y,
     )
-  \<close>
-  \<open>
-    \<lbrakk>
-      let (x, y) = (\<llangle>1 :: 64 word\<rrangle>, \<llangle>2 :: 64 word\<rrangle>);
-      cf2(
-        match \<llangle>TrailingComma (Some 3) [4, 5]\<rrangle> {
-          TrailingComma {
-            trailing_option: Some(z),
-            trailing_values: [head, .., tail]
-          } if True \<Rightarrow>
-            x.cf2(z),
-          _ \<Rightarrow>
-            y
-        },
-        y
-      )
-    \<rbrakk>
   \<close>
 old_urust_rejects
   \<open>

@@ -6,6 +6,9 @@ begin
 
 section\<open> Shallow term vocabulary \<close>
 
+definition urust_admin_let :: \<open>'a \<Rightarrow> ('a \<Rightarrow> 'b) \<Rightarrow> 'b\<close> where
+  \<open> urust_admin_let value continuation = continuation value \<close>
+
 ML\<open>
 signature URUST_ELAB_TERMS =
 sig
@@ -16,6 +19,7 @@ sig
 
   val function_call: Position.T -> term -> term list -> term
   val bind: term -> term -> term
+  val admin_let: term -> term -> term
   val sequence: term -> term -> term
   val return_value: term -> term
   val case_product: term -> term
@@ -201,6 +205,8 @@ struct
   (* Sequencing must use sequence: replacing it with an anonymous bind changes the generated term. *)
   fun bind expression abstraction =
     constant \<^const_name>\<open>Core_Expression.bind\<close> [expression, abstraction]
+  fun admin_let value continuation =
+    constant \<^const_name>\<open>urust_admin_let\<close> [value, continuation]
   fun sequence first second =
     constant \<^const_name>\<open>Core_Expression.sequence\<close> [first, second]
   fun return_value value = constant \<^const_name>\<open>return_func\<close> [value]

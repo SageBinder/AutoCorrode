@@ -1009,24 +1009,43 @@ struct
          normalize_pattern_for_nested
            compiler ctxt environment pattern)
 
-  fun normalize_case_arm compiler ctxt value
-      (pattern, environment, source_guard, rhs) =
+  fun normalize_case_alternative compiler ctxt value
+      (pattern, environment) =
     let
       val (basic_pattern, generated_guards, wrappers) =
         normalize_extended_pattern
           compiler ctxt environment (T.literal value) pattern
       val abstraction =
         bind_basic_pattern ctxt environment basic_pattern
-      val guard =
-        fold extend_guard generated_guards source_guard
-      val rhs' =
+      val generated_guard =
+        fold extend_guard generated_guards NONE
+      fun wrap rhs =
         fold_rev (fn wrapper => fn body => wrapper body)
           wrappers rhs
       val wild =
         (case basic_pattern of
            Basic_Wild _ => true
          | _ => false)
-    in (wild, abstraction, guard, rhs') end
+    in (wild, abstraction, generated_guard, wrap) end
+
+  fun normalize_case_arm compiler ctxt value
+      (pattern, environment, source_guard, rhs) =
+    let
+      val (wild, abstraction, generated_guard, wrap) =
+        normalize_case_alternative compiler ctxt value
+          (pattern, environment)
+      val guard =
+        (case generated_guard of
+           NONE => source_guard
+         | SOME generated =>
+             extend_guard generated source_guard)
+    in (wild, abstraction, guard, wrap rhs) end
+
+  fun share_term name value body =
+    let
+      val shared =
+        Free (name ^ string_of_int (serial ()), dummyT)
+    in T.admin_let value (Term.lambda shared (body shared)) end
 
   fun compile_pattern_case ctxt scrutinee arms =
     let
@@ -1053,30 +1072,32 @@ struct
             if wild then rhs
             else case_term [abstraction rhs]
         | compile_branches [(wild, abstraction, SOME guard, rhs)] =
-            let val guarded = T.conditional guard rhs undefined
-            in
-              if wild then guarded
-              else
-                case_term
-                  [abstraction guarded,
-                   generated_wild undefined]
-            end
+            if wild then T.conditional guard rhs undefined
+            else
+              share_term "_urust_next_case_" undefined
+                (fn fallback =>
+                  case_term
+                    [abstraction
+                      (T.conditional guard rhs fallback),
+                     generated_wild fallback])
         | compile_branches
             ((wild, abstraction, guard, rhs) :: rest) =
-            let
-              val fallback = compile_branches rest
-              val rhs' =
-                (case guard of
-                   SOME condition =>
-                     T.conditional condition rhs fallback
-                 | NONE => rhs)
-            in
-              if wild then rhs'
-              else
-                case_term
-                  [abstraction rhs',
-                   generated_wild fallback]
-            end
+            share_term "_urust_next_case_"
+              (compile_branches rest)
+              (fn fallback =>
+                let
+                  val rhs' =
+                    (case guard of
+                       SOME condition =>
+                         T.conditional condition rhs fallback
+                     | NONE => rhs)
+                in
+                  if wild then rhs'
+                  else
+                    case_term
+                      [abstraction rhs',
+                       generated_wild fallback]
+                end)
 
       val selector =
         if List.exists
@@ -1091,15 +1112,134 @@ struct
 
   fun compile_case ctxt scrutinee arms =
     let
-      fun alternatives
+      val value =
+        Free
+          ("_urust_case_value_" ^
+            string_of_int (serial ()), dummyT)
+
+      fun case_term branches =
+        T.case_guard T.true_value value
+          (fold_rev T.case_cons branches T.case_nil)
+
+      fun generated_wild rhs =
+        bind_basic_pattern ctxt R.empty_environment
+          (Basic_Wild NONE) rhs
+
+      fun normalize_source_arm
           (Prepared_Case_Arm
-            {patterns, environment, ...},
+            {patterns, environment, binders, ...},
            source_guard, rhs) =
-        map (fn pattern =>
-          (pattern, environment, source_guard, rhs)) patterns
+        {alternatives =
+           map
+             (normalize_case_alternative
+               compile_pattern_case ctxt value)
+             (map (fn pattern => (pattern, environment)) patterns),
+         binders = binders,
+         source_guard = source_guard,
+         rhs = rhs}
+
+      val normalized = map normalize_source_arm arms
+
+      fun has_generated_guard
+          {alternatives, source_guard, ...} =
+        is_some source_guard orelse
+          List.exists
+            (fn (_, _, guard, _) => is_some guard)
+            alternatives
+
+      fun handler_term binders source_guard rhs next_arm =
+        fold_rev Term.lambda binders
+          (case source_guard of
+             SOME guard => T.conditional guard rhs next_arm
+           | NONE => rhs)
+
+      fun handler_call handler binders =
+        Term.list_comb (handler, binders)
+
+      fun compile_alternatives [] _ _ _ =
+            error "urust_expr: internal empty source-arm alternative list"
+        | compile_alternatives
+            [(wild, abstraction, generated_guard, wrap)]
+            handler binders next_arm =
+            let
+              val success = wrap (handler_call handler binders)
+              val guarded =
+                (case generated_guard of
+                   SOME guard =>
+                     T.conditional guard success next_arm
+                 | NONE => success)
+            in
+              if wild then guarded
+              else
+                case_term
+                  [abstraction guarded,
+                   generated_wild next_arm]
+            end
+        | compile_alternatives
+            ((wild, abstraction, generated_guard, wrap) :: rest)
+            handler binders next_arm =
+            share_term "_urust_next_alternative_"
+              (compile_alternatives rest handler binders next_arm)
+              (fn next_alternative =>
+                let
+                  val success = wrap (handler_call handler binders)
+                  val guarded =
+                    (case generated_guard of
+                       SOME guard =>
+                         T.conditional guard success
+                           next_alternative
+                     | NONE => success)
+                in
+                  if wild then guarded
+                  else
+                    case_term
+                      [abstraction guarded,
+                       generated_wild next_alternative]
+                end)
+
+      fun compile_guarded_sources [] = T.undefined_value
+        | compile_guarded_sources
+            ({alternatives, binders, source_guard, rhs} :: rest) =
+            share_term "_urust_next_arm_"
+              (compile_guarded_sources rest)
+              (fn next_arm =>
+                share_term "_urust_arm_handler_"
+                  (handler_term binders source_guard rhs next_arm)
+                  (fn handler =>
+                    compile_alternatives alternatives
+                      handler binders next_arm))
+
+      fun compile_unguarded_sources sources =
+        let
+          fun install [] branches =
+                case_term (maps I (rev branches))
+            | install
+                ({alternatives, binders, source_guard = NONE, rhs} :: rest)
+                branches =
+                share_term "_urust_arm_handler_"
+                  (fold_rev Term.lambda binders rhs)
+                  (fn handler =>
+                    let
+                      fun branch
+                          (wild, abstraction, NONE, wrap) =
+                            abstraction
+                              (wrap (handler_call handler binders))
+                        | branch _ =
+                            error
+                              "urust_expr: internal guarded alternative in unguarded case"
+                      val current = map branch alternatives
+                    in install rest (current :: branches) end)
+            | install _ _ =
+                error
+                  "urust_expr: internal guarded source arm in unguarded case"
+        in install sources [] end
+
+      val selector =
+        if List.exists has_generated_guard normalized
+        then compile_guarded_sources normalized
+        else compile_unguarded_sources normalized
     in
-      compile_pattern_case ctxt scrutinee
-        (maps alternatives arms)
+      T.bind scrutinee (Term.lambda value selector)
     end
 end
 \<close>
