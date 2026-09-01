@@ -171,6 +171,172 @@ old_urust_rejects
   \<open> unsafe {} \<close>
 
 
+section\<open> Trailing commas \<close>
+
+text\<open>
+The old frontend accepts trailing commas only in slice patterns, whose shared
+cases are in \<open>Micro_Rust_Parser_Conformance\<close>. Calls, arms, constructor
+patterns, tuples, and struct patterns reject there. Each source below is checked
+against the same old-frontend term with only its terminal comma removed.
+\<close>
+
+urust_expr improvement_trailing_direct_call
+  \<open> cf2(\<llangle>1 :: 64 word\<rrangle>, \<llangle>2 :: 64 word\<rrangle>,) \<close>
+lemma \<open> improvement_trailing_direct_call =
+    \<lbrakk> cf2(\<llangle>1 :: 64 word\<rrangle>, \<llangle>2 :: 64 word\<rrangle>) \<rbrakk> \<close>
+  unfolding improvement_trailing_direct_call_def by (rule refl)
+old_urust_rejects
+  \<open> cf2(\<llangle>1 :: 64 word\<rrangle>, \<llangle>2 :: 64 word\<rrangle>,) \<close>
+
+urust_expr improvement_trailing_method_call
+  \<open> \<llangle>1 :: 64 word\<rrangle>.cf2(\<llangle>2 :: 64 word\<rrangle>,) \<close>
+lemma \<open> improvement_trailing_method_call =
+    \<lbrakk> \<llangle>1 :: 64 word\<rrangle>.cf2(\<llangle>2 :: 64 word\<rrangle>) \<rbrakk> \<close>
+  unfolding improvement_trailing_method_call_def by (rule refl)
+old_urust_rejects
+  \<open> \<llangle>1 :: 64 word\<rrangle>.cf2(\<llangle>2 :: 64 word\<rrangle>,) \<close>
+
+urust_expr improvement_trailing_guarded_arm
+  \<open>
+    match \<llangle>Some (1 :: nat)\<rrangle> {
+      Some(x) if True \<Rightarrow> x,
+      None \<Rightarrow> 0,
+    }
+  \<close>
+lemma \<open> improvement_trailing_guarded_arm =
+    \<lbrakk>
+      match \<llangle>Some (1 :: nat)\<rrangle> {
+        Some(x) if True \<Rightarrow> x,
+        None \<Rightarrow> 0
+      }
+    \<rbrakk> \<close>
+  unfolding improvement_trailing_guarded_arm_def by (rule refl)
+old_urust_rejects
+  \<open>
+    match \<llangle>Some (1 :: nat)\<rrangle> {
+      Some(x) if True \<Rightarrow> x,
+      None \<Rightarrow> 0,
+    }
+  \<close>
+
+urust_expr improvement_trailing_constructor_pattern
+  \<open> match_case \<llangle>P2 1 2\<rrangle> { P2(x, y,) \<Rightarrow> x } \<close>
+lemma \<open> improvement_trailing_constructor_pattern =
+    \<lbrakk> match_case \<llangle>P2 1 2\<rrangle> { P2(x, y) \<Rightarrow> x } \<rbrakk> \<close>
+  unfolding improvement_trailing_constructor_pattern_def by (rule refl)
+old_urust_rejects
+  \<open> match_case \<llangle>P2 1 2\<rrangle> { P2(x, y,) \<Rightarrow> x } \<close>
+
+urust_expr improvement_trailing_tuple_expression
+  \<open> (\<llangle>1 :: nat\<rrangle>, \<llangle>True\<rrangle>,) \<close>
+lemma \<open> improvement_trailing_tuple_expression =
+    \<lbrakk> (\<llangle>1 :: nat\<rrangle>, \<llangle>True\<rrangle>) \<rbrakk> \<close>
+  unfolding improvement_trailing_tuple_expression_def by (rule refl)
+old_urust_rejects
+  \<open> (\<llangle>1 :: nat\<rrangle>, \<llangle>True\<rrangle>,) \<close>
+
+urust_expr improvement_trailing_tuple_pattern
+  \<open>
+    let (x, y,) = (\<llangle>1 :: nat\<rrangle>, \<llangle>True\<rrangle>);
+    x
+  \<close>
+lemma \<open> improvement_trailing_tuple_pattern =
+    \<lbrakk>
+      let (x, y) = (\<llangle>1 :: nat\<rrangle>, \<llangle>True\<rrangle>);
+      x
+    \<rbrakk> \<close>
+  unfolding improvement_trailing_tuple_pattern_def by (rule refl)
+old_urust_rejects
+  \<open>
+    let (x, y,) = (\<llangle>1 :: nat\<rrangle>, \<llangle>True\<rrangle>);
+    x
+  \<close>
+
+urust_expr improvement_trailing_struct_pattern
+  \<open>
+    match \<llangle>AdvStruct 1 2\<rrangle> {
+      AdvStruct { adv_left: x, adv_right: y, } \<Rightarrow> x,
+      _ \<Rightarrow> 0
+    }
+  \<close>
+lemma \<open> improvement_trailing_struct_pattern =
+    \<lbrakk>
+      match \<llangle>AdvStruct 1 2\<rrangle> {
+        AdvStruct { adv_left: x, adv_right: y } \<Rightarrow> x,
+        _ \<Rightarrow> 0
+      }
+    \<rbrakk> \<close>
+  unfolding improvement_trailing_struct_pattern_def by (rule refl)
+old_urust_rejects
+  \<open>
+    match \<llangle>AdvStruct 1 2\<rrangle> {
+      AdvStruct { adv_left: x, adv_right: y, } \<Rightarrow> x,
+      _ \<Rightarrow> 0
+    }
+  \<close>
+
+datatype trailing_comma_fixture =
+  TrailingComma
+    (trailing_option: "64 word option")
+    (trailing_values: "64 word list")
+
+text\<open>
+This composed row puts all trailing-comma sites in one source: nested tuple,
+call, arm, struct, constructor, and slice lists, including a guarded arm and a
+method call. The witness removes separators only.
+\<close>
+
+urust_expr improvement_trailing_composed
+  \<open>
+    let (x, y,) = (\<llangle>1 :: 64 word\<rrangle>, \<llangle>2 :: 64 word\<rrangle>,);
+    cf2(
+      match \<llangle>TrailingComma (Some 3) [4, 5]\<rrangle> {
+        TrailingComma {
+          trailing_option: Some(z,),
+          trailing_values: [head, .., tail,],
+        } if True \<Rightarrow>
+          x.cf2(z,),
+        _ \<Rightarrow>
+          y,
+      },
+      y,
+    )
+  \<close>
+lemma \<open> improvement_trailing_composed =
+    \<lbrakk>
+      let (x, y) = (\<llangle>1 :: 64 word\<rrangle>, \<llangle>2 :: 64 word\<rrangle>);
+      cf2(
+        match \<llangle>TrailingComma (Some 3) [4, 5]\<rrangle> {
+          TrailingComma {
+            trailing_option: Some(z),
+            trailing_values: [head, .., tail]
+          } if True \<Rightarrow>
+            x.cf2(z),
+          _ \<Rightarrow>
+            y
+        },
+        y
+      )
+    \<rbrakk> \<close>
+  unfolding improvement_trailing_composed_def by (rule refl)
+old_urust_rejects
+  \<open>
+    let (x, y,) = (\<llangle>1 :: 64 word\<rrangle>, \<llangle>2 :: 64 word\<rrangle>,);
+    cf2(
+      match \<llangle>TrailingComma (Some 3) [4, 5]\<rrangle> {
+        TrailingComma {
+          trailing_option: Some(z,),
+          trailing_values: [head, .., tail,],
+        } if True \<Rightarrow>
+          x.cf2(z,),
+        _ \<Rightarrow>
+          y,
+      },
+      y,
+    )
+  \<close>
+
+
 section\<open> Compositional range patterns \<close>
 
 datatype improvement_packet =

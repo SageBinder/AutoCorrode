@@ -225,9 +225,39 @@ urust_expr_rejects \<open> (\<llangle>1 :: nat\<rrangle>,) \<close> \<open> synt
   \<comment> \<open> [FIDELITY] singleton tuples are outside the current frontend tuple grammar. \<close>
 
 urust_expr_rejects
-  \<open> (\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>,) \<close>
-  \<open> syntax error found at RPAR \<close>
-  \<comment> \<open> [FIDELITY] trailing-comma tuples are outside the current frontend tuple grammar. \<close>
+  \<open> let (x,) = \<llangle>(1 :: nat, TNil)\<rrangle>; x \<close>
+  \<open> syntax error: deleting  RPAR TEQ \<close>
+  \<comment> \<open> [FIDELITY] a terminal comma does not turn a grouped singleton pattern into a tuple. \<close>
+
+urust_expr_rejects
+  \<open> (\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>,,) \<close>
+  \<open> syntax error found at COMMA \<close>
+  \<comment> \<open> [FIDELITY] a trailing comma is one separator, not an empty tuple element. \<close>
+
+urust_expr_rejects
+  \<open> let (x, y,,) = \<llangle>(1 :: nat, (2 :: nat, TNil))\<rrangle>; x \<close>
+  \<open> syntax error: deleting  COMMA RPAR TEQ \<close>
+  \<comment> \<open> [FIDELITY] tuple-pattern lists likewise reject an empty element after the terminal comma. \<close>
+
+urust_expr_rejects
+  \<open> match_case \<llangle>Some (1 :: nat)\<rrangle> { Some(x,,) \<Rightarrow> x, None \<Rightarrow> 0 } \<close>
+  \<open> syntax error: deleting  COMMA RPAR TARROW \<close>
+  \<comment> \<open> [FIDELITY] constructor argument lists reject doubled terminal commas. \<close>
+
+urust_expr_rejects
+  \<open> match \<llangle>Some (1 :: nat)\<rrangle> { Some(x) \<Rightarrow> x, None \<Rightarrow> 0,, } \<close>
+  \<open> syntax error found at COMMA \<close>
+  \<comment> \<open> [FIDELITY] match-arm lists reject an empty arm after the terminal comma. \<close>
+
+urust_expr_rejects
+  \<open> match \<llangle>[1 :: nat, 2]\<rrangle> { [x, y,,] \<Rightarrow> x, _ \<Rightarrow> 0 } \<close>
+  \<open> syntax error: deleting  COMMA TRBRACK TARROW \<close>
+  \<comment> \<open> [FIDELITY] slice-pattern lists reject doubled terminal commas. \<close>
+
+urust_expr_rejects
+  \<open> match \<llangle>NegativeStruct 1 2\<rrangle> { NegativeStruct { negative_left: x, negative_right: y,, } \<Rightarrow> x } \<close>
+  \<open> syntax error: deleting  COMMA TRBRACE TARROW \<close>
+  \<comment> \<open> [FIDELITY] struct-field lists reject an empty field after the terminal comma. \<close>
 
 urust_expr_rejects \<open> let () = (); () \<close> \<open> syntax error \<close>
   \<comment> \<open> [FIDELITY] unit is an expression but not a pattern in the current frontend. \<close>
@@ -377,6 +407,10 @@ section\<open> Calls \<close>
 
 definition ncf1 :: \<open> 64 word \<Rightarrow> (unit, 64 word, unit, unit, unit) function_body \<close>
   where \<open> ncf1 \<equiv> lift_fun1 (\<lambda>x. x) \<close>
+
+urust_expr_rejects \<open> ncf1(\<llangle>1 :: 64 word\<rrangle>,,) \<close>
+  \<open> syntax error found at COMMA \<close>
+  \<comment> \<open> [FIDELITY] call argument lists reject an empty argument after the terminal comma. \<close>
 
 urust_expr_rejects \<open> zz(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0) \<close>
   \<open> unsupported call arity 15 \<close>

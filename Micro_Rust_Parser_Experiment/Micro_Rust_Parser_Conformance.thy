@@ -1402,6 +1402,21 @@ urust_expr_with_check adv_range_nested
 
 subsection\<open> Slice patterns \<close>
 
+text\<open>
+The old frontend already accepts a terminal comma in slice patterns because its
+slice-argument grammar has an empty tail. These same-source rows cover ordinary,
+rest, and recursively nested slice lists.
+\<close>
+
+urust_expr_with_check trailing_slice_closed
+  \<open> match \<llangle>[1 :: nat, 2]\<rrangle> { [x, y,] \<Rightarrow> x, _ \<Rightarrow> 0 } \<close>
+
+urust_expr_with_check trailing_slice_rest
+  \<open> match \<llangle>[1 :: nat, 2, 3]\<rrangle> { [head, ..,] \<Rightarrow> head, _ \<Rightarrow> 0 } \<close>
+
+urust_expr_with_check trailing_slice_nested
+  \<open> match \<llangle>[[1 :: nat, 2], [3]]\<rrangle> { [[x, y,], [z,],] \<Rightarrow> x, _ \<Rightarrow> 0 } \<close>
+
 urust_expr_with_check adv_slice_empty
   \<open> match \<llangle>([] :: nat list)\<rrangle> { [] \<Rightarrow> \<llangle>True\<rrangle>, _ \<Rightarrow> \<llangle>False\<rrangle> } \<close>
 
