@@ -2141,6 +2141,689 @@ lemma \<open> ma_nested =
 end
 
 
+section\<open> Binder scope and shadowing robustness \<close>
+
+text\<open>
+These rows pin lexical scope boundaries, not only successful name lookup. A binding RHS sees the
+outer environment, its continuation sees the new binder, sibling match arms are independent, and
+binders are visible in guards and antiquotations. The matrix also covers wildcard hygiene, tuple
+destructuring, mutable allocation, HOL-fixed variables, and names already meaningful to HOL or the
+micro-Rust notation registry.
+\<close>
+
+subsection\<open> Sequential and tuple bindings \<close>
+
+urust_expr bind_let_rhs_outer
+  \<open> let x = \<llangle>1 :: nat\<rrangle>; let x = x; x \<close>
+lemma \<open> bind_let_rhs_outer =
+    \<lbrakk> let x = \<llangle>1 :: nat\<rrangle>; let x = x; x \<rbrakk> \<close>
+  unfolding bind_let_rhs_outer_def by (rule refl)
+
+urust_expr bind_let_three_deep
+  \<open> let x = \<llangle>1 :: nat\<rrangle>; let x = x; let x = x; \<llangle>x\<rrangle> \<close>
+lemma \<open> bind_let_three_deep =
+    \<lbrakk> let x = \<llangle>1 :: nat\<rrangle>; let x = x; let x = x; \<llangle>x\<rrangle> \<rbrakk> \<close>
+  unfolding bind_let_three_deep_def by (rule refl)
+
+urust_expr bind_let_cross_names
+  \<open> let x = \<llangle>1 :: nat\<rrangle>; let y = x; let x = y; \<llangle>x + y\<rrangle> \<close>
+lemma \<open> bind_let_cross_names =
+    \<lbrakk> let x = \<llangle>1 :: nat\<rrangle>; let y = x; let x = y; \<llangle>x + y\<rrangle> \<rbrakk> \<close>
+  unfolding bind_let_cross_names_def by (rule refl)
+
+urust_expr bind_const_then_let
+  \<open> const x = \<llangle>1 :: nat\<rrangle>; let x = x; \<llangle>x\<rrangle> \<close>
+lemma \<open> bind_const_then_let =
+    \<lbrakk> const x = \<llangle>1 :: nat\<rrangle>; let x = x; \<llangle>x\<rrangle> \<rbrakk> \<close>
+  unfolding bind_const_then_let_def by (rule refl)
+
+urust_expr bind_let_then_const
+  \<open> let x = \<llangle>1 :: nat\<rrangle>; const x = x; \<llangle>x\<rrangle> \<close>
+lemma \<open> bind_let_then_const =
+    \<lbrakk> let x = \<llangle>1 :: nat\<rrangle>; const x = x; \<llangle>x\<rrangle> \<rbrakk> \<close>
+  unfolding bind_let_then_const_def by (rule refl)
+
+text\<open> A binder introduced inside a block or branch is absent from the enclosing continuation. \<close>
+
+urust_expr bind_block_scope
+  \<open> let x = \<llangle>1 :: nat\<rrangle>; let result = { let x = \<llangle>2 :: nat\<rrangle>; x }; x \<close>
+lemma \<open> bind_block_scope =
+    \<lbrakk> let x = \<llangle>1 :: nat\<rrangle>; let result = { let x = \<llangle>2 :: nat\<rrangle>; x }; x \<rbrakk> \<close>
+  unfolding bind_block_scope_def by (rule refl)
+
+urust_expr bind_if_branch_scope
+  \<open> let x = \<llangle>1 :: nat\<rrangle>; let result = if True { let x = x; x } else { let x = x; x }; x \<close>
+lemma \<open> bind_if_branch_scope =
+    \<lbrakk> let x = \<llangle>1 :: nat\<rrangle>; let result = if True { let x = x; x } else { let x = x; x }; x \<rbrakk> \<close>
+  unfolding bind_if_branch_scope_def by (rule refl)
+
+text\<open> Expression antiquotations use the same lexical environment as value antiquotations. \<close>
+
+urust_expr bind_expression_antiquotation
+  \<open> let x = \<llangle>5 :: nat\<rrangle>; \<epsilon>\<open>\<up>x\<close> \<close>
+lemma \<open> bind_expression_antiquotation =
+    \<lbrakk> let x = \<llangle>5 :: nat\<rrangle>; \<epsilon>\<open>\<up>x\<close> \<rbrakk> \<close>
+  unfolding bind_expression_antiquotation_def by (rule refl)
+
+urust_expr bind_tuple_rhs_outer
+  \<open>
+    let x = \<llangle>1 :: nat\<rrangle>;
+    let y = \<llangle>True\<rrangle>;
+    let (x, y) = (x, y);
+    \<llangle>(x, y)\<rrangle>
+  \<close>
+lemma \<open> bind_tuple_rhs_outer =
+    \<lbrakk>
+      let x = \<llangle>1 :: nat\<rrangle>;
+      let y = \<llangle>True\<rrangle>;
+      let (x, y) = (x, y);
+      \<llangle>(x, y)\<rrangle>
+    \<rbrakk> \<close>
+  unfolding bind_tuple_rhs_outer_def by (rule refl)
+
+urust_expr bind_tuple_nested_shadow
+  \<open>
+    let x = \<llangle>1 :: nat\<rrangle>;
+    let y = \<llangle>2 :: nat\<rrangle>;
+    let z = \<llangle>3 :: nat\<rrangle>;
+    let (x, (y, z)) = (x, (y, z));
+    \<llangle>x + y + z\<rrangle>
+  \<close>
+lemma \<open> bind_tuple_nested_shadow =
+    \<lbrakk>
+      let x = \<llangle>1 :: nat\<rrangle>;
+      let y = \<llangle>2 :: nat\<rrangle>;
+      let z = \<llangle>3 :: nat\<rrangle>;
+      let (x, (y, z)) = (x, (y, z));
+      \<llangle>x + y + z\<rrangle>
+    \<rbrakk> \<close>
+  unfolding bind_tuple_nested_shadow_def by (rule refl)
+
+urust_expr bind_tuple_wildcard_preserves_outer
+  \<open> let x = \<llangle>1 :: nat\<rrangle>; let (_, y) = (x, \<llangle>True\<rrangle>); \<llangle>(x, y)\<rrangle> \<close>
+lemma \<open> bind_tuple_wildcard_preserves_outer =
+    \<lbrakk> let x = \<llangle>1 :: nat\<rrangle>; let (_, y) = (x, \<llangle>True\<rrangle>); \<llangle>(x, y)\<rrangle> \<rbrakk> \<close>
+  unfolding bind_tuple_wildcard_preserves_outer_def by (rule refl)
+
+urust_expr bind_const_tuple_shadow
+  \<open> let x = \<llangle>1 :: nat\<rrangle>; let y = \<llangle>2 :: nat\<rrangle>; const (x, y) = (y, x); \<llangle>x + y\<rrangle> \<close>
+lemma \<open> bind_const_tuple_shadow =
+    \<lbrakk> let x = \<llangle>1 :: nat\<rrangle>; let y = \<llangle>2 :: nat\<rrangle>; const (x, y) = (y, x); \<llangle>x + y\<rrangle> \<rbrakk> \<close>
+  unfolding bind_const_tuple_shadow_def by (rule refl)
+
+urust_expr bind_tuple_successive_shadow
+  \<open>
+    let (x, y) = (\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>);
+    let (x, y) = (y, x);
+    \<llangle>x + y\<rrangle>
+  \<close>
+lemma \<open> bind_tuple_successive_shadow =
+    \<lbrakk>
+      let (x, y) = (\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>);
+      let (x, y) = (y, x);
+      \<llangle>x + y\<rrangle>
+    \<rbrakk> \<close>
+  unfolding bind_tuple_successive_shadow_def by (rule refl)
+
+
+subsection\<open> Mutable and immutable transitions \<close>
+
+adhoc_overloading store_reference_const \<rightleftharpoons> parser_reference_fixture
+adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
+
+urust_expr bind_immutable_to_mutable
+  \<open> let x = \<llangle>1 :: 32 word\<rrangle>; let mut x = x; \<llangle>x\<rrangle> \<close>
+lemma \<open> bind_immutable_to_mutable =
+    \<lbrakk> let x = \<llangle>1 :: 32 word\<rrangle>; let mut x = x; \<llangle>x\<rrangle> \<rbrakk> \<close>
+  unfolding bind_immutable_to_mutable_def by (rule refl)
+
+urust_expr bind_mutable_to_immutable
+  \<open> let mut x = \<llangle>1 :: 32 word\<rrangle>; let x = *x; \<llangle>x\<rrangle> \<close>
+lemma \<open> bind_mutable_to_immutable =
+    \<lbrakk> let mut x = \<llangle>1 :: 32 word\<rrangle>; let x = *x; \<llangle>x\<rrangle> \<rbrakk> \<close>
+  unfolding bind_mutable_to_immutable_def by (rule refl)
+
+urust_expr bind_mutable_to_mutable
+  \<open> let mut x = \<llangle>1 :: 32 word\<rrangle>; let mut x = *x; \<llangle>x\<rrangle> \<close>
+lemma \<open> bind_mutable_to_mutable =
+    \<lbrakk> let mut x = \<llangle>1 :: 32 word\<rrangle>; let mut x = *x; \<llangle>x\<rrangle> \<rbrakk> \<close>
+  unfolding bind_mutable_to_mutable_def by (rule refl)
+
+urust_expr bind_mutable_block_scope
+  \<open>
+    let mut x = \<llangle>1 :: 32 word\<rrangle>;
+    let inner = { let mut x = *x; *x };
+    *x
+  \<close>
+lemma \<open> bind_mutable_block_scope =
+    \<lbrakk>
+      let mut x = \<llangle>1 :: 32 word\<rrangle>;
+      let inner = { let mut x = *x; *x };
+      *x
+    \<rbrakk> \<close>
+  unfolding bind_mutable_block_scope_def by (rule refl)
+
+urust_expr bind_mutable_then_match
+  \<open>
+    let mut x = \<llangle>1 :: 32 word\<rrangle>;
+    match Some(*x) { Some(x) \<Rightarrow> x, None \<Rightarrow> *x }
+  \<close>
+lemma \<open> bind_mutable_then_match =
+    \<lbrakk>
+      let mut x = \<llangle>1 :: 32 word\<rrangle>;
+      match Some(*x) { Some(x) \<Rightarrow> x, None \<Rightarrow> *x }
+    \<rbrakk> \<close>
+  unfolding bind_mutable_then_match_def by (rule refl)
+
+urust_expr bind_match_then_mutable
+  \<open>
+    match \<llangle>Some (1 :: 32 word)\<rrangle> {
+      Some(x) \<Rightarrow> { let mut x = x; *x },
+      None \<Rightarrow> \<llangle>0 :: 32 word\<rrangle>
+    }
+  \<close>
+lemma \<open> bind_match_then_mutable =
+    \<lbrakk>
+      match \<llangle>Some (1 :: 32 word)\<rrangle> {
+        Some(x) \<Rightarrow> { let mut x = x; *x },
+        None \<Rightarrow> \<llangle>0 :: 32 word\<rrangle>
+      }
+    \<rbrakk> \<close>
+  unfolding bind_match_then_mutable_def by (rule refl)
+
+urust_expr bind_mutable_tuple_shadow
+  \<open>
+    let x = \<llangle>1 :: nat\<rrangle>;
+    let y = \<llangle>2 :: nat\<rrangle>;
+    let mut (x, y) = (x, y);
+    \<llangle>x + y\<rrangle>
+  \<close>
+lemma \<open> bind_mutable_tuple_shadow =
+    \<lbrakk>
+      let x = \<llangle>1 :: nat\<rrangle>;
+      let y = \<llangle>2 :: nat\<rrangle>;
+      let mut (x, y) = (x, y);
+      \<llangle>x + y\<rrangle>
+    \<rbrakk> \<close>
+  unfolding bind_mutable_tuple_shadow_def by (rule refl)
+
+context fixes x :: \<open>32 word\<close>
+begin
+urust_expr bind_hol_mutable_shadow
+  \<open> let mut x = x; \<llangle>x\<rrangle> \<close>
+lemma \<open> bind_hol_mutable_shadow =
+    \<lbrakk> let mut x = x; \<llangle>x\<rrangle> \<rbrakk> \<close>
+  unfolding bind_hol_mutable_shadow_def by (rule refl)
+end
+
+
+subsection\<open> Match arms, guards, and recursive patterns \<close>
+
+datatype binder_shadow_sum =
+    BinderNat nat
+  | BinderBool bool
+
+urust_expr bind_match_arm_shadow
+  \<open>
+    let x = \<llangle>0 :: nat\<rrangle>;
+    match \<llangle>Some (1 :: nat)\<rrangle> { Some(x) \<Rightarrow> \<llangle>x\<rrangle>, None \<Rightarrow> x }
+  \<close>
+lemma \<open> bind_match_arm_shadow =
+    \<lbrakk>
+      let x = \<llangle>0 :: nat\<rrangle>;
+      match \<llangle>Some (1 :: nat)\<rrangle> { Some(x) \<Rightarrow> \<llangle>x\<rrangle>, None \<Rightarrow> x }
+    \<rbrakk> \<close>
+  unfolding bind_match_arm_shadow_def by (rule refl)
+
+urust_expr bind_match_case_arm_shadow
+  \<open>
+    let x = \<llangle>0 :: nat\<rrangle>;
+    match_case \<llangle>Some (1 :: nat)\<rrangle> { Some(x) \<Rightarrow> \<llangle>x\<rrangle>, None \<Rightarrow> x }
+  \<close>
+lemma \<open> bind_match_case_arm_shadow =
+    \<lbrakk>
+      let x = \<llangle>0 :: nat\<rrangle>;
+      match_case \<llangle>Some (1 :: nat)\<rrangle> { Some(x) \<Rightarrow> \<llangle>x\<rrangle>, None \<Rightarrow> x }
+    \<rbrakk> \<close>
+  unfolding bind_match_case_arm_shadow_def by (rule refl)
+
+urust_expr bind_match_scrutinee_outer
+  \<open>
+    let x = \<llangle>Some (1 :: nat)\<rrangle>;
+    match x { Some(x) \<Rightarrow> x, None \<Rightarrow> \<llangle>0 :: nat\<rrangle> }
+  \<close>
+lemma \<open> bind_match_scrutinee_outer =
+    \<lbrakk>
+      let x = \<llangle>Some (1 :: nat)\<rrangle>;
+      match x { Some(x) \<Rightarrow> x, None \<Rightarrow> \<llangle>0 :: nat\<rrangle> }
+    \<rbrakk> \<close>
+  unfolding bind_match_scrutinee_outer_def by (rule refl)
+
+urust_expr bind_match_guard_shadow
+  \<open>
+    let x = \<llangle>0 :: nat\<rrangle>;
+    match \<llangle>Some (1 :: nat)\<rrangle> {
+      Some(x) if x > \<llangle>0 :: nat\<rrangle> \<Rightarrow> \<llangle>x\<rrangle>,
+      _ \<Rightarrow> x
+    }
+  \<close>
+lemma \<open> bind_match_guard_shadow =
+    \<lbrakk>
+      let x = \<llangle>0 :: nat\<rrangle>;
+      match \<llangle>Some (1 :: nat)\<rrangle> {
+        Some(x) if x > \<llangle>0 :: nat\<rrangle> \<Rightarrow> \<llangle>x\<rrangle>,
+        _ \<Rightarrow> x
+      }
+    \<rbrakk> \<close>
+  unfolding bind_match_guard_shadow_def by (rule refl)
+
+urust_expr bind_match_nested_let
+  \<open>
+    let x = \<llangle>0 :: nat\<rrangle>;
+    match \<llangle>Some (1 :: nat)\<rrangle> {
+      Some(x) \<Rightarrow> { let x = x; \<llangle>x\<rrangle> },
+      None \<Rightarrow> x
+    }
+  \<close>
+lemma \<open> bind_match_nested_let =
+    \<lbrakk>
+      let x = \<llangle>0 :: nat\<rrangle>;
+      match \<llangle>Some (1 :: nat)\<rrangle> {
+        Some(x) \<Rightarrow> { let x = x; \<llangle>x\<rrangle> },
+        None \<Rightarrow> x
+      }
+    \<rbrakk> \<close>
+  unfolding bind_match_nested_let_def by (rule refl)
+
+urust_expr bind_match_nested_match
+  \<open>
+    let x = \<llangle>0 :: nat\<rrangle>;
+    match \<llangle>Some (1 :: nat)\<rrangle> {
+      Some(x) \<Rightarrow> match Some(x) { Some(x) \<Rightarrow> \<llangle>x\<rrangle>, None \<Rightarrow> x },
+      None \<Rightarrow> x
+    }
+  \<close>
+lemma \<open> bind_match_nested_match =
+    \<lbrakk>
+      let x = \<llangle>0 :: nat\<rrangle>;
+      match \<llangle>Some (1 :: nat)\<rrangle> {
+        Some(x) \<Rightarrow> match Some(x) { Some(x) \<Rightarrow> \<llangle>x\<rrangle>, None \<Rightarrow> x },
+        None \<Rightarrow> x
+      }
+    \<rbrakk> \<close>
+  unfolding bind_match_nested_match_def by (rule refl)
+
+text\<open> The same source name may be independently typed in sibling alternatives. \<close>
+
+urust_expr bind_match_sibling_types
+  \<open>
+    match \<llangle>BinderNat 1\<rrangle> {
+      BinderNat(x) \<Rightarrow> { let _ = \<llangle>x\<rrangle>; () },
+      BinderBool(x) \<Rightarrow> { let _ = \<llangle>x\<rrangle>; () }
+    }
+  \<close>
+lemma \<open> bind_match_sibling_types =
+    \<lbrakk>
+      match \<llangle>BinderNat 1\<rrangle> {
+        BinderNat(x) \<Rightarrow> { let _ = \<llangle>x\<rrangle>; () },
+        BinderBool(x) \<Rightarrow> { let _ = \<llangle>x\<rrangle>; () }
+      }
+    \<rbrakk> \<close>
+  unfolding bind_match_sibling_types_def by (rule refl)
+
+urust_expr bind_match_sibling_same_name
+  \<open>
+    match \<llangle>Ok (1 :: nat) :: (nat, nat) result\<rrangle> {
+      Ok(x) \<Rightarrow> \<llangle>x\<rrangle>,
+      Err(x) \<Rightarrow> \<llangle>x\<rrangle>
+    }
+  \<close>
+lemma \<open> bind_match_sibling_same_name =
+    \<lbrakk>
+      match \<llangle>Ok (1 :: nat) :: (nat, nat) result\<rrangle> {
+        Ok(x) \<Rightarrow> \<llangle>x\<rrangle>,
+        Err(x) \<Rightarrow> \<llangle>x\<rrangle>
+      }
+    \<rbrakk> \<close>
+  unfolding bind_match_sibling_same_name_def by (rule refl)
+
+urust_expr bind_match_tuple_shadow
+  \<open>
+    let x = \<llangle>0 :: nat\<rrangle>;
+    let y = \<llangle>True\<rrangle>;
+    match \<llangle>(1 :: nat, (False, TNil))\<rrangle> { (x, y) \<Rightarrow> \<llangle>(x, y)\<rrangle> }
+  \<close>
+lemma \<open> bind_match_tuple_shadow =
+    \<lbrakk>
+      let x = \<llangle>0 :: nat\<rrangle>;
+      let y = \<llangle>True\<rrangle>;
+      match \<llangle>(1 :: nat, (False, TNil))\<rrangle> { (x, y) \<Rightarrow> \<llangle>(x, y)\<rrangle> }
+    \<rbrakk> \<close>
+  unfolding bind_match_tuple_shadow_def by (rule refl)
+
+urust_expr bind_match_nested_tuple_shadow
+  \<open>
+    let x = \<llangle>0 :: nat\<rrangle>;
+    let y = \<llangle>True\<rrangle>;
+    match \<llangle>Some (1 :: nat, (False, TNil))\<rrangle> {
+      Some((x, y)) \<Rightarrow> \<llangle>(x, y)\<rrangle>,
+      None \<Rightarrow> \<llangle>(x, y)\<rrangle>
+    }
+  \<close>
+lemma \<open> bind_match_nested_tuple_shadow =
+    \<lbrakk>
+      let x = \<llangle>0 :: nat\<rrangle>;
+      let y = \<llangle>True\<rrangle>;
+      match \<llangle>Some (1 :: nat, (False, TNil))\<rrangle> {
+        Some((x, y)) \<Rightarrow> \<llangle>(x, y)\<rrangle>,
+        None \<Rightarrow> \<llangle>(x, y)\<rrangle>
+      }
+    \<rbrakk> \<close>
+  unfolding bind_match_nested_tuple_shadow_def by (rule refl)
+
+urust_expr bind_match_alias_shadow
+  \<open>
+    let whole = \<llangle>None :: nat option\<rrangle>;
+    let value = \<llangle>0 :: nat\<rrangle>;
+    match \<llangle>Some (1 :: nat)\<rrangle> {
+      whole @ Some(value) \<Rightarrow> { let _ = \<llangle>whole\<rrangle>; \<llangle>value\<rrangle> },
+      _ \<Rightarrow> value
+    }
+  \<close>
+lemma \<open> bind_match_alias_shadow =
+    \<lbrakk>
+      let whole = \<llangle>None :: nat option\<rrangle>;
+      let value = \<llangle>0 :: nat\<rrangle>;
+      match \<llangle>Some (1 :: nat)\<rrangle> {
+        whole @ Some(value) \<Rightarrow> { let _ = \<llangle>whole\<rrangle>; \<llangle>value\<rrangle> },
+        _ \<Rightarrow> value
+      }
+    \<rbrakk> \<close>
+  unfolding bind_match_alias_shadow_def by (rule refl)
+
+urust_expr bind_match_slice_shadow
+  \<open>
+    let head = \<llangle>0 :: nat\<rrangle>;
+    let tail = \<llangle>0 :: nat\<rrangle>;
+    match \<llangle>[1 :: nat, 2, 3]\<rrangle> {
+      [head, .., tail] \<Rightarrow> { let _ = \<llangle>tail\<rrangle>; \<llangle>head\<rrangle> },
+      _ \<Rightarrow> head
+    }
+  \<close>
+lemma \<open> bind_match_slice_shadow =
+    \<lbrakk>
+      let head = \<llangle>0 :: nat\<rrangle>;
+      let tail = \<llangle>0 :: nat\<rrangle>;
+      match \<llangle>[1 :: nat, 2, 3]\<rrangle> {
+        [head, .., tail] \<Rightarrow> { let _ = \<llangle>tail\<rrangle>; \<llangle>head\<rrangle> },
+        _ \<Rightarrow> head
+      }
+    \<rbrakk> \<close>
+  unfolding bind_match_slice_shadow_def by (rule refl)
+
+urust_expr bind_match_struct_shadow
+  \<open>
+    let x = \<llangle>0 :: nat\<rrangle>;
+    let y = \<llangle>0 :: nat\<rrangle>;
+    match \<llangle>AdvStruct 1 2\<rrangle> {
+      AdvStruct { adv_left: x, adv_right: y } \<Rightarrow> \<llangle>x + y\<rrangle>,
+      _ \<Rightarrow> x
+    }
+  \<close>
+lemma \<open> bind_match_struct_shadow =
+    \<lbrakk>
+      let x = \<llangle>0 :: nat\<rrangle>;
+      let y = \<llangle>0 :: nat\<rrangle>;
+      match \<llangle>AdvStruct 1 2\<rrangle> {
+        AdvStruct { adv_left: x, adv_right: y } \<Rightarrow> \<llangle>x + y\<rrangle>,
+        _ \<Rightarrow> x
+      }
+    \<rbrakk> \<close>
+  unfolding bind_match_struct_shadow_def by (rule refl)
+
+text\<open> Struct shorthand binders also shadow their same-named HOL selector constants. \<close>
+
+urust_expr bind_match_struct_shorthand_shadow
+  \<open>
+    let adv_left = \<llangle>0 :: nat\<rrangle>;
+    match \<llangle>AdvStruct 1 2\<rrangle> {
+      AdvStruct { adv_left, adv_right } \<Rightarrow> \<llangle>adv_left + adv_right\<rrangle>,
+      _ \<Rightarrow> adv_left
+    }
+  \<close>
+lemma \<open> bind_match_struct_shorthand_shadow =
+    \<lbrakk>
+      let adv_left = \<llangle>0 :: nat\<rrangle>;
+      match \<llangle>AdvStruct 1 2\<rrangle> {
+        AdvStruct { adv_left, adv_right } \<Rightarrow> \<llangle>adv_left + adv_right\<rrangle>,
+        _ \<Rightarrow> adv_left
+      }
+    \<rbrakk> \<close>
+  unfolding bind_match_struct_shorthand_shadow_def by (rule refl)
+
+urust_expr bind_match_or_shadow
+  \<open>
+    let x = \<llangle>0 :: 32 word\<rrangle>;
+    match \<llangle>RMA (1 :: 32 word)\<rrangle> {
+      RMA(x) | RMB(x) if x > \<llangle>0 :: 32 word\<rrangle> \<Rightarrow> \<llangle>x\<rrangle>,
+      _ \<Rightarrow> x
+    }
+  \<close>
+lemma \<open> bind_match_or_shadow =
+    \<lbrakk>
+      let x = \<llangle>0 :: 32 word\<rrangle>;
+      match \<llangle>RMA (1 :: 32 word)\<rrangle> {
+        RMA(x) | RMB(x) if x > \<llangle>0 :: 32 word\<rrangle> \<Rightarrow> \<llangle>x\<rrangle>,
+        _ \<Rightarrow> x
+      }
+    \<rbrakk> \<close>
+  unfolding bind_match_or_shadow_def by (rule refl)
+
+urust_expr bind_match_result_shadow
+  \<open>
+    let x = \<llangle>0 :: nat\<rrangle>;
+    let x = match \<llangle>Some (1 :: nat)\<rrangle> { Some(x) \<Rightarrow> x, None \<Rightarrow> x };
+    \<llangle>x\<rrangle>
+  \<close>
+lemma \<open> bind_match_result_shadow =
+    \<lbrakk>
+      let x = \<llangle>0 :: nat\<rrangle>;
+      let x = match \<llangle>Some (1 :: nat)\<rrangle> { Some(x) \<Rightarrow> x, None \<Rightarrow> x };
+      \<llangle>x\<rrangle>
+    \<rbrakk> \<close>
+  unfolding bind_match_result_shadow_def by (rule refl)
+
+text\<open> Switch lowering has no source binder; its generated scrutinee binder remains hygienic. \<close>
+
+urust_expr bind_match_switch_hygiene
+  \<open>
+    let anon_case = \<llangle>7 :: nat\<rrangle>;
+    match_switch \<llangle>0 :: nat\<rrangle> { 0 \<Rightarrow> anon_case, _ \<Rightarrow> anon_case }
+  \<close>
+lemma \<open> bind_match_switch_hygiene =
+    \<lbrakk>
+      let anon_case = \<llangle>7 :: nat\<rrangle>;
+      match_switch \<llangle>0 :: nat\<rrangle> { 0 \<Rightarrow> anon_case, _ \<Rightarrow> anon_case }
+    \<rbrakk> \<close>
+  unfolding bind_match_switch_hygiene_def by (rule refl)
+
+
+subsection\<open> HOL context binders shadowed by micro-Rust binders \<close>
+
+text\<open>
+Here \<open>x\<close> and \<open>y\<close> are introduced by Isabelle's surrounding proof context. Each RHS or
+scrutinee initially resolves to that HOL free; a same-named micro-Rust binder then takes precedence
+only in its lexical continuation or arm.
+\<close>
+
+context fixes x :: nat and y :: bool
+begin
+
+urust_expr bind_hol_context_baseline \<open> \<llangle>(x, y)\<rrangle> \<close>
+lemma \<open> bind_hol_context_baseline = \<lbrakk> \<llangle>(x, y)\<rrangle> \<rbrakk> \<close>
+  unfolding bind_hol_context_baseline_def by (rule refl)
+
+urust_expr bind_hol_let_shadow
+  \<open> let x = x; x \<close>
+lemma \<open> bind_hol_let_shadow = \<lbrakk> let x = x; x \<rbrakk> \<close>
+  unfolding bind_hol_let_shadow_def by (rule refl)
+
+urust_expr bind_hol_let_antiquotation
+  \<open> let x = x; \<llangle>x\<rrangle> \<close>
+lemma \<open> bind_hol_let_antiquotation = \<lbrakk> let x = x; \<llangle>x\<rrangle> \<rbrakk> \<close>
+  unfolding bind_hol_let_antiquotation_def by (rule refl)
+
+urust_expr bind_hol_let_mixed_antiquotation
+  \<open> let x = x; \<llangle>(x, y)\<rrangle> \<close>
+lemma \<open> bind_hol_let_mixed_antiquotation =
+    \<lbrakk> let x = x; \<llangle>(x, y)\<rrangle> \<rbrakk> \<close>
+  unfolding bind_hol_let_mixed_antiquotation_def by (rule refl)
+
+urust_expr bind_hol_let_chain
+  \<open> let x = x; let x = x; \<llangle>x\<rrangle> \<close>
+lemma \<open> bind_hol_let_chain = \<lbrakk> let x = x; let x = x; \<llangle>x\<rrangle> \<rbrakk> \<close>
+  unfolding bind_hol_let_chain_def by (rule refl)
+
+urust_expr bind_hol_tuple_shadow
+  \<open> let (x, y) = (x, y); \<llangle>(x, y)\<rrangle> \<close>
+lemma \<open> bind_hol_tuple_shadow =
+    \<lbrakk> let (x, y) = (x, y); \<llangle>(x, y)\<rrangle> \<rbrakk> \<close>
+  unfolding bind_hol_tuple_shadow_def by (rule refl)
+
+urust_expr bind_hol_match_shadow
+  \<open> match Some(x) { Some(x) \<Rightarrow> \<llangle>x\<rrangle>, None \<Rightarrow> x } \<close>
+lemma \<open> bind_hol_match_shadow =
+    \<lbrakk> match Some(x) { Some(x) \<Rightarrow> \<llangle>x\<rrangle>, None \<Rightarrow> x } \<rbrakk> \<close>
+  unfolding bind_hol_match_shadow_def by (rule refl)
+
+urust_expr bind_hol_match_guard_shadow
+  \<open>
+    match Some(x) {
+      Some(x) if x == \<llangle>x\<rrangle> \<Rightarrow> x,
+      None \<Rightarrow> x
+    }
+  \<close>
+lemma \<open> bind_hol_match_guard_shadow =
+    \<lbrakk>
+      match Some(x) {
+        Some(x) if x == \<llangle>x\<rrangle> \<Rightarrow> x,
+        None \<Rightarrow> x
+      }
+    \<rbrakk> \<close>
+  unfolding bind_hol_match_guard_shadow_def by (rule refl)
+
+urust_expr bind_hol_branch_scope
+  \<open> let result = if True { let x = x; x } else { x }; \<llangle>(x, y)\<rrangle> \<close>
+lemma \<open> bind_hol_branch_scope =
+    \<lbrakk> let result = if True { let x = x; x } else { x }; \<llangle>(x, y)\<rrangle> \<rbrakk> \<close>
+  unfolding bind_hol_branch_scope_def by (rule refl)
+
+end
+
+
+subsection\<open> Binders named after HOL constants and registered notation \<close>
+
+text\<open>
+Direct identifier resolution and embedded HOL parsing must both prefer a lexical binder over a
+same-named constant, constructor, selector, or registered notation. A sibling arm without that
+binder must continue to resolve the outer meaning.
+\<close>
+
+urust_expr bind_constant_id_direct
+  \<open> let id = \<llangle>1 :: nat\<rrangle>; id \<close>
+lemma \<open> bind_constant_id_direct =
+    \<lbrakk> let id = \<llangle>1 :: nat\<rrangle>; id \<rbrakk> \<close>
+  unfolding bind_constant_id_direct_def by (rule refl)
+
+urust_expr bind_constants_nested
+  \<open> let id = \<llangle>1 :: nat\<rrangle>; let fst = id; \<llangle>id + fst\<rrangle> \<close>
+lemma \<open> bind_constants_nested =
+    \<lbrakk> let id = \<llangle>1 :: nat\<rrangle>; let fst = id; \<llangle>id + fst\<rrangle> \<rbrakk> \<close>
+  unfolding bind_constants_nested_def by (rule refl)
+
+urust_expr bind_constants_tuple
+  \<open>
+    let (id, fst) = (\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>);
+    \<llangle>id + fst\<rrangle>
+  \<close>
+lemma \<open> bind_constants_tuple =
+    \<lbrakk>
+      let (id, fst) = (\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>);
+      \<llangle>id + fst\<rrangle>
+    \<rbrakk> \<close>
+  unfolding bind_constants_tuple_def by (rule refl)
+
+urust_expr bind_constant_match
+  \<open>
+    match \<llangle>Some (1 :: nat)\<rrangle> {
+      Some(id) \<Rightarrow> \<llangle>id\<rrangle>,
+      None \<Rightarrow> \<llangle>0 :: nat\<rrangle>
+    }
+  \<close>
+lemma \<open> bind_constant_match =
+    \<lbrakk>
+      match \<llangle>Some (1 :: nat)\<rrangle> {
+        Some(id) \<Rightarrow> \<llangle>id\<rrangle>,
+        None \<Rightarrow> \<llangle>0 :: nat\<rrangle>
+      }
+    \<rbrakk> \<close>
+  unfolding bind_constant_match_def by (rule refl)
+
+urust_expr bind_constructor_names
+  \<open>
+    let Some = \<llangle>1 :: nat\<rrangle>;
+    let None = Some;
+    \<llangle>Some + None\<rrangle>
+  \<close>
+lemma \<open> bind_constructor_names =
+    \<lbrakk>
+      let Some = \<llangle>1 :: nat\<rrangle>;
+      let None = Some;
+      \<llangle>Some + None\<rrangle>
+    \<rbrakk> \<close>
+  unfolding bind_constructor_names_def by (rule refl)
+
+urust_expr bind_notation_direct
+  \<open> let myReg = \<llangle>1 :: nat\<rrangle>; myReg \<close>
+lemma \<open> bind_notation_direct =
+    \<lbrakk> let myReg = \<llangle>1 :: nat\<rrangle>; myReg \<rbrakk> \<close>
+  unfolding bind_notation_direct_def by (rule refl)
+
+urust_expr bind_notation_match_scope
+  \<open>
+    match \<llangle>Some (1 :: nat)\<rrangle> {
+      Some(myReg) \<Rightarrow> \<llangle>myReg\<rrangle>,
+      None \<Rightarrow> myReg
+    }
+  \<close>
+lemma \<open> bind_notation_match_scope =
+    \<lbrakk>
+      match \<llangle>Some (1 :: nat)\<rrangle> {
+        Some(myReg) \<Rightarrow> \<llangle>myReg\<rrangle>,
+        None \<Rightarrow> myReg
+      }
+    \<rbrakk> \<close>
+  unfolding bind_notation_match_scope_def by (rule refl)
+
+urust_expr bind_constant_mutable
+  \<open> let mut id = \<llangle>1 :: 32 word\<rrangle>; \<llangle>id\<rrangle> \<close>
+lemma \<open> bind_constant_mutable =
+    \<lbrakk> let mut id = \<llangle>1 :: 32 word\<rrangle>; \<llangle>id\<rrangle> \<rbrakk> \<close>
+  unfolding bind_constant_mutable_def by (rule refl)
+
+context fixes id :: nat
+begin
+urust_expr bind_hol_constant_triple_shadow
+  \<open> let id = id; \<llangle>id\<rrangle> \<close>
+lemma \<open> bind_hol_constant_triple_shadow =
+    \<lbrakk> let id = id; \<llangle>id\<rrangle> \<rbrakk> \<close>
+  unfolding bind_hol_constant_triple_shadow_def by (rule refl)
+end
+
+no_adhoc_overloading store_reference_const \<rightleftharpoons> parser_reference_fixture
+no_adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
+
+
 section\<open> Regression and divergence cases \<close>
 
 text\<open>

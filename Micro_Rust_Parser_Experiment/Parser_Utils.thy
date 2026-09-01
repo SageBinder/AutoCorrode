@@ -119,11 +119,24 @@ fun mark_bound kind ctxt (env : var_info Symtab.table) src =
           else go r
   in go (Input.source_explode src) end
 
-(* Fix enclosing binder names so they shadow same-named HOL constants while parsing. *)
+(* Parse lexical binders through fresh internal fixes, then restore their source Frees. Variants avoid
+   collisions with same-named HOL context fixes while still shadowing constants during parsing. *)
 fun parse_antiq kind ctxt env src =
   let
-    val ctxt' = Variable.add_fixes_direct (Symtab.keys env) ctxt
-    val t = Syntax.parse_term ctxt' (Syntax.implode_input src)
+    val names = Symtab.keys env
+    val (variants, ctxt') = Variable.variant_fixes names ctxt
+    fun lexical_free name =
+      (case Symtab.lookup env name of
+         SOME {free, ...} => free
+       | NONE => error ("internal missing antiquotation binder " ^ quote name))
+    val replacements =
+      Symtab.make (map2 (fn name => fn variant => (variant, lexical_free name)) names variants)
+    fun restore (free as Free (name, _)) =
+          the_default free (Symtab.lookup replacements name)
+      | restore atom = atom
+    val t =
+      Syntax.parse_term ctxt' (Syntax.implode_input src)
+      |> Term.map_aterms restore
   in mark_bound kind ctxt env src; t end
 
 (* Generated parsers share mutable Isabelle_Lex-Yacc runtime state. *)
