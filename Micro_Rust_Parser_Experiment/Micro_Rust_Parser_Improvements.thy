@@ -39,6 +39,128 @@ val _ = Outer_Syntax.local_theory \<^command_keyword>\<open>old_urust_rejects\<c
 \<close>
 
 
+section\<open> Rust line comments \<close>
+
+text\<open>
+The production lexer skips \<open>//\<close> comments only in its ordinary Rust state.
+The old inner-syntax frontend has no Rust comment token, so these accepted
+spellings are tested against the corresponding comment-free frontend terms.
+Literal \<open>//\<close> inside strings and both antiquotation states remains content;
+the shared spellings are covered in the conformance theory.
+\<close>
+
+urust_expr improvement_line_comment_full_line
+  \<open>
+    // full-line comment
+    ()
+  \<close>
+
+lemma \<open> improvement_line_comment_full_line = \<lbrakk> () \<rbrakk> \<close>
+  unfolding improvement_line_comment_full_line_def by (rule refl)
+
+old_urust_rejects
+  \<open>
+    // full-line comment
+    ()
+  \<close>
+
+urust_expr improvement_line_comment_end_of_line
+  \<open>
+    ();
+    () // end-of-line comment
+  \<close>
+
+lemma \<open> improvement_line_comment_end_of_line = \<lbrakk> (); () \<rbrakk> \<close>
+  unfolding improvement_line_comment_end_of_line_def by (rule refl)
+
+old_urust_rejects
+  \<open>
+    ();
+    () // end-of-line comment
+  \<close>
+
+urust_expr improvement_line_comment_between_tokens
+  \<open>
+    \<llangle>1 :: 32 word\<rrangle> // between the operands and operator
+      + \<llangle>2 :: 32 word\<rrangle>
+  \<close>
+
+lemma \<open> improvement_line_comment_between_tokens =
+    \<lbrakk> \<llangle>1 :: 32 word\<rrangle> + \<llangle>2 :: 32 word\<rrangle> \<rbrakk> \<close>
+  unfolding improvement_line_comment_between_tokens_def by (rule refl)
+
+old_urust_rejects
+  \<open>
+    \<llangle>1 :: 32 word\<rrangle> // between the operands and operator
+      + \<llangle>2 :: 32 word\<rrangle>
+  \<close>
+
+urust_expr improvement_line_comment_operator_text
+  \<open>
+    () // += => /= /* block-shaped text */
+  \<close>
+
+lemma \<open> improvement_line_comment_operator_text = \<lbrakk> () \<rbrakk> \<close>
+  unfolding improvement_line_comment_operator_text_def by (rule refl)
+
+old_urust_rejects
+  \<open>
+    () // += => /= /* block-shaped text */
+  \<close>
+
+urust_expr improvement_line_comment_empty
+  \<open>
+    {
+      //
+      ()
+    }
+  \<close>
+
+lemma \<open> improvement_line_comment_empty = \<lbrakk> { () } \<rbrakk> \<close>
+  unfolding improvement_line_comment_empty_def by (rule refl)
+
+old_urust_rejects
+  \<open>
+    {
+      //
+      ()
+    }
+  \<close>
+
+urust_expr improvement_line_comment_eof \<open> () // comment at EOF \<close>
+
+lemma \<open> improvement_line_comment_eof = \<lbrakk> () \<rbrakk> \<close>
+  unfolding improvement_line_comment_eof_def by (rule refl)
+
+old_urust_rejects \<open> () // comment at EOF \<close>
+
+urust_expr improvement_line_comment_nested_adjacent
+  \<open>
+    if true {// then branch
+      {// nested block
+        ()// body value
+      }// after nested block
+    } else {// else branch
+      ()
+    }
+  \<close>
+
+lemma \<open> improvement_line_comment_nested_adjacent =
+    \<lbrakk> if true { { () } } else { () } \<rbrakk> \<close>
+  unfolding improvement_line_comment_nested_adjacent_def by (rule refl)
+
+old_urust_rejects
+  \<open>
+    if true {// then branch
+      {// nested block
+        ()// body value
+      }// after nested block
+    } else {// else branch
+      ()
+    }
+  \<close>
+
+
 section\<open> ASCII match arrows \<close>
 
 urust_expr improvement_ascii_match_arrow
