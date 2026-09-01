@@ -309,4 +309,67 @@ old_urust_rejects
   \<open> self.optional?.to_value() \<close>
 end
 
+
+section\<open> Rust-compatible return expressions \<close>
+
+text\<open>
+Return is a low-precedence value expression whose operand and semicolon are independently
+optional. The old frontend requires the semicolon as part of the return production.
+\<close>
+
+urust_expr improvement_tail_return \<open> return \<close>
+lemma \<open> improvement_tail_return = \<lbrakk> return; \<rbrakk> \<close>
+  unfolding improvement_tail_return_def by (rule refl)
+old_urust_rejects \<open> return \<close>
+
+urust_expr improvement_tail_return_value
+  \<open> return \<llangle>1 :: nat\<rrangle> \<close>
+lemma \<open> improvement_tail_return_value =
+    \<lbrakk> return \<llangle>1 :: nat\<rrangle>; \<rbrakk> \<close>
+  unfolding improvement_tail_return_value_def by (rule refl)
+old_urust_rejects \<open> return \<llangle>1 :: nat\<rrangle> \<close>
+
+urust_expr improvement_branch_returns
+  \<open>
+    if \<llangle>True\<rrangle> {
+      return \<llangle>1 :: nat\<rrangle>
+    } else {
+      return \<llangle>2 :: nat\<rrangle>
+    }
+  \<close>
+lemma \<open> improvement_branch_returns =
+    \<lbrakk>
+      if \<llangle>True\<rrangle> {
+        return \<llangle>1 :: nat\<rrangle>;
+      } else {
+        return \<llangle>2 :: nat\<rrangle>;
+      }
+    \<rbrakk> \<close>
+  unfolding improvement_branch_returns_def by (rule refl)
+old_urust_rejects
+  \<open>
+    if \<llangle>True\<rrangle> {
+      return \<llangle>1 :: nat\<rrangle>
+    } else {
+      return \<llangle>2 :: nat\<rrangle>
+    }
+  \<close>
+
+urust_expr improvement_return_initializer
+  \<open>
+    let result = return \<llangle>1 :: nat\<rrangle>;
+    result
+  \<close>
+lemma \<open> improvement_return_initializer =
+    \<lbrakk>
+      let result = { return \<llangle>1 :: nat\<rrangle>; };
+      result
+    \<rbrakk> \<close>
+  unfolding improvement_return_initializer_def by (rule refl)
+old_urust_rejects
+  \<open>
+    let result = return \<llangle>1 :: nat\<rrangle>;
+    result
+  \<close>
+
 end

@@ -93,6 +93,7 @@ struct
     | UE_Const     of ur_pat * ur_expr * ur_expr      (* const: same desugaring as let today; distinct node
                                                          keeps the keyword for when it diverges (B7) *)
     | UE_Seq       of ur_expr * ur_expr               (* e1; e2 -> sequence (trailing `;`: e2 = unit) *)
+    | UE_Return    of ur_expr option * Position.T     (* return [value]; semicolon is never stored *)
     | UE_Bin       of binop * ur_expr * ur_expr * Position.T   (* a <binop> b *)
     | UE_Unary     of unaryop * ur_expr * Position.T
                                                       (* !a / &a / & mut a / *a / a? *)
@@ -135,6 +136,7 @@ struct
     | expr_pos (UE_LetMut (_, _, _, pos)) = pos
     | expr_pos (UE_Const _) = Position.none
     | expr_pos (UE_Seq _) = Position.none
+    | expr_pos (UE_Return (_, pos)) = pos
     | expr_pos (UE_Bin (_, _, _, pos)) = pos
     | expr_pos (UE_Unary (_, _, pos)) = pos
     | expr_pos (UE_Group (_, pos)) = pos
@@ -159,6 +161,11 @@ struct
 
   fun mk_assign (aop, pos) lhs rhs =
     UE_Assign (aop, expr_to_place lhs, rhs, pos)
+
+  (* A return's legacy semicolon belongs to its surface production, not to sequencing. *)
+  fun finish_statement (return as UE_Return _, _) = return
+    | finish_statement (expression, semi_pos) =
+        UE_Seq (expression, UE_Unit semi_pos)
 
   (* `_` lexes as an ordinary IDENT: normalise to P_Wild in ONE place, not an `= "_"` test at every site. *)
   fun mk_ident_pat (s, pos) = if s = "_" then P_Wild pos else P_Ident (s, pos)

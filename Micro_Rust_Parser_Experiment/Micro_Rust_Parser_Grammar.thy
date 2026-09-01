@@ -100,6 +100,7 @@ lex_rules\<open>
 <INITIAL>"false"  => (tokF (yypos, yytext, Markup.keyword1, "TFALSE", Tokens.TFALSE));
 <INITIAL>"let"    => (tokF (yypos, yytext, Markup.keyword1, "TLET", Tokens.TLET));
 <INITIAL>"const"  => (tokF (yypos, yytext, Markup.keyword1, "TCONST", Tokens.TCONST));
+<INITIAL>"return" => (tokF (yypos, yytext, Markup.keyword1, "TRETURN", Tokens.TRETURN));
 <INITIAL>"if"     => (tokF (yypos, yytext, Markup.keyword1, "TIF", Tokens.TIF));
 <INITIAL>"else"   => (tokF (yypos, yytext, Markup.keyword1, "TELSE", Tokens.TELSE));
 <INITIAL>"match"        => (tokF (yypos, yytext, Markup.keyword1, "TMATCH", Tokens.TMATCH));
@@ -182,10 +183,13 @@ yacc_definitions\<open>
 %eop EOF
 %noshift EOF
 
-(* Operator precedence, loosest -> tightest (the frontend's infix priorities). Comparisons are
-   non-associative (Rust rejects `a == b == c`). Reference prefixes and `!` use structural tiers below;
-   these directives keep the ambiguous `uexp OP uexp` productions conflict-free. *)
-%right TIF
+(* Operator precedence, loosest -> tightest (the frontend's infix priorities). Return is below
+   with-block expressions, so `return { e }` takes the block as its operand instead of becoming an
+   operandless return followed by a block statement. Comparisons are non-associative (Rust rejects
+   `a == b == c`). Reference prefixes and `!` use structural tiers below; these directives keep the
+   ambiguous `uexp OP uexp` productions conflict-free. *)
+%right TRETURN
+%right TIF TLBRACE
 %left TBARBAR
 %left TAMPAMP
 %nonassoc TEQEQ TNE TLT TLE TGT TGE
@@ -201,7 +205,7 @@ yacc_definitions\<open>
 
 %term NUM of string | NUMSFX of string | STRING of string | IDENT of string | LPAR | RPAR
     | VALAQ of Input.source | EXPRAQ of Input.source
-    | TTRUE | TFALSE | TLET | TCONST | TEQ | TSEMI | EOF
+    | TTRUE | TFALSE | TLET | TCONST | TRETURN | TEQ | TSEMI | EOF
     | TIF | TELSE | TLBRACE | TRBRACE | TLBRACK | TRBRACK | COMMA | TDOT | TCOLON | TAT
     | TPLUS | TMINUS | TSTAR | TSLASH | TPERCENT
     | TSHL | TSHR | TAMP | TBAR | TCARET
@@ -251,7 +255,7 @@ yacc_rules\<open>
      ustmt` decision resolves by lookahead (operator/`;`/`}`/EOF -> operand; statement-start -> sequence). *)
   ustmt : uval                              (uval)
         | uval TSEMI ustmt                  (UE_Seq (uval, ustmt))
-        | uval TSEMI                        (UE_Seq (uval, UE_Unit TSEMIleft))
+        | uval TSEMI                        (finish_statement (uval, TSEMIleft))
         | ublock ustmt                      (UE_Seq (ublock, ustmt))
         | uif ustmt                         (UE_Seq (uif, ustmt))
         | umatch ustmt                      (UE_Seq (umatch, ustmt))
@@ -268,6 +272,8 @@ yacc_rules\<open>
      loops) are admitted -- let-RHS, condition, call args, parens -- WITHOUT being a bare binary-operator
      operand (that stays `uexp`, closing divergence D-1 -- D25). *)
   uval : uassign (uassign)
+       | TRETURN (UE_Return (NONE, TRETURNleft))
+       | TRETURN uval (UE_Return (SOME uval, TRETURNleft))
        | uif %prec TIF (uif)
        | umatch %prec TIF (umatch)
        | umatchsw (umatchsw)

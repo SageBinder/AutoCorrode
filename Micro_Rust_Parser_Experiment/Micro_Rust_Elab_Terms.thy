@@ -17,6 +17,7 @@ sig
   val function_call: Position.T -> term -> term list -> term
   val bind: term -> term -> term
   val sequence: term -> term -> term
+  val return_value: term -> term
   val case_product: term -> term
   val allocate_reference: Position.T -> term -> term
   val update: Position.T -> term -> term -> term
@@ -160,6 +161,7 @@ struct
     constant \<^const_name>\<open>Core_Expression.bind\<close> [expression, abstraction]
   fun sequence first second =
     constant \<^const_name>\<open>Core_Expression.sequence\<close> [first, second]
+  fun return_value value = constant \<^const_name>\<open>return_func\<close> [value]
   fun case_product abstraction = constant \<^const_name>\<open>case_prod\<close> [abstraction]
 
   fun allocate_reference pos expression =

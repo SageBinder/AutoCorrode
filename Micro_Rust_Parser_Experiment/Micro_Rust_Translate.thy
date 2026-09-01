@@ -126,6 +126,11 @@ struct
          T.sequence
            (lower_expression ctxt environment first)
            (lower_expression ctxt environment second)
+     | UE_Return (value, _) =>
+         T.return_value
+           (case value of
+              SOME expression => lower_expression ctxt environment expression
+            | NONE => T.literal HOLogic.unit)
      | UE_Bin (operator, left, right, _) =>
          T.binary operator
            (lower_expression ctxt environment left)

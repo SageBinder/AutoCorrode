@@ -4,6 +4,7 @@ theory Micro_Rust_Parser_Command
     Micro_Rust_Translate
   keywords
     "urust_expr" :: thy_decl
+    and "urust_expr_with_check" :: thy_decl
 begin
 
 section\<open> The command \<close>
@@ -11,13 +12,17 @@ section\<open> The command \<close>
 text\<open>
 \<open>urust_expr NAME src\<close> parses, elaborates, checks once, and defines \<open>NAME\<close>.
 It adds no attributes, keeping generated definitions out of the global simp set.
+
+\<open>urust_expr_with_check NAME src\<close> additionally checks the resulting definition
+against the existing \<open>\<lbrakk>src\<rbrakk>\<close> frontend by definition unfolding and
+\<open>refl\<close>, and records the theorem as \<open>NAME_conformance\<close>.
 \<close>
 ML\<open>
-(* THE pipeline, exported: every uRust command runs source through exactly this function, so the positive
-   harness (`urust_expr`) and the negative one (`urust_expr_rejects`, Micro_Rust_Parser_Negative_Conformance)
-   can never drift on WHAT they exercise -- only on how they interpret success/failure. Raises (positioned)
-   on any rejection: lexer (URust_Err.lex_error), yacc (parse_source's print_error), elaborator, or
-   check_term.
+(* THE pipeline, exported: every uRust command runs source through exactly this function, so the
+   definition commands (`urust_expr`, `urust_expr_with_check`) and the negative harness
+   (`urust_expr_rejects`, Micro_Rust_Parser_Negative_Conformance) can never drift on WHAT they exercise
+   -- only on how they interpret success/failure. Raises (positioned) on any rejection: lexer
+   (URust_Err.lex_error), yacc (parse_source's print_error), elaborator, or check_term.
    ONLY `parse_source` touches the Isabelle_lex_yacc global refs, so only it is serialized; elaboration and
    check_term are pure w.r.t. those, and holding the lock across them would serialize the (slower)
    type-checking of every uRust command theory-wide. *)
@@ -26,16 +31,39 @@ fun elab_urust lthy source : term =
      SOME ast => Syntax.check_term lthy (URust_Translate.mk_closed lthy ast)
    | NONE => error ("urust_expr: empty expression" ^ Position.here (Input.pos_of source)))
 
-fun define_urust (binding, source) lthy =
+fun define_urust_result (binding, source) lthy =
+  Local_Theory.define
+    ((binding, NoSyn), ((Thm.def_binding binding, []), elab_urust lthy source)) lthy
+
+fun define_urust args lthy = snd (define_urust_result args lthy)
+
+fun define_urust_with_check (binding, source) lthy =
   let
-    val ((_, _), lthy') =
-      Local_Theory.define
-        ((binding, NoSyn), ((Thm.def_binding binding, []), elab_urust lthy source)) lthy
-  in lthy' end
+    val ((lhs, (_, def_thm)), lthy') =
+      define_urust_result (binding, source) lthy
+    val old_frontend =
+      Syntax.parse_term lthy'
+        ("\<lbrakk> " ^ Input.string_of source ^ " \<rbrakk>")
+    val equality =
+      Syntax.check_term lthy'
+        (Const (\<^const_name>\<open>HOL.eq\<close>, dummyT) $ lhs $ old_frontend)
+    val conformance =
+      Goal.prove lthy' [] [] (HOLogic.mk_Trueprop equality)
+        (fn {context = ctxt, ...} =>
+          Local_Defs.unfold_tac ctxt [def_thm] THEN
+          resolve_tac ctxt [@{thm refl}] 1)
+    val (_, lthy'') =
+      Local_Theory.note
+        ((Binding.suffix_name "_conformance" binding, []), [conformance]) lthy'
+  in lthy'' end
 
 val _ = Outer_Syntax.local_theory \<^command_keyword>\<open>urust_expr\<close>
           "Parse a uRust expression and define it as a HOL constant"
           (Parse.binding -- Parse.input Parse.cartouche >> define_urust)
+
+val _ = Outer_Syntax.local_theory \<^command_keyword>\<open>urust_expr_with_check\<close>
+          "Define a uRust expression and check it against the existing frontend by refl"
+          (Parse.binding -- Parse.input Parse.cartouche >> define_urust_with_check)
 \<close>
 
 end
