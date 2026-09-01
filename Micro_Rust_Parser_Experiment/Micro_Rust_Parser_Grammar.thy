@@ -366,15 +366,17 @@ yacc_rules\<open>
   uif : TIF uval ublock                     (UE_If (uval, ublock, NONE, TIFleft))
       | TIF uval ublock TELSE ublock        (UE_If (uval, ublock1, SOME ublock2, TIFleft))
       | TIF uval ublock TELSE uif           (UE_If (uval, ublock, SOME uif, TIFleft))
-  (* Call arguments, right-nested (source order preserved). Conflict-free because the call productions are
+  (* Comma lists stay nonempty and right-nested (source order preserved). Each list has an explicit terminal
+     comma production, so a trailing separator cannot create an empty element. Call productions are
      IDENTIFIER-headed, so LPAR is never in FOLLOW(uexp) as a postfix operator -- no precedence directive
-     needed here (D23). *)
+     is needed here (D23). *)
   arglist : uval               ([uval])
+          | uval COMMA         ([uval])
           | uval COMMA arglist (uval :: arglist)
   ucallargs : ([])
             | arglist (arglist)
-  (* A tuple has one element before the comma and a nonempty `arglist` after it. This requires at least
-     two elements while sharing the existing comma-list grammar used by calls. *)
+  (* A tuple has one element before the comma and a nonempty `arglist` after it. Even when `arglist` has a
+     terminal comma, this requires at least two elements and keeps `(x,)` outside the grammar. *)
   (* All three `match` keywords are with-block forms, so they join `uval`, not `uexp`. They share ONE arms
      nonterminal over the unified pattern language and differ only in the flavour tag; the lowering split
      and the per-flavour pattern gate live in the elaborator (D28/D32). *)
@@ -391,9 +393,13 @@ yacc_rules\<open>
          | umatchcase (umatchcase)
   uarms : upat TARROW uval
              ([UR_Arm (upat, NONE, uval)])
+        | upat TARROW uval COMMA
+             ([UR_Arm (upat, NONE, uval)])
         | upat TARROW uval COMMA uarms
              (UR_Arm (upat, NONE, uval) :: uarms)
         | upat TIF uguard TARROW uval
+             ([UR_Arm (upat, SOME (uguard, TIFleft), uval)])
+        | upat TIF uguard TARROW uval COMMA
              ([UR_Arm (upat, SOME (uguard, TIFleft), uval)])
         | upat TIF uguard TARROW uval COMMA uarms
              (UR_Arm (upat, SOME (uguard, TIFleft), uval) :: uarms)
@@ -440,11 +446,14 @@ yacc_rules\<open>
                  (mk_struct_pat (upat_ident, ustruct_fields))
   upat_ident : IDENT              (PI (IDENT, IDENTleft))
   upats : upat %prec TPATCONTEXT ([upat])
+        | upat COMMA              ([upat])
         | upat COMMA upats        (upat :: upats)
   uslice_item : upat %prec TPATCONTEXT
                                       (SI_Pat upat)
                | TDOTDOT          (SI_Rest TDOTDOTleft)
   uslice_items : uslice_item      ([uslice_item])
+                | uslice_item COMMA
+                    ([uslice_item])
                 | uslice_item COMMA uslice_items
                     (uslice_item :: uslice_items)
   ustruct_field : IDENT TCOLON upat %prec TPATCONTEXT
@@ -454,6 +463,8 @@ yacc_rules\<open>
                 | TDOTDOT
                       (SF_Rest TDOTDOTleft)
   ustruct_fields : ustruct_field  ([ustruct_field])
+                 | ustruct_field COMMA
+                      ([ustruct_field])
                  | ustruct_field COMMA ustruct_fields
                       (ustruct_field :: ustruct_fields)
 \<close>
