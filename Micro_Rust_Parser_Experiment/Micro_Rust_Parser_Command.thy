@@ -1,7 +1,7 @@
 theory Micro_Rust_Parser_Command
   imports
     Micro_Rust_Parser_Grammar
-    Micro_Rust_Parser_Elaboration
+    Micro_Rust_Translate
   keywords
     "urust_expr" :: thy_decl
 begin

@@ -22,7 +22,7 @@ session Micro_Rust_Parser_Experiment = HOL +
     Micro_Rust_Elab_Terms
     Micro_Rust_Resolution
     Micro_Rust_Patterns
-    Micro_Rust_Parser_Elaboration
+    Micro_Rust_Translate
     Micro_Rust_Parser_Command
     Micro_Rust_Parser
     Struct_Ambiguity_Left

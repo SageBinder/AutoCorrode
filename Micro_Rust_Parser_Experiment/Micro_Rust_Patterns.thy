@@ -559,22 +559,130 @@ struct
          error ("urust_expr: internal unregistered alias binder " ^
            quote name ^ Position.here pos))
 
-  (* Guarded fall-through intentionally retains the current frontend-shaped tree, including the T-26
-     repeated fallback. Keep this mutually recursive compiler together until that replacement lands. *)
-  fun compile_case ctxt scrutinee arms =
-        compile_pattern_case ctxt scrutinee
-          (map (fn
-              (Prepared_Case_Arm (pattern, environment, _, _),
-               source_guard, rhs) =>
-                (pattern, environment, source_guard, rhs))
-            arms)
+  fun compile_nested_case compiler ctxt environment expression pattern success fallback =
+    compiler ctxt expression
+      [(pattern, environment, NONE, success),
+       (Case_Wild Position.none, environment, NONE, fallback)]
 
-  and compile_pattern_case ctxt scrutinee arms =
+  fun normalize_pattern_for_nested compiler ctxt environment pattern =
+    let
+      fun normalize_arguments [] = ([], [], [])
+        | normalize_arguments (argument :: rest) =
+            let
+              val (argument', guards0, wrappers0) =
+                if requires_nested_match argument then
+                  let
+                    val temporary =
+                      Free ("_urust_pat_" ^ string_of_int (serial ()), dummyT)
+                    val temporary_expression = T.literal temporary
+                    val (matched_expression, matched_pattern) =
+                      (case argument of
+                         Case_Slice_Suffix reversed_suffix =>
+                           (T.reverse_list temporary_expression, reversed_suffix)
+                       | _ => (temporary_expression, argument))
+                    val guard =
+                      compile_nested_case compiler ctxt environment
+                        matched_expression matched_pattern
+                        (T.literal T.true_value) (T.literal T.false_value)
+                    fun wrapper rhs =
+                      compile_nested_case compiler ctxt environment
+                        matched_expression matched_pattern
+                        rhs T.undefined_value
+                  in (Basic_Generated temporary, [guard], [wrapper]) end
+                else
+                  normalize_pattern_for_nested
+                    compiler ctxt environment argument
+              val (rest', guards1, wrappers1) =
+                normalize_arguments rest
+            in
+              (argument' :: rest',
+               guards0 @ guards1,
+               wrappers0 @ wrappers1)
+            end
+    in
+      (case pattern of
+       Case_Constructor (name, pos, arguments) =>
+         let
+           val (arguments', guards, wrappers) =
+             normalize_arguments arguments
+         in
+           (Basic_Constructor (name, pos, arguments'), guards, wrappers)
+         end
+     | Case_Resolved (constructor, arguments) =>
+         let
+           val (arguments', guards, wrappers) =
+             normalize_arguments arguments
+         in (Basic_Resolved (constructor, arguments'), guards, wrappers) end
+     | Case_Tuple arguments =>
+         let
+           val (arguments', guards, wrappers) =
+             normalize_arguments arguments
+         in (Basic_Tuple arguments', guards, wrappers) end
+     | _ => (normalize_basic_pattern pattern, [], []))
+    end
+
+  fun normalize_extended_pattern compiler ctxt environment expression pattern =
+    (case pattern of
+       Case_Alias (name, pos, inner) =>
+         let
+           val (basic, guards, wrappers) =
+             normalize_extended_pattern
+               compiler ctxt environment expression inner
+           fun wrap rhs =
+             alias_wrapper environment expression name pos rhs
+         in (basic, guards, wrappers @ [wrap]) end
+     | Case_Value (literal, _) =>
+         (Basic_Wild NONE,
+          [T.binary Eq expression (T.literal literal)],
+          [])
+     | Case_Range (kind, lower, upper, _) =>
+         let
+           val upper_guard =
+             T.binary
+               (case kind of RK_Exclusive => Lt | RK_Inclusive => Le)
+               expression upper
+         in
+           (Basic_Wild NONE,
+            [T.binary And (T.binary Ge expression lower) upper_guard],
+            [])
+         end
+     | Case_Slice_Suffix reversed_suffix =>
+         let
+           val reversed_expression = T.reverse_list expression
+           val guard =
+             compile_nested_case compiler ctxt environment
+               reversed_expression reversed_suffix
+               (T.literal T.true_value) (T.literal T.false_value)
+           fun wrap rhs =
+             compile_nested_case compiler ctxt environment
+               reversed_expression reversed_suffix rhs T.undefined_value
+         in (Basic_Wild NONE, [guard], [wrap]) end
+     | _ =>
+         normalize_pattern_for_nested compiler ctxt environment pattern)
+
+  fun normalize_case_arm compiler ctxt value
+      (pattern, environment, source_guard, rhs) =
+    let
+      val (basic_pattern, generated_guards, wrappers) =
+        normalize_extended_pattern
+          compiler ctxt environment (T.literal value) pattern
+      val abstraction =
+        bind_basic_pattern ctxt environment basic_pattern
+      val guard = fold extend_guard generated_guards source_guard
+      val rhs' =
+        fold_rev (fn wrapper => fn body => wrapper body) wrappers rhs
+      val wild =
+        (case basic_pattern of Basic_Wild _ => true | _ => false)
+    in (wild, abstraction, guard, rhs') end
+
+  (* Guarded fall-through intentionally retains the current frontend-shaped tree, including the T-26
+     repeated fallback. Nested normalizers receive this recursive compiler as a private callback. *)
+  fun compile_pattern_case ctxt scrutinee arms =
     let
       val value =
         Free ("_urust_case_value_" ^ string_of_int (serial ()), dummyT)
       val normalized =
-        map (normalize_case_arm ctxt value) arms
+        map (normalize_case_arm compile_pattern_case ctxt value) arms
 
       fun case_term branches =
         T.case_guard T.true_value value
@@ -616,120 +724,13 @@ struct
             (map (fn (_, abstraction, _, rhs) => abstraction rhs) normalized)
     in T.bind scrutinee (Term.lambda value selector) end
 
-  and normalize_case_arm ctxt value
-      (pattern, environment, source_guard, rhs) =
-    let
-      val (basic_pattern, generated_guards, wrappers) =
-        normalize_extended_pattern ctxt environment (T.literal value) pattern
-      val abstraction =
-        bind_basic_pattern ctxt environment basic_pattern
-      val guard = fold extend_guard generated_guards source_guard
-      val rhs' =
-        fold_rev (fn wrapper => fn body => wrapper body) wrappers rhs
-      val wild =
-        (case basic_pattern of Basic_Wild _ => true | _ => false)
-    in (wild, abstraction, guard, rhs') end
-
-  and normalize_extended_pattern ctxt environment expression pattern =
-    (case pattern of
-       Case_Alias (name, pos, inner) =>
-         let
-           val (basic, guards, wrappers) =
-             normalize_extended_pattern ctxt environment expression inner
-           fun wrap rhs =
-             alias_wrapper environment expression name pos rhs
-         in (basic, guards, wrappers @ [wrap]) end
-     | Case_Value (literal, _) =>
-         (Basic_Wild NONE,
-          [T.binary Eq expression (T.literal literal)],
-          [])
-     | Case_Range (kind, lower, upper, _) =>
-         let
-           val upper_guard =
-             T.binary
-               (case kind of RK_Exclusive => Lt | RK_Inclusive => Le)
-               expression upper
-         in
-           (Basic_Wild NONE,
-            [T.binary And (T.binary Ge expression lower) upper_guard],
-            [])
-         end
-     | Case_Slice_Suffix reversed_suffix =>
-         let
-           val reversed_expression = T.reverse_list expression
-           val guard =
-             nested_match_guard
-               ctxt environment reversed_expression reversed_suffix
-           fun wrap rhs =
-             nested_match_extract
-               ctxt environment reversed_expression reversed_suffix rhs
-         in (Basic_Wild NONE, [guard], [wrap]) end
-     | _ => normalize_pattern_for_nested ctxt environment pattern)
-
-  and normalize_pattern_for_nested ctxt environment pattern =
-    (case pattern of
-       Case_Constructor (name, pos, arguments) =>
-         let
-           val (arguments', guards, wrappers) =
-             normalize_arguments_for_nested ctxt environment arguments
-         in
-           (Basic_Constructor (name, pos, arguments'), guards, wrappers)
-         end
-     | Case_Resolved (constructor, arguments) =>
-         let
-           val (arguments', guards, wrappers) =
-             normalize_arguments_for_nested ctxt environment arguments
-         in (Basic_Resolved (constructor, arguments'), guards, wrappers) end
-     | Case_Tuple arguments =>
-         let
-           val (arguments', guards, wrappers) =
-             normalize_arguments_for_nested ctxt environment arguments
-         in (Basic_Tuple arguments', guards, wrappers) end
-     | _ => (normalize_basic_pattern pattern, [], []))
-
-  and normalize_arguments_for_nested _ _ [] = ([], [], [])
-    | normalize_arguments_for_nested ctxt environment (argument :: rest) =
-        let
-          val (argument', guards0, wrappers0) =
-            normalize_argument_for_nested ctxt environment argument
-          val (rest', guards1, wrappers1) =
-            normalize_arguments_for_nested ctxt environment rest
-        in
-          (argument' :: rest',
-           guards0 @ guards1,
-           wrappers0 @ wrappers1)
-        end
-
-  and normalize_argument_for_nested ctxt environment pattern =
-    if requires_nested_match pattern then
-      let
-        val temporary =
-          Free ("_urust_pat_" ^ string_of_int (serial ()), dummyT)
-        val temporary_expression = T.literal temporary
-        val (matched_expression, matched_pattern) =
-          (case pattern of
-             Case_Slice_Suffix reversed_suffix =>
-               (T.reverse_list temporary_expression, reversed_suffix)
-           | _ => (temporary_expression, pattern))
-        val guard =
-          nested_match_guard
-            ctxt environment matched_expression matched_pattern
-        fun wrapper rhs =
-          nested_match_extract
-            ctxt environment matched_expression matched_pattern rhs
-      in (Basic_Generated temporary, [guard], [wrapper]) end
-    else normalize_pattern_for_nested ctxt environment pattern
-
-  and nested_match_guard ctxt environment expression pattern =
-    compile_pattern_case ctxt expression
-      [(pattern, environment, NONE, T.literal T.true_value),
-       (Case_Wild Position.none, environment, NONE,
-        T.literal T.false_value)]
-
-  and nested_match_extract ctxt environment expression pattern rhs =
-    compile_pattern_case ctxt expression
-      [(pattern, environment, NONE, rhs),
-       (Case_Wild Position.none, environment, NONE, T.undefined_value)]
+  fun compile_case ctxt scrutinee arms =
+    compile_pattern_case ctxt scrutinee
+      (map (fn
+          (Prepared_Case_Arm (pattern, environment, _, _),
+           source_guard, rhs) =>
+            (pattern, environment, source_guard, rhs))
+        arms)
 end
 \<close>
 

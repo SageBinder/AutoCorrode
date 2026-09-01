@@ -38,7 +38,7 @@ term \<open>\<lbrakk> let y = 99; \<llangle>y\<rrangle> \<rbrakk>\<close>
 ML \<open>writeln ("P1 same-name: " ^ @{make_string} @{term \<open>\<lbrakk> let y = 99; \<llangle>y\<rrangle> \<rbrakk>\<close>})\<close>
 
 text\<open> (P3) Distinct context variable \<open>w\<close>; necessarily free. \<close>
-term \<open>\<lbrakk> let y = 99; \<llangle>w\<rrangle> \<rbrakk>\<close>
+term \<open>\<lambda>w. \<lbrakk> let y = 99; \<llangle>w\<rrangle> \<rbrakk>\<close>
 ML \<open>writeln ("P3 distinct-free: " ^ @{make_string} @{term \<open>\<lbrakk> let y = 99; \<llangle>w\<rrangle> \<rbrakk>\<close>})\<close>
 
 end
