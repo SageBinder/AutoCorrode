@@ -69,6 +69,8 @@ urust_expr_with_check lit_string_quote \<open> "say: \"hi\"" \<close>
 
 urust_expr_with_check lit_string_backslash \<open> "a\\b" \<close>
 
+urust_expr_with_check lit_string_line_comment_text \<open> "https://example.invalid//path" \<close>
+
 
 section\<open> Value antiquotation \<open>\<llangle>_\<rrangle>\<close> (Corpus PART I, "HOL Value Injection") \<close>
 
@@ -86,12 +88,17 @@ urust_expr_with_check ext_aqfalse \<open> \<llangle>False\<rrangle> \<close>
 
 urust_expr_with_check lit_aq_some \<open> \<llangle>Some (0 :: nat)\<rrangle> \<close>
 
+urust_expr_with_check lit_aq_line_comment_text \<open> \<llangle>''// value''\<rrangle> \<close>
+
 
 section\<open> Expression antiquotation \<open>\<epsilon>\<open>_\<close>\<close> (Corpus PART I, "Boolean Literals") \<close>
 
 text\<open> Passthrough (no \<open>literal\<close> wrapper): the body already denotes an \<open>expression\<close>. \<close>
 
 urust_expr_with_check lit_eaq_true \<open> \<epsilon>\<open>Bool_Type.true\<close> \<close>
+
+urust_expr_with_check lit_eaq_line_comment_text
+  \<open> \<epsilon>\<open>\<up>(''// expression'')\<close> \<close>
 
 urust_expr_with_check aq_nested_value
   \<open> \<llangle> \<lbrakk> \<llangle>1 :: nat\<rrangle> \<rbrakk> \<rrangle> \<close>

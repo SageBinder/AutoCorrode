@@ -92,6 +92,8 @@ ws = [\ \t\r];
 lex_rules\<open>
 <INITIAL>\n       => (lex());
 <INITIAL>{ws}+    => (lex());
+<INITIAL>"//"[^\n]* =>
+    (report_fixed (yypos, size yytext, Markup.comment1, "line comment"); lex());
 <INITIAL>({digit}+|"0x"{hexdigit}+)"_"{idchar}+ =>
     (tok_valF (yypos, yytext, Markup.numeral, "NUMSFX", Tokens.NUMSFX, yytext));
 <INITIAL>({digit}+|"0x"{hexdigit}+) =>
