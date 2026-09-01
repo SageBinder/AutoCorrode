@@ -39,6 +39,129 @@ val _ = Outer_Syntax.local_theory \<^command_keyword>\<open>old_urust_rejects\<c
 \<close>
 
 
+section\<open> ASCII match arrows \<close>
+
+urust_expr improvement_ascii_match_arrow
+  \<open> match \<llangle>Some (1 :: nat)\<rrangle> { Some(x) => x, None => 0 } \<close>
+
+lemma \<open> improvement_ascii_match_arrow =
+    \<lbrakk> match \<llangle>Some (1 :: nat)\<rrangle> { Some(x) \<Rightarrow> x, None \<Rightarrow> 0 } \<rbrakk> \<close>
+  unfolding improvement_ascii_match_arrow_def by (rule refl)
+
+old_urust_rejects
+  \<open> match \<llangle>Some (1 :: nat)\<rrangle> { Some(x) => x, None => 0 } \<close>
+
+urust_expr improvement_ascii_match_arrow_guarded
+  \<open> match \<llangle>Some (1 :: nat)\<rrangle> { Some(x) if True => x, None => 0 } \<close>
+
+lemma \<open> improvement_ascii_match_arrow_guarded =
+    \<lbrakk> match \<llangle>Some (1 :: nat)\<rrangle> { Some(x) if True \<Rightarrow> x, None \<Rightarrow> 0 } \<rbrakk> \<close>
+  unfolding improvement_ascii_match_arrow_guarded_def by (rule refl)
+
+old_urust_rejects
+  \<open> match \<llangle>Some (1 :: nat)\<rrangle> { Some(x) if True => x, None => 0 } \<close>
+
+urust_expr improvement_ascii_match_arrow_nested
+  \<open>
+    match \<llangle>Some (1 :: nat)\<rrangle> {
+      Some(x) => match x { 0 => 0, _ => x },
+      None => 0
+    }
+  \<close>
+
+lemma \<open> improvement_ascii_match_arrow_nested =
+    \<lbrakk>
+      match \<llangle>Some (1 :: nat)\<rrangle> {
+        Some(x) \<Rightarrow> match x { 0 \<Rightarrow> 0, _ \<Rightarrow> x },
+        None \<Rightarrow> 0
+      }
+    \<rbrakk> \<close>
+  unfolding improvement_ascii_match_arrow_nested_def by (rule refl)
+
+old_urust_rejects
+  \<open>
+    match \<llangle>Some (1 :: nat)\<rrangle> {
+      Some(x) => match x { 0 => 0, _ => x },
+      None => 0
+    }
+  \<close>
+
+urust_expr improvement_ascii_match_arrow_case
+  \<open> match_case \<llangle>Some (1 :: nat)\<rrangle> { Some(x) => x, None => 0 } \<close>
+
+lemma \<open> improvement_ascii_match_arrow_case =
+    \<lbrakk> match_case \<llangle>Some (1 :: nat)\<rrangle> { Some(x) \<Rightarrow> x, None \<Rightarrow> 0 } \<rbrakk> \<close>
+  unfolding improvement_ascii_match_arrow_case_def by (rule refl)
+
+old_urust_rejects
+  \<open> match_case \<llangle>Some (1 :: nat)\<rrangle> { Some(x) => x, None => 0 } \<close>
+
+urust_expr improvement_ascii_match_arrow_switch
+  \<open>
+    match_switch \<llangle>1 :: nat\<rrangle> {
+      0 => \<llangle>False\<rrangle>,
+      _ => \<llangle>True\<rrangle>
+    }
+  \<close>
+
+lemma \<open> improvement_ascii_match_arrow_switch =
+    \<lbrakk>
+      match_switch \<llangle>1 :: nat\<rrangle> {
+        0 \<Rightarrow> \<llangle>False\<rrangle>,
+        _ \<Rightarrow> \<llangle>True\<rrangle>
+      }
+    \<rbrakk> \<close>
+  unfolding improvement_ascii_match_arrow_switch_def by (rule refl)
+
+old_urust_rejects
+  \<open>
+    match_switch \<llangle>1 :: nat\<rrangle> {
+      0 => \<llangle>False\<rrangle>,
+      _ => \<llangle>True\<rrangle>
+    }
+  \<close>
+
+
+section\<open> Empty blocks \<close>
+
+urust_expr improvement_empty_block_value
+  \<open> {} \<close>
+
+lemma \<open> improvement_empty_block_value = \<lbrakk> { () } \<rbrakk> \<close>
+  unfolding improvement_empty_block_value_def by (rule refl)
+
+old_urust_rejects
+  \<open> {} \<close>
+
+urust_expr improvement_empty_block_branches
+  \<open> if true {} else {} \<close>
+
+lemma \<open> improvement_empty_block_branches =
+    \<lbrakk> if true { () } else { () } \<rbrakk> \<close>
+  unfolding improvement_empty_block_branches_def by (rule refl)
+
+old_urust_rejects
+  \<open> if true {} else {} \<close>
+
+urust_expr improvement_empty_block_nested
+  \<open> {{}} \<close>
+
+lemma \<open> improvement_empty_block_nested = \<lbrakk> {{ () }} \<rbrakk> \<close>
+  unfolding improvement_empty_block_nested_def by (rule refl)
+
+old_urust_rejects
+  \<open> {{}} \<close>
+
+urust_expr improvement_empty_block_statement
+  \<open> {} () \<close>
+
+lemma \<open> improvement_empty_block_statement = \<lbrakk> { () } () \<rbrakk> \<close>
+  unfolding improvement_empty_block_statement_def by (rule refl)
+
+old_urust_rejects
+  \<open> {} () \<close>
+
+
 section\<open> Compositional range patterns \<close>
 
 datatype improvement_packet =

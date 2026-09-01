@@ -537,8 +537,8 @@ urust_expr_rejects \<open> 1 @ 2 \<close> \<open> syntax error found at TAT \<cl
 urust_expr_rejects \<open> { () \<close> \<open> syntax error found at EOF \<close>
   \<comment> \<open> [FIDELITY] unbalanced brace -- input must be consumed to EOF by a complete derivation. \<close>
 
-urust_expr_rejects \<open> {} \<close> \<open> syntax error found at TRBRACE \<close>
-  \<comment> \<open> [FIDELITY] the current frontend also rejects an empty block; real Rust permits it. \<close>
+urust_expr_rejects \<open> { ; } \<close> \<open> syntax error found at TSEMI \<close>
+  \<comment> \<open> [FIDELITY] a block cannot begin with a standalone semicolon. \<close>
 
 urust_expr_rejects \<open> \<close> \<open> empty expression \<close>
   \<comment> \<open> [FIDELITY] \<open>parse_source\<close> returns NONE on blank input; the frontend's empty bracket is an
