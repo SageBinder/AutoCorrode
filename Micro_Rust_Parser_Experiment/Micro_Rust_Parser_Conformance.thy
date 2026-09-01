@@ -1914,6 +1914,54 @@ urust_expr_with_check bind_hol_constant_triple_shadow
   \<open> let id = id; \<llangle>id\<rrangle> \<close>
 end
 
+
+section\<open> Fueled while and loop expressions \<close>
+
+text\<open>
+Fuel is an expression antiquotation lowered in the current lexical environment.
+Conditions and bodies use that same environment. Fueled loops are block-like values:
+they sequence without a semicolon and require grouping in binary operand position.
+\<close>
+
+adhoc_overloading assign_add_const \<rightleftharpoons> parser_assign_add_fixture
+
+context fixes n :: nat
+begin
+
+urust_expr_with_check fueled_while_semicolon
+  \<open> let mut x = \<llangle>0 :: 32 word\<rrangle>; #[fuel(\<epsilon>\<open>n\<close>) ] while (*x < 10_u32) { x += 1_u32; }; *x \<close>
+
+urust_expr_with_check fueled_while_statement
+  \<open> let mut x = \<llangle>0 :: 32 word\<rrangle>; #[fuel(\<epsilon>\<open>n :: nat\<close>) ] while (*x < 10_u32) { x += 1_u32; } *x \<close>
+
+urust_expr_with_check fueled_loop_semicolon
+  \<open> let mut x = \<llangle>0 :: 32 word\<rrangle>; #[fuel(\<epsilon>\<open>n\<close>) ] loop { x += 1_u32; }; *x \<close>
+
+urust_expr_with_check fueled_loop_statement
+  \<open> let mut x = \<llangle>0 :: 32 word\<rrangle>; #[fuel(\<epsilon>\<open>n :: nat\<close>) ] loop { x += 1_u32; } *x \<close>
+
+urust_expr_with_check fueled_while_terminal
+  \<open> #[fuel(\<epsilon>\<open>n\<close>)] while (false) { () } \<close>
+
+urust_expr_with_check fueled_loop_terminal
+  \<open> #[fuel(\<epsilon>\<open>n\<close>)] loop { () } \<close>
+
+urust_expr_with_check fueled_loop_capture
+  \<open> let steps = \<llangle>2 :: nat\<rrangle>; #[fuel(\<epsilon>\<open>steps\<close>)] loop { () } \<close>
+
+urust_expr_with_check fueled_while_capture
+  \<open> let keep_going = \<llangle>False\<rrangle>; let body_value = (); #[fuel(\<epsilon>\<open>n\<close>)] while (keep_going) { body_value } \<close>
+
+urust_expr_with_check fueled_loop_nested
+  \<open> #[fuel(\<epsilon>\<open>n\<close>)] while (true) { #[fuel(\<epsilon>\<open>n\<close>)] loop { () } } \<close>
+
+urust_expr_with_check fueled_loop_parenthesized_operand
+  \<open> (#[fuel(\<epsilon>\<open>n\<close>)] loop { () }) == () \<close>
+
+end
+
+no_adhoc_overloading assign_add_const \<rightleftharpoons> parser_assign_add_fixture
+
 no_adhoc_overloading store_reference_const \<rightleftharpoons> parser_reference_fixture
 no_adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
 

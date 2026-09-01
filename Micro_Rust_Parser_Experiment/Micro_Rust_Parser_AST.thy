@@ -102,6 +102,10 @@ struct
                                                          wrapper: `_urust_scoping` is identity (D22) *)
     | UE_If        of ur_expr * ur_expr * ur_expr option * Position.T
                                                       (* NONE else-branch = one-armed -> skip (D22) *)
+    | UE_While     of Input.source * ur_expr * ur_expr * Position.T
+                                                      (* #[fuel(eps<n>)] while (condition) body *)
+    | UE_Loop      of Input.source * ur_expr * Position.T
+                                                      (* #[fuel(eps<n>)] loop body *)
     | UE_Call      of string * Position.T * ur_expr list * Position.T
                                                       (* f(a0..aN) -> funcallN. Callee is an IDENTIFIER
                                                          (name, name-pos) resolved in NFunction context;
@@ -142,6 +146,8 @@ struct
     | expr_pos (UE_Group (_, pos)) = pos
     | expr_pos (UE_Block (_, pos)) = pos
     | expr_pos (UE_If (_, _, _, pos)) = pos
+    | expr_pos (UE_While (_, _, _, pos)) = pos
+    | expr_pos (UE_Loop (_, _, pos)) = pos
     | expr_pos (UE_Call (_, _, _, pos)) = pos
     | expr_pos (UE_Field (_, _, pos)) = pos
     | expr_pos (UE_Assign (_, _, _, pos)) = pos

@@ -110,6 +110,9 @@ lex_rules\<open>
 <INITIAL>"return" => (tokF (yypos, yytext, Markup.keyword1, "TRETURN", Tokens.TRETURN));
 <INITIAL>"if"     => (tokF (yypos, yytext, Markup.keyword1, "TIF", Tokens.TIF));
 <INITIAL>"else"   => (tokF (yypos, yytext, Markup.keyword1, "TELSE", Tokens.TELSE));
+<INITIAL>"fuel"   => (tokF (yypos, yytext, Markup.keyword1, "TFUEL", Tokens.TFUEL));
+<INITIAL>"while"  => (tokF (yypos, yytext, Markup.keyword1, "TWHILE", Tokens.TWHILE));
+<INITIAL>"loop"   => (tokF (yypos, yytext, Markup.keyword1, "TLOOP", Tokens.TLOOP));
 <INITIAL>"unsafe" => (tokF (yypos, yytext, Markup.keyword1, "TUNSAFE", Tokens.TUNSAFE));
 <INITIAL>"match"        => (tokF (yypos, yytext, Markup.keyword1, "TMATCH", Tokens.TMATCH));
 <INITIAL>"match_switch" => (tokF (yypos, yytext, Markup.keyword1, "TMATCHSWITCH", Tokens.TMATCHSWITCH));
@@ -159,6 +162,7 @@ lex_rules\<open>
 <INITIAL>"."      => (tokF (yypos, yytext, Markup.delimiter, "TDOT", Tokens.TDOT));
 <INITIAL>":"      => (tokF (yypos, yytext, Markup.delimiter, "TCOLON", Tokens.TCOLON));
 <INITIAL>"@"      => (tokF (yypos, yytext, Markup.operator, "TAT", Tokens.TAT));
+<INITIAL>"#"      => (tokF (yypos, yytext, Markup.delimiter, "THASH", Tokens.THASH));
 <INITIAL>"["      => (tokF (yypos, yytext, Markup.delimiter, "TLBRACK", Tokens.TLBRACK));
 <INITIAL>"]"      => (tokF (yypos, yytext, Markup.delimiter, "TRBRACK", Tokens.TRBRACK));
 <INITIAL>"{"      => (tokF (yypos, yytext, Markup.delimiter, "TLBRACE", Tokens.TLBRACE));
@@ -197,7 +201,7 @@ yacc_definitions\<open>
    `a == b == c`). Reference prefixes and `!` use structural tiers below; these directives keep the
    ambiguous `uexp OP uexp` productions conflict-free. *)
 %right TRETURN
-%right TIF TLBRACE TUNSAFE
+%right TIF TLBRACE TUNSAFE TWHILE TLOOP
 %left TBARBAR
 %left TAMPAMP
 %nonassoc TEQEQ TNE TLT TLE TGT TGE
@@ -221,7 +225,8 @@ yacc_definitions\<open>
     | TAMPEQ | TBAREQ | TCARETEQ | TSHLEQ | TSHREQ
     | TEQEQ | TNE | TLT | TLE | TGT | TGE
     | TAMPAMP | TBARBAR | TBANG | TQUESTION
-    | TUNSAFE | TMATCH | TMATCHSWITCH | TMATCHCASE | TARROW
+    | TUNSAFE | TFUEL | TWHILE | TLOOP | THASH
+    | TMATCH | TMATCHSWITCH | TMATCHCASE | TARROW
     | TDOTDOT | TDOTDOTEQ | TMUT | TPATCONTEXT
 %nonterm ustart of URust_AST.ur_expr option
        | ustmt of URust_AST.ur_expr
@@ -238,6 +243,8 @@ yacc_definitions\<open>
        | ublock of URust_AST.ur_expr
        | uunsafe of URust_AST.ur_expr
        | uif of URust_AST.ur_expr
+       | ufuel of Input.source * Position.T
+       | uloop of URust_AST.ur_expr
        | umatch of URust_AST.ur_expr
        | umatchsw of URust_AST.ur_expr
        | umatchcase of URust_AST.ur_expr
@@ -268,6 +275,7 @@ yacc_rules\<open>
         | ublock ustmt                      (UE_Seq (ublock, ustmt))
         | uunsafe ustmt                     (UE_Seq (uunsafe, ustmt))
         | uif ustmt                         (UE_Seq (uif, ustmt))
+        | uloop ustmt                       (UE_Seq (uloop, ustmt))
         | umatch ustmt                      (UE_Seq (umatch, ustmt))
         (* NO `umatchsw ustmt` / `umatchcase ustmt` forms: only the bare `match` keyword has the
            frontend's no-`;` sequencing production. The explicit forms still need a trailing `;`. *)
@@ -285,6 +293,7 @@ yacc_rules\<open>
        | TRETURN (UE_Return (NONE, TRETURNleft))
        | TRETURN uval (UE_Return (SOME uval, TRETURNleft))
        | uif %prec TIF (uif)
+       | uloop %prec TIF (uloop)
        | umatch %prec TIF (umatch)
        | umatchsw (umatchsw)
        | umatchcase (umatchcase)
@@ -379,6 +388,14 @@ yacc_rules\<open>
   uif : TIF uval ublock                     (UE_If (uval, ublock, NONE, TIFleft))
       | TIF uval ublock TELSE ublock        (UE_If (uval, ublock1, SOME ublock2, TIFleft))
       | TIF uval ublock TELSE uif           (UE_If (uval, ublock, SOME uif, TIFleft))
+  ufuel : THASH TLBRACK TFUEL LPAR EXPRAQ RPAR TRBRACK
+              ((EXPRAQ, THASHleft))
+  uloop : ufuel TWHILE LPAR uval RPAR ublock
+              (UE_While (#1 ufuel, uval, ublock,
+                Position.range_position (#2 ufuel, ublockright)))
+        | ufuel TLOOP ublock
+              (UE_Loop (#1 ufuel, ublock,
+                Position.range_position (#2 ufuel, ublockright)))
   (* Comma lists stay nonempty and right-nested (source order preserved). Each list has an explicit terminal
      comma production, so a trailing separator cannot create an empty element. Call productions are
      IDENTIFIER-headed, so LPAR is never in FOLLOW(uexp) as a postfix operator -- no precedence directive

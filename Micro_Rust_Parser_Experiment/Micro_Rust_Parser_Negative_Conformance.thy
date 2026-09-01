@@ -587,6 +587,35 @@ urust_expr_rejects \<open> r + other *= rhs \<close> \<open> invalid assignment 
   \<comment> \<open> [FIDELITY] pure operators bind above every assignment operator, so the complete binary LHS
        reaches the shared place validator. \<close>
 
+section\<open> Fueled loops \<close>
+
+urust_expr_rejects \<open> while (true) { () } \<close>
+  \<open> TWHILE \<close>
+  \<comment> \<open> [FIDELITY] \<open>while\<close> requires the existing frontend's fuel annotation. \<close>
+
+urust_expr_rejects \<open> loop { () } \<close>
+  \<open> TLOOP \<close>
+  \<comment> \<open> [FIDELITY] unconditional \<open>loop\<close> also requires fuel. \<close>
+
+urust_expr_rejects \<open> #[fuel(1)] loop { () } \<close>
+  \<open> NUM \<close>
+  \<comment> \<open> [FIDELITY] fuel must use an expression antiquotation, not a numeral. \<close>
+
+urust_expr_rejects \<open> #[fuel(\<llangle>1 :: nat\<rrangle>)] loop { () } \<close>
+  \<open> VALAQ \<close>
+  \<comment> \<open> [FIDELITY] a value antiquotation is not a fuel payload. \<close>
+
+urust_expr_rejects_parser_only
+  \<open> #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while true { () } \<close>
+  \<open> TTRUE \<close>
+  \<comment> \<open> [DIVERGENT] the dedicated parser requires Rust's condition parentheses; Isabelle's
+       mixfix parser accepts this spelling despite displaying parentheses on pretty-print. \<close>
+
+urust_expr_rejects
+  \<open> #[fuel(\<epsilon>\<open>1 :: nat\<close>)] loop { () } == () \<close>
+  \<open> TEQEQ \<close>
+  \<comment> \<open> [FIDELITY] a fueled loop needs parentheses in binary operand position. \<close>
+
 section\<open> Lexer and whole-input failures \<close>
 
 urust_expr_rejects \<open> "bad\q" \<close> \<open> bad escape character in string \<close>

@@ -44,6 +44,9 @@ struct
       val lowered_body = lower body_environment body
     in T.bind lowered_rhs (abstraction lowered_body) end
 
+  fun lower_fuel ctxt environment source =
+    R.parse_antiquotation ctxt environment source
+
   (* Mutable scalar bindings allocate one store reference. Top-level tuple mutability remains erased,
      matching the frontend, and no binder-kind metadata is introduced. *)
   fun lower_mutable_binding lower ctxt environment
@@ -148,6 +151,15 @@ struct
            (case else_branch of
               SOME branch => lower_expression ctxt environment branch
             | NONE => T.literal HOLogic.unit)
+     | UE_While (fuel, condition, body, _) =>
+         T.bounded_while
+           (lower_fuel ctxt environment fuel)
+           (lower_expression ctxt environment condition)
+           (lower_expression ctxt environment body)
+     | UE_Loop (fuel, body, _) =>
+         T.bounded_loop
+           (lower_fuel ctxt environment fuel)
+           (lower_expression ctxt environment body)
      | UE_Let binding =>
          lower_binding (lower_expression ctxt) ctxt I environment binding
      | UE_LetMut binding =>

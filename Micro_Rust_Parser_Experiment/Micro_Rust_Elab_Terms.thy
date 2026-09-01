@@ -25,6 +25,8 @@ sig
   val focus_field: term -> term -> term
   val tuple: term list -> term
   val conditional: term -> term -> term -> term
+  val bounded_while: term -> term -> term -> term
+  val bounded_loop: term -> term -> term
   val binary: URust_AST.binop -> term -> term -> term
   val unary: URust_AST.unaryop -> Position.T -> term -> term
   val assignment_binary: URust_AST.assign_binop -> term -> term -> term
@@ -254,6 +256,13 @@ struct
   fun conditional condition then_branch else_branch =
     constant \<^const_name>\<open>two_armed_conditional\<close>
       [condition, then_branch, else_branch]
+
+  fun bounded_while fuel condition body =
+    constant \<^const_name>\<open>bounded_while\<close> [fuel, condition, body]
+
+  fun bounded_loop fuel body =
+    bounded_while fuel
+      (literal (Const (\<^const_name>\<open>True\<close>, dummyT))) body
 
   fun propagate pos expression =
     positioned_constant \<^const_name>\<open>propagate_const\<close> pos [expression]
