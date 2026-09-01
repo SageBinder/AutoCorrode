@@ -9,6 +9,7 @@ SML_import \<open> structure URust_AST = URust_AST \<close>
 SML_import \<open> structure Input = struct open Input end \<close>       \<comment>\<open> for the corrected position map \<close>
 SML_import \<open> structure Position = struct open Position end \<close> \<comment>\<open> report / range / T \<close>
 SML_import \<open> structure Markup = struct open Markup end \<close>     \<comment>\<open> token reports \<close>
+SML_import \<open> structure Symbol = struct open Symbol end \<close>     \<comment>\<open> partial lexeme reports \<close>
 
 ML\<open>
 (* Positioned lexer error for the catch-all rule: an unrecognized character must ABORT with a clickable
@@ -72,8 +73,7 @@ fun set source ctxt =
 fun fixed_pos yypos = Parser_Lex_Util.fixed_pos (!pos_map) yypos
 fun tokF args       = Parser_Lex_Util.tokF (!pos_map) args
 fun tok_valF args   = Parser_Lex_Util.tok_valF (!pos_map) args
-fun report_fixed args = Parser_Lex_Util.report_fixed (!pos_map) args
-fun report_fixed_text args = Parser_Lex_Util.report_fixed_text (!pos_map) args
+fun report_text args = Parser_Lex_Util.report_text (!pos_map) args
 fun tok_ident (yypos, yytext) =
   let val p = Parser_Lex_Util.ident_pos (!pos_map) (yypos, yytext)
   in Tokens.IDENT (yytext, p, p) end
@@ -96,7 +96,7 @@ lex_rules\<open>
 <INITIAL>\n       => (lex());
 <INITIAL>{ws}+    => (lex());
 <INITIAL>"//"[^\n]* =>
-    (report_fixed_text (yypos, yytext, Markup.comment1, "line comment"); lex());
+    (report_text (yypos, yytext, Markup.comment1, "line comment"); lex());
 <INITIAL>"0x"{hexdigit}+ =>
     (tok_valF (yypos, yytext, Markup.numeral, "NUM", Tokens.NUM, yytext));
 <INITIAL>{digit}+{idstart}{idchar}* =>
@@ -163,15 +163,14 @@ lex_rules\<open>
 <INITIAL>"]"      => (tokF (yypos, yytext, Markup.delimiter, "TRBRACK", Tokens.TRBRACK));
 <INITIAL>"{"      => (tokF (yypos, yytext, Markup.delimiter, "TLBRACE", Tokens.TLBRACE));
 <INITIAL>"}"      => (tokF (yypos, yytext, Markup.delimiter, "TRBRACE", Tokens.TRBRACE));
-<INITIAL>\\"<llangle>"          => (report_fixed (yypos, 1, Markup.delimiter, "VALAQ"); start_aq Value_AQ yypos (yypos + size yytext); YYBEGIN VAQ; lex());
-<INITIAL>\\"<epsilon>"\\"<open>" => (report_fixed (yypos, 1, Markup.literal, "EXPRAQ"); start_aq Expr_AQ yypos (yypos + size yytext); YYBEGIN EAQ; lex());
-<INITIAL>\\"<Rightarrow>" => (report_fixed (yypos, 1, Markup.delimiter, "TARROW");
-    Tokens.TARROW (fixed_pos yypos, fixed_pos (yypos + size yytext)));
+<INITIAL>\\"<llangle>"          => (report_text (yypos, yytext, Markup.delimiter, "VALAQ"); start_aq Value_AQ yypos (yypos + size yytext); YYBEGIN VAQ; lex());
+<INITIAL>\\"<epsilon>"\\"<open>" => (report_text (yypos, hd (Symbol.explode yytext), Markup.literal, "EXPRAQ"); start_aq Expr_AQ yypos (yypos + size yytext); YYBEGIN EAQ; lex());
+<INITIAL>\\"<Rightarrow>" => (tokF (yypos, yytext, Markup.delimiter, "TARROW", Tokens.TARROW));
 <INITIAL>.        => (URust_Err.lex_error yytext (fixed_pos yypos));
 <VAQ>\\"<llangle>" => (aq_depth := !aq_depth + 1; push_aq yytext; lex());
 <VAQ>\\"<rrangle>" =>
     (if !aq_depth > 0 then (aq_depth := !aq_depth - 1; push_aq yytext; lex())
-     else (YYBEGIN INITIAL; report_fixed (yypos, 1, Markup.delimiter, "VALAQ");
+     else (YYBEGIN INITIAL; report_text (yypos, yytext, Markup.delimiter, "VALAQ");
        let val p = fixed_pos (!aq_start) val q = fixed_pos yypos val body = take_aq ()
        in Tokens.VALAQ (Input.source true body (Position.range (p, q)), p, q) end));
 <VAQ>\n           => (push_aq "\n"; lex());
@@ -179,7 +178,7 @@ lex_rules\<open>
 <EAQ>\\"<open>"    => (aq_depth := !aq_depth + 1; push_aq yytext; lex());
 <EAQ>\\"<close>"   =>
     (if !aq_depth > 0 then (aq_depth := !aq_depth - 1; push_aq yytext; lex())
-     else (YYBEGIN INITIAL; report_fixed (yypos, 1, Markup.delimiter, "EXPRAQ");
+     else (YYBEGIN INITIAL; report_text (yypos, yytext, Markup.delimiter, "EXPRAQ");
        let val p = fixed_pos (!aq_start) val q = fixed_pos yypos val body = take_aq ()
        in Tokens.EXPRAQ (Input.source true body (Position.range (p, q)), p, q) end));
 <EAQ>\n           => (push_aq "\n"; lex());

@@ -41,34 +41,50 @@ struct
         val i = search 0 n
       in #2 (Vector.sub (spans, Int.min (i, n - 1))) end
 
-  (* Derive the report end from the token length. Looking up yypos+len would select the next symbol. *)
-  fun report_fixed pos_map (yypos, len, markup, typ) =
-    if 0 < len then
-      let
-        val {line, offset, props, ...} = Position.dest (fixed_pos pos_map yypos)
-        val p = Position.make {line = line, offset = offset, end_offset = offset + len, props = props}
-      in
-        Position.report p markup;
-        Position.report_text p Markup.typing typ
-      end
-    else ()
+  fun text_range pos_map (yypos, text) =
+    let val start = fixed_pos pos_map yypos
+    in Position.range (start, Position.symbol_explode text start) end
 
-  fun report_fixed_text pos_map (yypos, text, markup, typ) =
-    report_fixed pos_map (yypos, length (Symbol.explode text), markup, typ)
+  fun report_range ((start, stop), markup, typ) =
+    let val pos = Position.range_position (start, stop)
+    in
+      Position.report pos markup;
+      Position.report_text pos Markup.typing typ
+    end
+
+  fun report_text pos_map (yypos, text, markup, typ) =
+    if text = "" then () else report_range (text_range pos_map (yypos, text), markup, typ)
 
   fun tokF pos_map (yypos, yytext, markup, typ, cons) =
-    (report_fixed pos_map (yypos, size yytext, markup, typ);
-     cons (fixed_pos pos_map yypos, fixed_pos pos_map (yypos + size yytext)))
+    let val range = text_range pos_map (yypos, yytext)
+    in report_range (range, markup, typ); cons range end
 
   (* Isabelle_Lex-Yacc's tok_val uses the start for both ends; preserve the real right position. *)
   fun tok_valF pos_map (yypos, yytext, markup, typ, cons, value) =
-    (report_fixed pos_map (yypos, size yytext, markup, typ);
-     cons (value, fixed_pos pos_map yypos, fixed_pos pos_map (yypos + size yytext)))
+    let val range as (start, stop) = text_range pos_map (yypos, yytext)
+    in report_range (range, markup, typ); cons (value, start, stop) end
 
   fun ident_pos pos_map (yypos, yytext) =
-    let val {line, offset, props, ...} = Position.dest (fixed_pos pos_map yypos)
-    in Position.make {line = line, offset = offset, end_offset = offset + size yytext, props = props} end
+    Position.range_position (text_range pos_map (yypos, yytext))
 end
+\<close>
+
+ML_val\<open>
+  val source_start = Position.make0 1 10 0 "" "" ""
+  val source_text = "\<open>a\<Rightarrow>b\<close>"
+  val source_stop = Position.symbol_explode source_text source_start
+  val source = Input.source true source_text (Position.range (source_start, source_stop))
+  val pos_map = Parser_Lex_Util.make_position_map source
+  val arrow = "\<Rightarrow>"
+  val (start, stop) = Parser_Lex_Util.text_range pos_map (2, arrow)
+  val following = Parser_Lex_Util.fixed_pos pos_map (2 + size arrow)
+  val _ =
+    if Position.offset_of start = SOME 12 andalso
+       Position.end_offset_of start = SOME 13 andalso
+       Position.offset_of stop = SOME 13 andalso
+       Position.offset_of following = SOME 13
+    then ()
+    else error "Parser_Lex_Util did not map raw lexer offsets to Isabelle-symbol ranges"
 \<close>
 
 ML\<open>

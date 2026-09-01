@@ -74,7 +74,7 @@ fun set source ctxt =
 fun fixed_pos yypos = Parser_Lex_Util.fixed_pos (!pos_map) yypos
 fun tokF args       = Parser_Lex_Util.tokF (!pos_map) args
 fun tok_valF args   = Parser_Lex_Util.tok_valF (!pos_map) args
-fun report_fixed args = Parser_Lex_Util.report_fixed (!pos_map) args
+fun report_text args = Parser_Lex_Util.report_text (!pos_map) args
 fun tok_id (yypos, yytext) =
   let val p = Parser_Lex_Util.ident_pos (!pos_map) (yypos, yytext)
   in Tokens.TID (yytext, p, p) end
@@ -103,13 +103,13 @@ lex_rules\<open>
 <INITIAL>"("      => (tokF (yypos, yytext, Markup.delimiter, "TLPAR", Tokens.TLPAR));
 <INITIAL>")"      => (tokF (yypos, yytext, Markup.delimiter, "TRPAR", Tokens.TRPAR));
 <INITIAL>{alpha}({alpha}|{digit})* => (tok_id (yypos, yytext));
-<INITIAL>\\"<llangle>" => (report_fixed (yypos, 1, Markup.delimiter, "TAQ");
+<INITIAL>\\"<llangle>" => (report_text (yypos, yytext, Markup.delimiter, "TAQ");
     start_aq yypos (yypos + size yytext); YYBEGIN AQ; lex());
 <INITIAL>.        => (Toy_Err.lex_error yytext (fixed_pos yypos));
 <AQ>\\"<llangle>" => (aq_depth := !aq_depth + 1; push_aq yytext; lex());
 <AQ>\\"<rrangle>" =>
     (if !aq_depth > 0 then (aq_depth := !aq_depth - 1; push_aq yytext; lex())
-     else (YYBEGIN INITIAL; report_fixed (yypos, 1, Markup.delimiter, "TAQ");
+     else (YYBEGIN INITIAL; report_text (yypos, yytext, Markup.delimiter, "TAQ");
        let val p = fixed_pos (!aq_start) val q = fixed_pos yypos val body = take_aq ()
        in Tokens.TAQ (Input.source true body (Position.range (p, q)), p, q) end));
 <AQ>\n            => (push_aq "\n"; lex());
