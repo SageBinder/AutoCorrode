@@ -57,7 +57,9 @@ fun take_aq () =
 
 (* A suffixed integer literal is deliberately NOT interpreted here: the lexer captures the raw lexeme and
    the elaboration term layer reads it against the single suffix table, so an unknown suffix is a
-   POSITIONED elaborator error rather than an unpositioned `raise Fail` in lexer code (D29).
+   POSITIONED elaborator error rather than an unpositioned `raise Fail` in lexer code (D29). The bare-hex
+   rule precedes the general digit-plus-identifier rule so equal-length `0xff` is NUM, while longer
+   `0xffu8` and unsupported glued suffixes are each one NUMSFX token.
 
    Per-lexer position-map ref + set-shadow; the position MATH is shared (Parser_Lex_Util). tok_ident emits NO
    colour -- ident_term does that once it knows the name's role, so the markup cannot split (D14). *)
@@ -92,9 +94,11 @@ ws = [\ \t\r];
 lex_rules\<open>
 <INITIAL>\n       => (lex());
 <INITIAL>{ws}+    => (lex());
-<INITIAL>({digit}+|"0x"{hexdigit}+)"_"{idchar}+ =>
+<INITIAL>"0x"{hexdigit}+ =>
+    (tok_valF (yypos, yytext, Markup.numeral, "NUM", Tokens.NUM, yytext));
+<INITIAL>{digit}+{idstart}{idchar}* =>
     (tok_valF (yypos, yytext, Markup.numeral, "NUMSFX", Tokens.NUMSFX, yytext));
-<INITIAL>({digit}+|"0x"{hexdigit}+) =>
+<INITIAL>{digit}+ =>
     (tok_valF (yypos, yytext, Markup.numeral, "NUM", Tokens.NUM, yytext));
 <INITIAL>"true"   => (tokF (yypos, yytext, Markup.keyword1, "TTRUE", Tokens.TTRUE));
 <INITIAL>"false"  => (tokF (yypos, yytext, Markup.keyword1, "TFALSE", Tokens.TFALSE));

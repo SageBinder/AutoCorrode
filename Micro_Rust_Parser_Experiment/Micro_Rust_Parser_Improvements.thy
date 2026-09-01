@@ -39,6 +39,65 @@ val _ = Outer_Syntax.local_theory \<^command_keyword>\<open>old_urust_rejects\<c
 \<close>
 
 
+section\<open> Rust-compatible integer suffixes \<close>
+
+text\<open>
+The custom lexer accepts Rust's glued integer suffixes. Each decimal and hexadecimal
+form is equal to the old frontend's underscore spelling, which remains accepted.
+The old frontend rejects every glued spelling below.
+\<close>
+
+urust_expr improvement_integer_suffix_decimal_u8 \<open> 1u8 \<close>
+lemma \<open> improvement_integer_suffix_decimal_u8 = \<lbrakk> 1_u8 \<rbrakk> \<close>
+  unfolding improvement_integer_suffix_decimal_u8_def by (rule refl)
+old_urust_rejects \<open> 1u8 \<close>
+
+urust_expr improvement_integer_suffix_hex_u8 \<open> 0xffu8 \<close>
+lemma \<open> improvement_integer_suffix_hex_u8 = \<lbrakk> 0xff_u8 \<rbrakk> \<close>
+  unfolding improvement_integer_suffix_hex_u8_def by (rule refl)
+old_urust_rejects \<open> 0xffu8 \<close>
+
+urust_expr improvement_integer_suffix_decimal_u16 \<open> 2u16 \<close>
+lemma \<open> improvement_integer_suffix_decimal_u16 = \<lbrakk> 2_u16 \<rbrakk> \<close>
+  unfolding improvement_integer_suffix_decimal_u16_def by (rule refl)
+old_urust_rejects \<open> 2u16 \<close>
+
+urust_expr improvement_integer_suffix_hex_u16 \<open> 0x12abu16 \<close>
+lemma \<open> improvement_integer_suffix_hex_u16 = \<lbrakk> 0x12ab_u16 \<rbrakk> \<close>
+  unfolding improvement_integer_suffix_hex_u16_def by (rule refl)
+old_urust_rejects \<open> 0x12abu16 \<close>
+
+urust_expr improvement_integer_suffix_decimal_u32 \<open> 3u32 \<close>
+lemma \<open> improvement_integer_suffix_decimal_u32 = \<lbrakk> 3_u32 \<rbrakk> \<close>
+  unfolding improvement_integer_suffix_decimal_u32_def by (rule refl)
+old_urust_rejects \<open> 3u32 \<close>
+
+urust_expr improvement_integer_suffix_hex_u32 \<open> 0x1234abcdu32 \<close>
+lemma \<open> improvement_integer_suffix_hex_u32 = \<lbrakk> 0x1234abcd_u32 \<rbrakk> \<close>
+  unfolding improvement_integer_suffix_hex_u32_def by (rule refl)
+old_urust_rejects \<open> 0x1234abcdu32 \<close>
+
+urust_expr improvement_integer_suffix_decimal_u64 \<open> 4u64 \<close>
+lemma \<open> improvement_integer_suffix_decimal_u64 = \<lbrakk> 4_u64 \<rbrakk> \<close>
+  unfolding improvement_integer_suffix_decimal_u64_def by (rule refl)
+old_urust_rejects \<open> 4u64 \<close>
+
+urust_expr improvement_integer_suffix_hex_u64 \<open> 0x123456789abcdef0u64 \<close>
+lemma \<open> improvement_integer_suffix_hex_u64 = \<lbrakk> 0x123456789abcdef0_u64 \<rbrakk> \<close>
+  unfolding improvement_integer_suffix_hex_u64_def by (rule refl)
+old_urust_rejects \<open> 0x123456789abcdef0u64 \<close>
+
+urust_expr improvement_integer_suffix_decimal_usize \<open> 5usize \<close>
+lemma \<open> improvement_integer_suffix_decimal_usize = \<lbrakk> 5_usize \<rbrakk> \<close>
+  unfolding improvement_integer_suffix_decimal_usize_def by (rule refl)
+old_urust_rejects \<open> 5usize \<close>
+
+urust_expr improvement_integer_suffix_hex_usize \<open> 0xffffffff0usize \<close>
+lemma \<open> improvement_integer_suffix_hex_usize = \<lbrakk> 0xffffffff0_usize \<rbrakk> \<close>
+  unfolding improvement_integer_suffix_hex_usize_def by (rule refl)
+old_urust_rejects \<open> 0xffffffff0usize \<close>
+
+
 section\<open> ASCII match arrows \<close>
 
 urust_expr improvement_ascii_match_arrow
