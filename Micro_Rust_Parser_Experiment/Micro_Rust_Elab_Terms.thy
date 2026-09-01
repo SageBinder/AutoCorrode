@@ -27,6 +27,9 @@ sig
   val conditional: term -> term -> term -> term
   val bounded_while: term -> term -> term -> term
   val bounded_loop: term -> term -> term
+  val for_loop: term -> term -> term
+  val into_iterator: term -> term
+  val skip: term
   val binary: URust_AST.binop -> term -> term -> term
   val unary: URust_AST.unaryop -> Position.T -> term -> term
   val assignment_binary: URust_AST.assign_binop -> term -> term -> term
@@ -263,6 +266,15 @@ struct
   fun bounded_loop fuel body =
     bounded_while fuel
       (literal (Const (\<^const_name>\<open>True\<close>, dummyT))) body
+
+  fun for_loop iterator body =
+    constant \<^const_name>\<open>for_loop\<close> [iterator, body]
+
+  fun into_iterator iterable =
+    constant \<^const_name>\<open>funcall1\<close>
+      [Const (\<^const_name>\<open>into_iter\<close>, dummyT), iterable]
+
+  val skip = literal HOLogic.unit
 
   fun propagate pos expression =
     positioned_constant \<^const_name>\<open>propagate_const\<close> pos [expression]

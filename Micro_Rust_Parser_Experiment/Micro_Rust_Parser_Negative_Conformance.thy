@@ -194,27 +194,27 @@ record negative_record_fixture =
   negative_record_right :: nat
 
 urust_expr_rejects \<open> let Some(x) = \<llangle>Some (0 :: nat)\<rrangle>; () \<close>
-  \<open> refutable pattern in an irrefutable (let/const) binder position \<close>
+  \<open> unsupported or refutable pattern in an irrefutable (let/const) binder position \<close>
   \<comment> \<open> [FIDELITY] the site gate on the ONE pattern language (D28). The frontend rejects it as well,
        though less cleanly -- an uncaught \<open>TERM\<close> exception out of \<open>abs_tr _shallow_let_pattern\<close>. \<close>
 
 urust_expr_rejects
   \<open> let (Some(x), y) = \<llangle>(Some (0 :: nat), (True, TNil))\<rrangle>; () \<close>
-  \<open> refutable pattern in an irrefutable (let/const) binder position \<close>
+  \<open> unsupported or refutable pattern in an irrefutable (let/const) binder position \<close>
   \<comment> \<open> [FIDELITY] tuple binders recurse through the irrefutability gate, so the constructor component
        is rejected at its own source position. \<close>
 
 urust_expr_rejects \<open> let true = true; () \<close>
-  \<open> refutable pattern in an irrefutable (let/const) binder position \<close>
+  \<open> unsupported or refutable pattern in an irrefutable (let/const) binder position \<close>
   \<comment> \<open> [FIDELITY] boolean value patterns are refutable. \<close>
 
 urust_expr_rejects \<open> const "ok" = "ok"; () \<close>
-  \<open> refutable pattern in an irrefutable (let/const) binder position \<close>
+  \<open> unsupported or refutable pattern in an irrefutable (let/const) binder position \<close>
   \<comment> \<open> [FIDELITY] string value patterns are refutable. \<close>
 
 urust_expr_rejects
   \<open> let \<llangle>2 :: nat\<rrangle> = \<llangle>2 :: nat\<rrangle>; () \<close>
-  \<open> refutable pattern in an irrefutable (let/const) binder position \<close>
+  \<open> unsupported or refutable pattern in an irrefutable (let/const) binder position \<close>
   \<comment> \<open> [FIDELITY] value-antiquotation patterns are refutable. \<close>
 
 urust_expr_rejects
@@ -245,13 +245,13 @@ urust_expr_rejects
 
 urust_expr_rejects
   \<open> let mut (Some(x), y) = \<llangle>(Some (1 :: nat), (2 :: nat, TNil))\<rrangle>; x \<close>
-  \<open> refutable pattern in an irrefutable (let/const) binder position \<close>
+  \<open> unsupported or refutable pattern in an irrefutable (let/const) binder position \<close>
   \<comment> \<open> [FIDELITY] top-level tuple \<open>mut\<close> is erased, after which the ordinary recursive
        irrefutability gate rejects a constructor component at its own position. \<close>
 
 urust_expr_rejects
   \<open> let &x = \<llangle>1 :: nat\<rrangle>; x \<close>
-  \<open> refutable pattern in an irrefutable (let/const) binder position \<close>
+  \<open> unsupported or refutable pattern in an irrefutable (let/const) binder position \<close>
   \<comment> \<open> [FIDELITY] borrow-pattern stripping is a case-pattern translation in the frontend, not an
        irrefutable let/const rule. \<close>
 
@@ -412,22 +412,22 @@ urust_expr_rejects
 
 urust_expr_rejects
   \<open> let whole @ x = \<llangle>1 :: nat\<rrangle>; x \<close>
-  \<open> refutable pattern in an irrefutable (let/const) binder position \<close>
+  \<open> unsupported or refutable pattern in an irrefutable (let/const) binder position \<close>
   \<comment> \<open> [FIDELITY] aliases remain outside irrefutable let binders. \<close>
 
 urust_expr_rejects
   \<open> const (1..=2) = \<llangle>1 :: nat\<rrangle>; () \<close>
-  \<open> refutable pattern in an irrefutable (let/const) binder position \<close>
+  \<open> unsupported or refutable pattern in an irrefutable (let/const) binder position \<close>
   \<comment> \<open> [FIDELITY] ranges remain outside irrefutable const binders. \<close>
 
 urust_expr_rejects
   \<open> let [x, ..] = \<llangle>[1 :: nat]\<rrangle>; x \<close>
-  \<open> refutable pattern in an irrefutable (let/const) binder position \<close>
+  \<open> unsupported or refutable pattern in an irrefutable (let/const) binder position \<close>
   \<comment> \<open> [FIDELITY] slices remain outside irrefutable let binders. \<close>
 
 urust_expr_rejects
   \<open> const NegativeStruct { negative_left: x, .. } = \<llangle>NegativeStruct 1 2\<rrangle>; () \<close>
-  \<open> refutable pattern in an irrefutable (let/const) binder position \<close>
+  \<open> unsupported or refutable pattern in an irrefutable (let/const) binder position \<close>
   \<comment> \<open> [FIDELITY] structs remain outside irrefutable const binders. \<close>
 
 urust_expr_rejects
@@ -589,9 +589,38 @@ urust_expr_rejects \<open> r + other *= rhs \<close> \<open> invalid assignment 
 
 section\<open> Fueled loops \<close>
 
+urust_expr_rejects
+  \<open> for Some(value) in \<llangle>[Some (1 :: nat)]\<rrangle> { () } \<close>
+  \<open> unsupported or refutable pattern in a `for` binder position \<close>
+  \<comment> \<open> [FIDELITY] \<open>for\<close> uses the frontend's irrefutable binder shape. \<close>
+
+urust_expr_rejects
+  \<open> for true in \<llangle>[True]\<rrangle> { () } \<close>
+  \<open> unsupported or refutable pattern in a `for` binder position \<close>
+  \<comment> \<open> [FIDELITY] literal loop binders are rejected at the pattern site. \<close>
+
+urust_expr_rejects
+  \<open> for whole @ value in \<llangle>[1 :: nat]\<rrangle> { () } \<close>
+  \<open> unsupported or refutable pattern in a `for` binder position \<close>
+  \<comment> \<open> [FIDELITY] aliases remain unsupported in \<open>for\<close> binders. \<close>
+
+urust_expr_rejects
+  \<open> for &value in \<llangle>[1 :: nat]\<rrangle> { () } \<close>
+  \<open> unsupported or refutable pattern in a `for` binder position \<close>
+  \<comment> \<open> [FIDELITY] borrow syntax remains unsupported in \<open>for\<close> binders. \<close>
+
+new_urust_rejects
+  \<open> for value in \<llangle>1 :: nat\<rrangle> .. \<llangle>3 :: nat\<rrangle> { () } \<close>
+  \<open> TDOTDOT \<close>
+  \<comment> \<open> [DIVERGENT] range expressions remain deferred even though \<open>for\<close> itself is supported. \<close>
+
 urust_expr_rejects \<open> while (true) { () } \<close>
   \<open> TWHILE \<close>
   \<comment> \<open> [FIDELITY] \<open>while\<close> requires the existing frontend's fuel annotation. \<close>
+
+urust_expr_rejects \<open> while let Some(value) = Some(1) { () } \<close>
+  \<open> TWHILE \<close>
+  \<comment> \<open> [FIDELITY] \<open>while let\<close> also requires a fuel annotation. \<close>
 
 urust_expr_rejects \<open> loop { () } \<close>
   \<open> TLOOP \<close>
@@ -615,6 +644,41 @@ urust_expr_rejects
   \<open> #[fuel(\<epsilon>\<open>1 :: nat\<close>)] loop { () } == () \<close>
   \<open> TEQEQ \<close>
   \<comment> \<open> [FIDELITY] a fueled loop needs parentheses in binary operand position. \<close>
+
+urust_expr_rejects
+  \<open> for value in \<llangle>[1 :: nat]\<rrangle> { () } == () \<close>
+  \<open> syntax error found at TEQEQ \<close>
+  \<comment> \<open> [FIDELITY] a bare \<open>for\<close> loop is not a binary operand. \<close>
+
+urust_expr_rejects
+  \<open> #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let Some(value) =
+    \<llangle>Some (1 :: nat)\<rrangle> { () } == () \<close>
+  \<open> syntax error found at TEQEQ \<close>
+  \<comment> \<open> [FIDELITY] a bare \<open>while let\<close> loop is not a binary operand. \<close>
+
+urust_expr_rejects
+  \<open> #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let Some(value)
+    \<llangle>Some (1 :: nat)\<rrangle> { () } \<close>
+  \<open> VALAQ \<close>
+  \<comment> \<open> [FIDELITY] the pattern and scrutinee require an equals delimiter. \<close>
+
+urust_expr_rejects
+  \<open> #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let 0 =
+    \<llangle>0 :: nat\<rrangle> { () } \<close>
+  \<open> numeric pattern in match_case \<close>
+  \<comment> \<open> [FIDELITY] case numerals retain the existing frontend rejection. \<close>
+
+urust_expr_rejects
+  \<open> #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let Some(_) | None =
+    \<llangle>Some (1 :: nat)\<rrangle> { () } \<close>
+  \<open> clauses are redundant \<close>
+  \<comment> \<open> [FIDELITY] datatype/or-pattern exhaustiveness remains deferred to resolved-pattern
+    analysis; the generated false fallback is still rejected as redundant. \<close>
+
+urust_expr_rejects
+  \<open> for value in \<llangle>[1 :: nat]\<rrangle> { () } 1 2 \<close>
+  \<open> syntax error found at NUM \<close>
+  \<comment> \<open> [FIDELITY] semicolon-free sequencing does not admit value juxtaposition. \<close>
 
 section\<open> Lexer and whole-input failures \<close>
 

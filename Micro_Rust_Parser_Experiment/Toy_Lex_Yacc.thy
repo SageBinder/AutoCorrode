@@ -122,7 +122,9 @@ yacc_definitions\<open>
 %eop EOF
 %noshift EOF
 
-(* UMINUS is an unlexed precedence marker, tighter than multiplication. *)
+(* A let body extends through following arithmetic. UMINUS is an unlexed precedence marker,
+   tighter than multiplication. *)
+%right TLET
 %left TPLUS TMINUS
 %left TTIMES
 %left UMINUS
@@ -147,7 +149,8 @@ yacc_rules\<open>
        | TLPAR texp TRPAR              (texp)
        | TID TLPAR TRPAR               (E_Call (TID, [], TIDleft))
        | TID TLPAR targs TRPAR         (E_Call (TID, targs, TIDleft))
-       | TLET TID TEQ texp TSEMI texp  (E_Let (TID, texp1, texp2, TIDleft))
+       | TLET TID TEQ texp TSEMI texp %prec TLET
+                                          (E_Let (TID, texp1, texp2, TIDleft))
   targs : texp                         ([texp])
         | texp TCOMMA targs            (texp :: targs)
 \<close>

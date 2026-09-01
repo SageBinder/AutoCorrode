@@ -159,8 +159,9 @@ adhoc_overloading store_update_const \<rightleftharpoons> showoff_update
 
 text\<open>
 Features: fuel captured from local binders, nested fueled loops, semicolon-free
-loop sequencing, mutable word and boolean state, numeric switching, assignment,
-and a tuple result after the outer loop.
+loop sequencing, iterator conversion and loop-pattern binders, mutable word,
+boolean, and optional state, numeric switching, assignment, and
+\<open>while let\<close> termination.
 \<close>
 
 urust_expr_with_check showoff_nested_loops
@@ -186,6 +187,22 @@ urust_expr_with_check showoff_nested_loops
       };
     }
     (*phase, *active)
+  \<close>
+
+urust_expr_with_check showoff_for_and_while_let
+  \<open>
+    let values = \<llangle>[1 :: 32 word, 2, 3]\<rrangle>;
+    let mut total = 0_u32;
+    for value in values {
+      *total += value;
+    }
+    let steps = \<llangle>2 :: nat\<rrangle>;
+    let mut pending = \<llangle>Some (4 :: 32 word)\<rrangle>;
+    #[fuel(\<epsilon>\<open>steps\<close>)] while let Some(extra) = *pending {
+      *total += extra;
+      *pending = None;
+    }
+    *total
   \<close>
 
 text\<open>

@@ -9,13 +9,20 @@ signature URUST_PATTERNS =
 sig
   type case_alternative
   type prepared_case_arm
+  datatype binder_site =
+      Let_Const_Binder
+    | For_Binder
+    | While_Let_Binder
 
   val position: URust_AST.ur_pat -> Position.T
   val bind_irrefutable:
-    Proof.context ->
+    binder_site ->
+      Proof.context ->
       URust_Resolution.environment ->
       URust_AST.ur_pat ->
       (term -> term) * URust_Resolution.environment
+  val is_while_let_irrefutable:
+    Proof.context -> URust_AST.ur_pat -> bool
 
   val select_match_flavour:
     URust_AST.match_flavour ->
@@ -57,6 +64,11 @@ struct
   open URust_AST
   structure T = URust_Elab_Terms
   structure R = URust_Resolution
+
+  datatype binder_site =
+      Let_Const_Binder
+    | For_Binder
+    | While_Let_Binder
 
   fun position (P_Wild pos) = pos
     | position (P_Ident (_, pos)) = pos
@@ -124,7 +136,14 @@ struct
          | _ => ())
     in selected end
 
-  fun bind_irrefutable ctxt environment pattern =
+  fun binder_site_description Let_Const_Binder =
+        "an irrefutable (let/const) binder position"
+    | binder_site_description For_Binder =
+        "a `for` binder position"
+    | binder_site_description While_Let_Binder =
+        "a `while let` binder position"
+
+  fun bind_irrefutable site ctxt environment pattern =
     (case strip_groups pattern of
        (* A let identifier is always a variable binder. In particular, `let None = ...` must not be
           reclassified as a nullary constructor. *)
@@ -139,7 +158,7 @@ struct
            val (abstractions, environment') =
              fold_map
                (fn nested => fn nested_environment =>
-                 bind_irrefutable ctxt nested_environment nested)
+                 bind_irrefutable site ctxt nested_environment nested)
                patterns environment
            fun tuple_abstraction [abstraction] body =
                  T.case_product (abstraction (R.anonymous_abstraction body))
@@ -148,9 +167,52 @@ struct
              | tuple_abstraction [] _ =
                  error "urust_expr: internal empty tuple pattern"
          in (fn body => tuple_abstraction abstractions body, environment') end
+     | P_Borrow (_, inner, _) =>
+         (case site of
+            While_Let_Binder =>
+              bind_irrefutable site ctxt environment inner
+          | _ =>
+              error ("urust_expr: unsupported or refutable pattern in " ^
+                binder_site_description site ^
+                Position.here (position pattern)))
+     | P_Alias ("_", pos, _, _) =>
+         error ("urust_expr: alias pattern binder cannot be `_`" ^
+           Position.here pos)
+     | P_Alias (name, pos, inner, _) =>
+         (case site of
+            While_Let_Binder =>
+              let
+                val matched =
+                  Free ("_urust_while_let_" ^ string_of_int (serial ()), dummyT)
+                val (alias_free, alias_environment) =
+                  R.bind_local ctxt environment (name, pos)
+                val (inner_abstraction, environment') =
+                  bind_irrefutable site ctxt alias_environment inner
+                fun abstraction body =
+                  Term.lambda matched
+                    (T.bind (T.literal matched)
+                      (Term.lambda alias_free
+                        (Term.betapply (inner_abstraction body, matched))))
+              in (abstraction, environment') end
+          | _ =>
+              error ("urust_expr: unsupported or refutable pattern in " ^
+                binder_site_description site ^
+                Position.here (position pattern)))
      | _ =>
-         error ("urust_expr: refutable pattern in an irrefutable (let/const) binder position" ^
+         error ("urust_expr: unsupported or refutable pattern in " ^
+           binder_site_description site ^
            Position.here (position pattern)))
+
+  fun is_while_let_irrefutable ctxt pattern =
+    (case pattern of
+       P_Wild _ => true
+     | P_Ident (name, _) => is_none (R.resolve_constructor ctxt name)
+     | P_Tuple (patterns, _) =>
+         List.all (is_while_let_irrefutable ctxt) patterns
+     | P_Group inner => is_while_let_irrefutable ctxt inner
+     | P_Borrow (_, inner, _) => is_while_let_irrefutable ctxt inner
+     | P_Alias (_, _, inner, _) => is_while_let_irrefutable ctxt inner
+     | _ => false)
 
   fun switch_alternatives (P_Or (patterns, _)) =
         maps switch_alternatives patterns

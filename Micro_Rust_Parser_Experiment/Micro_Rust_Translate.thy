@@ -40,12 +40,80 @@ struct
     let
       val lowered_rhs = wrap_rhs (lower environment rhs)
       val (abstraction, body_environment) =
-        P.bind_irrefutable ctxt environment pattern
+        P.bind_irrefutable P.Let_Const_Binder ctxt environment pattern
       val lowered_body = lower body_environment body
     in T.bind lowered_rhs (abstraction lowered_body) end
 
   fun lower_fuel ctxt environment source =
     R.parse_antiquotation ctxt environment source
+
+  fun lower_case_alternatives ctxt environment scrutinee lower_result alternatives =
+    let
+      fun lower_alternative (tag, alternative) =
+        let
+          val prepared =
+            P.prepare_case_arm ctxt environment alternative
+          val arm_environment = P.prepared_environment prepared
+          val (lowered_guard, lowered_body) =
+            lower_result tag arm_environment prepared
+        in (prepared, lowered_guard, lowered_body) end
+    in
+      P.compile_case ctxt scrutinee (map lower_alternative alternatives)
+    end
+
+  fun lower_for lower ctxt environment (pattern, iterable, body) =
+    let
+      val lowered_iterable = lower environment iterable
+      val (abstraction, body_environment) =
+        P.bind_irrefutable P.For_Binder ctxt environment pattern
+      val lowered_body = lower body_environment body
+    in
+      T.for_loop (T.into_iterator lowered_iterable)
+        (abstraction lowered_body)
+    end
+
+  datatype while_let_alternative =
+      While_Let_Success
+    | While_Let_Fallback
+
+  fun lower_while_let lower ctxt environment
+      (fuel, pattern, scrutinee, body) =
+    let
+      val lowered_fuel = lower_fuel ctxt environment fuel
+      val lowered_scrutinee = lower environment scrutinee
+      val condition =
+        if P.is_while_let_irrefutable ctxt pattern then
+          let
+            val (abstraction, body_environment) =
+              P.bind_irrefutable P.While_Let_Binder
+                ctxt environment pattern
+            val success =
+              T.sequence (lower body_environment body)
+                (T.literal T.true_value)
+          in T.bind lowered_scrutinee (abstraction success) end
+        else
+          let
+            fun tagged tag arms =
+              map (fn alternative => (tag, alternative))
+                (P.case_alternatives arms)
+            val alternatives =
+              tagged While_Let_Success
+                [UR_Arm (pattern, NONE, body)] @
+              tagged While_Let_Fallback
+                  [UR_Arm
+                    (P_Wild Position.none, NONE, UE_Unit Position.none)]
+            fun lower_result While_Let_Success arm_environment prepared =
+                  (NONE,
+                   T.sequence
+                     (lower arm_environment (P.prepared_body prepared))
+                     (T.literal T.true_value))
+              | lower_result While_Let_Fallback _ _ =
+                  (NONE, T.literal T.false_value)
+          in
+            lower_case_alternatives ctxt environment lowered_scrutinee
+              lower_result alternatives
+          end
+    in T.bounded_while lowered_fuel condition T.skip end
 
   (* Mutable scalar bindings allocate one store reference. Top-level tuple mutability remains erased,
      matching the frontend, and no binder-kind metadata is introduced. *)
@@ -92,21 +160,18 @@ struct
            end
        | MF_Case =>
            let
-             fun lower_arm alternative =
-               let
-                 val prepared =
-                   P.prepare_case_arm ctxt environment alternative
-                 val arm_environment = P.prepared_environment prepared
-                 val lowered_guard =
-                   Option.map
-                     (fn (guard, _) => lower arm_environment guard)
-                     (P.prepared_guard prepared)
-                 val lowered_body =
-                   lower arm_environment (P.prepared_body prepared)
-               in (prepared, lowered_guard, lowered_body) end
-             val lowered_arms =
-               map lower_arm (P.case_alternatives arms)
-           in P.compile_case ctxt lowered_scrutinee lowered_arms end
+             val alternatives =
+               map (fn alternative => ((), alternative))
+                 (P.case_alternatives arms)
+             fun lower_result () arm_environment prepared =
+               (Option.map
+                  (fn (guard, _) => lower arm_environment guard)
+                  (P.prepared_guard prepared),
+                lower arm_environment (P.prepared_body prepared))
+           in
+             lower_case_alternatives ctxt environment lowered_scrutinee
+               lower_result alternatives
+           end
        | MF_Auto =>
            error "urust_expr: internal unresolved auto match flavour")
     end
@@ -160,6 +225,12 @@ struct
          T.bounded_loop
            (lower_fuel ctxt environment fuel)
            (lower_expression ctxt environment body)
+     | UE_For (pattern, iterable, body, _) =>
+         lower_for (lower_expression ctxt) ctxt environment
+           (pattern, iterable, body)
+     | UE_WhileLet (fuel, pattern, scrutinee, body, _) =>
+         lower_while_let (lower_expression ctxt) ctxt environment
+           (fuel, pattern, scrutinee, body)
      | UE_Let binding =>
          lower_binding (lower_expression ctxt) ctxt I environment binding
      | UE_LetMut binding =>

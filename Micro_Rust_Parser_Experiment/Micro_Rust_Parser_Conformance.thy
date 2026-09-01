@@ -1915,12 +1915,13 @@ urust_expr_with_check bind_hol_constant_triple_shadow
 end
 
 
-section\<open> Fueled while and loop expressions \<close>
+section\<open> For, fueled while, loop, and while-let expressions \<close>
 
 text\<open>
 Fuel is an expression antiquotation lowered in the current lexical environment.
-Conditions and bodies use that same environment. Fueled loops are block-like values:
-they sequence without a semicolon and require grouping in binary operand position.
+Conditions, iterables, and scrutinees use the outer environment, while pattern
+binders scope over loop bodies. All loop forms are block-like values: they
+sequence without a semicolon and require grouping in binary operand position.
 \<close>
 
 adhoc_overloading assign_add_const \<rightleftharpoons> parser_assign_add_fixture
@@ -1959,6 +1960,216 @@ urust_expr_with_check fueled_loop_parenthesized_operand
   \<open> (#[fuel(\<epsilon>\<open>n\<close>)] loop { () }) == () \<close>
 
 end
+
+urust_expr_with_check for_terminal_identifier
+  \<open> for value in \<llangle>[1 :: nat, 2, 3]\<rrangle> { let _ = value; () } \<close>
+
+urust_expr_with_check for_semicolon
+  \<open> for value in \<llangle>[1 :: nat]\<rrangle> { let _ = value; () }; () \<close>
+
+urust_expr_with_check for_statement
+  \<open> for value in \<llangle>[1 :: nat]\<rrangle> { let _ = value; () } () \<close>
+
+urust_expr_with_check for_wildcard
+  \<open> for _ in \<llangle>[1 :: nat, 2]\<rrangle> { () } \<close>
+
+urust_expr_with_check for_tuple
+  \<open>
+    for (left, right) in
+      \<llangle>[(1 :: nat, 2 :: nat, TNil), (3, 4 :: nat, TNil)]\<rrangle> {
+      let _ = left;
+      let _ = right;
+      ()
+    }
+  \<close>
+
+urust_expr_with_check for_nested_tuple
+  \<open>
+    for (head, (middle, tail)) in
+      \<llangle>[(1 :: nat, (2 :: nat, 3 :: nat, TNil), TNil)]\<rrangle> {
+      \<llangle>head + middle + tail\<rrangle>;
+    }
+  \<close>
+
+urust_expr_with_check for_shadowing
+  \<open>
+    let value = \<llangle>[1 :: nat]\<rrangle>;
+    for value in value { \<llangle>value\<rrangle>; }
+    let _ = value;
+    ()
+  \<close>
+
+urust_expr_with_check for_body_capture
+  \<open>
+    let offset = \<llangle>10 :: nat\<rrangle>;
+    for value in \<llangle>[1 :: nat, 2]\<rrangle> {
+      \<llangle>value + offset\<rrangle>;
+    }
+  \<close>
+
+urust_expr_with_check for_grouped_binder
+  \<open> for (value) in \<llangle>[1 :: nat]\<rrangle> { let _ = value; () } \<close>
+
+urust_expr_with_check for_block_iterable
+  \<open> for value in { \<llangle>[1 :: nat]\<rrangle> } { let _ = value; () } \<close>
+
+urust_expr_with_check for_if_iterable
+  \<open>
+    for value in
+      (if true { \<llangle>[1 :: nat]\<rrangle> } else { \<llangle>[2 :: nat]\<rrangle> }) {
+      let _ = value;
+      ()
+    }
+  \<close>
+
+urust_expr_with_check for_match_iterable
+  \<open>
+    for value in
+      (match true {
+        true \<Rightarrow> \<llangle>[1 :: nat]\<rrangle>,
+        false \<Rightarrow> \<llangle>[2 :: nat]\<rrangle>
+      }) {
+      let _ = value;
+      ()
+    }
+  \<close>
+
+urust_expr_with_check for_keyword_prefix_identifiers
+  \<open>
+    let inside = \<llangle>[1 :: nat]\<rrangle>;
+    for format in inside {
+      let _ = format;
+      ()
+    }
+  \<close>
+
+context fixes n :: nat and g :: nat
+begin
+
+urust_expr_with_check while_let_some_semicolon
+  \<open> #[fuel(\<epsilon>\<open>n\<close>)] while let Some(value) = Some(g) { let _ = value; () }; () \<close>
+
+urust_expr_with_check while_let_some_statement
+  \<open> #[fuel(\<epsilon>\<open>n :: nat\<close>)] while let Some(value) = Some(g) { let _ = value; () } () \<close>
+
+urust_expr_with_check while_let_ok
+  \<open> #[fuel(\<epsilon>\<open>n\<close>)] while let Ok(value) =
+    \<llangle>Ok g :: (nat, unit) result\<rrangle> { let _ = value; () } \<close>
+
+urust_expr_with_check while_let_nested_constructor
+  \<open> #[fuel(\<epsilon>\<open>n\<close>)] while let Some(Some(value)) = Some(Some(g)) { let _ = value; () } \<close>
+
+urust_expr_with_check while_let_tuple
+  \<open>
+    #[fuel(\<epsilon>\<open>n\<close>)] while let (left, right) =
+      (\<llangle>g\<rrangle>, \<llangle>g + 1\<rrangle>) {
+      \<llangle>left + right\<rrangle>;
+    }
+  \<close>
+
+urust_expr_with_check while_let_terminal
+  \<open> #[fuel(\<epsilon>\<open>n\<close>)] while let None = \<llangle>None :: nat option\<rrangle> { () } \<close>
+
+urust_expr_with_check while_let_grouped_refutable_tuple
+  \<open>
+    #[fuel(\<epsilon>\<open>n\<close>)] while let ((Some(value), other)) =
+      (\<llangle>Some g\<rrangle>, \<llangle>g\<rrangle>) {
+      \<llangle>value + other\<rrangle>;
+    }
+  \<close>
+
+urust_expr_with_check while_let_refutable_alias
+  \<open>
+    #[fuel(\<epsilon>\<open>n\<close>)] while let whole @ Some(value) =
+      \<llangle>Some g\<rrangle> {
+      let _ = whole;
+      let _ = value;
+      ()
+    }
+  \<close>
+
+urust_expr_with_check while_let_refutable_borrow
+  \<open>
+    #[fuel(\<epsilon>\<open>n\<close>)] while let &Some(value) =
+      \<llangle>Some g\<rrangle> {
+      let _ = value;
+      ()
+    }
+  \<close>
+
+urust_expr_with_check while_let_refutable_literal
+  \<open> #[fuel(\<epsilon>\<open>n\<close>)] while let true = true { () } \<close>
+
+urust_expr_with_check while_let_refutable_slice
+  \<open>
+    #[fuel(\<epsilon>\<open>n\<close>)] while let [head, ..] =
+      \<llangle>[g]\<rrangle> {
+      let _ = head;
+      ()
+    }
+  \<close>
+
+urust_expr_with_check while_let_refutable_struct
+  \<open>
+    #[fuel(\<epsilon>\<open>n\<close>)] while let
+      AdvStruct { adv_left: left, adv_right: _ } =
+      \<llangle>AdvStruct g (g + 1)\<rrangle> {
+      let _ = left;
+      ()
+    }
+  \<close>
+
+urust_expr_with_check while_let_block_scrutinee
+  \<open>
+    #[fuel(\<epsilon>\<open>n\<close>)] while let Some(value) =
+      { \<llangle>Some g\<rrangle> } {
+      let _ = value;
+      ()
+    }
+  \<close>
+
+urust_expr_with_check while_let_if_scrutinee
+  \<open>
+    #[fuel(\<epsilon>\<open>n\<close>)] while let Some(value) =
+      (if true { \<llangle>Some g\<rrangle> } else { \<llangle>None\<rrangle> }) {
+      let _ = value;
+      ()
+    }
+  \<close>
+
+urust_expr_with_check while_let_match_scrutinee
+  \<open>
+    #[fuel(\<epsilon>\<open>n\<close>)] while let Some(value) =
+      (match true {
+        true \<Rightarrow> \<llangle>Some g\<rrangle>,
+        false \<Rightarrow> \<llangle>None\<rrangle>
+      }) {
+      let _ = value;
+      ()
+    }
+  \<close>
+
+end
+
+urust_expr_with_check while_let_fuel_capture
+  \<open>
+    let steps = \<llangle>2 :: nat\<rrangle>;
+    #[fuel(\<epsilon>\<open>steps\<close>)] while let Some(value) =
+      \<llangle>Some (1 :: nat)\<rrangle> {
+      let _ = value;
+      ()
+    }
+  \<close>
+
+urust_expr_with_check while_let_scrutinee_shadowing
+  \<open>
+    let value = \<llangle>Some (1 :: nat)\<rrangle>;
+    let steps = \<llangle>2 :: nat\<rrangle>;
+    #[fuel(\<epsilon>\<open>steps\<close>)] while let Some(value) = value {
+      let _ = value;
+      ()
+    }
+  \<close>
 
 no_adhoc_overloading assign_add_const \<rightleftharpoons> parser_assign_add_fixture
 

@@ -521,6 +521,212 @@ old_urust_rejects
     }
   \<close>
 
+text\<open>
+Bare top-level ranges in \<open>while let\<close> are ordinary Rust-shaped patterns.
+The shared pattern grammar admits both range forms directly, while the old
+frontend's low-priority range mixfix cannot fill its high-priority binder slot.
+\<close>
+
+urust_expr improvement_while_let_range_exclusive
+  \<open>
+    #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let 1..3 =
+      \<llangle>2 :: nat\<rrangle> {
+      ()
+    }
+  \<close>
+old_urust_rejects
+  \<open>
+    #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let 1..3 =
+      \<llangle>2 :: nat\<rrangle> {
+      ()
+    }
+  \<close>
+
+urust_expr improvement_while_let_range_inclusive
+  \<open>
+    #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let 1..=3 =
+      \<llangle>2 :: nat\<rrangle> {
+      ()
+    }
+  \<close>
+old_urust_rejects
+  \<open>
+    #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let 1..=3 =
+      \<llangle>2 :: nat\<rrangle> {
+      ()
+    }
+  \<close>
+
+section\<open> Structural while-let lowering \<close>
+
+text\<open>
+Structurally irrefutable patterns lower directly without a generated false
+fallback. Grouping and borrow syntax are transparent, aliases bind the complete
+scrutinee before applying their inner pattern, and tuple direct lowering is
+reserved for tuples whose children are all irrefutable.
+\<close>
+
+urust_expr_with_check' improvement_while_let_grouped_tuple
+  \<open>
+    #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let ((left, right)) =
+      (\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>) {
+      \<llangle>left + right\<rrangle>;
+    }
+  \<close>
+  \<open>
+    \<lbrakk>
+      #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let (left, right) =
+        (\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>) {
+        \<llangle>left + right\<rrangle>;
+      }
+    \<rbrakk>
+  \<close>
+old_urust_rejects
+  \<open>
+    #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let ((left, right)) =
+      (\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>) {
+      \<llangle>left + right\<rrangle>;
+    }
+  \<close>
+
+urust_expr_with_check' improvement_while_let_refutable_tuple
+  \<open>
+    #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let (Some(value), other) =
+      (\<llangle>Some (1 :: nat)\<rrangle>, \<llangle>2 :: nat\<rrangle>) {
+      \<llangle>value + other\<rrangle>;
+    }
+  \<close>
+  \<open>
+    \<lbrakk>
+      #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let ((Some(value), other)) =
+        (\<llangle>Some (1 :: nat)\<rrangle>, \<llangle>2 :: nat\<rrangle>) {
+        \<llangle>value + other\<rrangle>;
+      }
+    \<rbrakk>
+  \<close>
+old_urust_rejects
+  \<open>
+    #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let (Some(value), other) =
+      (\<llangle>Some (1 :: nat)\<rrangle>, \<llangle>2 :: nat\<rrangle>) {
+      \<llangle>value + other\<rrangle>;
+    }
+  \<close>
+
+urust_expr improvement_while_let_wildcard
+  \<open>
+    #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let _ =
+      \<llangle>1 :: nat\<rrangle> {
+      ()
+    }
+  \<close>
+old_urust_rejects
+  \<open>
+    #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let _ =
+      \<llangle>1 :: nat\<rrangle> {
+      ()
+    }
+  \<close>
+
+urust_expr improvement_while_let_identifier
+  \<open>
+    #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let value =
+      \<llangle>1 :: nat\<rrangle> {
+      let _ = value;
+      ()
+    }
+  \<close>
+old_urust_rejects
+  \<open>
+    #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let value =
+      \<llangle>1 :: nat\<rrangle> {
+      let _ = value;
+      ()
+    }
+  \<close>
+
+urust_expr improvement_while_let_alias_wildcard
+  \<open>
+    #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let whole @ _ =
+      \<llangle>1 :: nat\<rrangle> {
+      let _ = whole;
+      ()
+    }
+  \<close>
+old_urust_rejects
+  \<open>
+    #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let whole @ _ =
+      \<llangle>1 :: nat\<rrangle> {
+      let _ = whole;
+      ()
+    }
+  \<close>
+
+urust_expr improvement_while_let_borrow
+  \<open>
+    #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let &value =
+      \<llangle>1 :: nat\<rrangle> {
+      let _ = value;
+      ()
+    }
+  \<close>
+old_urust_rejects
+  \<open>
+    #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let &value =
+      \<llangle>1 :: nat\<rrangle> {
+      let _ = value;
+      ()
+    }
+  \<close>
+
+urust_expr improvement_while_let_borrow_mut
+  \<open>
+    #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let & mut value =
+      \<llangle>1 :: nat\<rrangle> {
+      let _ = value;
+      ()
+    }
+  \<close>
+old_urust_rejects
+  \<open>
+    #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let & mut value =
+      \<llangle>1 :: nat\<rrangle> {
+      let _ = value;
+      ()
+    }
+  \<close>
+
+urust_expr improvement_while_let_nested_range
+  \<open>
+    #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let Some(1..=3) =
+      \<llangle>Some (2 :: nat)\<rrangle> {
+      ()
+    }
+  \<close>
+old_urust_rejects
+  \<open>
+    #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let Some(1..=3) =
+      \<llangle>Some (2 :: nat)\<rrangle> {
+      ()
+    }
+  \<close>
+
+urust_expr improvement_while_let_return_scrutinee
+  \<open>
+    #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let Some(value) =
+      return \<llangle>Some (1 :: nat)\<rrangle> {
+      let _ = value;
+      ()
+    }
+  \<close>
+old_urust_rejects
+  \<open>
+    #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let Some(value) =
+      return \<llangle>Some (1 :: nat)\<rrangle> {
+      let _ = value;
+      ()
+    }
+  \<close>
+
 
 section\<open> Hygienic aliases across nested lowering \<close>
 

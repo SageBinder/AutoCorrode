@@ -113,6 +113,8 @@ lex_rules\<open>
 <INITIAL>"fuel"   => (tokF (yypos, yytext, Markup.keyword1, "TFUEL", Tokens.TFUEL));
 <INITIAL>"while"  => (tokF (yypos, yytext, Markup.keyword1, "TWHILE", Tokens.TWHILE));
 <INITIAL>"loop"   => (tokF (yypos, yytext, Markup.keyword1, "TLOOP", Tokens.TLOOP));
+<INITIAL>"for"    => (tokF (yypos, yytext, Markup.keyword1, "TFOR", Tokens.TFOR));
+<INITIAL>"in"     => (tokF (yypos, yytext, Markup.keyword1, "TIN", Tokens.TIN));
 <INITIAL>"unsafe" => (tokF (yypos, yytext, Markup.keyword1, "TUNSAFE", Tokens.TUNSAFE));
 <INITIAL>"match"        => (tokF (yypos, yytext, Markup.keyword1, "TMATCH", Tokens.TMATCH));
 <INITIAL>"match_switch" => (tokF (yypos, yytext, Markup.keyword1, "TMATCHSWITCH", Tokens.TMATCHSWITCH));
@@ -201,7 +203,7 @@ yacc_definitions\<open>
    `a == b == c`). Reference prefixes and `!` use structural tiers below; these directives keep the
    ambiguous `uexp OP uexp` productions conflict-free. *)
 %right TRETURN
-%right TIF TLBRACE TUNSAFE TWHILE TLOOP
+%right TIF TLBRACE TUNSAFE TWHILE TLOOP TFOR
 %left TBARBAR
 %left TAMPAMP
 %nonassoc TEQEQ TNE TLT TLE TGT TGE
@@ -225,7 +227,7 @@ yacc_definitions\<open>
     | TAMPEQ | TBAREQ | TCARETEQ | TSHLEQ | TSHREQ
     | TEQEQ | TNE | TLT | TLE | TGT | TGE
     | TAMPAMP | TBARBAR | TBANG | TQUESTION
-    | TUNSAFE | TFUEL | TWHILE | TLOOP | THASH
+    | TUNSAFE | TFUEL | TWHILE | TLOOP | TFOR | TIN | THASH
     | TMATCH | TMATCHSWITCH | TMATCHCASE | TARROW
     | TDOTDOT | TDOTDOTEQ | TMUT | TPATCONTEXT
 %nonterm ustart of URust_AST.ur_expr option
@@ -242,9 +244,13 @@ yacc_definitions\<open>
        | ucallargs of URust_AST.ur_expr list
        | ublock of URust_AST.ur_expr
        | uunsafe of URust_AST.ur_expr
+       | usemi_free_atom of URust_AST.ur_expr
+       | usemi_free_value of URust_AST.ur_expr
        | uif of URust_AST.ur_expr
        | ufuel of Input.source * Position.T
        | uloop of URust_AST.ur_expr
+       | ufor of URust_AST.ur_expr
+       | uwhilelet of URust_AST.ur_expr
        | umatch of URust_AST.ur_expr
        | umatchsw of URust_AST.ur_expr
        | umatchcase of URust_AST.ur_expr
@@ -265,18 +271,15 @@ yacc_definitions\<open>
 yacc_rules\<open>
   ustart : ustmt (SOME ustmt)
          | (NONE)
-  (* Statements: a value expression `uval` sequenced with `;`, OR a block-like form in
+  (* Statements: a value expression `uval` sequenced with `;`, OR a policy-approved block-like form in
      statement position with NO trailing `;` (Rust's optional semicolon after a block-like expr; closes
-     divergence D-2 -- D25). Both desugar to the same `sequence`. The `ublock`-as-operand vs `ublock
-     ustmt` decision resolves by lookahead (operator/`;`/`}`/EOF -> operand; statement-start -> sequence). *)
+     divergence D-2 -- D25). Both desugar to the same `sequence`. Atom-like and value-only forms stay
+     separate so explicit match forms cannot accidentally acquire semicolon-free sequencing. *)
   ustmt : uval                              (uval)
         | uval TSEMI ustmt                  (UE_Seq (uval, ustmt))
         | uval TSEMI                        (finish_statement (uval, TSEMIleft))
-        | ublock ustmt                      (UE_Seq (ublock, ustmt))
-        | uunsafe ustmt                     (UE_Seq (uunsafe, ustmt))
-        | uif ustmt                         (UE_Seq (uif, ustmt))
-        | uloop ustmt                       (UE_Seq (uloop, ustmt))
-        | umatch ustmt                      (UE_Seq (umatch, ustmt))
+        | usemi_free_atom ustmt             (UE_Seq (usemi_free_atom, ustmt))
+        | usemi_free_value ustmt            (UE_Seq (usemi_free_value, ustmt))
         (* NO `umatchsw ustmt` / `umatchcase ustmt` forms: only the bare `match` keyword has the
            frontend's no-`;` sequencing production. The explicit forms still need a trailing `;`. *)
         (* The binder is the SHARED `upat`, not an inline IDENT, so `let (a, b) = ..` / `let mut x` become
@@ -292,9 +295,7 @@ yacc_rules\<open>
   uval : uassign (uassign)
        | TRETURN (UE_Return (NONE, TRETURNleft))
        | TRETURN uval (UE_Return (SOME uval, TRETURNleft))
-       | uif %prec TIF (uif)
-       | uloop %prec TIF (uloop)
-       | umatch %prec TIF (umatch)
+       | usemi_free_value %prec TIF (usemi_free_value)
        | umatchsw (umatchsw)
        | umatchcase (umatchcase)
   (* Assignment is below every pure operator and recurses through its own tier on the right. Blocks
@@ -338,10 +339,7 @@ yacc_rules\<open>
             (UE_Group (uval, Position.range_position (LPARleft, RPARright)))
         | VALAQ      (UE_Literal (LP_ValAntiq VALAQ))
         | EXPRAQ     (UE_ExprAntiq EXPRAQ)
-        | ublock %prec TIF (ublock)  (* block STAYS an operand atom (frontend priority 1000): `{e} + x`
-                                        parses. Equal right precedence makes a following `if` shift into
-                                        semicolon-free statement sequencing without a conflict. *)
-        | uunsafe %prec TIF (uunsafe)
+        | usemi_free_atom %prec TIF (usemi_free_atom)
   (* Reference prefixes bind tighter than every binary operator and looser than `!`, matching the
      frontend priorities. Recursing through this tier makes `**x` two ordinary dereference nodes while
      preserving the binary meanings of `*` and `&`; mixed and deeper recursion is a documented
@@ -384,6 +382,9 @@ yacc_rules\<open>
   (* Unsafe is block-like in operand and statement positions, but deliberately remains distinct from
      `ublock`: branch delimiters still require ordinary braces. Its frontend semantics are block erasure. *)
   uunsafe : TUNSAFE ublock                  (ublock)
+  (* Semicolon policy helpers centralize the forms admitted both as values/atoms and as statements. *)
+  usemi_free_atom : ublock                  (ublock)
+                  | uunsafe                 (uunsafe)
   (* Condition is `uval` (the frontend's condition priority admits an `if`), so `if if c {..} {..}` parses. *)
   uif : TIF uval ublock                     (UE_If (uval, ublock, NONE, TIFleft))
       | TIF uval ublock TELSE ublock        (UE_If (uval, ublock1, SOME ublock2, TIFleft))
@@ -396,6 +397,17 @@ yacc_rules\<open>
         | ufuel TLOOP ublock
               (UE_Loop (#1 ufuel, ublock,
                 Position.range_position (#2 ufuel, ublockright)))
+  ufor : TFOR upat TIN uval ublock
+              (UE_For (upat, uval, ublock,
+                Position.range_position (TFORleft, ublockright)))
+  uwhilelet : ufuel TWHILE TLET upat TEQ uval ublock
+              (UE_WhileLet (#1 ufuel, upat, uval, ublock,
+                Position.range_position (#2 ufuel, ublockright)))
+  usemi_free_value : uif                    (uif)
+                   | uloop                  (uloop)
+                   | ufor                   (ufor)
+                   | uwhilelet              (uwhilelet)
+                   | umatch                 (umatch)
   (* Comma lists stay nonempty and right-nested (source order preserved). Each list has an explicit terminal
      comma production, so a trailing separator cannot create an empty element. Call productions are
      IDENTIFIER-headed, so LPAR is never in FOLLOW(uexp) as a postfix operator -- no precedence directive
