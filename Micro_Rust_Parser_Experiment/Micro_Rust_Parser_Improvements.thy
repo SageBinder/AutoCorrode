@@ -7,8 +7,9 @@ begin
 section\<open> Test support \<close>
 
 text\<open>
-Each example is accepted by \<open>urust_expr\<close>. The paired command feeds the same
-source to the old inner-syntax frontend and requires it to reject.
+Each example is accepted by the new parser. Where an equivalent old-frontend
+spelling exists, \<open>urust_expr_with_check'\<close> checks the two results by \<open>refl\<close>.
+The paired command feeds the new spelling to the old frontend and requires it to reject.
 \<close>
 
 ML\<open>
@@ -49,76 +50,60 @@ Literal \<open>//\<close> inside strings and both antiquotation states remains c
 the shared spellings are covered in the conformance theory.
 \<close>
 
-urust_expr improvement_line_comment_full_line
+urust_expr_with_check' improvement_line_comment_full_line
   \<open>
     // full-line comment
     ()
   \<close>
-
-lemma \<open> improvement_line_comment_full_line = \<lbrakk> () \<rbrakk> \<close>
-  unfolding improvement_line_comment_full_line_def by (rule refl)
-
+  \<open> \<lbrakk> () \<rbrakk> \<close>
 old_urust_rejects
   \<open>
     // full-line comment
     ()
   \<close>
 
-urust_expr improvement_line_comment_end_of_line
+urust_expr_with_check' improvement_line_comment_end_of_line
   \<open>
     ();
     () // end-of-line comment
   \<close>
-
-lemma \<open> improvement_line_comment_end_of_line = \<lbrakk> (); () \<rbrakk> \<close>
-  unfolding improvement_line_comment_end_of_line_def by (rule refl)
-
+  \<open> \<lbrakk> (); () \<rbrakk> \<close>
 old_urust_rejects
   \<open>
     ();
     () // end-of-line comment
   \<close>
 
-urust_expr improvement_line_comment_between_tokens
+urust_expr_with_check' improvement_line_comment_between_tokens
   \<open>
     \<llangle>1 :: 32 word\<rrangle> // between the operands and operator
       + \<llangle>2 :: 32 word\<rrangle>
   \<close>
-
-lemma \<open> improvement_line_comment_between_tokens =
-    \<lbrakk> \<llangle>1 :: 32 word\<rrangle> + \<llangle>2 :: 32 word\<rrangle> \<rbrakk> \<close>
-  unfolding improvement_line_comment_between_tokens_def by (rule refl)
-
+  \<open> \<lbrakk> \<llangle>1 :: 32 word\<rrangle> + \<llangle>2 :: 32 word\<rrangle> \<rbrakk> \<close>
 old_urust_rejects
   \<open>
     \<llangle>1 :: 32 word\<rrangle> // between the operands and operator
       + \<llangle>2 :: 32 word\<rrangle>
   \<close>
 
-urust_expr improvement_line_comment_operator_text
+urust_expr_with_check' improvement_line_comment_operator_text
   \<open>
     () // += => \<Rightarrow> /= /* block-shaped text */
   \<close>
-
-lemma \<open> improvement_line_comment_operator_text = \<lbrakk> () \<rbrakk> \<close>
-  unfolding improvement_line_comment_operator_text_def by (rule refl)
-
+  \<open> \<lbrakk> () \<rbrakk> \<close>
 old_urust_rejects
   \<open>
     () // += => \<Rightarrow> /= /* block-shaped text */
   \<close>
 
-urust_expr improvement_line_comment_empty
+urust_expr_with_check' improvement_line_comment_empty
   \<open>
     {
       //
       ()
     }
   \<close>
-
-lemma \<open> improvement_line_comment_empty = \<lbrakk> { () } \<rbrakk> \<close>
-  unfolding improvement_line_comment_empty_def by (rule refl)
-
+  \<open> \<lbrakk> { () } \<rbrakk> \<close>
 old_urust_rejects
   \<open>
     {
@@ -127,14 +112,12 @@ old_urust_rejects
     }
   \<close>
 
-urust_expr improvement_line_comment_eof \<open> () // comment at EOF \<close>
-
-lemma \<open> improvement_line_comment_eof = \<lbrakk> () \<rbrakk> \<close>
-  unfolding improvement_line_comment_eof_def by (rule refl)
-
+urust_expr_with_check' improvement_line_comment_eof
+  \<open> () // comment at EOF \<close>
+  \<open> \<lbrakk> () \<rbrakk> \<close>
 old_urust_rejects \<open> () // comment at EOF \<close>
 
-urust_expr improvement_line_comment_nested_adjacent
+urust_expr_with_check' improvement_line_comment_nested_adjacent
   \<open>
     if true {// then branch
       {// nested block
@@ -144,11 +127,7 @@ urust_expr improvement_line_comment_nested_adjacent
       ()
     }
   \<close>
-
-lemma \<open> improvement_line_comment_nested_adjacent =
-    \<lbrakk> if true { { () } } else { () } \<rbrakk> \<close>
-  unfolding improvement_line_comment_nested_adjacent_def by (rule refl)
-
+  \<open> \<lbrakk> if true { { () } } else { () } \<rbrakk> \<close>
 old_urust_rejects
   \<open>
     if true {// then branch
@@ -169,96 +148,86 @@ form is equal to the old frontend's underscore spelling, which remains accepted.
 The old frontend rejects every glued spelling below.
 \<close>
 
-urust_expr improvement_integer_suffix_decimal_u8 \<open> 1u8 \<close>
-lemma \<open> improvement_integer_suffix_decimal_u8 = \<lbrakk> 1_u8 \<rbrakk> \<close>
-  unfolding improvement_integer_suffix_decimal_u8_def by (rule refl)
+urust_expr_with_check' improvement_integer_suffix_decimal_u8
+  \<open> 1u8 \<close>
+  \<open> \<lbrakk> 1_u8 \<rbrakk> \<close>
 old_urust_rejects \<open> 1u8 \<close>
 
-urust_expr improvement_integer_suffix_hex_u8 \<open> 0xffu8 \<close>
-lemma \<open> improvement_integer_suffix_hex_u8 = \<lbrakk> 0xff_u8 \<rbrakk> \<close>
-  unfolding improvement_integer_suffix_hex_u8_def by (rule refl)
+urust_expr_with_check' improvement_integer_suffix_hex_u8
+  \<open> 0xffu8 \<close>
+  \<open> \<lbrakk> 0xff_u8 \<rbrakk> \<close>
 old_urust_rejects \<open> 0xffu8 \<close>
 
-urust_expr improvement_integer_suffix_decimal_u16 \<open> 2u16 \<close>
-lemma \<open> improvement_integer_suffix_decimal_u16 = \<lbrakk> 2_u16 \<rbrakk> \<close>
-  unfolding improvement_integer_suffix_decimal_u16_def by (rule refl)
+urust_expr_with_check' improvement_integer_suffix_decimal_u16
+  \<open> 2u16 \<close>
+  \<open> \<lbrakk> 2_u16 \<rbrakk> \<close>
 old_urust_rejects \<open> 2u16 \<close>
 
-urust_expr improvement_integer_suffix_hex_u16 \<open> 0x12abu16 \<close>
-lemma \<open> improvement_integer_suffix_hex_u16 = \<lbrakk> 0x12ab_u16 \<rbrakk> \<close>
-  unfolding improvement_integer_suffix_hex_u16_def by (rule refl)
+urust_expr_with_check' improvement_integer_suffix_hex_u16
+  \<open> 0x12abu16 \<close>
+  \<open> \<lbrakk> 0x12ab_u16 \<rbrakk> \<close>
 old_urust_rejects \<open> 0x12abu16 \<close>
 
-urust_expr improvement_integer_suffix_decimal_u32 \<open> 3u32 \<close>
-lemma \<open> improvement_integer_suffix_decimal_u32 = \<lbrakk> 3_u32 \<rbrakk> \<close>
-  unfolding improvement_integer_suffix_decimal_u32_def by (rule refl)
+urust_expr_with_check' improvement_integer_suffix_decimal_u32
+  \<open> 3u32 \<close>
+  \<open> \<lbrakk> 3_u32 \<rbrakk> \<close>
 old_urust_rejects \<open> 3u32 \<close>
 
-urust_expr improvement_integer_suffix_hex_u32 \<open> 0x1234abcdu32 \<close>
-lemma \<open> improvement_integer_suffix_hex_u32 = \<lbrakk> 0x1234abcd_u32 \<rbrakk> \<close>
-  unfolding improvement_integer_suffix_hex_u32_def by (rule refl)
+urust_expr_with_check' improvement_integer_suffix_hex_u32
+  \<open> 0x1234abcdu32 \<close>
+  \<open> \<lbrakk> 0x1234abcd_u32 \<rbrakk> \<close>
 old_urust_rejects \<open> 0x1234abcdu32 \<close>
 
-urust_expr improvement_integer_suffix_decimal_u64 \<open> 4u64 \<close>
-lemma \<open> improvement_integer_suffix_decimal_u64 = \<lbrakk> 4_u64 \<rbrakk> \<close>
-  unfolding improvement_integer_suffix_decimal_u64_def by (rule refl)
+urust_expr_with_check' improvement_integer_suffix_decimal_u64
+  \<open> 4u64 \<close>
+  \<open> \<lbrakk> 4_u64 \<rbrakk> \<close>
 old_urust_rejects \<open> 4u64 \<close>
 
-urust_expr improvement_integer_suffix_hex_u64 \<open> 0x123456789abcdef0u64 \<close>
-lemma \<open> improvement_integer_suffix_hex_u64 = \<lbrakk> 0x123456789abcdef0_u64 \<rbrakk> \<close>
-  unfolding improvement_integer_suffix_hex_u64_def by (rule refl)
+urust_expr_with_check' improvement_integer_suffix_hex_u64
+  \<open> 0x123456789abcdef0u64 \<close>
+  \<open> \<lbrakk> 0x123456789abcdef0_u64 \<rbrakk> \<close>
 old_urust_rejects \<open> 0x123456789abcdef0u64 \<close>
 
-urust_expr improvement_integer_suffix_decimal_usize \<open> 5usize \<close>
-lemma \<open> improvement_integer_suffix_decimal_usize = \<lbrakk> 5_usize \<rbrakk> \<close>
-  unfolding improvement_integer_suffix_decimal_usize_def by (rule refl)
+urust_expr_with_check' improvement_integer_suffix_decimal_usize
+  \<open> 5usize \<close>
+  \<open> \<lbrakk> 5_usize \<rbrakk> \<close>
 old_urust_rejects \<open> 5usize \<close>
 
-urust_expr improvement_integer_suffix_hex_usize \<open> 0xffffffff0usize \<close>
-lemma \<open> improvement_integer_suffix_hex_usize = \<lbrakk> 0xffffffff0_usize \<rbrakk> \<close>
-  unfolding improvement_integer_suffix_hex_usize_def by (rule refl)
+urust_expr_with_check' improvement_integer_suffix_hex_usize
+  \<open> 0xffffffff0usize \<close>
+  \<open> \<lbrakk> 0xffffffff0_usize \<rbrakk> \<close>
 old_urust_rejects \<open> 0xffffffff0usize \<close>
 
 
 section\<open> ASCII match arrows \<close>
 
-urust_expr improvement_ascii_match_arrow
+urust_expr_with_check' improvement_ascii_match_arrow
   \<open> match \<llangle>Some (1 :: nat)\<rrangle> { Some(x) => x, None => 0 } \<close>
-
-lemma \<open> improvement_ascii_match_arrow =
-    \<lbrakk> match \<llangle>Some (1 :: nat)\<rrangle> { Some(x) \<Rightarrow> x, None \<Rightarrow> 0 } \<rbrakk> \<close>
-  unfolding improvement_ascii_match_arrow_def by (rule refl)
-
+  \<open> \<lbrakk> match \<llangle>Some (1 :: nat)\<rrangle> { Some(x) \<Rightarrow> x, None \<Rightarrow> 0 } \<rbrakk> \<close>
 old_urust_rejects
   \<open> match \<llangle>Some (1 :: nat)\<rrangle> { Some(x) => x, None => 0 } \<close>
 
-urust_expr improvement_ascii_match_arrow_guarded
+urust_expr_with_check' improvement_ascii_match_arrow_guarded
   \<open> match \<llangle>Some (1 :: nat)\<rrangle> { Some(x) if True => x, None => 0 } \<close>
-
-lemma \<open> improvement_ascii_match_arrow_guarded =
-    \<lbrakk> match \<llangle>Some (1 :: nat)\<rrangle> { Some(x) if True \<Rightarrow> x, None \<Rightarrow> 0 } \<rbrakk> \<close>
-  unfolding improvement_ascii_match_arrow_guarded_def by (rule refl)
-
+  \<open> \<lbrakk> match \<llangle>Some (1 :: nat)\<rrangle> { Some(x) if True \<Rightarrow> x, None \<Rightarrow> 0 } \<rbrakk> \<close>
 old_urust_rejects
   \<open> match \<llangle>Some (1 :: nat)\<rrangle> { Some(x) if True => x, None => 0 } \<close>
 
-urust_expr improvement_ascii_match_arrow_nested
+urust_expr_with_check' improvement_ascii_match_arrow_nested
   \<open>
     match \<llangle>Some (1 :: nat)\<rrangle> {
       Some(x) => match x { 0 => 0, _ => x },
       None => 0
     }
   \<close>
-
-lemma \<open> improvement_ascii_match_arrow_nested =
+  \<open>
     \<lbrakk>
       match \<llangle>Some (1 :: nat)\<rrangle> {
         Some(x) \<Rightarrow> match x { 0 \<Rightarrow> 0, _ \<Rightarrow> x },
         None \<Rightarrow> 0
       }
-    \<rbrakk> \<close>
-  unfolding improvement_ascii_match_arrow_nested_def by (rule refl)
-
+    \<rbrakk>
+  \<close>
 old_urust_rejects
   \<open>
     match \<llangle>Some (1 :: nat)\<rrangle> {
@@ -267,33 +236,27 @@ old_urust_rejects
     }
   \<close>
 
-urust_expr improvement_ascii_match_arrow_case
+urust_expr_with_check' improvement_ascii_match_arrow_case
   \<open> match_case \<llangle>Some (1 :: nat)\<rrangle> { Some(x) => x, None => 0 } \<close>
-
-lemma \<open> improvement_ascii_match_arrow_case =
-    \<lbrakk> match_case \<llangle>Some (1 :: nat)\<rrangle> { Some(x) \<Rightarrow> x, None \<Rightarrow> 0 } \<rbrakk> \<close>
-  unfolding improvement_ascii_match_arrow_case_def by (rule refl)
-
+  \<open> \<lbrakk> match_case \<llangle>Some (1 :: nat)\<rrangle> { Some(x) \<Rightarrow> x, None \<Rightarrow> 0 } \<rbrakk> \<close>
 old_urust_rejects
   \<open> match_case \<llangle>Some (1 :: nat)\<rrangle> { Some(x) => x, None => 0 } \<close>
 
-urust_expr improvement_ascii_match_arrow_switch
+urust_expr_with_check' improvement_ascii_match_arrow_switch
   \<open>
     match_switch \<llangle>1 :: nat\<rrangle> {
       0 => \<llangle>False\<rrangle>,
       _ => \<llangle>True\<rrangle>
     }
   \<close>
-
-lemma \<open> improvement_ascii_match_arrow_switch =
+  \<open>
     \<lbrakk>
       match_switch \<llangle>1 :: nat\<rrangle> {
         0 \<Rightarrow> \<llangle>False\<rrangle>,
         _ \<Rightarrow> \<llangle>True\<rrangle>
       }
-    \<rbrakk> \<close>
-  unfolding improvement_ascii_match_arrow_switch_def by (rule refl)
-
+    \<rbrakk>
+  \<close>
 old_urust_rejects
   \<open>
     match_switch \<llangle>1 :: nat\<rrangle> {
@@ -305,49 +268,33 @@ old_urust_rejects
 
 section\<open> Empty blocks \<close>
 
-urust_expr improvement_empty_block_value
+urust_expr_with_check' improvement_empty_block_value
   \<open> {} \<close>
-
-lemma \<open> improvement_empty_block_value = \<lbrakk> { () } \<rbrakk> \<close>
-  unfolding improvement_empty_block_value_def by (rule refl)
-
+  \<open> \<lbrakk> { () } \<rbrakk> \<close>
 old_urust_rejects
   \<open> {} \<close>
 
-urust_expr improvement_empty_block_branches
+urust_expr_with_check' improvement_empty_block_branches
   \<open> if true {} else {} \<close>
-
-lemma \<open> improvement_empty_block_branches =
-    \<lbrakk> if true { () } else { () } \<rbrakk> \<close>
-  unfolding improvement_empty_block_branches_def by (rule refl)
-
+  \<open> \<lbrakk> if true { () } else { () } \<rbrakk> \<close>
 old_urust_rejects
   \<open> if true {} else {} \<close>
 
-urust_expr improvement_empty_block_nested
+urust_expr_with_check' improvement_empty_block_nested
   \<open> {{}} \<close>
-
-lemma \<open> improvement_empty_block_nested = \<lbrakk> {{ () }} \<rbrakk> \<close>
-  unfolding improvement_empty_block_nested_def by (rule refl)
-
+  \<open> \<lbrakk> {{ () }} \<rbrakk> \<close>
 old_urust_rejects
   \<open> {{}} \<close>
 
-urust_expr improvement_empty_block_statement
+urust_expr_with_check' improvement_empty_block_statement
   \<open> {} () \<close>
-
-lemma \<open> improvement_empty_block_statement = \<lbrakk> { () } () \<rbrakk> \<close>
-  unfolding improvement_empty_block_statement_def by (rule refl)
-
+  \<open> \<lbrakk> { () } () \<rbrakk> \<close>
 old_urust_rejects
   \<open> {} () \<close>
 
-urust_expr improvement_empty_unsafe_block
+urust_expr_with_check' improvement_empty_unsafe_block
   \<open> unsafe {} \<close>
-
-lemma \<open> improvement_empty_unsafe_block = \<lbrakk> unsafe { () } \<rbrakk> \<close>
-  unfolding improvement_empty_unsafe_block_def by (rule refl)
-
+  \<open> \<lbrakk> unsafe { () } \<rbrakk> \<close>
 old_urust_rejects
   \<open> unsafe {} \<close>
 
@@ -361,37 +308,33 @@ patterns, tuples, and struct patterns reject there. Each source below is checked
 against the same old-frontend term with only its terminal comma removed.
 \<close>
 
-urust_expr improvement_trailing_direct_call
+urust_expr_with_check' improvement_trailing_direct_call
   \<open> cf2(\<llangle>1 :: 64 word\<rrangle>, \<llangle>2 :: 64 word\<rrangle>,) \<close>
-lemma \<open> improvement_trailing_direct_call =
-    \<lbrakk> cf2(\<llangle>1 :: 64 word\<rrangle>, \<llangle>2 :: 64 word\<rrangle>) \<rbrakk> \<close>
-  unfolding improvement_trailing_direct_call_def by (rule refl)
+  \<open> \<lbrakk> cf2(\<llangle>1 :: 64 word\<rrangle>, \<llangle>2 :: 64 word\<rrangle>) \<rbrakk> \<close>
 old_urust_rejects
   \<open> cf2(\<llangle>1 :: 64 word\<rrangle>, \<llangle>2 :: 64 word\<rrangle>,) \<close>
 
-urust_expr improvement_trailing_method_call
+urust_expr_with_check' improvement_trailing_method_call
   \<open> \<llangle>1 :: 64 word\<rrangle>.cf2(\<llangle>2 :: 64 word\<rrangle>,) \<close>
-lemma \<open> improvement_trailing_method_call =
-    \<lbrakk> \<llangle>1 :: 64 word\<rrangle>.cf2(\<llangle>2 :: 64 word\<rrangle>) \<rbrakk> \<close>
-  unfolding improvement_trailing_method_call_def by (rule refl)
+  \<open> \<lbrakk> \<llangle>1 :: 64 word\<rrangle>.cf2(\<llangle>2 :: 64 word\<rrangle>) \<rbrakk> \<close>
 old_urust_rejects
   \<open> \<llangle>1 :: 64 word\<rrangle>.cf2(\<llangle>2 :: 64 word\<rrangle>,) \<close>
 
-urust_expr improvement_trailing_guarded_arm
+urust_expr_with_check' improvement_trailing_guarded_arm
   \<open>
     match \<llangle>Some (1 :: nat)\<rrangle> {
       Some(x) if True \<Rightarrow> x,
       None \<Rightarrow> 0,
     }
   \<close>
-lemma \<open> improvement_trailing_guarded_arm =
+  \<open>
     \<lbrakk>
       match \<llangle>Some (1 :: nat)\<rrangle> {
         Some(x) if True \<Rightarrow> x,
         None \<Rightarrow> 0
       }
-    \<rbrakk> \<close>
-  unfolding improvement_trailing_guarded_arm_def by (rule refl)
+    \<rbrakk>
+  \<close>
 old_urust_rejects
   \<open>
     match \<llangle>Some (1 :: nat)\<rrangle> {
@@ -400,54 +343,50 @@ old_urust_rejects
     }
   \<close>
 
-urust_expr improvement_trailing_constructor_pattern
+urust_expr_with_check' improvement_trailing_constructor_pattern
   \<open> match_case \<llangle>P2 1 2\<rrangle> { P2(x, y,) \<Rightarrow> x } \<close>
-lemma \<open> improvement_trailing_constructor_pattern =
-    \<lbrakk> match_case \<llangle>P2 1 2\<rrangle> { P2(x, y) \<Rightarrow> x } \<rbrakk> \<close>
-  unfolding improvement_trailing_constructor_pattern_def by (rule refl)
+  \<open> \<lbrakk> match_case \<llangle>P2 1 2\<rrangle> { P2(x, y) \<Rightarrow> x } \<rbrakk> \<close>
 old_urust_rejects
   \<open> match_case \<llangle>P2 1 2\<rrangle> { P2(x, y,) \<Rightarrow> x } \<close>
 
-urust_expr improvement_trailing_tuple_expression
+urust_expr_with_check' improvement_trailing_tuple_expression
   \<open> (\<llangle>1 :: nat\<rrangle>, \<llangle>True\<rrangle>,) \<close>
-lemma \<open> improvement_trailing_tuple_expression =
-    \<lbrakk> (\<llangle>1 :: nat\<rrangle>, \<llangle>True\<rrangle>) \<rbrakk> \<close>
-  unfolding improvement_trailing_tuple_expression_def by (rule refl)
+  \<open> \<lbrakk> (\<llangle>1 :: nat\<rrangle>, \<llangle>True\<rrangle>) \<rbrakk> \<close>
 old_urust_rejects
   \<open> (\<llangle>1 :: nat\<rrangle>, \<llangle>True\<rrangle>,) \<close>
 
-urust_expr improvement_trailing_tuple_pattern
+urust_expr_with_check' improvement_trailing_tuple_pattern
   \<open>
     let (x, y,) = (\<llangle>1 :: nat\<rrangle>, \<llangle>True\<rrangle>);
     x
   \<close>
-lemma \<open> improvement_trailing_tuple_pattern =
+  \<open>
     \<lbrakk>
       let (x, y) = (\<llangle>1 :: nat\<rrangle>, \<llangle>True\<rrangle>);
       x
-    \<rbrakk> \<close>
-  unfolding improvement_trailing_tuple_pattern_def by (rule refl)
+    \<rbrakk>
+  \<close>
 old_urust_rejects
   \<open>
     let (x, y,) = (\<llangle>1 :: nat\<rrangle>, \<llangle>True\<rrangle>);
     x
   \<close>
 
-urust_expr improvement_trailing_struct_pattern
+urust_expr_with_check' improvement_trailing_struct_pattern
   \<open>
     match \<llangle>AdvStruct 1 2\<rrangle> {
       AdvStruct { adv_left: x, adv_right: y, } \<Rightarrow> x,
       _ \<Rightarrow> 0
     }
   \<close>
-lemma \<open> improvement_trailing_struct_pattern =
+  \<open>
     \<lbrakk>
       match \<llangle>AdvStruct 1 2\<rrangle> {
         AdvStruct { adv_left: x, adv_right: y } \<Rightarrow> x,
         _ \<Rightarrow> 0
       }
-    \<rbrakk> \<close>
-  unfolding improvement_trailing_struct_pattern_def by (rule refl)
+    \<rbrakk>
+  \<close>
 old_urust_rejects
   \<open>
     match \<llangle>AdvStruct 1 2\<rrangle> {
@@ -467,7 +406,7 @@ call, arm, struct, constructor, and slice lists, including a guarded arm and a
 method call. The witness removes separators only.
 \<close>
 
-urust_expr improvement_trailing_composed
+urust_expr_with_check' improvement_trailing_composed
   \<open>
     let (x, y,) = (\<llangle>1 :: 64 word\<rrangle>, \<llangle>2 :: 64 word\<rrangle>,);
     cf2(
@@ -483,7 +422,7 @@ urust_expr improvement_trailing_composed
       y,
     )
   \<close>
-lemma \<open> improvement_trailing_composed =
+  \<open>
     \<lbrakk>
       let (x, y) = (\<llangle>1 :: 64 word\<rrangle>, \<llangle>2 :: 64 word\<rrangle>);
       cf2(
@@ -498,8 +437,8 @@ lemma \<open> improvement_trailing_composed =
         },
         y
       )
-    \<rbrakk> \<close>
-  unfolding improvement_trailing_composed_def by (rule refl)
+    \<rbrakk>
+  \<close>
 old_urust_rejects
   \<open>
     let (x, y,) = (\<llangle>1 :: 64 word\<rrangle>, \<llangle>2 :: 64 word\<rrangle>,);
@@ -544,7 +483,6 @@ urust_expr improvement_struct_and_slice_ranges
         0
     }
   \<close>
-
 old_urust_rejects
   \<open>
     match \<llangle>ImprovementPacket 2 [5, 8]\<rrangle> {
@@ -573,7 +511,6 @@ urust_expr improvement_constructor_range
         0
     }
   \<close>
-
 old_urust_rejects
   \<open>
     match \<llangle>ImprovementPacket 2 [5, 8]\<rrangle> {
@@ -606,7 +543,6 @@ urust_expr improvement_hygienic_alias
         \<llangle>ImprovementEmpty\<rrangle>
     }
   \<close>
-
 old_urust_rejects
   \<open>
     match \<llangle>ImprovementPacket 2 [5, 8]\<rrangle> {
@@ -635,21 +571,19 @@ as a legacy mutable name that is not used, while representing the continuation b
 as an anonymous abstraction. The old frontend has no wildcard production at this site.
 \<close>
 
-urust_expr improvement_mutable_wildcard
+urust_expr_with_check' improvement_mutable_wildcard
   \<open>
     let keep = \<llangle>5 :: nat\<rrangle>;
     let mut _ = \<llangle>7 :: nat\<rrangle>;
     keep
   \<close>
-
-lemma \<open> improvement_mutable_wildcard =
+  \<open>
     \<lbrakk>
       let keep = \<llangle>5 :: nat\<rrangle>;
       let mut ignored = \<llangle>7 :: nat\<rrangle>;
       keep
-    \<rbrakk> \<close>
-  unfolding improvement_mutable_wildcard_def by (rule refl)
-
+    \<rbrakk>
+  \<close>
 old_urust_rejects
   \<open>
     let keep = \<llangle>5 :: nat\<rrangle>;
@@ -681,19 +615,19 @@ context
     and r :: \<open>(unit, unit, 32 word) Global_Store.ref\<close>
 begin
 
-urust_expr improvement_recursive_borrow_deref \<open> &*rr \<close>
-lemma \<open> improvement_recursive_borrow_deref = \<lbrakk> &(*rr) \<rbrakk> \<close>
-  unfolding improvement_recursive_borrow_deref_def by (rule refl)
+urust_expr_with_check' improvement_recursive_borrow_deref
+  \<open> &*rr \<close>
+  \<open> \<lbrakk> &(*rr) \<rbrakk> \<close>
 old_urust_rejects \<open> &*rr \<close>
 
-urust_expr improvement_recursive_deref_mut_borrow \<open> *& mut r \<close>
-lemma \<open> improvement_recursive_deref_mut_borrow = \<lbrakk> *(& mut r) \<rbrakk> \<close>
-  unfolding improvement_recursive_deref_mut_borrow_def by (rule refl)
+urust_expr_with_check' improvement_recursive_deref_mut_borrow
+  \<open> *& mut r \<close>
+  \<open> \<lbrakk> *(& mut r) \<rbrakk> \<close>
 old_urust_rejects \<open> *& mut r \<close>
 
-urust_expr improvement_recursive_triple_deref \<open> ***rrr \<close>
-lemma \<open> improvement_recursive_triple_deref = \<lbrakk> *(*(*rrr)) \<rbrakk> \<close>
-  unfolding improvement_recursive_triple_deref_def by (rule refl)
+urust_expr_with_check' improvement_recursive_triple_deref
+  \<open> ***rrr \<close>
+  \<open> \<lbrakk> *(*(*rrr)) \<rbrakk> \<close>
 old_urust_rejects \<open> ***rrr \<close>
 
 end
@@ -720,16 +654,14 @@ context
     and lhs rhs :: \<open>32 word\<close>
 begin
 
-urust_expr improvement_antiquotation_place \<open> \<epsilon>\<open>\<up>r\<close> = rhs \<close>
-lemma \<open> improvement_antiquotation_place = \<lbrakk> r = rhs \<rbrakk> \<close>
-  unfolding improvement_antiquotation_place_def by (rule refl)
+urust_expr_with_check' improvement_antiquotation_place
+  \<open> \<epsilon>\<open>\<up>r\<close> = rhs \<close>
+  \<open> \<lbrakk> r = rhs \<rbrakk> \<close>
 old_urust_rejects \<open> \<epsilon>\<open>\<up>r\<close> = rhs \<close>
 
-urust_expr improvement_antiquotation_place_capture
+urust_expr_with_check' improvement_antiquotation_place_capture
   \<open> let mut x = lhs; \<epsilon>\<open>\<up>x\<close> = rhs; *x \<close>
-lemma \<open> improvement_antiquotation_place_capture =
-    \<lbrakk> let mut x = lhs; x = rhs; *x \<rbrakk> \<close>
-  unfolding improvement_antiquotation_place_capture_def by (rule refl)
+  \<open> \<lbrakk> let mut x = lhs; x = rhs; *x \<rbrakk> \<close>
 old_urust_rejects \<open> let mut x = lhs; \<epsilon>\<open>\<up>x\<close> = rhs; *x \<close>
 
 end
@@ -756,11 +688,9 @@ context
     and field_value :: \<open>64 word\<close>
 begin
 
-urust_expr improvement_grouped_deref_field_place
+urust_expr_with_check' improvement_grouped_deref_field_place
   \<open> (*rp).inner.value = field_value \<close>
-lemma \<open> improvement_grouped_deref_field_place =
-    \<lbrakk> (*rp.inner.value) = field_value \<rbrakk> \<close>
-  unfolding improvement_grouped_deref_field_place_def by (rule refl)
+  \<open> \<lbrakk> (*rp.inner.value) = field_value \<rbrakk> \<close>
 old_urust_rejects \<open> (*rp).inner.value = field_value \<close>
 
 end
@@ -778,12 +708,9 @@ postfix.
 
 context fixes self :: postfix_outer
 begin
-urust_expr improvement_propagate_method
+urust_expr_with_check' improvement_propagate_method
   \<open> self.optional?.to_value() \<close>
-
-lemma \<open> improvement_propagate_method = \<lbrakk> (self.optional?).to_value() \<rbrakk> \<close>
-  unfolding improvement_propagate_method_def by (rule refl)
-
+  \<open> \<lbrakk> (self.optional?).to_value() \<rbrakk> \<close>
 old_urust_rejects
   \<open> self.optional?.to_value() \<close>
 end
@@ -796,19 +723,17 @@ Return is a low-precedence value expression whose operand and semicolon are inde
 optional. The old frontend requires the semicolon as part of the return production.
 \<close>
 
-urust_expr improvement_tail_return \<open> return \<close>
-lemma \<open> improvement_tail_return = \<lbrakk> return; \<rbrakk> \<close>
-  unfolding improvement_tail_return_def by (rule refl)
+urust_expr_with_check' improvement_tail_return
+  \<open> return \<close>
+  \<open> \<lbrakk> return; \<rbrakk> \<close>
 old_urust_rejects \<open> return \<close>
 
-urust_expr improvement_tail_return_value
+urust_expr_with_check' improvement_tail_return_value
   \<open> return \<llangle>1 :: nat\<rrangle> \<close>
-lemma \<open> improvement_tail_return_value =
-    \<lbrakk> return \<llangle>1 :: nat\<rrangle>; \<rbrakk> \<close>
-  unfolding improvement_tail_return_value_def by (rule refl)
+  \<open> \<lbrakk> return \<llangle>1 :: nat\<rrangle>; \<rbrakk> \<close>
 old_urust_rejects \<open> return \<llangle>1 :: nat\<rrangle> \<close>
 
-urust_expr improvement_branch_returns
+urust_expr_with_check' improvement_branch_returns
   \<open>
     if \<llangle>True\<rrangle> {
       return \<llangle>1 :: nat\<rrangle>
@@ -816,15 +741,15 @@ urust_expr improvement_branch_returns
       return \<llangle>2 :: nat\<rrangle>
     }
   \<close>
-lemma \<open> improvement_branch_returns =
+  \<open>
     \<lbrakk>
       if \<llangle>True\<rrangle> {
         return \<llangle>1 :: nat\<rrangle>;
       } else {
         return \<llangle>2 :: nat\<rrangle>;
       }
-    \<rbrakk> \<close>
-  unfolding improvement_branch_returns_def by (rule refl)
+    \<rbrakk>
+  \<close>
 old_urust_rejects
   \<open>
     if \<llangle>True\<rrangle> {
@@ -834,17 +759,17 @@ old_urust_rejects
     }
   \<close>
 
-urust_expr improvement_return_initializer
+urust_expr_with_check' improvement_return_initializer
   \<open>
     let result = return \<llangle>1 :: nat\<rrangle>;
     result
   \<close>
-lemma \<open> improvement_return_initializer =
+  \<open>
     \<lbrakk>
       let result = { return \<llangle>1 :: nat\<rrangle>; };
       result
-    \<rbrakk> \<close>
-  unfolding improvement_return_initializer_def by (rule refl)
+    \<rbrakk>
+  \<close>
 old_urust_rejects
   \<open>
     let result = return \<llangle>1 :: nat\<rrangle>;

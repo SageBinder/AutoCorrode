@@ -5,6 +5,7 @@ theory Micro_Rust_Parser_Command
   keywords
     "urust_expr" :: thy_decl
     and "urust_expr_with_check" :: thy_decl
+    and "urust_expr_with_check'" :: thy_decl
 begin
 
 section\<open> The command \<close>
@@ -16,13 +17,17 @@ It adds no attributes, keeping generated definitions out of the global simp set.
 \<open>urust_expr_with_check NAME src\<close> additionally checks the resulting definition
 against the existing \<open>\<lbrakk>src\<rbrakk>\<close> frontend by definition unfolding and
 \<open>refl\<close>, and records the theorem as \<open>NAME_conformance\<close>.
+
+\<open>urust_expr_with_check' NAME new_src old_term\<close> performs the same check with
+\<open>new_src\<close> sent to the new parser and the explicit
+\<open>\<lbrakk>old_src\<rbrakk>\<close> in \<open>old_term\<close> sent to the existing frontend.
 \<close>
 ML\<open>
 (* THE pipeline, exported: every uRust command runs source through exactly this function, so the
-   definition commands (`urust_expr`, `urust_expr_with_check`) and the negative harness
-   (`urust_expr_rejects`, Micro_Rust_Parser_Negative_Conformance) can never drift on WHAT they exercise
-   -- only on how they interpret success/failure. Raises (positioned) on any rejection: lexer
-   (URust_Err.lex_error), yacc (parse_source's print_error), elaborator, or check_term.
+   definition commands (`urust_expr`, `urust_expr_with_check`, `urust_expr_with_check'`) and the
+   negative harness (`urust_expr_rejects`, Micro_Rust_Parser_Negative_Conformance) can never drift on
+   WHAT they exercise -- only on how they interpret success/failure. Raises (positioned) on any
+   rejection: lexer (URust_Err.lex_error), yacc (parse_source's print_error), elaborator, or check_term.
    ONLY `parse_source` touches the Isabelle_lex_yacc global refs, so only it is serialized; elaboration and
    check_term are pure w.r.t. those, and holding the lock across them would serialize the (slower)
    type-checking of every uRust command theory-wide. *)
@@ -37,13 +42,14 @@ fun define_urust_result (binding, source) lthy =
 
 fun define_urust args lthy = snd (define_urust_result args lthy)
 
-fun define_urust_with_check (binding, source) lthy =
+fun old_frontend_source source = "\<lbrakk> " ^ Input.string_of source ^ " \<rbrakk>"
+
+fun define_urust_with_frontend_check (binding, new_source, old_frontend_source) lthy =
   let
     val ((lhs, (_, def_thm)), lthy') =
-      define_urust_result (binding, source) lthy
+      define_urust_result (binding, new_source) lthy
     val old_frontend =
-      Syntax.parse_term lthy'
-        ("\<lbrakk> " ^ Input.string_of source ^ " \<rbrakk>")
+      Syntax.parse_term lthy' old_frontend_source
     val equality =
       Syntax.check_term lthy'
         (Const (\<^const_name>\<open>HOL.eq\<close>, dummyT) $ lhs $ old_frontend)
@@ -57,6 +63,9 @@ fun define_urust_with_check (binding, source) lthy =
         ((Binding.suffix_name "_conformance" binding, []), [conformance]) lthy'
   in lthy'' end
 
+fun define_urust_with_check (binding, source) =
+  define_urust_with_frontend_check (binding, source, old_frontend_source source)
+
 val _ = Outer_Syntax.local_theory \<^command_keyword>\<open>urust_expr\<close>
           "Parse a uRust expression and define it as a HOL constant"
           (Parse.binding -- Parse.input Parse.cartouche >> define_urust)
@@ -64,6 +73,12 @@ val _ = Outer_Syntax.local_theory \<^command_keyword>\<open>urust_expr\<close>
 val _ = Outer_Syntax.local_theory \<^command_keyword>\<open>urust_expr_with_check\<close>
           "Define a uRust expression and check it against the existing frontend by refl"
           (Parse.binding -- Parse.input Parse.cartouche >> define_urust_with_check)
+
+val _ = Outer_Syntax.local_theory \<^command_keyword>\<open>urust_expr_with_check'\<close>
+          "Define a uRust expression and check it against an explicit existing-frontend term by refl"
+          (Parse.binding -- Parse.input Parse.cartouche -- Parse.term >>
+            (fn ((binding, new_source), old_frontend_source) =>
+              define_urust_with_frontend_check (binding, new_source, old_frontend_source)))
 \<close>
 
 end

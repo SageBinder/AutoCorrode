@@ -1,19 +1,19 @@
 (* Rejection tests for the custom uRust parser. Normal rows require both `elab_urust` and the existing
    frontend to reject; the new parser's error must contain a stable substring. [DIVERGENT] rows use the
-   parser-only command to record an intentional acceptance-boundary difference. *)
+   new-parser-only command to record an intentional acceptance-boundary difference. *)
 
 theory Micro_Rust_Parser_Negative_Conformance
   imports Struct_Ambiguity_Left Struct_Ambiguity_Right
   keywords
     "urust_expr_rejects" :: thy_decl
-    and "urust_expr_rejects_parser_only" :: thy_decl
+    and "new_urust_rejects" :: thy_decl
 begin
 
 section\<open> The command \<close>
 
 text\<open>
 \<open>urust_expr_rejects source expected\<close> requires both frontends to reject and
-checks the new parser's reason. The parser-only variant is reserved for documented
+checks the new parser's reason. The new-parser-only variant is reserved for documented
 acceptance-boundary differences.
 \<close>
 ML\<open>
@@ -67,7 +67,7 @@ val _ = Outer_Syntax.local_theory \<^command_keyword>\<open>urust_expr_rejects\<
           "Assert that both uRust frontends reject; check the new parser's reason"
           (rejection_args >> urust_rejects true)
 
-val _ = Outer_Syntax.local_theory \<^command_keyword>\<open>urust_expr_rejects_parser_only\<close>
+val _ = Outer_Syntax.local_theory \<^command_keyword>\<open>new_urust_rejects\<close>
           "Assert that the new uRust parser rejects without checking the existing frontend"
           (rejection_args >> urust_rejects false)
 \<close>
@@ -352,7 +352,7 @@ urust_expr_rejects \<open> match_case \<llangle>Some (0 :: nat)\<rrangle> { NoSu
   \<comment> \<open> [FIDELITY] \<open>Code.is_constr\<close> decides ctor-vs-binder; the frontend agrees ("Error in case
        expression: Not a datatype constructor"). \<close>
 
-urust_expr_rejects_parser_only \<open> match_switch \<llangle>0 :: nat\<rrangle> { x \<Rightarrow> () } \<close>
+new_urust_rejects \<open> match_switch \<llangle>0 :: nat\<rrangle> { x \<Rightarrow> () } \<close>
   \<open> unsupported match_switch key "x" \<close>
   \<comment> \<open> [DIVERGENT] the frontend accepts a binding key under \<open>match_switch\<close>; here switch keys are
        numeral / \<open>_\<close> only (binding patterns need \<open>match_case\<close>). \<close>
@@ -383,7 +383,7 @@ urust_expr_rejects
   \<open> is missing field(s): negative_right \<close>
   \<comment> \<open> [FIDELITY] omitted fields require a struct rest marker. \<close>
 
-urust_expr_rejects_parser_only
+new_urust_rejects
   \<open> match_case \<llangle>NegativeMoreSelector 1 2\<rrangle> { NegativeMoreSelector { negative_more_required: x } \<Rightarrow> x } \<close>
   \<open> is missing field(s): more \<close>
   \<comment> \<open> [DIVERGENT] an ordinary datatype selector named \<open>more\<close> is required. The frontend
@@ -456,7 +456,7 @@ urust_expr_rejects
   \<comment> \<open> [FIDELITY] explicit switch conversion accepts grouped numeric keys but has no borrow-pattern
        conversion rule. \<close>
 
-urust_expr_rejects_parser_only
+new_urust_rejects
   \<open> match_case \<llangle>undefined\<rrangle> { AmbiguousStruct { ambiguous_field: x } \<Rightarrow> x } \<close>
   \<open> Struct_Ambiguity_Left.struct_ambiguity_left.AmbiguousStruct \<close>
   \<comment> \<open> [DIVERGENT] the existing frontend silently picks one of two same-basename constructors.
@@ -605,7 +605,7 @@ urust_expr_rejects \<open> #[fuel(\<llangle>1 :: nat\<rrangle>)] loop { () } \<c
   \<open> VALAQ \<close>
   \<comment> \<open> [FIDELITY] a value antiquotation is not a fuel payload. \<close>
 
-urust_expr_rejects_parser_only
+new_urust_rejects
   \<open> #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while true { () } \<close>
   \<open> TTRUE \<close>
   \<comment> \<open> [DIVERGENT] the dedicated parser requires Rust's condition parentheses; Isabelle's
