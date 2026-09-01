@@ -161,6 +161,15 @@ lemma \<open> improvement_empty_block_statement = \<lbrakk> { () } () \<rbrakk> 
 old_urust_rejects
   \<open> {} () \<close>
 
+urust_expr improvement_empty_unsafe_block
+  \<open> unsafe {} \<close>
+
+lemma \<open> improvement_empty_unsafe_block = \<lbrakk> unsafe { () } \<rbrakk> \<close>
+  unfolding improvement_empty_unsafe_block_def by (rule refl)
+
+old_urust_rejects
+  \<open> unsafe {} \<close>
+
 
 section\<open> Compositional range patterns \<close>
 
