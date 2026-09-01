@@ -129,6 +129,52 @@ urust_expr_rejects \<open> /* block comments remain unsupported */ () \<close>
   \<comment> \<open> [FIDELITY] this increment adds only Rust line comments; neither frontend accepts block
        comments. \<close>
 
+section\<open> Unsupported Rust-compatible integer suffixes \<close>
+
+urust_expr_rejects \<open> 1u128 \<close> \<open> unsupported integer-literal suffix "u128" \<close>
+  \<comment> \<open> [FIDELITY] a glued unsupported decimal width is one numeric token and is rejected at its
+       suffix by the sole term-layer table. \<close>
+
+urust_expr_rejects \<open> 0xffu128 \<close> \<open> unsupported integer-literal suffix "u128" \<close>
+  \<comment> \<open> [FIDELITY] the same longest-match and positioned suffix diagnostic apply after hex digits. \<close>
+
+urust_expr_rejects \<open> 1i32 \<close> \<open> unsupported integer-literal suffix "i32" \<close>
+  \<comment> \<open> [FIDELITY] signed integer types are not added by the glued-suffix syntax improvement. \<close>
+
+urust_expr_rejects \<open> 0xffi32 \<close> \<open> unsupported integer-literal suffix "i32" \<close>
+  \<comment> \<open> [FIDELITY] unsupported signed suffixes also stay intact after a hex literal. \<close>
+
+urust_expr_rejects \<open> 1u32tail \<close> \<open> unsupported integer-literal suffix "u32tail" \<close>
+  \<comment> \<open> [FIDELITY] lexical longest-match must not accept the supported prefix and leave an identifier. \<close>
+
+urust_expr_rejects \<open> 0xffu8tail \<close> \<open> unsupported integer-literal suffix "u8tail" \<close>
+  \<comment> \<open> [FIDELITY] hexadecimal suffix candidates obey the same whole-token boundary. \<close>
+
+urust_expr_rejects \<open> 1foo \<close> \<open> unsupported integer-literal suffix "foo" \<close>
+  \<comment> \<open> [FIDELITY] immediate identifier adjacency is a suffix candidate, not a second token. \<close>
+
+urust_expr_rejects \<open> 0xffvalue \<close> \<open> unsupported integer-literal suffix "value" \<close>
+  \<comment> \<open> [FIDELITY] a non-hex identifier start establishes the corresponding hex suffix boundary. \<close>
+
+urust_expr_rejects \<open> 1 foo \<close> \<open> syntax error found at IDENT \<close>
+  \<comment> \<open> [FIDELITY] whitespace terminates the numeric token; the following identifier is not swallowed. \<close>
+
+urust_expr_rejects \<open> 1_000 \<close> \<open> unsupported integer-literal suffix "_000" \<close>
+  \<comment> \<open> [FIDELITY] numeric separators remain out of scope and do not become decimal digits. \<close>
+
+urust_expr_rejects \<open> 0xff_00 \<close> \<open> unsupported integer-literal suffix "_00" \<close>
+  \<comment> \<open> [FIDELITY] numeric separators remain out of scope for hexadecimal literals too. \<close>
+
+urust_expr_rejects
+  \<open> match_switch \<llangle>1 :: nat\<rrangle> { 1u8 \<Rightarrow> (), _ \<Rightarrow> () } \<close>
+  \<open> NUMSFX TARROW \<close>
+  \<comment> \<open> [FIDELITY] suffixed decimal literals remain outside the pattern grammar. \<close>
+
+urust_expr_rejects
+  \<open> match_switch \<llangle>1 :: nat\<rrangle> { 0xffu8 \<Rightarrow> (), _ \<Rightarrow> () } \<close>
+  \<open> NUMSFX TARROW \<close>
+  \<comment> \<open> [FIDELITY] suffixed hexadecimal literals preserve the same pattern boundary. \<close>
+
 section\<open> Patterns \<close>
 
 datatype negative_struct_fixture =

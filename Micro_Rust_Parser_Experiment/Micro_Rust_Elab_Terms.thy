@@ -117,19 +117,54 @@ struct
     constant (function_constant pos (length arguments)) (function :: arguments)
 
   (* Integer-literal suffix knowledge has one owner. *)
-  fun integer_suffix_type "u8" = SOME \<^typ>\<open>8 word\<close>
-    | integer_suffix_type "u16" = SOME \<^typ>\<open>16 word\<close>
-    | integer_suffix_type "u32" = SOME \<^typ>\<open>32 word\<close>
-    | integer_suffix_type "u64" = SOME \<^typ>\<open>64 word\<close>
-    | integer_suffix_type "usize" = SOME \<^typ>\<open>64 word\<close>
-    | integer_suffix_type _ = NONE
+  val integer_suffix_types =
+    [("u8", \<^typ>\<open>8 word\<close>),
+     ("u16", \<^typ>\<open>16 word\<close>),
+     ("u32", \<^typ>\<open>32 word\<close>),
+     ("u64", \<^typ>\<open>64 word\<close>),
+     ("usize", \<^typ>\<open>64 word\<close>)]
+
+  fun integer_suffix_type suffix =
+    AList.lookup (op =) integer_suffix_types suffix
+
+  val supported_integer_suffixes =
+    space_implode " " (map fst integer_suffix_types)
+
+  fun is_decimal_digit c = #"0" <= c andalso c <= #"9"
+  fun is_hex_digit c =
+    is_decimal_digit c orelse
+    (#"a" <= c andalso c <= #"f") orelse
+    (#"A" <= c andalso c <= #"F")
+
+  fun scan_while predicate text start =
+    if start < size text andalso predicate (String.sub (text, start))
+    then scan_while predicate text (start + 1)
+    else start
+
+  fun split_integer_lexeme pos lexeme =
+    let
+      val hex = String.isPrefix "0x" lexeme
+      val number_end =
+        if hex then scan_while is_hex_digit lexeme 2
+        else scan_while is_decimal_digit lexeme 0
+      val _ =
+        if number_end = (if hex then 2 else 0)
+        then
+          error ("urust_expr: cannot read integer literal " ^ quote lexeme ^
+            Position.here pos)
+        else ()
+      val number_text = String.substring (lexeme, 0, number_end)
+      val suffix_spelling = String.extract (lexeme, number_end, NONE)
+      val suffix =
+        if String.isPrefix "_" suffix_spelling
+        then String.extract (suffix_spelling, 1, NONE)
+        else suffix_spelling
+    in (number_text, suffix_spelling, suffix) end
 
   fun parse_integer pos lexeme =
     let
-      val (number_text, suffix) =
-        (case first_field "_" lexeme of
-           SOME (number_text, suffix) => (number_text, SOME suffix)
-         | NONE => (lexeme, NONE))
+      val (number_text, suffix_spelling, suffix) =
+        split_integer_lexeme pos lexeme
       val value =
         (case (if String.isPrefix "0x" number_text
                then StringCvt.scanString (Int.scan StringCvt.HEX)
@@ -140,15 +175,17 @@ struct
              error ("urust_expr: cannot read integer literal " ^ quote number_text ^
                Position.here pos))
     in
-      (case suffix of
-         NONE => (value, NONE)
-       | SOME suffix_text =>
-           (case integer_suffix_type suffix_text of
-              SOME typ => (value, SOME typ)
-            | NONE =>
-                error ("urust_expr: unsupported integer-literal suffix " ^
-                  quote ("_" ^ suffix_text) ^
-                  " (supported: _u8 _u16 _u32 _u64 _usize)" ^ Position.here pos)))
+      if suffix = ""
+      then (value, NONE)
+      else
+        (case integer_suffix_type suffix of
+           SOME typ => (value, SOME typ)
+         | NONE =>
+             error ("urust_expr: unsupported integer-literal suffix " ^
+               quote suffix_spelling ^
+               " (supported: " ^ supported_integer_suffixes ^
+               "; optional compatibility underscore)" ^
+               Position.here (Position.symbol_explode number_text pos)))
     end
 
   fun integer_value pos lexeme =
