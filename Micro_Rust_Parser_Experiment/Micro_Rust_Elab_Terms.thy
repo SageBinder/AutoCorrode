@@ -349,6 +349,31 @@ lemma urust_matcher_run_value_succeed [urust_matcher_conformance]:
   by (simp add:
     urust_matcher_run_value_def urust_matcher_succeed_def)
 
+lemma urust_matcher_run_value_map [urust_matcher_conformance]:
+  \<open>
+    urust_matcher_run_value
+      (urust_matcher_map mapping matcher)
+      value success failure =
+      urust_matcher_run_value matcher value
+        (\<lambda>payload. success (mapping value payload))
+        failure
+  \<close>
+  by (simp add:
+    urust_matcher_run_value_def urust_matcher_map_def)
+
+lemma urust_matcher_run_value_test [urust_matcher_conformance]:
+  \<open>
+    urust_matcher_run_value
+      (urust_matcher_test predicate)
+      value success failure =
+      urust_lazy_conditional
+        (predicate value)
+        (\<lambda>_. success value)
+        failure
+  \<close>
+  by (simp add:
+    urust_matcher_run_value_def urust_matcher_test_def)
+
 lemma urust_matcher_run_guarded_value_fail
     [urust_matcher_conformance]:
   \<open>

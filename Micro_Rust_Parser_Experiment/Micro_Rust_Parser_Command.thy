@@ -1,6 +1,7 @@
 theory Micro_Rust_Parser_Command
   imports
     Micro_Rust_Diagnostics
+    Micro_Rust_Matcher_Normalize
     Micro_Rust_Translate
   keywords
     "urust_expr" :: thy_decl
@@ -357,25 +358,25 @@ fun define_urust_with_frontend_check
       Goal.prove lthy' [] [] (HOLogic.mk_Trueprop equality)
         (fn {context = ctxt, ...} =>
           let
-            val matcher_definitions =
-              @{thms
-                urust_matcher_fail_def
-                urust_matcher_succeed_def
-                urust_matcher_choice_def
-                urust_matcher_map_def
-                urust_matcher_product_def
-                urust_matcher_test_def
-                urust_matcher_lift_def
-                urust_matcher_destructure_def
-                urust_matcher_run_def
-                urust_matcher_run_guarded_def
-                urust_matcher_run_value_def
-                urust_matcher_run_guarded_value_def}
             val matcher_simps =
               ctxt addsimps
                 (@{thms micro_rust_simps} @
                  @{thms
                    urust_lazy_conditional_const
+                   urust_matcher_fail_def
+                   urust_matcher_succeed_def
+                   urust_matcher_run_fail
+                   urust_matcher_run_succeed
+                   urust_matcher_run_guarded_fail
+                   urust_matcher_run_guarded_succeed
+                   urust_matcher_run_value_fail
+                   urust_matcher_run_value_succeed
+                   urust_matcher_run_value_map
+                   urust_matcher_run_value_test
+                   urust_matcher_run_guarded_value_fail
+                   urust_matcher_run_guarded_value_succeed
+                   two_armed_conditional_def
+                   sequence_def
                    bind_literal_unit
                    bind_literal_unit2
                    evaluate_conjunction_literal
@@ -385,12 +386,11 @@ fun define_urust_with_frontend_check
                    evaluate_le_literal
                    evaluate_lt_literal
                    evaluate_pure_if})
-            val unfold_matchers =
-              Local_Defs.unfold_tac ctxt matcher_definitions
+              |> Simplifier.del_cong @{thm if_weak_cong}
+              |> Simplifier.add_cong @{thm if_cong}
             val semantic_simps =
               matcher_simps addsimps
                 @{thms
-                  two_armed_conditional_def
                   Core_Expression.bind.simps
                   urust_eq_def
                   bindlift2_def}
@@ -428,16 +428,18 @@ fun define_urust_with_frontend_check
                   end)
                 index
             fun finish_matcher_goal index =
-              TRY
+              URust_Matcher_Normalize.normalize_tac ctxt index THEN
+              (TRY
                 (resolve_tac ctxt [@{thm expression_eqI2}] index THEN
                  force_tac semantic_simps index) THEN
-              TRY (force_tac matcher_simps index)
+               TRY (force_tac matcher_simps index))
           in
             Local_Defs.unfold_tac ctxt [def_thm] THEN
             (resolve_tac ctxt [@{thm refl}] 1 ORELSE
-              (unfold_matchers THEN
-                simp_cases matcher_simps 1 THEN
-                ALLGOALS finish_matcher_goal))
+              (URust_Matcher_Normalize.normalize_tac ctxt 1 THEN
+                TRY
+                  (simp_cases matcher_simps 1 THEN
+                   ALLGOALS finish_matcher_goal)))
           end)
     val (_, lthy'') =
       Local_Theory.note
