@@ -1,5 +1,5 @@
-theory Micro_Rust_Parser_Showoff
-  imports Micro_Rust_Parser
+theory Parser_Test_Showoff
+  imports Parser_Impl
 begin
 
 section\<open> Showcase \<close>

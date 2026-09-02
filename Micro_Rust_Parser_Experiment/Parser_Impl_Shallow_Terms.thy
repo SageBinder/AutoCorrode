@@ -1,6 +1,6 @@
-theory Micro_Rust_Elab_Terms
+theory Parser_Impl_Shallow_Terms
   imports
-    Micro_Rust_Parser_AST
+    Parser_Impl_AST
     Shallow_Micro_Rust.Micro_Rust_Shallow_Embedding
 begin
 

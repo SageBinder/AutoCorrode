@@ -1,7 +1,7 @@
-theory Micro_Rust_Parser_Regression_Audit
+theory Parser_Test_Regression_Audit
   imports
-    Micro_Rust_Parser_Improvements
-    Micro_Rust_Parser_Negative_Conformance
+    Parser_Test_Improvements
+    Parser_Test_Negative_Conformance
 begin
 
 section\<open> Frontend-shape structural audit \<close>
@@ -404,6 +404,52 @@ ML_val\<open>
       | range _ _ _ _ = false
 
     val _ =
+      audit_assert "exclusive range shape changed"
+        (range RK_Exclusive "5" "7"
+          (parse_pattern "5..7"))
+    val _ =
+      audit_assert "inclusive range shape changed"
+        (range RK_Inclusive "5" "7"
+          (parse_pattern "5..=7"))
+
+    val _ =
+      (case parse_pattern "whole @ 5..=7" of
+         P_Alias ("whole", _, inner, _) =>
+           audit_assert "alias did not bind the whole range"
+             (range RK_Inclusive "5" "7" inner)
+       | _ =>
+           error "parser regression audit: range alias shape changed")
+
+    val _ =
+      (case parse_pattern "outer @ inner @ 5..7" of
+         P_Alias ("outer", _,
+           P_Alias ("inner", _, nested, _), _) =>
+             audit_assert "nested aliases lost right associativity"
+               (range RK_Exclusive "5" "7" nested)
+       | _ =>
+           error "parser regression audit: nested alias shape changed")
+
+    val _ =
+      (case parse_pattern "whole @ Some(5..=7)" of
+         P_Alias ("whole", _,
+           P_Constr ("Some", _, [nested]), _) =>
+             audit_assert "constructor alias lost its range argument"
+               (range RK_Inclusive "5" "7" nested)
+       | _ =>
+           error
+             "parser regression audit: constructor alias shape changed")
+
+    val _ =
+      (case parse_pattern "whole @ Head { field: 5..7 }" of
+         P_Alias ("whole", _,
+           P_Struct ("Head", _,
+             [SF_Field ("field", _, nested)]), _) =>
+             audit_assert "struct alias lost its range field"
+               (range RK_Exclusive "5" "7" nested)
+       | _ =>
+           error "parser regression audit: struct alias shape changed")
+
+    val _ =
       (case parse_pattern "left @ 1..2 | right @ 3..=4" of
          P_Or
            ([P_Alias ("left", _, left, _),
@@ -416,58 +462,146 @@ ML_val\<open>
            error
              "parser regression audit: alias/range/or precedence changed")
 
-    fun alternative_name index =
-      "regression_alt_" ^ string_of_int index
+    val chained_text =
+      pattern_source "1..2..3"
+    val chained_start =
+      Position.make0 7 1 0 "" "" ""
 
-    val alternative_count = 4096
-    val alternatives =
-      space_implode " | "
-        (map alternative_name (0 upto (alternative_count - 1)))
+    fun find_from text needle offset =
+      if offset + size needle > size text then
+        error
+          ("parser regression audit: missing " ^ quote needle)
+      else if
+        String.substring (text, offset, size needle) = needle
+      then offset
+      else find_from text needle (offset + 1)
 
-    val _ =
-      (case parse_pattern alternatives of
-         P_Or (patterns, _) =>
-           (audit_assert "large or-pattern was not flattened"
-              (length patterns = alternative_count);
-            audit_assert "large or-pattern source order changed"
-              (case (hd patterns, List.last patterns) of
-                 (P_Ident (first, _), P_Ident (last, _)) =>
-                   first = alternative_name 0 andalso
-                   last = alternative_name (alternative_count - 1)
-               | _ => false))
-       | _ => error "parser regression audit: large or-pattern AST changed")
-
-    val malformed = "1 + 2 ++ 3"
-    val start = Position.make0 4 10 0 "" "" ""
-    val second_plus =
+    val first_range =
+      find_from chained_text ".." 0
+    val second_range =
+      find_from chained_text ".." (first_range + 2)
+    val second_range_position =
       Position.symbol_explode
-        (String.substring (malformed, 0, 7)) start
-    val expected_here =
+        (String.substring (chained_text, 0, second_range))
+        chained_start
+    val second_range_here =
       XML.content_of
-        (YXML.parse_body (Position.here second_plus))
-
+        (YXML.parse_body
+          (Position.here second_range_position))
     val _ =
       (case Exn.result
           (fn () =>
             elab_urust ctxt
               (Parser_Lex_Util.positioned_content_source
-                malformed start)) () of
+                chained_text chained_start)) () of
          Exn.Res _ =>
-           error "parser regression audit: malformed operator parsed"
+           error
+             "parser regression audit: chained range unexpectedly elaborated"
        | Exn.Exn exn =>
            if Exn.is_interrupt exn then Exn.reraise exn
            else
              let
                val message =
                  XML.content_of
-                   (YXML.parse_body (Runtime.exn_message exn))
+                   (YXML.parse_body
+                     (Runtime.exn_message exn))
              in
-               audit_assert "malformed operator diagnostic changed"
+               audit_assert "chained range missed semantic validation"
                  (String.isSubstring
-                   "syntax error found at +" message);
-               audit_assert "malformed operator position changed"
-                 (String.isSubstring expected_here message)
+                   "range patterns are non-associative" message);
+               audit_assert "chained range diagnostic moved"
+                 (String.isSubstring second_range_here message)
              end)
+
+    fun alternative_name index =
+      "regression_alt_" ^ string_of_int index
+
+    fun audit_alternatives count =
+      let
+        val alternatives =
+          space_implode " | "
+            (map alternative_name (0 upto (count - 1)))
+      in
+        (case parse_pattern alternatives of
+           P_Or (patterns, _) =>
+             (audit_assert
+                ("large or-pattern was not flattened at " ^
+                  string_of_int count)
+                (length patterns = count);
+              audit_assert
+                ("large or-pattern source order changed at " ^
+                  string_of_int count)
+                (case (hd patterns, List.last patterns) of
+                   (P_Ident (first, _), P_Ident (last, _)) =>
+                     first = alternative_name 0 andalso
+                     last = alternative_name (count - 1)
+                 | _ => false))
+         | _ =>
+             error
+               ("parser regression audit: large or-pattern AST changed at " ^
+                 string_of_int count))
+      end
+
+    val _ = audit_alternatives 4096
+    val _ = audit_alternatives 16384
+
+    fun expect_positioned_rejection
+        label text start expected expected_position =
+      let
+        val expected_here =
+          XML.content_of
+            (YXML.parse_body (Position.here expected_position))
+      in
+        (case Exn.result
+            (fn () =>
+              elab_urust ctxt
+                (Parser_Lex_Util.positioned_content_source
+                  text start)) () of
+           Exn.Res _ =>
+             error
+               ("parser regression audit: " ^ label ^
+                 " unexpectedly parsed")
+         | Exn.Exn exn =>
+             if Exn.is_interrupt exn then Exn.reraise exn
+             else
+               let
+                 val message =
+                   XML.content_of
+                     (YXML.parse_body
+                       (Runtime.exn_message exn))
+               in
+                 audit_assert (label ^ " diagnostic changed")
+                   (String.isSubstring expected message);
+                 audit_assert (label ^ " position changed")
+                   (String.isSubstring expected_here message)
+               end)
+      end
+
+    val operator_text = "1 + 2 ++ 3"
+    val operator_start =
+      Position.make0 4 10 0 "" "" ""
+    val second_operator =
+      Position.symbol_explode
+        (String.substring (operator_text, 0, 7))
+        operator_start
+    val _ =
+      expect_positioned_rejection
+        "malformed operator"
+        operator_text operator_start
+        "syntax error found at +"
+        second_operator
+
+    val eof_text = "{ ()"
+    val eof_start =
+      Position.make0 3 12 0 "" "" ""
+    val eof_stop =
+      Position.symbol_explode eof_text eof_start
+    val _ =
+      expect_positioned_rejection
+        "malformed EOF"
+        eof_text eof_start
+        "syntax error found at end of input"
+        eof_stop
   in
     val _ = writeln "Parser position and pattern grammar regressions passed"
   end

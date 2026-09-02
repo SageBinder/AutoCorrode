@@ -1,7 +1,7 @@
-theory Micro_Rust_Parser_Command
+theory Parser_Impl_Command
   imports
-    Micro_Rust_Diagnostics
-    Micro_Rust_Translate
+    Parser_Impl_Diagnostics
+    Parser_Impl_Translate
   keywords
     "urust_expr" :: thy_decl
     and "urust_expr_with_check" :: thy_decl
@@ -26,7 +26,7 @@ against the existing \<open>\<lbrakk>src\<rbrakk>\<close> frontend by definition
 ML\<open>
 (* THE pipeline, exported: every uRust command runs source through exactly this function, so the
    definition commands (`urust_expr`, `urust_expr_with_check`, `urust_expr_with_check'`) and the
-   negative harness (`urust_expr_rejects`, Micro_Rust_Parser_Negative_Conformance) can never drift on
+   negative harness (`urust_expr_rejects`, Parser_Test_Negative_Conformance) can never drift on
    WHAT they exercise -- only on how they interpret success/failure. Raises (positioned) on any
    rejection: lexer (URust_Err.lex_error), yacc (parse_source's print_error), elaborator, or check_term.
    ONLY `parse_source` touches the Isabelle_lex_yacc global refs, so only it is serialized; elaboration and

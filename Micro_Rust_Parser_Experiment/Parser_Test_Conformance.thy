@@ -2,8 +2,8 @@
    defines its expression and proves it alpha-equal to `\<lbrakk> src \<rbrakk>` by `refl`. Type
    annotations avoid hidden type variables that `Local_Theory.define` cannot expose cleanly. *)
 
-theory Micro_Rust_Parser_Conformance
-  imports Micro_Rust_Parser
+theory Parser_Test_Conformance
+  imports Parser_Impl
 begin
 
 section\<open> Numeric literals (Corpus PART I, "Numeric Literals") \<close>
@@ -180,7 +180,7 @@ text\<open> Its \<open>Abs\<close>/\<open>Bound\<close> representation cannot ca
 urust_expr_with_check let_wild_hyg \<open> let uu = \<llangle>5 :: nat\<rrangle>; let _ = \<llangle>7 :: nat\<rrangle>; uu \<close>
 
 text\<open> Refutable \<open>let\<close> patterns and patterns unsupported by a selected match lowering have positioned
-rows in \<open>Micro_Rust_Parser_Negative_Conformance.thy\<close>. \<close>
+rows in \<open>Parser_Test_Negative_Conformance.thy\<close>. \<close>
 
 section\<open> Tuple values and irrefutable tuple binders \<close>
 

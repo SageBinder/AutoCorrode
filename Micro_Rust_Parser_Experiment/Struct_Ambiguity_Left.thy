@@ -1,5 +1,5 @@
 theory Struct_Ambiguity_Left
-  imports Micro_Rust_Parser
+  imports Parser_Impl
 begin
 
 datatype struct_ambiguity_left =

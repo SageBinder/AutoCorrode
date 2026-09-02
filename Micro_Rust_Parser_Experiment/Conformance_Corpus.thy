@@ -10,7 +10,7 @@ section\<open> Conformance corpus \<close>
 text\<open>
 The inner-syntax frontend is the oracle. Expression goldens use
 \<open>undefined = \<lbrakk>src\<rbrakk>\<close>; parser equality is tested in
-\<open>Micro_Rust_Parser_Conformance.thy\<close>. Definition goldens specify future item
+\<open>Parser_Test_Conformance.thy\<close>. Definition goldens specify future item
 commands, and the final tier records frontend rejections. Proofs remain \<open>sorry\<close>,
 so the session uses \<open>quick_and_dirty\<close>. \<open>**\<close> and \<open>!!\<close> mean double
 dereference and negation.
@@ -244,7 +244,7 @@ subsection\<open>Assignment Operators\<close>
 text\<open>
 Simple assignment and its identifier, grouped, dereferenced, field, antiquotation,
 precedence, associativity, and composition boundaries have runnable frontend-equivalence
-coverage in \<open>Micro_Rust_Parser_Conformance.thy\<close>.
+coverage in \<open>Parser_Test_Conformance.thy\<close>.
 \<close>
 
 subsubsection\<open>Compound Assignment\<close>
@@ -253,9 +253,9 @@ text\<open>
 The frontend-supported operators \<open>+= -= *= %= &= |= ^= <<= >>=\<close> and their
 place, precedence, associativity, mutable-binding, and control-flow boundaries have
 runnable frontend-equivalence coverage in
-\<open>Micro_Rust_Parser_Conformance.thy\<close>. The frontend does not provide \<open>/=\<close>;
+\<open>Parser_Test_Conformance.thy\<close>. The frontend does not provide \<open>/=\<close>;
 its fidelity rejection is checked in
-\<open>Micro_Rust_Parser_Negative_Conformance.thy\<close>.
+\<open>Parser_Test_Negative_Conformance.thy\<close>.
 \<close>
 
 subsection\<open>Control Flow - Conditionals\<close>
@@ -673,7 +673,7 @@ subsection\<open>References and Mutation\<close>
 text\<open>
 Mutable allocation, borrow, read-dereference, simple assignment, and binary-operator
 preservation have runnable frontend-equivalence coverage in
-\<open>Micro_Rust_Parser_Conformance.thy\<close>.
+\<open>Parser_Test_Conformance.thy\<close>.
 \<close>
 
 subsection\<open>Field Access and Records\<close>

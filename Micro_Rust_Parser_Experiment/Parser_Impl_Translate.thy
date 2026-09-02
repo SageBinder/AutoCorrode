@@ -1,5 +1,5 @@
-theory Micro_Rust_Translate
-  imports Micro_Rust_Patterns
+theory Parser_Impl_Translate
+  imports Parser_Impl_Patterns
 begin
 
 section\<open> Expression elaboration \<close>

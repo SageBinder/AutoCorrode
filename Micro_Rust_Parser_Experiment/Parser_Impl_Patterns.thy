@@ -1,5 +1,5 @@
-theory Micro_Rust_Patterns
-  imports Micro_Rust_Resolution
+theory Parser_Impl_Patterns
+  imports Parser_Impl_Resolution
 begin
 
 section\<open> Resolved patterns and case compilation \<close>

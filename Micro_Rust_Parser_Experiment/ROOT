@@ -4,11 +4,9 @@ session Micro_Rust_Parser_Experiment = HOL +
     "HOL-Library"
     Separation_Lenses
     Shallow_Micro_Rust
-    Shallow_Separation_Logic
     Micro_Rust_Std_Lib
     Micro_Rust_Runtime
     Micro_Rust_Interfaces
-    Crush
     Lenses_And_Other_Optics
     Byte_Level_Encoding
     "Isabelle_Lex-Yacc"
@@ -17,19 +15,19 @@ session Micro_Rust_Parser_Experiment = HOL +
     Conformance_Corpus
     Parser_Utils
     Toy_Lex_Yacc
-    Micro_Rust_Parser_AST
-    Micro_Rust_Parser_Grammar
-    Micro_Rust_Diagnostics
-    Micro_Rust_Elab_Terms
-    Micro_Rust_Resolution
-    Micro_Rust_Patterns
-    Micro_Rust_Translate
-    Micro_Rust_Parser_Command
-    Micro_Rust_Parser
+    Parser_Impl_AST
+    Parser_Impl_Grammar
+    Parser_Impl_Diagnostics
+    Parser_Impl_Shallow_Terms
+    Parser_Impl_Resolution
+    Parser_Impl_Patterns
+    Parser_Impl_Translate
+    Parser_Impl_Command
+    Parser_Impl
     Struct_Ambiguity_Left
     Struct_Ambiguity_Right
-    Micro_Rust_Parser_Conformance
-    Micro_Rust_Parser_Negative_Conformance
-    Micro_Rust_Parser_Improvements
-    Micro_Rust_Parser_Showoff
-    Micro_Rust_Parser_Regression_Audit
+    Parser_Test_Conformance
+    Parser_Test_Negative_Conformance
+    Parser_Test_Improvements
+    Parser_Test_Showoff
+    Parser_Test_Regression_Audit

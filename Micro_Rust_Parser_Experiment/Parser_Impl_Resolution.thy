@@ -1,6 +1,6 @@
-theory Micro_Rust_Resolution
+theory Parser_Impl_Resolution
   imports
-    Micro_Rust_Elab_Terms
+    Parser_Impl_Shallow_Terms
     Parser_Utils
 begin
 

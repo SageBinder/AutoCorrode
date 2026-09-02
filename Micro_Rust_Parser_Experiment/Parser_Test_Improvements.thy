@@ -1,5 +1,5 @@
-theory Micro_Rust_Parser_Improvements
-  imports Micro_Rust_Parser_Conformance
+theory Parser_Test_Improvements
+  imports Parser_Test_Conformance
   keywords
     "old_urust_rejects" :: thy_decl
 begin
@@ -305,7 +305,7 @@ section\<open> Trailing commas \<close>
 
 text\<open>
 The old frontend accepts trailing commas only in slice patterns, whose shared
-cases are in \<open>Micro_Rust_Parser_Conformance\<close>. Calls, arms, constructor
+cases are in \<open>Parser_Test_Conformance\<close>. Calls, arms, constructor
 patterns, tuples, and struct patterns reject there. Each source below is checked
 against the same old-frontend term with only its terminal comma removed.
 \<close>

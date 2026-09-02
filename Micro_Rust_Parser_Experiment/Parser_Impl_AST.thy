@@ -1,4 +1,4 @@
-theory Micro_Rust_Parser_AST
+theory Parser_Impl_AST
   imports Main
 begin
 

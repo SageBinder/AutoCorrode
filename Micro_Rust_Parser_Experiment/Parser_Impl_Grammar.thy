@@ -1,6 +1,6 @@
-theory Micro_Rust_Parser_Grammar
+theory Parser_Impl_Grammar
   imports
-    Micro_Rust_Parser_AST
+    Parser_Impl_AST
     Parser_Utils
     "Isabelle_Lex-Yacc.LexYacc"
 begin

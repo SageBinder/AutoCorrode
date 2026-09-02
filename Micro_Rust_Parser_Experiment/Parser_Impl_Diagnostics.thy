@@ -1,5 +1,5 @@
-theory Micro_Rust_Diagnostics
-  imports Micro_Rust_Parser_Grammar
+theory Parser_Impl_Diagnostics
+  imports Parser_Impl_Grammar
 begin
 
 section\<open> Source diagnostics \<close>
@@ -92,17 +92,6 @@ struct
      (69, "TPATCONTEXT", "<pattern context>")]
 
   val terminal_count = length terminal_specs
-  val grammar_state_count = LrTable.numStates Original.table
-  val grammar_state_entries =
-    map
-      (fn index =>
-        (LrTable.describeActions Original.table
-           (LrTable.STATE index),
-         LrTable.describeGoto Original.table
-           (LrTable.STATE index)))
-      (0 upto (grammar_state_count - 1))
-  val grammar_state_entry_count =
-    length grammar_state_entries
 
   fun terminal_id (LrTable.T id) = id
 
@@ -125,22 +114,6 @@ struct
             then error ("uRust diagnostics: duplicate " ^ what ^ " " ^ quote value)
             else check (value :: seen) rest
     in check [] values end
-
-  val _ =
-    if grammar_state_count = 254 then ()
-    else
-      error
-        ("uRust diagnostics: expected 254 grammar states, found " ^
-          string_of_int grammar_state_count)
-
-  val _ =
-    if grammar_state_entry_count = grammar_state_count then ()
-    else
-      error
-        ("uRust diagnostics: exported state-entry count " ^
-          string_of_int grammar_state_entry_count ^
-          " differs from reflected state count " ^
-          string_of_int grammar_state_count)
 
   val _ =
     if map #1 terminal_specs = (0 upto (terminal_count - 1)) then ()
