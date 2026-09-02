@@ -2308,4 +2308,17 @@ text\<open>
 only when the parser has a stable diagnostic.
 \<close>
 
+ML_val\<open>
+  URust_Inventory.assert_theory_counts
+    "Micro_Rust_Parser_Conformance"
+    {plain = 13,
+     same_source = 469,
+     explicit_old = 0,
+     dual_rejection = 0,
+     new_divergent = 0,
+     new_audit = 0,
+     old_rejection = 0}
+    \<^theory>
+\<close>
+
 end

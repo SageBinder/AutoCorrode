@@ -31,7 +31,8 @@ fun old_urust_rejects source lthy =
          if Exn.is_interrupt exn then Exn.reraise exn
          else
            (writeln ("old frontend rejected as expected: " ^ Runtime.exn_message exn);
-            lthy))
+            URust_Inventory.record
+              URust_Inventory.Old_Frontend_Rejection pos lthy))
   end
 
 val _ = Outer_Syntax.local_theory \<^command_keyword>\<open>old_urust_rejects\<close>
@@ -935,5 +936,18 @@ old_urust_rejects
     let result = return \<llangle>1 :: nat\<rrangle>;
     result
   \<close>
+
+ML_val\<open>
+  URust_Inventory.assert_theory_counts
+    "Micro_Rust_Parser_Improvements"
+    {plain = 11,
+     same_source = 0,
+     explicit_old = 48,
+     dual_rejection = 0,
+     new_divergent = 0,
+     new_audit = 0,
+     old_rejection = 59}
+    \<^theory>
+\<close>
 
 end
