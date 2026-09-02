@@ -12,8 +12,16 @@ SML_import \<open> structure Markup = struct open Markup end \<close>     \<comm
 SML_import \<open> structure Symbol = struct open Symbol end \<close>     \<comment>\<open> partial lexeme reports \<close>
 
 ML\<open>
+signature URUST_GRAMMAR =
+sig
+  val lex_error: string -> Position.T -> 'a
+  val string_error: Position.T -> 'a
+  val antiquotation_error: string -> Position.T -> 'a
+end
+
 (*
-  URust_Err owns the source-facing failures raised directly by the generated uRust lexer.  It is the
+  URust_Grammar owns the handwritten boundary used by the generated uRust lexer. It currently exposes
+  only the source-facing failures raised directly by lexer actions. It is the
   boundary between lexer actions, which run in the generated SML environment, and Isabelle's
   positioned ERROR diagnostics.  It does not decide which input is malformed, recover from an error,
   report parser conflicts, or validate the AST; those responsibilities remain with the lexer rules,
@@ -36,7 +44,7 @@ ML\<open>
   above.  The SML_import below only makes this Isabelle/ML-owned interface available to generated lexer
   code; it does not create a second owner.
 *)
-structure URust_Err =
+structure URust_Grammar :> URUST_GRAMMAR =
 struct
   fun lex_error text pos =
     error ("urust_expr: unexpected input " ^ quote text ^ Position.here pos)
@@ -48,7 +56,7 @@ struct
     error ("urust_expr: unterminated " ^ kind ^ " antiquotation" ^ Position.here pos)
 end
 \<close>
-SML_import \<open> structure URust_Err = URust_Err \<close>
+SML_import \<open> structure URust_Grammar = URust_Grammar \<close>
 SML_import \<open> structure Parser_Lex_Util = Parser_Lex_Util \<close>  \<comment>\<open> shared lexer position math \<close>
 
 section\<open> Lexer + grammar \<close>
@@ -60,23 +68,22 @@ HOL content. Yacc directives reproduce the frontend precedence
 \<open>Parser_Lex_Util\<close>.
 \<close>
 (*
-  This declaration generates structure URust, which owns recognition of one uRust expression source
-  and construction of the unresolved URust_AST.  Its boundary includes tokenization, PIDE token
+  This declaration generates the private URust lexer/parser functors used by Parser_Impl_Diagnostics.
+  Together they own recognition of one uRust expression source and construction of the unresolved
+  URust_AST. Their boundary includes tokenization, PIDE token
   reports, precedence and sequencing policy, and grammar-action construction of AST nodes.  It ends
   before identifier or constructor resolution, site-specific pattern validation, lowering to shallow
   terms, and HOL type checking.
 
-  Parser modules may rely on the following generated interface:
+  Parser_Impl_Diagnostics relies on the standard expert-mode Lex/Yacc functor interface:
 
-    * URust.URustLex is the lexer structure accepted by the ML-Yacc Join functor.
-      URust.URustLex.UserDeclarations.set source ctxt must be called immediately before lexing a source.
-      It initializes the Isabelle_Lex-Yacc runtime, builds the per-source position map, and resets all
-      antiquotation state.  Parsing is stateful and non-reentrant, so callers must hold
-      Parser_Utils.with_parser_lock across set and parser consumption.
-    * URust.URustLrVals.ParserData supplies the generated semantic value/result types, actions, LR
-      table, and recovery data.  Parser_Impl_Diagnostics may rejoin this exact data with URustLex while
-      replacing only terminal rendering; doing so must preserve the grammar and semantic actions.
-    * URust.URustLrVals.Tokens.EOF constructs the dummy end token required by
+    * URustLexFun produces the lexer structure accepted by the ML-Yacc Join functor. Its
+      UserDeclarations.set source ctxt operation initializes the Isabelle-Lex-Yacc runtime, builds the
+      per-source position map, and resets all antiquotation state.
+    * URustLrValsFun supplies the generated semantic value/result types, actions, LR table, tokens, and
+      recovery data. Parser_Impl_Diagnostics instantiates it once and rejoins that exact data with the
+      generated lexer while replacing only terminal rendering.
+    * The generated Tokens.EOF constructs the dummy end token required by
       Parser_Lex_Util.parse_source.  Its Position.T * Position.T argument delimits the token.  Other
       generated token constructors are lexer implementation details; terminal additions or reordering
       must still be reflected in Parser_Impl_Diagnostics' exhaustive terminal identity table.
@@ -84,15 +91,21 @@ HOL content. Yacc directives reproduce the frontend precedence
       source order and the token/span positions recorded by URust_AST.  Syntax rejection raises a
       positioned ERROR rather than returning NONE.
 
-  Standard mode also exposes URust.URustParser and URust.parse_source.  They are generated wiring, not
-  the supported project boundary: parser clients use URust_Diagnostics.parse_source so diagnostics
-  render source tokens rather than ML-Yacc terminal names.  Lexer refs, start states, buffers,
-  position-map helpers, grammar nonterminals, LR states/tables, semantic-value encodings, and generated
-  functor names remain implementation details.  Refactors may change them provided the AST result,
-  source positions/markup, state-initialization rule, and diagnostic rejoin points above are preserved.
+  Expert mode deliberately generates no unsealed URust structure or default parse_source operation.
+  Parser clients use the sealed URust_Diagnostics.parse_source boundary. Lexer refs, start states,
+  buffers, position-map helpers, grammar nonterminals, LR states/tables, semantic-value encodings, and
+  generated functor names remain implementation details shared only with Parser_Impl_Diagnostics.
+  Refactors may change them provided the AST result, source positions/markup, state-initialization rule,
+  and diagnostic rejoin points above are preserved.
 *)
-ml_lex_yacc [verbose] "URust" where
+ml_lex_yacc [verbose, expert] "URust" where
 lex_user_declarations\<open>
+structure Tokens = Tokens
+type pos = Position.T
+type svalue = Tokens.svalue
+type ('a, 'b) token = ('a, 'b) Tokens.token
+type lexresult = (svalue, pos) token
+
 datatype aq_kind = No_AQ | Value_AQ | Expr_AQ
 val aq_kind = ref No_AQ
 val aq_buf = ref ([] : string list)
@@ -137,10 +150,11 @@ fun tok_ident (yypos, yytext) =
 fun eof () =
   (case !aq_kind of
      No_AQ => Tokens.EOF (Position.none, Position.none)
-   | Value_AQ => URust_Err.antiquotation_error "value" (fixed_pos (!aq_open))
-   | Expr_AQ => URust_Err.antiquotation_error "expression" (fixed_pos (!aq_open)))
+   | Value_AQ => URust_Grammar.antiquotation_error "value" (fixed_pos (!aq_open))
+   | Expr_AQ => URust_Grammar.antiquotation_error "expression" (fixed_pos (!aq_open)))
 \<close>
 lex_definitions\<open>
+%header (functor URustLexFun(structure Tokens: URust_TOKENS));
 %s VAQ EAQ;
 digit=[0-9];
 hexdigit=[0-9a-fA-F];
@@ -212,7 +226,7 @@ lex_rules\<open>
 <INITIAL>"?"      => (tokF (yypos, yytext, Markup.operator, "TQUESTION", Tokens.TQUESTION));
 <INITIAL>"\""([^\"\\\n]|\\.)*"\"" =>
     (tok_valF (yypos, yytext, Markup.inner_string, "STRING", Tokens.STRING, yytext));
-<INITIAL>"\""     => (URust_Err.string_error (fixed_pos yypos));
+<INITIAL>"\""     => (URust_Grammar.string_error (fixed_pos yypos));
 <INITIAL>{idstart}{idchar}* => (tok_ident (yypos, yytext));
 <INITIAL>"("      => (tokF (yypos, yytext, Markup.delimiter, "LPAR", Tokens.LPAR));
 <INITIAL>")"      => (tokF (yypos, yytext, Markup.delimiter, "RPAR", Tokens.RPAR));
@@ -228,7 +242,7 @@ lex_rules\<open>
 <INITIAL>\\"<llangle>"          => (report_text (yypos, yytext, Markup.delimiter, "VALAQ"); start_aq Value_AQ yypos (yypos + size yytext); YYBEGIN VAQ; lex());
 <INITIAL>\\"<epsilon>"\\"<open>" => (report_text (yypos, hd (Symbol.explode yytext), Markup.literal, "EXPRAQ"); start_aq Expr_AQ yypos (yypos + size yytext); YYBEGIN EAQ; lex());
 <INITIAL>\\"<Rightarrow>" => (tokF (yypos, yytext, Markup.delimiter, "TARROW", Tokens.TARROW));
-<INITIAL>.        => (URust_Err.lex_error yytext (fixed_pos yypos));
+<INITIAL>.        => (URust_Grammar.lex_error yytext (fixed_pos yypos));
 <VAQ>\\"<llangle>" => (aq_depth := !aq_depth + 1; push_aq yytext; lex());
 <VAQ>\\"<rrangle>" =>
     (if !aq_depth > 0 then (aq_depth := !aq_depth - 1; push_aq yytext; lex())
@@ -250,6 +264,8 @@ and yacc_user_declarations\<open>
 open URust_AST
 \<close>
 yacc_definitions\<open>
+%name URust
+%pos Position.T
 %eop EOF
 %noshift EOF
 
@@ -317,7 +333,7 @@ yacc_definitions\<open>
        | upat_alias of URust_AST.ur_pat
        | upat_prefix of URust_AST.ur_pat
        | upat_atom of URust_AST.ur_pat
-       | upat_ident of URust_AST.pat_ident
+       | upat_ident of string * Position.T
        | upats of URust_AST.ur_pat list
        | uslice_item of URust_AST.slice_item
        | uslice_items of URust_AST.slice_item list
@@ -542,7 +558,7 @@ yacc_rules\<open>
                  (P_Slice (uslice_items, Position.range_position (TLBRACKleft, TRBRACKright)))
              | upat_ident TLBRACE ustruct_fields TRBRACE
                  (mk_struct_pat (upat_ident, ustruct_fields))
-  upat_ident : IDENT              (PI (IDENT, IDENTleft))
+  upat_ident : IDENT              ((IDENT, IDENTleft))
   upats : upat %prec TPATCONTEXT ([upat])
         | upat COMMA              ([upat])
         | upat COMMA upats        (upat :: upats)

@@ -6,14 +6,119 @@ section\<open> Reified AST \<close>
 
 text\<open> One constructor per uRust surface form. Positions are carried for markup/diagnostics. \<close>
 ML\<open>
+signature URUST_AST =
+sig
+  datatype literal_payload =
+      LP_Integer of string * Position.T
+    | LP_Bool of bool * Position.T
+    | LP_String of string * Position.T
+    | LP_ValAntiq of Input.source
+
+  val literal_position: literal_payload -> Position.T
+
+  datatype borrow_mode = BM_Imm | BM_Mut
+  datatype range_kind = RK_Exclusive | RK_Inclusive
+
+  datatype ur_pat =
+      P_Wild of Position.T
+    | P_Ident of string * Position.T
+    | P_Literal of literal_payload
+    | P_Constr of string * Position.T * ur_pat list
+    | P_Tuple of ur_pat list * Position.T
+    | P_Group of ur_pat
+    | P_Borrow of borrow_mode * ur_pat * Position.T
+    | P_Alias of string * Position.T * ur_pat * Position.T
+    | P_Range of range_kind * ur_pat * ur_pat * Position.T
+    | P_Slice of slice_item list * Position.T
+    | P_Struct of string * Position.T * struct_field list
+    | P_Or of ur_pat list * Position.T
+  and slice_item =
+      SI_Pat of ur_pat
+    | SI_Rest of Position.T
+  and struct_field =
+      SF_Field of string * Position.T * ur_pat
+    | SF_Shorthand of string * Position.T
+    | SF_Rest of Position.T
+
+  datatype match_flavour = MF_Switch | MF_Case | MF_Auto
+
+  datatype binop =
+      Add | Sub | Mul | Div | Mod
+    | Shl | Shr
+    | BAnd | BOr | BXor
+    | Eq | Ne | Lt | Le | Gt | Ge
+    | And | Or
+  datatype unaryop =
+      U_Not
+    | U_Borrow of borrow_mode
+    | U_Deref
+    | U_Propagate
+  datatype assign_binop =
+      AssignSub | AssignMul | AssignMod
+    | AssignBAnd | AssignBOr | AssignBXor
+    | AssignShl | AssignShr
+  datatype assignop =
+      Assign
+    | AssignAdd
+    | AssignBin of assign_binop
+
+  datatype ur_expr =
+      UE_Unit of Position.T
+    | UE_Tuple of ur_expr list * Position.T
+    | UE_Ident of string * Position.T
+    | UE_Literal of literal_payload
+    | UE_ExprAntiq of Input.source
+    | UE_Let of ur_pat * ur_expr * ur_expr
+    | UE_LetMut of ur_pat * ur_expr * ur_expr * Position.T
+    | UE_Const of ur_pat * ur_expr * ur_expr
+    | UE_Seq of ur_expr * ur_expr
+    | UE_Return of ur_expr option * Position.T
+    | UE_Bin of binop * ur_expr * ur_expr * Position.T
+    | UE_Unary of unaryop * ur_expr * Position.T
+    | UE_Group of ur_expr * Position.T
+    | UE_Block of ur_expr * Position.T
+    | UE_If of ur_expr * ur_expr * ur_expr option * Position.T
+    | UE_While of Input.source * ur_expr * ur_expr * Position.T
+    | UE_Loop of Input.source * ur_expr * Position.T
+    | UE_For of ur_pat * ur_expr * ur_expr * Position.T
+    | UE_WhileLet of Input.source * ur_pat * ur_expr * ur_expr * Position.T
+    | UE_Call of string * Position.T * ur_expr list * Position.T
+    | UE_Field of ur_expr * string * Position.T
+    | UE_Assign of assignop * ur_place * ur_expr * Position.T
+    | UE_Match of match_flavour * ur_expr * ur_arm list * Position.T
+  and ur_place =
+      UP_Ident of string * Position.T
+    | UP_Deref of ur_expr * Position.T
+    | UP_Field of ur_place * string * Position.T
+    | UP_Antiq of Input.source
+  and ur_arm =
+      UR_Arm of ur_pat * (ur_expr * Position.T) option * ur_expr
+
+  val mk_assign:
+    assignop * Position.T -> ur_expr -> ur_expr -> ur_expr
+  val finish_statement: ur_expr * Position.T -> ur_expr
+  val mk_bare_ident_pat: string * Position.T -> ur_pat
+  val mk_ctor_pat: (string * Position.T) * ur_pat list -> ur_pat
+  val mk_alias_pat:
+    (string * Position.T) * ur_pat * Position.T -> ur_pat
+  val mk_struct_pat:
+    (string * Position.T) * struct_field list -> ur_pat
+  val mk_call:
+    string * Position.T * ur_expr list * Position.T * Position.T -> ur_expr
+  val mk_method_call:
+    ur_expr * string * Position.T * ur_expr list *
+      Position.T * Position.T -> ur_expr
+  val mk_or_pat: ur_pat * ur_pat * Position.T -> ur_pat
+end
+
 (*
   URust_AST owns the reified, unresolved uRust syntax shared by the generated grammar and the
   elaboration pipeline.  Its boundary ends before name/constructor resolution, site-specific pattern
   validation, literal decoding, type checking, or construction of shallow-embedding terms.  Grammar
   actions construct this representation; Resolution, Patterns, and Translate may inspect it
-  exhaustively.  Consequently the datatype constructors, their argument order, and the source-order
-  and position conventions below are a public parser-module interface, even though this structure is
-  not sealed by a signature.  Adding or reshaping a constructor requires updating every consumer.
+  exhaustively. Consequently URUST_AST exposes the complete source representation plus only the
+  invariant-preserving smart constructors needed by the grammar. Adding or reshaping a constructor
+  requires updating every consumer.
 
   The public representation comprises:
 
@@ -26,10 +131,10 @@ ML\<open>
       These tags describe surface operations only; their HOL constants and semantics belong to later
       modules.
     * ur_pat and P_Wild, P_Ident, P_Literal, P_Constr, P_Tuple, P_Group, P_Borrow, P_Alias, P_Range,
-      P_Slice, P_Struct, P_Or, together with slice_item (SI_Pat, SI_Rest), struct_field (SF_Field,
-      SF_Shorthand, SF_Rest), and the grammar adaptor pat_ident (PI).  Lists retain source order;
-      grammar-produced tuple lists contain at least two elements and P_Or alternatives are flattened.
-      P_Ident deliberately does not decide binder versus constructor.
+      P_Slice, P_Struct, P_Or, together with slice_item (SI_Pat, SI_Rest) and struct_field (SF_Field,
+      SF_Shorthand, SF_Rest). Lists retain source order; grammar-produced tuple lists contain at least
+      two elements and P_Or alternatives are flattened. P_Ident deliberately does not decide binder
+      versus constructor.
     * match_flavour and MF_Switch, MF_Case, MF_Auto.  MF_Auto requests downstream classification; it
       is not a fourth lowering.
     * the mutually recursive expression interface ur_expr (UE_Unit, UE_Tuple, UE_Ident, UE_Literal,
@@ -41,28 +146,26 @@ ML\<open>
       is represented as UE_Call with the receiver prepended; ur_place contains only validated
       assignment-target shapes.
 
-  Position.T fields identify the token or span documented at each constructor.  Consumers may use
-  them for markup and diagnostics, but must not infer semantic validity from their presence.
-  literal_position returns the source position of every literal payload.  expr_pos returns the most
-  useful stored position for an expression and intentionally returns Position.none for UE_Let,
-  UE_Const, and UE_Seq, which have no owned position.
+  Position.T fields identify the token or span documented at each constructor. Consumers may use them
+  for markup and diagnostics, but must not infer semantic validity from their presence.
+  literal_position returns the source position of every literal payload.
 
-  The remaining public functions are grammar-facing construction contracts.  expr_to_place accepts
+  The remaining public functions are grammar-facing construction contracts. mk_assign accepts
   identifiers, expression antiquotations, dereferences, fields over recursively valid places, and
-  transparent groups; every other expression raises the positioned "invalid assignment target"
-  error.  mk_assign applies that validation once and constructs UE_Assign.  finish_statement leaves a
-  terminal UE_Return unchanged and otherwise sequences the expression with UE_Unit at the semicolon.
-  mk_ident_pat normalises "_" to P_Wild; mk_bare_ident_pat, mk_ctor_pat, mk_alias_pat, and
-  mk_struct_pat unpack PI and construct the corresponding pattern.  mk_call combines its supplied
-  source endpoints into the call span, mk_method_call additionally prepends its receiver, and mk_or_pat
-  preserves source order while flattening a right-recursive P_Or.
+  transparent groups as assignment targets; every other expression raises the positioned
+  "invalid assignment target" error. finish_statement leaves a terminal UE_Return unchanged and
+  otherwise sequences the expression with UE_Unit at the semicolon. mk_bare_ident_pat normalises "_"
+  to P_Wild; the other pattern smart constructors consume ordinary (name, position) pairs without a
+  parser-only wrapper datatype. mk_call combines its supplied source endpoints into the call span,
+  mk_method_call additionally prepends its receiver, and mk_or_pat preserves source order while
+  flattening a right-recursive P_Or.
 
   Constructor-resolution policy, legal-pattern subsets at each use site, lowering choices, and the
-  algorithms used by these helpers remain implementation details of this and downstream modules.
-  Directly constructing values outside the grammar does not imply that the corresponding source form
-  is accepted or semantically valid.
+  private expression-position/place conversion helpers remain implementation details. Directly
+  constructing values outside the grammar does not imply that the corresponding source form is
+  accepted or semantically valid.
 *)
-structure URust_AST =
+structure URust_AST :> URUST_AST =
 struct
   datatype literal_payload =
       LP_Integer  of string * Position.T
@@ -107,8 +210,6 @@ struct
       SF_Field of string * Position.T * ur_pat
     | SF_Shorthand of string * Position.T
     | SF_Rest of Position.T
-
-  datatype pat_ident = PI of string * Position.T
 
   (* Which `match` surface keyword an arm set came from; the two lower DIFFERENTLY (see UE_Match), so the
      flavour is a tag rather than separate AST nodes -- the bare `match` keyword then becomes a third
@@ -238,11 +339,11 @@ struct
   (* `_` lexes as an ordinary IDENT: normalise to P_Wild in ONE place, not an `= "_"` test at every site. *)
   fun mk_ident_pat (s, pos) = if s = "_" then P_Wild pos else P_Ident (s, pos)
 
-  fun mk_bare_ident_pat (PI pair) = mk_ident_pat pair
-  fun mk_ctor_pat (PI (name, pos), args) = P_Constr (name, pos, args)
-  fun mk_alias_pat (PI (name, pos), inner, at_pos) =
+  fun mk_bare_ident_pat pair = mk_ident_pat pair
+  fun mk_ctor_pat ((name, pos), args) = P_Constr (name, pos, args)
+  fun mk_alias_pat ((name, pos), inner, at_pos) =
     P_Alias (name, pos, inner, at_pos)
-  fun mk_struct_pat (PI (name, pos), fields) =
+  fun mk_struct_pat ((name, pos), fields) =
     P_Struct (name, pos, fields)
   fun mk_call (name, name_pos, args, left, right) =
     UE_Call (name, name_pos, args, Position.range_position (left, right))

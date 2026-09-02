@@ -24,18 +24,29 @@ against the existing \<open>\<lbrakk>src\<rbrakk>\<close> frontend by definition
 \<open>\<lbrakk>old_src\<rbrakk>\<close> in \<open>old_term\<close> sent to the existing frontend.
 \<close>
 ML\<open>
+signature URUST_COMMAND =
+sig
+  val elab_urust: local_theory -> Input.source -> term
+end
+
 (* THE pipeline, exported: every uRust command runs source through exactly this function, so the
    definition commands (`urust_expr`, `urust_expr_with_check`, `urust_expr_with_check'`) and the
    negative harness (`urust_expr_rejects`, Parser_Test_Negative_Conformance) can never drift on
    WHAT they exercise -- only on how they interpret success/failure. Raises (positioned) on any
-   rejection: lexer (URust_Err.lex_error), yacc (parse_source's print_error), elaborator, or check_term.
-   ONLY `parse_source` touches the Isabelle_lex_yacc global refs, so only it is serialized; elaboration and
-   check_term are pure w.r.t. those, and holding the lock across them would serialize the (slower)
-   type-checking of every uRust command theory-wide. *)
+   rejection: lexer (URust_Grammar.lex_error), yacc (parse_source's print_error), elaborator, or
+   check_term.
+   URust_Diagnostics.parse_source owns serialization of the generated runtime; elaboration and
+   check_term remain outside that lock.
+
+   URUST_COMMAND exposes only elab_urust for test harnesses and programmatic clients. Definition
+   helpers, conformance-proof assembly, parsers for the three outer commands, and command registration
+   are private implementation details. Parser_Impl retains the historical top-level elab_urust alias
+   as part of its compatibility-facade responsibility. *)
+structure URust_Command :> URUST_COMMAND =
+struct
 fun elab_urust lthy source : term =
   (case
-      (Parser_Utils.with_parser_lock
-        (fn () => URust_Diagnostics.parse_source lthy source)) of
+      URust_Diagnostics.parse_source lthy source of
      SOME ast => Syntax.check_term lthy (URust_Translate.mk_closed lthy ast)
    | NONE => error ("urust_expr: empty expression" ^ Position.here (Input.pos_of source)))
 
@@ -67,8 +78,7 @@ fun define_urust_with_frontend_check (binding, new_source, old_frontend_source) 
     val conformance =
       Goal.prove lthy' [] [] (HOLogic.mk_Trueprop equality)
         (fn {context = ctxt, ...} =>
-          Local_Defs.unfold_tac ctxt
-            [def_thm, @{thm urust_admin_let_def}] THEN
+          Local_Defs.unfold_tac ctxt [def_thm] THEN
           resolve_tac ctxt [@{thm refl}] 1)
     val (_, lthy'') =
       Local_Theory.note
@@ -100,6 +110,7 @@ val _ = Outer_Syntax.local_theory \<^command_keyword>\<open>urust_expr_with_chec
             Parse.term >>
             (fn ((binding, new_source), old_frontend_source) =>
               define_urust_with_frontend_check (binding, new_source, old_frontend_source)))
+end
 \<close>
 
 end

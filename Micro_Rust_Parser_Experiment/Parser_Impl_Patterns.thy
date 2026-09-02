@@ -9,18 +9,11 @@ signature URUST_PATTERNS =
 sig
   type prepared_binding
   type prepared_case_arm
-  type prepared_switch_arm
 
   datatype binder_site =
       Let_Const_Binder
-    | Mutable_Let_Binder
+    | Mutable_Let_Binder of Position.T
     | For_Binder
-
-  datatype mutable_rhs_mode =
-      Plain_Rhs
-    | Allocate_Rhs
-
-  val position: URust_AST.ur_pat -> Position.T
 
   val prepare_binding:
     binder_site ->
@@ -32,7 +25,8 @@ sig
     prepared_binding -> URust_Resolution.environment
   val binding_abstraction:
     prepared_binding -> term -> term
-  val mutable_rhs_mode: prepared_binding -> mutable_rhs_mode
+  val bind_prepared:
+    prepared_binding -> term -> term -> term
 
   val select_match_flavour:
     URust_AST.match_flavour ->
@@ -41,16 +35,16 @@ sig
       URust_AST.match_flavour
 
   val prepare_switch_arm:
-    Proof.context -> URust_AST.ur_arm -> prepared_switch_arm
-  val prepared_switch_keys: prepared_switch_arm -> term list
-  val prepared_switch_body: prepared_switch_arm -> URust_AST.ur_expr
-
-  val prepare_case_arm:
-    URust_Resolution.constructor_resolver ->
-      Proof.context ->
-      URust_Resolution.environment ->
+    Proof.context ->
       URust_AST.ur_arm ->
-      prepared_case_arm
+      term list * URust_AST.ur_expr
+
+  val prepare_case_arms:
+    Proof.context ->
+      Position.T ->
+      URust_Resolution.environment ->
+      URust_AST.ur_arm list ->
+      prepared_case_arm list
   val prepared_environment:
     prepared_case_arm -> URust_Resolution.environment
   val prepared_guard:
@@ -61,12 +55,7 @@ sig
   val prepared_is_total: prepared_case_arm -> bool
   val compile_case:
     Proof.context ->
-      term ->
-      (prepared_case_arm * term option * term) list ->
-      term
-  val compile_case_with_fallback:
-    Proof.context ->
-      term ->
+      term option ->
       term ->
       (prepared_case_arm * term option * term) list ->
       term
@@ -87,60 +76,63 @@ ML\<open>
   constructor decisions, pattern-local environment allocation, bare-match classification, switch-key
   preparation, conservative coverage classification, and construction of the existing shallow case
   terms.  URust_AST owns the source representation, URust_Resolution owns name and constructor
-  metadata operations, URust_Elab_Terms owns the shallow-term vocabulary, and URust_Translate owns
+  metadata operations, URust_Shallow_Terms owns the shallow-term vocabulary, and URust_Translate owns
   recursive lowering of expressions, guards, and bodies.
 
   The public binder_site constructors select the contract enforced by prepare_binding:
   Let_Const_Binder admits only directly irrefutable let/const patterns; Mutable_Let_Binder additionally
-  restricts the source head to an identifier, wildcard, or top-level tuple; and For_Binder resolves
-  known constructors before enforcing irrefutability.  prepare_binding recursively rejects reference
-  patterns, validates all binders before allocating any of them, and returns an abstract
-  prepared_binding.  binding_environment is the exact environment in which the caller must lower the
-  binding body.  binding_abstraction closes such a lowered body over the matched RHS.  mutable_rhs_mode
-  returns Allocate_Rhs for mutable scalar/wildcard bindings and Plain_Rhs otherwise, telling the
-  caller whether to allocate the RHS before applying that abstraction.  The caller remains responsible
-  for lowering the RHS in the outer environment.  position returns the diagnostic anchor owned by the
-  outer pattern, treating groups transparently and literals through their payload position.
+  restricts the source head to an identifier, wildcard, or top-level tuple and carries the mutable
+  keyword position; and For_Binder resolves known constructors before enforcing irrefutability.
+  prepare_binding recursively rejects reference patterns, validates all binders before allocating any
+  of them, and returns an abstract prepared_binding. binding_environment is the exact environment in
+  which the caller must lower the binding body. binding_abstraction closes such a lowered body over the
+  matched RHS for consumers such as `for`. bind_prepared takes an already-lowered outer-scope RHS and
+  inner-scope body, performs any mutable scalar/wildcard allocation selected during preparation, and
+  constructs the shallow bind. The caller remains responsible for lowering both expressions in those
+  prescribed environments.
 
   select_match_flavour preserves an explicit MF_Case or MF_Switch (while rejecting switch guards) and
   resolves MF_Auto according to the current case-versus-numeral-switch policy; it never returns
-  MF_Auto.  prepare_switch_arm accepts an unguarded numeral/wildcard pattern or an or-pattern composed
-  from those forms, preserves alternative order, and returns an abstract prepared_switch_arm.
-  prepared_switch_keys exposes the encoded option keys (Some numeral or None wildcard), and
-  prepared_switch_body returns the unchanged source body for lowering in the outer environment.
+  MF_Auto. prepare_switch_arm accepts an unguarded numeral/wildcard pattern or an or-pattern composed
+  from those forms, preserves alternative order, and returns the encoded option keys (Some numeral or
+  None wildcard) with the unchanged source body for lowering in the outer environment.
 
-  prepare_case_arm uses the supplied constructor_resolver to resolve and report constructors, rejects
-  unsupported patterns, validates duplicate and or-alternative binders atomically, allocates one
-  environment shared by every expanded alternative of the source arm, and returns an abstract
-  prepared_case_arm.  prepared_environment is the environment in which both prepared_guard and
+  prepare_case_arms creates one constructor resolver for the supplied source span, then resolves and
+  reports constructors, rejects unsupported patterns, validates duplicate and or-alternative binders
+  atomically, and allocates one environment shared by every expanded alternative of each source arm.
+  It returns source-ordered abstract prepared_case_arm values. prepared_environment is the environment
+  in which both prepared_guard and
   prepared_body must be lowered.  prepared_direct_abstraction is SOME only when the complete pattern
   can bind a scrutinee directly without case compilation.  prepared_is_total is a conservative
   certificate that the supported coverage analysis found the arm total; false means partial or
   unknown, not necessarily non-total.
 
-  compile_case consumes source-ordered triples of a prepared_case_arm, its already-lowered optional
+  compile_case consumes an optional explicit fallback followed by the scrutinee and source-ordered
+  triples of a prepared_case_arm, its already-lowered optional
   guard, and its already-lowered body.  Each lowered term must correspond to that prepared arm and its
   prepared_environment.  Compilation evaluates the scrutinee once, preserves source-arm and
   or-alternative order, binds pattern variables before evaluating guards and bodies, and makes a false
-  guard fall through to the next alternative or arm.  compile_case uses the existing case encoding's
-  unmatched behavior; compile_case_with_fallback installs the supplied term as the terminal unmatched
-  result.  Both operations preserve the shallow term shape required for old-frontend conformance.
+  guard fall through to the next alternative or arm. NONE uses the existing case encoding's unmatched
+  behavior; SOME term installs that term as the terminal unmatched result. Compilation preserves the
+  shallow term shape required for old-frontend conformance.
 
-  The representations of prepared_binding, prepared_switch_arm, and prepared_case_arm are intentionally
-  abstract.  Resolution policies, resolved/basic/case pattern datatypes, or-pattern expansion,
-  normalization, generated names, administrative sharing, recursive compiler helpers, and the exact
-  coverage representation are implementation details.  Callers may rely only on the signature and the
-  scoping, ordering, validation, fallback, and term-shape contracts above.
+  The representations of prepared_binding and prepared_case_arm are intentionally abstract.
+  Pattern-position inspection, resolution policies, resolved/basic/case pattern datatypes, or-pattern
+  expansion, normalization, generated names, recursive compiler helpers, and the exact coverage
+  representation are implementation details. Callers may rely only on the signature and the scoping,
+  ordering, validation, fallback, and term-shape contracts above.
 *)
-structure URust_Patterns : URUST_PATTERNS =
+structure URust_Patterns :> URUST_PATTERNS =
 struct
   open URust_AST
-  structure T = URust_Elab_Terms
+  structure T = URust_Shallow_Terms
   structure R = URust_Resolution
+
+  type binding_signature = string * Position.T
 
   datatype binder_site =
       Let_Const_Binder
-    | Mutable_Let_Binder
+    | Mutable_Let_Binder of Position.T
     | For_Binder
 
   datatype mutable_rhs_mode =
@@ -240,12 +232,12 @@ struct
 
   datatype resolved_pattern =
       Resolved_Wild of Position.T
-    | Resolved_Bind of R.binding_signature
+    | Resolved_Bind of binding_signature
     | Resolved_Constructor of
         R.constructor_info * Position.T * resolved_pattern list
     | Resolved_Tuple of resolved_pattern list * Position.T
     | Resolved_Alias of
-        R.binding_signature * resolved_pattern * Position.T
+        binding_signature * resolved_pattern * Position.T
     | Resolved_Value of literal_payload
     | Resolved_Range of
         range_kind * resolved_value * resolved_value * Position.T
@@ -262,7 +254,7 @@ struct
     | Coverage_Partial
 
   fun resolved_position (Resolved_Wild pos) = pos
-    | resolved_position (Resolved_Bind (_, pos, _)) = pos
+    | resolved_position (Resolved_Bind (_, pos)) = pos
     | resolved_position (Resolved_Constructor (_, pos, _)) = pos
     | resolved_position (Resolved_Tuple (_, pos)) = pos
     | resolved_position (Resolved_Alias (_, _, pos)) = pos
@@ -354,8 +346,7 @@ struct
             end
     in coverage pattern end
 
-  fun binding name pos =
-    (name, pos, R.Binding_By_Value)
+  fun binding name pos = (name, pos)
 
   fun resolve_value pattern =
     (case strip_groups pattern of
@@ -459,7 +450,10 @@ struct
                       (info, pos, map resolve_field ordered)
                   end
               | R.Resolved_Record_Struct (record_name, _) =>
-                  R.unsupported_record_pattern record_name pos)
+                  error ("urust_expr: HOL record pattern " ^
+                    quote (Long_Name.base_name record_name) ^
+                    " requires selector-based lowering" ^
+                    Position.here pos))
          | P_Or (alternatives, pos) =>
              Resolved_Or (map resolve alternatives, pos))
     in
@@ -467,9 +461,8 @@ struct
       resolve pattern
     end
 
-  fun signature_name (name, _, _) = name
-  fun signature_position (_, pos, _) = pos
-  fun signature_mode (_, _, mode) = mode
+  fun signature_name (name, _) = name
+  fun signature_position (_, pos) = pos
 
   fun duplicate_binder name pos original_pos =
     error ("urust_expr: duplicate pattern binder " ^ quote name ^
@@ -507,14 +500,8 @@ struct
                quote name ^ Position.here or_pos ^
                "\nThe first alternative binds it here" ^
                Position.here (signature_position original))
-         | SOME current =>
-             if signature_mode current = signature_mode original then ()
-             else
-               error ("urust_expr: or-pattern binder " ^ quote name ^
-                 " has a different binding mode" ^
-                 Position.here (signature_position current) ^
-                 "\nThe first alternative binds it here" ^
-                 Position.here (signature_position original)))
+         | SOME _ =>
+             ())
       fun check_extra (name, current) =
         if Symtab.defined first name then ()
         else
@@ -617,7 +604,7 @@ struct
 
   fun binder_site_description Let_Const_Binder =
         "an irrefutable (let/const) binder position"
-    | binder_site_description Mutable_Let_Binder =
+    | binder_site_description (Mutable_Let_Binder _) =
         "a mutable binding position"
     | binder_site_description For_Binder =
         "a `for` binder position"
@@ -626,7 +613,7 @@ struct
     Prepared_Binding of
       {environment: R.environment,
        abstraction: term -> term,
-       rhs_mode: mutable_rhs_mode}
+       rhs_wrapper: term -> term}
 
   fun mutable_source_mode pattern =
     (case pattern of
@@ -651,8 +638,13 @@ struct
       val signatures = collect_bindings resolved
       val rhs_mode =
         (case site of
-           Mutable_Let_Binder => mutable_source_mode pattern
+           Mutable_Let_Binder _ => mutable_source_mode pattern
          | _ => Plain_Rhs)
+      val rhs_wrapper =
+        (case (site, rhs_mode) of
+           (Mutable_Let_Binder mutable_pos, Allocate_Rhs) =>
+             T.allocate_reference mutable_pos
+         | _ => I)
       val environment' =
         R.allocate_locals ctxt environment signatures
       val abstraction =
@@ -662,7 +654,7 @@ struct
              let
                val diagnostic_site =
                  (case (site, rhs_mode) of
-                    (Mutable_Let_Binder, Plain_Rhs) =>
+                    (Mutable_Let_Binder _, Plain_Rhs) =>
                       Let_Const_Binder
                   | _ => site)
              in
@@ -674,18 +666,17 @@ struct
       Prepared_Binding
         {environment = environment',
          abstraction = abstraction,
-         rhs_mode = rhs_mode}
+         rhs_wrapper = rhs_wrapper}
     end
 
   fun binding_environment
       (Prepared_Binding {environment, ...}) = environment
   fun binding_abstraction
       (Prepared_Binding {abstraction, ...}) = abstraction
-  fun mutable_rhs_mode
-      (Prepared_Binding {rhs_mode, ...}) = rhs_mode
-
-  datatype prepared_switch_arm =
-    Prepared_Switch_Arm of term list * ur_expr
+  fun bind_prepared
+      (Prepared_Binding {abstraction, rhs_wrapper, ...})
+      rhs body =
+    T.bind (rhs_wrapper rhs) (abstraction body)
 
   fun switch_keys ctxt pattern =
     (case strip_groups pattern of
@@ -711,14 +702,11 @@ struct
          | SOME (_, pos) =>
              error ("urust_expr: guards are not supported in explicit `match_switch`" ^
                Position.here pos))
-    in Prepared_Switch_Arm (switch_keys ctxt pattern, body) end
-
-  fun prepared_switch_keys (Prepared_Switch_Arm (keys, _)) = keys
-  fun prepared_switch_body (Prepared_Switch_Arm (_, body)) = body
+    in (switch_keys ctxt pattern, body) end
 
   datatype basic_case_pattern =
       Basic_Wild of Position.T option
-    | Basic_Bind of R.binding_signature
+    | Basic_Bind of binding_signature
     | Basic_Generated of term
     | Basic_Constructor of
         R.constructor_info * Position.T * basic_case_pattern list
@@ -727,13 +715,13 @@ struct
 
   datatype case_pattern =
       Case_Wild of Position.T
-    | Case_Bind of R.binding_signature
+    | Case_Bind of binding_signature
     | Case_Value of term * Position.T
     | Case_Constructor of
         R.constructor_info * Position.T * case_pattern list
     | Case_Resolved of term * case_pattern list
     | Case_Tuple of case_pattern list
-    | Case_Alias of R.binding_signature * case_pattern
+    | Case_Alias of binding_signature * case_pattern
     | Case_Range of range_kind * term * term * Position.T
     | Case_Slice_Suffix of case_pattern
 
@@ -901,6 +889,10 @@ struct
          direct_abstraction = direct,
          total = total}
     end
+
+  fun prepare_case_arms ctxt pos environment arms =
+    let val resolver = R.make_constructor_resolver ctxt pos
+    in map (prepare_case_arm resolver ctxt environment) arms end
 
   fun prepared_environment
       (Prepared_Case_Arm {environment, ...}) = environment
@@ -1202,12 +1194,6 @@ struct
              extend_guard generated source_guard)
     in (wild, abstraction, guard, wrap rhs) end
 
-  fun share_term name value body =
-    let
-      val shared =
-        Free (name ^ string_of_int (serial ()), dummyT)
-    in T.admin_let value (Term.lambda shared (body shared)) end
-
   fun compile_pattern_case ctxt scrutinee arms =
     let
       val value =
@@ -1235,30 +1221,28 @@ struct
         | compile_branches [(wild, abstraction, SOME guard, rhs)] =
             if wild then T.conditional guard rhs undefined
             else
-              share_term "_urust_next_case_" undefined
-                (fn fallback =>
-                  case_term
-                    [abstraction
-                      (T.conditional guard rhs fallback),
-                     generated_wild fallback])
+              let val fallback = undefined in
+                case_term
+                  [abstraction
+                    (T.conditional guard rhs fallback),
+                   generated_wild fallback]
+              end
         | compile_branches
             ((wild, abstraction, guard, rhs) :: rest) =
-            share_term "_urust_next_case_"
-              (compile_branches rest)
-              (fn fallback =>
-                let
-                  val rhs' =
-                    (case guard of
-                       SOME condition =>
-                         T.conditional condition rhs fallback
-                     | NONE => rhs)
-                in
-                  if wild then rhs'
-                  else
-                    case_term
-                      [abstraction rhs',
-                       generated_wild fallback]
-                end)
+            let
+              val fallback = compile_branches rest
+              val rhs' =
+                (case guard of
+                   SOME condition =>
+                     T.conditional condition rhs fallback
+                 | NONE => rhs)
+            in
+              if wild then rhs'
+              else
+                case_term
+                  [abstraction rhs',
+                   generated_wild fallback]
+            end
 
       val selector =
         if List.exists
@@ -1339,24 +1323,22 @@ struct
         | compile_alternatives
             ((wild, abstraction, generated_guard, wrap) :: rest)
             handler binders next_arm =
-            share_term "_urust_next_alternative_"
-              (compile_alternatives rest handler binders next_arm)
-              (fn next_alternative =>
-                let
-                  val success = wrap (handler_call handler binders)
-                  val guarded =
-                    (case generated_guard of
-                       SOME guard =>
-                         T.conditional guard success
-                           next_alternative
-                     | NONE => success)
-                in
-                  if wild then guarded
-                  else
-                    case_term
-                      [abstraction guarded,
-                       generated_wild next_alternative]
-                end)
+            let
+              val next_alternative =
+                compile_alternatives rest handler binders next_arm
+              val success = wrap (handler_call handler binders)
+              val guarded =
+                (case generated_guard of
+                   SOME guard =>
+                     T.conditional guard success next_alternative
+                 | NONE => success)
+            in
+              if wild then guarded
+              else
+                case_term
+                  [abstraction guarded,
+                   generated_wild next_alternative]
+            end
 
       val fallback =
         the_default T.undefined_value explicit_fallback
@@ -1364,14 +1346,14 @@ struct
       fun compile_guarded_sources [] = fallback
         | compile_guarded_sources
             ({alternatives, binders, source_guard, rhs} :: rest) =
-            share_term "_urust_next_arm_"
-              (compile_guarded_sources rest)
-              (fn next_arm =>
-                share_term "_urust_arm_handler_"
-                  (handler_term binders source_guard rhs next_arm)
-                  (fn handler =>
-                    compile_alternatives alternatives
-                      handler binders next_arm))
+            let
+              val next_arm = compile_guarded_sources rest
+              val handler =
+                handler_term binders source_guard rhs next_arm
+            in
+              compile_alternatives alternatives
+                handler binders next_arm
+            end
 
       fun compile_unguarded_sources sources =
         let
@@ -1384,19 +1366,17 @@ struct
             | install
                 ({alternatives, binders, source_guard = NONE, rhs} :: rest)
                 branches =
-                share_term "_urust_arm_handler_"
-                  (fold_rev Term.lambda binders rhs)
-                  (fn handler =>
-                    let
-                      fun branch
-                          (wild, abstraction, NONE, wrap) =
-                            abstraction
-                              (wrap (handler_call handler binders))
-                        | branch _ =
-                            error
-                              "urust_expr: internal guarded alternative in unguarded case"
-                      val current = map branch alternatives
-                    in install rest (current :: branches) end)
+                let
+                  val handler = fold_rev Term.lambda binders rhs
+                  fun branch
+                      (wild, abstraction, NONE, wrap) =
+                        abstraction
+                          (wrap (handler_call handler binders))
+                    | branch _ =
+                        error
+                          "urust_expr: internal guarded alternative in unguarded case"
+                  val current = map branch alternatives
+                in install rest (current :: branches) end
             | install _ _ =
                 error
                   "urust_expr: internal guarded source arm in unguarded case"
@@ -1410,11 +1390,8 @@ struct
       T.bind scrutinee (Term.lambda value selector)
     end
 
-  fun compile_case ctxt scrutinee arms =
-    compile_case_internal ctxt NONE scrutinee arms
-
-  fun compile_case_with_fallback ctxt scrutinee fallback arms =
-    compile_case_internal ctxt (SOME fallback) scrutinee arms
+  fun compile_case ctxt fallback scrutinee arms =
+    compile_case_internal ctxt fallback scrutinee arms
 end
 \<close>
 

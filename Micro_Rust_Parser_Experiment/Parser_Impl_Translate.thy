@@ -19,7 +19,7 @@ Expression lowering orchestrates the term, resolution, and pattern layers. Terms
 ML\<open>
 (* Final expression-translation boundary. This structure owns recursive lowering of a complete
    URust_AST.ur_expr, including place translation and the orchestration of bindings, loops, and
-   matches. It delegates shallow-term vocabulary to URust_Elab_Terms, name and antiquotation
+   matches. It delegates shallow-term vocabulary to URust_Shallow_Terms, name and antiquotation
    resolution to URust_Resolution, and pattern preparation and case compilation to URust_Patterns;
    it does not parse source, type-check terms, or install definitions.
 
@@ -35,10 +35,10 @@ ML\<open>
 
    All lower_* functions, the recursive traversal order, the T/R/P aliases, and the division of work
    among helper functions are implementation details hidden by URUST_TRANSLATE. *)
-structure URust_Translate : URUST_TRANSLATE =
+structure URust_Translate :> URUST_TRANSLATE =
 struct
   open URust_AST
-  structure T = URust_Elab_Terms
+  structure T = URust_Shallow_Terms
   structure R = URust_Resolution
   structure P = URust_Patterns
 
@@ -54,18 +54,15 @@ struct
      | UP_Antiq source =>
          R.parse_antiquotation ctxt environment source)
 
-  fun lower_binding lower ctxt site wrap_rhs environment
+  fun lower_binding lower ctxt site environment
       (pattern, rhs, body) =
     let
-      val lowered_rhs = wrap_rhs (lower environment rhs)
+      val lowered_rhs = lower environment rhs
       val prepared =
         P.prepare_binding site ctxt environment pattern
       val body_environment = P.binding_environment prepared
       val lowered_body = lower body_environment body
-    in
-      T.bind lowered_rhs
-        (P.binding_abstraction prepared lowered_body)
-    end
+    in P.bind_prepared prepared lowered_rhs lowered_body end
 
   fun lower_fuel ctxt environment source =
     R.parse_antiquotation ctxt environment source
@@ -79,20 +76,18 @@ struct
             lower_result tag arm_environment prepared
         in (prepared, lowered_guard, lowered_body) end
     in
-      P.compile_case ctxt scrutinee (map lower_arm prepared_arms)
+      P.compile_case ctxt NONE scrutinee
+        (map lower_arm prepared_arms)
     end
 
   fun lower_case_arms ctxt environment position scrutinee lower_result arms =
     let
-      val resolver =
-        R.make_constructor_resolver ctxt position
       val prepared =
-        map (fn (tag, arm) =>
-          (tag,
-           P.prepare_case_arm resolver ctxt
-             environment arm)) arms
+        P.prepare_case_arms ctxt position environment
+          (map snd arms)
+      val tagged = map2 pair (map fst arms) prepared
     in
-      lower_prepared_case ctxt scrutinee lower_result prepared
+      lower_prepared_case ctxt scrutinee lower_result tagged
     end
 
   fun lower_for lower ctxt environment (pattern, iterable, body) =
@@ -112,11 +107,10 @@ struct
     let
       val lowered_fuel = lower_fuel ctxt environment fuel
       val lowered_scrutinee = lower environment scrutinee
-      val resolver =
-        R.make_constructor_resolver ctxt position
       val prepared =
-        P.prepare_case_arm resolver ctxt environment
-          (UR_Arm (pattern, NONE, body))
+        the_single
+          (P.prepare_case_arms ctxt position environment
+            [UR_Arm (pattern, NONE, body)])
       val body_environment =
         P.prepared_environment prepared
       val success =
@@ -131,33 +125,13 @@ struct
                val arm = (prepared, NONE, success)
              in
                if P.prepared_is_total prepared
-               then P.compile_case ctxt lowered_scrutinee [arm]
+               then P.compile_case ctxt NONE lowered_scrutinee [arm]
                else
-                 P.compile_case_with_fallback ctxt lowered_scrutinee
-                   (T.literal T.false_value) [arm]
+                 P.compile_case ctxt
+                   (SOME (T.literal T.false_value))
+                   lowered_scrutinee [arm]
              end)
     in T.bounded_while lowered_fuel condition T.skip end
-
-  (* Mutable scalar bindings allocate one store reference. Top-level tuple mutability remains erased,
-     matching the frontend, and no binder-kind metadata is introduced. *)
-  fun lower_mutable_binding lower ctxt environment
-      (pattern, rhs, body, mutable_pos) =
-    let
-      val prepared =
-        P.prepare_binding P.Mutable_Let_Binder
-          ctxt environment pattern
-      val lowered_rhs =
-        (case P.mutable_rhs_mode prepared of
-           P.Allocate_Rhs =>
-             T.allocate_reference mutable_pos
-               (lower environment rhs)
-         | P.Plain_Rhs => lower environment rhs)
-      val body_environment = P.binding_environment prepared
-      val lowered_body = lower body_environment body
-    in
-      T.bind lowered_rhs
-        (P.binding_abstraction prepared lowered_body)
-    end
 
   fun lower_match lower ctxt environment (flavour, scrutinee, arms, pos) =
     let
@@ -169,13 +143,12 @@ struct
            let
              fun arm_pairs arm =
                    let
-                     val prepared = P.prepare_switch_arm ctxt arm
-                     val body = P.prepared_switch_body prepared
+                     val (keys, body) = P.prepare_switch_arm ctxt arm
                      val lowered_body = lower environment body
                    in
                      map (fn alternative =>
                        T.pair alternative lowered_body)
-                       (P.prepared_switch_keys prepared)
+                       keys
                    end
              val pairs = maps arm_pairs arms
            in
@@ -256,12 +229,14 @@ struct
            (fuel, pattern, scrutinee, body, pos)
      | UE_Let binding =>
          lower_binding (lower_expression ctxt) ctxt
-           P.Let_Const_Binder I environment binding
-     | UE_LetMut binding =>
-         lower_mutable_binding (lower_expression ctxt) ctxt environment binding
+           P.Let_Const_Binder environment binding
+     | UE_LetMut (pattern, rhs, body, mutable_pos) =>
+         lower_binding (lower_expression ctxt) ctxt
+           (P.Mutable_Let_Binder mutable_pos) environment
+           (pattern, rhs, body)
      | UE_Const binding =>
          lower_binding (lower_expression ctxt) ctxt
-           P.Let_Const_Binder I environment binding
+           P.Let_Const_Binder environment binding
      | UE_Call (name, name_pos, arguments, call_pos) =>
          let
            val function =

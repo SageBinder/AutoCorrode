@@ -6,11 +6,8 @@ begin
 
 section\<open> Shallow term vocabulary \<close>
 
-definition urust_admin_let :: \<open>'a \<Rightarrow> ('a \<Rightarrow> 'b) \<Rightarrow> 'b\<close> where
-  \<open> urust_admin_let value continuation = continuation value \<close>
-
 ML\<open>
-signature URUST_ELAB_TERMS =
+signature URUST_SHALLOW_TERMS =
 sig
   val literal: term -> term
   val boolean_expression: bool -> term
@@ -19,7 +16,6 @@ sig
 
   val function_call: Position.T -> term -> term list -> term
   val bind: term -> term -> term
-  val admin_let: term -> term -> term
   val sequence: term -> term -> term
   val return_value: term -> term
   val case_product: term -> term
@@ -68,7 +64,7 @@ This module owns the pure vocabulary used to construct the existing shallow embe
 \<close>
 
 ML\<open>
-(* Shallow-term construction boundary. URust_Elab_Terms owns the unchecked HOL vocabulary and exact
+(* Shallow-term construction boundary. URust_Shallow_Terms owns the unchecked HOL vocabulary and exact
    term shapes used to target the existing shallow embedding. It does not resolve names, allocate
    source binders, inspect complete expression or pattern ASTs, type-check terms, or install
    definitions. Its results are composable unchecked terms that may contain dummy types; callers must
@@ -76,7 +72,7 @@ ML\<open>
    originating proof context. Source positions are used for diagnostics and to encode positions on
    overloaded constants where required.
 
-   URUST_ELAB_TERMS is the complete public interface:
+   URUST_SHALLOW_TERMS is the complete public interface:
 
    * literal wraps a HOL value as a shallow expression. boolean_expression constructs the dedicated
      shallow true/false expression constants, while string_value and integer_value construct raw HOL
@@ -86,8 +82,8 @@ ML\<open>
      reports malformed numbers and unsupported suffixes at the source position.
    * function_call maps a function term and its argument list to funcall0 through funcall14 and rejects
      larger arities at its call position. bind takes an expression and a continuation abstraction;
-     admin_let takes a pure value and continuation; sequence, return_value, and case_product preserve
-     the corresponding shallow-embedding constructors rather than interchangeable HOL encodings.
+     sequence, return_value, and case_product preserve the corresponding shallow-embedding constructors
+     rather than interchangeable HOL encodings.
    * allocate_reference, update, and assign_add construct the positioned overloaded store operations.
      update takes place then RHS; assign_add uses the same order. focus_field takes a resolved field
      lens then its receiver. tuple accepts at least two expression terms and emits the frontend's
@@ -113,7 +109,7 @@ ML\<open>
    spellings, operator meanings, diagnostics, argument order, and shallow term shapes described above
    are interface behavior relied on by resolution, pattern compilation, translation, and frontend
    conformance checks. No additional declarations in the structure are public through the signature. *)
-structure URust_Elab_Terms : URUST_ELAB_TERMS =
+structure URust_Shallow_Terms :> URUST_SHALLOW_TERMS =
 struct
   open URust_AST
 
@@ -250,8 +246,6 @@ struct
   (* Sequencing must use sequence: replacing it with an anonymous bind changes the generated term. *)
   fun bind expression abstraction =
     constant \<^const_name>\<open>Core_Expression.bind\<close> [expression, abstraction]
-  fun admin_let value continuation =
-    constant \<^const_name>\<open>urust_admin_let\<close> [value, continuation]
   fun sequence first second =
     constant \<^const_name>\<open>Core_Expression.sequence\<close> [first, second]
   fun return_value value = constant \<^const_name>\<open>return_func\<close> [value]

@@ -12,6 +12,12 @@ to contain an ML-Yacc terminal name is never inspected or rewritten.
 \<close>
 
 ML\<open>
+signature URUST_DIAGNOSTICS =
+sig
+  val parse_source:
+    Proof.context -> Input.source -> URust_AST.ur_expr option
+end
+
 (*
   URust_Diagnostics owns the source-facing diagnostic adapter for the generated uRust parser.  It
   preserves URust's lexer, grammar, semantic actions, recovery policy, and unresolved-AST result, but
@@ -26,12 +32,12 @@ ML\<open>
       URust_AST.ur_expr for a recognized expression, preserving the AST positions and lexer markup
       produced by URust.  Lexical and syntax failures raise positioned ERROR exceptions; syntax
       errors name the encountered terminal by its uRust source spelling (or a descriptive placeholder
-      for value-bearing terminals), never by the generated ML-Yacc terminal name.  The generated
-      lexer and parser runtime are mutable, so callers must hold Parser_Utils.with_parser_lock for
-      the complete call.
+      for value-bearing terminals), never by the generated ML-Yacc terminal name. The operation owns
+      the shared parser lock for its complete lexer initialization and parser consumption, so callers
+      cannot accidentally use the mutable generated runtime concurrently.
 
-  The structure is intentionally unsealed for its generated-parser wiring, but no other exposed name
-  is a supported parser-module interface.  Original and LrTable are aliases into generated data;
+  URUST_DIAGNOSTICS seals that one-operation interface. The generated URustLrVals and URustLex
+  instantiations, Original and LrTable aliases,
   terminal_specs, terminal_count, terminal_id, terminal_spec, generated_terminal_name,
   source_terminal_name, assert_distinct, and value_bearing_terminal_ids implement and load-time-check
   the exhaustive terminal mapping; ParserData changes only EC.showTerminal; and Source_Parser is the
@@ -40,9 +46,15 @@ ML\<open>
   loaded.  In particular, callers must not depend on terminal numeric identities, table layout,
   generated names, PARSER_DATA components, or Source_Parser operations.
 *)
-structure URust_Diagnostics =
+structure URust_Diagnostics :> URUST_DIAGNOSTICS =
 struct
-  structure Original = URust.URustLrVals.ParserData
+  structure URustLrVals =
+    URustLrValsFun(structure Token = LrParser.Token)
+
+  structure URustLex =
+    URustLexFun(structure Tokens = URustLrVals.Tokens)
+
+  structure Original = URustLrVals.ParserData
   structure LrTable = Original.LrTable
 
   (* This is intentionally exhaustive over generated terminal identity. The middle column is not
@@ -211,15 +223,16 @@ struct
     Join(
       structure LrParser = LrParser
       structure ParserData = ParserData
-      structure Lex = URust.URustLex)
+      structure Lex = URustLex)
 
   fun parse_source ctxt source =
-    let val _ = URust.URustLex.UserDeclarations.set source ctxt in
-      Parser_Lex_Util.parse_source
-        Source_Parser.parse Source_Parser.makeLexer
-        Source_Parser.Stream.get Source_Parser.sameToken
-        URust.URustLrVals.Tokens.EOF source
-    end
+    Parser_Utils.with_parser_lock (fn () =>
+      let val _ = URustLex.UserDeclarations.set source ctxt in
+        Parser_Lex_Util.parse_source
+          Source_Parser.parse Source_Parser.makeLexer
+          Source_Parser.Stream.get Source_Parser.sameToken
+          URustLrVals.Tokens.EOF source
+      end)
 end
 \<close>
 
@@ -234,8 +247,7 @@ local
     (case
         Exn.result
           (fn () =>
-            Parser_Utils.with_parser_lock
-              (fn () => URust_Diagnostics.parse_source \<^context> source)) () of
+            URust_Diagnostics.parse_source \<^context> source) () of
        Exn.Res _ =>
          error "uRust diagnostics: positioned malformed source unexpectedly parsed"
      | Exn.Exn exn =>

@@ -607,10 +607,6 @@ local
   val nullary_info = qualified left_nullary
 
   val _ =
-    assert "qualified constructor identity changed"
-      (URust_Resolution.constructor_identity struct_info =
-        left_struct)
-  val _ =
     assert "qualified positional constructor arity changed"
       (URust_Resolution.constructor_arity struct_info = 1)
   val _ =

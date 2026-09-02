@@ -10,14 +10,13 @@ ML\<open>
 signature URUST_RESOLUTION =
 sig
   type environment
-  datatype binding_mode = Binding_By_Value
-  type binding_signature = string * Position.T * binding_mode
 
   val empty_environment: environment
-  val bind_local:
-    Proof.context -> environment -> string * Position.T -> term * environment
   val allocate_locals:
-    Proof.context -> environment -> binding_signature list -> environment
+    Proof.context ->
+      environment ->
+      (string * Position.T) list ->
+      environment
   val use_local:
     Proof.context -> environment -> string * Position.T -> term option
   val lookup_local: environment -> string -> term option
@@ -43,7 +42,6 @@ sig
   val resolve_constructor:
     constructor_resolver ->
       string * Position.T -> constructor_info option
-  val constructor_identity: constructor_info -> string
   val constructor_term: constructor_info -> term
   val constructor_arity: constructor_info -> int
   val constructor_family: constructor_info -> (string * term list) option
@@ -60,7 +58,6 @@ sig
     Proof.context -> constructor_resolver ->
       string * Position.T * URust_AST.struct_field list ->
       resolved_struct_pattern
-  val unsupported_record_pattern: string -> Position.T -> 'a
 end
 \<close>
 
@@ -80,15 +77,13 @@ ML\<open>
 
   The public interface is:
 
-  - environment is an abstract, immutable lexical scope. empty_environment has no locals. bind_local
-    allocates one fresh dummy-typed local for a source name, reports its definition, shadows any
-    same-spelled entry in the returned environment, and returns both the local term and that
-    environment. binding_mode currently has the sole constructor Binding_By_Value, and
-    binding_signature is the source name, definition position, and mode expected by allocate_locals.
-    allocate_locals rejects duplicate names within its input before allocating any of them, then
-    extends the supplied scope. use_local performs a positioned lookup, reports a bound reference on
-    success, and returns NONE without fallback resolution; lookup_local performs the same lexical
-    lookup without reporting.
+  - environment is an abstract, immutable lexical scope. empty_environment has no locals.
+    allocate_locals accepts source-name/definition-position pairs, rejects duplicate names within its
+    input before allocating any of them, then extends the supplied scope with fresh dummy-typed locals
+    while reporting their definitions. use_local performs a positioned lookup, reports a bound
+    reference on success, and returns NONE without fallback resolution; lookup_local performs the same
+    lexical lookup without reporting. Single-local allocation and the generic binder records are
+    private implementation details.
 
   - parse_antiquotation parses an Input.source as a HOL term with every environment entry in lexical
     scope. Lexical names shadow context fixes and constants, and occurrences are restored to the exact
@@ -108,9 +103,9 @@ ML\<open>
     context's non-record Ctr_Sugar constructors, constructor families/selectors, and HOL record names
     for a resolution site. resolve_constructor uses exact identity for qualified names and basename
     lookup for unqualified names, returning NONE when absent and raising a positioned, deterministic
-    ambiguity error for multiple matches. constructor_identity returns the qualified identity,
-    constructor_term the dummy-typed constructor term, constructor_arity its argument count, and
-    constructor_family optionally the datatype identity with all family constructor terms.
+    ambiguity error for multiple matches. constructor_term returns the dummy-typed constructor term,
+    constructor_arity its argument count, and constructor_family optionally the datatype identity with
+    all family constructor terms.
     report_constructor and report_selector emit constant markup at the supplied source position.
 
   - resolve_struct_pattern resolves a struct head as a constructor, a single-constructor datatype
@@ -119,23 +114,20 @@ ML\<open>
     field is (selector, SOME source_position, pattern) when written or
     (selector, NONE, P_Wild Position.none) when supplied by `..`.
     Resolved_Constructor_Struct carries constructor_info plus those fields;
-    Resolved_Record_Struct carries the qualified record type name plus those fields.
-    unsupported_record_pattern is the common positioned failure for the intentionally unimplemented
-    selector-based HOL-record lowering boundary.
+    Resolved_Record_Struct carries the qualified record type name plus those fields. Policy for
+    rejecting the currently unsupported HOL-record lowering belongs to URust_Patterns.
 
   Callers may rely on those results and diagnostics, but not on the environment table or binder
   record, generated local names/entity IDs, identifier-leaf inspection, catalog and metadata merge
   strategy, candidate ordering, private selector storage, or the internal Constructor_Candidate /
   Record_Candidate distinction. Those are implementation details hidden by URUST_RESOLUTION.
 *)
-structure URust_Resolution : URUST_RESOLUTION =
+structure URust_Resolution :> URUST_RESOLUTION =
 struct
   open URust_AST
-  structure T = URust_Elab_Terms
+  structure T = URust_Shallow_Terms
 
   type environment = Parser_Utils.var_info Symtab.table
-  datatype binding_mode = Binding_By_Value
-  type binding_signature = string * Position.T * binding_mode
 
   val variable_entity_kind = "urust_var"
   val report_reference = Parser_Utils.report_ref variable_entity_kind
@@ -147,7 +139,7 @@ struct
 
   fun allocate_locals ctxt environment signatures =
     let
-      fun validate (name, pos, _) seen =
+      fun validate (name, pos) seen =
         (case Symtab.lookup seen name of
            NONE => Symtab.update (name, pos) seen
          | SOME original_pos =>
@@ -155,7 +147,7 @@ struct
                Position.here pos ^ "\nThe original binder is here" ^
                Position.here original_pos))
       val _ = fold validate signatures Symtab.empty
-      fun allocate (name, pos, _) env = #2 (bind_local ctxt env (name, pos))
+      fun allocate (name, pos) env = #2 (bind_local ctxt env (name, pos))
     in fold allocate signatures environment end
 
   fun use_local ctxt environment (name, pos) =
@@ -727,10 +719,6 @@ struct
        | Record_Candidate {record_name, ...} =>
            Resolved_Record_Struct (record_name, ordered))
     end
-
-  fun unsupported_record_pattern record_name pos =
-    error ("urust_expr: HOL record pattern " ^ quote (canonical_name record_name) ^
-      " requires selector-based lowering" ^ Position.here pos)
 end
 \<close>
 
