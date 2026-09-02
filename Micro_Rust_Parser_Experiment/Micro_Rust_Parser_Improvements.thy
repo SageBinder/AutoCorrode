@@ -8,7 +8,9 @@ section\<open> Test support \<close>
 
 text\<open>
 Each example is accepted by the new parser. Where an equivalent old-frontend
-spelling exists, \<open>urust_expr_with_check'\<close> checks the two results by \<open>refl\<close>.
+spelling exists, \<open>urust_expr_with_check'\<close> proves kernel-checked HOL equality
+after a reflexivity fast path and, when needed, bounded matcher normalization
+plus semantic equality rules.
 The paired command feeds the new spelling to the old frontend and requires it to reject.
 \<close>
 

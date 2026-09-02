@@ -18,8 +18,10 @@ text\<open>
 It adds no attributes, keeping generated definitions out of the global simp set.
 
 \<open>urust_expr_with_check NAME src\<close> additionally checks the resulting definition
-against the existing \<open>\<lbrakk>src\<rbrakk>\<close> frontend by definition unfolding and
-\<open>refl\<close>, and records the theorem as \<open>NAME_conformance\<close>.
+against the existing \<open>\<lbrakk>src\<rbrakk>\<close> frontend as a kernel-proved HOL
+equality and records the theorem as \<open>NAME_conformance\<close>. The checker unfolds
+the generated definition, tries \<open>refl\<close> first, then uses bounded structural
+matcher normalization and semantic equality rules.
 
 \<open>urust_expr_with_check' NAME new_src old_term\<close> performs the same check with
 \<open>new_src\<close> sent to the new parser and the explicit
@@ -72,6 +74,23 @@ struct
      new_divergent = 0,
      new_audit = 0,
      old_rejection = 0}
+
+  fun add_counts
+      ({plain = plain1, same_source = same_source1,
+        explicit_old = explicit_old1, dual_rejection = dual_rejection1,
+        new_divergent = new_divergent1, new_audit = new_audit1,
+        old_rejection = old_rejection1} : counts)
+      ({plain = plain2, same_source = same_source2,
+        explicit_old = explicit_old2, dual_rejection = dual_rejection2,
+        new_divergent = new_divergent2, new_audit = new_audit2,
+        old_rejection = old_rejection2} : counts) : counts =
+    {plain = plain1 + plain2,
+     same_source = same_source1 + same_source2,
+     explicit_old = explicit_old1 + explicit_old2,
+     dual_rejection = dual_rejection1 + dual_rejection2,
+     new_divergent = new_divergent1 + new_divergent2,
+     new_audit = new_audit1 + new_audit2,
+     old_rejection = old_rejection1 + old_rejection2}
 
   fun add_category Plain_Definition
         {plain, same_source, explicit_old, dual_rejection,
@@ -161,6 +180,13 @@ struct
   fun counts_for_theory theory_name =
     counts_matching (fn entry => #theory_name entry = theory_name)
 
+  fun counts_except theory_names =
+    counts_matching
+      (fn entry =>
+        not
+          (member (op =) theory_names
+            (#theory_name entry)))
+
   fun record category position lthy =
     let
       val theory_name =
@@ -203,17 +229,19 @@ struct
     new_audit1 = new_audit2 andalso
     old_rejection1 = old_rejection2
 
+  fun assert_summary label expected actual =
+    if equal_counts expected actual then ()
+    else
+      error
+        ("uRust inventory mismatch for " ^ label ^
+          "\nexpected: " ^ string_of_counts expected ^
+          "\nactual:   " ^ string_of_counts actual)
+
   fun assert_theory_counts theory_name expected thy =
-    let
-      val actual = counts_for_theory theory_name thy
-    in
-      if equal_counts expected actual then ()
-      else
-        error
-          ("uRust inventory mismatch for theory " ^ quote theory_name ^
-            "\nexpected: " ^ string_of_counts expected ^
-            "\nactual:   " ^ string_of_counts actual)
-    end
+    assert_summary
+      ("theory " ^ quote theory_name)
+      expected
+      (counts_for_theory theory_name thy)
 end
 
 structure URust_Compatibility_Inventory =
@@ -464,14 +492,14 @@ val _ = Outer_Syntax.local_theory \<^command_keyword>\<open>urust_expr\<close>
             define_urust)
 
 val _ = Outer_Syntax.local_theory \<^command_keyword>\<open>urust_expr_with_check\<close>
-          "Define a uRust expression and check it against the existing frontend by refl"
+          "Define a uRust expression and prove HOL equality with the existing frontend"
           (Parse.binding --
             (Parse.token Parse.cartouche >>
               Parser_Lex_Util.cartouche_source) >>
             define_urust_with_check)
 
 val _ = Outer_Syntax.local_theory \<^command_keyword>\<open>urust_expr_with_check'\<close>
-          "Define a uRust expression and check it against an explicit existing-frontend term by refl"
+          "Define a uRust expression and prove HOL equality with an explicit old-frontend term"
           (Parse.binding --
             (Parse.token Parse.cartouche >>
               Parser_Lex_Util.cartouche_source) --

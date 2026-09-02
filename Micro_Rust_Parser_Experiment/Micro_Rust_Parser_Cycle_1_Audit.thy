@@ -261,7 +261,8 @@ section\<open> Conservative while-let coverage \<close>
 text\<open>
 C1-I6 removes the false continuation only for coverage proved by the resolved-pattern metadata.
 The condition still sequences the source body with true, and the bounded loop body remains skip.
-Partial patterns retain exactly one false fallback.
+Partial patterns retain exactly one false fallback. This conservative classification exists only
+to lower currently supported syntax; it is not a general exhaustiveness or redundancy analysis.
 \<close>
 
 ML_val\<open>
@@ -317,7 +318,7 @@ ML_val\<open>
              unit_name = \<^const_name>\<open>Product_Type.Unity\<close>
        | _ => false)
 
-    fun check_exhaustive label source =
+    fun check_supported_total label source =
       let
         val term = checked source
         val (_, condition, body) = bounded_while_arguments term
@@ -333,14 +334,14 @@ ML_val\<open>
       end
 
     val _ =
-      check_exhaustive "TNil"
+      check_supported_total "TNil"
         (loop_source "TNil" "TNil")
     val _ =
-      check_exhaustive "complete option family"
+      check_supported_total "complete option family"
         (loop_source "Some(_) | None"
           (antiquotation "Some (1 :: nat)"))
     val _ =
-      check_exhaustive "nested complete option family"
+      check_supported_total "nested complete option family"
         (loop_source "Some(Some(_) | None) | None"
           (antiquotation "Some (None :: nat option)"))
 

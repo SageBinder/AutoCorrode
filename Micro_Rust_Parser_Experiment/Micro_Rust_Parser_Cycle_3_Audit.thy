@@ -1129,4 +1129,83 @@ ML_val\<open>
   end
 \<close>
 
+subsection\<open> Cycle 3 inventory closure \<close>
+
+text\<open>
+The inherited pre-Cycle-3 summary is
+\<open>{plain=30, same-source=474, explicit-old=49, dual-rejection=123,
+new-divergent=14, new-audit=7, old-rejection=59}\<close>. Cycle 3 intentionally
+adds exactly the six parser-generated executable fixtures above and no other
+inventory rows, so its local plain count is six and the final plain count is 36.
+\<close>
+
+ML_val\<open>
+  local
+    val theory = \<^theory>
+    val cycle3_theory =
+      "Micro_Rust_Parser_Cycle_3_Audit"
+    val inherited_expected : URust_Inventory.counts =
+      {plain = 30,
+       same_source = 474,
+       explicit_old = 49,
+       dual_rejection = 123,
+       new_divergent = 14,
+       new_audit = 7,
+       old_rejection = 59}
+    val local_expected : URust_Inventory.counts =
+      {plain = 6,
+       same_source = 0,
+       explicit_old = 0,
+       dual_rejection = 0,
+       new_divergent = 0,
+       new_audit = 0,
+       old_rejection = 0}
+    val final_expected : URust_Inventory.counts =
+      {plain = 36,
+       same_source = 474,
+       explicit_old = 49,
+       dual_rejection = 123,
+       new_divergent = 14,
+       new_audit = 7,
+       old_rejection = 59}
+    val inherited_actual =
+      URust_Inventory.counts_except
+        [cycle3_theory] theory
+    val local_actual =
+      URust_Inventory.counts_for_theory
+        cycle3_theory theory
+    val final_actual =
+      URust_Inventory.counts theory
+    val _ =
+      URust_Inventory.assert_summary
+        "Cycle 3 expected arithmetic"
+        final_expected
+        (URust_Inventory.add_counts
+          inherited_expected local_expected)
+    val _ =
+      URust_Inventory.assert_summary
+        "Cycle 3 inherited total"
+        inherited_expected inherited_actual
+    val _ =
+      URust_Inventory.assert_summary
+        "Cycle 3 local total"
+        local_expected local_actual
+    val _ =
+      URust_Inventory.assert_summary
+        "Cycle 3 final total"
+        final_expected final_actual
+    val _ =
+      URust_Inventory.assert_summary
+        "Cycle 3 actual arithmetic"
+        final_actual
+        (URust_Inventory.add_counts
+          inherited_actual local_actual)
+  in
+    val _ =
+      writeln
+        ("Cycle 3 final inventory: " ^
+          URust_Inventory.string_of_counts final_actual)
+  end
+\<close>
+
 end

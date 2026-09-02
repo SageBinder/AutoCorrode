@@ -1,6 +1,7 @@
 (* Positive conformance against the inner-syntax frontend. Each `urust_expr_with_check` command
-   defines its expression and proves it alpha-equal to `\<lbrakk> src \<rbrakk>` by `refl`. Type
-   annotations avoid hidden type variables that `Local_Theory.define` cannot expose cleanly. *)
+   defines its expression and proves kernel-checked HOL equality with `\<lbrakk> src \<rbrakk>`.
+   The checker tries reflexivity before bounded matcher normalization and semantic equality rules.
+   Type annotations avoid hidden type variables that `Local_Theory.define` cannot expose cleanly. *)
 
 theory Micro_Rust_Parser_Conformance
   imports Micro_Rust_Parser
@@ -2082,8 +2083,8 @@ urust_expr_with_check while_let_terminal
 
 text\<open>
 C1-I6 recognizes only conservative resolved-pattern coverage. Sole-constructor families and complete
-constructor-family or-patterns omit the generated false fallback; this is not a general Rust
-exhaustiveness checker.
+constructor-family or-patterns omit the generated false fallback only where required for the
+currently supported lowering. This is not a general exhaustiveness or redundancy checker.
 \<close>
 
 urust_expr while_let_exhaustive_tnil
@@ -2211,9 +2212,9 @@ no_adhoc_overloading store_dereference_const \<rightleftharpoons> parser_derefer
 section\<open> Return expressions \<close>
 
 text\<open>
-Return stores no semicolon in the parser AST. The legacy spellings remain alpha-equal:
-a terminal semicolon belongs to return itself, while the optional operand is lowered in
-the current lexical environment.
+Return stores no semicolon in the parser AST. The parser and legacy spellings have
+kernel-proved HOL equality: a terminal semicolon belongs to return itself, while the
+optional operand is lowered in the current lexical environment.
 \<close>
 
 urust_expr_with_check return_unit \<open> return; \<close>

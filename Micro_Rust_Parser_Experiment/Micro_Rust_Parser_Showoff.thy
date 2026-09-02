@@ -7,7 +7,9 @@ section\<open> Showcase \<close>
 text\<open>
 These examples intentionally combine features. Shared-source examples check the
 same text against the existing frontend; the improvements example checks an
-explicit equivalent old-frontend term. Every equality is proved by \<open>refl\<close>.
+explicit equivalent old-frontend term. Each command records a kernel-proved HOL
+equality after the checker tries reflexivity and, when needed, controlled matcher
+normalization plus semantic equality rules.
 \<close>
 
 subsection\<open> Expressions, bindings, and control flow \<close>
@@ -272,5 +274,38 @@ urust_expr_with_check' showoff_improvements
 no_adhoc_overloading store_reference_const \<rightleftharpoons> showoff_reference
 no_adhoc_overloading store_dereference_const \<rightleftharpoons> showoff_dereference
 no_adhoc_overloading store_update_const \<rightleftharpoons> showoff_update
+
+ML_val\<open>
+  local
+    val local_expected : URust_Inventory.counts =
+      {plain = 2,
+       same_source = 5,
+       explicit_old = 1,
+       dual_rejection = 0,
+       new_divergent = 0,
+       new_audit = 0,
+       old_rejection = 0}
+    val total_expected : URust_Inventory.counts =
+      {plain = 5,
+       same_source = 5,
+       explicit_old = 1,
+       dual_rejection = 0,
+       new_divergent = 0,
+       new_audit = 0,
+       old_rejection = 0}
+    val theory = \<^theory>
+    val _ =
+      URust_Inventory.assert_theory_counts
+        "Micro_Rust_Parser_Showoff"
+        local_expected theory
+    val _ =
+      URust_Inventory.assert_summary
+        "Micro_Rust_Parser_Showoff total"
+        total_expected
+        (URust_Inventory.counts theory)
+  in
+    val _ = ()
+  end
+\<close>
 
 end

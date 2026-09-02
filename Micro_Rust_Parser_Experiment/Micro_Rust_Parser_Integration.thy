@@ -8,6 +8,12 @@ begin
 
 section\<open> Parser proof integration \<close>
 
+text\<open>
+This theory provides adapters only for matcher and lazy-conditional constructs emitted by the
+parser. It registers those adapters in the existing Eval, WP, and Crush extension points without
+changing the upstream proof engines.
+\<close>
+
 lemma urust_lazy_conditional_as_two_armed:
   \<open>
     urust_lazy_conditional condition then_thunk else_thunk =

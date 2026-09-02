@@ -100,7 +100,7 @@ context fixes y :: nat
 begin
 
 text\<open>
-The RHS alpha-renames the inner binder to \<open>z\<close>. Reflexivity proves capture:
+The RHS renames the inner binder to \<open>z\<close>. Reflexivity proves capture:
 selecting the context-fixed \<open>y\<close> would make the terms differ.
 \<close>
 lemma binder_captures_antiquotation:
@@ -117,7 +117,7 @@ text\<open> (MM) Match-arm binder referenced by \<open>\<llangle>y\<rrangle>\<cl
 term \<open>\<lbrakk> match (Some(5)) { Some(y) \<Rightarrow> \<llangle>y\<rrangle>, None \<Rightarrow> \<llangle>0\<rrangle> } \<rbrakk>\<close>
 ML \<open>writeln ("MM match same-name: " ^ @{make_string} @{term \<open>\<lbrakk> match (Some(5)) { Some(y) \<Rightarrow> \<llangle>y\<rrangle>, None \<Rightarrow> \<llangle>0\<rrangle> } \<rbrakk>\<close>})\<close>
 
-text\<open> Alpha-renaming the arm binder proves capture. \<close>
+text\<open> Renaming the arm binder proves capture. \<close>
 lemma match_binder_captures_antiquotation:
   shows \<open>\<lbrakk> match (Some(5)) { Some(y) \<Rightarrow> \<llangle>y\<rrangle>, None \<Rightarrow> \<llangle>0\<rrangle> } \<rbrakk>
        = \<lbrakk> match (Some(5)) { Some(z) \<Rightarrow> \<llangle>z\<rrangle>, None \<Rightarrow> \<llangle>0\<rrangle> } \<rbrakk>\<close>
