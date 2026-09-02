@@ -6,10 +6,9 @@ section\<open> Cycle 1 structural audit \<close>
 
 text\<open>
 C1-I5 requires guarded case compilation to retain one checked scrutinee, one source guard and body
-per source arm, and parser-private administrative sharing before explicit unfolding. The checks
-below exercise both growing or-pattern alternatives and growing source-arm lists through 16 cases.
-They also inspect the explicitly unfolded false-guard path to ensure it enters the next source arm,
-not a sibling alternative.
+per source arm in the semantic matcher representation. The checks below exercise both growing
+or-pattern alternatives and growing source-arm lists through 16 cases. They also inspect the guarded
+runner's failure continuation to ensure it enters the next source arm, not a sibling alternative.
 \<close>
 
 datatype cycle1_case =
@@ -69,15 +68,19 @@ ML_val\<open>
 
     fun check_common label term =
       let
-        val admin_count =
-          count_constant \<^const_name>\<open>urust_admin_let\<close> term
+        val matcher_count =
+          count_constant \<^const_name>\<open>urust_matcher_run\<close> term +
+          count_constant \<^const_name>\<open>urust_matcher_run_guarded\<close> term +
+          count_constant \<^const_name>\<open>urust_matcher_run_value\<close> term +
+          count_constant
+            \<^const_name>\<open>urust_matcher_run_guarded_value\<close> term
         val scrutinee_count =
           count_constant \<^const_name>\<open>cycle1_scrutinee\<close> term
         val fallback_count =
           count_constant \<^const_name>\<open>cycle1_fallback_marker\<close> term
       in
-        audit_assert (label ^ " lost the administrative sharing constant")
-          (admin_count > 0);
+        audit_assert (label ^ " lost the semantic matcher runner")
+          (matcher_count > 0);
         audit_assert (label ^ " duplicated the scrutinee")
           (scrutinee_count = 1);
         audit_assert (label ^ " duplicated the terminal fallback")
@@ -165,35 +168,40 @@ ML_val\<open>
           (last <= first + 15 * 256)
       end
 
-    fun unfold_admin term =
-      let
-        val simps =
-          put_simpset HOL_basic_ss ctxt
-          addsimps [@{thm urust_admin_let_def}]
-        val rewrite =
-          Simplifier.rewrite simps (Thm.cterm_of ctxt term)
-      in Thm.term_of (Thm.rhs_of rewrite) end
-
-    fun conditional_branches term =
+    fun guarded_runs term =
       let
         fun collect
-            (Const (name, _) $ condition $ then_branch $ else_branch) branches =
+            (application as
+              Const (name, _) $ matcher $ scrutinee $ guard $
+                success $ failure) runs =
               let
                 val nested =
-                  collect condition
-                    (collect then_branch
-                      (collect else_branch branches))
+                  collect matcher
+                    (collect scrutinee
+                      (collect guard
+                        (collect success
+                          (collect failure runs))))
               in
-                if name = \<^const_name>\<open>two_armed_conditional\<close>
-                then (condition, then_branch, else_branch) :: nested
+                if name =
+                    \<^const_name>\<open>urust_matcher_run_guarded_value\<close>
+                then application :: nested
                 else nested
               end
-          | collect (left $ right) branches =
-              collect left (collect right branches)
-          | collect (Abs (_, _, body)) branches =
-              collect body branches
-          | collect _ branches = branches
+          | collect (left $ right) runs =
+              collect left (collect right runs)
+          | collect (Abs (_, _, body)) runs =
+              collect body runs
+          | collect _ runs = runs
       in collect term [] end
+
+    fun guarded_success_failure
+        (Const (name, _) $ _ $ _ $ _ $ success $ failure) =
+          if name =
+              \<^const_name>\<open>urust_matcher_run_guarded_value\<close>
+          then (success, failure)
+          else error "Cycle 1 pattern audit: expected guarded matcher runner"
+      | guarded_success_failure _ =
+          error "Cycle 1 pattern audit: malformed guarded matcher runner"
 
     val alternative_sizes = map check_alternatives (1 upto 16)
     val arm_sizes = map check_arms (1 upto 16)
@@ -209,35 +217,32 @@ ML_val\<open>
          ", Cycle1_B \<Rightarrow> " ^ antiquotation "cycle1_next_body" ^
          ", _ \<Rightarrow> " ^ antiquotation "cycle1_last_body" ^ " }")
     val _ =
-      audit_assert "the pre-unfolding false-guard term has no administrative sharing"
-        (count_constant \<^const_name>\<open>urust_admin_let\<close> fallthrough > 0)
-    val _ =
-      audit_assert "the false-guard source body was duplicated before unfolding"
+      audit_assert "the false-guard source body was duplicated"
         (count_constant \<^const_name>\<open>cycle1_first_body\<close> fallthrough = 1)
-    val unfolded = unfold_admin fallthrough
-    val _ =
-      audit_assert "explicit administrative unfolding left an administrative constant"
-        (count_constant \<^const_name>\<open>urust_admin_let\<close> unfolded = 0)
     val guarded =
       filter
-        (fn (_, then_branch, _) =>
+        (fn run =>
+          let val (success, _) = guarded_success_failure run in
           count_constant \<^const_name>\<open>cycle1_first_body\<close>
-            then_branch > 0)
-        (conditional_branches unfolded)
+            success > 0
+          end)
+        (guarded_runs fallthrough)
     val _ =
-      audit_assert "explicit unfolding exposed no source-guard false branch"
+      audit_assert "the matcher term exposed no source-guard runner"
         (not (null guarded))
     val _ =
       List.app
-        (fn (_, _, else_branch) =>
-          (audit_assert
-             "a false source guard retried a sibling or-alternative"
-             (count_constant \<^const_name>\<open>cycle1_first_body\<close>
-                else_branch = 0);
-           audit_assert
-             "a false source guard did not continue with the next source arm"
-             (count_constant \<^const_name>\<open>cycle1_next_body\<close>
-                else_branch > 0)))
+        (fn run =>
+          let val (_, failure) = guarded_success_failure run in
+            (audit_assert
+               "a false source guard retried a sibling or-alternative"
+               (count_constant \<^const_name>\<open>cycle1_first_body\<close>
+                  failure = 0);
+             audit_assert
+               "a false source guard did not continue with the next source arm"
+               (count_constant \<^const_name>\<open>cycle1_next_body\<close>
+                  failure > 0))
+          end)
         guarded
   in
     val _ =

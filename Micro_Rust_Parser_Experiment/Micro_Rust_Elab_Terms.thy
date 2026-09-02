@@ -1,14 +1,13 @@
 theory Micro_Rust_Elab_Terms
   imports
     Micro_Rust_Parser_AST
+    Shallow_Micro_Rust.Bool_Type_Lemmas
     Shallow_Micro_Rust.Core_Expression_Lemmas
     Shallow_Micro_Rust.Micro_Rust_Shallow_Embedding
+    Shallow_Micro_Rust.Numeric_Types_Lemmas
 begin
 
 section\<open> Shallow term vocabulary \<close>
-
-definition urust_admin_let :: \<open>'a \<Rightarrow> ('a \<Rightarrow> 'b) \<Rightarrow> 'b\<close> where
-  \<open> urust_admin_let value continuation = continuation value \<close>
 
 subsection\<open> Semantic matcher runtime \<close>
 
@@ -127,7 +126,11 @@ where
 
 definition urust_matcher_destructure ::
   \<open>
-    ('a \<Rightarrow> 'b option) \<Rightarrow>
+    ('a \<Rightarrow>
+      ('b \<Rightarrow>
+        ('s, 'value, 'return, 'abort, 'input, 'output) expression) \<Rightarrow>
+      ('s, 'value, 'return, 'abort, 'input, 'output) expression \<Rightarrow>
+      ('s, 'value, 'return, 'abort, 'input, 'output) expression) \<Rightarrow>
     ('s, 'b, 'payload, 'value, 'return, 'abort, 'input, 'output)
       urust_matcher \<Rightarrow>
     ('s, 'a, 'payload, 'value, 'return, 'abort, 'input, 'output)
@@ -135,10 +138,10 @@ definition urust_matcher_destructure ::
   \<close>
 where
   \<open>
-    urust_matcher_destructure destructor matcher value success failure =
-      (case destructor value of
-        None \<Rightarrow> failure
-      | Some fields \<Rightarrow> matcher fields success failure)
+    urust_matcher_destructure selector matcher value success failure =
+      selector value
+        (\<lambda>fields. matcher fields success failure)
+        failure
   \<close>
 
 definition urust_matcher_run ::
@@ -183,6 +186,45 @@ where
             failure)
   \<close>
 
+definition urust_matcher_run_value ::
+  \<open>
+    ('s, 'a, 'payload, 'value, 'return, 'abort, 'input, 'output)
+      urust_matcher \<Rightarrow>
+    'a \<Rightarrow>
+    ('payload \<Rightarrow>
+      ('s, 'value, 'return, 'abort, 'input, 'output) expression) \<Rightarrow>
+    ('s, 'value, 'return, 'abort, 'input, 'output) expression \<Rightarrow>
+    ('s, 'value, 'return, 'abort, 'input, 'output) expression
+  \<close>
+where
+  \<open>
+    urust_matcher_run_value matcher value success failure =
+      matcher value (\<lambda>payload remaining. success payload) failure
+  \<close>
+
+definition urust_matcher_run_guarded_value ::
+  \<open>
+    ('s, 'a, 'payload, 'value, 'return, 'abort, 'input, 'output)
+      urust_matcher \<Rightarrow>
+    'a \<Rightarrow>
+    ('payload \<Rightarrow>
+      ('s, bool, 'return, 'abort, 'input, 'output) expression) \<Rightarrow>
+    ('payload \<Rightarrow>
+      ('s, 'value, 'return, 'abort, 'input, 'output) expression) \<Rightarrow>
+    ('s, 'value, 'return, 'abort, 'input, 'output) expression \<Rightarrow>
+    ('s, 'value, 'return, 'abort, 'input, 'output) expression
+  \<close>
+where
+  \<open>
+    urust_matcher_run_guarded_value
+        matcher value guard success failure =
+      matcher value
+        (\<lambda>payload remaining.
+          two_armed_conditional
+            (guard payload) (success payload) failure)
+        failure
+  \<close>
+
 named_theorems urust_matcher_evaluation
 named_theorems urust_matcher_conformance
 named_theorems urust_matcher_code
@@ -198,6 +240,8 @@ declare
   urust_matcher_destructure_def
   urust_matcher_run_def
   urust_matcher_run_guarded_def
+  urust_matcher_run_value_def
+  urust_matcher_run_guarded_value_def
   [urust_matcher_code]
 
 lemma urust_matcher_run_fail [urust_matcher_conformance]:
@@ -235,6 +279,46 @@ lemma urust_matcher_run_guarded_succeed [urust_matcher_conformance]:
   \<close>
   by (simp add:
     urust_matcher_run_guarded_def urust_matcher_succeed_def)
+
+lemma urust_matcher_run_value_fail [urust_matcher_conformance]:
+  \<open>
+    urust_matcher_run_value urust_matcher_fail
+      value success failure =
+      failure
+  \<close>
+  by (simp add:
+    urust_matcher_run_value_def urust_matcher_fail_def)
+
+lemma urust_matcher_run_value_succeed [urust_matcher_conformance]:
+  \<open>
+    urust_matcher_run_value (urust_matcher_succeed payload)
+      value success failure =
+      success (payload value)
+  \<close>
+  by (simp add:
+    urust_matcher_run_value_def urust_matcher_succeed_def)
+
+lemma urust_matcher_run_guarded_value_fail
+    [urust_matcher_conformance]:
+  \<open>
+    urust_matcher_run_guarded_value urust_matcher_fail
+      value guard success failure =
+      failure
+  \<close>
+  by (simp add:
+    urust_matcher_run_guarded_value_def urust_matcher_fail_def)
+
+lemma urust_matcher_run_guarded_value_succeed
+    [urust_matcher_conformance]:
+  \<open>
+    urust_matcher_run_guarded_value
+      (urust_matcher_succeed payload)
+      value guard success failure =
+      two_armed_conditional
+        (guard (payload value)) (success (payload value)) failure
+  \<close>
+  by (simp add:
+    urust_matcher_run_guarded_value_def urust_matcher_succeed_def)
 
 lemma evaluate_urust_matcher_run [urust_matcher_evaluation]:
   \<open>
@@ -296,6 +380,15 @@ lemma urust_matcher_product_backtracks [urust_matcher_conformance]:
   \<close>
   by (simp add: urust_matcher_product_def)
 
+lemma urust_matcher_destructure_selects [urust_matcher_conformance]:
+  \<open>
+    urust_matcher_destructure selector matcher value success failure =
+      selector value
+        (\<lambda>fields. matcher fields success failure)
+        failure
+  \<close>
+  by (simp add: urust_matcher_destructure_def)
+
 lemma urust_matcher_guard_false_skips_alternatives
     [urust_matcher_conformance]:
   \<open>
@@ -310,6 +403,19 @@ lemma urust_matcher_guard_false_skips_alternatives
   \<close>
   by (simp add: urust_matcher_run_guarded_def)
 
+lemma urust_matcher_guard_false_skips_value_alternatives
+    [urust_matcher_conformance]:
+  \<open>
+    urust_matcher_run_guarded_value
+      matcher value guard success failure =
+      matcher value
+        (\<lambda>payload remaining.
+          two_armed_conditional
+            (guard payload) (success payload) failure)
+        failure
+  \<close>
+  by (simp add: urust_matcher_run_guarded_value_def)
+
 ML\<open>
 signature URUST_ELAB_TERMS =
 sig
@@ -320,7 +426,6 @@ sig
 
   val function_call: Position.T -> term -> term list -> term
   val bind: term -> term -> term
-  val admin_let: term -> term -> term
   val sequence: term -> term -> term
   val return_value: term -> term
   val case_product: term -> term
@@ -360,6 +465,21 @@ sig
   val case_nil: term
   val case_element: term -> term -> term
   val case_abstraction: term -> term
+
+  val matcher_fail: term
+  val matcher_succeed: term -> term
+  val matcher_choice: term -> term -> term
+  val matcher_map: term -> term -> term
+  val matcher_product: term -> term -> term
+  val matcher_test: term -> term
+  val matcher_lift: term -> term -> term
+  val matcher_destructure: term -> term -> term
+  val matcher_run: term -> term -> term -> term -> term
+  val matcher_run_guarded:
+    term -> term -> term -> term -> term -> term
+  val matcher_run_value: term -> term -> term -> term -> term
+  val matcher_run_guarded_value:
+    term -> term -> term -> term -> term -> term
 end
 \<close>
 
@@ -506,8 +626,6 @@ struct
   (* Sequencing must use sequence: replacing it with an anonymous bind changes the generated term. *)
   fun bind expression abstraction =
     constant \<^const_name>\<open>Core_Expression.bind\<close> [expression, abstraction]
-  fun admin_let value continuation =
-    constant \<^const_name>\<open>urust_admin_let\<close> [value, continuation]
   fun sequence first second =
     constant \<^const_name>\<open>Core_Expression.sequence\<close> [first, second]
   fun return_value value = constant \<^const_name>\<open>return_func\<close> [value]
@@ -650,6 +768,36 @@ struct
     constant \<^const_name>\<open>case_elem\<close> [pattern, body]
   fun case_abstraction abstraction =
     constant \<^const_name>\<open>case_abs\<close> [abstraction]
+
+  val matcher_fail =
+    Const (\<^const_name>\<open>urust_matcher_fail\<close>, dummyT)
+  fun matcher_succeed payload =
+    constant \<^const_name>\<open>urust_matcher_succeed\<close> [payload]
+  fun matcher_choice left right =
+    constant \<^const_name>\<open>urust_matcher_choice\<close> [left, right]
+  fun matcher_map mapping matcher =
+    constant \<^const_name>\<open>urust_matcher_map\<close> [mapping, matcher]
+  fun matcher_product left right =
+    constant \<^const_name>\<open>urust_matcher_product\<close> [left, right]
+  fun matcher_test predicate =
+    constant \<^const_name>\<open>urust_matcher_test\<close> [predicate]
+  fun matcher_lift lifting matcher =
+    constant \<^const_name>\<open>urust_matcher_lift\<close> [lifting, matcher]
+  fun matcher_destructure destructor matcher =
+    constant \<^const_name>\<open>urust_matcher_destructure\<close>
+      [destructor, matcher]
+  fun matcher_run matcher scrutinee success failure =
+    constant \<^const_name>\<open>urust_matcher_run\<close>
+      [matcher, scrutinee, success, failure]
+  fun matcher_run_guarded matcher scrutinee guard success failure =
+    constant \<^const_name>\<open>urust_matcher_run_guarded\<close>
+      [matcher, scrutinee, guard, success, failure]
+  fun matcher_run_value matcher value success failure =
+    constant \<^const_name>\<open>urust_matcher_run_value\<close>
+      [matcher, value, success, failure]
+  fun matcher_run_guarded_value matcher value guard success failure =
+    constant \<^const_name>\<open>urust_matcher_run_guarded_value\<close>
+      [matcher, value, guard, success, failure]
 end
 \<close>
 

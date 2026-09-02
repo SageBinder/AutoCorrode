@@ -58,6 +58,10 @@ sig
   val prepared_direct_abstraction:
     prepared_case_arm -> (term -> term) option
   val prepared_is_total: prepared_case_arm -> bool
+  val prepared_pattern_position: prepared_case_arm -> Position.T
+  val prepared_legacy_linear_nodes: prepared_case_arm -> int
+  val prepared_legacy_copies: prepared_case_arm -> int
+  val prepared_legacy_expanded_nodes: prepared_case_arm -> int
   val compile_case:
     Proof.context ->
       term ->
@@ -659,40 +663,147 @@ struct
   fun prepared_switch_body (Prepared_Switch_Arm (_, body)) = body
 
   datatype basic_case_pattern =
-      Basic_Wild of Position.T option
-    | Basic_Bind of R.binding_signature
+      Basic_Wild
     | Basic_Generated of term
     | Basic_Constructor of
         R.constructor_info * Position.T * basic_case_pattern list
     | Basic_Resolved of term * basic_case_pattern list
     | Basic_Tuple of basic_case_pattern list
 
-  datatype case_pattern =
-      Case_Wild of Position.T
-    | Case_Bind of R.binding_signature
-    | Case_Value of term * Position.T
-    | Case_Constructor of
-        R.constructor_info * Position.T * case_pattern list
-    | Case_Resolved of term * case_pattern list
-    | Case_Tuple of case_pattern list
-    | Case_Alias of R.binding_signature * case_pattern
-    | Case_Range of range_kind * term * term * Position.T
-    | Case_Slice_Suffix of case_pattern
-
   datatype case_pattern_tree =
       Pattern_Constant of term
     | Pattern_Slot of int
     | Pattern_Application of term * case_pattern_tree list
 
+  datatype payload_layout =
+      Payload_None
+    | Payload_Binder of R.binding_signature
+    | Payload_Product of payload_layout * payload_layout
+
+  type legacy_pattern_metric =
+    {linear_nodes: int,
+     copies: int,
+     expanded_nodes: int}
+
+  type compiled_plan =
+    {matcher: term,
+     layout: payload_layout,
+     direct: (term -> term) option,
+     legacy: legacy_pattern_metric}
+
+  datatype pattern_plan =
+    Pattern_Plan of
+      {matcher: term,
+       binders: term list,
+       direct: (term -> term) option,
+       position: Position.T,
+       legacy: legacy_pattern_metric}
+
   datatype prepared_case_arm =
     Prepared_Case_Arm of
-      {patterns: case_pattern list,
+      {plan: pattern_plan,
        environment: R.environment,
-       binders: term list,
        guard: (ur_expr * Position.T) option,
        body: ur_expr,
-       direct_abstraction: (term -> term) option,
        total: bool}
+
+  val legacy_copy_limit = 256
+  val legacy_saturated_copy = legacy_copy_limit + 1
+
+  fun saturating_add limit left right =
+    if left >= limit orelse right >= limit - left
+    then limit
+    else left + right
+
+  fun saturating_multiply limit left right =
+    if left = 0 orelse right = 0 then 0
+    else if left >= limit orelse right >= limit orelse left > limit div right
+    then limit
+    else left * right
+
+  fun saturating_copy_add left right =
+    saturating_add legacy_saturated_copy left right
+
+  fun saturating_copy_multiply left right =
+    saturating_multiply legacy_saturated_copy left right
+
+  fun expanded_node_limit linear_nodes =
+    legacy_copy_limit * linear_nodes + 1
+
+  fun cap_expanded linear_nodes expanded_nodes =
+    Int.min (expanded_nodes, expanded_node_limit linear_nodes)
+
+  val empty_legacy_metric : legacy_pattern_metric =
+    {linear_nodes = 0, copies = 1, expanded_nodes = 0}
+
+  val leaf_legacy_metric : legacy_pattern_metric =
+    {linear_nodes = 1, copies = 1, expanded_nodes = 1}
+
+  fun unary_legacy_metric
+      ({linear_nodes, copies, expanded_nodes} : legacy_pattern_metric) =
+    let
+      val linear_nodes' = linear_nodes + 1
+      val limit = expanded_node_limit linear_nodes'
+    in
+      {linear_nodes = linear_nodes',
+       copies = copies,
+       expanded_nodes =
+         saturating_add limit copies expanded_nodes}
+    end
+
+  fun cartesian_legacy_metric include_parent metrics =
+    let
+      val child_linear =
+        fold (fn metric => Integer.add (#linear_nodes metric))
+          metrics 0
+      val linear_nodes =
+        child_linear + (if include_parent then 1 else 0)
+      val copies =
+        fold (fn metric =>
+          saturating_copy_multiply (#copies metric))
+          metrics 1
+      val limit = expanded_node_limit linear_nodes
+      fun other_copies selected =
+        fold_index
+          (fn (index, metric) => fn product =>
+            if index = selected then product
+            else saturating_multiply limit (#copies metric) product)
+          metrics 1
+      val child_expanded =
+        fold_index
+          (fn (index, metric) => fn total =>
+            saturating_add limit total
+              (saturating_multiply limit
+                (#expanded_nodes metric)
+                (other_copies index)))
+          metrics 0
+      val parent_expanded =
+        if include_parent then copies else 0
+    in
+      {linear_nodes = linear_nodes,
+       copies = copies,
+       expanded_nodes =
+         saturating_add limit parent_expanded child_expanded}
+    end
+
+  fun choice_legacy_metric metrics =
+    let
+      val linear_nodes =
+        1 + fold (fn metric => Integer.add (#linear_nodes metric))
+          metrics 0
+      val limit = expanded_node_limit linear_nodes
+    in
+      {linear_nodes = linear_nodes,
+       copies =
+         fold (fn metric =>
+           saturating_copy_add (#copies metric))
+           metrics 0,
+       expanded_nodes =
+         cap_expanded linear_nodes
+           (fold (fn metric =>
+             saturating_add limit (#expanded_nodes metric))
+             metrics 1)}
+    end
 
   fun split_resolved_slice_items items =
     let
@@ -711,173 +822,12 @@ struct
             else split (pattern :: prefix) rest_pos suffix rest
     in split [] NONE [] items end
 
-  fun expand_resolved_pattern pattern =
-    let
-      fun products [] = [[]]
-        | products (alternatives :: rest) =
-            let val tails = products rest
-            in
-              maps (fn alternative =>
-                map (fn tail => alternative :: tail) tails) alternatives
-            end
-
-      fun expand (Resolved_Or (alternatives, _)) = maps expand alternatives
-        | expand (Resolved_Constructor (info, pos, arguments)) =
-            map (fn expanded =>
-                Resolved_Constructor (info, pos, expanded))
-              (products (map expand arguments))
-        | expand (Resolved_Tuple (arguments, pos)) =
-            map (fn expanded => Resolved_Tuple (expanded, pos))
-              (products (map expand arguments))
-        | expand (Resolved_Alias (binder_sig, inner, alias_pos)) =
-            map (fn expanded =>
-                Resolved_Alias (binder_sig, expanded, alias_pos))
-              (expand inner)
-        | expand (Resolved_Slice (items, pos)) =
-            let
-              fun item_alternatives
-                    (Resolved_Slice_Pattern nested) =
-                    map Resolved_Slice_Pattern (expand nested)
-                | item_alternatives
-                    (Resolved_Slice_Rest rest_pos) =
-                    [Resolved_Slice_Rest rest_pos]
-            in
-              map (fn expanded => Resolved_Slice (expanded, pos))
-                (products (map item_alternatives items))
-            end
-        | expand source_pattern = [source_pattern]
-    in expand pattern end
-
   fun resolved_value_term ctxt environment value =
     (case value of
        Resolved_Literal_Value payload =>
          T.literal (R.literal_value ctxt environment payload)
      | Resolved_Identifier_Value identifier =>
          R.literal_identifier ctxt environment identifier)
-
-  fun prepare_case_pattern ctxt environment pattern =
-    (case pattern of
-       Resolved_Wild pos =>
-         (R.report_wildcard ctxt pos; Case_Wild pos)
-     | Resolved_Bind binder_sig =>
-         let
-           val name = signature_name binder_sig
-           val pos = signature_position binder_sig
-           val _ =
-             (case R.use_local ctxt environment (name, pos) of
-                SOME _ => ()
-              | NONE =>
-                  error ("urust_expr: internal unallocated case binder " ^
-                    quote name ^ Position.here pos))
-         in Case_Bind binder_sig end
-     | Resolved_Value payload =>
-         Case_Value
-           (R.literal_value ctxt environment payload,
-            literal_position payload)
-     | Resolved_Constructor (info, pos, arguments) =>
-         Case_Constructor
-           (info, pos, map (prepare_case_pattern ctxt environment) arguments)
-     | Resolved_Tuple (arguments, _) =>
-         Case_Tuple
-           (map (prepare_case_pattern ctxt environment) arguments)
-     | Resolved_Alias (binder_sig, inner, _) =>
-         Case_Alias
-           (binder_sig, prepare_case_pattern ctxt environment inner)
-     | Resolved_Range (kind, lower, upper, pos) =>
-         Case_Range
-           (kind,
-            resolved_value_term ctxt environment lower,
-            resolved_value_term ctxt environment upper,
-            pos)
-     | Resolved_Slice (items, _) =>
-         let
-           val (prefix, rest_pos, suffix) =
-             split_resolved_slice_items items
-           fun cons_chain patterns tail =
-             fold_rev (fn nested => fn rest =>
-                 Case_Resolved
-                   (T.list_cons_constructor,
-                    [prepare_case_pattern ctxt environment nested, rest]))
-               patterns tail
-           val nil_pattern =
-             Case_Resolved (T.list_nil_constructor, [])
-         in
-           (case rest_pos of
-              NONE => cons_chain prefix nil_pattern
-            | SOME _ =>
-                if null suffix
-                then cons_chain prefix (Case_Wild Position.none)
-                else
-                  cons_chain prefix
-                    (Case_Slice_Suffix
-                      (cons_chain (rev suffix) nil_pattern)))
-         end
-     | Resolved_Or (_, pos) =>
-         error ("urust_expr: internal unexpanded resolved or-pattern" ^
-           Position.here pos))
-
-  fun prepare_case_arm ctxt environment
-      (UR_Arm (pattern, guard, body)) =
-    let
-      val resolved = resolve_pattern ctxt Resolve_Constructor_Case pattern
-      val signatures = collect_bindings resolved
-      val arm_environment =
-        R.allocate_locals ctxt environment signatures
-      val patterns =
-        map (prepare_case_pattern ctxt arm_environment)
-          (expand_resolved_pattern resolved)
-      val binders =
-        map (lookup_signature arm_environment) signatures
-      val direct =
-        direct_abstraction ctxt false true arm_environment resolved
-      val total =
-        coverage_is_total (resolved_coverage resolved)
-    in
-      Prepared_Case_Arm
-        {patterns = patterns,
-         environment = arm_environment,
-         binders = binders,
-         guard = guard,
-         body = body,
-         direct_abstraction = direct,
-         total = total}
-    end
-
-  fun prepared_environment
-      (Prepared_Case_Arm {environment, ...}) = environment
-  fun prepared_guard
-      (Prepared_Case_Arm {guard, ...}) = guard
-  fun prepared_body
-      (Prepared_Case_Arm {body, ...}) = body
-  fun prepared_direct_abstraction
-      (Prepared_Case_Arm {direct_abstraction, ...}) =
-        direct_abstraction
-  fun prepared_is_total
-      (Prepared_Case_Arm {total, ...}) = total
-
-  fun normalize_basic_pattern pattern =
-    (case pattern of
-       Case_Wild pos => Basic_Wild (SOME pos)
-     | Case_Bind binder_sig => Basic_Bind binder_sig
-     | Case_Value (_, pos) =>
-         error ("urust_expr: internal unnormalized value pattern" ^
-           Position.here pos)
-     | Case_Constructor (info, pos, arguments) =>
-         Basic_Constructor
-           (info, pos, map normalize_basic_pattern arguments)
-     | Case_Resolved (constructor, arguments) =>
-         Basic_Resolved
-           (constructor, map normalize_basic_pattern arguments)
-     | Case_Tuple arguments =>
-         Basic_Tuple (map normalize_basic_pattern arguments)
-     | Case_Alias (binder_sig, _) =>
-         error ("urust_expr: internal unnormalized alias pattern" ^
-           Position.here (signature_position binder_sig))
-     | Case_Range (_, _, _, pos) =>
-         error ("urust_expr: internal unnormalized range pattern" ^
-           Position.here pos)
-     | Case_Slice_Suffix _ =>
-         error "urust_expr: internal unnormalized slice suffix pattern")
 
   fun instantiate_pattern arguments tree =
     (case tree of
@@ -904,27 +854,12 @@ struct
         slots (make_inner arguments)
     end
 
-  fun bind_basic_pattern ctxt environment pattern =
+  fun bind_basic_pattern pattern =
     let
       fun add_slot slot (slots_rev, count) =
         (Pattern_Slot count, (slot :: slots_rev, count + 1))
 
-      fun walk (Basic_Wild pos) state =
-            (case pos of
-               SOME source_pos => R.report_wildcard ctxt source_pos
-             | NONE => ();
-             add_slot NONE state)
-        | walk (Basic_Bind binder_sig) state =
-            let
-              val name = signature_name binder_sig
-              val pos = signature_position binder_sig
-            in
-              (case R.use_local ctxt environment (name, pos) of
-                 SOME free => add_slot (SOME free) state
-               | NONE =>
-                   error ("urust_expr: internal unregistered case binder " ^
-                     quote name ^ Position.here pos))
-            end
+      fun walk Basic_Wild state = add_slot NONE state
         | walk (Basic_Generated free) state =
             add_slot (SOME free) state
         | walk (Basic_Constructor (info, _, arguments)) state =
@@ -963,254 +898,513 @@ struct
             T.case_element (instantiate_pattern arguments tree) body)
     end
 
-  fun requires_nested_match pattern =
-    (case pattern of
-       Case_Value _ => true
-     | Case_Alias _ => true
-     | Case_Range _ => true
-     | Case_Slice_Suffix _ => true
-     | Case_Constructor (_, _, arguments) =>
-         List.exists requires_nested_match arguments
-     | Case_Resolved (_, arguments) =>
-         List.exists requires_nested_match arguments
-     | Case_Tuple arguments =>
-         List.exists requires_nested_match arguments
-     | _ => false)
+  fun source_pack [] = HOLogic.unit
+    | source_pack [field] = field
+    | source_pack (field :: rest) =
+        T.pair field (source_pack rest)
 
-  fun extend_guard generated NONE = SOME generated
-    | extend_guard generated (SOME source) =
-        SOME (T.binary And source generated)
-
-  fun alias_wrapper environment expression binder_sig rhs =
-    let
-      val name = signature_name binder_sig
-      val pos = signature_position binder_sig
-    in
-      (case R.lookup_local environment name of
-         SOME free => T.bind expression (Term.lambda free rhs)
-       | NONE =>
-           error ("urust_expr: internal unregistered alias binder " ^
-             quote name ^ Position.here pos))
-    end
-
-  fun compile_nested_case compiler ctxt environment expression pattern
-      success fallback =
-    compiler ctxt expression
-      [(pattern, environment, NONE, success),
-       (Case_Wild Position.none, environment, NONE, fallback)]
-
-  fun normalize_pattern_for_nested compiler ctxt environment pattern =
-    let
-      fun normalize_arguments [] = ([], [], [])
-        | normalize_arguments (argument :: rest) =
-            let
-              val (argument', guards0, wrappers0) =
-                if requires_nested_match argument then
-                  let
-                    val temporary =
-                      Free
-                        ("_urust_pat_" ^
-                          string_of_int (serial ()), dummyT)
-                    val temporary_expression = T.literal temporary
-                    val (matched_expression, matched_pattern) =
-                      (case argument of
-                         Case_Slice_Suffix reversed_suffix =>
-                           (T.reverse_list temporary_expression,
-                            reversed_suffix)
-                       | _ => (temporary_expression, argument))
-                    val guard =
-                      compile_nested_case compiler ctxt environment
-                        matched_expression matched_pattern
-                        (T.literal T.true_value)
-                        (T.literal T.false_value)
-                    fun wrapper rhs =
-                      compile_nested_case compiler ctxt environment
-                        matched_expression matched_pattern
-                        rhs T.undefined_value
-                  in
-                    (Basic_Generated temporary, [guard], [wrapper])
-                  end
-                else
-                  normalize_pattern_for_nested
-                    compiler ctxt environment argument
-              val (rest', guards1, wrappers1) =
-                normalize_arguments rest
-            in
-              (argument' :: rest',
-               guards0 @ guards1,
-               wrappers0 @ wrappers1)
-            end
-    in
-      (case pattern of
-         Case_Constructor (info, pos, arguments) =>
-           let
-             val (arguments', guards, wrappers) =
-               normalize_arguments arguments
-           in
-             (Basic_Constructor (info, pos, arguments'),
-              guards, wrappers)
-           end
-       | Case_Resolved (constructor, arguments) =>
-           let
-             val (arguments', guards, wrappers) =
-               normalize_arguments arguments
-           in
-             (Basic_Resolved (constructor, arguments'),
-              guards, wrappers)
-           end
-       | Case_Tuple arguments =>
-           let
-             val (arguments', guards, wrappers) =
-               normalize_arguments arguments
-           in (Basic_Tuple arguments', guards, wrappers) end
-       | _ => (normalize_basic_pattern pattern, [], []))
-    end
-
-  fun normalize_extended_pattern compiler ctxt environment expression pattern =
-    (case pattern of
-       Case_Alias (binder_sig, inner) =>
-         let
-           val (basic, guards, wrappers) =
-             normalize_extended_pattern
-               compiler ctxt environment expression inner
-           fun wrap rhs =
-             alias_wrapper environment expression binder_sig rhs
-         in (basic, guards, wrappers @ [wrap]) end
-     | Case_Value (literal, _) =>
-         (Basic_Wild NONE,
-          [T.binary Eq expression (T.literal literal)],
-          [])
-     | Case_Range (kind, lower, upper, _) =>
-         let
-           val upper_guard =
-             T.binary
-               (case kind of
-                  RK_Exclusive => Lt
-                | RK_Inclusive => Le)
-               expression upper
-         in
-           (Basic_Wild NONE,
-            [T.binary And
-              (T.binary Ge expression lower) upper_guard],
-            [])
-         end
-     | Case_Slice_Suffix reversed_suffix =>
-         let
-           val reversed_expression = T.reverse_list expression
-           val guard =
-             compile_nested_case compiler ctxt environment
-               reversed_expression reversed_suffix
-               (T.literal T.true_value)
-               (T.literal T.false_value)
-           fun wrap rhs =
-             compile_nested_case compiler ctxt environment
-               reversed_expression reversed_suffix
-               rhs T.undefined_value
-         in (Basic_Wild NONE, [guard], [wrap]) end
-     | _ =>
-         normalize_pattern_for_nested
-           compiler ctxt environment pattern)
-
-  fun normalize_case_alternative compiler ctxt value
-      (pattern, environment) =
-    let
-      val (basic_pattern, generated_guards, wrappers) =
-        normalize_extended_pattern
-          compiler ctxt environment (T.literal value) pattern
-      val abstraction =
-        bind_basic_pattern ctxt environment basic_pattern
-      val generated_guard =
-        fold extend_guard generated_guards NONE
-      fun wrap rhs =
-        fold_rev (fn wrapper => fn body => wrapper body)
-          wrappers rhs
-      val wild =
-        (case basic_pattern of
-           Basic_Wild _ => true
-         | _ => false)
-    in (wild, abstraction, generated_guard, wrap) end
-
-  fun normalize_case_arm compiler ctxt value
-      (pattern, environment, source_guard, rhs) =
-    let
-      val (wild, abstraction, generated_guard, wrap) =
-        normalize_case_alternative compiler ctxt value
-          (pattern, environment)
-      val guard =
-        (case generated_guard of
-           NONE => source_guard
-         | SOME generated =>
-             extend_guard generated source_guard)
-    in (wild, abstraction, guard, wrap rhs) end
-
-  fun share_term name value body =
-    let
-      val shared =
-        Free (name ^ string_of_int (serial ()), dummyT)
-    in T.admin_let value (Term.lambda shared (body shared)) end
-
-  fun compile_pattern_case ctxt scrutinee arms =
+  fun pattern_destructor exhaustive pattern fields =
     let
       val value =
         Free
-          ("_urust_case_value_" ^
+          ("_urust_destructure_value_" ^
             string_of_int (serial ()), dummyT)
-      val normalized =
-        map (normalize_case_arm compile_pattern_case ctxt value) arms
-
-      fun case_term branches =
-        T.case_guard T.true_value value
-          (fold_rev T.case_cons branches T.case_nil)
-
-      fun generated_wild rhs =
-        bind_basic_pattern ctxt R.empty_environment
-          (Basic_Wild NONE) rhs
-
-      val undefined = T.undefined_value
-
-      fun compile_branches [] =
-            error "urust_expr: internal empty case branch list"
-        | compile_branches [(wild, abstraction, NONE, rhs)] =
-            if wild then rhs
-            else case_term [abstraction rhs]
-        | compile_branches [(wild, abstraction, SOME guard, rhs)] =
-            if wild then T.conditional guard rhs undefined
-            else
-              share_term "_urust_next_case_" undefined
-                (fn fallback =>
-                  case_term
-                    [abstraction
-                      (T.conditional guard rhs fallback),
-                     generated_wild fallback])
-        | compile_branches
-            ((wild, abstraction, guard, rhs) :: rest) =
-            share_term "_urust_next_case_"
-              (compile_branches rest)
-              (fn fallback =>
-                let
-                  val rhs' =
-                    (case guard of
-                       SOME condition =>
-                         T.conditional condition rhs fallback
-                     | NONE => rhs)
-                in
-                  if wild then rhs'
-                  else
-                    case_term
-                      [abstraction rhs',
-                       generated_wild fallback]
-                end)
-
-      val selector =
-        if List.exists
-            (fn (_, _, guard, _) => is_some guard) normalized
-        then compile_branches normalized
+      val accept =
+        Free
+          ("_urust_destructure_accept_" ^
+            string_of_int (serial ()), dummyT)
+      val reject =
+        Free
+          ("_urust_destructure_reject_" ^
+            string_of_int (serial ()), dummyT)
+      val success =
+        bind_basic_pattern pattern
+          (accept $ source_pack fields)
+      val branches =
+        if exhaustive then
+          T.case_cons success T.case_nil
         else
-          case_term
-            (map
-              (fn (_, abstraction, _, rhs) =>
-                abstraction rhs) normalized)
-    in T.bind scrutinee (Term.lambda value selector) end
+          T.case_cons success
+            (T.case_cons
+              (bind_basic_pattern Basic_Wild reject)
+              T.case_nil)
+    in
+      Term.lambda value
+        (Term.lambda accept
+          (Term.lambda reject
+            (T.case_guard T.true_value value branches)))
+    end
+
+  fun layout_signatures Payload_None = []
+    | layout_signatures (Payload_Binder binder_sig) = [binder_sig]
+    | layout_signatures (Payload_Product (left, right)) =
+        layout_signatures left @ layout_signatures right
+
+  fun same_signature (left, right) =
+    signature_name left = signature_name right andalso
+      signature_mode left = signature_mode right
+
+  fun same_layout (Payload_None, Payload_None) = true
+    | same_layout
+        (Payload_Binder left, Payload_Binder right) =
+        same_signature (left, right)
+    | same_layout
+        (Payload_Product (left0, right0),
+         Payload_Product (left1, right1)) =
+        same_layout (left0, left1) andalso
+          same_layout (right0, right1)
+    | same_layout _ = false
+
+  fun canonical_layout [] = Payload_None
+    | canonical_layout (binder_sig :: rest) =
+        Payload_Product
+          (Payload_Binder binder_sig, canonical_layout rest)
+
+  fun first_projection value =
+    Const (\<^const_name>\<open>Product_Type.fst\<close>, dummyT) $ value
+
+  fun second_projection value =
+    Const (\<^const_name>\<open>Product_Type.snd\<close>, dummyT) $ value
+
+  fun payload_bindings value layout =
+    (case layout of
+       Payload_None => []
+     | Payload_Binder binder_sig => [(signature_name binder_sig, value)]
+     | Payload_Product (left, right) =>
+         payload_bindings (first_projection value) left @
+           payload_bindings (second_projection value) right)
+
+  fun payload_pack [] = HOLogic.unit
+    | payload_pack (value :: rest) =
+        T.pair value (payload_pack rest)
+
+  fun canonicalize_plan signatures
+      ({matcher, layout, direct, legacy} : compiled_plan) =
+    let
+      val target_layout = canonical_layout signatures
+    in
+      if same_layout (layout, target_layout) then
+        {matcher = matcher,
+         layout = layout,
+         direct = direct,
+         legacy = legacy}
+      else
+        let
+          val source =
+            Free
+              ("_urust_payload_source_" ^
+                string_of_int (serial ()), dummyT)
+          val payload =
+            Free
+              ("_urust_payload_" ^
+                string_of_int (serial ()), dummyT)
+          val available = payload_bindings payload layout
+          fun select binder_sig =
+            (case AList.lookup (op =) available
+                (signature_name binder_sig) of
+               SOME value => value
+             | NONE =>
+                 error ("urust_expr: internal missing matcher payload " ^
+                   quote (signature_name binder_sig) ^
+                   Position.here (signature_position binder_sig)))
+          val mapping =
+            Term.lambda source
+              (Term.lambda payload
+                (payload_pack (map select signatures)))
+        in
+          {matcher = T.matcher_map mapping matcher,
+           layout = target_layout,
+           direct = direct,
+           legacy = legacy}
+        end
+    end
+
+  fun unit_plan () : compiled_plan =
+    let
+      val value =
+        Free
+          ("_urust_match_unit_" ^
+            string_of_int (serial ()), dummyT)
+    in
+      {matcher =
+         T.matcher_succeed
+           (Term.lambda value HOLogic.unit),
+       layout = Payload_None,
+       direct = NONE,
+       legacy = leaf_legacy_metric}
+    end
+
+  fun binder_plan environment binder_sig : compiled_plan =
+    let
+      val value =
+        Free
+          ("_urust_match_binder_" ^
+            string_of_int (serial ()), dummyT)
+      val free = lookup_signature environment binder_sig
+    in
+      {matcher =
+         T.matcher_succeed (Term.lambda value value),
+       layout = Payload_Binder binder_sig,
+       direct = SOME (fn body => Term.lambda free body),
+       legacy = leaf_legacy_metric}
+    end
+
+  fun wildcard_plan ctxt pos : compiled_plan =
+    let
+      val _ = R.report_wildcard ctxt pos
+      val base = unit_plan ()
+    in
+      {matcher = #matcher base,
+       layout = #layout base,
+       direct = SOME R.anonymous_abstraction,
+       legacy = #legacy base}
+    end
+
+  fun test_plan predicate : compiled_plan =
+    let
+      val source =
+        Free
+          ("_urust_test_source_" ^
+            string_of_int (serial ()), dummyT)
+      val payload =
+        Free
+          ("_urust_test_payload_" ^
+            string_of_int (serial ()), dummyT)
+      val discard =
+        Term.lambda source
+          (Term.lambda payload HOLogic.unit)
+    in
+      {matcher =
+         T.matcher_map discard (T.matcher_test predicate),
+       layout = Payload_None,
+       direct = NONE,
+       legacy = leaf_legacy_metric}
+    end
+
+  fun combine_plans [] =
+        let val plan = unit_plan ()
+        in
+          {matcher = #matcher plan,
+           layout = #layout plan,
+           direct = #direct plan,
+           legacy = empty_legacy_metric}
+        end
+    | combine_plans [plan] = plan
+    | combine_plans (left :: rest) =
+        let
+          val right = combine_plans rest
+        in
+          {matcher =
+             T.matcher_product (#matcher left) (#matcher right),
+           layout =
+             Payload_Product (#layout left, #layout right),
+           direct = NONE,
+           legacy =
+             cartesian_legacy_metric false
+               [#legacy left, #legacy right]}
+        end
+
+  fun tuple_direct plans =
+    if List.all (is_some o #direct) plans then
+      let
+        val abstractions = map (the o #direct) plans
+        fun tuple_abstraction [abstraction] body =
+              T.case_product
+                (abstraction (R.anonymous_abstraction body))
+          | tuple_abstraction (abstraction :: rest) body =
+              T.case_product
+                (abstraction (tuple_abstraction rest body))
+          | tuple_abstraction [] _ =
+              error "urust_expr: internal empty tuple pattern"
+      in SOME (fn body => tuple_abstraction abstractions body) end
+    else NONE
+
+  fun fresh_fields count =
+    map (fn index =>
+      Free
+        ("_urust_match_field_" ^ string_of_int index ^ "_" ^
+          string_of_int (serial ()), dummyT))
+      (0 upto (count - 1))
+
+  fun destructured_plan exhaustive pattern fields children direct :
+      compiled_plan =
+    let
+      val combined = combine_plans children
+      val destructor =
+        pattern_destructor exhaustive pattern fields
+    in
+      {matcher =
+         T.matcher_destructure destructor (#matcher combined),
+       layout = #layout combined,
+       direct = direct,
+       legacy =
+         cartesian_legacy_metric true
+           (map #legacy children)}
+    end
+
+  fun compile_pattern_plan ctxt environment signatures resolved =
+    let
+      fun compile source_pattern : compiled_plan =
+        (case source_pattern of
+           Resolved_Wild pos => wildcard_plan ctxt pos
+         | Resolved_Bind binder_sig =>
+             binder_plan environment binder_sig
+         | Resolved_Constructor (info, pos, arguments) =>
+             let
+               val children = map compile arguments
+               val fields = fresh_fields (length arguments)
+               val exhaustive =
+                 (case R.constructor_family info of
+                    SOME (_, [_]) => true
+                  | _ => false)
+               val basic =
+                 Basic_Constructor
+                   (info, pos, map Basic_Generated fields)
+             in
+               destructured_plan exhaustive basic fields children NONE
+             end
+         | Resolved_Tuple (arguments, _) =>
+             let
+               val children = map compile arguments
+               val fields = fresh_fields (length arguments)
+               val basic =
+                 Basic_Tuple (map Basic_Generated fields)
+             in
+               destructured_plan true basic fields children
+                 (tuple_direct children)
+             end
+         | Resolved_Alias (binder_sig, inner, _) =>
+             let
+               val compiled = compile inner
+               val value =
+                 Free
+                   ("_urust_alias_value_" ^
+                     string_of_int (serial ()), dummyT)
+               val payload =
+                 Free
+                   ("_urust_alias_payload_" ^
+                     string_of_int (serial ()), dummyT)
+               val mapping =
+                 Term.lambda value
+                   (Term.lambda payload
+                     (T.pair value payload))
+               val alias_free =
+                 lookup_signature environment binder_sig
+               val direct =
+                 (case #direct compiled of
+                    NONE => NONE
+                  | SOME inner_abstraction =>
+                      let
+                        val matched =
+                          Free
+                            ("_urust_direct_alias_" ^
+                              string_of_int (serial ()), dummyT)
+                      in
+                        SOME (fn body =>
+                          Term.lambda matched
+                            (T.bind (T.literal matched)
+                              (Term.lambda alias_free
+                                (Term.betapply
+                                  (inner_abstraction body, matched)))))
+                      end)
+             in
+               {matcher =
+                  T.matcher_map mapping (#matcher compiled),
+                layout =
+                  Payload_Product
+                    (Payload_Binder binder_sig, #layout compiled),
+                direct = direct,
+                legacy =
+                  unary_legacy_metric (#legacy compiled)}
+             end
+         | Resolved_Value payload =>
+             let
+               val literal =
+                 R.literal_value ctxt environment payload
+               val value =
+                 Free
+                   ("_urust_value_test_" ^
+                     string_of_int (serial ()), dummyT)
+               val predicate =
+                 Term.lambda value
+                   (T.binary Eq
+                     (T.literal value) (T.literal literal))
+             in test_plan predicate end
+         | Resolved_Range (kind, lower, upper, _) =>
+             let
+               val lower' =
+                 resolved_value_term ctxt environment lower
+               val upper' =
+                 resolved_value_term ctxt environment upper
+               val value =
+                 Free
+                   ("_urust_range_test_" ^
+                     string_of_int (serial ()), dummyT)
+               val expression = T.literal value
+               val predicate =
+                 Term.lambda value
+                   (T.binary And
+                     (T.binary Ge expression lower')
+                     (T.binary
+                       (case kind of
+                          RK_Exclusive => Lt
+                        | RK_Inclusive => Le)
+                       expression upper'))
+             in test_plan predicate end
+         | Resolved_Slice (items, _) => compile_slice items
+         | Resolved_Or ([], pos) =>
+             error ("urust_expr: internal empty resolved or-pattern" ^
+               Position.here pos)
+         | Resolved_Or (alternatives, _) =>
+             let
+               val compiled = map compile alternatives
+               val alternative_signatures =
+                 layout_signatures (#layout (hd compiled))
+               val canonical =
+                 map
+                   (canonicalize_plan alternative_signatures)
+                   compiled
+               fun choices [plan] = #matcher plan
+                 | choices (plan :: rest) =
+                     T.matcher_choice (#matcher plan) (choices rest)
+                 | choices [] =
+                     error "urust_expr: internal empty matcher choice"
+             in
+              {matcher = choices canonical,
+                layout = canonical_layout alternative_signatures,
+                direct = NONE,
+                legacy =
+                  choice_legacy_metric
+                    (map #legacy canonical)}
+             end)
+
+      and compile_slice items =
+        let
+          fun nil_plan () =
+            destructured_plan false
+              (Basic_Resolved (T.list_nil_constructor, []))
+              [] [] NONE
+
+          fun cons_plan head tail =
+            let
+              val fields = fresh_fields 2
+              val basic =
+                Basic_Resolved
+                  (T.list_cons_constructor,
+                   map Basic_Generated fields)
+            in
+              destructured_plan false basic fields [head, tail] NONE
+            end
+
+          fun chain [] tail = tail
+            | chain (pattern :: rest) tail =
+                let
+                  val head = compile pattern
+                  val tail' = chain rest tail
+                in cons_plan head tail' end
+
+          fun reverse_plan plan =
+            let
+              val value =
+                Free
+                  ("_urust_slice_reverse_" ^
+                    string_of_int (serial ()), dummyT)
+              val lifting =
+                Term.lambda value
+                  (T.reverse_list (T.literal value))
+            in
+              {matcher =
+                 T.matcher_lift lifting (#matcher plan),
+               layout = #layout plan,
+               direct = NONE,
+               legacy =
+                 unary_legacy_metric (#legacy plan)}
+            end
+
+          val (prefix, rest_pos, suffix) =
+            split_resolved_slice_items items
+          val tail =
+            (case rest_pos of
+               NONE => nil_plan ()
+             | SOME _ =>
+                 if null suffix then unit_plan ()
+                 else
+                   reverse_plan
+                     (chain (rev suffix) (nil_plan ())))
+        in chain prefix tail end
+
+      val compiled =
+        canonicalize_plan signatures (compile resolved)
+      val binders =
+        map (lookup_signature environment) signatures
+    in
+      Pattern_Plan
+        {matcher = #matcher compiled,
+         binders = binders,
+         direct = #direct compiled,
+         position = resolved_position resolved,
+         legacy = #legacy compiled}
+    end
+
+  fun prepare_case_arm ctxt environment
+      (UR_Arm (pattern, guard, body)) =
+    let
+      val resolved = resolve_pattern ctxt Resolve_Constructor_Case pattern
+      val signatures = collect_bindings resolved
+      val arm_environment =
+        R.allocate_locals ctxt environment signatures
+      val plan =
+        compile_pattern_plan ctxt arm_environment signatures resolved
+      val total =
+        coverage_is_total (resolved_coverage resolved)
+    in
+      Prepared_Case_Arm
+        {plan = plan,
+         environment = arm_environment,
+         guard = guard,
+         body = body,
+         total = total}
+    end
+
+  fun prepared_environment
+      (Prepared_Case_Arm {environment, ...}) = environment
+  fun prepared_guard
+      (Prepared_Case_Arm {guard, ...}) = guard
+  fun prepared_body
+      (Prepared_Case_Arm {body, ...}) = body
+  fun prepared_direct_abstraction
+      (Prepared_Case_Arm
+        {plan = Pattern_Plan {direct, ...}, ...}) = direct
+  fun prepared_is_total
+      (Prepared_Case_Arm {total, ...}) = total
+  fun prepared_pattern_position
+      (Prepared_Case_Arm
+        {plan = Pattern_Plan {position, ...}, ...}) = position
+  fun prepared_legacy_linear_nodes
+      (Prepared_Case_Arm
+        {plan =
+          Pattern_Plan
+            {legacy = {linear_nodes, ...}, ...}, ...}) =
+        linear_nodes
+  fun prepared_legacy_copies
+      (Prepared_Case_Arm
+        {plan =
+          Pattern_Plan
+            {legacy = {copies, ...}, ...}, ...}) =
+        copies
+  fun prepared_legacy_expanded_nodes
+      (Prepared_Case_Arm
+        {plan =
+          Pattern_Plan
+            {legacy = {expanded_nodes, ...}, ...}, ...}) =
+        expanded_nodes
+
+  fun payload_abstraction [] body =
+        R.anonymous_abstraction body
+    | payload_abstraction (binder :: rest) body =
+        T.case_product
+          (Term.lambda binder
+            (payload_abstraction rest body))
 
   fun compile_case_internal ctxt explicit_fallback scrutinee arms =
     let
@@ -1218,137 +1412,31 @@ struct
         Free
           ("_urust_case_value_" ^
             string_of_int (serial ()), dummyT)
-
-      fun case_term branches =
-        T.case_guard T.true_value value
-          (fold_rev T.case_cons branches T.case_nil)
-
-      fun generated_wild rhs =
-        bind_basic_pattern ctxt R.empty_environment
-          (Basic_Wild NONE) rhs
-
-      fun normalize_source_arm
-          (Prepared_Case_Arm
-            {patterns, environment, binders, ...},
-           source_guard, rhs) =
-        {alternatives =
-           map
-             (normalize_case_alternative
-               compile_pattern_case ctxt value)
-             (map (fn pattern => (pattern, environment)) patterns),
-         binders = binders,
-         source_guard = source_guard,
-         rhs = rhs}
-
-      val normalized = map normalize_source_arm arms
-
-      fun has_generated_guard
-          {alternatives, source_guard, ...} =
-        is_some source_guard orelse
-          List.exists
-            (fn (_, _, guard, _) => is_some guard)
-            alternatives
-
-      fun handler_term binders source_guard rhs next_arm =
-        fold_rev Term.lambda binders
-          (case source_guard of
-             SOME guard => T.conditional guard rhs next_arm
-           | NONE => rhs)
-
-      fun handler_call handler binders =
-        Term.list_comb (handler, binders)
-
-      fun compile_alternatives [] _ _ _ =
-            error "urust_expr: internal empty source-arm alternative list"
-        | compile_alternatives
-            [(wild, abstraction, generated_guard, wrap)]
-            handler binders next_arm =
-            let
-              val success = wrap (handler_call handler binders)
-              val guarded =
-                (case generated_guard of
-                   SOME guard =>
-                     T.conditional guard success next_arm
-                 | NONE => success)
-            in
-              if wild then guarded
-              else
-                case_term
-                  [abstraction guarded,
-                   generated_wild next_arm]
-            end
-        | compile_alternatives
-            ((wild, abstraction, generated_guard, wrap) :: rest)
-            handler binders next_arm =
-            share_term "_urust_next_alternative_"
-              (compile_alternatives rest handler binders next_arm)
-              (fn next_alternative =>
-                let
-                  val success = wrap (handler_call handler binders)
-                  val guarded =
-                    (case generated_guard of
-                       SOME guard =>
-                         T.conditional guard success
-                           next_alternative
-                     | NONE => success)
-                in
-                  if wild then guarded
-                  else
-                    case_term
-                      [abstraction guarded,
-                       generated_wild next_alternative]
-                end)
-
       val fallback =
         the_default T.undefined_value explicit_fallback
 
-      fun compile_guarded_sources [] = fallback
-        | compile_guarded_sources
-            ({alternatives, binders, source_guard, rhs} :: rest) =
-            share_term "_urust_next_arm_"
-              (compile_guarded_sources rest)
-              (fn next_arm =>
-                share_term "_urust_arm_handler_"
-                  (handler_term binders source_guard rhs next_arm)
-                  (fn handler =>
-                    compile_alternatives alternatives
-                      handler binders next_arm))
-
-      fun compile_unguarded_sources sources =
-        let
-          fun install [] branches =
-                case_term
-                  (maps I (rev branches) @
-                    (case explicit_fallback of
-                       SOME term => [generated_wild term]
-                     | NONE => []))
-            | install
-                ({alternatives, binders, source_guard = NONE, rhs} :: rest)
-                branches =
-                share_term "_urust_arm_handler_"
-                  (fold_rev Term.lambda binders rhs)
-                  (fn handler =>
-                    let
-                      fun branch
-                          (wild, abstraction, NONE, wrap) =
-                            abstraction
-                              (wrap (handler_call handler binders))
-                        | branch _ =
-                            error
-                              "urust_expr: internal guarded alternative in unguarded case"
-                      val current = map branch alternatives
-                    in install rest (current :: branches) end)
-            | install _ _ =
-                error
-                  "urust_expr: internal guarded source arm in unguarded case"
-        in install sources [] end
-
-      val selector =
-        if List.exists has_generated_guard normalized
-        then compile_guarded_sources normalized
-        else compile_unguarded_sources normalized
+      fun compile_sources [] = fallback
+        | compile_sources
+            ((Prepared_Case_Arm
+                {plan = Pattern_Plan {matcher, binders, ...}, ...},
+              source_guard, rhs) :: rest) =
+            let
+              val next_arm = compile_sources rest
+              val success =
+                payload_abstraction binders rhs
+            in
+              (case source_guard of
+                 NONE =>
+                   T.matcher_run_value matcher value
+                     success next_arm
+               | SOME guard =>
+                   T.matcher_run_guarded_value matcher value
+                     (payload_abstraction binders guard)
+                     success next_arm)
+            end
     in
-      T.bind scrutinee (Term.lambda value selector)
+      T.bind scrutinee
+        (Term.lambda value (compile_sources arms))
     end
 
   fun compile_case ctxt scrutinee arms =
