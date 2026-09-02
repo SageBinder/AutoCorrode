@@ -1,6 +1,7 @@
 theory Micro_Rust_Elab_Terms
   imports
     Micro_Rust_Parser_AST
+    Shallow_Micro_Rust.Core_Expression_Lemmas
     Shallow_Micro_Rust.Micro_Rust_Shallow_Embedding
 begin
 
@@ -8,6 +9,306 @@ section\<open> Shallow term vocabulary \<close>
 
 definition urust_admin_let :: \<open>'a \<Rightarrow> ('a \<Rightarrow> 'b) \<Rightarrow> 'b\<close> where
   \<open> urust_admin_let value continuation = continuation value \<close>
+
+subsection\<open> Semantic matcher runtime \<close>
+
+type_synonym
+  ('s, 'a, 'payload, 'value, 'return, 'abort, 'input, 'output)
+    urust_matcher =
+  \<open>
+    'a \<Rightarrow>
+    ('payload \<Rightarrow>
+      ('s, 'value, 'return, 'abort, 'input, 'output) expression \<Rightarrow>
+      ('s, 'value, 'return, 'abort, 'input, 'output) expression) \<Rightarrow>
+    ('s, 'value, 'return, 'abort, 'input, 'output) expression \<Rightarrow>
+    ('s, 'value, 'return, 'abort, 'input, 'output) expression
+  \<close>
+
+definition urust_matcher_fail ::
+  \<open>
+    ('s, 'a, 'payload, 'value, 'return, 'abort, 'input, 'output)
+      urust_matcher
+  \<close>
+where
+  \<open> urust_matcher_fail value success failure = failure \<close>
+
+definition urust_matcher_succeed ::
+  \<open>
+    ('a \<Rightarrow> 'payload) \<Rightarrow>
+    ('s, 'a, 'payload, 'value, 'return, 'abort, 'input, 'output)
+      urust_matcher
+  \<close>
+where
+  \<open>
+    urust_matcher_succeed payload value success failure =
+      success (payload value) failure
+  \<close>
+
+definition urust_matcher_choice ::
+  \<open>
+    ('s, 'a, 'payload, 'value, 'return, 'abort, 'input, 'output)
+      urust_matcher \<Rightarrow>
+    ('s, 'a, 'payload, 'value, 'return, 'abort, 'input, 'output)
+      urust_matcher \<Rightarrow>
+    ('s, 'a, 'payload, 'value, 'return, 'abort, 'input, 'output)
+      urust_matcher
+  \<close>
+where
+  \<open>
+    urust_matcher_choice left right value success failure =
+      left value success (right value success failure)
+  \<close>
+
+definition urust_matcher_map ::
+  \<open>
+    ('a \<Rightarrow> 'payload \<Rightarrow> 'mapped) \<Rightarrow>
+    ('s, 'a, 'payload, 'value, 'return, 'abort, 'input, 'output)
+      urust_matcher \<Rightarrow>
+    ('s, 'a, 'mapped, 'value, 'return, 'abort, 'input, 'output)
+      urust_matcher
+  \<close>
+where
+  \<open>
+    urust_matcher_map mapping matcher value success failure =
+      matcher value
+        (\<lambda>payload remaining. success (mapping value payload) remaining)
+        failure
+  \<close>
+
+definition urust_matcher_product ::
+  \<open>
+    ('s, 'a, 'left_payload, 'value, 'return, 'abort, 'input, 'output)
+      urust_matcher \<Rightarrow>
+    ('s, 'b, 'right_payload, 'value, 'return, 'abort, 'input, 'output)
+      urust_matcher \<Rightarrow>
+    ('s, 'a \<times> 'b, 'left_payload \<times> 'right_payload,
+      'value, 'return, 'abort, 'input, 'output) urust_matcher
+  \<close>
+where
+  \<open>
+    urust_matcher_product left right values success failure =
+      left (fst values)
+        (\<lambda>left_payload remaining_left.
+          right (snd values)
+            (\<lambda>right_payload remaining_right.
+              success (left_payload, right_payload) remaining_right)
+            remaining_left)
+        failure
+  \<close>
+
+definition urust_matcher_test ::
+  \<open>
+    ('a \<Rightarrow>
+      ('s, bool, 'return, 'abort, 'input, 'output) expression) \<Rightarrow>
+    ('s, 'a, 'a, 'value, 'return, 'abort, 'input, 'output)
+      urust_matcher
+  \<close>
+where
+  \<open>
+    urust_matcher_test predicate value success failure =
+      two_armed_conditional
+        (predicate value) (success value failure) failure
+  \<close>
+
+definition urust_matcher_lift ::
+  \<open>
+    ('a \<Rightarrow>
+      ('s, 'b, 'return, 'abort, 'input, 'output) expression) \<Rightarrow>
+    ('s, 'b, 'payload, 'value, 'return, 'abort, 'input, 'output)
+      urust_matcher \<Rightarrow>
+    ('s, 'a, 'payload, 'value, 'return, 'abort, 'input, 'output)
+      urust_matcher
+  \<close>
+where
+  \<open>
+    urust_matcher_lift lifting matcher value success failure =
+      bind (lifting value) (\<lambda>lifted. matcher lifted success failure)
+  \<close>
+
+definition urust_matcher_destructure ::
+  \<open>
+    ('a \<Rightarrow> 'b option) \<Rightarrow>
+    ('s, 'b, 'payload, 'value, 'return, 'abort, 'input, 'output)
+      urust_matcher \<Rightarrow>
+    ('s, 'a, 'payload, 'value, 'return, 'abort, 'input, 'output)
+      urust_matcher
+  \<close>
+where
+  \<open>
+    urust_matcher_destructure destructor matcher value success failure =
+      (case destructor value of
+        None \<Rightarrow> failure
+      | Some fields \<Rightarrow> matcher fields success failure)
+  \<close>
+
+definition urust_matcher_run ::
+  \<open>
+    ('s, 'a, 'payload, 'value, 'return, 'abort, 'input, 'output)
+      urust_matcher \<Rightarrow>
+    ('s, 'a, 'return, 'abort, 'input, 'output) expression \<Rightarrow>
+    ('payload \<Rightarrow>
+      ('s, 'value, 'return, 'abort, 'input, 'output) expression) \<Rightarrow>
+    ('s, 'value, 'return, 'abort, 'input, 'output) expression \<Rightarrow>
+    ('s, 'value, 'return, 'abort, 'input, 'output) expression
+  \<close>
+where
+  \<open>
+    urust_matcher_run matcher scrutinee success failure =
+      bind scrutinee
+        (\<lambda>value.
+          matcher value (\<lambda>payload remaining. success payload) failure)
+  \<close>
+
+definition urust_matcher_run_guarded ::
+  \<open>
+    ('s, 'a, 'payload, 'value, 'return, 'abort, 'input, 'output)
+      urust_matcher \<Rightarrow>
+    ('s, 'a, 'return, 'abort, 'input, 'output) expression \<Rightarrow>
+    ('payload \<Rightarrow>
+      ('s, bool, 'return, 'abort, 'input, 'output) expression) \<Rightarrow>
+    ('payload \<Rightarrow>
+      ('s, 'value, 'return, 'abort, 'input, 'output) expression) \<Rightarrow>
+    ('s, 'value, 'return, 'abort, 'input, 'output) expression \<Rightarrow>
+    ('s, 'value, 'return, 'abort, 'input, 'output) expression
+  \<close>
+where
+  \<open>
+    urust_matcher_run_guarded matcher scrutinee guard success failure =
+      bind scrutinee
+        (\<lambda>value.
+          matcher value
+            (\<lambda>payload remaining.
+              two_armed_conditional
+                (guard payload) (success payload) failure)
+            failure)
+  \<close>
+
+named_theorems urust_matcher_evaluation
+named_theorems urust_matcher_conformance
+named_theorems urust_matcher_code
+
+declare
+  urust_matcher_fail_def
+  urust_matcher_succeed_def
+  urust_matcher_choice_def
+  urust_matcher_map_def
+  urust_matcher_product_def
+  urust_matcher_test_def
+  urust_matcher_lift_def
+  urust_matcher_destructure_def
+  urust_matcher_run_def
+  urust_matcher_run_guarded_def
+  [urust_matcher_code]
+
+lemma urust_matcher_run_fail [urust_matcher_conformance]:
+  \<open>
+    urust_matcher_run urust_matcher_fail scrutinee success failure =
+      bind scrutinee (\<lambda>_. failure)
+  \<close>
+  by (simp add: urust_matcher_run_def urust_matcher_fail_def)
+
+lemma urust_matcher_run_succeed [urust_matcher_conformance]:
+  \<open>
+    urust_matcher_run (urust_matcher_succeed payload)
+      scrutinee success failure =
+      bind scrutinee (\<lambda>value. success (payload value))
+  \<close>
+  by (simp add: urust_matcher_run_def urust_matcher_succeed_def)
+
+lemma urust_matcher_run_guarded_fail [urust_matcher_conformance]:
+  \<open>
+    urust_matcher_run_guarded urust_matcher_fail
+      scrutinee guard success failure =
+      bind scrutinee (\<lambda>_. failure)
+  \<close>
+  by (simp add:
+    urust_matcher_run_guarded_def urust_matcher_fail_def)
+
+lemma urust_matcher_run_guarded_succeed [urust_matcher_conformance]:
+  \<open>
+    urust_matcher_run_guarded (urust_matcher_succeed payload)
+      scrutinee guard success failure =
+      bind scrutinee
+        (\<lambda>value.
+          two_armed_conditional
+            (guard (payload value)) (success (payload value)) failure)
+  \<close>
+  by (simp add:
+    urust_matcher_run_guarded_def urust_matcher_succeed_def)
+
+lemma evaluate_urust_matcher_run [urust_matcher_evaluation]:
+  \<open>
+    evaluate (urust_matcher_run matcher scrutinee success failure) state =
+      (case evaluate scrutinee state of
+        Success value state' \<Rightarrow>
+          evaluate
+            (matcher value
+              (\<lambda>payload remaining. success payload) failure)
+            state'
+      | Return result state' \<Rightarrow> Return result state'
+      | Abort reason state' \<Rightarrow> Abort reason state'
+      | Yield request state' continuation \<Rightarrow>
+          Yield request state'
+            (\<lambda>response.
+              bind (continuation response)
+                (\<lambda>value.
+                  matcher value
+                    (\<lambda>payload remaining. success payload)
+                    failure)))
+  \<close>
+  by (simp add: urust_matcher_run_def bind_evaluate)
+
+lemma evaluate_urust_matcher_lift [urust_matcher_evaluation]:
+  \<open>
+    evaluate
+      (urust_matcher_lift lifting matcher value success failure)
+      state =
+      (case evaluate (lifting value) state of
+        Success lifted state' \<Rightarrow>
+          evaluate (matcher lifted success failure) state'
+      | Return result state' \<Rightarrow> Return result state'
+      | Abort reason state' \<Rightarrow> Abort reason state'
+      | Yield request state' continuation \<Rightarrow>
+          Yield request state'
+            (\<lambda>response.
+              bind (continuation response)
+                (\<lambda>lifted. matcher lifted success failure)))
+  \<close>
+  by (simp add: urust_matcher_lift_def bind_evaluate)
+
+lemma urust_matcher_choice_left_to_right [urust_matcher_conformance]:
+  \<open>
+    urust_matcher_choice left right value success failure =
+      left value success (right value success failure)
+  \<close>
+  by (simp add: urust_matcher_choice_def)
+
+lemma urust_matcher_product_backtracks [urust_matcher_conformance]:
+  \<open>
+    urust_matcher_product left right values success failure =
+      left (fst values)
+        (\<lambda>left_payload remaining_left.
+          right (snd values)
+            (\<lambda>right_payload remaining_right.
+              success (left_payload, right_payload) remaining_right)
+            remaining_left)
+        failure
+  \<close>
+  by (simp add: urust_matcher_product_def)
+
+lemma urust_matcher_guard_false_skips_alternatives
+    [urust_matcher_conformance]:
+  \<open>
+    urust_matcher_run_guarded matcher scrutinee guard success failure =
+      bind scrutinee
+        (\<lambda>value.
+          matcher value
+            (\<lambda>payload remaining.
+              two_armed_conditional
+                (guard payload) (success payload) failure)
+            failure)
+  \<close>
+  by (simp add: urust_matcher_run_guarded_def)
 
 ML\<open>
 signature URUST_ELAB_TERMS =
