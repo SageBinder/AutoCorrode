@@ -140,9 +140,9 @@ ML_val\<open>
         (member (op =) code_constants
           \<^const_name>\<open>cycle2_scalable_definition\<close>)
     val _ =
-      audit_assert "code preparation expanded the public equation graph"
-        (code_constants =
-          [\<^const_name>\<open>cycle2_scalable_definition\<close>])
+      audit_assert "code preparation omitted the lazy matcher runtime"
+        (member (op =) code_constants
+          \<^const_name>\<open>urust_lazy_conditional\<close>)
   in
     val _ =
       writeln
@@ -490,7 +490,7 @@ where
           (urust_matcher_test (\<lambda>x. literal (x = 3))))
         3
         (\<lambda>x. literal (x + 10))
-        (literal 0)
+        (\<lambda>_. literal 0)
   \<close>
 
 lemma cycle2_code_expression_result:
@@ -500,7 +500,7 @@ lemma cycle2_code_expression_result:
     urust_matcher_run_value_def
     urust_matcher_choice_def
     urust_matcher_test_def
-    two_armed_conditional_def
+    urust_lazy_conditional_def
     Core_Expression.bind.simps
     bind_evaluate literal_def evaluate_def)
 
@@ -520,7 +520,7 @@ where
         (urust_matcher_succeed (\<lambda>x :: nat. x))
         1
         (\<lambda>_. literal True)
-        (literal False)
+        (\<lambda>_. literal False)
   \<close>
 
 lemma cycle2_different_return_expression_result:
@@ -561,7 +561,7 @@ lemma cycle2_return_propagates:
         (urust_matcher_succeed (\<lambda>x :: nat. x))
         cycle2_return_scrutinee
         (\<lambda>x. literal x)
-        (literal 0))
+        (\<lambda>_. literal 0))
       () =
       Return 7 ()
   \<close>
@@ -579,7 +579,7 @@ lemma cycle2_abort_propagates:
         (urust_matcher_succeed (\<lambda>x :: nat. x))
         cycle2_abort_scrutinee
         (\<lambda>x. literal x)
-        (literal 0))
+        (\<lambda>_. literal 0))
       () =
       Abort (CustomAbort ()) ()
   \<close>
@@ -597,7 +597,7 @@ lemma cycle2_yield_resumes_matcher:
         (urust_matcher_succeed (\<lambda>x :: nat. x))
         cycle2_yield_scrutinee
         (\<lambda>x. literal x)
-        (literal 0))
+        (\<lambda>_. literal 0))
       () of
       Yield _ state continuation \<Rightarrow>
         evaluate (continuation ()) state = Success 4 state

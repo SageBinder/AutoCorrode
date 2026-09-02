@@ -933,7 +933,8 @@ struct
         else
           T.case_cons success
             (T.case_cons
-              (bind_basic_pattern Basic_Wild reject)
+              (bind_basic_pattern Basic_Wild
+                (reject $ HOLogic.unit))
               T.case_nil)
     in
       Term.lambda value

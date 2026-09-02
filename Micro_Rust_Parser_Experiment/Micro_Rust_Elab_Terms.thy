@@ -12,15 +12,42 @@ section\<open> Shallow term vocabulary \<close>
 subsection\<open> Semantic matcher runtime \<close>
 
 type_synonym
+  ('s, 'value, 'return, 'abort, 'input, 'output)
+    urust_expression_thunk =
+  \<open>
+    unit \<Rightarrow>
+    ('s, 'value, 'return, 'abort, 'input, 'output) expression
+  \<close>
+
+type_synonym
   ('s, 'a, 'payload, 'value, 'return, 'abort, 'input, 'output)
     urust_matcher =
   \<open>
     'a \<Rightarrow>
     ('payload \<Rightarrow>
-      ('s, 'value, 'return, 'abort, 'input, 'output) expression \<Rightarrow>
+      ('s, 'value, 'return, 'abort, 'input, 'output)
+        urust_expression_thunk \<Rightarrow>
       ('s, 'value, 'return, 'abort, 'input, 'output) expression) \<Rightarrow>
-    ('s, 'value, 'return, 'abort, 'input, 'output) expression \<Rightarrow>
+    ('s, 'value, 'return, 'abort, 'input, 'output)
+      urust_expression_thunk \<Rightarrow>
     ('s, 'value, 'return, 'abort, 'input, 'output) expression
+  \<close>
+
+definition urust_lazy_conditional ::
+  \<open>
+    ('s, bool, 'return, 'abort, 'input, 'output) expression \<Rightarrow>
+    ('s, 'value, 'return, 'abort, 'input, 'output)
+      urust_expression_thunk \<Rightarrow>
+    ('s, 'value, 'return, 'abort, 'input, 'output)
+      urust_expression_thunk \<Rightarrow>
+    ('s, 'value, 'return, 'abort, 'input, 'output) expression
+  \<close>
+where
+  \<open>
+    urust_lazy_conditional condition then_thunk else_thunk =
+      bind condition
+        (\<lambda>value.
+          if value then then_thunk () else else_thunk ())
   \<close>
 
 definition urust_matcher_fail ::
@@ -29,7 +56,7 @@ definition urust_matcher_fail ::
       urust_matcher
   \<close>
 where
-  \<open> urust_matcher_fail value success failure = failure \<close>
+  \<open> urust_matcher_fail value success failure = failure () \<close>
 
 definition urust_matcher_succeed ::
   \<open>
@@ -55,7 +82,8 @@ definition urust_matcher_choice ::
 where
   \<open>
     urust_matcher_choice left right value success failure =
-      left value success (right value success failure)
+      left value success
+        (\<lambda>_. right value success failure)
   \<close>
 
 definition urust_matcher_map ::
@@ -105,8 +133,10 @@ definition urust_matcher_test ::
 where
   \<open>
     urust_matcher_test predicate value success failure =
-      two_armed_conditional
-        (predicate value) (success value failure) failure
+      urust_lazy_conditional
+        (predicate value)
+        (\<lambda>_. success value failure)
+        failure
   \<close>
 
 definition urust_matcher_lift ::
@@ -129,7 +159,8 @@ definition urust_matcher_destructure ::
     ('a \<Rightarrow>
       ('b \<Rightarrow>
         ('s, 'value, 'return, 'abort, 'input, 'output) expression) \<Rightarrow>
-      ('s, 'value, 'return, 'abort, 'input, 'output) expression \<Rightarrow>
+      ('s, 'value, 'return, 'abort, 'input, 'output)
+        urust_expression_thunk \<Rightarrow>
       ('s, 'value, 'return, 'abort, 'input, 'output) expression) \<Rightarrow>
     ('s, 'b, 'payload, 'value, 'return, 'abort, 'input, 'output)
       urust_matcher \<Rightarrow>
@@ -151,7 +182,8 @@ definition urust_matcher_run ::
     ('s, 'a, 'return, 'abort, 'input, 'output) expression \<Rightarrow>
     ('payload \<Rightarrow>
       ('s, 'value, 'return, 'abort, 'input, 'output) expression) \<Rightarrow>
-    ('s, 'value, 'return, 'abort, 'input, 'output) expression \<Rightarrow>
+    ('s, 'value, 'return, 'abort, 'input, 'output)
+      urust_expression_thunk \<Rightarrow>
     ('s, 'value, 'return, 'abort, 'input, 'output) expression
   \<close>
 where
@@ -171,7 +203,8 @@ definition urust_matcher_run_guarded ::
       ('s, bool, 'return, 'abort, 'input, 'output) expression) \<Rightarrow>
     ('payload \<Rightarrow>
       ('s, 'value, 'return, 'abort, 'input, 'output) expression) \<Rightarrow>
-    ('s, 'value, 'return, 'abort, 'input, 'output) expression \<Rightarrow>
+    ('s, 'value, 'return, 'abort, 'input, 'output)
+      urust_expression_thunk \<Rightarrow>
     ('s, 'value, 'return, 'abort, 'input, 'output) expression
   \<close>
 where
@@ -181,8 +214,10 @@ where
         (\<lambda>value.
           matcher value
             (\<lambda>payload remaining.
-              two_armed_conditional
-                (guard payload) (success payload) failure)
+              urust_lazy_conditional
+                (guard payload)
+                (\<lambda>_. success payload)
+                failure)
             failure)
   \<close>
 
@@ -193,7 +228,8 @@ definition urust_matcher_run_value ::
     'a \<Rightarrow>
     ('payload \<Rightarrow>
       ('s, 'value, 'return, 'abort, 'input, 'output) expression) \<Rightarrow>
-    ('s, 'value, 'return, 'abort, 'input, 'output) expression \<Rightarrow>
+    ('s, 'value, 'return, 'abort, 'input, 'output)
+      urust_expression_thunk \<Rightarrow>
     ('s, 'value, 'return, 'abort, 'input, 'output) expression
   \<close>
 where
@@ -211,7 +247,8 @@ definition urust_matcher_run_guarded_value ::
       ('s, bool, 'return, 'abort, 'input, 'output) expression) \<Rightarrow>
     ('payload \<Rightarrow>
       ('s, 'value, 'return, 'abort, 'input, 'output) expression) \<Rightarrow>
-    ('s, 'value, 'return, 'abort, 'input, 'output) expression \<Rightarrow>
+    ('s, 'value, 'return, 'abort, 'input, 'output)
+      urust_expression_thunk \<Rightarrow>
     ('s, 'value, 'return, 'abort, 'input, 'output) expression
   \<close>
 where
@@ -220,8 +257,10 @@ where
         matcher value guard success failure =
       matcher value
         (\<lambda>payload remaining.
-          two_armed_conditional
-            (guard payload) (success payload) failure)
+          urust_lazy_conditional
+            (guard payload)
+            (\<lambda>_. success payload)
+            failure)
         failure
   \<close>
 
@@ -229,7 +268,8 @@ named_theorems urust_matcher_evaluation
 named_theorems urust_matcher_conformance
 named_theorems urust_matcher_code
 
-declare
+lemmas urust_matcher_code_definitions [urust_matcher_code] =
+  urust_lazy_conditional_def
   urust_matcher_fail_def
   urust_matcher_succeed_def
   urust_matcher_choice_def
@@ -242,12 +282,21 @@ declare
   urust_matcher_run_guarded_def
   urust_matcher_run_value_def
   urust_matcher_run_guarded_value_def
-  [urust_matcher_code]
+
+lemma urust_lazy_conditional_const [urust_matcher_conformance]:
+  \<open>
+    urust_lazy_conditional condition
+      (\<lambda>_. then_branch) (\<lambda>_. else_branch) =
+      two_armed_conditional condition then_branch else_branch
+  \<close>
+  by (simp add:
+    urust_lazy_conditional_def
+    two_armed_conditional_def)
 
 lemma urust_matcher_run_fail [urust_matcher_conformance]:
   \<open>
     urust_matcher_run urust_matcher_fail scrutinee success failure =
-      bind scrutinee (\<lambda>_. failure)
+      bind scrutinee (\<lambda>_. failure ())
   \<close>
   by (simp add: urust_matcher_run_def urust_matcher_fail_def)
 
@@ -263,7 +312,7 @@ lemma urust_matcher_run_guarded_fail [urust_matcher_conformance]:
   \<open>
     urust_matcher_run_guarded urust_matcher_fail
       scrutinee guard success failure =
-      bind scrutinee (\<lambda>_. failure)
+      bind scrutinee (\<lambda>_. failure ())
   \<close>
   by (simp add:
     urust_matcher_run_guarded_def urust_matcher_fail_def)
@@ -274,8 +323,10 @@ lemma urust_matcher_run_guarded_succeed [urust_matcher_conformance]:
       scrutinee guard success failure =
       bind scrutinee
         (\<lambda>value.
-          two_armed_conditional
-            (guard (payload value)) (success (payload value)) failure)
+          urust_lazy_conditional
+            (guard (payload value))
+            (\<lambda>_. success (payload value))
+            failure)
   \<close>
   by (simp add:
     urust_matcher_run_guarded_def urust_matcher_succeed_def)
@@ -284,7 +335,7 @@ lemma urust_matcher_run_value_fail [urust_matcher_conformance]:
   \<open>
     urust_matcher_run_value urust_matcher_fail
       value success failure =
-      failure
+      failure ()
   \<close>
   by (simp add:
     urust_matcher_run_value_def urust_matcher_fail_def)
@@ -303,7 +354,7 @@ lemma urust_matcher_run_guarded_value_fail
   \<open>
     urust_matcher_run_guarded_value urust_matcher_fail
       value guard success failure =
-      failure
+      failure ()
   \<close>
   by (simp add:
     urust_matcher_run_guarded_value_def urust_matcher_fail_def)
@@ -314,8 +365,10 @@ lemma urust_matcher_run_guarded_value_succeed
     urust_matcher_run_guarded_value
       (urust_matcher_succeed payload)
       value guard success failure =
-      two_armed_conditional
-        (guard (payload value)) (success (payload value)) failure
+      urust_lazy_conditional
+        (guard (payload value))
+        (\<lambda>_. success (payload value))
+        failure
   \<close>
   by (simp add:
     urust_matcher_run_guarded_value_def urust_matcher_succeed_def)
@@ -363,7 +416,8 @@ lemma evaluate_urust_matcher_lift [urust_matcher_evaluation]:
 lemma urust_matcher_choice_left_to_right [urust_matcher_conformance]:
   \<open>
     urust_matcher_choice left right value success failure =
-      left value success (right value success failure)
+      left value success
+        (\<lambda>_. right value success failure)
   \<close>
   by (simp add: urust_matcher_choice_def)
 
@@ -397,8 +451,10 @@ lemma urust_matcher_guard_false_skips_alternatives
         (\<lambda>value.
           matcher value
             (\<lambda>payload remaining.
-              two_armed_conditional
-                (guard payload) (success payload) failure)
+              urust_lazy_conditional
+                (guard payload)
+                (\<lambda>_. success payload)
+                failure)
             failure)
   \<close>
   by (simp add: urust_matcher_run_guarded_def)
@@ -410,8 +466,10 @@ lemma urust_matcher_guard_false_skips_value_alternatives
       matcher value guard success failure =
       matcher value
         (\<lambda>payload remaining.
-          two_armed_conditional
-            (guard payload) (success payload) failure)
+          urust_lazy_conditional
+            (guard payload)
+            (\<lambda>_. success payload)
+            failure)
         failure
   \<close>
   by (simp add: urust_matcher_run_guarded_value_def)
@@ -474,6 +532,7 @@ sig
   val matcher_test: term -> term
   val matcher_lift: term -> term -> term
   val matcher_destructure: term -> term -> term
+  val expression_thunk: term -> term
   val matcher_run: term -> term -> term -> term -> term
   val matcher_run_guarded:
     term -> term -> term -> term -> term -> term
@@ -786,18 +845,20 @@ struct
   fun matcher_destructure destructor matcher =
     constant \<^const_name>\<open>urust_matcher_destructure\<close>
       [destructor, matcher]
+  fun expression_thunk expression =
+    Term.absdummy HOLogic.unitT expression
   fun matcher_run matcher scrutinee success failure =
     constant \<^const_name>\<open>urust_matcher_run\<close>
-      [matcher, scrutinee, success, failure]
+      [matcher, scrutinee, success, expression_thunk failure]
   fun matcher_run_guarded matcher scrutinee guard success failure =
     constant \<^const_name>\<open>urust_matcher_run_guarded\<close>
-      [matcher, scrutinee, guard, success, failure]
+      [matcher, scrutinee, guard, success, expression_thunk failure]
   fun matcher_run_value matcher value success failure =
     constant \<^const_name>\<open>urust_matcher_run_value\<close>
-      [matcher, value, success, failure]
+      [matcher, value, success, expression_thunk failure]
   fun matcher_run_guarded_value matcher value guard success failure =
     constant \<^const_name>\<open>urust_matcher_run_guarded_value\<close>
-      [matcher, value, guard, success, failure]
+      [matcher, value, guard, success, expression_thunk failure]
 end
 \<close>
 

@@ -10,6 +10,8 @@ begin
 
 section\<open> The command \<close>
 
+named_theorems urust_parser_definitions
+
 text\<open>
 \<open>urust_expr NAME src\<close> parses, elaborates, checks once, and defines \<open>NAME\<close>.
 It adds no attributes, keeping generated definitions out of the global simp set.
@@ -288,7 +290,12 @@ fun define_urust_result (binding, source) lthy =
     val (definition, lthy') =
       Local_Theory.define
         ((binding, NoSyn),
-          ((Thm.def_binding binding, []), term)) lthy
+          ((Thm.def_binding binding,
+            [Code.singleton_default_equation_attrib,
+             Attrib.internal \<^here>
+               (K (Named_Theorems.add
+                 \<^named_theorems>\<open>urust_parser_definitions\<close>))]),
+           term)) lthy
   in ((definition, translation), lthy') end
 
 fun define_urust (binding, source) lthy =
@@ -368,6 +375,7 @@ fun define_urust_with_frontend_check
               ctxt addsimps
                 (@{thms micro_rust_simps} @
                  @{thms
+                   urust_lazy_conditional_const
                    bind_literal_unit
                    bind_literal_unit2
                    evaluate_conjunction_literal
