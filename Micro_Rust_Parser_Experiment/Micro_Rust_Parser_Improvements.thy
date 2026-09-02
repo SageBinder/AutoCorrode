@@ -37,7 +37,9 @@ fun old_urust_rejects source lthy =
 
 val _ = Outer_Syntax.local_theory \<^command_keyword>\<open>old_urust_rejects\<close>
   "Assert that the old inner-syntax uRust frontend rejects a source expression"
-  (Parse.input Parse.cartouche >> old_urust_rejects)
+  (Parse.token Parse.cartouche >>
+    Parser_Lex_Util.cartouche_source >>
+    old_urust_rejects)
 \<close>
 
 

@@ -90,7 +90,10 @@ fun urust_rejects check_frontend ((tag, source), expected) lthy =
 
 val rejection_args =
   (Parse.name_position >> parse_rejection_tag) --
-    Parse.input Parse.cartouche -- Parse.input Parse.cartouche
+    (Parse.token Parse.cartouche >>
+      Parser_Lex_Util.cartouche_source) --
+    (Parse.token Parse.cartouche >>
+      Parser_Lex_Util.cartouche_source)
 
 val _ = Outer_Syntax.local_theory \<^command_keyword>\<open>urust_expr_rejects\<close>
           "Assert that both uRust frontends reject; check the new parser's reason"
@@ -573,7 +576,8 @@ local
   fun expect_ambiguity label source identities =
     (case Exn.result
         (fn () =>
-          elab_urust \<^context> (Input.string source)) () of
+          elab_urust \<^context>
+            (Parser_Lex_Util.text_source source)) () of
        Exn.Res _ =>
          error (label ^ " unexpectedly resolved an ambiguous constructor")
      | Exn.Exn exn =>
@@ -657,7 +661,9 @@ local
 
   fun expect_clean_rejection source required =
     (case Exn.result
-        (fn () => elab_urust \<^context> (Input.string source)) () of
+        (fn () =>
+          elab_urust \<^context>
+            (Parser_Lex_Util.text_source source)) () of
        Exn.Res term =>
          error ("Cycle 1 diagnostic audit expected rejection, but got " ^
            Syntax.string_of_term \<^context> term)
@@ -964,7 +970,10 @@ urust_expr_rejects fidelity \<open> \<llangle>1 :: nat \<close> \<open> untermin
 ML\<open>
 local
   fun expect_rejection text expected =
-    (case Exn.result (fn () => elab_urust \<^context> (Input.string text)) () of
+    (case Exn.result
+        (fn () =>
+          elab_urust \<^context>
+            (Parser_Lex_Util.text_source text)) () of
        Exn.Res _ => error ("expected direct parser rejection containing " ^ quote expected)
      | Exn.Exn exn =>
          if Exn.is_interrupt exn then Exn.reraise exn
@@ -978,7 +987,10 @@ local
   val _ =
     expect_rejection ("\<epsilon>" ^ Symbol.open_ ^ "True")
       "unterminated expression antiquotation"
-  val _ = ignore (elab_urust \<^context> (Input.string "()"))
+  val _ =
+    ignore
+      (elab_urust \<^context>
+        (Parser_Lex_Util.text_source "()"))
 in end
 \<close>
 

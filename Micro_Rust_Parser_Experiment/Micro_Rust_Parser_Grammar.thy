@@ -64,7 +64,10 @@ fun take_aq () =
 
    Per-lexer position-map ref + set-shadow; the position MATH is shared (Parser_Lex_Util). tok_ident emits NO
    colour -- ident_term does that once it knows the name's role, so the markup cannot split (D14). *)
-val pos_map = ref (Parser_Lex_Util.make_position_map (Input.string ""))
+val pos_map =
+  ref
+    (Parser_Lex_Util.make_position_map
+      (Parser_Lex_Util.text_source ""))
 fun set source ctxt =
   (Isabelle_lex_yacc.set source ctxt;
    pos_map := Parser_Lex_Util.make_position_map source;

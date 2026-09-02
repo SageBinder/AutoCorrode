@@ -12,6 +12,84 @@ source-position regressions, grammar performance checks, and final inventory ari
 session-ending audit theory.
 \<close>
 
+subsection\<open> Canonical source positions \<close>
+
+ML_val\<open>
+  local
+    val context = \<^context>
+
+    fun assert message condition =
+      if condition then ()
+      else error ("Cycle 3 source-position audit: " ^ message)
+
+    fun expect_positioned_rejection
+        label text start expected expected_position =
+      let
+        val source =
+          Parser_Lex_Util.positioned_content_source
+            text start
+        val expected_here =
+          XML.content_of
+            (YXML.parse_body
+              (Position.here expected_position))
+      in
+        (case Exn.result
+            (fn () => elab_urust context source) () of
+           Exn.Res _ =>
+             error (label ^ " unexpectedly parsed")
+         | Exn.Exn exn =>
+             if Exn.is_interrupt exn then Exn.reraise exn
+             else
+               let
+                 val message =
+                   XML.content_of
+                     (YXML.parse_body (Runtime.exn_message exn))
+               in
+                 assert
+                   (label ^ " changed diagnostic: expected " ^
+                    quote expected ^ " in " ^ quote message)
+                   (String.isSubstring expected message);
+                 assert
+                   (label ^ " changed position: expected " ^
+                    quote expected_here ^ " in " ^ quote message)
+                   (String.isSubstring expected_here message)
+               end)
+      end
+
+    val operator_text = "1 + 2 ++ 3"
+    val operator_start =
+      Position.make0 1 1 0 "" "" ""
+    val second_operator =
+      Position.symbol_explode
+        (String.substring (operator_text, 0, 7))
+        operator_start
+    val _ =
+      assert "second operator was not at column 8"
+        (Position.line_of second_operator = SOME 1 andalso
+         Position.offset_of second_operator = SOME 8)
+    val _ =
+      expect_positioned_rejection
+        "second operator"
+        operator_text operator_start
+        "Parse Error at line 1, column 8: syntax error found at +"
+        second_operator
+
+    val eof_text = "{ ()"
+    val eof_start =
+      Position.make0 3 12 0 "" "" ""
+    val eof_stop =
+      Position.symbol_explode eof_text eof_start
+    val _ =
+      expect_positioned_rejection
+        "malformed EOF"
+        eof_text eof_start
+        "Parse Error at line 3, column 5: syntax error found at end of input"
+        eof_stop
+  in
+    val _ = ()
+  end
+\<close>
+
 subsection\<open> Lazy matcher code generation \<close>
 
 datatype cycle3_single = Cycle3_Single nat
@@ -713,7 +791,7 @@ ML_val\<open>
           define_urust_with_frontend_check
             URust_Inventory.Explicit_Old_Conformance
             (Binding.name probe,
-             Input.string "1",
+             Parser_Lex_Util.text_source "1",
              "\<lbrakk> True \<rbrakk>")
             lthy) ()
 

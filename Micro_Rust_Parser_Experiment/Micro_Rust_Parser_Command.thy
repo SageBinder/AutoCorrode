@@ -458,15 +458,24 @@ fun define_urust_with_check (binding, source) =
 
 val _ = Outer_Syntax.local_theory \<^command_keyword>\<open>urust_expr\<close>
           "Parse a uRust expression and define it as a HOL constant"
-          (Parse.binding -- Parse.input Parse.cartouche >> define_urust)
+          (Parse.binding --
+            (Parse.token Parse.cartouche >>
+              Parser_Lex_Util.cartouche_source) >>
+            define_urust)
 
 val _ = Outer_Syntax.local_theory \<^command_keyword>\<open>urust_expr_with_check\<close>
           "Define a uRust expression and check it against the existing frontend by refl"
-          (Parse.binding -- Parse.input Parse.cartouche >> define_urust_with_check)
+          (Parse.binding --
+            (Parse.token Parse.cartouche >>
+              Parser_Lex_Util.cartouche_source) >>
+            define_urust_with_check)
 
 val _ = Outer_Syntax.local_theory \<^command_keyword>\<open>urust_expr_with_check'\<close>
           "Define a uRust expression and check it against an explicit existing-frontend term by refl"
-          (Parse.binding -- Parse.input Parse.cartouche -- Parse.term >>
+          (Parse.binding --
+            (Parse.token Parse.cartouche >>
+              Parser_Lex_Util.cartouche_source) --
+            Parse.term >>
             (fn ((binding, new_source), old_frontend_source) =>
               define_urust_with_frontend_check
                 URust_Inventory.Explicit_Old_Conformance

@@ -95,7 +95,8 @@ ML_val\<open>
       antiquotation "cycle2_body_marker 900" ^ ", _ \<Rightarrow> " ^
       antiquotation "cycle2_fallback_marker" ^ " }"
     val Checked_URust {term = checked_rhs, translation} =
-      elab_urust_result ctxt (Input.string source)
+      elab_urust_result ctxt
+        (Parser_Lex_Util.text_source source)
     val definition_rhs =
       Thm.term_of
         (Thm.rhs_of
@@ -173,7 +174,8 @@ ML_val\<open>
     fun checked_result source =
       let
         val Checked_URust result =
-          elab_urust_result ctxt (Input.string source)
+          elab_urust_result ctxt
+            (Parser_Lex_Util.text_source source)
       in result end
 
     fun checked source = #term (checked_result source)
@@ -625,7 +627,8 @@ ML_val\<open>
     fun checked_result source =
       let
         val Checked_URust result =
-          elab_urust_result ctxt (Input.string source)
+          elab_urust_result ctxt
+            (Parser_Lex_Util.text_source source)
       in result end
 
     fun checked source = #term (checked_result source)
@@ -683,7 +686,8 @@ ML_val\<open>
       audit_assert "partial while-let lost its single false fallback"
         (count_constant \<^const_name>\<open>False\<close> partial = 1)
 
-    val scalable_source = Input.string (matcher_source 12)
+    val scalable_source =
+      Parser_Lex_Util.text_source (matcher_source 12)
     val {translation = scalable_translation, ...} =
       checked_result (Input.string_of scalable_source)
     val _ =
@@ -754,7 +758,9 @@ ML_val\<open>
 
     fun expect_sorted_ambiguity source left right =
       (case Exn.result
-          (fn () => elab_urust ctxt (Input.string source)) () of
+          (fn () =>
+            elab_urust ctxt
+              (Parser_Lex_Util.text_source source)) () of
          Exn.Res _ => error "ambiguous constructor unexpectedly resolved"
        | Exn.Exn exn =>
            if Exn.is_interrupt exn then Exn.reraise exn
