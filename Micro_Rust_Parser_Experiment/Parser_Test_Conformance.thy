@@ -856,13 +856,59 @@ urust_expr_with_check array_multiple
 urust_expr_with_check array_nested
   \<open> [[\<llangle>1 :: 32 word\<rrangle>], [\<llangle>2 :: 32 word\<rrangle>, \<llangle>3 :: 32 word\<rrangle>]] \<close>
 
+urust_expr_with_check array_expression_elements
+  \<open>
+    let base = 4_u32;
+    [base + 1_u32, { base + 2_u32 }, (if true { base + 3_u32 } else { base })]
+  \<close>
+
+urust_expr_with_check array_tuple_elements
+  \<open>
+    [(\<llangle>1 :: nat\<rrangle>, true), (\<llangle>2 :: nat\<rrangle>, false)]
+  \<close>
+
+urust_expr_with_check array_control_flow_result
+  \<open>
+    if true {
+      [\<llangle>1 :: 32 word\<rrangle>, \<llangle>2 :: 32 word\<rrangle>]
+    } else {
+      [\<llangle>3 :: 32 word\<rrangle>, \<llangle>4 :: 32 word\<rrangle>]
+    }
+  \<close>
+
 urust_expr_with_check array_lexical_capture
   \<open> let element = \<llangle>7 :: 32 word\<rrangle>; [element, element] \<close>
+
+urust_expr_with_check array_nested_lexical_capture
+  \<open>
+    let left = \<llangle>1 :: 32 word\<rrangle>;
+    let right = \<llangle>2 :: 32 word\<rrangle>;
+    [[left, right], [right, left]]
+  \<close>
+
+urust_expr_with_check array_for_iterable
+  \<open>
+    for element in [\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>, \<llangle>3 :: nat\<rrangle>] {
+      let _ = element;
+      ()
+    }
+  \<close>
+
+urust_expr_with_check array_match_slice
+  \<open>
+    match [\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>, \<llangle>3 :: nat\<rrangle>] {
+      [first, .., last] \<Rightarrow> \<llangle>first + last\<rrangle>,
+      _ \<Rightarrow> 0
+    }
+  \<close>
 
 text\<open>
 The current frontend treats direct immutable and mutable borrows of array
 literals as list-literal sugar, so both operators erase before shallow lowering.
 \<close>
+
+urust_expr_with_check array_empty_borrow_erased
+  \<open> &[] \<close>
 
 urust_expr_with_check array_borrow_erased
   \<open> &[\<llangle>1 :: 32 word\<rrangle>, \<llangle>2 :: 32 word\<rrangle>] \<close>
@@ -870,7 +916,19 @@ urust_expr_with_check array_borrow_erased
 urust_expr_with_check array_mut_borrow_erased
   \<open> & mut [] \<close>
 
+urust_expr_with_check array_nonempty_mut_borrow_erased
+  \<open> & mut [\<llangle>1 :: 32 word\<rrangle>, \<llangle>2 :: 32 word\<rrangle>] \<close>
+
+urust_expr_with_check array_nested_borrow_erased
+  \<open> &[[\<llangle>1 :: 32 word\<rrangle>], [\<llangle>2 :: 32 word\<rrangle>]] \<close>
+
 subsection\<open> Value indexing and postfix composition \<close>
+
+text\<open>
+The frontend composes indexing directly with another index or field access. A
+following method call or propagation requires grouping at the shared mixfix
+priorities, so the corresponding rows retain those parentheses.
+\<close>
 
 datatype_record parser_index_packet =
   parser_index_packet_values :: \<open>32 word list\<close>
@@ -880,20 +938,45 @@ micro_rust_record parser_index_packet
 context
   fixes xs :: \<open>32 word list\<close>
     and xss :: \<open>32 word list list\<close>
+    and optional_xs :: \<open>32 word list option\<close>
+    and optional_elements :: \<open>32 word option list\<close>
+    and fixed_array :: \<open>(32 word, 4) array\<close>
+    and vector :: \<open>(32 word, 4) vector\<close>
     and packet :: parser_index_packet
     and packets :: \<open>postfix_outer list\<close>
 begin
 
 urust_expr_with_check index_scalar \<open> xs[0_usize] \<close>
 
+urust_expr_with_check index_scalar_expression
+  \<open> xs[(0_usize + 1_usize)] \<close>
+
+urust_expr_with_check index_scalar_block
+  \<open> xs[{ 0_usize }] \<close>
+
+urust_expr_with_check index_scalar_conditional
+  \<open> xs[(if true { 0_usize } else { 1_usize })] \<close>
+
 urust_expr_with_check index_range_slice
   \<open> xs[0_usize..2_usize] \<close>
+
+urust_expr_with_check index_inclusive_range_slice
+  \<open> xs[0_usize..=1_usize] \<close>
+
+urust_expr_with_check index_range_expression_endpoint
+  \<open> xs[0_usize..1_usize + 1_usize] \<close>
 
 urust_expr_with_check index_range_then_scalar
   \<open> xs[0_usize..2_usize][1_usize] \<close>
 
+urust_expr_with_check index_grouped_range_then_method
+  \<open> (xs[0_usize..2_usize]).len() \<close>
+
 urust_expr_with_check index_chain
   \<open> xss[0_usize][1_usize] \<close>
+
+urust_expr_with_check index_grouped_then_method
+  \<open> (xss[0_usize]).len() \<close>
 
 urust_expr_with_check index_field_then_index
   \<open> packet.values[0_usize] \<close>
@@ -901,13 +984,63 @@ urust_expr_with_check index_field_then_index
 urust_expr_with_check index_then_field
   \<open> packets[0_usize].inner.value \<close>
 
+urust_expr_with_check index_field_group_then_method
+  \<open> (packets[0_usize].inner).to_value() \<close>
+
+urust_expr_with_check index_propagate_then_scalar
+  \<open> optional_xs?[0_usize] \<close>
+
+urust_expr_with_check index_grouped_then_propagate
+  \<open> (optional_elements[0_usize])? \<close>
+
+urust_expr_with_check index_literal_scalar
+  \<open> [\<llangle>4 :: 32 word\<rrangle>, \<llangle>5 :: 32 word\<rrangle>][1_usize] \<close>
+
+urust_expr_with_check index_nested_literal_chain
+  \<open>
+    [[\<llangle>1 :: 32 word\<rrangle>, \<llangle>2 :: 32 word\<rrangle>],
+     [\<llangle>3 :: 32 word\<rrangle>, \<llangle>4 :: 32 word\<rrangle>]][1_usize][0_usize]
+  \<close>
+
+urust_expr_with_check index_fixed_array_scalar
+  \<open> fixed_array[0_usize] \<close>
+
+urust_expr_with_check index_fixed_array_range
+  \<open> fixed_array[0_usize..=1_usize] \<close>
+
+urust_expr_with_check index_vector_scalar
+  \<open> vector[0_usize] \<close>
+
+urust_expr_with_check index_vector_range
+  \<open> vector[0_usize..2_usize] \<close>
+
+urust_expr_with_check index_operator_composition
+  \<open> xs[0_usize] + xs[1_usize] * xs[2_usize] \<close>
+
+urust_expr_with_check index_control_flow_condition
+  \<open>
+    if xs[0_usize] == xs[1_usize] {
+      xs[2_usize]
+    } else {
+      xs[3_usize]
+    }
+  \<close>
+
 urust_expr_with_check index_lexical_capture
   \<open> let offset = \<llangle>0 :: 64 word\<rrangle>; xs[offset] \<close>
 
 end
 
 
-section\<open> Explicit places and simple assignment \<close>
+section\<open> Assignment places and test fixtures \<close>
+
+text\<open>
+The definitions below provide typed constants for ad-hoc overload resolution in
+parser/frontend conformance tests. Their bodies are never executed: both
+frontends resolve to the same constants and the resulting equality closes by
+\<open>refl\<close>. The registered backend also exercises notation lookup and lexical
+shadowing at assignment targets.
+\<close>
 
 definition parser_update_fixture ::
   \<open>(unit, unit, 'v) Global_Store.ref \<Rightarrow> 'v \<Rightarrow>
@@ -974,11 +1107,25 @@ subsection\<open> Indexed places \<close>
 
 context
   fixes references :: \<open>(unit, unit, 32 word) Global_Store.ref list\<close>
+    and reference_rows :: \<open>(unit, unit, 32 word) Global_Store.ref list list\<close>
     and offset :: \<open>64 word\<close>
+    and row :: \<open>64 word\<close>
     and rhs :: \<open>32 word\<close>
 begin
 
 urust_expr_with_check assign_index \<open> references[offset] = rhs \<close>
+
+urust_expr_with_check assign_grouped_index
+  \<open> (references[offset]) = rhs \<close>
+
+urust_expr_with_check assign_dereferenced_index
+  \<open> *(references[offset]) = rhs \<close>
+
+urust_expr_with_check assign_nested_index
+  \<open> reference_rows[row][offset] = rhs \<close>
+
+urust_expr_with_check assign_index_sequence
+  \<open> references[offset] = rhs; *(references[offset]) \<close>
 
 end
 
@@ -1062,7 +1209,9 @@ end
 
 context
   fixes references :: \<open>(unit, unit, 32 word) Global_Store.ref list\<close>
+    and reference_rows :: \<open>(unit, unit, 32 word) Global_Store.ref list list\<close>
     and offset :: \<open>64 word\<close>
+    and row :: \<open>64 word\<close>
     and rhs :: \<open>32 word\<close>
 begin
 
@@ -1079,6 +1228,9 @@ urust_expr_with_check compound_index_and \<open> references[offset] &= rhs \<clo
 urust_expr_with_check compound_index_or \<open> references[offset] |= rhs \<close>
 
 urust_expr_with_check compound_index_xor \<open> references[offset] ^= rhs \<close>
+
+urust_expr_with_check compound_nested_index_add
+  \<open> reference_rows[row][offset] += rhs \<close>
 
 end
 

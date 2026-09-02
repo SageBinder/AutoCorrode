@@ -13,17 +13,19 @@ explicit equivalent old-frontend term. Every equality is proved by \<open>refl\<
 subsection\<open> Expressions, bindings, and control flow \<close>
 
 text\<open>
-Features: suffixed decimal and hexadecimal literals, nested tuple destructuring,
-\<open>let\<close> and \<open>const\<close>, operator precedence, strings, and \<open>if\<close>/\<open>else\<close>.
+Features: array literals and indexing, suffixed decimal and hexadecimal literals,
+nested tuple destructuring, \<open>let\<close> and \<open>const\<close>, operator precedence,
+strings, and \<open>if\<close>/\<open>else\<close>.
 \<close>
 
 urust_expr_with_check showoff_expression
   \<open>
+    let inputs = [0x10_u32, 0x0f_u32, 0x20_u32];
     let (base, (mask, enabled)) =
-      (0x10_u32, (0x0f_u32, true));
+      (inputs[0_usize], (inputs[1_usize], true));
     const shift = 1_u64;
     let computed = (base | mask) << shift;
-    if enabled && computed > 0x20_u32 {
+    if enabled && computed > inputs[2_usize] {
       (computed, "large")
     } else {
       (computed + 1_u32, "small")
@@ -42,22 +44,25 @@ definition showoff_mix ::
   where \<open> showoff_mix \<equiv> lift_fun2 (\<lambda>x y. x * 3 + y) \<close>
 
 text\<open>
-Features: a let-bound callee, nested calls, receiver-prepended method calls,
-method chaining, Option propagation around call and method results, propagation
-grouped before a method, a conditional argument, comparisons, and lexical binders.
+Features: an array literal, range slicing and indexing, a let-bound callee,
+nested calls, receiver-prepended method calls, method chaining, Option propagation
+around call and method results, propagation grouped before a method, a conditional
+argument, comparisons, and lexical binders.
 \<close>
 
 urust_expr_with_check showoff_calls
   \<open>
-    let seed = 5_u64;
+    let inputs = [5_u64, 2_u64, 1_u64, 0_u64];
+    let active = inputs[0_usize..2_usize];
+    let seed = active[0_usize];
     let callable = \<llangle>showoff_bump\<rrangle>;
     let direct = Some(callable(seed))?;
     let chained =
-      (Some(direct.showoff_mix(showoff_bump(2_u64)))?).showoff_bump();
+      (Some(direct.showoff_mix(showoff_bump(active[1_usize])))?).showoff_bump();
     if chained >= 20_u64 {
       Some(
         chained.showoff_mix(
-          (if true { Some(1_u64)? } else { Some(0_u64)? })
+          (if true { Some(inputs[2_usize])? } else { Some(inputs[3_usize])? })
         )
       )?
     } else {
@@ -164,9 +169,9 @@ adhoc_overloading store_update_const \<rightleftharpoons> showoff_update
 
 text\<open>
 Features: fuel captured from local binders, nested fueled loops, semicolon-free
-loop sequencing, iterator conversion and loop-pattern binders, mutable word,
-boolean, and optional state, numeric switching, assignment, and
-\<open>while let\<close> termination.
+loop sequencing, iterator conversion and loop-pattern binders, arrays of
+references, indexed reads and updates, mutable word, boolean, and optional state,
+numeric switching, assignment, and \<open>while let\<close> termination.
 \<close>
 
 urust_expr_with_check showoff_nested_loops
@@ -175,14 +180,15 @@ urust_expr_with_check showoff_nested_loops
     let inner_fuel = \<llangle>2 :: nat\<rrangle>;
     let mut phase = 0_u32;
     let mut active = \<llangle>True\<rrangle>;
+    let registers = [phase];
     #[fuel(\<epsilon>\<open>outer_fuel\<close>)] while (*active) {
-      match_switch *phase {
+      match_switch *(registers[0_usize]) {
         0 \<Rightarrow> {
-          *phase = *phase + 1_u32;
+          *(registers[0_usize]) = *(registers[0_usize]) + 1_u32;
         },
         1 \<Rightarrow> {
           #[fuel(\<epsilon>\<open>inner_fuel\<close>)] loop {
-            *phase = *phase + 1_u32;
+            *(registers[0_usize]) = *(registers[0_usize]) + 1_u32;
           }
           *active = false;
         },
@@ -191,18 +197,19 @@ urust_expr_with_check showoff_nested_loops
         }
       };
     }
-    (*phase, *active)
+    (*(registers[0_usize]), *active)
   \<close>
 
 urust_expr_with_check showoff_for_and_while_let
   \<open>
-    let values = \<llangle>[1 :: 32 word, 2, 3]\<rrangle>;
+    let values = [1_u32, 2_u32, 3_u32];
     let mut total = 0_u32;
     for value in values {
       *total += value;
     }
+    let pending_values = [Some(4_u32), None];
     let steps = \<llangle>2 :: nat\<rrangle>;
-    let mut pending = \<llangle>Some (4 :: 32 word)\<rrangle>;
+    let mut pending = pending_values[0_usize];
     #[fuel(\<epsilon>\<open>steps\<close>)] while let Some(extra) = *pending {
       *total += extra;
       *pending = None;
@@ -243,15 +250,16 @@ urust_expr_with_check showoff_loop_pipeline
 subsection\<open> Accepted-surface improvements \<close>
 
 text\<open>
-Features: Rust line comments and glued suffixes, trailing separators on calls,
-tuples, and match arms, ASCII match arrows, propagation directly into a method,
-and empty ordinary and unsafe blocks.
+Features: Rust line comments and glued suffixes, an indexed array with a trailing
+separator, trailing separators on calls, tuples, and match arms, ASCII match
+arrows, propagation directly into a method, and empty ordinary and unsafe blocks.
 \<close>
 
 urust_expr_with_check' showoff_improvements
   \<open>
     // These spellings are accepted only by the dedicated parser.
-    let seed = 1u64;
+    let seeds = [1u64, 2u64,];
+    let seed = seeds[0usize];
     let bumped = Some(showoff_bump(seed,))?.showoff_bump();
     match Some(bumped) {
       Some(value) => (value, {}, unsafe {},),
@@ -260,7 +268,8 @@ urust_expr_with_check' showoff_improvements
   \<close>
   \<open>
     \<lbrakk>
-      let seed = 1_u64;
+      let seeds = [1_u64, 2_u64];
+      let seed = seeds[0_usize];
       let bumped = (Some(showoff_bump(seed))?).showoff_bump();
       match Some(bumped) {
         Some(value) \<Rightarrow> (value, { () }, unsafe { () }),
