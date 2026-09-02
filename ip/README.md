@@ -90,6 +90,8 @@ I/R appears to be running locally. No user configuration is needed.
 - `setup_ubuntu.sh` — Installs Isabelle on a remote Ubuntu/Debian host (aarch64 or x86_64).
 - `setup_al2.sh` — Installs Isabelle on a remote Amazon Linux 2
    host, building Poly/ML from source (to avoid glibc versioning issue).
+- `setup_al2023.sh` — Installs Isabelle on a remote Amazon Linux 2023
+  host using the packaged Poly/ML binary after a compatibility check.
 
 ## Poly/ML Tuning
 
@@ -178,13 +180,24 @@ between worktrees. However, it remains a bit cumbersome to know which heap to us
 
 To help this, two scripts are provided:
 
-* [`heap-db-inspect`](heap-db-inspect): This takes the path of of `.db` heap database file, and prints the paths of
-  files in the respective image. You can use this to check whether the path contractions have worked
-  as intended.
+* [`heap-db-inspect`](heap-db-inspect): This takes the path of a `.db` heap database file and
+  inspects its sources, exports, command timings, runtime statistics, and adjacent session heap.
+  You can use this to check whether path contractions have worked as intended and to locate
+  expensive source regions.
 
 * [`heap-mgr`](heap-mgr): This helps to manage multiple heap directories, and in particular finding
   the heap directory that matches a given `isabelle build ...` or `isabelle jedit ...` command most
   closely.
+
+#### Timing inspection
+
+```
+./heap-db-inspect /path/to/log/SESSION.db --timings
+./heap-db-inspect /path/to/log/SESSION.db --timing-range Example.thy:100-200
+./heap-db-inspect /path/to/log/SESSION.db --annotate-source Example.thy:100-200
+```
+
+Only timings recorded by Isabelle are included.
 
 ### TL;DR
 
