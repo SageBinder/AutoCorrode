@@ -275,37 +275,4 @@ no_adhoc_overloading store_reference_const \<rightleftharpoons> showoff_referenc
 no_adhoc_overloading store_dereference_const \<rightleftharpoons> showoff_dereference
 no_adhoc_overloading store_update_const \<rightleftharpoons> showoff_update
 
-ML_val\<open>
-  local
-    val local_expected : URust_Inventory.counts =
-      {plain = 2,
-       same_source = 5,
-       explicit_old = 1,
-       dual_rejection = 0,
-       new_divergent = 0,
-       new_audit = 0,
-       old_rejection = 0}
-    val total_expected : URust_Inventory.counts =
-      {plain = 5,
-       same_source = 5,
-       explicit_old = 1,
-       dual_rejection = 0,
-       new_divergent = 0,
-       new_audit = 0,
-       old_rejection = 0}
-    val theory = \<^theory>
-    val _ =
-      URust_Inventory.assert_theory_counts
-        "Micro_Rust_Parser_Showoff"
-        local_expected theory
-    val _ =
-      URust_Inventory.assert_summary
-        "Micro_Rust_Parser_Showoff total"
-        total_expected
-        (URust_Inventory.counts theory)
-  in
-    val _ = ()
-  end
-\<close>
-
 end

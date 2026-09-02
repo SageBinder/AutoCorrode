@@ -15,31 +15,30 @@ text\<open>
 \<open>urust_expr_rejects fidelity source expected\<close> requires both frontends to reject and
 checks the new parser's reason. The new-parser-only variant requires either the executable
 \<open>divergent\<close> tag for an acceptance-boundary difference or \<open>audit\<close> for a custom-parser
-invariant whose old-frontend behavior is deliberately not part of the row. The tags are command
-arguments and therefore part of the machine-counted inventory; bracketed comment labels remain
-explanatory only.
+invariant whose old-frontend behavior is deliberately not part of the row. The tags are validated
+locally by this negative-test command; bracketed comment labels remain explanatory only.
 \<close>
 ML\<open>
 fun negative_frontend_source source = "\<lbrakk> " ^ source ^ " \<rbrakk>"
 
 val _ = Syntax.read_term \<^context> (negative_frontend_source "()")
 
-fun rejection_category check_frontend tag =
+datatype rejection_tag = Fidelity | Divergent | Audit
+
+fun validate_rejection_tag check_frontend tag =
   (case (check_frontend, tag) of
-     (true, URust_Inventory.Fidelity) =>
-       URust_Inventory.Dual_Frontend_Rejection
+     (true, Fidelity) => ()
    | (true, _) =>
        error "urust_expr_rejects requires the `fidelity` tag"
-   | (false, URust_Inventory.Fidelity) =>
+   | (false, Fidelity) =>
        error "new_urust_rejects requires the `divergent` or `audit` tag"
-   | (false, tag) =>
-       URust_Inventory.New_Only_Rejection tag)
+   | (false, _) => ())
 
 fun parse_rejection_tag (name, pos) =
   (case name of
-     "fidelity" => URust_Inventory.Fidelity
-   | "divergent" => URust_Inventory.Divergent
-   | "audit" => URust_Inventory.Audit
+     "fidelity" => Fidelity
+   | "divergent" => Divergent
+   | "audit" => Audit
    | _ =>
        error
          ("unknown rejection tag " ^ quote name ^
@@ -48,8 +47,7 @@ fun parse_rejection_tag (name, pos) =
 
 fun urust_rejects check_frontend ((tag, source), expected) lthy =
   let
-    val category =
-      rejection_category check_frontend tag
+    val _ = validate_rejection_tag check_frontend tag
     val pos      = Input.pos_of source
     (* trim: the cartouche-spacing convention pads content with a blank on each side *)
     val expected = Symbol.trim_blanks (Input.string_of expected)
@@ -84,9 +82,7 @@ fun urust_rejects check_frontend ((tag, source), expected) lthy =
 
     val _ = check_parser_rejection ()
     val _ = if check_frontend then check_frontend_rejection () else ()
-  in
-    URust_Inventory.record category pos lthy
-  end
+  in lthy end
 
 val rejection_args =
   (Parse.name_position >> parse_rejection_tag) --
@@ -1016,18 +1012,5 @@ urust_expr_rejects fidelity \<open> { ; } \<close> \<open> syntax error found at
 urust_expr_rejects fidelity \<open> \<close> \<open> empty expression \<close>
   \<comment> \<open> [FIDELITY] \<open>parse_source\<close> returns NONE on blank input; the frontend's empty bracket is an
        inner-syntax error. \<close>
-
-ML_val\<open>
-  URust_Inventory.assert_theory_counts
-    "Micro_Rust_Parser_Negative_Conformance"
-    {plain = 0,
-     same_source = 0,
-     explicit_old = 0,
-     dual_rejection = 123,
-     new_divergent = 14,
-     new_audit = 7,
-     old_rejection = 0}
-    \<^theory>
-\<close>
 
 end

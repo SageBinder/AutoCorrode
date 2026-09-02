@@ -31,217 +31,6 @@ frontend.  It protects the conformance harness from the old frontend's pattern e
 \<open>urust_expr\<close> definitions do not run this compatibility-only analysis.
 \<close>
 ML\<open>
-structure URust_Inventory =
-struct
-  datatype rejection_tag = Fidelity | Divergent | Audit
-
-  datatype category =
-      Plain_Definition
-    | Same_Source_Conformance
-    | Explicit_Old_Conformance
-    | Dual_Frontend_Rejection
-    | New_Only_Rejection of rejection_tag
-    | Old_Frontend_Rejection
-
-  type entry =
-    {category: category,
-     theory_name: string,
-     position: Position.T}
-
-  structure Data = Theory_Data
-  (
-    type T = entry Symtab.table
-    val empty = Symtab.empty
-    fun merge data = Symtab.merge (K true) data
-  )
-
-  type counts =
-    {plain: int,
-     same_source: int,
-     explicit_old: int,
-     dual_rejection: int,
-     new_divergent: int,
-     new_audit: int,
-     old_rejection: int}
-
-  val zero_counts : counts =
-    {plain = 0,
-     same_source = 0,
-     explicit_old = 0,
-     dual_rejection = 0,
-     new_divergent = 0,
-     new_audit = 0,
-     old_rejection = 0}
-
-  fun add_counts
-      ({plain = plain1, same_source = same_source1,
-        explicit_old = explicit_old1, dual_rejection = dual_rejection1,
-        new_divergent = new_divergent1, new_audit = new_audit1,
-        old_rejection = old_rejection1} : counts)
-      ({plain = plain2, same_source = same_source2,
-        explicit_old = explicit_old2, dual_rejection = dual_rejection2,
-        new_divergent = new_divergent2, new_audit = new_audit2,
-        old_rejection = old_rejection2} : counts) : counts =
-    {plain = plain1 + plain2,
-     same_source = same_source1 + same_source2,
-     explicit_old = explicit_old1 + explicit_old2,
-     dual_rejection = dual_rejection1 + dual_rejection2,
-     new_divergent = new_divergent1 + new_divergent2,
-     new_audit = new_audit1 + new_audit2,
-     old_rejection = old_rejection1 + old_rejection2}
-
-  fun add_category Plain_Definition
-        {plain, same_source, explicit_old, dual_rejection,
-         new_divergent, new_audit, old_rejection} =
-        {plain = plain + 1,
-         same_source = same_source,
-         explicit_old = explicit_old,
-         dual_rejection = dual_rejection,
-         new_divergent = new_divergent,
-         new_audit = new_audit,
-         old_rejection = old_rejection}
-    | add_category Same_Source_Conformance
-        {plain, same_source, explicit_old, dual_rejection,
-         new_divergent, new_audit, old_rejection} =
-        {plain = plain,
-         same_source = same_source + 1,
-         explicit_old = explicit_old,
-         dual_rejection = dual_rejection,
-         new_divergent = new_divergent,
-         new_audit = new_audit,
-         old_rejection = old_rejection}
-    | add_category Explicit_Old_Conformance
-        {plain, same_source, explicit_old, dual_rejection,
-         new_divergent, new_audit, old_rejection} =
-        {plain = plain,
-         same_source = same_source,
-         explicit_old = explicit_old + 1,
-         dual_rejection = dual_rejection,
-         new_divergent = new_divergent,
-         new_audit = new_audit,
-         old_rejection = old_rejection}
-    | add_category Dual_Frontend_Rejection
-        {plain, same_source, explicit_old, dual_rejection,
-         new_divergent, new_audit, old_rejection} =
-        {plain = plain,
-         same_source = same_source,
-         explicit_old = explicit_old,
-         dual_rejection = dual_rejection + 1,
-         new_divergent = new_divergent,
-         new_audit = new_audit,
-         old_rejection = old_rejection}
-    | add_category (New_Only_Rejection Divergent)
-        {plain, same_source, explicit_old, dual_rejection,
-         new_divergent, new_audit, old_rejection} =
-        {plain = plain,
-         same_source = same_source,
-         explicit_old = explicit_old,
-         dual_rejection = dual_rejection,
-         new_divergent = new_divergent + 1,
-         new_audit = new_audit,
-         old_rejection = old_rejection}
-    | add_category (New_Only_Rejection Audit)
-        {plain, same_source, explicit_old, dual_rejection,
-         new_divergent, new_audit, old_rejection} =
-        {plain = plain,
-         same_source = same_source,
-         explicit_old = explicit_old,
-         dual_rejection = dual_rejection,
-         new_divergent = new_divergent,
-         new_audit = new_audit + 1,
-         old_rejection = old_rejection}
-    | add_category (New_Only_Rejection Fidelity) _ =
-        error "uRust inventory: fidelity rejection must check both frontends"
-    | add_category Old_Frontend_Rejection
-        {plain, same_source, explicit_old, dual_rejection,
-         new_divergent, new_audit, old_rejection} =
-        {plain = plain,
-         same_source = same_source,
-         explicit_old = explicit_old,
-         dual_rejection = dual_rejection,
-         new_divergent = new_divergent,
-         new_audit = new_audit,
-         old_rejection = old_rejection + 1}
-
-  fun entries thy = map #2 (Symtab.dest (Data.get thy))
-
-  fun counts_matching predicate thy =
-    fold
-      (fn entry =>
-        if predicate entry
-        then add_category (#category entry)
-        else I)
-      (entries thy) zero_counts
-
-  fun counts thy = counts_matching (K true) thy
-
-  fun counts_for_theory theory_name =
-    counts_matching (fn entry => #theory_name entry = theory_name)
-
-  fun counts_except theory_names =
-    counts_matching
-      (fn entry =>
-        not
-          (member (op =) theory_names
-            (#theory_name entry)))
-
-  fun record category position lthy =
-    let
-      val theory_name =
-        Context.theory_name {long = false} (Proof_Context.theory_of lthy)
-      val entry =
-        {category = category,
-         theory_name = theory_name,
-         position = position}
-      val key = serial_string ()
-    in
-      Local_Theory.background_theory
-        (Data.map (Symtab.update_new (key, entry))) lthy
-    end
-
-  fun string_of_counts
-      {plain, same_source, explicit_old, dual_rejection,
-       new_divergent, new_audit, old_rejection} =
-    "plain=" ^ string_of_int plain ^
-    ", same-source=" ^ string_of_int same_source ^
-    ", explicit-old=" ^ string_of_int explicit_old ^
-    ", dual-rejection=" ^ string_of_int dual_rejection ^
-    ", new-divergent=" ^ string_of_int new_divergent ^
-    ", new-audit=" ^ string_of_int new_audit ^
-    ", old-rejection=" ^ string_of_int old_rejection
-
-  fun equal_counts
-      ({plain = plain1, same_source = same_source1,
-        explicit_old = explicit_old1, dual_rejection = dual_rejection1,
-        new_divergent = new_divergent1, new_audit = new_audit1,
-        old_rejection = old_rejection1} : counts)
-      ({plain = plain2, same_source = same_source2,
-        explicit_old = explicit_old2, dual_rejection = dual_rejection2,
-        new_divergent = new_divergent2, new_audit = new_audit2,
-        old_rejection = old_rejection2} : counts) =
-    plain1 = plain2 andalso
-    same_source1 = same_source2 andalso
-    explicit_old1 = explicit_old2 andalso
-    dual_rejection1 = dual_rejection2 andalso
-    new_divergent1 = new_divergent2 andalso
-    new_audit1 = new_audit2 andalso
-    old_rejection1 = old_rejection2
-
-  fun assert_summary label expected actual =
-    if equal_counts expected actual then ()
-    else
-      error
-        ("uRust inventory mismatch for " ^ label ^
-          "\nexpected: " ^ string_of_counts expected ^
-          "\nactual:   " ^ string_of_counts actual)
-
-  fun assert_theory_counts theory_name expected thy =
-    assert_summary
-      ("theory " ^ quote theory_name)
-      expected
-      (counts_for_theory theory_name thy)
-end
-
 structure URust_Legacy_Conformance_Budget =
 struct
   open URust_AST
@@ -464,15 +253,12 @@ fun define_urust (binding, source) lthy =
   let
     val (_, lthy') =
       define_urust_result (binding, source) lthy
-  in
-    URust_Inventory.record
-      URust_Inventory.Plain_Definition (Input.pos_of source) lthy'
-  end
+  in lthy' end
 
 fun old_frontend_source source = "\<lbrakk> " ^ Input.string_of source ^ " \<rbrakk>"
 
 fun define_urust_with_frontend_check
-    category (binding, new_source, old_frontend_source) lthy =
+    (binding, new_source, old_frontend_source) lthy =
   let
     val (((lhs, (_, def_thm)), ast), lthy') =
       define_urust_result (binding, new_source) lthy
@@ -572,13 +358,10 @@ fun define_urust_with_frontend_check
     val (_, lthy'') =
       Local_Theory.note
         ((Binding.suffix_name "_conformance" binding, []), [conformance]) lthy'
-  in
-    URust_Inventory.record category (Input.pos_of new_source) lthy''
-  end
+  in lthy'' end
 
 fun define_urust_with_check (binding, source) =
   define_urust_with_frontend_check
-    URust_Inventory.Same_Source_Conformance
     (binding, source, old_frontend_source source)
 
 val _ = Outer_Syntax.local_theory \<^command_keyword>\<open>urust_expr\<close>
@@ -603,7 +386,6 @@ val _ = Outer_Syntax.local_theory \<^command_keyword>\<open>urust_expr_with_chec
             Parse.term >>
             (fn ((binding, new_source), old_frontend_source) =>
               define_urust_with_frontend_check
-                URust_Inventory.Explicit_Old_Conformance
                 (binding, new_source, old_frontend_source)))
 \<close>
 

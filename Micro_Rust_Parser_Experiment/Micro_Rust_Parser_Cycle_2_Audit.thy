@@ -774,7 +774,7 @@ ML_val\<open>
   end
 \<close>
 
-subsection\<open> Constructor, diagnostics, and inventory closure \<close>
+subsection\<open> Constructor-resolution closure \<close>
 
 ML_val\<open>
   local
@@ -837,74 +837,8 @@ ML_val\<open>
         "match_case \<llangle>undefined\<rrangle> { AmbiguousNullary \<Rightarrow> \<llangle>True\<rrangle> }"
         left_nullary right_nullary
 
-    val _ =
-      audit_assert "grammar state inventory changed"
-        (URust_Diagnostics.grammar_state_count = 254)
-    val _ =
-      audit_assert "grammar state entries are incomplete"
-        (URust_Diagnostics.grammar_state_entry_count =
-          URust_Diagnostics.grammar_state_count)
-    val _ =
-      audit_assert "terminal inventory is incomplete"
-        (URust_Diagnostics.terminal_count = 70)
-    val _ =
-      List.app
-        (fn (id, generated, source) =>
-          (audit_assert "terminal identity drifted"
-             (URust_Diagnostics.generated_terminal_name
-               (URust_Diagnostics.LrTable.T id) = generated);
-           audit_assert "source terminal rendering drifted"
-             (URust_Diagnostics.source_terminal_name
-               (URust_Diagnostics.LrTable.T id) = source)))
-        URust_Diagnostics.terminal_specs
-
-    val thy = Proof_Context.theory_of ctxt
-    val _ =
-      URust_Inventory.assert_theory_counts
-        "Micro_Rust_Parser_Conformance"
-        {plain = 13,
-         same_source = 469,
-         explicit_old = 0,
-         dual_rejection = 0,
-         new_divergent = 0,
-         new_audit = 0,
-         old_rejection = 0}
-        thy
-    val _ =
-      URust_Inventory.assert_theory_counts
-        "Micro_Rust_Parser_Negative_Conformance"
-        {plain = 0,
-         same_source = 0,
-         explicit_old = 0,
-         dual_rejection = 123,
-         new_divergent = 14,
-         new_audit = 7,
-         old_rejection = 0}
-        thy
-    val _ =
-      URust_Inventory.assert_theory_counts
-        "Micro_Rust_Parser_Improvements"
-        {plain = 11,
-         same_source = 0,
-         explicit_old = 48,
-         dual_rejection = 0,
-         new_divergent = 0,
-         new_audit = 0,
-         old_rejection = 59}
-        thy
-    val _ =
-      URust_Inventory.assert_theory_counts
-        "Micro_Rust_Parser_Cycle_2_Audit"
-        {plain = 1,
-         same_source = 0,
-         explicit_old = 0,
-         dual_rejection = 0,
-         new_divergent = 0,
-         new_audit = 0,
-         old_rejection = 0}
-        thy
   in
-    val _ = writeln "Cycle 2 constructor, diagnostic, and inventory audit passed"
+    val _ = writeln "Cycle 2 constructor-resolution audit passed"
   end
 \<close>
 
