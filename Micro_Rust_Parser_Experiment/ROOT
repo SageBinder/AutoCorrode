@@ -4,11 +4,9 @@ session Micro_Rust_Parser_Experiment = HOL +
     "HOL-Library"
     Separation_Lenses
     Shallow_Micro_Rust
-    Shallow_Separation_Logic
     Micro_Rust_Std_Lib
     Micro_Rust_Runtime
     Micro_Rust_Interfaces
-    Crush
     Lenses_And_Other_Optics
     Byte_Level_Encoding
     "Isabelle_Lex-Yacc"

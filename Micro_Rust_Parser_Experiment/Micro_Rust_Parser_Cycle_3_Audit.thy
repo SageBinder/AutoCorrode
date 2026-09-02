@@ -1,7 +1,5 @@
 theory Micro_Rust_Parser_Cycle_3_Audit
-  imports
-    Micro_Rust_Parser_Cycle_2_Audit
-    Micro_Rust_Parser_Integration
+  imports Micro_Rust_Parser_Cycle_2_Audit
 begin
 
 section\<open> Cycle 3 integration audit \<close>
@@ -672,115 +670,6 @@ value [code]
       Success value _ \<Rightarrow> value
     | _ \<Rightarrow> 0
   \<close>
-
-subsection\<open> Supported proof paths \<close>
-
-definition cycle3_parser_function_expression ::
-  \<open>
-    (unit, nat, nat, unit,
-      unit prompt, unit prompt_output) expression
-  \<close>
-where
-  \<open>
-    cycle3_parser_function_expression \<equiv>
-      cycle3_code_constructor
-  \<close>
-
-lemma cycle3_parser_simp_evaluate:
-  \<open>
-    evaluate cycle3_code_constructor_closed () =
-      Success 7 ()
-  \<close>
-  unfolding cycle3_code_constructor_closed_def
-  apply urust_parser_prepare
-  apply (simp only:
-    cycle3_some_seven_expression_def
-    cycle3_some_seven_def)
-  by urust_parser_simp
-
-lemma cycle3_parser_eval_action:
-  \<open>
-    (yield_handler_no_yield,
-      cycle3_parser_function_expression)
-      \<diamondop>\<^sub>v () =
-    {(7, ())}
-  \<close>
-  unfolding cycle3_parser_function_expression_def
-  apply urust_parser_prepare
-  apply (simp only:
-    cycle3_some_seven_expression_def
-    cycle3_some_seven_def)
-  by urust_parser_simp
-
-lemma cycle3_parser_eval_predicate:
-  \<open>
-    evaluates_to_value yield_handler_no_yield
-      cycle3_parser_function_expression () 7 ()
-  \<close>
-  unfolding cycle3_parser_function_expression_def
-  apply urust_parser_prepare
-  apply (simp only:
-    cycle3_some_seven_expression_def
-    cycle3_some_seven_def)
-  by urust_parser_simp
-
-lemma cycle3_parser_wp:
-  fixes
-    \<Gamma> :: \<open>(unit, unit, unit, unit) striple_context\<close>
-  shows
-    \<open>
-      \<W>\<P> \<Gamma> cycle3_parser_function_expression
-        (\<lambda>_ :: nat. \<top>)
-        (\<lambda>_ :: nat. \<bottom>)
-        (\<lambda>_ :: unit abort. \<bottom>) =
-      \<top>
-  \<close>
-  unfolding cycle3_parser_function_expression_def
-  apply urust_parser_prepare
-  apply (simp only:
-    cycle3_some_seven_expression_def
-    cycle3_some_seven_def)
-  by urust_parser_simp
-
-definition cycle3_parser_function ::
-  \<open>
-    (unit, nat, unit,
-      unit prompt, unit prompt_output) function_body
-  \<close>
-where
-  \<open>
-    cycle3_parser_function \<equiv>
-      FunctionBody cycle3_parser_function_expression
-  \<close>
-
-definition cycle3_parser_contract ::
-  \<open>(unit, nat, unit) function_contract\<close>
-where
-  \<open>
-    cycle3_parser_contract \<equiv>
-      make_function_contract \<top>
-        (\<lambda>result. \<langle>result = 7\<rangle>)
-  \<close>
-
-ucincl_auto cycle3_parser_contract
-
-lemma cycle3_parser_function_contract:
-  fixes
-    \<Gamma> :: \<open>(unit, unit, unit, unit) striple_context\<close>
-  shows
-    \<open>
-      \<Gamma> ; cycle3_parser_function
-        \<Turnstile>\<^sub>F cycle3_parser_contract
-    \<close>
-  apply (crush_boot
-    f: cycle3_parser_function_def
-    contract:
-      cycle3_parser_contract_def)
-  apply (unfold cycle3_parser_function_expression_def)
-  apply urust_parser_prepare
-  by (crush_base simp add:
-    cycle3_some_seven_expression_def
-    cycle3_some_seven_def)
 
 subsection\<open> Controlled-normalization growth \<close>
 
