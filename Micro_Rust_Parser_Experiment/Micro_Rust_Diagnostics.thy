@@ -93,6 +93,16 @@ struct
 
   val terminal_count = length terminal_specs
   val grammar_state_count = LrTable.numStates Original.table
+  val grammar_state_entries =
+    map
+      (fn index =>
+        (LrTable.describeActions Original.table
+           (LrTable.STATE index),
+         LrTable.describeGoto Original.table
+           (LrTable.STATE index)))
+      (0 upto (grammar_state_count - 1))
+  val grammar_state_entry_count =
+    length grammar_state_entries
 
   fun terminal_id (LrTable.T id) = id
 
@@ -117,10 +127,19 @@ struct
     in check [] values end
 
   val _ =
-    if grammar_state_count = 253 then ()
+    if grammar_state_count = 254 then ()
     else
       error
-        ("uRust diagnostics: expected 253 grammar states, found " ^
+        ("uRust diagnostics: expected 254 grammar states, found " ^
+          string_of_int grammar_state_count)
+
+  val _ =
+    if grammar_state_entry_count = grammar_state_count then ()
+    else
+      error
+        ("uRust diagnostics: exported state-entry count " ^
+          string_of_int grammar_state_entry_count ^
+          " differs from reflected state count " ^
           string_of_int grammar_state_count)
 
   val _ =

@@ -193,10 +193,11 @@ struct
   fun mk_method_call (receiver, name, name_pos, args, left, right) =
     mk_call (name, name_pos, receiver :: args, left, right)
 
-  (* Flatten nested or-patterns so `a | b | c` is one P_Or in source order, whatever %left TBAR bracketed. *)
-  fun mk_or_pat (p, q, pos) =
-    let fun alts (P_Or (ps, _)) = ps | alts p = [p]
-    in P_Or (alts p @ alts q, pos) end
+  (* The grammar is right-recursive, so prepend the left alternative in O(1) while retaining source order. *)
+  fun mk_or_pat (p, P_Or (alternatives, _), pos) =
+        P_Or (p :: alternatives, pos)
+    | mk_or_pat (p, q, pos) =
+        P_Or ([p, q], pos)
 end
 \<close>
 

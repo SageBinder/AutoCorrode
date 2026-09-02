@@ -90,6 +90,301 @@ ML_val\<open>
   end
 \<close>
 
+subsection\<open> Pattern precedence and parse-only scaling \<close>
+
+text\<open>
+These checks concern syntax construction only. They do not extend the conservative coverage
+classification used to lower the currently supported match and while-let forms.
+\<close>
+
+ML_val\<open>
+  local
+    open URust_AST
+
+    val context = \<^context>
+
+    fun assert message condition =
+      if condition then ()
+      else error ("Cycle 3 pattern grammar audit: " ^ message)
+
+    fun parse text =
+      (case Parser_Utils.with_parser_lock
+          (fn () =>
+            URust_Diagnostics.parse_source context
+              (Parser_Lex_Util.text_source text)) of
+         SOME expression => expression
+       | NONE => error "Cycle 3 pattern grammar audit: empty parse")
+
+    fun pattern_source pattern =
+      "match_case \<llangle>undefined\<rrangle> { " ^ pattern ^
+      " \<Rightarrow> \<llangle>undefined\<rrangle> }"
+
+    fun parse_pattern pattern =
+      (case parse (pattern_source pattern) of
+         UE_Match (_, _, [UR_Arm (result, NONE, _)], _) =>
+           result
+       | _ =>
+           error
+             ("Cycle 3 pattern grammar audit: unexpected AST for " ^
+              quote pattern))
+
+    fun integer text (P_Literal (LP_Integer (actual, _))) =
+          actual = text
+      | integer _ _ = false
+
+    fun range kind lower upper
+        (P_Range (actual_kind, actual_lower, actual_upper, _)) =
+          actual_kind = kind andalso
+          integer lower actual_lower andalso
+          integer upper actual_upper
+      | range _ _ _ _ = false
+
+    val _ =
+      assert "exclusive range shape changed"
+        (range RK_Exclusive "5" "7"
+          (parse_pattern "5..7"))
+    val _ =
+      assert "inclusive range shape changed"
+        (range RK_Inclusive "5" "7"
+          (parse_pattern "5..=7"))
+
+    val _ =
+      (case parse_pattern "whole @ 5..=7" of
+         P_Alias ("whole", _, inner, _) =>
+           assert "alias did not bind the whole range"
+             (range RK_Inclusive "5" "7" inner)
+       | _ => error "Cycle 3 pattern grammar audit: range alias shape changed")
+
+    val _ =
+      (case parse_pattern "outer @ inner @ 5..7" of
+         P_Alias ("outer", _,
+           P_Alias ("inner", _, nested, _), _) =>
+             assert "nested aliases lost right associativity"
+               (range RK_Exclusive "5" "7" nested)
+       | _ =>
+           error
+             "Cycle 3 pattern grammar audit: nested alias shape changed")
+
+    val _ =
+      (case parse_pattern "whole @ Some(5..=7)" of
+         P_Alias ("whole", _,
+           P_Constr ("Some", _, [nested]), _) =>
+             assert "constructor alias lost its range argument"
+               (range RK_Inclusive "5" "7" nested)
+       | _ =>
+           error
+             "Cycle 3 pattern grammar audit: constructor alias shape changed")
+
+    val _ =
+      (case parse_pattern
+          "whole @ Head { field: 5..7 }" of
+         P_Alias ("whole", _,
+           P_Struct ("Head", _,
+             [SF_Field ("field", _, nested)]), _) =>
+             assert "struct alias lost its range field"
+               (range RK_Exclusive "5" "7" nested)
+       | _ =>
+           error
+             "Cycle 3 pattern grammar audit: struct alias shape changed")
+
+    val _ =
+      (case parse_pattern
+          "left @ 1..2 | right @ 3..=4" of
+         P_Or
+           ([P_Alias ("left", _, left, _),
+             P_Alias ("right", _, right, _)], _) =>
+             (assert "left or-pattern range changed"
+                (range RK_Exclusive "1" "2" left);
+              assert "right or-pattern range changed"
+                (range RK_Inclusive "3" "4" right))
+       | _ =>
+           error
+             "Cycle 3 pattern grammar audit: or/alias/range precedence changed")
+
+    val chained_text =
+      pattern_source "1..2..3"
+    val chained_start =
+      Position.make0 7 1 0 "" "" ""
+
+    fun find_from text needle offset =
+      if offset + size needle > size text then
+        error
+          ("Cycle 3 pattern grammar audit: missing " ^
+           quote needle)
+      else if
+        String.substring (text, offset, size needle) =
+          needle
+      then offset
+      else find_from text needle (offset + 1)
+
+    val first_range =
+      find_from chained_text ".." 0
+    val second_range =
+      find_from chained_text ".." (first_range + 2)
+    val second_range_position =
+      Position.symbol_explode
+        (String.substring
+          (chained_text, 0, second_range))
+        chained_start
+    val expected_here =
+      XML.content_of
+        (YXML.parse_body
+          (Position.here second_range_position))
+    val _ =
+      (case Exn.result
+          (fn () =>
+            elab_urust context
+              (Parser_Lex_Util.positioned_content_source
+                chained_text chained_start)) () of
+         Exn.Res _ =>
+           error
+             "Cycle 3 pattern grammar audit: chained range unexpectedly elaborated"
+       | Exn.Exn exn =>
+           if Exn.is_interrupt exn then Exn.reraise exn
+           else
+             let
+               val message =
+                 XML.content_of
+                   (YXML.parse_body
+                     (Runtime.exn_message exn))
+             in
+               assert "chained range missed semantic validation"
+                 (String.isSubstring
+                   "range patterns are non-associative" message);
+               assert "chained range diagnostic moved"
+                 (String.isSubstring expected_here message)
+             end)
+
+    fun alternative_name index =
+      "cycle3_alt_" ^ string_of_int index
+
+    fun alternative_source count =
+      pattern_source
+        (space_implode " | "
+          (map alternative_name (0 upto (count - 1))))
+
+    fun audit_alternatives count source =
+      (case parse source of
+         UE_Match (_, _,
+           [UR_Arm (P_Or (alternatives, _), NONE, _)], _) =>
+             (assert
+                ("or-pattern length changed at " ^
+                 string_of_int count)
+                (length alternatives = count);
+              assert
+                ("or-pattern first alternative changed at " ^
+                 string_of_int count)
+                (case hd alternatives of
+                   P_Ident (name, _) =>
+                     name = alternative_name 0
+                 | _ => false);
+              assert
+                ("or-pattern final alternative changed at " ^
+                 string_of_int count)
+                (case List.last alternatives of
+                   P_Ident (name, _) =>
+                     name = alternative_name (count - 1)
+                 | _ => false))
+       | _ =>
+           error
+             ("Cycle 3 pattern grammar audit: large or-pattern AST changed at " ^
+              string_of_int count))
+
+    val small_count = 4096
+    val large_count = 16384
+    val small_source = alternative_source small_count
+    val large_source = alternative_source large_count
+    fun small () = audit_alternatives small_count small_source
+    fun large () = audit_alternatives large_count large_source
+
+    fun elapsed repetitions action =
+      let
+        val timer = Timing.start ()
+        val _ =
+          List.app (fn _ => action ())
+            (1 upto repetitions)
+      in
+        Time.toReal (#elapsed (Timing.result timer))
+      end
+
+    fun calibrate action =
+      let
+        fun choose repetitions =
+          let val seconds = elapsed repetitions action in
+            if seconds >= 0.10 orelse repetitions >= 16
+            then repetitions
+            else choose (2 * repetitions)
+          end
+      in choose 1 end
+
+    fun sample repetitions action =
+      elapsed repetitions action /
+        Real.fromInt repetitions
+
+    fun alternating_samples rounds =
+      let
+        val small_repetitions = calibrate small
+        val large_repetitions = calibrate large
+        fun collect round (small_samples, large_samples) =
+          if round = rounds then
+            (rev small_samples, rev large_samples)
+          else if round mod 2 = 0 then
+            let
+              val small_time =
+                sample small_repetitions small
+              val large_time =
+                sample large_repetitions large
+            in
+              collect (round + 1)
+                (small_time :: small_samples,
+                 large_time :: large_samples)
+            end
+          else
+            let
+              val large_time =
+                sample large_repetitions large
+              val small_time =
+                sample small_repetitions small
+            in
+              collect (round + 1)
+                (small_time :: small_samples,
+                 large_time :: large_samples)
+            end
+      in collect 0 ([], []) end
+
+    fun median values =
+      nth (sort Real.compare values)
+        (length values div 2)
+
+    val _ = small ()
+    val _ = large ()
+    val (small_samples, large_samples) =
+      alternating_samples 5
+    val small_median = median small_samples
+    val large_median = median large_samples
+    val ratio = large_median / small_median
+    val _ =
+      assert
+        ("parse-only or-pattern median ratio exceeded 10: " ^
+         Real.toString ratio)
+        (ratio <= 10.0)
+    val _ =
+      assert "reflected grammar state count changed"
+        (URust_Diagnostics.grammar_state_count = 254)
+    val _ =
+      assert "exported grammar state entries are incomplete"
+        (URust_Diagnostics.grammar_state_entry_count =
+          URust_Diagnostics.grammar_state_count)
+  in
+    val _ =
+      writeln
+        ("Cycle 3 parse-only or-pattern medians: 4096=" ^
+         Real.toString small_median ^ "s, 16384=" ^
+         Real.toString large_median ^ "s, ratio=" ^
+         Real.toString ratio)
+  end
+\<close>
+
 subsection\<open> Lazy matcher code generation \<close>
 
 datatype cycle3_single = Cycle3_Single nat

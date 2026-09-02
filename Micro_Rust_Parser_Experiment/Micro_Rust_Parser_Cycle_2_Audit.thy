@@ -803,7 +803,11 @@ ML_val\<open>
 
     val _ =
       audit_assert "grammar state inventory changed"
-        (URust_Diagnostics.grammar_state_count = 253)
+        (URust_Diagnostics.grammar_state_count = 254)
+    val _ =
+      audit_assert "grammar state entries are incomplete"
+        (URust_Diagnostics.grammar_state_entry_count =
+          URust_Diagnostics.grammar_state_count)
     val _ =
       audit_assert "terminal inventory is incomplete"
         (URust_Diagnostics.terminal_count = 70)
