@@ -455,15 +455,17 @@ yacc_rules\<open>
      error" and keeps one grammar for one language. *)
   (* Pattern precedence is explicit rather than yacc-directed. A chained range is retained long enough
      for a positioned non-associativity diagnostic; disjunctions flatten in source order. *)
-  upat : upat_range               (upat_range)
-        | upat TBAR upat_range
-            (mk_or_pat (upat, upat_range, TBARleft))
-  upat_range : upat_alias         (upat_alias)
-              | upat_range TDOTDOT upat_alias
-                  (P_Range (RK_Exclusive, upat_range, upat_alias, TDOTDOTleft))
-              | upat_range TDOTDOTEQ upat_alias
-                  (P_Range (RK_Inclusive, upat_range, upat_alias, TDOTDOTEQleft))
-  upat_alias : upat_prefix        (upat_prefix)
+  upat : upat_alias               (upat_alias)
+        | upat_alias TBAR upat
+            (mk_or_pat (upat_alias, upat, TBARleft))
+  upat_alias : upat_range         (upat_range)
+              | upat_ident TAT upat_alias
+                  (mk_alias_pat (upat_ident, upat_alias, TATleft))
+  upat_range : upat_prefix        (upat_prefix)
+              | upat_range TDOTDOT upat_prefix
+                  (P_Range (RK_Exclusive, upat_range, upat_prefix, TDOTDOTleft))
+              | upat_range TDOTDOTEQ upat_prefix
+                  (P_Range (RK_Inclusive, upat_range, upat_prefix, TDOTDOTEQleft))
   upat_prefix : upat_atom         (upat_atom)
                | TAMP upat_prefix
                    (P_Borrow (BM_Imm, upat_prefix, TAMPleft))
@@ -477,8 +479,6 @@ yacc_rules\<open>
              | VALAQ              (P_Literal (LP_ValAntiq VALAQ))
              | upat_ident LPAR upats RPAR
                  (mk_ctor_pat (upat_ident, upats))
-             | upat_ident TAT upat_alias
-                 (mk_alias_pat (upat_ident, upat_alias, TATleft))
              | LPAR upat RPAR
                  (P_Group upat)
              | LPAR upat COMMA upats RPAR
