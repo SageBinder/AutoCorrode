@@ -29,9 +29,9 @@ ML\<open>
    dummy types and must be passed to Syntax.check_term exactly once by the command layer in the same
    context. Successful lowering preserves lexical scope and the existing shallow-embedding term
    shape; for syntax shared with the old frontend, callers may rely on alpha-identical checked
-   output after the documented administrative-let unfolding. Resolution and pattern-validation
-   failures are propagated with their source positions. The signature exposes no public types or
-   constructors.
+   output directly. The conformance command unfolds only the generated NAME_def before closing by
+   reflexivity. Resolution and pattern-validation failures are propagated with their source
+   positions. The signature exposes no public types or constructors.
 
    All lower_* functions, the recursive traversal order, the T/R/P aliases, and the division of work
    among helper functions are implementation details hidden by URUST_TRANSLATE. *)
