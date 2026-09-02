@@ -266,9 +266,8 @@ where
 
 named_theorems urust_matcher_evaluation
 named_theorems urust_matcher_conformance
-named_theorems urust_matcher_code
 
-lemmas urust_matcher_code_definitions [urust_matcher_code] =
+lemmas urust_matcher_normalization_defs =
   urust_lazy_conditional_def
   urust_matcher_fail_def
   urust_matcher_succeed_def

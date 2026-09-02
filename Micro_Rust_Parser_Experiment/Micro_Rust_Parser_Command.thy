@@ -11,11 +11,10 @@ begin
 
 section\<open> The command \<close>
 
-named_theorems urust_parser_definitions
-
 text\<open>
 \<open>urust_expr NAME src\<close> parses, elaborates, checks once, and defines \<open>NAME\<close>.
-It adds no attributes, keeping generated definitions out of the global simp set.
+The standard Isabelle definition mechanism supplies one default code equation, but the command
+adds no custom attributes and keeps generated definitions out of the global simp set.
 
 \<open>urust_expr_with_check NAME src\<close> additionally checks the resulting definition
 against the existing \<open>\<lbrakk>src\<rbrakk>\<close> frontend as a kernel-proved HOL
@@ -316,15 +315,13 @@ fun define_urust_result (binding, source) lthy =
   let
     val Checked_URust {term, translation} =
       elab_urust_result lthy source
+    val name = Binding.name_of binding
     val (definition, lthy') =
-      Local_Theory.define
-        ((binding, NoSyn),
-          ((Thm.def_binding binding,
-            [Code.singleton_default_equation_attrib,
-             Attrib.internal \<^here>
-               (K (Named_Theorems.add
-                 \<^named_theorems>\<open>urust_parser_definitions\<close>))]),
-           term)) lthy
+      Specification.definition
+        (SOME (binding, NONE, NoSyn)) [] []
+        ((Thm.def_binding binding, []),
+          Logic.mk_equals
+            (Free (name, fastype_of term), term)) lthy
   in ((definition, translation), lthy') end
 
 fun define_urust (binding, source) lthy =

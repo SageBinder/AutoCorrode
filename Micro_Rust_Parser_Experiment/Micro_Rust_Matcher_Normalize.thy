@@ -15,7 +15,7 @@ ML\<open>
 structure URust_Matcher_Normalize =
 struct
   val runtime_rules =
-    @{thms urust_matcher_code_definitions}
+    @{thms urust_matcher_normalization_defs}
 
   val basic_rules =
     @{thms

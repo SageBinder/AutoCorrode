@@ -893,37 +893,6 @@ ML_val\<open>
 
     val _ = List.app check_generated generated
 
-    val matcher_code =
-      Named_Theorems.get ctxt
-        \<^named_theorems>\<open>urust_matcher_code\<close>
-    val expected_matcher_code =
-      @{thms urust_matcher_code_definitions}
-    val _ =
-      audit_assert "urust_matcher_code has the wrong cardinality"
-        (length matcher_code = length expected_matcher_code)
-    val _ =
-      audit_assert "urust_matcher_code has the wrong theorem identity"
-        (eq_set Thm.eq_thm_prop
-          (matcher_code, expected_matcher_code))
-
-    val parser_definitions =
-      Named_Theorems.get ctxt
-        \<^named_theorems>\<open>urust_parser_definitions\<close>
-    val _ =
-      List.app
-        (fn constant =>
-          let
-            val definition = definition_theorem constant
-          in
-            audit_assert
-              ("parser definition collection omitted " ^
-                quote constant)
-              (length
-                (filter
-                  (Thm.eq_thm_prop o pair definition)
-                  parser_definitions) = 1)
-          end)
-        generated
   in
     val _ =
       writeln
@@ -959,9 +928,6 @@ ML_val\<open>
       end
 
     val before_inventory = URust_Inventory.counts thy
-    val before_definitions =
-      Named_Theorems.get ctxt
-        \<^named_theorems>\<open>urust_parser_definitions\<close>
     val before_code_equations =
       map (executable_equations ctxt) generated
 
@@ -987,9 +953,6 @@ ML_val\<open>
            if Exn.is_interrupt exn then Exn.reraise exn else ())
 
     val after_inventory = URust_Inventory.counts thy
-    val after_definitions =
-      Named_Theorems.get ctxt
-        \<^named_theorems>\<open>urust_parser_definitions\<close>
     val after_code_equations =
       map (executable_equations ctxt) generated
     val _ =
@@ -999,10 +962,6 @@ ML_val\<open>
       audit_assert "failed definition changed the parser inventory"
         (URust_Inventory.equal_counts
           before_inventory after_inventory)
-    val _ =
-      audit_assert "failed definition changed parser-definition state"
-        (eq_list Thm.eq_thm_prop
-          (before_definitions, after_definitions))
     val _ =
       audit_assert "failed definition changed default code equations"
         (eq_list

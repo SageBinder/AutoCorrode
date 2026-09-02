@@ -1,7 +1,7 @@
 (* Positive conformance against the inner-syntax frontend. Each `urust_expr_with_check` command
    defines its expression and proves kernel-checked HOL equality with `\<lbrakk> src \<rbrakk>`.
    The checker tries reflexivity before bounded matcher normalization and semantic equality rules.
-   Type annotations avoid hidden type variables that `Local_Theory.define` cannot expose cleanly. *)
+   Type annotations avoid hidden type variables that a generated constant cannot expose cleanly. *)
 
 theory Micro_Rust_Parser_Conformance
   imports Micro_Rust_Parser
