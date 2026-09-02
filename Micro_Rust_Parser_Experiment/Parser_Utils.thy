@@ -10,40 +10,183 @@ character-to-symbol map per source and use binary search for token positions. \<
 ML\<open>
 structure Parser_Lex_Util =
 struct
-  type position_map = {fallback : Position.T, spans : (int * Position.T) vector}
+  type position_map =
+    {fallback : Position.T,
+     starts : (int * Position.T) vector,
+     raw_length : int,
+     eof : Position.T}
 
-  fun inner_syms src =
-    let val syms = Input.source_explode src
-    in if length syms >= 2 then List.take (tl syms, length syms - 2) else syms end
+  fun content_source text range =
+    Input.source false text range
+
+  fun positioned_content_source text start =
+    content_source text
+      (Position.range (start, Position.symbol_explode text start))
+
+  fun text_source text =
+    content_source text Position.no_range
+
+  fun comparable_offsets (left, right) =
+    (case (Position.offset_of left, Position.offset_of right) of
+       (SOME left_offset, SOME right_offset) =>
+         SOME (left_offset = right_offset)
+     | _ => NONE)
+
+  fun cartouche_source token =
+    let
+      val content = Token.content_of token
+      val token_start = Token.pos_of token
+      val token_stop = #2 (Token.range_of [token])
+      val content_start =
+        Position.symbol_explode Symbol.open_ token_start
+      val content_stop =
+        Position.symbol_explode content content_start
+      val expected_token_stop =
+        Position.symbol_explode Symbol.close content_stop
+      val _ =
+        (case comparable_offsets
+            (expected_token_stop, token_stop) of
+           SOME false =>
+             error
+               ("cartouche content range does not match token range" ^
+                 Position.here token_start)
+         | _ => ())
+    in
+      content_source content
+        (Position.range (content_start, content_stop))
+    end
 
   fun make_position_map src =
     let
-      fun build _ [] = []
+      fun build offset [] = ([], offset)
         | build offset ((s, pos) :: rest) =
-            let val stop = offset + size s
-            in (stop, pos) :: build stop rest end
-    in {fallback = Input.pos_of src, spans = Vector.fromList (build 0 (inner_syms src))} end
+            let
+              val (entries, raw_length) =
+                build (offset + size s) rest
+            in ((offset, pos) :: entries, raw_length) end
+      val (entries, raw_length) =
+        build 0 (Input.source_explode src)
+    in
+      {fallback = Input.pos_of src,
+       starts = Vector.fromList entries,
+       raw_length = raw_length,
+       eof = #2 (Input.range_of src)}
+    end
 
-  fun fixed_pos ({fallback, spans} : position_map) yypos =
-    if Vector.length spans = 0 then fallback
+  fun fixed_pos
+      ({fallback, starts, raw_length, eof} : position_map)
+      yypos =
+    if yypos >= raw_length then eof
+    else if Vector.length starts = 0 then fallback
     else
       let
-        val target = yypos - 1
-        val n = Vector.length spans
+        val target = Int.max (0, yypos)
+        val n = Vector.length starts
         fun search lo hi =
-          if lo >= hi then lo
+          if lo + 1 >= hi then lo
           else
             let val mid = (lo + hi) div 2
-            in if target < #1 (Vector.sub (spans, mid))
-               then search lo mid
-               else search (mid + 1) hi
+            in
+              if #1 (Vector.sub (starts, mid)) <= target
+              then search mid hi
+              else search lo mid
             end
         val i = search 0 n
-      in #2 (Vector.sub (spans, Int.min (i, n - 1))) end
+      in #2 (Vector.sub (starts, i)) end
 
   fun text_range pos_map (yypos, text) =
     let val start = fixed_pos pos_map yypos
     in Position.range (start, Position.symbol_explode text start) end
+
+  fun source_line_column source position =
+    let
+      val symbols = Input.source_explode source
+      val target_offset = Position.offset_of position
+
+      fun at_target (_, symbol_position) =
+        (case (Position.offset_of symbol_position, target_offset) of
+           (SOME symbol_offset, SOME target) =>
+             symbol_offset = target
+         | _ => symbol_position = position)
+
+      fun prefix [] accumulated = rev accumulated
+        | prefix (symbol :: rest) accumulated =
+            if at_target symbol
+            then rev accumulated
+            else prefix rest (symbol :: accumulated)
+
+      fun advance [] line column = (line, column)
+        | advance ((symbol, _) :: rest) line column =
+            if symbol = "\n"
+            then advance rest (line + 1) 1
+            else advance rest line (column + 1)
+
+      val start_line =
+        the_default 1
+          (Position.line_of (Input.pos_of source))
+    in
+      advance (prefix symbols []) start_line 1
+    end
+
+  fun print_error source (message, start, stop) =
+    let
+      val position =
+        Position.range_position
+          (Position.range (start, stop))
+      val _ = Position.report position Markup.error
+      val (line, column) =
+        source_line_column source start
+    in
+      error
+        ("Parse Error at line " ^ string_of_int line ^
+         ", column " ^ string_of_int column ^ ": " ^
+         message ^ Position.here start)
+    end
+
+  fun parse_source
+      parse make_lexer get same_token eof source =
+    let
+      val input_text = Input.text_of source
+      val position_map = make_position_map source
+      val eof_position =
+        fixed_pos position_map (size input_text)
+
+      fun canonical_position position =
+        if position = Position.none
+        then eof_position
+        else position
+
+      fun invoke lexstream =
+        parse
+          (0, lexstream,
+           fn (message, start, stop) =>
+             print_error source
+               (message,
+                canonical_position start,
+                canonical_position stop),
+           ())
+
+      val parsed = Unsynchronized.ref false
+      fun input_string _ =
+        if !parsed then ""
+        else (parsed := true; input_text)
+
+      val lexer = make_lexer input_string
+      val dummy_eof =
+        eof (eof_position, eof_position)
+
+      fun loop lexer =
+        let
+          val (result, lexer') = invoke lexer
+          val (next_token, lexer'') = get lexer'
+        in
+          if same_token (next_token, dummy_eof)
+          then result
+          else loop lexer''
+        end
+    in
+      loop lexer
+    end
 
   fun report_range ((start, stop), markup, typ) =
     let val pos = Position.range_position (start, stop)
@@ -71,20 +214,115 @@ end
 
 ML_val\<open>
   val source_start = Position.make0 1 10 0 "" "" ""
-  val source_text = "\<open>a\<Rightarrow>b\<close>"
+  val source_text = "a\<Rightarrow>b"
   val source_stop = Position.symbol_explode source_text source_start
-  val source = Input.source true source_text (Position.range (source_start, source_stop))
+  val source =
+    Parser_Lex_Util.content_source source_text
+      (Position.range (source_start, source_stop))
   val pos_map = Parser_Lex_Util.make_position_map source
   val arrow = "\<Rightarrow>"
-  val (start, stop) = Parser_Lex_Util.text_range pos_map (2, arrow)
-  val following = Parser_Lex_Util.fixed_pos pos_map (2 + size arrow)
+  val (start, stop) = Parser_Lex_Util.text_range pos_map (1, arrow)
+  val following = Parser_Lex_Util.fixed_pos pos_map (1 + size arrow)
   val _ =
-    if Position.offset_of start = SOME 12 andalso
-       Position.end_offset_of start = SOME 13 andalso
-       Position.offset_of stop = SOME 13 andalso
-       Position.offset_of following = SOME 13
+    if Position.offset_of start = SOME 11 andalso
+       Position.end_offset_of start = SOME 12 andalso
+       Position.offset_of stop = SOME 12 andalso
+       Position.offset_of following = SOME 12 andalso
+       Position.offset_of
+         (Parser_Lex_Util.fixed_pos pos_map (size source_text)) =
+         Position.offset_of source_stop
     then ()
     else error "Parser_Lex_Util did not map raw lexer offsets to Isabelle-symbol ranges"
+\<close>
+
+ML_val\<open>
+  local
+    fun assert message condition =
+      if condition then ()
+      else error ("canonical parser source audit: " ^ message)
+
+    fun offset position =
+      the (Position.offset_of position)
+
+    val token_start =
+      Position.make0 4 20 0 "" "" ""
+    val content = "a\<Rightarrow>b"
+    val token_text =
+      Symbol.open_ ^ content ^ Symbol.close
+    val token =
+      (case Token.explode
+          Keyword.empty_keywords token_start token_text of
+         [single] => single
+       | _ => error "cartouche tokenization did not produce one token")
+    val source =
+      Parser_Lex_Util.cartouche_source token
+    val (source_content, source_position) =
+      Input.source_content source
+    val (content_start, content_stop) =
+      Input.range_of source
+    val position_map =
+      Parser_Lex_Util.make_position_map source
+    val arrow_start =
+      Parser_Lex_Util.fixed_pos position_map 1
+    val arrow_middle =
+      Parser_Lex_Util.fixed_pos position_map 2
+    val final_start =
+      Parser_Lex_Util.fixed_pos position_map
+        (1 + size "\<Rightarrow>")
+    val eof =
+      Parser_Lex_Util.fixed_pos position_map
+        (size content)
+    val _ =
+      assert "Token.content_of was not preserved exactly"
+        (Input.text_of source = content andalso
+         source_content = content)
+    val _ =
+      assert "canonical source remained delimited"
+        (not (Input.is_delimited source))
+    val _ =
+      assert "source_content did not report the first content symbol"
+        (offset source_position = offset content_start)
+    val _ =
+      assert "content range did not start after the opening delimiter"
+        (offset content_start = offset token_start + 1)
+    val _ =
+      assert "raw offset zero did not map to the first content symbol"
+        (offset
+          (Parser_Lex_Util.fixed_pos position_map 0) =
+          offset content_start)
+    val _ =
+      assert "multi-byte Isabelle symbol offsets drifted"
+        (offset arrow_start = offset content_start + 1 andalso
+         offset arrow_middle = offset arrow_start andalso
+         offset final_start = offset arrow_start + 1)
+    val _ =
+      assert "raw content length did not map to EOF"
+        (offset eof = offset content_stop)
+
+    fun audit_short_source text =
+      let
+        val start =
+          Position.make0 1 40 0 "" "" ""
+        val stop =
+          Position.symbol_explode text start
+        val short_source =
+          Parser_Lex_Util.positioned_content_source
+            text start
+        val short_map =
+          Parser_Lex_Util.make_position_map short_source
+      in
+        assert ("short source EOF drifted for " ^ quote text)
+          (offset
+            (Parser_Lex_Util.fixed_pos short_map
+              (size text)) =
+            offset stop)
+      end
+
+    val _ = audit_short_source "x"
+    val _ = audit_short_source "xy"
+  in
+    val _ = ()
+  end
 \<close>
 
 ML\<open>

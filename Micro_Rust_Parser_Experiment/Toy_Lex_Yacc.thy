@@ -65,7 +65,10 @@ fun take_aq () =
 
 (* Keep generated Tokens constructors local; share position conversion. Identifiers are marked after
    their role is known. *)
-val pos_map = ref (Parser_Lex_Util.make_position_map (Input.string ""))
+val pos_map =
+  ref
+    (Parser_Lex_Util.make_position_map
+      (Parser_Lex_Util.text_source ""))
 fun set source ctxt =
   (Isabelle_lex_yacc.set source ctxt;
    pos_map := Parser_Lex_Util.make_position_map source;
@@ -194,8 +197,23 @@ end
 
 text\<open> Only parsing uses the shared mutex; term checking and definition remain parallel. \<close>
 ML\<open>
+fun parse_toy_source ctxt source =
+  let
+    val _ =
+      Toy.ToyLex.UserDeclarations.set source ctxt
+  in
+    Parser_Lex_Util.parse_source
+      Toy.ToyParser.parse
+      Toy.ToyParser.makeLexer
+      Toy.ToyParser.Stream.get
+      Toy.ToyParser.sameToken
+      Toy.ToyLrVals.Tokens.EOF
+      source
+  end
+
 fun define_toy (binding, source) lthy =
-  (case Parser_Utils.with_parser_lock (fn () => Toy.parse_source lthy source) of
+  (case Parser_Utils.with_parser_lock
+      (fn () => parse_toy_source lthy source) of
      SOME ast =>
        let
          val t = Syntax.check_term lthy (Toy_Translate.mk_closed lthy ast)
@@ -206,7 +224,10 @@ fun define_toy (binding, source) lthy =
 
 val _ = Outer_Syntax.local_theory \<^command_keyword>\<open>toy_def\<close>
           "Parse a Toy expression (unary minus, calls) and define it as a HOL int term"
-          (Parse.binding -- Parse.input Parse.cartouche >> define_toy)
+          (Parse.binding --
+            (Parse.token Parse.cartouche >>
+              Parser_Lex_Util.cartouche_source) >>
+            define_toy)
 \<close>
 
 text\<open> Yacc precedence resolves binary tiers and unary \<open>-\<close>; lookahead distinguishes variables from
@@ -304,7 +325,8 @@ local
 in
   fun toy_demo ctxt source =
     let val src = #1 (Input.source_content source) in
-      (case Parser_Utils.with_parser_lock (fn () => Toy.parse_source ctxt source) of
+      (case Parser_Utils.with_parser_lock
+          (fn () => parse_toy_source ctxt source) of
          NONE     => Pretty.writeln (Pretty.str ("input : " ^ src ^ "   <parse failed>"))
        | SOME ast =>
            let val t = Syntax.check_term ctxt (Toy_Translate.mk_closed ctxt ast) in
@@ -321,7 +343,9 @@ text\<open> A diag command wrapping toy_demo: parse the cartouche and print inpu
 ML\<open>
 val _ = Outer_Syntax.command \<^command_keyword>\<open>toy_demo_inspect\<close>
           "Parse a Toy expression and print its input string, SML AST, and HOL term"
-          (Parse.input Parse.cartouche >> (fn source =>
+          ((Parse.token Parse.cartouche >>
+              Parser_Lex_Util.cartouche_source) >>
+            (fn source =>
              Toplevel.keep (fn st =>
                toy_demo (Toplevel.context_of st) source)))
 \<close>

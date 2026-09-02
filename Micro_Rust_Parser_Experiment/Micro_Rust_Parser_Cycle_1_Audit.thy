@@ -42,7 +42,7 @@ ML_val\<open>
       else error ("Cycle 1 pattern audit: " ^ message)
 
     fun checked source =
-      elab_urust ctxt (Input.string source)
+      elab_urust ctxt (Parser_Lex_Util.text_source source)
 
     fun antiquotation source =
       "\<llangle>" ^ source ^ "\<rrangle>"
@@ -268,7 +268,7 @@ ML_val\<open>
       else error ("Cycle 1 while-let audit: " ^ message)
 
     fun checked source =
-      elab_urust ctxt (Input.string source)
+      elab_urust ctxt (Parser_Lex_Util.text_source source)
 
     fun antiquotation source =
       "\<llangle>" ^ source ^ "\<rrangle>"

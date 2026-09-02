@@ -195,7 +195,7 @@ struct
 
   fun parse_source ctxt source =
     let val _ = URust.URustLex.UserDeclarations.set source ctxt in
-      Isabelle_lex_yacc.parse_source
+      Parser_Lex_Util.parse_source
         Source_Parser.parse Source_Parser.makeLexer
         Source_Parser.Stream.get Source_Parser.sameToken
         URust.URustLrVals.Tokens.EOF source
@@ -208,7 +208,8 @@ local
   val surrounding = "/tmp/TEQEQ/RPAR"
   val source_pos = Position.line_file 41 surrounding
   val source =
-    Input.source true "1 == 2 == 3" (Position.range (source_pos, source_pos))
+    Parser_Lex_Util.positioned_content_source
+      "1 == 2 == 3" source_pos
   val actual =
     (case
         Exn.result
