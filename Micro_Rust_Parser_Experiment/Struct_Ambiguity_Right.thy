@@ -5,4 +5,7 @@ begin
 datatype struct_ambiguity_right =
   AmbiguousStruct (ambiguous_field: nat)
 
+datatype nullary_ambiguity_right =
+  AmbiguousNullary
+
 end

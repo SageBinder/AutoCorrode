@@ -1474,9 +1474,13 @@ val _ =
     val fields =
       [URust_AST.SF_Field ("adv_rec_left", Position.none, wildcard),
        URust_AST.SF_Field ("adv_rec_right", Position.none, wildcard)]
+    val resolver =
+      URust_Resolution.make_constructor_resolver
+        \<^context> Position.none
   in
     (case URust_Resolution.resolve_struct_pattern
-        \<^context> ("adv_record_fixture", Position.none, fields) of
+        \<^context> resolver
+          ("adv_record_fixture", Position.none, fields) of
        URust_Resolution.Resolved_Record_Struct (record_name, ordered) =>
          if Long_Name.base_name record_name = "adv_record_fixture" andalso length ordered = 2
          then ()

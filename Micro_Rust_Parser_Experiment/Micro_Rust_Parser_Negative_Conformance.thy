@@ -519,6 +519,91 @@ new_urust_rejects
   \<comment> \<open> [DIVERGENT] the existing frontend silently picks one of two same-basename constructors.
        The new parser rejects and reports their qualified identities instead. \<close>
 
+ML\<open>
+local
+  val left_struct =
+    "Struct_Ambiguity_Left.struct_ambiguity_left.AmbiguousStruct"
+  val right_struct =
+    "Struct_Ambiguity_Right.struct_ambiguity_right.AmbiguousStruct"
+  val left_nullary =
+    "Struct_Ambiguity_Left.nullary_ambiguity_left.AmbiguousNullary"
+  val right_nullary =
+    "Struct_Ambiguity_Right.nullary_ambiguity_right.AmbiguousNullary"
+
+  fun assert message condition =
+    if condition then () else error message
+
+  fun expect_ambiguity label source identities =
+    (case Exn.result
+        (fn () =>
+          elab_urust \<^context> (Input.string source)) () of
+       Exn.Res _ =>
+         error (label ^ " unexpectedly resolved an ambiguous constructor")
+     | Exn.Exn exn =>
+         if Exn.is_interrupt exn then Exn.reraise exn
+         else
+           let val message = Runtime.exn_message exn in
+             assert (label ^ " did not report ambiguity")
+               (String.isSubstring "is ambiguous; candidates:" message);
+             List.app
+               (fn identity =>
+                 assert
+                   (label ^ " omitted candidate " ^ quote identity)
+                   (String.isSubstring identity message))
+               identities
+           end)
+
+  val resolver =
+    URust_Resolution.make_constructor_resolver
+      \<^context> Position.none
+
+  fun qualified identity =
+    (case URust_Resolution.resolve_constructor resolver
+        (identity, Position.none) of
+       SOME info => info
+     | NONE =>
+         error
+           ("qualified constructor did not resolve: " ^
+             quote identity))
+
+  val struct_info = qualified left_struct
+  val nullary_info = qualified left_nullary
+
+  val _ =
+    assert "qualified constructor identity changed"
+      (URust_Resolution.constructor_identity struct_info =
+        left_struct)
+  val _ =
+    assert "qualified positional constructor arity changed"
+      (URust_Resolution.constructor_arity struct_info = 1)
+  val _ =
+    assert "qualified nullary constructor arity changed"
+      (URust_Resolution.constructor_arity nullary_info = 0)
+  val _ =
+    (case URust_Resolution.constructor_family struct_info of
+       SOME (family, members) =>
+         (assert "qualified constructor family changed"
+            (family =
+              "Struct_Ambiguity_Left.struct_ambiguity_left");
+          assert "qualified constructor family members changed"
+            (map_filter
+              (fn Const (name, _) => SOME name | _ => NONE)
+              members = [left_struct]))
+     | NONE =>
+         error "qualified constructor lost family metadata")
+
+  val _ =
+    expect_ambiguity "positional constructor ambiguity"
+      "match_case \<llangle>undefined\<rrangle> { AmbiguousStruct(x) \<Rightarrow> x }"
+      [left_struct, right_struct]
+  val _ =
+    expect_ambiguity "nullary constructor ambiguity"
+      "match_case \<llangle>undefined\<rrangle> { AmbiguousNullary \<Rightarrow> \<llangle>True\<rrangle> }"
+      [left_nullary, right_nullary]
+in
+end
+\<close>
+
 subsection\<open> Cycle 1 source-diagnostic isolation (C1-I7/C1-I8) \<close>
 
 text\<open>

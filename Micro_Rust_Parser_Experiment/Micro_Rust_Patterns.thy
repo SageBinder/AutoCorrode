@@ -46,7 +46,8 @@ sig
   val prepared_switch_body: prepared_switch_arm -> URust_AST.ur_expr
 
   val prepare_case_arm:
-    Proof.context ->
+    URust_Resolution.constructor_resolver ->
+      Proof.context ->
       URust_Resolution.environment ->
       URust_AST.ur_arm ->
       prepared_case_arm
@@ -325,7 +326,7 @@ struct
           string_of_int actual ^ Position.here pos)
     end
 
-  fun resolve_pattern ctxt policy pattern =
+  fun resolve_pattern resolver ctxt policy pattern =
     let
       fun resolve source_pattern =
         (case source_pattern of
@@ -334,7 +335,8 @@ struct
              (case policy of
                 Always_Binder => Resolved_Bind (binding name pos)
               | _ =>
-                  (case R.resolve_constructor ctxt name of
+                  (case R.resolve_constructor resolver
+                      (name, pos) of
                      NONE => Resolved_Bind (binding name pos)
                    | SOME info =>
                        (check_constructor_arity name pos info [];
@@ -348,7 +350,8 @@ struct
               | _ => Resolved_Value payload)
          | P_Literal payload => Resolved_Value payload
          | P_Constr (name, pos, arguments) =>
-              (case R.resolve_constructor ctxt name of
+              (case R.resolve_constructor resolver
+                  (name, pos) of
                 NONE =>
                   error ("urust_expr: `" ^ name ^
                     "` is not a known constructor" ^ Position.here pos)
@@ -389,7 +392,8 @@ struct
                        resolve_items seen_rest rest
              in Resolved_Slice (resolve_items false items, pos) end
          | P_Struct (name, pos, fields) =>
-             (case R.resolve_struct_pattern ctxt (name, pos, fields) of
+             (case R.resolve_struct_pattern ctxt resolver
+                 (name, pos, fields) of
                 R.Resolved_Constructor_Struct (info, ordered) =>
                   let
                     val _ = R.report_constructor ctxt pos info
@@ -589,7 +593,10 @@ struct
         (case site of
            For_Binder => Resolve_Constructor_Binding
          | _ => Always_Binder)
-      val resolved = resolve_pattern ctxt policy pattern
+      val resolver =
+        R.make_constructor_resolver ctxt (position pattern)
+      val resolved =
+        resolve_pattern resolver ctxt policy pattern
       val signatures = collect_bindings resolved
       val rhs_mode =
         (case site of
@@ -816,10 +823,11 @@ struct
          error ("urust_expr: internal unexpanded resolved or-pattern" ^
            Position.here pos))
 
-  fun prepare_case_arm ctxt environment
+  fun prepare_case_arm resolver ctxt environment
       (UR_Arm (pattern, guard, body)) =
     let
-      val resolved = resolve_pattern ctxt Resolve_Constructor_Case pattern
+      val resolved =
+        resolve_pattern resolver ctxt Resolve_Constructor_Case pattern
       val signatures = collect_bindings resolved
       val arm_environment =
         R.allocate_locals ctxt environment signatures
