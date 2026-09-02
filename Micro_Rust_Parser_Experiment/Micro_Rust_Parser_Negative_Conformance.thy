@@ -78,7 +78,7 @@ text\<open>
 Grammar \<open>%nonassoc\<close> rejects chained comparisons, matching Rust and the frontend.
 \<close>
 
-urust_expr_rejects \<open> 1 == 2 == 3 \<close> \<open> syntax error found at TEQEQ \<close>
+urust_expr_rejects \<open> 1 == 2 == 3 \<close> \<open> syntax error found at == \<close>
   \<comment> \<open> [FIDELITY] chained \<open>==\<close>; the frontend rejects it with an inner-syntax error. \<close>
 
 urust_expr_rejects \<open> 1 < 2 < 3 \<close> \<open> syntax error found at TLT \<close>
@@ -173,12 +173,12 @@ urust_expr_rejects \<open> 0xff_ \<close> \<open> unsupported integer-literal su
 
 urust_expr_rejects
   \<open> match_switch \<llangle>1 :: nat\<rrangle> { 1u8 \<Rightarrow> (), _ \<Rightarrow> () } \<close>
-  \<open> NUMSFX TARROW \<close>
+  \<open> NUMSFX => \<close>
   \<comment> \<open> [FIDELITY] suffixed decimal literals remain outside the pattern grammar. \<close>
 
 urust_expr_rejects
   \<open> match_switch \<llangle>1 :: nat\<rrangle> { 0xffu8 \<Rightarrow> (), _ \<Rightarrow> () } \<close>
-  \<open> NUMSFX TARROW \<close>
+  \<open> NUMSFX => \<close>
   \<comment> \<open> [FIDELITY] suffixed hexadecimal literals preserve the same pattern boundary. \<close>
 
 section\<open> Patterns \<close>
@@ -210,6 +210,10 @@ new_urust_rejects
 
 new_urust_rejects
   \<open> for (x, x) in \<llangle>[(1 :: nat, (2 :: nat, TNil))]\<rrangle> { () } \<close>
+  \<open> duplicate pattern binder "x" \<close>
+
+new_urust_rejects
+  \<open> let mut (x, x) = \<llangle>(1 :: nat, (2 :: nat, TNil))\<rrangle>; x \<close>
   \<open> duplicate pattern binder "x" \<close>
 
 new_urust_rejects
@@ -301,6 +305,11 @@ urust_expr_rejects
   \<comment> \<open> [FIDELITY] reference-pattern syntax has no current binding semantics. \<close>
 
 new_urust_rejects
+  \<open> const &x = \<llangle>1 :: nat\<rrangle>; x \<close>
+  \<open> reference patterns are not implemented \<close>
+  \<comment> \<open> [DIVERGENT] const bindings share the same non-erasing reference-pattern gate. \<close>
+
+new_urust_rejects
   \<open> match \<llangle>1 :: nat\<rrangle> { &1 \<Rightarrow> \<llangle>True\<rrangle>, _ \<Rightarrow> \<llangle>False\<rrangle> } \<close>
   \<open> reference patterns are not implemented \<close>
   \<comment> \<open> [DIVERGENT] the old frontend erases this reference-pattern syntax. \<close>
@@ -329,12 +338,12 @@ urust_expr_rejects
   \<open> unsupported match_switch pattern \<close>
   \<comment> \<open> [FIDELITY] value-antiquotation patterns require equality-guard case lowering. \<close>
 
-urust_expr_rejects \<open> (\<llangle>1 :: nat\<rrangle>,) \<close> \<open> syntax error found at RPAR \<close>
+urust_expr_rejects \<open> (\<llangle>1 :: nat\<rrangle>,) \<close> \<open> syntax error found at ) \<close>
   \<comment> \<open> [FIDELITY] singleton tuples are outside the current frontend tuple grammar. \<close>
 
 urust_expr_rejects
   \<open> let (x,) = \<llangle>(1 :: nat, TNil)\<rrangle>; x \<close>
-  \<open> syntax error: deleting  RPAR TEQ \<close>
+  \<open> syntax error: deleting  ) TEQ \<close>
   \<comment> \<open> [FIDELITY] a terminal comma does not turn a grouped singleton pattern into a tuple. \<close>
 
 urust_expr_rejects
@@ -344,12 +353,12 @@ urust_expr_rejects
 
 urust_expr_rejects
   \<open> let (x, y,,) = \<llangle>(1 :: nat, (2 :: nat, TNil))\<rrangle>; x \<close>
-  \<open> syntax error: deleting  COMMA RPAR TEQ \<close>
+  \<open> syntax error: deleting  COMMA ) TEQ \<close>
   \<comment> \<open> [FIDELITY] tuple-pattern lists likewise reject an empty element after the terminal comma. \<close>
 
 urust_expr_rejects
   \<open> match_case \<llangle>Some (1 :: nat)\<rrangle> { Some(x,,) \<Rightarrow> x, None \<Rightarrow> 0 } \<close>
-  \<open> syntax error: deleting  COMMA RPAR TARROW \<close>
+  \<open> syntax error: deleting  COMMA ) => \<close>
   \<comment> \<open> [FIDELITY] constructor argument lists reject doubled terminal commas. \<close>
 
 urust_expr_rejects
@@ -359,12 +368,12 @@ urust_expr_rejects
 
 urust_expr_rejects
   \<open> match \<llangle>[1 :: nat, 2]\<rrangle> { [x, y,,] \<Rightarrow> x, _ \<Rightarrow> 0 } \<close>
-  \<open> syntax error: deleting  COMMA TRBRACK TARROW \<close>
+  \<open> syntax error: deleting  COMMA TRBRACK => \<close>
   \<comment> \<open> [FIDELITY] slice-pattern lists reject doubled terminal commas. \<close>
 
 urust_expr_rejects
   \<open> match \<llangle>NegativeStruct 1 2\<rrangle> { NegativeStruct { negative_left: x, negative_right: y,, } \<Rightarrow> x } \<close>
-  \<open> syntax error: deleting  COMMA TRBRACE TARROW \<close>
+  \<open> syntax error: deleting  COMMA TRBRACE => \<close>
   \<comment> \<open> [FIDELITY] struct-field lists reject an empty field after the terminal comma. \<close>
 
 urust_expr_rejects \<open> let () = (); () \<close> \<open> syntax error \<close>
@@ -509,6 +518,73 @@ new_urust_rejects
   \<open> Struct_Ambiguity_Left.struct_ambiguity_left.AmbiguousStruct \<close>
   \<comment> \<open> [DIVERGENT] the existing frontend silently picks one of two same-basename constructors.
        The new parser rejects and reports their qualified identities instead. \<close>
+
+subsection\<open> Cycle 1 source-diagnostic isolation (C1-I7/C1-I8) \<close>
+
+text\<open>
+Representative source failures must be raised before generated HOL reaches type checking. In
+particular, diagnostics may not expose administrative names, generated case clauses, old internal
+numeric-pattern wording, or synthetic positionless fallbacks.
+\<close>
+
+ML\<open>
+local
+  val forbidden =
+    ["_urust_local_", "_urust_case_", "case_elem", "case_abs",
+     "clauses are redundant", "numeric pattern in match_case", "Position.none"]
+
+  fun expect_clean_rejection source required =
+    (case Exn.result
+        (fn () => elab_urust \<^context> (Input.string source)) () of
+       Exn.Res term =>
+         error ("Cycle 1 diagnostic audit expected rejection, but got " ^
+           Syntax.string_of_term \<^context> term)
+     | Exn.Exn exn =>
+         if Exn.is_interrupt exn then Exn.reraise exn
+         else
+           let
+             val message = Runtime.exn_message exn
+             val _ =
+               List.app
+                 (fn expected =>
+                   if String.isSubstring expected message then ()
+                   else
+                     error ("Cycle 1 diagnostic audit expected " ^
+                       quote expected ^ ", but got " ^ quote message))
+                 required
+             val _ =
+               List.app
+                 (fn leaked =>
+                   if String.isSubstring leaked message
+                   then
+                     error ("Cycle 1 diagnostic audit leaked " ^
+                       quote leaked ^ " in " ^ quote message)
+                   else ())
+                 forbidden
+           in () end)
+
+  val _ =
+    expect_clean_rejection
+      "let (x, x) = \<llangle>(1 :: nat, (2 :: nat, TNil))\<rrangle>; x"
+      ["duplicate pattern binder \"x\"", "The original binder is here"]
+  val _ =
+    expect_clean_rejection
+      "match_case \<llangle>Some (1 :: nat)\<rrangle> { Some(x) | None \<Rightarrow> x }"
+      ["or-pattern alternative is missing binder \"x\""]
+  val _ =
+    expect_clean_rejection
+      "match_case \<llangle>Some (1 :: nat)\<rrangle> { Some(&x) \<Rightarrow> x, _ \<Rightarrow> 0 }"
+      ["reference patterns are not implemented"]
+  val _ =
+    expect_clean_rejection
+      "match_case \<llangle>0 :: nat\<rrangle> { 0 \<Rightarrow> True, _ \<Rightarrow> False }"
+      ["numeric patterns are not supported in case patterns"]
+  val _ =
+    expect_clean_rejection
+      "for None in \<llangle>[None :: nat option]\<rrangle> { () }"
+      ["unsupported or refutable pattern in a `for` binder position"]
+in end
+\<close>
 
 section\<open> Calls \<close>
 
@@ -681,6 +757,14 @@ new_urust_rejects
   \<comment> \<open> [DIVERGENT] nested while-let reference patterns are rejected before case lowering. \<close>
 
 new_urust_rejects
+  \<open>
+    #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let Some(&value) =
+      \<llangle>Some (1 :: nat)\<rrangle> { () }
+  \<close>
+  \<open> reference patterns are not implemented \<close>
+  \<comment> \<open> [DIVERGENT] recursive while-let traversal rejects a borrow below a constructor. \<close>
+
+new_urust_rejects
   \<open> for value in \<llangle>1 :: nat\<rrangle> .. \<llangle>3 :: nat\<rrangle> { () } \<close>
   \<open> TDOTDOT \<close>
   \<comment> \<open> [DIVERGENT] range expressions remain deferred even though \<open>for\<close> itself is supported. \<close>
@@ -713,18 +797,18 @@ new_urust_rejects
 
 urust_expr_rejects
   \<open> #[fuel(\<epsilon>\<open>1 :: nat\<close>)] loop { () } == () \<close>
-  \<open> TEQEQ \<close>
+  \<open> syntax error found at == \<close>
   \<comment> \<open> [FIDELITY] a fueled loop needs parentheses in binary operand position. \<close>
 
 urust_expr_rejects
   \<open> for value in \<llangle>[1 :: nat]\<rrangle> { () } == () \<close>
-  \<open> syntax error found at TEQEQ \<close>
+  \<open> syntax error found at == \<close>
   \<comment> \<open> [FIDELITY] a bare \<open>for\<close> loop is not a binary operand. \<close>
 
 urust_expr_rejects
   \<open> #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let Some(value) =
     \<llangle>Some (1 :: nat)\<rrangle> { () } == () \<close>
-  \<open> syntax error found at TEQEQ \<close>
+  \<open> syntax error found at == \<close>
   \<comment> \<open> [FIDELITY] a bare \<open>while let\<close> loop is not a binary operand. \<close>
 
 urust_expr_rejects
@@ -778,13 +862,18 @@ in end
 
 urust_expr_rejects
   \<open> match_case true { \<epsilon>\<open>Bool_Type.true\<close> \<Rightarrow> () } \<close>
-  \<open> EXPRAQ TARROW \<close>
+  \<open> EXPRAQ => \<close>
   \<comment> \<open> [FIDELITY] expression antiquotation remains expression-only. \<close>
 
 urust_expr_rejects \<open> 1 @ 2 \<close> \<open> syntax error found at TAT \<close>
   \<comment> \<open> [FIDELITY] \<open>@\<close> is pattern-only; expression position rejects it after lexing. \<close>
 
-urust_expr_rejects \<open> { () \<close> \<open> syntax error found at EOF \<close>
+urust_expr_rejects
+  \<open> match true { true => => () } \<close>
+  \<open> syntax error: deleting  => LPAR ) \<close>
+  \<comment> \<open> [FIDELITY] generated ML-Yacc arrow names are rendered as their source spelling. \<close>
+
+urust_expr_rejects \<open> { () \<close> \<open> syntax error found at end of input \<close>
   \<comment> \<open> [FIDELITY] unbalanced brace -- input must be consumed to EOF by a complete derivation. \<close>
 
 urust_expr_rejects \<open> { ; } \<close> \<open> syntax error found at TSEMI \<close>

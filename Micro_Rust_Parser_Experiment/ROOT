@@ -19,6 +19,7 @@ session Micro_Rust_Parser_Experiment = HOL +
     Toy_Lex_Yacc
     Micro_Rust_Parser_AST
     Micro_Rust_Parser_Grammar
+    Micro_Rust_Diagnostics
     Micro_Rust_Elab_Terms
     Micro_Rust_Resolution
     Micro_Rust_Patterns

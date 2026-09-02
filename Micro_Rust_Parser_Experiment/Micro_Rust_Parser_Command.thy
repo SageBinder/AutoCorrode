@@ -1,6 +1,6 @@
 theory Micro_Rust_Parser_Command
   imports
-    Micro_Rust_Parser_Grammar
+    Micro_Rust_Diagnostics
     Micro_Rust_Translate
   keywords
     "urust_expr" :: thy_decl
@@ -32,7 +32,11 @@ ML\<open>
    check_term are pure w.r.t. those, and holding the lock across them would serialize the (slower)
    type-checking of every uRust command theory-wide. *)
 fun elab_urust lthy source : term =
-  (case Parser_Utils.with_parser_lock (fn () => URust.parse_source lthy source) of
+  (case
+      (Parser_Utils.with_parser_lock
+        (fn () => URust.parse_source lthy source)
+       handle ERROR message =>
+         error (URust_Diagnostics.humanize_parse_error message)) of
      SOME ast => Syntax.check_term lthy (URust_Translate.mk_closed lthy ast)
    | NONE => error ("urust_expr: empty expression" ^ Position.here (Input.pos_of source)))
 
