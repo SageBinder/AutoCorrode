@@ -810,6 +810,103 @@ end
 no_adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
 
 
+section\<open> Bounded ranges \<close>
+
+text\<open>
+Exclusive and inclusive ranges sit between logical disjunction and assignment.
+They lower through \<open>funcall2 range_new\<close> and \<open>funcall2 range_eq_new\<close>;
+range iteration reuses the existing \<open>into_iter\<close> overload.
+\<close>
+
+context
+  fixes lower upper :: \<open>32 word\<close>
+begin
+
+urust_expr_with_check range_exclusive \<open> lower..upper \<close>
+
+urust_expr_with_check range_inclusive \<open> lower..=upper \<close>
+
+urust_expr_with_check range_operator_precedence
+  \<open> lower + upper..=upper * lower \<close>
+
+urust_expr_with_check range_binding_capture
+  \<open> let captured = upper; lower..captured \<close>
+
+urust_expr_with_check range_method
+  \<open> let bounded = lower..=upper; bounded.is_empty() \<close>
+
+urust_expr_with_check range_for
+  \<open> for value in lower..=upper { () } \<close>
+
+end
+
+
+section\<open> Array literals and indexing \<close>
+
+subsection\<open> Array literals \<close>
+
+urust_expr_with_check array_empty \<open> [] \<close>
+
+urust_expr_with_check array_singleton
+  \<open> [\<llangle>1 :: 32 word\<rrangle>] \<close>
+
+urust_expr_with_check array_multiple
+  \<open> [\<llangle>1 :: 32 word\<rrangle>, \<llangle>2 :: 32 word\<rrangle>, \<llangle>3 :: 32 word\<rrangle>] \<close>
+
+urust_expr_with_check array_nested
+  \<open> [[\<llangle>1 :: 32 word\<rrangle>], [\<llangle>2 :: 32 word\<rrangle>, \<llangle>3 :: 32 word\<rrangle>]] \<close>
+
+urust_expr_with_check array_lexical_capture
+  \<open> let element = \<llangle>7 :: 32 word\<rrangle>; [element, element] \<close>
+
+text\<open>
+The current frontend treats direct immutable and mutable borrows of array
+literals as list-literal sugar, so both operators erase before shallow lowering.
+\<close>
+
+urust_expr_with_check array_borrow_erased
+  \<open> &[\<llangle>1 :: 32 word\<rrangle>, \<llangle>2 :: 32 word\<rrangle>] \<close>
+
+urust_expr_with_check array_mut_borrow_erased
+  \<open> & mut [] \<close>
+
+subsection\<open> Value indexing and postfix composition \<close>
+
+datatype_record parser_index_packet =
+  parser_index_packet_values :: \<open>32 word list\<close>
+micro_rust_record parser_index_packet
+  (parser_index_packet_values = "values")
+
+context
+  fixes xs :: \<open>32 word list\<close>
+    and xss :: \<open>32 word list list\<close>
+    and packet :: parser_index_packet
+    and packets :: \<open>postfix_outer list\<close>
+begin
+
+urust_expr_with_check index_scalar \<open> xs[0_usize] \<close>
+
+urust_expr_with_check index_range_slice
+  \<open> xs[0_usize..2_usize] \<close>
+
+urust_expr_with_check index_range_then_scalar
+  \<open> xs[0_usize..2_usize][1_usize] \<close>
+
+urust_expr_with_check index_chain
+  \<open> xss[0_usize][1_usize] \<close>
+
+urust_expr_with_check index_field_then_index
+  \<open> packet.values[0_usize] \<close>
+
+urust_expr_with_check index_then_field
+  \<open> packets[0_usize].inner.value \<close>
+
+urust_expr_with_check index_lexical_capture
+  \<open> let offset = \<llangle>0 :: 64 word\<rrangle>; xs[offset] \<close>
+
+end
+
+
 section\<open> Explicit places and simple assignment \<close>
 
 definition parser_update_fixture ::
@@ -872,6 +969,18 @@ urust_expr_with_check assign_lexical_shadow
 end
 
 urust_expr_with_check assign_notation_target \<open> assignmentPlace = \<llangle>7 :: 32 word\<rrangle> \<close>
+
+subsection\<open> Indexed places \<close>
+
+context
+  fixes references :: \<open>(unit, unit, 32 word) Global_Store.ref list\<close>
+    and offset :: \<open>64 word\<close>
+    and rhs :: \<open>32 word\<close>
+begin
+
+urust_expr_with_check assign_index \<open> references[offset] = rhs \<close>
+
+end
 
 subsection\<open> Associativity and composition \<close>
 
@@ -952,6 +1061,28 @@ urust_expr_with_check compound_block_rhs \<open> r ^= { rhs } \<close>
 end
 
 context
+  fixes references :: \<open>(unit, unit, 32 word) Global_Store.ref list\<close>
+    and offset :: \<open>64 word\<close>
+    and rhs :: \<open>32 word\<close>
+begin
+
+urust_expr_with_check compound_index_add \<open> references[offset] += rhs \<close>
+
+urust_expr_with_check compound_index_sub \<open> references[offset] -= rhs \<close>
+
+urust_expr_with_check compound_index_mul \<open> references[offset] *= rhs \<close>
+
+urust_expr_with_check compound_index_mod \<open> references[offset] %= rhs \<close>
+
+urust_expr_with_check compound_index_and \<open> references[offset] &= rhs \<close>
+
+urust_expr_with_check compound_index_or \<open> references[offset] |= rhs \<close>
+
+urust_expr_with_check compound_index_xor \<open> references[offset] ^= rhs \<close>
+
+end
+
+context
   fixes r :: \<open>(unit, unit, 32 word) Global_Store.ref\<close>
     and shift :: \<open>64 word\<close>
 begin
@@ -959,6 +1090,19 @@ begin
 urust_expr_with_check compound_shift_left \<open> r <<= shift \<close>
 
 urust_expr_with_check compound_shift_right \<open> r >>= shift \<close>
+
+end
+
+context
+  fixes references :: \<open>(unit, unit, 32 word) Global_Store.ref list\<close>
+    and offset shift :: \<open>64 word\<close>
+begin
+
+urust_expr_with_check compound_index_shift_left
+  \<open> references[offset] <<= shift \<close>
+
+urust_expr_with_check compound_index_shift_right
+  \<open> references[offset] >>= shift \<close>
 
 end
 

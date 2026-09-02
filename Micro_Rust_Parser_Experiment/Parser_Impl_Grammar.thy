@@ -272,10 +272,12 @@ yacc_definitions\<open>
 (* Operator precedence, loosest -> tightest (the frontend's infix priorities). Return is below
    with-block expressions, so `return { e }` takes the block as its operand instead of becoming an
    operandless return followed by a block statement. Comparisons are non-associative (Rust rejects
-   `a == b == c`). Reference prefixes and `!` use structural tiers below; these directives keep the
-   ambiguous `uexp OP uexp` productions conflict-free. *)
+   `a == b == c`). Ranges and assignment use structural tiers below. Reference prefixes and `!` use
+   structural tiers too; these directives keep the ambiguous `uexp OP uexp` productions
+   conflict-free. *)
 %right TRETURN
-%right TIF TLBRACE TUNSAFE TWHILE TLOOP TFOR
+%right TIF TLBRACE TLBRACK TUNSAFE TWHILE TLOOP TFOR
+%nonassoc TDOTDOT TDOTDOTEQ
 %left TBARBAR
 %left TAMPAMP
 %nonassoc TEQEQ TNE TLT TLE TGT TGE
@@ -287,7 +289,6 @@ yacc_definitions\<open>
 %left TPLUS TMINUS
 %left TSTAR TSLASH TPERCENT
 %right TBANG
-%nonassoc TDOTDOT TDOTDOTEQ
 
 %term NUM of string | NUMSFX of string | STRING of string | IDENT of string | LPAR | RPAR
     | VALAQ of Input.source | EXPRAQ of Input.source
@@ -307,6 +308,7 @@ yacc_definitions\<open>
        | uval of URust_AST.ur_expr
        | uassign of URust_AST.ur_expr
        | uassignop of URust_AST.assignop * Position.T
+       | urange of URust_AST.ur_expr
        | uexp of URust_AST.ur_expr
        | urefprefix of URust_AST.ur_expr
        | unotprefix of URust_AST.ur_expr
@@ -370,11 +372,12 @@ yacc_rules\<open>
        | usemi_free_value %prec TIF (usemi_free_value)
        | umatchsw (umatchsw)
        | umatchcase (umatchcase)
-  (* Assignment is below every pure operator and recurses through its own tier on the right. Blocks
-     remain ordinary expression atoms, while lower-priority `if`/`match` forms require parentheses on
-     the RHS, matching the frontend's priority-40 boundary. The LHS crosses expr_to_place exactly once. *)
-  uassign : uexp (uexp)
-          | uexp uassignop uassign (mk_assign uassignop uexp uassign)
+  (* Assignment is below ranges and every pure operator and recurses through its own tier on the right.
+     Blocks remain ordinary expression atoms, while lower-priority `if`/`match` forms require
+     parentheses on the RHS, matching the frontend's priority-40 boundary. The LHS crosses
+     expr_to_place exactly once. *)
+  uassign : urange (urange)
+          | urange uassignop uassign (mk_assign uassignop urange uassign)
   uassignop : TEQ        ((Assign, TEQleft))
             | TPLUSEQ    ((AssignAdd, TPLUSEQleft))
             | TMINUSEQ   ((AssignBin AssignSub, TMINUSEQleft))
@@ -385,9 +388,16 @@ yacc_rules\<open>
             | TCARETEQ   ((AssignBin AssignBXor, TCARETEQleft))
             | TSHLEQ     ((AssignBin AssignShl, TSHLEQleft))
             | TSHREQ     ((AssignBin AssignShr, TSHREQleft))
+  (* Bounded ranges form one non-associative tier between logical OR and assignment. Their endpoints
+     are complete pure expressions, so every tighter binary operator remains inside the endpoint. *)
+  urange : uexp (uexp)
+         | uexp TDOTDOT uexp
+             (UE_Range (RK_Exclusive, uexp1, uexp2, TDOTDOTleft))
+         | uexp TDOTDOTEQ uexp
+             (UE_Range (RK_Inclusive, uexp1, uexp2, TDOTDOTEQleft))
   (* Postfixes form a structural tier above atoms, so `?`, field access, and methods compose
-     left-to-right and bind tighter than prefix/binary operators. A dotted identifier followed by
-     parentheses is a method; without parentheses it is an NField lens access. *)
+     left-to-right and bind tighter than prefix/binary operators. Indexing shares this tier. A dotted
+     identifier followed by parentheses is a method; without parentheses it is an NField lens access. *)
   upostfix : uatom (uatom)
            | upostfix TQUESTION
                (UE_Unary (U_Propagate, upostfix, TQUESTIONleft))
@@ -396,6 +406,10 @@ yacc_rules\<open>
            | upostfix TDOT IDENT LPAR ucallargs RPAR
                (mk_method_call
                   (upostfix, IDENT, IDENTleft, ucallargs, upostfixleft, RPARright))
+           | upostfix TLBRACK uval TRBRACK
+               (UE_Index
+                 (upostfix, uval,
+                  Position.range_position (upostfixleft, TRBRACKright)))
   uatom : NUM        (UE_Literal (LP_Integer (NUM, NUMleft)))
         | NUMSFX     (UE_Literal (LP_Integer (NUMSFX, NUMSFXleft)))
         | TTRUE      (UE_Literal (LP_Bool (true, TTRUEleft)))
@@ -409,6 +423,10 @@ yacc_rules\<open>
             (UE_Tuple (uval :: arglist, Position.range_position (LPARleft, RPARright)))
         | LPAR uval RPAR
             (UE_Group (uval, Position.range_position (LPARleft, RPARright)))
+        | TLBRACK TRBRACK
+            (UE_Array ([], Position.range_position (TLBRACKleft, TRBRACKright)))
+        | TLBRACK arglist TRBRACK
+            (UE_Array (arglist, Position.range_position (TLBRACKleft, TRBRACKright)))
         | VALAQ      (UE_Literal (LP_ValAntiq VALAQ))
         | EXPRAQ     (UE_ExprAntiq EXPRAQ)
         | usemi_free_atom %prec TIF (usemi_free_atom)

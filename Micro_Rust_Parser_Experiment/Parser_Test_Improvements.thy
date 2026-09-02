@@ -306,9 +306,16 @@ section\<open> Trailing commas \<close>
 text\<open>
 The old frontend accepts trailing commas only in slice patterns, whose shared
 cases are in \<open>Parser_Test_Conformance\<close>. Calls, arms, constructor
-patterns, tuples, and struct patterns reject there. Each source below is checked
-against the same old-frontend term with only its terminal comma removed.
+patterns, tuples, array literals, and struct patterns reject there. Each source
+below is checked against the same old-frontend term with only its terminal comma
+removed.
 \<close>
+
+urust_expr_with_check' improvement_trailing_array_literal
+  \<open> [\<llangle>1 :: 32 word\<rrangle>, \<llangle>2 :: 32 word\<rrangle>,] \<close>
+  \<open> \<lbrakk> [\<llangle>1 :: 32 word\<rrangle>, \<llangle>2 :: 32 word\<rrangle>] \<rbrakk> \<close>
+old_urust_rejects
+  \<open> [\<llangle>1 :: 32 word\<rrangle>, \<llangle>2 :: 32 word\<rrangle>,] \<close>
 
 urust_expr_with_check' improvement_trailing_direct_call
   \<open> cf2(\<llangle>1 :: 64 word\<rrangle>, \<llangle>2 :: 64 word\<rrangle>,) \<close>

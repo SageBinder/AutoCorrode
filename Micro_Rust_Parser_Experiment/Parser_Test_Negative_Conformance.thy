@@ -831,6 +831,49 @@ urust_expr_rejects fidelity \<open> r + other *= rhs \<close> \<open> invalid as
   \<comment> \<open> [FIDELITY] pure operators bind above every assignment operator, so the complete binary LHS
        reaches the shared place validator. \<close>
 
+urust_expr_rejects fidelity
+  \<open> ncf1(\<llangle>1 :: 64 word\<rrangle>)[0] = rhs \<close>
+  \<open> invalid assignment target \<close>
+  \<comment> \<open> [FIDELITY] indexed places recursively require a valid place base. \<close>
+
+section\<open> Bounded ranges, arrays, and indexing \<close>
+
+urust_expr_rejects fidelity \<open> 1..2..3 \<close>
+  \<open> syntax error found at .. \<close>
+  \<comment> \<open> [FIDELITY] expression ranges are non-associative. \<close>
+
+urust_expr_rejects fidelity \<open> 1.. \<close>
+  \<open> syntax error found at end of input \<close>
+  \<comment> \<open> [FIDELITY] open-ended ranges are outside the frontend syntax and parser scope. \<close>
+
+urust_expr_rejects fidelity \<open> ..2 \<close>
+  \<open> syntax error found at .. \<close>
+  \<comment> \<open> [FIDELITY] a bounded range requires its lower endpoint. \<close>
+
+urust_expr_rejects fidelity \<open> [1,,2] \<close>
+  \<open> syntax error: deleting  , <integer> ] \<close>
+  \<comment> \<open> [FIDELITY] array literals reject empty elements. \<close>
+
+urust_expr_rejects fidelity \<open> [1 2] \<close>
+  \<open> syntax error found at <integer> \<close>
+  \<comment> \<open> [FIDELITY] array elements require commas. \<close>
+
+urust_expr_rejects fidelity \<open> [1, 2 \<close>
+  \<open> syntax error found at end of input \<close>
+  \<comment> \<open> [FIDELITY] array literals require a closing bracket. \<close>
+
+urust_expr_rejects fidelity \<open> xs[] \<close>
+  \<open> syntax error found at ] \<close>
+  \<comment> \<open> [FIDELITY] indexing requires a subscript expression. \<close>
+
+urust_expr_rejects fidelity \<open> xs[0 \<close>
+  \<open> syntax error found at end of input \<close>
+  \<comment> \<open> [FIDELITY] indexing requires a closing bracket. \<close>
+
+urust_expr_rejects fidelity \<open> xs[0, 1] \<close>
+  \<open> syntax error: deleting  , <integer> ] \<close>
+  \<comment> \<open> [FIDELITY] one indexing postfix contains exactly one expression. \<close>
+
 section\<open> Fueled loops \<close>
 
 urust_expr_rejects fidelity
@@ -883,11 +926,6 @@ new_urust_rejects divergent
   \<close>
   \<open> reference patterns are not implemented \<close>
   \<comment> \<open> [DIVERGENT] recursive while-let traversal rejects a borrow below a constructor. \<close>
-
-new_urust_rejects divergent
-  \<open> for value in \<llangle>1 :: nat\<rrangle> .. \<llangle>3 :: nat\<rrangle> { () } \<close>
-  \<open> .. \<close>
-  \<comment> \<open> [DIVERGENT] range expressions remain deferred even though \<open>for\<close> itself is supported. \<close>
 
 urust_expr_rejects fidelity \<open> while (true) { () } \<close>
   \<open> while \<close>

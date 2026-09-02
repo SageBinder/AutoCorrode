@@ -51,6 +51,10 @@ struct
      | UP_Field (base, name, pos) =>
          R.field_expression ctxt
            (lower_place lower ctxt environment base) name pos
+     | UP_Index (base, index, _) =>
+         T.index
+           (lower_place lower ctxt environment base)
+           (lower environment index)
      | UP_Antiq source =>
          R.parse_antiquotation ctxt environment source)
 
@@ -180,6 +184,9 @@ struct
          T.literal HOLogic.unit
      | UE_Tuple (arguments, _) =>
          T.tuple (map (lower_expression ctxt environment) arguments)
+     | UE_Array (elements, _) =>
+         T.array_literal
+           (map (lower_expression ctxt environment) elements)
      | UE_Ident identifier =>
          R.literal_identifier ctxt environment identifier
      | UE_Literal payload =>
@@ -199,6 +206,14 @@ struct
          T.binary operator
            (lower_expression ctxt environment left)
            (lower_expression ctxt environment right)
+     | UE_Range (kind, lower, upper, _) =>
+         T.bounded_range kind
+           (lower_expression ctxt environment lower)
+           (lower_expression ctxt environment upper)
+     | UE_Unary
+         (U_Borrow _, UE_Array (elements, _), _) =>
+         T.array_literal
+           (map (lower_expression ctxt environment) elements)
      | UE_Unary (operator, operand, pos) =>
          T.unary operator pos (lower_expression ctxt environment operand)
      | UE_Group (inner, _) =>
@@ -247,6 +262,10 @@ struct
      | UE_Field (receiver, name, pos) =>
          R.field_expression ctxt
            (lower_expression ctxt environment receiver) name pos
+     | UE_Index (receiver, index, _) =>
+         T.index
+           (lower_expression ctxt environment receiver)
+           (lower_expression ctxt environment index)
      | UE_Assign (operator, place, rhs, pos) =>
          let
            val lowered_place =

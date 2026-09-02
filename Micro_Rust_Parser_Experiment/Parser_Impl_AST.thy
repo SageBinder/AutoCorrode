@@ -65,6 +65,7 @@ sig
   datatype ur_expr =
       UE_Unit of Position.T
     | UE_Tuple of ur_expr list * Position.T
+    | UE_Array of ur_expr list * Position.T
     | UE_Ident of string * Position.T
     | UE_Literal of literal_payload
     | UE_ExprAntiq of Input.source
@@ -84,12 +85,15 @@ sig
     | UE_WhileLet of Input.source * ur_pat * ur_expr * ur_expr * Position.T
     | UE_Call of string * Position.T * ur_expr list * Position.T
     | UE_Field of ur_expr * string * Position.T
+    | UE_Index of ur_expr * ur_expr * Position.T
+    | UE_Range of range_kind * ur_expr * ur_expr * Position.T
     | UE_Assign of assignop * ur_place * ur_expr * Position.T
     | UE_Match of match_flavour * ur_expr * ur_arm list * Position.T
   and ur_place =
       UP_Ident of string * Position.T
     | UP_Deref of ur_expr * Position.T
     | UP_Field of ur_place * string * Position.T
+    | UP_Index of ur_place * ur_expr * Position.T
     | UP_Antiq of Input.source
   and ur_arm =
       UR_Arm of ur_pat * (ur_expr * Position.T) option * ur_expr
@@ -137,22 +141,22 @@ end
       versus constructor.
     * match_flavour and MF_Switch, MF_Case, MF_Auto.  MF_Auto requests downstream classification; it
       is not a fourth lowering.
-    * the mutually recursive expression interface ur_expr (UE_Unit, UE_Tuple, UE_Ident, UE_Literal,
-      UE_ExprAntiq, UE_Let, UE_LetMut, UE_Const, UE_Seq, UE_Return, UE_Bin, UE_Unary, UE_Group,
-      UE_Block, UE_If, UE_While, UE_Loop, UE_For, UE_WhileLet, UE_Call, UE_Field, UE_Assign, UE_Match),
-      ur_place (UP_Ident, UP_Deref, UP_Field, UP_Antiq), and ur_arm (UR_Arm).  Expression and pattern
-      lists preserve source order.  A UR_Arm contains its pattern, an optional guard paired with the
-      guard-keyword position, and its body.  A UE_Return never stores a semicolon; a method invocation
-      is represented as UE_Call with the receiver prepended; ur_place contains only validated
-      assignment-target shapes.
+    * the mutually recursive expression interface ur_expr (UE_Unit, UE_Tuple, UE_Array, UE_Ident,
+      UE_Literal, UE_ExprAntiq, UE_Let, UE_LetMut, UE_Const, UE_Seq, UE_Return, UE_Bin, UE_Unary,
+      UE_Group, UE_Block, UE_If, UE_While, UE_Loop, UE_For, UE_WhileLet, UE_Call, UE_Field, UE_Index,
+      UE_Range, UE_Assign, UE_Match), ur_place (UP_Ident, UP_Deref, UP_Field, UP_Index, UP_Antiq), and
+      ur_arm (UR_Arm).  Expression and pattern lists preserve source order.  A UR_Arm contains its
+      pattern, an optional guard paired with the guard-keyword position, and its body.  A UE_Return
+      never stores a semicolon; a method invocation is represented as UE_Call with the receiver
+      prepended; ur_place contains only validated assignment-target shapes.
 
   Position.T fields identify the token or span documented at each constructor. Consumers may use them
   for markup and diagnostics, but must not infer semantic validity from their presence.
   literal_position returns the source position of every literal payload.
 
   The remaining public functions are grammar-facing construction contracts. mk_assign accepts
-  identifiers, expression antiquotations, dereferences, fields over recursively valid places, and
-  transparent groups as assignment targets; every other expression raises the positioned
+  identifiers, expression antiquotations, dereferences, fields and indices over recursively valid
+  places, and transparent groups as assignment targets; every other expression raises the positioned
   "invalid assignment target" error. finish_statement leaves a terminal UE_Return unchanged and
   otherwise sequences the expression with UE_Unit at the semicolon. mk_bare_ident_pat normalises "_"
   to P_Wild; the other pattern smart constructors consume ordinary (name, position) pairs without a
@@ -241,6 +245,7 @@ struct
   datatype ur_expr =
       UE_Unit      of Position.T                      (* () *)
     | UE_Tuple     of ur_expr list * Position.T       (* (e0, e1, ..), at least two elements *)
+    | UE_Array     of ur_expr list * Position.T       (* [e0, e1, ..], including empty *)
     | UE_Ident     of string * Position.T             (* bare identifier at value position *)
     | UE_Literal   of literal_payload                 (* integer / bool / string / <<value>> *)
     | UE_ExprAntiq of Input.source                    (* eps<e> body as a POSITIONED source -> e *)
@@ -275,6 +280,9 @@ struct
                                                          (D23/D29). Non-identifier callees (antiquotation,
                                                          turbofish, path) are deferred -- D-5. *)
     | UE_Field     of ur_expr * string * Position.T   (* e.field -> NField lens focus *)
+    | UE_Index     of ur_expr * ur_expr * Position.T  (* e[i] -> index_const, at full span *)
+    | UE_Range     of range_kind * ur_expr * ur_expr * Position.T
+                                                      (* lo..hi / lo..=hi, at operator *)
     | UE_Assign    of assignop * ur_place * ur_expr * Position.T
                                                       (* place assignment-op rhs, at the operator *)
     | UE_Match     of match_flavour * ur_expr * ur_arm list * Position.T
@@ -288,12 +296,14 @@ struct
       UP_Ident of string * Position.T
     | UP_Deref of ur_expr * Position.T
     | UP_Field of ur_place * string * Position.T
+    | UP_Index of ur_place * ur_expr * Position.T
     | UP_Antiq of Input.source
   and ur_arm =
       UR_Arm of ur_pat * (ur_expr * Position.T) option * ur_expr
 
   fun expr_pos (UE_Unit pos) = pos
     | expr_pos (UE_Tuple (_, pos)) = pos
+    | expr_pos (UE_Array (_, pos)) = pos
     | expr_pos (UE_Ident (_, pos)) = pos
     | expr_pos (UE_Literal payload) = literal_position payload
     | expr_pos (UE_ExprAntiq src) = Input.pos_of src
@@ -313,6 +323,8 @@ struct
     | expr_pos (UE_WhileLet (_, _, _, _, pos)) = pos
     | expr_pos (UE_Call (_, _, _, pos)) = pos
     | expr_pos (UE_Field (_, _, pos)) = pos
+    | expr_pos (UE_Index (_, _, pos)) = pos
+    | expr_pos (UE_Range (_, _, _, pos)) = pos
     | expr_pos (UE_Assign (_, _, _, pos)) = pos
     | expr_pos (UE_Match (_, _, _, pos)) = pos
 
@@ -325,6 +337,8 @@ struct
     | expr_to_place (UE_Unary (U_Deref, expr, pos)) = UP_Deref (expr, pos)
     | expr_to_place (UE_Field (base, name, pos)) =
         UP_Field (expr_to_place base, name, pos)
+    | expr_to_place (UE_Index (base, index, pos)) =
+        UP_Index (expr_to_place base, index, pos)
     | expr_to_place expr =
         error ("urust_expr: invalid assignment target" ^ Position.here (expr_pos expr))
 

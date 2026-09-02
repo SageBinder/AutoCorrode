@@ -470,6 +470,169 @@ ML_val\<open>
   end
 \<close>
 
+section\<open> Range, array, and indexing structure \<close>
+
+text\<open>
+The public AST keeps each source form explicit, while the term layer emits only
+the frontend vocabulary before the command's single final \<open>Syntax.check_term\<close>.
+Same-source commands in \<open>Parser_Test_Conformance\<close> separately require the
+checked terms to close by \<open>refl\<close>.
+\<close>
+
+ML_val\<open>
+  local
+    open URust_AST
+
+    val ctxt = \<^context>
+
+    fun audit_assert message condition =
+      if condition then ()
+      else error ("range/array/index regression audit: " ^ message)
+
+    fun parse text =
+      (case URust_Diagnostics.parse_source ctxt
+          (Parser_Lex_Util.text_source text) of
+         SOME expression => expression
+       | NONE =>
+           error "range/array/index regression audit: empty parse")
+
+    fun integer text (UE_Literal (LP_Integer (actual, _))) =
+          actual = text
+      | integer _ _ = false
+
+    fun identifier text (UE_Ident (actual, _)) = actual = text
+      | identifier _ _ = false
+
+    val _ =
+      (case parse "1..2" of
+         UE_Range (RK_Exclusive, lower, upper, _) =>
+           audit_assert "exclusive range AST changed"
+             (integer "1" lower andalso integer "2" upper)
+       | _ => error "range/array/index regression audit: exclusive range AST changed")
+
+    val _ =
+      (case parse "1..=2" of
+         UE_Range (RK_Inclusive, lower, upper, _) =>
+           audit_assert "inclusive range AST changed"
+             (integer "1" lower andalso integer "2" upper)
+       | _ => error "range/array/index regression audit: inclusive range AST changed")
+
+    val _ =
+      (case parse "[]" of
+         UE_Array ([], _) => ()
+       | _ => error "range/array/index regression audit: empty array AST changed")
+
+    val _ =
+      (case parse "[1, 2]" of
+         UE_Array ([first, second], _) =>
+           audit_assert "array element order changed"
+             (integer "1" first andalso integer "2" second)
+       | _ => error "range/array/index regression audit: array AST changed")
+
+    val _ =
+      (case parse "xs[0].field[1]" of
+         UE_Index
+           (UE_Field
+             (UE_Index (base, first_index, _), "field", _),
+            second_index, _) =>
+           audit_assert "postfix index/field nesting changed"
+             (identifier "xs" base andalso
+              integer "0" first_index andalso
+              integer "1" second_index)
+       | _ =>
+           error
+             "range/array/index regression audit: postfix nesting AST changed")
+
+    val _ =
+      (case parse "xs[0] += 1" of
+         UE_Assign
+           (AssignAdd,
+            UP_Index (UP_Ident ("xs", _), index, _),
+            rhs, _) =>
+           audit_assert "indexed place conversion changed"
+             (integer "0" index andalso integer "1" rhs)
+       | _ =>
+           error
+             "range/array/index regression audit: indexed place AST changed")
+
+    fun unchecked text =
+      URust_Translate.mk_closed ctxt (parse text)
+
+    fun has_head name arity term =
+      (case Term.strip_comb term of
+         (Const (actual, _), arguments) =>
+           actual = name andalso length arguments = arity
+       | _ => false)
+
+    fun function_call2 target term =
+      (case Term.strip_comb term of
+         (Const (call, _), Const (actual, _) :: arguments) =>
+           call = \<^const_name>\<open>funcall2\<close> andalso
+           actual = target andalso length arguments = 2
+       | _ => false)
+
+    val _ =
+      audit_assert "exclusive range term shape changed"
+        (function_call2 \<^const_name>\<open>range_new\<close>
+          (unchecked "1..2"))
+
+    val _ =
+      audit_assert "inclusive range term shape changed"
+        (function_call2 \<^const_name>\<open>range_eq_new\<close>
+          (unchecked "1..=2"))
+
+    fun array_shape [] term =
+          (case Term.strip_comb term of
+             (Const (literal_name, _), [Const (nil_name, _)]) =>
+               literal_name = \<^const_name>\<open>literal\<close> andalso
+               nil_name = \<^const_name>\<open>List.Nil\<close>
+           | _ => false)
+      | array_shape (_ :: rest) term =
+          (case Term.strip_comb term of
+             (Const (bindlift_name, _),
+              [Const (cons_name, _), _, tail]) =>
+               bindlift_name = \<^const_name>\<open>bindlift2\<close> andalso
+               cons_name = \<^const_name>\<open>List.Cons\<close> andalso
+               array_shape rest tail
+           | _ => false)
+
+    val _ =
+      audit_assert "empty array term shape changed"
+        (array_shape [] (unchecked "[]"))
+
+    val _ =
+      audit_assert "nonempty array term shape changed"
+        (array_shape [(), (), ()] (unchecked "[1, 2, 3]"))
+
+    val _ =
+      audit_assert "index term shape changed"
+        (function_call2 \<^const_name>\<open>index_const\<close>
+          (unchecked "[1][0]"))
+
+    val _ =
+      audit_assert "direct array borrow stopped erasing"
+        (Term.aconv (unchecked "&[1, 2]", unchecked "[1, 2]"))
+
+    val indexed_assignment = unchecked "xs[0] = 1"
+    val _ =
+      audit_assert "indexed assignment lost store-update lowering"
+        (has_head \<^const_name>\<open>bind2\<close> 3 indexed_assignment)
+    val index_count =
+      Term.fold_aterms
+        (fn Const (name, _) =>
+              if name = \<^const_name>\<open>index_const\<close>
+              then Integer.add 1
+              else I
+          | _ => I)
+        indexed_assignment 0
+    val _ =
+      audit_assert "indexed assignment did not lower its place exactly once"
+        (index_count = 1)
+  in
+    val _ = writeln "Range, array, and indexing regressions passed"
+  end
+\<close>
+
 section\<open> Standard code equations \<close>
 
 urust_expr regression_code_literal

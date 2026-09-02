@@ -24,6 +24,9 @@ sig
   val assign_add: Position.T -> term -> term -> term
   val focus_field: term -> term -> term
   val tuple: term list -> term
+  val array_literal: term list -> term
+  val bounded_range: URust_AST.range_kind -> term -> term -> term
+  val index: term -> term -> term
   val conditional: term -> term -> term -> term
   val bounded_while: term -> term -> term -> term
   val bounded_loop: term -> term -> term
@@ -88,6 +91,9 @@ ML\<open>
      update takes place then RHS; assign_add uses the same order. focus_field takes a resolved field
      lens then its receiver. tuple accepts at least two expression terms and emits the frontend's
      right-nested bindlift2/product representation ending in TNil, rejecting shorter lists.
+     array_literal emits right-nested bindlift2/List.Cons applications ending in literal List.Nil.
+     bounded_range selects range_new or range_eq_new and applies it through funcall2. index applies the
+     overloaded index_const through funcall2.
    * conditional, bounded_while, bounded_loop, for_loop, and into_iterator expose the control-flow
      combinators. Their arguments follow source order; for_loop takes the iterator expression then its
      body abstraction. bounded_loop supplies the true condition. skip is literal unit.
@@ -300,6 +306,26 @@ struct
   fun tuple [first, second] = tuple_lift true first second
     | tuple (first :: rest) = tuple_lift false first (tuple rest)
     | tuple _ = error "urust_expr: internal tuple with fewer than two elements"
+
+  fun array_literal [] = literal (Const (\<^const_name>\<open>List.Nil\<close>, dummyT))
+    | array_literal (first :: rest) =
+        constant \<^const_name>\<open>bindlift2\<close>
+          [Const (\<^const_name>\<open>List.Cons\<close>, dummyT),
+           first, array_literal rest]
+
+  fun bounded_range kind lower upper =
+    constant \<^const_name>\<open>funcall2\<close>
+      [Const
+        ((case kind of
+            RK_Exclusive => \<^const_name>\<open>range_new\<close>
+          | RK_Inclusive => \<^const_name>\<open>range_eq_new\<close>),
+         dummyT),
+       lower, upper]
+
+  fun index expression subscript =
+    constant \<^const_name>\<open>funcall2\<close>
+      [Const (\<^const_name>\<open>index_const\<close>, dummyT),
+       expression, subscript]
 
   fun conditional condition then_branch else_branch =
     constant \<^const_name>\<open>two_armed_conditional\<close>
