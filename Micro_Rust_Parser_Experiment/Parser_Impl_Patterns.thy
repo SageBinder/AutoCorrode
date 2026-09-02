@@ -81,6 +81,57 @@ source patterns again.
 \<close>
 
 ML\<open>
+(*
+  URust_Patterns is the pattern-elaboration boundary between the unresolved URust_AST pattern
+  language and recursive expression translation.  It owns use-site validation, binder-versus-
+  constructor decisions, pattern-local environment allocation, bare-match classification, switch-key
+  preparation, conservative coverage classification, and construction of the existing shallow case
+  terms.  URust_AST owns the source representation, URust_Resolution owns name and constructor
+  metadata operations, URust_Elab_Terms owns the shallow-term vocabulary, and URust_Translate owns
+  recursive lowering of expressions, guards, and bodies.
+
+  The public binder_site constructors select the contract enforced by prepare_binding:
+  Let_Const_Binder admits only directly irrefutable let/const patterns; Mutable_Let_Binder additionally
+  restricts the source head to an identifier, wildcard, or top-level tuple; and For_Binder resolves
+  known constructors before enforcing irrefutability.  prepare_binding recursively rejects reference
+  patterns, validates all binders before allocating any of them, and returns an abstract
+  prepared_binding.  binding_environment is the exact environment in which the caller must lower the
+  binding body.  binding_abstraction closes such a lowered body over the matched RHS.  mutable_rhs_mode
+  returns Allocate_Rhs for mutable scalar/wildcard bindings and Plain_Rhs otherwise, telling the
+  caller whether to allocate the RHS before applying that abstraction.  The caller remains responsible
+  for lowering the RHS in the outer environment.  position returns the diagnostic anchor owned by the
+  outer pattern, treating groups transparently and literals through their payload position.
+
+  select_match_flavour preserves an explicit MF_Case or MF_Switch (while rejecting switch guards) and
+  resolves MF_Auto according to the current case-versus-numeral-switch policy; it never returns
+  MF_Auto.  prepare_switch_arm accepts an unguarded numeral/wildcard pattern or an or-pattern composed
+  from those forms, preserves alternative order, and returns an abstract prepared_switch_arm.
+  prepared_switch_keys exposes the encoded option keys (Some numeral or None wildcard), and
+  prepared_switch_body returns the unchanged source body for lowering in the outer environment.
+
+  prepare_case_arm uses the supplied constructor_resolver to resolve and report constructors, rejects
+  unsupported patterns, validates duplicate and or-alternative binders atomically, allocates one
+  environment shared by every expanded alternative of the source arm, and returns an abstract
+  prepared_case_arm.  prepared_environment is the environment in which both prepared_guard and
+  prepared_body must be lowered.  prepared_direct_abstraction is SOME only when the complete pattern
+  can bind a scrutinee directly without case compilation.  prepared_is_total is a conservative
+  certificate that the supported coverage analysis found the arm total; false means partial or
+  unknown, not necessarily non-total.
+
+  compile_case consumes source-ordered triples of a prepared_case_arm, its already-lowered optional
+  guard, and its already-lowered body.  Each lowered term must correspond to that prepared arm and its
+  prepared_environment.  Compilation evaluates the scrutinee once, preserves source-arm and
+  or-alternative order, binds pattern variables before evaluating guards and bodies, and makes a false
+  guard fall through to the next alternative or arm.  compile_case uses the existing case encoding's
+  unmatched behavior; compile_case_with_fallback installs the supplied term as the terminal unmatched
+  result.  Both operations preserve the shallow term shape required for old-frontend conformance.
+
+  The representations of prepared_binding, prepared_switch_arm, and prepared_case_arm are intentionally
+  abstract.  Resolution policies, resolved/basic/case pattern datatypes, or-pattern expansion,
+  normalization, generated names, administrative sharing, recursive compiler helpers, and the exact
+  coverage representation are implementation details.  Callers may rely only on the signature and the
+  scoping, ordering, validation, fallback, and term-shape contracts above.
+*)
 structure URust_Patterns : URUST_PATTERNS =
 struct
   open URust_AST

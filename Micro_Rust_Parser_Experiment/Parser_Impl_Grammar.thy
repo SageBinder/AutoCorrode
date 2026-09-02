@@ -12,9 +12,30 @@ SML_import \<open> structure Markup = struct open Markup end \<close>     \<comm
 SML_import \<open> structure Symbol = struct open Symbol end \<close>     \<comment>\<open> partial lexeme reports \<close>
 
 ML\<open>
-(* Positioned lexer error for the catch-all rule: an unrecognized character must ABORT with a clickable
-   position, not be silently skipped (D21). In Isabelle/ML because `error`/`quote`/`Position.here` are not
-   in the lexer's SML environment; SML_imported below. *)
+(*
+  URust_Err owns the source-facing failures raised directly by the generated uRust lexer.  It is the
+  boundary between lexer actions, which run in the generated SML environment, and Isabelle's
+  positioned ERROR diagnostics.  It does not decide which input is malformed, recover from an error,
+  report parser conflicts, or validate the AST; those responsibilities remain with the lexer rules,
+  the joined parser, and later elaboration modules.
+
+  The generated lexer may rely on these public, non-returning functions:
+
+    * lex_error text pos raises an ERROR for an unrecognized source fragment.  The message retains the
+      `urust_expr` command prefix, quotes text, and appends Position.here pos so the rejection is
+      clickable.  In particular, the catch-all lexer rule must call this function rather than skip
+      input.
+    * string_error pos raises the positioned malformed-or-unterminated-string diagnostic at the
+      opening quote.
+    * antiquotation_error kind pos raises the positioned unterminated-antiquotation diagnostic at the
+      opening delimiter.  Lexer callers supply the source-facing kind, currently "value" or
+      "expression".
+
+  All three functions have result type 'a because they always raise via error.  Their exact string
+  assembly and use of quote are implementation details, subject to the message and position contracts
+  above.  The SML_import below only makes this Isabelle/ML-owned interface available to generated lexer
+  code; it does not create a second owner.
+*)
 structure URust_Err =
 struct
   fun lex_error text pos =
@@ -38,6 +59,38 @@ HOL content. Yacc directives reproduce the frontend precedence
 (\<open>Micro_Rust_Syntax.thy:559-639\<close>). Only token shims remain lexer-local; positions use
 \<open>Parser_Lex_Util\<close>.
 \<close>
+(*
+  This declaration generates structure URust, which owns recognition of one uRust expression source
+  and construction of the unresolved URust_AST.  Its boundary includes tokenization, PIDE token
+  reports, precedence and sequencing policy, and grammar-action construction of AST nodes.  It ends
+  before identifier or constructor resolution, site-specific pattern validation, lowering to shallow
+  terms, and HOL type checking.
+
+  Parser modules may rely on the following generated interface:
+
+    * URust.URustLex is the lexer structure accepted by the ML-Yacc Join functor.
+      URust.URustLex.UserDeclarations.set source ctxt must be called immediately before lexing a source.
+      It initializes the Isabelle_Lex-Yacc runtime, builds the per-source position map, and resets all
+      antiquotation state.  Parsing is stateful and non-reentrant, so callers must hold
+      Parser_Utils.with_parser_lock across set and parser consumption.
+    * URust.URustLrVals.ParserData supplies the generated semantic value/result types, actions, LR
+      table, and recovery data.  Parser_Impl_Diagnostics may rejoin this exact data with URustLex while
+      replacing only terminal rendering; doing so must preserve the grammar and semantic actions.
+    * URust.URustLrVals.Tokens.EOF constructs the dummy end token required by
+      Parser_Lex_Util.parse_source.  Its Position.T * Position.T argument delimits the token.  Other
+      generated token constructors are lexer implementation details; terminal additions or reordering
+      must still be reflected in Parser_Impl_Diagnostics' exhaustive terminal identity table.
+    * The start result is URust_AST.ur_expr option.  NONE represents empty input; SOME ast preserves
+      source order and the token/span positions recorded by URust_AST.  Syntax rejection raises a
+      positioned ERROR rather than returning NONE.
+
+  Standard mode also exposes URust.URustParser and URust.parse_source.  They are generated wiring, not
+  the supported project boundary: parser clients use URust_Diagnostics.parse_source so diagnostics
+  render source tokens rather than ML-Yacc terminal names.  Lexer refs, start states, buffers,
+  position-map helpers, grammar nonterminals, LR states/tables, semantic-value encodings, and generated
+  functor names remain implementation details.  Refactors may change them provided the AST result,
+  source positions/markup, state-initialization rule, and diagnostic rejoin points above are preserved.
+*)
 ml_lex_yacc [verbose] "URust" where
 lex_user_declarations\<open>
 datatype aq_kind = No_AQ | Value_AQ | Expr_AQ

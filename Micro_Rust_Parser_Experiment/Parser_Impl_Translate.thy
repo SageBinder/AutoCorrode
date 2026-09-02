@@ -17,6 +17,24 @@ Expression lowering orchestrates the term, resolution, and pattern layers. Terms
 \<close>
 
 ML\<open>
+(* Final expression-translation boundary. This structure owns recursive lowering of a complete
+   URust_AST.ur_expr, including place translation and the orchestration of bindings, loops, and
+   matches. It delegates shallow-term vocabulary to URust_Elab_Terms, name and antiquotation
+   resolution to URust_Resolution, and pattern preparation and case compilation to URust_Patterns;
+   it does not parse source, type-check terms, or install definitions.
+
+   The sole public operation is mk_closed: given the Proof.context in which the source is being
+   elaborated and an expression AST, it lowers the expression from
+   URust_Resolution.empty_environment and returns one unchecked HOL term. The result may contain
+   dummy types and must be passed to Syntax.check_term exactly once by the command layer in the same
+   context. Successful lowering preserves lexical scope and the existing shallow-embedding term
+   shape; for syntax shared with the old frontend, callers may rely on alpha-identical checked
+   output after the documented administrative-let unfolding. Resolution and pattern-validation
+   failures are propagated with their source positions. The signature exposes no public types or
+   constructors.
+
+   All lower_* functions, the recursive traversal order, the T/R/P aliases, and the division of work
+   among helper functions are implementation details hidden by URUST_TRANSLATE. *)
 structure URust_Translate : URUST_TRANSLATE =
 struct
   open URust_AST

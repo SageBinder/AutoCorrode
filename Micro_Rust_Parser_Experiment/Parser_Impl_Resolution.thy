@@ -71,6 +71,63 @@ abstract so downstream modules cannot depend on the underlying binder record.
 \<close>
 
 ML\<open>
+(*
+  URust_Resolution owns the effectful boundary between source names and shallow HOL terms. It is the
+  only parser module that allocates lexical locals, resolves identifier roles and datatype metadata,
+  parses binder-aware antiquotations, and emits name/binder PIDE reports. Pattern policy and
+  compilation belong to URust_Patterns, recursive expression lowering belongs to URust_Translate,
+  and final type checking remains outside this structure.
+
+  The public interface is:
+
+  - environment is an abstract, immutable lexical scope. empty_environment has no locals. bind_local
+    allocates one fresh dummy-typed local for a source name, reports its definition, shadows any
+    same-spelled entry in the returned environment, and returns both the local term and that
+    environment. binding_mode currently has the sole constructor Binding_By_Value, and
+    binding_signature is the source name, definition position, and mode expected by allocate_locals.
+    allocate_locals rejects duplicate names within its input before allocating any of them, then
+    extends the supplied scope. use_local performs a positioned lookup, reports a bound reference on
+    success, and returns NONE without fallback resolution; lookup_local performs the same lexical
+    lookup without reporting.
+
+  - parse_antiquotation parses an Input.source as a HOL term with every environment entry in lexical
+    scope. Lexical names shadow context fixes and constants, and occurrences are restored to the exact
+    local terms held by the environment while retaining ordinary HOL parsing and markup.
+    anonymous_abstraction introduces one anonymous dummy-typed Abs without manufacturing a Free.
+    report_wildcard emits the parser's wildcard typing report.
+
+  - literal_value lowers a literal payload to its unlifted HOL value, including binder-aware value
+    antiquotations. literal_expression preserves the frontend's special boolean-expression shape and
+    otherwise lifts literal_value. literal_identifier resolves locals before NLiteral notation/HOL
+    fallback and lifts the result; function_identifier applies the same lexical precedence in the
+    NFunction role without lifting. field_expression resolves its name in the NField role and focuses
+    the supplied receiver. Registered notation is represented by the existing dispatch marker;
+    unregistered names retain Syntax.parse_term behavior.
+
+  - constructor_info and constructor_resolver are abstract. make_constructor_resolver snapshots the
+    context's non-record Ctr_Sugar constructors, constructor families/selectors, and HOL record names
+    for a resolution site. resolve_constructor uses exact identity for qualified names and basename
+    lookup for unqualified names, returning NONE when absent and raising a positioned, deterministic
+    ambiguity error for multiple matches. constructor_identity returns the qualified identity,
+    constructor_term the dummy-typed constructor term, constructor_arity its argument count, and
+    constructor_family optionally the datatype identity with all family constructor terms.
+    report_constructor and report_selector emit constant markup at the supplied source position.
+
+  - resolve_struct_pattern resolves a struct head as a constructor, a single-constructor datatype
+    type name, or a HOL record type. It validates duplicate, unknown, missing, and repeated-rest
+    fields, expands shorthand fields, and returns fields in metadata declaration order. Each ordered
+    field is (selector, SOME source_position, pattern) when written or
+    (selector, NONE, P_Wild Position.none) when supplied by `..`.
+    Resolved_Constructor_Struct carries constructor_info plus those fields;
+    Resolved_Record_Struct carries the qualified record type name plus those fields.
+    unsupported_record_pattern is the common positioned failure for the intentionally unimplemented
+    selector-based HOL-record lowering boundary.
+
+  Callers may rely on those results and diagnostics, but not on the environment table or binder
+  record, generated local names/entity IDs, identifier-leaf inspection, catalog and metadata merge
+  strategy, candidate ordering, private selector storage, or the internal Constructor_Candidate /
+  Record_Candidate distinction. Those are implementation details hidden by URUST_RESOLUTION.
+*)
 structure URust_Resolution : URUST_RESOLUTION =
 struct
   open URust_AST

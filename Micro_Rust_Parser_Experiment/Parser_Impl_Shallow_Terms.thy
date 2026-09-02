@@ -68,6 +68,51 @@ This module owns the pure vocabulary used to construct the existing shallow embe
 \<close>
 
 ML\<open>
+(* Shallow-term construction boundary. URust_Elab_Terms owns the unchecked HOL vocabulary and exact
+   term shapes used to target the existing shallow embedding. It does not resolve names, allocate
+   source binders, inspect complete expression or pattern ASTs, type-check terms, or install
+   definitions. Its results are composable unchecked terms that may contain dummy types; callers must
+   send the final assembled term through the command layer's single Syntax.check_term in the
+   originating proof context. Source positions are used for diagnostics and to encode positions on
+   overloaded constants where required.
+
+   URUST_ELAB_TERMS is the complete public interface:
+
+   * literal wraps a HOL value as a shallow expression. boolean_expression constructs the dedicated
+     shallow true/false expression constants, while string_value and integer_value construct raw HOL
+     values for later wrapping. string_value decodes the lexer-preserved string spelling at the given
+     position. integer_value accepts the parser's decimal or 0x hexadecimal lexeme, with no suffix or
+     one of u8, u16, u32, u64, and usize, optionally separated by one compatibility underscore; it
+     reports malformed numbers and unsupported suffixes at the source position.
+   * function_call maps a function term and its argument list to funcall0 through funcall14 and rejects
+     larger arities at its call position. bind takes an expression and a continuation abstraction;
+     admin_let takes a pure value and continuation; sequence, return_value, and case_product preserve
+     the corresponding shallow-embedding constructors rather than interchangeable HOL encodings.
+   * allocate_reference, update, and assign_add construct the positioned overloaded store operations.
+     update takes place then RHS; assign_add uses the same order. focus_field takes a resolved field
+     lens then its receiver. tuple accepts at least two expression terms and emits the frontend's
+     right-nested bindlift2/product representation ending in TNil, rejecting shorter lists.
+   * conditional, bounded_while, bounded_loop, for_loop, and into_iterator expose the control-flow
+     combinators. Their arguments follow source order; for_loop takes the iterator expression then its
+     body abstraction. bounded_loop supplies the true condition. skip is literal unit.
+   * binary maps every URust_AST.binop to its shallow operation and takes left then right operands.
+     unary maps negation, borrow, dereference, and propagation; its position is attached where the
+     selected overloaded operation requires one. assignment_binary maps the non-additive
+     URust_AST.assign_binop cases to the pure operation used to compute a compound-assignment RHS;
+     addition remains the separate assign_add operation.
+   * option_some, option_none, pair, list_cons, list_nil, numeral_case_selector, and reverse_list
+     provide the value vocabulary used by switch and pattern lowering. true_value, false_value, and
+     undefined_value are raw HOL values. list_cons_constructor, list_nil_constructor,
+     pair_constructor, and tuple_nil_constructor are unapplied constructor terms for pattern trees.
+   * case_guard takes guard, scrutinee, then a case list. case_cons and case_nil build that list;
+     case_element takes pattern then body, and case_abstraction wraps the resulting abstraction.
+
+   The raw constant builders, position encoding mechanics, function-constant vector, suffix-table
+   representation and integer scanners, tuple recursion, and operator lookup functions are
+   implementation details. Their representations may change, but the supported arities, literal
+   spellings, operator meanings, diagnostics, argument order, and shallow term shapes described above
+   are interface behavior relied on by resolution, pattern compilation, translation, and frontend
+   conformance checks. No additional declarations in the structure are public through the signature. *)
 structure URust_Elab_Terms : URUST_ELAB_TERMS =
 struct
   open URust_AST

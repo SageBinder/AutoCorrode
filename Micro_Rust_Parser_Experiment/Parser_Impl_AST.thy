@@ -6,6 +6,62 @@ section\<open> Reified AST \<close>
 
 text\<open> One constructor per uRust surface form. Positions are carried for markup/diagnostics. \<close>
 ML\<open>
+(*
+  URust_AST owns the reified, unresolved uRust syntax shared by the generated grammar and the
+  elaboration pipeline.  Its boundary ends before name/constructor resolution, site-specific pattern
+  validation, literal decoding, type checking, or construction of shallow-embedding terms.  Grammar
+  actions construct this representation; Resolution, Patterns, and Translate may inspect it
+  exhaustively.  Consequently the datatype constructors, their argument order, and the source-order
+  and position conventions below are a public parser-module interface, even though this structure is
+  not sealed by a signature.  Adding or reshaping a constructor requires updating every consumer.
+
+  The public representation comprises:
+
+    * literal_payload and LP_Integer, LP_Bool, LP_String, LP_ValAntiq.  Integer and string payloads
+      retain raw source spelling; antiquotations retain their positioned Input.source.
+    * borrow_mode (BM_Imm, BM_Mut), range_kind (RK_Exclusive, RK_Inclusive), binop (Add, Sub, Mul,
+      Div, Mod, Shl, Shr, BAnd, BOr, BXor, Eq, Ne, Lt, Le, Gt, Ge, And, Or), unaryop (U_Not,
+      U_Borrow, U_Deref, U_Propagate), assign_binop (AssignSub, AssignMul, AssignMod, AssignBAnd,
+      AssignBOr, AssignBXor, AssignShl, AssignShr), and assignop (Assign, AssignAdd, AssignBin).
+      These tags describe surface operations only; their HOL constants and semantics belong to later
+      modules.
+    * ur_pat and P_Wild, P_Ident, P_Literal, P_Constr, P_Tuple, P_Group, P_Borrow, P_Alias, P_Range,
+      P_Slice, P_Struct, P_Or, together with slice_item (SI_Pat, SI_Rest), struct_field (SF_Field,
+      SF_Shorthand, SF_Rest), and the grammar adaptor pat_ident (PI).  Lists retain source order;
+      grammar-produced tuple lists contain at least two elements and P_Or alternatives are flattened.
+      P_Ident deliberately does not decide binder versus constructor.
+    * match_flavour and MF_Switch, MF_Case, MF_Auto.  MF_Auto requests downstream classification; it
+      is not a fourth lowering.
+    * the mutually recursive expression interface ur_expr (UE_Unit, UE_Tuple, UE_Ident, UE_Literal,
+      UE_ExprAntiq, UE_Let, UE_LetMut, UE_Const, UE_Seq, UE_Return, UE_Bin, UE_Unary, UE_Group,
+      UE_Block, UE_If, UE_While, UE_Loop, UE_For, UE_WhileLet, UE_Call, UE_Field, UE_Assign, UE_Match),
+      ur_place (UP_Ident, UP_Deref, UP_Field, UP_Antiq), and ur_arm (UR_Arm).  Expression and pattern
+      lists preserve source order.  A UR_Arm contains its pattern, an optional guard paired with the
+      guard-keyword position, and its body.  A UE_Return never stores a semicolon; a method invocation
+      is represented as UE_Call with the receiver prepended; ur_place contains only validated
+      assignment-target shapes.
+
+  Position.T fields identify the token or span documented at each constructor.  Consumers may use
+  them for markup and diagnostics, but must not infer semantic validity from their presence.
+  literal_position returns the source position of every literal payload.  expr_pos returns the most
+  useful stored position for an expression and intentionally returns Position.none for UE_Let,
+  UE_Const, and UE_Seq, which have no owned position.
+
+  The remaining public functions are grammar-facing construction contracts.  expr_to_place accepts
+  identifiers, expression antiquotations, dereferences, fields over recursively valid places, and
+  transparent groups; every other expression raises the positioned "invalid assignment target"
+  error.  mk_assign applies that validation once and constructs UE_Assign.  finish_statement leaves a
+  terminal UE_Return unchanged and otherwise sequences the expression with UE_Unit at the semicolon.
+  mk_ident_pat normalises "_" to P_Wild; mk_bare_ident_pat, mk_ctor_pat, mk_alias_pat, and
+  mk_struct_pat unpack PI and construct the corresponding pattern.  mk_call combines its supplied
+  source endpoints into the call span, mk_method_call additionally prepends its receiver, and mk_or_pat
+  preserves source order while flattening a right-recursive P_Or.
+
+  Constructor-resolution policy, legal-pattern subsets at each use site, lowering choices, and the
+  algorithms used by these helpers remain implementation details of this and downstream modules.
+  Directly constructing values outside the grammar does not imply that the corresponding source form
+  is accepted or semantically valid.
+*)
 structure URust_AST =
 struct
   datatype literal_payload =

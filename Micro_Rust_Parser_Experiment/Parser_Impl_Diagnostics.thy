@@ -12,6 +12,34 @@ to contain an ML-Yacc terminal name is never inspected or rewritten.
 \<close>
 
 ML\<open>
+(*
+  URust_Diagnostics owns the source-facing diagnostic adapter for the generated uRust parser.  It
+  preserves URust's lexer, grammar, semantic actions, recovery policy, and unresolved-AST result, but
+  replaces ML-Yacc terminal names in syntax errors with source spellings.  This is the boundary used
+  by parser clients; identifier and pattern resolution, lowering, HOL checking, and command-level
+  rejection of an empty expression remain the responsibility of later modules.
+
+  The intended stable parser-module interface is:
+
+    * parse_source ctxt source initializes the generated lexer for the position-carrying Input.source
+      and parses it with ctxt.  It returns NONE for empty input and SOME unresolved
+      URust_AST.ur_expr for a recognized expression, preserving the AST positions and lexer markup
+      produced by URust.  Lexical and syntax failures raise positioned ERROR exceptions; syntax
+      errors name the encountered terminal by its uRust source spelling (or a descriptive placeholder
+      for value-bearing terminals), never by the generated ML-Yacc terminal name.  The generated
+      lexer and parser runtime are mutable, so callers must hold Parser_Utils.with_parser_lock for
+      the complete call.
+
+  The structure is intentionally unsealed for its generated-parser wiring, but no other exposed name
+  is a supported parser-module interface.  Original and LrTable are aliases into generated data;
+  terminal_specs, terminal_count, terminal_id, terminal_spec, generated_terminal_name,
+  source_terminal_name, assert_distinct, and value_bearing_terminal_ids implement and load-time-check
+  the exhaustive terminal mapping; ParserData changes only EC.showTerminal; and Source_Parser is the
+  resulting Join instantiation.  Refactors may replace or reorganize all of that machinery provided
+  parse_source retains the behavior above and grammar/token drift still fails while this theory is
+  loaded.  In particular, callers must not depend on terminal numeric identities, table layout,
+  generated names, PARSER_DATA components, or Source_Parser operations.
+*)
 structure URust_Diagnostics =
 struct
   structure Original = URust.URustLrVals.ParserData
