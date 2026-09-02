@@ -334,9 +334,13 @@ struct
   fun lower_case_arms ctxt environment position
       scrutinee lower_result arms =
     let
+      val resolver =
+        R.make_constructor_resolver ctxt position
       val prepared =
         map (fn (tag, arm) =>
-          (tag, P.prepare_case_arm ctxt environment arm)) arms
+          (tag,
+           P.prepare_case_arm resolver ctxt
+             environment arm)) arms
     in
       lower_prepared_case ctxt position scrutinee
         lower_result prepared
@@ -363,8 +367,10 @@ struct
     let
       val lowered_fuel = lower_fuel ctxt environment fuel
       val lowered_scrutinee = lower environment scrutinee
+      val resolver =
+        R.make_constructor_resolver ctxt position
       val prepared =
-        P.prepare_case_arm ctxt environment
+        P.prepare_case_arm resolver ctxt environment
           (UR_Arm (pattern, NONE, body))
       val body_environment =
         P.prepared_environment prepared

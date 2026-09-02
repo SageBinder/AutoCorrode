@@ -37,7 +37,13 @@ sig
     Proof.context -> term -> string -> Position.T -> term
 
   type constructor_info
-  val resolve_constructor: Proof.context -> string -> constructor_info option
+  type constructor_resolver
+  val make_constructor_resolver:
+    Proof.context -> Position.T -> constructor_resolver
+  val resolve_constructor:
+    constructor_resolver ->
+      string * Position.T -> constructor_info option
+  val constructor_identity: constructor_info -> string
   val constructor_term: constructor_info -> term
   val constructor_arity: constructor_info -> int
   val constructor_family: constructor_info -> (string * term list) option
@@ -51,7 +57,7 @@ sig
         string * (term * Position.T option * URust_AST.ur_pat) list
 
   val resolve_struct_pattern:
-    Proof.context ->
+    Proof.context -> constructor_resolver ->
       string * Position.T * URust_AST.struct_field list ->
       resolved_struct_pattern
   val unsupported_record_pattern: string -> Position.T -> 'a
@@ -150,13 +156,6 @@ struct
       (resolve_identifier ctxt Micro_Rust_Names.NField name pos)
       receiver
 
-  type constructor_info =
-    {constructor: term, arity: int, family: (string * term list) option}
-
-  fun constructor_term ({constructor, ...} : constructor_info) = constructor
-  fun constructor_arity ({arity, ...} : constructor_info) = arity
-  fun constructor_family ({family, ...} : constructor_info) = family
-
   fun term_name_of (Const (name, _)) = SOME name
     | term_name_of (Free (name, _)) = SOME name
     | term_name_of _ = NONE
@@ -167,39 +166,261 @@ struct
   fun normalize_constructor (Const (name, _)) = Const (name, dummyT)
     | normalize_constructor term = term
 
-  fun family_of_constructor ctxt constructor_name =
+  type constructor_info =
+    {identity: string,
+     constructor: term,
+     arity: int,
+     family: (string * term list) option,
+     selectors: term list}
+
+  datatype constructor_resolver =
+    Constructor_Resolver of
+      {by_identity: constructor_info Symtab.table,
+       by_basename: constructor_info list Symtab.table,
+       type_fallbacks: (string * constructor_info) list,
+       record_types: string list}
+
+  fun constructor_identity
+      ({identity, ...} : constructor_info) = identity
+  fun constructor_term
+      ({constructor, ...} : constructor_info) = constructor
+  fun constructor_arity
+      ({arity, ...} : constructor_info) = arity
+  fun constructor_family
+      ({family, ...} : constructor_info) = family
+  fun constructor_selectors
+      ({selectors, ...} : constructor_info) = selectors
+
+  val canonical_name = Long_Name.base_name
+
+  fun qualified_name name =
+    String.isSubstring Long_Name.separator name
+
+  fun named_constant role pos term =
+    (case term_name_of term of
+       SOME name => Const (name, dummyT)
+     | NONE =>
+         error ("urust_expr: unnamed " ^ role ^
+           " in constructor metadata" ^ Position.here pos))
+
+  fun same_family (NONE, NONE) = true
+    | same_family
+        (SOME (left_name, left_members),
+         SOME (right_name, right_members)) =
+        left_name = right_name andalso
+          eq_list (op aconv) (left_members, right_members)
+    | same_family _ = false
+
+  fun same_constructor_info
+      (left : constructor_info, right : constructor_info) =
+    #identity left = #identity right andalso
+      #constructor left aconv #constructor right andalso
+      #arity left = #arity right andalso
+      same_family (#family left, #family right) andalso
+      eq_list (op aconv) (#selectors left, #selectors right)
+
+  fun merge_optional_family identity (NONE, family) = family
+    | merge_optional_family _ (family, NONE) = family
+    | merge_optional_family identity
+        (left as SOME _, right as SOME _) =
+        if same_family (left, right)
+        then left
+        else
+          error
+            ("urust_expr: inconsistent constructor family metadata for " ^
+              quote identity)
+
+  fun merge_selectors identity arity left right =
+    if eq_list (op aconv) (left, right)
+    then left
+    else if null left andalso arity > 0
+    then right
+    else if null right andalso arity > 0
+    then left
+    else
+      error
+        ("urust_expr: inconsistent constructor selector metadata for " ^
+          quote identity)
+
+  fun merge_constructor_info pos
+      (left : constructor_info, right : constructor_info) =
     let
-      fun family
-          ({kind = Ctr_Sugar.Record, ...} : Ctr_Sugar.ctr_sugar) = NONE
-        | family ({T, ctrs, ...} : Ctr_Sugar.ctr_sugar) =
-            if List.exists
-                (fn constructor =>
-                  term_name_of constructor = SOME constructor_name) ctrs
-            then
-              Option.map
-                (fn type_name =>
-                  (type_name, map normalize_constructor ctrs))
-                (type_name_of T)
-            else NONE
-    in get_first family (Ctr_Sugar.ctr_sugars_of ctxt) end
-
-  fun make_constructor_info ctxt constructor =
-    (case constructor of
-       Const (name, typ) =>
-         {constructor = Const (name, dummyT),
-          arity = length (binder_types typ),
-          family = family_of_constructor ctxt name}
-     | _ => error "urust_expr: internal unnamed constructor")
-
-  fun resolve_constructor ctxt name =
-    let val theory = Proof_Context.theory_of ctxt in
-      (case try (Proof_Context.read_const {proper = true, strict = false} ctxt) name of
-         SOME (constructor as Const (full_name, _)) =>
-           if Code.is_constr theory full_name
-           then SOME (make_constructor_info ctxt constructor)
-           else NONE
-       | _ => NONE)
+      val identity = #identity left
+      val _ =
+        if identity = #identity right andalso
+            #constructor left aconv #constructor right andalso
+            #arity left = #arity right
+        then ()
+        else
+          error
+            ("urust_expr: inconsistent constructor core metadata for " ^
+              quote identity ^ Position.here pos)
+    in
+      {identity = identity,
+       constructor = #constructor left,
+       arity = #arity left,
+       family =
+         merge_optional_family identity
+           (#family left, #family right),
+       selectors =
+         merge_selectors identity (#arity left)
+           (#selectors left) (#selectors right)}
     end
+
+  fun describe_constructor_info (info : constructor_info) =
+    "constructor " ^ quote (#identity info) ^
+      " (arity " ^ string_of_int (#arity info) ^
+      ", selectors [" ^
+      space_implode ", "
+        (map (the_default "<unnamed>" o term_name_of)
+          (#selectors info)) ^ "])"
+
+  fun make_constructor_resolver ctxt pos =
+    let
+      val theory = Proof_Context.theory_of ctxt
+      val sugars = Ctr_Sugar.ctr_sugars_of ctxt
+
+      fun selector_rows type_name ctrs selss =
+        if null selss
+        then map (fn constructor => (constructor, [])) ctrs
+        else if length ctrs = length selss
+        then ListPair.zip (ctrs, selss)
+        else
+          error
+            ("urust_expr: inconsistent constructor/selector metadata for " ^
+              quote type_name ^ Position.here pos)
+
+      fun catalog_entries
+          ({kind = Ctr_Sugar.Record, ...} :
+            Ctr_Sugar.ctr_sugar) = []
+        | catalog_entries
+            ({T, ctrs, selss, ...} :
+              Ctr_Sugar.ctr_sugar) =
+            let
+              val type_name = type_name_of T
+              val display_name =
+                the_default
+                  (case map_filter term_name_of ctrs of
+                     first :: _ => first
+                   | [] => "<unnamed>")
+                  type_name
+              val family_members =
+                map (named_constant "constructor" pos) ctrs
+              val family =
+                Option.map
+                  (fn name => (name, family_members))
+                  type_name
+
+              fun entry (constructor, selectors) =
+                (case constructor of
+                   Const (identity, typ) =>
+                     if Code.is_constr theory identity
+                     then
+                       let
+                         val normalized_selectors =
+                           map (named_constant "selector" pos)
+                             selectors
+                         val arity = length (binder_types typ)
+                         val _ =
+                           if null normalized_selectors orelse
+                               length normalized_selectors = arity
+                           then ()
+                           else
+                             error
+                               ("urust_expr: inconsistent selector arity for " ^
+                                 quote identity ^ Position.here pos)
+                       in
+                         SOME
+                           {identity = identity,
+                            constructor = Const (identity, dummyT),
+                            arity = arity,
+                            family = family,
+                            selectors = normalized_selectors}
+                       end
+                     else NONE
+                 | _ =>
+                     error
+                       ("urust_expr: unnamed constructor in family " ^
+                         quote display_name ^ Position.here pos))
+            in
+              map_filter entry
+                (selector_rows display_name ctrs selss)
+            end
+
+      fun add_entry info table =
+        let val identity = constructor_identity info in
+          (case Symtab.lookup table identity of
+             NONE => Symtab.update (identity, info) table
+           | SOME existing =>
+               Symtab.update
+                 (identity,
+                  merge_constructor_info pos
+                    (existing, info))
+                 table)
+        end
+
+      val by_identity =
+        fold add_entry (maps catalog_entries sugars) Symtab.empty
+
+      fun add_basename info =
+        Symtab.map_default
+          (canonical_name (constructor_identity info), [])
+          (insert (fn (left, right) =>
+            constructor_identity left =
+              constructor_identity right) info)
+
+      val by_basename =
+        fold add_basename (map #2 (Symtab.dest by_identity))
+          Symtab.empty
+
+      val type_fallbacks =
+        map_filter
+          (fn info =>
+            (case constructor_family info of
+               SOME (type_name, [_]) =>
+                 SOME (type_name, info)
+             | _ => NONE))
+          (map #2 (Symtab.dest by_identity))
+
+      val record_types =
+        Name_Space.get_names (Sign.type_space theory)
+        |> filter (is_some o Record.get_info theory)
+        |> sort_strings
+    in
+      Constructor_Resolver
+        {by_identity = by_identity,
+         by_basename = by_basename,
+         type_fallbacks = type_fallbacks,
+         record_types = record_types}
+    end
+
+  fun constructor_candidates
+      (Constructor_Resolver
+        {by_identity, by_basename, ...}) name =
+    if qualified_name name
+    then
+      (case Symtab.lookup by_identity name of
+         SOME info => [info]
+       | NONE => [])
+    else
+      the_default [] (Symtab.lookup by_basename name)
+
+  fun ambiguity_error role name pos candidates =
+    error
+      ("urust_expr: " ^ role ^ " " ^ quote name ^
+        " is ambiguous; candidates: " ^
+        space_implode ", "
+          (sort_strings
+            (map constructor_identity candidates)) ^
+        Position.here pos)
+
+  fun resolve_constructor resolver (name, pos) =
+    (case constructor_candidates resolver name of
+       [] => NONE
+     | [info] => SOME info
+     | candidates =>
+         ambiguity_error "constructor pattern" name pos
+           candidates)
 
   fun report_named_term ctxt pos (Const (name, _)) =
         Context_Position.report ctxt pos
@@ -226,10 +447,6 @@ struct
     | literal_expression ctxt environment payload =
         T.literal (literal_value ctxt environment payload)
 
-  val canonical_name = Long_Name.base_name
-  fun name_matches left right =
-    left = right orelse canonical_name left = canonical_name right
-
   datatype struct_candidate =
       Constructor_Candidate of {info: constructor_info, selectors: term list}
     | Record_Candidate of {record_name: string, fields: term list}
@@ -243,133 +460,122 @@ struct
   (* Struct heads accept either a constructor name or the type name of a single-constructor datatype.
      Records come only from Record.get_info; Ctr_Sugar's record entry belongs to a different lowering
      domain and must not compete with constructor candidates. *)
-  fun resolve_struct_constructor ctxt (identifier_name, pos) =
+  fun resolve_struct_constructor ctxt
+      (resolver as
+        Constructor_Resolver
+          {type_fallbacks, record_types, ...})
+      (identifier_name, pos) =
     let
-      val base_identifier = canonical_name identifier_name
       val theory = Proof_Context.theory_of ctxt
-      val sugars = Ctr_Sugar.ctr_sugars_of ctxt
 
-      fun named_constant role term =
-        (case term_name_of term of
-           SOME name => Const (name, dummyT)
-         | NONE =>
-             error ("urust_expr: unnamed " ^ role ^ " in constructor metadata" ^
-               Position.here pos))
+      fun name_matches identity =
+        if qualified_name identifier_name
+        then identity = identifier_name
+        else canonical_name identity = identifier_name
 
-      fun constructor_candidate constructor selectors =
-        Constructor_Candidate
-          {info = make_constructor_info ctxt constructor,
-           selectors = map (named_constant "selector") selectors}
+      val direct_candidates =
+        map
+          (fn info =>
+            (constructor_identity info,
+             Constructor_Candidate
+               {info = info,
+                selectors = constructor_selectors info}))
+          (constructor_candidates resolver identifier_name)
 
-      fun from_sugar ({kind = Ctr_Sugar.Record, ...} : Ctr_Sugar.ctr_sugar) = []
-        | from_sugar ({T, ctrs, selss, ...} : Ctr_Sugar.ctr_sugar) =
-        let
-          val type_name = Option.map canonical_name (type_name_of T)
-          (* Old_Datatype uses an empty outer selector list; otherwise rows align with constructors. *)
-          val entries =
-            if null selss then map (fn constructor => (constructor, [])) ctrs
-            else if length ctrs = length selss then ListPair.zip (ctrs, selss)
-            else
-              error ("urust_expr: inconsistent constructor/selector metadata for " ^
-                quote (the_default identifier_name (type_name_of T)) ^ Position.here pos)
-          val direct =
-            map_filter (fn (constructor, selectors) =>
-              (case term_name_of constructor of
-                 SOME constructor_name =>
-                   if name_matches constructor_name base_identifier
-                   then
-                     SOME
-                       (constructor_name,
-                        constructor_candidate constructor selectors)
-                   else NONE
-               | NONE => NONE)) entries
-          val fallback =
-            (case (type_name, entries) of
-               (SOME candidate_type, [(constructor, selectors)]) =>
-                 if candidate_type = base_identifier
-                 then
-                   (case term_name_of constructor of
-                      SOME constructor_name =>
-                        [(constructor_name,
-                          constructor_candidate constructor selectors)]
-                    | NONE => [])
-                 else []
-             | _ => [])
-        in direct @ fallback end
+      val fallback_candidates =
+        type_fallbacks
+        |> map_filter
+          (fn (type_name, info) =>
+            if name_matches type_name
+            then
+              SOME
+                (constructor_identity info,
+                 Constructor_Candidate
+                   {info = info,
+                    selectors = constructor_selectors info})
+            else NONE)
 
       fun record_candidate record_name =
-        let
-          val resolved_name =
-            (type_name_of
-               (Proof_Context.read_type_name
-                 {proper = true, strict = false} ctxt record_name)
-              handle ERROR _ => NONE)
-          val (canonical_record_name, info) =
-            (case resolved_name of
-               SOME name => (name, Record.get_info theory name)
-             | NONE => (record_name, Record.get_info theory record_name))
-        in
-          (case info of
-             NONE => NONE
-           | SOME record_info =>
-               SOME
-                 (canonical_record_name,
-                  Record_Candidate
-                    {record_name = canonical_record_name,
-                     fields =
-                       map (fn (field, _) => Const (field, dummyT))
-                         (#fields record_info)}))
-        end
+        (case Record.get_info theory record_name of
+           NONE =>
+             error
+               ("urust_expr: missing record metadata for " ^
+                 quote record_name ^ Position.here pos)
+         | SOME record_info =>
+             (record_name,
+              Record_Candidate
+                {record_name = record_name,
+                 fields =
+                   map (fn (field, _) =>
+                     Const (field, dummyT))
+                     (#fields record_info)}))
+
+      val record_candidates =
+        record_types
+        |> filter name_matches
+        |> map record_candidate
 
       fun same_candidate
-          (Constructor_Candidate {info = left_info, selectors = left_selectors},
-           Constructor_Candidate {info = right_info, selectors = right_selectors}) =
-            constructor_term left_info aconv constructor_term right_info andalso
-              eq_list (op aconv) (left_selectors, right_selectors)
+          (Constructor_Candidate
+             {info = left_info, selectors = left_selectors},
+           Constructor_Candidate
+             {info = right_info, selectors = right_selectors}) =
+            same_constructor_info (left_info, right_info) andalso
+              eq_list (op aconv)
+                (left_selectors, right_selectors)
         | same_candidate
-          (Record_Candidate {record_name = left_name, fields = left_fields},
-           Record_Candidate {record_name = right_name, fields = right_fields}) =
+            (Record_Candidate
+               {record_name = left_name, fields = left_fields},
+             Record_Candidate
+               {record_name = right_name, fields = right_fields}) =
             left_name = right_name andalso
               eq_list (op aconv) (left_fields, right_fields)
         | same_candidate _ = false
 
-      fun candidate_description (Constructor_Candidate {info, selectors}) =
-            "constructor " ^
-              quote (the_default "<unnamed>"
-                (term_name_of (constructor_term info))) ^
-              " with selectors [" ^
-              space_implode ", "
-                (map (the_default "<unnamed>" o term_name_of) selectors) ^ "]"
-        | candidate_description (Record_Candidate {record_name, fields}) =
+      fun candidate_description
+          (Constructor_Candidate {info, ...}) =
+            describe_constructor_info info
+        | candidate_description
+            (Record_Candidate {record_name, fields}) =
             "record " ^ quote record_name ^ " with fields [" ^
               space_implode ", "
-                (map (the_default "<unnamed>" o term_name_of) fields) ^ "]"
+                (map
+                  (the_default "<unnamed>" o term_name_of)
+                  fields) ^ "]"
 
-      fun candidate_key (Constructor_Candidate {info, ...}) =
-            "C:" ^ the_default "<unnamed>"
-              (term_name_of (constructor_term info))
-        | candidate_key (Record_Candidate {record_name, ...}) =
+      fun candidate_key
+          (Constructor_Candidate {info, ...}) =
+            "C:" ^ constructor_identity info
+        | candidate_key
+            (Record_Candidate {record_name, ...}) =
             "R:" ^ record_name
 
       fun add_candidate (display_name, candidate) candidates =
         let val key = candidate_key candidate in
           (case Symtab.lookup candidates key of
-             NONE => Symtab.update (key, (display_name, candidate)) candidates
+             NONE =>
+               Symtab.update
+                 (key, (display_name, candidate)) candidates
            | SOME (_, existing) =>
-               if same_candidate (existing, candidate) then candidates
+               if same_candidate (existing, candidate)
+               then candidates
                else
-                 error ("urust_expr: inconsistent struct metadata for " ^
-                   quote display_name ^ ": " ^ candidate_description existing ^
-                   " versus " ^ candidate_description candidate ^ Position.here pos))
+                 error
+                   ("urust_expr: inconsistent struct metadata for " ^
+                     quote display_name ^ ": " ^
+                     candidate_description existing ^ " versus " ^
+                     candidate_description candidate ^
+                     Position.here pos))
         end
 
-      val record_candidates =
-        map_filter record_candidate
-          (distinct (op =) [identifier_name, base_identifier])
       val candidates =
-        fold add_candidate (maps from_sugar sugars @ record_candidates) Symtab.empty
+        fold add_candidate
+          (direct_candidates @ fallback_candidates @
+            record_candidates)
+          Symtab.empty
         |> Symtab.dest
         |> map snd
+        |> sort_by fst
     in
       (case candidates of
          [] =>
@@ -380,12 +586,16 @@ struct
        | _ =>
            error ("urust_expr: struct pattern " ^ quote identifier_name ^
              " is ambiguous; candidates: " ^
-             space_implode ", " (map fst candidates) ^ Position.here pos))
+             space_implode ", " (map fst candidates) ^
+             Position.here pos))
     end
 
-  fun resolve_struct_pattern ctxt (head, head_pos, fields) =
+  fun resolve_struct_pattern ctxt resolver
+      (head, head_pos, fields) =
     let
-      val candidate = resolve_struct_constructor ctxt (head, head_pos)
+      val candidate =
+        resolve_struct_constructor ctxt resolver
+          (head, head_pos)
       val (display_name, selectors) =
         (case candidate of
            Constructor_Candidate {info, selectors} =>
