@@ -7,14 +7,6 @@ section\<open> Expression elaboration \<close>
 ML\<open>
 signature URUST_TRANSLATE =
 sig
-  type result
-  val make_result: Proof.context -> URust_AST.ur_expr -> result
-  val result_term: result -> term
-  val legacy_compatible: result -> bool
-  val compatibility_diagnostic: result -> string * Position.T
-  val linear_nodes: result -> int
-  val predicted_legacy_nodes: result -> int
-  val maximum_legacy_copies: result -> int
   val mk_closed: Proof.context -> URust_AST.ur_expr -> term
 end
 \<close>
@@ -32,245 +24,10 @@ struct
   structure R = URust_Resolution
   structure P = URust_Patterns
 
-  val legacy_copy_limit = 256
-
-  type analysis =
-    {linear_nodes: int,
-     predicted_nodes: int,
-     maximum_copies: int,
-     maximum_copy_position: Position.T option,
-     expansion_overflow: Position.T option}
-
-  datatype lowered =
-    Lowered of {term: term, analysis: analysis}
-
-  datatype compatibility =
-      Legacy_Compatible
-    | Scalable_Only of string * Position.T
-
-  datatype result =
-    Result of
-      {term: term,
-       analysis: analysis,
-       compatibility: compatibility}
-
-  fun lowered_term (Lowered {term, ...}) = term
-  fun lowered_analysis (Lowered {analysis, ...}) = analysis
-
-  fun saturating_add limit left right =
-    if left >= limit orelse right >= limit - left
-    then limit
-    else left + right
-
-  fun saturating_multiply limit left right =
-    if left = 0 orelse right = 0 then 0
-    else if left >= limit orelse right >= limit orelse
-        left > limit div right
-    then limit
-    else left * right
-
-  fun first_some [] = NONE
-    | first_some (NONE :: rest) = first_some rest
-    | first_some (SOME value :: _) = SOME value
-
-  fun largest_copy analyses =
-    fold
-      (fn analysis => fn (largest, position) =>
-        if #maximum_copies analysis > largest
-        then
-          (#maximum_copies analysis,
-           #maximum_copy_position analysis)
-        else (largest, position))
-      analyses (1, NONE)
-
-  fun make_analysis local_position local_linear local_predicted
-      local_copies local_copy_position child_analyses =
-    let
-      val linear_nodes =
-        local_linear +
-          fold (fn analysis =>
-            Integer.add (#linear_nodes analysis))
-            child_analyses 0
-      val limit = legacy_copy_limit * linear_nodes + 1
-      val predicted_nodes =
-        fold (fn analysis => fn total =>
-          saturating_add limit total
-            (#predicted_nodes analysis))
-          child_analyses
-          (Int.min (local_predicted, limit))
-      val (child_copies, child_copy_position) =
-        largest_copy child_analyses
-      val (maximum_copies, maximum_copy_position) =
-        if local_copies > child_copies
-        then (local_copies, local_copy_position)
-        else (child_copies, child_copy_position)
-      val inherited_overflow =
-        first_some (map #expansion_overflow child_analyses)
-      val expansion_overflow =
-        (case inherited_overflow of
-           SOME position => SOME position
-         | NONE =>
-             if predicted_nodes >
-                 legacy_copy_limit * linear_nodes
-             then local_position
-             else NONE)
-    in
-      {linear_nodes = linear_nodes,
-       predicted_nodes = predicted_nodes,
-       maximum_copies = maximum_copies,
-       maximum_copy_position = maximum_copy_position,
-       expansion_overflow = expansion_overflow}
-    end
-
-  fun plain term children =
-    Lowered
-      {term = term,
-       analysis =
-         make_analysis NONE 1 1 1 NONE
-           (map lowered_analysis children)}
-
-  fun leaf term = plain term []
-
-  fun matcher_case_analysis position scrutinee arms =
-    let
-      fun arm_children (_, guard, body) =
-        lowered_analysis body ::
-          (case guard of
-             NONE => []
-           | SOME lowered_guard =>
-               [lowered_analysis lowered_guard])
-      val child_analyses =
-        lowered_analysis scrutinee ::
-          maps arm_children arms
-      val pattern_linear =
-        fold (fn (prepared, _, _) =>
-          Integer.add
-            (P.prepared_legacy_linear_nodes prepared))
-          arms 0
-      val local_linear =
-        1 + pattern_linear + length arms
-      val total_linear =
-        local_linear +
-          fold (fn analysis =>
-            Integer.add (#linear_nodes analysis))
-            child_analyses 0
-      val limit = legacy_copy_limit * total_linear + 1
-
-      fun arm_cost (prepared, guard, body) continuation =
-        let
-          val copies = P.prepared_legacy_copies prepared
-          val expanded =
-            P.prepared_legacy_expanded_nodes prepared
-          val guard_cost =
-            (case guard of
-               NONE => 0
-             | SOME lowered_guard =>
-                 #predicted_nodes
-                   (lowered_analysis lowered_guard))
-          val body_cost =
-            #predicted_nodes (lowered_analysis body)
-          val own_cost =
-            saturating_add limit expanded
-              (saturating_multiply limit copies
-                (2 + guard_cost + body_cost))
-          val continuation_copies =
-            saturating_multiply limit copies
-              (if is_some guard then 2 else 1)
-        in
-          saturating_add limit own_cost
-            (saturating_multiply limit
-              continuation_copies continuation)
-        end
-
-      val predicted_case = fold_rev arm_cost arms 1
-      val local_predicted =
-        saturating_add limit 1 predicted_case
-
-      fun largest_pattern
-          (prepared, _, _) (largest, largest_position) =
-        let val copies = P.prepared_legacy_copies prepared in
-          if copies > largest
-          then
-            (copies,
-             SOME (P.prepared_pattern_position prepared))
-          else (largest, largest_position)
-        end
-      val (pattern_copies, pattern_position) =
-        fold largest_pattern arms (1, NONE)
-      val (child_copies, child_copy_position) =
-        largest_copy child_analyses
-      val (maximum_copies, maximum_copy_position) =
-        if pattern_copies > child_copies
-        then (pattern_copies, pattern_position)
-        else (child_copies, child_copy_position)
-      val predicted_nodes =
-        saturating_add limit local_predicted
-          (#predicted_nodes
-            (lowered_analysis scrutinee))
-      val inherited_overflow =
-        first_some
-          (map #expansion_overflow child_analyses)
-      val expansion_overflow =
-        (case inherited_overflow of
-           SOME overflow_position =>
-             SOME overflow_position
-         | NONE =>
-             if predicted_nodes >
-                 legacy_copy_limit * total_linear
-             then SOME position
-             else NONE)
-    in
-      {linear_nodes = total_linear,
-       predicted_nodes = predicted_nodes,
-       maximum_copies = maximum_copies,
-       maximum_copy_position = maximum_copy_position,
-       expansion_overflow = expansion_overflow}
-    end
-
-  fun classify analysis =
-    if #maximum_copies analysis > legacy_copy_limit
-    then
-      Scalable_Only
-        ("legacy frontend expansion would exceed " ^
-          string_of_int legacy_copy_limit ^
-          " Cartesian pattern copies",
-         the_default Position.none
-           (#maximum_copy_position analysis))
-    else
-      (case #expansion_overflow analysis of
-         SOME position =>
-           Scalable_Only
-             ("legacy frontend normalization would exceed " ^
-               string_of_int legacy_copy_limit ^
-               " times the scalable term's linear size",
-              position)
-       | NONE => Legacy_Compatible)
-
-  fun result_term (Result {term, ...}) = term
-  fun legacy_compatible
-      (Result {compatibility = Legacy_Compatible, ...}) = true
-    | legacy_compatible _ = false
-  fun compatibility_diagnostic
-      (Result
-        {compatibility = Scalable_Only diagnostic, ...}) =
-        diagnostic
-    | compatibility_diagnostic _ =
-        error
-          "urust_expr: internal compatibility diagnostic requested for a legacy-compatible term"
-  fun linear_nodes
-      (Result {analysis = {linear_nodes, ...}, ...}) =
-        linear_nodes
-  fun predicted_legacy_nodes
-      (Result {analysis = {predicted_nodes, ...}, ...}) =
-        predicted_nodes
-  fun maximum_legacy_copies
-      (Result {analysis = {maximum_copies, ...}, ...}) =
-        maximum_copies
-
   fun lower_place lower ctxt environment place =
     (case place of
        UP_Ident identifier =>
-         leaf (R.literal_identifier ctxt environment identifier)
+         R.literal_identifier ctxt environment identifier
      | UP_Deref (expression, _) =>
          lower environment expression
      | UP_Field (base, name, pos) =>
@@ -278,13 +35,10 @@ struct
            val lowered_base =
              lower_place lower ctxt environment base
          in
-           plain
-             (R.field_expression ctxt
-               (lowered_term lowered_base) name pos)
-             [lowered_base]
+           R.field_expression ctxt lowered_base name pos
          end
      | UP_Antiq source =>
-         leaf (R.parse_antiquotation ctxt environment source))
+         R.parse_antiquotation ctxt environment source)
 
   fun lower_binding lower ctxt site wrap_rhs environment
       (pattern, rhs, body) =
@@ -295,18 +49,14 @@ struct
       val body_environment = P.binding_environment prepared
       val lowered_body = lower body_environment body
     in
-      plain
-        (T.bind (wrap_rhs (lowered_term lowered_rhs))
-          (P.binding_abstraction prepared
-            (lowered_term lowered_body)))
-        [lowered_rhs, lowered_body]
+      T.bind (wrap_rhs lowered_rhs)
+        (P.binding_abstraction prepared lowered_body)
     end
 
   fun lower_fuel ctxt environment source =
-    leaf (R.parse_antiquotation ctxt environment source)
+    R.parse_antiquotation ctxt environment source
 
-  fun lower_prepared_case ctxt position scrutinee
-      lower_result prepared_arms =
+  fun lower_prepared_case ctxt scrutinee lower_result prepared_arms =
     let
       fun lower_arm (tag, prepared) =
         let
@@ -315,20 +65,8 @@ struct
             lower_result tag arm_environment prepared
         in (prepared, lowered_guard, lowered_body) end
       val lowered_arms = map lower_arm prepared_arms
-      val term =
-        P.compile_case ctxt (lowered_term scrutinee)
-          (map
-            (fn (prepared, guard, body) =>
-              (prepared,
-               Option.map lowered_term guard,
-               lowered_term body))
-            lowered_arms)
     in
-      Lowered
-        {term = term,
-         analysis =
-           matcher_case_analysis position
-             scrutinee lowered_arms}
+      P.compile_case ctxt scrutinee lowered_arms
     end
 
   fun lower_case_arms ctxt environment position
@@ -342,7 +80,7 @@ struct
            P.prepare_case_arm resolver ctxt
              environment arm)) arms
     in
-      lower_prepared_case ctxt position scrutinee
+      lower_prepared_case ctxt scrutinee
         lower_result prepared
     end
 
@@ -354,12 +92,9 @@ struct
       val body_environment = P.binding_environment prepared
       val lowered_body = lower body_environment body
     in
-      plain
-        (T.for_loop
-          (T.into_iterator (lowered_term lowered_iterable))
-          (P.binding_abstraction prepared
-            (lowered_term lowered_body)))
-        [lowered_iterable, lowered_body]
+      T.for_loop
+        (T.into_iterator lowered_iterable)
+        (P.binding_abstraction prepared lowered_body)
     end
 
   fun lower_while_let lower ctxt environment
@@ -376,45 +111,29 @@ struct
         P.prepared_environment prepared
       val lowered_body = lower body_environment body
       val success =
-        T.sequence (lowered_term lowered_body)
+        T.sequence lowered_body
           (T.literal T.true_value)
-      val lowered_success =
-        plain success [lowered_body]
       val condition =
         (case P.prepared_direct_abstraction prepared of
            SOME abstraction =>
-             plain
-               (T.bind (lowered_term lowered_scrutinee)
-                 (abstraction success))
-               [lowered_scrutinee, lowered_success]
+             T.bind lowered_scrutinee
+               (abstraction success)
          | NONE =>
              let
-               val arm =
-                 (prepared, NONE, lowered_success)
                val term =
                  if P.prepared_is_total prepared
                  then
                    P.compile_case ctxt
-                     (lowered_term lowered_scrutinee)
+                     lowered_scrutinee
                      [(prepared, NONE, success)]
                  else
                    P.compile_case_with_fallback ctxt
-                     (lowered_term lowered_scrutinee)
+                     lowered_scrutinee
                      (T.literal T.false_value)
                      [(prepared, NONE, success)]
-             in
-               Lowered
-                 {term = term,
-                  analysis =
-                    matcher_case_analysis position
-                      lowered_scrutinee [arm]}
-             end)
+             in term end)
     in
-      plain
-        (T.bounded_while
-          (lowered_term lowered_fuel)
-          (lowered_term condition) T.skip)
-        [lowered_fuel, condition]
+      T.bounded_while lowered_fuel condition T.skip
     end
 
   (* Mutable scalar bindings allocate one store reference. Top-level tuple mutability remains erased,
@@ -430,20 +149,14 @@ struct
            P.Allocate_Rhs =>
              let val lowered = lower environment rhs
              in
-               plain
-                 (T.allocate_reference mutable_pos
-                   (lowered_term lowered))
-                 [lowered]
+               T.allocate_reference mutable_pos lowered
              end
          | P.Plain_Rhs => lower environment rhs)
       val body_environment = P.binding_environment prepared
       val lowered_body = lower body_environment body
     in
-      plain
-        (T.bind (lowered_term lowered_rhs)
-          (P.binding_abstraction prepared
-            (lowered_term lowered_body)))
-        [lowered_rhs, lowered_body]
+      T.bind lowered_rhs
+        (P.binding_abstraction prepared lowered_body)
     end
 
   fun lower_match lower ctxt environment (flavour, scrutinee, arms, pos) =
@@ -460,21 +173,15 @@ struct
                      val body = P.prepared_switch_body prepared
                      val lowered_body = lower environment body
                    in
-                     (map (fn alternative =>
-                        T.pair alternative
-                          (lowered_term lowered_body))
-                        (P.prepared_switch_keys prepared),
-                      lowered_body)
+                     map (fn alternative =>
+                        T.pair alternative lowered_body)
+                        (P.prepared_switch_keys prepared)
                    end
-             val pairs_and_bodies = map arm_pairs arms
-             val pairs = maps #1 pairs_and_bodies
+             val pairs = maps arm_pairs arms
            in
-             plain
-               (T.bind (lowered_term lowered_scrutinee)
-                 (T.numeral_case_selector
-                   (fold_rev T.list_cons pairs T.list_nil)))
-               (lowered_scrutinee ::
-                 map #2 pairs_and_bodies)
+             T.bind lowered_scrutinee
+               (T.numeral_case_selector
+                 (fold_rev T.list_cons pairs T.list_nil))
            end
        | MF_Case =>
            let
@@ -497,20 +204,20 @@ struct
   fun lower_expression ctxt environment expression =
     (case expression of
        UE_Unit _ =>
-         leaf (T.literal HOLogic.unit)
+         T.literal HOLogic.unit
      | UE_Tuple (arguments, _) =>
          let
            val lowered =
              map (lower_expression ctxt environment) arguments
          in
-           plain (T.tuple (map lowered_term lowered)) lowered
+           T.tuple lowered
          end
      | UE_Ident identifier =>
-         leaf (R.literal_identifier ctxt environment identifier)
+         R.literal_identifier ctxt environment identifier
      | UE_Literal payload =>
-         leaf (R.literal_expression ctxt environment payload)
+         R.literal_expression ctxt environment payload
      | UE_ExprAntiq source =>
-         leaf (R.parse_antiquotation ctxt environment source)
+         R.parse_antiquotation ctxt environment source
      | UE_Seq (first, second) =>
          let
            val lowered_first =
@@ -518,11 +225,7 @@ struct
            val lowered_second =
              lower_expression ctxt environment second
          in
-           plain
-             (T.sequence
-               (lowered_term lowered_first)
-               (lowered_term lowered_second))
-             [lowered_first, lowered_second]
+           T.sequence lowered_first lowered_second
          end
      | UE_Return (value, _) =>
          let
@@ -530,10 +233,9 @@ struct
              (case value of
                 SOME nested =>
                   lower_expression ctxt environment nested
-              | NONE => leaf (T.literal HOLogic.unit))
+              | NONE => T.literal HOLogic.unit)
          in
-           plain (T.return_value (lowered_term lowered))
-             [lowered]
+           T.return_value lowered
          end
      | UE_Bin (operator, left, right, _) =>
          let
@@ -542,21 +244,14 @@ struct
            val lowered_right =
              lower_expression ctxt environment right
          in
-           plain
-             (T.binary operator
-               (lowered_term lowered_left)
-               (lowered_term lowered_right))
-             [lowered_left, lowered_right]
+           T.binary operator lowered_left lowered_right
          end
      | UE_Unary (operator, operand, pos) =>
          let
            val lowered_operand =
              lower_expression ctxt environment operand
          in
-           plain
-             (T.unary operator pos
-               (lowered_term lowered_operand))
-             [lowered_operand]
+           T.unary operator pos lowered_operand
          end
      | UE_Group (inner, _) =>
          lower_expression ctxt environment inner
@@ -572,14 +267,10 @@ struct
              (case else_branch of
                 SOME branch =>
                   lower_expression ctxt environment branch
-              | NONE => leaf (T.literal HOLogic.unit))
+              | NONE => T.literal HOLogic.unit)
          in
-           plain
-             (T.conditional
-               (lowered_term lowered_condition)
-               (lowered_term lowered_then)
-               (lowered_term lowered_else))
-             [lowered_condition, lowered_then, lowered_else]
+           T.conditional
+             lowered_condition lowered_then lowered_else
          end
      | UE_While (fuel, condition, body, _) =>
          let
@@ -590,12 +281,8 @@ struct
            val lowered_body =
              lower_expression ctxt environment body
          in
-           plain
-             (T.bounded_while
-               (lowered_term lowered_fuel)
-               (lowered_term lowered_condition)
-               (lowered_term lowered_body))
-             [lowered_fuel, lowered_condition, lowered_body]
+           T.bounded_while
+             lowered_fuel lowered_condition lowered_body
          end
      | UE_Loop (fuel, body, _) =>
          let
@@ -604,11 +291,7 @@ struct
            val lowered_body =
              lower_expression ctxt environment body
          in
-           plain
-             (T.bounded_loop
-               (lowered_term lowered_fuel)
-               (lowered_term lowered_body))
-             [lowered_fuel, lowered_body]
+           T.bounded_loop lowered_fuel lowered_body
          end
      | UE_For (pattern, iterable, body, _) =>
          lower_for (lower_expression ctxt) ctxt environment
@@ -632,20 +315,14 @@ struct
            val lowered_arguments =
              map (lower_expression ctxt environment) arguments
          in
-           plain
-             (T.function_call call_pos function
-               (map lowered_term lowered_arguments))
-             lowered_arguments
+           T.function_call call_pos function lowered_arguments
          end
      | UE_Field (receiver, name, pos) =>
          let
            val lowered_receiver =
              lower_expression ctxt environment receiver
          in
-           plain
-             (R.field_expression ctxt
-               (lowered_term lowered_receiver) name pos)
-             [lowered_receiver]
+           R.field_expression ctxt lowered_receiver name pos
          end
      | UE_Assign (operator, place, rhs, pos) =>
          let
@@ -654,40 +331,27 @@ struct
            val lowered_rhs = lower_expression ctxt environment rhs
            val term =
              (case operator of
-                Assign =>
+              Assign =>
                   T.update pos
-                    (lowered_term lowered_place)
-                    (lowered_term lowered_rhs)
+                    lowered_place
+                    lowered_rhs
               | AssignAdd =>
                   T.assign_add pos
-                    (lowered_term lowered_place)
-                    (lowered_term lowered_rhs)
+                    lowered_place
+                    lowered_rhs
               | AssignBin binary_operator =>
                   T.update pos
-                    (lowered_term lowered_place)
+                    lowered_place
                     (T.assignment_binary binary_operator
                       (T.unary U_Deref pos
-                        (lowered_term lowered_place))
-                      (lowered_term lowered_rhs)))
-         in
-           plain term [lowered_place, lowered_rhs]
-         end
+                        lowered_place)
+                      lowered_rhs))
+         in term end
      | UE_Match match =>
          lower_match (lower_expression ctxt) ctxt environment match)
 
-  fun make_result ctxt expression =
-    let
-      val Lowered {term, analysis} =
-        lower_expression ctxt R.empty_environment expression
-    in
-      Result
-        {term = term,
-         analysis = analysis,
-         compatibility = classify analysis}
-    end
-
   fun mk_closed ctxt expression =
-    result_term (make_result ctxt expression)
+    lower_expression ctxt R.empty_environment expression
 end
 \<close>
 

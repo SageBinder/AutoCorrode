@@ -60,9 +60,6 @@ sig
     prepared_case_arm -> (term -> term) option
   val prepared_is_total: prepared_case_arm -> bool
   val prepared_pattern_position: prepared_case_arm -> Position.T
-  val prepared_legacy_linear_nodes: prepared_case_arm -> int
-  val prepared_legacy_copies: prepared_case_arm -> int
-  val prepared_legacy_expanded_nodes: prepared_case_arm -> int
   val compile_case:
     Proof.context ->
       term ->
@@ -687,24 +684,17 @@ struct
     | Payload_Binder of R.binding_signature
     | Payload_Product of payload_layout * payload_layout
 
-  type legacy_pattern_metric =
-    {linear_nodes: int,
-     copies: int,
-     expanded_nodes: int}
-
   type compiled_plan =
     {matcher: term,
      layout: payload_layout,
-     direct: (term -> term) option,
-     legacy: legacy_pattern_metric}
+     direct: (term -> term) option}
 
   datatype pattern_plan =
     Pattern_Plan of
       {matcher: term,
        binders: term list,
        direct: (term -> term) option,
-       position: Position.T,
-       legacy: legacy_pattern_metric}
+       position: Position.T}
 
   datatype prepared_case_arm =
     Prepared_Case_Arm of
@@ -713,104 +703,6 @@ struct
        guard: (ur_expr * Position.T) option,
        body: ur_expr,
        total: bool}
-
-  val legacy_copy_limit = 256
-  val legacy_saturated_copy = legacy_copy_limit + 1
-
-  fun saturating_add limit left right =
-    if left >= limit orelse right >= limit - left
-    then limit
-    else left + right
-
-  fun saturating_multiply limit left right =
-    if left = 0 orelse right = 0 then 0
-    else if left >= limit orelse right >= limit orelse left > limit div right
-    then limit
-    else left * right
-
-  fun saturating_copy_add left right =
-    saturating_add legacy_saturated_copy left right
-
-  fun saturating_copy_multiply left right =
-    saturating_multiply legacy_saturated_copy left right
-
-  fun expanded_node_limit linear_nodes =
-    legacy_copy_limit * linear_nodes + 1
-
-  fun cap_expanded linear_nodes expanded_nodes =
-    Int.min (expanded_nodes, expanded_node_limit linear_nodes)
-
-  val empty_legacy_metric : legacy_pattern_metric =
-    {linear_nodes = 0, copies = 1, expanded_nodes = 0}
-
-  val leaf_legacy_metric : legacy_pattern_metric =
-    {linear_nodes = 1, copies = 1, expanded_nodes = 1}
-
-  fun unary_legacy_metric
-      ({linear_nodes, copies, expanded_nodes} : legacy_pattern_metric) =
-    let
-      val linear_nodes' = linear_nodes + 1
-      val limit = expanded_node_limit linear_nodes'
-    in
-      {linear_nodes = linear_nodes',
-       copies = copies,
-       expanded_nodes =
-         saturating_add limit copies expanded_nodes}
-    end
-
-  fun cartesian_legacy_metric include_parent metrics =
-    let
-      val child_linear =
-        fold (fn metric => Integer.add (#linear_nodes metric))
-          metrics 0
-      val linear_nodes =
-        child_linear + (if include_parent then 1 else 0)
-      val copies =
-        fold (fn metric =>
-          saturating_copy_multiply (#copies metric))
-          metrics 1
-      val limit = expanded_node_limit linear_nodes
-      fun other_copies selected =
-        fold_index
-          (fn (index, metric) => fn product =>
-            if index = selected then product
-            else saturating_multiply limit (#copies metric) product)
-          metrics 1
-      val child_expanded =
-        fold_index
-          (fn (index, metric) => fn total =>
-            saturating_add limit total
-              (saturating_multiply limit
-                (#expanded_nodes metric)
-                (other_copies index)))
-          metrics 0
-      val parent_expanded =
-        if include_parent then copies else 0
-    in
-      {linear_nodes = linear_nodes,
-       copies = copies,
-       expanded_nodes =
-         saturating_add limit parent_expanded child_expanded}
-    end
-
-  fun choice_legacy_metric metrics =
-    let
-      val linear_nodes =
-        1 + fold (fn metric => Integer.add (#linear_nodes metric))
-          metrics 0
-      val limit = expanded_node_limit linear_nodes
-    in
-      {linear_nodes = linear_nodes,
-       copies =
-         fold (fn metric =>
-           saturating_copy_add (#copies metric))
-           metrics 0,
-       expanded_nodes =
-         cap_expanded linear_nodes
-           (fold (fn metric =>
-             saturating_add limit (#expanded_nodes metric))
-             metrics 1)}
-    end
 
   fun split_resolved_slice_items items =
     let
@@ -987,15 +879,14 @@ struct
         T.pair value (payload_pack rest)
 
   fun canonicalize_plan signatures
-      ({matcher, layout, direct, legacy} : compiled_plan) =
+      ({matcher, layout, direct} : compiled_plan) =
     let
       val target_layout = canonical_layout signatures
     in
       if same_layout (layout, target_layout) then
         {matcher = matcher,
          layout = layout,
-         direct = direct,
-         legacy = legacy}
+         direct = direct}
       else
         let
           val source =
@@ -1022,8 +913,7 @@ struct
         in
           {matcher = T.matcher_map mapping matcher,
            layout = target_layout,
-           direct = direct,
-           legacy = legacy}
+           direct = direct}
         end
     end
 
@@ -1038,8 +928,7 @@ struct
          T.matcher_succeed
            (Term.lambda value HOLogic.unit),
        layout = Payload_None,
-       direct = NONE,
-       legacy = leaf_legacy_metric}
+       direct = NONE}
     end
 
   fun binder_plan environment binder_sig : compiled_plan =
@@ -1053,8 +942,7 @@ struct
       {matcher =
          T.matcher_succeed (Term.lambda value value),
        layout = Payload_Binder binder_sig,
-       direct = SOME (fn body => Term.lambda free body),
-       legacy = leaf_legacy_metric}
+       direct = SOME (fn body => Term.lambda free body)}
     end
 
   fun wildcard_plan ctxt pos : compiled_plan =
@@ -1064,8 +952,7 @@ struct
     in
       {matcher = #matcher base,
        layout = #layout base,
-       direct = SOME R.anonymous_abstraction,
-       legacy = #legacy base}
+       direct = SOME R.anonymous_abstraction}
     end
 
   fun test_plan predicate : compiled_plan =
@@ -1085,8 +972,7 @@ struct
       {matcher =
          T.matcher_map discard (T.matcher_test predicate),
        layout = Payload_None,
-       direct = NONE,
-       legacy = leaf_legacy_metric}
+       direct = NONE}
     end
 
   fun combine_plans [] =
@@ -1094,8 +980,7 @@ struct
         in
           {matcher = #matcher plan,
            layout = #layout plan,
-           direct = #direct plan,
-           legacy = empty_legacy_metric}
+           direct = #direct plan}
         end
     | combine_plans [plan] = plan
     | combine_plans (left :: rest) =
@@ -1106,10 +991,7 @@ struct
              T.matcher_product (#matcher left) (#matcher right),
            layout =
              Payload_Product (#layout left, #layout right),
-           direct = NONE,
-           legacy =
-             cartesian_legacy_metric false
-               [#legacy left, #legacy right]}
+           direct = NONE}
         end
 
   fun tuple_direct plans =
@@ -1144,10 +1026,7 @@ struct
       {matcher =
          T.matcher_destructure destructor (#matcher combined),
        layout = #layout combined,
-       direct = direct,
-       legacy =
-         cartesian_legacy_metric true
-           (map #legacy children)}
+       direct = direct}
     end
 
   fun compile_pattern_plan ctxt environment signatures resolved =
@@ -1221,9 +1100,7 @@ struct
                 layout =
                   Payload_Product
                     (Payload_Binder binder_sig, #layout compiled),
-                direct = direct,
-                legacy =
-                  unary_legacy_metric (#legacy compiled)}
+                direct = direct}
              end
          | Resolved_Value payload =>
              let
@@ -1278,12 +1155,9 @@ struct
                  | choices [] =
                      error "urust_expr: internal empty matcher choice"
              in
-              {matcher = choices canonical,
+             {matcher = choices canonical,
                 layout = canonical_layout alternative_signatures,
-                direct = NONE,
-                legacy =
-                  choice_legacy_metric
-                    (map #legacy canonical)}
+                direct = NONE}
              end)
 
       and compile_slice items =
@@ -1324,9 +1198,7 @@ struct
               {matcher =
                  T.matcher_lift lifting (#matcher plan),
                layout = #layout plan,
-               direct = NONE,
-               legacy =
-                 unary_legacy_metric (#legacy plan)}
+               direct = NONE}
             end
 
           val (prefix, rest_pos, suffix) =
@@ -1350,8 +1222,7 @@ struct
         {matcher = #matcher compiled,
          binders = binders,
          direct = #direct compiled,
-         position = resolved_position resolved,
-         legacy = #legacy compiled}
+         position = resolved_position resolved}
     end
 
   fun prepare_case_arm resolver ctxt environment
@@ -1390,24 +1261,6 @@ struct
   fun prepared_pattern_position
       (Prepared_Case_Arm
         {plan = Pattern_Plan {position, ...}, ...}) = position
-  fun prepared_legacy_linear_nodes
-      (Prepared_Case_Arm
-        {plan =
-          Pattern_Plan
-            {legacy = {linear_nodes, ...}, ...}, ...}) =
-        linear_nodes
-  fun prepared_legacy_copies
-      (Prepared_Case_Arm
-        {plan =
-          Pattern_Plan
-            {legacy = {copies, ...}, ...}, ...}) =
-        copies
-  fun prepared_legacy_expanded_nodes
-      (Prepared_Case_Arm
-        {plan =
-          Pattern_Plan
-            {legacy = {expanded_nodes, ...}, ...}, ...}) =
-        expanded_nodes
 
   fun payload_abstraction [] body =
         R.anonymous_abstraction body

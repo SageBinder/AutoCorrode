@@ -94,7 +94,7 @@ ML_val\<open>
       antiquotation "cycle2_guard_marker 900" ^ " \<Rightarrow> " ^
       antiquotation "cycle2_body_marker 900" ^ ", _ \<Rightarrow> " ^
       antiquotation "cycle2_fallback_marker" ^ " }"
-    val Checked_URust {term = checked_rhs, translation} =
+    val Checked_URust {term = checked_rhs, ...} =
       elab_urust_result ctxt
         (Parser_Lex_Util.text_source source)
     val definition_rhs =
@@ -130,12 +130,6 @@ ML_val\<open>
       audit_assert "default simplification expanded the scalable term"
         (Term.size_of_term simplified_rhs <=
           Term.size_of_term definition_rhs + 64)
-    val _ =
-      audit_assert "the public scalable definition was classified as legacy-compatible"
-        (not (URust_Translate.legacy_compatible translation))
-    val _ =
-      audit_assert "the scalable definition did not saturate the copy analysis"
-        (URust_Translate.maximum_legacy_copies translation = 257)
     val _ =
       audit_assert "code preparation omitted the public definition"
         (member (op =) code_constants
@@ -233,9 +227,6 @@ ML_val\<open>
           (List.last sizes <= hd sizes + (length sizes - 1) * bound)
       end
 
-    fun pow2 0 = 1
-      | pow2 n = 2 * pow2 (n - 1)
-
     fun top_or_source count =
       match_source "cycle2_tree_scrutinee"
         ("Cycle2_Leaf(" ^
@@ -327,22 +318,14 @@ ML_val\<open>
 
     fun check_nested_or count =
       let
-        val {term, translation} =
+        val {term, ...} =
           checked_result
             (nested_source "cycle2_tree_scrutinee"
               or_element 3 count)
-        val expected_copies = Int.min (257, pow2 count)
       in
         check_markers ("nested or " ^ string_of_int count)
           \<^const_name>\<open>cycle2_tree_scrutinee\<close>
           (300 + count) term;
-        audit_assert "nested-or copy analysis changed"
-          (URust_Translate.maximum_legacy_copies translation =
-            expected_copies);
-        if count = 12 then
-          audit_assert "the 12-way independent nested or was not scalable-only"
-            (not (URust_Translate.legacy_compatible translation))
-        else ();
         Term.size_of_term term
       end
 
@@ -612,7 +595,7 @@ lemma cycle2_yield_resumes_matcher:
     Core_Expression.bind.simps
     bind_evaluate literal_def evaluate_def)
 
-subsection\<open> While-let coverage and compatibility boundary \<close>
+subsection\<open> While-let coverage and checked-command compatibility boundary \<close>
 
 ML_val\<open>
   local
@@ -653,6 +636,14 @@ ML_val\<open>
       antiquotation "cycle2_body_marker 812" ^ ", _ \<Rightarrow> " ^
       antiquotation "cycle2_fallback_marker" ^ " }"
 
+    fun nested_guard_source outer_depth inner_depth =
+      "match " ^ antiquotation "cycle2_tree_scrutinee" ^ " { " ^
+      tree_pattern outer_depth ^ " if (match " ^
+      antiquotation "cycle2_tree_scrutinee" ^ " { " ^
+      tree_pattern inner_depth ^ " \<Rightarrow> True, _ \<Rightarrow> False }) \<Rightarrow> " ^
+      antiquotation "cycle2_body_marker 813" ^ ", _ \<Rightarrow> " ^
+      antiquotation "cycle2_fallback_marker" ^ " }"
+
     fun while_source pattern scrutinee =
       "#[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let " ^
       pattern ^ " = " ^ scrutinee ^ " { " ^
@@ -686,55 +677,100 @@ ML_val\<open>
       audit_assert "partial while-let lost its single false fallback"
         (count_constant \<^const_name>\<open>False\<close> partial = 1)
 
-    val scalable_source =
-      Parser_Lex_Util.text_source (matcher_source 12)
-    val {translation = scalable_translation, ...} =
-      checked_result (Input.string_of scalable_source)
+    val at_limit = checked_result (matcher_source 7)
+    val over_limit = checked_result (matcher_source 8)
     val _ =
-      audit_assert "12 independent ors were not classified scalable-only"
-        (not
-          (URust_Translate.legacy_compatible
-            scalable_translation))
-    val scalable_check =
+      URust_Legacy_Conformance_Budget.with_check
+        (#ast at_limit) (fn () => ())
+    val _ =
+      audit_assert "ordinary elaboration rejected the over-budget source"
+        (count_constant \<^const_name>\<open>urust_matcher_run\<close>
+            (#term over_limit) +
+         count_constant \<^const_name>\<open>urust_matcher_run_guarded\<close>
+            (#term over_limit) +
+         count_constant \<^const_name>\<open>urust_matcher_run_value\<close>
+            (#term over_limit) +
+         count_constant
+            \<^const_name>\<open>urust_matcher_run_guarded_value\<close>
+            (#term over_limit) > 0)
+    val over_limit_check =
       Exn.result
         (fn () =>
-          with_legacy_compatible scalable_translation
+          URust_Legacy_Conformance_Budget.with_check
+            (#ast over_limit)
             (fn () =>
               error "THIS LEGACY NORMALIZATION MUST NOT RUN")) ()
     val _ =
-      (case scalable_check of
+      (case over_limit_check of
          Exn.Res _ =>
-           error "a scalable-only checked command unexpectedly succeeded"
+           error "an over-budget checked command unexpectedly succeeded"
        | Exn.Exn exn =>
            if Exn.is_interrupt exn then Exn.reraise exn
            else
              let val message = Runtime.exn_message exn in
-               audit_assert "scalable-only rejection lost its source diagnostic"
+               audit_assert "over-budget rejection lost its diagnostic"
                  (String.isSubstring
-                   "scalable matcher form is not available" message);
-               audit_assert "scalable-only rejection reached old-term parsing"
+                   "legacy frontend branch-path budget would exceed 256"
+                   message);
+               audit_assert "over-budget rejection reached old-term parsing"
                  (not
                    (String.isSubstring
                      "THIS LEGACY NORMALIZATION MUST NOT RUN" message))
              end)
-    val compatibility_entries =
-      URust_Compatibility_Inventory.entries
-        (Proof_Context.theory_of ctxt)
+
+    val nested_at_limit =
+      checked_result (nested_guard_source 6 2)
+    val nested_over_limit =
+      checked_result (nested_guard_source 7 2)
     val _ =
-      audit_assert "the compatibility inventory lost conformance rows"
-        (length compatibility_entries = 523)
+      URust_Legacy_Conformance_Budget.check
+        (#ast nested_at_limit)
     val _ =
-      List.app
-        (fn {checked_size, normalized_size, ...} =>
-          audit_assert "bounded compatibility normalization was exceeded"
-            (normalized_size <= 256 * checked_size + 8192))
-        compatibility_entries
+      (case Exn.result
+          URust_Legacy_Conformance_Budget.check
+          (#ast nested_over_limit) of
+         Exn.Res _ =>
+           error "nested match did not contribute to the branch-path budget"
+       | Exn.Exn exn =>
+           if Exn.is_interrupt exn then Exn.reraise exn else ())
+
+    val positioned_source =
+      Parser_Lex_Util.positioned_content_source
+        (matcher_source 8)
+        (Position.make0 20 5 0 "" "" "")
+    val Checked_URust {ast = positioned_ast, ...} =
+      elab_urust_result ctxt positioned_source
+    val overflow_position =
+      (case positioned_ast of
+         URust_AST.UE_Match (_, _,
+           URust_AST.UR_Arm (_, SOME (_, guard_position), _) :: _, _) =>
+             guard_position
+       | _ =>
+           error "Cycle 2 boundary audit: positioned source AST changed")
+    val expected_here =
+      XML.content_of
+        (YXML.parse_body (Position.here overflow_position))
+    val _ =
+      (case Exn.result
+          URust_Legacy_Conformance_Budget.check
+          positioned_ast of
+         Exn.Res _ =>
+           error "positioned over-budget source unexpectedly succeeded"
+       | Exn.Exn exn =>
+           if Exn.is_interrupt exn then Exn.reraise exn
+           else
+             let
+               val message =
+                 XML.content_of
+                   (YXML.parse_body
+                     (Runtime.exn_message exn))
+             in
+               audit_assert "branch-path rejection lost its source position"
+                 (String.isSubstring expected_here message)
+             end)
   in
     val _ =
-      writeln
-        ("Cycle 2 compatibility inventory: " ^
-          string_of_int (length compatibility_entries) ^
-          " bounded normalizations")
+      writeln "Cycle 2 checked-command branch-path budget passed"
   end
 \<close>
 
