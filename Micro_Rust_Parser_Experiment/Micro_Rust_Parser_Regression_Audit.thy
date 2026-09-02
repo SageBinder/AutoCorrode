@@ -1,8 +1,10 @@
-theory Micro_Rust_Parser_Cycle_1_Audit
-  imports Micro_Rust_Parser
+theory Micro_Rust_Parser_Regression_Audit
+  imports
+    Micro_Rust_Parser_Improvements
+    Micro_Rust_Parser_Negative_Conformance
 begin
 
-section\<open> Cycle 1 structural audit \<close>
+section\<open> Frontend-shape structural audit \<close>
 
 text\<open>
 C1-I5 requires guarded case compilation to retain one checked scrutinee, one source guard and body
@@ -358,6 +360,175 @@ ML_val\<open>
         (is_skip partial_body)
   in
     val _ = writeln "Cycle 1 conservative while-let coverage audit passed"
+  end
+\<close>
+
+section\<open> Positions and pattern grammar \<close>
+
+ML_val\<open>
+  local
+    open URust_AST
+
+    val ctxt = \<^context>
+
+    fun audit_assert message condition =
+      if condition then ()
+      else error ("parser regression audit: " ^ message)
+
+    fun parse text =
+      (case Parser_Utils.with_parser_lock
+          (fn () =>
+            URust_Diagnostics.parse_source ctxt
+              (Parser_Lex_Util.text_source text)) of
+         SOME expression => expression
+       | NONE => error "parser regression audit: empty parse")
+
+    fun pattern_source pattern =
+      "match_case \<llangle>undefined\<rrangle> { " ^ pattern ^
+      " \<Rightarrow> \<llangle>undefined\<rrangle> }"
+
+    fun parse_pattern pattern =
+      (case parse (pattern_source pattern) of
+         UE_Match (_, _, [UR_Arm (result, NONE, _)], _) => result
+       | _ => error "parser regression audit: unexpected pattern AST")
+
+    fun integer text (P_Literal (LP_Integer (actual, _))) =
+          actual = text
+      | integer _ _ = false
+
+    fun range kind lower upper
+        (P_Range (actual_kind, actual_lower, actual_upper, _)) =
+          actual_kind = kind andalso
+          integer lower actual_lower andalso
+          integer upper actual_upper
+      | range _ _ _ _ = false
+
+    val _ =
+      (case parse_pattern "left @ 1..2 | right @ 3..=4" of
+         P_Or
+           ([P_Alias ("left", _, left, _),
+             P_Alias ("right", _, right, _)], _) =>
+             (audit_assert "exclusive range lost alias precedence"
+                (range RK_Exclusive "1" "2" left);
+              audit_assert "inclusive range lost alias precedence"
+                (range RK_Inclusive "3" "4" right))
+       | _ =>
+           error
+             "parser regression audit: alias/range/or precedence changed")
+
+    fun alternative_name index =
+      "regression_alt_" ^ string_of_int index
+
+    val alternative_count = 4096
+    val alternatives =
+      space_implode " | "
+        (map alternative_name (0 upto (alternative_count - 1)))
+
+    val _ =
+      (case parse_pattern alternatives of
+         P_Or (patterns, _) =>
+           (audit_assert "large or-pattern was not flattened"
+              (length patterns = alternative_count);
+            audit_assert "large or-pattern source order changed"
+              (case (hd patterns, List.last patterns) of
+                 (P_Ident (first, _), P_Ident (last, _)) =>
+                   first = alternative_name 0 andalso
+                   last = alternative_name (alternative_count - 1)
+               | _ => false))
+       | _ => error "parser regression audit: large or-pattern AST changed")
+
+    val malformed = "1 + 2 ++ 3"
+    val start = Position.make0 4 10 0 "" "" ""
+    val second_plus =
+      Position.symbol_explode
+        (String.substring (malformed, 0, 7)) start
+    val expected_here =
+      XML.content_of
+        (YXML.parse_body (Position.here second_plus))
+
+    val _ =
+      (case Exn.result
+          (fn () =>
+            elab_urust ctxt
+              (Parser_Lex_Util.positioned_content_source
+                malformed start)) () of
+         Exn.Res _ =>
+           error "parser regression audit: malformed operator parsed"
+       | Exn.Exn exn =>
+           if Exn.is_interrupt exn then Exn.reraise exn
+           else
+             let
+               val message =
+                 XML.content_of
+                   (YXML.parse_body (Runtime.exn_message exn))
+             in
+               audit_assert "malformed operator diagnostic changed"
+                 (String.isSubstring
+                   "syntax error found at +" message);
+               audit_assert "malformed operator position changed"
+                 (String.isSubstring expected_here message)
+             end)
+  in
+    val _ = writeln "Parser position and pattern grammar regressions passed"
+  end
+\<close>
+
+section\<open> Standard code equations \<close>
+
+urust_expr regression_code_literal
+  \<open> 7_u32 \<close>
+
+urust_expr regression_code_unit
+  \<open> () \<close>
+
+ML_val\<open>
+  local
+    val ctxt = \<^context>
+    val thy = Proof_Context.theory_of ctxt
+
+    fun audit_assert message condition =
+      if condition then ()
+      else error ("parser code-equation audit: " ^ message)
+
+    val generated =
+      [\<^const_name>\<open>regression_code_literal\<close>,
+       \<^const_name>\<open>regression_code_unit\<close>]
+
+    fun definition_theorem constant =
+      Proof_Context.get_thm ctxt
+        (Long_Name.base_name constant ^ "_def")
+
+    fun executable_equations constant =
+      let
+        val certificate = Code.get_cert ctxt [] constant
+        val (_, equations) =
+          Code.equations_of_cert thy certificate
+      in
+        map_filter
+          (fn (_, (SOME theorem, _)) => SOME theorem
+            | _ => NONE)
+          (the equations)
+      end
+
+    fun check_generated constant =
+      let
+        val definition = definition_theorem constant
+        val equations = executable_equations constant
+      in
+        audit_assert
+          ("expected one default equation for " ^ quote constant)
+          (length equations = 1);
+        audit_assert
+          ("default equation differs from the definition for " ^
+            quote constant)
+          (Thm.equiv_thm thy
+            (the_single equations,
+             Axclass.unoverload ctxt definition))
+      end
+
+    val _ = List.app check_generated generated
+  in
+    val _ = writeln "Parser-generated default code equations passed"
   end
 \<close>
 

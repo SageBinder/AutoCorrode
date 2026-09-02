@@ -64,7 +64,7 @@ struct
       P.compile_case ctxt scrutinee (map lower_arm prepared_arms)
     end
 
-  fun lower_case_arms ctxt environment scrutinee lower_result arms =
+  fun lower_case_arms ctxt environment position scrutinee lower_result arms =
     let
       val resolver =
         R.make_constructor_resolver ctxt position
@@ -90,7 +90,7 @@ struct
     end
 
   fun lower_while_let lower ctxt environment
-      (fuel, pattern, scrutinee, body) =
+      (fuel, pattern, scrutinee, body, position) =
     let
       val lowered_fuel = lower_fuel ctxt environment fuel
       val lowered_scrutinee = lower environment scrutinee
@@ -174,7 +174,7 @@ struct
                   (P.prepared_guard prepared),
                 lower arm_environment (P.prepared_body prepared))
            in
-             lower_case_arms ctxt environment lowered_scrutinee
+             lower_case_arms ctxt environment pos lowered_scrutinee
                lower_result alternatives
            end
        | MF_Auto =>
@@ -233,9 +233,9 @@ struct
      | UE_For (pattern, iterable, body, _) =>
          lower_for (lower_expression ctxt) ctxt environment
            (pattern, iterable, body)
-     | UE_WhileLet (fuel, pattern, scrutinee, body, _) =>
+     | UE_WhileLet (fuel, pattern, scrutinee, body, pos) =>
          lower_while_let (lower_expression ctxt) ctxt environment
-           (fuel, pattern, scrutinee, body)
+           (fuel, pattern, scrutinee, body, pos)
      | UE_Let binding =>
          lower_binding (lower_expression ctxt) ctxt
            P.Let_Const_Binder I environment binding

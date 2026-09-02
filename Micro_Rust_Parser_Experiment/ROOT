@@ -32,4 +32,4 @@ session Micro_Rust_Parser_Experiment = HOL +
     Micro_Rust_Parser_Negative_Conformance
     Micro_Rust_Parser_Improvements
     Micro_Rust_Parser_Showoff
-    Micro_Rust_Parser_Cycle_1_Audit
+    Micro_Rust_Parser_Regression_Audit
