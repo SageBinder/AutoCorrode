@@ -34,9 +34,7 @@ ML\<open>
 fun elab_urust lthy source : term =
   (case
       (Parser_Utils.with_parser_lock
-        (fn () => URust.parse_source lthy source)
-       handle ERROR message =>
-         error (URust_Diagnostics.humanize_parse_error message)) of
+        (fn () => URust_Diagnostics.parse_source lthy source)) of
      SOME ast => Syntax.check_term lthy (URust_Translate.mk_closed lthy ast)
    | NONE => error ("urust_expr: empty expression" ^ Position.here (Input.pos_of source)))
 

@@ -81,7 +81,7 @@ Grammar \<open>%nonassoc\<close> rejects chained comparisons, matching Rust and 
 urust_expr_rejects \<open> 1 == 2 == 3 \<close> \<open> syntax error found at == \<close>
   \<comment> \<open> [FIDELITY] chained \<open>==\<close>; the frontend rejects it with an inner-syntax error. \<close>
 
-urust_expr_rejects \<open> 1 < 2 < 3 \<close> \<open> syntax error found at TLT \<close>
+urust_expr_rejects \<open> 1 < 2 < 3 \<close> \<open> syntax error found at < \<close>
   \<comment> \<open> [FIDELITY] chained \<open><\<close>; same on both sides. \<close>
 
 section\<open> Reference-prefix precedence \<close>
@@ -92,10 +92,10 @@ Parentheses make the converse composition explicit; its positive row is
 \<open>ref_not_grouped_deref\<close>.
 \<close>
 
-urust_expr_rejects \<open> ! *r \<close> \<open> syntax error found at TSTAR \<close>
+urust_expr_rejects \<open> ! *r \<close> \<open> syntax error found at * \<close>
   \<comment> \<open> [FIDELITY] an unparenthesized dereference cannot be the operand of tighter \<open>!\<close>. \<close>
 
-urust_expr_rejects \<open> ! &r \<close> \<open> syntax error found at TAMP \<close>
+urust_expr_rejects \<open> ! &r \<close> \<open> syntax error found at & \<close>
   \<comment> \<open> [FIDELITY] borrow has the same boundary relative to \<open>!\<close>. \<close>
 
 section\<open> Control-flow stratification (D25 / divergence D-1) \<close>
@@ -108,11 +108,11 @@ parenthesized form.
 
 urust_expr_rejects
   \<open> if \<llangle>True\<rrangle> { \<llangle>1 :: 32 word\<rrangle> } else { \<llangle>2 :: 32 word\<rrangle> } + \<llangle>3 :: 32 word\<rrangle> \<close>
-  \<open> syntax error found at TPLUS \<close>
+  \<open> syntax error found at + \<close>
   \<comment> \<open> [FIDELITY] \<open>if\<close> as a \<open>+\<close> operand; the frontend rejects it too (priority mismatch). \<close>
 
 urust_expr_rejects \<open> match_switch \<llangle>0 :: nat\<rrangle> { _ \<Rightarrow> () } () \<close>
-  \<open> syntax error found at LPAR \<close>
+  \<open> syntax error found at ( \<close>
   \<comment> \<open> [FIDELITY] a \<open>match\<close> in statement position without a \<open>;\<close>; the frontend has no such
        production either (unlike \<open>{ .. }\<close> / \<open>if\<close>, which D25 added -- rows \<open>d2_*\<close>). \<close>
 
@@ -125,7 +125,7 @@ urust_expr_rejects \<open> 1_u7 \<close> \<open> unsupported integer-literal suf
 section\<open> Comments \<close>
 
 urust_expr_rejects \<open> /* block comments remain unsupported */ () \<close>
-  \<open> TSLASH \<close>
+  \<open> / \<close>
   \<comment> \<open> [FIDELITY] this increment adds only Rust line comments; neither frontend accepts block
        comments. \<close>
 
@@ -156,7 +156,7 @@ urust_expr_rejects \<open> 1foo \<close> \<open> unsupported integer-literal suf
 urust_expr_rejects \<open> 0xffvalue \<close> \<open> unsupported integer-literal suffix "value" \<close>
   \<comment> \<open> [FIDELITY] a non-hex identifier start establishes the corresponding hex suffix boundary. \<close>
 
-urust_expr_rejects \<open> 1 foo \<close> \<open> syntax error found at IDENT \<close>
+urust_expr_rejects \<open> 1 foo \<close> \<open> syntax error found at <identifier> \<close>
   \<comment> \<open> [FIDELITY] whitespace terminates the numeric token; the following identifier is not swallowed. \<close>
 
 urust_expr_rejects \<open> 1_000 \<close> \<open> unsupported integer-literal suffix "_000" \<close>
@@ -173,12 +173,12 @@ urust_expr_rejects \<open> 0xff_ \<close> \<open> unsupported integer-literal su
 
 urust_expr_rejects
   \<open> match_switch \<llangle>1 :: nat\<rrangle> { 1u8 \<Rightarrow> (), _ \<Rightarrow> () } \<close>
-  \<open> NUMSFX => \<close>
+  \<open> <integer> => \<close>
   \<comment> \<open> [FIDELITY] suffixed decimal literals remain outside the pattern grammar. \<close>
 
 urust_expr_rejects
   \<open> match_switch \<llangle>1 :: nat\<rrangle> { 0xffu8 \<Rightarrow> (), _ \<Rightarrow> () } \<close>
-  \<open> NUMSFX => \<close>
+  \<open> <integer> => \<close>
   \<comment> \<open> [FIDELITY] suffixed hexadecimal literals preserve the same pattern boundary. \<close>
 
 section\<open> Patterns \<close>
@@ -343,37 +343,37 @@ urust_expr_rejects \<open> (\<llangle>1 :: nat\<rrangle>,) \<close> \<open> synt
 
 urust_expr_rejects
   \<open> let (x,) = \<llangle>(1 :: nat, TNil)\<rrangle>; x \<close>
-  \<open> syntax error: deleting  ) TEQ \<close>
+  \<open> syntax error: deleting  ) = \<close>
   \<comment> \<open> [FIDELITY] a terminal comma does not turn a grouped singleton pattern into a tuple. \<close>
 
 urust_expr_rejects
   \<open> (\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>,,) \<close>
-  \<open> syntax error found at COMMA \<close>
+  \<open> syntax error found at , \<close>
   \<comment> \<open> [FIDELITY] a trailing comma is one separator, not an empty tuple element. \<close>
 
 urust_expr_rejects
   \<open> let (x, y,,) = \<llangle>(1 :: nat, (2 :: nat, TNil))\<rrangle>; x \<close>
-  \<open> syntax error: deleting  COMMA ) TEQ \<close>
+  \<open> syntax error: deleting  , ) = \<close>
   \<comment> \<open> [FIDELITY] tuple-pattern lists likewise reject an empty element after the terminal comma. \<close>
 
 urust_expr_rejects
   \<open> match_case \<llangle>Some (1 :: nat)\<rrangle> { Some(x,,) \<Rightarrow> x, None \<Rightarrow> 0 } \<close>
-  \<open> syntax error: deleting  COMMA ) => \<close>
+  \<open> syntax error: deleting  , ) => \<close>
   \<comment> \<open> [FIDELITY] constructor argument lists reject doubled terminal commas. \<close>
 
 urust_expr_rejects
   \<open> match \<llangle>Some (1 :: nat)\<rrangle> { Some(x) \<Rightarrow> x, None \<Rightarrow> 0,, } \<close>
-  \<open> syntax error found at COMMA \<close>
+  \<open> syntax error found at , \<close>
   \<comment> \<open> [FIDELITY] match-arm lists reject an empty arm after the terminal comma. \<close>
 
 urust_expr_rejects
   \<open> match \<llangle>[1 :: nat, 2]\<rrangle> { [x, y,,] \<Rightarrow> x, _ \<Rightarrow> 0 } \<close>
-  \<open> syntax error: deleting  COMMA TRBRACK => \<close>
+  \<open> syntax error: deleting  , ] => \<close>
   \<comment> \<open> [FIDELITY] slice-pattern lists reject doubled terminal commas. \<close>
 
 urust_expr_rejects
   \<open> match \<llangle>NegativeStruct 1 2\<rrangle> { NegativeStruct { negative_left: x, negative_right: y,, } \<Rightarrow> x } \<close>
-  \<open> syntax error: deleting  COMMA TRBRACE => \<close>
+  \<open> syntax error: deleting  , } => \<close>
   \<comment> \<open> [FIDELITY] struct-field lists reject an empty field after the terminal comma. \<close>
 
 urust_expr_rejects \<open> let () = (); () \<close> \<open> syntax error \<close>
@@ -677,7 +677,7 @@ definition ncf1 :: \<open> 64 word \<Rightarrow> (unit, 64 word, unit, unit, uni
   where \<open> ncf1 \<equiv> lift_fun1 (\<lambda>x. x) \<close>
 
 urust_expr_rejects \<open> ncf1(\<llangle>1 :: 64 word\<rrangle>,,) \<close>
-  \<open> syntax error found at COMMA \<close>
+  \<open> syntax error found at , \<close>
   \<comment> \<open> [FIDELITY] call argument lists reject an empty argument after the terminal comma. \<close>
 
 urust_expr_rejects \<open> zz(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0) \<close>
@@ -697,10 +697,10 @@ urust_expr_rejects
   \<comment> \<open> [FIDELITY] the 15-explicit-argument boundary lowers to 16 total arguments. \<close>
 
 urust_expr_rejects \<open> ncf1(\<llangle>1 :: 64 word\<rrangle>)(\<llangle>2 :: 64 word\<rrangle>) \<close>
-  \<open> syntax error found at LPAR \<close>
+  \<open> syntax error found at ( \<close>
   \<comment> \<open> [FIDELITY] curried application \<open>f(a)(b)\<close>: rejected by both (a call result is not a callee). \<close>
 
-urust_expr_rejects \<open> (ncf1)(\<llangle>1 :: 64 word\<rrangle>) \<close> \<open> syntax error found at LPAR \<close>
+urust_expr_rejects \<open> (ncf1)(\<llangle>1 :: 64 word\<rrangle>) \<close> \<open> syntax error found at ( \<close>
   \<comment> \<open> [FIDELITY] parenthesised callee \<open>(g)(x)\<close>: rejected by both (\<open>urust_callable\<close> has no paren form). \<close>
 
 section\<open> Assignment right-hand control-flow precedence \<close>
@@ -713,25 +713,25 @@ side. Assignment remains right-associative by recursing through its own tier.
 
 urust_expr_rejects
   \<open> r = match flag { true \<Rightarrow> lhs, false \<Rightarrow> rhs } \<close>
-  \<open> syntax error: deleting  TMATCH \<close>
+  \<open> syntax error: deleting  match \<close>
   \<comment> \<open> [FIDELITY] bare match forms have the same assignment-RHS boundary as \<open>if\<close>. \<close>
 
 urust_expr_rejects
   \<open> r = if flag { lhs } else { rhs } \<close>
-  \<open> syntax error: deleting  TIF \<close>
+  \<open> syntax error: deleting  if \<close>
   \<comment> \<open> [FIDELITY] a bare \<open>if\<close> is too weak to be an assignment RHS; the grouped form is positive. \<close>
 
 urust_expr_rejects
   \<open> r += match flag { true \<Rightarrow> lhs, false \<Rightarrow> rhs } \<close>
-  \<open> syntax error: deleting  TMATCH \<close>
+  \<open> syntax error: deleting  match \<close>
   \<comment> \<open> [FIDELITY] compound assignment has the same bare-match RHS boundary. \<close>
 
 urust_expr_rejects
   \<open> r += if flag { lhs } else { rhs } \<close>
-  \<open> syntax error: deleting  TIF \<close>
+  \<open> syntax error: deleting  if \<close>
   \<comment> \<open> [FIDELITY] compound assignment recurses through \<open>uassign\<close>, not lower-priority control flow. \<close>
 
-urust_expr_rejects \<open> r /= rhs \<close> \<open> TEQ \<close>
+urust_expr_rejects \<open> r /= rhs \<close> \<open> = \<close>
   \<comment> \<open> [FIDELITY] the current frontend has no \<open>/=\<close> production; this remains a post-parity
        Rust-facing extension. \<close>
 
@@ -851,32 +851,32 @@ new_urust_rejects
 
 new_urust_rejects
   \<open> for value in \<llangle>1 :: nat\<rrangle> .. \<llangle>3 :: nat\<rrangle> { () } \<close>
-  \<open> TDOTDOT \<close>
+  \<open> .. \<close>
   \<comment> \<open> [DIVERGENT] range expressions remain deferred even though \<open>for\<close> itself is supported. \<close>
 
 urust_expr_rejects \<open> while (true) { () } \<close>
-  \<open> TWHILE \<close>
+  \<open> while \<close>
   \<comment> \<open> [FIDELITY] \<open>while\<close> requires the existing frontend's fuel annotation. \<close>
 
 urust_expr_rejects \<open> while let Some(value) = Some(1) { () } \<close>
-  \<open> TWHILE \<close>
+  \<open> while \<close>
   \<comment> \<open> [FIDELITY] \<open>while let\<close> also requires a fuel annotation. \<close>
 
 urust_expr_rejects \<open> loop { () } \<close>
-  \<open> TLOOP \<close>
+  \<open> loop \<close>
   \<comment> \<open> [FIDELITY] unconditional \<open>loop\<close> also requires fuel. \<close>
 
 urust_expr_rejects \<open> #[fuel(1)] loop { () } \<close>
-  \<open> NUM \<close>
+  \<open> <integer> \<close>
   \<comment> \<open> [FIDELITY] fuel must use an expression antiquotation, not a numeral. \<close>
 
 urust_expr_rejects \<open> #[fuel(\<llangle>1 :: nat\<rrangle>)] loop { () } \<close>
-  \<open> VALAQ \<close>
+  \<open> <value antiquotation> \<close>
   \<comment> \<open> [FIDELITY] a value antiquotation is not a fuel payload. \<close>
 
 new_urust_rejects
   \<open> #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while true { () } \<close>
-  \<open> TTRUE \<close>
+  \<open> true \<close>
   \<comment> \<open> [DIVERGENT] the dedicated parser requires Rust's condition parentheses; Isabelle's
        mixfix parser accepts this spelling despite displaying parentheses on pretty-print. \<close>
 
@@ -899,7 +899,7 @@ urust_expr_rejects
 urust_expr_rejects
   \<open> #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let Some(value)
     \<llangle>Some (1 :: nat)\<rrangle> { () } \<close>
-  \<open> VALAQ \<close>
+  \<open> <value antiquotation> \<close>
   \<comment> \<open> [FIDELITY] the pattern and scrutinee require an equals delimiter. \<close>
 
 urust_expr_rejects
@@ -910,7 +910,7 @@ urust_expr_rejects
 
 urust_expr_rejects
   \<open> for value in \<llangle>[1 :: nat]\<rrangle> { () } 1 2 \<close>
-  \<open> syntax error found at NUM \<close>
+  \<open> syntax error found at <integer> \<close>
   \<comment> \<open> [FIDELITY] semicolon-free sequencing does not admit value juxtaposition. \<close>
 
 section\<open> Lexer and whole-input failures \<close>
@@ -947,21 +947,21 @@ in end
 
 urust_expr_rejects
   \<open> match_case true { \<epsilon>\<open>Bool_Type.true\<close> \<Rightarrow> () } \<close>
-  \<open> EXPRAQ => \<close>
+  \<open> <expression antiquotation> => \<close>
   \<comment> \<open> [FIDELITY] expression antiquotation remains expression-only. \<close>
 
-urust_expr_rejects \<open> 1 @ 2 \<close> \<open> syntax error found at TAT \<close>
+urust_expr_rejects \<open> 1 @ 2 \<close> \<open> syntax error found at @ \<close>
   \<comment> \<open> [FIDELITY] \<open>@\<close> is pattern-only; expression position rejects it after lexing. \<close>
 
 urust_expr_rejects
   \<open> match true { true => => () } \<close>
-  \<open> syntax error: deleting  => LPAR ) \<close>
+  \<open> syntax error: deleting  => ( ) \<close>
   \<comment> \<open> [FIDELITY] generated ML-Yacc arrow names are rendered as their source spelling. \<close>
 
 urust_expr_rejects \<open> { () \<close> \<open> syntax error found at end of input \<close>
   \<comment> \<open> [FIDELITY] unbalanced brace -- input must be consumed to EOF by a complete derivation. \<close>
 
-urust_expr_rejects \<open> { ; } \<close> \<open> syntax error found at TSEMI \<close>
+urust_expr_rejects \<open> { ; } \<close> \<open> syntax error found at ; \<close>
   \<comment> \<open> [FIDELITY] a block cannot begin with a standalone semicolon. \<close>
 
 urust_expr_rejects \<open> \<close> \<open> empty expression \<close>
