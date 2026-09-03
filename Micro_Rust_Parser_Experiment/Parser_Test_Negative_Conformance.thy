@@ -1497,6 +1497,11 @@ urust_expr_rejects fidelity
   \<comment> \<open> [FIDELITY] bare conditional bindings are not direct closure bodies. \<close>
 
 urust_expr_rejects fidelity
+  \<open> || if true { 0 } else if let Some(x) = Some(1) { x } else { 0 } \<close>
+  \<open> syntax error \<close>
+  \<comment> \<open> [FIDELITY] conditional bindings are excluded from every bare closure-body arm. \<close>
+
+urust_expr_rejects fidelity
   \<open> || #[fuel(\<epsilon>\<open>1 :: nat\<close>)] loop { () } \<close>
   \<open> syntax error \<close>
   \<comment> \<open> [FIDELITY] loop expressions are not direct closure bodies. \<close>

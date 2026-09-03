@@ -457,6 +457,8 @@ yacc_rules\<open>
                     (UE_Return (NONE, TRETURNleft))
                 | TRETURN uclosure_arg TSEMI
                     (UE_Return (SOME uclosure_arg, TRETURNleft))
+  (* This head deliberately does not reuse uif_head: closure-body priority admits only ordinary if,
+     and the recursive closure conditional must exclude if-let from every later else-if arm too. *)
   uclosure_if_head : TIF uval
                        (IH_If (uval, TIFleft))
   uclosure_conditional : uclosure_if_head ublock %prec TIF
