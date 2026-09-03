@@ -28,16 +28,14 @@ sig
     Proof.context -> environment -> URust_AST.literal_payload -> term
   val literal_expression:
     Proof.context -> environment -> URust_AST.literal_payload -> term
+  val literal_identifier_value:
+    Proof.context -> environment -> string * Position.T -> term
   val literal_identifier:
     Proof.context -> environment -> string * Position.T -> term
   val function_identifier:
     Proof.context -> environment -> string * Position.T -> term
-  val registered_macro_function:
+  val registered_function:
     Proof.context -> string * Position.T -> term option
-  val raw_macro_message:
-    Proof.context -> environment -> URust_AST.ur_expr -> term
-  val report_builtin_macro:
-    Proof.context -> Position.T -> unit
   val field_expression:
     Proof.context -> term -> string -> Position.T -> term
 
@@ -78,8 +76,9 @@ ML\<open>
   URust_Resolution owns the effectful boundary between source names and shallow HOL terms. It is the
   only parser module that allocates lexical locals, resolves identifier roles and datatype metadata,
   parses binder-aware antiquotations, and emits name/binder PIDE reports. Pattern policy and
-  compilation belong to URust_Patterns, recursive expression lowering belongs to URust_Translate,
-  and final type checking remains outside this structure.
+  compilation belong to URust_Patterns, case orchestration belongs to URust_Matching, macro policy
+  belongs to URust_Macros, recursive expression lowering belongs to URust_Translate, and final type
+  checking remains outside this structure.
 
   The public interface is:
 
@@ -99,11 +98,13 @@ ML\<open>
 
   - literal_value lowers a literal payload to its unlifted HOL value, including binder-aware value
     antiquotations. literal_expression preserves the frontend's special boolean-expression shape and
-    otherwise lifts literal_value. literal_identifier resolves locals before NLiteral notation/HOL
-    fallback and lifts the result; function_identifier applies the same lexical precedence in the
-    NFunction role without lifting. field_expression resolves its name in the NField role and focuses
-    the supplied receiver. Registered notation is represented by the existing dispatch marker;
-    unregistered names retain Syntax.parse_term behavior.
+    otherwise lifts literal_value. literal_identifier_value resolves locals before NLiteral
+    notation/HOL fallback without lifting, and literal_identifier lifts that result;
+    function_identifier applies the same lexical precedence in the NFunction role without lifting.
+    registered_function performs an exact registered NFunction lookup without imposing a caller
+    naming policy. field_expression resolves its name in the NField role and focuses the supplied
+    receiver. Registered notation is represented by the existing dispatch marker; unregistered names
+    retain Syntax.parse_term behavior.
 
   - constructor_info and constructor_resolver are abstract. make_constructor_resolver snapshots the
     context's non-record Ctr_Sugar constructors, constructor families/selectors, and HOL record names
@@ -195,44 +196,26 @@ struct
          end
      | _ => Micro_Rust_Dispatch.mk_marker kind name pos (Free (name, dummyT)))
 
-  fun literal_identifier ctxt environment (identifier as (name, pos)) =
+  fun literal_identifier_value ctxt environment (identifier as (name, pos)) =
     (case use_local ctxt environment identifier of
-       SOME local_term => T.literal local_term
+       SOME local_term => local_term
      | NONE =>
-         T.literal (resolve_identifier ctxt Micro_Rust_Names.NLiteral name pos))
+         resolve_identifier ctxt Micro_Rust_Names.NLiteral name pos)
+
+  fun literal_identifier ctxt environment identifier =
+    T.literal (literal_identifier_value ctxt environment identifier)
 
   fun function_identifier ctxt environment (identifier as (name, pos)) =
     (case use_local ctxt environment identifier of
        SOME local_term => local_term
      | NONE => resolve_identifier ctxt Micro_Rust_Names.NFunction name pos)
 
-  fun registered_macro_function ctxt (name, pos) =
+  fun registered_function ctxt (name, pos) =
     if null (Micro_Rust_Names.lookups ctxt Micro_Rust_Names.NFunction name)
     then NONE
     else
       SOME
         (resolve_identifier ctxt Micro_Rust_Names.NFunction name pos)
-
-  fun raw_macro_message ctxt environment expression =
-    (case expression of
-       UE_Ident identifier =>
-         (case use_local ctxt environment identifier of
-            SOME local_term => local_term
-          | NONE =>
-              resolve_identifier ctxt Micro_Rust_Names.NLiteral
-                (#1 identifier) (#2 identifier))
-     | UE_Literal (LP_String (raw, pos)) =>
-         T.string_value raw pos
-     | UE_Literal (LP_ValAntiq source) =>
-         T.string_from_characters
-           (parse_antiquotation ctxt environment source)
-     | _ =>
-         error
-           ("urust_expr: macro message must be an identifier, quoted string, or value antiquotation" ^
-             Position.here (expression_position expression)))
-
-  fun report_builtin_macro ctxt pos =
-    Context_Position.report ctxt pos Markup.keyword1
 
   fun field_expression ctxt receiver name pos =
     T.focus_field

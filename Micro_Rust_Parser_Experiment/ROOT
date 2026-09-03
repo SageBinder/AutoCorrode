@@ -21,6 +21,8 @@ session Micro_Rust_Parser_Experiment = HOL +
     Parser_Impl_Shallow_Terms
     Parser_Impl_Resolution
     Parser_Impl_Patterns
+    Parser_Impl_Matching
+    Parser_Impl_Macros
     Parser_Impl_Translate
     Parser_Impl_Command
     Parser_Impl

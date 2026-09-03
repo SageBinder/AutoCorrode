@@ -1,5 +1,5 @@
 theory Parser_Impl_Translate
-  imports Parser_Impl_Patterns
+  imports Parser_Impl_Macros
 begin
 
 section\<open> Expression elaboration \<close>
@@ -12,16 +12,16 @@ end
 \<close>
 
 text\<open>
-Expression lowering orchestrates the term, resolution, and pattern layers. Terms remain based on
-\<open>dummyT\<close>, and the command performs the single final \<open>Syntax.check_term\<close>.
+Expression lowering orchestrates recursive traversal across the feature-specific elaboration layers.
+Terms remain based on \<open>dummyT\<close>, and the command performs the single final
+\<open>Syntax.check_term\<close>.
 \<close>
 
 ML\<open>
 (* Final expression-translation boundary. This structure owns recursive lowering of a complete
-   URust_AST.ur_expr, including place translation and the orchestration of bindings, loops, and
-   matches. It delegates shallow-term vocabulary to URust_Shallow_Terms, name and antiquotation
-   resolution to URust_Resolution, and pattern preparation and case compilation to URust_Patterns;
-   it does not parse source, type-check terms, or install definitions.
+   URust_AST.ur_expr, including place translation and the orchestration of bindings and regular loops.
+   It delegates matching and macro lowering to their sealed feature layers; it does not parse source,
+   type-check terms, or install definitions.
 
    The sole public operation is mk_closed: given the Proof.context in which the source is being
    elaborated and an expression AST, it lowers the expression from
@@ -33,14 +33,16 @@ ML\<open>
    reflexivity. Resolution and pattern-validation failures are propagated with their source
    positions. The signature exposes no public types or constructors.
 
-   All lower_* functions, the recursive traversal order, the T/R/P aliases, and the division of work
-   among helper functions are implementation details hidden by URUST_TRANSLATE. *)
+   All lower_* functions, the recursive traversal order, module aliases, and the division of work among
+   helper functions are implementation details hidden by URUST_TRANSLATE. *)
 structure URust_Translate :> URUST_TRANSLATE =
 struct
   open URust_AST
   structure T = URust_Shallow_Terms
   structure R = URust_Resolution
   structure P = URust_Patterns
+  structure M = URust_Matching
+  structure X = URust_Macros
 
   fun lower_place lower ctxt environment place =
     (case place of
@@ -71,29 +73,6 @@ struct
   fun lower_fuel ctxt environment source =
     R.parse_antiquotation ctxt environment source
 
-  fun lower_prepared_case ctxt scrutinee lower_result prepared_arms =
-    let
-      fun lower_arm (tag, prepared) =
-        let
-          val arm_environment = P.prepared_environment prepared
-          val (lowered_guard, lowered_body) =
-            lower_result tag arm_environment prepared
-        in (prepared, lowered_guard, lowered_body) end
-    in
-      P.compile_case ctxt NONE scrutinee
-        (map lower_arm prepared_arms)
-    end
-
-  fun lower_case_arms ctxt environment position scrutinee lower_result arms =
-    let
-      val prepared =
-        P.prepare_case_arms ctxt position environment
-          (map snd arms)
-      val tagged = map2 pair (map fst arms) prepared
-    in
-      lower_prepared_case ctxt scrutinee lower_result tagged
-    end
-
   fun lower_for lower ctxt environment (pattern, iterable, body) =
     let
       val lowered_iterable = lower environment iterable
@@ -104,234 +83,6 @@ struct
     in
       T.for_loop (T.into_iterator lowered_iterable)
         (P.binding_abstraction prepared lowered_body)
-    end
-
-  fun lower_while_let lower ctxt environment
-      (fuel, pattern, scrutinee, body, position) =
-    let
-      val lowered_fuel = lower_fuel ctxt environment fuel
-      val lowered_scrutinee = lower environment scrutinee
-      val prepared =
-        the_single
-          (P.prepare_case_arms ctxt position environment
-            [UR_Arm (pattern, NONE, body)])
-      val body_environment =
-        P.prepared_environment prepared
-      val success =
-        T.sequence (lower body_environment body)
-          (T.literal T.true_value)
-      val condition =
-        (case P.prepared_direct_abstraction prepared of
-           SOME abstraction =>
-             T.bind lowered_scrutinee (abstraction success)
-         | NONE =>
-             let
-               val arm = (prepared, NONE, success)
-             in
-               if P.prepared_is_total prepared
-               then P.compile_case ctxt NONE lowered_scrutinee [arm]
-               else
-                 P.compile_case ctxt
-                   (SOME (T.literal T.false_value))
-                   lowered_scrutinee [arm]
-             end)
-    in T.bounded_while lowered_fuel condition T.skip end
-
-  fun lower_match lower ctxt environment (flavour, scrutinee, arms, pos) =
-    let
-      val selected = P.select_match_flavour flavour arms pos
-      val lowered_scrutinee = lower environment scrutinee
-    in
-      (case selected of
-         MF_Switch =>
-           let
-             fun arm_pairs arm =
-                   let
-                     val (keys, body) = P.prepare_switch_arm ctxt arm
-                     val lowered_body = lower environment body
-                   in
-                     map (fn alternative =>
-                       T.pair alternative lowered_body)
-                       keys
-                   end
-             val pairs = maps arm_pairs arms
-           in
-             T.bind lowered_scrutinee
-               (T.numeral_case_selector
-                 (fold_rev T.list_cons pairs T.list_nil))
-           end
-       | MF_Case =>
-           let
-             val alternatives = map (fn arm => ((), arm)) arms
-             fun lower_result () arm_environment prepared =
-               (Option.map
-                  (fn (guard, _) => lower arm_environment guard)
-                  (P.prepared_guard prepared),
-                lower arm_environment (P.prepared_body prepared))
-           in
-             lower_case_arms ctxt environment pos lowered_scrutinee
-               lower_result alternatives
-           end
-       | MF_Auto =>
-           error "urust_expr: internal unresolved auto match flavour")
-    end
-
-  fun positions_are_adjacent left right =
-    (case (Position.end_offset_of left, Position.offset_of right) of
-       (SOME left_end, SOME right_start) => left_end = right_start
-     | _ => false)
-
-  fun macro_name_position name_pos bang_pos =
-    Position.range_position
-      (name_pos, Position.symbol_explode "!" bang_pos)
-
-  fun require_macro_arity name expected actual pos =
-    if expected = actual then ()
-    else
-      error
-        ("urust_expr: macro " ^ quote (name ^ "!") ^ " expects exactly " ^
-          string_of_int expected ^ " argument(s), but got " ^
-          string_of_int actual ^ Position.here pos)
-
-  fun require_macro_minimum_arity name expected actual pos =
-    if expected <= actual then ()
-    else
-      error
-        ("urust_expr: macro " ^ quote (name ^ "!") ^ " expects at least " ^
-          string_of_int expected ^ " argument(s), but got " ^
-          string_of_int actual ^ Position.here pos)
-
-  fun reject_legacy_matches_ranges pattern =
-    let
-      fun reject source_pattern =
-        (case source_pattern of
-           P_Range (_, _, _, pos) =>
-             error
-               ("urust_expr: range patterns are not supported by legacy matches!" ^
-                 Position.here pos)
-         | P_Constr (_, _, arguments) => List.app reject arguments
-         | P_Tuple (arguments, _) => List.app reject arguments
-         | P_Group inner => reject inner
-         | P_Borrow (_, inner, _) => reject inner
-         | P_Alias (_, _, inner, _) => reject inner
-         | P_Slice (items, _) =>
-             List.app
-               (fn SI_Pat inner => reject inner
-                 | SI_Rest _ => ())
-               items
-         | P_Struct (_, _, fields) =>
-             List.app
-               (fn SF_Field (_, _, inner) => reject inner
-                 | SF_Shorthand _ => ()
-                 | SF_Rest _ => ())
-               fields
-         | P_Or (alternatives, _) => List.app reject alternatives
-         | _ => ())
-    in reject pattern end
-
-  fun lower_matches lower ctxt environment
-      (scrutinee, pattern, position) =
-    let
-      val _ = reject_legacy_matches_ranges pattern
-      val lowered_scrutinee = lower environment scrutinee
-      val prepared =
-        the_single
-          (P.prepare_case_arms ctxt position environment
-            [UR_Arm (pattern, NONE, UE_Unit position)])
-    in
-      P.compile_case ctxt
-        (SOME (T.literal T.false_value))
-        lowered_scrutinee
-        [(prepared, NONE, T.literal T.true_value)]
-    end
-
-  fun lower_macro lower ctxt environment
-      (name, name_pos, bang_pos, payload, position) =
-    let
-      val complete_name = name ^ "!"
-      val complete_name_pos = macro_name_position name_pos bang_pos
-
-      fun lower_argument expression = lower environment expression
-
-      fun lower_message target arguments =
-        let
-          val message =
-            (case arguments of
-               [] => T.string_from_characters T.list_nil
-             | first :: _ =>
-                 R.raw_macro_message ctxt environment first)
-        in target message end
-
-      fun lower_builtin arguments =
-        let
-          val actual = length arguments
-          val _ = R.report_builtin_macro ctxt name_pos
-        in
-          (case name of
-             "assert" =>
-               (require_macro_minimum_arity name 1 actual position;
-                T.assertion (lower_argument (hd arguments)))
-           | "debug_assert" =>
-               (require_macro_minimum_arity name 1 actual position;
-                T.assertion (lower_argument (hd arguments)))
-           | "assert_eq" =>
-               (require_macro_minimum_arity name 2 actual position;
-                T.assertion_equal
-                  (lower_argument (hd arguments))
-                  (lower_argument (nth arguments 1)))
-           | "debug_assert_eq" =>
-               (require_macro_minimum_arity name 2 actual position;
-                T.assertion_equal
-                  (lower_argument (hd arguments))
-                  (lower_argument (nth arguments 1)))
-           | "assert_ne" =>
-               (require_macro_minimum_arity name 2 actual position;
-                T.assertion_not_equal
-                  (lower_argument (hd arguments))
-                  (lower_argument (nth arguments 1)))
-           | "debug_assert_ne" =>
-               (require_macro_minimum_arity name 2 actual position;
-                T.assertion_not_equal
-                  (lower_argument (hd arguments))
-                  (lower_argument (nth arguments 1)))
-           | "panic" => lower_message T.panic_message arguments
-           | "unreachable" => lower_message T.panic_message arguments
-           | "fatal" => lower_message T.fatal_message arguments
-           | "unimplemented" =>
-               lower_message T.unimplemented_message arguments
-           | "todo" =>
-               lower_message T.unimplemented_message arguments
-           | "vec" =>
-               T.array_literal (map lower_argument arguments)
-           | "addr_of" =>
-               (require_macro_arity name 1 actual position;
-                T.address_of (lower_argument (hd arguments)))
-           | "addr_of_mut" =>
-               (require_macro_arity name 1 actual position;
-                T.address_of (lower_argument (hd arguments)))
-           | _ =>
-               error
-                 ("urust_expr: unknown macro " ^ quote complete_name ^
-                   Position.here complete_name_pos))
-        end
-    in
-      (case payload of
-         MP_Matches (scrutinee, pattern) =>
-           (R.report_builtin_macro ctxt name_pos;
-            lower_matches lower ctxt environment
-              (scrutinee, pattern, position))
-       | MP_Arguments arguments =>
-           (case
-               if positions_are_adjacent name_pos bang_pos
-               then
-                 R.registered_macro_function ctxt
-                   (complete_name, complete_name_pos)
-               else NONE
-            of
-              SOME function =>
-                T.function_call position function
-                  (map lower_argument arguments)
-            | NONE => lower_builtin arguments))
     end
 
   (* Lexical scope is explicit: a let RHS uses the outer environment, while its body uses the exact
@@ -398,7 +149,7 @@ struct
          lower_for (lower_expression ctxt) ctxt environment
            (pattern, iterable, body)
      | UE_WhileLet (fuel, pattern, scrutinee, body, pos) =>
-         lower_while_let (lower_expression ctxt) ctxt environment
+         M.lower_while_let (lower_expression ctxt) ctxt environment
            (fuel, pattern, scrutinee, body, pos)
      | UE_Let binding =>
          lower_binding (lower_expression ctxt) ctxt
@@ -439,9 +190,9 @@ struct
                     (T.unary U_Deref pos lowered_place) lowered_rhs))
          end
      | UE_Macro macro =>
-         lower_macro (lower_expression ctxt) ctxt environment macro
+         X.lower_macro (lower_expression ctxt) ctxt environment macro
      | UE_Match match =>
-         lower_match (lower_expression ctxt) ctxt environment match)
+         M.lower_match (lower_expression ctxt) ctxt environment match)
 
   fun mk_closed ctxt expression =
     lower_expression ctxt R.empty_environment expression
