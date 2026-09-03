@@ -293,7 +293,8 @@ subsection\<open> Accepted-surface improvements \<close>
 text\<open>
 Features: Rust line comments and glued suffixes, an indexed array with a trailing
 separator, trailing separators on calls, tuples, and match arms, ASCII match
-arrows, propagation directly into a method, and empty ordinary and unsafe blocks.
+arrows, propagation directly into a method, a mixed \<open>else if let\<close> chain,
+and empty ordinary and unsafe blocks.
 \<close>
 
 urust_expr_with_check' showoff_improvements
@@ -302,7 +303,17 @@ urust_expr_with_check' showoff_improvements
     let seeds = [1u64, 2u64,];
     let seed = seeds[0usize];
     let bumped = Some(showoff_bump(seed,))?.showoff_bump();
-    match Some(bumped) {
+    let selected =
+      if seed == 0u64 {
+        seed
+      } else if let Some(value) = Some(bumped) {
+        value
+      } else if bumped > 2u64 {
+        bumped
+      } else {
+        seed
+      };
+    match Some(selected) {
       Some(value) => (value, {}, unsafe {},),
       None => (0u64, {}, unsafe {},),
     }
@@ -312,7 +323,21 @@ urust_expr_with_check' showoff_improvements
       let seeds = [1_u64, 2_u64];
       let seed = seeds[0_usize];
       let bumped = (Some(showoff_bump(seed))?).showoff_bump();
-      match Some(bumped) {
+      let selected =
+        if seed == 0_u64 {
+          seed
+        } else {
+          if let Some(value) = Some(bumped) {
+            value
+          } else {
+            if bumped > 2_u64 {
+              bumped
+            } else {
+              seed
+            }
+          }
+        };
+      match Some(selected) {
         Some(value) \<Rightarrow> (value, { () }, unsafe { () }),
         None \<Rightarrow> (0_u64, { () }, unsafe { () })
       }

@@ -1036,10 +1036,40 @@ urust_expr_rejects fidelity
   \<open> syntax error found at <integer> \<close>
   \<comment> \<open> [FIDELITY] the fallback branch also requires braces. \<close>
 
-urust_expr_rejects fidelity
-  \<open> if let Some(value) = Some(1) { value } else if let Some(next) = Some(value) { next } \<close>
+new_urust_rejects audit
+  \<open> if true { () } else if let Some(value) Some(()) { () } \<close>
   \<open> syntax error \<close>
-  \<comment> \<open> [FIDELITY] chained \<open>else if let\<close> is not part of the current frontend. \<close>
+  \<comment> \<open> [AUDIT] a chained conditional binding still requires an equals delimiter. \<close>
+
+new_urust_rejects audit
+  \<open> if true { () } else if false () \<close>
+  \<open> syntax error \<close>
+  \<comment> \<open> [AUDIT] an ordinary chained arm requires a block. \<close>
+
+new_urust_rejects audit
+  \<open> if true { () } else if let Some(value) = Some(()) value \<close>
+  \<open> syntax error \<close>
+  \<comment> \<open> [AUDIT] a chained conditional-binding arm requires a success block. \<close>
+
+new_urust_rejects audit
+  \<open> if true { () } else if \<close>
+  \<open> syntax error \<close>
+  \<comment> \<open> [AUDIT] a dangling ordinary chained arm cannot consume EOF. \<close>
+
+new_urust_rejects audit
+  \<open> if true { () } else if let \<close>
+  \<open> syntax error \<close>
+  \<comment> \<open> [AUDIT] a dangling conditional-binding arm cannot consume EOF. \<close>
+
+new_urust_rejects audit
+  \<open>
+    if true { () }
+    else if let Some(value) = Some(()) { let _ = value; () }
+    else { () }
+    trailing trailing
+  \<close>
+  \<open> syntax error \<close>
+  \<comment> \<open> [AUDIT] a complete mixed chain does not hide trailing input. \<close>
 
 urust_expr_rejects fidelity
   \<open> let Some(value) = Some(1) { 0 }; value \<close>

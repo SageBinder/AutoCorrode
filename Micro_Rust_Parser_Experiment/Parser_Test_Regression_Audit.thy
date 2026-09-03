@@ -234,6 +234,13 @@ consts
   conditional_let_scrutinee_marker :: \<open>nat option\<close>
   conditional_let_success_marker :: nat
   conditional_let_fallback_marker :: nat
+  conditional_chain_first_scrutinee_marker :: \<open>nat option\<close>
+  conditional_chain_second_condition_marker :: bool
+  conditional_chain_last_scrutinee_marker :: \<open>nat option\<close>
+  conditional_chain_first_success_marker :: nat
+  conditional_chain_second_success_marker :: nat
+  conditional_chain_last_success_marker :: nat
+  conditional_chain_fallback_marker :: nat
 
 ML_val\<open>
   local
@@ -290,6 +297,53 @@ ML_val\<open>
        | _ =>
            error "conditional-binding regression audit: if-let AST changed")
 
+    val mixed_text =
+      "if let Some(first) = Some(1) { first } else if false { 2 } " ^
+      "else if let Some(last) = Some(3) { last } else { 4 }"
+    val mixed_start =
+      Position.make0 13 70 0 "" "" "conditional-chain-ast-audit"
+    val mixed_stop =
+      Position.symbol_explode mixed_text mixed_start
+    val mixed_ast =
+      parse
+        (Parser_Lex_Util.positioned_content_source
+          mixed_text mixed_start)
+    val _ =
+      (case mixed_ast of
+         UE_IfLet
+           (P_Constr ("Some", _, [P_Ident ("first", _)]),
+            UE_Call ("Some", _, [UE_Literal (LP_Integer ("1", _))], _),
+            UE_Block (UE_Ident ("first", _), _),
+            SOME
+              (UE_If
+                (UE_Literal (LP_Bool (false, _)),
+                 UE_Block (UE_Literal (LP_Integer ("2", _)), _),
+                 SOME
+                   (UE_IfLet
+                     (P_Constr ("Some", _, [P_Ident ("last", _)]),
+                      UE_Call
+                        ("Some", _,
+                         [UE_Literal (LP_Integer ("3", _))], _),
+                      UE_Block (UE_Ident ("last", _), _),
+                      SOME
+                        (UE_Block
+                          (UE_Literal (LP_Integer ("4", _)), _)),
+                      nested_position)),
+                 _)),
+            position) =>
+           (audit_assert "mixed-chain span start moved"
+              (Position.offset_of position =
+                Position.offset_of mixed_start);
+            audit_assert "mixed-chain span stopped before the final arm"
+              (Position.end_offset_of position =
+                Position.offset_of mixed_stop);
+            audit_assert "nested if-let span stopped before its fallback"
+              (Position.end_offset_of nested_position =
+                Position.offset_of mixed_stop))
+       | _ =>
+           error
+             "conditional-binding regression audit: mixed-chain AST changed")
+
     val let_text =
       "let Some(value) = Some(1) else { 0 }; value"
     val let_start =
@@ -316,6 +370,59 @@ ML_val\<open>
                 Position.offset_of let_stop))
        | _ =>
            error "conditional-binding regression audit: let-else AST changed")
+
+    val mixed_chain =
+      checked
+        ("if let Some(first) = " ^
+         "\<llangle>conditional_chain_first_scrutinee_marker\<rrangle> { " ^
+         "let _ = first; " ^
+         "\<llangle>conditional_chain_first_success_marker\<rrangle> " ^
+         "} else if " ^
+         "\<llangle>conditional_chain_second_condition_marker\<rrangle> { " ^
+         "\<llangle>conditional_chain_second_success_marker\<rrangle> " ^
+         "} else if let Some(last) = " ^
+         "\<llangle>conditional_chain_last_scrutinee_marker\<rrangle> { " ^
+         "let _ = last; " ^
+         "\<llangle>conditional_chain_last_success_marker\<rrangle> " ^
+         "} else { " ^
+         "\<llangle>conditional_chain_fallback_marker\<rrangle> }")
+    val nested_mixed_chain =
+      checked
+        ("if let Some(first) = " ^
+         "\<llangle>conditional_chain_first_scrutinee_marker\<rrangle> { " ^
+         "let _ = first; " ^
+         "\<llangle>conditional_chain_first_success_marker\<rrangle> " ^
+         "} else { if " ^
+         "\<llangle>conditional_chain_second_condition_marker\<rrangle> { " ^
+         "\<llangle>conditional_chain_second_success_marker\<rrangle> " ^
+         "} else { if let Some(last) = " ^
+         "\<llangle>conditional_chain_last_scrutinee_marker\<rrangle> { " ^
+         "let _ = last; " ^
+         "\<llangle>conditional_chain_last_success_marker\<rrangle> " ^
+         "} else { " ^
+         "\<llangle>conditional_chain_fallback_marker\<rrangle> } } }")
+    val _ =
+      audit_assert "mixed chain lost right-associated branch order"
+        (Term.aconv (mixed_chain, nested_mixed_chain))
+    val _ =
+      List.app
+        (fn (name, label) =>
+          audit_assert (label ^ " was not lowered exactly once")
+            (count_constant name mixed_chain = 1))
+        [(\<^const_name>\<open>conditional_chain_first_scrutinee_marker\<close>,
+          "first mixed-chain scrutinee"),
+         (\<^const_name>\<open>conditional_chain_second_condition_marker\<close>,
+          "mixed-chain ordinary condition"),
+         (\<^const_name>\<open>conditional_chain_last_scrutinee_marker\<close>,
+          "last mixed-chain scrutinee"),
+         (\<^const_name>\<open>conditional_chain_first_success_marker\<close>,
+          "first mixed-chain success branch"),
+         (\<^const_name>\<open>conditional_chain_second_success_marker\<close>,
+          "mixed-chain ordinary success branch"),
+         (\<^const_name>\<open>conditional_chain_last_success_marker\<close>,
+          "last mixed-chain success branch"),
+         (\<^const_name>\<open>conditional_chain_fallback_marker\<close>,
+          "mixed-chain final fallback")]
 
     val two_armed =
       checked
@@ -434,6 +541,15 @@ ML_val\<open>
             (fn () =>
               parse
                 (Parser_Lex_Util.positioned_content_source
+                  mixed_text mixed_start)) ())
+        ()
+    val _ =
+      Unsynchronized.setmp Private_Output.report_fn capture_reports
+        (fn () =>
+          Print_Mode.with_modes [Print_Mode.PIDE]
+            (fn () =>
+              parse
+                (Parser_Lex_Util.positioned_content_source
                   let_text let_start)) ())
         ()
 
@@ -462,6 +578,17 @@ ML_val\<open>
       token_position if_text if_start "=" (if_offset + 2)
     val (_, if_else_keyword) =
       token_position if_text if_start "else" (if_let_offset + 3)
+    val (mixed_else_offset, mixed_else_keyword) =
+      token_position mixed_text mixed_start "else" 0
+    val (mixed_if_offset, mixed_if_keyword) =
+      token_position mixed_text mixed_start "if" (mixed_else_offset + 4)
+    val (mixed_second_else_offset, mixed_second_else_keyword) =
+      token_position mixed_text mixed_start "else" (mixed_if_offset + 2)
+    val (mixed_if_let_offset, mixed_if_let_keyword) =
+      token_position mixed_text mixed_start "if"
+        (mixed_second_else_offset + 4)
+    val (_, mixed_let_keyword) =
+      token_position mixed_text mixed_start "let" (mixed_if_let_offset + 2)
     val (_, let_semicolon) =
       token_position let_text let_start ";" 0
     val _ =
@@ -476,6 +603,16 @@ ML_val\<open>
     val _ =
       audit_assert "else keyword markup changed"
         (has_markup Markup.keyword1N if_else_keyword)
+    val _ =
+      List.app
+        (fn (position, label) =>
+          audit_assert (label ^ " keyword markup changed")
+            (has_markup Markup.keyword1N position))
+        [(mixed_else_keyword, "mixed-chain else"),
+         (mixed_if_keyword, "mixed-chain ordinary if"),
+         (mixed_second_else_keyword, "mixed-chain second else"),
+         (mixed_if_let_keyword, "mixed-chain if-let if"),
+         (mixed_let_keyword, "mixed-chain if-let let")]
     val _ =
       audit_assert "let-else semicolon delimiter markup changed"
         (has_markup Markup.delimiterN let_semicolon)

@@ -42,6 +42,252 @@ val _ = Outer_Syntax.local_theory \<^command_keyword>\<open>old_urust_rejects\<c
 \<close>
 
 
+section\<open> Mixed conditional chains \<close>
+
+text\<open>
+The dedicated grammar accepts right-associated mixtures of ordinary
+\<open>if\<close> and \<open>if let\<close> arms. Each row checks the new spelling against
+the old frontend's equivalent nested fallback block.
+\<close>
+
+urust_expr_with_check' improvement_if_to_if_let_chain
+  \<open>
+    if false {
+      0
+    } else if let Some(value) = \<llangle>Some (1 :: nat)\<rrangle> {
+      value
+    } else {
+      2
+    }
+  \<close>
+  \<open>
+    \<lbrakk>
+      if false {
+        0
+      } else {
+        if let Some(value) = \<llangle>Some (1 :: nat)\<rrangle> {
+          value
+        } else {
+          2
+        }
+      }
+    \<rbrakk>
+  \<close>
+old_urust_rejects
+  \<open>
+    if false {
+      0
+    } else if let Some(value) = \<llangle>Some (1 :: nat)\<rrangle> {
+      value
+    } else {
+      2
+    }
+  \<close>
+
+urust_expr_with_check' improvement_if_let_to_if_chain
+  \<open>
+    if let Some(value) = \<llangle>Some (1 :: nat)\<rrangle> {
+      value
+    } else if false {
+      2
+    } else {
+      3
+    }
+  \<close>
+  \<open>
+    \<lbrakk>
+      if let Some(value) = \<llangle>Some (1 :: nat)\<rrangle> {
+        value
+      } else {
+        if false {
+          2
+        } else {
+          3
+        }
+      }
+    \<rbrakk>
+  \<close>
+old_urust_rejects
+  \<open>
+    if let Some(value) = \<llangle>Some (1 :: nat)\<rrangle> {
+      value
+    } else if false {
+      2
+    } else {
+      3
+    }
+  \<close>
+
+urust_expr_with_check' improvement_if_let_to_if_let_without_final_else
+  \<open>
+    if let Some(first) = Some(()) {
+      let _ = first;
+      ()
+    } else if let Some(second) = Some(()) {
+      let _ = second;
+      ()
+    }
+  \<close>
+  \<open>
+    \<lbrakk>
+      if let Some(first) = Some(()) {
+        let _ = first;
+        ()
+      } else {
+        if let Some(second) = Some(()) {
+          let _ = second;
+          ()
+        }
+      }
+    \<rbrakk>
+  \<close>
+old_urust_rejects
+  \<open>
+    if let Some(first) = Some(()) {
+      let _ = first;
+      ()
+    } else if let Some(second) = Some(()) {
+      let _ = second;
+      ()
+    }
+  \<close>
+
+urust_expr_with_check' improvement_mixed_conditional_right_association
+  \<open>
+    if false {
+      0
+    } else if let Some(first) = \<llangle>Some (1 :: nat)\<rrangle> {
+      first
+    } else if false {
+      2
+    } else if let Some(last) = \<llangle>Some (3 :: nat)\<rrangle> {
+      last
+    } else {
+      4
+    }
+  \<close>
+  \<open>
+    \<lbrakk>
+      if false {
+        0
+      } else {
+        if let Some(first) = \<llangle>Some (1 :: nat)\<rrangle> {
+          first
+        } else {
+          if false {
+            2
+          } else {
+            if let Some(last) = \<llangle>Some (3 :: nat)\<rrangle> {
+              last
+            } else {
+              4
+            }
+          }
+        }
+      }
+    \<rbrakk>
+  \<close>
+old_urust_rejects
+  \<open>
+    if false {
+      0
+    } else if let Some(first) = \<llangle>Some (1 :: nat)\<rrangle> {
+      first
+    } else if false {
+      2
+    } else if let Some(last) = \<llangle>Some (3 :: nat)\<rrangle> {
+      last
+    } else {
+      4
+    }
+  \<close>
+
+urust_expr_with_check' improvement_mixed_conditional_semicolon_free_statement
+  \<open>
+    if false {
+      ()
+    } else if let Some(value) = Some(()) {
+      let _ = value;
+      ()
+    } else {
+      ()
+    }
+    ()
+  \<close>
+  \<open>
+    \<lbrakk>
+      if false {
+        ()
+      } else {
+        if let Some(value) = Some(()) {
+          let _ = value;
+          ()
+        } else {
+          ()
+        }
+      }
+      ()
+    \<rbrakk>
+  \<close>
+old_urust_rejects
+  \<open>
+    if false {
+      ()
+    } else if let Some(value) = Some(()) {
+      let _ = value;
+      ()
+    } else {
+      ()
+    }
+    ()
+  \<close>
+
+urust_expr_with_check' improvement_mixed_conditional_binder_isolation
+  \<open>
+    let value = \<llangle>1 :: nat\<rrangle>;
+    if let Some(value) = \<llangle>Some (2 :: nat)\<rrangle> {
+      \<llangle>value\<rrangle>
+    } else if \<llangle>value = 1\<rrangle> {
+      value
+    } else if let Some(value) = Some(\<llangle>value + 1\<rrangle>) {
+      \<llangle>value\<rrangle>
+    } else {
+      value
+    }
+  \<close>
+  \<open>
+    \<lbrakk>
+      let value = \<llangle>1 :: nat\<rrangle>;
+      if let Some(value) = \<llangle>Some (2 :: nat)\<rrangle> {
+        \<llangle>value\<rrangle>
+      } else {
+        if \<llangle>value = 1\<rrangle> {
+          value
+        } else {
+          if let Some(value) = Some(\<llangle>value + 1\<rrangle>) {
+            \<llangle>value\<rrangle>
+          } else {
+            value
+          }
+        }
+      }
+    \<rbrakk>
+  \<close>
+old_urust_rejects
+  \<open>
+    let value = \<llangle>1 :: nat\<rrangle>;
+    if let Some(value) = \<llangle>Some (2 :: nat)\<rrangle> {
+      \<llangle>value\<rrangle>
+    } else if \<llangle>value = 1\<rrangle> {
+      value
+    } else if let Some(value) = Some(\<llangle>value + 1\<rrangle>) {
+      \<llangle>value\<rrangle>
+    } else {
+      value
+    }
+  \<close>
+
+
 section\<open> Rust line comments \<close>
 
 text\<open>

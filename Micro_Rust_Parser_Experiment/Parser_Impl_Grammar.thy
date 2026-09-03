@@ -334,6 +334,7 @@ yacc_definitions\<open>
        | uunsafe of URust_AST.ur_expr
        | usemi_free_atom of URust_AST.ur_expr
        | usemi_free_value of URust_AST.ur_expr
+       | uconditional of URust_AST.ur_expr
        | uif of URust_AST.ur_expr
        | uiflet of URust_AST.ur_expr
        | ufuel of Input.source * Position.T
@@ -499,9 +500,9 @@ yacc_rules\<open>
        | uexp TGE uexp       (UE_Bin (Ge,   uexp1, uexp2, TGEleft))
        | uexp TAMPAMP uexp   (UE_Bin (And,  uexp1, uexp2, TAMPAMPleft))
        | uexp TBARBAR uexp   (UE_Bin (Or,   uexp1, uexp2, TBARBARleft))
-  (* No dangling-else conflict: the branches are BRACE-DELIMITED, so TELSE is not in FOLLOW(uif) and the
-     parser shifts it unambiguously. The whole grammar is verified conflict-free via the [verbose] grm.desc
-     export -- RE-CHECK IT after any grammar change. *)
+  (* Branches are brace-delimited, and right-associative TIF/TELSE precedence preserves nearest-else
+     association through recursive mixed chains. The whole grammar is verified conflict-free via the
+     [verbose] grm.desc export -- RE-CHECK IT after any grammar change. *)
   ublock : TLBRACE ustmt TRBRACE            (UE_Block (ustmt, TLBRACEleft))
          | TLBRACE TRBRACE                  (UE_Block (UE_Unit TLBRACEleft, TLBRACEleft))
   (* Unsafe is block-like in operand and statement positions, but deliberately remains distinct from
@@ -510,10 +511,15 @@ yacc_rules\<open>
   (* Semicolon policy helpers centralize the forms admitted both as values/atoms and as statements. *)
   usemi_free_atom : ublock                  (ublock)
                   | uunsafe                 (uunsafe)
+  (* `uconditional` is grammar-only: mixed `else if` / `else if let` chains retain the existing
+     right-associated AST nodes. TIF/TELSE precedence makes an `else` attach to the nearest open arm. *)
+  uconditional : uif                        (uif)
+               | uiflet                     (uiflet)
   (* Condition is `uval` (the frontend's condition priority admits an `if`), so `if if c {..} {..}` parses. *)
-  uif : TIF uval ublock                     (UE_If (uval, ublock, NONE, TIFleft))
+  uif : TIF uval ublock %prec TIF            (UE_If (uval, ublock, NONE, TIFleft))
       | TIF uval ublock TELSE ublock        (UE_If (uval, ublock1, SOME ublock2, TIFleft))
-      | TIF uval ublock TELSE uif           (UE_If (uval, ublock, SOME uif, TIFleft))
+      | TIF uval ublock TELSE uconditional
+          (UE_If (uval, ublock, SOME uconditional, TIFleft))
   uiflet : TIF TLET upat TEQ uval ublock %prec TIF
               (UE_IfLet
                 (upat, uval, ublock, NONE,
@@ -522,6 +528,10 @@ yacc_rules\<open>
               (UE_IfLet
                 (upat, uval, ublock1, SOME ublock2,
                  Position.range_position (TIFleft, ublock2right)))
+           | TIF TLET upat TEQ uval ublock TELSE uconditional
+              (UE_IfLet
+                (upat, uval, ublock, SOME uconditional,
+                 Position.range_position (TIFleft, uconditionalright)))
   ufuel : THASH TLBRACK TFUEL LPAR EXPRAQ RPAR TRBRACK
               ((EXPRAQ, THASHleft))
   uloop : ufuel TWHILE LPAR uval RPAR ublock
@@ -536,8 +546,7 @@ yacc_rules\<open>
   uwhilelet : ufuel TWHILE TLET upat TEQ uval ublock
               (UE_WhileLet (#1 ufuel, upat, uval, ublock,
                 Position.range_position (#2 ufuel, ublockright)))
-  usemi_free_value : uif                    (uif)
-                   | uiflet                 (uiflet)
+  usemi_free_value : uconditional           (uconditional)
                    | uloop                  (uloop)
                    | ufor                   (ufor)
                    | uwhilelet              (uwhilelet)
