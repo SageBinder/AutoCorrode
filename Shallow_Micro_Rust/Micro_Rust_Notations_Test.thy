@@ -98,7 +98,7 @@ The warning attaches to the \<^emph>\<open>use site\<close> of \<open>shadow_war
 (plumbed via \<open>mk_marker\<close>), not to the surrounding \<open>term\<close> command, so
 jEdit highlights the identifier itself.
 
-We use a ``urust_dispatch`` marker directly here (rather than wrapping
+We use a \<open>urust_dispatch\<close> marker directly here (rather than wrapping
 in \<open>\<lbrakk> \<dots> \<rbrakk>\<close>) so the registered backend's bare \<open>nat \<Rightarrow> nat\<close>
 type matches without needing a \<open>function_body\<close> lift.\<close>
 term \<open>(urust_dispatch (STR ''literal:shadow_warn_const'') NoWitness :: nat \<Rightarrow> nat)\<close>
@@ -134,7 +134,7 @@ micro_rust_notation silenced_backend ("silenced_target_const")
 \<comment>\<open>\<^bold>\<open>Warning silenced.\<close> The HOL constant
   \<^const>\<open>silenced_warn_const\<close> exists at type \<open>nat \<Rightarrow> bool\<close>; without
   the config below, dispatch at \<open>nat \<Rightarrow> nat\<close> would print the
-  "uRust notation \<dots> shadows the HOL constant \<dots>" warning.\<close>
+  the uRust notation shadow warning.\<close>
 micro_rust_notation (config) [shadow_no_warn] "silenced_warn_const"
 
 term \<open>(urust_dispatch (STR ''literal:silenced_warn_const'') NoWitness :: nat \<Rightarrow> nat)\<close>
@@ -330,7 +330,7 @@ term \<open>\<lbrakk> Bar::value.cont() \<rbrakk>\<close>
 
 
 text\<open>\<^bold>\<open>Multi-backend dispatch on a path name.\<close> Register two distinct
-HOL targets under the same path; the typed term_check phase picks the
+HOL targets under the same path; the typed term-check phase picks the
 unique match by occurrence type. Both backends are literals (so no
 shadow check fires); the test asserts each route resolves to its own
 backend.\<close>
@@ -396,7 +396,7 @@ subsection\<open>Lambda / let / locale shadowing of registered names\<close>
 
 text\<open>The dispatch pipeline must NOT emit a \<^const>\<open>urust_dispatch\<close>
 marker for a uRust name that, at the use site, refers to a binder
-(\<lambda>-bound, let-bound, fixed-by-locale, or quantifier-bound) rather than
+(lambda-bound, let-bound, fixed-by-locale, or quantifier-bound) rather than
 to a registered backend.
 
 Concretely: registering \<^verbatim>\<open>("mask")\<close> as a field-kind notation must NOT
@@ -442,7 +442,7 @@ shadow the registered backends inside the function body.\<close>
 definition shadow_lambda_test ::
   \<open>64 word \<Rightarrow> 64 word \<Rightarrow> ('s, 64 word, 'abort, 'i, 'o) function_body\<close>
   where \<open>shadow_lambda_test \<equiv> \<lambda>shdw mask. FunctionBody \<lbrakk>
-     \<comment> \<open>Both \<open>shdw\<close> and \<open>mask\<close> are \<lambda>-bound function parameters; their
+     \<comment> \<open>Both \<open>shdw\<close> and \<open>mask\<close> are lambda-bound function parameters; their
         in-body uses must NOT reach the dispatch table even though
         \<open>shdw\<close> has registrations under all three kinds.\<close>
      shdw + mask
@@ -608,7 +608,7 @@ lemma shadow_nested_let_test_unaffected:
   unfolding shadow_nested_let_test_def by (rule refl)
 
 
-text\<open>\<^bold>\<open>let \<dots> else \<dots> binder.\<close> The binder introduced by a
+text\<open>\<^bold>\<open>Let-else binder.\<close> The binder introduced by a
 \<^verbatim>\<open>let \<dots> else \<dots>\<close> form must shadow the registration in the success-path
 body, just like a plain \<^verbatim>\<open>let\<close>.\<close>
 
@@ -919,6 +919,9 @@ ML\<open>
           error "ErrName::mk() should have failed (no type-compatible backend) but resolved")
     end;
 \<close>
+
+end
+
 
 end
 

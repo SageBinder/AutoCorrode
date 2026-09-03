@@ -798,7 +798,7 @@ translations
   \<comment>\<open>Match-arm constructor heads continue to route through the
     value-position \<^verbatim>\<open>_shallow_identifier_as_literal\<close>: \<open>case_tr\<close>
     downstream tolerates a \<^verbatim>\<open>urust_dispatch\<close> marker as the head and
-    the term_check phase resolves it after type inference (which is
+    the term-check phase resolves it after type inference (which is
     necessary for value-position match arms like \<open>match x { number::three => \<dots> }\<close>
     where the registration target is a non-constructor constant).\<close>
   "_shallow_match_pattern (_urust_match_pattern_constr_no_args id)"
@@ -865,7 +865,7 @@ parse_translation\<open>
 let
   \<comment>\<open>Lower a uRust identifier in \<open>kind\<close>-position to HOL: if \<open>name\<close> has any
     backends registered in \<^ML_structure>\<open>Micro_Rust_Names\<close>, emit a typed
-    \<^const>\<open>urust_dispatch\<close> marker that the term_check phase resolves
+    \<^const>\<open>urust_dispatch\<close> marker that the term-check phase resolves
     against the occurrence's inferred type. Otherwise fall back to the
     bare identifier (the historical \<open>K hd\<close> behaviour: a fresh free
     variable named \<open>name\<close> --- which is what unregistered uRust
@@ -899,8 +899,8 @@ let
 
      We ALWAYS emit a \<^verbatim>\<open>urust_dispatch\<close> marker carrying the original
      \<open>arg\<close> as a witness. HOL elaboration resolves the witness through
-     normal binding, and the term_check phase uses witness precedence:
-     a \<^verbatim>\<open>Bound\<close> witness (a \<lambda>-binder of the same name) wins over any
+     normal binding, and the term-check phase uses witness precedence:
+     a \<^verbatim>\<open>Bound\<close> witness (a lambda binder of the same name) wins over any
      table registration; a \<^verbatim>\<open>Free\<close> or \<^verbatim>\<open>Const\<close> witness defers to the
      table, falling back to itself on miss. This is what stops a
      registered \<open>("mask")\<close> from hijacking a \<open>\<lambda>mask. \<dots> mask \<dots>\<close> use site.
@@ -923,7 +923,7 @@ let
                  \<comment>\<open>Markup emission is deferred to \<open>Micro_Rust_Dispatch.resolve\<close>:
                    we emit the use-site markup ONLY when a marker is
                    actually replaced by a registered backend, never
-                   when the witness ends up winning (\<lambda>-binder shadow).\<close>
+                   when the witness ends up winning (lambda-binder shadow).\<close>
                  Micro_Rust_Dispatch.mk_marker kind name
                    (pick_pos (source_positions_of arg)) arg)
         | _ => arg)
@@ -948,7 +948,7 @@ end
 
   Match-arm constructor heads do NOT use this resolver --- they keep
   routing through the value-position \<open>_shallow_identifier_as_literal\<close>
-  so the term_check phase can resolve registered names AFTER type
+  so the term-check phase can resolve registered names AFTER type
   inference (necessary for value-position match arms like
   \<open>match x { number::three => \<dots> }\<close> where the registration target is a
   non-constructor constant).\<close>

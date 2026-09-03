@@ -97,9 +97,9 @@ type entry = { hol_term : term, reg_pos : Position.T, serial : serial };
 fun reg_eq (e1 : entry, e2 : entry) =
   Term.aconv_untyped (#hol_term e1, #hol_term e2);
 
-\<comment>\<open>Table keyed by (context, rust_name) \<rightarrow> list of entries. The key is the
-  pair of strings (Position.T is not an ord type); entries (term + reg
-  position) ride in the value.\<close>
+\<comment>\<open>Table keyed by \<open>(context, rust_name)\<close> with a list of entries. The key is
+  the pair of strings (\<open>Position.T\<close> is not an ordered type); entries (term and
+  registration position) ride in the value.\<close>
 structure Data = Generic_Data
 (
   type T = entry list Symtab.table;
@@ -258,8 +258,8 @@ fun register kind name hol_term reg_pos context =
 fun lookups ctxt kind name =
   the_default [] (Symtab.lookup (Data.get (Context.Proof ctxt)) (mk_key kind name));
 
-\<comment>\<open>All registered entries, as (kind, rust_name, entry) triples (for the
-  query command). Splits the composite key back into kind + name; one row
+\<comment>\<open>All registered entries, as \<open>(kind, rust_name, entry)\<close> triples (for the
+  query command). Splits the composite key back into kind and name; one row
   per backend.\<close>
 fun dump ctxt =
   Data.get (Context.Proof ctxt)
@@ -294,7 +294,7 @@ end
 \<comment>\<open>Plain-identifier dispatch carries a \<^emph>\<open>witness\<close> --- the bare \<^verbatim>\<open>Free name\<close>
   that the source identifier would have been if no notation registration
   existed. The witness travels through HOL's normal binding pipeline, so
-  by term_check time it has been resolved by Isabelle the same way an
+  by the term-check phase it has been resolved by Isabelle the same way an
   unmarked occurrence would be (\<^verbatim>\<open>Bound\<close> for \<open>\<lambda>\<close>-bound, \<^verbatim>\<open>Const\<close> for an
   in-scope HOL constant of the same name, \<^verbatim>\<open>Free\<close> for a truly-free
   occurrence). The dispatcher's resolver then prefers the witness over
@@ -398,8 +398,8 @@ fun dest_payload (Free (s, _)) =
    - Plain id: \<open>opt = SOME witness\<close>, where \<open>witness\<close> is the bare
      \<open>Free name\<close> the source identifier would have parsed to. HOL
      elaboration resolves the witness through normal binding (so a
-     \<lambda>-bound \<open>name\<close> becomes \<open>Bound n\<close>, an in-scope HOL constant becomes
-     \<open>Const\<close>, etc.); the term_check resolver inspects the elaborated
+     lambda-bound \<open>name\<close> becomes \<open>Bound n\<close>, an in-scope HOL constant becomes
+     \<open>Const\<close>, etc.); the term-check resolver inspects the elaborated
      witness and prefers it over a table lookup whenever the witness
      resolved to a binder or a HOL constant.
 
@@ -411,7 +411,7 @@ fun dest_payload (Free (s, _)) =
   witness's elaborated type would force the marker's result type, and a
   registered name like \<open>Some\<close> (which HOL elaborates to
   \<^const>\<open>Option.Some\<close>) at function position would fail type unification
-  before the term_check resolver had a chance to pick the registered
+  before the term-check resolver had a chance to pick the registered
   function-kind backend.\<close>
 fun mk_marker_term opt_witness =
   let
@@ -430,7 +430,7 @@ fun mk_marker_term opt_witness =
   binder def/use markup automatically.
 
   The trade-off: when the witness elaborates to a HOL constant
-  (e.g. \<^verbatim>\<open>Free "Some"\<close> \<rightsquigarrow> \<^const>\<open>Option.Some\<close>), the decoder ALSO
+  (e.g. \<^verbatim>\<open>Free "Some"\<close> becomes \<^const>\<open>Option.Some\<close>), the decoder ALSO
   emits \<^verbatim>\<open>Markup.const\<close> at the user's source token, which can stack
   visibly with the \<open>micro_rust_notation\<close> entity ref \<open>resolve\<close> emits.\<close>
 fun mk_marker kind name pos witness =
@@ -620,7 +620,7 @@ fun shadow_check ctxt kind name T pos have_backend =
 
 \<comment>\<open>Should the elaborated witness shadow the table registration? Only in
   one case: a \<^bold>\<open>literal\<close>-position occurrence (bare \<open>x\<close>) whose witness is a
-  \<^verbatim>\<open>Bound\<close> --- i.e. a \<open>let\<close>/\<lambda>-bound local, which correctly wins, mirroring
+  \<^verbatim>\<open>Bound\<close> --- i.e. a \<open>let\<close>/lambda-bound local, which correctly wins, mirroring
   Rust's lexical scoping (\<open>let x = \<dots>; x\<close>).
 
   In \<^bold>\<open>field\<close> (\<open>x.f\<close>) and \<^bold>\<open>function\<close> (\<open>f(\<dots>)\<close> / \<open>x.f(\<dots>)\<close>) positions the name
@@ -645,20 +645,20 @@ fun witness_takes_precedence Micro_Rust_Names.NLiteral (Bound _) = true
   witness to \<open>Bound\<close>/\<open>Const\<close>/\<open>Free\<close> through normal binding) or \<open>None\<close>
   (path id; no witness available).
 
-  Resolution rules (\<lambda>-binders already consumed at stage \<^verbatim>\<open>~1\<close> by
+  Resolution rules (lambda binders already consumed at stage \<^verbatim>\<open>~1\<close> by
   \<open>resolve_bound\<close>, so any surviving witness here is \<open>Free\<close>/\<open>Const\<close>):
-   - exactly 1 type-compatible candidate \<Rightarrow> splice it in (+ use-site markup);
-   - \<ge>2 candidates \<Rightarrow> ambiguous: leave the marker for \<open>reject_unresolved\<close>;
-   - 0 candidates \<Rightarrow> the name IS registered (a marker would not exist
-     otherwise) but no backend type-unifies with the occurrence \<Rightarrow>
+   - exactly one type-compatible candidate: splice it in and emit use-site markup;
+   - multiple candidates: leave the ambiguous marker for \<open>reject_unresolved\<close>;
+   - no candidates: the name IS registered (a marker would not exist
+     otherwise) but no backend type-unifies with the occurrence, so call
      \<open>no_match_error\<close> (a hard error; see there). We do NOT silently demote
      to the witness free variable --- that would mask genuine arity/type
      mismatches like \<open>Foo::mk()\<close> against a binary backend.\<close>
 \<comment>\<open>Early phase, runs at stage \<^verbatim>\<open>~1\<close> before type inference. Replaces a
   marker with its witness ONLY if the witness is a \<^verbatim>\<open>Bound\<close> --- meaning
-  the surrounding \<open>_abs\<close> machinery has already resolved a \<lambda>-binder of
+  the surrounding \<open>_abs\<close> machinery has already resolved a lambda binder of
   the same name. This must happen before \<open>adhoc_overloading\<close> runs (at
-  stage 0), so that \<lambda>-bound uses don't leave a polymorphic marker
+  stage 0), so that lambda-bound uses do not leave a polymorphic marker
   behind that breaks operator resolution.
 
   Uses \<^verbatim>\<open>dest_marker_untyped\<close> --- at this stage the marker's outer
@@ -688,7 +688,7 @@ fun resolve_bound ctxt =
   in map go end;
 
 \<comment>\<open>Late phase, runs at stage \<^verbatim>\<open>1\<close> after type inference. Markers that
-  survived \<^verbatim>\<open>resolve_bound\<close> here have a witness that's NOT a \<lambda>-binder
+  survived \<^verbatim>\<open>resolve_bound\<close> here have a witness that is NOT a lambda binder
   (so \<^verbatim>\<open>Free\<close> or \<^verbatim>\<open>Const\<close>), or are path markers (no witness). Now we
   have full types and can do the typed table lookup.\<close>
 \<comment>\<open>Emit use-site markup at \<open>pos\<close> for every registered backend under
@@ -698,7 +698,7 @@ fun resolve_bound ctxt =
   (ctrl-click to its definition, coloured as a keyword). Called by \<open>resolve\<close>
   ONLY when a marker is actually replaced by a registered backend ---
   never when the witness wins. This is what stops the markup from
-  leaking onto an identifier whose witness ends up being a \<lambda>-binder
+  leaking onto an identifier whose witness ends up being a lambda binder
   (e.g. \<open>let x = \<dots>; x\<close> where \<open>x\<close> is also a registered notation: the
   trailing \<open>x\<close> resolves to the let-binder, so no notation markup
   should be attached).\<close>
@@ -741,7 +741,7 @@ fun emit_use_markup_at_pos ctxt kind name pos =
 
 \<comment>\<open>A marker only exists because \<open>lookup_id_tr\<close> found a registration for
   \<open>(kind, name)\<close> (it emits nothing otherwise). So by the time \<open>resolve\<close>
-  runs --- with \<lambda>-binders already consumed by \<open>resolve_bound\<close> at stage
+  runs --- with lambda binders already consumed by \<open>resolve_bound\<close> at stage
   \<^verbatim>\<open>~1\<close> --- an empty candidate set means the name \<^emph>\<open>is\<close> registered but
   \<^bold>\<open>no backend's type unifies\<close> with the occurrence type \<open>T\<close>. That is a
   genuine error (e.g. \<open>Foo::mk()\<close> --- a no-arg call ---
@@ -777,7 +777,7 @@ fun resolve ctxt =
                     (case cands of
                        [single] => (emit (); single)
                      | [] => no_match_error ctxt kind name pos T
-                     | _ => t \<comment>\<open>ambiguous: leave for reject_unresolved\<close>)
+                     | _ => t \<comment>\<open>ambiguous: leave for \<open>reject_unresolved\<close>\<close>)
               | (NONE, [single]) => (emit (); single)
               | (NONE, []) => no_match_error ctxt kind name pos T
               | (NONE, _) => t)
@@ -789,7 +789,7 @@ fun resolve ctxt =
             | _ => t));
   in map go end;
 
-\<comment>\<open>After resolution, any surviving marker is genuinely ambiguous (\<ge>2
+\<comment>\<open>After resolution, any surviving marker is genuinely ambiguous (two or more
   unifying backends); report it loudly, listing the candidates.\<close>
 fun reject_unresolved ctxt =
   let
@@ -815,7 +815,7 @@ fun reject_unresolved ctxt =
   a use site like \<open>shdw + mask\<close> --- where \<open>+\<close> is adhoc-overloaded
   \<^verbatim>\<open>urust_add\<close> --- would fail adhoc resolution before our marker had a
   chance to splice in the registered backend (or fall back to the
-  \<lambda>-bound witness), because the marker carries a polymorphic result
+  lambda-bound witness), because the marker carries a polymorphic result
   type that adhoc-overloading cannot disambiguate.\<close>
 val _ = Context.>>
   (Syntax_Phases.term_check ~1 "urust_dispatch_bind"
@@ -881,7 +881,7 @@ fun check_forced_kind kind ctxt t =
   (\<open>foo_bar\<close>) or a \<^verbatim>\<open>::\<close>-style path (\<open>Foo::bar::baz\<close>, which the path-AST
   translation flattens). Anything else --- turbofish forms like
   \<open>Address::<IPA>::new\<close>, or macro names like \<open>fatal!\<close> --- contains
-  characters (\<open><\<close>, \<open>>\<close>, \<open>!\<close>, \<dots>) that no grammar production covers, so
+  characters such as \<open><\<close>, \<open>>\<close>, and \<open>!\<close> that no grammar production covers, so
   the token cannot be parsed at all. For those we must additionally emit
   a bespoke grammar production + AST translation (see
   \<open>emit_bespoke_syntax\<close>): the dispatch-table entry alone is useless if the
@@ -995,7 +995,7 @@ fun do_register kind_opt (hol_src, (rust_name, rust_pos)) lthy =
   end;
 
 \<comment>\<open>Config sub-command: parse \<open>[mode] "name"+\<close> and update the
-  shadow-opt-out table. Empty name list \<Rightarrow> touch the default.\<close>
+  shadow-opt-out table. An empty name list updates the default.\<close>
 val parse_shadow_mode : Micro_Rust_Names.shadow_bit parser =
   Parse.$$$ "[" |--
     (   Args.$$$ "shadow_warn"    >> K (Micro_Rust_Names.Set_Suppress_Warning false)
@@ -1020,12 +1020,12 @@ val parse_payload =
   Parse.term -- Parse.position (Parse.$$$ "(" |-- Parse.string --| Parse.$$$ ")");
 
 \<comment>\<open>Top-level dispatch on the optional \<open>(\<dots>)\<close> modifier:
-     absent     \<longrightarrow> auto-inferred registration
-     \<open>(literal)\<close> \<longrightarrow> forced literal
-     \<open>(call)\<close>    \<longrightarrow> forced function (the keyword \<open>function\<close> is taken
+     absent selects auto-inferred registration;
+     \<open>(literal)\<close> selects a forced literal;
+     \<open>(call)\<close> selects a forced function (the keyword \<open>function\<close> is taken
                     by HOL globally, so we use \<open>call\<close>)
-     \<open>(field)\<close>   \<longrightarrow> forced field
-     \<open>(config)\<close>  \<longrightarrow> shadow-check configuration sub-command
+     \<open>(field)\<close> selects a forced field;
+     \<open>(config)\<close> selects the shadow-check configuration sub-command.
   Each branch parses its own remainder of the line.\<close>
 val parse_cmd : (local_theory -> local_theory) parser =
   let
@@ -1100,7 +1100,7 @@ definition test_my_some_b :: \<open>bool \<Rightarrow> bool option\<close> where
 micro_rust_notation (literal) test_my_some_a ("MySome")
 
 \<comment>\<open>Multi-backend, no modifier: kind auto-inferred from the term's
-  type. Same name as above; the typed term_check phase picks exactly
+  type. Same name as above; the typed term-check phase picks exactly
   one per occurrence (or reports ambiguity if both unify).\<close>
 micro_rust_notation test_my_some_b ("MySome")
 
@@ -1109,12 +1109,12 @@ micro_rust_notation test_my_some_b ("MySome")
   \<open>literal\<close>-shaped \<open>test_my_some_a\<close> under a field name with no kind
   modifier (auto-infer falls back to \<open>literal\<close>). For a real
   field-typed backend, see \<^verbatim>\<open>register_lens_with_micro_rust\<close> in
-  Micro_Rust_Shallow_Embedding.thy.\<close>
+  \<^file>\<open>Micro_Rust_Shallow_Embedding.thy\<close>.\<close>
 micro_rust_notation test_my_some_a ("a_field")
 
 print_micro_rust_notations
 
-\<comment>\<open>Direct exercise of the dispatch term_check phase: a marker constrained
+\<comment>\<open>Direct exercise of the dispatch term-check phase: a marker constrained
   at type \<open>nat \<Rightarrow> nat option\<close> resolves to \<open>test_my_some_a\<close>; constrained
   at \<open>bool \<Rightarrow> bool option\<close> resolves to \<open>test_my_some_b\<close>. The check fires
   only when the marker survives type inference, so we use \<open>typ\<close>
@@ -1134,10 +1134,10 @@ micro_rust_notation test_id_b ("Ambig")
 \<comment>\<open>Both backends have type \<open>nat \<Rightarrow> nat\<close>; an occurrence at \<open>nat \<Rightarrow> nat\<close>
   unifies with both, so resolution errors loudly listing candidates:
 
-    Ambiguous uRust notation \<open>Ambig\<close> at type nat \<Rightarrow> nat
+    Ambiguous uRust notation \<open>Ambig\<close> at the shared function type
     candidate backends:
-      test_id_b
-      test_id_a
+      \<open>test_id_b\<close>
+      \<open>test_id_a\<close>
 
   Uncomment the line below to reproduce; left commented so the file
   builds clean.\<close>
