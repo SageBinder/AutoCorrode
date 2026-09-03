@@ -12,6 +12,7 @@ sig
   val literal: term -> term
   val boolean_expression: bool -> term
   val string_value: string -> Position.T -> term
+  val string_from_characters: term -> term
   val integer_value: Position.T -> string -> term
 
   val function_call: Position.T -> term -> term list -> term
@@ -27,6 +28,13 @@ sig
   val array_literal: term list -> term
   val bounded_range: URust_AST.range_kind -> term -> term -> term
   val index: term -> term -> term
+  val assertion: term -> term
+  val assertion_equal: term -> term -> term
+  val assertion_not_equal: term -> term -> term
+  val panic_message: term -> term
+  val fatal_message: term -> term
+  val unimplemented_message: term -> term
+  val address_of: term -> term
   val conditional: term -> term -> term -> term
   val bounded_while: term -> term -> term -> term
   val bounded_loop: term -> term -> term
@@ -134,6 +142,9 @@ struct
     Const (if value then \<^const_name>\<open>Bool_Type.true\<close>
            else \<^const_name>\<open>Bool_Type.false\<close>, dummyT)
 
+  fun string_from_characters characters =
+    constant \<^const_name>\<open>String.implode\<close> [characters]
+
   fun string_value raw pos =
     let
       fun bit value =
@@ -147,7 +158,7 @@ struct
         fold_rev (fn c => fn rest =>
             constant \<^const_name>\<open>List.Cons\<close> [character c, rest])
           characters (Const (\<^const_name>\<open>List.Nil\<close>, dummyT))
-    in constant \<^const_name>\<open>String.implode\<close> [list] end
+    in string_from_characters list end
 
   (* The frontend surface supports arities 0..14. Keep every HOL target compile-checked. *)
   val function_constants = Vector.fromList
@@ -326,6 +337,32 @@ struct
     constant \<^const_name>\<open>funcall2\<close>
       [Const (\<^const_name>\<open>index_const\<close>, dummyT),
        expression, subscript]
+
+  fun assertion expression =
+    constant \<^const_name>\<open>assert\<close> [expression]
+
+  fun assertion_equal left right =
+    constant \<^const_name>\<open>assert_eq\<close> [left, right]
+
+  fun assertion_not_equal left right =
+    constant \<^const_name>\<open>assert_ne\<close> [left, right]
+
+  fun panic_message message =
+    constant \<^const_name>\<open>abort\<close>
+      [constant \<^const_name>\<open>Panic\<close> [message]]
+
+  fun fatal_message message =
+    constant \<^const_name>\<open>fatal\<close> [message]
+
+  fun unimplemented_message message =
+    constant \<^const_name>\<open>abort\<close>
+      [constant \<^const_name>\<open>Unimplemented\<close> [message]]
+
+  val legacy_ref_address =
+    Term.map_types (K dummyT) \<^term>\<open>ref_address\<close>
+
+  fun address_of expression =
+    bindlift1 legacy_ref_address expression
 
   fun conditional condition then_branch else_branch =
     constant \<^const_name>\<open>two_armed_conditional\<close>

@@ -176,6 +176,164 @@ struct
            error "urust_expr: internal unresolved auto match flavour")
     end
 
+  fun positions_are_adjacent left right =
+    (case (Position.end_offset_of left, Position.offset_of right) of
+       (SOME left_end, SOME right_start) => left_end = right_start
+     | _ => false)
+
+  fun macro_name_position name_pos bang_pos =
+    Position.range_position
+      (name_pos, Position.symbol_explode "!" bang_pos)
+
+  fun require_macro_arity name expected actual pos =
+    if expected = actual then ()
+    else
+      error
+        ("urust_expr: macro " ^ quote (name ^ "!") ^ " expects exactly " ^
+          string_of_int expected ^ " argument(s), but got " ^
+          string_of_int actual ^ Position.here pos)
+
+  fun require_macro_minimum_arity name expected actual pos =
+    if expected <= actual then ()
+    else
+      error
+        ("urust_expr: macro " ^ quote (name ^ "!") ^ " expects at least " ^
+          string_of_int expected ^ " argument(s), but got " ^
+          string_of_int actual ^ Position.here pos)
+
+  fun reject_legacy_matches_ranges pattern =
+    let
+      fun reject source_pattern =
+        (case source_pattern of
+           P_Range (_, _, _, pos) =>
+             error
+               ("urust_expr: range patterns are not supported by legacy matches!" ^
+                 Position.here pos)
+         | P_Constr (_, _, arguments) => List.app reject arguments
+         | P_Tuple (arguments, _) => List.app reject arguments
+         | P_Group inner => reject inner
+         | P_Borrow (_, inner, _) => reject inner
+         | P_Alias (_, _, inner, _) => reject inner
+         | P_Slice (items, _) =>
+             List.app
+               (fn SI_Pat inner => reject inner
+                 | SI_Rest _ => ())
+               items
+         | P_Struct (_, _, fields) =>
+             List.app
+               (fn SF_Field (_, _, inner) => reject inner
+                 | SF_Shorthand _ => ()
+                 | SF_Rest _ => ())
+               fields
+         | P_Or (alternatives, _) => List.app reject alternatives
+         | _ => ())
+    in reject pattern end
+
+  fun lower_matches lower ctxt environment
+      (scrutinee, pattern, position) =
+    let
+      val _ = reject_legacy_matches_ranges pattern
+      val lowered_scrutinee = lower environment scrutinee
+      val prepared =
+        the_single
+          (P.prepare_case_arms ctxt position environment
+            [UR_Arm (pattern, NONE, UE_Unit position)])
+    in
+      P.compile_case ctxt
+        (SOME (T.literal T.false_value))
+        lowered_scrutinee
+        [(prepared, NONE, T.literal T.true_value)]
+    end
+
+  fun lower_macro lower ctxt environment
+      (name, name_pos, bang_pos, payload, position) =
+    let
+      val complete_name = name ^ "!"
+      val complete_name_pos = macro_name_position name_pos bang_pos
+
+      fun lower_argument expression = lower environment expression
+
+      fun lower_message target arguments =
+        let
+          val message =
+            (case arguments of
+               [] => T.string_from_characters T.list_nil
+             | first :: _ =>
+                 R.raw_macro_message ctxt environment first)
+        in target message end
+
+      fun lower_builtin arguments =
+        let
+          val actual = length arguments
+          val _ = R.report_builtin_macro ctxt name_pos
+        in
+          (case name of
+             "assert" =>
+               (require_macro_minimum_arity name 1 actual position;
+                T.assertion (lower_argument (hd arguments)))
+           | "debug_assert" =>
+               (require_macro_minimum_arity name 1 actual position;
+                T.assertion (lower_argument (hd arguments)))
+           | "assert_eq" =>
+               (require_macro_minimum_arity name 2 actual position;
+                T.assertion_equal
+                  (lower_argument (hd arguments))
+                  (lower_argument (nth arguments 1)))
+           | "debug_assert_eq" =>
+               (require_macro_minimum_arity name 2 actual position;
+                T.assertion_equal
+                  (lower_argument (hd arguments))
+                  (lower_argument (nth arguments 1)))
+           | "assert_ne" =>
+               (require_macro_minimum_arity name 2 actual position;
+                T.assertion_not_equal
+                  (lower_argument (hd arguments))
+                  (lower_argument (nth arguments 1)))
+           | "debug_assert_ne" =>
+               (require_macro_minimum_arity name 2 actual position;
+                T.assertion_not_equal
+                  (lower_argument (hd arguments))
+                  (lower_argument (nth arguments 1)))
+           | "panic" => lower_message T.panic_message arguments
+           | "unreachable" => lower_message T.panic_message arguments
+           | "fatal" => lower_message T.fatal_message arguments
+           | "unimplemented" =>
+               lower_message T.unimplemented_message arguments
+           | "todo" =>
+               lower_message T.unimplemented_message arguments
+           | "vec" =>
+               T.array_literal (map lower_argument arguments)
+           | "addr_of" =>
+               (require_macro_arity name 1 actual position;
+                T.address_of (lower_argument (hd arguments)))
+           | "addr_of_mut" =>
+               (require_macro_arity name 1 actual position;
+                T.address_of (lower_argument (hd arguments)))
+           | _ =>
+               error
+                 ("urust_expr: unknown macro " ^ quote complete_name ^
+                   Position.here complete_name_pos))
+        end
+    in
+      (case payload of
+         MP_Matches (scrutinee, pattern) =>
+           (R.report_builtin_macro ctxt name_pos;
+            lower_matches lower ctxt environment
+              (scrutinee, pattern, position))
+       | MP_Arguments arguments =>
+           (case
+               if positions_are_adjacent name_pos bang_pos
+               then
+                 R.registered_macro_function ctxt
+                   (complete_name, complete_name_pos)
+               else NONE
+            of
+              SOME function =>
+                T.function_call position function
+                  (map lower_argument arguments)
+            | NONE => lower_builtin arguments))
+    end
+
   (* Lexical scope is explicit: a let RHS uses the outer environment, while its body uses the exact
      environment returned by pattern binding. Case alternatives follow the same rule independently. *)
   fun lower_expression ctxt environment expression =
@@ -280,6 +438,8 @@ struct
                   (T.assignment_binary binary_operator
                     (T.unary U_Deref pos lowered_place) lowered_rhs))
          end
+     | UE_Macro macro =>
+         lower_macro (lower_expression ctxt) ctxt environment macro
      | UE_Match match =>
          lower_match (lower_expression ctxt) ctxt environment match)
 

@@ -147,6 +147,16 @@ fun tok_ident (yypos, yytext) =
   let val p = Parser_Lex_Util.ident_pos (!pos_map) (yypos, yytext)
   in Tokens.IDENT (yytext, p, p) end
 
+fun tok_matches_bang (yypos, yytext) =
+  let
+    val range as (start, stop) =
+      Parser_Lex_Util.text_range (!pos_map) (yypos, yytext)
+    val bang_raw = yypos + size yytext - 1
+    val bang_pos = fixed_pos bang_raw
+    val _ = report_text (yypos, "matches", Markup.keyword1, "TMATCHESBANG")
+    val _ = report_text (bang_raw, "!", Markup.operator, "TMATCHESBANG")
+  in Tokens.TMATCHESBANG (bang_pos, start, stop) end
+
 fun eof () =
   (case !aq_kind of
      No_AQ => Tokens.EOF (Position.none, Position.none)
@@ -186,6 +196,7 @@ lex_rules\<open>
 <INITIAL>"for"    => (tokF (yypos, yytext, Markup.keyword1, "TFOR", Tokens.TFOR));
 <INITIAL>"in"     => (tokF (yypos, yytext, Markup.keyword1, "TIN", Tokens.TIN));
 <INITIAL>"unsafe" => (tokF (yypos, yytext, Markup.keyword1, "TUNSAFE", Tokens.TUNSAFE));
+<INITIAL>"matches""!" => (tok_matches_bang (yypos, yytext));
 <INITIAL>"match"        => (tokF (yypos, yytext, Markup.keyword1, "TMATCH", Tokens.TMATCH));
 <INITIAL>"match_switch" => (tokF (yypos, yytext, Markup.keyword1, "TMATCHSWITCH", Tokens.TMATCHSWITCH));
 <INITIAL>"match_case"   => (tokF (yypos, yytext, Markup.keyword1, "TMATCHCASE", Tokens.TMATCHCASE));
@@ -303,6 +314,7 @@ yacc_definitions\<open>
     | TUNSAFE | TFUEL | TWHILE | TLOOP | TFOR | TIN | THASH
     | TMATCH | TMATCHSWITCH | TMATCHCASE | TARROW
     | TDOTDOT | TDOTDOTEQ | TMUT | TPATCONTEXT
+    | TMATCHESBANG of Position.T
 %nonterm ustart of URust_AST.ur_expr option
        | ustmt of URust_AST.ur_expr
        | uval of URust_AST.ur_expr
@@ -316,6 +328,8 @@ yacc_definitions\<open>
        | uatom of URust_AST.ur_expr
        | arglist of URust_AST.ur_expr list
        | ucallargs of URust_AST.ur_expr list
+       | umacroargs of URust_AST.ur_expr list
+       | umacrocallargs of URust_AST.ur_expr list
        | ublock of URust_AST.ur_expr
        | uunsafe of URust_AST.ur_expr
        | usemi_free_atom of URust_AST.ur_expr
@@ -418,6 +432,23 @@ yacc_rules\<open>
         | IDENT      (UE_Ident (IDENT, IDENTleft))
         | IDENT LPAR ucallargs RPAR
             (mk_call (IDENT, IDENTleft, ucallargs, IDENTleft, RPARright))
+        | IDENT TBANG LPAR umacrocallargs RPAR
+            (UE_Macro
+              (IDENT, IDENTleft, TBANGleft,
+               MP_Arguments umacrocallargs,
+               Position.range_position (IDENTleft, RPARright)))
+        | IDENT TBANG TLBRACK umacrocallargs TRBRACK
+            (UE_Macro
+              (IDENT, IDENTleft, TBANGleft,
+               MP_Arguments umacrocallargs,
+               Position.range_position (IDENTleft, TRBRACKright)))
+        | TMATCHESBANG LPAR uval COMMA upat RPAR
+            (UE_Macro
+              ("matches",
+               Position.range_position (TMATCHESBANGleft, TMATCHESBANG),
+               TMATCHESBANG,
+               MP_Matches (uval, upat),
+               Position.range_position (TMATCHESBANGleft, RPARright)))
         | LPAR RPAR  (UE_Unit LPARleft)
         | LPAR uval COMMA arglist RPAR
             (UE_Tuple (uval :: arglist, Position.range_position (LPARleft, RPARright)))
@@ -507,6 +538,12 @@ yacc_rules\<open>
           | uval COMMA arglist (uval :: arglist)
   ucallargs : ([])
             | arglist (arglist)
+  (* Macro argument lists deliberately do not share call trailing-comma support. The legacy frontend
+     accepts empty lists and comma-separated values, but rejects a terminal comma. *)
+  umacroargs : uval                       ([uval])
+             | uval COMMA umacroargs      (uval :: umacroargs)
+  umacrocallargs : ([])
+                 | umacroargs             (umacroargs)
   (* A tuple has one element before the comma and a nonempty `arglist` after it. Even when `arglist` has a
      terminal comma, this requires at least two elements and keeps `(x,)` outside the grammar. *)
   (* All three `match` keywords are with-block forms, so they join `uval`, not `uexp`. They share ONE arms

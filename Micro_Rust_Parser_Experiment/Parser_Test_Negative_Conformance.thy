@@ -738,6 +738,143 @@ urust_expr_rejects fidelity \<open> ncf1(\<llangle>1 :: 64 word\<rrangle>)(\<lla
 urust_expr_rejects fidelity \<open> (ncf1)(\<llangle>1 :: 64 word\<rrangle>) \<close> \<open> syntax error found at ( \<close>
   \<comment> \<open> [FIDELITY] parenthesised callee \<open>(g)(x)\<close>: rejected by both (\<open>urust_callable\<close> has no paren form). \<close>
 
+section\<open> Legacy macros \<close>
+
+definition negative_macro_shout ::
+  \<open>bool \<Rightarrow> (unit, bool, unit, unit, unit) function_body\<close>
+  where \<open> negative_macro_shout \<equiv> lift_fun1 id \<close>
+
+micro_rust_notation (call) negative_macro_shout ("negativeshout!")
+
+consts
+  negative_macro_raw_ref :: \<open>('a, 'b) Global_Store.gref\<close>
+  negative_macro_read_only_ref :: \<open>('a, 'b, 'v) Global_Store.ro_ref\<close>
+
+subsection\<open> Arity and raw-message policy \<close>
+
+urust_expr_rejects fidelity \<open> assert!() \<close>
+  \<open> macro "assert!" expects at least 1 argument(s), but got 0 \<close>
+
+urust_expr_rejects fidelity \<open> assert_eq!(true) \<close>
+  \<open> macro "assert_eq!" expects at least 2 argument(s), but got 1 \<close>
+
+urust_expr_rejects fidelity \<open> assert_ne![true] \<close>
+  \<open> macro "assert_ne!" expects at least 2 argument(s), but got 1 \<close>
+
+urust_expr_rejects fidelity \<open> addr_of!() \<close>
+  \<open> macro "addr_of!" expects exactly 1 argument(s), but got 0 \<close>
+
+urust_expr_rejects fidelity \<open> addr_of_mut!(r, other) \<close>
+  \<open> macro "addr_of_mut!" expects exactly 1 argument(s), but got 2 \<close>
+
+urust_expr_rejects fidelity \<open> addr_of!(negative_macro_raw_ref) \<close>
+  \<open> Type unification failed \<close>
+
+urust_expr_rejects fidelity \<open> addr_of_mut!(negative_macro_raw_ref) \<close>
+  \<open> Type unification failed \<close>
+
+urust_expr_rejects fidelity \<open> addr_of!(negative_macro_read_only_ref) \<close>
+  \<open> Type unification failed \<close>
+
+urust_expr_rejects fidelity \<open> addr_of_mut!(negative_macro_read_only_ref) \<close>
+  \<open> Type unification failed \<close>
+
+urust_expr_rejects fidelity \<open> panic!((message)) \<close>
+  \<open> macro message must be an identifier, quoted string, or value antiquotation \<close>
+
+urust_expr_rejects fidelity \<open> fatal!(if true { "left" } else { "right" }) \<close>
+  \<open> macro message must be an identifier, quoted string, or value antiquotation \<close>
+
+urust_expr_rejects fidelity \<open> unimplemented!(1_u32) \<close>
+  \<open> macro message must be an identifier, quoted string, or value antiquotation \<close>
+
+urust_expr_rejects fidelity \<open> todo!(true) \<close>
+  \<open> macro message must be an identifier, quoted string, or value antiquotation \<close>
+
+subsection\<open> Names, registration precedence, and delimiters \<close>
+
+urust_expr_rejects fidelity \<open> unknown_macro!(true) \<close>
+  \<open> unknown macro "unknown_macro!" \<close>
+
+urust_expr_rejects fidelity \<open> negativeshout ! (true) \<close>
+  \<open> unknown macro "negativeshout!" \<close>
+
+urust_expr_rejects fidelity \<open> negativeshout!() \<close>
+  \<open> no backend matches the use-site type \<close>
+
+urust_expr_rejects fidelity \<open> negativeshout!(1_u32) \<close>
+  \<open> no backend matches the use-site type \<close>
+
+urust_expr_rejects fidelity \<open> assert!(true,) \<close>
+  \<open> syntax error found at ) \<close>
+
+urust_expr_rejects fidelity \<open> vec![1_u32,] \<close>
+  \<open> syntax error found at ] \<close>
+
+urust_expr_rejects fidelity \<open> panic!("message",) \<close>
+  \<open> syntax error found at ) \<close>
+
+urust_expr_rejects fidelity \<open> assert!(true] \<close>
+  \<open> syntax error found at ] \<close>
+
+urust_expr_rejects fidelity \<open> vec![1_u32) \<close>
+  \<open> syntax error found at ) \<close>
+
+urust_expr_rejects fidelity \<open> assert!(true \<close>
+  \<open> syntax error found at end of input \<close>
+
+subsection\<open> Matches shape and case-compiler boundaries \<close>
+
+urust_expr_rejects fidelity \<open> matches!() \<close>
+  \<open> syntax error found at ) \<close>
+
+urust_expr_rejects fidelity \<open> matches!(Some(1_u32)) \<close>
+  \<open> syntax error found at ) \<close>
+
+urust_expr_rejects fidelity \<open> matches!(Some(1_u32), Some(_), ignored) \<close>
+  \<open> syntax error: deleting \<close>
+
+urust_expr_rejects fidelity \<open> matches!(true, true && false) \<close>
+  \<open> syntax error: deleting \<close>
+
+urust_expr_rejects fidelity \<open> matches!(Some(1_u32), Some(,)) \<close>
+  \<open> syntax error \<close>
+
+urust_expr_rejects fidelity \<open> matches![Some(1_u32), Some(_)] \<close>
+  \<open> syntax error: deleting \<close>
+
+urust_expr_rejects fidelity \<open> matches !(Some(1_u32), Some(_)) \<close>
+  \<open> unknown macro "matches!" \<close>
+
+urust_expr_rejects fidelity \<open> matches!(Some(1_u32), Some(_),) \<close>
+  \<open> syntax error \<close>
+
+urust_expr_rejects fidelity \<open> matches!(Some(1_u32), _) \<close>
+  \<open> clauses are redundant \<close>
+
+urust_expr_rejects fidelity \<open> matches!(Some(1_u32), binder) \<close>
+  \<open> clauses are redundant \<close>
+
+urust_expr_rejects fidelity \<open> matches!(Some(1_u32), Some(1..=3)) \<close>
+  \<open> range patterns are not supported by legacy matches! \<close>
+
+subsection\<open> Borrow and assignment-result boundaries \<close>
+
+urust_expr_rejects fidelity \<open> &vec![r] \<close>
+  \<open> Type unification failed \<close>
+
+urust_expr_rejects fidelity \<open> & mut vec![r] \<close>
+  \<open> Type unification failed \<close>
+
+urust_expr_rejects fidelity \<open> vec![] = rhs \<close>
+  \<open> invalid assignment target \<close>
+
+urust_expr_rejects fidelity \<open> assert!(true) = rhs \<close>
+  \<open> invalid assignment target \<close>
+
+urust_expr_rejects fidelity \<open> matches!(Some(1_u32), Some(_)) = rhs \<close>
+  \<open> invalid assignment target \<close>
+
 section\<open> Assignment right-hand control-flow precedence \<close>
 
 text\<open>

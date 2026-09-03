@@ -823,6 +823,15 @@ end
 
 subsection\<open>Macros\<close>
 
+text\<open>
+All rows in this subsection whose only previously missing surface was a legacy
+\<open>!\<close> macro are promoted to plain-\<open>refl\<close> checked rows in
+\<open>Parser_Test_Conformance.thy\<close>. The two rows containing \<open>as\<close> remain
+golden stubs because casts are still deferred; their surrounding assertion
+syntax is covered independently. Legacy format operands after the first message
+are intentionally parsed and discarded, exactly as in the frontend.
+\<close>
+
 context
   fixes b :: \<open>bool\<close>
   fixes o :: \<open>nat option\<close>
@@ -877,6 +886,11 @@ end
 
 subsubsection\<open>Logging\<close>
 
+text\<open>
+Logging remains deferred: \<open>\<l>\<o>\<g>\<close> and log-data syntax are not legacy
+bang macros and are not promoted by this increment.
+\<close>
+
 context
   fixes b :: \<open>bool\<close>
 begin
@@ -905,11 +919,23 @@ lemma \<open>undefined = \<lbrakk> let xs = &[\<llangle>4 :: 32 word\<rrangle>, 
 
 subsubsection\<open>Vec Macro\<close>
 
+text\<open>
+These rows are promoted in \<open>Parser_Test_Conformance.thy\<close>, including empty,
+nested, indexed, parenthesized, and borrow-interaction variants.
+\<close>
+
 lemma \<open>undefined = \<lbrakk> vec![\<llangle>1 :: 32 word\<rrangle>, \<llangle>2 :: 32 word\<rrangle>, \<llangle>3 :: 32 word\<rrangle>] \<rbrakk>\<close> sorry
 lemma \<open>undefined = \<lbrakk> vec![] \<rbrakk>\<close> sorry
 lemma \<open>undefined = \<lbrakk> let xs = vec![\<llangle>10 :: 32 word\<rrangle>, \<llangle>20 :: 32 word\<rrangle>]; assert!(xs[0] == \<llangle>10 :: 32 word\<rrangle>) \<rbrakk>\<close> sorry
 
 subsubsection\<open>Matches Macro\<close>
+
+text\<open>
+These rows are promoted to checked parity tests together with constructor,
+nested, alias, slice, struct, or-pattern, outer-capture, and single-evaluation
+coverage. Frontend-rejected wildcard, binder, range, bracket, and malformed
+forms are pinned in \<open>Parser_Test_Negative_Conformance.thy\<close>.
+\<close>
 
 context
   fixes x :: \<open>nat option\<close>

@@ -32,6 +32,12 @@ sig
     Proof.context -> environment -> string * Position.T -> term
   val function_identifier:
     Proof.context -> environment -> string * Position.T -> term
+  val registered_macro_function:
+    Proof.context -> string * Position.T -> term option
+  val raw_macro_message:
+    Proof.context -> environment -> URust_AST.ur_expr -> term
+  val report_builtin_macro:
+    Proof.context -> Position.T -> unit
   val field_expression:
     Proof.context -> term -> string -> Position.T -> term
 
@@ -199,6 +205,34 @@ struct
     (case use_local ctxt environment identifier of
        SOME local_term => local_term
      | NONE => resolve_identifier ctxt Micro_Rust_Names.NFunction name pos)
+
+  fun registered_macro_function ctxt (name, pos) =
+    if null (Micro_Rust_Names.lookups ctxt Micro_Rust_Names.NFunction name)
+    then NONE
+    else
+      SOME
+        (resolve_identifier ctxt Micro_Rust_Names.NFunction name pos)
+
+  fun raw_macro_message ctxt environment expression =
+    (case expression of
+       UE_Ident identifier =>
+         (case use_local ctxt environment identifier of
+            SOME local_term => local_term
+          | NONE =>
+              resolve_identifier ctxt Micro_Rust_Names.NLiteral
+                (#1 identifier) (#2 identifier))
+     | UE_Literal (LP_String (raw, pos)) =>
+         T.string_value raw pos
+     | UE_Literal (LP_ValAntiq source) =>
+         T.string_from_characters
+           (parse_antiquotation ctxt environment source)
+     | _ =>
+         error
+           ("urust_expr: macro message must be an identifier, quoted string, or value antiquotation" ^
+             Position.here (expression_position expression)))
+
+  fun report_builtin_macro ctxt pos =
+    Context_Position.report ctxt pos Markup.keyword1
 
   fun field_expression ctxt receiver name pos =
     T.focus_field

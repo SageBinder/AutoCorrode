@@ -2541,6 +2541,382 @@ urust_expr_with_check return_in_match_arms
   \<close>
 
 
+section\<open> Legacy macros \<close>
+
+text\<open>
+Generic macro invocations retain their parsed argument ASTs until the centralized legacy dispatcher
+selects the exact leading arguments used by the old frontend. Discarded arguments are never lowered,
+resolved, captured, or type-checked. Every row in this section checks the same source through both
+frontends and closes by unfolding only the generated definition followed by \<open>refl\<close>.
+\<close>
+
+definition macro_unit_call ::
+  \<open>unit \<Rightarrow> (unit, unit, unit, unit, unit) function_body\<close>
+  where \<open> macro_unit_call \<equiv> lift_fun1 id \<close>
+
+definition macro_shout ::
+  \<open>bool \<Rightarrow> (unit, bool, unit, unit, unit) function_body\<close>
+  where \<open> macro_shout \<equiv> lift_fun1 id \<close>
+
+definition macro_is_none ::
+  \<open>nat option \<Rightarrow> (unit, bool, unit, unit, unit) function_body\<close>
+  where \<open> macro_is_none \<equiv> lift_fun1 Option.is_none \<close>
+
+micro_rust_notation (call) macro_shout ("shout!")
+micro_rust_notation (call) macro_is_none ("is_none")
+
+subsection\<open> Assertions, aliases, delimiters, and precedence \<close>
+
+urust_expr_with_check macro_assert
+  \<open> assert!(true) \<close>
+
+urust_expr_with_check macro_debug_assert
+  \<open> debug_assert!(true) \<close>
+
+urust_expr_with_check macro_assert_eq
+  \<open> assert_eq!(1_u32, 1_u32) \<close>
+
+urust_expr_with_check macro_debug_assert_eq
+  \<open> debug_assert_eq!(1_u32, 1_u32) \<close>
+
+urust_expr_with_check macro_assert_ne
+  \<open> assert_ne!(1_u32, 2_u32) \<close>
+
+urust_expr_with_check macro_debug_assert_ne
+  \<open> debug_assert_ne!(1_u32, 2_u32) \<close>
+
+urust_expr_with_check macro_assert_brackets
+  \<open> assert![true] \<close>
+
+urust_expr_with_check macro_assert_whitespace
+  \<open> assert ! [ true ] \<close>
+
+urust_expr_with_check macro_assert_newline
+  \<open>
+    assert
+    !
+    (
+      true
+    )
+  \<close>
+
+urust_expr_with_check macro_nested_assert
+  \<open> assert!(debug_assert_eq!(1_u32, 1_u32) == ()) \<close>
+
+urust_expr_with_check macro_unary_precedence
+  \<open> !matches!(Some(true), Some(true)) \<close>
+
+urust_expr_with_check macro_binary_precedence
+  \<open> true && matches!(Some(1_u32), Some(_)) || false \<close>
+
+urust_expr_with_check macro_postfix_precedence
+  \<open> vec![1_u32, 2_u32][0_usize] + 3_u32 \<close>
+
+context fixes macro_assert_option :: \<open>nat option\<close>
+begin
+
+urust_expr_with_check macro_assert_method_condition
+  \<open> assert!(!macro_assert_option.is_none()) \<close>
+
+end
+
+subsection\<open> Ignored arguments \<close>
+
+context
+  fixes macro_b :: bool
+    and macro_x macro_y :: nat
+begin
+
+urust_expr_with_check macro_assert_ignored_message
+  \<open> assert!(macro_b, "ignored assertion message") \<close>
+
+urust_expr_with_check macro_debug_assert_ignored_many
+  \<open> debug_assert!(macro_b, unknown_name, 1_u32 + true, panic!("ignored")) \<close>
+
+urust_expr_with_check macro_assert_eq_ignored
+  \<open> assert_eq!(macro_x, macro_y, unknown_name, { return unknown_return; }) \<close>
+
+urust_expr_with_check macro_assert_ne_ignored
+  \<open> assert_ne!(macro_x, macro_y, ignored_place = unknown_rhs, \<epsilon>\<open>unknown_expression\<close>) \<close>
+
+urust_expr_with_check macro_debug_assert_eq_ignored
+  \<open> debug_assert_eq!(macro_x, macro_y, "ignored", unknown_name) \<close>
+
+urust_expr_with_check macro_debug_assert_ne_ignored
+  \<open> debug_assert_ne!(macro_x, macro_y, "ignored", unknown_name) \<close>
+
+urust_expr_with_check macro_ignored_shadowed
+  \<open> let hidden = 7_u32; assert!(macro_b, hidden, unknown_name); macro_x \<close>
+
+urust_expr_with_check macro_ignored_antiquotation
+  \<open> assert!(macro_b, \<llangle>unknown_value\<rrangle>, \<epsilon>\<open>unknown_expression\<close>) \<close>
+
+urust_expr_with_check macro_ignored_large
+  \<open>
+    assert!(
+      macro_b,
+      ignored_00, ignored_01, ignored_02, ignored_03,
+      ignored_04, ignored_05, ignored_06, ignored_07,
+      ignored_08, ignored_09, ignored_10, ignored_11,
+      ignored_12, ignored_13, ignored_14, ignored_15,
+      ignored_16, ignored_17, ignored_18, ignored_19,
+      ignored_20, ignored_21, ignored_22, ignored_23,
+      ignored_24, ignored_25, ignored_26, ignored_27,
+      ignored_28, ignored_29, ignored_30, ignored_31
+    )
+  \<close>
+
+end
+
+subsection\<open> Message macros and exact aliases \<close>
+
+context
+  fixes macro_msg :: String.literal
+begin
+
+urust_expr_with_check macro_panic_empty
+  \<open> panic!() \<close>
+
+urust_expr_with_check macro_panic_empty_brackets
+  \<open> panic![] \<close>
+
+urust_expr_with_check macro_panic_identifier
+  \<open> panic!(macro_msg) \<close>
+
+urust_expr_with_check macro_panic_string
+  \<open> panic!("panic message") \<close>
+
+urust_expr_with_check macro_panic_antiquotation
+  \<open> panic!(\<llangle>''panic antiquotation''\<rrangle>) \<close>
+
+urust_expr_with_check macro_panic_ignored
+  \<open> panic!("first", unknown_message_argument, 1_u32 + true) \<close>
+
+urust_expr_with_check macro_fatal_empty
+  \<open> fatal!() \<close>
+
+urust_expr_with_check macro_fatal_identifier
+  \<open> fatal!(macro_msg) \<close>
+
+urust_expr_with_check macro_fatal_string
+  \<open> fatal!("fatal message") \<close>
+
+urust_expr_with_check macro_fatal_antiquotation
+  \<open> fatal!(\<llangle>''fatal antiquotation''\<rrangle>) \<close>
+
+urust_expr_with_check macro_unimplemented_empty
+  \<open> unimplemented!() \<close>
+
+urust_expr_with_check macro_unimplemented_identifier
+  \<open> unimplemented!(macro_msg) \<close>
+
+urust_expr_with_check macro_unimplemented_string
+  \<open> unimplemented!("unimplemented message") \<close>
+
+urust_expr_with_check macro_unimplemented_antiquotation
+  \<open> unimplemented!(\<llangle>''unimplemented antiquotation''\<rrangle>) \<close>
+
+urust_expr_with_check macro_todo_empty
+  \<open> todo!() \<close>
+
+urust_expr_with_check macro_todo_identifier
+  \<open> todo!(macro_msg) \<close>
+
+urust_expr_with_check macro_todo_string
+  \<open> todo!("todo message") \<close>
+
+urust_expr_with_check macro_todo_antiquotation
+  \<open> todo!(\<llangle>''todo antiquotation''\<rrangle>) \<close>
+
+urust_expr_with_check macro_unreachable_empty
+  \<open> unreachable!() \<close>
+
+urust_expr_with_check macro_unreachable_identifier
+  \<open> unreachable!(macro_msg) \<close>
+
+urust_expr_with_check macro_unreachable_string
+  \<open> unreachable!("unreachable message") \<close>
+
+urust_expr_with_check macro_unreachable_antiquotation
+  \<open> unreachable!(\<llangle>''unreachable antiquotation''\<rrangle>) \<close>
+
+urust_expr_with_check macro_format_arguments_ignored
+  \<open> panic!("Invalid index: {}", 7_u32, unknown_format_value) \<close>
+
+urust_expr_with_check macro_message_capture
+  \<open> let captured = "captured message"; panic!(captured) \<close>
+
+end
+
+subsection\<open> Macro placement and built-in name precedence \<close>
+
+urust_expr_with_check macro_in_block
+  \<open> { assert!(true); () } \<close>
+
+urust_expr_with_check macro_in_binding
+  \<open> let checked = assert!(true); checked \<close>
+
+urust_expr_with_check macro_in_call_argument
+  \<open> macro_unit_call(assert!(true)) \<close>
+
+urust_expr_with_check macro_in_array
+  \<open> [assert!(true), debug_assert!(true)] \<close>
+
+urust_expr_with_check macro_in_condition
+  \<open> if matches!(Some(1_u32), Some(_)) { 1_u32 } else { 0_u32 } \<close>
+
+urust_expr_with_check macro_in_return
+  \<open> return panic!("return panic"); \<close>
+
+urust_expr_with_check macro_in_match_arm
+  \<open>
+    match \<llangle>Some (1 :: nat)\<rrangle> {
+      Some(_) \<Rightarrow> assert!(true),
+      None \<Rightarrow> assert!(false)
+    }
+  \<close>
+
+urust_expr_with_check macro_in_unsafe_block
+  \<open> unsafe { panic!("unsafe panic") } \<close>
+
+urust_expr_with_check macro_array_index_assertions
+  \<open>
+    let xs = [1_u32, 2_u32, 3_u32];
+    assert!(xs[0_usize] == 1_u32);
+    assert!(xs[2_usize] == 3_u32)
+  \<close>
+
+urust_expr_with_check macro_builtin_shadow_assert
+  \<open> let assert = false; assert!(true); assert \<close>
+
+urust_expr_with_check macro_builtin_shadow_vec
+  \<open> let vec = 9_u32; vec![1_u32][0_usize] + vec \<close>
+
+urust_expr_with_check macro_registered_call
+  \<open> shout!(true) \<close>
+
+subsection\<open> Vectors, postfixes, and address macros \<close>
+
+urust_expr_with_check macro_vec_empty_brackets
+  \<open> vec![] \<close>
+
+urust_expr_with_check macro_vec_empty_parentheses
+  \<open> vec!() \<close>
+
+urust_expr_with_check macro_vec_brackets
+  \<open> vec![1_u32, 2_u32, 3_u32] \<close>
+
+urust_expr_with_check macro_vec_parentheses
+  \<open> vec!(1_u32, 2_u32, 3_u32) \<close>
+
+urust_expr_with_check macro_vec_nested
+  \<open> vec![vec![1_u32], vec![2_u32, 3_u32]] \<close>
+
+urust_expr_with_check macro_vec_index
+  \<open> vec![10_u32, 20_u32][1_usize] \<close>
+
+urust_expr_with_check macro_vec_index_chain
+  \<open> vec![vec![10_u32, 20_u32]][0_usize][1_usize] \<close>
+
+context
+  fixes macro_ref :: \<open>('a, 'b, 'v) Global_Store.ref\<close>
+begin
+
+urust_expr_with_check macro_addr_of
+  \<open> addr_of!(macro_ref) \<close>
+
+urust_expr_with_check macro_addr_of_brackets
+  \<open> addr_of![macro_ref] \<close>
+
+urust_expr_with_check macro_addr_of_mut
+  \<open> addr_of_mut!(macro_ref) \<close>
+
+urust_expr_with_check macro_vec_borrowed_element_index
+  \<open> vec![&macro_ref][0_usize] \<close>
+
+urust_expr_with_check macro_vec_mut_borrowed_element_index
+  \<open> vec![& mut macro_ref][0_usize] \<close>
+
+end
+
+adhoc_overloading store_reference_const \<rightleftharpoons> parser_reference_fixture
+adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
+adhoc_overloading store_update_const \<rightleftharpoons> parser_update_fixture
+
+urust_expr_with_check macro_assignment_rhs
+  \<open>
+    let mut slot = 0_u32;
+    *slot = vec![7_u32, 8_u32][0_usize];
+    *slot
+  \<close>
+
+no_adhoc_overloading store_reference_const \<rightleftharpoons> parser_reference_fixture
+no_adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
+no_adhoc_overloading store_update_const \<rightleftharpoons> parser_update_fixture
+
+subsection\<open> Matches macro \<close>
+
+context
+  fixes macro_option :: \<open>nat option\<close>
+    and macro_nested_option :: \<open>nat option option\<close>
+    and macro_bool_option :: \<open>bool option\<close>
+    and macro_values :: \<open>nat list\<close>
+begin
+
+urust_expr_with_check macro_matches_constructor
+  \<open> matches!(macro_option, Some(_)) \<close>
+
+urust_expr_with_check macro_matches_none
+  \<open> matches!(macro_option, None) \<close>
+
+urust_expr_with_check macro_matches_nested
+  \<open> matches!(macro_nested_option, Some(Some(_))) \<close>
+
+urust_expr_with_check macro_matches_or
+  \<open> matches!(macro_nested_option, Some(Some(_)) | None) \<close>
+
+urust_expr_with_check macro_matches_alias
+  \<open> matches!(macro_option, whole @ Some(value)) \<close>
+
+urust_expr_with_check macro_matches_slice
+  \<open> matches!(macro_values, [head, .., tail]) \<close>
+
+urust_expr_with_check macro_matches_boolean
+  \<open> matches!(macro_bool_option, Some(true) | None) \<close>
+
+urust_expr_with_check macro_matches_outer_capture
+  \<open>
+    let needle = \<llangle>2 :: nat\<rrangle>;
+    matches!(macro_option, Some(\<llangle>needle\<rrangle>))
+  \<close>
+
+end
+
+urust_expr_with_check macro_matches_tuple
+  \<open> matches!(\<llangle>(Some (1 :: nat), (2 :: nat, TNil))\<rrangle>, (Some(left), right)) \<close>
+
+urust_expr_with_check macro_matches_struct
+  \<open>
+    matches!(
+      \<llangle>AdvStruct 1 2\<rrangle>,
+      AdvStruct { adv_right: right, adv_left: left }
+    )
+  \<close>
+
+context
+begin
+
+definition macro_registered_assert ::
+  \<open>bool \<Rightarrow> (unit, bool, unit, unit, unit) function_body\<close>
+  where \<open> macro_registered_assert \<equiv> lift_fun1 id \<close>
+
+micro_rust_notation (call) macro_registered_assert ("assert!")
+
+urust_expr_with_check macro_registered_builtin_precedence
+  \<open> assert!(true) \<close>
+
+end
+
 section\<open> Regression and divergence cases \<close>
 
 text\<open>
@@ -2578,7 +2954,8 @@ subsection\<open> D-5: non-identifier / non-method call callees -- parser UNDER-
 
 text\<open>
 D-5: identifier and method callees work; deferred frontend forms are expression and
-function antiquotations, turbofish, and macros. Nested-callable forms
+function antiquotations, turbofish, and paths. Macro calls are now handled by the dedicated
+macro AST and dispatcher. Nested-callable forms
 \<open>f(a)(b)\<close> and \<open>(g)(x)\<close> are rejected by both parsers. The expressible
 antiquotation case remains a golden stub; other forms are not yet lexable. See
 \<open>urust-old-new-divergences.md\<close>.

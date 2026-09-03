@@ -633,6 +633,299 @@ ML_val\<open>
   end
 \<close>
 
+section\<open> Legacy macro structure, spans, and markup \<close>
+
+consts
+  macro_audit_scrutinee :: \<open>nat option\<close>
+  macro_audit_ref :: \<open>('a, 'b, 'v) Global_Store.ref\<close>
+
+text\<open>
+These checks pin the unresolved macro payloads and the exact shallow term vocabulary.
+They also prove that discarded arguments never enter lowering, \<open>vec!\<close> reuses
+the array builder, address macros retain the exact legacy \<open>ref_address\<close> target,
+registered bang-names win only when adjacent, and \<open>matches!\<close> uses the ordinary
+case compiler with one scrutinee evaluation and false fallback.
+\<close>
+
+ML_val\<open>
+  local
+    open URust_AST
+
+    val ctxt = \<^context>
+
+    fun audit_assert message condition =
+      if condition then ()
+      else error ("legacy macro regression audit: " ^ message)
+
+    fun parse source =
+      (case URust_Diagnostics.parse_source ctxt source of
+         SOME expression => expression
+       | NONE => error "legacy macro regression audit: empty parse")
+
+    fun parse_text text =
+      parse (Parser_Lex_Util.text_source text)
+
+    fun unchecked text =
+      URust_Translate.mk_closed ctxt (parse_text text)
+
+    fun checked text =
+      elab_urust ctxt (Parser_Lex_Util.text_source text)
+
+    fun count_constant name term =
+      Term.fold_aterms
+        (fn Const (candidate, _) =>
+              if candidate = name then Integer.add 1 else I
+          | _ => I)
+        term 0
+
+    val spaced_text = "assert\n  ! [\<llangle>True\<rrangle>]"
+    val spaced_start =
+      Position.make0 11 40 0 "" "" "macro-span-audit"
+    val spaced_stop =
+      Position.symbol_explode spaced_text spaced_start
+    val spaced =
+      parse
+        (Parser_Lex_Util.positioned_content_source
+          spaced_text spaced_start)
+    val (spaced_name_pos, spaced_bang_pos, spaced_invocation_pos) =
+      (case spaced of
+         UE_Macro
+           ("assert", name_pos, bang_pos,
+            MP_Arguments [UE_Literal (LP_ValAntiq _)],
+            invocation_pos) =>
+           (audit_assert "generic macro name span moved"
+              (Position.offset_of name_pos =
+                Position.offset_of spaced_start);
+            audit_assert "generic whitespace before bang was lost"
+              (Position.end_offset_of name_pos <>
+                Position.offset_of bang_pos);
+            audit_assert "generic invocation start moved"
+              (Position.offset_of invocation_pos =
+                Position.offset_of spaced_start);
+            audit_assert "generic invocation end moved"
+              (Position.end_offset_of invocation_pos =
+                Position.offset_of spaced_stop);
+            (name_pos, bang_pos, invocation_pos))
+       | _ =>
+           error "legacy macro regression audit: generic macro AST changed")
+
+    val captured_reports = Unsynchronized.ref ([]: string list)
+    fun capture_reports chunks =
+      Unsynchronized.change captured_reports (append chunks)
+    fun capture_elaboration text start =
+      Unsynchronized.setmp Private_Output.report_fn capture_reports
+        (fn () =>
+          Print_Mode.with_modes [Print_Mode.PIDE]
+            (fn () =>
+              elab_urust ctxt
+                (Parser_Lex_Util.positioned_content_source
+                  text start)) ())
+        ()
+    val _ = capture_elaboration spaced_text spaced_start
+
+    val matches_text =
+      "matches!(Some(\<llangle>1 :: nat\<rrangle>), Some(_))"
+    val matches_start =
+      Position.make0 17 80 0 "" "" "macro-markup-audit"
+    val matches_stop =
+      Position.symbol_explode matches_text matches_start
+    val matches =
+      Unsynchronized.setmp Private_Output.report_fn capture_reports
+        (fn () =>
+          Print_Mode.with_modes [Print_Mode.PIDE]
+            (fn () =>
+              parse
+                (Parser_Lex_Util.positioned_content_source
+                  matches_text matches_start)) ())
+        ()
+    val (matches_name_pos, matches_bang_pos, matches_invocation_pos) =
+      (case matches of
+         UE_Macro
+           ("matches", name_pos, bang_pos,
+            MP_Matches
+              (UE_Call ("Some", _, [_], _),
+               P_Constr ("Some", _, [P_Wild _])),
+            invocation_pos) =>
+           (name_pos, bang_pos, invocation_pos)
+       | _ =>
+           error "legacy macro regression audit: matches macro AST changed")
+    val _ =
+      audit_assert "matches name and bang stopped being adjacent"
+        (Position.end_offset_of matches_name_pos =
+          Position.offset_of matches_bang_pos)
+    val _ =
+      audit_assert "matches invocation start moved"
+        (Position.offset_of matches_invocation_pos =
+          Position.offset_of matches_start)
+    val _ =
+      audit_assert "matches invocation end moved across Isabelle symbols"
+        (Position.end_offset_of matches_invocation_pos =
+          Position.offset_of matches_stop)
+
+    val registered_text = "shout!(true)"
+    val registered_start =
+      Position.make0 23 120 0 "" "" "macro-registered-markup-audit"
+    val registered =
+      parse
+        (Parser_Lex_Util.positioned_content_source
+          registered_text registered_start)
+    val (registered_name_pos, registered_bang_pos) =
+      (case registered of
+         UE_Macro
+           ("shout", name_pos, bang_pos,
+            MP_Arguments [UE_Literal (LP_Bool (true, _))], _) =>
+           (name_pos, bang_pos)
+       | _ =>
+           error "legacy macro regression audit: registered macro AST changed")
+    val _ =
+      audit_assert "registered macro name and bang stopped being adjacent"
+        (Position.end_offset_of registered_name_pos =
+          Position.offset_of registered_bang_pos)
+    val registered_complete_name_pos =
+      Position.range_position
+        (registered_name_pos,
+         Position.symbol_explode "!" registered_bang_pos)
+    val _ = capture_elaboration registered_text registered_start
+
+    fun collect_markup (XML.Text _) result = result
+      | collect_markup (XML.Elem (markup, body)) result =
+          fold collect_markup body (markup :: result)
+    val markup =
+      fold collect_markup
+        (maps YXML.parse_body (! captured_reports)) []
+    fun has_position properties pos =
+      Properties.get properties Markup.offsetN =
+        Option.map Value.print_int (Position.offset_of pos) andalso
+      Properties.get properties Markup.end_offsetN =
+        Option.map Value.print_int (Position.end_offset_of pos)
+    fun has_markup markup_name pos =
+      exists
+        (fn (name, properties) =>
+          name = markup_name andalso has_position properties pos)
+        markup
+    fun has_entity_markup kind pos =
+      exists
+        (fn (name, properties) =>
+          name = Markup.entityN andalso
+            Properties.get properties Markup.kindN = SOME kind andalso
+            has_position properties pos)
+        markup
+    val _ =
+      audit_assert "generic built-in macro keyword markup moved"
+        (has_markup Markup.keyword1N spaced_name_pos)
+    val spaced_bang_markup_pos =
+      Position.range_position
+        (spaced_bang_pos,
+         Position.symbol_explode "!" spaced_bang_pos)
+    val _ =
+      audit_assert "generic built-in macro bang markup moved"
+        (has_markup Markup.operatorN spaced_bang_markup_pos)
+    val _ =
+      audit_assert "generic macro invocation lost its symbol-counted end"
+        (Position.end_offset_of spaced_invocation_pos =
+          Position.offset_of spaced_stop)
+    val _ =
+      audit_assert "matches keyword markup moved"
+        (has_markup Markup.keyword1N matches_name_pos)
+    val matches_bang_markup_pos =
+      Position.range_position
+        (matches_bang_pos,
+         Position.symbol_explode "!" matches_bang_pos)
+    val _ =
+      audit_assert "matches bang operator markup moved"
+        (has_markup Markup.operatorN matches_bang_markup_pos)
+    val _ =
+      audit_assert "registered complete-bang-name notation markup moved"
+        (has_entity_markup
+          Micro_Rust_Names.notationN registered_complete_name_pos)
+    val _ =
+      audit_assert "registered complete-bang-name dispatch styling moved"
+        (has_markup Markup.keyword3N registered_complete_name_pos)
+
+    val _ =
+      audit_assert "ignored assertion arguments entered the term"
+        (Term.aconv
+          (unchecked "assert!(true, unknown_ignored, 1 + false)",
+           unchecked "assert!(true)"))
+    val _ =
+      audit_assert "ignored panic arguments entered the term"
+        (Term.aconv
+          (unchecked "panic!(\"kept\", unknown_ignored, { return missing; })",
+           unchecked "panic!(\"kept\")"))
+    val _ =
+      audit_assert "debug_assert! selected a non-legacy target"
+        (Term.aconv
+          (unchecked "debug_assert!(true)",
+           unchecked "assert!(true)"))
+    val _ =
+      audit_assert "debug_assert_eq! selected a non-legacy target"
+        (Term.aconv
+          (unchecked "debug_assert_eq!(1, 1)",
+           unchecked "assert_eq!(1, 1)"))
+    val _ =
+      audit_assert "debug_assert_ne! selected a non-legacy target"
+        (Term.aconv
+          (unchecked "debug_assert_ne!(1, 2)",
+           unchecked "assert_ne!(1, 2)"))
+    val _ =
+      audit_assert "todo! stopped aliasing unimplemented!"
+        (Term.aconv
+          (unchecked "todo!(\"later\")",
+           unchecked "unimplemented!(\"later\")"))
+    val _ =
+      audit_assert "unreachable! stopped aliasing panic!"
+        (Term.aconv
+          (unchecked "unreachable!(\"never\")",
+           unchecked "panic!(\"never\")"))
+    val _ =
+      audit_assert "vec! stopped reusing the array builder"
+        (Term.aconv
+          (unchecked "vec![1, 2, 3]",
+           unchecked "[1, 2, 3]"))
+    val legacy_ref_address =
+      Term.map_types (K dummyT) \<^term>\<open>ref_address\<close>
+    fun address_target source =
+      (case unchecked source of
+         Const (name, _) $ target $ _
+           => if name = \<^const_name>\<open>bindlift1\<close> then target
+              else error "legacy macro regression audit: address macro stopped using bindlift1"
+       | _ =>
+           error "legacy macro regression audit: address macro term shape changed")
+    val _ =
+      audit_assert "addr_of! stopped using the exact legacy ref_address target"
+        (Term.aconv
+          (address_target "addr_of!(macro_audit_ref)",
+           legacy_ref_address))
+    val _ =
+      audit_assert "addr_of_mut! stopped using the exact legacy ref_address target"
+        (Term.aconv
+          (address_target "addr_of_mut!(macro_audit_ref)",
+           legacy_ref_address))
+
+    val matches_term =
+      checked "matches!(macro_audit_scrutinee, Some(_))"
+    val explicit_case =
+      checked
+        "match_case macro_audit_scrutinee { Some(_) \<Rightarrow> \<llangle>True\<rrangle>, _ \<Rightarrow> \<llangle>False\<rrangle> }"
+    val _ =
+      audit_assert "matches! stopped using ordinary case compilation"
+        (Term.aconv (matches_term, explicit_case))
+    val _ =
+      audit_assert "matches! evaluated its scrutinee more than once"
+        (count_constant
+          \<^const_name>\<open>macro_audit_scrutinee\<close>
+          matches_term = 1)
+    val _ =
+      audit_assert "matches! lost its requested-pattern true branch"
+        (count_constant \<^const_name>\<open>True\<close> matches_term = 1)
+    val _ =
+      audit_assert "matches! lost its wildcard false fallback"
+        (count_constant \<^const_name>\<open>False\<close> matches_term = 1)
+  in
+    val _ = writeln "Legacy macro structure, span, and markup regressions passed"
+  end
+\<close>
+
 section\<open> Standard code equations \<close>
 
 urust_expr regression_code_literal

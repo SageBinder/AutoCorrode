@@ -88,7 +88,12 @@ sig
     | UE_Index of ur_expr * ur_expr * Position.T
     | UE_Range of range_kind * ur_expr * ur_expr * Position.T
     | UE_Assign of assignop * ur_place * ur_expr * Position.T
+    | UE_Macro of
+        string * Position.T * Position.T * macro_payload * Position.T
     | UE_Match of match_flavour * ur_expr * ur_arm list * Position.T
+  and macro_payload =
+      MP_Arguments of ur_expr list
+    | MP_Matches of ur_expr * ur_pat
   and ur_place =
       UP_Ident of string * Position.T
     | UP_Deref of ur_expr * Position.T
@@ -98,6 +103,7 @@ sig
   and ur_arm =
       UR_Arm of ur_pat * (ur_expr * Position.T) option * ur_expr
 
+  val expression_position: ur_expr -> Position.T
   val mk_assign:
     assignop * Position.T -> ur_expr -> ur_expr -> ur_expr
   val finish_statement: ur_expr * Position.T -> ur_expr
@@ -144,8 +150,11 @@ end
     * the mutually recursive expression interface ur_expr (UE_Unit, UE_Tuple, UE_Array, UE_Ident,
       UE_Literal, UE_ExprAntiq, UE_Let, UE_LetMut, UE_Const, UE_Seq, UE_Return, UE_Bin, UE_Unary,
       UE_Group, UE_Block, UE_If, UE_While, UE_Loop, UE_For, UE_WhileLet, UE_Call, UE_Field, UE_Index,
-      UE_Range, UE_Assign, UE_Match), ur_place (UP_Ident, UP_Deref, UP_Field, UP_Index, UP_Antiq), and
-      ur_arm (UR_Arm).  Expression and pattern lists preserve source order.  A UR_Arm contains its
+      UE_Range, UE_Assign, UE_Macro, UE_Match), macro_payload (MP_Arguments, MP_Matches), ur_place
+      (UP_Ident, UP_Deref, UP_Field, UP_Index, UP_Antiq), and ur_arm (UR_Arm). Expression and pattern
+      lists preserve source order. A generic macro payload retains every parsed argument without
+      deciding which arguments a legacy macro lowers; MP_Matches retains its expression and pattern
+      in separate grammar categories. A UR_Arm contains its
       pattern, an optional guard paired with the guard-keyword position, and its body.  A UE_Return
       never stores a semicolon; a method invocation is represented as UE_Call with the receiver
       prepended; ur_place contains only validated assignment-target shapes.
@@ -285,6 +294,9 @@ struct
                                                       (* lo..hi / lo..=hi, at operator *)
     | UE_Assign    of assignop * ur_place * ur_expr * Position.T
                                                       (* place assignment-op rhs, at the operator *)
+    | UE_Macro     of
+        string * Position.T * Position.T * macro_payload * Position.T
+                                                      (* name, name-pos, !-pos, payload, full span *)
     | UE_Match     of match_flavour * ur_expr * ur_arm list * Position.T
                                                       (* match_<flavour> scrut { pat => body, .. }. ONE node
                                                          for both keywords; only the LOWERING differs --
@@ -292,6 +304,9 @@ struct
                                                          MF_Case -> the Ctr_Sugar case skeleton (D27). Each
                                                          flavour's elaborator gates the patterns it cannot
                                                          lower with a positioned error. *)
+  and macro_payload =
+      MP_Arguments of ur_expr list
+    | MP_Matches of ur_expr * ur_pat
   and ur_place =
       UP_Ident of string * Position.T
     | UP_Deref of ur_expr * Position.T
@@ -301,32 +316,33 @@ struct
   and ur_arm =
       UR_Arm of ur_pat * (ur_expr * Position.T) option * ur_expr
 
-  fun expr_pos (UE_Unit pos) = pos
-    | expr_pos (UE_Tuple (_, pos)) = pos
-    | expr_pos (UE_Array (_, pos)) = pos
-    | expr_pos (UE_Ident (_, pos)) = pos
-    | expr_pos (UE_Literal payload) = literal_position payload
-    | expr_pos (UE_ExprAntiq src) = Input.pos_of src
-    | expr_pos (UE_Let _) = Position.none
-    | expr_pos (UE_LetMut (_, _, _, pos)) = pos
-    | expr_pos (UE_Const _) = Position.none
-    | expr_pos (UE_Seq _) = Position.none
-    | expr_pos (UE_Return (_, pos)) = pos
-    | expr_pos (UE_Bin (_, _, _, pos)) = pos
-    | expr_pos (UE_Unary (_, _, pos)) = pos
-    | expr_pos (UE_Group (_, pos)) = pos
-    | expr_pos (UE_Block (_, pos)) = pos
-    | expr_pos (UE_If (_, _, _, pos)) = pos
-    | expr_pos (UE_While (_, _, _, pos)) = pos
-    | expr_pos (UE_Loop (_, _, pos)) = pos
-    | expr_pos (UE_For (_, _, _, pos)) = pos
-    | expr_pos (UE_WhileLet (_, _, _, _, pos)) = pos
-    | expr_pos (UE_Call (_, _, _, pos)) = pos
-    | expr_pos (UE_Field (_, _, pos)) = pos
-    | expr_pos (UE_Index (_, _, pos)) = pos
-    | expr_pos (UE_Range (_, _, _, pos)) = pos
-    | expr_pos (UE_Assign (_, _, _, pos)) = pos
-    | expr_pos (UE_Match (_, _, _, pos)) = pos
+  fun expression_position (UE_Unit pos) = pos
+    | expression_position (UE_Tuple (_, pos)) = pos
+    | expression_position (UE_Array (_, pos)) = pos
+    | expression_position (UE_Ident (_, pos)) = pos
+    | expression_position (UE_Literal payload) = literal_position payload
+    | expression_position (UE_ExprAntiq src) = Input.pos_of src
+    | expression_position (UE_Let _) = Position.none
+    | expression_position (UE_LetMut (_, _, _, pos)) = pos
+    | expression_position (UE_Const _) = Position.none
+    | expression_position (UE_Seq _) = Position.none
+    | expression_position (UE_Return (_, pos)) = pos
+    | expression_position (UE_Bin (_, _, _, pos)) = pos
+    | expression_position (UE_Unary (_, _, pos)) = pos
+    | expression_position (UE_Group (_, pos)) = pos
+    | expression_position (UE_Block (_, pos)) = pos
+    | expression_position (UE_If (_, _, _, pos)) = pos
+    | expression_position (UE_While (_, _, _, pos)) = pos
+    | expression_position (UE_Loop (_, _, pos)) = pos
+    | expression_position (UE_For (_, _, _, pos)) = pos
+    | expression_position (UE_WhileLet (_, _, _, _, pos)) = pos
+    | expression_position (UE_Call (_, _, _, pos)) = pos
+    | expression_position (UE_Field (_, _, pos)) = pos
+    | expression_position (UE_Index (_, _, pos)) = pos
+    | expression_position (UE_Range (_, _, _, pos)) = pos
+    | expression_position (UE_Assign (_, _, _, pos)) = pos
+    | expression_position (UE_Macro (_, _, _, _, pos)) = pos
+    | expression_position (UE_Match (_, _, _, pos)) = pos
 
   (* Assignment parses an ordinary expression on the left, then crosses this one validation boundary.
      Keeping target recognition out of the grammar gives every invalid expression a stable positioned
@@ -340,7 +356,8 @@ struct
     | expr_to_place (UE_Index (base, index, pos)) =
         UP_Index (expr_to_place base, index, pos)
     | expr_to_place expr =
-        error ("urust_expr: invalid assignment target" ^ Position.here (expr_pos expr))
+        error ("urust_expr: invalid assignment target" ^
+          Position.here (expression_position expr))
 
   fun mk_assign (aop, pos) lhs rhs =
     UE_Assign (aop, expr_to_place lhs, rhs, pos)

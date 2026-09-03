@@ -20,11 +20,12 @@ strings, and \<open>if\<close>/\<open>else\<close>.
 
 urust_expr_with_check showoff_expression
   \<open>
-    let inputs = [0x10_u32, 0x0f_u32, 0x20_u32];
+    let inputs = vec![0x10_u32, 0x0f_u32, 0x20_u32];
     let (base, (mask, enabled)) =
       (inputs[0_usize], (inputs[1_usize], true));
     const shift = 1_u64;
     let computed = (base | mask) << shift;
+    assert!(base == inputs[0_usize]);
     if enabled && computed > inputs[2_usize] {
       (computed, "large")
     } else {
@@ -55,6 +56,8 @@ urust_expr_with_check showoff_calls
     let inputs = [5_u64, 2_u64, 1_u64, 0_u64];
     let active = inputs[0_usize..2_usize];
     let seed = active[0_usize];
+    let seed_present = matches!(Some(seed), Some(_));
+    debug_assert!(seed_present, ignored_showoff_diagnostic);
     let callable = \<llangle>showoff_bump\<rrangle>;
     let direct = Some(callable(seed))?;
     let chained =
@@ -214,6 +217,7 @@ urust_expr_with_check showoff_for_and_while_let
       *total += extra;
       *pending = None;
     }
+    assert_eq!(*total, 10_u32);
     *total
   \<close>
 
@@ -244,6 +248,34 @@ urust_expr_with_check showoff_loop_pipeline
       }
     }
     *cursor
+  \<close>
+
+subsection\<open> Macro composition pipeline \<close>
+
+text\<open>
+Features: vector construction and indexing, nested \<open>matches!\<close> conditions,
+assertion aliases with ignored diagnostics, and aborting fallback branches.
+\<close>
+
+urust_expr_with_check showoff_macro_pipeline
+  \<open>
+    let candidates = vec![Some(4_u32), None];
+    let first = candidates[0_usize];
+    debug_assert!(matches!(first, Some(_)), ignored_pipeline_diagnostic);
+    let selected =
+      if matches!(first, Some(_)) {
+        let values = vec![4_u32, 8_u32];
+        assert_eq!(values[0_usize], 4_u32);
+        values[0_usize]
+      } else {
+        unreachable!("candidate disappeared")
+      };
+    assert!(matches!(Some(selected), Some(_)));
+    if selected > 0_u32 {
+      selected
+    } else {
+      panic!("non-positive selection")
+    }
   \<close>
 
 
