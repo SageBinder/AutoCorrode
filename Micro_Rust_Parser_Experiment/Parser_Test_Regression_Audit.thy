@@ -118,6 +118,276 @@ ML_val\<open>
   end
 \<close>
 
+section\<open> Full guard-body grammar audit \<close>
+
+text\<open>
+Match guards reuse the complete non-nullable body grammar. This audit checks the AST before
+elaboration, including branches whose final type is intentionally not boolean.
+\<close>
+
+ML_val\<open>
+  local
+    open URust_AST
+
+    val ctxt = \<^context>
+    val arm_prefix = "match_case Some(()) { Some(_) if "
+    val arm_suffix = " => (), None => (), }"
+
+    fun audit_assert message condition =
+      if condition then ()
+      else error ("full guard-body grammar audit: " ^ message)
+
+    fun source_text guard = arm_prefix ^ guard ^ arm_suffix
+
+    fun parse source =
+      (case URust_Diagnostics.parse_source ctxt source of
+         SOME expression => expression
+       | NONE => error "full guard-body grammar audit: empty parse")
+
+    fun guard_of source =
+      (case parse source of
+         UE_Match
+           (MF_Case, _,
+            UR_Arm (_, SOME (guard, if_pos), UE_Unit _) ::
+              UR_Arm (_, NONE, UE_Unit _) :: [],
+            _) =>
+           (guard, if_pos)
+       | _ =>
+           error
+             "full guard-body grammar audit: wrapper AST changed")
+
+    fun parse_guard guard =
+      guard_of
+        (Parser_Lex_Util.text_source (source_text guard))
+
+    fun check_guard label guard expected =
+      let val (expression, _) = parse_guard guard
+      in
+        audit_assert (label ^ " AST changed") (expected expression)
+      end
+
+    fun is_true (UE_Literal (LP_Bool (true, _))) = true
+      | is_true _ = false
+
+    fun is_unit (UE_Unit _) = true
+      | is_unit _ = false
+
+    val _ = check_guard "terminal value" "true" is_true
+    val _ =
+      check_guard "semicolon value sequence" "(); true"
+        (fn UE_Seq (left, right) =>
+              is_unit left andalso is_true right
+          | _ => false)
+    val _ =
+      check_guard "terminal statement" "();"
+        (fn UE_Seq (left, right) =>
+              is_unit left andalso is_unit right
+          | _ => false)
+    val _ =
+      check_guard "block prefix" "{ () } true"
+        (fn UE_Seq (UE_Block (body, _), right) =>
+              is_unit body andalso is_true right
+          | _ => false)
+    val _ =
+      check_guard "unsafe-block prefix" "unsafe { () } true"
+        (fn UE_Seq (UE_Block (body, _), right) =>
+              is_unit body andalso is_true right
+          | _ => false)
+    val _ =
+      check_guard "conditional prefix"
+        "if false { () } else { () } true"
+        (fn UE_Seq (UE_If _, right) => is_true right
+          | _ => false)
+    val _ =
+      check_guard "while prefix"
+        ("#[fuel(\<epsilon>\<open>1 :: nat\<close>)] while (false) { () } true")
+        (fn UE_Seq (UE_While _, right) => is_true right
+          | _ => false)
+    val _ =
+      check_guard "loop prefix"
+        ("#[fuel(\<epsilon>\<open>1 :: nat\<close>)] loop { () } true")
+        (fn UE_Seq (UE_Loop _, right) => is_true right
+          | _ => false)
+    val _ =
+      check_guard "for prefix"
+        "for item in values { () } true"
+        (fn UE_Seq (UE_For (P_Ident ("item", _), _, _, _), right) =>
+              is_true right
+          | _ => false)
+    val _ =
+      check_guard "while-let prefix"
+        ("#[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let " ^
+         "Some(item) = Some(()) { () } true")
+        (fn UE_Seq
+              (UE_WhileLet
+                (_, P_Constr ("Some", _, [P_Ident ("item", _)]),
+                 _, _, _),
+               right) =>
+              is_true right
+          | _ => false)
+    val _ =
+      check_guard "bare-match prefix"
+        "match true { true => (), false => () } true"
+        (fn UE_Seq (UE_Match (MF_Auto, _, _, _), right) =>
+              is_true right
+          | _ => false)
+    val _ =
+      check_guard "explicit case-match prefix"
+        "match_case Some(()) { Some(value) => value, None => () } true"
+        (fn UE_Seq (UE_Match (MF_Case, _, _, _), right) =>
+              is_true right
+          | _ => false)
+    val _ =
+      check_guard "explicit switch-match prefix"
+        "match_switch 0 { 0 => (), _ => () } true"
+        (fn UE_Seq (UE_Match (MF_Switch, _, _, _), right) =>
+              is_true right
+          | _ => false)
+    val _ =
+      check_guard "let binding"
+        "let flag = true; flag"
+        (fn UE_Let (P_Ident ("flag", _), value, UE_Ident ("flag", _)) =>
+              is_true value
+          | _ => false)
+    val _ =
+      check_guard "mutable binding"
+        "let mut flag = true; true"
+        (fn UE_LetMut (P_Ident ("flag", _), value, body, _) =>
+              is_true value andalso is_true body
+          | _ => false)
+    val _ =
+      check_guard "const binding"
+        "const FLAG = true; FLAG"
+        (fn UE_Const (P_Ident ("FLAG", _), value, UE_Ident ("FLAG", _)) =>
+              is_true value
+          | _ => false)
+    val _ =
+      check_guard "let-else binding"
+        "let Some(flag) = Some(true) else { false }; flag"
+        (fn UE_LetElse
+              (P_Constr ("Some", _, [P_Ident ("flag", _)]),
+               _, UE_Block (fallback, _), UE_Ident ("flag", _), _) =>
+              (case fallback of
+                 UE_Literal (LP_Bool (false, _)) => true
+               | _ => false)
+          | _ => false)
+    val _ =
+      check_guard "right-associated bindings"
+        "let first = true; const SECOND = first; SECOND"
+        (fn UE_Let
+              (P_Ident ("first", _), _,
+               UE_Const
+                 (P_Ident ("SECOND", _), UE_Ident ("first", _),
+                  UE_Ident ("SECOND", _))) =>
+              true
+          | _ => false)
+    val _ =
+      check_guard "if-let value"
+        "if let Some(flag) = Some(true) { flag } else { false }"
+        (fn UE_IfLet
+              (P_Constr ("Some", _, [P_Ident ("flag", _)]),
+               _, UE_Block (UE_Ident ("flag", _), _),
+               SOME (UE_Block (UE_Literal (LP_Bool (false, _)), _)), _) =>
+              true
+          | _ => false)
+    val _ =
+      check_guard "legacy return with operand" "return true;"
+        (fn UE_Return (SOME value, _) => is_true value
+          | _ => false)
+    val _ =
+      check_guard "legacy operandless return" "return;"
+        (fn UE_Return (NONE, _) => true
+          | _ => false)
+    val _ =
+      check_guard "tail return" "return true"
+        (fn UE_Return (SOME value, _) => is_true value
+          | _ => false)
+
+    val positioned_guard =
+      "if let Some(flag) = Some(true) { flag } else { false }"
+    val positioned_text = source_text positioned_guard
+    val positioned_start =
+      Position.make0 17 80 200 "" "" "full-guard-body-ast-audit"
+    val (positioned_ast, arm_if_pos) =
+      guard_of
+        (Parser_Lex_Util.positioned_content_source
+          positioned_text positioned_start)
+    val arm_if_raw = size arm_prefix - size "if "
+    val guard_stop_raw = size arm_prefix + size positioned_guard
+    fun position_at raw =
+      Position.symbol_explode
+        (String.substring (positioned_text, 0, raw))
+        positioned_start
+    val _ =
+      audit_assert "guard keyword position moved"
+        (Position.offset_of arm_if_pos =
+          Position.offset_of (position_at arm_if_raw))
+    val _ =
+      (case positioned_ast of
+         UE_IfLet (_, _, _, _, span) =>
+           (audit_assert "if-let guard span start moved"
+              (Position.offset_of span =
+                Position.offset_of (position_at (size arm_prefix)));
+            audit_assert "if-let guard span stopped before the arrow"
+              (Position.end_offset_of span =
+                Position.offset_of (position_at guard_stop_raw)))
+       | _ =>
+           error
+             "full guard-body grammar audit: positioned if-let AST changed")
+
+    val positioned_let_else =
+      "let Some(flag) = Some(true) else { false }; flag"
+    val positioned_let_else_text = source_text positioned_let_else
+    val (positioned_let_else_ast, _) =
+      guard_of
+        (Parser_Lex_Util.positioned_content_source
+          positioned_let_else_text positioned_start)
+    val positioned_let_else_stop =
+      Position.symbol_explode
+        (String.substring
+          (positioned_let_else_text, 0,
+           size arm_prefix + size positioned_let_else))
+        positioned_start
+    val _ =
+      (case positioned_let_else_ast of
+         UE_LetElse (_, _, _, _, span) =>
+           (audit_assert "let-else guard span start moved"
+              (Position.offset_of span =
+                Position.offset_of (position_at (size arm_prefix)));
+            audit_assert "let-else guard span stopped before the arrow"
+              (Position.end_offset_of span =
+                Position.offset_of positioned_let_else_stop))
+       | _ =>
+           error
+             "full guard-body grammar audit: positioned let-else AST changed")
+
+    val non_boolean_source = source_text "();"
+    val (non_boolean_ast, _) =
+      guard_of (Parser_Lex_Util.text_source non_boolean_source)
+    val _ =
+      audit_assert "non-boolean terminal statement did not parse"
+        (case non_boolean_ast of
+           UE_Seq (left, right) =>
+             is_unit left andalso is_unit right
+         | _ => false)
+    val _ =
+      (case Exn.result
+          (fn () =>
+            URust_Command.elab_urust ctxt
+              (Parser_Lex_Util.text_source non_boolean_source)) () of
+         Exn.Res _ =>
+           error
+             "full guard-body grammar audit: non-boolean guard type-checked"
+       | Exn.Exn exn =>
+           if Exn.is_interrupt exn then Exn.reraise exn
+           else
+             audit_assert "non-boolean guard failed outside boolean checking"
+               (String.isSubstring "bool" (Runtime.exn_message exn)))
+  in
+    val _ = writeln "Full guard-body grammar audit passed"
+  end
+\<close>
+
 section\<open> Conservative while-let coverage \<close>
 
 text\<open>

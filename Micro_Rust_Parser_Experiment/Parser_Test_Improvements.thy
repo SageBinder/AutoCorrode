@@ -287,6 +287,165 @@ old_urust_rejects
     }
   \<close>
 
+urust_expr_with_check' improvement_mixed_conditional_guard
+  \<open>
+    match_case Some(()) {
+      Some(_) if if false {
+        false
+      } else if let Some(flag) = Some(true) {
+        flag
+      } else if true {
+        true
+      } else {
+        false
+      } \<Rightarrow> (),
+      None \<Rightarrow> ()
+    }
+  \<close>
+  \<open>
+    \<lbrakk>
+      match_case Some(()) {
+        Some(_) if if false {
+          false
+        } else {
+          if let Some(flag) = Some(true) {
+            flag
+          } else {
+            if true {
+              true
+            } else {
+              false
+            }
+          }
+        } \<Rightarrow> (),
+        None \<Rightarrow> ()
+      }
+    \<rbrakk>
+  \<close>
+old_urust_rejects
+  \<open>
+    match_case Some(()) {
+      Some(_) if if false {
+        false
+      } else if let Some(flag) = Some(true) {
+        flag
+      } else if true {
+        true
+      } else {
+        false
+      } \<Rightarrow> (),
+      None \<Rightarrow> ()
+    }
+  \<close>
+
+
+section\<open> Semicolon-free explicit matches \<close>
+
+text\<open>
+The dedicated grammar treats all three match flavours as control expressions. Explicit
+\<open>match_case\<close> and \<open>match_switch\<close> can therefore prefix a following body without a
+semicolon, both in an ordinary body and in a match guard. The witnesses use the old frontend's
+required semicolon and produce the same sequencing term.
+\<close>
+
+urust_expr_with_check' improvement_match_case_semicolon_free_statement
+  \<open>
+    match_case Some(()) { Some(value) \<Rightarrow> value, None \<Rightarrow> () }
+    ()
+  \<close>
+  \<open>
+    \<lbrakk>
+      match_case Some(()) { Some(value) \<Rightarrow> value, None \<Rightarrow> () };
+      ()
+    \<rbrakk>
+  \<close>
+old_urust_rejects
+  \<open>
+    match_case Some(()) { Some(value) \<Rightarrow> value, None \<Rightarrow> () }
+    ()
+  \<close>
+
+urust_expr_with_check' improvement_match_switch_semicolon_free_statement
+  \<open>
+    match_switch \<llangle>0 :: nat\<rrangle> { 0 \<Rightarrow> (), _ \<Rightarrow> () }
+    ()
+  \<close>
+  \<open>
+    \<lbrakk>
+      match_switch \<llangle>0 :: nat\<rrangle> { 0 \<Rightarrow> (), _ \<Rightarrow> () };
+      ()
+    \<rbrakk>
+  \<close>
+old_urust_rejects
+  \<open>
+    match_switch \<llangle>0 :: nat\<rrangle> { 0 \<Rightarrow> (), _ \<Rightarrow> () }
+    ()
+  \<close>
+
+urust_expr_with_check' improvement_match_case_semicolon_free_guard
+  \<open>
+    match_case Some(()) {
+      Some(_) if
+        match_case Some(()) { Some(value) \<Rightarrow> value, None \<Rightarrow> () }
+        true
+        \<Rightarrow> (),
+      None \<Rightarrow> ()
+    }
+  \<close>
+  \<open>
+    \<lbrakk>
+      match_case Some(()) {
+        Some(_) if
+          match_case Some(()) { Some(value) \<Rightarrow> value, None \<Rightarrow> () };
+          true
+          \<Rightarrow> (),
+        None \<Rightarrow> ()
+      }
+    \<rbrakk>
+  \<close>
+old_urust_rejects
+  \<open>
+    match_case Some(()) {
+      Some(_) if
+        match_case Some(()) { Some(value) \<Rightarrow> value, None \<Rightarrow> () }
+        true
+        \<Rightarrow> (),
+      None \<Rightarrow> ()
+    }
+  \<close>
+
+urust_expr_with_check' improvement_match_switch_semicolon_free_guard
+  \<open>
+    match_case Some(()) {
+      Some(_) if
+        match_switch \<llangle>0 :: nat\<rrangle> { 0 \<Rightarrow> (), _ \<Rightarrow> () }
+        true
+        \<Rightarrow> (),
+      None \<Rightarrow> ()
+    }
+  \<close>
+  \<open>
+    \<lbrakk>
+      match_case Some(()) {
+        Some(_) if
+          match_switch \<llangle>0 :: nat\<rrangle> { 0 \<Rightarrow> (), _ \<Rightarrow> () };
+          true
+          \<Rightarrow> (),
+        None \<Rightarrow> ()
+      }
+    \<rbrakk>
+  \<close>
+old_urust_rejects
+  \<open>
+    match_case Some(()) {
+      Some(_) if
+        match_switch \<llangle>0 :: nat\<rrangle> { 0 \<Rightarrow> (), _ \<Rightarrow> () }
+        true
+        \<Rightarrow> (),
+      None \<Rightarrow> ()
+    }
+  \<close>
+
 
 section\<open> Rust line comments \<close>
 
@@ -1147,6 +1306,52 @@ urust_expr_with_check' improvement_tail_return_value
   \<open> return \<llangle>1 :: nat\<rrangle> \<close>
   \<open> \<lbrakk> return \<llangle>1 :: nat\<rrangle>; \<rbrakk> \<close>
 old_urust_rejects \<open> return \<llangle>1 :: nat\<rrangle> \<close>
+
+urust_expr_with_check' improvement_guard_tail_return
+  \<open>
+    match_case Some(()) {
+      Some(_) if return \<llangle>True\<rrangle> \<Rightarrow> (),
+      None \<Rightarrow> ()
+    }
+  \<close>
+  \<open>
+    \<lbrakk>
+      match_case Some(()) {
+        Some(_) if return \<llangle>True\<rrangle>; \<Rightarrow> (),
+        None \<Rightarrow> ()
+      }
+    \<rbrakk>
+  \<close>
+old_urust_rejects
+  \<open>
+    match_case Some(()) {
+      Some(_) if return \<llangle>True\<rrangle> \<Rightarrow> (),
+      None \<Rightarrow> ()
+    }
+  \<close>
+
+urust_expr_with_check' improvement_guard_tail_return_unit
+  \<open>
+    match_case Some(()) {
+      Some(_) if return \<Rightarrow> (),
+      None \<Rightarrow> ()
+    }
+  \<close>
+  \<open>
+    \<lbrakk>
+      match_case Some(()) {
+        Some(_) if return; \<Rightarrow> (),
+        None \<Rightarrow> ()
+      }
+    \<rbrakk>
+  \<close>
+old_urust_rejects
+  \<open>
+    match_case Some(()) {
+      Some(_) if return \<Rightarrow> (),
+      None \<Rightarrow> ()
+    }
+  \<close>
 
 urust_expr_with_check' improvement_branch_returns
   \<open>

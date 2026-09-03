@@ -1508,6 +1508,173 @@ urust_expr_with_check rich_guard_match
 
 end
 
+subsection\<open> Full guard bodies \<close>
+
+text\<open>
+The old frontend gives a match guard the complete \<open>urust\<close> category. The dedicated grammar
+therefore reuses its complete body category here: control flow, sequencing, bindings, and legacy
+semicolon-bearing returns all retain the ordinary AST and lowering.
+\<close>
+
+urust_expr_with_check guard_body_if_let
+  \<open>
+    match_case Some(()) {
+      Some(value) if if let Some(inner) = Some(value) {
+        let _ = inner;
+        true
+      } else {
+        false
+      } \<Rightarrow> (),
+      None \<Rightarrow> ()
+    }
+  \<close>
+
+urust_expr_with_check guard_body_while
+  \<open>
+    match_case Some(()) {
+      Some(_) if
+        #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while (false) { () }
+        true
+        \<Rightarrow> (),
+      None \<Rightarrow> ()
+    }
+  \<close>
+
+urust_expr_with_check guard_body_loop
+  \<open>
+    match_case Some(()) {
+      Some(_) if
+        #[fuel(\<epsilon>\<open>1 :: nat\<close>)] loop { () }
+        true
+        \<Rightarrow> (),
+      None \<Rightarrow> ()
+    }
+  \<close>
+
+urust_expr_with_check guard_body_for
+  \<open>
+    match_case Some(()) {
+      Some(_) if
+        for item in \<llangle>[()] :: unit list\<rrangle> { let _ = item; () }
+        true
+        \<Rightarrow> (),
+      None \<Rightarrow> ()
+    }
+  \<close>
+
+urust_expr_with_check guard_body_while_let
+  \<open>
+    match_case Some(()) {
+      Some(_) if
+        #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let Some(item) = Some(()) {
+          let _ = item;
+          ()
+        }
+        true
+        \<Rightarrow> (),
+      None \<Rightarrow> ()
+    }
+  \<close>
+
+urust_expr_with_check guard_body_value_sequence
+  \<open>
+    match_case Some(()) {
+      Some(_) if (); true \<Rightarrow> (),
+      None \<Rightarrow> ()
+    }
+  \<close>
+
+urust_expr_with_check guard_body_block_sequence
+  \<open>
+    match_case Some(()) {
+      Some(_) if { () } true \<Rightarrow> (),
+      None \<Rightarrow> ()
+    }
+  \<close>
+
+urust_expr_with_check guard_body_unsafe_sequence
+  \<open>
+    match_case Some(()) {
+      Some(_) if unsafe { () } true \<Rightarrow> (),
+      None \<Rightarrow> ()
+    }
+  \<close>
+
+urust_expr_with_check guard_body_conditional_sequence
+  \<open>
+    match_case Some(()) {
+      Some(_) if if false { () } else { () } true \<Rightarrow> (),
+      None \<Rightarrow> ()
+    }
+  \<close>
+
+urust_expr_with_check guard_body_bare_match_sequence
+  \<open>
+    match_case Some(()) {
+      Some(_) if match true { true \<Rightarrow> (), false \<Rightarrow> () } true \<Rightarrow> (),
+      None \<Rightarrow> ()
+    }
+  \<close>
+
+urust_expr_with_check guard_body_let
+  \<open>
+    match_case Some(()) {
+      Some(_) if let flag = true; flag \<Rightarrow> (),
+      None \<Rightarrow> ()
+    }
+  \<close>
+
+definition guard_body_reference_fixture ::
+  \<open>'v \<Rightarrow> (unit, (unit, unit, 'v) Global_Store.ref, unit, unit, unit) function_body\<close>
+  where \<open> guard_body_reference_fixture \<equiv> undefined \<close>
+
+adhoc_overloading store_reference_const \<rightleftharpoons> guard_body_reference_fixture
+
+urust_expr_with_check guard_body_let_mut
+  \<open>
+    match_case Some(()) {
+      Some(_) if let mut flag = true; true \<Rightarrow> (),
+      None \<Rightarrow> ()
+    }
+  \<close>
+
+no_adhoc_overloading store_reference_const \<rightleftharpoons> guard_body_reference_fixture
+
+urust_expr_with_check guard_body_const
+  \<open>
+    match_case Some(()) {
+      Some(_) if const FLAG = true; FLAG \<Rightarrow> (),
+      None \<Rightarrow> ()
+    }
+  \<close>
+
+urust_expr_with_check guard_body_let_else
+  \<open>
+    match_case Some(()) {
+      Some(_) if
+        let Some(flag) = Some(true) else { return false; };
+        flag
+        \<Rightarrow> (),
+      None \<Rightarrow> ()
+    }
+  \<close>
+
+urust_expr_with_check guard_body_return_value_legacy
+  \<open>
+    match_case Some(()) {
+      Some(_) if return true; \<Rightarrow> (),
+      None \<Rightarrow> ()
+    }
+  \<close>
+
+urust_expr_with_check guard_body_return_unit_legacy
+  \<open>
+    match_case Some(()) {
+      Some(_) if return; \<Rightarrow> (),
+      None \<Rightarrow> ()
+    }
+  \<close>
+
 subsection\<open> Disjunction expansion \<close>
 
 datatype rich_case = RMA "32 word" | RMB "32 word" | RMD "32 word" | RMC

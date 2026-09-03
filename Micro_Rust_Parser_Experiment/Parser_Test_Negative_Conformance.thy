@@ -130,7 +130,7 @@ urust_expr_rejects fidelity \<open> ! &r \<close> \<open> syntax error found at 
 section\<open> Control-flow stratification (D25 / divergence D-1) \<close>
 
 text\<open>
-Because \<open>uif\<close> is not a bare \<open>uexp\<close>, an unparenthesized \<open>if\<close>
+Because \<open>ucontrol_expr\<close> is not a bare \<open>uexp\<close>, an unparenthesized \<open>if\<close>
 cannot be a binary operand. The positive \<open>d1_paren_operand\<close> row covers the
 parenthesized form.
 \<close>
@@ -139,11 +139,6 @@ urust_expr_rejects fidelity
   \<open> if \<llangle>True\<rrangle> { \<llangle>1 :: 32 word\<rrangle> } else { \<llangle>2 :: 32 word\<rrangle> } + \<llangle>3 :: 32 word\<rrangle> \<close>
   \<open> syntax error found at + \<close>
   \<comment> \<open> [FIDELITY] \<open>if\<close> as a \<open>+\<close> operand; the frontend rejects it too (priority mismatch). \<close>
-
-urust_expr_rejects fidelity \<open> match_switch \<llangle>0 :: nat\<rrangle> { _ \<Rightarrow> () } () \<close>
-  \<open> syntax error found at ( \<close>
-  \<comment> \<open> [FIDELITY] a \<open>match\<close> in statement position without a \<open>;\<close>; the frontend has no such
-       production either (unlike \<open>{ .. }\<close> / \<open>if\<close>, which D25 added -- rows \<open>d2_*\<close>). \<close>
 
 section\<open> Integer literals \<close>
 
@@ -1300,6 +1295,126 @@ urust_expr_rejects fidelity
   \<open> for value in \<llangle>[1 :: nat]\<rrangle> { () } 1 2 \<close>
   \<open> syntax error found at <integer> \<close>
   \<comment> \<open> [FIDELITY] semicolon-free sequencing does not admit value juxtaposition. \<close>
+
+section\<open> Full guard bodies \<close>
+
+new_urust_rejects audit
+  \<open>
+    match_case Some(()) {
+      Some(_) if let flag = \<Rightarrow> (),
+      None \<Rightarrow> ()
+    }
+  \<close>
+  \<open> syntax error \<close>
+  \<comment> \<open> [AUDIT] a guard binding requires an initializer before its arrow. \<close>
+
+new_urust_rejects audit
+  \<open>
+    match_case Some(()) {
+      Some(_) if let mut flag = ; true \<Rightarrow> (),
+      None \<Rightarrow> ()
+    }
+  \<close>
+  \<open> syntax error \<close>
+  \<comment> \<open> [AUDIT] a mutable guard binding cannot omit its initializer. \<close>
+
+new_urust_rejects audit
+  \<open>
+    match_case Some(()) {
+      Some(_) if const FLAG = ; FLAG \<Rightarrow> (),
+      None \<Rightarrow> ()
+    }
+  \<close>
+  \<open> syntax error \<close>
+  \<comment> \<open> [AUDIT] a const guard binding cannot omit its initializer. \<close>
+
+new_urust_rejects audit
+  \<open>
+    match_case Some(()) {
+      Some(_) if let Some(flag) = Some(true) else { false }; \<Rightarrow> (),
+      None \<Rightarrow> ()
+    }
+  \<close>
+  \<open> syntax error \<close>
+  \<comment> \<open> [AUDIT] a let-else guard requires a continuation after its semicolon. \<close>
+
+new_urust_rejects audit
+  \<open>
+    match_case Some(()) {
+      Some(_) if let flag = true \<Rightarrow> (),
+      None \<Rightarrow> ()
+    }
+  \<close>
+  \<open> syntax error \<close>
+  \<comment> \<open> [AUDIT] an ordinary guard binding requires both semicolon and continuation. \<close>
+
+new_urust_rejects audit
+  \<open>
+    match_case Some(()) {
+      Some(_) if if true { true } else \<Rightarrow> (),
+      None \<Rightarrow> ()
+    }
+  \<close>
+  \<open> syntax error \<close>
+  \<comment> \<open> [AUDIT] a dangling guard fallback cannot terminate at the arm arrow. \<close>
+
+new_urust_rejects audit
+  \<open>
+    match_case Some(()) {
+      Some(_) if
+        #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while (false { () }
+        true
+        \<Rightarrow> (),
+      None \<Rightarrow> ()
+    }
+  \<close>
+  \<open> syntax error \<close>
+  \<comment> \<open> [AUDIT] a fueled while guard requires a complete parenthesized head. \<close>
+
+new_urust_rejects audit
+  \<open>
+    match_case Some(()) {
+      Some(_) if
+        #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let Some(value) Some(()) { () }
+        true
+        \<Rightarrow> (),
+      None \<Rightarrow> ()
+    }
+  \<close>
+  \<open> syntax error \<close>
+  \<comment> \<open> [AUDIT] a while-let guard head requires its equals delimiter. \<close>
+
+new_urust_rejects audit
+  \<open>
+    match_case Some(()) {
+      Some(_) if true,
+      None \<Rightarrow> ()
+    }
+  \<close>
+  \<open> syntax error \<close>
+  \<comment> \<open> [AUDIT] a complete guard must be terminated by an arm arrow. \<close>
+
+new_urust_rejects audit
+  \<open>
+    match_case Some(()) {
+      Some(_) if true \<Rightarrow> (),
+      None \<Rightarrow> ()
+    }
+    trailing trailing
+  \<close>
+  \<open> syntax error \<close>
+  \<comment> \<open> [AUDIT] a guarded match cannot hide trailing whole-input tokens. \<close>
+
+urust_expr_rejects fidelity
+  \<open>
+    match_case Some(()) {
+      Some(_) if (); \<Rightarrow> (),
+      None \<Rightarrow> ()
+    }
+  \<close>
+  \<open> bool \<close>
+  \<comment> \<open> [FIDELITY] the complete body parses as a guard, then \<open>Syntax.check_term\<close> rejects its
+       non-boolean result. \<close>
 
 section\<open> Lexer and whole-input failures \<close>
 

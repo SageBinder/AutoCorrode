@@ -273,6 +273,36 @@ lex_rules\<open>
 \<close>
 and yacc_user_declarations\<open>
 open URust_AST
+
+datatype binding_head =
+    BH_Let of ur_pat * ur_expr
+  | BH_LetMut of ur_pat * ur_expr * Position.T
+  | BH_Const of ur_pat * ur_expr
+  | BH_LetElse of ur_pat * ur_expr * ur_expr * Position.T
+
+fun finish_binding (BH_Let (pattern, value), body, _) =
+      UE_Let (pattern, value, body)
+  | finish_binding (BH_LetMut (pattern, value, pos), body, _) =
+      UE_LetMut (pattern, value, body, pos)
+  | finish_binding (BH_Const (pattern, value), body, _) =
+      UE_Const (pattern, value, body)
+  | finish_binding
+      (BH_LetElse (pattern, value, fallback, pos), body, body_right) =
+      mk_let_else
+        (pattern, value, fallback, body, pos, body_right)
+
+datatype if_head =
+    IH_If of ur_expr * Position.T
+  | IH_IfLet of ur_pat * ur_expr * Position.T
+
+fun finish_conditional
+      (IH_If (condition, pos), success, fallback, _) =
+      UE_If (condition, success, fallback, pos)
+  | finish_conditional
+      (IH_IfLet (pattern, value, pos), success, fallback, stop) =
+      UE_IfLet
+        (pattern, value, success, fallback,
+         Position.range_position (pos, stop))
 \<close>
 yacc_definitions\<open>
 %name URust
@@ -316,7 +346,8 @@ yacc_definitions\<open>
     | TDOTDOT | TDOTDOTEQ | TMUT | TPATCONTEXT
     | TMATCHESBANG of Position.T
 %nonterm ustart of URust_AST.ur_expr option
-       | ustmt of URust_AST.ur_expr
+       | ubody of URust_AST.ur_expr
+       | ubinding_head of binding_head
        | uval of URust_AST.ur_expr
        | uassign of URust_AST.ur_expr
        | uassignop of URust_AST.assignop * Position.T
@@ -332,19 +363,17 @@ yacc_definitions\<open>
        | umacrocallargs of URust_AST.ur_expr list
        | ublock of URust_AST.ur_expr
        | uunsafe of URust_AST.ur_expr
-       | usemi_free_atom of URust_AST.ur_expr
-       | usemi_free_value of URust_AST.ur_expr
+       | uwith_block_atom of URust_AST.ur_expr
+       | ucontrol_expr of URust_AST.ur_expr
+       | usemi_free_stmt of URust_AST.ur_expr
        | uconditional of URust_AST.ur_expr
-       | uif of URust_AST.ur_expr
-       | uiflet of URust_AST.ur_expr
+       | uif_head of if_head
        | ufuel of Input.source * Position.T
-       | uloop of URust_AST.ur_expr
-       | ufor of URust_AST.ur_expr
-       | uwhilelet of URust_AST.ur_expr
+       | uloop_expr of URust_AST.ur_expr
+       | umatch_kind of URust_AST.match_flavour * Position.T
        | umatch of URust_AST.ur_expr
-       | umatchsw of URust_AST.ur_expr
-       | umatchcase of URust_AST.ur_expr
        | uguard of URust_AST.ur_expr
+       | uarm of URust_AST.ur_arm
        | uarms of URust_AST.ur_arm list
        | upat of URust_AST.ur_pat
        | upat_range of URust_AST.ur_pat
@@ -359,38 +388,35 @@ yacc_definitions\<open>
        | ustruct_fields of URust_AST.struct_field list
 \<close>
 yacc_rules\<open>
-  ustart : ustmt (SOME ustmt)
+  ustart : ubody (SOME ubody)
          | (NONE)
-  (* Statements: a value expression `uval` sequenced with `;`, OR a policy-approved block-like form in
-     statement position with NO trailing `;` (Rust's optional semicolon after a block-like expr; closes
-     divergence D-2 -- D25). Both desugar to the same `sequence`. Atom-like and value-only forms stay
-     separate so explicit match forms cannot accidentally acquire semicolon-free sequencing. *)
-  ustmt : uval                              (uval)
-        | uval TSEMI ustmt                  (UE_Seq (uval, ustmt))
+  (* A body is a value, semicolon sequencing, a policy-approved semicolon-free statement followed by
+     another body, or a binding head followed by its required semicolon and continuation. The same
+     nonterminal is used for block contents and match guards, matching the old frontend's unrestricted
+     `urust` guard slot without duplicating statement syntax. *)
+  ubody : uval                              (uval)
+        | uval TSEMI ubody                  (UE_Seq (uval, ubody))
         | uval TSEMI                        (finish_statement (uval, TSEMIleft))
-        | usemi_free_atom ustmt             (UE_Seq (usemi_free_atom, ustmt))
-        | usemi_free_value ustmt            (UE_Seq (usemi_free_value, ustmt))
-        (* NO `umatchsw ustmt` / `umatchcase ustmt` forms: only the bare `match` keyword has the
-           frontend's no-`;` sequencing production. The explicit forms still need a trailing `;`. *)
-        (* The binder is the SHARED `upat`, not an inline IDENT, so `let (a, b) = ..` / `let mut x` become
-           pattern-datatype extensions rather than new productions per site; bind_pat gates refutable
-           patterns with a positioned error (D28). *)
-        | TLET upat TEQ uval TSEMI ustmt   (UE_Let (upat, uval, ustmt))
-        | TLET TMUT upat TEQ uval TSEMI ustmt
-            (UE_LetMut (upat, uval, ustmt, TMUTleft))
-        | TCONST upat TEQ uval TSEMI ustmt (UE_Const (upat, uval, ustmt))
-        | TLET upat TEQ uval TELSE ublock TSEMI ustmt
-            (mk_let_else
-              (upat, uval, ublock, ustmt, TLETleft, ustmtright))
+        | usemi_free_stmt                   (usemi_free_stmt)
+        | ubinding_head TSEMI ubody
+            (finish_binding (ubinding_head, ubody, ubodyright))
+  (* Binding heads are grammar-private. The binder is the shared `upat`, so every site continues to use
+     the existing pattern validation and lowering policies. *)
+  ubinding_head : TLET upat TEQ uval
+                    (BH_Let (upat, uval))
+                | TLET TMUT upat TEQ uval
+                    (BH_LetMut (upat, uval, TMUTleft))
+                | TCONST upat TEQ uval
+                    (BH_Const (upat, uval))
+                | TLET upat TEQ uval TELSE ublock
+                    (BH_LetElse (upat, uval, ublock, TLETleft))
   (* Value position: an operand OR a with-block control-flow expr. `uval` is where `if`/`match` (later
      loops) are admitted -- let-RHS, condition, call args, parens -- WITHOUT being a bare binary-operator
      operand (that stays `uexp`, closing divergence D-1 -- D25). *)
   uval : uassign (uassign)
        | TRETURN (UE_Return (NONE, TRETURNleft))
        | TRETURN uval (UE_Return (SOME uval, TRETURNleft))
-       | usemi_free_value %prec TIF (usemi_free_value)
-       | umatchsw (umatchsw)
-       | umatchcase (umatchcase)
+       | ucontrol_expr %prec TIF (ucontrol_expr)
   (* Assignment is below ranges and every pure operator and recurses through its own tier on the right.
      Blocks remain ordinary expression atoms, while lower-priority `if`/`match` forms require
      parentheses on the RHS, matching the frontend's priority-40 boundary. The LHS crosses
@@ -465,7 +491,7 @@ yacc_rules\<open>
             (UE_Array (arglist, Position.range_position (TLBRACKleft, TRBRACKright)))
         | VALAQ      (UE_Literal (LP_ValAntiq VALAQ))
         | EXPRAQ     (UE_ExprAntiq EXPRAQ)
-        | usemi_free_atom %prec TIF (usemi_free_atom)
+        | uwith_block_atom %prec TIF (uwith_block_atom)
   (* Reference prefixes bind tighter than every binary operator and looser than `!`, matching the
      frontend priorities. Recursing through this tier makes `**x` two ordinary dereference nodes while
      preserving the binary meanings of `*` and `&`; mixed and deeper recursion is a documented
@@ -480,8 +506,8 @@ yacc_rules\<open>
              | TSTAR urefprefix
                  (UE_Unary (U_Deref, urefprefix, TSTARleft))
   uexp : urefprefix (urefprefix)
-       (* `uif` is deliberately NOT a `uexp` alternative (closes D-1): it reaches value position via `uval`
-          and operand position only when parenthesized. Loops will join `uval` the same way. *)
+       (* `ucontrol_expr` is deliberately NOT a `uexp` alternative (closes D-1): it reaches value
+          position via `uval` and operand position only when parenthesized. *)
        | uexp TPLUS uexp     (UE_Bin (Add,  uexp1, uexp2, TPLUSleft))
        | uexp TMINUS uexp    (UE_Bin (Sub,  uexp1, uexp2, TMINUSleft))
        | uexp TSTAR uexp     (UE_Bin (Mul,  uexp1, uexp2, TSTARleft))
@@ -503,54 +529,53 @@ yacc_rules\<open>
   (* Branches are brace-delimited, and right-associative TIF/TELSE precedence preserves nearest-else
      association through recursive mixed chains. The whole grammar is verified conflict-free via the
      [verbose] grm.desc export -- RE-CHECK IT after any grammar change. *)
-  ublock : TLBRACE ustmt TRBRACE            (UE_Block (ustmt, TLBRACEleft))
+  ublock : TLBRACE ubody TRBRACE            (UE_Block (ubody, TLBRACEleft))
          | TLBRACE TRBRACE                  (UE_Block (UE_Unit TLBRACEleft, TLBRACEleft))
   (* Unsafe is block-like in operand and statement positions, but deliberately remains distinct from
      `ublock`: branch delimiters still require ordinary braces. Its frontend semantics are block erasure. *)
   uunsafe : TUNSAFE ublock                  (ublock)
-  (* Semicolon policy helpers centralize the forms admitted both as values/atoms and as statements. *)
-  usemi_free_atom : ublock                  (ublock)
-                  | uunsafe                 (uunsafe)
-  (* `uconditional` is grammar-only: mixed `else if` / `else if let` chains retain the existing
-     right-associated AST nodes. TIF/TELSE precedence makes an `else` attach to the nearest open arm. *)
-  uconditional : uif                        (uif)
-               | uiflet                     (uiflet)
-  (* Condition is `uval` (the frontend's condition priority admits an `if`), so `if if c {..} {..}` parses. *)
-  uif : TIF uval ublock %prec TIF            (UE_If (uval, ublock, NONE, TIFleft))
-      | TIF uval ublock TELSE ublock        (UE_If (uval, ublock1, SOME ublock2, TIFleft))
-      | TIF uval ublock TELSE uconditional
-          (UE_If (uval, ublock, SOME uconditional, TIFleft))
-  uiflet : TIF TLET upat TEQ uval ublock %prec TIF
-              (UE_IfLet
-                (upat, uval, ublock, NONE,
-                 Position.range_position (TIFleft, ublockright)))
-           | TIF TLET upat TEQ uval ublock TELSE ublock
-              (UE_IfLet
-                (upat, uval, ublock1, SOME ublock2,
-                 Position.range_position (TIFleft, ublock2right)))
-           | TIF TLET upat TEQ uval ublock TELSE uconditional
-              (UE_IfLet
-                (upat, uval, ublock, SOME uconditional,
-                 Position.range_position (TIFleft, uconditionalright)))
+  (* Placement and semicolon policy are independent: with-block atoms are ordinary operands, control
+     expressions are values, and either category may be sequenced without a semicolon when another
+     body follows. *)
+  uwith_block_atom : ublock                 (ublock)
+                   | uunsafe                (uunsafe)
+  usemi_free_stmt : uwith_block_atom ubody
+                      (UE_Seq (uwith_block_atom, ubody))
+                  | ucontrol_expr ubody
+                      (UE_Seq (ucontrol_expr, ubody))
+  ucontrol_expr : uconditional              (uconditional)
+                | uloop_expr                (uloop_expr)
+                | umatch                    (umatch)
+  (* Conditional heads are grammar-private. One fallback grammar preserves nearest-else association,
+     mixed `else if` / `else if let` chains, and the existing AST/span representation. *)
+  uif_head : TIF uval
+                (IH_If (uval, TIFleft))
+           | TIF TLET upat TEQ uval
+                (IH_IfLet (upat, uval, TIFleft))
+  uconditional : uif_head ublock %prec TIF
+                    (finish_conditional
+                      (uif_head, ublock, NONE, ublockright))
+               | uif_head ublock TELSE ublock
+                    (finish_conditional
+                      (uif_head, ublock1, SOME ublock2, ublock2right))
+               | uif_head ublock TELSE uconditional
+                    (finish_conditional
+                      (uif_head, ublock, SOME uconditional,
+                       uconditionalright))
   ufuel : THASH TLBRACK TFUEL LPAR EXPRAQ RPAR TRBRACK
               ((EXPRAQ, THASHleft))
-  uloop : ufuel TWHILE LPAR uval RPAR ublock
+  uloop_expr : ufuel TWHILE LPAR uval RPAR ublock
               (UE_While (#1 ufuel, uval, ublock,
                 Position.range_position (#2 ufuel, ublockright)))
-        | ufuel TLOOP ublock
+             | ufuel TLOOP ublock
               (UE_Loop (#1 ufuel, ublock,
                 Position.range_position (#2 ufuel, ublockright)))
-  ufor : TFOR upat TIN uval ublock
+             | TFOR upat TIN uval ublock
               (UE_For (upat, uval, ublock,
                 Position.range_position (TFORleft, ublockright)))
-  uwhilelet : ufuel TWHILE TLET upat TEQ uval ublock
+             | ufuel TWHILE TLET upat TEQ uval ublock
               (UE_WhileLet (#1 ufuel, upat, uval, ublock,
                 Position.range_position (#2 ufuel, ublockright)))
-  usemi_free_value : uconditional           (uconditional)
-                   | uloop                  (uloop)
-                   | ufor                   (ufor)
-                   | uwhilelet              (uwhilelet)
-                   | umatch                 (umatch)
   (* Comma lists stay nonempty and right-nested (source order preserved). Each list has an explicit terminal
      comma production, so a trailing separator cannot create an empty element. Call productions are
      IDENTIFIER-headed, so LPAR is never in FOLLOW(uexp) as a postfix operator -- no precedence directive
@@ -568,32 +593,24 @@ yacc_rules\<open>
                  | umacroargs             (umacroargs)
   (* A tuple has one element before the comma and a nonempty `arglist` after it. Even when `arglist` has a
      terminal comma, this requires at least two elements and keeps `(x,)` outside the grammar. *)
-  (* All three `match` keywords are with-block forms, so they join `uval`, not `uexp`. They share ONE arms
-     nonterminal over the unified pattern language and differ only in the flavour tag; the lowering split
-     and the per-flavour pattern gate live in the elaborator (D28/D32). *)
-  umatch     : TMATCH uval TLBRACE uarms TRBRACE
-                 (UE_Match (MF_Auto, uval, uarms, Position.range_position (TMATCHleft, TRBRACEright)))
-  umatchsw   : TMATCHSWITCH uval TLBRACE uarms TRBRACE
-                 (UE_Match (MF_Switch, uval, uarms, Position.range_position (TMATCHSWITCHleft, TRBRACEright)))
-  umatchcase : TMATCHCASE uval TLBRACE uarms TRBRACE
-                 (UE_Match (MF_Case, uval, uarms, Position.range_position (TMATCHCASEleft, TRBRACEright)))
-  uguard : uassign (uassign)
-         | uif (uif)
-         | umatch (umatch)
-         | umatchsw (umatchsw)
-         | umatchcase (umatchcase)
-  uarms : upat TARROW uval
-             ([UR_Arm (upat, NONE, uval)])
-        | upat TARROW uval COMMA
-             ([UR_Arm (upat, NONE, uval)])
-        | upat TARROW uval COMMA uarms
-             (UR_Arm (upat, NONE, uval) :: uarms)
-        | upat TIF uguard TARROW uval
-             ([UR_Arm (upat, SOME (uguard, TIFleft), uval)])
-        | upat TIF uguard TARROW uval COMMA
-             ([UR_Arm (upat, SOME (uguard, TIFleft), uval)])
-        | upat TIF uguard TARROW uval COMMA uarms
-             (UR_Arm (upat, SOME (uguard, TIFleft), uval) :: uarms)
+  (* All match spellings share one production and differ only in the existing flavour tag. Guards reuse
+     the complete body grammar, as in the old frontend. One arm production plus the ordinary nonempty
+     trailing-comma list keeps guarded and unguarded termination identical. *)
+  umatch_kind : TMATCH       ((MF_Auto, TMATCHleft))
+              | TMATCHSWITCH ((MF_Switch, TMATCHSWITCHleft))
+              | TMATCHCASE   ((MF_Case, TMATCHCASEleft))
+  umatch : umatch_kind uval TLBRACE uarms TRBRACE
+              (UE_Match
+                (#1 umatch_kind, uval, uarms,
+                 Position.range_position (#2 umatch_kind, TRBRACEright)))
+  uguard : ubody (ubody)
+  uarm : upat TARROW uval
+            (UR_Arm (upat, NONE, uval))
+       | upat TIF uguard TARROW uval
+            (UR_Arm (upat, SOME (uguard, TIFleft), uval))
+  uarms : uarm                  ([uarm])
+        | uarm COMMA            ([uarm])
+        | uarm COMMA uarms      (uarm :: uarms)
   (* The single pattern grammar, shared by every binding site above (D28). Its own nonterminals, disjoint
      from `uexp`, so the constructor pattern cannot clash with the call production nor or-`|` with bitwise
      or. It deliberately ACCEPTS more than any one site can lower (a numeral in `let`, a constructor under

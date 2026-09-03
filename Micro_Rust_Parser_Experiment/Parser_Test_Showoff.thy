@@ -87,8 +87,9 @@ datatype showoff_event =
 
 text\<open>
 Features: automatic case routing, an explicit numeric switch, constructor and
-value patterns, or-patterns, guards, nested matches, ordered fall-through, and
-antiquotation capture of both a let-bound variable and an arm binder.
+value patterns, or-patterns, full guard bodies, semicolon-free explicit match
+sequencing, nested matches, ordered fall-through, and antiquotation capture of
+both a let-bound variable and an arm binder.
 \<close>
 
 text\<open>
@@ -101,7 +102,15 @@ urust_expr showoff_matches
     let floor = \<llangle>2 :: nat\<rrangle>;
     match \<llangle>ShowoffData (Some 7) True\<rrangle> {
       ShowoffData(Some(x), true) | ShowoffRetry(Some(x))
-          if x > floor \<Rightarrow>
+          if
+            let threshold = floor;
+            match_case Some(()) { Some(marker) \<Rightarrow> marker, None \<Rightarrow> () }
+            if let Some(limit) = Some(threshold) {
+              x > limit
+            } else {
+              false
+            }
+          \<Rightarrow>
         match_switch x {
           0 | 1 \<Rightarrow> floor,
           _ \<Rightarrow> \<llangle>x + floor\<rrangle>
