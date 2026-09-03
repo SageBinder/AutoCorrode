@@ -1416,6 +1416,170 @@ urust_expr_rejects fidelity
   \<comment> \<open> [FIDELITY] the complete body parses as a guard, then \<open>Syntax.check_term\<close> rejects its
        non-boolean result. \<close>
 
+section\<open> Second-class closure boundaries \<close>
+
+subsection\<open> Formal syntax and closure bodies \<close>
+
+urust_expr_rejects fidelity
+  \<open> |x x \<close>
+  \<open> syntax error \<close>
+  \<comment> \<open> [FIDELITY] the closing formal bar is mandatory. \<close>
+
+urust_expr_rejects fidelity
+  \<open> || \<close>
+  \<open> syntax error \<close>
+  \<comment> \<open> [FIDELITY] a zero-formal closure still requires a body. \<close>
+
+urust_expr_rejects fidelity
+  \<open> |x| \<close>
+  \<open> syntax error \<close>
+  \<comment> \<open> [FIDELITY] a nonempty formal list cannot terminate at its closing bar. \<close>
+
+urust_expr_rejects fidelity
+  \<open> |x,| x \<close>
+  \<open> syntax error \<close>
+  \<comment> \<open> [FIDELITY] closure formals do not accept a trailing comma. \<close>
+
+urust_expr_rejects fidelity
+  \<open> |x,, y| y \<close>
+  \<open> syntax error \<close>
+  \<comment> \<open> [FIDELITY] an empty formal between commas is malformed. \<close>
+
+urust_expr_rejects fidelity
+  \<open> |x \<close>
+  \<open> syntax error \<close>
+  \<comment> \<open> [FIDELITY] premature EOF cannot complete the formal delimiter pair. \<close>
+
+urust_expr_rejects fidelity
+  \<open> |if| true \<close>
+  \<open> syntax error \<close>
+  \<comment> \<open> [FIDELITY] reserved words are not closure formals. \<close>
+
+urust_expr_rejects fidelity
+  \<open> |match| true \<close>
+  \<open> syntax error \<close>
+  \<comment> \<open> [FIDELITY] a second reserved-word boundary exercises a control keyword. \<close>
+
+urust_expr_rejects fidelity
+  \<open> |_| true \<close>
+  \<open> closure formal must be an identifier \<close>
+  \<comment> \<open> [FIDELITY] `_` is normalized to the shared wildcard node and rejected by the
+       closure-formal gate. \<close>
+
+urust_expr_rejects fidelity
+  \<open> |(x)| x \<close>
+  \<open> syntax error \<close>
+  \<comment> \<open> [FIDELITY] grouped patterns are not closure formals. \<close>
+
+urust_expr_rejects fidelity
+  \<open> |Some(x)| x \<close>
+  \<open> syntax error \<close>
+  \<comment> \<open> [FIDELITY] constructor patterns are not closure formals. \<close>
+
+urust_expr_rejects fidelity
+  \<open> |mut x| x \<close>
+  \<open> syntax error \<close>
+  \<comment> \<open> [FIDELITY] Rust mutable-formal syntax is outside the closure subset. \<close>
+
+urust_expr_rejects fidelity
+  \<open> |x: nat| x \<close>
+  \<open> syntax error \<close>
+  \<comment> \<open> [FIDELITY] closure formal type annotations are not implemented. \<close>
+
+urust_expr_rejects fidelity
+  \<open> || let x = 1; x \<close>
+  \<open> syntax error \<close>
+  \<comment> \<open> [FIDELITY] a bare binding is below the closure-body priority; a block admits it. \<close>
+
+urust_expr_rejects fidelity
+  \<open> || if let Some(x) = Some(1) { x } else { 0 } \<close>
+  \<open> syntax error \<close>
+  \<comment> \<open> [FIDELITY] bare conditional bindings are not direct closure bodies. \<close>
+
+urust_expr_rejects fidelity
+  \<open> || #[fuel(\<epsilon>\<open>1 :: nat\<close>)] loop { () } \<close>
+  \<open> syntax error \<close>
+  \<comment> \<open> [FIDELITY] loop expressions are not direct closure bodies. \<close>
+
+urust_expr_rejects fidelity
+  \<open> || (); () \<close>
+  \<open> syntax error \<close>
+  \<comment> \<open> [FIDELITY] direct closure bodies do not admit sequencing. \<close>
+
+urust_expr_rejects fidelity
+  \<open> || return \<llangle>1 :: nat\<rrangle> \<close>
+  \<open> syntax error \<close>
+  \<comment> \<open> [FIDELITY] the closure-body return form is the legacy semicolon-bearing spelling. \<close>
+
+urust_expr_rejects fidelity
+  \<open> || || \<llangle>1 :: nat\<rrangle> \<close>
+  \<open> syntax error \<close>
+  \<comment> \<open> [FIDELITY] a bare closure cannot directly be another closure's body. \<close>
+
+subsection\<open> Bare placement and invocation \<close>
+
+urust_expr_rejects fidelity
+  \<open> let closure = |x| x; () \<close>
+  \<open> syntax error \<close>
+  \<comment> \<open> [FIDELITY] a bare closure is not a binding initializer. \<close>
+
+urust_expr_rejects fidelity
+  \<open> target = || \<llangle>1 :: nat\<rrangle> \<close>
+  \<open> syntax error \<close>
+  \<comment> \<open> [FIDELITY] a bare closure is not an assignment RHS. \<close>
+
+urust_expr_rejects fidelity
+  \<open> \<llangle>1 :: nat\<rrangle> + || \<llangle>2 :: nat\<rrangle> \<close>
+  \<open> syntax error \<close>
+  \<comment> \<open> [FIDELITY] a bare closure is not a binary operand. \<close>
+
+urust_expr_rejects fidelity
+  \<open> if || true { () } \<close>
+  \<open> syntax error \<close>
+  \<comment> \<open> [FIDELITY] a bare closure is not a condition. \<close>
+
+urust_expr_rejects fidelity
+  \<open> match || true { _ \<Rightarrow> () } \<close>
+  \<open> syntax error \<close>
+  \<comment> \<open> [FIDELITY] a bare closure is not a match scrutinee. \<close>
+
+urust_expr_rejects fidelity
+  \<open> for item in || [] { () } \<close>
+  \<open> syntax error \<close>
+  \<comment> \<open> [FIDELITY] a bare closure is not an iterable. \<close>
+
+urust_expr_rejects fidelity
+  \<open>
+    match true {
+      true \<Rightarrow> || true,
+      false \<Rightarrow> || false
+    }
+  \<close>
+  \<open> syntax error \<close>
+  \<comment> \<open> [FIDELITY] a bare closure is not a match-arm body. \<close>
+
+urust_expr_rejects fidelity
+  \<open> || \<llangle>1 :: nat\<rrangle>; () \<close>
+  \<open> syntax error \<close>
+  \<comment> \<open> [FIDELITY] an unparenthesized closure cannot be the left side of sequencing. \<close>
+
+urust_expr_rejects fidelity
+  \<open> (|| \<llangle>1 :: nat\<rrangle>)() \<close>
+  \<open> syntax error \<close>
+  \<comment> \<open> [FIDELITY] calls still require an identifier callee even after grouping. \<close>
+
+urust_expr_rejects fidelity
+  \<open>
+    match_case Some(()) {
+      Some(_) if || true \<Rightarrow> (),
+      None \<Rightarrow> ()
+    }
+  \<close>
+  \<open> bool \<close>
+  \<comment> \<open> [FIDELITY] a closure is a complete guard body syntactically, then ordinary checking
+       rejects the non-boolean guard result. \<close>
+
+
 section\<open> Lexer and whole-input failures \<close>
 
 urust_expr_rejects fidelity \<open> "bad\q" \<close> \<open> bad escape character in string \<close>

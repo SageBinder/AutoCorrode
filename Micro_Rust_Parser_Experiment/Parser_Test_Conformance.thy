@@ -709,6 +709,386 @@ urust_expr_with_check mcall_if \<open> if m.h() == n { m } else { n } \<close>
 end
 
 
+section\<open> Second-class closures \<close>
+
+text\<open>
+Closures retain the frontend's priority-20 body boundary and lower to one literal-wrapped
+HOL abstraction around one \<open>FunctionBody\<close>. Formal allocation is independent of call
+arity: repeated names are legal, and each later occurrence shadows its predecessors.
+\<close>
+
+subsection\<open> Formal lists, body forms, and shadowing \<close>
+
+urust_expr_with_check closure_zero_formals
+  \<open> || \<llangle>1 :: nat\<rrangle> \<close>
+
+urust_expr_with_check closure_one_formal
+  \<open> |x| \<llangle>x :: nat\<rrangle> \<close>
+
+urust_expr_with_check closure_two_formals
+  \<open> |x, y| \<llangle>(x :: nat) + y\<rrangle> \<close>
+
+urust_expr_with_check closure_duplicate_formals
+  \<open> |x, x| \<llangle>x :: bool\<rrangle> \<close>
+
+urust_expr_with_check closure_triplicate_formals
+  \<open> |x, x, x| \<llangle>x :: 32 word\<rrangle> \<close>
+
+urust_expr_with_check closure_heterogeneous_formals
+  \<open> |number, flag, word| \<llangle>(number :: nat, flag :: bool, word :: 32 word)\<rrangle> \<close>
+
+urust_expr_with_check closure_sixteen_formals
+  \<open>
+    |p01, p02, p03, p04, p05, p06, p07, p08,
+     p09, p10, p11, p12, p13, p14, p15, p16|
+      \<llangle>p16 :: nat\<rrangle>
+  \<close>
+
+urust_expr_with_check closure_expression_body
+  \<open> |x| x + \<llangle>1 :: 32 word\<rrangle> \<close>
+
+urust_expr_with_check closure_block_body
+  \<open> |x| { let y = x; \<llangle>y :: nat\<rrangle> } \<close>
+
+urust_expr_with_check closure_unsafe_block_body
+  \<open> |x| unsafe { \<llangle>x :: nat\<rrangle> } \<close>
+
+urust_expr_with_check closure_conditional_body
+  \<open>
+    |x|
+      if x == \<llangle>0 :: nat\<rrangle> {
+        1
+      } else if x == 1 {
+        2
+      } else {
+        x
+      }
+  \<close>
+
+urust_expr_with_check closure_match_body
+  \<open>
+    |x|
+      match Some(x) {
+        Some(y) \<Rightarrow> \<llangle>y :: nat\<rrangle>,
+        None \<Rightarrow> 0
+      }
+  \<close>
+
+urust_expr_with_check closure_legacy_return_body
+  \<open> |x| return \<llangle>x :: nat\<rrangle>; \<close>
+
+urust_expr_with_check closure_legacy_unit_return_body
+  \<open> || return; \<close>
+
+urust_expr_with_check closure_returning_closure
+  \<open> || return |x| \<llangle>x :: nat\<rrangle>; \<close>
+
+urust_expr_with_check closure_outer_capture
+  \<open>
+    let outer = \<llangle>3 :: nat\<rrangle>;
+    |x, x| \<llangle>outer + x\<rrangle>
+  \<close>
+
+subsection\<open> Antiquotation capture from every binder family \<close>
+
+definition closure_invoke_nat ::
+    \<open>nat \<Rightarrow>
+      (nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body) \<Rightarrow>
+      (unit, nat, unit, unit, unit) function_body\<close>
+  where \<open> closure_invoke_nat value closure \<equiv> closure value \<close>
+
+context fixes closure_hol_fix :: nat
+begin
+
+urust_expr_with_check closure_capture_hol_fix
+  \<open>
+    closure_invoke_nat(
+      1,
+      |formal| \<llangle>closure_hol_fix + formal\<rrangle>
+    )
+  \<close>
+
+end
+
+urust_expr_with_check closure_capture_immutable
+  \<open>
+    let outer = \<llangle>2 :: nat\<rrangle>;
+    closure_invoke_nat(1, |formal| \<llangle>outer + formal\<rrangle>)
+  \<close>
+
+urust_expr_with_check closure_capture_const
+  \<open>
+    const OUTER = \<llangle>2 :: nat\<rrangle>;
+    closure_invoke_nat(1, |formal| \<llangle>OUTER + formal\<rrangle>)
+  \<close>
+
+urust_expr_with_check closure_capture_tuple
+  \<open>
+    let (left, right) = (\<llangle>2 :: nat\<rrangle>, \<llangle>3 :: nat\<rrangle>);
+    closure_invoke_nat(1, |formal| \<llangle>left + right + formal\<rrangle>)
+  \<close>
+
+adhoc_overloading store_reference_const \<rightleftharpoons> parser_reference_fixture
+
+urust_expr_with_check closure_capture_mutable
+  \<open>
+    let mut outer = \<llangle>2 :: nat\<rrangle>;
+    |formal| \<llangle>(outer, formal :: nat)\<rrangle>
+  \<close>
+
+no_adhoc_overloading store_reference_const \<rightleftharpoons> parser_reference_fixture
+
+urust_expr_with_check closure_capture_match_binder
+  \<open>
+    match \<llangle>Some (2 :: nat)\<rrangle> {
+      Some(outer) \<Rightarrow>
+        closure_invoke_nat(1, |formal| \<llangle>outer + formal\<rrangle>),
+      None \<Rightarrow>
+        0
+    }
+  \<close>
+
+urust_expr_with_check closure_capture_if_let_binder
+  \<open>
+    if let Some(outer) = \<llangle>Some (2 :: nat)\<rrangle> {
+      closure_invoke_nat(1, |formal| \<llangle>outer + formal\<rrangle>)
+    } else {
+      0
+    }
+  \<close>
+
+urust_expr_with_check closure_capture_let_else_binder
+  \<open>
+    let Some(outer) = \<llangle>Some (2 :: nat)\<rrangle> else { 0 };
+    closure_invoke_nat(1, |formal| \<llangle>outer + formal\<rrangle>)
+  \<close>
+
+urust_expr_with_check closure_capture_for_binder
+  \<open>
+    for outer in [\<llangle>2 :: nat\<rrangle>] {
+      let _ =
+        closure_invoke_nat(1, |formal| \<llangle>outer + formal\<rrangle>);
+      ()
+    }
+  \<close>
+
+urust_expr_with_check closure_capture_while_let_binder
+  \<open>
+    #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let Some(outer) =
+      \<llangle>Some (2 :: nat)\<rrangle> {
+      let _ =
+        closure_invoke_nat(1, |formal| \<llangle>outer + formal\<rrangle>);
+      ()
+    }
+  \<close>
+
+urust_expr_with_check closure_capture_value_antiquotation
+  \<open>
+    let outer = \<llangle>2 :: nat\<rrangle>;
+    closure_invoke_nat(1, |formal| \<llangle>outer + formal\<rrangle>)
+  \<close>
+
+urust_expr_with_check closure_capture_expression_antiquotation
+  \<open>
+    let outer = \<llangle>2 :: nat\<rrangle>;
+    closure_invoke_nat(
+      1,
+      |formal| \<epsilon>\<open>literal (outer + formal)\<close>
+    )
+  \<close>
+
+subsection\<open> Literal, function, method, and field resolution roles \<close>
+
+definition closure_role_literal :: nat
+  where \<open> closure_role_literal \<equiv> 19 \<close>
+
+definition closure_role_call ::
+    \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
+  where \<open> closure_role_call \<equiv> lift_fun1 (\<lambda>x. x + 1) \<close>
+
+datatype_record closure_role_record =
+  closure_role_value :: nat
+micro_rust_record closure_role_record
+  (closure_role_value = "closureRole")
+
+definition closure_invoke_record ::
+    \<open>closure_role_record \<Rightarrow>
+      (closure_role_record \<Rightarrow>
+        (unit, nat, unit, unit, unit) function_body) \<Rightarrow>
+      (unit, nat, unit, unit, unit) function_body\<close>
+  where \<open> closure_invoke_record value closure \<equiv> closure value \<close>
+
+definition closure_invoke_lens ::
+    \<open>(closure_role_record, nat) lens \<Rightarrow>
+      ((closure_role_record, nat) lens \<Rightarrow>
+        (unit, nat, unit, unit, unit) function_body) \<Rightarrow>
+      (unit, nat, unit, unit, unit) function_body\<close>
+  where \<open> closure_invoke_lens value closure \<equiv> closure value \<close>
+
+micro_rust_notation (literal) closure_role_literal ("closureRole")
+micro_rust_notation (call) closure_role_call ("closureRole")
+
+urust_expr_with_check closure_registered_literal_shadow
+  \<open> |closureRole| \<llangle>closureRole :: nat\<rrangle> \<close>
+
+urust_expr_with_check closure_registered_direct_call
+  \<open> |closureRole| closureRole(closureRole) \<close>
+
+urust_expr_with_check closure_registered_method_call
+  \<open> |closureRole| closureRole.closureRole() \<close>
+
+urust_expr_with_check closure_registered_field
+  \<open>
+    closure_invoke_record(
+      \<llangle>undefined :: closure_role_record\<rrangle>,
+      |closureRole| closureRole.closureRole
+    )
+  \<close>
+
+urust_expr_with_check closure_unregistered_direct_call
+  \<open> |localCall| localCall(\<llangle>1 :: nat\<rrangle>) \<close>
+
+urust_expr_with_check closure_unregistered_method_call
+  \<open> |localMethod| \<llangle>1 :: nat\<rrangle>.localMethod() \<close>
+
+context
+  fixes local_field_receiver :: closure_role_record
+begin
+
+urust_expr_with_check closure_unregistered_field
+  \<open>
+    closure_invoke_lens(
+      \<llangle>undefined :: (closure_role_record, nat) lens\<rrangle>,
+      |localField| local_field_receiver.localField
+    )
+  \<close>
+
+end
+
+urust_expr_with_check closure_existing_let_registered_call
+  \<open>
+    let closureRole = \<llangle>0 :: nat\<rrangle>;
+    closureRole(closureRole)
+  \<close>
+
+urust_expr_with_check closure_existing_let_registered_method
+  \<open>
+    let closureRole = \<llangle>0 :: nat\<rrangle>;
+    closureRole.closureRole()
+  \<close>
+
+context fixes closure_role_receiver :: closure_role_record
+begin
+
+urust_expr_with_check closure_existing_let_registered_field
+  \<open>
+    let closureRole = \<llangle>undefined :: (closure_role_record, nat) lens\<rrangle>;
+    let result = closure_role_receiver.closureRole;
+    \<llangle>result :: nat\<rrangle>
+  \<close>
+
+urust_expr_with_check closure_existing_let_unregistered_field
+  \<open>
+    let localField = \<llangle>undefined :: (closure_role_record, nat) lens\<rrangle>;
+    let result = closure_role_receiver.localField;
+    \<llangle>result :: nat\<rrangle>
+  \<close>
+
+end
+
+context
+  fixes local_call_backend ::
+    \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
+begin
+
+urust_expr_with_check closure_existing_let_unregistered_call
+  \<open>
+    let localCall = \<llangle>local_call_backend\<rrangle>;
+    localCall(\<llangle>1 :: nat\<rrangle>)
+  \<close>
+
+urust_expr_with_check closure_existing_let_unregistered_method
+  \<open>
+    let localMethod = \<llangle>local_call_backend\<rrangle>;
+    \<llangle>1 :: nat\<rrangle>.localMethod()
+  \<close>
+
+end
+
+subsection\<open> Shared frontend placement and bar-token ambiguity \<close>
+
+urust_expr_with_check closure_binding_continuation
+  \<open>
+    let outer = \<llangle>1 :: nat\<rrangle>;
+    |formal| \<llangle>outer + formal\<rrangle>
+  \<close>
+
+urust_expr_with_check closure_control_continuation
+  \<open>
+    if true { () }
+    |formal| \<llangle>formal :: nat\<rrangle>
+  \<close>
+
+urust_expr_with_check closure_sequence_right
+  \<open> (); || \<llangle>1 :: nat\<rrangle> \<close>
+
+urust_expr_with_check closure_final_call_argument
+  \<open> closure_invoke_nat(1, |formal| \<llangle>formal :: nat\<rrangle>) \<close>
+
+urust_expr_with_check closure_final_tuple_element
+  \<open> (\<llangle>0 :: nat\<rrangle>, |formal| \<llangle>formal :: nat\<rrangle>) \<close>
+
+urust_expr_with_check closure_final_array_element
+  \<open>
+    [\<llangle>(\<lambda>x::nat. FunctionBody (literal x))\<rrangle>,
+     |formal| \<llangle>formal :: nat\<rrangle>]
+  \<close>
+
+urust_expr_with_check closure_final_macro_argument
+  \<open> assert!(true, |formal| \<llangle>formal :: nat\<rrangle>) \<close>
+
+urust_expr_with_check closure_return_operand
+  \<open> return |formal| \<llangle>formal :: nat\<rrangle>; \<close>
+
+urust_expr_with_check closure_block_terminal
+  \<open> { |formal| \<llangle>formal :: nat\<rrangle> } \<close>
+
+context
+  fixes accept_bool_pair ::
+    \<open>unit \<Rightarrow>
+      (bool \<Rightarrow> bool \<Rightarrow>
+        (unit, bool, unit, unit, unit) function_body) \<Rightarrow>
+      (unit, bool, unit, unit, unit) function_body\<close>
+  fixes accept_word_pair ::
+    \<open>unit \<Rightarrow>
+      (32 word \<Rightarrow> 32 word \<Rightarrow>
+        (unit, 32 word, unit, unit, unit) function_body) \<Rightarrow>
+      (unit, 32 word, unit, unit, unit) function_body\<close>
+begin
+
+urust_expr_with_check closure_logical_or_body
+  \<open> accept_bool_pair((), |left, right| left || right) \<close>
+
+urust_expr_with_check closure_bitwise_or_body
+  \<open> accept_word_pair((), |left, right| left | right) \<close>
+
+urust_expr_with_check closure_bar_newline_boundaries
+  \<open>
+    accept_bool_pair(
+      (),
+      |
+        left,
+        right
+      |
+        left
+        ||
+        right
+    )
+  \<close>
+
+end
+
+
 section\<open> Postfix propagation and field access \<close>
 
 subsection\<open> Error propagation \<close>

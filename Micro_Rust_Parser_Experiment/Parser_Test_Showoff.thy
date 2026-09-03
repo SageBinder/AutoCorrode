@@ -297,6 +297,39 @@ urust_expr_with_check showoff_macro_pipeline
   \<close>
 
 
+subsection\<open> Closure capture and higher-order invocation \<close>
+
+definition showoff_invoke_closure ::
+    \<open>64 word \<Rightarrow>
+      (64 word \<Rightarrow> (unit, 64 word, unit, unit, unit) function_body) \<Rightarrow>
+      (unit, 64 word, unit, unit, unit) function_body\<close>
+  where \<open> showoff_invoke_closure value closure \<equiv> closure value \<close>
+
+text\<open>
+Features: direct higher-order argument passing, a helper that invokes the supplied
+closure, capture of an outer local and the closure formal, nested block control flow,
+local bindings inside the closure, value-antiquotation capture, and a terminal return.
+\<close>
+
+urust_expr_with_check showoff_closure_pipeline
+  \<open>
+    let outer = 3_u64;
+    showoff_invoke_closure(
+      5_u64,
+      |input| {
+        let adjusted =
+          if input > outer {
+            let bump = 1_u64;
+            \<llangle>input + outer + bump\<rrangle>
+          } else {
+            outer
+          };
+        return \<llangle>adjusted + outer\<rrangle>;
+      }
+    )
+  \<close>
+
+
 subsection\<open> Accepted-surface improvements \<close>
 
 text\<open>

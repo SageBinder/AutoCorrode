@@ -349,6 +349,12 @@ yacc_definitions\<open>
        | ubody of URust_AST.ur_expr
        | ubinding_head of binding_head
        | uval of URust_AST.ur_expr
+       | uclosure_arg of URust_AST.ur_expr
+       | uclosure of URust_AST.ur_expr
+       | uclosure_formals of URust_AST.ur_pat list
+       | uclosure_body of URust_AST.ur_expr
+       | uclosure_if_head of if_head
+       | uclosure_conditional of URust_AST.ur_expr
        | uassign of URust_AST.ur_expr
        | uassignop of URust_AST.assignop * Position.T
        | urange of URust_AST.ur_expr
@@ -395,6 +401,7 @@ yacc_rules\<open>
      nonterminal is used for block contents and match guards, matching the old frontend's unrestricted
      `urust` guard slot without duplicating statement syntax. *)
   ubody : uval                              (uval)
+        | uclosure                          (uclosure)
         | uval TSEMI ubody                  (UE_Seq (uval, ubody))
         | uval TSEMI                        (finish_statement (uval, TSEMIleft))
         | usemi_free_stmt                   (usemi_free_stmt)
@@ -415,8 +422,55 @@ yacc_rules\<open>
      operand (that stays `uexp`, closing divergence D-1 -- D25). *)
   uval : uassign (uassign)
        | TRETURN (UE_Return (NONE, TRETURNleft))
-       | TRETURN uval (UE_Return (SOME uval, TRETURNleft))
+       | TRETURN uclosure_arg
+           (UE_Return (SOME uclosure_arg, TRETURNleft))
        | ucontrol_expr %prec TIF (ucontrol_expr)
+  (* Bare closures deliberately remain outside uval, uassign, and uexp. This delimiter-level category
+     is used only by the grammar sites where a closure may appear without grouping. Parentheses turn
+     the resulting closure node back into an ordinary atom. *)
+  uclosure_arg : uval                       (uval)
+               | uclosure                   (uclosure)
+  uclosure : TBARBAR uclosure_body
+                (mk_closure
+                  ([], uclosure_body,
+                   TBARBARleft, uclosure_bodyright))
+           | TBAR uclosure_formals TBAR uclosure_body
+                (mk_closure
+                  (uclosure_formals, uclosure_body,
+                   TBAR1left, uclosure_bodyright))
+  (* Closure formals share the pattern representation, but this grammar accepts identifier spellings
+     only. mk_bare_ident_pat normalizes `_` to P_Wild so the closure-formal elaboration gate can issue
+     the positioned semantic rejection. Repeated identifiers and arbitrarily long lists are retained. *)
+  uclosure_formals : IDENT
+                       ([mk_bare_ident_pat (IDENT, IDENTleft)])
+                   | IDENT COMMA uclosure_formals
+                       (mk_bare_ident_pat (IDENT, IDENTleft) ::
+                          uclosure_formals)
+  (* This is the old frontend's priority-20 closure-body boundary: assignments and pure expressions,
+     ordinary conditionals, matches, blocks/unsafe blocks through uassign, and legacy semicolon-bearing
+     returns. Bindings, if-let, loops, sequencing, direct nested closures, and semicolon-free returns
+     enter only through an explicit block or another admitted delimiter context. *)
+  uclosure_body : uassign                   (uassign)
+                | uclosure_conditional      (uclosure_conditional)
+                | umatch                    (umatch)
+                | TRETURN TSEMI
+                    (UE_Return (NONE, TRETURNleft))
+                | TRETURN uclosure_arg TSEMI
+                    (UE_Return (SOME uclosure_arg, TRETURNleft))
+  uclosure_if_head : TIF uval
+                       (IH_If (uval, TIFleft))
+  uclosure_conditional : uclosure_if_head ublock %prec TIF
+                           (finish_conditional
+                             (uclosure_if_head, ublock, NONE, ublockright))
+                       | uclosure_if_head ublock TELSE ublock
+                           (finish_conditional
+                             (uclosure_if_head, ublock1, SOME ublock2,
+                              ublock2right))
+                       | uclosure_if_head ublock TELSE uclosure_conditional
+                           (finish_conditional
+                             (uclosure_if_head, ublock,
+                              SOME uclosure_conditional,
+                              uclosure_conditionalright))
   (* Assignment is below ranges and every pure operator and recurses through its own tier on the right.
      Blocks remain ordinary expression atoms, while lower-priority `if`/`match` forms require
      parentheses on the RHS, matching the frontend's priority-40 boundary. The LHS crosses
@@ -451,9 +505,9 @@ yacc_rules\<open>
            | upostfix TDOT IDENT LPAR ucallargs RPAR
                (mk_method_call
                   (upostfix, IDENT, IDENTleft, ucallargs, upostfixleft, RPARright))
-           | upostfix TLBRACK uval TRBRACK
+           | upostfix TLBRACK uclosure_arg TRBRACK
                (UE_Index
-                 (upostfix, uval,
+                 (upostfix, uclosure_arg,
                   Position.range_position (upostfixleft, TRBRACKright)))
   uatom : NUM        (UE_Literal (LP_Integer (NUM, NUMleft)))
         | NUMSFX     (UE_Literal (LP_Integer (NUMSFX, NUMSFXleft)))
@@ -473,18 +527,22 @@ yacc_rules\<open>
               (IDENT, IDENTleft, TBANGleft,
                MP_Arguments umacrocallargs,
                Position.range_position (IDENTleft, TRBRACKright)))
-        | TMATCHESBANG LPAR uval COMMA upat RPAR
+        | TMATCHESBANG LPAR uclosure_arg COMMA upat RPAR
             (UE_Macro
               ("matches",
                Position.range_position (TMATCHESBANGleft, TMATCHESBANG),
                TMATCHESBANG,
-               MP_Matches (uval, upat),
+               MP_Matches (uclosure_arg, upat),
                Position.range_position (TMATCHESBANGleft, RPARright)))
         | LPAR RPAR  (UE_Unit LPARleft)
-        | LPAR uval COMMA arglist RPAR
-            (UE_Tuple (uval :: arglist, Position.range_position (LPARleft, RPARright)))
-        | LPAR uval RPAR
-            (UE_Group (uval, Position.range_position (LPARleft, RPARright)))
+        | LPAR uclosure_arg COMMA arglist RPAR
+            (UE_Tuple
+              (uclosure_arg :: arglist,
+               Position.range_position (LPARleft, RPARright)))
+        | LPAR uclosure_arg RPAR
+            (UE_Group
+              (uclosure_arg,
+               Position.range_position (LPARleft, RPARright)))
         | TLBRACK TRBRACK
             (UE_Array ([], Position.range_position (TLBRACKleft, TRBRACKright)))
         | TLBRACK arglist TRBRACK
@@ -580,15 +638,20 @@ yacc_rules\<open>
      comma production, so a trailing separator cannot create an empty element. Call productions are
      IDENTIFIER-headed, so LPAR is never in FOLLOW(uexp) as a postfix operator -- no precedence directive
      is needed here (D23). *)
-  arglist : uval               ([uval])
-          | uval COMMA         ([uval])
-          | uval COMMA arglist (uval :: arglist)
+  arglist : uclosure_arg
+              ([uclosure_arg])
+          | uclosure_arg COMMA
+              ([uclosure_arg])
+          | uclosure_arg COMMA arglist
+              (uclosure_arg :: arglist)
   ucallargs : ([])
             | arglist (arglist)
   (* Macro argument lists deliberately do not share call trailing-comma support. The legacy frontend
      accepts empty lists and comma-separated values, but rejects a terminal comma. *)
-  umacroargs : uval                       ([uval])
-             | uval COMMA umacroargs      (uval :: umacroargs)
+  umacroargs : uclosure_arg
+                 ([uclosure_arg])
+             | uclosure_arg COMMA umacroargs
+                 (uclosure_arg :: umacroargs)
   umacrocallargs : ([])
                  | umacroargs             (umacroargs)
   (* A tuple has one element before the comma and a nonempty `arglist` after it. Even when `arglist` has a

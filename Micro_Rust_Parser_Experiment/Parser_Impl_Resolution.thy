@@ -17,6 +17,11 @@ sig
       environment ->
       (string * Position.T) list ->
       environment
+  val allocate_closure_formals:
+    Proof.context ->
+      environment ->
+      (string * Position.T) list ->
+      term list * environment
   val use_local:
     Proof.context -> environment -> string * Position.T -> term option
   val lookup_local: environment -> string -> term option
@@ -37,7 +42,7 @@ sig
   val registered_function:
     Proof.context -> string * Position.T -> term option
   val field_expression:
-    Proof.context -> term -> string -> Position.T -> term
+    Proof.context -> environment -> term -> string -> Position.T -> term
 
   type constructor_info
   type constructor_resolver
@@ -85,10 +90,12 @@ ML\<open>
   - environment is an abstract, immutable lexical scope. empty_environment has no locals.
     allocate_locals accepts source-name/definition-position pairs, rejects duplicate names within its
     input before allocating any of them, then extends the supplied scope with fresh dummy-typed locals
-    while reporting their definitions. use_local performs a positioned lookup, reports a bound
-    reference on success, and returns NONE without fallback resolution; lookup_local performs the same
-    lexical lookup without reporting. Single-local allocation and the generic binder records are
-    private implementation details.
+    while reporting their definitions. allocate_closure_formals instead permits repeated names,
+    allocates one distinct Free per source formal in source order, and returns those Frees together
+    with the final environment in which each later repeated name shadows its predecessors. use_local
+    performs a positioned lookup, reports a bound reference on success, and returns NONE without
+    fallback resolution; lookup_local performs the same lexical lookup without reporting. Single-local
+    allocation and the generic binder records are private implementation details.
 
   - parse_antiquotation parses an Input.source as a HOL term with every environment entry in lexical
     scope. Lexical names shadow context fixes and constants, and occurrences are restored to the exact
@@ -99,12 +106,13 @@ ML\<open>
   - literal_value lowers a literal payload to its unlifted HOL value, including binder-aware value
     antiquotations. literal_expression preserves the frontend's special boolean-expression shape and
     otherwise lifts literal_value. literal_identifier_value resolves locals before NLiteral
-    notation/HOL fallback without lifting, and literal_identifier lifts that result;
-    function_identifier applies the same lexical precedence in the NFunction role without lifting.
+    notation/HOL fallback without lifting, and literal_identifier lifts that result. In NFunction and
+    NField roles an exact registered notation wins; otherwise a lexical local wins before HOL fallback.
+    function_identifier returns the selected unlifted callee.
     registered_function performs an exact registered NFunction lookup without imposing a caller
-    naming policy. field_expression resolves its name in the NField role and focuses the supplied
-    receiver. Registered notation is represented by the existing dispatch marker; unregistered names
-    retain Syntax.parse_term behavior.
+    naming policy. field_expression applies the same role policy and focuses the supplied receiver.
+    Registered notation is represented by the existing dispatch marker; unregistered names retain
+    Syntax.parse_term behavior.
 
   - constructor_info and constructor_resolver are abstract. make_constructor_resolver snapshots the
     context's non-record Ctr_Sugar constructors, constructor families/selectors, and HOL record names
@@ -157,6 +165,15 @@ struct
       fun allocate (name, pos) env = #2 (bind_local ctxt env (name, pos))
     in fold allocate signatures environment end
 
+  fun allocate_closure_formals ctxt environment signatures =
+    let
+      fun allocate [] env frees = (rev frees, env)
+        | allocate (formal :: rest) env frees =
+            let
+              val (free, env') = bind_local ctxt env formal
+            in allocate rest env' (free :: frees) end
+    in allocate signatures environment [] end
+
   fun use_local ctxt environment (name, pos) =
     (case Symtab.lookup environment name of
        SOME {free, def_pos, id} =>
@@ -205,21 +222,32 @@ struct
   fun literal_identifier ctxt environment identifier =
     T.literal (literal_identifier_value ctxt environment identifier)
 
-  fun function_identifier ctxt environment (identifier as (name, pos)) =
-    (case use_local ctxt environment identifier of
-       SOME local_term => local_term
-     | NONE => resolve_identifier ctxt Micro_Rust_Names.NFunction name pos)
-
-  fun registered_function ctxt (name, pos) =
-    if null (Micro_Rust_Names.lookups ctxt Micro_Rust_Names.NFunction name)
+  fun registered_identifier ctxt kind (name, pos) =
+    if null (Micro_Rust_Names.lookups ctxt kind name)
     then NONE
-    else
-      SOME
-        (resolve_identifier ctxt Micro_Rust_Names.NFunction name pos)
+    else SOME (resolve_identifier ctxt kind name pos)
 
-  fun field_expression ctxt receiver name pos =
+  fun function_identifier ctxt environment (identifier as (name, pos)) =
+    (case registered_identifier ctxt Micro_Rust_Names.NFunction identifier of
+       SOME registered => registered
+     | NONE =>
+         (case use_local ctxt environment identifier of
+            SOME local_term => local_term
+          | NONE =>
+              resolve_identifier ctxt Micro_Rust_Names.NFunction name pos))
+
+  fun registered_function ctxt identifier =
+    registered_identifier ctxt Micro_Rust_Names.NFunction identifier
+
+  fun field_expression ctxt environment receiver name pos =
     T.focus_field
-      (resolve_identifier ctxt Micro_Rust_Names.NField name pos)
+      (case registered_identifier ctxt Micro_Rust_Names.NField (name, pos) of
+         SOME registered => registered
+       | NONE =>
+           (case use_local ctxt environment (name, pos) of
+              SOME local_term => local_term
+            | NONE =>
+                resolve_identifier ctxt Micro_Rust_Names.NField name pos))
       receiver
 
   fun term_name_of (Const (name, _)) = SOME name

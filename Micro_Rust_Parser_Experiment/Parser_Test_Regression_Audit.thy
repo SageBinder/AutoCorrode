@@ -1589,6 +1589,449 @@ ML_val\<open>
   end
 \<close>
 
+section\<open> Closure AST, lowering, and binder-navigation audit \<close>
+
+consts
+  closure_audit_marker ::
+    \<open>(unit, nat, nat, unit, unit, unit) expression\<close>
+
+text\<open>
+These checks pin the second-class closure boundary below the source-level examples. They retain
+ordered pattern-shaped formals and the complete closure span, prove that grouping alone re-enters
+ordinary expression positions, and inspect the checked shallow term for the exact frontend shape.
+The markup checks lock definition/reference navigation across ordinary, duplicate, nested, and
+shadowed formals.
+\<close>
+
+ML_val\<open>
+  local
+    open URust_AST
+
+    val ctxt = \<^context>
+
+    fun audit_assert message condition =
+      if condition then ()
+      else error ("closure regression audit: " ^ message)
+
+    fun parse source =
+      (case URust_Diagnostics.parse_source ctxt source of
+         SOME expression => expression
+       | NONE => error "closure regression audit: empty parse")
+
+    fun parse_text text =
+      parse (Parser_Lex_Util.text_source text)
+
+    fun checked text =
+      URust_Command.elab_urust ctxt
+        (Parser_Lex_Util.text_source text)
+
+    fun count_constant name term =
+      Term.fold_aterms
+        (fn Const (candidate, _) =>
+              if candidate = name then Integer.add 1 else I
+          | _ => I)
+        term 0
+
+    fun count_abstractions (Abs (_, _, body)) =
+          1 + count_abstractions body
+      | count_abstractions (left $ right) =
+          count_abstractions left + count_abstractions right
+      | count_abstractions _ = 0
+
+    fun is_grouped_closure (UE_Group (UE_Closure _, _)) = true
+      | is_grouped_closure _ = false
+
+    val ast_text = "|first, second| second"
+    val ast_start =
+      Position.make0 5 20 100 "" "" "closure-ast-audit"
+    val ast_stop =
+      Position.symbol_explode ast_text ast_start
+    val ast =
+      parse
+        (Parser_Lex_Util.positioned_content_source
+          ast_text ast_start)
+    val _ =
+      (case ast of
+         UE_Closure
+           ([P_Ident ("first", _), P_Ident ("second", _)],
+            UE_Ident ("second", _), closure_pos) =>
+           (audit_assert "full closure span start moved"
+              (Position.offset_of closure_pos =
+                Position.offset_of ast_start);
+            audit_assert "full closure span end moved"
+              (Position.end_offset_of closure_pos =
+                Position.offset_of ast_stop);
+            audit_assert "expression_position lost the closure span"
+              (Position.offset_of (expression_position ast) =
+                 Position.offset_of closure_pos andalso
+               Position.end_offset_of (expression_position ast) =
+                 Position.end_offset_of closure_pos))
+       | _ =>
+           error "closure regression audit: closure AST changed")
+
+    val _ =
+      (case parse_text "let f = (|| 1); ()" of
+         UE_Let (_, initializer, _) =>
+           audit_assert "grouped closure initializer stopped parsing"
+             (is_grouped_closure initializer)
+       | _ =>
+           error "closure regression audit: grouped initializer AST changed")
+    val _ =
+      (case parse_text "target = (|| 1)" of
+         UE_Assign (_, _, rhs, _) =>
+           audit_assert "grouped closure assignment RHS stopped parsing"
+             (is_grouped_closure rhs)
+       | _ =>
+           error "closure regression audit: grouped assignment AST changed")
+    val _ =
+      (case parse_text "1 + (|| 2)" of
+         UE_Bin (_, _, rhs, _) =>
+           audit_assert "grouped closure binary operand stopped parsing"
+             (is_grouped_closure rhs)
+       | _ =>
+           error "closure regression audit: grouped binary AST changed")
+    val _ =
+      (case parse_text "if (|| true) { () }" of
+         UE_If (condition, _, _, _) =>
+           audit_assert "grouped closure condition stopped parsing"
+             (is_grouped_closure condition)
+       | _ =>
+           error "closure regression audit: grouped condition AST changed")
+    val _ =
+      (case parse_text "match (|| true) { _ \<Rightarrow> () }" of
+         UE_Match (_, scrutinee, _, _) =>
+           audit_assert "grouped closure scrutinee stopped parsing"
+             (is_grouped_closure scrutinee)
+       | _ =>
+           error "closure regression audit: grouped scrutinee AST changed")
+    val _ =
+      (case parse_text "for item in (|| []) { () }" of
+         UE_For (_, iterable, _, _) =>
+           audit_assert "grouped closure iterable stopped parsing"
+             (is_grouped_closure iterable)
+       | _ =>
+           error "closure regression audit: grouped iterable AST changed")
+    val _ =
+      (case
+          parse_text
+            "match true { true \<Rightarrow> (|| true), false \<Rightarrow> (|| false) }" of
+         UE_Match
+           (_, _, [UR_Arm (_, _, first), UR_Arm (_, _, second)], _) =>
+           (audit_assert "first grouped closure arm stopped parsing"
+              (is_grouped_closure first);
+            audit_assert "second grouped closure arm stopped parsing"
+              (is_grouped_closure second))
+       | _ =>
+           error "closure regression audit: grouped arm AST changed")
+    val _ =
+      (case parse_text "(|| 1); ()" of
+         UE_Seq (left, _) =>
+           audit_assert "grouped closure sequencing-left stopped parsing"
+             (is_grouped_closure left)
+       | _ =>
+           error "closure regression audit: grouped sequence AST changed")
+    val _ =
+      (case parse_text "|| (|| 1)" of
+         UE_Closure (_, body, _) =>
+           audit_assert "grouped nested closure body stopped parsing"
+             (is_grouped_closure body)
+       | _ =>
+           error "closure regression audit: grouped nested closure AST changed")
+
+    val guard =
+      parse_text
+        "match_case Some(()) { Some(_) if || true \<Rightarrow> (), None \<Rightarrow> () }"
+    val _ =
+      (case guard of
+         UE_Match
+           (_, _,
+            UR_Arm
+              (_, SOME (UE_Closure ([], UE_Literal (LP_Bool (true, _)), _), _), _) :: _,
+            _) =>
+           ()
+       | _ =>
+           error
+             "closure regression audit: a closure stopped parsing as a complete guard body")
+
+    val shape =
+      checked
+        "|first, second| \<epsilon>\<open>closure_audit_marker\<close>"
+    val _ =
+      audit_assert "closure did not lower to exactly one literal"
+        (count_constant \<^const_name>\<open>literal\<close> shape = 1)
+    val _ =
+      audit_assert "closure did not lower to exactly one FunctionBody"
+        (count_constant \<^const_name>\<open>FunctionBody\<close> shape = 1)
+    val _ =
+      audit_assert "closure did not lower to one abstraction per formal"
+        (count_abstractions shape = 2)
+    val _ =
+      audit_assert "closure body was lowered more than once"
+        (count_constant
+          \<^const_name>\<open>closure_audit_marker\<close> shape = 1)
+
+    fun closure_payload
+        (Const (name, _) $ payload) =
+          if name = \<^const_name>\<open>literal\<close>
+          then payload
+          else error
+            "closure regression audit: closure wrapper stopped using literal"
+      | closure_payload _ =
+          error "closure regression audit: closure wrapper shape changed"
+
+    val ordered =
+      checked
+        "|first, second| \<llangle>(first :: nat, second :: bool)\<rrangle>"
+    val (ordered_formals, _) =
+      Term.strip_abs (closure_payload ordered)
+    val _ =
+      audit_assert "closure abstraction order changed"
+        (map #2 ordered_formals = [HOLogic.natT, HOLogic.boolT])
+
+    val duplicate =
+      checked "|same, same, same| same"
+    val (duplicate_formals, duplicate_body) =
+      Term.strip_abs (closure_payload duplicate)
+    val _ =
+      audit_assert "duplicate closure formals stopped producing abstractions"
+        (length duplicate_formals = 3)
+    val _ =
+      (case duplicate_body of
+         Const (function_body_name, _) $
+           (Const (literal_name, _) $ Bound 0) =>
+           (audit_assert "duplicate closure body lost FunctionBody"
+              (function_body_name =
+                \<^const_name>\<open>FunctionBody\<close>);
+            audit_assert "duplicate closure body lost literal lowering"
+              (literal_name = \<^const_name>\<open>literal\<close>))
+       | _ =>
+           error
+             "closure regression audit: innermost duplicate no longer shadows earlier formals")
+
+    val allocator_start =
+      Position.make0 9 30 300 "" "" "closure-allocator-audit"
+    val allocator_positions =
+      [allocator_start,
+       Position.symbol_explode "first " allocator_start,
+       Position.symbol_explode "first second " allocator_start]
+    val (allocated, allocated_environment) =
+      URust_Resolution.allocate_closure_formals ctxt
+        URust_Resolution.empty_environment
+        (map2 pair ["first", "second", "first"] allocator_positions)
+    val allocated_names =
+      map
+        (fn Free (name, _) => name
+          | _ =>
+              error
+                "closure regression audit: allocator returned a non-Free formal")
+        allocated
+    val _ =
+      audit_assert "closure allocator reused a formal identity"
+        (length (distinct (op =) allocated_names) = 3)
+    val _ =
+      audit_assert "closure allocator did not preserve source order"
+        (length allocated = 3)
+    val _ =
+      audit_assert "later duplicate did not win in the final environment"
+        (case URust_Resolution.lookup_local
+            allocated_environment "first" of
+           SOME selected => Term.aconv (selected, List.last allocated)
+         | NONE => false)
+
+    val resolved_dispatch =
+      checked "|closureRole| closureRole(closureRole)"
+    val _ =
+      audit_assert "checked closure retained an unresolved dispatch marker"
+        (count_constant
+          \<^const_name>\<open>urust_dispatch\<close>
+          resolved_dispatch = 0)
+
+    fun find_from text needle offset =
+      if offset + size needle > size text
+      then error
+        ("closure regression audit: missing " ^ quote needle)
+      else if String.substring (text, offset, size needle) = needle
+      then offset
+      else find_from text needle (offset + 1)
+
+    fun token_position text start needle offset =
+      let
+        val raw = find_from text needle offset
+        val token_start =
+          Position.symbol_explode
+            (String.substring (text, 0, raw)) start
+      in
+        (raw,
+         Position.range_position
+           (token_start,
+            Position.symbol_explode needle token_start))
+      end
+
+    val ordinary_text = "|alpha| alpha"
+    val ordinary_start =
+      Position.make0 11 40 400 "" "" "closure-markup-ordinary"
+    val duplicate_text = "|dup, dup| dup"
+    val duplicate_start =
+      Position.make0 13 50 500 "" "" "closure-markup-duplicate"
+    val nested_text =
+      "|outer| (|inner| if true { outer } else { inner })"
+    val nested_start =
+      Position.make0 17 60 600 "" "" "closure-markup-nested"
+    val shadow_text =
+      "|shadow| { let shadow = shadow; shadow }"
+    val shadow_start =
+      Position.make0 19 70 700 "" "" "closure-markup-shadow"
+
+    val captured_reports = Unsynchronized.ref ([]: string list)
+    fun capture_reports chunks =
+      Unsynchronized.change captured_reports (append chunks)
+    fun capture_elaboration text start =
+      Unsynchronized.setmp Private_Output.report_fn capture_reports
+        (fn () =>
+          Print_Mode.with_modes [Print_Mode.PIDE]
+            (fn () =>
+              URust_Command.elab_urust ctxt
+                (Parser_Lex_Util.positioned_content_source
+                  text start)) ())
+        ()
+    val _ = capture_elaboration ordinary_text ordinary_start
+    val _ = capture_elaboration duplicate_text duplicate_start
+    val _ = capture_elaboration nested_text nested_start
+    val _ = capture_elaboration shadow_text shadow_start
+
+    fun collect_markup (XML.Text _) result = result
+      | collect_markup (XML.Elem (markup, body)) result =
+          fold collect_markup body (markup :: result)
+    val markup =
+      fold collect_markup
+        (maps YXML.parse_body (! captured_reports)) []
+    fun has_position properties position =
+      Properties.get properties Markup.offsetN =
+        Option.map Value.print_int (Position.offset_of position) andalso
+      Properties.get properties Markup.end_offsetN =
+        Option.map Value.print_int (Position.end_offset_of position)
+    fun has_bound position =
+      exists
+        (fn (name, properties) =>
+          name = Markup.boundN andalso
+            has_position properties position)
+        markup
+    fun entity_id property position =
+      let
+        val ids =
+          markup
+          |> map_filter
+              (fn (name, properties) =>
+                if name = Markup.entityN andalso
+                   Properties.get properties Markup.kindN =
+                     SOME "urust_var" andalso
+                   has_position properties position
+                then Properties.get properties property
+                else NONE)
+          |> distinct (op =)
+      in
+        (case ids of
+           [id] => id
+         | _ =>
+             error
+               "closure regression audit: binder entity markup changed")
+      end
+    fun audit_navigation label definition reference =
+      (audit_assert (label ^ " definition lost bound markup")
+         (has_bound definition);
+       audit_assert (label ^ " reference lost bound markup")
+         (has_bound reference);
+       audit_assert (label ^ " reference stopped targeting its formal")
+         (entity_id Markup.defN definition =
+          entity_id Markup.refN reference))
+
+    val (ordinary_def_offset, ordinary_definition) =
+      token_position ordinary_text ordinary_start "alpha" 0
+    val (_, ordinary_reference) =
+      token_position ordinary_text ordinary_start "alpha"
+        (ordinary_def_offset + size "alpha")
+    val _ =
+      audit_navigation
+        "ordinary closure formal"
+        ordinary_definition ordinary_reference
+
+    val (duplicate_first_offset, duplicate_first_definition) =
+      token_position duplicate_text duplicate_start "dup" 0
+    val (duplicate_second_offset, duplicate_second_definition) =
+      token_position duplicate_text duplicate_start "dup"
+        (duplicate_first_offset + size "dup")
+    val (_, duplicate_reference) =
+      token_position duplicate_text duplicate_start "dup"
+        (duplicate_second_offset + size "dup")
+    val duplicate_first_id =
+      entity_id Markup.defN duplicate_first_definition
+    val duplicate_second_id =
+      entity_id Markup.defN duplicate_second_definition
+    val _ =
+      audit_assert "duplicate formal definitions reused an entity ID"
+        (duplicate_first_id <> duplicate_second_id)
+    val _ =
+      audit_navigation
+        "duplicate closure formal"
+        duplicate_second_definition duplicate_reference
+    val _ =
+      audit_assert "duplicate body reference targeted the first formal"
+        (entity_id Markup.refN duplicate_reference <>
+          duplicate_first_id)
+
+    val (nested_outer_offset, nested_outer_definition) =
+      token_position nested_text nested_start "outer" 0
+    val (nested_inner_offset, nested_inner_definition) =
+      token_position nested_text nested_start "inner" 0
+    val (_, nested_outer_reference) =
+      token_position nested_text nested_start "outer"
+        (nested_outer_offset + size "outer")
+    val (_, nested_inner_reference) =
+      token_position nested_text nested_start "inner"
+        (nested_inner_offset + size "inner")
+    val _ =
+      audit_navigation
+        "nested outer closure formal"
+        nested_outer_definition nested_outer_reference
+    val _ =
+      audit_navigation
+        "nested inner closure formal"
+        nested_inner_definition nested_inner_reference
+    val _ =
+      audit_assert "nested closure formals reused an entity ID"
+        (entity_id Markup.defN nested_outer_definition <>
+          entity_id Markup.defN nested_inner_definition)
+
+    val (shadow_outer_offset, shadow_outer_definition) =
+      token_position shadow_text shadow_start "shadow" 0
+    val (shadow_inner_offset, shadow_inner_definition) =
+      token_position shadow_text shadow_start "shadow"
+        (shadow_outer_offset + size "shadow")
+    val (shadow_outer_reference_offset, shadow_outer_reference) =
+      token_position shadow_text shadow_start "shadow"
+        (shadow_inner_offset + size "shadow")
+    val (_, shadow_inner_reference) =
+      token_position shadow_text shadow_start "shadow"
+        (shadow_outer_reference_offset + size "shadow")
+    val _ =
+      audit_navigation
+        "shadowed closure formal"
+        shadow_outer_definition shadow_outer_reference
+    val _ =
+      audit_navigation
+        "shadowing let binder"
+        shadow_inner_definition shadow_inner_reference
+    val _ =
+      audit_assert "shadowing let binder reused the closure formal entity ID"
+        (entity_id Markup.defN shadow_outer_definition <>
+          entity_id Markup.defN shadow_inner_definition)
+  in
+    val _ =
+      writeln
+        "Closure AST, lowering, allocator, dispatch, and markup regressions passed"
+  end
+\<close>
+
 section\<open> Standard code equations \<close>
 
 urust_expr regression_code_literal

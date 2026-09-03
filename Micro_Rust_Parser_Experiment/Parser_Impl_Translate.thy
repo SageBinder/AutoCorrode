@@ -51,7 +51,7 @@ struct
      | UP_Deref (expression, _) =>
          lower environment expression
      | UP_Field (base, name, pos) =>
-         R.field_expression ctxt
+         R.field_expression ctxt environment
            (lower_place lower ctxt environment base) name pos
      | UP_Index (base, index, _) =>
          T.index
@@ -85,8 +85,25 @@ struct
         (P.binding_abstraction prepared lowered_body)
     end
 
+  fun lower_closure lower ctxt environment (formals, body) =
+    let
+      fun formal_signature (P_Ident formal) = formal
+        | formal_signature (P_Wild pos) =
+            error
+              ("urust_expr: closure formal must be an identifier" ^
+                Position.here pos)
+        | formal_signature _ =
+            error "urust_expr: internal non-identifier closure formal"
+      val signatures = map formal_signature formals
+      val (formal_terms, body_environment) =
+        R.allocate_closure_formals ctxt environment signatures
+      val lowered_body = lower body_environment body
+    in T.closure formal_terms lowered_body end
+
   (* Lexical scope is explicit: a let RHS uses the outer environment, while its body uses the exact
-     environment returned by pattern binding. Case alternatives follow the same rule independently. *)
+     environment returned by pattern binding. Closure bodies use the final duplicate-permitting formal
+     environment, while every formal still contributes its own ordered abstraction. Case alternatives
+     follow the same rule independently. *)
   fun lower_expression ctxt environment expression =
     (case expression of
        UE_Unit _ =>
@@ -102,6 +119,9 @@ struct
          R.literal_expression ctxt environment payload
      | UE_ExprAntiq source =>
          R.parse_antiquotation ctxt environment source
+     | UE_Closure (formals, body, _) =>
+         lower_closure (lower_expression ctxt) ctxt environment
+           (formals, body)
      | UE_Seq (first, second) =>
          T.sequence
            (lower_expression ctxt environment first)
@@ -173,7 +193,7 @@ struct
              map (lower_expression ctxt environment) arguments
          in T.function_call call_pos function lowered_arguments end
      | UE_Field (receiver, name, pos) =>
-         R.field_expression ctxt
+         R.field_expression ctxt environment
            (lower_expression ctxt environment receiver) name pos
      | UE_Index (receiver, index, _) =>
          T.index

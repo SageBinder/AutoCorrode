@@ -1290,6 +1290,366 @@ old_urust_rejects
 end
 
 
+section\<open> Closure delimiter placement and parser-wide compositions \<close>
+
+text\<open>
+The dedicated parser gives closures one explicit delimiter-level argument category.
+The current inner-syntax frontend exposes the same closure term only in a subset of
+those delimiter positions, so the remaining rows compare against value-antiquotation
+witnesses with the identical checked HOL shape.
+\<close>
+
+definition improvement_apply_closure ::
+    \<open>(nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body) \<Rightarrow>
+      (unit, nat, unit, unit, unit) function_body\<close>
+  where \<open> improvement_apply_closure closure \<equiv> closure 1 \<close>
+
+definition improvement_apply_closure_first ::
+    \<open>(nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body) \<Rightarrow>
+      nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
+  where \<open> improvement_apply_closure_first closure value \<equiv> closure value \<close>
+
+subsection\<open> Grouping, nesting, siblings, and invocation through a binding \<close>
+
+urust_expr_with_check' improvement_closure_group
+  \<open> (|x| \<llangle>x :: nat\<rrangle>) \<close>
+  \<open>
+    \<lbrakk>
+      \<llangle>(\<lambda>x::nat. FunctionBody (literal x))\<rrangle>
+    \<rbrakk>
+  \<close>
+old_urust_rejects
+  \<open> (|x| \<llangle>x :: nat\<rrangle>) \<close>
+
+urust_expr_with_check' improvement_closure_grouped_initializer
+  \<open>
+    let closure = (|x| \<llangle>x :: nat\<rrangle>);
+    closure(\<llangle>1 :: nat\<rrangle>)
+  \<close>
+  \<open>
+    \<lbrakk>
+      let closure =
+        \<llangle>(\<lambda>x::nat. FunctionBody (literal x))\<rrangle>;
+      closure(\<llangle>1 :: nat\<rrangle>)
+    \<rbrakk>
+  \<close>
+old_urust_rejects
+  \<open>
+    let closure = (|x| \<llangle>x :: nat\<rrangle>);
+    closure(\<llangle>1 :: nat\<rrangle>)
+  \<close>
+
+urust_expr_with_check' improvement_closure_nested_parenthesized
+  \<open>
+    |outer|
+      (|inner| \<llangle>(outer :: nat, inner :: bool)\<rrangle>)
+  \<close>
+  \<open>
+    \<lbrakk>
+      |outer|
+        \<llangle>
+          (\<lambda>inner::bool.
+            FunctionBody (literal (outer :: nat, inner)))
+        \<rrangle>
+    \<rbrakk>
+  \<close>
+old_urust_rejects
+  \<open>
+    |outer|
+      (|inner| \<llangle>(outer :: nat, inner :: bool)\<rrangle>)
+  \<close>
+
+urust_expr_with_check' improvement_closure_siblings
+  \<open>
+    (|x| \<llangle>x :: nat\<rrangle>,
+     |y| \<llangle>y :: bool\<rrangle>)
+  \<close>
+  \<open>
+    \<lbrakk>
+      (\<llangle>(\<lambda>x::nat. FunctionBody (literal x))\<rrangle>,
+       \<llangle>(\<lambda>y::bool. FunctionBody (literal y))\<rrangle>)
+    \<rbrakk>
+  \<close>
+old_urust_rejects
+  \<open>
+    (|x| \<llangle>x :: nat\<rrangle>,
+     |y| \<llangle>y :: bool\<rrangle>)
+  \<close>
+
+subsection\<open> Calls, tuples, arrays, macros, indexing, and arm bodies \<close>
+
+urust_expr_with_check' improvement_closure_single_call_argument
+  \<open>
+    improvement_apply_closure(
+      |x| \<llangle>x :: nat\<rrangle>
+    )
+  \<close>
+  \<open>
+    \<lbrakk>
+      improvement_apply_closure(
+        \<llangle>(\<lambda>x::nat. FunctionBody (literal x))\<rrangle>
+      )
+    \<rbrakk>
+  \<close>
+urust_expr_with_check' improvement_closure_first_call_argument
+  \<open>
+    improvement_apply_closure_first(
+      |x| \<llangle>x :: nat\<rrangle>,
+      1
+    )
+  \<close>
+  \<open>
+    \<lbrakk>
+      improvement_apply_closure_first(
+        \<llangle>(\<lambda>x::nat. FunctionBody (literal x))\<rrangle>,
+        1
+      )
+    \<rbrakk>
+  \<close>
+urust_expr_with_check' improvement_closure_first_tuple_element
+  \<open>
+    (|x| \<llangle>x :: nat\<rrangle>, \<llangle>True\<rrangle>)
+  \<close>
+  \<open>
+    \<lbrakk>
+      (\<llangle>(\<lambda>x::nat. FunctionBody (literal x))\<rrangle>,
+       \<llangle>True\<rrangle>)
+    \<rbrakk>
+  \<close>
+old_urust_rejects
+  \<open>
+    (|x| \<llangle>x :: nat\<rrangle>, \<llangle>True\<rrangle>)
+  \<close>
+
+urust_expr_with_check' improvement_closure_array_elements
+  \<open>
+    [|x| \<llangle>x :: nat\<rrangle>,
+     |x| \<llangle>x :: nat\<rrangle>]
+  \<close>
+  \<open>
+    \<lbrakk>
+      [\<llangle>(\<lambda>x::nat. FunctionBody (literal x))\<rrangle>,
+       \<llangle>(\<lambda>x::nat. FunctionBody (literal x))\<rrangle>]
+    \<rbrakk>
+  \<close>
+old_urust_rejects
+  \<open>
+    [|x| \<llangle>x :: nat\<rrangle>,
+     |x| \<llangle>x :: nat\<rrangle>]
+  \<close>
+
+urust_expr_with_check' improvement_closure_macro_arguments
+  \<open>
+    vec![|x| \<llangle>x :: nat\<rrangle>,
+         |x| \<llangle>x :: nat\<rrangle>]
+  \<close>
+  \<open>
+    \<lbrakk>
+      vec![\<llangle>(\<lambda>x::nat. FunctionBody (literal x))\<rrangle>,
+           \<llangle>(\<lambda>x::nat. FunctionBody (literal x))\<rrangle>]
+    \<rbrakk>
+  \<close>
+old_urust_rejects
+  \<open>
+    vec![|x| \<llangle>x :: nat\<rrangle>,
+         |x| \<llangle>x :: nat\<rrangle>]
+  \<close>
+
+datatype closure_index_fixture = ClosureIndexFixture
+
+definition closure_index_impl ::
+    \<open>closure_index_fixture \<Rightarrow>
+      (nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body) \<Rightarrow>
+      (unit, nat, unit, unit, unit) function_body\<close>
+  where \<open> closure_index_impl _ closure \<equiv> closure 1 \<close>
+
+adhoc_overloading index_const \<rightleftharpoons> closure_index_impl
+
+context fixes closure_index_value :: closure_index_fixture
+begin
+
+urust_expr_with_check' improvement_closure_index_subscript
+  \<open>
+    closure_index_value[|x| \<llangle>x :: nat\<rrangle>]
+  \<close>
+  \<open>
+    \<lbrakk>
+      closure_index_value[
+        \<llangle>(\<lambda>x::nat. FunctionBody (literal x))\<rrangle>
+      ]
+    \<rbrakk>
+  \<close>
+old_urust_rejects
+  \<open>
+    closure_index_value[|x| \<llangle>x :: nat\<rrangle>]
+  \<close>
+
+end
+
+no_adhoc_overloading index_const \<rightleftharpoons> closure_index_impl
+
+urust_expr_with_check' improvement_closure_grouped_arm_body
+  \<open>
+    match true {
+      true \<Rightarrow> (|| \<llangle>1 :: nat\<rrangle>),
+      false \<Rightarrow> (|| \<llangle>2 :: nat\<rrangle>)
+    }
+  \<close>
+  \<open>
+    \<lbrakk>
+      match true {
+        true \<Rightarrow> \<llangle>FunctionBody (literal (1 :: nat))\<rrangle>,
+        false \<Rightarrow> \<llangle>FunctionBody (literal (2 :: nat))\<rrangle>
+      }
+    \<rbrakk>
+  \<close>
+old_urust_rejects
+  \<open>
+    match true {
+      true \<Rightarrow> (|| \<llangle>1 :: nat\<rrangle>),
+      false \<Rightarrow> (|| \<llangle>2 :: nat\<rrangle>)
+    }
+  \<close>
+
+subsection\<open> Existing parser improvements composed with closures \<close>
+
+urust_expr_with_check' improvement_closure_line_comment
+  \<open>
+    |x| {
+      // Closure comments use the production lexer state.
+      \<llangle>x :: nat\<rrangle>
+    }
+  \<close>
+  \<open>
+    \<lbrakk>
+      |x| { \<llangle>x :: nat\<rrangle> }
+    \<rbrakk>
+  \<close>
+old_urust_rejects
+  \<open>
+    |x| {
+      // Closure comments use the production lexer state.
+      \<llangle>x :: nat\<rrangle>
+    }
+  \<close>
+
+urust_expr_with_check' improvement_closure_empty_block
+  \<open> || {} \<close>
+  \<open> \<lbrakk> || { () } \<rbrakk> \<close>
+old_urust_rejects \<open> || {} \<close>
+
+urust_expr_with_check' improvement_closure_call_trailing_comma
+  \<open>
+    closure_invoke_nat(
+      1,
+      |x| \<llangle>x :: nat\<rrangle>,
+    )
+  \<close>
+  \<open>
+    \<lbrakk>
+      closure_invoke_nat(
+        1,
+        |x| \<llangle>x :: nat\<rrangle>
+      )
+    \<rbrakk>
+  \<close>
+old_urust_rejects
+  \<open>
+    closure_invoke_nat(
+      1,
+      |x| \<llangle>x :: nat\<rrangle>,
+    )
+  \<close>
+
+urust_expr_with_check' improvement_closure_array_trailing_comma
+  \<open>
+    [\<llangle>(\<lambda>x::nat. FunctionBody (literal x))\<rrangle>,
+     |x| \<llangle>x :: nat\<rrangle>,]
+  \<close>
+  \<open>
+    \<lbrakk>
+      [\<llangle>(\<lambda>x::nat. FunctionBody (literal x))\<rrangle>,
+       |x| \<llangle>x :: nat\<rrangle>]
+    \<rbrakk>
+  \<close>
+old_urust_rejects
+  \<open>
+    [\<llangle>(\<lambda>x::nat. FunctionBody (literal x))\<rrangle>,
+     |x| \<llangle>x :: nat\<rrangle>,]
+  \<close>
+
+urust_expr_with_check' improvement_closure_ascii_arrow
+  \<open>
+    |value|
+      match Some(value) {
+        Some(result) => \<llangle>result :: nat\<rrangle>,
+        None => 0
+      }
+  \<close>
+  \<open>
+    \<lbrakk>
+      |value|
+        match Some(value) {
+          Some(result) \<Rightarrow> \<llangle>result :: nat\<rrangle>,
+          None \<Rightarrow> 0
+        }
+    \<rbrakk>
+  \<close>
+old_urust_rejects
+  \<open>
+    |value|
+      match Some(value) {
+        Some(result) => \<llangle>result :: nat\<rrangle>,
+        None => 0
+      }
+  \<close>
+
+urust_expr_with_check' improvement_closure_glued_suffix
+  \<open> || 1u32 \<close>
+  \<open> \<lbrakk> || 1_u32 \<rbrakk> \<close>
+old_urust_rejects \<open> || 1u32 \<close>
+
+urust_expr_with_check' improvement_closure_mixed_chain_in_block
+  \<open>
+    || {
+      if false {
+        0
+      } else if let Some(value) = Some(1) {
+        value
+      } else {
+        2
+      }
+    }
+  \<close>
+  \<open>
+    \<lbrakk>
+      || {
+        if false {
+          0
+        } else {
+          if let Some(value) = Some(1) {
+            value
+          } else {
+            2
+          }
+        }
+      }
+    \<rbrakk>
+  \<close>
+old_urust_rejects
+  \<open>
+    || {
+      if false {
+        0
+      } else if let Some(value) = Some(1) {
+        value
+      } else {
+        2
+      }
+    }
+  \<close>
+
+
 section\<open> Rust-compatible return expressions \<close>
 
 text\<open>

@@ -69,6 +69,7 @@ sig
     | UE_Ident of string * Position.T
     | UE_Literal of literal_payload
     | UE_ExprAntiq of Input.source
+    | UE_Closure of ur_pat list * ur_expr * Position.T
     | UE_Let of ur_pat * ur_expr * ur_expr
     | UE_LetMut of ur_pat * ur_expr * ur_expr * Position.T
     | UE_Const of ur_pat * ur_expr * ur_expr
@@ -117,6 +118,8 @@ sig
     (string * Position.T) * ur_pat * Position.T -> ur_pat
   val mk_struct_pat:
     (string * Position.T) * struct_field list -> ur_pat
+  val mk_closure:
+    ur_pat list * ur_expr * Position.T * Position.T -> ur_expr
   val mk_call:
     string * Position.T * ur_expr list * Position.T * Position.T -> ur_expr
   val mk_method_call:
@@ -155,14 +158,18 @@ end
     * match_flavour and MF_Switch, MF_Case, MF_Auto.  MF_Auto requests downstream classification; it
       is not a fourth lowering.
     * the mutually recursive expression interface ur_expr (UE_Unit, UE_Tuple, UE_Array, UE_Ident,
-      UE_Literal, UE_ExprAntiq, UE_Let, UE_LetMut, UE_Const, UE_Seq, UE_Return, UE_Bin, UE_Unary,
-      UE_Group, UE_Block, UE_If, UE_IfLet, UE_LetElse, UE_While, UE_Loop, UE_For, UE_WhileLet,
-      UE_Call, UE_Field, UE_Index, UE_Range, UE_Assign, UE_Macro, UE_Match), macro_payload
+      UE_Literal, UE_ExprAntiq, UE_Closure, UE_Let, UE_LetMut, UE_Const, UE_Seq, UE_Return, UE_Bin,
+      UE_Unary, UE_Group, UE_Block, UE_If, UE_IfLet, UE_LetElse, UE_While, UE_Loop, UE_For,
+      UE_WhileLet, UE_Call, UE_Field, UE_Index, UE_Range, UE_Assign, UE_Macro, UE_Match),
+      macro_payload
       (MP_Arguments, MP_Matches), ur_place (UP_Ident, UP_Deref, UP_Field, UP_Index, UP_Antiq), and
       ur_arm (UR_Arm). Expression and pattern lists preserve source order. A generic macro payload
       retains every parsed argument without deciding which arguments a legacy macro lowers;
       MP_Matches retains its expression and pattern in separate grammar categories. A UR_Arm
       contains its pattern, an optional guard paired with the guard-keyword position, and its body.
+      UE_Closure retains ordered pattern-shaped formals and the full closure span; its grammar admits
+      only identifier spellings, while the closure-formal lowering gate rejects the normalized
+      wildcard.
       UE_IfLet retains an optional source else branch; UE_LetElse retains its fallback and required
       continuation separately. A UE_Return never stores a semicolon; a method invocation is
       represented as UE_Call with the receiver prepended; ur_place contains only validated
@@ -178,10 +185,11 @@ end
   "invalid assignment target" error. finish_statement leaves a terminal UE_Return unchanged and
   otherwise sequences the expression with UE_Unit at the semicolon. mk_bare_ident_pat normalises "_"
   to P_Wild; the other pattern smart constructors consume ordinary (name, position) pairs without a
-  parser-only wrapper datatype. mk_call combines its supplied source endpoints into the call span,
-  mk_method_call additionally prepends its receiver. mk_let_else converts the parser's right
-  position for a final ranged token to its exclusive endpoint before constructing the full source
-  span. mk_or_pat preserves source order while flattening a right-recursive P_Or.
+  parser-only wrapper datatype. mk_closure converts a final ranged body token to its exclusive endpoint
+  before constructing the full source span. mk_call combines its supplied source endpoints into the
+  call span, and mk_method_call additionally prepends its receiver. mk_let_else applies the same
+  exclusive-end correction to its final ranged token. mk_or_pat preserves source order while
+  flattening a right-recursive P_Or.
 
   Constructor-resolution policy, legal-pattern subsets at each use site, lowering choices, and the
   private expression-position/place conversion helpers remain implementation details. Directly
@@ -268,6 +276,8 @@ struct
     | UE_Ident     of string * Position.T             (* bare identifier at value position *)
     | UE_Literal   of literal_payload                 (* integer / bool / string / <<value>> *)
     | UE_ExprAntiq of Input.source                    (* eps<e> body as a POSITIONED source -> e *)
+    | UE_Closure   of ur_pat list * ur_expr * Position.T
+                                                      (* |x, ...| body / || body, at full span *)
     | UE_Let       of ur_pat * ur_expr * ur_expr      (* let <pat> = rhs; body -> bind *)
     | UE_LetMut    of ur_pat * ur_expr * ur_expr * Position.T
                                                       (* let mut <pat> = rhs; body *)
@@ -338,6 +348,7 @@ struct
     | expression_position (UE_Ident (_, pos)) = pos
     | expression_position (UE_Literal payload) = literal_position payload
     | expression_position (UE_ExprAntiq src) = Input.pos_of src
+    | expression_position (UE_Closure (_, _, pos)) = pos
     | expression_position (UE_Let _) = Position.none
     | expression_position (UE_LetMut (_, _, _, pos)) = pos
     | expression_position (UE_Const _) = Position.none
@@ -394,10 +405,6 @@ struct
     P_Alias (name, pos, inner, at_pos)
   fun mk_struct_pat ((name, pos), fields) =
     P_Struct (name, pos, fields)
-  fun mk_call (name, name_pos, args, left, right) =
-    UE_Call (name, name_pos, args, Position.range_position (left, right))
-  fun mk_method_call (receiver, name, name_pos, args, left, right) =
-    mk_call (name, name_pos, receiver :: args, left, right)
 
   fun exclusive_end pos =
     (case Position.end_offset_of pos of
@@ -410,6 +417,15 @@ struct
            Position.make0 line stop 0 label file id
          end
      | _ => pos)
+
+  fun mk_closure (formals, body, left, right) =
+    UE_Closure
+      (formals, body,
+       Position.range_position (left, exclusive_end right))
+  fun mk_call (name, name_pos, args, left, right) =
+    UE_Call (name, name_pos, args, Position.range_position (left, right))
+  fun mk_method_call (receiver, name, name_pos, args, left, right) =
+    mk_call (name, name_pos, receiver :: args, left, right)
 
   fun mk_let_else
       (pattern, scrutinee, fallback, continuation, left, right) =

@@ -14,6 +14,7 @@ sig
   val string_value: string -> Position.T -> term
   val string_from_characters: term -> term
   val integer_value: Position.T -> string -> term
+  val closure: term list -> term -> term
 
   val function_call: Position.T -> term -> term list -> term
   val bind: term -> term -> term
@@ -91,6 +92,8 @@ ML\<open>
      position. integer_value accepts the parser's decimal or 0x hexadecimal lexeme, with no suffix or
      one of u8, u16, u32, u64, and usize, optionally separated by one compatibility underscore; it
      reports malformed numbers and unsupported suffixes at the source position.
+   * closure wraps one FunctionBody around the already-lowered body, abstracts the ordered formal
+     Frees in source order, and then applies one outer literal. It imposes no call-arity limit.
    * function_call maps a function term and its argument list to funcall0 through funcall14 and rejects
      larger arities at its call position. bind takes an expression and a continuation abstraction;
      sequence, return_value, and case_product preserve the corresponding shallow-embedding constructors
@@ -137,6 +140,11 @@ struct
 
   fun literal value = constant \<^const_name>\<open>literal\<close> [value]
   fun bindlift1 f expression = constant \<^const_name>\<open>bindlift1\<close> [f, expression]
+
+  fun closure formals body =
+    literal
+      (fold_rev Term.lambda formals
+        (constant \<^const_name>\<open>FunctionBody\<close> [body]))
 
   fun boolean_expression value =
     Const (if value then \<^const_name>\<open>Bool_Type.true\<close>

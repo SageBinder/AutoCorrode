@@ -635,6 +635,15 @@ end
 
 subsubsection\<open>Closures\<close>
 
+text\<open>
+Second-class closure parity has runnable coverage in
+\<open>Parser_Test_Conformance.thy\<close>, including duplicate and long formal lists, lexical capture,
+role-sensitive notation resolution, closure-body forms, and every frontend placement. Parser-only
+delimiter compositions and grouped placements are checked in \<open>Parser_Test_Improvements.thy\<close>;
+malformed formals, excluded bare placements, and direct invocation remain executable negative rows.
+The goldens below remain representative frontend examples rather than the complete coverage source.
+\<close>
+
 context
   fixes f :: \<open>nat \<Rightarrow> bool \<Rightarrow> ('s, nat, unit, unit, unit) function_body\<close>
   fixes h :: \<open>nat \<Rightarrow> (bool \<Rightarrow> ('s, nat, unit, unit, unit) function_body) \<Rightarrow> ('s, unit, unit, unit, unit) function_body\<close>
