@@ -1804,6 +1804,270 @@ urust_expr_with_check adv_struct_or
 urust_expr_with_check adv_struct_datatype_record
   \<open> match \<llangle>make_adv_datatype_record 3 4\<rrangle> { adv_datatype_record { adv_dr_right: y, adv_dr_left: x } \<Rightarrow> y } \<close>
 
+section\<open> If-let and let-else \<close>
+
+datatype conditional_let_case =
+    ConditionalLetA nat
+  | ConditionalLetB nat
+  | ConditionalLetC
+
+text\<open>
+Both conditional binding forms reuse case-pattern lowering. The scrutinee and
+fallback use the outer environment; the success branch, and the continuation
+after \<open>let ... else\<close>, use the prepared pattern environment. A top-level
+tuple retains the frontend's direct irrefutable-binding special case.
+\<close>
+
+subsection\<open> Placement and continuations \<close>
+
+urust_expr_with_check if_let_one_armed_terminal
+  \<open> if let Some(value) = Some(\<llangle>1 :: nat\<rrangle>) { let _ = value; () } \<close>
+
+urust_expr_with_check if_let_two_armed_terminal
+  \<open> if let Some(value) = Some(\<llangle>1 :: nat\<rrangle>) { value } else { 0 } \<close>
+
+urust_expr_with_check if_let_explicit_semicolon
+  \<open> if let Some(_) = Some(()) { () }; () \<close>
+
+urust_expr_with_check if_let_semicolon_free_statement
+  \<open> if let Some(_) = Some(()) { () } else { () } () \<close>
+
+urust_expr_with_check let_else_simple_continuation
+  \<open> let Some(value) = Some(\<llangle>1 :: nat\<rrangle>) else { 0 }; value \<close>
+
+urust_expr_with_check let_else_nested_continuation
+  \<open>
+    let Some(value) = Some(\<llangle>1 :: nat\<rrangle>) else { 0 };
+    let Some(next) = Some(\<llangle>value + 1\<rrangle>) else { 0 };
+    next
+  \<close>
+
+urust_expr_with_check let_else_returning_continuation
+  \<open>
+    let Some(value) = Some(\<llangle>1 :: nat\<rrangle>) else { return \<llangle>0 :: nat\<rrangle>; };
+    return value;
+  \<close>
+
+subsection\<open> Pattern surface \<close>
+
+urust_expr_with_check if_let_nullary_constructor
+  \<open> if let None = \<llangle>None :: nat option\<rrangle> { 1 } else { 0 } \<close>
+
+urust_expr_with_check if_let_nested_tuple
+  \<open>
+    if let Some((left, (middle, right))) =
+      Some((\<llangle>1 :: nat\<rrangle>, (\<llangle>2 :: nat\<rrangle>, \<llangle>3 :: nat\<rrangle>))) {
+      \<llangle>left + middle + right\<rrangle>
+    } else {
+      0
+    }
+  \<close>
+
+urust_expr_with_check if_let_nested_wildcard
+  \<open> if let Some((_, value)) = Some((\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>)) { value } else { 0 } \<close>
+
+urust_expr_with_check if_let_alias
+  \<open>
+    if let whole @ Some(value) = \<llangle>Some (2 :: nat)\<rrangle> {
+      let _ = whole;
+      value
+    } else {
+      0
+    }
+  \<close>
+
+urust_expr_with_check if_let_grouped
+  \<open> if let (Some(value)) = \<llangle>Some (2 :: nat)\<rrangle> { value } else { 0 } \<close>
+
+urust_expr_with_check if_let_literal
+  \<open> if let true = \<llangle>True\<rrangle> { 1 } else { 0 } \<close>
+
+urust_expr_with_check if_let_range
+  \<open> if let Some(2..=4) = \<llangle>Some (3 :: nat)\<rrangle> { 1 } else { 0 } \<close>
+
+urust_expr_with_check if_let_slice
+  \<open>
+    if let [head, ..] = \<llangle>[1 :: nat, 2]\<rrangle> {
+      head
+    } else {
+      0
+    }
+  \<close>
+
+urust_expr_with_check if_let_struct
+  \<open>
+    if let AdvStruct { adv_left: left, adv_right: _ } =
+      \<llangle>AdvStruct 1 2\<rrangle> {
+      left
+    } else {
+      0
+    }
+  \<close>
+
+urust_expr_with_check if_let_or_pattern
+  \<open>
+    if let ConditionalLetA(value) | ConditionalLetB(value) =
+      \<llangle>ConditionalLetA 3\<rrangle> {
+      value
+    } else {
+      0
+    }
+  \<close>
+
+urust_expr_with_check if_let_top_tuple_direct
+  \<open>
+    if let (left, right) =
+      (\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>) {
+      \<llangle>left + right\<rrangle>
+    } else {
+      missing_tuple_fallback
+    }
+  \<close>
+
+urust_expr_with_check let_else_constructor
+  \<open>
+    let Some(value) = \<llangle>Some (4 :: nat)\<rrangle> else { 0 };
+    value
+  \<close>
+
+urust_expr_with_check let_else_tuple_direct
+  \<open>
+    let (left, right) =
+      (\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>) else {
+      missing_tuple_fallback
+    };
+    \<llangle>left + right\<rrangle>
+  \<close>
+
+urust_expr_with_check let_else_or_pattern
+  \<open>
+    let ConditionalLetA(value) | ConditionalLetB(value) =
+      \<llangle>ConditionalLetB 5\<rrangle> else {
+      0
+    };
+    value
+  \<close>
+
+subsection\<open> Nesting and scrutinees \<close>
+
+urust_expr_with_check if_let_nested
+  \<open>
+    if let Some(outer) = \<llangle>Some (1 :: nat)\<rrangle> {
+      if let Some(inner) = Some(\<llangle>outer + 1\<rrangle>) { inner } else { 0 }
+    } else {
+      0
+    }
+  \<close>
+
+urust_expr_with_check if_let_inside_if
+  \<open>
+    if true {
+      if let Some(value) = \<llangle>Some (1 :: nat)\<rrangle> { value } else { 0 }
+    } else {
+      0
+    }
+  \<close>
+
+urust_expr_with_check if_let_inside_match
+  \<open>
+    match \<llangle>Some (1 :: nat)\<rrangle> {
+      Some(value) \<Rightarrow> {
+        if let Some(next) = Some(\<llangle>value + 1\<rrangle>) { next } else { 0 }
+      },
+      None \<Rightarrow> 0
+    }
+  \<close>
+
+urust_expr_with_check if_let_branch_control_flow
+  \<open>
+    if let Some(value) = \<llangle>Some (1 :: nat)\<rrangle> {
+      if \<llangle>value = 1\<rrangle> { value } else { 0 }
+    } else {
+      match \<llangle>None :: nat option\<rrangle> {
+        Some(other) \<Rightarrow> other,
+        None \<Rightarrow> 0
+      }
+    }
+  \<close>
+
+urust_expr_with_check if_let_block_scrutinee
+  \<open> if let Some(value) = { \<llangle>Some (1 :: nat)\<rrangle> } { value } else { 0 } \<close>
+
+urust_expr_with_check if_let_parenthesized_if_scrutinee
+  \<open>
+    if let Some(value) =
+      (if true { \<llangle>Some (1 :: nat)\<rrangle> } else { \<llangle>None\<rrangle> }) {
+      value
+    } else {
+      0
+    }
+  \<close>
+
+urust_expr_with_check if_let_parenthesized_match_scrutinee
+  \<open>
+    if let Some(value) =
+      (match true {
+        true \<Rightarrow> \<llangle>Some (1 :: nat)\<rrangle>,
+        false \<Rightarrow> \<llangle>None\<rrangle>
+      }) {
+      value
+    } else {
+      0
+    }
+  \<close>
+
+urust_expr_with_check if_let_expression_antiquotation_scrutinee
+  \<open>
+    if let Some(value) =
+      \<epsilon>\<open>literal (Some (1 :: nat))\<close> {
+      value
+    } else {
+      0
+    }
+  \<close>
+
+subsection\<open> Scope and shadowing \<close>
+
+urust_expr_with_check if_let_outer_scrutinee_and_fallback
+  \<open>
+    let value = \<llangle>Some (1 :: nat)\<rrangle>;
+    let fallback = \<llangle>2 :: nat\<rrangle>;
+    if let Some(value) = value { \<llangle>value\<rrangle> } else { fallback }
+  \<close>
+
+urust_expr_with_check if_let_outer_shadowed_name_in_fallback
+  \<open>
+    let value = \<llangle>2 :: nat\<rrangle>;
+    if let Some(value) = \<llangle>None :: nat option\<rrangle> { value } else { value }
+  \<close>
+
+urust_expr_with_check let_else_continuation_scope
+  \<open>
+    let value = \<llangle>Some (3 :: nat)\<rrangle>;
+    let Some(value) = value else { 0 };
+    \<llangle>value\<rrangle>
+  \<close>
+
+context fixes conditional_let_fix :: nat
+begin
+
+urust_expr_with_check if_let_hol_fix_shadow
+  \<open>
+    if let Some(conditional_let_fix) = Some(conditional_let_fix) {
+      \<llangle>conditional_let_fix\<rrangle>
+    } else {
+      conditional_let_fix
+    }
+  \<close>
+
+end
+
+urust_expr_with_check if_let_hol_constant_shadow
+  \<open> if let Some(id) = \<llangle>Some (1 :: nat)\<rrangle> { \<llangle>id\<rrangle> } else { 0 } \<close>
+
+urust_expr_with_check if_let_notation_shadow
+  \<open> if let Some(myReg) = \<llangle>Some (1 :: nat)\<rrangle> { \<llangle>myReg\<rrangle> } else { myReg } \<close>
+
 section\<open> Bare \<open>match\<close> (automatic case/switch routing, D32) \<close>
 
 text\<open>

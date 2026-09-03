@@ -287,7 +287,7 @@ yacc_definitions\<open>
    structural tiers too; these directives keep the ambiguous `uexp OP uexp` productions
    conflict-free. *)
 %right TRETURN
-%right TIF TLBRACE TLBRACK TUNSAFE TWHILE TLOOP TFOR
+%right TIF TELSE TLBRACE TLBRACK TUNSAFE TWHILE TLOOP TFOR
 %nonassoc TDOTDOT TDOTDOTEQ
 %left TBARBAR
 %left TAMPAMP
@@ -335,6 +335,7 @@ yacc_definitions\<open>
        | usemi_free_atom of URust_AST.ur_expr
        | usemi_free_value of URust_AST.ur_expr
        | uif of URust_AST.ur_expr
+       | uiflet of URust_AST.ur_expr
        | ufuel of Input.source * Position.T
        | uloop of URust_AST.ur_expr
        | ufor of URust_AST.ur_expr
@@ -377,6 +378,9 @@ yacc_rules\<open>
         | TLET TMUT upat TEQ uval TSEMI ustmt
             (UE_LetMut (upat, uval, ustmt, TMUTleft))
         | TCONST upat TEQ uval TSEMI ustmt (UE_Const (upat, uval, ustmt))
+        | TLET upat TEQ uval TELSE ublock TSEMI ustmt
+            (mk_let_else
+              (upat, uval, ublock, ustmt, TLETleft, ustmtright))
   (* Value position: an operand OR a with-block control-flow expr. `uval` is where `if`/`match` (later
      loops) are admitted -- let-RHS, condition, call args, parens -- WITHOUT being a bare binary-operator
      operand (that stays `uexp`, closing divergence D-1 -- D25). *)
@@ -510,6 +514,14 @@ yacc_rules\<open>
   uif : TIF uval ublock                     (UE_If (uval, ublock, NONE, TIFleft))
       | TIF uval ublock TELSE ublock        (UE_If (uval, ublock1, SOME ublock2, TIFleft))
       | TIF uval ublock TELSE uif           (UE_If (uval, ublock, SOME uif, TIFleft))
+  uiflet : TIF TLET upat TEQ uval ublock %prec TIF
+              (UE_IfLet
+                (upat, uval, ublock, NONE,
+                 Position.range_position (TIFleft, ublockright)))
+           | TIF TLET upat TEQ uval ublock TELSE ublock
+              (UE_IfLet
+                (upat, uval, ublock1, SOME ublock2,
+                 Position.range_position (TIFleft, ublock2right)))
   ufuel : THASH TLBRACK TFUEL LPAR EXPRAQ RPAR TRBRACK
               ((EXPRAQ, THASHleft))
   uloop : ufuel TWHILE LPAR uval RPAR ublock
@@ -525,6 +537,7 @@ yacc_rules\<open>
               (UE_WhileLet (#1 ufuel, upat, uval, ublock,
                 Position.range_position (#2 ufuel, ublockright)))
   usemi_free_value : uif                    (uif)
+                   | uiflet                 (uiflet)
                    | uloop                  (uloop)
                    | ufor                   (ufor)
                    | uwhilelet              (uwhilelet)

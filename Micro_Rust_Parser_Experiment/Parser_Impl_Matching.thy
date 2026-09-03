@@ -21,6 +21,20 @@ sig
       Input.source * URust_AST.ur_pat * URust_AST.ur_expr *
         URust_AST.ur_expr * Position.T ->
       term
+  val lower_if_let:
+    (URust_Resolution.environment -> URust_AST.ur_expr -> term) ->
+      Proof.context ->
+      URust_Resolution.environment ->
+      URust_AST.ur_pat * URust_AST.ur_expr * URust_AST.ur_expr *
+        URust_AST.ur_expr option * Position.T ->
+      term
+  val lower_let_else:
+    (URust_Resolution.environment -> URust_AST.ur_expr -> term) ->
+      Proof.context ->
+      URust_Resolution.environment ->
+      URust_AST.ur_pat * URust_AST.ur_expr * URust_AST.ur_expr *
+        URust_AST.ur_expr * Position.T ->
+      term
   val lower_boolean_match:
     (URust_Resolution.environment -> URust_AST.ur_expr -> term) ->
       Proof.context ->
@@ -31,7 +45,7 @@ end
 \<close>
 
 text\<open>
-This layer owns case-arm orchestration and the three consumers of prepared case patterns. Recursive
+This layer owns case-arm orchestration and the five consumers of prepared case patterns. Recursive
 expression lowering remains a callback supplied by \<open>URust_Translate\<close>; pattern resolution,
 normalization, coverage, and case-term compilation remain sealed behind \<open>URust_Patterns\<close>.
 \<close>
@@ -39,13 +53,13 @@ normalization, coverage, and case-term compilation remain sealed behind \<open>U
 ML\<open>
 (*
   URust_Matching is the orchestration boundary between recursive expression traversal and prepared
-  pattern compilation. It owns the control-flow-specific sequencing for ordinary matches, `while
-  let`, and boolean pattern matches, but does not resolve names directly, expose prepared-pattern
-  representations, recursively traverse arbitrary expressions itself, type-check terms, or install
-  definitions. URust_Patterns remains responsible for pattern resolution, validation, normalization,
-  coverage, and exact case-term construction.
+  pattern compilation. It owns the control-flow-specific sequencing for ordinary matches, `if let`,
+  `let ... else`, `while let`, and boolean pattern matches, but does not resolve names directly,
+  expose prepared-pattern representations, recursively traverse arbitrary expressions itself,
+  type-check terms, or install definitions. URust_Patterns remains responsible for pattern
+  resolution, validation, normalization, coverage, and exact case-term construction.
 
-  All three public operations take the same lowering callback first. The callback must lower one
+  All five public operations take the same lowering callback first. The callback must lower one
   URust_AST.ur_expr in the supplied URust_Resolution.environment and return an unchecked shallow HOL
   term. Callers must provide the callback closed over the same Proof.context passed separately to the
   matching operation. URust_Matching invokes it exactly at the source-expression boundaries described
@@ -67,6 +81,12 @@ ML\<open>
     abstraction; refutable patterns use case compilation with a false fallback unless conservative
     prepared-pattern coverage proves the pattern total. Success sequences the body with literal true,
     and bounded_while receives skip as its body.
+
+  - lower_if_let and lower_let_else lower their scrutinee once in the outer environment, prepare one
+    unguarded source pattern, lower success in the prepared environment, and lower fallback in the
+    outer environment. One-armed `if let` supplies skip. Ordinary patterns always install the
+    frontend-shaped explicit wildcard fallback, including total patterns; the frontend's syntactic
+    top-level tuple exception instead uses its direct irrefutable abstraction and ignores fallback.
 
   - lower_boolean_match lower ctxt environment (scrutinee, pattern, position) lowers the scrutinee in
     the outer environment, prepares one unguarded arm, and compiles a literal-true result with an
@@ -138,6 +158,54 @@ struct
                    lowered_scrutinee [arm]
              end)
     in T.bounded_while lowered_fuel condition T.skip end
+
+  fun lower_pattern_branch lower ctxt environment
+      (pattern, scrutinee, success, fallback, position) =
+    let
+      val lowered_scrutinee = lower environment scrutinee
+    in
+      (case pattern of
+         P_Tuple _ =>
+           let
+             val prepared =
+               P.prepare_binding P.Let_Const_Binder ctxt environment pattern
+             val success_environment =
+               P.binding_environment prepared
+             val lowered_success =
+               lower success_environment success
+           in
+             P.bind_prepared prepared lowered_scrutinee lowered_success
+           end
+       | _ =>
+           let
+             val prepared =
+               the_single
+                 (P.prepare_case_arms ctxt position environment
+                   [UR_Arm (pattern, NONE, success)])
+             val success_environment =
+               P.prepared_environment prepared
+             val lowered_success =
+               lower success_environment success
+             val lowered_fallback =
+               lower environment fallback
+           in
+             P.compile_case ctxt
+               (SOME lowered_fallback)
+               lowered_scrutinee
+               [(prepared, NONE, lowered_success)]
+           end)
+    end
+
+  fun lower_if_let lower ctxt environment
+      (pattern, scrutinee, success, fallback, position) =
+    lower_pattern_branch lower ctxt environment
+      (pattern, scrutinee, success,
+       the_default (UE_Unit position) fallback, position)
+
+  fun lower_let_else lower ctxt environment
+      (pattern, scrutinee, fallback, continuation, position) =
+    lower_pattern_branch lower ctxt environment
+      (pattern, scrutinee, continuation, fallback, position)
 
   fun lower_match lower ctxt environment (flavour, scrutinee, arms, pos) =
     let

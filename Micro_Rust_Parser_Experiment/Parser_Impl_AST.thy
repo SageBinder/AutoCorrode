@@ -79,6 +79,10 @@ sig
     | UE_Group of ur_expr * Position.T
     | UE_Block of ur_expr * Position.T
     | UE_If of ur_expr * ur_expr * ur_expr option * Position.T
+    | UE_IfLet of
+        ur_pat * ur_expr * ur_expr * ur_expr option * Position.T
+    | UE_LetElse of
+        ur_pat * ur_expr * ur_expr * ur_expr * Position.T
     | UE_While of Input.source * ur_expr * ur_expr * Position.T
     | UE_Loop of Input.source * ur_expr * Position.T
     | UE_For of ur_pat * ur_expr * ur_expr * Position.T
@@ -118,6 +122,9 @@ sig
   val mk_method_call:
     ur_expr * string * Position.T * ur_expr list *
       Position.T * Position.T -> ur_expr
+  val mk_let_else:
+    ur_pat * ur_expr * ur_expr * ur_expr *
+      Position.T * Position.T -> ur_expr
   val mk_or_pat: ur_pat * ur_pat * Position.T -> ur_pat
 end
 
@@ -149,15 +156,17 @@ end
       is not a fourth lowering.
     * the mutually recursive expression interface ur_expr (UE_Unit, UE_Tuple, UE_Array, UE_Ident,
       UE_Literal, UE_ExprAntiq, UE_Let, UE_LetMut, UE_Const, UE_Seq, UE_Return, UE_Bin, UE_Unary,
-      UE_Group, UE_Block, UE_If, UE_While, UE_Loop, UE_For, UE_WhileLet, UE_Call, UE_Field, UE_Index,
-      UE_Range, UE_Assign, UE_Macro, UE_Match), macro_payload (MP_Arguments, MP_Matches), ur_place
-      (UP_Ident, UP_Deref, UP_Field, UP_Index, UP_Antiq), and ur_arm (UR_Arm). Expression and pattern
-      lists preserve source order. A generic macro payload retains every parsed argument without
-      deciding which arguments a legacy macro lowers; MP_Matches retains its expression and pattern
-      in separate grammar categories. A UR_Arm contains its
-      pattern, an optional guard paired with the guard-keyword position, and its body.  A UE_Return
-      never stores a semicolon; a method invocation is represented as UE_Call with the receiver
-      prepended; ur_place contains only validated assignment-target shapes.
+      UE_Group, UE_Block, UE_If, UE_IfLet, UE_LetElse, UE_While, UE_Loop, UE_For, UE_WhileLet,
+      UE_Call, UE_Field, UE_Index, UE_Range, UE_Assign, UE_Macro, UE_Match), macro_payload
+      (MP_Arguments, MP_Matches), ur_place (UP_Ident, UP_Deref, UP_Field, UP_Index, UP_Antiq), and
+      ur_arm (UR_Arm). Expression and pattern lists preserve source order. A generic macro payload
+      retains every parsed argument without deciding which arguments a legacy macro lowers;
+      MP_Matches retains its expression and pattern in separate grammar categories. A UR_Arm
+      contains its pattern, an optional guard paired with the guard-keyword position, and its body.
+      UE_IfLet retains an optional source else branch; UE_LetElse retains its fallback and required
+      continuation separately. A UE_Return never stores a semicolon; a method invocation is
+      represented as UE_Call with the receiver prepended; ur_place contains only validated
+      assignment-target shapes.
 
   Position.T fields identify the token or span documented at each constructor. Consumers may use them
   for markup and diagnostics, but must not infer semantic validity from their presence.
@@ -170,8 +179,9 @@ end
   otherwise sequences the expression with UE_Unit at the semicolon. mk_bare_ident_pat normalises "_"
   to P_Wild; the other pattern smart constructors consume ordinary (name, position) pairs without a
   parser-only wrapper datatype. mk_call combines its supplied source endpoints into the call span,
-  mk_method_call additionally prepends its receiver, and mk_or_pat preserves source order while
-  flattening a right-recursive P_Or.
+  mk_method_call additionally prepends its receiver. mk_let_else converts the parser's right
+  position for a final ranged token to its exclusive endpoint before constructing the full source
+  span. mk_or_pat preserves source order while flattening a right-recursive P_Or.
 
   Constructor-resolution policy, legal-pattern subsets at each use site, lowering choices, and the
   private expression-position/place conversion helpers remain implementation details. Directly
@@ -273,6 +283,12 @@ struct
                                                          wrapper: `_urust_scoping` is identity (D22) *)
     | UE_If        of ur_expr * ur_expr * ur_expr option * Position.T
                                                       (* NONE else-branch = one-armed -> skip (D22) *)
+    | UE_IfLet     of
+        ur_pat * ur_expr * ur_expr * ur_expr option * Position.T
+                                                      (* if let pattern = value { success } [else] *)
+    | UE_LetElse   of
+        ur_pat * ur_expr * ur_expr * ur_expr * Position.T
+                                                      (* let pattern = value else fallback; continuation *)
     | UE_While     of Input.source * ur_expr * ur_expr * Position.T
                                                       (* #[fuel(eps<n>)] while (condition) body *)
     | UE_Loop      of Input.source * ur_expr * Position.T
@@ -332,6 +348,8 @@ struct
     | expression_position (UE_Group (_, pos)) = pos
     | expression_position (UE_Block (_, pos)) = pos
     | expression_position (UE_If (_, _, _, pos)) = pos
+    | expression_position (UE_IfLet (_, _, _, _, pos)) = pos
+    | expression_position (UE_LetElse (_, _, _, _, pos)) = pos
     | expression_position (UE_While (_, _, _, pos)) = pos
     | expression_position (UE_Loop (_, _, pos)) = pos
     | expression_position (UE_For (_, _, _, pos)) = pos
@@ -380,6 +398,24 @@ struct
     UE_Call (name, name_pos, args, Position.range_position (left, right))
   fun mk_method_call (receiver, name, name_pos, args, left, right) =
     mk_call (name, name_pos, receiver :: args, left, right)
+
+  fun exclusive_end pos =
+    (case Position.end_offset_of pos of
+       SOME stop =>
+         let
+           val
+             {line, props = {label, file, id}, ...} =
+               Position.dest pos
+         in
+           Position.make0 line stop 0 label file id
+         end
+     | _ => pos)
+
+  fun mk_let_else
+      (pattern, scrutinee, fallback, continuation, left, right) =
+    UE_LetElse
+      (pattern, scrutinee, fallback, continuation,
+       Position.range_position (left, exclusive_end right))
 
   (* The grammar is right-recursive, so prepend the left alternative in O(1) while retaining source order. *)
   fun mk_or_pat (p, P_Or (alternatives, _), pos) =

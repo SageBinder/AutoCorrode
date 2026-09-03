@@ -38,10 +38,9 @@ end
    URust_Diagnostics.parse_source owns serialization of the generated runtime; elaboration and
    check_term remain outside that lock.
 
-   URUST_COMMAND exposes only elab_urust for test harnesses and programmatic clients. Definition
-   helpers, conformance-proof assembly, parsers for the three outer commands, and command registration
-   are private implementation details. Parser_Impl retains the historical top-level elab_urust alias
-   as part of its compatibility-facade responsibility. *)
+   URUST_COMMAND exposes only URust_Command.elab_urust for test harnesses and programmatic clients.
+   Definition helpers, conformance-proof assembly, parsers for the three outer commands, and command
+   registration are private implementation details. *)
 structure URust_Command :> URUST_COMMAND =
 struct
 fun elab_urust lthy source : term =

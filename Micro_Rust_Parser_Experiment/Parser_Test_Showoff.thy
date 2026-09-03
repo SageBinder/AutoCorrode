@@ -48,7 +48,7 @@ text\<open>
 Features: an array literal, range slicing and indexing, a let-bound callee,
 nested calls, receiver-prepended method calls, method chaining, Option propagation
 around call and method results, propagation grouped before a method, a conditional
-argument, comparisons, and lexical binders.
+argument, comparisons, and an \<open>if let\<close> binder with a fallback.
 \<close>
 
 urust_expr_with_check showoff_calls
@@ -62,14 +62,18 @@ urust_expr_with_check showoff_calls
     let direct = Some(callable(seed))?;
     let chained =
       (Some(direct.showoff_mix(showoff_bump(active[1_usize])))?).showoff_bump();
-    if chained >= 20_u64 {
-      Some(
-        chained.showoff_mix(
-          (if true { Some(inputs[2_usize])? } else { Some(inputs[3_usize])? })
-        )
-      )?
+    if let Some(selected) = Some(chained) {
+      if selected >= 20_u64 {
+        Some(
+          selected.showoff_mix(
+            (if true { Some(inputs[2_usize])? } else { Some(inputs[3_usize])? })
+          )
+        )?
+      } else {
+        Some(seed.showoff_bump().showoff_bump())?
+      }
     } else {
-      Some(seed.showoff_bump().showoff_bump())?
+      seed
     }
   \<close>
 
@@ -254,7 +258,8 @@ subsection\<open> Macro composition pipeline \<close>
 
 text\<open>
 Features: vector construction and indexing, nested \<open>matches!\<close> conditions,
-assertion aliases with ignored diagnostics, and aborting fallback branches.
+an aborting \<open>let ... else\<close> binding, assertion aliases with ignored
+diagnostics, and aborting fallback branches.
 \<close>
 
 urust_expr_with_check showoff_macro_pipeline
@@ -262,11 +267,15 @@ urust_expr_with_check showoff_macro_pipeline
     let candidates = vec![Some(4_u32), None];
     let first = candidates[0_usize];
     debug_assert!(matches!(first, Some(_)), ignored_pipeline_diagnostic);
+    let Some(candidate) = first else {
+      unreachable!("candidate disappeared")
+    };
     let selected =
       if matches!(first, Some(_)) {
         let values = vec![4_u32, 8_u32];
         assert_eq!(values[0_usize], 4_u32);
-        values[0_usize]
+        assert_eq!(candidate, values[0_usize]);
+        candidate
       } else {
         unreachable!("candidate disappeared")
       };

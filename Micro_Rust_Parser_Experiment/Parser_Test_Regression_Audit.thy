@@ -33,7 +33,7 @@ ML_val\<open>
       else error ("Cycle 1 pattern audit: " ^ message)
 
     fun checked source =
-      elab_urust ctxt (Parser_Lex_Util.text_source source)
+      URust_Command.elab_urust ctxt (Parser_Lex_Util.text_source source)
 
     fun antiquotation source =
       "\<llangle>" ^ source ^ "\<rrangle>"
@@ -135,7 +135,7 @@ ML_val\<open>
       else error ("Cycle 1 while-let audit: " ^ message)
 
     fun checked source =
-      elab_urust ctxt (Parser_Lex_Util.text_source source)
+      URust_Command.elab_urust ctxt (Parser_Lex_Util.text_source source)
 
     fun antiquotation source =
       "\<llangle>" ^ source ^ "\<rrangle>"
@@ -225,6 +225,262 @@ ML_val\<open>
         (is_skip partial_body)
   in
     val _ = writeln "Cycle 1 conservative while-let coverage audit passed"
+  end
+\<close>
+
+section\<open> Conditional binding structure and markup \<close>
+
+consts
+  conditional_let_scrutinee_marker :: \<open>nat option\<close>
+  conditional_let_success_marker :: nat
+  conditional_let_fallback_marker :: nat
+
+ML_val\<open>
+  local
+    open URust_AST
+
+    val ctxt = \<^context>
+
+    fun audit_assert message condition =
+      if condition then ()
+      else error ("conditional-binding regression audit: " ^ message)
+
+    fun parse source =
+      (case URust_Diagnostics.parse_source ctxt source of
+         SOME expression => expression
+       | NONE => error "conditional-binding regression audit: empty parse")
+
+    fun parse_text text =
+      parse (Parser_Lex_Util.text_source text)
+
+    fun checked text =
+      URust_Command.elab_urust ctxt (Parser_Lex_Util.text_source text)
+
+    fun count_constant name term =
+      Term.fold_aterms
+        (fn Const (candidate, _) =>
+              if candidate = name then Integer.add 1 else I
+          | _ => I)
+        term 0
+
+    val if_text =
+      "if let Some(value) = Some(1) { value } else { 0 }"
+    val if_start =
+      Position.make0 7 30 0 "" "" "conditional-binding-ast-audit"
+    val if_stop =
+      Position.symbol_explode if_text if_start
+    val if_ast =
+      parse
+        (Parser_Lex_Util.positioned_content_source
+          if_text if_start)
+    val _ =
+      (case if_ast of
+         UE_IfLet
+           (P_Constr ("Some", _, [P_Ident ("value", _)]),
+            UE_Call ("Some", _, [UE_Literal (LP_Integer ("1", _))], _),
+            UE_Block (UE_Ident ("value", _), _),
+            SOME (UE_Block (UE_Literal (LP_Integer ("0", _)), _)),
+            position) =>
+           (audit_assert "if-let span start moved"
+              (Position.offset_of position =
+                Position.offset_of if_start);
+            audit_assert "if-let span end moved"
+              (Position.end_offset_of position =
+                Position.offset_of if_stop))
+       | _ =>
+           error "conditional-binding regression audit: if-let AST changed")
+
+    val let_text =
+      "let Some(value) = Some(1) else { 0 }; value"
+    val let_start =
+      Position.make0 11 50 0 "" "" "conditional-binding-ast-audit"
+    val let_stop =
+      Position.symbol_explode let_text let_start
+    val let_ast =
+      parse
+        (Parser_Lex_Util.positioned_content_source
+          let_text let_start)
+    val _ =
+      (case let_ast of
+         UE_LetElse
+           (P_Constr ("Some", _, [P_Ident ("value", _)]),
+            UE_Call ("Some", _, [UE_Literal (LP_Integer ("1", _))], _),
+            UE_Block (UE_Literal (LP_Integer ("0", _)), _),
+            UE_Ident ("value", _),
+            position) =>
+           (audit_assert "let-else span start moved"
+              (Position.offset_of position =
+                Position.offset_of let_start);
+            audit_assert "let-else span end moved"
+              (Position.end_offset_of position =
+                Position.offset_of let_stop))
+       | _ =>
+           error "conditional-binding regression audit: let-else AST changed")
+
+    val two_armed =
+      checked
+        ("if let Some(value) = " ^
+         "\<llangle>conditional_let_scrutinee_marker\<rrangle> { " ^
+         "\<llangle>conditional_let_success_marker\<rrangle> } else { " ^
+         "\<llangle>conditional_let_fallback_marker\<rrangle> }")
+    val explicit_two_armed =
+      checked
+        ("match_case " ^
+         "\<llangle>conditional_let_scrutinee_marker\<rrangle> { " ^
+         "Some(value) \<Rightarrow> " ^
+         "\<llangle>conditional_let_success_marker\<rrangle>, _ \<Rightarrow> " ^
+         "\<llangle>conditional_let_fallback_marker\<rrangle> }")
+    val _ =
+      audit_assert "two-armed if-let stopped using the explicit case shape"
+        (Term.aconv (two_armed, explicit_two_armed))
+    val _ =
+      audit_assert "if-let lowered its scrutinee more than once"
+        (count_constant
+          \<^const_name>\<open>conditional_let_scrutinee_marker\<close>
+          two_armed = 1)
+    val _ =
+      audit_assert "if-let lost success/fallback ordering"
+        (count_constant
+          \<^const_name>\<open>conditional_let_success_marker\<close>
+          two_armed = 1 andalso
+         count_constant
+          \<^const_name>\<open>conditional_let_fallback_marker\<close>
+          two_armed = 1)
+
+    val one_armed =
+      checked
+        ("if let Some(value) = " ^
+         "\<llangle>conditional_let_scrutinee_marker\<rrangle> { let _ = " ^
+         "\<llangle>conditional_let_success_marker\<rrangle>; () }")
+    val explicit_one_armed =
+      checked
+        ("match_case " ^
+         "\<llangle>conditional_let_scrutinee_marker\<rrangle> { " ^
+         "Some(value) \<Rightarrow> { let _ = " ^
+         "\<llangle>conditional_let_success_marker\<rrangle>; () }, _ \<Rightarrow> () }")
+    val _ =
+      audit_assert "one-armed if-let lost its skip fallback"
+        (Term.aconv (one_armed, explicit_one_armed))
+
+    val let_else =
+      checked
+        ("let Some(value) = " ^
+         "\<llangle>conditional_let_scrutinee_marker\<rrangle> else { " ^
+         "\<llangle>conditional_let_fallback_marker\<rrangle> }; " ^
+         "\<llangle>value + conditional_let_success_marker\<rrangle>")
+    val explicit_let_else =
+      checked
+        ("match_case " ^
+         "\<llangle>conditional_let_scrutinee_marker\<rrangle> { " ^
+         "Some(value) \<Rightarrow> " ^
+         "\<llangle>value + conditional_let_success_marker\<rrangle>, _ \<Rightarrow> " ^
+         "\<llangle>conditional_let_fallback_marker\<rrangle> }")
+    val _ =
+      audit_assert "let-else stopped placing its continuation in the success arm"
+        (Term.aconv (let_else, explicit_let_else))
+
+    val tuple_if =
+      checked
+        ("if let (left, right) = " ^
+         "(\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>) { " ^
+         "\<llangle>left + right\<rrangle> } else { missing_tuple_audit }")
+    val tuple_bind =
+      checked
+        ("let (left, right) = " ^
+         "(\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>); " ^
+         "\<llangle>left + right\<rrangle>")
+    val _ =
+      audit_assert "top-level tuple stopped using the frontend's direct binding"
+        (Term.aconv (tuple_if, tuple_bind))
+
+    fun find_from text needle offset =
+      if offset + size needle > size text then
+        error
+          ("conditional-binding regression audit: missing " ^ quote needle)
+      else if
+        String.substring (text, offset, size needle) = needle
+      then offset
+      else find_from text needle (offset + 1)
+
+    fun token_position text start needle offset =
+      let
+        val raw = find_from text needle offset
+        val token_start =
+          Position.symbol_explode
+            (String.substring (text, 0, raw)) start
+      in
+        (raw,
+         Position.range_position
+           (token_start,
+            Position.symbol_explode needle token_start))
+      end
+
+    val captured_reports = Unsynchronized.ref ([]: string list)
+    fun capture_reports chunks =
+      Unsynchronized.change captured_reports (append chunks)
+    val _ =
+      Unsynchronized.setmp Private_Output.report_fn capture_reports
+        (fn () =>
+          Print_Mode.with_modes [Print_Mode.PIDE]
+            (fn () =>
+              parse
+                (Parser_Lex_Util.positioned_content_source
+                  if_text if_start)) ())
+        ()
+    val _ =
+      Unsynchronized.setmp Private_Output.report_fn capture_reports
+        (fn () =>
+          Print_Mode.with_modes [Print_Mode.PIDE]
+            (fn () =>
+              parse
+                (Parser_Lex_Util.positioned_content_source
+                  let_text let_start)) ())
+        ()
+
+    fun collect_markup (XML.Text _) result = result
+      | collect_markup (XML.Elem (markup, body)) result =
+          fold collect_markup body (markup :: result)
+    val markup =
+      fold collect_markup
+        (maps YXML.parse_body (! captured_reports)) []
+    fun has_position properties position =
+      Properties.get properties Markup.offsetN =
+        Option.map Value.print_int (Position.offset_of position) andalso
+      Properties.get properties Markup.end_offsetN =
+        Option.map Value.print_int (Position.end_offset_of position)
+    fun has_markup markup_name position =
+      exists
+        (fn (name, properties) =>
+          name = markup_name andalso
+            has_position properties position)
+        markup
+
+    val (_, if_keyword) = token_position if_text if_start "if" 0
+    val (if_offset, if_let_keyword) =
+      token_position if_text if_start "let" 0
+    val (if_let_offset, if_equals) =
+      token_position if_text if_start "=" (if_offset + 2)
+    val (_, if_else_keyword) =
+      token_position if_text if_start "else" (if_let_offset + 3)
+    val (_, let_semicolon) =
+      token_position let_text let_start ";" 0
+    val _ =
+      audit_assert "if keyword markup changed"
+        (has_markup Markup.keyword1N if_keyword)
+    val _ =
+      audit_assert "let keyword markup changed"
+        (has_markup Markup.keyword1N if_let_keyword)
+    val _ =
+      audit_assert "equals delimiter markup changed"
+        (has_markup Markup.delimiterN if_equals)
+    val _ =
+      audit_assert "else keyword markup changed"
+        (has_markup Markup.keyword1N if_else_keyword)
+    val _ =
+      audit_assert "let-else semicolon delimiter markup changed"
+        (has_markup Markup.delimiterN let_semicolon)
+  in
+    val _ = writeln "Conditional-binding structure and markup regressions passed"
   end
 \<close>
 
@@ -354,7 +610,7 @@ ML_val\<open>
     val _ =
       (case Exn.result
           (fn () =>
-            elab_urust ctxt
+            URust_Command.elab_urust ctxt
               (Parser_Lex_Util.positioned_content_source
                 chained_text chained_start)) () of
          Exn.Res _ =>
@@ -417,7 +673,7 @@ ML_val\<open>
       in
         (case Exn.result
             (fn () =>
-              elab_urust ctxt
+              URust_Command.elab_urust ctxt
                 (Parser_Lex_Util.positioned_content_source
                   text start)) () of
            Exn.Res _ =>
@@ -669,7 +925,7 @@ ML_val\<open>
       URust_Translate.mk_closed ctxt (parse_text text)
 
     fun checked text =
-      elab_urust ctxt (Parser_Lex_Util.text_source text)
+      URust_Command.elab_urust ctxt (Parser_Lex_Util.text_source text)
 
     fun count_constant name term =
       Term.fold_aterms
@@ -717,7 +973,7 @@ ML_val\<open>
         (fn () =>
           Print_Mode.with_modes [Print_Mode.PIDE]
             (fn () =>
-              elab_urust ctxt
+              URust_Command.elab_urust ctxt
                 (Parser_Lex_Util.positioned_content_source
                   text start)) ())
         ()

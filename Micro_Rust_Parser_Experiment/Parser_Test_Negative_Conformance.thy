@@ -1,6 +1,7 @@
-(* Rejection tests for the custom uRust parser. Normal rows require both `elab_urust` and the existing
-   frontend to reject; the new parser's error must contain a stable substring. [DIVERGENT] rows use the
-   new-parser-only command to record an intentional acceptance-boundary difference. *)
+(* Rejection tests for the custom uRust parser. Normal rows require both
+   `URust_Command.elab_urust` and the existing frontend to reject; the new parser's error must contain
+   a stable substring. [DIVERGENT] rows use the new-parser-only command to record an intentional
+   acceptance-boundary difference. *)
 
 theory Parser_Test_Negative_Conformance
   imports Struct_Ambiguity_Left Struct_Ambiguity_Right
@@ -55,7 +56,7 @@ fun urust_rejects check_frontend ((tag, source), expected) lthy =
 
     fun check_parser_rejection () =
       (* Lexer, parser, elaborator, and type errors are all valid new-parser rejections. *)
-      (case Exn.result (fn () => elab_urust lthy source) () of
+      (case Exn.result (fn () => URust_Command.elab_urust lthy source) () of
          Exn.Res t =>
            fail ("expected the new parser to reject, but it accepted and elaborated to: " ^
                  Syntax.string_of_term lthy t)
@@ -572,7 +573,7 @@ local
   fun expect_ambiguity label source identities =
     (case Exn.result
         (fn () =>
-          elab_urust \<^context>
+          URust_Command.elab_urust \<^context>
             (Parser_Lex_Util.text_source source)) () of
        Exn.Res _ =>
          error (label ^ " unexpectedly resolved an ambiguous constructor")
@@ -654,7 +655,7 @@ local
   fun expect_clean_rejection source required =
     (case Exn.result
         (fn () =>
-          elab_urust \<^context>
+          URust_Command.elab_urust \<^context>
             (Parser_Lex_Util.text_source source)) () of
        Exn.Res term =>
          error ("Cycle 1 diagnostic audit expected rejection, but got " ^
@@ -1011,6 +1012,153 @@ urust_expr_rejects fidelity \<open> xs[0, 1] \<close>
   \<open> syntax error: deleting  , <integer> ] \<close>
   \<comment> \<open> [FIDELITY] one indexing postfix contains exactly one expression. \<close>
 
+section\<open> If-let and let-else \<close>
+
+subsection\<open> Required delimiters and whole input \<close>
+
+urust_expr_rejects fidelity
+  \<open> if let Some(value) Some(1) { value } \<close>
+  \<open> syntax error \<close>
+  \<comment> \<open> [FIDELITY] the pattern and scrutinee require an equals delimiter. \<close>
+
+urust_expr_rejects fidelity
+  \<open> if let Some(value) = Some(1) value \<close>
+  \<open> syntax error found at <identifier> \<close>
+  \<comment> \<open> [FIDELITY] the success branch requires braces. \<close>
+
+urust_expr_rejects fidelity
+  \<open> if let Some(value) = Some(1) { value \<close>
+  \<open> syntax error found at end of input \<close>
+  \<comment> \<open> [FIDELITY] an unterminated success branch cannot consume EOF. \<close>
+
+urust_expr_rejects fidelity
+  \<open> if let Some(value) = Some(1) { value } else 0 \<close>
+  \<open> syntax error found at <integer> \<close>
+  \<comment> \<open> [FIDELITY] the fallback branch also requires braces. \<close>
+
+urust_expr_rejects fidelity
+  \<open> if let Some(value) = Some(1) { value } else if let Some(next) = Some(value) { next } \<close>
+  \<open> syntax error \<close>
+  \<comment> \<open> [FIDELITY] chained \<open>else if let\<close> is not part of the current frontend. \<close>
+
+urust_expr_rejects fidelity
+  \<open> let Some(value) = Some(1) { 0 }; value \<close>
+  \<open> syntax error found at { \<close>
+  \<comment> \<open> [FIDELITY] a refutable conditional binding requires \<open>else\<close>. \<close>
+
+urust_expr_rejects fidelity
+  \<open> let Some(value) = Some(1) else 0; value \<close>
+  \<open> syntax error \<close>
+  \<comment> \<open> [FIDELITY] the \<open>else\<close> body requires braces. \<close>
+
+urust_expr_rejects fidelity
+  \<open> let Some(value) = Some(1) else { 0 } value \<close>
+  \<open> syntax error found at <identifier> \<close>
+  \<comment> \<open> [FIDELITY] \<open>let ... else\<close> requires a semicolon before its continuation. \<close>
+
+urust_expr_rejects fidelity
+  \<open> let Some(value) = Some(1) else { 0 }; \<close>
+  \<open> syntax error found at end of input \<close>
+  \<comment> \<open> [FIDELITY] the frontend form requires a continuation after that semicolon. \<close>
+
+urust_expr_rejects fidelity
+  \<open> if let Some(value) = Some(1) { value } trailing trailing \<close>
+  \<open> syntax error found at <identifier> \<close>
+  \<comment> \<open> [FIDELITY] semicolon-free sequencing still consumes exactly one following statement. \<close>
+
+urust_expr_rejects fidelity
+  \<open> if let Some(value) = Some(1) { value } + 1 \<close>
+  \<open> syntax error found at + \<close>
+  \<comment> \<open> [FIDELITY] a bare conditional-let is not a binary operand. \<close>
+
+urust_expr_rejects fidelity
+  \<open> if let Some(value) = Some(1) { value } = rhs \<close>
+  \<open> syntax error found at = \<close>
+  \<comment> \<open> [FIDELITY] grouping is required before any attempted assignment-target validation. \<close>
+
+subsection\<open> Pattern validation and total-pattern behavior \<close>
+
+urust_expr_rejects fidelity
+  \<open> if let 0 = \<llangle>0 :: nat\<rrangle> { () } else { () } \<close>
+  \<open> numeric patterns are not supported in case patterns \<close>
+  \<comment> \<open> [FIDELITY] case numerals retain the frontend rejection. \<close>
+
+new_urust_rejects divergent
+  \<open> if let &Some(value) = \<llangle>Some (1 :: nat)\<rrangle> { value } else { 0 } \<close>
+  \<open> reference patterns are not implemented \<close>
+  \<comment> \<open> [DIVERGENT] reference-pattern wrappers remain unsupported by the dedicated parser. \<close>
+
+new_urust_rejects audit
+  \<open>
+    if let Some((value, value)) =
+      \<llangle>Some (1 :: nat, (2 :: nat, TNil))\<rrangle> {
+      value
+    } else {
+      0
+    }
+  \<close>
+  \<open> duplicate pattern binder "value" \<close>
+  \<comment> \<open> [AUDIT] conditional-let patterns share atomic duplicate-binder validation. \<close>
+
+new_urust_rejects divergent
+  \<open>
+    let Some(value) | None = \<llangle>Some (1 :: nat)\<rrangle> else { 0 };
+    value
+  \<close>
+  \<open> or-pattern alternative is missing binder "value" \<close>
+  \<comment> \<open> [DIVERGENT] all alternatives must bind the continuation's same names. \<close>
+
+urust_expr_rejects fidelity
+  \<open> if let _ = \<llangle>1 :: nat\<rrangle> { 1 } else { 0 } \<close>
+  \<open> clauses are redundant \<close>
+  \<comment> \<open> [FIDELITY] the synthetic fallback remains visible after a wildcard pattern. \<close>
+
+urust_expr_rejects fidelity
+  \<open> if let value = \<llangle>1 :: nat\<rrangle> { value } else { 0 } \<close>
+  \<open> clauses are redundant \<close>
+  \<comment> \<open> [FIDELITY] an identifier pattern likewise makes the synthetic fallback redundant. \<close>
+
+urust_expr_rejects fidelity
+  \<open> if let (value) = \<llangle>1 :: nat\<rrangle> { value } else { 0 } \<close>
+  \<open> clauses are redundant \<close>
+  \<comment> \<open> [FIDELITY] grouping prevents the top-level tuple special case. \<close>
+
+urust_expr_rejects fidelity
+  \<open> if let TNil = TNil { () } else { () } \<close>
+  \<open> clauses are redundant \<close>
+  \<comment> \<open> [FIDELITY] a sole-constructor family still receives the synthetic fallback. \<close>
+
+urust_expr_rejects fidelity
+  \<open>
+    if let Some(_) | None = \<llangle>Some (1 :: nat)\<rrangle> {
+      ()
+    } else {
+      ()
+    }
+  \<close>
+  \<open> clauses are redundant \<close>
+  \<comment> \<open> [FIDELITY] complete constructor coverage does not use the while-let optimization. \<close>
+
+urust_expr_rejects fidelity
+  \<open>
+    let Some(_) | None = \<llangle>Some (1 :: nat)\<rrangle> else { () };
+    ()
+  \<close>
+  \<open> clauses are redundant \<close>
+  \<comment> \<open> [FIDELITY] let-else retains the same explicit fallback for complete coverage. \<close>
+
+urust_expr_rejects fidelity
+  \<open>
+    if let (Some(value), other) =
+      (\<llangle>Some (1 :: nat)\<rrangle>, \<llangle>2 :: nat\<rrangle>) {
+      value
+    } else {
+      other
+    }
+  \<close>
+  \<open> unsupported or refutable pattern in an irrefutable (let/const) binder position \<close>
+  \<comment> \<open> [FIDELITY] the frontend's top-level tuple path is irrefutable-binding syntax. \<close>
+
 section\<open> Fueled loops \<close>
 
 urust_expr_rejects fidelity
@@ -1139,7 +1287,7 @@ local
   fun expect_rejection text expected =
     (case Exn.result
         (fn () =>
-          elab_urust \<^context>
+          URust_Command.elab_urust \<^context>
             (Parser_Lex_Util.text_source text)) () of
        Exn.Res _ => error ("expected direct parser rejection containing " ^ quote expected)
      | Exn.Exn exn =>
@@ -1156,7 +1304,7 @@ local
       "unterminated expression antiquotation"
   val _ =
     ignore
-      (elab_urust \<^context>
+      (URust_Command.elab_urust \<^context>
         (Parser_Lex_Util.text_source "()"))
 in end
 \<close>

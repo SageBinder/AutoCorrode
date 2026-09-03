@@ -267,8 +267,6 @@ lemma \<open>undefined = \<lbrakk> if False { \<llangle>0 :: 32 word\<rrangle> }
 lemma \<open>undefined = \<lbrakk> if False { \<llangle>0 :: 32 word\<rrangle> } else if False { \<llangle>1 :: 32 word\<rrangle> } else if True { \<llangle>2 :: 32 word\<rrangle> } else { \<llangle>3 :: 32 word\<rrangle> } \<rbrakk>\<close> sorry
 lemma \<open>undefined = \<lbrakk> assert!((if False { False } else if True { True } else { False })) \<rbrakk>\<close> sorry
 lemma \<open>undefined = \<lbrakk> if True { () } \<rbrakk>\<close> sorry
-lemma \<open>undefined = \<lbrakk> if let Some(p) = Some(g) { return; } \<rbrakk>\<close> sorry
-lemma \<open>undefined = \<lbrakk> if let Some(p) = Some(()) { if True { return; } else { return; } } else { return; } \<rbrakk>\<close> sorry
 lemma \<open>undefined = \<lbrakk> ((if True { 0 } else { 1 }, True), False) \<rbrakk>\<close> sorry
 
 subsubsection\<open>Rust-Style Optional Semicolons for Block-Like Statements\<close>
@@ -276,8 +274,6 @@ subsubsection\<open>Rust-Style Optional Semicolons for Block-Like Statements\<cl
 lemma \<open>undefined = \<lbrakk> if True { () } () \<rbrakk>\<close> sorry
 lemma \<open>undefined = \<lbrakk> if True { () } else { () } () \<rbrakk>\<close> sorry
 lemma \<open>undefined = \<lbrakk> if False { () } else if True { () } else { () } () \<rbrakk>\<close> sorry
-lemma \<open>undefined = \<lbrakk> if let Some(_) = Some(()) { () } () \<rbrakk>\<close> sorry
-lemma \<open>undefined = \<lbrakk> if let Some(_) = Some(()) { () } else { () } () \<rbrakk>\<close> sorry
 lemma \<open>undefined = \<lbrakk> match Some(()) { Some(_) \<Rightarrow> (), _ \<Rightarrow> () } () \<rbrakk>\<close> sorry
 lemma \<open>undefined = \<lbrakk> let lst = \<llangle>(1 :: 32 word, 2 :: 32 word, TNil) # []\<rrangle>; for (a, b) in lst { () } () \<rbrakk>\<close> sorry
 lemma \<open>undefined = (FunctionBody \<lbrakk> { () } () \<rbrakk>)\<close> sorry
@@ -285,25 +281,14 @@ lemma \<open>undefined = \<lbrakk> unsafe { () } () \<rbrakk>\<close> sorry
 
 subsection\<open>Control Flow - If-Let and Let-Else\<close>
 
-lemma \<open>undefined = \<lbrakk> if let Some(_) = Some(()) { () }; () \<rbrakk>\<close> sorry
-lemma \<open>undefined = \<lbrakk> if let Some(p) = Some(()) { return; } else { return; } \<rbrakk>\<close> sorry
-lemma \<open>undefined = \<lbrakk> if let Some((a, b)) = Some((\<llangle>1 :: 32 word\<rrangle>, \<llangle>2 :: 32 word\<rrangle>)) { assert!(a == \<llangle>1 :: 32 word\<rrangle>); assert!(b == \<llangle>2 :: 32 word\<rrangle>); () } else { () } \<rbrakk>\<close> sorry
-lemma \<open>undefined = \<lbrakk> if let Some(Some(x)) = Some(Some(\<llangle>3 :: 32 word\<rrangle>)) { assert!(x == \<llangle>3 :: 32 word\<rrangle>); () } else { () } \<rbrakk>\<close> sorry
-lemma \<open>undefined = \<lbrakk> if let Some(p) = Some(g) { return 0; } else { return 2; } \<rbrakk>\<close> sorry
-lemma \<open>undefined = \<lbrakk> if let (a, b) = (\<llangle>1 :: 32 word\<rrangle>, \<llangle>2 :: 32 word\<rrangle>) { () } \<rbrakk>\<close> sorry
-lemma \<open>undefined = \<lbrakk> let (a, b) = (\<llangle>1 :: 32 word\<rrangle>, \<llangle>2 :: 32 word\<rrangle>) else { () }; () \<rbrakk>\<close> sorry
-lemma \<open>undefined = \<lbrakk> let Some((a, b)) = Some((\<llangle>1 :: 32 word\<rrangle>, \<llangle>2 :: 32 word\<rrangle>)) else { () }; assert!(a == \<llangle>1 :: 32 word\<rrangle>); assert!(b == \<llangle>2 :: 32 word\<rrangle>) \<rbrakk>\<close> sorry
-lemma \<open>undefined = (FunctionBody \<lbrakk> let x = \<llangle>Some (0 :: nat)\<rrangle>; let Some(foo) = x else { assert!(False) }; return; \<rbrakk>)\<close> sorry
+text\<open>
+Constructor, tuple, nested, returning, explicit-semicolon, and semicolon-free
+rows from this section are executable same-source checks in
+\<open>Parser_Test_Conformance.thy\<close>. Malformed and total-pattern redundancy
+boundaries are executable checks in
+\<open>Parser_Test_Negative_Conformance.thy\<close>.
+\<close>
 
-context
-  fixes n :: \<open>nat option\<close>
-begin
-lemma \<open>undefined = \<lbrakk> let Some(x) = n else { return \<llangle>5\<rrangle>; }; return x; \<rbrakk>\<close> sorry
-end
-
-lemma \<open>undefined = \<lbrakk> let Ok(k) = Ok(()) else { return; }; return k; \<rbrakk>\<close> sorry
-lemma \<open>undefined = \<lbrakk> let Err(e) = Ok(()) else { return True; }; return e; \<rbrakk>\<close> sorry
-lemma \<open>undefined = \<lbrakk> let a = \<llangle>7 :: 32 word\<rrangle>; let b = \<llangle>9 :: 32 word\<rrangle>; let Ok((x, y)) = Ok((a, b)) else { () }; assert!(x == a); assert!(y == b) \<rbrakk>\<close> sorry
 lemma \<open>undefined = \<lbrakk> let (a,_) = (1,2); let (_,b) = (1,2); \<llangle>(a,b)\<rrangle> \<rbrakk>\<close> sorry
 
 subsection\<open>Control Flow - Match Expressions\<close>
@@ -342,15 +327,12 @@ subsubsection\<open>Grouped and Irrefutable Patterns\<close>
 
 lemma \<open>undefined = \<lbrakk> let v = match Some(\<llangle>5 :: 32 word\<rrangle>) { (Some(x)) \<Rightarrow> x, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }; assert!(v == \<llangle>5 :: 32 word\<rrangle>) \<rbrakk>\<close> sorry
 lemma \<open>undefined = \<lbrakk> let foo = (\<llangle>1 :: 32 word\<rrangle>, \<llangle>2 :: 32 word\<rrangle>); let (x, y) = foo; assert!(x == \<llangle>1 :: 32 word\<rrangle>); assert!(y == \<llangle>2 :: 32 word\<rrangle>) \<rbrakk>\<close> sorry
-lemma \<open>undefined = \<lbrakk> let x = \<llangle>7 :: 32 word\<rrangle>; if let Some(y) = Some(x) { assert!(y == x); () } else { assert!(False); () } \<rbrakk>\<close> sorry
-lemma \<open>undefined = \<lbrakk> let foo = (\<llangle>3 :: 32 word\<rrangle>, \<llangle>4 :: 32 word\<rrangle>); let (x, y) = foo else { () }; assert!(x == \<llangle>3 :: 32 word\<rrangle>); assert!(y == \<llangle>4 :: 32 word\<rrangle>) \<rbrakk>\<close> sorry
 
 subsubsection\<open>Slice Patterns\<close>
 
 lemma \<open>undefined = \<lbrakk> let xs = \<llangle>[1 :: 32 word, 2, 3]\<rrangle>; let res = match xs { [a, b, c] \<Rightarrow> a + b + c, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }; assert!(res == \<llangle>6 :: 32 word\<rrangle>) \<rbrakk>\<close> sorry
 lemma \<open>undefined = \<lbrakk> let xs = \<llangle>[1 :: 32 word, 2, 3]\<rrangle>; let tag = match xs { [_, _] \<Rightarrow> \<llangle>1 :: 32 word\<rrangle>, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }; assert!(tag == \<llangle>0 :: 32 word\<rrangle>) \<rbrakk>\<close> sorry
 lemma \<open>undefined = \<lbrakk> let ys = \<llangle>([] :: 32 word list)\<rrangle>; let tag = match ys { [] \<Rightarrow> \<llangle>1 :: 32 word\<rrangle>, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }; assert!(tag == \<llangle>1 :: 32 word\<rrangle>) \<rbrakk>\<close> sorry
-lemma \<open>undefined = \<lbrakk> if let [a, b] = \<llangle>[7 :: 32 word, 8]\<rrangle> { assert!(a == \<llangle>7 :: 32 word\<rrangle>); assert!(b == \<llangle>8 :: 32 word\<rrangle>); () } else { assert!(False); () } \<rbrakk>\<close> sorry
 
 subsubsection\<open>Extended Rust-Style Pattern Forms\<close>
 
@@ -402,15 +384,12 @@ subsubsection\<open>Tuple Patterns in Match\<close>
 
 lemma \<open>undefined = \<lbrakk> match (\<llangle>1 :: 32 word\<rrangle>, \<llangle>2 :: 32 word\<rrangle>) { (a, b) \<Rightarrow> a } \<rbrakk>\<close> sorry
 lemma \<open>undefined = \<lbrakk> let a = \<llangle>1 :: 32 word\<rrangle>; let b = \<llangle>2 :: 32 word\<rrangle>; let c = \<llangle>3 :: 32 word\<rrangle>; let res = match Some((a, b, c)) { Some((x, _, z)) \<Rightarrow> (x, z), _ \<Rightarrow> (\<llangle>0 :: 32 word\<rrangle>, \<llangle>0 :: 32 word\<rrangle>) }; assert!(res.0 == a); assert!(res.1 == c) \<rbrakk>\<close> sorry
-lemma \<open>undefined = \<lbrakk> let a = \<llangle>4 :: 32 word\<rrangle>; let b = \<llangle>8 :: 32 word\<rrangle>; if let Some((_, y)) = Some((a, b)) { assert!(y == b); () } else { () } \<rbrakk>\<close> sorry
 lemma \<open>undefined = \<lbrakk> let a = \<llangle>1 :: 32 word\<rrangle>; let b = \<llangle>2 :: 32 word\<rrangle>; let c = \<llangle>3 :: 32 word\<rrangle>; let d = \<llangle>4 :: 32 word\<rrangle>; let res = match ((a, b), (c, d)) { ((w, x), (y, z)) \<Rightarrow> (w, x, y, z) }; assert!(res.0 == a); assert!(res.1 == b); assert!(res.2 == c); assert!(res.3 == d) \<rbrakk>\<close> sorry
 
 subsubsection\<open>Struct Patterns\<close>
 
 lemma \<open>undefined = \<lbrakk> match \<llangle>Foo (1 :: 32 word) 2\<rrangle> { Foo { foo: p, goo: q } \<Rightarrow> p + q, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<rbrakk>\<close> sorry
 lemma \<open>undefined = \<lbrakk> let res = match \<llangle>Foo (3 :: 32 word) 4\<rrangle> { Foo { foo: p, goo: q } \<Rightarrow> p + q, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }; assert!(res == \<llangle>7 :: 32 word\<rrangle>) \<rbrakk>\<close> sorry
-lemma \<open>undefined = \<lbrakk> if let Foo { foo: p, goo: q } = \<llangle>Foo (5 :: 32 word) 6\<rrangle> { assert!(p == \<llangle>5 :: 32 word\<rrangle>); assert!(q == \<llangle>6 :: 32 word\<rrangle>); () } else { assert!(False); () } \<rbrakk>\<close> sorry
-lemma \<open>undefined = \<lbrakk> let Foo { foo: p, goo: q } = \<llangle>Foo (8 :: 32 word) 9\<rrangle> else { return; }; p + q \<rbrakk>\<close> sorry
 lemma \<open>undefined = \<lbrakk> let res = match \<llangle>make_struct_pattern_dr (10 :: 32 word) 11\<rrangle> { struct_pattern_dr { dr_goo: q, dr_foo: p } \<Rightarrow> p + q }; assert!(res == \<llangle>21 :: 32 word\<rrangle>) \<rbrakk>\<close> sorry
 lemma \<open>undefined = \<lbrakk> let res = match \<llangle>Foo (12 :: 32 word) 34\<rrangle> { Foo { foo, goo } \<Rightarrow> foo + goo, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }; assert!(res == \<llangle>46 :: 32 word\<rrangle>) \<rbrakk>\<close> sorry
 lemma \<open>undefined = \<lbrakk> let res = match \<llangle>Foo (12 :: 32 word) 34\<rrangle> { Foo { foo, .. } \<Rightarrow> foo, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }; assert!(res == \<llangle>12 :: 32 word\<rrangle>) \<rbrakk>\<close> sorry
@@ -1047,10 +1026,6 @@ begin
 lemma \<open>undefined = \<lbrakk> match x { Some(y) | None if y > \<llangle>0 :: 32 word\<rrangle> \<Rightarrow> y, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<rbrakk>\<close> sorry
 end
 
-lemma \<open>undefined = \<lbrakk> if let CaseA(x) | CaseB(x) = \<llangle>CaseA 42\<rrangle> { () } \<rbrakk>\<close> sorry
-lemma \<open>undefined = \<lbrakk> if let CaseA(x) | CaseB(x) = \<llangle>CaseA 5\<rrangle> { assert!(x == \<llangle>5 :: nat\<rrangle>); () } else { () } \<rbrakk>\<close> sorry
-lemma \<open>undefined = \<lbrakk> let CaseA(x) | CaseB(x) = \<llangle>CaseA 7\<rrangle> else { return; }; x \<rbrakk>\<close> sorry
-lemma \<open>undefined = \<lbrakk> let CaseA(x) | CaseB(x) = \<llangle>CaseB 10\<rrangle> else { () }; assert!(x == \<llangle>10 :: nat\<rrangle>) \<rbrakk>\<close> sorry
 lemma \<open>undefined = \<lbrakk> match Some(Ok(\<llangle>1 :: nat\<rrangle>)) { Some(Ok(x) | Err(x)) \<Rightarrow> x, _ \<Rightarrow> \<llangle>0 :: nat\<rrangle> } \<rbrakk>\<close> sorry
 
 context

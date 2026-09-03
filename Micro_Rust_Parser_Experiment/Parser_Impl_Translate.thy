@@ -136,6 +136,10 @@ struct
            (case else_branch of
               SOME branch => lower_expression ctxt environment branch
             | NONE => T.literal HOLogic.unit)
+     | UE_IfLet if_let =>
+         M.lower_if_let (lower_expression ctxt) ctxt environment if_let
+     | UE_LetElse let_else =>
+         M.lower_let_else (lower_expression ctxt) ctxt environment let_else
      | UE_While (fuel, condition, body, _) =>
          T.bounded_while
            (lower_fuel ctxt environment fuel)
