@@ -45,7 +45,7 @@ end
 \<close>
 SML_import \<open> structure Toy_Err = Toy_Err \<close>
 
-text\<open> The generated lexer keeps only its source map and \<open>Tokens\<close> wrappers locally. \<close>
+text\<open> The generated lexer keeps only its shared source layout and \<open>Tokens\<close> wrappers locally. \<close>
 ml_lex_yacc "Toy" where
 lex_user_declarations\<open>
 val aq_active = ref false
@@ -65,21 +65,23 @@ fun take_aq () =
 
 (* Keep generated Tokens constructors local; share position conversion. Identifiers are marked after
    their role is known. *)
-val pos_map =
+val source_layout =
   ref
-    (Parser_Lex_Util.make_position_map
+    (Parser_Lex_Util.make_source_layout
       (Parser_Lex_Util.text_source ""))
-fun set source ctxt =
-  (Isabelle_lex_yacc.set source ctxt;
-   pos_map := Parser_Lex_Util.make_position_map source;
+fun set_layout layout ctxt =
+  (Isabelle_lex_yacc.set (Parser_Lex_Util.source_of layout) ctxt;
+   source_layout := layout;
    reset_aq ())
+fun set source ctxt =
+  set_layout (Parser_Lex_Util.make_source_layout source) ctxt
 
-fun fixed_pos yypos = Parser_Lex_Util.fixed_pos (!pos_map) yypos
-fun tokF args       = Parser_Lex_Util.tokF (!pos_map) args
-fun tok_valF args   = Parser_Lex_Util.tok_valF (!pos_map) args
-fun report_text args = Parser_Lex_Util.report_text (!pos_map) args
+fun fixed_pos yypos = Parser_Lex_Util.fixed_pos (!source_layout) yypos
+fun tokF args       = Parser_Lex_Util.tokF (!source_layout) args
+fun tok_valF args   = Parser_Lex_Util.tok_valF (!source_layout) args
+fun report_text args = Parser_Lex_Util.report_text (!source_layout) args
 fun tok_id (yypos, yytext) =
-  let val p = Parser_Lex_Util.ident_pos (!pos_map) (yypos, yytext)
+  let val p = Parser_Lex_Util.ident_pos (!source_layout) (yypos, yytext)
   in Tokens.TID (yytext, p, p) end
 
 fun eof () =
@@ -197,19 +199,79 @@ end
 
 text\<open> Only parsing uses the shared mutex; term checking and definition remain parallel. \<close>
 ML\<open>
-fun parse_toy_source ctxt source =
+fun parse_toy_layout ctxt layout =
   let
     val _ =
-      Toy.ToyLex.UserDeclarations.set source ctxt
+      Toy.ToyLex.UserDeclarations.set_layout layout ctxt
   in
-    Parser_Lex_Util.parse_source
+    Parser_Lex_Util.parse_source_with_layout
       Toy.ToyParser.parse
       Toy.ToyParser.makeLexer
       Toy.ToyParser.Stream.get
       Toy.ToyParser.sameToken
       Toy.ToyLrVals.Tokens.EOF
-      source
+      layout
   end
+
+fun parse_toy_source ctxt source =
+  parse_toy_layout ctxt
+    (Parser_Lex_Util.make_source_layout source)
+
+val _ =
+  let
+    fun shape expression =
+      (case expression of
+         Toy_AST.E_Num (number, _) => "num:" ^ string_of_int number
+       | Toy_AST.E_Var (name, _) => "var:" ^ name
+       | Toy_AST.E_Antiq source =>
+           "antiq:" ^ Input.string_of source
+       | Toy_AST.E_Neg (body, _) => "neg(" ^ shape body ^ ")"
+       | Toy_AST.E_Add (left, right) =>
+           "add(" ^ shape left ^ "," ^ shape right ^ ")"
+       | Toy_AST.E_Sub (left, right) =>
+           "sub(" ^ shape left ^ "," ^ shape right ^ ")"
+       | Toy_AST.E_Mul (left, right) =>
+           "mul(" ^ shape left ^ "," ^ shape right ^ ")"
+       | Toy_AST.E_Let (name, value, body, _) =>
+           "let:" ^ name ^ "(" ^ shape value ^ "," ^ shape body ^ ")"
+       | Toy_AST.E_Call (name, arguments, _) =>
+           "call:" ^ name ^ "(" ^ commas (map shape arguments) ^ ")")
+
+    fun required label result =
+      (case result of
+         SOME expression => expression
+       | NONE => error ("Toy parser " ^ label ^ " unexpectedly returned NONE"))
+
+    val text = "let x = 1; f(x, -2)"
+    val start =
+      Position.make0 17 300 0 "" "" "toy-layout-path-audit"
+    val source =
+      Parser_Lex_Util.positioned_content_source text start
+    val layout =
+      Parser_Lex_Util.make_source_layout source
+    val direct =
+      required "layout path" (parse_toy_layout \<^context> layout)
+    val wrapped =
+      required "source wrapper" (parse_toy_source \<^context> source)
+    val compatibility =
+      required "parser-driver compatibility wrapper"
+        (let
+           val _ =
+             Toy.ToyLex.UserDeclarations.set source \<^context>
+         in
+           Parser_Lex_Util.parse_source
+             Toy.ToyParser.parse
+             Toy.ToyParser.makeLexer
+             Toy.ToyParser.Stream.get
+             Toy.ToyParser.sameToken
+             Toy.ToyLrVals.Tokens.EOF
+             source
+         end)
+    val _ =
+      if shape direct = shape wrapped andalso
+          shape direct = shape compatibility then ()
+      else error "Toy parser layout and compatibility paths produced different ASTs"
+  in () end
 
 fun define_toy (binding, source) lthy =
   (case Parser_Utils.with_parser_lock

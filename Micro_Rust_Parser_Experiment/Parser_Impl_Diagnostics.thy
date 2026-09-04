@@ -228,14 +228,18 @@ struct
       structure ParserData = ParserData
       structure Lex = URustLex)
 
-  fun parse_source ctxt source =
-    Parser_Utils.with_parser_lock (fn () =>
-      let val _ = URustLex.UserDeclarations.set source ctxt in
-        Parser_Lex_Util.parse_source
+  fun parse_layout ctxt layout =
+    let val _ = URustLex.UserDeclarations.set_layout layout ctxt in
+      Parser_Lex_Util.parse_source_with_layout
           Source_Parser.parse Source_Parser.makeLexer
           Source_Parser.Stream.get Source_Parser.sameToken
-          URustLrVals.Tokens.EOF source
-      end)
+          URustLrVals.Tokens.EOF layout
+    end
+
+  fun parse_source ctxt source =
+    Parser_Utils.with_parser_lock (fn () =>
+      parse_layout ctxt
+        (Parser_Lex_Util.make_source_layout source))
 end
 \<close>
 

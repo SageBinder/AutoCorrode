@@ -16,6 +16,7 @@ session Micro_Rust_Parser_Experiment = HOL +
     Parser_Utils
     Toy_Lex_Yacc
     Parser_Impl_AST
+    Parser_Impl_Turbofish
     Parser_Impl_Grammar
     Parser_Impl_Diagnostics
     Parser_Impl_Shallow_Terms

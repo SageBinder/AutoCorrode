@@ -1,7 +1,6 @@
 theory Parser_Impl_Grammar
   imports
-    Parser_Impl_AST
-    Parser_Utils
+    Parser_Impl_Turbofish
     "Isabelle_Lex-Yacc.LexYacc"
 begin
 
@@ -10,30 +9,20 @@ SML_import \<open> structure Input = struct open Input end \<close>       \<comm
 SML_import \<open> structure Position = struct open Position end \<close> \<comment>\<open> report / range / T \<close>
 SML_import \<open> structure Markup = struct open Markup end \<close>     \<comment>\<open> token reports \<close>
 SML_import \<open> structure Symbol = struct open Symbol end \<close>     \<comment>\<open> partial lexeme reports \<close>
-SML_import \<open> structure Inttab = Inttab \<close>
 
 ML\<open>
 signature URUST_GRAMMAR =
 sig
-  datatype turbofish =
-    Turbofish of
-      {arguments: URust_AST.generic_args,
-       open_offset: int,
-       close_offset: int,
-       comma_offsets: int list}
-  val scan_turbofish: Proof.context -> Input.source -> turbofish Inttab.table
   val lex_error: string -> Position.T -> 'a
   val string_error: Position.T -> 'a
   val antiquotation_error: string -> Position.T -> 'a
 end
 
 (*
-  URust_Grammar owns the handwritten boundary used by the generated uRust lexer. It exposes the
-  per-source turbofish scan and the source-facing failures raised directly by lexer actions. It is the
-  boundary between lexer actions, which run in the generated SML environment, and Isabelle's
-  positioned ERROR diagnostics.  It does not decide which input is malformed, recover from an error,
-  report parser conflicts, or validate the AST; those responsibilities remain with the lexer rules,
-  the joined parser, and later elaboration modules.
+  URust_Grammar owns the source-facing failures raised directly by generated lexer actions. Turbofish
+  discovery and diagnostics belong to URust_Turbofish. This structure does not decide which input is
+  malformed, recover from an error, report parser conflicts, or validate the AST; those responsibilities
+  remain with the lexer rules, the joined parser, and later elaboration modules.
 
   The generated lexer may rely on these public, non-returning functions:
 
@@ -54,361 +43,6 @@ end
 *)
 structure URust_Grammar :> URUST_GRAMMAR =
 struct
-  datatype turbofish =
-    Turbofish of
-      {arguments: URust_AST.generic_args,
-       open_offset: int,
-       close_offset: int,
-       comma_offsets: int list}
-
-  fun scan_turbofish ctxt source =
-    let
-      val source_symbols =
-        Vector.fromList (Input.source_explode source)
-      val symbol_count = Vector.length source_symbols
-      fun source_symbol index = Vector.sub (source_symbols, index)
-      fun symbol index = #1 (source_symbol index)
-      fun boundary_position index =
-        if index < symbol_count then #2 (source_symbol index)
-        else #2 (Input.range_of source)
-      fun build_raw_offsets index raw_offset offsets =
-        if index = symbol_count then
-          Vector.fromList (rev (raw_offset :: offsets))
-        else
-          build_raw_offsets (index + 1)
-            (raw_offset + size (symbol index))
-            (raw_offset :: offsets)
-      val raw_offsets = build_raw_offsets 0 0 []
-      fun raw_offset index = Vector.sub (raw_offsets, index)
-      val source_offset =
-        Position.offset_of (boundary_position 0)
-      val source_has_offsets = is_some source_offset
-      fun symbol_slice left right =
-        let
-          fun collect index fragments =
-            if index >= right then String.concat (rev fragments)
-            else collect (index + 1) (symbol index :: fragments)
-        in collect left [] end
-      fun symbol_list left right =
-        if left >= right then []
-        else source_symbol left :: symbol_list (left + 1) right
-      fun mask_physical_unicode symbols =
-        map
-          (fn (source as (s, position)) =>
-            if Symbol.is_utf8 s then ("x", position) else source)
-          symbols
-      fun token_symbol_list left right =
-        (if source_has_offsets then symbol_list left right
-         else
-           let
-             fun collect index =
-               if index >= right then []
-               else
-                 (symbol index,
-                  Position.make0 1 (index + 1) 0 "" ""
-                    "urust-turbofish-token-index") ::
-                   collect (index + 1)
-           in collect left end)
-        |> mask_physical_unicode
-      fun starts_pair index first second =
-        index + 1 < symbol_count andalso
-          symbol index = first andalso symbol (index + 1) = second
-      fun blank s =
-        member (op =) [" ", "\t", "\r", "\n"] s
-      fun skip_blanks index =
-        if index < symbol_count andalso blank (symbol index)
-        then skip_blanks (index + 1)
-        else index
-      fun trim_left left right =
-        if left < right andalso blank (symbol left)
-        then trim_left (left + 1) right
-        else left
-      fun trim_right left right =
-        if left < right andalso blank (symbol (right - 1))
-        then trim_right left (right - 1)
-        else right
-      fun source_range left right =
-        let
-          val first = trim_left left right
-          val last = trim_right first right
-          val _ =
-            if first < last then ()
-            else
-              error ("urust_expr: empty turbofish argument" ^
-                Position.here (boundary_position left))
-        in
-          Input.source true
-            (symbol_slice first last)
-            (Position.range
-              (boundary_position first, boundary_position last))
-        end
-      fun skip_line_comment index =
-        let
-          fun loop i =
-            if i >= symbol_count orelse symbol i = "\n" then i
-            else loop (i + 1)
-        in loop (index + 2) end
-      fun skip_outer_string index =
-        let
-          fun loop i =
-            if i >= symbol_count then symbol_count
-            else if symbol i = "\\" then
-              loop (Int.min (i + 2, symbol_count))
-            else if symbol i = "\"" then i + 1
-            else loop (i + 1)
-        in loop (index + 1) end
-      val value_open = "\<llangle>"
-      val value_close = "\<rrangle>"
-      val expression_marker = "\<epsilon>"
-      fun skip_value_antiquotation index =
-        let
-          fun loop depth i =
-            if i >= symbol_count then
-              error ("urust_expr: unterminated value antiquotation" ^
-                Position.here (boundary_position index))
-            else if symbol i = value_open then
-              loop (depth + 1) (i + 1)
-            else if symbol i = value_close then
-              if depth = 1 then i + 1
-              else loop (depth - 1) (i + 1)
-            else loop depth (i + 1)
-        in loop 1 (index + 1) end
-      fun skip_cartouche index =
-        let
-          fun loop depth i =
-            if i >= symbol_count then NONE
-            else if symbol i = Symbol.open_ then
-              loop (depth + 1) (i + 1)
-            else if symbol i = Symbol.close then
-              if depth = 1 then SOME (i + 1)
-              else loop (depth - 1) (i + 1)
-            else loop depth (i + 1)
-        in loop 1 (index + 1) end
-      fun legal_after_close index =
-        let val i = skip_blanks (index + 1)
-        in
-          i = symbol_count orelse starts_pair i ":" ":" orelse
-          member (op =)
-            ["(", ".", "[", "?", "!", ",", ")", "]", "}",
-             ";", "+", "-", "*", "/", "%", "&", "|", "^"]
-            (symbol i)
-        end
-      fun closing_delimiter "(" = SOME ")"
-        | closing_delimiter "[" = SOME "]"
-        | closing_delimiter "{" = SOME "}"
-        | closing_delimiter _ = NONE
-      fun is_closing_delimiter s =
-        member (op =) [")", "]", "}"] s
-      fun tokenize left right =
-        Syntax.tokenize (Proof_Context.syntax_of ctxt) {raw = false}
-          (token_symbol_list left right)
-      fun index_tokens slice_start slice_stop tokens =
-        let
-          fun token_index position =
-            (case Position.offset_of position of
-               SOME offset =>
-                 if source_has_offsets
-                 then offset - the source_offset
-                 else offset - 1
-             | NONE =>
-                 error "internal turbofish token lost its source position")
-          fun build index [] indexed =
-                if index = slice_stop then rev indexed
-                else error "internal turbofish token/source coverage mismatch"
-            | build index (token :: rest) indexed =
-                let
-                  val (token_start, token_stop) =
-                    apply2 token_index (Lexicon.range_of_token token)
-                  val _ =
-                    if token_start = index andalso
-                        token_start <= token_stop andalso
-                        token_stop <= slice_stop
-                    then ()
-                    else error "internal turbofish token/source range mismatch"
-                in
-                  build token_stop rest
-                    ((token, token_start, token_stop) :: indexed)
-                end
-        in build slice_start tokens [] end
-      fun token_position token fallback =
-        let val position = #1 (Lexicon.range_of_token token)
-        in
-          if not source_has_offsets
-          then boundary_position fallback
-          else position
-        end
-      fun starts_hol_operand (token, _, _) =
-        (case Lexicon.kind_of_token token of
-           Lexicon.Ident => true
-         | Lexicon.Long_Ident => true
-         | Lexicon.Var => true
-         | Lexicon.Type_Ident => true
-         | Lexicon.Type_Var => true
-         | Lexicon.Num => true
-         | Lexicon.Float => true
-         | Lexicon.Str => true
-         | Lexicon.String => true
-         | Lexicon.Cartouche => true
-         | _ => false)
-      fun next_proper [] = NONE
-        | next_proper ((indexed as (token, _, _)) :: rest) =
-            if Lexicon.is_proper token then SOME indexed
-            else next_proper rest
-      fun scan_token_group content_start required_close tokens =
-        let
-          val indexed =
-            index_tokens content_start
-              (case required_close of
-                 SOME close => close + 1
-               | NONE => symbol_count)
-              tokens
-          fun mismatch token index =
-            error ("urust_expr: mismatched delimiter in turbofish" ^
-              Position.here (token_position token index))
-          fun finish close_index close_stop argument_start commas close_token =
-            let
-              val pieces =
-                rev ((argument_start, close_index, NONE) :: commas)
-              val arguments =
-                map (fn (left, right, _) => source_range left right) pieces
-              val comma_offsets =
-                map_filter
-                  (fn (_, _, comma) => Option.map raw_offset comma)
-                  pieces
-              val token_stop = #2 (Lexicon.range_of_token close_token)
-              val span_stop =
-                if not source_has_offsets
-                then boundary_position close_stop
-                else token_stop
-            in
-              SOME
-                {close_index = close_index,
-                 close_stop = close_stop,
-                 span_stop = span_stop,
-                 arguments = arguments,
-                 comma_offsets = comma_offsets}
-            end
-          fun loop _ _ _ [] = NONE
-            | loop stack argument_start commas
-                ((token, left, right) :: rest) =
-                if not (Lexicon.is_literal token) then
-                  loop stack argument_start commas rest
-                else
-                  let val text = Lexicon.str_of_token token in
-                    (case closing_delimiter text of
-                       SOME expected =>
-                         loop (expected :: stack) argument_start commas rest
-                     | NONE =>
-                         if is_closing_delimiter text then
-                           (case stack of
-                              expected :: remaining =>
-                                if expected = text then
-                                  loop remaining argument_start commas rest
-                                else mismatch token left
-                            | [] => mismatch token left)
-                         else if text = "," andalso null stack then
-                           loop stack right
-                             ((argument_start, left, SOME left) :: commas)
-                             rest
-                         else if text = ">" andalso null stack andalso
-                             legal_after_close left andalso
-                             (case required_close of
-                                SOME close => left = close
-                              | NONE => true) andalso
-                             not
-                               (case next_proper rest of
-                                  SOME next => starts_hol_operand next
-                                | NONE => false)
-                         then
-                           finish left right argument_start commas token
-                         else
-                           loop stack argument_start commas rest)
-                  end
-        in loop [] content_start [] indexed end
-      fun candidate_closes content_start =
-        let
-          fun collect index closes =
-            if index >= symbol_count then rev closes
-            else if symbol index = ">" andalso legal_after_close index then
-              collect (index + 1) (index :: closes)
-            else collect (index + 1) closes
-        in collect content_start [] end
-      fun scan_group group_start =
-        let
-          val content_start = group_start + 1
-          fun unterminated () =
-            error ("urust_expr: unterminated turbofish" ^
-              Position.here (boundary_position group_start))
-          fun fallback failed [] = failed ()
-            | fallback failed (close :: rest) =
-                (case Exn.capture
-                    (fn () => tokenize content_start (close + 1)) () of
-                   Exn.Res tokens =>
-                     (case scan_token_group content_start (SOME close) tokens of
-                        SOME result => result
-                      | NONE => fallback failed rest)
-                 | Exn.Exn exn =>
-                     if Exn.is_interrupt exn then Exn.reraise exn
-                     else fallback failed rest)
-          val closes = candidate_closes content_start
-        in
-          (case Exn.capture
-              (fn () => tokenize content_start symbol_count) () of
-             Exn.Res tokens =>
-               (case scan_token_group content_start NONE tokens of
-                  SOME result => result
-                | NONE => fallback unterminated closes)
-           | Exn.Exn exn =>
-               if Exn.is_interrupt exn then Exn.reraise exn
-               else fallback (fn () => Exn.reraise exn) closes)
-        end
-      fun scan index table =
-        if index >= symbol_count then table
-        else if symbol index = "\"" then
-          scan (skip_outer_string index) table
-        else if starts_pair index "/" "/" then
-          scan (skip_line_comment index) table
-        else if symbol index = value_open then
-          scan (skip_value_antiquotation index) table
-        else if symbol index = expression_marker andalso
-            index + 1 < symbol_count andalso
-            symbol (index + 1) = Symbol.open_ then
-          (case skip_cartouche (index + 1) of
-             SOME stop => scan stop table
-           | NONE => table)
-        else if symbol index = Symbol.open_ then
-          (case skip_cartouche index of
-             SOME stop => scan stop table
-           | NONE => table)
-        else if starts_pair index ":" ":" then
-          let
-            val open_index = skip_blanks (index + 2)
-          in
-            if open_index < symbol_count andalso
-                symbol open_index = "<" then
-              let
-                val
-                  {close_index, close_stop, span_stop,
-                   arguments, comma_offsets} =
-                    scan_group open_index
-                val span =
-                  Position.range_position
-                    (boundary_position index, span_stop)
-                val entry =
-                  Turbofish
-                    {arguments = URust_AST.Generic_Args (arguments, span),
-                     open_offset = raw_offset open_index,
-                     close_offset = raw_offset close_index,
-                     comma_offsets = comma_offsets}
-              in
-                scan close_stop
-                  (Inttab.update (raw_offset index, entry) table)
-              end
-            else scan (index + 2) table
-          end
-        else scan (index + 1) table
-    in scan 0 Inttab.empty end
-
   fun lex_error text pos =
     error ("urust_expr: unexpected input " ^ quote text ^ Position.here pos)
 
@@ -420,6 +54,7 @@ struct
 end
 \<close>
 SML_import \<open> structure URust_Grammar = URust_Grammar \<close>
+SML_import \<open> structure URust_Turbofish = URust_Turbofish \<close>
 SML_import \<open> structure Parser_Lex_Util = Parser_Lex_Util \<close>  \<comment>\<open> shared lexer position math \<close>
 
 section\<open> Lexer + grammar \<close>
@@ -441,15 +76,17 @@ HOL content. Yacc directives reproduce the frontend precedence
   Parser_Impl_Diagnostics relies on the standard expert-mode Lex/Yacc functor interface:
 
     * URustLexFun produces the lexer structure accepted by the ML-Yacc Join functor. Its
-      UserDeclarations.set source ctxt operation initializes the Isabelle-Lex-Yacc runtime, builds the
-      per-source position map, and resets all antiquotation state.
+      UserDeclarations.set_layout layout ctxt operation initializes the Isabelle-Lex-Yacc runtime from
+      the shared source layout, scans turbofish regions, and resets all antiquotation state. The
+      source-taking set wrapper remains for generated-driver compatibility.
     * URustLrValsFun supplies the generated semantic value/result types, actions, LR table, tokens, and
       recovery data. Parser_Impl_Diagnostics instantiates it once and rejoins that exact data with the
       generated lexer while replacing only terminal rendering.
     * The generated Tokens.EOF constructs the dummy end token required by
-      Parser_Lex_Util.parse_source.  Its Position.T * Position.T argument delimits the token.  Other
-      generated token constructors are lexer implementation details; terminal additions or reordering
-      must still be reflected in Parser_Impl_Diagnostics' exhaustive terminal identity table.
+      Parser_Lex_Util.parse_source_with_layout. Its Position.T * Position.T argument delimits the
+      token. Other generated token constructors are lexer implementation details; terminal additions
+      or reordering must still be reflected in Parser_Impl_Diagnostics' exhaustive terminal identity
+      table.
     * The start result is URust_AST.ur_expr option.  NONE represents empty input; SOME ast preserves
       source order and the token/span positions recorded by URust_AST.  Syntax rejection raises a
       positioned ERROR rather than returning NONE.
@@ -475,7 +112,7 @@ val aq_buf = ref ([] : string list)
 val aq_start = ref 0   (* char offset of the antiquotation BODY start (just after the opener) *)
 val aq_open = ref 0
 val aq_depth = ref 0
-val turbofish_table = ref (Inttab.empty : URust_Grammar.turbofish Inttab.table)
+val turbofish_table = ref URust_Turbofish.empty
 val turbofish_close = ref ~1
 
 fun reset_aq () =
@@ -494,30 +131,32 @@ fun take_aq () =
    rule precedes the general digit-plus-identifier rule so equal-length `0xff` is NUM, while longer
    `0xffu8` and unsupported glued suffixes are each one NUMSFX token.
 
-   Per-lexer position-map ref + set-shadow; the position MATH is shared (Parser_Lex_Util). tok_ident emits NO
-   colour -- ident_term does that once it knows the name's role, so the markup cannot split (D14). *)
-val pos_map =
+   Per-lexer source-layout ref + set-shadow; the position MATH is shared (Parser_Lex_Util). tok_ident
+   emits NO colour -- ident_term does that once it knows the name's role, so the markup cannot split
+   (D14). *)
+val source_layout =
   ref
-    (Parser_Lex_Util.make_position_map
+    (Parser_Lex_Util.make_source_layout
       (Parser_Lex_Util.text_source ""))
-fun set source ctxt =
-  (Isabelle_lex_yacc.set source ctxt;
-   pos_map := Parser_Lex_Util.make_position_map source;
-   turbofish_table := URust_Grammar.scan_turbofish ctxt source;
+fun set_layout layout ctxt =
+  (Isabelle_lex_yacc.set (Parser_Lex_Util.source_of layout) ctxt;
+   source_layout := layout;
+   turbofish_table := URust_Turbofish.scan ctxt layout;
    reset_aq ())
+fun set source ctxt =
+  set_layout (Parser_Lex_Util.make_source_layout source) ctxt
 
-fun fixed_pos yypos = Parser_Lex_Util.fixed_pos (!pos_map) yypos
-fun tokF args       = Parser_Lex_Util.tokF (!pos_map) args
-fun tok_valF args   = Parser_Lex_Util.tok_valF (!pos_map) args
-fun report_text args = Parser_Lex_Util.report_text (!pos_map) args
+fun fixed_pos yypos = Parser_Lex_Util.fixed_pos (!source_layout) yypos
+fun tokF args       = Parser_Lex_Util.tokF (!source_layout) args
+fun tok_valF args   = Parser_Lex_Util.tok_valF (!source_layout) args
+fun report_text args = Parser_Lex_Util.report_text (!source_layout) args
 fun tok_ident (yypos, yytext) =
-  let val p = Parser_Lex_Util.ident_pos (!pos_map) (yypos, yytext)
+  let val p = Parser_Lex_Util.ident_pos (!source_layout) (yypos, yytext)
   in Tokens.IDENT (yytext, p, p) end
 
 fun tok_turbofish (yypos, yytext) =
-  (case Inttab.lookup (!turbofish_table) yypos of
-     SOME (URust_Grammar.Turbofish
-       {arguments, open_offset, close_offset, comma_offsets}) =>
+  (case URust_Turbofish.lookup (!turbofish_table) yypos of
+     SOME {arguments, open_offset, close_offset, comma_offsets} =>
        let
          val start = fixed_pos yypos
          val stop = fixed_pos (close_offset + 1)
@@ -536,7 +175,7 @@ fun tok_turbofish (yypos, yytext) =
 fun tok_matches_bang (yypos, yytext) =
   let
     val range as (start, stop) =
-      Parser_Lex_Util.text_range (!pos_map) (yypos, yytext)
+      Parser_Lex_Util.text_range (!source_layout) (yypos, yytext)
     val bang_raw = yypos + size yytext - 1
     val bang_pos = fixed_pos bang_raw
     val _ = report_text (yypos, "matches", Markup.keyword1, "TMATCHESBANG")

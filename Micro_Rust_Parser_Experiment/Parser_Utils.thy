@@ -6,15 +6,20 @@ theory Parser_Utils
 begin
 
 text\<open> The generated lexer reports character offsets, while Isabelle positions index symbols. Build one
-character-to-symbol map per source and use binary search for token positions. \<close>
+source layout per parse and use binary search for token positions. \<close>
 ML\<open>
 structure Parser_Lex_Util =
 struct
-  type position_map =
-    {fallback : Position.T,
-     starts : (int * Position.T) vector,
+  type source_layout =
+    {source : Input.source,
+     text : string,
+     symbols : Symbol_Pos.T vector,
+     raw_starts : int vector,
+     fallback : Position.T,
      raw_length : int,
      eof : Position.T}
+
+  type position_map = source_layout
 
   fun content_source text range =
     Input.source false text range
@@ -56,51 +61,77 @@ struct
         (Position.range (content_start, content_stop))
     end
 
-  fun make_position_map src =
+  fun make_source_layout source =
     let
-      fun build offset [] = ([], offset)
-        | build offset ((s, pos) :: rest) =
-            let
-              val (entries, raw_length) =
-                build (offset + size s) rest
-            in ((offset, pos) :: entries, raw_length) end
-      val (entries, raw_length) =
-        build 0 (Input.source_explode src)
+      val symbols =
+        Vector.fromList (Input.source_explode source)
+      val symbol_count = Vector.length symbols
+      fun build index raw_offset starts =
+        if index = symbol_count then
+          (Vector.fromList (rev (raw_offset :: starts)), raw_offset)
+        else
+          build (index + 1)
+            (raw_offset + size (#1 (Vector.sub (symbols, index))))
+            (raw_offset :: starts)
+      val (raw_starts, raw_length) = build 0 0 []
     in
-      {fallback = Input.pos_of src,
-       starts = Vector.fromList entries,
+      {source = source,
+       text = Input.text_of source,
+       symbols = symbols,
+       raw_starts = raw_starts,
+       fallback = Input.pos_of source,
        raw_length = raw_length,
-       eof = #2 (Input.range_of src)}
+       eof = #2 (Input.range_of source)}
     end
 
+  fun make_position_map source =
+    make_source_layout source
+
+  fun source_of ({source, ...} : source_layout) = source
+  fun text_of ({text, ...} : source_layout) = text
+  fun symbols_of ({symbols, ...} : source_layout) = symbols
+  fun symbol_count ({symbols, ...} : source_layout) = Vector.length symbols
+  fun source_symbol ({symbols, ...} : source_layout) index =
+    Vector.sub (symbols, index)
+  fun raw_start ({raw_starts, ...} : source_layout) index =
+    Vector.sub (raw_starts, index)
+  fun raw_length ({raw_length, ...} : source_layout) = raw_length
+  fun fallback_position ({fallback, ...} : source_layout) = fallback
+  fun eof_position ({eof, ...} : source_layout) = eof
+  fun boundary_position (layout : source_layout) index =
+    if index < symbol_count layout
+    then #2 (source_symbol layout index)
+    else eof_position layout
+
   fun fixed_pos
-      ({fallback, starts, raw_length, eof} : position_map)
+      (layout as
+        {symbols, raw_starts, fallback, raw_length, eof, ...} : position_map)
       yypos =
     if yypos >= raw_length then eof
-    else if Vector.length starts = 0 then fallback
+    else if Vector.length symbols = 0 then fallback
     else
       let
         val target = Int.max (0, yypos)
-        val n = Vector.length starts
+        val n = Vector.length symbols
         fun search lo hi =
           if lo + 1 >= hi then lo
           else
             let val mid = (lo + hi) div 2
             in
-              if #1 (Vector.sub (starts, mid)) <= target
+              if Vector.sub (raw_starts, mid) <= target
               then search mid hi
               else search lo mid
             end
         val i = search 0 n
-      in #2 (Vector.sub (starts, i)) end
+      in #2 (source_symbol layout i) end
 
   fun text_range pos_map (yypos, text) =
     let val start = fixed_pos pos_map yypos
     in Position.range (start, Position.symbol_explode text start) end
 
-  fun source_line_column source position =
+  fun source_line_column_with_layout layout position =
     let
-      val symbols = Input.source_explode source
+      val symbols = Vector.foldr op :: [] (symbols_of layout)
       val target_offset = Position.offset_of position
 
       fun at_target (_, symbol_position) =
@@ -123,19 +154,23 @@ struct
 
       val start_line =
         the_default 1
-          (Position.line_of (Input.pos_of source))
+          (Position.line_of (fallback_position layout))
     in
       advance (prefix symbols []) start_line 1
     end
 
-  fun print_error source (message, start, stop) =
+  fun source_line_column source position =
+    source_line_column_with_layout
+      (make_source_layout source) position
+
+  fun print_error_with_layout layout (message, start, stop) =
     let
       val position =
         Position.range_position
           (Position.range (start, stop))
       val _ = Position.report position Markup.error
       val (line, column) =
-        source_line_column source start
+        source_line_column_with_layout layout start
     in
       error
         ("Parse Error at line " ^ string_of_int line ^
@@ -143,13 +178,14 @@ struct
          message ^ Position.here start)
     end
 
-  fun parse_source
-      parse make_lexer get same_token eof source =
+  fun print_error source error =
+    print_error_with_layout (make_source_layout source) error
+
+  fun parse_source_with_layout
+      parse make_lexer get same_token eof layout =
     let
-      val input_text = Input.text_of source
-      val position_map = make_position_map source
-      val eof_position =
-        fixed_pos position_map (size input_text)
+      val input_text = text_of layout
+      val eof_position = eof_position layout
 
       fun canonical_position position =
         if position = Position.none
@@ -160,7 +196,7 @@ struct
         parse
           (0, lexstream,
            fn (message, start, stop) =>
-             print_error source
+             print_error_with_layout layout
                (message,
                 canonical_position start,
                 canonical_position stop),
@@ -187,6 +223,12 @@ struct
     in
       loop lexer
     end
+
+  fun parse_source
+      parse make_lexer get same_token eof source =
+    parse_source_with_layout
+      parse make_lexer get same_token eof
+      (make_source_layout source)
 
   fun report_range ((start, stop), markup, typ) =
     let val pos = Position.range_position (start, stop)
@@ -320,6 +362,101 @@ ML_val\<open>
 
     val _ = audit_short_source "x"
     val _ = audit_short_source "xy"
+  in
+    val _ = ()
+  end
+\<close>
+
+ML_val\<open>
+  local
+    fun assert message condition =
+      if condition then ()
+      else error ("shared parser source-layout audit: " ^ message)
+
+    fun offset position =
+      the (Position.offset_of position)
+
+    val physical_club =
+      Byte.bytesToString
+        (Word8Vector.fromList [0wxE2, 0wx99, 0wxA3])
+    val escaped_arrow = "\<Rightarrow>"
+    val text = "a" ^ escaped_arrow ^ physical_club ^ "\nb"
+    val start =
+      Position.make0 11 200 0 "" "" "parser-source-layout-audit"
+    val stop = Position.symbol_explode text start
+    val source =
+      Parser_Lex_Util.positioned_content_source text start
+    val layout =
+      Parser_Lex_Util.make_source_layout source
+    val escaped_raw = 1
+    val physical_raw = escaped_raw + size escaped_arrow
+    val newline_raw = physical_raw + size physical_club
+    val final_raw = newline_raw + 1
+
+    val _ =
+      assert "original source or text was not retained"
+        (Input.string_of (Parser_Lex_Util.source_of layout) = text andalso
+         Parser_Lex_Util.text_of layout = text)
+    val _ =
+      assert "positioned symbol vector changed source symbols"
+        (map #1
+          (Vector.foldr (op ::) []
+            (Parser_Lex_Util.symbols_of layout)) =
+          ["a", escaped_arrow, physical_club, "\n", "b"])
+    val _ =
+      assert "raw symbol starts or raw length changed"
+        (map (Parser_Lex_Util.raw_start layout) (0 upto 5) =
+          [0, escaped_raw, physical_raw, newline_raw,
+           final_raw, size text] andalso
+         Parser_Lex_Util.raw_length layout = size text)
+    val _ =
+      assert "ASCII raw boundary moved"
+        (offset (Parser_Lex_Util.fixed_pos layout 0) = 200)
+    val _ =
+      assert "escaped-symbol raw interior did not map to one symbol"
+        (offset
+           (Parser_Lex_Util.fixed_pos layout escaped_raw) = 201 andalso
+         offset
+           (Parser_Lex_Util.fixed_pos layout
+             (physical_raw - 1)) = 201)
+    val _ =
+      assert "physical-UTF8 raw interior did not map to one symbol"
+        (offset
+           (Parser_Lex_Util.fixed_pos layout physical_raw) = 202 andalso
+         offset
+           (Parser_Lex_Util.fixed_pos layout
+             (newline_raw - 1)) = 202)
+    val _ =
+      assert "multiline line/column calculation changed"
+        (Parser_Lex_Util.source_line_column_with_layout layout
+          (Parser_Lex_Util.fixed_pos layout final_raw) = (12, 1))
+    val _ =
+      assert "EOF boundary changed"
+        (offset
+           (Parser_Lex_Util.fixed_pos layout (size text)) =
+             offset stop andalso
+         offset
+           (Parser_Lex_Util.fixed_pos layout (size text + 10)) =
+             offset stop andalso
+         offset (Parser_Lex_Util.eof_position layout) = offset stop)
+
+    val unpositioned =
+      Parser_Lex_Util.make_source_layout
+        (Parser_Lex_Util.text_source text)
+    val _ =
+      assert "unpositioned layout unexpectedly acquired offsets"
+        (Position.offset_of
+           (Parser_Lex_Util.fallback_position unpositioned) = NONE andalso
+         Position.offset_of
+           (Parser_Lex_Util.fixed_pos unpositioned physical_raw) =
+             NONE andalso
+         Position.offset_of
+           (Parser_Lex_Util.eof_position unpositioned) = NONE)
+    val _ =
+      assert "position-map compatibility wrapper changed layout behavior"
+        (Parser_Lex_Util.raw_length
+           (Parser_Lex_Util.make_position_map source) =
+         Parser_Lex_Util.raw_length layout)
   in
     val _ = ()
   end
