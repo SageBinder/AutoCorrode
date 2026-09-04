@@ -734,6 +734,53 @@ urust_expr_with_check' improvement_trailing_method_call
 old_urust_rejects
   \<open> \<llangle>1 :: 64 word\<rrangle>.cf2(\<llangle>2 :: 64 word\<rrangle>,) \<close>
 
+urust_expr_with_check' improvement_trailing_registered_path_call
+  \<open> plus2::lifted(\<llangle>3 :: 64 word\<rrangle>,) \<close>
+  \<open> \<lbrakk> plus2::lifted(\<llangle>3 :: 64 word\<rrangle>) \<rbrakk> \<close>
+old_urust_rejects
+  \<open> plus2::lifted(\<llangle>3 :: 64 word\<rrangle>,) \<close>
+
+context
+  fixes receiver :: nat
+  fixes generic_method ::
+    \<open>nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow>
+      (unit, nat, unit, unit, unit) function_body\<close>
+begin
+urust_expr_with_check' improvement_trailing_turbofish_method_call
+  \<open> receiver.generic_method::<5>(6,) \<close>
+  \<open> \<lbrakk> receiver.generic_method::<5>(6) \<rbrakk> \<close>
+old_urust_rejects
+  \<open> receiver.generic_method::<5>(6,) \<close>
+end
+
+urust_expr_with_check' improvement_turbofish_punctuation_newlines
+  \<open>
+    turbofish_ignore_two
+      ::
+      <
+        (1 + 2),
+        (True)
+      >
+      (\<llangle>4 :: 64 word\<rrangle>,)
+  \<close>
+  \<open>
+    \<lbrakk>
+      turbofish_ignore_two::<(1 + 2), (True)>(
+        \<llangle>4 :: 64 word\<rrangle>
+      )
+    \<rbrakk>
+  \<close>
+old_urust_rejects
+  \<open>
+    turbofish_ignore_two
+      ::
+      <
+        (1 + 2),
+        (True)
+      >
+      (\<llangle>4 :: 64 word\<rrangle>,)
+  \<close>
+
 urust_expr_with_check' improvement_trailing_guarded_arm
   \<open>
     match \<llangle>Some (1 :: nat)\<rrangle> {
@@ -856,6 +903,84 @@ old_urust_rejects
       },
       y,
     )
+  \<close>
+
+
+section\<open> Composed accepted-surface improvements \<close>
+
+text\<open>
+This row combines line comments, glued suffixes, trailing separators, postfix
+propagation, mixed conditional chains, ASCII arrows, and empty blocks. The
+showoff retains the parser-only source, while this theory owns its explicit
+old-frontend witness.
+\<close>
+
+urust_expr_with_check' improvement_showoff_composition
+  \<open>
+    // These spellings are accepted only by the dedicated parser.
+    let seeds = [1u64, 2u64,];
+    let seed = seeds[0usize];
+    let bumped = Some(cf1(seed,))?.cf1();
+    let selected =
+      if seed == 0u64 {
+        seed
+      } else if let Some(value) = Some(bumped) {
+        value
+      } else if bumped > 2u64 {
+        bumped
+      } else {
+        seed
+      };
+    match Some(selected) {
+      Some(value) => (value, {}, unsafe {},),
+      None => (0u64, {}, unsafe {},),
+    }
+  \<close>
+  \<open>
+    \<lbrakk>
+      let seeds = [1_u64, 2_u64];
+      let seed = seeds[0_usize];
+      let bumped = (Some(cf1(seed))?).cf1();
+      let selected =
+        if seed == 0_u64 {
+          seed
+        } else {
+          if let Some(value) = Some(bumped) {
+            value
+          } else {
+            if bumped > 2_u64 {
+              bumped
+            } else {
+              seed
+            }
+          }
+        };
+      match Some(selected) {
+        Some(value) \<Rightarrow> (value, { () }, unsafe { () }),
+        None \<Rightarrow> (0_u64, { () }, unsafe { () })
+      }
+    \<rbrakk>
+  \<close>
+old_urust_rejects
+  \<open>
+    // These spellings are accepted only by the dedicated parser.
+    let seeds = [1u64, 2u64,];
+    let seed = seeds[0usize];
+    let bumped = Some(cf1(seed,))?.cf1();
+    let selected =
+      if seed == 0u64 {
+        seed
+      } else if let Some(value) = Some(bumped) {
+        value
+      } else if bumped > 2u64 {
+        bumped
+      } else {
+        seed
+      };
+    match Some(selected) {
+      Some(value) => (value, {}, unsafe {},),
+      None => (0u64, {}, unsafe {},),
+    }
   \<close>
 
 
@@ -1279,6 +1404,12 @@ The custom parser treats propagation, fields, and methods as one left-associativ
 postfix tier. The old frontend requires parentheses after propagation before a method
 postfix.
 \<close>
+
+urust_expr_with_check' improvement_path_postfix_chain
+  \<open> Some(Path::Values[1_usize])?.cf1() \<close>
+  \<open> \<lbrakk> (Some(Path::Values[1_usize])?).cf1() \<rbrakk> \<close>
+old_urust_rejects
+  \<open> Some(Path::Values[1_usize])?.cf1() \<close>
 
 context fixes self :: postfix_outer
 begin

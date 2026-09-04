@@ -6,6 +6,7 @@ theory Parser_Impl_Command
     "urust_expr" :: thy_decl
     and "urust_expr_with_check" :: thy_decl
     and "urust_expr_with_check'" :: thy_decl
+    and "urust_notation" :: thy_decl
 begin
 
 section\<open> The command \<close>
@@ -109,6 +110,78 @@ val _ = Outer_Syntax.local_theory \<^command_keyword>\<open>urust_expr_with_chec
             Parse.term >>
             (fn ((binding, new_source), old_frontend_source) =>
               define_urust_with_frontend_check (binding, new_source, old_frontend_source)))
+end
+\<close>
+
+section\<open> Canonical notation declarations \<close>
+
+text\<open>
+\<open>urust_notation\<close> is a parser-aware declaration wrapper. It validates and
+canonicalizes Rust names with the same parser and path renderer used by lookup,
+then delegates all registration and configuration behavior to
+\<open>Micro_Rust_Notation_Cmd\<close>.
+\<close>
+ML\<open>
+local
+  fun split_bang name =
+    if String.isSuffix "!" name
+    then (String.substring (name, 0, size name - 1), "!")
+    else (name, "")
+
+  fun canonical_name ctxt (name, pos) =
+    let
+      val (path_text, bang) = split_bang name
+      val source =
+        Parser_Lex_Util.positioned_content_source path_text pos
+      val path =
+        (case URust_Diagnostics.parse_source ctxt source of
+           SOME (URust_AST.UE_Path path) => path
+         | SOME _ =>
+             error
+               ("urust_notation: expected a complete uRust path" ^
+                 Position.here pos)
+         | NONE =>
+             error
+               ("urust_notation: empty uRust name" ^
+                 Position.here pos))
+    in URust_AST.render_path path ^ bang end
+
+  fun register kind_opt (hol_src, rust_name) lthy =
+    Micro_Rust_Notation_Cmd.do_register kind_opt
+      (hol_src, (canonical_name lthy rust_name, #2 rust_name)) lthy
+
+  fun configure (bit, names) lthy =
+    Micro_Rust_Notation_Cmd.do_config
+      (bit, map (canonical_name lthy) names) lthy
+
+  val parse_name = Parse.position Parse.string
+  val parse_names = Scan.repeat parse_name
+  val parse_payload =
+    Parse.term --
+      (Parse.$$$ "(" |-- parse_name --| Parse.$$$ ")")
+
+  val parse_register_with_kind =
+    parse_payload >> (fn payload => fn kind => register (SOME kind) payload)
+
+  val parse_command : (local_theory -> local_theory) parser =
+       (Parse.$$$ "(" |-- Args.$$$ "literal" --| Parse.$$$ ")"
+          |-- parse_register_with_kind
+          >> (fn f => f Micro_Rust_Names.NLiteral))
+    || (Parse.$$$ "(" |-- Args.$$$ "call" --| Parse.$$$ ")"
+          |-- parse_register_with_kind
+          >> (fn f => f Micro_Rust_Names.NFunction))
+    || (Parse.$$$ "(" |-- Args.$$$ "field" --| Parse.$$$ ")"
+          |-- parse_register_with_kind
+          >> (fn f => f Micro_Rust_Names.NField))
+    || (Parse.$$$ "(" |-- Args.$$$ "config" --| Parse.$$$ ")"
+          |-- Micro_Rust_Notation_Cmd.parse_shadow_mode -- parse_names
+          >> configure)
+    || (parse_payload >> register NONE)
+in
+  val _ =
+    Outer_Syntax.local_theory \<^command_keyword>\<open>urust_notation\<close>
+      "register a parser-canonical uRust notation or configure shadow checks"
+      parse_command
 end
 \<close>
 

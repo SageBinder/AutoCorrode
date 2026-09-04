@@ -125,9 +125,30 @@ struct
         val i = search 0 n
       in #2 (source_symbol layout i) end
 
+  fun source_slice
+      (layout as {text, raw_length, ...} : source_layout)
+      left right =
+    if 0 <= left andalso left < right andalso right <= raw_length then
+      Input.source true
+        (String.substring (text, left, right - left))
+        (Position.range
+          (fixed_pos layout left, fixed_pos layout right))
+    else
+      error
+        ("invalid parser source slice [" ^ string_of_int left ^ ", " ^
+          string_of_int right ^ ")")
+
   fun text_range pos_map (yypos, text) =
     let val start = fixed_pos pos_map yypos
     in Position.range (start, Position.symbol_explode text start) end
+
+  fun exclusive_end pos =
+    (case Position.end_offset_of pos of
+       SOME stop =>
+         let
+           val {line, props = {label, file, id}, ...} = Position.dest pos
+         in Position.make0 line stop 0 label file id end
+     | NONE => pos)
 
   fun source_line_column_with_layout layout position =
     let
@@ -248,6 +269,15 @@ struct
   fun tok_valF pos_map (yypos, yytext, markup, typ, cons, value) =
     let val range as (start, stop) = text_range pos_map (yypos, yytext)
     in report_range (range, markup, typ); cons (value, start, stop) end
+
+  fun ranged_value pos_map report markup typ (yypos, yytext) =
+    let
+      val range as (start, stop) = text_range pos_map (yypos, yytext)
+      val value =
+        (yytext, Position.range_position range, pos_map,
+         yypos, yypos + size yytext)
+      val _ = if report then report_range (range, markup, typ) else ()
+    in (value, start, stop) end
 
   fun ident_pos pos_map (yypos, yytext) =
     Position.range_position (text_range pos_map (yypos, yytext))

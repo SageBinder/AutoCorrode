@@ -1597,19 +1597,71 @@ new_urust_rejects audit
 
 new_urust_rejects audit
   \<open> f::<> \<close>
-  \<open> empty turbofish argument \<close>
+  \<open> syntax error \<close>
 
 new_urust_rejects audit
   \<open> f::<1,>() \<close>
-  \<open> empty turbofish argument \<close>
+  \<open> syntax error \<close>
 
 new_urust_rejects audit
   \<open> f::<(1]() \<close>
-  \<open> mismatched delimiter in turbofish \<close>
+  \<open> unexpected input "]" \<close>
 
 new_urust_rejects audit
   \<open> f::<1() \<close>
   \<open> unterminated turbofish \<close>
+
+subsection\<open> Restricted turbofish grammar \<close>
+
+text\<open>
+The legacy frontend admits arbitrary unquoted HOL in generic position. The dedicated parser
+intentionally accepts only unsuffixed integers, paths, grouping, and left-associative addition.
+\<close>
+
+new_urust_rejects divergent \<open> f::<Suc 4>() \<close> \<open> syntax error \<close>
+new_urust_rejects divergent \<open> f::<(1, 2)>() \<close> \<open> syntax error \<close>
+new_urust_rejects divergent \<open> f::<[1, 2]>() \<close> \<open> unexpected input "[" \<close>
+new_urust_rejects divergent \<open> f::<"text">() \<close> \<open> unexpected input \<close>
+new_urust_rejects divergent \<open> f::<STR ''text''>() \<close> \<open> unexpected input \<close>
+new_urust_rejects divergent \<open> f::<1 :: nat>() \<close> \<open> syntax error \<close>
+new_urust_rejects divergent \<open> f::<a < b>() \<close> \<open> unexpected input "<" \<close>
+new_urust_rejects divergent \<open> f::<a << b>() \<close> \<open> unexpected input "<" \<close>
+new_urust_rejects divergent \<open> f::<a & b>() \<close> \<open> unexpected input "&" \<close>
+new_urust_rejects divergent \<open> f::<a && b>() \<close> \<open> unexpected input "&" \<close>
+new_urust_rejects divergent \<open> f::<a % b>() \<close> \<open> unexpected input "%" \<close>
+new_urust_rejects divergent \<open> f::<a ^ b>() \<close> \<open> unexpected input "^" \<close>
+new_urust_rejects divergent \<open> f::<-a>() \<close> \<open> unexpected input "-" \<close>
+new_urust_rejects divergent \<open> f::<a - b>() \<close> \<open> unexpected input "-" \<close>
+new_urust_rejects divergent \<open> f::<a * b>() \<close> \<open> unexpected input "*" \<close>
+new_urust_rejects divergent \<open> f::<a / b>() \<close> \<open> unexpected input "/" \<close>
+new_urust_rejects divergent \<open> f::<a div b>() \<close> \<open> syntax error \<close>
+new_urust_rejects divergent \<open> f::<a mod b>() \<close> \<open> syntax error \<close>
+new_urust_rejects divergent \<open> f::<\<clubsuit>>() \<close> \<open> unexpected input \<close>
+new_urust_rejects divergent
+  \<open> f::<\<open>opaque\<close>>() \<close>
+  \<open> unexpected input \<close>
+new_urust_rejects divergent
+  \<open> f::<\<epsilon>\<open>1\<close>>() \<close>
+  \<open> unexpected input \<close>
+new_urust_rejects divergent
+  \<open> f::<1 // comments are not generic trivia
+       + 2>() \<close>
+  \<open> unexpected input "/" \<close>
+
+new_urust_rejects audit \<open> f::<,1>() \<close> \<open> syntax error \<close>
+new_urust_rejects audit \<open> f::<1,,2>() \<close> \<open> syntax error \<close>
+new_urust_rejects audit \<open> f::<1,>() \<close> \<open> syntax error \<close>
+new_urust_rejects audit \<open> f::<1 a>() \<close> \<open> syntax error \<close>
+new_urust_rejects audit \<open> f::<1 +>() \<close> \<open> syntax error \<close>
+new_urust_rejects audit \<open> f::<* 1>() \<close> \<open> unexpected input "*" \<close>
+new_urust_rejects audit \<open> f::<->() \<close> \<open> unexpected input "-" \<close>
+new_urust_rejects audit \<open> f::<((1)>() \<close> \<open> syntax error \<close>
+new_urust_rejects audit \<open> f::<1)>() \<close> \<open> syntax error \<close>
+new_urust_rejects audit
+  \<open> f::<1>>() \<close>
+  \<open> generic arguments on a bare value require an exact literal registration \<close>
+new_urust_rejects divergent \<open> f::<1u8>() \<close> \<open> syntax error \<close>
+new_urust_rejects divergent \<open> f::<0xff_u8>() \<close> \<open> syntax error \<close>
 
 urust_expr_rejects fidelity \<open> "bad\q" \<close> \<open> bad escape character in string \<close>
   \<comment> \<open> [FIDELITY] malformed escapes are rejected by the same Isabelle string decoder. \<close>

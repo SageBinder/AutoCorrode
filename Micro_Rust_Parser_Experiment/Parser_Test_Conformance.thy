@@ -3,7 +3,7 @@
    annotations avoid hidden type variables that `Local_Theory.define` cannot expose cleanly. *)
 
 theory Parser_Test_Conformance
-  imports Parser_Impl
+  imports Parser_Impl "HOL.Real"
 begin
 
 section\<open> Numeric literals (Corpus PART I, "Numeric Literals") \<close>
@@ -679,10 +679,6 @@ urust_expr_with_check path_separator_newlines
     Red
   \<close>
 
-urust_expr_with_check' path_call_trailing_comma
-  \<open> plus2::lifted(\<llangle>3 :: 64 word\<rrangle>,) \<close>
-  \<open> \<lbrakk> plus2::lifted(\<llangle>3 :: 64 word\<rrangle>) \<rbrakk> \<close>
-
 urust_expr_with_check path_followed_by_field
   \<open> Path::Record.path_record_field \<close>
 
@@ -694,10 +690,6 @@ urust_expr_with_check path_followed_by_propagation
 
 urust_expr_with_check path_followed_by_method
   \<open> Path::Seed.cf1() \<close>
-
-urust_expr_with_check' path_postfix_chain
-  \<open> Some(Path::Values[1_usize])?.cf1() \<close>
-  \<open> \<lbrakk> (Some(Path::Values[1_usize])?).cf1() \<rbrakk> \<close>
 
 subsection\<open> Path patterns \<close>
 
@@ -773,31 +765,24 @@ urust_expr_with_check path_switch_key
 subsection\<open> Semantic turbofish \<close>
 
 definition turbofish_ignore_one ::
-  \<open>'a \<Rightarrow> 64 word \<Rightarrow>
+  \<open>nat \<Rightarrow> 64 word \<Rightarrow>
     (unit, 64 word, unit, unit, unit) function_body\<close>
   where \<open> turbofish_ignore_one _ \<equiv> cf1 \<close>
 
 definition turbofish_ignore_two ::
-  \<open>'a \<Rightarrow> 'b \<Rightarrow> 64 word \<Rightarrow>
+  \<open>nat \<Rightarrow> bool \<Rightarrow> 64 word \<Rightarrow>
     (unit, 64 word, unit, unit, unit) function_body\<close>
   where \<open> turbofish_ignore_two _ _ \<equiv> cf1 \<close>
 
-definition turbofish_nat_bool ::
-  \<open>nat \<Rightarrow> bool \<Rightarrow> 64 word \<Rightarrow>
+definition turbofish_int_one ::
+  \<open>int \<Rightarrow> 64 word \<Rightarrow>
     (unit, 64 word, unit, unit, unit) function_body\<close>
-  where \<open> turbofish_nat_bool _ _ \<equiv> cf1 \<close>
+  where \<open> turbofish_int_one _ \<equiv> cf1 \<close>
 
-definition turbofish_nat_nat ::
-  \<open>nat \<Rightarrow> nat \<Rightarrow> 64 word \<Rightarrow>
+definition turbofish_real_one ::
+  \<open>real \<Rightarrow> 64 word \<Rightarrow>
     (unit, 64 word, unit, unit, unit) function_body\<close>
-  where \<open> turbofish_nat_nat _ _ \<equiv> cf1 \<close>
-
-notation path_literal_42 ("\<clubsuit>")
-
-definition turbofish_symbol_function :: \<open>nat \<Rightarrow> nat\<close>
-  where \<open> turbofish_symbol_function = Suc \<close>
-
-notation turbofish_symbol_function ("\<spadesuit>")
+  where \<open> turbofish_real_one _ \<equiv> cf1 \<close>
 
 subsubsection\<open> Basic calls and methods \<close>
 
@@ -807,9 +792,6 @@ context
   fixes receiver :: nat
   fixes tf_method ::
     \<open>nat \<Rightarrow> nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
-  fixes tf_method_arg ::
-    \<open>nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow>
-      (unit, nat, unit, unit, unit) function_body\<close>
 begin
 urust_expr_with_check turbofish_zero_arguments
   \<open> tf0::<5>() \<close>
@@ -823,142 +805,32 @@ urust_expr_with_check turbofish_bound_parameter
 urust_expr_with_check turbofish_method
   \<open> receiver.tf_method::<5>() \<close>
 
-urust_expr_with_check' turbofish_method_trailing_comma
-  \<open> receiver.tf_method_arg::<5>(6,) \<close>
-  \<open> \<lbrakk> receiver.tf_method_arg::<5>(6) \<rbrakk> \<close>
 end
 
-subsubsection\<open> Embedded HOL payloads \<close>
+subsubsection\<open> Restricted arithmetic payloads \<close>
 
 urust_expr_with_check turbofish_arithmetic_payload
   \<open>
-    turbofish_ignore_one::<(1 :: nat) + 2>(
+    turbofish_ignore_one::<1 + 2>(
       \<llangle>3 :: 64 word\<rrangle>
     )
   \<close>
 
-urust_expr_with_check turbofish_tuple_payload
-  \<open>
-    turbofish_ignore_one::<(1 :: nat, True)>(
-      \<llangle>3 :: 64 word\<rrangle>
-    )
-  \<close>
+urust_expr_with_check turbofish_hex_payload
+  \<open> turbofish_ignore_one::<0x2a>(\<llangle>3 :: 64 word\<rrangle>) \<close>
 
-urust_expr_with_check turbofish_list_payload
-  \<open>
-    turbofish_ignore_one::<[1 :: nat, 2, 3]>(
-      \<llangle>3 :: 64 word\<rrangle>
-    )
-  \<close>
+context
+  fixes a b c :: int
+begin
+urust_expr_with_check turbofish_add
+  \<open> turbofish_int_one::<a + b>(\<llangle>3 :: 64 word\<rrangle>) \<close>
 
-urust_expr_with_check turbofish_application_payload
-  \<open>
-    turbofish_ignore_one::<Suc 4>(
-      \<llangle>3 :: 64 word\<rrangle>
-    )
-  \<close>
+urust_expr_with_check turbofish_additive_chain
+  \<open> turbofish_int_one::<a + b + c>(\<llangle>3 :: 64 word\<rrangle>) \<close>
 
-urust_expr_with_check turbofish_string_payload
-  \<open>
-    turbofish_ignore_one::<STR ''payload, with > punctuation''>(
-      \<llangle>3 :: 64 word\<rrangle>
-    )
-  \<close>
-
-urust_expr_with_check turbofish_empty_string_payload
-  \<open>
-    turbofish_ignore_one::<STR ''''>(
-      \<llangle>3 :: 64 word\<rrangle>
-    )
-  \<close>
-
-urust_expr_with_check turbofish_multiple_string_payloads
-  \<open>
-    turbofish_ignore_two::<STR ''left, >'', STR ''right, >''>(
-      \<llangle>3 :: 64 word\<rrangle>
-    )
-  \<close>
-
-urust_expr_with_check turbofish_symbol_payload_last
-  \<open>
-    turbofish_nat_nat::<0, \<clubsuit>>(
-      \<llangle>3 :: 64 word\<rrangle>
-    )
-  \<close>
-
-urust_expr_with_check turbofish_symbol_payload_before_comma
-  \<open>
-    turbofish_nat_bool::<\<clubsuit>, True>(
-      \<llangle>3 :: 64 word\<rrangle>
-    )
-  \<close>
-
-urust_expr_with_check turbofish_symbol_payload_before_operator
-  \<open>
-    turbofish_ignore_one::<\<clubsuit> + 1>(
-      \<llangle>3 :: 64 word\<rrangle>
-    )
-  \<close>
-
-urust_expr_with_check turbofish_symbol_payload_before_application
-  \<open>
-    turbofish_ignore_one::<\<spadesuit> (1)>(
-      \<llangle>3 :: 64 word\<rrangle>
-    )
-  \<close>
-
-urust_expr_with_check turbofish_escaped_quote_string_payload
-  \<open>
-    turbofish_ignore_one::<STR ''apostrophe: \', comma, closer >''>(
-      \<llangle>3 :: 64 word\<rrangle>
-    )
-  \<close>
-
-urust_expr_with_check turbofish_nested_comma_payloads
-  \<open>
-    turbofish_ignore_two::<(1 :: nat, True), [2 :: nat, 3]>(
-      \<llangle>4 :: 64 word\<rrangle>
-    )
-  \<close>
-
-urust_expr_with_check turbofish_greater_than_payload
-  \<open>
-    turbofish_ignore_one::<((5 :: nat) > 3)>(
-      \<llangle>3 :: 64 word\<rrangle>
-    )
-  \<close>
-
-urust_expr_with_check turbofish_greater_equal_payload
-  \<open>
-    turbofish_ignore_one::<((5 :: nat) >= 3)>(
-      \<llangle>3 :: 64 word\<rrangle>
-    )
-  \<close>
-
-urust_expr_with_check turbofish_shift_payload
-  \<open>
-    turbofish_ignore_one::<((8 :: 64 word) >> 1)>(
-      \<llangle>3 :: 64 word\<rrangle>
-    )
-  \<close>
-
-urust_expr_with_check' turbofish_punctuation_newlines
-  \<open>
-    turbofish_ignore_two
-      ::
-      <
-        (1 :: nat),
-        (True)
-      >
-      (\<llangle>4 :: 64 word\<rrangle>,)
-  \<close>
-  \<open>
-    \<lbrakk>
-      turbofish_ignore_two::<(1 :: nat), (True)>(
-        \<llangle>4 :: 64 word\<rrangle>
-      )
-    \<rbrakk>
-  \<close>
+urust_expr_with_check turbofish_parenthesized_addition
+  \<open> turbofish_int_one::<(a + b) + c>(\<llangle>3 :: 64 word\<rrangle>) \<close>
+end
 
 subsubsection\<open> Scope and expression composition \<close>
 
@@ -992,7 +864,7 @@ urust_expr_with_check turbofish_closure_formal
 urust_expr_with_check turbofish_nested_call
   \<open>
     cf1(
-      turbofish_ignore_one::<Suc 0>(
+      turbofish_ignore_one::<0 + 1>(
         \<llangle>3 :: 64 word\<rrangle>
       )
     )
@@ -1001,18 +873,18 @@ urust_expr_with_check turbofish_nested_call
 urust_expr_with_check turbofish_array_elements
   \<open>
     [
-      turbofish_ignore_one::<(0 :: nat)>(\<llangle>3 :: 64 word\<rrangle>),
-      turbofish_ignore_one::<(1 :: nat)>(\<llangle>4 :: 64 word\<rrangle>)
+      turbofish_ignore_one::<0>(\<llangle>3 :: 64 word\<rrangle>),
+      turbofish_ignore_one::<1>(\<llangle>4 :: 64 word\<rrangle>)
     ]
   \<close>
 
 urust_expr_with_check turbofish_branch_and_operator
   \<open>
     if true {
-      turbofish_ignore_one::<(0 :: nat)>(\<llangle>3 :: 64 word\<rrangle>) +
+      turbofish_ignore_one::<0>(\<llangle>3 :: 64 word\<rrangle>) +
       \<llangle>1 :: 64 word\<rrangle>
     } else {
-      turbofish_ignore_one::<(1 :: nat)>(\<llangle>4 :: 64 word\<rrangle>)
+      turbofish_ignore_one::<1>(\<llangle>4 :: 64 word\<rrangle>)
     }
   \<close>
 
@@ -1057,11 +929,11 @@ urust_expr_with_check turbofish_qualified_base
   \<open> Module::lifted::<64>(\<llangle>3 :: 64 word\<rrangle>) \<close>
 
 micro_rust_notation (call) generic_cf1 ("Exact::lifted")
-micro_rust_notation (call) cf1 ("Exact::<not valid HOL>::lifted")
+urust_notation (call) cf1 ("Exact::<N>::lifted")
 
 urust_expr_with_check turbofish_exact_registration_wins
   \<open>
-    Exact::<not valid HOL>::lifted(
+    Exact::<N>::lifted(
       \<llangle>3 :: 64 word\<rrangle>
     )
   \<close>
@@ -3807,7 +3679,7 @@ definition macro_is_none ::
 
 micro_rust_notation (call) macro_shout ("shout!")
 micro_rust_notation (call) macro_shout ("Log::shout!")
-micro_rust_notation (call) macro_shout ("Log::<not valid HOL>::shout!")
+urust_notation (call) macro_shout ("Log::<N>::shout!")
 micro_rust_notation (call) macro_is_none ("is_none")
 
 subsection\<open> Assertions, aliases, delimiters, and precedence \<close>
@@ -4046,7 +3918,7 @@ urust_expr_with_check macro_registered_path
   \<open> Log::shout!(true) \<close>
 
 urust_expr_with_check macro_registered_generic_path
-  \<open> Log::<not valid HOL>::shout!(true) \<close>
+  \<open> Log::<N>::shout!(true) \<close>
 
 subsection\<open> Vectors, postfixes, and address macros \<close>
 

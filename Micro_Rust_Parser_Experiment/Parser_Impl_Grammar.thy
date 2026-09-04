@@ -1,6 +1,7 @@
 theory Parser_Impl_Grammar
   imports
-    Parser_Impl_Turbofish
+    Parser_Impl_AST
+    Parser_Utils
     "Isabelle_Lex-Yacc.LexYacc"
 begin
 
@@ -16,13 +17,14 @@ sig
   val lex_error: string -> Position.T -> 'a
   val string_error: Position.T -> 'a
   val antiquotation_error: string -> Position.T -> 'a
+  val turbofish_error: Position.T -> 'a
 end
 
 (*
-  URust_Grammar owns the source-facing failures raised directly by generated lexer actions. Turbofish
-  discovery and diagnostics belong to URust_Turbofish. This structure does not decide which input is
-  malformed, recover from an error, report parser conflicts, or validate the AST; those responsibilities
-  remain with the lexer rules, the joined parser, and later elaboration modules.
+  URust_Grammar owns the source-facing failures raised directly by generated lexer actions. This
+  structure does not decide which input is malformed, recover from an error, report parser conflicts,
+  or validate the AST; those responsibilities remain with the lexer rules, the joined parser, and
+  later elaboration modules.
 
   The generated lexer may rely on these public, non-returning functions:
 
@@ -35,8 +37,9 @@ end
     * antiquotation_error kind pos raises the positioned unterminated-antiquotation diagnostic at the
       opening delimiter.  Lexer callers supply the source-facing kind, currently "value" or
       "expression".
+    * turbofish_error pos raises the unterminated-group diagnostic at the generic opener.
 
-  All three functions have result type 'a because they always raise via error.  Their exact string
+  All four functions have result type 'a because they always raise via error.  Their exact string
   assembly and use of quote are implementation details, subject to the message and position contracts
   above.  The SML_import below only makes this Isabelle/ML-owned interface available to generated lexer
   code; it does not create a second owner.
@@ -51,10 +54,12 @@ struct
 
   fun antiquotation_error kind pos =
     error ("urust_expr: unterminated " ^ kind ^ " antiquotation" ^ Position.here pos)
+
+  fun turbofish_error pos =
+    error ("urust_expr: unterminated turbofish" ^ Position.here pos)
 end
 \<close>
 SML_import \<open> structure URust_Grammar = URust_Grammar \<close>
-SML_import \<open> structure URust_Turbofish = URust_Turbofish \<close>
 SML_import \<open> structure Parser_Lex_Util = Parser_Lex_Util \<close>  \<comment>\<open> shared lexer position math \<close>
 
 section\<open> Lexer + grammar \<close>
@@ -77,7 +82,7 @@ HOL content. Yacc directives reproduce the frontend precedence
 
     * URustLexFun produces the lexer structure accepted by the ML-Yacc Join functor. Its
       UserDeclarations.set_layout layout ctxt operation initializes the Isabelle-Lex-Yacc runtime from
-      the shared source layout, scans turbofish regions, and resets all antiquotation state. The
+      the shared source layout and resets all antiquotation/generic state. The
       source-taking set wrapper remains for generated-driver compatibility.
     * URustLrValsFun supplies the generated semantic value/result types, actions, LR table, tokens, and
       recovery data. Parser_Impl_Diagnostics instantiates it once and rejoins that exact data with the
@@ -112,12 +117,12 @@ val aq_buf = ref ([] : string list)
 val aq_start = ref 0   (* char offset of the antiquotation BODY start (just after the opener) *)
 val aq_open = ref 0
 val aq_depth = ref 0
-val turbofish_table = ref URust_Turbofish.empty
-val turbofish_close = ref ~1
+val generic_open = ref (NONE : Position.T option)
 
 fun reset_aq () =
-  (aq_kind := No_AQ; aq_buf := []; aq_start := 0; aq_open := 0; aq_depth := 0;
-   turbofish_close := ~1)
+  (aq_kind := No_AQ; aq_buf := []; aq_start := 0; aq_open := 0; aq_depth := 0)
+fun reset_generic () = generic_open := NONE
+fun reset_state () = (reset_aq (); reset_generic ())
 fun start_aq kind open_pos body_pos =
   (aq_kind := kind; aq_buf := []; aq_start := body_pos; aq_open := open_pos; aq_depth := 0)
 fun push_aq fragment = aq_buf := fragment :: !aq_buf
@@ -141,8 +146,7 @@ val source_layout =
 fun set_layout layout ctxt =
   (Isabelle_lex_yacc.set (Parser_Lex_Util.source_of layout) ctxt;
    source_layout := layout;
-   turbofish_table := URust_Turbofish.scan ctxt layout;
-   reset_aq ())
+   reset_state ())
 fun set source ctxt =
   set_layout (Parser_Lex_Util.make_source_layout source) ctxt
 
@@ -154,23 +158,38 @@ fun tok_ident (yypos, yytext) =
   let val p = Parser_Lex_Util.ident_pos (!source_layout) (yypos, yytext)
   in Tokens.IDENT (yytext, p, p) end
 
-fun tok_turbofish (yypos, yytext) =
-  (case URust_Turbofish.lookup (!turbofish_table) yypos of
-     SOME {arguments, open_offset, close_offset, comma_offsets} =>
-       let
-         val start = fixed_pos yypos
-         val stop = fixed_pos (close_offset + 1)
-         val _ = report_text (yypos, "::", Markup.delimiter, "TCOLONCOLON")
-         val _ = report_text (open_offset, "<", Markup.delimiter, "TURBO")
-         val _ =
-           List.app
-             (fn offset =>
-               report_text (offset, ",", Markup.delimiter, "TURBO"))
-             comma_offsets
-         val _ = report_text (close_offset, ">", Markup.delimiter, "TURBO")
-         val _ = turbofish_close := close_offset
-       in Tokens.TURBO (arguments, start, stop) end
-   | NONE => URust_Grammar.lex_error yytext (fixed_pos yypos))
+fun tok_generic_open (yypos, yytext) =
+  let
+    val open_offset = yypos + size yytext - 1
+    val start = fixed_pos yypos
+    val stop = fixed_pos (open_offset + 1)
+    val _ = report_text (yypos, "::", Markup.delimiter, "TCOLONCOLON")
+    val _ = report_text (open_offset, "<", Markup.delimiter, "TGOPEN")
+    val _ = generic_open := SOME (fixed_pos open_offset)
+  in Tokens.TGOPEN (start, stop) end
+
+fun tok_generic_value markup typ cons (yypos, yytext) =
+  let
+    val (value, start, stop) =
+      Parser_Lex_Util.ranged_value
+        (!source_layout) true markup typ (yypos, yytext)
+  in cons (value, start, stop) end
+
+fun tok_generic_ident (yypos, yytext) =
+  let
+    val (value, start, stop) =
+      Parser_Lex_Util.ranged_value
+        (!source_layout) false Markup.empty "GIDENT" (yypos, yytext)
+  in Tokens.GIDENT (value, start, stop) end
+
+fun tok_generic_raw markup typ cons (yypos, yytext) =
+  let
+    val range as (start, stop) =
+      Parser_Lex_Util.text_range (!source_layout) (yypos, yytext)
+    val _ =
+      Parser_Lex_Util.report_range
+        (range, markup, typ)
+  in cons (yypos, start, stop) end
 
 fun tok_matches_bang (yypos, yytext) =
   let
@@ -184,13 +203,17 @@ fun tok_matches_bang (yypos, yytext) =
 
 fun eof () =
   (case !aq_kind of
-     No_AQ => Tokens.EOF (Position.none, Position.none)
+     No_AQ =>
+       (case !generic_open of
+          NONE => Tokens.EOF (Position.none, Position.none)
+        | SOME pos =>
+            URust_Grammar.turbofish_error pos)
    | Value_AQ => URust_Grammar.antiquotation_error "value" (fixed_pos (!aq_open))
    | Expr_AQ => URust_Grammar.antiquotation_error "expression" (fixed_pos (!aq_open)))
 \<close>
 lex_definitions\<open>
 %header (functor URustLexFun(structure Tokens: URust_TOKENS));
-%s VAQ EAQ TURBO;
+%s VAQ EAQ GENERIC;
 digit=[0-9];
 hexdigit=[0-9a-fA-F];
 idstart=[A-Za-z_];
@@ -228,7 +251,7 @@ lex_rules\<open>
 <INITIAL>"match_case"   => (tokF (yypos, yytext, Markup.keyword1, "TMATCHCASE", Tokens.TMATCHCASE));
 <INITIAL>"mut"    => (tokF (yypos, yytext, Markup.keyword1, "TMUT", Tokens.TMUT));
 <INITIAL>"::"{pathws}*"<" =>
-    (YYBEGIN TURBO; tok_turbofish (yypos, yytext));
+    (YYBEGIN GENERIC; tok_generic_open (yypos, yytext));
 <INITIAL>"::"     => (tokF (yypos, yytext, Markup.delimiter, "TCOLONCOLON", Tokens.TCOLONCOLON));
 <INITIAL>"<<="    => (tokF (yypos, yytext, Markup.operator, "TSHLEQ", Tokens.TSHLEQ));
 <INITIAL>">>="    => (tokF (yypos, yytext, Markup.operator, "TSHREQ", Tokens.TSHREQ));
@@ -299,14 +322,40 @@ lex_rules\<open>
        in Tokens.EXPRAQ (Input.source true body (Position.range (p, q)), p, q) end));
 <EAQ>\n           => (push_aq "\n"; lex());
 <EAQ>.            => (push_aq yytext; lex());
-<TURBO>\n         => (lex());
-<TURBO>.          =>
-    (if yypos = !turbofish_close
-     then (turbofish_close := ~1; YYBEGIN INITIAL; lex())
-     else lex());
+<GENERIC>\n       => (lex());
+<GENERIC>{ws}+    => (lex());
+<GENERIC>"0x"{hexdigit}+ =>
+    (tok_generic_value Markup.numeral "GNUM" Tokens.GNUM (yypos, yytext));
+<GENERIC>{digit}+ =>
+    (tok_generic_value Markup.numeral "GNUM" Tokens.GNUM (yypos, yytext));
+<GENERIC>{idstart}{idchar}* => (tok_generic_ident (yypos, yytext));
+<GENERIC>"::"     => (tokF (yypos, yytext, Markup.delimiter, "TCOLONCOLON", Tokens.TCOLONCOLON));
+<GENERIC>"("      => (tok_generic_raw Markup.delimiter "GLPAR" Tokens.GLPAR (yypos, yytext));
+<GENERIC>")"      => (tok_generic_raw Markup.delimiter "GRPAR" Tokens.GRPAR (yypos, yytext));
+<GENERIC>","      => (tokF (yypos, yytext, Markup.delimiter, "COMMA", Tokens.COMMA));
+<GENERIC>"+"      => (tokF (yypos, yytext, Markup.operator, "TPLUS", Tokens.TPLUS));
+<GENERIC>">"      =>
+    (generic_open := NONE; YYBEGIN INITIAL;
+     tokF (yypos, yytext, Markup.delimiter, "TGT", Tokens.TGT));
+<GENERIC>.        => (URust_Grammar.lex_error yytext (fixed_pos yypos));
 \<close>
 and yacc_user_declarations\<open>
 open URust_AST
+
+datatype parsed_fragment =
+  Parsed_Fragment of
+    string *
+    Parser_Lex_Util.source_layout * int * int
+
+fun append_fragment separator
+    (Parsed_Fragment (left, layout, start, _))
+    (Parsed_Fragment (right, _, _, stop)) =
+  Parsed_Fragment (left ^ separator ^ right, layout, start, stop)
+
+fun generic_argument
+    (Parsed_Fragment (canonical, layout, start, stop)) =
+  Generic_Arg
+    (canonical, Parser_Lex_Util.source_slice layout start stop)
 
 datatype binding_head =
     BH_Let of ur_pat * ur_expr
@@ -341,14 +390,6 @@ fun finish_conditional
 fun segment_position (Path_Segment (_, pos, NONE)) = pos
   | segment_position (Path_Segment (_, _, SOME (Generic_Args (_, pos)))) = pos
 
-fun exclusive_end pos =
-  (case Position.end_offset_of pos of
-     SOME stop =>
-       let
-         val {line, props = {label, file, id}, ...} = Position.dest pos
-       in Position.make0 line stop 0 label file id end
-   | NONE => pos)
-
 fun make_path segment =
   UR_Path ([segment], segment_position segment)
 
@@ -356,7 +397,7 @@ fun append_path (UR_Path (segments, pos), segment) =
   UR_Path
     (segments @ [segment],
      Position.range_position
-       (pos, exclusive_end (segment_position segment)))
+       (pos, Parser_Lex_Util.exclusive_end (segment_position segment)))
 \<close>
 yacc_definitions\<open>
 %name URust
@@ -387,7 +428,10 @@ yacc_definitions\<open>
 
 %term NUM of string | NUMSFX of string | STRING of string | IDENT of string | LPAR | RPAR
     | VALAQ of Input.source | EXPRAQ of Input.source
-    | TURBO of URust_AST.generic_args
+    | TGOPEN
+    | GNUM of string * Position.T * Parser_Lex_Util.source_layout * int * int
+    | GIDENT of string * Position.T * Parser_Lex_Util.source_layout * int * int
+    | GLPAR of int | GRPAR of int
     | TTRUE | TFALSE | TLET | TCONST | TRETURN | TEQ | TSEMI | EOF
     | TIF | TELSE | TLBRACE | TRBRACE | TLBRACK | TRBRACK | COMMA | TDOT
     | TCOLON | TCOLONCOLON | TAT
@@ -421,6 +465,12 @@ yacc_definitions\<open>
        | uatom of URust_AST.ur_expr
        | upath_segment of URust_AST.path_segment
        | upath of URust_AST.ur_path
+       | ugeneric_args of URust_AST.generic_args
+       | ugeneric_arglist of URust_AST.generic_arg list
+       | ugeneric_arg of URust_AST.generic_arg
+       | ugeneric_additive of parsed_fragment
+       | ugeneric_atom of parsed_fragment
+       | ugeneric_path of parsed_fragment
        | arglist of URust_AST.ur_expr list
        | ucallargs of URust_AST.ur_expr list
        | umacroargs of URust_AST.ur_expr list
@@ -615,12 +665,54 @@ yacc_rules\<open>
         | uwith_block_atom %prec TIF (uwith_block_atom)
   upath_segment : IDENT
                     (Path_Segment (IDENT, IDENTleft, NONE))
-                | IDENT TURBO
-                    (Path_Segment (IDENT, IDENTleft, SOME TURBO))
+                | IDENT ugeneric_args
+                    (Path_Segment (IDENT, IDENTleft, SOME ugeneric_args))
   upath : upath_segment
             (make_path upath_segment)
         | upath TCOLONCOLON upath_segment
             (append_path (upath, upath_segment))
+  ugeneric_args : TGOPEN ugeneric_arglist TGT
+                    (Generic_Args
+                      (ugeneric_arglist,
+                       Position.range_position (TGOPENleft, TGTright)))
+  ugeneric_arglist : ugeneric_arg
+                       ([ugeneric_arg])
+                   | ugeneric_arg COMMA ugeneric_arglist
+                       (ugeneric_arg :: ugeneric_arglist)
+  ugeneric_arg : ugeneric_additive
+                   (generic_argument ugeneric_additive)
+  ugeneric_additive : ugeneric_atom
+                        (ugeneric_atom)
+                    | ugeneric_additive TPLUS ugeneric_atom
+                        (append_fragment "+"
+                          ugeneric_additive ugeneric_atom)
+  ugeneric_atom : GNUM
+                    (case GNUM of
+                       (lexeme, _, layout, start, stop) =>
+                         Parsed_Fragment
+                           (lexeme, layout, start, stop))
+                | ugeneric_path
+                    (ugeneric_path)
+                | GLPAR ugeneric_additive GRPAR
+                    (case ugeneric_additive of
+                       Parsed_Fragment
+                         (canonical, layout, _, _) =>
+                           Parsed_Fragment
+                             ("(" ^ canonical ^ ")",
+                              layout, GLPAR, GRPAR + 1))
+  ugeneric_path : GIDENT
+                    (case GIDENT of
+                       (name, _, layout, start, stop) =>
+                         Parsed_Fragment
+                           (name, layout, start, stop))
+                | ugeneric_path TCOLONCOLON GIDENT
+                    (case (ugeneric_path, GIDENT) of
+                       (Parsed_Fragment
+                          (canonical, layout, start, _),
+                        (name, _, _, _, stop)) =>
+                          Parsed_Fragment
+                            (canonical ^ "::" ^ name,
+                             layout, start, stop))
   (* Reference prefixes bind tighter than every binary operator and looser than `!`, matching the
      frontend priorities. Recursing through this tier makes `**x` two ordinary dereference nodes while
      preserving the binary meanings of `*` and `&`; mixed and deeper recursion is a documented

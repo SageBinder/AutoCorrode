@@ -6,8 +6,8 @@ section\<open> Showcase \<close>
 
 text\<open>
 These examples intentionally combine features. Shared-source examples check the
-same text against the existing frontend; the improvements example checks an
-explicit equivalent old-frontend term. Every equality is proved by \<open>refl\<close>.
+same text against the existing frontend. The parser-only improvements example
+has its explicit old-frontend witness in \<open>Parser_Test_Improvements\<close>.
 \<close>
 
 subsection\<open> Expressions, bindings, and control flow \<close>
@@ -54,13 +54,13 @@ definition showoff_generic_parameter :: nat
 
 notation showoff_generic_parameter ("\<clubsuit>")
 
-micro_rust_notation (call) showoff_generic_bump ("Showoff::bump")
+urust_notation (call) showoff_generic_bump ("Showoff::bump")
 
 text\<open>
 Features: an array literal, range slicing and indexing, a let-bound callee,
 nested calls, receiver-prepended method calls, method chaining, Option propagation
 around call and method results, propagation grouped before a method, a conditional
-argument, structured-path turbofish with an escaped symbolic HOL payload,
+argument, structured-path turbofish with ordinary HOL identifier arithmetic,
 comparisons, and an \<open>if let\<close> binder with a fallback.
 \<close>
 
@@ -72,7 +72,7 @@ urust_expr_with_check showoff_calls
     let seed_present = matches!(Some(seed), Some(_));
     debug_assert!(seed_present, ignored_showoff_diagnostic);
     let callable = \<llangle>showoff_bump\<rrangle>;
-    let direct = Some(Showoff::bump::<\<clubsuit> + 1>(callable(seed)))?;
+    let direct = Some(Showoff::bump::<showoff_generic_parameter + 1>(callable(seed)))?;
     let chained =
       (Some(direct.showoff_mix(showoff_bump(active[1_usize])))?).showoff_bump();
     if let Some(selected) = Some(chained) {
@@ -352,7 +352,7 @@ arrows, propagation directly into a method, a mixed \<open>else if let\<close> c
 and empty ordinary and unsafe blocks.
 \<close>
 
-urust_expr_with_check' showoff_improvements
+urust_expr showoff_improvements
   \<open>
     // These spellings are accepted only by the dedicated parser.
     let seeds = [1u64, 2u64,];
@@ -372,31 +372,6 @@ urust_expr_with_check' showoff_improvements
       Some(value) => (value, {}, unsafe {},),
       None => (0u64, {}, unsafe {},),
     }
-  \<close>
-  \<open>
-    \<lbrakk>
-      let seeds = [1_u64, 2_u64];
-      let seed = seeds[0_usize];
-      let bumped = (Some(showoff_bump(seed))?).showoff_bump();
-      let selected =
-        if seed == 0_u64 {
-          seed
-        } else {
-          if let Some(value) = Some(bumped) {
-            value
-          } else {
-            if bumped > 2_u64 {
-              bumped
-            } else {
-              seed
-            }
-          }
-        };
-      match Some(selected) {
-        Some(value) \<Rightarrow> (value, { () }, unsafe { () }),
-        None \<Rightarrow> (0_u64, { () }, unsafe { () })
-      }
-    \<rbrakk>
   \<close>
 
 no_adhoc_overloading store_reference_const \<rightleftharpoons> showoff_reference

@@ -250,7 +250,8 @@ struct
 
   fun path_terminal path = segment_identifier (final_segment path)
 
-  fun generic_sources (Generic_Args (sources, _)) = sources
+  fun generic_sources (Generic_Args (arguments, _)) =
+    map generic_argument_source arguments
 
   fun final_parameters ctxt environment path =
     (case segment_generic_args (final_segment path) of

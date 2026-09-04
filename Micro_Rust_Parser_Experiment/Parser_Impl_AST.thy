@@ -1,5 +1,5 @@
 theory Parser_Impl_AST
-  imports Main
+  imports Parser_Utils
 begin
 
 section\<open> Reified AST \<close>
@@ -19,13 +19,18 @@ sig
   datatype borrow_mode = BM_Imm | BM_Mut
   datatype range_kind = RK_Exclusive | RK_Inclusive
 
+  type canonical_fragment = string
+  datatype generic_arg =
+    Generic_Arg of canonical_fragment * Input.source
   datatype generic_args =
-    Generic_Args of Input.source list * Position.T
+    Generic_Args of generic_arg list * Position.T
   datatype path_segment =
     Path_Segment of string * Position.T * generic_args option
   datatype ur_path =
     UR_Path of path_segment list * Position.T
 
+  val generic_argument_canonical: generic_arg -> canonical_fragment
+  val generic_argument_source: generic_arg -> Input.source
   val path_position: ur_path -> Position.T
   val path_segments: ur_path -> path_segment list
   val segment_identifier: path_segment -> string * Position.T
@@ -164,6 +169,8 @@ end
 
     * literal_payload and LP_Integer, LP_Bool, LP_String, LP_ValAntiq.  Integer and string payloads
       retain raw source spelling; antiquotations retain their positioned Input.source.
+    * canonical_fragment and Generic_Arg. A generic argument pairs the grammar-produced, trivia-free
+      canonical fragment with its exact positioned source slice for later binder-aware HOL parsing.
     * borrow_mode (BM_Imm, BM_Mut), range_kind (RK_Exclusive, RK_Inclusive), binop (Add, Sub, Mul,
       Div, Mod, Shl, Shr, BAnd, BOr, BXor, Eq, Ne, Lt, Le, Gt, Ge, And, Or), unaryop (U_Not,
       U_Borrow, U_Deref, U_Propagate), assign_binop (AssignSub, AssignMul, AssignMod, AssignBAnd,
@@ -238,12 +245,18 @@ struct
   datatype borrow_mode = BM_Imm | BM_Mut
   datatype range_kind = RK_Exclusive | RK_Inclusive
 
+  type canonical_fragment = string
+  datatype generic_arg =
+    Generic_Arg of canonical_fragment * Input.source
   datatype generic_args =
-    Generic_Args of Input.source list * Position.T
+    Generic_Args of generic_arg list * Position.T
   datatype path_segment =
     Path_Segment of string * Position.T * generic_args option
   datatype ur_path =
     UR_Path of path_segment list * Position.T
+
+  fun generic_argument_canonical (Generic_Arg (canonical, _)) = canonical
+  fun generic_argument_source (Generic_Arg (_, source)) = source
 
   fun path_position (UR_Path (_, pos)) = pos
   fun path_segments (UR_Path (segments, _)) = segments
@@ -260,7 +273,10 @@ struct
            (rev (Path_Segment (name, name_pos, NONE) :: rest), pos)
      | [] => error "urust_expr: internal empty path")
   fun render_generic_args (Generic_Args (arguments, _)) =
-    "::<" ^ space_implode "," (map Input.string_of arguments) ^ ">"
+    "::<" ^
+      space_implode ","
+        (map generic_argument_canonical arguments) ^
+      ">"
   fun render_segment (Path_Segment (name, _, arguments)) =
     name ^ the_default "" (Option.map render_generic_args arguments)
   fun render_path (UR_Path (segments, _)) =
@@ -363,12 +379,10 @@ struct
     | UE_WhileLet  of Input.source * ur_pat * ur_expr * ur_expr * Position.T
                                                       (* #[fuel(eps<n>)] while let pattern = value body *)
     | UE_Call      of ur_callee * ur_expr list * Position.T
-                                                      (* f(a0..aN) -> funcallN. Callee is an IDENTIFIER
-                                                         (name, name-pos) resolved in NFunction context;
-                                                         then args and the SPAN of the whole call, so an
-                                                         arity error underlines the call, not just the name
-                                                         (D23/D29). Non-identifier callees (antiquotation,
-                                                         turbofish, path) are deferred -- D-5. *)
+                                                      (* path(a0..aN) -> funcallN. The callee is resolved
+                                                         in NFunction context; args and the complete call
+                                                         span are retained so an arity error underlines
+                                                         the call rather than only the final segment. *)
     | UE_Field     of ur_expr * string * Position.T   (* e.field -> NField lens focus *)
     | UE_Index     of ur_expr * ur_expr * Position.T  (* e[i] -> index_const, at full span *)
     | UE_Range     of range_kind * ur_expr * ur_expr * Position.T
@@ -462,22 +476,10 @@ struct
     P_Alias (name, pos, inner, at_pos)
   fun mk_struct_pat (path, fields) = P_Struct (path, fields)
 
-  fun exclusive_end pos =
-    (case Position.end_offset_of pos of
-       SOME stop =>
-         let
-           val
-             {line, props = {label, file, id}, ...} =
-               Position.dest pos
-         in
-           Position.make0 line stop 0 label file id
-         end
-     | _ => pos)
-
   fun mk_closure (formals, body, left, right) =
     UE_Closure
       (formals, body,
-       Position.range_position (left, exclusive_end right))
+       Position.range_position (left, Parser_Lex_Util.exclusive_end right))
   fun mk_call (path, args, left, right) =
     UE_Call
       (UC_Path path, args, Position.range_position (left, right))
@@ -490,7 +492,8 @@ struct
       (pattern, scrutinee, fallback, continuation, left, right) =
     UE_LetElse
       (pattern, scrutinee, fallback, continuation,
-       Position.range_position (left, exclusive_end right))
+       Position.range_position
+         (left, Parser_Lex_Util.exclusive_end right))
 
   (* The grammar is right-recursive, so prepend the left alternative in O(1) while retaining source order. *)
   fun mk_or_pat (p, P_Or (alternatives, _), pos) =
