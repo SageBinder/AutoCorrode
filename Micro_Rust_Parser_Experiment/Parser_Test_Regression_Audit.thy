@@ -2086,6 +2086,471 @@ end
 \<close>
 
 
+section\<open> Cast AST, lowering, markup, and recovery \<close>
+
+text\<open>
+The cast audit pins the closed target representation, left association,
+cast-before-prefix precedence, source position, exact lowering table, semantic
+collapses, reserved-word markup, and parser-state recovery after malformed
+targets.
+\<close>
+
+ML_val\<open>
+  local
+    open URust_AST
+
+    val ctxt = \<^context>
+
+    fun audit_assert message condition =
+      if condition then ()
+      else error ("cast regression audit: " ^ message)
+
+    fun parse_source source =
+      (case URust_Diagnostics.parse_source ctxt source of
+         SOME expression => expression
+       | NONE => error "cast regression audit: empty parse")
+
+    fun parse text =
+      parse_source (Parser_Lex_Util.text_source text)
+
+    fun path_named expected (UE_Path path) =
+          render_path path = expected
+      | path_named _ _ = false
+
+    fun target_is expected actual = expected = actual
+
+    val positioned_text = "operand as *mut usize"
+    val positioned_start =
+      Position.make0 9 14 0 "" "" ""
+    val positioned_ast =
+      parse_source
+        (Parser_Lex_Util.positioned_content_source
+          positioned_text positioned_start)
+    val as_offset = size "operand "
+    val expected_as =
+      Position.symbol_explode
+        (String.substring (positioned_text, 0, as_offset))
+        positioned_start
+    val _ =
+      (case positioned_ast of
+         UE_Cast
+           (operand,
+            CT_RawPointer (RPM_Mut, UT_Usize),
+            as_position) =>
+           (audit_assert "cast operand changed"
+              (path_named "operand" operand);
+            audit_assert "as position moved"
+              (Position.offset_of as_position =
+                Position.offset_of expected_as))
+       | _ => error "cast regression audit: positioned cast AST changed")
+
+    val _ =
+      (case parse "source.field.method()[0]? as i64" of
+         UE_Cast
+           (UE_Unary
+             (U_Propagate,
+              UE_Index
+                (UE_Call
+                  (UC_Method
+                    (UE_Field (source, "field", _),
+                     Path_Segment ("method", _, NONE)),
+                   [], _),
+                 UE_Literal (LP_Integer ("0", _)), _),
+              _),
+            CT_Signed ST_I64, _) =>
+           audit_assert "cast lost its complete postfix operand"
+             (path_named "source" source)
+       | _ =>
+           error
+             "cast regression audit: postfix operand AST changed")
+
+    val _ =
+      (case parse "value as u8 as u16 as i32" of
+         UE_Cast
+           (UE_Cast
+             (UE_Cast
+               (value, first, _),
+              second, _),
+            third, _) =>
+           (audit_assert "cast chain lost its operand"
+              (path_named "value" value);
+            audit_assert "first cast target changed"
+              (target_is (CT_Unsigned UT_U8) first);
+            audit_assert "second cast target changed"
+              (target_is (CT_Unsigned UT_U16) second);
+            audit_assert "third cast target changed"
+              (target_is (CT_Signed ST_I32) third))
+       | _ =>
+           error "cast regression audit: cast chain is not left-associated")
+
+    val _ =
+      (case parse "!value as u8" of
+         UE_Unary
+           (U_Not,
+            UE_Cast
+              (value, CT_Unsigned UT_U8, _),
+            _) =>
+           audit_assert "not/cast operand changed"
+             (path_named "value" value)
+       | _ =>
+           error "cast regression audit: cast-before-not precedence changed")
+
+    val _ =
+      (case parse "*raw as *const u8" of
+         UE_Unary
+           (U_Deref,
+            UE_Cast
+              (raw,
+               CT_RawPointer (RPM_Const, UT_U8), _),
+            _) =>
+           audit_assert "deref/cast operand changed"
+             (path_named "raw" raw)
+       | _ =>
+           error "cast regression audit: cast-before-deref precedence changed")
+
+    val _ =
+      (case parse "(!value) as u8" of
+         UE_Cast
+           (UE_Group
+             (UE_Unary (U_Not, value, _), _),
+            CT_Unsigned UT_U8, _) =>
+           audit_assert "grouped opposite interpretation changed"
+             (path_named "value" value)
+       | _ =>
+           error "cast regression audit: grouped prefix/cast AST changed")
+
+    val _ =
+      (case parse "(value as u32).field.method()[0]?" of
+         UE_Unary
+           (U_Propagate,
+            UE_Index
+              (UE_Call
+                (UC_Method
+                  (UE_Field
+                    (UE_Group
+                      (UE_Cast
+                        (value, CT_Unsigned UT_U32, _), _),
+                     "field", _),
+                   Path_Segment ("method", _, NONE)),
+                 [], _),
+               UE_Literal (LP_Integer ("0", _)), _),
+            _) =>
+           audit_assert "grouped cast postfix chain changed"
+             (path_named "value" value)
+       | _ =>
+           error "cast regression audit: grouped cast postfix AST changed")
+
+    fun unchecked text =
+      URust_Translate.mk_closed ctxt (parse text)
+
+    datatype lowering_kind =
+        Unsigned_Lowering
+      | Signed_Lowering
+      | Pointer_Lowering
+
+    val lowering_cases =
+      [("value as u8", Unsigned_Lowering,
+        \<^term>\<open>ucastu8\<close>, \<^typ>\<open>8 word\<close>),
+       ("value as u16", Unsigned_Lowering,
+        \<^term>\<open>ucastu16\<close>, \<^typ>\<open>16 word\<close>),
+       ("value as u32", Unsigned_Lowering,
+        \<^term>\<open>ucastu32\<close>, \<^typ>\<open>32 word\<close>),
+       ("value as u64", Unsigned_Lowering,
+        \<^term>\<open>ucastu64\<close>, \<^typ>\<open>64 word\<close>),
+       ("value as usize", Unsigned_Lowering,
+        \<^term>\<open>ucastu64\<close>, \<^typ>\<open>64 word\<close>),
+       ("value as i32", Signed_Lowering,
+        \<^term>\<open>ucasti32\<close>, \<^typ>\<open>32 word\<close>),
+       ("value as i64", Signed_Lowering,
+        \<^term>\<open>ucasti64\<close>, \<^typ>\<open>64 word\<close>),
+       ("value as *const u8", Pointer_Lowering,
+        \<^term>\<open>raw_ptr_cast_u8\<close>, \<^typ>\<open>8 word\<close>),
+       ("value as *const u16", Pointer_Lowering,
+        \<^term>\<open>raw_ptr_cast_u16\<close>, \<^typ>\<open>16 word\<close>),
+       ("value as *const u32", Pointer_Lowering,
+        \<^term>\<open>raw_ptr_cast_u32\<close>, \<^typ>\<open>32 word\<close>),
+       ("value as *const u64", Pointer_Lowering,
+        \<^term>\<open>raw_ptr_cast_u64\<close>, \<^typ>\<open>64 word\<close>),
+       ("value as *const usize", Pointer_Lowering,
+        \<^term>\<open>raw_ptr_cast_u64\<close>, \<^typ>\<open>64 word\<close>),
+       ("value as *mut u8", Pointer_Lowering,
+        \<^term>\<open>raw_ptr_cast_u8\<close>, \<^typ>\<open>8 word\<close>),
+       ("value as *mut u16", Pointer_Lowering,
+        \<^term>\<open>raw_ptr_cast_u16\<close>, \<^typ>\<open>16 word\<close>),
+       ("value as *mut u32", Pointer_Lowering,
+        \<^term>\<open>raw_ptr_cast_u32\<close>, \<^typ>\<open>32 word\<close>),
+       ("value as *mut u64", Pointer_Lowering,
+        \<^term>\<open>raw_ptr_cast_u64\<close>, \<^typ>\<open>64 word\<close>),
+       ("value as *mut usize", Pointer_Lowering,
+        \<^term>\<open>raw_ptr_cast_u64\<close>, \<^typ>\<open>64 word\<close>)]
+
+    fun count_constant expected term =
+      Term.fold_aterms
+        (fn Const (actual, _) =>
+              if actual = expected then Integer.add 1 else I
+          | _ => I)
+        term 0
+
+    fun cast_count term =
+      count_constant \<^const_name>\<open>bind1\<close> term +
+      count_constant \<^const_name>\<open>raw_ptr_cast\<close> term
+
+    fun cast_result_type typ =
+      Term.map_atyps
+        (fn TFree _ => dummyT
+          | TVar _ => dummyT
+          | atomic => atomic)
+        typ
+
+    fun expected_lowering target_function =
+      Type.constraint
+        (cast_result_type
+          (Term.range_type (fastype_of target_function)))
+        (Term.list_comb
+          (Term.map_types (K dummyT) target_function,
+           [unchecked "value"]))
+
+    fun checked text =
+      Syntax.check_term ctxt (unchecked text)
+
+    val reference_type_name =
+      (case \<^typ>\<open>('address, 'global, 'value) Global_Store.ref\<close> of
+         Type (name, _) => name
+       | _ => error "cast regression audit: reference type abbreviation changed")
+
+    fun result_width Pointer_Lowering term =
+          (case fastype_of term of
+             Type (expression_name, [_, value_type, _, _, _, _]) =>
+               if expression_name = \<^type_name>\<open>expression\<close>
+               then
+                 (case value_type of
+                    Type (reference_name, [_, _, width]) =>
+                      if reference_name = reference_type_name
+                      then width
+                      else error "cast regression audit: pointer cast result is not a reference"
+                  | _ =>
+                      error "cast regression audit: pointer cast result is not a reference")
+               else error "cast regression audit: cast result is not an expression"
+           | _ => error "cast regression audit: cast result type changed")
+      | result_width _ term =
+          (case fastype_of term of
+             Type (expression_name, [_, value_type, _, _, _, _]) =>
+               if expression_name = \<^type_name>\<open>expression\<close>
+               then value_type
+               else error "cast regression audit: cast result is not an expression"
+           | _ => error "cast regression audit: cast result type changed")
+
+    fun check_lowering
+      (source, kind, target_function, expected_width) =
+      let
+        val term = unchecked source
+        val checked_term = checked source
+      in
+        audit_assert
+          ("wrong lowering for " ^ quote source)
+          (Term.aconv (term, expected_lowering target_function));
+        audit_assert
+          ("source cast did not lower exactly once for " ^ quote source)
+          (cast_count term = 1);
+        audit_assert
+          ("wrong result width for " ^ quote source)
+          (result_width kind checked_term = expected_width)
+      end
+
+    val _ = List.app check_lowering lowering_cases
+
+    val _ =
+      audit_assert "usize stopped collapsing to u64"
+        (Term.aconv
+          (unchecked "value as usize",
+           unchecked "value as u64"))
+
+    val _ =
+      audit_assert "pointer usize stopped collapsing to pointer u64"
+        (Term.aconv
+          (unchecked "value as *const usize",
+           unchecked "value as *const u64"))
+
+    val _ =
+      List.app
+        (fn target =>
+          audit_assert
+            ("pointer mutability changed lowering for " ^ target)
+            (Term.aconv
+              (unchecked ("value as *const " ^ target),
+               unchecked ("value as *mut " ^ target))))
+        ["u8", "u16", "u32", "u64", "usize"]
+
+    val chain = unchecked "value as u8 as u32 as i64"
+    val _ =
+      audit_assert "three-stage chain did not lower three casts"
+        (cast_count chain = 3)
+    val _ =
+      audit_assert "three-stage lowering lost left nesting"
+        (count_constant \<^const_name>\<open>bind1\<close> chain = 3 andalso
+         result_width Signed_Lowering
+           (checked "value as u8 as u32 as i64") =
+             \<^typ>\<open>64 word\<close>)
+
+    fun find_from text needle offset =
+      if offset + size needle > size text then
+        error ("cast regression audit: missing " ^ quote needle)
+      else if String.substring (text, offset, size needle) = needle
+      then offset
+      else find_from text needle (offset + 1)
+
+    fun token_position text start needle offset =
+      let
+        val raw = find_from text needle offset
+        val token_start =
+          Position.symbol_explode
+            (String.substring (text, 0, raw)) start
+      in
+        (raw,
+         Position.range_position
+           (token_start,
+            Position.symbol_explode needle token_start))
+      end
+
+    val markup_text =
+      "value as u8; value as u16; value as u32; " ^
+      "value as u64; value as usize; value as i32; " ^
+      "value as i64; raw as *const u8; raw as *mut usize"
+    val markup_start =
+      Position.make0 11 3 0 "" "" "cast-markup-audit"
+    val captured_reports = Unsynchronized.ref ([]: string list)
+    fun capture_reports chunks =
+      Unsynchronized.change captured_reports (append chunks)
+    val _ =
+      Parser_Test_Report_Lock.run (fn () =>
+        Unsynchronized.setmp Private_Output.report_fn capture_reports
+          (fn () =>
+            Print_Mode.with_modes [Print_Mode.PIDE]
+              (fn () =>
+                parse_source
+                  (Parser_Lex_Util.positioned_content_source
+                    markup_text markup_start)) ())
+          ())
+
+    fun collect_markup (XML.Text _) result = result
+      | collect_markup (XML.Elem (markup, body)) result =
+          fold collect_markup body (markup :: result)
+    val markup =
+      fold collect_markup
+        (maps YXML.parse_body (! captured_reports)) []
+    fun has_position properties position =
+      Properties.get properties Markup.offsetN =
+        Option.map Value.print_int (Position.offset_of position) andalso
+      Properties.get properties Markup.end_offsetN =
+        Option.map Value.print_int (Position.end_offset_of position)
+    fun has_markup markup_name position =
+      exists
+        (fn (name, properties) =>
+          name = markup_name andalso
+            has_position properties position)
+        markup
+    fun has_entity_markup position =
+      has_markup Markup.defN position orelse
+      has_markup Markup.refN position
+
+    fun all_token_positions needle =
+      let
+        fun collect offset positions =
+          if offset + size needle > size markup_text then rev positions
+          else
+            (case try (find_from markup_text needle) offset of
+               SOME raw =>
+                 let
+                   val (_, position) =
+                     token_position markup_text markup_start needle raw
+                 in collect (raw + size needle) (position :: positions) end
+             | NONE => rev positions)
+      in collect 0 [] end
+
+    val keyword_spellings =
+      ["as", "u8", "u16", "u32", "u64", "usize", "i32", "i64",
+       "const", "mut"]
+    val type_spellings =
+      ["u8", "u16", "u32", "u64", "usize", "i32", "i64"]
+    val _ =
+      List.app
+        (fn spelling =>
+          List.app
+            (fn position =>
+              (audit_assert
+                 (spelling ^ " lost keyword markup")
+                 (has_markup Markup.keyword1N position);
+               audit_assert
+                 (spelling ^ " lost typing markup")
+                 (has_markup Markup.typingN position)))
+            (all_token_positions spelling))
+        keyword_spellings
+    val _ =
+      List.app
+        (fn spelling =>
+          List.app
+            (fn position =>
+              audit_assert
+                (spelling ^ " received identifier entity markup")
+                (not (has_entity_markup position)))
+            (all_token_positions spelling))
+        type_spellings
+    val _ =
+      List.app
+        (fn position =>
+          audit_assert "* stopped being operator markup in cast targets"
+            (has_markup Markup.operatorN position))
+        (all_token_positions "*")
+
+    val malformed =
+      ["as u8",
+       "value as",
+       "value as *",
+       "value as *const",
+       "value as *mut",
+       "value as u128",
+       "value as i8",
+       "value as bool",
+       "value as Target::Word",
+       "value as *const i32",
+       "value as **const u8",
+       "value as *const const u8",
+       "value as *mut mut u8",
+       "value as as u8",
+       "value as u8,",
+       "value as u8 trailing",
+       "value as u32.field",
+       "value as u32.method()",
+       "value as u32[0]",
+       "value as u32?"]
+
+    fun reject_then_recover bad =
+      let
+        val _ =
+          (case Exn.result parse bad of
+             Exn.Res _ =>
+               error
+                 ("cast regression audit: malformed cast accepted: " ^
+                   quote bad)
+           | Exn.Exn exn =>
+               if Exn.is_interrupt exn then Exn.reraise exn else ())
+        val _ =
+          (case parse "value as u8" of
+             UE_Cast (_, CT_Unsigned UT_U8, _) => ()
+           | _ =>
+               error
+                 ("cast regression audit: parser did not recover after " ^
+                   quote bad))
+      in () end
+
+    val _ = List.app reject_then_recover malformed
+  in
+    val _ =
+      writeln "Cast AST, lowering, markup, and recovery regressions passed"
+  end
+\<close>
+
+
 section\<open> Standard code equations \<close>
 
 urust_expr regression_code_literal

@@ -135,6 +135,9 @@ struct
          T.binary operator
            (lower_expression ctxt environment left)
            (lower_expression ctxt environment right)
+     | UE_Cast (operand, target, _) =>
+         T.cast target
+           (lower_expression ctxt environment operand)
      | UE_Range (kind, lower, upper, _) =>
          T.bounded_range kind
            (lower_expression ctxt environment lower)

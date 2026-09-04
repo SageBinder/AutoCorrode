@@ -15,7 +15,7 @@ subsection\<open> Expressions, bindings, and control flow \<close>
 text\<open>
 Features: array literals and indexing, suffixed decimal and hexadecimal literals,
 nested tuple destructuring, \<open>let\<close> and \<open>const\<close>, operator precedence,
-strings, and \<open>if\<close>/\<open>else\<close>.
+explicit narrowing and widening casts, strings, and \<open>if\<close>/\<open>else\<close>.
 \<close>
 
 urust_expr_with_check showoff_expression
@@ -25,11 +25,13 @@ urust_expr_with_check showoff_expression
       (inputs[0_usize], (inputs[1_usize], true));
     const shift = 1_u64;
     let computed = (base | mask) << shift;
+    let narrowed = computed as u16;
+    let restored = narrowed as u32;
     assert!(base == inputs[0_usize]);
-    if enabled && computed > inputs[2_usize] {
-      (computed, "large")
+    if enabled && restored > inputs[2_usize] {
+      (restored, "large")
     } else {
-      (computed + 1_u32, "small")
+      (restored + 1_u32, "small")
     }
   \<close>
 

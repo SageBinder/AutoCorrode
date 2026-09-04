@@ -106,6 +106,7 @@ HOL content. Yacc directives reproduce the frontend precedence
 ml_lex_yacc [verbose, expert] "URust" where
 lex_user_declarations\<open>
 structure Tokens = Tokens
+open URust_AST
 type pos = Position.T
 type svalue = Tokens.svalue
 type ('a, 'b) token = ('a, 'b) Tokens.token
@@ -234,6 +235,14 @@ lex_rules\<open>
     (tok_valF (yypos, yytext, Markup.numeral, "NUM", Tokens.NUM, yytext));
 <INITIAL>"true"   => (tokF (yypos, yytext, Markup.keyword1, "TTRUE", Tokens.TTRUE));
 <INITIAL>"false"  => (tokF (yypos, yytext, Markup.keyword1, "TFALSE", Tokens.TFALSE));
+<INITIAL>"as"     => (tokF (yypos, yytext, Markup.keyword1, "TAS", Tokens.TAS));
+<INITIAL>"u8"     => (tok_valF (yypos, yytext, Markup.keyword1, "TUINT", Tokens.TUINT, UT_U8));
+<INITIAL>"u16"    => (tok_valF (yypos, yytext, Markup.keyword1, "TUINT", Tokens.TUINT, UT_U16));
+<INITIAL>"u32"    => (tok_valF (yypos, yytext, Markup.keyword1, "TUINT", Tokens.TUINT, UT_U32));
+<INITIAL>"u64"    => (tok_valF (yypos, yytext, Markup.keyword1, "TUINT", Tokens.TUINT, UT_U64));
+<INITIAL>"usize"  => (tok_valF (yypos, yytext, Markup.keyword1, "TUINT", Tokens.TUINT, UT_Usize));
+<INITIAL>"i32"    => (tok_valF (yypos, yytext, Markup.keyword1, "TSINT", Tokens.TSINT, ST_I32));
+<INITIAL>"i64"    => (tok_valF (yypos, yytext, Markup.keyword1, "TSINT", Tokens.TSINT, ST_I64));
 <INITIAL>"let"    => (tokF (yypos, yytext, Markup.keyword1, "TLET", Tokens.TLET));
 <INITIAL>"const"  => (tokF (yypos, yytext, Markup.keyword1, "TCONST", Tokens.TCONST));
 <INITIAL>"return" => (tokF (yypos, yytext, Markup.keyword1, "TRETURN", Tokens.TRETURN));
@@ -445,6 +454,7 @@ yacc_definitions\<open>
     | TMATCH | TMATCHSWITCH | TMATCHCASE | TARROW
     | TDOTDOT | TDOTDOTEQ | TMUT | TPATCONTEXT
     | TMATCHESBANG of Position.T
+    | TAS | TUINT of URust_AST.unsigned_type | TSINT of URust_AST.signed_type
 %nonterm ustart of URust_AST.ur_expr option
        | ubody of URust_AST.ur_expr
        | ubinding_head of binding_head
@@ -461,6 +471,8 @@ yacc_definitions\<open>
        | uexp of URust_AST.ur_expr
        | urefprefix of URust_AST.ur_expr
        | unotprefix of URust_AST.ur_expr
+       | ucast of URust_AST.ur_expr
+       | ucast_target of URust_AST.cast_target
        | upostfix of URust_AST.ur_expr
        | uatom of URust_AST.ur_expr
        | upath_segment of URust_AST.path_segment
@@ -713,11 +725,28 @@ yacc_rules\<open>
                           Parsed_Fragment
                             (canonical ^ "::" ^ name,
                              layout, start, stop))
+  (* Casts form one left-recursive tier above every prefix and below postfix expressions. Repeated
+     casts therefore associate left, while a field, method, index, or propagation after a cast
+     requires grouping. The target grammar is closed to the legacy frontend's seven integral and ten
+     raw-pointer targets. *)
+  ucast : upostfix (upostfix)
+        | ucast TAS ucast_target
+            (UE_Cast (ucast, ucast_target, TASleft))
+  ucast_target : TUINT
+                   (CT_Unsigned TUINT)
+               | TSINT
+                   (CT_Signed TSINT)
+               | TSTAR TCONST TUINT
+                   (CT_RawPointer (RPM_Const, TUINT))
+               | TSTAR TMUT TUINT
+                   (CT_RawPointer (RPM_Mut, TUINT))
   (* Reference prefixes bind tighter than every binary operator and looser than `!`, matching the
-     frontend priorities. Recursing through this tier makes `**x` two ordinary dereference nodes while
-     preserving the binary meanings of `*` and `&`; mixed and deeper recursion is a documented
-     accepted-surface improvement over the frontend's fixed prefix productions. *)
-  unotprefix : upostfix (upostfix)
+     frontend priorities. Casts bind tighter than all prefixes, resolving the old frontend's
+     type-dependent prefix/cast ambiguity deterministically. Recursing through the reference tier
+     makes `**x` two ordinary dereference nodes while preserving the binary meanings of `*` and `&`;
+     mixed and deeper recursion is a documented accepted-surface improvement over the frontend's
+     fixed prefix productions. *)
+  unotprefix : ucast (ucast)
              | TBANG unotprefix (UE_Unary (U_Not, unotprefix, TBANGleft))
   urefprefix : unotprefix (unotprefix)
              | TAMP urefprefix

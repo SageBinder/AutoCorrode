@@ -18,6 +18,13 @@ sig
 
   datatype borrow_mode = BM_Imm | BM_Mut
   datatype range_kind = RK_Exclusive | RK_Inclusive
+  datatype unsigned_type = UT_U8 | UT_U16 | UT_U32 | UT_U64 | UT_Usize
+  datatype signed_type = ST_I32 | ST_I64
+  datatype raw_pointer_mutability = RPM_Const | RPM_Mut
+  datatype cast_target =
+      CT_Unsigned of unsigned_type
+    | CT_Signed of signed_type
+    | CT_RawPointer of raw_pointer_mutability * unsigned_type
 
   type canonical_fragment = string
   datatype generic_arg =
@@ -102,6 +109,7 @@ sig
     | UE_Seq of ur_expr * ur_expr
     | UE_Return of ur_expr option * Position.T
     | UE_Bin of binop * ur_expr * ur_expr * Position.T
+    | UE_Cast of ur_expr * cast_target * Position.T
     | UE_Unary of unaryop * ur_expr * Position.T
     | UE_Group of ur_expr * Position.T
     | UE_Block of ur_expr * Position.T
@@ -171,12 +179,15 @@ end
       retain raw source spelling; antiquotations retain their positioned Input.source.
     * canonical_fragment and Generic_Arg. A generic argument pairs the grammar-produced, trivia-free
       canonical fragment with its exact positioned source slice for later binder-aware HOL parsing.
-    * borrow_mode (BM_Imm, BM_Mut), range_kind (RK_Exclusive, RK_Inclusive), binop (Add, Sub, Mul,
-      Div, Mod, Shl, Shr, BAnd, BOr, BXor, Eq, Ne, Lt, Le, Gt, Ge, And, Or), unaryop (U_Not,
-      U_Borrow, U_Deref, U_Propagate), assign_binop (AssignSub, AssignMul, AssignMod, AssignBAnd,
-      AssignBOr, AssignBXor, AssignShl, AssignShr), and assignop (Assign, AssignAdd, AssignBin).
-      These tags describe surface operations only; their HOL constants and semantics belong to later
-      modules.
+    * borrow_mode (BM_Imm, BM_Mut), range_kind (RK_Exclusive, RK_Inclusive), unsigned_type
+      (UT_U8, UT_U16, UT_U32, UT_U64, UT_Usize), signed_type (ST_I32, ST_I64),
+      raw_pointer_mutability (RPM_Const, RPM_Mut), cast_target (CT_Unsigned, CT_Signed,
+      CT_RawPointer), binop (Add, Sub, Mul, Div, Mod, Shl, Shr, BAnd, BOr, BXor, Eq, Ne, Lt, Le,
+      Gt, Ge, And, Or), unaryop (U_Not, U_Borrow, U_Deref, U_Propagate), assign_binop (AssignSub,
+      AssignMul, AssignMod, AssignBAnd, AssignBOr, AssignBXor, AssignShl, AssignShr), and assignop
+      (Assign, AssignAdd, AssignBin). These tags describe surface operations only; their HOL
+      constants and semantics belong to later modules. CT_RawPointer retains source mutability even
+      though the current shallow frontend lowers const and mut targets identically.
     * ur_pat and P_Wild, P_Ident, P_Literal, P_Constr, P_Tuple, P_Group, P_Borrow, P_Alias, P_Range,
       P_Slice, P_Struct, P_Or, together with slice_item (SI_Pat, SI_Rest) and struct_field (SF_Field,
       SF_Shorthand, SF_Rest). Lists retain source order; grammar-produced tuple lists contain at least
@@ -186,7 +197,7 @@ end
       is not a fourth lowering.
     * the mutually recursive expression interface ur_expr (UE_Unit, UE_Tuple, UE_Array, UE_Path,
       UE_Literal, UE_ExprAntiq, UE_Closure, UE_Let, UE_LetMut, UE_Const, UE_Seq, UE_Return, UE_Bin,
-      UE_Unary, UE_Group, UE_Block, UE_If, UE_IfLet, UE_LetElse, UE_While, UE_Loop, UE_For,
+      UE_Cast, UE_Unary, UE_Group, UE_Block, UE_If, UE_IfLet, UE_LetElse, UE_While, UE_Loop, UE_For,
       UE_WhileLet, UE_Call, UE_Field, UE_Index, UE_Range, UE_Assign, UE_Macro, UE_Match),
       macro_payload
       (MP_Arguments, MP_Matches), ur_place (UP_Path, UP_Deref, UP_Field, UP_Index, UP_Antiq), and
@@ -244,6 +255,13 @@ struct
      `P_Ident`. Adding a pattern form = ONE constructor here + one clause per consuming site. *)
   datatype borrow_mode = BM_Imm | BM_Mut
   datatype range_kind = RK_Exclusive | RK_Inclusive
+  datatype unsigned_type = UT_U8 | UT_U16 | UT_U32 | UT_U64 | UT_Usize
+  datatype signed_type = ST_I32 | ST_I64
+  datatype raw_pointer_mutability = RPM_Const | RPM_Mut
+  datatype cast_target =
+      CT_Unsigned of unsigned_type
+    | CT_Signed of signed_type
+    | CT_RawPointer of raw_pointer_mutability * unsigned_type
 
   type canonical_fragment = string
   datatype generic_arg =
@@ -357,6 +375,8 @@ struct
     | UE_Seq       of ur_expr * ur_expr               (* e1; e2 -> sequence (trailing `;`: e2 = unit) *)
     | UE_Return    of ur_expr option * Position.T     (* return [value]; semicolon is never stored *)
     | UE_Bin       of binop * ur_expr * ur_expr * Position.T   (* a <binop> b *)
+    | UE_Cast      of ur_expr * cast_target * Position.T
+                                                      (* operand as target, at the `as` keyword *)
     | UE_Unary     of unaryop * ur_expr * Position.T
                                                       (* !a / &a / & mut a / *a / a? *)
     | UE_Group     of ur_expr * Position.T                      (* (a), transparent during lowering *)
@@ -424,6 +444,7 @@ struct
     | expression_position (UE_Seq _) = Position.none
     | expression_position (UE_Return (_, pos)) = pos
     | expression_position (UE_Bin (_, _, _, pos)) = pos
+    | expression_position (UE_Cast (_, _, pos)) = pos
     | expression_position (UE_Unary (_, _, pos)) = pos
     | expression_position (UE_Group (_, pos)) = pos
     | expression_position (UE_Block (_, pos)) = pos

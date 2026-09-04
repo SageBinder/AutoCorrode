@@ -30,6 +30,7 @@ sig
   val array_literal: term list -> term
   val bounded_range: URust_AST.range_kind -> term -> term -> term
   val index: term -> term -> term
+  val cast: URust_AST.cast_target -> term -> term
   val assertion: term -> term
   val assertion_equal: term -> term -> term
   val assertion_not_equal: term -> term -> term
@@ -105,7 +106,9 @@ ML\<open>
      right-nested bindlift2/product representation ending in TNil, rejecting shorter lists.
      array_literal emits right-nested bindlift2/List.Cons applications ending in literal List.Nil.
      bounded_range selects range_new or range_eq_new and applies it through funcall2. index applies the
-     overloaded index_const through funcall2.
+     overloaded index_const through funcall2. cast selects one of the legacy integral or raw-pointer
+     conversion constants from one closed table. usize selects the u64 conversion, and raw-pointer
+     const/mut targets remain distinct AST values while selecting the same shallow constant.
    * conditional, bounded_while, bounded_loop, for_loop, and into_iterator expose the control-flow
      combinators. Their arguments follow source order; for_loop takes the iterator expression then its
      body abstraction. bounded_loop supplies the true condition. skip is literal unit.
@@ -349,6 +352,119 @@ struct
     constant \<^const_name>\<open>funcall2\<close>
       [Const (\<^const_name>\<open>index_const\<close>, dummyT),
        expression, subscript]
+
+  fun cast_result_type typ =
+    Term.map_atyps
+      (fn TFree _ => dummyT | TVar _ => dummyT | atomic => atomic)
+      typ
+
+  val cast_functions =
+    [(CT_Unsigned UT_U8,
+      (\<^term>\<open>ucastu8\<close>,
+       cast_result_type
+         \<^typ>\<open>('s, 8 word, 'c, 'abort, 'i, 'o) expression\<close>)),
+     (CT_Unsigned UT_U16,
+      (\<^term>\<open>ucastu16\<close>,
+       cast_result_type
+         \<^typ>\<open>('s, 16 word, 'c, 'abort, 'i, 'o) expression\<close>)),
+     (CT_Unsigned UT_U32,
+      (\<^term>\<open>ucastu32\<close>,
+       cast_result_type
+         \<^typ>\<open>('s, 32 word, 'c, 'abort, 'i, 'o) expression\<close>)),
+     (CT_Unsigned UT_U64,
+      (\<^term>\<open>ucastu64\<close>,
+       cast_result_type
+         \<^typ>\<open>('s, 64 word, 'c, 'abort, 'i, 'o) expression\<close>)),
+     (CT_Unsigned UT_Usize,
+      (\<^term>\<open>ucastu64\<close>,
+       cast_result_type
+         \<^typ>\<open>('s, 64 word, 'c, 'abort, 'i, 'o) expression\<close>)),
+     (CT_Signed ST_I32,
+      (\<^term>\<open>ucasti32\<close>,
+       cast_result_type
+         \<^typ>\<open>('s, 32 word, 'c, 'abort, 'i, 'o) expression\<close>)),
+     (CT_Signed ST_I64,
+      (\<^term>\<open>ucasti64\<close>,
+       cast_result_type
+         \<^typ>\<open>('s, 64 word, 'c, 'abort, 'i, 'o) expression\<close>)),
+     (CT_RawPointer (RPM_Const, UT_U8),
+      (\<^term>\<open>raw_ptr_cast_u8\<close>,
+       cast_result_type
+         \<^typ>\<open>
+           ('s, ('addr, 'gv, 8 word) Global_Store.ref,
+            'c, 'abort, 'i, 'o) expression
+         \<close>)),
+     (CT_RawPointer (RPM_Const, UT_U16),
+      (\<^term>\<open>raw_ptr_cast_u16\<close>,
+       cast_result_type
+         \<^typ>\<open>
+           ('s, ('addr, 'gv, 16 word) Global_Store.ref,
+            'c, 'abort, 'i, 'o) expression
+         \<close>)),
+     (CT_RawPointer (RPM_Const, UT_U32),
+      (\<^term>\<open>raw_ptr_cast_u32\<close>,
+       cast_result_type
+         \<^typ>\<open>
+           ('s, ('addr, 'gv, 32 word) Global_Store.ref,
+            'c, 'abort, 'i, 'o) expression
+         \<close>)),
+     (CT_RawPointer (RPM_Const, UT_U64),
+      (\<^term>\<open>raw_ptr_cast_u64\<close>,
+       cast_result_type
+         \<^typ>\<open>
+           ('s, ('addr, 'gv, 64 word) Global_Store.ref,
+            'c, 'abort, 'i, 'o) expression
+         \<close>)),
+     (CT_RawPointer (RPM_Const, UT_Usize),
+      (\<^term>\<open>raw_ptr_cast_u64\<close>,
+       cast_result_type
+         \<^typ>\<open>
+           ('s, ('addr, 'gv, 64 word) Global_Store.ref,
+            'c, 'abort, 'i, 'o) expression
+         \<close>)),
+     (CT_RawPointer (RPM_Mut, UT_U8),
+      (\<^term>\<open>raw_ptr_cast_u8\<close>,
+       cast_result_type
+         \<^typ>\<open>
+           ('s, ('addr, 'gv, 8 word) Global_Store.ref,
+            'c, 'abort, 'i, 'o) expression
+         \<close>)),
+     (CT_RawPointer (RPM_Mut, UT_U16),
+      (\<^term>\<open>raw_ptr_cast_u16\<close>,
+       cast_result_type
+         \<^typ>\<open>
+           ('s, ('addr, 'gv, 16 word) Global_Store.ref,
+            'c, 'abort, 'i, 'o) expression
+         \<close>)),
+     (CT_RawPointer (RPM_Mut, UT_U32),
+      (\<^term>\<open>raw_ptr_cast_u32\<close>,
+       cast_result_type
+         \<^typ>\<open>
+           ('s, ('addr, 'gv, 32 word) Global_Store.ref,
+            'c, 'abort, 'i, 'o) expression
+         \<close>)),
+     (CT_RawPointer (RPM_Mut, UT_U64),
+      (\<^term>\<open>raw_ptr_cast_u64\<close>,
+       cast_result_type
+         \<^typ>\<open>
+           ('s, ('addr, 'gv, 64 word) Global_Store.ref,
+            'c, 'abort, 'i, 'o) expression
+         \<close>)),
+     (CT_RawPointer (RPM_Mut, UT_Usize),
+      (\<^term>\<open>raw_ptr_cast_u64\<close>,
+       cast_result_type
+         \<^typ>\<open>
+           ('s, ('addr, 'gv, 64 word) Global_Store.ref,
+            'c, 'abort, 'i, 'o) expression
+         \<close>))]
+
+  fun cast target expression =
+    (case AList.lookup (op =) cast_functions target of
+       SOME (target_function, result_type) =>
+         Type.constraint result_type
+           (Term.list_comb
+             (Term.map_types (K dummyT) target_function, [expression]))
+     | NONE => error "urust_expr: internal unsupported cast target")
 
   fun assertion expression =
     constant \<^const_name>\<open>assert\<close> [expression]

@@ -4042,6 +4042,245 @@ urust_expr_with_check macro_registered_builtin_precedence
 
 end
 
+section\<open> Explicit \<open>as\<close> casts \<close>
+
+text\<open>
+The cast target grammar is closed to the current frontend's seven integral and
+ten raw-pointer targets. Casts form one left-associative tier between postfix
+and prefix expressions.
+\<close>
+
+subsection\<open> Complete target parity \<close>
+
+context
+  fixes cast_word :: \<open>32 word\<close>
+begin
+
+urust_expr_with_check cast_target_u8 \<open> cast_word as u8 \<close>
+urust_expr_with_check cast_target_u16 \<open> cast_word as u16 \<close>
+urust_expr_with_check cast_target_u32 \<open> cast_word as u32 \<close>
+urust_expr_with_check cast_target_u64 \<open> cast_word as u64 \<close>
+urust_expr_with_check cast_target_usize \<open> cast_word as usize \<close>
+urust_expr_with_check cast_target_i32 \<open> cast_word as i32 \<close>
+urust_expr_with_check cast_target_i64 \<open> cast_word as i64 \<close>
+urust_expr_with_check cast_corpus_sequence
+  \<open> cast_word as u64; cast_word as u64 \<close>
+
+end
+
+context
+  fixes cast_raw :: \<open>('addr, 'gv) gref\<close>
+begin
+
+urust_expr_with_check cast_target_const_u8 \<open> cast_raw as *const u8 \<close>
+urust_expr_with_check cast_target_const_u16 \<open> cast_raw as *const u16 \<close>
+urust_expr_with_check cast_target_const_u32 \<open> cast_raw as *const u32 \<close>
+urust_expr_with_check cast_target_const_u64 \<open> cast_raw as *const u64 \<close>
+urust_expr_with_check cast_target_const_usize \<open> cast_raw as *const usize \<close>
+urust_expr_with_check cast_target_mut_u8 \<open> cast_raw as *mut u8 \<close>
+urust_expr_with_check cast_target_mut_u16 \<open> cast_raw as *mut u16 \<close>
+urust_expr_with_check cast_target_mut_u32 \<open> cast_raw as *mut u32 \<close>
+urust_expr_with_check cast_target_mut_u64 \<open> cast_raw as *mut u64 \<close>
+urust_expr_with_check cast_target_mut_usize \<open> cast_raw as *mut usize \<close>
+
+end
+
+subsection\<open> Postfix operands, placement, and lexical capture \<close>
+
+datatype_record cast_record =
+  cast_record_value :: \<open>32 word\<close>
+micro_rust_record cast_record (cast_record_value = "cast_value")
+
+definition cast_method_fixture ::
+  \<open>32 word \<Rightarrow> (unit, 32 word, unit, unit, unit) function_body\<close>
+  where \<open> cast_method_fixture \<equiv> lift_fun1 id \<close>
+micro_rust_notation (call) cast_method_fixture ("cast_method")
+
+definition cast_identity_lens :: \<open>(32 word, 32 word) lens\<close>
+  where \<open> cast_identity_lens \<equiv> id\<^sub>L \<close>
+micro_rust_notation (field) cast_identity_lens ("cast_identity")
+
+definition cast_index_fixture ::
+  \<open>32 word \<Rightarrow> 64 word \<Rightarrow>
+    (unit, 32 word, unit, unit, unit) function_body\<close>
+  where \<open> cast_index_fixture value _ \<equiv> FunctionBody (literal value) \<close>
+
+definition cast_propagate_fixture ::
+  \<open>('s, 32 word, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
+    ('s, 32 word, 'c, 'abort, 'i, 'o) expression\<close>
+  where \<open> cast_propagate_fixture expression \<equiv> expression \<close>
+
+adhoc_overloading index_const \<rightleftharpoons> cast_index_fixture
+adhoc_overloading propagate_const \<rightleftharpoons> cast_propagate_fixture
+
+context
+  fixes cast_word :: \<open>32 word\<close>
+    and cast_raw :: \<open>('addr, 'gv) gref\<close>
+    and cast_record_value :: cast_record
+    and cast_words :: \<open>32 word list\<close>
+    and cast_optional :: \<open>32 word option\<close>
+begin
+
+urust_expr_with_check cast_literal_operand \<open> 0xff_u32 as u8 \<close>
+
+urust_expr_with_check cast_context_fix \<open> cast_word as u16 \<close>
+
+urust_expr_with_check cast_let_bound
+  \<open> let local = cast_word; local as u64 \<close>
+
+urust_expr_with_check cast_value_antiquotation
+  \<open> \<llangle>cast_word\<rrangle> as i64 \<close>
+
+urust_expr_with_check cast_expression_antiquotation
+  \<open> \<epsilon>\<open>\<up>(cast_word)\<close> as u8 \<close>
+
+urust_expr_with_check cast_call_operand
+  \<open> cf1(\<llangle>ucast cast_word :: 64 word\<rrangle>) as u8 \<close>
+
+urust_expr_with_check cast_method_operand
+  \<open> cast_word.cast_method() as u16 \<close>
+
+urust_expr_with_check cast_field_operand
+  \<open> cast_record_value.cast_value as u64 \<close>
+
+urust_expr_with_check cast_index_operand
+  \<open> cast_words[0_usize] as u8 \<close>
+
+urust_expr_with_check cast_propagation_operand
+  \<open> cast_optional? as u16 \<close>
+
+urust_expr_with_check cast_block_operand
+  \<open> { cast_word } as u32 \<close>
+
+urust_expr_with_check cast_conditional_operand
+  \<open> (if true { cast_word } else { cast_word }) as u64 \<close>
+
+urust_expr_with_check cast_tuple_position
+  \<open> (cast_word as u8, cast_word as u16) \<close>
+
+urust_expr_with_check cast_array_position
+  \<open> [cast_word as u16, cast_word as u16] \<close>
+
+urust_expr_with_check cast_return_operand
+  \<open> return cast_word as u16; \<close>
+
+urust_expr_with_check cast_macro_arguments
+  \<open> assert_eq!(cast_word as u16, cast_word as u16); cast_word as u8 \<close>
+
+urust_expr_with_check cast_macro_result
+  \<open> vec![cast_word][0_usize] as u16 \<close>
+
+urust_expr_with_check cast_match_guard
+  \<open>
+    match_case Some(cast_word) {
+      Some(value) if value as u32 == cast_word \<Rightarrow> value as u16,
+      None \<Rightarrow> cast_word as u16
+    }
+  \<close>
+
+urust_expr_with_check cast_sequence_positions
+  \<open> cast_word as u8; cast_word as u16; cast_word as u32 \<close>
+
+text\<open>
+The old frontend elaborates the bare numerals in the cast-free tuple branch with a
+different internal term shape.  The cast subexpressions have exact parity tests above;
+this promoted corpus row checks executable acceptance of the complete source.
+\<close>
+
+urust_expr cast_corpus_nested_tuple
+  \<open>
+    ((if true { 0 } else { 1 }, true),
+     if false { (2 as u32, 3 as u32) } else { (4, 5) })
+  \<close>
+
+urust_expr_with_check cast_corpus_assert_sequence
+  \<open> assert!(true); cast_word as u16 \<close>
+
+urust_expr_with_check cast_corpus_assert_condition
+  \<open>
+    assert!(cast_word as usize == cast_word as usize);
+    cast_word as u16
+  \<close>
+
+urust_expr_with_check cast_lexical_capture
+  \<open> let captured = cast_word; \<llangle>captured\<rrangle> as u8 \<close>
+
+urust_expr_with_check cast_grouped_field_result
+  \<open> (cast_raw as *const u32).cast_identity \<close>
+
+urust_expr_with_check cast_grouped_method_result
+  \<open> (cast_word as u32).cast_method() \<close>
+
+urust_expr_with_check cast_grouped_index_result
+  \<open> (cast_word as u32)[0_usize] \<close>
+
+urust_expr_with_check cast_grouped_propagation_result
+  \<open> (cast_word as u32)? \<close>
+
+end
+
+no_adhoc_overloading index_const \<rightleftharpoons> cast_index_fixture
+no_adhoc_overloading propagate_const \<rightleftharpoons> cast_propagate_fixture
+
+subsection\<open> Precedence, association, and conversion pipelines \<close>
+
+adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
+
+context
+  fixes cast_word :: \<open>32 word\<close>
+    and cast_ref :: \<open>(unit, unit, 32 word) Global_Store.ref\<close>
+begin
+
+urust_expr_with_check cast_chain_two
+  \<open> cast_word as u64 as u8 \<close>
+
+urust_expr_with_check cast_chain_three
+  \<open> cast_word as u8 as u32 as i64 \<close>
+
+urust_expr_with_check cast_before_multiplication
+  \<open> cast_word as u32 * cast_word \<close>
+
+urust_expr_with_check cast_before_addition
+  \<open> cast_word as u32 + cast_word \<close>
+
+urust_expr_with_check cast_before_shift
+  \<open> cast_word as u32 << 1_u64 \<close>
+
+urust_expr_with_check cast_before_bitwise
+  \<open> cast_word as u32 & cast_word ^ cast_word | cast_word \<close>
+
+urust_expr_with_check cast_before_comparison
+  \<open> cast_word as u32 == cast_word \<close>
+
+urust_expr_with_check cast_before_logical
+  \<open> cast_word as u32 == cast_word && true || false \<close>
+
+urust_expr_with_check cast_before_range
+  \<open> cast_word as u32..=cast_word as u32 \<close>
+
+urust_expr_with_check cast_before_assignment
+  \<open> let mut target = cast_word; *target = cast_word as u32; *target \<close>
+
+urust_expr_with_check cast_grouped_prefix_then_cast
+  \<open> (!cast_word) as u8 \<close>
+
+urust_expr_with_check cast_grouped_deref_then_cast
+  \<open> (*cast_ref) as u8 \<close>
+
+urust_expr_with_check cast_narrow_widen_signed_pipeline
+  \<open>
+    let narrowed = cast_word as u8;
+    let widened = narrowed as u32;
+    widened as i64
+  \<close>
+
+urust_expr_with_check cast_usize_pipeline
+  \<open> cast_word as usize as u16 \<close>
+
+end
+
+no_adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
+
 section\<open> Regression and divergence cases \<close>
 
 text\<open>

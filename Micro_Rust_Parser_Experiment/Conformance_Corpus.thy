@@ -819,11 +819,11 @@ subsection\<open>Macros\<close>
 
 text\<open>
 All rows in this subsection whose only previously missing surface was a legacy
-\<open>!\<close> macro are promoted to plain-\<open>refl\<close> checked rows in
-\<open>Parser_Test_Conformance.thy\<close>. The two rows containing \<open>as\<close> remain
-golden stubs because casts are still deferred; their surrounding assertion
-syntax is covered independently. Legacy format operands after the first message
-are intentionally parsed and discarded, exactly as in the frontend.
+\<open>!\<close> macro or \<open>as\<close> cast are promoted to executable rows in
+\<open>Parser_Test_Conformance.thy\<close>, with direct \<open>refl\<close> parity where the
+surrounding frontend term has the same elaborated shape. Legacy format operands
+after the first message are intentionally parsed and discarded, exactly as in
+the frontend.
 \<close>
 
 context

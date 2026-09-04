@@ -1887,4 +1887,48 @@ old_urust_rejects
     result
   \<close>
 
+section\<open> Deterministic cast-before-prefix precedence \<close>
+
+text\<open>
+The old mixfix frontend can resolve an unparenthesized prefix/cast combination
+according to later type constraints. The dedicated grammar instead has one
+structural rule: every cast binds tighter than every prefix operator. These
+rows compare that deterministic parse with an explicitly parenthesized
+old-frontend term.
+\<close>
+
+context
+  fixes cast_prefix_word :: \<open>32 word\<close>
+begin
+
+urust_expr_with_check' improvement_cast_before_not
+  \<open> !cast_prefix_word as u8 \<close>
+  \<open> \<lbrakk> !(cast_prefix_word as u8) \<rbrakk> \<close>
+
+end
+
+adhoc_overloading store_reference_const \<rightleftharpoons> parser_reference_fixture
+adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
+
+context
+  fixes cast_prefix_raw :: \<open>(unit, unit) gref\<close>
+begin
+
+urust_expr_with_check' improvement_cast_before_deref
+  \<open> *cast_prefix_raw as *const u8 \<close>
+  \<open> \<lbrakk> *(cast_prefix_raw as *const u8) \<rbrakk> \<close>
+
+urust_expr_with_check' improvement_cast_before_borrow
+  \<open> &cast_prefix_raw as *const u8 \<close>
+  \<open> \<lbrakk> &(cast_prefix_raw as *const u8) \<rbrakk> \<close>
+
+urust_expr_with_check' improvement_cast_before_mut_borrow
+  \<open> & mut cast_prefix_raw as *mut u8 \<close>
+  \<open> \<lbrakk> & mut (cast_prefix_raw as *mut u8) \<rbrakk> \<close>
+
+end
+
+no_adhoc_overloading store_reference_const \<rightleftharpoons> parser_reference_fixture
+no_adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
+
 end

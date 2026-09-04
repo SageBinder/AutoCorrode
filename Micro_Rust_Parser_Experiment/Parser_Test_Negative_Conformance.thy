@@ -1585,6 +1585,118 @@ urust_expr_rejects fidelity
        rejects the non-boolean guard result. \<close>
 
 
+section\<open> Cast targets, placement, and recovery boundaries \<close>
+
+subsection\<open> Unsupported targets \<close>
+
+urust_expr_rejects fidelity \<open> value as u128 \<close>
+  \<open> syntax error found at <identifier> \<close>
+
+urust_expr_rejects fidelity \<open> value as i8 \<close>
+  \<open> syntax error found at <identifier> \<close>
+
+urust_expr_rejects fidelity \<open> value as i16 \<close>
+  \<open> syntax error found at <identifier> \<close>
+
+urust_expr_rejects fidelity \<open> value as bool \<close>
+  \<open> syntax error found at <identifier> \<close>
+
+urust_expr_rejects fidelity \<open> value as Target \<close>
+  \<open> syntax error found at <identifier> \<close>
+
+urust_expr_rejects fidelity \<open> value as Target::Word \<close>
+  \<open> syntax error \<close>
+
+urust_expr_rejects fidelity \<open> value as Vec::<u8> \<close>
+  \<open> syntax error \<close>
+
+urust_expr_rejects fidelity \<open> value as *const i32 \<close>
+  \<open> syntax error found at <signed cast type> \<close>
+
+urust_expr_rejects fidelity \<open> value as *mut i64 \<close>
+  \<open> syntax error found at <signed cast type> \<close>
+
+subsection\<open> Missing and malformed cast components \<close>
+
+urust_expr_rejects fidelity \<open> as u8 \<close>
+  \<open> syntax error found at as \<close>
+
+urust_expr_rejects fidelity \<open> value as \<close>
+  \<open> syntax error found at end of input \<close>
+
+urust_expr_rejects fidelity \<open> value as * \<close>
+  \<open> syntax error found at end of input \<close>
+
+urust_expr_rejects fidelity \<open> value as *const \<close>
+  \<open> syntax error found at end of input \<close>
+
+urust_expr_rejects fidelity \<open> value as *mut \<close>
+  \<open> syntax error found at end of input \<close>
+
+urust_expr_rejects fidelity \<open> value as const u8 \<close>
+  \<open> syntax error found at const \<close>
+
+urust_expr_rejects fidelity \<open> value as mut u8 \<close>
+  \<open> syntax error found at mut \<close>
+
+urust_expr_rejects fidelity \<open> value as **const u8 \<close>
+  \<open> syntax error \<close>
+
+urust_expr_rejects fidelity \<open> value as *const const u8 \<close>
+  \<open> syntax error found at const \<close>
+
+urust_expr_rejects fidelity \<open> value as *mut mut u8 \<close>
+  \<open> syntax error found at mut \<close>
+
+urust_expr_rejects fidelity \<open> value as as u8 \<close>
+  \<open> syntax error found at as \<close>
+
+urust_expr_rejects fidelity \<open> value as u8, \<close>
+  \<open> syntax error found at , \<close>
+
+urust_expr_rejects fidelity \<open> value as u8 trailing \<close>
+  \<open> syntax error found at <identifier> \<close>
+
+subsection\<open> Invalid source types and cast chains \<close>
+
+urust_expr_rejects fidelity \<open> true as u8 \<close>
+  \<open> Type unification failed \<close>
+
+urust_expr_rejects fidelity \<open> 1_u32 as *const u8 \<close>
+  \<open> Type unification failed \<close>
+
+urust_expr_rejects fidelity
+  \<open>
+    \<llangle>undefined :: ('addr, 'gv) gref\<rrangle>
+      as *const u8 as *const u16
+  \<close>
+  \<open> Type unification failed \<close>
+
+subsection\<open> Cast results require grouping before postfix operations \<close>
+
+urust_expr_rejects fidelity \<open> value as u32.field \<close>
+  \<open> syntax error \<close>
+
+urust_expr_rejects fidelity \<open> value as u32.method() \<close>
+  \<open> syntax error \<close>
+
+urust_expr_rejects fidelity \<open> value as u32[0] \<close>
+  \<open> syntax error \<close>
+
+urust_expr_rejects fidelity \<open> value as u32? \<close>
+  \<open> syntax error \<close>
+
+subsection\<open> Reserved cast words are not identifiers \<close>
+
+urust_expr_rejects fidelity \<open> let as = 1; as \<close>
+  \<open> syntax error \<close>
+
+urust_expr_rejects fidelity \<open> let u8 = 1; u8 \<close>
+  \<open> syntax error \<close>
+
+urust_expr_rejects fidelity \<open> let i32 = 1; i32 \<close>
+  \<open> syntax error \<close>
+
 section\<open> Lexer and whole-input failures \<close>
 
 new_urust_rejects audit

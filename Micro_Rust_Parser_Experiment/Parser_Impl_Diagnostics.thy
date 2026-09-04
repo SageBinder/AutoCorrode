@@ -136,7 +136,10 @@ struct
      (73, "TDOTDOTEQ", "..="),
      (74, "TMUT", "mut"),
      (75, "TPATCONTEXT", "<pattern context>"),
-     (76, "TMATCHESBANG", "matches!")]
+     (76, "TMATCHESBANG", "matches!"),
+     (77, "TAS", "as"),
+     (78, "TUINT", "<unsigned cast type>"),
+     (79, "TSINT", "<signed cast type>")]
 
   val terminal_count = length terminal_specs
 
@@ -197,7 +200,7 @@ struct
       Original.EC.terms
 
   val value_bearing_terminal_ids =
-    [0, 1, 2, 3, 6, 7, 9, 10, 11, 12, 76]
+    [0, 1, 2, 3, 6, 7, 9, 10, 11, 12, 76, 78, 79]
 
   val _ =
     List.app
