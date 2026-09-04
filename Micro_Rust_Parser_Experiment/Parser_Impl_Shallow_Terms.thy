@@ -16,6 +16,7 @@ sig
   val integer_value: Position.T -> string -> term
   val closure: term list -> term -> term
 
+  val apply_parameters: term -> term list -> term
   val function_call: Position.T -> term -> term list -> term
   val bind: term -> term -> term
   val sequence: term -> term -> term
@@ -145,6 +146,9 @@ struct
     literal
       (fold_rev Term.lambda formals
         (constant \<^const_name>\<open>FunctionBody\<close> [body]))
+
+  fun apply_parameters function parameters =
+    Term.list_comb (function, parameters)
 
   fun boolean_expression value =
     Const (if value then \<^const_name>\<open>Bool_Type.true\<close>

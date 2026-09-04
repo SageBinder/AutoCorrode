@@ -19,18 +19,35 @@ sig
   datatype borrow_mode = BM_Imm | BM_Mut
   datatype range_kind = RK_Exclusive | RK_Inclusive
 
+  datatype generic_args =
+    Generic_Args of Input.source list * Position.T
+  datatype path_segment =
+    Path_Segment of string * Position.T * generic_args option
+  datatype ur_path =
+    UR_Path of path_segment list * Position.T
+
+  val path_position: ur_path -> Position.T
+  val path_segments: ur_path -> path_segment list
+  val segment_identifier: path_segment -> string * Position.T
+  val segment_generic_args: path_segment -> generic_args option
+  val final_segment: ur_path -> path_segment
+  val remove_final_generic_args: ur_path -> ur_path
+  val render_path: ur_path -> string
+  val make_single_path: string * Position.T -> ur_path
+
   datatype ur_pat =
       P_Wild of Position.T
     | P_Ident of string * Position.T
+    | P_Path of ur_path
     | P_Literal of literal_payload
-    | P_Constr of string * Position.T * ur_pat list
+    | P_Constr of ur_path * ur_pat list
     | P_Tuple of ur_pat list * Position.T
     | P_Group of ur_pat
     | P_Borrow of borrow_mode * ur_pat * Position.T
     | P_Alias of string * Position.T * ur_pat * Position.T
     | P_Range of range_kind * ur_pat * ur_pat * Position.T
     | P_Slice of slice_item list * Position.T
-    | P_Struct of string * Position.T * struct_field list
+    | P_Struct of ur_path * struct_field list
     | P_Or of ur_pat list * Position.T
   and slice_item =
       SI_Pat of ur_pat
@@ -62,11 +79,15 @@ sig
     | AssignAdd
     | AssignBin of assign_binop
 
-  datatype ur_expr =
+  datatype ur_callee =
+      UC_Path of ur_path
+    | UC_Method of ur_expr * path_segment
+
+  and ur_expr =
       UE_Unit of Position.T
     | UE_Tuple of ur_expr list * Position.T
     | UE_Array of ur_expr list * Position.T
-    | UE_Ident of string * Position.T
+    | UE_Path of ur_path
     | UE_Literal of literal_payload
     | UE_ExprAntiq of Input.source
     | UE_Closure of ur_pat list * ur_expr * Position.T
@@ -88,19 +109,19 @@ sig
     | UE_Loop of Input.source * ur_expr * Position.T
     | UE_For of ur_pat * ur_expr * ur_expr * Position.T
     | UE_WhileLet of Input.source * ur_pat * ur_expr * ur_expr * Position.T
-    | UE_Call of string * Position.T * ur_expr list * Position.T
+    | UE_Call of ur_callee * ur_expr list * Position.T
     | UE_Field of ur_expr * string * Position.T
     | UE_Index of ur_expr * ur_expr * Position.T
     | UE_Range of range_kind * ur_expr * ur_expr * Position.T
     | UE_Assign of assignop * ur_place * ur_expr * Position.T
     | UE_Macro of
-        string * Position.T * Position.T * macro_payload * Position.T
+        ur_path * Position.T * macro_payload * Position.T
     | UE_Match of match_flavour * ur_expr * ur_arm list * Position.T
   and macro_payload =
       MP_Arguments of ur_expr list
     | MP_Matches of ur_expr * ur_pat
   and ur_place =
-      UP_Ident of string * Position.T
+      UP_Path of ur_path
     | UP_Deref of ur_expr * Position.T
     | UP_Field of ur_place * string * Position.T
     | UP_Index of ur_place * ur_expr * Position.T
@@ -112,18 +133,17 @@ sig
   val mk_assign:
     assignop * Position.T -> ur_expr -> ur_expr -> ur_expr
   val finish_statement: ur_expr * Position.T -> ur_expr
-  val mk_bare_ident_pat: string * Position.T -> ur_pat
-  val mk_ctor_pat: (string * Position.T) * ur_pat list -> ur_pat
+  val mk_bare_path_pat: ur_path -> ur_pat
+  val mk_ctor_pat: ur_path * ur_pat list -> ur_pat
   val mk_alias_pat:
     (string * Position.T) * ur_pat * Position.T -> ur_pat
-  val mk_struct_pat:
-    (string * Position.T) * struct_field list -> ur_pat
+  val mk_struct_pat: ur_path * struct_field list -> ur_pat
   val mk_closure:
     ur_pat list * ur_expr * Position.T * Position.T -> ur_expr
   val mk_call:
-    string * Position.T * ur_expr list * Position.T * Position.T -> ur_expr
+    ur_path * ur_expr list * Position.T * Position.T -> ur_expr
   val mk_method_call:
-    ur_expr * string * Position.T * ur_expr list *
+    ur_expr * path_segment * ur_expr list *
       Position.T * Position.T -> ur_expr
   val mk_let_else:
     ur_pat * ur_expr * ur_expr * ur_expr *
@@ -157,12 +177,12 @@ end
       versus constructor.
     * match_flavour and MF_Switch, MF_Case, MF_Auto.  MF_Auto requests downstream classification; it
       is not a fourth lowering.
-    * the mutually recursive expression interface ur_expr (UE_Unit, UE_Tuple, UE_Array, UE_Ident,
+    * the mutually recursive expression interface ur_expr (UE_Unit, UE_Tuple, UE_Array, UE_Path,
       UE_Literal, UE_ExprAntiq, UE_Closure, UE_Let, UE_LetMut, UE_Const, UE_Seq, UE_Return, UE_Bin,
       UE_Unary, UE_Group, UE_Block, UE_If, UE_IfLet, UE_LetElse, UE_While, UE_Loop, UE_For,
       UE_WhileLet, UE_Call, UE_Field, UE_Index, UE_Range, UE_Assign, UE_Macro, UE_Match),
       macro_payload
-      (MP_Arguments, MP_Matches), ur_place (UP_Ident, UP_Deref, UP_Field, UP_Index, UP_Antiq), and
+      (MP_Arguments, MP_Matches), ur_place (UP_Path, UP_Deref, UP_Field, UP_Index, UP_Antiq), and
       ur_arm (UR_Arm). Expression and pattern lists preserve source order. A generic macro payload
       retains every parsed argument without deciding which arguments a legacy macro lowers;
       MP_Matches retains its expression and pattern in separate grammar categories. A UR_Arm
@@ -172,7 +192,7 @@ end
       wildcard.
       UE_IfLet retains an optional source else branch; UE_LetElse retains its fallback and required
       continuation separately. A UE_Return never stores a semicolon; a method invocation is
-      represented as UE_Call with the receiver prepended; ur_place contains only validated
+      represented as UC_Method and prepended during lowering; ur_place contains only validated
       assignment-target shapes.
 
   Position.T fields identify the token or span documented at each constructor. Consumers may use them
@@ -218,11 +238,42 @@ struct
   datatype borrow_mode = BM_Imm | BM_Mut
   datatype range_kind = RK_Exclusive | RK_Inclusive
 
+  datatype generic_args =
+    Generic_Args of Input.source list * Position.T
+  datatype path_segment =
+    Path_Segment of string * Position.T * generic_args option
+  datatype ur_path =
+    UR_Path of path_segment list * Position.T
+
+  fun path_position (UR_Path (_, pos)) = pos
+  fun path_segments (UR_Path (segments, _)) = segments
+  fun segment_identifier (Path_Segment (name, pos, _)) = (name, pos)
+  fun segment_generic_args (Path_Segment (_, _, arguments)) = arguments
+  fun final_segment (UR_Path (segments, _)) =
+    (case rev segments of
+       segment :: _ => segment
+     | [] => error "urust_expr: internal empty path")
+  fun remove_final_generic_args (UR_Path (segments, pos)) =
+    (case rev segments of
+       Path_Segment (name, name_pos, _) :: rest =>
+         UR_Path
+           (rev (Path_Segment (name, name_pos, NONE) :: rest), pos)
+     | [] => error "urust_expr: internal empty path")
+  fun render_generic_args (Generic_Args (arguments, _)) =
+    "::<" ^ space_implode "," (map Input.string_of arguments) ^ ">"
+  fun render_segment (Path_Segment (name, _, arguments)) =
+    name ^ the_default "" (Option.map render_generic_args arguments)
+  fun render_path (UR_Path (segments, _)) =
+    space_implode "::" (map render_segment segments)
+  fun make_single_path (name, pos) =
+    UR_Path ([Path_Segment (name, pos, NONE)], pos)
+
   datatype ur_pat =
       P_Wild   of Position.T                          (* _ *)
     | P_Ident  of string * Position.T                 (* bare id: nullary ctor OR variable binder *)
+    | P_Path   of ur_path
     | P_Literal of literal_payload                    (* numeral switch key or equality pattern *)
-    | P_Constr of string * Position.T * ur_pat list   (* C(args): name, name-pos, args *)
+    | P_Constr of ur_path * ur_pat list
     | P_Tuple  of ur_pat list * Position.T            (* (p0, p1, ..), at least two elements *)
     | P_Group  of ur_pat                              (* (p), transparent wrapper *)
     | P_Borrow of borrow_mode * ur_pat * Position.T   (* &p / & mut p; syntax-only today *)
@@ -231,7 +282,7 @@ struct
     | P_Range  of range_kind * ur_pat * ur_pat * Position.T
                                                        (* lo..hi / lo..=hi, at operator *)
     | P_Slice  of slice_item list * Position.T        (* [p, .., q], at full span *)
-    | P_Struct of string * Position.T * struct_field list
+    | P_Struct of ur_path * struct_field list
                                                        (* Head { fields }, at head-pos *)
     | P_Or     of ur_pat list * Position.T            (* p | q | r  (flattened; source order) *)
   and slice_item =
@@ -269,11 +320,15 @@ struct
     | AssignAdd
     | AssignBin of assign_binop
 
-  datatype ur_expr =
+  datatype ur_callee =
+      UC_Path of ur_path
+    | UC_Method of ur_expr * path_segment
+
+  and ur_expr =
       UE_Unit      of Position.T                      (* () *)
     | UE_Tuple     of ur_expr list * Position.T       (* (e0, e1, ..), at least two elements *)
     | UE_Array     of ur_expr list * Position.T       (* [e0, e1, ..], including empty *)
-    | UE_Ident     of string * Position.T             (* bare identifier at value position *)
+    | UE_Path      of ur_path
     | UE_Literal   of literal_payload                 (* integer / bool / string / <<value>> *)
     | UE_ExprAntiq of Input.source                    (* eps<e> body as a POSITIONED source -> e *)
     | UE_Closure   of ur_pat list * ur_expr * Position.T
@@ -307,7 +362,7 @@ struct
                                                       (* for pattern in iterable body *)
     | UE_WhileLet  of Input.source * ur_pat * ur_expr * ur_expr * Position.T
                                                       (* #[fuel(eps<n>)] while let pattern = value body *)
-    | UE_Call      of string * Position.T * ur_expr list * Position.T
+    | UE_Call      of ur_callee * ur_expr list * Position.T
                                                       (* f(a0..aN) -> funcallN. Callee is an IDENTIFIER
                                                          (name, name-pos) resolved in NFunction context;
                                                          then args and the SPAN of the whole call, so an
@@ -321,8 +376,8 @@ struct
     | UE_Assign    of assignop * ur_place * ur_expr * Position.T
                                                       (* place assignment-op rhs, at the operator *)
     | UE_Macro     of
-        string * Position.T * Position.T * macro_payload * Position.T
-                                                      (* name, name-pos, !-pos, payload, full span *)
+        ur_path * Position.T * macro_payload * Position.T
+                                                      (* head, !-pos, payload, full span *)
     | UE_Match     of match_flavour * ur_expr * ur_arm list * Position.T
                                                       (* match_<flavour> scrut { pat => body, .. }. ONE node
                                                          for both keywords; only the LOWERING differs --
@@ -334,7 +389,7 @@ struct
       MP_Arguments of ur_expr list
     | MP_Matches of ur_expr * ur_pat
   and ur_place =
-      UP_Ident of string * Position.T
+      UP_Path of ur_path
     | UP_Deref of ur_expr * Position.T
     | UP_Field of ur_place * string * Position.T
     | UP_Index of ur_place * ur_expr * Position.T
@@ -345,7 +400,7 @@ struct
   fun expression_position (UE_Unit pos) = pos
     | expression_position (UE_Tuple (_, pos)) = pos
     | expression_position (UE_Array (_, pos)) = pos
-    | expression_position (UE_Ident (_, pos)) = pos
+    | expression_position (UE_Path path) = path_position path
     | expression_position (UE_Literal payload) = literal_position payload
     | expression_position (UE_ExprAntiq src) = Input.pos_of src
     | expression_position (UE_Closure (_, _, pos)) = pos
@@ -365,18 +420,18 @@ struct
     | expression_position (UE_Loop (_, _, pos)) = pos
     | expression_position (UE_For (_, _, _, pos)) = pos
     | expression_position (UE_WhileLet (_, _, _, _, pos)) = pos
-    | expression_position (UE_Call (_, _, _, pos)) = pos
+    | expression_position (UE_Call (_, _, pos)) = pos
     | expression_position (UE_Field (_, _, pos)) = pos
     | expression_position (UE_Index (_, _, pos)) = pos
     | expression_position (UE_Range (_, _, _, pos)) = pos
     | expression_position (UE_Assign (_, _, _, pos)) = pos
-    | expression_position (UE_Macro (_, _, _, _, pos)) = pos
+    | expression_position (UE_Macro (_, _, _, pos)) = pos
     | expression_position (UE_Match (_, _, _, pos)) = pos
 
   (* Assignment parses an ordinary expression on the left, then crosses this one validation boundary.
      Keeping target recognition out of the grammar gives every invalid expression a stable positioned
      diagnostic and lets grouped/dereferenced field chains compose without parallel productions. *)
-  fun expr_to_place (UE_Ident id) = UP_Ident id
+  fun expr_to_place (UE_Path path) = UP_Path path
     | expr_to_place (UE_ExprAntiq src) = UP_Antiq src
     | expr_to_place (UE_Group (expr, _)) = expr_to_place expr
     | expr_to_place (UE_Unary (U_Deref, expr, pos)) = UP_Deref (expr, pos)
@@ -397,14 +452,15 @@ struct
         UE_Seq (expression, UE_Unit semi_pos)
 
   (* `_` lexes as an ordinary IDENT: normalise to P_Wild in ONE place, not an `= "_"` test at every site. *)
-  fun mk_ident_pat (s, pos) = if s = "_" then P_Wild pos else P_Ident (s, pos)
-
-  fun mk_bare_ident_pat pair = mk_ident_pat pair
-  fun mk_ctor_pat ((name, pos), args) = P_Constr (name, pos, args)
+  fun mk_bare_path_pat path =
+    (case path_segments path of
+       [Path_Segment ("_", pos, NONE)] => P_Wild pos
+     | [Path_Segment (name, pos, NONE)] => P_Ident (name, pos)
+     | _ => P_Path path)
+  fun mk_ctor_pat (path, args) = P_Constr (path, args)
   fun mk_alias_pat ((name, pos), inner, at_pos) =
     P_Alias (name, pos, inner, at_pos)
-  fun mk_struct_pat ((name, pos), fields) =
-    P_Struct (name, pos, fields)
+  fun mk_struct_pat (path, fields) = P_Struct (path, fields)
 
   fun exclusive_end pos =
     (case Position.end_offset_of pos of
@@ -422,10 +478,13 @@ struct
     UE_Closure
       (formals, body,
        Position.range_position (left, exclusive_end right))
-  fun mk_call (name, name_pos, args, left, right) =
-    UE_Call (name, name_pos, args, Position.range_position (left, right))
-  fun mk_method_call (receiver, name, name_pos, args, left, right) =
-    mk_call (name, name_pos, receiver :: args, left, right)
+  fun mk_call (path, args, left, right) =
+    UE_Call
+      (UC_Path path, args, Position.range_position (left, right))
+  fun mk_method_call (receiver, segment, args, left, right) =
+    UE_Call
+      (UC_Method (receiver, segment), args,
+       Position.range_position (left, right))
 
   fun mk_let_else
       (pattern, scrutinee, fallback, continuation, left, right) =

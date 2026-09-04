@@ -625,6 +625,12 @@ end
 
 subsubsection\<open>Turbofish Syntax\<close>
 
+text\<open>
+These representative rows are promoted to executable same-source coverage in
+\<open>Parser_Test_Conformance.thy\<close>, with additional qualified bases, methods, lexical capture,
+multiple parameters, exact-registration precedence, malformed input, and structural/range audits.
+\<close>
+
 context
   fixes f :: \<open>nat \<Rightarrow> ('s, 'a, unit, unit, unit) function_body\<close>
   fixes g :: \<open>nat \<Rightarrow> bool \<Rightarrow> ('s, 'a, unit, unit, unit) function_body\<close>
@@ -962,6 +968,12 @@ subsubsection\<open>Sequencing\<close>
 lemma \<open>undefined = \<lbrakk> let a = 1; let b = 2; a \<rbrakk>\<close> sorry
 
 subsection\<open>Rust Path Expressions\<close>
+
+text\<open>
+Path literals, calls, constructor patterns, nonconstructor value patterns, switch keys, macros, and
+generic path composition now have runnable coverage in the parser test theories. Leading
+\<open>::\<close>, Rust type generics, and real module/item traversal remain separate work.
+\<close>
 
 experiment
 begin

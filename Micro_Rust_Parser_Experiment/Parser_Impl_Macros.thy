@@ -11,7 +11,7 @@ sig
     (URust_Resolution.environment -> URust_AST.ur_expr -> term) ->
       Proof.context ->
       URust_Resolution.environment ->
-      string * Position.T * Position.T * URust_AST.macro_payload * Position.T ->
+      URust_AST.ur_path * Position.T * URust_AST.macro_payload * Position.T ->
       term
 end
 \<close>
@@ -105,7 +105,7 @@ struct
              error
                ("urust_expr: range patterns are not supported by legacy matches!" ^
                  Position.here pos)
-         | P_Constr (_, _, arguments) => List.app reject arguments
+         | P_Constr (_, arguments) => List.app reject arguments
          | P_Tuple (arguments, _) => List.app reject arguments
          | P_Group inner => reject inner
          | P_Borrow (_, inner, _) => reject inner
@@ -115,7 +115,7 @@ struct
                (fn SI_Pat inner => reject inner
                  | SI_Rest _ => ())
                items
-         | P_Struct (_, _, fields) =>
+         | P_Struct (_, fields) =>
              List.app
                (fn SF_Field (_, _, inner) => reject inner
                  | SF_Shorthand _ => ()
@@ -127,8 +127,8 @@ struct
 
   fun raw_message ctxt environment expression =
     (case expression of
-       UE_Ident identifier =>
-         R.literal_identifier_value ctxt environment identifier
+       UE_Path path =>
+         R.literal_path_value ctxt environment path
      | UE_Literal (LP_String (raw, pos)) =>
          T.string_value raw pos
      | UE_Literal (LP_ValAntiq source) =>
@@ -143,10 +143,12 @@ struct
     Context_Position.report ctxt pos Markup.keyword1
 
   fun lower_macro lower ctxt environment
-      (name, name_pos, bang_pos, payload, position) =
+      (path, bang_pos, payload, position) =
     let
+      val name = render_path path
+      val name_pos = #2 (segment_identifier (final_segment path))
       val complete_name = name ^ "!"
-      val complete_name_pos = macro_name_position name_pos bang_pos
+      val complete_name_pos = macro_name_position (path_position path) bang_pos
 
       fun lower_argument expression = lower environment expression
 
@@ -219,7 +221,7 @@ struct
               (scrutinee, pattern, position))
        | MP_Arguments arguments =>
            (case
-               if positions_are_adjacent name_pos bang_pos
+               if positions_are_adjacent (path_position path) bang_pos
                then R.registered_function ctxt (complete_name, complete_name_pos)
                else NONE
             of

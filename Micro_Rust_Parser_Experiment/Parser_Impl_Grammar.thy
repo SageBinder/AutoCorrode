@@ -10,18 +10,26 @@ SML_import \<open> structure Input = struct open Input end \<close>       \<comm
 SML_import \<open> structure Position = struct open Position end \<close> \<comment>\<open> report / range / T \<close>
 SML_import \<open> structure Markup = struct open Markup end \<close>     \<comment>\<open> token reports \<close>
 SML_import \<open> structure Symbol = struct open Symbol end \<close>     \<comment>\<open> partial lexeme reports \<close>
+SML_import \<open> structure Inttab = Inttab \<close>
 
 ML\<open>
 signature URUST_GRAMMAR =
 sig
+  datatype turbofish =
+    Turbofish of
+      {arguments: URust_AST.generic_args,
+       open_offset: int,
+       close_offset: int,
+       comma_offsets: int list}
+  val scan_turbofish: Proof.context -> Input.source -> turbofish Inttab.table
   val lex_error: string -> Position.T -> 'a
   val string_error: Position.T -> 'a
   val antiquotation_error: string -> Position.T -> 'a
 end
 
 (*
-  URust_Grammar owns the handwritten boundary used by the generated uRust lexer. It currently exposes
-  only the source-facing failures raised directly by lexer actions. It is the
+  URust_Grammar owns the handwritten boundary used by the generated uRust lexer. It exposes the
+  per-source turbofish scan and the source-facing failures raised directly by lexer actions. It is the
   boundary between lexer actions, which run in the generated SML environment, and Isabelle's
   positioned ERROR diagnostics.  It does not decide which input is malformed, recover from an error,
   report parser conflicts, or validate the AST; those responsibilities remain with the lexer rules,
@@ -46,6 +54,361 @@ end
 *)
 structure URust_Grammar :> URUST_GRAMMAR =
 struct
+  datatype turbofish =
+    Turbofish of
+      {arguments: URust_AST.generic_args,
+       open_offset: int,
+       close_offset: int,
+       comma_offsets: int list}
+
+  fun scan_turbofish ctxt source =
+    let
+      val source_symbols =
+        Vector.fromList (Input.source_explode source)
+      val symbol_count = Vector.length source_symbols
+      fun source_symbol index = Vector.sub (source_symbols, index)
+      fun symbol index = #1 (source_symbol index)
+      fun boundary_position index =
+        if index < symbol_count then #2 (source_symbol index)
+        else #2 (Input.range_of source)
+      fun build_raw_offsets index raw_offset offsets =
+        if index = symbol_count then
+          Vector.fromList (rev (raw_offset :: offsets))
+        else
+          build_raw_offsets (index + 1)
+            (raw_offset + size (symbol index))
+            (raw_offset :: offsets)
+      val raw_offsets = build_raw_offsets 0 0 []
+      fun raw_offset index = Vector.sub (raw_offsets, index)
+      val source_offset =
+        Position.offset_of (boundary_position 0)
+      val source_has_offsets = is_some source_offset
+      fun symbol_slice left right =
+        let
+          fun collect index fragments =
+            if index >= right then String.concat (rev fragments)
+            else collect (index + 1) (symbol index :: fragments)
+        in collect left [] end
+      fun symbol_list left right =
+        if left >= right then []
+        else source_symbol left :: symbol_list (left + 1) right
+      fun mask_physical_unicode symbols =
+        map
+          (fn (source as (s, position)) =>
+            if Symbol.is_utf8 s then ("x", position) else source)
+          symbols
+      fun token_symbol_list left right =
+        (if source_has_offsets then symbol_list left right
+         else
+           let
+             fun collect index =
+               if index >= right then []
+               else
+                 (symbol index,
+                  Position.make0 1 (index + 1) 0 "" ""
+                    "urust-turbofish-token-index") ::
+                   collect (index + 1)
+           in collect left end)
+        |> mask_physical_unicode
+      fun starts_pair index first second =
+        index + 1 < symbol_count andalso
+          symbol index = first andalso symbol (index + 1) = second
+      fun blank s =
+        member (op =) [" ", "\t", "\r", "\n"] s
+      fun skip_blanks index =
+        if index < symbol_count andalso blank (symbol index)
+        then skip_blanks (index + 1)
+        else index
+      fun trim_left left right =
+        if left < right andalso blank (symbol left)
+        then trim_left (left + 1) right
+        else left
+      fun trim_right left right =
+        if left < right andalso blank (symbol (right - 1))
+        then trim_right left (right - 1)
+        else right
+      fun source_range left right =
+        let
+          val first = trim_left left right
+          val last = trim_right first right
+          val _ =
+            if first < last then ()
+            else
+              error ("urust_expr: empty turbofish argument" ^
+                Position.here (boundary_position left))
+        in
+          Input.source true
+            (symbol_slice first last)
+            (Position.range
+              (boundary_position first, boundary_position last))
+        end
+      fun skip_line_comment index =
+        let
+          fun loop i =
+            if i >= symbol_count orelse symbol i = "\n" then i
+            else loop (i + 1)
+        in loop (index + 2) end
+      fun skip_outer_string index =
+        let
+          fun loop i =
+            if i >= symbol_count then symbol_count
+            else if symbol i = "\\" then
+              loop (Int.min (i + 2, symbol_count))
+            else if symbol i = "\"" then i + 1
+            else loop (i + 1)
+        in loop (index + 1) end
+      val value_open = "\<llangle>"
+      val value_close = "\<rrangle>"
+      val expression_marker = "\<epsilon>"
+      fun skip_value_antiquotation index =
+        let
+          fun loop depth i =
+            if i >= symbol_count then
+              error ("urust_expr: unterminated value antiquotation" ^
+                Position.here (boundary_position index))
+            else if symbol i = value_open then
+              loop (depth + 1) (i + 1)
+            else if symbol i = value_close then
+              if depth = 1 then i + 1
+              else loop (depth - 1) (i + 1)
+            else loop depth (i + 1)
+        in loop 1 (index + 1) end
+      fun skip_cartouche index =
+        let
+          fun loop depth i =
+            if i >= symbol_count then NONE
+            else if symbol i = Symbol.open_ then
+              loop (depth + 1) (i + 1)
+            else if symbol i = Symbol.close then
+              if depth = 1 then SOME (i + 1)
+              else loop (depth - 1) (i + 1)
+            else loop depth (i + 1)
+        in loop 1 (index + 1) end
+      fun legal_after_close index =
+        let val i = skip_blanks (index + 1)
+        in
+          i = symbol_count orelse starts_pair i ":" ":" orelse
+          member (op =)
+            ["(", ".", "[", "?", "!", ",", ")", "]", "}",
+             ";", "+", "-", "*", "/", "%", "&", "|", "^"]
+            (symbol i)
+        end
+      fun closing_delimiter "(" = SOME ")"
+        | closing_delimiter "[" = SOME "]"
+        | closing_delimiter "{" = SOME "}"
+        | closing_delimiter _ = NONE
+      fun is_closing_delimiter s =
+        member (op =) [")", "]", "}"] s
+      fun tokenize left right =
+        Syntax.tokenize (Proof_Context.syntax_of ctxt) {raw = false}
+          (token_symbol_list left right)
+      fun index_tokens slice_start slice_stop tokens =
+        let
+          fun token_index position =
+            (case Position.offset_of position of
+               SOME offset =>
+                 if source_has_offsets
+                 then offset - the source_offset
+                 else offset - 1
+             | NONE =>
+                 error "internal turbofish token lost its source position")
+          fun build index [] indexed =
+                if index = slice_stop then rev indexed
+                else error "internal turbofish token/source coverage mismatch"
+            | build index (token :: rest) indexed =
+                let
+                  val (token_start, token_stop) =
+                    apply2 token_index (Lexicon.range_of_token token)
+                  val _ =
+                    if token_start = index andalso
+                        token_start <= token_stop andalso
+                        token_stop <= slice_stop
+                    then ()
+                    else error "internal turbofish token/source range mismatch"
+                in
+                  build token_stop rest
+                    ((token, token_start, token_stop) :: indexed)
+                end
+        in build slice_start tokens [] end
+      fun token_position token fallback =
+        let val position = #1 (Lexicon.range_of_token token)
+        in
+          if not source_has_offsets
+          then boundary_position fallback
+          else position
+        end
+      fun starts_hol_operand (token, _, _) =
+        (case Lexicon.kind_of_token token of
+           Lexicon.Ident => true
+         | Lexicon.Long_Ident => true
+         | Lexicon.Var => true
+         | Lexicon.Type_Ident => true
+         | Lexicon.Type_Var => true
+         | Lexicon.Num => true
+         | Lexicon.Float => true
+         | Lexicon.Str => true
+         | Lexicon.String => true
+         | Lexicon.Cartouche => true
+         | _ => false)
+      fun next_proper [] = NONE
+        | next_proper ((indexed as (token, _, _)) :: rest) =
+            if Lexicon.is_proper token then SOME indexed
+            else next_proper rest
+      fun scan_token_group content_start required_close tokens =
+        let
+          val indexed =
+            index_tokens content_start
+              (case required_close of
+                 SOME close => close + 1
+               | NONE => symbol_count)
+              tokens
+          fun mismatch token index =
+            error ("urust_expr: mismatched delimiter in turbofish" ^
+              Position.here (token_position token index))
+          fun finish close_index close_stop argument_start commas close_token =
+            let
+              val pieces =
+                rev ((argument_start, close_index, NONE) :: commas)
+              val arguments =
+                map (fn (left, right, _) => source_range left right) pieces
+              val comma_offsets =
+                map_filter
+                  (fn (_, _, comma) => Option.map raw_offset comma)
+                  pieces
+              val token_stop = #2 (Lexicon.range_of_token close_token)
+              val span_stop =
+                if not source_has_offsets
+                then boundary_position close_stop
+                else token_stop
+            in
+              SOME
+                {close_index = close_index,
+                 close_stop = close_stop,
+                 span_stop = span_stop,
+                 arguments = arguments,
+                 comma_offsets = comma_offsets}
+            end
+          fun loop _ _ _ [] = NONE
+            | loop stack argument_start commas
+                ((token, left, right) :: rest) =
+                if not (Lexicon.is_literal token) then
+                  loop stack argument_start commas rest
+                else
+                  let val text = Lexicon.str_of_token token in
+                    (case closing_delimiter text of
+                       SOME expected =>
+                         loop (expected :: stack) argument_start commas rest
+                     | NONE =>
+                         if is_closing_delimiter text then
+                           (case stack of
+                              expected :: remaining =>
+                                if expected = text then
+                                  loop remaining argument_start commas rest
+                                else mismatch token left
+                            | [] => mismatch token left)
+                         else if text = "," andalso null stack then
+                           loop stack right
+                             ((argument_start, left, SOME left) :: commas)
+                             rest
+                         else if text = ">" andalso null stack andalso
+                             legal_after_close left andalso
+                             (case required_close of
+                                SOME close => left = close
+                              | NONE => true) andalso
+                             not
+                               (case next_proper rest of
+                                  SOME next => starts_hol_operand next
+                                | NONE => false)
+                         then
+                           finish left right argument_start commas token
+                         else
+                           loop stack argument_start commas rest)
+                  end
+        in loop [] content_start [] indexed end
+      fun candidate_closes content_start =
+        let
+          fun collect index closes =
+            if index >= symbol_count then rev closes
+            else if symbol index = ">" andalso legal_after_close index then
+              collect (index + 1) (index :: closes)
+            else collect (index + 1) closes
+        in collect content_start [] end
+      fun scan_group group_start =
+        let
+          val content_start = group_start + 1
+          fun unterminated () =
+            error ("urust_expr: unterminated turbofish" ^
+              Position.here (boundary_position group_start))
+          fun fallback failed [] = failed ()
+            | fallback failed (close :: rest) =
+                (case Exn.capture
+                    (fn () => tokenize content_start (close + 1)) () of
+                   Exn.Res tokens =>
+                     (case scan_token_group content_start (SOME close) tokens of
+                        SOME result => result
+                      | NONE => fallback failed rest)
+                 | Exn.Exn exn =>
+                     if Exn.is_interrupt exn then Exn.reraise exn
+                     else fallback failed rest)
+          val closes = candidate_closes content_start
+        in
+          (case Exn.capture
+              (fn () => tokenize content_start symbol_count) () of
+             Exn.Res tokens =>
+               (case scan_token_group content_start NONE tokens of
+                  SOME result => result
+                | NONE => fallback unterminated closes)
+           | Exn.Exn exn =>
+               if Exn.is_interrupt exn then Exn.reraise exn
+               else fallback (fn () => Exn.reraise exn) closes)
+        end
+      fun scan index table =
+        if index >= symbol_count then table
+        else if symbol index = "\"" then
+          scan (skip_outer_string index) table
+        else if starts_pair index "/" "/" then
+          scan (skip_line_comment index) table
+        else if symbol index = value_open then
+          scan (skip_value_antiquotation index) table
+        else if symbol index = expression_marker andalso
+            index + 1 < symbol_count andalso
+            symbol (index + 1) = Symbol.open_ then
+          (case skip_cartouche (index + 1) of
+             SOME stop => scan stop table
+           | NONE => table)
+        else if symbol index = Symbol.open_ then
+          (case skip_cartouche index of
+             SOME stop => scan stop table
+           | NONE => table)
+        else if starts_pair index ":" ":" then
+          let
+            val open_index = skip_blanks (index + 2)
+          in
+            if open_index < symbol_count andalso
+                symbol open_index = "<" then
+              let
+                val
+                  {close_index, close_stop, span_stop,
+                   arguments, comma_offsets} =
+                    scan_group open_index
+                val span =
+                  Position.range_position
+                    (boundary_position index, span_stop)
+                val entry =
+                  Turbofish
+                    {arguments = URust_AST.Generic_Args (arguments, span),
+                     open_offset = raw_offset open_index,
+                     close_offset = raw_offset close_index,
+                     comma_offsets = comma_offsets}
+              in
+                scan close_stop
+                  (Inttab.update (raw_offset index, entry) table)
+              end
+            else scan (index + 2) table
+          end
+        else scan (index + 1) table
+    in scan 0 Inttab.empty end
+
   fun lex_error text pos =
     error ("urust_expr: unexpected input " ^ quote text ^ Position.here pos)
 
@@ -112,9 +475,12 @@ val aq_buf = ref ([] : string list)
 val aq_start = ref 0   (* char offset of the antiquotation BODY start (just after the opener) *)
 val aq_open = ref 0
 val aq_depth = ref 0
+val turbofish_table = ref (Inttab.empty : URust_Grammar.turbofish Inttab.table)
+val turbofish_close = ref ~1
 
 fun reset_aq () =
-  (aq_kind := No_AQ; aq_buf := []; aq_start := 0; aq_open := 0; aq_depth := 0)
+  (aq_kind := No_AQ; aq_buf := []; aq_start := 0; aq_open := 0; aq_depth := 0;
+   turbofish_close := ~1)
 fun start_aq kind open_pos body_pos =
   (aq_kind := kind; aq_buf := []; aq_start := body_pos; aq_open := open_pos; aq_depth := 0)
 fun push_aq fragment = aq_buf := fragment :: !aq_buf
@@ -137,6 +503,7 @@ val pos_map =
 fun set source ctxt =
   (Isabelle_lex_yacc.set source ctxt;
    pos_map := Parser_Lex_Util.make_position_map source;
+   turbofish_table := URust_Grammar.scan_turbofish ctxt source;
    reset_aq ())
 
 fun fixed_pos yypos = Parser_Lex_Util.fixed_pos (!pos_map) yypos
@@ -146,6 +513,25 @@ fun report_text args = Parser_Lex_Util.report_text (!pos_map) args
 fun tok_ident (yypos, yytext) =
   let val p = Parser_Lex_Util.ident_pos (!pos_map) (yypos, yytext)
   in Tokens.IDENT (yytext, p, p) end
+
+fun tok_turbofish (yypos, yytext) =
+  (case Inttab.lookup (!turbofish_table) yypos of
+     SOME (URust_Grammar.Turbofish
+       {arguments, open_offset, close_offset, comma_offsets}) =>
+       let
+         val start = fixed_pos yypos
+         val stop = fixed_pos (close_offset + 1)
+         val _ = report_text (yypos, "::", Markup.delimiter, "TCOLONCOLON")
+         val _ = report_text (open_offset, "<", Markup.delimiter, "TURBO")
+         val _ =
+           List.app
+             (fn offset =>
+               report_text (offset, ",", Markup.delimiter, "TURBO"))
+             comma_offsets
+         val _ = report_text (close_offset, ">", Markup.delimiter, "TURBO")
+         val _ = turbofish_close := close_offset
+       in Tokens.TURBO (arguments, start, stop) end
+   | NONE => URust_Grammar.lex_error yytext (fixed_pos yypos))
 
 fun tok_matches_bang (yypos, yytext) =
   let
@@ -165,12 +551,13 @@ fun eof () =
 \<close>
 lex_definitions\<open>
 %header (functor URustLexFun(structure Tokens: URust_TOKENS));
-%s VAQ EAQ;
+%s VAQ EAQ TURBO;
 digit=[0-9];
 hexdigit=[0-9a-fA-F];
 idstart=[A-Za-z_];
 idchar=[A-Za-z0-9_];
 ws = [\ \t\r];
+pathws = [\ \t\r\n];
 \<close>
 lex_rules\<open>
 <INITIAL>\n       => (lex());
@@ -201,6 +588,9 @@ lex_rules\<open>
 <INITIAL>"match_switch" => (tokF (yypos, yytext, Markup.keyword1, "TMATCHSWITCH", Tokens.TMATCHSWITCH));
 <INITIAL>"match_case"   => (tokF (yypos, yytext, Markup.keyword1, "TMATCHCASE", Tokens.TMATCHCASE));
 <INITIAL>"mut"    => (tokF (yypos, yytext, Markup.keyword1, "TMUT", Tokens.TMUT));
+<INITIAL>"::"{pathws}*"<" =>
+    (YYBEGIN TURBO; tok_turbofish (yypos, yytext));
+<INITIAL>"::"     => (tokF (yypos, yytext, Markup.delimiter, "TCOLONCOLON", Tokens.TCOLONCOLON));
 <INITIAL>"<<="    => (tokF (yypos, yytext, Markup.operator, "TSHLEQ", Tokens.TSHLEQ));
 <INITIAL>">>="    => (tokF (yypos, yytext, Markup.operator, "TSHREQ", Tokens.TSHREQ));
 <INITIAL>"+="     => (tokF (yypos, yytext, Markup.operator, "TPLUSEQ", Tokens.TPLUSEQ));
@@ -270,6 +660,11 @@ lex_rules\<open>
        in Tokens.EXPRAQ (Input.source true body (Position.range (p, q)), p, q) end));
 <EAQ>\n           => (push_aq "\n"; lex());
 <EAQ>.            => (push_aq yytext; lex());
+<TURBO>\n         => (lex());
+<TURBO>.          =>
+    (if yypos = !turbofish_close
+     then (turbofish_close := ~1; YYBEGIN INITIAL; lex())
+     else lex());
 \<close>
 and yacc_user_declarations\<open>
 open URust_AST
@@ -303,6 +698,26 @@ fun finish_conditional
       UE_IfLet
         (pattern, value, success, fallback,
          Position.range_position (pos, stop))
+
+fun segment_position (Path_Segment (_, pos, NONE)) = pos
+  | segment_position (Path_Segment (_, _, SOME (Generic_Args (_, pos)))) = pos
+
+fun exclusive_end pos =
+  (case Position.end_offset_of pos of
+     SOME stop =>
+       let
+         val {line, props = {label, file, id}, ...} = Position.dest pos
+       in Position.make0 line stop 0 label file id end
+   | NONE => pos)
+
+fun make_path segment =
+  UR_Path ([segment], segment_position segment)
+
+fun append_path (UR_Path (segments, pos), segment) =
+  UR_Path
+    (segments @ [segment],
+     Position.range_position
+       (pos, exclusive_end (segment_position segment)))
 \<close>
 yacc_definitions\<open>
 %name URust
@@ -333,8 +748,10 @@ yacc_definitions\<open>
 
 %term NUM of string | NUMSFX of string | STRING of string | IDENT of string | LPAR | RPAR
     | VALAQ of Input.source | EXPRAQ of Input.source
+    | TURBO of URust_AST.generic_args
     | TTRUE | TFALSE | TLET | TCONST | TRETURN | TEQ | TSEMI | EOF
-    | TIF | TELSE | TLBRACE | TRBRACE | TLBRACK | TRBRACK | COMMA | TDOT | TCOLON | TAT
+    | TIF | TELSE | TLBRACE | TRBRACE | TLBRACK | TRBRACK | COMMA | TDOT
+    | TCOLON | TCOLONCOLON | TAT
     | TPLUS | TMINUS | TSTAR | TSLASH | TPERCENT
     | TSHL | TSHR | TAMP | TBAR | TCARET
     | TPLUSEQ | TMINUSEQ | TSTAREQ | TPERCENTEQ
@@ -363,6 +780,8 @@ yacc_definitions\<open>
        | unotprefix of URust_AST.ur_expr
        | upostfix of URust_AST.ur_expr
        | uatom of URust_AST.ur_expr
+       | upath_segment of URust_AST.path_segment
+       | upath of URust_AST.ur_path
        | arglist of URust_AST.ur_expr list
        | ucallargs of URust_AST.ur_expr list
        | umacroargs of URust_AST.ur_expr list
@@ -442,9 +861,11 @@ yacc_rules\<open>
      only. mk_bare_ident_pat normalizes `_` to P_Wild so the closure-formal elaboration gate can issue
      the positioned semantic rejection. Repeated identifiers and arbitrarily long lists are retained. *)
   uclosure_formals : IDENT
-                       ([mk_bare_ident_pat (IDENT, IDENTleft)])
+                       ([mk_bare_path_pat
+                           (make_single_path (IDENT, IDENTleft))])
                    | IDENT COMMA uclosure_formals
-                       (mk_bare_ident_pat (IDENT, IDENTleft) ::
+                       (mk_bare_path_pat
+                          (make_single_path (IDENT, IDENTleft)) ::
                           uclosure_formals)
   (* This is the old frontend's priority-20 closure-body boundary: assignments and pure expressions,
      ordinary conditionals, matches, blocks/unsafe blocks through uassign, and legacy semicolon-bearing
@@ -504,9 +925,9 @@ yacc_rules\<open>
                (UE_Unary (U_Propagate, upostfix, TQUESTIONleft))
            | upostfix TDOT IDENT
                (UE_Field (upostfix, IDENT, IDENTleft))
-           | upostfix TDOT IDENT LPAR ucallargs RPAR
+           | upostfix TDOT upath_segment LPAR ucallargs RPAR
                (mk_method_call
-                  (upostfix, IDENT, IDENTleft, ucallargs, upostfixleft, RPARright))
+                  (upostfix, upath_segment, ucallargs, upostfixleft, RPARright))
            | upostfix TLBRACK uclosure_arg TRBRACK
                (UE_Index
                  (upostfix, uclosure_arg,
@@ -516,23 +937,24 @@ yacc_rules\<open>
         | TTRUE      (UE_Literal (LP_Bool (true, TTRUEleft)))
         | TFALSE     (UE_Literal (LP_Bool (false, TFALSEleft)))
         | STRING     (UE_Literal (LP_String (STRING, STRINGleft)))
-        | IDENT      (UE_Ident (IDENT, IDENTleft))
-        | IDENT LPAR ucallargs RPAR
-            (mk_call (IDENT, IDENTleft, ucallargs, IDENTleft, RPARright))
-        | IDENT TBANG LPAR umacrocallargs RPAR
+        | upath      (UE_Path upath)
+        | upath LPAR ucallargs RPAR
+            (mk_call (upath, ucallargs, upathleft, RPARright))
+        | upath TBANG LPAR umacrocallargs RPAR
             (UE_Macro
-              (IDENT, IDENTleft, TBANGleft,
+              (upath, TBANGleft,
                MP_Arguments umacrocallargs,
-               Position.range_position (IDENTleft, RPARright)))
-        | IDENT TBANG TLBRACK umacrocallargs TRBRACK
+               Position.range_position (upathleft, RPARright)))
+        | upath TBANG TLBRACK umacrocallargs TRBRACK
             (UE_Macro
-              (IDENT, IDENTleft, TBANGleft,
+              (upath, TBANGleft,
                MP_Arguments umacrocallargs,
-               Position.range_position (IDENTleft, TRBRACKright)))
+               Position.range_position (upathleft, TRBRACKright)))
         | TMATCHESBANG LPAR uclosure_arg COMMA upat RPAR
             (UE_Macro
-              ("matches",
-               Position.range_position (TMATCHESBANGleft, TMATCHESBANG),
+              (make_single_path
+                 ("matches",
+                  Position.range_position (TMATCHESBANGleft, TMATCHESBANG)),
                TMATCHESBANG,
                MP_Matches (uclosure_arg, upat),
                Position.range_position (TMATCHESBANGleft, RPARright)))
@@ -552,6 +974,14 @@ yacc_rules\<open>
         | VALAQ      (UE_Literal (LP_ValAntiq VALAQ))
         | EXPRAQ     (UE_ExprAntiq EXPRAQ)
         | uwith_block_atom %prec TIF (uwith_block_atom)
+  upath_segment : IDENT
+                    (Path_Segment (IDENT, IDENTleft, NONE))
+                | IDENT TURBO
+                    (Path_Segment (IDENT, IDENTleft, SOME TURBO))
+  upath : upath_segment
+            (make_path upath_segment)
+        | upath TCOLONCOLON upath_segment
+            (append_path (upath, upath_segment))
   (* Reference prefixes bind tighter than every binary operator and looser than `!`, matching the
      frontend priorities. Recursing through this tier makes `**x` two ordinary dereference nodes while
      preserving the binary meanings of `*` and `&`; mixed and deeper recursion is a documented
@@ -638,7 +1068,7 @@ yacc_rules\<open>
                 Position.range_position (#2 ufuel, ublockright)))
   (* Comma lists stay nonempty and right-nested (source order preserved). Each list has an explicit terminal
      comma production, so a trailing separator cannot create an empty element. Call productions are
-     IDENTIFIER-headed, so LPAR is never in FOLLOW(uexp) as a postfix operator -- no precedence directive
+     path-headed, so LPAR is never in FOLLOW(uexp) as a postfix operator -- no precedence directive
      is needed here (D23). *)
   arglist : uclosure_arg
               ([uclosure_arg])
@@ -699,14 +1129,14 @@ yacc_rules\<open>
                    (P_Borrow (BM_Imm, upat_prefix, TAMPleft))
                | TAMP TMUT upat_prefix
                    (P_Borrow (BM_Mut, upat_prefix, TAMPleft))
-  upat_atom : upat_ident          (mk_bare_ident_pat upat_ident)   (* `_` normalises to P_Wild *)
+  upat_atom : upath               (mk_bare_path_pat upath)
              | NUM                (P_Literal (LP_Integer (NUM, NUMleft)))
              | TTRUE              (P_Literal (LP_Bool (true, TTRUEleft)))
              | TFALSE             (P_Literal (LP_Bool (false, TFALSEleft)))
              | STRING             (P_Literal (LP_String (STRING, STRINGleft)))
              | VALAQ              (P_Literal (LP_ValAntiq VALAQ))
-             | upat_ident LPAR upats RPAR
-                 (mk_ctor_pat (upat_ident, upats))
+             | upath LPAR upats RPAR
+                 (mk_ctor_pat (upath, upats))
              | LPAR upat RPAR
                  (P_Group upat)
              | LPAR upat COMMA upats RPAR
@@ -715,8 +1145,8 @@ yacc_rules\<open>
                  (P_Slice ([], Position.range_position (TLBRACKleft, TRBRACKright)))
              | TLBRACK uslice_items TRBRACK
                  (P_Slice (uslice_items, Position.range_position (TLBRACKleft, TRBRACKright)))
-             | upat_ident TLBRACE ustruct_fields TRBRACE
-                 (mk_struct_pat (upat_ident, ustruct_fields))
+             | upath TLBRACE ustruct_fields TRBRACE
+                 (mk_struct_pat (upath, ustruct_fields))
   upat_ident : IDENT              ((IDENT, IDENTleft))
   upats : upat %prec TPATCONTEXT ([upat])
         | upat COMMA              ([upat])

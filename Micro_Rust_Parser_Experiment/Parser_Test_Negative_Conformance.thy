@@ -591,8 +591,8 @@ local
       \<^context> Position.none
 
   fun qualified identity =
-    (case URust_Resolution.resolve_constructor resolver
-        (identity, Position.none) of
+    (case URust_Resolution.resolve_constructor \<^context> resolver
+        (URust_AST.make_single_path (identity, Position.none)) of
        SOME info => info
      | NONE =>
          error
@@ -1586,6 +1586,30 @@ urust_expr_rejects fidelity
 
 
 section\<open> Lexer and whole-input failures \<close>
+
+new_urust_rejects audit
+  \<open> Foo::<T>::bar() \<close>
+  \<open> generic arguments on an intermediate path segment require an exact registration \<close>
+
+new_urust_rejects audit
+  \<open> value::<T> \<close>
+  \<open> generic arguments on a bare value require an exact literal registration \<close>
+
+new_urust_rejects audit
+  \<open> f::<> \<close>
+  \<open> empty turbofish argument \<close>
+
+new_urust_rejects audit
+  \<open> f::<1,>() \<close>
+  \<open> empty turbofish argument \<close>
+
+new_urust_rejects audit
+  \<open> f::<(1]() \<close>
+  \<open> mismatched delimiter in turbofish \<close>
+
+new_urust_rejects audit
+  \<open> f::<1() \<close>
+  \<open> unterminated turbofish \<close>
 
 urust_expr_rejects fidelity \<open> "bad\q" \<close> \<open> bad escape character in string \<close>
   \<comment> \<open> [FIDELITY] malformed escapes are rejected by the same Isabelle string decoder. \<close>

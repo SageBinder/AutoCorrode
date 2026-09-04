@@ -637,6 +637,437 @@ Registered callees use NFunction dispatch. Rows cover a local notation and the
 micro_rust_notation (call) cf1 ("regCall")
 urust_expr_with_check call_reg \<open> regCall(\<llangle>3 :: 64 word\<rrangle>) \<close>
 
+subsection\<open> Registered paths \<close>
+
+definition path_literal_42 :: nat where
+  \<open> path_literal_42 \<equiv> 42 \<close>
+
+datatype_record path_record_fixture =
+  path_record_field :: nat
+micro_rust_record path_record_fixture
+
+definition path_record_value :: path_record_fixture where
+  \<open> path_record_value \<equiv> make_path_record_fixture 7 \<close>
+
+definition path_values :: \<open>64 word list\<close> where
+  \<open> path_values \<equiv> [11, 22] \<close>
+
+definition path_optional_value :: \<open>64 word option\<close> where
+  \<open> path_optional_value \<equiv> Some 9 \<close>
+
+definition path_seed :: \<open>64 word\<close> where
+  \<open> path_seed \<equiv> 5 \<close>
+
+micro_rust_notation (literal) path_literal_42 ("Color::Red")
+micro_rust_notation (literal) path_record_value ("Path::Record")
+micro_rust_notation (literal) path_values ("Path::Values")
+micro_rust_notation (literal) path_optional_value ("Path::Optional")
+micro_rust_notation (literal) path_seed ("Path::Seed")
+micro_rust_notation (call) cf1 ("plus2::lifted")
+
+urust_expr_with_check path_registered_literal
+  \<open> Color :: Red \<close>
+
+urust_expr_with_check path_registered_call
+  \<open> plus2::
+       lifted(\<llangle>3 :: 64 word\<rrangle>) \<close>
+
+urust_expr_with_check path_separator_newlines
+  \<open>
+    Color
+      ::
+    Red
+  \<close>
+
+urust_expr_with_check' path_call_trailing_comma
+  \<open> plus2::lifted(\<llangle>3 :: 64 word\<rrangle>,) \<close>
+  \<open> \<lbrakk> plus2::lifted(\<llangle>3 :: 64 word\<rrangle>) \<rbrakk> \<close>
+
+urust_expr_with_check path_followed_by_field
+  \<open> Path::Record.path_record_field \<close>
+
+urust_expr_with_check path_followed_by_index
+  \<open> Path::Values[0_usize] \<close>
+
+urust_expr_with_check path_followed_by_propagation
+  \<open> Path::Optional? \<close>
+
+urust_expr_with_check path_followed_by_method
+  \<open> Path::Seed.cf1() \<close>
+
+urust_expr_with_check' path_postfix_chain
+  \<open> Some(Path::Values[1_usize])?.cf1() \<close>
+  \<open> \<lbrakk> (Some(Path::Values[1_usize])?).cf1() \<rbrakk> \<close>
+
+subsection\<open> Path patterns \<close>
+
+datatype path_pattern_fixture =
+    PathSome nat
+  | PathOther nat
+  | PathNone
+
+definition path_some_call ::
+  \<open>nat \<Rightarrow>
+    (unit, path_pattern_fixture, unit, unit, unit) function_body\<close>
+  where \<open> path_some_call \<equiv> lift_fun1 PathSome \<close>
+
+definition path_other_call ::
+  \<open>nat \<Rightarrow>
+    (unit, path_pattern_fixture, unit, unit, unit) function_body\<close>
+  where \<open> path_other_call \<equiv> lift_fun1 PathOther \<close>
+
+micro_rust_notation (literal) path_pattern_fixture.PathSome ("Path::Some")
+micro_rust_notation (call) path_some_call ("Path::Some")
+micro_rust_notation (literal) path_pattern_fixture.PathOther ("Path::Other")
+micro_rust_notation (call) path_other_call ("Path::Other")
+micro_rust_notation (literal) path_pattern_fixture.PathNone ("Path::None")
+
+urust_expr_with_check path_constructor_pattern
+  \<open>
+    match_case Path::Some(\<llangle>3 :: nat\<rrangle>) {
+      Path::Some(value) \<Rightarrow> value,
+      Path::None \<Rightarrow> 0
+    }
+  \<close>
+
+urust_expr_with_check path_grouped_constructor_pattern
+  \<open>
+    match_case Path::Some(\<llangle>3 :: nat\<rrangle>) {
+      (Path::Some(value)) \<Rightarrow> value,
+      Path::None \<Rightarrow> 0
+    }
+  \<close>
+
+urust_expr_with_check path_constructor_or_pattern
+  \<open>
+    match_case Path::Some(\<llangle>3 :: nat\<rrangle>) {
+      Path::Some(value) | Path::Other(value) \<Rightarrow> value,
+      Path::None \<Rightarrow> 0
+    }
+  \<close>
+
+urust_expr path_constant_pattern
+  \<open>
+    match_case Color::Red {
+      Color::Red \<Rightarrow> 1,
+      _ \<Rightarrow> 0
+    }
+  \<close>
+
+urust_expr path_constant_match
+  \<open>
+    match Color::Red {
+      Color::Red \<Rightarrow> 1,
+      _ \<Rightarrow> 0
+    }
+  \<close>
+
+urust_expr_with_check path_switch_key
+  \<open>
+    match_switch Color::Red {
+      Color::Red \<Rightarrow> 1,
+      _ \<Rightarrow> 0
+    }
+  \<close>
+
+subsection\<open> Semantic turbofish \<close>
+
+definition turbofish_ignore_one ::
+  \<open>'a \<Rightarrow> 64 word \<Rightarrow>
+    (unit, 64 word, unit, unit, unit) function_body\<close>
+  where \<open> turbofish_ignore_one _ \<equiv> cf1 \<close>
+
+definition turbofish_ignore_two ::
+  \<open>'a \<Rightarrow> 'b \<Rightarrow> 64 word \<Rightarrow>
+    (unit, 64 word, unit, unit, unit) function_body\<close>
+  where \<open> turbofish_ignore_two _ _ \<equiv> cf1 \<close>
+
+definition turbofish_nat_bool ::
+  \<open>nat \<Rightarrow> bool \<Rightarrow> 64 word \<Rightarrow>
+    (unit, 64 word, unit, unit, unit) function_body\<close>
+  where \<open> turbofish_nat_bool _ _ \<equiv> cf1 \<close>
+
+definition turbofish_nat_nat ::
+  \<open>nat \<Rightarrow> nat \<Rightarrow> 64 word \<Rightarrow>
+    (unit, 64 word, unit, unit, unit) function_body\<close>
+  where \<open> turbofish_nat_nat _ _ \<equiv> cf1 \<close>
+
+notation path_literal_42 ("\<clubsuit>")
+
+definition turbofish_symbol_function :: \<open>nat \<Rightarrow> nat\<close>
+  where \<open> turbofish_symbol_function = Suc \<close>
+
+notation turbofish_symbol_function ("\<spadesuit>")
+
+subsubsection\<open> Basic calls and methods \<close>
+
+context
+  fixes tf0 :: \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
+  fixes tf2 :: \<open>nat \<Rightarrow> bool \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
+  fixes receiver :: nat
+  fixes tf_method ::
+    \<open>nat \<Rightarrow> nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
+  fixes tf_method_arg ::
+    \<open>nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow>
+      (unit, nat, unit, unit, unit) function_body\<close>
+begin
+urust_expr_with_check turbofish_zero_arguments
+  \<open> tf0::<5>() \<close>
+
+urust_expr_with_check turbofish_multiple_parameters
+  \<open> tf2::<5, True>() \<close>
+
+urust_expr_with_check turbofish_bound_parameter
+  \<open> let N = \<llangle>7 :: nat\<rrangle>; tf0::<N>() \<close>
+
+urust_expr_with_check turbofish_method
+  \<open> receiver.tf_method::<5>() \<close>
+
+urust_expr_with_check' turbofish_method_trailing_comma
+  \<open> receiver.tf_method_arg::<5>(6,) \<close>
+  \<open> \<lbrakk> receiver.tf_method_arg::<5>(6) \<rbrakk> \<close>
+end
+
+subsubsection\<open> Embedded HOL payloads \<close>
+
+urust_expr_with_check turbofish_arithmetic_payload
+  \<open>
+    turbofish_ignore_one::<(1 :: nat) + 2>(
+      \<llangle>3 :: 64 word\<rrangle>
+    )
+  \<close>
+
+urust_expr_with_check turbofish_tuple_payload
+  \<open>
+    turbofish_ignore_one::<(1 :: nat, True)>(
+      \<llangle>3 :: 64 word\<rrangle>
+    )
+  \<close>
+
+urust_expr_with_check turbofish_list_payload
+  \<open>
+    turbofish_ignore_one::<[1 :: nat, 2, 3]>(
+      \<llangle>3 :: 64 word\<rrangle>
+    )
+  \<close>
+
+urust_expr_with_check turbofish_application_payload
+  \<open>
+    turbofish_ignore_one::<Suc 4>(
+      \<llangle>3 :: 64 word\<rrangle>
+    )
+  \<close>
+
+urust_expr_with_check turbofish_string_payload
+  \<open>
+    turbofish_ignore_one::<STR ''payload, with > punctuation''>(
+      \<llangle>3 :: 64 word\<rrangle>
+    )
+  \<close>
+
+urust_expr_with_check turbofish_empty_string_payload
+  \<open>
+    turbofish_ignore_one::<STR ''''>(
+      \<llangle>3 :: 64 word\<rrangle>
+    )
+  \<close>
+
+urust_expr_with_check turbofish_multiple_string_payloads
+  \<open>
+    turbofish_ignore_two::<STR ''left, >'', STR ''right, >''>(
+      \<llangle>3 :: 64 word\<rrangle>
+    )
+  \<close>
+
+urust_expr_with_check turbofish_symbol_payload_last
+  \<open>
+    turbofish_nat_nat::<0, \<clubsuit>>(
+      \<llangle>3 :: 64 word\<rrangle>
+    )
+  \<close>
+
+urust_expr_with_check turbofish_symbol_payload_before_comma
+  \<open>
+    turbofish_nat_bool::<\<clubsuit>, True>(
+      \<llangle>3 :: 64 word\<rrangle>
+    )
+  \<close>
+
+urust_expr_with_check turbofish_symbol_payload_before_operator
+  \<open>
+    turbofish_ignore_one::<\<clubsuit> + 1>(
+      \<llangle>3 :: 64 word\<rrangle>
+    )
+  \<close>
+
+urust_expr_with_check turbofish_symbol_payload_before_application
+  \<open>
+    turbofish_ignore_one::<\<spadesuit> (1)>(
+      \<llangle>3 :: 64 word\<rrangle>
+    )
+  \<close>
+
+urust_expr_with_check turbofish_escaped_quote_string_payload
+  \<open>
+    turbofish_ignore_one::<STR ''apostrophe: \', comma, closer >''>(
+      \<llangle>3 :: 64 word\<rrangle>
+    )
+  \<close>
+
+urust_expr_with_check turbofish_nested_comma_payloads
+  \<open>
+    turbofish_ignore_two::<(1 :: nat, True), [2 :: nat, 3]>(
+      \<llangle>4 :: 64 word\<rrangle>
+    )
+  \<close>
+
+urust_expr_with_check turbofish_greater_than_payload
+  \<open>
+    turbofish_ignore_one::<((5 :: nat) > 3)>(
+      \<llangle>3 :: 64 word\<rrangle>
+    )
+  \<close>
+
+urust_expr_with_check turbofish_greater_equal_payload
+  \<open>
+    turbofish_ignore_one::<((5 :: nat) >= 3)>(
+      \<llangle>3 :: 64 word\<rrangle>
+    )
+  \<close>
+
+urust_expr_with_check turbofish_shift_payload
+  \<open>
+    turbofish_ignore_one::<((8 :: 64 word) >> 1)>(
+      \<llangle>3 :: 64 word\<rrangle>
+    )
+  \<close>
+
+urust_expr_with_check' turbofish_punctuation_newlines
+  \<open>
+    turbofish_ignore_two
+      ::
+      <
+        (1 :: nat),
+        (True)
+      >
+      (\<llangle>4 :: 64 word\<rrangle>,)
+  \<close>
+  \<open>
+    \<lbrakk>
+      turbofish_ignore_two::<(1 :: nat), (True)>(
+        \<llangle>4 :: 64 word\<rrangle>
+      )
+    \<rbrakk>
+  \<close>
+
+subsubsection\<open> Scope and expression composition \<close>
+
+context
+  fixes context_parameter :: nat
+begin
+urust_expr_with_check turbofish_context_parameter
+  \<open>
+    turbofish_ignore_one::<context_parameter>(
+      \<llangle>3 :: 64 word\<rrangle>
+    )
+  \<close>
+
+urust_expr_with_check turbofish_shadowed_context_parameter
+  \<open>
+    let context_parameter = \<llangle>7 :: nat\<rrangle>;
+    turbofish_ignore_one::<context_parameter>(
+      \<llangle>3 :: 64 word\<rrangle>
+    )
+  \<close>
+end
+
+urust_expr_with_check turbofish_closure_formal
+  \<open>
+    |parameter|
+      turbofish_ignore_one::<parameter>(
+        \<llangle>3 :: 64 word\<rrangle>
+      )
+  \<close>
+
+urust_expr_with_check turbofish_nested_call
+  \<open>
+    cf1(
+      turbofish_ignore_one::<Suc 0>(
+        \<llangle>3 :: 64 word\<rrangle>
+      )
+    )
+  \<close>
+
+urust_expr_with_check turbofish_array_elements
+  \<open>
+    [
+      turbofish_ignore_one::<(0 :: nat)>(\<llangle>3 :: 64 word\<rrangle>),
+      turbofish_ignore_one::<(1 :: nat)>(\<llangle>4 :: 64 word\<rrangle>)
+    ]
+  \<close>
+
+urust_expr_with_check turbofish_branch_and_operator
+  \<open>
+    if true {
+      turbofish_ignore_one::<(0 :: nat)>(\<llangle>3 :: 64 word\<rrangle>) +
+      \<llangle>1 :: 64 word\<rrangle>
+    } else {
+      turbofish_ignore_one::<(1 :: nat)>(\<llangle>4 :: 64 word\<rrangle>)
+    }
+  \<close>
+
+subsubsection\<open> Ordinary-call arity boundaries \<close>
+
+context
+  fixes generic_call14 :: \<open>
+    nat \<Rightarrow>
+    nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow>
+    nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow>
+    (unit, nat, unit, unit, unit) function_body\<close>
+  fixes generic_method14 :: \<open>
+    nat \<Rightarrow>
+    nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow>
+    nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow>
+    (unit, nat, unit, unit, unit) function_body\<close>
+  fixes receiver14 :: nat
+begin
+urust_expr_with_check turbofish_call14
+  \<open>
+    generic_call14::<99>(
+      0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13
+    )
+  \<close>
+
+urust_expr_with_check turbofish_method13
+  \<open>
+    receiver14.generic_method14::<99>(
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13
+    )
+  \<close>
+end
+
+subsubsection\<open> Qualified bases and exact registrations \<close>
+
+definition generic_cf1 ::
+  \<open>nat \<Rightarrow> 64 word \<Rightarrow>
+    (unit, 64 word, unit, unit, unit) function_body\<close>
+  where \<open> generic_cf1 _ \<equiv> cf1 \<close>
+micro_rust_notation (call) generic_cf1 ("Module::lifted")
+urust_expr_with_check turbofish_qualified_base
+  \<open> Module::lifted::<64>(\<llangle>3 :: 64 word\<rrangle>) \<close>
+
+micro_rust_notation (call) generic_cf1 ("Exact::lifted")
+micro_rust_notation (call) cf1 ("Exact::<not valid HOL>::lifted")
+
+urust_expr_with_check turbofish_exact_registration_wins
+  \<open>
+    Exact::<not valid HOL>::lifted(
+      \<llangle>3 :: 64 word\<rrangle>
+    )
+  \<close>
+
+subsection\<open> Remaining registered callees \<close>
+
 urust_expr_with_check call_some \<open> Some(\<llangle>42 :: nat\<rrangle>) \<close>
 
 urust_expr_with_check call_ok \<open> Ok(\<llangle>42 :: nat\<rrangle>) \<close>
@@ -2323,7 +2754,8 @@ val _ =
   in
     (case URust_Resolution.resolve_struct_pattern
         \<^context> resolver
-          ("adv_record_fixture", Position.none, fields) of
+        (URust_AST.make_single_path
+           ("adv_record_fixture", Position.none), fields) of
        URust_Resolution.Resolved_Record_Struct (record_name, ordered) =>
          if Long_Name.base_name record_name = "adv_record_fixture" andalso length ordered = 2
          then ()
@@ -3374,6 +3806,8 @@ definition macro_is_none ::
   where \<open> macro_is_none \<equiv> lift_fun1 Option.is_none \<close>
 
 micro_rust_notation (call) macro_shout ("shout!")
+micro_rust_notation (call) macro_shout ("Log::shout!")
+micro_rust_notation (call) macro_shout ("Log::<not valid HOL>::shout!")
 micro_rust_notation (call) macro_is_none ("is_none")
 
 subsection\<open> Assertions, aliases, delimiters, and precedence \<close>
@@ -3603,8 +4037,16 @@ urust_expr_with_check macro_builtin_shadow_assert
 urust_expr_with_check macro_builtin_shadow_vec
   \<open> let vec = 9_u32; vec![1_u32][0_usize] + vec \<close>
 
+subsection\<open> Registered path macros \<close>
+
 urust_expr_with_check macro_registered_call
   \<open> shout!(true) \<close>
+
+urust_expr_with_check macro_registered_path
+  \<open> Log::shout!(true) \<close>
+
+urust_expr_with_check macro_registered_generic_path
+  \<open> Log::<not valid HOL>::shout!(true) \<close>
 
 subsection\<open> Vectors, postfixes, and address macros \<close>
 

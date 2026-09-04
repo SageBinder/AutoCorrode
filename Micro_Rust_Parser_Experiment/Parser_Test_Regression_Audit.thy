@@ -4,6 +4,15 @@ theory Parser_Test_Regression_Audit
     Parser_Test_Negative_Conformance
 begin
 
+ML\<open>
+structure Parser_Test_Report_Lock =
+struct
+  val lock = Synchronized.var "parser_test_report_lock" ()
+  fun run action =
+    Synchronized.change_result lock (fn () => (action (), ()))
+end
+\<close>
+
 section\<open> Frontend-shape structural audit \<close>
 
 text\<open>
@@ -172,6 +181,9 @@ ML_val\<open>
     fun is_unit (UE_Unit _) = true
       | is_unit _ = false
 
+    fun is_path name (UE_Path path) = render_path path = name
+      | is_path _ _ = false
+
     val _ = check_guard "terminal value" "true" is_true
     val _ =
       check_guard "semicolon value sequence" "(); true"
@@ -220,10 +232,10 @@ ML_val\<open>
          "Some(item) = Some(()) { () } true")
         (fn UE_Seq
               (UE_WhileLet
-                (_, P_Constr ("Some", _, [P_Ident ("item", _)]),
+                (_, P_Constr (path, [P_Ident ("item", _)]),
                  _, _, _),
                right) =>
-              is_true right
+              render_path path = "Some" andalso is_true right
           | _ => false)
     val _ =
       check_guard "bare-match prefix"
@@ -246,8 +258,8 @@ ML_val\<open>
     val _ =
       check_guard "let binding"
         "let flag = true; flag"
-        (fn UE_Let (P_Ident ("flag", _), value, UE_Ident ("flag", _)) =>
-              is_true value
+        (fn UE_Let (P_Ident ("flag", _), value, body) =>
+              is_true value andalso is_path "flag" body
           | _ => false)
     val _ =
       check_guard "mutable binding"
@@ -258,18 +270,19 @@ ML_val\<open>
     val _ =
       check_guard "const binding"
         "const FLAG = true; FLAG"
-        (fn UE_Const (P_Ident ("FLAG", _), value, UE_Ident ("FLAG", _)) =>
-              is_true value
+        (fn UE_Const (P_Ident ("FLAG", _), value, body) =>
+              is_true value andalso is_path "FLAG" body
           | _ => false)
     val _ =
       check_guard "let-else binding"
         "let Some(flag) = Some(true) else { false }; flag"
         (fn UE_LetElse
-              (P_Constr ("Some", _, [P_Ident ("flag", _)]),
-               _, UE_Block (fallback, _), UE_Ident ("flag", _), _) =>
-              (case fallback of
-                 UE_Literal (LP_Bool (false, _)) => true
-               | _ => false)
+              (P_Constr (path, [P_Ident ("flag", _)]),
+               _, UE_Block (fallback, _), body, _) =>
+              render_path path = "Some" andalso is_path "flag" body andalso
+                (case fallback of
+                   UE_Literal (LP_Bool (false, _)) => true
+                 | _ => false)
           | _ => false)
     val _ =
       check_guard "right-associated bindings"
@@ -277,18 +290,17 @@ ML_val\<open>
         (fn UE_Let
               (P_Ident ("first", _), _,
                UE_Const
-                 (P_Ident ("SECOND", _), UE_Ident ("first", _),
-                  UE_Ident ("SECOND", _))) =>
-              true
+                 (P_Ident ("SECOND", _), first, second)) =>
+              is_path "first" first andalso is_path "SECOND" second
           | _ => false)
     val _ =
       check_guard "if-let value"
         "if let Some(flag) = Some(true) { flag } else { false }"
         (fn UE_IfLet
-              (P_Constr ("Some", _, [P_Ident ("flag", _)]),
-               _, UE_Block (UE_Ident ("flag", _), _),
+              (P_Constr (path, [P_Ident ("flag", _)]),
+               _, UE_Block (body, _),
                SOME (UE_Block (UE_Literal (LP_Bool (false, _)), _)), _) =>
-              true
+              render_path path = "Some" andalso is_path "flag" body
           | _ => false)
     val _ =
       check_guard "legacy return with operand" "return true;"
@@ -533,6 +545,13 @@ ML_val\<open>
     fun checked text =
       URust_Command.elab_urust ctxt (Parser_Lex_Util.text_source text)
 
+    fun path_named name path = render_path path = name
+    fun expression_named name (UE_Path path) = path_named name path
+      | expression_named _ _ = false
+    fun call_named name (UE_Call (UC_Path path, _, _)) =
+          path_named name path
+      | call_named _ _ = false
+
     fun count_constant name term =
       Term.fold_aterms
         (fn Const (candidate, _) =>
@@ -553,12 +572,16 @@ ML_val\<open>
     val _ =
       (case if_ast of
          UE_IfLet
-           (P_Constr ("Some", _, [P_Ident ("value", _)]),
-            UE_Call ("Some", _, [UE_Literal (LP_Integer ("1", _))], _),
-            UE_Block (UE_Ident ("value", _), _),
+           (P_Constr (pattern_path, [P_Ident ("value", _)]),
+            call,
+            UE_Block (body, _),
             SOME (UE_Block (UE_Literal (LP_Integer ("0", _)), _)),
             position) =>
-           (audit_assert "if-let span start moved"
+           (audit_assert "if-let path structure changed"
+              (path_named "Some" pattern_path andalso
+               call_named "Some" call andalso
+               expression_named "value" body);
+            audit_assert "if-let span start moved"
               (Position.offset_of position =
                 Position.offset_of if_start);
             audit_assert "if-let span end moved"
@@ -581,27 +604,32 @@ ML_val\<open>
     val _ =
       (case mixed_ast of
          UE_IfLet
-           (P_Constr ("Some", _, [P_Ident ("first", _)]),
-            UE_Call ("Some", _, [UE_Literal (LP_Integer ("1", _))], _),
-            UE_Block (UE_Ident ("first", _), _),
+           (P_Constr (first_pattern_path, [P_Ident ("first", _)]),
+            first_call,
+            UE_Block (first_body, _),
             SOME
               (UE_If
                 (UE_Literal (LP_Bool (false, _)),
                  UE_Block (UE_Literal (LP_Integer ("2", _)), _),
                  SOME
                    (UE_IfLet
-                     (P_Constr ("Some", _, [P_Ident ("last", _)]),
-                      UE_Call
-                        ("Some", _,
-                         [UE_Literal (LP_Integer ("3", _))], _),
-                      UE_Block (UE_Ident ("last", _), _),
+                     (P_Constr (last_pattern_path, [P_Ident ("last", _)]),
+                      last_call,
+                      UE_Block (last_body, _),
                       SOME
                         (UE_Block
                           (UE_Literal (LP_Integer ("4", _)), _)),
                       nested_position)),
                  _)),
             position) =>
-           (audit_assert "mixed-chain span start moved"
+           (audit_assert "mixed-chain path structure changed"
+              (path_named "Some" first_pattern_path andalso
+               call_named "Some" first_call andalso
+               expression_named "first" first_body andalso
+               path_named "Some" last_pattern_path andalso
+               call_named "Some" last_call andalso
+               expression_named "last" last_body);
+            audit_assert "mixed-chain span start moved"
               (Position.offset_of position =
                 Position.offset_of mixed_start);
             audit_assert "mixed-chain span stopped before the final arm"
@@ -627,12 +655,16 @@ ML_val\<open>
     val _ =
       (case let_ast of
          UE_LetElse
-           (P_Constr ("Some", _, [P_Ident ("value", _)]),
-            UE_Call ("Some", _, [UE_Literal (LP_Integer ("1", _))], _),
+           (P_Constr (pattern_path, [P_Ident ("value", _)]),
+            call,
             UE_Block (UE_Literal (LP_Integer ("0", _)), _),
-            UE_Ident ("value", _),
+            body,
             position) =>
-           (audit_assert "let-else span start moved"
+           (audit_assert "let-else path structure changed"
+              (path_named "Some" pattern_path andalso
+               call_named "Some" call andalso
+               expression_named "value" body);
+            audit_assert "let-else span start moved"
               (Position.offset_of position =
                 Position.offset_of let_start);
             audit_assert "let-else span end moved"
@@ -796,32 +828,35 @@ ML_val\<open>
     fun capture_reports chunks =
       Unsynchronized.change captured_reports (append chunks)
     val _ =
-      Unsynchronized.setmp Private_Output.report_fn capture_reports
-        (fn () =>
-          Print_Mode.with_modes [Print_Mode.PIDE]
-            (fn () =>
-              parse
-                (Parser_Lex_Util.positioned_content_source
-                  if_text if_start)) ())
-        ()
+      Parser_Test_Report_Lock.run (fn () =>
+        Unsynchronized.setmp Private_Output.report_fn capture_reports
+          (fn () =>
+            Print_Mode.with_modes [Print_Mode.PIDE]
+              (fn () =>
+                parse
+                  (Parser_Lex_Util.positioned_content_source
+                    if_text if_start)) ())
+          ())
     val _ =
-      Unsynchronized.setmp Private_Output.report_fn capture_reports
-        (fn () =>
-          Print_Mode.with_modes [Print_Mode.PIDE]
-            (fn () =>
-              parse
-                (Parser_Lex_Util.positioned_content_source
-                  mixed_text mixed_start)) ())
-        ()
+      Parser_Test_Report_Lock.run (fn () =>
+        Unsynchronized.setmp Private_Output.report_fn capture_reports
+          (fn () =>
+            Print_Mode.with_modes [Print_Mode.PIDE]
+              (fn () =>
+                parse
+                  (Parser_Lex_Util.positioned_content_source
+                    mixed_text mixed_start)) ())
+          ())
     val _ =
-      Unsynchronized.setmp Private_Output.report_fn capture_reports
-        (fn () =>
-          Print_Mode.with_modes [Print_Mode.PIDE]
-            (fn () =>
-              parse
-                (Parser_Lex_Util.positioned_content_source
-                  let_text let_start)) ())
-        ()
+      Parser_Test_Report_Lock.run (fn () =>
+        Unsynchronized.setmp Private_Output.report_fn capture_reports
+          (fn () =>
+            Print_Mode.with_modes [Print_Mode.PIDE]
+              (fn () =>
+                parse
+                  (Parser_Lex_Util.positioned_content_source
+                    let_text let_start)) ())
+          ())
 
     fun collect_markup (XML.Text _) result = result
       | collect_markup (XML.Elem (markup, body)) result =
@@ -958,9 +993,10 @@ ML_val\<open>
     val _ =
       (case parse_pattern "whole @ Some(5..=7)" of
          P_Alias ("whole", _,
-           P_Constr ("Some", _, [nested]), _) =>
-             audit_assert "constructor alias lost its range argument"
-               (range RK_Inclusive "5" "7" nested)
+           P_Constr (path, [nested]), _) =>
+             audit_assert "constructor alias lost its path or range argument"
+               (render_path path = "Some" andalso
+                range RK_Inclusive "5" "7" nested)
        | _ =>
            error
              "parser regression audit: constructor alias shape changed")
@@ -968,10 +1004,11 @@ ML_val\<open>
     val _ =
       (case parse_pattern "whole @ Head { field: 5..7 }" of
          P_Alias ("whole", _,
-           P_Struct ("Head", _,
+           P_Struct (path,
              [SF_Field ("field", _, nested)]), _) =>
-             audit_assert "struct alias lost its range field"
-               (range RK_Exclusive "5" "7" nested)
+             audit_assert "struct alias lost its path or range field"
+               (render_path path = "Head" andalso
+                range RK_Exclusive "5" "7" nested)
        | _ =>
            error "parser regression audit: struct alias shape changed")
 
@@ -1163,7 +1200,7 @@ ML_val\<open>
           actual = text
       | integer _ _ = false
 
-    fun identifier text (UE_Ident (actual, _)) = actual = text
+    fun identifier text (UE_Path path) = render_path path = text
       | identifier _ _ = false
 
     val _ =
@@ -1210,10 +1247,11 @@ ML_val\<open>
       (case parse "xs[0] += 1" of
          UE_Assign
            (AssignAdd,
-            UP_Index (UP_Ident ("xs", _), index, _),
+            UP_Index (UP_Path path, index, _),
             rhs, _) =>
            audit_assert "indexed place conversion changed"
-             (integer "0" index andalso integer "1" rhs)
+             (render_path path = "xs" andalso
+              integer "0" index andalso integer "1" rhs)
        | _ =>
            error
              "range/array/index regression audit: indexed place AST changed")
@@ -1353,10 +1391,13 @@ ML_val\<open>
     val (spaced_name_pos, spaced_bang_pos, spaced_invocation_pos) =
       (case spaced of
          UE_Macro
-           ("assert", name_pos, bang_pos,
+           (path, bang_pos,
             MP_Arguments [UE_Literal (LP_ValAntiq _)],
             invocation_pos) =>
-           (audit_assert "generic macro name span moved"
+           let val name_pos = path_position path in
+           (audit_assert "generic macro path changed"
+              (render_path path = "assert");
+            audit_assert "generic macro name span moved"
               (Position.offset_of name_pos =
                 Position.offset_of spaced_start);
             audit_assert "generic whitespace before bang was lost"
@@ -1369,6 +1410,7 @@ ML_val\<open>
               (Position.end_offset_of invocation_pos =
                 Position.offset_of spaced_stop);
             (name_pos, bang_pos, invocation_pos))
+           end
        | _ =>
            error "legacy macro regression audit: generic macro AST changed")
 
@@ -1376,14 +1418,15 @@ ML_val\<open>
     fun capture_reports chunks =
       Unsynchronized.change captured_reports (append chunks)
     fun capture_elaboration text start =
-      Unsynchronized.setmp Private_Output.report_fn capture_reports
-        (fn () =>
-          Print_Mode.with_modes [Print_Mode.PIDE]
-            (fn () =>
-              URust_Command.elab_urust ctxt
-                (Parser_Lex_Util.positioned_content_source
-                  text start)) ())
-        ()
+      Parser_Test_Report_Lock.run (fn () =>
+        Unsynchronized.setmp Private_Output.report_fn capture_reports
+          (fn () =>
+            Print_Mode.with_modes [Print_Mode.PIDE]
+              (fn () =>
+                URust_Command.elab_urust ctxt
+                  (Parser_Lex_Util.positioned_content_source
+                    text start)) ())
+          ())
     val _ = capture_elaboration spaced_text spaced_start
 
     val matches_text =
@@ -1393,23 +1436,28 @@ ML_val\<open>
     val matches_stop =
       Position.symbol_explode matches_text matches_start
     val matches =
-      Unsynchronized.setmp Private_Output.report_fn capture_reports
-        (fn () =>
-          Print_Mode.with_modes [Print_Mode.PIDE]
-            (fn () =>
-              parse
-                (Parser_Lex_Util.positioned_content_source
-                  matches_text matches_start)) ())
-        ()
+      Parser_Test_Report_Lock.run (fn () =>
+        Unsynchronized.setmp Private_Output.report_fn capture_reports
+          (fn () =>
+            Print_Mode.with_modes [Print_Mode.PIDE]
+              (fn () =>
+                parse
+                  (Parser_Lex_Util.positioned_content_source
+                    matches_text matches_start)) ())
+          ())
     val (matches_name_pos, matches_bang_pos, matches_invocation_pos) =
       (case matches of
          UE_Macro
-           ("matches", name_pos, bang_pos,
+           (path, bang_pos,
             MP_Matches
-              (UE_Call ("Some", _, [_], _),
-               P_Constr ("Some", _, [P_Wild _])),
+              (UE_Call (UC_Path call_path, [_], _),
+               P_Constr (pattern_path, [P_Wild _])),
             invocation_pos) =>
-           (name_pos, bang_pos, invocation_pos)
+           if render_path path = "matches" andalso
+               render_path call_path = "Some" andalso
+               render_path pattern_path = "Some"
+           then (path_position path, bang_pos, invocation_pos)
+           else error "legacy macro regression audit: matches paths changed"
        | _ =>
            error "legacy macro regression audit: matches macro AST changed")
     val _ =
@@ -1435,9 +1483,11 @@ ML_val\<open>
     val (registered_name_pos, registered_bang_pos) =
       (case registered of
          UE_Macro
-           ("shout", name_pos, bang_pos,
+           (path, bang_pos,
             MP_Arguments [UE_Literal (LP_Bool (true, _))], _) =>
-           (name_pos, bang_pos)
+           if render_path path = "shout"
+           then (path_position path, bang_pos)
+           else error "legacy macro regression audit: registered macro path changed"
        | _ =>
            error "legacy macro regression audit: registered macro AST changed")
     val _ =
@@ -1654,8 +1704,10 @@ ML_val\<open>
       (case ast of
          UE_Closure
            ([P_Ident ("first", _), P_Ident ("second", _)],
-            UE_Ident ("second", _), closure_pos) =>
-           (audit_assert "full closure span start moved"
+            UE_Path body_path, closure_pos) =>
+           (audit_assert "closure body path changed"
+              (render_path body_path = "second");
+            audit_assert "full closure span start moved"
               (Position.offset_of closure_pos =
                 Position.offset_of ast_start);
             audit_assert "full closure span end moved"
@@ -1886,14 +1938,15 @@ ML_val\<open>
     fun capture_reports chunks =
       Unsynchronized.change captured_reports (append chunks)
     fun capture_elaboration text start =
-      Unsynchronized.setmp Private_Output.report_fn capture_reports
-        (fn () =>
-          Print_Mode.with_modes [Print_Mode.PIDE]
-            (fn () =>
-              URust_Command.elab_urust ctxt
-                (Parser_Lex_Util.positioned_content_source
-                  text start)) ())
-        ()
+      Parser_Test_Report_Lock.run (fn () =>
+        Unsynchronized.setmp Private_Output.report_fn capture_reports
+          (fn () =>
+            Print_Mode.with_modes [Print_Mode.PIDE]
+              (fn () =>
+                URust_Command.elab_urust ctxt
+                  (Parser_Lex_Util.positioned_content_source
+                    text start)) ())
+          ())
     val _ = capture_elaboration ordinary_text ordinary_start
     val _ = capture_elaboration duplicate_text duplicate_start
     val _ = capture_elaboration nested_text nested_start
@@ -2029,6 +2082,489 @@ ML_val\<open>
     val _ =
       writeln
         "Closure AST, lowering, allocator, dispatch, and markup regressions passed"
+end
+\<close>
+
+section\<open> Structured paths and turbofish \<close>
+
+definition path_audit_generic ::
+  \<open>nat \<Rightarrow> nat \<Rightarrow>
+    (unit, nat, unit, unit, unit) function_body\<close>
+  where
+  \<open> path_audit_generic parameter \<equiv>
+      lift_fun1 (\<lambda>argument. parameter + argument) \<close>
+
+micro_rust_notation (call) path_audit_generic ("Exact::f")
+micro_rust_notation (call) cf0 ("Exact::<not valid HOL>::f")
+
+ML_val\<open>
+  local
+    open URust_AST
+    val ctxt = \<^context>
+
+    fun audit_assert message condition =
+      if condition then ()
+      else error ("structured-path regression audit: " ^ message)
+
+    fun parse text =
+      (case URust_Diagnostics.parse_source ctxt
+          (Parser_Lex_Util.text_source text) of
+         SOME expression => expression
+       | NONE => error "structured-path regression audit: empty parse")
+      handle ERROR message =>
+        error ("structured-path regression audit: source " ^ quote text ^
+          " failed\n" ^ message)
+
+    val structured_text = "Module :: f ::\n < a + 1, (b, c) >()"
+    val structured_start =
+      Position.make0 7 30 100 "" "" "structured-path-audit"
+    val structured =
+      (case URust_Diagnostics.parse_source ctxt
+          (Parser_Lex_Util.positioned_content_source
+            structured_text structured_start) of
+         SOME expression => expression
+       | NONE => error "structured-path regression audit: empty positioned parse")
+    val _ =
+      (case structured of
+         UE_Call
+           (UC_Path path, [], _) =>
+           (audit_assert "canonical path rendering changed"
+              (render_path path = "Module::f::<a + 1,(b, c)>");
+            case path_segments path of
+              [Path_Segment ("Module", _, NONE),
+               Path_Segment ("f", _, NONE),
+               Path_Segment
+                 ("", _, _)] =>
+                error "structured-path regression audit: impossible empty segment"
+            | [Path_Segment ("Module", _, NONE),
+               Path_Segment
+                 ("f", _,
+                  SOME (Generic_Args (arguments, generic_pos)))] =>
+                let
+                  val generic_start =
+                    Position.symbol_explode "Module :: f " structured_start
+                  val generic_stop =
+                    Position.symbol_explode "Module :: f ::\n < a + 1, (b, c) >"
+                      structured_start
+                  val first_start =
+                    Position.symbol_explode "Module :: f ::\n < " structured_start
+                  val first_stop =
+                    Position.symbol_explode "Module :: f ::\n < a + 1"
+                      structured_start
+                  val second_start =
+                    Position.symbol_explode "Module :: f ::\n < a + 1, "
+                      structured_start
+                  val second_stop =
+                    Position.symbol_explode "Module :: f ::\n < a + 1, (b, c)"
+                      structured_start
+                  val first_range = Input.range_of (nth arguments 0)
+                  val second_range = Input.range_of (nth arguments 1)
+                in
+                 audit_assert "generic argument order changed"
+                   (map Input.string_of arguments = ["a + 1", "(b, c)"]);
+                 audit_assert "multiline generic span moved"
+                   (Position.offset_of generic_pos =
+                      Position.offset_of generic_start andalso
+                    Position.end_offset_of generic_pos =
+                      Position.offset_of generic_stop);
+                 audit_assert "first multiline argument range moved"
+                   (Position.offset_of (#1 first_range) =
+                      Position.offset_of first_start andalso
+                    Position.offset_of (#2 first_range) =
+                      Position.offset_of first_stop);
+                 audit_assert "second multiline argument range moved"
+                   (Position.offset_of (#1 second_range) =
+                      Position.offset_of second_start andalso
+                    Position.offset_of (#2 second_range) =
+                      Position.offset_of second_stop)
+                end
+            | _ =>
+                error "structured-path regression audit: segment structure changed")
+       | _ => error "structured-path regression audit: callee structure changed")
+
+    val method = parse "receiver.method::<N>()"
+    val _ =
+      (case method of
+         UE_Call
+           (UC_Method
+             (UE_Path receiver,
+              Path_Segment
+                ("method", _, SOME (Generic_Args ([argument], _)))),
+            [], _) =>
+           audit_assert "method callee structure changed"
+             (render_path receiver = "receiver" andalso
+              Input.string_of argument = "N")
+       | _ => error "structured-path regression audit: method AST changed")
+
+    val comparison_arguments = parse "f::<a > b, a >= b, a >> b>()"
+    val _ =
+      (case comparison_arguments of
+         UE_Call
+           (UC_Path
+             (UR_Path
+               ([Path_Segment
+                  ("f", _,
+                   SOME (Generic_Args (arguments, _)))], _)),
+            [], _) =>
+           audit_assert "top-level HOL comparison/shift operators split the generic group"
+             (map Input.string_of arguments =
+               ["a > b", "a >= b", "a >> b"])
+       | _ =>
+           error "structured-path regression audit: operator payload AST changed")
+
+    fun expect_argument_sources label text expected =
+      (case parse text of
+         UE_Call
+           (UC_Path
+             (UR_Path
+               ([Path_Segment
+                  ("f", _,
+                   SOME (Generic_Args (arguments, _)))], _)),
+            [], _) =>
+           audit_assert (label ^ " changed generic argument capture")
+             (map Input.string_of arguments = expected)
+       | _ =>
+           error ("structured-path regression audit: " ^ label ^
+             " changed call structure"))
+
+    val _ =
+      expect_argument_sources "double-quoted payload"
+        "f::<\"quoted, > ) ] }\", second>()"
+        ["\"quoted, > ) ] }\"", "second"]
+    val _ =
+      expect_argument_sources "HOL string payload"
+        "f::<STR ''quoted, > ) ] }'', second>()"
+        ["STR ''quoted, > ) ] }''", "second"]
+    val _ =
+      expect_argument_sources "cartouche payload"
+        ("f::<" ^ Symbol.open_ ^ "opaque, > ) ] }" ^ Symbol.close ^
+          ", second>()")
+        [Symbol.open_ ^ "opaque, > ) ] }" ^ Symbol.close, "second"]
+    val _ =
+      expect_argument_sources "escaped-symbol final payload"
+        "f::<first, \<clubsuit>>()"
+        ["first", "\<clubsuit>"]
+    val _ =
+      expect_argument_sources "escaped-symbol payload before comma"
+        "f::<\<clubsuit>, True>()"
+        ["\<clubsuit>", "True"]
+    val _ =
+      expect_argument_sources "escaped-symbol payload before operator"
+        "f::<\<clubsuit> + 1>()"
+        ["\<clubsuit> + 1"]
+    val _ =
+      expect_argument_sources "escaped-symbol payload before application"
+        "f::<\<spadesuit> (1)>()"
+        ["\<spadesuit> (1)"]
+    val physical_club =
+      Byte.bytesToString
+        (Word8Vector.fromList [0wxE2, 0wx99, 0wxA3])
+    val _ =
+      expect_argument_sources "physical-Unicode payload before comma"
+        ("f::<" ^ physical_club ^ ", True>()")
+        [physical_club, "True"]
+
+    val escaped_text = "f::<\<clubsuit>, True>()"
+    val escaped_start =
+      Position.make0 19 60 400 "" "" "turbofish-escaped-range-audit"
+    val escaped =
+      (case URust_Diagnostics.parse_source ctxt
+          (Parser_Lex_Util.positioned_content_source
+            escaped_text escaped_start) of
+         SOME expression => expression
+       | NONE => error "structured-path regression audit: empty escaped-symbol parse")
+    val _ =
+      (case escaped of
+         UE_Call
+           (UC_Path
+             (UR_Path
+               ([Path_Segment
+                  ("f", _,
+                   SOME (Generic_Args ([first, second], generic_pos)))], _)),
+            [], _) =>
+           let
+             val first_range = Input.range_of first
+             val second_range = Input.range_of second
+             val generic_start =
+               Position.symbol_explode "f" escaped_start
+             val first_start =
+               Position.symbol_explode "f::<" escaped_start
+             val first_stop =
+               Position.symbol_explode "f::<\<clubsuit>" escaped_start
+             val second_start =
+               Position.symbol_explode "f::<\<clubsuit>, " escaped_start
+             val second_stop =
+               Position.symbol_explode "f::<\<clubsuit>, True" escaped_start
+             val close_stop =
+               Position.symbol_explode "f::<\<clubsuit>, True>" escaped_start
+           in
+             audit_assert "escaped symbol did not occupy one source position"
+               (Position.offset_of (#1 first_range) =
+                  Position.offset_of first_start andalso
+                Position.offset_of (#2 first_range) =
+                  Position.offset_of first_stop andalso
+                Position.offset_of first_stop =
+                  Option.map (fn offset => offset + 1)
+                    (Position.offset_of first_start));
+             audit_assert "second escaped-symbol argument range moved"
+               (Position.offset_of (#1 second_range) =
+                  Position.offset_of second_start andalso
+                Position.offset_of (#2 second_range) =
+                  Position.offset_of second_stop);
+             audit_assert "escaped-symbol generic span moved"
+               (Position.offset_of generic_pos =
+                  Position.offset_of generic_start andalso
+                Position.end_offset_of generic_pos =
+                  Position.offset_of close_stop)
+           end
+       | _ =>
+           error "structured-path regression audit: escaped-symbol AST changed")
+
+    fun expect_parse_rejection label text expected =
+      (case Exn.result
+          (fn () =>
+            URust_Diagnostics.parse_source ctxt
+              (Parser_Lex_Util.text_source text)) () of
+         Exn.Res _ =>
+           error ("structured-path regression audit: " ^ label ^
+             " was unexpectedly accepted")
+       | Exn.Exn exn =>
+           if Exn.is_interrupt exn then Exn.reraise exn
+           else
+             let val message = Runtime.exn_message exn
+             in
+               if String.isSubstring expected message then ()
+               else
+                 error ("structured-path regression audit: " ^ label ^
+                   " changed its diagnostic to " ^ quote message)
+             end)
+
+    val _ =
+      expect_parse_rejection "unterminated double-quoted payload"
+        "f::<\"unterminated>()"
+        "unclosed string literal"
+    val _ =
+      expect_parse_rejection "unterminated HOL string payload"
+        "f::<STR ''unterminated>()"
+        "unclosed string literal"
+    val _ =
+      expect_parse_rejection "unterminated cartouche payload"
+        ("f::<" ^ Symbol.open_ ^ "unterminated>()")
+        "unclosed text cartouche"
+
+    fun collect_markup (XML.Text _) result = result
+      | collect_markup (XML.Elem (markup, body)) result =
+          fold collect_markup body (markup :: result)
+
+    fun capture_reports action =
+      let
+        val captured = Unsynchronized.ref ([]: string list)
+        fun capture chunks =
+          Unsynchronized.change captured (append chunks)
+        val result =
+          Parser_Test_Report_Lock.run (fn () =>
+            Unsynchronized.setmp Private_Output.report_fn capture
+              (fn () =>
+                Print_Mode.with_modes [Print_Mode.PIDE] action ()) ())
+        val markup =
+          fold collect_markup
+            (maps YXML.parse_body (! captured)) []
+      in (result, markup) end
+
+    fun source_position start prefix text =
+      let
+        val token_start = Position.symbol_explode prefix start
+        val token_stop = Position.symbol_explode text token_start
+      in Position.range_position (Position.range (token_start, token_stop)) end
+
+    fun has_position properties position =
+      Properties.get properties Markup.offsetN =
+        Option.map Value.print_int (Position.offset_of position) andalso
+      Properties.get properties Markup.end_offsetN =
+        Option.map Value.print_int (Position.end_offset_of position)
+
+    fun has_markup markup markup_name position =
+      exists
+        (fn (name, properties) =>
+          name = markup_name andalso has_position properties position)
+        markup
+
+    val delimiter_text = "f::\n<\<clubsuit>, True>()"
+    val delimiter_start =
+      Position.make0 29 70 700 "" "" "turbofish-delimiter-markup-audit"
+    val (_, delimiter_markup) =
+      capture_reports
+        (fn () =>
+          ignore
+            (URust_Diagnostics.parse_source ctxt
+              (Parser_Lex_Util.positioned_content_source
+                delimiter_text delimiter_start)))
+    val colon_position =
+      source_position delimiter_start "f" "::"
+    val open_position =
+      source_position delimiter_start "f::\n" "<"
+    val comma_position =
+      source_position delimiter_start "f::\n<\<clubsuit>" ","
+    val close_position =
+      source_position delimiter_start "f::\n<\<clubsuit>, True" ">"
+    val _ =
+      List.app
+        (fn (label, position) =>
+          (audit_assert (label ^ " delimiter markup moved")
+             (has_markup delimiter_markup Markup.delimiterN position);
+           audit_assert (label ^ " typing markup moved")
+             (has_markup delimiter_markup Markup.typingN position)))
+        [("multiline path separator", colon_position),
+         ("multiline turbofish opener", open_position),
+         ("escaped-symbol comma", comma_position),
+         ("multiline turbofish closer", close_position)]
+
+    val hol_markup_text =
+      "path_audit_generic::<\<clubsuit> + 2>(3)"
+    val hol_markup_start =
+      Position.make0 31 90 900 "" "" "turbofish-hol-markup-audit"
+    val (_, hol_markup) =
+      capture_reports
+        (fn () =>
+          ignore
+            (URust_Command.elab_urust ctxt
+              (Parser_Lex_Util.positioned_content_source
+                hol_markup_text hol_markup_start)))
+    val hol_plus_position =
+      source_position hol_markup_start
+        "path_audit_generic::<\<clubsuit> " "+"
+    val hol_numeral_position =
+      source_position hol_markup_start
+        "path_audit_generic::<\<clubsuit> + " "2"
+    val _ =
+      audit_assert "embedded HOL delimiter markup disappeared"
+        (has_markup hol_markup Markup.delimiterN hol_plus_position)
+    val _ =
+      audit_assert "embedded HOL numeral markup disappeared"
+        (has_markup hol_markup Markup.numeralN hol_numeral_position)
+
+    val exact_markup_text = "Exact::<not valid HOL>::f()"
+    val exact_markup_start =
+      Position.make0 37 110 1100 "" "" "turbofish-exact-markup-audit"
+    val (_, exact_markup) =
+      capture_reports
+        (fn () =>
+          ignore
+            (URust_Command.elab_urust ctxt
+              (Parser_Lex_Util.positioned_content_source
+                exact_markup_text exact_markup_start)))
+    val exact_word_positions =
+      [source_position exact_markup_start "Exact::<" "not",
+       source_position exact_markup_start "Exact::<not " "valid",
+       source_position exact_markup_start "Exact::<not valid " "HOL"]
+    val _ =
+      List.app
+        (fn position =>
+          audit_assert
+            "exact malformed registration unexpectedly received HOL free markup"
+            (not (has_markup exact_markup Markup.freeN position)))
+        exact_word_positions
+
+    fun message_markup message =
+      fold collect_markup (YXML.parse_body message) []
+
+    fun expect_positioned_rejection label text prefix expected =
+      let
+        val start =
+          Position.make0 41 130 1300 "" ""
+            ("turbofish-positioned-" ^ label)
+        val expected_position =
+          Position.symbol_explode prefix start
+        val message =
+          (case Exn.result
+              (fn () =>
+                URust_Diagnostics.parse_source ctxt
+                  (Parser_Lex_Util.positioned_content_source
+                    text start)) () of
+             Exn.Res _ =>
+               error ("structured-path regression audit: positioned " ^
+                 label ^ " was unexpectedly accepted")
+           | Exn.Exn exn =>
+               if Exn.is_interrupt exn then Exn.reraise exn
+               else Runtime.exn_message exn)
+        val plain = XML.content_of (YXML.parse_body message)
+        val expected_offset =
+          Option.map Value.print_int
+            (Position.offset_of expected_position)
+        val has_expected_offset =
+          exists
+            (fn (_, properties) =>
+              Properties.get properties Markup.offsetN = expected_offset)
+            (message_markup message)
+      in
+        audit_assert (label ^ " diagnostic text changed")
+          (String.isSubstring expected plain);
+        audit_assert (label ^ " diagnostic lost its source offset")
+          has_expected_offset
+      end
+
+    val _ =
+      expect_positioned_rejection "empty-argument"
+        "f::<>()" "f::<" "empty turbofish argument"
+    val _ =
+      expect_positioned_rejection "mismatched-delimiter"
+        "f::<(1]>()" "f::<(1" "mismatched delimiter in turbofish"
+    val _ =
+      expect_positioned_rejection "unterminated-group"
+        "f::<1(" "f::" "unterminated turbofish"
+    val _ =
+      expect_positioned_rejection "native-string"
+        "f::<\"unterminated>()" "f::<" "unclosed string literal"
+    val _ =
+      expect_positioned_rejection "native-HOL-string"
+        "f::<STR ''unterminated>()" "f::<STR " "unclosed string literal"
+    val _ =
+      expect_positioned_rejection "native-cartouche"
+        ("f::<" ^ Symbol.open_ ^ "unterminated>()")
+        "f::<" "unclosed text cartouche"
+
+    val semantic =
+      Syntax.check_term ctxt
+        (URust_Translate.mk_closed ctxt
+          (parse "path_audit_generic::<1>(2)"))
+    val _ =
+      (case Term.strip_comb semantic of
+         (Const (name, _), [function, _]) =>
+           (audit_assert "semantic turbofish stopped using funcall1"
+              (name = \<^const_name>\<open>funcall1\<close>);
+            case Term.strip_comb (Term_Position.strip_positions function) of
+              (Const (generic_name, _), [_]) =>
+                audit_assert "semantic parameters were not applied to the callee"
+                  (generic_name = \<^const_name>\<open>path_audit_generic\<close>)
+            | _ =>
+                error "structured-path regression audit: generic application shape changed")
+       | _ => error "structured-path regression audit: call shape changed")
+
+    val exact =
+      URust_Command.elab_urust ctxt
+        (Parser_Lex_Util.text_source
+          "Exact::<not valid HOL>::f()")
+    val _ =
+      audit_assert "exact generic-path registration did not bypass HOL parsing"
+        (Term.exists_subterm
+          (fn Const (name, _) => name = \<^const_name>\<open>cf0\<close>
+            | _ => false)
+          exact)
+
+    val _ =
+      ((URust_Diagnostics.parse_source ctxt
+          (Parser_Lex_Util.text_source "f::<1(");
+        error "structured-path regression audit: unterminated turbofish accepted")
+       handle ERROR _ => ())
+    val _ =
+      (case parse "cf0()" of
+         UE_Call (UC_Path path, [], _) =>
+           audit_assert "lexer state did not recover after turbofish failure"
+             (render_path path = "cf0")
+       | _ =>
+           error "structured-path regression audit: recovery parse changed")
+  in
+    val _ = writeln "Structured path and turbofish regressions passed"
   end
 \<close>
 

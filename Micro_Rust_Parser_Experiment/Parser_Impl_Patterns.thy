@@ -142,14 +142,15 @@ struct
   fun position (P_Wild pos) = pos
     | position (P_Ident (_, pos)) = pos
     | position (P_Literal payload) = literal_position payload
-    | position (P_Constr (_, pos, _)) = pos
+    | position (P_Path path) = path_position path
+    | position (P_Constr (path, _)) = path_position path
     | position (P_Tuple (_, pos)) = pos
     | position (P_Group pattern) = position pattern
     | position (P_Borrow (_, _, pos)) = pos
     | position (P_Alias (_, _, _, pos)) = pos
     | position (P_Range (_, _, _, pos)) = pos
     | position (P_Slice (_, pos)) = pos
-    | position (P_Struct (_, pos, _)) = pos
+    | position (P_Struct (path, _)) = path_position path
     | position (P_Or (_, pos)) = pos
 
   fun reject_reference_patterns pattern =
@@ -157,7 +158,7 @@ struct
       fun reject (P_Borrow (_, _, pos)) =
             error ("urust_expr: reference patterns are not implemented" ^
               Position.here pos)
-        | reject (P_Constr (_, _, arguments)) = List.app reject arguments
+        | reject (P_Constr (_, arguments)) = List.app reject arguments
         | reject (P_Tuple (arguments, _)) = List.app reject arguments
         | reject (P_Group inner) = reject inner
         | reject (P_Alias (_, _, inner, _)) = reject inner
@@ -166,7 +167,7 @@ struct
         | reject (P_Slice (items, _)) =
             List.app
               (fn SI_Pat nested => reject nested | SI_Rest _ => ()) items
-        | reject (P_Struct (_, _, fields)) =
+        | reject (P_Struct (_, fields)) =
             List.app
               (fn SF_Field (_, _, nested) => reject nested
                 | SF_Shorthand _ => ()
@@ -186,11 +187,13 @@ struct
       fun case_compatible pattern =
         (case strip_groups pattern of
            P_Literal (LP_Integer _) => false
+         | P_Path _ => true
          | _ => true)
       fun switch_compatible pattern =
         (case strip_groups pattern of
            P_Literal (LP_Integer _) => true
          | P_Ident _ => true
+         | P_Path _ => false
          | P_Wild _ => true
          | _ => false)
       val patterns = map arm_pattern arms
@@ -229,6 +232,7 @@ struct
   datatype resolved_value =
       Resolved_Literal_Value of literal_payload
     | Resolved_Identifier_Value of string * Position.T
+    | Resolved_Path_Value of ur_path
 
   datatype resolved_pattern =
       Resolved_Wild of Position.T
@@ -239,6 +243,7 @@ struct
     | Resolved_Alias of
         binding_signature * resolved_pattern * Position.T
     | Resolved_Value of literal_payload
+    | Resolved_Path of ur_path
     | Resolved_Range of
         range_kind * resolved_value * resolved_value * Position.T
     | Resolved_Slice of resolved_slice_item list * Position.T
@@ -259,6 +264,7 @@ struct
     | resolved_position (Resolved_Tuple (_, pos)) = pos
     | resolved_position (Resolved_Alias (_, _, pos)) = pos
     | resolved_position (Resolved_Value payload) = literal_position payload
+    | resolved_position (Resolved_Path path) = path_position path
     | resolved_position (Resolved_Range (_, _, _, pos)) = pos
     | resolved_position (Resolved_Slice (_, pos)) = pos
     | resolved_position (Resolved_Or (_, pos)) = pos
@@ -311,6 +317,7 @@ struct
             else Coverage_Partial
         | coverage (Resolved_Alias (_, inner, _)) = coverage inner
         | coverage (Resolved_Value _) = Coverage_Partial
+        | coverage (Resolved_Path _) = Coverage_Partial
         | coverage (Resolved_Range _) = Coverage_Partial
         | coverage (Resolved_Slice _) = Coverage_Partial
         | coverage (Resolved_Or (alternatives, _)) =
@@ -352,6 +359,7 @@ struct
     (case strip_groups pattern of
        P_Literal payload => Resolved_Literal_Value payload
      | P_Ident identifier => Resolved_Identifier_Value identifier
+     | P_Path path => Resolved_Path_Value path
      | unsupported =>
          error ("urust_expr: invalid range-pattern endpoint" ^
            Position.here (position unsupported)))
@@ -377,8 +385,8 @@ struct
              (case policy of
                 Always_Binder => Resolved_Bind (binding name pos)
               | _ =>
-                  (case R.resolve_constructor resolver
-                      (name, pos) of
+                  (case R.resolve_constructor ctxt resolver
+                      (make_single_path (name, pos)) of
                      NONE => Resolved_Bind (binding name pos)
                    | SOME info =>
                        (check_constructor_arity name pos info [];
@@ -391,9 +399,24 @@ struct
                     Position.here pos)
               | _ => Resolved_Value payload)
          | P_Literal payload => Resolved_Value payload
-         | P_Constr (name, pos, arguments) =>
-              (case R.resolve_constructor resolver
-                  (name, pos) of
+         | P_Path path =>
+             (case R.resolve_constructor ctxt resolver path of
+                SOME info =>
+                  let
+                    val (name, pos) =
+                      segment_identifier (final_segment path)
+                  in
+                    check_constructor_arity name pos info [];
+                    R.report_constructor ctxt pos info;
+                    Resolved_Constructor (info, pos, [])
+                  end
+              | NONE => Resolved_Path path)
+         | P_Constr (path, arguments) =>
+              let
+                val name = render_path path
+                val pos = #2 (segment_identifier (final_segment path))
+              in
+              (case R.resolve_constructor ctxt resolver path of
                 NONE =>
                   error ("urust_expr: `" ^ name ^
                     "` is not a known constructor" ^ Position.here pos)
@@ -402,6 +425,7 @@ struct
                    R.report_constructor ctxt pos info;
                    Resolved_Constructor
                      (info, pos, map resolve arguments)))
+              end
          | P_Tuple (arguments, pos) =>
              Resolved_Tuple (map resolve arguments, pos)
          | P_Group inner => resolve inner
@@ -433,9 +457,12 @@ struct
                      Resolved_Slice_Pattern (resolve nested) ::
                        resolve_items seen_rest rest
              in Resolved_Slice (resolve_items false items, pos) end
-         | P_Struct (name, pos, fields) =>
+         | P_Struct (path, fields) =>
+             let
+               val pos = #2 (segment_identifier (final_segment path))
+             in
              (case R.resolve_struct_pattern ctxt resolver
-                 (name, pos, fields) of
+                 (path, fields) of
                 R.Resolved_Constructor_Struct (info, ordered) =>
                   let
                     val _ = R.report_constructor ctxt pos info
@@ -454,6 +481,7 @@ struct
                     quote (Long_Name.base_name record_name) ^
                     " requires selector-based lowering" ^
                     Position.here pos))
+             end
          | P_Or (alternatives, pos) =>
              Resolved_Or (map resolve alternatives, pos))
     in
@@ -523,6 +551,7 @@ struct
         | collect (Resolved_Alias (binder_sig, inner, _)) =
             validate_unique (binder_sig :: collect inner)
         | collect (Resolved_Value _) = []
+        | collect (Resolved_Path _) = []
         | collect (Resolved_Range _) = []
         | collect (Resolved_Slice (items, _)) =
             validate_unique
@@ -684,6 +713,9 @@ struct
      | P_Literal (LP_Integer (lexeme, pos)) =>
          [T.option_some (T.integer_value pos lexeme)]
      | P_Wild pos => (R.report_wildcard ctxt pos; [T.option_none])
+     | P_Path path =>
+         [T.option_some
+            (R.literal_path_value ctxt R.empty_environment path)]
      | P_Ident (name, pos) =>
          error ("urust_expr: unsupported match_switch key " ^ quote name ^
            " (numeral or `_` only; const-id / path keys not yet supported)" ^
@@ -799,7 +831,9 @@ struct
        Resolved_Literal_Value payload =>
          T.literal (R.literal_value ctxt environment payload)
      | Resolved_Identifier_Value identifier =>
-         R.literal_identifier ctxt environment identifier)
+         R.literal_identifier ctxt environment identifier
+     | Resolved_Path_Value path =>
+         R.literal_path ctxt environment path)
 
   fun prepare_case_pattern ctxt environment pattern =
     (case pattern of
@@ -820,6 +854,10 @@ struct
          Case_Value
            (R.literal_value ctxt environment payload,
             literal_position payload)
+     | Resolved_Path path =>
+         Case_Value
+           (R.literal_path_value ctxt environment path,
+            path_position path)
      | Resolved_Constructor (info, pos, arguments) =>
          Case_Constructor
            (info, pos, map (prepare_case_pattern ctxt environment) arguments)

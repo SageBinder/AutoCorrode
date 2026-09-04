@@ -46,8 +46,8 @@ struct
 
   fun lower_place lower ctxt environment place =
     (case place of
-       UP_Ident identifier =>
-         R.literal_identifier ctxt environment identifier
+       UP_Path path =>
+         R.literal_path ctxt environment path
      | UP_Deref (expression, _) =>
          lower environment expression
      | UP_Field (base, name, pos) =>
@@ -113,8 +113,8 @@ struct
      | UE_Array (elements, _) =>
          T.array_literal
            (map (lower_expression ctxt environment) elements)
-     | UE_Ident identifier =>
-         R.literal_identifier ctxt environment identifier
+     | UE_Path path =>
+         R.literal_path ctxt environment path
      | UE_Literal payload =>
          R.literal_expression ctxt environment payload
      | UE_ExprAntiq source =>
@@ -185,12 +185,21 @@ struct
      | UE_Const binding =>
          lower_binding (lower_expression ctxt) ctxt
            P.Let_Const_Binder environment binding
-     | UE_Call (name, name_pos, arguments, call_pos) =>
+     | UE_Call (callee, arguments, call_pos) =>
          let
-           val function =
-             R.function_identifier ctxt environment (name, name_pos)
+           val (function, source_arguments) =
+             (case callee of
+                UC_Path path =>
+                  (R.function_path ctxt environment path, arguments)
+              | UC_Method (receiver, segment) =>
+                  (R.function_path ctxt environment
+                     (UR_Path ([segment],
+                       (case segment_generic_args segment of
+                          SOME (Generic_Args (_, pos)) => pos
+                        | NONE => #2 (segment_identifier segment)))),
+                   receiver :: arguments))
            val lowered_arguments =
-             map (lower_expression ctxt environment) arguments
+             map (lower_expression ctxt environment) source_arguments
          in T.function_call call_pos function lowered_arguments end
      | UE_Field (receiver, name, pos) =>
          R.field_expression ctxt environment

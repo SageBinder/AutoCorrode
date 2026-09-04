@@ -37,10 +37,18 @@ sig
     Proof.context -> environment -> string * Position.T -> term
   val literal_identifier:
     Proof.context -> environment -> string * Position.T -> term
+  val literal_path_value:
+    Proof.context -> environment -> URust_AST.ur_path -> term
+  val literal_path:
+    Proof.context -> environment -> URust_AST.ur_path -> term
   val function_identifier:
     Proof.context -> environment -> string * Position.T -> term
+  val function_path:
+    Proof.context -> environment -> URust_AST.ur_path -> term
   val registered_function:
     Proof.context -> string * Position.T -> term option
+  val registered_function_path:
+    Proof.context -> URust_AST.ur_path -> term option
   val field_expression:
     Proof.context -> environment -> term -> string -> Position.T -> term
 
@@ -49,8 +57,8 @@ sig
   val make_constructor_resolver:
     Proof.context -> Position.T -> constructor_resolver
   val resolve_constructor:
-    constructor_resolver ->
-      string * Position.T -> constructor_info option
+    Proof.context -> constructor_resolver ->
+      URust_AST.ur_path -> constructor_info option
   val constructor_term: constructor_info -> term
   val constructor_arity: constructor_info -> int
   val constructor_family: constructor_info -> (string * term list) option
@@ -65,7 +73,7 @@ sig
 
   val resolve_struct_pattern:
     Proof.context -> constructor_resolver ->
-      string * Position.T * URust_AST.struct_field list ->
+      URust_AST.ur_path * URust_AST.struct_field list ->
       resolved_struct_pattern
 end
 \<close>
@@ -227,6 +235,111 @@ struct
     then NONE
     else SOME (resolve_identifier ctxt kind name pos)
 
+  fun report_path_qualifiers ctxt path =
+    let
+      val segments = path_segments path
+      val qualifiers =
+        if null segments then [] else take (length segments - 1) segments
+    in
+      List.app
+        (fn segment =>
+          Context_Position.report ctxt
+            (#2 (segment_identifier segment)) Markup.free)
+        qualifiers
+    end
+
+  fun path_terminal path = segment_identifier (final_segment path)
+
+  fun generic_sources (Generic_Args (sources, _)) = sources
+
+  fun final_parameters ctxt environment path =
+    (case segment_generic_args (final_segment path) of
+       NONE => []
+     | SOME arguments =>
+         map (parse_antiquotation ctxt environment)
+           (generic_sources arguments))
+
+  fun has_intermediate_generics path =
+    let
+      val segments = path_segments path
+      val intermediate =
+        if null segments then [] else take (length segments - 1) segments
+    in List.exists (is_some o segment_generic_args) intermediate end
+
+  fun reject_intermediate_generics path =
+    if has_intermediate_generics path then
+      let
+        val offending =
+          the
+            (find_first (is_some o segment_generic_args)
+              (path_segments path))
+      in
+        error
+          ("urust_expr: generic arguments on an intermediate path segment require an exact registration" ^
+            Position.here (#2 (segment_identifier offending)))
+      end
+    else ()
+
+  fun opaque_path ctxt kind path =
+    let
+      val _ = report_path_qualifiers ctxt path
+      val (name, pos) = path_terminal path
+      val _ = Context_Position.report ctxt pos Markup.free
+    in Free (render_path path, dummyT) end
+
+  fun resolve_generic_free_path ctxt environment kind local_first path =
+    (case path_segments path of
+       [Path_Segment (name, pos, NONE)] =>
+         if local_first then
+           (case use_local ctxt environment (name, pos) of
+              SOME local_term => local_term
+            | NONE => resolve_identifier ctxt kind name pos)
+         else
+           (case registered_identifier ctxt kind (name, pos) of
+              SOME registered => registered
+            | NONE =>
+                (case use_local ctxt environment (name, pos) of
+                   SOME local_term => local_term
+                 | NONE => resolve_identifier ctxt kind name pos))
+     | _ =>
+         (case registered_identifier ctxt kind
+             (render_path path, #2 (path_terminal path)) of
+            SOME registered =>
+              (report_path_qualifiers ctxt path; registered)
+          | NONE => opaque_path ctxt kind path))
+
+  fun exact_registered_path ctxt kind path =
+    (case registered_identifier ctxt kind
+        (render_path path, #2 (path_terminal path)) of
+       SOME registered =>
+         (report_path_qualifiers ctxt path; SOME registered)
+     | NONE => NONE)
+
+  fun literal_path_value ctxt environment path =
+    (case path_segments path of
+       [Path_Segment (name, pos, NONE)] =>
+         literal_identifier_value ctxt environment (name, pos)
+     | _ =>
+    (case exact_registered_path ctxt Micro_Rust_Names.NLiteral path of
+       SOME registered => registered
+     | NONE =>
+         let
+           val _ = reject_intermediate_generics path
+           val _ =
+             (case segment_generic_args (final_segment path) of
+                NONE => ()
+              | SOME (Generic_Args (_, pos)) =>
+                  error
+                    ("urust_expr: generic arguments on a bare value require an exact literal registration" ^
+                      Position.here pos))
+         in
+           resolve_generic_free_path ctxt environment
+             Micro_Rust_Names.NLiteral true path
+         end))
+
+  fun literal_path ctxt environment path =
+    T.literal (literal_path_value ctxt environment path)
+
   fun function_identifier ctxt environment (identifier as (name, pos)) =
     (case registered_identifier ctxt Micro_Rust_Names.NFunction identifier of
        SOME registered => registered
@@ -236,8 +349,23 @@ struct
           | NONE =>
               resolve_identifier ctxt Micro_Rust_Names.NFunction name pos))
 
+  fun function_path ctxt environment path =
+    (case exact_registered_path ctxt Micro_Rust_Names.NFunction path of
+       SOME registered => registered
+     | NONE =>
+         let
+           val _ = reject_intermediate_generics path
+           val base = remove_final_generic_args path
+           val function =
+             resolve_generic_free_path ctxt environment
+               Micro_Rust_Names.NFunction false base
+         in T.apply_parameters function (final_parameters ctxt environment path) end)
+
   fun registered_function ctxt identifier =
     registered_identifier ctxt Micro_Rust_Names.NFunction identifier
+
+  fun registered_function_path ctxt path =
+    exact_registered_path ctxt Micro_Rust_Names.NFunction path
 
   fun field_expression ctxt environment receiver name pos =
     T.focus_field
@@ -508,13 +636,47 @@ struct
             (map constructor_identity candidates)) ^
         Position.here pos)
 
-  fun resolve_constructor resolver (name, pos) =
-    (case constructor_candidates resolver name of
-       [] => NONE
-     | [info] => SOME info
-     | candidates =>
-         ambiguity_error "constructor pattern" name pos
-           candidates)
+  fun distinct_constructor_infos infos =
+    fold
+      (fn info => fn seen =>
+        if List.exists (fn other => same_constructor_info (info, other)) seen
+        then seen else info :: seen)
+      infos []
+
+  fun registered_constructor_candidates ctxt resolver path =
+    Micro_Rust_Names.lookups ctxt Micro_Rust_Names.NLiteral (render_path path)
+    |> maps
+      (fn entry =>
+        (case term_name_of (identifier_leaf (#hol_term entry)) of
+           SOME name => constructor_candidates resolver name
+         | NONE => []))
+    |> distinct_constructor_infos
+
+  fun resolve_constructor ctxt resolver path =
+    let
+      val name = render_path path
+      val pos = #2 (path_terminal path)
+      val registered =
+        registered_constructor_candidates ctxt resolver path
+      val candidates =
+        if null (Micro_Rust_Names.lookups ctxt Micro_Rust_Names.NLiteral name)
+        then
+          (reject_intermediate_generics path;
+           case segment_generic_args (final_segment path) of
+             NONE => constructor_candidates resolver name
+           | SOME (Generic_Args (_, generic_pos)) =>
+               error
+                 ("urust_expr: generic constructor paths require an exact literal registration" ^
+                   Position.here generic_pos))
+        else registered
+      val _ = report_path_qualifiers ctxt path
+    in
+      (case candidates of
+         [] => NONE
+       | [info] => SOME info
+       | ambiguous =>
+           ambiguity_error "constructor pattern" name pos ambiguous)
+    end
 
   fun report_named_term ctxt pos (Const (name, _)) =
         Context_Position.report ctxt pos
@@ -685,8 +847,19 @@ struct
     end
 
   fun resolve_struct_pattern ctxt resolver
-      (head, head_pos, fields) =
+      (head_path, fields) =
     let
+      val head = render_path head_path
+      val head_pos = #2 (path_terminal head_path)
+      val _ = reject_intermediate_generics head_path
+      val _ =
+        (case segment_generic_args (final_segment head_path) of
+           NONE => ()
+         | SOME (Generic_Args (_, pos)) =>
+             error
+               ("urust_expr: generic struct-pattern paths require an exact literal registration" ^
+                 Position.here pos))
+      val _ = report_path_qualifiers ctxt head_path
       val candidate =
         resolve_struct_constructor ctxt resolver
           (head, head_pos)

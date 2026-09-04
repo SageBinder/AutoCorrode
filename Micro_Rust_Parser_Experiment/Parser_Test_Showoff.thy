@@ -44,11 +44,24 @@ definition showoff_mix ::
     \<open>64 word \<Rightarrow> 64 word \<Rightarrow> (unit, 64 word, unit, unit, unit) function_body\<close>
   where \<open> showoff_mix \<equiv> lift_fun2 (\<lambda>x y. x * 3 + y) \<close>
 
+definition showoff_generic_bump ::
+    \<open>nat \<Rightarrow> 64 word \<Rightarrow>
+      (unit, 64 word, unit, unit, unit) function_body\<close>
+  where \<open> showoff_generic_bump _ \<equiv> showoff_bump \<close>
+
+definition showoff_generic_parameter :: nat
+  where \<open> showoff_generic_parameter = 1 \<close>
+
+notation showoff_generic_parameter ("\<clubsuit>")
+
+micro_rust_notation (call) showoff_generic_bump ("Showoff::bump")
+
 text\<open>
 Features: an array literal, range slicing and indexing, a let-bound callee,
 nested calls, receiver-prepended method calls, method chaining, Option propagation
 around call and method results, propagation grouped before a method, a conditional
-argument, comparisons, and an \<open>if let\<close> binder with a fallback.
+argument, structured-path turbofish with an escaped symbolic HOL payload,
+comparisons, and an \<open>if let\<close> binder with a fallback.
 \<close>
 
 urust_expr_with_check showoff_calls
@@ -59,7 +72,7 @@ urust_expr_with_check showoff_calls
     let seed_present = matches!(Some(seed), Some(_));
     debug_assert!(seed_present, ignored_showoff_diagnostic);
     let callable = \<llangle>showoff_bump\<rrangle>;
-    let direct = Some(callable(seed))?;
+    let direct = Some(Showoff::bump::<\<clubsuit> + 1>(callable(seed)))?;
     let chained =
       (Some(direct.showoff_mix(showoff_bump(active[1_usize])))?).showoff_bump();
     if let Some(selected) = Some(chained) {
