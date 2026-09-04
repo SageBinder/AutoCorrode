@@ -33,3 +33,4 @@ session Micro_Rust_Parser_Experiment = HOL +
     Parser_Test_Improvements
     Parser_Test_Showoff
     Parser_Test_Regression_Audit
+    Parser_Test_Turbofish

@@ -36,7 +36,6 @@ sig
   datatype ur_path =
     UR_Path of path_segment list * Position.T
 
-  val generic_argument_canonical: generic_arg -> canonical_fragment
   val generic_argument_source: generic_arg -> Input.source
   val path_position: ur_path -> Position.T
   val path_segments: ur_path -> path_segment list

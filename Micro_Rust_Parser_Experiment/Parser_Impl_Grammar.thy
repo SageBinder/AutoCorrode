@@ -178,6 +178,8 @@ fun tok_generic_value markup typ cons (yypos, yytext) =
 
 fun tok_generic_ident (yypos, yytext) =
   let
+    (* Semantic fallback reparses the retained source and supplies role-aware identifier markup.
+       Exact-key identifiers are opaque notation components, not HOL entities. *)
     val (value, start, stop) =
       Parser_Lex_Util.ranged_value
         (!source_layout) false Markup.empty "GIDENT" (yypos, yytext)
@@ -438,8 +440,8 @@ yacc_definitions\<open>
 %term NUM of string | NUMSFX of string | STRING of string | IDENT of string | LPAR | RPAR
     | VALAQ of Input.source | EXPRAQ of Input.source
     | TGOPEN
-    | GNUM of string * Position.T * Parser_Lex_Util.source_layout * int * int
-    | GIDENT of string * Position.T * Parser_Lex_Util.source_layout * int * int
+    | GNUM of string * Parser_Lex_Util.source_layout * int * int
+    | GIDENT of string * Parser_Lex_Util.source_layout * int * int
     | GLPAR of int | GRPAR of int
     | TTRUE | TFALSE | TLET | TCONST | TRETURN | TEQ | TSEMI | EOF
     | TIF | TELSE | TLBRACE | TRBRACE | TLBRACK | TRBRACK | COMMA | TDOT
@@ -699,8 +701,8 @@ yacc_rules\<open>
                         (append_fragment "+"
                           ugeneric_additive ugeneric_atom)
   ugeneric_atom : GNUM
-                    (case GNUM of
-                       (lexeme, _, layout, start, stop) =>
+                (case GNUM of
+                       (lexeme, layout, start, stop) =>
                          Parsed_Fragment
                            (lexeme, layout, start, stop))
                 | ugeneric_path
@@ -714,14 +716,14 @@ yacc_rules\<open>
                               layout, GLPAR, GRPAR + 1))
   ugeneric_path : GIDENT
                     (case GIDENT of
-                       (name, _, layout, start, stop) =>
+                       (name, layout, start, stop) =>
                          Parsed_Fragment
                            (name, layout, start, stop))
                 | ugeneric_path TCOLONCOLON GIDENT
                     (case (ugeneric_path, GIDENT) of
                        (Parsed_Fragment
                           (canonical, layout, start, _),
-                        (name, _, _, _, stop)) =>
+                        (name, _, _, stop)) =>
                           Parsed_Fragment
                             (canonical ^ "::" ^ name,
                              layout, start, stop))

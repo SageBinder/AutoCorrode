@@ -274,8 +274,7 @@ struct
     let
       val range as (start, stop) = text_range pos_map (yypos, yytext)
       val value =
-        (yytext, Position.range_position range, pos_map,
-         yypos, yypos + size yytext)
+        (yytext, pos_map, yypos, yypos + size yytext)
       val _ = if report then report_range (range, markup, typ) else ()
     in (value, start, stop) end
 
