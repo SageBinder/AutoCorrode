@@ -4083,6 +4083,9 @@ urust_expr_with_check cast_target_mut_u32 \<open> cast_raw as *mut u32 \<close>
 urust_expr_with_check cast_target_mut_u64 \<open> cast_raw as *mut u64 \<close>
 urust_expr_with_check cast_target_mut_usize \<open> cast_raw as *mut usize \<close>
 
+urust_expr_with_check cast_target_compact_const
+  \<open> cast_raw as*const u8 \<close>
+
 end
 
 subsection\<open> Postfix operands, placement, and lexical capture \<close>
@@ -4123,6 +4126,14 @@ begin
 
 urust_expr_with_check cast_literal_operand \<open> 0xff_u32 as u8 \<close>
 
+urust_expr_with_check cast_zero_operand \<open> 0_u64 as u8 \<close>
+
+urust_expr_with_check cast_narrowing_boundary_operand
+  \<open> 0x1ff_u16 as u8 \<close>
+
+urust_expr_with_check cast_signed_widening_boundary_operand
+  \<open> 0xffffffff_u32 as i64 \<close>
+
 urust_expr_with_check cast_context_fix \<open> cast_word as u16 \<close>
 
 urust_expr_with_check cast_let_bound
@@ -4154,6 +4165,9 @@ urust_expr_with_check cast_block_operand
 
 urust_expr_with_check cast_conditional_operand
   \<open> (if true { cast_word } else { cast_word }) as u64 \<close>
+
+urust_expr_with_check cast_grouped_binary_operand
+  \<open> (cast_word + cast_word) as u16 \<close>
 
 urust_expr_with_check cast_tuple_position
   \<open> (cast_word as u8, cast_word as u16) \<close>
@@ -4217,6 +4231,12 @@ urust_expr_with_check cast_grouped_index_result
 urust_expr_with_check cast_grouped_propagation_result
   \<open> (cast_word as u32)? \<close>
 
+urust_expr_with_check cast_grouped_postfix_result_chain
+  \<open> ((cast_word as u32).cast_method()[0_usize])? \<close>
+
+urust_expr_with_check cast_complete_postfix_operand_chain
+  \<open> (cast_record_value.cast_value.cast_method()[0_usize])? as u16 \<close>
+
 end
 
 no_adhoc_overloading index_const \<rightleftharpoons> cast_index_fixture
@@ -4240,11 +4260,23 @@ urust_expr_with_check cast_chain_three
 urust_expr_with_check cast_before_multiplication
   \<open> cast_word as u32 * cast_word \<close>
 
+urust_expr_with_check cast_before_division
+  \<open> cast_word as u32 / cast_word \<close>
+
+urust_expr_with_check cast_before_remainder
+  \<open> cast_word as u32 % cast_word \<close>
+
 urust_expr_with_check cast_before_addition
   \<open> cast_word as u32 + cast_word \<close>
 
+urust_expr_with_check cast_on_right_of_subtraction
+  \<open> cast_word - cast_word as u32 \<close>
+
 urust_expr_with_check cast_before_shift
   \<open> cast_word as u32 << 1_u64 \<close>
+
+urust_expr_with_check cast_before_right_shift
+  \<open> cast_word as u32 >> 1_u64 \<close>
 
 urust_expr_with_check cast_before_bitwise
   \<open> cast_word as u32 & cast_word ^ cast_word | cast_word \<close>
@@ -4252,11 +4284,29 @@ urust_expr_with_check cast_before_bitwise
 urust_expr_with_check cast_before_comparison
   \<open> cast_word as u32 == cast_word \<close>
 
+urust_expr_with_check cast_before_inequality
+  \<open> cast_word as u32 != cast_word \<close>
+
+urust_expr_with_check cast_before_less_than
+  \<open> cast_word as u32 < cast_word \<close>
+
+urust_expr_with_check cast_before_less_or_equal
+  \<open> cast_word as u32 <= cast_word \<close>
+
+urust_expr_with_check cast_before_greater_than
+  \<open> cast_word as u32 > cast_word \<close>
+
+urust_expr_with_check cast_before_greater_or_equal
+  \<open> cast_word as u32 >= cast_word \<close>
+
 urust_expr_with_check cast_before_logical
   \<open> cast_word as u32 == cast_word && true || false \<close>
 
 urust_expr_with_check cast_before_range
   \<open> cast_word as u32..=cast_word as u32 \<close>
+
+urust_expr_with_check cast_before_exclusive_range
+  \<open> cast_word as u32..cast_word as u32 \<close>
 
 urust_expr_with_check cast_before_assignment
   \<open> let mut target = cast_word; *target = cast_word as u32; *target \<close>
@@ -4276,6 +4326,9 @@ urust_expr_with_check cast_narrow_widen_signed_pipeline
 
 urust_expr_with_check cast_usize_pipeline
   \<open> cast_word as usize as u16 \<close>
+
+urust_expr_with_check cast_signed_unsigned_pipeline
+  \<open> cast_word as i64 as u8 as i32 \<close>
 
 end
 
