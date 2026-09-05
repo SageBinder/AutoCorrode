@@ -723,6 +723,12 @@ urust_expr_rejects fidelity \<open> zz(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
        the frontend rejects 15 args too ("Undefined constant: _urust_shallow_fun_with_args"). \<close>
 
 urust_expr_rejects fidelity
+  \<open> \<epsilon>\<open>ncf1\<close>(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14) \<close>
+  \<open> unsupported call arity 15 \<close>
+  \<comment> \<open> [FIDELITY] expression-antiquotation callees share the inclusive
+       \<open>funcall14\<close> policy. \<close>
+
+urust_expr_rejects fidelity
   \<open> 0.zz(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14) \<close>
   \<open> unsupported call arity 15 \<close>
   \<comment> \<open> [FIDELITY] 14 explicit method arguments plus the prepended receiver exceed
@@ -739,6 +745,31 @@ urust_expr_rejects fidelity \<open> ncf1(\<llangle>1 :: 64 word\<rrangle>)(\<lla
 
 urust_expr_rejects fidelity \<open> (ncf1)(\<llangle>1 :: 64 word\<rrangle>) \<close> \<open> syntax error found at ( \<close>
   \<comment> \<open> [FIDELITY] parenthesised callee \<open>(g)(x)\<close>: rejected by both (\<open>urust_callable\<close> has no paren form). \<close>
+
+urust_expr_rejects fidelity
+  \<open> \<llangle>ncf1\<rrangle>(\<llangle>1 :: 64 word\<rrangle>) \<close>
+  \<open> syntax error found at ( \<close>
+  \<comment> \<open> [FIDELITY] a value antiquotation is a value, not a callable antiquotation. \<close>
+
+urust_expr_rejects fidelity
+  \<open> (\<epsilon>\<open>ncf1\<close>)(\<llangle>1 :: 64 word\<rrangle>) \<close>
+  \<open> syntax error found at ( \<close>
+  \<comment> \<open> [FIDELITY] grouping does not turn an expression into a callee. \<close>
+
+urust_expr_rejects fidelity
+  \<open> \<epsilon>\<open>ncf1\<close>(\<llangle>1 :: 64 word\<rrangle>)(\<llangle>2 :: 64 word\<rrangle>) \<close>
+  \<open> syntax error found at ( \<close>
+  \<comment> \<open> [FIDELITY] a call result is not a callee. \<close>
+
+urust_expr_rejects fidelity
+  \<open> \<epsilon>\<open>ncf1\<close>(,\<llangle>1 :: 64 word\<rrangle>) \<close>
+  \<open> syntax error \<close>
+  \<comment> \<open> [FIDELITY] an antiquotation-headed call cannot start with an empty argument. \<close>
+
+urust_expr_rejects fidelity
+  \<open> \<epsilon>\<open>ncf1\<close>(\<llangle>1 :: 64 word\<rrangle> \<close>
+  \<open> syntax error found at end of input \<close>
+  \<comment> \<open> [FIDELITY] an antiquotation-headed call requires its closing parenthesis. \<close>
 
 section\<open> Legacy macros \<close>
 
@@ -1578,7 +1609,7 @@ urust_expr_rejects fidelity
 urust_expr_rejects fidelity
   \<open> (|| \<llangle>1 :: nat\<rrangle>)() \<close>
   \<open> syntax error \<close>
-  \<comment> \<open> [FIDELITY] calls still require an identifier callee even after grouping. \<close>
+  \<comment> \<open> [FIDELITY] grouping does not enable general expression invocation. \<close>
 
 urust_expr_rejects fidelity
   \<open>

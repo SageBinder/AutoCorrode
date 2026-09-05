@@ -4435,18 +4435,141 @@ urust_expr_with_check cap_const_deep \<open> let id = \<llangle>5 :: nat\<rrangl
 
 urust_expr_with_check cap_notation \<open> let myReg = \<llangle>5 :: nat\<rrangle>; \<llangle>myReg\<rrangle> \<close>  \<comment>\<open> binder name = a registered notation surface name (guard) \<close>
 
-subsection\<open> D-5: non-identifier / non-method call callees -- parser UNDER-accepts (frontend accepts) \<close>
+subsection\<open> D-5: non-identifier / non-method call callees -- partially resolved \<close>
 
 text\<open>
-D-5: identifier and method callees work; deferred frontend forms are expression and
-function antiquotations, turbofish, and paths. Macro calls are now handled by the dedicated
-macro AST and dispatcher. Nested-callable forms
-\<open>f(a)(b)\<close> and \<open>(g)(x)\<close> are rejected by both parsers. The expressible
-antiquotation case remains a golden stub; other forms are not yet lexable. See
+D-5 now accepts expression antiquotations directly as callees without admitting arbitrary
+expression invocation. Arity-indexed HOL function literals remain deferred. Nested-callable forms
+\<open>f(a)(b)\<close> and \<open>(g)(x)\<close> remain rejected by both parsers. See
 \<open>urust-old-new-divergences.md\<close>.
 \<close>
-lemma \<open> undefined = \<lbrakk> \<epsilon>\<open>cf1\<close>(\<llangle>1 :: 64 word\<rrangle>) \<rbrakk> \<close> sorry
-  \<comment> \<open>frontend: \<open>funcall1 cf1 (\<up>1)\<close>; parser rejects (callee must be an identifier or a method call).\<close>
+
+urust_expr_with_check d5_antiquotation_call0
+  \<open> \<epsilon>\<open>cf0\<close>() \<close>
+
+urust_expr_with_check d5_antiquotation_call1
+  \<open> \<epsilon>\<open>cf1\<close>(\<llangle>1 :: 64 word\<rrangle>) \<close>
+
+urust_expr_with_check d5_antiquotation_call2
+  \<open>
+    \<epsilon>\<open>cf2\<close>(
+      \<llangle>1 :: 64 word\<rrangle>,
+      \<llangle>2 :: 64 word\<rrangle>
+    )
+  \<close>
+
+context
+  fixes antiquotation_free ::
+    \<open>64 word \<Rightarrow> (unit, 64 word, unit, unit, unit) function_body\<close>
+begin
+urust_expr_with_check d5_antiquotation_context_free
+  \<open>
+    \<epsilon>\<open>antiquotation_free\<close>(
+      \<llangle>1 :: 64 word\<rrangle>
+    )
+  \<close>
+end
+
+urust_expr_with_check d5_antiquotation_hol_lambda
+  \<open>
+    \<epsilon>\<open>\<lambda>x. cf1 x\<close>(
+      \<llangle>1 :: 64 word\<rrangle>
+    )
+  \<close>
+
+urust_expr_with_check d5_antiquotation_multiline_body
+  \<open>
+    \<epsilon>\<open>
+      cf1
+    \<close>(
+      \<llangle>1 :: 64 word\<rrangle>
+    )
+  \<close>
+
+urust_expr_with_check d5_antiquotation_nested_calls
+  \<open>
+    \<epsilon>\<open>cf2\<close>(
+      \<epsilon>\<open>cf1\<close>(\<llangle>1 :: 64 word\<rrangle>),
+      \<llangle>2 :: 64 word\<rrangle>
+    )
+  \<close>
+
+urust_expr_with_check d5_antiquotation_with_ordinary_nested_call
+  \<open>
+    \<epsilon>\<open>cf2\<close>(
+      cf1(\<llangle>1 :: 64 word\<rrangle>),
+      \<llangle>2 :: 64 word\<rrangle>
+    )
+  \<close>
+
+urust_expr_with_check d5_antiquotation_sequencing
+  \<open>
+    \<epsilon>\<open>cf1\<close>(\<llangle>1 :: 64 word\<rrangle>);
+    \<epsilon>\<open>cf1\<close>(\<llangle>2 :: 64 word\<rrangle>)
+  \<close>
+
+urust_expr_with_check d5_antiquotation_call_as_argument
+  \<open>
+    cf2(
+      \<epsilon>\<open>cf1\<close>(\<llangle>1 :: 64 word\<rrangle>),
+      \<epsilon>\<open>cf1\<close>(\<llangle>2 :: 64 word\<rrangle>)
+    )
+  \<close>
+
+urust_expr_with_check d5_antiquotation_initializer
+  \<open>
+    let result =
+      \<epsilon>\<open>cf1\<close>(\<llangle>1 :: 64 word\<rrangle>);
+    result
+  \<close>
+
+urust_expr_with_check d5_antiquotation_method_on_result
+  \<open>
+    \<epsilon>\<open>cf1\<close>(
+      \<llangle>1 :: 64 word\<rrangle>
+    ).cf1()
+  \<close>
+
+urust_expr_with_check d5_antiquotation_operator_precedence
+  \<open>
+    \<epsilon>\<open>cf1\<close>(
+      \<llangle>1 :: 64 word\<rrangle>
+    ) + \<llangle>2 :: 64 word\<rrangle>
+  \<close>
+
+context
+  fixes cf14_antiquotation :: \<open>
+    nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow>
+    nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow>
+    (unit, nat, unit, unit, unit) function_body \<close>
+begin
+urust_expr_with_check d5_antiquotation_call14
+  \<open>
+    \<epsilon>\<open>cf14_antiquotation\<close>(
+      0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13
+    )
+  \<close>
+end
+
+context
+  fixes h :: \<open>64 word \<Rightarrow> (unit, 64 word, unit, unit, unit) function_body\<close>
+begin
+urust_expr_with_check d5_antiquotation_lexical_shadow
+  \<open>
+    let h = \<llangle>cf1\<rrangle>;
+    \<epsilon>\<open>h\<close>(\<llangle>4 :: 64 word\<rrangle>)
+  \<close>
+end
+
+urust_expr_with_check d5_antiquotation_nearest_lexical_shadow
+  \<open>
+    let h = \<llangle>cf1\<rrangle>;
+    let h = \<llangle>cf2\<rrangle>;
+    \<epsilon>\<open>h\<close>(
+      \<llangle>1 :: 64 word\<rrangle>,
+      \<llangle>2 :: 64 word\<rrangle>
+    )
+  \<close>
 
 subsection\<open> D-7: advanced patterns -- resolved for current consumers \<close>
 

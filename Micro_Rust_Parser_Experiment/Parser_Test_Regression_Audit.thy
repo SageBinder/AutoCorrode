@@ -1675,6 +1675,307 @@ ML_val\<open>
   end
 \<close>
 
+section\<open> Expression-antiquotation callee audit \<close>
+
+definition antiquotation_call_audit_direct ::
+    \<open>nat \<Rightarrow> nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
+  where
+    \<open> antiquotation_call_audit_direct \<equiv> lift_fun2 (+) \<close>
+
+definition antiquotation_call_audit_notation ::
+    \<open>nat \<Rightarrow> nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
+  where
+    \<open> antiquotation_call_audit_notation \<equiv> lift_fun2 (+) \<close>
+
+consts
+  antiquotation_call_audit_first :: nat
+  antiquotation_call_audit_second :: nat
+
+micro_rust_notation (call) antiquotation_call_audit_notation
+  ("antiquotation_call_audit_direct")
+
+text\<open>
+These checks pin the deliberately narrow callable-antiquotation boundary. The AST retains the exact
+body source and the complete invocation span; lowering parses that source directly, bypasses call
+notation and \<open>literal\<close>, preserves argument order, and retains binder navigation inside the
+antiquotation.
+\<close>
+
+ML_val\<open>
+  local
+    open URust_AST
+
+    val ctxt = \<^context>
+
+    fun audit_assert message condition =
+      if condition then ()
+      else error ("expression-antiquotation callee audit: " ^ message)
+
+    fun parse source =
+      (case URust_Diagnostics.parse_source ctxt source of
+         SOME expression => expression
+       | NONE => error "expression-antiquotation callee audit: empty parse")
+
+    fun parse_text text =
+      parse (Parser_Lex_Util.text_source text)
+
+    fun checked text =
+      URust_Command.elab_urust ctxt
+        (Parser_Lex_Util.text_source text)
+
+    fun count_constant name term =
+      Term.fold_aterms
+        (fn Const (candidate, _) =>
+              if candidate = name then Integer.add 1 else I
+          | _ => I)
+        term 0
+
+    fun is_path name (UE_Path path) = render_path path = name
+      | is_path _ _ = false
+
+    val opener = "\<epsilon>\<open>"
+    val body = "  antiquotation_call_audit_direct\n"
+    val ast_text = opener ^ body ^ "\<close>(first, second)"
+    val ast_start =
+      Position.make0 7 30 300 "" "" "antiquotation-call-ast-audit"
+    val body_start = Position.symbol_explode opener ast_start
+    val body_stop = Position.symbol_explode (opener ^ body) ast_start
+    val call_stop = Position.symbol_explode ast_text ast_start
+    val ast =
+      parse
+        (Parser_Lex_Util.positioned_content_source
+          ast_text ast_start)
+    val _ =
+      (case ast of
+         UE_Call
+           (UC_Antiq source, [first, second], call_pos) =>
+           (audit_assert "callee constructor changed"
+              (is_path "first" first andalso is_path "second" second);
+            audit_assert "retained body text changed"
+              (Input.string_of source = body);
+            audit_assert "retained body range start moved"
+              (Position.offset_of (#1 (Input.range_of source)) =
+                Position.offset_of body_start);
+            audit_assert "retained body range end moved"
+              (Position.offset_of (#2 (Input.range_of source)) =
+                Position.offset_of body_stop);
+            audit_assert "call span no longer starts at the antiquotation opener"
+              (Position.offset_of call_pos =
+                Position.offset_of ast_start);
+            audit_assert "call span no longer includes the closing parenthesis"
+              (Position.end_offset_of call_pos =
+                Position.offset_of call_stop);
+            audit_assert "expression_position lost the complete call span"
+              (Position.offset_of (expression_position ast) =
+                 Position.offset_of call_pos andalso
+               Position.end_offset_of (expression_position ast) =
+                 Position.end_offset_of call_pos))
+       | _ =>
+           error "expression-antiquotation callee audit: call AST changed")
+
+    val direct =
+      checked
+        ("\<epsilon>\<open>antiquotation_call_audit_direct\<close>(" ^
+         "\<llangle>antiquotation_call_audit_first\<rrangle>, " ^
+         "\<llangle>antiquotation_call_audit_second\<rrangle>)")
+      |> Term_Position.strip_positions
+    val ordinary =
+      checked
+        ("antiquotation_call_audit_direct(" ^
+         "\<llangle>antiquotation_call_audit_first\<rrangle>, " ^
+         "\<llangle>antiquotation_call_audit_second\<rrangle>)")
+      |> Term_Position.strip_positions
+    val (direct_head, direct_arguments) = Term.strip_comb direct
+    val _ =
+      audit_assert "direct call did not use funcall2"
+        (case direct_head of
+           Const (name, _) => name = \<^const_name>\<open>funcall2\<close>
+         | _ => false)
+    val _ =
+      (case direct_arguments of
+         [Const (callee, _), first, second] =>
+           let
+             fun is_literal expected argument =
+               (case Term_Position.strip_positions argument of
+                  Const (literal_name, _) $ Const (actual, _) =>
+                    literal_name = \<^const_name>\<open>literal\<close> andalso
+                    actual = expected
+                | _ => false)
+           in
+             audit_assert "embedded callee was not passed directly"
+               (callee =
+                 \<^const_name>\<open>antiquotation_call_audit_direct\<close>);
+             audit_assert "first argument moved or changed"
+               (is_literal
+                 \<^const_name>\<open>antiquotation_call_audit_first\<close>
+                 first);
+             audit_assert "second argument moved or changed"
+               (is_literal
+                 \<^const_name>\<open>antiquotation_call_audit_second\<close>
+                 second)
+           end
+       | _ =>
+           error
+             "expression-antiquotation callee audit: funcall2 argument shape changed")
+    val _ =
+      audit_assert "embedded callee was parsed more than once"
+        (count_constant
+          \<^const_name>\<open>antiquotation_call_audit_direct\<close>
+          direct = 1)
+    val _ =
+      audit_assert "embedded callee received a literal wrapper"
+        (count_constant \<^const_name>\<open>literal\<close> direct = 2)
+    val _ =
+      audit_assert "embedded callee entered notation dispatch"
+        (count_constant
+          \<^const_name>\<open>antiquotation_call_audit_notation\<close>
+          direct = 0 andalso
+         count_constant \<^const_name>\<open>urust_dispatch\<close> direct = 0)
+    val _ =
+      audit_assert "notation-collision fixture did not dispatch an ordinary call"
+        (count_constant
+          \<^const_name>\<open>antiquotation_call_audit_notation\<close>
+          ordinary = 1)
+
+    fun expect_rejection text expected =
+      (case Exn.result
+          (fn () =>
+            URust_Command.elab_urust ctxt
+              (Parser_Lex_Util.text_source text)) () of
+         Exn.Res _ =>
+           error
+             ("expression-antiquotation callee audit: unexpectedly accepted " ^
+               quote text)
+       | Exn.Exn exn =>
+           if Exn.is_interrupt exn then Exn.reraise exn
+           else
+             audit_assert ("diagnostic changed for " ^ quote text)
+               (String.isSubstring expected (Runtime.exn_message exn)))
+
+    val malformed =
+      [("\<epsilon>\<open>antiquotation_call_audit_direct\<close>(, 1)",
+        "syntax error"),
+       ("\<epsilon>\<open>antiquotation_call_audit_direct\<close>(1,, 2)",
+        "syntax error"),
+       ("\<epsilon>\<open>antiquotation_call_audit_direct\<close>(1",
+        "syntax error found at end of input")]
+    val _ =
+      List.app
+        (fn (text, expected) =>
+          (expect_rejection text expected;
+           audit_assert "parser state leaked after malformed call"
+             (case parse_text "()" of
+                UE_Unit _ => true
+              | _ => false)))
+        malformed
+
+    fun find_from text needle offset =
+      if offset + size needle > size text
+      then error
+        ("expression-antiquotation callee audit: missing " ^ quote needle)
+      else if String.substring (text, offset, size needle) = needle
+      then offset
+      else find_from text needle (offset + 1)
+
+    fun token_position text start needle offset =
+      let
+        val raw = find_from text needle offset
+        val token_start =
+          Position.symbol_explode
+            (String.substring (text, 0, raw)) start
+      in
+        (raw,
+         Position.range_position
+           (token_start,
+            Position.symbol_explode needle token_start))
+      end
+
+    val markup_text =
+      "let h = \<llangle>antiquotation_call_audit_direct\<rrangle>; " ^
+      "\<epsilon>\<open>h\<close>(" ^
+      "\<llangle>antiquotation_call_audit_first\<rrangle>, " ^
+      "\<llangle>antiquotation_call_audit_second\<rrangle>)"
+    val markup_start =
+      Position.make0 11 50 500 "" "" "antiquotation-call-markup-audit"
+    val captured_reports = Unsynchronized.ref ([]: string list)
+    fun capture_reports chunks =
+      Unsynchronized.change captured_reports (append chunks)
+    val _ =
+      Parser_Test_Report_Lock.run (fn () =>
+        Unsynchronized.setmp Private_Output.report_fn capture_reports
+          (fn () =>
+            Print_Mode.with_modes [Print_Mode.PIDE]
+              (fn () =>
+                ignore
+                  (URust_Command.elab_urust ctxt
+                    (Parser_Lex_Util.positioned_content_source
+                      markup_text markup_start))) ())
+          ())
+
+    fun collect_markup (XML.Text _) result = result
+      | collect_markup (XML.Elem (markup, tree)) result =
+          fold collect_markup tree (markup :: result)
+    val markup =
+      fold collect_markup
+        (maps YXML.parse_body (! captured_reports)) []
+    fun has_position properties position =
+      Properties.get properties Markup.offsetN =
+        Option.map Value.print_int (Position.offset_of position) andalso
+      Properties.get properties Markup.end_offsetN =
+        Option.map Value.print_int (Position.end_offset_of position)
+    fun has_markup markup_name position =
+      exists
+        (fn (name, properties) =>
+          name = markup_name andalso
+            has_position properties position)
+        markup
+    fun entity_id property position =
+      let
+        val ids =
+          markup
+          |> map_filter
+              (fn (name, properties) =>
+                if name = Markup.entityN andalso
+                   Properties.get properties Markup.kindN =
+                     SOME "urust_var" andalso
+                   has_position properties position
+                then Properties.get properties property
+                else NONE)
+          |> distinct (op =)
+      in
+        (case ids of
+           [id] => id
+         | _ =>
+             error
+               "expression-antiquotation callee audit: binder entity markup changed")
+      end
+    val (definition_offset, definition_position) =
+      token_position markup_text markup_start "h" 0
+    val (_, reference_position) =
+      token_position markup_text markup_start "h"
+        (definition_offset + size "h")
+    val (_, opener_position) =
+      token_position markup_text markup_start "\<epsilon>" 0
+    val _ =
+      audit_assert "antiquotation opener lost literal markup"
+        (has_markup Markup.literalN opener_position)
+    val _ =
+      audit_assert "antiquotation callee binder definition lost bound markup"
+        (has_markup Markup.boundN definition_position)
+    val _ =
+      audit_assert "antiquotation callee binder reference lost bound markup"
+        (has_markup Markup.boundN reference_position)
+    val _ =
+      audit_assert "antiquotation callee binder navigation changed"
+        (entity_id Markup.defN definition_position =
+          entity_id Markup.refN reference_position)
+  in
+    val _ =
+      writeln
+        "Expression-antiquotation callee AST, lowering, recovery, and markup regressions passed"
+  end
+\<close>
+
 section\<open> Closure AST, lowering, and binder-navigation audit \<close>
 
 consts

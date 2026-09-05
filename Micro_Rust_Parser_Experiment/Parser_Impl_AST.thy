@@ -93,6 +93,7 @@ sig
   datatype ur_callee =
       UC_Path of ur_path
     | UC_Method of ur_expr * path_segment
+    | UC_Antiq of Input.source
 
   and ur_expr =
       UE_Unit of Position.T
@@ -153,10 +154,7 @@ sig
   val mk_closure:
     ur_pat list * ur_expr * Position.T * Position.T -> ur_expr
   val mk_call:
-    ur_path * ur_expr list * Position.T * Position.T -> ur_expr
-  val mk_method_call:
-    ur_expr * path_segment * ur_expr list *
-      Position.T * Position.T -> ur_expr
+    ur_callee * ur_expr list * Position.T * Position.T -> ur_expr
   val mk_let_else:
     ur_pat * ur_expr * ur_expr * ur_expr *
       Position.T * Position.T -> ur_expr
@@ -209,8 +207,8 @@ end
       wildcard.
       UE_IfLet retains an optional source else branch; UE_LetElse retains its fallback and required
       continuation separately. A UE_Return never stores a semicolon; a method invocation is
-      represented as UC_Method and prepended during lowering; ur_place contains only validated
-      assignment-target shapes.
+      represented as UC_Method and prepended during lowering; UC_Antiq retains the exact positioned
+      embedded HOL callee source; ur_place contains only validated assignment-target shapes.
 
   Position.T fields identify the token or span documented at each constructor. Consumers may use them
   for markup and diagnostics, but must not infer semantic validity from their presence.
@@ -223,8 +221,8 @@ end
   otherwise sequences the expression with UE_Unit at the semicolon. mk_bare_ident_pat normalises "_"
   to P_Wild; the other pattern smart constructors consume ordinary (name, position) pairs without a
   parser-only wrapper datatype. mk_closure converts a final ranged body token to its exclusive endpoint
-  before constructing the full source span. mk_call combines its supplied source endpoints into the
-  call span, and mk_method_call additionally prepends its receiver. mk_let_else applies the same
+  before constructing the full source span. mk_call combines any callee with its arguments and supplied
+  source endpoints into the call span. mk_let_else applies the same
   exclusive-end correction to its final ranged token. mk_or_pat preserves source order while
   flattening a right-recursive P_Or.
 
@@ -356,6 +354,7 @@ struct
   datatype ur_callee =
       UC_Path of ur_path
     | UC_Method of ur_expr * path_segment
+    | UC_Antiq of Input.source
 
   and ur_expr =
       UE_Unit      of Position.T                      (* () *)
@@ -398,10 +397,11 @@ struct
     | UE_WhileLet  of Input.source * ur_pat * ur_expr * ur_expr * Position.T
                                                       (* #[fuel(eps<n>)] while let pattern = value body *)
     | UE_Call      of ur_callee * ur_expr list * Position.T
-                                                      (* path(a0..aN) -> funcallN. The callee is resolved
-                                                         in NFunction context; args and the complete call
+                                                      (* callee(a0..aN) -> funcallN. Paths/methods use
+                                                         NFunction resolution; antiquotations are direct
+                                                         embedded HOL callees. Args and the complete call
                                                          span are retained so an arity error underlines
-                                                         the call rather than only the final segment. *)
+                                                         the whole invocation. *)
     | UE_Field     of ur_expr * string * Position.T   (* e.field -> NField lens focus *)
     | UE_Index     of ur_expr * ur_expr * Position.T  (* e[i] -> index_const, at full span *)
     | UE_Range     of range_kind * ur_expr * ur_expr * Position.T
@@ -500,13 +500,9 @@ struct
     UE_Closure
       (formals, body,
        Position.range_position (left, Parser_Lex_Util.exclusive_end right))
-  fun mk_call (path, args, left, right) =
+  fun mk_call (callee, args, left, right) =
     UE_Call
-      (UC_Path path, args, Position.range_position (left, right))
-  fun mk_method_call (receiver, segment, args, left, right) =
-    UE_Call
-      (UC_Method (receiver, segment), args,
-       Position.range_position (left, right))
+      (callee, args, Position.range_position (left, right))
 
   fun mk_let_else
       (pattern, scrutinee, fallback, continuation, left, right) =

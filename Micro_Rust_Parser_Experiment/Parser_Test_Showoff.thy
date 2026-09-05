@@ -59,8 +59,8 @@ notation showoff_generic_parameter ("\<clubsuit>")
 urust_notation (call) showoff_generic_bump ("Showoff::bump")
 
 text\<open>
-Features: an array literal, range slicing and indexing, a let-bound callee,
-nested calls, receiver-prepended method calls, method chaining, Option propagation
+Features: an array literal, range slicing and indexing, a let-bound
+expression-antiquotation callee, nested calls, receiver-prepended method calls, method chaining, Option propagation
 around call and method results, propagation grouped before a method, a conditional
 argument, structured-path turbofish with ordinary HOL identifier arithmetic,
 comparisons, and an \<open>if let\<close> binder with a fallback.
@@ -74,7 +74,10 @@ urust_expr_with_check showoff_calls
     let seed_present = matches!(Some(seed), Some(_));
     debug_assert!(seed_present, ignored_showoff_diagnostic);
     let callable = \<llangle>showoff_bump\<rrangle>;
-    let direct = Some(Showoff::bump::<showoff_generic_parameter + 1>(callable(seed)))?;
+    let direct =
+      Some(Showoff::bump::<showoff_generic_parameter + 1>(
+        \<epsilon>\<open>callable\<close>(seed)
+      ))?;
     let chained =
       (Some(direct.showoff_mix(showoff_bump(active[1_usize])))?).showoff_bump();
     if let Some(selected) = Some(chained) {

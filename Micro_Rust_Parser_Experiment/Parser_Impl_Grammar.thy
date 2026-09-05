@@ -329,8 +329,12 @@ lex_rules\<open>
 <EAQ>\\"<close>"   =>
     (if !aq_depth > 0 then (aq_depth := !aq_depth - 1; push_aq yytext; lex())
      else (YYBEGIN INITIAL; report_text (yypos, yytext, Markup.delimiter, "EXPRAQ");
-       let val p = fixed_pos (!aq_start) val q = fixed_pos yypos val body = take_aq ()
-       in Tokens.EXPRAQ (Input.source true body (Position.range (p, q)), p, q) end));
+       let
+         val p = fixed_pos (!aq_start)
+         val q = fixed_pos yypos
+         val open_pos = fixed_pos (!aq_open)
+         val body = take_aq ()
+       in Tokens.EXPRAQ ((Input.source true body (Position.range (p, q)), open_pos), p, q) end));
 <EAQ>\n           => (push_aq "\n"; lex());
 <EAQ>.            => (push_aq yytext; lex());
 <GENERIC>\n       => (lex());
@@ -438,7 +442,7 @@ yacc_definitions\<open>
 %right TBANG
 
 %term NUM of string | NUMSFX of string | STRING of string | IDENT of string | LPAR | RPAR
-    | VALAQ of Input.source | EXPRAQ of Input.source
+    | VALAQ of Input.source | EXPRAQ of Input.source * Position.T
     | TGOPEN
     | GNUM of string * Parser_Lex_Util.source_layout * int * int
     | GIDENT of string * Parser_Lex_Util.source_layout * int * int
@@ -629,8 +633,9 @@ yacc_rules\<open>
            | upostfix TDOT IDENT
                (UE_Field (upostfix, IDENT, IDENTleft))
            | upostfix TDOT upath_segment LPAR ucallargs RPAR
-               (mk_method_call
-                  (upostfix, upath_segment, ucallargs, upostfixleft, RPARright))
+               (mk_call
+                  (UC_Method (upostfix, upath_segment),
+                   ucallargs, upostfixleft, RPARright))
            | upostfix TLBRACK uclosure_arg TRBRACK
                (UE_Index
                  (upostfix, uclosure_arg,
@@ -642,7 +647,10 @@ yacc_rules\<open>
         | STRING     (UE_Literal (LP_String (STRING, STRINGleft)))
         | upath      (UE_Path upath)
         | upath LPAR ucallargs RPAR
-            (mk_call (upath, ucallargs, upathleft, RPARright))
+            (mk_call (UC_Path upath, ucallargs, upathleft, RPARright))
+        | EXPRAQ LPAR ucallargs RPAR
+            (mk_call
+              (UC_Antiq (#1 EXPRAQ), ucallargs, #2 EXPRAQ, RPARright))
         | upath TBANG LPAR umacrocallargs RPAR
             (UE_Macro
               (upath, TBANGleft,
@@ -675,7 +683,7 @@ yacc_rules\<open>
         | TLBRACK arglist TRBRACK
             (UE_Array (arglist, Position.range_position (TLBRACKleft, TRBRACKright)))
         | VALAQ      (UE_Literal (LP_ValAntiq VALAQ))
-        | EXPRAQ     (UE_ExprAntiq EXPRAQ)
+        | EXPRAQ     (UE_ExprAntiq (#1 EXPRAQ))
         | uwith_block_atom %prec TIF (uwith_block_atom)
   upath_segment : IDENT
                     (Path_Segment (IDENT, IDENTleft, NONE))
@@ -815,7 +823,7 @@ yacc_rules\<open>
                       (uif_head, ublock, SOME uconditional,
                        uconditionalright))
   ufuel : THASH TLBRACK TFUEL LPAR EXPRAQ RPAR TRBRACK
-              ((EXPRAQ, THASHleft))
+              ((#1 EXPRAQ, THASHleft))
   uloop_expr : ufuel TWHILE LPAR uval RPAR ublock
               (UE_While (#1 ufuel, uval, ublock,
                 Position.range_position (#2 ufuel, ublockright)))
@@ -829,9 +837,9 @@ yacc_rules\<open>
               (UE_WhileLet (#1 ufuel, upat, uval, ublock,
                 Position.range_position (#2 ufuel, ublockright)))
   (* Comma lists stay nonempty and right-nested (source order preserved). Each list has an explicit terminal
-     comma production, so a trailing separator cannot create an empty element. Call productions are
-     path-headed, so LPAR is never in FOLLOW(uexp) as a postfix operator -- no precedence directive
-     is needed here (D23). *)
+     comma production, so a trailing separator cannot create an empty element. Calls are dedicated
+     atom/method productions, so LPAR is never in FOLLOW(uexp) as a general postfix operator -- no
+     precedence directive is needed here (D23/D77). *)
   arglist : uclosure_arg
               ([uclosure_arg])
           | uclosure_arg COMMA

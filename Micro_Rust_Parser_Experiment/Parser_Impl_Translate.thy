@@ -200,7 +200,9 @@ struct
                        (case segment_generic_args segment of
                           SOME (Generic_Args (_, pos)) => pos
                         | NONE => #2 (segment_identifier segment)))),
-                   receiver :: arguments))
+                   receiver :: arguments)
+              | UC_Antiq source =>
+                  (R.parse_antiquotation ctxt environment source, arguments))
            val lowered_arguments =
              map (lower_expression ctxt environment) source_arguments
          in T.function_call call_pos function lowered_arguments end

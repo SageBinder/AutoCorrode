@@ -728,6 +728,39 @@ urust_expr_with_check' improvement_trailing_direct_call
 old_urust_rejects
   \<open> cf2(\<llangle>1 :: 64 word\<rrangle>, \<llangle>2 :: 64 word\<rrangle>,) \<close>
 
+urust_expr_with_check' improvement_trailing_antiquotation_call
+  \<open> \<epsilon>\<open>cf1\<close>(\<llangle>1 :: 64 word\<rrangle>,) \<close>
+  \<open> \<lbrakk> \<epsilon>\<open>cf1\<close>(\<llangle>1 :: 64 word\<rrangle>) \<rbrakk> \<close>
+old_urust_rejects
+  \<open> \<epsilon>\<open>cf1\<close>(\<llangle>1 :: 64 word\<rrangle>,) \<close>
+
+context
+  fixes trailing_antiquotation_call14 :: \<open>
+    nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow>
+    nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow>
+    (unit, nat, unit, unit, unit) function_body \<close>
+begin
+urust_expr_with_check' improvement_trailing_antiquotation_call14
+  \<open>
+    \<epsilon>\<open>trailing_antiquotation_call14\<close>(
+      0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13,
+    )
+  \<close>
+  \<open>
+    \<lbrakk>
+      \<epsilon>\<open>trailing_antiquotation_call14\<close>(
+        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13
+      )
+    \<rbrakk>
+  \<close>
+old_urust_rejects
+  \<open>
+    \<epsilon>\<open>trailing_antiquotation_call14\<close>(
+      0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13,
+    )
+  \<close>
+end
+
 urust_expr_with_check' improvement_trailing_method_call
   \<open> \<llangle>1 :: 64 word\<rrangle>.cf2(\<llangle>2 :: 64 word\<rrangle>,) \<close>
   \<open> \<lbrakk> \<llangle>1 :: 64 word\<rrangle>.cf2(\<llangle>2 :: 64 word\<rrangle>) \<rbrakk> \<close>
