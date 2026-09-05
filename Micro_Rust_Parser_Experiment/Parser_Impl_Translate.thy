@@ -202,7 +202,18 @@ struct
                         | NONE => #2 (segment_identifier segment)))),
                    receiver :: arguments)
               | UC_Antiq source =>
-                  (R.parse_antiquotation ctxt environment source, arguments))
+                  (R.parse_antiquotation ctxt environment source, arguments)
+              | UC_FunLiteral
+                  (source, lift_arity, suffix_pos, generic_arguments) =>
+                  let
+                    val pure_function =
+                      R.parse_antiquotation ctxt environment source
+                    val lifted_function =
+                      T.lift_function suffix_pos lift_arity pure_function
+                    val parameterized_function =
+                      R.apply_generic_arguments ctxt environment
+                        lifted_function generic_arguments
+                  in (parameterized_function, arguments) end)
            val lowered_arguments =
              map (lower_expression ctxt environment) source_arguments
          in T.function_call call_pos function lowered_arguments end

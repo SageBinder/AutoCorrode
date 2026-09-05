@@ -179,8 +179,10 @@ urust_expr_with_check let_wild \<open> let _ = \<llangle>5 :: nat\<rrangle>; () 
 text\<open> Its \<open>Abs\<close>/\<open>Bound\<close> representation cannot capture an outer binder. \<close>
 urust_expr_with_check let_wild_hyg \<open> let uu = \<llangle>5 :: nat\<rrangle>; let _ = \<llangle>7 :: nat\<rrangle>; uu \<close>
 
-text\<open> Refutable \<open>let\<close> patterns and patterns unsupported by a selected match lowering have positioned
-rows in \<open>Parser_Test_Negative_Conformance.thy\<close>. \<close>
+text\<open>
+Refutable binding patterns and forms excluded by a consumer-specific pattern policy have positioned
+rows in \<open>Parser_Test_Negative_Conformance.thy\<close>.
+\<close>
 
 section\<open> Tuple values and irrefutable tuple binders \<close>
 
@@ -938,7 +940,7 @@ urust_expr_with_check turbofish_exact_registration_wins
     )
   \<close>
 
-subsection\<open> Remaining registered callees \<close>
+subsection\<open> Constructors and lexical callees \<close>
 
 urust_expr_with_check call_some \<open> Some(\<llangle>42 :: nat\<rrangle>) \<close>
 
@@ -2042,12 +2044,13 @@ urust_expr_with_check rc_m_call_arg \<open> \<llangle>1 :: 64 word\<rrangle>.cf2
 urust_expr_with_check rc_m_prec \<open> \<llangle>1 :: 64 word\<rrangle>.cf1() + \<llangle>2 :: 64 word\<rrangle> * \<llangle>3 :: 64 word\<rrangle> \<close>
 
 
-section\<open> Match \<open>match_switch\<close> (Corpus "Match Expressions" -- numeric/wildcard, first-order) \<close>
+section\<open> Match \<open>match_switch\<close> (Corpus "Match Expressions" -- first-order keys) \<close>
 
 text\<open>
 \<open>match_switch\<close> binds the scrutinee into \<open>ncase_selector\<close> (D26).
-Numerals become \<open>Some\<close> keys, wildcard becomes \<open>None\<close>, and or-patterns
-duplicate the key/body pair. It is first-order; constant and path keys remain deferred.
+Numerals and registered non-constructor paths become \<open>Some\<close> keys, wildcard becomes
+\<open>None\<close>, and groups and or-patterns preserve or duplicate those keys. It remains a
+first-order key matcher: explicit switch rejects binding identifiers and case-only patterns.
 \<close>
 
 urust_expr_with_check msw_lit \<open> match_switch \<llangle>1 :: nat\<rrangle> { 1 \<Rightarrow> \<llangle>True\<rrangle>, _ \<Rightarrow> \<llangle>False\<rrangle> } \<close>
@@ -2064,8 +2067,9 @@ text\<open> Or-pattern: \<open>1 | 2 | 3\<close> expands to three \<open>(Some _
 urust_expr_with_check msw_or \<open> match_switch n { 1 | 2 | 3 \<Rightarrow> \<llangle>True\<rrangle>, _ \<Rightarrow> \<llangle>False\<rrangle> } \<close>
 
 text\<open>
-Rows cover a let RHS and statement position, where explicit \<open>match_switch\<close>
-requires a semicolon.
+Rows cover a let RHS and the frontend-shared statement spelling, where explicit
+\<open>match_switch\<close> uses a semicolon. The dedicated parser's semicolon-free extension is checked
+against this spelling in \<open>Parser_Test_Improvements.thy\<close>.
 \<close>
 urust_expr_with_check msw_let \<open> let r = match_switch n { 0 \<Rightarrow> \<llangle>True\<rrangle>, _ \<Rightarrow> \<llangle>False\<rrangle> }; r \<close>
 
@@ -2114,7 +2118,10 @@ urust_expr_with_check mc_shadow
 text\<open> As a value (let-RHS). \<close>
 urust_expr_with_check mc_let \<open> let r = match_case x { Some(y) \<Rightarrow> y, None \<Rightarrow> 0 }; r \<close>
 
-text\<open> As a \<open>;\<close>-terminated statement (the \<open>match_case\<close> keyword has no no-\<open>;\<close> form, like \<open>match_switch\<close>). \<close>
+text\<open>
+As a \<open>;\<close>-terminated statement shared with the frontend. The dedicated parser also admits
+semicolon-free explicit matches, with equivalence witnesses in \<open>Parser_Test_Improvements.thy\<close>.
+\<close>
 urust_expr_with_check mc_stmt \<open> match_case x { Some(_) \<Rightarrow> () , None \<Rightarrow> () } ; () \<close>
 
 subsection\<open> Anonymous-binder hygiene \<close>
@@ -2146,10 +2153,10 @@ section\<open> Rich case-pattern lowering \<close>
 text\<open>
 Case arms are normalized in stages: recursive disjunction expansion, recursive
 constructor compilation, and ordered guard fall-through. Case numerals remain
-frontend-fidelity rejections. These rows replace the four former D-7 negative tests.
+frontend-fidelity rejections. The first rows are positive witnesses for formerly rejected D-7 forms.
 \<close>
 
-subsection\<open> Former D-7 rejection rows \<close>
+subsection\<open> Former D-7 surface \<close>
 
 urust_expr_with_check rich_explicit_nested
   \<open> match_case \<llangle>Some (Some (0 :: nat))\<rrangle> { Some(Some(y)) \<Rightarrow> (), _ \<Rightarrow> () } \<close>
@@ -2377,8 +2384,10 @@ urust_expr_with_check rich_or_nested
   \<open> match_case ro { Some(RMA(x) | RMB(x)) \<Rightarrow> x, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<close>
 
 text\<open>
-C1-I5 intentionally differs from the old frontend here: a false source guard skips the whole
-or-pattern arm instead of retrying the guard through a sibling alternative.
+The dedicated lowering evaluates one source guard after any or-pattern alternative matches. A false
+guard skips the complete source arm instead of retrying it through a sibling alternative, correcting
+the old frontend's expansion behavior. The structural regression audit pins this intentional
+checked-term difference.
 \<close>
 
 urust_expr rich_or_guarded
@@ -2469,9 +2478,9 @@ urust_expr_with_check value_pat_disjunction
   \<open> match b { true | false \<Rightarrow> True } \<close>
 
 text\<open>
-C1-I5 runs generated pattern tests before the one shared source-arm guard. The old frontend
-conjoined them in the opposite syntactic order, so guarded extended-pattern rows are checked by
-the cycle audit rather than by legacy-term reflection.
+Generated equality tests run before the one shared source-arm guard. The old frontend conjoined them
+in the opposite syntactic order, so guarded extended-pattern rows use the structural regression audit
+rather than legacy-term reflection.
 \<close>
 
 urust_expr value_pat_source_guard
@@ -2991,8 +3000,8 @@ section\<open> Bare \<open>match\<close> (automatic case/switch routing, D32) \<
 
 text\<open>
 Bare \<open>match\<close> routes constructor/disjunction heads to case and numerals to switch;
-ambiguous identifier/wildcard heads default to case. It alone supports semicolon-free
-statement sequencing.
+ambiguous identifier/wildcard heads default to case. All three match flavours are control expressions
+in the dedicated grammar; bare \<open>match\<close> is the semicolon-free spelling shared with the frontend.
 \<close>
 
 context fixes x :: \<open>nat option\<close> and n :: nat
@@ -3010,7 +3019,10 @@ urust_expr_with_check ma_ambiguous \<open> match x { None \<Rightarrow> 0, _ \<R
 text\<open> Bare \<open>match\<close> in a let RHS. \<close>
 urust_expr_with_check ma_let \<open> let r = match x { Some(y) \<Rightarrow> y, None \<Rightarrow> 0 }; r \<close>
 
-text\<open> Bare \<open>match\<close> is a semicolon-free block-like statement; the explicit forms remain unchanged. \<close>
+text\<open>
+Bare \<open>match\<close> is a semicolon-free block-like statement in both frontends. The parser-only
+semicolon-free explicit forms are covered separately as accepted-surface improvements.
+\<close>
 urust_expr_with_check ma_stmt \<open> match x { Some(_) \<Rightarrow> (), None \<Rightarrow> () } () \<close>
 
 text\<open> Nested bare matches re-enter \<open>uval\<close>; the outer arms route to case and the inner arms to switch. \<close>
@@ -3166,8 +3178,9 @@ urust_expr_with_check bind_match_scrutinee_outer
   \<close>
 
 text\<open>
-C1-I1/C1-I5 keep the outer \<open>x\<close> in the next-arm continuation distinct from the guarded
-arm binder. The old frontend accidentally captured that fallback while expanding the guard.
+Resolved-arm preparation keeps the outer \<open>x\<close> in the next-arm continuation distinct from the
+guarded arm binder. The old frontend accidentally captured that fallback while expanding the guard,
+so the structural regression audit checks this corrected parser term.
 \<close>
 
 urust_expr bind_match_guard_shadow
@@ -3560,9 +3573,9 @@ urust_expr_with_check while_let_terminal
   \<open> #[fuel(\<epsilon>\<open>n\<close>)] while let None = \<llangle>None :: nat option\<rrangle> { () } \<close>
 
 text\<open>
-C1-I6 recognizes only conservative resolved-pattern coverage. Sole-constructor families and complete
-constructor-family or-patterns omit the generated false fallback; this is not a general Rust
-exhaustiveness checker.
+While-let lowering recognizes only conservative resolved-pattern coverage. Sole-constructor families
+and complete constructor-family or-patterns omit the generated false fallback; this is not a general
+Rust exhaustiveness checker.
 \<close>
 
 urust_expr while_let_exhaustive_tnil
@@ -4402,14 +4415,16 @@ end
 
 no_adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
 
-section\<open> Regression and divergence cases \<close>
+section\<open> Resolved divergences and current parity boundary \<close>
 
 text\<open>
-Resolved divergences stay positive; current rejections use the negative harness or
-frontend-only golden stubs.
+This theory keeps representative same-source positive rows for resolved parser/frontend differences.
+Shared and intentional parser-only rejections live in \<open>Parser_Test_Negative_Conformance.thy\<close>;
+accepted-surface extensions live in \<open>Parser_Test_Improvements.thy\<close>; and the remaining
+frontend-only expression forms stay as goldens in \<open>Conformance_Corpus.thy\<close>.
 \<close>
 
-subsection\<open> D-1 (RESOLVED 2026-08-25): \<open>if\<close> as a binary-operator operand -- both now reject \<close>
+subsection\<open> D-1 (RESOLVED 2026-08-25): \<open>if\<close> as a binary-operator operand -- both reject \<close>
 
 text\<open> An unparenthesized \<open>if\<close> operand is rejected by both parsers; parentheses make it an operand. \<close>
 urust_expr_with_check d1_paren_operand
@@ -4424,7 +4439,7 @@ urust_expr_with_check d2_if_seq \<open> if \<llangle>True\<rrangle> { () } () \<
 
 urust_expr_with_check d2_ifelse_seq \<open> if \<llangle>True\<rrangle> { () } else { () } () \<close>
 
-subsection\<open> D-3 (RESOLVED 2026-08-24): a HOL-const-named binder IS captured in an antiquotation \<close>
+subsection\<open> D-3 (RESOLVED 2026-08-24): HOL-constant-named binders are captured in antiquotations \<close>
 
 text\<open> Enclosing binders shadow same-named HOL constants and registered notation names in antiquotations. \<close>
 urust_expr_with_check div_binder_const \<open> let id = \<llangle>5 :: nat\<rrangle>; \<llangle>id\<rrangle> \<close>
@@ -4435,14 +4450,18 @@ urust_expr_with_check cap_const_deep \<open> let id = \<llangle>5 :: nat\<rrangl
 
 urust_expr_with_check cap_notation \<open> let myReg = \<llangle>5 :: nat\<rrangle>; \<llangle>myReg\<rrangle> \<close>  \<comment>\<open> binder name = a registered notation surface name (guard) \<close>
 
-subsection\<open> D-5: non-identifier / non-method call callees -- partially resolved \<close>
+subsection\<open> D-5 (RESOLVED 2026-09-05): embedded HOL callees \<close>
 
 text\<open>
-D-5 now accepts expression antiquotations directly as callees without admitting arbitrary
-expression invocation. Arity-indexed HOL function literals remain deferred. Nested-callable forms
-\<open>f(a)(b)\<close> and \<open>(g)(x)\<close> remain rejected by both parsers. See
-\<open>urust-old-new-divergences.md\<close>.
+D-5 is closed by two dedicated call atoms. An expression antiquotation is parsed once in the current
+lexical environment and passed directly to \<open>funcall0\<close> through \<open>funcall14\<close>. An adjacent
+arity-indexed value antiquotation applies \<open>lift_fun1\<close> through \<open>lift_fun14\<close>, then optional
+restricted D-20 generic arguments, then the independently selected runtime \<open>funcallN\<close>. Neither form
+enables general expression invocation: chained calls such as \<open>f(a)(b)\<close> and grouped callees such
+as \<open>(g)(x)\<close> remain shared rejections.
 \<close>
+
+subsubsection\<open> Expression-antiquotation callees \<close>
 
 urust_expr_with_check d5_antiquotation_call0
   \<open> \<epsilon>\<open>cf0\<close>() \<close>
@@ -4571,22 +4590,205 @@ urust_expr_with_check d5_antiquotation_nearest_lexical_shadow
     )
   \<close>
 
-subsection\<open> D-7: advanced patterns -- resolved for current consumers \<close>
-
 text\<open>
-D-7 is closed for \<open>match\<close>, \<open>match_case\<close>, \<open>match_switch\<close>,
-\<open>let\<close>, and \<open>const\<close>. Grouped patterns are transparent; aliases, ranges,
-slices, and structs use case lowering and remain refutable at binder and switch sites.
-Reference-pattern syntax is retained but rejected until it has semantics. Case numerals
-are fidelity rejections, not part of this divergence. See
-\<open>urust-old-new-divergences.md\<close>.
+Arity-indexed function literals retain their HOL body as a positioned source, apply exactly one
+\<open>lift_fun1\<close> through \<open>lift_fun14\<close>, optionally consume the restricted turbofish parameters,
+and then use the ordinary runtime-argument \<open>funcall0\<close> through \<open>funcall14\<close> lowering. Lift
+arity and runtime call arity are intentionally independent.
 \<close>
 
-subsection\<open> Deferred frontend surface \<close>
+subsubsection\<open> Function-literal suffixes 1 through 14 \<close>
+
+urust_expr_with_check d5_function_literal_arity1
+  \<open> \<llangle>\<lambda>a. (a :: nat)\<rrangle>\<^sub>1(0) \<close>
+
+urust_expr_with_check d5_function_literal_arity2
+  \<open> \<llangle> (\<lambda>a b. (a + b :: nat)) \<rrangle>\<^sub>2 (0, 1) \<close>
+
+urust_expr_with_check d5_function_literal_arity3
+  \<open>
+    \<llangle>
+      \<lambda>a b c. (a + b + c :: nat)
+    \<rrangle>\<^sub>3
+    (0, 1, 2)
+  \<close>
+
+urust_expr_with_check d5_function_literal_arity4
+  \<open> \<llangle>\<lambda>a b c d. (a + b + c + d :: nat)\<rrangle>\<^sub>4(0, 1, 2, 3) \<close>
+
+urust_expr_with_check d5_function_literal_arity5
+  \<open> \<llangle>\<lambda>a b c d e. (a + b + c + d + e :: nat)\<rrangle>\<^sub>5(0, 1, 2, 3, 4) \<close>
+
+urust_expr_with_check d5_function_literal_arity6
+  \<open> \<llangle>\<lambda>a b c d e f. (a + b + c + d + e + f :: nat)\<rrangle>\<^sub>6(0, 1, 2, 3, 4, 5) \<close>
+
+urust_expr_with_check d5_function_literal_arity7
+  \<open> \<llangle>\<lambda>a b c d e f g. (a + b + c + d + e + f + g :: nat)\<rrangle>\<^sub>7(0, 1, 2, 3, 4, 5, 6) \<close>
+
+urust_expr_with_check d5_function_literal_arity8
+  \<open> \<llangle>\<lambda>a b c d e f g h. (a + b + c + d + e + f + g + h :: nat)\<rrangle>\<^sub>8(0, 1, 2, 3, 4, 5, 6, 7) \<close>
+
+urust_expr_with_check d5_function_literal_arity9
+  \<open> \<llangle>\<lambda>a b c d e f g h i. (a + b + c + d + e + f + g + h + i :: nat)\<rrangle>\<^sub>9(0, 1, 2, 3, 4, 5, 6, 7, 8) \<close>
+
+urust_expr_with_check d5_function_literal_arity10
+  \<open> \<llangle>\<lambda>a b c d e f g h i j. (a + b + c + d + e + f + g + h + i + j :: nat)\<rrangle>\<^sub>1\<^sub>0(0, 1, 2, 3, 4, 5, 6, 7, 8, 9) \<close>
+
+urust_expr_with_check d5_function_literal_arity11
+  \<open> \<llangle>\<lambda>a b c d e f g h i j k. (a + b + c + d + e + f + g + h + i + j + k :: nat)\<rrangle>\<^sub>1\<^sub>1(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10) \<close>
+
+urust_expr_with_check d5_function_literal_arity12
+  \<open> \<llangle>\<lambda>a b c d e f g h i j k l. (a + b + c + d + e + f + g + h + i + j + k + l :: nat)\<rrangle>\<^sub>1\<^sub>2(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11) \<close>
+
+urust_expr_with_check d5_function_literal_arity13
+  \<open> \<llangle>\<lambda>a b c d e f g h i j k l m. (a + b + c + d + e + f + g + h + i + j + k + l + m :: nat)\<rrangle>\<^sub>1\<^sub>3(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12) \<close>
+
+urust_expr_with_check d5_function_literal_arity14
+  \<open> \<llangle>\<lambda>a b c d e f g h i j k l m n. (a + b + c + d + e + f + g + h + i + j + k + l + m + n :: nat)\<rrangle>\<^sub>1\<^sub>4(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13) \<close>
+
+subsubsection\<open> Function-literal bodies, scope, and placement \<close>
+
+definition function_literal_collision :: \<open>nat \<Rightarrow> nat\<close>
+  where \<open> function_literal_collision x = x + 1 \<close>
+
+micro_rust_notation (call) cf1 ("function_literal_collision")
+
+urust_expr_with_check d5_function_literal_hol_constant
+  \<open> \<llangle>Suc\<rrangle>\<^sub>1(0) \<close>
+
+urust_expr_with_check d5_function_literal_composed
+  \<open> \<llangle>Suc \<circ> Suc\<rrangle>\<^sub>1(0) \<close>
+
+urust_expr_with_check d5_function_literal_notation_collision
+  \<open> \<llangle>function_literal_collision\<rrangle>\<^sub>1(0) \<close>
+
+context
+  fixes function_literal_fixed :: \<open>nat \<Rightarrow> nat\<close>
+begin
+urust_expr_with_check d5_function_literal_context_fixed
+  \<open> \<llangle>function_literal_fixed\<rrangle>\<^sub>1(0) \<close>
+end
+
+urust_expr_with_check d5_function_literal_lexical_capture
+  \<open>
+    let offset = \<llangle>3 :: nat\<rrangle>;
+    \<llangle>\<lambda>x. x + offset\<rrangle>\<^sub>1(4)
+  \<close>
+
+context
+  fixes offset :: nat
+begin
+urust_expr_with_check d5_function_literal_nearest_shadow
+  \<open>
+    let offset = \<llangle>2 :: nat\<rrangle>;
+    let offset = \<llangle>3 :: nat\<rrangle>;
+    \<llangle>\<lambda>x. x + offset\<rrangle>\<^sub>1(4)
+  \<close>
+end
+
+urust_expr_with_check d5_function_literal_nested_call
+  \<open>
+    \<llangle>\<lambda>x. x\<rrangle>\<^sub>1(
+      \<llangle>Suc\<rrangle>\<^sub>1(0)
+    )
+  \<close>
+
+urust_expr_with_check d5_function_literal_call_as_argument
+  \<open>
+    cf2(
+      \<llangle>\<lambda>x. x + 1\<rrangle>\<^sub>1(\<llangle>1 :: 64 word\<rrangle>),
+      \<llangle>\<lambda>x. x + 2\<rrangle>\<^sub>1(\<llangle>2 :: 64 word\<rrangle>)
+    )
+  \<close>
+
+urust_expr_with_check d5_function_literal_initializer
+  \<open>
+    let result = \<llangle>Suc\<rrangle>\<^sub>1(0);
+    result
+  \<close>
+
+urust_expr_with_check d5_function_literal_sequencing
+  \<open>
+    \<llangle>Suc\<rrangle>\<^sub>1(0);
+    \<llangle>Suc\<rrangle>\<^sub>1(1)
+  \<close>
+
+urust_expr_with_check d5_function_literal_operator
+  \<open>
+    \<llangle>\<lambda>x. x\<rrangle>\<^sub>1(\<llangle>1 :: 64 word\<rrangle>) +
+      \<llangle>2 :: 64 word\<rrangle>
+  \<close>
+
+urust_expr_with_check d5_function_literal_postfix_result
+  \<open> \<llangle>\<lambda>x. x\<rrangle>\<^sub>1(\<llangle>1 :: 64 word\<rrangle>).cf1() \<close>
+
+subsubsection\<open> Function-literal runtime arity and restricted turbofish \<close>
+
+definition function_literal_parameter_a :: nat
+  where \<open> function_literal_parameter_a = 1 \<close>
+
+definition function_literal_parameter_b :: nat
+  where \<open> function_literal_parameter_b = 2 \<close>
+
+definition function_literal_path_parameter :: nat
+  where \<open> function_literal_path_parameter = 3 \<close>
+
+notation function_literal_path_parameter ("FunctionLiteral':':parameter")
+
+urust_expr_with_check d5_function_literal_runtime0
+  \<open> \<llangle>\<lambda>x. x\<rrangle>\<^sub>1::<function_literal_parameter_a>() \<close>
+
+urust_expr_with_check d5_function_literal_turbofish_multiple
+  \<open>
+    \<llangle>\<lambda>a b c. (a + b + c :: nat)\<rrangle>\<^sub>3
+      ::<function_literal_parameter_a, function_literal_parameter_b>(3)
+  \<close>
+
+urust_expr_with_check d5_function_literal_turbofish_path
+  \<open>
+    \<llangle>\<lambda>a b. (a + b :: nat)\<rrangle>\<^sub>2
+      ::<FunctionLiteral::parameter>(4)
+  \<close>
+
+urust_expr_with_check d5_function_literal_turbofish_parentheses_addition
+  \<open>
+    \<llangle>\<lambda>a b. (a + b :: nat)\<rrangle>\<^sub>2
+      ::<(function_literal_parameter_a + function_literal_parameter_b)>(4)
+  \<close>
+
+urust_expr_with_check d5_function_literal_runtime14
+  \<open>
+    \<llangle>\<lambda>a b c d e f g h i j k l m n.
+      (a + b + c + d + e + f + g + h + i + j + k + l + m + n :: nat)
+    \<rrangle>\<^sub>1\<^sub>4
+      (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13)
+  \<close>
+
+subsection\<open> D-7 (RESOLVED): advanced patterns and consumer-specific gates \<close>
 
 text\<open>
-\<open>Conformance_Corpus.thy\<close> owns deferred-feature goldens. Add negative rows here
-only when the parser has a stable diagnostic.
+D-7 is closed across ordinary and explicit matches, \<open>let\<close>/\<open>const\<close>, conditional bindings,
+\<open>while let\<close>, and \<open>matches!\<close>. Groups are transparent. Aliases, ranges, slices, and structs
+use case preparation where admitted and retain positioned rejection at irrefutable-binding or explicit
+switch sites. Immutable and mutable reference prefixes erase recursively after entering case
+preparation, matching the frontend; direct binders, explicit switches, top-level tuple conditional
+binders, and range endpoints retain their consumer-specific rejection. Case numerals remain shared
+frontend-fidelity rejections rather than an open divergence.
+\<close>
+
+subsection\<open> Open exceptions and remaining frontend surface \<close>
+
+text\<open>
+The current approved exceptions are D-13 (ambiguous unqualified struct heads), D-14 (the frontend's
+ordinary-selector \<open>more\<close> omission), D-15 (unparenthesized fueled-\<open>while\<close> conditions), and
+D-20 (arbitrary unquoted HOL turbofish payloads). They are non-blocking and have executable negative
+or fixture coverage.
+
+Only D-21 struct expressions and D-22 \<open>\<y>\<i>\<e>\<l>\<d>\<close>, primitive
+\<open>\<l>\<o>\<g>\<close>, and \<open>StdLib_Logging\<close> log-data expressions remain as frontend-parity work.
+Their frontend-only goldens live in \<open>Conformance_Corpus.thy\<close>. General postfix invocation,
+Rust closure/reference semantics, and declaration commands are post-parity work, not missing
+expression-frontend parity.
 \<close>
 
 end

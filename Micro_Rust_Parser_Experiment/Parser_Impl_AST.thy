@@ -94,6 +94,8 @@ sig
       UC_Path of ur_path
     | UC_Method of ur_expr * path_segment
     | UC_Antiq of Input.source
+    | UC_FunLiteral of
+        Input.source * int * Position.T * generic_args option
 
   and ur_expr =
       UE_Unit of Position.T
@@ -208,7 +210,9 @@ end
       UE_IfLet retains an optional source else branch; UE_LetElse retains its fallback and required
       continuation separately. A UE_Return never stores a semicolon; a method invocation is
       represented as UC_Method and prepended during lowering; UC_Antiq retains the exact positioned
-      embedded HOL callee source; ur_place contains only validated assignment-target shapes.
+      embedded HOL callee source; UC_FunLiteral additionally retains its lift arity, suffix position,
+      and optional restricted generic arguments; ur_place contains only validated assignment-target
+      shapes.
 
   Position.T fields identify the token or span documented at each constructor. Consumers may use them
   for markup and diagnostics, but must not infer semantic validity from their presence.
@@ -355,6 +359,8 @@ struct
       UC_Path of ur_path
     | UC_Method of ur_expr * path_segment
     | UC_Antiq of Input.source
+    | UC_FunLiteral of
+        Input.source * int * Position.T * generic_args option
 
   and ur_expr =
       UE_Unit      of Position.T                      (* () *)
@@ -399,9 +405,10 @@ struct
     | UE_Call      of ur_callee * ur_expr list * Position.T
                                                       (* callee(a0..aN) -> funcallN. Paths/methods use
                                                          NFunction resolution; antiquotations are direct
-                                                         embedded HOL callees. Args and the complete call
-                                                         span are retained so an arity error underlines
-                                                         the whole invocation. *)
+                                                         embedded HOL callees; function literals first
+                                                         apply lift_funN and optional generic parameters.
+                                                         Args and the complete call span are retained so
+                                                         an arity error underlines the whole invocation. *)
     | UE_Field     of ur_expr * string * Position.T   (* e.field -> NField lens focus *)
     | UE_Index     of ur_expr * ur_expr * Position.T  (* e[i] -> index_const, at full span *)
     | UE_Range     of range_kind * ur_expr * ur_expr * Position.T

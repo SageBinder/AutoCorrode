@@ -771,6 +771,112 @@ urust_expr_rejects fidelity
   \<open> syntax error found at end of input \<close>
   \<comment> \<open> [FIDELITY] an antiquotation-headed call requires its closing parenthesis. \<close>
 
+subsection\<open> Arity-indexed function-literal callees \<close>
+
+urust_expr_rejects fidelity
+  \<open> \<llangle>id\<rrangle>\<^sub>0() \<close>
+  \<open> unexpected input \<close>
+
+urust_expr_rejects fidelity
+  \<open> \<llangle>id\<rrangle>\<^sub>1\<^sub>5() \<close>
+  \<open> syntax error \<close>
+
+urust_expr_rejects fidelity
+  \<open> \<llangle>id\<rrangle>_1() \<close>
+  \<open> syntax error \<close>
+
+urust_expr_rejects fidelity
+  \<open> \<llangle>id\<rrangle>\<^sub>1\<^sub>1\<^sub>1() \<close>
+  \<open> syntax error \<close>
+
+urust_expr_rejects fidelity
+  \<open> \<llangle>id\<rrangle>\<^sub>2\<^sub>2() \<close>
+  \<open> syntax error \<close>
+
+urust_expr_rejects fidelity
+  \<open> \<llangle>id\<rrangle> \<^sub>1() \<close>
+  \<open> function-literal arity suffix must immediately follow the value antiquotation \<close>
+
+urust_expr_rejects fidelity
+  \<open> \<epsilon>\<open>id\<close>\<^sub>1() \<close>
+  \<open> syntax error \<close>
+
+urust_expr_rejects fidelity
+  \<open> \<llangle>id\<rrangle>\<^sub>1 \<close>
+  \<open> syntax error found at end of input \<close>
+
+urust_expr_rejects fidelity
+  \<open> (\<llangle>id\<rrangle>\<^sub>1)(0) \<close>
+  \<open> syntax error \<close>
+
+urust_expr_rejects fidelity
+  \<open> \<llangle>id\<rrangle>\<^sub>1(0)(1) \<close>
+  \<open> syntax error found at ( \<close>
+
+urust_expr_rejects fidelity
+  \<open> \<llangle>id\<rrangle>\<^sub>1(,0) \<close>
+  \<open> syntax error \<close>
+
+urust_expr_rejects fidelity
+  \<open> \<llangle>id\<rrangle>\<^sub>1(0,,1) \<close>
+  \<open> syntax error \<close>
+
+urust_expr_rejects fidelity
+  \<open> \<llangle>id\<rrangle>\<^sub>1(0 \<close>
+  \<open> syntax error found at end of input \<close>
+
+urust_expr_rejects fidelity
+  \<open> \<llangle>\<lambda>x. x\<rrangle>\<^sub>1() \<close>
+  \<open> Type unification failed \<close>
+  \<comment> \<open> [FIDELITY] lift arity is not compared with runtime arity; HOL checking rejects the mismatch. \<close>
+
+urust_expr_rejects fidelity
+  \<open> \<llangle>\<lambda>x. x\<rrangle>\<^sub>1(0, 1) \<close>
+  \<open> Type unification failed \<close>
+  \<comment> \<open> [FIDELITY] the opposite lift/runtime mismatch also remains a HOL type error. \<close>
+
+urust_expr_rejects fidelity
+  \<open>
+    \<llangle>\<lambda>x. x\<rrangle>\<^sub>1(
+      0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14
+    )
+  \<close>
+  \<open> unsupported call arity 15 \<close>
+
+urust_expr_rejects fidelity
+  \<open> \<llangle>id\<rrangle>\<^sub>1::<>(0) \<close>
+  \<open> syntax error \<close>
+
+urust_expr_rejects fidelity
+  \<open> \<llangle>id\<rrangle>\<^sub>1::<,1>(0) \<close>
+  \<open> syntax error \<close>
+
+urust_expr_rejects fidelity
+  \<open> \<llangle>id\<rrangle>\<^sub>1::<1,,2>(0) \<close>
+  \<open> syntax error \<close>
+
+new_urust_rejects divergent
+  \<open> \<llangle>\<lambda>x. x\<rrangle>\<^sub>1::<-1>() \<close>
+  \<open> unexpected input \<close>
+  \<comment> \<open> [DIVERGENT] function literals use the same restricted D-20 turbofish grammar. \<close>
+
+new_urust_rejects divergent
+  \<open> \<llangle>\<lambda>x. x\<rrangle>\<^sub>1::<1 * 2>() \<close>
+  \<open> unexpected input \<close>
+  \<comment> \<open> [DIVERGENT] unsupported generic operators do not regain arbitrary HOL syntax here. \<close>
+
+urust_expr_rejects fidelity
+  \<open> \<llangle>id\<rrangle>\<^sub>1::<1(0) \<close>
+  \<open> unterminated turbofish \<close>
+
+urust_expr_rejects fidelity
+  \<open> \<llangle>id\<rrangle>\<^sub>1::<1> \<close>
+  \<open> syntax error found at end of input \<close>
+
+urust_expr_rejects fidelity
+  \<open> \<llangle>id \<^sub>1(0) \<close>
+  \<open> unterminated value antiquotation \<close>
+
 section\<open> Legacy macros \<close>
 
 definition negative_macro_shout ::

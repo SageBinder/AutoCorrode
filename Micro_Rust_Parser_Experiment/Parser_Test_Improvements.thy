@@ -734,6 +734,12 @@ urust_expr_with_check' improvement_trailing_antiquotation_call
 old_urust_rejects
   \<open> \<epsilon>\<open>cf1\<close>(\<llangle>1 :: 64 word\<rrangle>,) \<close>
 
+urust_expr_with_check' improvement_trailing_function_literal_call
+  \<open> \<llangle>Suc\<rrangle>\<^sub>1(0,) \<close>
+  \<open> \<lbrakk> \<llangle>Suc\<rrangle>\<^sub>1(0) \<rbrakk> \<close>
+old_urust_rejects
+  \<open> \<llangle>Suc\<rrangle>\<^sub>1(0,) \<close>
+
 context
   fixes trailing_antiquotation_call14 :: \<open>
     nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow>
@@ -760,6 +766,29 @@ old_urust_rejects
     )
   \<close>
 end
+
+urust_expr_with_check' improvement_trailing_function_literal_call14
+  \<open>
+    \<llangle>\<lambda>a b c d e f g h i j k l m n.
+      (a + b + c + d + e + f + g + h + i + j + k + l + m + n :: nat)
+    \<rrangle>\<^sub>1\<^sub>4
+      (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13,)
+  \<close>
+  \<open>
+    \<lbrakk>
+      \<llangle>\<lambda>a b c d e f g h i j k l m n.
+        (a + b + c + d + e + f + g + h + i + j + k + l + m + n :: nat)
+      \<rrangle>\<^sub>1\<^sub>4
+        (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13)
+    \<rbrakk>
+  \<close>
+old_urust_rejects
+  \<open>
+    \<llangle>\<lambda>a b c d e f g h i j k l m n.
+      (a + b + c + d + e + f + g + h + i + j + k + l + m + n :: nat)
+    \<rrangle>\<^sub>1\<^sub>4
+      (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13,)
+  \<close>
 
 urust_expr_with_check' improvement_trailing_method_call
   \<open> \<llangle>1 :: 64 word\<rrangle>.cf2(\<llangle>2 :: 64 word\<rrangle>,) \<close>

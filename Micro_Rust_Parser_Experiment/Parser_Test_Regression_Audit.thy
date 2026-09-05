@@ -1976,6 +1976,361 @@ ML_val\<open>
   end
 \<close>
 
+section\<open> Arity-indexed function-literal callee audit \<close>
+
+text\<open>
+These checks pin the function-literal boundary independently of same-source conformance: exact HOL and
+suffix ranges, complete call spans, lift-before-parameter-before-call lowering, argument order,
+dispatch/literal bypass, failure recovery, suffix token markup, and captured-binder navigation.
+\<close>
+
+ML_val\<open>
+  local
+    open URust_AST
+
+    val ctxt = \<^context>
+
+    fun audit_assert message condition =
+      if condition then ()
+      else error ("function-literal callee audit: " ^ message)
+
+    fun parse_source source =
+      (case URust_Diagnostics.parse_source ctxt source of
+         SOME expression => expression
+       | NONE => error "function-literal callee audit: empty parse")
+
+    fun parse text =
+      parse_source (Parser_Lex_Util.text_source text)
+
+    fun checked text =
+      URust_Command.elab_urust ctxt
+        (Parser_Lex_Util.text_source text)
+      |> Term_Position.strip_positions
+
+    fun same_start actual expected =
+      Position.offset_of actual = Position.offset_of expected
+
+    fun same_stop actual expected =
+      Position.end_offset_of actual = Position.offset_of expected
+
+    fun is_path name (UE_Path path) = render_path path = name
+      | is_path _ _ = false
+
+    val opener = "\<llangle>"
+    val body = "  (\<lambda>x. x)\n"
+    val closer = "\<rrangle>"
+    val suffix14 = "\<^sub>1\<^sub>4"
+    val generic = "::<function_literal_parameter_a>"
+    val arguments = "(first, second)"
+    val ast_text =
+      opener ^ body ^ closer ^ suffix14 ^ generic ^ arguments
+    val ast_start =
+      Position.make0 7 30 300 "" "" "function-literal-ast-audit"
+    val body_start = Position.symbol_explode opener ast_start
+    val body_stop = Position.symbol_explode (opener ^ body) ast_start
+    val suffix_start =
+      Position.symbol_explode (opener ^ body ^ closer) ast_start
+    val suffix_stop =
+      Position.symbol_explode
+        (opener ^ body ^ closer ^ suffix14) ast_start
+    val generic_start =
+      Position.symbol_explode
+        (opener ^ body ^ closer ^ suffix14 ^ "::<") ast_start
+    val generic_stop =
+      Position.symbol_explode
+        (opener ^ body ^ closer ^ suffix14 ^
+          "::<function_literal_parameter_a") ast_start
+    val call_stop = Position.symbol_explode ast_text ast_start
+    val ast =
+      parse_source
+        (Parser_Lex_Util.positioned_content_source
+          ast_text ast_start)
+    val _ =
+      (case ast of
+         UE_Call
+           (UC_FunLiteral
+              (source, 14, suffix_pos,
+               SOME
+                 (Generic_Args
+                   ([Generic_Arg (canonical, generic_source)], _))),
+            [first, second], call_pos) =>
+           (audit_assert "runtime argument order changed"
+              (is_path "first" first andalso is_path "second" second);
+            audit_assert "retained HOL body text changed"
+              (Input.string_of source = body);
+            audit_assert "retained HOL body range start moved"
+              (same_start (#1 (Input.range_of source)) body_start);
+            audit_assert "retained HOL body range end moved"
+              (Position.offset_of (#2 (Input.range_of source)) =
+                Position.offset_of body_stop);
+            audit_assert "two-digit suffix range start moved"
+              (same_start suffix_pos suffix_start);
+            audit_assert "two-digit suffix range end moved"
+              (same_stop suffix_pos suffix_stop);
+            audit_assert "generic canonical fragment changed"
+              (canonical = "function_literal_parameter_a");
+            audit_assert "generic source range start moved"
+              (same_start (#1 (Input.range_of generic_source)) generic_start);
+            audit_assert "generic source range end moved"
+              (Position.offset_of (#2 (Input.range_of generic_source)) =
+                Position.offset_of generic_stop);
+            audit_assert "call span no longer starts at the value opener"
+              (same_start call_pos ast_start);
+            audit_assert "call span no longer includes the closing parenthesis"
+              (same_stop call_pos call_stop);
+            audit_assert "expression_position lost the complete call span"
+              (same_start (expression_position ast) ast_start andalso
+               same_stop (expression_position ast) call_stop))
+       | _ => error "function-literal callee audit: call AST changed")
+
+    val suffix9_text = "\<llangle>id\<rrangle>\<^sub>9(0)"
+    val suffix9_start =
+      Position.make0 13 70 700 "" "" "function-literal-suffix9-audit"
+    val suffix9_expected_start =
+      Position.symbol_explode "\<llangle>id\<rrangle>" suffix9_start
+    val suffix9_expected_stop =
+      Position.symbol_explode
+        "\<llangle>id\<rrangle>\<^sub>9" suffix9_start
+    val _ =
+      (case
+         parse_source
+           (Parser_Lex_Util.positioned_content_source
+             suffix9_text suffix9_start) of
+         UE_Call
+           (UC_FunLiteral (_, 9, suffix_pos, NONE), [_], _) =>
+           (audit_assert "one-digit suffix range start moved"
+              (same_start suffix_pos suffix9_expected_start);
+            audit_assert "one-digit suffix range end moved"
+              (same_stop suffix_pos suffix9_expected_stop))
+       | _ => error "function-literal callee audit: one-digit suffix AST changed")
+
+    fun count_constant name term =
+      Term.fold_aterms
+        (fn Const (candidate, _) =>
+              if candidate = name then Integer.add 1 else I
+          | _ => I)
+        term 0
+
+    fun constant_name (Const (name, _)) = SOME name
+      | constant_name _ = NONE
+
+    fun literal_constant expected argument =
+      (case argument of
+         Const (literal_name, _) $ Const (actual, _) =>
+           literal_name = \<^const_name>\<open>literal\<close> andalso
+           actual = expected
+       | _ => false)
+
+    val direct =
+      checked
+        ("\<llangle>function_literal_collision\<rrangle>\<^sub>1(" ^
+          "\<llangle>antiquotation_call_audit_first\<rrangle>)")
+    val _ =
+      (case Term.strip_comb direct of
+         (Const (call_name, _), [lifted, runtime_argument]) =>
+           (audit_assert "direct function literal did not use funcall1"
+              (call_name = \<^const_name>\<open>funcall1\<close>);
+            audit_assert "direct runtime argument changed"
+              (literal_constant
+                \<^const_name>\<open>antiquotation_call_audit_first\<close>
+                runtime_argument);
+            case Term.strip_comb lifted of
+              (Const (lift_name, _), [Const (body_name, _)]) =>
+                (audit_assert "direct function literal did not use lift_fun1"
+                   (lift_name = \<^const_name>\<open>lift_fun1\<close>);
+                 audit_assert "HOL body changed or gained a wrapper"
+                   (body_name =
+                     \<^const_name>\<open>function_literal_collision\<close>))
+            | _ =>
+                error
+                  "function-literal callee audit: direct lifted term changed")
+       | _ => error "function-literal callee audit: direct call term changed")
+    val _ =
+      audit_assert "HOL body was duplicated"
+        (count_constant
+          \<^const_name>\<open>function_literal_collision\<close> direct = 1)
+    val _ =
+      audit_assert "HOL body or lifted function received a literal wrapper"
+        (count_constant \<^const_name>\<open>literal\<close> direct = 1)
+    val _ =
+      audit_assert "HOL body entered notation dispatch"
+        (count_constant \<^const_name>\<open>urust_dispatch\<close> direct = 0)
+
+    val parameterized =
+      checked
+        ("\<llangle>\<lambda>a b c. (a + b + c :: nat)\<rrangle>\<^sub>3" ^
+         "::<function_literal_parameter_a>(" ^
+         "\<llangle>antiquotation_call_audit_first\<rrangle>, " ^
+         "\<llangle>antiquotation_call_audit_second\<rrangle>)")
+    val _ =
+      (case Term.strip_comb parameterized of
+         (Const (call_name, _),
+          [function, first_argument, second_argument]) =>
+           let
+             val (lift_head, lift_arguments) =
+               Term.strip_comb function
+           in
+             audit_assert "parameterized function literal did not use funcall2"
+               (call_name = \<^const_name>\<open>funcall2\<close>);
+             audit_assert "generic parameter was not applied after lift_fun3"
+               (constant_name lift_head =
+                  SOME \<^const_name>\<open>lift_fun3\<close> andalso
+                length lift_arguments = 2 andalso
+                constant_name (List.last lift_arguments) =
+                  SOME
+                    \<^const_name>\<open>function_literal_parameter_a\<close>);
+             audit_assert "parameterized runtime argument order changed"
+               (literal_constant
+                  \<^const_name>\<open>antiquotation_call_audit_first\<close>
+                  first_argument andalso
+                literal_constant
+                  \<^const_name>\<open>antiquotation_call_audit_second\<close>
+                  second_argument)
+           end
+       | _ =>
+           error
+             "function-literal callee audit: parameterized call term changed")
+
+    fun expect_rejection text expected =
+      (case Exn.result
+          (fn () =>
+            URust_Command.elab_urust ctxt
+              (Parser_Lex_Util.text_source text)) () of
+         Exn.Res _ =>
+           error
+             ("function-literal callee audit: unexpectedly accepted " ^
+               quote text)
+       | Exn.Exn exn =>
+           if Exn.is_interrupt exn then Exn.reraise exn
+           else
+             audit_assert ("diagnostic changed for " ^ quote text)
+               (String.isSubstring expected (Runtime.exn_message exn)))
+
+    val malformed =
+      [("\<llangle>id\<rrangle>\<^sub>0()", "unexpected input"),
+       ("\<llangle>id\<rrangle>\<^sub>1(,0)", "syntax error"),
+       ("\<llangle>id\<rrangle>\<^sub>1::<-1>()", "unexpected input"),
+       ("\<llangle>id\<rrangle>\<^sub>1::<1(0)", "unterminated turbofish"),
+       ("\<llangle>\<lambda>x. x\<rrangle>\<^sub>1()",
+        "Type unification failed")]
+    val _ =
+      List.app
+        (fn (text, expected) =>
+          (expect_rejection text expected;
+           audit_assert "parser state leaked after failed function literal"
+             (case parse "()" of
+                UE_Unit _ => true
+              | _ => false)))
+        malformed
+
+    fun find_from text needle offset =
+      if offset + size needle > size text
+      then error
+        ("function-literal callee audit: missing " ^ quote needle)
+      else if String.substring (text, offset, size needle) = needle
+      then offset
+      else find_from text needle (offset + 1)
+
+    fun token_position text start needle offset =
+      let
+        val raw = find_from text needle offset
+        val token_start =
+          Position.symbol_explode
+            (String.substring (text, 0, raw)) start
+      in
+        (raw,
+         Position.range_position
+           (token_start,
+            Position.symbol_explode needle token_start))
+      end
+
+    val markup_text =
+      "let captured = \<llangle>1 :: nat\<rrangle>; " ^
+      "\<llangle>\<lambda>x. x + captured\<rrangle>\<^sub>1(0)"
+    val markup_start =
+      Position.make0 11 50 500 "" "" "function-literal-markup-audit"
+    val captured_reports = Unsynchronized.ref ([]: string list)
+    fun capture_reports chunks =
+      Unsynchronized.change captured_reports (append chunks)
+    val _ =
+      Parser_Test_Report_Lock.run (fn () =>
+        Unsynchronized.setmp Private_Output.report_fn capture_reports
+          (fn () =>
+            Print_Mode.with_modes [Print_Mode.PIDE]
+              (fn () =>
+                ignore
+                  (URust_Command.elab_urust ctxt
+                    (Parser_Lex_Util.positioned_content_source
+                      markup_text markup_start))) ())
+          ())
+
+    fun collect_markup (XML.Text _) result = result
+      | collect_markup (XML.Elem (markup, tree)) result =
+          fold collect_markup tree (markup :: result)
+    val markup =
+      fold collect_markup
+        (maps YXML.parse_body (! captured_reports)) []
+    fun has_position properties position =
+      Properties.get properties Markup.offsetN =
+        Option.map Value.print_int (Position.offset_of position) andalso
+      Properties.get properties Markup.end_offsetN =
+        Option.map Value.print_int (Position.end_offset_of position)
+    fun has_markup markup_name position =
+      exists
+        (fn (name, properties) =>
+          name = markup_name andalso
+            has_position properties position)
+        markup
+    fun entity_id property position =
+      let
+        val ids =
+          markup
+          |> map_filter
+              (fn (name, properties) =>
+                if name = Markup.entityN andalso
+                   Properties.get properties Markup.kindN =
+                     SOME "urust_var" andalso
+                   has_position properties position
+                then Properties.get properties property
+                else NONE)
+          |> distinct (op =)
+      in
+        (case ids of
+           [id] => id
+         | _ =>
+             error
+               "function-literal callee audit: binder entity markup changed")
+      end
+    val (definition_offset, definition_position) =
+      token_position markup_text markup_start "captured" 0
+    val (_, reference_position) =
+      token_position markup_text markup_start "captured"
+        (definition_offset + size "captured")
+    val (_, suffix_position) =
+      token_position markup_text markup_start "\<^sub>1" 0
+    val _ =
+      audit_assert "function-literal suffix lost delimiter markup"
+        (has_markup Markup.delimiterN suffix_position)
+    val _ =
+      audit_assert "function-literal suffix lost typing markup"
+        (has_markup Markup.typingN suffix_position)
+    val _ =
+      audit_assert "captured binder definition lost bound markup"
+        (has_markup Markup.boundN definition_position)
+    val _ =
+      audit_assert "function-literal body reference lost bound markup"
+        (has_markup Markup.boundN reference_position)
+    val _ =
+      audit_assert "function-literal binder navigation changed"
+        (entity_id Markup.defN definition_position =
+          entity_id Markup.refN reference_position)
+  in
+    val _ =
+      writeln
+        "Function-literal AST, lowering, recovery, and markup regressions passed"
+  end
+\<close>
+
 section\<open> Closure AST, lowering, and binder-navigation audit \<close>
 
 consts

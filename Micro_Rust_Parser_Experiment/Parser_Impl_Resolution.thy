@@ -45,6 +45,9 @@ sig
     Proof.context -> environment -> string * Position.T -> term
   val function_path:
     Proof.context -> environment -> URust_AST.ur_path -> term
+  val apply_generic_arguments:
+    Proof.context -> environment -> term ->
+      URust_AST.generic_args option -> term
   val registered_function:
     Proof.context -> string * Position.T -> term option
   val registered_function_path:
@@ -116,7 +119,9 @@ ML\<open>
     otherwise lifts literal_value. literal_identifier_value resolves locals before NLiteral
     notation/HOL fallback without lifting, and literal_identifier lifts that result. In NFunction and
     NField roles an exact registered notation wins; otherwise a lexical local wins before HOL fallback.
-    function_identifier returns the selected unlifted callee.
+    function_identifier returns the selected unlifted callee. apply_generic_arguments parses the
+    retained restricted generic argument sources in the current lexical environment and applies them
+    to an already-resolved term from left to right.
     registered_function performs an exact registered NFunction lookup without imposing a caller
     naming policy. field_expression applies the same role policy and focuses the supplied receiver.
     Registered notation is represented by the existing dispatch marker; unregistered names retain
@@ -253,12 +258,13 @@ struct
   fun generic_sources (Generic_Args (arguments, _)) =
     map generic_argument_source arguments
 
-  fun final_parameters ctxt environment path =
-    (case segment_generic_args (final_segment path) of
-       NONE => []
-     | SOME arguments =>
-         map (parse_antiquotation ctxt environment)
-           (generic_sources arguments))
+  fun apply_generic_arguments ctxt environment function arguments =
+    T.apply_parameters function
+      (case arguments of
+         NONE => []
+       | SOME generic_arguments =>
+           map (parse_antiquotation ctxt environment)
+             (generic_sources generic_arguments))
 
   fun has_intermediate_generics path =
     let
@@ -360,7 +366,10 @@ struct
            val function =
              resolve_generic_free_path ctxt environment
                Micro_Rust_Names.NFunction false base
-         in T.apply_parameters function (final_parameters ctxt environment path) end)
+         in
+           apply_generic_arguments ctxt environment function
+             (segment_generic_args (final_segment path))
+         end)
 
   fun registered_function ctxt identifier =
     registered_identifier ctxt Micro_Rust_Names.NFunction identifier

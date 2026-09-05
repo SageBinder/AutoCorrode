@@ -18,6 +18,7 @@ sig
   val string_error: Position.T -> 'a
   val antiquotation_error: string -> Position.T -> 'a
   val turbofish_error: Position.T -> 'a
+  val function_literal_suffix_error: Position.T -> 'a
 end
 
 (*
@@ -38,8 +39,10 @@ end
       opening delimiter.  Lexer callers supply the source-facing kind, currently "value" or
       "expression".
     * turbofish_error pos raises the unterminated-group diagnostic at the generic opener.
+    * function_literal_suffix_error pos rejects an arity suffix separated from its value
+      antiquotation and reports at that suffix.
 
-  All four functions have result type 'a because they always raise via error.  Their exact string
+  All five functions have result type 'a because they always raise via error.  Their exact string
   assembly and use of quote are implementation details, subject to the message and position contracts
   above.  The SML_import below only makes this Isabelle/ML-owned interface available to generated lexer
   code; it does not create a second owner.
@@ -57,6 +60,11 @@ struct
 
   fun turbofish_error pos =
     error ("urust_expr: unterminated turbofish" ^ Position.here pos)
+
+  fun function_literal_suffix_error pos =
+    error
+      ("urust_expr: function-literal arity suffix must immediately follow the value antiquotation" ^
+        Position.here pos)
 end
 \<close>
 SML_import \<open> structure URust_Grammar = URust_Grammar \<close>
@@ -316,13 +324,36 @@ lex_rules\<open>
 <INITIAL>\\"<llangle>"          => (report_text (yypos, yytext, Markup.delimiter, "VALAQ"); start_aq Value_AQ yypos (yypos + size yytext); YYBEGIN VAQ; lex());
 <INITIAL>\\"<epsilon>"\\"<open>" => (report_text (yypos, hd (Symbol.explode yytext), Markup.literal, "EXPRAQ"); start_aq Expr_AQ yypos (yypos + size yytext); YYBEGIN EAQ; lex());
 <INITIAL>\\"<Rightarrow>" => (tokF (yypos, yytext, Markup.delimiter, "TARROW", Tokens.TARROW));
+<INITIAL>\\"<^sub>""1"\\"<^sub>""0" => (tok_valF (yypos, yytext, Markup.delimiter, "FUNARITY", Tokens.FUNARITY, 10));
+<INITIAL>\\"<^sub>""1"\\"<^sub>""1" => (tok_valF (yypos, yytext, Markup.delimiter, "FUNARITY", Tokens.FUNARITY, 11));
+<INITIAL>\\"<^sub>""1"\\"<^sub>""2" => (tok_valF (yypos, yytext, Markup.delimiter, "FUNARITY", Tokens.FUNARITY, 12));
+<INITIAL>\\"<^sub>""1"\\"<^sub>""3" => (tok_valF (yypos, yytext, Markup.delimiter, "FUNARITY", Tokens.FUNARITY, 13));
+<INITIAL>\\"<^sub>""1"\\"<^sub>""4" => (tok_valF (yypos, yytext, Markup.delimiter, "FUNARITY", Tokens.FUNARITY, 14));
+<INITIAL>\\"<^sub>""1" => (tok_valF (yypos, yytext, Markup.delimiter, "FUNARITY", Tokens.FUNARITY, 1));
+<INITIAL>\\"<^sub>""2" => (tok_valF (yypos, yytext, Markup.delimiter, "FUNARITY", Tokens.FUNARITY, 2));
+<INITIAL>\\"<^sub>""3" => (tok_valF (yypos, yytext, Markup.delimiter, "FUNARITY", Tokens.FUNARITY, 3));
+<INITIAL>\\"<^sub>""4" => (tok_valF (yypos, yytext, Markup.delimiter, "FUNARITY", Tokens.FUNARITY, 4));
+<INITIAL>\\"<^sub>""5" => (tok_valF (yypos, yytext, Markup.delimiter, "FUNARITY", Tokens.FUNARITY, 5));
+<INITIAL>\\"<^sub>""6" => (tok_valF (yypos, yytext, Markup.delimiter, "FUNARITY", Tokens.FUNARITY, 6));
+<INITIAL>\\"<^sub>""7" => (tok_valF (yypos, yytext, Markup.delimiter, "FUNARITY", Tokens.FUNARITY, 7));
+<INITIAL>\\"<^sub>""8" => (tok_valF (yypos, yytext, Markup.delimiter, "FUNARITY", Tokens.FUNARITY, 8));
+<INITIAL>\\"<^sub>""9" => (tok_valF (yypos, yytext, Markup.delimiter, "FUNARITY", Tokens.FUNARITY, 9));
 <INITIAL>.        => (URust_Grammar.lex_error yytext (fixed_pos yypos));
 <VAQ>\\"<llangle>" => (aq_depth := !aq_depth + 1; push_aq yytext; lex());
 <VAQ>\\"<rrangle>" =>
     (if !aq_depth > 0 then (aq_depth := !aq_depth - 1; push_aq yytext; lex())
      else (YYBEGIN INITIAL; report_text (yypos, yytext, Markup.delimiter, "VALAQ");
-       let val p = fixed_pos (!aq_start) val q = fixed_pos yypos val body = take_aq ()
-       in Tokens.VALAQ (Input.source true body (Position.range (p, q)), p, q) end));
+       let
+         val p = fixed_pos (!aq_start)
+         val q = fixed_pos yypos
+         val open_pos = fixed_pos (!aq_open)
+         val token_stop = Position.symbol_explode yytext q
+         val body = take_aq ()
+       in
+         Tokens.VALAQ
+           (Input.source true body (Position.range (p, q)),
+            open_pos, token_stop)
+       end));
 <VAQ>\n           => (push_aq "\n"; lex());
 <VAQ>.            => (push_aq yytext; lex());
 <EAQ>\\"<open>"    => (aq_depth := !aq_depth + 1; push_aq yytext; lex());
@@ -413,6 +444,22 @@ fun append_path (UR_Path (segments, pos), segment) =
     (segments @ [segment],
      Position.range_position
        (pos, Parser_Lex_Util.exclusive_end (segment_position segment)))
+
+fun same_offset left right =
+  (case (Position.offset_of left, Position.offset_of right) of
+     (SOME left_offset, SOME right_offset) =>
+       left_offset = right_offset
+   | _ => left = right)
+
+fun make_function_literal
+    (source, arity, value_right, suffix_left, suffix_right, arguments) =
+  if same_offset value_right suffix_left then
+    UC_FunLiteral
+      (source, arity,
+       Position.range_position (suffix_left, suffix_right),
+       arguments)
+  else
+    URust_Grammar.function_literal_suffix_error suffix_left
 \<close>
 yacc_definitions\<open>
 %name URust
@@ -461,6 +508,7 @@ yacc_definitions\<open>
     | TDOTDOT | TDOTDOTEQ | TMUT | TPATCONTEXT
     | TMATCHESBANG of Position.T
     | TAS | TUINT of URust_AST.unsigned_type | TSINT of URust_AST.signed_type
+    | FUNARITY of int
 %nonterm ustart of URust_AST.ur_expr option
        | ubody of URust_AST.ur_expr
        | ubinding_head of binding_head
@@ -651,6 +699,19 @@ yacc_rules\<open>
         | EXPRAQ LPAR ucallargs RPAR
             (mk_call
               (UC_Antiq (#1 EXPRAQ), ucallargs, #2 EXPRAQ, RPARright))
+        | VALAQ FUNARITY LPAR ucallargs RPAR
+            (mk_call
+              (make_function_literal
+                (VALAQ, FUNARITY, VALAQright,
+                 FUNARITYleft, FUNARITYright, NONE),
+               ucallargs, VALAQleft, RPARright))
+        | VALAQ FUNARITY ugeneric_args LPAR ucallargs RPAR
+            (mk_call
+              (make_function_literal
+                (VALAQ, FUNARITY, VALAQright,
+                 FUNARITYleft, FUNARITYright,
+                 SOME ugeneric_args),
+               ucallargs, VALAQleft, RPARright))
         | upath TBANG LPAR umacrocallargs RPAR
             (UE_Macro
               (upath, TBANGleft,

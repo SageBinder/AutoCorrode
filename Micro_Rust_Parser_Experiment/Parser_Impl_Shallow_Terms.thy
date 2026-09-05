@@ -17,6 +17,7 @@ sig
   val closure: term list -> term -> term
 
   val apply_parameters: term -> term list -> term
+  val lift_function: Position.T -> int -> term -> term
   val function_call: Position.T -> term -> term list -> term
   val bind: term -> term -> term
   val sequence: term -> term -> term
@@ -96,10 +97,11 @@ ML\<open>
      reports malformed numbers and unsupported suffixes at the source position.
    * closure wraps one FunctionBody around the already-lowered body, abstracts the ordered formal
      Frees in source order, and then applies one outer literal. It imposes no call-arity limit.
-   * function_call maps a function term and its argument list to funcall0 through funcall14 and rejects
-     larger arities at its call position. bind takes an expression and a continuation abstraction;
-     sequence, return_value, and case_product preserve the corresponding shallow-embedding constructors
-     rather than interchangeable HOL encodings.
+   * lift_function maps a pure HOL function and source suffix arity 1 through 14 to lift_fun1 through
+     lift_fun14. function_call independently maps a function term and its runtime argument list to
+     funcall0 through funcall14 and rejects larger runtime arities at its call position. bind takes an
+     expression and a continuation abstraction; sequence, return_value, and case_product preserve the
+     corresponding shallow-embedding constructors rather than interchangeable HOL encodings.
    * allocate_reference, update, and assign_add construct the positioned overloaded store operations.
      update takes place then RHS; assign_add uses the same order. focus_field takes a resolved field
      lens then its receiver. tuple accepts at least two expression terms and emits the frontend's
@@ -186,6 +188,26 @@ struct
      \<^const_name>\<open>funcall12\<close>, \<^const_name>\<open>funcall13\<close>,
      \<^const_name>\<open>funcall14\<close>]
   val maximum_function_arity = Vector.length function_constants - 1
+
+  val lift_function_constants = Vector.fromList
+    [\<^const_name>\<open>lift_fun1\<close>,  \<^const_name>\<open>lift_fun2\<close>,
+     \<^const_name>\<open>lift_fun3\<close>,  \<^const_name>\<open>lift_fun4\<close>,
+     \<^const_name>\<open>lift_fun5\<close>,  \<^const_name>\<open>lift_fun6\<close>,
+     \<^const_name>\<open>lift_fun7\<close>,  \<^const_name>\<open>lift_fun8\<close>,
+     \<^const_name>\<open>lift_fun9\<close>,  \<^const_name>\<open>lift_fun10\<close>,
+     \<^const_name>\<open>lift_fun11\<close>, \<^const_name>\<open>lift_fun12\<close>,
+     \<^const_name>\<open>lift_fun13\<close>, \<^const_name>\<open>lift_fun14\<close>]
+  val minimum_lift_arity = 1
+  val maximum_lift_arity = Vector.length lift_function_constants
+
+  fun lift_function pos arity function =
+    if minimum_lift_arity <= arity andalso arity <= maximum_lift_arity
+    then constant (Vector.sub (lift_function_constants, arity - 1)) [function]
+    else
+      error ("urust_expr: unsupported function-literal arity " ^
+        string_of_int arity ^ " (expected " ^
+        string_of_int minimum_lift_arity ^ ".." ^
+        string_of_int maximum_lift_arity ^ ")" ^ Position.here pos)
 
   fun function_constant pos arity =
     if 0 <= arity andalso arity <= maximum_function_arity
