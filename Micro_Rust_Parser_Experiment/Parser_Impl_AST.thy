@@ -101,6 +101,7 @@ sig
       UE_Unit of Position.T
     | UE_Tuple of ur_expr list * Position.T
     | UE_Array of ur_expr list * Position.T
+    | UE_Struct of ur_path * struct_expr_field list * Position.T
     | UE_Path of ur_path
     | UE_Literal of literal_payload
     | UE_ExprAntiq of Input.source
@@ -132,6 +133,8 @@ sig
     | UE_Macro of
         ur_path * Position.T * macro_payload * Position.T
     | UE_Match of match_flavour * ur_expr * ur_arm list * Position.T
+  and struct_expr_field =
+      SE_Field of string * Position.T * ur_expr
   and macro_payload =
       MP_Arguments of ur_expr list
     | MP_Matches of ur_expr * ur_pat
@@ -194,16 +197,19 @@ end
       versus constructor.
     * match_flavour and MF_Switch, MF_Case, MF_Auto.  MF_Auto requests downstream classification; it
       is not a fourth lowering.
-    * the mutually recursive expression interface ur_expr (UE_Unit, UE_Tuple, UE_Array, UE_Path,
-      UE_Literal, UE_ExprAntiq, UE_Closure, UE_Let, UE_LetMut, UE_Const, UE_Seq, UE_Return, UE_Bin,
-      UE_Cast, UE_Unary, UE_Group, UE_Block, UE_If, UE_IfLet, UE_LetElse, UE_While, UE_Loop, UE_For,
-      UE_WhileLet, UE_Call, UE_Field, UE_Index, UE_Range, UE_Assign, UE_Macro, UE_Match),
+    * the mutually recursive expression interface ur_expr (UE_Unit, UE_Tuple, UE_Array, UE_Struct,
+      UE_Path, UE_Literal, UE_ExprAntiq, UE_Closure, UE_Let, UE_LetMut, UE_Const, UE_Seq, UE_Return,
+      UE_Bin, UE_Cast, UE_Unary, UE_Group, UE_Block, UE_If, UE_IfLet, UE_LetElse, UE_While, UE_Loop,
+      UE_For, UE_WhileLet, UE_Call, UE_Field, UE_Index, UE_Range, UE_Assign, UE_Macro, UE_Match),
+      struct_expr_field (SE_Field),
       macro_payload
       (MP_Arguments, MP_Matches), ur_place (UP_Path, UP_Deref, UP_Field, UP_Index, UP_Antiq), and
       ur_arm (UR_Arm). Expression and pattern lists preserve source order. A generic macro payload
       retains every parsed argument without deciding which arguments a legacy macro lowers;
       MP_Matches retains its expression and pattern in separate grammar categories. A UR_Arm
       contains its pattern, an optional guard paired with the guard-keyword position, and its body.
+      UE_Struct retains its complete head-through-closing-brace span and source-ordered SE_Field
+      entries; each entry retains the syntax-only label, its position, and the initializer AST.
       UE_Closure retains ordered pattern-shaped formals and the full closure span; its grammar admits
       only identifier spellings, while the closure-formal lowering gate rejects the normalized
       wildcard.
@@ -366,6 +372,8 @@ struct
       UE_Unit      of Position.T                      (* () *)
     | UE_Tuple     of ur_expr list * Position.T       (* (e0, e1, ..), at least two elements *)
     | UE_Array     of ur_expr list * Position.T       (* [e0, e1, ..], including empty *)
+    | UE_Struct    of ur_path * struct_expr_field list * Position.T
+                                                      (* Head { label: value, ... }, at full span *)
     | UE_Path      of ur_path
     | UE_Literal   of literal_payload                 (* integer / bool / string / <<value>> *)
     | UE_ExprAntiq of Input.source                    (* eps<e> body as a POSITIONED source -> e *)
@@ -425,6 +433,8 @@ struct
                                                          MF_Case -> the Ctr_Sugar case skeleton (D27). Each
                                                          flavour's elaborator gates the patterns it cannot
                                                          lower with a positioned error. *)
+  and struct_expr_field =
+      SE_Field of string * Position.T * ur_expr
   and macro_payload =
       MP_Arguments of ur_expr list
     | MP_Matches of ur_expr * ur_pat
@@ -440,6 +450,7 @@ struct
   fun expression_position (UE_Unit pos) = pos
     | expression_position (UE_Tuple (_, pos)) = pos
     | expression_position (UE_Array (_, pos)) = pos
+    | expression_position (UE_Struct (_, _, pos)) = pos
     | expression_position (UE_Path path) = path_position path
     | expression_position (UE_Literal payload) = literal_position payload
     | expression_position (UE_ExprAntiq src) = Input.pos_of src

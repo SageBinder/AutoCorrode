@@ -4764,6 +4764,460 @@ urust_expr_with_check d5_function_literal_runtime14
       (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13)
   \<close>
 
+section\<open> Frontend-compatible struct expressions (D-21) \<close>
+
+text\<open>
+Struct-expression labels are syntax-only in the active frontend. The head uses ordinary call
+resolution, and initializers remain in source order. These fixtures deliberately use call wrappers
+rather than constructor metadata so canonical, reversed, duplicate, and unknown labels all exercise
+the same observable contract.
+\<close>
+
+definition d21_identity1 ::
+    \<open>'a \<Rightarrow> (unit, 'a, unit, unit, unit) function_body\<close>
+  where \<open> d21_identity1 \<equiv> lift_fun1 (\<lambda>value. value) \<close>
+
+definition d21_first2 ::
+    \<open>'a \<Rightarrow> 'b \<Rightarrow> (unit, 'a, unit, unit, unit) function_body\<close>
+  where \<open> d21_first2 \<equiv> lift_fun2 (\<lambda>first second. first) \<close>
+
+definition d21_first14 ::
+    \<open>
+      nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow>
+      nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow>
+      (unit, nat, unit, unit, unit) function_body
+    \<close>
+  where
+    \<open>
+      d21_first14 \<equiv>
+        lift_fun14 (\<lambda>a b c d e f g h i j k l m n. a)
+    \<close>
+
+definition d21_unregistered ::
+    \<open>'a \<Rightarrow> (unit, 'a, unit, unit, unit) function_body\<close>
+  where \<open> d21_unregistered \<equiv> d21_identity1 \<close>
+
+definition d21_collision_registered ::
+    \<open>64 word \<Rightarrow> (unit, 64 word, unit, unit, unit) function_body\<close>
+  where \<open> d21_collision_registered \<equiv> cf1 \<close>
+
+definition d21_true :: bool
+  where \<open> d21_true \<equiv> True \<close>
+
+definition d21_some :: \<open>nat option\<close>
+  where \<open> d21_some \<equiv> Some 3 \<close>
+
+definition d21_values :: \<open>nat list\<close>
+  where \<open> d21_values \<equiv> [1, 2] \<close>
+
+definition d21_unit :: unit
+  where \<open> d21_unit \<equiv> () \<close>
+
+datatype_record d21_record =
+  d21_record_value :: nat
+
+micro_rust_record d21_record
+  (d21_record_value = "d21Field")
+
+definition d21_record_lift ::
+    \<open>nat \<Rightarrow> (unit, d21_record, unit, unit, unit) function_body\<close>
+  where \<open> d21_record_lift \<equiv> lift_fun1 make_d21_record \<close>
+
+micro_rust_notation (call) d21_identity1 ("D21One")
+micro_rust_notation (call) d21_first2 ("D21Pair")
+micro_rust_notation (call) d21_first14 ("D21::Fourteen")
+micro_rust_notation (call) d21_collision_registered ("d21Collision")
+micro_rust_notation (call) d21_record_lift ("D21Record")
+
+subsection\<open> Labels, heads, and arity boundary \<close>
+
+urust_expr_with_check d21_arity1
+  \<open> D21One { value: 1_u64 } \<close>
+
+urust_expr_with_check d21_arity2_canonical
+  \<open> D21Pair { first: 1_u64, second: 2_u64 } \<close>
+
+urust_expr_with_check d21_arity2_reversed_labels
+  \<open> D21Pair { second: 1_u64, first: 2_u64 } \<close>
+
+urust_expr_with_check d21_duplicate_labels
+  \<open> D21Pair { first: 1_u64, first: 2_u64 } \<close>
+
+urust_expr_with_check d21_unknown_labels
+  \<open> D21Pair { mystery: 1_u64, surprise: 2_u64 } \<close>
+
+urust_expr_with_check d21_all_duplicate_unknown_labels
+  \<open> D21Pair { mystery: 1_u64, mystery: 2_u64 } \<close>
+
+urust_expr_with_check d21_arity14
+  \<open>
+    D21::Fourteen {
+      f00: 0, f01: 1, f02: 2, f03: 3, f04: 4, f05: 5, f06: 6,
+      f07: 7, f08: 8, f09: 9, f10: 10, f11: 11, f12: 12, f13: 13
+    }
+  \<close>
+
+urust_expr_with_check d21_unregistered_head
+  \<open> d21_unregistered { ignored: 7_u64 } \<close>
+
+context
+  fixes d21Local ::
+    \<open>64 word \<Rightarrow> (unit, 64 word, unit, unit, unit) function_body\<close>
+begin
+
+urust_expr_with_check d21_context_fixed_head
+  \<open> d21Local { ignored: 7_u64 } \<close>
+
+end
+
+context
+  fixes d21Collision ::
+    \<open>64 word \<Rightarrow> (unit, 64 word, unit, unit, unit) function_body\<close>
+begin
+
+urust_expr_with_check d21_call_notation_lexical_collision
+  \<open> d21Collision { ignored: 7_u64 } \<close>
+
+end
+
+subsection\<open> Initializer language and delimiter nesting \<close>
+
+urust_expr_with_check d21_initializer_literal
+  \<open> D21One { value: 7_u64 } \<close>
+
+urust_expr_with_check d21_initializer_path
+  \<open> D21One { value: Path::Seed } \<close>
+
+urust_expr_with_check d21_initializer_antiquotation
+  \<open> D21One { value: \<llangle>7 :: 64 word\<rrangle> } \<close>
+
+urust_expr_with_check d21_initializer_call
+  \<open> D21One { value: cf2(1_u64, 2_u64) } \<close>
+
+urust_expr_with_check d21_initializer_nested_struct
+  \<open>
+    D21One {
+      value: D21Pair { left: 1_u64, right: 2_u64 }
+    }
+  \<close>
+
+urust_expr_with_check d21_initializer_array
+  \<open> D21One { value: [1_u64, 2_u64, 3_u64] } \<close>
+
+urust_expr_with_check d21_initializer_tuple
+  \<open> D21One { value: (1_u64, 2_u64, 3_u64) } \<close>
+
+urust_expr_with_check d21_initializer_macro
+  \<open> D21One { value: vec![1_u64, 2_u64, 3_u64] } \<close>
+
+urust_expr_with_check d21_initializer_range
+  \<open> D21One { value: 0_usize..=2_usize } \<close>
+
+urust_expr d21_initializer_assignment
+  \<open>
+    let mut slot = 1_u64;
+    D21One { value: slot = 2_u64 }
+  \<close>
+
+urust_expr_with_check d21_initializer_block
+  \<open> D21One { value: { 1_u64 } } \<close>
+
+urust_expr_with_check d21_initializer_unsafe_block
+  \<open> D21One { value: unsafe { 1_u64 } } \<close>
+
+urust_expr_with_check d21_initializer_closure
+  \<open> D21One { value: |item| \<llangle>item :: nat\<rrangle> } \<close>
+
+urust_expr_with_check d21_initializer_return
+  \<open> D21One { value: return 1_u64; } \<close>
+
+urust_expr_with_check d21_initializer_match
+  \<open>
+    D21One {
+      value: match Some(1_u64) {
+        Some(item) \<Rightarrow> item,
+        None \<Rightarrow> 0_u64
+      }
+    }
+  \<close>
+
+urust_expr_with_check d21_initializer_binding
+  \<open>
+    D21One {
+      value: let item = 1_u64; item
+    }
+  \<close>
+
+urust_expr_with_check d21_initializer_conditional_binding
+  \<open>
+    D21One {
+      value:
+        if let Some(item) = Some(1_u64) {
+          item
+        } else {
+          0_u64
+        }
+    }
+  \<close>
+
+urust_expr_with_check d21_initializer_while
+  \<open>
+    D21One {
+      value: #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while (false) { () }
+    }
+  \<close>
+
+urust_expr_with_check d21_initializer_loop
+  \<open>
+    D21One {
+      value: #[fuel(\<epsilon>\<open>1 :: nat\<close>)] loop { () }
+    }
+  \<close>
+
+urust_expr_with_check d21_initializer_for
+  \<open>
+    D21One {
+      value: for item in [()] { item }
+    }
+  \<close>
+
+urust_expr_with_check d21_initializer_while_let
+  \<open>
+    D21One {
+      value:
+        #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let Some(item) =
+          Some(()) { item }
+    }
+  \<close>
+
+urust_expr_with_check d21_initializer_semicolon_sequence
+  \<open> D21One { value: (); 1_u64 } \<close>
+
+urust_expr_with_check d21_initializer_semicolon_free_sequence
+  \<open> D21One { value: { () } 1_u64 } \<close>
+
+urust_expr d21_nested_delimiters
+  \<open>
+    D21Pair {
+      first:
+        cf2(
+          D21One { nested: 1_u64 },
+          cf1(2_u64)
+        ),
+      second:
+        [\<llangle>(\<lambda>left::nat. \<lambda>right::nat.
+            FunctionBody (literal (left + right)))\<rrangle>,
+         |left, right| \<llangle>left + right :: nat\<rrangle>]
+    }
+  \<close>
+
+urust_expr_with_check d21_string_punctuation
+  \<open> D21One { value: "braces { }, colon :, comma ," } \<close>
+
+urust_expr_with_check d21_antiquotation_punctuation
+  \<open> D21One { value: \<llangle>''braces { }, colon :, comma ,''\<rrangle> } \<close>
+
+subsection\<open> Expression placement and postfix composition \<close>
+
+urust_expr_with_check d21_placement_grouped
+  \<open> (D21One { value: 1_u64 }) \<close>
+
+urust_expr_with_check d21_placement_block_tail
+  \<open> { D21One { value: 1_u64 } } \<close>
+
+urust_expr_with_check d21_placement_binding_rhs
+  \<open> let item = D21One { value: 1_u64 }; item \<close>
+
+urust_expr_with_check d21_placement_sequence_left
+  \<open> D21One { value: 1_u64 }; () \<close>
+
+urust_expr_with_check d21_placement_return_operand
+  \<open> return D21One { value: 1_u64 }; \<close>
+
+urust_expr_with_check d21_placement_call_argument
+  \<open> d21_unregistered(D21One { value: 1_u64 }) \<close>
+
+urust_expr_with_check d21_placement_macro_argument
+  \<open> assert!(D21One { value: true }) \<close>
+
+urust_expr_with_check d21_placement_tuple_argument
+  \<open> (D21One { value: 1_u64 }, 2_u64) \<close>
+
+urust_expr_with_check d21_placement_array_argument
+  \<open> [D21One { value: 1_u64 }, 2_u64] \<close>
+
+urust_expr_with_check d21_placement_index_base
+  \<open> D21One { value: [1_u64, 2_u64] }[0_usize] \<close>
+
+urust_expr_with_check d21_placement_index_operand
+  \<open> [1_u64, 2_u64][D21One { value: 0_usize }] \<close>
+
+urust_expr_with_check d21_placement_range_lower
+  \<open> D21One { value: 0_usize }..2_usize \<close>
+
+urust_expr_with_check d21_placement_range_upper
+  \<open> 0_usize..D21One { value: 2_usize } \<close>
+
+urust_expr_with_check d21_placement_unary_operand
+  \<open> !D21One { value: true } \<close>
+
+urust_expr_with_check d21_placement_binary_operand
+  \<open> D21One { value: 1_u64 } + D21One { value: 2_u64 } \<close>
+
+urust_expr_with_check d21_placement_cast_operand
+  \<open> D21One { value: 1_u32 } as u64 \<close>
+
+urust_expr d21_placement_assignment_rhs
+  \<open>
+    let mut slot = 1_u64;
+    slot = D21One { value: 2_u64 }
+  \<close>
+
+urust_expr_with_check d21_postfix_field
+  \<open> D21Record { value: 1 }.d21Field \<close>
+
+urust_expr_with_check d21_postfix_method
+  \<open> D21One { value: 1_u64 }.cf1() \<close>
+
+urust_expr_with_check d21_postfix_index
+  \<open> D21One { value: [1_u64, 2_u64] }[0_usize] \<close>
+
+urust_expr_with_check d21_postfix_propagation
+  \<open> D21One { value: Some(1_u64) }? \<close>
+
+subsection\<open> Brace ambiguity \<close>
+
+urust_expr_with_check d21_if_path_condition
+  \<open> if d21_true { d21_unit } else { d21_unit } \<close>
+
+urust_expr_with_check d21_if_struct_condition
+  \<open> if D21One { value: true } { d21_unit } else { d21_unit } \<close>
+
+urust_expr_with_check d21_closure_if_path_condition
+  \<open> || if d21_true { d21_unit } else { d21_unit } \<close>
+
+urust_expr_with_check d21_closure_if_struct_condition
+  \<open> || if D21One { value: true } { d21_unit } else { d21_unit } \<close>
+
+urust_expr_with_check d21_if_let_path_value
+  \<open>
+    if let Some(item) = d21_some {
+      item
+    } else {
+      0
+    }
+  \<close>
+
+urust_expr_with_check d21_if_let_struct_value
+  \<open>
+    if let Some(item) = D21One { value: Some(3) } {
+      item
+    } else {
+      0
+    }
+  \<close>
+
+urust_expr_with_check d21_for_path_iterable
+  \<open> for _ in d21_values { D21One { value: () }; () } \<close>
+
+urust_expr d21_for_struct_iterable
+  \<open>
+    for _ in D21One { value: [1, 2] } {
+      D21One { value: () };
+      ()
+    }
+  \<close>
+
+urust_expr_with_check d21_while_let_path_value
+  \<open>
+    #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let Some(_) =
+      d21_some { D21One { value: () }; () }
+  \<close>
+
+urust_expr d21_while_let_struct_value
+  \<open>
+    #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let Some(_) =
+      D21One { value: Some(3) } { D21One { value: () }; () }
+  \<close>
+
+urust_expr_with_check d21_match_path_scrutinee
+  \<open>
+    match d21_some {
+      Some(_) \<Rightarrow> D21One { value: 1 },
+      None \<Rightarrow> 0
+    }
+  \<close>
+
+urust_expr d21_match_struct_scrutinee
+  \<open>
+    match D21One { value: Some(3) } {
+      Some(_) \<Rightarrow> D21One { value: 1 },
+      None \<Rightarrow> 0
+    }
+  \<close>
+
+urust_expr_with_check d21_match_case_path_scrutinee
+  \<open>
+    match_case d21_some {
+      Some(_) \<Rightarrow> { 1 },
+      None \<Rightarrow> 0
+    }
+  \<close>
+
+urust_expr d21_match_case_struct_scrutinee
+  \<open>
+    match_case D21One { value: Some(3) } {
+      Some(_) \<Rightarrow> { D21One { value: 1 } },
+      None \<Rightarrow> 0
+    }
+  \<close>
+
+urust_expr_with_check d21_match_switch_path_scrutinee
+  \<open>
+    match_switch path_literal_42 {
+      42 \<Rightarrow> d21_unit,
+      _ \<Rightarrow> d21_unit
+    }
+  \<close>
+
+urust_expr d21_match_switch_struct_scrutinee
+  \<open>
+    match_switch D21One { value: 42 } {
+      42 \<Rightarrow> D21One { value: d21_unit },
+      _ \<Rightarrow> d21_unit
+    }
+  \<close>
+
+subsection\<open> Layout \<close>
+
+urust_expr_with_check d21_layout_compact
+  \<open> D21Pair{left:1_u64,right:2_u64} \<close>
+
+urust_expr_with_check d21_layout_multiline
+  \<open>
+    D21Pair
+    {
+      left
+      :
+      1_u64
+      ,
+      right
+      :
+      2_u64
+    }
+  \<close>
+
+urust_expr d21_layout_line_comments
+  \<open>
+    D21Pair {
+      left: 1_u64, // separator
+      right: 2_u64
+    }
+  \<close>
+
+urust_expr d21_layout_comment_at_eof
+  \<open> D21One { value: 1_u64 } // end \<close>
+
 subsection\<open> D-7 (RESOLVED): advanced patterns and consumer-specific gates \<close>
 
 text\<open>
@@ -4784,11 +5238,11 @@ ordinary-selector \<open>more\<close> omission), D-15 (unparenthesized fueled-\<
 D-20 (arbitrary unquoted HOL turbofish payloads). They are non-blocking and have executable negative
 or fixture coverage.
 
-Only D-21 struct expressions and D-22 \<open>\<y>\<i>\<e>\<l>\<d>\<close>, primitive
-\<open>\<l>\<o>\<g>\<close>, and \<open>StdLib_Logging\<close> log-data expressions remain as frontend-parity work.
-Their frontend-only goldens live in \<open>Conformance_Corpus.thy\<close>. General postfix invocation,
-Rust closure/reference semantics, and declaration commands are post-parity work, not missing
-expression-frontend parity.
+D-21 struct expressions are resolved with exact active-frontend lowering. Only D-22
+\<open>\<y>\<i>\<e>\<l>\<d>\<close>, primitive \<open>\<l>\<o>\<g>\<close>, and
+\<open>StdLib_Logging\<close> log-data expressions remain as frontend-parity work. Their frontend-only
+goldens live in \<open>Conformance_Corpus.thy\<close>. General postfix invocation, Rust closure/reference
+semantics, and declaration commands are post-parity work, not missing expression-frontend parity.
 \<close>
 
 end

@@ -3266,6 +3266,459 @@ ML_val\<open>
 \<close>
 
 
+section\<open> Struct-expression AST, lowering, markup, and recovery \<close>
+
+definition d21_audit_identity1 ::
+    \<open>'a \<Rightarrow> (unit, 'a, unit, unit, unit) function_body\<close>
+  where \<open> d21_audit_identity1 \<equiv> lift_fun1 (\<lambda>value. value) \<close>
+
+definition d21_audit_first2 ::
+    \<open>nat \<Rightarrow> nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
+  where \<open> d21_audit_first2 \<equiv> lift_fun2 (\<lambda>first second. first) \<close>
+
+definition d21_audit_truth :: bool
+  where \<open> d21_audit_truth \<equiv> True \<close>
+
+consts
+  d21_audit_marker_a :: nat
+  d21_audit_marker_b :: nat
+  d21_audit_marker_c :: nat
+
+micro_rust_notation (call) d21_audit_identity1 ("D21AuditOne")
+micro_rust_notation (call) d21_audit_first2 ("D21AuditPair")
+
+ML_val\<open>
+  local
+    open URust_AST
+
+    val ctxt = \<^context>
+
+    fun audit_assert message condition =
+      if condition then ()
+      else error ("struct-expression regression audit: " ^ message)
+
+    fun parse source =
+      (case URust_Diagnostics.parse_source ctxt source of
+         SOME expression => expression
+       | NONE => error "struct-expression regression audit: empty parse")
+
+    fun parse_text text =
+      parse (Parser_Lex_Util.text_source text)
+
+    fun checked text =
+      URust_Command.elab_urust ctxt
+        (Parser_Lex_Util.text_source text)
+
+    fun frontend text =
+      Syntax.read_term ctxt ("\<lbrakk> " ^ text ^ " \<rbrakk>")
+
+    fun count_constant name term =
+      Term.fold_aterms
+        (fn Const (candidate, _) =>
+              if candidate = name then Integer.add 1 else I
+          | _ => I)
+        term 0
+
+    fun count_named_atom name term =
+      Term.fold_aterms
+        (fn Free (candidate, _) =>
+              if candidate = name then Integer.add 1 else I
+          | Const (candidate, _) =>
+              if Long_Name.base_name candidate = name
+              then Integer.add 1
+              else I
+          | _ => I)
+        term 0
+
+    fun find_from text needle offset =
+      if offset + size needle > size text then
+        error ("struct-expression regression audit: missing " ^ quote needle)
+      else if
+        String.substring (text, offset, size needle) = needle
+      then offset
+      else find_from text needle (offset + 1)
+
+    fun token_position text start needle offset =
+      let
+        val raw = find_from text needle offset
+        val token_start =
+          Position.symbol_explode
+            (String.substring (text, 0, raw)) start
+      in
+        (raw,
+         Position.range_position
+           (token_start,
+            Position.symbol_explode needle token_start))
+      end
+
+    fun same_range left right =
+      Position.offset_of left = Position.offset_of right andalso
+      Position.end_offset_of left = Position.end_offset_of right
+
+    val structural_text =
+      "D21AuditPair {\n" ^
+      "  alpha: \<llangle>d21_audit_marker_a\<rrangle>, // retained comment\n" ^
+      "  beta: D21AuditPair { gamma: \<llangle>d21_audit_marker_b\<rrangle>, " ^
+        "delta: \<llangle>d21_audit_marker_c\<rrangle> }\n" ^
+      "}"
+    val structural_start =
+      Position.make0 31 700 0 "" "" "struct-expression-audit"
+    val structural_stop =
+      Position.symbol_explode structural_text structural_start
+    val structural_source =
+      Parser_Lex_Util.positioned_content_source
+        structural_text structural_start
+    val structural_ast = parse structural_source
+
+    val (outer_head_raw, outer_head_pos) =
+      token_position structural_text structural_start "D21AuditPair" 0
+    val (alpha_raw, alpha_pos) =
+      token_position structural_text structural_start "alpha" 0
+    val (_, marker_a_pos) =
+      token_position structural_text structural_start
+        "d21_audit_marker_a" alpha_raw
+    val (beta_raw, beta_pos) =
+      token_position structural_text structural_start "beta" 0
+    val (nested_head_raw, nested_head_pos) =
+      token_position structural_text structural_start "D21AuditPair"
+        (outer_head_raw + size "D21AuditPair")
+    val (gamma_raw, gamma_pos) =
+      token_position structural_text structural_start "gamma" nested_head_raw
+    val (_, marker_b_pos) =
+      token_position structural_text structural_start
+        "d21_audit_marker_b" gamma_raw
+    val (delta_raw, delta_pos) =
+      token_position structural_text structural_start "delta" gamma_raw
+    val (_, marker_c_pos) =
+      token_position structural_text structural_start
+        "d21_audit_marker_c" delta_raw
+    val (nested_close_raw, nested_close_pos) =
+      token_position structural_text structural_start "}" delta_raw
+    val (_, outer_close_pos) =
+      token_position structural_text structural_start "}"
+        (nested_close_raw + 1)
+    val nested_span =
+      Position.range_position
+        (nested_head_pos,
+         Position.symbol_explode "}" nested_close_pos)
+
+    val _ =
+      (case structural_ast of
+         UE_Struct
+           (head,
+            [SE_Field
+               ("alpha", first_label_pos,
+                UE_Literal (LP_ValAntiq _)),
+             SE_Field
+               ("beta", second_label_pos,
+                nested as
+                  UE_Struct
+                    (nested_head,
+                     [SE_Field
+                        ("gamma", third_label_pos,
+                         UE_Literal (LP_ValAntiq _)),
+                      SE_Field
+                        ("delta", fourth_label_pos,
+                         UE_Literal (LP_ValAntiq _))],
+                     nested_pos))],
+            outer_pos) =>
+           (audit_assert "outer head changed"
+              (render_path head = "D21AuditPair");
+            audit_assert "nested head changed"
+              (render_path nested_head = "D21AuditPair");
+            audit_assert "outer label order or positions changed"
+              (same_range first_label_pos alpha_pos andalso
+               same_range second_label_pos beta_pos);
+            audit_assert "nested label order or positions changed"
+              (same_range third_label_pos gamma_pos andalso
+               same_range fourth_label_pos delta_pos);
+            audit_assert "outer span no longer covers head through closing brace"
+              (Position.offset_of outer_pos =
+                 Position.offset_of outer_head_pos andalso
+               Position.end_offset_of outer_pos =
+                 Position.offset_of structural_stop);
+            audit_assert "nested struct span changed"
+              (same_range nested_pos nested_span);
+            audit_assert "expression_position lost the nested struct boundary"
+              (same_range (expression_position nested) nested_span))
+       | _ =>
+           error "struct-expression regression audit: structural AST changed")
+
+    fun dest_funcall2 term =
+      (case Term_Position.strip_positions term of
+         Const (name, _) $ function $ first $ second =>
+           if name = \<^const_name>\<open>funcall2\<close>
+           then (function, first, second)
+           else
+             error
+               ("struct-expression regression audit: expected funcall2, found " ^
+                 quote name)
+       | _ =>
+           error "struct-expression regression audit: funcall2 shape changed")
+
+    val structural_term =
+      URust_Command.elab_urust ctxt structural_source
+    val (outer_function, outer_first, outer_second) =
+      dest_funcall2 structural_term
+    val (nested_function, nested_first, nested_second) =
+      dest_funcall2 outer_second
+    val _ =
+      audit_assert "registered wrapper head was not retained"
+        (count_constant
+          \<^const_name>\<open>d21_audit_first2\<close>
+          outer_function = 1 andalso
+         count_constant
+          \<^const_name>\<open>d21_audit_first2\<close>
+          nested_function = 1)
+    val _ =
+      audit_assert "first initializer left the first call argument"
+        (count_constant
+           \<^const_name>\<open>d21_audit_marker_a\<close>
+           outer_first = 1 andalso
+         count_constant
+           \<^const_name>\<open>d21_audit_marker_b\<close>
+           outer_first = 0)
+    val _ =
+      audit_assert "nested initializer order changed"
+        (count_constant
+           \<^const_name>\<open>d21_audit_marker_b\<close>
+           nested_first = 1 andalso
+         count_constant
+           \<^const_name>\<open>d21_audit_marker_c\<close>
+           nested_first = 0 andalso
+         count_constant
+           \<^const_name>\<open>d21_audit_marker_c\<close>
+           nested_second = 1)
+    val _ =
+      List.app
+        (fn marker =>
+          audit_assert
+            ("initializer marker " ^ quote marker ^
+              " was duplicated or dropped")
+            (count_constant marker structural_term = 1))
+        [\<^const_name>\<open>d21_audit_marker_a\<close>,
+         \<^const_name>\<open>d21_audit_marker_b\<close>,
+         \<^const_name>\<open>d21_audit_marker_c\<close>]
+    val _ =
+      List.app
+        (fn label =>
+          audit_assert
+            ("label " ^ quote label ^ " leaked into the HOL term")
+            (count_named_atom label structural_term = 0))
+        ["alpha", "beta", "gamma", "delta"]
+
+    val canonical =
+      checked
+        ("D21AuditPair { first: \<llangle>d21_audit_marker_a\<rrangle>, " ^
+         "second: \<llangle>d21_audit_marker_b\<rrangle> }")
+    val renamed =
+      checked
+        ("D21AuditPair { unknown: \<llangle>d21_audit_marker_a\<rrangle>, " ^
+         "unknown: \<llangle>d21_audit_marker_b\<rrangle> }")
+    val _ =
+      audit_assert "labels stopped erasing completely"
+        (Term.aconv (canonical, renamed))
+
+    val parity_sources =
+      ["let mut slot = 1_u64; " ^
+         "D21AuditOne { value: slot = 2_u64 }",
+       "D21AuditOne { value: " ^
+         "[\<llangle>(\<lambda>left::nat. \<lambda>right::nat. " ^
+           "FunctionBody (literal (left + right)))\<rrangle>, " ^
+          "|left, right| \<llangle>left + right :: nat\<rrangle>] }",
+       "for _ in D21AuditOne { value: [1, 2] } " ^
+         "{ D21AuditOne { value: () }; () }",
+       "#[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let Some(_) = " ^
+         "D21AuditOne { value: Some(3) } " ^
+         "{ D21AuditOne { value: () }; () }",
+       "match D21AuditOne { value: Some(3) } " ^
+         "{ Some(_) \<Rightarrow> D21AuditOne { value: 1 }, None \<Rightarrow> 0 }",
+       "match_case D21AuditOne { value: Some(3) } " ^
+         "{ Some(_) \<Rightarrow> D21AuditOne { value: 1 }, None \<Rightarrow> 0 }",
+       "match_switch D21AuditOne { value: 42 } " ^
+         "{ 42 \<Rightarrow> D21AuditOne { value: () }, _ \<Rightarrow> () }"]
+    val _ =
+      List.app
+        (fn source =>
+          audit_assert
+            ("direct frontend alpha parity failed for " ^ quote source)
+            (Term.aconv (checked source, frontend source)))
+        parity_sources
+
+    val captured_reports = Unsynchronized.ref ([]: string list)
+    fun capture_reports chunks =
+      Unsynchronized.change captured_reports (append chunks)
+    val _ =
+      Parser_Test_Report_Lock.run (fn () =>
+        Unsynchronized.setmp Private_Output.report_fn capture_reports
+          (fn () =>
+            Print_Mode.with_modes [Print_Mode.PIDE]
+              (fn () =>
+                ignore
+                  (URust_Command.elab_urust ctxt structural_source)) ())
+          ())
+
+    fun collect_markup (XML.Text _) result = result
+      | collect_markup (XML.Elem (markup, body)) result =
+          fold collect_markup body (markup :: result)
+    val markup =
+      fold collect_markup
+        (maps YXML.parse_body (! captured_reports)) []
+    fun has_position properties pos =
+      Properties.get properties Markup.offsetN =
+        Option.map Value.print_int (Position.offset_of pos) andalso
+      Properties.get properties Markup.end_offsetN =
+        Option.map Value.print_int (Position.end_offset_of pos)
+    fun has_markup markup_name pos =
+      exists
+        (fn (name, properties) =>
+          name = markup_name andalso has_position properties pos)
+        markup
+    fun has_entity_markup kind pos =
+      exists
+        (fn (name, properties) =>
+          name = Markup.entityN andalso
+            Properties.get properties Markup.kindN = SOME kind andalso
+            has_position properties pos)
+        markup
+    fun has_any_entity pos =
+      exists
+        (fn (name, properties) =>
+          name = Markup.entityN andalso has_position properties pos)
+        markup
+    fun all_token_positions needle =
+      let
+        fun collect offset positions =
+          if offset + size needle > size structural_text then rev positions
+          else
+            (case try (find_from structural_text needle) offset of
+               SOME raw =>
+                 let
+                   val (_, position) =
+                     token_position structural_text structural_start
+                       needle raw
+                 in collect (raw + size needle) (position :: positions) end
+             | NONE => rev positions)
+      in collect 0 [] end
+
+    val _ =
+      List.app
+        (fn head_pos =>
+          (audit_assert "struct head lost function-role notation markup"
+             (has_entity_markup
+               Micro_Rust_Names.notationN head_pos);
+           audit_assert "struct head lost registered-call styling"
+             (has_markup Markup.keyword3N head_pos)))
+        [outer_head_pos, nested_head_pos]
+    val _ =
+      List.app
+        (fn (label, pos) =>
+          (audit_assert
+             ("label " ^ quote label ^ " lost free markup")
+             (has_markup Markup.freeN pos);
+           audit_assert
+             ("label " ^ quote label ^ " lost typing markup")
+             (has_markup Markup.typingN pos);
+           audit_assert
+             ("label " ^ quote label ^ " received entity/selector markup")
+             (not (has_any_entity pos));
+           audit_assert
+             ("label " ^ quote label ^ " received call styling")
+             (not (has_markup Markup.keyword3N pos))))
+        [("alpha", alpha_pos), ("beta", beta_pos),
+         ("gamma", gamma_pos), ("delta", delta_pos)]
+    val _ =
+      List.app
+        (fn spelling =>
+          List.app
+            (fn position =>
+              audit_assert
+                ("delimiter " ^ quote spelling ^ " lost markup")
+                (has_markup Markup.delimiterN position))
+            (all_token_positions spelling))
+        ["{", "}", ":", ","]
+    val (_, comment_pos) =
+      token_position structural_text structural_start
+        "// retained comment" 0
+    val _ =
+      audit_assert "line comment lost comment markup"
+        (has_markup Markup.comment1N comment_pos)
+    val _ =
+      List.app
+        (fn position =>
+          audit_assert "value-antiquotation opener lost delimiter markup"
+            (has_markup Markup.delimiterN position))
+        (all_token_positions "\<llangle>")
+    val _ =
+      List.app
+        (fn (marker, position) =>
+          audit_assert
+            ("value-antiquotation body " ^ quote marker ^
+              " lost constant entity markup")
+            (has_entity_markup Markup.constantN position))
+        [("d21_audit_marker_a", marker_a_pos),
+         ("d21_audit_marker_b", marker_b_pos),
+         ("d21_audit_marker_c", marker_c_pos)]
+
+    val valid_struct =
+      "D21AuditPair { first: \<llangle>d21_audit_marker_a\<rrangle>, " ^
+      "second: \<llangle>d21_audit_marker_b\<rrangle> }"
+    val ordinary_follower = "if d21_audit_truth { () }"
+
+    fun expect_failure operation source =
+      (case Exn.result operation source of
+         Exn.Res _ =>
+           error
+             ("struct-expression regression audit: expected rejection of " ^
+               quote source)
+       | Exn.Exn exn =>
+           if Exn.is_interrupt exn then Exn.reraise exn else ())
+
+    fun assert_recovered () =
+      let
+        val _ = ignore (checked valid_struct)
+        val _ =
+          (case parse_text ordinary_follower of
+             UE_If
+               (UE_Path path, UE_Block (UE_Unit _, _), NONE, _) =>
+               audit_assert "ordinary block-followed path changed after failure"
+                 (render_path path = "d21_audit_truth")
+           | _ =>
+               error
+                 "struct-expression regression audit: ordinary follower did not recover")
+      in () end
+
+    val _ =
+      (expect_failure parse_text
+         "D21AuditPair { first: $, second: 2 }";
+       assert_recovered ())
+    val _ =
+      (expect_failure parse_text
+         "D21AuditPair { first: 1, second: }";
+       assert_recovered ())
+    val _ =
+      (expect_failure parse_text
+         "D21AuditPair { first: \<llangle>1, second: 2 }";
+       assert_recovered ())
+    val _ =
+      (expect_failure checked
+         "D21AuditPair { first: 0 = rhs, second: 2 }";
+       assert_recovered ())
+    val _ =
+      (expect_failure checked
+         ("D21AuditPair { " ^
+          "f00: 0, f01: 1, f02: 2, f03: 3, f04: 4, " ^
+          "f05: 5, f06: 6, f07: 7, f08: 8, f09: 9, " ^
+          "f10: 10, f11: 11, f12: 12, f13: 13, f14: 14 }");
+       assert_recovered ())
+  in
+    val _ =
+      writeln
+        "Struct-expression AST, lowering, parity, markup, and recovery regressions passed"
+  end
+\<close>
+
+
 section\<open> Standard code equations \<close>
 
 urust_expr regression_code_literal

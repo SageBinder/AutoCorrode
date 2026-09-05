@@ -1945,6 +1945,133 @@ urust_expr_rejects fidelity \<open> let i32 = 1; i32 \<close>
 urust_expr_rejects fidelity \<open> let i64 = 1; i64 \<close>
   \<open> syntax error \<close>
 
+section\<open> Struct-expression failures (D-21) \<close>
+
+definition negative_d21_pair ::
+    \<open>
+      64 word \<Rightarrow> 64 word \<Rightarrow>
+      (unit, 64 word, unit, unit, unit) function_body
+    \<close>
+  where \<open> negative_d21_pair \<equiv> lift_fun2 (+) \<close>
+
+micro_rust_notation (call) negative_d21_pair ("NegativeD21Pair")
+
+subsection\<open> Field-list grammar \<close>
+
+urust_expr_rejects fidelity
+  \<open> NegativeD21Pair {} \<close>
+  \<open> syntax error \<close>
+  \<comment> \<open> [FIDELITY] struct-expression field lists are nonempty. \<close>
+
+urust_expr_rejects fidelity
+  \<open> NegativeD21Pair {, left: 1_u64 } \<close>
+  \<open> syntax error \<close>
+
+urust_expr_rejects fidelity
+  \<open> NegativeD21Pair { left: 1_u64, } \<close>
+  \<open> syntax error \<close>
+  \<comment> \<open> [FIDELITY] trailing field commas are not in the active frontend grammar. \<close>
+
+urust_expr_rejects fidelity
+  \<open> NegativeD21Pair { left: 1_u64,, right: 2_u64 } \<close>
+  \<open> syntax error \<close>
+
+urust_expr_rejects fidelity
+  \<open> NegativeD21Pair { left: 1_u64; right: 2_u64 } \<close>
+  \<open> syntax error \<close>
+
+urust_expr_rejects fidelity
+  \<open> NegativeD21Pair { : 1_u64 } \<close>
+  \<open> syntax error \<close>
+
+urust_expr_rejects fidelity
+  \<open> NegativeD21Pair { left 1_u64 } \<close>
+  \<open> syntax error \<close>
+
+urust_expr_rejects fidelity
+  \<open> NegativeD21Pair { left: } \<close>
+  \<open> syntax error \<close>
+
+urust_expr_rejects fidelity
+  \<open> NegativeD21Pair { left: 1_u64 right: 2_u64 } \<close>
+  \<open> syntax error \<close>
+
+urust_expr_rejects fidelity
+  \<open> NegativeD21Pair { left: 1_u64 \<close>
+  \<open> syntax error found at end of input \<close>
+
+urust_expr_rejects fidelity
+  \<open> NegativeD21Pair { left: 1_u64 } } \<close>
+  \<open> syntax error \<close>
+
+urust_expr_rejects fidelity
+  \<open> NegativeD21Pair { 0: 1_u64 } \<close>
+  \<open> syntax error \<close>
+
+urust_expr_rejects fidelity
+  \<open> NegativeD21Pair { left::nested: 1_u64 } \<close>
+  \<open> syntax error \<close>
+
+urust_expr_rejects fidelity
+  \<open> NegativeD21Pair { if: 1_u64 } \<close>
+  \<open> syntax error \<close>
+
+urust_expr_rejects fidelity
+  \<open> NegativeD21Pair { left } \<close>
+  \<open> syntax error \<close>
+  \<comment> \<open> [FIDELITY] Rust field shorthand is not supported. \<close>
+
+urust_expr_rejects fidelity
+  \<open> NegativeD21Pair { left: 1_u64, ..base } \<close>
+  \<open> syntax error \<close>
+  \<comment> \<open> [FIDELITY] Rust rest update is not supported. \<close>
+
+subsection\<open> Head generics and nested failures \<close>
+
+urust_expr_rejects fidelity
+  \<open> NegativeD21Pair::<T> { left: 1_u64, right: 2_u64 } \<close>
+  \<open> generic arguments are not supported in struct-expression heads \<close>
+
+urust_expr_rejects fidelity
+  \<open> Negative::<T>::D21Pair { left: 1_u64, right: 2_u64 } \<close>
+  \<open> generic arguments are not supported in struct-expression heads \<close>
+
+urust_expr_rejects fidelity
+  \<open>
+    NegativeD21Pair {
+      left: NegativeD21Pair { inner: },
+      right: 2_u64
+    }
+  \<close>
+  \<open> syntax error \<close>
+
+subsection\<open> Shared call arity and type boundary \<close>
+
+urust_expr_rejects fidelity
+  \<open> NegativeD21Pair { only: 1_u64 } \<close>
+  \<open> no backend matches the use-site type \<close>
+  \<comment> \<open> [FIDELITY] too few initializers reach the ordinary call type check. \<close>
+
+urust_expr_rejects fidelity
+  \<open>
+    NegativeD21Pair {
+      first: 1_u64, second: 2_u64, third: 3_u64
+    }
+  \<close>
+  \<open> no backend matches the use-site type \<close>
+  \<comment> \<open> [FIDELITY] too many supported-arity initializers fail at the same final type check. \<close>
+
+urust_expr_rejects fidelity
+  \<open>
+    NegativeD21Pair {
+      f00: 0, f01: 1, f02: 2, f03: 3, f04: 4,
+      f05: 5, f06: 6, f07: 7, f08: 8, f09: 9,
+      f10: 10, f11: 11, f12: 12, f13: 13, f14: 14
+    }
+  \<close>
+  \<open> unsupported call arity 15 \<close>
+  \<comment> \<open> [FIDELITY] struct expressions share the frontend's inclusive arity-14 cap. \<close>
+
 section\<open> Lexer and whole-input failures \<close>
 
 new_urust_rejects audit

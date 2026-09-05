@@ -398,6 +398,13 @@ lemma \<open>undefined = \<lbrakk> let res = match \<llangle>Foo (12 :: 32 word)
 
 subsubsection\<open>Struct Expressions\<close>
 
+text\<open>
+These frontend goldens are promoted to the checked D-21 matrix in
+\<open>Parser_Test_Conformance.thy\<close>. The active frontend treats labels as syntax-only and lowers each
+head as an ordinary call with source-ordered initializers; Rust-correct metadata semantics are deferred
+to T-39.
+\<close>
+
 lemma \<open>undefined = \<lbrakk> Foo { foo: \<llangle>1 :: 32 word\<rrangle>, goo: \<llangle>2 :: 32 word\<rrangle> } \<rbrakk>\<close> sorry
 lemma \<open>undefined = \<lbrakk> Foo { goo: \<llangle>2 :: 32 word\<rrangle>, foo: \<llangle>1 :: 32 word\<rrangle> } \<rbrakk>\<close> sorry
 lemma \<open>undefined = \<lbrakk> struct_pattern_dr { dr_goo: \<llangle>11 :: 32 word\<rrangle>, dr_foo: \<llangle>10 :: 32 word\<rrangle> } \<rbrakk>\<close> sorry

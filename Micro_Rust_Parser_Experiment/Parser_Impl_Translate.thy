@@ -113,6 +113,23 @@ struct
      | UE_Array (elements, _) =>
          T.array_literal
            (map (lower_expression ctxt environment) elements)
+     | UE_Struct (head, fields, struct_pos) =>
+         let
+           fun label (SE_Field (name, pos, _)) = (name, pos)
+           fun initializer (SE_Field (_, _, expression)) = expression
+           val _ =
+             List.app
+               (R.report_struct_label ctxt o label)
+               fields
+           val function =
+             R.function_path ctxt environment head
+           val lowered_initializers =
+             map
+               (lower_expression ctxt environment o initializer)
+               fields
+         in
+           T.function_call struct_pos function lowered_initializers
+         end
      | UE_Path path =>
          R.literal_path ctxt environment path
      | UE_Literal payload =>

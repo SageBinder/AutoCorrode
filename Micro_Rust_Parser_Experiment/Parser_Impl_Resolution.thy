@@ -29,6 +29,8 @@ sig
   val anonymous_abstraction: term -> term
 
   val report_wildcard: Proof.context -> Position.T -> unit
+  val report_struct_label:
+    Proof.context -> string * Position.T -> unit
   val literal_value:
     Proof.context -> environment -> URust_AST.literal_payload -> term
   val literal_expression:
@@ -112,7 +114,9 @@ ML\<open>
     scope. Lexical names shadow context fixes and constants, and occurrences are restored to the exact
     local terms held by the environment while retaining ordinary HOL parsing and markup.
     anonymous_abstraction introduces one anonymous dummy-typed Abs without manufacturing a Free.
-    report_wildcard emits the parser's wildcard typing report.
+    report_wildcard emits the parser's wildcard typing report. report_struct_label marks a
+    struct-expression label as a syntax-only free name with a typing tooltip; it performs no
+    selector or metadata lookup.
 
   - literal_value lowers a literal payload to its unlifted HOL value, including binder-aware value
     antiquotations. literal_expression preserves the frontend's special boolean-expression shape and
@@ -700,6 +704,11 @@ struct
 
   fun report_wildcard ctxt pos =
     Context_Position.report_text ctxt pos Markup.typing "wildcard pattern"
+
+  fun report_struct_label ctxt (_, pos) =
+    (Context_Position.report ctxt pos Markup.free;
+     Context_Position.report_text ctxt pos Markup.typing
+       "struct expression label")
 
   fun literal_value ctxt environment payload =
     (case payload of

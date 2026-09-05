@@ -99,6 +99,33 @@ urust_expr_with_check showoff_calls
     }
   \<close>
 
+subsection\<open> Registered struct construction \<close>
+
+datatype showoff_struct_value =
+  ShowoffStructValue "64 word" bool
+
+definition showoff_struct_lift ::
+    \<open>
+      64 word \<Rightarrow> bool \<Rightarrow>
+      (unit, showoff_struct_value, unit, unit, unit) function_body
+    \<close>
+  where \<open> showoff_struct_lift \<equiv> lift_fun2 ShowoffStructValue \<close>
+
+micro_rust_notation (call) showoff_struct_lift ("Showoff::StructValue")
+
+text\<open>
+The labels are retained for source markup and otherwise erase exactly as in the active frontend;
+the registered qualified head receives the two initializers in source order.
+\<close>
+
+urust_expr_with_check showoff_struct_expression
+  \<open>
+    Showoff::StructValue {
+      payload: 7_u64,
+      enabled: true
+    }
+  \<close>
+
 
 subsection\<open> Nested and guarded matches \<close>
 
