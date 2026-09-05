@@ -1088,10 +1088,57 @@ section\<open> Structural while-let lowering \<close>
 
 text\<open>
 Structurally irrefutable patterns lower directly without a generated false
-fallback. Grouping and borrow syntax are transparent, aliases bind the complete
-scrutinee before applying their inner pattern, and tuple direct lowering is
-reserved for tuples whose children are all irrefutable.
+fallback. Grouping is transparent, aliases bind the complete scrutinee before
+applying their inner pattern, and tuple direct lowering is reserved for tuples
+whose children are all irrefutable. Reference-pattern wrappers are erased by
+case preparation before this classification.
 \<close>
+
+urust_expr_with_check' improvement_wrapped_grouped_range
+  \<open>
+    match_case \<llangle>Some (3 :: nat)\<rrangle> {
+      Some(&(2..=4)) \<Rightarrow> \<llangle>True\<rrangle>,
+      _ \<Rightarrow> \<llangle>False\<rrangle>
+    }
+  \<close>
+  \<open>
+    \<lbrakk>
+      match_case \<llangle>Some (3 :: nat)\<rrangle> {
+        Some(2..=4) \<Rightarrow> \<llangle>True\<rrangle>,
+        _ \<Rightarrow> \<llangle>False\<rrangle>
+      }
+    \<rbrakk>
+  \<close>
+old_urust_rejects
+  \<open>
+    match_case \<llangle>Some (3 :: nat)\<rrangle> {
+      Some(&(2..=4)) \<Rightarrow> \<llangle>True\<rrangle>,
+      _ \<Rightarrow> \<llangle>False\<rrangle>
+    }
+  \<close>
+
+urust_expr_with_check' improvement_while_let_wrapped_tuple_children
+  \<open>
+    #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let (&left, & mut right) =
+      (\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>) {
+      \<llangle>left + right\<rrangle>;
+    }
+  \<close>
+  \<open>
+    \<lbrakk>
+      #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let (left, right) =
+        (\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>) {
+        \<llangle>left + right\<rrangle>;
+      }
+    \<rbrakk>
+  \<close>
+old_urust_rejects
+  \<open>
+    #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let (&left, & mut right) =
+      (\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>) {
+      \<llangle>left + right\<rrangle>;
+    }
+  \<close>
 
 urust_expr_with_check' improvement_while_let_grouped_tuple
   \<open>

@@ -964,6 +964,15 @@ ML_val\<open>
           integer upper actual_upper
       | range _ _ _ _ = false
 
+    fun find_from text needle offset =
+      if offset + size needle > size text then
+        error
+          ("parser regression audit: missing " ^ quote needle)
+      else if
+        String.substring (text, offset, size needle) = needle
+      then offset
+      else find_from text needle (offset + 1)
+
     val _ =
       audit_assert "exclusive range shape changed"
         (range RK_Exclusive "5" "7"
@@ -972,6 +981,42 @@ ML_val\<open>
       audit_assert "inclusive range shape changed"
         (range RK_Inclusive "5" "7"
           (parse_pattern "5..=7"))
+
+    val borrow_text = pattern_source "& mut &value"
+    val outer_borrow_offset = find_from borrow_text "&" 0
+    val inner_borrow_offset = find_from borrow_text "&" (outer_borrow_offset + 1)
+    val borrow_start = Position.make0 11 4 0 "" "" ""
+    val outer_borrow_position =
+      Position.symbol_explode
+        (String.substring (borrow_text, 0, outer_borrow_offset))
+        borrow_start
+    val inner_borrow_position =
+      Position.symbol_explode
+        (String.substring (borrow_text, 0, inner_borrow_offset))
+        borrow_start
+    val _ =
+      (case URust_Diagnostics.parse_source ctxt
+          (Parser_Lex_Util.positioned_content_source
+            borrow_text borrow_start) of
+         SOME
+           (UE_Match
+             (_, _,
+              [UR_Arm
+                (P_Borrow
+                  (BM_Mut,
+                   P_Borrow (BM_Imm, P_Ident ("value", _), inner_pos),
+                   outer_pos),
+                 NONE, _)],
+              _)) =>
+           (audit_assert "outer borrow-pattern mode or position changed"
+              (Position.offset_of outer_pos =
+                Position.offset_of outer_borrow_position);
+            audit_assert "inner borrow-pattern mode or position changed"
+              (Position.offset_of inner_pos =
+                Position.offset_of inner_borrow_position))
+       | _ =>
+           error
+             "parser regression audit: nested borrow-pattern AST changed")
 
     val _ =
       (case parse_pattern "whole @ 5..=7" of
@@ -1029,15 +1074,6 @@ ML_val\<open>
       pattern_source "1..2..3"
     val chained_start =
       Position.make0 7 1 0 "" "" ""
-
-    fun find_from text needle offset =
-      if offset + size needle > size text then
-        error
-          ("parser regression audit: missing " ^ quote needle)
-      else if
-        String.substring (text, offset, size needle) = needle
-      then offset
-      else find_from text needle (offset + 1)
 
     val first_range =
       find_from chained_text ".." 0

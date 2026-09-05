@@ -341,15 +341,21 @@ new_urust_rejects divergent
   \<open> reference patterns are not implemented \<close>
   \<comment> \<open> [DIVERGENT] const bindings share the same non-erasing reference-pattern gate. \<close>
 
-new_urust_rejects divergent
+urust_expr_rejects fidelity
   \<open> match \<llangle>1 :: nat\<rrangle> { &1 \<Rightarrow> \<llangle>True\<rrangle>, _ \<Rightarrow> \<llangle>False\<rrangle> } \<close>
-  \<open> reference patterns are not implemented \<close>
-  \<comment> \<open> [DIVERGENT] the old frontend erases this reference-pattern syntax. \<close>
+  \<open> numeric patterns are not supported in case patterns \<close>
+  \<comment> \<open> [FIDELITY] wrapper erasure exposes the underlying unsupported case numeral. \<close>
 
-new_urust_rejects divergent
-  \<open> match_case \<llangle>Some (1 :: nat)\<rrangle> { Some(&x) \<Rightarrow> x, _ \<Rightarrow> 0 } \<close>
-  \<open> reference patterns are not implemented \<close>
-  \<comment> \<open> [DIVERGENT] nested case reference patterns are rejected before lowering. \<close>
+urust_expr_rejects fidelity
+  \<open> match_case \<llangle>1 :: nat\<rrangle> { (&1)..2 \<Rightarrow> True, _ \<Rightarrow> False } \<close>
+  \<open> invalid range-pattern endpoint \<close>
+  \<comment> \<open> [FIDELITY] range endpoints remain value-only; wrapper erasure applies to the complete
+       case pattern, not inside an endpoint. \<close>
+
+urust_expr_rejects fidelity
+  \<open> match_case \<llangle>1 :: nat\<rrangle> { 0..=(&2) \<Rightarrow> True, _ \<Rightarrow> False } \<close>
+  \<open> invalid range-pattern endpoint \<close>
+  \<comment> \<open> [FIDELITY] the upper range endpoint has the same value-only boundary. \<close>
 
 urust_expr_rejects fidelity
   \<open> match_switch \<llangle>(0 :: nat, (True, TNil))\<rrangle> { (x, y) \<Rightarrow> () } \<close>
@@ -689,8 +695,8 @@ local
       ["or-pattern alternative is missing binder \"x\""]
   val _ =
     expect_clean_rejection
-      "match_case \<llangle>Some (1 :: nat)\<rrangle> { Some(&x) \<Rightarrow> x, _ \<Rightarrow> 0 }"
-      ["reference patterns are not implemented"]
+      "match_case \<llangle>0 :: nat\<rrangle> { Some(&0) \<Rightarrow> True, _ \<Rightarrow> False }"
+      ["numeric patterns are not supported in case patterns"]
   val _ =
     expect_clean_rejection
       "match_case \<llangle>0 :: nat\<rrangle> { 0 \<Rightarrow> True, _ \<Rightarrow> False }"
@@ -1108,10 +1114,27 @@ urust_expr_rejects fidelity
   \<open> numeric patterns are not supported in case patterns \<close>
   \<comment> \<open> [FIDELITY] case numerals retain the frontend rejection. \<close>
 
-new_urust_rejects divergent
-  \<open> if let &Some(value) = \<llangle>Some (1 :: nat)\<rrangle> { value } else { 0 } \<close>
+urust_expr_rejects fidelity
+  \<open>
+    if let (&left, right) =
+      (\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>) {
+      left
+    } else {
+      0
+    }
+  \<close>
   \<open> reference patterns are not implemented \<close>
-  \<comment> \<open> [DIVERGENT] reference-pattern wrappers remain unsupported by the dedicated parser. \<close>
+  \<comment> \<open> [FIDELITY] the frontend's syntactic top-level tuple exception remains an irrefutable
+       binding path, where reference-pattern wrappers are unsupported. \<close>
+
+urust_expr_rejects fidelity
+  \<open>
+    let (left, &right) =
+      (\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>) else { 0 };
+    right
+  \<close>
+  \<open> reference patterns are not implemented \<close>
+  \<comment> \<open> [FIDELITY] top-level tuple \<open>let ... else\<close> uses the same non-case binding path. \<close>
 
 new_urust_rejects audit
   \<open>
@@ -1220,22 +1243,6 @@ new_urust_rejects divergent
   \<open> match \<llangle>[1 :: nat, 2]\<rrangle> { [x, ..] | [] if True \<Rightarrow> True, _ \<Rightarrow> False } \<close>
   \<open> or-pattern alternative is missing binder "x" \<close>
   \<comment> \<open> [DIVERGENT] nested slice alternatives obey the same exact binder-set rule. \<close>
-
-new_urust_rejects divergent
-  \<open>
-    #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let &Some(value) =
-      \<llangle>Some (1 :: nat)\<rrangle> { () }
-  \<close>
-  \<open> reference patterns are not implemented \<close>
-  \<comment> \<open> [DIVERGENT] nested while-let reference patterns are rejected before case lowering. \<close>
-
-new_urust_rejects divergent
-  \<open>
-    #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let Some(&value) =
-      \<llangle>Some (1 :: nat)\<rrangle> { () }
-  \<close>
-  \<open> reference patterns are not implemented \<close>
-  \<comment> \<open> [DIVERGENT] recursive while-let traversal rejects a borrow below a constructor. \<close>
 
 urust_expr_rejects fidelity \<open> while (true) { () } \<close>
   \<open> while \<close>

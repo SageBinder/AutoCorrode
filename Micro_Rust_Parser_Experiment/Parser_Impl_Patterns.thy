@@ -84,12 +84,13 @@ ML\<open>
   restricts the source head to an identifier, wildcard, or top-level tuple and carries the mutable
   keyword position; and For_Binder resolves known constructors before enforcing irrefutability.
   prepare_binding recursively rejects reference patterns, validates all binders before allocating any
-  of them, and returns an abstract prepared_binding. binding_environment is the exact environment in
-  which the caller must lower the binding body. binding_abstraction closes such a lowered body over the
-  matched RHS for consumers such as `for`. bind_prepared takes an already-lowered outer-scope RHS and
-  inner-scope body, performs any mutable scalar/wildcard allocation selected during preparation, and
-  constructs the shallow bind. The caller remains responsible for lowering both expressions in those
-  prescribed environments.
+  of them, and returns an abstract prepared_binding. Case preparation instead treats reference
+  patterns as syntax-only wrappers, matching the current frontend. binding_environment is the exact
+  environment in which the caller must lower the binding body. binding_abstraction closes such a
+  lowered body over the matched RHS for consumers such as `for`. bind_prepared takes an already-lowered
+  outer-scope RHS and inner-scope body, performs any mutable scalar/wildcard allocation selected during
+  preparation, and constructs the shallow bind. The caller remains responsible for lowering both
+  expressions in those prescribed environments.
 
   select_match_flavour preserves an explicit MF_Case or MF_Switch (while rejecting switch guards) and
   resolves MF_Auto according to the current case-versus-numeral-switch policy; it never returns
@@ -429,9 +430,12 @@ struct
          | P_Tuple (arguments, pos) =>
              Resolved_Tuple (map resolve arguments, pos)
          | P_Group inner => resolve inner
-         | P_Borrow (_, _, pos) =>
-             error ("urust_expr: reference patterns are not implemented" ^
-               Position.here pos)
+         | P_Borrow (_, inner, pos) =>
+             (case policy of
+                Resolve_Constructor_Case => resolve inner
+              | _ =>
+                  error ("urust_expr: reference patterns are not implemented" ^
+                    Position.here pos))
          | P_Alias ("_", pos, _, _) =>
              error ("urust_expr: alias pattern binder cannot be `_`" ^
                Position.here pos)
@@ -485,7 +489,9 @@ struct
          | P_Or (alternatives, pos) =>
              Resolved_Or (map resolve alternatives, pos))
     in
-      reject_reference_patterns pattern;
+      (case policy of
+         Resolve_Constructor_Case => ()
+       | _ => reject_reference_patterns pattern);
       resolve pattern
     end
 

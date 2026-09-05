@@ -342,7 +342,9 @@ lemma \<open>undefined = \<lbrakk> let y = match \<llangle>CHR ''a''\<rrangle> {
 lemma \<open>undefined = \<lbrakk> let y = match Some(\<llangle>7 :: 32 word\<rrangle>) { whole @ Some(v) \<Rightarrow> v, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }; assert!(y == \<llangle>7 :: 32 word\<rrangle>) \<rbrakk>\<close> sorry
 
 text\<open>Rust-style pattern binders \<open>ref p\<close> / \<open>ref mut p\<close> are intentionally unsupported (they clash
-with the reference syntax). Borrow patterns \<open>&v\<close> / \<open>& mut v\<close> are frontend-only sugar.\<close>
+with the reference syntax). Borrow patterns \<open>&v\<close> / \<open>& mut v\<close> are syntax-only wrappers during
+case preparation in both frontends; direct binders still reject them, and type-sensitive semantics
+remain deferred.\<close>
 
 lemma \<open>undefined = \<lbrakk> let y = match Some(\<llangle>7 :: 32 word\<rrangle>) { Some(&v) \<Rightarrow> v, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }; assert!(y == \<llangle>7 :: 32 word\<rrangle>) \<rbrakk>\<close> sorry
 lemma \<open>undefined = \<lbrakk> let y = match Some(\<llangle>7 :: 32 word\<rrangle>) { Some(& mut v) \<Rightarrow> v, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }; assert!(y == \<llangle>7 :: 32 word\<rrangle>) \<rbrakk>\<close> sorry

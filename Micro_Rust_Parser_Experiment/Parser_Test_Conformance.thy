@@ -2521,6 +2521,64 @@ urust_expr_with_check tuple_match_or_inside
 
 section\<open> Advanced pattern parity \<close>
 
+subsection\<open> Reference-pattern wrapper erasure \<close>
+
+text\<open>
+Immutable and mutable reference-pattern prefixes are syntax-only wrappers once a
+pattern enters case preparation. Erasure is recursive and retains the frontend's
+checked term across every case-based consumer.
+\<close>
+
+urust_expr_with_check reference_pattern_bare_tuple
+  \<open>
+    match \<llangle>Some (1 :: nat, (2 :: nat, TNil))\<rrangle> {
+      &Some((&left, & mut right)) \<Rightarrow> \<llangle>left + right\<rrangle>,
+      _ \<Rightarrow> 0
+    }
+  \<close>
+
+urust_expr_with_check reference_pattern_case_repeated
+  \<open>
+    match_case \<llangle>Some (Some (3 :: nat))\<rrangle> {
+      & mut &Some(& (Some(& mut value))) \<Rightarrow> value,
+      _ \<Rightarrow> 0
+    }
+  \<close>
+
+urust_expr_with_check reference_pattern_if_let_alias
+  \<open>
+    if let whole @ &Some(&(value)) = \<llangle>Some (4 :: nat)\<rrangle> {
+      let _ = whole;
+      value
+    } else {
+      0
+    }
+  \<close>
+
+urust_expr_with_check reference_pattern_let_else_slice
+  \<open>
+    let &Some([&head, .., & mut tail]) =
+      \<llangle>Some [5 :: nat, 6]\<rrangle> else { 0 };
+    \<llangle>head + tail\<rrangle>
+  \<close>
+
+urust_expr_with_check reference_pattern_while_let
+  \<open>
+    #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let & mut Some(& & mut value) =
+      \<llangle>Some (7 :: nat)\<rrangle> {
+      let _ = value;
+      ()
+    }
+  \<close>
+
+urust_expr_with_check reference_pattern_matches
+  \<open>
+    matches!(
+      \<llangle>Some (Some (8 :: nat))\<rrangle>,
+      &Some(& mut Some(& _))
+    )
+  \<close>
+
 subsection\<open> Grouped, alias, and range patterns \<close>
 
 urust_expr_with_check adv_grouped
@@ -2654,6 +2712,16 @@ urust_expr_with_check adv_struct_or
 
 urust_expr_with_check adv_struct_datatype_record
   \<open> match \<llangle>make_adv_datatype_record 3 4\<rrangle> { adv_datatype_record { adv_dr_right: y, adv_dr_left: x } \<Rightarrow> y } \<close>
+
+urust_expr_with_check reference_pattern_struct
+  \<open>
+    match \<llangle>AdvStruct 1 2\<rrangle> {
+      &AdvStruct { adv_right: & mut right, adv_left: &(left) } \<Rightarrow>
+        \<llangle>left + right\<rrangle>,
+      _ \<Rightarrow>
+        0
+    }
+  \<close>
 
 section\<open> If-let and let-else \<close>
 

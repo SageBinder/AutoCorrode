@@ -154,17 +154,18 @@ datatype showoff_packet =
   | ShowoffEmpty
 
 text\<open>
-Features: struct, slice-rest, constructor, and or-patterns in one match, followed
-by a guard and antiquotation capture of bindings from deep inside the pattern.
+Features: struct, slice-rest, constructor, reference-pattern wrappers, and
+or-patterns in one match, followed by a guard and antiquotation capture of
+bindings from deep inside the pattern.
 \<close>
 
 urust_expr showoff_patterns
   \<open>
     match \<llangle>ShowoffPacket 2 [3, 5, 8] (Some 13)\<rrangle> {
       ShowoffPacket {
-        showoff_tag: tag,
-        showoff_payload: [head, .., tail],
-        showoff_fallback: Some(backup)
+        showoff_tag: &tag,
+        showoff_payload: [&head, .., & mut tail],
+        showoff_fallback: &Some(&backup)
       } if tag > 0 && backup > 0 \<Rightarrow>
         \<llangle>head + tail + backup\<rrangle>,
       ShowoffPacket {
