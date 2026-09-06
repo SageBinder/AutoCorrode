@@ -140,7 +140,13 @@ struct
      (77, "TAS", "as"),
      (78, "TUINT", "<unsigned cast type>"),
      (79, "TSINT", "<signed cast type>"),
-     (80, "FUNARITY", "<function-literal arity suffix>")]
+     (80, "FUNARITY", "<function-literal arity suffix>"),
+     (81, "TYIELD", "\<y>\<i>\<e>\<l>\<d>"),
+     (82, "TLOG", "\<l>\<o>\<g>"),
+     (83, "TLOGDATAOPEN", "l\<llangle>"),
+     (84, "LOGSTRING", "<log string>"),
+     (85, "LOGIDENT", "<log identifier>"),
+     (86, "TLOGDATACLOSE", "\<rrangle>")]
 
   val terminal_count = length terminal_specs
 
@@ -201,7 +207,7 @@ struct
       Original.EC.terms
 
   val value_bearing_terminal_ids =
-    [0, 1, 2, 3, 6, 7, 9, 10, 11, 12, 76, 78, 79, 80]
+    [0, 1, 2, 3, 6, 7, 9, 10, 11, 12, 76, 78, 79, 80, 84, 85]
 
   val _ =
     List.app

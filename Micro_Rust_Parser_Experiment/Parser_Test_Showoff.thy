@@ -1,5 +1,5 @@
 theory Parser_Test_Showoff
-  imports Parser_Impl
+  imports Parser_Impl Micro_Rust_Std_Lib.StdLib_Logging
 begin
 
 section\<open> Showcase \<close>
@@ -33,6 +33,22 @@ urust_expr_with_check showoff_expression
     } else {
       (restored + 1_u32, "small")
     }
+  \<close>
+
+subsection\<open> Logging and yield \<close>
+
+text\<open>
+Features: registered logger calls, mixed logging-data entries, lexical identifier capture, primitive
+yield and logging, and ordinary sequencing.
+\<close>
+
+urust_expr_with_check showoff_logging_yield
+  \<open>
+    let request = \<llangle>7 :: nat\<rrangle>;
+    info!(l\<llangle>"request ", request, " started"\<rrangle>);
+    \<y>\<i>\<e>\<l>\<d>;
+    \<l>\<o>\<g> \<llangle>Trace\<rrangle> \<llangle>[LogNat request]\<rrangle>;
+    debug!(l\<llangle>"request ", request, " resumed"\<rrangle>)
   \<close>
 
 

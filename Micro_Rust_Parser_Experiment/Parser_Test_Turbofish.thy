@@ -287,9 +287,9 @@ ML_val\<open>
 
     fun capture_reports action =
       let
-        val captured = Unsynchronized.ref ([]: string list)
+        val captured = Synchronized.var "parser_test_reports" ([]: string list)
         fun capture chunks =
-          Unsynchronized.change captured (append chunks)
+          Synchronized.change captured (append chunks)
         val result =
           Parser_Test_Report_Lock.run (fn () =>
             Unsynchronized.setmp Private_Output.report_fn capture
@@ -297,7 +297,7 @@ ML_val\<open>
                 Print_Mode.with_modes [Print_Mode.PIDE] action ()) ())
         val markup =
           fold collect_markup
-            (maps YXML.parse_body (! captured)) []
+            (maps YXML.parse_body (Synchronized.value captured)) []
       in (result, markup) end
 
     fun source_position start prefix text =
@@ -438,9 +438,9 @@ ML_val\<open>
       "generic_navigation_call::<generic_free, generic_bound>(0)"
     val start =
       Position.make0 47 140 1400 "" "" "restricted-turbofish-identifier-markup"
-    val captured = Unsynchronized.ref ([]: string list)
+    val captured = Synchronized.var "parser_test_reports" ([]: string list)
     fun capture chunks =
-      Unsynchronized.change captured (append chunks)
+      Synchronized.change captured (append chunks)
     val _ =
       Parser_Test_Report_Lock.run (fn () =>
         Unsynchronized.setmp Private_Output.report_fn capture
@@ -455,7 +455,7 @@ ML_val\<open>
           fold collect_markup body (markup :: result)
     val markup =
       fold collect_markup
-        (maps YXML.parse_body (! captured)) []
+        (maps YXML.parse_body (Synchronized.value captured)) []
     fun token_position prefix token =
       let
         val token_start = Position.symbol_explode prefix start

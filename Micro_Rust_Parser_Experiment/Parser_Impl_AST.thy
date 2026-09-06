@@ -90,6 +90,10 @@ sig
     | AssignAdd
     | AssignBin of assign_binop
 
+  datatype log_data_entry =
+      LDE_String of string * Position.T
+    | LDE_Identifier of string * Position.T
+
   datatype ur_callee =
       UC_Path of ur_path
     | UC_Method of ur_expr * path_segment
@@ -105,6 +109,9 @@ sig
     | UE_Path of ur_path
     | UE_Literal of literal_payload
     | UE_ExprAntiq of Input.source
+    | UE_Yield of Position.T
+    | UE_Log of Input.source * Input.source * Position.T
+    | UE_LogData of log_data_entry list * Position.T
     | UE_Closure of ur_pat list * ur_expr * Position.T
     | UE_Let of ur_pat * ur_expr * ur_expr
     | UE_LetMut of ur_pat * ur_expr * ur_expr * Position.T
@@ -189,7 +196,8 @@ end
       AssignMul, AssignMod, AssignBAnd, AssignBOr, AssignBXor, AssignShl, AssignShr), and assignop
       (Assign, AssignAdd, AssignBin). These tags describe surface operations only; their HOL
       constants and semantics belong to later modules. CT_RawPointer retains source mutability even
-      though the current shallow frontend lowers const and mut targets identically.
+      though the current shallow frontend lowers const and mut targets identically. log_data_entry
+      retains each quoted string or identifier in source order with its token position.
     * ur_pat and P_Wild, P_Ident, P_Literal, P_Constr, P_Tuple, P_Group, P_Borrow, P_Alias, P_Range,
       P_Slice, P_Struct, P_Or, together with slice_item (SI_Pat, SI_Rest) and struct_field (SF_Field,
       SF_Shorthand, SF_Rest). Lists retain source order; grammar-produced tuple lists contain at least
@@ -198,9 +206,10 @@ end
     * match_flavour and MF_Switch, MF_Case, MF_Auto.  MF_Auto requests downstream classification; it
       is not a fourth lowering.
     * the mutually recursive expression interface ur_expr (UE_Unit, UE_Tuple, UE_Array, UE_Struct,
-      UE_Path, UE_Literal, UE_ExprAntiq, UE_Closure, UE_Let, UE_LetMut, UE_Const, UE_Seq, UE_Return,
-      UE_Bin, UE_Cast, UE_Unary, UE_Group, UE_Block, UE_If, UE_IfLet, UE_LetElse, UE_While, UE_Loop,
-      UE_For, UE_WhileLet, UE_Call, UE_Field, UE_Index, UE_Range, UE_Assign, UE_Macro, UE_Match),
+      UE_Path, UE_Literal, UE_ExprAntiq, UE_Yield, UE_Log, UE_LogData, UE_Closure, UE_Let,
+      UE_LetMut, UE_Const, UE_Seq, UE_Return, UE_Bin, UE_Cast, UE_Unary, UE_Group, UE_Block, UE_If,
+      UE_IfLet, UE_LetElse, UE_While, UE_Loop, UE_For, UE_WhileLet, UE_Call, UE_Field, UE_Index,
+      UE_Range, UE_Assign, UE_Macro, UE_Match),
       struct_expr_field (SE_Field),
       macro_payload
       (MP_Arguments, MP_Matches), ur_place (UP_Path, UP_Deref, UP_Field, UP_Index, UP_Antiq), and
@@ -210,6 +219,9 @@ end
       contains its pattern, an optional guard paired with the guard-keyword position, and its body.
       UE_Struct retains its complete head-through-closing-brace span and source-ordered SE_Field
       entries; each entry retains the syntax-only label, its position, and the initializer AST.
+      UE_Log retains the two positioned raw HOL operands and its complete primitive-log span.
+      UE_LogData retains a nonempty source-ordered entry list and its complete opener-through-closer
+      span.
       UE_Closure retains ordered pattern-shaped formals and the full closure span; its grammar admits
       only identifier spellings, while the closure-formal lowering gate rejects the normalized
       wildcard.
@@ -361,6 +373,10 @@ struct
     | AssignAdd
     | AssignBin of assign_binop
 
+  datatype log_data_entry =
+      LDE_String of string * Position.T
+    | LDE_Identifier of string * Position.T
+
   datatype ur_callee =
       UC_Path of ur_path
     | UC_Method of ur_expr * path_segment
@@ -377,6 +393,11 @@ struct
     | UE_Path      of ur_path
     | UE_Literal   of literal_payload                 (* integer / bool / string / <<value>> *)
     | UE_ExprAntiq of Input.source                    (* eps<e> body as a POSITIONED source -> e *)
+    | UE_Yield     of Position.T                      (* yield -> pause *)
+    | UE_Log       of Input.source * Input.source * Position.T
+                                                      (* log <<priority>> <<data>>, at full span *)
+    | UE_LogData   of log_data_entry list * Position.T
+                                                      (* l<<"text", value>>, at full span *)
     | UE_Closure   of ur_pat list * ur_expr * Position.T
                                                       (* |x, ...| body / || body, at full span *)
     | UE_Let       of ur_pat * ur_expr * ur_expr      (* let <pat> = rhs; body -> bind *)
@@ -454,6 +475,9 @@ struct
     | expression_position (UE_Path path) = path_position path
     | expression_position (UE_Literal payload) = literal_position payload
     | expression_position (UE_ExprAntiq src) = Input.pos_of src
+    | expression_position (UE_Yield pos) = pos
+    | expression_position (UE_Log (_, _, pos)) = pos
+    | expression_position (UE_LogData (_, pos)) = pos
     | expression_position (UE_Closure (_, _, pos)) = pos
     | expression_position (UE_Let _) = Position.none
     | expression_position (UE_LetMut (_, _, _, pos)) = pos

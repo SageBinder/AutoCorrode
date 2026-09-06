@@ -39,6 +39,8 @@ sig
     Proof.context -> environment -> string * Position.T -> term
   val literal_identifier:
     Proof.context -> environment -> string * Position.T -> term
+  val ordinary_identifier_value:
+    Proof.context -> environment -> string * Position.T -> term
   val literal_path_value:
     Proof.context -> environment -> URust_AST.ur_path -> term
   val literal_path:
@@ -123,6 +125,8 @@ ML\<open>
     otherwise lifts literal_value. literal_identifier_value resolves locals before NLiteral
     notation/HOL fallback without lifting, and literal_identifier lifts that result. In NFunction and
     NField roles an exact registered notation wins; otherwise a lexical local wins before HOL fallback.
+    ordinary_identifier_value resolves a lexical local before ordinary HOL parsing and deliberately
+    performs no micro_rust_notation lookup; log-data identifiers use this path.
     function_identifier returns the selected unlifted callee. apply_generic_arguments parses the
     retained restricted generic argument sources in the current lexical environment and applies them
     to an already-resolved term from left to right.
@@ -208,26 +212,28 @@ struct
          identifier_leaf inner
      | inner => inner)
 
+  fun resolve_hol_identifier ctxt name pos =
+    let val term = Syntax.parse_term ctxt name in
+      (case identifier_leaf term of
+         Const (constant_name, _) =>
+           Context_Position.report ctxt pos
+             (Name_Space.markup
+               (Consts.space_of (Proof_Context.consts_of ctxt)) constant_name)
+       | Free (free_name, _) =>
+           (case Proof_Context.lookup_free ctxt free_name of
+              SOME fixed =>
+                List.app (Context_Position.report ctxt pos)
+                  (Syntax_Phases.markup_free ctxt fixed)
+            | NONE => Context_Position.report ctxt pos Markup.free)
+       | _ => Context_Position.report ctxt pos Markup.free);
+      term
+    end
+
   (* Registered notation witnesses must remain bare Frees until the enclosing Term.lambda can capture
      them. This is the witness-precedence rule that lets a lexical binder shadow a notation. *)
   fun resolve_identifier ctxt kind name pos =
     (case Micro_Rust_Names.lookups ctxt kind name of
-       [] =>
-         let val term = Syntax.parse_term ctxt name in
-           (case identifier_leaf term of
-              Const (constant_name, _) =>
-                Context_Position.report ctxt pos
-                  (Name_Space.markup
-                    (Consts.space_of (Proof_Context.consts_of ctxt)) constant_name)
-            | Free (free_name, _) =>
-                (case Proof_Context.lookup_free ctxt free_name of
-                   SOME fixed =>
-                     List.app (Context_Position.report ctxt pos)
-                       (Syntax_Phases.markup_free ctxt fixed)
-                 | NONE => Context_Position.report ctxt pos Markup.free)
-            | _ => Context_Position.report ctxt pos Markup.free);
-           term
-         end
+       [] => resolve_hol_identifier ctxt name pos
      | _ => Micro_Rust_Dispatch.mk_marker kind name pos (Free (name, dummyT)))
 
   fun literal_identifier_value ctxt environment (identifier as (name, pos)) =
@@ -238,6 +244,18 @@ struct
 
   fun literal_identifier ctxt environment identifier =
     T.literal (literal_identifier_value ctxt environment identifier)
+
+  fun ordinary_identifier_value ctxt environment
+      (identifier as (name, pos)) =
+    let
+      val _ =
+        Context_Position.report_text ctxt pos Markup.typing
+          "log data identifier"
+    in
+      (case use_local ctxt environment identifier of
+         SOME local_term => local_term
+       | NONE => resolve_hol_identifier ctxt name pos)
+    end
 
   fun registered_identifier ctxt kind (name, pos) =
     if null (Micro_Rust_Names.lookups ctxt kind name)

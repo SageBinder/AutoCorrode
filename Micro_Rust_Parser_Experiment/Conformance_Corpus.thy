@@ -890,8 +890,9 @@ end
 subsubsection\<open>Logging\<close>
 
 text\<open>
-Logging remains deferred: \<open>\<l>\<o>\<g>\<close> and log-data syntax are not legacy
-bang macros and are not promoted by this increment.
+Primitive logging and yield have runnable parser-equivalence coverage in
+\<open>Parser_Test_Conformance.thy\<close>. The \<open>StdLib_Logging\<close> log-data surface and registered logger
+calls are isolated in \<open>Parser_Test_Logging.thy\<close>.
 \<close>
 
 context
@@ -901,6 +902,9 @@ lemma \<open>undefined = \<lbrakk> \<l>\<o>\<g> \<llangle>Error\<rrangle> \<llan
 lemma \<open>undefined = \<lbrakk> \<l>\<o>\<g> \<llangle>Trace\<rrangle> \<llangle>[LogNat 32, LogString (String.implode ''goo'')]\<rrangle> \<rbrakk>\<close> sorry
 lemma \<open>undefined = \<lbrakk> \<l>\<o>\<g> \<llangle>Fatal\<rrangle> \<llangle>[LogBool b]\<rrangle> \<rbrakk>\<close> sorry
 end
+
+lemma \<open>undefined = \<lbrakk> \<y>\<i>\<e>\<l>\<d> \<rbrakk>\<close> sorry
+lemma \<open>undefined = \<lbrakk> \<y>\<i>\<e>\<l>\<d>; () \<rbrakk>\<close> sorry
 
 subsection\<open>Miscellaneous Features\<close>
 

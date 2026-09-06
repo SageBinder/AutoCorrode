@@ -15,6 +15,11 @@ sig
   val string_from_characters: term -> term
   val integer_value: Position.T -> string -> term
   val closure: term list -> term -> term
+  val pause: term
+  val primitive_log: term -> term -> term
+  val log_string_entry: string -> Position.T -> term
+  val generate_debug_entry: term -> term
+  val log_data: term list -> term
 
   val apply_parameters: term -> term list -> term
   val lift_function: Position.T -> int -> term -> term
@@ -97,6 +102,11 @@ ML\<open>
      reports malformed numbers and unsupported suffixes at the source position.
    * closure wraps one FunctionBody around the already-lowered body, abstracts the ordered formal
      Frees in source order, and then applies one outer literal. It imposes no call-arity limit.
+   * pause is the direct primitive pause expression. primitive_log applies the raw priority and data
+     values directly to log. log_string_entry builds one singleton LogString list;
+     generate_debug_entry applies generate_debug to one already-resolved value; and log_data wraps
+     one nonempty source-ordered entry list in exactly one literal, using no append for a singleton
+     and a right-associated List.append tree otherwise.
    * lift_function maps a pure HOL function and source suffix arity 1 through 14 to lift_fun1 through
      lift_fun14. function_call independently maps a function term and its runtime argument list to
      funcall0 through funcall14 and rejects larger runtime arities at its call position. bind takes an
@@ -176,6 +186,29 @@ struct
             constant \<^const_name>\<open>List.Cons\<close> [character c, rest])
           characters (Const (\<^const_name>\<open>List.Nil\<close>, dummyT))
     in string_from_characters list end
+
+  val pause = Const (\<^const_name>\<open>pause\<close>, dummyT)
+
+  fun primitive_log priority data =
+    constant \<^const_name>\<open>log\<close> [priority, data]
+
+  fun log_string_entry raw pos =
+    constant \<^const_name>\<open>List.Cons\<close>
+      [constant \<^const_name>\<open>LogString\<close>
+         [string_value raw pos],
+       Const (\<^const_name>\<open>List.Nil\<close>, dummyT)]
+
+  fun generate_debug_entry value =
+    constant \<^const_name>\<open>generate_debug\<close> [value]
+
+  fun append_log_entries [entry] = entry
+    | append_log_entries (entry :: rest) =
+        constant \<^const_name>\<open>List.append\<close>
+          [entry, append_log_entries rest]
+    | append_log_entries [] =
+        error "urust_expr: internal empty log data"
+
+  fun log_data entries = literal (append_log_entries entries)
 
   (* The frontend surface supports arities 0..14. Keep every HOL target compile-checked. *)
   val function_constants = Vector.fromList

@@ -17,6 +17,7 @@ sig
   val lex_error: string -> Position.T -> 'a
   val string_error: Position.T -> 'a
   val antiquotation_error: string -> Position.T -> 'a
+  val log_data_error: Position.T -> 'a
   val turbofish_error: Position.T -> 'a
   val function_literal_suffix_error: Position.T -> 'a
   val struct_head_generics_error: Position.T -> 'a
@@ -39,13 +40,14 @@ end
     * antiquotation_error kind pos raises the positioned unterminated-antiquotation diagnostic at the
       opening delimiter.  Lexer callers supply the source-facing kind, currently "value" or
       "expression".
+    * log_data_error pos raises the unterminated-log-data diagnostic at the adjacent `l` opener.
     * turbofish_error pos raises the unterminated-group diagnostic at the generic opener.
     * function_literal_suffix_error pos rejects an arity suffix separated from its value
       antiquotation and reports at that suffix.
     * struct_head_generics_error pos rejects generic arguments on any struct-expression head
       segment and reports at that argument group.
 
-  All six functions have result type 'a because they always raise via error.  Their exact string
+  All seven functions have result type 'a because they always raise via error.  Their exact string
   assembly and use of quote are implementation details, subject to the message and position contracts
   above.  The SML_import below only makes this Isabelle/ML-owned interface available to generated lexer
   code; it does not create a second owner.
@@ -60,6 +62,9 @@ struct
 
   fun antiquotation_error kind pos =
     error ("urust_expr: unterminated " ^ kind ^ " antiquotation" ^ Position.here pos)
+
+  fun log_data_error pos =
+    error ("urust_expr: unterminated log data" ^ Position.here pos)
 
   fun turbofish_error pos =
     error ("urust_expr: unterminated turbofish" ^ Position.here pos)
@@ -135,11 +140,13 @@ val aq_start = ref 0   (* char offset of the antiquotation BODY start (just afte
 val aq_open = ref 0
 val aq_depth = ref 0
 val generic_open = ref (NONE : Position.T option)
+val log_data_open = ref (NONE : Position.T option)
 
 fun reset_aq () =
   (aq_kind := No_AQ; aq_buf := []; aq_start := 0; aq_open := 0; aq_depth := 0)
 fun reset_generic () = generic_open := NONE
-fun reset_state () = (reset_aq (); reset_generic ())
+fun reset_log_data () = log_data_open := NONE
+fun reset_state () = (reset_aq (); reset_generic (); reset_log_data ())
 fun start_aq kind open_pos body_pos =
   (aq_kind := kind; aq_buf := []; aq_start := body_pos; aq_open := open_pos; aq_depth := 0)
 fun push_aq fragment = aq_buf := fragment :: !aq_buf
@@ -220,19 +227,39 @@ fun tok_matches_bang (yypos, yytext) =
     val _ = report_text (bang_raw, "!", Markup.operator, "TMATCHESBANG")
   in Tokens.TMATCHESBANG (bang_pos, start, stop) end
 
+fun tok_log_data_open (yypos, yytext) =
+  let
+    val range as (start, stop) =
+      Parser_Lex_Util.text_range (!source_layout) (yypos, yytext)
+    val delimiter_raw = yypos + 1
+    val _ = report_text (yypos, "l", Markup.keyword1, "TLOGDATAOPEN")
+    val _ =
+      report_text
+        (delimiter_raw, String.extract (yytext, 1, NONE),
+         Markup.delimiter, "TLOGDATAOPEN")
+    val _ = log_data_open := SOME start
+  in Tokens.TLOGDATAOPEN range end
+
+fun tok_log_identifier (yypos, yytext) =
+  let val p = Parser_Lex_Util.ident_pos (!source_layout) (yypos, yytext)
+  in Tokens.LOGIDENT (yytext, p, p) end
+
 fun eof () =
   (case !aq_kind of
      No_AQ =>
-       (case !generic_open of
-          NONE => Tokens.EOF (Position.none, Position.none)
-        | SOME pos =>
-            URust_Grammar.turbofish_error pos)
+       (case !log_data_open of
+          SOME pos => URust_Grammar.log_data_error pos
+        | NONE =>
+            (case !generic_open of
+               NONE => Tokens.EOF (Position.none, Position.none)
+             | SOME pos =>
+                 URust_Grammar.turbofish_error pos))
    | Value_AQ => URust_Grammar.antiquotation_error "value" (fixed_pos (!aq_open))
    | Expr_AQ => URust_Grammar.antiquotation_error "expression" (fixed_pos (!aq_open)))
 \<close>
 lex_definitions\<open>
 %header (functor URustLexFun(structure Tokens: URust_TOKENS));
-%s VAQ EAQ GENERIC;
+%s VAQ EAQ GENERIC LOGDATA;
 digit=[0-9];
 hexdigit=[0-9a-fA-F];
 idstart=[A-Za-z_];
@@ -272,6 +299,10 @@ lex_rules\<open>
 <INITIAL>"for"    => (tokF (yypos, yytext, Markup.keyword1, "TFOR", Tokens.TFOR));
 <INITIAL>"in"     => (tokF (yypos, yytext, Markup.keyword1, "TIN", Tokens.TIN));
 <INITIAL>"unsafe" => (tokF (yypos, yytext, Markup.keyword1, "TUNSAFE", Tokens.TUNSAFE));
+<INITIAL>\\"<y>"\\"<i>"\\"<e>"\\"<l>"\\"<d>" =>
+    (tokF (yypos, yytext, Markup.keyword1, "TYIELD", Tokens.TYIELD));
+<INITIAL>\\"<l>"\\"<o>"\\"<g>" =>
+    (tokF (yypos, yytext, Markup.keyword1, "TLOG", Tokens.TLOG));
 <INITIAL>"matches""!" => (tok_matches_bang (yypos, yytext));
 <INITIAL>"match"        => (tokF (yypos, yytext, Markup.keyword1, "TMATCH", Tokens.TMATCH));
 <INITIAL>"match_switch" => (tokF (yypos, yytext, Markup.keyword1, "TMATCHSWITCH", Tokens.TMATCHSWITCH));
@@ -317,6 +348,8 @@ lex_rules\<open>
 <INITIAL>"\""([^\"\\\n]|\\.)*"\"" =>
     (tok_valF (yypos, yytext, Markup.inner_string, "STRING", Tokens.STRING, yytext));
 <INITIAL>"\""     => (URust_Grammar.string_error (fixed_pos yypos));
+<INITIAL>"l"\\"<llangle>" =>
+    (YYBEGIN LOGDATA; tok_log_data_open (yypos, yytext));
 <INITIAL>{idstart}{idchar}* => (tok_ident (yypos, yytext));
 <INITIAL>"("      => (tokF (yypos, yytext, Markup.delimiter, "LPAR", Tokens.LPAR));
 <INITIAL>")"      => (tokF (yypos, yytext, Markup.delimiter, "RPAR", Tokens.RPAR));
@@ -392,6 +425,23 @@ lex_rules\<open>
     (generic_open := NONE; YYBEGIN INITIAL;
      tokF (yypos, yytext, Markup.delimiter, "TGT", Tokens.TGT));
 <GENERIC>.        => (URust_Grammar.lex_error yytext (fixed_pos yypos));
+<LOGDATA>\n       => (lex());
+<LOGDATA>{ws}+    => (lex());
+<LOGDATA>"\""([^\"\\\n]|\\.)*"\"" =>
+    (tok_valF
+      (yypos, yytext, Markup.inner_string, "LOGSTRING",
+       Tokens.LOGSTRING, yytext));
+<LOGDATA>"\""     => (URust_Grammar.string_error (fixed_pos yypos));
+<LOGDATA>{idstart}{idchar}* =>
+    (tok_log_identifier (yypos, yytext));
+<LOGDATA>","      =>
+    (tokF (yypos, yytext, Markup.delimiter, "COMMA", Tokens.COMMA));
+<LOGDATA>\\"<rrangle>" =>
+    (log_data_open := NONE; YYBEGIN INITIAL;
+     tokF
+       (yypos, yytext, Markup.delimiter, "TLOGDATACLOSE",
+        Tokens.TLOGDATACLOSE));
+<LOGDATA>.        => (URust_Grammar.lex_error yytext (fixed_pos yypos));
 \<close>
 and yacc_user_declarations\<open>
 open URust_AST
@@ -536,6 +586,8 @@ yacc_definitions\<open>
     | TMATCHESBANG of Position.T
     | TAS | TUINT of URust_AST.unsigned_type | TSINT of URust_AST.signed_type
     | FUNARITY of int
+    | TYIELD | TLOG | TLOGDATAOPEN | LOGSTRING of string | LOGIDENT of string
+    | TLOGDATACLOSE
 %nonterm ustart of URust_AST.ur_expr option
        | ubody of URust_AST.ur_expr
        | ubinding_head of binding_head
@@ -606,6 +658,8 @@ yacc_definitions\<open>
        | ustruct_expr of URust_AST.ur_expr
        | ustruct_expr_field of URust_AST.struct_expr_field
        | ustruct_expr_fields of URust_AST.struct_expr_field list
+       | ulog_data_entry of URust_AST.log_data_entry
+       | ulog_data_entries of URust_AST.log_data_entry list
 \<close>
 yacc_rules\<open>
   ustart : ubody (SOME ubody)
@@ -737,6 +791,18 @@ yacc_rules\<open>
         | TTRUE      (UE_Literal (LP_Bool (true, TTRUEleft)))
         | TFALSE     (UE_Literal (LP_Bool (false, TFALSEleft)))
         | STRING     (UE_Literal (LP_String (STRING, STRINGleft)))
+        | TYIELD
+            (UE_Yield
+              (Position.range_position (TYIELDleft, TYIELDright)))
+        | TLOG VALAQ VALAQ
+            (UE_Log
+              (VALAQ1, VALAQ2,
+               Position.range_position (TLOGleft, VALAQ2right)))
+        | TLOGDATAOPEN ulog_data_entries TLOGDATACLOSE
+            (UE_LogData
+              (ulog_data_entries,
+               Position.range_position
+                 (TLOGDATAOPENleft, TLOGDATACLOSEright)))
         | upath LPAR ucallargs RPAR
             (mk_call (UC_Path upath, ucallargs, upathleft, RPARright))
         | EXPRAQ LPAR ucallargs RPAR
@@ -1212,6 +1278,18 @@ yacc_rules\<open>
                           ([ustruct_expr_field])
                       | ustruct_expr_field COMMA ustruct_expr_fields
                           (ustruct_expr_field :: ustruct_expr_fields)
+  ulog_data_entry : LOGSTRING
+                      (LDE_String
+                        (LOGSTRING,
+                         Position.range_position
+                           (LOGSTRINGleft, LOGSTRINGright)))
+                  | LOGIDENT
+                      (LDE_Identifier
+                        (LOGIDENT, LOGIDENTleft))
+  ulog_data_entries : ulog_data_entry
+                        ([ulog_data_entry])
+                    | ulog_data_entry COMMA ulog_data_entries
+                        (ulog_data_entry :: ulog_data_entries)
 \<close>
 
 end

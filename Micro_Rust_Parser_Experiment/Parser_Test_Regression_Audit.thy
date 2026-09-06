@@ -2,16 +2,8 @@ theory Parser_Test_Regression_Audit
   imports
     Parser_Test_Improvements
     Parser_Test_Negative_Conformance
+    Parser_Test_Utils
 begin
-
-ML\<open>
-structure Parser_Test_Report_Lock =
-struct
-  val lock = Synchronized.var "parser_test_report_lock" ()
-  fun run action =
-    Synchronized.change_result lock (fn () => (action (), ()))
-end
-\<close>
 
 section\<open> Frontend-shape structural audit \<close>
 
@@ -824,9 +816,9 @@ ML_val\<open>
             Position.symbol_explode needle token_start))
       end
 
-    val captured_reports = Unsynchronized.ref ([]: string list)
+    val captured_reports = Synchronized.var "parser_test_reports" ([]: string list)
     fun capture_reports chunks =
-      Unsynchronized.change captured_reports (append chunks)
+      Synchronized.change captured_reports (append chunks)
     val _ =
       Parser_Test_Report_Lock.run (fn () =>
         Unsynchronized.setmp Private_Output.report_fn capture_reports
@@ -863,7 +855,7 @@ ML_val\<open>
           fold collect_markup body (markup :: result)
     val markup =
       fold collect_markup
-        (maps YXML.parse_body (! captured_reports)) []
+        (maps YXML.parse_body (Synchronized.value captured_reports)) []
     fun has_position properties position =
       Properties.get properties Markup.offsetN =
         Option.map Value.print_int (Position.offset_of position) andalso
@@ -1450,9 +1442,9 @@ ML_val\<open>
        | _ =>
            error "legacy macro regression audit: generic macro AST changed")
 
-    val captured_reports = Unsynchronized.ref ([]: string list)
+    val captured_reports = Synchronized.var "parser_test_reports" ([]: string list)
     fun capture_reports chunks =
-      Unsynchronized.change captured_reports (append chunks)
+      Synchronized.change captured_reports (append chunks)
     fun capture_elaboration text start =
       Parser_Test_Report_Lock.run (fn () =>
         Unsynchronized.setmp Private_Output.report_fn capture_reports
@@ -1541,7 +1533,7 @@ ML_val\<open>
           fold collect_markup body (markup :: result)
     val markup =
       fold collect_markup
-        (maps YXML.parse_body (! captured_reports)) []
+        (maps YXML.parse_body (Synchronized.value captured_reports)) []
     fun has_position properties pos =
       Properties.get properties Markup.offsetN =
         Option.map Value.print_int (Position.offset_of pos) andalso
@@ -1897,9 +1889,9 @@ ML_val\<open>
       "\<llangle>antiquotation_call_audit_second\<rrangle>)"
     val markup_start =
       Position.make0 11 50 500 "" "" "antiquotation-call-markup-audit"
-    val captured_reports = Unsynchronized.ref ([]: string list)
+    val captured_reports = Synchronized.var "parser_test_reports" ([]: string list)
     fun capture_reports chunks =
-      Unsynchronized.change captured_reports (append chunks)
+      Synchronized.change captured_reports (append chunks)
     val _ =
       Parser_Test_Report_Lock.run (fn () =>
         Unsynchronized.setmp Private_Output.report_fn capture_reports
@@ -1917,7 +1909,7 @@ ML_val\<open>
           fold collect_markup tree (markup :: result)
     val markup =
       fold collect_markup
-        (maps YXML.parse_body (! captured_reports)) []
+        (maps YXML.parse_body (Synchronized.value captured_reports)) []
     fun has_position properties position =
       Properties.get properties Markup.offsetN =
         Option.map Value.print_int (Position.offset_of position) andalso
@@ -2249,9 +2241,9 @@ ML_val\<open>
       "\<llangle>\<lambda>x. x + captured\<rrangle>\<^sub>1(0)"
     val markup_start =
       Position.make0 11 50 500 "" "" "function-literal-markup-audit"
-    val captured_reports = Unsynchronized.ref ([]: string list)
+    val captured_reports = Synchronized.var "parser_test_reports" ([]: string list)
     fun capture_reports chunks =
-      Unsynchronized.change captured_reports (append chunks)
+      Synchronized.change captured_reports (append chunks)
     val _ =
       Parser_Test_Report_Lock.run (fn () =>
         Unsynchronized.setmp Private_Output.report_fn capture_reports
@@ -2269,7 +2261,7 @@ ML_val\<open>
           fold collect_markup tree (markup :: result)
     val markup =
       fold collect_markup
-        (maps YXML.parse_body (! captured_reports)) []
+        (maps YXML.parse_body (Synchronized.value captured_reports)) []
     fun has_position properties position =
       Properties.get properties Markup.offsetN =
         Option.map Value.print_int (Position.offset_of position) andalso
@@ -2626,9 +2618,9 @@ ML_val\<open>
     val shadow_start =
       Position.make0 19 70 700 "" "" "closure-markup-shadow"
 
-    val captured_reports = Unsynchronized.ref ([]: string list)
+    val captured_reports = Synchronized.var "parser_test_reports" ([]: string list)
     fun capture_reports chunks =
-      Unsynchronized.change captured_reports (append chunks)
+      Synchronized.change captured_reports (append chunks)
     fun capture_elaboration text start =
       Parser_Test_Report_Lock.run (fn () =>
         Unsynchronized.setmp Private_Output.report_fn capture_reports
@@ -2649,7 +2641,7 @@ ML_val\<open>
           fold collect_markup body (markup :: result)
     val markup =
       fold collect_markup
-        (maps YXML.parse_body (! captured_reports)) []
+        (maps YXML.parse_body (Synchronized.value captured_reports)) []
     fun has_position properties position =
       Properties.get properties Markup.offsetN =
         Option.map Value.print_int (Position.offset_of position) andalso
@@ -3110,9 +3102,9 @@ ML_val\<open>
       "value as i64; raw as *const u8; raw as *mut usize"
     val markup_start =
       Position.make0 11 3 0 "" "" "cast-markup-audit"
-    val captured_reports = Unsynchronized.ref ([]: string list)
+    val captured_reports = Synchronized.var "parser_test_reports" ([]: string list)
     fun capture_reports chunks =
-      Unsynchronized.change captured_reports (append chunks)
+      Synchronized.change captured_reports (append chunks)
     val _ =
       Parser_Test_Report_Lock.run (fn () =>
         Unsynchronized.setmp Private_Output.report_fn capture_reports
@@ -3129,7 +3121,7 @@ ML_val\<open>
           fold collect_markup body (markup :: result)
     val markup =
       fold collect_markup
-        (maps YXML.parse_body (! captured_reports)) []
+        (maps YXML.parse_body (Synchronized.value captured_reports)) []
     fun has_position properties position =
       Properties.get properties Markup.offsetN =
         Option.map Value.print_int (Position.offset_of position) andalso
@@ -3613,9 +3605,9 @@ ML_val\<open>
             (Term.aconv (checked source, frontend source)))
         parity_sources
 
-    val captured_reports = Unsynchronized.ref ([]: string list)
+    val captured_reports = Synchronized.var "parser_test_reports" ([]: string list)
     fun capture_reports chunks =
-      Unsynchronized.change captured_reports (append chunks)
+      Synchronized.change captured_reports (append chunks)
     val _ =
       Parser_Test_Report_Lock.run (fn () =>
         Unsynchronized.setmp Private_Output.report_fn capture_reports
@@ -3633,7 +3625,7 @@ ML_val\<open>
           fold collect_markup body (markup :: result)
     val markup =
       fold collect_markup
-        (maps YXML.parse_body (! captured_reports)) []
+        (maps YXML.parse_body (Synchronized.value captured_reports)) []
     fun has_position properties pos =
       Properties.get properties Markup.offsetN =
         Option.map Value.print_int (Position.offset_of pos) andalso
@@ -3829,6 +3821,15 @@ urust_expr regression_code_literal
 urust_expr regression_code_unit
   \<open> () \<close>
 
+urust_expr regression_code_yield
+  \<open> \<y>\<i>\<e>\<l>\<d> \<close>
+
+urust_expr regression_code_primitive_log
+  \<open> \<l>\<o>\<g> \<llangle>Info\<rrangle> \<llangle>[]\<rrangle> \<close>
+
+urust_expr regression_code_log_data
+  \<open> l\<llangle>True\<rrangle> \<close>
+
 ML_val\<open>
   local
     val ctxt = \<^context>
@@ -3840,7 +3841,10 @@ ML_val\<open>
 
     val generated =
       [\<^const_name>\<open>regression_code_literal\<close>,
-       \<^const_name>\<open>regression_code_unit\<close>]
+       \<^const_name>\<open>regression_code_unit\<close>,
+       \<^const_name>\<open>regression_code_yield\<close>,
+       \<^const_name>\<open>regression_code_primitive_log\<close>,
+       \<^const_name>\<open>regression_code_log_data\<close>]
 
     fun definition_theorem constant =
       Proof_Context.get_thm ctxt

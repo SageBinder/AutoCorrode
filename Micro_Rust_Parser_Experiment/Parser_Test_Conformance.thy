@@ -5154,7 +5154,228 @@ binders, and range endpoints retain their consumer-specific rejection. Case nume
 frontend-fidelity rejections rather than an open divergence.
 \<close>
 
-subsection\<open> Open exceptions and remaining frontend surface \<close>
+section\<open> Yield and primitive logging \<close>
+
+subsection\<open> Yield placement \<close>
+
+urust_expr_with_check yield_standalone
+  \<open> \<y>\<i>\<e>\<l>\<d> \<close>
+
+urust_expr_with_check yield_trailing_semicolon
+  \<open> \<y>\<i>\<e>\<l>\<d>; \<close>
+
+urust_expr_with_check yield_sequence
+  \<open> \<y>\<i>\<e>\<l>\<d>; () \<close>
+
+urust_expr_with_check yield_block_tail
+  \<open> { \<y>\<i>\<e>\<l>\<d> } \<close>
+
+urust_expr_with_check yield_let_initializer
+  \<open> let result = \<y>\<i>\<e>\<l>\<d>; result \<close>
+
+urust_expr_with_check yield_const_initializer
+  \<open> const result = \<y>\<i>\<e>\<l>\<d>; result \<close>
+
+urust_expr_with_check yield_return_operand
+  \<open> return \<y>\<i>\<e>\<l>\<d>; \<close>
+
+urust_expr_with_check yield_branches
+  \<open>
+    if true {
+      \<y>\<i>\<e>\<l>\<d>
+    } else {
+      \<y>\<i>\<e>\<l>\<d>
+    }
+  \<close>
+
+urust_expr_with_check yield_match_arm_and_guard
+  \<open>
+    match_case Some(()) {
+      Some(_) if \<y>\<i>\<e>\<l>\<d>; true \<Rightarrow> \<y>\<i>\<e>\<l>\<d>,
+      None \<Rightarrow> \<y>\<i>\<e>\<l>\<d>
+    }
+  \<close>
+
+urust_expr_with_check yield_call_argument
+  \<open>
+    \<llangle>\<lambda>x::unit. FunctionBody (literal x)\<rrangle>\<^sub>1(
+      \<y>\<i>\<e>\<l>\<d>
+    )
+  \<close>
+
+urust_expr_with_check yield_tuple_argument
+  \<open> (\<y>\<i>\<e>\<l>\<d>, \<y>\<i>\<e>\<l>\<d>) \<close>
+
+urust_expr_with_check yield_array_argument
+  \<open> [\<y>\<i>\<e>\<l>\<d>, \<y>\<i>\<e>\<l>\<d>] \<close>
+
+urust_expr_with_check yield_grouped
+  \<open> (\<y>\<i>\<e>\<l>\<d>) \<close>
+
+urust_expr_with_check yield_closure_body
+  \<open> || \<y>\<i>\<e>\<l>\<d> \<close>
+
+urust_expr_with_check yield_equality_operand
+  \<open> \<y>\<i>\<e>\<l>\<d> == \<y>\<i>\<e>\<l>\<d> \<close>
+
+urust_expr_with_check yield_range_operands
+  \<open>
+    { \<y>\<i>\<e>\<l>\<d>; 0_usize }..
+      { \<y>\<i>\<e>\<l>\<d>; 2_usize }
+  \<close>
+
+urust_expr_with_check yield_control_head
+  \<open>
+    if { \<y>\<i>\<e>\<l>\<d>; true } {
+      ()
+    } else {
+      ()
+    }
+  \<close>
+
+context
+  fixes yield_slot :: \<open>(unit, unit, unit) Global_Store.ref\<close>
+begin
+
+urust_expr_with_check yield_assignment_rhs
+  \<open> yield_slot = \<y>\<i>\<e>\<l>\<d> \<close>
+
+end
+
+subsection\<open> Primitive logger \<close>
+
+urust_expr_with_check primitive_log_trace
+  \<open> \<l>\<o>\<g> \<llangle>Trace\<rrangle> \<llangle>[]\<rrangle> \<close>
+
+urust_expr_with_check primitive_log_debug
+  \<open> \<l>\<o>\<g> \<llangle>Debug\<rrangle> \<llangle>[LogNat 1]\<rrangle> \<close>
+
+urust_expr_with_check primitive_log_error
+  \<open> \<l>\<o>\<g> \<llangle>Error\<rrangle> \<llangle>[LogBool False]\<rrangle> \<close>
+
+urust_expr_with_check primitive_log_info
+  \<open>
+    \<l>\<o>\<g>
+      \<llangle>Info\<rrangle>
+      \<llangle>[LogString (String.implode ''information'')]\<rrangle>
+  \<close>
+
+urust_expr_with_check primitive_log_fatal
+  \<open>
+    \<l>\<o>\<g> \<llangle>Fatal\<rrangle>
+      \<llangle>[LogNat 1, LogBool True, LogNat 3]\<rrangle>
+  \<close>
+
+context
+  fixes primitive_priority :: log_priority
+  fixes primitive_data :: log_data
+begin
+
+urust_expr_with_check primitive_log_context_values
+  \<open>
+    \<l>\<o>\<g>
+      \<llangle>primitive_priority\<rrangle>
+      \<llangle>primitive_data\<rrangle>
+  \<close>
+
+end
+
+urust_expr_with_check primitive_log_binder_capture
+  \<open>
+    let priority = \<llangle>Error\<rrangle>;
+    let data = \<llangle>[LogNat 9]\<rrangle>;
+    \<l>\<o>\<g> \<llangle>priority\<rrangle> \<llangle>data\<rrangle>
+  \<close>
+
+urust_expr_with_check primitive_log_nested_antiquotation_delimiters
+  \<open>
+    \<l>\<o>\<g>
+      \<llangle>
+        let _ =
+          (\<lbrakk> \<llangle>Error\<rrangle> \<rbrakk> ::
+            (unit, log_priority, unit, unit,
+             unit prompt, unit prompt_output) expression)
+        in Error
+      \<rrangle>
+      \<llangle>
+        let _ =
+          (\<lbrakk> \<llangle>[LogNat 4]\<rrangle> \<rbrakk> ::
+            (unit, log_data, unit, unit,
+             unit prompt, unit prompt_output) expression)
+        in [LogNat 5]
+      \<rrangle>
+  \<close>
+
+urust_expr_with_check primitive_log_sequence
+  \<open>
+    \<l>\<o>\<g> \<llangle>Debug\<rrangle> \<llangle>[]\<rrangle>;
+    \<l>\<o>\<g> \<llangle>Trace\<rrangle> \<llangle>[LogNat 2]\<rrangle>
+  \<close>
+
+urust_expr_with_check primitive_log_trailing_semicolon
+  \<open> \<l>\<o>\<g> \<llangle>Debug\<rrangle> \<llangle>[]\<rrangle>; \<close>
+
+urust_expr_with_check primitive_log_grouped_nested_call
+  \<open>
+    \<llangle>\<lambda>x::unit. FunctionBody (literal x)\<rrangle>\<^sub>1(
+      (\<l>\<o>\<g> \<llangle>Debug\<rrangle> \<llangle>[LogNat 3]\<rrangle>)
+    )
+  \<close>
+
+urust_expr_with_check primitive_log_binary_operand
+  \<open>
+    \<l>\<o>\<g> \<llangle>Debug\<rrangle> \<llangle>[]\<rrangle> ==
+      \<l>\<o>\<g> \<llangle>Trace\<rrangle> \<llangle>[]\<rrangle>
+  \<close>
+
+urust_expr_with_check primitive_log_range_operands
+  \<open>
+    { \<l>\<o>\<g> \<llangle>Debug\<rrangle> \<llangle>[]\<rrangle>; 0_usize }..
+      { \<l>\<o>\<g> \<llangle>Trace\<rrangle> \<llangle>[]\<rrangle>; 2_usize }
+  \<close>
+
+urust_expr_with_check primitive_log_control_head
+  \<open>
+    if {
+      \<l>\<o>\<g> \<llangle>Debug\<rrangle> \<llangle>[]\<rrangle>;
+      true
+    } {
+      ()
+    } else {
+      ()
+    }
+  \<close>
+
+context
+  fixes primitive_log_slot :: \<open>(unit, unit, unit) Global_Store.ref\<close>
+begin
+
+urust_expr_with_check primitive_log_assignment_rhs
+  \<open>
+    primitive_log_slot =
+      \<l>\<o>\<g> \<llangle>Debug\<rrangle> \<llangle>[]\<rrangle>
+  \<close>
+
+end
+
+urust_expr_with_check primitive_log_control_flow
+  \<open>
+    if true {
+      \<l>\<o>\<g> \<llangle>Info\<rrangle> \<llangle>[LogBool True]\<rrangle>
+    } else {
+      match_case Some(()) {
+        Some(_) \<Rightarrow>
+          \<l>\<o>\<g> \<llangle>Error\<rrangle> \<llangle>[LogNat 1]\<rrangle>,
+        None \<Rightarrow>
+          \<l>\<o>\<g> \<llangle>Fatal\<rrangle> \<llangle>[]\<rrangle>
+      }
+    }
+  \<close>
+
+urust_expr_with_check primitive_log_closure_body
+  \<open> || \<l>\<o>\<g> \<llangle>Trace\<rrangle> \<llangle>[]\<rrangle> \<close>
+
+subsection\<open> Open exceptions and post-parity surface \<close>
 
 text\<open>
 The current approved exceptions are D-13 (ambiguous unqualified struct heads), D-14 (the frontend's
@@ -5162,11 +5383,9 @@ ordinary-selector \<open>more\<close> omission), D-15 (unparenthesized fueled-\<
 D-20 (arbitrary unquoted HOL turbofish payloads), and D-23 (unparenthesized struct expressions in
 control heads). They are non-blocking and have executable negative or fixture coverage.
 
-D-21 struct expressions are resolved with exact active-frontend lowering. Only D-22
-\<open>\<y>\<i>\<e>\<l>\<d>\<close>, primitive \<open>\<l>\<o>\<g>\<close>, and
-\<open>StdLib_Logging\<close> log-data expressions remain as frontend-parity work. Their frontend-only
-goldens live in \<open>Conformance_Corpus.thy\<close>. General postfix invocation, Rust closure/reference
-semantics, and declaration commands are post-parity work, not missing expression-frontend parity.
+D-21 struct expressions and D-22 yield, primitive log, and logging-data expressions are resolved.
+General postfix invocation, Rust closure/reference semantics, real Rust format interpolation, and
+declaration commands are post-parity work, not missing expression-frontend parity.
 \<close>
 
 end

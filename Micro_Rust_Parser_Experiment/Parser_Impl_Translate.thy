@@ -73,6 +73,15 @@ struct
   fun lower_fuel ctxt environment source =
     R.parse_antiquotation ctxt environment source
 
+  fun lower_log_data ctxt environment entries =
+    let
+      fun lower_entry (LDE_String (raw, pos)) =
+            T.log_string_entry raw pos
+        | lower_entry (LDE_Identifier identifier) =
+            T.generate_debug_entry
+              (R.ordinary_identifier_value ctxt environment identifier)
+    in T.log_data (map lower_entry entries) end
+
   fun lower_for lower ctxt environment (pattern, iterable, body) =
     let
       val lowered_iterable = lower environment iterable
@@ -136,6 +145,14 @@ struct
          R.literal_expression ctxt environment payload
      | UE_ExprAntiq source =>
          R.parse_antiquotation ctxt environment source
+     | UE_Yield _ =>
+         T.pause
+     | UE_Log (priority, data, _) =>
+         T.primitive_log
+           (R.parse_antiquotation ctxt environment priority)
+           (R.parse_antiquotation ctxt environment data)
+     | UE_LogData (entries, _) =>
+         lower_log_data ctxt environment entries
      | UE_Closure (formals, body, _) =>
          lower_closure (lower_expression ctxt) ctxt environment
            (formals, body)

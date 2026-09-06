@@ -2231,6 +2231,37 @@ new_urust_rejects frontend_accepts
 
 section\<open> Lexer and whole-input failures \<close>
 
+subsection\<open> Primitive logging \<close>
+
+urust_expr_rejects fidelity
+  \<open> \<l>\<o>\<g> \<close>
+  \<open> syntax error found at end of input \<close>
+
+urust_expr_rejects fidelity
+  \<open> \<l>\<o>\<g> \<llangle>Error\<rrangle> \<close>
+  \<open> syntax error found at end of input \<close>
+
+urust_expr_rejects fidelity
+  \<open>
+    \<l>\<o>\<g>
+      \<epsilon>\<open>literal Error\<close>
+      \<llangle>[]\<rrangle>
+  \<close>
+  \<open> syntax error found at <expression antiquotation> \<close>
+
+urust_expr_rejects fidelity
+  \<open>
+    \<l>\<o>\<g>
+      \<llangle>Error\<rrangle>
+      \<llangle>[]\<rrangle>
+      \<llangle>[]\<rrangle>
+  \<close>
+  \<open> syntax error found at <value antiquotation> \<close>
+
+urust_expr_rejects fidelity
+  \<open> \<l>\<o>\<g> \<llangle>Error\<rrangle> \<llangle>[] \<close>
+  \<open> unterminated value antiquotation \<close>
+
 new_urust_rejects audit
   \<open> Foo::<T>::bar() \<close>
   \<open> generic arguments on an intermediate path segment require an exact registration \<close>
