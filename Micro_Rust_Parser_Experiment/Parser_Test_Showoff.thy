@@ -115,14 +115,19 @@ micro_rust_notation (call) showoff_struct_lift ("Showoff::StructValue")
 
 text\<open>
 The labels are retained for source markup and otherwise erase exactly as in the active frontend;
-the registered qualified head receives the two initializers in source order.
+the registered qualified head receives the two initializers in source order. Parentheses make the
+struct expression explicit when it is used as a control head.
 \<close>
 
 urust_expr_with_check showoff_struct_expression
   \<open>
-    Showoff::StructValue {
-      payload: 7_u64,
-      enabled: true
+    match_case (
+      Showoff::StructValue {
+        payload: 7_u64,
+        enabled: true
+      }
+    ) {
+      ShowoffStructValue(payload, _) \<Rightarrow> payload
     }
   \<close>
 

@@ -3370,6 +3370,20 @@ ML_val\<open>
         structural_text structural_start
     val structural_ast = parse structural_source
 
+    val control_text =
+      "match (D21AuditOne { value: Some(()) }) {\n" ^
+      "  Some(_) \<Rightarrow> (),\n" ^
+      "  None \<Rightarrow> ()\n" ^
+      "}"
+    val control_start =
+      Position.make0 41 900 0 "" "" "struct-control-head-audit"
+    val control_stop =
+      Position.symbol_explode control_text control_start
+    val control_source =
+      Parser_Lex_Util.positioned_content_source
+        control_text control_start
+    val control_ast = parse control_source
+
     val (outer_head_raw, outer_head_pos) =
       token_position structural_text structural_start "D21AuditPair" 0
     val (alpha_raw, alpha_pos) =
@@ -3401,6 +3415,29 @@ ML_val\<open>
       Position.range_position
         (nested_head_pos,
          Position.symbol_explode "}" nested_close_pos)
+
+    val (_, control_match_pos) =
+      token_position control_text control_start "match" 0
+    val (control_group_raw, control_group_left_pos) =
+      token_position control_text control_start "(" 0
+    val (control_head_raw, control_head_pos) =
+      token_position control_text control_start "D21AuditOne"
+        control_group_raw
+    val (control_label_raw, control_label_pos) =
+      token_position control_text control_start "value" control_head_raw
+    val (control_struct_close_raw, control_struct_close_pos) =
+      token_position control_text control_start "}" control_label_raw
+    val (_, control_group_right_pos) =
+      token_position control_text control_start ")"
+        (control_struct_close_raw + 1)
+    val control_struct_span =
+      Position.range_position
+        (control_head_pos,
+         Position.symbol_explode "}" control_struct_close_pos)
+    val control_group_span =
+      Position.range_position
+        (control_group_left_pos,
+         Position.symbol_explode ")" control_group_right_pos)
 
     val _ =
       (case structural_ast of
@@ -3443,6 +3480,37 @@ ML_val\<open>
               (same_range (expression_position nested) nested_span))
        | _ =>
            error "struct-expression regression audit: structural AST changed")
+
+    val _ =
+      (case control_ast of
+         UE_Match
+           (MF_Auto,
+            UE_Group
+              (nested as
+                 UE_Struct
+                   (head,
+                    [SE_Field ("value", label_pos, _)],
+                    struct_pos),
+               group_pos),
+            _, match_pos) =>
+           (audit_assert "grouped control-head struct changed"
+              (render_path head = "D21AuditOne");
+            audit_assert "grouped control-head label position changed"
+              (same_range label_pos control_label_pos);
+            audit_assert "grouped control-head struct span changed"
+              (same_range struct_pos control_struct_span andalso
+               same_range
+                 (expression_position nested) control_struct_span);
+            audit_assert "grouped control-head span changed"
+              (same_range group_pos control_group_span);
+            audit_assert "grouped control-head match span changed"
+              (Position.offset_of match_pos =
+                 Position.offset_of control_match_pos andalso
+               Position.end_offset_of match_pos =
+                 Position.offset_of control_stop))
+       | _ =>
+           error
+             "struct-expression regression audit: grouped control-head AST changed")
 
     fun dest_funcall2 term =
       (case Term_Position.strip_positions term of
@@ -3526,16 +3594,16 @@ ML_val\<open>
          "[\<llangle>(\<lambda>left::nat. \<lambda>right::nat. " ^
            "FunctionBody (literal (left + right)))\<rrangle>, " ^
           "|left, right| \<llangle>left + right :: nat\<rrangle>] }",
-       "for _ in D21AuditOne { value: [1, 2] } " ^
+       "for _ in (D21AuditOne { value: [1, 2] }) " ^
          "{ D21AuditOne { value: () }; () }",
        "#[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let Some(_) = " ^
-         "D21AuditOne { value: Some(3) } " ^
+         "(D21AuditOne { value: Some(3) }) " ^
          "{ D21AuditOne { value: () }; () }",
-       "match D21AuditOne { value: Some(3) } " ^
+       "match (D21AuditOne { value: Some(3) }) " ^
          "{ Some(_) \<Rightarrow> D21AuditOne { value: 1 }, None \<Rightarrow> 0 }",
-       "match_case D21AuditOne { value: Some(3) } " ^
+       "match_case (D21AuditOne { value: Some(3) }) " ^
          "{ Some(_) \<Rightarrow> D21AuditOne { value: 1 }, None \<Rightarrow> 0 }",
-       "match_switch D21AuditOne { value: 42 } " ^
+       "match_switch (D21AuditOne { value: 42 }) " ^
          "{ 42 \<Rightarrow> D21AuditOne { value: () }, _ \<Rightarrow> () }"]
     val _ =
       List.app
@@ -3554,8 +3622,10 @@ ML_val\<open>
           (fn () =>
             Print_Mode.with_modes [Print_Mode.PIDE]
               (fn () =>
-                ignore
-                  (URust_Command.elab_urust ctxt structural_source)) ())
+                (ignore
+                   (URust_Command.elab_urust ctxt structural_source);
+                 ignore
+                   (URust_Command.elab_urust ctxt control_source))) ())
           ())
 
     fun collect_markup (XML.Text _) result = result
@@ -3611,6 +3681,24 @@ ML_val\<open>
              (has_markup Markup.keyword3N head_pos)))
         [outer_head_pos, nested_head_pos]
     val _ =
+      (audit_assert
+         "grouped control-head struct lost function-role notation markup"
+         (has_entity_markup
+           Micro_Rust_Names.notationN control_head_pos);
+       audit_assert
+         "grouped control-head struct lost registered-call styling"
+         (has_markup Markup.keyword3N control_head_pos);
+       audit_assert "grouped control-head label lost free markup"
+         (has_markup Markup.freeN control_label_pos);
+       audit_assert "grouped control-head label lost typing markup"
+         (has_markup Markup.typingN control_label_pos);
+       audit_assert "grouped control-head label received entity markup"
+         (not (has_any_entity control_label_pos));
+       audit_assert "grouped control-head opening parenthesis lost markup"
+         (has_markup Markup.delimiterN control_group_left_pos);
+       audit_assert "grouped control-head closing parenthesis lost markup"
+         (has_markup Markup.delimiterN control_group_right_pos))
+    val _ =
       List.app
         (fn (label, pos) =>
           (audit_assert
@@ -3664,6 +3752,8 @@ ML_val\<open>
       "D21AuditPair { first: \<llangle>d21_audit_marker_a\<rrangle>, " ^
       "second: \<llangle>d21_audit_marker_b\<rrangle> }"
     val ordinary_follower = "if d21_audit_truth { () }"
+    val ordinary_arm_follower =
+      "match d21_audit_truth { _ \<Rightarrow> () }"
 
     fun expect_failure operation source =
       (case Exn.result operation source of
@@ -3685,9 +3775,21 @@ ML_val\<open>
                  (render_path path = "d21_audit_truth")
            | _ =>
                error
-                 "struct-expression regression audit: ordinary follower did not recover")
+                 "struct-expression regression audit: ordinary block follower did not recover")
+        val _ =
+          (case parse_text ordinary_arm_follower of
+             UE_Match (MF_Auto, UE_Path path, _, _) =>
+               audit_assert "ordinary match-followed path changed after failure"
+                 (render_path path = "d21_audit_truth")
+           | _ =>
+               error
+                 "struct-expression regression audit: ordinary arm follower did not recover")
       in () end
 
+    val _ =
+      (expect_failure parse_text
+         "if D21AuditOne { value: true } { () }";
+       assert_recovered ())
     val _ =
       (expect_failure parse_text
          "D21AuditPair { first: $, second: 2 }";

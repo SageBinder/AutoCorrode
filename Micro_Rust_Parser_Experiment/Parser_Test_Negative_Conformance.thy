@@ -1,7 +1,6 @@
 (* Rejection tests for the custom uRust parser. Normal rows require both
    `URust_Command.elab_urust` and the existing frontend to reject; the new parser's error must contain
-   a stable substring. [DIVERGENT] rows use the new-parser-only command to record an intentional
-   acceptance-boundary difference. *)
+   a stable substring. Divergent rows may additionally prove that the existing frontend accepts. *)
 
 theory Parser_Test_Negative_Conformance
   imports Struct_Ambiguity_Left Struct_Ambiguity_Right
@@ -14,17 +13,18 @@ section\<open> The command \<close>
 
 text\<open>
 \<open>urust_expr_rejects fidelity source expected\<close> requires both frontends to reject and
-checks the new parser's reason. The new-parser-only variant requires either the executable
-\<open>divergent\<close> tag for an acceptance-boundary difference or \<open>audit\<close> for a custom-parser
-invariant whose old-frontend behavior is deliberately not part of the row. The tags are validated
-locally by this negative-test command; bracketed comment labels remain explanatory only.
+checks the new parser's reason. The new-parser-only variant accepts \<open>frontend_accepts\<close> when
+the row must prove that the existing frontend accepts, \<open>divergent\<close> for another recorded
+acceptance-boundary difference, or \<open>audit\<close> for a custom-parser invariant whose old-frontend
+behavior is deliberately not part of the row. The tags are validated locally by this negative-test
+command; bracketed comment labels remain explanatory only.
 \<close>
 ML\<open>
 fun negative_frontend_source source = "\<lbrakk> " ^ source ^ " \<rbrakk>"
 
 val _ = Syntax.read_term \<^context> (negative_frontend_source "()")
 
-datatype rejection_tag = Fidelity | Divergent | Audit
+datatype rejection_tag = Fidelity | FrontendAccepts | Divergent | Audit
 
 fun validate_rejection_tag check_frontend tag =
   (case (check_frontend, tag) of
@@ -32,18 +32,20 @@ fun validate_rejection_tag check_frontend tag =
    | (true, _) =>
        error "urust_expr_rejects requires the `fidelity` tag"
    | (false, Fidelity) =>
-       error "new_urust_rejects requires the `divergent` or `audit` tag"
+       error
+         "new_urust_rejects requires the `frontend_accepts`, `divergent`, or `audit` tag"
    | (false, _) => ())
 
 fun parse_rejection_tag (name, pos) =
   (case name of
      "fidelity" => Fidelity
+   | "frontend_accepts" => FrontendAccepts
    | "divergent" => Divergent
    | "audit" => Audit
    | _ =>
        error
          ("unknown rejection tag " ^ quote name ^
-           "; expected `fidelity`, `divergent`, or `audit`" ^
+           "; expected `fidelity`, `frontend_accepts`, `divergent`, or `audit`" ^
            Position.here pos))
 
 fun urust_rejects check_frontend ((tag, source), expected) lthy =
@@ -81,8 +83,24 @@ fun urust_rejects check_frontend ((tag, source), expected) lthy =
            if Exn.is_interrupt exn then Exn.reraise exn
            else writeln ("existing frontend rejected as expected: " ^ Runtime.exn_message exn))
 
+    fun check_frontend_acceptance () =
+      (case Exn.result (Syntax.read_term lthy)
+              (negative_frontend_source (Input.string_of source)) of
+         Exn.Res _ =>
+           writeln "existing frontend accepted as expected"
+       | Exn.Exn exn =>
+           if Exn.is_interrupt exn then Exn.reraise exn
+           else
+             fail
+               ("expected the existing frontend to accept, but it rejected: " ^
+                Runtime.exn_message exn))
+
     val _ = check_parser_rejection ()
-    val _ = if check_frontend then check_frontend_rejection () else ()
+    val _ =
+      (case (check_frontend, tag) of
+         (true, Fidelity) => check_frontend_rejection ()
+       | (false, FrontendAccepts) => check_frontend_acceptance ()
+       | _ => ())
   in lthy end
 
 val rejection_args =
@@ -97,7 +115,7 @@ val _ = Outer_Syntax.local_theory \<^command_keyword>\<open>urust_expr_rejects\<
           (rejection_args >> urust_rejects true)
 
 val _ = Outer_Syntax.local_theory \<^command_keyword>\<open>new_urust_rejects\<close>
-          "Assert that the new uRust parser rejects without checking the existing frontend"
+          "Assert that the new uRust parser rejects under the selected frontend policy"
           (rejection_args >> urust_rejects false)
 \<close>
 
@@ -1947,6 +1965,14 @@ urust_expr_rejects fidelity \<open> let i64 = 1; i64 \<close>
 
 section\<open> Struct-expression failures (D-21) \<close>
 
+definition negative_d21_identity ::
+    \<open>'a \<Rightarrow> ('s, 'a, 'abort, 'i, 'o) function_body\<close>
+  where \<open> negative_d21_identity \<equiv> lift_fun1 (\<lambda>value. value) \<close>
+
+definition negative_d21_any ::
+    \<open>'a \<Rightarrow> ('s, 'b, 'abort, 'i, 'o) function_body\<close>
+  where \<open> negative_d21_any \<equiv> undefined \<close>
+
 definition negative_d21_pair ::
     \<open>
       64 word \<Rightarrow> 64 word \<Rightarrow>
@@ -1954,6 +1980,8 @@ definition negative_d21_pair ::
     \<close>
   where \<open> negative_d21_pair \<equiv> lift_fun2 (+) \<close>
 
+micro_rust_notation (call) negative_d21_identity ("NegativeD21One")
+micro_rust_notation (call) negative_d21_any ("NegativeD21Any")
 micro_rust_notation (call) negative_d21_pair ("NegativeD21Pair")
 
 subsection\<open> Field-list grammar \<close>
@@ -2071,6 +2099,135 @@ urust_expr_rejects fidelity
   \<close>
   \<open> unsupported call arity 15 \<close>
   \<comment> \<open> [FIDELITY] struct expressions share the frontend's inclusive arity-14 cap. \<close>
+
+section\<open> Unparenthesized struct expressions in control heads (D-23) \<close>
+
+text\<open>
+Rust excludes an unparenthesized struct expression throughout the outer precedence depth of a
+control head. Each row proves that the legacy frontend accepts the former spelling while the
+dedicated parser requires an explicit delimiter.
+\<close>
+
+subsection\<open> Direct control heads \<close>
+
+new_urust_rejects frontend_accepts
+  \<open> if NegativeD21One { value: true } { () } else { () } \<close>
+  \<open> syntax error \<close>
+
+new_urust_rejects frontend_accepts
+  \<open> || if NegativeD21One { value: true } { () } else { () } \<close>
+  \<open> syntax error \<close>
+
+new_urust_rejects frontend_accepts
+  \<open>
+    if let Some(value) = NegativeD21One { value: Some(()) } {
+      value
+    } else {
+      ()
+    }
+  \<close>
+  \<open> syntax error \<close>
+
+new_urust_rejects frontend_accepts
+  \<open> for _ in NegativeD21One { value: [()] } { () } \<close>
+  \<open> syntax error \<close>
+
+new_urust_rejects frontend_accepts
+  \<open>
+    #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let Some(_) =
+      NegativeD21One { value: Some(()) } { () }
+  \<close>
+  \<open> syntax error \<close>
+
+new_urust_rejects frontend_accepts
+  \<open>
+    match NegativeD21One { value: Some(()) } {
+      Some(_) \<Rightarrow> (),
+      None \<Rightarrow> ()
+    }
+  \<close>
+  \<open> syntax error \<close>
+
+new_urust_rejects frontend_accepts
+  \<open>
+    match_case NegativeD21One { value: Some(()) } {
+      Some(_) \<Rightarrow> (),
+      None \<Rightarrow> ()
+    }
+  \<close>
+  \<open> syntax error \<close>
+
+new_urust_rejects frontend_accepts
+  \<open>
+    match_switch NegativeD21One { value: \<llangle>0 :: nat\<rrangle> } {
+      0 \<Rightarrow> (),
+      _ \<Rightarrow> ()
+    }
+  \<close>
+  \<open> syntax error \<close>
+
+subsection\<open> Restricted precedence tiers \<close>
+
+new_urust_rejects frontend_accepts
+  \<open>
+    match_case NegativeD21One { value: [()] }[0_usize] {
+      _ \<Rightarrow> ()
+    }
+  \<close>
+  \<open> syntax error \<close>
+
+new_urust_rejects frontend_accepts
+  \<open> if !NegativeD21One { value: false } { () } \<close>
+  \<open> syntax error \<close>
+
+new_urust_rejects frontend_accepts
+  \<open>
+    match_case &NegativeD21Any { value: () } {
+      _ \<Rightarrow> ()
+    }
+  \<close>
+  \<open> syntax error \<close>
+
+new_urust_rejects frontend_accepts
+  \<open>
+    match_case NegativeD21One { value: 1_u32 } as u64 {
+      _ \<Rightarrow> ()
+    }
+  \<close>
+  \<open> syntax error \<close>
+
+new_urust_rejects frontend_accepts
+  \<open>
+    match_case NegativeD21One { value: 1_u64 } + 2_u64 {
+      _ \<Rightarrow> ()
+    }
+  \<close>
+  \<open> syntax error \<close>
+
+new_urust_rejects frontend_accepts
+  \<open>
+    match_case 1_u64 + NegativeD21One { value: 2_u64 } {
+      _ \<Rightarrow> ()
+    }
+  \<close>
+  \<open> syntax error \<close>
+
+new_urust_rejects frontend_accepts
+  \<open>
+    match_case 0_usize..NegativeD21One { value: 2_usize } {
+      _ \<Rightarrow> ()
+    }
+  \<close>
+  \<open> syntax error \<close>
+
+new_urust_rejects frontend_accepts
+  \<open>
+    let mut slot = 1_u64;
+    match_case slot = NegativeD21One { value: 2_u64 } {
+      _ \<Rightarrow> ()
+    }
+  \<close>
+  \<open> syntax error \<close>
 
 section\<open> Lexer and whole-input failures \<close>
 

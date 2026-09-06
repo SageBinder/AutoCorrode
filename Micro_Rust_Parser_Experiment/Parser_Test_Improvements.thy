@@ -42,6 +42,154 @@ val _ = Outer_Syntax.local_theory \<^command_keyword>\<open>old_urust_rejects\<c
 \<close>
 
 
+section\<open> Intentional checked-term corrections \<close>
+
+text\<open>
+These sources are accepted by both parsers, but the dedicated parser intentionally corrects a
+legacy checked-term behavior. They remain executable acceptance tests here, while
+\<open>Parser_Test_Regression_Audit.thy\<close> pins the associated corrected term shapes. They are not same-source
+conformance rows.
+\<close>
+
+context fixes r :: rich_case
+begin
+
+urust_expr rich_or_guarded
+  \<open> match r { RMA(x) | RMB(x) if x > \<llangle>0 :: 32 word\<rrangle> \<Rightarrow> x, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<close>
+
+urust_expr rich_or_three_guard_fallthrough
+  \<open> match r { RMA(x) | RMB(x) | RMD(x) if False \<Rightarrow> \<llangle>1 :: 32 word\<rrangle>, RMA(x) | RMB(x) | RMD(x) \<Rightarrow> x, RMC \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<close>
+
+end
+
+context fixes b :: bool
+begin
+
+urust_expr value_pat_source_guard
+  \<open> match b { true if False \<Rightarrow> True, _ \<Rightarrow> False } \<close>
+
+end
+
+urust_expr value_pat_guard_order
+  \<open> match \<llangle>VPP True (String.implode ''ok'')\<rrangle> {
+      VPP(true, "ok") if True \<Rightarrow> True, _ \<Rightarrow> False } \<close>
+
+urust_expr adv_range_guard
+  \<open> match_case \<llangle>Some (6 :: nat)\<rrangle> { Some(5..=7) if True \<Rightarrow> \<llangle>1 :: nat\<rrangle>, Some(5..=7) \<Rightarrow> \<llangle>2 :: nat\<rrangle>, _ \<Rightarrow> \<llangle>3 :: nat\<rrangle> } \<close>
+
+urust_expr adv_struct_nested
+  \<open> match \<llangle>AdvNested (Some (3 :: nat)) [4, 5]\<rrangle> { AdvNested { adv_option: Some(x), adv_values: [y, .., z] } if True \<Rightarrow> z, _ \<Rightarrow> 0 } \<close>
+
+urust_expr bind_match_guard_shadow
+  \<open>
+    let x = \<llangle>0 :: nat\<rrangle>;
+    match \<llangle>Some (1 :: nat)\<rrangle> {
+      Some(x) if x > \<llangle>0 :: nat\<rrangle> \<Rightarrow> \<llangle>x\<rrangle>,
+      _ \<Rightarrow> x
+    }
+  \<close>
+
+urust_expr bind_match_slice_shadow
+  \<open>
+    let head = \<llangle>0 :: nat\<rrangle>;
+    let tail = \<llangle>0 :: nat\<rrangle>;
+    match \<llangle>[1 :: nat, 2, 3]\<rrangle> {
+      [head, .., tail] \<Rightarrow> { let _ = \<llangle>tail\<rrangle>; \<llangle>head\<rrangle> },
+      _ \<Rightarrow> head
+    }
+  \<close>
+
+urust_expr bind_match_or_shadow
+  \<open>
+    let x = \<llangle>0 :: 32 word\<rrangle>;
+    match \<llangle>RMA (1 :: 32 word)\<rrangle> {
+      RMA(x) | RMB(x) if x > \<llangle>0 :: 32 word\<rrangle> \<Rightarrow> \<llangle>x\<rrangle>,
+      _ \<Rightarrow> x
+    }
+  \<close>
+
+context fixes x :: nat and y :: bool
+begin
+
+urust_expr bind_hol_match_guard_shadow
+  \<open>
+    match Some(x) {
+      Some(x) if x == \<llangle>x\<rrangle> \<Rightarrow> x,
+      None \<Rightarrow> x
+    }
+  \<close>
+
+end
+
+urust_expr while_let_exhaustive_tnil
+  \<open>
+    #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let TNil = TNil {
+      ()
+    }
+  \<close>
+
+urust_expr while_let_exhaustive_option
+  \<open>
+    #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let Some(_) | None =
+      \<llangle>Some (1 :: nat)\<rrangle> {
+      ()
+    }
+  \<close>
+
+urust_expr while_let_nested_exhaustive_option
+  \<open>
+    #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let
+      Some(Some(_) | None) | None =
+      \<llangle>Some (None :: nat option)\<rrangle> {
+      ()
+    }
+  \<close>
+
+urust_expr cast_corpus_nested_tuple
+  \<open>
+    ((if true { 0 } else { 1 }, true),
+     if false { (2 as u32, 3 as u32) } else { (4, 5) })
+  \<close>
+
+
+section\<open> Registered constant patterns \<close>
+
+text\<open>
+The dedicated pattern resolver treats an exact registered literal path as a value pattern. The old
+frontend instead sends the same path to datatype case translation and rejects it as a nonconstructor.
+\<close>
+
+urust_expr path_constant_pattern
+  \<open>
+    match_case Color::Red {
+      Color::Red \<Rightarrow> 1,
+      _ \<Rightarrow> 0
+    }
+  \<close>
+old_urust_rejects
+  \<open>
+    match_case Color::Red {
+      Color::Red \<Rightarrow> 1,
+      _ \<Rightarrow> 0
+    }
+  \<close>
+
+urust_expr path_constant_match
+  \<open>
+    match Color::Red {
+      Color::Red \<Rightarrow> 1,
+      _ \<Rightarrow> 0
+    }
+  \<close>
+old_urust_rejects
+  \<open>
+    match Color::Red {
+      Color::Red \<Rightarrow> 1,
+      _ \<Rightarrow> 0
+    }
+  \<close>
+
+
 section\<open> Mixed conditional chains \<close>
 
 text\<open>
@@ -523,6 +671,28 @@ urust_expr_with_check' improvement_line_comment_eof
   \<open> () // comment at EOF \<close>
   \<open> \<lbrakk> () \<rbrakk> \<close>
 old_urust_rejects \<open> () // comment at EOF \<close>
+
+urust_expr_with_check' improvement_d21_struct_line_comments
+  \<open>
+    D21Pair {
+      left: 1_u64, // separator
+      right: 2_u64
+    }
+  \<close>
+  \<open> \<lbrakk> D21Pair { left: 1_u64, right: 2_u64 } \<rbrakk> \<close>
+old_urust_rejects
+  \<open>
+    D21Pair {
+      left: 1_u64, // separator
+      right: 2_u64
+    }
+  \<close>
+
+urust_expr_with_check' improvement_d21_struct_comment_at_eof
+  \<open> D21One { value: 1_u64 } // end \<close>
+  \<open> \<lbrakk> D21One { value: 1_u64 } \<rbrakk> \<close>
+old_urust_rejects
+  \<open> D21One { value: 1_u64 } // end \<close>
 
 urust_expr_with_check' improvement_line_comment_nested_adjacent
   \<open>

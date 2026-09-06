@@ -429,18 +429,15 @@ fun finish_binding (BH_Let (pattern, value), body, _) =
         (pattern, value, fallback, body, pos, body_right)
 
 datatype if_head =
-    IH_If of ur_expr * ur_expr * Position.T * Position.T
+    IH_If of ur_expr * Position.T
   | IH_IfLet of
-      ur_pat * ur_expr * ur_expr * Position.T * Position.T
-
-fun if_head_stop (IH_If (_, _, _, stop)) = stop
-  | if_head_stop (IH_IfLet (_, _, _, _, stop)) = stop
+      ur_pat * ur_expr * Position.T
 
 fun finish_conditional
-      (IH_If (condition, success, pos, _), fallback, _) =
+      (IH_If (condition, pos), success, fallback, _) =
       UE_If (condition, success, fallback, pos)
   | finish_conditional
-      (IH_IfLet (pattern, value, success, pos, _), fallback, stop) =
+      (IH_IfLet (pattern, value, pos), success, fallback, stop) =
       UE_IfLet
         (pattern, value, success, fallback,
          Position.range_position (pos, stop))
@@ -474,41 +471,6 @@ fun make_struct_expression (path, fields, right) =
       (path, fields,
        Position.range_position (path_position path, right))
   end
-
-datatype path_block_tail =
-    PBT_Block of ur_expr option * Position.T
-  | PBT_Struct of
-      struct_expr_field list * Position.T * ur_expr * Position.T
-
-fun finish_path_block (path, left, tail) =
-  (case tail of
-     PBT_Block (body, right) =>
-       (UE_Path path,
-        UE_Block
-          ((case body of
-              SOME expression => expression
-            | NONE => UE_Unit left),
-           left),
-        right)
-   | PBT_Struct (fields, struct_right, block, right) =>
-       (make_struct_expression (path, fields, struct_right),
-        block, right))
-
-datatype path_arms_tail =
-    PAT_Arms of ur_arm list * Position.T
-  | PAT_Struct of
-      struct_expr_field list * Position.T * ur_arm list * Position.T
-
-fun finish_path_arms (path, tail) =
-  (case tail of
-     PAT_Arms (arms, right) =>
-       (UE_Path path, arms, right)
-   | PAT_Struct (fields, struct_right, arms, right) =>
-       (make_struct_expression (path, fields, struct_right),
-        arms, right))
-
-fun map_followed_expression f (expression, follower, right) =
-  (f expression, follower, right)
 
 fun same_offset left right =
   (case (Position.offset_of left, Position.offset_of right) of
@@ -595,6 +557,15 @@ yacc_definitions\<open>
        | upostfix of URust_AST.ur_expr
        | uatom of URust_AST.ur_expr
        | uatom_nonhead of URust_AST.ur_expr
+       | uval_no_struct of URust_AST.ur_expr
+       | uassign_no_struct of URust_AST.ur_expr
+       | urange_no_struct of URust_AST.ur_expr
+       | uexp_no_struct of URust_AST.ur_expr
+       | urefprefix_no_struct of URust_AST.ur_expr
+       | unotprefix_no_struct of URust_AST.ur_expr
+       | ucast_no_struct of URust_AST.ur_expr
+       | upostfix_no_struct of URust_AST.ur_expr
+       | uatom_no_struct of URust_AST.ur_expr
        | upath_segment of URust_AST.path_segment
        | upath of URust_AST.ur_path
        | ugeneric_args of URust_AST.generic_args
@@ -614,46 +585,10 @@ yacc_definitions\<open>
        | usemi_free_stmt of URust_AST.ur_expr
        | uconditional of URust_AST.ur_expr
        | uif_head of if_head
-       | uval_before_block of
-           URust_AST.ur_expr * URust_AST.ur_expr * Position.T
-       | uassign_before_block of
-           URust_AST.ur_expr * URust_AST.ur_expr * Position.T
-       | urange_before_block of
-           URust_AST.ur_expr * URust_AST.ur_expr * Position.T
-       | uexp_before_block of
-           URust_AST.ur_expr * URust_AST.ur_expr * Position.T
-       | urefprefix_before_block of
-           URust_AST.ur_expr * URust_AST.ur_expr * Position.T
-       | unotprefix_before_block of
-           URust_AST.ur_expr * URust_AST.ur_expr * Position.T
-       | ucast_before_block of
-           URust_AST.ur_expr * URust_AST.ur_expr * Position.T
-       | upostfix_before_block of
-           URust_AST.ur_expr * URust_AST.ur_expr * Position.T
-       | upath_block_tail of path_block_tail
        | ufuel of Input.source * Position.T
        | uloop_expr of URust_AST.ur_expr
        | umatch_kind of URust_AST.match_flavour * Position.T
        | umatch of URust_AST.ur_expr
-       | umatch_scrutinee of
-           URust_AST.ur_expr * URust_AST.ur_arm list * Position.T
-       | uval_before_arms of
-           URust_AST.ur_expr * URust_AST.ur_arm list * Position.T
-       | uassign_before_arms of
-           URust_AST.ur_expr * URust_AST.ur_arm list * Position.T
-       | urange_before_arms of
-           URust_AST.ur_expr * URust_AST.ur_arm list * Position.T
-       | uexp_before_arms of
-           URust_AST.ur_expr * URust_AST.ur_arm list * Position.T
-       | urefprefix_before_arms of
-           URust_AST.ur_expr * URust_AST.ur_arm list * Position.T
-       | unotprefix_before_arms of
-           URust_AST.ur_expr * URust_AST.ur_arm list * Position.T
-       | ucast_before_arms of
-           URust_AST.ur_expr * URust_AST.ur_arm list * Position.T
-       | upostfix_before_arms of
-           URust_AST.ur_expr * URust_AST.ur_arm list * Position.T
-       | upath_arms_tail of path_arms_tail
        | uguard of URust_AST.ur_expr
        | uarm of URust_AST.ur_arm
        | uarms of URust_AST.ur_arm list
@@ -740,23 +675,20 @@ yacc_rules\<open>
                     (UE_Return (SOME uclosure_arg, TRETURNleft))
   (* This head deliberately does not reuse uif_head: closure-body priority admits only ordinary if,
      and the recursive closure conditional must exclude if-let from every later else-if arm too. *)
-  uclosure_if_head : TIF uval_before_block
-                       (IH_If
-                         (#1 uval_before_block,
-                          #2 uval_before_block,
-                          TIFleft,
-                          #3 uval_before_block))
-  uclosure_conditional : uclosure_if_head %prec TIF
+  uclosure_if_head : TIF uval_no_struct
+                       (IH_If (uval_no_struct, TIFleft))
+  uclosure_conditional : uclosure_if_head ublock %prec TIF
                            (finish_conditional
-                             (uclosure_if_head, NONE,
-                              if_head_stop uclosure_if_head))
-                       | uclosure_if_head TELSE ublock
-                           (finish_conditional
-                             (uclosure_if_head, SOME ublock,
+                             (uclosure_if_head, ublock, NONE,
                               ublockright))
-                       | uclosure_if_head TELSE uclosure_conditional
+                       | uclosure_if_head ublock TELSE ublock
                            (finish_conditional
-                             (uclosure_if_head, SOME uclosure_conditional,
+                             (uclosure_if_head, ublock1, SOME ublock2,
+                              ublock2right))
+                       | uclosure_if_head ublock TELSE uclosure_conditional
+                           (finish_conditional
+                             (uclosure_if_head, ublock,
+                              SOME uclosure_conditional,
                               uclosure_conditionalright))
   (* Assignment is below ranges and every pure operator and recurses through its own tier on the right.
      Blocks remain ordinary expression atoms, while lower-priority `if`/`match` forms require
@@ -958,390 +890,156 @@ yacc_rules\<open>
        | uexp TGE uexp       (UE_Bin (Ge,   uexp1, uexp2, TGEleft))
        | uexp TAMPAMP uexp   (UE_Bin (And,  uexp1, uexp2, TAMPAMPleft))
        | uexp TBARBAR uexp   (UE_Bin (Or,   uexp1, uexp2, TBARBARleft))
-  (* These private right-edge grammars carry a known block or match-arm follower through the ordinary
-     precedence tiers. A path at that edge consumes the opening brace before choosing between an
-     ordinary follower and `label: initializer` struct fields. Keeping block and arm followers
-     separate prevents their brace contents from competing and requires neither lexer lookahead nor
-     precedence-based brace resolution. *)
-  uval_before_block : uassign_before_block
-                        (uassign_before_block)
-                    | TRETURN uval_before_block
-                        (map_followed_expression
-                          (fn expression =>
-                            UE_Return (SOME expression, TRETURNleft))
-                          uval_before_block)
-                    | ucontrol_expr ublock %prec TIF
-                        ((ucontrol_expr, ublock, ublockright))
-  uassign_before_block : urange_before_block
-                           (urange_before_block)
-                       | urange uassignop uassign_before_block
-                           (map_followed_expression
-                             (mk_assign uassignop urange)
-                             uassign_before_block)
-  urange_before_block : uexp_before_block
-                          (uexp_before_block)
-                      | uexp TDOTDOT uexp_before_block
-                          (map_followed_expression
-                            (fn upper =>
-                              UE_Range
-                                (RK_Exclusive, uexp, upper,
-                                 TDOTDOTleft))
-                            uexp_before_block)
-                      | uexp TDOTDOTEQ uexp_before_block
-                          (map_followed_expression
-                            (fn upper =>
-                              UE_Range
-                                (RK_Inclusive, uexp, upper,
-                                 TDOTDOTEQleft))
-                            uexp_before_block)
-  uexp_before_block : urefprefix_before_block
-                        (urefprefix_before_block)
-                    | uexp TPLUS uexp_before_block
-                        (map_followed_expression
-                          (fn right =>
-                            UE_Bin (Add, uexp, right, TPLUSleft))
-                          uexp_before_block)
-                    | uexp TMINUS uexp_before_block
-                        (map_followed_expression
-                          (fn right =>
-                            UE_Bin (Sub, uexp, right, TMINUSleft))
-                          uexp_before_block)
-                    | uexp TSTAR uexp_before_block
-                        (map_followed_expression
-                          (fn right =>
-                            UE_Bin (Mul, uexp, right, TSTARleft))
-                          uexp_before_block)
-                    | uexp TSLASH uexp_before_block
-                        (map_followed_expression
-                          (fn right =>
-                            UE_Bin (Div, uexp, right, TSLASHleft))
-                          uexp_before_block)
-                    | uexp TPERCENT uexp_before_block
-                        (map_followed_expression
-                          (fn right =>
-                            UE_Bin (Mod, uexp, right, TPERCENTleft))
-                          uexp_before_block)
-                    | uexp TSHL uexp_before_block
-                        (map_followed_expression
-                          (fn right =>
-                            UE_Bin (Shl, uexp, right, TSHLleft))
-                          uexp_before_block)
-                    | uexp TSHR uexp_before_block
-                        (map_followed_expression
-                          (fn right =>
-                            UE_Bin (Shr, uexp, right, TSHRleft))
-                          uexp_before_block)
-                    | uexp TAMP uexp_before_block
-                        (map_followed_expression
-                          (fn right =>
-                            UE_Bin (BAnd, uexp, right, TAMPleft))
-                          uexp_before_block)
-                    | uexp TBAR uexp_before_block
-                        (map_followed_expression
-                          (fn right =>
-                            UE_Bin (BOr, uexp, right, TBARleft))
-                          uexp_before_block)
-                    | uexp TCARET uexp_before_block
-                        (map_followed_expression
-                          (fn right =>
-                            UE_Bin (BXor, uexp, right, TCARETleft))
-                          uexp_before_block)
-                    | uexp TEQEQ uexp_before_block
-                        (map_followed_expression
-                          (fn right =>
-                            UE_Bin (Eq, uexp, right, TEQEQleft))
-                          uexp_before_block)
-                    | uexp TNE uexp_before_block
-                        (map_followed_expression
-                          (fn right =>
-                            UE_Bin (Ne, uexp, right, TNEleft))
-                          uexp_before_block)
-                    | uexp TLT uexp_before_block
-                        (map_followed_expression
-                          (fn right =>
-                            UE_Bin (Lt, uexp, right, TLTleft))
-                          uexp_before_block)
-                    | uexp TLE uexp_before_block
-                        (map_followed_expression
-                          (fn right =>
-                            UE_Bin (Le, uexp, right, TLEleft))
-                          uexp_before_block)
-                    | uexp TGT uexp_before_block
-                        (map_followed_expression
-                          (fn right =>
-                            UE_Bin (Gt, uexp, right, TGTleft))
-                          uexp_before_block)
-                    | uexp TGE uexp_before_block
-                        (map_followed_expression
-                          (fn right =>
-                            UE_Bin (Ge, uexp, right, TGEleft))
-                          uexp_before_block)
-                    | uexp TAMPAMP uexp_before_block
-                        (map_followed_expression
-                          (fn right =>
-                            UE_Bin (And, uexp, right, TAMPAMPleft))
-                          uexp_before_block)
-                    | uexp TBARBAR uexp_before_block
-                        (map_followed_expression
-                          (fn right =>
-                            UE_Bin (Or, uexp, right, TBARBARleft))
-                          uexp_before_block)
-  urefprefix_before_block : unotprefix_before_block
-                              (unotprefix_before_block)
-                          | TAMP urefprefix_before_block
-                              (map_followed_expression
-                                (fn operand =>
-                                  UE_Unary
-                                    (U_Borrow BM_Imm, operand,
-                                     TAMPleft))
-                                urefprefix_before_block)
-                          | TAMP TMUT urefprefix_before_block
-                              (map_followed_expression
-                                (fn operand =>
-                                  UE_Unary
-                                    (U_Borrow BM_Mut, operand,
-                                     TAMPleft))
-                                urefprefix_before_block)
-                          | TSTAR urefprefix_before_block
-                              (map_followed_expression
-                                (fn operand =>
-                                  UE_Unary
-                                    (U_Deref, operand, TSTARleft))
-                                urefprefix_before_block)
-  unotprefix_before_block : ucast_before_block
-                              (ucast_before_block)
-                          | TBANG unotprefix_before_block
-                              (map_followed_expression
-                                (fn operand =>
-                                  UE_Unary
-                                    (U_Not, operand, TBANGleft))
-                                unotprefix_before_block)
-  ucast_before_block : upostfix_before_block
-                         (upostfix_before_block)
-                     | ucast TAS ucast_target ublock
-                         ((UE_Cast
-                             (ucast, ucast_target, TASleft),
-                           ublock, ublockright))
-  upostfix_before_block :
-      uatom_nonhead ublock
-        ((uatom_nonhead, ublock, ublockright))
-    | upath TLBRACE upath_block_tail
-        (finish_path_block
-          (upath, TLBRACEleft, upath_block_tail))
-    | upostfix TQUESTION ublock
-        ((UE_Unary (U_Propagate, upostfix, TQUESTIONleft),
-          ublock, ublockright))
-    | upostfix TDOT IDENT ublock
-        ((UE_Field (upostfix, IDENT, IDENTleft),
-          ublock, ublockright))
-    | upostfix TDOT upath_segment LPAR ucallargs RPAR ublock
-        ((mk_call
-            (UC_Method (upostfix, upath_segment),
-             ucallargs, upostfixleft, RPARright),
-          ublock, ublockright))
-    | upostfix TLBRACK uclosure_arg TRBRACK ublock
-        ((UE_Index
-            (upostfix, uclosure_arg,
-             Position.range_position
-               (upostfixleft, TRBRACKright)),
-          ublock, ublockright))
-  upath_block_tail : ubody TRBRACE
-                       (PBT_Block (SOME ubody, TRBRACEright))
-                   | TRBRACE
-                       (PBT_Block (NONE, TRBRACEright))
-                   | ustruct_expr_fields TRBRACE ublock
-                       (PBT_Struct
-                         (ustruct_expr_fields, TRBRACEright,
-                          ublock, ublockright))
-  uval_before_arms : uassign_before_arms
-                       (uassign_before_arms)
-                   | TRETURN uval_before_arms
-                       (map_followed_expression
-                         (fn expression =>
-                           UE_Return (SOME expression, TRETURNleft))
-                         uval_before_arms)
-                   | ucontrol_expr TLBRACE uarms TRBRACE %prec TIF
-                       ((ucontrol_expr, uarms, TRBRACEright))
-  uassign_before_arms : urange_before_arms
-                          (urange_before_arms)
-                      | urange uassignop uassign_before_arms
-                          (map_followed_expression
-                            (mk_assign uassignop urange)
-                            uassign_before_arms)
-  urange_before_arms : uexp_before_arms
-                         (uexp_before_arms)
-                     | uexp TDOTDOT uexp_before_arms
-                         (map_followed_expression
-                           (fn upper =>
-                             UE_Range
-                               (RK_Exclusive, uexp, upper,
-                                TDOTDOTleft))
-                           uexp_before_arms)
-                     | uexp TDOTDOTEQ uexp_before_arms
-                         (map_followed_expression
-                           (fn upper =>
-                             UE_Range
-                               (RK_Inclusive, uexp, upper,
-                                TDOTDOTEQleft))
-                           uexp_before_arms)
-  uexp_before_arms : urefprefix_before_arms
-                       (urefprefix_before_arms)
-                   | uexp TPLUS uexp_before_arms
-                       (map_followed_expression
-                         (fn right =>
-                           UE_Bin (Add, uexp, right, TPLUSleft))
-                         uexp_before_arms)
-                   | uexp TMINUS uexp_before_arms
-                       (map_followed_expression
-                         (fn right =>
-                           UE_Bin (Sub, uexp, right, TMINUSleft))
-                         uexp_before_arms)
-                   | uexp TSTAR uexp_before_arms
-                       (map_followed_expression
-                         (fn right =>
-                           UE_Bin (Mul, uexp, right, TSTARleft))
-                         uexp_before_arms)
-                   | uexp TSLASH uexp_before_arms
-                       (map_followed_expression
-                         (fn right =>
-                           UE_Bin (Div, uexp, right, TSLASHleft))
-                         uexp_before_arms)
-                   | uexp TPERCENT uexp_before_arms
-                       (map_followed_expression
-                         (fn right =>
-                           UE_Bin (Mod, uexp, right, TPERCENTleft))
-                         uexp_before_arms)
-                   | uexp TSHL uexp_before_arms
-                       (map_followed_expression
-                         (fn right =>
-                           UE_Bin (Shl, uexp, right, TSHLleft))
-                         uexp_before_arms)
-                   | uexp TSHR uexp_before_arms
-                       (map_followed_expression
-                         (fn right =>
-                           UE_Bin (Shr, uexp, right, TSHRleft))
-                         uexp_before_arms)
-                   | uexp TAMP uexp_before_arms
-                       (map_followed_expression
-                         (fn right =>
-                           UE_Bin (BAnd, uexp, right, TAMPleft))
-                         uexp_before_arms)
-                   | uexp TBAR uexp_before_arms
-                       (map_followed_expression
-                         (fn right =>
-                           UE_Bin (BOr, uexp, right, TBARleft))
-                         uexp_before_arms)
-                   | uexp TCARET uexp_before_arms
-                       (map_followed_expression
-                         (fn right =>
-                           UE_Bin (BXor, uexp, right, TCARETleft))
-                         uexp_before_arms)
-                   | uexp TEQEQ uexp_before_arms
-                       (map_followed_expression
-                         (fn right =>
-                           UE_Bin (Eq, uexp, right, TEQEQleft))
-                         uexp_before_arms)
-                   | uexp TNE uexp_before_arms
-                       (map_followed_expression
-                         (fn right =>
-                           UE_Bin (Ne, uexp, right, TNEleft))
-                         uexp_before_arms)
-                   | uexp TLT uexp_before_arms
-                       (map_followed_expression
-                         (fn right =>
-                           UE_Bin (Lt, uexp, right, TLTleft))
-                         uexp_before_arms)
-                   | uexp TLE uexp_before_arms
-                       (map_followed_expression
-                         (fn right =>
-                           UE_Bin (Le, uexp, right, TLEleft))
-                         uexp_before_arms)
-                   | uexp TGT uexp_before_arms
-                       (map_followed_expression
-                         (fn right =>
-                           UE_Bin (Gt, uexp, right, TGTleft))
-                         uexp_before_arms)
-                   | uexp TGE uexp_before_arms
-                       (map_followed_expression
-                         (fn right =>
-                           UE_Bin (Ge, uexp, right, TGEleft))
-                         uexp_before_arms)
-                   | uexp TAMPAMP uexp_before_arms
-                       (map_followed_expression
-                         (fn right =>
-                           UE_Bin (And, uexp, right, TAMPAMPleft))
-                         uexp_before_arms)
-                   | uexp TBARBAR uexp_before_arms
-                       (map_followed_expression
-                         (fn right =>
-                           UE_Bin (Or, uexp, right, TBARBARleft))
-                         uexp_before_arms)
-  urefprefix_before_arms : unotprefix_before_arms
-                             (unotprefix_before_arms)
-                         | TAMP urefprefix_before_arms
-                             (map_followed_expression
-                               (fn operand =>
-                                 UE_Unary
-                                   (U_Borrow BM_Imm, operand,
-                                    TAMPleft))
-                               urefprefix_before_arms)
-                         | TAMP TMUT urefprefix_before_arms
-                             (map_followed_expression
-                               (fn operand =>
-                                 UE_Unary
-                                   (U_Borrow BM_Mut, operand,
-                                    TAMPleft))
-                               urefprefix_before_arms)
-                         | TSTAR urefprefix_before_arms
-                             (map_followed_expression
-                               (fn operand =>
-                                 UE_Unary
-                                   (U_Deref, operand, TSTARleft))
-                               urefprefix_before_arms)
-  unotprefix_before_arms : ucast_before_arms
-                             (ucast_before_arms)
-                         | TBANG unotprefix_before_arms
-                             (map_followed_expression
-                               (fn operand =>
-                                 UE_Unary
-                                   (U_Not, operand, TBANGleft))
-                               unotprefix_before_arms)
-  ucast_before_arms : upostfix_before_arms
-                        (upostfix_before_arms)
-                    | ucast TAS ucast_target TLBRACE uarms TRBRACE
-                        ((UE_Cast
-                            (ucast, ucast_target, TASleft),
-                          uarms, TRBRACEright))
-  upostfix_before_arms :
-      uatom_nonhead TLBRACE uarms TRBRACE
-        ((uatom_nonhead, uarms, TRBRACEright))
-    | upath TLBRACE upath_arms_tail
-        (finish_path_arms (upath, upath_arms_tail))
-    | upostfix TQUESTION TLBRACE uarms TRBRACE
-        ((UE_Unary (U_Propagate, upostfix, TQUESTIONleft),
-          uarms, TRBRACEright))
-    | upostfix TDOT IDENT TLBRACE uarms TRBRACE
-        ((UE_Field (upostfix, IDENT, IDENTleft),
-          uarms, TRBRACEright))
-    | upostfix TDOT upath_segment LPAR ucallargs RPAR
-        TLBRACE uarms TRBRACE
-        ((mk_call
-            (UC_Method (upostfix, upath_segment),
-             ucallargs, upostfixleft, RPARright),
-          uarms, TRBRACEright))
-    | upostfix TLBRACK uclosure_arg TRBRACK
-        TLBRACE uarms TRBRACE
-        ((UE_Index
-            (upostfix, uclosure_arg,
-             Position.range_position
-               (upostfixleft, TRBRACKright)),
-          uarms, TRBRACEright))
-  upath_arms_tail : uarms TRBRACE
-                      (PAT_Arms (uarms, TRBRACEright))
-                  | ustruct_expr_fields TRBRACE TLBRACE uarms TRBRACE
-                      (PAT_Struct
-                        (ustruct_expr_fields, TRBRACE1right,
-                         uarms, TRBRACE2right))
+  (* Rust excludes unparenthesized struct expressions from control heads. This ladder mirrors the
+     ordinary precedence family but omits `ustruct_expr` from its atom. Every recursive operand stays
+     restricted; explicit delimiters inside `uatom_nonhead` re-enter the ordinary grammar. *)
+  uval_no_struct : uassign_no_struct
+                     (uassign_no_struct)
+                 | TRETURN uval_no_struct
+                     (UE_Return (SOME uval_no_struct, TRETURNleft))
+                 | ucontrol_expr %prec TIF
+                     (ucontrol_expr)
+  uassign_no_struct : urange_no_struct
+                        (urange_no_struct)
+                    | urange_no_struct uassignop uassign_no_struct
+                        (mk_assign
+                          uassignop urange_no_struct uassign_no_struct)
+  urange_no_struct : uexp_no_struct
+                       (uexp_no_struct)
+                   | uexp_no_struct TDOTDOT uexp_no_struct
+                       (UE_Range
+                         (RK_Exclusive, uexp_no_struct1,
+                          uexp_no_struct2, TDOTDOTleft))
+                   | uexp_no_struct TDOTDOTEQ uexp_no_struct
+                       (UE_Range
+                         (RK_Inclusive, uexp_no_struct1,
+                          uexp_no_struct2, TDOTDOTEQleft))
+  uexp_no_struct : urefprefix_no_struct
+                      (urefprefix_no_struct)
+                 | uexp_no_struct TPLUS uexp_no_struct
+                      (UE_Bin
+                        (Add, uexp_no_struct1, uexp_no_struct2,
+                         TPLUSleft))
+                 | uexp_no_struct TMINUS uexp_no_struct
+                      (UE_Bin
+                        (Sub, uexp_no_struct1, uexp_no_struct2,
+                         TMINUSleft))
+                 | uexp_no_struct TSTAR uexp_no_struct
+                      (UE_Bin
+                        (Mul, uexp_no_struct1, uexp_no_struct2,
+                         TSTARleft))
+                 | uexp_no_struct TSLASH uexp_no_struct
+                      (UE_Bin
+                        (Div, uexp_no_struct1, uexp_no_struct2,
+                         TSLASHleft))
+                 | uexp_no_struct TPERCENT uexp_no_struct
+                      (UE_Bin
+                        (Mod, uexp_no_struct1, uexp_no_struct2,
+                         TPERCENTleft))
+                 | uexp_no_struct TSHL uexp_no_struct
+                      (UE_Bin
+                        (Shl, uexp_no_struct1, uexp_no_struct2,
+                         TSHLleft))
+                 | uexp_no_struct TSHR uexp_no_struct
+                      (UE_Bin
+                        (Shr, uexp_no_struct1, uexp_no_struct2,
+                         TSHRleft))
+                 | uexp_no_struct TAMP uexp_no_struct
+                      (UE_Bin
+                        (BAnd, uexp_no_struct1, uexp_no_struct2,
+                         TAMPleft))
+                 | uexp_no_struct TBAR uexp_no_struct
+                      (UE_Bin
+                        (BOr, uexp_no_struct1, uexp_no_struct2,
+                         TBARleft))
+                 | uexp_no_struct TCARET uexp_no_struct
+                      (UE_Bin
+                        (BXor, uexp_no_struct1, uexp_no_struct2,
+                         TCARETleft))
+                 | uexp_no_struct TEQEQ uexp_no_struct
+                      (UE_Bin
+                        (Eq, uexp_no_struct1, uexp_no_struct2,
+                         TEQEQleft))
+                 | uexp_no_struct TNE uexp_no_struct
+                      (UE_Bin
+                        (Ne, uexp_no_struct1, uexp_no_struct2,
+                         TNEleft))
+                 | uexp_no_struct TLT uexp_no_struct
+                      (UE_Bin
+                        (Lt, uexp_no_struct1, uexp_no_struct2,
+                         TLTleft))
+                 | uexp_no_struct TLE uexp_no_struct
+                      (UE_Bin
+                        (Le, uexp_no_struct1, uexp_no_struct2,
+                         TLEleft))
+                 | uexp_no_struct TGT uexp_no_struct
+                      (UE_Bin
+                        (Gt, uexp_no_struct1, uexp_no_struct2,
+                         TGTleft))
+                 | uexp_no_struct TGE uexp_no_struct
+                      (UE_Bin
+                        (Ge, uexp_no_struct1, uexp_no_struct2,
+                         TGEleft))
+                 | uexp_no_struct TAMPAMP uexp_no_struct
+                      (UE_Bin
+                        (And, uexp_no_struct1, uexp_no_struct2,
+                         TAMPAMPleft))
+                 | uexp_no_struct TBARBAR uexp_no_struct
+                      (UE_Bin
+                        (Or, uexp_no_struct1, uexp_no_struct2,
+                         TBARBARleft))
+  urefprefix_no_struct : unotprefix_no_struct
+                           (unotprefix_no_struct)
+                       | TAMP urefprefix_no_struct
+                           (UE_Unary
+                             (U_Borrow BM_Imm,
+                              urefprefix_no_struct, TAMPleft))
+                       | TAMP TMUT urefprefix_no_struct
+                           (UE_Unary
+                             (U_Borrow BM_Mut,
+                              urefprefix_no_struct, TAMPleft))
+                       | TSTAR urefprefix_no_struct
+                           (UE_Unary
+                             (U_Deref, urefprefix_no_struct,
+                              TSTARleft))
+  unotprefix_no_struct : ucast_no_struct
+                           (ucast_no_struct)
+                       | TBANG unotprefix_no_struct
+                           (UE_Unary
+                             (U_Not, unotprefix_no_struct,
+                              TBANGleft))
+  ucast_no_struct : upostfix_no_struct
+                      (upostfix_no_struct)
+                  | ucast_no_struct TAS ucast_target
+                      (UE_Cast
+                        (ucast_no_struct, ucast_target, TASleft))
+  upostfix_no_struct : uatom_no_struct
+                         (uatom_no_struct)
+                     | upostfix_no_struct TQUESTION
+                         (UE_Unary
+                           (U_Propagate, upostfix_no_struct,
+                            TQUESTIONleft))
+                     | upostfix_no_struct TDOT IDENT
+                         (UE_Field
+                           (upostfix_no_struct, IDENT, IDENTleft))
+                     | upostfix_no_struct TDOT upath_segment
+                         LPAR ucallargs RPAR
+                         (mk_call
+                           (UC_Method
+                             (upostfix_no_struct, upath_segment),
+                            ucallargs, upostfix_no_structleft,
+                            RPARright))
+                     | upostfix_no_struct TLBRACK
+                         uclosure_arg TRBRACK
+                         (UE_Index
+                           (upostfix_no_struct, uclosure_arg,
+                            Position.range_position
+                              (upostfix_no_structleft,
+                               TRBRACKright)))
+  uatom_no_struct : upath
+                       (UE_Path upath)
+                   | uatom_nonhead
+                       (uatom_nonhead)
   (* Branches are brace-delimited, and right-associative TIF/TELSE precedence preserves nearest-else
      association through recursive mixed chains. The whole grammar is verified conflict-free via the
      [verbose] grm.desc export -- RE-CHECK IT after any grammar change. *)
@@ -1362,28 +1060,22 @@ yacc_rules\<open>
   ucontrol_expr : uconditional              (uconditional)
                 | uloop_expr                (uloop_expr)
                 | umatch                    (umatch)
-  (* Conditional heads are grammar-private. One fallback grammar preserves nearest-else association,
-     mixed `else if` / `else if let` chains, and the existing AST/span representation. *)
-  uif_head : TIF uval_before_block
-                (IH_If
-                  (#1 uval_before_block,
-                   #2 uval_before_block,
-                   TIFleft,
-                   #3 uval_before_block))
-           | TIF TLET upat TEQ uval_before_block
-                (IH_IfLet
-                  (upat, #1 uval_before_block,
-                   #2 uval_before_block, TIFleft,
-                   #3 uval_before_block))
-  uconditional : uif_head %prec TIF
+  (* Conditional heads retain only the condition or pattern/scrutinee. The conditional consumes the
+     success block once and preserves nearest-else association plus the existing AST/span shape. *)
+  uif_head : TIF uval_no_struct
+                (IH_If (uval_no_struct, TIFleft))
+           | TIF TLET upat TEQ uval_no_struct
+                (IH_IfLet (upat, uval_no_struct, TIFleft))
+  uconditional : uif_head ublock %prec TIF
                     (finish_conditional
-                      (uif_head, NONE, if_head_stop uif_head))
-               | uif_head TELSE ublock
+                      (uif_head, ublock, NONE, ublockright))
+               | uif_head ublock TELSE ublock
                     (finish_conditional
-                      (uif_head, SOME ublock, ublockright))
-               | uif_head TELSE uconditional
+                      (uif_head, ublock1, SOME ublock2,
+                       ublock2right))
+               | uif_head ublock TELSE uconditional
                     (finish_conditional
-                      (uif_head, SOME uconditional,
+                      (uif_head, ublock, SOME uconditional,
                        uconditionalright))
   ufuel : THASH TLBRACK TFUEL LPAR EXPRAQ RPAR TRBRACK
               ((#1 EXPRAQ, THASHleft))
@@ -1393,18 +1085,16 @@ yacc_rules\<open>
              | ufuel TLOOP ublock
               (UE_Loop (#1 ufuel, ublock,
                 Position.range_position (#2 ufuel, ublockright)))
-             | TFOR upat TIN uval_before_block
+             | TFOR upat TIN uval_no_struct ublock
               (UE_For
-                (upat, #1 uval_before_block,
-                 #2 uval_before_block,
+                (upat, uval_no_struct, ublock,
                  Position.range_position
-                   (TFORleft, #3 uval_before_block)))
-             | ufuel TWHILE TLET upat TEQ uval_before_block
+                   (TFORleft, ublockright)))
+             | ufuel TWHILE TLET upat TEQ uval_no_struct ublock
               (UE_WhileLet
-                (#1 ufuel, upat, #1 uval_before_block,
-                 #2 uval_before_block,
+                (#1 ufuel, upat, uval_no_struct, ublock,
                  Position.range_position
-                   (#2 ufuel, #3 uval_before_block)))
+                   (#2 ufuel, ublockright)))
   (* Comma lists stay nonempty and right-nested (source order preserved). Each list has an explicit terminal
      comma production, so a trailing separator cannot create an empty element. Calls are dedicated
      atom/method productions, so LPAR is never in FOLLOW(uexp) as a general postfix operator -- no
@@ -1433,14 +1123,11 @@ yacc_rules\<open>
   umatch_kind : TMATCH       ((MF_Auto, TMATCHleft))
               | TMATCHSWITCH ((MF_Switch, TMATCHSWITCHleft))
               | TMATCHCASE   ((MF_Case, TMATCHCASEleft))
-  umatch : umatch_kind umatch_scrutinee
+  umatch : umatch_kind uval_no_struct TLBRACE uarms TRBRACE
               (UE_Match
-                (#1 umatch_kind, #1 umatch_scrutinee,
-                 #2 umatch_scrutinee,
+                (#1 umatch_kind, uval_no_struct, uarms,
                  Position.range_position
-                   (#2 umatch_kind, #3 umatch_scrutinee)))
-  umatch_scrutinee : uval_before_arms
-                       (uval_before_arms)
+                   (#2 umatch_kind, TRBRACEright)))
   uguard : ubody (ubody)
   uarm : upat TARROW uval
             (UR_Arm (upat, NONE, uval))

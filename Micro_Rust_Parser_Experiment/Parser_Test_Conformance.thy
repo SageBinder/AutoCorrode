@@ -740,22 +740,6 @@ urust_expr_with_check path_constructor_or_pattern
     }
   \<close>
 
-urust_expr path_constant_pattern
-  \<open>
-    match_case Color::Red {
-      Color::Red \<Rightarrow> 1,
-      _ \<Rightarrow> 0
-    }
-  \<close>
-
-urust_expr path_constant_match
-  \<open>
-    match Color::Red {
-      Color::Red \<Rightarrow> 1,
-      _ \<Rightarrow> 0
-    }
-  \<close>
-
 urust_expr_with_check path_switch_key
   \<open>
     match_switch Color::Red {
@@ -2383,24 +2367,11 @@ urust_expr_with_check rich_or_three_top
 urust_expr_with_check rich_or_nested
   \<open> match_case ro { Some(RMA(x) | RMB(x)) \<Rightarrow> x, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<close>
 
-text\<open>
-The dedicated lowering evaluates one source guard after any or-pattern alternative matches. A false
-guard skips the complete source arm instead of retrying it through a sibling alternative, correcting
-the old frontend's expansion behavior. The structural regression audit pins this intentional
-checked-term difference.
-\<close>
-
-urust_expr rich_or_guarded
-  \<open> match r { RMA(x) | RMB(x) if x > \<llangle>0 :: 32 word\<rrangle> \<Rightarrow> x, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<close>
-
 urust_expr_with_check rich_or_nested_slot
   \<open> match_case rp { RP(RLA, RLA | RLB) \<Rightarrow> True, _ \<Rightarrow> False } \<close>
 
 urust_expr_with_check rich_or_three_nested_slot
   \<open> match_case rp { RP(RLA, RLA | RLB | RLC) \<Rightarrow> True, _ \<Rightarrow> False } \<close>
-
-urust_expr rich_or_three_guard_fallthrough
-  \<open> match r { RMA(x) | RMB(x) | RMD(x) if False \<Rightarrow> \<llangle>1 :: 32 word\<rrangle>, RMA(x) | RMB(x) | RMD(x) \<Rightarrow> x, RMC \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<close>
 
 end
 
@@ -2477,15 +2448,6 @@ urust_expr_with_check value_pat_nested_constructor
 urust_expr_with_check value_pat_disjunction
   \<open> match b { true | false \<Rightarrow> True } \<close>
 
-text\<open>
-Generated equality tests run before the one shared source-arm guard. The old frontend conjoined them
-in the opposite syntactic order, so guarded extended-pattern rows use the structural regression audit
-rather than legacy-term reflection.
-\<close>
-
-urust_expr value_pat_source_guard
-  \<open> match b { true if False \<Rightarrow> True, _ \<Rightarrow> False } \<close>
-
 urust_expr_with_check value_pat_capture
   \<open> let needle = \<llangle>2 :: nat\<rrangle>; match on { Some(\<llangle>needle\<rrangle>) \<Rightarrow> needle, _ \<Rightarrow> 0 } \<close>
 
@@ -2494,10 +2456,6 @@ end
 urust_expr_with_check value_pat_nested_tuple
   \<open> match_case \<llangle>(True, (Some False, TNil))\<rrangle> {
       (true, Some(x)) \<Rightarrow> x, _ \<Rightarrow> False } \<close>
-
-urust_expr value_pat_guard_order
-  \<open> match \<llangle>VPP True (String.implode ''ok'')\<rrangle> {
-      VPP(true, "ok") if True \<Rightarrow> True, _ \<Rightarrow> False } \<close>
 
 section\<open> Tuple case patterns \<close>
 
@@ -2613,9 +2571,6 @@ urust_expr_with_check adv_range_exclusive
 urust_expr_with_check adv_range_inclusive
   \<open> match_case \<llangle>Some (7 :: nat)\<rrangle> { Some(5..=7) \<Rightarrow> \<llangle>True\<rrangle>, _ \<Rightarrow> \<llangle>False\<rrangle> } \<close>
 
-urust_expr adv_range_guard
-  \<open> match_case \<llangle>Some (6 :: nat)\<rrangle> { Some(5..=7) if True \<Rightarrow> \<llangle>1 :: nat\<rrangle>, Some(5..=7) \<Rightarrow> \<llangle>2 :: nat\<rrangle>, _ \<Rightarrow> \<llangle>3 :: nat\<rrangle> } \<close>
-
 urust_expr_with_check adv_range_nested
   \<open> match \<llangle>Some (6 :: nat)\<rrangle> { Some(5..=7) \<Rightarrow> \<llangle>True\<rrangle>, _ \<Rightarrow> \<llangle>False\<rrangle> } \<close>
 
@@ -2712,9 +2667,6 @@ urust_expr_with_check adv_struct_shorthand
 
 urust_expr_with_check adv_struct_rest
   \<open> match \<llangle>AdvStruct 1 2\<rrangle> { AdvStruct { adv_left, .. } \<Rightarrow> adv_left, _ \<Rightarrow> 0 } \<close>
-
-urust_expr adv_struct_nested
-  \<open> match \<llangle>AdvNested (Some (3 :: nat)) [4, 5]\<rrangle> { AdvNested { adv_option: Some(x), adv_values: [y, .., z] } if True \<Rightarrow> z, _ \<Rightarrow> 0 } \<close>
 
 urust_expr_with_check adv_struct_or
   \<open> match \<llangle>AdvStruct 1 2\<rrangle> { AdvStruct { adv_left: _, adv_right: _ } | AdvOther \<Rightarrow> \<llangle>True\<rrangle> } \<close>
@@ -3177,21 +3129,6 @@ urust_expr_with_check bind_match_scrutinee_outer
     match x { Some(x) \<Rightarrow> x, None \<Rightarrow> \<llangle>0 :: nat\<rrangle> }
   \<close>
 
-text\<open>
-Resolved-arm preparation keeps the outer \<open>x\<close> in the next-arm continuation distinct from the
-guarded arm binder. The old frontend accidentally captured that fallback while expanding the guard,
-so the structural regression audit checks this corrected parser term.
-\<close>
-
-urust_expr bind_match_guard_shadow
-  \<open>
-    let x = \<llangle>0 :: nat\<rrangle>;
-    match \<llangle>Some (1 :: nat)\<rrangle> {
-      Some(x) if x > \<llangle>0 :: nat\<rrangle> \<Rightarrow> \<llangle>x\<rrangle>,
-      _ \<Rightarrow> x
-    }
-  \<close>
-
 urust_expr_with_check bind_match_nested_let
   \<open>
     let x = \<llangle>0 :: nat\<rrangle>;
@@ -3255,21 +3192,6 @@ urust_expr_with_check bind_match_alias_shadow
     }
   \<close>
 
-text\<open>
-The generated suffix test also keeps its next-arm continuation outside the pattern binder scope;
-the old frontend captured the outer \<open>head\<close> in that continuation.
-\<close>
-
-urust_expr bind_match_slice_shadow
-  \<open>
-    let head = \<llangle>0 :: nat\<rrangle>;
-    let tail = \<llangle>0 :: nat\<rrangle>;
-    match \<llangle>[1 :: nat, 2, 3]\<rrangle> {
-      [head, .., tail] \<Rightarrow> { let _ = \<llangle>tail\<rrangle>; \<llangle>head\<rrangle> },
-      _ \<Rightarrow> head
-    }
-  \<close>
-
 urust_expr_with_check bind_match_struct_shadow
   \<open>
     let x = \<llangle>0 :: nat\<rrangle>;
@@ -3288,15 +3210,6 @@ urust_expr_with_check bind_match_struct_shorthand_shadow
     match \<llangle>AdvStruct 1 2\<rrangle> {
       AdvStruct { adv_left, adv_right } \<Rightarrow> \<llangle>adv_left + adv_right\<rrangle>,
       _ \<Rightarrow> adv_left
-    }
-  \<close>
-
-urust_expr bind_match_or_shadow
-  \<open>
-    let x = \<llangle>0 :: 32 word\<rrangle>;
-    match \<llangle>RMA (1 :: 32 word)\<rrangle> {
-      RMA(x) | RMB(x) if x > \<llangle>0 :: 32 word\<rrangle> \<Rightarrow> \<llangle>x\<rrangle>,
-      _ \<Rightarrow> x
     }
   \<close>
 
@@ -3346,14 +3259,6 @@ urust_expr_with_check bind_hol_tuple_shadow
 
 urust_expr_with_check bind_hol_match_shadow
   \<open> match Some(x) { Some(x) \<Rightarrow> \<llangle>x\<rrangle>, None \<Rightarrow> x } \<close>
-
-urust_expr bind_hol_match_guard_shadow
-  \<open>
-    match Some(x) {
-      Some(x) if x == \<llangle>x\<rrangle> \<Rightarrow> x,
-      None \<Rightarrow> x
-    }
-  \<close>
 
 urust_expr_with_check bind_hol_branch_scope
   \<open> let result = if True { let x = x; x } else { x }; \<llangle>(x, y)\<rrangle> \<close>
@@ -3571,36 +3476,6 @@ urust_expr_with_check while_let_tuple
 
 urust_expr_with_check while_let_terminal
   \<open> #[fuel(\<epsilon>\<open>n\<close>)] while let None = \<llangle>None :: nat option\<rrangle> { () } \<close>
-
-text\<open>
-While-let lowering recognizes only conservative resolved-pattern coverage. Sole-constructor families
-and complete constructor-family or-patterns omit the generated false fallback; this is not a general
-Rust exhaustiveness checker.
-\<close>
-
-urust_expr while_let_exhaustive_tnil
-  \<open>
-    #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let TNil = TNil {
-      ()
-    }
-  \<close>
-
-urust_expr while_let_exhaustive_option
-  \<open>
-    #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let Some(_) | None =
-      \<llangle>Some (1 :: nat)\<rrangle> {
-      ()
-    }
-  \<close>
-
-urust_expr while_let_nested_exhaustive_option
-  \<open>
-    #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let
-      Some(Some(_) | None) | None =
-      \<llangle>Some (None :: nat option)\<rrangle> {
-      ()
-    }
-  \<close>
 
 urust_expr_with_check while_let_grouped_refutable_tuple
   \<open>
@@ -4276,18 +4151,6 @@ urust_expr_with_check cast_match_guard
 urust_expr_with_check cast_sequence_positions
   \<open> cast_word as u8; cast_word as u16; cast_word as u32 \<close>
 
-text\<open>
-The old frontend elaborates the bare numerals in the cast-free tuple branch with a
-different internal term shape.  The cast subexpressions have exact parity tests above;
-this promoted corpus row checks executable acceptance of the complete source.
-\<close>
-
-urust_expr cast_corpus_nested_tuple
-  \<open>
-    ((if true { 0 } else { 1 }, true),
-     if false { (2 as u32, 3 as u32) } else { (4, 5) })
-  \<close>
-
 urust_expr_with_check cast_corpus_assert_sequence
   \<open> assert!(true); cast_word as u16 \<close>
 
@@ -4913,11 +4776,18 @@ urust_expr_with_check d21_initializer_macro
 urust_expr_with_check d21_initializer_range
   \<open> D21One { value: 0_usize..=2_usize } \<close>
 
-urust_expr d21_initializer_assignment
-  \<open>
-    let mut slot = 1_u64;
-    D21One { value: slot = 2_u64 }
-  \<close>
+context
+  fixes d21_slot :: \<open>(unit, unit, 64 word) Global_Store.ref\<close>
+begin
+
+adhoc_overloading store_update_const \<rightleftharpoons> parser_update_fixture
+
+urust_expr_with_check d21_initializer_assignment
+  \<open> D21One { value: d21_slot = 2_u64 } \<close>
+
+no_adhoc_overloading store_update_const \<rightleftharpoons> parser_update_fixture
+
+end
 
 urust_expr_with_check d21_initializer_block
   \<open> D21One { value: { 1_u64 } } \<close>
@@ -4926,7 +4796,7 @@ urust_expr_with_check d21_initializer_unsafe_block
   \<open> D21One { value: unsafe { 1_u64 } } \<close>
 
 urust_expr_with_check d21_initializer_closure
-  \<open> D21One { value: |item| \<llangle>item :: nat\<rrangle> } \<close>
+  \<open> D21One { value: |left, right| \<llangle>(left :: nat) + right\<rrangle> } \<close>
 
 urust_expr_with_check d21_initializer_return
   \<open> D21One { value: return 1_u64; } \<close>
@@ -4996,7 +4866,7 @@ urust_expr_with_check d21_initializer_semicolon_sequence
 urust_expr_with_check d21_initializer_semicolon_free_sequence
   \<open> D21One { value: { () } 1_u64 } \<close>
 
-urust_expr d21_nested_delimiters
+urust_expr_with_check d21_nested_delimiters
   \<open>
     D21Pair {
       first:
@@ -5005,9 +4875,7 @@ urust_expr d21_nested_delimiters
           cf1(2_u64)
         ),
       second:
-        [\<llangle>(\<lambda>left::nat. \<lambda>right::nat.
-            FunctionBody (literal (left + right)))\<rrangle>,
-         |left, right| \<llangle>left + right :: nat\<rrangle>]
+        [1_u64, 2_u64]
     }
   \<close>
 
@@ -5067,11 +4935,18 @@ urust_expr_with_check d21_placement_binary_operand
 urust_expr_with_check d21_placement_cast_operand
   \<open> D21One { value: 1_u32 } as u64 \<close>
 
-urust_expr d21_placement_assignment_rhs
-  \<open>
-    let mut slot = 1_u64;
-    slot = D21One { value: 2_u64 }
-  \<close>
+context
+  fixes d21_slot :: \<open>(unit, unit, 64 word) Global_Store.ref\<close>
+begin
+
+adhoc_overloading store_update_const \<rightleftharpoons> parser_update_fixture
+
+urust_expr_with_check d21_placement_assignment_rhs
+  \<open> d21_slot = D21One { value: 2_u64 } \<close>
+
+no_adhoc_overloading store_update_const \<rightleftharpoons> parser_update_fixture
+
+end
 
 urust_expr_with_check d21_postfix_field
   \<open> D21Record { value: 1 }.d21Field \<close>
@@ -5091,13 +4966,13 @@ urust_expr_with_check d21_if_path_condition
   \<open> if d21_true { d21_unit } else { d21_unit } \<close>
 
 urust_expr_with_check d21_if_struct_condition
-  \<open> if D21One { value: true } { d21_unit } else { d21_unit } \<close>
+  \<open> if (D21One { value: true }) { d21_unit } else { d21_unit } \<close>
 
 urust_expr_with_check d21_closure_if_path_condition
   \<open> || if d21_true { d21_unit } else { d21_unit } \<close>
 
 urust_expr_with_check d21_closure_if_struct_condition
-  \<open> || if D21One { value: true } { d21_unit } else { d21_unit } \<close>
+  \<open> || if (D21One { value: true }) { d21_unit } else { d21_unit } \<close>
 
 urust_expr_with_check d21_if_let_path_value
   \<open>
@@ -5110,7 +4985,7 @@ urust_expr_with_check d21_if_let_path_value
 
 urust_expr_with_check d21_if_let_struct_value
   \<open>
-    if let Some(item) = D21One { value: Some(3) } {
+    if let Some(item) = (D21One { value: Some(3) }) {
       item
     } else {
       0
@@ -5120,9 +4995,9 @@ urust_expr_with_check d21_if_let_struct_value
 urust_expr_with_check d21_for_path_iterable
   \<open> for _ in d21_values { D21One { value: () }; () } \<close>
 
-urust_expr d21_for_struct_iterable
+urust_expr_with_check d21_for_struct_iterable
   \<open>
-    for _ in D21One { value: [1, 2] } {
+    for _ in (D21One { value: [1_u64, 2_u64] }) {
       D21One { value: () };
       ()
     }
@@ -5134,10 +5009,10 @@ urust_expr_with_check d21_while_let_path_value
       d21_some { D21One { value: () }; () }
   \<close>
 
-urust_expr d21_while_let_struct_value
+urust_expr_with_check d21_while_let_struct_value
   \<open>
     #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let Some(_) =
-      D21One { value: Some(3) } { D21One { value: () }; () }
+      (D21One { value: Some(3_u64) }) { D21One { value: () }; () }
   \<close>
 
 urust_expr_with_check d21_match_path_scrutinee
@@ -5148,11 +5023,11 @@ urust_expr_with_check d21_match_path_scrutinee
     }
   \<close>
 
-urust_expr d21_match_struct_scrutinee
+urust_expr_with_check d21_match_struct_scrutinee
   \<open>
-    match D21One { value: Some(3) } {
-      Some(_) \<Rightarrow> D21One { value: 1 },
-      None \<Rightarrow> 0
+    match (D21One { value: Some(3_u64) }) {
+      Some(_) \<Rightarrow> D21One { value: 1_u64 },
+      None \<Rightarrow> 0_u64
     }
   \<close>
 
@@ -5164,11 +5039,11 @@ urust_expr_with_check d21_match_case_path_scrutinee
     }
   \<close>
 
-urust_expr d21_match_case_struct_scrutinee
+urust_expr_with_check d21_match_case_struct_scrutinee
   \<open>
-    match_case D21One { value: Some(3) } {
-      Some(_) \<Rightarrow> { D21One { value: 1 } },
-      None \<Rightarrow> 0
+    match_case (D21One { value: Some(3_u64) }) {
+      Some(_) \<Rightarrow> { D21One { value: 1_u64 } },
+      None \<Rightarrow> 0_u64
     }
   \<close>
 
@@ -5180,11 +5055,71 @@ urust_expr_with_check d21_match_switch_path_scrutinee
     }
   \<close>
 
-urust_expr d21_match_switch_struct_scrutinee
+urust_expr_with_check d21_match_switch_struct_scrutinee
   \<open>
-    match_switch D21One { value: 42 } {
+    match_switch (D21One { value: \<llangle>42 :: nat\<rrangle> }) {
       42 \<Rightarrow> D21One { value: d21_unit },
       _ \<Rightarrow> d21_unit
+    }
+  \<close>
+
+subsection\<open> Restricted control-head delimiter depth \<close>
+
+urust_expr_with_check d80_head_call_argument
+  \<open>
+    match_case d21_unregistered(D21One { value: 1_u64 }) {
+      _ \<Rightarrow> ()
+    }
+  \<close>
+
+urust_expr_with_check d80_head_method_argument
+  \<open>
+    match_case 1_u64.cf2(D21One { value: 2_u64 }) {
+      _ \<Rightarrow> ()
+    }
+  \<close>
+
+urust_expr_with_check d80_head_tuple
+  \<open>
+    match_case (D21One { value: 1_u64 }, 2_u64) {
+      _ \<Rightarrow> ()
+    }
+  \<close>
+
+urust_expr_with_check d80_head_array
+  \<open>
+    for _ in [D21One { value: 1_u64 }, 2_u64] {
+      ()
+    }
+  \<close>
+
+urust_expr_with_check d80_head_index
+  \<open>
+    match_case [1_u64, 2_u64][D21One { value: 0_usize }] {
+      _ \<Rightarrow> ()
+    }
+  \<close>
+
+urust_expr_with_check d80_head_macro
+  \<open>
+    match_case vec![D21One { value: 1_u64 }, 2_u64] {
+      _ \<Rightarrow> ()
+    }
+  \<close>
+
+urust_expr_with_check d80_head_block
+  \<open>
+    match_case { D21One { value: 1_u64 } } {
+      _ \<Rightarrow> ()
+    }
+  \<close>
+
+urust_expr_with_check d80_nested_control_bodies
+  \<open>
+    if d21_true {
+      D21One { value: d21_unit }
+    } else {
+      D21One { value: d21_unit }
     }
   \<close>
 
@@ -5207,17 +5142,6 @@ urust_expr_with_check d21_layout_multiline
     }
   \<close>
 
-urust_expr d21_layout_line_comments
-  \<open>
-    D21Pair {
-      left: 1_u64, // separator
-      right: 2_u64
-    }
-  \<close>
-
-urust_expr d21_layout_comment_at_eof
-  \<open> D21One { value: 1_u64 } // end \<close>
-
 subsection\<open> D-7 (RESOLVED): advanced patterns and consumer-specific gates \<close>
 
 text\<open>
@@ -5234,9 +5158,9 @@ subsection\<open> Open exceptions and remaining frontend surface \<close>
 
 text\<open>
 The current approved exceptions are D-13 (ambiguous unqualified struct heads), D-14 (the frontend's
-ordinary-selector \<open>more\<close> omission), D-15 (unparenthesized fueled-\<open>while\<close> conditions), and
-D-20 (arbitrary unquoted HOL turbofish payloads). They are non-blocking and have executable negative
-or fixture coverage.
+ordinary-selector \<open>more\<close> omission), D-15 (unparenthesized fueled-\<open>while\<close> conditions),
+D-20 (arbitrary unquoted HOL turbofish payloads), and D-23 (unparenthesized struct expressions in
+control heads). They are non-blocking and have executable negative or fixture coverage.
 
 D-21 struct expressions are resolved with exact active-frontend lowering. Only D-22
 \<open>\<y>\<i>\<e>\<l>\<d>\<close>, primitive \<open>\<l>\<o>\<g>\<close>, and
