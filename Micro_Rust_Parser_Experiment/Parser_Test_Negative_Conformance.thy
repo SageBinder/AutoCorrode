@@ -1262,7 +1262,7 @@ urust_expr_rejects fidelity
   \<open> syntax error found at = \<close>
   \<comment> \<open> [FIDELITY] grouping is required before any attempted assignment-target validation. \<close>
 
-subsection\<open> Pattern validation and total-pattern behavior \<close>
+subsection\<open> Pattern validation and fallback diagnostics \<close>
 
 urust_expr_rejects fidelity
   \<open> if let 0 = \<llangle>0 :: nat\<rrangle> { () } else { () } \<close>
@@ -1312,43 +1312,26 @@ new_urust_rejects divergent
   \<comment> \<open> [DIVERGENT] all alternatives must bind the continuation's same names. \<close>
 
 urust_expr_rejects fidelity
-  \<open> if let _ = \<llangle>1 :: nat\<rrangle> { 1 } else { 0 } \<close>
-  \<open> clauses are redundant \<close>
-  \<comment> \<open> [FIDELITY] the synthetic fallback remains visible after a wildcard pattern. \<close>
-
-urust_expr_rejects fidelity
-  \<open> if let value = \<llangle>1 :: nat\<rrangle> { value } else { 0 } \<close>
-  \<open> clauses are redundant \<close>
-  \<comment> \<open> [FIDELITY] an identifier pattern likewise makes the synthetic fallback redundant. \<close>
-
-urust_expr_rejects fidelity
-  \<open> if let (value) = \<llangle>1 :: nat\<rrangle> { value } else { 0 } \<close>
-  \<open> clauses are redundant \<close>
-  \<comment> \<open> [FIDELITY] grouping prevents the top-level tuple special case. \<close>
-
-urust_expr_rejects fidelity
-  \<open> if let TNil = TNil { () } else { () } \<close>
-  \<open> clauses are redundant \<close>
-  \<comment> \<open> [FIDELITY] a sole-constructor family still receives the synthetic fallback. \<close>
-
-urust_expr_rejects fidelity
   \<open>
-    if let Some(_) | None = \<llangle>Some (1 :: nat)\<rrangle> {
-      ()
+    if let _ = \<llangle>1 :: nat\<rrangle> {
+      1
     } else {
-      ()
+      unknown_total_fallback!()
     }
   \<close>
-  \<open> clauses are redundant \<close>
-  \<comment> \<open> [FIDELITY] complete constructor coverage does not use the while-let optimization. \<close>
+  \<open> unknown macro "unknown_total_fallback!" \<close>
+  \<comment> \<open> [AUDIT] a discarded total-pattern fallback is still lowered and diagnosed. \<close>
 
 urust_expr_rejects fidelity
   \<open>
-    let Some(_) | None = \<llangle>Some (1 :: nat)\<rrangle> else { () };
-    ()
+    if let Some(_) = \<llangle>Some (1 :: nat)\<rrangle> {
+      1
+    } else {
+      unknown_partial_fallback!()
+    }
   \<close>
-  \<open> clauses are redundant \<close>
-  \<comment> \<open> [FIDELITY] let-else retains the same explicit fallback for complete coverage. \<close>
+  \<open> unknown macro "unknown_partial_fallback!" \<close>
+  \<comment> \<open> [FIDELITY] partial-pattern fallback diagnostics remain active. \<close>
 
 urust_expr_rejects fidelity
   \<open>

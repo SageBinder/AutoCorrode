@@ -84,9 +84,11 @@ ML\<open>
 
   - lower_if_let and lower_let_else lower their scrutinee once in the outer environment, prepare one
     unguarded source pattern, lower success in the prepared environment, and lower fallback in the
-    outer environment. One-armed `if let` supplies skip. Ordinary patterns always install the
-    frontend-shaped explicit wildcard fallback, including total patterns; the frontend's syntactic
-    top-level tuple exception instead uses its direct irrefutable abstraction and ignores fallback.
+    outer environment. One-armed `if let` supplies skip. Conservatively total case patterns omit the
+    unreachable fallback from case compilation only after lowering it, so its diagnostics and markup
+    remain active. Partial or unknown patterns retain the explicit wildcard fallback. The frontend's
+    syntactic top-level tuple exception instead uses its direct irrefutable abstraction and ignores
+    fallback.
 
   - lower_boolean_match lower ctxt environment (scrutinee, pattern, position) lowers the scrutinee in
     the outer environment, prepares one unguarded arm, and compiles a literal-true result with an
@@ -190,7 +192,9 @@ struct
                lower environment fallback
            in
              P.compile_case ctxt
-               (SOME lowered_fallback)
+               (if P.prepared_is_total prepared
+                then NONE
+                else SOME lowered_fallback)
                lowered_scrutinee
                [(prepared, NONE, lowered_success)]
            end)

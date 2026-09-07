@@ -504,6 +504,13 @@ ML_val\<open>
 
 section\<open> Conditional binding structure and markup \<close>
 
+text\<open>
+Certified-total conditional bindings use the same case shape as an explicit complete match and omit
+the unreachable fallback only after lowering it. Partial patterns retain the frontend-shaped wildcard
+case. These audits also pin mixed-chain pruning, the top-level tuple exception, conservative coverage,
+scope, diagnostics, recovery, and editor markup.
+\<close>
+
 consts
   conditional_let_scrutinee_marker :: \<open>nat option\<close>
   conditional_let_success_marker :: nat
@@ -536,6 +543,9 @@ ML_val\<open>
 
     fun checked text =
       URust_Command.elab_urust ctxt (Parser_Lex_Util.text_source text)
+
+    fun unchecked text =
+      URust_Translate.mk_closed ctxt (parse_text text)
 
     fun path_named name path = render_path path = name
     fun expression_named name (UE_Path path) = path_named name path
@@ -718,6 +728,44 @@ ML_val\<open>
          (\<^const_name>\<open>conditional_chain_fallback_marker\<close>,
           "mixed-chain final fallback")]
 
+    val total_mixed_chain =
+      checked
+        ("if " ^
+         "\<llangle>conditional_chain_second_condition_marker\<rrangle> { " ^
+         "\<llangle>conditional_chain_second_success_marker\<rrangle> " ^
+         "} else if let _ = " ^
+         "\<llangle>conditional_chain_last_scrutinee_marker\<rrangle> { " ^
+         "\<llangle>conditional_chain_last_success_marker\<rrangle> " ^
+         "} else { " ^
+         "\<llangle>conditional_chain_fallback_marker\<rrangle> }")
+    val explicit_total_mixed_chain =
+      checked
+        ("if " ^
+         "\<llangle>conditional_chain_second_condition_marker\<rrangle> { " ^
+         "\<llangle>conditional_chain_second_success_marker\<rrangle> " ^
+         "} else { match_case " ^
+         "\<llangle>conditional_chain_last_scrutinee_marker\<rrangle> { " ^
+         "_ \<Rightarrow> " ^
+         "\<llangle>conditional_chain_last_success_marker\<rrangle> } }")
+    val _ =
+      audit_assert "a total mixed-chain arm retained its unreachable remainder"
+        (Term.aconv (total_mixed_chain, explicit_total_mixed_chain))
+    val _ =
+      List.app
+        (fn (name, expected, label) =>
+          audit_assert (label ^ " has the wrong occurrence count")
+            (count_constant name total_mixed_chain = expected))
+        [(\<^const_name>\<open>conditional_chain_second_condition_marker\<close>,
+          1, "total mixed-chain ordinary condition"),
+         (\<^const_name>\<open>conditional_chain_second_success_marker\<close>,
+          1, "total mixed-chain ordinary success"),
+         (\<^const_name>\<open>conditional_chain_last_scrutinee_marker\<close>,
+          1, "total mixed-chain scrutinee"),
+         (\<^const_name>\<open>conditional_chain_last_success_marker\<close>,
+          1, "total mixed-chain success"),
+         (\<^const_name>\<open>conditional_chain_fallback_marker\<close>,
+          0, "total mixed-chain unreachable fallback")]
+
     val two_armed =
       checked
         ("if let Some(value) = " ^
@@ -748,6 +796,35 @@ ML_val\<open>
           \<^const_name>\<open>conditional_let_fallback_marker\<close>
           two_armed = 1)
 
+    val total_two_armed =
+      checked
+        ("if let _ = " ^
+         "\<llangle>conditional_let_scrutinee_marker\<rrangle> { " ^
+         "\<llangle>conditional_let_success_marker\<rrangle> } else { " ^
+         "\<llangle>conditional_let_fallback_marker\<rrangle> }")
+    val explicit_total_two_armed =
+      checked
+        ("match_case " ^
+         "\<llangle>conditional_let_scrutinee_marker\<rrangle> { " ^
+         "_ \<Rightarrow> " ^
+         "\<llangle>conditional_let_success_marker\<rrangle> }")
+    val _ =
+      audit_assert "total if-let did not match a complete case without fallback"
+        (Term.aconv (total_two_armed, explicit_total_two_armed))
+    val _ =
+      audit_assert "total if-let changed scrutinee/success multiplicity"
+        (count_constant
+           \<^const_name>\<open>conditional_let_scrutinee_marker\<close>
+           total_two_armed = 1 andalso
+         count_constant
+           \<^const_name>\<open>conditional_let_success_marker\<close>
+           total_two_armed = 1)
+    val _ =
+      audit_assert "total if-let retained its unreachable fallback"
+        (count_constant
+           \<^const_name>\<open>conditional_let_fallback_marker\<close>
+           total_two_armed = 0)
+
     val one_armed =
       checked
         ("if let Some(value) = " ^
@@ -762,6 +839,29 @@ ML_val\<open>
     val _ =
       audit_assert "one-armed if-let lost its skip fallback"
         (Term.aconv (one_armed, explicit_one_armed))
+    val _ =
+      audit_assert "partial one-armed if-let lost its synthetic skip"
+        (count_constant
+           \<^const_name>\<open>Product_Type.Unity\<close>
+           one_armed = 2)
+
+    val total_one_armed =
+      checked
+        ("if let value = " ^
+         "\<llangle>conditional_let_scrutinee_marker\<rrangle> { let _ = " ^
+         "value; \<llangle>conditional_let_success_marker\<rrangle> }")
+    val explicit_total_one_armed =
+      checked
+        ("match_case " ^
+         "\<llangle>conditional_let_scrutinee_marker\<rrangle> { " ^
+         "value \<Rightarrow> { let _ = value; " ^
+         "\<llangle>conditional_let_success_marker\<rrangle> } }")
+    val _ =
+      audit_assert "total one-armed if-let retained synthetic skip"
+        (Term.aconv (total_one_armed, explicit_total_one_armed) andalso
+         count_constant
+           \<^const_name>\<open>Product_Type.Unity\<close>
+           total_one_armed = 0)
 
     val let_else =
       checked
@@ -780,6 +880,25 @@ ML_val\<open>
       audit_assert "let-else stopped placing its continuation in the success arm"
         (Term.aconv (let_else, explicit_let_else))
 
+    val total_let_else =
+      checked
+        ("let _ = " ^
+         "\<llangle>conditional_let_scrutinee_marker\<rrangle> else { " ^
+         "\<llangle>conditional_let_fallback_marker\<rrangle> }; " ^
+         "\<llangle>conditional_let_success_marker\<rrangle>")
+    val explicit_total_let_else =
+      checked
+        ("match_case " ^
+         "\<llangle>conditional_let_scrutinee_marker\<rrangle> { " ^
+         "_ \<Rightarrow> " ^
+         "\<llangle>conditional_let_success_marker\<rrangle> }")
+    val _ =
+      audit_assert "total let-else retained its unreachable fallback"
+        (Term.aconv (total_let_else, explicit_total_let_else) andalso
+         count_constant
+           \<^const_name>\<open>conditional_let_fallback_marker\<close>
+           total_let_else = 0)
+
     val tuple_if =
       checked
         ("if let (left, right) = " ^
@@ -793,6 +912,139 @@ ML_val\<open>
     val _ =
       audit_assert "top-level tuple stopped using the frontend's direct binding"
         (Term.aconv (tuple_if, tuple_bind))
+
+    fun conditional_source pattern scrutinee =
+      "if let " ^ pattern ^ " = " ^ scrutinee ^ " { " ^
+      "\<llangle>conditional_let_success_marker\<rrangle> } else { " ^
+      "\<llangle>conditional_let_fallback_marker\<rrangle> }"
+
+    fun explicit_case_source pattern scrutinee fallback =
+      "match_case " ^ scrutinee ^ " { " ^ pattern ^ " \<Rightarrow> " ^
+      "\<llangle>conditional_let_success_marker\<rrangle>" ^
+      (if fallback
+       then ", _ \<Rightarrow> \<llangle>conditional_let_fallback_marker\<rrangle>"
+       else "") ^ " }"
+
+    fun check_total label pattern scrutinee =
+      let
+        val actual = unchecked (conditional_source pattern scrutinee)
+        val explicit =
+          unchecked (explicit_case_source pattern scrutinee false)
+      in
+        audit_assert (label ^ " did not use the complete case shape")
+          (Term.aconv (actual, explicit));
+        audit_assert (label ^ " retained a fallback")
+          (count_constant
+             \<^const_name>\<open>conditional_let_fallback_marker\<close>
+             actual = 0)
+      end
+
+    val _ =
+      List.app
+        (fn (label, pattern, scrutinee) =>
+          check_total label pattern scrutinee)
+        [("wildcard totality", "_", "\<llangle>1 :: nat\<rrangle>"),
+         ("identifier totality", "value", "\<llangle>1 :: nat\<rrangle>"),
+         ("group totality", "(value)", "\<llangle>1 :: nat\<rrangle>"),
+         ("alias totality", "whole @ _", "\<llangle>1 :: nat\<rrangle>"),
+         ("grouped recursive tuple totality",
+          "((left, (middle, right)))",
+          "(\<llangle>1 :: nat\<rrangle>, " ^
+            "(\<llangle>2 :: nat\<rrangle>, \<llangle>3 :: nat\<rrangle>))"),
+         ("sole-constructor totality", "TNil", "TNil"),
+         ("complete option totality", "Some(_) | None",
+          "\<llangle>Some (1 :: nat)\<rrangle>"),
+         ("nested complete option totality",
+          "Some(Some(_) | None) | None",
+          "\<llangle>Some (Some (1 :: nat))\<rrangle>"),
+         ("wildcard-alternative totality", "Some(_) | _",
+          "\<llangle>Some (1 :: nat)\<rrangle>"),
+         ("borrow-wrapper totality", "&_", "\<llangle>1 :: nat\<rrangle>")]
+
+    fun check_partial label pattern scrutinee =
+      let
+        val actual = unchecked (conditional_source pattern scrutinee)
+        val explicit =
+          unchecked (explicit_case_source pattern scrutinee true)
+      in
+        audit_assert (label ^ " lost the explicit wildcard-case shape")
+          (Term.aconv (actual, explicit));
+        audit_assert (label ^ " incorrectly discarded its fallback")
+          (count_constant
+             \<^const_name>\<open>conditional_let_fallback_marker\<close>
+             actual > 0)
+      end
+
+    val _ =
+      List.app
+        (fn (label, pattern, scrutinee) =>
+          check_partial label pattern scrutinee)
+        [("Some-only option coverage", "Some(_)",
+          "\<llangle>Some (1 :: nat)\<rrangle>"),
+         ("None-only option coverage", "None",
+          "\<llangle>None :: nat option\<rrangle>"),
+         ("incomplete multi-constructor family",
+          "ConditionalLetA(_) | ConditionalLetB(_)",
+          "\<llangle>ConditionalLetA 1\<rrangle>"),
+         ("internally complete but externally partial family",
+          "Some(Some(_) | None)",
+          "\<llangle>Some (Some (1 :: nat))\<rrangle>"),
+         ("literal pattern", "true", "\<llangle>True\<rrangle>"),
+         ("value pattern", "\<llangle>1 :: nat\<rrangle>",
+          "\<llangle>1 :: nat\<rrangle>"),
+         ("range pattern", "1..=3", "\<llangle>2 :: nat\<rrangle>"),
+         ("slice pattern", "[_, ..]", "\<llangle>[1 :: nat, 2]\<rrangle>"),
+         ("struct pattern",
+          "AdvStruct { adv_left: _, adv_right: _ }",
+          "\<llangle>AdvStruct 1 2\<rrangle>"),
+         ("nonconstructor path pattern", "Color::Red", "Color::Red"),
+         ("constructor with a partial argument", "Some(true)",
+          "\<llangle>Some True\<rrangle>"),
+         ("or-pattern from different constructor families",
+          "Some(_) | ConditionalLetA(_)",
+          "\<llangle>Some (1 :: nat)\<rrangle>")]
+
+    val callback_ast =
+      parse_text
+        ("if let _ = callback_scrutinee { callback_success } " ^
+         "else { callback_fallback }")
+    val callback_count = Unsynchronized.ref 0
+    fun callback_lower _ _ =
+      let
+        val index = !callback_count + 1
+        val _ = callback_count := index
+      in
+        (case index of
+           1 =>
+             URust_Shallow_Terms.literal
+               \<^term>\<open>conditional_let_scrutinee_marker\<close>
+         | 2 =>
+             URust_Shallow_Terms.literal
+               \<^term>\<open>conditional_let_success_marker\<close>
+         | 3 =>
+             URust_Shallow_Terms.literal
+               \<^term>\<open>conditional_let_fallback_marker\<close>
+         | _ =>
+             error
+               "conditional-binding regression audit: lowering callback called too often")
+      end
+    val callback_term =
+      (case callback_ast of
+         UE_IfLet (pattern, scrutinee, success, fallback, position) =>
+           URust_Matching.lower_if_let callback_lower ctxt
+             URust_Resolution.empty_environment
+             (pattern, scrutinee, success, fallback, position)
+       | _ =>
+           error
+             "conditional-binding regression audit: callback fixture AST changed")
+    val _ =
+      audit_assert "discarded total fallback was not lowered exactly once"
+        (!callback_count = 3)
+    val _ =
+      audit_assert "discarded callback fallback leaked into the final term"
+        (count_constant
+           \<^const_name>\<open>conditional_let_fallback_marker\<close>
+           callback_term = 0)
 
     fun find_from text needle offset =
       if offset + size needle > size text then
@@ -816,9 +1068,104 @@ ML_val\<open>
             Position.symbol_explode needle token_start))
       end
 
+    fun expect_positioned_rejection label text start expected needle =
+      let
+        val (_, position) = token_position text start needle 0
+        val expected_here =
+          XML.content_of (YXML.parse_body (Position.here position))
+      in
+        (case Exn.result
+            (fn () =>
+              URust_Command.elab_urust ctxt
+                (Parser_Lex_Util.positioned_content_source
+                  text start)) () of
+           Exn.Res _ =>
+             error
+               ("conditional-binding regression audit: " ^ label ^
+                " unexpectedly elaborated")
+         | Exn.Exn exn =>
+             if Exn.is_interrupt exn then Exn.reraise exn
+             else
+               let
+                 val message =
+                   XML.content_of
+                     (YXML.parse_body (Runtime.exn_message exn))
+               in
+                 audit_assert (label ^ " changed its diagnostic")
+                   (String.isSubstring expected message);
+                 audit_assert (label ^ " moved its diagnostic")
+                   (String.isSubstring expected_here message)
+               end)
+      end
+
+    val bad_total_text =
+      "if let _ = \<llangle>1 :: nat\<rrangle> { 1 } else { " ^
+      "unknown_total_fallback!() }"
+    val bad_total_start =
+      Position.make0 19 120 900 "" ""
+        "conditional-total-fallback-diagnostic-audit"
+    val _ =
+      expect_positioned_rejection "total fallback"
+        bad_total_text bad_total_start
+        "unknown macro \"unknown_total_fallback!\""
+        "unknown_total_fallback"
+
+    val bad_partial_text =
+      "if let Some(_) = \<llangle>Some (1 :: nat)\<rrangle> { 1 } else { " ^
+      "unknown_partial_fallback!() }"
+    val bad_partial_start =
+      Position.make0 23 160 1200 "" ""
+        "conditional-partial-fallback-diagnostic-audit"
+    val _ =
+      expect_positioned_rejection "partial fallback"
+        bad_partial_text bad_partial_start
+        "unknown macro \"unknown_partial_fallback!\""
+        "unknown_partial_fallback"
+
+    val recovered_total =
+      checked
+        ("if let _ = \<llangle>1 :: nat\<rrangle> { " ^
+         "\<llangle>conditional_let_success_marker\<rrangle> } else { " ^
+         "\<llangle>conditional_let_fallback_marker\<rrangle> }")
+    val _ =
+      audit_assert "failed total fallback leaked state into the next command"
+        (count_constant
+           \<^const_name>\<open>conditional_let_success_marker\<close>
+           recovered_total = 1 andalso
+         count_constant
+           \<^const_name>\<open>conditional_let_fallback_marker\<close>
+           recovered_total = 0)
+
+    val total_markup_text =
+      "let outer = \<llangle>1 :: nat\<rrangle>; " ^
+      "if let _ = \<llangle>2 :: nat\<rrangle> { 3 } else { outer }"
+    val total_markup_start =
+      Position.make0 29 200 1600 "" ""
+        "conditional-total-fallback-markup-audit"
+    val partial_markup_text =
+      "let outer = \<llangle>1 :: nat\<rrangle>; " ^
+      "if let Some(_) = \<llangle>Some (2 :: nat)\<rrangle> { 3 } " ^
+      "else { outer }"
+    val partial_markup_start =
+      Position.make0 31 220 2000 "" ""
+        "conditional-partial-fallback-markup-audit"
+
     val captured_reports = Synchronized.var "parser_test_reports" ([]: string list)
     fun capture_reports chunks =
       Synchronized.change captured_reports (append chunks)
+    fun capture_elaboration text start =
+      Parser_Test_Report_Lock.run (fn () =>
+        Unsynchronized.setmp Private_Output.report_fn capture_reports
+          (fn () =>
+            Print_Mode.with_modes [Print_Mode.PIDE]
+              (fn () =>
+                ignore
+                  (URust_Command.elab_urust ctxt
+                    (Parser_Lex_Util.positioned_content_source
+                      text start))) ())
+          ())
+    val _ = capture_elaboration total_markup_text total_markup_start
+    val _ = capture_elaboration partial_markup_text partial_markup_start
     val _ =
       Parser_Test_Report_Lock.run (fn () =>
         Unsynchronized.setmp Private_Output.report_fn capture_reports
@@ -867,6 +1214,47 @@ ML_val\<open>
           name = markup_name andalso
             has_position properties position)
         markup
+    fun entity_id property position =
+      let
+        val ids =
+          markup
+          |> map_filter
+              (fn (name, properties) =>
+                if name = Markup.entityN andalso
+                   Properties.get properties Markup.kindN =
+                     SOME "urust_var" andalso
+                   has_position properties position
+                then Properties.get properties property
+                else NONE)
+          |> distinct (op =)
+      in
+        (case ids of
+           [id] => id
+         | _ =>
+             error
+               "conditional-binding regression audit: binder entity markup changed")
+      end
+
+    val (total_outer_offset, total_outer_definition) =
+      token_position total_markup_text total_markup_start "outer" 0
+    val (_, total_outer_fallback) =
+      token_position total_markup_text total_markup_start "outer"
+        (total_outer_offset + size "outer")
+    val (partial_outer_offset, partial_outer_definition) =
+      token_position partial_markup_text partial_markup_start "outer" 0
+    val (_, partial_outer_fallback) =
+      token_position partial_markup_text partial_markup_start "outer"
+        (partial_outer_offset + size "outer")
+    val _ =
+      audit_assert "discarded total fallback lost outer-scope resolution markup"
+        (has_markup Markup.boundN total_outer_fallback andalso
+         entity_id Markup.defN total_outer_definition =
+           entity_id Markup.refN total_outer_fallback)
+    val _ =
+      audit_assert "partial fallback outer-scope resolution markup changed"
+        (has_markup Markup.boundN partial_outer_fallback andalso
+         entity_id Markup.defN partial_outer_definition =
+           entity_id Markup.refN partial_outer_fallback)
 
     val (_, if_keyword) = token_position if_text if_start "if" 0
     val (if_offset, if_let_keyword) =

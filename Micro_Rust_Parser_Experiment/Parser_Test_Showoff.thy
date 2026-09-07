@@ -416,6 +416,7 @@ text\<open>
 Features: Rust line comments and glued suffixes, an indexed array with a trailing
 separator, trailing separators on calls, tuples, and match arms, ASCII match
 arrows, propagation directly into a method, a mixed \<open>else if let\<close> chain,
+a total conditional binding without an unreachable fallback in the checked term,
 and empty ordinary and unsafe blocks.
 \<close>
 
@@ -435,7 +436,13 @@ urust_expr showoff_improvements
       } else {
         seed
       };
-    match Some(selected) {
+    let total =
+      if let selected_value = selected {
+        selected_value
+      } else {
+        seed
+      };
+    match Some(total) {
       Some(value) => (value, {}, unsafe {},),
       None => (0u64, {}, unsafe {},),
     }

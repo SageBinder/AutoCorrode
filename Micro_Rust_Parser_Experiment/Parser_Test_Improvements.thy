@@ -163,6 +163,226 @@ urust_expr while_let_nested_exhaustive_option
     }
   \<close>
 
+section\<open> Total conditional bindings \<close>
+
+text\<open>
+The dedicated parser omits an unreachable wildcard fallback when resolved-pattern coverage proves an
+\<open>if let\<close> or \<open>let ... else\<close> pattern total. The existing frontend retains that fallback and
+rejects every spelling below. Fallback lowering still occurs for diagnostics and markup, but the
+discarded term does not constrain final HOL type checking; the regression audit pins that behavior
+separately.
+\<close>
+
+subsection\<open> Basic total patterns \<close>
+
+urust_expr improvement_if_let_total_wildcard
+  \<open> if let _ = \<llangle>1 :: nat\<rrangle> { 2 } else { 0 } \<close>
+old_urust_rejects
+  \<open> if let _ = \<llangle>1 :: nat\<rrangle> { 2 } else { 0 } \<close>
+
+urust_expr improvement_let_else_total_wildcard
+  \<open> let _ = \<llangle>1 :: nat\<rrangle> else { 0 }; 2 \<close>
+old_urust_rejects
+  \<open> let _ = \<llangle>1 :: nat\<rrangle> else { 0 }; 2 \<close>
+
+urust_expr improvement_if_let_total_identifier
+  \<open> if let value = \<llangle>1 :: nat\<rrangle> { value } else { 0 } \<close>
+old_urust_rejects
+  \<open> if let value = \<llangle>1 :: nat\<rrangle> { value } else { 0 } \<close>
+
+urust_expr improvement_let_else_total_identifier
+  \<open> let value = \<llangle>1 :: nat\<rrangle> else { 0 }; value \<close>
+old_urust_rejects
+  \<open> let value = \<llangle>1 :: nat\<rrangle> else { 0 }; value \<close>
+
+urust_expr improvement_if_let_total_group
+  \<open> if let (value) = \<llangle>1 :: nat\<rrangle> { value } else { 0 } \<close>
+old_urust_rejects
+  \<open> if let (value) = \<llangle>1 :: nat\<rrangle> { value } else { 0 } \<close>
+
+urust_expr improvement_let_else_total_group
+  \<open> let (value) = \<llangle>1 :: nat\<rrangle> else { 0 }; value \<close>
+old_urust_rejects
+  \<open> let (value) = \<llangle>1 :: nat\<rrangle> else { 0 }; value \<close>
+
+urust_expr improvement_if_let_total_alias
+  \<open> if let whole @ _ = \<llangle>1 :: nat\<rrangle> { whole } else { 0 } \<close>
+old_urust_rejects
+  \<open> if let whole @ _ = \<llangle>1 :: nat\<rrangle> { whole } else { 0 } \<close>
+
+urust_expr improvement_let_else_total_alias
+  \<open> let whole @ _ = \<llangle>1 :: nat\<rrangle> else { 0 }; whole \<close>
+old_urust_rejects
+  \<open> let whole @ _ = \<llangle>1 :: nat\<rrangle> else { 0 }; whole \<close>
+
+urust_expr improvement_if_let_total_discards_fallback_type
+  \<open> if let _ = \<llangle>1 :: nat\<rrangle> { 2 } else { false } \<close>
+old_urust_rejects
+  \<open> if let _ = \<llangle>1 :: nat\<rrangle> { 2 } else { false } \<close>
+
+urust_expr improvement_let_else_total_discards_fallback_type
+  \<open> let _ = \<llangle>1 :: nat\<rrangle> else { false }; 2 \<close>
+old_urust_rejects
+  \<open> let _ = \<llangle>1 :: nat\<rrangle> else { false }; 2 \<close>
+
+subsection\<open> Structural and constructor totality \<close>
+
+urust_expr improvement_if_let_total_grouped_tuple
+  \<open>
+    if let ((left, (middle, right))) =
+      (\<llangle>1 :: nat\<rrangle>, (\<llangle>2 :: nat\<rrangle>, \<llangle>3 :: nat\<rrangle>)) {
+      \<llangle>left + middle + right\<rrangle>
+    } else {
+      0
+    }
+  \<close>
+old_urust_rejects
+  \<open>
+    if let ((left, (middle, right))) =
+      (\<llangle>1 :: nat\<rrangle>, (\<llangle>2 :: nat\<rrangle>, \<llangle>3 :: nat\<rrangle>)) {
+      \<llangle>left + middle + right\<rrangle>
+    } else {
+      0
+    }
+  \<close>
+
+urust_expr improvement_let_else_total_grouped_tuple
+  \<open>
+    let ((left, (middle, right))) =
+      (\<llangle>1 :: nat\<rrangle>, (\<llangle>2 :: nat\<rrangle>, \<llangle>3 :: nat\<rrangle>))
+      else { 0 };
+    \<llangle>left + middle + right\<rrangle>
+  \<close>
+old_urust_rejects
+  \<open>
+    let ((left, (middle, right))) =
+      (\<llangle>1 :: nat\<rrangle>, (\<llangle>2 :: nat\<rrangle>, \<llangle>3 :: nat\<rrangle>))
+      else { 0 };
+    \<llangle>left + middle + right\<rrangle>
+  \<close>
+
+urust_expr improvement_if_let_total_tnil
+  \<open> if let TNil = TNil { () } else { () } \<close>
+old_urust_rejects
+  \<open> if let TNil = TNil { () } else { () } \<close>
+
+urust_expr improvement_let_else_total_tnil
+  \<open> let TNil = TNil else { () }; () \<close>
+old_urust_rejects
+  \<open> let TNil = TNil else { () }; () \<close>
+
+urust_expr improvement_if_let_total_option
+  \<open>
+    if let Some(_) | None = \<llangle>Some (1 :: nat)\<rrangle> {
+      1
+    } else {
+      0
+    }
+  \<close>
+old_urust_rejects
+  \<open>
+    if let Some(_) | None = \<llangle>Some (1 :: nat)\<rrangle> {
+      1
+    } else {
+      0
+    }
+  \<close>
+
+urust_expr improvement_let_else_total_option
+  \<open>
+    let Some(_) | None = \<llangle>Some (1 :: nat)\<rrangle> else { 0 };
+    1
+  \<close>
+old_urust_rejects
+  \<open>
+    let Some(_) | None = \<llangle>Some (1 :: nat)\<rrangle> else { 0 };
+    1
+  \<close>
+
+urust_expr improvement_if_let_total_nested_option
+  \<open>
+    if let Some(Some(_) | None) | None =
+      \<llangle>Some (Some (1 :: nat))\<rrangle> {
+      1
+    } else {
+      0
+    }
+  \<close>
+old_urust_rejects
+  \<open>
+    if let Some(Some(_) | None) | None =
+      \<llangle>Some (Some (1 :: nat))\<rrangle> {
+      1
+    } else {
+      0
+    }
+  \<close>
+
+urust_expr improvement_let_else_total_nested_option
+  \<open>
+    let Some(Some(_) | None) | None =
+      \<llangle>Some (Some (1 :: nat))\<rrangle> else { 0 };
+    1
+  \<close>
+old_urust_rejects
+  \<open>
+    let Some(Some(_) | None) | None =
+      \<llangle>Some (Some (1 :: nat))\<rrangle> else { 0 };
+    1
+  \<close>
+
+subsection\<open> Total alternatives and wrappers \<close>
+
+urust_expr improvement_if_let_total_wildcard_alternative
+  \<open>
+    if let Some(_) | _ = \<llangle>Some (1 :: nat)\<rrangle> {
+      1
+    } else {
+      0
+    }
+  \<close>
+old_urust_rejects
+  \<open>
+    if let Some(_) | _ = \<llangle>Some (1 :: nat)\<rrangle> {
+      1
+    } else {
+      0
+    }
+  \<close>
+
+urust_expr improvement_let_else_total_wildcard_alternative
+  \<open>
+    let Some(_) | _ = \<llangle>Some (1 :: nat)\<rrangle> else { 0 };
+    1
+  \<close>
+old_urust_rejects
+  \<open>
+    let Some(_) | _ = \<llangle>Some (1 :: nat)\<rrangle> else { 0 };
+    1
+  \<close>
+
+urust_expr improvement_if_let_total_borrow_wrapper
+  \<open> if let &_ = \<llangle>1 :: nat\<rrangle> { 1 } else { 0 } \<close>
+old_urust_rejects
+  \<open> if let &_ = \<llangle>1 :: nat\<rrangle> { 1 } else { 0 } \<close>
+
+urust_expr improvement_let_else_total_borrow_wrapper
+  \<open> let &_ = \<llangle>1 :: nat\<rrangle> else { 0 }; 1 \<close>
+old_urust_rejects
+  \<open> let &_ = \<llangle>1 :: nat\<rrangle> else { 0 }; 1 \<close>
+
+subsection\<open> One-armed total if-let \<close>
+
+urust_expr improvement_if_let_total_one_armed_unit
+  \<open> if let _ = \<llangle>1 :: nat\<rrangle> { () } \<close>
+old_urust_rejects
+  \<open> if let _ = \<llangle>1 :: nat\<rrangle> { () } \<close>
+
+urust_expr improvement_if_let_total_one_armed_value
+  \<open> if let value = \<llangle>1 :: nat\<rrangle> { value } \<close>
+old_urust_rejects
+  \<open> if let value = \<llangle>1 :: nat\<rrangle> { value } \<close>
+
 urust_expr cast_corpus_nested_tuple
   \<open>
     ((if true { 0 } else { 1 }, true),
