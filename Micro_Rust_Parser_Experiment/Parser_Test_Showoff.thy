@@ -23,6 +23,10 @@ urust_expr_with_check showoff_expression
     let inputs = vec![0x10_u32, 0x0f_u32, 0x20_u32];
     let (base, (mask, enabled)) =
       (inputs[0_usize], (inputs[1_usize], true));
+    \<comment> \<open>
+      Formal comments retain Isabelle document checking, including \<^term>\<open>enabled\<close>,
+      while remaining layout for both uRust frontends.
+    \<close>
     const shift = 1_u64;
     let computed = (base | mask) << shift;
     let narrowed = computed as u16;

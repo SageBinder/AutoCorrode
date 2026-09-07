@@ -32,6 +32,7 @@ session Micro_Rust_Parser_Experiment = HOL +
     Parser_Test_Expr_Conformance
     Parser_Test_Fun_Conformance
     Parser_Test_Logging
+    Parser_Test_Isabelle_Comments
     Parser_Test_Negative_Conformance
     Parser_Test_Logging_Negative
     Parser_Test_Yield_Logging_Audit
