@@ -9,7 +9,8 @@ section\<open> Smoke test \<close>
 text\<open>
 Parser clients import this roll-up facade. Programmatic clients use the sealed
 \<open>URust_Command\<close> interface. Frontend conformance is tested in
-\<open>Parser_Test_Conformance.thy\<close>; the definitions below are smoke tests only.
+\<open>Parser_Test_Expr_Conformance.thy\<close>; function-command conformance is tested in
+\<open>Parser_Test_Fun_Conformance.thy\<close>. The definitions below are smoke tests only.
 \<close>
 
 urust_expr smoke_num  \<open> 42 \<close>

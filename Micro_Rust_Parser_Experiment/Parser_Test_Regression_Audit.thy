@@ -1203,7 +1203,7 @@ section\<open> Range, array, and indexing structure \<close>
 text\<open>
 The public AST keeps each source form explicit, while the term layer emits only
 the frontend vocabulary before the command's single final \<open>Syntax.check_term\<close>.
-Same-source commands in \<open>Parser_Test_Conformance\<close> separately require the
+Same-source commands in \<open>Parser_Test_Expr_Conformance\<close> separately require the
 checked terms to close by \<open>refl\<close>.
 \<close>
 

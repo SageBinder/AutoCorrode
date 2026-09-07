@@ -54,6 +54,12 @@ urust_expr_with_check showoff_logging_yield
 
 subsection\<open> Calls, methods, and propagation \<close>
 
+urust_fun_with_check showoff_declared_mix ::
+  \<open>64 word \<Rightarrow> 64 word \<Rightarrow>
+    (unit, 64 word, unit, unit, unit) function_body\<close>
+  (left, right)
+  \<open> left * 3_u64 + right \<close>
+
 definition showoff_bump ::
     \<open>64 word \<Rightarrow> (unit, 64 word, unit, unit, unit) function_body\<close>
   where \<open> showoff_bump \<equiv> lift_fun1 (\<lambda>x. x + 1) \<close>
@@ -114,6 +120,9 @@ urust_expr_with_check showoff_calls
       seed
     }
   \<close>
+
+urust_expr_with_check showoff_function_command_call
+  \<open> showoff_declared_mix(4_u64, 2_u64) \<close>
 
 subsection\<open> Registered struct construction \<close>
 

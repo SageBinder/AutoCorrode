@@ -10,8 +10,10 @@ section\<open> Conformance corpus \<close>
 text\<open>
 The inner-syntax frontend is the oracle. Expression goldens use
 \<open>undefined = \<lbrakk>src\<rbrakk>\<close>; parser equality is tested in
-\<open>Parser_Test_Conformance.thy\<close>. Definition goldens specify future item
-commands, and the final tier records frontend rejections. Proofs remain \<open>sorry\<close>,
+\<open>Parser_Test_Expr_Conformance.thy\<close>. Function signatures and bodies are exercised through
+\<open>urust_fun_with_check\<close> in \<open>Parser_Test_Fun_Conformance.thy\<close>; the handwritten
+definitions remain declaration goldens for future Rust-shaped item commands. The final tier records
+frontend rejections. Proofs remain \<open>sorry\<close>,
 so the session uses \<open>quick_and_dirty\<close>. \<open>**\<close> and \<open>!!\<close> mean double
 dereference and negation.
 \<close>
@@ -244,7 +246,7 @@ subsection\<open>Assignment Operators\<close>
 text\<open>
 Simple assignment and its identifier, grouped, dereferenced, field, antiquotation,
 precedence, associativity, and composition boundaries have runnable frontend-equivalence
-coverage in \<open>Parser_Test_Conformance.thy\<close>.
+coverage in \<open>Parser_Test_Expr_Conformance.thy\<close>.
 \<close>
 
 subsubsection\<open>Compound Assignment\<close>
@@ -253,7 +255,7 @@ text\<open>
 The frontend-supported operators \<open>+= -= *= %= &= |= ^= <<= >>=\<close> and their
 place, precedence, associativity, mutable-binding, and control-flow boundaries have
 runnable frontend-equivalence coverage in
-\<open>Parser_Test_Conformance.thy\<close>. The frontend does not provide \<open>/=\<close>;
+\<open>Parser_Test_Expr_Conformance.thy\<close>. The frontend does not provide \<open>/=\<close>;
 its fidelity rejection is checked in
 \<open>Parser_Test_Negative_Conformance.thy\<close>.
 \<close>
@@ -284,7 +286,7 @@ subsection\<open>Control Flow - If-Let and Let-Else\<close>
 text\<open>
 Constructor, tuple, nested, returning, explicit-semicolon, and semicolon-free
 rows from this section are executable same-source checks in
-\<open>Parser_Test_Conformance.thy\<close>. Malformed and total-pattern redundancy
+\<open>Parser_Test_Expr_Conformance.thy\<close>. Malformed and total-pattern redundancy
 boundaries are executable checks in
 \<open>Parser_Test_Negative_Conformance.thy\<close>.
 \<close>
@@ -400,7 +402,7 @@ subsubsection\<open>Struct Expressions\<close>
 
 text\<open>
 These frontend goldens are promoted to the checked D-21 matrix in
-\<open>Parser_Test_Conformance.thy\<close>. The active frontend treats labels as syntax-only and lowers each
+\<open>Parser_Test_Expr_Conformance.thy\<close>. The active frontend treats labels as syntax-only and lowers each
 head as an ordinary call with source-ordered initializers; Rust-correct metadata semantics are deferred
 to T-39.
 \<close>
@@ -636,7 +638,7 @@ subsubsection\<open>Turbofish Syntax\<close>
 
 text\<open>
 These representative rows are promoted to executable same-source coverage in
-\<open>Parser_Test_Conformance.thy\<close>, with additional qualified bases, methods, lexical capture,
+\<open>Parser_Test_Expr_Conformance.thy\<close>, with additional qualified bases, methods, lexical capture,
 multiple parameters, exact-registration precedence, malformed input, and structural/range audits.
 \<close>
 
@@ -652,7 +654,7 @@ subsubsection\<open>Closures\<close>
 
 text\<open>
 Second-class closure parity has runnable coverage in
-\<open>Parser_Test_Conformance.thy\<close>, including duplicate and long formal lists, lexical capture,
+\<open>Parser_Test_Expr_Conformance.thy\<close>, including duplicate and long formal lists, lexical capture,
 role-sensitive notation resolution, closure-body forms, and every frontend placement. Parser-only
 delimiter compositions and grouped placements are checked in \<open>Parser_Test_Improvements.thy\<close>;
 malformed formals, excluded bare placements, and direct invocation remain executable negative rows.
@@ -676,7 +678,7 @@ subsection\<open>References and Mutation\<close>
 text\<open>
 Mutable allocation, borrow, read-dereference, simple assignment, and binary-operator
 preservation have runnable frontend-equivalence coverage in
-\<open>Parser_Test_Conformance.thy\<close>.
+\<open>Parser_Test_Expr_Conformance.thy\<close>.
 \<close>
 
 subsection\<open>Field Access and Records\<close>
@@ -829,7 +831,7 @@ subsection\<open>Macros\<close>
 text\<open>
 All rows in this subsection whose only previously missing surface was a legacy
 \<open>!\<close> macro or \<open>as\<close> cast are promoted to executable rows in
-\<open>Parser_Test_Conformance.thy\<close>, with direct \<open>refl\<close> parity where the
+\<open>Parser_Test_Expr_Conformance.thy\<close>, with direct \<open>refl\<close> parity where the
 surrounding frontend term has the same elaborated shape. Legacy format operands
 after the first message are intentionally parsed and discarded, exactly as in
 the frontend.
@@ -891,7 +893,7 @@ subsubsection\<open>Logging\<close>
 
 text\<open>
 Primitive logging and yield have runnable parser-equivalence coverage in
-\<open>Parser_Test_Conformance.thy\<close>. The \<open>StdLib_Logging\<close> log-data surface and registered logger
+\<open>Parser_Test_Expr_Conformance.thy\<close>. The \<open>StdLib_Logging\<close> log-data surface and registered logger
 calls are isolated in \<open>Parser_Test_Logging.thy\<close>.
 \<close>
 
@@ -927,7 +929,7 @@ lemma \<open>undefined = \<lbrakk> let xs = &[\<llangle>4 :: 32 word\<rrangle>, 
 subsubsection\<open>Vec Macro\<close>
 
 text\<open>
-These rows are promoted in \<open>Parser_Test_Conformance.thy\<close>, including empty,
+These rows are promoted in \<open>Parser_Test_Expr_Conformance.thy\<close>, including empty,
 nested, indexed, parenthesized, and borrow-interaction variants.
 \<close>
 
@@ -1083,7 +1085,10 @@ subsection\<open>Function-definition tier — Rust fn \<rightarrow> Isabelle def
 
 text\<open>
 The HOL type and parameter binding encode the signature; only the body is embedded in
-\<open>FunctionBody \<lbrakk>\<dots>\<rbrakk>\<close>. Future item parsing must reproduce each definition.
+\<open>FunctionBody \<lbrakk>\<dots>\<rbrakk>\<close>. The Isabelle-typed \<open>urust_fun_with_check\<close> wrapper
+checks the corresponding signatures and bodies against the existing frontend in
+\<open>Parser_Test_Fun_Conformance.thy\<close>. Future Rust-shaped item parsing must reproduce these complete
+declaration goldens.
 \<close>
 
 \<comment>\<open>rust:  fn answer() -> u32 { 42 }\<close>
@@ -1105,6 +1110,10 @@ definition is_zero :: \<open>32 word \<Rightarrow> ('s, bool, 'abort, 'i, 'o) fu
 \<comment>\<open>rust:  fn safe_div(a: u32, b: u32) -> Result<u32,()> { if b == 0 { Err(()) } else { Ok(a / b) } }\<close>
 definition safe_div :: \<open>32 word \<Rightarrow> 32 word \<Rightarrow> ('s, (32 word, unit) result, 'abort, 'i, 'o) function_body\<close> where
   \<open>safe_div a b \<equiv> FunctionBody \<lbrakk> if b == \<llangle>0 :: 32 word\<rrangle> { Err(()) } else { Ok(a / b) } \<rbrakk>\<close>
+
+\<comment>\<open>rust:  fn discard(x: u32) { () }\<close>
+definition discard :: \<open>32 word \<Rightarrow> ('s, unit, 'abort, 'i, 'o) function_body\<close> where
+  \<open>discard x \<equiv> FunctionBody \<lbrakk> () \<rbrakk>\<close>
 
 subsection\<open>Record-definition tier — Rust struct \<rightarrow> datatype_record + micro_rust_record\<close>
 

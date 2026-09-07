@@ -1,5 +1,5 @@
 theory Parser_Test_Improvements
-  imports Parser_Test_Conformance
+  imports Parser_Test_Expr_Conformance Parser_Test_Fun_Conformance
   keywords
     "old_urust_rejects" :: thy_decl
 begin
@@ -40,6 +40,24 @@ val _ = Outer_Syntax.local_theory \<^command_keyword>\<open>old_urust_rejects\<c
     Parser_Lex_Util.cartouche_source >>
     old_urust_rejects)
 \<close>
+
+section\<open> Function parameter precedence \<close>
+
+text\<open>
+A typed function parameter shadows registered literal notation in the dedicated parser. The existing
+frontend instead selects the registered literal and ignores the same-named parameter, so this
+checked-term correction remains outside function conformance. The shape lemma is necessary because
+\<open>urust_fun_with_check\<close> cannot express this intentional frontend mismatch.
+\<close>
+
+urust_fun fun_literal_parameter_wins ::
+  \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
+  (funCollision)
+  \<open> funCollision \<close>
+
+lemma fun_literal_parameter_wins_shape:
+  \<open>fun_literal_parameter_wins value = FunctionBody (literal value)\<close>
+  unfolding fun_literal_parameter_wins_def by (rule refl)
 
 
 section\<open> Intentional checked-term corrections \<close>
@@ -880,7 +898,7 @@ section\<open> Trailing commas \<close>
 
 text\<open>
 The old frontend accepts trailing commas only in slice patterns, whose shared
-cases are in \<open>Parser_Test_Conformance\<close>. Calls, arms, constructor
+cases are in \<open>Parser_Test_Expr_Conformance\<close>. Calls, arms, constructor
 patterns, tuples, array literals, and struct patterns reject there. Each source
 below is checked against the same old-frontend term with only its terminal comma
 removed.

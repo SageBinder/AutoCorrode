@@ -2,7 +2,7 @@
    defines its expression and proves it alpha-equal to `\<lbrakk> src \<rbrakk>` by `refl`. Type
    annotations avoid hidden type variables that `Local_Theory.define` cannot expose cleanly. *)
 
-theory Parser_Test_Conformance
+theory Parser_Test_Expr_Conformance
   imports Parser_Impl "HOL.Real"
 begin
 

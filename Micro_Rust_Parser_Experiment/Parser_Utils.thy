@@ -507,7 +507,7 @@ fun report_ref kind ctxt id (x, def_pos) use_pos =
    Context_Position.report ctxt use_pos
      (Position.make_entity_markup {def = false} id kind (x, def_pos)))
 
-fun bind_var kind ctxt (env : var_info Symtab.table) (x, def_pos) =
+fun bind_typed_var kind ctxt (env : var_info Symtab.table) ((x, def_pos), T) =
   let
     val id   = serial ()
     val _    = report_def kind ctxt id (x, def_pos)
@@ -515,8 +515,11 @@ fun bind_var kind ctxt (env : var_info Symtab.table) (x, def_pos) =
        identities prevent a later Term.lambda for a shadowing binder from capturing an outer
        same-spelled local that has been placed in a shared continuation. *)
     val free =
-      Free ("_urust_local_" ^ string_of_int id ^ "_" ^ x, dummyT)
+      Free ("_urust_local_" ^ string_of_int id ^ "_" ^ x, T)
   in (free, Symtab.update (x, {free = free, def_pos = def_pos, id = id}) env) end
+
+fun bind_var kind ctxt env binding =
+  bind_typed_var kind ctxt env (binding, dummyT)
 
 (* Do not represent anonymous binders with invented Frees: such a name can capture a source binder held
    only in the elaboration environment. *)

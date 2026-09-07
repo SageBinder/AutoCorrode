@@ -3,7 +3,7 @@ theory Parser_Test_Logging
 begin
 
 text\<open>
-This theory intentionally remains separate from \<open>Parser_Test_Conformance\<close>.
+This theory intentionally remains separate from \<open>Parser_Test_Expr_Conformance\<close>.
 The \<open>StdLib_Logging\<close> import supplies the legacy frontend syntax used as the
 oracle for \<open>l\<llangle>...\<rrangle>\<close>, and it also registers \<open>fatal!\<close>,
 \<open>info!\<close>, and the other logger calls. In particular, registered

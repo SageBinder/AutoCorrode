@@ -22,6 +22,11 @@ sig
       environment ->
       (string * Position.T) list ->
       term list * environment
+  val allocate_function_parameters:
+    Proof.context ->
+      environment ->
+      ((string * Position.T) * typ) list ->
+      term list * environment
   val use_local:
     Proof.context -> environment -> string * Position.T -> term option
   val lookup_local: environment -> string -> term option
@@ -107,7 +112,9 @@ ML\<open>
     input before allocating any of them, then extends the supplied scope with fresh dummy-typed locals
     while reporting their definitions. allocate_closure_formals instead permits repeated names,
     allocates one distinct Free per source formal in source order, and returns those Frees together
-    with the final environment in which each later repeated name shadows its predecessors. use_local
+    with the final environment in which each later repeated name shadows its predecessors.
+    allocate_function_parameters rejects `_` and duplicate names, allocates one Free at each declared
+    parameter type, and returns those Frees with the extended environment. use_local
     performs a positioned lookup, reports a bound reference on success, and returns NONE without
     fallback resolution; lookup_local performs the same lexical lookup without reporting. Single-local
     allocation and the generic binder records are private implementation details.
@@ -168,6 +175,7 @@ struct
   val variable_entity_kind = "urust_var"
   val report_reference = Parser_Utils.report_ref variable_entity_kind
   val bind_local = Parser_Utils.bind_var variable_entity_kind
+  val bind_typed_local = Parser_Utils.bind_typed_var variable_entity_kind
   val parse_antiquotation = Parser_Utils.parse_antiq variable_entity_kind
 
   val empty_environment = Symtab.empty
@@ -194,6 +202,29 @@ struct
               val (free, env') = bind_local ctxt env formal
             in allocate rest env' (free :: frees) end
     in allocate signatures environment [] end
+
+  fun allocate_function_parameters ctxt environment parameters =
+    let
+      fun validate ((name, pos), _) seen =
+        if name = "_" then
+          error
+            ("urust_fun: parameter name `_` is not allowed" ^
+              Position.here pos)
+        else
+          (case Symtab.lookup seen name of
+             NONE => Symtab.update (name, pos) seen
+           | SOME original_pos =>
+               error
+                 ("urust_fun: duplicate parameter " ^ quote name ^
+                   Position.here pos ^ "\nThe original parameter is here" ^
+                   Position.here original_pos))
+      val _ = fold validate parameters Symtab.empty
+      fun allocate [] env frees = (rev frees, env)
+        | allocate (parameter :: rest) env frees =
+            let
+              val (free, env') = bind_typed_local ctxt env parameter
+            in allocate rest env' (free :: frees) end
+    in allocate parameters environment [] end
 
   fun use_local ctxt environment (name, pos) =
     (case Symtab.lookup environment name of

@@ -14,6 +14,7 @@ sig
   val string_value: string -> Position.T -> term
   val string_from_characters: term -> term
   val integer_value: Position.T -> string -> term
+  val function_body: term -> term
   val closure: term list -> term -> term
   val pause: term
   val primitive_log: term -> term -> term
@@ -157,10 +158,11 @@ struct
   fun literal value = constant \<^const_name>\<open>literal\<close> [value]
   fun bindlift1 f expression = constant \<^const_name>\<open>bindlift1\<close> [f, expression]
 
+  fun function_body body =
+    constant \<^const_name>\<open>FunctionBody\<close> [body]
+
   fun closure formals body =
-    literal
-      (fold_rev Term.lambda formals
-        (constant \<^const_name>\<open>FunctionBody\<close> [body]))
+    literal (fold_rev Term.lambda formals (function_body body))
 
   fun apply_parameters function parameters =
     Term.list_comb (function, parameters)
