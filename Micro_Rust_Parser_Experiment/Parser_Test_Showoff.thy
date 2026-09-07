@@ -6,8 +6,9 @@ section\<open> Showcase \<close>
 
 text\<open>
 These examples intentionally combine features. Shared-source examples check the
-same text against the existing frontend. The parser-only improvements example
-has its explicit old-frontend witness in \<open>Parser_Test_Improvements\<close>.
+same text against the existing frontend. The declared-function example gives an
+explicit equivalent old-frontend spelling; the combined parser-only expression
+has its witness in \<open>Parser_Test_Improvements\<close>.
 \<close>
 
 subsection\<open> Expressions, bindings, and control flow \<close>
@@ -58,11 +59,12 @@ urust_expr_with_check showoff_logging_yield
 
 subsection\<open> Calls, methods, and propagation \<close>
 
-urust_fun_with_check showoff_declared_mix ::
+urust_fun_with_check' showoff_declared_mix ::
   \<open>64 word \<Rightarrow> 64 word \<Rightarrow>
     (unit, 64 word, unit, unit, unit) function_body\<close>
   (left, right)
-  \<open> left * 3_u64 + right \<close>
+  \<open> left * 3u64 + right \<close>
+  \<open> \<lbrakk> left * 3_u64 + right \<rbrakk> \<close>
 
 definition showoff_bump ::
     \<open>64 word \<Rightarrow> (unit, 64 word, unit, unit, unit) function_body\<close>

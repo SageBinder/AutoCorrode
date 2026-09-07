@@ -8,7 +8,8 @@ section\<open> Test support \<close>
 
 text\<open>
 Each example is accepted by the new parser. Where an equivalent old-frontend
-spelling exists, \<open>urust_expr_with_check'\<close> checks the two results by \<open>refl\<close>.
+spelling exists, \<open>urust_expr_with_check'\<close> or \<open>urust_fun_with_check'\<close> checks
+the two results by \<open>refl\<close>.
 The paired command feeds the new spelling to the old frontend and requires it to reject.
 \<close>
 
@@ -45,19 +46,16 @@ section\<open> Function parameter precedence \<close>
 
 text\<open>
 A typed function parameter shadows registered literal notation in the dedicated parser. The existing
-frontend instead selects the registered literal and ignores the same-named parameter, so this
-checked-term correction remains outside function conformance. The shape lemma is necessary because
-\<open>urust_fun_with_check\<close> cannot express this intentional frontend mismatch.
+frontend instead selects the registered literal and ignores the same-named parameter. The explicit
+legacy spelling captures the parameter with a value antiquotation, so the complete generated
+functions can still be checked by \<open>refl\<close>.
 \<close>
 
-urust_fun fun_literal_parameter_wins ::
+urust_fun_with_check' fun_literal_parameter_wins ::
   \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
   (funCollision)
   \<open> funCollision \<close>
-
-lemma fun_literal_parameter_wins_shape:
-  \<open>fun_literal_parameter_wins value = FunctionBody (literal value)\<close>
-  unfolding fun_literal_parameter_wins_def by (rule refl)
+  \<open> \<lbrakk> \<llangle>funCollision\<rrangle> \<rbrakk> \<close>
 
 
 section\<open> Intentional checked-term corrections \<close>

@@ -6,6 +6,7 @@ theory Parser_Impl_Command
     "urust_expr" :: thy_decl
     and "urust_fun" :: thy_decl
     and "urust_fun_with_check" :: thy_decl
+    and "urust_fun_with_check'" :: thy_decl
     and "urust_expr_with_check" :: thy_decl
     and "urust_expr_with_check'" :: thy_decl
     and "urust_notation" :: thy_decl
@@ -27,6 +28,10 @@ and defines it through the same standard mechanism.
 \<open>FunctionBody \<lbrakk>src\<rbrakk>\<close> through the existing frontend under temporary typed fixes,
 abstracts those fixes in source order, and records \<open>NAME_conformance\<close> by unfolding only
 \<open>NAME_def\<close> and applying \<open>refl\<close>.
+
+\<open>urust_fun_with_check' NAME :: TYPE (parameters) new_src old_term\<close> performs the same
+complete-function check with \<open>new_src\<close> sent to the new parser and the explicit
+\<open>\<lbrakk>old_src\<rbrakk>\<close> in \<open>old_term\<close> sent to the existing frontend under the typed fixes.
 
 \<open>urust_expr_with_check NAME src\<close> additionally checks the resulting definition
 against the existing \<open>\<lbrakk>src\<rbrakk>\<close> frontend by definition unfolding and
@@ -52,7 +57,7 @@ end
 (* THE expression pipeline, exported: every expression definition command runs source through
    elab_urust, so `urust_expr`, both expression conformance commands, and the negative harness can
    never drift on what they exercise. elab_urust_fun is the corresponding shared typed-function
-   pipeline for `urust_fun`, `urust_fun_with_check`, and focused rejection tests. Both raise
+   pipeline for `urust_fun`, both function conformance commands, and focused rejection tests. Both raise
    (positioned) on lexer, yacc, elaboration, or final term-check failures.
    URust_Diagnostics.parse_source owns serialization of the generated runtime; elaboration and
    check_term remain outside that lock.
@@ -194,7 +199,7 @@ fun define_urust_with_frontend_check (binding, new_source, old_frontend_source) 
 fun define_urust_with_check (binding, source) =
   define_urust_with_frontend_check (binding, source, old_frontend_source source)
 
-fun old_frontend_function lthy declared_type parameters body =
+fun old_frontend_function lthy declared_type parameters old_body_source =
   let
     val (parameter_types, result_type) = Term.strip_type declared_type
     val body_type =
@@ -216,7 +221,7 @@ fun old_frontend_function lthy declared_type parameters body =
       map2 (fn name => fn T => Free (name, T))
         internal_names parameter_types
     val old_body =
-      Syntax.parse_term body_ctxt (old_frontend_source body)
+      Syntax.parse_term body_ctxt old_body_source
       |> Type.constraint body_type
       |> Syntax.check_term body_ctxt
     val unchecked =
@@ -229,16 +234,21 @@ fun old_frontend_function lthy declared_type parameters body =
     singleton (Variable.export_terms body_ctxt lthy) checked
   end
 
-fun define_urust_fun_with_check
-    (args as (binding, _, _, parameters, body)) lthy =
+fun define_urust_fun_with_frontend_check
+    (args as (binding, _, _, parameters, _), old_body_source) lthy =
   let
     val ((lhs, (_, def_thm)), lthy') =
       define_urust_fun_result args lthy
     val old_frontend =
-      old_frontend_function lthy' (fastype_of lhs) parameters body
+      old_frontend_function lthy' (fastype_of lhs) parameters old_body_source
   in
     note_conformance binding lhs def_thm old_frontend lthy'
   end
+
+fun define_urust_fun_with_check
+    (args as (_, _, _, _, body)) =
+  define_urust_fun_with_frontend_check
+    (args, old_frontend_source body)
 
 val _ = Outer_Syntax.local_theory \<^command_keyword>\<open>urust_expr\<close>
           "Parse a uRust expression and define it as a HOL constant"
@@ -276,6 +286,11 @@ val _ = Outer_Syntax.local_theory \<^command_keyword>\<open>urust_fun\<close>
 val _ = Outer_Syntax.local_theory \<^command_keyword>\<open>urust_fun_with_check\<close>
           "Define a typed uRust function body and check it against the existing frontend by refl"
           (parse_urust_fun >> define_urust_fun_with_check)
+
+val _ = Outer_Syntax.local_theory \<^command_keyword>\<open>urust_fun_with_check'\<close>
+          "Define a typed uRust function body and check it against an explicit existing-frontend term by refl"
+          (parse_urust_fun -- Parse.term >>
+            define_urust_fun_with_frontend_check)
 
 val _ = Outer_Syntax.local_theory \<^command_keyword>\<open>urust_expr_with_check\<close>
           "Define a uRust expression and check it against the existing frontend by refl"
