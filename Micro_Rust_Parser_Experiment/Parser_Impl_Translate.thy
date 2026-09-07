@@ -8,6 +8,11 @@ ML\<open>
 signature URUST_TRANSLATE =
 sig
   val mk_closed: Proof.context -> URust_AST.ur_expr -> term
+  val mk_contextual:
+    Proof.context ->
+      (string * Position.T) list ->
+      URust_AST.ur_expr ->
+      term
   val mk_function:
     Proof.context ->
       ((string * Position.T) * typ) list ->
@@ -34,11 +39,13 @@ ML\<open>
    dummy types and must be passed to Syntax.check_term exactly once by the command layer in the same
    context. Successful lowering preserves lexical scope and the existing shallow-embedding term
    shape; for syntax shared with the old frontend, callers may rely on alpha-identical checked
-   output directly. The conformance command unfolds only the generated NAME_def before closing by
-   reflexivity. Resolution and pattern-validation failures are propagated with their source
-   positions. mk_function performs the same lowering under typed function parameters, wraps the
-   lowered body once in FunctionBody, and abstracts the parameters in source order. The signature
-   exposes no public types or constructors.
+   output directly. Command-level conformance either unfolds a generated definition or compares an
+   expanded abbreviation right-hand side before closing by reflexivity. Resolution and
+   pattern-validation failures are propagated with their source positions. mk_contextual performs
+   the same lowering under dummy-typed expression arguments and abstracts them in source order
+   without adding a FunctionBody wrapper. mk_function lowers under typed function parameters, wraps
+   the lowered body once in FunctionBody, and abstracts the parameters in source order. The
+   signature exposes no public types or constructors.
 
    All lower_* functions, the recursive traversal order, module aliases, and the division of work among
    helper functions are implementation details hidden by URUST_TRANSLATE. *)
@@ -286,6 +293,13 @@ struct
 
   fun mk_closed ctxt expression =
     lower_expression ctxt R.empty_environment expression
+
+  fun mk_contextual ctxt arguments expression =
+    let
+      val (argument_terms, environment) =
+        R.allocate_expression_arguments ctxt R.empty_environment arguments
+      val body = lower_expression ctxt environment expression
+    in fold_rev Term.lambda argument_terms body end
 
   fun mk_function ctxt parameters expression =
     let

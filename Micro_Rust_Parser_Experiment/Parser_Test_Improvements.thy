@@ -44,24 +44,6 @@ val _ = Outer_Syntax.local_theory \<^command_keyword>\<open>old_urust_rejects\<c
     old_urust_rejects)
 \<close>
 
-section\<open> Conformance configuration precedence \<close>
-
-urust_expr
-  [urust_conformance_check = true, urust_verbose = true]
-  inline_expr_conformance
-  \<open> () \<close>
-
-thm inline_expr_conformance_conformance
-
-urust_fun
-  [urust_verbose = true, urust_conformance_check = true]
-  inline_fun_conformance ::
-  \<open>(unit, unit, unit, unit, unit) function_body\<close>
-  ()
-  \<open> () \<close>
-
-thm inline_fun_conformance_conformance
-
 section\<open> Function parameter precedence \<close>
 
 text\<open>

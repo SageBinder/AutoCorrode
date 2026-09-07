@@ -22,6 +22,11 @@ sig
       environment ->
       (string * Position.T) list ->
       term list * environment
+  val allocate_expression_arguments:
+    Proof.context ->
+      environment ->
+      (string * Position.T) list ->
+      term list * environment
   val allocate_function_parameters:
     Proof.context ->
       environment ->
@@ -113,8 +118,10 @@ ML\<open>
     while reporting their definitions. allocate_closure_formals instead permits repeated names,
     allocates one distinct Free per source formal in source order, and returns those Frees together
     with the final environment in which each later repeated name shadows its predecessors.
-    allocate_function_parameters rejects `_` and duplicate names, allocates one Free at each declared
-    parameter type, and returns those Frees with the extended environment. use_local
+    allocate_expression_arguments and allocate_function_parameters reject `_` and duplicate names
+    through the same validation path. Expression arguments receive dummy types for inference;
+    function parameters receive their declared types. Both return the ordered Frees with the extended
+    environment. use_local
     performs a positioned lookup, reports a bound reference on success, and returns NONE without
     fallback resolution; lookup_local performs the same lexical lookup without reporting. Single-local
     allocation and the generic binder records are private implementation details.
@@ -203,20 +210,20 @@ struct
             in allocate rest env' (free :: frees) end
     in allocate signatures environment [] end
 
-  fun allocate_function_parameters ctxt environment parameters =
+  fun allocate_parameters command role ctxt environment parameters =
     let
       fun validate ((name, pos), _) seen =
         if name = "_" then
           error
-            ("urust_fun: parameter name `_` is not allowed" ^
+            (command ^ ": " ^ role ^ " name `_` is not allowed" ^
               Position.here pos)
         else
           (case Symtab.lookup seen name of
              NONE => Symtab.update (name, pos) seen
            | SOME original_pos =>
                error
-                 ("urust_fun: duplicate parameter " ^ quote name ^
-                   Position.here pos ^ "\nThe original parameter is here" ^
+                 (command ^ ": duplicate " ^ role ^ " " ^ quote name ^
+                   Position.here pos ^ "\nThe original " ^ role ^ " is here" ^
                    Position.here original_pos))
       val _ = fold validate parameters Symtab.empty
       fun allocate [] env frees = (rev frees, env)
@@ -225,6 +232,13 @@ struct
               val (free, env') = bind_typed_local ctxt env parameter
             in allocate rest env' (free :: frees) end
     in allocate parameters environment [] end
+
+  fun allocate_expression_arguments ctxt environment arguments =
+    allocate_parameters "urust_expr" "argument" ctxt environment
+      (map (fn argument => (argument, dummyT)) arguments)
+
+  fun allocate_function_parameters ctxt environment parameters =
+    allocate_parameters "urust_fun" "parameter" ctxt environment parameters
 
   fun use_local ctxt environment (name, pos) =
     (case Symtab.lookup environment name of

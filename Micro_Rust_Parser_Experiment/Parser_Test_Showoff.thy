@@ -73,6 +73,10 @@ urust_fun [urust_verbose = true] showoff_declared_mix ::
   \<open> left * 3u64 + right \<close>
   against \<open> \<lbrakk> left * 3_u64 + right \<rbrakk> \<close>
 
+urust_expr [urust_abbrev = true] showoff_contextual_mix
+  \<open> left * 3_u64 + right \<close>
+  with_args left right
+
 definition showoff_bump ::
     \<open>64 word \<Rightarrow> (unit, 64 word, unit, unit, unit) function_body\<close>
   where \<open> showoff_bump \<equiv> lift_fun1 (\<lambda>x. x + 1) \<close>
