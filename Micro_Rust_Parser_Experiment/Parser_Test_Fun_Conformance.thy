@@ -2,19 +2,23 @@ theory Parser_Test_Fun_Conformance
   imports Parser_Test_Utils Conformance_Corpus
 begin
 
+declare [[urust_conformance_check = true]]
+
 section\<open> Definition parity \<close>
 
-urust_fun_with_check parsed_answer ::
+urust_fun parsed_answer ::
   \<open>('s, 32 word, 'abort, 'i, 'o) function_body\<close>
   ()
   \<open> \<llangle>42 :: 32 word\<rrangle> \<close>
 
-urust_fun_with_check parsed_inc ::
+thm parsed_answer_conformance
+
+urust_fun parsed_inc ::
   \<open>32 word \<Rightarrow> ('s, 32 word, 'abort, 'i, 'o) function_body\<close>
   (x)
   \<open> x + \<llangle>1 :: 32 word\<rrangle> \<close>
 
-urust_fun_with_check parsed_add3 ::
+urust_fun parsed_add3 ::
   \<open>
     32 word \<Rightarrow> 32 word \<Rightarrow> 32 word \<Rightarrow>
     ('s, 32 word, 'abort, 'i, 'o) function_body
@@ -22,12 +26,12 @@ urust_fun_with_check parsed_add3 ::
   (a, b, c)
   \<open> a + b + c \<close>
 
-urust_fun_with_check parsed_is_zero ::
+urust_fun parsed_is_zero ::
   \<open>32 word \<Rightarrow> ('s, bool, 'abort, 'i, 'o) function_body\<close>
   (x)
   \<open> x == \<llangle>0 :: 32 word\<rrangle> \<close>
 
-urust_fun_with_check parsed_safe_div ::
+urust_fun parsed_safe_div ::
   \<open>
     32 word \<Rightarrow> 32 word \<Rightarrow>
     ('s, (32 word, unit) result, 'abort, 'i, 'o) function_body
@@ -41,7 +45,7 @@ urust_fun_with_check parsed_safe_div ::
     }
   \<close>
 
-urust_fun_with_check parsed_discard ::
+urust_fun parsed_discard ::
   \<open>32 word \<Rightarrow> ('s, unit, 'abort, 'i, 'o) function_body\<close>
   (x)
   \<open> () \<close>
@@ -49,41 +53,41 @@ urust_fun_with_check parsed_discard ::
 
 section\<open> Signature surface \<close>
 
-urust_fun_with_check fun_heterogeneous ::
+urust_fun fun_heterogeneous ::
   \<open>nat \<Rightarrow> bool \<Rightarrow> 32 word \<Rightarrow>
     ('s, nat * bool * 32 word, 'abort, 'i, 'o) function_body\<close>
   (number, flag, word)
   \<open> \<llangle>(number, flag, word)\<rrangle> \<close>
 
-urust_fun_with_check fun_polymorphic ::
+urust_fun fun_polymorphic ::
   \<open>'a \<Rightarrow> ('s, 'a, 'abort, 'i, 'o) function_body\<close>
   (item)
   \<open> item \<close>
 
-urust_fun_with_check fun_sort_constrained ::
+urust_fun fun_sort_constrained ::
   \<open>'a::len word \<Rightarrow>
     ('s, 'a word, 'abort, 'i, 'o) function_body\<close>
   (item)
   \<open> item \<close>
 
-urust_fun_with_check fun_type_placeholders ::
+urust_fun fun_type_placeholders ::
   \<open>_ \<Rightarrow> (_, _, _, _, _) function_body\<close>
   (item)
   \<open> item \<close>
 
-urust_fun_with_check fun_higher_order ::
+urust_fun fun_higher_order ::
   \<open>(nat \<Rightarrow> nat) \<Rightarrow> nat \<Rightarrow>
     ('s, nat, 'abort, 'i, 'o) function_body\<close>
   (f, item)
   \<open> \<llangle>f item\<rrangle> \<close>
 
-urust_fun_with_check fun_nested_result ::
+urust_fun fun_nested_result ::
   \<open>('s, (nat option, (bool, unit) result) result,
     'abort, 'i, 'o) function_body\<close>
   ()
   \<open> Ok(Some(\<llangle>1 :: nat\<rrangle>)) \<close>
 
-urust_fun_with_check fun_explicit_prompt_output ::
+urust_fun fun_explicit_prompt_output ::
   \<open>nat \<Rightarrow>
     (unit, nat, unit, unit prompt, unit prompt_output) function_body\<close>
   (item)
@@ -100,23 +104,23 @@ term fun_explicit_prompt_output
 
 section\<open> Argument-list boundaries \<close>
 
-urust_fun_with_check fun_zero_arguments ::
+urust_fun fun_zero_arguments ::
   \<open>(unit, unit, unit, unit, unit) function_body\<close>
   ()
   \<open> () \<close>
 
-urust_fun_with_check fun_one_argument ::
+urust_fun fun_one_argument ::
   \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
   (item)
   \<open> item \<close>
 
-urust_fun_with_check fun_trailing_comma ::
+urust_fun fun_trailing_comma ::
   \<open>nat \<Rightarrow> bool \<Rightarrow>
     (unit, nat * bool, unit, unit, unit) function_body\<close>
   (item, flag,)
   \<open> \<llangle>(item, flag)\<rrangle> \<close>
 
-urust_fun_with_check fun_multiline_arguments ::
+urust_fun fun_multiline_arguments ::
   \<open>nat \<Rightarrow> bool \<Rightarrow> 32 word \<Rightarrow>
     (unit, 32 word, unit, unit, unit) function_body\<close>
   (
@@ -126,7 +130,7 @@ urust_fun_with_check fun_multiline_arguments ::
   )
   \<open> if flag { word } else { \<llangle>of_nat number\<rrangle> } \<close>
 
-urust_fun_with_check fun_sixteen_arguments ::
+urust_fun fun_sixteen_arguments ::
   \<open>
     nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow>
     nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow>
@@ -148,22 +152,22 @@ urust_fun_with_check fun_sixteen_arguments ::
 
 section\<open> Ambient binding and scope \<close>
 
-urust_fun_with_check fun_plain_parameter ::
+urust_fun fun_plain_parameter ::
   \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
   (item)
   \<open> item \<close>
 
-urust_fun_with_check fun_value_antiquotation ::
+urust_fun fun_value_antiquotation ::
   \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
   (item)
   \<open> \<llangle>item + 1\<rrangle> \<close>
 
-urust_fun_with_check fun_expression_antiquotation ::
+urust_fun fun_expression_antiquotation ::
   \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
   (item)
   \<open> \<epsilon>\<open>literal (item + 1)\<close> \<close>
 
-urust_fun_with_check fun_parameter_call ::
+urust_fun fun_parameter_call ::
   \<open>
     (nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body) \<Rightarrow>
     nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body
@@ -171,7 +175,7 @@ urust_fun_with_check fun_parameter_call ::
   (callee, item)
   \<open> callee(item) \<close>
 
-urust_fun_with_check fun_parameter_in_match_guard ::
+urust_fun fun_parameter_in_match_guard ::
   \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
   (item)
   \<open>
@@ -181,7 +185,7 @@ urust_fun_with_check fun_parameter_in_match_guard ::
     }
   \<close>
 
-urust_fun_with_check fun_parameter_in_loop ::
+urust_fun fun_parameter_in_loop ::
   \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
   (item)
   \<open>
@@ -192,7 +196,7 @@ urust_fun_with_check fun_parameter_in_loop ::
     item
   \<close>
 
-urust_fun_with_check fun_parameter_in_closure ::
+urust_fun fun_parameter_in_closure ::
   \<open>nat \<Rightarrow>
     (unit, nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body,
       unit, unit, unit) function_body\<close>
@@ -208,18 +212,18 @@ definition fun_struct_fixture_lift ::
 
 micro_rust_notation (call) fun_struct_fixture_lift ("FunStructFixture")
 
-urust_fun_with_check fun_parameter_in_struct ::
+urust_fun fun_parameter_in_struct ::
   \<open>nat \<Rightarrow> bool \<Rightarrow>
     (unit, fun_struct_fixture, unit, unit, unit) function_body\<close>
   (item, flag)
   \<open> FunStructFixture { item: item, flag: flag } \<close>
 
-urust_fun_with_check fun_nested_let_shadow ::
+urust_fun fun_nested_let_shadow ::
   \<open>nat \<Rightarrow> (unit, bool, unit, unit, unit) function_body\<close>
   (item)
   \<open> let item = true; item \<close>
 
-urust_fun_with_check fun_nested_pattern_shadow ::
+urust_fun fun_nested_pattern_shadow ::
   \<open>nat \<Rightarrow> (unit, bool, unit, unit, unit) function_body\<close>
   (item)
   \<open>
@@ -227,7 +231,7 @@ urust_fun_with_check fun_nested_pattern_shadow ::
     item
   \<close>
 
-urust_fun_with_check fun_closure_shadow ::
+urust_fun fun_closure_shadow ::
   \<open>bool \<Rightarrow>
     (unit, nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body,
       unit, unit, unit) function_body\<close>
@@ -238,14 +242,14 @@ context
   fixes item :: bool
 begin
 
-urust_fun_with_check fun_parameter_shadows_context ::
+urust_fun fun_parameter_shadows_context ::
   \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
   (item)
   \<open> \<llangle>item :: nat\<rrangle> \<close>
 
 end
 
-urust_fun_with_check fun_distinct_heterogeneous ::
+urust_fun fun_distinct_heterogeneous ::
   \<open>nat \<Rightarrow> bool \<Rightarrow> String.literal \<Rightarrow>
     (unit, nat * bool * String.literal, unit, unit, unit) function_body\<close>
   (number, flag, message)
@@ -269,7 +273,7 @@ micro_rust_record fun_field_record
 micro_rust_notation (literal) fun_registered_literal ("funCollision")
 micro_rust_notation (call) fun_registered_call ("funCollision")
 
-urust_fun_with_check fun_registered_call_wins ::
+urust_fun fun_registered_call_wins ::
   \<open>
     (nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body) \<Rightarrow>
     nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body
@@ -277,7 +281,7 @@ urust_fun_with_check fun_registered_call_wins ::
   (funCollision, item)
   \<open> funCollision(item) \<close>
 
-urust_fun_with_check fun_registered_field_wins ::
+urust_fun fun_registered_field_wins ::
   \<open>fun_field_record \<Rightarrow> (fun_field_record, nat) lens \<Rightarrow>
     (unit, nat, unit, unit, unit) function_body\<close>
   (item, funFieldCollision)
@@ -308,7 +312,7 @@ section\<open> Isabelle declaration integration \<close>
 context
 begin
 
-qualified urust_fun_with_check qualified_identity ::
+qualified urust_fun qualified_identity ::
   \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
   (item)
   \<open> item \<close>
@@ -319,7 +323,7 @@ locale fun_command_locale =
   fixes offset :: nat
 begin
 
-urust_fun_with_check local_add ::
+urust_fun local_add ::
   \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
   (item)
   \<open> \<llangle>item + offset\<rrangle> \<close>

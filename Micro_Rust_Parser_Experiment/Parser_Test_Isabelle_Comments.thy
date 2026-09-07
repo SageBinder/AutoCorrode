@@ -2,6 +2,8 @@ theory Parser_Test_Isabelle_Comments
   imports Parser_Test_Utils Micro_Rust_Std_Lib.StdLib_Logging
 begin
 
+declare [[urust_conformance_check = true]]
+
 section\<open> Isabelle formal comments \<close>
 
 text\<open>
@@ -11,24 +13,24 @@ responsible for checking document antiquotations and producing formal-comment ma
 
 subsection\<open> Expression and function parity \<close>
 
-urust_expr_with_check isabelle_comment_standalone
+urust_expr isabelle_comment_standalone
   \<open>
     \<comment> \<open>Standalone comment before the expression.\<close>
     ()
   \<close>
 
-urust_expr_with_check isabelle_comment_inline
+urust_expr isabelle_comment_inline
   \<open>
     1_u64\<comment>\<open>Comment between operands: + - * / { } [ ] ( ) , ; :: =>.\<close>+2_u64
   \<close>
 
-urust_expr_with_check isabelle_comment_trailing
+urust_expr isabelle_comment_trailing
   \<open>
     ();
     () \<comment> \<open>Trailing comment after the complete expression.\<close>
   \<close>
 
-urust_expr_with_check isabelle_comment_multiline_nested
+urust_expr isabelle_comment_multiline_nested
   \<open>
     \<comment> \<open>
       Outer document text with \<open>nested { grammar } punctuation\<close> and
@@ -43,7 +45,7 @@ urust_expr_with_check isabelle_comment_multiline_nested
     }
   \<close>
 
-urust_expr_with_check isabelle_comment_document_antiquotations
+urust_expr isabelle_comment_document_antiquotations
   \<open>
     \<comment> \<open>
       Modern controls: \<^term>\<open>True\<close>, \<^const>\<open>False\<close>, and
@@ -54,13 +56,17 @@ urust_expr_with_check isabelle_comment_document_antiquotations
     ()
   \<close>
 
-urust_fun_with_check isabelle_comment_function ::
+declare [[urust_verbose = true]]
+
+urust_fun isabelle_comment_function ::
   \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
   (item)
   \<open>
     \<comment> \<open>Function-body comment with \<^term>\<open>item\<close> treated as document text.\<close>
     item \<comment> \<open>Inline function-body comment.\<close>
   \<close>
+
+declare [[urust_verbose = false]]
 
 
 subsection\<open> Specialized lexer contexts \<close>
@@ -73,14 +79,14 @@ definition isabelle_comment_generic ::
 
 micro_rust_notation (call) isabelle_comment_generic ("Comment::generic")
 
-urust_expr_with_check isabelle_comment_generic_layout
+urust_expr isabelle_comment_generic_layout
   \<open>
     Comment::generic::<
       1 \<comment> \<open>Generic-state layout with \<open>> , + ::\<close>.\<close> + 2
     >(3)
   \<close>
 
-urust_expr_with_check isabelle_comment_log_data_layout
+urust_expr isabelle_comment_log_data_layout
   \<open>
     l\<llangle>
       \<comment> \<open>Log-data layout before the first entry.\<close>

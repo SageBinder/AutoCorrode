@@ -4,12 +4,14 @@ theory Parser_Test_Improvements
     "old_urust_rejects" :: thy_decl
 begin
 
+declare [[urust_conformance_check = false]]
+
 section\<open> Test support \<close>
 
 text\<open>
 Each example is accepted by the new parser. Where an equivalent old-frontend
-spelling exists, \<open>urust_expr_with_check'\<close> or \<open>urust_fun_with_check'\<close> checks
-the two results by \<open>refl\<close>.
+spelling exists, trailing \<open>against\<close> on \<open>urust_expr\<close> or \<open>urust_fun\<close> checks the two
+results by \<open>refl\<close>.
 The paired command feeds the new spelling to the old frontend and requires it to reject.
 \<close>
 
@@ -42,6 +44,24 @@ val _ = Outer_Syntax.local_theory \<^command_keyword>\<open>old_urust_rejects\<c
     old_urust_rejects)
 \<close>
 
+section\<open> Conformance configuration precedence \<close>
+
+urust_expr
+  [urust_conformance_check = true, urust_verbose = true]
+  inline_expr_conformance
+  \<open> () \<close>
+
+thm inline_expr_conformance_conformance
+
+urust_fun
+  [urust_verbose = true, urust_conformance_check = true]
+  inline_fun_conformance ::
+  \<open>(unit, unit, unit, unit, unit) function_body\<close>
+  ()
+  \<open> () \<close>
+
+thm inline_fun_conformance_conformance
+
 section\<open> Function parameter precedence \<close>
 
 text\<open>
@@ -51,11 +71,13 @@ legacy spelling captures the parameter with a value antiquotation, so the comple
 functions can still be checked by \<open>refl\<close>.
 \<close>
 
-urust_fun_with_check' fun_literal_parameter_wins ::
+urust_fun fun_literal_parameter_wins ::
   \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
   (funCollision)
   \<open> funCollision \<close>
-  \<open> \<lbrakk> \<llangle>funCollision\<rrangle> \<rbrakk> \<close>
+  against \<open> \<lbrakk> \<llangle>funCollision\<rrangle> \<rbrakk> \<close>
+
+thm fun_literal_parameter_wins_conformance
 
 
 section\<open> Intentional checked-term corrections \<close>
@@ -434,7 +456,7 @@ The dedicated grammar accepts right-associated mixtures of ordinary
 the old frontend's equivalent nested fallback block.
 \<close>
 
-urust_expr_with_check' improvement_if_to_if_let_chain
+urust_expr improvement_if_to_if_let_chain
   \<open>
     if false {
       0
@@ -444,7 +466,7 @@ urust_expr_with_check' improvement_if_to_if_let_chain
       2
     }
   \<close>
-  \<open>
+  against \<open>
     \<lbrakk>
       if false {
         0
@@ -468,7 +490,7 @@ old_urust_rejects
     }
   \<close>
 
-urust_expr_with_check' improvement_if_let_to_if_chain
+urust_expr improvement_if_let_to_if_chain
   \<open>
     if let Some(value) = \<llangle>Some (1 :: nat)\<rrangle> {
       value
@@ -478,7 +500,7 @@ urust_expr_with_check' improvement_if_let_to_if_chain
       3
     }
   \<close>
-  \<open>
+  against \<open>
     \<lbrakk>
       if let Some(value) = \<llangle>Some (1 :: nat)\<rrangle> {
         value
@@ -502,7 +524,7 @@ old_urust_rejects
     }
   \<close>
 
-urust_expr_with_check' improvement_if_let_to_if_let_without_final_else
+urust_expr improvement_if_let_to_if_let_without_final_else
   \<open>
     if let Some(first) = Some(()) {
       let _ = first;
@@ -512,7 +534,7 @@ urust_expr_with_check' improvement_if_let_to_if_let_without_final_else
       ()
     }
   \<close>
-  \<open>
+  against \<open>
     \<lbrakk>
       if let Some(first) = Some(()) {
         let _ = first;
@@ -536,7 +558,7 @@ old_urust_rejects
     }
   \<close>
 
-urust_expr_with_check' improvement_mixed_conditional_right_association
+urust_expr improvement_mixed_conditional_right_association
   \<open>
     if false {
       0
@@ -550,7 +572,7 @@ urust_expr_with_check' improvement_mixed_conditional_right_association
       4
     }
   \<close>
-  \<open>
+  against \<open>
     \<lbrakk>
       if false {
         0
@@ -586,7 +608,7 @@ old_urust_rejects
     }
   \<close>
 
-urust_expr_with_check' improvement_mixed_conditional_semicolon_free_statement
+urust_expr improvement_mixed_conditional_semicolon_free_statement
   \<open>
     if false {
       ()
@@ -598,7 +620,7 @@ urust_expr_with_check' improvement_mixed_conditional_semicolon_free_statement
     }
     ()
   \<close>
-  \<open>
+  against \<open>
     \<lbrakk>
       if false {
         ()
@@ -626,7 +648,7 @@ old_urust_rejects
     ()
   \<close>
 
-urust_expr_with_check' improvement_mixed_conditional_binder_isolation
+urust_expr improvement_mixed_conditional_binder_isolation
   \<open>
     let value = \<llangle>1 :: nat\<rrangle>;
     if let Some(value) = \<llangle>Some (2 :: nat)\<rrangle> {
@@ -639,7 +661,7 @@ urust_expr_with_check' improvement_mixed_conditional_binder_isolation
       value
     }
   \<close>
-  \<open>
+  against \<open>
     \<lbrakk>
       let value = \<llangle>1 :: nat\<rrangle>;
       if let Some(value) = \<llangle>Some (2 :: nat)\<rrangle> {
@@ -671,7 +693,7 @@ old_urust_rejects
     }
   \<close>
 
-urust_expr_with_check' improvement_mixed_conditional_guard
+urust_expr improvement_mixed_conditional_guard
   \<open>
     match_case Some(()) {
       Some(_) if if false {
@@ -686,7 +708,7 @@ urust_expr_with_check' improvement_mixed_conditional_guard
       None \<Rightarrow> ()
     }
   \<close>
-  \<open>
+  against \<open>
     \<lbrakk>
       match_case Some(()) {
         Some(_) if if false {
@@ -732,12 +754,12 @@ semicolon, both in an ordinary body and in a match guard. The witnesses use the 
 required semicolon and produce the same sequencing term.
 \<close>
 
-urust_expr_with_check' improvement_match_case_semicolon_free_statement
+urust_expr improvement_match_case_semicolon_free_statement
   \<open>
     match_case Some(()) { Some(value) \<Rightarrow> value, None \<Rightarrow> () }
     ()
   \<close>
-  \<open>
+  against \<open>
     \<lbrakk>
       match_case Some(()) { Some(value) \<Rightarrow> value, None \<Rightarrow> () };
       ()
@@ -749,12 +771,12 @@ old_urust_rejects
     ()
   \<close>
 
-urust_expr_with_check' improvement_match_switch_semicolon_free_statement
+urust_expr improvement_match_switch_semicolon_free_statement
   \<open>
     match_switch \<llangle>0 :: nat\<rrangle> { 0 \<Rightarrow> (), _ \<Rightarrow> () }
     ()
   \<close>
-  \<open>
+  against \<open>
     \<lbrakk>
       match_switch \<llangle>0 :: nat\<rrangle> { 0 \<Rightarrow> (), _ \<Rightarrow> () };
       ()
@@ -766,7 +788,7 @@ old_urust_rejects
     ()
   \<close>
 
-urust_expr_with_check' improvement_match_case_semicolon_free_guard
+urust_expr improvement_match_case_semicolon_free_guard
   \<open>
     match_case Some(()) {
       Some(_) if
@@ -776,7 +798,7 @@ urust_expr_with_check' improvement_match_case_semicolon_free_guard
       None \<Rightarrow> ()
     }
   \<close>
-  \<open>
+  against \<open>
     \<lbrakk>
       match_case Some(()) {
         Some(_) if
@@ -798,7 +820,7 @@ old_urust_rejects
     }
   \<close>
 
-urust_expr_with_check' improvement_match_switch_semicolon_free_guard
+urust_expr improvement_match_switch_semicolon_free_guard
   \<open>
     match_case Some(()) {
       Some(_) if
@@ -808,7 +830,7 @@ urust_expr_with_check' improvement_match_switch_semicolon_free_guard
       None \<Rightarrow> ()
     }
   \<close>
-  \<open>
+  against \<open>
     \<lbrakk>
       match_case Some(()) {
         Some(_) if
@@ -841,60 +863,60 @@ Literal \<open>//\<close> inside strings and both antiquotation states remains c
 the shared spellings are covered in the conformance theory.
 \<close>
 
-urust_expr_with_check' improvement_line_comment_full_line
+urust_expr improvement_line_comment_full_line
   \<open>
     // full-line comment
     ()
   \<close>
-  \<open> \<lbrakk> () \<rbrakk> \<close>
+  against \<open> \<lbrakk> () \<rbrakk> \<close>
 old_urust_rejects
   \<open>
     // full-line comment
     ()
   \<close>
 
-urust_expr_with_check' improvement_line_comment_end_of_line
+urust_expr improvement_line_comment_end_of_line
   \<open>
     ();
     () // end-of-line comment
   \<close>
-  \<open> \<lbrakk> (); () \<rbrakk> \<close>
+  against \<open> \<lbrakk> (); () \<rbrakk> \<close>
 old_urust_rejects
   \<open>
     ();
     () // end-of-line comment
   \<close>
 
-urust_expr_with_check' improvement_line_comment_between_tokens
+urust_expr improvement_line_comment_between_tokens
   \<open>
     \<llangle>1 :: 32 word\<rrangle> // between the operands and operator
       + \<llangle>2 :: 32 word\<rrangle>
   \<close>
-  \<open> \<lbrakk> \<llangle>1 :: 32 word\<rrangle> + \<llangle>2 :: 32 word\<rrangle> \<rbrakk> \<close>
+  against \<open> \<lbrakk> \<llangle>1 :: 32 word\<rrangle> + \<llangle>2 :: 32 word\<rrangle> \<rbrakk> \<close>
 old_urust_rejects
   \<open>
     \<llangle>1 :: 32 word\<rrangle> // between the operands and operator
       + \<llangle>2 :: 32 word\<rrangle>
   \<close>
 
-urust_expr_with_check' improvement_line_comment_operator_text
+urust_expr improvement_line_comment_operator_text
   \<open>
     () // += => \<Rightarrow> /= /* block-shaped text */
   \<close>
-  \<open> \<lbrakk> () \<rbrakk> \<close>
+  against \<open> \<lbrakk> () \<rbrakk> \<close>
 old_urust_rejects
   \<open>
     () // += => \<Rightarrow> /= /* block-shaped text */
   \<close>
 
-urust_expr_with_check' improvement_line_comment_empty
+urust_expr improvement_line_comment_empty
   \<open>
     {
       //
       ()
     }
   \<close>
-  \<open> \<lbrakk> { () } \<rbrakk> \<close>
+  against \<open> \<lbrakk> { () } \<rbrakk> \<close>
 old_urust_rejects
   \<open>
     {
@@ -903,19 +925,19 @@ old_urust_rejects
     }
   \<close>
 
-urust_expr_with_check' improvement_line_comment_eof
+urust_expr improvement_line_comment_eof
   \<open> () // comment at EOF \<close>
-  \<open> \<lbrakk> () \<rbrakk> \<close>
+  against \<open> \<lbrakk> () \<rbrakk> \<close>
 old_urust_rejects \<open> () // comment at EOF \<close>
 
-urust_expr_with_check' improvement_d21_struct_line_comments
+urust_expr improvement_d21_struct_line_comments
   \<open>
     D21Pair {
       left: 1_u64, // separator
       right: 2_u64
     }
   \<close>
-  \<open> \<lbrakk> D21Pair { left: 1_u64, right: 2_u64 } \<rbrakk> \<close>
+  against \<open> \<lbrakk> D21Pair { left: 1_u64, right: 2_u64 } \<rbrakk> \<close>
 old_urust_rejects
   \<open>
     D21Pair {
@@ -924,13 +946,13 @@ old_urust_rejects
     }
   \<close>
 
-urust_expr_with_check' improvement_d21_struct_comment_at_eof
+urust_expr improvement_d21_struct_comment_at_eof
   \<open> D21One { value: 1_u64 } // end \<close>
-  \<open> \<lbrakk> D21One { value: 1_u64 } \<rbrakk> \<close>
+  against \<open> \<lbrakk> D21One { value: 1_u64 } \<rbrakk> \<close>
 old_urust_rejects
   \<open> D21One { value: 1_u64 } // end \<close>
 
-urust_expr_with_check' improvement_line_comment_nested_adjacent
+urust_expr improvement_line_comment_nested_adjacent
   \<open>
     if true {// then branch
       {// nested block
@@ -940,7 +962,7 @@ urust_expr_with_check' improvement_line_comment_nested_adjacent
       ()
     }
   \<close>
-  \<open> \<lbrakk> if true { { () } } else { () } \<rbrakk> \<close>
+  against \<open> \<lbrakk> if true { { () } } else { () } \<rbrakk> \<close>
 old_urust_rejects
   \<open>
     if true {// then branch
@@ -961,79 +983,82 @@ form is equal to the old frontend's underscore spelling, which remains accepted.
 The old frontend rejects every glued spelling below.
 \<close>
 
-urust_expr_with_check' improvement_integer_suffix_decimal_u8
+urust_expr improvement_integer_suffix_decimal_u8
   \<open> 1u8 \<close>
-  \<open> \<lbrakk> 1_u8 \<rbrakk> \<close>
+  against \<open> \<lbrakk> 1_u8 \<rbrakk> \<close>
+
+thm improvement_integer_suffix_decimal_u8_conformance
+
 old_urust_rejects \<open> 1u8 \<close>
 
-urust_expr_with_check' improvement_integer_suffix_hex_u8
+urust_expr improvement_integer_suffix_hex_u8
   \<open> 0xffu8 \<close>
-  \<open> \<lbrakk> 0xff_u8 \<rbrakk> \<close>
+  against \<open> \<lbrakk> 0xff_u8 \<rbrakk> \<close>
 old_urust_rejects \<open> 0xffu8 \<close>
 
-urust_expr_with_check' improvement_integer_suffix_decimal_u16
+urust_expr improvement_integer_suffix_decimal_u16
   \<open> 2u16 \<close>
-  \<open> \<lbrakk> 2_u16 \<rbrakk> \<close>
+  against \<open> \<lbrakk> 2_u16 \<rbrakk> \<close>
 old_urust_rejects \<open> 2u16 \<close>
 
-urust_expr_with_check' improvement_integer_suffix_hex_u16
+urust_expr improvement_integer_suffix_hex_u16
   \<open> 0x12abu16 \<close>
-  \<open> \<lbrakk> 0x12ab_u16 \<rbrakk> \<close>
+  against \<open> \<lbrakk> 0x12ab_u16 \<rbrakk> \<close>
 old_urust_rejects \<open> 0x12abu16 \<close>
 
-urust_expr_with_check' improvement_integer_suffix_decimal_u32
+urust_expr improvement_integer_suffix_decimal_u32
   \<open> 3u32 \<close>
-  \<open> \<lbrakk> 3_u32 \<rbrakk> \<close>
+  against \<open> \<lbrakk> 3_u32 \<rbrakk> \<close>
 old_urust_rejects \<open> 3u32 \<close>
 
-urust_expr_with_check' improvement_integer_suffix_hex_u32
+urust_expr improvement_integer_suffix_hex_u32
   \<open> 0x1234abcdu32 \<close>
-  \<open> \<lbrakk> 0x1234abcd_u32 \<rbrakk> \<close>
+  against \<open> \<lbrakk> 0x1234abcd_u32 \<rbrakk> \<close>
 old_urust_rejects \<open> 0x1234abcdu32 \<close>
 
-urust_expr_with_check' improvement_integer_suffix_decimal_u64
+urust_expr improvement_integer_suffix_decimal_u64
   \<open> 4u64 \<close>
-  \<open> \<lbrakk> 4_u64 \<rbrakk> \<close>
+  against \<open> \<lbrakk> 4_u64 \<rbrakk> \<close>
 old_urust_rejects \<open> 4u64 \<close>
 
-urust_expr_with_check' improvement_integer_suffix_hex_u64
+urust_expr improvement_integer_suffix_hex_u64
   \<open> 0x123456789abcdef0u64 \<close>
-  \<open> \<lbrakk> 0x123456789abcdef0_u64 \<rbrakk> \<close>
+  against \<open> \<lbrakk> 0x123456789abcdef0_u64 \<rbrakk> \<close>
 old_urust_rejects \<open> 0x123456789abcdef0u64 \<close>
 
-urust_expr_with_check' improvement_integer_suffix_decimal_usize
+urust_expr improvement_integer_suffix_decimal_usize
   \<open> 5usize \<close>
-  \<open> \<lbrakk> 5_usize \<rbrakk> \<close>
+  against \<open> \<lbrakk> 5_usize \<rbrakk> \<close>
 old_urust_rejects \<open> 5usize \<close>
 
-urust_expr_with_check' improvement_integer_suffix_hex_usize
+urust_expr improvement_integer_suffix_hex_usize
   \<open> 0xffffffff0usize \<close>
-  \<open> \<lbrakk> 0xffffffff0_usize \<rbrakk> \<close>
+  against \<open> \<lbrakk> 0xffffffff0_usize \<rbrakk> \<close>
 old_urust_rejects \<open> 0xffffffff0usize \<close>
 
 
 section\<open> ASCII match arrows \<close>
 
-urust_expr_with_check' improvement_ascii_match_arrow
+urust_expr improvement_ascii_match_arrow
   \<open> match \<llangle>Some (1 :: nat)\<rrangle> { Some(x) => x, None => 0 } \<close>
-  \<open> \<lbrakk> match \<llangle>Some (1 :: nat)\<rrangle> { Some(x) \<Rightarrow> x, None \<Rightarrow> 0 } \<rbrakk> \<close>
+  against \<open> \<lbrakk> match \<llangle>Some (1 :: nat)\<rrangle> { Some(x) \<Rightarrow> x, None \<Rightarrow> 0 } \<rbrakk> \<close>
 old_urust_rejects
   \<open> match \<llangle>Some (1 :: nat)\<rrangle> { Some(x) => x, None => 0 } \<close>
 
-urust_expr_with_check' improvement_ascii_match_arrow_guarded
+urust_expr improvement_ascii_match_arrow_guarded
   \<open> match \<llangle>Some (1 :: nat)\<rrangle> { Some(x) if True => x, None => 0 } \<close>
-  \<open> \<lbrakk> match \<llangle>Some (1 :: nat)\<rrangle> { Some(x) if True \<Rightarrow> x, None \<Rightarrow> 0 } \<rbrakk> \<close>
+  against \<open> \<lbrakk> match \<llangle>Some (1 :: nat)\<rrangle> { Some(x) if True \<Rightarrow> x, None \<Rightarrow> 0 } \<rbrakk> \<close>
 old_urust_rejects
   \<open> match \<llangle>Some (1 :: nat)\<rrangle> { Some(x) if True => x, None => 0 } \<close>
 
-urust_expr_with_check' improvement_ascii_match_arrow_nested
+urust_expr improvement_ascii_match_arrow_nested
   \<open>
     match \<llangle>Some (1 :: nat)\<rrangle> {
       Some(x) => match x { 0 => 0, _ => x },
       None => 0
     }
   \<close>
-  \<open>
+  against \<open>
     \<lbrakk>
       match \<llangle>Some (1 :: nat)\<rrangle> {
         Some(x) \<Rightarrow> match x { 0 \<Rightarrow> 0, _ \<Rightarrow> x },
@@ -1049,20 +1074,20 @@ old_urust_rejects
     }
   \<close>
 
-urust_expr_with_check' improvement_ascii_match_arrow_case
+urust_expr improvement_ascii_match_arrow_case
   \<open> match_case \<llangle>Some (1 :: nat)\<rrangle> { Some(x) => x, None => 0 } \<close>
-  \<open> \<lbrakk> match_case \<llangle>Some (1 :: nat)\<rrangle> { Some(x) \<Rightarrow> x, None \<Rightarrow> 0 } \<rbrakk> \<close>
+  against \<open> \<lbrakk> match_case \<llangle>Some (1 :: nat)\<rrangle> { Some(x) \<Rightarrow> x, None \<Rightarrow> 0 } \<rbrakk> \<close>
 old_urust_rejects
   \<open> match_case \<llangle>Some (1 :: nat)\<rrangle> { Some(x) => x, None => 0 } \<close>
 
-urust_expr_with_check' improvement_ascii_match_arrow_switch
+urust_expr improvement_ascii_match_arrow_switch
   \<open>
     match_switch \<llangle>1 :: nat\<rrangle> {
       0 => \<llangle>False\<rrangle>,
       _ => \<llangle>True\<rrangle>
     }
   \<close>
-  \<open>
+  against \<open>
     \<lbrakk>
       match_switch \<llangle>1 :: nat\<rrangle> {
         0 \<Rightarrow> \<llangle>False\<rrangle>,
@@ -1081,33 +1106,33 @@ old_urust_rejects
 
 section\<open> Empty blocks \<close>
 
-urust_expr_with_check' improvement_empty_block_value
+urust_expr improvement_empty_block_value
   \<open> {} \<close>
-  \<open> \<lbrakk> { () } \<rbrakk> \<close>
+  against \<open> \<lbrakk> { () } \<rbrakk> \<close>
 old_urust_rejects
   \<open> {} \<close>
 
-urust_expr_with_check' improvement_empty_block_branches
+urust_expr improvement_empty_block_branches
   \<open> if true {} else {} \<close>
-  \<open> \<lbrakk> if true { () } else { () } \<rbrakk> \<close>
+  against \<open> \<lbrakk> if true { () } else { () } \<rbrakk> \<close>
 old_urust_rejects
   \<open> if true {} else {} \<close>
 
-urust_expr_with_check' improvement_empty_block_nested
+urust_expr improvement_empty_block_nested
   \<open> {{}} \<close>
-  \<open> \<lbrakk> {{ () }} \<rbrakk> \<close>
+  against \<open> \<lbrakk> {{ () }} \<rbrakk> \<close>
 old_urust_rejects
   \<open> {{}} \<close>
 
-urust_expr_with_check' improvement_empty_block_statement
+urust_expr improvement_empty_block_statement
   \<open> {} () \<close>
-  \<open> \<lbrakk> { () } () \<rbrakk> \<close>
+  against \<open> \<lbrakk> { () } () \<rbrakk> \<close>
 old_urust_rejects
   \<open> {} () \<close>
 
-urust_expr_with_check' improvement_empty_unsafe_block
+urust_expr improvement_empty_unsafe_block
   \<open> unsafe {} \<close>
-  \<open> \<lbrakk> unsafe { () } \<rbrakk> \<close>
+  against \<open> \<lbrakk> unsafe { () } \<rbrakk> \<close>
 old_urust_rejects
   \<open> unsafe {} \<close>
 
@@ -1122,27 +1147,27 @@ below is checked against the same old-frontend term with only its terminal comma
 removed.
 \<close>
 
-urust_expr_with_check' improvement_trailing_array_literal
+urust_expr improvement_trailing_array_literal
   \<open> [\<llangle>1 :: 32 word\<rrangle>, \<llangle>2 :: 32 word\<rrangle>,] \<close>
-  \<open> \<lbrakk> [\<llangle>1 :: 32 word\<rrangle>, \<llangle>2 :: 32 word\<rrangle>] \<rbrakk> \<close>
+  against \<open> \<lbrakk> [\<llangle>1 :: 32 word\<rrangle>, \<llangle>2 :: 32 word\<rrangle>] \<rbrakk> \<close>
 old_urust_rejects
   \<open> [\<llangle>1 :: 32 word\<rrangle>, \<llangle>2 :: 32 word\<rrangle>,] \<close>
 
-urust_expr_with_check' improvement_trailing_direct_call
+urust_expr improvement_trailing_direct_call
   \<open> cf2(\<llangle>1 :: 64 word\<rrangle>, \<llangle>2 :: 64 word\<rrangle>,) \<close>
-  \<open> \<lbrakk> cf2(\<llangle>1 :: 64 word\<rrangle>, \<llangle>2 :: 64 word\<rrangle>) \<rbrakk> \<close>
+  against \<open> \<lbrakk> cf2(\<llangle>1 :: 64 word\<rrangle>, \<llangle>2 :: 64 word\<rrangle>) \<rbrakk> \<close>
 old_urust_rejects
   \<open> cf2(\<llangle>1 :: 64 word\<rrangle>, \<llangle>2 :: 64 word\<rrangle>,) \<close>
 
-urust_expr_with_check' improvement_trailing_antiquotation_call
+urust_expr improvement_trailing_antiquotation_call
   \<open> \<epsilon>\<open>cf1\<close>(\<llangle>1 :: 64 word\<rrangle>,) \<close>
-  \<open> \<lbrakk> \<epsilon>\<open>cf1\<close>(\<llangle>1 :: 64 word\<rrangle>) \<rbrakk> \<close>
+  against \<open> \<lbrakk> \<epsilon>\<open>cf1\<close>(\<llangle>1 :: 64 word\<rrangle>) \<rbrakk> \<close>
 old_urust_rejects
   \<open> \<epsilon>\<open>cf1\<close>(\<llangle>1 :: 64 word\<rrangle>,) \<close>
 
-urust_expr_with_check' improvement_trailing_function_literal_call
+urust_expr improvement_trailing_function_literal_call
   \<open> \<llangle>Suc\<rrangle>\<^sub>1(0,) \<close>
-  \<open> \<lbrakk> \<llangle>Suc\<rrangle>\<^sub>1(0) \<rbrakk> \<close>
+  against \<open> \<lbrakk> \<llangle>Suc\<rrangle>\<^sub>1(0) \<rbrakk> \<close>
 old_urust_rejects
   \<open> \<llangle>Suc\<rrangle>\<^sub>1(0,) \<close>
 
@@ -1152,13 +1177,13 @@ context
     nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow>
     (unit, nat, unit, unit, unit) function_body \<close>
 begin
-urust_expr_with_check' improvement_trailing_antiquotation_call14
+urust_expr improvement_trailing_antiquotation_call14
   \<open>
     \<epsilon>\<open>trailing_antiquotation_call14\<close>(
       0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13,
     )
   \<close>
-  \<open>
+  against \<open>
     \<lbrakk>
       \<epsilon>\<open>trailing_antiquotation_call14\<close>(
         0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13
@@ -1173,14 +1198,14 @@ old_urust_rejects
   \<close>
 end
 
-urust_expr_with_check' improvement_trailing_function_literal_call14
+urust_expr improvement_trailing_function_literal_call14
   \<open>
     \<llangle>\<lambda>a b c d e f g h i j k l m n.
       (a + b + c + d + e + f + g + h + i + j + k + l + m + n :: nat)
     \<rrangle>\<^sub>1\<^sub>4
       (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13,)
   \<close>
-  \<open>
+  against \<open>
     \<lbrakk>
       \<llangle>\<lambda>a b c d e f g h i j k l m n.
         (a + b + c + d + e + f + g + h + i + j + k + l + m + n :: nat)
@@ -1196,15 +1221,15 @@ old_urust_rejects
       (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13,)
   \<close>
 
-urust_expr_with_check' improvement_trailing_method_call
+urust_expr improvement_trailing_method_call
   \<open> \<llangle>1 :: 64 word\<rrangle>.cf2(\<llangle>2 :: 64 word\<rrangle>,) \<close>
-  \<open> \<lbrakk> \<llangle>1 :: 64 word\<rrangle>.cf2(\<llangle>2 :: 64 word\<rrangle>) \<rbrakk> \<close>
+  against \<open> \<lbrakk> \<llangle>1 :: 64 word\<rrangle>.cf2(\<llangle>2 :: 64 word\<rrangle>) \<rbrakk> \<close>
 old_urust_rejects
   \<open> \<llangle>1 :: 64 word\<rrangle>.cf2(\<llangle>2 :: 64 word\<rrangle>,) \<close>
 
-urust_expr_with_check' improvement_trailing_registered_path_call
+urust_expr improvement_trailing_registered_path_call
   \<open> plus2::lifted(\<llangle>3 :: 64 word\<rrangle>,) \<close>
-  \<open> \<lbrakk> plus2::lifted(\<llangle>3 :: 64 word\<rrangle>) \<rbrakk> \<close>
+  against \<open> \<lbrakk> plus2::lifted(\<llangle>3 :: 64 word\<rrangle>) \<rbrakk> \<close>
 old_urust_rejects
   \<open> plus2::lifted(\<llangle>3 :: 64 word\<rrangle>,) \<close>
 
@@ -1214,14 +1239,14 @@ context
     \<open>nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow>
       (unit, nat, unit, unit, unit) function_body\<close>
 begin
-urust_expr_with_check' improvement_trailing_turbofish_method_call
+urust_expr improvement_trailing_turbofish_method_call
   \<open> receiver.generic_method::<5>(6,) \<close>
-  \<open> \<lbrakk> receiver.generic_method::<5>(6) \<rbrakk> \<close>
+  against \<open> \<lbrakk> receiver.generic_method::<5>(6) \<rbrakk> \<close>
 old_urust_rejects
   \<open> receiver.generic_method::<5>(6,) \<close>
 end
 
-urust_expr_with_check' improvement_turbofish_punctuation_newlines
+urust_expr improvement_turbofish_punctuation_newlines
   \<open>
     turbofish_ignore_two
       ::
@@ -1231,7 +1256,7 @@ urust_expr_with_check' improvement_turbofish_punctuation_newlines
       >
       (\<llangle>4 :: 64 word\<rrangle>,)
   \<close>
-  \<open>
+  against \<open>
     \<lbrakk>
       turbofish_ignore_two::<(1 + 2), (True)>(
         \<llangle>4 :: 64 word\<rrangle>
@@ -1249,14 +1274,14 @@ old_urust_rejects
       (\<llangle>4 :: 64 word\<rrangle>,)
   \<close>
 
-urust_expr_with_check' improvement_trailing_guarded_arm
+urust_expr improvement_trailing_guarded_arm
   \<open>
     match \<llangle>Some (1 :: nat)\<rrangle> {
       Some(x) if True \<Rightarrow> x,
       None \<Rightarrow> 0,
     }
   \<close>
-  \<open>
+  against \<open>
     \<lbrakk>
       match \<llangle>Some (1 :: nat)\<rrangle> {
         Some(x) if True \<Rightarrow> x,
@@ -1272,24 +1297,24 @@ old_urust_rejects
     }
   \<close>
 
-urust_expr_with_check' improvement_trailing_constructor_pattern
+urust_expr improvement_trailing_constructor_pattern
   \<open> match_case \<llangle>P2 1 2\<rrangle> { P2(x, y,) \<Rightarrow> x } \<close>
-  \<open> \<lbrakk> match_case \<llangle>P2 1 2\<rrangle> { P2(x, y) \<Rightarrow> x } \<rbrakk> \<close>
+  against \<open> \<lbrakk> match_case \<llangle>P2 1 2\<rrangle> { P2(x, y) \<Rightarrow> x } \<rbrakk> \<close>
 old_urust_rejects
   \<open> match_case \<llangle>P2 1 2\<rrangle> { P2(x, y,) \<Rightarrow> x } \<close>
 
-urust_expr_with_check' improvement_trailing_tuple_expression
+urust_expr improvement_trailing_tuple_expression
   \<open> (\<llangle>1 :: nat\<rrangle>, \<llangle>True\<rrangle>,) \<close>
-  \<open> \<lbrakk> (\<llangle>1 :: nat\<rrangle>, \<llangle>True\<rrangle>) \<rbrakk> \<close>
+  against \<open> \<lbrakk> (\<llangle>1 :: nat\<rrangle>, \<llangle>True\<rrangle>) \<rbrakk> \<close>
 old_urust_rejects
   \<open> (\<llangle>1 :: nat\<rrangle>, \<llangle>True\<rrangle>,) \<close>
 
-urust_expr_with_check' improvement_trailing_tuple_pattern
+urust_expr improvement_trailing_tuple_pattern
   \<open>
     let (x, y,) = (\<llangle>1 :: nat\<rrangle>, \<llangle>True\<rrangle>);
     x
   \<close>
-  \<open>
+  against \<open>
     \<lbrakk>
       let (x, y) = (\<llangle>1 :: nat\<rrangle>, \<llangle>True\<rrangle>);
       x
@@ -1301,14 +1326,14 @@ old_urust_rejects
     x
   \<close>
 
-urust_expr_with_check' improvement_trailing_struct_pattern
+urust_expr improvement_trailing_struct_pattern
   \<open>
     match \<llangle>AdvStruct 1 2\<rrangle> {
       AdvStruct { adv_left: x, adv_right: y, } \<Rightarrow> x,
       _ \<Rightarrow> 0
     }
   \<close>
-  \<open>
+  against \<open>
     \<lbrakk>
       match \<llangle>AdvStruct 1 2\<rrangle> {
         AdvStruct { adv_left: x, adv_right: y } \<Rightarrow> x,
@@ -1383,7 +1408,7 @@ showoff retains the parser-only source, while this theory owns its explicit
 old-frontend witness.
 \<close>
 
-urust_expr_with_check' improvement_showoff_composition
+urust_expr improvement_showoff_composition
   \<open>
     // These spellings are accepted only by the dedicated parser.
     let seeds = [1u64, 2u64,];
@@ -1404,7 +1429,7 @@ urust_expr_with_check' improvement_showoff_composition
       None => (0u64, {}, unsafe {},),
     }
   \<close>
-  \<open>
+  against \<open>
     \<lbrakk>
       let seeds = [1_u64, 2_u64];
       let seed = seeds[0_usize];
@@ -1562,14 +1587,14 @@ whose children are all irrefutable. Reference-pattern wrappers are erased by
 case preparation before this classification.
 \<close>
 
-urust_expr_with_check' improvement_wrapped_grouped_range
+urust_expr improvement_wrapped_grouped_range
   \<open>
     match_case \<llangle>Some (3 :: nat)\<rrangle> {
       Some(&(2..=4)) \<Rightarrow> \<llangle>True\<rrangle>,
       _ \<Rightarrow> \<llangle>False\<rrangle>
     }
   \<close>
-  \<open>
+  against \<open>
     \<lbrakk>
       match_case \<llangle>Some (3 :: nat)\<rrangle> {
         Some(2..=4) \<Rightarrow> \<llangle>True\<rrangle>,
@@ -1585,14 +1610,14 @@ old_urust_rejects
     }
   \<close>
 
-urust_expr_with_check' improvement_while_let_wrapped_tuple_children
+urust_expr improvement_while_let_wrapped_tuple_children
   \<open>
     #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let (&left, & mut right) =
       (\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>) {
       \<llangle>left + right\<rrangle>;
     }
   \<close>
-  \<open>
+  against \<open>
     \<lbrakk>
       #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let (left, right) =
         (\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>) {
@@ -1608,14 +1633,14 @@ old_urust_rejects
     }
   \<close>
 
-urust_expr_with_check' improvement_while_let_grouped_tuple
+urust_expr improvement_while_let_grouped_tuple
   \<open>
     #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let ((left, right)) =
       (\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>) {
       \<llangle>left + right\<rrangle>;
     }
   \<close>
-  \<open>
+  against \<open>
     \<lbrakk>
       #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let (left, right) =
         (\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>) {
@@ -1631,14 +1656,14 @@ old_urust_rejects
     }
   \<close>
 
-urust_expr_with_check' improvement_while_let_refutable_tuple
+urust_expr improvement_while_let_refutable_tuple
   \<open>
     #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let (Some(value), other) =
       (\<llangle>Some (1 :: nat)\<rrangle>, \<llangle>2 :: nat\<rrangle>) {
       \<llangle>value + other\<rrangle>;
     }
   \<close>
-  \<open>
+  against \<open>
     \<lbrakk>
       #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let ((Some(value), other)) =
         (\<llangle>Some (1 :: nat)\<rrangle>, \<llangle>2 :: nat\<rrangle>) {
@@ -1785,13 +1810,13 @@ as a legacy mutable name that is not used, while representing the continuation b
 as an anonymous abstraction. The old frontend has no wildcard production at this site.
 \<close>
 
-urust_expr_with_check' improvement_mutable_wildcard
+urust_expr improvement_mutable_wildcard
   \<open>
     let keep = \<llangle>5 :: nat\<rrangle>;
     let mut _ = \<llangle>7 :: nat\<rrangle>;
     keep
   \<close>
-  \<open>
+  against \<open>
     \<lbrakk>
       let keep = \<llangle>5 :: nat\<rrangle>;
       let mut ignored = \<llangle>7 :: nat\<rrangle>;
@@ -1829,19 +1854,19 @@ context
     and r :: \<open>(unit, unit, 32 word) Global_Store.ref\<close>
 begin
 
-urust_expr_with_check' improvement_recursive_borrow_deref
+urust_expr improvement_recursive_borrow_deref
   \<open> &*rr \<close>
-  \<open> \<lbrakk> &(*rr) \<rbrakk> \<close>
+  against \<open> \<lbrakk> &(*rr) \<rbrakk> \<close>
 old_urust_rejects \<open> &*rr \<close>
 
-urust_expr_with_check' improvement_recursive_deref_mut_borrow
+urust_expr improvement_recursive_deref_mut_borrow
   \<open> *& mut r \<close>
-  \<open> \<lbrakk> *(& mut r) \<rbrakk> \<close>
+  against \<open> \<lbrakk> *(& mut r) \<rbrakk> \<close>
 old_urust_rejects \<open> *& mut r \<close>
 
-urust_expr_with_check' improvement_recursive_triple_deref
+urust_expr improvement_recursive_triple_deref
   \<open> ***rrr \<close>
-  \<open> \<lbrakk> *(*(*rrr)) \<rbrakk> \<close>
+  against \<open> \<lbrakk> *(*(*rrr)) \<rbrakk> \<close>
 old_urust_rejects \<open> ***rrr \<close>
 
 end
@@ -1868,14 +1893,14 @@ context
     and lhs rhs :: \<open>32 word\<close>
 begin
 
-urust_expr_with_check' improvement_antiquotation_place
+urust_expr improvement_antiquotation_place
   \<open> \<epsilon>\<open>\<up>r\<close> = rhs \<close>
-  \<open> \<lbrakk> r = rhs \<rbrakk> \<close>
+  against \<open> \<lbrakk> r = rhs \<rbrakk> \<close>
 old_urust_rejects \<open> \<epsilon>\<open>\<up>r\<close> = rhs \<close>
 
-urust_expr_with_check' improvement_antiquotation_place_capture
+urust_expr improvement_antiquotation_place_capture
   \<open> let mut x = lhs; \<epsilon>\<open>\<up>x\<close> = rhs; *x \<close>
-  \<open> \<lbrakk> let mut x = lhs; x = rhs; *x \<rbrakk> \<close>
+  against \<open> \<lbrakk> let mut x = lhs; x = rhs; *x \<rbrakk> \<close>
 old_urust_rejects \<open> let mut x = lhs; \<epsilon>\<open>\<up>x\<close> = rhs; *x \<close>
 
 end
@@ -1902,9 +1927,9 @@ context
     and field_value :: \<open>64 word\<close>
 begin
 
-urust_expr_with_check' improvement_grouped_deref_field_place
+urust_expr improvement_grouped_deref_field_place
   \<open> (*rp).inner.value = field_value \<close>
-  \<open> \<lbrakk> (*rp.inner.value) = field_value \<rbrakk> \<close>
+  against \<open> \<lbrakk> (*rp.inner.value) = field_value \<rbrakk> \<close>
 old_urust_rejects \<open> (*rp).inner.value = field_value \<close>
 
 end
@@ -1920,17 +1945,17 @@ postfix tier. The old frontend requires parentheses after propagation before a m
 postfix.
 \<close>
 
-urust_expr_with_check' improvement_path_postfix_chain
+urust_expr improvement_path_postfix_chain
   \<open> Some(Path::Values[1_usize])?.cf1() \<close>
-  \<open> \<lbrakk> (Some(Path::Values[1_usize])?).cf1() \<rbrakk> \<close>
+  against \<open> \<lbrakk> (Some(Path::Values[1_usize])?).cf1() \<rbrakk> \<close>
 old_urust_rejects
   \<open> Some(Path::Values[1_usize])?.cf1() \<close>
 
 context fixes self :: postfix_outer
 begin
-urust_expr_with_check' improvement_propagate_method
+urust_expr improvement_propagate_method
   \<open> self.optional?.to_value() \<close>
-  \<open> \<lbrakk> (self.optional?).to_value() \<rbrakk> \<close>
+  against \<open> \<lbrakk> (self.optional?).to_value() \<rbrakk> \<close>
 old_urust_rejects
   \<open> self.optional?.to_value() \<close>
 end
@@ -1957,9 +1982,9 @@ definition improvement_apply_closure_first ::
 
 subsection\<open> Grouping, nesting, siblings, and invocation through a binding \<close>
 
-urust_expr_with_check' improvement_closure_group
+urust_expr improvement_closure_group
   \<open> (|x| \<llangle>x :: nat\<rrangle>) \<close>
-  \<open>
+  against \<open>
     \<lbrakk>
       \<llangle>(\<lambda>x::nat. FunctionBody (literal x))\<rrangle>
     \<rbrakk>
@@ -1967,12 +1992,12 @@ urust_expr_with_check' improvement_closure_group
 old_urust_rejects
   \<open> (|x| \<llangle>x :: nat\<rrangle>) \<close>
 
-urust_expr_with_check' improvement_closure_grouped_initializer
+urust_expr improvement_closure_grouped_initializer
   \<open>
     let closure = (|x| \<llangle>x :: nat\<rrangle>);
     closure(\<llangle>1 :: nat\<rrangle>)
   \<close>
-  \<open>
+  against \<open>
     \<lbrakk>
       let closure =
         \<llangle>(\<lambda>x::nat. FunctionBody (literal x))\<rrangle>;
@@ -1985,12 +2010,12 @@ old_urust_rejects
     closure(\<llangle>1 :: nat\<rrangle>)
   \<close>
 
-urust_expr_with_check' improvement_closure_nested_parenthesized
+urust_expr improvement_closure_nested_parenthesized
   \<open>
     |outer|
       (|inner| \<llangle>(outer :: nat, inner :: bool)\<rrangle>)
   \<close>
-  \<open>
+  against \<open>
     \<lbrakk>
       |outer|
         \<llangle>
@@ -2005,12 +2030,12 @@ old_urust_rejects
       (|inner| \<llangle>(outer :: nat, inner :: bool)\<rrangle>)
   \<close>
 
-urust_expr_with_check' improvement_closure_siblings
+urust_expr improvement_closure_siblings
   \<open>
     (|x| \<llangle>x :: nat\<rrangle>,
      |y| \<llangle>y :: bool\<rrangle>)
   \<close>
-  \<open>
+  against \<open>
     \<lbrakk>
       (\<llangle>(\<lambda>x::nat. FunctionBody (literal x))\<rrangle>,
        \<llangle>(\<lambda>y::bool. FunctionBody (literal y))\<rrangle>)
@@ -2024,27 +2049,27 @@ old_urust_rejects
 
 subsection\<open> Calls, tuples, arrays, macros, indexing, and arm bodies \<close>
 
-urust_expr_with_check' improvement_closure_single_call_argument
+urust_expr improvement_closure_single_call_argument
   \<open>
     improvement_apply_closure(
       |x| \<llangle>x :: nat\<rrangle>
     )
   \<close>
-  \<open>
+  against \<open>
     \<lbrakk>
       improvement_apply_closure(
         \<llangle>(\<lambda>x::nat. FunctionBody (literal x))\<rrangle>
       )
     \<rbrakk>
   \<close>
-urust_expr_with_check' improvement_closure_first_call_argument
+urust_expr improvement_closure_first_call_argument
   \<open>
     improvement_apply_closure_first(
       |x| \<llangle>x :: nat\<rrangle>,
       1
     )
   \<close>
-  \<open>
+  against \<open>
     \<lbrakk>
       improvement_apply_closure_first(
         \<llangle>(\<lambda>x::nat. FunctionBody (literal x))\<rrangle>,
@@ -2052,11 +2077,11 @@ urust_expr_with_check' improvement_closure_first_call_argument
       )
     \<rbrakk>
   \<close>
-urust_expr_with_check' improvement_closure_first_tuple_element
+urust_expr improvement_closure_first_tuple_element
   \<open>
     (|x| \<llangle>x :: nat\<rrangle>, \<llangle>True\<rrangle>)
   \<close>
-  \<open>
+  against \<open>
     \<lbrakk>
       (\<llangle>(\<lambda>x::nat. FunctionBody (literal x))\<rrangle>,
        \<llangle>True\<rrangle>)
@@ -2067,12 +2092,12 @@ old_urust_rejects
     (|x| \<llangle>x :: nat\<rrangle>, \<llangle>True\<rrangle>)
   \<close>
 
-urust_expr_with_check' improvement_closure_array_elements
+urust_expr improvement_closure_array_elements
   \<open>
     [|x| \<llangle>x :: nat\<rrangle>,
      |x| \<llangle>x :: nat\<rrangle>]
   \<close>
-  \<open>
+  against \<open>
     \<lbrakk>
       [\<llangle>(\<lambda>x::nat. FunctionBody (literal x))\<rrangle>,
        \<llangle>(\<lambda>x::nat. FunctionBody (literal x))\<rrangle>]
@@ -2084,12 +2109,12 @@ old_urust_rejects
      |x| \<llangle>x :: nat\<rrangle>]
   \<close>
 
-urust_expr_with_check' improvement_closure_macro_arguments
+urust_expr improvement_closure_macro_arguments
   \<open>
     vec![|x| \<llangle>x :: nat\<rrangle>,
          |x| \<llangle>x :: nat\<rrangle>]
   \<close>
-  \<open>
+  against \<open>
     \<lbrakk>
       vec![\<llangle>(\<lambda>x::nat. FunctionBody (literal x))\<rrangle>,
            \<llangle>(\<lambda>x::nat. FunctionBody (literal x))\<rrangle>]
@@ -2114,11 +2139,11 @@ adhoc_overloading index_const \<rightleftharpoons> closure_index_impl
 context fixes closure_index_value :: closure_index_fixture
 begin
 
-urust_expr_with_check' improvement_closure_index_subscript
+urust_expr improvement_closure_index_subscript
   \<open>
     closure_index_value[|x| \<llangle>x :: nat\<rrangle>]
   \<close>
-  \<open>
+  against \<open>
     \<lbrakk>
       closure_index_value[
         \<llangle>(\<lambda>x::nat. FunctionBody (literal x))\<rrangle>
@@ -2134,14 +2159,14 @@ end
 
 no_adhoc_overloading index_const \<rightleftharpoons> closure_index_impl
 
-urust_expr_with_check' improvement_closure_grouped_arm_body
+urust_expr improvement_closure_grouped_arm_body
   \<open>
     match true {
       true \<Rightarrow> (|| \<llangle>1 :: nat\<rrangle>),
       false \<Rightarrow> (|| \<llangle>2 :: nat\<rrangle>)
     }
   \<close>
-  \<open>
+  against \<open>
     \<lbrakk>
       match true {
         true \<Rightarrow> \<llangle>FunctionBody (literal (1 :: nat))\<rrangle>,
@@ -2159,14 +2184,14 @@ old_urust_rejects
 
 subsection\<open> Existing parser improvements composed with closures \<close>
 
-urust_expr_with_check' improvement_closure_line_comment
+urust_expr improvement_closure_line_comment
   \<open>
     |x| {
       // Closure comments use the production lexer state.
       \<llangle>x :: nat\<rrangle>
     }
   \<close>
-  \<open>
+  against \<open>
     \<lbrakk>
       |x| { \<llangle>x :: nat\<rrangle> }
     \<rbrakk>
@@ -2179,19 +2204,19 @@ old_urust_rejects
     }
   \<close>
 
-urust_expr_with_check' improvement_closure_empty_block
+urust_expr improvement_closure_empty_block
   \<open> || {} \<close>
-  \<open> \<lbrakk> || { () } \<rbrakk> \<close>
+  against \<open> \<lbrakk> || { () } \<rbrakk> \<close>
 old_urust_rejects \<open> || {} \<close>
 
-urust_expr_with_check' improvement_closure_call_trailing_comma
+urust_expr improvement_closure_call_trailing_comma
   \<open>
     closure_invoke_nat(
       1,
       |x| \<llangle>x :: nat\<rrangle>,
     )
   \<close>
-  \<open>
+  against \<open>
     \<lbrakk>
       closure_invoke_nat(
         1,
@@ -2207,12 +2232,12 @@ old_urust_rejects
     )
   \<close>
 
-urust_expr_with_check' improvement_closure_array_trailing_comma
+urust_expr improvement_closure_array_trailing_comma
   \<open>
     [\<llangle>(\<lambda>x::nat. FunctionBody (literal x))\<rrangle>,
      |x| \<llangle>x :: nat\<rrangle>,]
   \<close>
-  \<open>
+  against \<open>
     \<lbrakk>
       [\<llangle>(\<lambda>x::nat. FunctionBody (literal x))\<rrangle>,
        |x| \<llangle>x :: nat\<rrangle>]
@@ -2224,7 +2249,7 @@ old_urust_rejects
      |x| \<llangle>x :: nat\<rrangle>,]
   \<close>
 
-urust_expr_with_check' improvement_closure_ascii_arrow
+urust_expr improvement_closure_ascii_arrow
   \<open>
     |value|
       match Some(value) {
@@ -2232,7 +2257,7 @@ urust_expr_with_check' improvement_closure_ascii_arrow
         None => 0
       }
   \<close>
-  \<open>
+  against \<open>
     \<lbrakk>
       |value|
         match Some(value) {
@@ -2250,12 +2275,12 @@ old_urust_rejects
       }
   \<close>
 
-urust_expr_with_check' improvement_closure_glued_suffix
+urust_expr improvement_closure_glued_suffix
   \<open> || 1u32 \<close>
-  \<open> \<lbrakk> || 1_u32 \<rbrakk> \<close>
+  against \<open> \<lbrakk> || 1_u32 \<rbrakk> \<close>
 old_urust_rejects \<open> || 1u32 \<close>
 
-urust_expr_with_check' improvement_closure_mixed_chain_in_block
+urust_expr improvement_closure_mixed_chain_in_block
   \<open>
     || {
       if false {
@@ -2267,7 +2292,7 @@ urust_expr_with_check' improvement_closure_mixed_chain_in_block
       }
     }
   \<close>
-  \<open>
+  against \<open>
     \<lbrakk>
       || {
         if false {
@@ -2303,24 +2328,24 @@ Return is a low-precedence value expression whose operand and semicolon are inde
 optional. The old frontend requires the semicolon as part of the return production.
 \<close>
 
-urust_expr_with_check' improvement_tail_return
+urust_expr improvement_tail_return
   \<open> return \<close>
-  \<open> \<lbrakk> return; \<rbrakk> \<close>
+  against \<open> \<lbrakk> return; \<rbrakk> \<close>
 old_urust_rejects \<open> return \<close>
 
-urust_expr_with_check' improvement_tail_return_value
+urust_expr improvement_tail_return_value
   \<open> return \<llangle>1 :: nat\<rrangle> \<close>
-  \<open> \<lbrakk> return \<llangle>1 :: nat\<rrangle>; \<rbrakk> \<close>
+  against \<open> \<lbrakk> return \<llangle>1 :: nat\<rrangle>; \<rbrakk> \<close>
 old_urust_rejects \<open> return \<llangle>1 :: nat\<rrangle> \<close>
 
-urust_expr_with_check' improvement_guard_tail_return
+urust_expr improvement_guard_tail_return
   \<open>
     match_case Some(()) {
       Some(_) if return \<llangle>True\<rrangle> \<Rightarrow> (),
       None \<Rightarrow> ()
     }
   \<close>
-  \<open>
+  against \<open>
     \<lbrakk>
       match_case Some(()) {
         Some(_) if return \<llangle>True\<rrangle>; \<Rightarrow> (),
@@ -2336,14 +2361,14 @@ old_urust_rejects
     }
   \<close>
 
-urust_expr_with_check' improvement_guard_tail_return_unit
+urust_expr improvement_guard_tail_return_unit
   \<open>
     match_case Some(()) {
       Some(_) if return \<Rightarrow> (),
       None \<Rightarrow> ()
     }
   \<close>
-  \<open>
+  against \<open>
     \<lbrakk>
       match_case Some(()) {
         Some(_) if return; \<Rightarrow> (),
@@ -2359,7 +2384,7 @@ old_urust_rejects
     }
   \<close>
 
-urust_expr_with_check' improvement_branch_returns
+urust_expr improvement_branch_returns
   \<open>
     if \<llangle>True\<rrangle> {
       return \<llangle>1 :: nat\<rrangle>
@@ -2367,7 +2392,7 @@ urust_expr_with_check' improvement_branch_returns
       return \<llangle>2 :: nat\<rrangle>
     }
   \<close>
-  \<open>
+  against \<open>
     \<lbrakk>
       if \<llangle>True\<rrangle> {
         return \<llangle>1 :: nat\<rrangle>;
@@ -2385,12 +2410,12 @@ old_urust_rejects
     }
   \<close>
 
-urust_expr_with_check' improvement_return_initializer
+urust_expr improvement_return_initializer
   \<open>
     let result = return \<llangle>1 :: nat\<rrangle>;
     result
   \<close>
-  \<open>
+  against \<open>
     \<lbrakk>
       let result = { return \<llangle>1 :: nat\<rrangle>; };
       result
@@ -2416,16 +2441,16 @@ context
   fixes cast_prefix_word :: \<open>32 word\<close>
 begin
 
-urust_expr_with_check' improvement_cast_before_not
+urust_expr improvement_cast_before_not
   \<open> !cast_prefix_word as u8 \<close>
-  \<open> \<lbrakk> !(cast_prefix_word as u8) \<rbrakk> \<close>
+  against \<open> \<lbrakk> !(cast_prefix_word as u8) \<rbrakk> \<close>
 
-urust_expr_with_check' improvement_cast_line_comment_before_target
+urust_expr improvement_cast_line_comment_before_target
   \<open>
     cast_prefix_word as // target width follows
       u16
   \<close>
-  \<open> \<lbrakk> cast_prefix_word as u16 \<rbrakk> \<close>
+  against \<open> \<lbrakk> cast_prefix_word as u16 \<rbrakk> \<close>
 old_urust_rejects
   \<open>
     cast_prefix_word as // target width follows
@@ -2441,7 +2466,7 @@ context
   fixes cast_prefix_raw :: \<open>(unit, unit) gref\<close>
 begin
 
-urust_expr_with_check' improvement_cast_multiline_pointer_target
+urust_expr improvement_cast_multiline_pointer_target
   \<open>
     cast_prefix_raw
       as
@@ -2449,7 +2474,7 @@ urust_expr_with_check' improvement_cast_multiline_pointer_target
       mut
       u16
   \<close>
-  \<open> \<lbrakk> cast_prefix_raw as *mut u16 \<rbrakk> \<close>
+  against \<open> \<lbrakk> cast_prefix_raw as *mut u16 \<rbrakk> \<close>
 old_urust_rejects
   \<open>
     cast_prefix_raw
@@ -2459,25 +2484,25 @@ old_urust_rejects
       u16
   \<close>
 
-urust_expr_with_check' improvement_cast_before_deref
+urust_expr improvement_cast_before_deref
   \<open> *cast_prefix_raw as *const u8 \<close>
-  \<open> \<lbrakk> *(cast_prefix_raw as *const u8) \<rbrakk> \<close>
+  against \<open> \<lbrakk> *(cast_prefix_raw as *const u8) \<rbrakk> \<close>
 
-urust_expr_with_check' improvement_cast_before_borrow
+urust_expr improvement_cast_before_borrow
   \<open> &cast_prefix_raw as *const u8 \<close>
-  \<open> \<lbrakk> &(cast_prefix_raw as *const u8) \<rbrakk> \<close>
+  against \<open> \<lbrakk> &(cast_prefix_raw as *const u8) \<rbrakk> \<close>
 
-urust_expr_with_check' improvement_cast_before_mut_borrow
+urust_expr improvement_cast_before_mut_borrow
   \<open> & mut cast_prefix_raw as *mut u8 \<close>
-  \<open> \<lbrakk> & mut (cast_prefix_raw as *mut u8) \<rbrakk> \<close>
+  against \<open> \<lbrakk> & mut (cast_prefix_raw as *mut u8) \<rbrakk> \<close>
 
-urust_expr_with_check' improvement_cast_line_comments_in_pointer_target
+urust_expr improvement_cast_line_comments_in_pointer_target
   \<open>
     cast_prefix_raw as * // pointer mutability follows
       mut // pointee width follows
       u16
   \<close>
-  \<open> \<lbrakk> cast_prefix_raw as *mut u16 \<rbrakk> \<close>
+  against \<open> \<lbrakk> cast_prefix_raw as *mut u16 \<rbrakk> \<close>
 old_urust_rejects
   \<open>
     cast_prefix_raw as * // pointer mutability follows

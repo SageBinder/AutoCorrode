@@ -119,6 +119,78 @@ val _ = Outer_Syntax.local_theory \<^command_keyword>\<open>new_urust_rejects\<c
           (rejection_args >> urust_rejects false)
 \<close>
 
+subsection\<open> Conformance-command options \<close>
+
+ML_val\<open>
+  local
+    val unit_source = Symbol.open_ ^ " () " ^ Symbol.close
+
+    fun run_command source_name command_text () =
+      let
+        val thy = \<^theory>
+        val transitions =
+          Outer_Syntax.parse_text thy (K thy)
+            (Position.line_file 1 source_name) command_text
+        val _ =
+          if length transitions = 1 then ()
+          else error "expected exactly one parsed conformance command"
+      in
+        fold (Toplevel.command_exception false) transitions
+          (Toplevel.make_state (SOME thy))
+      end
+
+    fun assert_rejected source_name command_text expected =
+      (case Exn.result (run_command source_name command_text) () of
+         Exn.Res _ =>
+           error
+             ("invalid uRust command options were unexpectedly accepted" ^
+               Position.here (Position.file source_name))
+       | Exn.Exn exn =>
+           if Exn.is_interrupt exn then Exn.reraise exn
+           else
+             let
+               val message = Runtime.exn_message exn
+             in
+               if String.isSubstring expected message andalso
+                  String.isSubstring source_name message
+               then ()
+               else
+                 error
+                   ("unexpected uRust command-option diagnostic:\n" ^ message)
+             end)
+  in
+    val _ =
+      assert_rejected
+        "contradictory-conformance-command"
+        ("urust_expr " ^
+          "[urust_verbose = true, urust_conformance_check = false] contradictory " ^
+          unit_source ^ " against " ^
+          Symbol.open_ ^ " \<lbrakk> () \<rbrakk> " ^ Symbol.close)
+        "[urust_conformance_check = false] cannot be combined with `against`"
+    val _ =
+      assert_rejected
+        "duplicate-urust-option-command"
+        ("urust_expr " ^
+          "[urust_verbose = true, urust_verbose = false] duplicate " ^
+          unit_source)
+        "duplicate uRust command option \"urust_verbose\""
+    val _ =
+      assert_rejected
+        "unknown-urust-option-command"
+        ("urust_fun [urust_future_flag = true] unknown :: " ^
+          Symbol.open_ ^
+          "(unit, unit, unit, unit, unit) function_body" ^
+          Symbol.close ^ " () " ^ unit_source)
+        "unknown uRust command option \"urust_future_flag\""
+    val _ =
+      assert_rejected
+        "legacy-conformance-option-command"
+        ("urust_expr [conformance_check = true] legacy " ^
+          unit_source)
+        "unknown uRust command option \"conformance_check\""
+  end
+\<close>
+
 section\<open> Non-associative operators \<close>
 
 text\<open>
