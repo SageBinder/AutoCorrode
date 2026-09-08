@@ -375,11 +375,11 @@ urust_expr [urust_abbrev = true] Core_Expression_Lemmas_urust_site_4
     let (vf, vg) = \<epsilon>\<open>get (\<lambda>\<sigma>. ((f \<sigma>), (g \<sigma>), nil))\<close>;
     \<epsilon>\<open>e vf vg\<close>
   \<close>
-  with_args f g e
+  with_args f g nil e
 
 lemma get_merge[micro_rust_simps]:
   shows \<open>Core_Expression_Lemmas_urust_site_3 f g e =
-    Core_Expression_Lemmas_urust_site_4 f g e\<close>
+    Core_Expression_Lemmas_urust_site_4 f g nil e\<close>
   by (auto simp: Core_Expression.bind.simps evaluate_def get_def split: expression.splits
     continuation.splits)
 
