@@ -126,7 +126,7 @@ ML_val\<open>
       parse (Parser_Lex_Util.text_source text)
 
     fun checked text =
-      URust_Command.elab_urust ctxt
+      Parser_Test_Elaboration.expression ctxt
         (Parser_Lex_Util.text_source text)
 
     fun same_range left right =
@@ -243,7 +243,7 @@ ML_val\<open>
 
     val comment_free_term = checked "1_u64 + 2_u64"
     val commented_term =
-      URust_Command.elab_urust ctxt structural_source
+      Parser_Test_Elaboration.expression ctxt structural_source
     val _ =
       audit_assert "formal comment changed the checked term"
         (Term.aconv
@@ -254,7 +254,7 @@ ML_val\<open>
       capture_reports
         (fn () =>
           ignore
-            (URust_Command.elab_urust ctxt structural_source))
+            (Parser_Test_Elaboration.expression ctxt structural_source))
     val _ =
       (audit_assert "left numeral lost markup"
          (has_markup parser_markup Markup.numeralN left_pos);

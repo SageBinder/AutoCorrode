@@ -8,9 +8,9 @@ section\<open> Showcase \<close>
 
 text\<open>
 These examples intentionally combine features. Shared-source examples check the
-same text against the existing frontend. The declared-function example gives an
-explicit equivalent old-frontend spelling; the combined parser-only expression
-has its witness in \<open>Parser_Test_Improvements\<close>.
+same text against the existing frontend. The explicit \<open>urust_fun\<close> and common typed
+\<open>urust_expr\<close> function examples give equivalent old-frontend spellings; the combined
+parser-only expression has its witness in \<open>Parser_Test_Improvements\<close>.
 \<close>
 
 subsection\<open> Expressions, bindings, and control flow \<close>
@@ -72,6 +72,13 @@ urust_fun [urust_verbose = true] showoff_declared_mix ::
   (left, right)
   \<open> left * 3u64 + right \<close>
   against \<open> \<lbrakk> left * 3_u64 + right \<rbrakk> \<close>
+
+urust_expr [urust_verbose = true] showoff_typed_common ::
+  \<open>64 word \<Rightarrow> 64 word \<Rightarrow>
+    (unit, 64 word, unit, unit, unit) function_body\<close>
+  \<open> left * 5u64 + right \<close>
+  with_args left right
+  against \<open> \<lbrakk> left * 5_u64 + right \<rbrakk> \<close>
 
 urust_expr [urust_abbrev = true] showoff_contextual_mix
   \<open> left * 3_u64 + right \<close>

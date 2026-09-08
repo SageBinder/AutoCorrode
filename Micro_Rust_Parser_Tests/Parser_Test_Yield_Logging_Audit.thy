@@ -39,7 +39,7 @@ ML_val\<open>
       parse (Parser_Lex_Util.text_source text)
 
     fun checked text =
-      URust_Command.elab_urust ctxt
+      Parser_Test_Elaboration.expression ctxt
         (Parser_Lex_Util.text_source text)
 
     fun same_range left right =
@@ -290,7 +290,7 @@ ML_val\<open>
             Print_Mode.with_modes [Print_Mode.PIDE]
               (fn () =>
                 ignore
-                  (URust_Command.elab_urust ctxt markup_source)) ())
+                  (Parser_Test_Elaboration.expression ctxt markup_source)) ())
           ())
 
     fun collect_markup (XML.Text _) result = result

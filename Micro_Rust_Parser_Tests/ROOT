@@ -21,6 +21,7 @@ session Micro_Rust_Parser_Tests = HOL +
     Struct_Ambiguity_Right
     Micro_Rust_Notations_Test
     Micro_Rust_Shallow_Embedding_Tests
+    Parser_Test_Expr_Types
     Parser_Test_Expr_Conformance
     Parser_Test_Fun_Conformance
     Parser_Test_Flags

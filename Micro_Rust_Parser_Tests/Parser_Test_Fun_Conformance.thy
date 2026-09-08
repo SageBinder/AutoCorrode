@@ -381,7 +381,7 @@ ML_val\<open>
       (name, Position.make0 line offset 0 "" file "")
 
     fun elaborate raw_type parameters body =
-      URust_Command.elab_urust_fun ctxt
+      Parser_Test_Elaboration.function ctxt
         {raw_type =
            (raw_type, Position.make0 3 30 0 "" file ""),
          parameters = parameters,
@@ -546,7 +546,7 @@ ML_val\<open>
       Parser_Lex_Util.positioned_content_source
         "\<llangle>(first, second)\<rrangle>" body_start
     val term =
-      URust_Command.elab_urust_fun ctxt
+      Parser_Test_Elaboration.function ctxt
         {raw_type = (raw_type, Position.line 9),
          parameters = parameters,
          parameters_pos = parameter_start,
@@ -617,7 +617,7 @@ ML_val\<open>
           (fn () =>
             Print_Mode.with_modes [Print_Mode.PIDE]
               (fn () =>
-                URust_Command.elab_urust_fun ctxt
+                Parser_Test_Elaboration.function ctxt
                   {raw_type =
                      ("nat \<Rightarrow> bool \<Rightarrow> " ^
                       "(unit, nat * bool * bool, unit, unit, unit) function_body",
