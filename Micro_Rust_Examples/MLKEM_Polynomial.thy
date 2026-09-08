@@ -7,6 +7,8 @@ theory MLKEM_Polynomial
     Micro_Rust_Std_Lib.StdLib_Slice
 begin
 
+declare [[urust_conformance_check = true]]
+
 text\<open>
   \<mu>Rust polynomial operations with contracts proving refinement against the
   pure specifications from @{theory Micro_Rust_Examples.MLKEM_Specification}.
@@ -58,22 +60,24 @@ by (intro array_extI) (simp add: mlkem_n_def)
 
 section\<open>Polynomial addition\<close>
 
-definition poly_add :: \<open>mlkem_poly \<Rightarrow> mlkem_poly \<Rightarrow>
-     ('s, mlkem_poly, 'abort, 'i prompt, 'o prompt_output) function_body\<close> where
-  \<open>poly_add a b \<equiv> FunctionBody \<lbrakk>
-     let mut result = a;
+urust_fun poly_add ::
+  \<open>mlkem_poly \<Rightarrow> mlkem_poly \<Rightarrow>
+   ('s, mlkem_poly, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
+  (a, b)
+  \<open>
+    let mut result = a;
 
-     for i in 0..256_u64 {
-       let elem_ref = result[i];
+    for i in 0..256_u64 {
+      let elem_ref = result[i];
 
-       let ai = *elem_ref;
-       let bi = b[i];
+      let ai = *elem_ref;
+      let bi = b[i];
 
-       elem_ref = zq_add(ai, bi)
-     };
+      elem_ref = zq_add(ai, bi)
+    };
 
-     *result
-  \<rbrakk>\<close>
+    *result
+  \<close>
 
 definition poly_add_contract :: \<open>mlkem_poly \<Rightarrow> mlkem_poly \<Rightarrow>
         ('s::{sepalg}, mlkem_poly, 'b) function_contract\<close> where
@@ -112,21 +116,23 @@ done
 
 section\<open>Polynomial subtraction\<close>
 
-definition poly_sub :: \<open>mlkem_poly \<Rightarrow> mlkem_poly \<Rightarrow>
-     ('s, mlkem_poly, 'abort, 'i prompt, 'o prompt_output) function_body\<close> where
-  \<open>poly_sub a b \<equiv> FunctionBody \<lbrakk>
-     let mut result = a;
+urust_fun poly_sub ::
+  \<open>mlkem_poly \<Rightarrow> mlkem_poly \<Rightarrow>
+   ('s, mlkem_poly, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
+  (a, b)
+  \<open>
+    let mut result = a;
 
-     for i in 0..256_u64 {
-       let elem_ref = result[i];
-       let ai = *elem_ref;
-       let bi = b[i];
+    for i in 0..256_u64 {
+      let elem_ref = result[i];
+      let ai = *elem_ref;
+      let bi = b[i];
 
-       elem_ref = zq_sub(ai, bi)
-     };
+      elem_ref = zq_sub(ai, bi)
+    };
 
-     *result
-  \<rbrakk>\<close>
+    *result
+  \<close>
 
 definition poly_sub_contract :: \<open>mlkem_poly \<Rightarrow> mlkem_poly \<Rightarrow>
       ('s::{sepalg}, mlkem_poly, 'b) function_contract\<close> where
