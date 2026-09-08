@@ -25,7 +25,7 @@ sig
   val allocate_expression_arguments:
     Proof.context ->
       environment ->
-      (string * Position.T) list ->
+      ((string * Position.T) * typ) list ->
       term list * environment
   val allocate_function_parameters:
     Proof.context ->
@@ -119,9 +119,9 @@ ML\<open>
     allocates one distinct Free per source formal in source order, and returns those Frees together
     with the final environment in which each later repeated name shadows its predecessors.
     allocate_expression_arguments and allocate_function_parameters reject `_` and duplicate names
-    through the same validation path. Expression arguments receive dummy types for inference;
-    function parameters receive their declared types. Both return the ordered Frees with the extended
-    environment. use_local
+    through the same validation path, allocate the supplied types, and return the ordered Frees with
+    the extended environment. Untyped expression clients supply dummy types for inference; typed
+    clients supply argument or parameter types from the complete declaration type. use_local
     performs a positioned lookup, reports a bound reference on success, and returns NONE without
     fallback resolution; lookup_local performs the same lexical lookup without reporting. Single-local
     allocation and the generic binder records are private implementation details.
@@ -227,15 +227,17 @@ struct
                    Position.here original_pos))
       val _ = fold validate parameters Symtab.empty
       fun allocate [] env frees = (rev frees, env)
-        | allocate (parameter :: rest) env frees =
+        | allocate ((parameter as ((_, pos), T)) :: rest) env frees =
             let
+              val _ =
+                Context_Position.report_text ctxt pos Markup.typing
+                  ("uRust " ^ role ^ " :: " ^ Syntax.string_of_typ ctxt T)
               val (free, env') = bind_typed_local ctxt env parameter
             in allocate rest env' (free :: frees) end
     in allocate parameters environment [] end
 
   fun allocate_expression_arguments ctxt environment arguments =
-    allocate_parameters "urust_expr" "argument" ctxt environment
-      (map (fn argument => (argument, dummyT)) arguments)
+    allocate_parameters "urust_expr" "argument" ctxt environment arguments
 
   fun allocate_function_parameters ctxt environment parameters =
     allocate_parameters "urust_fun" "parameter" ctxt environment parameters
