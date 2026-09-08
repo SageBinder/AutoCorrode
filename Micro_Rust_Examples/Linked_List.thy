@@ -8,6 +8,7 @@ theory Linked_List
     Crush.Crush
     Micro_Rust_Std_Lib.StdLib_All
 begin
+declare [[urust_conformance_check = true]]
 (*>*)
 
 section\<open>Example: Linked List reversal in uRust\<close>
@@ -50,11 +51,12 @@ abbreviation ll_ptr_as_ref' ::
 abbreviation \<open>ll_ptr_as_ref \<equiv> Option.map_option ll_ptr_as_ref'\<close>
 
 \<comment>\<open>Bounded reversal of linked lists of uRust references\<close>
-definition reverse_unlink :: \<open>64 word \<Rightarrow> ('caddr, 'gv) gref option \<Rightarrow>
+urust_fun reverse_unlink :: \<open>64 word \<Rightarrow> ('caddr, 'gv) gref option \<Rightarrow>
       ('addr, 'gv, ('caddr, 'gv) gref option) Global_Store.ref \<Rightarrow>
       ('addr, 'gv, ('caddr, 'gv) gref option) Global_Store.ref \<Rightarrow>
-      ('s, ('caddr, 'gv) gref option \<times> ('caddr, 'gv) gref option \<times> tnil, 'abort, 'i prompt, 'o prompt_output) function_body\<close> where
-  \<open>reverse_unlink n orig cur_raw last_raw \<equiv> FunctionBody \<lbrakk>
+      ('s, ('caddr, 'gv) gref option \<times> ('caddr, 'gv) gref option \<times> tnil, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
+  (n, orig, cur_raw, last_raw)
+  \<open>
       last_raw = None;
       cur_raw = orig;
       for i in 0..n {
@@ -71,7 +73,7 @@ definition reverse_unlink :: \<open>64 word \<Rightarrow> ('caddr, 'gv) gref opt
       let last = *last_raw;
       let cur = *cur_raw;
       (last, cur)
-  \<rbrakk>\<close>
+  \<close>
 
 \<comment>\<open>Recursive predicate capturing the abstract content of a linked list of uRust references\<close>
 fun ll_points_to :: \<open>'t list         \<comment> \<open>abstracted prefix of linked list\<close>
@@ -154,13 +156,14 @@ so we always need to repeat overloading for new references.\<close>
 adhoc_overloading store_reference_const \<rightleftharpoons> ref_gref_opt.new
 
 \<comment>\<open>Bounded reversal of linked lists of uRust references\<close>
-definition reverse_unlink' :: \<open>64 word \<Rightarrow> ('caddr, 'gv) gref option
-  \<Rightarrow> ('s, ('caddr, 'gv) gref option \<times> ('caddr, 'gv) gref option \<times> tnil, 'abort, 'i prompt, 'o prompt_output) function_body\<close> where
-  \<open>reverse_unlink' n ll \<equiv> FunctionBody \<lbrakk>
+urust_fun reverse_unlink' :: \<open>64 word \<Rightarrow> ('caddr, 'gv) gref option
+  \<Rightarrow> ('s, ('caddr, 'gv) gref option \<times> ('caddr, 'gv) gref option \<times> tnil, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
+  (n, ll)
+  \<open>
       let mut last_raw = None;
       let mut cur_raw = None;
       reverse_unlink(n, ll, last_raw, cur_raw)
-  \<rbrakk>\<close>
+  \<close>
 
 definition reverse_unlink'_contract ::
    \<open>64 word
