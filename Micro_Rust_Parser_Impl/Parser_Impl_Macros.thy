@@ -36,8 +36,8 @@ ML\<open>
   the supplied abstract environment and return an unchecked shallow HOL term; callers must close that
   callback over the same Proof.context passed to lower_macro. The payload tuple is the source macro
   name, separate name and bang positions, parsed payload, and complete invocation position. The result
-  may contain dummy types and must reach the command layer's single Syntax.check_term through
-  URust_Translate.mk_closed.
+  may contain dummy types and must remain unchecked until the URust_Command.elaborate boundary
+  performs the command layer's single Syntax.check_term.
 
   For MP_Arguments, an exact registered NFunction name including `!` is considered only when the name
   and bang positions are adjacent. A registered name wins over every builtin and lowers every argument
