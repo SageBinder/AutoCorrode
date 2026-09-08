@@ -217,6 +217,89 @@ urust_expr
 
 end
 
+definition typed_ambient_probe :: \<open>'a itself \<Rightarrow> nat\<close>
+  where \<open>typed_ambient_probe _ = 0\<close>
+
+locale typed_ambient_tfree_locale =
+  fixes ambient_witness :: \<open>'ambient itself\<close>
+begin
+
+urust_expr
+  [urust_conformance_check = true]
+  typed_ambient_tfree_function ::
+  \<open>(unit, nat, unit, unit, unit) function_body\<close>
+  \<open> \<llangle>typed_ambient_probe TYPE('ambient)\<rrangle> \<close>
+
+thm typed_ambient_tfree_function_conformance
+
+ML_val\<open>
+  local
+    val ctxt = \<^context>
+    val declared_type =
+      "(unit, nat, unit, unit, unit) function_body"
+    val source =
+      Parser_Lex_Util.text_source
+        "\<llangle>typed_ambient_probe TYPE('ambient)\<rrangle>"
+    val checked =
+      URust_Command.elaborate ctxt
+        {kind = URust_Command.Function,
+         source = source,
+         arguments = [],
+         arguments_pos = #2 (Input.range_of source),
+         declared_type = SOME (declared_type, Position.none)}
+    val installed =
+      Proof_Context.get_thm ctxt
+        "typed_ambient_tfree_function_def"
+      |> Thm.prop_of
+      |> Logic.dest_equals
+      |> #2
+    val expected_probe_type =
+      Syntax.read_typ ctxt
+        "'ambient itself \<Rightarrow> nat"
+    val probe_name =
+      \<^const_name>\<open>typed_ambient_probe\<close>
+
+    fun probe_types term =
+      Term.fold_aterms
+        (fn Const (name, T) =>
+              if name = probe_name then cons T else I
+          | _ => I)
+        term []
+
+    fun assert_probe_type label term =
+      (case probe_types term of
+         [actual] =>
+           if actual = expected_probe_type then ()
+           else
+             error
+               ("ambient TFree regression: " ^ label ^
+                 " specialized the probe to " ^
+                 Syntax.string_of_typ ctxt actual)
+       | actual =>
+           error
+             ("ambient TFree regression: " ^ label ^
+               " has " ^ string_of_int (length actual) ^
+               " probe occurrences"))
+
+    val _ =
+      if null (Variable.add_fixed ctxt checked []) then ()
+      else
+        error
+          "ambient TFree regression: checked term unexpectedly contains a fixed Free"
+    val _ =
+      if null (Term.add_tfreesT (fastype_of checked) []) then ()
+      else
+        error
+          "ambient TFree regression: complete declaration unexpectedly exposes the ambient type"
+    val _ = assert_probe_type "checked term" checked
+    val _ = assert_probe_type "installed term" installed
+  in
+    val _ = ()
+  end
+\<close>
+
+end
+
 definition typed_flags_abbrev_client where
   \<open>typed_flags_abbrev_client = typed_flags_001\<close>
 
