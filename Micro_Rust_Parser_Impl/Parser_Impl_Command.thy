@@ -71,7 +71,7 @@ end
    ending in expression; Function requires a curried declaration type ending in function_body. Typed
    argument types are allocated before AST lowering, the complete unchecked term receives one
    Type.constraint, and the result passes through Syntax.check_term exactly once. Residual internal
-   schematic types that do not occur in the checked declaration type are then closed with its terminal
+   type variables that do not occur in the checked declaration type are then closed with its terminal
    value channel. All failures are positioned.
    URust_Diagnostics.parse_source owns serialization of the generated runtime; elaboration and
    check_term remain outside that lock.
@@ -246,31 +246,44 @@ fun close_typed_term kind lthy type_pos checked =
   let
     val declaration_type = fastype_of checked
     val declared_tvars = Term.add_tvarsT declaration_type []
-    fun declared (xi, _) =
+    fun declared_tvar (xi, _) =
       exists (fn (declared_xi, _) => declared_xi = xi) declared_tvars
     val residual_tvars =
       Term.add_tvars checked []
-      |> filter_out declared
+      |> filter_out declared_tvar
       |> sort_by (Term.string_of_vname o #1)
+    val declared_tfrees = Term.add_tfreesT declaration_type []
+    fun declared_tfree tfree = member (op =) declared_tfrees tfree
+    val residual_tfrees =
+      Term.add_tfrees checked []
+      |> filter_out declared_tfree
+      |> sort_by #1
+    val residual_types =
+      map (fn variable as (_, sort) => (TVar variable, sort))
+        residual_tvars @
+      map (fn variable as (_, sort) => (TFree variable, sort))
+        residual_tfrees
+      |> sort_by (Syntax.string_of_typ lthy o #1)
     val value_type =
       terminal_value_type kind type_pos declaration_type
     val thy = Proof_Context.theory_of lthy
     val incompatible =
       filter_out (fn (_, sort) => Sign.of_sort thy (value_type, sort))
-        residual_tvars
+        residual_types
     val _ =
       (case incompatible of
-         (xi, _) :: _ =>
+         (variable_type, _) :: _ =>
            error
              (command_name kind ^
                ": inferred internal type variable " ^
-               quote (Term.string_of_vname xi) ^
+               quote (Syntax.string_of_typ lthy variable_type) ^
                " is incompatible with the declared result value type" ^
                Position.here type_pos)
        | [] => ())
   in
-    Term.subst_TVars
-      (map (fn (xi, _) => (xi, value_type)) residual_tvars)
+    Term.subst_atomic_types
+      (map (fn (variable_type, _) => (variable_type, value_type))
+        residual_types)
       checked
   end
 
