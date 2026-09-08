@@ -1175,10 +1175,10 @@ lemma wp_bitwise_xor:
     shows \<open>\<psi> (x XOR y) \<longlongrightarrow> \<W>\<P> \<Gamma> (wp_bitwise_xor_urust_site_1 x y) \<psi> \<rho> \<theta>\<close>
 using assms by (intro sstriple_pure_to_wp') (auto intro: sstriple_bitwise_xorI)
 
-urust_expr [urust_abbrev = true] wp_bitwise_not_urust_site_1
-  \<open> !\<llangle>(x :: 'l::{len} word)\<rrangle> \<close>
+urust_expr [urust_abbrev = true] wp_bitwise_not_urust_site_1 ::
+  \<open>'l::len word \<Rightarrow> ('s, 'l word, 'r, 'abort, 'i, 'o) expression\<close>
+  \<open> !x \<close>
   with_args x
-  against \<open>\<lbrakk> !x \<rbrakk>\<close>
 
 lemma wp_bitwise_not:
   assumes \<open>\<And>v. ucincl (\<psi> v)\<close>
@@ -1215,10 +1215,10 @@ lemma wp_bitwise_xorI [micro_rust_wp_intros]:
     shows \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> (wp_bitwise_xorI_urust_site_1 x y) \<psi> \<rho> \<theta>\<close>
 using assms wp_bitwise_xor aentails_trans' by blast
 
-urust_expr [urust_abbrev = true] wp_bitwise_notI_urust_site_1
-  \<open> !\<llangle>(x :: 'l::{len} word)\<rrangle> \<close>
+urust_expr [urust_abbrev = true] wp_bitwise_notI_urust_site_1 ::
+  \<open>'l::len word \<Rightarrow> ('s, 'l word, 'r, 'abort, 'i, 'o) expression\<close>
+  \<open> !x \<close>
   with_args x
-  against \<open>\<lbrakk> !x \<rbrakk>\<close>
 
 lemma wp_bitwise_notI [micro_rust_wp_intros]:
   assumes \<open>\<And>v. ucincl (\<psi> v)\<close>
