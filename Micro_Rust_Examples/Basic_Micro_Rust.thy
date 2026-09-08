@@ -94,10 +94,11 @@ subsection\<open>Parser output and shallow embedding\<close>
 text\<open>The \<^verbatim>\<open>urust_expr\<close> command parses a Micro Rust expression and immediately
 declares its shallow HOL denotation, producing a value of type \<^verbatim>\<open>expression\<close>.
 \<^verbatim>\<open>urust_fun\<close> does the same for a complete, explicitly typed
-\<^verbatim>\<open>function_body\<close>. There is, at present, no persistent Micro Rust AST in HOL: parser
-output is elaborated directly into the denotational semantics. The legacy shallow-embedding bracket
-is retained as a conformance oracle, so production declarations can prove that the parser-generated
-term is identical to the established frontend term.\<close>
+\<^verbatim>\<open>function_body\<close>. The parser first produces a positioned Micro Rust AST in Isabelle/ML,
+then elaborates that AST directly into the denotational semantics; it does not expose a persistent
+object-level AST in HOL. The legacy shallow-embedding bracket is retained as a conformance oracle, so
+production declarations can prove that the parser-generated term is identical to the established
+frontend term.\<close>
 
 text\<open>Shallow embeddings of Micro Rust programs into HOL are values of type
 \<^verbatim>\<open>expression\<close>, which is effectively a state monad: Elements of \<^verbatim>\<open>('s, 'v, 'r, \<dots>) expression\<close>
