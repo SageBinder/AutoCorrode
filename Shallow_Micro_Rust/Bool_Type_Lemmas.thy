@@ -151,8 +151,9 @@ lemma assert_true_sequence [micro_rust_simps]:
   by (simp add: micro_rust_simps assert_def assert_val_def)
 
 urust_expr [urust_abbrev = true] Bool_Type_Lemmas_urust_site_6
-  \<open> !c \<close>
+  \<open> !\<llangle>(c :: bool)\<rrangle> \<close>
   with_args c
+  against \<open>\<lbrakk> !c \<rbrakk>\<close>
 
 urust_expr [urust_abbrev = true] Bool_Type_Lemmas_urust_site_7
   \<open> \<llangle>\<not>c\<rrangle> \<close>
