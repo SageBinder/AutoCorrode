@@ -385,14 +385,14 @@ declare [[urust_conformance_check = true]]
 
 urust_expr typed_boolean_negation ::
   \<open>bool \<Rightarrow> ('s, bool, 'r, 'abort, 'i, 'o) expression\<close>
-  \<open> !value \<close>
-  with_args value
+  \<open> !operand \<close>
+  with_args operand
 
 urust_expr typed_word_negation ::
   \<open>'a::len word \<Rightarrow>
     ('s, 'a word, 'r, 'abort, 'i, 'o) expression\<close>
-  \<open> !value \<close>
-  with_args value
+  \<open> !operand \<close>
+  with_args operand
 
 urust_expr typed_bound_negation ::
   \<open>('s, bool, 'r, 'abort, 'i, 'o) expression \<Rightarrow>
@@ -403,8 +403,8 @@ urust_expr typed_bound_negation ::
 urust_expr typed_indexing ::
   \<open>nat list \<Rightarrow> 64 word \<Rightarrow>
     ('s, nat, 'r, 'abort, 'i, 'o) expression\<close>
-  \<open> values[index] \<close>
-  with_args values index
+  \<open> elements[index] \<close>
+  with_args elements index
 
 urust_expr typed_abort_sequence ::
   \<open>'abort abort \<Rightarrow>
