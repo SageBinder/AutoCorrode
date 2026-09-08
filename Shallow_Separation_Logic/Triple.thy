@@ -613,8 +613,9 @@ by (auto intro!: sstriple_from_stripleI striple_bitwise_xorI simp add: eval_valu
   eval_return_def urust_eval_predicate_simps is_local_def eval_abort_def)
 
 urust_expr [urust_abbrev = true] sstriple_bitwise_notI_urust_site_1
-  \<open> !x \<close>
+  \<open> !\<llangle>(x :: 'l::{len} word)\<rrangle> \<close>
   with_args x
+  against \<open>\<lbrakk> !x \<rbrakk>\<close>
 
 lemma sstriple_bitwise_notI:
   fixes x :: \<open>'l::{len} word\<close>

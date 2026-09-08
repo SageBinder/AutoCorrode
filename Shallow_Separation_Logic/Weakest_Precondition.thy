@@ -1176,8 +1176,9 @@ lemma wp_bitwise_xor:
 using assms by (intro sstriple_pure_to_wp') (auto intro: sstriple_bitwise_xorI)
 
 urust_expr [urust_abbrev = true] wp_bitwise_not_urust_site_1
-  \<open> !x \<close>
+  \<open> !\<llangle>(x :: 'l::{len} word)\<rrangle> \<close>
   with_args x
+  against \<open>\<lbrakk> !x \<rbrakk>\<close>
 
 lemma wp_bitwise_not:
   assumes \<open>\<And>v. ucincl (\<psi> v)\<close>
@@ -1215,8 +1216,9 @@ lemma wp_bitwise_xorI [micro_rust_wp_intros]:
 using assms wp_bitwise_xor aentails_trans' by blast
 
 urust_expr [urust_abbrev = true] wp_bitwise_notI_urust_site_1
-  \<open> !x \<close>
+  \<open> !\<llangle>(x :: 'l::{len} word)\<rrangle> \<close>
   with_args x
+  against \<open>\<lbrakk> !x \<rbrakk>\<close>
 
 lemma wp_bitwise_notI [micro_rust_wp_intros]:
   assumes \<open>\<And>v. ucincl (\<psi> v)\<close>
