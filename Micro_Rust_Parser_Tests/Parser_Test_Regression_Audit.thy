@@ -545,7 +545,7 @@ ML_val\<open>
       Parser_Test_Elaboration.expression ctxt (Parser_Lex_Util.text_source text)
 
     fun unchecked text =
-      URust_Translate.mk_closed ctxt (parse_text text)
+      URust_Translate.mk_expression ctxt [] (parse_text text)
 
     fun path_named name path = render_path path = name
     fun expression_named name (UE_Path path) = path_named name path
@@ -1673,7 +1673,7 @@ ML_val\<open>
              "range/array/index regression audit: indexed place AST changed")
 
     fun unchecked text =
-      URust_Translate.mk_closed ctxt (parse text)
+      URust_Translate.mk_expression ctxt [] (parse text)
 
     fun has_head name arity term =
       (case Term.strip_comb term of
@@ -1783,7 +1783,7 @@ ML_val\<open>
       parse (Parser_Lex_Util.text_source text)
 
     fun unchecked text =
-      URust_Translate.mk_closed ctxt (parse_text text)
+      URust_Translate.mk_expression ctxt [] (parse_text text)
 
     fun checked text =
       Parser_Test_Elaboration.expression ctxt (Parser_Lex_Util.text_source text)
@@ -3313,7 +3313,7 @@ ML_val\<open>
            error "cast regression audit: grouped cast postfix AST changed")
 
     fun unchecked text =
-      URust_Translate.mk_closed ctxt (parse text)
+      URust_Translate.mk_expression ctxt [] (parse text)
 
     datatype lowering_kind =
         Unsigned_Lowering
