@@ -7,6 +7,8 @@ theory Raw_Physical_Memory_Trie
     Raw_Physical_Memory_Trie_Core
     Micro_Rust_Interfaces_Core.Raw_Physical_Memory
 begin
+
+declare [[urust_conformance_check = true]]
 (*>*)
 
 section\<open>Derived material around trie-based physical memory\<close>
@@ -68,15 +70,17 @@ definition memset_tagged_phys_block :: \<open>64 word \<Rightarrow> nat \<Righta
     ('tag tagged_physical_memory, unit, 'abort, 'i, 'o) function_body\<close> where
   \<open>memset_tagged_phys_block pa n b \<equiv> FunctionBody (memset_tagged_phys_block_core pa n b)\<close>
 
-definition memset_tagged_phys :: \<open>64 word \<Rightarrow> 64 word \<Rightarrow> 8 word \<Rightarrow>
-    ('tag tagged_physical_memory, unit, 'abort, 'i, 'o) function_body\<close> where
-  \<open>memset_tagged_phys pa l b \<equiv> FunctionBody \<lbrakk>
+urust_fun memset_tagged_phys ::
+  \<open>64 word \<Rightarrow> 64 word \<Rightarrow> 8 word \<Rightarrow>
+    ('tag tagged_physical_memory, unit, 'abort, 'i, 'o) function_body\<close>
+  (pa, l, b)
+  \<open>
     for blk in \<llangle>range_to_aligned_blocks pa l\<rrangle> {
       let addr = \<llangle>fst blk\<rrangle>;
       let n = \<llangle>snd blk\<rrangle>;
       memset_tagged_phys_block(addr, n, b)
     }
-  \<rbrakk>\<close>
+  \<close>
 
 definition tag_physical_page_core :: \<open>64 word \<Rightarrow> nat \<Rightarrow> 'tag \<Rightarrow> ('tag tagged_physical_memory, unit, unit, 'abort, 'i, 'o) expression\<close> where
   \<open>tag_physical_page_core pa n tag \<equiv>
