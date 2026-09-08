@@ -10,6 +10,8 @@ theory Weak_Triple
     Shallow_Micro_Rust.Shallow_Micro_Rust
 begin
 
+declare [[urust_conformance_check = true]]
+
 text\<open>This type captures logical context that is necessary to specify the full program logic, but
 that changes rarely or never during verification.  This will encode things like rely/guarantee
 relations and contextual assumptions.\<close>
@@ -274,12 +276,12 @@ end
 text\<open>The following "program" changes the low value based on the presence of the high value,
 but leaves the low-value unchanged. Despite clearly not being low-local, it does satisfy the
 above triple definition:\<close>
-definition leak_high :: \<open>(high_low_sa, unit, unit, 'abort, 'i, 'o) expression\<close> where
-  \<open>leak_high \<equiv> \<lbrakk>
+urust_expr leak_high
+  \<open>
      if let Some(high) = \<epsilon>\<open>get get_high\<close> {
         \<epsilon>\<open>put (put_low high)\<close>
      }
-  \<rbrakk>\<close>
+  \<close>
 
 text\<open>The program \<^term>\<open>leak_high\<close> is 'pathological' in that it inspects the partiality of the
 state to make runtime decisions -- no real program would be able to do that. Yet, it does fit
@@ -761,13 +763,21 @@ next
   qed
 qed
 
+urust_expr [urust_abbrev = true] striple_assert_urust_site_1
+  \<open> assert!(v) \<close>
+  with_args v
+
 lemma striple_assert:
-  shows \<open>(\<Gamma> ; \<phi> \<turnstile> \<lbrakk> assert!(v) \<rbrakk> \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k \<psi> \<bowtie> \<rho> \<bowtie> \<theta>) \<longleftrightarrow>
+  shows \<open>(\<Gamma> ; \<phi> \<turnstile> striple_assert_urust_site_1 v \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k \<psi> \<bowtie> \<rho> \<bowtie> \<theta>) \<longleftrightarrow>
             (v \<longrightarrow> \<phi> \<longlongrightarrow> \<top> \<star> \<psi> ()) \<and> (\<not>v \<longrightarrow> \<phi> \<longlongrightarrow> \<top> \<star> \<theta> AssertionFailed)\<close>
   by (simp add: assert_def micro_rust_simps striple_assert_val)
 
+urust_expr [urust_abbrev = true] striple_assert_eq_urust_site_1
+  \<open> assert_eq!(v,w) \<close>
+  with_args v w
+
 lemma striple_assert_eq:
-  shows \<open>(\<Gamma> ; \<phi> \<turnstile> \<lbrakk> assert_eq!(v,w) \<rbrakk> \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k \<psi> \<bowtie> \<rho> \<bowtie> \<theta>) \<longleftrightarrow>
+  shows \<open>(\<Gamma> ; \<phi> \<turnstile> striple_assert_eq_urust_site_1 v w \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k \<psi> \<bowtie> \<rho> \<bowtie> \<theta>) \<longleftrightarrow>
             (v=w \<longrightarrow> \<phi> \<longlongrightarrow> \<top> \<star> \<psi> ()) \<and> (v \<noteq> w \<longrightarrow> \<phi> \<longlongrightarrow> \<top> \<star> \<theta> AssertionFailed)\<close>
   by (simp add: assert_eq_def assert_eq_val_def micro_rust_simps striple_assert_val)
 
@@ -822,14 +832,20 @@ lemma striple_panic:
 
 text\<open>Pause / Breakpoint\<close>
 
+urust_expr [urust_abbrev = true] striple_pause_urust_site_1
+  \<open> \<y>\<i>\<e>\<l>\<d> \<close>
+
 lemma striple_pause:
   assumes \<open>\<And>r. ucincl (\<psi> r)\<close>
-    shows \<open>(\<Gamma> ; \<top> \<turnstile> \<lbrakk> \<y>\<i>\<e>\<l>\<d> \<rbrakk> \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k \<top> \<bowtie> \<rho> \<bowtie> \<theta>)\<close>
+    shows \<open>(\<Gamma> ; \<top> \<turnstile> striple_pause_urust_site_1 \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k \<top> \<bowtie> \<rho> \<bowtie> \<theta>)\<close>
 using assms by (simp add: striple_def urust_eval_action_simps atriple_def)
+
+urust_expr [urust_abbrev = true] striple_pause'_urust_site_1
+  \<open> \<y>\<i>\<e>\<l>\<d> \<close>
 
 lemma striple_pause':
   assumes \<open>\<And>r. ucincl (\<psi> r)\<close>
-    shows \<open>(\<Gamma> ; \<phi> \<turnstile> \<lbrakk> \<y>\<i>\<e>\<l>\<d> \<rbrakk> \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k \<psi> \<bowtie> \<rho> \<bowtie> \<theta>) \<longleftrightarrow> (\<phi> \<longlongrightarrow> \<psi> ())\<close>
+    shows \<open>(\<Gamma> ; \<phi> \<turnstile> striple_pause'_urust_site_1 \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k \<psi> \<bowtie> \<rho> \<bowtie> \<theta>) \<longleftrightarrow> (\<phi> \<longlongrightarrow> \<psi> ())\<close>
 using assms unfolding is_valid_striple_context_def
   apply (clarsimp simp add: striple_def urust_eval_action_simps atriple_def)
   using aentails_after_all_asepconjs
@@ -838,13 +854,21 @@ using assms unfolding is_valid_striple_context_def
 
 text\<open>Various types of log events:\<close>
 
+urust_expr [urust_abbrev = true] striple_log_urust_site_1
+  \<open> \<l>\<o>\<g> \<llangle>p\<rrangle> \<llangle>l\<rrangle> \<close>
+  with_args p l
+
 lemma striple_log:
-  shows \<open>\<Gamma> ; \<top> \<turnstile> \<lbrakk> \<l>\<o>\<g> \<llangle>p\<rrangle> \<llangle>l\<rrangle> \<rbrakk> \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k \<top> \<bowtie> \<rho> \<bowtie> \<theta>\<close>
+  shows \<open>\<Gamma> ; \<top> \<turnstile> striple_log_urust_site_1 p l \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k \<top> \<bowtie> \<rho> \<bowtie> \<theta>\<close>
 by (simp add: striple_def urust_eval_action_simps atriple_def is_valid_striple_context_def)
+
+urust_expr [urust_abbrev = true] striple_log'_urust_site_1
+  \<open> \<l>\<o>\<g> \<llangle>p\<rrangle> \<llangle>l\<rrangle> \<close>
+  with_args p l
 
 lemma striple_log':
   assumes \<open>\<And>r. ucincl (\<psi> r)\<close>
-    shows \<open>(\<Gamma> ; \<phi> \<turnstile> \<lbrakk> \<l>\<o>\<g> \<llangle>p\<rrangle> \<llangle>l\<rrangle> \<rbrakk> \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k \<psi> \<bowtie> \<rho> \<bowtie> \<theta>) \<longleftrightarrow> (\<phi> \<longlongrightarrow> \<psi> ())\<close>
+    shows \<open>(\<Gamma> ; \<phi> \<turnstile> striple_log'_urust_site_1 p l \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k \<psi> \<bowtie> \<rho> \<bowtie> \<theta>) \<longleftrightarrow> (\<phi> \<longlongrightarrow> \<psi> ())\<close>
 using assms
   apply (clarsimp simp add: striple_def urust_eval_action_simps atriple_def
     is_valid_striple_context_def)
@@ -854,10 +878,14 @@ using assms
 
 text\<open>Fatal errors\<close>
 
+urust_expr [urust_abbrev = true] striple_fatal_urust_site_1
+  \<open> fatal!(msg) \<close>
+  with_args msg
+
 lemma striple_fatal:
   assumes \<open>is_aborting_striple_context \<Gamma>\<close>
       and \<open>\<And>r. ucincl (\<psi> r)\<close>
-    shows \<open>(\<Gamma> ; \<phi> \<turnstile> \<lbrakk> fatal!(msg) \<rbrakk> \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k \<psi> \<bowtie> \<rho> \<bowtie> \<theta>)\<close>
+    shows \<open>(\<Gamma> ; \<phi> \<turnstile> striple_fatal_urust_site_1 msg \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k \<psi> \<bowtie> \<rho> \<bowtie> \<theta>)\<close>
   using assms
   by (simp add: striple_def urust_eval_action_simps atriple_def is_aborting_striple_context_def)
 
@@ -926,15 +954,40 @@ lemma striple_call_inv:
 using assms by - (intro stripleI; elim stripleE_value stripleE_abort; simp add:
   urust_eval_predicate_call)
 
+urust_expr [urust_abbrev = true] striple_call_funliteral_urust_site_1
+  \<open> \<llangle>f1\<rrangle>\<^sub>1 (v0) \<close>
+  with_args f1 v0
+urust_expr [urust_abbrev = true] striple_call_funliteral_urust_site_2
+  \<open> \<llangle>f2\<rrangle>\<^sub>2 (v0, v1) \<close>
+  with_args f2 v0 v1
+urust_expr [urust_abbrev = true] striple_call_funliteral_urust_site_3
+  \<open> \<llangle>f3\<rrangle>\<^sub>3 (v0, v1, v2) \<close>
+  with_args f3 v0 v1 v2
+urust_expr [urust_abbrev = true] striple_call_funliteral_urust_site_4
+  \<open> \<llangle>f4\<rrangle>\<^sub>4 (v0, v1, v2, v3) \<close>
+  with_args f4 v0 v1 v2 v3
+urust_expr [urust_abbrev = true] striple_call_funliteral_urust_site_5
+  \<open> \<llangle>f5\<rrangle>\<^sub>5 (v0, v1, v2, v3, v4) \<close>
+  with_args f5 v0 v1 v2 v3 v4
+urust_expr [urust_abbrev = true] striple_call_funliteral_urust_site_6
+  \<open> \<llangle>f6\<rrangle>\<^sub>6 (v0, v1, v2, v3, v4, v5) \<close>
+  with_args f6 v0 v1 v2 v3 v4 v5
+urust_expr [urust_abbrev = true] striple_call_funliteral_urust_site_7
+  \<open> \<llangle>f7\<rrangle>\<^sub>7 (v0, v1, v2, v3, v4, v5, v6) \<close>
+  with_args f7 v0 v1 v2 v3 v4 v5 v6
+urust_expr [urust_abbrev = true] striple_call_funliteral_urust_site_8
+  \<open> \<llangle>f8\<rrangle>\<^sub>8 (v0, v1, v2, v3, v4, v5, v6, v7) \<close>
+  with_args f8 v0 v1 v2 v3 v4 v5 v6 v7
+
 lemma striple_call_funliteral:
-  shows \<open>(\<Gamma> ; \<phi> \<turnstile> \<lbrakk> \<llangle>f1\<rrangle>\<^sub>1 (v0) \<rbrakk> \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k \<psi> \<bowtie> \<rho> \<bowtie> \<theta>) \<longleftrightarrow> (\<phi> \<longlongrightarrow> \<psi> (f1 v0) \<star> \<top>)\<close>
-    and \<open>(\<Gamma> ; \<phi> \<turnstile> \<lbrakk> \<llangle>f2\<rrangle>\<^sub>2 (v0, v1) \<rbrakk> \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k \<psi> \<bowtie> \<rho> \<bowtie> \<theta>) \<longleftrightarrow> (\<phi> \<longlongrightarrow> \<psi> (f2 v0 v1) \<star> \<top>)\<close>
-    and \<open>(\<Gamma> ; \<phi> \<turnstile> \<lbrakk> \<llangle>f3\<rrangle>\<^sub>3 (v0, v1, v2) \<rbrakk> \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k \<psi> \<bowtie> \<rho> \<bowtie> \<theta>) \<longleftrightarrow> (\<phi> \<longlongrightarrow> \<psi> (f3 v0 v1 v2) \<star> \<top>)\<close>
-    and \<open>(\<Gamma> ; \<phi> \<turnstile> \<lbrakk> \<llangle>f4\<rrangle>\<^sub>4 (v0, v1, v2, v3) \<rbrakk> \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k \<psi> \<bowtie> \<rho> \<bowtie> \<theta>) \<longleftrightarrow> (\<phi> \<longlongrightarrow> \<psi> (f4 v0 v1 v2 v3) \<star> \<top>)\<close>
-    and \<open>(\<Gamma> ; \<phi> \<turnstile> \<lbrakk> \<llangle>f5\<rrangle>\<^sub>5 (v0, v1, v2, v3, v4) \<rbrakk> \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k \<psi> \<bowtie> \<rho> \<bowtie> \<theta>) \<longleftrightarrow> (\<phi> \<longlongrightarrow> \<psi> (f5 v0 v1 v2 v3 v4) \<star> \<top>)\<close>
-    and \<open>(\<Gamma> ; \<phi> \<turnstile> \<lbrakk> \<llangle>f6\<rrangle>\<^sub>6 (v0, v1, v2, v3, v4, v5) \<rbrakk> \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k \<psi> \<bowtie> \<rho> \<bowtie> \<theta>) \<longleftrightarrow> (\<phi> \<longlongrightarrow> \<psi> (f6 v0 v1 v2 v3 v4 v5) \<star> \<top>)\<close>
-    and \<open>(\<Gamma> ; \<phi> \<turnstile> \<lbrakk> \<llangle>f7\<rrangle>\<^sub>7 (v0, v1, v2, v3, v4, v5, v6) \<rbrakk> \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k \<psi> \<bowtie> \<rho> \<bowtie> \<theta>) \<longleftrightarrow> (\<phi> \<longlongrightarrow> \<psi> (f7 v0 v1 v2 v3 v4 v5 v6) \<star> \<top>)\<close>
-    and \<open>(\<Gamma> ; \<phi> \<turnstile> \<lbrakk> \<llangle>f8\<rrangle>\<^sub>8 (v0, v1, v2, v3, v4, v5, v6, v7) \<rbrakk> \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k \<psi> \<bowtie> \<rho> \<bowtie> \<theta>) \<longleftrightarrow> (\<phi> \<longlongrightarrow> \<psi> (f8 v0 v1 v2 v3 v4 v5 v6 v7) \<star> \<top>)\<close>
+  shows \<open>(\<Gamma> ; \<phi> \<turnstile> striple_call_funliteral_urust_site_1 f1 v0 \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k \<psi> \<bowtie> \<rho> \<bowtie> \<theta>) \<longleftrightarrow> (\<phi> \<longlongrightarrow> \<psi> (f1 v0) \<star> \<top>)\<close>
+    and \<open>(\<Gamma> ; \<phi> \<turnstile> striple_call_funliteral_urust_site_2 f2 v0 v1 \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k \<psi> \<bowtie> \<rho> \<bowtie> \<theta>) \<longleftrightarrow> (\<phi> \<longlongrightarrow> \<psi> (f2 v0 v1) \<star> \<top>)\<close>
+    and \<open>(\<Gamma> ; \<phi> \<turnstile> striple_call_funliteral_urust_site_3 f3 v0 v1 v2 \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k \<psi> \<bowtie> \<rho> \<bowtie> \<theta>) \<longleftrightarrow> (\<phi> \<longlongrightarrow> \<psi> (f3 v0 v1 v2) \<star> \<top>)\<close>
+    and \<open>(\<Gamma> ; \<phi> \<turnstile> striple_call_funliteral_urust_site_4 f4 v0 v1 v2 v3 \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k \<psi> \<bowtie> \<rho> \<bowtie> \<theta>) \<longleftrightarrow> (\<phi> \<longlongrightarrow> \<psi> (f4 v0 v1 v2 v3) \<star> \<top>)\<close>
+    and \<open>(\<Gamma> ; \<phi> \<turnstile> striple_call_funliteral_urust_site_5 f5 v0 v1 v2 v3 v4 \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k \<psi> \<bowtie> \<rho> \<bowtie> \<theta>) \<longleftrightarrow> (\<phi> \<longlongrightarrow> \<psi> (f5 v0 v1 v2 v3 v4) \<star> \<top>)\<close>
+    and \<open>(\<Gamma> ; \<phi> \<turnstile> striple_call_funliteral_urust_site_6 f6 v0 v1 v2 v3 v4 v5 \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k \<psi> \<bowtie> \<rho> \<bowtie> \<theta>) \<longleftrightarrow> (\<phi> \<longlongrightarrow> \<psi> (f6 v0 v1 v2 v3 v4 v5) \<star> \<top>)\<close>
+    and \<open>(\<Gamma> ; \<phi> \<turnstile> striple_call_funliteral_urust_site_7 f7 v0 v1 v2 v3 v4 v5 v6 \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k \<psi> \<bowtie> \<rho> \<bowtie> \<theta>) \<longleftrightarrow> (\<phi> \<longlongrightarrow> \<psi> (f7 v0 v1 v2 v3 v4 v5 v6) \<star> \<top>)\<close>
+    and \<open>(\<Gamma> ; \<phi> \<turnstile> striple_call_funliteral_urust_site_8 f8 v0 v1 v2 v3 v4 v5 v6 v7 \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k \<psi> \<bowtie> \<rho> \<bowtie> \<theta>) \<longleftrightarrow> (\<phi> \<longlongrightarrow> \<psi> (f8 v0 v1 v2 v3 v4 v5 v6 v7) \<star> \<top>)\<close>
 using aentails_after_all_asepconjs by (auto simp add: striple_def urust_eval_action_simps
   micro_rust_simps atriple_def aentails_def) (blast, meson aentailsE aentails_after_all_asepconjs)+
 
@@ -955,68 +1008,112 @@ using assms by (intro stripleI; clarsimp simp add: urust_eval_predicate_put
 
 subsection\<open>Defining triples for numeric and bitwise operators\<close>
 
+urust_expr [urust_abbrev = true] striple_word_add_no_wrapI_urust_site_1
+  \<open> x + y \<close>
+  with_args x y
+
 lemma striple_word_add_no_wrapI:
   fixes x y :: \<open>'l::{len} word\<close>
-  shows \<open>\<Gamma> ; \<langle>unat x + unat y < 2^(LENGTH('l))\<rangle> \<turnstile> \<lbrakk> x + y \<rbrakk> \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k (\<lambda>r. \<langle>r = x + y\<rangle>) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
+  shows \<open>\<Gamma> ; \<langle>unat x + unat y < 2^(LENGTH('l))\<rangle> \<turnstile> striple_word_add_no_wrapI_urust_site_1 x y \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k (\<lambda>r. \<langle>r = x + y\<rangle>) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
   by (intro stripleI; clarsimp simp add: urust_eval_predicate_add_no_wrap apure_def asepconj_simp
     atriple_post_true atriple_pre_false)
 
+urust_expr [urust_abbrev = true] striple_word_mul_no_wrapI_urust_site_1
+  \<open> x * y \<close>
+  with_args x y
+
 lemma striple_word_mul_no_wrapI:
   fixes x y :: \<open>'l::{len} word\<close>
-  shows \<open>\<Gamma> ; \<langle>unat x * unat y < 2^(LENGTH('l))\<rangle> \<turnstile> \<lbrakk> x * y \<rbrakk> \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k (\<lambda>r. \<langle>r = x * y\<rangle>) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
+  shows \<open>\<Gamma> ; \<langle>unat x * unat y < 2^(LENGTH('l))\<rangle> \<turnstile> striple_word_mul_no_wrapI_urust_site_1 x y \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k (\<lambda>r. \<langle>r = x * y\<rangle>) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
   by (intro stripleI; clarsimp simp add: urust_eval_predicate_mul_no_wrap apure_def asepconj_simp
     atriple_post_true atriple_pre_false)
 
+urust_expr [urust_abbrev = true] striple_word_sub_no_wrapI_urust_site_1
+  \<open> x - y \<close>
+  with_args x y
+
 lemma striple_word_sub_no_wrapI:
   fixes x y :: \<open>'l::{len} word\<close>
-  shows \<open>\<Gamma> ; \<langle>y \<le> x\<rangle> \<turnstile> \<lbrakk> x - y \<rbrakk> \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k (\<lambda>r. \<langle>r = x - y\<rangle>) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
+  shows \<open>\<Gamma> ; \<langle>y \<le> x\<rangle> \<turnstile> striple_word_sub_no_wrapI_urust_site_1 x y \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k (\<lambda>r. \<langle>r = x - y\<rangle>) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
   by (intro stripleI; clarsimp simp add: urust_eval_predicate_sub_no_wrap apure_def asepconj_simp
     atriple_post_true atriple_pre_false word_le_nat_alt)
 
+urust_expr [urust_abbrev = true] striple_word_udivI_urust_site_1
+  \<open> x / y \<close>
+  with_args x y
+
 lemma striple_word_udivI:
   fixes x y :: \<open>'l::{len} word\<close>
-  shows \<open>\<Gamma> ; \<langle>y \<noteq> 0\<rangle> \<turnstile> \<lbrakk> x / y \<rbrakk> \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k (\<lambda>r. \<langle>r = x div y\<rangle>) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
+  shows \<open>\<Gamma> ; \<langle>y \<noteq> 0\<rangle> \<turnstile> striple_word_udivI_urust_site_1 x y \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k (\<lambda>r. \<langle>r = x div y\<rangle>) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
   by (intro stripleI; clarsimp simp add: urust_eval_predicate_div apure_def asepconj_simp
     atriple_post_true unat_eq_zero atriple_pre_false)
 
+urust_expr [urust_abbrev = true] striple_word_umodI_urust_site_1
+  \<open> x % y \<close>
+  with_args x y
+
 lemma striple_word_umodI:
   fixes x y :: \<open>'l::{len} word\<close>
-  shows \<open>\<Gamma> ; \<langle>y \<noteq> 0\<rangle> \<turnstile> \<lbrakk> x % y \<rbrakk> \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k (\<lambda>r. \<langle>r = x mod y\<rangle>) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
+  shows \<open>\<Gamma> ; \<langle>y \<noteq> 0\<rangle> \<turnstile> striple_word_umodI_urust_site_1 x y \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k (\<lambda>r. \<langle>r = x mod y\<rangle>) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
 by (intro stripleI; clarsimp simp add: urust_eval_predicate_mod apure_def asepconj_simp
   atriple_post_true unat_eq_zero atriple_pre_false)
+
+urust_expr [urust_abbrev = true] striple_word_shift_leftI_urust_site_1
+  \<open> x << y \<close>
+  with_args x y
 
 lemma striple_word_shift_leftI:
   fixes x :: \<open>'l0::{len} word\<close>
     and y :: \<open>64 word\<close>
-  shows \<open>\<Gamma> ; \<langle>unat y < LENGTH('l0)\<rangle> \<turnstile> \<lbrakk> x << y \<rbrakk> \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k (\<lambda>r. \<langle>r = push_bit (unat y) x\<rangle>) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
+  shows \<open>\<Gamma> ; \<langle>unat y < LENGTH('l0)\<rangle> \<turnstile> striple_word_shift_leftI_urust_site_1 x y \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k (\<lambda>r. \<langle>r = push_bit (unat y) x\<rangle>) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
 by (intro stripleI; clarsimp simp add: asepconj_simp urust_eval_predicate_shift_left apure_def
   atriple_post_true atriple_pre_false)
+
+urust_expr [urust_abbrev = true] striple_word_shift_rightI_urust_site_1
+  \<open> x >> y \<close>
+  with_args x y
 
 lemma striple_word_shift_rightI:
   fixes x :: \<open>'l0::{len} word\<close>
     and y :: \<open>64 word\<close>
-  shows \<open>\<Gamma> ; \<langle>unat y < LENGTH('l0)\<rangle> \<turnstile> \<lbrakk> x >> y \<rbrakk> \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k (\<lambda>r. \<langle>r = drop_bit (unat y) x\<rangle>) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
+  shows \<open>\<Gamma> ; \<langle>unat y < LENGTH('l0)\<rangle> \<turnstile> striple_word_shift_rightI_urust_site_1 x y \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k (\<lambda>r. \<langle>r = drop_bit (unat y) x\<rangle>) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
 by (intro stripleI; clarsimp simp add: urust_eval_predicate_shift_right apure_def asepconj_simp
   atriple_post_true atriple_pre_false)
 
+urust_expr [urust_abbrev = true] striple_bitwise_orI_urust_site_1
+  \<open> x | y \<close>
+  with_args x y
+
 lemma striple_bitwise_orI:
   fixes x y :: \<open>'l::{len} word\<close>
-  shows \<open>\<Gamma> ; \<top> \<turnstile> \<lbrakk> x | y \<rbrakk> \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k (\<lambda>r. \<langle>r = x OR y\<rangle>) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
+  shows \<open>\<Gamma> ; \<top> \<turnstile> striple_bitwise_orI_urust_site_1 x y \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k (\<lambda>r. \<langle>r = x OR y\<rangle>) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
 by (intro stripleI; clarsimp simp add: urust_eval_predicate_or apure_def atriple_post_true)
+
+urust_expr [urust_abbrev = true] striple_bitwise_andI_urust_site_1
+  \<open> x & y \<close>
+  with_args x y
 
 lemma striple_bitwise_andI:
   fixes x y :: \<open>'l::{len} word\<close>
-  shows \<open>\<Gamma> ; \<top> \<turnstile> \<lbrakk> x & y \<rbrakk> \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k (\<lambda>r. \<langle>r = x AND y\<rangle>) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
+  shows \<open>\<Gamma> ; \<top> \<turnstile> striple_bitwise_andI_urust_site_1 x y \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k (\<lambda>r. \<langle>r = x AND y\<rangle>) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
 by (intro stripleI; clarsimp simp add: urust_eval_predicate_and apure_def atriple_post_true)
+
+urust_expr [urust_abbrev = true] striple_bitwise_xorI_urust_site_1
+  \<open> x ^ y \<close>
+  with_args x y
 
 lemma striple_bitwise_xorI:
   fixes x y :: \<open>'l::{len} word\<close>
-  shows \<open>\<Gamma> ; \<top> \<turnstile> \<lbrakk> x ^ y \<rbrakk> \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k (\<lambda>r. \<langle>r = x XOR y\<rangle>) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
+  shows \<open>\<Gamma> ; \<top> \<turnstile> striple_bitwise_xorI_urust_site_1 x y \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k (\<lambda>r. \<langle>r = x XOR y\<rangle>) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
 by (intro stripleI; clarsimp simp add: urust_eval_predicate_xor apure_def atriple_post_true)
+
+urust_expr [urust_abbrev = true] striple_bitwise_notI_urust_site_1
+  \<open> !x \<close>
+  with_args x
 
 lemma striple_bitwise_notI:
   fixes x :: \<open>'l::{len} word\<close>
-  shows \<open>\<Gamma> ; \<top> \<turnstile> \<lbrakk> !x \<rbrakk> \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k (\<lambda>r. \<langle>r = NOT x\<rangle>) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
+  shows \<open>\<Gamma> ; \<top> \<turnstile> striple_bitwise_notI_urust_site_1 x \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k (\<lambda>r. \<langle>r = NOT x\<rangle>) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
 by (intro stripleI; clarsimp simp add: urust_eval_predicate_not apure_def atriple_post_true)
 
 subsection\<open>Loops\<close>
