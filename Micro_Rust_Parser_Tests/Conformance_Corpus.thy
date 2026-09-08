@@ -10,12 +10,12 @@ section\<open> Conformance corpus \<close>
 text\<open>
 The inner-syntax frontend is the oracle. Expression goldens use
 \<open>undefined = \<lbrakk>src\<rbrakk>\<close>; parser equality is tested in
-\<open>Parser_Test_Expr_Conformance.thy\<close>. Function signatures and bodies are exercised through
-\<open>urust_fun\<close> under enabled \<open>urust_conformance_check\<close> in
-\<open>Parser_Test_Fun_Conformance.thy\<close>; the handwritten definitions remain declaration goldens for
-future Rust-shaped item commands. The final tier records frontend rejections. Proofs remain \<open>sorry\<close>,
-so the session uses \<open>quick_and_dirty\<close>. \<open>**\<close> and \<open>!!\<close> mean double
-dereference and negation.
+\<open>Parser_Test_Expr_Conformance.thy\<close>. Function signatures and bodies are exercised through both
+\<open>urust_fun\<close> and typed \<open>urust_expr\<close> under enabled \<open>urust_conformance_check\<close> in
+\<open>Parser_Test_Fun_Conformance.thy\<close> and \<open>Parser_Test_Expr_Types.thy\<close>; the handwritten definitions
+remain declaration goldens for future Rust-shaped item commands. The final tier records frontend
+rejections. Proofs remain \<open>sorry\<close>, so the session uses \<open>quick_and_dirty\<close>. \<open>**\<close> and \<open>!!\<close>
+mean double dereference and negation.
 \<close>
 
 
@@ -1085,11 +1085,11 @@ subsection\<open>Function-definition tier — Rust fn \<rightarrow> Isabelle def
 
 text\<open>
 The HOL type and parameter binding encode the signature; only the body is embedded in
-\<open>FunctionBody \<lbrakk>\<dots>\<rbrakk>\<close>. The Isabelle-typed \<open>urust_fun\<close> wrapper
-checks the corresponding signatures and bodies against the existing frontend when
-\<open>urust_conformance_check\<close> is enabled in
-\<open>Parser_Test_Fun_Conformance.thy\<close>. Future Rust-shaped item parsing must reproduce these complete
-declaration goldens.
+\<open>FunctionBody \<lbrakk>\<dots>\<rbrakk>\<close>. Both the explicit Isabelle-typed \<open>urust_fun\<close> facade and
+the common typed \<open>urust_expr NAME :: TYPE BODY with_args ...\<close> form check corresponding
+signatures and bodies against the existing frontend. Their focused coverage lives in
+\<open>Parser_Test_Fun_Conformance.thy\<close> and \<open>Parser_Test_Expr_Types.thy\<close>. Future Rust-shaped item
+parsing must reproduce these complete declaration goldens.
 \<close>
 
 \<comment>\<open>rust:  fn answer() -> u32 { 42 }\<close>

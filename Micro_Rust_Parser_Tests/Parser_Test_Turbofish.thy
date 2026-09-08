@@ -177,10 +177,10 @@ ML_val\<open>
          ("turbofish_int_one::<(1 + 2) + 3>(0)", "((1 + 2) + 3 :: int)")]
 
     val exact_term =
-      URust_Command.elab_urust ctxt
+      Parser_Test_Elaboration.expression ctxt
         (Parser_Lex_Util.text_source "Exact::f::<N>()")
     val fallback_term =
-      URust_Command.elab_urust ctxt
+      Parser_Test_Elaboration.expression ctxt
         (Parser_Lex_Util.text_source "Exact::f::<1>(2)")
     val _ =
       audit_assert "complete exact registration did not win"
@@ -198,7 +198,7 @@ ML_val\<open>
     fun expect_rejection text expected =
       (case Exn.result
           (fn () =>
-            URust_Command.elab_urust ctxt
+            Parser_Test_Elaboration.expression ctxt
               (Parser_Lex_Util.text_source text)) () of
          Exn.Res _ =>
            error ("restricted turbofish audit: unexpectedly accepted " ^
@@ -325,7 +325,7 @@ ML_val\<open>
       capture_reports
         (fn () =>
           ignore
-            (URust_Command.elab_urust ctxt
+            (Parser_Test_Elaboration.expression ctxt
               (Parser_Lex_Util.positioned_content_source text start)))
     val delimiters =
       [source_position start "generic_markup_call" "::",
@@ -448,7 +448,7 @@ ML_val\<open>
             Print_Mode.with_modes [Print_Mode.PIDE]
               (fn () =>
                 ignore
-                  (URust_Command.elab_urust ctxt
+                  (Parser_Test_Elaboration.expression ctxt
                     (Parser_Lex_Util.positioned_content_source text start))) ()) ())
     fun collect_markup (XML.Text _) result = result
       | collect_markup (XML.Elem (markup, body)) result =
@@ -533,7 +533,7 @@ ML_val\<open>
     val _ =
       (case Exn.result
           (fn () =>
-            URust_Command.elab_urust ctxt
+            Parser_Test_Elaboration.expression ctxt
               (Parser_Lex_Util.text_source
                 "f::<a div b>()")) () of
          Exn.Res _ =>

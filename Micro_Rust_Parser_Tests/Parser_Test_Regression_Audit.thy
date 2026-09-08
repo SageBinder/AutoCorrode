@@ -34,7 +34,7 @@ ML_val\<open>
       else error ("Cycle 1 pattern audit: " ^ message)
 
     fun checked source =
-      URust_Command.elab_urust ctxt (Parser_Lex_Util.text_source source)
+      Parser_Test_Elaboration.expression ctxt (Parser_Lex_Util.text_source source)
 
     fun antiquotation source =
       "\<llangle>" ^ source ^ "\<rrangle>"
@@ -377,7 +377,7 @@ ML_val\<open>
     val _ =
       (case Exn.result
           (fn () =>
-            URust_Command.elab_urust ctxt
+            Parser_Test_Elaboration.expression ctxt
               (Parser_Lex_Util.text_source non_boolean_source)) () of
          Exn.Res _ =>
            error
@@ -409,7 +409,7 @@ ML_val\<open>
       else error ("Cycle 1 while-let audit: " ^ message)
 
     fun checked source =
-      URust_Command.elab_urust ctxt (Parser_Lex_Util.text_source source)
+      Parser_Test_Elaboration.expression ctxt (Parser_Lex_Util.text_source source)
 
     fun antiquotation source =
       "\<llangle>" ^ source ^ "\<rrangle>"
@@ -542,7 +542,7 @@ ML_val\<open>
       parse (Parser_Lex_Util.text_source text)
 
     fun checked text =
-      URust_Command.elab_urust ctxt (Parser_Lex_Util.text_source text)
+      Parser_Test_Elaboration.expression ctxt (Parser_Lex_Util.text_source text)
 
     fun unchecked text =
       URust_Translate.mk_closed ctxt (parse_text text)
@@ -1076,7 +1076,7 @@ ML_val\<open>
       in
         (case Exn.result
             (fn () =>
-              URust_Command.elab_urust ctxt
+              Parser_Test_Elaboration.expression ctxt
                 (Parser_Lex_Util.positioned_content_source
                   text start)) () of
            Exn.Res _ =>
@@ -1160,7 +1160,7 @@ ML_val\<open>
             Print_Mode.with_modes [Print_Mode.PIDE]
               (fn () =>
                 ignore
-                  (URust_Command.elab_urust ctxt
+                  (Parser_Test_Elaboration.expression ctxt
                     (Parser_Lex_Util.positioned_content_source
                       text start))) ())
           ())
@@ -1470,7 +1470,7 @@ ML_val\<open>
     val _ =
       (case Exn.result
           (fn () =>
-            URust_Command.elab_urust ctxt
+            Parser_Test_Elaboration.expression ctxt
               (Parser_Lex_Util.positioned_content_source
                 chained_text chained_start)) () of
          Exn.Res _ =>
@@ -1533,7 +1533,7 @@ ML_val\<open>
       in
         (case Exn.result
             (fn () =>
-              URust_Command.elab_urust ctxt
+              Parser_Test_Elaboration.expression ctxt
                 (Parser_Lex_Util.positioned_content_source
                   text start)) () of
            Exn.Res _ =>
@@ -1786,7 +1786,7 @@ ML_val\<open>
       URust_Translate.mk_closed ctxt (parse_text text)
 
     fun checked text =
-      URust_Command.elab_urust ctxt (Parser_Lex_Util.text_source text)
+      Parser_Test_Elaboration.expression ctxt (Parser_Lex_Util.text_source text)
 
     fun count_constant name term =
       Term.fold_aterms
@@ -1839,7 +1839,7 @@ ML_val\<open>
           (fn () =>
             Print_Mode.with_modes [Print_Mode.PIDE]
               (fn () =>
-                URust_Command.elab_urust ctxt
+                Parser_Test_Elaboration.expression ctxt
                   (Parser_Lex_Util.positioned_content_source
                     text start)) ())
           ())
@@ -2100,7 +2100,7 @@ ML_val\<open>
       parse (Parser_Lex_Util.text_source text)
 
     fun checked text =
-      URust_Command.elab_urust ctxt
+      Parser_Test_Elaboration.expression ctxt
         (Parser_Lex_Util.text_source text)
 
     fun count_constant name term =
@@ -2220,7 +2220,7 @@ ML_val\<open>
     fun expect_rejection text expected =
       (case Exn.result
           (fn () =>
-            URust_Command.elab_urust ctxt
+            Parser_Test_Elaboration.expression ctxt
               (Parser_Lex_Util.text_source text)) () of
          Exn.Res _ =>
            error
@@ -2287,7 +2287,7 @@ ML_val\<open>
             Print_Mode.with_modes [Print_Mode.PIDE]
               (fn () =>
                 ignore
-                  (URust_Command.elab_urust ctxt
+                  (Parser_Test_Elaboration.expression ctxt
                     (Parser_Lex_Util.positioned_content_source
                       markup_text markup_start))) ())
           ())
@@ -2383,7 +2383,7 @@ ML_val\<open>
       parse_source (Parser_Lex_Util.text_source text)
 
     fun checked text =
-      URust_Command.elab_urust ctxt
+      Parser_Test_Elaboration.expression ctxt
         (Parser_Lex_Util.text_source text)
       |> Term_Position.strip_positions
 
@@ -2574,7 +2574,7 @@ ML_val\<open>
     fun expect_rejection text expected =
       (case Exn.result
           (fn () =>
-            URust_Command.elab_urust ctxt
+            Parser_Test_Elaboration.expression ctxt
               (Parser_Lex_Util.text_source text)) () of
          Exn.Res _ =>
            error
@@ -2639,7 +2639,7 @@ ML_val\<open>
             Print_Mode.with_modes [Print_Mode.PIDE]
               (fn () =>
                 ignore
-                  (URust_Command.elab_urust ctxt
+                  (Parser_Test_Elaboration.expression ctxt
                     (Parser_Lex_Util.positioned_content_source
                       markup_text markup_start))) ())
           ())
@@ -2744,7 +2744,7 @@ ML_val\<open>
       parse (Parser_Lex_Util.text_source text)
 
     fun checked text =
-      URust_Command.elab_urust ctxt
+      Parser_Test_Elaboration.expression ctxt
         (Parser_Lex_Util.text_source text)
 
     fun count_constant name term =
@@ -3015,7 +3015,7 @@ ML_val\<open>
           (fn () =>
             Print_Mode.with_modes [Print_Mode.PIDE]
               (fn () =>
-                URust_Command.elab_urust ctxt
+                Parser_Test_Elaboration.expression ctxt
                   (Parser_Lex_Util.positioned_content_source
                     text start)) ())
           ())
@@ -3686,7 +3686,7 @@ ML_val\<open>
       parse (Parser_Lex_Util.text_source text)
 
     fun checked text =
-      URust_Command.elab_urust ctxt
+      Parser_Test_Elaboration.expression ctxt
         (Parser_Lex_Util.text_source text)
 
     fun frontend text =
@@ -3905,7 +3905,7 @@ ML_val\<open>
            error "struct-expression regression audit: funcall2 shape changed")
 
     val structural_term =
-      URust_Command.elab_urust ctxt structural_source
+      Parser_Test_Elaboration.expression ctxt structural_source
     val (outer_function, outer_first, outer_second) =
       dest_funcall2 structural_term
     val (nested_function, nested_first, nested_second) =
@@ -4003,9 +4003,9 @@ ML_val\<open>
             Print_Mode.with_modes [Print_Mode.PIDE]
               (fn () =>
                 (ignore
-                   (URust_Command.elab_urust ctxt structural_source);
+                   (Parser_Test_Elaboration.expression ctxt structural_source);
                  ignore
-                   (URust_Command.elab_urust ctxt control_source))) ())
+                   (Parser_Test_Elaboration.expression ctxt control_source))) ())
           ())
 
     fun collect_markup (XML.Text _) result = result

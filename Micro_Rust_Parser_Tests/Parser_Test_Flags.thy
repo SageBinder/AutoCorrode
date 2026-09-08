@@ -216,7 +216,7 @@ ML_val\<open>
         "\<llangle>(first :: nat, second :: bool)\<rrangle>"
         (Position.make0 13 200 0 "" "contextual-order-audit" "")
     val actual =
-      URust_Command.elab_urust_with_args ctxt
+      Parser_Test_Elaboration.expression_with_args ctxt
         [("first", first_pos), ("second", second_pos)] source
     val expected =
       Syntax.check_term ctxt
@@ -599,7 +599,7 @@ ML_val\<open>
           (fn () =>
             Print_Mode.with_modes [Print_Mode.PIDE]
               (fn () =>
-                URust_Command.elab_urust_with_args ctxt
+                Parser_Test_Elaboration.expression_with_args ctxt
                   [("first", first_definition),
                    ("second", second_definition)]
                   body_source) ())

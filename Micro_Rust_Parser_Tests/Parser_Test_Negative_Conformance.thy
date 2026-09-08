@@ -1,9 +1,10 @@
-(* Rejection tests for the custom uRust parser. Normal rows require both
-   `URust_Command.elab_urust` and the existing frontend to reject; the new parser's error must contain
-   a stable substring. Divergent rows may additionally prove that the existing frontend accepts. *)
+(* Rejection tests for the custom uRust parser. Normal rows require both the consolidated
+   `URust_Command.elaborate` API and the existing frontend to reject; the new parser's error must
+   contain a stable substring. Divergent rows may additionally prove that the existing frontend
+   accepts. *)
 
 theory Parser_Test_Negative_Conformance
-  imports Struct_Ambiguity_Left Struct_Ambiguity_Right
+  imports Struct_Ambiguity_Left Struct_Ambiguity_Right Parser_Test_Utils
   keywords
     "urust_expr_rejects" :: thy_decl
     and "new_urust_rejects" :: thy_decl
@@ -58,7 +59,7 @@ fun urust_rejects check_frontend ((tag, source), expected) lthy =
 
     fun check_parser_rejection () =
       (* Lexer, parser, elaborator, and type errors are all valid new-parser rejections. *)
-      (case Exn.result (fn () => URust_Command.elab_urust lthy source) () of
+      (case Exn.result (fn () => Parser_Test_Elaboration.expression lthy source) () of
          Exn.Res t =>
            fail ("expected the new parser to reject, but it accepted and elaborated to: " ^
                  Syntax.string_of_term lthy t)
@@ -592,7 +593,7 @@ local
   fun expect_ambiguity label source identities =
     (case Exn.result
         (fn () =>
-          URust_Command.elab_urust \<^context>
+          Parser_Test_Elaboration.expression \<^context>
             (Parser_Lex_Util.text_source source)) () of
        Exn.Res _ =>
          error (label ^ " unexpectedly resolved an ambiguous constructor")
@@ -674,7 +675,7 @@ local
   fun expect_clean_rejection source required =
     (case Exn.result
         (fn () =>
-          URust_Command.elab_urust \<^context>
+          Parser_Test_Elaboration.expression \<^context>
             (Parser_Lex_Util.text_source source)) () of
        Exn.Res term =>
          error ("Cycle 1 diagnostic audit expected rejection, but got " ^
@@ -2335,7 +2336,7 @@ local
   fun expect_rejection text expected =
     (case Exn.result
         (fn () =>
-          URust_Command.elab_urust \<^context>
+          Parser_Test_Elaboration.expression \<^context>
             (Parser_Lex_Util.text_source text)) () of
        Exn.Res _ => error ("expected direct parser rejection containing " ^ quote expected)
      | Exn.Exn exn =>
@@ -2352,7 +2353,7 @@ local
       "unterminated expression antiquotation"
   val _ =
     ignore
-      (URust_Command.elab_urust \<^context>
+      (Parser_Test_Elaboration.expression \<^context>
         (Parser_Lex_Util.text_source "()"))
 in end
 \<close>
