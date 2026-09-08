@@ -463,10 +463,13 @@ urust_expr [urust_abbrev = true] SSA_urust_site_33
   \<open> !\<epsilon>\<open>e :: ('s, bool, 'r, 'abort, 'i, 'o) expression\<close> \<close>
   with_args e
 
-urust_expr [urust_abbrev = true] SSA_urust_site_34
-  \<open> let x = \<epsilon>\<open>MICRO_RUST_SSA_CONTROL (e :: ('s, bool, 'r, 'abort, 'i, 'o) expression)\<close>; !x \<close>
+urust_expr [urust_abbrev = true] SSA_urust_site_34 ::
+  \<open>
+    ('s, bool, 'r, 'abort, 'i, 'o) expression \<Rightarrow>
+    ('s, bool, 'r, 'abort, 'i, 'o) expression
+  \<close>
+  \<open> let x = \<epsilon>\<open>MICRO_RUST_SSA_CONTROL e\<close>; !x \<close>
   with_args e
-  against \<open>\<lbrakk> let x = \<epsilon>\<open>MICRO_RUST_SSA_CONTROL e\<close>; !x \<rbrakk>\<close>
 
 lemma ssa_transform_boolean_not [micro_rust_ssa]:
   shows \<open>MICRO_RUST_SSA_CONTROL (SSA_urust_site_33 e) = SSA_urust_site_34 e\<close>
@@ -477,10 +480,13 @@ urust_expr [urust_abbrev = true] SSA_urust_site_35
   \<open> !\<epsilon>\<open>e :: ('s, 64 word, 'r, 'abort, 'i, 'o) expression\<close> \<close>
   with_args e
 
-urust_expr [urust_abbrev = true] SSA_urust_site_36
-  \<open> let x = \<epsilon>\<open>MICRO_RUST_SSA_CONTROL (e :: ('s, 64 word, 'r, 'abort, 'i, 'o) expression)\<close>; !x \<close>
+urust_expr [urust_abbrev = true] SSA_urust_site_36 ::
+  \<open>
+    ('s, 64 word, 'r, 'abort, 'i, 'o) expression \<Rightarrow>
+    ('s, 64 word, 'r, 'abort, 'i, 'o) expression
+  \<close>
+  \<open> let x = \<epsilon>\<open>MICRO_RUST_SSA_CONTROL e\<close>; !x \<close>
   with_args e
-  against \<open>\<lbrakk> let x = \<epsilon>\<open>MICRO_RUST_SSA_CONTROL e\<close>; !x \<rbrakk>\<close>
 
 lemma ssa_transform_binary_not [micro_rust_ssa]:
   shows \<open>MICRO_RUST_SSA_CONTROL (SSA_urust_site_35 e) = SSA_urust_site_36 e\<close>
