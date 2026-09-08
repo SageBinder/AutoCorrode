@@ -6,6 +6,7 @@ theory StdLib_Logging
   imports
     Shallow_Micro_Rust.Shallow_Micro_Rust
 begin
+declare [[urust_conformance_check = true]]
 (*>*)
 
 section\<open>The Rust logging facade\<close>
@@ -18,38 +19,48 @@ underlying primitive logger, provided as a yield handler.  Note that strictly sp
 also \<^emph>\<open>macros\<close> in Rust; we use \<^verbatim>\<open>\<mu>Rust\<close> functions to model logging instead.
 
 First, the \<^verbatim>\<open>fatal\<close> logger:\<close>
-abbreviation fatal :: \<open>log_data \<Rightarrow> ('s, unit, 'abort, 'i prompt, 'o prompt_output) function_body\<close> where
-  \<open>fatal m \<equiv> FunctionBody \<lbrakk>
+urust_fun [urust_abbrev = true] fatal ::
+  \<open>log_data \<Rightarrow> ('s, unit, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
+  (m)
+  \<open>
      \<l>\<o>\<g> \<llangle>Fatal\<rrangle> \<llangle>m\<rrangle>
-   \<rbrakk>\<close>
+  \<close>
 micro_rust_notation (call) fatal ("fatal!")
 
 text\<open>The \<^verbatim>\<open>info\<close> logger:\<close>
-abbreviation info :: \<open>log_data \<Rightarrow> ('s, unit, 'abort, 'i prompt, 'o prompt_output) function_body\<close> where
-  \<open>info m \<equiv> FunctionBody \<lbrakk>
+urust_fun [urust_abbrev = true] info ::
+  \<open>log_data \<Rightarrow> ('s, unit, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
+  (m)
+  \<open>
      \<l>\<o>\<g> \<llangle>Info\<rrangle> \<llangle>m\<rrangle>
-   \<rbrakk>\<close>
+  \<close>
 micro_rust_notation (call) info ("info!")
 
 text\<open>The \<^verbatim>\<open>error\<close> logger:\<close>
-abbreviation error :: \<open>log_data \<Rightarrow> ('s, unit, 'abort, 'i prompt, 'o prompt_output) function_body\<close> where
-  \<open>error m \<equiv> FunctionBody \<lbrakk>
+urust_fun [urust_abbrev = true] error ::
+  \<open>log_data \<Rightarrow> ('s, unit, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
+  (m)
+  \<open>
      \<l>\<o>\<g> \<llangle>Error\<rrangle> \<llangle>m\<rrangle>
-   \<rbrakk>\<close>
+  \<close>
 micro_rust_notation (call) error ("error!")
 
 text\<open>The \<^verbatim>\<open>debug\<close> logger:\<close>
-abbreviation debug :: \<open>log_data \<Rightarrow> ('s, unit, 'abort, 'i prompt, 'o prompt_output) function_body\<close> where
-  \<open>debug m \<equiv> FunctionBody \<lbrakk>
+urust_fun [urust_abbrev = true] debug ::
+  \<open>log_data \<Rightarrow> ('s, unit, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
+  (m)
+  \<open>
      \<l>\<o>\<g> \<llangle>Debug\<rrangle> \<llangle>m\<rrangle>
-   \<rbrakk>\<close>
+  \<close>
 micro_rust_notation (call) debug ("debug!")
 
 text\<open>The \<^verbatim>\<open>trace\<close> logger:\<close>
-abbreviation trace :: \<open>log_data \<Rightarrow> ('s, unit, 'abort, 'i prompt, 'o prompt_output) function_body\<close> where
-  \<open>trace m \<equiv> FunctionBody \<lbrakk>
+urust_fun [urust_abbrev = true] trace ::
+  \<open>log_data \<Rightarrow> ('s, unit, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
+  (m)
+  \<open>
      \<l>\<o>\<g> \<llangle>Trace\<rrangle> \<llangle>m\<rrangle>
-   \<rbrakk>\<close>
+  \<close>
 micro_rust_notation (call) trace ("trace!")
 
 \<comment>\<open>A bit of syntax sugar to reduce the pain of writing logging expressions:
@@ -76,9 +87,13 @@ translations
   "_log_entry_to_hol (_log_entry_id s)" \<rightharpoonup> "CONST generate_debug s"
   "_shallow (_urust_log_data es)" \<rightharpoonup> "CONST literal (_log_entry_list_to_hol es)"
 
-term \<open>\<lbrakk>
+urust_expr [urust_abbrev = true] StdLib_Logging_urust_site_1
+  \<open>
   fatal!(l\<llangle>"this ", x, " is ", y, " a ", z, " test "\<rrangle>)
-\<rbrakk>\<close>
+  \<close>
+  with_args x y z
+
+term \<open>StdLib_Logging_urust_site_1 x y z\<close>
 
 (*<*)
 end

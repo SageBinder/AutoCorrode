@@ -5,6 +5,7 @@
 theory StdLib_References
   imports Crush.Crush
 begin
+declare [[urust_conformance_check = true]]
 (*>*)
 
 context reference
@@ -206,14 +207,15 @@ declare update_spec[crush_specs, crush_specs_eager]
 declare dereference_spec[crush_specs, crush_specs_eager]
 declare ro_dereference_spec[crush_specs, crush_specs_eager]
 
-definition transpose :: \<open>('a, 'b, 't option) ro_ref \<Rightarrow>
-      ('s, ('a, 'b, 't) ro_ref option, 'abort, 'i prompt, 'o prompt_output) function_body\<close> where
-  \<open>transpose self \<equiv> FunctionBody \<lbrakk>
+urust_fun transpose :: \<open>('a, 'b, 't option) ro_ref \<Rightarrow>
+      ('s, ('a, 'b, 't) ro_ref option, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
+  (self)
+  \<open>
      match *self {
        None    \<Rightarrow> None,
        Some(_) \<Rightarrow> Some(\<epsilon>\<open>\<up>focus_focused option_focus self\<close>)
      }
-   \<rbrakk>\<close>
+  \<close>
 
 definition transpose_contract :: \<open>(('a, 'b) ro_gref, 'b, 't option) focused \<Rightarrow> 'b \<Rightarrow> _ \<Rightarrow> ('s, (('a, 'b) ro_gref, 'b, 't) focused option, 'abort) function_contract\<close> where
   [crush_contracts]: \<open>transpose_contract ro_ref g v_opt \<equiv>
@@ -302,7 +304,10 @@ adhoc_overloading store_update_const \<rightleftharpoons>
 adhoc_overloading store_reference_const \<rightleftharpoons> ref_bool.new
 adhoc_overloading store_reference_const \<rightleftharpoons> ref_nat.new
 
-definition ref_test where \<open>ref_test \<equiv> FunctionBody \<lbrakk>
+urust_fun ref_test ::
+  \<open>('s, nat, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
+  ()
+  \<open>
       let mut nat_ref = \<llangle>0 :: nat\<rrangle>;
       let mut bool_ref = \<llangle>False :: bool\<rrangle>;
       if *bool_ref {
@@ -311,7 +316,7 @@ definition ref_test where \<open>ref_test \<equiv> FunctionBody \<lbrakk>
         nat_ref = 12;
       };
       *nat_ref
-  \<rbrakk>\<close>
+  \<close>
 
 definition ref_test_contract where
   \<open>ref_test_contract \<equiv>
