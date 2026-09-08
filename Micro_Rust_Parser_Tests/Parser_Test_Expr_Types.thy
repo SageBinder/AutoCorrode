@@ -854,10 +854,10 @@ ML_val\<open>
     val signature_marker = "signature URUST_COMMAND ="
     val signature_text =
       (case first_field signature_marker before_structure of
-         SOME (_, signature) =>
-           if is_some (first_field signature_marker signature)
+         SOME (_, signature_body) =>
+           if is_some (first_field signature_marker signature_body)
            then error "uRust facade audit: command signature is duplicated"
-           else signature
+           else signature_body
        | NONE => error "uRust facade audit: command signature is missing")
     val exported_values =
       split_lines signature_text
