@@ -279,7 +279,7 @@ above triple definition:\<close>
 urust_expr leak_high ::
   \<open>(high_low_sa, unit, unit, 'abort, 'i, 'o) expression\<close>
   \<open>
-     if let Some(high) = get get_high {
+     if let Some(high) = \<epsilon>\<open>get get_high\<close> {
         \<epsilon>\<open>put (put_low high)\<close>
      }
   \<close>
