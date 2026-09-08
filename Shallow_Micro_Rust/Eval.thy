@@ -847,9 +847,20 @@ corollary urust_eval_predicate_and [urust_eval_predicate_simps]:
     and \<open>\<sigma> \<leadsto>\<^sub>a \<langle>\<Gamma>, Eval_urust_site_60 x y\<rangle> (a, \<sigma>') \<longleftrightarrow> False\<close>
 by (auto simp add: urust_eval_predicate_via_action urust_eval_action_and)
 
-urust_expr [urust_abbrev = true] Eval_urust_site_61 \<open> !x \<close> with_args x
-urust_expr [urust_abbrev = true] Eval_urust_site_62 \<open> !x \<close> with_args x
-urust_expr [urust_abbrev = true] Eval_urust_site_63 \<open> !x \<close> with_args x
+urust_expr [urust_abbrev = true] Eval_urust_site_61
+  \<open> !\<llangle>(x :: 'l::{len} word)\<rrangle> \<close>
+  with_args x
+  against \<open>\<lbrakk> !x \<rbrakk>\<close>
+
+urust_expr [urust_abbrev = true] Eval_urust_site_62
+  \<open> !\<llangle>(x :: 'l::{len} word)\<rrangle> \<close>
+  with_args x
+  against \<open>\<lbrakk> !x \<rbrakk>\<close>
+
+urust_expr [urust_abbrev = true] Eval_urust_site_63
+  \<open> !\<llangle>(x :: 'l::{len} word)\<rrangle> \<close>
+  with_args x
+  against \<open>\<lbrakk> !x \<rbrakk>\<close>
 
 lemma urust_eval_action_not [urust_eval_action_simps]:
   fixes x y :: \<open>'l::{len} word\<close>
@@ -859,9 +870,20 @@ lemma urust_eval_action_not [urust_eval_action_simps]:
 by (simp add: urust_eval_action_bind micro_rust_simps urust_eval_action_literal
   urust_eval_action_abort urust_eval_action_call)+
 
-urust_expr [urust_abbrev = true] Eval_urust_site_64 \<open> !x \<close> with_args x
-urust_expr [urust_abbrev = true] Eval_urust_site_65 \<open> !x \<close> with_args x
-urust_expr [urust_abbrev = true] Eval_urust_site_66 \<open> !x \<close> with_args x
+urust_expr [urust_abbrev = true] Eval_urust_site_64
+  \<open> !\<llangle>(x :: 'l::{len} word)\<rrangle> \<close>
+  with_args x
+  against \<open>\<lbrakk> !x \<rbrakk>\<close>
+
+urust_expr [urust_abbrev = true] Eval_urust_site_65
+  \<open> !\<llangle>(x :: 'l::{len} word)\<rrangle> \<close>
+  with_args x
+  against \<open>\<lbrakk> !x \<rbrakk>\<close>
+
+urust_expr [urust_abbrev = true] Eval_urust_site_66
+  \<open> !\<llangle>(x :: 'l::{len} word)\<rrangle> \<close>
+  with_args x
+  against \<open>\<lbrakk> !x \<rbrakk>\<close>
 
 corollary urust_eval_predicate_not [urust_eval_predicate_simps]:
   fixes x y :: \<open>'l::{len} word\<close>
