@@ -10,6 +10,8 @@ theory References
     Shallow_Separation_Logic.Weakest_Precondition
     Shallow_Micro_Rust_Base.Core_Expression
 begin
+
+declare [[urust_conformance_check = true]]
 (*>*)
 
 named_theorems reference_axioms
@@ -58,14 +60,17 @@ definition dereference_raw_contract
 
 text\<open>Lifting the raw reference operations to typed ones using foci:\<close>
 
-definition reference_fun ::
+urust_fun reference_fun ::
   \<open>('b, 'v) prism \<Rightarrow>
    'v \<Rightarrow>
-   ('s, ('a, 'b, 'v) Global_Store.ref, 'abort, 'i, 'o) function_body\<close> where
-  [all_reference_defs']: \<open>reference_fun p e \<equiv> FunctionBody \<lbrakk>
-       let r = reference_raw_fun (\<llangle>prism_embed p e\<rrangle>);
-       \<llangle>make_ref_typed_from_untyped\<rrangle>\<^sub>2(r, \<llangle>prism_to_focus p\<rrangle>)
-   \<rbrakk>\<close>
+   ('s, ('a, 'b, 'v) Global_Store.ref, 'abort, 'i, 'o) function_body\<close>
+  (p, e)
+  \<open>
+    let r = reference_raw_fun (\<llangle>prism_embed p e\<rrangle>);
+    \<llangle>make_ref_typed_from_untyped\<rrangle>\<^sub>2(r, \<llangle>prism_to_focus p\<rrangle>)
+  \<close>
+
+declare reference_fun_def[all_reference_defs']
 
 \<comment>\<open>\<^verbatim>\<open>prism_to_focus p\<close> has no (unconditional) code equations. Instead, specific instances of
 for valid \<^verbatim>\<open>p\<close> have to be wrapped as definitions and given code equations by instantiating
@@ -73,34 +78,51 @@ for valid \<^verbatim>\<open>p\<close> have to be wrapped as definitions and giv
 during code generation if \<^verbatim>\<open>reference_fun\<close> is inlined -- thus the need for \<^verbatim>\<open>code_unfold\<close>.\<close>
 declare reference_fun_def[code_unfold]
 
-definition modify_raw_fun :: \<open>('a, 'b) gref \<Rightarrow> ('b \<Rightarrow> 'b) \<Rightarrow> ('s, unit, 'abort, 'i, 'o) function_body\<close> where
-  [all_reference_defs']: \<open>modify_raw_fun r f \<equiv> FunctionBody \<lbrakk>
-     let g = dereference_raw_fun(r);
-     update_raw_fun(r, \<llangle>f\<rrangle>\<^sub>1(g))
-  \<rbrakk>\<close>
+urust_fun modify_raw_fun ::
+  \<open>('a, 'b) gref \<Rightarrow> ('b \<Rightarrow> 'b) \<Rightarrow> ('s, unit, 'abort, 'i, 'o) function_body\<close>
+  (r, f)
+  \<open>
+    let g = dereference_raw_fun(r);
+    update_raw_fun(r, \<llangle>f\<rrangle>\<^sub>1(g))
+  \<close>
 
-definition modify_fun :: \<open>('a, 'b, 'v) Global_Store.ref \<Rightarrow> ('v \<Rightarrow> 'v) \<Rightarrow> ('s, unit, 'abort, 'i, 'o) function_body\<close> where
-  [all_reference_defs']: \<open>modify_fun ref f \<equiv> FunctionBody \<lbrakk>
-     modify_raw_fun (\<llangle>untype_ref\<rrangle>\<^sub>1(ref), \<llangle>focus_modify (get_focus ref) f\<rrangle>)
-  \<rbrakk>\<close>
+declare modify_raw_fun_def[all_reference_defs']
 
-definition update_fun :: \<open>('a, 'b, 'v) Global_Store.ref \<Rightarrow> 'v \<Rightarrow> ('s, unit, 'abort, 'i, 'o) function_body\<close> where
-  [all_reference_defs']: \<open>update_fun ref v \<equiv> FunctionBody \<lbrakk>
-     modify_fun(ref, \<llangle>\<lambda>_. v\<rrangle>)
-   \<rbrakk>\<close>
+urust_fun modify_fun ::
+  \<open>('a, 'b, 'v) Global_Store.ref \<Rightarrow> ('v \<Rightarrow> 'v) \<Rightarrow> ('s, unit, 'abort, 'i, 'o) function_body\<close>
+  (ref, f)
+  \<open>
+    modify_raw_fun (\<llangle>untype_ref\<rrangle>\<^sub>1(ref), \<llangle>focus_modify (get_focus ref) f\<rrangle>)
+  \<close>
 
-definition dereference_fun :: \<open>('a, 'b, 'v) Global_Store.ref \<Rightarrow> ('s, 'v, 'abort, 'i, 'o) function_body\<close> where
-  [all_reference_defs']: \<open>dereference_fun ref \<equiv> FunctionBody \<lbrakk>
-      let b = dereference_raw_fun(\<llangle>untype_ref\<rrangle>\<^sub>1(ref));
-      match (\<llangle>focus_view (\<integral> ref) b\<rrangle>) {
-         None \<Rightarrow> \<epsilon>\<open>abort TypeError\<close>,
-         Some(v) \<Rightarrow> v
-      }
-  \<rbrakk>\<close>
+declare modify_fun_def[all_reference_defs']
 
-definition ro_dereference_fun ::
-      \<open>('a, 'b, 'v) ro_ref \<Rightarrow> ('s, 'v, 'abort, 'i, 'o) function_body\<close> where
-  [all_reference_defs']: \<open>ro_dereference_fun r \<equiv> FunctionBody \<lbrakk> dereference_fun(\<llangle>unsafe_ref_from_ro_ref\<rrangle>\<^sub>1(r)) \<rbrakk>\<close>
+urust_fun update_fun ::
+  \<open>('a, 'b, 'v) Global_Store.ref \<Rightarrow> 'v \<Rightarrow> ('s, unit, 'abort, 'i, 'o) function_body\<close>
+  (ref, v)
+  \<open> modify_fun(ref, \<llangle>\<lambda>_. v\<rrangle>) \<close>
+
+declare update_fun_def[all_reference_defs']
+
+urust_fun dereference_fun ::
+  \<open>('a, 'b, 'v) Global_Store.ref \<Rightarrow> ('s, 'v, 'abort, 'i, 'o) function_body\<close>
+  (ref)
+  \<open>
+    let b = dereference_raw_fun(\<llangle>untype_ref\<rrangle>\<^sub>1(ref));
+    match (\<llangle>focus_view (\<integral> ref) b\<rrangle>) {
+      None \<Rightarrow> \<epsilon>\<open>abort TypeError\<close>,
+      Some(v) \<Rightarrow> v
+    }
+  \<close>
+
+declare dereference_fun_def[all_reference_defs']
+
+urust_fun ro_dereference_fun ::
+  \<open>('a, 'b, 'v) ro_ref \<Rightarrow> ('s, 'v, 'abort, 'i, 'o) function_body\<close>
+  (r)
+  \<open> dereference_fun(\<llangle>unsafe_ref_from_ro_ref\<rrangle>\<^sub>1(r)) \<close>
+
+declare ro_dereference_fun_def[all_reference_defs']
 
 definition is_valid_ref_for :: \<open>('a, 'b, 'v) Global_Store.ref \<Rightarrow> 'b set \<Rightarrow> bool\<close>
   where \<open>is_valid_ref_for r P \<equiv> focus_dom (get_focus r) \<subseteq> P\<close>
