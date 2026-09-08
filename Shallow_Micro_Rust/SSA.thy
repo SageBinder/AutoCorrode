@@ -31,11 +31,10 @@ In fact, we could express them entirely at the syntax level, but they would not 
 this way, but rather part of the definition of the denotational semantics.
 
 One possible way around this could be to define SSA at the level of the abstract syntax, and apply
-it automatically at every use of the shallow embedding bracket  \<^verbatim>\<open>\<lbrakk> _ \<rbrakk>\<close>, proving in the background
-that the resulting shallowly  embedded expressions are indeed semantically equivalent. Since the
-correctness proofs for the SSA transformations should be trivial, that should not require user
-intervention. In other words, the SSA transformations would be proven to be correct on a
-case-by-case basis.
+it automatically while elaborating each parser command, proving in the background that the
+resulting shallowly embedded expressions are indeed semantically equivalent. Since the correctness
+proofs for the SSA transformations should be trivial, that should not require user intervention. In
+other words, the SSA transformations would be proven to be correct on a case-by-case basis.
 
 To not stray afar, though, we use a middle ground below: We refer to the abstract Micro Rust syntax
 for the constructions to be simplified, but use HOL antiquotations for the arguments.\<close>

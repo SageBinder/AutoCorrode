@@ -22,8 +22,9 @@ to Micro Rust expressions, specifications, and proofs.\<close>
 
 subsection\<open>Micro Rust look and feel\<close>
 
-text\<open>Micro Rust programs are written in double-square brackets \<^verbatim>\<open>\<lbrakk> EXPRESSION \<rbrakk>\<close>
-and are syntactically very similar to Rust. Here are some examples:\<close>
+text\<open>Micro Rust programs are written in cartouches passed to the \<^verbatim>\<open>urust_expr\<close>
+and \<^verbatim>\<open>urust_fun\<close> commands, and are syntactically very similar to Rust. Here are some
+examples:\<close>
 
 urust_expr [urust_abbrev = true] Basic_Micro_Rust_urust_site_1
   \<open> x + y \<close>
@@ -88,15 +89,15 @@ urust_expr [urust_abbrev = true] Basic_Micro_Rust_urust_site_4
 term \<open>Basic_Micro_Rust_urust_site_4 a\<close>
 end
 
-subsection\<open>Shallow embedding\<close>
+subsection\<open>Parser output and shallow embedding\<close>
 
-text\<open>We call \<^verbatim>\<open>\<lbrakk> \<dots> \<rbrakk>\<close> the \<^emph>\<open>shallow embedding bracket\<close> as it shallowly embeds the given Micro Rust
-expression into HOL, producing a HOL value of type \<^verbatim>\<open>expression\<close>. Note that there is, at present,
-no Micro Rust AST in HOL, and Micro Rust programs do not exist "on their own" outside of Isabelle's 
-parsing frontend: They are always immediately interpreted as their denotation w.r.t. \<^verbatim>\<open>\<lbrakk> ... \<rbrakk>\<close>. If 
-we were to switch to a deep embedding of Micro Rust at some point, one would want to introduce a 
-deep embedding bracket targeting the type of Micro Rust AST's, and factor the shallow embedding bracket
-as the composition of the deep embedding bracket and an evaluation function defined \<^emph>\<open>within HOL\<close>.\<close>
+text\<open>The \<^verbatim>\<open>urust_expr\<close> command parses a Micro Rust expression and immediately
+declares its shallow HOL denotation, producing a value of type \<^verbatim>\<open>expression\<close>.
+\<^verbatim>\<open>urust_fun\<close> does the same for a complete, explicitly typed
+\<^verbatim>\<open>function_body\<close>. There is, at present, no persistent Micro Rust AST in HOL: parser
+output is elaborated directly into the denotational semantics. The legacy shallow-embedding bracket
+is retained as a conformance oracle, so production declarations can prove that the parser-generated
+term is identical to the established frontend term.\<close>
 
 text\<open>Shallow embeddings of Micro Rust programs into HOL are values of type
 \<^verbatim>\<open>expression\<close>, which is effectively a state monad: Elements of \<^verbatim>\<open>('s, 'v, 'r, \<dots>) expression\<close>

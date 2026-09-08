@@ -112,11 +112,20 @@ This session define locales for modelling the verification context. For example,
 
 ### Micro_Rust_Parser_Impl and Micro_Rust_Parser_Tests
 
-The implementation session provides the production `urust_expr` and `urust_fun` commands. The test session contains conformance corpora, regression tests, parser experiments, and legacy shallow-embedding tests.
+The implementation session provides the production `urust_expr` and `urust_fun` commands. Production
+theories use these commands for complete definitions and named abbreviations, with conformance
+checking enabled against the legacy frontend. The test session contains conformance corpora,
+regression tests, parser experiments, and legacy shallow-embedding tests.
+
+The parser implementation depends only on `Shallow_Micro_Rust_Base` and `Isabelle_Lex-Yacc`.
+Full `Shallow_Micro_Rust` adds the parser bridge, while the main `AutoCorrode` session includes both
+the implementation and test sessions.
 
 ### [Micro_Rust_Parsing_Legacy_Frontend](https://awslabs.github.io/AutoCorrode/Unsorted/AutoCorrode/Micro_Rust_Parsing_Legacy_Frontend.Micro_Rust_Parsing_Legacy_Frontend.html)
 
-The legacy inner-syntax frontend remains as the permanent conformance oracle for the production parser. It defines the custom µRust syntax category and the legacy shallow-embedding bracket used by conformance checks.
+The legacy inner-syntax frontend remains as the permanent conformance oracle for the production
+parser. It defines the custom µRust syntax category and shallow-embedding bracket used by
+conformance checks; production µRust declarations and expression sites use the parser commands.
 
 ### [Micro_Rust_Runtime](https://awslabs.github.io/AutoCorrode/Unsorted/AutoCorrode/Micro_Rust_Runtime.Micro_Rust_Runtime.html)
 

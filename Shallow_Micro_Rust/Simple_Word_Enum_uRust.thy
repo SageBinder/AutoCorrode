@@ -17,10 +17,10 @@
 theory Simple_Word_Enum_uRust
   imports
     Misc.Simple_Word_Enums
-    (* Micro_Rust_Notations for the registry itself; the shallow embedding for the `\<lbrakk> _ \<rbrakk>`
-       brackets the tests below use to check that the names really do resolve in uRust, and
-       Core_Expression_Lemmas for the micro_rust_simps rules (call_literal2 in particular)
-       that reduce a lifted call in those tests. *)
+    (* Micro_Rust_Notations for the registry itself; the shallow embedding infrastructure used by
+       the parser commands below to check that the names really do resolve in uRust, and
+       Core_Expression_Lemmas for the micro_rust_simps rules (call_literal2 in particular) that
+       reduce a lifted call in those tests. *)
     Shallow_Micro_Rust_Base.Micro_Rust_Shallow_Embedding
     Core_Expression_Lemmas
 begin
