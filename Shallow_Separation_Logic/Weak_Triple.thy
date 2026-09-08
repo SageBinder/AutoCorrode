@@ -278,10 +278,15 @@ but leaves the low-value unchanged. Despite clearly not being low-local, it does
 above triple definition:\<close>
 urust_expr leak_high
   \<open>
-     if let Some(high) = \<epsilon>\<open>get get_high\<close> {
+     if let Some(high) = \<epsilon>\<open>(get get_high :: (high_low_sa, nat option, unit, 'abort, 'i, 'o) expression)\<close> {
         \<epsilon>\<open>put (put_low high)\<close>
      }
   \<close>
+  against \<open>\<lbrakk>
+     if let Some(high) = \<epsilon>\<open>get get_high\<close> {
+        \<epsilon>\<open>put (put_low high)\<close>
+     }
+  \<rbrakk>\<close>
 
 text\<open>The program \<^term>\<open>leak_high\<close> is 'pathological' in that it inspects the partiality of the
 state to make runtime decisions -- no real program would be able to do that. Yet, it does fit
