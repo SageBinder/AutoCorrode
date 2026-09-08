@@ -69,13 +69,21 @@ begin
 urust_expr [urust_abbrev = true] Basic_Micro_Rust_urust_site_4
   \<open>
   for i in 0..\<llangle>10::64 word\<rrangle> { \<comment>\<open>The \<^verbatim>\<open>\<llangle>\<dots>\<rrangle>\<close> will be explained below\<close>
-    if a[i] == 42 {
+    if \<llangle>(a :: nat list)\<rrangle>[i] == 42 {
       return True;
     }
   };
   return False; 
   \<close>
   with_args a
+  against \<open>\<lbrakk>
+  for i in 0..\<llangle>10::64 word\<rrangle> {
+    if a[i] == 42 {
+      return True;
+    }
+  };
+  return False;
+  \<rbrakk>\<close>
 
 term \<open>Basic_Micro_Rust_urust_site_4 a\<close>
 end
