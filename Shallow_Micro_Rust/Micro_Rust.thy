@@ -4,9 +4,21 @@
 (*<*)
 theory Micro_Rust
   imports
-    Bool_Type Bool_Type_Lemmas Core_Expression Core_Expression_Lemmas Core_Syntax Result_Type 
-    Option_Type Range_Type Rust_Iterator Rust_Iterator_Lemmas Numeric_Types
-    Numeric_Types_Lemmas Global_Store SSA Micro_Rust_Shallow_Embedding
+    Shallow_Micro_Rust_Base.Bool_Type
+    Bool_Type_Lemmas
+    Shallow_Micro_Rust_Base.Core_Expression
+    Core_Expression_Lemmas
+    Shallow_Micro_Rust_Base.Core_Syntax
+    Shallow_Micro_Rust_Base.Result_Type
+    Shallow_Micro_Rust_Base.Option_Type
+    Shallow_Micro_Rust_Base.Range_Type
+    Shallow_Micro_Rust_Base.Rust_Iterator
+    Rust_Iterator_Lemmas
+    Shallow_Micro_Rust_Base.Numeric_Types
+    Numeric_Types_Lemmas
+    Shallow_Micro_Rust_Base.Global_Store
+    SSA
+    Shallow_Micro_Rust_Base.Micro_Rust_Shallow_Embedding
 begin
 (*>*)
 

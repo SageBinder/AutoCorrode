@@ -3,7 +3,7 @@
 
 (*<*)
 theory StdLib_Range                            
-  imports Crush.Crush Shallow_Micro_Rust.Range_Type
+  imports Crush.Crush Shallow_Micro_Rust_Base.Range_Type
 begin
 (*>*)
 

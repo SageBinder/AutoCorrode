@@ -75,7 +75,7 @@ as the composition of the deep embedding bracket and an evaluation function defi
 text\<open>Shallow embeddings of Micro Rust programs into HOL are values of type
 \<^verbatim>\<open>expression\<close>, which is effectively a state monad: Elements of \<^verbatim>\<open>('s, 'v, 'r, \<dots>) expression\<close>
 are state-transforming functions on the state-type \<^verbatim>\<open>'s\<close>, plus information about how the
-computation concluded. Quoting the definition of \<^verbatim>\<open>expression\<close> from \<^file>\<open>../Shallow_Micro_Rust/Core_Expression.thy\<close>:\<close>
+computation concluded. Quoting the definition of \<^verbatim>\<open>expression\<close> from \<^file>\<open>../Shallow_Micro_Rust_Base/Core_Expression.thy\<close>:\<close>
 
 \<comment>\<open>\<^verbatim>\<open>
 datatype ('s, 'v, 'r, 'abort, 'i, 'o) continuation
@@ -215,7 +215,7 @@ in HOL to Micro Rust functions using anti-quotations:\<close>
 definition get_arr :: \<open>(s, 64 word list, _, _, _) function_body\<close> where 
   \<open>get_arr \<equiv> FunctionBody (get arr)\<close>
 
-text\<open>This builds on the \<^verbatim>\<open>get\<close> primitive from \<^file>\<open>../Shallow_Micro_Rust/Core_Expression.thy\<close>,
+text\<open>This builds on the \<^verbatim>\<open>get\<close> primitive from \<^file>\<open>../Shallow_Micro_Rust_Base/Core_Expression.thy\<close>,
 which unfolds to this:\<close>
 
 \<comment>\<open>get_arr \<equiv> FunctionBody (Expression (\<lambda>(\<sigma>::s). Success (arr \<sigma>) \<sigma>))\<close>

@@ -8,7 +8,7 @@
    term_check phase resolves it (e.g. to `my_test_some`). *)
 
 theory Micro_Rust_Notations_Test
-  imports Micro_Rust_Shallow_Embedding
+  imports Shallow_Micro_Rust_Base.Micro_Rust_Shallow_Embedding
 begin
 
 definition my_test_some :: \<open>nat \<Rightarrow> nat option\<close> where
@@ -304,7 +304,7 @@ term \<open>\<lbrakk> Foo::wrap(0) \<rbrakk>\<close>
 
 text\<open>\<^bold>\<open>Long path with method call.\<close> \<open>Bar::value.cont(0)\<close> --- this
 exercises the long-path AST translator's \<^verbatim>\<open>_temporary_..._long_method\<close>
-branch (\<^file>\<open>../Micro_Rust_Parsing_Frontend/Micro_Rust_Syntax.thy\<close>),
+branch (\<^file>\<open>../Micro_Rust_Parsing_Legacy_Frontend/Micro_Rust_Syntax.thy\<close>),
 which splits \<open>Bar::value.cont\<close> into:
 - a path head \<open>"Bar::value"\<close> (literal kind): after AST flattening it is
   an ordinary \<^verbatim>\<open>_urust_identifier_id\<close> carrying the joined \<open>::\<close>-name,
@@ -495,7 +495,8 @@ positions is the opposite, and these tests pin it down:
 \<open>shdw\<close> is registered in all three kinds (\<open>shadow_test_lens\<close> field,
 \<open>shadow_test_fn\<close> call, \<open>shadow_test_lit\<close> literal); see
 \<^ML>\<open>Micro_Rust_Notation_Cmd.is_grammatical_name\<close> and
-\<open>witness_takes_precedence\<close> in \<^file>\<open>Micro_Rust_Notations.thy\<close>.\<close>
+\<open>witness_takes_precedence\<close> in
+\<^file>\<open>../Shallow_Micro_Rust_Base/Micro_Rust_Notations.thy\<close>.\<close>
 
 text\<open>\<^bold>\<open>Literal position: binder wins.\<close> With a \<open>let shdw\<close> in scope, the
 trailing bare \<open>shdw\<close> resolves to the \<open>let\<close>-bound \<open>7\<close>, NOT to the

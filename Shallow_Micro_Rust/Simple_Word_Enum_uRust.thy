@@ -21,7 +21,7 @@ theory Simple_Word_Enum_uRust
        brackets the tests below use to check that the names really do resolve in uRust, and
        Core_Expression_Lemmas for the micro_rust_simps rules (call_literal2 in particular)
        that reduce a lifted call in those tests. *)
-    Micro_Rust_Shallow_Embedding
+    Shallow_Micro_Rust_Base.Micro_Rust_Shallow_Embedding
     Core_Expression_Lemmas
 begin
 (*>*)
@@ -54,7 +54,8 @@ whose enum type somehow looked function- or lens-shaped could not be misfiled.
 
 With no \<^verbatim>\<open>urust:\<close> clause the plugin does nothing, so it is harmless on every enum that does not
 want \<open>\<mu>Rust\<close> notation. It can also be suppressed explicitly with
-\<^verbatim>\<open>simple_word_enum (plugins del: urust_notation) ...\<close>.
+\<^verbatim>\<open>simple_word_enum (plugins del: "urust_notation") ...\<close>. The plugin name is quoted
+because \<^verbatim>\<open>urust_notation\<close> is also an outer command keyword in this session.
 
 Note that \<^verbatim>\<open>Name::Ci\<close> is a \<^verbatim>\<open>::\<close>-path, which the \<open>\<mu>Rust\<close> frontend's grammar already parses, so
 no bespoke grammar production is needed --- the dispatch-table entry alone suffices. A
@@ -140,7 +141,7 @@ under a \<^verbatim>\<open>Name::\<close> path:
   \<^item> \<^verbatim>\<open>T_try_from_uN :: N word \<Rightarrow> (_, (T, unit) result, _, _, _) function_body\<close>
     \<open>\<equiv> lift_fun1 T_try_from_uN_pure\<close>, as \<^verbatim>\<open>Name::try_from\<close>.
 
-This mirrors \<^const>\<open>word_try_from_fun\<close> in \<^theory>\<open>Shallow_Micro_Rust.Numeric_Types\<close>, which lifts
+This mirrors \<^const>\<open>word_try_from_fun\<close> in \<^theory>\<open>Shallow_Micro_Rust_Base.Numeric_Types\<close>, which lifts
 \<^const>\<open>word_try_from_pure\<close> exactly this way.
 
 The \<^verbatim>\<open>_def\<close> facts are \<^emph>\<open>not\<close> tagged \<^verbatim>\<open>[micro_rust_simps]\<close>: whether a call unfolds to its pure
@@ -397,10 +398,10 @@ ML \<open>
   end
 \<close>
 
-text\<open>And the reverse: \<^verbatim>\<open>plugins del: urust_notation\<close> keeps the lifted conversion functions but
+text\<open>And the reverse: \<^verbatim>\<open>plugins del: "urust_notation"\<close> keeps the lifted conversion functions but
 drops the variant names.\<close>
 
-simple_word_enum (plugins del: urust_notation) (8) convs_only urust: "ConvsOnly" =
+simple_word_enum (plugins del: "urust_notation") (8) convs_only urust: "ConvsOnly" =
     CO_A = 1 | CO_B = 2
 
 ML \<open>
@@ -422,7 +423,7 @@ lemma
 
 text\<open>Both suppressed at once.\<close>
 
-simple_word_enum (plugins del: urust_notation urust_conversion) (8) quiet_kind
+simple_word_enum (plugins del: "urust_notation" urust_conversion) (8) quiet_kind
     urust: "QuietKind" =
     QK_A = 1 | QK_B = 2
 

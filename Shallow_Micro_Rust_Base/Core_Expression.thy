@@ -147,7 +147,7 @@ via \<^verbatim>\<open>evaluate\<close> produces a \<^term>\<open>Yield\<close>.
 continuation of the program, and makes a decision on how to continue evaluation.
 
 We consider multiple definitions trading simplicity and generality -- their equivalence is proved 
-in \<^file>\<open>Core_Expression_Lemmas.thy\<close>\<close> 
+in \<^file>\<open>../Shallow_Micro_Rust/Core_Expression_Lemmas.thy\<close>\<close>
 
 text\<open>First, a \<^emph>\<open>deterministic\<close> yield handler takes a prompt input as well as a continuation parametrized
 by a prompt output, and deterministically return a continuation expression. Note, however, that 
@@ -279,7 +279,7 @@ definition yield_handler_det_to_nondet :: \<open>('s, 'v, 'r, 'abort, 'i, 'o) yi
   \<open>yield_handler_det_to_nondet y \<pi> e \<sigma> \<equiv>
      (\<lambda>e_choice. y \<pi> e_choice \<sigma>) ` ({e'. \<forall>\<omega> \<sigma>. e' \<omega> \<sigma> \<in> e \<omega> \<sigma>})\<close>
 
-text\<open>We will prove in \<^file>\<open>Core_Expression_Lemmas.thy\<close> that the conversions between the different 
+text\<open>We will prove in \<^file>\<open>../Shallow_Micro_Rust/Core_Expression_Lemmas.thy\<close> that the conversions between the different
 yield handlers intertwine the various deep evaluation functions.\<close>
 
 paragraph\<open>Some examples and properties of non-deterministic basic yield handlers:\<close>

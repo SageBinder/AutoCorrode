@@ -2,6 +2,7 @@ theory Parser_Impl_Command
   imports
     Parser_Impl_Diagnostics
     Parser_Impl_Translate
+    Micro_Rust_Parsing_Legacy_Frontend.Micro_Rust_Parsing_Legacy_Frontend
   keywords
     "urust_expr" :: thy_decl
     and "urust_fun" :: thy_decl

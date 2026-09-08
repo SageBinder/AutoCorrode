@@ -4,9 +4,9 @@
 (*<*)
 theory Core_Expression_Lemmas
   imports
-    Core_Expression
-    Core_Syntax
-    "Micro_Rust_Shallow_Embedding"
+    Shallow_Micro_Rust_Base.Core_Expression
+    Shallow_Micro_Rust_Base.Core_Syntax
+    Micro_Rust_Parser_Bridge
 begin
 (*>*)
 

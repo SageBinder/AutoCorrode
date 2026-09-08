@@ -1,5 +1,5 @@
 theory Parser_Test_Showoff
-  imports Parser_Impl Micro_Rust_Std_Lib.StdLib_Logging
+  imports Micro_Rust_Parser_Impl.Parser_Impl Micro_Rust_Std_Lib.StdLib_Logging
 begin
 
 declare [[urust_conformance_check = true]]

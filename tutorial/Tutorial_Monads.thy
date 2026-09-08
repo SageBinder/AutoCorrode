@@ -3,7 +3,7 @@ theory Tutorial_Monads
     Main
     "HOL-Library.Monad_Syntax"
     Slides
-    Shallow_Micro_Rust.Core_Expression
+    Shallow_Micro_Rust_Base.Core_Expression
 begin
 
 slide \<open>Why monads?\<close>
@@ -552,7 +552,7 @@ interlude \<open>Putting it together: the uRust monad\<close>
 
 text \<open>AutoCorrode's uRust packs state, two notions of completion,
   abort, and a callback into one datatype. Verbatim, from
-  \<open>Shallow_Micro_Rust.Core_Expression\<close>:\<close>
+  \<open>Shallow_Micro_Rust_Base.Core_Expression\<close>:\<close>
 
 text \<open>@{datatype [display] continuation}\<close>
 
@@ -569,4 +569,3 @@ text \<open>\<^bold>\<open>Abort\<close> is the error-monad case: uncaught, bubb
 end_interlude
 
 end
-

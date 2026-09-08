@@ -13,7 +13,7 @@ theory AutoCorrode
     "Micro_Rust_Examples.Micro_Rust_Examples"
     "Micro_Rust_Interfaces.Micro_Rust_Interfaces"
     "Micro_Rust_Interfaces_Core.Micro_Rust_Interfaces_Core"
-    "Micro_Rust_Parsing_Frontend.Micro_Rust_Parsing_Frontend"
+    "Micro_Rust_Parsing_Legacy_Frontend.Micro_Rust_Parsing_Legacy_Frontend"
     "Micro_Rust_Runtime.Micro_Rust_Runtime"
     "Micro_Rust_Std_Lib.Micro_Rust_Std_Lib"
     "Misc.Misc"

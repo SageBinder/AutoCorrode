@@ -1,0 +1,24 @@
+session Shallow_Micro_Rust_Base = HOL +
+  options [document = false]
+  sessions
+    "HOL-Eisbach"
+    "HOL-Library"
+    Micro_Rust_Parsing_Legacy_Frontend
+    Autogen
+    Misc
+    Lenses_And_Other_Optics
+  theories [document = false]
+    Basic_Case_Expression
+    Core_Expression
+    Bool_Type
+    Option_Type
+    Result_Type
+    Micro_Rust_Notations
+    Rust_Iterator
+    Range_Type
+    Numeric_Types
+    Global_Store
+    Prompts_And_Responses
+    Tuple
+    Core_Syntax
+    Micro_Rust_Shallow_Embedding
