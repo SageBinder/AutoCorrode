@@ -126,9 +126,14 @@ fun configured_flag lthy options name =
         | NONE => error ("internal unknown uRust command option " ^ quote name)))
 
 fun read_declared_type lthy (raw_type, type_pos) =
-  ((Syntax.read_typ lthy raw_type, type_pos)
-    handle ERROR message =>
-      error (message ^ Position.here type_pos))
+  (case Exn.result (Syntax.read_typ lthy) raw_type of
+     Exn.Res declared_type => (declared_type, type_pos)
+   | Exn.Exn exn =>
+       if Exn.is_interrupt exn then Exn.reraise exn
+       else
+         error
+           (Runtime.exn_message exn ^
+             Position.here type_pos))
 
 fun terminal_type declared_type =
   #2 (Term.strip_type declared_type)
