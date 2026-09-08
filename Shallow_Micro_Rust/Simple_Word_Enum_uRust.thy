@@ -24,6 +24,7 @@ theory Simple_Word_Enum_uRust
     Shallow_Micro_Rust_Base.Micro_Rust_Shallow_Embedding
     Core_Expression_Lemmas
 begin
+declare [[urust_conformance_check = true]]
 (*>*)
 
 section\<open>\<open>\<mu>Rust\<close> notation for simple word enums\<close>
@@ -295,12 +296,24 @@ text\<open>The acceptance test: the \<open>\<mu>Rust\<close> path really does re
 equal to the \<^const>\<open>literal\<close> of the HOL variant --- \<^emph>\<open>not\<close> a free variable named
 \<^verbatim>\<open>MessageKind::MK_Ping\<close>.\<close>
 
-term \<open>\<lbrakk> MessageKind::MK_Ping \<rbrakk>\<close>
+urust_expr [urust_abbrev = true] Simple_Word_Enum_uRust_urust_site_1
+  \<open> MessageKind::MK_Ping \<close>
+
+term \<open>Simple_Word_Enum_uRust_urust_site_1\<close>
+
+urust_expr [urust_abbrev = true] Simple_Word_Enum_uRust_urust_site_2
+  \<open> MessageKind::MK_Ping \<close>
+
+urust_expr [urust_abbrev = true] Simple_Word_Enum_uRust_urust_site_3
+  \<open> MessageKind::MK_Pong \<close>
+
+urust_expr [urust_abbrev = true] Simple_Word_Enum_uRust_urust_site_4
+  \<open> MessageKind::MK_Data \<close>
 
 lemma
-  shows \<open>\<lbrakk> MessageKind::MK_Ping \<rbrakk> = literal MK_Ping\<close>
-    and \<open>\<lbrakk> MessageKind::MK_Pong \<rbrakk> = literal MK_Pong\<close>
-    and \<open>\<lbrakk> MessageKind::MK_Data \<rbrakk> = literal MK_Data\<close>
+  shows \<open>Simple_Word_Enum_uRust_urust_site_2 = literal MK_Ping\<close>
+    and \<open>Simple_Word_Enum_uRust_urust_site_3 = literal MK_Pong\<close>
+    and \<open>Simple_Word_Enum_uRust_urust_site_4 = literal MK_Data\<close>
   by (rule refl)+
 
 text\<open>The lifted conversion functions exist and are \<^const>\<open>lift_fun1\<close> of the pure ones.\<close>
@@ -332,29 +345,48 @@ text\<open>Their \<open>\<mu>Rust\<close> paths resolve as function calls --- th
 unregistered path would leave a free variable and fail to elaborate at the \<^const>\<open>function_body\<close>
 type the call position demands.\<close>
 
-term \<open>\<lbrakk> MessageKind::to_u32(e) \<rbrakk>\<close>
-term \<open>\<lbrakk> MessageKind::try_from(w) \<rbrakk>\<close>
+urust_expr [urust_abbrev = true] Simple_Word_Enum_uRust_urust_site_5
+  \<open> MessageKind::to_u32(e) \<close>
+  with_args e
+
+term \<open>Simple_Word_Enum_uRust_urust_site_5 e\<close>
+
+urust_expr [urust_abbrev = true] Simple_Word_Enum_uRust_urust_site_6
+  \<open> MessageKind::try_from(w) \<close>
+  with_args w
+
+term \<open>Simple_Word_Enum_uRust_urust_site_6 w\<close>
 
 text\<open>Naming the \<^verbatim>\<open>_def\<close> fact unfolds a call to its pure function --- which is what makes the
 \<^verbatim>\<open>_alt\<close> characterisations from \<^verbatim>\<open>word_conversion\<close> usable on \<open>\<mu>Rust\<close> code. Evaluated on a concrete
 variant, a call then reduces to a literal:\<close>
 
+urust_expr [urust_abbrev = true] Simple_Word_Enum_uRust_urust_site_7
+  \<open> MessageKind::to_u32(MK_Data) \<close>
+
 lemma
-  shows \<open>\<lbrakk> MessageKind::to_u32(MK_Data) \<rbrakk> = \<up>(0xff :: 32 word)\<close>
+  shows \<open>Simple_Word_Enum_uRust_urust_site_7 = \<up>(0xff :: 32 word)\<close>
   by (simp add: micro_rust_simps message_kind_to_u32_def message_kind_to_u32_pure_def)
 
 text\<open>Since the \<^verbatim>\<open>_def\<close>s are not \<^verbatim>\<open>[micro_rust_simps]\<close>, \<^emph>\<open>not\<close> naming them leaves the call
 unreduced --- the caller decides when to unfold.\<close>
 
+urust_expr [urust_abbrev = true] Simple_Word_Enum_uRust_urust_site_8
+  \<open> MessageKind::to_u32(MK_Data) \<close>
+
 lemma
-  shows \<open>\<lbrakk> MessageKind::to_u32(MK_Data) \<rbrakk> = message_kind_to_u32 \<langle>\<up>MK_Data\<rangle>\<close>
+  shows \<open>Simple_Word_Enum_uRust_urust_site_8 =
+    message_kind_to_u32 \<langle>\<up>MK_Data\<rangle>\<close>
   by (simp add: micro_rust_simps)
 
 text\<open>End to end: a \<open>\<mu>Rust\<close> round trip on a variant named the \<open>\<mu>Rust\<close> way, discharged by the round-trip
 lemma \<^verbatim>\<open>word_conversion\<close> proves.\<close>
 
+urust_expr [urust_abbrev = true] Simple_Word_Enum_uRust_urust_site_9
+  \<open> MessageKind::try_from(MessageKind::to_u32(MK_Data)) \<close>
+
 lemma
-  shows \<open>\<lbrakk> MessageKind::try_from(MessageKind::to_u32(MK_Data)) \<rbrakk> = \<up>(Ok MK_Data)\<close>
+  shows \<open>Simple_Word_Enum_uRust_urust_site_9 = \<up>(Ok MK_Data)\<close>
   by (simp add: micro_rust_simps message_kind_to_u32_def message_kind_try_from_u32_def
         message_kind_to_u32_pure_then_try_from)
 
@@ -417,8 +449,13 @@ ML \<open>
 text\<open>The variant has to be spelled the HOL way here, since \<^verbatim>\<open>urust_notation\<close> was suppressed ---
 but the \<^emph>\<open>function\<close> path still resolves, which is the independence being tested.\<close>
 
+urust_expr [urust_abbrev = true] Simple_Word_Enum_uRust_urust_site_10
+  \<open> ConvsOnly::try_from(w) \<close>
+  with_args w
+
 lemma
-  shows \<open>\<lbrakk> ConvsOnly::try_from(w) \<rbrakk> = \<up>(convs_only_try_from_u8_pure w)\<close>
+  shows \<open>Simple_Word_Enum_uRust_urust_site_10 w =
+    \<up>(convs_only_try_from_u8_pure w)\<close>
   by (simp add: micro_rust_simps convs_only_try_from_u8_def)
 
 text\<open>Both suppressed at once.\<close>

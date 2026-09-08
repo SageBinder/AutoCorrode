@@ -5,6 +5,7 @@
 theory Bool_Type_Lemmas
   imports Core_Expression_Lemmas Shallow_Micro_Rust_Base.Bool_Type
 begin
+declare [[urust_conformance_check = true]]
 (*>*)
 
 lemma evaluate_trueE [micro_rust_elims]:
@@ -50,28 +51,47 @@ lemma evaluate_two_armed_conditionalE [micro_rust_elims]:
 
 text\<open>Note that conditionals satisfy some "obvious" properties.  For example, testing against the
 \<^emph>\<open>truth\<close> and \<^emph>\<open>falsity\<close> constants collapses the conditional, as one would expect:\<close>
+urust_expr [urust_abbrev = true] Bool_Type_Lemmas_urust_site_1
+  \<open> if True { \<epsilon>\<open>e\<close> } else { \<epsilon>\<open>f\<close> } \<close>
+  with_args e f
+
+urust_expr [urust_abbrev = true] Bool_Type_Lemmas_urust_site_2
+  \<open> if False { \<epsilon>\<open>e\<close> } else { \<epsilon>\<open>f\<close> } \<close>
+  with_args e f
+
 lemma two_armed_conditional_true_false_collapse [micro_rust_simps]:
-  shows \<open>\<lbrakk> if True  { \<epsilon>\<open>e\<close> } else { \<epsilon>\<open>f\<close> } \<rbrakk> = e\<close>
-    and \<open>\<lbrakk> if False { \<epsilon>\<open>e\<close> } else { \<epsilon>\<open>f\<close> } \<rbrakk> = f\<close>
+  shows \<open>Bool_Type_Lemmas_urust_site_1 e f = e\<close>
+    and \<open>Bool_Type_Lemmas_urust_site_2 e f = f\<close>
   by (auto simp add: two_armed_conditional_def true_def false_def micro_rust_simps)
 
 text\<open>Moreover, we can also perform some common-subexpression elimination, by "hoisting" common
 expressions that appear in both branches of the conditional out, as follows:\<close>
+urust_expr [urust_abbrev = true] Bool_Type_Lemmas_urust_site_3
+  \<open>
+    if \<epsilon>\<open>c\<close> {
+      \<epsilon>\<open>e\<close>;
+      \<epsilon>\<open>g\<close>
+    } else {
+      \<epsilon>\<open>f\<close>;
+      \<epsilon>\<open>g\<close>
+    }
+  \<close>
+  with_args c e g f
+
+urust_expr [urust_abbrev = true] Bool_Type_Lemmas_urust_site_4
+  \<open>
+    if \<epsilon>\<open>c\<close> {
+      \<epsilon>\<open>e\<close>
+    } else {
+      \<epsilon>\<open>f\<close>
+    };
+    \<epsilon>\<open>g\<close>
+  \<close>
+  with_args c e f g
+
 lemma two_armed_conditional_sequence_hoist [micro_rust_simps]:
-  shows \<open>\<lbrakk> if \<epsilon>\<open>c\<close> {
-             \<epsilon>\<open>e\<close>;
-             \<epsilon>\<open>g\<close>
-           } else {
-             \<epsilon>\<open>f\<close>;
-             \<epsilon>\<open>g\<close> }
-         \<rbrakk> = \<lbrakk>
-           if \<epsilon>\<open>c\<close> {
-             \<epsilon>\<open>e\<close>
-           } else {
-             \<epsilon>\<open>f\<close>
-           };
-           \<epsilon>\<open>g\<close>
-        \<rbrakk>\<close> (is \<open>?LHS = ?RHS\<close>)
+  shows \<open>Bool_Type_Lemmas_urust_site_3 c e g f =
+    Bool_Type_Lemmas_urust_site_4 c e f g\<close> (is \<open>?LHS = ?RHS\<close>)
 proof -
   have X: \<open>\<And>v e f g. (if v then (e; g) else (f; g)) = (if v then (e; g) else (f; g))\<close>
     by (case_tac v; auto)
@@ -122,43 +142,111 @@ lemma assert_false_sequence [micro_rust_simps]:
   by (simp add: micro_rust_simps assert_def assert_val_def)
 
 text\<open>...and \<^term>\<open>skip\<close>:\<close>
+urust_expr [urust_abbrev = true] Bool_Type_Lemmas_urust_site_5
+  \<open> assert!(True); \<epsilon>\<open>e\<close> \<close>
+  with_args e
+
 lemma assert_true_sequence [micro_rust_simps]:
-  shows \<open>\<lbrakk> assert!(True); \<epsilon>\<open>e\<close> \<rbrakk> = e\<close>
+  shows \<open>Bool_Type_Lemmas_urust_site_5 e = e\<close>
   by (simp add: micro_rust_simps assert_def assert_val_def)
 
+urust_expr [urust_abbrev = true] Bool_Type_Lemmas_urust_site_6
+  \<open> !c \<close>
+  with_args c
+
+urust_expr [urust_abbrev = true] Bool_Type_Lemmas_urust_site_7
+  \<open> \<llangle>\<not>c\<rrangle> \<close>
+  with_args c
+
 lemma evaluate_negation_literal [micro_rust_simps]:
-  shows \<open>\<lbrakk> !c \<rbrakk> = \<lbrakk> \<llangle>\<not>c\<rrangle> \<rbrakk>\<close>
+  shows \<open>Bool_Type_Lemmas_urust_site_6 c = Bool_Type_Lemmas_urust_site_7 c\<close>
   by (clarsimp simp add: micro_rust_simps negation_def)
 
+urust_expr [urust_abbrev = true] Bool_Type_Lemmas_urust_site_8
+  \<open> c && \<epsilon>\<open>d\<close> \<close>
+  with_args c d
+
+urust_expr [urust_abbrev = true] Bool_Type_Lemmas_urust_site_9
+  \<open> if c { \<epsilon>\<open>d\<close> } else { False } \<close>
+  with_args c d
+
 lemma evaluate_conjunction_literal [micro_rust_simps]:
-  shows \<open>\<lbrakk> c && \<epsilon>\<open>d\<close> \<rbrakk> = \<lbrakk> if c { \<epsilon>\<open>d\<close> } else { False } \<rbrakk>\<close>
+  shows \<open>Bool_Type_Lemmas_urust_site_8 c d = Bool_Type_Lemmas_urust_site_9 c d\<close>
   by (clarsimp simp add: micro_rust_simps urust_conj_def two_armed_conditional_def false_def)
 
+urust_expr [urust_abbrev = true] Bool_Type_Lemmas_urust_site_10
+  \<open> c || \<epsilon>\<open>e\<close> \<close>
+  with_args c e
+
+urust_expr [urust_abbrev = true] Bool_Type_Lemmas_urust_site_11
+  \<open> if c { True } else { \<epsilon>\<open>e\<close> } \<close>
+  with_args c e
+
 lemma evaluate_disjunction_literal [micro_rust_simps]:
-  shows \<open>\<lbrakk> c || \<epsilon>\<open>e\<close> \<rbrakk> = \<lbrakk> if c { True } else { \<epsilon>\<open>e\<close> } \<rbrakk>\<close>
+  shows \<open>Bool_Type_Lemmas_urust_site_10 c e = Bool_Type_Lemmas_urust_site_11 c e\<close>
   by (clarsimp simp add: micro_rust_simps urust_disj_def two_armed_conditional_def true_def)
 
+urust_expr [urust_abbrev = true] Bool_Type_Lemmas_urust_site_12
+  \<open> c == d \<close>
+  with_args c d
+
+urust_expr [urust_abbrev = true] Bool_Type_Lemmas_urust_site_13
+  \<open> \<llangle>c = d\<rrangle> \<close>
+  with_args c d
+
 lemma evaluate_eq_literal [micro_rust_simps]:
-  shows \<open>\<lbrakk> c == d \<rbrakk> = \<lbrakk> \<llangle>c = d\<rrangle> \<rbrakk>\<close>
+  shows \<open>Bool_Type_Lemmas_urust_site_12 c d = Bool_Type_Lemmas_urust_site_13 c d\<close>
   by (clarsimp simp add: micro_rust_simps urust_eq_def)
 
+urust_expr [urust_abbrev = true] Bool_Type_Lemmas_urust_site_14
+  \<open> c != d \<close>
+  with_args c d
+
+urust_expr [urust_abbrev = true] Bool_Type_Lemmas_urust_site_15
+  \<open> \<llangle>c \<noteq> d\<rrangle> \<close>
+  with_args c d
+
 lemma evaluate_neq_literal [micro_rust_simps]:
-  shows \<open>\<lbrakk> c != d \<rbrakk> = \<lbrakk> \<llangle>c \<noteq> d\<rrangle> \<rbrakk>\<close>
+  shows \<open>Bool_Type_Lemmas_urust_site_14 c d = Bool_Type_Lemmas_urust_site_15 c d\<close>
   by (clarsimp simp add: micro_rust_simps urust_neq_def)
 
 (* We don't add these to micro_rust_simps as it can leads to overly aggressive case-splitting
    by HOL's if_split rule. Still, it can be useful in specific proofs. *)
 
+urust_expr [urust_abbrev = true] Bool_Type_Lemmas_urust_site_16
+  \<open> if x { y } else { z } \<close>
+  with_args x y z
+
+urust_expr [urust_abbrev = true] Bool_Type_Lemmas_urust_site_17
+  \<open> \<llangle>if x then y else z\<rrangle> \<close>
+  with_args x y z
+
 lemma evaluate_pure_if:
-  shows \<open>\<lbrakk> if x { y } else { z } \<rbrakk> = \<lbrakk> \<llangle>if x then y else z\<rrangle> \<rbrakk>\<close>
+  shows \<open>Bool_Type_Lemmas_urust_site_16 x y z = Bool_Type_Lemmas_urust_site_17 x y z\<close>
   by (clarsimp simp add: micro_rust_simps)
 
+urust_expr [urust_abbrev = true] Bool_Type_Lemmas_urust_site_18
+  \<open> \<llangle>if x then True else z\<rrangle> \<close>
+  with_args x z
+
+urust_expr [urust_abbrev = true] Bool_Type_Lemmas_urust_site_19
+  \<open> \<llangle>x \<or> z\<rrangle> \<close>
+  with_args x z
+
 lemma evaluate_pure_if_then_True:
-  shows \<open>\<lbrakk> \<llangle>if x then True else z\<rrangle> \<rbrakk> = \<lbrakk> \<llangle>x \<or> z\<rrangle> \<rbrakk>\<close>
+  shows \<open>Bool_Type_Lemmas_urust_site_18 x z = Bool_Type_Lemmas_urust_site_19 x z\<close>
   by simp
 
+urust_expr [urust_abbrev = true] Bool_Type_Lemmas_urust_site_20
+  \<open> \<llangle>if x then y else True\<rrangle> \<close>
+  with_args x y
+
+urust_expr [urust_abbrev = true] Bool_Type_Lemmas_urust_site_21
+  \<open> \<llangle>\<not>x \<or> y\<rrangle> \<close>
+  with_args x y
+
 lemma evaluate_pure_if_else_True:
-  shows \<open>\<lbrakk> \<llangle>if x then y else True\<rrangle> \<rbrakk> = \<lbrakk> \<llangle>\<not>x \<or> y\<rrangle> \<rbrakk>\<close>
+  shows \<open>Bool_Type_Lemmas_urust_site_20 x y = Bool_Type_Lemmas_urust_site_21 x y\<close>
   by simp
 
 

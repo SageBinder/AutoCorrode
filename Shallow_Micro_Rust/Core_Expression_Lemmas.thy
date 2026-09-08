@@ -8,6 +8,7 @@ theory Core_Expression_Lemmas
     Shallow_Micro_Rust_Base.Core_Syntax
     Micro_Rust_Parser_Bridge
 begin
+declare [[urust_conformance_check = true]]
 (*>*)
 
 section\<open>Basic lemmas about the \<^typ>\<open>('s, 'v, 'r, 'abort, 'i, 'o) expression\<close> monad\<close>
@@ -291,8 +292,17 @@ lemma evaluate_sequenceE [micro_rust_elims]:
 text\<open>The fact that \<^term>\<open>Core_Expression.sequence\<close> is a degenerate instance of the monadic bind operation
 immediately gives us a few properties.  Sequencing is immediately associative for example, which is
 an immediate corollary of the fact that the monadic bind operation is also associative, too:\<close>
+urust_expr [urust_abbrev = true] Core_Expression_Lemmas_urust_site_1
+  \<open> { \<epsilon>\<open>e\<close>; \<epsilon>\<open>f\<close> }; \<epsilon>\<open>g\<close> \<close>
+  with_args e f g
+
+urust_expr [urust_abbrev = true] Core_Expression_Lemmas_urust_site_2
+  \<open> \<epsilon>\<open>e\<close>; \<epsilon>\<open>f\<close>; \<epsilon>\<open>g\<close> \<close>
+  with_args e f g
+
 lemma sequence_assoc [micro_rust_simps]:
-  shows \<open> \<lbrakk> { \<epsilon>\<open>e\<close>; \<epsilon>\<open>f\<close> }; \<epsilon>\<open>g\<close> \<rbrakk> = \<lbrakk> \<epsilon>\<open>e\<close>; \<epsilon>\<open>f\<close>; \<epsilon>\<open>g\<close> \<rbrakk>\<close>
+  shows \<open>Core_Expression_Lemmas_urust_site_1 e f g =
+    Core_Expression_Lemmas_urust_site_2 e f g\<close>
   by (simp add: sequence_def Core_Expression_Lemmas.bind_assoc)
 
 subsection\<open>Literals\<close>
@@ -352,12 +362,24 @@ lemma get_reorder:
     continuation.splits)
 
 text\<open>Alternatively, we can merge the two get operations into a single one:\<close>
+urust_expr [urust_abbrev = true] Core_Expression_Lemmas_urust_site_3
+  \<open>
+    let vf = \<epsilon>\<open>get f\<close>;
+    let vg = \<epsilon>\<open>get g\<close>;
+    \<epsilon>\<open>e vf vg\<close>
+  \<close>
+  with_args f g e
+
+urust_expr [urust_abbrev = true] Core_Expression_Lemmas_urust_site_4
+  \<open>
+    let (vf, vg) = \<epsilon>\<open>get (\<lambda>\<sigma>. ((f \<sigma>), (g \<sigma>), nil))\<close>;
+    \<epsilon>\<open>e vf vg\<close>
+  \<close>
+  with_args f g e
+
 lemma get_merge[micro_rust_simps]:
-  shows \<open> \<lbrakk> let vf = \<epsilon>\<open>get f\<close>;
-            let vg = \<epsilon>\<open>get g\<close>;
-            \<epsilon>\<open>e vf vg\<close> \<rbrakk> =
-          \<lbrakk> let (vf, vg) = \<epsilon>\<open>get (\<lambda>\<sigma>. ((f \<sigma>), (g \<sigma>), nil))\<close>;
-            \<epsilon>\<open>e vf vg\<close> \<rbrakk> \<close>
+  shows \<open>Core_Expression_Lemmas_urust_site_3 f g e =
+    Core_Expression_Lemmas_urust_site_4 f g e\<close>
   by (auto simp: Core_Expression.bind.simps evaluate_def get_def split: expression.splits
     continuation.splits)
 
@@ -381,8 +403,17 @@ lemma put_reorder:
   using commut by (clarsimp simp: Core_Expression.bind.simps sequence_def evaluate_def put_def)
     (metis comp_apply)
 
+urust_expr [urust_abbrev = true] Core_Expression_Lemmas_urust_site_5
+  \<open> \<epsilon>\<open>put f\<close>; \<epsilon>\<open>put g\<close> \<close>
+  with_args f g
+
+urust_expr [urust_abbrev = true] Core_Expression_Lemmas_urust_site_6
+  \<open> \<epsilon>\<open>put (g \<circ> f)\<close> \<close>
+  with_args g f
+
 lemma put_merge[micro_rust_simps]:
-  shows \<open> \<lbrakk> \<epsilon>\<open>put f\<close>; \<epsilon>\<open>put g\<close> \<rbrakk> = \<lbrakk> \<epsilon>\<open>put (g \<circ> f)\<close> \<rbrakk>\<close>
+  shows \<open>Core_Expression_Lemmas_urust_site_5 f g =
+    Core_Expression_Lemmas_urust_site_6 g f\<close>
   by (clarsimp simp: micro_rust_simps put_def Core_Expression.bind.simps evaluate_def
     sequence_def)
 
@@ -488,13 +519,21 @@ lemma evaluate_call_function_bodyI [micro_rust_intros]:
     shows \<open>evaluate (call_function_body e) \<sigma> = k\<close>
   using assms by (cases \<open>evaluate e \<sigma>\<close>; simp add: evaluate_def Core_Expression.call_function_body.simps)
 
+urust_expr [urust_abbrev = true] Core_Expression_Lemmas_urust_site_7
+  \<open> return v; \<close>
+  with_args v
+
 lemma call_return [micro_rust_simps]:
-  shows \<open>(call (FunctionBody (\<lbrakk> return v; \<rbrakk>))) = (literal v)\<close>
+  shows \<open>(call (FunctionBody (Core_Expression_Lemmas_urust_site_7 v))) = (literal v)\<close>
   by (simp add: call_def call_function_body.simps Core_Expression.bind.simps evaluate_def literal_def
       return_func_def return_val_def)
 
+urust_expr [urust_abbrev = true] Core_Expression_Lemmas_urust_site_8
+  \<open> v \<close>
+  with_args v
+
 lemma call_literal [micro_rust_simps]:
-  shows \<open>(call (FunctionBody (\<lbrakk>v\<rbrakk>))) = (literal v)\<close>
+  shows \<open>(call (FunctionBody (Core_Expression_Lemmas_urust_site_8 v))) = (literal v)\<close>
   by (simp add: call_def call_function_body.simps evaluate_def literal_def)
 
 lemma call_literal2 [micro_rust_simps]:
@@ -710,13 +749,31 @@ appear in a chain of sequenced expressions, as one would expect.  Similarly, the
  \<^term>\<open>panic\<close>, and more generally any \<^term>\<open>abort\<close>, acts as a form of "zero" value for the sequencing
 operation, in the following sense:\<close>
 
+urust_expr [urust_abbrev = true] Core_Expression_Lemmas_urust_site_9
+  \<open> \<epsilon>\<open>abort a\<close>; \<epsilon>\<open>e\<close> \<close>
+  with_args a e
+
+urust_expr [urust_abbrev = true] Core_Expression_Lemmas_urust_site_10
+  \<open> \<epsilon>\<open>abort a\<close> \<close>
+  with_args a
+
 lemma abort_sequence_zero [micro_rust_simps]:
-  shows \<open>\<lbrakk> \<epsilon>\<open>abort a\<close>; \<epsilon>\<open>e\<close> \<rbrakk> = \<lbrakk> \<epsilon>\<open>abort a\<close> \<rbrakk>\<close>
+  shows \<open>Core_Expression_Lemmas_urust_site_9 a e =
+    Core_Expression_Lemmas_urust_site_10 a\<close>
   by (simp add: evaluate_abort evaluate_sequenceI expression_eqI2)
+
+urust_expr [urust_abbrev = true] Core_Expression_Lemmas_urust_site_11
+  \<open> panic!(msg); \<epsilon>\<open>e\<close> \<close>
+  with_args msg e
+
+urust_expr [urust_abbrev = true] Core_Expression_Lemmas_urust_site_12
+  \<open> panic!(msg) \<close>
+  with_args msg
 
 lemma panic_sequence_zero [micro_rust_simps]:
   fixes msg :: \<open>String.literal\<close>
-  shows \<open>\<lbrakk> panic!(msg); \<epsilon>\<open>e\<close> \<rbrakk> = \<lbrakk> panic!(msg) \<rbrakk>\<close>
+  shows \<open>Core_Expression_Lemmas_urust_site_11 msg e =
+    Core_Expression_Lemmas_urust_site_12 msg\<close>
   by (simp only: abort_sequence_zero)
 
   text\<open>This, too, also allows us to rewrite a chain of sequenced expressions should they contain an
@@ -724,17 +781,27 @@ instance of \<^term>\<open>panic\<close>.\<close>
 
 text\<open>The SSA transformation often produces nested let bindings which can be flattened out.\<close>
 
+urust_expr [urust_abbrev = true] Core_Expression_Lemmas_urust_site_13
+  \<open>
+    let v0 = {
+      let v1 = \<epsilon>\<open>v1_expr\<close>;
+      \<epsilon>\<open>cont1 v1\<close>
+    };
+    \<epsilon>\<open>cont0 v0\<close>
+  \<close>
+  with_args v1_expr cont1 cont0
+
+urust_expr [urust_abbrev = true] Core_Expression_Lemmas_urust_site_14
+  \<open>
+    let v1 = \<epsilon>\<open>v1_expr\<close>;
+    let v0 = \<epsilon>\<open>cont1 v1\<close>;
+    \<epsilon>\<open>cont0 v0\<close>
+  \<close>
+  with_args v1_expr cont1 cont0
+
 lemma let_nested [micro_rust_simps]:
-  shows \<open>\<lbrakk> let v0 = {
-              let v1 = \<epsilon>\<open>v1_expr\<close>;
-              \<epsilon>\<open>cont1 v1\<close>
-           };
-           \<epsilon>\<open>cont0 v0\<close>
-         \<rbrakk> = \<lbrakk>
-           let v1 = \<epsilon>\<open>v1_expr\<close>;
-           let v0 = \<epsilon>\<open>cont1 v1\<close>;
-           \<epsilon>\<open>cont0 v0\<close>
-         \<rbrakk>\<close>
+  shows \<open>Core_Expression_Lemmas_urust_site_13 v1_expr cont1 cont0 =
+    Core_Expression_Lemmas_urust_site_14 v1_expr cont1 cont0\<close>
   by (simp add: micro_rust_simps)
 
 (*<*)
