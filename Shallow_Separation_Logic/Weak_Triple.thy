@@ -1108,8 +1108,9 @@ lemma striple_bitwise_xorI:
 by (intro stripleI; clarsimp simp add: urust_eval_predicate_xor apure_def atriple_post_true)
 
 urust_expr [urust_abbrev = true] striple_bitwise_notI_urust_site_1
-  \<open> !x \<close>
+  \<open> !\<llangle>(x :: 'l::{len} word)\<rrangle> \<close>
   with_args x
+  against \<open>\<lbrakk> !x \<rbrakk>\<close>
 
 lemma striple_bitwise_notI:
   fixes x :: \<open>'l::{len} word\<close>
