@@ -750,21 +750,27 @@ appear in a chain of sequenced expressions, as one would expect.  Similarly, the
 operation, in the following sense:\<close>
 
 urust_expr [urust_abbrev = true] Core_Expression_Lemmas_urust_site_9
-  \<open> \<epsilon>\<open>abort a\<close>; \<epsilon>\<open>e\<close> \<close>
-  with_args a e
+  \<open>
+    \<epsilon>\<open>(\<lambda>(_ :: 'v). (abort a :: ('s, 'v, 'r, 'abort, 'i, 'o) expression)) witness\<close>;
+    \<epsilon>\<open>e\<close>
+  \<close>
+  with_args a e witness
 
 urust_expr [urust_abbrev = true] Core_Expression_Lemmas_urust_site_10
   \<open> \<epsilon>\<open>abort a\<close> \<close>
   with_args a
 
 lemma abort_sequence_zero [micro_rust_simps]:
-  shows \<open>Core_Expression_Lemmas_urust_site_9 a e =
+  shows \<open>Core_Expression_Lemmas_urust_site_9 a e undefined =
     Core_Expression_Lemmas_urust_site_10 a\<close>
   by (simp add: evaluate_abort evaluate_sequenceI expression_eqI2)
 
 urust_expr [urust_abbrev = true] Core_Expression_Lemmas_urust_site_11
-  \<open> panic!(msg); \<epsilon>\<open>e\<close> \<close>
-  with_args msg e
+  \<open>
+    \<epsilon>\<open>(\<lambda>(_ :: 'v). (panic msg :: ('s, 'v, 'r, 'abort, 'i, 'o) expression)) witness\<close>;
+    \<epsilon>\<open>e\<close>
+  \<close>
+  with_args msg e witness
 
 urust_expr [urust_abbrev = true] Core_Expression_Lemmas_urust_site_12
   \<open> panic!(msg) \<close>
@@ -772,7 +778,7 @@ urust_expr [urust_abbrev = true] Core_Expression_Lemmas_urust_site_12
 
 lemma panic_sequence_zero [micro_rust_simps]:
   fixes msg :: \<open>String.literal\<close>
-  shows \<open>Core_Expression_Lemmas_urust_site_11 msg e =
+  shows \<open>Core_Expression_Lemmas_urust_site_11 msg e undefined =
     Core_Expression_Lemmas_urust_site_12 msg\<close>
   by (simp only: abort_sequence_zero)
 
