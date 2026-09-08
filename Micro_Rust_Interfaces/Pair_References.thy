@@ -5,6 +5,8 @@ theory Pair_References
   imports Micro_Rust_Interfaces_Core.References Crush.Crush
 begin
 
+declare [[urust_conformance_check = true]]
+
 section\<open>Combining two reference implementations\<close>
 
 text\<open>The goal of this section is to show that two interpretations of the \<^locale>\<open>reference\<close>
@@ -68,32 +70,48 @@ The new address type is \<^verbatim>\<open>'a0 + 'a1\<close> -- that is, the dis
 of the input interpretations. Similarly, the global value type is the disjoint union
 \<^verbatim>\<open>'b0 + 'b1\<close> of the global value types of the individual interpretations.\<close>
 
+urust_expr [urust_abbrev = true]
+  update_raw_fun_urust_site_1
+  \<open> panic!("Invalid update on pair reference") \<close>
+
 definition update_raw_fun :: 
   \<open>('a0 + 'a1, 'b0 + 'b1) gref \<Rightarrow> 'b0 + 'b1 \<Rightarrow> ('s, unit, 'abort, 'i prompt, 'o prompt_output) function_body\<close> where
   \<open>update_raw_fun r b \<equiv> 
       case (plus_gref r, b) of 
          (Inl r0, Inl b0) \<Rightarrow> update_raw_funA r0 b0
        | (Inr r1, Inr b1) \<Rightarrow> update_raw_funB r1 b1
-       | _ \<Rightarrow> FunctionBody \<lbrakk> panic!("Invalid update on pair reference") \<rbrakk>\<close>
+       | _ \<Rightarrow> FunctionBody update_raw_fun_urust_site_1\<close>
+
+urust_expr [urust_abbrev = true]
+  dereference_raw_fun_urust_site_1
+  \<open> \<llangle>Inl\<rrangle>\<^sub>1 (dereference_raw_funA (r0)) \<close>
+  with_args r0
+
+urust_expr [urust_abbrev = true]
+  dereference_raw_fun_urust_site_2
+  \<open> \<llangle>Inr\<rrangle>\<^sub>1 (dereference_raw_funB (r1)) \<close>
+  with_args r1
 
 definition dereference_raw_fun :: 
   \<open>('a0 + 'a1, 'b0 + 'b1) gref \<Rightarrow> ('s, 'b0 + 'b1, 'abort, 'i prompt, 'o prompt_output) function_body\<close> where
   \<open>dereference_raw_fun r \<equiv> 
       case plus_gref r of 
-         Inl r0 \<Rightarrow> FunctionBody \<lbrakk> \<llangle>Inl\<rrangle>\<^sub>1 (dereference_raw_funA (r0)) \<rbrakk>
-       | Inr r1 \<Rightarrow> FunctionBody \<lbrakk> \<llangle>Inr\<rrangle>\<^sub>1 (dereference_raw_funB (r1)) \<rbrakk>\<close>
+         Inl r0 \<Rightarrow> FunctionBody (dereference_raw_fun_urust_site_1 r0)
+       | Inr r1 \<Rightarrow> FunctionBody (dereference_raw_fun_urust_site_2 r1)\<close>
 
 text\<open>Allocations are currently only possible with \<^emph>\<open>one\<close> of the two allocators.
 The axioms need suitable generalization if we ever need to combine two reference
 interpretations which can both allocate.\<close>
-definition reference_raw_fun :: 
-  \<open>'b0 + 'b1 \<Rightarrow> ('s, ('a0 + 'a1, 'b0 + 'b1) gref, 'abort, 'i prompt, 'o prompt_output) function_body\<close> where
-  \<open>reference_raw_fun b \<equiv> FunctionBody \<lbrakk>
+
+urust_fun reference_raw_fun ::
+  \<open>'b0 + 'b1 \<Rightarrow> ('s, ('a0 + 'a1, 'b0 + 'b1) gref, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
+  (b)
+  \<open>
      match b {
        Inl(b0) \<Rightarrow> \<llangle>Inl_gref\<rrangle>\<^sub>1 (reference_raw_funA (b0)),
        Inr(b1) \<Rightarrow> panic!("Invalid allocation") 
      }
-  \<rbrakk>\<close>
+  \<close>
 
 definition points_to_raw' :: \<open>('a0 + 'a1, 'b0 + 'b1) gref \<Rightarrow> share \<Rightarrow> 'b0 + 'b1 \<Rightarrow> 's set\<close>
   where \<open>points_to_raw' r sh b \<equiv>
