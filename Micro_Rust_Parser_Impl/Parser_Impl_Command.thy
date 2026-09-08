@@ -18,10 +18,10 @@ text\<open>
 elaborates, and checks once. A nonempty \<open>with_args\<close> suffix introduces lexical arguments in
 source order and must precede \<open>against\<close>. Without a declaration type their types are inferred and
 the result is \<open>\<lambda>ARG.... src\<close>. A declaration type supplies the complete curried type,
-including one argument type per source argument. When its terminal type is \<open>function_body\<close>, the
-body is wrapped once in \<open>FunctionBody\<close>; every other declaration type produces an ordinary
-expression abstraction. The optional comma-separated inline options override the corresponding
-scoped configurations.
+including one argument type per source argument. A terminal \<open>expression\<close> type produces an
+ordinary expression abstraction, while a terminal \<open>function_body\<close> type wraps the body once in
+\<open>FunctionBody\<close>. Other terminal constructors are rejected. The optional comma-separated inline
+options override the corresponding scoped configurations.
 \<open>urust_conformance_check\<close> defaults to false. When enabled, the command also checks the generated
 declaration against the existing \<open>\<lbrakk>src\<rbrakk>\<close> frontend and records
 \<open>NAME_conformance\<close>. Contextual legacy bodies are parsed under temporary fixes carrying the
@@ -67,10 +67,12 @@ sig
 end
 
 (* THE expression pipeline, exported: every declaration command and programmatic client supplies an
-   explicit elaboration kind to elaborate. Expression accepts an optional complete declaration type;
-   Function requires a curried declaration type ending in function_body. Typed argument types are
-   allocated before AST lowering, the complete unchecked term receives one Type.constraint, and the
-   result passes through Syntax.check_term exactly once. All failures are positioned.
+   explicit elaboration kind to elaborate. Expression accepts no type or a complete declaration type
+   ending in expression; Function requires a curried declaration type ending in function_body. Typed
+   argument types are allocated before AST lowering, the complete unchecked term receives one
+   Type.constraint, and the result passes through Syntax.check_term exactly once. Residual internal
+   schematic types that do not occur in the checked declaration type are then closed with its terminal
+   value channel. All failures are positioned.
    URust_Diagnostics.parse_source owns serialization of the generated runtime; elaboration and
    check_term remain outside that lock.
 
@@ -131,9 +133,11 @@ fun read_declared_type lthy (raw_type, type_pos) =
 fun terminal_type declared_type =
   #2 (Term.strip_type declared_type)
 
-fun is_function_body_type (Type (name, _)) =
-      name = \<^type_name>\<open>function_body\<close>
-  | is_function_body_type _ = false
+fun is_terminal_type expected (Type (name, _)) = name = expected
+  | is_terminal_type _ _ = false
+
+fun is_function_body_type T =
+  is_terminal_type \<^type_name>\<open>function_body\<close> T
 
 fun command_name Expression = "urust_expr"
   | command_name Function = "urust_fun"
@@ -141,12 +145,28 @@ fun command_name Expression = "urust_expr"
 fun argument_role Expression = "argument"
   | argument_role Function = "parameter"
 
-fun require_function_body type_pos declared_type =
-  if is_function_body_type (terminal_type declared_type) then ()
-  else
-    error
-      ("urust_fun: declared result type must be function_body" ^
-        Position.here type_pos)
+fun terminal_value_type kind type_pos declared_type =
+  (case (kind, terminal_type declared_type) of
+     (Expression, Type (name, [_, valueT, _, _, _, _])) =>
+       if name = \<^type_name>\<open>expression\<close> then valueT
+       else
+         error
+           ("urust_expr: declared result type must be expression" ^
+             Position.here type_pos)
+   | (Function, Type (name, [_, valueT, _, _, _])) =>
+       if name = \<^type_name>\<open>function_body\<close> then valueT
+       else
+         error
+           ("urust_fun: declared result type must be function_body" ^
+             Position.here type_pos)
+   | (Expression, _) =>
+       error
+         ("urust_expr: declared result type must be expression" ^
+           Position.here type_pos)
+   | (Function, _) =>
+       error
+         ("urust_fun: declared result type must be function_body" ^
+           Position.here type_pos))
 
 fun validate_argument_count kind arguments_pos arguments parameter_types =
   let
@@ -176,8 +196,10 @@ fun prepare_arguments kind source arguments_pos arguments declared_type =
   (case (kind, declared_type) of
      (Expression, NONE) =>
        map (fn argument => (argument, dummyT)) arguments
-   | (Expression, SOME (complete_type, _)) =>
+   | (Expression, SOME (complete_type, type_pos)) =>
        let
+         val _ =
+           terminal_value_type Expression type_pos complete_type
          val (argument_types, _) = Term.strip_type complete_type
          val _ =
            validate_argument_count Expression
@@ -189,7 +211,7 @@ fun prepare_arguments kind source arguments_pos arguments declared_type =
            Position.here (Input.pos_of source))
    | (Function, SOME (complete_type, type_pos)) =>
        let
-         val _ = require_function_body type_pos complete_type
+         val _ = terminal_value_type Function type_pos complete_type
          val (argument_types, _) = Term.strip_type complete_type
          val _ =
            validate_argument_count Function
@@ -220,6 +242,38 @@ fun reject_unresolved Function lthy source checked =
       end
   | reject_unresolved Expression _ _ _ = ()
 
+fun close_typed_term kind lthy type_pos checked =
+  let
+    val declaration_type = fastype_of checked
+    val declared_tvars = Term.add_tvarsT declaration_type []
+    fun declared (xi, _) =
+      exists (fn (declared_xi, _) => declared_xi = xi) declared_tvars
+    val residual_tvars =
+      Term.add_tvars checked []
+      |> filter_out declared
+      |> sort_by (Term.string_of_vname o #1)
+    val value_type =
+      terminal_value_type kind type_pos declaration_type
+    val thy = Proof_Context.theory_of lthy
+    val incompatible =
+      filter_out (fn (_, sort) => Sign.of_sort thy (value_type, sort))
+        residual_tvars
+    val _ =
+      (case incompatible of
+         (xi, _) :: _ =>
+           error
+             (command_name kind ^
+               ": inferred internal type variable " ^
+               quote (Term.string_of_vname xi) ^
+               " is incompatible with the declared result value type" ^
+               Position.here type_pos)
+       | [] => ())
+  in
+    Term.subst_TVars
+      (map (fn (xi, _) => (xi, value_type)) residual_tvars)
+      checked
+  end
+
 fun elaborate lthy
     {kind, source, arguments, arguments_pos, declared_type = raw_declared_type} : term =
   let
@@ -241,9 +295,14 @@ fun elaborate lthy
            Type.constraint complete_type unchecked
        | NONE => unchecked)
     val checked = Syntax.check_term lthy constrained
-    val _ = reject_unresolved kind lthy source checked
+    val closed =
+      (case declared_type of
+         SOME (_, type_pos) =>
+           close_typed_term kind lthy type_pos checked
+       | NONE => checked)
+    val _ = reject_unresolved kind lthy source closed
   in
-    checked
+    closed
   end
 
 datatype declaration_result =
@@ -471,6 +530,11 @@ fun command_elaboration_kind lthy declared_type =
        then Function
        else Expression)
 
+fun close_declared_legacy kind declared_type lthy term =
+  (case declared_type of
+     SOME (_, type_pos) => close_typed_term kind lthy type_pos term
+   | NONE => term)
+
 fun define_urust
     (options,
      args as (binding, declared_type, source, _, arguments),
@@ -485,11 +549,12 @@ fun define_urust
     fun checked old_body =
       declare_with_frontend_check declaration binding
         (fn ctxt => fn complete_type =>
-          (case kind of
-             Expression =>
-               old_frontend_expression ctxt complete_type arguments old_body
-           | Function =>
-               old_frontend_function ctxt complete_type arguments old_body))
+          close_declared_legacy kind declared_type ctxt
+            (case kind of
+               Expression =>
+                 old_frontend_expression ctxt complete_type arguments old_body
+             | Function =>
+                 old_frontend_function ctxt complete_type arguments old_body))
         interactive verbose lthy
   in
     (case against of
@@ -515,7 +580,8 @@ fun define_urust_fun
     fun checked old_body =
       declare_with_frontend_check declaration binding
         (fn ctxt => fn complete_type =>
-          old_frontend_function ctxt complete_type parameters old_body)
+          close_typed_term Function ctxt (#2 raw_type)
+            (old_frontend_function ctxt complete_type parameters old_body))
         interactive verbose lthy
   in
     (case against of
