@@ -147,7 +147,7 @@ ML_val\<open>
       let
         val checked =
           Syntax.check_term ctxt
-            (URust_Translate.mk_closed ctxt (parse source))
+            (URust_Translate.mk_expression ctxt [] (parse source))
         val function =
           (case Term.strip_comb checked of
              (_, function :: _) => function
