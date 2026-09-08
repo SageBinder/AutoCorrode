@@ -5,6 +5,7 @@
 theory StdLib_Slice
   imports Crush.Crush StdLib_References StdLib_Logging
 begin
+declare [[urust_conformance_check = true]]
 (*>*)
 
 definition range_new_contract :: \<open>'a \<Rightarrow> 'a \<Rightarrow> ('s::sepalg, 'a range, 'abort) function_contract\<close> where
@@ -46,15 +47,16 @@ lemma array_index_spec [crush_specs]:
 
 context reference begin
 
-definition slice_index :: \<open>('a, 'b, 'v list) Global_Store.ref \<Rightarrow> 'w::{len} word \<Rightarrow>
-        ('s, ('a, 'b, 'v) Global_Store.ref, 'abort, 'i prompt, 'o prompt_output) function_body\<close> where
-  \<open>slice_index r i \<equiv> FunctionBody \<lbrakk>
+urust_fun slice_index :: \<open>('a, 'b, 'v list) Global_Store.ref \<Rightarrow> 'w::{len} word \<Rightarrow>
+        ('s, ('a, 'b, 'v) Global_Store.ref, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
+  (r, i)
+  \<open>
      let ls = *r;
      if \<llangle>unat i\<rrangle> < \<llangle>length\<rrangle>\<^sub>1(ls) {
         return \<llangle>focus_nth (unat i) r\<rrangle>;
      };
      \<epsilon>\<open>abort DanglingPointer\<close>
-  \<rbrakk>\<close>
+  \<close>
 
 definition slice_index_contract :: \<open>(('a, 'b) gref, 'b, 'c list) focused \<Rightarrow> 'b \<Rightarrow> 'c list \<Rightarrow>
       'd::{len} word \<Rightarrow> share \<Rightarrow> ('s, (('a, 'b) gref, 'b, 'c) focused, 'abort) function_contract\<close> where
@@ -94,15 +96,16 @@ lemma slice_index_array_spec [crush_specs]:
   apply crush_base
   done
 
-definition slice_index_vector :: \<open>('a, 'b, ('v, 'l::{len}) vector) Global_Store.ref \<Rightarrow> 'w::{len} word \<Rightarrow>
-      ('s, ('a, 'b, 'v) Global_Store.ref, 'abort, 'i prompt, 'o prompt_output) function_body\<close> where
-  \<open>slice_index_vector r idx \<equiv> FunctionBody \<lbrakk>
+urust_fun slice_index_vector :: \<open>('a, 'b, ('v, 'l::{len}) vector) Global_Store.ref \<Rightarrow> 'w::{len} word \<Rightarrow>
+      ('s, ('a, 'b, 'v) Global_Store.ref, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
+  (r, idx)
+  \<open>
      let v = *r;
      if \<llangle>unat idx\<rrangle> < \<llangle>vector_len v\<rrangle> {
         return \<llangle>focus_nth_vector (unat idx) r\<rrangle>;
      };
      \<epsilon>\<open>abort DanglingPointer\<close>
-  \<rbrakk>\<close>
+  \<close>
 
 definition slice_index_vector_contract :: \<open>(('a, 'b) gref, 'b, ('t, 'l::{len}) vector) focused \<Rightarrow> 'b \<Rightarrow>
       ('t, 'l) vector \<Rightarrow> 'c::{len} word \<Rightarrow> share \<Rightarrow> ('s, (('a, 'b) gref, 'b, 't) focused, 'abort) function_contract\<close> where

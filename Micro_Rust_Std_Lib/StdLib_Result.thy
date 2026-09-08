@@ -5,19 +5,21 @@
 theory StdLib_Result
   imports Crush.Crush Misc.Result StdLib_References
 begin
+declare [[urust_conformance_check = true]]
 (*>*)
 
 section\<open>Core material related to the \<^emph>\<open>Result\<close> type\<close>
 
 text\<open>Returns \<^verbatim>\<open>x\<close> if the element of \<^verbatim>\<open>Result\<close> type is of the form \<^verbatim>\<open>Ok x\<close>.  Panics otherwise with
 the defined error message.\<close>
-definition result_expect :: \<open>('v,'e) result \<Rightarrow> String.literal \<Rightarrow> ('s, 'v, 'abort, 'i, 'o) function_body\<close> where
-  \<open>result_expect self msg \<equiv> FunctionBody \<lbrakk>
+urust_fun result_expect :: \<open>('v,'e) result \<Rightarrow> String.literal \<Rightarrow> ('s, 'v, 'abort, 'i, 'o) function_body\<close>
+  (self, msg)
+  \<open>
       match self {
         Ok(v) \<Rightarrow> v,
         Err(_) \<Rightarrow> panic!(msg) 
       }
-  \<rbrakk>\<close>
+  \<close>
 adhoc_overloading expect \<rightleftharpoons> result_expect
 
 definition result_expect_contract :: 
@@ -33,10 +35,11 @@ lemma result_expect_spec [crush_specs]:
      (crush_base split!: result.splits)
 
 text\<open>Returns \<^verbatim>\<open>x\<close> if the element of \<^verbatim>\<open>Result\<close> type is of the form \<^verbatim>\<open>Ok x\<close>.  Panics otherwise.\<close>
-definition result_unwrap :: \<open>('v,'e) result \<Rightarrow> ('s, 'v, 'abort, 'i, 'o) function_body\<close> where
-  \<open>result_unwrap self \<equiv> FunctionBody \<lbrakk>
+urust_fun result_unwrap :: \<open>('v,'e) result \<Rightarrow> ('s, 'v, 'abort, 'i, 'o) function_body\<close>
+  (self)
+  \<open>
       self.expect("result_unwrap")
-  \<rbrakk>\<close>
+  \<close>
 adhoc_overloading unwrap \<rightleftharpoons> result_unwrap
 
 definition result_unwrap_contract :: 
@@ -52,13 +55,14 @@ lemma result_unwrap_spec [crush_specs]:
      (crush_base split!: result.splits)
 
 text\<open>Tests whether an element of \<^verbatim>\<open>Result\<close> type is the \<^verbatim>\<open>Err\<close> constructor:\<close>
-definition urust_func_result_is_err :: \<open>('v,'e) result \<Rightarrow> ('s, bool, 'abort, 'i, 'o) function_body\<close> where
-  \<open>urust_func_result_is_err self \<equiv> FunctionBody \<lbrakk>
+urust_fun urust_func_result_is_err :: \<open>('v,'e) result \<Rightarrow> ('s, bool, 'abort, 'i, 'o) function_body\<close>
+  (self)
+  \<open>
      match self {
        Ok(_) \<Rightarrow> False,
        Err(_) \<Rightarrow> True
      }
-  \<rbrakk>\<close>
+  \<close>
 micro_rust_notation (call) urust_func_result_is_err ("is_err")
 
 definition result_is_err_contract ::
@@ -74,13 +78,14 @@ lemma result_is_err_spec [crush_specs]:
      (crush_base simp add: result_is_err_def split!: result.splits)
 
 text\<open>Tests whether an element of \<^verbatim>\<open>Result\<close> type is the \<^verbatim>\<open>Ok\<close> constructor:\<close>
-definition urust_func_result_is_ok :: \<open>('v,'e) result \<Rightarrow> ('s, bool, 'abort, 'i, 'o) function_body\<close> where
-  \<open>urust_func_result_is_ok self \<equiv> FunctionBody \<lbrakk>
+urust_fun urust_func_result_is_ok :: \<open>('v,'e) result \<Rightarrow> ('s, bool, 'abort, 'i, 'o) function_body\<close>
+  (self)
+  \<open>
      match self {
        Ok(_) \<Rightarrow> True,
        Err(_) \<Rightarrow> False
      }
-  \<rbrakk>\<close>
+  \<close>
 micro_rust_notation (call) urust_func_result_is_ok ("is_ok")
 
 definition result_is_ok_contract ::
@@ -95,13 +100,14 @@ lemma result_is_ok_spec [crush_specs]:
   by (crush_boot f: urust_func_result_is_ok_def contract: result_is_ok_contract_def)
      (crush_base simp add: result_is_ok_def split!: result.splits)
 
-definition result_or :: \<open>('a, 'f) result \<Rightarrow> ('a, 'e) result \<Rightarrow> ('s, ('a, 'e) result, 'abort, 'i, 'o) function_body\<close> where
-  \<open>result_or self e \<equiv> FunctionBody \<lbrakk>
+urust_fun result_or :: \<open>('a, 'f) result \<Rightarrow> ('a, 'e) result \<Rightarrow> ('s, ('a, 'e) result, 'abort, 'i, 'o) function_body\<close>
+  (self, e)
+  \<open>
      match self {
         Ok(v) \<Rightarrow> Ok(v),
         Err(_) \<Rightarrow> e
      } 
-  \<rbrakk>\<close>
+  \<close>
 micro_rust_notation (call) result_or ("or")
 
 definition result_or_pure :: \<open>('a, 'f) result \<Rightarrow> ('a, 'e) result \<Rightarrow> ('a, 'e) result\<close> where
@@ -124,22 +130,24 @@ lemma result_or_spec [crush_specs]:
   by (crush_boot f: result_or_def contract: result_or_contract_def)
      (crush_base simp add: result_or_pure_def split!: result.splits)
 
-definition map_err :: \<open>('a, 'e) result \<Rightarrow> ('e \<Rightarrow> ('machine, 'f, 'abort, 'i, 'o) function_body) \<Rightarrow>
-    ('machine, ('a, 'f) result, 'abort, 'i, 'o) function_body\<close> where
-  \<open>map_err x f \<equiv> FunctionBody \<lbrakk>
+urust_fun map_err :: \<open>('a, 'e) result \<Rightarrow> ('e \<Rightarrow> ('machine, 'f, 'abort, 'i, 'o) function_body) \<Rightarrow>
+    ('machine, ('a, 'f) result, 'abort, 'i, 'o) function_body\<close>
+  (x, f)
+  \<open>
      match x {
        Ok(a)  \<Rightarrow> Ok(a),
        Err(e) \<Rightarrow> Err(f(e))
      }
-  \<rbrakk>\<close>
+  \<close>
 
-definition ok :: \<open>('v, 'e) result \<Rightarrow> ('s, 'v option, 'abort, 'i, 'o) function_body\<close> where
-  \<open>ok self \<equiv> FunctionBody \<lbrakk>
+urust_fun ok :: \<open>('v, 'e) result \<Rightarrow> ('s, 'v option, 'abort, 'i, 'o) function_body\<close>
+  (self)
+  \<open>
      match self {
        Ok(r) \<Rightarrow> Some(r),
        Err(e) \<Rightarrow> None
      }
-   \<rbrakk>\<close>
+  \<close>
 
 definition ok_contract ::  \<open>('v, 'e) result \<Rightarrow> ('s::{sepalg}, 'v option, 'abort) function_contract\<close> where
   [crush_contracts]: \<open>ok_contract res \<equiv>
@@ -155,27 +163,29 @@ lemma ok_spec [crush_specs]:
   apply crush_base
   done
 
-definition result_unwrap_or :: \<open>('a, 'b) result \<Rightarrow> 'a \<Rightarrow> ('machine, 'a, 'abort, 'i prompt, 'o prompt_output) function_body\<close> where
-  \<open>result_unwrap_or res e \<equiv> FunctionBody \<lbrakk>
+urust_fun result_unwrap_or :: \<open>('a, 'b) result \<Rightarrow> 'a \<Rightarrow> ('machine, 'a, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
+  (res, e)
+  \<open>
      if let Ok(r) = res {
        r
      } else {
        e
      }
-   \<rbrakk>\<close>
+  \<close>
 
 context reference
 begin       
 adhoc_overloading store_update_const \<rightleftharpoons> update_fun
 
-definition result_as_mut :: \<open>('a, 'b, ('v, 'e) result) Global_Store.ref \<Rightarrow>
-    ('s, (('a, 'b, 'v) Global_Store.ref, ('a, 'b, 'e) Global_Store.ref) result, 'abort, 'i prompt, 'o prompt_output) function_body\<close> where
-  \<open>result_as_mut self \<equiv> FunctionBody \<lbrakk>
+urust_fun result_as_mut :: \<open>('a, 'b, ('v, 'e) result) Global_Store.ref \<Rightarrow>
+    ('s, (('a, 'b, 'v) Global_Store.ref, ('a, 'b, 'e) Global_Store.ref) result, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
+  (self)
+  \<open>
      match *self {
        Ok(_)  \<Rightarrow> Ok (\<llangle>focus_result_ok self\<rrangle>),
        Err(_) \<Rightarrow> Err (\<llangle>focus_result_err self\<rrangle>)
      }
-  \<rbrakk>\<close>
+  \<close>
 
 definition result_as_mut_contract :: \<open>'b \<Rightarrow> ('a, 'b, ('v, 'e) result) Global_Store.ref
      \<Rightarrow> ('v, 'e) result \<Rightarrow> ('s::{sepalg}, (('a, 'b, 'v) Global_Store.ref, ('a, 'b, 'e) Global_Store.ref) result, 'abort) function_contract\<close> where

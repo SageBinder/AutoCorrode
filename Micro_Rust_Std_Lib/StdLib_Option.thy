@@ -5,15 +5,17 @@
 theory StdLib_Option    
   imports Crush.Crush StdLib_References Misc.Result
 begin
+declare [[urust_conformance_check = true]]
 (*>*)
 
-definition option_expect :: \<open>'v option \<Rightarrow> String.literal \<Rightarrow> ('s, 'v, 'abort, 'i, 'o) function_body\<close> where
-  \<open>option_expect self msg \<equiv> FunctionBody \<lbrakk>
+urust_fun option_expect :: \<open>'v option \<Rightarrow> String.literal \<Rightarrow> ('s, 'v, 'abort, 'i, 'o) function_body\<close>
+  (self, msg)
+  \<open>
       match self {
         Some(v) \<Rightarrow> v,
         None \<Rightarrow> panic!(msg) 
       }      
-   \<rbrakk>\<close>
+  \<close>
 adhoc_overloading expect \<rightleftharpoons> option_expect
 
 definition option_expect_contract :: \<open>'a option \<Rightarrow> String.literal \<Rightarrow>
@@ -29,10 +31,11 @@ lemma option_expect_spec [crush_specs]:
   by (crush_boot f: option_expect_def contract: option_expect_contract_def)
      (crush_base split!: option.splits)
 
-definition option_unwrap :: \<open>'v option \<Rightarrow> ('s, 'v, 'abort, 'i, 'o) function_body\<close> where
-  \<open>option_unwrap self \<equiv> FunctionBody \<lbrakk>
+urust_fun option_unwrap :: \<open>'v option \<Rightarrow> ('s, 'v, 'abort, 'i, 'o) function_body\<close>
+  (self)
+  \<open>
      self.expect("unwrap")
-  \<rbrakk>\<close>
+  \<close>
 adhoc_overloading unwrap \<rightleftharpoons> option_unwrap
 
 definition option_unwrap_contract :: 
@@ -47,13 +50,14 @@ lemma option_unwrap_spec [crush_specs]:
   by (crush_boot f: option_unwrap_def contract: option_unwrap_contract_def)
      (crush_base split!: option.splits)
 
-definition urust_func_option_is_none :: \<open>'v option \<Rightarrow> ('s, bool, 'abort, 'i, 'o) function_body\<close> where
-  \<open>urust_func_option_is_none self \<equiv> FunctionBody \<lbrakk>
+urust_fun urust_func_option_is_none :: \<open>'v option \<Rightarrow> ('s, bool, 'abort, 'i, 'o) function_body\<close>
+  (self)
+  \<open>
      match self {
        Some(_) \<Rightarrow> False,
        None \<Rightarrow> True
      }
-  \<rbrakk>\<close>
+  \<close>
 micro_rust_notation (call) urust_func_option_is_none ("is_none")
 
 definition option_is_none_contract :: 
@@ -68,13 +72,14 @@ lemma option_is_none_spec [crush_specs]:
   by (crush_boot f: urust_func_option_is_none_def contract: option_is_none_contract_def)
      (crush_base simp add: Option.is_none_def split!: option.splits)
 
-definition urust_func_option_is_some :: \<open>'v option \<Rightarrow> ('s, bool, 'abort, 'i, 'o) function_body\<close> where
-  \<open>urust_func_option_is_some self \<equiv> FunctionBody \<lbrakk>
+urust_fun urust_func_option_is_some :: \<open>'v option \<Rightarrow> ('s, bool, 'abort, 'i, 'o) function_body\<close>
+  (self)
+  \<open>
      match self {
        Some(_) \<Rightarrow> True,
        None \<Rightarrow> False
      }
-  \<rbrakk>\<close>
+  \<close>
 micro_rust_notation (call) urust_func_option_is_some ("is_some")
 
 definition option_is_some_contract :: 
@@ -90,13 +95,14 @@ lemma option_is_some_spec [crush_specs]:
   by (crush_boot f: urust_func_option_is_some_def contract: option_is_some_contract_def)
      (crush_base simp add: Option.is_none_def split!: option.splits)
 
-definition ok_or :: \<open>'v option \<Rightarrow> 'e \<Rightarrow> ('s, ('v, 'e) result, 'abort, 'i, 'o) function_body\<close> where
-  \<open>ok_or self e \<equiv> FunctionBody \<lbrakk>
+urust_fun ok_or :: \<open>'v option \<Rightarrow> 'e \<Rightarrow> ('s, ('v, 'e) result, 'abort, 'i, 'o) function_body\<close>
+  (self, e)
+  \<open>
      match self {
         Some(v) \<Rightarrow> Ok(v),
         None \<Rightarrow> Err(e)
      } 
-  \<rbrakk>\<close>
+  \<close>
 
 definition ok_or_pure :: \<open>'v option \<Rightarrow> 'e \<Rightarrow> ('v, 'e) result\<close> where
   \<open>ok_or_pure opt e \<equiv> case opt of Some(v) \<Rightarrow> Ok(v) | None \<Rightarrow> Err(e)\<close>
@@ -124,14 +130,16 @@ begin
        
 adhoc_overloading store_update_const \<rightleftharpoons> update_fun
 
-definition option_as_mut ::
-  \<open>('a, 'b, 'v option) Global_Store.ref \<Rightarrow> ('s, ('a, 'b, 'v) Global_Store.ref option, 'abort, 'i prompt, 'o prompt_output) function_body\<close> where
-  \<open>option_as_mut self \<equiv> FunctionBody \<lbrakk>
+urust_fun option_as_mut ::
+  \<open>('a, 'b, 'v option) Global_Store.ref \<Rightarrow> ('s, ('a, 'b, 'v) Global_Store.ref option, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
+  (self)
+  \<open>
     if (*self).is_some() {
       Some (\<llangle>focus_option self\<rrangle>)
     } else {
       None
-    }\<rbrakk>\<close>
+    }
+  \<close>
 
 definition option_as_mut_contract :: \<open>'b \<Rightarrow> ('a, 'b, 'v option) Global_Store.ref \<Rightarrow> 'v option \<Rightarrow>
     ('s::{sepalg}, ('a, 'b, 'v) Global_Store.ref option, 'abort) function_contract\<close> where
@@ -148,13 +156,14 @@ lemma option_as_mut_spec [crush_specs]:
   apply (crush_base simp add: option_focus_def split: option.splits)
   done
 
-definition take_mut_ref_option :: \<open>('a, 'b, 'v option) Global_Store.ref \<Rightarrow>
-      ('s, 'v option, 'abort, 'i prompt, 'o prompt_output) function_body\<close> where
-  \<open>take_mut_ref_option ptr \<equiv> FunctionBody \<lbrakk>
+urust_fun take_mut_ref_option :: \<open>('a, 'b, 'v option) Global_Store.ref \<Rightarrow>
+      ('s, 'v option, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
+  (ptr)
+  \<open>
     let val = *ptr;
     ptr = None;
     val
-  \<rbrakk>\<close> 
+  \<close>
 micro_rust_notation (call) take_mut_ref_option ("take")
 
 definition take_mut_ref_option_contract :: \<open>('a, 'b, 'v option) Global_Store.ref \<Rightarrow> 'b \<Rightarrow> 'v option \<Rightarrow>
