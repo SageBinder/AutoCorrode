@@ -276,17 +276,13 @@ end
 text\<open>The following "program" changes the low value based on the presence of the high value,
 but leaves the low-value unchanged. Despite clearly not being low-local, it does satisfy the
 above triple definition:\<close>
-urust_expr leak_high
+urust_expr leak_high ::
+  \<open>(high_low_sa, unit, unit, 'abort, 'i, 'o) expression\<close>
   \<open>
-     if let Some(high) = \<epsilon>\<open>(get get_high :: (high_low_sa, nat option, unit, 'abort, 'i, 'o) expression)\<close> {
+     if let Some(high) = get get_high {
         \<epsilon>\<open>put (put_low high)\<close>
      }
   \<close>
-  against \<open>\<lbrakk>
-     if let Some(high) = \<epsilon>\<open>get get_high\<close> {
-        \<epsilon>\<open>put (put_low high)\<close>
-     }
-  \<rbrakk>\<close>
 
 text\<open>The program \<^term>\<open>leak_high\<close> is 'pathological' in that it inspects the partiality of the
 state to make runtime decisions -- no real program would be able to do that. Yet, it does fit
@@ -1112,10 +1108,10 @@ lemma striple_bitwise_xorI:
   shows \<open>\<Gamma> ; \<top> \<turnstile> striple_bitwise_xorI_urust_site_1 x y \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k (\<lambda>r. \<langle>r = x XOR y\<rangle>) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
 by (intro stripleI; clarsimp simp add: urust_eval_predicate_xor apure_def atriple_post_true)
 
-urust_expr [urust_abbrev = true] striple_bitwise_notI_urust_site_1
-  \<open> !\<llangle>(x :: 'l::{len} word)\<rrangle> \<close>
+urust_expr [urust_abbrev = true] striple_bitwise_notI_urust_site_1 ::
+  \<open>'l::len word \<Rightarrow> ('s, 'l word, 'r, 'abort, 'i, 'o) expression\<close>
+  \<open> !x \<close>
   with_args x
-  against \<open>\<lbrakk> !x \<rbrakk>\<close>
 
 lemma striple_bitwise_notI:
   fixes x :: \<open>'l::{len} word\<close>
