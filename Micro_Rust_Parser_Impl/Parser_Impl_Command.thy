@@ -71,8 +71,9 @@ end
    ending in expression; Function requires a curried declaration type ending in function_body. Typed
    argument types are allocated before AST lowering, the complete unchecked term receives one
    Type.constraint, and the result passes through Syntax.check_term exactly once. Residual internal
-   type variables that occur in neither the checked declaration type nor ambient fixed-parameter
-   types are then closed with its terminal value channel. All failures are positioned.
+   type variables that occur in neither the checked declaration type nor the types of ambient fixed
+   parameters used by the checked term are then closed with its terminal value channel. All failures
+   are positioned.
    URust_Diagnostics.parse_source owns serialization of the generated runtime; elaboration and
    check_term remain outside that lock.
 
@@ -259,7 +260,7 @@ fun close_typed_term kind lthy type_pos checked =
       |> sort_by (Term.string_of_vname o #1)
     val declared_tfrees = Term.add_tfreesT declaration_type []
     fun declared_tfree tfree = member (op =) declared_tfrees tfree
-    val (ambient_fixes, _) = Proof_Context.inferred_fixes lthy
+    val ambient_fixes = Variable.add_fixed lthy checked []
     val ambient_tfrees =
       fold (Term.add_tfreesT o #2) ambient_fixes []
     fun ambient_tfree tfree = member (op =) ambient_tfrees tfree
