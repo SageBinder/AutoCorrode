@@ -7,10 +7,9 @@ section\<open> Expression elaboration \<close>
 ML\<open>
 signature URUST_TRANSLATE =
 sig
-  val mk_closed: Proof.context -> URust_AST.ur_expr -> term
-  val mk_contextual:
+  val mk_expression:
     Proof.context ->
-      (string * Position.T) list ->
+      ((string * Position.T) * typ) list ->
       URust_AST.ur_expr ->
       term
   val mk_function:
@@ -33,19 +32,17 @@ ML\<open>
    It delegates matching and macro lowering to their sealed feature layers; it does not parse source,
    type-check terms, or install definitions.
 
-   The public expression operation is mk_closed: given the Proof.context in which the source is being
-   elaborated and an expression AST, it lowers the expression from
-   URust_Resolution.empty_environment and returns one unchecked HOL term. The result may contain
-   dummy types and must be passed to Syntax.check_term exactly once by the command layer in the same
-   context. Successful lowering preserves lexical scope and the existing shallow-embedding term
-   shape; for syntax shared with the old frontend, callers may rely on alpha-identical checked
-   output directly. Command-level conformance either unfolds a generated definition or compares an
-   expanded abbreviation right-hand side before closing by reflexivity. Resolution and
-   pattern-validation failures are propagated with their source positions. mk_contextual performs
-   the same lowering under dummy-typed expression arguments and abstracts them in source order
-   without adding a FunctionBody wrapper. mk_function lowers under typed function parameters, wraps
-   the lowered body once in FunctionBody, and abstracts the parameters in source order. The
-   signature exposes no public types or constructors.
+   The public operations accept the Proof.context, typed lexical arguments, and one expression AST.
+   mk_expression lowers under those arguments and abstracts them in source order without adding a
+   FunctionBody wrapper. mk_function performs the same lowering, wraps the body once in FunctionBody,
+   and then abstracts the arguments. Untyped clients represent inferred argument types with dummyT.
+   Both operations return one unchecked HOL term: the command layer optionally constrains the complete
+   term and passes it to Syntax.check_term exactly once in the same context. Successful lowering
+   preserves lexical scope and the existing shallow-embedding term shape; for syntax shared with the
+   old frontend, callers may rely on alpha-identical checked output directly. Command-level
+   conformance either unfolds a generated definition or compares an expanded abbreviation right-hand
+   side before closing by reflexivity. Resolution and pattern-validation failures are propagated with
+   their source positions. The signature exposes no public types or constructors.
 
    All lower_* functions, the recursive traversal order, module aliases, and the division of work among
    helper functions are implementation details hidden by URUST_TRANSLATE. *)
@@ -291,24 +288,20 @@ struct
      | UE_Match match =>
          M.lower_match (lower_expression ctxt) ctxt environment match)
 
-  fun mk_closed ctxt expression =
-    lower_expression ctxt R.empty_environment expression
-
-  fun mk_contextual ctxt arguments expression =
+  fun mk_with_wrapper allocate wrapper ctxt arguments expression =
     let
       val (argument_terms, environment) =
-        R.allocate_expression_arguments ctxt R.empty_environment arguments
+        allocate ctxt R.empty_environment arguments
       val body = lower_expression ctxt environment expression
-    in fold_rev Term.lambda argument_terms body end
+    in fold_rev Term.lambda argument_terms (wrapper body) end
+
+  fun mk_expression ctxt arguments expression =
+    mk_with_wrapper R.allocate_expression_arguments I
+      ctxt arguments expression
 
   fun mk_function ctxt parameters expression =
-    let
-      val (parameter_terms, environment) =
-        R.allocate_function_parameters ctxt R.empty_environment parameters
-      val body = lower_expression ctxt environment expression
-    in
-      fold_rev Term.lambda parameter_terms (T.function_body body)
-    end
+    mk_with_wrapper R.allocate_function_parameters T.function_body
+      ctxt parameters expression
 end
 \<close>
 

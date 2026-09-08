@@ -14,10 +14,14 @@ begin
 section\<open> The command \<close>
 
 text\<open>
-\<open>urust_expr [OPTIONS] NAME src [with_args ARG...] [against TERM]\<close> parses, elaborates, and
-checks once. A nonempty \<open>with_args\<close> suffix introduces dummy-typed lexical arguments in source
-order and produces \<open>\<lambda>ARG.... src\<close>; it must precede \<open>against\<close>. The optional
-comma-separated inline options override the corresponding scoped configurations.
+\<open>urust_expr [OPTIONS] NAME [:: TYPE] src [with_args ARG...] [against TERM]\<close> parses,
+elaborates, and checks once. A nonempty \<open>with_args\<close> suffix introduces lexical arguments in
+source order and must precede \<open>against\<close>. Without a declaration type their types are inferred and
+the result is \<open>\<lambda>ARG.... src\<close>. A declaration type supplies the complete curried type,
+including one argument type per source argument. When its terminal type is \<open>function_body\<close>, the
+body is wrapped once in \<open>FunctionBody\<close>; every other declaration type produces an ordinary
+expression abstraction. The optional comma-separated inline options override the corresponding
+scoped configurations.
 \<open>urust_conformance_check\<close> defaults to false. When enabled, the command also checks the generated
 declaration against the existing \<open>\<lbrakk>src\<rbrakk>\<close> frontend and records
 \<open>NAME_conformance\<close>. Contextual legacy bodies are parsed under temporary fixes carrying the
@@ -39,12 +43,9 @@ defaults to false: compact output contains only the result names, while true als
 definition/theorem statements or the abbreviation's inferred equation. Compact output is always shown
 for interactive commands; \<open>show_results\<close> additionally enables it during noninteractive processing.
 
-\<open>urust_fun [OPTIONS] NAME :: TYPE (parameters) src\<close> uses Isabelle's type
-syntax for a curried function signature ending in \<open>function_body\<close>. It elaborates the body with
-typed lexical parameters, wraps it once in \<open>FunctionBody\<close>, checks the complete constrained
-function term, and installs it through the same selected declaration mode. Its configuration and
-trailing \<open>against old_term\<close> forms select the corresponding same-source or explicit-term
-complete-function conformance checks under temporary typed parameter fixes.
+\<open>urust_fun [OPTIONS] NAME :: TYPE (parameters) src [against TERM]\<close> remains the explicit
+function facade. It requires a curried type ending in \<open>function_body\<close>, preserves its existing
+parameter syntax and diagnostics, and delegates to the same elaborator as \<open>urust_expr\<close>.
 
 Both commands accept the same extensible boolean-option list. Current options are
 \<open>urust_conformance_check\<close>, \<open>urust_verbose\<close>, and \<open>urust_abbrev\<close>; they may appear in
@@ -53,34 +54,32 @@ any order.
 ML\<open>
 signature URUST_COMMAND =
 sig
-  val elab_urust: local_theory -> Input.source -> term
-  val elab_urust_with_args:
+  datatype elaboration_kind = Expression | Function
+
+  val elaborate:
     local_theory ->
-      (string * Position.T) list ->
-      Input.source ->
-      term
-  val elab_urust_fun:
-    local_theory ->
-      {raw_type: string * Position.T,
-       parameters: (string * Position.T) list,
-       parameters_pos: Position.T,
-       body: Input.source} ->
+      {kind: elaboration_kind,
+       source: Input.source,
+       arguments: (string * Position.T) list,
+       arguments_pos: Position.T,
+       declared_type: (string * Position.T) option} ->
       term
 end
 
-(* THE expression pipeline, exported: every expression declaration command runs source through
-   elab_urust_with_args; elab_urust is its closed-expression wrapper, so command and negative harness
-   behavior cannot drift. elab_urust_fun is the corresponding shared typed-function pipeline for
-   `urust_fun` and focused rejection tests. All raise (positioned) on lexer, yacc, elaboration, or
-   final term-check failures.
+(* THE expression pipeline, exported: every declaration command and programmatic client supplies an
+   explicit elaboration kind to elaborate. Expression accepts an optional complete declaration type;
+   Function requires a curried declaration type ending in function_body. Typed argument types are
+   allocated before AST lowering, the complete unchecked term receives one Type.constraint, and the
+   result passes through Syntax.check_term exactly once. All failures are positioned.
    URust_Diagnostics.parse_source owns serialization of the generated runtime; elaboration and
    check_term remain outside that lock.
 
-   URUST_COMMAND exposes closed/contextual expression and focused function elaboration for test
-   harnesses and programmatic clients. Declaration installation, conformance-proof assembly,
-   outer-command parsers, and command registration are private implementation details. *)
+   Declaration installation, command-kind inference, conformance-proof assembly, both outer-command
+   facades, and command registration are private implementation details. *)
 structure URust_Command :> URUST_COMMAND =
 struct
+datatype elaboration_kind = Expression | Function
+
 val urust_conformance_check =
   Attrib.setup_config_bool \<^binding>\<open>urust_conformance_check\<close> (K false)
 
@@ -124,74 +123,125 @@ fun configured_flag lthy options name =
           SOME config => Config.get lthy config
         | NONE => error ("internal unknown uRust command option " ^ quote name)))
 
-fun elab_urust_with_args lthy arguments source : term =
-  (case
-      URust_Diagnostics.parse_source lthy source of
-     SOME ast =>
-       Syntax.check_term lthy
-         (URust_Translate.mk_contextual lthy arguments ast)
-   | NONE => error ("urust_expr: empty expression" ^ Position.here (Input.pos_of source)))
+fun read_declared_type lthy (raw_type, type_pos) =
+  ((Syntax.read_typ lthy raw_type, type_pos)
+    handle ERROR message =>
+      error (message ^ Position.here type_pos))
 
-fun elab_urust lthy source =
-  elab_urust_with_args lthy [] source
+fun terminal_type declared_type =
+  #2 (Term.strip_type declared_type)
 
-fun elab_urust_fun lthy
-    {raw_type = (raw_type, type_pos), parameters, parameters_pos, body} : term =
+fun is_function_body_type (Type (name, _)) =
+      name = \<^type_name>\<open>function_body\<close>
+  | is_function_body_type _ = false
+
+fun command_name Expression = "urust_expr"
+  | command_name Function = "urust_fun"
+
+fun argument_role Expression = "argument"
+  | argument_role Function = "parameter"
+
+fun require_function_body type_pos declared_type =
+  if is_function_body_type (terminal_type declared_type) then ()
+  else
+    error
+      ("urust_fun: declared result type must be function_body" ^
+        Position.here type_pos)
+
+fun validate_argument_count kind arguments_pos arguments parameter_types =
   let
-    val declared_type = Syntax.read_typ lthy raw_type
-    val (parameter_types, result_type) = Term.strip_type declared_type
-    val _ =
-      (case result_type of
-         Type (name, _) =>
-           if name = \<^type_name>\<open>function_body\<close> then ()
-           else
-             error
-               ("urust_fun: declared result type must be function_body" ^
-                 Position.here type_pos)
-       | _ =>
-           error
-             ("urust_fun: declared result type must be function_body" ^
-               Position.here type_pos))
     val expected = length parameter_types
-    val actual = length parameters
+    val actual = length arguments
+    val role = argument_role kind
     val count_pos =
       if actual > expected
-      then #2 (nth parameters expected)
-      else parameters_pos
-    val _ =
-      if expected = actual then ()
-      else
-        error
-          ("urust_fun: declared type expects " ^ string_of_int expected ^
-            " parameter" ^ (if expected = 1 then "" else "s") ^
-            ", but " ^ string_of_int actual ^
-            (if actual = 1 then " name was" else " names were") ^
-            " supplied" ^ Position.here count_pos)
-    val parameters_with_types =
-      map2 (fn parameter => fn T => (parameter, T))
-        parameters parameter_types
+      then #2 (nth arguments expected)
+      else arguments_pos
+  in
+    if expected = actual then ()
+    else
+      error
+        (command_name kind ^ ": declared type expects " ^ string_of_int expected ^
+          " " ^ role ^ (if expected = 1 then "" else "s") ^
+          ", but " ^ string_of_int actual ^
+          (if actual = 1 then " name was" else " names were") ^
+          " supplied" ^ Position.here count_pos)
+  end
+
+fun typed_arguments arguments parameter_types =
+  map2 (fn argument => fn T => (argument, T))
+    arguments parameter_types
+
+fun prepare_arguments kind source arguments_pos arguments declared_type =
+  (case (kind, declared_type) of
+     (Expression, NONE) =>
+       map (fn argument => (argument, dummyT)) arguments
+   | (Expression, SOME (complete_type, _)) =>
+       let
+         val (argument_types, _) = Term.strip_type complete_type
+         val _ =
+           validate_argument_count Expression
+             arguments_pos arguments argument_types
+       in typed_arguments arguments argument_types end
+   | (Function, NONE) =>
+       error
+         ("urust_fun: function elaboration requires a declared type" ^
+           Position.here (Input.pos_of source))
+   | (Function, SOME (complete_type, type_pos)) =>
+       let
+         val _ = require_function_body type_pos complete_type
+         val (argument_types, _) = Term.strip_type complete_type
+         val _ =
+           validate_argument_count Function
+             arguments_pos arguments argument_types
+       in typed_arguments arguments argument_types end)
+
+fun lower kind lthy arguments ast =
+  (case kind of
+     Expression => URust_Translate.mk_expression lthy arguments ast
+   | Function => URust_Translate.mk_function lthy arguments ast)
+
+fun empty_source_message Expression = "urust_expr: empty expression"
+  | empty_source_message Function = "urust_fun: empty function body"
+
+fun reject_unresolved Function lthy source checked =
+      let
+        val unresolved =
+          Term.add_frees checked []
+          |> filter_out (Variable.is_fixed lthy o #1)
+          |> sort_by #1
+      in
+        (case unresolved of
+           (name, _) :: _ =>
+             error
+               ("urust_fun: unresolved body name " ^ quote name ^
+                 Position.here (Input.pos_of source))
+         | [] => ())
+      end
+  | reject_unresolved Expression _ _ _ = ()
+
+fun elaborate lthy
+    {kind, source, arguments, arguments_pos, declared_type = raw_declared_type} : term =
+  let
+    val declared_type =
+      Option.map (read_declared_type lthy) raw_declared_type
+    val arguments_with_types =
+      prepare_arguments kind source arguments_pos arguments declared_type
     val ast =
-      (case URust_Diagnostics.parse_source lthy body of
+      (case URust_Diagnostics.parse_source lthy source of
          SOME expression => expression
        | NONE =>
            error
-             ("urust_fun: empty function body" ^
-               Position.here (Input.pos_of body)))
-    val unchecked =
-      URust_Translate.mk_function lthy parameters_with_types ast
-    val checked =
-      Syntax.check_term lthy (Type.constraint declared_type unchecked)
-    val unresolved =
-      Term.add_frees checked []
-      |> filter_out (Variable.is_fixed lthy o #1)
-      |> sort_by #1
-    val _ =
-      (case unresolved of
-         (name, _) :: _ =>
-           error
-             ("urust_fun: unresolved body name " ^ quote name ^
-               Position.here (Input.pos_of body))
-       | [] => ())
+             (empty_source_message kind ^
+               Position.here (Input.pos_of source)))
+    val unchecked = lower kind lthy arguments_with_types ast
+    val constrained =
+      (case declared_type of
+         SOME (complete_type, _) =>
+           Type.constraint complete_type unchecked
+       | NONE => unchecked)
+    val checked = Syntax.check_term lthy constrained
+    val _ = reject_unresolved kind lthy source checked
   in
     checked
   end
@@ -242,23 +292,16 @@ fun install_urust_result abbreviation binding term lthy =
       end
   end
 
-fun declare_urust_result abbreviation
-    (binding, source, arguments) lthy =
-  let
-    val term = elab_urust_with_args lthy arguments source
-  in
-    install_urust_result abbreviation binding term lthy
-  end
-
-fun declare_urust_fun_result abbreviation
-    (binding, raw_type, parameters_pos, parameters, body) lthy =
+fun declare_urust_result abbreviation kind
+    (binding, declared_type, source, arguments_pos, arguments) lthy =
   let
     val term =
-      elab_urust_fun lthy
-        {raw_type = raw_type,
-         parameters = parameters,
-         parameters_pos = parameters_pos,
-         body = body}
+      elaborate lthy
+        {kind = kind,
+         source = source,
+         arguments = arguments,
+         arguments_pos = arguments_pos,
+         declared_type = declared_type}
   in
     install_urust_result abbreviation binding term lthy
   end
@@ -419,18 +462,34 @@ fun reject_contradictory_against command options against =
            Position.here pos)
    | _ => ())
 
+fun command_elaboration_kind lthy declared_type =
+  (case declared_type of
+     NONE => Expression
+   | SOME raw_type =>
+       if is_function_body_type
+           (terminal_type (#1 (read_declared_type lthy raw_type)))
+       then Function
+       else Expression)
+
 fun define_urust
-    (options, args as (binding, source, arguments), against) interactive lthy =
+    (options,
+     args as (binding, declared_type, source, _, arguments),
+     against) interactive lthy =
   let
     val _ = reject_contradictory_against "urust_expr" options against
     val verbose = configured_flag lthy options verbose_flag
     val abbreviation = configured_flag lthy options abbrev_flag
+    val kind = command_elaboration_kind lthy declared_type
     fun declaration lthy' =
-      declare_urust_result abbreviation args lthy'
+      declare_urust_result abbreviation kind args lthy'
     fun checked old_body =
       declare_with_frontend_check declaration binding
         (fn ctxt => fn complete_type =>
-          old_frontend_expression ctxt complete_type arguments old_body)
+          (case kind of
+             Expression =>
+               old_frontend_expression ctxt complete_type arguments old_body
+           | Function =>
+               old_frontend_function ctxt complete_type arguments old_body))
         interactive verbose lthy
   in
     (case against of
@@ -443,14 +502,16 @@ fun define_urust
   end
 
 fun define_urust_fun
-    (options, args as (_, _, _, _, body), against) interactive lthy =
+    (options,
+     (binding, raw_type, parameters_pos, parameters, body),
+     against) interactive lthy =
   let
     val _ = reject_contradictory_against "urust_fun" options against
     val verbose = configured_flag lthy options verbose_flag
     val abbreviation = configured_flag lthy options abbrev_flag
-    val (binding, _, _, parameters, _) = args
     fun declaration lthy' =
-      declare_urust_fun_result abbreviation args lthy'
+      declare_urust_result abbreviation Function
+        (binding, SOME raw_type, body, parameters_pos, parameters) lthy'
     fun checked old_body =
       declare_with_frontend_check declaration binding
         (fn ctxt => fn complete_type =>
@@ -498,20 +559,35 @@ val parse_with_args =
           error
             ("urust_expr: `with_args` requires at least one argument" ^
               Position.here pos)
-        else arguments))
+        else (pos, arguments)))
+
+val parse_declared_type =
+  Scan.option (Parse.$$$ "::" |-- Parse.position Parse.typ)
 
 val parse_urust_expr =
   parse_command_options --
     (Parse.binding --
+      parse_declared_type --
       (Parse.token Parse.cartouche >>
-        Parser_Lex_Util.cartouche_source)) --
+        Parser_Lex_Util.cartouche_source) >>
+      (fn ((binding, declared_type), source) =>
+        (binding, declared_type, source))) --
     parse_with_args --
     parse_against >>
-  (fn (((options, (binding, source)), arguments), against) =>
-    (options, (binding, source, the_default [] arguments), against))
+  (fn (((options, (binding, declared_type, source)), argument_clause), against) =>
+    let
+      val (arguments_pos, arguments) =
+        (case argument_clause of
+           SOME clause => clause
+         | NONE => (#2 (Input.range_of source), []))
+    in
+      (options,
+       (binding, declared_type, source, arguments_pos, arguments),
+       against)
+    end)
 
 val _ = Outer_Syntax.local_theory' \<^command_keyword>\<open>urust_expr\<close>
-          "Declare a uRust expression, optionally checking existing-frontend conformance by refl"
+          "Declare a typed or inferred uRust expression, optionally checking existing-frontend conformance by refl"
           (parse_urust_expr >> define_urust)
 
 val parse_parameter =
