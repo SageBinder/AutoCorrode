@@ -372,7 +372,7 @@ urust_expr [urust_abbrev = true] Core_Expression_Lemmas_urust_site_3
 
 urust_expr [urust_abbrev = true] Core_Expression_Lemmas_urust_site_4
   \<open>
-    let (vf, vg) = \<epsilon>\<open>get (\<lambda>\<sigma>. ((f \<sigma>), (g \<sigma>), nil))\<close>;
+    let (vf, vg) = \<epsilon>\<open>get (\<lambda>\<sigma>. ((f \<sigma>), (g \<sigma>), (nil :: tnil)))\<close>;
     \<epsilon>\<open>e vf vg\<close>
   \<close>
   with_args f g nil e
