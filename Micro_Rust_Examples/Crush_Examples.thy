@@ -5,6 +5,8 @@ theory Crush_Examples
   imports Micro_Rust_Std_Lib.StdLib_All
 begin
 
+declare [[urust_conformance_check = true]]
+
 section\<open>\<^verbatim>\<open>crush\<close> guide\<close>
 
 text\<open>This file is a brief guide to usage and configuration of the \<^verbatim>\<open>crush\<close> family of tactics.\<close>
@@ -662,7 +664,15 @@ paragraph\<open>Case splitting\<close>
 
 experiment
 begin
-lemma \<open>(case y of Some t \<Rightarrow> True | None \<Rightarrow> True) \<Longrightarrow> \<alpha> \<longlongrightarrow> \<W>\<P> \<Gamma> \<lbrakk> match x { Some(y) \<Rightarrow> f(), None \<Rightarrow> g() } \<rbrakk> \<beta> \<gamma> \<delta>\<close>
+urust_expr [urust_abbrev = true] Crush_Examples_urust_site_1
+  \<open> match x { Some(y) \<Rightarrow> f(), None \<Rightarrow> g() } \<close>
+  with_args x f g
+
+urust_expr [urust_abbrev = true] Crush_Examples_urust_site_2
+  \<open> match x { None \<Rightarrow> f(), Some(y) \<Rightarrow> g() } \<close>
+  with_args x f g
+
+lemma \<open>(case y of Some t \<Rightarrow> True | None \<Rightarrow> True) \<Longrightarrow> \<alpha> \<longlongrightarrow> \<W>\<P> \<Gamma> (Crush_Examples_urust_site_1 x f g) \<beta> \<gamma> \<delta>\<close>
   \<comment>\<open>You could use the following, but that would aggressively split \<^verbatim>\<open>option\<close> everywhere.\<close>
   apply (crush_base split!: option.splits)
   \<comment>\<open>\<^verbatim>\<open> 1. \<And>x2 x2a. x = Some x2 \<Longrightarrow> y = Some x2a \<Longrightarrow> \<alpha> \<longlongrightarrow> \<W>\<P> \<Gamma> (call f) \<beta> \<gamma> \<delta>
@@ -671,7 +681,7 @@ lemma \<open>(case y of Some t \<Rightarrow> True | None \<Rightarrow> True) \<L
         4. x = None \<Longrightarrow> y = None \<Longrightarrow> \<alpha> \<longlongrightarrow> \<W>\<P> \<Gamma> (call g) \<beta> \<gamma> \<delta>\<close>\<close>
   oops
 
-lemma \<open>(case y of Some t \<Rightarrow> True | None \<Rightarrow> True) \<Longrightarrow> \<alpha> \<longlongrightarrow> \<W>\<P> \<Gamma> \<lbrakk> match x { None \<Rightarrow> f(), Some(y) \<Rightarrow> g() } \<rbrakk> \<beta> \<gamma> \<delta>\<close>
+lemma \<open>(case y of Some t \<Rightarrow> True | None \<Rightarrow> True) \<Longrightarrow> \<alpha> \<longlongrightarrow> \<W>\<P> \<Gamma> (Crush_Examples_urust_site_2 x f g) \<beta> \<gamma> \<delta>\<close>
   \<comment>\<open>If you instead want to split only micro rust expressions, use \<^verbatim>\<open>wp split: ...\<close>\<close> 
   apply (crush_base wp split: option.splits)
   \<comment>\<open>\<^verbatim>\<open> 1. \<And>x2. case y of None \<Rightarrow> True | _ \<Rightarrow> True \<Longrightarrow> x = Some x2 \<Longrightarrow> \<alpha> \<longlongrightarrow> \<W>\<P> \<Gamma> (call g) \<beta> \<gamma> \<delta>
@@ -948,13 +958,14 @@ begin
 adhoc_overloading store_update_const \<rightleftharpoons>
   update_fun
 
-definition swap_ref :: \<open>('a, 'b, 'v) Global_Store.ref \<Rightarrow> ('a, 'b, 'v) Global_Store.ref \<Rightarrow> ('s, unit, unit, 'abort, 'i prompt, 'o prompt_output) expression\<close> where
-  \<open>swap_ref rA rB \<equiv> \<lbrakk>
+urust_expr swap_ref
+  \<open>
      let oldA = *rA;
      let oldB = *rB;
      rA = oldB;
      rB = oldA;
-  \<rbrakk>\<close>
+  \<close>
+  with_args rA rB
 
 text\<open>Let's prove that this indeed swaps the contents of the references \<^verbatim>\<open>rA\<close> and \<^verbatim>\<open>rB\<close>:\<close>
 
@@ -1083,13 +1094,15 @@ text\<open>Normally, we would not reason about individual \<mu>Rust expressions,
 specifications and contracts to do so. We illustrate this in the example of the above
 reference-swapping code wrapped into a function:\<close>
 
-definition swap_ref_fun :: \<open>('a, 'b, 'v) Global_Store.ref \<Rightarrow> ('a, 'b, 'v) Global_Store.ref \<Rightarrow> ('s, unit, 'abort, 'i prompt, 'o prompt_output) function_body\<close> where
-  \<open>swap_ref_fun rA rB \<equiv> FunctionBody \<lbrakk>
+urust_fun swap_ref_fun ::
+  \<open>('a, 'b, 'v) Global_Store.ref \<Rightarrow> ('a, 'b, 'v) Global_Store.ref \<Rightarrow> ('s, unit, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
+  (rA, rB)
+  \<open>
      let oldA = *rA;
      let oldB = *rB;
      rA = oldB;
      rB = oldA;
-  \<rbrakk>\<close>
+  \<close>
 
 text\<open>The contract for a uRust function is usually captured in a separate definition of type
 \<^verbatim>\<open>function_contract\<close>. In this case:\<close>
@@ -1122,11 +1135,13 @@ lemma swap_ref_fun_spec:
 
 text\<open>Next, imagine we write a higher-level function which relies on \<^verbatim>\<open>swap_ref_fun\<close>.\<close>
 
-definition rotate_ref3 :: \<open>('a, 'b, 'v) Global_Store.ref \<Rightarrow> ('a, 'b, 'v) Global_Store.ref \<Rightarrow> ('a, 'b, 'v) Global_Store.ref \<Rightarrow> ('s, unit, 'abort, 'i prompt, 'o prompt_output) function_body\<close> where
-  \<open>rotate_ref3 rA rB rC \<equiv> FunctionBody \<lbrakk>
+urust_fun rotate_ref3 ::
+  \<open>('a, 'b, 'v) Global_Store.ref \<Rightarrow> ('a, 'b, 'v) Global_Store.ref \<Rightarrow> ('a, 'b, 'v) Global_Store.ref \<Rightarrow> ('s, unit, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
+  (rA, rB, rC)
+  \<open>
      swap_ref_fun (rA, rB);
      swap_ref_fun (rB, rC);
-  \<rbrakk>\<close>
+  \<close>
 
 text\<open>Next, we write the contract for \<^verbatim>\<open>rotate_ref3\<close>:\<close>
 
@@ -1242,11 +1257,13 @@ adhoc_overloading store_update_const \<rightleftharpoons>
 
 text\<open>Overwrite one structure field, return the other:\<close>
 
-definition write_foo_read_bar :: \<open>('a, 'b, test_record) Global_Store.ref \<Rightarrow> ('s, int, 'abort, 'i prompt, 'o prompt_output) function_body\<close> where
-  \<open>write_foo_read_bar ptr \<equiv> FunctionBody \<lbrakk>
+urust_fun write_foo_read_bar ::
+  \<open>('a, 'b, test_record) Global_Store.ref \<Rightarrow> ('s, int, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
+  (ptr)
+  \<open>
      ptr.foo = 42;
      *(ptr.bar)
-  \<rbrakk>\<close>
+  \<close>
 
 definition write_foo_read_bar_contract ::
    \<open>('a, 'b, test_record) Global_Store.ref \<Rightarrow> 'b \<Rightarrow> test_record \<Rightarrow> ('s, int, 'abort) function_contract\<close>
@@ -1321,8 +1338,10 @@ lemma write_foo_read_bar_spec':
 
 text\<open>Clear many structure fields, return another:\<close>
 
-definition test_record2_zeroize :: \<open>('a, 'b, test_record2) Global_Store.ref \<Rightarrow> ('s, int, 'abort, 'i prompt, 'o prompt_output) function_body\<close> where
-  \<open>test_record2_zeroize ptr \<equiv> FunctionBody \<lbrakk>(
+urust_fun test_record2_zeroize ::
+  \<open>('a, 'b, test_record2) Global_Store.ref \<Rightarrow> ('s, int, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
+  (ptr)
+  \<open>(
      ptr.f0 = 3;
      ptr.f1 = 3;
      ptr.f2 = 3;
@@ -1404,7 +1423,7 @@ definition test_record2_zeroize :: \<open>('a, 'b, test_record2) Global_Store.re
      ptr.f18 = 0;
      ptr.f19 = 0;
      *(ptr.f20)
-  )\<rbrakk>\<close>
+  )\<close>
 
 definition test_record2_zeroize_contract ::
    \<open>('a, 'b, test_record2) Global_Store.ref \<Rightarrow> 'b \<Rightarrow> test_record2 \<Rightarrow> ('s, int, 'abort) function_contract\<close>
@@ -1447,10 +1466,12 @@ lemma test_record2_zeroize_contract_spec:
 
 text\<open>Another similar stress test, but this time using array accesses behind a function wrapper.\<close>
 
-definition test_record3_zero_field :: \<open>('a, 'b, test_record3) Global_Store.ref \<Rightarrow> 64 word \<Rightarrow> ('s, unit, 'abort, 'i prompt, 'o prompt_output) function_body\<close> where
-  \<open>test_record3_zero_field r i \<equiv> FunctionBody \<lbrakk>
+urust_fun test_record3_zero_field ::
+  \<open>('a, 'b, test_record3) Global_Store.ref \<Rightarrow> 64 word \<Rightarrow> ('s, unit, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
+  (r, i)
+  \<open>
      r.data[i] = 0
-  \<rbrakk>\<close>
+  \<close>
 
 definition test_record3_zero_field_contract ::
    \<open>('a, 'b, test_record3) Global_Store.ref \<Rightarrow> 64 word \<Rightarrow> 'b \<Rightarrow> test_record3 \<Rightarrow> ('s, unit, 'abort) function_contract\<close>
@@ -1474,8 +1495,10 @@ proof (crush_boot f: test_record3_zero_field_def contract: test_record3_zero_fie
     by crush_base
 qed
 
-definition test_record3_zeroize :: \<open>('a, 'b, test_record3) Global_Store.ref \<Rightarrow> ('s, int, 'abort, 'i prompt, 'o prompt_output) function_body\<close> where
-  \<open>test_record3_zeroize ptr \<equiv> FunctionBody \<lbrakk>(
+urust_fun test_record3_zeroize ::
+  \<open>('a, 'b, test_record3) Global_Store.ref \<Rightarrow> ('s, int, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
+  (ptr)
+  \<open>(
      ptr.test_record3_zero_field(0);
      ptr.test_record3_zero_field(1);
      ptr.test_record3_zero_field(2);
@@ -1537,7 +1560,7 @@ definition test_record3_zeroize :: \<open>('a, 'b, test_record3) Global_Store.re
      ptr.test_record3_zero_field(18);
      ptr.test_record3_zero_field(19);
      *(ptr.rest)
-  )\<rbrakk>\<close>
+  )\<close>
 
 definition test_record3_zeroize_contract ::
    \<open>('a, 'b, test_record3) Global_Store.ref \<Rightarrow> 'b \<Rightarrow> test_record3 \<Rightarrow> ('s, int, 'abort) function_contract\<close>
