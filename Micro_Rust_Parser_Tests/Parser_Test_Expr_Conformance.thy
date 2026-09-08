@@ -151,6 +151,13 @@ urust_expr seq_unit \<open> (); () \<close>
 
 urust_expr seq_trailing \<open> (); (); \<close>
 
+text\<open> Parentheses admit the complete body grammar, including semicolon sequencing. \<close>
+
+urust_expr seq_parenthesized_body
+  \<open> (\<llangle>1 :: nat\<rrangle>; \<llangle>2 :: nat\<rrangle>) \<close>
+
+thm seq_parenthesized_body_conformance
+
 text\<open>
 \<open>let x = e; k\<close> lowers to HOAS \<open>bind e (\<lambda>x. k)\<close>.
 Unused binders need a type pin (R1).

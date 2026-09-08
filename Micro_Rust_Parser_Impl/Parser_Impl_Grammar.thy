@@ -900,14 +900,17 @@ yacc_rules\<open>
                TMATCHESBANG,
                MP_Matches (uclosure_arg, upat),
                Position.range_position (TMATCHESBANGleft, RPARright)))
+        (* The delimiter after the shared uval/uclosure prefix keeps these alternatives distinct:
+           COMMA selects tuple construction, TSEMI continues ubody sequencing, and RPAR closes a
+           complete grouped body. *)
         | LPAR RPAR  (UE_Unit LPARleft)
         | LPAR uclosure_arg COMMA arglist RPAR
             (UE_Tuple
               (uclosure_arg :: arglist,
                Position.range_position (LPARleft, RPARright)))
-        | LPAR uclosure_arg RPAR
+        | LPAR ubody RPAR
             (UE_Group
-              (uclosure_arg,
+              (ubody,
                Position.range_position (LPARleft, RPARright)))
         | TLBRACK TRBRACK
             (UE_Array ([], Position.range_position (TLBRACKleft, TRBRACKright)))
