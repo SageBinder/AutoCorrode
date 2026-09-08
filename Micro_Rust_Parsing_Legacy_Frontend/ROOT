@@ -1,4 +1,4 @@
-session Micro_Rust_Parsing_Frontend = HOL +
+session Micro_Rust_Parsing_Legacy_Frontend = HOL +
   options [document = pdf, document_output = "output"]
   sessions
     "HOL-Eisbach"
@@ -6,4 +6,4 @@ session Micro_Rust_Parsing_Frontend = HOL +
   theories
     Micro_Rust_Syntax
   theories [document=false]
-    Micro_Rust_Parsing_Frontend
+    Micro_Rust_Parsing_Legacy_Frontend

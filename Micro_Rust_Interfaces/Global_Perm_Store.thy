@@ -3,7 +3,7 @@
 
 (*<*)
 theory Global_Perm_Store
-  imports Micro_Rust_Interfaces_Core.References Shallow_Micro_Rust.Global_Store
+  imports Micro_Rust_Interfaces_Core.References Shallow_Micro_Rust_Base.Global_Store
 begin
 (*>*)
 

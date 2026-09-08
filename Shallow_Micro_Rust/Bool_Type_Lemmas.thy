@@ -3,7 +3,7 @@
 
 (*<*)
 theory Bool_Type_Lemmas
-  imports Core_Expression_Lemmas Bool_Type
+  imports Core_Expression_Lemmas Shallow_Micro_Rust_Base.Bool_Type
 begin
 (*>*)
 

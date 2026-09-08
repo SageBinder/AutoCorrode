@@ -2,7 +2,7 @@
    positioned antiquotations, deferred names, PIDE markup, and one final Syntax.check_term. *)
 
 theory Toy_Lex_Yacc
-  imports "Isabelle_Lex-Yacc.LexYacc" Parser_Utils
+  imports "Isabelle_Lex-Yacc.LexYacc" Micro_Rust_Parser_Impl.Parser_Utils
   keywords
     "toy_def" :: thy_decl
     and "toy_demo_inspect" :: diag

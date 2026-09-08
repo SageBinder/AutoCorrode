@@ -4,7 +4,7 @@
 (*<*)
 theory Micro_Rust_Shallow_Embedding
   imports
-    Micro_Rust_Parsing_Frontend.Micro_Rust_Syntax
+    Micro_Rust_Parsing_Legacy_Frontend.Micro_Rust_Syntax
     Core_Syntax
     Micro_Rust_Notations
     Prompts_And_Responses
@@ -26,7 +26,7 @@ subsection\<open>Custom identifiers and identifier remapping\<close>
 
 text\<open>The in-built syntax category \<^verbatim>\<open>id\<close> of HOL identifiers does not encompass qualified
 Rust names such as \<^verbatim>\<open>Foo::Bar\<close>. The path-flattening AST translation in
-\<^file>\<open>../Micro_Rust_Parsing_Frontend/Micro_Rust_Syntax.thy\<close> turns such paths into
+\<^file>\<open>../Micro_Rust_Parsing_Legacy_Frontend/Micro_Rust_Syntax.thy\<close> turns such paths into
 \<^verbatim>\<open>_urust_identifier_id\<close> nodes whose payload is a plain \<^verbatim>\<open>Ast.Variable\<close> carrying
 the joined name (e.g. \<^verbatim>\<open>"Foo::Bar"\<close>); downstream consumers therefore see no
 structural difference between path and plain identifiers --- only the name
@@ -53,7 +53,7 @@ end
   as the same \<^verbatim>\<open>Free name\<close> shape; resolution proceeds via the
   \<^ML_structure>\<open>Micro_Rust_Names\<close> table, populated by the
   \<^theory_text>\<open>micro_rust_notation\<close> command in
-  \<^theory>\<open>Shallow_Micro_Rust.Micro_Rust_Notations\<close>.\<close>
+  \<^theory>\<open>Shallow_Micro_Rust_Base.Micro_Rust_Notations\<close>.\<close>
 
 named_theorems micro_rust_record_simps
 named_theorems micro_rust_record_intros

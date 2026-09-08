@@ -3,28 +3,27 @@
 
 theory Shallow_Micro_Rust
   imports
-    Basic_Case_Expression
-    Bool_Type
+    Shallow_Micro_Rust_Base.Basic_Case_Expression
+    Shallow_Micro_Rust_Base.Bool_Type
     Bool_Type_Lemmas
-    Core_Expression
+    Shallow_Micro_Rust_Base.Core_Expression
     Core_Expression_Lemmas
-    Core_Syntax
+    Shallow_Micro_Rust_Base.Core_Syntax
     Eval
-    Global_Store
+    Shallow_Micro_Rust_Base.Global_Store
     Micro_Rust     
-    Micro_Rust_Shallow_Embedding
-    Micro_Rust_Shallow_Embedding_Tests
-    Numeric_Types
+    Shallow_Micro_Rust_Base.Micro_Rust_Shallow_Embedding
+    Shallow_Micro_Rust_Base.Numeric_Types
     Numeric_Types_Lemmas
-    Option_Type
+    Shallow_Micro_Rust_Base.Option_Type
     Pullback
-    Range_Type
-    Result_Type
-    Rust_Iterator
+    Shallow_Micro_Rust_Base.Range_Type
+    Shallow_Micro_Rust_Base.Result_Type
+    Shallow_Micro_Rust_Base.Rust_Iterator
     Rust_Iterator_Lemmas
-    Prompts_And_Responses
+    Shallow_Micro_Rust_Base.Prompts_And_Responses
     Simple_Word_Enum_uRust
     SSA
-    Tuple
+    Shallow_Micro_Rust_Base.Tuple
 begin
 end

@@ -14,4 +14,4 @@ __pycache__/
 # Other
 Conformance_Testing/
 
-Micro_Rust_Parser_Experiment/Conformance_Corpus_NIE.thy
+Micro_Rust_Parser_Tests/Conformance_Corpus_NIE.thy

@@ -3,7 +3,12 @@
 
 (*<*)
 theory Rust_Iterator_Lemmas
-  imports Rust_Iterator Core_Expression Core_Expression_Lemmas Core_Syntax Range_Type
+  imports
+    Shallow_Micro_Rust_Base.Rust_Iterator
+    Shallow_Micro_Rust_Base.Core_Expression
+    Core_Expression_Lemmas
+    Shallow_Micro_Rust_Base.Core_Syntax
+    Shallow_Micro_Rust_Base.Range_Type
 begin
 (*>*)
 

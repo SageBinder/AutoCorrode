@@ -2,7 +2,7 @@
    SPDX-License-Identifier: MIT *)
 
 theory Conformance_Corpus
-  imports Shallow_Micro_Rust.Micro_Rust_Shallow_Embedding
+  imports Shallow_Micro_Rust_Base.Micro_Rust_Shallow_Embedding
 begin
 
 section\<open> Conformance corpus \<close>

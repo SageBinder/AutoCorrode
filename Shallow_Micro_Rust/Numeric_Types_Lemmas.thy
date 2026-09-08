@@ -3,7 +3,7 @@
 
 (*<*)
 theory Numeric_Types_Lemmas
-  imports Core_Expression_Lemmas Numeric_Types
+  imports Core_Expression_Lemmas Shallow_Micro_Rust_Base.Numeric_Types
 begin
 (*>*)
 

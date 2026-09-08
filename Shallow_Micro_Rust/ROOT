@@ -1,30 +1,17 @@
-session Shallow_Micro_Rust = HOL +
+session Shallow_Micro_Rust = Shallow_Micro_Rust_Base +
   options [document = pdf, document_output = "output"]
   sessions
-    "HOL-Eisbach"
-    "HOL-Library"
-    Micro_Rust_Parsing_Frontend
-    Autogen
-    Misc
-    Lenses_And_Other_Optics
+    Micro_Rust_Parser_Impl
   theories
-    Basic_Case_Expression
-    Core_Syntax
-    Core_Expression Core_Expression_Lemmas
+    Micro_Rust_Parser_Bridge
+    Core_Expression_Lemmas
+    Bool_Type_Lemmas
+    Numeric_Types_Lemmas
+    Rust_Iterator_Lemmas
     Eval
-    Bool_Type Bool_Type_Lemmas
     Pullback
-    Rust_Iterator Rust_Iterator_Lemmas
-    Range_Type
-    Numeric_Types Numeric_Types_Lemmas
-    Global_Store
-    Micro_Rust_Notations
-    Micro_Rust_Shallow_Embedding
-    Micro_Rust_Notations_Test
     Simple_Word_Enum_uRust
-    Micro_Rust_Shallow_Embedding_Tests
     Micro_Rust
-    Prompts_And_Responses
     SSA
   theories [document=false]
     Shallow_Micro_Rust

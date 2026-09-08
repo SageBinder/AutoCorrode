@@ -1,7 +1,7 @@
 theory Parser_Impl_Shallow_Terms
   imports
     Parser_Impl_AST
-    Shallow_Micro_Rust.Micro_Rust_Shallow_Embedding
+    Shallow_Micro_Rust_Base.Micro_Rust_Shallow_Embedding
 begin
 
 section\<open> Shallow term vocabulary \<close>

@@ -3,7 +3,7 @@
    annotations avoid hidden type variables that `Local_Theory.define` cannot expose cleanly. *)
 
 theory Parser_Test_Expr_Conformance
-  imports Parser_Impl "HOL.Real"
+  imports Micro_Rust_Parser_Impl.Parser_Impl "HOL.Real"
 begin
 
 declare [[urust_conformance_check = true]]

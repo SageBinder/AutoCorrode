@@ -8,7 +8,7 @@ theory References
     Shallow_Separation_Logic.Tree_Shares
     Shallow_Separation_Logic.Triple 
     Shallow_Separation_Logic.Weakest_Precondition
-    Shallow_Micro_Rust.Core_Expression
+    Shallow_Micro_Rust_Base.Core_Expression
 begin
 (*>*)
 

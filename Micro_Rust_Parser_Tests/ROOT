@@ -1,7 +1,8 @@
-session Micro_Rust_Parser_Experiment = HOL +
+session Micro_Rust_Parser_Tests = HOL +
   options [document = pdf, document_output = "output", quick_and_dirty]
   sessions
     "HOL-Library"
+    Micro_Rust_Parser_Impl
     Separation_Lenses
     Shallow_Micro_Rust
     Micro_Rust_Std_Lib
@@ -13,22 +14,13 @@ session Micro_Rust_Parser_Experiment = HOL +
   theories [document = false]
     Experiment
     Conformance_Corpus
-    Parser_Utils
     Toy_Lex_Yacc
-    Parser_Impl_AST
-    Parser_Impl_Grammar
-    Parser_Impl_Diagnostics
-    Parser_Impl_Shallow_Terms
-    Parser_Impl_Resolution
-    Parser_Impl_Patterns
-    Parser_Impl_Matching
-    Parser_Impl_Macros
-    Parser_Impl_Translate
-    Parser_Impl_Command
-    Parser_Impl
+    Parser_Test_Facade
     Parser_Test_Utils
     Struct_Ambiguity_Left
     Struct_Ambiguity_Right
+    Micro_Rust_Notations_Test
+    Micro_Rust_Shallow_Embedding_Tests
     Parser_Test_Expr_Conformance
     Parser_Test_Fun_Conformance
     Parser_Test_Flags

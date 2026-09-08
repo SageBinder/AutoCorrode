@@ -3,7 +3,7 @@
 
 theory Micro_Rust_Shallow_Embedding_Tests
   imports
-    Micro_Rust_Shallow_Embedding
+    Shallow_Micro_Rust_Base.Micro_Rust_Shallow_Embedding
 begin
 
 section\<open>Parsing and Evaluation Tests for the Shallow Embedding\<close>
