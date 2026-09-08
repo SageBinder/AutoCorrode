@@ -93,8 +93,9 @@ lemma evaluate_word_bitwise_and_literal [micro_rust_simps]:
   by (clarsimp simp add: micro_rust_simps word_bitwise_and_pure_def word_bitwise_and_def)
 
 urust_expr [urust_abbrev = true] Numeric_Types_Lemmas_urust_site_15
-  \<open> !d \<close>
+  \<open> !\<llangle>(d :: 'l::{len} word)\<rrangle> \<close>
   with_args d
+  against \<open>\<lbrakk> !d \<rbrakk>\<close>
 
 urust_expr [urust_abbrev = true] Numeric_Types_Lemmas_urust_site_16
   \<open> \<llangle>NOT d\<rrangle> \<close>
