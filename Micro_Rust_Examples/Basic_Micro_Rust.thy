@@ -12,6 +12,7 @@ theory Basic_Micro_Rust
     "HOL-Library.Code_Target_Numeral" \<comment> \<open>Map naturals/integers onto OCaml \<^verbatim>\<open>zarith\<close> types\<close>
     "HOL-Library.Code_Abstract_Char"  \<comment> \<open>Tidy up character and string literals a little\<close>
 begin
+declare [[urust_conformance_check = true]]
 (*>*)
 
 section\<open>Working introduction to Micro Rust\<close>
@@ -24,42 +25,59 @@ subsection\<open>Micro Rust look and feel\<close>
 text\<open>Micro Rust programs are written in double-square brackets \<^verbatim>\<open>\<lbrakk> EXPRESSION \<rbrakk>\<close>
 and are syntactically very similar to Rust. Here are some examples:\<close>
 
-term \<open>\<lbrakk> x + y \<rbrakk>\<close> (* "word_add_no_wrap (\<up>x) (\<up>y)" :: "('a, 'b word, 'c, 'abort, 'd, 'e) expression" *)
+urust_expr [urust_abbrev = true] Basic_Micro_Rust_urust_site_1
+  \<open> x + y \<close>
+  with_args x y
 
-term \<open>\<lbrakk> 
+term \<open>Basic_Micro_Rust_urust_site_1 x y\<close> (* "word_add_no_wrap (\<up>x) (\<up>y)" :: "('a, 'b word, 'c, 'abort, 'd, 'e) expression" *)
+
+urust_expr [urust_abbrev = true] Basic_Micro_Rust_urust_site_2
+  \<open>
   if x == 42 { 
     true
   } else {
     panic!("I thought the answer was always 42!")
   } 
-\<rbrakk>\<close>
+  \<close>
+  with_args x
+
+term \<open>Basic_Micro_Rust_urust_site_2 x\<close>
 
 text\<open>A function definition, then used in a Micro Rust expression:\<close>
 
-definition some_function :: \<open>64 word \<Rightarrow> 64 word \<Rightarrow> (_, 64 word, _, _, _) function_body\<close> where
-  \<open>some_function a b \<equiv> FunctionBody \<lbrakk>
+urust_fun some_function ::
+  \<open>64 word \<Rightarrow> 64 word \<Rightarrow> (_, 64 word, _, _, _) function_body\<close>
+  (a, b)
+  \<open>
      return a + b;
-  \<rbrakk>\<close>
+  \<close>
 
-term \<open>\<lbrakk> 
+urust_expr [urust_abbrev = true] Basic_Micro_Rust_urust_site_3
+  \<open>
   if some_function(1,2) == 42 { 
     true
   } else {
     panic!("I thought the answer was always 42!")
   } 
-\<rbrakk>\<close>
+  \<close>
+
+term \<open>Basic_Micro_Rust_urust_site_3\<close>
 
 experiment
 fixes a :: \<open>nat list\<close>
 begin
-term \<open>\<lbrakk> 
+urust_expr [urust_abbrev = true] Basic_Micro_Rust_urust_site_4
+  \<open>
   for i in 0..\<llangle>10::64 word\<rrangle> { \<comment>\<open>The \<^verbatim>\<open>\<llangle>\<dots>\<rrangle>\<close> will be explained below\<close>
     if a[i] == 42 {
       return True;
     }
   };
   return False; 
-\<rbrakk>\<close>
+  \<close>
+  with_args a
+
+term \<open>Basic_Micro_Rust_urust_site_4 a\<close>
 end
 
 subsection\<open>Shallow embedding\<close>
@@ -109,7 +127,10 @@ text\<open>To see Micro Rust programs in action, you can use the \<^verbatim>\<o
 in which the computation terminated. For the stateless examples considered here, any value will 
 do as the state.\<close>
 
-value \<open>evaluate \<lbrakk> 1 + 2 \<rbrakk> ()
+urust_expr [urust_abbrev = true] Basic_Micro_Rust_urust_site_5
+  \<open> 1 + 2 \<close>
+
+value \<open>evaluate Basic_Micro_Rust_urust_site_5 ()
   :: (unit, 64 word, 64 word, unit, unit, unit) continuation\<close>
 (* "Success 3 ()"
   :: "(unit, 64 word, 64 word, unit, unit, unit) continuation" *)
@@ -117,13 +138,17 @@ value \<open>evaluate \<lbrakk> 1 + 2 \<rbrakk> ()
 definition some_constant :: \<open>64 word\<close>
   where \<open>some_constant \<equiv> 42\<close>
 
-value \<open>evaluate \<lbrakk> 
+urust_expr [urust_abbrev = true] Basic_Micro_Rust_urust_site_6
+  \<open>
   if some_constant == 42 { 
     True
   } else {
     panic!("I thought the answer was always 42!")
   } 
-\<rbrakk> () :: (unit, bool, bool, unit, unit, unit) continuation\<close>
+  \<close>
+
+value \<open>evaluate Basic_Micro_Rust_urust_site_6 ()
+  :: (unit, bool, bool, unit, unit, unit) continuation\<close>
 
 (* "Success True ()"
   :: "(unit, bool, bool, unit, unit, unit) continuation" *)
@@ -131,22 +156,38 @@ value \<open>evaluate \<lbrakk>
 definition another_constant :: \<open>64 word\<close>
   where \<open>another_constant \<equiv> 43\<close>
 
-value \<open>evaluate \<lbrakk>
+urust_expr [urust_abbrev = true] Basic_Micro_Rust_urust_site_7
+  \<open>
  if another_constant == 42 { 
    True
  } else {
    panic!("I thought the answer was always 42!")
  } 
-\<rbrakk> () :: (unit, bool, bool, unit, unit, unit) continuation\<close>
+  \<close>
+
+value \<open>evaluate Basic_Micro_Rust_urust_site_7 ()
+  :: (unit, bool, bool, unit, unit, unit) continuation\<close>
 
 (* "Abort (Panic STR ''I thought the answer was always 42!'') ()"
   :: "(unit, bool, bool, unit, unit, unit) continuation" *)
 
-value [simp] \<open>evaluate \<lbrakk> True  || panic!("oh dear") \<rbrakk> ()
+urust_expr [urust_abbrev = true] Basic_Micro_Rust_urust_site_8
+  \<open> True || panic!("oh dear") \<close>
+
+urust_expr [urust_abbrev = true] Basic_Micro_Rust_urust_site_9
+  \<open> False || panic!("oh dear") \<close>
+
+urust_expr [urust_abbrev = true] Basic_Micro_Rust_urust_site_10
+  \<open> True && panic!("oh dear") \<close>
+
+urust_expr [urust_abbrev = true] Basic_Micro_Rust_urust_site_11
+  \<open> False && panic!("oh dear") \<close>
+
+value [simp] \<open>evaluate Basic_Micro_Rust_urust_site_8 ()
   :: (unit, bool, bool, unit, unit, unit) continuation\<close> (* "Success True ()" *)
-value [simp] \<open>evaluate \<lbrakk> False || panic!("oh dear") \<rbrakk> ()\<close> (* "Abort (Panic STR ''oh dear'') ()" *)
-value [simp] \<open>evaluate \<lbrakk> True  && panic!("oh dear") \<rbrakk> ()\<close> (* "Abort (Panic STR ''oh dear'') ()" *)
-value [simp] \<open>evaluate \<lbrakk> False && panic!("oh dear") \<rbrakk> ()\<close> (* "Success False ()" *)
+value [simp] \<open>evaluate Basic_Micro_Rust_urust_site_9 ()\<close> (* "Abort (Panic STR ''oh dear'') ()" *)
+value [simp] \<open>evaluate Basic_Micro_Rust_urust_site_10 ()\<close> (* "Abort (Panic STR ''oh dear'') ()" *)
+value [simp] \<open>evaluate Basic_Micro_Rust_urust_site_11 ()\<close> (* "Success False ()" *)
 
 subsection\<open>Anti-Quotations\<close>
 
@@ -156,16 +197,28 @@ HOL expressions into Micro Rust through \<^emph>\<open>anti-quotations\<close>.
 The most basic antiquotation is \<^verbatim>\<open>\<epsilon>\<open>\<dots>\<close>\<close>, which embeds HOL terms of type \<^verbatim>\<open>expression\<close> into a
 Micro Rust program. For example:\<close>
 
-term \<open>\<lbrakk> 4 + \<epsilon>\<open>literal (sum id {0,1,2,3})\<close> \<rbrakk>\<close>
-value \<open>evaluate \<lbrakk> 4 + \<epsilon>\<open>literal (sum id {0,1,2,3})\<close> \<rbrakk> () 
+urust_expr [urust_abbrev = true] Basic_Micro_Rust_urust_site_12
+  \<open> 4 + \<epsilon>\<open>literal (sum id {0,1,2,3})\<close> \<close>
+
+urust_expr [urust_abbrev = true] Basic_Micro_Rust_urust_site_13
+  \<open> 4 + \<epsilon>\<open>literal (sum id {0,1,2,3})\<close> \<close>
+
+term \<open>Basic_Micro_Rust_urust_site_12\<close>
+value \<open>evaluate Basic_Micro_Rust_urust_site_13 ()
    :: (unit, 64 word, unit, unit, unit, unit) continuation\<close>
 (* "Success 10 ()"
   :: "(unit, 64 word, unit, unit, unit, unit) continuation" *)
 
 text\<open>\<^verbatim>\<open>\<up>\<close> is an abbreviation for \<^verbatim>\<open>literal\<close>:\<close>
 
-term \<open>\<lbrakk> 4 + \<epsilon>\<open>literal (sum id {0,1,2,3})\<close> \<rbrakk>\<close>
-value \<open>evaluate \<lbrakk> 4 + \<epsilon>\<open>\<up> (sum id {0,1,2,3})\<close> \<rbrakk> () 
+urust_expr [urust_abbrev = true] Basic_Micro_Rust_urust_site_14
+  \<open> 4 + \<epsilon>\<open>literal (sum id {0,1,2,3})\<close> \<close>
+
+urust_expr [urust_abbrev = true] Basic_Micro_Rust_urust_site_15
+  \<open> 4 + \<epsilon>\<open>\<up> (sum id {0,1,2,3})\<close> \<close>
+
+term \<open>Basic_Micro_Rust_urust_site_14\<close>
+value \<open>evaluate Basic_Micro_Rust_urust_site_15 ()
    :: (unit, 64 word, unit, unit, unit, unit) continuation\<close>
 (* "Success 10 ()"
   :: "(unit, 64 word, unit, unit, unit, unit) continuation" *)
@@ -173,12 +226,19 @@ value \<open>evaluate \<lbrakk> 4 + \<epsilon>\<open>\<up> (sum id {0,1,2,3})\<c
 text\<open>Since the pattern \<^verbatim>\<open>\<epsilon>\<open>\<up>(\<dots>)\<close>\<close> is so common, it has an abbreviation itself:
 The antiquotation \<^verbatim>\<open>\<llangle>\<dots>\<rrangle>\<close> embeds HOL terms as Micro Rust \<^emph>\<open>literals\<close>:\<close>
 
-term \<open>\<lbrakk> \<llangle>4 :: 32 word\<rrangle> + \<llangle>12 :: 32 word\<rrangle> \<rbrakk>\<close>
+urust_expr [urust_abbrev = true] Basic_Micro_Rust_urust_site_16
+  \<open> \<llangle>4 :: 32 word\<rrangle> + \<llangle>12 :: 32 word\<rrangle> \<close>
+
+term \<open>Basic_Micro_Rust_urust_site_16\<close>
 
 text\<open>The \<^verbatim>\<open>literal\<close> and \<^verbatim>\<open>\<up>\<close> antiquotation is automatic for numerals and identifiers
 in Micro Rust: So if you wrtite\<close>
 
-term \<open>\<lbrakk> x \<rbrakk>\<close> (* "\<up>x"
+urust_expr [urust_abbrev = true] Basic_Micro_Rust_urust_site_17
+  \<open> x \<close>
+  with_args x
+
+term \<open>Basic_Micro_Rust_urust_site_17 x\<close> (* "\<up>x"
   :: "('b, 'a, 'c, 'abort, 'd, 'e) expression" *)
 
 text\<open>you see that it is automatically interpreted as the literal lift of the (free)
@@ -187,7 +247,10 @@ variable \<^verbatim>\<open>x\<close> to a Micro Rust expression. Similarly for 
 experiment
 begin  
 declare [[show_sorts]] \<comment>\<open>Just so we can see type constraints\<close>
-term \<open>\<lbrakk> 2 \<rbrakk>\<close> (* "\<up>(2::'a::numeral)"
+urust_expr [urust_abbrev = true] Basic_Micro_Rust_urust_site_18
+  \<open> 2 \<close>
+
+term \<open>Basic_Micro_Rust_urust_site_18\<close> (* "\<up>(2::'a::numeral)"
   :: "('b::type, 'a::numeral, 'c::type, 'd::type, 'e::type) expression" *)
 end
 
@@ -196,7 +259,10 @@ given say \<^verbatim>\<open>f :: 'a \<Rightarrow> 'b\<close>, interpret it as \
 it can be used in normal Micro Rust function application.  This is facilitated using
 the antiquotations \<^verbatim>\<open>\<llangle>_\<rrangle>\<^sub>1\<close>,  \<^verbatim>\<open>\<llangle>_\<rrangle>\<^sub>2\<close>, ..., where the index indicates the number of arguments:\<close>
 
-term \<open>\<lbrakk> \<llangle>sum\<rrangle>\<^sub>2(id, \<llangle>{1,2,3,4}\<rrangle>) \<rbrakk>\<close> (* "lift_fun2 sum \<langle>\<up>id, \<up>{1, 2, 3, 4}\<rangle>"
+urust_expr [urust_abbrev = true] Basic_Micro_Rust_urust_site_19
+  \<open> \<llangle>sum\<rrangle>\<^sub>2(id, \<llangle>{1,2,3,4}\<rrangle>) \<close>
+
+term \<open>Basic_Micro_Rust_urust_site_19\<close> (* "lift_fun2 sum \<langle>\<up>id, \<up>{1, 2, 3, 4}\<rangle>"
   :: "('b, 'a, 'e, 'c, 'd) expression" *)
 
 subsection\<open>Stateful Micro Rust\<close>
@@ -236,8 +302,8 @@ text\<open>Under the hood, this is just:\<close>
 
 text\<open>With the getters and setters in place, we can write the desired multiplication function:\<close>
 
-definition multiply_it_up :: \<open>(s, 64 word, _, _, _, _) expression\<close> where
-  \<open>multiply_it_up \<equiv> \<lbrakk>
+urust_expr multiply_it_up
+  \<open>
      let data = get_arr();
      \<comment>\<open>Micro Rust wants a \<^verbatim>\<open>64 word\<close> as the loop bound, so we resort to antiquotations
      to construct this.\<close>
@@ -246,7 +312,7 @@ definition multiply_it_up :: \<open>(s, 64 word, _, _, _, _) expression\<close> 
         set_acc(get_acc() * data[i]);
      };
      get_acc()
-  \<rbrakk>\<close>
+  \<close>
 
 text\<open>Let's try it out:\<close>
 
@@ -272,17 +338,24 @@ as part of the underlying state rather than a mutable local variable.
 
 Let's try to use a mutable \<^verbatim>\<open>let\<close> binding in a Micro Rust expression:\<close>
 
-term \<open>\<lbrakk>
+urust_expr [urust_abbrev = true] Basic_Micro_Rust_urust_site_20
+  \<open>
      let mut acc = \<llangle>1 :: 64 word\<rrangle>;
      acc
-  \<rbrakk>\<close>
+  \<close>
+
+term \<open>Basic_Micro_Rust_urust_site_20\<close>
 (* "bind (Ref::new \<langle>\<up>1\<rangle>) literal"
   :: "('a, (('b, 'c) gref, 'c, 64 word) focused, 'd, 'e, 'f) expression" *)
 
-value [simp] \<open>evaluate \<lbrakk>
+urust_expr [urust_abbrev = true] Basic_Micro_Rust_urust_site_21
+  \<open>
      let mut acc = \<llangle>1 :: 64 word\<rrangle>;
      acc
-  \<rbrakk> (make_s [100,200,300,400,500,600,700,800] 42)\<close>
+  \<close>
+
+value [simp] \<open>evaluate Basic_Micro_Rust_urust_site_21
+  (make_s [100,200,300,400,500,600,700,800] 42)\<close>
 (* "case case case Ref::new 1 of FunctionBody x \<Rightarrow> call_function_body x of
       Expression f \<Rightarrow> f (make_s [100, 200, 300, 400, 500, 600, 700, 800] 42) of
  Success v x \<Rightarrow> evaluate (\<up>v) x | Return x xa \<Rightarrow> Return x xa | Abort x xa \<Rightarrow> Abort x xa
@@ -333,12 +406,14 @@ of \<^verbatim>\<open>Reference\<close>, we can indeed write functions operating
 context reference
 begin
 
-definition add_one_to_ref :: \<open>(_, _, 64 word) Global_Store.ref \<Rightarrow> ('s, unit, _, _, _) function_body\<close> where
-  \<open>add_one_to_ref ptr \<equiv> FunctionBody \<lbrakk>
+urust_fun add_one_to_ref ::
+  \<open>(_, _, 64 word) Global_Store.ref \<Rightarrow> ('s, unit, _, _, _) function_body\<close>
+  (ptr)
+  \<open>
      let val = *ptr; \<comment>\<open>Reading requires explicit dereferencing\<close>
      let new_val = val + 1;
      ptr = new_val; \<comment>\<open>Updating does not require explicit dereferencing\<close>
-  \<rbrakk>\<close>
+  \<close>
 thm add_one_to_ref_def
 (* add_one_to_ref ?ptr \<equiv>
 FunctionBody
@@ -381,22 +456,23 @@ term ref_word64.new
 
 text\<open>Now we can rewrite our product function from above using a local accumulator:\<close>
 
-definition multiply_it_up :: \<open>64 word list \<Rightarrow> ('s, 64 word, _, _, _, _) expression\<close> where
-  \<open>multiply_it_up data \<equiv> \<lbrakk>
+urust_expr multiply_it_up
+  \<open>
      let mut acc = \<llangle>1 :: 64 word\<rrangle>;
      for i in 0..data.len() {
         acc = *acc * data[i];
      };
      *acc
-  \<rbrakk>\<close>
+  \<close>
+  with_args data
 
-definition add_local :: \<open>('s, 64 word, _, _, _, _) expression\<close> where
-  \<open>add_local \<equiv> \<lbrakk>
+urust_expr add_local
+  \<open>
     let len = \<llangle>5 :: 64 word\<rrangle>;
     let mut acc = \<llangle>1 :: 64 word\<rrangle>;
     acc = *acc + len; \<comment> \<open>Need to explicitly dereference the mutable local, but not the local.\<close>
     *acc
-  \<rbrakk>\<close>
+  \<close>
 
 (*<*)
 end

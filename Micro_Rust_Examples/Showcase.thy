@@ -6,6 +6,7 @@ theory Showcase
   imports
     Micro_Rust_Std_Lib.StdLib_All
 begin
+declare [[urust_conformance_check = true]]
 (*>*)
 
 section\<open>AutoCorrode showcase\<close>
@@ -37,7 +38,10 @@ text\<open>This first example relies on local mutable variables. The syntax is e
 to Rust: this is a dialect of Rust we call uRust. uRust is shallowly embedded in
 Isabelle/HOL, so we can 'escape' the uRust syntax if needed or convenient.
 This is done here with \<^verbatim>\<open>\<llangle>_\<rrangle>\<close>, used in this example for providing type annotations.\<close>
-definition ref_test where \<open>ref_test \<equiv> FunctionBody \<lbrakk>
+urust_fun ref_test ::
+  \<open>('s, nat, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
+  ()
+  \<open>
     let mut nat_ref = \<llangle>0 :: nat\<rrangle>;
     let mut bool_ref = \<llangle>False :: bool\<rrangle>;
     if *bool_ref {
@@ -46,7 +50,7 @@ definition ref_test where \<open>ref_test \<equiv> FunctionBody \<lbrakk>
       nat_ref = 12;
     };
     *nat_ref
-  \<rbrakk>\<close>
+  \<close>
 
 text\<open>For more in-depth details on uRust (including ways to symbolically evaluate it),
 see \<^file>\<open>Basic_Micro_Rust.thy\<close>.\<close>
@@ -76,13 +80,15 @@ into a symbolic execution goal \<^verbatim>\<open>\<Delta> \<turnstile> WP e _\<
   done
 
 text\<open>Let's make this a bit more interesting, and verify the classic \<^verbatim>\<open>swap\<close> function\<close>
-definition swap_ref :: \<open>('addr, 'gv, 'v) Global_Store.ref \<Rightarrow> ('addr, 'gv, 'v) Global_Store.ref \<Rightarrow> ('s, unit, 'abort, 'i prompt, 'o prompt_output) function_body\<close> where
-  \<open>swap_ref rA rB \<equiv> FunctionBody \<lbrakk>
+urust_fun swap_ref ::
+  \<open>('addr, 'gv, 'v) Global_Store.ref \<Rightarrow> ('addr, 'gv, 'v) Global_Store.ref \<Rightarrow> ('s, unit, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
+  (rA, rB)
+  \<open>
      let oldA = *rA;
      let oldB = *rB;
      rA = oldB;
      rB = oldA;
-  \<rbrakk>\<close>
+  \<close>
 
 text\<open>The contract of \<^term>\<open>swap_ref\<close> might differ slightly from what you'd expect, specifically
 in the arguments of the points-to connective \<^verbatim>\<open>\<mapsto>\<close>. \<^term>\<open>l \<mapsto>\<langle>s\<rangle> g\<down>v\<close> describes the resource where we
@@ -111,13 +117,15 @@ lemma swap_ref_spec:
   done
 
 text\<open>Now, let's use this function in some client program\<close>
-definition swap_client where
-  \<open>swap_client \<equiv> FunctionBody \<lbrakk>
+urust_fun swap_client ::
+  \<open>('s, nat, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
+  ()
+  \<open>
     let mut left = \<llangle>42 :: nat\<rrangle>;
     let mut right = 72;
     swap_ref(left, right);
     *left
-  \<rbrakk>\<close>
+  \<close>
 
 text\<open>After swapping, the variable left should now contain the value \<^term>\<open>72 :: nat\<close>\<close>
 definition swap_client_contract where
@@ -155,15 +163,17 @@ adhoc_overloading urust_add \<rightleftharpoons> \<open>bind2 (lift_exp2 (plus :
 
 text\<open>We can now define this summing operation of an array in uRust.
 Note also the availability of indexing notation \<^verbatim>\<open>nums[i]\<close> for arrays.\<close>
-definition sum_array :: \<open>(nat, 'a::len) array \<Rightarrow> 64 word \<Rightarrow> ('s, nat, 'abort, 'i prompt, 'o prompt_output) function_body\<close> where
-  \<open>sum_array nums l \<equiv> FunctionBody \<lbrakk>
+urust_fun sum_array ::
+  \<open>(nat, 'a::len) array \<Rightarrow> 64 word \<Rightarrow> ('s, nat, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
+  (nums, l)
+  \<open>
     let mut sum = \<llangle>0 :: nat\<rrangle>;
     for i in 0..l {
       let num = nums[i];
       sum = *sum + num;
     };
     *sum
-  \<rbrakk>\<close>
+  \<close>
 
 text\<open>The contract for \<^term>\<open>sum_array\<close>: the stateful implementations returns the same value
 as the functional implementation that uses \<^term>\<open>sum_list\<close>\<close>

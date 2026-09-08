@@ -6,6 +6,8 @@ theory Tutorial
     Micro_Rust_Std_Lib.StdLib_All
 begin
 
+declare [[urust_conformance_check = true]]
+
 section\<open>Verifying \<mu>Rust programs with AutoCorrode\<close>
 
 text\<open>Welcome! In this tutorial you will verify small \<mu>Rust programs using AutoCorrode's
@@ -56,8 +58,10 @@ section\<open>Exercise 1: Hello Crush (warm-up)\<close>
 text\<open>This function clamps a value \<^term>\<open>x\<close> to the range \<^term>\<open>[lo, hi]\<close>.
 The contract and function are given. Your task: write the proof.\<close>
 
-definition clamp :: \<open>nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> ('s, nat, 'abort, 'i prompt, 'o prompt_output) function_body\<close> where
-  \<open>clamp lo hi x \<equiv> FunctionBody \<lbrakk>
+urust_fun clamp ::
+  \<open>nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> ('s, nat, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
+  (lo, hi, x)
+  \<open>
     if (x < lo) {
       lo
     } else {
@@ -67,7 +71,7 @@ definition clamp :: \<open>nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow>
         x
       }
     }
-  \<rbrakk>\<close>
+  \<close>
 
 definition clamp_contract where
   \<open>clamp_contract lo hi x \<equiv>
@@ -89,14 +93,16 @@ section\<open>Exercise 2: Write the Contract\<close>
 text\<open>This function returns the maximum of two natural numbers.
 The function is given. Your task: strengthen the postcondition and prove the spec.\<close>
 
-definition max_of :: \<open>nat \<Rightarrow> nat \<Rightarrow> ('s, nat, 'abort, 'i prompt, 'o prompt_output) function_body\<close> where
-  \<open>max_of a b \<equiv> FunctionBody \<lbrakk>
+urust_fun max_of ::
+  \<open>nat \<Rightarrow> nat \<Rightarrow> ('s, nat, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
+  (a, b)
+  \<open>
     if (b > a) {
       b
     } else {
       a
     }
-  \<rbrakk>\<close>
+  \<close>
 
 text\<open>TODO: Strengthen the postcondition.
 Hint: Isabelle has a built-in \<^term>\<open>max\<close> function.\<close>
@@ -140,8 +146,10 @@ Because we allocate a mutable reference, the precondition must include
 should return this capability (we are done with the reference) along with
 a pure fact about the result.\<close>
 
-definition abs_diff :: \<open>nat \<Rightarrow> nat \<Rightarrow> ('s, nat, 'abort, 'i prompt, 'o prompt_output) function_body\<close> where
-  \<open>abs_diff a b \<equiv> FunctionBody \<lbrakk>
+urust_fun abs_diff ::
+  \<open>nat \<Rightarrow> nat \<Rightarrow> ('s, nat, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
+  (a, b)
+  \<open>
     let mut result = \<llangle>0 :: nat\<rrangle>;
     if (a > b) {
       result = \<llangle>a - b\<rrangle>;
@@ -149,7 +157,7 @@ definition abs_diff :: \<open>nat \<Rightarrow> nat \<Rightarrow> ('s, nat, 'abo
       result = \<llangle>b - a\<rrangle>;
     };
     *result
-  \<rbrakk>\<close>
+  \<close>
 
 text\<open>TODO: Write the contract\<close>
 definition abs_diff_contract where
@@ -173,10 +181,12 @@ Your task: write and verify a \<^term>\<open>quadruple\<close> function that cal
 This demonstrates modular verification: you reuse the specification of a
 callee rather than inlining its implementation.\<close>
 
-definition double :: \<open>nat \<Rightarrow> ('s, nat, 'abort, 'i prompt, 'o prompt_output) function_body\<close> where
-  \<open>double n \<equiv> FunctionBody \<lbrakk>
+urust_fun double ::
+  \<open>nat \<Rightarrow> ('s, nat, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
+  (n)
+  \<open>
     \<llangle>n + n\<rrangle>
-  \<rbrakk>\<close>
+  \<close>
 
 definition double_contract where
   \<open>double_contract n \<equiv>
@@ -192,10 +202,12 @@ lemma double_spec:
   done
 
 text\<open>TODO: Define \<^term>\<open>quadruple\<close> using \<^term>\<open>double\<close>\<close>
-definition quadruple :: \<open>nat \<Rightarrow> ('s, nat, 'abort, 'i prompt, 'o prompt_output) function_body\<close> where
-  \<open>quadruple n \<equiv> FunctionBody \<lbrakk>
+urust_fun quadruple ::
+  \<open>nat \<Rightarrow> ('s, nat, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
+  (n)
+  \<open>
     undefined
-  \<rbrakk>\<close>
+  \<close>
 
 text\<open>TODO: Write the contract for \<^term>\<open>quadruple\<close>.\<close>
 definition quadruple_contract where
@@ -225,8 +237,10 @@ and \<^term>\<open>bvec_well_formed\<close> asserts the invariant that all slots
 The following functions use Rust-like field access syntax: \<^verbatim>\<open>v.bvec_len\<close>, \<^verbatim>\<open>v.bvec_values[idx]\<close>.\<close>
 
 text\<open>This function checks whether the bounded vector is empty.\<close>
-definition bvec_is_empty :: \<open>('a, 'l::len) bounded_vec \<Rightarrow> ('s, bool, 'abort, 'i prompt, 'o prompt_output) function_body\<close> where
-  \<open>bvec_is_empty v \<equiv> FunctionBody \<lbrakk> v.bvec_len == 0 \<rbrakk>\<close>
+urust_fun bvec_is_empty ::
+  \<open>('a, 'l::len) bounded_vec \<Rightarrow> ('s, bool, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
+  (v)
+  \<open> v.bvec_len == 0 \<close>
 
 text\<open>TODO: Write the contract\<close>
 definition bvec_is_empty_contract :: \<open>('a, 'l::len) bounded_vec \<Rightarrow> ('s::sepalg, bool, 'b) function_contract\<close> where
@@ -251,13 +265,15 @@ section\<open>Exercise 6: Indexing a Data Structure (stretch)\<close>
 
 text\<open>This function looks up an element in the bounded vector by index.\<close>
 
-definition bvec_get :: \<open>('a, 'l::len) bounded_vec \<Rightarrow> 64 word \<Rightarrow> ('s, 'a option, 'abort, 'i prompt, 'o prompt_output) function_body\<close> where
-  \<open>bvec_get v idx \<equiv> FunctionBody \<lbrakk>
+urust_fun bvec_get ::
+  \<open>('a, 'l::len) bounded_vec \<Rightarrow> 64 word \<Rightarrow> ('s, 'a option, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
+  (v, idx)
+  \<open>
     if idx < v.bvec_len {
       return v.bvec_values[idx];
     }
     None
- \<rbrakk>\<close>
+  \<close>
 
 text\<open>TODO: Write the contract for the in-bound case.
 Hints:
@@ -284,8 +300,10 @@ with a mutable boolean accumulator. It combines mutable state, loops, and the
 abstraction function. The implementation does not return early to make the loop
 invariant simpler.\<close>
 
-definition bvec_contains :: \<open>(nat, 'l::len) bounded_vec \<Rightarrow> nat \<Rightarrow> ('s, bool, 'abort, 'i prompt, 'o prompt_output) function_body\<close> where
-  \<open>bvec_contains v needle \<equiv> FunctionBody \<lbrakk>
+urust_fun bvec_contains ::
+  \<open>(nat, 'l::len) bounded_vec \<Rightarrow> nat \<Rightarrow> ('s, bool, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
+  (v, needle)
+  \<open>
     let mut found = \<llangle>False\<rrangle>;
     for i in 0..v.bvec_len {
       if (v.bvec_values[i] == Some(needle)) {
@@ -293,7 +311,7 @@ definition bvec_contains :: \<open>(nat, 'l::len) bounded_vec \<Rightarrow> nat 
       }
     };
     *found
-  \<rbrakk>\<close>
+  \<close>
 
 definition bvec_contains_contract :: \<open>(nat, 'l::len) bounded_vec \<Rightarrow> nat \<Rightarrow> ('s::sepalg, bool, 'b) function_contract\<close> where
   \<open>bvec_contains_contract v needle \<equiv>
@@ -338,10 +356,12 @@ new state: \<^verbatim>\<open>\<Squnion>g' v'. ptr \<mapsto>\<langle>\<top>\<ran
 
 This function clears the vector by setting its length to zero.\<close>
 
-definition bvec_clear :: \<open>('addr, 'gv, (nat, 'l::len) bounded_vec) ref \<Rightarrow> ('s, unit, 'abort, 'i prompt, 'o prompt_output) function_body\<close> where
-  \<open>bvec_clear self \<equiv> FunctionBody \<lbrakk>
+urust_fun bvec_clear ::
+  \<open>('addr, 'gv, (nat, 'l::len) bounded_vec) ref \<Rightarrow> ('s, unit, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
+  (self)
+  \<open>
     self.bvec_len = 0;
-  \<rbrakk>\<close>
+  \<close>
 
 text\<open>TODO: Write the contract and prove the specification.
 Hints:
@@ -373,8 +393,10 @@ The key design pattern here is \<^emph>\<open>two-layer specification\<close>:
 
 This avoids mixing abstraction-function reasoning with separation-logic automation.\<close>
 
-definition bvec_push :: \<open>('addr, 'gv, (nat, 'l::len) bounded_vec) ref \<Rightarrow> nat \<Rightarrow> ('s, (unit, nat) result, 'abort, 'i prompt, 'o prompt_output) function_body\<close> where
-  \<open>bvec_push self elem \<equiv> FunctionBody \<lbrakk>
+urust_fun bvec_push ::
+  \<open>('addr, 'gv, (nat, 'l::len) bounded_vec) ref \<Rightarrow> nat \<Rightarrow> ('s, (unit, nat) result, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
+  (self, elem)
+  \<open>
     if *self.bvec_len < \<llangle>of_nat LENGTH('l) :: 64 word\<rrangle> {
       self.bvec_values[*self.bvec_len] = Some(elem);
       self.bvec_len = *self.bvec_len + 1;
@@ -382,7 +404,7 @@ definition bvec_push :: \<open>('addr, 'gv, (nat, 'l::len) bounded_vec) ref \<Ri
     } else {
       Err(elem)
     }
-  \<rbrakk>\<close>
+  \<close>
 
 text\<open>TODO: Write the contract and prove the specification.
 Hints:
@@ -464,10 +486,12 @@ lemma abs_diff_spec_solution:
   done
 
 paragraph\<open>Exercise 4\<close>
-definition quadruple_solution :: \<open>nat \<Rightarrow> ('s, nat, 'abort, 'i prompt, 'o prompt_output) function_body\<close> where
-  \<open>quadruple_solution n \<equiv> FunctionBody \<lbrakk>
+urust_fun quadruple_solution ::
+  \<open>nat \<Rightarrow> ('s, nat, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
+  (n)
+  \<open>
     double(double(n))
-  \<rbrakk>\<close>
+  \<close>
 
 definition quadruple_contract_solution where
   \<open>quadruple_contract_solution n \<equiv>
