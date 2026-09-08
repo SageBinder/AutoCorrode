@@ -370,9 +370,16 @@ urust_expr [urust_abbrev = true] Core_Expression_Lemmas_urust_site_3
   \<close>
   with_args f g e
 
-urust_expr [urust_abbrev = true] Core_Expression_Lemmas_urust_site_4
+urust_expr [urust_abbrev = true] Core_Expression_Lemmas_urust_site_4 ::
   \<open>
-    let (vf, vg) = \<epsilon>\<open>get (\<lambda>\<sigma>. ((f \<sigma>), (g \<sigma>), (nil :: tnil)))\<close>;
+    ('a \<Rightarrow> 'b) \<Rightarrow>
+    ('a \<Rightarrow> 'c) \<Rightarrow>
+    tnil \<Rightarrow>
+    ('b \<Rightarrow> 'c \<Rightarrow> ('a, 'd, 'e, 'f, 'g, 'h) expression) \<Rightarrow>
+    ('a, 'd, 'e, 'f, 'g, 'h) expression
+  \<close>
+  \<open>
+    let (vf, vg) = \<epsilon>\<open>get (\<lambda>\<sigma>. ((f \<sigma>), (g \<sigma>), nil))\<close>;
     \<epsilon>\<open>e vf vg\<close>
   \<close>
   with_args f g nil e
@@ -749,28 +756,32 @@ appear in a chain of sequenced expressions, as one would expect.  Similarly, the
  \<^term>\<open>panic\<close>, and more generally any \<^term>\<open>abort\<close>, acts as a form of "zero" value for the sequencing
 operation, in the following sense:\<close>
 
-urust_expr [urust_abbrev = true] Core_Expression_Lemmas_urust_site_9
+urust_expr [urust_abbrev = true] Core_Expression_Lemmas_urust_site_9 ::
   \<open>
-    \<epsilon>\<open>(\<lambda>(_ :: 'v). (abort a :: ('s, 'v, 'r, 'abort, 'i, 'o) expression)) witness\<close>;
-    \<epsilon>\<open>e\<close>
+    'abort abort \<Rightarrow>
+    ('s, 'v, 'r, 'abort, 'i, 'o) expression \<Rightarrow>
+    ('s, 'v, 'r, 'abort, 'i, 'o) expression
   \<close>
-  with_args a e witness
+  \<open> \<epsilon>\<open>abort a\<close>; \<epsilon>\<open>e\<close> \<close>
+  with_args a e
 
 urust_expr [urust_abbrev = true] Core_Expression_Lemmas_urust_site_10
   \<open> \<epsilon>\<open>abort a\<close> \<close>
   with_args a
 
 lemma abort_sequence_zero [micro_rust_simps]:
-  shows \<open>Core_Expression_Lemmas_urust_site_9 a e undefined =
+  shows \<open>Core_Expression_Lemmas_urust_site_9 a e =
     Core_Expression_Lemmas_urust_site_10 a\<close>
   by (simp add: evaluate_abort evaluate_sequenceI expression_eqI2)
 
-urust_expr [urust_abbrev = true] Core_Expression_Lemmas_urust_site_11
+urust_expr [urust_abbrev = true] Core_Expression_Lemmas_urust_site_11 ::
   \<open>
-    \<epsilon>\<open>(\<lambda>(_ :: 'v). (panic msg :: ('s, 'v, 'r, 'abort, 'i, 'o) expression)) witness\<close>;
-    \<epsilon>\<open>e\<close>
+    String.literal \<Rightarrow>
+    ('s, 'v, 'r, 'abort, 'i, 'o) expression \<Rightarrow>
+    ('s, 'v, 'r, 'abort, 'i, 'o) expression
   \<close>
-  with_args msg e witness
+  \<open> panic!(msg); \<epsilon>\<open>e\<close> \<close>
+  with_args msg e
 
 urust_expr [urust_abbrev = true] Core_Expression_Lemmas_urust_site_12
   \<open> panic!(msg) \<close>
@@ -778,7 +789,7 @@ urust_expr [urust_abbrev = true] Core_Expression_Lemmas_urust_site_12
 
 lemma panic_sequence_zero [micro_rust_simps]:
   fixes msg :: \<open>String.literal\<close>
-  shows \<open>Core_Expression_Lemmas_urust_site_11 msg e undefined =
+  shows \<open>Core_Expression_Lemmas_urust_site_11 msg e =
     Core_Expression_Lemmas_urust_site_12 msg\<close>
   by (simp only: abort_sequence_zero)
 
