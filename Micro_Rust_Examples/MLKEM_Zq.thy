@@ -8,6 +8,8 @@ theory MLKEM_Zq
     Crush.Crush
 begin
 
+declare [[urust_conformance_check = true]]
+
 text\<open>
   \<mu>Rust implementations of Z\_q arithmetic operations with contracts proving refinement
   against the pure specifications from @{theory Micro_Rust_Examples.MLKEM_Specification}.
@@ -77,12 +79,14 @@ qed
 
 section\<open>Modular addition\<close>
 
-definition zq_add :: \<open>16 word \<Rightarrow> 16 word \<Rightarrow>
-      ('s, 16 word, 'abort, 'i prompt, 'o prompt_output) function_body\<close> where
-  \<open>zq_add a b \<equiv> FunctionBody \<lbrakk>
-     let sum = a + b;
-     sum % mlkem_q_word
-  \<rbrakk>\<close>
+urust_fun zq_add ::
+  \<open>16 word \<Rightarrow> 16 word \<Rightarrow>
+   ('s, 16 word, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
+  (a, b)
+  \<open>
+    let sum = a + b;
+    sum % mlkem_q_word
+  \<close>
 
 definition zq_add_contract :: \<open>16 word \<Rightarrow> 16 word \<Rightarrow>
       ('s::{sepalg}, 16 word, 'b) function_contract\<close> where
@@ -103,13 +107,15 @@ lemma zq_add_spec [crush_specs]:
 
 section\<open>Modular subtraction\<close>
 
-definition zq_sub :: \<open>16 word \<Rightarrow> 16 word \<Rightarrow>
-     ('s, 16 word, 'abort, 'i prompt, 'o prompt_output) function_body\<close> where
-  \<open>zq_sub a b \<equiv> FunctionBody \<lbrakk>
-     let sum = a + mlkem_q_word - b;
+urust_fun zq_sub ::
+  \<open>16 word \<Rightarrow> 16 word \<Rightarrow>
+   ('s, 16 word, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
+  (a, b)
+  \<open>
+    let sum = a + mlkem_q_word - b;
 
-     sum % mlkem_q_word
-  \<rbrakk>\<close>
+    sum % mlkem_q_word
+  \<close>
 
 definition zq_sub_contract :: \<open>16 word \<Rightarrow> 16 word \<Rightarrow>
       ('s::{sepalg}, 16 word, 'b) function_contract\<close> where
@@ -134,18 +140,20 @@ qed
 
 section\<open>Modular multiplication\<close>
 
-definition zq_mul :: \<open>16 word \<Rightarrow> 16 word \<Rightarrow>
-      ('s, 16 word, 'abort, 'i prompt, 'o prompt_output) function_body\<close> where
-  \<open>zq_mul a b \<equiv> FunctionBody \<lbrakk>
-     let a32 = a as u32;
-     let b32 = b as u32;
+urust_fun zq_mul ::
+  \<open>16 word \<Rightarrow> 16 word \<Rightarrow>
+   ('s, 16 word, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
+  (a, b)
+  \<open>
+    let a32 = a as u32;
+    let b32 = b as u32;
 
-     let product = a32 * b32;
-     let q32 = mlkem_q_word as u32;
-     let reduced = product % q32;
+    let product = a32 * b32;
+    let q32 = mlkem_q_word as u32;
+    let reduced = product % q32;
 
-     reduced as u16
-  \<rbrakk>\<close>
+    reduced as u16
+  \<close>
 
 definition zq_mul_contract :: \<open>16 word \<Rightarrow> 16 word \<Rightarrow>
       ('s::{sepalg}, 16 word, 'b) function_contract\<close> where

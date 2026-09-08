@@ -6,6 +6,8 @@ theory MLKEM_NTT
     MLKEM_Polynomial
 begin
 
+declare [[urust_conformance_check = true]]
+
 text\<open>
   NTT (Number Theoretic Transform) for MLKEM. This theory contains:
   \<^item> Pure properties of the NTT specification from @{theory Micro_Rust_Examples.MLKEM_Specification}
@@ -155,32 +157,34 @@ begin
 
 adhoc_overloading store_reference_const \<rightleftharpoons> ref_word64.new
 
-definition ntt :: \<open>('addr, 'gv, mlkem_poly) Global_Store.ref \<Rightarrow>
-     ('s::{sepalg}, unit, 'abort, 'i prompt, 'o prompt_output) function_body\<close> where
-  \<open>ntt f_ref \<equiv> FunctionBody \<lbrakk>
-     let mut k = 1;
+urust_fun ntt ::
+  \<open>('addr, 'gv, mlkem_poly) Global_Store.ref \<Rightarrow>
+   ('s::{sepalg}, unit, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
+  (f_ref)
+  \<open>
+    let mut k = 1;
 
-     for layer in 0..7 {
-       let len = 128 >> layer;
-       let num_blocks = 1 << layer;
+    for layer in 0..7 {
+      let len = 128 >> layer;
+      let num_blocks = 1 << layer;
 
-       for block in 0..num_blocks {
-         let start = block * (2_u64 * len);
-         let zeta = zetas_table[*k];
-         k = *k + 1_u64;
+      for block in 0..num_blocks {
+        let start = block * (2_u64 * len);
+        let zeta = zetas_table[*k];
+        k = *k + 1_u64;
 
-         for j_off in 0..len {
-           let j = start + j_off;
-           let fj_ref = f_ref[j];
-           let fjl_ref = f_ref[j + len];
+        for j_off in 0..len {
+          let j = start + j_off;
+          let fj_ref = f_ref[j];
+          let fjl_ref = f_ref[j + len];
 
-           let t = zq_mul(zeta, *fjl_ref);
-           fjl_ref = zq_sub(*fj_ref, t);
-           fj_ref = zq_add(*fj_ref, t)
-         }
-       }
-     }
-  \<rbrakk>\<close>
+          let t = zq_mul(zeta, *fjl_ref);
+          fjl_ref = zq_sub(*fj_ref, t);
+          fj_ref = zq_add(*fj_ref, t)
+        }
+      }
+    }
+  \<close>
 
 definition ntt_contract ::
     \<open>(('addr, 'gv) gref, 'gv, mlkem_poly) focused \<Rightarrow> 'gv \<Rightarrow> mlkem_poly \<Rightarrow>
