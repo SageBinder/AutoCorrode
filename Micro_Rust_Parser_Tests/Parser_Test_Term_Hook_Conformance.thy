@@ -17,11 +17,6 @@ constraints are retained on both sides. The definition and rejection tiers are c
 Known parser/conformance gaps are kept below as commented-out exact corpus
 equations instead of being rewritten into different tests:
 
-  \<^item> \<^verbatim>\<open>assert!(!o.is_none())\<close>: the dedicated parser rejects the
-    unregistered method call at receiver \<open>o\<close> before term-hook lowering.
-    A command-level I/R reproduction fails at the same source position, so
-    this is not specific to the hook.
-
   \<^item> An exhaustive match over the registered literals
     \<^verbatim>\<open>test::Test_1\<close> and \<^verbatim>\<open>test::Test_2\<close>: the dedicated
     parser emits equality-tested conditionals with an \<open>undefined\<close> fallback,
@@ -46,9 +41,12 @@ equations instead of being rewritten into different tests:
     \<^verbatim>\<open>Some(x) | None\<close>, are accepted by the legacy frontend but
     rejected by the dedicated parser as missing a binder from one alternative.
 
-The macro, numeric-projection, unregistered-method, mixed-pattern, and
-or-pattern-binder failures occur in \<open>URust_Diagnostics.parse_source\<close> before
-term-hook translation.
+The macro and numeric-projection gaps are grammatical and occur during
+\<open>URust_Diagnostics.parse_source\<close>. Mixed-pattern and or-pattern-binder
+rejections occur later during pattern resolution. The formerly deferred
+\<open>is_none\<close> row below is enabled by an explicit call registration; without
+that adapter, parsing and AST construction succeed but final HOL checking
+rejects the pure function in shallow method-call position.
 
 The hook preserves resolved constant identities when it returns to outer
 syntax by using Isabelle's authentic constant markers. This prevents
@@ -895,6 +893,12 @@ after the first message are intentionally parsed and discarded, exactly as in
 the frontend.
 \<close>
 
+definition term_hook_is_none ::
+  \<open>nat option \<Rightarrow> (unit, bool, unit, unit, unit) function_body\<close>
+  where \<open> term_hook_is_none \<equiv> lift_fun1 Option.is_none \<close>
+
+micro_rust_notation (call) term_hook_is_none ("is_none")
+
 context
   fixes b :: \<open>bool\<close>
   fixes o :: \<open>nat option\<close>
@@ -903,9 +907,7 @@ context
 begin
 lemma \<open> \<mu>\<open> assert!( b ) \<close> = \<lbrakk> assert!( b ) \<rbrakk>\<close> by (rule refl)
 lemma \<open> \<mu>\<open> debug_assert!( b ) \<close> = \<lbrakk> debug_assert!( b ) \<rbrakk>\<close> by (rule refl)
-(* Known parser/conformance gap; see the note at the top of this theory.
 lemma \<open> \<mu>\<open> assert!(!o.is_none()) \<close> = \<lbrakk> assert!(!o.is_none()) \<rbrakk>\<close> by (rule refl)
-*)
 lemma \<open> \<mu>\<open> assert!(b); a_value as u16\<close> = \<lbrakk> assert!(b); a_value as u16\<rbrakk>\<close> by (rule refl)
 lemma \<open> \<mu>\<open> assert!(a_value as usize == a_value as usize); a_value as u16\<close> = \<lbrakk> assert!(a_value as usize == a_value as usize); a_value as u16\<rbrakk>\<close> by (rule refl)
 lemma \<open> \<mu>\<open> assert_eq!(x, y) \<close> = \<lbrakk> assert_eq!(x, y) \<rbrakk>\<close> by (rule refl)

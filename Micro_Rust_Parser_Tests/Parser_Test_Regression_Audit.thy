@@ -4201,6 +4201,150 @@ ML_val\<open>
 \<close>
 
 
+section\<open> Method resolution boundary audit \<close>
+
+definition method_audit_pure :: \<open>nat option \<Rightarrow> bool\<close>
+  where \<open> method_audit_pure \<equiv> Option.is_none \<close>
+
+text\<open>
+Method parsing retains the receiver, method identifier, and call span before resolution. A pure HOL
+fallback is still not an implicit shallow-method adapter: final checking rejects it at the method
+identifier, then a registered lifted method and an ordinary unit expression elaborate normally.
+\<close>
+
+ML_val\<open>
+  local
+    open URust_AST
+
+    val ctxt = \<^context>
+
+    fun audit_assert message condition =
+      if condition then ()
+      else error ("method resolution boundary audit: " ^ message)
+
+    fun find_from text needle offset =
+      if offset + size needle > size text then
+        error ("method resolution boundary audit: missing " ^ quote needle)
+      else if String.substring (text, offset, size needle) = needle
+      then offset
+      else find_from text needle (offset + 1)
+
+    fun token_position text start needle offset =
+      let
+        val raw = find_from text needle offset
+        val token_start =
+          Position.symbol_explode
+            (String.substring (text, 0, raw)) start
+      in
+        (raw,
+         Position.range_position
+           (token_start,
+            Position.symbol_explode needle token_start))
+      end
+
+    fun same_range left right =
+      Position.offset_of left = Position.offset_of right andalso
+      Position.end_offset_of left = Position.end_offset_of right
+
+    fun parse source =
+      (case URust_Diagnostics.parse_source ctxt source of
+         SOME expression => expression
+       | NONE => error "method resolution boundary audit: empty parse")
+
+    val text =
+      "let o = \<llangle>None :: nat option\<rrangle>; " ^
+      "assert!(!o.method_audit_pure())"
+    val start =
+      Position.make0 17 200 0 "" "" "method-resolution-boundary-audit"
+    val source =
+      Parser_Lex_Util.positioned_content_source text start
+    val (call_offset, expected_call) =
+      token_position text start "o.method_audit_pure()" 0
+    val (_, expected_method) =
+      token_position text start "method_audit_pure"
+        (call_offset + size "o.")
+    val ast = parse source
+    val method_position =
+      (case ast of
+         UE_Let
+           (P_Ident ("o", _),
+            UE_Literal (LP_ValAntiq _),
+            UE_Macro
+              (macro_path, _, MP_Arguments
+                [UE_Unary
+                  (U_Not,
+                   UE_Call
+                     (UC_Method
+                       (UE_Path receiver_path,
+                        Path_Segment
+                          ("method_audit_pure", method_pos, NONE)),
+                      [], call_pos),
+                   _)],
+               _)) =>
+           (audit_assert "assert macro wrapper changed"
+              (render_path macro_path = "assert");
+            audit_assert "method receiver changed"
+              (render_path receiver_path = "o");
+            audit_assert "method identifier range moved"
+              (same_range method_pos expected_method);
+            audit_assert "method call span moved"
+              (same_range call_pos expected_call);
+            method_pos)
+       | _ => error "method resolution boundary audit: method AST changed")
+
+    val expected_here =
+      XML.content_of (YXML.parse_body (Position.here method_position))
+    val _ =
+      (case Exn.result
+          (fn () => Parser_Test_Elaboration.expression ctxt source) () of
+         Exn.Res term =>
+           error
+             ("method resolution boundary audit: pure HOL method unexpectedly " ^
+              "elaborated to " ^ Syntax.string_of_term ctxt term)
+       | Exn.Exn exn =>
+           if Exn.is_interrupt exn then Exn.reraise exn
+           else
+             let
+               val message =
+                 XML.content_of
+                   (YXML.parse_body (Runtime.exn_message exn))
+             in
+               audit_assert "pure HOL method diagnostic changed"
+                 (String.isSubstring "Type unification failed" message);
+               audit_assert "pure HOL method diagnostic moved"
+                 (String.isSubstring expected_here message)
+             end)
+
+    fun count_constant name term =
+      Term.fold_aterms
+        (fn Const (candidate, _) =>
+              if candidate = name then Integer.add 1 else I
+          | _ => I)
+        term 0
+
+    val registered =
+      Parser_Test_Elaboration.expression ctxt
+        (Parser_Lex_Util.text_source
+          ("let o = \<llangle>None :: nat option\<rrangle>; " ^
+           "assert!(!o.is_none())"))
+    val _ =
+      audit_assert "registered lifted backend was not selected exactly once"
+        (count_constant \<^const_name>\<open>macro_is_none\<close> registered = 1)
+    val _ =
+      audit_assert "registered method duplicated or dropped its receiver"
+        (count_constant \<^const_name>\<open>Option.None\<close> registered = 1)
+    val _ =
+      (case parse (Parser_Lex_Util.text_source "()") of
+         UE_Unit _ => ()
+       | _ => error "method resolution boundary audit: parser recovery failed")
+  in
+    val _ =
+      writeln
+        "Method AST, source-range, rejection, registration, and recovery regressions passed"
+  end
+\<close>
+
+
 section\<open> Standard code equations \<close>
 
 urust_expr regression_code_literal

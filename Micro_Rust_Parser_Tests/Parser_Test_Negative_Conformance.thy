@@ -732,6 +732,17 @@ section\<open> Calls \<close>
 definition ncf1 :: \<open> 64 word \<Rightarrow> (unit, 64 word, unit, unit, unit) function_body \<close>
   where \<open> ncf1 \<equiv> lift_fun1 (\<lambda>x. x) \<close>
 
+new_urust_rejects frontend_accepts
+  \<open>
+    let o = \<llangle>None :: nat option\<rrangle>;
+    assert!(!o.is_none())
+  \<close>
+  \<open> Type unification failed \<close>
+  \<comment> \<open> [INTENTIONAL] Method syntax uses ordinary call-role resolution. The
+       pure HOL fallback \<open>Option.is_none\<close> does not satisfy the shallow
+       \<open>funcall1\<close> contract; an explicit call registration must provide the
+       lifted backend. The legacy frontend accepts this source. \<close>
+
 urust_expr_rejects fidelity \<open> ncf1(\<llangle>1 :: 64 word\<rrangle>,,) \<close>
   \<open> syntax error found at , \<close>
   \<comment> \<open> [FIDELITY] call argument lists reject an empty argument after the terminal comma. \<close>
