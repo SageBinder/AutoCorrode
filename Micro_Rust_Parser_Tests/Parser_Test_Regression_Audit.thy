@@ -1917,6 +1917,16 @@ ML_val\<open>
            error
              "tuple-projection regression audit: ranged AST changed")
 
+    fun collect_markup (XML.Text _) result = result
+      | collect_markup (XML.Elem (markup, body)) result =
+          fold collect_markup body (markup :: result)
+
+    fun has_position properties position =
+      Properties.get properties Markup.offsetN =
+        Option.map Value.print_int (Position.offset_of position) andalso
+      Properties.get properties Markup.end_offsetN =
+        Option.map Value.print_int (Position.end_offset_of position)
+
     fun decoded_message exn =
       XML.content_of (YXML.parse_body (Runtime.exn_message exn))
 
@@ -1933,15 +1943,18 @@ ML_val\<open>
            if Exn.is_interrupt exn then Exn.reraise exn
            else
              let
-               val message = decoded_message exn
-               val here =
-                 XML.content_of
-                   (YXML.parse_body (Position.here position))
+               val body = YXML.parse_body (Runtime.exn_message exn)
+               val message = XML.content_of body
+               val markup = fold collect_markup body []
              in
                audit_assert (label ^ " diagnostic changed")
                  (String.isSubstring expected message);
                audit_assert (label ^ " diagnostic position changed")
-                 (String.isSubstring here message)
+                 (exists
+                   (fn (name, properties) =>
+                     name = Markup.positionN andalso
+                       has_position properties position)
+                   markup)
              end)
 
     val assignment_text = "source.0 = rhs"
@@ -2095,17 +2108,9 @@ ML_val\<open>
                       ranged_text ranged_start))) ())
           ())
 
-    fun collect_markup (XML.Text _) result = result
-      | collect_markup (XML.Elem (markup, body)) result =
-          fold collect_markup body (markup :: result)
     val markup =
       fold collect_markup
         (maps YXML.parse_body (Synchronized.value captured_reports)) []
-    fun has_position properties position =
-      Properties.get properties Markup.offsetN =
-        Option.map Value.print_int (Position.offset_of position) andalso
-      Properties.get properties Markup.end_offsetN =
-        Option.map Value.print_int (Position.end_offset_of position)
     fun has_markup markup_name position =
       exists
         (fn (name, properties) =>
