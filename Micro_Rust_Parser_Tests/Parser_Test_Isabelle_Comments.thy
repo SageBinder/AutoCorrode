@@ -13,24 +13,24 @@ responsible for checking document antiquotations and producing formal-comment ma
 
 subsection\<open> Expression and function parity \<close>
 
-urust_expr isabelle_comment_standalone
+urust expr isabelle_comment_standalone
   \<open>
     \<comment> \<open>Standalone comment before the expression.\<close>
     ()
   \<close>
 
-urust_expr isabelle_comment_inline
+urust expr isabelle_comment_inline
   \<open>
     1_u64\<comment>\<open>Comment between operands: + - * / { } [ ] ( ) , ; :: =>.\<close>+2_u64
   \<close>
 
-urust_expr isabelle_comment_trailing
+urust expr isabelle_comment_trailing
   \<open>
     ();
     () \<comment> \<open>Trailing comment after the complete expression.\<close>
   \<close>
 
-urust_expr isabelle_comment_multiline_nested
+urust expr isabelle_comment_multiline_nested
   \<open>
     \<comment> \<open>
       Outer document text with \<open>nested { grammar } punctuation\<close> and
@@ -45,7 +45,7 @@ urust_expr isabelle_comment_multiline_nested
     }
   \<close>
 
-urust_expr isabelle_comment_document_antiquotations
+urust expr isabelle_comment_document_antiquotations
   \<open>
     \<comment> \<open>
       Modern controls: \<^term>\<open>True\<close>, \<^const>\<open>False\<close>, and
@@ -56,9 +56,9 @@ urust_expr isabelle_comment_document_antiquotations
     ()
   \<close>
 
-declare [[urust_verbose = true]]
+declare [[urust_verbose = 1]]
 
-urust_fun isabelle_comment_function ::
+urust fn isabelle_comment_function ::
   \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
   (item)
   \<open>
@@ -66,7 +66,7 @@ urust_fun isabelle_comment_function ::
     item \<comment> \<open>Inline function-body comment.\<close>
   \<close>
 
-declare [[urust_verbose = false]]
+declare [[urust_verbose = 0]]
 
 
 subsection\<open> Specialized lexer contexts \<close>
@@ -79,14 +79,14 @@ definition isabelle_comment_generic ::
 
 micro_rust_notation (call) isabelle_comment_generic ("Comment::generic")
 
-urust_expr isabelle_comment_generic_layout
+urust expr isabelle_comment_generic_layout
   \<open>
     Comment::generic::<
       1 \<comment> \<open>Generic-state layout with \<open>> , + ::\<close>.\<close> + 2
     >(3)
   \<close>
 
-urust_expr isabelle_comment_log_data_layout
+urust expr isabelle_comment_log_data_layout
   \<open>
     l\<llangle>
       \<comment> \<open>Log-data layout before the first entry.\<close>

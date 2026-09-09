@@ -6,19 +6,19 @@ declare [[urust_conformance_check = true]]
 
 section\<open> Definition parity \<close>
 
-urust_fun parsed_answer ::
+urust fn parsed_answer ::
   \<open>('s, 32 word, 'abort, 'i, 'o) function_body\<close>
   ()
   \<open> \<llangle>42 :: 32 word\<rrangle> \<close>
 
 thm parsed_answer_conformance
 
-urust_fun parsed_inc ::
+urust fn parsed_inc ::
   \<open>32 word \<Rightarrow> ('s, 32 word, 'abort, 'i, 'o) function_body\<close>
   (x)
   \<open> x + \<llangle>1 :: 32 word\<rrangle> \<close>
 
-urust_fun parsed_add3 ::
+urust fn parsed_add3 ::
   \<open>
     32 word \<Rightarrow> 32 word \<Rightarrow> 32 word \<Rightarrow>
     ('s, 32 word, 'abort, 'i, 'o) function_body
@@ -26,12 +26,12 @@ urust_fun parsed_add3 ::
   (a, b, c)
   \<open> a + b + c \<close>
 
-urust_fun parsed_is_zero ::
+urust fn parsed_is_zero ::
   \<open>32 word \<Rightarrow> ('s, bool, 'abort, 'i, 'o) function_body\<close>
   (x)
   \<open> x == \<llangle>0 :: 32 word\<rrangle> \<close>
 
-urust_fun parsed_safe_div ::
+urust fn parsed_safe_div ::
   \<open>
     32 word \<Rightarrow> 32 word \<Rightarrow>
     ('s, (32 word, unit) result, 'abort, 'i, 'o) function_body
@@ -45,7 +45,7 @@ urust_fun parsed_safe_div ::
     }
   \<close>
 
-urust_fun parsed_discard ::
+urust fn parsed_discard ::
   \<open>32 word \<Rightarrow> ('s, unit, 'abort, 'i, 'o) function_body\<close>
   (x)
   \<open> () \<close>
@@ -53,41 +53,41 @@ urust_fun parsed_discard ::
 
 section\<open> Signature surface \<close>
 
-urust_fun fun_heterogeneous ::
+urust fn fun_heterogeneous ::
   \<open>nat \<Rightarrow> bool \<Rightarrow> 32 word \<Rightarrow>
     ('s, nat * bool * 32 word, 'abort, 'i, 'o) function_body\<close>
   (number, flag, word)
   \<open> \<llangle>(number, flag, word)\<rrangle> \<close>
 
-urust_fun fun_polymorphic ::
+urust fn fun_polymorphic ::
   \<open>'a \<Rightarrow> ('s, 'a, 'abort, 'i, 'o) function_body\<close>
   (item)
   \<open> item \<close>
 
-urust_fun fun_sort_constrained ::
+urust fn fun_sort_constrained ::
   \<open>'a::len word \<Rightarrow>
     ('s, 'a word, 'abort, 'i, 'o) function_body\<close>
   (item)
   \<open> item \<close>
 
-urust_fun fun_type_placeholders ::
+urust fn fun_type_placeholders ::
   \<open>_ \<Rightarrow> (_, _, _, _, _) function_body\<close>
   (item)
   \<open> item \<close>
 
-urust_fun fun_higher_order ::
+urust fn fun_higher_order ::
   \<open>(nat \<Rightarrow> nat) \<Rightarrow> nat \<Rightarrow>
     ('s, nat, 'abort, 'i, 'o) function_body\<close>
   (f, item)
   \<open> \<llangle>f item\<rrangle> \<close>
 
-urust_fun fun_nested_result ::
+urust fn fun_nested_result ::
   \<open>('s, (nat option, (bool, unit) result) result,
     'abort, 'i, 'o) function_body\<close>
   ()
   \<open> Ok(Some(\<llangle>1 :: nat\<rrangle>)) \<close>
 
-urust_fun fun_explicit_prompt_output ::
+urust fn fun_explicit_prompt_output ::
   \<open>nat \<Rightarrow>
     (unit, nat, unit, unit prompt, unit prompt_output) function_body\<close>
   (item)
@@ -104,23 +104,23 @@ term fun_explicit_prompt_output
 
 section\<open> Argument-list boundaries \<close>
 
-urust_fun fun_zero_arguments ::
+urust fn fun_zero_arguments ::
   \<open>(unit, unit, unit, unit, unit) function_body\<close>
   ()
   \<open> () \<close>
 
-urust_fun fun_one_argument ::
+urust fn fun_one_argument ::
   \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
   (item)
   \<open> item \<close>
 
-urust_fun fun_trailing_comma ::
+urust fn fun_trailing_comma ::
   \<open>nat \<Rightarrow> bool \<Rightarrow>
     (unit, nat * bool, unit, unit, unit) function_body\<close>
   (item, flag,)
   \<open> \<llangle>(item, flag)\<rrangle> \<close>
 
-urust_fun fun_multiline_arguments ::
+urust fn fun_multiline_arguments ::
   \<open>nat \<Rightarrow> bool \<Rightarrow> 32 word \<Rightarrow>
     (unit, 32 word, unit, unit, unit) function_body\<close>
   (
@@ -130,7 +130,7 @@ urust_fun fun_multiline_arguments ::
   )
   \<open> if flag { word } else { \<llangle>of_nat number\<rrangle> } \<close>
 
-urust_fun fun_sixteen_arguments ::
+urust fn fun_sixteen_arguments ::
   \<open>
     nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow>
     nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow>
@@ -152,22 +152,22 @@ urust_fun fun_sixteen_arguments ::
 
 section\<open> Ambient binding and scope \<close>
 
-urust_fun fun_plain_parameter ::
+urust fn fun_plain_parameter ::
   \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
   (item)
   \<open> item \<close>
 
-urust_fun fun_value_antiquotation ::
+urust fn fun_value_antiquotation ::
   \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
   (item)
   \<open> \<llangle>item + 1\<rrangle> \<close>
 
-urust_fun fun_expression_antiquotation ::
+urust fn fun_expression_antiquotation ::
   \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
   (item)
   \<open> \<epsilon>\<open>literal (item + 1)\<close> \<close>
 
-urust_fun fun_parameter_call ::
+urust fn fun_parameter_call ::
   \<open>
     (nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body) \<Rightarrow>
     nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body
@@ -175,7 +175,7 @@ urust_fun fun_parameter_call ::
   (callee, item)
   \<open> callee(item) \<close>
 
-urust_fun fun_parameter_in_match_guard ::
+urust fn fun_parameter_in_match_guard ::
   \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
   (item)
   \<open>
@@ -185,7 +185,7 @@ urust_fun fun_parameter_in_match_guard ::
     }
   \<close>
 
-urust_fun fun_parameter_in_loop ::
+urust fn fun_parameter_in_loop ::
   \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
   (item)
   \<open>
@@ -196,7 +196,7 @@ urust_fun fun_parameter_in_loop ::
     item
   \<close>
 
-urust_fun fun_parameter_in_closure ::
+urust fn fun_parameter_in_closure ::
   \<open>nat \<Rightarrow>
     (unit, nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body,
       unit, unit, unit) function_body\<close>
@@ -212,18 +212,18 @@ definition fun_struct_fixture_lift ::
 
 micro_rust_notation (call) fun_struct_fixture_lift ("FunStructFixture")
 
-urust_fun fun_parameter_in_struct ::
+urust fn fun_parameter_in_struct ::
   \<open>nat \<Rightarrow> bool \<Rightarrow>
     (unit, fun_struct_fixture, unit, unit, unit) function_body\<close>
   (item, flag)
   \<open> FunStructFixture { item: item, flag: flag } \<close>
 
-urust_fun fun_nested_let_shadow ::
+urust fn fun_nested_let_shadow ::
   \<open>nat \<Rightarrow> (unit, bool, unit, unit, unit) function_body\<close>
   (item)
   \<open> let item = true; item \<close>
 
-urust_fun fun_nested_pattern_shadow ::
+urust fn fun_nested_pattern_shadow ::
   \<open>nat \<Rightarrow> (unit, bool, unit, unit, unit) function_body\<close>
   (item)
   \<open>
@@ -231,7 +231,7 @@ urust_fun fun_nested_pattern_shadow ::
     item
   \<close>
 
-urust_fun fun_closure_shadow ::
+urust fn fun_closure_shadow ::
   \<open>bool \<Rightarrow>
     (unit, nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body,
       unit, unit, unit) function_body\<close>
@@ -242,14 +242,14 @@ context
   fixes item :: bool
 begin
 
-urust_fun fun_parameter_shadows_context ::
+urust fn fun_parameter_shadows_context ::
   \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
   (item)
   \<open> \<llangle>item :: nat\<rrangle> \<close>
 
 end
 
-urust_fun fun_distinct_heterogeneous ::
+urust fn fun_distinct_heterogeneous ::
   \<open>nat \<Rightarrow> bool \<Rightarrow> String.literal \<Rightarrow>
     (unit, nat * bool * String.literal, unit, unit, unit) function_body\<close>
   (number, flag, message)
@@ -273,7 +273,7 @@ micro_rust_record fun_field_record
 micro_rust_notation (literal) fun_registered_literal ("funCollision")
 micro_rust_notation (call) fun_registered_call ("funCollision")
 
-urust_fun fun_registered_call_wins ::
+urust fn fun_registered_call_wins ::
   \<open>
     (nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body) \<Rightarrow>
     nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body
@@ -281,7 +281,7 @@ urust_fun fun_registered_call_wins ::
   (funCollision, item)
   \<open> funCollision(item) \<close>
 
-urust_fun fun_registered_field_wins ::
+urust fn fun_registered_field_wins ::
   \<open>fun_field_record \<Rightarrow> (fun_field_record, nat) lens \<Rightarrow>
     (unit, nat, unit, unit, unit) function_body\<close>
   (item, funFieldCollision)
@@ -312,7 +312,7 @@ section\<open> Isabelle declaration integration \<close>
 context
 begin
 
-qualified urust_fun qualified_identity ::
+qualified urust fn qualified_identity ::
   \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
   (item)
   \<open> item \<close>
@@ -323,7 +323,7 @@ locale fun_command_locale =
   fixes offset :: nat
 begin
 
-urust_fun local_add ::
+urust fn local_add ::
   \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
   (item)
   \<open> \<llangle>item + offset\<rrangle> \<close>
@@ -348,15 +348,15 @@ ML_val\<open>
     val simps = map #2 (#simps (Raw_Simplifier.dest_ss (simpset_of ctxt)))
     val _ =
       if length executable = 1 then ()
-      else error "urust_fun: expected one default code equation"
+      else error "urust fn: expected one default code equation"
     val _ =
       if Thm.equiv_thm thy
           (the_single executable, Axclass.unoverload ctxt definition)
       then ()
-      else error "urust_fun: code equation differs from _def"
+      else error "urust fn: code equation differs from _def"
     val _ =
       if exists (Thm.equiv_thm thy o pair definition) simps
-      then error "urust_fun: generated definition entered the global simp set"
+      then error "urust fn: generated definition entered the global simp set"
       else ()
   in
     val _ = ()
@@ -371,7 +371,7 @@ ML_val\<open>
     val ctxt = \<^context>
     val file = "urust-fun-rejection-audit"
 
-    fun fail message = error ("urust_fun rejection audit: " ^ message)
+    fun fail message = error ("urust fn rejection audit: " ^ message)
 
     fun positioned line offset text =
       Parser_Lex_Util.positioned_content_source text
@@ -568,22 +568,22 @@ ML_val\<open>
 
     val _ =
       if map #2 formals = [HOLogic.natT, HOLogic.boolT] then ()
-      else error "urust_fun shape audit: typed abstraction order changed"
+      else error "urust fn shape audit: typed abstraction order changed"
     val _ =
       if count_constant \<^const_name>\<open>FunctionBody\<close> term 0 = 1 then ()
-      else error "urust_fun shape audit: expected exactly one FunctionBody"
+      else error "urust fn shape audit: expected exactly one FunctionBody"
     val _ =
       if count_constant \<^const_name>\<open>urust_dispatch\<close> term 0 = 0 then ()
-      else error "urust_fun shape audit: unresolved parser dispatch escaped"
+      else error "urust fn shape audit: unresolved parser dispatch escaped"
     val _ =
       if Term.aconv (term, expected) then ()
-      else error "urust_fun shape audit: hand-written frontend shape changed"
+      else error "urust fn shape audit: hand-written frontend shape changed"
     val _ =
       (case stripped of
          Const (name, _) $ _ =>
            if name = \<^const_name>\<open>FunctionBody\<close> then ()
-           else error "urust_fun shape audit: body wrapper changed"
-       | _ => error "urust_fun shape audit: body wrapper disappeared")
+           else error "urust fn shape audit: body wrapper changed"
+       | _ => error "urust fn shape audit: body wrapper disappeared")
   in
     val _ = ()
   end
@@ -638,7 +638,7 @@ ML_val\<open>
 
     fun find_from needle offset =
       if offset + size needle > size body_text then
-        error ("urust_fun markup audit: missing " ^ quote needle)
+        error ("urust fn markup audit: missing " ^ quote needle)
       else if String.substring (body_text, offset, size needle) = needle then
         offset
       else find_from needle (offset + 1)
@@ -679,7 +679,7 @@ ML_val\<open>
            [id] => id
          | _ =>
              error
-               ("urust_fun markup audit: binder entity markup changed at" ^
+               ("urust fn markup audit: binder entity markup changed at" ^
                  Position.here position ^ " with IDs [" ^
                  commas ids ^ "]"))
       end
@@ -701,20 +701,20 @@ ML_val\<open>
       if first_parameter_id <> second_parameter_id andalso
          first_parameter_id <> let_id
       then ()
-      else error "urust_fun markup audit: definitions reused entity IDs"
+      else error "urust fn markup audit: definitions reused entity IDs"
     val _ =
       if entity_id Markup.refN parameter_reference = first_parameter_id
       then ()
-      else error "urust_fun markup audit: shadowing RHS lost parameter navigation"
+      else error "urust fn markup audit: shadowing RHS lost parameter navigation"
     val _ =
       if entity_id Markup.refN let_reference = let_id
       then ()
-      else error "urust_fun markup audit: let body did not target the shadow"
+      else error "urust fn markup audit: let body did not target the shadow"
     val _ =
       if entity_id Markup.refN second_reference_one = second_parameter_id andalso
          entity_id Markup.refN second_reference_two = second_parameter_id
       then ()
-      else error "urust_fun markup audit: antiquotation references lost navigation"
+      else error "urust fn markup audit: antiquotation references lost navigation"
   in
     val _ = ()
   end

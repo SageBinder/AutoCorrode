@@ -6,6 +6,7 @@ theory Crush_Examples
 begin
 
 declare [[urust_conformance_check = true]]
+declare [[urust_verbose = 2]]
 
 section\<open>\<^verbatim>\<open>crush\<close> guide\<close>
 
@@ -664,13 +665,13 @@ paragraph\<open>Case splitting\<close>
 
 experiment
 begin
-urust_expr [urust_abbrev = true] Crush_Examples_urust_site_1
+urust expr [urust_abbrev = true] Crush_Examples_urust_site_1
+  (x, f, g)
   \<open> match x { Some(y) \<Rightarrow> f(), None \<Rightarrow> g() } \<close>
-  with_args x f g
 
-urust_expr [urust_abbrev = true] Crush_Examples_urust_site_2
+urust expr [urust_abbrev = true] Crush_Examples_urust_site_2
+  (x, f, g)
   \<open> match x { None \<Rightarrow> f(), Some(y) \<Rightarrow> g() } \<close>
-  with_args x f g
 
 lemma \<open>(case y of Some t \<Rightarrow> True | None \<Rightarrow> True) \<Longrightarrow> \<alpha> \<longlongrightarrow> \<W>\<P> \<Gamma> (Crush_Examples_urust_site_1 x f g) \<beta> \<gamma> \<delta>\<close>
   \<comment>\<open>You could use the following, but that would aggressively split \<^verbatim>\<open>option\<close> everywhere.\<close>
@@ -958,14 +959,14 @@ begin
 adhoc_overloading store_update_const \<rightleftharpoons>
   update_fun
 
-urust_expr swap_ref
+urust expr swap_ref
+  (rA, rB)
   \<open>
      let oldA = *rA;
      let oldB = *rB;
      rA = oldB;
      rB = oldA;
   \<close>
-  with_args rA rB
 
 text\<open>Let's prove that this indeed swaps the contents of the references \<^verbatim>\<open>rA\<close> and \<^verbatim>\<open>rB\<close>:\<close>
 
@@ -1094,7 +1095,7 @@ text\<open>Normally, we would not reason about individual \<mu>Rust expressions,
 specifications and contracts to do so. We illustrate this in the example of the above
 reference-swapping code wrapped into a function:\<close>
 
-urust_fun swap_ref_fun ::
+urust fn swap_ref_fun ::
   \<open>('a, 'b, 'v) Global_Store.ref \<Rightarrow> ('a, 'b, 'v) Global_Store.ref \<Rightarrow> ('s, unit, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (rA, rB)
   \<open>
@@ -1135,7 +1136,7 @@ lemma swap_ref_fun_spec:
 
 text\<open>Next, imagine we write a higher-level function which relies on \<^verbatim>\<open>swap_ref_fun\<close>.\<close>
 
-urust_fun rotate_ref3 ::
+urust fn rotate_ref3 ::
   \<open>('a, 'b, 'v) Global_Store.ref \<Rightarrow> ('a, 'b, 'v) Global_Store.ref \<Rightarrow> ('a, 'b, 'v) Global_Store.ref \<Rightarrow> ('s, unit, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (rA, rB, rC)
   \<open>
@@ -1257,7 +1258,7 @@ adhoc_overloading store_update_const \<rightleftharpoons>
 
 text\<open>Overwrite one structure field, return the other:\<close>
 
-urust_fun write_foo_read_bar ::
+urust fn write_foo_read_bar ::
   \<open>('a, 'b, test_record) Global_Store.ref \<Rightarrow> ('s, int, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (ptr)
   \<open>
@@ -1338,7 +1339,7 @@ lemma write_foo_read_bar_spec':
 
 text\<open>Clear many structure fields, return another:\<close>
 
-urust_fun test_record2_zeroize ::
+urust fn test_record2_zeroize ::
   \<open>('a, 'b, test_record2) Global_Store.ref \<Rightarrow> ('s, int, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (ptr)
   \<open>(
@@ -1466,7 +1467,7 @@ lemma test_record2_zeroize_contract_spec:
 
 text\<open>Another similar stress test, but this time using array accesses behind a function wrapper.\<close>
 
-urust_fun test_record3_zero_field ::
+urust fn test_record3_zero_field ::
   \<open>('a, 'b, test_record3) Global_Store.ref \<Rightarrow> 64 word \<Rightarrow> ('s, unit, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (r, i)
   \<open>
@@ -1495,7 +1496,7 @@ proof (crush_boot f: test_record3_zero_field_def contract: test_record3_zero_fie
     by crush_base
 qed
 
-urust_fun test_record3_zeroize ::
+urust fn test_record3_zeroize ::
   \<open>('a, 'b, test_record3) Global_Store.ref \<Rightarrow> ('s, int, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (ptr)
   \<open>(

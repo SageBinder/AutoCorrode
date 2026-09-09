@@ -9,6 +9,7 @@ theory Linked_List
     Micro_Rust_Std_Lib.StdLib_All
 begin
 declare [[urust_conformance_check = true]]
+declare [[urust_verbose = 2]]
 (*>*)
 
 section\<open>Example: Linked List reversal in uRust\<close>
@@ -51,7 +52,7 @@ abbreviation ll_ptr_as_ref' ::
 abbreviation \<open>ll_ptr_as_ref \<equiv> Option.map_option ll_ptr_as_ref'\<close>
 
 \<comment>\<open>Bounded reversal of linked lists of uRust references\<close>
-urust_fun reverse_unlink :: \<open>64 word \<Rightarrow> ('caddr, 'gv) gref option \<Rightarrow>
+urust fn reverse_unlink :: \<open>64 word \<Rightarrow> ('caddr, 'gv) gref option \<Rightarrow>
       ('addr, 'gv, ('caddr, 'gv) gref option) Global_Store.ref \<Rightarrow>
       ('addr, 'gv, ('caddr, 'gv) gref option) Global_Store.ref \<Rightarrow>
       ('s, ('caddr, 'gv) gref option \<times> ('caddr, 'gv) gref option \<times> tnil, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
@@ -156,7 +157,7 @@ so we always need to repeat overloading for new references.\<close>
 adhoc_overloading store_reference_const \<rightleftharpoons> ref_gref_opt.new
 
 \<comment>\<open>Bounded reversal of linked lists of uRust references\<close>
-urust_fun reverse_unlink' :: \<open>64 word \<Rightarrow> ('caddr, 'gv) gref option
+urust fn reverse_unlink' :: \<open>64 word \<Rightarrow> ('caddr, 'gv) gref option
   \<Rightarrow> ('s, ('caddr, 'gv) gref option \<times> ('caddr, 'gv) gref option \<times> tnil, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (n, ll)
   \<open>

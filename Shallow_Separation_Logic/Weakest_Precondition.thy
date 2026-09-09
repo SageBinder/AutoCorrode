@@ -286,7 +286,7 @@ destructing quantified assumptions, as only then the schematic may depend on the
 in the assumptions:\<close>
 named_theorems micro_rust_wp_ex_intros
 
-urust_expr [urust_abbrev = true] wp_pause_urust_site_1
+urust expr [urust_abbrev = true] wp_pause_urust_site_1
   \<open> \<y>\<i>\<e>\<l>\<d> \<close>
 
 lemma wp_pause:
@@ -298,7 +298,7 @@ lemma wp_pause:
 text\<open>The following is deliberately not marked as \<^verbatim>\<open>micro_rust_wp_intros\<close> so automation does not
 silently go over it.\<close>
 \<comment>\<open>NOTE: This lemma is not used at present, but seems worth keeping.\<close>
-urust_expr [urust_abbrev = true] wp_pauseI_urust_site_1
+urust expr [urust_abbrev = true] wp_pauseI_urust_site_1
   \<open> \<y>\<i>\<e>\<l>\<d> \<close>
 
 lemma wp_pauseI:
@@ -307,9 +307,9 @@ lemma wp_pauseI:
     shows \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> wp_pauseI_urust_site_1 \<psi> \<rho> \<theta>\<close>
 using assms by (simp add: wp_pause)
 
-urust_expr [urust_abbrev = true] wp_log_urust_site_1
+urust expr [urust_abbrev = true] wp_log_urust_site_1
+  (p, l)
   \<open> \<l>\<o>\<g> \<llangle>p\<rrangle> \<llangle>l\<rrangle> \<close>
-  with_args p l
 
 lemma wp_log:
     notes asepconj_simp [simp]
@@ -317,9 +317,9 @@ lemma wp_log:
     shows \<open>\<W>\<P> \<Gamma> (wp_log_urust_site_1 p l) \<psi> \<rho> \<theta> = \<psi> ()\<close>
 using assms by (auto intro!: aentails_yonedaI simp add: sstriple_wp_iff sstriple_log')
 
-urust_expr [urust_abbrev = true] wp_logI_urust_site_1
+urust expr [urust_abbrev = true] wp_logI_urust_site_1
+  (p, l)
   \<open> \<l>\<o>\<g> \<llangle>p\<rrangle> \<llangle>l\<rrangle> \<close>
-  with_args p l
 
 lemma wp_logI [micro_rust_wp_intros]:
   assumes \<open>\<And>r. ucincl (\<psi> r)\<close>
@@ -327,9 +327,9 @@ lemma wp_logI [micro_rust_wp_intros]:
     shows \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> (wp_logI_urust_site_1 p l) \<psi> \<rho> \<theta>\<close>
 using assms by (simp add: wp_log)
 
-urust_expr [urust_abbrev = true] wp_fatalI_urust_site_1
+urust expr [urust_abbrev = true] wp_fatalI_urust_site_1
+  (msg)
   \<open> fatal!(msg) \<close>
-  with_args msg
 
 lemma wp_fatalI [micro_rust_wp_intros]:
     notes asepconj_simp [simp]
@@ -368,9 +368,9 @@ lemma wp_abort [micro_rust_wp_simps]:
   shows \<open>\<W>\<P> \<Gamma> (abort a) \<psi> \<rho> \<theta> = \<theta> a \<star> UNIV\<close>
   by (clarsimp intro!: aentails_yonedaI simp add: sstriple_wp_iff sstriple_abort)
 
-urust_expr [urust_abbrev = true] wp_panic_urust_site_1
+urust expr [urust_abbrev = true] wp_panic_urust_site_1
+  (m)
   \<open> panic!(m) \<close>
-  with_args m
 
 corollary wp_panic [micro_rust_wp_simps]:
   shows \<open>\<W>\<P> \<Gamma> (wp_panic_urust_site_1 m) \<psi> \<rho> \<theta> = \<theta> (Panic m) \<star> UNIV\<close>
@@ -381,35 +381,35 @@ lemma wp_abortI [micro_rust_wp_intros]:
     shows \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> (abort a) \<psi> \<rho> \<theta>\<close>
 using assms by (subst wp_abort)
 
-urust_expr [urust_abbrev = true] wp_panicI_urust_site_1
+urust expr [urust_abbrev = true] wp_panicI_urust_site_1
+  (m)
   \<open> panic!(m) \<close>
-  with_args m
 
 lemma wp_panicI [micro_rust_wp_intros]:
   assumes \<open>\<phi> \<longlongrightarrow> \<theta> (Panic m) \<star> UNIV\<close>
     shows \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> (wp_panicI_urust_site_1 m) \<psi> \<rho> \<theta>\<close>
 using assms by (subst wp_panic)
 
-urust_expr [urust_abbrev = true] wp_return_urust_site_1
+urust expr [urust_abbrev = true] wp_return_urust_site_1
+  (v)
   \<open> return v; \<close>
-  with_args v
 
 lemma wp_return [micro_rust_wp_simps]:
     shows \<open>\<W>\<P> \<Gamma> (wp_return_urust_site_1 v) \<psi> \<rho> \<theta> = \<rho> v \<star> \<top>\<close>
 by (auto intro!: aentails_yonedaI simp add: sstriple_wp_iff sstriple_return)
 
-urust_expr [urust_abbrev = true] wp_returnI_urust_site_1
+urust expr [urust_abbrev = true] wp_returnI_urust_site_1
+  (v)
   \<open> return v; \<close>
-  with_args v
 
 lemma wp_returnI [micro_rust_wp_intros]:
   assumes \<open>\<phi> \<longlongrightarrow> \<rho> v \<star> \<top>\<close>
   shows \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> (wp_returnI_urust_site_1 v) \<psi> \<rho> \<theta>\<close>
 using assms by (simp add: wp_return)
 
-urust_expr [urust_abbrev = true] wp_assert_urust_site_1
+urust expr [urust_abbrev = true] wp_assert_urust_site_1
+  (x)
   \<open> assert!(x) \<close>
-  with_args x
 
 lemma wp_assert [micro_rust_wp_simps]:
   shows \<open>\<W>\<P> \<Gamma> (wp_assert_urust_site_1 x) \<psi> \<rho> \<theta> = (\<langle>x\<rangle> \<Zsurj> (UNIV \<star> \<psi> ())) \<sqinter> (\<langle>\<not>x\<rangle> \<Zsurj> (UNIV \<star> \<theta> AssertionFailed))\<close>
@@ -420,9 +420,9 @@ lemma wp_assert [micro_rust_wp_simps]:
     ucincl_UNIV ucincl_asepconjL)
   done
 
-urust_expr [urust_abbrev = true] wp_assert_eq_urust_site_1
+urust expr [urust_abbrev = true] wp_assert_eq_urust_site_1
+  (x, y)
   \<open> assert_eq!(x, y) \<close>
-  with_args x y
 
 lemma wp_assert_eq [micro_rust_wp_simps]:
   shows \<open>\<W>\<P> \<Gamma> (wp_assert_eq_urust_site_1 x y) \<psi> \<rho> \<theta> =
@@ -432,9 +432,9 @@ lemma wp_assert_eq [micro_rust_wp_simps]:
 
 thm aentails_frulify_pure
 
-urust_expr [urust_abbrev = true] wp_assertI_urust_site_1
+urust expr [urust_abbrev = true] wp_assertI_urust_site_1
+  (x)
   \<open> assert!(x) \<close>
-  with_args x
 
 lemma wp_assertI[micro_rust_wp_intros]:
     notes aentails_intro [intro]
@@ -451,9 +451,9 @@ proof -
     by (simp add: wp_assert aentails_intI asepconj_assoc awand_adjoint)
 qed
 
-urust_expr [urust_abbrev = true] wp_assert_eqI_urust_site_1
+urust expr [urust_abbrev = true] wp_assert_eqI_urust_site_1
+  (x, y)
   \<open> assert_eq!(x,y) \<close>
-  with_args x y
 
 lemma wp_assert_eqI[micro_rust_wp_intros]:
     notes aentails_intro[intro]
@@ -462,9 +462,9 @@ lemma wp_assert_eqI[micro_rust_wp_intros]:
   using assms by (clarsimp intro!: wp_assertI[simplified assert_def micro_rust_simps]
      simp add: assert_eq_def assert_eq_val_def micro_rust_simps)
 
-urust_expr [urust_abbrev = true] wp_assert_neI_urust_site_1
+urust expr [urust_abbrev = true] wp_assert_neI_urust_site_1
+  (x, y)
   \<open> assert_ne!(x,y) \<close>
-  with_args x y
 
 lemma wp_assert_neI[micro_rust_wp_intros]:
     notes aentails_intro[intro]
@@ -473,9 +473,9 @@ lemma wp_assert_neI[micro_rust_wp_intros]:
   using assms by (clarsimp intro!: wp_assertI[simplified assert_def micro_rust_simps]
      simp add: assert_ne_def assert_ne_val_def micro_rust_simps)
 
-urust_expr [urust_abbrev = true] wp_bind_core_urust_site_1
+urust expr [urust_abbrev = true] wp_bind_core_urust_site_1
+  (e, f)
   \<open> let v = \<epsilon>\<open>e\<close>; \<epsilon>\<open>f v\<close> \<close>
-  with_args e f
 
 lemma wp_bind_core:
   shows \<open>\<W>\<P> \<Gamma> e (\<lambda>r. \<W>\<P> \<Gamma> (f r) \<xi> \<rho> \<theta>) \<rho> \<theta> \<longlongrightarrow> \<W>\<P> \<Gamma> (wp_bind_core_urust_site_1 e f) \<xi> \<rho> \<theta>\<close>
@@ -486,9 +486,9 @@ lemma aentails_cong_only_rhs:
     shows \<open>(\<phi> \<longlongrightarrow> \<psi>) \<longleftrightarrow> (\<phi> \<longlongrightarrow> \<psi>')\<close>
 using assms by auto
 
-urust_expr [urust_abbrev = true] wp_bindI_urust_site_1
+urust expr [urust_abbrev = true] wp_bindI_urust_site_1
+  (e, f)
   \<open> let v = \<epsilon>\<open>e\<close>; \<epsilon>\<open>f v\<close> \<close>
-  with_args e f
 
 lemma wp_bindI [micro_rust_wp_intros]:
     notes aentails_intro [intro]
@@ -545,18 +545,18 @@ lemma wp_bind2_unseqI [micro_rust_wp_intros]:
   apply (rule wp_to_sstriple[OF assms(1)] wp_to_sstriple[OF assms(2)] wp_is_precondition)+
   done
 
-urust_expr [urust_abbrev = true] wp_two_armed_conditional_urust_site_1
+urust expr [urust_abbrev = true] wp_two_armed_conditional_urust_site_1
+  (x, t, f)
   \<open> if x { \<epsilon>\<open>t\<close> } else { \<epsilon>\<open>f\<close> } \<close>
-  with_args x t f
 
 lemma wp_two_armed_conditional:
   shows \<open>\<W>\<P> \<Gamma> (wp_two_armed_conditional_urust_site_1 x t f) \<psi> \<rho> \<theta>
      = (if x then \<W>\<P> \<Gamma> t \<psi> \<rho> \<theta> else \<W>\<P> \<Gamma> f \<psi> \<rho> \<theta>)\<close>
 by (cases x) (auto simp add: micro_rust_simps)
 
-urust_expr [urust_abbrev = true] wp_two_armed_conditionalI_urust_site_1
+urust expr [urust_abbrev = true] wp_two_armed_conditionalI_urust_site_1
+  (x, t, f)
   \<open> if x { \<epsilon>\<open>t\<close> } else { \<epsilon>\<open>f\<close> } \<close>
-  with_args x t f
 
 lemma wp_two_armed_conditionalI[micro_rust_wp_case_splits]:
   assumes \<open>x \<Longrightarrow> \<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> t \<psi> \<rho> \<theta>\<close>
@@ -564,18 +564,18 @@ lemma wp_two_armed_conditionalI[micro_rust_wp_case_splits]:
     shows \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> (wp_two_armed_conditionalI_urust_site_1 x t f) \<psi> \<rho> \<theta>\<close>
 by (simp add: assms wp_two_armed_conditional)
 
-urust_expr [urust_abbrev = true] wp_one_armed_conditional_urust_site_1
+urust expr [urust_abbrev = true] wp_one_armed_conditional_urust_site_1
+  (x, t)
   \<open> if x { \<epsilon>\<open>t\<close> } \<close>
-  with_args x t
 
 corollary wp_one_armed_conditional:
   assumes \<open>\<And>s. ucincl (\<psi> s)\<close>
   shows \<open>\<W>\<P> \<Gamma> (wp_one_armed_conditional_urust_site_1 x t) \<psi> \<rho> \<theta> = (if x then \<W>\<P> \<Gamma> t \<psi> \<rho> \<theta> else \<psi> ())\<close>
 using assms by (simp add: micro_rust_wp_simps wp_two_armed_conditional)
 
-urust_expr [urust_abbrev = true] wp_one_armed_conditionalI_urust_site_1
+urust expr [urust_abbrev = true] wp_one_armed_conditionalI_urust_site_1
+  (x, t)
   \<open> if x { \<epsilon>\<open>t\<close> } \<close>
-  with_args x t
 
 lemma wp_one_armed_conditionalI[micro_rust_wp_case_splits]:
   assumes \<open>x \<Longrightarrow> \<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> t \<psi> \<rho> \<theta>\<close>
@@ -583,9 +583,9 @@ lemma wp_one_armed_conditionalI[micro_rust_wp_case_splits]:
     shows \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> (wp_one_armed_conditionalI_urust_site_1 x t) \<psi> \<rho> \<theta>\<close>
   using assms by (simp add: wp_literalI wp_two_armed_conditional)
 
-urust_expr [urust_abbrev = true] wp_two_armed_conditional_thenI_urust_site_1
+urust expr [urust_abbrev = true] wp_two_armed_conditional_thenI_urust_site_1
+  (x, t, f)
   \<open> if x { \<epsilon>\<open>t\<close> } else { \<epsilon>\<open>f\<close> } \<close>
-  with_args x t f
 
 lemma wp_two_armed_conditional_thenI:
   assumes \<open>x\<close>
@@ -593,9 +593,9 @@ lemma wp_two_armed_conditional_thenI:
     shows \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> (wp_two_armed_conditional_thenI_urust_site_1 x t f) \<psi> \<rho> \<theta>\<close>
   by (simp add: assms wp_two_armed_conditional)
 
-urust_expr [urust_abbrev = true] wp_two_armed_conditional_elseI_urust_site_1
+urust expr [urust_abbrev = true] wp_two_armed_conditional_elseI_urust_site_1
+  (x, t, f)
   \<open> if x { \<epsilon>\<open>t\<close> } else { \<epsilon>\<open>f\<close> } \<close>
-  with_args x t f
 
 lemma wp_two_armed_conditional_elseI:
   assumes \<open>\<not>x\<close>
@@ -606,9 +606,9 @@ lemma wp_two_armed_conditional_elseI:
 \<comment>\<open>TODO: This is not uniform with the treatment of conditionals
 which are discharged using \<^verbatim>\<open>micro_rust_wp_intros\<close> rather than
 \<^verbatim>\<open>micro_rust_wp_simps\<close>.\<close>
-urust_expr [urust_abbrev = true] wp_option_cases_urust_site_1
+urust expr [urust_abbrev = true] wp_option_cases_urust_site_1
+  (x, nn, sm)
   \<open> match x { None \<Rightarrow> \<epsilon>\<open>nn\<close>, Some(s) \<Rightarrow> \<epsilon>\<open>sm s\<close> } \<close>
-  with_args x nn sm
 
 lemma wp_option_cases: (* [micro_rust_wp_simps]: *)
   shows \<open>\<W>\<P> \<Gamma> (wp_option_cases_urust_site_1 x nn sm) \<psi> \<rho> \<theta> =
@@ -617,26 +617,26 @@ lemma wp_option_cases: (* [micro_rust_wp_simps]: *)
            | Some s \<Rightarrow> \<W>\<P> \<Gamma> (sm s) \<psi> \<rho> \<theta>)\<close>
 by (rule asat_semequivI; cases \<open>x\<close>) (auto simp add: micro_rust_simps)
 
-urust_expr [urust_abbrev = true] wp_option_cases_none_urust_site_1
+urust expr [urust_abbrev = true] wp_option_cases_none_urust_site_1
+  (sm, nn)
   \<open> match None { Some(s) \<Rightarrow> \<epsilon>\<open>sm s\<close>, None \<Rightarrow> \<epsilon>\<open>nn\<close> } \<close>
-  with_args sm nn
 
 lemma wp_option_cases_none[micro_rust_wp_simps]:
   shows \<open>\<W>\<P> \<Gamma> (wp_option_cases_none_urust_site_1 sm nn) \<psi> \<rho> \<theta> = \<W>\<P> \<Gamma> nn \<psi> \<rho> \<theta>\<close>
   by (simp add: wp_option_cases)
 
-urust_expr [urust_abbrev = true] wp_option_cases_some_urust_site_1
+urust expr [urust_abbrev = true] wp_option_cases_some_urust_site_1
+  (s, sm, nn)
   \<open> match \<llangle>Some s\<rrangle> { Some(s) \<Rightarrow> \<epsilon>\<open>sm s\<close>, None \<Rightarrow> \<epsilon>\<open>nn\<close> } \<close>
-  with_args s sm nn
 
 lemma wp_option_cases_some[micro_rust_wp_simps]:
   shows \<open>\<W>\<P> \<Gamma> (wp_option_cases_some_urust_site_1 s sm nn) \<psi> \<rho> \<theta> = \<W>\<P> \<Gamma> (sm s) \<psi> \<rho> \<theta>\<close>
   by (simp add: wp_option_cases)
 
 \<comment>\<open>NOTE: This lemma is not used at present, but seems worth keeping.\<close>
-urust_expr [urust_abbrev = true] wp_option_casesI_urust_site_1
+urust expr [urust_abbrev = true] wp_option_casesI_urust_site_1
+  (x, nn, sm)
   \<open> match x { None \<Rightarrow> \<epsilon>\<open>nn\<close>, Some(s) \<Rightarrow> \<epsilon>\<open>sm s\<close> } \<close>
-  with_args x nn sm
 
 lemma wp_option_casesI:
   assumes \<open>x = None \<Longrightarrow> \<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> nn \<psi> \<rho> \<theta>\<close>
@@ -644,9 +644,9 @@ lemma wp_option_casesI:
    shows \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> (wp_option_casesI_urust_site_1 x nn sm) \<psi> \<rho> \<theta>\<close>
   using assms by (clarsimp simp add: wp_option_cases split!: option.splits)
 
-urust_expr [urust_abbrev = true] wp_result_cases_urust_site_1
+urust expr [urust_abbrev = true] wp_result_cases_urust_site_1
+  (x, ok, err)
   \<open> match x { Ok(k) \<Rightarrow> \<epsilon>\<open>ok k\<close>, Err(e) \<Rightarrow> \<epsilon>\<open>err e\<close> } \<close>
-  with_args x ok err
 
 lemma wp_result_cases: (* [micro_rust_wp_simps]: *)
   shows \<open>\<W>\<P> \<Gamma> (wp_result_cases_urust_site_1 x ok err) \<psi> \<rho> \<theta> =
@@ -655,26 +655,26 @@ lemma wp_result_cases: (* [micro_rust_wp_simps]: *)
             | Err e \<Rightarrow> \<W>\<P> \<Gamma> (err e) \<psi> \<rho> \<theta>)\<close>
 by (rule asat_semequivI; cases \<open>x\<close>) (auto simp add:micro_rust_simps)
 
-urust_expr [urust_abbrev = true] wp_result_cases_ok_urust_site_1
+urust expr [urust_abbrev = true] wp_result_cases_ok_urust_site_1
+  (k, ok, err)
   \<open> match \<llangle>Ok k\<rrangle> { Ok(k) \<Rightarrow> \<epsilon>\<open>ok k\<close>, Err(e) \<Rightarrow> \<epsilon>\<open>err e\<close> } \<close>
-  with_args k ok err
 
 lemma wp_result_cases_ok[micro_rust_wp_simps]:
   shows \<open>\<W>\<P> \<Gamma> (wp_result_cases_ok_urust_site_1 k ok err) \<psi> \<rho> \<theta> = \<W>\<P> \<Gamma> (ok k) \<psi> \<rho> \<theta>\<close>
   by (simp add: wp_result_cases)
 
-urust_expr [urust_abbrev = true] wp_result_cases_err_urust_site_1
+urust expr [urust_abbrev = true] wp_result_cases_err_urust_site_1
+  (e, ok, err)
   \<open> match \<llangle>Err e\<rrangle> { Ok(k) \<Rightarrow> \<epsilon>\<open>ok k\<close>, Err(e) \<Rightarrow> \<epsilon>\<open>err e\<close> } \<close>
-  with_args e ok err
 
 lemma wp_result_cases_err[micro_rust_wp_simps]:
   shows \<open>\<W>\<P> \<Gamma> (wp_result_cases_err_urust_site_1 e ok err) \<psi> \<rho> \<theta> = \<W>\<P> \<Gamma> (err e) \<psi> \<rho> \<theta>\<close>
   by (simp add: wp_result_cases)
 
 \<comment>\<open>NOTE: This lemma is not used at present, but seems worth keeping.\<close>
-urust_expr [urust_abbrev = true] wp_result_casesI_urust_site_1
+urust expr [urust_abbrev = true] wp_result_casesI_urust_site_1
+  (x, ok, err)
   \<open> match x { Ok(k) \<Rightarrow> \<epsilon>\<open>ok k\<close>, Err(e) \<Rightarrow> \<epsilon>\<open>err e\<close> } \<close>
-  with_args x ok err
 
 lemma wp_result_casesI:
   assumes \<open>\<And>k. x = Ok k \<Longrightarrow> \<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> (ok k) \<psi> \<rho> \<theta>\<close>
@@ -727,66 +727,66 @@ lemma wp_putI:
     shows \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> (put g) \<psi> \<rho> \<theta>\<close>
 using assms by - (rule aentails_trans', rule wp_put, auto)
 
-urust_expr [urust_abbrev = true] wp_fun_urust_site_1
+urust expr [urust_abbrev = true] wp_fun_urust_site_1
+  (f1, a0)
   \<open> f1(a0) \<close>
-  with_args f1 a0
-urust_expr [urust_abbrev = true] wp_fun_urust_site_2
+urust expr [urust_abbrev = true] wp_fun_urust_site_2
+  (f1, a0)
   \<open> \<epsilon>\<open>f1 a0\<close> () \<close>
-  with_args f1 a0
-urust_expr [urust_abbrev = true] wp_fun_urust_site_3
+urust expr [urust_abbrev = true] wp_fun_urust_site_3
+  (f2, a0, a1)
   \<open> f2(a0, a1) \<close>
-  with_args f2 a0 a1
-urust_expr [urust_abbrev = true] wp_fun_urust_site_4
+urust expr [urust_abbrev = true] wp_fun_urust_site_4
+  (f2, a0, a1)
   \<open> \<epsilon>\<open>f2 a0 a1\<close> () \<close>
-  with_args f2 a0 a1
-urust_expr [urust_abbrev = true] wp_fun_urust_site_5
+urust expr [urust_abbrev = true] wp_fun_urust_site_5
+  (f3, a0, a1, a2)
   \<open> f3(a0, a1, a2) \<close>
-  with_args f3 a0 a1 a2
-urust_expr [urust_abbrev = true] wp_fun_urust_site_6
+urust expr [urust_abbrev = true] wp_fun_urust_site_6
+  (f3, a0, a1, a2)
   \<open> \<epsilon>\<open>f3 a0 a1 a2\<close> () \<close>
-  with_args f3 a0 a1 a2
-urust_expr [urust_abbrev = true] wp_fun_urust_site_7
+urust expr [urust_abbrev = true] wp_fun_urust_site_7
+  (f4, a0, a1, a2, a3)
   \<open> f4(a0, a1, a2, a3) \<close>
-  with_args f4 a0 a1 a2 a3
-urust_expr [urust_abbrev = true] wp_fun_urust_site_8
+urust expr [urust_abbrev = true] wp_fun_urust_site_8
+  (f4, a0, a1, a2, a3)
   \<open> \<epsilon>\<open>f4 a0 a1 a2 a3\<close> () \<close>
-  with_args f4 a0 a1 a2 a3
-urust_expr [urust_abbrev = true] wp_fun_urust_site_9
+urust expr [urust_abbrev = true] wp_fun_urust_site_9
+  (f5, a0, a1, a2, a3, a4)
   \<open> f5(a0, a1, a2, a3, a4) \<close>
-  with_args f5 a0 a1 a2 a3 a4
-urust_expr [urust_abbrev = true] wp_fun_urust_site_10
+urust expr [urust_abbrev = true] wp_fun_urust_site_10
+  (f5, a0, a1, a2, a3, a4)
   \<open> \<epsilon>\<open>f5 a0 a1 a2 a3 a4\<close> () \<close>
-  with_args f5 a0 a1 a2 a3 a4
-urust_expr [urust_abbrev = true] wp_fun_urust_site_11
+urust expr [urust_abbrev = true] wp_fun_urust_site_11
+  (f6, a0, a1, a2, a3, a4, a5)
   \<open> f6(a0, a1, a2, a3, a4, a5) \<close>
-  with_args f6 a0 a1 a2 a3 a4 a5
-urust_expr [urust_abbrev = true] wp_fun_urust_site_12
+urust expr [urust_abbrev = true] wp_fun_urust_site_12
+  (f6, a0, a1, a2, a3, a4, a5)
   \<open> \<epsilon>\<open>f6 a0 a1 a2 a3 a4 a5\<close> () \<close>
-  with_args f6 a0 a1 a2 a3 a4 a5
-urust_expr [urust_abbrev = true] wp_fun_urust_site_13
+urust expr [urust_abbrev = true] wp_fun_urust_site_13
+  (f7, a0, a1, a2, a3, a4, a5, a6)
   \<open> f7(a0, a1, a2, a3, a4, a5, a6) \<close>
-  with_args f7 a0 a1 a2 a3 a4 a5 a6
-urust_expr [urust_abbrev = true] wp_fun_urust_site_14
+urust expr [urust_abbrev = true] wp_fun_urust_site_14
+  (f7, a0, a1, a2, a3, a4, a5, a6)
   \<open> \<epsilon>\<open>f7 a0 a1 a2 a3 a4 a5 a6\<close> () \<close>
-  with_args f7 a0 a1 a2 a3 a4 a5 a6
-urust_expr [urust_abbrev = true] wp_fun_urust_site_15
+urust expr [urust_abbrev = true] wp_fun_urust_site_15
+  (f8, a0, a1, a2, a3, a4, a5, a6, a7)
   \<open> f8(a0, a1, a2, a3, a4, a5, a6, a7) \<close>
-  with_args f8 a0 a1 a2 a3 a4 a5 a6 a7
-urust_expr [urust_abbrev = true] wp_fun_urust_site_16
+urust expr [urust_abbrev = true] wp_fun_urust_site_16
+  (f8, a0, a1, a2, a3, a4, a5, a6, a7)
   \<open> \<epsilon>\<open>f8 a0 a1 a2 a3 a4 a5 a6 a7\<close> () \<close>
-  with_args f8 a0 a1 a2 a3 a4 a5 a6 a7
-urust_expr [urust_abbrev = true] wp_fun_urust_site_17
+urust expr [urust_abbrev = true] wp_fun_urust_site_17
+  (f9, a0, a1, a2, a3, a4, a5, a6, a7, a8)
   \<open> f9(a0, a1, a2, a3, a4, a5, a6, a7, a8) \<close>
-  with_args f9 a0 a1 a2 a3 a4 a5 a6 a7 a8
-urust_expr [urust_abbrev = true] wp_fun_urust_site_18
+urust expr [urust_abbrev = true] wp_fun_urust_site_18
+  (f9, a0, a1, a2, a3, a4, a5, a6, a7, a8)
   \<open> \<epsilon>\<open>f9 a0 a1 a2 a3 a4 a5 a6 a7 a8\<close> () \<close>
-  with_args f9 a0 a1 a2 a3 a4 a5 a6 a7 a8
-urust_expr [urust_abbrev = true] wp_fun_urust_site_19
+urust expr [urust_abbrev = true] wp_fun_urust_site_19
+  (f10, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9)
   \<open> f10(a0, a1, a2, a3, a4, a5, a6, a7, a8, a9) \<close>
-  with_args f10 a0 a1 a2 a3 a4 a5 a6 a7 a8 a9
-urust_expr [urust_abbrev = true] wp_fun_urust_site_20
+urust expr [urust_abbrev = true] wp_fun_urust_site_20
+  (f10, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9)
   \<open> \<epsilon>\<open>f10 a0 a1 a2 a3 a4 a5 a6 a7 a8 a9\<close> () \<close>
-  with_args f10 a0 a1 a2 a3 a4 a5 a6 a7 a8 a9
 
 lemma wp_fun [micro_rust_wp_simps]:
   shows \<open>\<W>\<P> \<Gamma> (f\<langle>\<rangle>) \<phi> \<rho> \<theta> = \<W>\<P> \<Gamma> (call f) \<phi> \<rho> \<theta>\<close>
@@ -880,30 +880,30 @@ lemma wp_callI:
     shows \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> (call f) \<psi> \<rho> \<theta>\<close>
   using assms by - (intro wp_call_with_abortI, assumption, simp add: awand_bot)
 
-urust_expr [urust_abbrev = true] wp_funliteral_urust_site_1
+urust expr [urust_abbrev = true] wp_funliteral_urust_site_1
+  (f1, v0)
   \<open> \<llangle>f1\<rrangle>\<^sub>1 (v0) \<close>
-  with_args f1 v0
-urust_expr [urust_abbrev = true] wp_funliteral_urust_site_2
+urust expr [urust_abbrev = true] wp_funliteral_urust_site_2
+  (f2, v0, v1)
   \<open> \<llangle>f2\<rrangle>\<^sub>2 (v0, v1) \<close>
-  with_args f2 v0 v1
-urust_expr [urust_abbrev = true] wp_funliteral_urust_site_3
+urust expr [urust_abbrev = true] wp_funliteral_urust_site_3
+  (f3, v0, v1, v2)
   \<open> \<llangle>f3\<rrangle>\<^sub>3 (v0, v1, v2) \<close>
-  with_args f3 v0 v1 v2
-urust_expr [urust_abbrev = true] wp_funliteral_urust_site_4
+urust expr [urust_abbrev = true] wp_funliteral_urust_site_4
+  (f4, v0, v1, v2, v3)
   \<open> \<llangle>f4\<rrangle>\<^sub>4 (v0, v1, v2, v3) \<close>
-  with_args f4 v0 v1 v2 v3
-urust_expr [urust_abbrev = true] wp_funliteral_urust_site_5
+urust expr [urust_abbrev = true] wp_funliteral_urust_site_5
+  (f5, v0, v1, v2, v3, v4)
   \<open> \<llangle>f5\<rrangle>\<^sub>5 (v0, v1, v2, v3, v4) \<close>
-  with_args f5 v0 v1 v2 v3 v4
-urust_expr [urust_abbrev = true] wp_funliteral_urust_site_6
+urust expr [urust_abbrev = true] wp_funliteral_urust_site_6
+  (f6, v0, v1, v2, v3, v4, v5)
   \<open> \<llangle>f6\<rrangle>\<^sub>6 (v0, v1, v2, v3, v4, v5) \<close>
-  with_args f6 v0 v1 v2 v3 v4 v5
-urust_expr [urust_abbrev = true] wp_funliteral_urust_site_7
+urust expr [urust_abbrev = true] wp_funliteral_urust_site_7
+  (f7, v0, v1, v2, v3, v4, v5, v6)
   \<open> \<llangle>f7\<rrangle>\<^sub>7 (v0, v1, v2, v3, v4, v5, v6) \<close>
-  with_args f7 v0 v1 v2 v3 v4 v5 v6
-urust_expr [urust_abbrev = true] wp_funliteral_urust_site_8
+urust expr [urust_abbrev = true] wp_funliteral_urust_site_8
+  (f8, v0, v1, v2, v3, v4, v5, v6, v7)
   \<open> \<llangle>f8\<rrangle>\<^sub>8 (v0, v1, v2, v3, v4, v5, v6, v7) \<close>
-  with_args f8 v0 v1 v2 v3 v4 v5 v6 v7
 
 lemma wp_funliteral:
   assumes \<open>\<And>r. ucincl (\<psi> r)\<close>
@@ -923,9 +923,9 @@ lemma wp_range_new [micro_rust_wp_simps]:
     shows \<open>\<W>\<P> \<Gamma> (\<langle>\<up>b\<dots>\<up>e\<rangle>) \<phi> \<rho> \<theta> = \<phi> (make_range b e False)\<close>
 using assms by (clarsimp simp add: range_new_def wp_funliteral)
 
-urust_expr [urust_abbrev = true] wp_op_eq_urust_site_1
+urust expr [urust_abbrev = true] wp_op_eq_urust_site_1
+  (e, f)
   \<open> \<llangle>\<lambda>a b. a=b\<rrangle>\<^sub>2(e,f) \<close>
-  with_args e f
 
 lemma wp_op_eq [micro_rust_wp_simps]:
   assumes \<open>\<And>r. ucincl (\<psi> r)\<close>
@@ -933,9 +933,9 @@ lemma wp_op_eq [micro_rust_wp_simps]:
     shows \<open>\<W>\<P> \<Gamma> (wp_op_eq_urust_site_1 e f) \<psi> \<rho> \<theta> = \<psi> (e = f)\<close>
 using assms by (clarsimp simp add: wp_funliteral)
 
-urust_expr [urust_abbrev = true] wp_op_eqs_urust_site_1
+urust expr [urust_abbrev = true] wp_op_eqs_urust_site_1
+  (e, f)
   \<open> e == f \<close>
-  with_args e f
 
 lemma wp_op_eqs [micro_rust_wp_simps]:
   assumes \<open>\<And>r. ucincl (\<psi> r)\<close>
@@ -943,15 +943,15 @@ lemma wp_op_eqs [micro_rust_wp_simps]:
     shows \<open>\<W>\<P> \<Gamma> (wp_op_eqs_urust_site_1 e f) \<psi> \<rho> \<theta> = \<psi> (e = f)\<close>
 using assms by (clarsimp simp add: urust_eq_def micro_rust_wp_simps micro_rust_simps)
 
-urust_expr [urust_abbrev = true] wp_word_add_no_wrap_urust_site_1
+urust expr [urust_abbrev = true] wp_word_add_no_wrap_urust_site_1
+  (x, y)
   \<open> x + y \<close>
-  with_args x y
-urust_expr [urust_abbrev = true] wp_word_add_no_wrap_urust_site_2
+urust expr [urust_abbrev = true] wp_word_add_no_wrap_urust_site_2
+  (x, y)
   \<open> x + y \<close>
-  with_args x y
-urust_expr [urust_abbrev = true] wp_word_add_no_wrap_urust_site_3
+urust expr [urust_abbrev = true] wp_word_add_no_wrap_urust_site_3
+  (x, y)
   \<open> x + y \<close>
-  with_args x y
 
 lemma wp_word_add_no_wrap [micro_rust_wp_intros]:
     notes aentails_intro [intro]
@@ -973,9 +973,9 @@ proof -
     by (intro wp_is_weakest_precondition)
 qed
 
-urust_expr [urust_abbrev = true] wp_word_add_no_wrapI_urust_site_1
+urust expr [urust_abbrev = true] wp_word_add_no_wrapI_urust_site_1
+  (x, y)
   \<open> x + y \<close>
-  with_args x y
 
 lemma wp_word_add_no_wrapI [micro_rust_wp_intros]:
     fixes x y :: \<open>'l::{len} word\<close>
@@ -984,15 +984,15 @@ lemma wp_word_add_no_wrapI [micro_rust_wp_intros]:
     shows \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> (wp_word_add_no_wrapI_urust_site_1 x y) \<psi> \<rho> \<theta>\<close>
 using assms by - (rule aentails_trans', rule wp_word_add_no_wrap, auto)
 
-urust_expr [urust_abbrev = true] wp_word_mul_no_wrap_urust_site_1
+urust expr [urust_abbrev = true] wp_word_mul_no_wrap_urust_site_1
+  (x, y)
   \<open> x * y \<close>
-  with_args x y
-urust_expr [urust_abbrev = true] wp_word_mul_no_wrap_urust_site_2
+urust expr [urust_abbrev = true] wp_word_mul_no_wrap_urust_site_2
+  (x, y)
   \<open> x * y \<close>
-  with_args x y
-urust_expr [urust_abbrev = true] wp_word_mul_no_wrap_urust_site_3
+urust expr [urust_abbrev = true] wp_word_mul_no_wrap_urust_site_3
+  (x, y)
   \<open> x * y \<close>
-  with_args x y
 
 lemma wp_word_mul_no_wrap [micro_rust_wp_intros]:
     notes aentails_intro [intro]
@@ -1014,9 +1014,9 @@ proof -
     by (intro wp_is_weakest_precondition)
 qed
 
-urust_expr [urust_abbrev = true] wp_word_mul_no_wrapI_urust_site_1
+urust expr [urust_abbrev = true] wp_word_mul_no_wrapI_urust_site_1
+  (x, y)
   \<open> x * y \<close>
-  with_args x y
 
 lemma wp_word_mul_no_wrapI [micro_rust_wp_intros]:
     fixes x y :: \<open>'l::{len} word\<close>
@@ -1025,15 +1025,15 @@ lemma wp_word_mul_no_wrapI [micro_rust_wp_intros]:
     shows \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> (wp_word_mul_no_wrapI_urust_site_1 x y) \<psi> \<rho> \<theta>\<close>
 using assms by - (rule aentails_trans', rule wp_word_mul_no_wrap, auto)
 
-urust_expr [urust_abbrev = true] wp_word_sub_no_wrap_urust_site_1
+urust expr [urust_abbrev = true] wp_word_sub_no_wrap_urust_site_1
+  (x, y)
   \<open> x - y \<close>
-  with_args x y
-urust_expr [urust_abbrev = true] wp_word_sub_no_wrap_urust_site_2
+urust expr [urust_abbrev = true] wp_word_sub_no_wrap_urust_site_2
+  (x, y)
   \<open> x - y \<close>
-  with_args x y
-urust_expr [urust_abbrev = true] wp_word_sub_no_wrap_urust_site_3
+urust expr [urust_abbrev = true] wp_word_sub_no_wrap_urust_site_3
+  (x, y)
   \<open> x - y \<close>
-  with_args x y
 
 lemma wp_word_sub_no_wrap:
     notes aentails_intro [intro]
@@ -1055,9 +1055,9 @@ proof -
     by (intro wp_is_weakest_precondition)
 qed
 
-urust_expr [urust_abbrev = true] wp_word_sub_no_wrapI_urust_site_1
+urust expr [urust_abbrev = true] wp_word_sub_no_wrapI_urust_site_1
+  (x, y)
   \<open> x - y \<close>
-  with_args x y
 
 lemma wp_word_sub_no_wrapI [micro_rust_wp_intros]:
     fixes x y :: \<open>'l::{len} word\<close>
@@ -1066,15 +1066,15 @@ lemma wp_word_sub_no_wrapI [micro_rust_wp_intros]:
     shows \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> (wp_word_sub_no_wrapI_urust_site_1 x y) \<psi> \<rho> \<theta>\<close>
 using assms by - (rule aentails_trans', rule wp_word_sub_no_wrap, auto)
 
-urust_expr [urust_abbrev = true] wp_word_udiv_urust_site_1
+urust expr [urust_abbrev = true] wp_word_udiv_urust_site_1
+  (x, y)
   \<open> x / y \<close>
-  with_args x y
-urust_expr [urust_abbrev = true] wp_word_udiv_urust_site_2
+urust expr [urust_abbrev = true] wp_word_udiv_urust_site_2
+  (x, y)
   \<open> x / y \<close>
-  with_args x y
-urust_expr [urust_abbrev = true] wp_word_udiv_urust_site_3
+urust expr [urust_abbrev = true] wp_word_udiv_urust_site_3
+  (x, y)
   \<open> x / y \<close>
-  with_args x y
 
 lemma wp_word_udiv:
     notes aentails_intro [intro]
@@ -1096,9 +1096,9 @@ proof -
     by (intro wp_is_weakest_precondition)
 qed
 
-urust_expr [urust_abbrev = true] wp_word_udivI_urust_site_1
+urust expr [urust_abbrev = true] wp_word_udivI_urust_site_1
+  (x, y)
   \<open> x / y \<close>
-  with_args x y
 
 lemma wp_word_udivI [micro_rust_wp_intros]:
     fixes x y :: \<open>'l::{len} word\<close>
@@ -1107,15 +1107,15 @@ lemma wp_word_udivI [micro_rust_wp_intros]:
     shows \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> (wp_word_udivI_urust_site_1 x y) \<psi> \<rho> \<theta>\<close>
 using assms by - (rule aentails_trans', rule wp_word_udiv, auto)
 
-urust_expr [urust_abbrev = true] wp_word_umod_urust_site_1
+urust expr [urust_abbrev = true] wp_word_umod_urust_site_1
+  (x, y)
   \<open> x % y \<close>
-  with_args x y
-urust_expr [urust_abbrev = true] wp_word_umod_urust_site_2
+urust expr [urust_abbrev = true] wp_word_umod_urust_site_2
+  (x, y)
   \<open> x % y \<close>
-  with_args x y
-urust_expr [urust_abbrev = true] wp_word_umod_urust_site_3
+urust expr [urust_abbrev = true] wp_word_umod_urust_site_3
+  (x, y)
   \<open> x % y \<close>
-  with_args x y
 
 lemma wp_word_umod:
     notes aentails_intro [intro]
@@ -1137,9 +1137,9 @@ proof -
     by (intro wp_is_weakest_precondition)
 qed
 
-urust_expr [urust_abbrev = true] wp_word_umodI_urust_site_1
+urust expr [urust_abbrev = true] wp_word_umodI_urust_site_1
+  (x, y)
   \<open> x % y \<close>
-  with_args x y
 
 lemma wp_word_umodI [micro_rust_wp_intros]:
     fixes x y :: \<open>'l::{len} word\<close>
@@ -1148,46 +1148,46 @@ lemma wp_word_umodI [micro_rust_wp_intros]:
     shows \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> (wp_word_umodI_urust_site_1 x y) \<psi> \<rho> \<theta>\<close>
 using assms by - (rule aentails_trans', rule wp_word_umod, auto)
 
-urust_expr [urust_abbrev = true] wp_bitwise_or_urust_site_1
+urust expr [urust_abbrev = true] wp_bitwise_or_urust_site_1
+  (x, y)
   \<open> x | y \<close>
-  with_args x y
 
 lemma wp_bitwise_or:
   assumes \<open>\<And>v. ucincl (\<psi> v)\<close>
     shows \<open>\<psi> (x OR y) \<longlongrightarrow> \<W>\<P> \<Gamma> (wp_bitwise_or_urust_site_1 x y) \<psi> \<rho> \<theta>\<close>
 using assms by (intro sstriple_pure_to_wp') (auto intro: sstriple_bitwise_orI)
 
-urust_expr [urust_abbrev = true] wp_bitwise_and_urust_site_1
+urust expr [urust_abbrev = true] wp_bitwise_and_urust_site_1
+  (x, y)
   \<open> x & y \<close>
-  with_args x y
 
 lemma wp_bitwise_and:
   assumes \<open>\<And>v. ucincl (\<psi> v)\<close>
     shows \<open>\<psi> (x AND y) \<longlongrightarrow> \<W>\<P> \<Gamma> (wp_bitwise_and_urust_site_1 x y) \<psi> \<rho> \<theta>\<close>
 using assms by (intro sstriple_pure_to_wp') (auto intro: sstriple_bitwise_andI)
 
-urust_expr [urust_abbrev = true] wp_bitwise_xor_urust_site_1
+urust expr [urust_abbrev = true] wp_bitwise_xor_urust_site_1
+  (x, y)
   \<open> x ^ y \<close>
-  with_args x y
 
 lemma wp_bitwise_xor:
   assumes \<open>\<And>v. ucincl (\<psi> v)\<close>
     shows \<open>\<psi> (x XOR y) \<longlongrightarrow> \<W>\<P> \<Gamma> (wp_bitwise_xor_urust_site_1 x y) \<psi> \<rho> \<theta>\<close>
 using assms by (intro sstriple_pure_to_wp') (auto intro: sstriple_bitwise_xorI)
 
-urust_expr [urust_abbrev = true] wp_bitwise_not_urust_site_1 ::
+urust expr [urust_abbrev = true] wp_bitwise_not_urust_site_1 ::
   \<open>'l::len word \<Rightarrow> ('s, 'l word, 'r, 'abort, 'i, 'o) expression\<close>
+  (x)
   \<open> !x \<close>
-  with_args x
 
 lemma wp_bitwise_not:
   assumes \<open>\<And>v. ucincl (\<psi> v)\<close>
     shows \<open>\<psi> (NOT x) \<longlongrightarrow> \<W>\<P> \<Gamma> (wp_bitwise_not_urust_site_1 x) \<psi> \<rho> \<theta>\<close>
 using assms by (intro sstriple_pure_to_wp') (auto intro: sstriple_bitwise_notI)
 
-urust_expr [urust_abbrev = true] wp_bitwise_orI_urust_site_1
+urust expr [urust_abbrev = true] wp_bitwise_orI_urust_site_1
+  (x, y)
   \<open> x | y \<close>
-  with_args x y
 
 lemma wp_bitwise_orI [micro_rust_wp_intros]:
   assumes \<open>\<And>v. ucincl (\<psi> v)\<close>
@@ -1195,9 +1195,9 @@ lemma wp_bitwise_orI [micro_rust_wp_intros]:
     shows \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> (wp_bitwise_orI_urust_site_1 x y) \<psi> \<rho> \<theta>\<close>
 using assms wp_bitwise_or aentails_trans' by blast
 
-urust_expr [urust_abbrev = true] wp_bitwise_andI_urust_site_1
+urust expr [urust_abbrev = true] wp_bitwise_andI_urust_site_1
+  (x, y)
   \<open> x & y \<close>
-  with_args x y
 
 lemma wp_bitwise_andI [micro_rust_wp_intros]:
   assumes \<open>\<And>v. ucincl (\<psi> v)\<close>
@@ -1205,9 +1205,9 @@ lemma wp_bitwise_andI [micro_rust_wp_intros]:
     shows \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> (wp_bitwise_andI_urust_site_1 x y) \<psi> \<rho> \<theta>\<close>
 using assms wp_bitwise_and aentails_trans' by blast
 
-urust_expr [urust_abbrev = true] wp_bitwise_xorI_urust_site_1
+urust expr [urust_abbrev = true] wp_bitwise_xorI_urust_site_1
+  (x, y)
   \<open> x ^ y \<close>
-  with_args x y
 
 lemma wp_bitwise_xorI [micro_rust_wp_intros]:
   assumes \<open>\<And>v. ucincl (\<psi> v)\<close>
@@ -1215,10 +1215,10 @@ lemma wp_bitwise_xorI [micro_rust_wp_intros]:
     shows \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> (wp_bitwise_xorI_urust_site_1 x y) \<psi> \<rho> \<theta>\<close>
 using assms wp_bitwise_xor aentails_trans' by blast
 
-urust_expr [urust_abbrev = true] wp_bitwise_notI_urust_site_1 ::
+urust expr [urust_abbrev = true] wp_bitwise_notI_urust_site_1 ::
   \<open>'l::len word \<Rightarrow> ('s, 'l word, 'r, 'abort, 'i, 'o) expression\<close>
+  (x)
   \<open> !x \<close>
-  with_args x
 
 lemma wp_bitwise_notI [micro_rust_wp_intros]:
   assumes \<open>\<And>v. ucincl (\<psi> v)\<close>
@@ -1226,15 +1226,15 @@ lemma wp_bitwise_notI [micro_rust_wp_intros]:
     shows \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> (wp_bitwise_notI_urust_site_1 x) \<psi> \<rho> \<theta>\<close>
 using assms wp_bitwise_not aentails_trans' by blast
 
-urust_expr [urust_abbrev = true] wp_word_shift_left_urust_site_1
+urust expr [urust_abbrev = true] wp_word_shift_left_urust_site_1
+  (x, y)
   \<open> x << y \<close>
-  with_args x y
-urust_expr [urust_abbrev = true] wp_word_shift_left_urust_site_2
+urust expr [urust_abbrev = true] wp_word_shift_left_urust_site_2
+  (x, y)
   \<open> x << y \<close>
-  with_args x y
-urust_expr [urust_abbrev = true] wp_word_shift_left_urust_site_3
+urust expr [urust_abbrev = true] wp_word_shift_left_urust_site_3
+  (x, y)
   \<open> x << y \<close>
-  with_args x y
 
 lemma wp_word_shift_left:
     notes aentails_intro [intro]
@@ -1258,9 +1258,9 @@ proof -
     by (intro wp_is_weakest_precondition)
 qed
 
-urust_expr [urust_abbrev = true] wp_word_shift_leftI_urust_site_1
+urust expr [urust_abbrev = true] wp_word_shift_leftI_urust_site_1
+  (x, y)
   \<open> x << y \<close>
-  with_args x y
 
 lemma wp_word_shift_leftI [micro_rust_wp_intros]:
     fixes x :: \<open>'l0::{len} word\<close>
@@ -1270,15 +1270,15 @@ lemma wp_word_shift_leftI [micro_rust_wp_intros]:
     shows \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> (wp_word_shift_leftI_urust_site_1 x y) \<psi> \<rho> \<theta>\<close>
 using assms wp_word_shift_left aentails_trans' by blast
 
-urust_expr [urust_abbrev = true] wp_word_shift_right_urust_site_1
+urust expr [urust_abbrev = true] wp_word_shift_right_urust_site_1
+  (x, y)
   \<open> x >> y \<close>
-  with_args x y
-urust_expr [urust_abbrev = true] wp_word_shift_right_urust_site_2
+urust expr [urust_abbrev = true] wp_word_shift_right_urust_site_2
+  (x, y)
   \<open> x >> y \<close>
-  with_args x y
-urust_expr [urust_abbrev = true] wp_word_shift_right_urust_site_3
+urust expr [urust_abbrev = true] wp_word_shift_right_urust_site_3
+  (x, y)
   \<open> x >> y \<close>
-  with_args x y
 
 lemma wp_word_shift_right:
     notes aentails_intro [intro]
@@ -1302,9 +1302,9 @@ proof -
     by (intro wp_is_weakest_precondition)
 qed
 
-urust_expr [urust_abbrev = true] wp_word_shift_rightI_urust_site_1
+urust expr [urust_abbrev = true] wp_word_shift_rightI_urust_site_1
+  (x, y)
   \<open> x >> y \<close>
-  with_args x y
 
 lemma wp_word_shift_rightI [micro_rust_wp_intros]:
     fixes x :: \<open>'l0::{len} word\<close>

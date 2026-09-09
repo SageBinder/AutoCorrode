@@ -118,7 +118,7 @@ text\<open>Interestingly, one can also go the other way: one can derive statemen
 from proofs about the evaluation of a program.
 These results are mostly of theoretical interest -
 especially state manipulating programs are much easier to prove correct via the program logic. This
-might one day be useful for purely functional \<mu>Rust programs, where this approach allows you to
+might one day be useful for purely functional \<open>\<mu>Rust\<close> programs, where this approach allows you to
 derive the contract from the program.
 Finally, these results show that results in our program logic are not vacuously true.\<close>
 

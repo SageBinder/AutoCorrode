@@ -16,25 +16,25 @@ coverage.
 
 section\<open> Logging-data expressions \<close>
 
-urust_expr log_data_one_string
+urust expr log_data_one_string
   \<open> l\<llangle>"one"\<rrangle> \<close>
 
 context
   fixes context_value :: nat
 begin
 
-urust_expr log_data_one_identifier
+urust expr log_data_one_identifier
   \<open> l\<llangle>context_value\<rrangle> \<close>
 
-urust_expr log_data_mixed
+urust expr log_data_mixed
   \<open> l\<llangle>"value = ", context_value, "."\<rrangle> \<close>
 
-urust_expr log_data_repeated_identifier
+urust expr log_data_repeated_identifier
   \<open> l\<llangle>context_value, context_value, context_value\<rrangle> \<close>
 
 end
 
-urust_expr log_data_long
+urust expr log_data_long
   \<open>
     l\<llangle>
       "a", True, "b", False, "c", True,
@@ -42,10 +42,10 @@ urust_expr log_data_long
     \<rrangle>
   \<close>
 
-urust_expr log_data_empty_string
+urust expr log_data_empty_string
   \<open> l\<llangle>""\<rrangle> \<close>
 
-urust_expr log_data_multiline
+urust expr log_data_multiline
   \<open>
     l\<llangle>
       "first",
@@ -57,19 +57,19 @@ urust_expr log_data_multiline
 
 subsection\<open> String-token boundaries \<close>
 
-urust_expr log_data_escaped_quote
+urust expr log_data_escaped_quote
   \<open> l\<llangle>"say: \"hello\""\<rrangle> \<close>
 
-urust_expr log_data_escaped_backslash
+urust expr log_data_escaped_backslash
   \<open> l\<llangle>"left\\right"\<rrangle> \<close>
 
-urust_expr log_data_comma_in_string
+urust expr log_data_comma_in_string
   \<open> l\<llangle>"left, right"\<rrangle> \<close>
 
-urust_expr log_data_comment_text
+urust expr log_data_comment_text
   \<open> l\<llangle>"https://example.invalid//path"\<rrangle> \<close>
 
-urust_expr log_data_keyword_text
+urust expr log_data_keyword_text
   \<open> l\<llangle>"true false let const return log yield l"\<rrangle> \<close>
 
 subsection\<open> Identifier resolution and lexical scope \<close>
@@ -82,19 +82,19 @@ definition logging_notation_target :: nat
 
 micro_rust_notation (literal) logging_notation_target ("logging_collision")
 
-urust_expr log_data_hol_constant
+urust expr log_data_hol_constant
   \<open> l\<llangle>logging_collision\<rrangle> \<close>
 
-urust_expr log_data_boolean_constant
+urust expr log_data_boolean_constant
   \<open> l\<llangle>True, False\<rrangle> \<close>
 
-urust_expr log_data_local
+urust expr log_data_local
   \<open>
     let value = \<llangle>5 :: nat\<rrangle>;
     l\<llangle>"value = ", value\<rrangle>
   \<close>
 
-urust_expr log_data_nested_shadowing
+urust expr log_data_nested_shadowing
   \<open>
     let value = \<llangle>5 :: nat\<rrangle>;
     let outer = l\<llangle>value\<rrangle>;
@@ -102,7 +102,7 @@ urust_expr log_data_nested_shadowing
     (outer, l\<llangle>value\<rrangle>)
   \<close>
 
-urust_expr log_data_constant_named_binder
+urust expr log_data_constant_named_binder
   \<open>
     let Some = \<llangle>11 :: nat\<rrangle>;
     l\<llangle>Some, Some\<rrangle>
@@ -110,19 +110,19 @@ urust_expr log_data_constant_named_binder
 
 subsection\<open> Registered logging calls \<close>
 
-urust_expr registered_fatal_logger
+urust expr registered_fatal_logger
   \<open> fatal!(l\<llangle>"fatal", True\<rrangle>) \<close>
 
-urust_expr registered_info_logger
+urust expr registered_info_logger
   \<open> info!(l\<llangle>"info", True\<rrangle>) \<close>
 
-urust_expr registered_error_logger
+urust expr registered_error_logger
   \<open> error!(l\<llangle>"error", True\<rrangle>) \<close>
 
-urust_expr registered_debug_logger
+urust expr registered_debug_logger
   \<open> debug!(l\<llangle>"debug", False\<rrangle>) \<close>
 
-urust_expr registered_trace_logger
+urust expr registered_trace_logger
   \<open> trace!(l\<llangle>"trace", True\<rrangle>) \<close>
 
 text\<open>

@@ -108,8 +108,9 @@ definition points_to_raw' :: \<open>(raw_pref,8 word list) gref \<Rightarrow> sh
     (\<Squnion>tag. points_to_tagged_phys_bytes (raw_pmem_region_base pr) sh tag bs))\<close>
 ucincl_auto points_to_raw'
 
-urust_expr [urust_abbrev = true]
+urust expr [urust_abbrev = true]
   update_raw_fun_urust_site_1
+  (bs, pr)
   \<open>
     trace!(l\<llangle>"Raw_Tagged_Physical_Memory.update_raw_fun"\<rrangle>);
 
@@ -123,15 +124,15 @@ urust_expr [urust_abbrev = true]
       store_tagged_physical_address (cur_addr, cur_byte);
     };
   \<close>
-  with_args bs pr
 
 definition update_raw_fun :: \<open>(raw_pref, 8 word list) gref \<Rightarrow> 8 word list \<Rightarrow> ('s, unit, 'abort, 'i prompt, 'o prompt_output) function_body\<close> where
   \<open>update_raw_fun r bs \<equiv>
      let pr = Global_Store.address r in
        FunctionBody (update_raw_fun_urust_site_1 bs pr)\<close>
 
-urust_expr [urust_abbrev = true]
+urust expr [urust_abbrev = true]
   dereference_raw_fun_urust_site_1
+  (pr)
   \<open>
     trace!(l\<llangle>"Raw_Tagged_Physical_Memory.dereference_raw_fun"\<rrangle>);
 
@@ -139,14 +140,13 @@ urust_expr [urust_abbrev = true]
       load_tagged_physical_address (\<llangle>raw_pmem_region_base pr + i\<rrangle>)
     }).collect()
   \<close>
-  with_args pr
 
 definition dereference_raw_fun :: \<open>(raw_pref, 8 word list) gref \<Rightarrow> ('s, 8 word list, 'abort, 'i prompt, 'o prompt_output) function_body\<close> where
   \<open>dereference_raw_fun r \<equiv>
      let pr = Global_Store.address r in
        FunctionBody (dereference_raw_fun_urust_site_1 pr)\<close>
 
-urust_fun reference_raw_fun ::
+urust fn reference_raw_fun ::
   \<open>8 word list \<Rightarrow> ('s, (raw_pref, 8 word list) gref, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (bs)
   \<open>

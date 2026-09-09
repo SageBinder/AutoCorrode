@@ -28,9 +28,9 @@ where \<^verbatim>\<open>(32)\<close> is the width of the representing word type
 may be any expression of that type; note that hexadecimal literals must be given in a cartouche,
 as the outer syntax lexes \<^verbatim>\<open>0x42\<close> as two tokens. Plain decimal numerals need no cartouche.
 
-An optional \<^verbatim>\<open>urust: "Name"\<close> clause may follow the type name:
+An optional \<^verbatim>\<open>urust_name: "Name"\<close> clause may follow the type name:
 
-\<^verbatim>\<open>simple_word_enum (32) my_enum urust: "MyEnum" = Answer = \<open>0x42\<close> | ...\<close>
+\<^verbatim>\<open>simple_word_enum (32) my_enum urust_name: "MyEnum" = Answer = \<open>0x42\<close> | ...\<close>
 
 This theory does \<^emph>\<open>nothing\<close> with that name --- it is recorded on the \<^verbatim>\<open>enum_info\<close> handed to
 plugins, for a plugin to act on. The \<^verbatim>\<open>urust_notation\<close> plugin in
@@ -225,7 +225,7 @@ sig
      transported along the target morphism, so they are usable as they stand. *)
   type enum_info = {
     type_name: string,                 (* base name, e.g. "my_enum" *)
-    (* The optional \<^verbatim>\<open>urust: "Name"\<close> given at declaration time. The command itself does
+    (* The optional \<^verbatim>\<open>urust_name: "Name"\<close> given at declaration time. The command itself does
        nothing with this --- it is carried here purely so that a plugin can pick it up; see
        the \<^verbatim>\<open>urust_notation\<close> plugin in \<^theory>\<open>Shallow_Micro_Rust.Simple_Word_Enum_uRust\<close>,
        which cannot live in this theory because the \<^verbatim>\<open>micro_rust_notation\<close> command sits in a
@@ -372,15 +372,15 @@ fun defs_name type_name = type_name ^ "_defs"
 fun note_thm name attrs thm lthy =
   Local_Theory.note ((Binding.name name, attrs), [thm]) lthy |> apfst (the_single o snd)
 
-(* Define a constant \<^verbatim>\<open>name \<equiv> rhs\<close>, returning the constant and its definitional theorem
+(* Define a constant `name = rhs`, returning the constant and its definitional theorem
    already transported along the target morphism, so that both are usable in the proofs
    that follow even when the command runs inside a local target.
 
-   Uses \<^verbatim>\<open>Specification.definition\<close> rather than the lower-level \<^verbatim>\<open>Local_Theory.define\<close>: the former
-   attaches a \<^emph>\<open>default\<close> code equation to the \<^verbatim>\<open>_def\<close> fact it notes, which is what makes the
-   generated constants code-exportable without any \<^verbatim>\<open>[code]\<close> declarations. Being a default, it is
-   superseded by an explicit \<^verbatim>\<open>[code]\<close> elsewhere --- so \<^verbatim>\<open>T_all\<close>, whose definition goes through
-   \<^verbatim>\<open>Abs\<close>/\<^verbatim>\<open>unat\<close>, still generates from \<^verbatim>\<open>T_all_concrete\<close>'s literal list. *)
+   Uses `Specification.definition` rather than the lower-level `Local_Theory.define`: the former
+   attaches a default code equation to the `_def` fact it notes, which is what makes the
+   generated constants code-exportable without any `[code]` declarations. Being a default, it is
+   superseded by an explicit `[code]` elsewhere --- so `T_all`, whose definition goes through
+   `Abs`/`unat`, still generates from `T_all_concrete`'s literal list. *)
 fun define_const name rhs lthy =
   let
     val binding = Binding.name name
@@ -642,10 +642,10 @@ val parse_plugins =
       (Parse.$$$ "(" |-- Plugin_Name.parse_filter --| Parse.$$$ ")"))
     (K Plugin_Name.default_filter)
 
-(* The optional `urust: "Name"` clause, between the type name and the `=`. Purely recorded
+(* The optional `urust_name: "Name"` clause, between the type name and the `=`. Purely recorded
    on enum_info; this theory never acts on it. *)
 val parse_urust_name =
-  Scan.option (Parse.reserved "urust" |-- Parse.$$$ ":" |-- Parse.string)
+  Scan.option (Parse.reserved "urust_name" |-- Parse.$$$ ":" |-- Parse.string)
 
 val _ =
   Outer_Syntax.local_theory \<^command_keyword>\<open>simple_word_enum\<close>

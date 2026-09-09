@@ -14,10 +14,10 @@ definition GENERIC_LIMIT_A :: nat where
 definition GENERIC_LIMIT_B :: nat where
   \<open> GENERIC_LIMIT_B = 13 \<close>
 
-urust_expr generic_payload_01 \<open> generic_dimension_call::<1>() \<close>
-urust_expr generic_payload_02 \<open> generic_dimension_call::<GENERIC_LIMIT_A>() \<close>
-urust_expr generic_payload_03 \<open> generic_dimension_call::<1 + GENERIC_LIMIT_A>() \<close>
-urust_expr generic_payload_04
+urust expr generic_payload_01 \<open> generic_dimension_call::<1>() \<close>
+urust expr generic_payload_02 \<open> generic_dimension_call::<GENERIC_LIMIT_A>() \<close>
+urust expr generic_payload_03 \<open> generic_dimension_call::<1 + GENERIC_LIMIT_A>() \<close>
+urust expr generic_payload_04
   \<open> generic_dimension_call::<GENERIC_LIMIT_A + 3 + GENERIC_LIMIT_B>() \<close>
 
 section\<open> Exact canonical names \<close>
@@ -25,8 +25,8 @@ section\<open> Exact canonical names \<close>
 urust_notation (call) cf0 ("GenericFactory::<TypeA>::make")
 urust_notation (call) cf0 ("GenericContainer::<2>::make")
 
-urust_expr generic_exact_type_a \<open> GenericFactory::<TypeA>::make() \<close>
-urust_expr generic_exact_container_2 \<open> GenericContainer::<2>::make() \<close>
+urust expr generic_exact_type_a \<open> GenericFactory::<TypeA>::make() \<close>
+urust expr generic_exact_container_2 \<open> GenericContainer::<2>::make() \<close>
 
 definition exact_fallback ::
   \<open>int \<Rightarrow> int \<Rightarrow>
@@ -37,8 +37,8 @@ definition exact_fallback ::
 micro_rust_notation (call) exact_fallback ("Exact::f")
 urust_notation (call) cf0 ("Exact::f::<N>")
 
-urust_expr exact_generic_wins \<open> Exact::f::<N>() \<close>
-urust_expr exact_generic_fallback \<open> Exact::f::<1>(2) \<close>
+urust expr exact_generic_wins \<open> Exact::f::<N>() \<close>
+urust expr exact_generic_fallback \<open> Exact::f::<1>(2) \<close>
 
 section\<open> Structural and semantic audit \<close>
 
@@ -501,19 +501,19 @@ urust_notation (call) cf0 ("AuditIdentifier::<mod>::new")
 urust_notation (call) macro_shout ("AuditMacro::<a + b>::shout!")
 urust_notation (config) [shadow_no_warn] "AuditConfig::<a + b>::new"
 
-urust_expr audit_spaced_compact \<open> AuditSpaced::<a+b>::new() \<close>
-urust_expr audit_spaced_spaced \<open> AuditSpaced::<a + b>::new() \<close>
-urust_expr audit_spaced_multiline
+urust expr audit_spaced_compact \<open> AuditSpaced::<a+b>::new() \<close>
+urust expr audit_spaced_spaced \<open> AuditSpaced::<a + b>::new() \<close>
+urust expr audit_spaced_multiline
   \<open>
     AuditSpaced::<
       a +
       b
     >::new()
   \<close>
-urust_expr audit_auto \<open> AuditAuto::<a+b>::new() \<close>
-urust_expr audit_div_identifier \<open> AuditIdentifier::<div>::new() \<close>
-urust_expr audit_mod_identifier \<open> AuditIdentifier::<mod>::new() \<close>
-urust_expr audit_macro \<open> AuditMacro::<a+b>::shout!(true) \<close>
+urust expr audit_auto \<open> AuditAuto::<a+b>::new() \<close>
+urust expr audit_div_identifier \<open> AuditIdentifier::<div>::new() \<close>
+urust expr audit_mod_identifier \<open> AuditIdentifier::<mod>::new() \<close>
+urust expr audit_macro \<open> AuditMacro::<a+b>::shout!(true) \<close>
 
 ML_val\<open>
   local

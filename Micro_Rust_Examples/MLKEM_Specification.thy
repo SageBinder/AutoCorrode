@@ -9,10 +9,10 @@ begin
 text\<open>
   Pure mathematical specification of MLKEM operations.
   All definitions are non-monadic HOL functions serving as reference specifications
-  for the \<mu>Rust implementations proved correct in subsequent theories.
+  for the \<open>\<mu>Rust\<close> implementations proved correct in subsequent theories.
 \<close>
 
-section\<open>Utility: array\_map2\<close>
+section\<open>Utility: \<^verbatim>\<open>array_map2\<close>\<close>
 
 definition array_map2 ::
     \<open>('a \<Rightarrow> 'b \<Rightarrow> 'c) \<Rightarrow> ('a, 'l::{len}) array \<Rightarrow> ('b, 'l) array \<Rightarrow> ('c, 'l) array\<close> where
@@ -25,7 +25,7 @@ lemma array_map2_nth:
            f (array_nth xs i) (array_nth ys i)\<close>
   using assms by (simp add: array_map2_def)
 
-section\<open>Modular arithmetic in Z\_q\<close>
+section\<open>Modular arithmetic in \<^verbatim>\<open>Z_q\<close>\<close>
 
 definition zq_add :: \<open>16 word \<Rightarrow> 16 word \<Rightarrow> 16 word\<close> where
   \<open>zq_add a b \<equiv> (a + b) mod mlkem_q_word\<close>

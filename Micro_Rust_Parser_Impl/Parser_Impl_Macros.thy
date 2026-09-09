@@ -85,7 +85,7 @@ struct
     if expected = actual then ()
     else
       error
-        ("urust_expr: macro " ^ quote (name ^ "!") ^ " expects exactly " ^
+        ("urust expr: macro " ^ quote (name ^ "!") ^ " expects exactly " ^
           string_of_int expected ^ " argument(s), but got " ^
           string_of_int actual ^ Position.here pos)
 
@@ -93,7 +93,7 @@ struct
     if expected <= actual then ()
     else
       error
-        ("urust_expr: macro " ^ quote (name ^ "!") ^ " expects at least " ^
+        ("urust expr: macro " ^ quote (name ^ "!") ^ " expects at least " ^
           string_of_int expected ^ " argument(s), but got " ^
           string_of_int actual ^ Position.here pos)
 
@@ -103,7 +103,7 @@ struct
         (case source_pattern of
            P_Range (_, _, _, pos) =>
              error
-               ("urust_expr: range patterns are not supported by legacy matches!" ^
+               ("urust expr: range patterns are not supported by legacy matches!" ^
                  Position.here pos)
          | P_Constr (_, arguments) => List.app reject arguments
          | P_Tuple (arguments, _) => List.app reject arguments
@@ -136,7 +136,7 @@ struct
            (R.parse_antiquotation ctxt environment source)
      | _ =>
          error
-           ("urust_expr: macro message must be an identifier, quoted string, or value antiquotation" ^
+           ("urust expr: macro message must be an identifier, quoted string, or value antiquotation" ^
              Position.here (expression_position expression)))
 
   fun report_builtin ctxt pos =
@@ -209,7 +209,7 @@ struct
                 T.address_of (lower_argument (hd arguments)))
            | _ =>
                error
-                 ("urust_expr: unknown macro " ^ quote complete_name ^
+                 ("urust expr: unknown macro " ^ quote complete_name ^
                    Position.here complete_name_pos))
         end
     in

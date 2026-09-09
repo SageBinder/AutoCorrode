@@ -7,12 +7,13 @@ theory MLKEM_NTT
 begin
 
 declare [[urust_conformance_check = true]]
+declare [[urust_verbose = 2]]
 
 text\<open>
   NTT (Number Theoretic Transform) for MLKEM. This theory contains:
   \<^item> Pure properties of the NTT specification from @{theory Micro_Rust_Examples.MLKEM_Specification}
   \<^item> Array lens disjointness lemmas
-  \<^item> \<mu>Rust NTT implementation with three nested loop invariants
+  \<^item> \<open>\<mu>Rust\<close> NTT implementation with three nested loop invariants
 \<close>
 
 section\<open>NTT pure properties\<close>
@@ -141,7 +142,7 @@ lemma drop_bit_le_self_nat:
   shows \<open>drop_bit n (m::nat) \<le> m\<close>
 by (simp add: drop_bit_eq_div)
 
-section\<open>NTT locale and \<mu>Rust implementation\<close>
+section\<open>NTT locale and \<open>\<mu>Rust\<close> implementation\<close>
 
 locale mlkem_ntt_context =
     mlkem_polynomial_context _ _ _ _ _ _ _ reference_types word16_prism word32_prism poly_prism
@@ -157,7 +158,7 @@ begin
 
 adhoc_overloading store_reference_const \<rightleftharpoons> ref_word64.new
 
-urust_fun ntt ::
+urust fn ntt ::
   \<open>('addr, 'gv, mlkem_poly) Global_Store.ref \<Rightarrow>
    ('s::{sepalg}, unit, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (f_ref)
@@ -487,7 +488,8 @@ proof (crush_boot f: ntt_def contract: ntt_contract_def, goal_cases)
                                         ntt_middle_loop_terminal
                                         unat_of_nat_eq unat_power_lower
                               simp del: of_nat_add of_nat_power)
-            \<comment> \<open>Instantiate init existentials (g_f_m=g_f, g_k_m=g_k, p_mid=p_cur)\<close>
+            \<comment> \<open>Instantiate init existentials
+              (\<^verbatim>\<open>g_f_m=g_f, g_k_m=g_k, p_mid=p_cur\<close>)\<close>
             apply (rule_tac x=g_f in aexists_entailsR)
             apply (rule_tac x=g_k in aexists_entailsR)
             apply (rule_tac x=p_cur in aexists_entailsR)

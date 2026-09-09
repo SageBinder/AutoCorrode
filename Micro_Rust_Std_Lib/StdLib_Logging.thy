@@ -19,7 +19,7 @@ underlying primitive logger, provided as a yield handler.  Note that strictly sp
 also \<^emph>\<open>macros\<close> in Rust; we use \<^verbatim>\<open>\<mu>Rust\<close> functions to model logging instead.
 
 First, the \<^verbatim>\<open>fatal\<close> logger:\<close>
-urust_fun [urust_abbrev = true] fatal ::
+urust fn [urust_abbrev = true] fatal ::
   \<open>log_data \<Rightarrow> ('s, unit, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (m)
   \<open>
@@ -28,7 +28,7 @@ urust_fun [urust_abbrev = true] fatal ::
 micro_rust_notation (call) fatal ("fatal!")
 
 text\<open>The \<^verbatim>\<open>info\<close> logger:\<close>
-urust_fun [urust_abbrev = true] info ::
+urust fn [urust_abbrev = true] info ::
   \<open>log_data \<Rightarrow> ('s, unit, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (m)
   \<open>
@@ -37,7 +37,7 @@ urust_fun [urust_abbrev = true] info ::
 micro_rust_notation (call) info ("info!")
 
 text\<open>The \<^verbatim>\<open>error\<close> logger:\<close>
-urust_fun [urust_abbrev = true] error ::
+urust fn [urust_abbrev = true] error ::
   \<open>log_data \<Rightarrow> ('s, unit, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (m)
   \<open>
@@ -46,7 +46,7 @@ urust_fun [urust_abbrev = true] error ::
 micro_rust_notation (call) error ("error!")
 
 text\<open>The \<^verbatim>\<open>debug\<close> logger:\<close>
-urust_fun [urust_abbrev = true] debug ::
+urust fn [urust_abbrev = true] debug ::
   \<open>log_data \<Rightarrow> ('s, unit, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (m)
   \<open>
@@ -55,7 +55,7 @@ urust_fun [urust_abbrev = true] debug ::
 micro_rust_notation (call) debug ("debug!")
 
 text\<open>The \<^verbatim>\<open>trace\<close> logger:\<close>
-urust_fun [urust_abbrev = true] trace ::
+urust fn [urust_abbrev = true] trace ::
   \<open>log_data \<Rightarrow> ('s, unit, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (m)
   \<open>
@@ -87,11 +87,11 @@ translations
   "_log_entry_to_hol (_log_entry_id s)" \<rightharpoonup> "CONST generate_debug s"
   "_shallow (_urust_log_data es)" \<rightharpoonup> "CONST literal (_log_entry_list_to_hol es)"
 
-urust_expr [urust_abbrev = true] StdLib_Logging_urust_site_1
+urust expr [urust_abbrev = true] StdLib_Logging_urust_site_1
+  (x, y, z)
   \<open>
   fatal!(l\<llangle>"this ", x, " is ", y, " a ", z, " test "\<rrangle>)
   \<close>
-  with_args x y z
 
 term \<open>StdLib_Logging_urust_site_1 x y z\<close>
 

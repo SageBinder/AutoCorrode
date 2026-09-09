@@ -8,9 +8,10 @@ theory MLKEM_Polynomial
 begin
 
 declare [[urust_conformance_check = true]]
+declare [[urust_verbose = 2]]
 
 text\<open>
-  \<mu>Rust polynomial operations with contracts proving refinement against the
+  \<open>\<mu>Rust\<close> polynomial operations with contracts proving refinement against the
   pure specifications from @{theory Micro_Rust_Examples.MLKEM_Specification}.
 \<close>
 
@@ -32,7 +33,7 @@ adhoc_overloading store_reference_const \<rightleftharpoons> ref_poly.new
 section\<open>Splice helper lemmas\<close>
 
 text\<open>These lemmas relate the loop body operation (array update at index i) to the
-\<^verbatim>\<open>array\_splice\<close> characterization used in the loop invariant.\<close>
+\<^verbatim>\<open>array_splice\<close> characterization used in the loop invariant.\<close>
 
 lemma poly_add_splice_step:
   assumes \<open>i < mlkem_n\<close>
@@ -60,7 +61,7 @@ by (intro array_extI) (simp add: mlkem_n_def)
 
 section\<open>Polynomial addition\<close>
 
-urust_fun poly_add ::
+urust fn poly_add ::
   \<open>mlkem_poly \<Rightarrow> mlkem_poly \<Rightarrow>
    ('s, mlkem_poly, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (a, b)
@@ -116,7 +117,7 @@ done
 
 section\<open>Polynomial subtraction\<close>
 
-urust_fun poly_sub ::
+urust fn poly_sub ::
   \<open>mlkem_poly \<Rightarrow> mlkem_poly \<Rightarrow>
    ('s, mlkem_poly, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (a, b)

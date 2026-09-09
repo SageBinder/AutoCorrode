@@ -34,7 +34,7 @@ end
   The generated lexer may rely on these public, non-returning functions:
 
     * lex_error text pos raises an ERROR for an unrecognized source fragment.  The message retains the
-      `urust_expr` command prefix, quotes text, and appends Position.here pos so the rejection is
+      `urust expr` command prefix, quotes text, and appends Position.here pos so the rejection is
       clickable.  In particular, the catch-all lexer rule must call this function rather than skip
       input.
     * string_error pos raises the positioned malformed-or-unterminated-string diagnostic at the
@@ -60,36 +60,36 @@ end
 structure URust_Grammar :> URUST_GRAMMAR =
 struct
   fun lex_error text pos =
-    error ("urust_expr: unexpected input " ^ quote text ^ Position.here pos)
+    error ("urust expr: unexpected input " ^ quote text ^ Position.here pos)
 
   fun string_error pos =
-    error ("urust_expr: malformed or unterminated string literal" ^ Position.here pos)
+    error ("urust expr: malformed or unterminated string literal" ^ Position.here pos)
 
   fun antiquotation_error kind pos =
-    error ("urust_expr: unterminated " ^ kind ^ " antiquotation" ^ Position.here pos)
+    error ("urust expr: unterminated " ^ kind ^ " antiquotation" ^ Position.here pos)
 
   fun formal_comment_open_error pos =
     error
-      ("urust_expr: opening cartouche expected after formal comment" ^
+      ("urust expr: opening cartouche expected after formal comment" ^
         Position.here pos)
 
   fun formal_comment_close_error pos =
-    error ("urust_expr: unterminated formal comment" ^ Position.here pos)
+    error ("urust expr: unterminated formal comment" ^ Position.here pos)
 
   fun log_data_error pos =
-    error ("urust_expr: unterminated log data" ^ Position.here pos)
+    error ("urust expr: unterminated log data" ^ Position.here pos)
 
   fun turbofish_error pos =
-    error ("urust_expr: unterminated turbofish" ^ Position.here pos)
+    error ("urust expr: unterminated turbofish" ^ Position.here pos)
 
   fun function_literal_suffix_error pos =
     error
-      ("urust_expr: function-literal arity suffix must immediately follow the value antiquotation" ^
+      ("urust expr: function-literal arity suffix must immediately follow the value antiquotation" ^
         Position.here pos)
 
   fun struct_head_generics_error pos =
     error
-      ("urust_expr: generic arguments are not supported in struct-expression heads" ^
+      ("urust expr: generic arguments are not supported in struct-expression heads" ^
         Position.here pos)
 end
 \<close>

@@ -11,6 +11,7 @@ theory Reference_Examples
     Byte_Level_Encoding.Byte_Encoding_Word_Nat
 begin
 declare [[urust_conformance_check = true]]
+declare [[urust_verbose = 2]]
 
 section\<open>References\<close>
 
@@ -69,7 +70,7 @@ and typing would consist of encoding/decoding byte strings as as concrete types.
 
 text\<open>Before going into further details, here is the example of the \<^verbatim>\<open>swap\<close> function:\<close>
 
-urust_fun swap_ref :: \<open>('addr, 'gv, 'v) Global_Store.ref \<Rightarrow> ('addr, 'gv, 'v) Global_Store.ref \<Rightarrow> ('s, unit, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
+urust fn swap_ref :: \<open>('addr, 'gv, 'v) Global_Store.ref \<Rightarrow> ('addr, 'gv, 'v) Global_Store.ref \<Rightarrow> ('s, unit, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (rA, rB)
   \<open>
      let oldA = *rA;
@@ -293,7 +294,7 @@ adhoc_overloading store_dereference_const \<rightleftharpoons> raw_pmem_trie_der
 
 text\<open>With this, we can make sense of the \<^verbatim>\<open>swap_ref\<close> function outside of any locale:\<close>
 
-urust_fun swap_ref :: \<open>(raw_pmem_region, byte list, 'v) Global_Store.ref \<Rightarrow> (raw_pmem_region, byte list, 'v) Global_Store.ref
+urust fn swap_ref :: \<open>(raw_pmem_region, byte list, 'v) Global_Store.ref \<Rightarrow> (raw_pmem_region, byte list, 'v) Global_Store.ref
    \<Rightarrow> (unit tagged_physical_memory, unit, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (rA, rB)
   \<open>

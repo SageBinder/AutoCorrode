@@ -208,7 +208,7 @@ struct
         constant \<^const_name>\<open>List.append\<close>
           [entry, append_log_entries rest]
     | append_log_entries [] =
-        error "urust_expr: internal empty log data"
+        error "urust expr: internal empty log data"
 
   fun log_data entries = literal (append_log_entries entries)
 
@@ -239,7 +239,7 @@ struct
     if minimum_lift_arity <= arity andalso arity <= maximum_lift_arity
     then constant (Vector.sub (lift_function_constants, arity - 1)) [function]
     else
-      error ("urust_expr: unsupported function-literal arity " ^
+      error ("urust expr: unsupported function-literal arity " ^
         string_of_int arity ^ " (expected " ^
         string_of_int minimum_lift_arity ^ ".." ^
         string_of_int maximum_lift_arity ^ ")" ^ Position.here pos)
@@ -248,7 +248,7 @@ struct
     if 0 <= arity andalso arity <= maximum_function_arity
     then Vector.sub (function_constants, arity)
     else
-      error ("urust_expr: unsupported call arity " ^ string_of_int arity ^ " (max " ^
+      error ("urust expr: unsupported call arity " ^ string_of_int arity ^ " (max " ^
         string_of_int maximum_function_arity ^
         "; the frontend's surface lowering caps here)" ^ Position.here pos)
 
@@ -289,7 +289,7 @@ struct
       val _ =
         if number_end = (if hex then 2 else 0)
         then
-          error ("urust_expr: cannot read integer literal " ^ quote lexeme ^
+          error ("urust expr: cannot read integer literal " ^ quote lexeme ^
             Position.here pos)
         else ()
       val number_text = String.substring (lexeme, 0, number_end)
@@ -311,7 +311,7 @@ struct
                else Int.fromString number_text) of
            SOME value => value
          | NONE =>
-             error ("urust_expr: cannot read integer literal " ^ quote number_text ^
+             error ("urust expr: cannot read integer literal " ^ quote number_text ^
                Position.here pos))
     in
       if suffix_spelling = ""
@@ -320,7 +320,7 @@ struct
         (case integer_suffix_type suffix of
            SOME typ => (value, SOME typ)
          | NONE =>
-             error ("urust_expr: unsupported integer-literal suffix " ^
+             error ("urust expr: unsupported integer-literal suffix " ^
                quote suffix_spelling ^
                " (supported: " ^ supported_integer_suffixes ^
                "; optional compatibility underscore)" ^
@@ -388,7 +388,7 @@ struct
 
   fun tuple [first, second] = tuple_lift true first second
     | tuple (first :: rest) = tuple_lift false first (tuple rest)
-    | tuple _ = error "urust_expr: internal tuple with fewer than two elements"
+    | tuple _ = error "urust expr: internal tuple with fewer than two elements"
 
   fun array_literal [] = literal (Const (\<^const_name>\<open>List.Nil\<close>, dummyT))
     | array_literal (first :: rest) =
@@ -521,7 +521,7 @@ struct
          Type.constraint result_type
            (Term.list_comb
              (Term.map_types (K dummyT) target_function, [expression]))
-     | NONE => error "urust_expr: internal unsupported cast target")
+     | NONE => error "urust expr: internal unsupported cast target")
 
   fun assertion expression =
     constant \<^const_name>\<open>assert\<close> [expression]

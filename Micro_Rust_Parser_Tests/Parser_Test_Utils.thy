@@ -20,7 +20,7 @@ struct
        arguments_pos = #2 (Input.range_of source),
        declared_type = NONE}
 
-  fun expression_with_args ctxt arguments source =
+  fun expression_with_arguments ctxt arguments source =
     URust_Command.elaborate ctxt
       {kind = URust_Command.Expression,
        source = source,

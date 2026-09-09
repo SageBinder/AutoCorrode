@@ -9,9 +9,10 @@ theory MLKEM_Zq
 begin
 
 declare [[urust_conformance_check = true]]
+declare [[urust_verbose = 2]]
 
 text\<open>
-  \<mu>Rust implementations of Z\_q arithmetic operations with contracts proving refinement
+  \<open>\<mu>Rust\<close> implementations of \<^verbatim>\<open>Z_q\<close> arithmetic operations with contracts proving refinement
   against the pure specifications from @{theory Micro_Rust_Examples.MLKEM_Specification}.
 \<close>
 
@@ -79,7 +80,7 @@ qed
 
 section\<open>Modular addition\<close>
 
-urust_fun zq_add ::
+urust fn zq_add ::
   \<open>16 word \<Rightarrow> 16 word \<Rightarrow>
    ('s, 16 word, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (a, b)
@@ -107,7 +108,7 @@ lemma zq_add_spec [crush_specs]:
 
 section\<open>Modular subtraction\<close>
 
-urust_fun zq_sub ::
+urust fn zq_sub ::
   \<open>16 word \<Rightarrow> 16 word \<Rightarrow>
    ('s, 16 word, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (a, b)
@@ -140,7 +141,7 @@ qed
 
 section\<open>Modular multiplication\<close>
 
-urust_fun zq_mul ::
+urust fn zq_mul ::
   \<open>16 word \<Rightarrow> 16 word \<Rightarrow>
    ('s, 16 word, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (a, b)

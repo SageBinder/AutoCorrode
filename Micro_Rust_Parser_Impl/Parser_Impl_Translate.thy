@@ -110,10 +110,10 @@ struct
       fun formal_signature (P_Ident formal) = formal
         | formal_signature (P_Wild pos) =
             error
-              ("urust_expr: closure formal must be an identifier" ^
+              ("urust expr: closure formal must be an identifier" ^
                 Position.here pos)
         | formal_signature _ =
-            error "urust_expr: internal non-identifier closure formal"
+            error "urust expr: internal non-identifier closure formal"
       val signatures = map formal_signature formals
       val (formal_terms, body_environment) =
         R.allocate_closure_formals ctxt environment signatures

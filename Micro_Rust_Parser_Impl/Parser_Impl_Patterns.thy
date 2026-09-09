@@ -157,7 +157,7 @@ struct
   fun reject_reference_patterns pattern =
     let
       fun reject (P_Borrow (_, _, pos)) =
-            error ("urust_expr: reference patterns are not implemented" ^
+            error ("urust expr: reference patterns are not implemented" ^
               Position.here pos)
         | reject (P_Constr (_, arguments)) = List.app reject arguments
         | reject (P_Tuple (arguments, _)) = List.app reject arguments
@@ -203,7 +203,7 @@ struct
       else if List.all case_compatible patterns then MF_Case
       else if List.all switch_compatible patterns then MF_Switch
       else
-        error ("urust_expr: mixed numeral and constructor patterns in bare `match`" ^
+        error ("urust expr: mixed numeral and constructor patterns in bare `match`" ^
           Position.here pos)
     end
 
@@ -220,7 +220,7 @@ struct
       val _ =
         (case (selected, first_guard_position arms) of
            (MF_Switch, SOME guard_pos) =>
-             error ("urust_expr: guards are not supported in explicit `match_switch`" ^
+             error ("urust expr: guards are not supported in explicit `match_switch`" ^
                Position.here guard_pos)
          | _ => ())
     in selected end
@@ -362,7 +362,7 @@ struct
      | P_Ident identifier => Resolved_Identifier_Value identifier
      | P_Path path => Resolved_Path_Value path
      | unsupported =>
-         error ("urust_expr: invalid range-pattern endpoint" ^
+         error ("urust expr: invalid range-pattern endpoint" ^
            Position.here (position unsupported)))
 
   fun check_constructor_arity name pos info arguments =
@@ -372,7 +372,7 @@ struct
     in
       if expected = actual then ()
       else
-        error ("urust_expr: constructor " ^ quote name ^ " expects " ^
+        error ("urust expr: constructor " ^ quote name ^ " expects " ^
           string_of_int expected ^ " pattern argument(s), but got " ^
           string_of_int actual ^ Position.here pos)
     end
@@ -396,7 +396,7 @@ struct
          | P_Literal (payload as LP_Integer (_, pos)) =>
              (case policy of
                 Resolve_Constructor_Case =>
-                  error ("urust_expr: numeric patterns are not supported in case patterns" ^
+                  error ("urust expr: numeric patterns are not supported in case patterns" ^
                     Position.here pos)
               | _ => Resolved_Value payload)
          | P_Literal payload => Resolved_Value payload
@@ -419,7 +419,7 @@ struct
               in
               (case R.resolve_constructor ctxt resolver path of
                 NONE =>
-                  error ("urust_expr: `" ^ name ^
+                  error ("urust expr: `" ^ name ^
                     "` is not a known constructor" ^ Position.here pos)
               | SOME info =>
                   (check_constructor_arity name pos info arguments;
@@ -434,15 +434,15 @@ struct
              (case policy of
                 Resolve_Constructor_Case => resolve inner
               | _ =>
-                  error ("urust_expr: reference patterns are not implemented" ^
+                  error ("urust expr: reference patterns are not implemented" ^
                     Position.here pos))
          | P_Alias ("_", pos, _, _) =>
-             error ("urust_expr: alias pattern binder cannot be `_`" ^
+             error ("urust expr: alias pattern binder cannot be `_`" ^
                Position.here pos)
          | P_Alias (name, pos, inner, alias_pos) =>
              Resolved_Alias (binding name pos, resolve inner, alias_pos)
          | P_Range (_, P_Range _, _, pos) =>
-             error ("urust_expr: range patterns are non-associative" ^
+             error ("urust expr: range patterns are non-associative" ^
                Position.here pos)
          | P_Range (kind, lower, upper, pos) =>
              Resolved_Range
@@ -452,7 +452,7 @@ struct
                fun resolve_items _ [] = []
                  | resolve_items seen_rest (SI_Rest rest_pos :: rest) =
                      if seen_rest then
-                       error ("urust_expr: slice pattern has multiple `..` rest entries" ^
+                       error ("urust expr: slice pattern has multiple `..` rest entries" ^
                          Position.here rest_pos)
                      else
                        Resolved_Slice_Rest rest_pos ::
@@ -481,7 +481,7 @@ struct
                       (info, pos, map resolve_field ordered)
                   end
               | R.Resolved_Record_Struct (record_name, _) =>
-                  error ("urust_expr: HOL record pattern " ^
+                  error ("urust expr: HOL record pattern " ^
                     quote (Long_Name.base_name record_name) ^
                     " requires selector-based lowering" ^
                     Position.here pos))
@@ -499,7 +499,7 @@ struct
   fun signature_position (_, pos) = pos
 
   fun duplicate_binder name pos original_pos =
-    error ("urust_expr: duplicate pattern binder " ^ quote name ^
+    error ("urust expr: duplicate pattern binder " ^ quote name ^
       Position.here pos ^ "\nThe original binder is here" ^
       Position.here original_pos)
 
@@ -530,7 +530,7 @@ struct
       fun check_first (name, original) =
         (case Symtab.lookup alternative name of
            NONE =>
-             error ("urust_expr: or-pattern alternative is missing binder " ^
+             error ("urust expr: or-pattern alternative is missing binder " ^
                quote name ^ Position.here or_pos ^
                "\nThe first alternative binds it here" ^
                Position.here (signature_position original))
@@ -539,7 +539,7 @@ struct
       fun check_extra (name, current) =
         if Symtab.defined first name then ()
         else
-          error ("urust_expr: or-pattern alternative has extra binder " ^
+          error ("urust expr: or-pattern alternative has extra binder " ^
             quote name ^ Position.here (signature_position current))
     in
       List.app check_first (Symtab.dest first);
@@ -565,7 +565,7 @@ struct
                 (fn Resolved_Slice_Pattern nested => collect nested
                   | Resolved_Slice_Rest _ => []) items)
         | collect (Resolved_Or ([], pos)) =
-            error ("urust_expr: internal empty or-pattern" ^ Position.here pos)
+            error ("urust expr: internal empty or-pattern" ^ Position.here pos)
         | collect (Resolved_Or (first :: rest, pos)) =
             let
               val first_signatures = collect first
@@ -585,7 +585,7 @@ struct
       (case R.lookup_local environment name of
          SOME free => free
        | NONE =>
-           error ("urust_expr: internal unallocated pattern binder " ^
+           error ("urust expr: internal unallocated pattern binder " ^
              quote name ^ Position.here pos))
     end
 
@@ -611,7 +611,7 @@ struct
                         T.case_product
                           (abstraction (tuple_abstraction rest body))
                     | tuple_abstraction [] _ =
-                        error "urust_expr: internal empty tuple pattern"
+                        error "urust expr: internal empty tuple pattern"
                 in SOME (fn body => tuple_abstraction concrete body) end
               else NONE
             end
@@ -656,7 +656,7 @@ struct
      | P_Wild _ => Allocate_Rhs
      | P_Tuple _ => Plain_Rhs
      | _ =>
-         error ("urust_expr: invalid mutable binding pattern" ^
+         error ("urust expr: invalid mutable binding pattern" ^
            " (expected identifier, `_`, or top-level tuple destructuring)" ^
            Position.here (position pattern)))
 
@@ -693,7 +693,7 @@ struct
                       Let_Const_Binder
                   | _ => site)
              in
-               error ("urust_expr: unsupported or refutable pattern in " ^
+               error ("urust expr: unsupported or refutable pattern in " ^
                  binder_site_description diagnostic_site ^
                  Position.here (resolved_position resolved))
              end)
@@ -723,11 +723,11 @@ struct
          [T.option_some
             (R.literal_path_value ctxt R.empty_environment path)]
      | P_Ident (name, pos) =>
-         error ("urust_expr: unsupported match_switch key " ^ quote name ^
+         error ("urust expr: unsupported match_switch key " ^ quote name ^
            " (numeral or `_` only; const-id / path keys not yet supported)" ^
            Position.here pos)
      | unsupported =>
-         error ("urust_expr: unsupported match_switch pattern" ^
+         error ("urust expr: unsupported match_switch pattern" ^
            " (numeral, `_`, or an or-list of those; binding patterns need" ^
            " `match_case`)" ^ Position.here (position unsupported)))
 
@@ -738,7 +738,7 @@ struct
         (case guard of
            NONE => ()
          | SOME (_, pos) =>
-             error ("urust_expr: guards are not supported in explicit `match_switch`" ^
+             error ("urust expr: guards are not supported in explicit `match_switch`" ^
                Position.here pos))
     in (switch_keys ctxt pattern, body) end
 
@@ -786,7 +786,7 @@ struct
             (Resolved_Slice_Rest pos :: rest) =
             split prefix (SOME pos) suffix rest
         | split _ (SOME _) _ (Resolved_Slice_Rest pos :: _) =
-            error ("urust_expr: internal duplicate slice rest" ^
+            error ("urust expr: internal duplicate slice rest" ^
               Position.here pos)
         | split prefix rest_pos suffix
             (Resolved_Slice_Pattern pattern :: rest) =
@@ -853,7 +853,7 @@ struct
              (case R.use_local ctxt environment (name, pos) of
                 SOME _ => ()
               | NONE =>
-                  error ("urust_expr: internal unallocated case binder " ^
+                  error ("urust expr: internal unallocated case binder " ^
                     quote name ^ Position.here pos))
          in Case_Bind binder_sig end
      | Resolved_Value payload =>
@@ -903,7 +903,7 @@ struct
                       (cons_chain (rev suffix) nil_pattern)))
          end
      | Resolved_Or (_, pos) =>
-         error ("urust_expr: internal unexpanded resolved or-pattern" ^
+         error ("urust expr: internal unexpanded resolved or-pattern" ^
            Position.here pos))
 
   fun prepare_case_arm resolver ctxt environment
@@ -955,7 +955,7 @@ struct
        Case_Wild pos => Basic_Wild (SOME pos)
      | Case_Bind binder_sig => Basic_Bind binder_sig
      | Case_Value (_, pos) =>
-         error ("urust_expr: internal unnormalized value pattern" ^
+         error ("urust expr: internal unnormalized value pattern" ^
            Position.here pos)
      | Case_Constructor (info, pos, arguments) =>
          Basic_Constructor
@@ -966,13 +966,13 @@ struct
      | Case_Tuple arguments =>
          Basic_Tuple (map normalize_basic_pattern arguments)
      | Case_Alias (binder_sig, _) =>
-         error ("urust_expr: internal unnormalized alias pattern" ^
+         error ("urust expr: internal unnormalized alias pattern" ^
            Position.here (signature_position binder_sig))
      | Case_Range (_, _, _, pos) =>
-         error ("urust_expr: internal unnormalized range pattern" ^
+         error ("urust expr: internal unnormalized range pattern" ^
            Position.here pos)
      | Case_Slice_Suffix _ =>
-         error "urust_expr: internal unnormalized slice suffix pattern")
+         error "urust expr: internal unnormalized slice suffix pattern")
 
   fun instantiate_pattern arguments tree =
     (case tree of
@@ -1017,7 +1017,7 @@ struct
               (case R.use_local ctxt environment (name, pos) of
                  SOME free => add_slot (SOME free) state
                | NONE =>
-                   error ("urust_expr: internal unregistered case binder " ^
+                   error ("urust expr: internal unregistered case binder " ^
                      quote name ^ Position.here pos))
             end
         | walk (Basic_Generated free) state =
@@ -1084,7 +1084,7 @@ struct
       (case R.lookup_local environment name of
          SOME free => T.bind expression (Term.lambda free rhs)
        | NONE =>
-           error ("urust_expr: internal unregistered alias binder " ^
+           error ("urust expr: internal unregistered alias binder " ^
              quote name ^ Position.here pos))
     end
 
@@ -1258,7 +1258,7 @@ struct
       val undefined = T.undefined_value
 
       fun compile_branches [] =
-            error "urust_expr: internal empty case branch list"
+            error "urust expr: internal empty case branch list"
         | compile_branches [(wild, abstraction, NONE, rhs)] =
             if wild then rhs
             else case_term [abstraction rhs]
@@ -1346,7 +1346,7 @@ struct
         Term.list_comb (handler, binders)
 
       fun compile_alternatives [] _ _ _ =
-            error "urust_expr: internal empty source-arm alternative list"
+            error "urust expr: internal empty source-arm alternative list"
         | compile_alternatives
             [(wild, abstraction, generated_guard, wrap)]
             handler binders next_arm =
@@ -1418,12 +1418,12 @@ struct
                           (wrap (handler_call handler binders))
                     | branch _ =
                         error
-                          "urust_expr: internal guarded alternative in unguarded case"
+                          "urust expr: internal guarded alternative in unguarded case"
                   val current = map branch alternatives
                 in install rest (current :: branches) end
             | install _ _ =
                 error
-                  "urust_expr: internal guarded source arm in unguarded case"
+                  "urust expr: internal guarded source arm in unguarded case"
         in install sources [] end
 
       val selector =

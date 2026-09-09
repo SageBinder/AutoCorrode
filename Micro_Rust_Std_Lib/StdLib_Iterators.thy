@@ -11,7 +11,7 @@ declare [[urust_conformance_check = true]]
 \<comment>\<open>Force one-by-one unrolling of loops\<close>
 declare raw_for_loop_unroll_once_cong[crush_cong]
 
-urust_fun find ::
+urust fn find ::
   \<open>('s, 'v, 'abort, 'i prompt, 'o prompt_output) iterator \<Rightarrow>
    ('v \<Rightarrow> ('s, bool, 'abort, 'i prompt, 'o prompt_output) function_body) \<Rightarrow>
    ('s, 'v option, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
@@ -23,19 +23,19 @@ urust_fun find ::
     None
   \<close>
 
-urust_expr [urust_abbrev = true] enumerate_urust_site_1
+urust expr [urust_abbrev = true] enumerate_urust_site_1
+  (i, f)
   \<open>
     let feval = f();
     (\<llangle>word_of_nat i\<rrangle>, feval)
   \<close>
-  with_args i f
 
 definition enumerate :: \<open>('s, 'v, 'abort, 'i prompt, 'o prompt_output) iterator \<Rightarrow>
       ('s, ('s, 64 word \<times> 'v \<times> tnil, 'abort, 'i prompt, 'o prompt_output) iterator, 'abort, 'i prompt, 'o prompt_output) function_body\<close> where
   \<open>enumerate self \<equiv> FunctionBody (literal (make_iterator
     (mapi (\<lambda>i f. FunctionBody (enumerate_urust_site_1 i f)) (iterator_thunks self))))\<close>
 
-urust_fun any :: \<open>('s, 'v, 'abort, 'i prompt, 'o prompt_output) iterator \<Rightarrow>
+urust fn any :: \<open>('s, 'v, 'abort, 'i prompt, 'o prompt_output) iterator \<Rightarrow>
     ('v \<Rightarrow> ('s, bool, 'abort, 'i prompt, 'o prompt_output) function_body) \<Rightarrow>
     ('s, bool, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (self, predicate)
@@ -46,7 +46,7 @@ urust_fun any :: \<open>('s, 'v, 'abort, 'i prompt, 'o prompt_output) iterator \
      }
   \<close>
 
-urust_fun count :: \<open>('s, 'v, 'abort, 'i prompt, 'o prompt_output) iterator \<Rightarrow>
+urust fn count :: \<open>('s, 'v, 'abort, 'i prompt, 'o prompt_output) iterator \<Rightarrow>
       ('s, 64 word, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (self)
   \<open>
@@ -56,7 +56,7 @@ urust_fun count :: \<open>('s, 'v, 'abort, 'i prompt, 'o prompt_output) iterator
 context reference
 begin
 
-urust_fun iter_mut ::
+urust fn iter_mut ::
   \<open>('a, 'b, 'v list) Global_Store.ref \<Rightarrow> ('s, ('s, ('a, 'b, 'v) Global_Store.ref, 'abort, 'i prompt, 'o prompt_output) iterator, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (ref)
   \<open>

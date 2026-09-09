@@ -8,7 +8,7 @@ begin
 declare [[urust_conformance_check = true]]
 (*>*)
 
-urust_fun option_expect :: \<open>'v option \<Rightarrow> String.literal \<Rightarrow> ('s, 'v, 'abort, 'i, 'o) function_body\<close>
+urust fn option_expect :: \<open>'v option \<Rightarrow> String.literal \<Rightarrow> ('s, 'v, 'abort, 'i, 'o) function_body\<close>
   (self, msg)
   \<open>
       match self {
@@ -31,7 +31,7 @@ lemma option_expect_spec [crush_specs]:
   by (crush_boot f: option_expect_def contract: option_expect_contract_def)
      (crush_base split!: option.splits)
 
-urust_fun option_unwrap :: \<open>'v option \<Rightarrow> ('s, 'v, 'abort, 'i, 'o) function_body\<close>
+urust fn option_unwrap :: \<open>'v option \<Rightarrow> ('s, 'v, 'abort, 'i, 'o) function_body\<close>
   (self)
   \<open>
      self.expect("unwrap")
@@ -50,7 +50,7 @@ lemma option_unwrap_spec [crush_specs]:
   by (crush_boot f: option_unwrap_def contract: option_unwrap_contract_def)
      (crush_base split!: option.splits)
 
-urust_fun urust_func_option_is_none :: \<open>'v option \<Rightarrow> ('s, bool, 'abort, 'i, 'o) function_body\<close>
+urust fn urust_func_option_is_none :: \<open>'v option \<Rightarrow> ('s, bool, 'abort, 'i, 'o) function_body\<close>
   (self)
   \<open>
      match self {
@@ -72,7 +72,7 @@ lemma option_is_none_spec [crush_specs]:
   by (crush_boot f: urust_func_option_is_none_def contract: option_is_none_contract_def)
      (crush_base simp add: Option.is_none_def split!: option.splits)
 
-urust_fun urust_func_option_is_some :: \<open>'v option \<Rightarrow> ('s, bool, 'abort, 'i, 'o) function_body\<close>
+urust fn urust_func_option_is_some :: \<open>'v option \<Rightarrow> ('s, bool, 'abort, 'i, 'o) function_body\<close>
   (self)
   \<open>
      match self {
@@ -95,7 +95,7 @@ lemma option_is_some_spec [crush_specs]:
   by (crush_boot f: urust_func_option_is_some_def contract: option_is_some_contract_def)
      (crush_base simp add: Option.is_none_def split!: option.splits)
 
-urust_fun ok_or :: \<open>'v option \<Rightarrow> 'e \<Rightarrow> ('s, ('v, 'e) result, 'abort, 'i, 'o) function_body\<close>
+urust fn ok_or :: \<open>'v option \<Rightarrow> 'e \<Rightarrow> ('s, ('v, 'e) result, 'abort, 'i, 'o) function_body\<close>
   (self, e)
   \<open>
      match self {
@@ -130,7 +130,7 @@ begin
        
 adhoc_overloading store_update_const \<rightleftharpoons> update_fun
 
-urust_fun option_as_mut ::
+urust fn option_as_mut ::
   \<open>('a, 'b, 'v option) Global_Store.ref \<Rightarrow> ('s, ('a, 'b, 'v) Global_Store.ref option, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (self)
   \<open>
@@ -156,7 +156,7 @@ lemma option_as_mut_spec [crush_specs]:
   apply (crush_base simp add: option_focus_def split: option.splits)
   done
 
-urust_fun take_mut_ref_option :: \<open>('a, 'b, 'v option) Global_Store.ref \<Rightarrow>
+urust fn take_mut_ref_option :: \<open>('a, 'b, 'v option) Global_Store.ref \<Rightarrow>
       ('s, 'v option, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (ptr)
   \<open>
