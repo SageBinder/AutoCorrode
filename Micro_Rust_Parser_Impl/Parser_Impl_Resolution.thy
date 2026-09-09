@@ -697,7 +697,7 @@ struct
           ({kind = Ctr_Sugar.Record, ...} :
             Ctr_Sugar.ctr_sugar) = []
         | catalog_entries
-            ({T, ctrs, selss, ...} :
+            ({kind, T, ctrs, selss, ...} :
               Ctr_Sugar.ctr_sugar) =
             let
               val type_name = type_name_of T
@@ -717,7 +717,9 @@ struct
               fun entry (constructor, selectors) =
                 (case constructor of
                    Const (identity, typ) =>
-                     if Code.is_constr theory identity
+                     if kind = Ctr_Sugar.Datatype orelse
+                         kind = Ctr_Sugar.Codatatype orelse
+                         Code.is_constr theory identity
                      then
                        let
                          val normalized_selectors =
@@ -824,14 +826,26 @@ struct
         then seen else info :: seen)
       infos []
 
-  fun registered_constructor_candidates ctxt resolver path =
-    Micro_Rust_Names.lookups ctxt Micro_Rust_Names.NLiteral (render_path path)
-    |> maps
-      (fn entry =>
-        (case term_name_of (identifier_leaf (#hol_term entry)) of
-           SOME name => constructor_candidates resolver name
-         | NONE => []))
-    |> distinct_constructor_infos
+  fun registered_constructor_candidates ctxt
+      (Constructor_Resolver {by_identity, ...}) path =
+    let
+      val constructors = map #2 (Symtab.dest by_identity)
+
+      fun registered_matches entry =
+        let val backend = identifier_leaf (#hol_term entry)
+        in
+          filter
+            (fn info =>
+              Term.aconv_untyped
+                (backend, constructor_term info))
+            constructors
+        end
+    in
+      Micro_Rust_Names.lookups ctxt Micro_Rust_Names.NLiteral
+        (render_path path)
+      |> maps registered_matches
+      |> distinct_constructor_infos
+    end
 
   fun resolve_constructor ctxt resolver path =
     let

@@ -738,6 +738,32 @@ micro_rust_notation (literal) path_pattern_fixture.PathOther ("Path::Other")
 micro_rust_notation (call) path_other_call ("Path::Other")
 micro_rust_notation (literal) path_pattern_fixture.PathNone ("Path::None")
 
+datatype registered_constructor_fixture =
+    RegisteredNullary
+  | RegisteredUnary nat
+  | RegisteredOther
+
+micro_rust_notation (literal)
+  registered_constructor_fixture.RegisteredNullary
+  ("Registered::Nullary")
+micro_rust_notation (literal)
+  registered_constructor_fixture.RegisteredUnary
+  ("Registered::Unary")
+micro_rust_notation (literal)
+  registered_constructor_fixture.RegisteredOther
+  ("Registered::Other")
+
+datatype 'a registered_phantom =
+    RegisteredPhantomA
+  | RegisteredPhantomB
+
+micro_rust_notation (literal)
+  registered_phantom.RegisteredPhantomA
+  ("RegisteredPhantom::A")
+micro_rust_notation (literal)
+  registered_phantom.RegisteredPhantomB
+  ("RegisteredPhantom::B")
+
 urust_expr path_constructor_pattern
   \<open>
     match_case Path::Some(\<llangle>3 :: nat\<rrangle>) {
@@ -759,6 +785,58 @@ urust_expr path_constructor_or_pattern
     match_case Path::Some(\<llangle>3 :: nat\<rrangle>) {
       Path::Some(value) | Path::Other(value) \<Rightarrow> value,
       Path::None \<Rightarrow> 0
+    }
+  \<close>
+
+urust_expr registered_constructor_nullary
+  \<open>
+    match_case \<llangle>RegisteredNullary\<rrangle> {
+      Registered::Nullary \<Rightarrow> 1,
+      Registered::Unary(value) \<Rightarrow> value,
+      Registered::Other \<Rightarrow> 0
+    }
+  \<close>
+
+urust_expr registered_constructor_positional
+  \<open>
+    match_case \<llangle>RegisteredUnary 7\<rrangle> {
+      Registered::Nullary \<Rightarrow> 0,
+      Registered::Unary(value) \<Rightarrow> value,
+      Registered::Other \<Rightarrow> 1
+    }
+  \<close>
+
+urust_expr registered_constructor_partial
+  \<open>
+    match_case \<llangle>RegisteredUnary 7\<rrangle> {
+      Registered::Unary(value) \<Rightarrow> value
+    }
+  \<close>
+
+urust_expr registered_constructor_guard
+  \<open>
+    match_case \<llangle>RegisteredUnary 7\<rrangle> {
+      Registered::Unary(value) if False \<Rightarrow> value,
+      Registered::Unary(value) \<Rightarrow> value,
+      _ \<Rightarrow> 0
+    }
+  \<close>
+
+urust_expr registered_phantom_nat
+  \<open>
+    match_case
+      \<llangle>RegisteredPhantomA :: nat registered_phantom\<rrangle> {
+      RegisteredPhantom::A \<Rightarrow> True,
+      RegisteredPhantom::B \<Rightarrow> False
+    }
+  \<close>
+
+urust_expr registered_phantom_bool
+  \<open>
+    match_case
+      \<llangle>RegisteredPhantomB :: bool registered_phantom\<rrangle> {
+      RegisteredPhantom::A \<Rightarrow> False,
+      RegisteredPhantom::B \<Rightarrow> True
     }
   \<close>
 

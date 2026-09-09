@@ -4587,6 +4587,319 @@ ML_val\<open>
 \<close>
 
 
+section\<open> Registered constructor identity audit \<close>
+
+consts
+  registered_constructor_scrutinee :: registered_constructor_fixture
+  registered_constructor_guard_marker :: bool
+  registered_constructor_first_marker :: nat
+  registered_constructor_second_marker :: nat
+
+ML_val\<open>
+  local
+    open URust_AST
+
+    val ctxt = \<^context>
+
+    fun audit_assert message condition =
+      if condition then ()
+      else error ("registered constructor identity audit: " ^ message)
+
+    fun checked source =
+      Parser_Test_Elaboration.expression ctxt
+        (Parser_Lex_Util.text_source source)
+
+    fun parse source =
+      (case URust_Diagnostics.parse_source ctxt source of
+         SOME expression => expression
+       | NONE => error "empty parse")
+
+    fun count_constant name term =
+      Term.fold_aterms
+        (fn Const (candidate, _) =>
+              if candidate = name then Integer.add 1 else I
+          | _ => I)
+        term 0
+
+    fun constant_name term =
+      (case Term.head_of term of
+         Const (name, _) => name
+       | _ => error "expected constant")
+
+    val nullary_name =
+      constant_name \<^term>\<open>RegisteredNullary\<close>
+    val unary_name =
+      constant_name \<^term>\<open>RegisteredUnary\<close>
+    val other_name =
+      constant_name \<^term>\<open>RegisteredOther\<close>
+    val phantom_a_name =
+      constant_name
+        \<^term>\<open>RegisteredPhantomA :: nat registered_phantom\<close>
+    val phantom_b_name =
+      constant_name
+        \<^term>\<open>RegisteredPhantomB :: nat registered_phantom\<close>
+
+    val exhaustive =
+      checked
+        ("match_case \<llangle>registered_constructor_scrutinee\<rrangle> { " ^
+         "Registered::Nullary \<Rightarrow> \<llangle>registered_constructor_first_marker\<rrangle>, " ^
+         "Registered::Unary(value) \<Rightarrow> value, " ^
+         "Registered::Other \<Rightarrow> \<llangle>registered_constructor_second_marker\<rrangle> }")
+    val partial =
+      checked
+        ("match_case \<llangle>registered_constructor_scrutinee\<rrangle> { " ^
+         "Registered::Unary(value) \<Rightarrow> value }")
+    val guarded =
+      checked
+        ("match_case \<llangle>registered_constructor_scrutinee\<rrangle> { " ^
+         "Registered::Unary(value) if " ^
+         "\<llangle>registered_constructor_guard_marker\<rrangle> \<Rightarrow> " ^
+         "\<llangle>registered_constructor_first_marker\<rrangle>, " ^
+         "_ \<Rightarrow> \<llangle>registered_constructor_second_marker\<rrangle> }")
+    val nonconstructor =
+      checked
+        ("match_case Color::Red { Color::Red \<Rightarrow> " ^
+         "\<llangle>registered_constructor_first_marker\<rrangle>, " ^
+         "_ \<Rightarrow> \<llangle>registered_constructor_second_marker\<rrangle> }")
+
+    val _ =
+      audit_assert "exhaustive match duplicated its scrutinee"
+        (count_constant
+          \<^const_name>\<open>registered_constructor_scrutinee\<close>
+          exhaustive = 1)
+    val _ =
+      audit_assert "partial match duplicated its scrutinee"
+        (count_constant
+          \<^const_name>\<open>registered_constructor_scrutinee\<close>
+          partial = 1)
+    val _ =
+      audit_assert "guarded match duplicated its scrutinee"
+        (count_constant
+          \<^const_name>\<open>registered_constructor_scrutinee\<close>
+          guarded = 1)
+    val _ =
+      List.app
+        (fn name =>
+          audit_assert
+            ("exhaustive match lost authentic constructor " ^ quote name)
+            (count_constant name exhaustive > 0))
+        [nullary_name, unary_name, other_name]
+    val _ =
+      audit_assert "exhaustive constructor match retained undefined"
+        (count_constant \<^const_name>\<open>undefined\<close> exhaustive = 0)
+    val _ =
+      audit_assert "exhaustive constructor match used generated equality"
+        (count_constant \<^const_name>\<open>HOL.eq\<close> exhaustive = 0)
+    val _ =
+      audit_assert "exhaustive constructor match used generated conditional"
+        (count_constant
+          \<^const_name>\<open>two_armed_conditional\<close> exhaustive = 0)
+    val _ =
+      audit_assert "partial constructor match lost its constructor"
+        (count_constant unary_name partial > 0)
+    val _ =
+      audit_assert "partial constructor match used generated equality"
+        (count_constant \<^const_name>\<open>HOL.eq\<close> partial = 0)
+    val _ =
+      audit_assert "partial constructor match lost its unmatched fallback"
+        (count_constant \<^const_name>\<open>undefined\<close> partial > 0)
+    val _ =
+      audit_assert "guard marker was duplicated or dropped"
+        (count_constant
+          \<^const_name>\<open>registered_constructor_guard_marker\<close>
+          guarded = 1)
+    val _ =
+      audit_assert "guarded constructor match lost its authentic constructor"
+        (count_constant unary_name guarded > 0)
+    val _ =
+      audit_assert "guarded constructor match used generated equality"
+        (count_constant \<^const_name>\<open>HOL.eq\<close> guarded = 0)
+    val _ =
+      audit_assert "guarded match with wildcard fallback retained undefined"
+        (count_constant \<^const_name>\<open>undefined\<close> guarded = 0)
+    val _ =
+      audit_assert "guarded false fall-through lost the next source arm"
+        (count_constant
+          \<^const_name>\<open>registered_constructor_second_marker\<close>
+          guarded > 0)
+    val _ =
+      audit_assert "registered nonconstructor lost its value key"
+        (count_constant \<^const_name>\<open>path_literal_42\<close>
+          nonconstructor > 0)
+
+    fun path_of source =
+      (case parse (Parser_Lex_Util.text_source source) of
+         UE_Path path => path
+       | _ => error ("expected path " ^ quote source))
+
+    val resolver =
+      URust_Resolution.make_constructor_resolver
+        ctxt Position.none
+    val unary_info =
+      the
+        (URust_Resolution.resolve_constructor ctxt resolver
+          (path_of "Registered::Unary"))
+    val phantom_info =
+      the
+        (URust_Resolution.resolve_constructor ctxt resolver
+          (path_of "RegisteredPhantom::A"))
+    val _ =
+      audit_assert "registered nonconstructor became a constructor"
+        (is_none
+          (URust_Resolution.resolve_constructor ctxt resolver
+            (path_of "Color::Red")))
+    val _ =
+      audit_assert "registered unary did not return catalogue identity"
+        (Term.aconv_untyped
+          (URust_Resolution.constructor_term unary_info,
+           \<^term>\<open>RegisteredUnary\<close>))
+    val _ =
+      (case URust_Resolution.constructor_family unary_info of
+         SOME (_, members) =>
+           audit_assert "registered constructor family is incomplete"
+             (sort_strings (map constant_name members) =
+              sort_strings [nullary_name, unary_name, other_name])
+       | NONE => error "registered constructor lost family metadata")
+    val _ =
+      audit_assert "polymorphic phantom registration lost constructor identity"
+        (Term.aconv_untyped
+          (URust_Resolution.constructor_term phantom_info,
+           \<^term>\<open>RegisteredPhantomA :: bool registered_phantom\<close>))
+    val _ =
+      (case URust_Resolution.constructor_family phantom_info of
+         SOME (_, members) =>
+           audit_assert "phantom constructor family is incomplete"
+             (sort_strings (map constant_name members) =
+              sort_strings [phantom_a_name, phantom_b_name])
+       | NONE => error "phantom constructor lost family metadata")
+
+    fun find_from text needle offset =
+      if offset + size needle > size text then
+        error ("missing " ^ quote needle)
+      else if String.substring (text, offset, size needle) = needle
+      then offset
+      else find_from text needle (offset + 1)
+
+    fun token_position text start needle offset =
+      let
+        val raw = find_from text needle offset
+        val token_start =
+          Position.symbol_explode
+            (String.substring (text, 0, raw)) start
+      in
+        (raw,
+         Position.range_position
+           (token_start, Position.symbol_explode needle token_start))
+      end
+
+    fun same_range left right =
+      Position.offset_of left = Position.offset_of right andalso
+      Position.end_offset_of left = Position.end_offset_of right
+
+    val markup_text =
+      "match_case \<llangle>RegisteredUnary 1\<rrangle> { " ^
+      "Registered::Unary(value) \<Rightarrow> (), _ \<Rightarrow> () }"
+    val markup_start =
+      Position.make0 29 700 0 "" ""
+        "registered-constructor-markup-audit"
+    val markup_source =
+      Parser_Lex_Util.positioned_content_source
+        markup_text markup_start
+    val (path_raw, expected_path) =
+      token_position markup_text markup_start
+        "Registered::Unary" 0
+    val (_, expected_qualifier) =
+      token_position markup_text markup_start
+        "Registered" path_raw
+    val (_, expected_terminal) =
+      token_position markup_text markup_start
+        "Unary" (path_raw + size "Registered::")
+    val pattern_path =
+      (case parse markup_source of
+         UE_Match
+           (_, _, UR_Arm (P_Constr (path, [_]), NONE, _) :: _, _) =>
+           path
+       | _ => error "registered constructor pattern AST changed")
+    val (_, terminal_position) =
+      segment_identifier (final_segment pattern_path)
+    val _ =
+      audit_assert "registered constructor path span changed"
+        (same_range (path_position pattern_path) expected_path)
+    val _ =
+      audit_assert "registered constructor terminal range changed"
+        (same_range terminal_position expected_terminal)
+
+    val captured_reports =
+      Synchronized.var "registered_constructor_reports"
+        ([]: string list)
+    fun capture_reports chunks =
+      Synchronized.change captured_reports (append chunks)
+    val _ =
+      Parser_Test_Report_Lock.run (fn () =>
+        Unsynchronized.setmp Private_Output.report_fn capture_reports
+          (fn () =>
+            Print_Mode.with_modes [Print_Mode.PIDE]
+              (fn () =>
+                ignore
+                  (Parser_Test_Elaboration.expression
+                    ctxt markup_source)) ())
+          ())
+
+    fun collect_markup (XML.Text _) result = result
+      | collect_markup (XML.Elem (markup, body)) result =
+          fold collect_markup body (markup :: result)
+    val markup =
+      fold collect_markup
+        (maps YXML.parse_body
+          (Synchronized.value captured_reports)) []
+    fun has_position properties position =
+      Properties.get properties Markup.offsetN =
+        Option.map Value.print_int (Position.offset_of position) andalso
+      Properties.get properties Markup.end_offsetN =
+        Option.map Value.print_int (Position.end_offset_of position)
+    fun has_markup markup_name position =
+      exists
+        (fn (name, properties) =>
+          name = markup_name andalso
+            has_position properties position)
+        markup
+    fun has_entity kind identity position =
+      exists
+        (fn (name, properties) =>
+          name = Markup.entityN andalso
+            Properties.get properties Markup.kindN = SOME kind andalso
+            Properties.get properties Markup.nameN = SOME identity andalso
+            has_position properties position)
+        markup
+
+    val _ =
+      audit_assert "constructor qualifier lost path/free markup"
+        (has_markup Markup.freeN expected_qualifier)
+    val _ =
+      audit_assert "constructor terminal lost authentic constant markup"
+        (has_entity Markup.constantN unary_name expected_terminal)
+    val _ =
+      audit_assert "constructor terminal lost constant styling"
+        (has_markup Markup.constN expected_terminal)
+    val _ =
+      audit_assert "constructor terminal lost typing markup"
+        (has_markup Markup.typingN expected_terminal)
+    val _ =
+      audit_assert "constructor terminal was reported as a free binder"
+        (not (has_markup Markup.freeN expected_terminal))
+    val _ =
+      audit_assert "constructor terminal retained notation dispatch markup"
+        (not
+          (has_entity Micro_Rust_Names.notationN
+            "Registered::Unary" expected_terminal))
+  in
+    val _ =
+      writeln
+        "Registered constructor identity, lowering, range, markup, and single-evaluation regressions passed"
+  end
+\<close>
+
+
 section\<open> Standard code equations \<close>
 
 urust_expr regression_code_literal

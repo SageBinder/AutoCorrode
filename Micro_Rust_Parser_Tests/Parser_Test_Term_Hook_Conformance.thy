@@ -17,11 +17,6 @@ constraints are retained on both sides. The definition and rejection tiers are c
 Known parser/conformance gaps are kept below as commented-out exact corpus
 equations instead of being rewritten into different tests:
 
-  \<^item> An exhaustive match over the registered literals
-    \<^verbatim>\<open>test::Test_1\<close> and \<^verbatim>\<open>test::Test_2\<close>: the dedicated
-    parser emits equality-tested conditionals with an \<open>undefined\<close> fallback,
-    while the legacy frontend emits a datatype case expression.
-
   \<^item> A semicolon-bearing binding expression cannot appear directly as a
     macro argument. The legacy-accepted
     \<^verbatim>\<open>assert!(let ...; if let ...)\<close> form is rejected at the first
@@ -1092,7 +1087,6 @@ micro_rust_notation (literal) three ("number::three")
 lemma \<open> \<mu>\<open> test::Test_1 \<close> = \<lbrakk> test::Test_1 \<rbrakk>\<close> by (rule refl)
 lemma \<open> \<mu>\<open>plus2::lifted(three)\<close> = \<lbrakk>plus2::lifted(three)\<rbrakk>\<close> by (rule refl)
 lemma \<open> \<mu>\<open>plus_two_lift(three)\<close> = \<lbrakk>plus_two_lift(three)\<rbrakk>\<close> by (rule refl)
-(* Known parser/conformance gap; see the note at the top of this theory.
 lemma \<open> \<mu>\<open>
   let arg = test::Test_1;
   let fun = plus2::lifted;
@@ -1102,7 +1096,22 @@ lemma \<open> \<mu>\<open>
   let fun = plus2::lifted;
   match arg { test::Test_1 \<Rightarrow> fun(three), test::Test_2 \<Rightarrow> plus2::lifted(three) }
 \<rbrakk>\<close> by (rule refl)
-*)
+lemma \<open>
+  (\<lambda>Test1 :: nat. \<mu>\<open>
+    let arg = test::Test_1;
+    match arg {
+      test::Test_1 \<Rightarrow> three,
+      test::Test_2 \<Rightarrow> three
+    }
+  \<close>) =
+  (\<lambda>Test1 :: nat. \<lbrakk>
+    let arg = test::Test_1;
+    match arg {
+      test::Test_1 \<Rightarrow> three,
+      test::Test_2 \<Rightarrow> three
+    }
+  \<rbrakk>)
+\<close> by (rule refl)
 (* Known parser/conformance gap; see the note at the top of this theory.
 lemma \<open> \<mu>\<open>
   let x = 5;

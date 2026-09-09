@@ -188,6 +188,25 @@ datatype showoff_event =
   | ShowoffRetry "nat option"
   | ShowoffStop
 
+datatype showoff_registered_event =
+    ShowoffRegisteredData nat
+  | ShowoffRegisteredStop
+
+micro_rust_notation (literal)
+  showoff_registered_event.ShowoffRegisteredData
+  ("Showoff::Data")
+micro_rust_notation (literal)
+  showoff_registered_event.ShowoffRegisteredStop
+  ("Showoff::Stop")
+
+urust_expr showoff_registered_match
+  \<open>
+    match \<llangle>ShowoffRegisteredData 7\<rrangle> {
+      Showoff::Data(value) \<Rightarrow> value,
+      Showoff::Stop \<Rightarrow> 0
+    }
+  \<close>
+
 text\<open>
 Features: automatic case routing, an explicit numeric switch, constructor and
 value patterns, or-patterns, full guard bodies, semicolon-free explicit match

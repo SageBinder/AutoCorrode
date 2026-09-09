@@ -392,12 +392,32 @@ urust_expr cast_corpus_nested_tuple
   \<close>
 
 
-section\<open> Registered constant patterns \<close>
+section\<open> Registered literal patterns \<close>
 
 text\<open>
-The dedicated pattern resolver treats an exact registered literal path as a value pattern. The old
-frontend instead sends the same path to datatype case translation and rejects it as a nonconstructor.
+An exact registered literal whose complete backend is an authentic datatype constructor remains a
+constructor pattern and carries the catalogue's arity, family, and selector metadata. Other
+registered constants and expressions are value patterns. The old frontend rejects the latter when
+it sends the registered path to datatype case translation as a nonconstructor.
 \<close>
+
+urust_expr registered_constructor_pattern_boundary
+  \<open>
+    match_case \<llangle>RegisteredUnary 9\<rrangle> {
+      Registered::Nullary \<Rightarrow> 0,
+      Registered::Unary(value) \<Rightarrow> value,
+      Registered::Other \<Rightarrow> 1
+    }
+  \<close>
+  against \<open>
+    \<lbrakk>
+      match_case \<llangle>RegisteredUnary 9\<rrangle> {
+        Registered::Nullary \<Rightarrow> 0,
+        Registered::Unary(value) \<Rightarrow> value,
+        Registered::Other \<Rightarrow> 1
+      }
+    \<rbrakk>
+  \<close>
 
 urust_expr path_constant_pattern
   \<open>
