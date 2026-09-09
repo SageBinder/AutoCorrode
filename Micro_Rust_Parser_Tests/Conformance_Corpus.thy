@@ -264,7 +264,7 @@ subsection\<open>Control Flow - Conditionals\<close>
 
 lemma \<open>undefined = \<lbrakk> if True { return True; } else { return True; } \<rbrakk>\<close> sorry
 lemma \<open>undefined = \<lbrakk> if \<llangle>True\<rrangle> { let v = 16; return v; } else { 42 } \<rbrakk>\<close> sorry
-lemma \<open>undefined = \<lbrakk> ((if True { 0 } else { 1 }, True), if False { (2 as u32, 3 as u32) } else { (4, 5) }) \<rbrakk>\<close> sorry
+lemma \<open>undefined = \<lbrakk> ((if True { 0 } else { 1 }, True), if False { (2_u32 as u32, 3_u32 as u32) } else { (4, 5) }) \<rbrakk>\<close> sorry
 lemma \<open>undefined = \<lbrakk> if False { \<llangle>0 :: 32 word\<rrangle> } else if True { \<llangle>1 :: 32 word\<rrangle> } else { \<llangle>2 :: 32 word\<rrangle> } \<rbrakk>\<close> sorry
 lemma \<open>undefined = \<lbrakk> if False { \<llangle>0 :: 32 word\<rrangle> } else if False { \<llangle>1 :: 32 word\<rrangle> } else if True { \<llangle>2 :: 32 word\<rrangle> } else { \<llangle>3 :: 32 word\<rrangle> } \<rbrakk>\<close> sorry
 lemma \<open>undefined = \<lbrakk> assert!((if False { False } else if True { True } else { False })) \<rbrakk>\<close> sorry
@@ -291,18 +291,18 @@ boundaries are executable checks in
 \<open>Parser_Test_Negative_Conformance.thy\<close>.
 \<close>
 
-lemma \<open>undefined = \<lbrakk> let (a,_) = (1,2); let (_,b) = (1,2); \<llangle>(a,b)\<rrangle> \<rbrakk>\<close> sorry
+lemma \<open>undefined = \<lbrakk> let (a,_) = (1_u32,2_u32); let (_,b) = (1_u32,2_u32); \<llangle>(a,b)\<rrangle> \<rbrakk>\<close> sorry
 
 subsection\<open>Control Flow - Match Expressions\<close>
 
 context
   fixes x :: \<open>32 word\<close>
 begin
-lemma \<open>undefined = \<lbrakk> match Some(x) { Some(y) \<Rightarrow> { return; }, None \<Rightarrow> { return; } }; \<rbrakk>\<close> sorry
+lemma \<open>undefined = \<lbrakk> match Some(x) { Some(y) \<Rightarrow> { if True { return; } else { () } }, None \<Rightarrow> { if True { return; } else { () } } }; \<rbrakk>\<close> sorry
 lemma \<open>undefined = \<lbrakk> match Some(x) { None \<Rightarrow> { return; }, Some(y) \<Rightarrow> y }; \<rbrakk>\<close> sorry
 end
 
-lemma \<open>undefined = \<lbrakk> let v = match Err(\<llangle>5 :: 32 word\<rrangle>) { Ok(_) \<Rightarrow> \<llangle>0 :: 32 word\<rrangle>, Err(x) \<Rightarrow> x }; assert!(v == \<llangle>5 :: 32 word\<rrangle>) \<rbrakk>\<close> sorry
+lemma \<open>undefined = \<lbrakk> let v = match Err(\<llangle>5 :: 32 word\<rrangle>) { Ok(ok_value) \<Rightarrow> \<llangle>0 * ok_value :: 32 word\<rrangle>, Err(x) \<Rightarrow> x }; assert!(v == \<llangle>5 :: 32 word\<rrangle>) \<rbrakk>\<close> sorry
 
 subsubsection\<open>Wildcard Patterns\<close>
 
@@ -361,7 +361,7 @@ lemma \<open>undefined = \<lbrakk> let y = match Some(Some(\<llangle>7 :: 32 wor
 
 subsubsection\<open>Nested Patterns\<close>
 
-lemma \<open>undefined = \<lbrakk> let one = \<llangle>1 :: 32 word\<rrangle>; let zero = \<llangle>0 :: 32 word\<rrangle>; assert!((match Some(Some(None)) { Some(None) \<Rightarrow> one, _ \<Rightarrow> zero }) == zero) \<rbrakk>\<close> sorry
+lemma \<open>undefined = \<lbrakk> let one = \<llangle>1 :: 32 word\<rrangle>; let zero = \<llangle>0 :: 32 word\<rrangle>; assert!((match Some(Some(\<llangle>None :: nat option\<rrangle>)) { Some(None) \<Rightarrow> one, _ \<Rightarrow> zero }) == zero) \<rbrakk>\<close> sorry
 lemma \<open>undefined = \<lbrakk> let a = \<llangle>1 :: 32 word\<rrangle>; let b = \<llangle>2 :: 32 word\<rrangle>; let c = \<llangle>3 :: 32 word\<rrangle>; let res = match ((a, b), c) { ((x, y), z) \<Rightarrow> (x, y, z) }; assert!(res.0 == a); assert!(res.1 == b); assert!(res.2 == c) \<rbrakk>\<close> sorry
 
 subsubsection\<open>Struct fixtures (from the tests theory)\<close>
@@ -419,7 +419,7 @@ context
 begin
 lemma \<open>undefined = \<lbrakk> match Some(x) { Some(y) if y > \<llangle>0 :: 32 word\<rrangle> \<Rightarrow> y, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<rbrakk>\<close> sorry
 lemma \<open>undefined = \<lbrakk> match Some(x) { Some(y) if (if True { True } else { False }) \<Rightarrow> y, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<rbrakk>\<close> sorry
-lemma \<open>undefined = \<lbrakk> match Some(x) { Some(y) \<Rightarrow> { return; }, None \<Rightarrow> { return; } }; \<rbrakk>\<close> sorry
+lemma \<open>undefined = \<lbrakk> match Some(x) { Some(y) \<Rightarrow> { if True { return; } else { () } }, None \<Rightarrow> { if True { return; } else { () } } }; \<rbrakk>\<close> sorry
 end
 
 lemma \<open>undefined = \<lbrakk> let zero = \<llangle>0 :: 32 word\<rrangle>; let one = \<llangle>1 :: 32 word\<rrangle>; let res = match Some(one) { Some(x) if x > zero \<Rightarrow> x, _ \<Rightarrow> zero }; assert!(res == one) \<rbrakk>\<close> sorry
@@ -442,7 +442,7 @@ lemma \<open>undefined = \<lbrakk> match r { Ok(ov) \<Rightarrow> match ov { Som
 end
 
 lemma \<open>undefined = \<lbrakk> match (match Some(\<llangle>1 :: 32 word\<rrangle>) { Some(y) \<Rightarrow> y, None \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }) { z \<Rightarrow> z } \<rbrakk>\<close> sorry
-lemma \<open>undefined = \<lbrakk> match Some(\<llangle>1 :: 32 word\<rrangle>) { Some(x) \<Rightarrow> { let t = match Ok(x) { Ok(v) \<Rightarrow> v, Err(_) \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }; t }, None \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<rbrakk>\<close> sorry
+lemma \<open>undefined = \<lbrakk> match Some(\<llangle>1 :: 32 word\<rrangle>) { Some(x) \<Rightarrow> { let t = match Ok(x) { Ok(v) \<Rightarrow> v, Err(err_value) \<Rightarrow> \<llangle>0 * err_value :: 32 word\<rrangle> }; t }, None \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<rbrakk>\<close> sorry
 
 context
   fixes x :: \<open>32 word\<close>
@@ -450,7 +450,7 @@ begin
 lemma \<open>undefined = \<lbrakk> match Some(x) { Some(y) if (match Some(y) { Some(_) \<Rightarrow> True, None \<Rightarrow> False }) \<Rightarrow> y, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<rbrakk>\<close> sorry
 end
 
-lemma \<open>undefined = \<lbrakk> match Some(\<llangle>1 :: 32 word\<rrangle>) { Some(x) \<Rightarrow> { match Some(x) { Some(_) \<Rightarrow> (), None \<Rightarrow> () }; match Ok(x) { Ok(_) \<Rightarrow> (), Err(_) \<Rightarrow> () } }, None \<Rightarrow> () } \<rbrakk>\<close> sorry
+lemma \<open>undefined = \<lbrakk> match Some(\<llangle>1 :: 32 word\<rrangle>) { Some(x) \<Rightarrow> { match Some(x) { Some(_) \<Rightarrow> (), None \<Rightarrow> () }; match Ok(x) { Ok(_) \<Rightarrow> (), Err(err_value) \<Rightarrow> { let _ = \<llangle>err_value :: 32 word\<rrangle>; () } } }, None \<Rightarrow> () } \<rbrakk>\<close> sorry
 
 \<comment>\<open>Nesting depth / breadth: depth-3, depth-4, and inner matches in multiple arms.\<close>
 context
@@ -495,7 +495,7 @@ subsection\<open>Control Flow - Loops\<close>
 
 lemma \<open>undefined = \<lbrakk> let lst = \<llangle>(1 :: 32 word, 2 :: 32 word, TNil) # (3, 4, TNil) # []\<rrangle>; for (a, b) in lst { let _ = a; let _ = b; () }; () \<rbrakk>\<close> sorry
 lemma \<open>undefined = \<lbrakk> let mut x = \<llangle>0 :: 32 word\<rrangle>; let lst = \<llangle>(1, 2, (True, False, ()), ()) # (1, 2, (True, False, ()), ()) # []\<rrangle>; for i in lst { if (i.2.0) && i.2.1 { *x = i.0; } else { *x = i.1; } }; x \<rbrakk>\<close> sorry
-lemma \<open>undefined = \<lbrakk> let mut x = \<llangle>0 :: 32 word\<rrangle>; let lst = \<llangle>(1, 2, (True, False, nil), nil) # (1, 2, (True, False, nil), nil) # []\<rrangle>; for (a, b, (c, d)) in lst { if c && d { x += a; } else { x += b; } }; x \<rbrakk>\<close> sorry
+lemma \<open>undefined = \<lbrakk> let mut x = \<llangle>0 :: 32 word\<rrangle>; let lst = \<llangle>((1 :: 32 word), (2 :: 32 word), (True, False, nil), nil) # ((1 :: 32 word), (2 :: 32 word), (True, False, nil), nil) # []\<rrangle>; for (a, b, (c, d)) in lst { if c && d { x += a; } else { x += b; } }; x \<rbrakk>\<close> sorry
 
 context
   fixes x y :: \<open>32 word\<close>
@@ -506,10 +506,10 @@ end
 context
   fixes n :: nat
 begin
-lemma \<open>undefined = \<lbrakk> let mut x = \<llangle>0 :: 32 word\<rrangle>; #[fuel(\<epsilon>\<open>n\<close>) ] while (*x < 10_u32) { x += 1_u32; }; *x \<rbrakk>\<close> sorry
-lemma \<open>undefined = \<lbrakk> let mut x = \<llangle>0 :: 32 word\<rrangle>; #[fuel(\<epsilon>\<open>n :: nat\<close>) ] while (*x < 10_u32) { x += 1_u32; } *x \<rbrakk>\<close> sorry
-lemma \<open>undefined = \<lbrakk> let mut x = \<llangle>0 :: 32 word\<rrangle>; #[fuel(\<epsilon>\<open>n\<close>) ] loop { x += 1_u32; }; *x \<rbrakk>\<close> sorry
-lemma \<open>undefined = \<lbrakk> let mut x = \<llangle>0 :: 32 word\<rrangle>; #[fuel(\<epsilon>\<open>n :: nat\<close>) ] loop { x += 1_u32; } *x \<rbrakk>\<close> sorry
+lemma \<open>undefined = \<lbrakk> let mut x = \<llangle>0 :: 32 word\<rrangle>; let _ = \<llangle>x :: (unit, unit, 32 word) Global_Store.ref\<rrangle>; #[fuel(\<epsilon>\<open>n\<close>) ] while (*x < 10_u32) { x += 1_u32; }; *x \<rbrakk>\<close> sorry
+lemma \<open>undefined = \<lbrakk> let mut x = \<llangle>0 :: 32 word\<rrangle>; let _ = \<llangle>x :: (unit, unit, 32 word) Global_Store.ref\<rrangle>; #[fuel(\<epsilon>\<open>n :: nat\<close>) ] while (*x < 10_u32) { x += 1_u32; } *x \<rbrakk>\<close> sorry
+lemma \<open>undefined = \<lbrakk> let mut x = \<llangle>0 :: 32 word\<rrangle>; let _ = \<llangle>x :: (unit, unit, 32 word) Global_Store.ref\<rrangle>; #[fuel(\<epsilon>\<open>n\<close>) ] loop { x += 1_u32; }; *x \<rbrakk>\<close> sorry
+lemma \<open>undefined = \<lbrakk> let mut x = \<llangle>0 :: 32 word\<rrangle>; let _ = \<llangle>x :: (unit, unit, 32 word) Global_Store.ref\<rrangle>; #[fuel(\<epsilon>\<open>n :: nat\<close>) ] loop { x += 1_u32; } *x \<rbrakk>\<close> sorry
 end
 
 subsubsection\<open>While Let\<close>
@@ -520,16 +520,16 @@ context
 begin
 lemma \<open>undefined = \<lbrakk> #[fuel(\<epsilon>\<open>n\<close>)] while let Some(v) = Some(g) { () }; () \<rbrakk>\<close> sorry
 lemma \<open>undefined = \<lbrakk> #[fuel(\<epsilon>\<open>n :: nat\<close>)] while let Some(v) = Some(g) { () } () \<rbrakk>\<close> sorry
-lemma \<open>undefined = \<lbrakk> #[fuel(\<epsilon>\<open>n\<close>)] while let Ok(v) = Ok(g) { () }; () \<rbrakk>\<close> sorry
+lemma \<open>undefined = \<lbrakk> #[fuel(\<epsilon>\<open>n\<close>)] while let Ok(v) = \<llangle>Ok g :: ('s, unit) result\<rrangle> { () }; () \<rbrakk>\<close> sorry
 lemma \<open>undefined = \<lbrakk> #[fuel(\<epsilon>\<open>n\<close>)] while let (a, b) = (\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>) { () }; () \<rbrakk>\<close> sorry
 end
 
 subsection\<open>Control Flow - Return\<close>
 
 lemma \<open>undefined = \<lbrakk> return; \<rbrakk>\<close> sorry
-lemma \<open>undefined = (FunctionBody \<lbrakk> {return;}; return; \<rbrakk>)\<close> sorry
+lemma \<open>undefined = (FunctionBody \<lbrakk> ({return;}) == (); return; \<rbrakk>)\<close> sorry
 lemma \<open>undefined = \<lbrakk> let v = \<llangle>42 :: 64 word\<rrangle>; return v; \<rbrakk>\<close> sorry
-lemma \<open>undefined = \<lbrakk> let (a,b) = (1,2); return; \<rbrakk>\<close> sorry
+lemma \<open>undefined = \<lbrakk> let (a,b) = (\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>); return; \<rbrakk>\<close> sorry
 
 definition test :: \<open>(nat, unit, unit, unit, unit) function_body\<close> where
   \<open>test \<equiv> (FunctionBody \<lbrakk> let x = \<llangle>Some (0 :: nat)\<rrangle>; let Some(foo) = x else { return; }; return; \<rbrakk>)\<close>
@@ -541,7 +541,7 @@ context
   fixes x :: \<open>'s\<close>
   fixes g :: \<open>'s \<Rightarrow> ('a, nat option, unit, unit, unit) function_body\<close>
 begin
-lemma \<open>undefined = \<lbrakk> let blub = 0; if let Some(x) = g(x) { return 0; } else { return 42; }; return 12; \<rbrakk>\<close> sorry
+lemma \<open>undefined = \<lbrakk> let blub = 0_u32; (if let Some(x) = g(x) { return 0; } else { return 42; }) + 0_u32; return 12; \<rbrakk>\<close> sorry
 end
 
 lemma \<open>undefined = \<lbrakk> let x = if True { 0 } else { 1 }; return x; \<rbrakk>\<close> sorry
@@ -593,7 +593,7 @@ lemma \<open>undefined = \<lbrakk> let rng = x ..= x+y; rng.is_empty() \<rbrakk>
 end
 
 lemma \<open>undefined = \<lbrakk> let int_max = \<llangle>255 :: 8 word\<rrangle>; let inclusive = int_max ..= int_max; assert!(!(inclusive.is_empty())); assert!(inclusive.contains(int_max)); let exclusive = int_max .. int_max; assert!(exclusive.is_empty()); () \<rbrakk>\<close> sorry
-lemma \<open>undefined = \<lbrakk> let mut count = \<llangle>0 :: 8 word\<rrangle>; let int_max = \<llangle>255 :: 8 word\<rrangle>; for i in int_max ..= int_max { count += \<llangle>1 :: 8 word\<rrangle>; }; assert!(*count == \<llangle>1 :: 8 word\<rrangle>); () \<rbrakk>\<close> sorry
+lemma \<open>undefined = \<lbrakk> let mut count = \<llangle>0 :: 8 word\<rrangle>; let _ = \<llangle>count :: (unit, unit, 8 word) Global_Store.ref\<rrangle>; let int_max = \<llangle>255 :: 8 word\<rrangle>; for i in int_max ..= int_max { count += \<llangle>1 :: 8 word\<rrangle>; }; assert!(*count == \<llangle>1 :: 8 word\<rrangle>); () \<rbrakk>\<close> sorry
 
 subsection\<open>Functions and Closures\<close>
 
@@ -733,8 +733,8 @@ lemma \<open>undefined = \<lbrakk> (*s). field3_lens \<rbrakk>\<close> sorry
 lemma \<open>undefined = \<lbrakk> *r \<rbrakk>\<close> sorry
 lemma \<open>undefined = \<lbrakk> *(s.field4_lens) \<rbrakk>\<close> sorry
 lemma \<open>undefined = \<lbrakk> (*s).field4_lens \<rbrakk>\<close> sorry
-lemma \<open>undefined = \<lbrakk> s.field3_lens \<rbrakk>\<close> sorry
-lemma \<open>undefined = \<lbrakk> s.field3_lens.field2_lens \<rbrakk>\<close> sorry
+lemma \<open>undefined = \<lbrakk> s.testrec2_field3_lens \<rbrakk>\<close> sorry
+lemma \<open>undefined = \<lbrakk> s.testrec2_field3_lens.testrec_field2_lens \<rbrakk>\<close> sorry
 no_adhoc_overloading store_dereference_const \<rightleftharpoons> dummy_dereference_field
 end
 
@@ -923,7 +923,7 @@ lemma \<open>undefined = \<lbrakk> &[\<llangle>1 :: 32 word\<rrangle>, \<llangle
 lemma \<open>undefined = \<lbrakk> & mut [\<llangle>1 :: 32 word\<rrangle>, \<llangle>2 :: 32 word\<rrangle>] \<rbrakk>\<close> sorry
 lemma \<open>undefined = \<lbrakk> & mut [] \<rbrakk>\<close> sorry
 lemma \<open>undefined = \<lbrakk> [\<llangle>1 :: 32 word\<rrangle> + \<llangle>2 :: 32 word\<rrangle>, \<llangle>3 :: 32 word\<rrangle>] \<rbrakk>\<close> sorry
-lemma \<open>undefined = \<lbrakk> let xs = [\<llangle>1 :: 32 word\<rrangle>, \<llangle>2 :: 32 word\<rrangle>, \<llangle>3 :: 32 word\<rrangle>]; assert!(xs[0] == \<llangle>1 :: 32 word\<rrangle>); assert!(xs[2] == \<llangle>3 :: 32 word\<rrangle>) \<rbrakk>\<close> sorry
+lemma \<open>undefined = \<lbrakk> let xs = [\<llangle>1 :: 32 word\<rrangle>, \<llangle>2 :: 32 word\<rrangle>, \<llangle>3 :: 32 word\<rrangle>]; assert!(xs[0_usize] == \<llangle>1 :: 32 word\<rrangle>); assert!(xs[2_usize] == \<llangle>3 :: 32 word\<rrangle>) \<rbrakk>\<close> sorry
 lemma \<open>undefined = \<lbrakk> let xs = &[\<llangle>4 :: 32 word\<rrangle>, \<llangle>5 :: 32 word\<rrangle>]; let s = match xs { [a, b] \<Rightarrow> a + b, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }; assert!(s == \<llangle>9 :: 32 word\<rrangle>) \<rbrakk>\<close> sorry
 
 subsubsection\<open>Vec Macro\<close>
@@ -935,7 +935,7 @@ nested, indexed, parenthesized, and borrow-interaction variants.
 
 lemma \<open>undefined = \<lbrakk> vec![\<llangle>1 :: 32 word\<rrangle>, \<llangle>2 :: 32 word\<rrangle>, \<llangle>3 :: 32 word\<rrangle>] \<rbrakk>\<close> sorry
 lemma \<open>undefined = \<lbrakk> vec![] \<rbrakk>\<close> sorry
-lemma \<open>undefined = \<lbrakk> let xs = vec![\<llangle>10 :: 32 word\<rrangle>, \<llangle>20 :: 32 word\<rrangle>]; assert!(xs[0] == \<llangle>10 :: 32 word\<rrangle>) \<rbrakk>\<close> sorry
+lemma \<open>undefined = \<lbrakk> let xs = vec![\<llangle>10 :: 32 word\<rrangle>, \<llangle>20 :: 32 word\<rrangle>]; assert!(xs[0_usize] == \<llangle>10 :: 32 word\<rrangle>) \<rbrakk>\<close> sorry
 
 subsubsection\<open>Matches Macro\<close>
 
@@ -961,14 +961,14 @@ context
   fixes xs :: \<open>nat list\<close>
   fixes xss :: \<open>nat list list\<close>
 begin
-lemma \<open>undefined = \<lbrakk> xs [0..100][42] \<rbrakk>\<close> sorry
-lemma \<open>undefined = \<lbrakk> xss[10] \<rbrakk>\<close> sorry
-lemma \<open>undefined = \<lbrakk> xss[10][100] \<rbrakk>\<close> sorry
+lemma \<open>undefined = \<lbrakk> xs [0_usize..100_usize][42_usize] \<rbrakk>\<close> sorry
+lemma \<open>undefined = \<lbrakk> xss[10_usize] \<rbrakk>\<close> sorry
+lemma \<open>undefined = \<lbrakk> xss[10_usize][100_usize] \<rbrakk>\<close> sorry
 end
 
 subsubsection\<open>Const Bindings\<close>
 
-lemma \<open>undefined = \<lbrakk> const FOO = 5; () \<rbrakk>\<close> sorry
+lemma \<open>undefined = \<lbrakk> const FOO = \<llangle>5 :: nat\<rrangle>; () \<rbrakk>\<close> sorry
 
 subsubsection\<open>Scoping and Block Expressions\<close>
 
@@ -980,7 +980,7 @@ end
 
 subsubsection\<open>Sequencing\<close>
 
-lemma \<open>undefined = \<lbrakk> let a = 1; let b = 2; a \<rbrakk>\<close> sorry
+lemma \<open>undefined = \<lbrakk> let a = 1; let b = \<llangle>2 :: nat\<rrangle>; a \<rbrakk>\<close> sorry
 
 subsection\<open>Rust Path Expressions\<close>
 
