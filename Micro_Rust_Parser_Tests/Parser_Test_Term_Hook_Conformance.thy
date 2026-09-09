@@ -28,17 +28,16 @@ equations instead of being rewritten into different tests:
     postfix grammar requires an identifier after the dot; the legacy frontend
     lowers these forms to \<open>tuple_index_N\<close> applications.
 
-  \<^item> A bare \<open>match\<close> cannot mix numeral patterns with the registered
-    literal pattern \<^verbatim>\<open>number::three\<close>; the dedicated parser rejects
-    the mixed pattern families before lowering.
-
   \<^item> Or-pattern alternatives with unequal binder sets, such as
     \<^verbatim>\<open>Some(x) | None\<close>, are accepted by the legacy frontend but
     rejected by the dedicated parser as missing a binder from one alternative.
 
 The macro and numeric-projection gaps are grammatical and occur during
-\<open>URust_Diagnostics.parse_source\<close>. Mixed-pattern and or-pattern-binder
-rejections occur later during pattern resolution. The formerly deferred
+\<open>URust_Diagnostics.parse_source\<close>. Bare matches now classify exact registered
+nonconstructor literals contextually: a numeral mixture selects switch lowering,
+while authentic registered constructors remain case-only and still reject when
+mixed with numerals. Or-pattern-binder rejection occurs later during pattern
+resolution. The formerly deferred
 \<open>is_none\<close> row below is enabled by an explicit call registration; without
 that adapter, parsing and AST construction succeed but method resolution
 rejects the unresolved call head at its exact identifier range. Known HOL
@@ -1112,7 +1111,6 @@ lemma \<open>
     }
   \<rbrakk>)
 \<close> by (rule refl)
-(* Known parser/conformance gap; see the note at the top of this theory.
 lemma \<open> \<mu>\<open>
   let x = 5;
   match x { 2 \<Rightarrow> False, number::three \<Rightarrow> False, 0 \<Rightarrow> False, 1 \<Rightarrow> False, _ \<Rightarrow> True }
@@ -1120,7 +1118,6 @@ lemma \<open> \<mu>\<open>
   let x = 5;
   match x { 2 \<Rightarrow> False, number::three \<Rightarrow> False, 0 \<Rightarrow> False, 1 \<Rightarrow> False, _ \<Rightarrow> True }
 \<rbrakk>\<close> by (rule refl)
-*)
 lemma \<open> \<mu>\<open>
   let x = 5;
   match_switch x { number::three \<Rightarrow> False, _ \<Rightarrow> True }

@@ -4652,6 +4652,13 @@ ML_val\<open>
         (URust_Resolution.resolve_constructor ctxt resolver
           (path_of "ConcealedAudit::Registered"))
     val _ =
+      (case URust_Resolution.classify_registered_literal ctxt resolver
+          (path_of "ConcealedAudit::Registered") of
+         URust_Resolution.Registered_Constructor_Literal => ()
+       | _ =>
+           error
+             "concealed constructor lookup audit: registered concealed literal was not classified as a constructor")
+    val _ =
       audit_assert "registered concealed identity was not recovered"
         (Term.aconv_untyped
           (URust_Resolution.constructor_term registered_info,
@@ -5225,6 +5232,500 @@ ML_val\<open>
     val _ =
       writeln
         "Registered constructor identity, diagnostics, recovery, lowering, range, markup, and single-evaluation regressions passed"
+  end
+\<close>
+
+
+section\<open> Contextual bare-match classification audit \<close>
+
+consts
+  mixed_match_scrutinee_marker :: nat
+  mixed_match_first_body_marker :: nat
+  mixed_match_second_body_marker :: nat
+  mixed_match_fallback_marker :: nat
+
+ML_val\<open>
+  local
+    open URust_AST
+
+    val ctxt = \<^context>
+
+    fun audit_assert message condition =
+      if condition then ()
+      else error ("contextual bare-match classification audit: " ^ message)
+
+    fun parse_source source =
+      (case URust_Diagnostics.parse_source ctxt source of
+         SOME expression => expression
+       | NONE =>
+           error "contextual bare-match classification audit: empty parse")
+
+    fun parse text =
+      parse_source (Parser_Lex_Util.text_source text)
+
+    fun checked_source source =
+      Parser_Test_Elaboration.expression ctxt source
+
+    fun checked text =
+      checked_source (Parser_Lex_Util.text_source text)
+
+    fun path_of text =
+      (case parse text of
+         UE_Path path => path
+       | _ => error ("expected path " ^ quote text))
+
+    fun expect_class label expected path =
+      let
+        val resolver =
+          URust_Resolution.make_constructor_resolver
+            ctxt (path_position path)
+        val actual =
+          URust_Resolution.classify_registered_literal
+            ctxt resolver path
+        val matches =
+          (case (expected, actual) of
+             (URust_Resolution.Unregistered_Literal,
+              URust_Resolution.Unregistered_Literal) => true
+           | (URust_Resolution.Registered_Value_Literal,
+              URust_Resolution.Registered_Value_Literal) => true
+           | (URust_Resolution.Registered_Constructor_Literal,
+              URust_Resolution.Registered_Constructor_Literal) => true
+           | _ => false)
+      in audit_assert (label ^ " classification changed") matches end
+
+    val _ =
+      expect_class "qualified registered value"
+        URust_Resolution.Registered_Value_Literal
+        (path_of "Color::Red")
+    val _ =
+      expect_class "single-segment registered value"
+        URust_Resolution.Registered_Value_Literal
+        (path_of "registered_seven")
+    val _ =
+      expect_class "registered constructor"
+        URust_Resolution.Registered_Constructor_Literal
+        (path_of "Registered::Nullary")
+    val _ =
+      expect_class "registered phantom constructor"
+        URust_Resolution.Registered_Constructor_Literal
+        (path_of "RegisteredPhantom::A")
+    val _ =
+      expect_class "duplicate registered constructor"
+        URust_Resolution.Registered_Constructor_Literal
+        (path_of "NegativeRegistered::Duplicate")
+    val _ =
+      expect_class "constructor-equal definition"
+        URust_Resolution.Registered_Value_Literal
+        (path_of "NegativeRegistered::Value")
+    val _ =
+      expect_class "constructor-headed application"
+        URust_Resolution.Registered_Value_Literal
+        (path_of "NegativeRegistered::Applied")
+    val _ =
+      expect_class "unregistered qualified path"
+        URust_Resolution.Unregistered_Literal
+        (path_of "Unregistered::Value")
+
+    fun find_from text needle offset =
+      if offset + size needle > size text then
+        error ("missing " ^ quote needle)
+      else if String.substring (text, offset, size needle) = needle
+      then offset
+      else find_from text needle (offset + 1)
+
+    fun token_position text start needle offset =
+      let
+        val raw = find_from text needle offset
+        val token_start =
+          Position.symbol_explode
+            (String.substring (text, 0, raw)) start
+      in
+        (raw,
+         Position.range_position
+           (token_start, Position.symbol_explode needle token_start))
+      end
+
+    fun same_range left right =
+      Position.offset_of left = Position.offset_of right andalso
+      Position.end_offset_of left = Position.end_offset_of right
+
+    val ast_text =
+      "match 42 { 0 \<Rightarrow> 0, Color::Red \<Rightarrow> 1, 7 \<Rightarrow> 2, _ \<Rightarrow> 3 }"
+    val ast_start =
+      Position.make0 71 1700 0 "" ""
+        "contextual-match-ast-audit"
+    val ast_source =
+      Parser_Lex_Util.positioned_content_source ast_text ast_start
+    val ast_stop = Position.symbol_explode ast_text ast_start
+    val expected_match =
+      Position.range_position (ast_start, ast_stop)
+    val (first_numeral_raw, expected_first_numeral) =
+      token_position ast_text ast_start "0" (size "match 42 { ")
+    val (_, expected_value_path) =
+      token_position ast_text ast_start "Color::Red"
+        (first_numeral_raw + 1)
+    val (value_raw, expected_qualifier) =
+      token_position ast_text ast_start "Color"
+        (first_numeral_raw + 1)
+    val (_, expected_terminal) =
+      token_position ast_text ast_start "Red"
+        (value_raw + size "Color::")
+    val (_, expected_second_numeral) =
+      token_position ast_text ast_start "7"
+        (value_raw + size "Color::Red")
+    val _ =
+      (case parse_source ast_source of
+         UE_Match
+           (MF_Auto, _,
+            [UR_Arm (P_Literal (LP_Integer (_, first_pos)), NONE, _),
+             UR_Arm (P_Path path, NONE, _),
+             UR_Arm (P_Literal (LP_Integer (_, second_pos)), NONE, _),
+             UR_Arm (P_Wild _, NONE, _)],
+            match_pos) =>
+           let
+             val (_, terminal_pos) =
+               segment_identifier (final_segment path)
+             val qualifier_pos =
+               #2
+                 (segment_identifier
+                   (hd (path_segments path)))
+           in
+             audit_assert "contextual classification rewrote MF_Auto"
+               true;
+             audit_assert "bare match span changed"
+               (same_range match_pos expected_match);
+             audit_assert "first numeral range changed"
+               (same_range first_pos expected_first_numeral);
+             audit_assert "second numeral range changed"
+               (same_range second_pos expected_second_numeral);
+             audit_assert "registered path range changed"
+               (same_range (path_position path) expected_value_path);
+             audit_assert "registered qualifier range changed"
+               (same_range qualifier_pos expected_qualifier);
+             audit_assert "registered terminal range changed"
+               (same_range terminal_pos expected_terminal)
+           end
+       | _ => error "contextual bare-match classification audit: AST changed")
+
+    val identifier_text =
+      "match 7 { 0 \<Rightarrow> 0, registered_seven \<Rightarrow> 1, _ \<Rightarrow> 2 }"
+    val identifier_start =
+      Position.make0 72 1900 0 "" ""
+        "contextual-match-identifier-ast-audit"
+    val (_, expected_identifier) =
+      token_position identifier_text identifier_start
+        "registered_seven" 0
+    val _ =
+      (case parse_source
+          (Parser_Lex_Util.positioned_content_source
+            identifier_text identifier_start) of
+         UE_Match
+           (_, _,
+            [_,
+             UR_Arm (P_Ident (_, identifier_pos), NONE, _),
+             _],
+            _) =>
+           audit_assert "single-segment registered key range changed"
+             (same_range identifier_pos expected_identifier)
+       | _ =>
+           error
+             "contextual bare-match classification audit: identifier AST changed")
+
+    fun count_constant name term =
+      Term.fold_aterms
+        (fn Const (candidate, _) =>
+              if candidate = name then Integer.add 1 else I
+          | _ => I)
+        term 0
+
+    val auto =
+      checked
+        ("match \<llangle>mixed_match_scrutinee_marker\<rrangle> { " ^
+         "0 \<Rightarrow> \<llangle>mixed_match_first_body_marker\<rrangle>, " ^
+         "Color::Red \<Rightarrow> " ^
+         "\<llangle>mixed_match_second_body_marker\<rrangle>, " ^
+         "_ \<Rightarrow> \<llangle>mixed_match_fallback_marker\<rrangle> }")
+    val explicit =
+      checked
+        ("match_switch \<llangle>mixed_match_scrutinee_marker\<rrangle> { " ^
+         "0 \<Rightarrow> \<llangle>mixed_match_first_body_marker\<rrangle>, " ^
+         "Color::Red \<Rightarrow> " ^
+         "\<llangle>mixed_match_second_body_marker\<rrangle>, " ^
+         "_ \<Rightarrow> \<llangle>mixed_match_fallback_marker\<rrangle> }")
+    val _ =
+      audit_assert "auto registered-value mixture differs from explicit switch"
+        (Term.aconv (auto, explicit))
+    val _ =
+      audit_assert "auto registered-value mixture lost ncase_selector"
+        (count_constant \<^const_name>\<open>ncase_selector\<close> auto = 1)
+    val _ =
+      audit_assert "auto registered-value mixture duplicated its scrutinee"
+        (count_constant
+          \<^const_name>\<open>mixed_match_scrutinee_marker\<close>
+          auto = 1)
+    val _ =
+      audit_assert "registered backend was duplicated or dropped"
+        (count_constant \<^const_name>\<open>path_literal_42\<close> auto = 1)
+    val _ =
+      List.app
+        (fn name =>
+          audit_assert
+            ("switch body marker was duplicated or dropped: " ^ name)
+            (count_constant name auto = 1))
+        [\<^const_name>\<open>mixed_match_first_body_marker\<close>,
+         \<^const_name>\<open>mixed_match_second_body_marker\<close>,
+         \<^const_name>\<open>mixed_match_fallback_marker\<close>]
+    val _ =
+      List.app
+        (fn name =>
+          audit_assert
+            ("switch lowering introduced " ^ quote name)
+            (count_constant name auto = 0))
+        [\<^const_name>\<open>case_guard\<close>,
+         \<^const_name>\<open>urust_eq\<close>,
+         \<^const_name>\<open>two_armed_conditional\<close>,
+         \<^const_name>\<open>undefined\<close>,
+         \<^const_name>\<open>RegisteredNullary\<close>]
+
+    val case_preferred =
+      checked
+        ("match \<llangle>mixed_match_scrutinee_marker\<rrangle> { " ^
+         "Color::Red \<Rightarrow> " ^
+         "\<llangle>mixed_match_first_body_marker\<rrangle>, " ^
+         "_ \<Rightarrow> \<llangle>mixed_match_fallback_marker\<rrangle> }")
+    val _ =
+      audit_assert "registered value without numeral selected switch"
+        (count_constant \<^const_name>\<open>ncase_selector\<close>
+          case_preferred = 0)
+    val _ =
+      audit_assert "registered value without numeral lost case equality"
+        (count_constant \<^const_name>\<open>urust_eq\<close>
+          case_preferred > 0)
+    val _ =
+      audit_assert "registered value without numeral lost case conditional"
+        (count_constant \<^const_name>\<open>two_armed_conditional\<close>
+          case_preferred > 0)
+
+    fun collect_markup (XML.Text _) result = result
+      | collect_markup (XML.Elem (markup, body)) result =
+          fold collect_markup body (markup :: result)
+
+    fun capture_markup label source =
+      let
+        val captured =
+          Synchronized.var
+            ("contextual_match_" ^ label ^ "_reports")
+            ([]: string list)
+        fun capture chunks =
+          Synchronized.change captured (append chunks)
+        val _ =
+          Parser_Test_Report_Lock.run (fn () =>
+            Unsynchronized.setmp Private_Output.report_fn capture
+              (fn () =>
+                Print_Mode.with_modes [Print_Mode.PIDE]
+                  (fn () => ignore (checked_source source)) ())
+              ())
+      in
+        fold collect_markup
+          (maps YXML.parse_body (Synchronized.value captured)) []
+      end
+
+    fun has_position properties position =
+      Properties.get properties Markup.offsetN =
+        Option.map Value.print_int (Position.offset_of position) andalso
+      Properties.get properties Markup.end_offsetN =
+        Option.map Value.print_int (Position.end_offset_of position)
+
+    fun count_markup markup_name position markup =
+      length
+        (filter
+          (fn (name, properties) =>
+            name = markup_name andalso
+              has_position properties position)
+          markup)
+
+    fun count_entity kind identity position markup =
+      length
+        (filter
+          (fn (name, properties) =>
+            name = Markup.entityN andalso
+              Properties.get properties Markup.kindN = SOME kind andalso
+              Properties.get properties Markup.nameN = SOME identity andalso
+              has_position properties position)
+          markup)
+
+    val qualified_markup = capture_markup "qualified" ast_source
+    val _ =
+      audit_assert "first numeral lost numeral markup"
+        (count_markup Markup.numeralN expected_first_numeral
+          qualified_markup > 0)
+    val _ =
+      audit_assert "second numeral lost numeral markup"
+        (count_markup Markup.numeralN expected_second_numeral
+          qualified_markup > 0)
+    val _ =
+      audit_assert "registered qualifier lost free markup"
+        (count_markup Markup.freeN expected_qualifier
+          qualified_markup > 0)
+    val _ =
+      audit_assert "registered terminal notation report duplicated"
+        (count_entity Micro_Rust_Names.notationN "Color::Red"
+          expected_terminal qualified_markup = 1)
+    val _ =
+      audit_assert "registered terminal lost keyword3 styling"
+        (count_markup Markup.keyword3N expected_terminal
+          qualified_markup > 0)
+    val _ =
+      audit_assert "registered terminal lost typing markup"
+        (count_markup Markup.typingN expected_terminal
+          qualified_markup > 0)
+    val _ =
+      audit_assert "registered nonconstructor acquired constant entity markup"
+        (count_entity Markup.constantN
+          \<^const_name>\<open>path_literal_42\<close>
+          expected_terminal qualified_markup = 0)
+
+    val identifier_source =
+      Parser_Lex_Util.positioned_content_source
+        identifier_text identifier_start
+    val identifier_markup =
+      capture_markup "identifier" identifier_source
+    val _ =
+      audit_assert "single-segment notation report duplicated"
+        (count_entity Micro_Rust_Names.notationN "registered_seven"
+          expected_identifier identifier_markup = 1)
+    val _ =
+      audit_assert "single-segment registration lost keyword3 styling"
+        (count_markup Markup.keyword3N expected_identifier
+          identifier_markup > 0)
+    val _ =
+      audit_assert "single-segment registration lost typing markup"
+        (count_markup Markup.typingN expected_identifier
+          identifier_markup > 0)
+
+    fun diagnostic_ranges body =
+      let
+        fun collect (XML.Text _) ranges = ranges
+          | collect (XML.Elem ((_, properties), children)) ranges =
+              let
+                val ranges' =
+                  (case
+                    (Properties.get properties Markup.offsetN,
+                     Properties.get properties Markup.end_offsetN) of
+                     (SOME offset, SOME end_offset) =>
+                       (offset, end_offset) :: ranges
+                   | _ => ranges)
+              in fold collect children ranges' end
+      in distinct (op =) (fold collect body []) end
+
+    fun recovery_checks () =
+      let
+        val recovered_switch =
+          checked
+            ("match 42 { 0 \<Rightarrow> 0, Color::Red \<Rightarrow> 1, " ^
+             "_ \<Rightarrow> 2 }")
+        val recovered_case =
+          checked
+            ("match \<llangle>RegisteredNullary\<rrangle> { " ^
+             "Registered::Nullary \<Rightarrow> 0, " ^
+             "Registered::Unary(value) \<Rightarrow> value, " ^
+             "Registered::Other \<Rightarrow> 1 }")
+        val recovered_unit = checked "()"
+      in
+        audit_assert "registered-value switch recovery failed"
+          (count_constant \<^const_name>\<open>ncase_selector\<close>
+            recovered_switch = 1);
+        audit_assert "registered-constructor case recovery failed"
+          (count_constant \<^const_name>\<open>RegisteredNullary\<close>
+            recovered_case > 0);
+        audit_assert "unit recovery failed"
+          (count_constant \<^const_name>\<open>Product_Type.Unity\<close>
+            recovered_unit = 1)
+      end
+
+    fun expect_exact_rejection serial label text expected_position expected =
+      let
+        val start =
+          Position.make0 (80 + serial) (2300 + serial * 300) 0 "" ""
+            ("contextual-match-" ^ label ^ "-audit")
+        val source =
+          Parser_Lex_Util.positioned_content_source text start
+        val position = expected_position text start
+        val expected_message = expected ^ Position.here position
+        val expected_range =
+          (Value.print_int (the (Position.offset_of position)),
+           Value.print_int (the (Position.end_offset_of position)))
+        val body =
+          (case Exn.result (fn () => checked_source source) () of
+             Exn.Res term =>
+               error
+                 ("contextual bare-match classification audit: " ^
+                  label ^ " unexpectedly elaborated to " ^
+                  Syntax.string_of_term ctxt term)
+           | Exn.Exn exn =>
+               if Exn.is_interrupt exn then Exn.reraise exn
+               else
+                 let val actual = Runtime.exn_message exn
+                 in
+                   audit_assert (label ^ " exact diagnostic changed")
+                     (actual = expected_message);
+                   YXML.parse_body actual
+                 end)
+        val _ =
+          audit_assert (label ^ " YXML offset/end_offset changed")
+            (diagnostic_ranges body = [expected_range])
+        val _ = recovery_checks ()
+      in () end
+
+    fun complete_range text start =
+      Position.range_position
+        (start, Position.symbol_explode text start)
+
+    fun token_range needle offset text start =
+      #2 (token_position text start needle offset)
+
+    val constructor_mixed_text =
+      "match \<llangle>RegisteredNullary\<rrangle> { " ^
+      "0 \<Rightarrow> (), Registered::Nullary \<Rightarrow> () }"
+    val _ =
+      expect_exact_rejection 0 "registered-constructor-mix"
+        constructor_mixed_text complete_range
+        "urust_expr: mixed numeral and constructor patterns in bare `match`"
+
+    val guarded_text =
+      "match 42 { 0 if True \<Rightarrow> (), Color::Red \<Rightarrow> (), " ^
+      "_ \<Rightarrow> () }"
+    val guarded_numeral_offset =
+      find_from guarded_text "0" (size "match 42 { ")
+    val _ =
+      expect_exact_rejection 1 "guard-forced-case"
+        guarded_text (token_range "0" guarded_numeral_offset)
+        "urust_expr: numeric patterns are not supported in case patterns"
+
+    val switch_guard_text =
+      "match_switch 42 { Color::Red if True \<Rightarrow> (), _ \<Rightarrow> () }"
+    val switch_guard_offset =
+      find_from switch_guard_text "if" 0
+    val _ =
+      expect_exact_rejection 2 "explicit-switch-guard"
+        switch_guard_text (token_range "if" switch_guard_offset)
+        "urust_expr: guards are not supported in explicit `match_switch`"
+
+    val identifier_failure_text =
+      "match 0 { 0 \<Rightarrow> (), unregistered_key \<Rightarrow> () }"
+    val identifier_failure_offset =
+      find_from identifier_failure_text "unregistered_key" 0
+    val _ =
+      expect_exact_rejection 3 "unregistered-identifier"
+        identifier_failure_text
+        (token_range "unregistered_key" identifier_failure_offset)
+        ("urust_expr: unsupported match_switch key " ^
+         quote "unregistered_key" ^
+         " (numeral or `_` only; const-id / path keys not yet supported)")
+  in
+    val _ =
+      writeln
+        "Contextual bare-match classification, lowering, range, markup, diagnostics, recovery, and single-evaluation regressions passed"
   end
 \<close>
 

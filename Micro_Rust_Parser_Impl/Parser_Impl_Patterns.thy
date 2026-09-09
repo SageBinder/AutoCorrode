@@ -29,7 +29,8 @@ sig
     prepared_binding -> term -> term -> term
 
   val select_match_flavour:
-    URust_AST.match_flavour ->
+    Proof.context ->
+      URust_AST.match_flavour ->
       URust_AST.ur_arm list ->
       Position.T ->
       URust_AST.match_flavour
@@ -94,9 +95,12 @@ ML\<open>
 
   select_match_flavour preserves an explicit MF_Case or MF_Switch (while rejecting switch guards) and
   resolves MF_Auto according to the current case-versus-numeral-switch policy; it never returns
-  MF_Auto. prepare_switch_arm accepts an unguarded numeral/wildcard pattern or an or-pattern composed
-  from those forms, preserves alternative order, and returns the encoded option keys (Some numeral or
-  None wildcard) with the unchanged source body for lowering in the outer environment.
+  MF_Auto. The auto query is contextual only for exact literal registrations: authentic registered
+  constructors are case-only, registered nonconstructors support both lowerings, case still wins when
+  both are possible, and guards still force case. This is not general type-directed matching.
+  prepare_switch_arm accepts an unguarded numeral/wildcard/registered-value pattern or an or-pattern
+  composed from those forms, preserves alternative order, and returns the encoded option keys (Some
+  value or None wildcard) with the unchanged source body for lowering in the outer environment.
 
   prepare_case_arms creates one constructor resolver for the supplied source span, then resolves and
   reports constructors, rejects unsupported patterns, validates duplicate and or-alternative binders
@@ -183,25 +187,43 @@ struct
   fun arm_pattern (UR_Arm (pattern, _, _)) = pattern
   fun arm_guard (UR_Arm (_, guard, _)) = guard
 
-  fun classify_match arms pos =
+  datatype match_capability =
+    Match_Capability of {case_ok: bool, switch_ok: bool}
+
+  fun classify_match ctxt arms pos =
     let
-      fun case_compatible pattern =
+      val resolver = R.make_constructor_resolver ctxt pos
+
+      fun registered_capability unregistered_switch path =
+        (case R.classify_registered_literal ctxt resolver path of
+           R.Unregistered_Literal =>
+             Match_Capability
+               {case_ok = true, switch_ok = unregistered_switch}
+         | R.Registered_Value_Literal =>
+             Match_Capability {case_ok = true, switch_ok = true}
+         | R.Registered_Constructor_Literal =>
+             Match_Capability {case_ok = true, switch_ok = false})
+
+      fun capability pattern =
         (case strip_groups pattern of
-           P_Literal (LP_Integer _) => false
-         | P_Path _ => true
-         | _ => true)
-      fun switch_compatible pattern =
-        (case strip_groups pattern of
-           P_Literal (LP_Integer _) => true
-         | P_Ident _ => true
-         | P_Path _ => false
-         | P_Wild _ => true
-         | _ => false)
-      val patterns = map arm_pattern arms
+           P_Literal (LP_Integer _) =>
+             Match_Capability {case_ok = false, switch_ok = true}
+         | P_Ident identifier =>
+             registered_capability true (make_single_path identifier)
+         | P_Path path => registered_capability false path
+         | P_Wild _ =>
+             Match_Capability {case_ok = true, switch_ok = true}
+         | _ =>
+             Match_Capability {case_ok = true, switch_ok = false})
+      val capabilities = map (capability o arm_pattern) arms
+      fun case_compatible
+          (Match_Capability {case_ok, ...}) = case_ok
+      fun switch_compatible
+          (Match_Capability {switch_ok, ...}) = switch_ok
     in
       if List.exists (is_some o arm_guard) arms then MF_Case
-      else if List.all case_compatible patterns then MF_Case
-      else if List.all switch_compatible patterns then MF_Switch
+      else if List.all case_compatible capabilities then MF_Case
+      else if List.all switch_compatible capabilities then MF_Switch
       else
         error ("urust_expr: mixed numeral and constructor patterns in bare `match`" ^
           Position.here pos)
@@ -211,11 +233,11 @@ struct
     | first_guard_position (UR_Arm (_, SOME (_, pos), _) :: _) = SOME pos
     | first_guard_position (_ :: rest) = first_guard_position rest
 
-  fun select_match_flavour flavour arms pos =
+  fun select_match_flavour ctxt flavour arms pos =
     let
       val selected =
         (case flavour of
-           MF_Auto => classify_match arms pos
+           MF_Auto => classify_match ctxt arms pos
          | explicit => explicit)
       val _ =
         (case (selected, first_guard_position arms) of
@@ -713,9 +735,10 @@ struct
       rhs body =
     T.bind (rhs_wrapper rhs) (abstraction body)
 
-  fun switch_keys ctxt pattern =
+  fun switch_keys resolver ctxt pattern =
     (case strip_groups pattern of
-       P_Or (alternatives, _) => maps (switch_keys ctxt) alternatives
+       P_Or (alternatives, _) =>
+         maps (switch_keys resolver ctxt) alternatives
      | P_Literal (LP_Integer (lexeme, pos)) =>
          [T.option_some (T.integer_value pos lexeme)]
      | P_Wild pos => (R.report_wildcard ctxt pos; [T.option_none])
@@ -723,9 +746,16 @@ struct
          [T.option_some
             (R.literal_path_value ctxt R.empty_environment path)]
      | P_Ident (name, pos) =>
-         error ("urust_expr: unsupported match_switch key " ^ quote name ^
-           " (numeral or `_` only; const-id / path keys not yet supported)" ^
-           Position.here pos)
+         (case R.classify_registered_literal ctxt resolver
+             (make_single_path (name, pos)) of
+            R.Unregistered_Literal =>
+              error ("urust_expr: unsupported match_switch key " ^ quote name ^
+                " (numeral or `_` only; const-id / path keys not yet supported)" ^
+                Position.here pos)
+          | _ =>
+              [T.option_some
+                (R.literal_identifier_value ctxt R.empty_environment
+                  (name, pos))])
      | unsupported =>
          error ("urust_expr: unsupported match_switch pattern" ^
            " (numeral, `_`, or an or-list of those; binding patterns need" ^
@@ -733,6 +763,8 @@ struct
 
   fun prepare_switch_arm ctxt (UR_Arm (pattern, guard, body)) =
     let
+      val resolver =
+        R.make_constructor_resolver ctxt (position pattern)
       val _ = reject_reference_patterns pattern
       val _ =
         (case guard of
@@ -740,7 +772,7 @@ struct
          | SOME (_, pos) =>
              error ("urust_expr: guards are not supported in explicit `match_switch`" ^
                Position.here pos))
-    in (switch_keys ctxt pattern, body) end
+    in (switch_keys resolver ctxt pattern, body) end
 
   datatype basic_case_pattern =
       Basic_Wild of Position.T option

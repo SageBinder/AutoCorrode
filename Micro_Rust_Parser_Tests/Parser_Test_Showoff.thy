@@ -199,6 +199,13 @@ micro_rust_notation (literal)
   showoff_registered_event.ShowoffRegisteredStop
   ("Showoff::Stop")
 
+definition showoff_registered_number :: nat where
+  \<open> showoff_registered_number \<equiv> 7 \<close>
+
+micro_rust_notation (literal)
+  showoff_registered_number
+  ("Showoff::Seven")
+
 urust_expr showoff_registered_match
   \<open>
     match \<llangle>ShowoffRegisteredData 7\<rrangle> {
@@ -207,11 +214,20 @@ urust_expr showoff_registered_match
     }
   \<close>
 
+urust_expr showoff_registered_numeric_match
+  \<open>
+    match 7 {
+      0 \<Rightarrow> False,
+      Showoff::Seven \<Rightarrow> True,
+      _ \<Rightarrow> False
+    }
+  \<close>
+
 text\<open>
-Features: automatic case routing, an explicit numeric switch, constructor and
-value patterns, or-patterns, full guard bodies, semicolon-free explicit match
-sequencing, nested matches, ordered fall-through, and antiquotation capture of
-both a let-bound variable and an arm binder.
+Features: automatic case and registered-value/numeral switch routing, an explicit
+numeric switch, constructor and value patterns, or-patterns, full guard bodies,
+semicolon-free explicit match sequencing, nested matches, ordered fall-through,
+and antiquotation capture of both a let-bound variable and an arm binder.
 \<close>
 
 text\<open>

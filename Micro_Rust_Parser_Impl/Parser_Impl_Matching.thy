@@ -213,7 +213,7 @@ struct
 
   fun lower_match lower ctxt environment (flavour, scrutinee, arms, pos) =
     let
-      val selected = P.select_match_flavour flavour arms pos
+      val selected = P.select_match_flavour ctxt flavour arms pos
       val lowered_scrutinee = lower environment scrutinee
     in
       (case selected of

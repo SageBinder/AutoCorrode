@@ -666,6 +666,9 @@ subsection\<open> Registered paths \<close>
 definition path_literal_42 :: nat where
   \<open> path_literal_42 \<equiv> 42 \<close>
 
+definition registered_seven :: nat where
+  \<open> registered_seven \<equiv> 7 \<close>
+
 datatype_record path_record_fixture =
   path_record_field :: nat
 micro_rust_record path_record_fixture
@@ -683,6 +686,7 @@ definition path_seed :: \<open>64 word\<close> where
   \<open> path_seed \<equiv> 5 \<close>
 
 micro_rust_notation (literal) path_literal_42 ("Color::Red")
+micro_rust_notation (literal) registered_seven ("registered_seven")
 micro_rust_notation (literal) path_record_value ("Path::Record")
 micro_rust_notation (literal) path_values ("Path::Values")
 micro_rust_notation (literal) path_optional_value ("Path::Optional")
@@ -844,6 +848,77 @@ urust_expr path_switch_key
   \<open>
     match_switch Color::Red {
       Color::Red \<Rightarrow> 1,
+      _ \<Rightarrow> 0
+    }
+  \<close>
+
+subsection\<open> Contextual bare-match routing \<close>
+
+text\<open>
+Exact registered nonconstructor values support both case and switch lowering. A numeral makes case
+lowering impossible, so bare \<open>match\<close> selects the existing switch term; without a numeral, case
+preference is unchanged. Explicit flavours remain authoritative.
+\<close>
+
+urust_expr match_auto_registered_path_middle
+  \<open>
+    match 42 {
+      0 \<Rightarrow> 0,
+      Color::Red \<Rightarrow> 1,
+      7 \<Rightarrow> 2,
+      _ \<Rightarrow> 3
+    }
+  \<close>
+
+urust_expr match_auto_registered_path_first
+  \<open>
+    match 42 {
+      Color::Red \<Rightarrow> 1,
+      0 \<Rightarrow> 0,
+      _ \<Rightarrow> 2
+    }
+  \<close>
+
+urust_expr match_auto_registered_path_grouped
+  \<open>
+    match 42 {
+      0 \<Rightarrow> 0,
+      (Color::Red) \<Rightarrow> 1,
+      _ \<Rightarrow> 2
+    }
+  \<close>
+
+urust_expr match_auto_registered_identifier
+  \<open>
+    match 7 {
+      0 \<Rightarrow> 0,
+      registered_seven \<Rightarrow> 1,
+      _ \<Rightarrow> 2
+    }
+  \<close>
+
+urust_expr match_explicit_registered_path_switch
+  \<open>
+    match_switch 42 {
+      0 \<Rightarrow> 0,
+      Color::Red \<Rightarrow> 1,
+      _ \<Rightarrow> 2
+    }
+  \<close>
+
+urust_expr match_explicit_registered_identifier_switch
+  \<open>
+    match_switch 7 {
+      0 \<Rightarrow> 0,
+      registered_seven \<Rightarrow> 1,
+      _ \<Rightarrow> 2
+    }
+  \<close>
+
+urust_expr match_explicit_registered_constructor_switch
+  \<open>
+    match_switch \<llangle>RegisteredNullary\<rrangle> {
+      Registered::Nullary \<Rightarrow> 1,
       _ \<Rightarrow> 0
     }
   \<close>

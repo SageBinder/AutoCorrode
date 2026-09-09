@@ -247,6 +247,9 @@ definition negative_registered_nonconstructor ::
       NegativeRegisteredNullary
   \<close>
 
+definition negative_registered_number :: nat where
+  \<open> negative_registered_number \<equiv> 42 \<close>
+
 micro_rust_notation (literal)
   negative_registered_constructor_fixture.NegativeRegisteredNullary
   ("NegativeRegistered::Nullary")
@@ -259,6 +262,9 @@ micro_rust_notation (literal)
 micro_rust_notation (literal)
   negative_registered_nonconstructor
   ("NegativeRegistered::Value")
+micro_rust_notation (literal)
+  negative_registered_number
+  ("NegativeRegistered::Number")
 micro_rust_notation (literal)
   negative_registered_constructor_fixture.NegativeRegisteredNullary
   ("NegativeRegistered::Ambiguous")
@@ -585,6 +591,83 @@ urust_expr_rejects fidelity
   \<open> mixed numeral and constructor patterns in bare `match` \<close>
   \<comment> \<open> [FIDELITY] bare-match routing cannot select one lowering for numeral and constructor heads;
        the frontend reports the same mixed-match category. \<close>
+
+new_urust_rejects audit
+  \<open>
+    match \<llangle>NegativeRegisteredNullary\<rrangle> {
+      0 \<Rightarrow> (),
+      NegativeRegistered::Nullary \<Rightarrow> ()
+    }
+  \<close>
+  \<open> mixed numeral and constructor patterns in bare `match` \<close>
+  \<comment> \<open> [AUDIT] an exact authentic constructor registration remains case-only during automatic
+       routing. \<close>
+
+new_urust_rejects audit
+  \<open>
+    match
+      \<llangle>
+        NegativeRegisteredPhantom ::
+          nat negative_registered_phantom
+      \<rrangle> {
+      0 \<Rightarrow> (),
+      NegativeRegistered::Phantom \<Rightarrow> ()
+    }
+  \<close>
+  \<open> mixed numeral and constructor patterns in bare `match` \<close>
+  \<comment> \<open> [AUDIT] phantom instantiation does not disguise registered constructor identity. \<close>
+
+new_urust_rejects audit
+  \<open>
+    match 42 {
+      0 if True \<Rightarrow> (),
+      NegativeRegistered::Number \<Rightarrow> (),
+      _ \<Rightarrow> ()
+    }
+  \<close>
+  \<open> numeric patterns are not supported in case patterns \<close>
+  \<comment> \<open> [AUDIT] any source guard forces case lowering before the first numeral is validated. \<close>
+
+new_urust_rejects audit
+  \<open>
+    match_case 42 {
+      0 \<Rightarrow> (),
+      NegativeRegistered::Number \<Rightarrow> (),
+      _ \<Rightarrow> ()
+    }
+  \<close>
+  \<open> numeric patterns are not supported in case patterns \<close>
+  \<comment> \<open> [AUDIT] explicit case flavour remains authoritative. \<close>
+
+new_urust_rejects audit
+  \<open>
+    match_switch 42 {
+      NegativeRegistered::Number if True \<Rightarrow> (),
+      _ \<Rightarrow> ()
+    }
+  \<close>
+  \<open> guards are not supported in explicit `match_switch` \<close>
+  \<comment> \<open> [AUDIT] contextual registered-value support does not relax explicit switch guards. \<close>
+
+new_urust_rejects audit
+  \<open>
+    match 0 {
+      0 \<Rightarrow> (),
+      Unregistered::Value \<Rightarrow> ()
+    }
+  \<close>
+  \<open> mixed numeral and constructor patterns in bare `match` \<close>
+  \<comment> \<open> [AUDIT] an unregistered qualified path remains case-only. \<close>
+
+new_urust_rejects audit
+  \<open>
+    match 0 {
+      0 \<Rightarrow> (),
+      unregistered_key \<Rightarrow> ()
+    }
+  \<close>
+  \<open> unsupported match_switch key "unregistered_key" \<close>
+  \<comment> \<open> [AUDIT] an unregistered bare identifier retains the switch-key binder rejection. \<close>
 
 urust_expr_rejects fidelity
   \<open> match_case \<llangle>Some (2 :: nat)\<rrangle> { Some(1..2..3) \<Rightarrow> (), _ \<Rightarrow> () } \<close>

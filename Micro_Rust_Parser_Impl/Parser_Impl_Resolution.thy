@@ -73,8 +73,15 @@ sig
 
   type constructor_info
   type constructor_resolver
+  datatype registered_literal_class =
+      Unregistered_Literal
+    | Registered_Value_Literal
+    | Registered_Constructor_Literal
   val make_constructor_resolver:
     Proof.context -> Position.T -> constructor_resolver
+  val classify_registered_literal:
+    Proof.context -> constructor_resolver ->
+      URust_AST.ur_path -> registered_literal_class
   val resolve_constructor:
     Proof.context -> constructor_resolver ->
       URust_AST.ur_path -> constructor_info option
@@ -153,11 +160,14 @@ ML\<open>
 
   - constructor_info and constructor_resolver are abstract. make_constructor_resolver snapshots the
     context's non-record Ctr_Sugar constructors, constructor families/selectors, and HOL record names
-    for a resolution site. resolve_constructor uses exact identity for qualified names and basename
-    lookup for unqualified names, returning NONE when absent and raising a positioned, deterministic
-    ambiguity error for multiple matches. constructor_term returns the dummy-typed constructor term,
-    constructor_arity its argument count, and constructor_family optionally the datatype identity with
-    all family constructor terms.
+    for a resolution site. classify_registered_literal is a report-free exact-registration query:
+    it distinguishes absence, a nonconstructor value backend, and an authentic constructor backend
+    by reusing the complete registration-only constructor catalogue. It does not select a constructor,
+    diagnose ambiguity, or emit semantic markup. resolve_constructor performs those later operations;
+    it uses exact identity for qualified names and basename lookup for unqualified names, returning
+    NONE when absent and raising a positioned, deterministic ambiguity error for multiple matches.
+    constructor_term returns the dummy-typed constructor term, constructor_arity its argument count,
+    and constructor_family optionally the datatype identity with all family constructor terms.
     report_constructor and report_selector emit constant markup at the supplied source position.
 
   - resolve_struct_pattern resolves a struct head as a constructor, a single-constructor datatype
@@ -584,6 +594,11 @@ struct
        type_fallbacks: (string * constructor_info) list,
        record_types: string list}
 
+  datatype registered_literal_class =
+      Unregistered_Literal
+    | Registered_Value_Literal
+    | Registered_Constructor_Literal
+
   fun constructor_identity
       ({identity, ...} : constructor_info) = identity
   fun constructor_term
@@ -836,8 +851,12 @@ struct
         then seen else info :: seen)
       infos []
 
-  fun registered_constructor_candidates ctxt
-      (Constructor_Resolver {registered_by_identity, ...}) path =
+  fun exact_literal_registrations ctxt path =
+    Micro_Rust_Names.lookups ctxt Micro_Rust_Names.NLiteral
+      (render_path path)
+
+  fun registered_constructor_candidates
+      (Constructor_Resolver {registered_by_identity, ...}) registrations =
     let
       val constructors =
         map #2 (Symtab.dest registered_by_identity)
@@ -852,20 +871,29 @@ struct
             constructors
         end
     in
-      Micro_Rust_Names.lookups ctxt Micro_Rust_Names.NLiteral
-        (render_path path)
+      registrations
       |> maps registered_matches
       |> distinct_constructor_infos
     end
+
+  fun classify_registered_literal ctxt resolver path =
+    (case exact_literal_registrations ctxt path of
+       [] => Unregistered_Literal
+     | registrations =>
+         if null
+             (registered_constructor_candidates resolver registrations)
+         then Registered_Value_Literal
+         else Registered_Constructor_Literal)
 
   fun resolve_constructor ctxt resolver path =
     let
       val name = render_path path
       val pos = #2 (path_terminal path)
+      val registrations = exact_literal_registrations ctxt path
       val registered =
-        registered_constructor_candidates ctxt resolver path
+        registered_constructor_candidates resolver registrations
       val candidates =
-        if null (Micro_Rust_Names.lookups ctxt Micro_Rust_Names.NLiteral name)
+        if null registrations
         then
           (reject_intermediate_generics path;
            case segment_generic_args (final_segment path) of
