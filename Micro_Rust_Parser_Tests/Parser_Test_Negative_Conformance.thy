@@ -232,6 +232,61 @@ datatype negative_struct_fixture =
 datatype negative_more_selector_fixture =
   NegativeMoreSelector (negative_more_required: nat) (more: nat)
 
+datatype negative_registered_constructor_fixture =
+    NegativeRegisteredNullary
+  | NegativeRegisteredUnary nat
+  | NegativeRegisteredOther
+
+datatype 'a negative_registered_phantom =
+  NegativeRegisteredPhantom
+
+definition negative_registered_nonconstructor ::
+  negative_registered_constructor_fixture where
+  \<open>
+    negative_registered_nonconstructor \<equiv>
+      NegativeRegisteredNullary
+  \<close>
+
+micro_rust_notation (literal)
+  negative_registered_constructor_fixture.NegativeRegisteredNullary
+  ("NegativeRegistered::Nullary")
+micro_rust_notation (literal)
+  negative_registered_constructor_fixture.NegativeRegisteredUnary
+  ("NegativeRegistered::Unary")
+micro_rust_notation (literal)
+  negative_registered_constructor_fixture.NegativeRegisteredOther
+  ("NegativeRegistered::Other")
+micro_rust_notation (literal)
+  negative_registered_nonconstructor
+  ("NegativeRegistered::Value")
+micro_rust_notation (literal)
+  negative_registered_constructor_fixture.NegativeRegisteredNullary
+  ("NegativeRegistered::Ambiguous")
+micro_rust_notation (literal)
+  negative_registered_constructor_fixture.NegativeRegisteredOther
+  ("NegativeRegistered::Ambiguous")
+micro_rust_notation (literal)
+  \<open> NegativeRegisteredUnary 0 \<close>
+  ("NegativeRegistered::Applied")
+micro_rust_notation (literal)
+  negative_registered_constructor_fixture.NegativeRegisteredNullary
+  ("NegativeRegistered::Duplicate")
+micro_rust_notation (literal)
+  negative_registered_constructor_fixture.NegativeRegisteredNullary
+  ("NegativeRegistered::Duplicate")
+micro_rust_notation (literal)
+  \<open>
+    NegativeRegisteredPhantom ::
+      nat negative_registered_phantom
+  \<close>
+  ("NegativeRegistered::Phantom")
+micro_rust_notation (literal)
+  \<open>
+    NegativeRegisteredPhantom ::
+      bool negative_registered_phantom
+  \<close>
+  ("NegativeRegistered::Phantom")
+
 record negative_record_fixture =
   negative_record_left :: nat
   negative_record_right :: nat
@@ -464,8 +519,61 @@ urust_expr_rejects fidelity
 
 urust_expr_rejects fidelity \<open> match_case \<llangle>Some (0 :: nat)\<rrangle> { NoSuchCtor(x) \<Rightarrow> (), _ \<Rightarrow> () } \<close>
   \<open> `NoSuchCtor` is not a known constructor \<close>
-  \<comment> \<open> [FIDELITY] \<open>Code.is_constr\<close> decides ctor-vs-binder; the frontend agrees ("Error in case
-       expression: Not a datatype constructor"). \<close>
+  \<comment> \<open> [FIDELITY] ordinary unregistered constructor lookup retains the \<open>Code.is_constr\<close>
+       boundary; the frontend agrees ("Error in case expression: Not a datatype constructor"). \<close>
+
+subsection\<open> Registered constructor diagnostics \<close>
+
+new_urust_rejects audit
+  \<open>
+    match_case \<llangle>NegativeRegisteredUnary 0\<rrangle> {
+      NegativeRegistered::Unary \<Rightarrow> 0,
+      _ \<Rightarrow> 1
+    }
+  \<close>
+  \<open> constructor "Unary" expects 1 pattern argument(s), but got 0 \<close>
+  \<comment> \<open> [AUDIT] an exact constructor registration retains its authentic arity for a nullary use. \<close>
+
+new_urust_rejects audit
+  \<open>
+    match_case \<llangle>NegativeRegisteredUnary 0\<rrangle> {
+      NegativeRegistered::Unary(left, right) \<Rightarrow> left,
+      _ \<Rightarrow> 0
+    }
+  \<close>
+  \<open> constructor "NegativeRegistered::Unary" expects 1 pattern argument(s), but got 2 \<close>
+  \<comment> \<open> [AUDIT] the same arity check covers excess arguments at the terminal constructor token. \<close>
+
+new_urust_rejects audit
+  \<open>
+    match_case \<llangle>negative_registered_nonconstructor\<rrangle> {
+      NegativeRegistered::Value(value) \<Rightarrow> value,
+      _ \<Rightarrow> NegativeRegisteredNullary
+    }
+  \<close>
+  \<open> `NegativeRegistered::Value` is not a known constructor \<close>
+  \<comment> \<open> [AUDIT] a definition equal to a constructor is still a value registration; resolution does
+       not unfold it to manufacture constructor identity. \<close>
+
+new_urust_rejects audit
+  \<open>
+    match_case \<llangle>NegativeRegisteredNullary\<rrangle> {
+      NegativeRegistered::Ambiguous \<Rightarrow> 0,
+      _ \<Rightarrow> 1
+    }
+  \<close>
+  \<open> constructor pattern "NegativeRegistered::Ambiguous" is ambiguous; candidates: \<close>
+  \<comment> \<open> [AUDIT] two distinct authentic registered backends retain a deterministic ambiguity. \<close>
+
+new_urust_rejects audit
+  \<open>
+    match_case \<llangle>NegativeRegisteredUnary 0\<rrangle> {
+      NegativeRegistered::Applied(value) \<Rightarrow> value,
+      _ \<Rightarrow> 0
+    }
+  \<close>
+  \<open> `NegativeRegistered::Applied` is not a known constructor \<close>
+  \<comment> \<open> [AUDIT] an application headed by a constructor is not the whole constructor term. \<close>
 
 new_urust_rejects divergent \<open> match_switch \<llangle>0 :: nat\<rrangle> { x \<Rightarrow> () } \<close>
   \<open> unsupported match_switch key "x" \<close>

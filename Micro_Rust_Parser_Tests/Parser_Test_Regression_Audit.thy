@@ -4587,6 +4587,117 @@ ML_val\<open>
 \<close>
 
 
+section\<open> Concealed registered-constructor lookup boundary \<close>
+
+experiment
+begin
+
+datatype concealed_constructor_audit =
+    ConcealedRegistered
+  | ConcealedUnregistered
+
+micro_rust_notation (literal)
+  concealed_constructor_audit.ConcealedRegistered
+  ("ConcealedAudit::Registered")
+micro_rust_notation (literal)
+  concealed_constructor_audit.ConcealedUnregistered
+  ("ConcealedAudit::Unregistered")
+
+ML_val\<open>
+  local
+    open URust_AST
+
+    val ctxt = \<^context>
+
+    fun audit_assert message condition =
+      if condition then ()
+      else error ("concealed constructor lookup audit: " ^ message)
+
+    fun parse source =
+      (case URust_Diagnostics.parse_source ctxt
+          (Parser_Lex_Util.text_source source) of
+         SOME expression => expression
+       | NONE => error "concealed constructor lookup audit: empty parse")
+
+    fun path_of source =
+      (case parse source of
+         UE_Path path => path
+       | _ => error ("expected path " ^ quote source))
+
+    fun checked source =
+      Parser_Test_Elaboration.expression ctxt
+        (Parser_Lex_Util.text_source source)
+
+    fun count_constant name term =
+      Term.fold_aterms
+        (fn Const (candidate, _) =>
+              if candidate = name then Integer.add 1 else I
+          | _ => I)
+        term 0
+
+    val theory = Proof_Context.theory_of ctxt
+    val registered_name =
+      \<^const_name>\<open>ConcealedRegistered\<close>
+    val unregistered_name =
+      \<^const_name>\<open>ConcealedUnregistered\<close>
+    val _ =
+      audit_assert "fixture constructor unexpectedly entered Code.is_constr"
+        (not (Code.is_constr theory registered_name) andalso
+         not (Code.is_constr theory unregistered_name))
+
+    val resolver =
+      URust_Resolution.make_constructor_resolver ctxt Position.none
+    val registered_info =
+      the
+        (URust_Resolution.resolve_constructor ctxt resolver
+          (path_of "ConcealedAudit::Registered"))
+    val _ =
+      audit_assert "registered concealed identity was not recovered"
+        (Term.aconv_untyped
+          (URust_Resolution.constructor_term registered_info,
+           \<^term>\<open>ConcealedRegistered\<close>))
+    val _ =
+      audit_assert "registered concealed constructor leaked into basename lookup"
+        (is_none
+          (URust_Resolution.resolve_constructor ctxt resolver
+            (path_of "ConcealedRegistered")))
+    val _ =
+      audit_assert "second concealed constructor leaked into basename lookup"
+        (is_none
+          (URust_Resolution.resolve_constructor ctxt resolver
+            (path_of "ConcealedUnregistered")))
+
+    val registered_match =
+      checked
+        ("match_case \<llangle>ConcealedRegistered\<rrangle> { " ^
+         "ConcealedAudit::Registered \<Rightarrow> 0, " ^
+         "ConcealedAudit::Unregistered \<Rightarrow> 1 }")
+    val _ =
+      audit_assert "registered concealed match lost authentic constructors"
+        (count_constant registered_name registered_match > 0 andalso
+         count_constant unregistered_name registered_match > 0)
+    val _ =
+      audit_assert "registered concealed exhaustive match retained undefined"
+        (count_constant \<^const_name>\<open>undefined\<close>
+          registered_match = 0)
+
+    val unregistered_binder =
+      checked
+        ("match_case \<llangle>ConcealedUnregistered\<rrangle> { " ^
+         "ConcealedUnregistered \<Rightarrow> 0 }")
+    val _ =
+      audit_assert "unregistered concealed basename stopped being a binder"
+        (count_constant unregistered_name unregistered_binder = 1)
+  in
+    val _ =
+      writeln
+        "Concealed registered identity and filtered unregistered lookup regressions passed"
+  end
+\<close>
+
+end
+
+
 section\<open> Registered constructor identity audit \<close>
 
 consts
@@ -4638,6 +4749,16 @@ ML_val\<open>
     val phantom_b_name =
       constant_name
         \<^term>\<open>RegisteredPhantomB :: nat registered_phantom\<close>
+    val negative_nullary_name =
+      constant_name \<^term>\<open>NegativeRegisteredNullary\<close>
+    val negative_other_name =
+      constant_name \<^term>\<open>NegativeRegisteredOther\<close>
+    val negative_phantom_name =
+      constant_name
+        \<^term>\<open>
+          NegativeRegisteredPhantom ::
+            nat negative_registered_phantom
+        \<close>
 
     val exhaustive =
       checked
@@ -4661,6 +4782,24 @@ ML_val\<open>
         ("match_case Color::Red { Color::Red \<Rightarrow> " ^
          "\<llangle>registered_constructor_first_marker\<rrangle>, " ^
          "_ \<Rightarrow> \<llangle>registered_constructor_second_marker\<rrangle> }")
+    val applied_nonconstructor =
+      checked
+        ("match_case \<llangle>NegativeRegisteredUnary 0\<rrangle> { " ^
+         "NegativeRegistered::Applied \<Rightarrow> " ^
+         "\<llangle>registered_constructor_first_marker\<rrangle>, " ^
+         "_ \<Rightarrow> \<llangle>registered_constructor_second_marker\<rrangle> }")
+    val duplicate_constructor =
+      checked
+        ("match_case \<llangle>NegativeRegisteredNullary\<rrangle> { " ^
+         "NegativeRegistered::Duplicate \<Rightarrow> 0, " ^
+         "NegativeRegistered::Unary(value) \<Rightarrow> value, " ^
+         "NegativeRegistered::Other \<Rightarrow> 1 }")
+    val duplicate_phantom =
+      checked
+        ("match_case " ^
+         "\<llangle>NegativeRegisteredPhantom :: " ^
+         "nat negative_registered_phantom\<rrangle> { " ^
+         "NegativeRegistered::Phantom \<Rightarrow> 0 }")
 
     val _ =
       audit_assert "exhaustive match duplicated its scrutinee"
@@ -4689,7 +4828,7 @@ ML_val\<open>
         (count_constant \<^const_name>\<open>undefined\<close> exhaustive = 0)
     val _ =
       audit_assert "exhaustive constructor match used generated equality"
-        (count_constant \<^const_name>\<open>HOL.eq\<close> exhaustive = 0)
+        (count_constant \<^const_name>\<open>urust_eq\<close> exhaustive = 0)
     val _ =
       audit_assert "exhaustive constructor match used generated conditional"
         (count_constant
@@ -4699,7 +4838,7 @@ ML_val\<open>
         (count_constant unary_name partial > 0)
     val _ =
       audit_assert "partial constructor match used generated equality"
-        (count_constant \<^const_name>\<open>HOL.eq\<close> partial = 0)
+        (count_constant \<^const_name>\<open>urust_eq\<close> partial = 0)
     val _ =
       audit_assert "partial constructor match lost its unmatched fallback"
         (count_constant \<^const_name>\<open>undefined\<close> partial > 0)
@@ -4713,7 +4852,7 @@ ML_val\<open>
         (count_constant unary_name guarded > 0)
     val _ =
       audit_assert "guarded constructor match used generated equality"
-        (count_constant \<^const_name>\<open>HOL.eq\<close> guarded = 0)
+        (count_constant \<^const_name>\<open>urust_eq\<close> guarded = 0)
     val _ =
       audit_assert "guarded match with wildcard fallback retained undefined"
         (count_constant \<^const_name>\<open>undefined\<close> guarded = 0)
@@ -4723,9 +4862,46 @@ ML_val\<open>
           \<^const_name>\<open>registered_constructor_second_marker\<close>
           guarded > 0)
     val _ =
-      audit_assert "registered nonconstructor lost its value key"
+      audit_assert "registered nonconstructor value-key count changed"
         (count_constant \<^const_name>\<open>path_literal_42\<close>
+          nonconstructor = 2)
+    val _ =
+      audit_assert "registered nonconstructor lost equality lowering"
+        (count_constant \<^const_name>\<open>urust_eq\<close>
           nonconstructor > 0)
+    val _ =
+      audit_assert "registered nonconstructor lost conditional lowering"
+        (count_constant
+          \<^const_name>\<open>two_armed_conditional\<close>
+          nonconstructor > 0)
+    val _ =
+      List.app
+        (fn name =>
+          audit_assert
+            ("registered nonconstructor acquired constructor classification " ^
+              quote name)
+            (count_constant name nonconstructor = 0))
+        [nullary_name, unary_name, other_name]
+    val _ =
+      audit_assert "constructor-headed registered application lost its two values"
+        (count_constant
+          \<^const_name>\<open>NegativeRegisteredUnary\<close>
+          applied_nonconstructor = 2)
+    val _ =
+      audit_assert "constructor-headed registered application lost equality lowering"
+        (count_constant \<^const_name>\<open>urust_eq\<close>
+          applied_nonconstructor > 0)
+    val _ =
+      audit_assert "constructor-headed registered application lost conditional lowering"
+        (count_constant
+          \<^const_name>\<open>two_armed_conditional\<close>
+          applied_nonconstructor > 0)
+    val _ =
+      audit_assert "duplicate same-constructor registrations became ambiguous"
+        (count_constant negative_nullary_name duplicate_constructor > 0)
+    val _ =
+      audit_assert "phantom type-instantiated registrations became ambiguous"
+        (count_constant negative_phantom_name duplicate_phantom > 0)
 
     fun path_of source =
       (case parse (Parser_Lex_Util.text_source source) of
@@ -4743,11 +4919,29 @@ ML_val\<open>
       the
         (URust_Resolution.resolve_constructor ctxt resolver
           (path_of "RegisteredPhantom::A"))
+    val duplicate_info =
+      the
+        (URust_Resolution.resolve_constructor ctxt resolver
+          (path_of "NegativeRegistered::Duplicate"))
+    val duplicate_phantom_info =
+      the
+        (URust_Resolution.resolve_constructor ctxt resolver
+          (path_of "NegativeRegistered::Phantom"))
     val _ =
       audit_assert "registered nonconstructor became a constructor"
         (is_none
           (URust_Resolution.resolve_constructor ctxt resolver
             (path_of "Color::Red")))
+    val _ =
+      audit_assert "constructor-equal definition became a constructor"
+        (is_none
+          (URust_Resolution.resolve_constructor ctxt resolver
+            (path_of "NegativeRegistered::Value")))
+    val _ =
+      audit_assert "constructor-headed application became a constructor"
+        (is_none
+          (URust_Resolution.resolve_constructor ctxt resolver
+            (path_of "NegativeRegistered::Applied")))
     val _ =
       audit_assert "registered unary did not return catalogue identity"
         (Term.aconv_untyped
@@ -4772,6 +4966,19 @@ ML_val\<open>
              (sort_strings (map constant_name members) =
               sort_strings [phantom_a_name, phantom_b_name])
        | NONE => error "phantom constructor lost family metadata")
+    val _ =
+      audit_assert "duplicate identical registrations lost constructor identity"
+        (Term.aconv_untyped
+          (URust_Resolution.constructor_term duplicate_info,
+           \<^term>\<open>NegativeRegisteredNullary\<close>))
+    val _ =
+      audit_assert "phantom registrations did not deduplicate by untyped identity"
+        (Term.aconv_untyped
+          (URust_Resolution.constructor_term duplicate_phantom_info,
+           \<^term>\<open>
+             NegativeRegisteredPhantom ::
+               bool negative_registered_phantom
+           \<close>))
 
     fun find_from text needle offset =
       if offset + size needle > size text then
@@ -4892,10 +5099,132 @@ ML_val\<open>
         (not
           (has_entity Micro_Rust_Names.notationN
             "Registered::Unary" expected_terminal))
+
+    fun recovery_checks () =
+      let
+        val constructor_recovery =
+          checked
+            ("match_case \<llangle>NegativeRegisteredUnary 3\<rrangle> { " ^
+             "NegativeRegistered::Nullary \<Rightarrow> 0, " ^
+             "NegativeRegistered::Unary(value) \<Rightarrow> value, " ^
+             "NegativeRegistered::Other \<Rightarrow> 1 }")
+        val nonconstructor_recovery =
+          checked
+            ("match_case \<llangle>negative_registered_nonconstructor\<rrangle> { " ^
+             "NegativeRegistered::Value \<Rightarrow> " ^
+             "NegativeRegisteredNullary, " ^
+             "_ \<Rightarrow> NegativeRegisteredOther }")
+      in
+        audit_assert "constructor recovery lost authentic identity"
+          (count_constant
+            \<^const_name>\<open>NegativeRegisteredUnary\<close>
+            constructor_recovery > 0);
+        audit_assert "nonconstructor recovery lost equality lowering"
+          (count_constant \<^const_name>\<open>urust_eq\<close>
+            nonconstructor_recovery > 0)
+      end
+
+    fun diagnostic_ranges body =
+      let
+        fun collect (XML.Text _) ranges = ranges
+          | collect (XML.Elem ((_, properties), children)) ranges =
+              let
+                val ranges' =
+                  (case
+                    (Properties.get properties Markup.offsetN,
+                     Properties.get properties Markup.end_offsetN) of
+                     (SOME offset, SOME end_offset) =>
+                       (offset, end_offset) :: ranges
+                   | _ => ranges)
+              in fold collect children ranges' end
+      in distinct (op =) (fold collect body []) end
+
+    fun expect_exact_rejection serial label text path terminal expected =
+      let
+        val start =
+          Position.make0 (40 + serial) (900 + serial * 200) 0 "" ""
+            ("registered-constructor-" ^ label ^ "-audit")
+        val source =
+          Parser_Lex_Util.positioned_content_source text start
+        val (path_raw, _) =
+          token_position text start path 0
+        val terminal_raw =
+          path_raw + size path - size terminal
+        val (_, expected_position) =
+          token_position text start terminal terminal_raw
+        val expected_message =
+          expected ^ Position.here expected_position
+        val expected_range =
+          (Value.print_int (the (Position.offset_of expected_position)),
+           Value.print_int (the (Position.end_offset_of expected_position)))
+        val body =
+          (case Exn.result
+              (fn () =>
+                Parser_Test_Elaboration.expression ctxt source) () of
+             Exn.Res term =>
+               error
+                 ("registered constructor identity audit: " ^ label ^
+                  " unexpectedly elaborated to " ^
+                  Syntax.string_of_term ctxt term)
+           | Exn.Exn exn =>
+               if Exn.is_interrupt exn then Exn.reraise exn
+               else
+                 let val actual = Runtime.exn_message exn
+                 in
+                   audit_assert (label ^ " exact diagnostic changed")
+                     (actual = expected_message);
+                   YXML.parse_body actual
+                 end)
+        val _ =
+          audit_assert (label ^ " YXML offset/end_offset changed")
+            (diagnostic_ranges body = [expected_range])
+        val _ = recovery_checks ()
+      in () end
+
+    val unary_path = "NegativeRegistered::Unary"
+    val value_path = "NegativeRegistered::Value"
+    val ambiguous_path = "NegativeRegistered::Ambiguous"
+    val applied_path = "NegativeRegistered::Applied"
+    val _ =
+      expect_exact_rejection 0 "zero-arity"
+        ("match_case \<llangle>NegativeRegisteredUnary 0\<rrangle> { " ^
+         unary_path ^ " \<Rightarrow> 0, _ \<Rightarrow> 1 }")
+        unary_path "Unary"
+        ("urust_expr: constructor " ^ quote "Unary" ^
+         " expects 1 pattern argument(s), but got 0")
+    val _ =
+      expect_exact_rejection 1 "excess-arity"
+        ("match_case \<llangle>NegativeRegisteredUnary 0\<rrangle> { " ^
+         unary_path ^ "(left, right) \<Rightarrow> left, _ \<Rightarrow> 0 }")
+        unary_path "Unary"
+        ("urust_expr: constructor " ^ quote unary_path ^
+         " expects 1 pattern argument(s), but got 2")
+    val _ =
+      expect_exact_rejection 2 "nonconstructor-application"
+        ("match_case \<llangle>negative_registered_nonconstructor\<rrangle> { " ^
+         value_path ^ "(value) \<Rightarrow> value, _ \<Rightarrow> " ^
+         "NegativeRegisteredNullary }")
+        value_path "Value"
+        ("urust_expr: `" ^ value_path ^ "` is not a known constructor")
+    val _ =
+      expect_exact_rejection 3 "distinct-constructor-ambiguity"
+        ("match_case \<llangle>NegativeRegisteredNullary\<rrangle> { " ^
+         ambiguous_path ^ " \<Rightarrow> 0, _ \<Rightarrow> 1 }")
+        ambiguous_path "Ambiguous"
+        ("urust_expr: constructor pattern " ^ quote ambiguous_path ^
+         " is ambiguous; candidates: " ^
+         space_implode ", "
+           (sort_strings [negative_nullary_name, negative_other_name]))
+    val _ =
+      expect_exact_rejection 4 "constructor-headed-application"
+        ("match_case \<llangle>NegativeRegisteredUnary 0\<rrangle> { " ^
+         applied_path ^ "(value) \<Rightarrow> value, _ \<Rightarrow> 0 }")
+        applied_path "Applied"
+        ("urust_expr: `" ^ applied_path ^ "` is not a known constructor")
   in
     val _ =
       writeln
-        "Registered constructor identity, lowering, range, markup, and single-evaluation regressions passed"
+        "Registered constructor identity, diagnostics, recovery, lowering, range, markup, and single-evaluation regressions passed"
   end
 \<close>
 

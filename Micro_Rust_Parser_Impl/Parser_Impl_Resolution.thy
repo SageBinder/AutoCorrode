@@ -578,7 +578,8 @@ struct
 
   datatype constructor_resolver =
     Constructor_Resolver of
-      {by_identity: constructor_info Symtab.table,
+      {registered_by_identity: constructor_info Symtab.table,
+       by_identity: constructor_info Symtab.table,
        by_basename: constructor_info list Symtab.table,
        type_fallbacks: (string * constructor_info) list,
        record_types: string list}
@@ -764,8 +765,16 @@ struct
                  table)
         end
 
-      val by_identity =
+      val registered_by_identity =
         fold add_entry (maps catalog_entries sugars) Symtab.empty
+
+      val by_identity =
+        Symtab.fold
+          (fn (identity, info) =>
+            if Code.is_constr theory identity
+            then Symtab.update (identity, info)
+            else I)
+          registered_by_identity Symtab.empty
 
       fun add_basename info =
         Symtab.map_default
@@ -793,7 +802,8 @@ struct
         |> sort_strings
     in
       Constructor_Resolver
-        {by_identity = by_identity,
+        {registered_by_identity = registered_by_identity,
+         by_identity = by_identity,
          by_basename = by_basename,
          type_fallbacks = type_fallbacks,
          record_types = record_types}
@@ -827,9 +837,10 @@ struct
       infos []
 
   fun registered_constructor_candidates ctxt
-      (Constructor_Resolver {by_identity, ...}) path =
+      (Constructor_Resolver {registered_by_identity, ...}) path =
     let
-      val constructors = map #2 (Symtab.dest by_identity)
+      val constructors =
+        map #2 (Symtab.dest registered_by_identity)
 
       fun registered_matches entry =
         let val backend = identifier_leaf (#hol_term entry)
