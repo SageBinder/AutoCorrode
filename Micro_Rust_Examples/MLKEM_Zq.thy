@@ -80,7 +80,7 @@ qed
 
 section\<open>Modular addition\<close>
 
-urust fn zq_add ::
+urust_fn zq_add ::
   \<open>16 word \<Rightarrow> 16 word \<Rightarrow>
    ('s, 16 word, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (a, b)
@@ -108,7 +108,7 @@ lemma zq_add_spec [crush_specs]:
 
 section\<open>Modular subtraction\<close>
 
-urust fn zq_sub ::
+urust_fn zq_sub ::
   \<open>16 word \<Rightarrow> 16 word \<Rightarrow>
    ('s, 16 word, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (a, b)
@@ -141,7 +141,7 @@ qed
 
 section\<open>Modular multiplication\<close>
 
-urust fn zq_mul ::
+urust_fn zq_mul ::
   \<open>16 word \<Rightarrow> 16 word \<Rightarrow>
    ('s, 16 word, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (a, b)

@@ -247,7 +247,7 @@ struct
                lower_result alternatives
            end
        | MF_Auto =>
-           error "urust expr: internal unresolved auto match flavour")
+           error "urust_expr: internal unresolved auto match flavour")
     end
 
   fun lower_boolean_match lower ctxt environment

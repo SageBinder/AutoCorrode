@@ -4203,19 +4203,19 @@ ML_val\<open>
 
 section\<open> Standard code equations \<close>
 
-urust expr regression_code_literal
+urust_expr regression_code_literal
   \<open> 7_u32 \<close>
 
-urust expr regression_code_unit
+urust_expr regression_code_unit
   \<open> () \<close>
 
-urust expr regression_code_yield
+urust_expr regression_code_yield
   \<open> \<y>\<i>\<e>\<l>\<d> \<close>
 
-urust expr regression_code_primitive_log
+urust_expr regression_code_primitive_log
   \<open> \<l>\<o>\<g> \<llangle>Info\<rrangle> \<llangle>[]\<rrangle> \<close>
 
-urust expr regression_code_log_data
+urust_expr regression_code_log_data
   \<open> l\<llangle>True\<rrangle> \<close>
 
 ML_val\<open>

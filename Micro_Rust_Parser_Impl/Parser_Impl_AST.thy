@@ -302,13 +302,13 @@ struct
   fun final_segment (UR_Path (segments, _)) =
     (case rev segments of
        segment :: _ => segment
-     | [] => error "urust expr: internal empty path")
+     | [] => error "urust_expr: internal empty path")
   fun remove_final_generic_args (UR_Path (segments, pos)) =
     (case rev segments of
        Path_Segment (name, name_pos, _) :: rest =>
          UR_Path
            (rev (Path_Segment (name, name_pos, NONE) :: rest), pos)
-     | [] => error "urust expr: internal empty path")
+     | [] => error "urust_expr: internal empty path")
   fun render_generic_args (Generic_Args (arguments, _)) =
     "::<" ^
       space_implode ","
@@ -516,7 +516,7 @@ struct
     | expr_to_place (UE_Index (base, index, pos)) =
         UP_Index (expr_to_place base, index, pos)
     | expr_to_place expr =
-        error ("urust expr: invalid assignment target" ^
+        error ("urust_expr: invalid assignment target" ^
           Position.here (expression_position expr))
 
   fun mk_assign (aop, pos) lhs rhs =

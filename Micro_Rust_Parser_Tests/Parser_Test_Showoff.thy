@@ -8,8 +8,8 @@ section\<open> Showcase \<close>
 
 text\<open>
 These examples intentionally combine features. Shared-source examples check the
-same text against the existing frontend. The explicit \<open>urust fn\<close> and common typed
-\<open>urust expr\<close> function examples give equivalent old-frontend spellings; the combined
+same text against the existing frontend. The explicit \<open>urust_fn\<close> and common typed
+\<open>urust_expr\<close> function examples give equivalent old-frontend spellings; the combined
 parser-only expression has its witness in \<open>Parser_Test_Improvements\<close>.
 \<close>
 
@@ -21,7 +21,7 @@ nested tuple destructuring, \<open>let\<close> and \<open>const\<close>, operato
 explicit narrowing and widening casts, strings, and \<open>if\<close>/\<open>else\<close>.
 \<close>
 
-urust expr showoff_expression
+urust_expr showoff_expression
   \<open>
     let inputs = vec![0x10_u32, 0x0f_u32, 0x20_u32];
     let (base, (mask, enabled)) =
@@ -49,7 +49,7 @@ Features: registered logger calls, mixed logging-data entries, lexical identifie
 yield and logging, and ordinary sequencing.
 \<close>
 
-urust expr showoff_logging_yield
+urust_expr showoff_logging_yield
   \<open>
     let request = \<llangle>7 :: nat\<rrangle>;
     info!(l\<llangle>"request ", request, " started"\<rrangle>);
@@ -61,26 +61,26 @@ urust expr showoff_logging_yield
 
 subsection\<open> Calls, methods, and propagation \<close>
 
-urust fn [urust_conformance_check = false] showoff_inline_disabled ::
+urust_fn [conformance_check = false] showoff_inline_disabled ::
   \<open>(unit, 64 word, unit, unit, unit) function_body\<close>
   ()
   \<open> 3u64 \<close>
 
-urust fn [urust_verbose = 2] showoff_declared_mix ::
+urust_fn [verbose = 2] showoff_declared_mix ::
   \<open>64 word \<Rightarrow> 64 word \<Rightarrow>
     (unit, 64 word, unit, unit, unit) function_body\<close>
   (left, right)
   \<open> left * 3u64 + right \<close>
   against \<open> \<lbrakk> left * 3_u64 + right \<rbrakk> \<close>
 
-urust expr [urust_verbose = 2] showoff_typed_common ::
+urust_expr [verbose = 2] showoff_typed_common ::
   \<open>64 word \<Rightarrow> 64 word \<Rightarrow>
     (unit, 64 word, unit, unit, unit) function_body\<close>
   (left, right)
   \<open> left * 5u64 + right \<close>
   against \<open> \<lbrakk> left * 5_u64 + right \<rbrakk> \<close>
 
-urust expr [urust_abbrev = true] showoff_contextual_mix
+urust_expr [abbrev = true] showoff_contextual_mix
   (left, right)
   \<open> left * 3_u64 + right \<close>
 
@@ -113,7 +113,7 @@ turbofish with ordinary HOL identifier arithmetic, comparisons, and an \<open>if
 fallback.
 \<close>
 
-urust expr showoff_calls
+urust_expr showoff_calls
   \<open>
     let inputs = [5_u64, 2_u64, 1_u64, 0_u64];
     let active = inputs[0_usize..2_usize];
@@ -145,7 +145,7 @@ urust expr showoff_calls
     }
   \<close>
 
-urust expr showoff_function_command_call
+urust_expr showoff_function_command_call
   \<open> showoff_declared_mix(4_u64, 2_u64) \<close>
 
 subsection\<open> Registered struct construction \<close>
@@ -168,7 +168,7 @@ the registered qualified head receives the two initializers in source order. Par
 struct expression explicit when it is used as a control head.
 \<close>
 
-urust expr showoff_struct_expression
+urust_expr showoff_struct_expression
   \<open>
     match_case (
       Showoff::StructValue {
@@ -200,7 +200,7 @@ C1-I5 gives a guarded or-pattern one source-arm guard and next-arm fall-through,
 uses the corrected semantics instead of asserting equality with the old alternative expansion.
 \<close>
 
-urust expr [urust_conformance_check = false] showoff_matches
+urust_expr [conformance_check = false] showoff_matches
   \<open>
     let floor = \<llangle>2 :: nat\<rrangle>;
     match \<llangle>ShowoffData (Some 7) True\<rrangle> {
@@ -247,7 +247,7 @@ or-patterns in one match, followed by a guard and antiquotation capture of
 bindings from deep inside the pattern.
 \<close>
 
-urust expr [urust_conformance_check = false] showoff_patterns
+urust_expr [conformance_check = false] showoff_patterns
   \<open>
     match \<llangle>ShowoffPacket 2 [3, 5, 8] (Some 13)\<rrangle> {
       ShowoffPacket {
@@ -294,7 +294,7 @@ references, indexed reads and updates, mutable word, boolean, and optional state
 numeric switching, assignment, and \<open>while let\<close> termination.
 \<close>
 
-urust expr showoff_nested_loops
+urust_expr showoff_nested_loops
   \<open>
     let outer_fuel = \<llangle>4 :: nat\<rrangle>;
     let inner_fuel = \<llangle>2 :: nat\<rrangle>;
@@ -320,7 +320,7 @@ urust expr showoff_nested_loops
     (*(registers[0_usize]), *active)
   \<close>
 
-urust expr showoff_for_and_while_let
+urust_expr showoff_for_and_while_let
   \<open>
     let values = [1_u32, 2_u32, 3_u32];
     let mut total = 0_u32;
@@ -344,7 +344,7 @@ dereferenced state, conditional loop-body control flow, a nested unconditional
 loop, assignment from call results, and capture of two independent fuel binders.
 \<close>
 
-urust expr showoff_loop_pipeline
+urust_expr showoff_loop_pipeline
   \<open>
     let scan_fuel = \<llangle>5 :: nat\<rrangle>;
     let burst_fuel = \<llangle>2 :: nat\<rrangle>;
@@ -375,7 +375,7 @@ an aborting \<open>let ... else\<close> binding, assertion aliases with ignored
 diagnostics, and aborting fallback branches.
 \<close>
 
-urust expr showoff_macro_pipeline
+urust_expr showoff_macro_pipeline
   \<open>
     let candidates = vec![Some(4_u32), None];
     let first = candidates[0_usize];
@@ -415,7 +415,7 @@ closure, capture of an outer local and the closure formal, nested block control 
 local bindings inside the closure, value-antiquotation capture, and a terminal return.
 \<close>
 
-urust expr showoff_closure_pipeline
+urust_expr showoff_closure_pipeline
   \<open>
     let outer = 3_u64;
     showoff_invoke_closure(
@@ -444,7 +444,7 @@ a total conditional binding without an unreachable fallback in the checked term,
 and empty ordinary and unsafe blocks.
 \<close>
 
-urust expr [urust_conformance_check = false] showoff_improvements
+urust_expr [conformance_check = false] showoff_improvements
   \<open>
     // These spellings are accepted only by the dedicated parser.
     let seeds = [1u64, 2u64,];

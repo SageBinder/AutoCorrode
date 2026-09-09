@@ -59,7 +59,7 @@ section\<open>Exercise 1: Hello Crush (warm-up)\<close>
 text\<open>This function clamps a value \<^term>\<open>x\<close> to the range \<^term>\<open>[lo, hi]\<close>.
 The contract and function are given. Your task: write the proof.\<close>
 
-urust fn clamp ::
+urust_fn clamp ::
   \<open>nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> ('s, nat, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (lo, hi, x)
   \<open>
@@ -94,7 +94,7 @@ section\<open>Exercise 2: Write the Contract\<close>
 text\<open>This function returns the maximum of two natural numbers.
 The function is given. Your task: strengthen the postcondition and prove the spec.\<close>
 
-urust fn max_of ::
+urust_fn max_of ::
   \<open>nat \<Rightarrow> nat \<Rightarrow> ('s, nat, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (a, b)
   \<open>
@@ -147,7 +147,7 @@ Because we allocate a mutable reference, the precondition must include
 should return this capability (we are done with the reference) along with
 a pure fact about the result.\<close>
 
-urust fn abs_diff ::
+urust_fn abs_diff ::
   \<open>nat \<Rightarrow> nat \<Rightarrow> ('s, nat, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (a, b)
   \<open>
@@ -182,7 +182,7 @@ Your task: write and verify a \<^term>\<open>quadruple\<close> function that cal
 This demonstrates modular verification: you reuse the specification of a
 callee rather than inlining its implementation.\<close>
 
-urust fn double ::
+urust_fn double ::
   \<open>nat \<Rightarrow> ('s, nat, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (n)
   \<open>
@@ -203,7 +203,7 @@ lemma double_spec:
   done
 
 text\<open>TODO: Define \<^term>\<open>quadruple\<close> using \<^term>\<open>double\<close>\<close>
-urust fn quadruple ::
+urust_fn quadruple ::
   \<open>nat \<Rightarrow> ('s, nat, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (n)
   \<open>
@@ -238,7 +238,7 @@ and \<^term>\<open>bvec_well_formed\<close> asserts the invariant that all slots
 The following functions use Rust-like field access syntax: \<^verbatim>\<open>v.bvec_len\<close>, \<^verbatim>\<open>v.bvec_values[idx]\<close>.\<close>
 
 text\<open>This function checks whether the bounded vector is empty.\<close>
-urust fn bvec_is_empty ::
+urust_fn bvec_is_empty ::
   \<open>('a, 'l::len) bounded_vec \<Rightarrow> ('s, bool, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (v)
   \<open> v.bvec_len == 0 \<close>
@@ -266,7 +266,7 @@ section\<open>Exercise 6: Indexing a Data Structure (stretch)\<close>
 
 text\<open>This function looks up an element in the bounded vector by index.\<close>
 
-urust fn bvec_get ::
+urust_fn bvec_get ::
   \<open>('a, 'l::len) bounded_vec \<Rightarrow> 64 word \<Rightarrow> ('s, 'a option, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (v, idx)
   \<open>
@@ -301,7 +301,7 @@ with a mutable boolean accumulator. It combines mutable state, loops, and the
 abstraction function. The implementation does not return early to make the loop
 invariant simpler.\<close>
 
-urust fn bvec_contains ::
+urust_fn bvec_contains ::
   \<open>(nat, 'l::len) bounded_vec \<Rightarrow> nat \<Rightarrow> ('s, bool, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (v, needle)
   \<open>
@@ -357,7 +357,7 @@ new state: \<^verbatim>\<open>\<Squnion>g' v'. ptr \<mapsto>\<langle>\<top>\<ran
 
 This function clears the vector by setting its length to zero.\<close>
 
-urust fn bvec_clear ::
+urust_fn bvec_clear ::
   \<open>('addr, 'gv, (nat, 'l::len) bounded_vec) ref \<Rightarrow> ('s, unit, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (self)
   \<open>
@@ -394,7 +394,7 @@ The key design pattern here is \<^emph>\<open>two-layer specification\<close>:
 
 This avoids mixing abstraction-function reasoning with separation-logic automation.\<close>
 
-urust fn bvec_push ::
+urust_fn bvec_push ::
   \<open>('addr, 'gv, (nat, 'l::len) bounded_vec) ref \<Rightarrow> nat \<Rightarrow> ('s, (unit, nat) result, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (self, elem)
   \<open>
@@ -487,7 +487,7 @@ lemma abs_diff_spec_solution:
   done
 
 paragraph\<open>Exercise 4\<close>
-urust fn quadruple_solution ::
+urust_fn quadruple_solution ::
   \<open>nat \<Rightarrow> ('s, nat, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (n)
   \<open>

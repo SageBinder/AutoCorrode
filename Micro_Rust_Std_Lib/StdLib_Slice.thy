@@ -47,7 +47,7 @@ lemma array_index_spec [crush_specs]:
 
 context reference begin
 
-urust fn slice_index :: \<open>('a, 'b, 'v list) Global_Store.ref \<Rightarrow> 'w::{len} word \<Rightarrow>
+urust_fn slice_index :: \<open>('a, 'b, 'v list) Global_Store.ref \<Rightarrow> 'w::{len} word \<Rightarrow>
         ('s, ('a, 'b, 'v) Global_Store.ref, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (r, i)
   \<open>
@@ -96,7 +96,7 @@ lemma slice_index_array_spec [crush_specs]:
   apply crush_base
   done
 
-urust fn slice_index_vector :: \<open>('a, 'b, ('v, 'l::{len}) vector) Global_Store.ref \<Rightarrow> 'w::{len} word \<Rightarrow>
+urust_fn slice_index_vector :: \<open>('a, 'b, ('v, 'l::{len}) vector) Global_Store.ref \<Rightarrow> 'w::{len} word \<Rightarrow>
       ('s, ('a, 'b, 'v) Global_Store.ref, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (r, idx)
   \<open>

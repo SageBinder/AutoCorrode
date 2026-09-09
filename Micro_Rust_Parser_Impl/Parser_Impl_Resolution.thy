@@ -194,7 +194,7 @@ struct
         (case Symtab.lookup seen name of
            NONE => Symtab.update (name, pos) seen
          | SOME original_pos =>
-             error ("urust expr: duplicate pattern binder " ^ quote name ^
+             error ("urust_expr: duplicate pattern binder " ^ quote name ^
                Position.here pos ^ "\nThe original binder is here" ^
                Position.here original_pos))
       val _ = fold validate signatures Symtab.empty
@@ -237,10 +237,10 @@ struct
     in allocate parameters environment [] end
 
   fun allocate_expression_arguments ctxt environment arguments =
-    allocate_parameters "urust expr" "argument" ctxt environment arguments
+    allocate_parameters "urust_expr" "argument" ctxt environment arguments
 
   fun allocate_function_parameters ctxt environment parameters =
-    allocate_parameters "urust fn" "parameter" ctxt environment parameters
+    allocate_parameters "urust_fn" "parameter" ctxt environment parameters
 
   fun use_local ctxt environment (name, pos) =
     (case Symtab.lookup environment name of
@@ -351,7 +351,7 @@ struct
               (path_segments path))
       in
         error
-          ("urust expr: generic arguments on an intermediate path segment require an exact registration" ^
+          ("urust_expr: generic arguments on an intermediate path segment require an exact registration" ^
             Position.here (#2 (segment_identifier offending)))
       end
     else ()
@@ -406,7 +406,7 @@ struct
                 NONE => ()
               | SOME (Generic_Args (_, pos)) =>
                   error
-                    ("urust expr: generic arguments on a bare value require an exact literal registration" ^
+                    ("urust_expr: generic arguments on a bare value require an exact literal registration" ^
                       Position.here pos))
          in
            resolve_generic_free_path ctxt environment
@@ -501,7 +501,7 @@ struct
     (case term_name_of term of
        SOME name => Const (name, dummyT)
      | NONE =>
-         error ("urust expr: unnamed " ^ role ^
+         error ("urust_expr: unnamed " ^ role ^
            " in constructor metadata" ^ Position.here pos))
 
   fun same_family (NONE, NONE) = true
@@ -528,7 +528,7 @@ struct
         then left
         else
           error
-            ("urust expr: inconsistent constructor family metadata for " ^
+            ("urust_expr: inconsistent constructor family metadata for " ^
               quote identity)
 
   fun merge_selectors identity arity left right =
@@ -540,7 +540,7 @@ struct
     then left
     else
       error
-        ("urust expr: inconsistent constructor selector metadata for " ^
+        ("urust_expr: inconsistent constructor selector metadata for " ^
           quote identity)
 
   fun merge_constructor_info pos
@@ -554,7 +554,7 @@ struct
         then ()
         else
           error
-            ("urust expr: inconsistent constructor core metadata for " ^
+            ("urust_expr: inconsistent constructor core metadata for " ^
               quote identity ^ Position.here pos)
     in
       {identity = identity,
@@ -588,7 +588,7 @@ struct
         then ListPair.zip (ctrs, selss)
         else
           error
-            ("urust expr: inconsistent constructor/selector metadata for " ^
+            ("urust_expr: inconsistent constructor/selector metadata for " ^
               quote type_name ^ Position.here pos)
 
       fun catalog_entries
@@ -628,7 +628,7 @@ struct
                            then ()
                            else
                              error
-                               ("urust expr: inconsistent selector arity for " ^
+                               ("urust_expr: inconsistent selector arity for " ^
                                  quote identity ^ Position.here pos)
                        in
                          SOME
@@ -641,7 +641,7 @@ struct
                      else NONE
                  | _ =>
                      error
-                       ("urust expr: unnamed constructor in family " ^
+                       ("urust_expr: unnamed constructor in family " ^
                          quote display_name ^ Position.here pos))
             in
               map_filter entry
@@ -708,7 +708,7 @@ struct
 
   fun ambiguity_error role name pos candidates =
     error
-      ("urust expr: " ^ role ^ " " ^ quote name ^
+      ("urust_expr: " ^ role ^ " " ^ quote name ^
         " is ambiguous; candidates: " ^
         space_implode ", "
           (sort_strings
@@ -745,7 +745,7 @@ struct
              NONE => constructor_candidates resolver name
            | SOME (Generic_Args (_, generic_pos)) =>
                error
-                 ("urust expr: generic constructor paths require an exact literal registration" ^
+                 ("urust_expr: generic constructor paths require an exact literal registration" ^
                    Position.here generic_pos))
         else registered
       val _ = report_path_qualifiers ctxt path
@@ -839,7 +839,7 @@ struct
         (case Record.get_info theory record_name of
            NONE =>
              error
-               ("urust expr: missing record metadata for " ^
+               ("urust_expr: missing record metadata for " ^
                  quote record_name ^ Position.here pos)
          | SOME record_info =>
              (record_name,
@@ -901,7 +901,7 @@ struct
                then candidates
                else
                  error
-                   ("urust expr: inconsistent struct metadata for " ^
+                   ("urust_expr: inconsistent struct metadata for " ^
                      quote display_name ^ ": " ^
                      candidate_description existing ^ " versus " ^
                      candidate_description candidate ^
@@ -919,12 +919,12 @@ struct
     in
       (case candidates of
          [] =>
-           error ("urust expr: struct pattern " ^ quote identifier_name ^
+           error ("urust_expr: struct pattern " ^ quote identifier_name ^
              ": no matching constructor or single-constructor record/datatype found" ^
              Position.here pos)
        | [(_, candidate)] => candidate
        | _ =>
-           error ("urust expr: struct pattern " ^ quote identifier_name ^
+           error ("urust_expr: struct pattern " ^ quote identifier_name ^
              " is ambiguous; candidates: " ^
              space_implode ", " (map fst candidates) ^
              Position.here pos))
@@ -941,7 +941,7 @@ struct
            NONE => ()
          | SOME (Generic_Args (_, pos)) =>
              error
-               ("urust expr: generic struct-pattern paths require an exact literal registration" ^
+               ("urust_expr: generic struct-pattern paths require an exact literal registration" ^
                  Position.here pos))
       val _ = report_path_qualifiers ctxt head_path
       val candidate =
@@ -961,7 +961,7 @@ struct
         (case term_name_of selector of
            SOME name => (canonical_name name, selector)
          | NONE =>
-             error ("urust expr: unnamed selector in struct metadata for " ^
+             error ("urust_expr: unnamed selector in struct metadata for " ^
                quote display_name ^ Position.here head_pos))
 
       val selector_entries = map selector_entry selectors
@@ -971,7 +971,7 @@ struct
         let val field = canonical_name name in
           (case AList.lookup (op =) entries field of
              SOME _ =>
-               error ("urust expr: struct pattern for " ^ quote display_name ^
+               error ("urust_expr: struct pattern for " ^ quote display_name ^
                  " has duplicate field " ^ quote field ^ Position.here pos)
            | NONE => ((field, (pos, pattern)) :: entries, rest_pos))
         end
@@ -983,7 +983,7 @@ struct
         | collect (SF_Rest pos) (entries, NONE) =
             (entries, SOME pos)
         | collect (SF_Rest pos) (_, SOME _) =
-            error ("urust expr: struct pattern has multiple `..` rest entries" ^
+            error ("urust_expr: struct pattern has multiple `..` rest entries" ^
               Position.here pos)
 
       val (entries_rev, rest_pos) = fold collect fields ([], NONE)
@@ -997,7 +997,7 @@ struct
         (case unknown of
            NONE => ()
          | SOME (name, pos) =>
-             error ("urust expr: struct pattern for " ^ quote display_name ^
+             error ("urust_expr: struct pattern for " ^ quote display_name ^
                " has unknown field " ^ quote name ^ Position.here pos))
       val missing =
         if is_some rest_pos then []
@@ -1005,7 +1005,7 @@ struct
       val _ =
         if null missing then ()
         else
-          error ("urust expr: struct pattern for " ^ quote display_name ^
+          error ("urust_expr: struct pattern for " ^ quote display_name ^
             " is missing field(s): " ^ space_implode ", " missing ^
             Position.here head_pos)
       val ordered =

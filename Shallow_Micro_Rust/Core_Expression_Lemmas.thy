@@ -292,11 +292,11 @@ lemma evaluate_sequenceE [micro_rust_elims]:
 text\<open>The fact that \<^term>\<open>Core_Expression.sequence\<close> is a degenerate instance of the monadic bind operation
 immediately gives us a few properties.  Sequencing is immediately associative for example, which is
 an immediate corollary of the fact that the monadic bind operation is also associative, too:\<close>
-urust expr [urust_abbrev = true] Core_Expression_Lemmas_urust_site_1
+urust_expr [abbrev = true] Core_Expression_Lemmas_urust_site_1
   (e, f, g)
   \<open> { \<epsilon>\<open>e\<close>; \<epsilon>\<open>f\<close> }; \<epsilon>\<open>g\<close> \<close>
 
-urust expr [urust_abbrev = true] Core_Expression_Lemmas_urust_site_2
+urust_expr [abbrev = true] Core_Expression_Lemmas_urust_site_2
   (e, f, g)
   \<open> \<epsilon>\<open>e\<close>; \<epsilon>\<open>f\<close>; \<epsilon>\<open>g\<close> \<close>
 
@@ -362,7 +362,7 @@ lemma get_reorder:
     continuation.splits)
 
 text\<open>Alternatively, we can merge the two get operations into a single one:\<close>
-urust expr [urust_abbrev = true] Core_Expression_Lemmas_urust_site_3
+urust_expr [abbrev = true] Core_Expression_Lemmas_urust_site_3
   (f, g, e)
   \<open>
     let vf = \<epsilon>\<open>get f\<close>;
@@ -370,7 +370,7 @@ urust expr [urust_abbrev = true] Core_Expression_Lemmas_urust_site_3
     \<epsilon>\<open>e vf vg\<close>
   \<close>
 
-urust expr [urust_abbrev = true] Core_Expression_Lemmas_urust_site_4 ::
+urust_expr [abbrev = true] Core_Expression_Lemmas_urust_site_4 ::
   \<open>
     ('a \<Rightarrow> 'b) \<Rightarrow>
     ('a \<Rightarrow> 'c) \<Rightarrow>
@@ -410,11 +410,11 @@ lemma put_reorder:
   using commut by (clarsimp simp: Core_Expression.bind.simps sequence_def evaluate_def put_def)
     (metis comp_apply)
 
-urust expr [urust_abbrev = true] Core_Expression_Lemmas_urust_site_5
+urust_expr [abbrev = true] Core_Expression_Lemmas_urust_site_5
   (f, g)
   \<open> \<epsilon>\<open>put f\<close>; \<epsilon>\<open>put g\<close> \<close>
 
-urust expr [urust_abbrev = true] Core_Expression_Lemmas_urust_site_6
+urust_expr [abbrev = true] Core_Expression_Lemmas_urust_site_6
   (g, f)
   \<open> \<epsilon>\<open>put (g \<circ> f)\<close> \<close>
 
@@ -526,7 +526,7 @@ lemma evaluate_call_function_bodyI [micro_rust_intros]:
     shows \<open>evaluate (call_function_body e) \<sigma> = k\<close>
   using assms by (cases \<open>evaluate e \<sigma>\<close>; simp add: evaluate_def Core_Expression.call_function_body.simps)
 
-urust expr [urust_abbrev = true] Core_Expression_Lemmas_urust_site_7
+urust_expr [abbrev = true] Core_Expression_Lemmas_urust_site_7
   (v)
   \<open> return v; \<close>
 
@@ -535,7 +535,7 @@ lemma call_return [micro_rust_simps]:
   by (simp add: call_def call_function_body.simps Core_Expression.bind.simps evaluate_def literal_def
       return_func_def return_val_def)
 
-urust expr [urust_abbrev = true] Core_Expression_Lemmas_urust_site_8
+urust_expr [abbrev = true] Core_Expression_Lemmas_urust_site_8
   (v)
   \<open> v \<close>
 
@@ -756,7 +756,7 @@ appear in a chain of sequenced expressions, as one would expect.  Similarly, the
  \<^term>\<open>panic\<close>, and more generally any \<^term>\<open>abort\<close>, acts as a form of "zero" value for the sequencing
 operation, in the following sense:\<close>
 
-urust expr [urust_abbrev = true] Core_Expression_Lemmas_urust_site_9 ::
+urust_expr [abbrev = true] Core_Expression_Lemmas_urust_site_9 ::
   \<open>
     'abort abort \<Rightarrow>
     ('s, 'v, 'r, 'abort, 'i, 'o) expression \<Rightarrow>
@@ -765,7 +765,7 @@ urust expr [urust_abbrev = true] Core_Expression_Lemmas_urust_site_9 ::
   (a, e)
   \<open> \<epsilon>\<open>abort a\<close>; \<epsilon>\<open>e\<close> \<close>
 
-urust expr [urust_abbrev = true] Core_Expression_Lemmas_urust_site_10
+urust_expr [abbrev = true] Core_Expression_Lemmas_urust_site_10
   (a)
   \<open> \<epsilon>\<open>abort a\<close> \<close>
 
@@ -774,7 +774,7 @@ lemma abort_sequence_zero [micro_rust_simps]:
     Core_Expression_Lemmas_urust_site_10 a\<close>
   by (simp add: evaluate_abort evaluate_sequenceI expression_eqI2)
 
-urust expr [urust_abbrev = true] Core_Expression_Lemmas_urust_site_11 ::
+urust_expr [abbrev = true] Core_Expression_Lemmas_urust_site_11 ::
   \<open>
     String.literal \<Rightarrow>
     ('s, 'v, 'r, 'abort, 'i, 'o) expression \<Rightarrow>
@@ -783,7 +783,7 @@ urust expr [urust_abbrev = true] Core_Expression_Lemmas_urust_site_11 ::
   (msg, e)
   \<open> panic!(msg); \<epsilon>\<open>e\<close> \<close>
 
-urust expr [urust_abbrev = true] Core_Expression_Lemmas_urust_site_12
+urust_expr [abbrev = true] Core_Expression_Lemmas_urust_site_12
   (msg)
   \<open> panic!(msg) \<close>
 
@@ -798,7 +798,7 @@ instance of \<^term>\<open>panic\<close>.\<close>
 
 text\<open>The SSA transformation often produces nested let bindings which can be flattened out.\<close>
 
-urust expr [urust_abbrev = true] Core_Expression_Lemmas_urust_site_13
+urust_expr [abbrev = true] Core_Expression_Lemmas_urust_site_13
   (v1_expr, cont1, cont0)
   \<open>
     let v0 = {
@@ -808,7 +808,7 @@ urust expr [urust_abbrev = true] Core_Expression_Lemmas_urust_site_13
     \<epsilon>\<open>cont0 v0\<close>
   \<close>
 
-urust expr [urust_abbrev = true] Core_Expression_Lemmas_urust_site_14
+urust_expr [abbrev = true] Core_Expression_Lemmas_urust_site_14
   (v1_expr, cont1, cont0)
   \<open>
     let v1 = \<epsilon>\<open>v1_expr\<close>;

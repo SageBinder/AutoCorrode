@@ -4,7 +4,8 @@ theory Parser_Impl_Command
     Parser_Impl_Translate
     Micro_Rust_Parsing_Legacy_Frontend.Micro_Rust_Parsing_Legacy_Frontend
   keywords
-    "urust" :: thy_decl
+    "urust_expr" :: thy_decl
+    and "urust_fn" :: thy_decl
     and "urust_notation" :: thy_decl
     and "against"
 begin
@@ -12,28 +13,26 @@ begin
 section\<open> The command \<close>
 
 text\<open>
-The single outer command has a required mode argument:
-\<open>urust expr [OPTIONS] NAME|_ [:: TYPE] [(ARG, ...)] src [against TERM]\<close> parses, elaborates,
-and checks an expression, while
-\<open>urust fn [OPTIONS] NAME|_ :: TYPE (parameters) src [against TERM]\<close> checks an explicitly
-typed function body. The former \<open>urust_expr\<close> and \<open>urust_fun\<close> command keywords are not aliases.
-The mode is spelled \<open>fn\<close>, rather than \<open>fun\<close>, because Isabelle/HOL already reserves
-\<^verbatim>\<open>fun\<close> as an outer command: command-span segmentation happens before this
-parser runs, so \<open>urust fun\<close> cannot form one command span.
-
-The optional parenthesized, comma-separated expression argument list mirrors the \<open>urust fn\<close>
-parameter list, occurs immediately before the source cartouche, and accepts an empty list or trailing comma.
-Omitting it is equivalent to \<open>()\<close>. Arguments introduce lexical names in source order. Without a
-declaration type their types are inferred and the result is \<open>\<lambda>ARG.... src\<close>. A declaration
-type supplies the complete curried type, including one argument type per source argument. A terminal
+The two outer commands deliberately share one declaration-body parser:
+\<open>COMMAND [OPTIONS] NAME|_ [:: TYPE] [(ARG, ...)] src [against TERM]\<close>.
+\<open>urust_expr\<close> infers an untyped expression or accepts a complete declaration type. A terminal
 \<open>expression\<close> type produces an ordinary expression abstraction, while a terminal
-\<open>function_body\<close> type wraps the body once in \<open>FunctionBody\<close>. Other terminal constructors are
-rejected. The optional comma-separated inline options override the corresponding scoped
-configurations. Source-level HOL frees not introduced by the argument list remain free during
-elaboration; ordinary named definitions expose non-contextual frees as definition parameters, while
-existing context fixes remain local-theory dependencies. The dummy name \<open>_\<close> elaborates and checks
-the result without registering a constant, definition, abbreviation, or code equation. It receives a
-stable source-position-based name only for conformance facts and informational output.
+\<open>function_body\<close> type wraps the body once in \<open>FunctionBody\<close>. \<open>urust_fn\<close> selects function
+elaboration explicitly and therefore requires a complete curried type ending in
+\<open>function_body\<close>; the common parser accepts an omitted type so that this requirement is reported
+as a positioned semantic diagnostic rather than encoded in a second grammar.
+
+The optional parenthesized, comma-separated argument list occurs immediately before the source
+cartouche and accepts an empty list or trailing comma. Omitting it is equivalent to \<open>()\<close>.
+Arguments introduce lexical names in source order. Without a declaration type, \<open>urust_expr\<close>
+infers their types and produces \<open>\<lambda>ARG.... src\<close>. A declaration type supplies the complete
+curried type, including one argument type per source argument. Other terminal constructors and
+argument-count mismatches are rejected. Source-level HOL frees not introduced by the argument list
+remain free during elaboration; ordinary named definitions expose non-contextual frees as definition
+parameters, while existing context fixes remain local-theory dependencies. The dummy name \<open>_\<close>
+elaborates and checks the result without registering a constant, definition, abbreviation, or code
+equation. It receives a stable source-position-based name only for conformance facts and
+informational output.
 \<open>urust_conformance_check\<close> defaults to false. When enabled, the command also checks the generated
 declaration against the existing \<open>\<lbrakk>src\<rbrakk>\<close> frontend and records
 \<open>NAME_conformance\<close>. Contextual legacy bodies are parsed under temporary fixes carrying the
@@ -41,14 +40,17 @@ new declaration's inferred argument types, then abstracted in the same order.
 
 An optional trailing \<open>against old_term\<close> supplies a distinct existing-frontend term and implies
 conformance checking even when the configuration is false. Combining it with an explicit
-\<open>[urust_conformance_check = false]\<close> is rejected.
+\<open>[conformance_check = false]\<close> is rejected by either command.
 
-The scoped \<open>urust_abbrev\<close> configuration defaults to false. False uses Isabelle's standard
-definition mechanism, supplying \<open>NAME_def\<close> and one default code equation without adding the
-definition to the global simp set. True uses an input-only \<open>Local_Theory.abbrev\<close>, supplying
-neither artifact; checked client terms contain the expanded right-hand side, and normal pretty
-printing does not fold it back to \<open>NAME\<close>. Definition conformance unfolds only \<open>NAME_def\<close> before
-\<open>refl\<close>; abbreviation conformance closes directly by \<open>refl\<close>.
+The scoped \<open>urust_abbrev\<close> configuration defaults to false and applies only to
+\<open>urust_expr\<close>; the corresponding inline option is \<open>abbrev\<close>. False uses Isabelle's
+standard definition mechanism, supplying
+\<open>NAME_def\<close> and one default code equation without adding the definition to the global simp set.
+True uses an input-only \<open>Local_Theory.abbrev\<close>, supplying neither artifact; checked client terms
+contain the expanded right-hand side, and normal pretty printing does not fold it back to
+\<open>NAME\<close>. Definition conformance unfolds only \<open>NAME_def\<close> before \<open>refl\<close>; abbreviation
+conformance closes directly by \<open>refl\<close>. \<open>urust_fn\<close> always installs an ordinary definition,
+does not accept an inline \<open>abbrev\<close> option, and ignores the scoped setting.
 
 Successful interactive command output is controlled by the scoped \<open>urust_verbose\<close> configuration,
 an integer from 0 to 2 that defaults to 0. Level 0 is quiet; level 1 prints complete definition
@@ -56,13 +58,10 @@ statements or abbreviation equations; level 2 additionally prints \<open>NAME_co
 checking is enabled. The standard interactive and \<open>show_results\<close> gates still control enabled
 output.
 
-Function mode (\<open>fn\<close>) requires a curried type ending in \<open>function_body\<close>, preserves the existing parameter
-syntax and diagnostics, accepts the same anonymous dummy name, and delegates to the common
-elaborator.
-
-Both modes accept the same extensible typed option list. \<open>urust_conformance_check\<close> and
-\<open>urust_abbrev\<close> are Boolean, while \<open>urust_verbose\<close> accepts 0, 1, or 2; the options may appear in
-any order.
+The option parser is parameterized by a command-specific schema. Both commands accept Boolean
+\<open>conformance_check\<close> and integer \<open>verbose\<close>; only \<open>urust_expr\<close> accepts Boolean
+\<open>abbrev\<close>. These short names are inline-only aliases for the globally prefixed configurations.
+Options may appear in any order.
 \<close>
 ML\<open>
 signature URUST_COMMAND =
@@ -89,8 +88,9 @@ end
    URust_Diagnostics.parse_source owns serialization of the generated runtime; elaboration and
    check_term remain outside that lock.
 
-   Declaration installation, command-kind inference, conformance-proof assembly, both outer-command
-   facades, and command registration are private implementation details. *)
+   Declaration installation, command-kind inference, conformance-proof assembly, the shared
+   declaration-body parser, command-specific option schemas, both outer-command facades, and command
+   registration are private implementation details. *)
 structure URust_Command :> URUST_COMMAND =
 struct
 datatype elaboration_kind = Expression | Function
@@ -104,12 +104,19 @@ val urust_verbose =
 val urust_abbrev =
   Attrib.setup_config_bool \<^binding>\<open>urust_abbrev\<close> (K false)
 
-val conformance_flag = "urust_conformance_check"
-val verbose_flag = "urust_verbose"
-val abbrev_flag = "urust_abbrev"
+val conformance_option = "conformance_check"
+val verbose_option = "verbose"
+val abbrev_option = "abbrev"
 
-(* urust_verbose is cumulative: 0 prints nothing, 1 prints the generated definition or abbreviation,
-   and 2 additionally prints the generated conformance theorem. Values outside 0..2 are rejected. *)
+(* Command configurations:
+   - urust_conformance_check controls reflexive old-frontend comparison for both commands; its
+     inline alias is conformance_check.
+   - urust_verbose is cumulative: 0 prints nothing, 1 prints the generated definition or
+     abbreviation, and 2 additionally prints the generated conformance theorem; its inline alias is
+     verbose.
+   - urust_abbrev controls input-only abbreviations for urust_expr only; its inline alias is abbrev,
+     and urust_fn always defines.
+   Verbosity values outside 0..2 are rejected. *)
 datatype command_option_value =
     Boolean_Value of bool
   | Integer_Value of int
@@ -118,17 +125,22 @@ datatype command_option_config =
     Boolean_Config of bool Config.T
   | Integer_Config of int Config.T
 
-val option_configs =
+val common_option_configs =
+  [(conformance_option, Boolean_Config urust_conformance_check),
+   (verbose_option, Integer_Config urust_verbose)]
+
+val expression_option_configs =
   Symtab.make
-    [(conformance_flag, Boolean_Config urust_conformance_check),
-     (verbose_flag, Integer_Config urust_verbose),
-     (abbrev_flag, Boolean_Config urust_abbrev)]
+    (common_option_configs @
+      [(abbrev_option, Boolean_Config urust_abbrev)])
+
+val function_option_configs = Symtab.make common_option_configs
 
 type command_options = (command_option_value * Position.T) Symtab.table
 
 fun verbosity_error level pos =
   error
-    ("uRust command option " ^ quote verbose_flag ^
+    ("uRust command option " ^ quote verbose_option ^
       " must be 0, 1, or 2, but found " ^ string_of_int level ^
       Position.here pos)
 
@@ -142,7 +154,7 @@ fun option_type_error name expected pos =
       " expects " ^ expected ^
       Position.here pos)
 
-fun add_inline_option
+fun add_inline_option option_configs
     ((name, name_pos), (value, value_pos)) options =
   (case Symtab.lookup option_configs name of
      NONE =>
@@ -169,24 +181,18 @@ fun add_inline_option
                   option_type_error name "an integer from 0 to 2" value_pos)
          in Symtab.update (name, (checked_value, name_pos)) options end)
 
-fun configured_flag lthy options name =
+fun configured_flag lthy options name config =
   (case Symtab.lookup options name of
      SOME (Boolean_Value enabled, _) => enabled
    | SOME (Integer_Value _, _) =>
        error ("internal non-Boolean uRust command option " ^ quote name)
-   | NONE =>
-       (case Symtab.lookup option_configs name of
-          SOME (Boolean_Config config) => Config.get lthy config
-        | SOME (Integer_Config _) =>
-            error ("internal non-Boolean uRust command option " ^ quote name)
-        | NONE =>
-            error ("internal unknown uRust command option " ^ quote name)))
+   | NONE => Config.get lthy config)
 
 fun configured_verbosity lthy options =
-  (case Symtab.lookup options verbose_flag of
+  (case Symtab.lookup options verbose_option of
      SOME (Integer_Value level, _) => level
    | SOME (Boolean_Value _, _) =>
-       error ("internal non-integer uRust command option " ^ quote verbose_flag)
+       error ("internal non-integer uRust command option " ^ quote verbose_option)
    | NONE => validate_verbosity Position.none (Config.get lthy urust_verbose))
 
 fun read_declared_type lthy (raw_type, type_pos) =
@@ -208,11 +214,8 @@ fun is_terminal_type expected (Type (name, _)) = name = expected
 fun is_function_body_type T =
   is_terminal_type \<^type_name>\<open>function_body\<close> T
 
-fun command_label Expression = "urust expr"
-  | command_label Function = "urust fn"
-
-fun command_stem Expression = "urust_expr"
-  | command_stem Function = "urust_fun"
+fun command_label Expression = "urust_expr"
+  | command_label Function = "urust_fn"
 
 fun argument_role Expression = "argument"
   | argument_role Function = "parameter"
@@ -223,21 +226,21 @@ fun terminal_value_type kind type_pos declared_type =
        if name = \<^type_name>\<open>expression\<close> then valueT
        else
          error
-           ("urust expr: declared result type must be expression" ^
+           ("urust_expr: declared result type must be expression" ^
              Position.here type_pos)
    | (Function, Type (name, [_, valueT, _, _, _])) =>
        if name = \<^type_name>\<open>function_body\<close> then valueT
        else
          error
-           ("urust fn: declared result type must be function_body" ^
+           ("urust_fn: declared result type must be function_body" ^
              Position.here type_pos)
    | (Expression, _) =>
        error
-         ("urust expr: declared result type must be expression" ^
+         ("urust_expr: declared result type must be expression" ^
            Position.here type_pos)
    | (Function, _) =>
        error
-         ("urust fn: declared result type must be function_body" ^
+         ("urust_fn: declared result type must be function_body" ^
            Position.here type_pos))
 
 fun validate_argument_count kind arguments_pos arguments parameter_types =
@@ -264,6 +267,14 @@ fun typed_arguments arguments parameter_types =
   map2 (fn argument => fn T => (argument, T))
     arguments parameter_types
 
+fun require_function_type source declared_type =
+  (case declared_type of
+     SOME raw_type => raw_type
+   | NONE =>
+       error
+         ("urust_fn: function elaboration requires a declared type" ^
+           Position.here (Input.pos_of source)))
+
 fun prepare_arguments kind source arguments_pos arguments declared_type =
   (case (kind, declared_type) of
      (Expression, NONE) =>
@@ -277,12 +288,10 @@ fun prepare_arguments kind source arguments_pos arguments declared_type =
            validate_argument_count Expression
              arguments_pos arguments argument_types
        in typed_arguments arguments argument_types end
-   | (Function, NONE) =>
-       error
-         ("urust fn: function elaboration requires a declared type" ^
-           Position.here (Input.pos_of source))
-   | (Function, SOME (complete_type, type_pos)) =>
+   | (Function, function_type) =>
        let
+         val (complete_type, type_pos) =
+           require_function_type source function_type
          val _ = terminal_value_type Function type_pos complete_type
          val (argument_types, _) = Term.strip_type complete_type
          val _ =
@@ -295,8 +304,8 @@ fun lower kind lthy arguments ast =
      Expression => URust_Translate.mk_expression lthy arguments ast
    | Function => URust_Translate.mk_function lthy arguments ast)
 
-fun empty_source_message Expression = "urust expr: empty expression"
-  | empty_source_message Function = "urust fn: empty function body"
+fun empty_source_message Expression = "urust_expr: empty expression"
+  | empty_source_message Function = "urust_fn: empty function body"
 
 fun reject_unresolved Function lthy source checked =
       let
@@ -308,7 +317,7 @@ fun reject_unresolved Function lthy source checked =
         (case unresolved of
            (name, _) :: _ =>
              error
-               ("urust fn: unresolved body name " ^ quote name ^
+               ("urust_fn: unresolved body name " ^ quote name ^
                  Position.here (Input.pos_of source))
          | [] => ())
       end
@@ -419,7 +428,7 @@ fun anonymous_binding kind pos =
     val offset = the_default 0 (Position.offset_of pos)
   in
     Binding.make
-      (command_stem kind ^ "_anonymous_" ^
+      (command_label kind ^ "_anonymous_" ^
         string_of_int line ^ "_" ^ string_of_int offset,
        pos)
   end
@@ -550,10 +559,7 @@ fun print_anonymous interactive verbosity lthy kind name term =
       (Pretty.block1
         [Pretty.block
            [Pretty.mark_position (Position.thread_data ())
-              (Pretty.keyword1 "urust"),
-            Pretty.brk 1,
-            Pretty.str
-              (case kind of Expression => "expr" | Function => "fun"),
+              (Pretty.keyword1 (command_label kind)),
             Pretty.brk 1,
             Pretty.str (Long_Name.base_name name),
             Pretty.str ":"],
@@ -648,7 +654,7 @@ fun old_frontend_expression lthy complete_type arguments old_body_source =
   let
     val (_, result_type) = Term.strip_type complete_type
   in
-    with_typed_fixes lthy "urust expr" complete_type arguments
+    with_typed_fixes lthy "urust_expr" complete_type arguments
       result_type I old_body_source
   end
 
@@ -663,9 +669,9 @@ fun old_frontend_function lthy declared_type parameters old_body_source =
                [stateT, returnT, returnT, abortT, inputT, outputT])
        | _ =>
            error
-             "urust fn: internal malformed function_body result type")
+             "urust_fn: internal malformed function_body result type")
   in
-    with_typed_fixes lthy "urust fn" declared_type parameters
+    with_typed_fixes lthy "urust_fn" declared_type parameters
       body_type URust_Shallow_Terms.function_body old_body_source
   end
 
@@ -695,10 +701,10 @@ fun declare_and_print declaration interactive verbosity lthy =
   in lthy' end
 
 fun reject_contradictory_against command options against =
-  (case (Symtab.lookup options conformance_flag, against) of
+  (case (Symtab.lookup options conformance_option, against) of
      (SOME (Boolean_Value false, pos), SOME _) =>
        error
-         (command ^ ": [urust_conformance_check = false] cannot be combined with `against`" ^
+         (command ^ ": [conformance_check = false] cannot be combined with `against`" ^
            Position.here pos)
    | _ => ())
 
@@ -721,9 +727,10 @@ fun define_urust_expr
      args as (target, declared_type, source, _, arguments),
      against) interactive lthy =
   let
-    val _ = reject_contradictory_against "urust expr" options against
+    val _ = reject_contradictory_against "urust_expr" options against
     val verbosity = configured_verbosity lthy options
-    val abbreviation = configured_flag lthy options abbrev_flag
+    val abbreviation =
+      configured_flag lthy options abbrev_option urust_abbrev
     val kind = command_elaboration_kind lthy declared_type
     val binding = target_binding kind target
     fun declaration lthy' =
@@ -743,22 +750,23 @@ fun define_urust_expr
        SOME (old_frontend, _) =>
          checked old_frontend
      | NONE =>
-         if configured_flag lthy options conformance_flag
+         if configured_flag lthy options conformance_option
+              urust_conformance_check
          then checked (old_frontend_source source)
          else declare_and_print declaration interactive verbosity lthy)
   end
 
-fun define_urust_fun
+fun define_urust_fn
     (options,
-     (target, raw_type, parameters_pos, parameters, body),
+     (target, declared_type, body, parameters_pos, parameters),
      against) interactive lthy =
   let
-    val _ = reject_contradictory_against "urust fn" options against
+    val _ = reject_contradictory_against "urust_fn" options against
     val verbosity = configured_verbosity lthy options
-    val abbreviation = configured_flag lthy options abbrev_flag
+    val raw_type = require_function_type body declared_type
     val binding = target_binding Function target
     fun declaration lthy' =
-      declare_urust_result abbreviation Function
+      declare_urust_result false Function
         (target, SOME raw_type, body, parameters_pos, parameters) lthy'
     fun checked old_body =
       declare_with_frontend_check declaration binding
@@ -771,7 +779,8 @@ fun define_urust_fun
        SOME (old_frontend, _) =>
          checked old_frontend
      | NONE =>
-         if configured_flag lthy options conformance_flag
+         if configured_flag lthy options conformance_option
+              urust_conformance_check
          then checked (old_frontend_source body)
          else declare_and_print declaration interactive verbosity lthy)
   end
@@ -787,11 +796,12 @@ val parse_option_value =
 val parse_inline_option =
   (Parse.name_position --| Parse.$$$ "=") -- parse_option_value
 
-val parse_command_options =
+fun parse_command_options option_configs =
   Scan.optional
     (Parse.$$$ "[" |--
       Parse.!!! (Parse.enum1 "," parse_inline_option --| Parse.$$$ "]") >>
-      (fn options => fold add_inline_option options Symtab.empty))
+      (fn options =>
+        fold (add_inline_option option_configs) options Symtab.empty))
     Symtab.empty
 
 val parse_against =
@@ -820,8 +830,8 @@ val parse_declaration_target =
     (fn (_, pos) => Anonymous_Target pos)) ||
   (Parse.binding >> Named_Target)
 
-val parse_urust_expr =
-  parse_command_options --
+fun parse_urust_declaration option_configs =
+  parse_command_options option_configs --
     (parse_declaration_target --
       parse_declared_type --
       Scan.option parse_parameters --
@@ -842,51 +852,17 @@ val parse_urust_expr =
        against)
     end)
 
-val parse_urust_fun =
-  parse_command_options --
-    (parse_declaration_target --| Parse.$$$ "::" --
-      Parse.position Parse.typ --
-      parse_parameters --
-      (Parse.token Parse.cartouche >>
-        Parser_Lex_Util.cartouche_source) >>
-      (fn (((target, raw_type), (parameters_pos, parameters)), body) =>
-        (target, raw_type, parameters_pos, parameters, body))) --
-    parse_against >>
-  (fn ((options, args), against) => (options, args, against))
+val _ =
+  Outer_Syntax.local_theory' \<^command_keyword>\<open>urust_expr\<close>
+    "Declare a uRust expression, optionally checking existing-frontend conformance by refl"
+    (parse_urust_declaration expression_option_configs >>
+      define_urust_expr)
 
-datatype outer_command =
-    Expression_Command of
-      command_options *
-        (declaration_target * (string * Position.T) option *
-          Input.source * Position.T * (string * Position.T) list) *
-        (string * Position.T) option
-  | Function_Command of
-      command_options *
-        (declaration_target * (string * Position.T) * Position.T *
-          (string * Position.T) list * Input.source) *
-        (string * Position.T) option
-
-val parse_urust =
-  Parse.position Parse.liberal_name :|--
-    (fn ("expr", _) =>
-          Parse.!!! (parse_urust_expr >> Expression_Command)
-      | ("fn", _) =>
-          Parse.!!! (parse_urust_fun >> Function_Command)
-      | (mode, pos) =>
-          Parse.!!!
-            (Scan.fail_with
-              (K (fn () =>
-                "uRust mode `expr` or `fn` expected, but " ^
-                  quote mode ^ " was found" ^ Position.here pos))))
-
-fun define_urust (Expression_Command args) =
-      define_urust_expr args
-  | define_urust (Function_Command args) =
-      define_urust_fun args
-
-val _ = Outer_Syntax.local_theory' \<^command_keyword>\<open>urust\<close>
-          "Declare a uRust expression or function body, optionally checking existing-frontend conformance by refl"
-          (parse_urust >> define_urust)
+val _ =
+  Outer_Syntax.local_theory' \<^command_keyword>\<open>urust_fn\<close>
+    "Declare a typed uRust function body, optionally checking existing-frontend conformance by refl"
+    (parse_urust_declaration function_option_configs >>
+      define_urust_fn)
 end
 \<close>
 

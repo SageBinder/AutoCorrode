@@ -587,9 +587,9 @@ by (auto simp add: urust_eval_action_put_assert urust_eval_predicate_via_action 
 
 text\<open>Numeric operators\<close>
 
-urust expr [urust_abbrev = true] Eval_urust_site_1 (x, y) \<open> x + y \<close>
-urust expr [urust_abbrev = true] Eval_urust_site_2 (x, y) \<open> x + y \<close>
-urust expr [urust_abbrev = true] Eval_urust_site_3 (x, y) \<open> x + y \<close>
+urust_expr [abbrev = true] Eval_urust_site_1 (x, y) \<open> x + y \<close>
+urust_expr [abbrev = true] Eval_urust_site_2 (x, y) \<open> x + y \<close>
+urust_expr [abbrev = true] Eval_urust_site_3 (x, y) \<open> x + y \<close>
 
 lemma urust_eval_action_add_no_wrap [urust_eval_action_simps]:
   fixes x y :: \<open>'l::{len} word\<close>
@@ -602,9 +602,9 @@ lemma urust_eval_action_add_no_wrap [urust_eval_action_simps]:
     urust_eval_action_literal urust_eval_action_abort  word_add_no_wrap_core_def Let_def
     word_add_no_wrap_as_urust_def urust_eval_action_call word_op_no_wrap_pure_def option_unwrap_expr_def)
 
-urust expr [urust_abbrev = true] Eval_urust_site_4 (x, y) \<open> x + y \<close>
-urust expr [urust_abbrev = true] Eval_urust_site_5 (x, y) \<open> x + y \<close>
-urust expr [urust_abbrev = true] Eval_urust_site_6 (x, y) \<open> x + y \<close>
+urust_expr [abbrev = true] Eval_urust_site_4 (x, y) \<open> x + y \<close>
+urust_expr [abbrev = true] Eval_urust_site_5 (x, y) \<open> x + y \<close>
+urust_expr [abbrev = true] Eval_urust_site_6 (x, y) \<open> x + y \<close>
 
 corollary urust_eval_predicate_add_no_wrap [urust_eval_predicate_simps]:
   fixes x y :: \<open>'l::{len} word\<close>
@@ -613,9 +613,9 @@ corollary urust_eval_predicate_add_no_wrap [urust_eval_predicate_simps]:
     and \<open>\<sigma> \<leadsto>\<^sub>a \<langle>\<Gamma>, Eval_urust_site_6 x y\<rangle> (a, \<sigma>') \<longleftrightarrow> (unat x + unat y \<ge> 2^LENGTH('l)) \<and> a = Panic overflow_err_msg \<and> \<sigma> = \<sigma>'\<close>
 by (auto simp add: urust_eval_predicate_via_action urust_eval_action_add_no_wrap)
 
-urust expr [urust_abbrev = true] Eval_urust_site_7 (x, y) \<open> x * y \<close>
-urust expr [urust_abbrev = true] Eval_urust_site_8 (x, y) \<open> x * y \<close>
-urust expr [urust_abbrev = true] Eval_urust_site_9 (x, y) \<open> x * y \<close>
+urust_expr [abbrev = true] Eval_urust_site_7 (x, y) \<open> x * y \<close>
+urust_expr [abbrev = true] Eval_urust_site_8 (x, y) \<open> x * y \<close>
+urust_expr [abbrev = true] Eval_urust_site_9 (x, y) \<open> x * y \<close>
 
 lemma urust_eval_action_mul_no_wrap [urust_eval_action_simps]:
   fixes x y :: \<open>'l::{len} word\<close>
@@ -628,9 +628,9 @@ by (auto simp add: word_mul_no_wrap_def urust_eval_action_bind micro_rust_simps
   urust_eval_action_literal urust_eval_action_abort word_mul_no_wrap_core_def Let_def
   word_mul_no_wrap_as_urust_def urust_eval_action_call word_op_no_wrap_pure_def option_unwrap_expr_def)
 
-urust expr [urust_abbrev = true] Eval_urust_site_10 (x, y) \<open> x * y \<close>
-urust expr [urust_abbrev = true] Eval_urust_site_11 (x, y) \<open> x * y \<close>
-urust expr [urust_abbrev = true] Eval_urust_site_12 (x, y) \<open> x * y \<close>
+urust_expr [abbrev = true] Eval_urust_site_10 (x, y) \<open> x * y \<close>
+urust_expr [abbrev = true] Eval_urust_site_11 (x, y) \<open> x * y \<close>
+urust_expr [abbrev = true] Eval_urust_site_12 (x, y) \<open> x * y \<close>
 
 corollary urust_eval_predicate_mul_no_wrap [urust_eval_predicate_simps]:
   fixes x y :: \<open>'l::{len} word\<close>
@@ -639,9 +639,9 @@ corollary urust_eval_predicate_mul_no_wrap [urust_eval_predicate_simps]:
     and \<open>\<sigma> \<leadsto>\<^sub>a \<langle>\<Gamma>, Eval_urust_site_12 x y\<rangle> (a, \<sigma>') \<longleftrightarrow> (unat x * unat y \<ge> 2^LENGTH('l)) \<and> \<sigma> = \<sigma>' \<and> a = Panic overflow_err_msg\<close>
 by (auto simp add: urust_eval_predicate_via_action urust_eval_action_mul_no_wrap)
 
-urust expr [urust_abbrev = true] Eval_urust_site_13 (x, y) \<open> x - y \<close>
-urust expr [urust_abbrev = true] Eval_urust_site_14 (x, y) \<open> x - y \<close>
-urust expr [urust_abbrev = true] Eval_urust_site_15 (x, y) \<open> x - y \<close>
+urust_expr [abbrev = true] Eval_urust_site_13 (x, y) \<open> x - y \<close>
+urust_expr [abbrev = true] Eval_urust_site_14 (x, y) \<open> x - y \<close>
+urust_expr [abbrev = true] Eval_urust_site_15 (x, y) \<open> x - y \<close>
 
 lemma urust_eval_action_sub_no_wrap [urust_eval_action_simps]:
   fixes x y :: \<open>'l::{len} word\<close>
@@ -655,9 +655,9 @@ by (auto simp flip: word_le_nat_alt simp add: word_minus_no_wrap_def urust_eval_
   word_minus_no_wrap_as_urust_def urust_eval_action_call word_op_no_wrap_pure_def
   word_minus_no_wrap_pure_def option_unwrap_expr_def Let_def)
 
-urust expr [urust_abbrev = true] Eval_urust_site_16 (x, y) \<open> x - y \<close>
-urust expr [urust_abbrev = true] Eval_urust_site_17 (x, y) \<open> x - y \<close>
-urust expr [urust_abbrev = true] Eval_urust_site_18 (x, y) \<open> x - y \<close>
+urust_expr [abbrev = true] Eval_urust_site_16 (x, y) \<open> x - y \<close>
+urust_expr [abbrev = true] Eval_urust_site_17 (x, y) \<open> x - y \<close>
+urust_expr [abbrev = true] Eval_urust_site_18 (x, y) \<open> x - y \<close>
 
 corollary urust_eval_predicate_sub_no_wrap [urust_eval_predicate_simps]:
   fixes x y :: \<open>'l::{len} word\<close>
@@ -666,9 +666,9 @@ corollary urust_eval_predicate_sub_no_wrap [urust_eval_predicate_simps]:
     and \<open>\<sigma> \<leadsto>\<^sub>a \<langle>\<Gamma>, Eval_urust_site_18 x y\<rangle> (a, \<sigma>') \<longleftrightarrow> (unat y > unat x) \<and> a = Panic overflow_err_msg \<and> \<sigma> = \<sigma>'\<close>
 by (auto simp add: urust_eval_predicate_via_action urust_eval_action_sub_no_wrap)
 
-urust expr [urust_abbrev = true] Eval_urust_site_19 (x, y) \<open> x / y \<close>
-urust expr [urust_abbrev = true] Eval_urust_site_20 (x, y) \<open> x / y \<close>
-urust expr [urust_abbrev = true] Eval_urust_site_21 (x, y) \<open> x / y \<close>
+urust_expr [abbrev = true] Eval_urust_site_19 (x, y) \<open> x / y \<close>
+urust_expr [abbrev = true] Eval_urust_site_20 (x, y) \<open> x / y \<close>
+urust_expr [abbrev = true] Eval_urust_site_21 (x, y) \<open> x / y \<close>
 
 lemma urust_eval_action_div [urust_eval_action_simps]:
   fixes x y :: \<open>'l::{len} word\<close>
@@ -681,9 +681,9 @@ by (auto simp add: unat_gt_0 word_div_def urust_eval_action_bind micro_rust_simp
   urust_eval_action_literal urust_eval_action_abort word_udiv_core_def word_udiv_def
   urust_eval_action_call)
 
-urust expr [urust_abbrev = true] Eval_urust_site_22 (x, y) \<open> x / y \<close>
-urust expr [urust_abbrev = true] Eval_urust_site_23 (x, y) \<open> x / y \<close>
-urust expr [urust_abbrev = true] Eval_urust_site_24 (x, y) \<open> x / y \<close>
+urust_expr [abbrev = true] Eval_urust_site_22 (x, y) \<open> x / y \<close>
+urust_expr [abbrev = true] Eval_urust_site_23 (x, y) \<open> x / y \<close>
+urust_expr [abbrev = true] Eval_urust_site_24 (x, y) \<open> x / y \<close>
 
 corollary urust_eval_predicate_div [urust_eval_predicate_simps]:
   fixes x y :: \<open>'l::{len} word\<close>
@@ -692,9 +692,9 @@ corollary urust_eval_predicate_div [urust_eval_predicate_simps]:
     and \<open>\<sigma> \<leadsto>\<^sub>a \<langle>\<Gamma>, Eval_urust_site_24 x y\<rangle> (a, \<sigma>') \<longleftrightarrow> (unat y = 0) \<and> \<sigma> = \<sigma>' \<and> a = Panic (String.implode ''division by zero'')\<close>
 by (auto simp add: urust_eval_predicate_via_action urust_eval_action_div)
 
-urust expr [urust_abbrev = true] Eval_urust_site_25 (x, y) \<open> x % y \<close>
-urust expr [urust_abbrev = true] Eval_urust_site_26 (x, y) \<open> x % y \<close>
-urust expr [urust_abbrev = true] Eval_urust_site_27 (x, y) \<open> x % y \<close>
+urust_expr [abbrev = true] Eval_urust_site_25 (x, y) \<open> x % y \<close>
+urust_expr [abbrev = true] Eval_urust_site_26 (x, y) \<open> x % y \<close>
+urust_expr [abbrev = true] Eval_urust_site_27 (x, y) \<open> x % y \<close>
 
 lemma urust_eval_action_mod [urust_eval_action_simps]:
   fixes x y :: \<open>'l::{len} word\<close>
@@ -707,9 +707,9 @@ by (auto simp add: unat_gt_0 word_mod_def urust_eval_action_bind micro_rust_simp
   urust_eval_action_literal urust_eval_action_abort word_umod_core_def word_umod_def
   urust_eval_action_call)
 
-urust expr [urust_abbrev = true] Eval_urust_site_28 (x, y) \<open> x % y \<close>
-urust expr [urust_abbrev = true] Eval_urust_site_29 (x, y) \<open> x % y \<close>
-urust expr [urust_abbrev = true] Eval_urust_site_30 (x, y) \<open> x % y \<close>
+urust_expr [abbrev = true] Eval_urust_site_28 (x, y) \<open> x % y \<close>
+urust_expr [abbrev = true] Eval_urust_site_29 (x, y) \<open> x % y \<close>
+urust_expr [abbrev = true] Eval_urust_site_30 (x, y) \<open> x % y \<close>
 
 corollary urust_eval_predicate_mod [urust_eval_predicate_simps]:
   fixes x y :: \<open>'l::{len} word\<close>
@@ -718,9 +718,9 @@ corollary urust_eval_predicate_mod [urust_eval_predicate_simps]:
     and \<open>\<sigma> \<leadsto>\<^sub>a \<langle>\<Gamma>, Eval_urust_site_30 x y\<rangle> (a, \<sigma>') \<longleftrightarrow> (unat y = 0) \<and> a = Panic (String.implode ''division by zero'') \<and> \<sigma> = \<sigma>'\<close>
 by (auto simp add: urust_eval_predicate_via_action urust_eval_action_mod)
 
-urust expr [urust_abbrev = true] Eval_urust_site_31 (x, y) \<open> x << y \<close>
-urust expr [urust_abbrev = true] Eval_urust_site_32 (x, y) \<open> x << y \<close>
-urust expr [urust_abbrev = true] Eval_urust_site_33 (x, y) \<open> x << y \<close>
+urust_expr [abbrev = true] Eval_urust_site_31 (x, y) \<open> x << y \<close>
+urust_expr [abbrev = true] Eval_urust_site_32 (x, y) \<open> x << y \<close>
+urust_expr [abbrev = true] Eval_urust_site_33 (x, y) \<open> x << y \<close>
 
 lemma urust_eval_action_shift_left [urust_eval_action_simps]:
   fixes x :: \<open>'l0::{len} word\<close>
@@ -735,9 +735,9 @@ by (auto simp flip: word_le_nat_alt simp add: word_shift_left_pure_def urust_eva
   word_shift_left_as_urust_def urust_eval_action_call word_shift_left_def
   word_shift_left_shift64_def option_unwrap_expr_def Let_def)
 
-urust expr [urust_abbrev = true] Eval_urust_site_34 (x, y) \<open> x << y \<close>
-urust expr [urust_abbrev = true] Eval_urust_site_35 (x, y) \<open> x << y \<close>
-urust expr [urust_abbrev = true] Eval_urust_site_36 (x, y) \<open> x << y \<close>
+urust_expr [abbrev = true] Eval_urust_site_34 (x, y) \<open> x << y \<close>
+urust_expr [abbrev = true] Eval_urust_site_35 (x, y) \<open> x << y \<close>
+urust_expr [abbrev = true] Eval_urust_site_36 (x, y) \<open> x << y \<close>
 
 corollary urust_eval_predicate_shift_left [urust_eval_predicate_simps]:
   fixes x :: \<open>'l0::{len} word\<close>
@@ -748,9 +748,9 @@ corollary urust_eval_predicate_shift_left [urust_eval_predicate_simps]:
     and \<open>\<sigma> \<leadsto>\<^sub>a \<langle>\<Gamma>, Eval_urust_site_36 x y\<rangle> (a, \<sigma>') \<longleftrightarrow> (unat y \<ge> LENGTH('l0) \<and> \<sigma> = \<sigma>' \<and> a = Panic overflow_err_msg)\<close>
 by (auto simp add: urust_eval_predicate_via_action urust_eval_action_shift_left)
 
-urust expr [urust_abbrev = true] Eval_urust_site_37 (x, y) \<open> x >> y \<close>
-urust expr [urust_abbrev = true] Eval_urust_site_38 (x, y) \<open> x >> y \<close>
-urust expr [urust_abbrev = true] Eval_urust_site_39 (x, y) \<open> x >> y \<close>
+urust_expr [abbrev = true] Eval_urust_site_37 (x, y) \<open> x >> y \<close>
+urust_expr [abbrev = true] Eval_urust_site_38 (x, y) \<open> x >> y \<close>
+urust_expr [abbrev = true] Eval_urust_site_39 (x, y) \<open> x >> y \<close>
 
 lemma urust_eval_action_shift_right [urust_eval_action_simps]:
   fixes x :: \<open>'l0::{len} word\<close>
@@ -765,9 +765,9 @@ by (auto simp flip: word_le_nat_alt simp add: word_shift_right_pure_def urust_ev
   word_shift_right_as_urust_def urust_eval_action_call word_shift_right_def
   word_shift_right_shift64_def option_unwrap_expr_def Let_def)
 
-urust expr [urust_abbrev = true] Eval_urust_site_40 (x, y) \<open> x >> y \<close>
-urust expr [urust_abbrev = true] Eval_urust_site_41 (x, y) \<open> x >> y \<close>
-urust expr [urust_abbrev = true] Eval_urust_site_42 (x, y) \<open> x >> y \<close>
+urust_expr [abbrev = true] Eval_urust_site_40 (x, y) \<open> x >> y \<close>
+urust_expr [abbrev = true] Eval_urust_site_41 (x, y) \<open> x >> y \<close>
+urust_expr [abbrev = true] Eval_urust_site_42 (x, y) \<open> x >> y \<close>
 
 corollary urust_eval_predicate_shift_right [urust_eval_predicate_simps]:
   fixes x :: \<open>'l0::{len} word\<close>
@@ -778,9 +778,9 @@ corollary urust_eval_predicate_shift_right [urust_eval_predicate_simps]:
     and \<open>\<sigma> \<leadsto>\<^sub>a \<langle>\<Gamma>, Eval_urust_site_42 x y\<rangle> (a, \<sigma>') \<longleftrightarrow> (unat y \<ge> LENGTH('l0) \<and> \<sigma> = \<sigma>' \<and> a = Panic overflow_err_msg)\<close>
 by (auto simp add: urust_eval_predicate_via_action urust_eval_action_shift_right)
 
-urust expr [urust_abbrev = true] Eval_urust_site_43 (x, y) \<open> x ^ y \<close>
-urust expr [urust_abbrev = true] Eval_urust_site_44 (x, y) \<open> x ^ y \<close>
-urust expr [urust_abbrev = true] Eval_urust_site_45 (x, y) \<open> x ^ y \<close>
+urust_expr [abbrev = true] Eval_urust_site_43 (x, y) \<open> x ^ y \<close>
+urust_expr [abbrev = true] Eval_urust_site_44 (x, y) \<open> x ^ y \<close>
+urust_expr [abbrev = true] Eval_urust_site_45 (x, y) \<open> x ^ y \<close>
 
 lemma urust_eval_action_xor [urust_eval_action_simps]:
   fixes x y :: \<open>'l::{len} word\<close>
@@ -790,9 +790,9 @@ lemma urust_eval_action_xor [urust_eval_action_simps]:
 by (simp add: urust_eval_action_bind micro_rust_simps urust_eval_action_literal
   urust_eval_action_abort urust_eval_action_call)+
 
-urust expr [urust_abbrev = true] Eval_urust_site_46 (x, y) \<open> x ^ y \<close>
-urust expr [urust_abbrev = true] Eval_urust_site_47 (x, y) \<open> x ^ y \<close>
-urust expr [urust_abbrev = true] Eval_urust_site_48 (x, y) \<open> x ^ y \<close>
+urust_expr [abbrev = true] Eval_urust_site_46 (x, y) \<open> x ^ y \<close>
+urust_expr [abbrev = true] Eval_urust_site_47 (x, y) \<open> x ^ y \<close>
+urust_expr [abbrev = true] Eval_urust_site_48 (x, y) \<open> x ^ y \<close>
 
 corollary urust_eval_predicate_xor [urust_eval_predicate_simps]:
   fixes x y :: \<open>'l::{len} word\<close>
@@ -801,9 +801,9 @@ corollary urust_eval_predicate_xor [urust_eval_predicate_simps]:
     and \<open>\<sigma> \<leadsto>\<^sub>a \<langle>\<Gamma>, Eval_urust_site_48 x y\<rangle> (a, \<sigma>') \<longleftrightarrow> False\<close>
 by (auto simp add: urust_eval_predicate_via_action urust_eval_action_xor)
 
-urust expr [urust_abbrev = true] Eval_urust_site_49 (x, y) \<open> x | y \<close>
-urust expr [urust_abbrev = true] Eval_urust_site_50 (x, y) \<open> x | y \<close>
-urust expr [urust_abbrev = true] Eval_urust_site_51 (x, y) \<open> x | y \<close>
+urust_expr [abbrev = true] Eval_urust_site_49 (x, y) \<open> x | y \<close>
+urust_expr [abbrev = true] Eval_urust_site_50 (x, y) \<open> x | y \<close>
+urust_expr [abbrev = true] Eval_urust_site_51 (x, y) \<open> x | y \<close>
 
 lemma urust_eval_action_or [urust_eval_action_simps]:
   fixes x y :: \<open>'l::{len} word\<close>
@@ -813,9 +813,9 @@ lemma urust_eval_action_or [urust_eval_action_simps]:
 by (simp add: urust_eval_action_bind micro_rust_simps urust_eval_action_literal
   urust_eval_action_abort urust_eval_action_call)+
 
-urust expr [urust_abbrev = true] Eval_urust_site_52 (x, y) \<open> x | y \<close>
-urust expr [urust_abbrev = true] Eval_urust_site_53 (x, y) \<open> x | y \<close>
-urust expr [urust_abbrev = true] Eval_urust_site_54 (x, y) \<open> x | y \<close>
+urust_expr [abbrev = true] Eval_urust_site_52 (x, y) \<open> x | y \<close>
+urust_expr [abbrev = true] Eval_urust_site_53 (x, y) \<open> x | y \<close>
+urust_expr [abbrev = true] Eval_urust_site_54 (x, y) \<open> x | y \<close>
 
 corollary urust_eval_predicate_or [urust_eval_predicate_simps]:
   fixes x y :: \<open>'l::{len} word\<close>
@@ -824,9 +824,9 @@ corollary urust_eval_predicate_or [urust_eval_predicate_simps]:
     and \<open>\<sigma> \<leadsto>\<^sub>a \<langle>\<Gamma>, Eval_urust_site_54 x y\<rangle> (a, \<sigma>') \<longleftrightarrow> False\<close>
 by (auto simp add: urust_eval_predicate_via_action urust_eval_action_or)
 
-urust expr [urust_abbrev = true] Eval_urust_site_55 (x, y) \<open> x & y \<close>
-urust expr [urust_abbrev = true] Eval_urust_site_56 (x, y) \<open> x & y \<close>
-urust expr [urust_abbrev = true] Eval_urust_site_57 (x, y) \<open> x & y \<close>
+urust_expr [abbrev = true] Eval_urust_site_55 (x, y) \<open> x & y \<close>
+urust_expr [abbrev = true] Eval_urust_site_56 (x, y) \<open> x & y \<close>
+urust_expr [abbrev = true] Eval_urust_site_57 (x, y) \<open> x & y \<close>
 
 lemma urust_eval_action_and [urust_eval_action_simps]:
   fixes x y :: \<open>'l::{len} word\<close>
@@ -836,9 +836,9 @@ lemma urust_eval_action_and [urust_eval_action_simps]:
 by (simp add: urust_eval_action_bind micro_rust_simps urust_eval_action_literal
   urust_eval_action_abort urust_eval_action_call)+
 
-urust expr [urust_abbrev = true] Eval_urust_site_58 (x, y) \<open> x & y \<close>
-urust expr [urust_abbrev = true] Eval_urust_site_59 (x, y) \<open> x & y \<close>
-urust expr [urust_abbrev = true] Eval_urust_site_60 (x, y) \<open> x & y \<close>
+urust_expr [abbrev = true] Eval_urust_site_58 (x, y) \<open> x & y \<close>
+urust_expr [abbrev = true] Eval_urust_site_59 (x, y) \<open> x & y \<close>
+urust_expr [abbrev = true] Eval_urust_site_60 (x, y) \<open> x & y \<close>
 
 corollary urust_eval_predicate_and [urust_eval_predicate_simps]:
   fixes x y :: \<open>'l::{len} word\<close>
@@ -847,17 +847,17 @@ corollary urust_eval_predicate_and [urust_eval_predicate_simps]:
     and \<open>\<sigma> \<leadsto>\<^sub>a \<langle>\<Gamma>, Eval_urust_site_60 x y\<rangle> (a, \<sigma>') \<longleftrightarrow> False\<close>
 by (auto simp add: urust_eval_predicate_via_action urust_eval_action_and)
 
-urust expr [urust_abbrev = true] Eval_urust_site_61 ::
+urust_expr [abbrev = true] Eval_urust_site_61 ::
   \<open>'l::len word \<Rightarrow> ('s, 'l word, 'r, 'abort, 'i, 'o) expression\<close>
   (x)
   \<open> !x \<close>
 
-urust expr [urust_abbrev = true] Eval_urust_site_62 ::
+urust_expr [abbrev = true] Eval_urust_site_62 ::
   \<open>'l::len word \<Rightarrow> ('s, 'l word, 'r, 'abort, 'i, 'o) expression\<close>
   (x)
   \<open> !x \<close>
 
-urust expr [urust_abbrev = true] Eval_urust_site_63 ::
+urust_expr [abbrev = true] Eval_urust_site_63 ::
   \<open>'l::len word \<Rightarrow> ('s, 'l word, 'r, 'abort, 'i, 'o) expression\<close>
   (x)
   \<open> !x \<close>
@@ -870,17 +870,17 @@ lemma urust_eval_action_not [urust_eval_action_simps]:
 by (simp add: urust_eval_action_bind micro_rust_simps urust_eval_action_literal
   urust_eval_action_abort urust_eval_action_call)+
 
-urust expr [urust_abbrev = true] Eval_urust_site_64 ::
+urust_expr [abbrev = true] Eval_urust_site_64 ::
   \<open>'l::len word \<Rightarrow> ('s, 'l word, 'r, 'abort, 'i, 'o) expression\<close>
   (x)
   \<open> !x \<close>
 
-urust expr [urust_abbrev = true] Eval_urust_site_65 ::
+urust_expr [abbrev = true] Eval_urust_site_65 ::
   \<open>'l::len word \<Rightarrow> ('s, 'l word, 'r, 'abort, 'i, 'o) expression\<close>
   (x)
   \<open> !x \<close>
 
-urust expr [urust_abbrev = true] Eval_urust_site_66 ::
+urust_expr [abbrev = true] Eval_urust_site_66 ::
   \<open>'l::len word \<Rightarrow> ('s, 'l word, 'r, 'abort, 'i, 'o) expression\<close>
   (x)
   \<open> !x \<close>

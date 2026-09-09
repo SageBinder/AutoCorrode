@@ -61,7 +61,7 @@ by (intro array_extI) (simp add: mlkem_n_def)
 
 section\<open>Polynomial addition\<close>
 
-urust fn poly_add ::
+urust_fn poly_add ::
   \<open>mlkem_poly \<Rightarrow> mlkem_poly \<Rightarrow>
    ('s, mlkem_poly, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (a, b)
@@ -117,7 +117,7 @@ done
 
 section\<open>Polynomial subtraction\<close>
 
-urust fn poly_sub ::
+urust_fn poly_sub ::
   \<open>mlkem_poly \<Rightarrow> mlkem_poly \<Rightarrow>
    ('s, mlkem_poly, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (a, b)

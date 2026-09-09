@@ -108,7 +108,7 @@ definition points_to_raw' :: \<open>(raw_pref,8 word list) gref \<Rightarrow> sh
     (\<Squnion>tag. points_to_tagged_phys_bytes (raw_pmem_region_base pr) sh tag bs))\<close>
 ucincl_auto points_to_raw'
 
-urust expr [urust_abbrev = true]
+urust_expr [abbrev = true]
   update_raw_fun_urust_site_1
   (bs, pr)
   \<open>
@@ -130,7 +130,7 @@ definition update_raw_fun :: \<open>(raw_pref, 8 word list) gref \<Rightarrow> 8
      let pr = Global_Store.address r in
        FunctionBody (update_raw_fun_urust_site_1 bs pr)\<close>
 
-urust expr [urust_abbrev = true]
+urust_expr [abbrev = true]
   dereference_raw_fun_urust_site_1
   (pr)
   \<open>
@@ -146,7 +146,7 @@ definition dereference_raw_fun :: \<open>(raw_pref, 8 word list) gref \<Rightarr
      let pr = Global_Store.address r in
        FunctionBody (dereference_raw_fun_urust_site_1 pr)\<close>
 
-urust fn reference_raw_fun ::
+urust_fn reference_raw_fun ::
   \<open>8 word list \<Rightarrow> ('s, (raw_pref, 8 word list) gref, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (bs)
   \<open>

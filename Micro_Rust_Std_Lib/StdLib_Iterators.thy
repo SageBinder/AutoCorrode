@@ -11,7 +11,7 @@ declare [[urust_conformance_check = true]]
 \<comment>\<open>Force one-by-one unrolling of loops\<close>
 declare raw_for_loop_unroll_once_cong[crush_cong]
 
-urust fn find ::
+urust_fn find ::
   \<open>('s, 'v, 'abort, 'i prompt, 'o prompt_output) iterator \<Rightarrow>
    ('v \<Rightarrow> ('s, bool, 'abort, 'i prompt, 'o prompt_output) function_body) \<Rightarrow>
    ('s, 'v option, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
@@ -23,7 +23,7 @@ urust fn find ::
     None
   \<close>
 
-urust expr [urust_abbrev = true] enumerate_urust_site_1
+urust_expr [abbrev = true] enumerate_urust_site_1
   (i, f)
   \<open>
     let feval = f();
@@ -35,7 +35,7 @@ definition enumerate :: \<open>('s, 'v, 'abort, 'i prompt, 'o prompt_output) ite
   \<open>enumerate self \<equiv> FunctionBody (literal (make_iterator
     (mapi (\<lambda>i f. FunctionBody (enumerate_urust_site_1 i f)) (iterator_thunks self))))\<close>
 
-urust fn any :: \<open>('s, 'v, 'abort, 'i prompt, 'o prompt_output) iterator \<Rightarrow>
+urust_fn any :: \<open>('s, 'v, 'abort, 'i prompt, 'o prompt_output) iterator \<Rightarrow>
     ('v \<Rightarrow> ('s, bool, 'abort, 'i prompt, 'o prompt_output) function_body) \<Rightarrow>
     ('s, bool, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (self, predicate)
@@ -46,7 +46,7 @@ urust fn any :: \<open>('s, 'v, 'abort, 'i prompt, 'o prompt_output) iterator \<
      }
   \<close>
 
-urust fn count :: \<open>('s, 'v, 'abort, 'i prompt, 'o prompt_output) iterator \<Rightarrow>
+urust_fn count :: \<open>('s, 'v, 'abort, 'i prompt, 'o prompt_output) iterator \<Rightarrow>
       ('s, 64 word, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (self)
   \<open>
@@ -56,7 +56,7 @@ urust fn count :: \<open>('s, 'v, 'abort, 'i prompt, 'o prompt_output) iterator 
 context reference
 begin
 
-urust fn iter_mut ::
+urust_fn iter_mut ::
   \<open>('a, 'b, 'v list) Global_Store.ref \<Rightarrow> ('s, ('s, ('a, 'b, 'v) Global_Store.ref, 'abort, 'i prompt, 'o prompt_output) iterator, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (ref)
   \<open>

@@ -70,7 +70,7 @@ and typing would consist of encoding/decoding byte strings as as concrete types.
 
 text\<open>Before going into further details, here is the example of the \<^verbatim>\<open>swap\<close> function:\<close>
 
-urust fn swap_ref :: \<open>('addr, 'gv, 'v) Global_Store.ref \<Rightarrow> ('addr, 'gv, 'v) Global_Store.ref \<Rightarrow> ('s, unit, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
+urust_fn swap_ref :: \<open>('addr, 'gv, 'v) Global_Store.ref \<Rightarrow> ('addr, 'gv, 'v) Global_Store.ref \<Rightarrow> ('s, unit, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (rA, rB)
   \<open>
      let oldA = *rA;
@@ -294,7 +294,7 @@ adhoc_overloading store_dereference_const \<rightleftharpoons> raw_pmem_trie_der
 
 text\<open>With this, we can make sense of the \<^verbatim>\<open>swap_ref\<close> function outside of any locale:\<close>
 
-urust fn swap_ref :: \<open>(raw_pmem_region, byte list, 'v) Global_Store.ref \<Rightarrow> (raw_pmem_region, byte list, 'v) Global_Store.ref
+urust_fn swap_ref :: \<open>(raw_pmem_region, byte list, 'v) Global_Store.ref \<Rightarrow> (raw_pmem_region, byte list, 'v) Global_Store.ref
    \<Rightarrow> (unit tagged_physical_memory, unit, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (rA, rB)
   \<open>

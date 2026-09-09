@@ -81,49 +81,49 @@ section\<open> Typed declaration surface \<close>
 
 declare [[urust_conformance_check = true]]
 
-urust expr typed_closed ::
+urust_expr typed_closed ::
   \<open>(unit, nat, unit, unit, unit, unit) expression\<close>
   \<open> \<llangle>42 :: nat\<rrangle> \<close>
 
-urust expr typed_contextual ::
+urust_expr typed_contextual ::
   \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit, unit) expression\<close>
   (item)
   \<open> item \<close>
 
-urust expr typed_heterogeneous ::
+urust_expr typed_heterogeneous ::
   \<open>nat \<Rightarrow> bool \<Rightarrow>
     (unit, nat \<times> bool, unit, unit, unit, unit) expression\<close>
   (number, flag)
   \<open> \<llangle>(number, flag)\<rrangle> \<close>
 
-urust expr typed_higher_order ::
+urust_expr typed_higher_order ::
   \<open>(nat \<Rightarrow> nat) \<Rightarrow> nat \<Rightarrow>
     (unit, nat, unit, unit, unit, unit) expression\<close>
   (f, item)
   \<open> \<llangle>f item\<rrangle> \<close>
 
-urust expr typed_polymorphic ::
+urust_expr typed_polymorphic ::
   \<open>'a \<Rightarrow> ('s, 'a, 'r, 'abort, 'i, 'o) expression\<close>
   (item)
   \<open> item \<close>
 
-urust expr typed_sort_constrained ::
+urust_expr typed_sort_constrained ::
   \<open>'a::len word \<Rightarrow>
     ('s, 'a word, 'r, 'abort, 'i, 'o) expression\<close>
   (item)
   \<open> item \<close>
 
-urust expr typed_placeholders ::
+urust_expr typed_placeholders ::
   \<open>_ \<Rightarrow> (_, _, _, _, _, _) expression\<close>
   (item)
   \<open> item \<close>
 
 text\<open>
 A declaration ending in \<open>function_body\<close> selects function elaboration through the same
-\<open>urust expr\<close> command and therefore wraps the checked body exactly once.
+\<open>urust_expr\<close> command and therefore wraps the checked body exactly once.
 \<close>
 
-urust expr typed_function_common ::
+urust_expr typed_function_common ::
   \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
   (item)
   \<open> item \<close>
@@ -146,17 +146,17 @@ constant, definition, abbreviation, or code equation. Both command facades use a
 source-position name for the conformance fact and informational output only.
 \<close>
 
-urust expr [urust_conformance_check = true] _ ::
+urust_expr [conformance_check = true] _ ::
   \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit, unit) expression\<close>
   (item)
   \<open> item \<close>
 
-urust fn [urust_conformance_check = true] _ ::
+urust_fn [conformance_check = true] _ ::
   \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
   (item)
   \<open> item \<close>
 
-urust expr [urust_abbrev = true, urust_conformance_check = false] _
+urust_expr [abbrev = true, conformance_check = false] _
   \<open> () \<close>
 
 ML_val\<open>
@@ -183,13 +183,13 @@ ML_val\<open>
 
     val _ =
       if not (exists (anonymous_base "urust_expr") constants) andalso
-         not (exists (anonymous_base "urust_fun") constants)
+         not (exists (anonymous_base "urust_fn") constants)
       then ()
       else error "anonymous uRust command registered a constant"
     val expression_facts =
       filter (anonymous_conformance "urust_expr") facts
     val function_facts =
-      filter (anonymous_conformance "urust_fun") facts
+      filter (anonymous_conformance "urust_fn") facts
     val _ =
       if length expression_facts = 1 andalso
          length function_facts = 1
@@ -209,62 +209,62 @@ section\<open> Definitions, abbreviations, flags, locales, and against \<close>
 
 declare [[urust_conformance_check = false]]
 
-urust expr
-  [urust_conformance_check = false, urust_verbose = 0, urust_abbrev = false]
+urust_expr
+  [conformance_check = false, verbose = 0, abbrev = false]
   typed_flags_000 ::
   \<open>(unit, unit, unit, unit, unit, unit) expression\<close>
   \<open> () \<close>
 
-urust expr
-  [urust_abbrev = true, urust_conformance_check = false, urust_verbose = 0]
+urust_expr
+  [abbrev = true, conformance_check = false, verbose = 0]
   typed_flags_001 ::
   \<open>(unit, unit, unit, unit, unit, unit) expression\<close>
   \<open> () \<close>
 
-urust expr
-  [urust_verbose = 1, urust_abbrev = false, urust_conformance_check = false]
+urust_expr
+  [verbose = 1, abbrev = false, conformance_check = false]
   typed_flags_010 ::
   \<open>(unit, unit, unit, unit, unit, unit) expression\<close>
   \<open> () \<close>
 
-urust expr
-  [urust_conformance_check = false, urust_abbrev = true, urust_verbose = 1]
+urust_expr
+  [conformance_check = false, abbrev = true, verbose = 1]
   typed_flags_011 ::
   \<open>(unit, unit, unit, unit, unit, unit) expression\<close>
   \<open> () \<close>
 
-urust expr
-  [urust_verbose = 0, urust_conformance_check = true, urust_abbrev = false]
+urust_expr
+  [verbose = 0, conformance_check = true, abbrev = false]
   typed_flags_100 ::
   \<open>(unit, unit, unit, unit, unit, unit) expression\<close>
   \<open> () \<close>
 
-urust expr
-  [urust_abbrev = true, urust_verbose = 0, urust_conformance_check = true]
+urust_expr
+  [abbrev = true, verbose = 0, conformance_check = true]
   typed_flags_101 ::
   \<open>(unit, unit, unit, unit, unit, unit) expression\<close>
   \<open> () \<close>
 
-urust expr
-  [urust_conformance_check = true, urust_verbose = 2, urust_abbrev = false]
+urust_expr
+  [conformance_check = true, verbose = 2, abbrev = false]
   typed_flags_110 ::
   \<open>(unit, unit, unit, unit, unit, unit) expression\<close>
   \<open> () \<close>
 
-urust expr
-  [urust_verbose = 2, urust_abbrev = true, urust_conformance_check = true]
+urust_expr
+  [verbose = 2, abbrev = true, conformance_check = true]
   typed_flags_111 ::
   \<open>(unit, unit, unit, unit, unit, unit) expression\<close>
   \<open> () \<close>
 
-urust expr
-  [urust_abbrev = true, urust_conformance_check = true, urust_verbose = 2]
+urust_expr
+  [abbrev = true, conformance_check = true, verbose = 2]
   typed_function_abbrev_common ::
   \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
   (item)
   \<open> item \<close>
 
-urust expr typed_against ::
+urust_expr typed_against ::
   \<open>32 word \<Rightarrow>
     (unit, 32 word, unit, unit, unit, unit) expression\<close>
   (operand)
@@ -275,8 +275,8 @@ locale typed_expression_locale =
   fixes offset :: nat
 begin
 
-urust expr
-  [urust_abbrev = true, urust_conformance_check = true]
+urust_expr
+  [abbrev = true, conformance_check = true]
   typed_local_add ::
   \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit, unit) expression\<close>
   (item)
@@ -291,8 +291,8 @@ locale typed_ambient_tfree_locale =
   fixes ambient_witness :: \<open>'ambient itself\<close>
 begin
 
-urust expr
-  [urust_conformance_check = true]
+urust_expr
+  [conformance_check = true]
   typed_ambient_tfree_function ::
   \<open>(unit, nat, unit, unit, unit) function_body\<close>
   \<open> \<llangle>typed_ambient_probe TYPE('ambient)\<rrangle> \<close>
@@ -509,20 +509,20 @@ ML_val\<open>
 
     val _ =
       if Term.aconv (expression, expected_expression) then ()
-      else error "typed urust expr: expression lambda shape changed"
+      else error "typed urust_expr: expression lambda shape changed"
     val _ =
       if Term.aconv (function, expected_function) then ()
-      else error "typed urust expr: function lambda shape changed"
+      else error "typed urust_expr: function lambda shape changed"
     val _ =
       if count_constant \<^const_name>\<open>FunctionBody\<close>
           expression 0 = 0
       then ()
-      else error "typed urust expr: expression gained a FunctionBody wrapper"
+      else error "typed urust_expr: expression gained a FunctionBody wrapper"
     val _ =
       if count_constant \<^const_name>\<open>FunctionBody\<close>
           function 0 = 1
       then ()
-      else error "typed urust expr: function wrapper count changed"
+      else error "typed urust_expr: function wrapper count changed"
   in
     val _ = ()
   end
@@ -533,37 +533,37 @@ section\<open> Migration-sensitive typed expressions \<close>
 
 declare [[urust_conformance_check = true]]
 
-urust expr typed_boolean_negation ::
+urust_expr typed_boolean_negation ::
   \<open>bool \<Rightarrow> ('s, bool, 'r, 'abort, 'i, 'o) expression\<close>
   (operand)
   \<open> !operand \<close>
 
-urust expr typed_word_negation ::
+urust_expr typed_word_negation ::
   \<open>'a::len word \<Rightarrow>
     ('s, 'a word, 'r, 'abort, 'i, 'o) expression\<close>
   (operand)
   \<open> !operand \<close>
 
-urust expr typed_bound_negation ::
+urust_expr typed_bound_negation ::
   \<open>('s, bool, 'r, 'abort, 'i, 'o) expression \<Rightarrow>
     ('s, bool, 'r, 'abort, 'i, 'o) expression\<close>
   (source)
   \<open> let value = \<epsilon>\<open>source\<close>; !value \<close>
 
-urust expr typed_indexing ::
+urust_expr typed_indexing ::
   \<open>nat list \<Rightarrow> 64 word \<Rightarrow>
     ('s, nat, 'r, 'abort, 'i, 'o) expression\<close>
   (elements, index)
   \<open> elements[index] \<close>
 
-urust expr typed_abort_sequence ::
+urust_expr typed_abort_sequence ::
   \<open>'abort abort \<Rightarrow>
     ('s, 'v, 'r, 'abort, 'i, 'o) expression \<Rightarrow>
     ('s, 'v, 'r, 'abort, 'i, 'o) expression\<close>
   (reason, tail)
   \<open> \<epsilon>\<open>abort reason\<close>; \<epsilon>\<open>tail\<close> \<close>
 
-urust expr typed_panic_sequence ::
+urust_expr typed_panic_sequence ::
   \<open>String.literal \<Rightarrow>
     ('s, 'v, 'r, 'abort, 'i, 'o) expression \<Rightarrow>
     ('s, 'v, 'r, 'abort, 'i, 'o) expression\<close>
@@ -576,7 +576,7 @@ definition typed_channel_get :: \<open>nat \<Rightarrow> nat option\<close>
 definition typed_channel_put :: \<open>nat \<Rightarrow> nat \<Rightarrow> nat\<close>
   where \<open>typed_channel_put value state = value + state\<close>
 
-urust expr typed_channel_inference ::
+urust_expr typed_channel_inference ::
   \<open>(nat, unit, unit, 'abort, 'i, 'o) expression\<close>
   \<open>
     if let Some(value) = \<epsilon>\<open>get typed_channel_get\<close> {
@@ -584,7 +584,7 @@ urust expr typed_channel_inference ::
     }
   \<close>
 
-urust expr typed_captured_nil ::
+urust_expr typed_captured_nil ::
   \<open>
     (nat \<Rightarrow> nat) \<Rightarrow>
     (nat \<Rightarrow> bool) \<Rightarrow>
@@ -795,7 +795,7 @@ ML_val\<open>
       in
         ignore
           (run_command ("typed-command-recovery-" ^ string_of_int index)
-            ("urust expr typed_command_recovered_" ^
+            ("urust_expr typed_command_recovered_" ^
               string_of_int index ^ " :: " ^ unit_expression_type ^
               " " ^ unit_source) ())
       end
@@ -821,27 +821,27 @@ ML_val\<open>
 
     val _ =
       assert_rejected "typed-malformed-type"
-        ("urust expr typed_bad_type :: " ^
+        ("urust_expr typed_bad_type :: " ^
           Symbol.open_ ^ "nat \<Rightarrow>" ^ Symbol.close ^
           " " ^ unit_source)
     val _ =
       assert_rejected "typed-misplaced-type"
-        ("urust expr typed_misplaced_type " ^ unit_source ^
+        ("urust_expr typed_misplaced_type " ^ unit_source ^
           " :: " ^ unit_expression_type)
     val _ =
       assert_rejected "typed-duplicate-arguments"
-        ("urust expr typed_duplicate_arguments :: " ^
+        ("urust_expr typed_duplicate_arguments :: " ^
           Symbol.open_ ^
           "nat \<Rightarrow> nat \<Rightarrow> " ^
           "(unit, nat, unit, unit, unit, unit) expression" ^
           Symbol.close ^ " (item, item) " ^ unit_source)
     val _ =
       assert_rejected "typed-wildcard-argument"
-        ("urust expr typed_wildcard_argument :: " ^
+        ("urust_expr typed_wildcard_argument :: " ^
           unary_expression_type ^ " (_) " ^ unit_source)
     val _ =
       assert_rejected "typed-missing-argument"
-        ("urust expr typed_missing_argument :: " ^
+        ("urust_expr typed_missing_argument :: " ^
           unary_expression_type ^ " " ^ unit_source)
   in
     val _ = ()

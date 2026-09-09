@@ -158,7 +158,7 @@ begin
 
 adhoc_overloading store_reference_const \<rightleftharpoons> ref_word64.new
 
-urust fn ntt ::
+urust_fn ntt ::
   \<open>('addr, 'gv, mlkem_poly) Global_Store.ref \<Rightarrow>
    ('s::{sepalg}, unit, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (f_ref)

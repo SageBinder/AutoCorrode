@@ -13,24 +13,24 @@ responsible for checking document antiquotations and producing formal-comment ma
 
 subsection\<open> Expression and function parity \<close>
 
-urust expr isabelle_comment_standalone
+urust_expr isabelle_comment_standalone
   \<open>
     \<comment> \<open>Standalone comment before the expression.\<close>
     ()
   \<close>
 
-urust expr isabelle_comment_inline
+urust_expr isabelle_comment_inline
   \<open>
     1_u64\<comment>\<open>Comment between operands: + - * / { } [ ] ( ) , ; :: =>.\<close>+2_u64
   \<close>
 
-urust expr isabelle_comment_trailing
+urust_expr isabelle_comment_trailing
   \<open>
     ();
     () \<comment> \<open>Trailing comment after the complete expression.\<close>
   \<close>
 
-urust expr isabelle_comment_multiline_nested
+urust_expr isabelle_comment_multiline_nested
   \<open>
     \<comment> \<open>
       Outer document text with \<open>nested { grammar } punctuation\<close> and
@@ -45,7 +45,7 @@ urust expr isabelle_comment_multiline_nested
     }
   \<close>
 
-urust expr isabelle_comment_document_antiquotations
+urust_expr isabelle_comment_document_antiquotations
   \<open>
     \<comment> \<open>
       Modern controls: \<^term>\<open>True\<close>, \<^const>\<open>False\<close>, and
@@ -58,7 +58,7 @@ urust expr isabelle_comment_document_antiquotations
 
 declare [[urust_verbose = 1]]
 
-urust fn isabelle_comment_function ::
+urust_fn isabelle_comment_function ::
   \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
   (item)
   \<open>
@@ -79,14 +79,14 @@ definition isabelle_comment_generic ::
 
 micro_rust_notation (call) isabelle_comment_generic ("Comment::generic")
 
-urust expr isabelle_comment_generic_layout
+urust_expr isabelle_comment_generic_layout
   \<open>
     Comment::generic::<
       1 \<comment> \<open>Generic-state layout with \<open>> , + ::\<close>.\<close> + 2
     >(3)
   \<close>
 
-urust expr isabelle_comment_log_data_layout
+urust_expr isabelle_comment_log_data_layout
   \<open>
     l\<llangle>
       \<comment> \<open>Log-data layout before the first entry.\<close>

@@ -70,7 +70,7 @@ definition memset_tagged_phys_block :: \<open>64 word \<Rightarrow> nat \<Righta
     ('tag tagged_physical_memory, unit, 'abort, 'i, 'o) function_body\<close> where
   \<open>memset_tagged_phys_block pa n b \<equiv> FunctionBody (memset_tagged_phys_block_core pa n b)\<close>
 
-urust fn memset_tagged_phys ::
+urust_fn memset_tagged_phys ::
   \<open>64 word \<Rightarrow> 64 word \<Rightarrow> 8 word \<Rightarrow>
     ('tag tagged_physical_memory, unit, 'abort, 'i, 'o) function_body\<close>
   (pa, l, b)

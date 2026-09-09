@@ -180,7 +180,7 @@ private definition tmp1_ref :: \<open>(raw_pmem_region, byte list, (NonNullRaw, 
   \<open>tmp1_ref \<equiv> make_focused (make_gref (make_raw_pmem_region (test_page + 0x40) 8)) ref_gref_opt_focus\<close>
 
 \<comment>\<open>\<^verbatim>\<open>
-urust fn reverse_unlink :: \<open>64 word \<Rightarrow> ('caddr, 'gv) gref option
+urust_fn reverse_unlink :: \<open>64 word \<Rightarrow> ('caddr, 'gv) gref option
   \<Rightarrow> ('addr, 'gv, ('caddr, 'gv) gref option) Global_Store.ref
   \<Rightarrow> ('addr, 'gv, ('caddr, 'gv) gref option) Global_Store.ref
   \<Rightarrow> ('s, ('caddr, 'gv) gref option \<times> ('caddr, 'gv) gref option) function_body\<close>

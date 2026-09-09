@@ -1,4 +1,4 @@
-(* Positive conformance against the inner-syntax frontend. Each `urust expr` command
+(* Positive conformance against the inner-syntax frontend. Each `urust_expr` command
    defines its expression and proves it alpha-equal to `\<lbrakk> src \<rbrakk>` by `refl`. Type
    annotations avoid hidden type variables that `Local_Theory.define` cannot expose cleanly. *)
 
@@ -10,104 +10,104 @@ declare [[urust_conformance_check = true]]
 
 section\<open> Numeric literals (Corpus PART I, "Numeric Literals") \<close>
 
-urust expr lit_0  \<open> 0 \<close>
+urust_expr lit_0  \<open> 0 \<close>
 
 thm lit_0_conformance
 
-urust expr lit_1  \<open> 1 \<close>
+urust_expr lit_1  \<open> 1 \<close>
 
-urust expr lit_42 \<open> 42 \<close>
+urust_expr lit_42 \<open> 42 \<close>
 
-urust expr lit_hex \<open> 0xff \<close>
+urust_expr lit_hex \<open> 0xff \<close>
 
 
 section\<open> Suffixed integer literals (Corpus PART I, "Numeric Ascriptions") \<close>
 
-urust expr lit_0_u8  \<open> 0_u8 \<close>
+urust_expr lit_0_u8  \<open> 0_u8 \<close>
 
-urust expr lit_1_u8  \<open> 1_u8 \<close>
+urust_expr lit_1_u8  \<open> 1_u8 \<close>
 
-urust expr lit_0x4_u8 \<open> 0x4_u8 \<close>
+urust_expr lit_0x4_u8 \<open> 0x4_u8 \<close>
 
-urust expr lit_0_u16 \<open> 0_u16 \<close>
+urust_expr lit_0_u16 \<open> 0_u16 \<close>
 
-urust expr lit_1_u16 \<open> 1_u16 \<close>
+urust_expr lit_1_u16 \<open> 1_u16 \<close>
 
-urust expr lit_0x12_u16 \<open> 0x12_u16 \<close>
+urust_expr lit_0x12_u16 \<open> 0x12_u16 \<close>
 
-urust expr lit_0_u32 \<open> 0_u32 \<close>
+urust_expr lit_0_u32 \<open> 0_u32 \<close>
 
-urust expr lit_1_u32 \<open> 1_u32 \<close>
+urust_expr lit_1_u32 \<open> 1_u32 \<close>
 
-urust expr lit_0x2000_u32 \<open> 0x2000_u32 \<close>
+urust_expr lit_0x2000_u32 \<open> 0x2000_u32 \<close>
 
-urust expr lit_0_u64 \<open> 0_u64 \<close>
+urust_expr lit_0_u64 \<open> 0_u64 \<close>
 
-urust expr lit_1_u64 \<open> 1_u64 \<close>
+urust_expr lit_1_u64 \<open> 1_u64 \<close>
 
-urust expr lit_0x2f0_u64 \<open> 0x2f0_u64 \<close>
+urust_expr lit_0x2f0_u64 \<open> 0x2f0_u64 \<close>
 
-urust expr lit_0_usize \<open> 0_usize \<close>
+urust_expr lit_0_usize \<open> 0_usize \<close>
 
-urust expr lit_1_usize \<open> 1_usize \<close>
+urust_expr lit_1_usize \<open> 1_usize \<close>
 
-urust expr lit_0xf_usize \<open> 0xffffffff0_usize \<close>
+urust_expr lit_0xf_usize \<open> 0xffffffff0_usize \<close>
 
 
 section\<open> Unit (Corpus PART I, "Unit Literal") \<close>
 
-urust expr lit_unit \<open> () \<close>
+urust_expr lit_unit \<open> () \<close>
 
 
 section\<open> Boolean and string literals \<close>
 
-urust expr lit_bool_true \<open> true \<close>
+urust_expr lit_bool_true \<open> true \<close>
 
-urust expr lit_bool_false \<open> false \<close>
+urust_expr lit_bool_false \<open> false \<close>
 
-urust expr lit_string_empty \<open> "" \<close>
+urust_expr lit_string_empty \<open> "" \<close>
 
-urust expr lit_string_text \<open> "micro rust" \<close>
+urust_expr lit_string_text \<open> "micro rust" \<close>
 
-urust expr lit_string_quote \<open> "say: \"hi\"" \<close>
+urust_expr lit_string_quote \<open> "say: \"hi\"" \<close>
 
-urust expr lit_string_backslash \<open> "a\\b" \<close>
+urust_expr lit_string_backslash \<open> "a\\b" \<close>
 
-urust expr lit_string_line_comment_text \<open> "https://example.invalid//path" \<close>
+urust_expr lit_string_line_comment_text \<open> "https://example.invalid//path" \<close>
 
 
 section\<open> Value antiquotation \<open>\<llangle>_\<rrangle>\<close> (Corpus PART I, "HOL Value Injection") \<close>
 
 text\<open> A HOL value lifted to a µRust literal; word widths 8 / 32 / 64, a boolean, and a compound value. \<close>
 
-urust expr lit_aq_word \<open> \<llangle>0 :: 32 word\<rrangle> \<close>
+urust_expr lit_aq_word \<open> \<llangle>0 :: 32 word\<rrangle> \<close>
 
-urust expr ext_aq64 \<open> \<llangle>1 :: 64 word\<rrangle> \<close>
+urust_expr ext_aq64 \<open> \<llangle>1 :: 64 word\<rrangle> \<close>
 
-urust expr ext_aq8 \<open> \<llangle>255 :: 8 word\<rrangle> \<close>
+urust_expr ext_aq8 \<open> \<llangle>255 :: 8 word\<rrangle> \<close>
 
-urust expr lit_aq_true \<open> \<llangle>True\<rrangle> \<close>
+urust_expr lit_aq_true \<open> \<llangle>True\<rrangle> \<close>
 
-urust expr ext_aqfalse \<open> \<llangle>False\<rrangle> \<close>
+urust_expr ext_aqfalse \<open> \<llangle>False\<rrangle> \<close>
 
-urust expr lit_aq_some \<open> \<llangle>Some (0 :: nat)\<rrangle> \<close>
+urust_expr lit_aq_some \<open> \<llangle>Some (0 :: nat)\<rrangle> \<close>
 
-urust expr lit_aq_line_comment_text \<open> \<llangle>''// value''\<rrangle> \<close>
+urust_expr lit_aq_line_comment_text \<open> \<llangle>''// value''\<rrangle> \<close>
 
 
 section\<open> Expression antiquotation \<open>\<epsilon>\<open>_\<close>\<close> (Corpus PART I, "Boolean Literals") \<close>
 
 text\<open> Passthrough (no \<open>literal\<close> wrapper): the body already denotes an \<open>expression\<close>. \<close>
 
-urust expr lit_eaq_true \<open> \<epsilon>\<open>Bool_Type.true\<close> \<close>
+urust_expr lit_eaq_true \<open> \<epsilon>\<open>Bool_Type.true\<close> \<close>
 
-urust expr lit_eaq_line_comment_text
+urust_expr lit_eaq_line_comment_text
   \<open> \<epsilon>\<open>\<up>(''// expression'')\<close> \<close>
 
-urust expr aq_nested_value
+urust_expr aq_nested_value
   \<open> \<llangle> \<lbrakk> \<llangle>1 :: nat\<rrangle> \<rbrakk> \<rrangle> \<close>
 
-urust expr aq_nested_expr
+urust_expr aq_nested_expr
   \<open> \<epsilon>\<open> \<lbrakk> \<epsilon>\<open>\<up>(1 :: nat)\<close> \<rbrakk> \<close> \<close>
 
 
@@ -118,17 +118,17 @@ For unregistered HOL constants, \<open>check_term\<close> promotes the parser's 
 \<open>Free\<close> to the same \<open>Const\<close> as the frontend fallback.
 \<close>
 
-urust expr lit_true  \<open> True \<close>
+urust_expr lit_true  \<open> True \<close>
 
-urust expr lit_false \<open> False \<close>
+urust_expr lit_false \<open> False \<close>
 
-urust expr lit_none  \<open> None \<close>
+urust_expr lit_none  \<open> None \<close>
 
 text\<open> A context-fixed free variable (unregistered, non-constant): stays a \<open>Free\<close>, with ctrl-click nav to
 its \<open>fixes\<close> (D14). \<close>
 context fixes foo :: nat
 begin
-urust expr lit_ctx \<open> foo \<close>
+urust_expr lit_ctx \<open> foo \<close>
 end
 
 text\<open>
@@ -136,7 +136,7 @@ A plain definition generalizes source-level free variables without requiring
 an explicit parameter list or abbreviation mode.
 \<close>
 
-urust expr lit_open \<open> x + y \<close>
+urust_expr lit_open \<open> x + y \<close>
 
 term \<open>lit_open x y\<close>
 thm lit_open_def
@@ -148,7 +148,7 @@ Registered names use the existing \<open>urust_dispatch\<close> term-check phase
 definition my_backend :: nat where \<open> my_backend \<equiv> 7 \<close>
 micro_rust_notation (literal) my_backend ("myReg")
 
-urust expr lit_reg \<open> myReg \<close>
+urust_expr lit_reg \<open> myReg \<close>
 
 
 section\<open> Sequencing, `let` and `const` bindings \<close>
@@ -158,13 +158,13 @@ text\<open>
 sequences with \<open>skip = literal ()\<close>.
 \<close>
 
-urust expr seq_unit \<open> (); () \<close>
+urust_expr seq_unit \<open> (); () \<close>
 
-urust expr seq_trailing \<open> (); (); \<close>
+urust_expr seq_trailing \<open> (); (); \<close>
 
 text\<open> Parentheses admit the complete body grammar, including semicolon sequencing. \<close>
 
-urust expr seq_parenthesized_body
+urust_expr seq_parenthesized_body
   \<open> (\<llangle>1 :: nat\<rrangle>; \<llangle>2 :: nat\<rrangle>) \<close>
 
 thm seq_parenthesized_body_conformance
@@ -174,32 +174,32 @@ text\<open>
 Unused binders need a type pin (R1).
 \<close>
 
-urust expr let_use \<open> let x = 5; x \<close>
+urust_expr let_use \<open> let x = 5; x \<close>
 
-urust expr let_ab \<open> let a = \<llangle>1 :: nat\<rrangle>; let b = \<llangle>2 :: nat\<rrangle>; a \<close>
+urust_expr let_ab \<open> let a = \<llangle>1 :: nat\<rrangle>; let b = \<llangle>2 :: nat\<rrangle>; a \<close>
 
 text\<open> \<open>const x = e; k\<close> desugars byte-for-byte as \<open>let\<close> (Corpus PART I "Const Bindings"). \<close>
 
-urust expr const_foo \<open> const FOO = \<llangle>5 :: nat\<rrangle>; () \<close>
+urust_expr const_foo \<open> const FOO = \<llangle>5 :: nat\<rrangle>; () \<close>
 
 text\<open>
 An enclosing \<open>let\<close> captures \<open>x\<close> inside both direct and nested
 antiquotations.
 \<close>
 
-urust expr let_cap \<open> let x = \<llangle>5 :: nat\<rrangle>; \<llangle>x\<rrangle> \<close>
+urust_expr let_cap \<open> let x = \<llangle>5 :: nat\<rrangle>; \<llangle>x\<rrangle> \<close>
 
-urust expr let_cap_deep \<open> let x = \<llangle>5 :: nat\<rrangle>; \<llangle>x + 1\<rrangle> \<close>
+urust_expr let_cap_deep \<open> let x = \<llangle>5 :: nat\<rrangle>; \<llangle>x + 1\<rrangle> \<close>
 
 text\<open>
 In the shared pattern grammar, \<open>let _\<close> creates an anonymous hygienic lambda,
 not a variable named \<open>_\<close>.
 \<close>
 
-urust expr let_wild \<open> let _ = \<llangle>5 :: nat\<rrangle>; () \<close>
+urust_expr let_wild \<open> let _ = \<llangle>5 :: nat\<rrangle>; () \<close>
 
 text\<open> Its \<open>Abs\<close>/\<open>Bound\<close> representation cannot capture an outer binder. \<close>
-urust expr let_wild_hyg \<open> let uu = \<llangle>5 :: nat\<rrangle>; let _ = \<llangle>7 :: nat\<rrangle>; uu \<close>
+urust_expr let_wild_hyg \<open> let uu = \<llangle>5 :: nat\<rrangle>; let _ = \<llangle>7 :: nat\<rrangle>; uu \<close>
 
 text\<open>
 Refutable binding patterns and forms excluded by a consumer-specific pattern policy have positioned
@@ -213,37 +213,37 @@ Tuple values lower to the frontend's right-nested product ending in \<open>TNil\
 Tuple binders recursively admit names, wildcards, and nested tuples.
 \<close>
 
-urust expr tuple_value_two
+urust_expr tuple_value_two
   \<open> (\<llangle>1 :: nat\<rrangle>, \<llangle>True\<rrangle>) \<close>
 
-urust expr tuple_value_four
+urust_expr tuple_value_four
   \<open> (\<llangle>1 :: nat\<rrangle>, \<llangle>True\<rrangle>, \<llangle>2 :: nat\<rrangle>, \<llangle>False\<rrangle>) \<close>
 
-urust expr tuple_value_nested
+urust_expr tuple_value_nested
   \<open> ((\<llangle>1 :: nat\<rrangle>, \<llangle>True\<rrangle>), \<llangle>False\<rrangle>) \<close>
 
-urust expr tuple_let_two
+urust_expr tuple_let_two
   \<open> let (x, y) = (\<llangle>1 :: nat\<rrangle>, \<llangle>True\<rrangle>); x \<close>
 
-urust expr tuple_let_three
+urust_expr tuple_let_three
   \<open> let (x, y, z) = (\<llangle>1 :: nat\<rrangle>, \<llangle>True\<rrangle>, \<llangle>2 :: nat\<rrangle>); z \<close>
 
-urust expr tuple_const_three
+urust_expr tuple_const_three
   \<open> const (x, y, z) = (\<llangle>1 :: nat\<rrangle>, \<llangle>True\<rrangle>, \<llangle>2 :: nat\<rrangle>); x \<close>
 
-urust expr tuple_let_nested
+urust_expr tuple_let_nested
   \<open> let (x, (y, z)) = (\<llangle>1 :: nat\<rrangle>, (\<llangle>2 :: nat\<rrangle>, \<llangle>3 :: nat\<rrangle>)); y \<close>
 
-urust expr tuple_const_nested
+urust_expr tuple_const_nested
   \<open> const (x, (_, z)) = (\<llangle>1 :: nat\<rrangle>, (\<llangle>True\<rrangle>, \<llangle>3 :: nat\<rrangle>)); z \<close>
 
-urust expr tuple_let_wildcards
+urust_expr tuple_let_wildcards
   \<open> let (_, y, _) = (\<llangle>1 :: nat\<rrangle>, \<llangle>True\<rrangle>, \<llangle>2 :: nat\<rrangle>); y \<close>
 
-urust expr tuple_let_shadow
+urust_expr tuple_let_shadow
   \<open> let x = \<llangle>0 :: nat\<rrangle>; let (x, y) = (\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>); x \<close>
 
-urust expr tuple_let_antiquotation
+urust_expr tuple_let_antiquotation
   \<open> let (x, y) = (\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>); \<llangle>x + y\<rrangle> \<close>
 
 
@@ -262,22 +262,22 @@ adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereferenc
 
 subsection\<open> Mutable allocation and binders \<close>
 
-urust expr mut_scalar
+urust_expr mut_scalar
   \<open> let mut x = \<llangle>0 :: 32 word\<rrangle>; x \<close>
 
-urust expr mut_capture
+urust_expr mut_capture
   \<open> let mut x = \<llangle>0 :: 32 word\<rrangle>; \<llangle>x\<rrangle> \<close>
 
-urust expr mut_shadow
+urust_expr mut_shadow
   \<open> let x = \<llangle>1 :: 32 word\<rrangle>; let mut x = \<llangle>2 :: 32 word\<rrangle>; x \<close>
 
-urust expr mut_tuple
+urust_expr mut_tuple
   \<open> let mut (x, y) = (\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>); x \<close>
 
-urust expr mut_tuple_nested
+urust_expr mut_tuple_nested
   \<open> let mut (x, (_, z)) = (\<llangle>1 :: nat\<rrangle>, (\<llangle>True\<rrangle>, \<llangle>3 :: nat\<rrangle>)); z \<close>
 
-urust expr mut_borrow_chain
+urust_expr mut_borrow_chain
   \<open>
     let mut x = \<llangle>0 :: 32 word\<rrangle>;
     let xr = &x;
@@ -295,39 +295,39 @@ context
     and rhs :: \<open>32 word\<close>
 begin
 
-urust expr ref_borrow \<open> &r \<close>
+urust_expr ref_borrow \<open> &r \<close>
 
-urust expr ref_borrow_mut \<open> & mut r \<close>
+urust_expr ref_borrow_mut \<open> & mut r \<close>
 
-urust expr ref_borrow_group \<open> &(r) \<close>
+urust_expr ref_borrow_group \<open> &(r) \<close>
 
-urust expr ref_borrow_block \<open> &{ r } \<close>
+urust_expr ref_borrow_block \<open> &{ r } \<close>
 
-urust expr ref_borrow_if \<open> &(if true { r } else { r }) \<close>
+urust_expr ref_borrow_if \<open> &(if true { r } else { r }) \<close>
 
-urust expr ref_deref \<open> *r \<close>
+urust_expr ref_deref \<open> *r \<close>
 
-urust expr ref_double_deref \<open> **rr \<close>
+urust_expr ref_double_deref \<open> **rr \<close>
 
-urust expr ref_deref_group \<open> *(r) \<close>
+urust_expr ref_deref_group \<open> *(r) \<close>
 
-urust expr ref_deref_block \<open> *{ r } \<close>
+urust_expr ref_deref_block \<open> *{ r } \<close>
 
-urust expr ref_deref_if \<open> *(if true { r } else { r }) \<close>
+urust_expr ref_deref_if \<open> *(if true { r } else { r }) \<close>
 
-urust expr ref_deref_postfix \<open> *ropt? \<close>
+urust_expr ref_deref_postfix \<open> *ropt? \<close>
 
-urust expr ref_deref_add \<open> *r + rhs \<close>
+urust_expr ref_deref_add \<open> *r + rhs \<close>
 
-urust expr ref_deref_mul \<open> *r * rhs \<close>
+urust_expr ref_deref_mul \<open> *r * rhs \<close>
 
-urust expr ref_deref_mul2 \<open> rhs * *r \<close>
+urust_expr ref_deref_mul2 \<open> rhs * *r \<close>
 
-urust expr ref_deref_band \<open> *r & rhs \<close>
+urust_expr ref_deref_band \<open> *r & rhs \<close>
 
-urust expr ref_not_grouped_deref \<open> !(*rb) \<close>
+urust_expr ref_not_grouped_deref \<open> !(*rb) \<close>
 
-urust expr ref_match_scrutinee
+urust_expr ref_match_scrutinee
   \<open> match_switch *r { 0 \<Rightarrow> true, _ \<Rightarrow> false } \<close>
 
 end
@@ -344,126 +344,126 @@ Binary operators lower to the frontend constants; value antiquotations pin word 
 
 subsection\<open> Arithmetic \<close>
 
-urust expr op_add \<open> \<llangle>1 :: 32 word\<rrangle> + \<llangle>2 :: 32 word\<rrangle> \<close>
+urust_expr op_add \<open> \<llangle>1 :: 32 word\<rrangle> + \<llangle>2 :: 32 word\<rrangle> \<close>
 
-urust expr op_add3 \<open> \<llangle>1 :: 32 word\<rrangle> + \<llangle>2 :: 32 word\<rrangle> + \<llangle>3 :: 32 word\<rrangle> \<close>
+urust_expr op_add3 \<open> \<llangle>1 :: 32 word\<rrangle> + \<llangle>2 :: 32 word\<rrangle> + \<llangle>3 :: 32 word\<rrangle> \<close>
 
-urust expr op_sub \<open> \<llangle>5 :: 32 word\<rrangle> - \<llangle>2 :: 32 word\<rrangle> \<close>
+urust_expr op_sub \<open> \<llangle>5 :: 32 word\<rrangle> - \<llangle>2 :: 32 word\<rrangle> \<close>
 
-urust expr op_mul \<open> \<llangle>2 :: 32 word\<rrangle> * \<llangle>3 :: 32 word\<rrangle> \<close>
+urust_expr op_mul \<open> \<llangle>2 :: 32 word\<rrangle> * \<llangle>3 :: 32 word\<rrangle> \<close>
 
-urust expr op_div \<open> \<llangle>6 :: 32 word\<rrangle> / \<llangle>2 :: 32 word\<rrangle> \<close>
+urust_expr op_div \<open> \<llangle>6 :: 32 word\<rrangle> / \<llangle>2 :: 32 word\<rrangle> \<close>
 
-urust expr op_mod \<open> \<llangle>7 :: 32 word\<rrangle> % \<llangle>3 :: 32 word\<rrangle> \<close>
+urust_expr op_mod \<open> \<llangle>7 :: 32 word\<rrangle> % \<llangle>3 :: 32 word\<rrangle> \<close>
 
 text\<open> Precedence: \<open>*\<close> binds tighter than \<open>+\<close>, so this parses as \<open>a + (b * c)\<close>. \<close>
-urust expr op_precmul \<open> \<llangle>1 :: 32 word\<rrangle> + \<llangle>2 :: 32 word\<rrangle> * \<llangle>3 :: 32 word\<rrangle> \<close>
+urust_expr op_precmul \<open> \<llangle>1 :: 32 word\<rrangle> + \<llangle>2 :: 32 word\<rrangle> * \<llangle>3 :: 32 word\<rrangle> \<close>
 
 subsection\<open> Bitwise and shifts (shift RHS is a \<open>64 word\<close>) \<close>
 
-urust expr op_band \<open> \<llangle>6 :: 32 word\<rrangle> & \<llangle>3 :: 32 word\<rrangle> \<close>
+urust_expr op_band \<open> \<llangle>6 :: 32 word\<rrangle> & \<llangle>3 :: 32 word\<rrangle> \<close>
 
-urust expr op_bor \<open> \<llangle>6 :: 32 word\<rrangle> | \<llangle>3 :: 32 word\<rrangle> \<close>
+urust_expr op_bor \<open> \<llangle>6 :: 32 word\<rrangle> | \<llangle>3 :: 32 word\<rrangle> \<close>
 
-urust expr op_bxor \<open> \<llangle>6 :: 32 word\<rrangle> ^ \<llangle>3 :: 32 word\<rrangle> \<close>
+urust_expr op_bxor \<open> \<llangle>6 :: 32 word\<rrangle> ^ \<llangle>3 :: 32 word\<rrangle> \<close>
 
-urust expr op_shl \<open> \<llangle>1 :: 32 word\<rrangle> << \<llangle>4 :: 64 word\<rrangle> \<close>
+urust_expr op_shl \<open> \<llangle>1 :: 32 word\<rrangle> << \<llangle>4 :: 64 word\<rrangle> \<close>
 
-urust expr op_shr \<open> \<llangle>16 :: 32 word\<rrangle> >> \<llangle>2 :: 64 word\<rrangle> \<close>
+urust_expr op_shr \<open> \<llangle>16 :: 32 word\<rrangle> >> \<llangle>2 :: 64 word\<rrangle> \<close>
 
 subsection\<open> Comparison (non-associative; word operands, boolean-expression result) \<close>
 
-urust expr op_lt \<open> \<llangle>1 :: 32 word\<rrangle> < \<llangle>2 :: 32 word\<rrangle> \<close>
+urust_expr op_lt \<open> \<llangle>1 :: 32 word\<rrangle> < \<llangle>2 :: 32 word\<rrangle> \<close>
 
-urust expr op_le \<open> \<llangle>1 :: 32 word\<rrangle> <= \<llangle>2 :: 32 word\<rrangle> \<close>
+urust_expr op_le \<open> \<llangle>1 :: 32 word\<rrangle> <= \<llangle>2 :: 32 word\<rrangle> \<close>
 
-urust expr op_gt \<open> \<llangle>2 :: 32 word\<rrangle> > \<llangle>1 :: 32 word\<rrangle> \<close>
+urust_expr op_gt \<open> \<llangle>2 :: 32 word\<rrangle> > \<llangle>1 :: 32 word\<rrangle> \<close>
 
-urust expr op_ge \<open> \<llangle>2 :: 32 word\<rrangle> >= \<llangle>1 :: 32 word\<rrangle> \<close>
+urust_expr op_ge \<open> \<llangle>2 :: 32 word\<rrangle> >= \<llangle>1 :: 32 word\<rrangle> \<close>
 
-urust expr op_eq \<open> \<llangle>1 :: 32 word\<rrangle> == \<llangle>1 :: 32 word\<rrangle> \<close>
+urust_expr op_eq \<open> \<llangle>1 :: 32 word\<rrangle> == \<llangle>1 :: 32 word\<rrangle> \<close>
 
-urust expr op_ne \<open> \<llangle>1 :: 32 word\<rrangle> != \<llangle>2 :: 32 word\<rrangle> \<close>
+urust_expr op_ne \<open> \<llangle>1 :: 32 word\<rrangle> != \<llangle>2 :: 32 word\<rrangle> \<close>
 
 subsection\<open> Boolean connectives and unary \<open>!\<close> (all four truth-table rows each; \<open>!!\<close> = \<open>!(!_)\<close>) \<close>
 
-urust expr op_and \<open> True && False \<close>
+urust_expr op_and \<open> True && False \<close>
 
-urust expr ext_and_tt \<open> True && True \<close>
+urust_expr ext_and_tt \<open> True && True \<close>
 
-urust expr ext_and_ft \<open> False && True \<close>
+urust_expr ext_and_ft \<open> False && True \<close>
 
-urust expr and_ff \<open> False && False \<close>
+urust_expr and_ff \<open> False && False \<close>
 
-urust expr op_or \<open> True || False \<close>
+urust_expr op_or \<open> True || False \<close>
 
-urust expr ext_or_tt \<open> True || True \<close>
+urust_expr ext_or_tt \<open> True || True \<close>
 
-urust expr or_ft \<open> False || True \<close>
+urust_expr or_ft \<open> False || True \<close>
 
-urust expr ext_or_ff \<open> False || False \<close>
+urust_expr ext_or_ff \<open> False || False \<close>
 
-urust expr op_not \<open> !True \<close>
+urust_expr op_not \<open> !True \<close>
 
-urust expr ext_notfalse \<open> !False \<close>
+urust_expr ext_notfalse \<open> !False \<close>
 
-urust expr op_notnot \<open> !!True \<close>
+urust_expr op_notnot \<open> !!True \<close>
 
 text\<open> Precedence: \<open>&&\<close> binds tighter than \<open>||\<close>; unary \<open>!\<close> over a parenthesized comparison. \<close>
-urust expr op_prec \<open> \<llangle>True\<rrangle> || \<llangle>True\<rrangle> && \<llangle>False\<rrangle> \<close>
+urust_expr op_prec \<open> \<llangle>True\<rrangle> || \<llangle>True\<rrangle> && \<llangle>False\<rrangle> \<close>
 
-urust expr op_mixed \<open> !(\<llangle>1 :: 32 word\<rrangle> == \<llangle>2 :: 32 word\<rrangle>) \<close>
+urust_expr op_mixed \<open> !(\<llangle>1 :: 32 word\<rrangle> == \<llangle>2 :: 32 word\<rrangle>) \<close>
 
 subsection\<open> Let-bound variables as operator operands (bound-var use in operator position) \<close>
 
-urust expr ext_let_add \<open> let a = \<llangle>1 :: 32 word\<rrangle>; let b = \<llangle>2 :: 32 word\<rrangle>; a + b \<close>
+urust_expr ext_let_add \<open> let a = \<llangle>1 :: 32 word\<rrangle>; let b = \<llangle>2 :: 32 word\<rrangle>; a + b \<close>
 
-urust expr ext_let_sub \<open> let a = \<llangle>5 :: 32 word\<rrangle>; let b = \<llangle>3 :: 32 word\<rrangle>; a - b \<close>
+urust_expr ext_let_sub \<open> let a = \<llangle>5 :: 32 word\<rrangle>; let b = \<llangle>3 :: 32 word\<rrangle>; a - b \<close>
 
-urust expr ext_let_mul \<open> let a = \<llangle>3 :: 32 word\<rrangle>; let b = \<llangle>4 :: 32 word\<rrangle>; a * b \<close>
+urust_expr ext_let_mul \<open> let a = \<llangle>3 :: 32 word\<rrangle>; let b = \<llangle>4 :: 32 word\<rrangle>; a * b \<close>
 
-urust expr lop_div \<open> let a = \<llangle>12 :: 32 word\<rrangle>; let b = \<llangle>4 :: 32 word\<rrangle>; a / b \<close>
+urust_expr lop_div \<open> let a = \<llangle>12 :: 32 word\<rrangle>; let b = \<llangle>4 :: 32 word\<rrangle>; a / b \<close>
 
-urust expr lop_mod \<open> let a = \<llangle>17 :: 32 word\<rrangle>; let b = \<llangle>5 :: 32 word\<rrangle>; a % b \<close>
+urust_expr lop_mod \<open> let a = \<llangle>17 :: 32 word\<rrangle>; let b = \<llangle>5 :: 32 word\<rrangle>; a % b \<close>
 
-urust expr ext_let_band \<open> let a = \<llangle>0xFF :: 32 word\<rrangle>; let b = \<llangle>0x0F :: 32 word\<rrangle>; a & b \<close>
+urust_expr ext_let_band \<open> let a = \<llangle>0xFF :: 32 word\<rrangle>; let b = \<llangle>0x0F :: 32 word\<rrangle>; a & b \<close>
 
-urust expr lop_bor \<open> let a = \<llangle>0xF0 :: 32 word\<rrangle>; let b = \<llangle>0x0F :: 32 word\<rrangle>; a | b \<close>
+urust_expr lop_bor \<open> let a = \<llangle>0xF0 :: 32 word\<rrangle>; let b = \<llangle>0x0F :: 32 word\<rrangle>; a | b \<close>
 
-urust expr lop_bxor \<open> let a = \<llangle>0xFF :: 32 word\<rrangle>; let b = \<llangle>0x0F :: 32 word\<rrangle>; a ^ b \<close>
+urust_expr lop_bxor \<open> let a = \<llangle>0xFF :: 32 word\<rrangle>; let b = \<llangle>0x0F :: 32 word\<rrangle>; a ^ b \<close>
 
-urust expr ext_let_shl \<open> let a = \<llangle>1 :: 32 word\<rrangle>; a << \<llangle>4 :: 64 word\<rrangle> \<close>
+urust_expr ext_let_shl \<open> let a = \<llangle>1 :: 32 word\<rrangle>; a << \<llangle>4 :: 64 word\<rrangle> \<close>
 
-urust expr lop_shr \<open> let a = \<llangle>16 :: 32 word\<rrangle>; a >> \<llangle>2 :: 64 word\<rrangle> \<close>
+urust_expr lop_shr \<open> let a = \<llangle>16 :: 32 word\<rrangle>; a >> \<llangle>2 :: 64 word\<rrangle> \<close>
 
-urust expr ext_let_not \<open> let a = \<llangle>0x00 :: 8 word\<rrangle>; !a \<close>
+urust_expr ext_let_not \<open> let a = \<llangle>0x00 :: 8 word\<rrangle>; !a \<close>
 
-urust expr ext_let_cmp \<open> let a = \<llangle>1 :: 32 word\<rrangle>; let b = \<llangle>2 :: 32 word\<rrangle>; a < b \<close>
+urust_expr ext_let_cmp \<open> let a = \<llangle>1 :: 32 word\<rrangle>; let b = \<llangle>2 :: 32 word\<rrangle>; a < b \<close>
 
 subsection\<open> Context-fixed variables as operator operands \<close>
 context fixes m n :: \<open>nat\<close> and x y :: \<open>64 word\<close> and w :: \<open>32 word\<close>
 begin
 
-urust expr ext_cmp_mn \<open> m == n \<close>
+urust_expr ext_cmp_mn \<open> m == n \<close>
 
-urust expr ext_cmp_ne \<open> m != n \<close>
+urust_expr ext_cmp_ne \<open> m != n \<close>
 
-urust expr ext_cmp_notmn \<open> !(m == n) \<close>
+urust_expr ext_cmp_notmn \<open> !(m == n) \<close>
 
-urust expr ord_lt \<open> x < y \<close>
+urust_expr ord_lt \<open> x < y \<close>
 
-urust expr ord_le \<open> x <= y \<close>
+urust_expr ord_le \<open> x <= y \<close>
 
-urust expr ord_gt \<open> x > y \<close>
+urust_expr ord_gt \<open> x > y \<close>
 
-urust expr ord_ge \<open> x >= y \<close>
+urust_expr ord_ge \<open> x >= y \<close>
 
-urust expr ext_cmp_w0 \<open> w > \<llangle>0 :: 32 word\<rrangle> \<close>
+urust_expr ext_cmp_w0 \<open> w > \<llangle>0 :: 32 word\<rrangle> \<close>
 
-urust expr ext_not_add \<open> !x + y \<close>
+urust_expr ext_not_add \<open> !x + y \<close>
   \<comment>\<open> (!x) + y : prefix ! tighter than + \<close>
 
-urust expr ext_not_nested \<open> !(!x == x^y) \<close>
+urust_expr ext_not_nested \<open> !(!x == x^y) \<close>
 end
 
 subsection\<open> Precedence and associativity \<close>
@@ -474,38 +474,38 @@ Rows cover every adjacent frontend precedence tier, from \<open>||\<close> (42) 
 non-associative comparisons.
 \<close>
 
-urust expr prec_sub_assoc \<open> \<llangle>9 :: 32 word\<rrangle> - \<llangle>3 :: 32 word\<rrangle> - \<llangle>2 :: 32 word\<rrangle> \<close>
+urust_expr prec_sub_assoc \<open> \<llangle>9 :: 32 word\<rrangle> - \<llangle>3 :: 32 word\<rrangle> - \<llangle>2 :: 32 word\<rrangle> \<close>
 
-urust expr prec_div_assoc \<open> \<llangle>12 :: 32 word\<rrangle> / \<llangle>3 :: 32 word\<rrangle> / \<llangle>2 :: 32 word\<rrangle> \<close>
+urust_expr prec_div_assoc \<open> \<llangle>12 :: 32 word\<rrangle> / \<llangle>3 :: 32 word\<rrangle> / \<llangle>2 :: 32 word\<rrangle> \<close>
 
-urust expr prec_shl_assoc \<open> \<llangle>1 :: 32 word\<rrangle> << \<llangle>1 :: 64 word\<rrangle> << \<llangle>1 :: 64 word\<rrangle> \<close>
+urust_expr prec_shl_assoc \<open> \<llangle>1 :: 32 word\<rrangle> << \<llangle>1 :: 64 word\<rrangle> << \<llangle>1 :: 64 word\<rrangle> \<close>
 
-urust expr prec_and_assoc \<open> \<llangle>True\<rrangle> && \<llangle>True\<rrangle> && \<llangle>False\<rrangle> \<close>
+urust_expr prec_and_assoc \<open> \<llangle>True\<rrangle> && \<llangle>True\<rrangle> && \<llangle>False\<rrangle> \<close>
 
-urust expr prec_or_assoc \<open> \<llangle>True\<rrangle> || \<llangle>True\<rrangle> || \<llangle>False\<rrangle> \<close>
+urust_expr prec_or_assoc \<open> \<llangle>True\<rrangle> || \<llangle>True\<rrangle> || \<llangle>False\<rrangle> \<close>
 
-urust expr prec_add_shl \<open> \<llangle>1 :: 32 word\<rrangle> + \<llangle>2 :: 32 word\<rrangle> << \<llangle>1 :: 64 word\<rrangle> \<close>
+urust_expr prec_add_shl \<open> \<llangle>1 :: 32 word\<rrangle> + \<llangle>2 :: 32 word\<rrangle> << \<llangle>1 :: 64 word\<rrangle> \<close>
   \<comment>\<open> (a + b) << c : + (49) tighter than << (48) \<close>
 
-urust expr prec_shl_and \<open> \<llangle>1 :: 32 word\<rrangle> & \<llangle>2 :: 32 word\<rrangle> << \<llangle>1 :: 64 word\<rrangle> \<close>
+urust_expr prec_shl_and \<open> \<llangle>1 :: 32 word\<rrangle> & \<llangle>2 :: 32 word\<rrangle> << \<llangle>1 :: 64 word\<rrangle> \<close>
   \<comment>\<open> a & (b << c) : << (48) tighter than & (47) \<close>
 
-urust expr prec_and_xor \<open> \<llangle>1 :: 32 word\<rrangle> ^ \<llangle>2 :: 32 word\<rrangle> & \<llangle>3 :: 32 word\<rrangle> \<close>
+urust_expr prec_and_xor \<open> \<llangle>1 :: 32 word\<rrangle> ^ \<llangle>2 :: 32 word\<rrangle> & \<llangle>3 :: 32 word\<rrangle> \<close>
   \<comment>\<open> a ^ (b & c) : & (47) tighter than ^ (46) \<close>
 
-urust expr prec_xor_or \<open> \<llangle>1 :: 32 word\<rrangle> | \<llangle>2 :: 32 word\<rrangle> ^ \<llangle>3 :: 32 word\<rrangle> \<close>
+urust_expr prec_xor_or \<open> \<llangle>1 :: 32 word\<rrangle> | \<llangle>2 :: 32 word\<rrangle> ^ \<llangle>3 :: 32 word\<rrangle> \<close>
   \<comment>\<open> a | (b ^ c) : ^ (46) tighter than | (45) \<close>
 
-urust expr prec_or_cmp \<open> \<llangle>1 :: 32 word\<rrangle> | \<llangle>2 :: 32 word\<rrangle> == \<llangle>3 :: 32 word\<rrangle> \<close>
+urust_expr prec_or_cmp \<open> \<llangle>1 :: 32 word\<rrangle> | \<llangle>2 :: 32 word\<rrangle> == \<llangle>3 :: 32 word\<rrangle> \<close>
   \<comment>\<open> (a | b) == c : | (45) tighter than == (44) \<close>
 
-urust expr prec_cmp_and \<open> \<llangle>1 :: 32 word\<rrangle> == \<llangle>2 :: 32 word\<rrangle> && \<llangle>True\<rrangle> \<close>
+urust_expr prec_cmp_and \<open> \<llangle>1 :: 32 word\<rrangle> == \<llangle>2 :: 32 word\<rrangle> && \<llangle>True\<rrangle> \<close>
   \<comment>\<open> (a == b) && c : == (44) tighter than && (43) \<close>
 
-urust expr prec_not_and \<open> !\<llangle>True\<rrangle> && \<llangle>False\<rrangle> \<close>
+urust_expr prec_not_and \<open> !\<llangle>True\<rrangle> && \<llangle>False\<rrangle> \<close>
   \<comment>\<open> (!a) && b : prefix ! tighter than && \<close>
 
-urust expr prec_not_cmp \<open> !\<llangle>True\<rrangle> == \<llangle>False\<rrangle> \<close>
+urust_expr prec_not_cmp \<open> !\<llangle>True\<rrangle> == \<llangle>False\<rrangle> \<close>
   \<comment>\<open> (!a) == b : prefix ! tighter than == \<close>
 
 
@@ -517,25 +517,25 @@ erase without a \<open>scoped\<close> wrapper. Their statements sequence with se
 and blocks may be operator operands.
 \<close>
 
-urust expr blk_lit \<open> { \<llangle>1 :: nat\<rrangle> } \<close>
+urust_expr blk_lit \<open> { \<llangle>1 :: nat\<rrangle> } \<close>
 
-urust expr blk_seq \<open> { (); () } \<close>
+urust_expr blk_seq \<open> { (); () } \<close>
 
-urust expr blk_let \<open> { let x = \<llangle>5 :: nat\<rrangle>; x } \<close>
+urust_expr blk_let \<open> { let x = \<llangle>5 :: nat\<rrangle>; x } \<close>
 
-urust expr ext_blk_bare \<open> { 42 } \<close>
+urust_expr ext_blk_bare \<open> { 42 } \<close>
 
-urust expr ext_blk_nest \<open> {{ 42 }} \<close>
+urust_expr ext_blk_nest \<open> {{ 42 }} \<close>
 
-urust expr ext_blk_deep \<open> {{{{{ \<llangle>1 :: nat\<rrangle> }}}}} \<close>
+urust_expr ext_blk_deep \<open> {{{{{ \<llangle>1 :: nat\<rrangle> }}}}} \<close>
 
-urust expr ext_blk_op \<open> { \<llangle>1 :: 32 word\<rrangle> + \<llangle>2 :: 32 word\<rrangle> } \<close>
+urust_expr ext_blk_op \<open> { \<llangle>1 :: 32 word\<rrangle> + \<llangle>2 :: 32 word\<rrangle> } \<close>
 
-urust expr ext_blk_operand_l \<open> { \<llangle>1 :: 32 word\<rrangle> } + \<llangle>2 :: 32 word\<rrangle> \<close>
+urust_expr ext_blk_operand_l \<open> { \<llangle>1 :: 32 word\<rrangle> } + \<llangle>2 :: 32 word\<rrangle> \<close>
 
-urust expr ext_blk_operand_r \<open> \<llangle>1 :: 32 word\<rrangle> + { \<llangle>2 :: 32 word\<rrangle> } \<close>
+urust_expr ext_blk_operand_r \<open> \<llangle>1 :: 32 word\<rrangle> + { \<llangle>2 :: 32 word\<rrangle> } \<close>
 
-urust expr ext_not_blk \<open> !{ \<llangle>True\<rrangle> } \<close>
+urust_expr ext_not_blk \<open> !{ \<llangle>True\<rrangle> } \<close>
 
 
 section\<open> Unsafe blocks \<close>
@@ -545,13 +545,13 @@ Unsafe blocks are a distinct block-like grammar category but reuse ordinary bloc
 lowering because the frontend treats \<open>unsafe\<close> as a semantic no-op.
 \<close>
 
-urust expr unsafe_operand
+urust_expr unsafe_operand
   \<open> unsafe { \<llangle>1 :: 32 word\<rrangle> } + \<llangle>2 :: 32 word\<rrangle> \<close>
 
-urust expr unsafe_nested
+urust_expr unsafe_nested
   \<open> unsafe { unsafe { \<llangle>1 :: nat\<rrangle> } } \<close>
 
-urust expr unsafe_branch_body
+urust_expr unsafe_branch_body
   \<open>
     if \<llangle>True\<rrangle> {
       unsafe { \<llangle>1 :: nat\<rrangle> }
@@ -560,7 +560,7 @@ urust expr unsafe_branch_body
     }
   \<close>
 
-urust expr unsafe_statement
+urust_expr unsafe_statement
   \<open> unsafe { () } () \<close>
 
 
@@ -572,37 +572,37 @@ Two-armed \<open>if\<close> lowers to \<open>two_armed_conditional\<close>. A mi
 \<open>if\<close> (SE:364-365; SYN:661-662).
 \<close>
 
-urust expr if_two \<open> if \<llangle>True\<rrangle> { \<llangle>1 :: nat\<rrangle> } else { \<llangle>2 :: nat\<rrangle> } \<close>
+urust_expr if_two \<open> if \<llangle>True\<rrangle> { \<llangle>1 :: nat\<rrangle> } else { \<llangle>2 :: nat\<rrangle> } \<close>
 
-urust expr if_one \<open> if \<llangle>True\<rrangle> { () } \<close>
+urust_expr if_one \<open> if \<llangle>True\<rrangle> { () } \<close>
 
-urust expr ext_if_one_bare \<open> if True { () } \<close>
+urust_expr ext_if_one_bare \<open> if True { () } \<close>
 
-urust expr if_elif \<open> if \<llangle>True\<rrangle> { \<llangle>1 :: nat\<rrangle> } else if \<llangle>False\<rrangle> { \<llangle>2 :: nat\<rrangle> } else { \<llangle>3 :: nat\<rrangle> } \<close>
+urust_expr if_elif \<open> if \<llangle>True\<rrangle> { \<llangle>1 :: nat\<rrangle> } else if \<llangle>False\<rrangle> { \<llangle>2 :: nat\<rrangle> } else { \<llangle>3 :: nat\<rrangle> } \<close>
 
-urust expr if_elif2 \<open> if \<llangle>True\<rrangle> { () } else if \<llangle>False\<rrangle> { () } \<close>  \<comment>\<open> else-if, no final else (unit arms) \<close>
+urust_expr if_elif2 \<open> if \<llangle>True\<rrangle> { () } else if \<llangle>False\<rrangle> { () } \<close>  \<comment>\<open> else-if, no final else (unit arms) \<close>
 
-urust expr ext_elif_word \<open> if False { \<llangle>0 :: 32 word\<rrangle> } else if True { \<llangle>1 :: 32 word\<rrangle> } else { \<llangle>2 :: 32 word\<rrangle> } \<close>
+urust_expr ext_elif_word \<open> if False { \<llangle>0 :: 32 word\<rrangle> } else if True { \<llangle>1 :: 32 word\<rrangle> } else { \<llangle>2 :: 32 word\<rrangle> } \<close>
 
-urust expr ext_elif3 \<open> if False { \<llangle>0 :: 32 word\<rrangle> } else if False { \<llangle>1 :: 32 word\<rrangle> } else if True { \<llangle>2 :: 32 word\<rrangle> } else { \<llangle>3 :: 32 word\<rrangle> } \<close>
+urust_expr ext_elif3 \<open> if False { \<llangle>0 :: 32 word\<rrangle> } else if False { \<llangle>1 :: 32 word\<rrangle> } else if True { \<llangle>2 :: 32 word\<rrangle> } else { \<llangle>3 :: 32 word\<rrangle> } \<close>
 
 text\<open>
 Rows cover compound conditions, nested branches, deep blocks, let RHSs, and sequencing.
 \<close>
 
-urust expr if_cmp \<open> if \<llangle>1 :: 32 word\<rrangle> == \<llangle>2 :: 32 word\<rrangle> { () } else { () } \<close>
+urust_expr if_cmp \<open> if \<llangle>1 :: 32 word\<rrangle> == \<llangle>2 :: 32 word\<rrangle> { () } else { () } \<close>
 
-urust expr if_nest \<open> if \<llangle>True\<rrangle> { if \<llangle>False\<rrangle> { () } else { () } } else { () } \<close>
+urust_expr if_nest \<open> if \<llangle>True\<rrangle> { if \<llangle>False\<rrangle> { () } else { () } } else { () } \<close>
 
-urust expr ext_if_par_cond \<open> if (\<llangle>True\<rrangle> || \<llangle>True\<rrangle> && \<llangle>False\<rrangle>) { \<epsilon>\<open>\<up>0\<close> } else { \<epsilon>\<open>\<up>0\<close> } \<close>
+urust_expr ext_if_par_cond \<open> if (\<llangle>True\<rrangle> || \<llangle>True\<rrangle> && \<llangle>False\<rrangle>) { \<epsilon>\<open>\<up>0\<close> } else { \<epsilon>\<open>\<up>0\<close> } \<close>
 
-urust expr ext_if_deepblock \<open> if True || !True { {{{{{{{{{{ 42 }}}}}}}}}} } else { 0 } \<close>
+urust_expr ext_if_deepblock \<open> if True || !True { {{{{{{{{{{ 42 }}}}}}}}}} } else { 0 } \<close>
 
-urust expr ext_if_cond \<open> if if \<llangle>True\<rrangle> { \<llangle>True\<rrangle> } else { \<llangle>False\<rrangle> } { () } else { () } \<close>  \<comment>\<open> if-expr as condition \<close>
+urust_expr ext_if_cond \<open> if if \<llangle>True\<rrangle> { \<llangle>True\<rrangle> } else { \<llangle>False\<rrangle> } { () } else { () } \<close>  \<comment>\<open> if-expr as condition \<close>
 
-urust expr ext_let_if \<open> let x = if \<llangle>True\<rrangle> { \<llangle>1 :: nat\<rrangle> } else { \<llangle>2 :: nat\<rrangle> }; x \<close>
+urust_expr ext_let_if \<open> let x = if \<llangle>True\<rrangle> { \<llangle>1 :: nat\<rrangle> } else { \<llangle>2 :: nat\<rrangle> }; x \<close>
 
-urust expr ext_seq_if \<open> { if \<llangle>True\<rrangle> { () } else { () }; () } \<close>
+urust_expr ext_seq_if \<open> { if \<llangle>True\<rrangle> { () } else { () }; () } \<close>
 
 
 section\<open> Function calls (Corpus "Functions", "Option and Result") \<close>
@@ -630,17 +630,17 @@ text\<open>
 For unregistered global callees, parser and frontend fallbacks resolve the same
 \<open>Const\<close>. Rows cover arities 0 through 5 and 14.
 \<close>
-urust expr call0 \<open> cf0() \<close>
+urust_expr call0 \<open> cf0() \<close>
 
-urust expr call1 \<open> cf1(\<llangle>1 :: 64 word\<rrangle>) \<close>
+urust_expr call1 \<open> cf1(\<llangle>1 :: 64 word\<rrangle>) \<close>
 
-urust expr call2 \<open> cf2(\<llangle>1 :: 64 word\<rrangle>, \<llangle>2 :: 64 word\<rrangle>) \<close>
+urust_expr call2 \<open> cf2(\<llangle>1 :: 64 word\<rrangle>, \<llangle>2 :: 64 word\<rrangle>) \<close>
 
-urust expr call3 \<open> cf3(\<llangle>1 :: 64 word\<rrangle>, \<llangle>2 :: 64 word\<rrangle>, \<llangle>3 :: 64 word\<rrangle>) \<close>
+urust_expr call3 \<open> cf3(\<llangle>1 :: 64 word\<rrangle>, \<llangle>2 :: 64 word\<rrangle>, \<llangle>3 :: 64 word\<rrangle>) \<close>
 
-urust expr call4 \<open> cf4(\<llangle>1 :: 64 word\<rrangle>, \<llangle>2 :: 64 word\<rrangle>, \<llangle>3 :: 64 word\<rrangle>, \<llangle>4 :: 64 word\<rrangle>) \<close>
+urust_expr call4 \<open> cf4(\<llangle>1 :: 64 word\<rrangle>, \<llangle>2 :: 64 word\<rrangle>, \<llangle>3 :: 64 word\<rrangle>, \<llangle>4 :: 64 word\<rrangle>) \<close>
 
-urust expr call5 \<open> cf5(\<llangle>1 :: 64 word\<rrangle>, \<llangle>2 :: 64 word\<rrangle>, \<llangle>3 :: 64 word\<rrangle>, \<llangle>4 :: 64 word\<rrangle>, \<llangle>5 :: 64 word\<rrangle>) \<close>
+urust_expr call5 \<open> cf5(\<llangle>1 :: 64 word\<rrangle>, \<llangle>2 :: 64 word\<rrangle>, \<llangle>3 :: 64 word\<rrangle>, \<llangle>4 :: 64 word\<rrangle>, \<llangle>5 :: 64 word\<rrangle>) \<close>
 
 context
   fixes cf14 :: \<open>
@@ -648,18 +648,18 @@ context
     nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow>
     (unit, nat, unit, unit, unit) function_body \<close>
 begin
-urust expr call14 \<open> cf14(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13) \<close>
+urust_expr call14 \<open> cf14(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13) \<close>
 end
 
 text\<open> Nested call \<open>f(g(c), b)\<close>: the inner call is an ordinary argument expression. \<close>
-urust expr call_nested \<open> cf2(cf1(\<llangle>1 :: 64 word\<rrangle>), \<llangle>2 :: 64 word\<rrangle>) \<close>
+urust_expr call_nested \<open> cf2(cf1(\<llangle>1 :: 64 word\<rrangle>), \<llangle>2 :: 64 word\<rrangle>) \<close>
 
 text\<open>
 Registered callees use NFunction dispatch. Rows cover a local notation and the
 \<open>Some\<close>, \<open>Ok\<close>, and \<open>Err\<close> call notations.
 \<close>
 micro_rust_notation (call) cf1 ("regCall")
-urust expr call_reg \<open> regCall(\<llangle>3 :: 64 word\<rrangle>) \<close>
+urust_expr call_reg \<open> regCall(\<llangle>3 :: 64 word\<rrangle>) \<close>
 
 subsection\<open> Registered paths \<close>
 
@@ -689,30 +689,30 @@ micro_rust_notation (literal) path_optional_value ("Path::Optional")
 micro_rust_notation (literal) path_seed ("Path::Seed")
 micro_rust_notation (call) cf1 ("plus2::lifted")
 
-urust expr path_registered_literal
+urust_expr path_registered_literal
   \<open> Color :: Red \<close>
 
-urust expr path_registered_call
+urust_expr path_registered_call
   \<open> plus2::
        lifted(\<llangle>3 :: 64 word\<rrangle>) \<close>
 
-urust expr path_separator_newlines
+urust_expr path_separator_newlines
   \<open>
     Color
       ::
     Red
   \<close>
 
-urust expr path_followed_by_field
+urust_expr path_followed_by_field
   \<open> Path::Record.path_record_field \<close>
 
-urust expr path_followed_by_index
+urust_expr path_followed_by_index
   \<open> Path::Values[0_usize] \<close>
 
-urust expr path_followed_by_propagation
+urust_expr path_followed_by_propagation
   \<open> Path::Optional? \<close>
 
-urust expr path_followed_by_method
+urust_expr path_followed_by_method
   \<open> Path::Seed.cf1() \<close>
 
 subsection\<open> Path patterns \<close>
@@ -738,7 +738,7 @@ micro_rust_notation (literal) path_pattern_fixture.PathOther ("Path::Other")
 micro_rust_notation (call) path_other_call ("Path::Other")
 micro_rust_notation (literal) path_pattern_fixture.PathNone ("Path::None")
 
-urust expr path_constructor_pattern
+urust_expr path_constructor_pattern
   \<open>
     match_case Path::Some(\<llangle>3 :: nat\<rrangle>) {
       Path::Some(value) \<Rightarrow> value,
@@ -746,7 +746,7 @@ urust expr path_constructor_pattern
     }
   \<close>
 
-urust expr path_grouped_constructor_pattern
+urust_expr path_grouped_constructor_pattern
   \<open>
     match_case Path::Some(\<llangle>3 :: nat\<rrangle>) {
       (Path::Some(value)) \<Rightarrow> value,
@@ -754,7 +754,7 @@ urust expr path_grouped_constructor_pattern
     }
   \<close>
 
-urust expr path_constructor_or_pattern
+urust_expr path_constructor_or_pattern
   \<open>
     match_case Path::Some(\<llangle>3 :: nat\<rrangle>) {
       Path::Some(value) | Path::Other(value) \<Rightarrow> value,
@@ -762,7 +762,7 @@ urust expr path_constructor_or_pattern
     }
   \<close>
 
-urust expr path_switch_key
+urust_expr path_switch_key
   \<open>
     match_switch Color::Red {
       Color::Red \<Rightarrow> 1,
@@ -801,42 +801,42 @@ context
   fixes tf_method ::
     \<open>nat \<Rightarrow> nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
 begin
-urust expr turbofish_zero_arguments
+urust_expr turbofish_zero_arguments
   \<open> tf0::<5>() \<close>
 
-urust expr turbofish_multiple_parameters
+urust_expr turbofish_multiple_parameters
   \<open> tf2::<5, True>() \<close>
 
-urust expr turbofish_bound_parameter
+urust_expr turbofish_bound_parameter
   \<open> let N = \<llangle>7 :: nat\<rrangle>; tf0::<N>() \<close>
 
-urust expr turbofish_method
+urust_expr turbofish_method
   \<open> receiver.tf_method::<5>() \<close>
 
 end
 
 subsubsection\<open> Restricted arithmetic payloads \<close>
 
-urust expr turbofish_arithmetic_payload
+urust_expr turbofish_arithmetic_payload
   \<open>
     turbofish_ignore_one::<1 + 2>(
       \<llangle>3 :: 64 word\<rrangle>
     )
   \<close>
 
-urust expr turbofish_hex_payload
+urust_expr turbofish_hex_payload
   \<open> turbofish_ignore_one::<0x2a>(\<llangle>3 :: 64 word\<rrangle>) \<close>
 
 context
   fixes a b c :: int
 begin
-urust expr turbofish_add
+urust_expr turbofish_add
   \<open> turbofish_int_one::<a + b>(\<llangle>3 :: 64 word\<rrangle>) \<close>
 
-urust expr turbofish_additive_chain
+urust_expr turbofish_additive_chain
   \<open> turbofish_int_one::<a + b + c>(\<llangle>3 :: 64 word\<rrangle>) \<close>
 
-urust expr turbofish_parenthesized_addition
+urust_expr turbofish_parenthesized_addition
   \<open> turbofish_int_one::<(a + b) + c>(\<llangle>3 :: 64 word\<rrangle>) \<close>
 end
 
@@ -845,14 +845,14 @@ subsubsection\<open> Scope and expression composition \<close>
 context
   fixes context_parameter :: nat
 begin
-urust expr turbofish_context_parameter
+urust_expr turbofish_context_parameter
   \<open>
     turbofish_ignore_one::<context_parameter>(
       \<llangle>3 :: 64 word\<rrangle>
     )
   \<close>
 
-urust expr turbofish_shadowed_context_parameter
+urust_expr turbofish_shadowed_context_parameter
   \<open>
     let context_parameter = \<llangle>7 :: nat\<rrangle>;
     turbofish_ignore_one::<context_parameter>(
@@ -861,7 +861,7 @@ urust expr turbofish_shadowed_context_parameter
   \<close>
 end
 
-urust expr turbofish_closure_formal
+urust_expr turbofish_closure_formal
   \<open>
     |parameter|
       turbofish_ignore_one::<parameter>(
@@ -869,7 +869,7 @@ urust expr turbofish_closure_formal
       )
   \<close>
 
-urust expr turbofish_nested_call
+urust_expr turbofish_nested_call
   \<open>
     cf1(
       turbofish_ignore_one::<0 + 1>(
@@ -878,7 +878,7 @@ urust expr turbofish_nested_call
     )
   \<close>
 
-urust expr turbofish_array_elements
+urust_expr turbofish_array_elements
   \<open>
     [
       turbofish_ignore_one::<0>(\<llangle>3 :: 64 word\<rrangle>),
@@ -886,7 +886,7 @@ urust expr turbofish_array_elements
     ]
   \<close>
 
-urust expr turbofish_branch_and_operator
+urust_expr turbofish_branch_and_operator
   \<open>
     if true {
       turbofish_ignore_one::<0>(\<llangle>3 :: 64 word\<rrangle>) +
@@ -911,14 +911,14 @@ context
     (unit, nat, unit, unit, unit) function_body\<close>
   fixes receiver14 :: nat
 begin
-urust expr turbofish_call14
+urust_expr turbofish_call14
   \<open>
     generic_call14::<99>(
       0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13
     )
   \<close>
 
-urust expr turbofish_method13
+urust_expr turbofish_method13
   \<open>
     receiver14.generic_method14::<99>(
       1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13
@@ -933,13 +933,13 @@ definition generic_cf1 ::
     (unit, 64 word, unit, unit, unit) function_body\<close>
   where \<open> generic_cf1 _ \<equiv> cf1 \<close>
 micro_rust_notation (call) generic_cf1 ("Module::lifted")
-urust expr turbofish_qualified_base
+urust_expr turbofish_qualified_base
   \<open> Module::lifted::<64>(\<llangle>3 :: 64 word\<rrangle>) \<close>
 
 micro_rust_notation (call) generic_cf1 ("Exact::lifted")
 urust_notation (call) cf1 ("Exact::<N>::lifted")
 
-urust expr turbofish_exact_registration_wins
+urust_expr turbofish_exact_registration_wins
   \<open>
     Exact::<N>::lifted(
       \<llangle>3 :: 64 word\<rrangle>
@@ -948,16 +948,16 @@ urust expr turbofish_exact_registration_wins
 
 subsection\<open> Constructors and lexical callees \<close>
 
-urust expr call_some \<open> Some(\<llangle>42 :: nat\<rrangle>) \<close>
+urust_expr call_some \<open> Some(\<llangle>42 :: nat\<rrangle>) \<close>
 
-urust expr call_ok \<open> Ok(\<llangle>42 :: nat\<rrangle>) \<close>
+urust_expr call_ok \<open> Ok(\<llangle>42 :: nat\<rrangle>) \<close>
 
-urust expr call_err \<open> Err(\<llangle>42 :: nat\<rrangle>) \<close>
+urust_expr call_err \<open> Err(\<llangle>42 :: nat\<rrangle>) \<close>
 
 text\<open>
 A let-bound callee uses lexical scope without dispatch or a \<open>literal\<close> wrapper.
 \<close>
-urust expr call_letbound \<open> let h = \<llangle>cf1\<rrangle>; h(\<llangle>4 :: 64 word\<rrangle>) \<close>
+urust_expr call_letbound \<open> let h = \<llangle>cf1\<rrangle>; h(\<llangle>4 :: 64 word\<rrangle>) \<close>
 
 text\<open>
 Context-fixed, function-typed callees remain \<open>Free\<close>. Rows cover word, unit,
@@ -965,16 +965,16 @@ and boolean arguments.
 \<close>
 context fixes g :: \<open>64 word \<Rightarrow> (unit, 64 word, unit, unit, unit) function_body\<close>
 begin
-urust expr call_ctx \<open> g(\<llangle>5 :: 64 word\<rrangle>) \<close>
+urust_expr call_ctx \<open> g(\<llangle>5 :: 64 word\<rrangle>) \<close>
 end
 
 context
   fixes uf :: \<open>unit \<Rightarrow> (unit, unit, unit, unit, unit) function_body\<close>
   fixes ug :: \<open>unit \<Rightarrow> bool \<Rightarrow> (unit, unit, unit, unit, unit) function_body\<close>
 begin
-urust expr call_funit \<open> uf(()) \<close>
+urust_expr call_funit \<open> uf(()) \<close>
 
-urust expr call_gunitbool \<open> ug((), True) \<close>
+urust_expr call_gunitbool \<open> ug((), True) \<close>
 end
 
 
@@ -986,9 +986,9 @@ Method syntax prepends the receiver to a plain NFunction call (SE:380-381,
 NField/lens postfix added below (D37).
 \<close>
 
-urust expr mcall0 \<open> \<llangle>5 :: 64 word\<rrangle>.cf1() \<close>
+urust_expr mcall0 \<open> \<llangle>5 :: 64 word\<rrangle>.cf1() \<close>
 
-urust expr mcall1 \<open> \<llangle>1 :: 64 word\<rrangle>.cf2(\<llangle>2 :: 64 word\<rrangle>) \<close>
+urust_expr mcall1 \<open> \<llangle>1 :: 64 word\<rrangle>.cf2(\<llangle>2 :: 64 word\<rrangle>) \<close>
 
 text\<open>
 The inclusive \<open>funcall14\<close> limit permits 13 explicit method arguments because
@@ -1001,22 +1001,22 @@ context
     nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow>
     (unit, nat, unit, unit, unit) function_body \<close>
 begin
-urust expr mcall13 \<open> receiver.m14(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13) \<close>
+urust_expr mcall13 \<open> receiver.m14(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13) \<close>
 end
 
 text\<open> Rows cover call-result receivers, method chains, and operator precedence. \<close>
-urust expr mcall_on_call \<open> cf1(\<llangle>1 :: 64 word\<rrangle>).cf1() \<close>
+urust_expr mcall_on_call \<open> cf1(\<llangle>1 :: 64 word\<rrangle>).cf1() \<close>
 
-urust expr mcall_chain \<open> \<llangle>5 :: 64 word\<rrangle>.cf1().cf1() \<close>
+urust_expr mcall_chain \<open> \<llangle>5 :: 64 word\<rrangle>.cf1().cf1() \<close>
 
-urust expr mcall_operand \<open> \<llangle>1 :: 64 word\<rrangle>.cf1() + \<llangle>2 :: 64 word\<rrangle> \<close>
+urust_expr mcall_operand \<open> \<llangle>1 :: 64 word\<rrangle>.cf1() + \<llangle>2 :: 64 word\<rrangle> \<close>
 
 text\<open> Context-fixed methods are tested alone and in an equality condition. \<close>
 context fixes m n :: \<open>nat\<close> and h :: \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
 begin
-urust expr mcall_ctx \<open> m.h() \<close>
+urust_expr mcall_ctx \<open> m.h() \<close>
 
-urust expr mcall_if \<open> if m.h() == n { m } else { n } \<close>
+urust_expr mcall_if \<open> if m.h() == n { m } else { n } \<close>
 end
 
 
@@ -1030,41 +1030,41 @@ arity: repeated names are legal, and each later occurrence shadows its predecess
 
 subsection\<open> Formal lists, body forms, and shadowing \<close>
 
-urust expr closure_zero_formals
+urust_expr closure_zero_formals
   \<open> || \<llangle>1 :: nat\<rrangle> \<close>
 
-urust expr closure_one_formal
+urust_expr closure_one_formal
   \<open> |x| \<llangle>x :: nat\<rrangle> \<close>
 
-urust expr closure_two_formals
+urust_expr closure_two_formals
   \<open> |x, y| \<llangle>(x :: nat) + y\<rrangle> \<close>
 
-urust expr closure_duplicate_formals
+urust_expr closure_duplicate_formals
   \<open> |x, x| \<llangle>x :: bool\<rrangle> \<close>
 
-urust expr closure_triplicate_formals
+urust_expr closure_triplicate_formals
   \<open> |x, x, x| \<llangle>x :: 32 word\<rrangle> \<close>
 
-urust expr closure_heterogeneous_formals
+urust_expr closure_heterogeneous_formals
   \<open> |number, flag, word| \<llangle>(number :: nat, flag :: bool, word :: 32 word)\<rrangle> \<close>
 
-urust expr closure_sixteen_formals
+urust_expr closure_sixteen_formals
   \<open>
     |p01, p02, p03, p04, p05, p06, p07, p08,
      p09, p10, p11, p12, p13, p14, p15, p16|
       \<llangle>p16 :: nat\<rrangle>
   \<close>
 
-urust expr closure_expression_body
+urust_expr closure_expression_body
   \<open> |x| x + \<llangle>1 :: 32 word\<rrangle> \<close>
 
-urust expr closure_block_body
+urust_expr closure_block_body
   \<open> |x| { let y = x; \<llangle>y :: nat\<rrangle> } \<close>
 
-urust expr closure_unsafe_block_body
+urust_expr closure_unsafe_block_body
   \<open> |x| unsafe { \<llangle>x :: nat\<rrangle> } \<close>
 
-urust expr closure_conditional_body
+urust_expr closure_conditional_body
   \<open>
     |x|
       if x == \<llangle>0 :: nat\<rrangle> {
@@ -1076,7 +1076,7 @@ urust expr closure_conditional_body
       }
   \<close>
 
-urust expr closure_match_body
+urust_expr closure_match_body
   \<open>
     |x|
       match Some(x) {
@@ -1085,16 +1085,16 @@ urust expr closure_match_body
       }
   \<close>
 
-urust expr closure_legacy_return_body
+urust_expr closure_legacy_return_body
   \<open> |x| return \<llangle>x :: nat\<rrangle>; \<close>
 
-urust expr closure_legacy_unit_return_body
+urust_expr closure_legacy_unit_return_body
   \<open> || return; \<close>
 
-urust expr closure_returning_closure
+urust_expr closure_returning_closure
   \<open> || return |x| \<llangle>x :: nat\<rrangle>; \<close>
 
-urust expr closure_outer_capture
+urust_expr closure_outer_capture
   \<open>
     let outer = \<llangle>3 :: nat\<rrangle>;
     |x, x| \<llangle>outer + x\<rrangle>
@@ -1111,7 +1111,7 @@ definition closure_invoke_nat ::
 context fixes closure_hol_fix :: nat
 begin
 
-urust expr closure_capture_hol_fix
+urust_expr closure_capture_hol_fix
   \<open>
     closure_invoke_nat(
       1,
@@ -1121,19 +1121,19 @@ urust expr closure_capture_hol_fix
 
 end
 
-urust expr closure_capture_immutable
+urust_expr closure_capture_immutable
   \<open>
     let outer = \<llangle>2 :: nat\<rrangle>;
     closure_invoke_nat(1, |formal| \<llangle>outer + formal\<rrangle>)
   \<close>
 
-urust expr closure_capture_const
+urust_expr closure_capture_const
   \<open>
     const OUTER = \<llangle>2 :: nat\<rrangle>;
     closure_invoke_nat(1, |formal| \<llangle>OUTER + formal\<rrangle>)
   \<close>
 
-urust expr closure_capture_tuple
+urust_expr closure_capture_tuple
   \<open>
     let (left, right) = (\<llangle>2 :: nat\<rrangle>, \<llangle>3 :: nat\<rrangle>);
     closure_invoke_nat(1, |formal| \<llangle>left + right + formal\<rrangle>)
@@ -1141,7 +1141,7 @@ urust expr closure_capture_tuple
 
 adhoc_overloading store_reference_const \<rightleftharpoons> parser_reference_fixture
 
-urust expr closure_capture_mutable
+urust_expr closure_capture_mutable
   \<open>
     let mut outer = \<llangle>2 :: nat\<rrangle>;
     |formal| \<llangle>(outer, formal :: nat)\<rrangle>
@@ -1149,7 +1149,7 @@ urust expr closure_capture_mutable
 
 no_adhoc_overloading store_reference_const \<rightleftharpoons> parser_reference_fixture
 
-urust expr closure_capture_match_binder
+urust_expr closure_capture_match_binder
   \<open>
     match \<llangle>Some (2 :: nat)\<rrangle> {
       Some(outer) \<Rightarrow>
@@ -1159,7 +1159,7 @@ urust expr closure_capture_match_binder
     }
   \<close>
 
-urust expr closure_capture_if_let_binder
+urust_expr closure_capture_if_let_binder
   \<open>
     if let Some(outer) = \<llangle>Some (2 :: nat)\<rrangle> {
       closure_invoke_nat(1, |formal| \<llangle>outer + formal\<rrangle>)
@@ -1168,13 +1168,13 @@ urust expr closure_capture_if_let_binder
     }
   \<close>
 
-urust expr closure_capture_let_else_binder
+urust_expr closure_capture_let_else_binder
   \<open>
     let Some(outer) = \<llangle>Some (2 :: nat)\<rrangle> else { 0 };
     closure_invoke_nat(1, |formal| \<llangle>outer + formal\<rrangle>)
   \<close>
 
-urust expr closure_capture_for_binder
+urust_expr closure_capture_for_binder
   \<open>
     for outer in [\<llangle>2 :: nat\<rrangle>] {
       let _ =
@@ -1183,7 +1183,7 @@ urust expr closure_capture_for_binder
     }
   \<close>
 
-urust expr closure_capture_while_let_binder
+urust_expr closure_capture_while_let_binder
   \<open>
     #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let Some(outer) =
       \<llangle>Some (2 :: nat)\<rrangle> {
@@ -1193,13 +1193,13 @@ urust expr closure_capture_while_let_binder
     }
   \<close>
 
-urust expr closure_capture_value_antiquotation
+urust_expr closure_capture_value_antiquotation
   \<open>
     let outer = \<llangle>2 :: nat\<rrangle>;
     closure_invoke_nat(1, |formal| \<llangle>outer + formal\<rrangle>)
   \<close>
 
-urust expr closure_capture_expression_antiquotation
+urust_expr closure_capture_expression_antiquotation
   \<open>
     let outer = \<llangle>2 :: nat\<rrangle>;
     closure_invoke_nat(
@@ -1239,16 +1239,16 @@ definition closure_invoke_lens ::
 micro_rust_notation (literal) closure_role_literal ("closureRole")
 micro_rust_notation (call) closure_role_call ("closureRole")
 
-urust expr closure_registered_literal_shadow
+urust_expr closure_registered_literal_shadow
   \<open> |closureRole| \<llangle>closureRole :: nat\<rrangle> \<close>
 
-urust expr closure_registered_direct_call
+urust_expr closure_registered_direct_call
   \<open> |closureRole| closureRole(closureRole) \<close>
 
-urust expr closure_registered_method_call
+urust_expr closure_registered_method_call
   \<open> |closureRole| closureRole.closureRole() \<close>
 
-urust expr closure_registered_field
+urust_expr closure_registered_field
   \<open>
     closure_invoke_record(
       \<llangle>undefined :: closure_role_record\<rrangle>,
@@ -1256,17 +1256,17 @@ urust expr closure_registered_field
     )
   \<close>
 
-urust expr closure_unregistered_direct_call
+urust_expr closure_unregistered_direct_call
   \<open> |localCall| localCall(\<llangle>1 :: nat\<rrangle>) \<close>
 
-urust expr closure_unregistered_method_call
+urust_expr closure_unregistered_method_call
   \<open> |localMethod| \<llangle>1 :: nat\<rrangle>.localMethod() \<close>
 
 context
   fixes local_field_receiver :: closure_role_record
 begin
 
-urust expr closure_unregistered_field
+urust_expr closure_unregistered_field
   \<open>
     closure_invoke_lens(
       \<llangle>undefined :: (closure_role_record, nat) lens\<rrangle>,
@@ -1276,13 +1276,13 @@ urust expr closure_unregistered_field
 
 end
 
-urust expr closure_existing_let_registered_call
+urust_expr closure_existing_let_registered_call
   \<open>
     let closureRole = \<llangle>0 :: nat\<rrangle>;
     closureRole(closureRole)
   \<close>
 
-urust expr closure_existing_let_registered_method
+urust_expr closure_existing_let_registered_method
   \<open>
     let closureRole = \<llangle>0 :: nat\<rrangle>;
     closureRole.closureRole()
@@ -1291,14 +1291,14 @@ urust expr closure_existing_let_registered_method
 context fixes closure_role_receiver :: closure_role_record
 begin
 
-urust expr closure_existing_let_registered_field
+urust_expr closure_existing_let_registered_field
   \<open>
     let closureRole = \<llangle>undefined :: (closure_role_record, nat) lens\<rrangle>;
     let result = closure_role_receiver.closureRole;
     \<llangle>result :: nat\<rrangle>
   \<close>
 
-urust expr closure_existing_let_unregistered_field
+urust_expr closure_existing_let_unregistered_field
   \<open>
     let localField = \<llangle>undefined :: (closure_role_record, nat) lens\<rrangle>;
     let result = closure_role_receiver.localField;
@@ -1312,13 +1312,13 @@ context
     \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
 begin
 
-urust expr closure_existing_let_unregistered_call
+urust_expr closure_existing_let_unregistered_call
   \<open>
     let localCall = \<llangle>local_call_backend\<rrangle>;
     localCall(\<llangle>1 :: nat\<rrangle>)
   \<close>
 
-urust expr closure_existing_let_unregistered_method
+urust_expr closure_existing_let_unregistered_method
   \<open>
     let localMethod = \<llangle>local_call_backend\<rrangle>;
     \<llangle>1 :: nat\<rrangle>.localMethod()
@@ -1328,40 +1328,40 @@ end
 
 subsection\<open> Shared frontend placement and bar-token ambiguity \<close>
 
-urust expr closure_binding_continuation
+urust_expr closure_binding_continuation
   \<open>
     let outer = \<llangle>1 :: nat\<rrangle>;
     |formal| \<llangle>outer + formal\<rrangle>
   \<close>
 
-urust expr closure_control_continuation
+urust_expr closure_control_continuation
   \<open>
     if true { () }
     |formal| \<llangle>formal :: nat\<rrangle>
   \<close>
 
-urust expr closure_sequence_right
+urust_expr closure_sequence_right
   \<open> (); || \<llangle>1 :: nat\<rrangle> \<close>
 
-urust expr closure_final_call_argument
+urust_expr closure_final_call_argument
   \<open> closure_invoke_nat(1, |formal| \<llangle>formal :: nat\<rrangle>) \<close>
 
-urust expr closure_final_tuple_element
+urust_expr closure_final_tuple_element
   \<open> (\<llangle>0 :: nat\<rrangle>, |formal| \<llangle>formal :: nat\<rrangle>) \<close>
 
-urust expr closure_final_array_element
+urust_expr closure_final_array_element
   \<open>
     [\<llangle>(\<lambda>x::nat. FunctionBody (literal x))\<rrangle>,
      |formal| \<llangle>formal :: nat\<rrangle>]
   \<close>
 
-urust expr closure_final_macro_argument
+urust_expr closure_final_macro_argument
   \<open> assert!(true, |formal| \<llangle>formal :: nat\<rrangle>) \<close>
 
-urust expr closure_return_operand
+urust_expr closure_return_operand
   \<open> return |formal| \<llangle>formal :: nat\<rrangle>; \<close>
 
-urust expr closure_block_terminal
+urust_expr closure_block_terminal
   \<open> { |formal| \<llangle>formal :: nat\<rrangle> } \<close>
 
 context
@@ -1377,13 +1377,13 @@ context
       (unit, 32 word, unit, unit, unit) function_body\<close>
 begin
 
-urust expr closure_logical_or_body
+urust_expr closure_logical_or_body
   \<open> accept_bool_pair((), |left, right| left || right) \<close>
 
-urust expr closure_bitwise_or_body
+urust_expr closure_bitwise_or_body
   \<open> accept_word_pair((), |left, right| left | right) \<close>
 
-urust expr closure_bar_newline_boundaries
+urust_expr closure_bar_newline_boundaries
   \<open>
     accept_bool_pair(
       (),
@@ -1408,22 +1408,22 @@ context
   fixes opt :: \<open>nat option\<close>
   fixes res :: \<open>(nat, bool) result\<close>
 begin
-urust expr postfix_option \<open> opt? \<close>
+urust_expr postfix_option \<open> opt? \<close>
 
-urust expr postfix_result \<open> res? \<close>
+urust_expr postfix_result \<open> res? \<close>
 
-urust expr postfix_block \<open> { opt }? \<close>
+urust_expr postfix_block \<open> { opt }? \<close>
 
-urust expr postfix_parenthesized_if \<open> (if true { opt } else { opt })? \<close>
+urust_expr postfix_parenthesized_if \<open> (if true { opt } else { opt })? \<close>
 end
 
 context
   fixes next_opt :: \<open>(unit, nat option, unit, unit, unit) function_body\<close>
   fixes nested_opt :: \<open>nat option option\<close>
 begin
-urust expr postfix_after_call \<open> next_opt()? \<close>
+urust_expr postfix_after_call \<open> next_opt()? \<close>
 
-urust expr postfix_repeated \<open> nested_opt?? \<close>
+urust_expr postfix_repeated \<open> nested_opt?? \<close>
 end
 
 context
@@ -1431,9 +1431,9 @@ context
   fixes lhs :: \<open>64 word option\<close>
   fixes rhs :: \<open>64 word\<close>
 begin
-urust expr postfix_unary_precedence \<open> !flag? \<close>
+urust_expr postfix_unary_precedence \<open> !flag? \<close>
 
-urust expr postfix_binary_precedence \<open> lhs? + rhs \<close>
+urust_expr postfix_binary_precedence \<open> lhs? + rhs \<close>
 end
 
 subsection\<open> Field registrations and composition \<close>
@@ -1476,26 +1476,26 @@ context
   fixes self :: postfix_outer
   fixes dual :: postfix_dual
 begin
-urust expr postfix_field_default \<open> d.postfix_default_value \<close>
+urust_expr postfix_field_default \<open> d.postfix_default_value \<close>
 
-urust expr postfix_field_renamed \<open> i.value \<close>
+urust_expr postfix_field_renamed \<open> i.value \<close>
 
-urust expr postfix_field_nested \<open> self.inner.value \<close>
+urust_expr postfix_field_nested \<open> self.inner.value \<close>
 
-urust expr postfix_field_then_propagate \<open> self.optional? \<close>
+urust_expr postfix_field_then_propagate \<open> self.optional? \<close>
 
-urust expr postfix_propagate_then_field \<open> self.optional?.secondary \<close>
+urust_expr postfix_propagate_then_field \<open> self.optional?.secondary \<close>
 
-urust expr postfix_field_disambiguation \<open> dual.pick \<close>
+urust_expr postfix_field_disambiguation \<open> dual.pick \<close>
 
-urust expr postfix_method_disambiguation \<open> dual.pick() \<close>
+urust_expr postfix_method_disambiguation \<open> dual.pick() \<close>
 end
 
 adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
 
 context fixes rp :: \<open>(unit, unit, postfix_inner) Global_Store.ref\<close>
 begin
-urust expr ref_deref_field_postfix \<open> *rp.value \<close>
+urust_expr ref_deref_field_postfix \<open> *rp.value \<close>
 end
 
 no_adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
@@ -1513,20 +1513,20 @@ context
   fixes lower upper :: \<open>32 word\<close>
 begin
 
-urust expr range_exclusive \<open> lower..upper \<close>
+urust_expr range_exclusive \<open> lower..upper \<close>
 
-urust expr range_inclusive \<open> lower..=upper \<close>
+urust_expr range_inclusive \<open> lower..=upper \<close>
 
-urust expr range_operator_precedence
+urust_expr range_operator_precedence
   \<open> lower + upper..=upper * lower \<close>
 
-urust expr range_binding_capture
+urust_expr range_binding_capture
   \<open> let captured = upper; lower..captured \<close>
 
-urust expr range_method
+urust_expr range_method
   \<open> let bounded = lower..=upper; bounded.is_empty() \<close>
 
-urust expr range_for
+urust_expr range_for
   \<open> for value in lower..=upper { () } \<close>
 
 end
@@ -1536,29 +1536,29 @@ section\<open> Array literals and indexing \<close>
 
 subsection\<open> Array literals \<close>
 
-urust expr array_empty \<open> [] \<close>
+urust_expr array_empty \<open> [] \<close>
 
-urust expr array_singleton
+urust_expr array_singleton
   \<open> [\<llangle>1 :: 32 word\<rrangle>] \<close>
 
-urust expr array_multiple
+urust_expr array_multiple
   \<open> [\<llangle>1 :: 32 word\<rrangle>, \<llangle>2 :: 32 word\<rrangle>, \<llangle>3 :: 32 word\<rrangle>] \<close>
 
-urust expr array_nested
+urust_expr array_nested
   \<open> [[\<llangle>1 :: 32 word\<rrangle>], [\<llangle>2 :: 32 word\<rrangle>, \<llangle>3 :: 32 word\<rrangle>]] \<close>
 
-urust expr array_expression_elements
+urust_expr array_expression_elements
   \<open>
     let base = 4_u32;
     [base + 1_u32, { base + 2_u32 }, (if true { base + 3_u32 } else { base })]
   \<close>
 
-urust expr array_tuple_elements
+urust_expr array_tuple_elements
   \<open>
     [(\<llangle>1 :: nat\<rrangle>, true), (\<llangle>2 :: nat\<rrangle>, false)]
   \<close>
 
-urust expr array_control_flow_result
+urust_expr array_control_flow_result
   \<open>
     if true {
       [\<llangle>1 :: 32 word\<rrangle>, \<llangle>2 :: 32 word\<rrangle>]
@@ -1567,17 +1567,17 @@ urust expr array_control_flow_result
     }
   \<close>
 
-urust expr array_lexical_capture
+urust_expr array_lexical_capture
   \<open> let element = \<llangle>7 :: 32 word\<rrangle>; [element, element] \<close>
 
-urust expr array_nested_lexical_capture
+urust_expr array_nested_lexical_capture
   \<open>
     let left = \<llangle>1 :: 32 word\<rrangle>;
     let right = \<llangle>2 :: 32 word\<rrangle>;
     [[left, right], [right, left]]
   \<close>
 
-urust expr array_for_iterable
+urust_expr array_for_iterable
   \<open>
     for element in [\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>, \<llangle>3 :: nat\<rrangle>] {
       let _ = element;
@@ -1585,7 +1585,7 @@ urust expr array_for_iterable
     }
   \<close>
 
-urust expr array_match_slice
+urust_expr array_match_slice
   \<open>
     match [\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>, \<llangle>3 :: nat\<rrangle>] {
       [first, .., last] \<Rightarrow> \<llangle>first + last\<rrangle>,
@@ -1598,19 +1598,19 @@ The current frontend treats direct immutable and mutable borrows of array
 literals as list-literal sugar, so both operators erase before shallow lowering.
 \<close>
 
-urust expr array_empty_borrow_erased
+urust_expr array_empty_borrow_erased
   \<open> &[] \<close>
 
-urust expr array_borrow_erased
+urust_expr array_borrow_erased
   \<open> &[\<llangle>1 :: 32 word\<rrangle>, \<llangle>2 :: 32 word\<rrangle>] \<close>
 
-urust expr array_mut_borrow_erased
+urust_expr array_mut_borrow_erased
   \<open> & mut [] \<close>
 
-urust expr array_nonempty_mut_borrow_erased
+urust_expr array_nonempty_mut_borrow_erased
   \<open> & mut [\<llangle>1 :: 32 word\<rrangle>, \<llangle>2 :: 32 word\<rrangle>] \<close>
 
-urust expr array_nested_borrow_erased
+urust_expr array_nested_borrow_erased
   \<open> &[[\<llangle>1 :: 32 word\<rrangle>], [\<llangle>2 :: 32 word\<rrangle>]] \<close>
 
 subsection\<open> Value indexing and postfix composition \<close>
@@ -1637,78 +1637,78 @@ context
     and packets :: \<open>postfix_outer list\<close>
 begin
 
-urust expr index_scalar \<open> xs[0_usize] \<close>
+urust_expr index_scalar \<open> xs[0_usize] \<close>
 
-urust expr index_scalar_expression
+urust_expr index_scalar_expression
   \<open> xs[(0_usize + 1_usize)] \<close>
 
-urust expr index_scalar_block
+urust_expr index_scalar_block
   \<open> xs[{ 0_usize }] \<close>
 
-urust expr index_scalar_conditional
+urust_expr index_scalar_conditional
   \<open> xs[(if true { 0_usize } else { 1_usize })] \<close>
 
-urust expr index_range_slice
+urust_expr index_range_slice
   \<open> xs[0_usize..2_usize] \<close>
 
-urust expr index_inclusive_range_slice
+urust_expr index_inclusive_range_slice
   \<open> xs[0_usize..=1_usize] \<close>
 
-urust expr index_range_expression_endpoint
+urust_expr index_range_expression_endpoint
   \<open> xs[0_usize..1_usize + 1_usize] \<close>
 
-urust expr index_range_then_scalar
+urust_expr index_range_then_scalar
   \<open> xs[0_usize..2_usize][1_usize] \<close>
 
-urust expr index_grouped_range_then_method
+urust_expr index_grouped_range_then_method
   \<open> (xs[0_usize..2_usize]).len() \<close>
 
-urust expr index_chain
+urust_expr index_chain
   \<open> xss[0_usize][1_usize] \<close>
 
-urust expr index_grouped_then_method
+urust_expr index_grouped_then_method
   \<open> (xss[0_usize]).len() \<close>
 
-urust expr index_field_then_index
+urust_expr index_field_then_index
   \<open> packet.values[0_usize] \<close>
 
-urust expr index_then_field
+urust_expr index_then_field
   \<open> packets[0_usize].inner.value \<close>
 
-urust expr index_field_group_then_method
+urust_expr index_field_group_then_method
   \<open> (packets[0_usize].inner).to_value() \<close>
 
-urust expr index_propagate_then_scalar
+urust_expr index_propagate_then_scalar
   \<open> optional_xs?[0_usize] \<close>
 
-urust expr index_grouped_then_propagate
+urust_expr index_grouped_then_propagate
   \<open> (optional_elements[0_usize])? \<close>
 
-urust expr index_literal_scalar
+urust_expr index_literal_scalar
   \<open> [\<llangle>4 :: 32 word\<rrangle>, \<llangle>5 :: 32 word\<rrangle>][1_usize] \<close>
 
-urust expr index_nested_literal_chain
+urust_expr index_nested_literal_chain
   \<open>
     [[\<llangle>1 :: 32 word\<rrangle>, \<llangle>2 :: 32 word\<rrangle>],
      [\<llangle>3 :: 32 word\<rrangle>, \<llangle>4 :: 32 word\<rrangle>]][1_usize][0_usize]
   \<close>
 
-urust expr index_fixed_array_scalar
+urust_expr index_fixed_array_scalar
   \<open> fixed_array[0_usize] \<close>
 
-urust expr index_fixed_array_range
+urust_expr index_fixed_array_range
   \<open> fixed_array[0_usize..=1_usize] \<close>
 
-urust expr index_vector_scalar
+urust_expr index_vector_scalar
   \<open> vector[0_usize] \<close>
 
-urust expr index_vector_range
+urust_expr index_vector_range
   \<open> vector[0_usize..2_usize] \<close>
 
-urust expr index_operator_composition
+urust_expr index_operator_composition
   \<open> xs[0_usize] + xs[1_usize] * xs[2_usize] \<close>
 
-urust expr index_control_flow_condition
+urust_expr index_control_flow_condition
   \<open>
     if xs[0_usize] == xs[1_usize] {
       xs[2_usize]
@@ -1717,7 +1717,7 @@ urust expr index_control_flow_condition
     }
   \<close>
 
-urust expr index_lexical_capture
+urust_expr index_lexical_capture
   \<open> let offset = \<llangle>0 :: 64 word\<rrangle>; xs[offset] \<close>
 
 end
@@ -1765,34 +1765,34 @@ context
     and rhs other :: \<open>32 word\<close>
 begin
 
-urust expr assign_identifier \<open> r = rhs \<close>
+urust_expr assign_identifier \<open> r = rhs \<close>
 
-urust expr assign_grouped \<open> (r) = rhs \<close>
+urust_expr assign_grouped \<open> (r) = rhs \<close>
 
-urust expr assign_nested_groups \<open> (((r))) = rhs \<close>
+urust_expr assign_nested_groups \<open> (((r))) = rhs \<close>
 
-urust expr assign_deref \<open> *r = rhs \<close>
+urust_expr assign_deref \<open> *r = rhs \<close>
 
-urust expr assign_grouped_deref \<open> (*r) = rhs \<close>
+urust_expr assign_grouped_deref \<open> (*r) = rhs \<close>
 
-urust expr assign_deref_group \<open> *(r) = rhs \<close>
+urust_expr assign_deref_group \<open> *(r) = rhs \<close>
 
-urust expr assign_rhs_operator \<open> r = rhs + other \<close>
+urust_expr assign_rhs_operator \<open> r = rhs + other \<close>
 
-urust expr assign_block_rhs \<open> r = { rhs } \<close>
+urust_expr assign_block_rhs \<open> r = { rhs } \<close>
 
-urust expr assign_sequence \<open> r = rhs; *r \<close>
+urust_expr assign_sequence \<open> r = rhs; *r \<close>
 
-urust expr assign_block \<open> { r = rhs; *r } \<close>
+urust_expr assign_block \<open> { r = rhs; *r } \<close>
 
-urust expr assign_call_argument \<open> assignment_sink(r = rhs) \<close>
+urust_expr assign_call_argument \<open> assignment_sink(r = rhs) \<close>
 
-urust expr assign_lexical_shadow
+urust_expr assign_lexical_shadow
   \<open> let assignmentPlace = \<llangle>r\<rrangle>; assignmentPlace = rhs \<close>
 
 end
 
-urust expr assign_notation_target \<open> assignmentPlace = \<llangle>7 :: 32 word\<rrangle> \<close>
+urust_expr assign_notation_target \<open> assignmentPlace = \<llangle>7 :: 32 word\<rrangle> \<close>
 
 subsection\<open> Indexed places \<close>
 
@@ -1804,18 +1804,18 @@ context
     and rhs :: \<open>32 word\<close>
 begin
 
-urust expr assign_index \<open> references[offset] = rhs \<close>
+urust_expr assign_index \<open> references[offset] = rhs \<close>
 
-urust expr assign_grouped_index
+urust_expr assign_grouped_index
   \<open> (references[offset]) = rhs \<close>
 
-urust expr assign_dereferenced_index
+urust_expr assign_dereferenced_index
   \<open> *(references[offset]) = rhs \<close>
 
-urust expr assign_nested_index
+urust_expr assign_nested_index
   \<open> reference_rows[row][offset] = rhs \<close>
 
-urust expr assign_index_sequence
+urust_expr assign_index_sequence
   \<open> references[offset] = rhs; *(references[offset]) \<close>
 
 end
@@ -1828,7 +1828,7 @@ context
     and rhs :: \<open>32 word\<close>
 begin
 
-urust expr assign_right_associative \<open> outer = inner = rhs \<close>
+urust_expr assign_right_associative \<open> outer = inner = rhs \<close>
 
 end
 
@@ -1838,16 +1838,16 @@ context
     and flag :: bool
 begin
 
-urust expr assign_if_branches
+urust_expr assign_if_branches
   \<open> if flag { r = lhs } else { r = rhs } \<close>
 
-urust expr assign_match_arms
+urust_expr assign_match_arms
   \<open> match flag { true \<Rightarrow> r = lhs, false \<Rightarrow> r = rhs } \<close>
 
-urust expr assign_control_rhs
+urust_expr assign_control_rhs
   \<open> r = (if flag { lhs } else { rhs }) \<close>
 
-urust expr assign_mutable_binding
+urust_expr assign_mutable_binding
   \<open> let mut x = lhs; *x = rhs; *x \<close>
 
 end
@@ -1859,13 +1859,13 @@ context
     and field_value :: \<open>64 word\<close>
 begin
 
-urust expr assign_field \<open> rp.inner = \<llangle>undefined :: postfix_inner\<rrangle> \<close>
+urust_expr assign_field \<open> rp.inner = \<llangle>undefined :: postfix_inner\<rrangle> \<close>
 
-urust expr assign_field_chain \<open> rp.inner.value = field_value \<close>
+urust_expr assign_field_chain \<open> rp.inner.value = field_value \<close>
 
-urust expr assign_grouped_deref_field \<open> (*rp.inner.value) = field_value \<close>
+urust_expr assign_grouped_deref_field \<open> (*rp.inner.value) = field_value \<close>
 
-urust expr assign_deref_field_chain \<open> *rp.inner.value = field_value \<close>
+urust_expr assign_deref_field_chain \<open> *rp.inner.value = field_value \<close>
 
 end
 
@@ -1878,23 +1878,23 @@ context
     and rhs other :: \<open>32 word\<close>
 begin
 
-urust expr compound_add_identifier \<open> r += rhs \<close>
+urust_expr compound_add_identifier \<open> r += rhs \<close>
 
-urust expr compound_sub_grouped \<open> (r) -= rhs \<close>
+urust_expr compound_sub_grouped \<open> (r) -= rhs \<close>
 
-urust expr compound_mul_deref \<open> *r *= rhs \<close>
+urust_expr compound_mul_deref \<open> *r *= rhs \<close>
 
-urust expr compound_mod_identifier \<open> r %= rhs \<close>
+urust_expr compound_mod_identifier \<open> r %= rhs \<close>
 
-urust expr compound_and_identifier \<open> r &= rhs \<close>
+urust_expr compound_and_identifier \<open> r &= rhs \<close>
 
-urust expr compound_or_identifier \<open> r |= rhs \<close>
+urust_expr compound_or_identifier \<open> r |= rhs \<close>
 
-urust expr compound_xor_identifier \<open> r ^= rhs \<close>
+urust_expr compound_xor_identifier \<open> r ^= rhs \<close>
 
-urust expr compound_rhs_precedence \<open> r -= rhs * other \<close>
+urust_expr compound_rhs_precedence \<open> r -= rhs * other \<close>
 
-urust expr compound_block_rhs \<open> r ^= { rhs } \<close>
+urust_expr compound_block_rhs \<open> r ^= { rhs } \<close>
 
 end
 
@@ -1906,21 +1906,21 @@ context
     and rhs :: \<open>32 word\<close>
 begin
 
-urust expr compound_index_add \<open> references[offset] += rhs \<close>
+urust_expr compound_index_add \<open> references[offset] += rhs \<close>
 
-urust expr compound_index_sub \<open> references[offset] -= rhs \<close>
+urust_expr compound_index_sub \<open> references[offset] -= rhs \<close>
 
-urust expr compound_index_mul \<open> references[offset] *= rhs \<close>
+urust_expr compound_index_mul \<open> references[offset] *= rhs \<close>
 
-urust expr compound_index_mod \<open> references[offset] %= rhs \<close>
+urust_expr compound_index_mod \<open> references[offset] %= rhs \<close>
 
-urust expr compound_index_and \<open> references[offset] &= rhs \<close>
+urust_expr compound_index_and \<open> references[offset] &= rhs \<close>
 
-urust expr compound_index_or \<open> references[offset] |= rhs \<close>
+urust_expr compound_index_or \<open> references[offset] |= rhs \<close>
 
-urust expr compound_index_xor \<open> references[offset] ^= rhs \<close>
+urust_expr compound_index_xor \<open> references[offset] ^= rhs \<close>
 
-urust expr compound_nested_index_add
+urust_expr compound_nested_index_add
   \<open> reference_rows[row][offset] += rhs \<close>
 
 end
@@ -1930,9 +1930,9 @@ context
     and shift :: \<open>64 word\<close>
 begin
 
-urust expr compound_shift_left \<open> r <<= shift \<close>
+urust_expr compound_shift_left \<open> r <<= shift \<close>
 
-urust expr compound_shift_right \<open> r >>= shift \<close>
+urust_expr compound_shift_right \<open> r >>= shift \<close>
 
 end
 
@@ -1941,10 +1941,10 @@ context
     and offset shift :: \<open>64 word\<close>
 begin
 
-urust expr compound_index_shift_left
+urust_expr compound_index_shift_left
   \<open> references[offset] <<= shift \<close>
 
-urust expr compound_index_shift_right
+urust_expr compound_index_shift_right
   \<open> references[offset] >>= shift \<close>
 
 end
@@ -1954,7 +1954,7 @@ context
     and field_value :: \<open>64 word\<close>
 begin
 
-urust expr compound_field_chain \<open> rp.inner.value %= field_value \<close>
+urust_expr compound_field_chain \<open> rp.inner.value %= field_value \<close>
 
 end
 
@@ -1964,7 +1964,7 @@ context
   fixes a b :: \<open>32 word\<close>
 begin
 
-urust expr compound_mutable_local
+urust_expr compound_mutable_local
   \<open> let mut x = a; x += b; *x \<close>
 
 end
@@ -1975,11 +1975,11 @@ context
     and rhs :: \<open>32 word\<close>
 begin
 
-urust expr compound_simple_then_compound \<open> outer = inner -= rhs \<close>
+urust_expr compound_simple_then_compound \<open> outer = inner -= rhs \<close>
 
-urust expr compound_then_simple \<open> outer += inner = rhs \<close>
+urust_expr compound_then_simple \<open> outer += inner = rhs \<close>
 
-urust expr compound_right_associative \<open> outer += inner += rhs \<close>
+urust_expr compound_right_associative \<open> outer += inner += rhs \<close>
 
 end
 
@@ -1989,7 +1989,7 @@ context
     and flag :: bool
 begin
 
-urust expr compound_grouped_control_rhs
+urust_expr compound_grouped_control_rhs
   \<open> r |= (if flag { lhs } else { rhs }) \<close>
 
 end
@@ -2009,45 +2009,45 @@ receivers, and deep nesting. Concrete callees and pinned arguments satisfy R1.
 
 subsection\<open> Calls as / with operators (precedence) \<close>
 
-urust expr rc_arg_op \<open> cf1(\<llangle>1 :: 64 word\<rrangle> + \<llangle>2 :: 64 word\<rrangle>) \<close>
+urust_expr rc_arg_op \<open> cf1(\<llangle>1 :: 64 word\<rrangle> + \<llangle>2 :: 64 word\<rrangle>) \<close>
 
-urust expr rc_call_plus_call \<open> cf1(\<llangle>10 :: 64 word\<rrangle>) + cf1(\<llangle>20 :: 64 word\<rrangle>) \<close>
+urust_expr rc_call_plus_call \<open> cf1(\<llangle>10 :: 64 word\<rrangle>) + cf1(\<llangle>20 :: 64 word\<rrangle>) \<close>
 
-urust expr rc_call_times \<open> cf2(\<llangle>1 :: 64 word\<rrangle>, \<llangle>2 :: 64 word\<rrangle>) * \<llangle>3 :: 64 word\<rrangle> \<close>
+urust_expr rc_call_times \<open> cf2(\<llangle>1 :: 64 word\<rrangle>, \<llangle>2 :: 64 word\<rrangle>) * \<llangle>3 :: 64 word\<rrangle> \<close>
 
-urust expr rc_bang_cmp \<open> !(cf1(\<llangle>1 :: 64 word\<rrangle>) == cf1(\<llangle>2 :: 64 word\<rrangle>)) \<close>
+urust_expr rc_bang_cmp \<open> !(cf1(\<llangle>1 :: 64 word\<rrangle>) == cf1(\<llangle>2 :: 64 word\<rrangle>)) \<close>
 
 subsection\<open> Calls in control-flow and binder positions \<close>
 
-urust expr rc_call_let \<open> let r = cf1(\<llangle>7 :: 64 word\<rrangle>); r \<close>
+urust_expr rc_call_let \<open> let r = cf1(\<llangle>7 :: 64 word\<rrangle>); r \<close>
 
-urust expr rc_call_if \<open> if \<llangle>True\<rrangle> { cf0() } else { cf1(\<llangle>1 :: 64 word\<rrangle>) } \<close>
+urust_expr rc_call_if \<open> if \<llangle>True\<rrangle> { cf0() } else { cf1(\<llangle>1 :: 64 word\<rrangle>) } \<close>
 
-urust expr rc_call_block \<open> { cf0(); cf1(\<llangle>1 :: 64 word\<rrangle>) } \<close>
+urust_expr rc_call_block \<open> { cf0(); cf1(\<llangle>1 :: 64 word\<rrangle>) } \<close>
 
-urust expr rc_if_arg \<open> cf1((if \<llangle>True\<rrangle> { \<llangle>1 :: 64 word\<rrangle> } else { \<llangle>2 :: 64 word\<rrangle> })) \<close>
+urust_expr rc_if_arg \<open> cf1((if \<llangle>True\<rrangle> { \<llangle>1 :: 64 word\<rrangle> } else { \<llangle>2 :: 64 word\<rrangle> })) \<close>
 
 subsection\<open> Deep argument nesting \<close>
 
-urust expr rc_deep3 \<open> cf1(cf1(cf1(\<llangle>1 :: 64 word\<rrangle>))) \<close>
+urust_expr rc_deep3 \<open> cf1(cf1(cf1(\<llangle>1 :: 64 word\<rrangle>))) \<close>
 
-urust expr rc_two_call_args \<open> cf2(cf2(\<llangle>1 :: 64 word\<rrangle>, \<llangle>2 :: 64 word\<rrangle>), cf1(\<llangle>3 :: 64 word\<rrangle>)) \<close>
+urust_expr rc_two_call_args \<open> cf2(cf2(\<llangle>1 :: 64 word\<rrangle>, \<llangle>2 :: 64 word\<rrangle>), cf1(\<llangle>3 :: 64 word\<rrangle>)) \<close>
 
 subsection\<open> Binder capture inside call / method arguments \<close>
 
-urust expr rc_cap_args \<open> let a = \<llangle>10 :: 64 word\<rrangle>; let b = \<llangle>20 :: 64 word\<rrangle>; cf2(\<llangle>a\<rrangle>, \<llangle>b\<rrangle>) \<close>
+urust_expr rc_cap_args \<open> let a = \<llangle>10 :: 64 word\<rrangle>; let b = \<llangle>20 :: 64 word\<rrangle>; cf2(\<llangle>a\<rrangle>, \<llangle>b\<rrangle>) \<close>
 
-urust expr rc_mcall_let_recv \<open> let x = \<llangle>5 :: 64 word\<rrangle>; x.cf1() \<close>
+urust_expr rc_mcall_let_recv \<open> let x = \<llangle>5 :: 64 word\<rrangle>; x.cf1() \<close>
 
 subsection\<open> Method calls x nesting / precedence \<close>
 
-urust expr rc_mchain2 \<open> \<llangle>1 :: 64 word\<rrangle>.cf2(\<llangle>2 :: 64 word\<rrangle>).cf1() \<close>
+urust_expr rc_mchain2 \<open> \<llangle>1 :: 64 word\<rrangle>.cf2(\<llangle>2 :: 64 word\<rrangle>).cf1() \<close>
 
-urust expr rc_m_on_call \<open> cf1(\<llangle>1 :: 64 word\<rrangle>).cf2(\<llangle>2 :: 64 word\<rrangle>) \<close>
+urust_expr rc_m_on_call \<open> cf1(\<llangle>1 :: 64 word\<rrangle>).cf2(\<llangle>2 :: 64 word\<rrangle>) \<close>
 
-urust expr rc_m_call_arg \<open> \<llangle>1 :: 64 word\<rrangle>.cf2(cf1(\<llangle>2 :: 64 word\<rrangle>)) \<close>
+urust_expr rc_m_call_arg \<open> \<llangle>1 :: 64 word\<rrangle>.cf2(cf1(\<llangle>2 :: 64 word\<rrangle>)) \<close>
 
-urust expr rc_m_prec \<open> \<llangle>1 :: 64 word\<rrangle>.cf1() + \<llangle>2 :: 64 word\<rrangle> * \<llangle>3 :: 64 word\<rrangle> \<close>
+urust_expr rc_m_prec \<open> \<llangle>1 :: 64 word\<rrangle>.cf1() + \<llangle>2 :: 64 word\<rrangle> * \<llangle>3 :: 64 word\<rrangle> \<close>
 
 
 section\<open> Match \<open>match_switch\<close> (Corpus "Match Expressions" -- first-order keys) \<close>
@@ -2059,27 +2059,27 @@ Numerals and registered non-constructor paths become \<open>Some\<close> keys, w
 first-order key matcher: explicit switch rejects binding identifiers and case-only patterns.
 \<close>
 
-urust expr msw_lit \<open> match_switch \<llangle>1 :: nat\<rrangle> { 1 \<Rightarrow> \<llangle>True\<rrangle>, _ \<Rightarrow> \<llangle>False\<rrangle> } \<close>
+urust_expr msw_lit \<open> match_switch \<llangle>1 :: nat\<rrangle> { 1 \<Rightarrow> \<llangle>True\<rrangle>, _ \<Rightarrow> \<llangle>False\<rrangle> } \<close>
 
 context fixes n :: nat
 begin
 
 text\<open> Multiple numeral arms + wildcard fall-through (context-fixed scrutinee). \<close>
-urust expr msw_multi \<open> match_switch n { 0 \<Rightarrow> \<llangle>False\<rrangle>, 1 \<Rightarrow> \<llangle>True\<rrangle>, 2 \<Rightarrow> \<llangle>False\<rrangle>, _ \<Rightarrow> \<llangle>True\<rrangle> } \<close>
+urust_expr msw_multi \<open> match_switch n { 0 \<Rightarrow> \<llangle>False\<rrangle>, 1 \<Rightarrow> \<llangle>True\<rrangle>, 2 \<Rightarrow> \<llangle>False\<rrangle>, _ \<Rightarrow> \<llangle>True\<rrangle> } \<close>
 
-urust expr msw_hex \<open> match_switch n { 0xff \<Rightarrow> \<llangle>True\<rrangle>, _ \<Rightarrow> \<llangle>False\<rrangle> } \<close>
+urust_expr msw_hex \<open> match_switch n { 0xff \<Rightarrow> \<llangle>True\<rrangle>, _ \<Rightarrow> \<llangle>False\<rrangle> } \<close>
 
 text\<open> Or-pattern: \<open>1 | 2 | 3\<close> expands to three \<open>(Some _, body)\<close> pairs sharing the arm body. \<close>
-urust expr msw_or \<open> match_switch n { 1 | 2 | 3 \<Rightarrow> \<llangle>True\<rrangle>, _ \<Rightarrow> \<llangle>False\<rrangle> } \<close>
+urust_expr msw_or \<open> match_switch n { 1 | 2 | 3 \<Rightarrow> \<llangle>True\<rrangle>, _ \<Rightarrow> \<llangle>False\<rrangle> } \<close>
 
 text\<open>
 Rows cover a let RHS and the frontend-shared statement spelling, where explicit
 \<open>match_switch\<close> uses a semicolon. The dedicated parser's semicolon-free extension is checked
 against this spelling in \<open>Parser_Test_Improvements.thy\<close>.
 \<close>
-urust expr msw_let \<open> let r = match_switch n { 0 \<Rightarrow> \<llangle>True\<rrangle>, _ \<Rightarrow> \<llangle>False\<rrangle> }; r \<close>
+urust_expr msw_let \<open> let r = match_switch n { 0 \<Rightarrow> \<llangle>True\<rrangle>, _ \<Rightarrow> \<llangle>False\<rrangle> }; r \<close>
 
-urust expr msw_stmt \<open> match_switch n { 0 \<Rightarrow> () , _ \<Rightarrow> () } ; () \<close>
+urust_expr msw_stmt \<open> match_switch n { 0 \<Rightarrow> () , _ \<Rightarrow> () } ; () \<close>
 end
 
 
@@ -2098,37 +2098,37 @@ context fixes x :: \<open>nat option\<close> and xr :: \<open>(nat, nat) result\
 begin
 
 text\<open> Option: variable binder + nullary constructor. \<close>
-urust expr mc_opt \<open> match_case x { Some(y) \<Rightarrow> y, None \<Rightarrow> 0 } \<close>
+urust_expr mc_opt \<open> match_case x { Some(y) \<Rightarrow> y, None \<Rightarrow> 0 } \<close>
 
 text\<open> Result: two variable-binding constructors. \<close>
-urust expr mc_res \<open> match_case xr { Ok(v) \<Rightarrow> v, Err(e) \<Rightarrow> e } \<close>
+urust_expr mc_res \<open> match_case xr { Ok(v) \<Rightarrow> v, Err(e) \<Rightarrow> e } \<close>
 
 text\<open> Wildcard \<open>_\<close> arm. \<close>
-urust expr mc_wild \<open> match_case x { Some(y) \<Rightarrow> y, _ \<Rightarrow> 0 } \<close>
+urust_expr mc_wild \<open> match_case x { Some(y) \<Rightarrow> y, _ \<Rightarrow> 0 } \<close>
 
 text\<open> Constructor with a wildcard argument \<open>Some(_)\<close>. \<close>
-urust expr mc_cwild \<open> match_case x { Some(_) \<Rightarrow> \<llangle>True\<rrangle>, None \<Rightarrow> \<llangle>False\<rrangle> } \<close>
+urust_expr mc_cwild \<open> match_case x { Some(_) \<Rightarrow> \<llangle>True\<rrangle>, None \<Rightarrow> \<llangle>False\<rrangle> } \<close>
 
 text\<open> Single-level 2-ary constructor: two binders (leftmost outermost). \<close>
-urust expr mc_pair \<open> match_case p { P2(a, b) \<Rightarrow> a } \<close>
+urust_expr mc_pair \<open> match_case p { P2(a, b) \<Rightarrow> a } \<close>
 
-urust expr mc_var \<open> match_case x { y \<Rightarrow> y } \<close>
+urust_expr mc_var \<open> match_case x { y \<Rightarrow> y } \<close>
 
-urust expr mc_pair_left \<open> match_case p { P2(a, _) \<Rightarrow> a } \<close>
+urust_expr mc_pair_left \<open> match_case p { P2(a, _) \<Rightarrow> a } \<close>
 
-urust expr mc_pair_right \<open> match_case p { P2(_, b) \<Rightarrow> b } \<close>
+urust_expr mc_pair_right \<open> match_case p { P2(_, b) \<Rightarrow> b } \<close>
 
-urust expr mc_shadow
+urust_expr mc_shadow
   \<open> let y = \<llangle>7 :: nat\<rrangle>; match_case x { Some(y) \<Rightarrow> y, None \<Rightarrow> y } \<close>
 
 text\<open> As a value (let-RHS). \<close>
-urust expr mc_let \<open> let r = match_case x { Some(y) \<Rightarrow> y, None \<Rightarrow> 0 }; r \<close>
+urust_expr mc_let \<open> let r = match_case x { Some(y) \<Rightarrow> y, None \<Rightarrow> 0 }; r \<close>
 
 text\<open>
 As a \<open>;\<close>-terminated statement shared with the frontend. The dedicated parser also admits
 semicolon-free explicit matches, with equivalence witnesses in \<open>Parser_Test_Improvements.thy\<close>.
 \<close>
-urust expr mc_stmt \<open> match_case x { Some(_) \<Rightarrow> () , None \<Rightarrow> () } ; () \<close>
+urust_expr mc_stmt \<open> match_case x { Some(_) \<Rightarrow> () , None \<Rightarrow> () } ; () \<close>
 
 subsection\<open> Anonymous-binder hygiene \<close>
 
@@ -2137,19 +2137,19 @@ Wildcards and desugaring binders use \<open>Abs\<close>/\<open>Bound\<close>, pr
 Rows cover wildcard arms, constructor slots, differing types, and sibling binders.
 \<close>
 
-urust expr mc_hyg_wild \<open> let uu = \<llangle>Some 5 :: nat option\<rrangle>; match_case x { _ \<Rightarrow> uu } \<close>
+urust_expr mc_hyg_wild \<open> let uu = \<llangle>Some 5 :: nat option\<rrangle>; match_case x { _ \<Rightarrow> uu } \<close>
 
 text\<open> Wildcard constructor argument. \<close>
-urust expr mc_hyg_ctor_arg \<open> let uu = \<llangle>7 :: nat\<rrangle>; match_case x { Some(_) \<Rightarrow> uu, None \<Rightarrow> uu } \<close>
+urust_expr mc_hyg_ctor_arg \<open> let uu = \<llangle>7 :: nat\<rrangle>; match_case x { Some(_) \<Rightarrow> uu, None \<Rightarrow> uu } \<close>
 
 text\<open> Scrutinee and result types differ. \<close>
-urust expr mc_hyg_typed \<open> let uu = \<llangle>7 :: nat\<rrangle>; match_case x { _ \<Rightarrow> uu } \<close>
+urust_expr mc_hyg_typed \<open> let uu = \<llangle>7 :: nat\<rrangle>; match_case x { _ \<Rightarrow> uu } \<close>
 
 text\<open> Source binder with the former scrutinee hint name. \<close>
-urust expr mc_hyg_scrut \<open> let anon_case = \<llangle>7 :: nat\<rrangle>; match_case x { Some(y) \<Rightarrow> anon_case, None \<Rightarrow> anon_case } \<close>
+urust_expr mc_hyg_scrut \<open> let anon_case = \<llangle>7 :: nat\<rrangle>; match_case x { Some(y) \<Rightarrow> anon_case, None \<Rightarrow> anon_case } \<close>
 
 text\<open> Named and anonymous sibling slots. \<close>
-urust expr mc_hyg_sibling \<open> match_case p { P2(uu, _) \<Rightarrow> \<llangle>0 :: nat\<rrangle> } \<close>
+urust_expr mc_hyg_sibling \<open> match_case p { P2(uu, _) \<Rightarrow> \<llangle>0 :: nat\<rrangle> } \<close>
 
 end
 
@@ -2164,16 +2164,16 @@ frontend-fidelity rejections. The first rows are positive witnesses for formerly
 
 subsection\<open> Former D-7 surface \<close>
 
-urust expr rich_explicit_nested
+urust_expr rich_explicit_nested
   \<open> match_case \<llangle>Some (Some (0 :: nat))\<rrangle> { Some(Some(y)) \<Rightarrow> (), _ \<Rightarrow> () } \<close>
 
-urust expr rich_explicit_or
+urust_expr rich_explicit_or
   \<open> match_case \<llangle>Some (0 :: nat)\<rrangle> { Some(_) | None \<Rightarrow> () } \<close>
 
-urust expr rich_bare_nested
+urust_expr rich_bare_nested
   \<open> match \<llangle>Some (Some (0 :: nat))\<rrangle> { Some(Some(y)) \<Rightarrow> (), _ \<Rightarrow> () } \<close>
 
-urust expr rich_bare_or
+urust_expr rich_bare_or
   \<open> match \<llangle>Some (0 :: nat)\<rrangle> { Some(_) | None \<Rightarrow> () } \<close>
 
 subsection\<open> Guards \<close>
@@ -2181,25 +2181,25 @@ subsection\<open> Guards \<close>
 context fixes x :: \<open>32 word option\<close>
 begin
 
-urust expr rich_guard_scope
+urust_expr rich_guard_scope
   \<open> let floor = \<llangle>0 :: 32 word\<rrangle>; match x { Some(y) if y > floor \<Rightarrow> y, _ \<Rightarrow> floor } \<close>
 
-urust expr rich_guard_fallthrough
+urust_expr rich_guard_fallthrough
   \<open> match x { Some(y) if False \<Rightarrow> \<llangle>1 :: 32 word\<rrangle>, Some(y) \<Rightarrow> y, _ \<Rightarrow> \<llangle>2 :: 32 word\<rrangle> } \<close>
 
-urust expr rich_guard_multi_fallthrough
+urust_expr rich_guard_multi_fallthrough
   \<open> match x { Some(y) if False \<Rightarrow> \<llangle>1 :: 32 word\<rrangle>, Some(y) if False \<Rightarrow> \<llangle>2 :: 32 word\<rrangle>, Some(y) if True \<Rightarrow> y, _ \<Rightarrow> \<llangle>3 :: 32 word\<rrangle> } \<close>
 
-urust expr rich_guard_intervening_pattern
+urust_expr rich_guard_intervening_pattern
   \<open> match x { Some(y) if False \<Rightarrow> \<llangle>1 :: 32 word\<rrangle>, None \<Rightarrow> \<llangle>2 :: 32 word\<rrangle>, Some(y) \<Rightarrow> y, _ \<Rightarrow> \<llangle>3 :: 32 word\<rrangle> } \<close>
 
-urust expr rich_guard_wild_fallthrough
+urust_expr rich_guard_wild_fallthrough
   \<open> match x { _ if False \<Rightarrow> \<llangle>1 :: 32 word\<rrangle>, Some(y) \<Rightarrow> y, None \<Rightarrow> \<llangle>2 :: 32 word\<rrangle> } \<close>
 
-urust expr rich_guard_if
+urust_expr rich_guard_if
   \<open> match x { Some(y) if (if True { True } else { False }) \<Rightarrow> y, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<close>
 
-urust expr rich_guard_match
+urust_expr rich_guard_match
   \<open> match x { Some(y) if (match Some(y) { Some(_) \<Rightarrow> True, None \<Rightarrow> False }) \<Rightarrow> y, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<close>
 
 end
@@ -2212,7 +2212,7 @@ therefore reuses its complete body category here: control flow, sequencing, bind
 semicolon-bearing returns all retain the ordinary AST and lowering.
 \<close>
 
-urust expr guard_body_if_let
+urust_expr guard_body_if_let
   \<open>
     match_case Some(()) {
       Some(value) if if let Some(inner) = Some(value) {
@@ -2225,7 +2225,7 @@ urust expr guard_body_if_let
     }
   \<close>
 
-urust expr guard_body_while
+urust_expr guard_body_while
   \<open>
     match_case Some(()) {
       Some(_) if
@@ -2236,7 +2236,7 @@ urust expr guard_body_while
     }
   \<close>
 
-urust expr guard_body_loop
+urust_expr guard_body_loop
   \<open>
     match_case Some(()) {
       Some(_) if
@@ -2247,7 +2247,7 @@ urust expr guard_body_loop
     }
   \<close>
 
-urust expr guard_body_for
+urust_expr guard_body_for
   \<open>
     match_case Some(()) {
       Some(_) if
@@ -2258,7 +2258,7 @@ urust expr guard_body_for
     }
   \<close>
 
-urust expr guard_body_while_let
+urust_expr guard_body_while_let
   \<open>
     match_case Some(()) {
       Some(_) if
@@ -2272,7 +2272,7 @@ urust expr guard_body_while_let
     }
   \<close>
 
-urust expr guard_body_value_sequence
+urust_expr guard_body_value_sequence
   \<open>
     match_case Some(()) {
       Some(_) if (); true \<Rightarrow> (),
@@ -2280,7 +2280,7 @@ urust expr guard_body_value_sequence
     }
   \<close>
 
-urust expr guard_body_block_sequence
+urust_expr guard_body_block_sequence
   \<open>
     match_case Some(()) {
       Some(_) if { () } true \<Rightarrow> (),
@@ -2288,7 +2288,7 @@ urust expr guard_body_block_sequence
     }
   \<close>
 
-urust expr guard_body_unsafe_sequence
+urust_expr guard_body_unsafe_sequence
   \<open>
     match_case Some(()) {
       Some(_) if unsafe { () } true \<Rightarrow> (),
@@ -2296,7 +2296,7 @@ urust expr guard_body_unsafe_sequence
     }
   \<close>
 
-urust expr guard_body_conditional_sequence
+urust_expr guard_body_conditional_sequence
   \<open>
     match_case Some(()) {
       Some(_) if if false { () } else { () } true \<Rightarrow> (),
@@ -2304,7 +2304,7 @@ urust expr guard_body_conditional_sequence
     }
   \<close>
 
-urust expr guard_body_bare_match_sequence
+urust_expr guard_body_bare_match_sequence
   \<open>
     match_case Some(()) {
       Some(_) if match true { true \<Rightarrow> (), false \<Rightarrow> () } true \<Rightarrow> (),
@@ -2312,7 +2312,7 @@ urust expr guard_body_bare_match_sequence
     }
   \<close>
 
-urust expr guard_body_let
+urust_expr guard_body_let
   \<open>
     match_case Some(()) {
       Some(_) if let flag = true; flag \<Rightarrow> (),
@@ -2326,7 +2326,7 @@ definition guard_body_reference_fixture ::
 
 adhoc_overloading store_reference_const \<rightleftharpoons> guard_body_reference_fixture
 
-urust expr guard_body_let_mut
+urust_expr guard_body_let_mut
   \<open>
     match_case Some(()) {
       Some(_) if let mut flag = true; true \<Rightarrow> (),
@@ -2336,7 +2336,7 @@ urust expr guard_body_let_mut
 
 no_adhoc_overloading store_reference_const \<rightleftharpoons> guard_body_reference_fixture
 
-urust expr guard_body_const
+urust_expr guard_body_const
   \<open>
     match_case Some(()) {
       Some(_) if const FLAG = true; FLAG \<Rightarrow> (),
@@ -2344,7 +2344,7 @@ urust expr guard_body_const
     }
   \<close>
 
-urust expr guard_body_let_else
+urust_expr guard_body_let_else
   \<open>
     match_case Some(()) {
       Some(_) if
@@ -2355,7 +2355,7 @@ urust expr guard_body_let_else
     }
   \<close>
 
-urust expr guard_body_return_value_legacy
+urust_expr guard_body_return_value_legacy
   \<open>
     match_case Some(()) {
       Some(_) if return true; \<Rightarrow> (),
@@ -2363,7 +2363,7 @@ urust expr guard_body_return_value_legacy
     }
   \<close>
 
-urust expr guard_body_return_unit_legacy
+urust_expr guard_body_return_unit_legacy
   \<open>
     match_case Some(()) {
       Some(_) if return; \<Rightarrow> (),
@@ -2380,19 +2380,19 @@ datatype rich_pair = RP rich_leaf rich_leaf
 context fixes r :: rich_case and ro :: \<open>rich_case option\<close> and rp :: rich_pair
 begin
 
-urust expr rich_or_top
+urust_expr rich_or_top
   \<open> match_case r { RMA(x) | RMB(x) \<Rightarrow> x, RMC \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<close>
 
-urust expr rich_or_three_top
+urust_expr rich_or_three_top
   \<open> match_case r { RMA(x) | RMB(x) | RMD(x) \<Rightarrow> x, RMC \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<close>
 
-urust expr rich_or_nested
+urust_expr rich_or_nested
   \<open> match_case ro { Some(RMA(x) | RMB(x)) \<Rightarrow> x, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<close>
 
-urust expr rich_or_nested_slot
+urust_expr rich_or_nested_slot
   \<open> match_case rp { RP(RLA, RLA | RLB) \<Rightarrow> True, _ \<Rightarrow> False } \<close>
 
-urust expr rich_or_three_nested_slot
+urust_expr rich_or_three_nested_slot
   \<open> match_case rp { RP(RLA, RLA | RLB | RLC) \<Rightarrow> True, _ \<Rightarrow> False } \<close>
 
 end
@@ -2405,19 +2405,19 @@ context
   fixes mixed :: \<open>pair2 option\<close>
 begin
 
-urust expr rich_depth_two
+urust_expr rich_depth_two
   \<open> match_case deep2 { Some(Some(y)) \<Rightarrow> y, _ \<Rightarrow> 0 } \<close>
 
-urust expr rich_depth_three
+urust_expr rich_depth_three
   \<open> match_case deep3 { Some(Some(Some(_))) \<Rightarrow> True, _ \<Rightarrow> False } \<close>
 
-urust expr rich_mixed_slots
+urust_expr rich_mixed_slots
   \<open> match_case mixed { Some(P2(_, y)) \<Rightarrow> y, _ \<Rightarrow> 0 } \<close>
 
-urust expr rich_antiquotation_capture
+urust_expr rich_antiquotation_capture
   \<open> match_case deep2 { Some(Some(y)) \<Rightarrow> \<llangle>y\<rrangle>, _ \<Rightarrow> 0 } \<close>
 
-urust expr rich_shadow
+urust_expr rich_shadow
   \<open> let y = \<llangle>7 :: nat\<rrangle>; match_case deep2 { Some(Some(y)) \<Rightarrow> \<llangle>y\<rrangle>, _ \<Rightarrow> y } \<close>
 
 end
@@ -2432,7 +2432,7 @@ case numerals are pinned as frontend-fidelity rejections in the negative theory.
 context fixes n :: nat
 begin
 
-urust expr rich_numeric_switch
+urust_expr rich_numeric_switch
   \<open> match n { 2 \<Rightarrow> True, _ \<Rightarrow> False } \<close>
 
 end
@@ -2455,27 +2455,27 @@ context
   fixes on :: \<open>nat option\<close>
 begin
 
-urust expr value_pat_bool
+urust_expr value_pat_bool
   \<open> match b { true \<Rightarrow> "yes", false \<Rightarrow> "no" } \<close>
 
-urust expr value_pat_string_explicit
+urust_expr value_pat_string_explicit
   \<open> match_case s { "ok" \<Rightarrow> True, _ \<Rightarrow> False } \<close>
 
-urust expr value_pat_antiquotation
+urust_expr value_pat_antiquotation
   \<open> match n { \<llangle>(2 :: nat)\<rrangle> \<Rightarrow> True, _ \<Rightarrow> False } \<close>
 
-urust expr value_pat_nested_constructor
+urust_expr value_pat_nested_constructor
   \<open> match ob { Some(true) \<Rightarrow> False, Some(false) \<Rightarrow> True, None \<Rightarrow> False } \<close>
 
-urust expr value_pat_disjunction
+urust_expr value_pat_disjunction
   \<open> match b { true | false \<Rightarrow> True } \<close>
 
-urust expr value_pat_capture
+urust_expr value_pat_capture
   \<open> let needle = \<llangle>2 :: nat\<rrangle>; match on { Some(\<llangle>needle\<rrangle>) \<Rightarrow> needle, _ \<Rightarrow> 0 } \<close>
 
 end
 
-urust expr value_pat_nested_tuple
+urust_expr value_pat_nested_tuple
   \<open> match_case \<llangle>(True, (Some False, TNil))\<rrangle> {
       (true, Some(x)) \<Rightarrow> x, _ \<Rightarrow> False } \<close>
 
@@ -2486,25 +2486,25 @@ Tuple case patterns lower to generated \<open>Pair\<close>/\<open>TNil\<close> t
 recursively with constructors and disjunction expansion.
 \<close>
 
-urust expr tuple_match_explicit
+urust_expr tuple_match_explicit
   \<open> match_case \<llangle>(1 :: nat, (True, TNil))\<rrangle> { (x, _) \<Rightarrow> x } \<close>
 
-urust expr tuple_match_bare
+urust_expr tuple_match_bare
   \<open> match \<llangle>(1 :: nat, (True, TNil))\<rrangle> { (_, y) \<Rightarrow> y } \<close>
 
-urust expr tuple_match_three
+urust_expr tuple_match_three
   \<open> match_case \<llangle>(1 :: nat, (True, (2 :: nat, TNil)))\<rrangle> { (x, _, z) \<Rightarrow> z } \<close>
 
-urust expr tuple_match_nested
+urust_expr tuple_match_nested
   \<open> match_case \<llangle>(1 :: nat, ((True, (2 :: nat, TNil)), TNil))\<rrangle> { (x, (_, z)) \<Rightarrow> z } \<close>
 
-urust expr tuple_match_in_constructor
+urust_expr tuple_match_in_constructor
   \<open> match_case \<llangle>Some (1 :: nat, (True, TNil))\<rrangle> { Some((x, y)) \<Rightarrow> x, None \<Rightarrow> 0 } \<close>
 
-urust expr tuple_match_constructor_inside
+urust_expr tuple_match_constructor_inside
   \<open> match_case \<llangle>(Some (1 :: nat), (True, TNil))\<rrangle> { (Some(x), _) \<Rightarrow> x, (None, _) \<Rightarrow> 0 } \<close>
 
-urust expr tuple_match_or_inside
+urust_expr tuple_match_or_inside
   \<open> match_case \<llangle>(Some (1 :: nat), (True, TNil))\<rrangle> { (Some(_) | None, y) \<Rightarrow> y } \<close>
 
 
@@ -2518,7 +2518,7 @@ pattern enters case preparation. Erasure is recursive and retains the frontend's
 checked term across every case-based consumer.
 \<close>
 
-urust expr reference_pattern_bare_tuple
+urust_expr reference_pattern_bare_tuple
   \<open>
     match \<llangle>Some (1 :: nat, (2 :: nat, TNil))\<rrangle> {
       &Some((&left, & mut right)) \<Rightarrow> \<llangle>left + right\<rrangle>,
@@ -2526,7 +2526,7 @@ urust expr reference_pattern_bare_tuple
     }
   \<close>
 
-urust expr reference_pattern_case_repeated
+urust_expr reference_pattern_case_repeated
   \<open>
     match_case \<llangle>Some (Some (3 :: nat))\<rrangle> {
       & mut &Some(& (Some(& mut value))) \<Rightarrow> value,
@@ -2534,7 +2534,7 @@ urust expr reference_pattern_case_repeated
     }
   \<close>
 
-urust expr reference_pattern_if_let_alias
+urust_expr reference_pattern_if_let_alias
   \<open>
     if let whole @ &Some(&(value)) = \<llangle>Some (4 :: nat)\<rrangle> {
       let _ = whole;
@@ -2544,14 +2544,14 @@ urust expr reference_pattern_if_let_alias
     }
   \<close>
 
-urust expr reference_pattern_let_else_slice
+urust_expr reference_pattern_let_else_slice
   \<open>
     let &Some([&head, .., & mut tail]) =
       \<llangle>Some [5 :: nat, 6]\<rrangle> else { 0 };
     \<llangle>head + tail\<rrangle>
   \<close>
 
-urust expr reference_pattern_while_let
+urust_expr reference_pattern_while_let
   \<open>
     #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let & mut Some(& & mut value) =
       \<llangle>Some (7 :: nat)\<rrangle> {
@@ -2560,7 +2560,7 @@ urust expr reference_pattern_while_let
     }
   \<close>
 
-urust expr reference_pattern_matches
+urust_expr reference_pattern_matches
   \<open>
     matches!(
       \<llangle>Some (Some (8 :: nat))\<rrangle>,
@@ -2570,30 +2570,30 @@ urust expr reference_pattern_matches
 
 subsection\<open> Grouped, alias, and range patterns \<close>
 
-urust expr adv_grouped
+urust_expr adv_grouped
   \<open> match_case \<llangle>Some (7 :: nat)\<rrangle> { (Some(x)) \<Rightarrow> x, (_) \<Rightarrow> 0 } \<close>
 
-urust expr adv_grouped_let \<open> let (x) = \<llangle>7 :: nat\<rrangle>; x \<close>
+urust_expr adv_grouped_let \<open> let (x) = \<llangle>7 :: nat\<rrangle>; x \<close>
 
-urust expr adv_grouped_switch
+urust_expr adv_grouped_switch
   \<open> match_switch \<llangle>1 :: nat\<rrangle> { (1) \<Rightarrow> \<llangle>True\<rrangle>, (_) \<Rightarrow> \<llangle>False\<rrangle> } \<close>
 
-urust expr adv_alias
+urust_expr adv_alias
   \<open> match \<llangle>Some (7 :: nat)\<rrangle> { whole @ Some(v) \<Rightarrow> whole, _ \<Rightarrow> None } \<close>
 
-urust expr adv_alias_nested
+urust_expr adv_alias_nested
   \<open> match \<llangle>Some (Some (7 :: nat))\<rrangle> { Some(whole @ Some(v)) \<Rightarrow> \<llangle>whole\<rrangle>, _ \<Rightarrow> \<llangle>None\<rrangle> } \<close>
 
-urust expr adv_alias_shadow
+urust_expr adv_alias_shadow
   \<open> let whole = \<llangle>None :: nat option\<rrangle>; match \<llangle>Some (7 :: nat)\<rrangle> { whole @ Some(v) \<Rightarrow> whole, _ \<Rightarrow> whole } \<close>
 
-urust expr adv_range_exclusive
+urust_expr adv_range_exclusive
   \<open> match_case \<llangle>Some (7 :: nat)\<rrangle> { Some(5..7) \<Rightarrow> \<llangle>False\<rrangle>, _ \<Rightarrow> \<llangle>True\<rrangle> } \<close>
 
-urust expr adv_range_inclusive
+urust_expr adv_range_inclusive
   \<open> match_case \<llangle>Some (7 :: nat)\<rrangle> { Some(5..=7) \<Rightarrow> \<llangle>True\<rrangle>, _ \<Rightarrow> \<llangle>False\<rrangle> } \<close>
 
-urust expr adv_range_nested
+urust_expr adv_range_nested
   \<open> match \<llangle>Some (6 :: nat)\<rrangle> { Some(5..=7) \<Rightarrow> \<llangle>True\<rrangle>, _ \<Rightarrow> \<llangle>False\<rrangle> } \<close>
 
 subsection\<open> Slice patterns \<close>
@@ -2604,34 +2604,34 @@ slice-argument grammar has an empty tail. These same-source rows cover ordinary,
 rest, and recursively nested slice lists.
 \<close>
 
-urust expr trailing_slice_closed
+urust_expr trailing_slice_closed
   \<open> match \<llangle>[1 :: nat, 2]\<rrangle> { [x, y,] \<Rightarrow> x, _ \<Rightarrow> 0 } \<close>
 
-urust expr trailing_slice_rest
+urust_expr trailing_slice_rest
   \<open> match \<llangle>[1 :: nat, 2, 3]\<rrangle> { [head, ..,] \<Rightarrow> head, _ \<Rightarrow> 0 } \<close>
 
-urust expr trailing_slice_nested
+urust_expr trailing_slice_nested
   \<open> match \<llangle>[[1 :: nat, 2], [3]]\<rrangle> { [[x, y,], [z,],] \<Rightarrow> x, _ \<Rightarrow> 0 } \<close>
 
-urust expr adv_slice_empty
+urust_expr adv_slice_empty
   \<open> match \<llangle>([] :: nat list)\<rrangle> { [] \<Rightarrow> \<llangle>True\<rrangle>, _ \<Rightarrow> \<llangle>False\<rrangle> } \<close>
 
-urust expr adv_slice_closed
+urust_expr adv_slice_closed
   \<open> match \<llangle>[1 :: nat, 2]\<rrangle> { [x, y] \<Rightarrow> x, _ \<Rightarrow> 0 } \<close>
 
-urust expr adv_slice_prefix
+urust_expr adv_slice_prefix
   \<open> match \<llangle>[1 :: nat, 2, 3]\<rrangle> { [head, ..] \<Rightarrow> head, _ \<Rightarrow> 0 } \<close>
 
-urust expr adv_slice_suffix
+urust_expr adv_slice_suffix
   \<open> match \<llangle>[1 :: nat, 2, 3]\<rrangle> { [.., y, z] \<Rightarrow> y, _ \<Rightarrow> 0 } \<close>
 
-urust expr adv_slice_middle
+urust_expr adv_slice_middle
   \<open> match \<llangle>[1 :: nat, 2, 3, 4]\<rrangle> { [a, b, .., y, z] \<Rightarrow> z, _ \<Rightarrow> 0 } \<close>
 
-urust expr adv_slice_short
+urust_expr adv_slice_short
   \<open> match \<llangle>[1 :: nat, 2, 3]\<rrangle> { [a, b, .., y, z] \<Rightarrow> \<llangle>True\<rrangle>, _ \<Rightarrow> \<llangle>False\<rrangle> } \<close>
 
-urust expr adv_slice_nested
+urust_expr adv_slice_nested
   \<open> match \<llangle>Some [1 :: nat, 2, 3]\<rrangle> { Some([a, .., z]) \<Rightarrow> z, _ \<Rightarrow> 0 } \<close>
 
 subsection\<open> Struct patterns \<close>
@@ -2681,22 +2681,22 @@ val _ =
   end
 \<close>
 
-urust expr adv_struct_reordered
+urust_expr adv_struct_reordered
   \<open> match \<llangle>AdvStruct 1 2\<rrangle> { AdvStruct { adv_right: y, adv_left: x } \<Rightarrow> x, _ \<Rightarrow> 0 } \<close>
 
-urust expr adv_struct_shorthand
+urust_expr adv_struct_shorthand
   \<open> match \<llangle>AdvStruct 1 2\<rrangle> { AdvStruct { adv_left, adv_right } \<Rightarrow> adv_right, _ \<Rightarrow> 0 } \<close>
 
-urust expr adv_struct_rest
+urust_expr adv_struct_rest
   \<open> match \<llangle>AdvStruct 1 2\<rrangle> { AdvStruct { adv_left, .. } \<Rightarrow> adv_left, _ \<Rightarrow> 0 } \<close>
 
-urust expr adv_struct_or
+urust_expr adv_struct_or
   \<open> match \<llangle>AdvStruct 1 2\<rrangle> { AdvStruct { adv_left: _, adv_right: _ } | AdvOther \<Rightarrow> \<llangle>True\<rrangle> } \<close>
 
-urust expr adv_struct_datatype_record
+urust_expr adv_struct_datatype_record
   \<open> match \<llangle>make_adv_datatype_record 3 4\<rrangle> { adv_datatype_record { adv_dr_right: y, adv_dr_left: x } \<Rightarrow> y } \<close>
 
-urust expr reference_pattern_struct
+urust_expr reference_pattern_struct
   \<open>
     match \<llangle>AdvStruct 1 2\<rrangle> {
       &AdvStruct { adv_right: & mut right, adv_left: &(left) } \<Rightarrow>
@@ -2722,29 +2722,29 @@ tuple retains the frontend's direct irrefutable-binding special case.
 
 subsection\<open> Placement and continuations \<close>
 
-urust expr if_let_one_armed_terminal
+urust_expr if_let_one_armed_terminal
   \<open> if let Some(value) = Some(\<llangle>1 :: nat\<rrangle>) { let _ = value; () } \<close>
 
-urust expr if_let_two_armed_terminal
+urust_expr if_let_two_armed_terminal
   \<open> if let Some(value) = Some(\<llangle>1 :: nat\<rrangle>) { value } else { 0 } \<close>
 
-urust expr if_let_explicit_semicolon
+urust_expr if_let_explicit_semicolon
   \<open> if let Some(_) = Some(()) { () }; () \<close>
 
-urust expr if_let_semicolon_free_statement
+urust_expr if_let_semicolon_free_statement
   \<open> if let Some(_) = Some(()) { () } else { () } () \<close>
 
-urust expr let_else_simple_continuation
+urust_expr let_else_simple_continuation
   \<open> let Some(value) = Some(\<llangle>1 :: nat\<rrangle>) else { 0 }; value \<close>
 
-urust expr let_else_nested_continuation
+urust_expr let_else_nested_continuation
   \<open>
     let Some(value) = Some(\<llangle>1 :: nat\<rrangle>) else { 0 };
     let Some(next) = Some(\<llangle>value + 1\<rrangle>) else { 0 };
     next
   \<close>
 
-urust expr let_else_returning_continuation
+urust_expr let_else_returning_continuation
   \<open>
     let Some(value) = Some(\<llangle>1 :: nat\<rrangle>) else { return \<llangle>0 :: nat\<rrangle>; };
     return value;
@@ -2752,10 +2752,10 @@ urust expr let_else_returning_continuation
 
 subsection\<open> Pattern surface \<close>
 
-urust expr if_let_nullary_constructor
+urust_expr if_let_nullary_constructor
   \<open> if let None = \<llangle>None :: nat option\<rrangle> { 1 } else { 0 } \<close>
 
-urust expr if_let_nested_tuple
+urust_expr if_let_nested_tuple
   \<open>
     if let Some((left, (middle, right))) =
       Some((\<llangle>1 :: nat\<rrangle>, (\<llangle>2 :: nat\<rrangle>, \<llangle>3 :: nat\<rrangle>))) {
@@ -2765,10 +2765,10 @@ urust expr if_let_nested_tuple
     }
   \<close>
 
-urust expr if_let_nested_wildcard
+urust_expr if_let_nested_wildcard
   \<open> if let Some((_, value)) = Some((\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>)) { value } else { 0 } \<close>
 
-urust expr if_let_alias
+urust_expr if_let_alias
   \<open>
     if let whole @ Some(value) = \<llangle>Some (2 :: nat)\<rrangle> {
       let _ = whole;
@@ -2778,16 +2778,16 @@ urust expr if_let_alias
     }
   \<close>
 
-urust expr if_let_grouped
+urust_expr if_let_grouped
   \<open> if let (Some(value)) = \<llangle>Some (2 :: nat)\<rrangle> { value } else { 0 } \<close>
 
-urust expr if_let_literal
+urust_expr if_let_literal
   \<open> if let true = \<llangle>True\<rrangle> { 1 } else { 0 } \<close>
 
-urust expr if_let_range
+urust_expr if_let_range
   \<open> if let Some(2..=4) = \<llangle>Some (3 :: nat)\<rrangle> { 1 } else { 0 } \<close>
 
-urust expr if_let_slice
+urust_expr if_let_slice
   \<open>
     if let [head, ..] = \<llangle>[1 :: nat, 2]\<rrangle> {
       head
@@ -2796,7 +2796,7 @@ urust expr if_let_slice
     }
   \<close>
 
-urust expr if_let_struct
+urust_expr if_let_struct
   \<open>
     if let AdvStruct { adv_left: left, adv_right: _ } =
       \<llangle>AdvStruct 1 2\<rrangle> {
@@ -2806,7 +2806,7 @@ urust expr if_let_struct
     }
   \<close>
 
-urust expr if_let_or_pattern
+urust_expr if_let_or_pattern
   \<open>
     if let ConditionalLetA(value) | ConditionalLetB(value) =
       \<llangle>ConditionalLetA 3\<rrangle> {
@@ -2816,7 +2816,7 @@ urust expr if_let_or_pattern
     }
   \<close>
 
-urust expr if_let_top_tuple_direct
+urust_expr if_let_top_tuple_direct
   \<open>
     if let (left, right) =
       (\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>) {
@@ -2826,13 +2826,13 @@ urust expr if_let_top_tuple_direct
     }
   \<close>
 
-urust expr let_else_constructor
+urust_expr let_else_constructor
   \<open>
     let Some(value) = \<llangle>Some (4 :: nat)\<rrangle> else { 0 };
     value
   \<close>
 
-urust expr let_else_tuple_direct
+urust_expr let_else_tuple_direct
   \<open>
     let (left, right) =
       (\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>) else {
@@ -2841,7 +2841,7 @@ urust expr let_else_tuple_direct
     \<llangle>left + right\<rrangle>
   \<close>
 
-urust expr let_else_or_pattern
+urust_expr let_else_or_pattern
   \<open>
     let ConditionalLetA(value) | ConditionalLetB(value) =
       \<llangle>ConditionalLetB 5\<rrangle> else {
@@ -2852,7 +2852,7 @@ urust expr let_else_or_pattern
 
 subsection\<open> Nesting and scrutinees \<close>
 
-urust expr if_let_nested
+urust_expr if_let_nested
   \<open>
     if let Some(outer) = \<llangle>Some (1 :: nat)\<rrangle> {
       if let Some(inner) = Some(\<llangle>outer + 1\<rrangle>) { inner } else { 0 }
@@ -2861,7 +2861,7 @@ urust expr if_let_nested
     }
   \<close>
 
-urust expr if_let_inside_if
+urust_expr if_let_inside_if
   \<open>
     if true {
       if let Some(value) = \<llangle>Some (1 :: nat)\<rrangle> { value } else { 0 }
@@ -2870,7 +2870,7 @@ urust expr if_let_inside_if
     }
   \<close>
 
-urust expr if_let_inside_match
+urust_expr if_let_inside_match
   \<open>
     match \<llangle>Some (1 :: nat)\<rrangle> {
       Some(value) \<Rightarrow> {
@@ -2880,7 +2880,7 @@ urust expr if_let_inside_match
     }
   \<close>
 
-urust expr if_let_branch_control_flow
+urust_expr if_let_branch_control_flow
   \<open>
     if let Some(value) = \<llangle>Some (1 :: nat)\<rrangle> {
       if \<llangle>value = 1\<rrangle> { value } else { 0 }
@@ -2892,10 +2892,10 @@ urust expr if_let_branch_control_flow
     }
   \<close>
 
-urust expr if_let_block_scrutinee
+urust_expr if_let_block_scrutinee
   \<open> if let Some(value) = { \<llangle>Some (1 :: nat)\<rrangle> } { value } else { 0 } \<close>
 
-urust expr if_let_parenthesized_if_scrutinee
+urust_expr if_let_parenthesized_if_scrutinee
   \<open>
     if let Some(value) =
       (if true { \<llangle>Some (1 :: nat)\<rrangle> } else { \<llangle>None\<rrangle> }) {
@@ -2905,7 +2905,7 @@ urust expr if_let_parenthesized_if_scrutinee
     }
   \<close>
 
-urust expr if_let_parenthesized_match_scrutinee
+urust_expr if_let_parenthesized_match_scrutinee
   \<open>
     if let Some(value) =
       (match true {
@@ -2918,7 +2918,7 @@ urust expr if_let_parenthesized_match_scrutinee
     }
   \<close>
 
-urust expr if_let_expression_antiquotation_scrutinee
+urust_expr if_let_expression_antiquotation_scrutinee
   \<open>
     if let Some(value) =
       \<epsilon>\<open>literal (Some (1 :: nat))\<close> {
@@ -2930,20 +2930,20 @@ urust expr if_let_expression_antiquotation_scrutinee
 
 subsection\<open> Scope and shadowing \<close>
 
-urust expr if_let_outer_scrutinee_and_fallback
+urust_expr if_let_outer_scrutinee_and_fallback
   \<open>
     let value = \<llangle>Some (1 :: nat)\<rrangle>;
     let fallback = \<llangle>2 :: nat\<rrangle>;
     if let Some(value) = value { \<llangle>value\<rrangle> } else { fallback }
   \<close>
 
-urust expr if_let_outer_shadowed_name_in_fallback
+urust_expr if_let_outer_shadowed_name_in_fallback
   \<open>
     let value = \<llangle>2 :: nat\<rrangle>;
     if let Some(value) = \<llangle>None :: nat option\<rrangle> { value } else { value }
   \<close>
 
-urust expr let_else_continuation_scope
+urust_expr let_else_continuation_scope
   \<open>
     let value = \<llangle>Some (3 :: nat)\<rrangle>;
     let Some(value) = value else { 0 };
@@ -2953,7 +2953,7 @@ urust expr let_else_continuation_scope
 context fixes conditional_let_fix :: nat
 begin
 
-urust expr if_let_hol_fix_shadow
+urust_expr if_let_hol_fix_shadow
   \<open>
     if let Some(conditional_let_fix) = Some(conditional_let_fix) {
       \<llangle>conditional_let_fix\<rrangle>
@@ -2964,10 +2964,10 @@ urust expr if_let_hol_fix_shadow
 
 end
 
-urust expr if_let_hol_constant_shadow
+urust_expr if_let_hol_constant_shadow
   \<open> if let Some(id) = \<llangle>Some (1 :: nat)\<rrangle> { \<llangle>id\<rrangle> } else { 0 } \<close>
 
-urust expr if_let_notation_shadow
+urust_expr if_let_notation_shadow
   \<open> if let Some(myReg) = \<llangle>Some (1 :: nat)\<rrangle> { \<llangle>myReg\<rrangle> } else { myReg } \<close>
 
 section\<open> Bare \<open>match\<close> (automatic case/switch routing, D32) \<close>
@@ -2982,25 +2982,25 @@ context fixes x :: \<open>nat option\<close> and n :: nat
 begin
 
 text\<open> Constructor and binding patterns route to the case lowering. \<close>
-urust expr ma_case \<open> match x { Some(y) \<Rightarrow> y, None \<Rightarrow> 0 } \<close>
+urust_expr ma_case \<open> match x { Some(y) \<Rightarrow> y, None \<Rightarrow> 0 } \<close>
 
 text\<open> Numeral and wildcard patterns route to the switch lowering. \<close>
-urust expr ma_switch \<open> match n { 0 \<Rightarrow> \<llangle>False\<rrangle>, _ \<Rightarrow> \<llangle>True\<rrangle> } \<close>
+urust_expr ma_switch \<open> match n { 0 \<Rightarrow> \<llangle>False\<rrangle>, _ \<Rightarrow> \<llangle>True\<rrangle> } \<close>
 
 text\<open> Identifier/wildcard arms are compatible with both lowerings and deliberately default to case. \<close>
-urust expr ma_ambiguous \<open> match x { None \<Rightarrow> 0, _ \<Rightarrow> 1 } \<close>
+urust_expr ma_ambiguous \<open> match x { None \<Rightarrow> 0, _ \<Rightarrow> 1 } \<close>
 
 text\<open> Bare \<open>match\<close> in a let RHS. \<close>
-urust expr ma_let \<open> let r = match x { Some(y) \<Rightarrow> y, None \<Rightarrow> 0 }; r \<close>
+urust_expr ma_let \<open> let r = match x { Some(y) \<Rightarrow> y, None \<Rightarrow> 0 }; r \<close>
 
 text\<open>
 Bare \<open>match\<close> is a semicolon-free block-like statement in both frontends. The parser-only
 semicolon-free explicit forms are covered separately as accepted-surface improvements.
 \<close>
-urust expr ma_stmt \<open> match x { Some(_) \<Rightarrow> (), None \<Rightarrow> () } () \<close>
+urust_expr ma_stmt \<open> match x { Some(_) \<Rightarrow> (), None \<Rightarrow> () } () \<close>
 
 text\<open> Nested bare matches re-enter \<open>uval\<close>; the outer arms route to case and the inner arms to switch. \<close>
-urust expr ma_nested
+urust_expr ma_nested
   \<open> match x { Some(y) \<Rightarrow> match y { 0 \<Rightarrow> 1, _ \<Rightarrow> 2 }, None \<Rightarrow> 0 } \<close>
 
 end
@@ -3018,35 +3018,35 @@ micro-Rust notation registry.
 
 subsection\<open> Sequential and tuple bindings \<close>
 
-urust expr bind_let_rhs_outer
+urust_expr bind_let_rhs_outer
   \<open> let x = \<llangle>1 :: nat\<rrangle>; let x = x; x \<close>
 
-urust expr bind_let_three_deep
+urust_expr bind_let_three_deep
   \<open> let x = \<llangle>1 :: nat\<rrangle>; let x = x; let x = x; \<llangle>x\<rrangle> \<close>
 
-urust expr bind_let_cross_names
+urust_expr bind_let_cross_names
   \<open> let x = \<llangle>1 :: nat\<rrangle>; let y = x; let x = y; \<llangle>x + y\<rrangle> \<close>
 
-urust expr bind_const_then_let
+urust_expr bind_const_then_let
   \<open> const x = \<llangle>1 :: nat\<rrangle>; let x = x; \<llangle>x\<rrangle> \<close>
 
-urust expr bind_let_then_const
+urust_expr bind_let_then_const
   \<open> let x = \<llangle>1 :: nat\<rrangle>; const x = x; \<llangle>x\<rrangle> \<close>
 
 text\<open> A binder introduced inside a block or branch is absent from the enclosing continuation. \<close>
 
-urust expr bind_block_scope
+urust_expr bind_block_scope
   \<open> let x = \<llangle>1 :: nat\<rrangle>; let result = { let x = \<llangle>2 :: nat\<rrangle>; x }; x \<close>
 
-urust expr bind_if_branch_scope
+urust_expr bind_if_branch_scope
   \<open> let x = \<llangle>1 :: nat\<rrangle>; let result = if True { let x = x; x } else { let x = x; x }; x \<close>
 
 text\<open> Expression antiquotations use the same lexical environment as value antiquotations. \<close>
 
-urust expr bind_expression_antiquotation
+urust_expr bind_expression_antiquotation
   \<open> let x = \<llangle>5 :: nat\<rrangle>; \<epsilon>\<open>\<up>x\<close> \<close>
 
-urust expr bind_tuple_rhs_outer
+urust_expr bind_tuple_rhs_outer
   \<open>
     let x = \<llangle>1 :: nat\<rrangle>;
     let y = \<llangle>True\<rrangle>;
@@ -3054,7 +3054,7 @@ urust expr bind_tuple_rhs_outer
     \<llangle>(x, y)\<rrangle>
   \<close>
 
-urust expr bind_tuple_nested_shadow
+urust_expr bind_tuple_nested_shadow
   \<open>
     let x = \<llangle>1 :: nat\<rrangle>;
     let y = \<llangle>2 :: nat\<rrangle>;
@@ -3063,13 +3063,13 @@ urust expr bind_tuple_nested_shadow
     \<llangle>x + y + z\<rrangle>
   \<close>
 
-urust expr bind_tuple_wildcard_preserves_outer
+urust_expr bind_tuple_wildcard_preserves_outer
   \<open> let x = \<llangle>1 :: nat\<rrangle>; let (_, y) = (x, \<llangle>True\<rrangle>); \<llangle>(x, y)\<rrangle> \<close>
 
-urust expr bind_const_tuple_shadow
+urust_expr bind_const_tuple_shadow
   \<open> let x = \<llangle>1 :: nat\<rrangle>; let y = \<llangle>2 :: nat\<rrangle>; const (x, y) = (y, x); \<llangle>x + y\<rrangle> \<close>
 
-urust expr bind_tuple_successive_shadow
+urust_expr bind_tuple_successive_shadow
   \<open>
     let (x, y) = (\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>);
     let (x, y) = (y, x);
@@ -3082,29 +3082,29 @@ subsection\<open> Mutable and immutable transitions \<close>
 adhoc_overloading store_reference_const \<rightleftharpoons> parser_reference_fixture
 adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
 
-urust expr bind_immutable_to_mutable
+urust_expr bind_immutable_to_mutable
   \<open> let x = \<llangle>1 :: 32 word\<rrangle>; let mut x = x; \<llangle>x\<rrangle> \<close>
 
-urust expr bind_mutable_to_immutable
+urust_expr bind_mutable_to_immutable
   \<open> let mut x = \<llangle>1 :: 32 word\<rrangle>; let x = *x; \<llangle>x\<rrangle> \<close>
 
-urust expr bind_mutable_to_mutable
+urust_expr bind_mutable_to_mutable
   \<open> let mut x = \<llangle>1 :: 32 word\<rrangle>; let mut x = *x; \<llangle>x\<rrangle> \<close>
 
-urust expr bind_mutable_block_scope
+urust_expr bind_mutable_block_scope
   \<open>
     let mut x = \<llangle>1 :: 32 word\<rrangle>;
     let inner = { let mut x = *x; *x };
     *x
   \<close>
 
-urust expr bind_mutable_then_match
+urust_expr bind_mutable_then_match
   \<open>
     let mut x = \<llangle>1 :: 32 word\<rrangle>;
     match Some(*x) { Some(x) \<Rightarrow> x, None \<Rightarrow> *x }
   \<close>
 
-urust expr bind_match_then_mutable
+urust_expr bind_match_then_mutable
   \<open>
     match \<llangle>Some (1 :: 32 word)\<rrangle> {
       Some(x) \<Rightarrow> { let mut x = x; *x },
@@ -3112,7 +3112,7 @@ urust expr bind_match_then_mutable
     }
   \<close>
 
-urust expr bind_mutable_tuple_shadow
+urust_expr bind_mutable_tuple_shadow
   \<open>
     let x = \<llangle>1 :: nat\<rrangle>;
     let y = \<llangle>2 :: nat\<rrangle>;
@@ -3122,7 +3122,7 @@ urust expr bind_mutable_tuple_shadow
 
 context fixes x :: \<open>32 word\<close>
 begin
-urust expr bind_hol_mutable_shadow
+urust_expr bind_hol_mutable_shadow
   \<open> let mut x = x; \<llangle>x\<rrangle> \<close>
 end
 
@@ -3133,25 +3133,25 @@ datatype binder_shadow_sum =
     BinderNat nat
   | BinderBool bool
 
-urust expr bind_match_arm_shadow
+urust_expr bind_match_arm_shadow
   \<open>
     let x = \<llangle>0 :: nat\<rrangle>;
     match \<llangle>Some (1 :: nat)\<rrangle> { Some(x) \<Rightarrow> \<llangle>x\<rrangle>, None \<Rightarrow> x }
   \<close>
 
-urust expr bind_match_case_arm_shadow
+urust_expr bind_match_case_arm_shadow
   \<open>
     let x = \<llangle>0 :: nat\<rrangle>;
     match_case \<llangle>Some (1 :: nat)\<rrangle> { Some(x) \<Rightarrow> \<llangle>x\<rrangle>, None \<Rightarrow> x }
   \<close>
 
-urust expr bind_match_scrutinee_outer
+urust_expr bind_match_scrutinee_outer
   \<open>
     let x = \<llangle>Some (1 :: nat)\<rrangle>;
     match x { Some(x) \<Rightarrow> x, None \<Rightarrow> \<llangle>0 :: nat\<rrangle> }
   \<close>
 
-urust expr bind_match_nested_let
+urust_expr bind_match_nested_let
   \<open>
     let x = \<llangle>0 :: nat\<rrangle>;
     match \<llangle>Some (1 :: nat)\<rrangle> {
@@ -3160,7 +3160,7 @@ urust expr bind_match_nested_let
     }
   \<close>
 
-urust expr bind_match_nested_match
+urust_expr bind_match_nested_match
   \<open>
     let x = \<llangle>0 :: nat\<rrangle>;
     match \<llangle>Some (1 :: nat)\<rrangle> {
@@ -3171,7 +3171,7 @@ urust expr bind_match_nested_match
 
 text\<open> The same source name may be independently typed in sibling alternatives. \<close>
 
-urust expr bind_match_sibling_types
+urust_expr bind_match_sibling_types
   \<open>
     match \<llangle>BinderNat 1\<rrangle> {
       BinderNat(x) \<Rightarrow> { let _ = \<llangle>x\<rrangle>; () },
@@ -3179,7 +3179,7 @@ urust expr bind_match_sibling_types
     }
   \<close>
 
-urust expr bind_match_sibling_same_name
+urust_expr bind_match_sibling_same_name
   \<open>
     match \<llangle>Ok (1 :: nat) :: (nat, nat) result\<rrangle> {
       Ok(x) \<Rightarrow> \<llangle>x\<rrangle>,
@@ -3187,14 +3187,14 @@ urust expr bind_match_sibling_same_name
     }
   \<close>
 
-urust expr bind_match_tuple_shadow
+urust_expr bind_match_tuple_shadow
   \<open>
     let x = \<llangle>0 :: nat\<rrangle>;
     let y = \<llangle>True\<rrangle>;
     match \<llangle>(1 :: nat, (False, TNil))\<rrangle> { (x, y) \<Rightarrow> \<llangle>(x, y)\<rrangle> }
   \<close>
 
-urust expr bind_match_nested_tuple_shadow
+urust_expr bind_match_nested_tuple_shadow
   \<open>
     let x = \<llangle>0 :: nat\<rrangle>;
     let y = \<llangle>True\<rrangle>;
@@ -3204,7 +3204,7 @@ urust expr bind_match_nested_tuple_shadow
     }
   \<close>
 
-urust expr bind_match_alias_shadow
+urust_expr bind_match_alias_shadow
   \<open>
     let whole = \<llangle>None :: nat option\<rrangle>;
     let value = \<llangle>0 :: nat\<rrangle>;
@@ -3214,7 +3214,7 @@ urust expr bind_match_alias_shadow
     }
   \<close>
 
-urust expr bind_match_struct_shadow
+urust_expr bind_match_struct_shadow
   \<open>
     let x = \<llangle>0 :: nat\<rrangle>;
     let y = \<llangle>0 :: nat\<rrangle>;
@@ -3226,7 +3226,7 @@ urust expr bind_match_struct_shadow
 
 text\<open> Struct shorthand binders also shadow their same-named HOL selector constants. \<close>
 
-urust expr bind_match_struct_shorthand_shadow
+urust_expr bind_match_struct_shorthand_shadow
   \<open>
     let adv_left = \<llangle>0 :: nat\<rrangle>;
     match \<llangle>AdvStruct 1 2\<rrangle> {
@@ -3235,7 +3235,7 @@ urust expr bind_match_struct_shorthand_shadow
     }
   \<close>
 
-urust expr bind_match_result_shadow
+urust_expr bind_match_result_shadow
   \<open>
     let x = \<llangle>0 :: nat\<rrangle>;
     let x = match \<llangle>Some (1 :: nat)\<rrangle> { Some(x) \<Rightarrow> x, None \<Rightarrow> x };
@@ -3244,7 +3244,7 @@ urust expr bind_match_result_shadow
 
 text\<open> Switch lowering has no source binder; its generated scrutinee binder remains hygienic. \<close>
 
-urust expr bind_match_switch_hygiene
+urust_expr bind_match_switch_hygiene
   \<open>
     let anon_case = \<llangle>7 :: nat\<rrangle>;
     match_switch \<llangle>0 :: nat\<rrangle> { 0 \<Rightarrow> anon_case, _ \<Rightarrow> anon_case }
@@ -3262,27 +3262,27 @@ only in its lexical continuation or arm.
 context fixes x :: nat and y :: bool
 begin
 
-urust expr bind_hol_context_baseline \<open> \<llangle>(x, y)\<rrangle> \<close>
+urust_expr bind_hol_context_baseline \<open> \<llangle>(x, y)\<rrangle> \<close>
 
-urust expr bind_hol_let_shadow
+urust_expr bind_hol_let_shadow
   \<open> let x = x; x \<close>
 
-urust expr bind_hol_let_antiquotation
+urust_expr bind_hol_let_antiquotation
   \<open> let x = x; \<llangle>x\<rrangle> \<close>
 
-urust expr bind_hol_let_mixed_antiquotation
+urust_expr bind_hol_let_mixed_antiquotation
   \<open> let x = x; \<llangle>(x, y)\<rrangle> \<close>
 
-urust expr bind_hol_let_chain
+urust_expr bind_hol_let_chain
   \<open> let x = x; let x = x; \<llangle>x\<rrangle> \<close>
 
-urust expr bind_hol_tuple_shadow
+urust_expr bind_hol_tuple_shadow
   \<open> let (x, y) = (x, y); \<llangle>(x, y)\<rrangle> \<close>
 
-urust expr bind_hol_match_shadow
+urust_expr bind_hol_match_shadow
   \<open> match Some(x) { Some(x) \<Rightarrow> \<llangle>x\<rrangle>, None \<Rightarrow> x } \<close>
 
-urust expr bind_hol_branch_scope
+urust_expr bind_hol_branch_scope
   \<open> let result = if True { let x = x; x } else { x }; \<llangle>(x, y)\<rrangle> \<close>
 
 end
@@ -3296,19 +3296,19 @@ same-named constant, constructor, selector, or registered notation. A sibling ar
 binder must continue to resolve the outer meaning.
 \<close>
 
-urust expr bind_constant_id_direct
+urust_expr bind_constant_id_direct
   \<open> let id = \<llangle>1 :: nat\<rrangle>; id \<close>
 
-urust expr bind_constants_nested
+urust_expr bind_constants_nested
   \<open> let id = \<llangle>1 :: nat\<rrangle>; let fst = id; \<llangle>id + fst\<rrangle> \<close>
 
-urust expr bind_constants_tuple
+urust_expr bind_constants_tuple
   \<open>
     let (id, fst) = (\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>);
     \<llangle>id + fst\<rrangle>
   \<close>
 
-urust expr bind_constant_match
+urust_expr bind_constant_match
   \<open>
     match \<llangle>Some (1 :: nat)\<rrangle> {
       Some(id) \<Rightarrow> \<llangle>id\<rrangle>,
@@ -3316,17 +3316,17 @@ urust expr bind_constant_match
     }
   \<close>
 
-urust expr bind_constructor_names
+urust_expr bind_constructor_names
   \<open>
     let Some = \<llangle>1 :: nat\<rrangle>;
     let None = Some;
     \<llangle>Some + None\<rrangle>
   \<close>
 
-urust expr bind_notation_direct
+urust_expr bind_notation_direct
   \<open> let myReg = \<llangle>1 :: nat\<rrangle>; myReg \<close>
 
-urust expr bind_notation_match_scope
+urust_expr bind_notation_match_scope
   \<open>
     match \<llangle>Some (1 :: nat)\<rrangle> {
       Some(myReg) \<Rightarrow> \<llangle>myReg\<rrangle>,
@@ -3334,12 +3334,12 @@ urust expr bind_notation_match_scope
     }
   \<close>
 
-urust expr bind_constant_mutable
+urust_expr bind_constant_mutable
   \<open> let mut id = \<llangle>1 :: 32 word\<rrangle>; \<llangle>id\<rrangle> \<close>
 
 context fixes id :: nat
 begin
-urust expr bind_hol_constant_triple_shadow
+urust_expr bind_hol_constant_triple_shadow
   \<open> let id = id; \<llangle>id\<rrangle> \<close>
 end
 
@@ -3358,51 +3358,51 @@ adhoc_overloading assign_add_const \<rightleftharpoons> parser_assign_add_fixtur
 context fixes n :: nat
 begin
 
-urust expr fueled_while_semicolon
+urust_expr fueled_while_semicolon
   \<open> let mut x = \<llangle>0 :: 32 word\<rrangle>; #[fuel(\<epsilon>\<open>n\<close>) ] while (*x < 10_u32) { x += 1_u32; }; *x \<close>
 
-urust expr fueled_while_statement
+urust_expr fueled_while_statement
   \<open> let mut x = \<llangle>0 :: 32 word\<rrangle>; #[fuel(\<epsilon>\<open>n :: nat\<close>) ] while (*x < 10_u32) { x += 1_u32; } *x \<close>
 
-urust expr fueled_loop_semicolon
+urust_expr fueled_loop_semicolon
   \<open> let mut x = \<llangle>0 :: 32 word\<rrangle>; #[fuel(\<epsilon>\<open>n\<close>) ] loop { x += 1_u32; }; *x \<close>
 
-urust expr fueled_loop_statement
+urust_expr fueled_loop_statement
   \<open> let mut x = \<llangle>0 :: 32 word\<rrangle>; #[fuel(\<epsilon>\<open>n :: nat\<close>) ] loop { x += 1_u32; } *x \<close>
 
-urust expr fueled_while_terminal
+urust_expr fueled_while_terminal
   \<open> #[fuel(\<epsilon>\<open>n\<close>)] while (false) { () } \<close>
 
-urust expr fueled_loop_terminal
+urust_expr fueled_loop_terminal
   \<open> #[fuel(\<epsilon>\<open>n\<close>)] loop { () } \<close>
 
-urust expr fueled_loop_capture
+urust_expr fueled_loop_capture
   \<open> let steps = \<llangle>2 :: nat\<rrangle>; #[fuel(\<epsilon>\<open>steps\<close>)] loop { () } \<close>
 
-urust expr fueled_while_capture
+urust_expr fueled_while_capture
   \<open> let keep_going = \<llangle>False\<rrangle>; let body_value = (); #[fuel(\<epsilon>\<open>n\<close>)] while (keep_going) { body_value } \<close>
 
-urust expr fueled_loop_nested
+urust_expr fueled_loop_nested
   \<open> #[fuel(\<epsilon>\<open>n\<close>)] while (true) { #[fuel(\<epsilon>\<open>n\<close>)] loop { () } } \<close>
 
-urust expr fueled_loop_parenthesized_operand
+urust_expr fueled_loop_parenthesized_operand
   \<open> (#[fuel(\<epsilon>\<open>n\<close>)] loop { () }) == () \<close>
 
 end
 
-urust expr for_terminal_identifier
+urust_expr for_terminal_identifier
   \<open> for value in \<llangle>[1 :: nat, 2, 3]\<rrangle> { let _ = value; () } \<close>
 
-urust expr for_semicolon
+urust_expr for_semicolon
   \<open> for value in \<llangle>[1 :: nat]\<rrangle> { let _ = value; () }; () \<close>
 
-urust expr for_statement
+urust_expr for_statement
   \<open> for value in \<llangle>[1 :: nat]\<rrangle> { let _ = value; () } () \<close>
 
-urust expr for_wildcard
+urust_expr for_wildcard
   \<open> for _ in \<llangle>[1 :: nat, 2]\<rrangle> { () } \<close>
 
-urust expr for_tuple
+urust_expr for_tuple
   \<open>
     for (left, right) in
       \<llangle>[(1 :: nat, 2 :: nat, TNil), (3, 4 :: nat, TNil)]\<rrangle> {
@@ -3412,7 +3412,7 @@ urust expr for_tuple
     }
   \<close>
 
-urust expr for_nested_tuple
+urust_expr for_nested_tuple
   \<open>
     for (head, (middle, tail)) in
       \<llangle>[(1 :: nat, (2 :: nat, 3 :: nat, TNil), TNil)]\<rrangle> {
@@ -3420,7 +3420,7 @@ urust expr for_nested_tuple
     }
   \<close>
 
-urust expr for_shadowing
+urust_expr for_shadowing
   \<open>
     let value = \<llangle>[1 :: nat]\<rrangle>;
     for value in value { \<llangle>value\<rrangle>; }
@@ -3428,7 +3428,7 @@ urust expr for_shadowing
     ()
   \<close>
 
-urust expr for_body_capture
+urust_expr for_body_capture
   \<open>
     let offset = \<llangle>10 :: nat\<rrangle>;
     for value in \<llangle>[1 :: nat, 2]\<rrangle> {
@@ -3436,13 +3436,13 @@ urust expr for_body_capture
     }
   \<close>
 
-urust expr for_grouped_binder
+urust_expr for_grouped_binder
   \<open> for (value) in \<llangle>[1 :: nat]\<rrangle> { let _ = value; () } \<close>
 
-urust expr for_block_iterable
+urust_expr for_block_iterable
   \<open> for value in { \<llangle>[1 :: nat]\<rrangle> } { let _ = value; () } \<close>
 
-urust expr for_if_iterable
+urust_expr for_if_iterable
   \<open>
     for value in
       (if true { \<llangle>[1 :: nat]\<rrangle> } else { \<llangle>[2 :: nat]\<rrangle> }) {
@@ -3451,7 +3451,7 @@ urust expr for_if_iterable
     }
   \<close>
 
-urust expr for_match_iterable
+urust_expr for_match_iterable
   \<open>
     for value in
       (match true {
@@ -3463,7 +3463,7 @@ urust expr for_match_iterable
     }
   \<close>
 
-urust expr for_keyword_prefix_identifiers
+urust_expr for_keyword_prefix_identifiers
   \<open>
     let inside = \<llangle>[1 :: nat]\<rrangle>;
     for format in inside {
@@ -3475,20 +3475,20 @@ urust expr for_keyword_prefix_identifiers
 context fixes n :: nat and g :: nat
 begin
 
-urust expr while_let_some_semicolon
+urust_expr while_let_some_semicolon
   \<open> #[fuel(\<epsilon>\<open>n\<close>)] while let Some(value) = Some(g) { let _ = value; () }; () \<close>
 
-urust expr while_let_some_statement
+urust_expr while_let_some_statement
   \<open> #[fuel(\<epsilon>\<open>n :: nat\<close>)] while let Some(value) = Some(g) { let _ = value; () } () \<close>
 
-urust expr while_let_ok
+urust_expr while_let_ok
   \<open> #[fuel(\<epsilon>\<open>n\<close>)] while let Ok(value) =
     \<llangle>Ok g :: (nat, unit) result\<rrangle> { let _ = value; () } \<close>
 
-urust expr while_let_nested_constructor
+urust_expr while_let_nested_constructor
   \<open> #[fuel(\<epsilon>\<open>n\<close>)] while let Some(Some(value)) = Some(Some(g)) { let _ = value; () } \<close>
 
-urust expr while_let_tuple
+urust_expr while_let_tuple
   \<open>
     #[fuel(\<epsilon>\<open>n\<close>)] while let (left, right) =
       (\<llangle>g\<rrangle>, \<llangle>g + 1\<rrangle>) {
@@ -3496,10 +3496,10 @@ urust expr while_let_tuple
     }
   \<close>
 
-urust expr while_let_terminal
+urust_expr while_let_terminal
   \<open> #[fuel(\<epsilon>\<open>n\<close>)] while let None = \<llangle>None :: nat option\<rrangle> { () } \<close>
 
-urust expr while_let_grouped_refutable_tuple
+urust_expr while_let_grouped_refutable_tuple
   \<open>
     #[fuel(\<epsilon>\<open>n\<close>)] while let ((Some(value), other)) =
       (\<llangle>Some g\<rrangle>, \<llangle>g\<rrangle>) {
@@ -3507,7 +3507,7 @@ urust expr while_let_grouped_refutable_tuple
     }
   \<close>
 
-urust expr while_let_refutable_alias
+urust_expr while_let_refutable_alias
   \<open>
     #[fuel(\<epsilon>\<open>n\<close>)] while let whole @ Some(value) =
       \<llangle>Some g\<rrangle> {
@@ -3517,10 +3517,10 @@ urust expr while_let_refutable_alias
     }
   \<close>
 
-urust expr while_let_refutable_literal
+urust_expr while_let_refutable_literal
   \<open> #[fuel(\<epsilon>\<open>n\<close>)] while let true = true { () } \<close>
 
-urust expr while_let_refutable_slice
+urust_expr while_let_refutable_slice
   \<open>
     #[fuel(\<epsilon>\<open>n\<close>)] while let [head, ..] =
       \<llangle>[g]\<rrangle> {
@@ -3529,7 +3529,7 @@ urust expr while_let_refutable_slice
     }
   \<close>
 
-urust expr while_let_refutable_struct
+urust_expr while_let_refutable_struct
   \<open>
     #[fuel(\<epsilon>\<open>n\<close>)] while let
       AdvStruct { adv_left: left, adv_right: _ } =
@@ -3539,7 +3539,7 @@ urust expr while_let_refutable_struct
     }
   \<close>
 
-urust expr while_let_block_scrutinee
+urust_expr while_let_block_scrutinee
   \<open>
     #[fuel(\<epsilon>\<open>n\<close>)] while let Some(value) =
       { \<llangle>Some g\<rrangle> } {
@@ -3548,7 +3548,7 @@ urust expr while_let_block_scrutinee
     }
   \<close>
 
-urust expr while_let_if_scrutinee
+urust_expr while_let_if_scrutinee
   \<open>
     #[fuel(\<epsilon>\<open>n\<close>)] while let Some(value) =
       (if true { \<llangle>Some g\<rrangle> } else { \<llangle>None\<rrangle> }) {
@@ -3557,7 +3557,7 @@ urust expr while_let_if_scrutinee
     }
   \<close>
 
-urust expr while_let_match_scrutinee
+urust_expr while_let_match_scrutinee
   \<open>
     #[fuel(\<epsilon>\<open>n\<close>)] while let Some(value) =
       (match true {
@@ -3571,7 +3571,7 @@ urust expr while_let_match_scrutinee
 
 end
 
-urust expr while_let_fuel_capture
+urust_expr while_let_fuel_capture
   \<open>
     let steps = \<llangle>2 :: nat\<rrangle>;
     #[fuel(\<epsilon>\<open>steps\<close>)] while let Some(value) =
@@ -3581,7 +3581,7 @@ urust expr while_let_fuel_capture
     }
   \<close>
 
-urust expr while_let_scrutinee_shadowing
+urust_expr while_let_scrutinee_shadowing
   \<open>
     let value = \<llangle>Some (1 :: nat)\<rrangle>;
     let steps = \<llangle>2 :: nat\<rrangle>;
@@ -3605,18 +3605,18 @@ a terminal semicolon belongs to return itself, while the optional operand is low
 the current lexical environment.
 \<close>
 
-urust expr return_unit \<open> return; \<close>
+urust_expr return_unit \<open> return; \<close>
 
-urust expr return_explicit_unit \<open> return (); \<close>
+urust_expr return_explicit_unit \<open> return (); \<close>
 
-urust expr return_typed_value \<open> return \<llangle>7 :: 32 word\<rrangle>; \<close>
+urust_expr return_typed_value \<open> return \<llangle>7 :: 32 word\<rrangle>; \<close>
 
-urust expr return_bound_value
+urust_expr return_bound_value
   \<open> let result = \<llangle>7 :: nat\<rrangle>; return result; \<close>
 
-urust expr return_in_block \<open> { return; } \<close>
+urust_expr return_in_block \<open> { return; } \<close>
 
-urust expr return_in_conditional
+urust_expr return_in_conditional
   \<open>
     if \<llangle>True\<rrangle> {
       return \<llangle>1 :: nat\<rrangle>;
@@ -3625,7 +3625,7 @@ urust expr return_in_conditional
     }
   \<close>
 
-urust expr return_in_match_arms
+urust_expr return_in_match_arms
   \<open>
     match \<llangle>Some (1 :: nat)\<rrangle> {
       Some(value) \<Rightarrow> { return value; },
@@ -3662,31 +3662,31 @@ micro_rust_notation (call) macro_is_none ("is_none")
 
 subsection\<open> Assertions, aliases, delimiters, and precedence \<close>
 
-urust expr macro_assert
+urust_expr macro_assert
   \<open> assert!(true) \<close>
 
-urust expr macro_debug_assert
+urust_expr macro_debug_assert
   \<open> debug_assert!(true) \<close>
 
-urust expr macro_assert_eq
+urust_expr macro_assert_eq
   \<open> assert_eq!(1_u32, 1_u32) \<close>
 
-urust expr macro_debug_assert_eq
+urust_expr macro_debug_assert_eq
   \<open> debug_assert_eq!(1_u32, 1_u32) \<close>
 
-urust expr macro_assert_ne
+urust_expr macro_assert_ne
   \<open> assert_ne!(1_u32, 2_u32) \<close>
 
-urust expr macro_debug_assert_ne
+urust_expr macro_debug_assert_ne
   \<open> debug_assert_ne!(1_u32, 2_u32) \<close>
 
-urust expr macro_assert_brackets
+urust_expr macro_assert_brackets
   \<open> assert![true] \<close>
 
-urust expr macro_assert_whitespace
+urust_expr macro_assert_whitespace
   \<open> assert ! [ true ] \<close>
 
-urust expr macro_assert_newline
+urust_expr macro_assert_newline
   \<open>
     assert
     !
@@ -3695,22 +3695,22 @@ urust expr macro_assert_newline
     )
   \<close>
 
-urust expr macro_nested_assert
+urust_expr macro_nested_assert
   \<open> assert!(debug_assert_eq!(1_u32, 1_u32) == ()) \<close>
 
-urust expr macro_unary_precedence
+urust_expr macro_unary_precedence
   \<open> !matches!(Some(true), Some(true)) \<close>
 
-urust expr macro_binary_precedence
+urust_expr macro_binary_precedence
   \<open> true && matches!(Some(1_u32), Some(_)) || false \<close>
 
-urust expr macro_postfix_precedence
+urust_expr macro_postfix_precedence
   \<open> vec![1_u32, 2_u32][0_usize] + 3_u32 \<close>
 
 context fixes macro_assert_option :: \<open>nat option\<close>
 begin
 
-urust expr macro_assert_method_condition
+urust_expr macro_assert_method_condition
   \<open> assert!(!macro_assert_option.is_none()) \<close>
 
 end
@@ -3722,31 +3722,31 @@ context
     and macro_x macro_y :: nat
 begin
 
-urust expr macro_assert_ignored_message
+urust_expr macro_assert_ignored_message
   \<open> assert!(macro_b, "ignored assertion message") \<close>
 
-urust expr macro_debug_assert_ignored_many
+urust_expr macro_debug_assert_ignored_many
   \<open> debug_assert!(macro_b, unknown_name, 1_u32 + true, panic!("ignored")) \<close>
 
-urust expr macro_assert_eq_ignored
+urust_expr macro_assert_eq_ignored
   \<open> assert_eq!(macro_x, macro_y, unknown_name, { return unknown_return; }) \<close>
 
-urust expr macro_assert_ne_ignored
+urust_expr macro_assert_ne_ignored
   \<open> assert_ne!(macro_x, macro_y, ignored_place = unknown_rhs, \<epsilon>\<open>unknown_expression\<close>) \<close>
 
-urust expr macro_debug_assert_eq_ignored
+urust_expr macro_debug_assert_eq_ignored
   \<open> debug_assert_eq!(macro_x, macro_y, "ignored", unknown_name) \<close>
 
-urust expr macro_debug_assert_ne_ignored
+urust_expr macro_debug_assert_ne_ignored
   \<open> debug_assert_ne!(macro_x, macro_y, "ignored", unknown_name) \<close>
 
-urust expr macro_ignored_shadowed
+urust_expr macro_ignored_shadowed
   \<open> let hidden = 7_u32; assert!(macro_b, hidden, unknown_name); macro_x \<close>
 
-urust expr macro_ignored_antiquotation
+urust_expr macro_ignored_antiquotation
   \<open> assert!(macro_b, \<llangle>unknown_value\<rrangle>, \<epsilon>\<open>unknown_expression\<close>) \<close>
 
-urust expr macro_ignored_large
+urust_expr macro_ignored_large
   \<open>
     assert!(
       macro_b,
@@ -3769,101 +3769,101 @@ context
   fixes macro_msg :: String.literal
 begin
 
-urust expr macro_panic_empty
+urust_expr macro_panic_empty
   \<open> panic!() \<close>
 
-urust expr macro_panic_empty_brackets
+urust_expr macro_panic_empty_brackets
   \<open> panic![] \<close>
 
-urust expr macro_panic_identifier
+urust_expr macro_panic_identifier
   \<open> panic!(macro_msg) \<close>
 
-urust expr macro_panic_string
+urust_expr macro_panic_string
   \<open> panic!("panic message") \<close>
 
-urust expr macro_panic_antiquotation
+urust_expr macro_panic_antiquotation
   \<open> panic!(\<llangle>''panic antiquotation''\<rrangle>) \<close>
 
-urust expr macro_panic_ignored
+urust_expr macro_panic_ignored
   \<open> panic!("first", unknown_message_argument, 1_u32 + true) \<close>
 
-urust expr macro_fatal_empty
+urust_expr macro_fatal_empty
   \<open> fatal!() \<close>
 
-urust expr macro_fatal_identifier
+urust_expr macro_fatal_identifier
   \<open> fatal!(macro_msg) \<close>
 
-urust expr macro_fatal_string
+urust_expr macro_fatal_string
   \<open> fatal!("fatal message") \<close>
 
-urust expr macro_fatal_antiquotation
+urust_expr macro_fatal_antiquotation
   \<open> fatal!(\<llangle>''fatal antiquotation''\<rrangle>) \<close>
 
-urust expr macro_unimplemented_empty
+urust_expr macro_unimplemented_empty
   \<open> unimplemented!() \<close>
 
-urust expr macro_unimplemented_identifier
+urust_expr macro_unimplemented_identifier
   \<open> unimplemented!(macro_msg) \<close>
 
-urust expr macro_unimplemented_string
+urust_expr macro_unimplemented_string
   \<open> unimplemented!("unimplemented message") \<close>
 
-urust expr macro_unimplemented_antiquotation
+urust_expr macro_unimplemented_antiquotation
   \<open> unimplemented!(\<llangle>''unimplemented antiquotation''\<rrangle>) \<close>
 
-urust expr macro_todo_empty
+urust_expr macro_todo_empty
   \<open> todo!() \<close>
 
-urust expr macro_todo_identifier
+urust_expr macro_todo_identifier
   \<open> todo!(macro_msg) \<close>
 
-urust expr macro_todo_string
+urust_expr macro_todo_string
   \<open> todo!("todo message") \<close>
 
-urust expr macro_todo_antiquotation
+urust_expr macro_todo_antiquotation
   \<open> todo!(\<llangle>''todo antiquotation''\<rrangle>) \<close>
 
-urust expr macro_unreachable_empty
+urust_expr macro_unreachable_empty
   \<open> unreachable!() \<close>
 
-urust expr macro_unreachable_identifier
+urust_expr macro_unreachable_identifier
   \<open> unreachable!(macro_msg) \<close>
 
-urust expr macro_unreachable_string
+urust_expr macro_unreachable_string
   \<open> unreachable!("unreachable message") \<close>
 
-urust expr macro_unreachable_antiquotation
+urust_expr macro_unreachable_antiquotation
   \<open> unreachable!(\<llangle>''unreachable antiquotation''\<rrangle>) \<close>
 
-urust expr macro_format_arguments_ignored
+urust_expr macro_format_arguments_ignored
   \<open> panic!("Invalid index: {}", 7_u32, unknown_format_value) \<close>
 
-urust expr macro_message_capture
+urust_expr macro_message_capture
   \<open> let captured = "captured message"; panic!(captured) \<close>
 
 end
 
 subsection\<open> Macro placement and built-in name precedence \<close>
 
-urust expr macro_in_block
+urust_expr macro_in_block
   \<open> { assert!(true); () } \<close>
 
-urust expr macro_in_binding
+urust_expr macro_in_binding
   \<open> let checked = assert!(true); checked \<close>
 
-urust expr macro_in_call_argument
+urust_expr macro_in_call_argument
   \<open> macro_unit_call(assert!(true)) \<close>
 
-urust expr macro_in_array
+urust_expr macro_in_array
   \<open> [assert!(true), debug_assert!(true)] \<close>
 
-urust expr macro_in_condition
+urust_expr macro_in_condition
   \<open> if matches!(Some(1_u32), Some(_)) { 1_u32 } else { 0_u32 } \<close>
 
-urust expr macro_in_return
+urust_expr macro_in_return
   \<open> return panic!("return panic"); \<close>
 
-urust expr macro_in_match_arm
+urust_expr macro_in_match_arm
   \<open>
     match \<llangle>Some (1 :: nat)\<rrangle> {
       Some(_) \<Rightarrow> assert!(true),
@@ -3871,73 +3871,73 @@ urust expr macro_in_match_arm
     }
   \<close>
 
-urust expr macro_in_unsafe_block
+urust_expr macro_in_unsafe_block
   \<open> unsafe { panic!("unsafe panic") } \<close>
 
-urust expr macro_array_index_assertions
+urust_expr macro_array_index_assertions
   \<open>
     let xs = [1_u32, 2_u32, 3_u32];
     assert!(xs[0_usize] == 1_u32);
     assert!(xs[2_usize] == 3_u32)
   \<close>
 
-urust expr macro_builtin_shadow_assert
+urust_expr macro_builtin_shadow_assert
   \<open> let assert = false; assert!(true); assert \<close>
 
-urust expr macro_builtin_shadow_vec
+urust_expr macro_builtin_shadow_vec
   \<open> let vec = 9_u32; vec![1_u32][0_usize] + vec \<close>
 
 subsection\<open> Registered path macros \<close>
 
-urust expr macro_registered_call
+urust_expr macro_registered_call
   \<open> shout!(true) \<close>
 
-urust expr macro_registered_path
+urust_expr macro_registered_path
   \<open> Log::shout!(true) \<close>
 
-urust expr macro_registered_generic_path
+urust_expr macro_registered_generic_path
   \<open> Log::<N>::shout!(true) \<close>
 
 subsection\<open> Vectors, postfixes, and address macros \<close>
 
-urust expr macro_vec_empty_brackets
+urust_expr macro_vec_empty_brackets
   \<open> vec![] \<close>
 
-urust expr macro_vec_empty_parentheses
+urust_expr macro_vec_empty_parentheses
   \<open> vec!() \<close>
 
-urust expr macro_vec_brackets
+urust_expr macro_vec_brackets
   \<open> vec![1_u32, 2_u32, 3_u32] \<close>
 
-urust expr macro_vec_parentheses
+urust_expr macro_vec_parentheses
   \<open> vec!(1_u32, 2_u32, 3_u32) \<close>
 
-urust expr macro_vec_nested
+urust_expr macro_vec_nested
   \<open> vec![vec![1_u32], vec![2_u32, 3_u32]] \<close>
 
-urust expr macro_vec_index
+urust_expr macro_vec_index
   \<open> vec![10_u32, 20_u32][1_usize] \<close>
 
-urust expr macro_vec_index_chain
+urust_expr macro_vec_index_chain
   \<open> vec![vec![10_u32, 20_u32]][0_usize][1_usize] \<close>
 
 context
   fixes macro_ref :: \<open>('a, 'b, 'v) Global_Store.ref\<close>
 begin
 
-urust expr macro_addr_of
+urust_expr macro_addr_of
   \<open> addr_of!(macro_ref) \<close>
 
-urust expr macro_addr_of_brackets
+urust_expr macro_addr_of_brackets
   \<open> addr_of![macro_ref] \<close>
 
-urust expr macro_addr_of_mut
+urust_expr macro_addr_of_mut
   \<open> addr_of_mut!(macro_ref) \<close>
 
-urust expr macro_vec_borrowed_element_index
+urust_expr macro_vec_borrowed_element_index
   \<open> vec![&macro_ref][0_usize] \<close>
 
-urust expr macro_vec_mut_borrowed_element_index
+urust_expr macro_vec_mut_borrowed_element_index
   \<open> vec![& mut macro_ref][0_usize] \<close>
 
 end
@@ -3946,7 +3946,7 @@ adhoc_overloading store_reference_const \<rightleftharpoons> parser_reference_fi
 adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
 adhoc_overloading store_update_const \<rightleftharpoons> parser_update_fixture
 
-urust expr macro_assignment_rhs
+urust_expr macro_assignment_rhs
   \<open>
     let mut slot = 0_u32;
     *slot = vec![7_u32, 8_u32][0_usize];
@@ -3966,28 +3966,28 @@ context
     and macro_values :: \<open>nat list\<close>
 begin
 
-urust expr macro_matches_constructor
+urust_expr macro_matches_constructor
   \<open> matches!(macro_option, Some(_)) \<close>
 
-urust expr macro_matches_none
+urust_expr macro_matches_none
   \<open> matches!(macro_option, None) \<close>
 
-urust expr macro_matches_nested
+urust_expr macro_matches_nested
   \<open> matches!(macro_nested_option, Some(Some(_))) \<close>
 
-urust expr macro_matches_or
+urust_expr macro_matches_or
   \<open> matches!(macro_nested_option, Some(Some(_)) | None) \<close>
 
-urust expr macro_matches_alias
+urust_expr macro_matches_alias
   \<open> matches!(macro_option, whole @ Some(value)) \<close>
 
-urust expr macro_matches_slice
+urust_expr macro_matches_slice
   \<open> matches!(macro_values, [head, .., tail]) \<close>
 
-urust expr macro_matches_boolean
+urust_expr macro_matches_boolean
   \<open> matches!(macro_bool_option, Some(true) | None) \<close>
 
-urust expr macro_matches_outer_capture
+urust_expr macro_matches_outer_capture
   \<open>
     let needle = \<llangle>2 :: nat\<rrangle>;
     matches!(macro_option, Some(\<llangle>needle\<rrangle>))
@@ -3995,10 +3995,10 @@ urust expr macro_matches_outer_capture
 
 end
 
-urust expr macro_matches_tuple
+urust_expr macro_matches_tuple
   \<open> matches!(\<llangle>(Some (1 :: nat), (2 :: nat, TNil))\<rrangle>, (Some(left), right)) \<close>
 
-urust expr macro_matches_struct
+urust_expr macro_matches_struct
   \<open>
     matches!(
       \<llangle>AdvStruct 1 2\<rrangle>,
@@ -4015,7 +4015,7 @@ definition macro_registered_assert ::
 
 micro_rust_notation (call) macro_registered_assert ("assert!")
 
-urust expr macro_registered_builtin_precedence
+urust_expr macro_registered_builtin_precedence
   \<open> assert!(true) \<close>
 
 end
@@ -4034,14 +4034,14 @@ context
   fixes cast_word :: \<open>32 word\<close>
 begin
 
-urust expr cast_target_u8 \<open> cast_word as u8 \<close>
-urust expr cast_target_u16 \<open> cast_word as u16 \<close>
-urust expr cast_target_u32 \<open> cast_word as u32 \<close>
-urust expr cast_target_u64 \<open> cast_word as u64 \<close>
-urust expr cast_target_usize \<open> cast_word as usize \<close>
-urust expr cast_target_i32 \<open> cast_word as i32 \<close>
-urust expr cast_target_i64 \<open> cast_word as i64 \<close>
-urust expr cast_corpus_sequence
+urust_expr cast_target_u8 \<open> cast_word as u8 \<close>
+urust_expr cast_target_u16 \<open> cast_word as u16 \<close>
+urust_expr cast_target_u32 \<open> cast_word as u32 \<close>
+urust_expr cast_target_u64 \<open> cast_word as u64 \<close>
+urust_expr cast_target_usize \<open> cast_word as usize \<close>
+urust_expr cast_target_i32 \<open> cast_word as i32 \<close>
+urust_expr cast_target_i64 \<open> cast_word as i64 \<close>
+urust_expr cast_corpus_sequence
   \<open> cast_word as u64; cast_word as u64 \<close>
 
 end
@@ -4050,18 +4050,18 @@ context
   fixes cast_raw :: \<open>('addr, 'gv) gref\<close>
 begin
 
-urust expr cast_target_const_u8 \<open> cast_raw as *const u8 \<close>
-urust expr cast_target_const_u16 \<open> cast_raw as *const u16 \<close>
-urust expr cast_target_const_u32 \<open> cast_raw as *const u32 \<close>
-urust expr cast_target_const_u64 \<open> cast_raw as *const u64 \<close>
-urust expr cast_target_const_usize \<open> cast_raw as *const usize \<close>
-urust expr cast_target_mut_u8 \<open> cast_raw as *mut u8 \<close>
-urust expr cast_target_mut_u16 \<open> cast_raw as *mut u16 \<close>
-urust expr cast_target_mut_u32 \<open> cast_raw as *mut u32 \<close>
-urust expr cast_target_mut_u64 \<open> cast_raw as *mut u64 \<close>
-urust expr cast_target_mut_usize \<open> cast_raw as *mut usize \<close>
+urust_expr cast_target_const_u8 \<open> cast_raw as *const u8 \<close>
+urust_expr cast_target_const_u16 \<open> cast_raw as *const u16 \<close>
+urust_expr cast_target_const_u32 \<open> cast_raw as *const u32 \<close>
+urust_expr cast_target_const_u64 \<open> cast_raw as *const u64 \<close>
+urust_expr cast_target_const_usize \<open> cast_raw as *const usize \<close>
+urust_expr cast_target_mut_u8 \<open> cast_raw as *mut u8 \<close>
+urust_expr cast_target_mut_u16 \<open> cast_raw as *mut u16 \<close>
+urust_expr cast_target_mut_u32 \<open> cast_raw as *mut u32 \<close>
+urust_expr cast_target_mut_u64 \<open> cast_raw as *mut u64 \<close>
+urust_expr cast_target_mut_usize \<open> cast_raw as *mut usize \<close>
 
-urust expr cast_target_compact_const
+urust_expr cast_target_compact_const
   \<open> cast_raw as*const u8 \<close>
 
 end
@@ -4102,67 +4102,67 @@ context
     and cast_optional :: \<open>32 word option\<close>
 begin
 
-urust expr cast_literal_operand \<open> 0xff_u32 as u8 \<close>
+urust_expr cast_literal_operand \<open> 0xff_u32 as u8 \<close>
 
-urust expr cast_zero_operand \<open> 0_u64 as u8 \<close>
+urust_expr cast_zero_operand \<open> 0_u64 as u8 \<close>
 
-urust expr cast_narrowing_boundary_operand
+urust_expr cast_narrowing_boundary_operand
   \<open> 0x1ff_u16 as u8 \<close>
 
-urust expr cast_signed_widening_boundary_operand
+urust_expr cast_signed_widening_boundary_operand
   \<open> 0xffffffff_u32 as i64 \<close>
 
-urust expr cast_context_fix \<open> cast_word as u16 \<close>
+urust_expr cast_context_fix \<open> cast_word as u16 \<close>
 
-urust expr cast_let_bound
+urust_expr cast_let_bound
   \<open> let local = cast_word; local as u64 \<close>
 
-urust expr cast_value_antiquotation
+urust_expr cast_value_antiquotation
   \<open> \<llangle>cast_word\<rrangle> as i64 \<close>
 
-urust expr cast_expression_antiquotation
+urust_expr cast_expression_antiquotation
   \<open> \<epsilon>\<open>\<up>(cast_word)\<close> as u8 \<close>
 
-urust expr cast_call_operand
+urust_expr cast_call_operand
   \<open> cf1(\<llangle>ucast cast_word :: 64 word\<rrangle>) as u8 \<close>
 
-urust expr cast_method_operand
+urust_expr cast_method_operand
   \<open> cast_word.cast_method() as u16 \<close>
 
-urust expr cast_field_operand
+urust_expr cast_field_operand
   \<open> cast_record_value.cast_value as u64 \<close>
 
-urust expr cast_index_operand
+urust_expr cast_index_operand
   \<open> cast_words[0_usize] as u8 \<close>
 
-urust expr cast_propagation_operand
+urust_expr cast_propagation_operand
   \<open> cast_optional? as u16 \<close>
 
-urust expr cast_block_operand
+urust_expr cast_block_operand
   \<open> { cast_word } as u32 \<close>
 
-urust expr cast_conditional_operand
+urust_expr cast_conditional_operand
   \<open> (if true { cast_word } else { cast_word }) as u64 \<close>
 
-urust expr cast_grouped_binary_operand
+urust_expr cast_grouped_binary_operand
   \<open> (cast_word + cast_word) as u16 \<close>
 
-urust expr cast_tuple_position
+urust_expr cast_tuple_position
   \<open> (cast_word as u8, cast_word as u16) \<close>
 
-urust expr cast_array_position
+urust_expr cast_array_position
   \<open> [cast_word as u16, cast_word as u16] \<close>
 
-urust expr cast_return_operand
+urust_expr cast_return_operand
   \<open> return cast_word as u16; \<close>
 
-urust expr cast_macro_arguments
+urust_expr cast_macro_arguments
   \<open> assert_eq!(cast_word as u16, cast_word as u16); cast_word as u8 \<close>
 
-urust expr cast_macro_result
+urust_expr cast_macro_result
   \<open> vec![cast_word][0_usize] as u16 \<close>
 
-urust expr cast_match_guard
+urust_expr cast_match_guard
   \<open>
     match_case Some(cast_word) {
       Some(value) if value as u32 == cast_word \<Rightarrow> value as u16,
@@ -4170,37 +4170,37 @@ urust expr cast_match_guard
     }
   \<close>
 
-urust expr cast_sequence_positions
+urust_expr cast_sequence_positions
   \<open> cast_word as u8; cast_word as u16; cast_word as u32 \<close>
 
-urust expr cast_corpus_assert_sequence
+urust_expr cast_corpus_assert_sequence
   \<open> assert!(true); cast_word as u16 \<close>
 
-urust expr cast_corpus_assert_condition
+urust_expr cast_corpus_assert_condition
   \<open>
     assert!(cast_word as usize == cast_word as usize);
     cast_word as u16
   \<close>
 
-urust expr cast_lexical_capture
+urust_expr cast_lexical_capture
   \<open> let captured = cast_word; \<llangle>captured\<rrangle> as u8 \<close>
 
-urust expr cast_grouped_field_result
+urust_expr cast_grouped_field_result
   \<open> (cast_raw as *const u32).cast_identity \<close>
 
-urust expr cast_grouped_method_result
+urust_expr cast_grouped_method_result
   \<open> (cast_word as u32).cast_method() \<close>
 
-urust expr cast_grouped_index_result
+urust_expr cast_grouped_index_result
   \<open> (cast_word as u32)[0_usize] \<close>
 
-urust expr cast_grouped_propagation_result
+urust_expr cast_grouped_propagation_result
   \<open> (cast_word as u32)? \<close>
 
-urust expr cast_grouped_postfix_result_chain
+urust_expr cast_grouped_postfix_result_chain
   \<open> ((cast_word as u32).cast_method()[0_usize])? \<close>
 
-urust expr cast_complete_postfix_operand_chain
+urust_expr cast_complete_postfix_operand_chain
   \<open> (cast_record_value.cast_value.cast_method()[0_usize])? as u16 \<close>
 
 end
@@ -4217,83 +4217,83 @@ context
     and cast_ref :: \<open>(unit, unit, 32 word) Global_Store.ref\<close>
 begin
 
-urust expr cast_chain_two
+urust_expr cast_chain_two
   \<open> cast_word as u64 as u8 \<close>
 
-urust expr cast_chain_three
+urust_expr cast_chain_three
   \<open> cast_word as u8 as u32 as i64 \<close>
 
-urust expr cast_before_multiplication
+urust_expr cast_before_multiplication
   \<open> cast_word as u32 * cast_word \<close>
 
-urust expr cast_before_division
+urust_expr cast_before_division
   \<open> cast_word as u32 / cast_word \<close>
 
-urust expr cast_before_remainder
+urust_expr cast_before_remainder
   \<open> cast_word as u32 % cast_word \<close>
 
-urust expr cast_before_addition
+urust_expr cast_before_addition
   \<open> cast_word as u32 + cast_word \<close>
 
-urust expr cast_on_right_of_subtraction
+urust_expr cast_on_right_of_subtraction
   \<open> cast_word - cast_word as u32 \<close>
 
-urust expr cast_before_shift
+urust_expr cast_before_shift
   \<open> cast_word as u32 << 1_u64 \<close>
 
-urust expr cast_before_right_shift
+urust_expr cast_before_right_shift
   \<open> cast_word as u32 >> 1_u64 \<close>
 
-urust expr cast_before_bitwise
+urust_expr cast_before_bitwise
   \<open> cast_word as u32 & cast_word ^ cast_word | cast_word \<close>
 
-urust expr cast_before_comparison
+urust_expr cast_before_comparison
   \<open> cast_word as u32 == cast_word \<close>
 
-urust expr cast_before_inequality
+urust_expr cast_before_inequality
   \<open> cast_word as u32 != cast_word \<close>
 
-urust expr cast_before_less_than
+urust_expr cast_before_less_than
   \<open> cast_word as u32 < cast_word \<close>
 
-urust expr cast_before_less_or_equal
+urust_expr cast_before_less_or_equal
   \<open> cast_word as u32 <= cast_word \<close>
 
-urust expr cast_before_greater_than
+urust_expr cast_before_greater_than
   \<open> cast_word as u32 > cast_word \<close>
 
-urust expr cast_before_greater_or_equal
+urust_expr cast_before_greater_or_equal
   \<open> cast_word as u32 >= cast_word \<close>
 
-urust expr cast_before_logical
+urust_expr cast_before_logical
   \<open> cast_word as u32 == cast_word && true || false \<close>
 
-urust expr cast_before_range
+urust_expr cast_before_range
   \<open> cast_word as u32..=cast_word as u32 \<close>
 
-urust expr cast_before_exclusive_range
+urust_expr cast_before_exclusive_range
   \<open> cast_word as u32..cast_word as u32 \<close>
 
-urust expr cast_before_assignment
+urust_expr cast_before_assignment
   \<open> let mut target = cast_word; *target = cast_word as u32; *target \<close>
 
-urust expr cast_grouped_prefix_then_cast
+urust_expr cast_grouped_prefix_then_cast
   \<open> (!cast_word) as u8 \<close>
 
-urust expr cast_grouped_deref_then_cast
+urust_expr cast_grouped_deref_then_cast
   \<open> (*cast_ref) as u8 \<close>
 
-urust expr cast_narrow_widen_signed_pipeline
+urust_expr cast_narrow_widen_signed_pipeline
   \<open>
     let narrowed = cast_word as u8;
     let widened = narrowed as u32;
     widened as i64
   \<close>
 
-urust expr cast_usize_pipeline
+urust_expr cast_usize_pipeline
   \<open> cast_word as usize as u16 \<close>
 
-urust expr cast_signed_unsigned_pipeline
+urust_expr cast_signed_unsigned_pipeline
   \<open> cast_word as i64 as u8 as i32 \<close>
 
 end
@@ -4312,28 +4312,28 @@ frontend-only expression forms stay as goldens in \<open>Conformance_Corpus.thy\
 subsection\<open> D-1 (RESOLVED 2026-08-25): \<open>if\<close> as a binary-operator operand -- both reject \<close>
 
 text\<open> An unparenthesized \<open>if\<close> operand is rejected by both parsers; parentheses make it an operand. \<close>
-urust expr d1_paren_operand
+urust_expr d1_paren_operand
   \<open> (if \<llangle>True\<rrangle> { \<llangle>1 :: 32 word\<rrangle> } else { \<llangle>2 :: 32 word\<rrangle> }) + \<llangle>3 :: 32 word\<rrangle> \<close>
 
 subsection\<open> D-2 (RESOLVED 2026-08-25): no-\<open>;\<close> sequencing of block-like expressions -- now accepted \<close>
 
 text\<open> Block-like statements sequence without a trailing \<open>;\<close>, matching the frontend. \<close>
-urust expr d2_blk_seq \<open> { () } { () } \<close>
+urust_expr d2_blk_seq \<open> { () } { () } \<close>
 
-urust expr d2_if_seq \<open> if \<llangle>True\<rrangle> { () } () \<close>
+urust_expr d2_if_seq \<open> if \<llangle>True\<rrangle> { () } () \<close>
 
-urust expr d2_ifelse_seq \<open> if \<llangle>True\<rrangle> { () } else { () } () \<close>
+urust_expr d2_ifelse_seq \<open> if \<llangle>True\<rrangle> { () } else { () } () \<close>
 
 subsection\<open> D-3 (RESOLVED 2026-08-24): HOL-constant-named binders are captured in antiquotations \<close>
 
 text\<open> Enclosing binders shadow same-named HOL constants and registered notation names in antiquotations. \<close>
-urust expr div_binder_const \<open> let id = \<llangle>5 :: nat\<rrangle>; \<llangle>id\<rrangle> \<close>
+urust_expr div_binder_const \<open> let id = \<llangle>5 :: nat\<rrangle>; \<llangle>id\<rrangle> \<close>
 
-urust expr cap_const_fst \<open> let fst = \<llangle>5 :: nat\<rrangle>; \<llangle>fst\<rrangle> \<close>  \<comment>\<open> binder name = HOL \<open>Product_Type.fst\<close> \<close>
+urust_expr cap_const_fst \<open> let fst = \<llangle>5 :: nat\<rrangle>; \<llangle>fst\<rrangle> \<close>  \<comment>\<open> binder name = HOL \<open>Product_Type.fst\<close> \<close>
 
-urust expr cap_const_deep \<open> let id = \<llangle>5 :: nat\<rrangle>; \<llangle>id + 1\<rrangle> \<close>  \<comment>\<open> buried capture of a const-named binder \<close>
+urust_expr cap_const_deep \<open> let id = \<llangle>5 :: nat\<rrangle>; \<llangle>id + 1\<rrangle> \<close>  \<comment>\<open> buried capture of a const-named binder \<close>
 
-urust expr cap_notation \<open> let myReg = \<llangle>5 :: nat\<rrangle>; \<llangle>myReg\<rrangle> \<close>  \<comment>\<open> binder name = a registered notation surface name (guard) \<close>
+urust_expr cap_notation \<open> let myReg = \<llangle>5 :: nat\<rrangle>; \<llangle>myReg\<rrangle> \<close>  \<comment>\<open> binder name = a registered notation surface name (guard) \<close>
 
 subsection\<open> D-5 (RESOLVED 2026-09-05): embedded HOL callees \<close>
 
@@ -4348,13 +4348,13 @@ as \<open>(g)(x)\<close> remain shared rejections.
 
 subsubsection\<open> Expression-antiquotation callees \<close>
 
-urust expr d5_antiquotation_call0
+urust_expr d5_antiquotation_call0
   \<open> \<epsilon>\<open>cf0\<close>() \<close>
 
-urust expr d5_antiquotation_call1
+urust_expr d5_antiquotation_call1
   \<open> \<epsilon>\<open>cf1\<close>(\<llangle>1 :: 64 word\<rrangle>) \<close>
 
-urust expr d5_antiquotation_call2
+urust_expr d5_antiquotation_call2
   \<open>
     \<epsilon>\<open>cf2\<close>(
       \<llangle>1 :: 64 word\<rrangle>,
@@ -4366,7 +4366,7 @@ context
   fixes antiquotation_free ::
     \<open>64 word \<Rightarrow> (unit, 64 word, unit, unit, unit) function_body\<close>
 begin
-urust expr d5_antiquotation_context_free
+urust_expr d5_antiquotation_context_free
   \<open>
     \<epsilon>\<open>antiquotation_free\<close>(
       \<llangle>1 :: 64 word\<rrangle>
@@ -4374,14 +4374,14 @@ urust expr d5_antiquotation_context_free
   \<close>
 end
 
-urust expr d5_antiquotation_hol_lambda
+urust_expr d5_antiquotation_hol_lambda
   \<open>
     \<epsilon>\<open>\<lambda>x. cf1 x\<close>(
       \<llangle>1 :: 64 word\<rrangle>
     )
   \<close>
 
-urust expr d5_antiquotation_multiline_body
+urust_expr d5_antiquotation_multiline_body
   \<open>
     \<epsilon>\<open>
       cf1
@@ -4390,7 +4390,7 @@ urust expr d5_antiquotation_multiline_body
     )
   \<close>
 
-urust expr d5_antiquotation_nested_calls
+urust_expr d5_antiquotation_nested_calls
   \<open>
     \<epsilon>\<open>cf2\<close>(
       \<epsilon>\<open>cf1\<close>(\<llangle>1 :: 64 word\<rrangle>),
@@ -4398,7 +4398,7 @@ urust expr d5_antiquotation_nested_calls
     )
   \<close>
 
-urust expr d5_antiquotation_with_ordinary_nested_call
+urust_expr d5_antiquotation_with_ordinary_nested_call
   \<open>
     \<epsilon>\<open>cf2\<close>(
       cf1(\<llangle>1 :: 64 word\<rrangle>),
@@ -4406,13 +4406,13 @@ urust expr d5_antiquotation_with_ordinary_nested_call
     )
   \<close>
 
-urust expr d5_antiquotation_sequencing
+urust_expr d5_antiquotation_sequencing
   \<open>
     \<epsilon>\<open>cf1\<close>(\<llangle>1 :: 64 word\<rrangle>);
     \<epsilon>\<open>cf1\<close>(\<llangle>2 :: 64 word\<rrangle>)
   \<close>
 
-urust expr d5_antiquotation_call_as_argument
+urust_expr d5_antiquotation_call_as_argument
   \<open>
     cf2(
       \<epsilon>\<open>cf1\<close>(\<llangle>1 :: 64 word\<rrangle>),
@@ -4420,21 +4420,21 @@ urust expr d5_antiquotation_call_as_argument
     )
   \<close>
 
-urust expr d5_antiquotation_initializer
+urust_expr d5_antiquotation_initializer
   \<open>
     let result =
       \<epsilon>\<open>cf1\<close>(\<llangle>1 :: 64 word\<rrangle>);
     result
   \<close>
 
-urust expr d5_antiquotation_method_on_result
+urust_expr d5_antiquotation_method_on_result
   \<open>
     \<epsilon>\<open>cf1\<close>(
       \<llangle>1 :: 64 word\<rrangle>
     ).cf1()
   \<close>
 
-urust expr d5_antiquotation_operator_precedence
+urust_expr d5_antiquotation_operator_precedence
   \<open>
     \<epsilon>\<open>cf1\<close>(
       \<llangle>1 :: 64 word\<rrangle>
@@ -4447,7 +4447,7 @@ context
     nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow>
     (unit, nat, unit, unit, unit) function_body \<close>
 begin
-urust expr d5_antiquotation_call14
+urust_expr d5_antiquotation_call14
   \<open>
     \<epsilon>\<open>cf14_antiquotation\<close>(
       0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13
@@ -4458,14 +4458,14 @@ end
 context
   fixes h :: \<open>64 word \<Rightarrow> (unit, 64 word, unit, unit, unit) function_body\<close>
 begin
-urust expr d5_antiquotation_lexical_shadow
+urust_expr d5_antiquotation_lexical_shadow
   \<open>
     let h = \<llangle>cf1\<rrangle>;
     \<epsilon>\<open>h\<close>(\<llangle>4 :: 64 word\<rrangle>)
   \<close>
 end
 
-urust expr d5_antiquotation_nearest_lexical_shadow
+urust_expr d5_antiquotation_nearest_lexical_shadow
   \<open>
     let h = \<llangle>cf1\<rrangle>;
     let h = \<llangle>cf2\<rrangle>;
@@ -4484,13 +4484,13 @@ arity and runtime call arity are intentionally independent.
 
 subsubsection\<open> Function-literal suffixes 1 through 14 \<close>
 
-urust expr d5_function_literal_arity1
+urust_expr d5_function_literal_arity1
   \<open> \<llangle>\<lambda>a. (a :: nat)\<rrangle>\<^sub>1(0) \<close>
 
-urust expr d5_function_literal_arity2
+urust_expr d5_function_literal_arity2
   \<open> \<llangle> (\<lambda>a b. (a + b :: nat)) \<rrangle>\<^sub>2 (0, 1) \<close>
 
-urust expr d5_function_literal_arity3
+urust_expr d5_function_literal_arity3
   \<open>
     \<llangle>
       \<lambda>a b c. (a + b + c :: nat)
@@ -4498,37 +4498,37 @@ urust expr d5_function_literal_arity3
     (0, 1, 2)
   \<close>
 
-urust expr d5_function_literal_arity4
+urust_expr d5_function_literal_arity4
   \<open> \<llangle>\<lambda>a b c d. (a + b + c + d :: nat)\<rrangle>\<^sub>4(0, 1, 2, 3) \<close>
 
-urust expr d5_function_literal_arity5
+urust_expr d5_function_literal_arity5
   \<open> \<llangle>\<lambda>a b c d e. (a + b + c + d + e :: nat)\<rrangle>\<^sub>5(0, 1, 2, 3, 4) \<close>
 
-urust expr d5_function_literal_arity6
+urust_expr d5_function_literal_arity6
   \<open> \<llangle>\<lambda>a b c d e f. (a + b + c + d + e + f :: nat)\<rrangle>\<^sub>6(0, 1, 2, 3, 4, 5) \<close>
 
-urust expr d5_function_literal_arity7
+urust_expr d5_function_literal_arity7
   \<open> \<llangle>\<lambda>a b c d e f g. (a + b + c + d + e + f + g :: nat)\<rrangle>\<^sub>7(0, 1, 2, 3, 4, 5, 6) \<close>
 
-urust expr d5_function_literal_arity8
+urust_expr d5_function_literal_arity8
   \<open> \<llangle>\<lambda>a b c d e f g h. (a + b + c + d + e + f + g + h :: nat)\<rrangle>\<^sub>8(0, 1, 2, 3, 4, 5, 6, 7) \<close>
 
-urust expr d5_function_literal_arity9
+urust_expr d5_function_literal_arity9
   \<open> \<llangle>\<lambda>a b c d e f g h i. (a + b + c + d + e + f + g + h + i :: nat)\<rrangle>\<^sub>9(0, 1, 2, 3, 4, 5, 6, 7, 8) \<close>
 
-urust expr d5_function_literal_arity10
+urust_expr d5_function_literal_arity10
   \<open> \<llangle>\<lambda>a b c d e f g h i j. (a + b + c + d + e + f + g + h + i + j :: nat)\<rrangle>\<^sub>1\<^sub>0(0, 1, 2, 3, 4, 5, 6, 7, 8, 9) \<close>
 
-urust expr d5_function_literal_arity11
+urust_expr d5_function_literal_arity11
   \<open> \<llangle>\<lambda>a b c d e f g h i j k. (a + b + c + d + e + f + g + h + i + j + k :: nat)\<rrangle>\<^sub>1\<^sub>1(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10) \<close>
 
-urust expr d5_function_literal_arity12
+urust_expr d5_function_literal_arity12
   \<open> \<llangle>\<lambda>a b c d e f g h i j k l. (a + b + c + d + e + f + g + h + i + j + k + l :: nat)\<rrangle>\<^sub>1\<^sub>2(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11) \<close>
 
-urust expr d5_function_literal_arity13
+urust_expr d5_function_literal_arity13
   \<open> \<llangle>\<lambda>a b c d e f g h i j k l m. (a + b + c + d + e + f + g + h + i + j + k + l + m :: nat)\<rrangle>\<^sub>1\<^sub>3(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12) \<close>
 
-urust expr d5_function_literal_arity14
+urust_expr d5_function_literal_arity14
   \<open> \<llangle>\<lambda>a b c d e f g h i j k l m n. (a + b + c + d + e + f + g + h + i + j + k + l + m + n :: nat)\<rrangle>\<^sub>1\<^sub>4(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13) \<close>
 
 subsubsection\<open> Function-literal bodies, scope, and placement \<close>
@@ -4538,23 +4538,23 @@ definition function_literal_collision :: \<open>nat \<Rightarrow> nat\<close>
 
 micro_rust_notation (call) cf1 ("function_literal_collision")
 
-urust expr d5_function_literal_hol_constant
+urust_expr d5_function_literal_hol_constant
   \<open> \<llangle>Suc\<rrangle>\<^sub>1(0) \<close>
 
-urust expr d5_function_literal_composed
+urust_expr d5_function_literal_composed
   \<open> \<llangle>Suc \<circ> Suc\<rrangle>\<^sub>1(0) \<close>
 
-urust expr d5_function_literal_notation_collision
+urust_expr d5_function_literal_notation_collision
   \<open> \<llangle>function_literal_collision\<rrangle>\<^sub>1(0) \<close>
 
 context
   fixes function_literal_fixed :: \<open>nat \<Rightarrow> nat\<close>
 begin
-urust expr d5_function_literal_context_fixed
+urust_expr d5_function_literal_context_fixed
   \<open> \<llangle>function_literal_fixed\<rrangle>\<^sub>1(0) \<close>
 end
 
-urust expr d5_function_literal_lexical_capture
+urust_expr d5_function_literal_lexical_capture
   \<open>
     let offset = \<llangle>3 :: nat\<rrangle>;
     \<llangle>\<lambda>x. x + offset\<rrangle>\<^sub>1(4)
@@ -4563,7 +4563,7 @@ urust expr d5_function_literal_lexical_capture
 context
   fixes offset :: nat
 begin
-urust expr d5_function_literal_nearest_shadow
+urust_expr d5_function_literal_nearest_shadow
   \<open>
     let offset = \<llangle>2 :: nat\<rrangle>;
     let offset = \<llangle>3 :: nat\<rrangle>;
@@ -4571,14 +4571,14 @@ urust expr d5_function_literal_nearest_shadow
   \<close>
 end
 
-urust expr d5_function_literal_nested_call
+urust_expr d5_function_literal_nested_call
   \<open>
     \<llangle>\<lambda>x. x\<rrangle>\<^sub>1(
       \<llangle>Suc\<rrangle>\<^sub>1(0)
     )
   \<close>
 
-urust expr d5_function_literal_call_as_argument
+urust_expr d5_function_literal_call_as_argument
   \<open>
     cf2(
       \<llangle>\<lambda>x. x + 1\<rrangle>\<^sub>1(\<llangle>1 :: 64 word\<rrangle>),
@@ -4586,25 +4586,25 @@ urust expr d5_function_literal_call_as_argument
     )
   \<close>
 
-urust expr d5_function_literal_initializer
+urust_expr d5_function_literal_initializer
   \<open>
     let result = \<llangle>Suc\<rrangle>\<^sub>1(0);
     result
   \<close>
 
-urust expr d5_function_literal_sequencing
+urust_expr d5_function_literal_sequencing
   \<open>
     \<llangle>Suc\<rrangle>\<^sub>1(0);
     \<llangle>Suc\<rrangle>\<^sub>1(1)
   \<close>
 
-urust expr d5_function_literal_operator
+urust_expr d5_function_literal_operator
   \<open>
     \<llangle>\<lambda>x. x\<rrangle>\<^sub>1(\<llangle>1 :: 64 word\<rrangle>) +
       \<llangle>2 :: 64 word\<rrangle>
   \<close>
 
-urust expr d5_function_literal_postfix_result
+urust_expr d5_function_literal_postfix_result
   \<open> \<llangle>\<lambda>x. x\<rrangle>\<^sub>1(\<llangle>1 :: 64 word\<rrangle>).cf1() \<close>
 
 subsubsection\<open> Function-literal runtime arity and restricted turbofish \<close>
@@ -4620,28 +4620,28 @@ definition function_literal_path_parameter :: nat
 
 notation function_literal_path_parameter ("FunctionLiteral':':parameter")
 
-urust expr d5_function_literal_runtime0
+urust_expr d5_function_literal_runtime0
   \<open> \<llangle>\<lambda>x. x\<rrangle>\<^sub>1::<function_literal_parameter_a>() \<close>
 
-urust expr d5_function_literal_turbofish_multiple
+urust_expr d5_function_literal_turbofish_multiple
   \<open>
     \<llangle>\<lambda>a b c. (a + b + c :: nat)\<rrangle>\<^sub>3
       ::<function_literal_parameter_a, function_literal_parameter_b>(3)
   \<close>
 
-urust expr d5_function_literal_turbofish_path
+urust_expr d5_function_literal_turbofish_path
   \<open>
     \<llangle>\<lambda>a b. (a + b :: nat)\<rrangle>\<^sub>2
       ::<FunctionLiteral::parameter>(4)
   \<close>
 
-urust expr d5_function_literal_turbofish_parentheses_addition
+urust_expr d5_function_literal_turbofish_parentheses_addition
   \<open>
     \<llangle>\<lambda>a b. (a + b :: nat)\<rrangle>\<^sub>2
       ::<(function_literal_parameter_a + function_literal_parameter_b)>(4)
   \<close>
 
-urust expr d5_function_literal_runtime14
+urust_expr d5_function_literal_runtime14
   \<open>
     \<llangle>\<lambda>a b c d e f g h i j k l m n.
       (a + b + c + d + e + f + g + h + i + j + k + l + m + n :: nat)
@@ -4716,25 +4716,25 @@ micro_rust_notation (call) d21_record_lift ("D21Record")
 
 subsection\<open> Labels, heads, and arity boundary \<close>
 
-urust expr d21_arity1
+urust_expr d21_arity1
   \<open> D21One { value: 1_u64 } \<close>
 
-urust expr d21_arity2_canonical
+urust_expr d21_arity2_canonical
   \<open> D21Pair { first: 1_u64, second: 2_u64 } \<close>
 
-urust expr d21_arity2_reversed_labels
+urust_expr d21_arity2_reversed_labels
   \<open> D21Pair { second: 1_u64, first: 2_u64 } \<close>
 
-urust expr d21_duplicate_labels
+urust_expr d21_duplicate_labels
   \<open> D21Pair { first: 1_u64, first: 2_u64 } \<close>
 
-urust expr d21_unknown_labels
+urust_expr d21_unknown_labels
   \<open> D21Pair { mystery: 1_u64, surprise: 2_u64 } \<close>
 
-urust expr d21_all_duplicate_unknown_labels
+urust_expr d21_all_duplicate_unknown_labels
   \<open> D21Pair { mystery: 1_u64, mystery: 2_u64 } \<close>
 
-urust expr d21_arity14
+urust_expr d21_arity14
   \<open>
     D21::Fourteen {
       f00: 0, f01: 1, f02: 2, f03: 3, f04: 4, f05: 5, f06: 6,
@@ -4742,7 +4742,7 @@ urust expr d21_arity14
     }
   \<close>
 
-urust expr d21_unregistered_head
+urust_expr d21_unregistered_head
   \<open> d21_unregistered { ignored: 7_u64 } \<close>
 
 context
@@ -4750,7 +4750,7 @@ context
     \<open>64 word \<Rightarrow> (unit, 64 word, unit, unit, unit) function_body\<close>
 begin
 
-urust expr d21_context_fixed_head
+urust_expr d21_context_fixed_head
   \<open> d21Local { ignored: 7_u64 } \<close>
 
 end
@@ -4760,42 +4760,42 @@ context
     \<open>64 word \<Rightarrow> (unit, 64 word, unit, unit, unit) function_body\<close>
 begin
 
-urust expr d21_call_notation_lexical_collision
+urust_expr d21_call_notation_lexical_collision
   \<open> d21Collision { ignored: 7_u64 } \<close>
 
 end
 
 subsection\<open> Initializer language and delimiter nesting \<close>
 
-urust expr d21_initializer_literal
+urust_expr d21_initializer_literal
   \<open> D21One { value: 7_u64 } \<close>
 
-urust expr d21_initializer_path
+urust_expr d21_initializer_path
   \<open> D21One { value: Path::Seed } \<close>
 
-urust expr d21_initializer_antiquotation
+urust_expr d21_initializer_antiquotation
   \<open> D21One { value: \<llangle>7 :: 64 word\<rrangle> } \<close>
 
-urust expr d21_initializer_call
+urust_expr d21_initializer_call
   \<open> D21One { value: cf2(1_u64, 2_u64) } \<close>
 
-urust expr d21_initializer_nested_struct
+urust_expr d21_initializer_nested_struct
   \<open>
     D21One {
       value: D21Pair { left: 1_u64, right: 2_u64 }
     }
   \<close>
 
-urust expr d21_initializer_array
+urust_expr d21_initializer_array
   \<open> D21One { value: [1_u64, 2_u64, 3_u64] } \<close>
 
-urust expr d21_initializer_tuple
+urust_expr d21_initializer_tuple
   \<open> D21One { value: (1_u64, 2_u64, 3_u64) } \<close>
 
-urust expr d21_initializer_macro
+urust_expr d21_initializer_macro
   \<open> D21One { value: vec![1_u64, 2_u64, 3_u64] } \<close>
 
-urust expr d21_initializer_range
+urust_expr d21_initializer_range
   \<open> D21One { value: 0_usize..=2_usize } \<close>
 
 context
@@ -4804,26 +4804,26 @@ begin
 
 adhoc_overloading store_update_const \<rightleftharpoons> parser_update_fixture
 
-urust expr d21_initializer_assignment
+urust_expr d21_initializer_assignment
   \<open> D21One { value: d21_slot = 2_u64 } \<close>
 
 no_adhoc_overloading store_update_const \<rightleftharpoons> parser_update_fixture
 
 end
 
-urust expr d21_initializer_block
+urust_expr d21_initializer_block
   \<open> D21One { value: { 1_u64 } } \<close>
 
-urust expr d21_initializer_unsafe_block
+urust_expr d21_initializer_unsafe_block
   \<open> D21One { value: unsafe { 1_u64 } } \<close>
 
-urust expr d21_initializer_closure
+urust_expr d21_initializer_closure
   \<open> D21One { value: |left, right| \<llangle>(left :: nat) + right\<rrangle> } \<close>
 
-urust expr d21_initializer_return
+urust_expr d21_initializer_return
   \<open> D21One { value: return 1_u64; } \<close>
 
-urust expr d21_initializer_match
+urust_expr d21_initializer_match
   \<open>
     D21One {
       value: match Some(1_u64) {
@@ -4833,14 +4833,14 @@ urust expr d21_initializer_match
     }
   \<close>
 
-urust expr d21_initializer_binding
+urust_expr d21_initializer_binding
   \<open>
     D21One {
       value: let item = 1_u64; item
     }
   \<close>
 
-urust expr d21_initializer_conditional_binding
+urust_expr d21_initializer_conditional_binding
   \<open>
     D21One {
       value:
@@ -4852,28 +4852,28 @@ urust expr d21_initializer_conditional_binding
     }
   \<close>
 
-urust expr d21_initializer_while
+urust_expr d21_initializer_while
   \<open>
     D21One {
       value: #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while (false) { () }
     }
   \<close>
 
-urust expr d21_initializer_loop
+urust_expr d21_initializer_loop
   \<open>
     D21One {
       value: #[fuel(\<epsilon>\<open>1 :: nat\<close>)] loop { () }
     }
   \<close>
 
-urust expr d21_initializer_for
+urust_expr d21_initializer_for
   \<open>
     D21One {
       value: for item in [()] { item }
     }
   \<close>
 
-urust expr d21_initializer_while_let
+urust_expr d21_initializer_while_let
   \<open>
     D21One {
       value:
@@ -4882,13 +4882,13 @@ urust expr d21_initializer_while_let
     }
   \<close>
 
-urust expr d21_initializer_semicolon_sequence
+urust_expr d21_initializer_semicolon_sequence
   \<open> D21One { value: (); 1_u64 } \<close>
 
-urust expr d21_initializer_semicolon_free_sequence
+urust_expr d21_initializer_semicolon_free_sequence
   \<open> D21One { value: { () } 1_u64 } \<close>
 
-urust expr d21_nested_delimiters
+urust_expr d21_nested_delimiters
   \<open>
     D21Pair {
       first:
@@ -4901,60 +4901,60 @@ urust expr d21_nested_delimiters
     }
   \<close>
 
-urust expr d21_string_punctuation
+urust_expr d21_string_punctuation
   \<open> D21One { value: "braces { }, colon :, comma ," } \<close>
 
-urust expr d21_antiquotation_punctuation
+urust_expr d21_antiquotation_punctuation
   \<open> D21One { value: \<llangle>''braces { }, colon :, comma ,''\<rrangle> } \<close>
 
 subsection\<open> Expression placement and postfix composition \<close>
 
-urust expr d21_placement_grouped
+urust_expr d21_placement_grouped
   \<open> (D21One { value: 1_u64 }) \<close>
 
-urust expr d21_placement_block_tail
+urust_expr d21_placement_block_tail
   \<open> { D21One { value: 1_u64 } } \<close>
 
-urust expr d21_placement_binding_rhs
+urust_expr d21_placement_binding_rhs
   \<open> let item = D21One { value: 1_u64 }; item \<close>
 
-urust expr d21_placement_sequence_left
+urust_expr d21_placement_sequence_left
   \<open> D21One { value: 1_u64 }; () \<close>
 
-urust expr d21_placement_return_operand
+urust_expr d21_placement_return_operand
   \<open> return D21One { value: 1_u64 }; \<close>
 
-urust expr d21_placement_call_argument
+urust_expr d21_placement_call_argument
   \<open> d21_unregistered(D21One { value: 1_u64 }) \<close>
 
-urust expr d21_placement_macro_argument
+urust_expr d21_placement_macro_argument
   \<open> assert!(D21One { value: true }) \<close>
 
-urust expr d21_placement_tuple_argument
+urust_expr d21_placement_tuple_argument
   \<open> (D21One { value: 1_u64 }, 2_u64) \<close>
 
-urust expr d21_placement_array_argument
+urust_expr d21_placement_array_argument
   \<open> [D21One { value: 1_u64 }, 2_u64] \<close>
 
-urust expr d21_placement_index_base
+urust_expr d21_placement_index_base
   \<open> D21One { value: [1_u64, 2_u64] }[0_usize] \<close>
 
-urust expr d21_placement_index_operand
+urust_expr d21_placement_index_operand
   \<open> [1_u64, 2_u64][D21One { value: 0_usize }] \<close>
 
-urust expr d21_placement_range_lower
+urust_expr d21_placement_range_lower
   \<open> D21One { value: 0_usize }..2_usize \<close>
 
-urust expr d21_placement_range_upper
+urust_expr d21_placement_range_upper
   \<open> 0_usize..D21One { value: 2_usize } \<close>
 
-urust expr d21_placement_unary_operand
+urust_expr d21_placement_unary_operand
   \<open> !D21One { value: true } \<close>
 
-urust expr d21_placement_binary_operand
+urust_expr d21_placement_binary_operand
   \<open> D21One { value: 1_u64 } + D21One { value: 2_u64 } \<close>
 
-urust expr d21_placement_cast_operand
+urust_expr d21_placement_cast_operand
   \<open> D21One { value: 1_u32 } as u64 \<close>
 
 context
@@ -4963,40 +4963,40 @@ begin
 
 adhoc_overloading store_update_const \<rightleftharpoons> parser_update_fixture
 
-urust expr d21_placement_assignment_rhs
+urust_expr d21_placement_assignment_rhs
   \<open> d21_slot = D21One { value: 2_u64 } \<close>
 
 no_adhoc_overloading store_update_const \<rightleftharpoons> parser_update_fixture
 
 end
 
-urust expr d21_postfix_field
+urust_expr d21_postfix_field
   \<open> D21Record { value: 1 }.d21Field \<close>
 
-urust expr d21_postfix_method
+urust_expr d21_postfix_method
   \<open> D21One { value: 1_u64 }.cf1() \<close>
 
-urust expr d21_postfix_index
+urust_expr d21_postfix_index
   \<open> D21One { value: [1_u64, 2_u64] }[0_usize] \<close>
 
-urust expr d21_postfix_propagation
+urust_expr d21_postfix_propagation
   \<open> D21One { value: Some(1_u64) }? \<close>
 
 subsection\<open> Brace ambiguity \<close>
 
-urust expr d21_if_path_condition
+urust_expr d21_if_path_condition
   \<open> if d21_true { d21_unit } else { d21_unit } \<close>
 
-urust expr d21_if_struct_condition
+urust_expr d21_if_struct_condition
   \<open> if (D21One { value: true }) { d21_unit } else { d21_unit } \<close>
 
-urust expr d21_closure_if_path_condition
+urust_expr d21_closure_if_path_condition
   \<open> || if d21_true { d21_unit } else { d21_unit } \<close>
 
-urust expr d21_closure_if_struct_condition
+urust_expr d21_closure_if_struct_condition
   \<open> || if (D21One { value: true }) { d21_unit } else { d21_unit } \<close>
 
-urust expr d21_if_let_path_value
+urust_expr d21_if_let_path_value
   \<open>
     if let Some(item) = d21_some {
       item
@@ -5005,7 +5005,7 @@ urust expr d21_if_let_path_value
     }
   \<close>
 
-urust expr d21_if_let_struct_value
+urust_expr d21_if_let_struct_value
   \<open>
     if let Some(item) = (D21One { value: Some(3) }) {
       item
@@ -5014,10 +5014,10 @@ urust expr d21_if_let_struct_value
     }
   \<close>
 
-urust expr d21_for_path_iterable
+urust_expr d21_for_path_iterable
   \<open> for _ in d21_values { D21One { value: () }; () } \<close>
 
-urust expr d21_for_struct_iterable
+urust_expr d21_for_struct_iterable
   \<open>
     for _ in (D21One { value: [1_u64, 2_u64] }) {
       D21One { value: () };
@@ -5025,19 +5025,19 @@ urust expr d21_for_struct_iterable
     }
   \<close>
 
-urust expr d21_while_let_path_value
+urust_expr d21_while_let_path_value
   \<open>
     #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let Some(_) =
       d21_some { D21One { value: () }; () }
   \<close>
 
-urust expr d21_while_let_struct_value
+urust_expr d21_while_let_struct_value
   \<open>
     #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let Some(_) =
       (D21One { value: Some(3_u64) }) { D21One { value: () }; () }
   \<close>
 
-urust expr d21_match_path_scrutinee
+urust_expr d21_match_path_scrutinee
   \<open>
     match d21_some {
       Some(_) \<Rightarrow> D21One { value: 1 },
@@ -5045,7 +5045,7 @@ urust expr d21_match_path_scrutinee
     }
   \<close>
 
-urust expr d21_match_struct_scrutinee
+urust_expr d21_match_struct_scrutinee
   \<open>
     match (D21One { value: Some(3_u64) }) {
       Some(_) \<Rightarrow> D21One { value: 1_u64 },
@@ -5053,7 +5053,7 @@ urust expr d21_match_struct_scrutinee
     }
   \<close>
 
-urust expr d21_match_case_path_scrutinee
+urust_expr d21_match_case_path_scrutinee
   \<open>
     match_case d21_some {
       Some(_) \<Rightarrow> { 1 },
@@ -5061,7 +5061,7 @@ urust expr d21_match_case_path_scrutinee
     }
   \<close>
 
-urust expr d21_match_case_struct_scrutinee
+urust_expr d21_match_case_struct_scrutinee
   \<open>
     match_case (D21One { value: Some(3_u64) }) {
       Some(_) \<Rightarrow> { D21One { value: 1_u64 } },
@@ -5069,7 +5069,7 @@ urust expr d21_match_case_struct_scrutinee
     }
   \<close>
 
-urust expr d21_match_switch_path_scrutinee
+urust_expr d21_match_switch_path_scrutinee
   \<open>
     match_switch path_literal_42 {
       42 \<Rightarrow> d21_unit,
@@ -5077,7 +5077,7 @@ urust expr d21_match_switch_path_scrutinee
     }
   \<close>
 
-urust expr d21_match_switch_struct_scrutinee
+urust_expr d21_match_switch_struct_scrutinee
   \<open>
     match_switch (D21One { value: \<llangle>42 :: nat\<rrangle> }) {
       42 \<Rightarrow> D21One { value: d21_unit },
@@ -5087,56 +5087,56 @@ urust expr d21_match_switch_struct_scrutinee
 
 subsection\<open> Restricted control-head delimiter depth \<close>
 
-urust expr d80_head_call_argument
+urust_expr d80_head_call_argument
   \<open>
     match_case d21_unregistered(D21One { value: 1_u64 }) {
       _ \<Rightarrow> ()
     }
   \<close>
 
-urust expr d80_head_method_argument
+urust_expr d80_head_method_argument
   \<open>
     match_case 1_u64.cf2(D21One { value: 2_u64 }) {
       _ \<Rightarrow> ()
     }
   \<close>
 
-urust expr d80_head_tuple
+urust_expr d80_head_tuple
   \<open>
     match_case (D21One { value: 1_u64 }, 2_u64) {
       _ \<Rightarrow> ()
     }
   \<close>
 
-urust expr d80_head_array
+urust_expr d80_head_array
   \<open>
     for _ in [D21One { value: 1_u64 }, 2_u64] {
       ()
     }
   \<close>
 
-urust expr d80_head_index
+urust_expr d80_head_index
   \<open>
     match_case [1_u64, 2_u64][D21One { value: 0_usize }] {
       _ \<Rightarrow> ()
     }
   \<close>
 
-urust expr d80_head_macro
+urust_expr d80_head_macro
   \<open>
     match_case vec![D21One { value: 1_u64 }, 2_u64] {
       _ \<Rightarrow> ()
     }
   \<close>
 
-urust expr d80_head_block
+urust_expr d80_head_block
   \<open>
     match_case { D21One { value: 1_u64 } } {
       _ \<Rightarrow> ()
     }
   \<close>
 
-urust expr d80_nested_control_bodies
+urust_expr d80_nested_control_bodies
   \<open>
     if d21_true {
       D21One { value: d21_unit }
@@ -5147,10 +5147,10 @@ urust expr d80_nested_control_bodies
 
 subsection\<open> Layout \<close>
 
-urust expr d21_layout_compact
+urust_expr d21_layout_compact
   \<open> D21Pair{left:1_u64,right:2_u64} \<close>
 
-urust expr d21_layout_multiline
+urust_expr d21_layout_multiline
   \<open>
     D21Pair
     {
@@ -5180,28 +5180,28 @@ section\<open> Yield and primitive logging \<close>
 
 subsection\<open> Yield placement \<close>
 
-urust expr yield_standalone
+urust_expr yield_standalone
   \<open> \<y>\<i>\<e>\<l>\<d> \<close>
 
-urust expr yield_trailing_semicolon
+urust_expr yield_trailing_semicolon
   \<open> \<y>\<i>\<e>\<l>\<d>; \<close>
 
-urust expr yield_sequence
+urust_expr yield_sequence
   \<open> \<y>\<i>\<e>\<l>\<d>; () \<close>
 
-urust expr yield_block_tail
+urust_expr yield_block_tail
   \<open> { \<y>\<i>\<e>\<l>\<d> } \<close>
 
-urust expr yield_let_initializer
+urust_expr yield_let_initializer
   \<open> let result = \<y>\<i>\<e>\<l>\<d>; result \<close>
 
-urust expr yield_const_initializer
+urust_expr yield_const_initializer
   \<open> const result = \<y>\<i>\<e>\<l>\<d>; result \<close>
 
-urust expr yield_return_operand
+urust_expr yield_return_operand
   \<open> return \<y>\<i>\<e>\<l>\<d>; \<close>
 
-urust expr yield_branches
+urust_expr yield_branches
   \<open>
     if true {
       \<y>\<i>\<e>\<l>\<d>
@@ -5210,7 +5210,7 @@ urust expr yield_branches
     }
   \<close>
 
-urust expr yield_match_arm_and_guard
+urust_expr yield_match_arm_and_guard
   \<open>
     match_case Some(()) {
       Some(_) if \<y>\<i>\<e>\<l>\<d>; true \<Rightarrow> \<y>\<i>\<e>\<l>\<d>,
@@ -5218,35 +5218,35 @@ urust expr yield_match_arm_and_guard
     }
   \<close>
 
-urust expr yield_call_argument
+urust_expr yield_call_argument
   \<open>
     \<llangle>\<lambda>x::unit. FunctionBody (literal x)\<rrangle>\<^sub>1(
       \<y>\<i>\<e>\<l>\<d>
     )
   \<close>
 
-urust expr yield_tuple_argument
+urust_expr yield_tuple_argument
   \<open> (\<y>\<i>\<e>\<l>\<d>, \<y>\<i>\<e>\<l>\<d>) \<close>
 
-urust expr yield_array_argument
+urust_expr yield_array_argument
   \<open> [\<y>\<i>\<e>\<l>\<d>, \<y>\<i>\<e>\<l>\<d>] \<close>
 
-urust expr yield_grouped
+urust_expr yield_grouped
   \<open> (\<y>\<i>\<e>\<l>\<d>) \<close>
 
-urust expr yield_closure_body
+urust_expr yield_closure_body
   \<open> || \<y>\<i>\<e>\<l>\<d> \<close>
 
-urust expr yield_equality_operand
+urust_expr yield_equality_operand
   \<open> \<y>\<i>\<e>\<l>\<d> == \<y>\<i>\<e>\<l>\<d> \<close>
 
-urust expr yield_range_operands
+urust_expr yield_range_operands
   \<open>
     { \<y>\<i>\<e>\<l>\<d>; 0_usize }..
       { \<y>\<i>\<e>\<l>\<d>; 2_usize }
   \<close>
 
-urust expr yield_control_head
+urust_expr yield_control_head
   \<open>
     if { \<y>\<i>\<e>\<l>\<d>; true } {
       ()
@@ -5259,30 +5259,30 @@ context
   fixes yield_slot :: \<open>(unit, unit, unit) Global_Store.ref\<close>
 begin
 
-urust expr yield_assignment_rhs
+urust_expr yield_assignment_rhs
   \<open> yield_slot = \<y>\<i>\<e>\<l>\<d> \<close>
 
 end
 
 subsection\<open> Primitive logger \<close>
 
-urust expr primitive_log_trace
+urust_expr primitive_log_trace
   \<open> \<l>\<o>\<g> \<llangle>Trace\<rrangle> \<llangle>[]\<rrangle> \<close>
 
-urust expr primitive_log_debug
+urust_expr primitive_log_debug
   \<open> \<l>\<o>\<g> \<llangle>Debug\<rrangle> \<llangle>[LogNat 1]\<rrangle> \<close>
 
-urust expr primitive_log_error
+urust_expr primitive_log_error
   \<open> \<l>\<o>\<g> \<llangle>Error\<rrangle> \<llangle>[LogBool False]\<rrangle> \<close>
 
-urust expr primitive_log_info
+urust_expr primitive_log_info
   \<open>
     \<l>\<o>\<g>
       \<llangle>Info\<rrangle>
       \<llangle>[LogString (String.implode ''information'')]\<rrangle>
   \<close>
 
-urust expr primitive_log_fatal
+urust_expr primitive_log_fatal
   \<open>
     \<l>\<o>\<g> \<llangle>Fatal\<rrangle>
       \<llangle>[LogNat 1, LogBool True, LogNat 3]\<rrangle>
@@ -5293,7 +5293,7 @@ context
   fixes primitive_data :: log_data
 begin
 
-urust expr primitive_log_context_values
+urust_expr primitive_log_context_values
   \<open>
     \<l>\<o>\<g>
       \<llangle>primitive_priority\<rrangle>
@@ -5302,14 +5302,14 @@ urust expr primitive_log_context_values
 
 end
 
-urust expr primitive_log_binder_capture
+urust_expr primitive_log_binder_capture
   \<open>
     let priority = \<llangle>Error\<rrangle>;
     let data = \<llangle>[LogNat 9]\<rrangle>;
     \<l>\<o>\<g> \<llangle>priority\<rrangle> \<llangle>data\<rrangle>
   \<close>
 
-urust expr primitive_log_nested_antiquotation_delimiters
+urust_expr primitive_log_nested_antiquotation_delimiters
   \<open>
     \<l>\<o>\<g>
       \<llangle>
@@ -5328,35 +5328,35 @@ urust expr primitive_log_nested_antiquotation_delimiters
       \<rrangle>
   \<close>
 
-urust expr primitive_log_sequence
+urust_expr primitive_log_sequence
   \<open>
     \<l>\<o>\<g> \<llangle>Debug\<rrangle> \<llangle>[]\<rrangle>;
     \<l>\<o>\<g> \<llangle>Trace\<rrangle> \<llangle>[LogNat 2]\<rrangle>
   \<close>
 
-urust expr primitive_log_trailing_semicolon
+urust_expr primitive_log_trailing_semicolon
   \<open> \<l>\<o>\<g> \<llangle>Debug\<rrangle> \<llangle>[]\<rrangle>; \<close>
 
-urust expr primitive_log_grouped_nested_call
+urust_expr primitive_log_grouped_nested_call
   \<open>
     \<llangle>\<lambda>x::unit. FunctionBody (literal x)\<rrangle>\<^sub>1(
       (\<l>\<o>\<g> \<llangle>Debug\<rrangle> \<llangle>[LogNat 3]\<rrangle>)
     )
   \<close>
 
-urust expr primitive_log_binary_operand
+urust_expr primitive_log_binary_operand
   \<open>
     \<l>\<o>\<g> \<llangle>Debug\<rrangle> \<llangle>[]\<rrangle> ==
       \<l>\<o>\<g> \<llangle>Trace\<rrangle> \<llangle>[]\<rrangle>
   \<close>
 
-urust expr primitive_log_range_operands
+urust_expr primitive_log_range_operands
   \<open>
     { \<l>\<o>\<g> \<llangle>Debug\<rrangle> \<llangle>[]\<rrangle>; 0_usize }..
       { \<l>\<o>\<g> \<llangle>Trace\<rrangle> \<llangle>[]\<rrangle>; 2_usize }
   \<close>
 
-urust expr primitive_log_control_head
+urust_expr primitive_log_control_head
   \<open>
     if {
       \<l>\<o>\<g> \<llangle>Debug\<rrangle> \<llangle>[]\<rrangle>;
@@ -5372,7 +5372,7 @@ context
   fixes primitive_log_slot :: \<open>(unit, unit, unit) Global_Store.ref\<close>
 begin
 
-urust expr primitive_log_assignment_rhs
+urust_expr primitive_log_assignment_rhs
   \<open>
     primitive_log_slot =
       \<l>\<o>\<g> \<llangle>Debug\<rrangle> \<llangle>[]\<rrangle>
@@ -5380,7 +5380,7 @@ urust expr primitive_log_assignment_rhs
 
 end
 
-urust expr primitive_log_control_flow
+urust_expr primitive_log_control_flow
   \<open>
     if true {
       \<l>\<o>\<g> \<llangle>Info\<rrangle> \<llangle>[LogBool True]\<rrangle>
@@ -5394,7 +5394,7 @@ urust expr primitive_log_control_flow
     }
   \<close>
 
-urust expr primitive_log_closure_body
+urust_expr primitive_log_closure_body
   \<open> || \<l>\<o>\<g> \<llangle>Trace\<rrangle> \<llangle>[]\<rrangle> \<close>
 
 subsection\<open> Open exceptions and post-parity surface \<close>

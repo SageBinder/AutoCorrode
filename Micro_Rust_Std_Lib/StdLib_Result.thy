@@ -12,7 +12,7 @@ section\<open>Core material related to the \<^emph>\<open>Result\<close> type\<c
 
 text\<open>Returns \<^verbatim>\<open>x\<close> if the element of \<^verbatim>\<open>Result\<close> type is of the form \<^verbatim>\<open>Ok x\<close>.  Panics otherwise with
 the defined error message.\<close>
-urust fn result_expect :: \<open>('v,'e) result \<Rightarrow> String.literal \<Rightarrow> ('s, 'v, 'abort, 'i, 'o) function_body\<close>
+urust_fn result_expect :: \<open>('v,'e) result \<Rightarrow> String.literal \<Rightarrow> ('s, 'v, 'abort, 'i, 'o) function_body\<close>
   (self, msg)
   \<open>
       match self {
@@ -35,7 +35,7 @@ lemma result_expect_spec [crush_specs]:
      (crush_base split!: result.splits)
 
 text\<open>Returns \<^verbatim>\<open>x\<close> if the element of \<^verbatim>\<open>Result\<close> type is of the form \<^verbatim>\<open>Ok x\<close>.  Panics otherwise.\<close>
-urust fn result_unwrap :: \<open>('v,'e) result \<Rightarrow> ('s, 'v, 'abort, 'i, 'o) function_body\<close>
+urust_fn result_unwrap :: \<open>('v,'e) result \<Rightarrow> ('s, 'v, 'abort, 'i, 'o) function_body\<close>
   (self)
   \<open>
       self.expect("result_unwrap")
@@ -55,7 +55,7 @@ lemma result_unwrap_spec [crush_specs]:
      (crush_base split!: result.splits)
 
 text\<open>Tests whether an element of \<^verbatim>\<open>Result\<close> type is the \<^verbatim>\<open>Err\<close> constructor:\<close>
-urust fn urust_func_result_is_err :: \<open>('v,'e) result \<Rightarrow> ('s, bool, 'abort, 'i, 'o) function_body\<close>
+urust_fn urust_func_result_is_err :: \<open>('v,'e) result \<Rightarrow> ('s, bool, 'abort, 'i, 'o) function_body\<close>
   (self)
   \<open>
      match self {
@@ -78,7 +78,7 @@ lemma result_is_err_spec [crush_specs]:
      (crush_base simp add: result_is_err_def split!: result.splits)
 
 text\<open>Tests whether an element of \<^verbatim>\<open>Result\<close> type is the \<^verbatim>\<open>Ok\<close> constructor:\<close>
-urust fn urust_func_result_is_ok :: \<open>('v,'e) result \<Rightarrow> ('s, bool, 'abort, 'i, 'o) function_body\<close>
+urust_fn urust_func_result_is_ok :: \<open>('v,'e) result \<Rightarrow> ('s, bool, 'abort, 'i, 'o) function_body\<close>
   (self)
   \<open>
      match self {
@@ -100,7 +100,7 @@ lemma result_is_ok_spec [crush_specs]:
   by (crush_boot f: urust_func_result_is_ok_def contract: result_is_ok_contract_def)
      (crush_base simp add: result_is_ok_def split!: result.splits)
 
-urust fn result_or :: \<open>('a, 'f) result \<Rightarrow> ('a, 'e) result \<Rightarrow> ('s, ('a, 'e) result, 'abort, 'i, 'o) function_body\<close>
+urust_fn result_or :: \<open>('a, 'f) result \<Rightarrow> ('a, 'e) result \<Rightarrow> ('s, ('a, 'e) result, 'abort, 'i, 'o) function_body\<close>
   (self, e)
   \<open>
      match self {
@@ -130,7 +130,7 @@ lemma result_or_spec [crush_specs]:
   by (crush_boot f: result_or_def contract: result_or_contract_def)
      (crush_base simp add: result_or_pure_def split!: result.splits)
 
-urust fn map_err :: \<open>('a, 'e) result \<Rightarrow> ('e \<Rightarrow> ('machine, 'f, 'abort, 'i, 'o) function_body) \<Rightarrow>
+urust_fn map_err :: \<open>('a, 'e) result \<Rightarrow> ('e \<Rightarrow> ('machine, 'f, 'abort, 'i, 'o) function_body) \<Rightarrow>
     ('machine, ('a, 'f) result, 'abort, 'i, 'o) function_body\<close>
   (x, f)
   \<open>
@@ -140,7 +140,7 @@ urust fn map_err :: \<open>('a, 'e) result \<Rightarrow> ('e \<Rightarrow> ('mac
      }
   \<close>
 
-urust fn ok :: \<open>('v, 'e) result \<Rightarrow> ('s, 'v option, 'abort, 'i, 'o) function_body\<close>
+urust_fn ok :: \<open>('v, 'e) result \<Rightarrow> ('s, 'v option, 'abort, 'i, 'o) function_body\<close>
   (self)
   \<open>
      match self {
@@ -163,7 +163,7 @@ lemma ok_spec [crush_specs]:
   apply crush_base
   done
 
-urust fn result_unwrap_or :: \<open>('a, 'b) result \<Rightarrow> 'a \<Rightarrow> ('machine, 'a, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
+urust_fn result_unwrap_or :: \<open>('a, 'b) result \<Rightarrow> 'a \<Rightarrow> ('machine, 'a, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (res, e)
   \<open>
      if let Ok(r) = res {
@@ -177,7 +177,7 @@ context reference
 begin       
 adhoc_overloading store_update_const \<rightleftharpoons> update_fun
 
-urust fn result_as_mut :: \<open>('a, 'b, ('v, 'e) result) Global_Store.ref \<Rightarrow>
+urust_fn result_as_mut :: \<open>('a, 'b, ('v, 'e) result) Global_Store.ref \<Rightarrow>
     ('s, (('a, 'b, 'v) Global_Store.ref, ('a, 'b, 'e) Global_Store.ref) result, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (self)
   \<open>

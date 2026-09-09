@@ -70,7 +70,7 @@ The new address type is \<^verbatim>\<open>'a0 + 'a1\<close> -- that is, the dis
 of the input interpretations. Similarly, the global value type is the disjoint union
 \<^verbatim>\<open>'b0 + 'b1\<close> of the global value types of the individual interpretations.\<close>
 
-urust expr [urust_abbrev = true]
+urust_expr [abbrev = true]
   update_raw_fun_urust_site_1
   \<open> panic!("Invalid update on pair reference") \<close>
 
@@ -82,12 +82,12 @@ definition update_raw_fun ::
        | (Inr r1, Inr b1) \<Rightarrow> update_raw_funB r1 b1
        | _ \<Rightarrow> FunctionBody update_raw_fun_urust_site_1\<close>
 
-urust expr [urust_abbrev = true]
+urust_expr [abbrev = true]
   dereference_raw_fun_urust_site_1
   (r0)
   \<open> \<llangle>Inl\<rrangle>\<^sub>1 (dereference_raw_funA (r0)) \<close>
 
-urust expr [urust_abbrev = true]
+urust_expr [abbrev = true]
   dereference_raw_fun_urust_site_2
   (r1)
   \<open> \<llangle>Inr\<rrangle>\<^sub>1 (dereference_raw_funB (r1)) \<close>
@@ -103,7 +103,7 @@ text\<open>Allocations are currently only possible with \<^emph>\<open>one\<clos
 The axioms need suitable generalization if we ever need to combine two reference
 interpretations which can both allocate.\<close>
 
-urust fn reference_raw_fun ::
+urust_fn reference_raw_fun ::
   \<open>'b0 + 'b1 \<Rightarrow> ('s, ('a0 + 'a1, 'b0 + 'b1) gref, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (b)
   \<open>

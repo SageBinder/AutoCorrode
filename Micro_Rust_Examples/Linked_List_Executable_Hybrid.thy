@@ -298,7 +298,7 @@ definition ll_head :: \<open>(NonNullRaw, gv) gref option\<close> where
   \<open>ll_head \<equiv> Some (make_gref test_page_ptr)\<close>
 
 \<comment>\<open>\<^verbatim>\<open>
-urust fn reverse_unlink :: \<open>64 word \<Rightarrow> ('caddr, 'gv) gref option
+urust_fn reverse_unlink :: \<open>64 word \<Rightarrow> ('caddr, 'gv) gref option
   \<Rightarrow> ('addr, 'gv, ('caddr, 'gv) gref option) Global_Store.ref
   \<Rightarrow> ('addr, 'gv, ('caddr, 'gv) gref option) Global_Store.ref
   \<Rightarrow> ('s, ('caddr, 'gv) gref option \<times> ('caddr, 'gv) gref option) function_body\<close>

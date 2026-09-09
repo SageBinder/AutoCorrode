@@ -30,9 +30,9 @@ ML_val\<open>
   end
 \<close>
 
-urust expr default_expr_flags \<open> () \<close>
+urust_expr default_expr_flags \<open> () \<close>
 
-urust fn default_fun_flags ::
+urust_fn default_fun_flags ::
   \<open>(unit, unit, unit, unit, unit) function_body\<close>
   ()
   \<open> () \<close>
@@ -41,66 +41,59 @@ urust fn default_fun_flags ::
 section\<open> Inline flag combinations \<close>
 
 text\<open>
-Each command form exercises all Boolean flag combinations and all three verbosity levels. The option
-order is deliberately varied.
+\<open>urust_expr\<close> exercises every Boolean flag combination and all three verbosity levels.
+\<open>urust_fn\<close> exercises both conformance settings at every verbosity level. The option order is
+deliberately varied.
 \<close>
 
-urust expr
-  [urust_conformance_check = false, urust_verbose = 0, urust_abbrev = false]
+urust_expr
+  [conformance_check = false, verbose = 0, abbrev = false]
   inline_expr_000 \<open> () \<close>
-urust expr
-  [urust_abbrev = true, urust_conformance_check = false, urust_verbose = 0]
+urust_expr
+  [abbrev = true, conformance_check = false, verbose = 0]
   inline_expr_001 \<open> () \<close>
-urust expr
-  [urust_verbose = 1, urust_abbrev = false, urust_conformance_check = false]
+urust_expr
+  [verbose = 1, abbrev = false, conformance_check = false]
   inline_expr_010 \<open> () \<close>
-urust expr
-  [urust_conformance_check = false, urust_abbrev = true, urust_verbose = 1]
+urust_expr
+  [conformance_check = false, abbrev = true, verbose = 1]
   inline_expr_011 \<open> () \<close>
-urust expr
-  [urust_verbose = 0, urust_conformance_check = true, urust_abbrev = false]
+urust_expr
+  [verbose = 0, conformance_check = true, abbrev = false]
   inline_expr_100 \<open> () \<close>
-urust expr
-  [urust_abbrev = true, urust_verbose = 0, urust_conformance_check = true]
+urust_expr
+  [abbrev = true, verbose = 0, conformance_check = true]
   inline_expr_101 \<open> () \<close>
-urust expr
-  [urust_conformance_check = true, urust_verbose = 2, urust_abbrev = false]
+urust_expr
+  [conformance_check = true, verbose = 2, abbrev = false]
   inline_expr_110 \<open> () \<close>
-urust expr
-  [urust_verbose = 2, urust_abbrev = true, urust_conformance_check = true]
+urust_expr
+  [verbose = 2, abbrev = true, conformance_check = true]
   inline_expr_111 \<open> () \<close>
 
-urust fn
-  [urust_abbrev = false, urust_verbose = 0, urust_conformance_check = false]
-  inline_fun_000 ::
+urust_fn
+  [verbose = 0, conformance_check = false]
+  inline_fun_00 ::
   \<open>(unit, unit, unit, unit, unit) function_body\<close> () \<open> () \<close>
-urust fn
-  [urust_conformance_check = false, urust_abbrev = true, urust_verbose = 0]
-  inline_fun_001 ::
+urust_fn
+  [conformance_check = false, verbose = 1]
+  inline_fun_01 ::
   \<open>(unit, unit, unit, unit, unit) function_body\<close> () \<open> () \<close>
-urust fn
-  [urust_verbose = 1, urust_conformance_check = false, urust_abbrev = false]
-  inline_fun_010 ::
+urust_fn
+  [verbose = 2, conformance_check = false]
+  inline_fun_02 ::
   \<open>(unit, unit, unit, unit, unit) function_body\<close> () \<open> () \<close>
-urust fn
-  [urust_abbrev = true, urust_verbose = 1, urust_conformance_check = false]
-  inline_fun_011 ::
+urust_fn
+  [conformance_check = true, verbose = 0]
+  inline_fun_10 ::
   \<open>(unit, unit, unit, unit, unit) function_body\<close> () \<open> () \<close>
-urust fn
-  [urust_conformance_check = true, urust_abbrev = false, urust_verbose = 0]
-  inline_fun_100 ::
+urust_fn
+  [verbose = 1, conformance_check = true]
+  inline_fun_11 ::
   \<open>(unit, unit, unit, unit, unit) function_body\<close> () \<open> () \<close>
-urust fn
-  [urust_verbose = 0, urust_conformance_check = true, urust_abbrev = true]
-  inline_fun_101 ::
-  \<open>(unit, unit, unit, unit, unit) function_body\<close> () \<open> () \<close>
-urust fn
-  [urust_abbrev = false, urust_conformance_check = true, urust_verbose = 2]
-  inline_fun_110 ::
-  \<open>(unit, unit, unit, unit, unit) function_body\<close> () \<open> () \<close>
-urust fn
-  [urust_verbose = 2, urust_conformance_check = true, urust_abbrev = true]
-  inline_fun_111 ::
+urust_fn
+  [conformance_check = true, verbose = 2]
+  inline_fun_12 ::
   \<open>(unit, unit, unit, unit, unit) function_body\<close> () \<open> () \<close>
 
 
@@ -110,29 +103,29 @@ declare [[urust_conformance_check = true]]
 declare [[urust_verbose = 2]]
 declare [[urust_abbrev = true]]
 
-urust expr scoped_all_true_expr \<open> () \<close>
+urust_expr scoped_all_true_expr \<open> () \<close>
 
-urust fn scoped_all_true_fun ::
+urust_fn scoped_all_true_fun ::
   \<open>(unit, unit, unit, unit, unit) function_body\<close>
   ()
   \<open> () \<close>
 
-urust expr
-  [urust_verbose = 0, urust_abbrev = false, urust_conformance_check = false]
+urust_expr
+  [verbose = 0, abbrev = false, conformance_check = false]
   scoped_all_false_expr \<open> () \<close>
 
-urust fn
-  [urust_conformance_check = false, urust_verbose = 0, urust_abbrev = false]
+urust_fn
+  [conformance_check = false, verbose = 0]
   scoped_all_false_fun ::
   \<open>(unit, unit, unit, unit, unit) function_body\<close>
   ()
   \<open> () \<close>
 
-urust expr [urust_abbrev = false]
+urust_expr [abbrev = false]
   scoped_partial_definition_expr \<open> () \<close>
 
-urust fn [urust_conformance_check = false]
-  scoped_partial_abbrev_fun ::
+urust_fn [conformance_check = false]
+  scoped_partial_definition_fun ::
   \<open>(unit, unit, unit, unit, unit) function_body\<close>
   ()
   \<open> () \<close>
@@ -141,9 +134,9 @@ declare [[urust_conformance_check = false]]
 declare [[urust_verbose = 0]]
 declare [[urust_abbrev = false]]
 
-urust expr reset_expr_flags \<open> () \<close>
+urust_expr reset_expr_flags \<open> () \<close>
 
-urust fn reset_fun_flags ::
+urust_fn reset_fun_flags ::
   \<open>(unit, unit, unit, unit, unit) function_body\<close>
   ()
   \<open> () \<close>
@@ -151,46 +144,46 @@ urust fn reset_fun_flags ::
 
 section\<open> Contextual expressions \<close>
 
-urust expr [urust_conformance_check = true]
+urust_expr [conformance_check = true]
   contextual_order
   (first, second)
   \<open> \<llangle>(first :: nat, second :: bool)\<rrangle> \<close>
 
-urust expr [urust_conformance_check = true]
+urust_expr [conformance_check = true]
   contextual_antiquotation
   (left, right)
   \<open> \<llangle>(left :: nat) + right\<rrangle> \<close>
 
-urust expr [urust_conformance_check = true]
+urust_expr [conformance_check = true]
   contextual_shadowing
   (item, outer)
   \<open> let item = true; \<llangle>(item, outer :: nat)\<rrangle> \<close>
 
-urust expr
-  [urust_abbrev = true, urust_conformance_check = true, urust_verbose = 2]
+urust_expr
+  [abbrev = true, conformance_check = true, verbose = 2]
   nie_contextual_helper
   (address, size)
   \<open> \<llangle>(address :: nat) + size\<rrangle> \<close>
 
-urust expr contextual_definition_against
+urust_expr contextual_definition_against
   (operand)
   \<open> operand + 1u32 \<close>
   against \<open> \<lbrakk> operand + 1_u32 \<rbrakk> \<close>
 
-urust expr [urust_abbrev = true]
+urust_expr [abbrev = true]
   contextual_abbrev_against
   (operand)
   \<open> operand + 2u32 \<close>
   against \<open> \<lbrakk> operand + 2_u32 \<rbrakk> \<close>
 
-urust fn fun_definition_against ::
+urust_fn fun_definition_against ::
   \<open>32 word \<Rightarrow> (unit, 32 word, unit, unit, unit) function_body\<close>
   (operand)
   \<open> operand + 3u32 \<close>
   against \<open> \<lbrakk> operand + 3_u32 \<rbrakk> \<close>
 
-urust fn [urust_abbrev = true]
-  fun_abbrev_against ::
+urust_fn
+  fun_definition_against_2 ::
   \<open>32 word \<Rightarrow> (unit, 32 word, unit, unit, unit) function_body\<close>
   (operand)
   \<open> operand + 4u32 \<close>
@@ -200,7 +193,7 @@ locale contextual_flags_locale =
   fixes offset :: nat
 begin
 
-urust expr [urust_abbrev = true, urust_conformance_check = true]
+urust_expr [abbrev = true, conformance_check = true]
   contextual_locale_helper
   (operand)
   \<open> \<llangle>operand + offset\<rrangle> \<close>
@@ -255,9 +248,6 @@ section\<open> Declaration artifacts \<close>
 definition expr_abbrev_client where
   \<open> expr_abbrev_client = inline_expr_001 \<close>
 
-definition fun_abbrev_client where
-  \<open> fun_abbrev_client = inline_fun_001 \<close>
-
 ML_val\<open>
   local
     val ctxt = \<^context>
@@ -298,44 +288,40 @@ ML_val\<open>
       ["default_expr_flags", "default_fun_flags",
        "inline_expr_000", "inline_expr_010",
        "inline_expr_100", "inline_expr_110",
-       "inline_fun_000", "inline_fun_010",
-       "inline_fun_100", "inline_fun_110",
+       "inline_fun_00", "inline_fun_01", "inline_fun_02",
+       "inline_fun_10", "inline_fun_11", "inline_fun_12",
+       "scoped_all_true_fun",
        "scoped_all_false_expr", "scoped_all_false_fun",
-       "scoped_partial_definition_expr",
+       "scoped_partial_definition_expr", "scoped_partial_definition_fun",
        "reset_expr_flags", "reset_fun_flags",
        "contextual_order", "contextual_antiquotation",
        "contextual_shadowing", "contextual_definition_against",
-       "fun_definition_against"]
+       "fun_definition_against", "fun_definition_against_2"]
 
     val abbreviations =
       ["inline_expr_001", "inline_expr_011",
        "inline_expr_101", "inline_expr_111",
-       "inline_fun_001", "inline_fun_011",
-       "inline_fun_101", "inline_fun_111",
-       "scoped_all_true_expr", "scoped_all_true_fun",
-       "scoped_partial_abbrev_fun", "nie_contextual_helper",
-       "contextual_abbrev_against", "fun_abbrev_against"]
+       "scoped_all_true_expr", "nie_contextual_helper",
+       "contextual_abbrev_against"]
 
     val conforming =
       ["inline_expr_100", "inline_expr_101",
        "inline_expr_110", "inline_expr_111",
-       "inline_fun_100", "inline_fun_101",
-       "inline_fun_110", "inline_fun_111",
+       "inline_fun_10", "inline_fun_11", "inline_fun_12",
        "scoped_all_true_expr", "scoped_all_true_fun",
        "scoped_partial_definition_expr",
        "contextual_order", "contextual_antiquotation",
        "contextual_shadowing", "nie_contextual_helper",
        "contextual_definition_against", "contextual_abbrev_against",
-       "fun_definition_against", "fun_abbrev_against"]
+       "fun_definition_against", "fun_definition_against_2"]
 
     val nonconforming =
       ["default_expr_flags", "default_fun_flags",
        "inline_expr_000", "inline_expr_001",
        "inline_expr_010", "inline_expr_011",
-       "inline_fun_000", "inline_fun_001",
-       "inline_fun_010", "inline_fun_011",
+       "inline_fun_00", "inline_fun_01", "inline_fun_02",
        "scoped_all_false_expr", "scoped_all_false_fun",
-       "scoped_partial_abbrev_fun",
+       "scoped_partial_definition_fun",
        "reset_expr_flags", "reset_fun_flags"]
 
     fun check_definition name =
@@ -389,7 +375,6 @@ ML_val\<open>
       end
 
     val _ = assert_expanded "expr_abbrev_client" "inline_expr_001"
-    val _ = assert_expanded "fun_abbrev_client" "inline_fun_001"
   in
     val _ = ()
   end
@@ -404,6 +389,10 @@ ML_val\<open>
     val body_type =
       Symbol.open_ ^
       "(unit, unit, unit, unit, unit) function_body" ^
+      Symbol.close
+    val unary_body_type =
+      Symbol.open_ ^
+      "nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body" ^
       Symbol.close
     val serial = Unsynchronized.ref 0
 
@@ -428,7 +417,7 @@ ML_val\<open>
       in
         ignore
           (run_command ("flag-recovery-" ^ string_of_int index)
-            ("urust expr [urust_abbrev = true] recovered_" ^
+            ("urust_expr [abbrev = true] recovered_" ^
               string_of_int index ^ " " ^ unit_source) ())
       end
 
@@ -453,190 +442,203 @@ ML_val\<open>
                        "\nexpected: " ^ quote expected)
              in recovery () end)
 
-    datatype command_kind = Expr | Fun
+    datatype command_kind = Expr | Fn
 
     fun command Expr options name suffix =
-          "urust expr " ^ options ^ " " ^ name ^ " " ^
+          "urust_expr " ^ options ^ " " ^ name ^ " " ^
             unit_source ^ suffix
-      | command Fun options name suffix =
-          "urust fn " ^ options ^ " " ^ name ^ " :: " ^
+      | command Fn options name suffix =
+          "urust_fn " ^ options ^ " " ^ name ^ " :: " ^
             body_type ^ " () " ^ unit_source ^ suffix
 
-    fun mode_option false = "urust_abbrev = false"
-      | mode_option true = "urust_abbrev = true"
+    fun kind_label Expr = "expr"
+      | kind_label Fn = "fn"
 
-    val kinds = [Expr, Fun]
-    val modes = [false, true]
+    fun case_label (kind, abbreviation) =
+      kind_label kind ^
+        (if abbreviation then "-abbrev" else "-definition")
 
-    fun test_unknown kind abbreviation =
+    fun option_block kind abbreviation options =
+      let
+        val expression_options =
+          (case kind of
+             Expr =>
+               ("abbrev = " ^ Bool.toString abbreviation) :: options
+           | Fn => options)
+      in
+        "[" ^ commas expression_options ^ "]"
+      end
+
+    val expression_cases = [(Expr, false), (Expr, true)]
+    val command_cases = expression_cases @ [(Fn, false)]
+
+    fun test_unknown (case_ as (kind, abbreviation)) =
       let
         val label =
-          "unknown-option-" ^
-          (case kind of Expr => "expr" | Fun => "fun") ^
-          (if abbreviation then "-abbrev" else "-definition")
+          "unknown-option-" ^ case_label case_
         val options =
-          "[" ^ mode_option abbreviation ^
-          ", urust_future_flag = true]"
+          option_block kind abbreviation
+            ["urust_future_flag = true"]
       in
         assert_rejected label
           (command kind options "unknown_flag" "")
           "unknown uRust command option \"urust_future_flag\""
       end
 
-    fun test_legacy legacy kind abbreviation =
+    fun test_prefixed prefixed (case_ as (kind, abbreviation)) =
       let
         val label =
-          "legacy-" ^ legacy ^ "-" ^
-          (case kind of Expr => "expr" | Fun => "fun") ^
-          (if abbreviation then "-abbrev" else "-definition")
+          "prefixed-inline-" ^ prefixed ^ "-" ^ case_label case_
         val options =
-          "[" ^ mode_option abbreviation ^ ", " ^ legacy ^ " = true]"
+          option_block kind abbreviation [prefixed ^ " = true"]
       in
         assert_rejected label
           (command kind options "legacy_flag" "")
-          ("unknown uRust command option " ^ quote legacy)
+          ("unknown uRust command option " ^ quote prefixed)
       end
 
-    fun test_duplicate flag kind abbreviation =
+    fun test_duplicate flag (case_ as (kind, abbreviation)) =
       let
         val label =
-          "duplicate-" ^ flag ^ "-" ^
-          (case kind of Expr => "expr" | Fun => "fun") ^
-          (if abbreviation then "-abbrev" else "-definition")
+          "duplicate-" ^ flag ^ "-" ^ case_label case_
         val value = Bool.toString abbreviation
         val (first, second) =
-          if flag = "urust_verbose" then ("0", "1")
+          if flag = "verbose" then ("0", "1")
           else ("true", "false")
         val options =
-          if flag = "urust_abbrev" then
+          if flag = "abbrev" then
             "[" ^ flag ^ " = " ^ value ^ ", " ^
               flag ^ " = " ^ value ^ "]"
           else
-            "[" ^ mode_option abbreviation ^ ", " ^
-              flag ^ " = " ^ first ^ ", " ^
-              flag ^ " = " ^ second ^ "]"
+            option_block kind abbreviation
+              [flag ^ " = " ^ first, flag ^ " = " ^ second]
       in
         assert_rejected label
           (command kind options "duplicate_flag" "")
           ("duplicate uRust command option " ^ quote flag)
       end
 
-    fun test_contradiction kind abbreviation =
+    fun test_contradiction (case_ as (kind, abbreviation)) =
       let
         val label =
-          "contradictory-" ^
-          (case kind of Expr => "expr" | Fun => "fun") ^
-          (if abbreviation then "-abbrev" else "-definition")
+          "contradictory-" ^ case_label case_
         val options =
-          "[" ^ mode_option abbreviation ^
-          ", urust_conformance_check = false]"
+          option_block kind abbreviation
+            ["conformance_check = false"]
         val suffix =
           " against " ^ Symbol.open_ ^ " \<lbrakk> () \<rbrakk> " ^ Symbol.close
       in
         assert_rejected label
           (command kind options "contradictory_flag" suffix)
-          "[urust_conformance_check = false] cannot be combined with `against`"
+          "[conformance_check = false] cannot be combined with `against`"
       end
 
-    fun test_invalid_verbosity kind abbreviation =
+    fun test_invalid_verbosity (case_ as (kind, abbreviation)) =
       let
         val label =
-          "invalid-verbosity-" ^
-          (case kind of Expr => "expr" | Fun => "fun") ^
-          (if abbreviation then "-abbrev" else "-definition")
+          "invalid-verbosity-" ^ case_label case_
         val options =
-          "[" ^ mode_option abbreviation ^ ", urust_verbose = 3]"
+          option_block kind abbreviation ["verbose = 3"]
       in
         assert_rejected label
           (command kind options "invalid_verbosity" "")
           "must be 0, 1, or 2, but found 3"
       end
 
-    fun test_wrong_option_type kind abbreviation =
+    fun test_wrong_option_type (case_ as (kind, abbreviation)) =
       let
         val label =
-          "wrong-option-type-" ^
-          (case kind of Expr => "expr" | Fun => "fun") ^
-          (if abbreviation then "-abbrev" else "-definition")
+          "wrong-option-type-" ^ case_label case_
       in
         assert_rejected (label ^ "-verbosity")
           (command kind
-            ("[" ^ mode_option abbreviation ^ ", urust_verbose = true]")
+            (option_block kind abbreviation ["verbose = true"])
             "Boolean_verbosity" "")
           "expects an integer from 0 to 2";
         assert_rejected (label ^ "-conformance")
           (command kind
-            ("[" ^ mode_option abbreviation ^
-              ", urust_conformance_check = 1]")
+            (option_block kind abbreviation
+              ["conformance_check = 1"])
             "integer_conformance" "")
           "expects true or false"
       end
 
-    val _ = List.app (fn kind => List.app (test_unknown kind) modes) kinds
+    val _ = List.app test_unknown command_cases
     val _ =
       List.app
-        (fn legacy =>
-          List.app
-            (fn kind => List.app (test_legacy legacy kind) modes)
-            kinds)
-        ["conformance_check", "verbose", "abbrev"]
-    val _ =
-      List.app
-        (fn flag =>
-          List.app
-            (fn kind => List.app (test_duplicate flag kind) modes)
-            kinds)
+        (fn prefixed =>
+          List.app (test_prefixed prefixed) command_cases)
         ["urust_conformance_check", "urust_verbose", "urust_abbrev"]
     val _ =
       List.app
-        (fn kind => List.app (test_contradiction kind) modes)
-        kinds
+        (fn flag =>
+          List.app (test_duplicate flag) command_cases)
+        ["conformance_check", "verbose"]
     val _ =
-      List.app
-        (fn kind => List.app (test_invalid_verbosity kind) modes)
-        kinds
+      List.app (test_duplicate "abbrev") expression_cases
+    val _ = List.app test_contradiction command_cases
+    val _ = List.app test_invalid_verbosity command_cases
+    val _ = List.app test_wrong_option_type command_cases
     val _ =
-      List.app
-        (fn kind => List.app (test_wrong_option_type kind) modes)
-        kinds
+      assert_rejected "function-abbrev-option"
+        (command Fn "[abbrev = true]" "function_abbrev" "")
+        "unknown uRust command option \"abbrev\""
     val _ =
       assert_rejected "invalid-scoped-verbosity"
         ("declare [[urust_verbose = 3]]\n" ^
-          "urust expr invalid_scoped_verbosity " ^ unit_source)
+          "urust_expr invalid_scoped_verbosity " ^ unit_source)
         "must be 0, 1, or 2, but found 3"
 
     val _ =
       ignore
         (run_command "empty-expression-parameters"
-          ("urust expr empty_args () " ^ unit_source) ())
+          ("urust_expr empty_args () " ^ unit_source) ())
     val _ =
       ignore
         (run_command "trailing-comma-expression-parameters"
-          ("urust expr trailing_args (item,) " ^
+          ("urust_expr trailing_args (item,) " ^
             Symbol.open_ ^ " \<llangle>item :: nat\<rrangle> " ^ Symbol.close) ())
     val _ =
+      ignore
+        (run_command "omitted-function-parameters"
+          ("urust_fn omitted_fun_args :: " ^ body_type ^ " " ^
+            unit_source) ())
+    val _ =
+      ignore
+        (run_command "trailing-comma-function-parameters"
+          ("urust_fn trailing_fun_args :: " ^ unary_body_type ^
+            " (item,) " ^ Symbol.open_ ^ " item " ^ Symbol.close) ())
+    val _ =
+      assert_rejected "missing-function-type"
+        ("urust_fn missing_fun_type () " ^ unit_source)
+        "function elaboration requires a declared type"
+    val _ =
       assert_rejected "wildcard-expression-parameter"
-        ("urust expr wildcard_args (_) " ^ unit_source)
+        ("urust_expr wildcard_args (_) " ^ unit_source)
         "argument name `_` is not allowed"
     val _ =
       assert_rejected "duplicate-expression-parameters"
-        ("urust expr duplicate_args (item, item) " ^ unit_source)
+        ("urust_expr duplicate_args (item, item) " ^ unit_source)
         "duplicate argument \"item\""
     val _ =
       assert_rejected "legacy-with-args"
-        ("urust expr legacy_args " ^ unit_source ^ " with_args item")
-        "command expected"
-    val _ =
-      assert_rejected "legacy-expression-command"
-        ("urust_expr legacy_expression " ^ unit_source)
+        ("urust_expr legacy_args " ^ unit_source ^ " with_args item")
         "command expected"
     val _ =
       assert_rejected "legacy-function-command"
         ("urust_fun legacy_function :: " ^ body_type ^ " () " ^ unit_source)
         "command expected"
     val _ =
+      assert_rejected "legacy-declaration-command"
+        ("decl_urust expr legacy_declaration " ^ unit_source)
+        "command expected"
+    val _ =
+      assert_rejected "legacy-unified-command"
+        ("urust expr legacy_unified " ^ unit_source)
+        "command expected"
+    val _ =
       assert_rejected "misplaced-expression-parameters"
-        ("urust expr misplaced_args " ^ unit_source ^
+        ("urust_expr misplaced_args " ^ unit_source ^
           " against " ^ Symbol.open_ ^ " \<lbrakk> () \<rbrakk> " ^ Symbol.close ^
           " (item)")
         "command expected"

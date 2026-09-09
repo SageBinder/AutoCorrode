@@ -4,9 +4,9 @@ begin
 
 section\<open> Parser facade smoke test \<close>
 
-urust expr smoke_num  \<open> 42 \<close>
-urust expr smoke_sfx  \<open> 1_u32 \<close>
-urust expr smoke_unit \<open> () \<close>
+urust_expr smoke_num  \<open> 42 \<close>
+urust_expr smoke_sfx  \<open> 1_u32 \<close>
+urust_expr smoke_unit \<open> () \<close>
 thm smoke_num_def smoke_sfx_def smoke_unit_def
 
 ML_val\<open>

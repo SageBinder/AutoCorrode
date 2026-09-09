@@ -8,11 +8,11 @@ begin
 declare [[urust_conformance_check = true]]
 (*>*)
 
-urust expr [urust_abbrev = true] Numeric_Types_Lemmas_urust_site_1
+urust_expr [abbrev = true] Numeric_Types_Lemmas_urust_site_1
   (c, d)
   \<open> c < d \<close>
 
-urust expr [urust_abbrev = true] Numeric_Types_Lemmas_urust_site_2
+urust_expr [abbrev = true] Numeric_Types_Lemmas_urust_site_2
   (c, d)
   \<open> \<llangle>c < d\<rrangle> \<close>
 
@@ -20,11 +20,11 @@ lemma evaluate_lt_literal [micro_rust_simps]:
   shows \<open>Numeric_Types_Lemmas_urust_site_1 c d = Numeric_Types_Lemmas_urust_site_2 c d\<close>
   by (clarsimp simp add: micro_rust_simps comp_lt_def)
 
-urust expr [urust_abbrev = true] Numeric_Types_Lemmas_urust_site_3
+urust_expr [abbrev = true] Numeric_Types_Lemmas_urust_site_3
   (c, d)
   \<open> c > d \<close>
 
-urust expr [urust_abbrev = true] Numeric_Types_Lemmas_urust_site_4
+urust_expr [abbrev = true] Numeric_Types_Lemmas_urust_site_4
   (c, d)
   \<open> \<llangle>c > d\<rrangle> \<close>
 
@@ -32,11 +32,11 @@ lemma evaluate_gt_literal [micro_rust_simps]:
   shows \<open>Numeric_Types_Lemmas_urust_site_3 c d = Numeric_Types_Lemmas_urust_site_4 c d\<close>
   by (clarsimp simp add: micro_rust_simps comp_gt_def)
 
-urust expr [urust_abbrev = true] Numeric_Types_Lemmas_urust_site_5
+urust_expr [abbrev = true] Numeric_Types_Lemmas_urust_site_5
   (c, d)
   \<open> c >= d \<close>
 
-urust expr [urust_abbrev = true] Numeric_Types_Lemmas_urust_site_6
+urust_expr [abbrev = true] Numeric_Types_Lemmas_urust_site_6
   (c, d)
   \<open> \<llangle>c \<ge> d\<rrangle> \<close>
 
@@ -44,11 +44,11 @@ lemma evaluate_ge_literal [micro_rust_simps]:
   shows \<open>Numeric_Types_Lemmas_urust_site_5 c d = Numeric_Types_Lemmas_urust_site_6 c d\<close>
   by (clarsimp simp add: micro_rust_simps comp_ge_def)
 
-urust expr [urust_abbrev = true] Numeric_Types_Lemmas_urust_site_7
+urust_expr [abbrev = true] Numeric_Types_Lemmas_urust_site_7
   (c, d)
   \<open> c <= d \<close>
 
-urust expr [urust_abbrev = true] Numeric_Types_Lemmas_urust_site_8
+urust_expr [abbrev = true] Numeric_Types_Lemmas_urust_site_8
   (c, d)
   \<open> \<llangle>c \<le> d\<rrangle> \<close>
 
@@ -56,11 +56,11 @@ lemma evaluate_le_literal [micro_rust_simps]:
   shows \<open>Numeric_Types_Lemmas_urust_site_7 c d = Numeric_Types_Lemmas_urust_site_8 c d\<close>
   by (clarsimp simp add: micro_rust_simps comp_le_def)
 
-urust expr [urust_abbrev = true] Numeric_Types_Lemmas_urust_site_9
+urust_expr [abbrev = true] Numeric_Types_Lemmas_urust_site_9
   (c, d)
   \<open> c | d \<close>
 
-urust expr [urust_abbrev = true] Numeric_Types_Lemmas_urust_site_10
+urust_expr [abbrev = true] Numeric_Types_Lemmas_urust_site_10
   (c, d)
   \<open> \<llangle>c OR d\<rrangle> \<close>
 
@@ -68,11 +68,11 @@ lemma evaluate_word_bitwise_or_literal [micro_rust_simps]:
   shows \<open>Numeric_Types_Lemmas_urust_site_9 c d = Numeric_Types_Lemmas_urust_site_10 c d\<close>
   by (clarsimp simp add: micro_rust_simps word_bitwise_or_pure_def word_bitwise_or_def)
 
-urust expr [urust_abbrev = true] Numeric_Types_Lemmas_urust_site_11
+urust_expr [abbrev = true] Numeric_Types_Lemmas_urust_site_11
   (c, d)
   \<open> c ^ d \<close>
 
-urust expr [urust_abbrev = true] Numeric_Types_Lemmas_urust_site_12
+urust_expr [abbrev = true] Numeric_Types_Lemmas_urust_site_12
   (c, d)
   \<open> \<llangle>c XOR d\<rrangle> \<close>
 
@@ -80,11 +80,11 @@ lemma evaluate_word_bitwise_xor_literal [micro_rust_simps]:
   shows \<open>Numeric_Types_Lemmas_urust_site_11 c d = Numeric_Types_Lemmas_urust_site_12 c d\<close>
   by (clarsimp simp add: micro_rust_simps word_bitwise_xor_pure_def word_bitwise_xor_def)
 
-urust expr [urust_abbrev = true] Numeric_Types_Lemmas_urust_site_13
+urust_expr [abbrev = true] Numeric_Types_Lemmas_urust_site_13
   (c, d)
   \<open> c & d \<close>
 
-urust expr [urust_abbrev = true] Numeric_Types_Lemmas_urust_site_14
+urust_expr [abbrev = true] Numeric_Types_Lemmas_urust_site_14
   (c, d)
   \<open> \<llangle>c AND d\<rrangle> \<close>
 
@@ -92,12 +92,12 @@ lemma evaluate_word_bitwise_and_literal [micro_rust_simps]:
   shows \<open>Numeric_Types_Lemmas_urust_site_13 c d = Numeric_Types_Lemmas_urust_site_14 c d\<close>
   by (clarsimp simp add: micro_rust_simps word_bitwise_and_pure_def word_bitwise_and_def)
 
-urust expr [urust_abbrev = true] Numeric_Types_Lemmas_urust_site_15 ::
+urust_expr [abbrev = true] Numeric_Types_Lemmas_urust_site_15 ::
   \<open>'l::len word \<Rightarrow> ('s, 'l word, 'r, 'abort, 'i, 'o) expression\<close>
   (d)
   \<open> !d \<close>
 
-urust expr [urust_abbrev = true] Numeric_Types_Lemmas_urust_site_16
+urust_expr [abbrev = true] Numeric_Types_Lemmas_urust_site_16
   (d)
   \<open> \<llangle>NOT d\<rrangle> \<close>
 
@@ -105,11 +105,11 @@ lemma evaluate_word_bitwise_not_literal [micro_rust_simps]:
   shows \<open>Numeric_Types_Lemmas_urust_site_15 d = Numeric_Types_Lemmas_urust_site_16 d\<close>
   by (clarsimp simp add: micro_rust_simps word_bitwise_not_pure_def word_bitwise_not_def)
 
-urust expr [urust_abbrev = true] Numeric_Types_Lemmas_urust_site_17
+urust_expr [abbrev = true] Numeric_Types_Lemmas_urust_site_17
   (c, d)
   \<open> c << d \<close>
 
-urust expr [urust_abbrev = true] Numeric_Types_Lemmas_urust_site_18
+urust_expr [abbrev = true] Numeric_Types_Lemmas_urust_site_18
   (d, c)
   \<open> \<llangle>push_bit (unat d) c\<rrangle> \<close>
 
@@ -124,11 +124,11 @@ lemma evaluate_word_shift_left_literal [micro_rust_simps]:
     word_shift_left_pure_def word_shift_left_core_def word_shift_left_as_urust_def 
     option_unwrap_expr_def split!: option.splits)
 
-urust expr [urust_abbrev = true] Numeric_Types_Lemmas_urust_site_19
+urust_expr [abbrev = true] Numeric_Types_Lemmas_urust_site_19
   (c, d)
   \<open> c >> d \<close>
 
-urust expr [urust_abbrev = true] Numeric_Types_Lemmas_urust_site_20
+urust_expr [abbrev = true] Numeric_Types_Lemmas_urust_site_20
   (d, c)
   \<open> \<llangle>drop_bit (unat d) c\<rrangle> \<close>
 

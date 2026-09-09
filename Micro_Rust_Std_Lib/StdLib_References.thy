@@ -207,7 +207,7 @@ declare update_spec[crush_specs, crush_specs_eager]
 declare dereference_spec[crush_specs, crush_specs_eager]
 declare ro_dereference_spec[crush_specs, crush_specs_eager]
 
-urust fn transpose :: \<open>('a, 'b, 't option) ro_ref \<Rightarrow>
+urust_fn transpose :: \<open>('a, 'b, 't option) ro_ref \<Rightarrow>
       ('s, ('a, 'b, 't) ro_ref option, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (self)
   \<open>
@@ -304,7 +304,7 @@ adhoc_overloading store_update_const \<rightleftharpoons>
 adhoc_overloading store_reference_const \<rightleftharpoons> ref_bool.new
 adhoc_overloading store_reference_const \<rightleftharpoons> ref_nat.new
 
-urust fn ref_test ::
+urust_fn ref_test ::
   \<open>('s, nat, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   ()
   \<open>

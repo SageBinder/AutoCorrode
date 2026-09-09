@@ -60,7 +60,7 @@ definition dereference_raw_contract
 
 text\<open>Lifting the raw reference operations to typed ones using foci:\<close>
 
-urust fn reference_fun ::
+urust_fn reference_fun ::
   \<open>('b, 'v) prism \<Rightarrow>
    'v \<Rightarrow>
    ('s, ('a, 'b, 'v) Global_Store.ref, 'abort, 'i, 'o) function_body\<close>
@@ -78,7 +78,7 @@ for valid \<^verbatim>\<open>p\<close> have to be wrapped as definitions and giv
 during code generation if \<^verbatim>\<open>reference_fun\<close> is inlined -- thus the need for \<^verbatim>\<open>code_unfold\<close>.\<close>
 declare reference_fun_def[code_unfold]
 
-urust fn modify_raw_fun ::
+urust_fn modify_raw_fun ::
   \<open>('a, 'b) gref \<Rightarrow> ('b \<Rightarrow> 'b) \<Rightarrow> ('s, unit, 'abort, 'i, 'o) function_body\<close>
   (r, f)
   \<open>
@@ -88,7 +88,7 @@ urust fn modify_raw_fun ::
 
 declare modify_raw_fun_def[all_reference_defs']
 
-urust fn modify_fun ::
+urust_fn modify_fun ::
   \<open>('a, 'b, 'v) Global_Store.ref \<Rightarrow> ('v \<Rightarrow> 'v) \<Rightarrow> ('s, unit, 'abort, 'i, 'o) function_body\<close>
   (ref, f)
   \<open>
@@ -97,14 +97,14 @@ urust fn modify_fun ::
 
 declare modify_fun_def[all_reference_defs']
 
-urust fn update_fun ::
+urust_fn update_fun ::
   \<open>('a, 'b, 'v) Global_Store.ref \<Rightarrow> 'v \<Rightarrow> ('s, unit, 'abort, 'i, 'o) function_body\<close>
   (ref, v)
   \<open> modify_fun(ref, \<llangle>\<lambda>_. v\<rrangle>) \<close>
 
 declare update_fun_def[all_reference_defs']
 
-urust fn dereference_fun ::
+urust_fn dereference_fun ::
   \<open>('a, 'b, 'v) Global_Store.ref \<Rightarrow> ('s, 'v, 'abort, 'i, 'o) function_body\<close>
   (ref)
   \<open>
@@ -117,7 +117,7 @@ urust fn dereference_fun ::
 
 declare dereference_fun_def[all_reference_defs']
 
-urust fn ro_dereference_fun ::
+urust_fn ro_dereference_fun ::
   \<open>('a, 'b, 'v) ro_ref \<Rightarrow> ('s, 'v, 'abort, 'i, 'o) function_body\<close>
   (r)
   \<open> dereference_fun(\<llangle>unsafe_ref_from_ro_ref\<rrangle>\<^sub>1(r)) \<close>
