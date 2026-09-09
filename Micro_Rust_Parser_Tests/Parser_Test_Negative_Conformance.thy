@@ -1169,6 +1169,47 @@ urust_expr_rejects fidelity \<open> xs[0, 1] \<close>
   \<open> syntax error: deleting  , <integer> ] \<close>
   \<comment> \<open> [FIDELITY] one indexing postfix contains exactly one expression. \<close>
 
+section\<open> Numeric tuple projections \<close>
+
+text\<open>
+Numeric tuple labels are canonical unsuffixed decimal tokens from \<open>0\<close> through
+\<open>15\<close>. Tuple projections remain value-only and therefore do not become
+assignment places.
+\<close>
+
+urust_expr_rejects fidelity \<open> pair.16 \<close>
+  \<open> invalid tuple projection index "16" (expected an unsuffixed decimal integer from 0 through 15) \<close>
+
+urust_expr_rejects fidelity \<open> pair.00 \<close>
+  \<open> invalid tuple projection index "00" (expected an unsuffixed decimal integer from 0 through 15) \<close>
+
+urust_expr_rejects fidelity \<open> pair.01 \<close>
+  \<open> invalid tuple projection index "01" (expected an unsuffixed decimal integer from 0 through 15) \<close>
+
+urust_expr_rejects fidelity \<open> pair.0x1 \<close>
+  \<open> invalid tuple projection index "0x1" (expected an unsuffixed decimal integer from 0 through 15) \<close>
+
+urust_expr_rejects fidelity \<open> pair.1u8 \<close>
+  \<open> invalid tuple projection index "1u8" (expected an unsuffixed decimal integer from 0 through 15) \<close>
+
+urust_expr_rejects fidelity \<open> pair.1_u8 \<close>
+  \<open> invalid tuple projection index "1_u8" (expected an unsuffixed decimal integer from 0 through 15) \<close>
+
+urust_expr_rejects fidelity \<open> pair. \<close>
+  \<open> syntax error found at end of input \<close>
+
+urust_expr_rejects fidelity \<open> pair.-1 \<close>
+  \<open> syntax error found at - \<close>
+
+urust_expr_rejects fidelity \<open> pair.0() \<close>
+  \<open> syntax error found at ( \<close>
+
+urust_expr_rejects fidelity \<open> pair.0 = rhs \<close>
+  \<open> invalid assignment target \<close>
+
+urust_expr_rejects fidelity \<open> pair.0 += rhs \<close>
+  \<open> invalid assignment target \<close>
+
 section\<open> If-let and let-else \<close>
 
 subsection\<open> Required delimiters and whole input \<close>

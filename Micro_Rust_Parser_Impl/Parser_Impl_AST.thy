@@ -135,6 +135,7 @@ sig
     | UE_Call of ur_callee * ur_expr list * Position.T
     | UE_Field of ur_expr * string * Position.T
     | UE_Index of ur_expr * ur_expr * Position.T
+    | UE_TupleProjection of ur_expr * int * Position.T
     | UE_Range of range_kind * ur_expr * ur_expr * Position.T
     | UE_Assign of assignop * ur_place * ur_expr * Position.T
     | UE_Macro of
@@ -167,6 +168,8 @@ sig
     ur_pat list * ur_expr * Position.T * Position.T -> ur_expr
   val mk_call:
     ur_callee * ur_expr list * Position.T * Position.T -> ur_expr
+  val mk_tuple_projection:
+    ur_expr * string * Position.T -> ur_expr
   val mk_let_else:
     ur_pat * ur_expr * ur_expr * ur_expr *
       Position.T * Position.T -> ur_expr
@@ -209,7 +212,7 @@ end
       UE_Path, UE_Literal, UE_ExprAntiq, UE_Yield, UE_Log, UE_LogData, UE_Closure, UE_Let,
       UE_LetMut, UE_Const, UE_Seq, UE_Return, UE_Bin, UE_Cast, UE_Unary, UE_Group, UE_Block, UE_If,
       UE_IfLet, UE_LetElse, UE_While, UE_Loop, UE_For, UE_WhileLet, UE_Call, UE_Field, UE_Index,
-      UE_Range, UE_Assign, UE_Macro, UE_Match),
+      UE_TupleProjection, UE_Range, UE_Assign, UE_Macro, UE_Match),
       struct_expr_field (SE_Field),
       macro_payload
       (MP_Arguments, MP_Matches), ur_place (UP_Path, UP_Deref, UP_Field, UP_Index, UP_Antiq), and
@@ -229,8 +232,9 @@ end
       continuation separately. A UE_Return never stores a semicolon; a method invocation is
       represented as UC_Method and prepended during lowering; UC_Antiq retains the exact positioned
       embedded HOL callee source; UC_FunLiteral additionally retains its lift arity, suffix position,
-      and optional restricted generic arguments; ur_place contains only validated assignment-target
-      shapes.
+      and optional restricted generic arguments. UE_TupleProjection retains its canonical numeric
+      index and numeric-token position; it is a value postfix and deliberately has no ur_place
+      counterpart. ur_place contains only validated assignment-target shapes.
 
   Position.T fields identify the token or span documented at each constructor. Consumers may use them
   for markup and diagnostics, but must not infer semantic validity from their presence.
@@ -239,8 +243,10 @@ end
   The remaining public functions are grammar-facing construction contracts. mk_assign accepts
   identifiers, expression antiquotations, dereferences, fields and indices over recursively valid
   places, and transparent groups as assignment targets; every other expression raises the positioned
-  "invalid assignment target" error. finish_statement leaves a terminal UE_Return unchanged and
-  otherwise sequences the expression with UE_Unit at the semicolon. mk_bare_ident_pat normalises "_"
+  "invalid assignment target" error. mk_tuple_projection accepts only canonical unsuffixed decimal
+  indices 0 through 15 and reports every other numeric token at that token's position.
+  finish_statement leaves a terminal UE_Return unchanged and otherwise sequences the expression with
+  UE_Unit at the semicolon. mk_bare_ident_pat normalises "_"
   to P_Wild; the other pattern smart constructors consume ordinary (name, position) pairs without a
   parser-only wrapper datatype. mk_closure converts a final ranged body token to its exclusive endpoint
   before constructing the full source span. mk_call combines any callee with its arguments and supplied
@@ -440,6 +446,8 @@ struct
                                                          an arity error underlines the whole invocation. *)
     | UE_Field     of ur_expr * string * Position.T   (* e.field -> NField lens focus *)
     | UE_Index     of ur_expr * ur_expr * Position.T  (* e[i] -> index_const, at full span *)
+    | UE_TupleProjection of ur_expr * int * Position.T
+                                                      (* e.N -> tuple_index_N, at numeric token *)
     | UE_Range     of range_kind * ur_expr * ur_expr * Position.T
                                                       (* lo..hi / lo..=hi, at operator *)
     | UE_Assign    of assignop * ur_place * ur_expr * Position.T
@@ -499,6 +507,7 @@ struct
     | expression_position (UE_Call (_, _, pos)) = pos
     | expression_position (UE_Field (_, _, pos)) = pos
     | expression_position (UE_Index (_, _, pos)) = pos
+    | expression_position (UE_TupleProjection (_, _, pos)) = pos
     | expression_position (UE_Range (_, _, _, pos)) = pos
     | expression_position (UE_Assign (_, _, _, pos)) = pos
     | expression_position (UE_Macro (_, _, _, pos)) = pos
@@ -545,6 +554,22 @@ struct
   fun mk_call (callee, args, left, right) =
     UE_Call
       (callee, args, Position.range_position (left, right))
+
+  fun mk_tuple_projection (receiver, raw, pos) =
+    let
+      fun invalid () =
+        error
+          ("urust_expr: invalid tuple projection index " ^ quote raw ^
+            " (expected an unsuffixed decimal integer from 0 through 15)" ^
+            Position.here pos)
+    in
+      (case Int.fromString raw of
+         SOME index =>
+           if 0 <= index andalso index <= 15 andalso Int.toString index = raw
+           then UE_TupleProjection (receiver, index, pos)
+           else invalid ()
+       | NONE => invalid ())
+    end
 
   fun mk_let_else
       (pattern, scrutinee, fallback, continuation, left, right) =

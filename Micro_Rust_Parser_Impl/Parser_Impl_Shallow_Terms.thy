@@ -37,6 +37,7 @@ sig
   val array_literal: term list -> term
   val bounded_range: URust_AST.range_kind -> term -> term -> term
   val index: term -> term -> term
+  val tuple_projection: Position.T -> int -> term -> term
   val cast: URust_AST.cast_target -> term -> term
   val assertion: term -> term
   val assertion_equal: term -> term -> term
@@ -119,7 +120,9 @@ ML\<open>
      right-nested bindlift2/product representation ending in TNil, rejecting shorter lists.
      array_literal emits right-nested bindlift2/List.Cons applications ending in literal List.Nil.
      bounded_range selects range_new or range_eq_new and applies it through funcall2. index applies the
-     overloaded index_const through funcall2. cast selects one of the legacy integral or raw-pointer
+     overloaded index_const through funcall2. tuple_projection selects one of the fixed
+     tuple_index_0 through tuple_index_15 abbreviations and applies it directly, with no position
+     constraint or literal/index wrapper. cast selects one of the legacy integral or raw-pointer
      conversion constants from one closed table. usize selects the u64 conversion, and raw-pointer
      const/mut targets remain distinct AST values while selecting the same shallow constant.
    * conditional, bounded_while, bounded_loop, for_loop, and into_iterator expose the control-flow
@@ -409,6 +412,35 @@ struct
     constant \<^const_name>\<open>funcall2\<close>
       [Const (\<^const_name>\<open>index_const\<close>, dummyT),
        expression, subscript]
+
+  fun unchecked_template term = Term.map_types (K dummyT) term
+
+  val tuple_projection_functions = Vector.fromList
+    [unchecked_template \<^term>\<open>tuple_index_0\<close>,
+     unchecked_template \<^term>\<open>tuple_index_1\<close>,
+     unchecked_template \<^term>\<open>tuple_index_2\<close>,
+     unchecked_template \<^term>\<open>tuple_index_3\<close>,
+     unchecked_template \<^term>\<open>tuple_index_4\<close>,
+     unchecked_template \<^term>\<open>tuple_index_5\<close>,
+     unchecked_template \<^term>\<open>tuple_index_6\<close>,
+     unchecked_template \<^term>\<open>tuple_index_7\<close>,
+     unchecked_template \<^term>\<open>tuple_index_8\<close>,
+     unchecked_template \<^term>\<open>tuple_index_9\<close>,
+     unchecked_template \<^term>\<open>tuple_index_10\<close>,
+     unchecked_template \<^term>\<open>tuple_index_11\<close>,
+     unchecked_template \<^term>\<open>tuple_index_12\<close>,
+     unchecked_template \<^term>\<open>tuple_index_13\<close>,
+     unchecked_template \<^term>\<open>tuple_index_14\<close>,
+     unchecked_template \<^term>\<open>tuple_index_15\<close>]
+
+  fun tuple_projection pos index receiver =
+    if 0 <= index andalso index < Vector.length tuple_projection_functions
+    then Vector.sub (tuple_projection_functions, index) $ receiver
+    else
+      error
+        ("urust_expr: internal tuple projection index " ^
+          string_of_int index ^ " is outside 0 through 15" ^
+          Position.here pos)
 
   fun cast_result_type typ =
     Term.map_atyps

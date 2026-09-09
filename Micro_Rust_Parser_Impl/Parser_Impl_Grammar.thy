@@ -828,14 +828,19 @@ yacc_rules\<open>
              (UE_Range (RK_Exclusive, uexp1, uexp2, TDOTDOTleft))
          | uexp TDOTDOTEQ uexp
              (UE_Range (RK_Inclusive, uexp1, uexp2, TDOTDOTEQleft))
-  (* Postfixes form a structural tier above atoms, so `?`, field access, and methods compose
-     left-to-right and bind tighter than prefix/binary operators. Indexing shares this tier. A dotted
-     identifier followed by parentheses is a method; without parentheses it is an NField lens access. *)
+  (* Postfixes form a structural tier above atoms, so `?`, field access, tuple projections, and
+     methods compose left-to-right and bind tighter than prefix/binary operators. Indexing shares this
+     tier. A dotted identifier followed by parentheses is a method; without parentheses it is an
+     NField lens access. A dotted numeric token is validated as a canonical projection index 0..15. *)
   upostfix : uatom (uatom)
            | upostfix TQUESTION
                (UE_Unary (U_Propagate, upostfix, TQUESTIONleft))
            | upostfix TDOT IDENT
                (UE_Field (upostfix, IDENT, IDENTleft))
+           | upostfix TDOT NUM
+               (mk_tuple_projection (upostfix, NUM, NUMleft))
+           | upostfix TDOT NUMSFX
+               (mk_tuple_projection (upostfix, NUMSFX, NUMSFXleft))
            | upostfix TDOT upath_segment LPAR ucallargs RPAR
                (mk_call
                   (UC_Method (upostfix, upath_segment),
@@ -1152,6 +1157,12 @@ yacc_rules\<open>
                      | upostfix_no_struct TDOT IDENT
                          (UE_Field
                            (upostfix_no_struct, IDENT, IDENTleft))
+                     | upostfix_no_struct TDOT NUM
+                         (mk_tuple_projection
+                           (upostfix_no_struct, NUM, NUMleft))
+                     | upostfix_no_struct TDOT NUMSFX
+                         (mk_tuple_projection
+                           (upostfix_no_struct, NUMSFX, NUMSFXleft))
                      | upostfix_no_struct TDOT upath_segment
                          LPAR ucallargs RPAR
                          (mk_call

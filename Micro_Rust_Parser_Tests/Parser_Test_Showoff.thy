@@ -16,16 +16,18 @@ parser-only expression has its witness in \<open>Parser_Test_Improvements\<close
 subsection\<open> Expressions, bindings, and control flow \<close>
 
 text\<open>
-Features: array literals and indexing, suffixed decimal and hexadecimal literals,
-nested tuple destructuring, \<open>let\<close> and \<open>const\<close>, operator precedence,
+Features: array literals and indexing, numeric tuple projections, suffixed decimal and hexadecimal
+literals, nested tuple destructuring, \<open>let\<close> and \<open>const\<close>, operator precedence,
 explicit narrowing and widening casts, strings, and \<open>if\<close>/\<open>else\<close>.
 \<close>
 
 urust_expr showoff_expression
   \<open>
     let inputs = vec![0x10_u32, 0x0f_u32, 0x20_u32];
-    let (base, (mask, enabled)) =
+    let tuple_view =
       (inputs[0_usize], (inputs[1_usize], true));
+    let (base, (mask, enabled)) =
+      tuple_view;
     \<comment> \<open>
       Formal comments retain Isabelle document checking, including \<^term>\<open>enabled\<close>,
       while remaining layout for both uRust frontends.
@@ -34,8 +36,8 @@ urust_expr showoff_expression
     let computed = (base | mask) << shift;
     let narrowed = computed as u16;
     let restored = narrowed as u32;
-    assert!(base == inputs[0_usize]);
-    if enabled && restored > inputs[2_usize] {
+    assert!(tuple_view.0 == inputs[0_usize]);
+    if tuple_view.1.1 && enabled && restored > inputs[2_usize] {
       (restored, "large")
     } else {
       (restored + 1_u32, "small")

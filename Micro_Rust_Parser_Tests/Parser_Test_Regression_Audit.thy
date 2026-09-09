@@ -1750,6 +1750,417 @@ ML_val\<open>
   end
 \<close>
 
+section\<open> Numeric tuple projection structure, ranges, and markup \<close>
+
+consts
+  tuple_projection_audit_marker ::
+    \<open>
+      (unit,
+       nat \<times> nat \<times> nat \<times>
+         (bool \<times> bool \<times> Tuple.tnil) \<times> Tuple.tnil,
+       unit, unit, unit, unit) expression
+    \<close>
+
+text\<open>
+These checks keep numeric projections distinct from fields and bracket indexing.
+They pin the canonical index payload, left-associated AST, numeric-token ranges,
+lexer markup, direct expanded \<open>tuple_index_N\<close> shape, recovery, value-only
+assignment policy, and exactly-once receiver lowering.
+\<close>
+
+ML_val\<open>
+  local
+    open URust_AST
+
+    val ctxt = \<^context>
+
+    fun audit_assert message condition =
+      if condition then ()
+      else error ("tuple-projection regression audit: " ^ message)
+
+    fun parse_source source =
+      (case URust_Diagnostics.parse_source ctxt source of
+         SOME expression => expression
+       | NONE => error "tuple-projection regression audit: empty parse")
+
+    fun parse text =
+      parse_source (Parser_Lex_Util.text_source text)
+
+    fun unchecked text =
+      URust_Translate.mk_expression ctxt [] (parse text)
+      |> Term_Position.strip_positions
+
+    fun path_named name (UE_Path path) = render_path path = name
+      | path_named _ _ = false
+
+    fun projection index receiver (UE_TupleProjection (actual, stored, _)) =
+          stored = index andalso receiver actual
+      | projection _ _ _ = false
+
+    val _ =
+      List.app
+        (fn index =>
+          audit_assert
+            ("AST index " ^ string_of_int index ^ " changed")
+            (projection index (path_named "source")
+              (parse ("source." ^ string_of_int index))))
+        [0, 1, 10, 15]
+
+    val _ =
+      (case parse "source.2.0" of
+         UE_TupleProjection
+           (UE_TupleProjection (base, 2, _), 0, _) =>
+           audit_assert "projection chain base changed"
+             (path_named "source" base)
+       | _ => error "tuple-projection regression audit: chain AST changed")
+
+    val _ =
+      (case parse "source.field[0].1" of
+         UE_TupleProjection
+           (UE_Index
+             (UE_Field (base, "field", _),
+              UE_Literal (LP_Integer ("0", _)), _),
+            1, _) =>
+           audit_assert "field/index/projection source order changed"
+             (path_named "source" base)
+       | _ =>
+           error
+             "tuple-projection regression audit: mixed postfix AST changed")
+
+    val _ =
+      (case parse "!source.0" of
+         UE_Unary
+           (U_Not, UE_TupleProjection (base, 0, _), _) =>
+           audit_assert "projection/prefix precedence changed"
+             (path_named "source" base)
+       | _ =>
+           error
+             "tuple-projection regression audit: prefix AST changed")
+
+    val _ =
+      (case parse "source.0 + other" of
+         UE_Bin
+           (Add, UE_TupleProjection (base, 0, _), other, _) =>
+           audit_assert "projection/binary precedence changed"
+             (path_named "source" base andalso
+              path_named "other" other)
+       | _ =>
+           error
+             "tuple-projection regression audit: binary AST changed")
+
+    val _ =
+      (case parse "if source.0 { () } else { () }" of
+         UE_If
+           (UE_TupleProjection (base, 0, _),
+            UE_Block (UE_Unit _, _),
+            SOME (UE_Block (UE_Unit _, _)), _) =>
+           audit_assert "restricted control-head projection changed"
+             (path_named "source" base)
+       | _ =>
+           error
+             "tuple-projection regression audit: control-head AST changed")
+
+    fun find_from text needle offset =
+      if offset + size needle > size text
+      then
+        error
+          ("tuple-projection regression audit: missing " ^ quote needle)
+      else if String.substring (text, offset, size needle) = needle
+      then offset
+      else find_from text needle (offset + 1)
+
+    fun token_position text start needle offset =
+      let
+        val raw = find_from text needle offset
+        val token_start =
+          Position.symbol_explode
+            (String.substring (text, 0, raw)) start
+      in
+        (raw,
+         Position.range_position
+           (token_start,
+            Position.symbol_explode needle token_start))
+      end
+
+    fun same_range actual expected =
+      Position.offset_of actual = Position.offset_of expected andalso
+      Position.end_offset_of actual = Position.end_offset_of expected
+
+    val ranged_text =
+      "\<llangle>tuple_projection_audit_marker\<rrangle>.10.15"
+    val ranged_start =
+      Position.make0 13 70 700 "" ""
+        "tuple-projection-range-audit"
+    val (ten_offset, ten_position) =
+      token_position ranged_text ranged_start "10" 0
+    val (_, fifteen_position) =
+      token_position ranged_text ranged_start "15"
+        (ten_offset + size "10")
+    val ranged_ast =
+      parse_source
+        (Parser_Lex_Util.positioned_content_source
+          ranged_text ranged_start)
+    val _ =
+      (case ranged_ast of
+         UE_TupleProjection
+           (UE_TupleProjection
+             (UE_Literal (LP_ValAntiq _), 10, inner_position),
+            15, outer_position) =>
+           (audit_assert "inner two-digit token range changed"
+              (same_range inner_position ten_position);
+            audit_assert "outer two-digit token range changed"
+              (same_range outer_position fifteen_position);
+            audit_assert "expression_position lost the outer numeric token"
+              (same_range
+                (expression_position ranged_ast) fifteen_position))
+       | _ =>
+           error
+             "tuple-projection regression audit: ranged AST changed")
+
+    fun decoded_message exn =
+      XML.content_of (YXML.parse_body (Runtime.exn_message exn))
+
+    fun expect_positioned_failure label text start expected position =
+      (case Exn.result
+          (fn () =>
+            parse_source
+              (Parser_Lex_Util.positioned_content_source text start)) () of
+         Exn.Res _ =>
+           error
+             ("tuple-projection regression audit: unexpectedly accepted " ^
+               quote text)
+       | Exn.Exn exn =>
+           if Exn.is_interrupt exn then Exn.reraise exn
+           else
+             let
+               val message = decoded_message exn
+               val here =
+                 XML.content_of
+                   (YXML.parse_body (Position.here position))
+             in
+               audit_assert (label ^ " diagnostic changed")
+                 (String.isSubstring expected message);
+               audit_assert (label ^ " diagnostic position changed")
+                 (String.isSubstring here message)
+             end)
+
+    val assignment_text = "source.0 = rhs"
+    val assignment_start =
+      Position.make0 19 90 900 "" ""
+        "tuple-projection-assignment-audit"
+    val (_, assignment_index_position) =
+      token_position assignment_text assignment_start "0" 0
+    val _ =
+      expect_positioned_failure
+        "value-only assignment"
+        assignment_text assignment_start
+        "invalid assignment target"
+        assignment_index_position
+
+    val invalid_start =
+      Position.make0 23 110 1100 "" ""
+        "tuple-projection-invalid-index-audit"
+    fun expect_invalid_projection (text, token) =
+      let
+        val (_, token_position) =
+          token_position text invalid_start token 0
+      in
+        expect_positioned_failure
+          ("invalid index " ^ quote token)
+          text invalid_start
+          ("invalid tuple projection index " ^ quote token ^
+            " (expected an unsuffixed decimal integer from 0 through 15)")
+          token_position
+      end
+    val _ =
+      List.app expect_invalid_projection
+        [("source.16", "16"),
+         ("source.00", "00"),
+         ("source.01", "01"),
+         ("source.0x1", "0x1"),
+         ("source.1u8", "1u8"),
+         ("source.1_u8", "1_u8")]
+
+    fun count_constant name term =
+      Term.fold_aterms
+        (fn Const (candidate, _) =>
+              if candidate = name then Integer.add 1 else I
+          | _ => I)
+        term 0
+
+    fun projection_parts expected_index term =
+      (case Term.strip_comb term of
+         (Const (bindlift, _), [selector, receiver]) =>
+           (audit_assert
+              ("projection " ^ string_of_int expected_index ^
+                " did not use bindlift1")
+              (bindlift = \<^const_name>\<open>bindlift1\<close>);
+            audit_assert
+              ("projection " ^ string_of_int expected_index ^
+                " selector lost fst")
+              (count_constant \<^const_name>\<open>fst\<close> selector = 1);
+            audit_assert
+              ("projection " ^ string_of_int expected_index ^
+                " selector has the wrong snd depth")
+              (count_constant \<^const_name>\<open>snd\<close> selector =
+                expected_index);
+            receiver)
+       | _ =>
+           error
+             ("tuple-projection regression audit: projection " ^
+               string_of_int expected_index ^ " term shape changed"))
+
+    fun marker_projection index =
+      unchecked
+        ("\<epsilon>\<open>tuple_projection_audit_marker\<close>." ^
+          string_of_int index)
+
+    val _ =
+      List.app
+        (fn index =>
+          let
+            val term = marker_projection index
+            val receiver = projection_parts index term
+          in
+            audit_assert
+              ("projection " ^ string_of_int index ^
+                " receiver changed or was duplicated")
+              (count_constant
+                 \<^const_name>\<open>tuple_projection_audit_marker\<close>
+                 receiver = 1);
+            audit_assert
+              ("projection " ^ string_of_int index ^
+                " introduced field/index/literal lowering")
+              (count_constant
+                 \<^const_name>\<open>focus_lens_const\<close> term = 0 andalso
+               count_constant \<^const_name>\<open>index_const\<close> term = 0 andalso
+               count_constant \<^const_name>\<open>literal\<close> term = 0)
+          end)
+        [0, 1, 10, 15]
+
+    val chain =
+      unchecked
+        "\<epsilon>\<open>tuple_projection_audit_marker\<close>.3.0"
+    val inner = projection_parts 0 chain
+    val receiver = projection_parts 3 inner
+    val _ =
+      audit_assert "chained receiver was not lowered exactly once"
+        (count_constant
+           \<^const_name>\<open>tuple_projection_audit_marker\<close>
+           chain = 1)
+    val _ =
+      audit_assert "chained projections lost one selected operation"
+        (count_constant \<^const_name>\<open>bindlift1\<close> chain = 2)
+    val _ =
+      audit_assert "chained projection receiver changed"
+        (count_constant
+           \<^const_name>\<open>tuple_projection_audit_marker\<close>
+           receiver = 1)
+
+    fun expect_failure text expected =
+      (case Exn.result (fn () => parse text) () of
+         Exn.Res _ =>
+           error
+             ("tuple-projection regression audit: unexpectedly accepted " ^
+               quote text)
+       | Exn.Exn exn =>
+           if Exn.is_interrupt exn then Exn.reraise exn
+           else
+             audit_assert ("diagnostic changed for " ^ quote text)
+               (String.isSubstring expected (decoded_message exn)))
+
+    val _ =
+      (expect_failure "source.16"
+         "invalid tuple projection index \"16\"";
+       audit_assert "parser did not recover after invalid index"
+         (projection 15 (path_named "source") (parse "source.15"));
+       expect_failure "source."
+         "syntax error found at end of input";
+       audit_assert "parser did not recover after trailing dot"
+         (projection 15 (path_named "source") (parse "source.15")))
+
+    val captured_reports =
+      Synchronized.var "parser_test_reports" ([]: string list)
+    fun capture_reports chunks =
+      Synchronized.change captured_reports (append chunks)
+    val _ =
+      Parser_Test_Report_Lock.run (fn () =>
+        Unsynchronized.setmp Private_Output.report_fn capture_reports
+          (fn () =>
+            Print_Mode.with_modes [Print_Mode.PIDE]
+              (fn () =>
+                ignore
+                  (parse_source
+                    (Parser_Lex_Util.positioned_content_source
+                      ranged_text ranged_start))) ())
+          ())
+
+    fun collect_markup (XML.Text _) result = result
+      | collect_markup (XML.Elem (markup, body)) result =
+          fold collect_markup body (markup :: result)
+    val markup =
+      fold collect_markup
+        (maps YXML.parse_body (Synchronized.value captured_reports)) []
+    fun has_position properties position =
+      Properties.get properties Markup.offsetN =
+        Option.map Value.print_int (Position.offset_of position) andalso
+      Properties.get properties Markup.end_offsetN =
+        Option.map Value.print_int (Position.end_offset_of position)
+    fun has_markup markup_name position =
+      exists
+        (fn (name, properties) =>
+          name = markup_name andalso
+            has_position properties position)
+        markup
+    fun has_any_entity position =
+      exists
+        (fn (name, properties) =>
+          name = Markup.entityN andalso
+            has_position properties position)
+        markup
+    fun all_token_positions needle =
+      let
+        fun collect offset positions =
+          if offset + size needle > size ranged_text
+          then rev positions
+          else
+            (case try (find_from ranged_text needle) offset of
+               SOME raw =>
+                 let
+                   val (_, position) =
+                     token_position ranged_text ranged_start needle raw
+                 in
+                   collect (raw + size needle)
+                     (position :: positions)
+                 end
+             | NONE => rev positions)
+      in collect 0 [] end
+
+    val _ =
+      List.app
+        (fn position =>
+          audit_assert "projection dot lost delimiter markup"
+            (has_markup Markup.delimiterN position))
+        (all_token_positions ".")
+    val _ =
+      List.app
+        (fn position =>
+          (audit_assert "projection index lost numeral markup"
+             (has_markup Markup.numeralN position);
+           audit_assert "projection index lost typing markup"
+             (has_markup Markup.typingN position);
+           audit_assert "projection index received field/free markup"
+             (not (has_markup Markup.freeN position));
+           audit_assert "projection index received entity markup"
+             (not (has_any_entity position))))
+        [ten_position, fifteen_position]
+  in
+    val _ =
+      writeln
+        "Numeric tuple projection AST, range, markup, lowering, and recovery regressions passed"
+  end
+\<close>
+
 section\<open> Legacy macro structure, spans, and markup \<close>
 
 consts
