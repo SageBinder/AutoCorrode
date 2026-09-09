@@ -59,6 +59,8 @@ sig
     Proof.context -> environment -> string * Position.T -> term
   val function_path:
     Proof.context -> environment -> URust_AST.ur_path -> term
+  val method_path:
+    Proof.context -> environment -> URust_AST.ur_path -> term
   val apply_generic_arguments:
     Proof.context -> environment -> term ->
       URust_AST.generic_args option -> term
@@ -251,8 +253,8 @@ struct
   fun lookup_local environment name =
     Option.map #free (Symtab.lookup environment name)
 
-  (* Syntax.parse_term wraps resolved constants in an internal type constraint. This helper is used only
-     for markup; the returned identifier term retains the wrapper for the final check_term. *)
+  (* Syntax.parse_term wraps resolved constants in an internal type constraint. Resolution and
+     call-role validation inspect through that wrapper while retaining it for the final check_term. *)
   fun identifier_leaf term =
     (case Term_Position.strip_positions term of
        Const (\<^syntax_const>\<open>_type_constraint_\<close>, _) $ inner =>
@@ -260,27 +262,74 @@ struct
      | inner => inner)
 
   fun resolve_hol_identifier ctxt name pos =
-    let val term = Syntax.parse_term ctxt name in
-      (case identifier_leaf term of
-         Const (constant_name, _) =>
-           Context_Position.report ctxt pos
-             (Name_Space.markup
-               (Consts.space_of (Proof_Context.consts_of ctxt)) constant_name)
-       | Free (free_name, _) =>
-           (case Proof_Context.lookup_free ctxt free_name of
-              SOME fixed =>
-                List.app (Context_Position.report ctxt pos)
-                  (Syntax_Phases.markup_free ctxt fixed)
-            | NONE => Context_Position.report ctxt pos Markup.free)
-       | _ => Context_Position.report ctxt pos Markup.free);
-      term
-    end
+    if Variable.is_fixed ctxt name then
+      let
+        val fixed = the (Proof_Context.lookup_free ctxt name)
+        val _ =
+          List.app (Context_Position.report ctxt pos)
+            (Syntax_Phases.markup_free ctxt fixed)
+      in T.source_position pos (Free (fixed, dummyT)) end
+    else
+      let
+        val source =
+          Parser_Lex_Util.positioned_content_source name
+            (Position.no_range_position pos)
+        val term = Syntax.parse_term ctxt (Syntax.implode_input source)
+      in
+        (case identifier_leaf term of
+           Const (constant_name, _) =>
+             let
+               val consts = Proof_Context.consts_of ctxt
+               val constant_type = Consts.the_constraint consts constant_name
+               val _ =
+                 List.app (Context_Position.report ctxt pos)
+                   [Name_Space.markup (Consts.space_of consts) constant_name,
+                    Markup.const]
+             in
+               Context_Position.report_text ctxt pos Markup.typing
+                 (Syntax.string_of_typ ctxt constant_type)
+             end
+         | _ => ());
+        term
+      end
+
+  fun call_result_may_be_function_body
+      (Type (\<^type_name>\<open>fun\<close>, [_, result])) =
+        call_result_may_be_function_body result
+    | call_result_may_be_function_body
+        (Type (\<^type_name>\<open>function_body\<close>, _)) = true
+    | call_result_may_be_function_body (TFree _) = true
+    | call_result_may_be_function_body (TVar _) = true
+    | call_result_may_be_function_body _ = false
+
+  fun constrain_call_head ctxt name pos term =
+    (case identifier_leaf term of
+       Const (constant_name, _) =>
+         let
+           val constant_type =
+             Consts.the_constraint
+               (Proof_Context.consts_of ctxt) constant_name
+         in
+           if call_result_may_be_function_body constant_type then term
+           else
+             error
+               ("Type unification failed: call head " ^ quote name ^
+                 " has pure HOL type " ^
+                 quote (Syntax.string_of_typ ctxt constant_type) ^
+                 ", whose result is not a shallow function_body" ^
+                 Position.here pos)
+         end
+     | _ => term)
 
   (* Registered notation witnesses must remain bare Frees until the enclosing Term.lambda can capture
      them. This is the witness-precedence rule that lets a lexical binder shadow a notation. *)
   fun resolve_identifier ctxt kind name pos =
     (case Micro_Rust_Names.lookups ctxt kind name of
        [] => resolve_hol_identifier ctxt name pos
+         |> (case kind of
+               Micro_Rust_Names.NFunction =>
+                 constrain_call_head ctxt name pos
+             | _ => I)
      | _ => Micro_Rust_Dispatch.mk_marker kind name pos (Free (name, dummyT)))
 
   fun literal_identifier_value ctxt environment (identifier as (name, pos)) =
@@ -426,19 +475,72 @@ struct
               resolve_identifier ctxt Micro_Rust_Names.NFunction name pos))
 
   fun function_path ctxt environment path =
-    (case exact_registered_path ctxt Micro_Rust_Names.NFunction path of
-       SOME registered => registered
-     | NONE =>
-         let
-           val _ = reject_intermediate_generics path
-           val base = remove_final_generic_args path
-           val function =
-             resolve_generic_free_path ctxt environment
-               Micro_Rust_Names.NFunction false base
-         in
-           apply_generic_arguments ctxt environment function
-             (segment_generic_args (final_segment path))
-         end)
+    let
+      val head_pos = #2 (path_terminal path)
+      val function =
+        (case exact_registered_path ctxt Micro_Rust_Names.NFunction path of
+           SOME registered => registered
+         | NONE =>
+             let
+               val _ = reject_intermediate_generics path
+               val base = remove_final_generic_args path
+               val function =
+                 resolve_generic_free_path ctxt environment
+                   Micro_Rust_Names.NFunction false base
+             in
+               apply_generic_arguments ctxt environment function
+                 (segment_generic_args (final_segment path))
+             end)
+      fun same_range position =
+        Position.offset_of position = Position.offset_of head_pos andalso
+        Position.end_offset_of position = Position.end_offset_of head_pos
+      val already_positioned =
+        (case function of
+           Const (\<^syntax_const>\<open>_type_constraint_\<close>,
+               Type (\<^type_name>\<open>fun\<close>, [position_type, _])) $ _ =>
+             exists (same_range o #pos)
+               (Term_Position.decode_positionT position_type)
+         | _ => false)
+    in
+      if already_positioned then function
+      else T.source_position head_pos function
+    end
+
+  fun method_path ctxt environment path =
+    let
+      val function = function_path ctxt environment path
+      val (name, pos) = path_terminal path
+      val lexical =
+        (case path_segments path of
+           [Path_Segment _] =>
+             is_some (lookup_local environment name)
+         | _ => false)
+      fun strip_internal_positions
+          (Const (\<^syntax_const>\<open>_type_constraint_\<close>, _) $ inner) =
+            strip_internal_positions inner
+        | strip_internal_positions term = term
+      val head = Term.head_of (strip_internal_positions function)
+      val unresolved =
+        (case head of
+           Free (free_name, _) =>
+             not lexical andalso
+             not (Variable.is_fixed ctxt free_name)
+         | _ => false)
+    in
+      if unresolved then
+        let
+          val _ =
+            Context_Position.report_text ctxt pos Markup.typing
+              "unregistered uRust method call head"
+        in
+          error
+            ("Type unification failed: unregistered method call head " ^
+              quote (render_path path) ^
+              " has no lexical, fixed, or HOL constant resolution" ^
+              Position.here pos)
+        end
+      else function
+    end
 
   fun registered_function ctxt identifier =
     registered_identifier ctxt Micro_Rust_Names.NFunction identifier

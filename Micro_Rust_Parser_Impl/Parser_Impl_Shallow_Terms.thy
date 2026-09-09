@@ -23,6 +23,7 @@ sig
   val log_data: term list -> term
 
   val apply_parameters: term -> term list -> term
+  val source_position: Position.T -> term -> term
   val lift_function: Position.T -> int -> term -> term
   val function_call: Position.T -> term -> term list -> term
   val bind: term -> term -> term
@@ -108,11 +109,13 @@ ML\<open>
      generate_debug_entry applies generate_debug to one already-resolved value; and log_data wraps
      one nonempty source-ordered entry list in exactly one literal, using no append for a singleton
      and a right-associated List.append tree otherwise.
-   * lift_function maps a pure HOL function and source suffix arity 1 through 14 to lift_fun1 through
-     lift_fun14. function_call independently maps a function term and its runtime argument list to
-     funcall0 through funcall14 and rejects larger runtime arities at its call position. bind takes an
-     expression and a continuation abstraction; sequence, return_value, and case_product preserve the
-     corresponding shallow-embedding constructors rather than interchangeable HOL encodings.
+   * source_position attaches one source range to an unchecked term through Isabelle's standard
+     post-parse position constraint. lift_function maps a pure HOL function and source suffix arity 1
+     through 14 to lift_fun1 through lift_fun14. function_call independently maps a function term and
+     its runtime argument list to funcall0 through funcall14 and rejects larger runtime arities at its
+     call position. bind takes an expression and a continuation abstraction; sequence, return_value,
+     and case_product preserve the corresponding shallow-embedding constructors rather than
+     interchangeable HOL encodings.
    * allocate_reference, update, and assign_add construct the positioned overloaded store operations.
      update takes place then RHS; assign_add uses the same order. focus_field takes a resolved field
      lens then its receiver. tuple accepts at least two expression terms and emits the frontend's
@@ -151,9 +154,12 @@ struct
 
   (* Direct check_term input uses the post-parse representation of source positions: an internal type
      constraint whose TFree is decoded by Type_Infer_Context.prepare_positions. *)
-  fun positioned_constant name pos args =
+  fun source_position pos term =
     let val posT = TFree (Term_Position.encode_syntax [pos], dummyS)
-    in Term.list_comb (Type.constraint posT (Const (name, dummyT)), args) end
+    in Type.constraint posT term end
+
+  fun positioned_constant name pos args =
+    Term.list_comb (source_position pos (Const (name, dummyT)), args)
 
   fun literal value = constant \<^const_name>\<open>literal\<close> [value]
   fun bindlift1 f expression = constant \<^const_name>\<open>bindlift1\<close> [f, expression]

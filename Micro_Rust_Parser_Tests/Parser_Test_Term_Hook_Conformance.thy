@@ -45,8 +45,10 @@ The macro and numeric-projection gaps are grammatical and occur during
 \<open>URust_Diagnostics.parse_source\<close>. Mixed-pattern and or-pattern-binder
 rejections occur later during pattern resolution. The formerly deferred
 \<open>is_none\<close> row below is enabled by an explicit call registration; without
-that adapter, parsing and AST construction succeed but final HOL checking
-rejects the pure function in shallow method-call position.
+that adapter, parsing and AST construction succeed but method resolution
+rejects the unresolved call head at its exact identifier range. Known HOL
+constants whose result cannot be a shallow \<open>function_body\<close> are rejected by
+the same positioned call-head boundary.
 
 The hook preserves resolved constant identities when it returns to outer
 syntax by using Isabelle's authentic constant markers. This prevents

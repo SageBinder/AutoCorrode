@@ -4206,10 +4206,23 @@ section\<open> Method resolution boundary audit \<close>
 definition method_audit_pure :: \<open>nat option \<Rightarrow> bool\<close>
   where \<open> method_audit_pure \<equiv> Option.is_none \<close>
 
+definition method_audit_registered ::
+  \<open>nat option \<Rightarrow> (unit, bool, unit, unit, unit) function_body\<close>
+  where \<open> method_audit_registered \<equiv> lift_fun1 Option.is_none \<close>
+
+definition method_audit_shallow ::
+  \<open>nat option \<Rightarrow> (unit, bool, unit, unit, unit) function_body\<close>
+  where \<open> method_audit_shallow \<equiv> lift_fun1 Option.is_none \<close>
+
+micro_rust_notation (literal) method_audit_pure ("is_none")
+micro_rust_notation (call) method_audit_registered ("method_registered")
+
 text\<open>
-Method parsing retains the receiver, method identifier, and call span before resolution. A pure HOL
-fallback is still not an implicit shallow-method adapter: final checking rejects it at the method
-identifier, then a registered lifted method and an ordinary unit expression elaborate normally.
+Method parsing retains the receiver, method identifier, and call span before resolution. Method
+resolution rejects an unresolved call spelling at the exact method range; a literal-only registration
+does not alter that call-role boundary. The general positioned call-head constraint also rejects a
+known pure HOL constant whose terminal result cannot be a shallow \<open>function_body\<close>. Registered,
+ordinary shallow-HOL, direct-call, and unit expressions then elaborate normally.
 \<close>
 
 ML_val\<open>
@@ -4251,36 +4264,51 @@ ML_val\<open>
          SOME expression => expression
        | NONE => error "method resolution boundary audit: empty parse")
 
+    val unregistered_ctxt =
+      ctxt
+      |> Context.Proof
+      |> Micro_Rust_Names.Data.map
+          (Symtab.delete_safe
+            (Micro_Rust_Names.mk_key
+              Micro_Rust_Names.NFunction "is_none"))
+      |> Context.proof_of
+    val _ =
+      audit_assert "literal-only fixture lost its literal registration"
+        (not (null
+          (Micro_Rust_Names.lookups unregistered_ctxt
+            Micro_Rust_Names.NLiteral "is_none")))
+    val _ =
+      audit_assert "isolated fixture retained a call registration"
+        (null
+          (Micro_Rust_Names.lookups unregistered_ctxt
+            Micro_Rust_Names.NFunction "is_none"))
+
     val text =
-      "let o = \<llangle>None :: nat option\<rrangle>; " ^
-      "assert!(!o.method_audit_pure())"
+      "assert!(!o.is_none())"
     val start =
       Position.make0 17 200 0 "" "" "method-resolution-boundary-audit"
     val source =
       Parser_Lex_Util.positioned_content_source text start
     val (call_offset, expected_call) =
-      token_position text start "o.method_audit_pure()" 0
+      token_position text start "o.is_none()" 0
     val (_, expected_method) =
-      token_position text start "method_audit_pure"
+      token_position text start "is_none"
         (call_offset + size "o.")
     val ast = parse source
     val method_position =
       (case ast of
-         UE_Let
-           (P_Ident ("o", _),
-            UE_Literal (LP_ValAntiq _),
-            UE_Macro
-              (macro_path, _, MP_Arguments
-                [UE_Unary
-                  (U_Not,
-                   UE_Call
-                     (UC_Method
-                       (UE_Path receiver_path,
-                        Path_Segment
-                          ("method_audit_pure", method_pos, NONE)),
-                      [], call_pos),
-                   _)],
-               _)) =>
+         UE_Macro
+           (macro_path, _, MP_Arguments
+             [UE_Unary
+               (U_Not,
+                UE_Call
+                  (UC_Method
+                    (UE_Path receiver_path,
+                     Path_Segment
+                       ("is_none", method_pos, NONE)),
+                   [], call_pos),
+                _)],
+            _) =>
            (audit_assert "assert macro wrapper changed"
               (render_path macro_path = "assert");
             audit_assert "method receiver changed"
@@ -4292,28 +4320,169 @@ ML_val\<open>
             method_pos)
        | _ => error "method resolution boundary audit: method AST changed")
 
-    val expected_here =
-      XML.content_of (YXML.parse_body (Position.here method_position))
-    val _ =
-      (case Exn.result
-          (fn () => Parser_Test_Elaboration.expression ctxt source) () of
+    val captured_reports =
+      Synchronized.var "method_resolution_boundary_reports" ([]: string list)
+    fun capture_reports chunks =
+      Synchronized.change captured_reports (append chunks)
+    fun capture_elaboration elaboration_ctxt elaboration_source =
+      Parser_Test_Report_Lock.run (fn () =>
+        Unsynchronized.setmp Private_Output.report_fn capture_reports
+          (fn () =>
+            Print_Mode.with_modes [Print_Mode.PIDE]
+              (fn () =>
+                Exn.result
+                  (fn () =>
+                    Parser_Test_Elaboration.expression
+                      elaboration_ctxt elaboration_source) ()) ())
+          ())
+
+    val unregistered_result =
+      capture_elaboration unregistered_ctxt source
+    val diagnostic_markup =
+      (case unregistered_result of
          Exn.Res term =>
            error
-             ("method resolution boundary audit: pure HOL method unexpectedly " ^
+             ("method resolution boundary audit: unresolved method unexpectedly " ^
               "elaborated to " ^ Syntax.string_of_term ctxt term)
        | Exn.Exn exn =>
            if Exn.is_interrupt exn then Exn.reraise exn
            else
              let
-               val message =
-                 XML.content_of
-                   (YXML.parse_body (Runtime.exn_message exn))
+               val body = YXML.parse_body (Runtime.exn_message exn)
+               val message = XML.content_of body
              in
-               audit_assert "pure HOL method diagnostic changed"
+               audit_assert "unresolved method diagnostic changed"
                  (String.isSubstring "Type unification failed" message);
-               audit_assert "pure HOL method diagnostic moved"
-                 (String.isSubstring expected_here message)
+               body
              end)
+
+    fun collect_markup (XML.Text _) result = result
+      | collect_markup (XML.Elem (markup, body)) result =
+          fold collect_markup body (markup :: result)
+    val diagnostic_markup =
+      fold collect_markup diagnostic_markup []
+    val semantic_markup =
+      fold collect_markup
+        (maps YXML.parse_body (Synchronized.value captured_reports)) []
+    fun has_position properties position =
+      Properties.get properties Markup.offsetN =
+        Option.map Value.print_int (Position.offset_of position) andalso
+      Properties.get properties Markup.end_offsetN =
+        Option.map Value.print_int (Position.end_offset_of position)
+    fun has_diagnostic_position_in markup position =
+      exists (fn (_, properties) => has_position properties position)
+        markup
+    fun has_markup_in markup markup_name position =
+      exists
+        (fn (name, properties) =>
+          name = markup_name andalso has_position properties position)
+        markup
+    fun has_entity_in markup kind identity position =
+      exists
+        (fn (name, properties) =>
+          name = Markup.entityN andalso
+            Properties.get properties Markup.kindN = SOME kind andalso
+            Properties.get properties Markup.nameN = SOME identity andalso
+            has_position properties position)
+        markup
+    fun urust_entity_id_in markup property position =
+      let
+        val ids =
+          markup
+          |> map_filter
+              (fn (name, properties) =>
+                if name = Markup.entityN andalso
+                   Properties.get properties Markup.kindN =
+                     SOME "urust_var" andalso
+                   has_position properties position
+                then Properties.get properties property
+                else NONE)
+          |> distinct (op =)
+      in
+        (case ids of
+           [id] => id
+         | _ =>
+             error
+               ("method resolution boundary audit: receiver entity markup changed" ^
+                 Position.here position))
+      end
+
+    val _ =
+      audit_assert "method-resolution diagnostic lost the identifier range"
+        (has_diagnostic_position_in diagnostic_markup method_position)
+    val _ =
+      audit_assert "unregistered method lost ordinary free-name styling"
+        (has_markup_in semantic_markup Markup.freeN method_position)
+    val _ =
+      audit_assert "unregistered method acquired constant identity markup"
+        (not
+          (has_entity_in semantic_markup Markup.constantN
+            \<^const_name>\<open>Option.is_none\<close> method_position))
+    val _ =
+      audit_assert "unregistered method acquired constant styling"
+        (not (has_markup_in semantic_markup Markup.constN method_position))
+    val _ =
+      audit_assert "unregistered fallback lost typing markup"
+        (has_markup_in semantic_markup Markup.typingN method_position)
+    val _ =
+      audit_assert "literal-only registration leaked call-notation markup"
+        (not
+          (has_entity_in semantic_markup
+            Micro_Rust_Names.notationN "is_none" method_position))
+    val _ =
+      audit_assert "literal-only registration leaked registered-call styling"
+        (not
+          (has_markup_in semantic_markup Markup.keyword3N method_position))
+
+    val pure_text =
+      "let o = \<llangle>None :: nat option\<rrangle>; " ^
+      "o.method_audit_pure()"
+    val pure_start =
+      Position.make0 19 250 0 "" "" "method-pure-hol-boundary-audit"
+    val pure_source =
+      Parser_Lex_Util.positioned_content_source pure_text pure_start
+    val (_, pure_method_position) =
+      token_position pure_text pure_start "method_audit_pure" 0
+    val pure_result =
+      capture_elaboration ctxt pure_source
+    val pure_diagnostic_markup =
+      (case pure_result of
+         Exn.Res term =>
+           error
+             ("method resolution boundary audit: known pure HOL method " ^
+              "unexpectedly elaborated to " ^ Syntax.string_of_term ctxt term)
+       | Exn.Exn exn =>
+           if Exn.is_interrupt exn then Exn.reraise exn
+           else
+             let
+               val body = YXML.parse_body (Runtime.exn_message exn)
+               val message = XML.content_of body
+             in
+               audit_assert "known pure HOL method diagnostic changed"
+                 (String.isSubstring
+                   "whose result is not a shallow function_body" message);
+               body
+             end)
+      |> (fn body => fold collect_markup body [])
+    val pure_semantic_markup =
+      fold collect_markup
+        (maps YXML.parse_body (Synchronized.value captured_reports)) []
+    val _ =
+      audit_assert "pure HOL diagnostic lost the method identifier range"
+        (has_diagnostic_position_in
+          pure_diagnostic_markup pure_method_position)
+    val _ =
+      audit_assert "pure HOL method lost constant identity markup"
+        (has_entity_in pure_semantic_markup Markup.constantN
+          \<^const_name>\<open>method_audit_pure\<close> pure_method_position)
+    val _ =
+      audit_assert "pure HOL method lost constant styling"
+        (has_markup_in pure_semantic_markup
+          Markup.constN pure_method_position)
+    val _ =
+      audit_assert "pure HOL method lost typing markup"
+        (has_markup_in pure_semantic_markup
+          Markup.typingN pure_method_position)
 
     fun count_constant name term =
       Term.fold_aterms
@@ -4322,25 +4491,98 @@ ML_val\<open>
           | _ => I)
         term 0
 
+    val registered_text =
+      "let o = \<llangle>None :: nat option\<rrangle>; " ^
+      "assert!(!o.method_registered())"
+    val registered_start =
+      Position.make0 23 300 0 "" "" "method-registered-markup-audit"
+    val registered_source =
+      Parser_Lex_Util.positioned_content_source
+        registered_text registered_start
+    val (_, registered_method_position) =
+      token_position registered_text registered_start
+        "method_registered" 0
+    val (_, registered_receiver_definition) =
+      token_position registered_text registered_start "o" 0
+    val (registered_call_offset, _) =
+      token_position registered_text registered_start
+        "o.method_registered()" 0
+    val (_, registered_receiver_reference) =
+      token_position registered_text registered_start
+        "o" registered_call_offset
     val registered =
-      Parser_Test_Elaboration.expression ctxt
-        (Parser_Lex_Util.text_source
-          ("let o = \<llangle>None :: nat option\<rrangle>; " ^
-           "assert!(!o.is_none())"))
+      (case capture_elaboration ctxt registered_source of
+         Exn.Res term => term
+       | Exn.Exn exn => Exn.reraise exn)
     val _ =
       audit_assert "registered lifted backend was not selected exactly once"
-        (count_constant \<^const_name>\<open>macro_is_none\<close> registered = 1)
+        (count_constant
+          \<^const_name>\<open>method_audit_registered\<close> registered = 1)
     val _ =
       audit_assert "registered method duplicated or dropped its receiver"
         (count_constant \<^const_name>\<open>Option.None\<close> registered = 1)
+    val semantic_markup =
+      fold collect_markup
+        (maps YXML.parse_body (Synchronized.value captured_reports)) []
     val _ =
-      (case parse (Parser_Lex_Util.text_source "()") of
-         UE_Unit _ => ()
-       | _ => error "method resolution boundary audit: parser recovery failed")
+      audit_assert "registered method lost notation entity markup"
+        (has_entity_in semantic_markup Micro_Rust_Names.notationN
+          "method_registered" registered_method_position)
+    val _ =
+      audit_assert "registered method lost registered-call styling"
+        (has_markup_in semantic_markup
+          Markup.keyword3N registered_method_position)
+    val _ =
+      audit_assert "registered method lost typing markup"
+        (has_markup_in semantic_markup
+          Markup.typingN registered_method_position)
+    val _ =
+      audit_assert "receiver definition/reference navigation changed"
+        (urust_entity_id_in semantic_markup
+            Markup.defN registered_receiver_definition =
+          urust_entity_id_in semantic_markup
+            Markup.refN registered_receiver_reference)
+
+    val ordinary =
+      Parser_Test_Elaboration.expression ctxt
+        (Parser_Lex_Util.text_source
+          ("let o = \<llangle>None :: nat option\<rrangle>; " ^
+           "o.method_audit_shallow()"))
+    val _ =
+      audit_assert "ordinary shallow HOL fallback was not selected once"
+        (count_constant \<^const_name>\<open>method_audit_shallow\<close> ordinary = 1)
+    val _ =
+      audit_assert "ordinary shallow method duplicated or dropped its receiver"
+        (count_constant \<^const_name>\<open>Option.None\<close> ordinary = 1)
+
+    val direct_registered =
+      Parser_Test_Elaboration.expression ctxt
+        (Parser_Lex_Util.text_source
+          ("let o = \<llangle>None :: nat option\<rrangle>; " ^
+           "method_registered(o)"))
+    val _ =
+      audit_assert "direct registered call selected a different backend"
+        (count_constant
+          \<^const_name>\<open>method_audit_registered\<close>
+          direct_registered = 1)
+    val _ =
+      audit_assert "direct registered call duplicated or dropped its argument"
+        (count_constant \<^const_name>\<open>Option.None\<close>
+          direct_registered = 1)
+
+    val _ =
+      (case Parser_Test_Elaboration.expression ctxt
+          (Parser_Lex_Util.text_source "()") of
+         Const (\<^const_name>\<open>literal\<close>, _) $
+             Const (\<^const_name>\<open>Product_Type.Unity\<close>, _) => ()
+       | term =>
+           error
+             ("method resolution boundary audit: elaboration recovery failed: " ^
+               Syntax.string_of_term ctxt term))
   in
     val _ =
       writeln
-        "Method AST, source-range, rejection, registration, and recovery regressions passed"
+        "Method AST, exact diagnostic, semantic markup, resolution, and recovery regressions passed"
   end
 \<close>
 

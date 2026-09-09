@@ -240,7 +240,7 @@ struct
                 UC_Path path =>
                   (R.function_path ctxt environment path, arguments)
               | UC_Method (receiver, segment) =>
-                  (R.function_path ctxt environment
+                  (R.method_path ctxt environment
                      (UR_Path ([segment],
                        (case segment_generic_args segment of
                           SOME (Generic_Args (_, pos)) => pos
