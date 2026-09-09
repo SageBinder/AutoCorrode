@@ -40,23 +40,18 @@ equations instead of being rewritten into different tests:
     \<^verbatim>\<open>Some(x) | None\<close>, are accepted by the legacy frontend but
     rejected by the dedicated parser as missing a binder from one alternative.
 
-  \<^item> The exact wildcard-pattern corpus equation containing discarded
-    unsuffixed \<^verbatim>\<open>let _ = 3\<close> and polymorphic
-    \<^verbatim>\<open>None\<close> initializers independently generalizes those unused
-    internal types on the hook and frontend sides. The macro body now parses
-    and focused typed equations close by \<open>refl\<close>, but the exact untyped
-    equation itself remains non-reflexive for this separate hook-typing reason.
-
 Numeric projections fail during parsing. The method, registered-literal,
 mixed-pattern, and or-pattern gaps arise during later resolution or pattern
-lowering before term-hook translation. The wildcard equation reaches theorem
-type inference and is blocked only by the independent generalization described
-above.
+lowering before term-hook translation.
 
 The hook preserves resolved constant identities when it returns to outer
 syntax by using Isabelle's authentic constant markers. This prevents
 concealed/private constants from being re-resolved as frees and captured by
-an enclosing binder; the hook theory includes a dedicated capture regression.
+an enclosing binder. It also shares unresolved inference parameters across
+already alpha-equivalent equality operands before Isabelle fixates hidden
+types, so discarded unsuffixed numerals and polymorphic constructors retain
+direct-reflexivity conformance. The hook theory includes dedicated capture and
+type-sharing regressions.
 \<close>
 
 
@@ -352,7 +347,14 @@ subsubsection\<open>Wildcard Patterns\<close>
 context
   fixes a :: \<open>nat\<close>
 begin
-(* Known term-hook type-generalization gap; see the note at the top of this theory.
+lemma \<open>
+  \<mu>\<open> let _ = 3; () \<close> =
+  \<lbrakk> let _ = 3; () \<rbrakk>
+\<close> by (rule refl)
+lemma \<open>
+  \<mu>\<open> let _ = (if let Some(_) = None { False } else { True }); () \<close> =
+  \<lbrakk> let _ = (if let Some(_) = None { False } else { True }); () \<rbrakk>
+\<close> by (rule refl)
 lemma \<open> \<mu>\<open>
   let _ = 3;
   let _ = (if True { False} else {True});
@@ -366,24 +368,6 @@ lemma \<open> \<mu>\<open>
   let _ = (if True { False} else {True});
   const _ = { assert!(True); assert!(False); };
   let _ = assert!(let _ = False; if let Some(_) = None { False} else {True});
-  match Some(a) { Some(_) \<Rightarrow> (), _ \<Rightarrow> () };
-  if let Some(_) = Some(()) { () };
-  ()
-\<rbrakk>\<close> by (rule refl)
-*)
-lemma \<open> \<mu>\<open>
-  let _ = \<llangle>3 :: nat\<rrangle>;
-  let _ = (if True { False} else {True});
-  const _ = { assert!(True); assert!(False); };
-  let _ = assert!(let _ = False; if let Some(_) = \<llangle>None :: unit option\<rrangle> { False} else {True});
-  match Some(a) { Some(_) \<Rightarrow> (), _ \<Rightarrow> () };
-  if let Some(_) = Some(()) { () };
-  ()
-\<close> = \<lbrakk>
-  let _ = \<llangle>3 :: nat\<rrangle>;
-  let _ = (if True { False} else {True});
-  const _ = { assert!(True); assert!(False); };
-  let _ = assert!(let _ = False; if let Some(_) = \<llangle>None :: unit option\<rrangle> { False} else {True});
   match Some(a) { Some(_) \<Rightarrow> (), _ \<Rightarrow> () };
   if let Some(_) = Some(()) { () };
   ()

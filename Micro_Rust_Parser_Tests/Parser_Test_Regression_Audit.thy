@@ -1877,6 +1877,11 @@ ML_val\<open>
       token_position full_body_text full_body_start "true" 0
     val (_, full_body_if_token) =
       token_position full_body_text full_body_start "if" 0
+    val (full_body_name_raw, full_body_name_token) =
+      token_position full_body_text full_body_start "debug_assert" 0
+    val (_, full_body_bang_token) =
+      token_position full_body_text full_body_start "!"
+        (full_body_name_raw + size "debug_assert")
     val (first_brace_raw, _) =
       token_position full_body_text full_body_start "}" 0
     val (_, full_body_final_brace) =
@@ -1900,6 +1905,26 @@ ML_val\<open>
            Position.offset_of full_body_if_token andalso
          Position.end_offset_of full_body_if_pos =
            Position.end_offset_of full_body_final_brace)
+    val _ =
+      audit_assert "full-body macro name span moved"
+        (Position.offset_of full_body_name_pos =
+           Position.offset_of full_body_name_token andalso
+         Position.end_offset_of full_body_name_pos =
+           Position.end_offset_of full_body_name_token)
+    val full_body_bang_markup_pos =
+      Position.range_position
+        (full_body_bang_pos,
+         Position.symbol_explode "!" full_body_bang_pos)
+    val _ =
+      audit_assert "full-body macro bang span moved"
+        (Position.offset_of full_body_bang_markup_pos =
+           Position.offset_of full_body_bang_token andalso
+         Position.end_offset_of full_body_bang_markup_pos =
+           Position.end_offset_of full_body_bang_token)
+    val _ =
+      audit_assert "full-body macro name and bang stopped being adjacent"
+        (Position.end_offset_of full_body_name_pos =
+           Position.offset_of full_body_bang_pos)
 
     val bracket_body_text =
       "assert_eq![let left = true; left, " ^
@@ -2160,7 +2185,8 @@ ML_val\<open>
     val (_, full_body_left_paren) =
       token_position full_body_text full_body_start "(" 0
     val (_, full_body_right_paren) =
-      token_position full_body_text full_body_start ")" 0
+      token_position full_body_text full_body_start ")"
+        (size full_body_text - 1)
     val (full_body_definition_raw, full_body_definition) =
       token_position full_body_text full_body_start "flag" 0
     val (_, full_body_reference) =
@@ -2182,6 +2208,12 @@ ML_val\<open>
         [(full_body_semicolon, "full-body semicolon"),
          (full_body_left_paren, "full-body opening parenthesis"),
          (full_body_right_paren, "full-body closing parenthesis")]
+    val _ =
+      audit_assert "full-body built-in macro keyword markup moved"
+        (has_markup Markup.keyword1N full_body_name_pos)
+    val _ =
+      audit_assert "full-body macro bang operator markup moved"
+        (has_markup Markup.operatorN full_body_bang_markup_pos)
     val _ =
       audit_assert "retained full-body binder navigation changed"
         (has_markup Markup.boundN full_body_definition andalso
