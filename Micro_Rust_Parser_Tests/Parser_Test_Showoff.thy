@@ -371,15 +371,21 @@ subsection\<open> Macro composition pipeline \<close>
 
 text\<open>
 Features: vector construction and indexing, nested \<open>matches!\<close> conditions,
-an aborting \<open>let ... else\<close> binding, assertion aliases with ignored
-diagnostics, and aborting fallback branches.
+direct complete-body macro arguments with sequencing and nested control flow,
+parenthesis and bracket delimiters, ignored-body erasure, an aborting
+\<open>let ... else\<close> binding, and aborting fallback branches.
 \<close>
 
 urust_expr showoff_macro_pipeline
   \<open>
     let candidates = vec![Some(4_u32), None];
     let first = candidates[0_usize];
-    debug_assert!(matches!(first, Some(_)), ignored_pipeline_diagnostic);
+    debug_assert!(
+      let present = matches!(first, Some(_));
+      if present { true } else { false },
+      let ignored = unknown_pipeline_value;
+      ignored
+    );
     let Some(candidate) = first else {
       unreachable!("candidate disappeared")
     };
@@ -392,7 +398,10 @@ urust_expr showoff_macro_pipeline
       } else {
         unreachable!("candidate disappeared")
       };
-    assert!(matches!(Some(selected), Some(_)));
+    assert![
+      let selected_present = matches!(Some(selected), Some(_));
+      selected_present
+    ];
     if selected > 0_u32 {
       selected
     } else {

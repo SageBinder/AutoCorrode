@@ -27,12 +27,6 @@ equations instead of being rewritten into different tests:
     parser emits equality-tested conditionals with an \<open>undefined\<close> fallback,
     while the legacy frontend emits a datatype case expression.
 
-  \<^item> A semicolon-bearing binding expression cannot appear directly as a
-    macro argument. The legacy-accepted
-    \<^verbatim>\<open>assert!(let ...; if let ...)\<close> form is rejected at the first
-    \<open>let\<close> because macro arguments use the restricted \<open>uclosure_arg\<close>
-    grammar instead of a full body.
-
   \<^item> Numeric tuple projections such as \<^verbatim>\<open>res.0\<close>,
     \<^verbatim>\<open>tup.10\<close>, and \<^verbatim>\<open>i.2.0\<close> are rejected because the
     postfix grammar requires an identifier after the dot; the legacy frontend
@@ -46,9 +40,18 @@ equations instead of being rewritten into different tests:
     \<^verbatim>\<open>Some(x) | None\<close>, are accepted by the legacy frontend but
     rejected by the dedicated parser as missing a binder from one alternative.
 
-The macro, numeric-projection, unregistered-method, mixed-pattern, and
-or-pattern-binder failures occur in \<open>URust_Diagnostics.parse_source\<close> before
-term-hook translation.
+  \<^item> The exact wildcard-pattern corpus equation containing discarded
+    unsuffixed \<^verbatim>\<open>let _ = 3\<close> and polymorphic
+    \<^verbatim>\<open>None\<close> initializers independently generalizes those unused
+    internal types on the hook and frontend sides. The macro body now parses
+    and focused typed equations close by \<open>refl\<close>, but the exact untyped
+    equation itself remains non-reflexive for this separate hook-typing reason.
+
+Numeric projections fail during parsing. The method, registered-literal,
+mixed-pattern, and or-pattern gaps arise during later resolution or pattern
+lowering before term-hook translation. The wildcard equation reaches theorem
+type inference and is blocked only by the independent generalization described
+above.
 
 The hook preserves resolved constant identities when it returns to outer
 syntax by using Isabelle's authentic constant markers. This prevents
@@ -349,7 +352,7 @@ subsubsection\<open>Wildcard Patterns\<close>
 context
   fixes a :: \<open>nat\<close>
 begin
-(* Known parser/conformance gap; see the note at the top of this theory.
+(* Known term-hook type-generalization gap; see the note at the top of this theory.
 lemma \<open> \<mu>\<open>
   let _ = 3;
   let _ = (if True { False} else {True});
@@ -368,6 +371,23 @@ lemma \<open> \<mu>\<open>
   ()
 \<rbrakk>\<close> by (rule refl)
 *)
+lemma \<open> \<mu>\<open>
+  let _ = \<llangle>3 :: nat\<rrangle>;
+  let _ = (if True { False} else {True});
+  const _ = { assert!(True); assert!(False); };
+  let _ = assert!(let _ = False; if let Some(_) = \<llangle>None :: unit option\<rrangle> { False} else {True});
+  match Some(a) { Some(_) \<Rightarrow> (), _ \<Rightarrow> () };
+  if let Some(_) = Some(()) { () };
+  ()
+\<close> = \<lbrakk>
+  let _ = \<llangle>3 :: nat\<rrangle>;
+  let _ = (if True { False} else {True});
+  const _ = { assert!(True); assert!(False); };
+  let _ = assert!(let _ = False; if let Some(_) = \<llangle>None :: unit option\<rrangle> { False} else {True});
+  match Some(a) { Some(_) \<Rightarrow> (), _ \<Rightarrow> () };
+  if let Some(_) = Some(()) { () };
+  ()
+\<rbrakk>\<close> by (rule refl)
 end
 
 subsubsection\<open>Variable Binding in Patterns\<close>
@@ -903,6 +923,8 @@ context
 begin
 lemma \<open> \<mu>\<open> assert!( b ) \<close> = \<lbrakk> assert!( b ) \<rbrakk>\<close> by (rule refl)
 lemma \<open> \<mu>\<open> debug_assert!( b ) \<close> = \<lbrakk> debug_assert!( b ) \<rbrakk>\<close> by (rule refl)
+lemma \<open> \<mu>\<open> assert!(let flag = b; flag) \<close> = \<lbrakk> assert!(let flag = b; flag) \<rbrakk>\<close> by (rule refl)
+lemma \<open> \<mu>\<open> assert![let flag = b; if flag { True } else { False }] \<close> = \<lbrakk> assert![let flag = b; if flag { True } else { False }] \<rbrakk>\<close> by (rule refl)
 (* Known parser/conformance gap; see the note at the top of this theory.
 lemma \<open> \<mu>\<open> assert!(!o.is_none()) \<close> = \<lbrakk> assert!(!o.is_none()) \<rbrakk>\<close> by (rule refl)
 *)
