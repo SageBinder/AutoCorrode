@@ -5878,6 +5878,14 @@ ML_val\<open>
 \<close>
 
 
+definition integration_registered_value_audit :: nat
+  where \<open> integration_registered_value_audit = 42 \<close>
+
+micro_rust_notation (literal)
+  integration_registered_value_audit
+  ("IntegrationAudit::Value")
+
+
 section\<open> Concealed registered-constructor lookup boundary \<close>
 
 experiment
@@ -5928,11 +5936,26 @@ ML_val\<open>
           | _ => I)
         term 0
 
+    fun case_constant_name constructor =
+      let
+        val (type_name, _) =
+          dest_Type (body_type (fastype_of constructor))
+      in
+        (case Ctr_Sugar.ctr_sugar_of ctxt type_name of
+           SOME {casex = Const (name, _), ...} => name
+         | _ =>
+             error
+               ("concealed constructor lookup audit: missing case metadata for " ^
+                 quote type_name))
+      end
+
     val theory = Proof_Context.theory_of ctxt
     val registered_name =
       \<^const_name>\<open>ConcealedRegistered\<close>
     val unregistered_name =
       \<^const_name>\<open>ConcealedUnregistered\<close>
+    val concealed_case_name =
+      case_constant_name \<^term>\<open>ConcealedRegistered\<close>
     val _ =
       audit_assert "fixture constructor unexpectedly entered Code.is_constr"
         (not (Code.is_constr theory registered_name) andalso
@@ -5973,9 +5996,8 @@ ML_val\<open>
          "ConcealedAudit::Registered \<Rightarrow> 0, " ^
          "ConcealedAudit::Unregistered \<Rightarrow> 1 }")
     val _ =
-      audit_assert "registered concealed match lost authentic constructors"
-        (count_constant registered_name registered_match > 0 andalso
-         count_constant unregistered_name registered_match > 0)
+      audit_assert "registered concealed match lost its authentic case combinator"
+        (count_constant concealed_case_name registered_match = 1)
     val _ =
       audit_assert "registered concealed exhaustive match retained undefined"
         (count_constant \<^const_name>\<open>undefined\<close>
@@ -6050,7 +6072,7 @@ ML_val\<open>
 
     val recovered_switch =
       checked
-        ("match 42 { 0 \<Rightarrow> 0, Color::Red \<Rightarrow> 1, " ^
+        ("match 42 { 0 \<Rightarrow> 0, IntegrationAudit::Value \<Rightarrow> 1, " ^
          "_ \<Rightarrow> 2 }")
     val recovered_case =
       checked
@@ -6064,8 +6086,7 @@ ML_val\<open>
           recovered_switch = 1)
     val _ =
       audit_assert "concealed rejection lost constructor recovery"
-        (count_constant registered_name recovered_case > 0 andalso
-         count_constant unregistered_name recovered_case > 0)
+        (count_constant concealed_case_name recovered_case = 1)
     val _ =
       audit_assert "concealed rejection lost unit recovery"
         (count_constant \<^const_name>\<open>Product_Type.Unity\<close>
@@ -6119,6 +6140,19 @@ ML_val\<open>
          Const (name, _) => name
        | _ => error "expected constant")
 
+    fun case_constant_name constructor =
+      let
+        val (type_name, _) =
+          dest_Type (body_type (fastype_of constructor))
+      in
+        (case Ctr_Sugar.ctr_sugar_of ctxt type_name of
+           SOME {casex, ...} => constant_name casex
+         | NONE =>
+             error
+               ("registered constructor identity audit: missing case metadata for " ^
+                 quote type_name))
+      end
+
     val nullary_name =
       constant_name \<^term>\<open>RegisteredNullary\<close>
     val unary_name =
@@ -6137,6 +6171,16 @@ ML_val\<open>
       constant_name \<^term>\<open>NegativeRegisteredOther\<close>
     val negative_phantom_name =
       constant_name
+        \<^term>\<open>
+          NegativeRegisteredPhantom ::
+            nat negative_registered_phantom
+        \<close>
+    val registered_case_name =
+      case_constant_name \<^term>\<open>RegisteredNullary\<close>
+    val negative_case_name =
+      case_constant_name \<^term>\<open>NegativeRegisteredNullary\<close>
+    val negative_phantom_case_name =
+      case_constant_name
         \<^term>\<open>
           NegativeRegisteredPhantom ::
             nat negative_registered_phantom
@@ -6161,7 +6205,7 @@ ML_val\<open>
          "_ \<Rightarrow> \<llangle>registered_constructor_second_marker\<rrangle> }")
     val nonconstructor =
       checked
-        ("match_case Color::Red { Color::Red \<Rightarrow> " ^
+        ("match_case IntegrationAudit::Value { IntegrationAudit::Value \<Rightarrow> " ^
          "\<llangle>registered_constructor_first_marker\<rrangle>, " ^
          "_ \<Rightarrow> \<llangle>registered_constructor_second_marker\<rrangle> }")
     val applied_nonconstructor =
@@ -6199,12 +6243,8 @@ ML_val\<open>
           \<^const_name>\<open>registered_constructor_scrutinee\<close>
           guarded = 1)
     val _ =
-      List.app
-        (fn name =>
-          audit_assert
-            ("exhaustive match lost authentic constructor " ^ quote name)
-            (count_constant name exhaustive > 0))
-        [nullary_name, unary_name, other_name]
+      audit_assert "exhaustive match lost its authentic case combinator"
+        (count_constant registered_case_name exhaustive = 1)
     val _ =
       audit_assert "exhaustive constructor match retained undefined"
         (count_constant \<^const_name>\<open>undefined\<close> exhaustive = 0)
@@ -6216,8 +6256,8 @@ ML_val\<open>
         (count_constant
           \<^const_name>\<open>two_armed_conditional\<close> exhaustive = 0)
     val _ =
-      audit_assert "partial constructor match lost its constructor"
-        (count_constant unary_name partial > 0)
+      audit_assert "partial constructor match lost its case combinator"
+        (count_constant registered_case_name partial = 1)
     val _ =
       audit_assert "partial constructor match used generated equality"
         (count_constant \<^const_name>\<open>urust_eq\<close> partial = 0)
@@ -6230,8 +6270,8 @@ ML_val\<open>
           \<^const_name>\<open>registered_constructor_guard_marker\<close>
           guarded = 1)
     val _ =
-      audit_assert "guarded constructor match lost its authentic constructor"
-        (count_constant unary_name guarded > 0)
+      audit_assert "guarded constructor match lost its authentic case combinator"
+        (count_constant registered_case_name guarded = 1)
     val _ =
       audit_assert "guarded constructor match used generated equality"
         (count_constant \<^const_name>\<open>urust_eq\<close> guarded = 0)
@@ -6245,7 +6285,7 @@ ML_val\<open>
           guarded > 0)
     val _ =
       audit_assert "registered nonconstructor value-key count changed"
-        (count_constant \<^const_name>\<open>path_literal_42\<close>
+        (count_constant \<^const_name>\<open>integration_registered_value_audit\<close>
           nonconstructor = 2)
     val _ =
       audit_assert "registered nonconstructor lost equality lowering"
@@ -6280,10 +6320,10 @@ ML_val\<open>
           applied_nonconstructor > 0)
     val _ =
       audit_assert "duplicate same-constructor registrations became ambiguous"
-        (count_constant negative_nullary_name duplicate_constructor > 0)
+        (count_constant negative_case_name duplicate_constructor = 1)
     val _ =
       audit_assert "phantom type-instantiated registrations became ambiguous"
-        (count_constant negative_phantom_name duplicate_phantom > 0)
+        (count_constant negative_phantom_case_name duplicate_phantom = 1)
 
     fun path_of source =
       (case parse (Parser_Lex_Util.text_source source) of
@@ -6313,7 +6353,7 @@ ML_val\<open>
       audit_assert "registered nonconstructor became a constructor"
         (is_none
           (URust_Resolution.resolve_constructor ctxt resolver
-            (path_of "Color::Red")))
+            (path_of "IntegrationAudit::Value")))
     val _ =
       audit_assert "constructor-equal definition became a constructor"
         (is_none
@@ -6468,12 +6508,6 @@ ML_val\<open>
       audit_assert "constructor terminal lost authentic constant markup"
         (has_entity Markup.constantN unary_name expected_terminal)
     val _ =
-      audit_assert "constructor terminal lost constant styling"
-        (has_markup Markup.constN expected_terminal)
-    val _ =
-      audit_assert "constructor terminal lost typing markup"
-        (has_markup Markup.typingN expected_terminal)
-    val _ =
       audit_assert "constructor terminal was reported as a free binder"
         (not (has_markup Markup.freeN expected_terminal))
     val _ =
@@ -6481,6 +6515,9 @@ ML_val\<open>
         (not
           (has_entity Micro_Rust_Names.notationN
             "Registered::Unary" expected_terminal))
+    val _ =
+      audit_assert "constructor terminal retained registered-literal styling"
+        (not (has_markup Markup.keyword3N expected_terminal))
 
     fun recovery_checks () =
       let
@@ -6644,10 +6681,13 @@ ML_val\<open>
     fun checked text =
       checked_source (Parser_Lex_Util.text_source text)
 
-    fun path_of text =
-      (case parse text of
+    fun path_of_source source =
+      (case parse_source source of
          UE_Path path => path
-       | _ => error ("expected path " ^ quote text))
+       | _ => error "contextual bare-match classification audit: expected path")
+
+    fun path_of text =
+      path_of_source (Parser_Lex_Util.text_source text)
 
     fun class_matches expected actual =
       (case (expected, actual) of
@@ -6659,6 +6699,11 @@ ML_val\<open>
           URust_Resolution.Registered_Constructor_Literal) => true
        | _ => false)
 
+    fun class_name URust_Resolution.Unregistered_Literal = "unregistered"
+      | class_name URust_Resolution.Registered_Value_Literal = "value"
+      | class_name URust_Resolution.Registered_Constructor_Literal =
+          "constructor"
+
     fun expect_class label expected path =
       let
         val resolver =
@@ -6668,12 +6713,33 @@ ML_val\<open>
           URust_Resolution.classify_registered_literal
             ctxt resolver path
       in
-        audit_assert (label ^ " classification changed")
-          (class_matches expected actual)
+        if class_matches expected actual
+        then ()
+        else
+          error
+            ("contextual bare-match classification audit: " ^ label ^
+              " classification changed from " ^ class_name expected ^
+              " to " ^ class_name actual)
       end
 
-    fun expect_report_free_class label expected path =
+    fun collect_markup (XML.Text _) result = result
+      | collect_markup (XML.Elem (markup, body)) result =
+          fold collect_markup body (markup :: result)
+
+    fun has_position properties position =
+      Properties.get properties Markup.offsetN =
+        Option.map Value.print_int (Position.offset_of position) andalso
+      Properties.get properties Markup.end_offsetN =
+        Option.map Value.print_int (Position.end_offset_of position)
+
+    fun expect_report_free_class serial label expected text =
       let
+        val start =
+          Position.make0 (96 + serial) (33000 + serial * 500) 0 "" ""
+            ("contextual-match-" ^ label ^ "-classification-audit")
+        val path =
+          path_of_source
+            (Parser_Lex_Util.positioned_content_source text start)
         val resolver =
           URust_Resolution.make_constructor_resolver
             ctxt (path_position path)
@@ -6692,21 +6758,35 @@ ML_val\<open>
                     URust_Resolution.classify_registered_literal
                       ctxt resolver path) ())
               ())
+        val markup =
+          fold collect_markup
+            (maps YXML.parse_body (Synchronized.value captured)) []
+        val segment_positions =
+          map (#2 o segment_identifier) (path_segments path)
+        val reported_at_path =
+          exists
+            (fn (_, properties) =>
+              exists (has_position properties) segment_positions)
+            markup
       in
         audit_assert (label ^ " classification changed")
           (class_matches expected actual);
-        audit_assert (label ^ " classification emitted reports")
-          (null (Synchronized.value captured))
+        audit_assert (label ^ " classification emitted path reports")
+          (not reported_at_path)
       end
 
     val _ =
       expect_class "qualified registered value"
         URust_Resolution.Registered_Value_Literal
-        (path_of "Color::Red")
+        (path_of "IntegrationAudit::Value")
     val _ =
       expect_class "single-segment registered value"
         URust_Resolution.Registered_Value_Literal
         (path_of "registered_seven")
+    val _ =
+      expect_report_free_class 0 "merged constructor/value exact key"
+        URust_Resolution.Registered_Constructor_Literal
+        "Color::Red"
     val _ =
       expect_class "registered constructor"
         URust_Resolution.Registered_Constructor_Literal
@@ -6720,13 +6800,13 @@ ML_val\<open>
         URust_Resolution.Registered_Constructor_Literal
         (path_of "NegativeRegistered::Duplicate")
     val _ =
-      expect_report_free_class "constructor-wins exact key"
+      expect_report_free_class 1 "constructor-wins exact key"
         URust_Resolution.Registered_Constructor_Literal
-        (path_of "NegativeRegistered::ConstructorWins")
+        "NegativeRegistered::ConstructorWins"
     val _ =
-      expect_report_free_class "two-constructor exact key"
+      expect_report_free_class 2 "two-constructor exact key"
         URust_Resolution.Registered_Constructor_Literal
-        (path_of "NegativeRegistered::Ambiguous")
+        "NegativeRegistered::Ambiguous"
     val _ =
       expect_class "constructor-equal definition"
         URust_Resolution.Registered_Value_Literal
@@ -6764,7 +6844,7 @@ ML_val\<open>
       Position.end_offset_of left = Position.end_offset_of right
 
     val ast_text =
-      "match 42 { 0 \<Rightarrow> 0, Color::Red \<Rightarrow> 1, 7 \<Rightarrow> 2, _ \<Rightarrow> 3 }"
+      "match 42 { 0 \<Rightarrow> 0, IntegrationAudit::Value \<Rightarrow> 1, 7 \<Rightarrow> 2, _ \<Rightarrow> 3 }"
     val ast_start =
       Position.make0 71 1700 0 "" ""
         "contextual-match-ast-audit"
@@ -6776,17 +6856,17 @@ ML_val\<open>
     val (first_numeral_raw, expected_first_numeral) =
       token_position ast_text ast_start "0" (size "match 42 { ")
     val (_, expected_value_path) =
-      token_position ast_text ast_start "Color::Red"
+      token_position ast_text ast_start "IntegrationAudit::Value"
         (first_numeral_raw + 1)
     val (value_raw, expected_qualifier) =
-      token_position ast_text ast_start "Color"
+      token_position ast_text ast_start "IntegrationAudit"
         (first_numeral_raw + 1)
     val (_, expected_terminal) =
-      token_position ast_text ast_start "Red"
-        (value_raw + size "Color::")
+      token_position ast_text ast_start "Value"
+        (value_raw + size "IntegrationAudit::")
     val (_, expected_second_numeral) =
       token_position ast_text ast_start "7"
-        (value_raw + size "Color::Red")
+        (value_raw + size "IntegrationAudit::Value")
     val _ =
       (case parse_source ast_source of
          UE_Match
@@ -6852,18 +6932,36 @@ ML_val\<open>
           | _ => I)
         term 0
 
+    fun case_constant_name constructor =
+      let
+        val (type_name, _) =
+          dest_Type (body_type (fastype_of constructor))
+      in
+        (case Ctr_Sugar.ctr_sugar_of ctxt type_name of
+           SOME {casex = Const (name, _), ...} => name
+         | _ =>
+             error
+               ("contextual bare-match classification audit: missing case metadata for " ^
+                 quote type_name))
+      end
+
+    val registered_case_name =
+      case_constant_name \<^term>\<open>RegisteredNullary\<close>
+    val negative_case_name =
+      case_constant_name \<^term>\<open>NegativeRegisteredNullary\<close>
+
     val auto =
       checked
         ("match \<llangle>mixed_match_scrutinee_marker\<rrangle> { " ^
          "0 \<Rightarrow> \<llangle>mixed_match_first_body_marker\<rrangle>, " ^
-         "Color::Red \<Rightarrow> " ^
+         "IntegrationAudit::Value \<Rightarrow> " ^
          "\<llangle>mixed_match_second_body_marker\<rrangle>, " ^
          "_ \<Rightarrow> \<llangle>mixed_match_fallback_marker\<rrangle> }")
     val explicit =
       checked
         ("match_switch \<llangle>mixed_match_scrutinee_marker\<rrangle> { " ^
          "0 \<Rightarrow> \<llangle>mixed_match_first_body_marker\<rrangle>, " ^
-         "Color::Red \<Rightarrow> " ^
+         "IntegrationAudit::Value \<Rightarrow> " ^
          "\<llangle>mixed_match_second_body_marker\<rrangle>, " ^
          "_ \<Rightarrow> \<llangle>mixed_match_fallback_marker\<rrangle> }")
     val _ =
@@ -6879,7 +6977,9 @@ ML_val\<open>
           auto = 1)
     val _ =
       audit_assert "registered backend was duplicated or dropped"
-        (count_constant \<^const_name>\<open>path_literal_42\<close> auto = 1)
+        (count_constant
+          \<^const_name>\<open>integration_registered_value_audit\<close>
+          auto = 1)
     val _ =
       List.app
         (fn name =>
@@ -6904,7 +7004,7 @@ ML_val\<open>
     val case_preferred =
       checked
         ("match \<llangle>mixed_match_scrutinee_marker\<rrangle> { " ^
-         "Color::Red \<Rightarrow> " ^
+         "IntegrationAudit::Value \<Rightarrow> " ^
          "\<llangle>mixed_match_first_body_marker\<rrangle>, " ^
          "_ \<Rightarrow> \<llangle>mixed_match_fallback_marker\<rrangle> }")
     val _ =
@@ -6928,8 +7028,7 @@ ML_val\<open>
          "NegativeRegistered::Other \<Rightarrow> 1 }")
     val _ =
       audit_assert "constructor/nonconstructor exact key did not select the constructor"
-        (count_constant \<^const_name>\<open>NegativeRegisteredNullary\<close>
-          constructor_wins > 0)
+        (count_constant negative_case_name constructor_wins = 1)
 
     fun collect_markup (XML.Text _) result = result
       | collect_markup (XML.Elem (markup, body)) result =
@@ -7002,7 +7101,7 @@ ML_val\<open>
           qualified_markup = 1)
     val _ =
       audit_assert "registered terminal notation report duplicated"
-        (count_entity Micro_Rust_Names.notationN "Color::Red"
+        (count_entity Micro_Rust_Names.notationN "IntegrationAudit::Value"
           expected_terminal qualified_markup = 1)
     val _ =
       audit_assert "registered terminal keyword3 styling duplicated or disappeared"
@@ -7015,7 +7114,7 @@ ML_val\<open>
     val _ =
       audit_assert "registered nonconstructor constant entity count changed"
         (count_entity Markup.constantN
-          \<^const_name>\<open>path_literal_42\<close>
+          \<^const_name>\<open>integration_registered_value_audit\<close>
           expected_terminal qualified_markup = 1)
 
     val identifier_source =
@@ -7055,7 +7154,7 @@ ML_val\<open>
       let
         val recovered_switch =
           checked
-            ("match 42 { 0 \<Rightarrow> 0, Color::Red \<Rightarrow> 1, " ^
+            ("match 42 { 0 \<Rightarrow> 0, IntegrationAudit::Value \<Rightarrow> 1, " ^
              "_ \<Rightarrow> 2 }")
         val recovered_case =
           checked
@@ -7069,8 +7168,7 @@ ML_val\<open>
           (count_constant \<^const_name>\<open>ncase_selector\<close>
             recovered_switch = 1);
         audit_assert "registered-constructor case recovery failed"
-          (count_constant \<^const_name>\<open>RegisteredNullary\<close>
-            recovered_case > 0);
+          (count_constant registered_case_name recovered_case = 1);
         audit_assert "unit recovery failed"
           (count_constant \<^const_name>\<open>Product_Type.Unity\<close>
             recovered_unit = 1)
@@ -7126,7 +7224,7 @@ ML_val\<open>
         "urust_expr: mixed numeral and constructor patterns in bare `match`"
 
     val guarded_text =
-      "match 42 { 0 if True \<Rightarrow> (), Color::Red \<Rightarrow> (), " ^
+      "match 42 { 0 if True \<Rightarrow> (), IntegrationAudit::Value \<Rightarrow> (), " ^
       "_ \<Rightarrow> () }"
     val guarded_numeral_offset =
       find_from guarded_text "0" (size "match 42 { ")
@@ -7136,7 +7234,7 @@ ML_val\<open>
         "urust_expr: numeric patterns are not supported in case patterns"
 
     val switch_guard_text =
-      "match_switch 42 { Color::Red if True \<Rightarrow> (), _ \<Rightarrow> () }"
+      "match_switch 42 { IntegrationAudit::Value if True \<Rightarrow> (), _ \<Rightarrow> () }"
     val switch_guard_offset =
       find_from switch_guard_text "if" 0
     val _ =
