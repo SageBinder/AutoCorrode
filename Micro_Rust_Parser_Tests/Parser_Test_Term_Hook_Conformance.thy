@@ -14,8 +14,9 @@ frontend RHS and closes by \<open>refl\<close>. Wrappers such as lambdas, \<open
 constraints are retained on both sides. The definition and rejection tiers are copied unchanged.
 \<open>**\<close> and \<open>!!\<close> mean double dereference and negation.
 
-Known parser/conformance gaps are kept below as commented-out exact corpus
-equations instead of being rewritten into different tests:
+Known parser/conformance gaps and one intentional Rust-correct divergence are
+kept below as commented-out exact corpus equations instead of being rewritten
+into different tests:
 
   \<^item> A semicolon-bearing binding expression cannot appear directly as a
     macro argument. The legacy-accepted
@@ -29,8 +30,9 @@ equations instead of being rewritten into different tests:
     lowers these forms to \<open>tuple_index_N\<close> applications.
 
   \<^item> Or-pattern alternatives with unequal binder sets, such as
-    \<^verbatim>\<open>Some(x) | None\<close>, are accepted by the legacy frontend but
-    rejected by the dedicated parser as missing a binder from one alternative.
+    \<^verbatim>\<open>Some(x) | None\<close>, are intentionally rejected by the dedicated
+    parser. This preserves Rust's requirement that every alternative bind the
+    same names, although the legacy frontend accepts the source.
 
 The macro and numeric-projection gaps are grammatical and occur during
 \<open>URust_Diagnostics.parse_source\<close>. Bare matches now classify exact registered
@@ -1132,7 +1134,7 @@ subsection\<open>Disjunctive Patterns\<close>
 
 datatype three_case = CaseA nat | CaseB nat | CaseC
 
-(* Known parser/conformance gap; see the note at the top of this theory.
+(* Intentional Rust-correct rejection; see the note at the top of this theory.
 lemma \<open> \<mu>\<open> match Some(\<llangle>42 :: nat\<rrangle>) { Some(x) | None \<Rightarrow> x } \<close> = \<lbrakk> match Some(\<llangle>42 :: nat\<rrangle>) { Some(x) | None \<Rightarrow> x } \<rbrakk>\<close> by (rule refl)
 *)
 
@@ -1145,7 +1147,7 @@ end
 context
   fixes x :: \<open>32 word option\<close>
 begin
-(* Known parser/conformance gap; see the note at the top of this theory.
+(* Intentional Rust-correct rejection; see the note at the top of this theory.
 lemma \<open> \<mu>\<open> match x { Some(y) | None if y > \<llangle>0 :: 32 word\<rrangle> \<Rightarrow> y, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<close> = \<lbrakk> match x { Some(y) | None if y > \<llangle>0 :: 32 word\<rrangle> \<Rightarrow> y, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<rbrakk>\<close> by (rule refl)
 *)
 end
@@ -1159,7 +1161,7 @@ lemma \<open> \<mu>\<open> match_switch x { 0 | 1 \<Rightarrow> False, _ \<Right
 end
 
 lemma \<open> \<mu>\<open> let res = match Ok(\<llangle>10 :: 32 word\<rrangle>) { Ok(x) | Err(x) \<Rightarrow> x }; assert!(res == \<llangle>10 :: 32 word\<rrangle>) \<close> = \<lbrakk> let res = match Ok(\<llangle>10 :: 32 word\<rrangle>) { Ok(x) | Err(x) \<Rightarrow> x }; assert!(res == \<llangle>10 :: 32 word\<rrangle>) \<rbrakk>\<close> by (rule refl)
-(* Known parser/conformance gap; see the note at the top of this theory.
+(* Intentional Rust-correct rejection; see the note at the top of this theory.
 lemma \<open> \<mu>\<open> match (Some(\<llangle>1 :: nat\<rrangle>), Some(\<llangle>2 :: nat\<rrangle>)) { (Some(x), Some(y)) | (None, Some(y)) \<Rightarrow> y, _ \<Rightarrow> \<llangle>0 :: nat\<rrangle> } \<close> = \<lbrakk> match (Some(\<llangle>1 :: nat\<rrangle>), Some(\<llangle>2 :: nat\<rrangle>)) { (Some(x), Some(y)) | (None, Some(y)) \<Rightarrow> y, _ \<Rightarrow> \<llangle>0 :: nat\<rrangle> } \<rbrakk>\<close> by (rule refl)
 *)
 

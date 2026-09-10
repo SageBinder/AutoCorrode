@@ -2330,6 +2330,45 @@ urust_expr rich_bare_nested
 urust_expr rich_bare_or
   \<open> match \<llangle>Some (0 :: nat)\<rrangle> { Some(_) | None \<Rightarrow> () } \<close>
 
+subsection\<open> Equal-binder or-patterns \<close>
+
+datatype binder_or_fixture =
+    BinderOrA nat nat
+  | BinderOrB nat nat
+  | BinderOrC nat nat
+
+datatype binder_slice_fixture =
+    BinderSliceA \<open>nat list\<close>
+  | BinderSliceB \<open>nat list\<close>
+
+text\<open>
+Every alternative binds exactly the same names. The first alternative allocates the shared arm
+environment; later alternatives may reverse source order or move those names structurally.
+\<close>
+
+urust_expr rich_or_three_alternatives
+  \<open>
+    match_case \<llangle>BinderOrA 1 2\<rrangle> {
+      BinderOrA(x, y) | BinderOrB(y, x) | BinderOrC(x, y) \<Rightarrow> x
+    }
+  \<close>
+
+urust_expr rich_or_structural_repositioning
+  \<open>
+    match_case \<llangle>(Some (1 :: nat), (Some (2 :: nat), TNil))\<rrangle> {
+      (Some(x), y) | (y, Some(x)) \<Rightarrow> x,
+      _ \<Rightarrow> 0
+    }
+  \<close>
+
+urust_expr rich_or_nested_slice_repositioning
+  \<open>
+    match \<llangle>BinderSliceA [1 :: nat, 2]\<rrangle> {
+      BinderSliceA([x, ..]) | BinderSliceB([.., x]) \<Rightarrow> x,
+      _ \<Rightarrow> 0
+    }
+  \<close>
+
 subsection\<open> Guards \<close>
 
 context fixes x :: \<open>32 word option\<close>

@@ -5888,6 +5888,502 @@ ML_val\<open>
 \<close>
 
 
+section\<open> Or-pattern binder-set validation \<close>
+
+datatype binder_or_audit_fixture =
+    BinderAuditA nat nat
+  | BinderAuditB nat nat
+  | BinderAuditC nat nat
+  | BinderAuditSliceA \<open>nat list\<close>
+  | BinderAuditSliceB \<open>nat list\<close>
+
+text\<open>
+The first alternative is the canonical binder signature. Every alternative is recursively checked
+for duplicates before the name sets are compared; rejection precedes local allocation and guard/body
+lowering. Successful alternatives share the first signature's entity identities even when source
+order and structural positions differ.
+\<close>
+
+ML_val\<open>
+  local
+    open URust_AST
+
+    val ctxt = \<^context>
+
+    fun audit_assert message condition =
+      if condition then ()
+      else error ("or-pattern binder audit: " ^ message)
+
+    fun checked_source source =
+      Parser_Test_Elaboration.expression ctxt source
+
+    fun checked text =
+      checked_source (Parser_Lex_Util.text_source text)
+
+    fun find_from text needle offset =
+      if offset + size needle > size text then
+        error ("or-pattern binder audit: missing " ^ quote needle)
+      else if String.substring (text, offset, size needle) = needle
+      then offset
+      else find_from text needle (offset + 1)
+
+    fun nth_raw text needle index =
+      let
+        fun seek 0 offset = find_from text needle offset
+          | seek remaining offset =
+              let val found = find_from text needle offset
+              in seek (remaining - 1) (found + size needle) end
+      in seek index 0 end
+
+    fun token_position text start needle index =
+      let
+        val raw = nth_raw text needle index
+        val token_start =
+          Position.symbol_explode
+            (String.substring (text, 0, raw)) start
+      in
+        Position.range_position
+          (token_start, Position.symbol_explode needle token_start)
+      end
+
+    fun position_range position =
+      (Value.print_int (the (Position.offset_of position)),
+       Value.print_int (the (Position.end_offset_of position)))
+
+    fun diagnostic_ranges body =
+      let
+        fun collect (XML.Text _) ranges = ranges
+          | collect (XML.Elem ((_, properties), children)) ranges =
+              let
+                val ranges' =
+                  (case
+                    (Properties.get properties Markup.offsetN,
+                     Properties.get properties Markup.end_offsetN) of
+                     (SOME offset, SOME end_offset) =>
+                       (offset, end_offset) :: ranges
+                   | _ => ranges)
+              in fold collect children ranges' end
+      in distinct (op =) (fold collect body []) end
+
+    fun same_ranges left right =
+      length left = length right andalso
+        List.all (fn range => member (op =) right range) left
+
+    fun collect_markup (XML.Text _) result = result
+      | collect_markup (XML.Elem (markup, body)) result =
+          fold collect_markup body (markup :: result)
+
+    fun markup_of reports =
+      fold collect_markup (maps YXML.parse_body reports) []
+
+    fun has_position properties position =
+      Properties.get properties Markup.offsetN =
+        Option.map Value.print_int (Position.offset_of position) andalso
+      Properties.get properties Markup.end_offsetN =
+        Option.map Value.print_int (Position.end_offset_of position)
+
+    fun has_markup markup_name position markup =
+      exists
+        (fn (name, properties) =>
+          name = markup_name andalso has_position properties position)
+        markup
+
+    fun has_urust_entity position markup =
+      exists
+        (fn (name, properties) =>
+          name = Markup.entityN andalso
+            Properties.get properties Markup.kindN = SOME "urust_var" andalso
+            has_position properties position)
+        markup
+
+    fun entity_id property position markup =
+      let
+        val ids =
+          markup
+          |> map_filter
+              (fn (name, properties) =>
+                if name = Markup.entityN andalso
+                   Properties.get properties Markup.kindN =
+                     SOME "urust_var" andalso
+                   has_position properties position
+                then Properties.get properties property
+                else NONE)
+          |> distinct (op =)
+      in
+        (case ids of
+           [id] => id
+         | _ =>
+             error
+               ("or-pattern binder audit: entity markup changed" ^
+                 Position.here position))
+      end
+
+    fun has_entity_property property position markup =
+      exists
+        (fn (name, properties) =>
+          name = Markup.entityN andalso
+            Properties.get properties Markup.kindN = SOME "urust_var" andalso
+            is_some (Properties.get properties property) andalso
+            has_position properties position)
+        markup
+
+    fun capture_expression text start =
+      let
+        val captured =
+          Synchronized.var "or_pattern_binder_reports" ([]: string list)
+        fun capture_reports chunks =
+          Synchronized.change captured (append chunks)
+        val result =
+          Parser_Test_Report_Lock.run (fn () =>
+            Unsynchronized.setmp Private_Output.report_fn capture_reports
+              (fn () =>
+                Print_Mode.with_modes [Print_Mode.PIDE]
+                  (fn () =>
+                    Exn.result
+                      (fn () =>
+                        checked_source
+                          (Parser_Lex_Util.positioned_content_source
+                            text start)) ()) ())
+              ())
+      in (result, markup_of (Synchronized.value captured)) end
+
+    val recovery_text =
+      "match_case \<llangle>BinderAuditA 1 2\<rrangle> { " ^
+      "BinderAuditA(x, y) | BinderAuditB(y, x) | " ^
+      "BinderAuditC(x, y) \<Rightarrow> x }"
+
+    fun recover label =
+      (ignore (checked recovery_text);
+       ignore (checked "()");
+       writeln ("or-pattern recovery passed after " ^ label))
+
+    fun expect_rejection serial label text expected positions forbidden =
+      let
+        val start =
+          Position.make0 (110 + serial) (7000 + serial * 400) 0 "" ""
+            ("or-pattern-" ^ label ^ "-audit")
+        val (result, markup) = capture_expression text start
+        val actual =
+          (case result of
+             Exn.Res term =>
+               error
+                 ("or-pattern binder audit: " ^ label ^
+                  " unexpectedly elaborated to " ^
+                  Syntax.string_of_term ctxt term)
+           | Exn.Exn exn =>
+               if Exn.is_interrupt exn then Exn.reraise exn
+               else Runtime.exn_message exn)
+        val _ =
+          audit_assert (label ^ " exact diagnostic changed")
+            (actual = expected start)
+        val actual_ranges = diagnostic_ranges (YXML.parse_body actual)
+        val expected_ranges =
+          map (position_range o (fn position => position start)) positions
+        val _ =
+          audit_assert (label ^ " diagnostic ranges changed")
+            (same_ranges actual_ranges expected_ranges)
+        val _ =
+          List.app
+            (fn unexpected =>
+              audit_assert
+                (label ^ " elaborated " ^ quote unexpected)
+                (not (String.isSubstring unexpected actual)))
+            forbidden
+        val _ = recover label
+      in (start, markup) end
+
+    fun missing_message name primary secondary start =
+      "urust_expr: or-pattern alternative is missing binder " ^ quote name ^
+      Position.here (primary start) ^
+      "\nThe first alternative binds it here" ^
+      Position.here (secondary start)
+
+    fun extra_message name primary start =
+      "urust_expr: or-pattern alternative has extra binder " ^ quote name ^
+      Position.here (primary start)
+
+    fun duplicate_message name repeated original start =
+      "urust_expr: duplicate pattern binder " ^ quote name ^
+      Position.here (repeated start) ^
+      "\nThe original binder is here" ^
+      Position.here (original start)
+
+    val missing_text =
+      "match_case \<llangle>Some (1 :: nat)\<rrangle> { Some(x) | None \<Rightarrow> x }"
+    fun missing_bar start = token_position missing_text start "|" 0
+    fun missing_first_x start = token_position missing_text start "x" 0
+    fun missing_body_x start = token_position missing_text start "x" 1
+    val (missing_start, missing_markup) =
+      expect_rejection 0 "missing" missing_text
+        (missing_message "x" missing_bar missing_first_x)
+        [missing_bar, missing_first_x] []
+    val _ =
+      audit_assert "missing-binder bar lost operator markup"
+        (has_markup Markup.operatorN
+          (missing_bar missing_start) missing_markup)
+    val _ =
+      audit_assert "missing-binder bar lost typing markup"
+        (has_markup Markup.typingN
+          (missing_bar missing_start) missing_markup)
+    val _ =
+      List.app
+        (fn position =>
+          (audit_assert "rejected binder acquired bound markup"
+             (not (has_markup Markup.boundN position missing_markup));
+           audit_assert "rejected binder acquired an entity"
+             (not (has_urust_entity position missing_markup))))
+        [missing_first_x missing_start, missing_body_x missing_start]
+
+    val extra_text =
+      "match_case \<llangle>Some (1 :: nat)\<rrangle> { None | Some(x) \<Rightarrow> 0 }"
+    fun extra_x start = token_position extra_text start "x" 0
+    val (extra_start, extra_markup) =
+      expect_rejection 1 "extra" extra_text
+        (extra_message "x" extra_x) [extra_x] []
+    val _ =
+      audit_assert "extra rejected binder acquired bound markup"
+        (not (has_markup Markup.boundN (extra_x extra_start) extra_markup))
+    val _ =
+      audit_assert "extra rejected binder acquired an entity"
+        (not (has_urust_entity (extra_x extra_start) extra_markup))
+
+    val deterministic_text =
+      "match_case \<llangle>BinderAuditA 1 2\<rrangle> { " ^
+      "BinderAuditA(z, x) | BinderAuditB(_, _) \<Rightarrow> 0, _ \<Rightarrow> 0 }"
+    fun deterministic_bar start =
+      token_position deterministic_text start "|" 0
+    fun deterministic_x start =
+      token_position deterministic_text start "x" 0
+    val _ =
+      expect_rejection 2 "deterministic-missing" deterministic_text
+        (missing_message "x" deterministic_bar deterministic_x)
+        [deterministic_bar, deterministic_x] []
+
+    val third_text =
+      "match_case \<llangle>BinderAuditA 1 2\<rrangle> { " ^
+      "BinderAuditA(x, _) | BinderAuditB(x, _) | " ^
+      "BinderAuditC(_, _) \<Rightarrow> 0, _ \<Rightarrow> 0 }"
+    fun third_first_bar start = token_position third_text start "|" 0
+    fun third_first_x start = token_position third_text start "x" 0
+    val _ =
+      expect_rejection 3 "third-alternative" third_text
+        (missing_message "x" third_first_bar third_first_x)
+        [third_first_bar, third_first_x] []
+
+    val nested_missing_text =
+      "match_case \<llangle>Some (Ok (1 :: nat))\<rrangle> { " ^
+      "Some(Ok(x) | Err(y)) \<Rightarrow> 0, _ \<Rightarrow> 0 }"
+    fun nested_missing_bar start =
+      token_position nested_missing_text start "|" 0
+    fun nested_missing_x start =
+      token_position nested_missing_text start "x" 0
+    val _ =
+      expect_rejection 4 "nested-missing-before-extra" nested_missing_text
+        (missing_message "x" nested_missing_bar nested_missing_x)
+        [nested_missing_bar, nested_missing_x] []
+
+    val nested_extra_text =
+      "match_case \<llangle>Some (Some (1 :: nat))\<rrangle> { " ^
+      "Some(None | Some(x)) \<Rightarrow> 0, _ \<Rightarrow> 0 }"
+    fun nested_extra_x start =
+      token_position nested_extra_text start "x" 0
+    val _ =
+      expect_rejection 5 "nested-extra" nested_extra_text
+        (extra_message "x" nested_extra_x) [nested_extra_x] []
+
+    val guarded_text =
+      "match_case \<llangle>Some (1 :: nat)\<rrangle> { " ^
+      "Some(x) | None if unknown_binder_guard!() \<Rightarrow> " ^
+      "unknown_binder_body!(), _ \<Rightarrow> 0 }"
+    fun guarded_bar start = token_position guarded_text start "|" 0
+    fun guarded_x start = token_position guarded_text start "x" 0
+    val _ =
+      expect_rejection 6 "guarded" guarded_text
+        (missing_message "x" guarded_bar guarded_x)
+        [guarded_bar, guarded_x]
+        ["unknown_binder_guard", "unknown_binder_body"]
+
+    val slice_missing_text =
+      "match_case \<llangle>BinderAuditSliceA [1 :: nat, 2]\<rrangle> { " ^
+      "BinderAuditSliceA([x, ..]) | BinderAuditSliceB([]) \<Rightarrow> 0, " ^
+      "_ \<Rightarrow> 0 }"
+    fun slice_missing_bar start =
+      token_position slice_missing_text start "|" 0
+    fun slice_missing_x start =
+      token_position slice_missing_text start "x" 0
+    val _ =
+      expect_rejection 7 "slice-missing" slice_missing_text
+        (missing_message "x" slice_missing_bar slice_missing_x)
+        [slice_missing_bar, slice_missing_x] []
+
+    val slice_extra_text =
+      "match_case \<llangle>BinderAuditSliceA [1 :: nat, 2]\<rrangle> { " ^
+      "BinderAuditSliceA([]) | BinderAuditSliceB([.., x]) \<Rightarrow> 0, " ^
+      "_ \<Rightarrow> 0 }"
+    fun slice_extra_x start =
+      token_position slice_extra_text start "x" 0
+    val _ =
+      expect_rejection 8 "slice-extra" slice_extra_text
+        (extra_message "x" slice_extra_x) [slice_extra_x] []
+
+    val duplicate_first_text =
+      "match_case \<llangle>BinderAuditA 1 2\<rrangle> { " ^
+      "BinderAuditA(x, x) | BinderAuditB(y, _) \<Rightarrow> 0, _ \<Rightarrow> 0 }"
+    fun duplicate_first_original start =
+      token_position duplicate_first_text start "x" 0
+    fun duplicate_first_repeated start =
+      token_position duplicate_first_text start "x" 1
+    val _ =
+      expect_rejection 9 "duplicate-first" duplicate_first_text
+        (duplicate_message "x"
+          duplicate_first_repeated duplicate_first_original)
+        [duplicate_first_repeated, duplicate_first_original] []
+
+    val duplicate_later_text =
+      "match_case \<llangle>BinderAuditA 1 2\<rrangle> { " ^
+      "BinderAuditA(x, _) | BinderAuditB(y, y) \<Rightarrow> 0, _ \<Rightarrow> 0 }"
+    fun duplicate_later_original start =
+      token_position duplicate_later_text start "y" 0
+    fun duplicate_later_repeated start =
+      token_position duplicate_later_text start "y" 1
+    val _ =
+      expect_rejection 10 "duplicate-later" duplicate_later_text
+        (duplicate_message "y"
+          duplicate_later_repeated duplicate_later_original)
+        [duplicate_later_repeated, duplicate_later_original] []
+
+    fun parse text =
+      (case URust_Diagnostics.parse_source ctxt
+          (Parser_Lex_Util.text_source text) of
+         SOME expression => expression
+       | NONE => error "or-pattern binder audit: empty parse")
+
+    fun callback_trace text =
+      let
+        val calls = Unsynchronized.ref ([]: string list)
+        fun lower _ expression =
+          let
+            val label =
+              (case expression of
+                 UE_Path path => render_path path
+               | _ => "<non-path>")
+            val _ = calls := label :: !calls
+          in Free ("_" ^ label, dummyT) end
+        val result =
+          (case parse text of
+             UE_Match arguments =>
+               Exn.result
+                 (fn () =>
+                   URust_Matching.lower_match lower ctxt
+                     URust_Resolution.empty_environment arguments) ()
+           | _ => error "or-pattern binder audit: callback fixture changed")
+      in (result, rev (!calls)) end
+
+    val invalid_callback_text =
+      "match_case binder_or_scrutinee_probe { " ^
+      "BinderAuditA(x, _) | BinderAuditB(_, _) " ^
+      "if binder_or_guard_probe \<Rightarrow> binder_or_body_probe, " ^
+      "_ \<Rightarrow> binder_or_fallback_probe }"
+    val (invalid_callback_result, invalid_callback_calls) =
+      callback_trace invalid_callback_text
+    val _ =
+      (case invalid_callback_result of
+         Exn.Res _ =>
+           error "or-pattern binder audit: invalid callback fixture elaborated"
+       | Exn.Exn exn =>
+           if Exn.is_interrupt exn then Exn.reraise exn
+           else
+             audit_assert "callback rejection changed"
+               (String.isSubstring
+                 "or-pattern alternative is missing binder \"x\""
+                 (Runtime.exn_message exn)))
+    val _ =
+      audit_assert "rejected arm lowered its guard or body"
+        (invalid_callback_calls = ["binder_or_scrutinee_probe"])
+
+    val valid_callback_text =
+      "match_case binder_or_scrutinee_probe { " ^
+      "BinderAuditA(x, y) | BinderAuditB(y, x) | BinderAuditC(x, y) " ^
+      "if binder_or_guard_probe \<Rightarrow> binder_or_body_probe, " ^
+      "_ \<Rightarrow> binder_or_fallback_probe }"
+    val (valid_callback_result, valid_callback_calls) =
+      callback_trace valid_callback_text
+    val _ =
+      (case valid_callback_result of
+         Exn.Res _ => ()
+       | Exn.Exn exn => Exn.reraise exn)
+    val _ =
+      audit_assert "valid arm source expressions were not lowered once"
+        (valid_callback_calls =
+          ["binder_or_scrutinee_probe", "binder_or_guard_probe",
+           "binder_or_body_probe", "binder_or_fallback_probe"])
+
+    val valid_markup_text =
+      "match_case \<llangle>BinderAuditA 1 2\<rrangle> { " ^
+      "BinderAuditA(x, y) | BinderAuditB(y, x) | BinderAuditC(x, y) " ^
+      "if x < y \<Rightarrow> x, _ \<Rightarrow> 0 }"
+    val valid_markup_start =
+      Position.make0 140 14000 0 "" "" "or-pattern-valid-markup-audit"
+    val (valid_markup_result, valid_markup) =
+      capture_expression valid_markup_text valid_markup_start
+    val _ =
+      (case valid_markup_result of
+         Exn.Res _ => ()
+       | Exn.Exn exn => Exn.reraise exn)
+    val x_positions =
+      map (token_position valid_markup_text valid_markup_start "x")
+        (0 upto 4)
+    val y_positions =
+      map (token_position valid_markup_text valid_markup_start "y")
+        (0 upto 3)
+    fun assert_shared name positions =
+      let
+        val definition = hd positions
+        val references = tl positions
+        val id = entity_id Markup.defN definition valid_markup
+        val _ =
+          audit_assert (name ^ " definition lost bound markup")
+            (has_markup Markup.boundN definition valid_markup)
+        val _ =
+          List.app
+            (fn position =>
+              (audit_assert (name ^ " occurrence lost bound markup")
+                 (has_markup Markup.boundN position valid_markup);
+               audit_assert (name ^ " occurrence changed entity identity")
+                 (entity_id Markup.refN position valid_markup = id)))
+            references
+        val _ =
+          List.app
+            (fn position =>
+              audit_assert (name ^ " later alternative allocated a definition")
+                (not
+                  (has_entity_property Markup.defN
+                    position valid_markup)))
+            (tl positions)
+      in () end
+    val _ = assert_shared "x" x_positions
+    val _ = assert_shared "y" y_positions
+
+    val _ =
+      ignore
+        (checked
+          ("match_case \<llangle>(Some (1 :: nat), " ^
+           "(Some (2 :: nat), TNil))\<rrangle> { " ^
+           "(Some(x), y) | (y, Some(x)) \<Rightarrow> x, _ \<Rightarrow> 0 }"))
+    val _ =
+      ignore
+        (checked
+          ("match \<llangle>BinderAuditSliceA [1 :: nat, 2]\<rrangle> { " ^
+           "BinderAuditSliceA([x, ..]) | " ^
+           "BinderAuditSliceB([.., x]) \<Rightarrow> x, _ \<Rightarrow> 0 }"))
+  in
+    val _ =
+      writeln
+        "Or-pattern binder diagnostics, ranges, precedence, markup, recovery, and shared-environment regressions passed"
+  end
+\<close>
+
+
 section\<open> Standard code equations \<close>
 
 urust_expr regression_code_literal

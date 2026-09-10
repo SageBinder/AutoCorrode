@@ -361,6 +361,96 @@ new_urust_rejects audit
   \<open> duplicate pattern binder "x" \<close>
   \<comment> \<open> [AUDIT] struct-field children share the atomic binder set. \<close>
 
+text\<open>
+Or-pattern alternatives use the first alternative as the canonical binder set. Recursive duplicate
+checks run before cross-alternative comparison; missing names are selected deterministically before
+extra names, and no rejected arm reaches guard or body lowering.
+\<close>
+
+new_urust_rejects frontend_accepts
+  \<open> match_case \<llangle>Some (1 :: nat)\<rrangle> { Some(x) | None \<Rightarrow> x } \<close>
+  \<open> or-pattern alternative is missing binder "x" \<close>
+  \<comment> \<open> [DIVERGENT] Rust requires every alternative to bind the same names. \<close>
+
+new_urust_rejects frontend_accepts
+  \<open> match_case \<llangle>Some (1 :: nat)\<rrangle> { None | Some(x) \<Rightarrow> 0 } \<close>
+  \<open> or-pattern alternative has extra binder "x" \<close>
+  \<comment> \<open> [DIVERGENT] reversing the alternatives makes the empty first binder set canonical. \<close>
+
+new_urust_rejects audit
+  \<open>
+    match_case \<llangle>NegativeStruct 1 2\<rrangle> {
+      NegativeStruct(z, x) | NegativeStruct(_, _) \<Rightarrow> 0
+    }
+  \<close>
+  \<open> or-pattern alternative is missing binder "x" \<close>
+  \<comment> \<open> [AUDIT] multiple missing names are diagnosed in deterministic name order. \<close>
+
+new_urust_rejects audit
+  \<open>
+    match_case \<llangle>Some (1 :: nat)\<rrangle> {
+      Some(x) | Some(x) | None \<Rightarrow> x
+    }
+  \<close>
+  \<open> or-pattern alternative is missing binder "x" \<close>
+  \<comment> \<open> [AUDIT] a third alternative is compared with the first alternative's binder set. \<close>
+
+new_urust_rejects audit
+  \<open>
+    match_case \<llangle>Some (Ok (1 :: nat))\<rrangle> {
+      Some(Ok(x) | Err(y)) \<Rightarrow> 0, _ \<Rightarrow> 0
+    }
+  \<close>
+  \<open> or-pattern alternative is missing binder "x" \<close>
+  \<comment> \<open> [AUDIT] nested alternatives report a missing canonical binder before an extra binder. \<close>
+
+new_urust_rejects audit
+  \<open>
+    match_case \<llangle>Some (Some (1 :: nat))\<rrangle> {
+      Some(None | Some(x)) \<Rightarrow> 0, _ \<Rightarrow> 0
+    }
+  \<close>
+  \<open> or-pattern alternative has extra binder "x" \<close>
+  \<comment> \<open> [AUDIT] nested constructor alternatives retain the same extra-binder rule. \<close>
+
+new_urust_rejects audit
+  \<open>
+    match_case \<llangle>Some (1 :: nat)\<rrangle> {
+      Some(x) | None if unknown_binder_guard!() \<Rightarrow>
+        unknown_binder_body!(),
+      _ \<Rightarrow> 0
+    }
+  \<close>
+  \<open> or-pattern alternative is missing binder "x" \<close>
+  \<comment> \<open> [AUDIT] binder validation wins before guard and body macro resolution. \<close>
+
+new_urust_rejects audit
+  \<open>
+    match_case \<llangle>[1 :: nat, 2]\<rrangle> {
+      [] | [x, ..] \<Rightarrow> 0, _ \<Rightarrow> 0
+    }
+  \<close>
+  \<open> or-pattern alternative has extra binder "x" \<close>
+  \<comment> \<open> [AUDIT] reversing nested slice alternatives exposes the extra-binder diagnostic. \<close>
+
+new_urust_rejects audit
+  \<open>
+    match_case \<llangle>NegativeStruct 1 2\<rrangle> {
+      NegativeStruct(x, x) | NegativeStruct(y, _) \<Rightarrow> 0
+    }
+  \<close>
+  \<open> duplicate pattern binder "x" \<close>
+  \<comment> \<open> [AUDIT] a duplicate in the canonical alternative wins before binder-set comparison. \<close>
+
+new_urust_rejects audit
+  \<open>
+    match_case \<llangle>NegativeStruct 1 2\<rrangle> {
+      NegativeStruct(x, _) | NegativeStruct(y, y) \<Rightarrow> 0
+    }
+  \<close>
+  \<open> duplicate pattern binder "y" \<close>
+  \<comment> \<open> [AUDIT] a duplicate in a later alternative wins before missing/extra comparison. \<close>
+
 urust_expr_rejects fidelity \<open> let Some(x) = \<llangle>Some (0 :: nat)\<rrangle>; () \<close>
   \<open> unsupported or refutable pattern in an irrefutable (let/const) binder position \<close>
   \<comment> \<open> [FIDELITY] the site gate on the ONE pattern language (D28). The frontend rejects it as well,
