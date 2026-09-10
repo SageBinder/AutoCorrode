@@ -5,6 +5,8 @@ theory Parser_Test_Term_Hook_Conformance
   imports Parser_Test_Term_Hook
 begin
 
+declare [[urust_term_hook_conformance_check = true]]
+
 section\<open> Term-hook conformance corpus \<close>
 
 text\<open>
