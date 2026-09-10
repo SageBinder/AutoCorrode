@@ -1042,6 +1042,9 @@ section\<open> Calls \<close>
 definition ncf1 :: \<open> 64 word \<Rightarrow> (unit, 64 word, unit, unit, unit) function_body \<close>
   where \<open> ncf1 \<equiv> lift_fun1 (\<lambda>x. x) \<close>
 
+micro_rust_notation (call) ncf1 ("NegativeArity::Registered")
+micro_rust_notation (call) ncf1 ("negative_arity_registered_method")
+
 new_urust_rejects frontend_accepts
   \<open> assert!(!o.is_none()) \<close>
   \<open> Type unification failed \<close>
@@ -1059,6 +1062,37 @@ urust_expr_rejects fidelity \<open> zz(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
   \<comment> \<open> [FIDELITY] the arity cap is ONE policy number derived from the frontend's surface lowering (D29);
        the frontend rejects 15 args too ("Undefined constant: _urust_shallow_fun_with_args"). \<close>
 
+new_urust_rejects audit
+  \<open> NegativeArity::Registered(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14) \<close>
+  \<open> unsupported call arity 15 \<close>
+
+new_urust_rejects audit
+  \<open> ncf1(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14) \<close>
+  \<open> unsupported call arity 15 \<close>
+
+new_urust_rejects audit
+  \<open> Suc(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14) \<close>
+  \<open> unsupported call arity 15 \<close>
+
+context
+  fixes negative_arity_fixed :: unit
+  fixes negative_arity_fixed_method :: unit
+begin
+
+new_urust_rejects audit
+  \<open> negative_arity_fixed(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14) \<close>
+  \<open> unsupported call arity 15 \<close>
+
+new_urust_rejects audit
+  \<open> 0.negative_arity_fixed_method(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14) \<close>
+  \<open> unsupported call arity 15 \<close>
+
+new_urust_rejects audit
+  \<open> 0.negative_arity_fixed_method(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15) \<close>
+  \<open> unsupported call arity 16 \<close>
+
+end
+
 urust_expr_rejects fidelity
   \<open> \<epsilon>\<open>ncf1\<close>(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14) \<close>
   \<open> unsupported call arity 15 \<close>
@@ -1075,6 +1109,50 @@ urust_expr_rejects fidelity
   \<open> 0.zz(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15) \<close>
   \<open> unsupported call arity 16 \<close>
   \<comment> \<open> [FIDELITY] the 15-explicit-argument boundary lowers to 16 total arguments. \<close>
+
+new_urust_rejects audit
+  \<open> 0.negative_arity_registered_method(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14) \<close>
+  \<open> unsupported call arity 15 \<close>
+
+new_urust_rejects audit
+  \<open> 0.negative_arity_registered_method(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15) \<close>
+  \<open> unsupported call arity 16 \<close>
+
+new_urust_rejects audit
+  \<open> 0.ncf1(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14) \<close>
+  \<open> unsupported call arity 15 \<close>
+
+new_urust_rejects audit
+  \<open> 0.ncf1(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15) \<close>
+  \<open> unsupported call arity 16 \<close>
+
+new_urust_rejects audit
+  \<open> 0.Suc(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14) \<close>
+  \<open> unsupported call arity 15 \<close>
+
+new_urust_rejects audit
+  \<open> 0.Suc(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15) \<close>
+  \<open> unsupported call arity 16 \<close>
+
+new_urust_rejects audit
+  \<open>
+    Suc(
+      unknown_arity_argument!(),
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14
+    )
+  \<close>
+  \<open> unsupported call arity 15 \<close>
+  \<comment> \<open> Structural arity wins before the incompatible pure-HOL head and argument lowering. \<close>
+
+new_urust_rejects audit
+  \<open>
+    unknown_arity_receiver!().zz(
+      unknown_arity_argument!(),
+      2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14
+    )
+  \<close>
+  \<open> unsupported call arity 15 \<close>
+  \<comment> \<open> The receiver plus fourteen explicit arguments are counted before receiver, head, or argument lowering. \<close>
 
 urust_expr_rejects fidelity \<open> ncf1(\<llangle>1 :: 64 word\<rrangle>)(\<llangle>2 :: 64 word\<rrangle>) \<close>
   \<open> syntax error found at ( \<close>
@@ -2473,6 +2551,18 @@ urust_expr_rejects fidelity
   \<close>
   \<open> unsupported call arity 15 \<close>
   \<comment> \<open> [FIDELITY] struct expressions share the frontend's inclusive arity-14 cap. \<close>
+
+new_urust_rejects audit
+  \<open>
+    UnknownArityStruct {
+      f00: unknown_arity_initializer!(),
+      f01: 1, f02: 2, f03: 3, f04: 4,
+      f05: 5, f06: 6, f07: 7, f08: 8, f09: 9,
+      f10: 10, f11: 11, f12: 12, f13: 13, f14: 14
+    }
+  \<close>
+  \<open> unsupported call arity 15 \<close>
+  \<comment> \<open> Structural arity wins before label reporting, head resolution, and initializer lowering. \<close>
 
 section\<open> Unparenthesized struct expressions in control heads (D-23) \<close>
 

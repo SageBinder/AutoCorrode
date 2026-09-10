@@ -25,6 +25,7 @@ sig
   val apply_parameters: term -> term list -> term
   val source_position: Position.T -> term -> term
   val lift_function: Position.T -> int -> term -> term
+  val check_function_call_arity: Position.T -> int -> unit
   val function_call: Position.T -> term -> term list -> term
   val bind: term -> term -> term
   val sequence: term -> term -> term
@@ -112,11 +113,12 @@ ML\<open>
      and a right-associated List.append tree otherwise.
    * source_position attaches one source range to an unchecked term through Isabelle's standard
      post-parse position constraint. lift_function maps a pure HOL function and source suffix arity 1
-     through 14 to lift_fun1 through lift_fun14. function_call independently maps a function term and
-     its runtime argument list to funcall0 through funcall14 and rejects larger runtime arities at its
-     call position. bind takes an expression and a continuation abstraction; sequence, return_value,
-     and case_product preserve the corresponding shallow-embedding constructors rather than
-     interchangeable HOL encodings.
+     through 14 to lift_fun1 through lift_fun14. check_function_call_arity exposes the structural
+     funcall0-through-funcall14 policy without exposing its private table, and function_call
+     defensively applies the same lookup while constructing the call. Both reject larger runtime
+     arities at the complete call or struct position. bind takes an expression and a continuation
+     abstraction; sequence, return_value, and case_product preserve the corresponding
+     shallow-embedding constructors rather than interchangeable HOL encodings.
    * allocate_reference, update, and assign_add construct the positioned overloaded store operations.
      update takes place then RHS; assign_add uses the same order. focus_field takes a resolved field
      lens then its receiver. tuple accepts at least two expression terms and emits the frontend's
@@ -260,6 +262,9 @@ struct
       error ("urust_expr: unsupported call arity " ^ string_of_int arity ^ " (max " ^
         string_of_int maximum_function_arity ^
         "; the frontend's surface lowering caps here)" ^ Position.here pos)
+
+  fun check_function_call_arity pos arity =
+    ignore (function_constant pos arity)
 
   fun function_call pos function arguments =
     constant (function_constant pos (length arguments)) (function :: arguments)

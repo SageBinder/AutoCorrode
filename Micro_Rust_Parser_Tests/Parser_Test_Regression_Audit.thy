@@ -5014,6 +5014,484 @@ ML_val\<open>
 \<close>
 
 
+section\<open> Structural call-arity preflight audit \<close>
+
+consts
+  arity_audit_marker_00 :: nat
+  arity_audit_marker_01 :: nat
+  arity_audit_marker_02 :: nat
+  arity_audit_marker_03 :: nat
+  arity_audit_marker_04 :: nat
+  arity_audit_marker_05 :: nat
+  arity_audit_marker_06 :: nat
+  arity_audit_marker_07 :: nat
+  arity_audit_marker_08 :: nat
+  arity_audit_marker_09 :: nat
+  arity_audit_marker_10 :: nat
+  arity_audit_marker_11 :: nat
+  arity_audit_marker_12 :: nat
+  arity_audit_marker_13 :: nat
+
+definition arity_audit_backend14 ::
+  \<open>
+    nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow>
+    nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow>
+    (unit, nat, unit, unit, unit) function_body
+  \<close>
+  where
+    \<open>
+      arity_audit_backend14 \<equiv>
+        lift_fun14 (\<lambda>a b c d e f g h i j k l m n. a)
+    \<close>
+
+definition arity_audit_registered_value :: nat
+  where \<open> arity_audit_registered_value = 0 \<close>
+
+micro_rust_notation (call) arity_audit_backend14 ("ArityAudit::Call14")
+micro_rust_notation (call) arity_audit_backend14 ("arity_audit_method14")
+micro_rust_notation (call) arity_audit_backend14 ("ArityAudit::Struct14")
+micro_rust_notation (call) arity_audit_backend14 ("ArityAudit::Over")
+micro_rust_notation (call) arity_audit_backend14 ("arity_audit_over_method")
+micro_rust_notation (call) arity_audit_backend14 ("ArityAudit::StructOver")
+micro_rust_notation (literal) arity_audit_registered_value ("ArityAudit::Value")
+
+text\<open>
+The shallow-term layer owns the single \<open>funcall0\<close>-through-\<open>funcall14\<close> table. Translation
+preflights the AST's total runtime arity before resolving a callee, applying generic arguments,
+parsing embedded HOL, reporting struct labels, or lowering a receiver, argument, or initializer.
+The ordinary call constructor still checks the same private table defensively.
+\<close>
+
+ML_val\<open>
+  local
+    open URust_AST
+
+    val ctxt = \<^context>
+
+    fun audit_assert message condition =
+      if condition then ()
+      else error ("structural call-arity preflight audit: " ^ message)
+
+    fun comma arguments = space_implode ", " arguments
+    fun integers first count =
+      map string_of_int (first upto (first + count - 1))
+    fun call head arguments =
+      head ^ "(" ^ comma arguments ^ ")"
+    fun method receiver head arguments =
+      receiver ^ "." ^ head ^ "(" ^ comma arguments ^ ")"
+
+    val marker_sources =
+      ["arity_audit_marker_00", "arity_audit_marker_01",
+       "arity_audit_marker_02", "arity_audit_marker_03",
+       "arity_audit_marker_04", "arity_audit_marker_05",
+       "arity_audit_marker_06", "arity_audit_marker_07",
+       "arity_audit_marker_08", "arity_audit_marker_09",
+       "arity_audit_marker_10", "arity_audit_marker_11",
+       "arity_audit_marker_12", "arity_audit_marker_13"]
+    val marker_constants =
+      [\<^const_name>\<open>arity_audit_marker_00\<close>,
+       \<^const_name>\<open>arity_audit_marker_01\<close>,
+       \<^const_name>\<open>arity_audit_marker_02\<close>,
+       \<^const_name>\<open>arity_audit_marker_03\<close>,
+       \<^const_name>\<open>arity_audit_marker_04\<close>,
+       \<^const_name>\<open>arity_audit_marker_05\<close>,
+       \<^const_name>\<open>arity_audit_marker_06\<close>,
+       \<^const_name>\<open>arity_audit_marker_07\<close>,
+       \<^const_name>\<open>arity_audit_marker_08\<close>,
+       \<^const_name>\<open>arity_audit_marker_09\<close>,
+       \<^const_name>\<open>arity_audit_marker_10\<close>,
+       \<^const_name>\<open>arity_audit_marker_11\<close>,
+       \<^const_name>\<open>arity_audit_marker_12\<close>,
+       \<^const_name>\<open>arity_audit_marker_13\<close>]
+
+    fun checked elaboration_ctxt text =
+      Parser_Test_Elaboration.expression elaboration_ctxt
+        (Parser_Lex_Util.text_source text)
+
+    fun count_constant name term =
+      Term.fold_aterms
+        (fn Const (candidate, _) =>
+              if candidate = name then Integer.add 1 else I
+          | _ => I)
+        term 0
+
+    fun marker_sequence term =
+      Term.fold_aterms
+        (fn Const (name, _) =>
+              if member (op =) marker_constants name
+              then fn names => names @ [name]
+              else I
+          | _ => I)
+        term []
+
+    val valid_direct =
+      call "ArityAudit::Call14" marker_sources
+    val valid_method =
+      method (hd marker_sources) "arity_audit_method14"
+        (tl marker_sources)
+    val valid_struct =
+      "ArityAudit::Struct14 { " ^
+      comma
+        (map_index
+          (fn (index, marker) =>
+            "f" ^ StringCvt.padLeft #"0" 2 (string_of_int index) ^
+            ": " ^ marker)
+          marker_sources) ^
+      " }"
+
+    fun check_supported_boundary label text =
+      let
+        val term = checked ctxt text
+      in
+        audit_assert (label ^ " selected the backend more than once")
+          (count_constant
+            \<^const_name>\<open>arity_audit_backend14\<close> term = 1);
+        audit_assert (label ^ " changed source order or single evaluation")
+          (marker_sequence term = marker_constants)
+      end
+
+    fun recovery () =
+      (check_supported_boundary "direct arity-14 recovery" valid_direct;
+       check_supported_boundary "method total-14 recovery" valid_method;
+       check_supported_boundary "struct arity-14 recovery" valid_struct;
+       ignore (checked ctxt "()"))
+
+    fun find_from text needle offset =
+      if offset + size needle > size text then
+        error ("structural call-arity preflight audit: missing " ^ quote needle)
+      else if String.substring (text, offset, size needle) = needle
+      then offset
+      else find_from text needle (offset + 1)
+
+    fun token_position text start needle offset =
+      let
+        val raw = find_from text needle offset
+        val token_start =
+          Position.symbol_explode
+            (String.substring (text, 0, raw)) start
+      in
+        (raw,
+         Position.range_position
+           (token_start, Position.symbol_explode needle token_start))
+      end
+
+    fun complete_position text start =
+      Position.range_position
+        (start, Position.symbol_explode text start)
+
+    fun collect_markup (XML.Text _) result = result
+      | collect_markup (XML.Elem (markup, body)) result =
+          fold collect_markup body (markup :: result)
+
+    fun has_position properties position =
+      Properties.get properties Markup.offsetN =
+        Option.map Value.print_int (Position.offset_of position) andalso
+      Properties.get properties Markup.end_offsetN =
+        Option.map Value.print_int (Position.end_offset_of position)
+
+    fun has_markup markup markup_name position =
+      exists
+        (fn (name, properties) =>
+          name = markup_name andalso has_position properties position)
+        markup
+
+    fun has_entity markup kind identity position =
+      exists
+        (fn (name, properties) =>
+          name = Markup.entityN andalso
+            Properties.get properties Markup.kindN = SOME kind andalso
+            Properties.get properties Markup.nameN = SOME identity andalso
+            has_position properties position)
+        markup
+
+    fun diagnostic_ranges body =
+      let
+        fun collect (XML.Text _) ranges = ranges
+          | collect (XML.Elem ((_, properties), children)) ranges =
+              let
+                val ranges' =
+                  (case
+                    (Properties.get properties Markup.offsetN,
+                     Properties.get properties Markup.end_offsetN) of
+                     (SOME offset, SOME end_offset) =>
+                       (offset, end_offset) :: ranges
+                   | _ => ranges)
+              in fold collect children ranges' end
+      in distinct (op =) (fold collect body []) end
+
+    fun arity_message arity position =
+      "urust_expr: unsupported call arity " ^ string_of_int arity ^
+      " (max 14; the frontend's surface lowering caps here)" ^
+      Position.here position
+
+    fun capture_expression elaboration_ctxt source =
+      let
+        val captured =
+          Synchronized.var "structural_call_arity_reports" ([]: string list)
+        fun capture chunks =
+          Synchronized.change captured (append chunks)
+        val result =
+          Parser_Test_Report_Lock.run (fn () =>
+            Unsynchronized.setmp Private_Output.report_fn capture
+              (fn () =>
+                Print_Mode.with_modes [Print_Mode.PIDE]
+                  (fn () =>
+                    Exn.result
+                      (fn () =>
+                        Parser_Test_Elaboration.expression
+                          elaboration_ctxt source) ()) ())
+              ())
+      in
+        (result,
+         fold collect_markup
+           (maps YXML.parse_body (Synchronized.value captured)) [])
+      end
+
+    fun expect_rejection elaboration_ctxt serial label text arity inspect =
+      let
+        val start =
+          Position.make0 (130 + serial) (9000 + serial * 500) 0 "" ""
+            ("structural-call-arity-" ^ label ^ "-audit")
+        val position = complete_position text start
+        val source =
+          Parser_Lex_Util.positioned_content_source text start
+        val (result, markup) =
+          capture_expression elaboration_ctxt source
+        val body =
+          (case result of
+             Exn.Res term =>
+               error
+                 (label ^ " unexpectedly elaborated to " ^
+                   Syntax.string_of_term elaboration_ctxt term)
+           | Exn.Exn exn =>
+               if Exn.is_interrupt exn then Exn.reraise exn
+               else
+                 let val actual = Runtime.exn_message exn
+                 in
+                   audit_assert (label ^ " exact diagnostic changed")
+                     (actual = arity_message arity position);
+                   YXML.parse_body actual
+                 end)
+        val expected_range =
+          [(Value.print_int (the (Position.offset_of position)),
+            Value.print_int (the (Position.end_offset_of position)))]
+        val _ =
+          audit_assert (label ^ " diagnostic range changed")
+            (diagnostic_ranges body = expected_range)
+        val _ = inspect text start markup
+        val _ = recovery ()
+      in () end
+
+    fun no_inspection _ _ _ = ()
+
+    fun assert_no_notation label key position markup =
+      (audit_assert (label ^ " resolved notation before arity rejection")
+         (not
+           (has_entity markup Micro_Rust_Names.notationN key position));
+       audit_assert (label ^ " emitted registered-call styling before rejection")
+         (not (has_markup markup Markup.keyword3N position)))
+
+    fun inspect_direct text start markup =
+      let
+        val (head_offset, _) =
+          token_position text start "ArityAudit::Over" 0
+        val (_, head_position) =
+          token_position text start "Over"
+            (head_offset + size "ArityAudit::")
+        val (value_offset, _) =
+          token_position text start "ArityAudit::Value" 0
+        val (_, value_position) =
+          token_position text start "Value"
+            (value_offset + size "ArityAudit::")
+      in
+        assert_no_notation "direct head" "ArityAudit::Over"
+          head_position markup;
+        assert_no_notation "direct argument" "ArityAudit::Value"
+          value_position markup
+      end
+
+    fun inspect_method text start markup =
+      let
+        val (receiver_offset, _) =
+          token_position text start "ArityAudit::Value" 0
+        val (_, receiver_position) =
+          token_position text start "Value"
+            (receiver_offset + size "ArityAudit::")
+        val (_, method_position) =
+          token_position text start "arity_audit_over_method" 0
+      in
+        assert_no_notation "method receiver" "ArityAudit::Value"
+          receiver_position markup;
+        assert_no_notation "method head" "arity_audit_over_method"
+          method_position markup
+      end
+
+    fun inspect_struct text start markup =
+      let
+        val (head_offset, _) =
+          token_position text start "ArityAudit::StructOver" 0
+        val (_, head_position) =
+          token_position text start "StructOver"
+            (head_offset + size "ArityAudit::")
+        val (_, label_position) =
+          token_position text start "f00" 0
+        val (value_offset, _) =
+          token_position text start "ArityAudit::Value" 0
+        val (_, value_position) =
+          token_position text start "Value"
+            (value_offset + size "ArityAudit::")
+      in
+        assert_no_notation "struct head" "ArityAudit::StructOver"
+          head_position markup;
+        assert_no_notation "struct initializer" "ArityAudit::Value"
+          value_position markup;
+        audit_assert "struct label was semantically reported before arity rejection"
+          (not (has_markup markup Markup.freeN label_position))
+      end
+
+    val fifteen = integers 0 15
+    val method_fifteen = integers 1 14
+    val method_sixteen = integers 1 15
+    val (fixed_names, fixed_ctxt) =
+      Variable.add_fixes
+        ["arity_audit_fixed", "arity_audit_fixed_method"] ctxt
+    val (fixed_head, fixed_method) =
+      (case fixed_names of
+         [head, method_name] => (head, method_name)
+       | _ => error "structural call-arity preflight audit: fixed-name allocation changed")
+
+    val direct_report_text =
+      call "ArityAudit::Over"
+        ("ArityAudit::Value" :: integers 1 14)
+    val method_report_text =
+      method "ArityAudit::Value" "arity_audit_over_method"
+        method_fifteen
+    val struct_report_text =
+      "ArityAudit::StructOver { " ^
+      comma
+        ("f00: ArityAudit::Value" ::
+          map
+            (fn index =>
+              "f" ^ StringCvt.padLeft #"0" 2 (string_of_int index) ^
+              ": " ^ string_of_int index)
+            (1 upto 14)) ^
+      " }"
+
+    val _ =
+      expect_rejection ctxt 0 "direct-registered-reports"
+        direct_report_text 15 inspect_direct
+    val _ =
+      expect_rejection ctxt 1 "direct-unregistered"
+        (call "arity_audit_missing_direct" fifteen) 15 no_inspection
+    val _ =
+      expect_rejection fixed_ctxt 2 "direct-fixed"
+        (call fixed_head fifteen) 15 no_inspection
+    val _ =
+      expect_rejection ctxt 3 "direct-shallow"
+        (call "cf1" fifteen) 15 no_inspection
+    val _ =
+      expect_rejection ctxt 4 "direct-pure"
+        (call "Suc" fifteen) 15 no_inspection
+    val _ =
+      expect_rejection ctxt 5 "direct-antiquotation"
+        (call "\<epsilon>\<open>arity_audit_missing_antiquotation\<close>" fifteen)
+        15 no_inspection
+    val _ =
+      expect_rejection ctxt 6 "direct-function-literal"
+        (call
+          "\<llangle>arity_audit_missing_function_literal\<rrangle>\<^sub>1::<arity_audit_missing_generic>"
+          fifteen)
+        15 no_inspection
+
+    val _ =
+      expect_rejection ctxt 7 "method-registered-reports"
+        method_report_text 15 inspect_method
+    val _ =
+      expect_rejection ctxt 8 "method-registered-16"
+        (method "0" "arity_audit_over_method" method_sixteen)
+        16 no_inspection
+    val _ =
+      expect_rejection ctxt 9 "method-unregistered-15"
+        (method "0" "arity_audit_missing_method" method_fifteen)
+        15 no_inspection
+    val _ =
+      expect_rejection ctxt 10 "method-unregistered-16"
+        (method "0" "arity_audit_missing_method" method_sixteen)
+        16 no_inspection
+    val _ =
+      expect_rejection fixed_ctxt 11 "method-fixed-15"
+        (method "0" fixed_method method_fifteen)
+        15 no_inspection
+    val _ =
+      expect_rejection fixed_ctxt 12 "method-fixed-16"
+        (method "0" fixed_method method_sixteen)
+        16 no_inspection
+    val _ =
+      expect_rejection ctxt 13 "method-shallow-15"
+        (method "0" "cf1" method_fifteen)
+        15 no_inspection
+    val _ =
+      expect_rejection ctxt 14 "method-shallow-16"
+        (method "0" "cf1" method_sixteen)
+        16 no_inspection
+    val _ =
+      expect_rejection ctxt 15 "method-pure-15"
+        (method "0" "Suc" method_fifteen)
+        15 no_inspection
+    val _ =
+      expect_rejection ctxt 16 "method-pure-16"
+        (method "0" "Suc" method_sixteen)
+        16 no_inspection
+
+    val _ =
+      expect_rejection ctxt 17 "struct-reports"
+        struct_report_text 15 inspect_struct
+    val _ =
+      expect_rejection ctxt 18 "callee-and-argument-precedence"
+        (call "Suc"
+          ("unknown_arity_argument!()" :: integers 1 14))
+        15 no_inspection
+    val _ =
+      expect_rejection ctxt 19 "receiver-and-method-precedence"
+        (method "unknown_arity_receiver!()" "arity_audit_missing_method"
+          ("unknown_arity_argument!()" :: integers 2 13))
+        15 no_inspection
+    val _ =
+      expect_rejection ctxt 20 "struct-head-and-initializer-precedence"
+        ("UnknownArityStruct { " ^
+         comma
+           ("f00: unknown_arity_initializer!()" ::
+             map
+               (fn index =>
+                 "f" ^ StringCvt.padLeft #"0" 2 (string_of_int index) ^
+                 ": " ^ string_of_int index)
+               (1 upto 14)) ^
+         " }")
+        15 no_inspection
+
+    val _ =
+      URust_Shallow_Terms.check_function_call_arity Position.none 14
+    val _ =
+      (case Exn.result
+          (fn () =>
+            URust_Shallow_Terms.function_call Position.none HOLogic.unit
+              (replicate 15 HOLogic.unit)) () of
+         Exn.Res _ =>
+           error "structural call-arity preflight audit: defensive function_call accepted arity 15"
+       | Exn.Exn exn =>
+           if Exn.is_interrupt exn then Exn.reraise exn
+           else
+             audit_assert "defensive function_call diagnostic changed"
+               (Runtime.exn_message exn =
+                 arity_message 15 Position.none))
+  in
+    val _ =
+      writeln
+        "Structural call-arity preflight, precedence, reports, ranges, recovery, order, and single-evaluation regressions passed"
+  end
+\<close>
+
+
 section\<open> Method resolution boundary audit \<close>
 
 definition method_audit_pure :: \<open>nat option \<Rightarrow> bool\<close>

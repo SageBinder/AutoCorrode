@@ -138,6 +138,8 @@ struct
            fun label (SE_Field (name, pos, _)) = (name, pos)
            fun initializer (SE_Field (_, _, expression)) = expression
            val _ =
+             T.check_function_call_arity struct_pos (length fields)
+           val _ =
              List.app
                (R.report_struct_label ctxt o label)
                fields
@@ -235,6 +237,11 @@ struct
            P.Let_Const_Binder environment binding
      | UE_Call (callee, arguments, call_pos) =>
          let
+           val runtime_arity =
+             length arguments +
+               (case callee of UC_Method _ => 1 | _ => 0)
+           val _ =
+             T.check_function_call_arity call_pos runtime_arity
            val (function, source_arguments) =
              (case callee of
                 UC_Path path =>
