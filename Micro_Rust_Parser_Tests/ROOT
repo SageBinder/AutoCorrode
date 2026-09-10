@@ -10,29 +10,16 @@ session Micro_Rust_Parser_Tests = HOL +
     Micro_Rust_Interfaces
     Lenses_And_Other_Optics
     Byte_Level_Encoding
-    "Isabelle_Lex-Yacc"
   theories [document = false]
-    Experiment
     Conformance_Corpus
-    Toy_Lex_Yacc
-    Parser_Test_Facade
     Parser_Test_Utils
     Struct_Ambiguity_Left
     Struct_Ambiguity_Right
     Micro_Rust_Notations_Test
     Micro_Rust_Shallow_Embedding_Tests
-    Parser_Test_Expr_Types
-    Parser_Test_Expr_Conformance
-    Parser_Test_Fun_Conformance
-    Parser_Test_Flags
-    Parser_Test_Logging
-    Parser_Test_Isabelle_Comments
-    Parser_Test_Negative_Conformance
-    Parser_Test_Logging_Negative
-    Parser_Test_Yield_Logging_Audit
-    Parser_Test_Improvements
+    Parser_Tests_Expr
+    Parser_Tests_Fun
+    Parser_Tests_Improvements
+    Parser_Tests_Misc
     Parser_Test_Showoff
-    Parser_Test_Regression_Audit
-    Parser_Test_Turbofish
-    Parser_Test_Term_Hook
-    Parser_Test_Term_Hook_Conformance
+    Parser_Tests_Hook_Conformance
