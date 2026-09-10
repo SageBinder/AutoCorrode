@@ -4609,7 +4609,8 @@ section\<open>Resolved divergences and current parity boundary\<close>
 
 text\<open>
 This theory keeps representative same-source positive rows for resolved parser/frontend differences.
-Shared and intentional parser-only rejections live in \<open>Parser_Tests_Misc.thy\<close>;
+Shared and intentional parser-only rejections live in
+\<open>Parser_Tests_Negative_Conformance.thy\<close>;
 accepted-surface extensions live in \<open>Parser_Tests_Improvements.thy\<close>; and the remaining
 frontend-only expression forms stay as goldens in \<open>Conformance_Corpus.thy\<close>.
 \<close>

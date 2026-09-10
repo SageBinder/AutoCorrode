@@ -1002,7 +1002,7 @@ text\<open>
 These rows are promoted to checked parity tests together with constructor,
 nested, alias, slice, struct, or-pattern, outer-capture, and single-evaluation
 coverage. Frontend-rejected wildcard, binder, range, bracket, and malformed
-forms are pinned in \<open>Parser_Tests_Misc.thy\<close>.
+forms are pinned in \<open>Parser_Tests_Negative_Conformance.thy\<close>.
 \<close>
 
 context

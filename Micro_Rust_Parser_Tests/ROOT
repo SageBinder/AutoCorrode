@@ -13,6 +13,7 @@ session Micro_Rust_Parser_Tests = HOL +
   theories [document = false]
     Conformance_Corpus
     Parser_Test_Utils
+    Parser_Test_Registered_Constructor_Fixtures
     Struct_Ambiguity_Left
     Struct_Ambiguity_Right
     Micro_Rust_Notations_Test
@@ -20,6 +21,7 @@ session Micro_Rust_Parser_Tests = HOL +
     Parser_Tests_Expr
     Parser_Tests_Fun
     Parser_Tests_Improvements
+    Parser_Tests_Negative_Conformance
     Parser_Tests_Misc
     Parser_Test_Showoff
     Parser_Tests_Hook_Conformance

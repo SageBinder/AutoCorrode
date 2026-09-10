@@ -257,7 +257,7 @@ place, precedence, associativity, mutable-binding, and control-flow boundaries h
 runnable frontend-equivalence coverage in
 \<open>Parser_Test_Expr_Conformance.thy\<close>. The frontend does not provide \<open>/=\<close>;
 its fidelity rejection is checked in
-\<open>Parser_Test_Negative_Conformance.thy\<close>.
+\<open>Parser_Tests_Negative_Conformance.thy\<close>.
 \<close>
 
 subsection\<open>Control Flow - Conditionals\<close>
@@ -288,7 +288,7 @@ Constructor, tuple, nested, returning, explicit-semicolon, and semicolon-free
 rows from this section are executable same-source checks in
 \<open>Parser_Test_Expr_Conformance.thy\<close>. Malformed and total-pattern redundancy
 boundaries are executable checks in
-\<open>Parser_Test_Negative_Conformance.thy\<close>.
+\<open>Parser_Tests_Negative_Conformance.thy\<close>.
 \<close>
 
 lemma \<open>undefined = \<lbrakk> let (a,_) = (1_u32,2_u32); let (_,b) = (1_u32,2_u32); \<llangle>(a,b)\<rrangle> \<rbrakk>\<close> sorry
@@ -943,7 +943,7 @@ text\<open>
 These rows are promoted to checked parity tests together with constructor,
 nested, alias, slice, struct, or-pattern, outer-capture, and single-evaluation
 coverage. Frontend-rejected wildcard, binder, range, bracket, and malformed
-forms are pinned in \<open>Parser_Test_Negative_Conformance.thy\<close>.
+forms are pinned in \<open>Parser_Tests_Negative_Conformance.thy\<close>.
 \<close>
 
 context
