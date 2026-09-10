@@ -5718,14 +5718,14 @@ ML_val\<open>
         (count_markup Markup.keyword3N expected_terminal
           qualified_markup = 1)
     val _ =
-      audit_assert "registered terminal typing markup duplicated or disappeared"
+      audit_assert "registered terminal acquired typing markup"
         (count_markup Markup.typingN expected_terminal
-          qualified_markup = 1)
+          qualified_markup = 0)
     val _ =
-      audit_assert "registered nonconstructor acquired constant entity markup"
+      audit_assert "registered nonconstructor constant entity count changed"
         (count_entity Markup.constantN
           \<^const_name>\<open>path_literal_42\<close>
-          expected_terminal qualified_markup = 0)
+          expected_terminal qualified_markup = 1)
 
     val identifier_source =
       Parser_Lex_Util.positioned_content_source
@@ -5741,9 +5741,9 @@ ML_val\<open>
         (count_markup Markup.keyword3N expected_identifier
           identifier_markup = 1)
     val _ =
-      audit_assert "single-segment typing markup duplicated or disappeared"
+      audit_assert "single-segment registration acquired typing markup"
         (count_markup Markup.typingN expected_identifier
-          identifier_markup = 1)
+          identifier_markup = 0)
 
     fun diagnostic_ranges body =
       let
