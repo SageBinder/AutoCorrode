@@ -1,5 +1,5 @@
 theory Struct_Ambiguity_Right
-  imports Micro_Rust_Parser_Impl.Parser_Impl
+  imports Micro_Rust_Parser_Impl.Parser_Impl_Command
 begin
 
 datatype struct_ambiguity_right =

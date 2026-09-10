@@ -141,7 +141,7 @@ ML_val\<open>
     fun source_text guard = arm_prefix ^ guard ^ arm_suffix
 
     fun parse source =
-      (case URust_Diagnostics.parse_source ctxt source of
+      (case URust_Parser.parse_source ctxt source of
          SOME expression => expression
        | NONE => error "full guard-body grammar audit: empty parse")
 
@@ -534,7 +534,7 @@ ML_val\<open>
       else error ("conditional-binding regression audit: " ^ message)
 
     fun parse source =
-      (case URust_Diagnostics.parse_source ctxt source of
+      (case URust_Parser.parse_source ctxt source of
          SOME expression => expression
        | NONE => error "conditional-binding regression audit: empty parse")
 
@@ -1319,7 +1319,7 @@ ML_val\<open>
       else error ("parser regression audit: " ^ message)
 
     fun parse text =
-      (case URust_Diagnostics.parse_source ctxt
+      (case URust_Parser.parse_source ctxt
           (Parser_Lex_Util.text_source text) of
          SOME expression => expression
        | NONE => error "parser regression audit: empty parse")
@@ -1375,7 +1375,7 @@ ML_val\<open>
         (String.substring (borrow_text, 0, inner_borrow_offset))
         borrow_start
     val _ =
-      (case URust_Diagnostics.parse_source ctxt
+      (case URust_Parser.parse_source ctxt
           (Parser_Lex_Util.positioned_content_source
             borrow_text borrow_start) of
          SOME
@@ -1606,7 +1606,7 @@ ML_val\<open>
       else error ("range/array/index regression audit: " ^ message)
 
     fun parse text =
-      (case URust_Diagnostics.parse_source ctxt
+      (case URust_Parser.parse_source ctxt
           (Parser_Lex_Util.text_source text) of
          SOME expression => expression
        | NONE =>
@@ -1779,7 +1779,7 @@ ML_val\<open>
       else error ("tuple-projection regression audit: " ^ message)
 
     fun parse_source source =
-      (case URust_Diagnostics.parse_source ctxt source of
+      (case URust_Parser.parse_source ctxt source of
          SOME expression => expression
        | NONE => error "tuple-projection regression audit: empty parse")
 
@@ -2197,7 +2197,7 @@ ML_val\<open>
       else error ("legacy macro regression audit: " ^ message)
 
     fun parse source =
-      (case URust_Diagnostics.parse_source ctxt source of
+      (case URust_Parser.parse_source ctxt source of
          SOME expression => expression
        | NONE => error "legacy macro regression audit: empty parse")
 
@@ -2905,7 +2905,7 @@ ML_val\<open>
       else error ("expression-antiquotation callee audit: " ^ message)
 
     fun parse source =
-      (case URust_Diagnostics.parse_source ctxt source of
+      (case URust_Parser.parse_source ctxt source of
          SOME expression => expression
        | NONE => error "expression-antiquotation callee audit: empty parse")
 
@@ -3188,7 +3188,7 @@ ML_val\<open>
       else error ("function-literal callee audit: " ^ message)
 
     fun parse_source source =
-      (case URust_Diagnostics.parse_source ctxt source of
+      (case URust_Parser.parse_source ctxt source of
          SOME expression => expression
        | NONE => error "function-literal callee audit: empty parse")
 
@@ -3549,7 +3549,7 @@ ML_val\<open>
       else error ("closure regression audit: " ^ message)
 
     fun parse source =
-      (case URust_Diagnostics.parse_source ctxt source of
+      (case URust_Parser.parse_source ctxt source of
          SOME expression => expression
        | NONE => error "closure regression audit: empty parse")
 
@@ -3991,7 +3991,7 @@ ML_val\<open>
       else error ("cast regression audit: " ^ message)
 
     fun parse_source source =
-      (case URust_Diagnostics.parse_source ctxt source of
+      (case URust_Parser.parse_source ctxt source of
          SOME expression => expression
        | NONE => error "cast regression audit: empty parse")
 
@@ -4491,7 +4491,7 @@ ML_val\<open>
       else error ("struct-expression regression audit: " ^ message)
 
     fun parse source =
-      (case URust_Diagnostics.parse_source ctxt source of
+      (case URust_Parser.parse_source ctxt source of
          SOME expression => expression
        | NONE => error "struct-expression regression audit: empty parse")
 
@@ -5551,7 +5551,7 @@ ML_val\<open>
       Position.end_offset_of left = Position.end_offset_of right
 
     fun parse source =
-      (case URust_Diagnostics.parse_source ctxt source of
+      (case URust_Parser.parse_source ctxt source of
          SOME expression => expression
        | NONE => error "method resolution boundary audit: empty parse")
 
@@ -5913,7 +5913,7 @@ ML_val\<open>
       else error ("concealed constructor lookup audit: " ^ message)
 
     fun parse source =
-      (case URust_Diagnostics.parse_source ctxt
+      (case URust_Parser.parse_source ctxt
           (Parser_Lex_Util.text_source source) of
          SOME expression => expression
        | NONE => error "concealed constructor lookup audit: empty parse")
@@ -6124,7 +6124,7 @@ ML_val\<open>
         (Parser_Lex_Util.text_source source)
 
     fun parse source =
-      (case URust_Diagnostics.parse_source ctxt source of
+      (case URust_Parser.parse_source ctxt source of
          SOME expression => expression
        | NONE => error "empty parse")
 
@@ -6667,7 +6667,7 @@ ML_val\<open>
       else error ("contextual bare-match classification audit: " ^ message)
 
     fun parse_source source =
-      (case URust_Diagnostics.parse_source ctxt source of
+      (case URust_Parser.parse_source ctxt source of
          SOME expression => expression
        | NONE =>
            error "contextual bare-match classification audit: empty parse")
@@ -7642,7 +7642,7 @@ ML_val\<open>
         [duplicate_later_repeated, duplicate_later_original] []
 
     fun parse text =
-      (case URust_Diagnostics.parse_source ctxt
+      (case URust_Parser.parse_source ctxt
           (Parser_Lex_Util.text_source text) of
          SOME expression => expression
        | NONE => error "or-pattern binder audit: empty parse")

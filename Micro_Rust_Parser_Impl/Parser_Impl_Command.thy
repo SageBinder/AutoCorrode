@@ -1,6 +1,6 @@
 theory Parser_Impl_Command
   imports
-    Parser_Impl_Diagnostics
+    Parser_Impl
     Parser_Impl_Translate
     Micro_Rust_Parsing_Legacy_Frontend.Micro_Rust_Parsing_Legacy_Frontend
   keywords
@@ -85,7 +85,7 @@ end
    Type.constraint, and the result passes through Syntax.check_term exactly once. Residual internal
    type variables that occur in neither the checked declaration type nor already-declared ambient
    fixed-parameter types are then closed with its terminal value channel. All failures are positioned.
-   URust_Diagnostics.parse_source owns serialization of the generated runtime; elaboration and
+   URust_Parser.parse_source owns serialization of the generated runtime; elaboration and
    check_term remain outside that lock.
 
    Declaration installation, command-kind inference, conformance-proof assembly, the shared
@@ -387,7 +387,7 @@ fun elaborate lthy
     val arguments_with_types =
       prepare_arguments kind source arguments_pos arguments declared_type
     val ast =
-      (case URust_Diagnostics.parse_source lthy source of
+      (case URust_Parser.parse_source lthy source of
          SOME expression => expression
        | NONE =>
            error
@@ -887,7 +887,7 @@ local
       val source =
         Parser_Lex_Util.positioned_content_source path_text pos
       val path =
-        (case URust_Diagnostics.parse_source ctxt source of
+        (case URust_Parser.parse_source ctxt source of
            SOME (URust_AST.UE_Path path) => path
          | SOME _ =>
              error

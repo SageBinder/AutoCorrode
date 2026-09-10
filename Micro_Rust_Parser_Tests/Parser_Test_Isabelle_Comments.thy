@@ -118,7 +118,7 @@ ML_val\<open>
       else error ("Isabelle-comment regression audit: " ^ message)
 
     fun parse source =
-      (case URust_Diagnostics.parse_source ctxt source of
+      (case URust_Parser.parse_source ctxt source of
          SOME expression => expression
        | NONE => error "Isabelle-comment regression audit: empty parse")
 

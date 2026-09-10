@@ -31,7 +31,7 @@ ML_val\<open>
       else error ("yield/logging regression audit: " ^ message)
 
     fun parse source =
-      (case URust_Diagnostics.parse_source ctxt source of
+      (case URust_Parser.parse_source ctxt source of
          SOME expression => expression
        | NONE => error "yield/logging regression audit: empty parse")
 

@@ -1,5 +1,5 @@
 theory Parser_Test_Facade
-  imports Micro_Rust_Parser_Impl.Parser_Impl
+  imports Micro_Rust_Parser_Impl.Parser_Impl_Command
 begin
 
 section\<open> Parser facade smoke test \<close>

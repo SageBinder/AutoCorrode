@@ -1,14 +1,298 @@
-(* Roll-up facade for the custom uRust parser. *)
-
 theory Parser_Impl
-  imports Parser_Impl_Command
+  imports Parser_Impl_Grammar
 begin
 
+section\<open> Source parser \<close>
+
 text\<open>
-Parser clients import this roll-up facade. Programmatic clients use the sealed
-\<open>URust_Command\<close> interface. Frontend conformance is tested in
-\<open>Parser_Test_Expr_Conformance.thy\<close>; function-command conformance and facade
-smoke tests are part of the separate \<open>Micro_Rust_Parser_Tests\<close> session.
+C2-I4/C1-I8 keep parser diagnostics at the terminal boundary. The generated parser data is
+re-exported with only \<open>EC.showTerminal\<close> changed, then rejoined with the same lexer, LR table,
+semantic actions, parser mode, and recovery data. Consequently an unrelated substring that happens
+to contain an ML-Yacc terminal name is never inspected or rewritten.
+\<close>
+
+ML\<open>
+signature URUST_PARSER =
+sig
+  val parse_source:
+    Proof.context -> Input.source -> URust_AST.ur_expr option
+end
+
+(*
+  URust_Parser owns the source-facing adapter for the generated uRust parser.  It
+  preserves URust's lexer, grammar, semantic actions, recovery policy, and unresolved-AST result, but
+  replaces ML-Yacc terminal names in syntax errors with source spellings.  This is the boundary used
+  by parser clients; identifier and pattern resolution, lowering, HOL checking, and command-level
+  rejection of an empty expression remain the responsibility of later modules.
+
+  The intended stable parser-module interface is:
+
+    * parse_source ctxt source initializes the generated lexer for the position-carrying Input.source
+      and parses it with ctxt.  It returns NONE for empty input and SOME unresolved
+      URust_AST.ur_expr for a recognized expression, preserving the AST positions and lexer markup
+      produced by URust.  Lexical and syntax failures raise positioned ERROR exceptions; syntax
+      errors name the encountered terminal by its uRust source spelling (or a descriptive placeholder
+      for value-bearing terminals), never by the generated ML-Yacc terminal name. The operation owns
+      the shared parser lock for its complete lexer initialization and parser consumption, so callers
+      cannot accidentally use the mutable generated runtime concurrently.
+
+  URUST_PARSER seals that one-operation interface. The generated URustLrVals and URustLex
+  instantiations, Original and LrTable aliases,
+  terminal_specs, terminal_count, terminal_id, terminal_spec, generated_terminal_name,
+  source_terminal_name, assert_distinct, and value_bearing_terminal_ids implement and load-time-check
+  the exhaustive terminal mapping; ParserData changes only EC.showTerminal; and Source_Parser is the
+  resulting Join instantiation.  Refactors may replace or reorganize all of that machinery provided
+  parse_source retains the behavior above and grammar/token drift still fails while this theory is
+  loaded.  In particular, callers must not depend on terminal numeric identities, table layout,
+  generated names, PARSER_DATA components, or Source_Parser operations.
+*)
+structure URust_Parser :> URUST_PARSER =
+struct
+  structure URustLrVals =
+    URustLrValsFun(structure Token = LrParser.Token)
+
+  structure URustLex =
+    URustLexFun(structure Tokens = URustLrVals.Tokens)
+
+  structure Original = URustLrVals.ParserData
+  structure LrTable = Original.LrTable
+
+  (* This is intentionally exhaustive over generated terminal identity. The middle column is not
+     used to render diagnostics: it makes grammar/token drift fail while this theory is loaded. *)
+  val terminal_specs =
+    [(0, "NUM", "<integer>"),
+     (1, "NUMSFX", "<integer>"),
+     (2, "STRING", "<string>"),
+     (3, "IDENT", "<identifier>"),
+     (4, "LPAR", "("),
+     (5, "RPAR", ")"),
+     (6, "VALAQ", "<value antiquotation>"),
+     (7, "EXPRAQ", "<expression antiquotation>"),
+     (8, "TGOPEN", "::<"),
+     (9, "GNUM", "<generic integer>"),
+     (10, "GIDENT", "<generic identifier>"),
+     (11, "GLPAR", "("),
+     (12, "GRPAR", ")"),
+     (13, "TTRUE", "true"),
+     (14, "TFALSE", "false"),
+     (15, "TLET", "let"),
+     (16, "TCONST", "const"),
+     (17, "TRETURN", "return"),
+     (18, "TEQ", "="),
+     (19, "TSEMI", ";"),
+     (20, "EOF", "end of input"),
+     (21, "TIF", "if"),
+     (22, "TELSE", "else"),
+     (23, "TLBRACE", "{"),
+     (24, "TRBRACE", "}"),
+     (25, "TLBRACK", "["),
+     (26, "TRBRACK", "]"),
+     (27, "COMMA", ","),
+     (28, "TDOT", "."),
+     (29, "TCOLON", ":"),
+     (30, "TCOLONCOLON", "::"),
+     (31, "TAT", "@"),
+     (32, "TPLUS", "+"),
+     (33, "TMINUS", "-"),
+     (34, "TSTAR", "*"),
+     (35, "TSLASH", "/"),
+     (36, "TPERCENT", "%"),
+     (37, "TSHL", "<<"),
+     (38, "TSHR", ">>"),
+     (39, "TAMP", "&"),
+     (40, "TBAR", "|"),
+     (41, "TCARET", "^"),
+     (42, "TPLUSEQ", "+="),
+     (43, "TMINUSEQ", "-="),
+     (44, "TSTAREQ", "*="),
+     (45, "TPERCENTEQ", "%="),
+     (46, "TAMPEQ", "&="),
+     (47, "TBAREQ", "|="),
+     (48, "TCARETEQ", "^="),
+     (49, "TSHLEQ", "<<="),
+     (50, "TSHREQ", ">>="),
+     (51, "TEQEQ", "=="),
+     (52, "TNE", "!="),
+     (53, "TLT", "<"),
+     (54, "TLE", "<="),
+     (55, "TGT", ">"),
+     (56, "TGE", ">="),
+     (57, "TAMPAMP", "&&"),
+     (58, "TBARBAR", "||"),
+     (59, "TBANG", "!"),
+     (60, "TQUESTION", "?"),
+     (61, "TUNSAFE", "unsafe"),
+     (62, "TFUEL", "fuel"),
+     (63, "TWHILE", "while"),
+     (64, "TLOOP", "loop"),
+     (65, "TFOR", "for"),
+     (66, "TIN", "in"),
+     (67, "THASH", "#"),
+     (68, "TMATCH", "match"),
+     (69, "TMATCHSWITCH", "match_switch"),
+     (70, "TMATCHCASE", "match_case"),
+     (71, "TARROW", "=>"),
+     (72, "TDOTDOT", ".."),
+     (73, "TDOTDOTEQ", "..="),
+     (74, "TMUT", "mut"),
+     (75, "TPATCONTEXT", "<pattern context>"),
+     (76, "TMATCHESBANG", "matches!"),
+     (77, "TAS", "as"),
+     (78, "TUINT", "<unsigned cast type>"),
+     (79, "TSINT", "<signed cast type>"),
+     (80, "FUNARITY", "<function-literal arity suffix>"),
+     (81, "TYIELD", "\<y>\<i>\<e>\<l>\<d>"),
+     (82, "TLOG", "\<l>\<o>\<g>"),
+     (83, "TLOGDATAOPEN", "l\<llangle>"),
+     (84, "LOGSTRING", "<log string>"),
+     (85, "LOGIDENT", "<log identifier>"),
+     (86, "TLOGDATACLOSE", "\<rrangle>")]
+
+  val terminal_count = length terminal_specs
+
+  fun terminal_id (LrTable.T id) = id
+
+  fun terminal_spec id =
+    if 0 <= id andalso id < terminal_count
+    then nth terminal_specs id
+    else error ("uRust parser: unknown parser terminal identity " ^ string_of_int id)
+
+  fun generated_terminal_name term =
+    Original.EC.showTerminal term
+
+  fun source_terminal_name term =
+    #3 (terminal_spec (terminal_id term))
+
+  fun assert_distinct what values =
+    let
+      fun check _ [] = ()
+        | check seen (value :: rest) =
+            if member (op =) seen value
+            then error ("uRust parser: duplicate " ^ what ^ " " ^ quote value)
+            else check (value :: seen) rest
+    in check [] values end
+
+  val _ =
+    if map #1 terminal_specs = (0 upto (terminal_count - 1)) then ()
+    else error "uRust parser: missing or duplicate terminal identity"
+
+  val _ = assert_distinct "generated terminal name" (map #2 terminal_specs)
+
+  val _ =
+    List.app
+      (fn (id, expected, _) =>
+        let val actual = generated_terminal_name (LrTable.T id) in
+          if actual = expected then ()
+          else
+            error
+              ("uRust parser: terminal " ^ string_of_int id ^
+                " is " ^ quote actual ^ ", expected " ^ quote expected)
+        end)
+      terminal_specs
+
+  val _ =
+    if generated_terminal_name (LrTable.T terminal_count) = "bogus-term" then ()
+    else error "uRust parser: terminal table has an unmapped generated entry"
+
+  val _ =
+    List.app
+      (fn term =>
+        let val id = terminal_id term in
+          if 0 <= id andalso id < terminal_count then ()
+          else
+            error
+              ("uRust parser: recovery terminal has unknown identity " ^
+                string_of_int id)
+        end)
+      Original.EC.terms
+
+  val value_bearing_terminal_ids =
+    [0, 1, 2, 3, 6, 7, 9, 10, 11, 12, 76, 78, 79, 80, 84, 85]
+
+  val _ =
+    List.app
+      (fn id =>
+        if #1 (terminal_spec id) = id then ()
+        else error "uRust parser: missing value-bearing terminal")
+      value_bearing_terminal_ids
+
+  structure ParserData : PARSER_DATA =
+  struct
+    type pos = Original.pos
+    type svalue = Original.svalue
+    type arg = Original.arg
+    type result = Original.result
+    structure LrTable = Original.LrTable
+    structure Token = Original.Token
+    structure Actions = Original.Actions
+    structure EC =
+    struct
+      val is_keyword = Original.EC.is_keyword
+      val noShift = Original.EC.noShift
+      val preferred_change = Original.EC.preferred_change
+      val errtermvalue = Original.EC.errtermvalue
+      val showTerminal = source_terminal_name
+      val terms = Original.EC.terms
+    end
+    val table = Original.table
+  end
+
+  structure Source_Parser =
+    Join(
+      structure LrParser = LrParser
+      structure ParserData = ParserData
+      structure Lex = URustLex)
+
+  fun parse_layout ctxt layout =
+    let val _ = URustLex.UserDeclarations.set_layout layout ctxt in
+      Parser_Lex_Util.parse_source_with_layout
+          Source_Parser.parse Source_Parser.makeLexer
+          Source_Parser.Stream.get Source_Parser.sameToken
+          URustLrVals.Tokens.EOF layout
+    end
+
+  fun parse_source ctxt source =
+    Parser_Utils.with_parser_lock (fn () =>
+      parse_layout ctxt
+        (Parser_Lex_Util.make_source_layout source))
+end
+\<close>
+
+ML\<open>
+local
+  val surrounding = "/tmp/TEQEQ/RPAR"
+  val source_pos = Position.line_file 41 surrounding
+  val source =
+    Parser_Lex_Util.positioned_content_source
+      "1 == 2 == 3" source_pos
+  val actual =
+    (case
+        Exn.result
+          (fn () =>
+            URust_Parser.parse_source \<^context> source) () of
+       Exn.Res _ =>
+         error "uRust parser: positioned malformed source unexpectedly parsed"
+     | Exn.Exn exn =>
+         if Exn.is_interrupt exn then Exn.reraise exn
+         else Runtime.exn_message exn)
+  val actual_text = XML.content_of (YXML.parse_body actual)
+  val expected =
+    "Parse Error at line 41, column 8: syntax error found at == " ^
+      "(line 41 of \"/tmp/TEQEQ/RPAR\")"
+  val _ =
+    if actual_text = expected then ()
+    else
+      error
+        ("uRust parser: exact positioned-message regression\n" ^
+          "expected: " ^ quote expected ^ "\n" ^
+          "actual:   " ^ quote actual_text)
+  val _ =
+    if String.isSubstring surrounding actual_text then ()
+    else
+      error
+        ("uRust parser: surrounding diagnostic text changed: " ^
+          quote surrounding)
+in end
 \<close>
 
 end

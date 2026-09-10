@@ -52,7 +52,7 @@ ML_val\<open>
       else error ("restricted turbofish audit: " ^ message)
 
     fun parse_source source =
-      (case URust_Diagnostics.parse_source ctxt source of
+      (case URust_Parser.parse_source ctxt source of
          SOME expression => expression
        | NONE => error "restricted turbofish audit: empty parse")
 
@@ -374,7 +374,7 @@ ML_val\<open>
       capture_reports
         (fn () =>
           ignore
-            (URust_Diagnostics.parse_source ctxt
+            (URust_Parser.parse_source ctxt
               (Parser_Lex_Util.positioned_content_source
                 operator_text operator_start)))
     val all_operators =
@@ -395,7 +395,7 @@ ML_val\<open>
     val message =
       (case Exn.result
           (fn () =>
-            URust_Diagnostics.parse_source ctxt
+            URust_Parser.parse_source ctxt
               (Parser_Lex_Util.positioned_content_source
                 malformed_text malformed_start)) () of
          Exn.Res _ => error "restricted turbofish markup audit: malformed input accepted"
@@ -521,7 +521,7 @@ ML_val\<open>
     val ctxt = \<^context>
 
     fun parse_path text =
-      (case URust_Diagnostics.parse_source ctxt
+      (case URust_Parser.parse_source ctxt
           (Parser_Lex_Util.text_source text) of
          SOME (UE_Call (UC_Path path, [], _)) => path
        | _ => error ("canonical exact-key regression: unexpected AST for " ^ quote text))

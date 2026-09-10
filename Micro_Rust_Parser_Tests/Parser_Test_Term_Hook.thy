@@ -76,7 +76,7 @@ local
       val _ =
         Context_Position.report ctxt cartouche_pos Markup.cartouche
       val ast =
-        (case URust_Diagnostics.parse_source ctxt source of
+        (case URust_Parser.parse_source ctxt source of
            SOME expression => expression
          | NONE =>
              error

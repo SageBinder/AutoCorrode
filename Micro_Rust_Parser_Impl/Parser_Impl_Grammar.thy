@@ -105,35 +105,35 @@ HOL content. Yacc directives reproduce the frontend precedence
 \<open>Parser_Lex_Util\<close>.
 \<close>
 (*
-  This declaration generates the private URust lexer/parser functors used by Parser_Impl_Diagnostics.
+  This declaration generates the private URust lexer/parser functors used by Parser_Impl.
   Together they own recognition of one uRust expression source and construction of the unresolved
   URust_AST. Their boundary includes tokenization, PIDE token
   reports, precedence and sequencing policy, and grammar-action construction of AST nodes.  It ends
   before identifier or constructor resolution, site-specific pattern validation, lowering to shallow
   terms, and HOL type checking.
 
-  Parser_Impl_Diagnostics relies on the standard expert-mode Lex/Yacc functor interface:
+  Parser_Impl relies on the standard expert-mode Lex/Yacc functor interface:
 
     * URustLexFun produces the lexer structure accepted by the ML-Yacc Join functor. Its
       UserDeclarations.set_layout layout ctxt operation initializes the Isabelle-Lex-Yacc runtime from
       the shared source layout and resets all antiquotation/generic state. The
       source-taking set wrapper remains for generated-driver compatibility.
     * URustLrValsFun supplies the generated semantic value/result types, actions, LR table, tokens, and
-      recovery data. Parser_Impl_Diagnostics instantiates it once and rejoins that exact data with the
+      recovery data. Parser_Impl instantiates it once and rejoins that exact data with the
       generated lexer while replacing only terminal rendering.
     * The generated Tokens.EOF constructs the dummy end token required by
       Parser_Lex_Util.parse_source_with_layout. Its Position.T * Position.T argument delimits the
       token. Other generated token constructors are lexer implementation details; terminal additions
-      or reordering must still be reflected in Parser_Impl_Diagnostics' exhaustive terminal identity
+      or reordering must still be reflected in Parser_Impl's exhaustive terminal identity
       table.
     * The start result is URust_AST.ur_expr option.  NONE represents empty input; SOME ast preserves
       source order and the token/span positions recorded by URust_AST.  Syntax rejection raises a
       positioned ERROR rather than returning NONE.
 
   Expert mode deliberately generates no unsealed URust structure or default parse_source operation.
-  Parser clients use the sealed URust_Diagnostics.parse_source boundary. Lexer refs, start states,
+  Parser clients use the sealed URust_Parser.parse_source boundary. Lexer refs, start states,
   buffers, position-map helpers, grammar nonterminals, LR states/tables, semantic-value encodings, and
-  generated functor names remain implementation details shared only with Parser_Impl_Diagnostics.
+  generated functor names remain implementation details shared only with Parser_Impl.
   Refactors may change them provided the AST result, source positions/markup, state-initialization rule,
   and diagnostic rejoin points above are preserved.
 *)

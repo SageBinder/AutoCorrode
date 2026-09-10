@@ -1,5 +1,5 @@
 theory Parser_Test_Utils
-  imports Micro_Rust_Parser_Impl.Parser_Impl
+  imports Micro_Rust_Parser_Impl.Parser_Impl_Command
 begin
 
 ML\<open>
