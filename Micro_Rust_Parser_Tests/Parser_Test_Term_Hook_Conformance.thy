@@ -18,12 +18,6 @@ Known parser/conformance gaps and one intentional Rust-correct divergence are
 kept below as commented-out exact corpus equations instead of being rewritten
 into different tests:
 
-  \<^item> A semicolon-bearing binding expression cannot appear directly as a
-    macro argument. The legacy-accepted
-    \<^verbatim>\<open>assert!(let ...; if let ...)\<close> form is rejected at the first
-    \<open>let\<close> because macro arguments use the restricted \<open>uclosure_arg\<close>
-    grammar instead of a full body.
-
   \<^item> Numeric tuple projections such as \<^verbatim>\<open>res.0\<close>,
     \<^verbatim>\<open>tup.10\<close>, and \<^verbatim>\<open>i.2.0\<close> are rejected because the
     postfix grammar requires an identifier after the dot; the legacy frontend
@@ -34,8 +28,9 @@ into different tests:
     parser. This preserves Rust's requirement that every alternative bind the
     same names, although the legacy frontend accepts the source.
 
-The macro and numeric-projection gaps are grammatical and occur during
-\<open>URust_Diagnostics.parse_source\<close>. Bare matches now classify exact registered
+The numeric-projection gap is grammatical and occurs during
+\<open>URust_Diagnostics.parse_source\<close>. Generic macro arguments now accept complete
+semicolon-bearing bodies. Bare matches classify exact registered
 nonconstructor literals contextually: a numeral mixture selects switch lowering,
 while authentic registered constructors remain case-only and still reject when
 mixed with numerals. Or-pattern-binder rejection occurs later during pattern
@@ -49,7 +44,11 @@ the same positioned call-head boundary.
 The hook preserves resolved constant identities when it returns to outer
 syntax by using Isabelle's authentic constant markers. This prevents
 concealed/private constants from being re-resolved as frees and captured by
-an enclosing binder; the hook theory includes a dedicated capture regression.
+an enclosing binder. It also shares unresolved inference parameters across
+already alpha-equivalent equality operands before Isabelle fixates hidden
+types, so discarded unsuffixed numerals and polymorphic constructors retain
+direct-reflexivity conformance. The hook theory includes dedicated capture and
+type-sharing regressions.
 \<close>
 
 
@@ -345,7 +344,14 @@ subsubsection\<open>Wildcard Patterns\<close>
 context
   fixes a :: \<open>nat\<close>
 begin
-(* Known parser/conformance gap; see the note at the top of this theory.
+lemma \<open>
+  \<mu>\<open> let _ = 3; () \<close> =
+  \<lbrakk> let _ = 3; () \<rbrakk>
+\<close> by (rule refl)
+lemma \<open>
+  \<mu>\<open> let _ = (if let Some(_) = None { False } else { True }); () \<close> =
+  \<lbrakk> let _ = (if let Some(_) = None { False } else { True }); () \<rbrakk>
+\<close> by (rule refl)
 lemma \<open> \<mu>\<open>
   let _ = 3;
   let _ = (if True { False} else {True});
@@ -363,7 +369,6 @@ lemma \<open> \<mu>\<open>
   if let Some(_) = Some(()) { () };
   ()
 \<rbrakk>\<close> by (rule refl)
-*)
 end
 
 subsubsection\<open>Variable Binding in Patterns\<close>
@@ -905,6 +910,8 @@ context
 begin
 lemma \<open> \<mu>\<open> assert!( b ) \<close> = \<lbrakk> assert!( b ) \<rbrakk>\<close> by (rule refl)
 lemma \<open> \<mu>\<open> debug_assert!( b ) \<close> = \<lbrakk> debug_assert!( b ) \<rbrakk>\<close> by (rule refl)
+lemma \<open> \<mu>\<open> assert!(let flag = b; flag) \<close> = \<lbrakk> assert!(let flag = b; flag) \<rbrakk>\<close> by (rule refl)
+lemma \<open> \<mu>\<open> assert![let flag = b; if flag { True } else { False }] \<close> = \<lbrakk> assert![let flag = b; if flag { True } else { False }] \<rbrakk>\<close> by (rule refl)
 lemma \<open> \<mu>\<open> assert!(!o.is_none()) \<close> = \<lbrakk> assert!(!o.is_none()) \<rbrakk>\<close> by (rule refl)
 lemma \<open> \<mu>\<open> assert!(b); a_value as u16\<close> = \<lbrakk> assert!(b); a_value as u16\<rbrakk>\<close> by (rule refl)
 lemma \<open> \<mu>\<open> assert!(a_value as usize == a_value as usize); a_value as u16\<close> = \<lbrakk> assert!(a_value as usize == a_value as usize); a_value as u16\<rbrakk>\<close> by (rule refl)

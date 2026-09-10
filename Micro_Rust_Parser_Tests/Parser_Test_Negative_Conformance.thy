@@ -1299,6 +1299,37 @@ urust_expr_rejects fidelity \<open> vec![1_u32) \<close>
 urust_expr_rejects fidelity \<open> assert!(true \<close>
   \<open> syntax error found at end of input \<close>
 
+subsection\<open> Complete-body argument failures \<close>
+
+urust_expr_rejects fidelity \<open> assert!(let flag = true;) \<close>
+  \<open> syntax error found at ) \<close>
+
+urust_expr_rejects fidelity \<open> assert!(let flag = true; flag,) \<close>
+  \<open> syntax error found at ) \<close>
+
+urust_expr_rejects fidelity \<open> vec![let value = 1_u32; value,] \<close>
+  \<open> syntax error found at ] \<close>
+
+urust_expr_rejects fidelity
+  \<open> assert_eq!(let left = true; left,, false) \<close>
+  \<open> syntax error: deleting  , false ) \<close>
+
+urust_expr_rejects fidelity \<open> assert!(let flag true; flag) \<close>
+  \<open> syntax error: deleting  <identifier> true ; \<close>
+
+urust_expr_rejects fidelity \<open> assert![let flag = ; flag] \<close>
+  \<open> syntax error: deleting  ; <identifier> ] \<close>
+
+urust_expr_rejects fidelity
+  \<open> assert!(let flag = true; if flag { true } else { false) \<close>
+  \<open> syntax error found at ) \<close>
+
+urust_expr_rejects fidelity \<open> assert!(let flag = true; flag] \<close>
+  \<open> syntax error found at ] \<close>
+
+urust_expr_rejects fidelity \<open> assert![let flag = true; flag) \<close>
+  \<open> syntax error found at ) \<close>
+
 subsection\<open> Matches shape and case-compiler boundaries \<close>
 
 urust_expr_rejects fidelity \<open> matches!() \<close>

@@ -3848,6 +3848,8 @@ definition macro_is_none ::
   \<open>nat option \<Rightarrow> (unit, bool, unit, unit, unit) function_body\<close>
   where \<open> macro_is_none \<equiv> lift_fun1 Option.is_none \<close>
 
+consts macro_registered_body_marker :: bool
+
 micro_rust_notation (call) macro_shout ("shout!")
 micro_rust_notation (call) macro_shout ("Log::shout!")
 urust_notation (call) macro_shout ("Log::<N>::shout!")
@@ -3885,6 +3887,54 @@ urust_expr macro_assert_newline
     !
     (
       true
+    )
+  \<close>
+
+subsection\<open> Complete body arguments \<close>
+
+urust_expr macro_full_body_parentheses
+  \<open> assert!(let flag = true; flag) \<close>
+
+urust_expr macro_full_body_brackets
+  \<open> assert![let flag = true; if flag { true } else { false }] \<close>
+
+urust_expr macro_full_body_corpus_shape
+  \<open>
+    assert!(
+      let _ = False;
+      if let Some(_) = \<llangle>None :: unit option\<rrangle> {
+        False
+      } else {
+        True
+      }
+    )
+  \<close>
+
+urust_expr macro_full_body_multiple_retained
+  \<open>
+    assert_eq!(
+      let left = 1_u32; left,
+      let right = 1_u32; if true { right } else { 0_u32 }
+    )
+  \<close>
+
+urust_expr macro_full_body_vec_elements
+  \<open>
+    vec![
+      let first = 1_u32; first,
+      let second = 2_u32; second
+    ]
+  \<close>
+
+urust_expr macro_full_body_nested_control
+  \<open>
+    assert!(
+      let candidate = Some(true);
+      if let Some(flag) = candidate {
+        if flag { true } else { false }
+      } else {
+        false
+      }
     )
   \<close>
 
@@ -3953,6 +4003,18 @@ urust_expr macro_ignored_large
       ignored_28, ignored_29, ignored_30, ignored_31
     )
   \<close>
+
+urust_expr macro_ignored_full_body
+  \<open>
+    assert!(
+      macro_b,
+      let ignored = unknown_name;
+      if ignored { unknown_left } else { unknown_right }
+    )
+  \<close>
+
+urust_expr macro_ignored_message_full_body
+  \<open> panic!("kept", let ignored = unknown_name; ignored) \<close>
 
 end
 
@@ -4090,6 +4152,36 @@ urust_expr macro_registered_path
 
 urust_expr macro_registered_generic_path
   \<open> Log::<N>::shout!(true) \<close>
+
+urust_expr macro_registered_full_body
+  \<open>
+    shout!(
+      let flag = \<llangle>macro_registered_body_marker\<rrangle>;
+      flag
+    )
+  \<close>
+
+ML_val\<open>
+  local
+    val body =
+      Proof_Context.get_thm \<^context> "macro_registered_full_body_def"
+      |> Thm.prop_of
+      |> Logic.dest_equals
+      |> #2
+    val marker_count =
+      Term.fold_aterms
+        (fn Const (name, _) =>
+              if name = \<^const_name>\<open>macro_registered_body_marker\<close>
+              then Integer.add 1
+              else I
+          | _ => I)
+        body 0
+  in
+    val _ =
+      if marker_count = 1 then ()
+      else error "registered full-body macro did not retain its marker exactly once"
+  end
+\<close>
 
 subsection\<open> Vectors, postfixes, and address macros \<close>
 

@@ -1237,12 +1237,12 @@ yacc_rules\<open>
               (uclosure_arg :: arglist)
   ucallargs : ([])
             | arglist (arglist)
-  (* Macro argument lists deliberately do not share call trailing-comma support. The legacy frontend
-     accepts empty lists and comma-separated values, but rejects a terminal comma. *)
-  umacroargs : uclosure_arg
-                 ([uclosure_arg])
-             | uclosure_arg COMMA umacroargs
-                 (uclosure_arg :: umacroargs)
+  (* Generic macro arguments are complete, nonempty bodies separated by commas. The list as a whole
+     may be empty, but deliberately does not share call trailing-comma support. *)
+  umacroargs : ubody
+                 ([ubody])
+             | ubody COMMA umacroargs
+                 (ubody :: umacroargs)
   umacrocallargs : ([])
                  | umacroargs             (umacroargs)
   (* A tuple has one element before the comma and a nonempty `arglist` after it. Even when `arglist` has a

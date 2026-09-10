@@ -1755,13 +1755,19 @@ section\<open> Legacy macro structure, spans, and markup \<close>
 consts
   macro_audit_scrutinee :: \<open>nat option\<close>
   macro_audit_ref :: \<open>('a, 'b, 'v) Global_Store.ref\<close>
+  macro_audit_marker :: bool
+  macro_audit_ignored_marker :: bool
+  macro_audit_vec_first :: nat
+  macro_audit_vec_second :: nat
 
 text\<open>
-These checks pin the unresolved macro payloads and the exact shallow term vocabulary.
-They also prove that discarded arguments never enter lowering, \<open>vec!\<close> reuses
-the array builder, address macros retain the exact legacy \<open>ref_address\<close> target,
-registered bang-names win only when adjacent, and \<open>matches!\<close> uses the ordinary
-case compiler with one scrutinee evaluation and false fallback.
+These checks pin complete-body macro payload boundaries, source spans, markup, recovery,
+and the exact shallow term vocabulary. They also prove that retained bindings evaluate
+once, discarded arguments never enter semantic lowering, \<open>vec!\<close> preserves
+complete-body element order through the array builder, address macros retain the exact
+legacy \<open>ref_address\<close> target, registered bang-names win only when adjacent, and
+\<open>matches!\<close> uses the ordinary case compiler with one scrutinee evaluation and
+false fallback.
 \<close>
 
 ML_val\<open>
@@ -1794,6 +1800,174 @@ ML_val\<open>
               if candidate = name then Integer.add 1 else I
           | _ => I)
         term 0
+
+    fun find_from text needle offset =
+      if offset + size needle > size text then
+        error ("legacy macro regression audit: missing " ^ quote needle)
+      else if String.substring (text, offset, size needle) = needle
+      then offset
+      else find_from text needle (offset + 1)
+
+    fun token_position text start needle offset =
+      let
+        val raw = find_from text needle offset
+        val token_start =
+          Position.symbol_explode
+            (String.substring (text, 0, raw)) start
+      in
+        (raw,
+         Position.range_position
+           (token_start,
+            Position.symbol_explode needle token_start))
+      end
+
+    val full_body_text =
+      "debug_assert!(let flag = true; " ^
+      "if let Some(_) = Some(flag) { flag } else { false })"
+    val full_body_start =
+      Position.make0 7 30 0 "" "" "macro-full-body-span-audit"
+    val full_body_stop =
+      Position.symbol_explode full_body_text full_body_start
+    val full_body =
+      parse
+        (Parser_Lex_Util.positioned_content_source
+          full_body_text full_body_start)
+    val (full_body_name_pos, full_body_bang_pos,
+         full_body_invocation_pos, full_body_binder_pos,
+         full_body_literal_pos, full_body_if_pos) =
+      (case full_body of
+         UE_Macro
+           (path, bang_pos,
+            MP_Arguments
+              [UE_Let
+                (P_Ident ("flag", binder_pos),
+                 UE_Literal (LP_Bool (true, literal_pos)),
+                 UE_IfLet
+                   (P_Constr (pattern_path, [P_Wild _]),
+                    UE_Call
+                      (UC_Path call_path, [UE_Path scrutinee_path], _),
+                    UE_Block (UE_Path then_path, _),
+                    SOME
+                      (UE_Block
+                        (UE_Literal (LP_Bool (false, _)), _)),
+                    if_pos))],
+           invocation_pos) =>
+           (audit_assert "full-body macro path changed"
+              (render_path path = "debug_assert");
+            audit_assert "full-body condition escaped its binding continuation"
+              (render_path pattern_path = "Some" andalso
+               render_path call_path = "Some" andalso
+               render_path scrutinee_path = "flag" andalso
+               render_path then_path = "flag");
+            (path_position path, bang_pos, invocation_pos,
+             binder_pos, literal_pos, if_pos))
+       | _ =>
+           error "legacy macro regression audit: full-body macro AST changed")
+    val _ =
+      audit_assert "full-body invocation start moved"
+        (Position.offset_of full_body_invocation_pos =
+          Position.offset_of full_body_start)
+    val _ =
+      audit_assert "full-body invocation end moved"
+        (Position.end_offset_of full_body_invocation_pos =
+          Position.offset_of full_body_stop)
+    val (_, full_body_binder_token) =
+      token_position full_body_text full_body_start "flag" 0
+    val (_, full_body_literal_token) =
+      token_position full_body_text full_body_start "true" 0
+    val (_, full_body_if_token) =
+      token_position full_body_text full_body_start "if" 0
+    val (full_body_name_raw, full_body_name_token) =
+      token_position full_body_text full_body_start "debug_assert" 0
+    val (_, full_body_bang_token) =
+      token_position full_body_text full_body_start "!"
+        (full_body_name_raw + size "debug_assert")
+    val (first_brace_raw, _) =
+      token_position full_body_text full_body_start "}" 0
+    val (_, full_body_final_brace) =
+      token_position full_body_text full_body_start "}"
+        (first_brace_raw + 1)
+    val _ =
+      audit_assert "full-body binder position moved"
+        (Position.offset_of full_body_binder_pos =
+           Position.offset_of full_body_binder_token andalso
+         Position.end_offset_of full_body_binder_pos =
+           Position.end_offset_of full_body_binder_token)
+    val _ =
+      audit_assert "full-body literal position moved"
+        (Position.offset_of full_body_literal_pos =
+           Position.offset_of full_body_literal_token andalso
+         Position.end_offset_of full_body_literal_pos =
+           Position.end_offset_of full_body_literal_token)
+    val _ =
+      audit_assert "nested conditional span moved"
+        (Position.offset_of full_body_if_pos =
+           Position.offset_of full_body_if_token andalso
+         Position.end_offset_of full_body_if_pos =
+           Position.end_offset_of full_body_final_brace)
+    val _ =
+      audit_assert "full-body macro name span moved"
+        (Position.offset_of full_body_name_pos =
+           Position.offset_of full_body_name_token andalso
+         Position.end_offset_of full_body_name_pos =
+           Position.end_offset_of full_body_name_token)
+    val full_body_bang_markup_pos =
+      Position.range_position
+        (full_body_bang_pos,
+         Position.symbol_explode "!" full_body_bang_pos)
+    val _ =
+      audit_assert "full-body macro bang span moved"
+        (Position.offset_of full_body_bang_markup_pos =
+           Position.offset_of full_body_bang_token andalso
+         Position.end_offset_of full_body_bang_markup_pos =
+           Position.end_offset_of full_body_bang_token)
+    val _ =
+      audit_assert "full-body macro name and bang stopped being adjacent"
+        (Position.end_offset_of full_body_name_pos =
+           Position.offset_of full_body_bang_pos)
+
+    val bracket_body_text =
+      "assert_eq![let left = true; left, " ^
+      "const right = false; if right { false } else { true }]"
+    val bracket_body_start =
+      Position.make0 9 60 0 "" "" "macro-bracket-body-span-audit"
+    val bracket_body_stop =
+      Position.symbol_explode bracket_body_text bracket_body_start
+    val bracket_body =
+      parse
+        (Parser_Lex_Util.positioned_content_source
+          bracket_body_text bracket_body_start)
+    val bracket_body_invocation_pos =
+      (case bracket_body of
+         UE_Macro
+           (path, _,
+            MP_Arguments
+              [UE_Let
+                (P_Ident ("left", _),
+                 UE_Literal (LP_Bool (true, _)),
+                 UE_Path left_path),
+               UE_Const
+                (P_Ident ("right", _),
+                 UE_Literal (LP_Bool (false, _)),
+                 UE_If
+                   (UE_Path right_path, UE_Block _, SOME (UE_Block _), _))],
+            invocation_pos) =>
+           (audit_assert "bracket full-body macro path changed"
+              (render_path path = "assert_eq");
+            audit_assert "bracket full-body argument order changed"
+              (render_path left_path = "left" andalso
+               render_path right_path = "right");
+            invocation_pos)
+       | _ =>
+           error "legacy macro regression audit: bracket full-body AST changed")
+    val _ =
+      audit_assert "bracket full-body invocation start moved"
+        (Position.offset_of bracket_body_invocation_pos =
+          Position.offset_of bracket_body_start)
+    val _ =
+      audit_assert "bracket full-body invocation end moved"
+        (Position.end_offset_of bracket_body_invocation_pos =
+          Position.offset_of bracket_body_stop)
 
     val spaced_text = "assert\n  ! [\<llangle>True\<rrangle>]"
     val spaced_start =
@@ -1844,6 +2018,15 @@ ML_val\<open>
                     text start)) ())
           ())
     val _ = capture_elaboration spaced_text spaced_start
+    val _ = capture_elaboration full_body_text full_body_start
+    val _ = capture_elaboration bracket_body_text bracket_body_start
+
+    val ignored_markup_text =
+      "debug_assert!(true, let ignored = unknown_macro_markup; ignored)"
+    val ignored_markup_start =
+      Position.make0 13 90 0 "" "" "macro-ignored-body-markup-audit"
+    val _ =
+      capture_elaboration ignored_markup_text ignored_markup_start
 
     val matches_text =
       "matches!(Some(\<llangle>1 :: nat\<rrangle>), Some(_))"
@@ -1939,6 +2122,28 @@ ML_val\<open>
             Properties.get properties Markup.kindN = SOME kind andalso
             has_position properties pos)
         markup
+    fun has_urust_entity pos =
+      has_entity_markup "urust_var" pos
+    fun entity_id property pos =
+      let
+        val ids =
+          markup
+          |> map_filter
+              (fn (name, properties) =>
+                if name = Markup.entityN andalso
+                   Properties.get properties Markup.kindN =
+                     SOME "urust_var" andalso
+                   has_position properties pos
+                then Properties.get properties property
+                else NONE)
+          |> distinct (op =)
+      in
+        (case ids of
+           [id] => id
+         | _ =>
+             error
+               "legacy macro regression audit: binder entity markup changed")
+      end
     val _ =
       audit_assert "generic built-in macro keyword markup moved"
         (has_markup Markup.keyword1N spaced_name_pos)
@@ -1970,6 +2175,155 @@ ML_val\<open>
     val _ =
       audit_assert "registered complete-bang-name dispatch styling moved"
         (has_markup Markup.keyword3N registered_complete_name_pos)
+
+    val (_, full_body_let_keyword) =
+      token_position full_body_text full_body_start "let" 0
+    val (_, full_body_else_keyword) =
+      token_position full_body_text full_body_start "else" 0
+    val (_, full_body_semicolon) =
+      token_position full_body_text full_body_start ";" 0
+    val (_, full_body_left_paren) =
+      token_position full_body_text full_body_start "(" 0
+    val (_, full_body_right_paren) =
+      token_position full_body_text full_body_start ")"
+        (size full_body_text - 1)
+    val (full_body_definition_raw, full_body_definition) =
+      token_position full_body_text full_body_start "flag" 0
+    val (_, full_body_reference) =
+      token_position full_body_text full_body_start "flag"
+        (full_body_definition_raw + size "flag")
+    val _ =
+      List.app
+        (fn (position, label) =>
+          audit_assert (label ^ " keyword markup moved")
+            (has_markup Markup.keyword1N position))
+        [(full_body_let_keyword, "full-body let"),
+         (full_body_if_token, "full-body if"),
+         (full_body_else_keyword, "full-body else")]
+    val _ =
+      List.app
+        (fn (position, label) =>
+          audit_assert (label ^ " delimiter markup moved")
+            (has_markup Markup.delimiterN position))
+        [(full_body_semicolon, "full-body semicolon"),
+         (full_body_left_paren, "full-body opening parenthesis"),
+         (full_body_right_paren, "full-body closing parenthesis")]
+    val _ =
+      audit_assert "full-body built-in macro keyword markup moved"
+        (has_markup Markup.keyword1N full_body_name_pos)
+    val _ =
+      audit_assert "full-body macro bang operator markup moved"
+        (has_markup Markup.operatorN full_body_bang_markup_pos)
+    val _ =
+      audit_assert "retained full-body binder navigation changed"
+        (has_markup Markup.boundN full_body_definition andalso
+         has_markup Markup.boundN full_body_reference andalso
+         entity_id Markup.defN full_body_definition =
+           entity_id Markup.refN full_body_reference)
+
+    val (_, bracket_const_keyword) =
+      token_position bracket_body_text bracket_body_start "const" 0
+    val (_, bracket_comma) =
+      token_position bracket_body_text bracket_body_start "," 0
+    val (_, bracket_semicolon) =
+      token_position bracket_body_text bracket_body_start ";" 0
+    val (_, bracket_left) =
+      token_position bracket_body_text bracket_body_start "[" 0
+    val (_, bracket_right) =
+      token_position bracket_body_text bracket_body_start "]" 0
+    val _ =
+      audit_assert "full-body const keyword markup moved"
+        (has_markup Markup.keyword1N bracket_const_keyword)
+    val _ =
+      List.app
+        (fn (position, label) =>
+          audit_assert (label ^ " delimiter markup moved")
+            (has_markup Markup.delimiterN position))
+        [(bracket_comma, "full-body top-level comma"),
+         (bracket_semicolon, "bracket full-body semicolon"),
+         (bracket_left, "full-body opening bracket"),
+         (bracket_right, "full-body closing bracket")]
+
+    val (_, ignored_let_keyword) =
+      token_position ignored_markup_text ignored_markup_start "let" 0
+    val (_, ignored_semicolon) =
+      token_position ignored_markup_text ignored_markup_start ";" 0
+    val (ignored_definition_raw, ignored_definition) =
+      token_position ignored_markup_text ignored_markup_start "ignored" 0
+    val (_, ignored_reference) =
+      token_position ignored_markup_text ignored_markup_start "ignored"
+        (ignored_definition_raw + size "ignored")
+    val _ =
+      audit_assert "ignored full-body let lost syntactic keyword markup"
+        (has_markup Markup.keyword1N ignored_let_keyword)
+    val _ =
+      audit_assert "ignored full-body semicolon lost delimiter markup"
+        (has_markup Markup.delimiterN ignored_semicolon)
+    val _ =
+      audit_assert "ignored full-body binder entered semantic markup"
+        (not (has_markup Markup.boundN ignored_definition) andalso
+         not (has_markup Markup.boundN ignored_reference) andalso
+         not (has_urust_entity ignored_definition) andalso
+         not (has_urust_entity ignored_reference))
+
+    val full_body_parent_term =
+      checked
+        ("debug_assert!(let observed = macro_audit_marker; " ^
+         "if observed { observed } else { false })")
+    val full_body_bracket_term =
+      checked
+        ("debug_assert![let observed = macro_audit_marker; " ^
+         "if observed { observed } else { false }]")
+    val _ =
+      audit_assert "full-body delimiters changed lowering"
+        (Term.aconv (full_body_parent_term, full_body_bracket_term))
+    val _ =
+      audit_assert "retained full-body initializer evaluated more than once"
+        (count_constant
+          \<^const_name>\<open>macro_audit_marker\<close>
+          full_body_parent_term = 1)
+
+    val ignored_full_body_term =
+      checked
+        ("debug_assert!(true, " ^
+         "let ignored = macro_audit_ignored_marker; ignored)")
+    val _ =
+      audit_assert "ignored full-body assertion argument entered the term"
+        (Term.aconv
+          (ignored_full_body_term, checked "debug_assert!(true)"))
+    val _ =
+      audit_assert "ignored full-body initializer entered the term"
+        (count_constant
+          \<^const_name>\<open>macro_audit_ignored_marker\<close>
+          ignored_full_body_term = 0)
+    val _ =
+      audit_assert "ignored full-body message argument entered the term"
+        (Term.aconv
+          (checked
+            ("panic!(\"kept\", " ^
+             "let ignored = macro_audit_ignored_marker; ignored)"),
+           checked "panic!(\"kept\")"))
+
+    val vec_full_body_term =
+      checked
+        ("vec![" ^
+         "let first = macro_audit_vec_first; first, " ^
+         "let second = macro_audit_vec_second; second]")
+    val vec_grouped_array_term =
+      checked
+        ("[(let first = macro_audit_vec_first; first), " ^
+         "(let second = macro_audit_vec_second; second)]")
+    val _ =
+      audit_assert "vec! complete-body element order changed"
+        (Term.aconv (vec_full_body_term, vec_grouped_array_term))
+    val _ =
+      audit_assert "vec! complete-body elements were not evaluated once each"
+        (count_constant
+           \<^const_name>\<open>macro_audit_vec_first\<close>
+           vec_full_body_term = 1 andalso
+         count_constant
+           \<^const_name>\<open>macro_audit_vec_second\<close>
+           vec_full_body_term = 1)
 
     val _ =
       audit_assert "ignored assertion arguments entered the term"
@@ -2030,6 +2384,49 @@ ML_val\<open>
         (Term.aconv
           (address_target "addr_of_mut!(macro_audit_ref)",
            legacy_ref_address))
+
+    fun is_recovered_full_body expression =
+      (case expression of
+         UE_Macro
+           (path, _,
+            MP_Arguments
+              [UE_Let
+                (P_Ident ("recovered", _),
+                 UE_Literal (LP_Bool (true, _)),
+                 UE_If
+                   (UE_Path condition_path,
+                    UE_Block (UE_Path then_path, _),
+                    SOME (UE_Block _), _))],
+            _) =>
+           render_path path = "debug_assert" andalso
+           render_path condition_path = "recovered" andalso
+           render_path then_path = "recovered"
+       | _ => false)
+    fun reject_then_recover bad =
+      let
+        val _ =
+          (case Exn.result parse_text bad of
+             Exn.Res _ =>
+               error
+                 ("legacy macro regression audit: malformed full body " ^
+                  quote bad ^ " unexpectedly parsed")
+           | Exn.Exn exn =>
+               if Exn.is_interrupt exn then Exn.reraise exn else ())
+        val recovered =
+          parse_text
+            ("debug_assert!(let recovered = true; " ^
+             "if recovered { recovered } else { false })")
+      in
+        audit_assert
+          ("malformed full body leaked parser state after " ^ quote bad)
+          (is_recovered_full_body recovered)
+      end
+    val _ =
+      List.app reject_then_recover
+        ["debug_assert!(let flag = true;)",
+         "assert_eq!(let left = true; left,, false)",
+         "debug_assert!(let flag = true; if flag { true } else { false)",
+         "debug_assert![let flag = true; flag)"]
 
     val matches_term =
       checked "matches!(macro_audit_scrutinee, Some(_))"

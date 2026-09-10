@@ -13,7 +13,11 @@ type check, so its expected type and surrounding binders remain available.
 The parser and resolver produce the post-parse internal type constraints expected by
 \<open>Syntax.check_term\<close>. A parse translation is itself still upstream of Isabelle's term decoder,
 so the local boundary adapter below re-embeds those constraints as ordinary pre-decode
-\<open>_constrain\<close> syntax while preserving their types and source positions.
+\<open>_constrain\<close> syntax while preserving their types and source positions. A test-only term-check
+phase below also shares unresolved inference parameters between equality operands that are already
+alpha-equivalent when types are ignored. Isabelle would otherwise fix independently unconstrained
+discarded values to distinct hidden type variables before a direct \<open>refl\<close> proof. The phase changes
+types only through ordinary unification; it does not rewrite or normalize either operand.
 \<close>
 
 ML\<open>
@@ -92,6 +96,70 @@ syntax
 
 parse_translation \<open>
   [(\<^syntax_const>\<open>_urust_term_hook\<close>, urust_term_translation)]
+\<close>
+
+ML\<open>
+local
+  fun unify_types thy (T, U) (tyenv, maxidx) =
+    Sign.typ_unify thy (T, U) (tyenv, maxidx)
+
+  fun unify_term_types thy terms env =
+    (case terms of
+       (Const (name, T), Const (other, U)) =>
+         if name = other then unify_types thy (T, U) env else raise Match
+     | (Free (name, T), Free (other, U)) =>
+         if name = other then unify_types thy (T, U) env else raise Match
+     | (Var (name, T), Var (other, U)) =>
+         if name = other then unify_types thy (T, U) env else raise Match
+     | (Bound index, Bound other) =>
+         if index = other then env else raise Match
+     | (Abs (_, T, body), Abs (_, U, other_body)) =>
+         unify_term_types thy (body, other_body)
+           (unify_types thy (T, U) env)
+     | (function $ argument, other_function $ other_argument) =>
+         unify_term_types thy (argument, other_argument)
+           (unify_term_types thy (function, other_function) env)
+     | _ => raise Match)
+
+  fun collect_reflexive_types thy term env =
+    let
+      val env' =
+        (case term of
+           Const (\<^const_name>\<open>HOL.eq\<close>, _) $ left $ right =>
+             if Term.aconv_untyped (left, right)
+             then
+               (unify_term_types thy (left, right) env
+                 handle Match => env
+                      | Type.TUNIFY => env)
+             else env
+         | _ => env)
+    in
+      (case term of
+         function $ argument =>
+           collect_reflexive_types thy argument
+             (collect_reflexive_types thy function env')
+       | Abs (_, _, body) =>
+           collect_reflexive_types thy body env'
+       | _ => env')
+    end
+
+  fun share_reflexive_types ctxt terms =
+    let
+      val thy = Proof_Context.theory_of ctxt
+      val maxidx = fold Term.maxidx_term terms ~1
+      val (tyenv, _) =
+        fold (collect_reflexive_types thy) terms
+          (Vartab.empty, maxidx)
+    in
+      if Vartab.is_empty tyenv then terms
+      else map (Envir.subst_term_types tyenv) terms
+    end
+in
+  val _ =
+    Context.>>
+      (Syntax_Phases.term_check 50 "urust_term_hook_reflexive_types"
+        share_reflexive_types)
+end
 \<close>
 
 ML_val\<open>
