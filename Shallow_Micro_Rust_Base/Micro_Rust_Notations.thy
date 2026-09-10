@@ -696,8 +696,10 @@ fun resolve_bound ctxt =
   jumps back to \<open>micro_rust_notation\<close>), plus a \<^verbatim>\<open>Name_Space.markup\<close> +
   \<^verbatim>\<open>Markup.keyword3\<close> chain when the backend itself is a bare constant
   (ctrl-click to its definition, coloured as a keyword). Called by \<open>resolve\<close>
-  ONLY when a marker is actually replaced by a registered backend ---
-  never when the witness wins. This is what stops the markup from
+  when a marker is actually replaced by a registered backend, and by
+  constructor-pattern resolution only after exact registration, constructor
+  identity, and arity or field validation have succeeded. It is never called
+  when the witness wins. This is what stops the markup from
   leaking onto an identifier whose witness ends up being a lambda binder
   (e.g. \<open>let x = \<dots>; x\<close> where \<open>x\<close> is also a registered notation: the
   trailing \<open>x\<close> resolves to the let-binder, so no notation markup

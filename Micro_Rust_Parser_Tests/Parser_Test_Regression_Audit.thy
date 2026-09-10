@@ -6486,38 +6486,39 @@ ML_val\<open>
         Option.map Value.print_int (Position.offset_of position) andalso
       Properties.get properties Markup.end_offsetN =
         Option.map Value.print_int (Position.end_offset_of position)
-    fun has_markup markup_name position =
-      exists
-        (fn (name, properties) =>
-          name = markup_name andalso
-            has_position properties position)
-        markup
-    fun has_entity kind identity position =
-      exists
-        (fn (name, properties) =>
-          name = Markup.entityN andalso
-            Properties.get properties Markup.kindN = SOME kind andalso
-            Properties.get properties Markup.nameN = SOME identity andalso
-            has_position properties position)
-        markup
+    fun count_markup markup_name position =
+      length
+        (filter
+          (fn (name, properties) =>
+            name = markup_name andalso
+              has_position properties position)
+          markup)
+    fun count_entity kind identity position =
+      length
+        (filter
+          (fn (name, properties) =>
+            name = Markup.entityN andalso
+              Properties.get properties Markup.kindN = SOME kind andalso
+              Properties.get properties Markup.nameN = SOME identity andalso
+              has_position properties position)
+          markup)
 
     val _ =
-      audit_assert "constructor qualifier lost path/free markup"
-        (has_markup Markup.freeN expected_qualifier)
+      audit_assert "constructor qualifier free markup duplicated or disappeared"
+        (count_markup Markup.freeN expected_qualifier = 1)
     val _ =
-      audit_assert "constructor terminal lost authentic constant markup"
-        (has_entity Markup.constantN unary_name expected_terminal)
+      audit_assert "constructor terminal constant entity duplicated or disappeared"
+        (count_entity Markup.constantN unary_name expected_terminal = 1)
     val _ =
       audit_assert "constructor terminal was reported as a free binder"
-        (not (has_markup Markup.freeN expected_terminal))
+        (count_markup Markup.freeN expected_terminal = 0)
     val _ =
-      audit_assert "constructor terminal retained notation dispatch markup"
-        (not
-          (has_entity Micro_Rust_Names.notationN
-            "Registered::Unary" expected_terminal))
+      audit_assert "constructor terminal notation entity duplicated or disappeared"
+        (count_entity Micro_Rust_Names.notationN
+          "Registered::Unary" expected_terminal = 1)
     val _ =
-      audit_assert "constructor terminal retained registered-literal styling"
-        (not (has_markup Markup.keyword3N expected_terminal))
+      audit_assert "constructor terminal keyword3 styling duplicated or disappeared"
+        (count_markup Markup.keyword3N expected_terminal = 1)
 
     fun recovery_checks () =
       let
@@ -6571,15 +6572,32 @@ ML_val\<open>
           path_raw + size path - size terminal
         val (_, expected_position) =
           token_position text start terminal terminal_raw
+        val qualifier_length = find_from path "::" 0
+        val qualifier =
+          String.substring (path, 0, qualifier_length)
+        val (_, expected_qualifier_position) =
+          token_position text start qualifier path_raw
         val expected_message =
           expected ^ Position.here expected_position
         val expected_range =
           (Value.print_int (the (Position.offset_of expected_position)),
            Value.print_int (the (Position.end_offset_of expected_position)))
-        val body =
-          (case Exn.result
+        val captured =
+          Synchronized.var
+            ("registered_constructor_" ^ label ^ "_reports")
+            ([]: string list)
+        fun capture chunks =
+          Synchronized.change captured (append chunks)
+        val result =
+          Parser_Test_Report_Lock.run (fn () =>
+            Unsynchronized.setmp Private_Output.report_fn capture
               (fn () =>
-                Parser_Test_Elaboration.expression ctxt source) () of
+                Exn.result
+                  (fn () =>
+                    Parser_Test_Elaboration.expression ctxt source) ())
+              ())
+        val body =
+          (case result of
              Exn.Res term =>
                error
                  ("registered constructor identity audit: " ^ label ^
@@ -6594,9 +6612,57 @@ ML_val\<open>
                      (actual = expected_message);
                    YXML.parse_body actual
                  end)
+        val rejection_markup =
+          fold collect_markup
+            (maps YXML.parse_body (Synchronized.value captured)) []
         val _ =
           audit_assert (label ^ " YXML offset/end_offset changed")
             (diagnostic_ranges body = [expected_range])
+        val _ =
+          audit_assert (label ^ " emitted premature qualifier free markup")
+            (not
+              (exists
+                (fn (name, properties) =>
+                  name = Markup.freeN andalso
+                    has_position properties
+                      expected_qualifier_position)
+                rejection_markup))
+        val _ =
+          audit_assert (label ^ " emitted premature terminal free markup")
+            (not
+              (exists
+                (fn (name, properties) =>
+                  name = Markup.freeN andalso
+                    has_position properties expected_position)
+                rejection_markup))
+        val _ =
+          audit_assert (label ^ " emitted premature terminal keyword3 markup")
+            (not
+              (exists
+                (fn (name, properties) =>
+                  name = Markup.keyword3N andalso
+                    has_position properties expected_position)
+                rejection_markup))
+        val _ =
+          audit_assert (label ^ " emitted premature terminal notation entity")
+            (not
+              (exists
+                (fn (name, properties) =>
+                  name = Markup.entityN andalso
+                    Properties.get properties Markup.kindN =
+                      SOME Micro_Rust_Names.notationN andalso
+                    has_position properties expected_position)
+                rejection_markup))
+        val _ =
+          audit_assert (label ^ " emitted premature terminal constant entity")
+            (not
+              (exists
+                (fn (name, properties) =>
+                  name = Markup.entityN andalso
+                    Properties.get properties Markup.kindN =
+                      SOME Markup.constantN andalso
+                    has_position properties expected_position)
+                rejection_markup))
         val _ = recovery_checks ()
       in () end
 

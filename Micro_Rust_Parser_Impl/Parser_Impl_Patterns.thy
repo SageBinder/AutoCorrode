@@ -413,7 +413,8 @@ struct
                      NONE => Resolved_Bind (binding name pos)
                    | SOME info =>
                        (check_constructor_arity name pos info [];
-                        R.report_constructor ctxt pos info;
+                        R.report_constructor ctxt
+                          (make_single_path (name, pos)) info;
                         Resolved_Constructor (info, pos, []))))
          | P_Literal (payload as LP_Integer (_, pos)) =>
              (case policy of
@@ -430,7 +431,7 @@ struct
                       segment_identifier (final_segment path)
                   in
                     check_constructor_arity name pos info [];
-                    R.report_constructor ctxt pos info;
+                    R.report_constructor ctxt path info;
                     Resolved_Constructor (info, pos, [])
                   end
               | NONE => Resolved_Path path)
@@ -445,7 +446,7 @@ struct
                     "` is not a known constructor" ^ Position.here pos)
               | SOME info =>
                   (check_constructor_arity name pos info arguments;
-                   R.report_constructor ctxt pos info;
+                   R.report_constructor ctxt path info;
                    Resolved_Constructor
                      (info, pos, map resolve arguments)))
               end
@@ -491,7 +492,7 @@ struct
                  (path, fields) of
                 R.Resolved_Constructor_Struct (info, ordered) =>
                   let
-                    val _ = R.report_constructor ctxt pos info
+                    val _ = R.report_constructor ctxt path info
                     fun resolve_field (selector, field_pos, nested) =
                       (case field_pos of
                          SOME source_pos =>

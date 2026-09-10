@@ -88,7 +88,8 @@ sig
   val constructor_term: constructor_info -> term
   val constructor_arity: constructor_info -> int
   val constructor_family: constructor_info -> (string * term list) option
-  val report_constructor: Proof.context -> Position.T -> constructor_info -> unit
+  val report_constructor:
+    Proof.context -> URust_AST.ur_path -> constructor_info -> unit
   val report_selector: Proof.context -> Position.T -> term -> unit
 
   datatype resolved_struct_pattern =
@@ -168,7 +169,10 @@ ML\<open>
     NONE when absent and raising a positioned, deterministic ambiguity error for multiple matches.
     constructor_term returns the dummy-typed constructor term, constructor_arity its argument count,
     and constructor_family optionally the datatype identity with all family constructor terms.
-    report_constructor and report_selector emit constant markup at the supplied source position.
+    report_constructor emits source-path markup only after a caller has validated the resolved
+    constructor. Exact registered literals reuse the ordinary notation use-site reports; unregistered
+    HOL constructors retain constant markup. report_selector emits constant markup at the supplied
+    source position.
 
   - resolve_struct_pattern resolves a struct head as a constructor, a single-constructor datatype
     type name, or a HOL record type. It validates duplicate, unknown, missing, and repeated-rest
@@ -903,7 +907,6 @@ struct
                  ("urust_expr: generic constructor paths require an exact literal registration" ^
                    Position.here generic_pos))
         else registered
-      val _ = report_path_qualifiers ctxt path
     in
       (case candidates of
          [] => NONE
@@ -917,8 +920,23 @@ struct
           (Name_Space.markup (Consts.space_of (Proof_Context.consts_of ctxt)) name)
     | report_named_term _ _ _ = ()
 
-  fun report_constructor ctxt pos info =
-    report_named_term ctxt pos (constructor_term info)
+  fun report_constructor ctxt path info =
+    let
+      val name = render_path path
+      val pos = #2 (path_terminal path)
+      val registered =
+        exists
+          (fn ({hol_term, ...} : Micro_Rust_Names.entry) =>
+            Term.aconv_untyped
+              (identifier_leaf hol_term, constructor_term info))
+          (exact_literal_registrations ctxt path)
+      val _ = report_path_qualifiers ctxt path
+    in
+      if registered then
+        Micro_Rust_Dispatch.emit_use_markup_at_pos
+          ctxt Micro_Rust_Names.NLiteral name pos
+      else report_named_term ctxt pos (constructor_term info)
+    end
 
   val report_selector = report_named_term
 
@@ -1098,7 +1116,6 @@ struct
              error
                ("urust_expr: generic struct-pattern paths require an exact literal registration" ^
                  Position.here pos))
-      val _ = report_path_qualifiers ctxt head_path
       val candidate =
         resolve_struct_constructor ctxt resolver
           (head, head_pos)
