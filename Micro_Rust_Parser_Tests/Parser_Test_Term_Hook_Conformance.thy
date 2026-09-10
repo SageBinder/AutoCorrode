@@ -14,26 +14,21 @@ frontend RHS and closes by \<open>refl\<close>. Wrappers such as lambdas, \<open
 constraints are retained on both sides. The definition and rejection tiers are copied unchanged.
 \<open>**\<close> and \<open>!!\<close> mean double dereference and negation.
 
-Known parser/conformance gaps and one intentional Rust-correct divergence are
-kept below as commented-out exact corpus equations instead of being rewritten
-into different tests:
-
-  \<^item> Numeric tuple projections such as \<^verbatim>\<open>res.0\<close>,
-    \<^verbatim>\<open>tup.10\<close>, and \<^verbatim>\<open>i.2.0\<close> are rejected because the
-    postfix grammar requires an identifier after the dot; the legacy frontend
-    lowers these forms to \<open>tuple_index_N\<close> applications.
+One intentional Rust-correct divergence is kept below as commented-out exact
+corpus equations instead of being rewritten into different tests:
 
   \<^item> Or-pattern alternatives with unequal binder sets, such as
     \<^verbatim>\<open>Some(x) | None\<close>, are intentionally rejected by the dedicated
     parser. This preserves Rust's requirement that every alternative bind the
     same names, although the legacy frontend accepts the source.
 
-The numeric-projection gap is grammatical and occurs during
-\<open>URust_Diagnostics.parse_source\<close>. Generic macro arguments now accept complete
-semicolon-bearing bodies. Bare matches classify exact registered
-nonconstructor literals contextually: a numeral mixture selects switch lowering,
-while authentic registered constructors remain case-only and still reject when
-mixed with numerals. Or-pattern-binder rejection occurs later during pattern
+Numeric tuple projections now lower canonical decimal indices from \<open>0\<close>
+through \<open>15\<close> to the corresponding \<open>tuple_index_N\<close> application in both
+structural postfix tiers. Generic macro arguments accept complete
+semicolon-bearing bodies. Bare matches classify exact registered nonconstructor
+literals contextually: a numeral mixture selects switch lowering, while
+authentic registered constructors remain case-only and still reject when mixed
+with numerals. Or-pattern-binder rejection occurs later during pattern
 resolution. The formerly deferred
 \<open>is_none\<close> row below is enabled by an explicit call registration; without
 that adapter, parsing and AST construction succeed but method resolution
@@ -413,9 +408,7 @@ lemma \<open> \<mu>\<open> let y = match Some(Some(\<llangle>7 :: 32 word\<rrang
 subsubsection\<open>Nested Patterns\<close>
 
 lemma \<open> \<mu>\<open> let one = \<llangle>1 :: 32 word\<rrangle>; let zero = \<llangle>0 :: 32 word\<rrangle>; assert!((match Some(Some(\<llangle>None :: nat option\<rrangle>)) { Some(None) \<Rightarrow> one, _ \<Rightarrow> zero }) == zero) \<close> = \<lbrakk> let one = \<llangle>1 :: 32 word\<rrangle>; let zero = \<llangle>0 :: 32 word\<rrangle>; assert!((match Some(Some(\<llangle>None :: nat option\<rrangle>)) { Some(None) \<Rightarrow> one, _ \<Rightarrow> zero }) == zero) \<rbrakk>\<close> by (rule refl)
-(* Known parser/conformance gap; see the note at the top of this theory.
 lemma \<open> \<mu>\<open> let a = \<llangle>1 :: 32 word\<rrangle>; let b = \<llangle>2 :: 32 word\<rrangle>; let c = \<llangle>3 :: 32 word\<rrangle>; let res = match ((a, b), c) { ((x, y), z) \<Rightarrow> (x, y, z) }; assert!(res.0 == a); assert!(res.1 == b); assert!(res.2 == c) \<close> = \<lbrakk> let a = \<llangle>1 :: 32 word\<rrangle>; let b = \<llangle>2 :: 32 word\<rrangle>; let c = \<llangle>3 :: 32 word\<rrangle>; let res = match ((a, b), c) { ((x, y), z) \<Rightarrow> (x, y, z) }; assert!(res.0 == a); assert!(res.1 == b); assert!(res.2 == c) \<rbrakk>\<close> by (rule refl)
-*)
 
 subsubsection\<open>Struct fixtures (from the tests theory)\<close>
 
@@ -440,10 +433,8 @@ micro_rust_notation (call) struct_pattern_dr_struct_expr_lift ("struct_pattern_d
 subsubsection\<open>Tuple Patterns in Match\<close>
 
 lemma \<open> \<mu>\<open> match (\<llangle>1 :: 32 word\<rrangle>, \<llangle>2 :: 32 word\<rrangle>) { (a, b) \<Rightarrow> a } \<close> = \<lbrakk> match (\<llangle>1 :: 32 word\<rrangle>, \<llangle>2 :: 32 word\<rrangle>) { (a, b) \<Rightarrow> a } \<rbrakk>\<close> by (rule refl)
-(* Known parser/conformance gaps; see the note at the top of this theory.
 lemma \<open> \<mu>\<open> let a = \<llangle>1 :: 32 word\<rrangle>; let b = \<llangle>2 :: 32 word\<rrangle>; let c = \<llangle>3 :: 32 word\<rrangle>; let res = match Some((a, b, c)) { Some((x, _, z)) \<Rightarrow> (x, z), _ \<Rightarrow> (\<llangle>0 :: 32 word\<rrangle>, \<llangle>0 :: 32 word\<rrangle>) }; assert!(res.0 == a); assert!(res.1 == c) \<close> = \<lbrakk> let a = \<llangle>1 :: 32 word\<rrangle>; let b = \<llangle>2 :: 32 word\<rrangle>; let c = \<llangle>3 :: 32 word\<rrangle>; let res = match Some((a, b, c)) { Some((x, _, z)) \<Rightarrow> (x, z), _ \<Rightarrow> (\<llangle>0 :: 32 word\<rrangle>, \<llangle>0 :: 32 word\<rrangle>) }; assert!(res.0 == a); assert!(res.1 == c) \<rbrakk>\<close> by (rule refl)
 lemma \<open> \<mu>\<open> let a = \<llangle>1 :: 32 word\<rrangle>; let b = \<llangle>2 :: 32 word\<rrangle>; let c = \<llangle>3 :: 32 word\<rrangle>; let d = \<llangle>4 :: 32 word\<rrangle>; let res = match ((a, b), (c, d)) { ((w, x), (y, z)) \<Rightarrow> (w, x, y, z) }; assert!(res.0 == a); assert!(res.1 == b); assert!(res.2 == c); assert!(res.3 == d) \<close> = \<lbrakk> let a = \<llangle>1 :: 32 word\<rrangle>; let b = \<llangle>2 :: 32 word\<rrangle>; let c = \<llangle>3 :: 32 word\<rrangle>; let d = \<llangle>4 :: 32 word\<rrangle>; let res = match ((a, b), (c, d)) { ((w, x), (y, z)) \<Rightarrow> (w, x, y, z) }; assert!(res.0 == a); assert!(res.1 == b); assert!(res.2 == c); assert!(res.3 == d) \<rbrakk>\<close> by (rule refl)
-*)
 
 subsubsection\<open>Struct Patterns\<close>
 
@@ -549,9 +540,7 @@ end
 subsection\<open>Control Flow - Loops\<close>
 
 lemma \<open> \<mu>\<open> let lst = \<llangle>(1 :: 32 word, 2 :: 32 word, TNil) # (3, 4, TNil) # []\<rrangle>; for (a, b) in lst { let _ = a; let _ = b; () }; () \<close> = \<lbrakk> let lst = \<llangle>(1 :: 32 word, 2 :: 32 word, TNil) # (3, 4, TNil) # []\<rrangle>; for (a, b) in lst { let _ = a; let _ = b; () }; () \<rbrakk>\<close> by (rule refl)
-(* Known parser/conformance gap; see the note at the top of this theory.
 lemma \<open> \<mu>\<open> let mut x = \<llangle>0 :: 32 word\<rrangle>; let lst = \<llangle>(1, 2, (True, False, ()), ()) # (1, 2, (True, False, ()), ()) # []\<rrangle>; for i in lst { if (i.2.0) && i.2.1 { *x = i.0; } else { *x = i.1; } }; x \<close> = \<lbrakk> let mut x = \<llangle>0 :: 32 word\<rrangle>; let lst = \<llangle>(1, 2, (True, False, ()), ()) # (1, 2, (True, False, ()), ()) # []\<rrangle>; for i in lst { if (i.2.0) && i.2.1 { *x = i.0; } else { *x = i.1; } }; x \<rbrakk>\<close> by (rule refl)
-*)
 lemma \<open> \<mu>\<open> let mut x = \<llangle>0 :: 32 word\<rrangle>; let lst = \<llangle>((1 :: 32 word), (2 :: 32 word), (True, False, nil), nil) # ((1 :: 32 word), (2 :: 32 word), (True, False, nil), nil) # []\<rrangle>; for (a, b, (c, d)) in lst { if c && d { x += a; } else { x += b; } }; x \<close> = \<lbrakk> let mut x = \<llangle>0 :: 32 word\<rrangle>; let lst = \<llangle>((1 :: 32 word), (2 :: 32 word), (True, False, nil), nil) # ((1 :: 32 word), (2 :: 32 word), (True, False, nil), nil) # []\<rrangle>; for (a, b, (c, d)) in lst { if c && d { x += a; } else { x += b; } }; x \<rbrakk>\<close> by (rule refl)
 
 context
@@ -625,11 +614,9 @@ subsection\<open>Data Structures - Tuples\<close>
 lemma \<open> \<mu>\<open> (\<llangle>0 :: 32 word\<rrangle>, \<llangle>1 :: 32 word\<rrangle>) \<close> = \<lbrakk> (\<llangle>0 :: 32 word\<rrangle>, \<llangle>1 :: 32 word\<rrangle>) \<rbrakk>\<close> by (rule refl)
 lemma \<open> \<mu>\<open> (\<llangle>0 :: 32 word\<rrangle>, \<llangle>1 :: 32 word\<rrangle>, True, False) \<close> = \<lbrakk> (\<llangle>0 :: 32 word\<rrangle>, \<llangle>1 :: 32 word\<rrangle>, True, False) \<rbrakk>\<close> by (rule refl)
 lemma \<open> \<mu>\<open> ((False, True), False) \<close> = \<lbrakk> ((False, True), False) \<rbrakk>\<close> by (rule refl)
-(* Known parser/conformance gaps; see the note at the top of this theory.
 lemma \<open> \<mu>\<open> assert!((\<llangle>0 :: 32 word\<rrangle>, \<llangle>1 :: 32 word\<rrangle>).0 == \<llangle>0 :: 32 word\<rrangle>); assert!((\<llangle>0 :: 32 word\<rrangle>, \<llangle>1 :: 32 word\<rrangle>).1 == \<llangle>1 :: 32 word\<rrangle>); \<close> = \<lbrakk> assert!((\<llangle>0 :: 32 word\<rrangle>, \<llangle>1 :: 32 word\<rrangle>).0 == \<llangle>0 :: 32 word\<rrangle>); assert!((\<llangle>0 :: 32 word\<rrangle>, \<llangle>1 :: 32 word\<rrangle>).1 == \<llangle>1 :: 32 word\<rrangle>); \<rbrakk>\<close> by (rule refl)
 lemma \<open> \<mu>\<open> let tup = (\<llangle>0 :: 32 word\<rrangle>, \<llangle>1 :: 32 word\<rrangle>, \<llangle>2 :: 32 word\<rrangle>, \<llangle>3 :: 32 word\<rrangle>, \<llangle>4 :: 32 word\<rrangle>, \<llangle>5 :: 32 word\<rrangle>, \<llangle>6 :: 32 word\<rrangle>, \<llangle>7 :: 32 word\<rrangle>, \<llangle>8 :: 32 word\<rrangle>, \<llangle>9 :: 32 word\<rrangle>, \<llangle>10 :: 32 word\<rrangle>, \<llangle>11 :: 32 word\<rrangle>, \<llangle>12 :: 32 word\<rrangle>, \<llangle>13 :: 32 word\<rrangle>, \<llangle>14 :: 32 word\<rrangle>, \<llangle>15 :: 32 word\<rrangle>); assert!(tup.6 == \<llangle>6 :: 32 word\<rrangle>); assert!(tup.10 == \<llangle>10 :: 32 word\<rrangle>); assert!(tup.15 == \<llangle>15 :: 32 word\<rrangle>) \<close> = \<lbrakk> let tup = (\<llangle>0 :: 32 word\<rrangle>, \<llangle>1 :: 32 word\<rrangle>, \<llangle>2 :: 32 word\<rrangle>, \<llangle>3 :: 32 word\<rrangle>, \<llangle>4 :: 32 word\<rrangle>, \<llangle>5 :: 32 word\<rrangle>, \<llangle>6 :: 32 word\<rrangle>, \<llangle>7 :: 32 word\<rrangle>, \<llangle>8 :: 32 word\<rrangle>, \<llangle>9 :: 32 word\<rrangle>, \<llangle>10 :: 32 word\<rrangle>, \<llangle>11 :: 32 word\<rrangle>, \<llangle>12 :: 32 word\<rrangle>, \<llangle>13 :: 32 word\<rrangle>, \<llangle>14 :: 32 word\<rrangle>, \<llangle>15 :: 32 word\<rrangle>); assert!(tup.6 == \<llangle>6 :: 32 word\<rrangle>); assert!(tup.10 == \<llangle>10 :: 32 word\<rrangle>); assert!(tup.15 == \<llangle>15 :: 32 word\<rrangle>) \<rbrakk>\<close> by (rule refl)
 lemma \<open> \<mu>\<open> let a = \<llangle>0 :: 32 word\<rrangle>; let b = \<llangle>1 :: 32 word\<rrangle>; let c = \<llangle>2 :: 32 word\<rrangle>; let tup = (a, b, c, (False, True)); assert!(tup.3.0 == False); assert!(tup.3.1 == True); \<close> = \<lbrakk> let a = \<llangle>0 :: 32 word\<rrangle>; let b = \<llangle>1 :: 32 word\<rrangle>; let c = \<llangle>2 :: 32 word\<rrangle>; let tup = (a, b, c, (False, True)); assert!(tup.3.0 == False); assert!(tup.3.1 == True); \<rbrakk>\<close> by (rule refl)
-*)
 lemma \<open> \<mu>\<open> let a = \<llangle>0 :: 32 word\<rrangle>; let b = \<llangle>1 :: 32 word\<rrangle>; let tup = (a, (b, a)); let (aaa, (bbb, ccc)) = tup; assert!(aaa == a); assert!(bbb == b); assert!(ccc == a); \<close> = \<lbrakk> let a = \<llangle>0 :: 32 word\<rrangle>; let b = \<llangle>1 :: 32 word\<rrangle>; let tup = (a, (b, a)); let (aaa, (bbb, ccc)) = tup; assert!(aaa == a); assert!(bbb == b); assert!(ccc == a); \<rbrakk>\<close> by (rule refl)
 lemma \<open> \<mu>\<open> let a = \<llangle>10 :: 32 word\<rrangle>; let b = \<llangle>20 :: 32 word\<rrangle>; let c = \<llangle>30 :: 32 word\<rrangle>; let tup = (a, (b, c)); let (x, (y, z)) = tup; assert!(x == a); assert!(y == b); assert!(z == c) \<close> = \<lbrakk> let a = \<llangle>10 :: 32 word\<rrangle>; let b = \<llangle>20 :: 32 word\<rrangle>; let c = \<llangle>30 :: 32 word\<rrangle>; let tup = (a, (b, c)); let (x, (y, z)) = tup; assert!(x == a); assert!(y == b); assert!(z == c) \<rbrakk>\<close> by (rule refl)
 

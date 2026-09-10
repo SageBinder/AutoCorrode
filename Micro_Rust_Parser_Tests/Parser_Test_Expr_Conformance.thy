@@ -1875,6 +1875,78 @@ urust_expr index_lexical_capture
 
 end
 
+subsection\<open> Numeric tuple projections \<close>
+
+text\<open>
+Canonical unsuffixed decimal projections \<open>.0\<close> through \<open>.15\<close> share the
+left-associative postfix tier and lower directly through the frontend's fixed
+\<open>tuple_index_N\<close> abbreviations. They compose with indexing, prefix operators,
+binary operators, and restricted control-flow heads.
+\<close>
+
+urust_expr tuple_projection_zero
+  \<open> (\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>).0 \<close>
+
+urust_expr tuple_projection_one
+  \<open> (\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>).1 \<close>
+
+urust_expr tuple_projection_ten
+  \<open>
+    (\<llangle>0 :: nat\<rrangle>, \<llangle>1 :: nat\<rrangle>,
+     \<llangle>2 :: nat\<rrangle>, \<llangle>3 :: nat\<rrangle>,
+     \<llangle>4 :: nat\<rrangle>, \<llangle>5 :: nat\<rrangle>,
+     \<llangle>6 :: nat\<rrangle>, \<llangle>7 :: nat\<rrangle>,
+     \<llangle>8 :: nat\<rrangle>, \<llangle>9 :: nat\<rrangle>,
+     \<llangle>10 :: nat\<rrangle>).10
+  \<close>
+
+urust_expr tuple_projection_fifteen
+  \<open>
+    (\<llangle>0 :: nat\<rrangle>, \<llangle>1 :: nat\<rrangle>,
+     \<llangle>2 :: nat\<rrangle>, \<llangle>3 :: nat\<rrangle>,
+     \<llangle>4 :: nat\<rrangle>, \<llangle>5 :: nat\<rrangle>,
+     \<llangle>6 :: nat\<rrangle>, \<llangle>7 :: nat\<rrangle>,
+     \<llangle>8 :: nat\<rrangle>, \<llangle>9 :: nat\<rrangle>,
+     \<llangle>10 :: nat\<rrangle>, \<llangle>11 :: nat\<rrangle>,
+     \<llangle>12 :: nat\<rrangle>, \<llangle>13 :: nat\<rrangle>,
+     \<llangle>14 :: nat\<rrangle>, \<llangle>15 :: nat\<rrangle>).15
+  \<close>
+
+urust_expr tuple_projection_chain
+  \<open>
+    (\<llangle>0 :: nat\<rrangle>, \<llangle>1 :: nat\<rrangle>,
+     \<llangle>2 :: nat\<rrangle>, (false, true)).3.1
+  \<close>
+
+urust_expr tuple_projection_after_index
+  \<open>
+    (\<llangle>[(1 :: nat, (2 :: nat, TNil)),
+               (3 :: nat, (4 :: nat, TNil))]\<rrangle>[0_usize]).1
+  \<close>
+
+urust_expr tuple_projection_before_index
+  \<open>
+    (\<llangle>[1 :: nat, 2]\<rrangle>, true).0[1_usize]
+  \<close>
+
+urust_expr tuple_projection_prefix
+  \<open> !(\<llangle>False\<rrangle>, true).0 \<close>
+
+urust_expr tuple_projection_binary
+  \<open>
+    (\<llangle>1 :: 32 word\<rrangle>, \<llangle>2 :: 32 word\<rrangle>).0 +
+      (\<llangle>3 :: 32 word\<rrangle>, \<llangle>4 :: 32 word\<rrangle>).1
+  \<close>
+
+urust_expr tuple_projection_control_head
+  \<open>
+    if (true, false).0 {
+      \<llangle>1 :: nat\<rrangle>
+    } else {
+      \<llangle>0 :: nat\<rrangle>
+    }
+  \<close>
+
 
 section\<open> Assignment places and test fixtures \<close>
 

@@ -269,6 +269,9 @@ struct
          T.index
            (lower_expression ctxt environment receiver)
            (lower_expression ctxt environment index)
+     | UE_TupleProjection (receiver, index, pos) =>
+         T.tuple_projection pos index
+           (lower_expression ctxt environment receiver)
      | UE_Assign (operator, place, rhs, pos) =>
          let
            val lowered_place =
