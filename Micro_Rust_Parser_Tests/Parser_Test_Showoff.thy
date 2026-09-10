@@ -68,7 +68,7 @@ urust_fn [conformance_check = false] showoff_inline_disabled ::
   ()
   \<open> 3u64 \<close>
 
-urust_fn [verbose = 2] showoff_declared_mix ::
+urust_fn [conformance_check, verbose = 2] showoff_declared_mix ::
   \<open>64 word \<Rightarrow> 64 word \<Rightarrow>
     (unit, 64 word, unit, unit, unit) function_body\<close>
   (left, right)
@@ -82,7 +82,7 @@ urust_expr [verbose = 2] showoff_typed_common ::
   \<open> left * 5u64 + right \<close>
   against \<open> \<lbrakk> left * 5_u64 + right \<rbrakk> \<close>
 
-urust_expr [abbrev = true] showoff_contextual_mix
+urust_expr [abbrev] showoff_contextual_mix
   (left, right)
   \<open> left * 3_u64 + right \<close>
 

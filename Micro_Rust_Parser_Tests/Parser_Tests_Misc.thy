@@ -277,13 +277,13 @@ urust_expr
   \<open> () \<close>
 
 urust_expr
-  [abbrev = true, verbose = 0, conformance_check = true]
+  [abbrev, verbose = 0, conformance_check = true]
   typed_flags_101 ::
   \<open>(unit, unit, unit, unit, unit, unit) expression\<close>
   \<open> () \<close>
 
 urust_expr
-  [conformance_check = true, verbose = 2, abbrev = false]
+  [conformance_check, verbose = 2, abbrev = false]
   typed_flags_110 ::
   \<open>(unit, unit, unit, unit, unit, unit) expression\<close>
   \<open> () \<close>
@@ -295,7 +295,7 @@ urust_expr
   \<open> () \<close>
 
 urust_expr
-  [abbrev = true, conformance_check = true, verbose = 2]
+  [abbrev, conformance_check, verbose = 2]
   typed_function_abbrev_common ::
   \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
   (item)
@@ -313,7 +313,7 @@ locale typed_expression_locale =
 begin
 
 urust_expr
-  [abbrev = true, conformance_check = true]
+  [abbrev, conformance_check]
   typed_local_add ::
   \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit, unit) expression\<close>
   (item)
@@ -1616,7 +1616,8 @@ section\<open> Inline flag combinations \<close>
 text\<open>
 \<open>urust_expr\<close> exercises every Boolean flag combination and all three verbosity levels.
 \<open>urust_fn\<close> exercises both conformance settings at every verbosity level. The option order is
-deliberately varied.
+deliberately varied. Both commands exercise the omitted \<open>= true\<close> shorthand for their Boolean
+options while retaining explicit true and false coverage.
 \<close>
 
 urust_expr
@@ -1635,13 +1636,13 @@ urust_expr
   [verbose = 0, conformance_check = true, abbrev = false]
   inline_expr_100 \<open> () \<close>
 urust_expr
-  [abbrev = true, verbose = 0, conformance_check = true]
+  [abbrev, verbose = 0, conformance_check = true]
   inline_expr_101 \<open> () \<close>
 urust_expr
-  [conformance_check = true, verbose = 2, abbrev = false]
+  [conformance_check, verbose = 2, abbrev = false]
   inline_expr_110 \<open> () \<close>
 urust_expr
-  [verbose = 2, abbrev = true, conformance_check = true]
+  [verbose = 2, abbrev, conformance_check]
   inline_expr_111 \<open> () \<close>
 
 urust_fn
@@ -1657,7 +1658,7 @@ urust_fn
   inline_fun_02 ::
   \<open>(unit, unit, unit, unit, unit) function_body\<close> () \<open> () \<close>
 urust_fn
-  [conformance_check = true, verbose = 0]
+  [conformance_check, verbose = 0]
   inline_fun_10 ::
   \<open>(unit, unit, unit, unit, unit) function_body\<close> () \<open> () \<close>
 urust_fn
@@ -1733,7 +1734,7 @@ urust_expr [conformance_check = true]
   \<open> let item = true; \<llangle>(item, outer :: nat)\<rrangle> \<close>
 
 urust_expr
-  [abbrev = true, conformance_check = true, verbose = 2]
+  [abbrev, conformance_check, verbose = 2]
   nie_contextual_helper
   (address, size)
   \<open> \<llangle>(address :: nat) + size\<rrangle> \<close>
@@ -1743,7 +1744,7 @@ urust_expr contextual_definition_against
   \<open> operand + 1u32 \<close>
   against \<open> \<lbrakk> operand + 1_u32 \<rbrakk> \<close>
 
-urust_expr [abbrev = true]
+urust_expr [abbrev]
   contextual_abbrev_against
   (operand)
   \<open> operand + 2u32 \<close>
@@ -1766,7 +1767,7 @@ locale contextual_flags_locale =
   fixes offset :: nat
 begin
 
-urust_expr [abbrev = true, conformance_check = true]
+urust_expr [abbrev, conformance_check]
   contextual_locale_helper
   (operand)
   \<open> \<llangle>operand + offset\<rrangle> \<close>
@@ -1990,7 +1991,7 @@ ML_val\<open>
       in
         ignore
           (run_command ("flag-recovery-" ^ string_of_int index)
-            ("urust_expr [abbrev = true] recovered_" ^
+            ("urust_expr [abbrev] recovered_" ^
               string_of_int index ^ " " ^ unit_source) ())
       end
 
@@ -2106,6 +2107,22 @@ ML_val\<open>
           "[conformance_check = false] cannot be combined with `against`"
       end
 
+    fun test_shorthand_duplicate flag (case_ as (kind, abbreviation)) =
+      let
+        val label =
+          "shorthand-duplicate-" ^ flag ^ "-" ^ case_label case_
+        val options =
+          if flag = "abbrev" then
+            "[abbrev, abbrev = false]"
+          else
+            option_block kind abbreviation
+              [flag, flag ^ " = false"]
+      in
+        assert_rejected label
+          (command kind options "shorthand_duplicate" "")
+          ("duplicate uRust command option " ^ quote flag)
+      end
+
     fun test_invalid_verbosity (case_ as (kind, abbreviation)) =
       let
         val label =
@@ -2116,6 +2133,18 @@ ML_val\<open>
         assert_rejected label
           (command kind options "invalid_verbosity" "")
           "must be 0, 1, or 2, but found 3"
+      end
+
+    fun test_missing_integer_value (case_ as (kind, abbreviation)) =
+      let
+        val label =
+          "missing-integer-value-" ^ case_label case_
+      in
+        assert_rejected label
+          (command kind
+            (option_block kind abbreviation ["verbose"])
+            "missing_integer_value" "")
+          "expects an integer from 0 to 2"
       end
 
     fun test_wrong_option_type (case_ as (kind, abbreviation)) =
@@ -2149,12 +2178,21 @@ ML_val\<open>
         ["conformance_check", "verbose"]
     val _ =
       List.app (test_duplicate "abbrev") expression_cases
+    val _ =
+      List.app (test_shorthand_duplicate "conformance_check") command_cases
+    val _ =
+      List.app (test_shorthand_duplicate "abbrev") expression_cases
     val _ = List.app test_contradiction command_cases
     val _ = List.app test_invalid_verbosity command_cases
+    val _ = List.app test_missing_integer_value command_cases
     val _ = List.app test_wrong_option_type command_cases
     val _ =
       assert_rejected "function-abbrev-option"
         (command Fn "[abbrev = true]" "function_abbrev" "")
+        "unknown uRust command option \"abbrev\""
+    val _ =
+      assert_rejected "function-bare-abbrev-option"
+        (command Fn "[abbrev]" "function_bare_abbrev" "")
         "unknown uRust command option \"abbrev\""
     val _ =
       assert_rejected "invalid-scoped-verbosity"
@@ -8992,8 +9030,11 @@ ML_val\<open>
         (count_entity Markup.type_nameN registered_type_name
           expected_qualifier = 1)
     val _ =
-      audit_assert "constructor qualifier tconst styling duplicated or disappeared"
-        (count_markup Markup.tconstN expected_qualifier = 1)
+      audit_assert "constructor qualifier keyword3 styling duplicated or disappeared"
+        (count_markup Markup.keyword3N expected_qualifier = 1)
+    val _ =
+      audit_assert "constructor qualifier retained obsolete tconst styling"
+        (count_markup Markup.tconstN expected_qualifier = 0)
     val _ =
       audit_assert "constructor terminal constant entity duplicated or disappeared"
         (count_entity Markup.constantN unary_name expected_terminal = 1)
@@ -9116,11 +9157,11 @@ ML_val\<open>
                       expected_qualifier_position)
                 rejection_markup))
         val _ =
-          audit_assert (label ^ " emitted premature qualifier tconst markup")
+          audit_assert (label ^ " emitted premature qualifier keyword3 markup")
             (not
               (exists
                 (fn (name, properties) =>
-                  name = Markup.tconstN andalso
+                  name = Markup.keyword3N andalso
                     has_position properties
                       expected_qualifier_position)
                 rejection_markup))
@@ -9391,8 +9432,10 @@ ML_val\<open>
          (count_markup Markup.freeN position markup = 0);
        audit_assert (label ^ " lost datatype navigation")
          (count_entity Markup.type_nameN expected_type position markup = 1);
-       audit_assert (label ^ " lost tconst styling")
-         (count_markup Markup.tconstN position markup = 1))
+       audit_assert (label ^ " lost constructor keyword3 styling")
+         (count_markup Markup.keyword3N position markup = 1);
+       audit_assert (label ^ " retained obsolete tconst styling")
+         (count_markup Markup.tconstN position markup = 0))
 
     fun assert_terminal label notation constructor position markup =
       (audit_assert (label ^ " notation entity count changed")
@@ -9472,7 +9515,9 @@ ML_val\<open>
         (fn (label, position) =>
           (audit_assert (label ^ " lost module-like free markup")
              (count_markup Markup.freeN position module_markup = 1);
-           audit_assert (label ^ " acquired datatype styling")
+           audit_assert (label ^ " acquired constructor styling")
+             (count_markup Markup.keyword3N position module_markup = 0);
+           audit_assert (label ^ " acquired obsolete tconst styling")
              (count_markup Markup.tconstN position module_markup = 0);
            audit_assert (label ^ " acquired datatype navigation")
              (count_entity_kind Markup.type_nameN position
@@ -9507,7 +9552,9 @@ ML_val\<open>
         (fn (label, position) =>
           (audit_assert (label ^ " lost free markup")
              (count_markup Markup.freeN position value_markup = 1);
-           audit_assert (label ^ " acquired tconst styling")
+           audit_assert (label ^ " acquired constructor styling")
+             (count_markup Markup.keyword3N position value_markup = 0);
+           audit_assert (label ^ " acquired obsolete tconst styling")
              (count_markup Markup.tconstN position value_markup = 0);
            audit_assert (label ^ " acquired datatype navigation")
              (count_entity_kind Markup.type_nameN position
@@ -9539,7 +9586,9 @@ ML_val\<open>
         (fn (label, position) =>
           (audit_assert (label ^ " lost free markup")
              (count_markup Markup.freeN position call_markup = 1);
-           audit_assert (label ^ " acquired tconst styling")
+           audit_assert (label ^ " acquired constructor styling")
+             (count_markup Markup.keyword3N position call_markup = 0);
+           audit_assert (label ^ " acquired obsolete tconst styling")
              (count_markup Markup.tconstN position call_markup = 0);
            audit_assert (label ^ " acquired datatype navigation")
              (count_entity_kind Markup.type_nameN position
@@ -9579,9 +9628,13 @@ ML_val\<open>
         (count_entity Markup.type_nameN right_type_name
           families_qualifier families_markup = 1)
     val _ =
-      audit_assert "multi-backend datatype styling did not cover both families"
-        (count_markup Markup.tconstN families_qualifier
+      audit_assert "multi-backend constructor styling did not cover both families"
+        (count_markup Markup.keyword3N families_qualifier
           families_markup = 2)
+    val _ =
+      audit_assert "multi-backend qualifier retained obsolete tconst styling"
+        (count_markup Markup.tconstN families_qualifier
+          families_markup = 0)
     val _ =
       audit_assert "multi-backend notation entity count changed"
         (count_entity Micro_Rust_Names.notationN "Families::Variant"

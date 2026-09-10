@@ -61,7 +61,10 @@ output.
 The option parser is parameterized by a command-specific schema. Both commands accept Boolean
 \<open>conformance_check\<close> and integer \<open>verbose\<close>; only \<open>urust_expr\<close> accepts Boolean
 \<open>abbrev\<close>. These short names are inline-only aliases for the globally prefixed configurations.
-Options may appear in any order.
+Options may appear in any order. For Boolean options, omitting \<open>= true\<close> enables the option, so
+both commands accept \<open>[conformance_check]\<close> and \<open>urust_expr\<close> also accepts
+\<open>[abbrev]\<close>. Explicit \<open>= true\<close> and \<open>= false\<close> remain available; integer options always
+require a value.
 \<close>
 ML\<open>
 signature URUST_COMMAND =
@@ -155,7 +158,7 @@ fun option_type_error name expected pos =
       Position.here pos)
 
 fun add_inline_option option_configs
-    ((name, name_pos), (value, value_pos)) options =
+    ((name, name_pos), value) options =
   (case Symtab.lookup option_configs name of
      NONE =>
        error
@@ -171,13 +174,17 @@ fun add_inline_option option_configs
          let
            val checked_value =
              (case (config, value) of
-                (Boolean_Config _, Boolean_Value enabled) =>
+                (Boolean_Config _, NONE) =>
+                  Boolean_Value true
+              | (Integer_Config _, NONE) =>
+                  option_type_error name "an integer from 0 to 2" name_pos
+              | (Boolean_Config _, SOME (Boolean_Value enabled, _)) =>
                   Boolean_Value enabled
-              | (Integer_Config _, Integer_Value level) =>
+              | (Integer_Config _, SOME (Integer_Value level, value_pos)) =>
                   Integer_Value (validate_verbosity value_pos level)
-              | (Boolean_Config _, Integer_Value _) =>
+              | (Boolean_Config _, SOME (Integer_Value _, value_pos)) =>
                   option_type_error name "true or false" value_pos
-              | (Integer_Config _, Boolean_Value _) =>
+              | (Integer_Config _, SOME (Boolean_Value _, value_pos)) =>
                   option_type_error name "an integer from 0 to 2" value_pos)
          in Symtab.update (name, (checked_value, name_pos)) options end)
 
@@ -794,7 +801,8 @@ val parse_option_value =
     (fn (level, pos) => (Integer_Value level, pos))
 
 val parse_inline_option =
-  (Parse.name_position --| Parse.$$$ "=") -- parse_option_value
+  Parse.name_position --
+    Scan.option (Parse.$$$ "=" |-- parse_option_value)
 
 fun parse_command_options option_configs =
   Scan.optional

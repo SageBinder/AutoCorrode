@@ -159,8 +159,8 @@ ML\<open>
     Registered notation is represented by the existing dispatch marker; unregistered names retain
     Syntax.parse_term behavior. For an exact registered literal path whose complete backend matches
     genuine Ctr_Sugar constructor metadata, the nearest qualifier reports every distinct datatype
-    family while earlier module-like qualifiers remain free; registered nonconstructors and calls
-    retain free qualifiers.
+    family with the constructor's keyword styling while earlier module-like qualifiers remain free;
+    registered nonconstructors and calls retain free qualifiers.
 
   - constructor_info and constructor_resolver are abstract. make_constructor_resolver snapshots the
     context's non-record Ctr_Sugar constructors, constructor families/selectors, and HOL record names
@@ -434,7 +434,7 @@ struct
           val type_space = Proof_Context.type_space ctxt
         in
           List.app (Context_Position.report ctxt pos)
-            [Name_Space.markup type_space family, Markup.tconst]
+            [Name_Space.markup type_space family, Markup.keyword3]
         end
     in
       (case rev qualifiers of
