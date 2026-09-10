@@ -1,14 +1,12 @@
-(* Positive conformance against the inner-syntax frontend. Each `urust_expr` command
-   defines its expression and proves it alpha-equal to `\<lbrakk> src \<rbrakk>` by `refl`. Type
-   annotations avoid hidden type variables that `Local_Theory.define` cannot expose cleanly. *)
+(* Positive expression conformance against the legacy inner-syntax frontend. *)
 
-theory Parser_Test_Expr_Conformance
+theory Parser_Tests_Expr
   imports Micro_Rust_Parser_Impl.Parser_Impl_Command "HOL.Real"
 begin
 
 declare [[urust_conformance_check = true]]
 
-section\<open> Numeric literals (Corpus PART I, "Numeric Literals") \<close>
+section\<open>Numeric literals (Corpus PART I, "Numeric Literals")\<close>
 
 urust_expr lit_0  \<open> 0 \<close>
 
@@ -21,7 +19,7 @@ urust_expr lit_42 \<open> 42 \<close>
 urust_expr lit_hex \<open> 0xff \<close>
 
 
-section\<open> Suffixed integer literals (Corpus PART I, "Numeric Ascriptions") \<close>
+section\<open>Suffixed integer literals (Corpus PART I, "Numeric Ascriptions")\<close>
 
 urust_expr lit_0_u8  \<open> 0_u8 \<close>
 
@@ -54,12 +52,12 @@ urust_expr lit_1_usize \<open> 1_usize \<close>
 urust_expr lit_0xf_usize \<open> 0xffffffff0_usize \<close>
 
 
-section\<open> Unit (Corpus PART I, "Unit Literal") \<close>
+section\<open>Unit (Corpus PART I, "Unit Literal")\<close>
 
 urust_expr lit_unit \<open> () \<close>
 
 
-section\<open> Boolean and string literals \<close>
+section\<open>Boolean and string literals\<close>
 
 urust_expr lit_bool_true \<open> true \<close>
 
@@ -76,7 +74,7 @@ urust_expr lit_string_backslash \<open> "a\\b" \<close>
 urust_expr lit_string_line_comment_text \<open> "https://example.invalid//path" \<close>
 
 
-section\<open> Value antiquotation \<open>\<llangle>_\<rrangle>\<close> (Corpus PART I, "HOL Value Injection") \<close>
+section\<open>Value antiquotation \<open>\<llangle>_\<rrangle>\<close> (Corpus PART I, "HOL Value Injection")\<close>
 
 text\<open> A HOL value lifted to a µRust literal; word widths 8 / 32 / 64, a boolean, and a compound value. \<close>
 
@@ -95,7 +93,7 @@ urust_expr lit_aq_some \<open> \<llangle>Some (0 :: nat)\<rrangle> \<close>
 urust_expr lit_aq_line_comment_text \<open> \<llangle>''// value''\<rrangle> \<close>
 
 
-section\<open> Expression antiquotation \<open>\<epsilon>\<open>_\<close>\<close> (Corpus PART I, "Boolean Literals") \<close>
+section\<open>Expression antiquotation \<open>\<epsilon>\<open>_\<close>\<close> (Corpus PART I, "Boolean Literals")\<close>
 
 text\<open> Passthrough (no \<open>literal\<close> wrapper): the body already denotes an \<open>expression\<close>. \<close>
 
@@ -111,7 +109,7 @@ urust_expr aq_nested_expr
   \<open> \<epsilon>\<open> \<lbrakk> \<epsilon>\<open>\<up>(1 :: nat)\<close> \<rbrakk> \<close> \<close>
 
 
-section\<open> Bare identifiers at value position (dispatch reuse) \<close>
+section\<open>Bare identifiers at value position (dispatch reuse)\<close>
 
 text\<open>
 For unregistered HOL constants, \<open>check_term\<close> promotes the parser's bare
@@ -138,7 +136,6 @@ an explicit parameter list or abbreviation mode.
 
 urust_expr lit_open \<open> x + y \<close>
 
-term \<open>lit_open x y\<close>
 thm lit_open_def
 thm lit_open_conformance
 
@@ -151,7 +148,7 @@ micro_rust_notation (literal) my_backend ("myReg")
 urust_expr lit_reg \<open> myReg \<close>
 
 
-section\<open> Sequencing, `let` and `const` bindings \<close>
+section\<open>Sequencing, `let` and `const` bindings\<close>
 
 text\<open>
 \<open>e1; e2\<close> lowers to \<open>sequence e1 e2\<close>; a trailing semicolon
@@ -203,10 +200,10 @@ urust_expr let_wild_hyg \<open> let uu = \<llangle>5 :: nat\<rrangle>; let _ = \
 
 text\<open>
 Refutable binding patterns and forms excluded by a consumer-specific pattern policy have positioned
-rows in \<open>Parser_Test_Negative_Conformance.thy\<close>.
+rows in \<open>Parser_Tests_Misc.thy\<close>.
 \<close>
 
-section\<open> Tuple values and irrefutable tuple binders \<close>
+section\<open>Tuple values and irrefutable tuple binders\<close>
 
 text\<open>
 Tuple values lower to the frontend's right-nested product ending in \<open>TNil\<close>.
@@ -247,7 +244,7 @@ urust_expr tuple_let_antiquotation
   \<open> let (x, y) = (\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>); \<llangle>x + y\<rrangle> \<close>
 
 
-section\<open> References and mutable bindings \<close>
+section\<open>References and mutable bindings\<close>
 
 definition parser_reference_fixture ::
   \<open>'v \<Rightarrow> (unit, (unit, unit, 'v) Global_Store.ref, unit, unit, unit) function_body\<close>
@@ -260,7 +257,7 @@ definition parser_dereference_fixture ::
 adhoc_overloading store_reference_const \<rightleftharpoons> parser_reference_fixture
 adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
 
-subsection\<open> Mutable allocation and binders \<close>
+subsection\<open>Mutable allocation and binders\<close>
 
 urust_expr mut_scalar
   \<open> let mut x = \<llangle>0 :: 32 word\<rrangle>; x \<close>
@@ -285,7 +282,7 @@ urust_expr mut_borrow_chain
     xw
   \<close>
 
-subsection\<open> Borrow, dereference, and precedence \<close>
+subsection\<open>Borrow, dereference, and precedence\<close>
 
 context
   fixes r :: \<open>(unit, unit, 32 word) Global_Store.ref\<close>
@@ -336,13 +333,13 @@ no_adhoc_overloading store_reference_const \<rightleftharpoons> parser_reference
 no_adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
 
 
-section\<open> Pure-value operators (Corpus PART I: Arithmetic / Bitwise / Comparison / Boolean) \<close>
+section\<open>Pure-value operators (Corpus PART I: Arithmetic / Bitwise / Comparison / Boolean)\<close>
 
 text\<open>
 Binary operators lower to the frontend constants; value antiquotations pin word types.
 \<close>
 
-subsection\<open> Arithmetic \<close>
+subsection\<open>Arithmetic\<close>
 
 urust_expr op_add \<open> \<llangle>1 :: 32 word\<rrangle> + \<llangle>2 :: 32 word\<rrangle> \<close>
 
@@ -359,7 +356,7 @@ urust_expr op_mod \<open> \<llangle>7 :: 32 word\<rrangle> % \<llangle>3 :: 32 w
 text\<open> Precedence: \<open>*\<close> binds tighter than \<open>+\<close>, so this parses as \<open>a + (b * c)\<close>. \<close>
 urust_expr op_precmul \<open> \<llangle>1 :: 32 word\<rrangle> + \<llangle>2 :: 32 word\<rrangle> * \<llangle>3 :: 32 word\<rrangle> \<close>
 
-subsection\<open> Bitwise and shifts (shift RHS is a \<open>64 word\<close>) \<close>
+subsection\<open>Bitwise and shifts (shift RHS is a \<open>64 word\<close>)\<close>
 
 urust_expr op_band \<open> \<llangle>6 :: 32 word\<rrangle> & \<llangle>3 :: 32 word\<rrangle> \<close>
 
@@ -371,7 +368,7 @@ urust_expr op_shl \<open> \<llangle>1 :: 32 word\<rrangle> << \<llangle>4 :: 64 
 
 urust_expr op_shr \<open> \<llangle>16 :: 32 word\<rrangle> >> \<llangle>2 :: 64 word\<rrangle> \<close>
 
-subsection\<open> Comparison (non-associative; word operands, boolean-expression result) \<close>
+subsection\<open>Comparison (non-associative; word operands, boolean-expression result)\<close>
 
 urust_expr op_lt \<open> \<llangle>1 :: 32 word\<rrangle> < \<llangle>2 :: 32 word\<rrangle> \<close>
 
@@ -385,7 +382,7 @@ urust_expr op_eq \<open> \<llangle>1 :: 32 word\<rrangle> == \<llangle>1 :: 32 w
 
 urust_expr op_ne \<open> \<llangle>1 :: 32 word\<rrangle> != \<llangle>2 :: 32 word\<rrangle> \<close>
 
-subsection\<open> Boolean connectives and unary \<open>!\<close> (all four truth-table rows each; \<open>!!\<close> = \<open>!(!_)\<close>) \<close>
+subsection\<open>Boolean connectives and unary \<open>!\<close> (all four truth-table rows each; \<open>!!\<close> = \<open>!(!_)\<close>)\<close>
 
 urust_expr op_and \<open> True && False \<close>
 
@@ -414,7 +411,7 @@ urust_expr op_prec \<open> \<llangle>True\<rrangle> || \<llangle>True\<rrangle> 
 
 urust_expr op_mixed \<open> !(\<llangle>1 :: 32 word\<rrangle> == \<llangle>2 :: 32 word\<rrangle>) \<close>
 
-subsection\<open> Let-bound variables as operator operands (bound-var use in operator position) \<close>
+subsection\<open>Let-bound variables as operator operands (bound-var use in operator position)\<close>
 
 urust_expr ext_let_add \<open> let a = \<llangle>1 :: 32 word\<rrangle>; let b = \<llangle>2 :: 32 word\<rrangle>; a + b \<close>
 
@@ -440,7 +437,7 @@ urust_expr ext_let_not \<open> let a = \<llangle>0x00 :: 8 word\<rrangle>; !a \<
 
 urust_expr ext_let_cmp \<open> let a = \<llangle>1 :: 32 word\<rrangle>; let b = \<llangle>2 :: 32 word\<rrangle>; a < b \<close>
 
-subsection\<open> Context-fixed variables as operator operands \<close>
+subsection\<open>Context-fixed variables as operator operands\<close>
 context fixes m n :: \<open>nat\<close> and x y :: \<open>64 word\<close> and w :: \<open>32 word\<close>
 begin
 
@@ -466,7 +463,7 @@ urust_expr ext_not_add \<open> !x + y \<close>
 urust_expr ext_not_nested \<open> !(!x == x^y) \<close>
 end
 
-subsection\<open> Precedence and associativity \<close>
+subsection\<open>Precedence and associativity\<close>
 
 text\<open>
 Rows cover every adjacent frontend precedence tier, from \<open>||\<close> (42) through
@@ -509,7 +506,7 @@ urust_expr prec_not_cmp \<open> !\<llangle>True\<rrangle> == \<llangle>False\<rr
   \<comment>\<open> (!a) == b : prefix ! tighter than == \<close>
 
 
-section\<open> Block expressions (Corpus "Scoping and Block Expressions") \<close>
+section\<open>Block expressions (Corpus "Scoping and Block Expressions")\<close>
 
 text\<open>
 Because frontend \<open>_urust_scoping\<close> is the identity (SE:360-362), blocks
@@ -538,7 +535,7 @@ urust_expr ext_blk_operand_r \<open> \<llangle>1 :: 32 word\<rrangle> + { \<llan
 urust_expr ext_not_blk \<open> !{ \<llangle>True\<rrangle> } \<close>
 
 
-section\<open> Unsafe blocks \<close>
+section\<open>Unsafe blocks\<close>
 
 text\<open>
 Unsafe blocks are a distinct block-like grammar category but reuse ordinary block
@@ -564,7 +561,7 @@ urust_expr unsafe_statement
   \<open> unsafe { () } () \<close>
 
 
-section\<open> \<open>if\<close> / \<open>else\<close> (Corpus "Control Flow - Conditionals") \<close>
+section\<open>\<open>if\<close> / \<open>else\<close> (Corpus "Control Flow - Conditionals")\<close>
 
 text\<open>
 Two-armed \<open>if\<close> lowers to \<open>two_armed_conditional\<close>. A missing else becomes
@@ -605,7 +602,7 @@ urust_expr ext_let_if \<open> let x = if \<llangle>True\<rrangle> { \<llangle>1 
 urust_expr ext_seq_if \<open> { if \<llangle>True\<rrangle> { () } else { () }; () } \<close>
 
 
-section\<open> Function calls (Corpus "Functions", "Option and Result") \<close>
+section\<open>Function calls (Corpus "Functions", "Option and Result")\<close>
 
 text\<open>
 Calls lower to \<open>funcallN\<close>; callees resolve in NFunction context without a
@@ -661,7 +658,7 @@ Registered callees use NFunction dispatch. Rows cover a local notation and the
 micro_rust_notation (call) cf1 ("regCall")
 urust_expr call_reg \<open> regCall(\<llangle>3 :: 64 word\<rrangle>) \<close>
 
-subsection\<open> Registered paths \<close>
+subsection\<open>Registered paths\<close>
 
 definition path_literal_42 :: nat where
   \<open> path_literal_42 \<equiv> 42 \<close>
@@ -719,7 +716,7 @@ urust_expr path_followed_by_propagation
 urust_expr path_followed_by_method
   \<open> Path::Seed.cf1() \<close>
 
-subsection\<open> Path patterns \<close>
+subsection\<open>Path patterns\<close>
 
 datatype path_pattern_fixture =
     PathSome nat
@@ -852,7 +849,7 @@ urust_expr path_switch_key
     }
   \<close>
 
-subsection\<open> Contextual bare-match routing \<close>
+subsection\<open>Contextual bare-match routing\<close>
 
 text\<open>
 Exact registered nonconstructor values support both case and switch lowering. A numeral makes case
@@ -923,7 +920,7 @@ urust_expr match_explicit_registered_constructor_switch
     }
   \<close>
 
-subsection\<open> Semantic turbofish \<close>
+subsection\<open>Semantic turbofish\<close>
 
 definition turbofish_ignore_one ::
   \<open>nat \<Rightarrow> 64 word \<Rightarrow>
@@ -945,7 +942,7 @@ definition turbofish_real_one ::
     (unit, 64 word, unit, unit, unit) function_body\<close>
   where \<open> turbofish_real_one _ \<equiv> cf1 \<close>
 
-subsubsection\<open> Basic calls and methods \<close>
+subsubsection\<open>Basic calls and methods\<close>
 
 context
   fixes tf0 :: \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
@@ -968,7 +965,7 @@ urust_expr turbofish_method
 
 end
 
-subsubsection\<open> Restricted arithmetic payloads \<close>
+subsubsection\<open>Restricted arithmetic payloads\<close>
 
 urust_expr turbofish_arithmetic_payload
   \<open>
@@ -993,7 +990,7 @@ urust_expr turbofish_parenthesized_addition
   \<open> turbofish_int_one::<(a + b) + c>(\<llangle>3 :: 64 word\<rrangle>) \<close>
 end
 
-subsubsection\<open> Scope and expression composition \<close>
+subsubsection\<open>Scope and expression composition\<close>
 
 context
   fixes context_parameter :: nat
@@ -1049,7 +1046,7 @@ urust_expr turbofish_branch_and_operator
     }
   \<close>
 
-subsubsection\<open> Ordinary-call arity boundaries \<close>
+subsubsection\<open>Ordinary-call arity boundaries\<close>
 
 context
   fixes generic_call14 :: \<open>
@@ -1079,7 +1076,7 @@ urust_expr turbofish_method13
   \<close>
 end
 
-subsubsection\<open> Qualified bases and exact registrations \<close>
+subsubsection\<open>Qualified bases and exact registrations\<close>
 
 definition generic_cf1 ::
   \<open>nat \<Rightarrow> 64 word \<Rightarrow>
@@ -1099,7 +1096,7 @@ urust_expr turbofish_exact_registration_wins
     )
   \<close>
 
-subsection\<open> Constructors and lexical callees \<close>
+subsection\<open>Constructors and lexical callees\<close>
 
 urust_expr call_some \<open> Some(\<llangle>42 :: nat\<rrangle>) \<close>
 
@@ -1131,7 +1128,7 @@ urust_expr call_gunitbool \<open> ug((), True) \<close>
 end
 
 
-section\<open> Method calls (Corpus "Method-Style Calls") \<close>
+section\<open>Method calls (Corpus "Method-Style Calls")\<close>
 
 text\<open>
 Method syntax prepends the receiver to a plain NFunction call (SE:380-381,
@@ -1173,7 +1170,7 @@ urust_expr mcall_if \<open> if m.h() == n { m } else { n } \<close>
 end
 
 
-section\<open> Second-class closures \<close>
+section\<open>Second-class closures\<close>
 
 text\<open>
 Closures retain the frontend's priority-20 body boundary and lower to one literal-wrapped
@@ -1181,7 +1178,7 @@ HOL abstraction around one \<open>FunctionBody\<close>. Formal allocation is ind
 arity: repeated names are legal, and each later occurrence shadows its predecessors.
 \<close>
 
-subsection\<open> Formal lists, body forms, and shadowing \<close>
+subsection\<open>Formal lists, body forms, and shadowing\<close>
 
 urust_expr closure_zero_formals
   \<open> || \<llangle>1 :: nat\<rrangle> \<close>
@@ -1253,7 +1250,7 @@ urust_expr closure_outer_capture
     |x, x| \<llangle>outer + x\<rrangle>
   \<close>
 
-subsection\<open> Antiquotation capture from every binder family \<close>
+subsection\<open>Antiquotation capture from every binder family\<close>
 
 definition closure_invoke_nat ::
     \<open>nat \<Rightarrow>
@@ -1361,7 +1358,7 @@ urust_expr closure_capture_expression_antiquotation
     )
   \<close>
 
-subsection\<open> Literal, function, method, and field resolution roles \<close>
+subsection\<open>Literal, function, method, and field resolution roles\<close>
 
 definition closure_role_literal :: nat
   where \<open> closure_role_literal \<equiv> 19 \<close>
@@ -1479,7 +1476,7 @@ urust_expr closure_existing_let_unregistered_method
 
 end
 
-subsection\<open> Shared frontend placement and bar-token ambiguity \<close>
+subsection\<open>Shared frontend placement and bar-token ambiguity\<close>
 
 urust_expr closure_binding_continuation
   \<open>
@@ -1553,9 +1550,9 @@ urust_expr closure_bar_newline_boundaries
 end
 
 
-section\<open> Postfix propagation and field access \<close>
+section\<open>Postfix propagation and field access\<close>
 
-subsection\<open> Error propagation \<close>
+subsection\<open>Error propagation\<close>
 
 context
   fixes opt :: \<open>nat option\<close>
@@ -1589,7 +1586,7 @@ urust_expr postfix_unary_precedence \<open> !flag? \<close>
 urust_expr postfix_binary_precedence \<open> lhs? + rhs \<close>
 end
 
-subsection\<open> Field registrations and composition \<close>
+subsection\<open>Field registrations and composition\<close>
 
 datatype_record postfix_default =
   postfix_default_value :: \<open>64 word\<close>
@@ -1654,7 +1651,7 @@ end
 no_adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
 
 
-section\<open> Bounded ranges \<close>
+section\<open>Bounded ranges\<close>
 
 text\<open>
 Exclusive and inclusive ranges sit between logical disjunction and assignment.
@@ -1685,9 +1682,9 @@ urust_expr range_for
 end
 
 
-section\<open> Array literals and indexing \<close>
+section\<open>Array literals and indexing\<close>
 
-subsection\<open> Array literals \<close>
+subsection\<open>Array literals\<close>
 
 urust_expr array_empty \<open> [] \<close>
 
@@ -1766,7 +1763,7 @@ urust_expr array_nonempty_mut_borrow_erased
 urust_expr array_nested_borrow_erased
   \<open> &[[\<llangle>1 :: 32 word\<rrangle>], [\<llangle>2 :: 32 word\<rrangle>]] \<close>
 
-subsection\<open> Value indexing and postfix composition \<close>
+subsection\<open>Value indexing and postfix composition\<close>
 
 text\<open>
 The frontend composes indexing directly with another index or field access. A
@@ -1875,7 +1872,7 @@ urust_expr index_lexical_capture
 
 end
 
-subsection\<open> Numeric tuple projections \<close>
+subsection\<open>Numeric tuple projections\<close>
 
 text\<open>
 Canonical unsuffixed decimal projections \<open>.0\<close> through \<open>.15\<close> share the
@@ -1948,7 +1945,7 @@ urust_expr tuple_projection_control_head
   \<close>
 
 
-section\<open> Assignment places and test fixtures \<close>
+section\<open>Assignment places and test fixtures\<close>
 
 text\<open>
 The definitions below provide typed constants for ad-hoc overload resolution in
@@ -1983,7 +1980,7 @@ adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereferenc
 adhoc_overloading store_update_const \<rightleftharpoons> parser_update_fixture
 adhoc_overloading assign_add_const \<rightleftharpoons> parser_assign_add_fixture
 
-subsection\<open> Identifier, grouping, and dereference places \<close>
+subsection\<open>Identifier, grouping, and dereference places\<close>
 
 context
   fixes r :: \<open>(unit, unit, 32 word) Global_Store.ref\<close>
@@ -2019,7 +2016,7 @@ end
 
 urust_expr assign_notation_target \<open> assignmentPlace = \<llangle>7 :: 32 word\<rrangle> \<close>
 
-subsection\<open> Indexed places \<close>
+subsection\<open>Indexed places\<close>
 
 context
   fixes references :: \<open>(unit, unit, 32 word) Global_Store.ref list\<close>
@@ -2045,7 +2042,7 @@ urust_expr assign_index_sequence
 
 end
 
-subsection\<open> Associativity and composition \<close>
+subsection\<open>Associativity and composition\<close>
 
 context
   fixes outer :: \<open>(unit, unit, unit) Global_Store.ref\<close>
@@ -2077,7 +2074,7 @@ urust_expr assign_mutable_binding
 
 end
 
-subsection\<open> Field places \<close>
+subsection\<open>Field places\<close>
 
 context
   fixes rp :: \<open>(unit, unit, postfix_outer) Global_Store.ref\<close>
@@ -2094,9 +2091,9 @@ urust_expr assign_deref_field_chain \<open> *rp.inner.value = field_value \<clos
 
 end
 
-section\<open> Compound assignment \<close>
+section\<open>Compound assignment\<close>
 
-subsection\<open> Supported operators and places \<close>
+subsection\<open>Supported operators and places\<close>
 
 context
   fixes r :: \<open>(unit, unit, 32 word) Global_Store.ref\<close>
@@ -2183,7 +2180,7 @@ urust_expr compound_field_chain \<open> rp.inner.value %= field_value \<close>
 
 end
 
-subsection\<open> Mutable locals, associativity, and control-flow boundaries \<close>
+subsection\<open>Mutable locals, associativity, and control-flow boundaries\<close>
 
 context
   fixes a b :: \<open>32 word\<close>
@@ -2225,14 +2222,14 @@ no_adhoc_overloading store_update_const \<rightleftharpoons> parser_update_fixtu
 no_adhoc_overloading assign_add_const \<rightleftharpoons> parser_assign_add_fixture
 
 
-section\<open> Cross-feature robustness (calls / methods x operators / control-flow / binders) \<close>
+section\<open>Cross-feature robustness (calls / methods x operators / control-flow / binders)\<close>
 
 text\<open>
 Cross-feature rows stress call/method precedence, binder capture in arguments and
 receivers, and deep nesting. Concrete callees and pinned arguments satisfy R1.
 \<close>
 
-subsection\<open> Calls as / with operators (precedence) \<close>
+subsection\<open>Calls as / with operators (precedence)\<close>
 
 urust_expr rc_arg_op \<open> cf1(\<llangle>1 :: 64 word\<rrangle> + \<llangle>2 :: 64 word\<rrangle>) \<close>
 
@@ -2242,7 +2239,7 @@ urust_expr rc_call_times \<open> cf2(\<llangle>1 :: 64 word\<rrangle>, \<llangle
 
 urust_expr rc_bang_cmp \<open> !(cf1(\<llangle>1 :: 64 word\<rrangle>) == cf1(\<llangle>2 :: 64 word\<rrangle>)) \<close>
 
-subsection\<open> Calls in control-flow and binder positions \<close>
+subsection\<open>Calls in control-flow and binder positions\<close>
 
 urust_expr rc_call_let \<open> let r = cf1(\<llangle>7 :: 64 word\<rrangle>); r \<close>
 
@@ -2252,19 +2249,19 @@ urust_expr rc_call_block \<open> { cf0(); cf1(\<llangle>1 :: 64 word\<rrangle>) 
 
 urust_expr rc_if_arg \<open> cf1((if \<llangle>True\<rrangle> { \<llangle>1 :: 64 word\<rrangle> } else { \<llangle>2 :: 64 word\<rrangle> })) \<close>
 
-subsection\<open> Deep argument nesting \<close>
+subsection\<open>Deep argument nesting\<close>
 
 urust_expr rc_deep3 \<open> cf1(cf1(cf1(\<llangle>1 :: 64 word\<rrangle>))) \<close>
 
 urust_expr rc_two_call_args \<open> cf2(cf2(\<llangle>1 :: 64 word\<rrangle>, \<llangle>2 :: 64 word\<rrangle>), cf1(\<llangle>3 :: 64 word\<rrangle>)) \<close>
 
-subsection\<open> Binder capture inside call / method arguments \<close>
+subsection\<open>Binder capture inside call / method arguments\<close>
 
 urust_expr rc_cap_args \<open> let a = \<llangle>10 :: 64 word\<rrangle>; let b = \<llangle>20 :: 64 word\<rrangle>; cf2(\<llangle>a\<rrangle>, \<llangle>b\<rrangle>) \<close>
 
 urust_expr rc_mcall_let_recv \<open> let x = \<llangle>5 :: 64 word\<rrangle>; x.cf1() \<close>
 
-subsection\<open> Method calls x nesting / precedence \<close>
+subsection\<open>Method calls x nesting / precedence\<close>
 
 urust_expr rc_mchain2 \<open> \<llangle>1 :: 64 word\<rrangle>.cf2(\<llangle>2 :: 64 word\<rrangle>).cf1() \<close>
 
@@ -2275,7 +2272,7 @@ urust_expr rc_m_call_arg \<open> \<llangle>1 :: 64 word\<rrangle>.cf2(cf1(\<llan
 urust_expr rc_m_prec \<open> \<llangle>1 :: 64 word\<rrangle>.cf1() + \<llangle>2 :: 64 word\<rrangle> * \<llangle>3 :: 64 word\<rrangle> \<close>
 
 
-section\<open> Match \<open>match_switch\<close> (Corpus "Match Expressions" -- first-order keys) \<close>
+section\<open>Match \<open>match_switch\<close> (Corpus "Match Expressions" -- first-order keys)\<close>
 
 text\<open>
 \<open>match_switch\<close> binds the scrutinee into \<open>ncase_selector\<close> (D26).
@@ -2301,7 +2298,7 @@ urust_expr msw_or \<open> match_switch n { 1 | 2 | 3 \<Rightarrow> \<llangle>Tru
 text\<open>
 Rows cover a let RHS and the frontend-shared statement spelling, where explicit
 \<open>match_switch\<close> uses a semicolon. The dedicated parser's semicolon-free extension is checked
-against this spelling in \<open>Parser_Test_Improvements.thy\<close>.
+against this spelling in \<open>Parser_Tests_Improvements.thy\<close>.
 \<close>
 urust_expr msw_let \<open> let r = match_switch n { 0 \<Rightarrow> \<llangle>True\<rrangle>, _ \<Rightarrow> \<llangle>False\<rrangle> }; r \<close>
 
@@ -2309,7 +2306,7 @@ urust_expr msw_stmt \<open> match_switch n { 0 \<Rightarrow> () , _ \<Rightarrow
 end
 
 
-section\<open> Match \<open>match_case\<close> (Corpus "Match Expressions" -- binding patterns, D27) \<close>
+section\<open>Match \<open>match_case\<close> (Corpus "Match Expressions" -- binding patterns, D27)\<close>
 
 text\<open>
 \<open>match_case\<close> builds the Ctr_Sugar skeleton that \<open>Case_Translation\<close>
@@ -2352,11 +2349,11 @@ urust_expr mc_let \<open> let r = match_case x { Some(y) \<Rightarrow> y, None \
 
 text\<open>
 As a \<open>;\<close>-terminated statement shared with the frontend. The dedicated parser also admits
-semicolon-free explicit matches, with equivalence witnesses in \<open>Parser_Test_Improvements.thy\<close>.
+semicolon-free explicit matches, with equivalence witnesses in \<open>Parser_Tests_Improvements.thy\<close>.
 \<close>
 urust_expr mc_stmt \<open> match_case x { Some(_) \<Rightarrow> () , None \<Rightarrow> () } ; () \<close>
 
-subsection\<open> Anonymous-binder hygiene \<close>
+subsection\<open>Anonymous-binder hygiene\<close>
 
 text\<open>
 Wildcards and desugaring binders use \<open>Abs\<close>/\<open>Bound\<close>, preventing name capture.
@@ -2380,7 +2377,7 @@ urust_expr mc_hyg_sibling \<open> match_case p { P2(uu, _) \<Rightarrow> \<llang
 end
 
 
-section\<open> Rich case-pattern lowering \<close>
+section\<open>Rich case-pattern lowering\<close>
 
 text\<open>
 Case arms are normalized in stages: recursive disjunction expansion, recursive
@@ -2388,7 +2385,7 @@ constructor compilation, and ordered guard fall-through. Case numerals remain
 frontend-fidelity rejections. The first rows are positive witnesses for formerly rejected D-7 forms.
 \<close>
 
-subsection\<open> Former D-7 surface \<close>
+subsection\<open>Former D-7 surface\<close>
 
 urust_expr rich_explicit_nested
   \<open> match_case \<llangle>Some (Some (0 :: nat))\<rrangle> { Some(Some(y)) \<Rightarrow> (), _ \<Rightarrow> () } \<close>
@@ -2402,7 +2399,7 @@ urust_expr rich_bare_nested
 urust_expr rich_bare_or
   \<open> match \<llangle>Some (0 :: nat)\<rrangle> { Some(_) | None \<Rightarrow> () } \<close>
 
-subsection\<open> Equal-binder or-patterns \<close>
+subsection\<open>Equal-binder or-patterns\<close>
 
 datatype binder_or_fixture =
     BinderOrA nat nat
@@ -2441,7 +2438,7 @@ urust_expr rich_or_nested_slice_repositioning
     }
   \<close>
 
-subsection\<open> Guards \<close>
+subsection\<open>Guards\<close>
 
 context fixes x :: \<open>32 word option\<close>
 begin
@@ -2469,7 +2466,7 @@ urust_expr rich_guard_match
 
 end
 
-subsection\<open> Full guard bodies \<close>
+subsection\<open>Full guard bodies\<close>
 
 text\<open>
 The old frontend gives a match guard the complete \<open>urust\<close> category. The dedicated grammar
@@ -2636,7 +2633,7 @@ urust_expr guard_body_return_unit_legacy
     }
   \<close>
 
-subsection\<open> Disjunction expansion \<close>
+subsection\<open>Disjunction expansion\<close>
 
 datatype rich_case = RMA "32 word" | RMB "32 word" | RMD "32 word" | RMC
 datatype rich_leaf = RLA | RLB | RLC
@@ -2662,7 +2659,7 @@ urust_expr rich_or_three_nested_slot
 
 end
 
-subsection\<open> Recursive constructors and capture \<close>
+subsection\<open>Recursive constructors and capture\<close>
 
 context
   fixes deep2 :: \<open>nat option option\<close>
@@ -2687,7 +2684,7 @@ urust_expr rich_shadow
 
 end
 
-subsection\<open> Numeric switch boundary \<close>
+subsection\<open>Numeric switch boundary\<close>
 
 text\<open>
 Bare numeric matches continue to select switch lowering. Explicit or constructor-nested
@@ -2702,7 +2699,7 @@ urust_expr rich_numeric_switch
 
 end
 
-section\<open> Value patterns \<close>
+section\<open>Value patterns\<close>
 
 text\<open>
 Boolean, string, and value-antiquotation patterns lower through equality guards.
@@ -2744,7 +2741,7 @@ urust_expr value_pat_nested_tuple
   \<open> match_case \<llangle>(True, (Some False, TNil))\<rrangle> {
       (true, Some(x)) \<Rightarrow> x, _ \<Rightarrow> False } \<close>
 
-section\<open> Tuple case patterns \<close>
+section\<open>Tuple case patterns\<close>
 
 text\<open>
 Tuple case patterns lower to generated \<open>Pair\<close>/\<open>TNil\<close> trees. They compose
@@ -2773,9 +2770,9 @@ urust_expr tuple_match_or_inside
   \<open> match_case \<llangle>(Some (1 :: nat), (True, TNil))\<rrangle> { (Some(_) | None, y) \<Rightarrow> y } \<close>
 
 
-section\<open> Advanced pattern parity \<close>
+section\<open>Advanced pattern parity\<close>
 
-subsection\<open> Reference-pattern wrapper erasure \<close>
+subsection\<open>Reference-pattern wrapper erasure\<close>
 
 text\<open>
 Immutable and mutable reference-pattern prefixes are syntax-only wrappers once a
@@ -2833,7 +2830,7 @@ urust_expr reference_pattern_matches
     )
   \<close>
 
-subsection\<open> Grouped, alias, and range patterns \<close>
+subsection\<open>Grouped, alias, and range patterns\<close>
 
 urust_expr adv_grouped
   \<open> match_case \<llangle>Some (7 :: nat)\<rrangle> { (Some(x)) \<Rightarrow> x, (_) \<Rightarrow> 0 } \<close>
@@ -2861,7 +2858,7 @@ urust_expr adv_range_inclusive
 urust_expr adv_range_nested
   \<open> match \<llangle>Some (6 :: nat)\<rrangle> { Some(5..=7) \<Rightarrow> \<llangle>True\<rrangle>, _ \<Rightarrow> \<llangle>False\<rrangle> } \<close>
 
-subsection\<open> Slice patterns \<close>
+subsection\<open>Slice patterns\<close>
 
 text\<open>
 The old frontend already accepts a terminal comma in slice patterns because its
@@ -2899,7 +2896,7 @@ urust_expr adv_slice_short
 urust_expr adv_slice_nested
   \<open> match \<llangle>Some [1 :: nat, 2, 3]\<rrangle> { Some([a, .., z]) \<Rightarrow> z, _ \<Rightarrow> 0 } \<close>
 
-subsection\<open> Struct patterns \<close>
+subsection\<open>Struct patterns\<close>
 
 datatype adv_struct_fixture =
   AdvStruct (adv_left: nat) (adv_right: nat)
@@ -2916,35 +2913,7 @@ record adv_record_fixture =
   adv_rec_left :: nat
   adv_rec_right :: nat
 
-text\<open>
-This direct resolver regression checks that an HOL record uses the record-specific result variant and
-contains only its two source-visible fields, rather than generic constructor metadata or a synthetic
-extension slot.
-\<close>
 
-ML\<open>
-val _ =
-  let
-    val wildcard = URust_AST.P_Wild Position.none
-    val fields =
-      [URust_AST.SF_Field ("adv_rec_left", Position.none, wildcard),
-       URust_AST.SF_Field ("adv_rec_right", Position.none, wildcard)]
-    val resolver =
-      URust_Resolution.make_constructor_resolver
-        \<^context> Position.none
-  in
-    (case URust_Resolution.resolve_struct_pattern
-        \<^context> resolver
-        (URust_AST.make_single_path
-           ("adv_record_fixture", Position.none), fields) of
-       URust_Resolution.Resolved_Record_Struct (record_name, ordered) =>
-         if Long_Name.base_name record_name = "adv_record_fixture" andalso length ordered = 2
-         then ()
-         else error "record struct-pattern metadata has the wrong source-visible fields"
-     | URust_Resolution.Resolved_Constructor_Struct _ =>
-         error "HOL record resolved through generic constructor metadata")
-  end
-\<close>
 
 urust_expr adv_struct_reordered
   \<open> match \<llangle>AdvStruct 1 2\<rrangle> { AdvStruct { adv_right: y, adv_left: x } \<Rightarrow> x, _ \<Rightarrow> 0 } \<close>
@@ -2971,7 +2940,7 @@ urust_expr reference_pattern_struct
     }
   \<close>
 
-section\<open> If-let and let-else \<close>
+section\<open>If-let and let-else\<close>
 
 datatype conditional_let_case =
     ConditionalLetA nat
@@ -2985,7 +2954,7 @@ after \<open>let ... else\<close>, use the prepared pattern environment. A top-l
 tuple retains the frontend's direct irrefutable-binding special case.
 \<close>
 
-subsection\<open> Placement and continuations \<close>
+subsection\<open>Placement and continuations\<close>
 
 urust_expr if_let_one_armed_terminal
   \<open> if let Some(value) = Some(\<llangle>1 :: nat\<rrangle>) { let _ = value; () } \<close>
@@ -3015,7 +2984,7 @@ urust_expr let_else_returning_continuation
     return value;
   \<close>
 
-subsection\<open> Pattern surface \<close>
+subsection\<open>Pattern surface\<close>
 
 urust_expr if_let_nullary_constructor
   \<open> if let None = \<llangle>None :: nat option\<rrangle> { 1 } else { 0 } \<close>
@@ -3115,7 +3084,7 @@ urust_expr let_else_or_pattern
     value
   \<close>
 
-subsection\<open> Nesting and scrutinees \<close>
+subsection\<open>Nesting and scrutinees\<close>
 
 urust_expr if_let_nested
   \<open>
@@ -3193,7 +3162,7 @@ urust_expr if_let_expression_antiquotation_scrutinee
     }
   \<close>
 
-subsection\<open> Scope and shadowing \<close>
+subsection\<open>Scope and shadowing\<close>
 
 urust_expr if_let_outer_scrutinee_and_fallback
   \<open>
@@ -3235,7 +3204,7 @@ urust_expr if_let_hol_constant_shadow
 urust_expr if_let_notation_shadow
   \<open> if let Some(myReg) = \<llangle>Some (1 :: nat)\<rrangle> { \<llangle>myReg\<rrangle> } else { myReg } \<close>
 
-section\<open> Bare \<open>match\<close> (automatic case/switch routing, D32) \<close>
+section\<open>Bare \<open>match\<close> (automatic case/switch routing, D32)\<close>
 
 text\<open>
 Bare \<open>match\<close> routes constructor/disjunction heads to case and numerals to switch;
@@ -3271,7 +3240,7 @@ urust_expr ma_nested
 end
 
 
-section\<open> Binder scope and shadowing robustness \<close>
+section\<open>Binder scope and shadowing robustness\<close>
 
 text\<open>
 These rows pin lexical scope boundaries, not only successful name lookup. A binding RHS sees the
@@ -3281,7 +3250,7 @@ destructuring, mutable allocation, HOL-fixed variables, and names already meanin
 micro-Rust notation registry.
 \<close>
 
-subsection\<open> Sequential and tuple bindings \<close>
+subsection\<open>Sequential and tuple bindings\<close>
 
 urust_expr bind_let_rhs_outer
   \<open> let x = \<llangle>1 :: nat\<rrangle>; let x = x; x \<close>
@@ -3342,7 +3311,7 @@ urust_expr bind_tuple_successive_shadow
   \<close>
 
 
-subsection\<open> Mutable and immutable transitions \<close>
+subsection\<open>Mutable and immutable transitions\<close>
 
 adhoc_overloading store_reference_const \<rightleftharpoons> parser_reference_fixture
 adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
@@ -3392,7 +3361,7 @@ urust_expr bind_hol_mutable_shadow
 end
 
 
-subsection\<open> Match arms, guards, and recursive patterns \<close>
+subsection\<open>Match arms, guards, and recursive patterns\<close>
 
 datatype binder_shadow_sum =
     BinderNat nat
@@ -3516,7 +3485,7 @@ urust_expr bind_match_switch_hygiene
   \<close>
 
 
-subsection\<open> HOL context binders shadowed by micro-Rust binders \<close>
+subsection\<open>HOL context binders shadowed by micro-Rust binders\<close>
 
 text\<open>
 Here \<open>x\<close> and \<open>y\<close> are introduced by Isabelle's surrounding proof context. Each RHS or
@@ -3553,7 +3522,7 @@ urust_expr bind_hol_branch_scope
 end
 
 
-subsection\<open> Binders named after HOL constants and registered notation \<close>
+subsection\<open>Binders named after HOL constants and registered notation\<close>
 
 text\<open>
 Direct identifier resolution and embedded HOL parsing must both prefer a lexical binder over a
@@ -3609,7 +3578,7 @@ urust_expr bind_hol_constant_triple_shadow
 end
 
 
-section\<open> For, fueled while, loop, and while-let expressions \<close>
+section\<open>For, fueled while, loop, and while-let expressions\<close>
 
 text\<open>
 Fuel is an expression antiquotation lowered in the current lexical environment.
@@ -3862,7 +3831,7 @@ no_adhoc_overloading store_reference_const \<rightleftharpoons> parser_reference
 no_adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
 
 
-section\<open> Return expressions \<close>
+section\<open>Return expressions\<close>
 
 text\<open>
 Return stores no semicolon in the parser AST. The legacy spellings remain alpha-equal:
@@ -3899,7 +3868,7 @@ urust_expr return_in_match_arms
   \<close>
 
 
-section\<open> Legacy macros \<close>
+section\<open>Legacy macros\<close>
 
 text\<open>
 Generic macro invocations retain their parsed argument ASTs until the centralized legacy dispatcher
@@ -3916,18 +3885,18 @@ definition macro_shout ::
   \<open>bool \<Rightarrow> (unit, bool, unit, unit, unit) function_body\<close>
   where \<open> macro_shout \<equiv> lift_fun1 id \<close>
 
-definition macro_is_none ::
+definition macro_expr_is_none ::
   \<open>nat option \<Rightarrow> (unit, bool, unit, unit, unit) function_body\<close>
-  where \<open> macro_is_none \<equiv> lift_fun1 Option.is_none \<close>
+  where \<open> macro_expr_is_none \<equiv> lift_fun1 Option.is_none \<close>
 
 consts macro_registered_body_marker :: bool
 
 micro_rust_notation (call) macro_shout ("shout!")
 micro_rust_notation (call) macro_shout ("Log::shout!")
 urust_notation (call) macro_shout ("Log::<N>::shout!")
-micro_rust_notation (call) macro_is_none ("is_none")
+micro_rust_notation (call) macro_expr_is_none ("expr_is_none")
 
-subsection\<open> Assertions, aliases, delimiters, and precedence \<close>
+subsection\<open>Assertions, aliases, delimiters, and precedence\<close>
 
 urust_expr macro_assert
   \<open> assert!(true) \<close>
@@ -3962,7 +3931,7 @@ urust_expr macro_assert_newline
     )
   \<close>
 
-subsection\<open> Complete body arguments \<close>
+subsection\<open>Complete body arguments\<close>
 
 urust_expr macro_full_body_parentheses
   \<open> assert!(let flag = true; flag) \<close>
@@ -4026,11 +3995,11 @@ context fixes macro_assert_option :: \<open>nat option\<close>
 begin
 
 urust_expr macro_assert_method_condition
-  \<open> assert!(!macro_assert_option.is_none()) \<close>
+  \<open> assert!(!macro_assert_option.expr_is_none()) \<close>
 
 end
 
-subsection\<open> Ignored arguments \<close>
+subsection\<open>Ignored arguments\<close>
 
 context
   fixes macro_b :: bool
@@ -4090,7 +4059,7 @@ urust_expr macro_ignored_message_full_body
 
 end
 
-subsection\<open> Message macros and exact aliases \<close>
+subsection\<open>Message macros and exact aliases\<close>
 
 context
   fixes macro_msg :: String.literal
@@ -4170,7 +4139,7 @@ urust_expr macro_message_capture
 
 end
 
-subsection\<open> Macro placement and built-in name precedence \<close>
+subsection\<open>Macro placement and built-in name precedence\<close>
 
 urust_expr macro_in_block
   \<open> { assert!(true); () } \<close>
@@ -4214,7 +4183,7 @@ urust_expr macro_builtin_shadow_assert
 urust_expr macro_builtin_shadow_vec
   \<open> let vec = 9_u32; vec![1_u32][0_usize] + vec \<close>
 
-subsection\<open> Registered path macros \<close>
+subsection\<open>Registered path macros\<close>
 
 urust_expr macro_registered_call
   \<open> shout!(true) \<close>
@@ -4233,29 +4202,8 @@ urust_expr macro_registered_full_body
     )
   \<close>
 
-ML_val\<open>
-  local
-    val body =
-      Proof_Context.get_thm \<^context> "macro_registered_full_body_def"
-      |> Thm.prop_of
-      |> Logic.dest_equals
-      |> #2
-    val marker_count =
-      Term.fold_aterms
-        (fn Const (name, _) =>
-              if name = \<^const_name>\<open>macro_registered_body_marker\<close>
-              then Integer.add 1
-              else I
-          | _ => I)
-        body 0
-  in
-    val _ =
-      if marker_count = 1 then ()
-      else error "registered full-body macro did not retain its marker exactly once"
-  end
-\<close>
 
-subsection\<open> Vectors, postfixes, and address macros \<close>
+subsection\<open>Vectors, postfixes, and address macros\<close>
 
 urust_expr macro_vec_empty_brackets
   \<open> vec![] \<close>
@@ -4314,7 +4262,7 @@ no_adhoc_overloading store_reference_const \<rightleftharpoons> parser_reference
 no_adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
 no_adhoc_overloading store_update_const \<rightleftharpoons> parser_update_fixture
 
-subsection\<open> Matches macro \<close>
+subsection\<open>Matches macro\<close>
 
 context
   fixes macro_option :: \<open>nat option\<close>
@@ -4363,7 +4311,7 @@ urust_expr macro_matches_struct
     )
   \<close>
 
-context
+locale macro_registered_builtin_context
 begin
 
 definition macro_registered_assert ::
@@ -4377,7 +4325,7 @@ urust_expr macro_registered_builtin_precedence
 
 end
 
-section\<open> Explicit \<open>as\<close> casts \<close>
+section\<open>Explicit \<open>as\<close> casts\<close>
 
 text\<open>
 The cast target grammar is closed to the current frontend's seven integral and
@@ -4385,7 +4333,7 @@ ten raw-pointer targets. Casts form one left-associative tier between postfix
 and prefix expressions.
 \<close>
 
-subsection\<open> Complete target parity \<close>
+subsection\<open>Complete target parity\<close>
 
 context
   fixes cast_word :: \<open>32 word\<close>
@@ -4423,7 +4371,7 @@ urust_expr cast_target_compact_const
 
 end
 
-subsection\<open> Postfix operands, placement, and lexical capture \<close>
+subsection\<open>Postfix operands, placement, and lexical capture\<close>
 
 datatype_record cast_record =
   cast_record_value :: \<open>32 word\<close>
@@ -4565,7 +4513,7 @@ end
 no_adhoc_overloading index_const \<rightleftharpoons> cast_index_fixture
 no_adhoc_overloading propagate_const \<rightleftharpoons> cast_propagate_fixture
 
-subsection\<open> Precedence, association, and conversion pipelines \<close>
+subsection\<open>Precedence, association, and conversion pipelines\<close>
 
 adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
 
@@ -4657,22 +4605,22 @@ end
 
 no_adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
 
-section\<open> Resolved divergences and current parity boundary \<close>
+section\<open>Resolved divergences and current parity boundary\<close>
 
 text\<open>
 This theory keeps representative same-source positive rows for resolved parser/frontend differences.
-Shared and intentional parser-only rejections live in \<open>Parser_Test_Negative_Conformance.thy\<close>;
-accepted-surface extensions live in \<open>Parser_Test_Improvements.thy\<close>; and the remaining
+Shared and intentional parser-only rejections live in \<open>Parser_Tests_Misc.thy\<close>;
+accepted-surface extensions live in \<open>Parser_Tests_Improvements.thy\<close>; and the remaining
 frontend-only expression forms stay as goldens in \<open>Conformance_Corpus.thy\<close>.
 \<close>
 
-subsection\<open> D-1 (RESOLVED 2026-08-25): \<open>if\<close> as a binary-operator operand -- both reject \<close>
+subsection\<open>D-1 (RESOLVED 2026-08-25): \<open>if\<close> as a binary-operator operand -- both reject\<close>
 
 text\<open> An unparenthesized \<open>if\<close> operand is rejected by both parsers; parentheses make it an operand. \<close>
 urust_expr d1_paren_operand
   \<open> (if \<llangle>True\<rrangle> { \<llangle>1 :: 32 word\<rrangle> } else { \<llangle>2 :: 32 word\<rrangle> }) + \<llangle>3 :: 32 word\<rrangle> \<close>
 
-subsection\<open> D-2 (RESOLVED 2026-08-25): no-\<open>;\<close> sequencing of block-like expressions -- now accepted \<close>
+subsection\<open>D-2 (RESOLVED 2026-08-25): no-\<open>;\<close> sequencing of block-like expressions -- now accepted\<close>
 
 text\<open> Block-like statements sequence without a trailing \<open>;\<close>, matching the frontend. \<close>
 urust_expr d2_blk_seq \<open> { () } { () } \<close>
@@ -4681,7 +4629,7 @@ urust_expr d2_if_seq \<open> if \<llangle>True\<rrangle> { () } () \<close>
 
 urust_expr d2_ifelse_seq \<open> if \<llangle>True\<rrangle> { () } else { () } () \<close>
 
-subsection\<open> D-3 (RESOLVED 2026-08-24): HOL-constant-named binders are captured in antiquotations \<close>
+subsection\<open>D-3 (RESOLVED 2026-08-24): HOL-constant-named binders are captured in antiquotations\<close>
 
 text\<open> Enclosing binders shadow same-named HOL constants and registered notation names in antiquotations. \<close>
 urust_expr div_binder_const \<open> let id = \<llangle>5 :: nat\<rrangle>; \<llangle>id\<rrangle> \<close>
@@ -4692,7 +4640,7 @@ urust_expr cap_const_deep \<open> let id = \<llangle>5 :: nat\<rrangle>; \<llang
 
 urust_expr cap_notation \<open> let myReg = \<llangle>5 :: nat\<rrangle>; \<llangle>myReg\<rrangle> \<close>  \<comment>\<open> binder name = a registered notation surface name (guard) \<close>
 
-subsection\<open> D-5 (RESOLVED 2026-09-05): embedded HOL callees \<close>
+subsection\<open>D-5 (RESOLVED 2026-09-05): embedded HOL callees\<close>
 
 text\<open>
 D-5 is closed by two dedicated call atoms. An expression antiquotation is parsed once in the current
@@ -4703,7 +4651,7 @@ enables general expression invocation: chained calls such as \<open>f(a)(b)\<clo
 as \<open>(g)(x)\<close> remain shared rejections.
 \<close>
 
-subsubsection\<open> Expression-antiquotation callees \<close>
+subsubsection\<open>Expression-antiquotation callees\<close>
 
 urust_expr d5_antiquotation_call0
   \<open> \<epsilon>\<open>cf0\<close>() \<close>
@@ -4839,7 +4787,7 @@ and then use the ordinary runtime-argument \<open>funcall0\<close> through \<ope
 arity and runtime call arity are intentionally independent.
 \<close>
 
-subsubsection\<open> Function-literal suffixes 1 through 14 \<close>
+subsubsection\<open>Function-literal suffixes 1 through 14\<close>
 
 urust_expr d5_function_literal_arity1
   \<open> \<llangle>\<lambda>a. (a :: nat)\<rrangle>\<^sub>1(0) \<close>
@@ -4888,7 +4836,7 @@ urust_expr d5_function_literal_arity13
 urust_expr d5_function_literal_arity14
   \<open> \<llangle>\<lambda>a b c d e f g h i j k l m n. (a + b + c + d + e + f + g + h + i + j + k + l + m + n :: nat)\<rrangle>\<^sub>1\<^sub>4(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13) \<close>
 
-subsubsection\<open> Function-literal bodies, scope, and placement \<close>
+subsubsection\<open>Function-literal bodies, scope, and placement\<close>
 
 definition function_literal_collision :: \<open>nat \<Rightarrow> nat\<close>
   where \<open> function_literal_collision x = x + 1 \<close>
@@ -4964,7 +4912,7 @@ urust_expr d5_function_literal_operator
 urust_expr d5_function_literal_postfix_result
   \<open> \<llangle>\<lambda>x. x\<rrangle>\<^sub>1(\<llangle>1 :: 64 word\<rrangle>).cf1() \<close>
 
-subsubsection\<open> Function-literal runtime arity and restricted turbofish \<close>
+subsubsection\<open>Function-literal runtime arity and restricted turbofish\<close>
 
 definition function_literal_parameter_a :: nat
   where \<open> function_literal_parameter_a = 1 \<close>
@@ -5006,7 +4954,7 @@ urust_expr d5_function_literal_runtime14
       (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13)
   \<close>
 
-section\<open> Frontend-compatible struct expressions (D-21) \<close>
+section\<open>Frontend-compatible struct expressions (D-21)\<close>
 
 text\<open>
 Struct-expression labels are syntax-only in the active frontend. The head uses ordinary call
@@ -5071,7 +5019,7 @@ micro_rust_notation (call) d21_first14 ("D21::Fourteen")
 micro_rust_notation (call) d21_collision_registered ("d21Collision")
 micro_rust_notation (call) d21_record_lift ("D21Record")
 
-subsection\<open> Labels, heads, and arity boundary \<close>
+subsection\<open>Labels, heads, and arity boundary\<close>
 
 urust_expr d21_arity1
   \<open> D21One { value: 1_u64 } \<close>
@@ -5122,7 +5070,7 @@ urust_expr d21_call_notation_lexical_collision
 
 end
 
-subsection\<open> Initializer language and delimiter nesting \<close>
+subsection\<open>Initializer language and delimiter nesting\<close>
 
 urust_expr d21_initializer_literal
   \<open> D21One { value: 7_u64 } \<close>
@@ -5264,7 +5212,7 @@ urust_expr d21_string_punctuation
 urust_expr d21_antiquotation_punctuation
   \<open> D21One { value: \<llangle>''braces { }, colon :, comma ,''\<rrangle> } \<close>
 
-subsection\<open> Expression placement and postfix composition \<close>
+subsection\<open>Expression placement and postfix composition\<close>
 
 urust_expr d21_placement_grouped
   \<open> (D21One { value: 1_u64 }) \<close>
@@ -5339,7 +5287,7 @@ urust_expr d21_postfix_index
 urust_expr d21_postfix_propagation
   \<open> D21One { value: Some(1_u64) }? \<close>
 
-subsection\<open> Brace ambiguity \<close>
+subsection\<open>Brace ambiguity\<close>
 
 urust_expr d21_if_path_condition
   \<open> if d21_true { d21_unit } else { d21_unit } \<close>
@@ -5442,7 +5390,7 @@ urust_expr d21_match_switch_struct_scrutinee
     }
   \<close>
 
-subsection\<open> Restricted control-head delimiter depth \<close>
+subsection\<open>Restricted control-head delimiter depth\<close>
 
 urust_expr d80_head_call_argument
   \<open>
@@ -5502,7 +5450,7 @@ urust_expr d80_nested_control_bodies
     }
   \<close>
 
-subsection\<open> Layout \<close>
+subsection\<open>Layout\<close>
 
 urust_expr d21_layout_compact
   \<open> D21Pair{left:1_u64,right:2_u64} \<close>
@@ -5521,7 +5469,7 @@ urust_expr d21_layout_multiline
     }
   \<close>
 
-subsection\<open> D-7 (RESOLVED): advanced patterns and consumer-specific gates \<close>
+subsection\<open>D-7 (RESOLVED): advanced patterns and consumer-specific gates\<close>
 
 text\<open>
 D-7 is closed across ordinary and explicit matches, \<open>let\<close>/\<open>const\<close>, conditional bindings,
@@ -5533,9 +5481,9 @@ binders, and range endpoints retain their consumer-specific rejection. Case nume
 frontend-fidelity rejections rather than an open divergence.
 \<close>
 
-section\<open> Yield and primitive logging \<close>
+section\<open>Yield and primitive logging\<close>
 
-subsection\<open> Yield placement \<close>
+subsection\<open>Yield placement\<close>
 
 urust_expr yield_standalone
   \<open> \<y>\<i>\<e>\<l>\<d> \<close>
@@ -5621,7 +5569,7 @@ urust_expr yield_assignment_rhs
 
 end
 
-subsection\<open> Primitive logger \<close>
+subsection\<open>Primitive logger\<close>
 
 urust_expr primitive_log_trace
   \<open> \<l>\<o>\<g> \<llangle>Trace\<rrangle> \<llangle>[]\<rrangle> \<close>
@@ -5754,7 +5702,7 @@ urust_expr primitive_log_control_flow
 urust_expr primitive_log_closure_body
   \<open> || \<l>\<o>\<g> \<llangle>Trace\<rrangle> \<llangle>[]\<rrangle> \<close>
 
-subsection\<open> Open exceptions and post-parity surface \<close>
+subsection\<open>Open exceptions and post-parity surface\<close>
 
 text\<open>
 The current approved exceptions are D-13 (ambiguous unqualified struct heads), D-14 (the frontend's

@@ -1,19 +1,21 @@
 (* Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
    SPDX-License-Identifier: MIT *)
 
-theory Parser_Test_Term_Hook_Conformance
-  imports Parser_Test_Term_Hook
+theory Parser_Tests_Hook_Conformance
+  imports
+    Parser_Test_Utils
+    Micro_Rust_Parser_Impl.Parser_Term_Hook
 begin
 
 declare [[urust_term_hook_conformance_check = true]]
 
-section\<open> Term-hook conformance corpus \<close>
+section\<open>Term-hook conformance corpus\<close>
 
 text\<open>
 The inner-syntax frontend is the oracle. Every former
 \<open>undefined = \<lbrakk>src\<rbrakk>\<close> expression golden now compares the term hook with its associated
 frontend RHS and closes by \<open>refl\<close>. Wrappers such as lambdas, \<open>FunctionBody\<close>, and explicit type
-constraints are retained on both sides. The definition and rejection tiers are copied unchanged.
+constraints are retained on both sides. Non-FunctionBody definitions and the rejection tier are retained.
 \<open>**\<close> and \<open>!!\<close> mean double dereference and negation.
 
 One intentional Rust-correct divergence is kept below as commented-out exact
@@ -49,7 +51,7 @@ type-sharing regressions.
 \<close>
 
 
-section\<open> Expression goldens \<close>
+section\<open>Expression goldens\<close>
 
 subsection\<open>Literals and Basic Values\<close>
 
@@ -100,12 +102,14 @@ subsubsection\<open>HOL Value Injection (Antiquotation)\<close>
 lemma \<open> \<mu>\<open> \<llangle>0 :: 32 word\<rrangle> \<close> = \<lbrakk> \<llangle>0 :: 32 word\<rrangle> \<rbrakk>\<close> by (rule refl)
 lemma \<open> \<mu>\<open> \<llangle>True\<rrangle> \<close> = \<lbrakk> \<llangle>True\<rrangle> \<rbrakk>\<close> by (rule refl)
 lemma \<open> \<mu>\<open> \<llangle>Some (0 :: nat)\<rrangle> \<close> = \<lbrakk> \<llangle>Some (0 :: nat)\<rrangle> \<rbrakk>\<close> by (rule refl)
+declare [[urust_term_hook_conformance_check = false]]
+
 lemma \<open>
-  \<mu>\<open> \<llangle> \<lbrakk> \<llangle>1 :: nat\<rrangle> \<rbrakk> \<rrangle> \<close> =
-  \<lbrakk> \<llangle> \<lbrakk> \<llangle>1 :: nat\<rrangle> \<rbrakk> \<rrangle> \<rbrakk>\<close> by (rule refl)
+  \<mu>\<open> \<llangle> \<mu>\<open> \<llangle>1 :: nat\<rrangle> \<close> \<rrangle> \<close> = \<lbrakk> \<llangle> \<lbrakk> \<llangle>1 :: nat\<rrangle> \<rbrakk> \<rrangle> \<rbrakk>\<close> by (rule refl)
 lemma \<open>
-  \<mu>\<open> \<epsilon>\<open> \<lbrakk> \<epsilon>\<open>\<up>(1 :: nat)\<close> \<rbrakk> \<close> \<close> =
-  \<lbrakk> \<epsilon>\<open> \<lbrakk> \<epsilon>\<open>\<up>(1 :: nat)\<close> \<rbrakk> \<close> \<rbrakk>\<close> by (rule refl)
+  \<mu>\<open> \<epsilon>\<open> \<mu>\<open> \<epsilon>\<open>\<up>(1 :: nat)\<close> \<close> \<close> \<close> = \<lbrakk> \<epsilon>\<open> \<lbrakk> \<epsilon>\<open>\<up>(1 :: nat)\<close> \<rbrakk> \<close> \<rbrakk>\<close> by (rule refl)
+
+declare [[urust_term_hook_conformance_check = true]]
 
 subsection\<open>Type Casts and Ascriptions\<close>
 
@@ -278,7 +282,7 @@ subsection\<open>Assignment Operators\<close>
 text\<open>
 Simple assignment and its identifier, grouped, dereferenced, field, antiquotation,
 precedence, associativity, and composition boundaries have runnable frontend-equivalence
-coverage in \<open>Parser_Test_Expr_Conformance.thy\<close>.
+coverage in \<open>Parser_Tests_Expr.thy\<close>.
 \<close>
 
 subsubsection\<open>Compound Assignment\<close>
@@ -287,9 +291,9 @@ text\<open>
 The frontend-supported operators \<open>+= -= *= %= &= |= ^= <<= >>=\<close> and their
 place, precedence, associativity, mutable-binding, and control-flow boundaries have
 runnable frontend-equivalence coverage in
-\<open>Parser_Test_Expr_Conformance.thy\<close>. The frontend does not provide \<open>/=\<close>;
+\<open>Parser_Tests_Expr.thy\<close>. The frontend does not provide \<open>/=\<close>;
 its fidelity rejection is checked in
-\<open>Parser_Test_Negative_Conformance.thy\<close>.
+\<open>Parser_Tests_Misc.thy\<close>.
 \<close>
 
 subsection\<open>Control Flow - Conditionals\<close>
@@ -318,9 +322,9 @@ subsection\<open>Control Flow - If-Let and Let-Else\<close>
 text\<open>
 Constructor, tuple, nested, returning, explicit-semicolon, and semicolon-free
 rows from this section are executable same-source checks in
-\<open>Parser_Test_Expr_Conformance.thy\<close>. Malformed and total-pattern redundancy
+\<open>Parser_Tests_Expr.thy\<close>. Malformed and total-pattern redundancy
 boundaries are executable checks in
-\<open>Parser_Test_Negative_Conformance.thy\<close>.
+\<open>Parser_Tests_Misc.thy\<close>.
 \<close>
 
 lemma \<open> \<mu>\<open> let (a,_) = (1_u32,2_u32); let (_,b) = (1_u32,2_u32); \<llangle>(a,b)\<rrangle> \<close> = \<lbrakk> let (a,_) = (1_u32,2_u32); let (_,b) = (1_u32,2_u32); \<llangle>(a,b)\<rrangle> \<rbrakk>\<close> by (rule refl)
@@ -342,12 +346,10 @@ context
   fixes a :: \<open>nat\<close>
 begin
 lemma \<open>
-  \<mu>\<open> let _ = 3; () \<close> =
-  \<lbrakk> let _ = 3; () \<rbrakk>
+  \<mu>\<open> let _ = 3; () \<close> = \<lbrakk> let _ = 3; () \<rbrakk>
 \<close> by (rule refl)
 lemma \<open>
-  \<mu>\<open> let _ = (if let Some(_) = None { False } else { True }); () \<close> =
-  \<lbrakk> let _ = (if let Some(_) = None { False } else { True }); () \<rbrakk>
+  \<mu>\<open> let _ = (if let Some(_) = None { False } else { True }); () \<close> = \<lbrakk> let _ = (if let Some(_) = None { False } else { True }); () \<rbrakk>
 \<close> by (rule refl)
 lemma \<open> \<mu>\<open>
   let _ = 3;
@@ -450,7 +452,7 @@ subsubsection\<open>Struct Expressions\<close>
 
 text\<open>
 These frontend goldens are promoted to the checked D-21 matrix in
-\<open>Parser_Test_Expr_Conformance.thy\<close>. The active frontend treats labels as syntax-only and lowers each
+\<open>Parser_Tests_Expr.thy\<close>. The active frontend treats labels as syntax-only and lowers each
 head as an ordinary call with source-ordered initializers; Rust-correct metadata semantics are deferred
 to T-39.
 \<close>
@@ -579,9 +581,10 @@ lemma \<open> (FunctionBody \<mu>\<open> ({return;}) == (); return; \<close>) = 
 lemma \<open> \<mu>\<open> let v = \<llangle>42 :: 64 word\<rrangle>; return v; \<close> = \<lbrakk> let v = \<llangle>42 :: 64 word\<rrangle>; return v; \<rbrakk>\<close> by (rule refl)
 lemma \<open> \<mu>\<open> let (a,b) = (\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>); return; \<close> = \<lbrakk> let (a,b) = (\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>); return; \<rbrakk>\<close> by (rule refl)
 
-definition test :: \<open>(nat, unit, unit, unit, unit) function_body\<close> where
-  \<open>test \<equiv> (FunctionBody \<lbrakk> let x = \<llangle>Some (0 :: nat)\<rrangle>; let Some(foo) = x else { return; }; return; \<rbrakk>)\<close>
-hide_const test
+text\<open>
+The hidden corpus \<open>test\<close> FunctionBody definition is exercised by
+\<open>Parser_Tests_Fun\<close> and is intentionally omitted here.
+\<close>
 
 lemma \<open> ((FunctionBody \<mu>\<open> let x = \<llangle>Some (0 :: nat)\<rrangle>; let Some(foo) = x else { return; }; return; \<close>) :: (nat, unit, unit, unit, unit) function_body) = ((FunctionBody \<lbrakk> let x = \<llangle>Some (0 :: nat)\<rrangle>; let Some(foo) = x else { return; }; return; \<rbrakk>) :: (nat, unit, unit, unit, unit) function_body)\<close> by (rule refl)
 
@@ -686,7 +689,7 @@ subsubsection\<open>Turbofish Syntax\<close>
 
 text\<open>
 These representative rows are promoted to executable same-source coverage in
-\<open>Parser_Test_Expr_Conformance.thy\<close>, with additional qualified bases, methods, lexical capture,
+\<open>Parser_Tests_Expr.thy\<close>, with additional qualified bases, methods, lexical capture,
 multiple parameters, exact-registration precedence, malformed input, and structural/range audits.
 \<close>
 
@@ -702,9 +705,9 @@ subsubsection\<open>Closures\<close>
 
 text\<open>
 Second-class closure parity has runnable coverage in
-\<open>Parser_Test_Expr_Conformance.thy\<close>, including duplicate and long formal lists, lexical capture,
+\<open>Parser_Tests_Expr.thy\<close>, including duplicate and long formal lists, lexical capture,
 role-sensitive notation resolution, closure-body forms, and every frontend placement. Parser-only
-delimiter compositions and grouped placements are checked in \<open>Parser_Test_Improvements.thy\<close>;
+delimiter compositions and grouped placements are checked in \<open>Parser_Tests_Improvements.thy\<close>;
 malformed formals, excluded bare placements, and direct invocation remain executable negative rows.
 The goldens below remain representative frontend examples rather than the complete coverage source.
 \<close>
@@ -726,7 +729,7 @@ subsection\<open>References and Mutation\<close>
 text\<open>
 Mutable allocation, borrow, read-dereference, simple assignment, and binary-operator
 preservation have runnable frontend-equivalence coverage in
-\<open>Parser_Test_Expr_Conformance.thy\<close>.
+\<open>Parser_Tests_Expr.thy\<close>.
 \<close>
 
 subsection\<open>Field Access and Records\<close>
@@ -803,9 +806,9 @@ begin
 lemma \<open> \<mu>\<open> m.lo \<close> = \<lbrakk> m.lo \<rbrakk>\<close> by (rule refl)
 lemma \<open> \<mu>\<open> m.end \<close> = \<lbrakk> m.end \<rbrakk>\<close> by (rule refl)
 lemma \<open> \<mu>\<open> m.flag \<close> = \<lbrakk> m.flag \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<lbrakk> m.lo \<rbrakk>   = \<lbrakk> m.bounds_rec_bounds_rec_lo_lens \<rbrakk>\<close>   by (rule refl)
-lemma \<open>\<lbrakk> m.end \<rbrakk>  = \<lbrakk> m.bounds_rec_bounds_rec_hi_lens \<rbrakk>\<close>   by (rule refl)
-lemma \<open>\<lbrakk> m.flag \<rbrakk> = \<lbrakk> m.bounds_rec_bounds_rec_flag_lens \<rbrakk>\<close> by (rule refl)
+lemma \<open>\<mu>\<open> m.lo \<close> = \<lbrakk> m.bounds_rec_bounds_rec_lo_lens \<rbrakk>\<close>   by (rule refl)
+lemma \<open>\<mu>\<open> m.end \<close> = \<lbrakk> m.bounds_rec_bounds_rec_hi_lens \<rbrakk>\<close>   by (rule refl)
+lemma \<open>\<mu>\<open> m.flag \<close> = \<lbrakk> m.bounds_rec_bounds_rec_flag_lens \<rbrakk>\<close> by (rule refl)
 end
 
 subsubsection\<open>Partial uRust Field-Name Overrides\<close>
@@ -879,7 +882,7 @@ subsection\<open>Macros\<close>
 text\<open>
 All rows in this subsection whose only previously missing surface was a legacy
 \<open>!\<close> macro or \<open>as\<close> cast are promoted to executable rows in
-\<open>Parser_Test_Expr_Conformance.thy\<close>, with direct \<open>refl\<close> parity where the
+\<open>Parser_Tests_Expr.thy\<close>, with direct \<open>refl\<close> parity where the
 surrounding frontend term has the same elaborated shape. Legacy format operands
 after the first message are intentionally parsed and discarded, exactly as in
 the frontend.
@@ -949,8 +952,8 @@ subsubsection\<open>Logging\<close>
 
 text\<open>
 Primitive logging and yield have runnable parser-equivalence coverage in
-\<open>Parser_Test_Expr_Conformance.thy\<close>. The \<open>StdLib_Logging\<close> log-data surface and registered logger
-calls are isolated in \<open>Parser_Test_Logging.thy\<close>.
+\<open>Parser_Tests_Expr.thy\<close>. The \<open>StdLib_Logging\<close> log-data surface and registered logger
+calls are isolated in \<open>Parser_Tests_Misc.thy\<close>.
 \<close>
 
 context
@@ -985,7 +988,7 @@ lemma \<open> \<mu>\<open> let xs = &[\<llangle>4 :: 32 word\<rrangle>, \<llangl
 subsubsection\<open>Vec Macro\<close>
 
 text\<open>
-These rows are promoted in \<open>Parser_Test_Expr_Conformance.thy\<close>, including empty,
+These rows are promoted in \<open>Parser_Tests_Expr.thy\<close>, including empty,
 nested, indexed, parenthesized, and borrow-interaction variants.
 \<close>
 
@@ -999,7 +1002,7 @@ text\<open>
 These rows are promoted to checked parity tests together with constructor,
 nested, alias, slice, struct, or-pattern, outer-capture, and single-evaluation
 coverage. Frontend-rejected wildcard, binder, range, bracket, and malformed
-forms are pinned in \<open>Parser_Test_Negative_Conformance.thy\<close>.
+forms are pinned in \<open>Parser_Tests_Misc.thy\<close>.
 \<close>
 
 context
@@ -1100,8 +1103,7 @@ lemma \<open>
       test::Test_1 \<Rightarrow> three,
       test::Test_2 \<Rightarrow> three
     }
-  \<close>) =
-  (\<lambda>Test1 :: nat. \<lbrakk>
+  \<close>) = (\<lambda>Test1 :: nat. \<lbrakk>
     let arg = test::Test_1;
     match arg {
       test::Test_1 \<Rightarrow> three,
@@ -1167,42 +1169,15 @@ lemma \<open> \<mu>\<open> let mut (x, y) = (\<llangle>1 :: 32 word\<rrangle>, \
 lemma \<open> \<mu>\<open> let mut (a, b, c) = (\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>, \<llangle>3 :: nat\<rrangle>); a \<close> = \<lbrakk> let mut (a, b, c) = (\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>, \<llangle>3 :: nat\<rrangle>); a \<rbrakk>\<close> by (rule refl)
 
 
-section\<open> Definition goldens \<close>
+section\<open>Definition goldens\<close>
 
-subsection\<open>Function-definition tier — Rust fn \<rightarrow> Isabelle definition + FunctionBody\<close>
+subsection\<open>Function-definition tier\<close>
 
 text\<open>
-The HOL type and parameter binding encode the signature; only the body is embedded in
-\<open>FunctionBody \<lbrakk>\<dots>\<rbrakk>\<close>. Both the explicit Isabelle-typed \<open>urust_fn\<close> facade and
-the common typed \<open>urust_expr NAME :: TYPE (PARAMETERS) BODY\<close> form check corresponding
-signatures and bodies against the existing frontend. Their focused coverage lives in
-\<open>Parser_Test_Fun_Conformance.thy\<close> and \<open>Parser_Test_Expr_Types.thy\<close>. Future Rust-shaped item
-parsing must reproduce these complete declaration goldens.
+The six named corpus FunctionBody definitions, together with the hidden
+\<open>test\<close> definition above, are exercised as \<open>urust_fn\<close>
+declarations in \<open>Parser_Tests_Fun\<close> and are intentionally omitted here.
 \<close>
-
-\<comment>\<open>rust:  fn answer() -> u32 { 42 }\<close>
-definition answer :: \<open>('s, 32 word, 'abort, 'i, 'o) function_body\<close> where
-  \<open>answer \<equiv> FunctionBody \<lbrakk> \<llangle>42 :: 32 word\<rrangle> \<rbrakk>\<close>
-
-\<comment>\<open>rust:  fn inc(x: u32) -> u32 { x + 1 }\<close>
-definition inc :: \<open>32 word \<Rightarrow> ('s, 32 word, 'abort, 'i, 'o) function_body\<close> where
-  \<open>inc x \<equiv> FunctionBody \<lbrakk> x + \<llangle>1 :: 32 word\<rrangle> \<rbrakk>\<close>
-
-\<comment>\<open>rust:  fn add3(a: u32, b: u32, c: u32) -> u32 { a + b + c }\<close>
-definition add3 :: \<open>32 word \<Rightarrow> 32 word \<Rightarrow> 32 word \<Rightarrow> ('s, 32 word, 'abort, 'i, 'o) function_body\<close> where
-  \<open>add3 a b c \<equiv> FunctionBody \<lbrakk> a + b + c \<rbrakk>\<close>
-
-\<comment>\<open>rust:  fn is_zero(x: u32) -> bool { x == 0 }\<close>
-definition is_zero :: \<open>32 word \<Rightarrow> ('s, bool, 'abort, 'i, 'o) function_body\<close> where
-  \<open>is_zero x \<equiv> FunctionBody \<lbrakk> x == \<llangle>0 :: 32 word\<rrangle> \<rbrakk>\<close>
-
-\<comment>\<open>rust:  fn safe_div(a: u32, b: u32) -> Result<u32,()> { if b == 0 { Err(()) } else { Ok(a / b) } }\<close>
-definition safe_div :: \<open>32 word \<Rightarrow> 32 word \<Rightarrow> ('s, (32 word, unit) result, 'abort, 'i, 'o) function_body\<close> where
-  \<open>safe_div a b \<equiv> FunctionBody \<lbrakk> if b == \<llangle>0 :: 32 word\<rrangle> { Err(()) } else { Ok(a / b) } \<rbrakk>\<close>
-
-\<comment>\<open>rust:  fn discard(x: u32) { () }\<close>
-definition discard :: \<open>32 word \<Rightarrow> ('s, unit, 'abort, 'i, 'o) function_body\<close> where
-  \<open>discard x \<equiv> FunctionBody \<lbrakk> () \<rbrakk>\<close>
 
 subsection\<open>Record-definition tier — Rust struct \<rightarrow> datatype_record + micro_rust_record\<close>
 
@@ -1281,7 +1256,7 @@ lemma \<open> \<mu>\<open>
 \<rbrakk>\<close> by (rule refl)
 end
 
-section\<open> Frontend rejections \<close>
+section\<open>Frontend rejections\<close>
 
 ML\<open>
   \<comment>\<open>\<open>src\<close> must fail to elaborate through the current frontend.\<close>

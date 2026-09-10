@@ -1,12 +1,15 @@
-theory Parser_Test_Improvements
-  imports Parser_Test_Expr_Conformance Parser_Test_Fun_Conformance
+(* Accepted-surface improvements and intentional checked-term corrections.
+   Test order is significant and matches the former focused theory. *)
+
+theory Parser_Tests_Improvements
+  imports Parser_Tests_Expr Parser_Tests_Fun
   keywords
     "old_urust_rejects" :: thy_decl
 begin
 
 declare [[urust_conformance_check = false]]
 
-section\<open> Test support \<close>
+section\<open>Test support\<close>
 
 text\<open>
 Each example is accepted by the new parser. Where an equivalent old-frontend
@@ -44,7 +47,7 @@ val _ = Outer_Syntax.local_theory \<^command_keyword>\<open>old_urust_rejects\<c
     old_urust_rejects)
 \<close>
 
-section\<open> Function parameter precedence \<close>
+section\<open>Function parameter precedence\<close>
 
 text\<open>
 A typed function parameter shadows registered literal notation in the dedicated parser. The existing
@@ -62,12 +65,12 @@ urust_fn fun_literal_parameter_wins ::
 thm fun_literal_parameter_wins_conformance
 
 
-section\<open> Intentional checked-term corrections \<close>
+section\<open>Intentional checked-term corrections\<close>
 
 text\<open>
 These sources are accepted by both parsers, but the dedicated parser intentionally corrects a
 legacy checked-term behavior. They remain executable acceptance tests here, while
-\<open>Parser_Test_Regression_Audit.thy\<close> pins the associated corrected term shapes. They are not same-source
+\<open>Parser_Tests_Misc.thy\<close> pins the associated corrected term shapes. They are not same-source
 conformance rows.
 \<close>
 
@@ -165,7 +168,7 @@ urust_expr while_let_nested_exhaustive_option
     }
   \<close>
 
-section\<open> Total conditional bindings \<close>
+section\<open>Total conditional bindings\<close>
 
 text\<open>
 The dedicated parser omits an unreachable wildcard fallback when resolved-pattern coverage proves an
@@ -175,7 +178,7 @@ discarded term does not constrain final HOL type checking; the regression audit 
 separately.
 \<close>
 
-subsection\<open> Basic total patterns \<close>
+subsection\<open>Basic total patterns\<close>
 
 urust_expr improvement_if_let_total_wildcard
   \<open> if let _ = \<llangle>1 :: nat\<rrangle> { 2 } else { 0 } \<close>
@@ -227,7 +230,7 @@ urust_expr improvement_let_else_total_discards_fallback_type
 old_urust_rejects
   \<open> let _ = \<llangle>1 :: nat\<rrangle> else { false }; 2 \<close>
 
-subsection\<open> Structural and constructor totality \<close>
+subsection\<open>Structural and constructor totality\<close>
 
 urust_expr improvement_if_let_total_grouped_tuple
   \<open>
@@ -333,7 +336,7 @@ old_urust_rejects
     1
   \<close>
 
-subsection\<open> Total alternatives and wrappers \<close>
+subsection\<open>Total alternatives and wrappers\<close>
 
 urust_expr improvement_if_let_total_wildcard_alternative
   \<open>
@@ -373,7 +376,7 @@ urust_expr improvement_let_else_total_borrow_wrapper
 old_urust_rejects
   \<open> let &_ = \<llangle>1 :: nat\<rrangle> else { 0 }; 1 \<close>
 
-subsection\<open> One-armed total if-let \<close>
+subsection\<open>One-armed total if-let\<close>
 
 urust_expr improvement_if_let_total_one_armed_unit
   \<open> if let _ = \<llangle>1 :: nat\<rrangle> { () } \<close>
@@ -392,7 +395,7 @@ urust_expr cast_corpus_nested_tuple
   \<close>
 
 
-section\<open> Registered literal patterns \<close>
+section\<open>Registered literal patterns\<close>
 
 text\<open>
 An exact registered literal whose complete backend is an authentic datatype constructor remains a
@@ -450,7 +453,7 @@ old_urust_rejects
   \<close>
 
 
-section\<open> Mixed conditional chains \<close>
+section\<open>Mixed conditional chains\<close>
 
 text\<open>
 The dedicated grammar accepts right-associated mixtures of ordinary
@@ -747,7 +750,7 @@ old_urust_rejects
   \<close>
 
 
-section\<open> Semicolon-free explicit matches \<close>
+section\<open>Semicolon-free explicit matches\<close>
 
 text\<open>
 The dedicated grammar treats all three match flavours as control expressions. Explicit
@@ -855,7 +858,7 @@ old_urust_rejects
   \<close>
 
 
-section\<open> Rust line comments \<close>
+section\<open>Rust line comments\<close>
 
 text\<open>
 The production lexer skips \<open>//\<close> comments only in its ordinary Rust state.
@@ -977,7 +980,7 @@ old_urust_rejects
   \<close>
 
 
-section\<open> Rust-compatible integer suffixes \<close>
+section\<open>Rust-compatible integer suffixes\<close>
 
 text\<open>
 The custom lexer accepts Rust's glued integer suffixes. Each decimal and hexadecimal
@@ -1039,7 +1042,7 @@ urust_expr improvement_integer_suffix_hex_usize
 old_urust_rejects \<open> 0xffffffff0usize \<close>
 
 
-section\<open> ASCII match arrows \<close>
+section\<open>ASCII match arrows\<close>
 
 urust_expr improvement_ascii_match_arrow
   \<open> match \<llangle>Some (1 :: nat)\<rrangle> { Some(x) => x, None => 0 } \<close>
@@ -1106,7 +1109,7 @@ old_urust_rejects
   \<close>
 
 
-section\<open> Empty blocks \<close>
+section\<open>Empty blocks\<close>
 
 urust_expr improvement_empty_block_value
   \<open> {} \<close>
@@ -1139,11 +1142,11 @@ old_urust_rejects
   \<open> unsafe {} \<close>
 
 
-section\<open> Trailing commas \<close>
+section\<open>Trailing commas\<close>
 
 text\<open>
 The old frontend accepts trailing commas only in slice patterns, whose shared
-cases are in \<open>Parser_Test_Expr_Conformance\<close>. Calls, arms, constructor
+cases are in \<open>Parser_Tests_Expr\<close>. Calls, arms, constructor
 patterns, tuples, array literals, and struct patterns reject there. Each source
 below is checked against the same old-frontend term with only its terminal comma
 removed.
@@ -1401,7 +1404,7 @@ old_urust_rejects
   \<close>
 
 
-section\<open> Composed accepted-surface improvements \<close>
+section\<open>Composed accepted-surface improvements\<close>
 
 text\<open>
 This row combines line comments, glued suffixes, trailing separators, postfix
@@ -1479,7 +1482,7 @@ old_urust_rejects
   \<close>
 
 
-section\<open> Compositional range patterns \<close>
+section\<open>Compositional range patterns\<close>
 
 datatype improvement_packet =
     ImprovementPacket
@@ -1579,7 +1582,7 @@ old_urust_rejects
     }
   \<close>
 
-section\<open> Structural while-let lowering \<close>
+section\<open>Structural while-let lowering\<close>
 
 text\<open>
 Structurally irrefutable patterns lower directly without a generated false
@@ -1763,7 +1766,7 @@ old_urust_rejects
   \<close>
 
 
-section\<open> Hygienic aliases across nested lowering \<close>
+section\<open>Hygienic aliases across nested lowering\<close>
 
 text\<open>
 Slice-rest patterns require generated nested matches. The new parser represents
@@ -1798,7 +1801,7 @@ old_urust_rejects
   \<close>
 
 
-section\<open> Hygienic mutable wildcard \<close>
+section\<open>Hygienic mutable wildcard\<close>
 
 definition improvement_reference_fixture ::
   \<open>'v \<Rightarrow> (unit, (unit, unit, 'v) Global_Store.ref, unit, unit, unit) function_body\<close>
@@ -1835,7 +1838,7 @@ old_urust_rejects
 no_adhoc_overloading store_reference_const \<rightleftharpoons> improvement_reference_fixture
 
 
-section\<open> Recursive reference-prefix composition \<close>
+section\<open>Recursive reference-prefix composition\<close>
 
 text\<open>
 The recursive reference-prefix tier accepts mixed and deeper unparenthesized
@@ -1876,7 +1879,7 @@ end
 no_adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
 
 
-section\<open> Expression-antiquotation places \<close>
+section\<open>Expression-antiquotation places\<close>
 
 text\<open>
 The old frontend declares an internal expression-antiquotation place constructor and
@@ -1912,7 +1915,7 @@ no_adhoc_overloading store_dereference_const \<rightleftharpoons> parser_derefer
 no_adhoc_overloading store_update_const \<rightleftharpoons> parser_update_fixture
 
 
-section\<open> Compositional field places \<close>
+section\<open>Compositional field places\<close>
 
 text\<open>
 The explicit place conversion admits a field chain whose base is a parenthesized
@@ -1939,7 +1942,7 @@ end
 no_adhoc_overloading store_update_const \<rightleftharpoons> parser_update_fixture
 
 
-section\<open> Composable postfix expressions \<close>
+section\<open>Composable postfix expressions\<close>
 
 text\<open>
 The custom parser treats propagation, fields, and methods as one left-associative
@@ -1963,7 +1966,7 @@ old_urust_rejects
 end
 
 
-section\<open> Closure delimiter placement and parser-wide compositions \<close>
+section\<open>Closure delimiter placement and parser-wide compositions\<close>
 
 text\<open>
 The dedicated parser gives closures one explicit delimiter-level argument category.
@@ -1982,7 +1985,7 @@ definition improvement_apply_closure_first ::
       nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
   where \<open> improvement_apply_closure_first closure value \<equiv> closure value \<close>
 
-subsection\<open> Grouping, nesting, siblings, and invocation through a binding \<close>
+subsection\<open>Grouping, nesting, siblings, and invocation through a binding\<close>
 
 urust_expr improvement_closure_group
   \<open> (|x| \<llangle>x :: nat\<rrangle>) \<close>
@@ -2049,7 +2052,7 @@ old_urust_rejects
      |y| \<llangle>y :: bool\<rrangle>)
   \<close>
 
-subsection\<open> Calls, tuples, arrays, macros, indexing, and arm bodies \<close>
+subsection\<open>Calls, tuples, arrays, macros, indexing, and arm bodies\<close>
 
 urust_expr improvement_closure_single_call_argument
   \<open>
@@ -2184,7 +2187,7 @@ old_urust_rejects
     }
   \<close>
 
-subsection\<open> Existing parser improvements composed with closures \<close>
+subsection\<open>Existing parser improvements composed with closures\<close>
 
 urust_expr improvement_closure_line_comment
   \<open>
@@ -2323,7 +2326,7 @@ old_urust_rejects
   \<close>
 
 
-section\<open> Rust-compatible return expressions \<close>
+section\<open>Rust-compatible return expressions\<close>
 
 text\<open>
 Return is a low-precedence value expression whose operand and semicolon are independently
@@ -2429,7 +2432,7 @@ old_urust_rejects
     result
   \<close>
 
-section\<open> Deterministic cast-before-prefix precedence \<close>
+section\<open>Deterministic cast-before-prefix precedence\<close>
 
 text\<open>
 The old mixfix frontend can resolve an unparenthesized prefix/cast combination
