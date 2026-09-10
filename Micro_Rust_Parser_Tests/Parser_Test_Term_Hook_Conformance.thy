@@ -1270,6 +1270,8 @@ micro_rust_notation (literal) color.Green ("Color::Green")
 micro_rust_notation (literal) color.Blue  ("Color::Blue")
 
 lemma \<open> \<mu>\<open> Color::Red \<close> = \<lbrakk> Color::Red \<rbrakk>\<close> by (rule refl)
+lemma \<open> \<mu>\<open> Color::Green \<close> = \<lbrakk> Color::Green \<rbrakk>\<close> by (rule refl)
+lemma \<open> \<mu>\<open> Color::Blue \<close> = \<lbrakk> Color::Blue \<rbrakk>\<close> by (rule refl)
 
 context fixes c :: color begin
 lemma \<open> \<mu>\<open>
