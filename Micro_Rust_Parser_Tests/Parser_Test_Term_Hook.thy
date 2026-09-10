@@ -317,6 +317,19 @@ lemma parser_local_binder:
    \<lbrakk> let x = 1; \<llangle>x\<rrangle> \<rbrakk>"
   by (rule refl)
 
+lemma nested_hol_shadowing_antiquotation:
+  "(\<lambda>x :: nat.
+      \<mu>\<open>
+        let x = \<llangle>x\<rrangle>;
+        \<llangle>(\<lambda>x :: nat. x) x\<rrangle>
+      \<close>) =
+   (\<lambda>x :: nat.
+      \<lbrakk>
+        let x = \<llangle>x\<rrangle>;
+        \<llangle>(\<lambda>x :: nat. x) x\<rrangle>
+      \<rbrakk>)"
+  by (rule refl)
+
 context
 begin
 

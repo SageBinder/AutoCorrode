@@ -1306,6 +1306,149 @@ ML_val\<open>
   end
 \<close>
 
+section\<open> Antiquotation markup under HOL shadowing \<close>
+
+text\<open>
+Antiquotation navigation follows the positioned term that Isabelle parsed. An inner HOL binder keeps
+Isabelle's native \<open>bound\<close> entity, while a same-spelled occurrence outside that binder still
+targets the enclosing micro-Rust local.
+\<close>
+
+ML_val\<open>
+  local
+    val ctxt = \<^context>
+
+    fun audit_assert message condition =
+      if condition then ()
+      else error ("antiquotation shadowing markup audit: " ^ message)
+
+    val source_text =
+      "let x = \<llangle>1 :: nat\<rrangle>; " ^
+      "\<llangle>(\<lambda>x :: nat. x) x\<rrangle>"
+    val source_start =
+      Position.make0 37 300 2400 "" ""
+        "antiquotation-shadowing-markup-audit"
+    val source =
+      Parser_Lex_Util.positioned_content_source source_text source_start
+    val expected =
+      Syntax.parse_term ctxt
+        ("\<lbrakk> let x = \<llangle>1 :: nat\<rrangle>; " ^
+         "\<llangle>(\<lambda>x :: nat. x) x\<rrangle> \<rbrakk>")
+      |> Syntax.check_term ctxt
+
+    val captured_reports =
+      Synchronized.var "antiquotation_shadowing_markup_audit"
+        ([]: string list)
+    fun capture_reports chunks =
+      Synchronized.change captured_reports (append chunks)
+    val actual =
+      Parser_Test_Report_Lock.run (fn () =>
+        Unsynchronized.setmp Private_Output.report_fn capture_reports
+          (fn () =>
+            Print_Mode.with_modes [Print_Mode.PIDE]
+              (fn () =>
+                Parser_Test_Elaboration.expression ctxt source) ())
+          ())
+
+    fun collect_markup (XML.Text _) result = result
+      | collect_markup (XML.Elem (markup, body)) result =
+          fold collect_markup body (markup :: result)
+    val markup =
+      fold collect_markup
+        (maps YXML.parse_body (Synchronized.value captured_reports)) []
+
+    fun find_from needle offset =
+      if offset + size needle > size source_text then
+        error
+          ("antiquotation shadowing markup audit: missing " ^
+            quote needle)
+      else if
+        String.substring (source_text, offset, size needle) = needle
+      then offset
+      else find_from needle (offset + 1)
+
+    fun token_position needle offset =
+      let
+        val raw = find_from needle offset
+        val start =
+          Position.symbol_explode
+            (String.substring (source_text, 0, raw)) source_start
+      in
+        (raw,
+         Position.range_position
+           (Position.range
+             (start, Position.symbol_explode needle start)))
+      end
+
+    fun has_position properties position =
+      Properties.get properties Markup.offsetN =
+        Option.map Value.print_int (Position.offset_of position) andalso
+      Properties.get properties Markup.end_offsetN =
+        Option.map Value.print_int (Position.end_offset_of position) andalso
+      Properties.get properties Markup.idN =
+        Position.id_of position
+
+    fun entity_ids kind property position =
+      markup
+      |> map_filter
+          (fn (name, properties) =>
+            if name = Markup.entityN andalso
+               Properties.get properties Markup.kindN = SOME kind andalso
+               has_position properties position
+            then Properties.get properties property
+            else NONE)
+      |> distinct (op =)
+
+    fun entity_id kind property position =
+      (case entity_ids kind property position of
+         [id] => id
+       | ids =>
+           error
+             ("antiquotation shadowing markup audit: expected one " ^
+               quote property ^ " entity at" ^
+               Position.here position ^ ", found [" ^
+               commas_quote ids ^ "]"))
+
+    val (outer_offset, outer_definition) =
+      token_position "x" 0
+    val (hol_binder_offset, hol_binder) =
+      token_position "x" (outer_offset + 1)
+    val (hol_use_offset, hol_bound_use) =
+      token_position "x" (hol_binder_offset + 1)
+    val (_, outer_reference) =
+      token_position "x" (hol_use_offset + 1)
+
+    val outer_id =
+      entity_id "urust_var" Markup.defN outer_definition
+    val hol_binder_id =
+      entity_id Markup.boundN Markup.defN hol_binder
+    val hol_use_id =
+      entity_id Markup.boundN Markup.refN hol_bound_use
+
+    val _ =
+      audit_assert "checked term differs from the legacy frontend"
+        (Term.aconv (actual, expected))
+    val _ =
+      audit_assert "native HOL binder navigation changed"
+        (hol_binder_id = hol_use_id)
+    val _ =
+      audit_assert "HOL lambda declaration received a urust_var entity"
+        (null (entity_ids "urust_var" Markup.defN hol_binder) andalso
+         null (entity_ids "urust_var" Markup.refN hol_binder))
+    val _ =
+      audit_assert "HOL bound use received a urust_var entity"
+        (null (entity_ids "urust_var" Markup.defN hol_bound_use) andalso
+         null (entity_ids "urust_var" Markup.refN hol_bound_use))
+    val _ =
+      audit_assert "outer micro-Rust reference lost navigation"
+        (entity_id "urust_var" Markup.refN outer_reference = outer_id)
+  in
+    val _ =
+      writeln
+        "Antiquotation HOL-shadowing semantics and markup regressions passed"
+  end
+\<close>
+
 section\<open> Positions and pattern grammar \<close>
 
 ML_val\<open>
@@ -7058,7 +7201,9 @@ ML_val\<open>
       Properties.get properties Markup.offsetN =
         Option.map Value.print_int (Position.offset_of position) andalso
       Properties.get properties Markup.end_offsetN =
-        Option.map Value.print_int (Position.end_offset_of position)
+        Option.map Value.print_int (Position.end_offset_of position) andalso
+      Properties.get properties Markup.idN =
+        Position.id_of position
 
     fun count_markup markup_name position markup =
       length
