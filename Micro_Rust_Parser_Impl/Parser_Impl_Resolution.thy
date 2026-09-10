@@ -157,7 +157,10 @@ ML\<open>
     registered_function performs an exact registered NFunction lookup without imposing a caller
     naming policy. field_expression applies the same role policy and focuses the supplied receiver.
     Registered notation is represented by the existing dispatch marker; unregistered names retain
-    Syntax.parse_term behavior.
+    Syntax.parse_term behavior. For an exact registered literal path whose complete backend matches
+    genuine Ctr_Sugar constructor metadata, the nearest qualifier reports every distinct datatype
+    family while earlier module-like qualifiers remain free; registered nonconstructors and calls
+    retain free qualifiers.
 
   - constructor_info and constructor_resolver are abstract. make_constructor_resolver snapshots the
     context's non-record Ctr_Sugar constructors, constructor families/selectors, and HOL record names
@@ -170,9 +173,9 @@ ML\<open>
     constructor_term returns the dummy-typed constructor term, constructor_arity its argument count,
     and constructor_family optionally the datatype identity with all family constructor terms.
     report_constructor emits source-path markup only after a caller has validated the resolved
-    constructor. Exact registered literals reuse the ordinary notation use-site reports; unregistered
-    HOL constructors retain constant markup. report_selector emits constant markup at the supplied
-    source position.
+    constructor. Exact registered literals reuse the same datatype-qualifier and ordinary notation
+    use-site reports as value positions; unregistered HOL constructors retain free qualifiers and
+    constant terminal markup. report_selector emits constant markup at the supplied source position.
 
   - resolve_struct_pattern resolves a struct head as a constructor, a single-constructor datatype
     type name, or a HOL record type. It validates duplicate, unknown, missing, and repeated-rest
@@ -372,17 +375,75 @@ struct
     then NONE
     else SOME (resolve_identifier ctxt kind name pos)
 
+  fun registered_constructor_family_names ctxt registrations =
+    let
+      val backends =
+        map
+          (identifier_leaf o
+            (fn ({hol_term, ...} : Micro_Rust_Names.entry) => hol_term))
+          registrations
+
+      fun authentic_family
+          ({kind, T, ctrs, ...} : Ctr_Sugar.ctr_sugar) =
+        if (kind = Ctr_Sugar.Datatype orelse
+            kind = Ctr_Sugar.Codatatype) andalso
+            exists
+              (fn constructor =>
+                exists
+                  (fn backend =>
+                    Term.aconv_untyped
+                      (backend, identifier_leaf constructor))
+                  backends)
+              ctrs
+        then
+          (case T of
+             Type (name, _) => SOME name
+           | _ => NONE)
+        else NONE
+    in
+      Ctr_Sugar.ctr_sugars_of ctxt
+      |> map_filter authentic_family
+      |> distinct (op =)
+      |> sort_strings
+    end
+
+  fun report_free_path_segment ctxt segment =
+    Context_Position.report ctxt
+      (#2 (segment_identifier segment)) Markup.free
+
   fun report_path_qualifiers ctxt path =
     let
       val segments = path_segments path
       val qualifiers =
         if null segments then [] else take (length segments - 1) segments
     in
-      List.app
-        (fn segment =>
-          Context_Position.report ctxt
-            (#2 (segment_identifier segment)) Markup.free)
-        qualifiers
+      List.app (report_free_path_segment ctxt) qualifiers
+    end
+
+  fun report_literal_path_qualifiers ctxt registrations path =
+    let
+      val segments = path_segments path
+      val qualifiers =
+        if null segments then [] else take (length segments - 1) segments
+      val families =
+        registered_constructor_family_names ctxt registrations
+
+      fun report_family segment family =
+        let
+          val pos = #2 (segment_identifier segment)
+          val type_space = Proof_Context.type_space ctxt
+        in
+          List.app (Context_Position.report ctxt pos)
+            [Name_Space.markup type_space family, Markup.tconst]
+        end
+    in
+      (case rev qualifiers of
+         [] => ()
+       | nearest :: earlier =>
+           (List.app (report_free_path_segment ctxt) (rev earlier);
+            if null families
+            then report_free_path_segment ctxt nearest
+            else List.app (report_family nearest) families))
     end
 
   fun path_terminal path = segment_identifier (final_segment path)
@@ -451,7 +512,15 @@ struct
     (case registered_identifier ctxt kind
         (render_path path, #2 (path_terminal path)) of
        SOME registered =>
-         (report_path_qualifiers ctxt path; SOME registered)
+         let
+           val _ =
+             if kind = Micro_Rust_Names.NLiteral
+             then
+               report_literal_path_qualifiers ctxt
+                 (Micro_Rust_Names.lookups ctxt kind (render_path path))
+                 path
+             else report_path_qualifiers ctxt path
+         in SOME registered end
      | NONE => NONE)
 
   fun literal_path_value ctxt environment path =
@@ -924,13 +993,17 @@ struct
     let
       val name = render_path path
       val pos = #2 (path_terminal path)
+      val registrations = exact_literal_registrations ctxt path
       val registered =
         exists
           (fn ({hol_term, ...} : Micro_Rust_Names.entry) =>
             Term.aconv_untyped
               (identifier_leaf hol_term, constructor_term info))
-          (exact_literal_registrations ctxt path)
-      val _ = report_path_qualifiers ctxt path
+          registrations
+      val _ =
+        if registered
+        then report_literal_path_qualifiers ctxt registrations path
+        else report_path_qualifiers ctxt path
     in
       if registered then
         Micro_Rust_Dispatch.emit_use_markup_at_pos
