@@ -6302,6 +6302,8 @@ ML_val\<open>
       constant_name \<^term>\<open>RegisteredUnary\<close>
     val other_name =
       constant_name \<^term>\<open>RegisteredOther\<close>
+    val registered_type_name =
+      fst (dest_Type \<^typ>\<open>registered_constructor_fixture\<close>)
     val phantom_a_name =
       constant_name
         \<^term>\<open>RegisteredPhantomA :: nat registered_phantom\<close>
@@ -6647,8 +6649,15 @@ ML_val\<open>
           markup)
 
     val _ =
-      audit_assert "constructor qualifier free markup duplicated or disappeared"
-        (count_markup Markup.freeN expected_qualifier = 1)
+      audit_assert "constructor qualifier retained free markup"
+        (count_markup Markup.freeN expected_qualifier = 0)
+    val _ =
+      audit_assert "constructor qualifier datatype entity duplicated or disappeared"
+        (count_entity Markup.type_nameN registered_type_name
+          expected_qualifier = 1)
+    val _ =
+      audit_assert "constructor qualifier tconst styling duplicated or disappeared"
+        (count_markup Markup.tconstN expected_qualifier = 1)
     val _ =
       audit_assert "constructor terminal constant entity duplicated or disappeared"
         (count_entity Markup.constantN unary_name expected_terminal = 1)
@@ -6771,6 +6780,26 @@ ML_val\<open>
                       expected_qualifier_position)
                 rejection_markup))
         val _ =
+          audit_assert (label ^ " emitted premature qualifier tconst markup")
+            (not
+              (exists
+                (fn (name, properties) =>
+                  name = Markup.tconstN andalso
+                    has_position properties
+                      expected_qualifier_position)
+                rejection_markup))
+        val _ =
+          audit_assert (label ^ " emitted premature qualifier type entity")
+            (not
+              (exists
+                (fn (name, properties) =>
+                  name = Markup.entityN andalso
+                    Properties.get properties Markup.kindN =
+                      SOME Markup.type_nameN andalso
+                    has_position properties
+                      expected_qualifier_position)
+                rejection_markup))
+        val _ =
           audit_assert (label ^ " emitted premature terminal free markup")
             (not
               (exists
@@ -6853,6 +6882,390 @@ ML_val\<open>
     val _ =
       writeln
         "Registered constructor identity, diagnostics, recovery, lowering, range, markup, and single-evaluation regressions passed"
+  end
+\<close>
+
+
+section\<open> Registered constructor qualifier markup audit \<close>
+
+datatype constructor_qualifier_fixture =
+    ConstructorQualifierVariant
+  | ConstructorQualifierOther
+
+micro_rust_notation (literal)
+  constructor_qualifier_fixture.ConstructorQualifierVariant
+  ("Type::Variant")
+micro_rust_notation (literal)
+  constructor_qualifier_fixture.ConstructorQualifierVariant
+  ("Module::Type::Variant")
+
+datatype constructor_qualifier_left =
+  ConstructorQualifierLeft
+
+datatype constructor_qualifier_right =
+  ConstructorQualifierRight
+
+micro_rust_notation (literal)
+  constructor_qualifier_left.ConstructorQualifierLeft
+  ("Families::Variant")
+micro_rust_notation (literal)
+  constructor_qualifier_right.ConstructorQualifierRight
+  ("Families::Variant")
+
+definition constructor_qualifier_value :: nat
+  where \<open> constructor_qualifier_value = 17 \<close>
+
+micro_rust_notation (literal)
+  constructor_qualifier_value
+  ("Module::Value::Item")
+
+definition constructor_qualifier_call ::
+    \<open>(unit, nat, unit, unit, unit) function_body\<close>
+  where
+    \<open>
+      constructor_qualifier_call =
+        FunctionBody (literal 23)
+    \<close>
+
+micro_rust_notation (call)
+  constructor_qualifier_call
+  ("Module::Call::invoke")
+
+ML_val\<open>
+  local
+    val ctxt = \<^context>
+
+    fun audit_assert message condition =
+      if condition then ()
+      else error ("registered constructor qualifier markup audit: " ^ message)
+
+    fun find_from text needle offset =
+      if offset + size needle > size text then
+        error ("missing " ^ quote needle)
+      else if String.substring (text, offset, size needle) = needle
+      then offset
+      else find_from text needle (offset + 1)
+
+    fun token_position text start needle offset =
+      let
+        val raw = find_from text needle offset
+        val token_start =
+          Position.symbol_explode
+            (String.substring (text, 0, raw)) start
+      in
+        (raw,
+         Position.range_position
+           (token_start, Position.symbol_explode needle token_start))
+      end
+
+    fun collect_markup (XML.Text _) result = result
+      | collect_markup (XML.Elem (markup, body)) result =
+          fold collect_markup body (markup :: result)
+
+    fun capture_markup label start text declared_type =
+      let
+        val source =
+          Parser_Lex_Util.positioned_content_source text start
+        val captured =
+          Synchronized.var
+            ("constructor_qualifier_" ^ label ^ "_reports")
+            ([]: string list)
+        fun capture chunks =
+          Synchronized.change captured (append chunks)
+        val _ =
+          Parser_Test_Report_Lock.run (fn () =>
+            Unsynchronized.setmp Private_Output.report_fn capture
+              (fn () =>
+                Print_Mode.with_modes [Print_Mode.PIDE]
+                  (fn () =>
+                    ignore
+                      (URust_Command.elaborate ctxt
+                        {kind = URust_Command.Expression,
+                         source = source,
+                         arguments = [],
+                         arguments_pos = #2 (Input.range_of source),
+                         declared_type =
+                           Option.map
+                             (fn typ => (typ, Position.none))
+                             declared_type})) ())
+              ())
+      in
+        fold collect_markup
+          (maps YXML.parse_body (Synchronized.value captured)) []
+      end
+
+    fun has_position properties position =
+      Properties.get properties Markup.offsetN =
+        Option.map Value.print_int (Position.offset_of position) andalso
+      Properties.get properties Markup.end_offsetN =
+        Option.map Value.print_int (Position.end_offset_of position)
+
+    fun count_markup markup_name position markup =
+      length
+        (filter
+          (fn (name, properties) =>
+            name = markup_name andalso
+              has_position properties position)
+          markup)
+
+    fun count_entity kind identity position markup =
+      length
+        (filter
+          (fn (name, properties) =>
+            name = Markup.entityN andalso
+              Properties.get properties Markup.kindN = SOME kind andalso
+              Properties.get properties Markup.nameN = SOME identity andalso
+              has_position properties position)
+          markup)
+
+    fun count_entity_kind kind position markup =
+      length
+        (filter
+          (fn (name, properties) =>
+            name = Markup.entityN andalso
+              Properties.get properties Markup.kindN = SOME kind andalso
+              has_position properties position)
+          markup)
+
+    fun type_name typ = fst (dest_Type typ)
+    fun constant_name term =
+      (case Term.head_of term of
+         Const (name, _) => name
+       | _ => error "expected constant")
+
+    val fixture_type_name =
+      type_name \<^typ>\<open>constructor_qualifier_fixture\<close>
+    val fixture_constructor_name =
+      constant_name \<^term>\<open>ConstructorQualifierVariant\<close>
+    val left_type_name =
+      type_name \<^typ>\<open>constructor_qualifier_left\<close>
+    val right_type_name =
+      type_name \<^typ>\<open>constructor_qualifier_right\<close>
+    val left_constructor_name =
+      constant_name \<^term>\<open>ConstructorQualifierLeft\<close>
+    val right_constructor_name =
+      constant_name \<^term>\<open>ConstructorQualifierRight\<close>
+    val value_name =
+      \<^const_name>\<open>constructor_qualifier_value\<close>
+    val call_name =
+      \<^const_name>\<open>constructor_qualifier_call\<close>
+
+    fun assert_constructor_qualifier label expected_type position markup =
+      (audit_assert (label ^ " retained free markup")
+         (count_markup Markup.freeN position markup = 0);
+       audit_assert (label ^ " lost datatype navigation")
+         (count_entity Markup.type_nameN expected_type position markup = 1);
+       audit_assert (label ^ " lost tconst styling")
+         (count_markup Markup.tconstN position markup = 1))
+
+    fun assert_terminal label notation constructor position markup =
+      (audit_assert (label ^ " notation entity count changed")
+         (count_entity Micro_Rust_Names.notationN notation
+           position markup = 1);
+       audit_assert (label ^ " constructor entity count changed")
+         (count_entity Markup.constantN constructor position markup = 1);
+       audit_assert (label ^ " keyword3 styling count changed")
+         (count_markup Markup.keyword3N position markup = 1);
+       audit_assert (label ^ " acquired terminal free markup")
+         (count_markup Markup.freeN position markup = 0))
+
+    val direct_text =
+      "match_case Type::Variant { " ^
+      "Type::Variant \<Rightarrow> (), _ \<Rightarrow> () }"
+    val direct_start =
+      Position.make0 71 1400 0 "" ""
+        "constructor-qualifier-direct-audit"
+    val direct_markup =
+      capture_markup "direct" direct_start direct_text NONE
+    val (direct_value_raw, _) =
+      token_position direct_text direct_start "Type::Variant" 0
+    val (_, direct_value_qualifier) =
+      token_position direct_text direct_start "Type" direct_value_raw
+    val (_, direct_value_terminal) =
+      token_position direct_text direct_start "Variant"
+        (direct_value_raw + size "Type::")
+    val (direct_pattern_raw, _) =
+      token_position direct_text direct_start "Type::Variant"
+        (direct_value_raw + size "Type::Variant")
+    val (_, direct_pattern_qualifier) =
+      token_position direct_text direct_start "Type" direct_pattern_raw
+    val (_, direct_pattern_terminal) =
+      token_position direct_text direct_start "Variant"
+        (direct_pattern_raw + size "Type::")
+    val _ =
+      assert_constructor_qualifier "value qualifier"
+        fixture_type_name direct_value_qualifier direct_markup
+    val _ =
+      assert_constructor_qualifier "pattern qualifier"
+        fixture_type_name direct_pattern_qualifier direct_markup
+    val _ =
+      assert_terminal "value terminal" "Type::Variant"
+        fixture_constructor_name direct_value_terminal direct_markup
+    val _ =
+      assert_terminal "pattern terminal" "Type::Variant"
+        fixture_constructor_name direct_pattern_terminal direct_markup
+
+    val module_text =
+      "match_case Module::Type::Variant { " ^
+      "Module::Type::Variant \<Rightarrow> (), _ \<Rightarrow> () }"
+    val module_start =
+      Position.make0 79 1800 0 "" ""
+        "constructor-qualifier-module-audit"
+    val module_markup =
+      capture_markup "module" module_start module_text NONE
+    val (module_value_raw, _) =
+      token_position module_text module_start
+        "Module::Type::Variant" 0
+    val (_, module_value_outer) =
+      token_position module_text module_start "Module" module_value_raw
+    val (_, module_value_type) =
+      token_position module_text module_start "Type"
+        (module_value_raw + size "Module::")
+    val (module_pattern_raw, _) =
+      token_position module_text module_start
+        "Module::Type::Variant"
+        (module_value_raw + size "Module::Type::Variant")
+    val (_, module_pattern_outer) =
+      token_position module_text module_start "Module"
+        module_pattern_raw
+    val (_, module_pattern_type) =
+      token_position module_text module_start "Type"
+        (module_pattern_raw + size "Module::")
+    val _ =
+      List.app
+        (fn (label, position) =>
+          (audit_assert (label ^ " lost module-like free markup")
+             (count_markup Markup.freeN position module_markup = 1);
+           audit_assert (label ^ " acquired datatype styling")
+             (count_markup Markup.tconstN position module_markup = 0);
+           audit_assert (label ^ " acquired datatype navigation")
+             (count_entity_kind Markup.type_nameN position
+               module_markup = 0)))
+        [("value outer qualifier", module_value_outer),
+         ("pattern outer qualifier", module_pattern_outer)]
+    val _ =
+      assert_constructor_qualifier "value nearest qualifier"
+        fixture_type_name module_value_type module_markup
+    val _ =
+      assert_constructor_qualifier "pattern nearest qualifier"
+        fixture_type_name module_pattern_type module_markup
+
+    val value_text = "Module::Value::Item"
+    val value_start =
+      Position.make0 87 2200 0 "" ""
+        "constructor-qualifier-value-audit"
+    val value_markup =
+      capture_markup "value" value_start value_text NONE
+    val (value_raw, _) =
+      token_position value_text value_start value_text 0
+    val (_, value_outer) =
+      token_position value_text value_start "Module" value_raw
+    val (_, value_nearest) =
+      token_position value_text value_start "Value"
+        (value_raw + size "Module::")
+    val (_, value_terminal) =
+      token_position value_text value_start "Item"
+        (value_raw + size "Module::Value::")
+    val _ =
+      List.app
+        (fn (label, position) =>
+          (audit_assert (label ^ " lost free markup")
+             (count_markup Markup.freeN position value_markup = 1);
+           audit_assert (label ^ " acquired tconst styling")
+             (count_markup Markup.tconstN position value_markup = 0);
+           audit_assert (label ^ " acquired datatype navigation")
+             (count_entity_kind Markup.type_nameN position
+               value_markup = 0)))
+        [("registered value outer qualifier", value_outer),
+         ("registered value nearest qualifier", value_nearest)]
+    val _ =
+      assert_terminal "registered value terminal"
+        "Module::Value::Item" value_name value_terminal value_markup
+
+    val call_text = "Module::Call::invoke()"
+    val call_start =
+      Position.make0 95 2600 0 "" ""
+        "constructor-qualifier-call-audit"
+    val call_markup =
+      capture_markup "call" call_start call_text NONE
+    val (call_raw, _) =
+      token_position call_text call_start call_text 0
+    val (_, call_outer) =
+      token_position call_text call_start "Module" call_raw
+    val (_, call_nearest) =
+      token_position call_text call_start "Call"
+        (call_raw + size "Module::")
+    val (_, call_terminal) =
+      token_position call_text call_start "invoke"
+        (call_raw + size "Module::Call::")
+    val _ =
+      List.app
+        (fn (label, position) =>
+          (audit_assert (label ^ " lost free markup")
+             (count_markup Markup.freeN position call_markup = 1);
+           audit_assert (label ^ " acquired tconst styling")
+             (count_markup Markup.tconstN position call_markup = 0);
+           audit_assert (label ^ " acquired datatype navigation")
+             (count_entity_kind Markup.type_nameN position
+               call_markup = 0)))
+        [("registered call outer qualifier", call_outer),
+         ("registered call nearest qualifier", call_nearest)]
+    val _ =
+      assert_terminal "registered call terminal"
+        "Module::Call::invoke" call_name call_terminal call_markup
+
+    val families_text = "Families::Variant"
+    val families_start =
+      Position.make0 103 3000 0 "" ""
+        "constructor-qualifier-families-audit"
+    val families_markup =
+      capture_markup "families" families_start families_text
+        (SOME
+          "(unit, constructor_qualifier_left, unit, unit, unit, unit) expression")
+    val (families_raw, _) =
+      token_position families_text families_start families_text 0
+    val (_, families_qualifier) =
+      token_position families_text families_start "Families"
+        families_raw
+    val (_, families_terminal) =
+      token_position families_text families_start "Variant"
+        (families_raw + size "Families::")
+    val _ =
+      audit_assert "multi-backend qualifier retained free markup"
+        (count_markup Markup.freeN families_qualifier
+          families_markup = 0)
+    val _ =
+      audit_assert "left datatype family navigation count changed"
+        (count_entity Markup.type_nameN left_type_name
+          families_qualifier families_markup = 1)
+    val _ =
+      audit_assert "right datatype family navigation count changed"
+        (count_entity Markup.type_nameN right_type_name
+          families_qualifier families_markup = 1)
+    val _ =
+      audit_assert "multi-backend datatype styling did not cover both families"
+        (count_markup Markup.tconstN families_qualifier
+          families_markup = 2)
+    val _ =
+      audit_assert "multi-backend notation entity count changed"
+        (count_entity Micro_Rust_Names.notationN "Families::Variant"
+          families_terminal families_markup = 2)
+    val _ =
+      audit_assert "multi-backend keyword3 count changed"
+        (count_markup Markup.keyword3N families_terminal
+          families_markup = 2)
+    val _ =
+      audit_assert "left constructor entity count changed"
+        (count_entity Markup.constantN left_constructor_name
+          families_terminal families_markup = 1)
+    val _ =
+      audit_assert "right constructor entity count changed"
+        (count_entity Markup.constantN right_constructor_name
+          families_terminal families_markup = 1)
+  in
+    val _ =
+      writeln
+        "Registered constructor qualifier datatype, module, value, call, and all-backend markup regressions passed"
   end
 \<close>
 
