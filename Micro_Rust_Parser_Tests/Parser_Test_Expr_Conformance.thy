@@ -2207,9 +2207,10 @@ section\<open> Match \<open>match_switch\<close> (Corpus "Match Expressions" -- 
 
 text\<open>
 \<open>match_switch\<close> binds the scrutinee into \<open>ncase_selector\<close> (D26).
-Numerals and registered non-constructor paths become \<open>Some\<close> keys, wildcard becomes
-\<open>None\<close>, and groups and or-patterns preserve or duplicate those keys. It remains a
-first-order key matcher: explicit switch rejects binding identifiers and case-only patterns.
+Numerals and exact registered identifier/path literals become \<open>Some\<close> keys, wildcard becomes
+\<open>None\<close>, and groups and or-patterns preserve or duplicate those keys. Explicit switch is a
+force-switch boundary, so even an authentic registered constructor is treated as its registered
+value; unregistered binding identifiers and case-only pattern shapes remain rejected.
 \<close>
 
 urust_expr msw_lit \<open> match_switch \<llangle>1 :: nat\<rrangle> { 1 \<Rightarrow> \<llangle>True\<rrangle>, _ \<Rightarrow> \<llangle>False\<rrangle> } \<close>

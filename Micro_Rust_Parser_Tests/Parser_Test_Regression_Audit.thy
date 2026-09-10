@@ -4624,9 +4624,11 @@ ML_val\<open>
          UE_Path path => path
        | _ => error ("expected path " ^ quote source))
 
+    fun checked_source source =
+      Parser_Test_Elaboration.expression ctxt source
+
     fun checked source =
-      Parser_Test_Elaboration.expression ctxt
-        (Parser_Lex_Util.text_source source)
+      checked_source (Parser_Lex_Util.text_source source)
 
     fun count_constant name term =
       Term.fold_aterms
@@ -4695,10 +4697,92 @@ ML_val\<open>
     val _ =
       audit_assert "unregistered concealed basename stopped being a binder"
         (count_constant unregistered_name unregistered_binder = 1)
+
+    fun diagnostic_ranges body =
+      let
+        fun collect (XML.Text _) ranges = ranges
+          | collect (XML.Elem ((_, properties), children)) ranges =
+              let
+                val ranges' =
+                  (case
+                    (Properties.get properties Markup.offsetN,
+                     Properties.get properties Markup.end_offsetN) of
+                     (SOME offset, SOME end_offset) =>
+                       (offset, end_offset) :: ranges
+                   | _ => ranges)
+              in fold collect children ranges' end
+      in distinct (op =) (fold collect body []) end
+
+    val concealed_mixed_text =
+      "match \<llangle>ConcealedRegistered\<rrangle> { " ^
+      "0 \<Rightarrow> (), ConcealedAudit::Registered \<Rightarrow> () }"
+    val concealed_mixed_start =
+      Position.make0 64 900 0 "" ""
+        "concealed-constructor-mixed-match-audit"
+    val concealed_mixed_position =
+      Position.range_position
+        (concealed_mixed_start,
+         Position.symbol_explode concealed_mixed_text concealed_mixed_start)
+    val concealed_mixed_source =
+      Parser_Lex_Util.positioned_content_source
+        concealed_mixed_text concealed_mixed_start
+    val concealed_mixed_expected =
+      "urust_expr: mixed numeral and constructor patterns in bare `match`" ^
+      Position.here concealed_mixed_position
+    val concealed_mixed_range =
+      (Value.print_int
+        (the (Position.offset_of concealed_mixed_position)),
+       Value.print_int
+        (the (Position.end_offset_of concealed_mixed_position)))
+    val concealed_mixed_body =
+      (case Exn.result (fn () => checked_source concealed_mixed_source) () of
+         Exn.Res term =>
+           error
+             ("concealed constructor lookup audit: mixed numeral match " ^
+              "unexpectedly elaborated to " ^
+              Syntax.string_of_term ctxt term)
+       | Exn.Exn exn =>
+           if Exn.is_interrupt exn then Exn.reraise exn
+           else
+             let val actual = Runtime.exn_message exn
+             in
+               audit_assert
+                 "concealed constructor mixed-match diagnostic changed"
+                 (actual = concealed_mixed_expected);
+               YXML.parse_body actual
+             end)
+    val _ =
+      audit_assert
+        "concealed constructor mixed-match range changed"
+        (diagnostic_ranges concealed_mixed_body =
+          [concealed_mixed_range])
+
+    val recovered_switch =
+      checked
+        ("match 42 { 0 \<Rightarrow> 0, Color::Red \<Rightarrow> 1, " ^
+         "_ \<Rightarrow> 2 }")
+    val recovered_case =
+      checked
+        ("match_case \<llangle>ConcealedRegistered\<rrangle> { " ^
+         "ConcealedAudit::Registered \<Rightarrow> 0, " ^
+         "ConcealedAudit::Unregistered \<Rightarrow> 1 }")
+    val recovered_unit = checked "()"
+    val _ =
+      audit_assert "concealed rejection lost switch recovery"
+        (count_constant \<^const_name>\<open>ncase_selector\<close>
+          recovered_switch = 1)
+    val _ =
+      audit_assert "concealed rejection lost constructor recovery"
+        (count_constant registered_name recovered_case > 0 andalso
+         count_constant unregistered_name recovered_case > 0)
+    val _ =
+      audit_assert "concealed rejection lost unit recovery"
+        (count_constant \<^const_name>\<open>Product_Type.Unity\<close>
+          recovered_unit = 1)
   in
     val _ =
       writeln
-        "Concealed registered identity and filtered unregistered lookup regressions passed"
+        "Concealed registered identity, mixed-match rejection, recovery, and filtered unregistered lookup regressions passed"
   end
 \<close>
 
@@ -5274,6 +5358,16 @@ ML_val\<open>
          UE_Path path => path
        | _ => error ("expected path " ^ quote text))
 
+    fun class_matches expected actual =
+      (case (expected, actual) of
+         (URust_Resolution.Unregistered_Literal,
+          URust_Resolution.Unregistered_Literal) => true
+       | (URust_Resolution.Registered_Value_Literal,
+          URust_Resolution.Registered_Value_Literal) => true
+       | (URust_Resolution.Registered_Constructor_Literal,
+          URust_Resolution.Registered_Constructor_Literal) => true
+       | _ => false)
+
     fun expect_class label expected path =
       let
         val resolver =
@@ -5282,16 +5376,37 @@ ML_val\<open>
         val actual =
           URust_Resolution.classify_registered_literal
             ctxt resolver path
-        val matches =
-          (case (expected, actual) of
-             (URust_Resolution.Unregistered_Literal,
-              URust_Resolution.Unregistered_Literal) => true
-           | (URust_Resolution.Registered_Value_Literal,
-              URust_Resolution.Registered_Value_Literal) => true
-           | (URust_Resolution.Registered_Constructor_Literal,
-              URust_Resolution.Registered_Constructor_Literal) => true
-           | _ => false)
-      in audit_assert (label ^ " classification changed") matches end
+      in
+        audit_assert (label ^ " classification changed")
+          (class_matches expected actual)
+      end
+
+    fun expect_report_free_class label expected path =
+      let
+        val resolver =
+          URust_Resolution.make_constructor_resolver
+            ctxt (path_position path)
+        val captured =
+          Synchronized.var
+            ("contextual_match_" ^ label ^ "_classification_reports")
+            ([]: string list)
+        fun capture chunks =
+          Synchronized.change captured (append chunks)
+        val actual =
+          Parser_Test_Report_Lock.run (fn () =>
+            Unsynchronized.setmp Private_Output.report_fn capture
+              (fn () =>
+                Print_Mode.with_modes [Print_Mode.PIDE]
+                  (fn () =>
+                    URust_Resolution.classify_registered_literal
+                      ctxt resolver path) ())
+              ())
+      in
+        audit_assert (label ^ " classification changed")
+          (class_matches expected actual);
+        audit_assert (label ^ " classification emitted reports")
+          (null (Synchronized.value captured))
+      end
 
     val _ =
       expect_class "qualified registered value"
@@ -5313,6 +5428,14 @@ ML_val\<open>
       expect_class "duplicate registered constructor"
         URust_Resolution.Registered_Constructor_Literal
         (path_of "NegativeRegistered::Duplicate")
+    val _ =
+      expect_report_free_class "constructor-wins exact key"
+        URust_Resolution.Registered_Constructor_Literal
+        (path_of "NegativeRegistered::ConstructorWins")
+    val _ =
+      expect_report_free_class "two-constructor exact key"
+        URust_Resolution.Registered_Constructor_Literal
+        (path_of "NegativeRegistered::Ambiguous")
     val _ =
       expect_class "constructor-equal definition"
         URust_Resolution.Registered_Value_Literal
@@ -5506,6 +5629,17 @@ ML_val\<open>
         (count_constant \<^const_name>\<open>two_armed_conditional\<close>
           case_preferred > 0)
 
+    val constructor_wins =
+      checked
+        ("match_case \<llangle>NegativeRegisteredNullary\<rrangle> { " ^
+         "NegativeRegistered::ConstructorWins \<Rightarrow> 0, " ^
+         "NegativeRegistered::Unary(value) \<Rightarrow> value, " ^
+         "NegativeRegistered::Other \<Rightarrow> 1 }")
+    val _ =
+      audit_assert "constructor/nonconstructor exact key did not select the constructor"
+        (count_constant \<^const_name>\<open>NegativeRegisteredNullary\<close>
+          constructor_wins > 0)
+
     fun collect_markup (XML.Text _) result = result
       | collect_markup (XML.Elem (markup, body)) result =
           fold collect_markup body (markup :: result)
@@ -5556,29 +5690,37 @@ ML_val\<open>
 
     val qualified_markup = capture_markup "qualified" ast_source
     val _ =
-      audit_assert "first numeral lost numeral markup"
+      audit_assert "first numeral markup duplicated or disappeared"
         (count_markup Markup.numeralN expected_first_numeral
-          qualified_markup > 0)
+          qualified_markup = 1)
     val _ =
-      audit_assert "second numeral lost numeral markup"
+      audit_assert "second numeral markup duplicated or disappeared"
         (count_markup Markup.numeralN expected_second_numeral
-          qualified_markup > 0)
+          qualified_markup = 1)
     val _ =
-      audit_assert "registered qualifier lost free markup"
+      audit_assert "first numeral typing markup duplicated or disappeared"
+        (count_markup Markup.typingN expected_first_numeral
+          qualified_markup = 1)
+    val _ =
+      audit_assert "second numeral typing markup duplicated or disappeared"
+        (count_markup Markup.typingN expected_second_numeral
+          qualified_markup = 1)
+    val _ =
+      audit_assert "registered qualifier free markup duplicated or disappeared"
         (count_markup Markup.freeN expected_qualifier
-          qualified_markup > 0)
+          qualified_markup = 1)
     val _ =
       audit_assert "registered terminal notation report duplicated"
         (count_entity Micro_Rust_Names.notationN "Color::Red"
           expected_terminal qualified_markup = 1)
     val _ =
-      audit_assert "registered terminal lost keyword3 styling"
+      audit_assert "registered terminal keyword3 styling duplicated or disappeared"
         (count_markup Markup.keyword3N expected_terminal
-          qualified_markup > 0)
+          qualified_markup = 1)
     val _ =
-      audit_assert "registered terminal lost typing markup"
+      audit_assert "registered terminal typing markup duplicated or disappeared"
         (count_markup Markup.typingN expected_terminal
-          qualified_markup > 0)
+          qualified_markup = 1)
     val _ =
       audit_assert "registered nonconstructor acquired constant entity markup"
         (count_entity Markup.constantN
@@ -5595,13 +5737,13 @@ ML_val\<open>
         (count_entity Micro_Rust_Names.notationN "registered_seven"
           expected_identifier identifier_markup = 1)
     val _ =
-      audit_assert "single-segment registration lost keyword3 styling"
+      audit_assert "single-segment keyword3 styling duplicated or disappeared"
         (count_markup Markup.keyword3N expected_identifier
-          identifier_markup > 0)
+          identifier_markup = 1)
     val _ =
-      audit_assert "single-segment registration lost typing markup"
+      audit_assert "single-segment typing markup duplicated or disappeared"
         (count_markup Markup.typingN expected_identifier
-          identifier_markup > 0)
+          identifier_markup = 1)
 
     fun diagnostic_ranges body =
       let
@@ -5722,6 +5864,22 @@ ML_val\<open>
         ("urust_expr: unsupported match_switch key " ^
          quote "unregistered_key" ^
          " (numeral or `_` only; const-id / path keys not yet supported)")
+
+    val constructor_wins_mixed_text =
+      "match \<llangle>NegativeRegisteredNullary\<rrangle> { " ^
+      "0 \<Rightarrow> (), NegativeRegistered::ConstructorWins \<Rightarrow> () }"
+    val _ =
+      expect_exact_rejection 4 "constructor-wins-mix"
+        constructor_wins_mixed_text complete_range
+        "urust_expr: mixed numeral and constructor patterns in bare `match`"
+
+    val ambiguous_mixed_text =
+      "match \<llangle>NegativeRegisteredNullary\<rrangle> { " ^
+      "0 \<Rightarrow> (), NegativeRegistered::Ambiguous \<Rightarrow> () }"
+    val _ =
+      expect_exact_rejection 5 "two-constructor-mix"
+        ambiguous_mixed_text complete_range
+        "urust_expr: mixed numeral and constructor patterns in bare `match`"
   in
     val _ =
       writeln

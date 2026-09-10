@@ -272,6 +272,12 @@ micro_rust_notation (literal)
   negative_registered_constructor_fixture.NegativeRegisteredOther
   ("NegativeRegistered::Ambiguous")
 micro_rust_notation (literal)
+  negative_registered_constructor_fixture.NegativeRegisteredNullary
+  ("NegativeRegistered::ConstructorWins")
+micro_rust_notation (literal)
+  negative_registered_nonconstructor
+  ("NegativeRegistered::ConstructorWins")
+micro_rust_notation (literal)
   \<open> NegativeRegisteredUnary 0 \<close>
   ("NegativeRegistered::Applied")
 micro_rust_notation (literal)
@@ -583,8 +589,9 @@ new_urust_rejects audit
 
 new_urust_rejects divergent \<open> match_switch \<llangle>0 :: nat\<rrangle> { x \<Rightarrow> () } \<close>
   \<open> unsupported match_switch key "x" \<close>
-  \<comment> \<open> [DIVERGENT] the frontend accepts a binding key under \<open>match_switch\<close>; here switch keys are
-       numeral / \<open>_\<close> only (binding patterns need \<open>match_case\<close>). \<close>
+  \<comment> \<open> [DIVERGENT] the frontend accepts a binding key under \<open>match_switch\<close>. The dedicated
+       parser accepts numerals, \<open>_\<close>, and exact registered identifiers/paths as keys, but an
+       unregistered identifier remains a binding pattern and needs \<open>match_case\<close>. \<close>
 
 urust_expr_rejects fidelity
   \<open> match \<llangle>Some (0 :: nat)\<rrangle> { 0 \<Rightarrow> (), Some(x) \<Rightarrow> () } \<close>
@@ -616,6 +623,28 @@ new_urust_rejects audit
   \<close>
   \<open> mixed numeral and constructor patterns in bare `match` \<close>
   \<comment> \<open> [AUDIT] phantom instantiation does not disguise registered constructor identity. \<close>
+
+new_urust_rejects audit
+  \<open>
+    match \<llangle>NegativeRegisteredNullary\<rrangle> {
+      0 \<Rightarrow> (),
+      NegativeRegistered::ConstructorWins \<Rightarrow> ()
+    }
+  \<close>
+  \<open> mixed numeral and constructor patterns in bare `match` \<close>
+  \<comment> \<open> [AUDIT] when one exact key has both a constructor and a nonconstructor backend, the
+       authentic constructor makes automatic routing case-only. \<close>
+
+new_urust_rejects audit
+  \<open>
+    match \<llangle>NegativeRegisteredNullary\<rrangle> {
+      0 \<Rightarrow> (),
+      NegativeRegistered::Ambiguous \<Rightarrow> ()
+    }
+  \<close>
+  \<open> mixed numeral and constructor patterns in bare `match` \<close>
+  \<comment> \<open> [AUDIT] two distinct constructor registrations classify as constructor-shaped before
+       later case-resolution ambiguity can run. \<close>
 
 new_urust_rejects audit
   \<open>
