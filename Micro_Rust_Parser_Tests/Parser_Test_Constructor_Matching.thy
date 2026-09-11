@@ -321,6 +321,43 @@ definition parser_nested_or_overlap_wildcard_scrutinee ::
         (Ok (), (Ok (), TNil))
     \<close>
 
+definition parser_nested_or_overlap_reversed_second_scrutinee ::
+  \<open>parser_nested_overlap_input\<close>
+  where
+    \<open>
+      parser_nested_or_overlap_reversed_second_scrutinee =
+        (Err ParserPrimaryStatus,
+          (Err ParserPrimaryStatus, TNil))
+    \<close>
+
+definition parser_nested_source_guard_true ::
+  \<open>(nat, bool, unit, unit, unit, unit) expression\<close>
+  where
+    \<open>
+      parser_nested_source_guard_true =
+        sequence (put Suc) (literal True)
+    \<close>
+
+definition parser_nested_source_guard_false ::
+  \<open>(nat, bool, unit, unit, unit, unit) expression\<close>
+  where
+    \<open>
+      parser_nested_source_guard_false =
+        sequence (put Suc) (literal False)
+    \<close>
+
+definition parser_nested_binder_source_guard ::
+  \<open>
+    (unit, parser_nested_status) result \<Rightarrow>
+      (nat, bool, unit, unit, unit, unit) expression
+  \<close>
+  where
+    \<open>
+      parser_nested_binder_source_guard observed =
+        sequence (put Suc)
+          (literal (observed = Err ParserSecondaryStatus))
+    \<close>
+
 urust_expr parser_nested_overlapping_or_alternatives ::
   \<open>
     parser_nested_overlap_input \<Rightarrow>
@@ -331,6 +368,58 @@ urust_expr parser_nested_overlapping_or_alternatives ::
     match scrutinee {
       (Err(NestedStatus::Primary), _) |
         (_, Err(NestedStatus::Secondary)) \<Rightarrow> 1,
+      (Err(NestedStatus::Secondary), _) \<Rightarrow> 2,
+      _ \<Rightarrow> 3
+    }
+  \<close>
+
+urust_expr parser_nested_guarded_or_alternatives ::
+  \<open>
+    parser_nested_overlap_input \<Rightarrow>
+      (nat, bool, unit, unit, unit, unit) expression \<Rightarrow>
+      (nat, nat, unit, unit, unit, unit) expression
+  \<close>
+  (scrutinee, source_guard)
+  \<open>
+    match scrutinee {
+      (Err(NestedStatus::Primary), _) |
+        (_, Err(NestedStatus::Secondary))
+        if \<epsilon>\<open>source_guard\<close> \<Rightarrow> 1,
+      (Err(NestedStatus::Secondary), _) \<Rightarrow> 2,
+      _ \<Rightarrow> 3
+    }
+  \<close>
+
+urust_expr parser_nested_guarded_or_alternatives_reversed ::
+  \<open>
+    parser_nested_overlap_input \<Rightarrow>
+      (nat, bool, unit, unit, unit, unit) expression \<Rightarrow>
+      (nat, nat, unit, unit, unit, unit) expression
+  \<close>
+  (scrutinee, source_guard)
+  \<open>
+    match scrutinee {
+      (_, Err(NestedStatus::Secondary)) |
+        (Err(NestedStatus::Primary), _)
+        if \<epsilon>\<open>source_guard\<close> \<Rightarrow> 1,
+      (Err(NestedStatus::Secondary), _) \<Rightarrow> 2,
+      _ \<Rightarrow> 3
+    }
+  \<close>
+
+urust_expr parser_nested_guarded_or_binder ::
+  \<open>
+    parser_nested_overlap_input \<Rightarrow>
+      (nat, nat, unit, unit, unit, unit) expression
+  \<close>
+  (scrutinee)
+  \<open>
+    match scrutinee {
+      (Err(NestedStatus::Primary), observed) |
+        (observed, Err(NestedStatus::Secondary))
+        if \<epsilon>\<open>
+            parser_nested_binder_source_guard observed
+          \<close> \<Rightarrow> 1,
       (Err(NestedStatus::Secondary), _) \<Rightarrow> 2,
       _ \<Rightarrow> 3
     }
@@ -391,6 +480,166 @@ lemma parser_nested_overlapping_or_wildcard:
       two_armed_conditional_def
       urust_eq_def
       micro_rust_simps)
+
+lemma parser_nested_guarded_or_second_alternative:
+  \<open>
+    evaluate
+      (parser_nested_guarded_or_alternatives
+        parser_nested_overlap_scrutinee
+        parser_nested_source_guard_true)
+      0 =
+    Success (1 :: nat) 1
+  \<close>
+  by
+    (simp add:
+      parser_nested_guarded_or_alternatives_def
+      parser_nested_overlap_scrutinee_def
+      parser_nested_source_guard_true_def
+      two_armed_conditional_def
+      urust_eq_def
+      micro_rust_simps
+      evaluate_def
+      sequence_def
+      put_def
+      literal_def
+      Core_Expression.bind.simps)
+
+lemma parser_nested_guarded_or_reversed_second_alternative:
+  \<open>
+    evaluate
+      (parser_nested_guarded_or_alternatives_reversed
+        parser_nested_or_overlap_reversed_second_scrutinee
+        parser_nested_source_guard_true)
+      0 =
+    Success (1 :: nat) 1
+  \<close>
+  by
+    (simp add:
+      parser_nested_guarded_or_alternatives_reversed_def
+      parser_nested_or_overlap_reversed_second_scrutinee_def
+      parser_nested_source_guard_true_def
+      two_armed_conditional_def
+      urust_eq_def
+      micro_rust_simps
+      evaluate_def
+      sequence_def
+      put_def
+      literal_def
+      Core_Expression.bind.simps)
+
+lemma parser_nested_guarded_or_both_miss:
+  \<open>
+    evaluate
+      (parser_nested_guarded_or_alternatives
+        parser_nested_or_overlap_later_scrutinee
+        parser_nested_source_guard_true)
+      0 =
+    Success (2 :: nat) 1
+  \<close>
+  by
+    (simp add:
+      parser_nested_guarded_or_alternatives_def
+      parser_nested_or_overlap_later_scrutinee_def
+      parser_nested_source_guard_true_def
+      two_armed_conditional_def
+      urust_eq_def
+      micro_rust_simps
+      evaluate_def
+      sequence_def
+      put_def
+      literal_def
+      Core_Expression.bind.simps)
+
+lemma parser_nested_guarded_or_false:
+  \<open>
+    evaluate
+      (parser_nested_guarded_or_alternatives
+        parser_nested_overlap_scrutinee
+        parser_nested_source_guard_false)
+      0 =
+    Success (2 :: nat) 1
+  \<close>
+  by
+    (simp add:
+      parser_nested_guarded_or_alternatives_def
+      parser_nested_overlap_scrutinee_def
+      parser_nested_source_guard_false_def
+      two_armed_conditional_def
+      urust_eq_def
+      micro_rust_simps
+      evaluate_def
+      sequence_def
+      put_def
+      literal_def
+      Core_Expression.bind.simps)
+
+lemma parser_nested_guarded_or_first_alternative:
+  \<open>
+    evaluate
+      (parser_nested_guarded_or_alternatives
+        parser_nested_or_overlap_reverse_scrutinee
+        parser_nested_source_guard_true)
+      0 =
+    Success (1 :: nat) 1
+  \<close>
+  by
+    (simp add:
+      parser_nested_guarded_or_alternatives_def
+      parser_nested_or_overlap_reverse_scrutinee_def
+      parser_nested_source_guard_true_def
+      two_armed_conditional_def
+      urust_eq_def
+      micro_rust_simps
+      evaluate_def
+      sequence_def
+      put_def
+      literal_def
+      Core_Expression.bind.simps)
+
+lemma parser_nested_guarded_or_wildcard:
+  \<open>
+    evaluate
+      (parser_nested_guarded_or_alternatives
+        parser_nested_or_overlap_wildcard_scrutinee
+        parser_nested_source_guard_true)
+      0 =
+    Success (3 :: nat) 0
+  \<close>
+  by
+    (simp add:
+      parser_nested_guarded_or_alternatives_def
+      parser_nested_or_overlap_wildcard_scrutinee_def
+      parser_nested_source_guard_true_def
+      two_armed_conditional_def
+      urust_eq_def
+      micro_rust_simps
+      evaluate_def
+      sequence_def
+      put_def
+      literal_def
+      Core_Expression.bind.simps)
+
+lemma parser_nested_guarded_or_binder_second_alternative:
+  \<open>
+    evaluate
+      (parser_nested_guarded_or_binder
+        parser_nested_overlap_scrutinee)
+      0 =
+    Success (1 :: nat) 1
+  \<close>
+  by
+    (simp add:
+      parser_nested_guarded_or_binder_def
+      parser_nested_overlap_scrutinee_def
+      parser_nested_binder_source_guard_def
+      two_armed_conditional_def
+      urust_eq_def
+      micro_rust_simps
+      evaluate_def
+      sequence_def
+      put_def
+      literal_def
+      Core_Expression.bind.simps)
 
 urust_expr parser_nested_alias_wildcard ::
   \<open>(unit, nat, unit, unit, unit, unit) expression\<close>
@@ -696,6 +945,24 @@ ML_val\<open>
             | matches _ = false
         in Term.exists_subterm matches term end
 
+    fun has_shared_source_guard guard_name order term =
+      let
+        fun matches
+              (Const (conditional, _) $ guard $
+                guarded_success $ _) =
+              conditional =
+                  \<^const_name>\<open>two_armed_conditional\<close> andalso
+                count_constant guard_name guard = 1 andalso
+                count_constant guard_name guarded_success = 0 andalso
+                has_ordered_equality_results
+                  order guarded_success
+          | matches _ = false
+      in Term.exists_subterm matches term end
+
+    fun instantiate_definition rhs arguments =
+      Envir.beta_eta_contract
+        (Term.list_comb (rhs, arguments))
+
     val ordered_expected =
       \<^term>\<open>
         (bind (literal (Err ParserSecondaryStatus))
@@ -899,6 +1166,25 @@ ML_val\<open>
         overlapping_tuple_expected
     val (overlapping_or_lhs, overlapping_or) =
       equation_of "parser_nested_overlapping_or_alternatives"
+    val (guarded_or_lhs, guarded_or) =
+      equation_of "parser_nested_guarded_or_alternatives"
+    val (guarded_or_reversed_lhs, guarded_or_reversed) =
+      equation_of "parser_nested_guarded_or_alternatives_reversed"
+    val (guarded_or_binder_lhs, guarded_or_binder) =
+      equation_of "parser_nested_guarded_or_binder"
+    val guarded_or_instantiated =
+      instantiate_definition guarded_or
+        [\<^term>\<open>parser_nested_overlap_scrutinee\<close>,
+         \<^term>\<open>parser_nested_source_guard_true\<close>]
+    val guarded_or_reversed_instantiated =
+      instantiate_definition guarded_or_reversed
+        [\<^term>\<open>
+            parser_nested_or_overlap_reversed_second_scrutinee
+          \<close>,
+         \<^term>\<open>parser_nested_source_guard_true\<close>]
+    val guarded_or_binder_instantiated =
+      instantiate_definition guarded_or_binder
+        [\<^term>\<open>parser_nested_overlap_scrutinee\<close>]
     val (global_ok_branch, global_err_branch) =
       result_case_branches global_source_order
     val alias_wildcard =
@@ -925,6 +1211,12 @@ ML_val\<open>
       Term.strip_comb overlapping_tuple_lhs
     val (_, overlapping_or_arguments) =
       Term.strip_comb overlapping_or_lhs
+    val (_, guarded_or_arguments) =
+      Term.strip_comb guarded_or_lhs
+    val (_, guarded_or_reversed_arguments) =
+      Term.strip_comb guarded_or_reversed_lhs
+    val (_, guarded_or_binder_arguments) =
+      Term.strip_comb guarded_or_binder_lhs
     val _ =
       assert "alias/wildcard fixture acquired an unintended definition argument"
         (null alias_wildcard_arguments)
@@ -966,6 +1258,56 @@ ML_val\<open>
       assert "overlapping or-pattern fixture evaluated its scrutinee more than once"
         (count_constant \<^const_name>\<open>bind\<close>
           overlapping_or = 1)
+    val _ =
+      assert "guarded or-pattern fixture changed its definition head"
+        (null guarded_or_arguments)
+    val _ =
+      assert "guarded or-pattern fixture changed its argument types"
+        (binder_types (fastype_of guarded_or_lhs) =
+          [\<^typ>\<open>parser_nested_overlap_input\<close>,
+           \<^typ>\<open>
+             (nat, bool, unit, unit, unit, unit) expression
+           \<close>])
+    val _ =
+      assert "guarded or-pattern fixture retained schematic variables"
+        (null (Term.add_vars guarded_or []))
+    val _ =
+      assert "guarded or-pattern fixture retained local free binders"
+        (null (Term.add_frees guarded_or []))
+    val _ =
+      assert "guarded or-pattern fixture evaluated its scrutinee more than once"
+        (count_constant \<^const_name>\<open>bind\<close>
+          guarded_or = 1)
+    val _ =
+      assert "reversed guarded or-pattern fixture changed its definition head"
+        (null guarded_or_reversed_arguments)
+    val _ =
+      assert "reversed guarded or-pattern fixture retained schematic variables"
+        (null (Term.add_vars guarded_or_reversed []))
+    val _ =
+      assert "reversed guarded or-pattern fixture retained local free binders"
+        (null (Term.add_frees guarded_or_reversed []))
+    val _ =
+      assert "reversed guarded or-pattern fixture evaluated its scrutinee more than once"
+        (count_constant \<^const_name>\<open>bind\<close>
+          guarded_or_reversed = 1)
+    val _ =
+      assert "binder-dependent guard fixture changed its definition head"
+        (null guarded_or_binder_arguments)
+    val _ =
+      assert "binder-dependent guard fixture changed its argument type"
+        (binder_types (fastype_of guarded_or_binder_lhs) =
+          [\<^typ>\<open>parser_nested_overlap_input\<close>])
+    val _ =
+      assert "binder-dependent guard fixture retained schematic variables"
+        (null (Term.add_vars guarded_or_binder []))
+    val _ =
+      assert "binder-dependent guard fixture retained local free binders"
+        (null (Term.add_frees guarded_or_binder []))
+    val _ =
+      assert "binder-dependent guard fixture evaluated its scrutinee more than once"
+        (count_constant \<^const_name>\<open>bind\<close>
+          guarded_or_binder = 1)
     val expected_equality_order =
       map constant_name
         [\<^term>\<open>ParserPrimaryStatus\<close>,
@@ -976,6 +1318,16 @@ ML_val\<open>
         \<^term>\<open>literal (1 :: nat)\<close>),
        (constant_name
           \<^term>\<open>ParserSecondaryStatus\<close>,
+        \<^term>\<open>literal (1 :: nat)\<close>),
+       (constant_name
+          \<^term>\<open>ParserSecondaryStatus\<close>,
+        \<^term>\<open>literal (2 :: nat)\<close>)]
+    val overlapping_or_reversed_order =
+      [(constant_name
+          \<^term>\<open>ParserSecondaryStatus\<close>,
+        \<^term>\<open>literal (1 :: nat)\<close>),
+       (constant_name
+          \<^term>\<open>ParserPrimaryStatus\<close>,
         \<^term>\<open>literal (1 :: nat)\<close>),
        (constant_name
           \<^term>\<open>ParserSecondaryStatus\<close>,
@@ -1054,6 +1406,23 @@ ML_val\<open>
         (has_ordered_equality_results
           overlapping_or_order overlapping_or)
     val _ =
+      assert "source guard was not shared across original-order alternatives"
+        (has_shared_source_guard
+          \<^const_name>\<open>parser_nested_source_guard_true\<close>
+          overlapping_or_order guarded_or_instantiated)
+    val _ =
+      assert "source guard was not shared across reversed alternatives"
+        (has_shared_source_guard
+          \<^const_name>\<open>parser_nested_source_guard_true\<close>
+          overlapping_or_reversed_order
+          guarded_or_reversed_instantiated)
+    val _ =
+      assert "binder-dependent source guard was not shared across alternatives"
+        (has_shared_source_guard
+          \<^const_name>\<open>parser_nested_binder_source_guard\<close>
+          overlapping_or_order
+          guarded_or_binder_instantiated)
+    val _ =
       assert "a later applicable source arm still terminates at undefined"
         (List.all
           (fn term =>
@@ -1061,7 +1430,8 @@ ML_val\<open>
               term = 0)
           [nested, ordered, ordered_or, guarded_order,
            global_source_order, overlapping_tuple,
-           overlapping_or])
+           overlapping_or, guarded_or,
+           guarded_or_reversed, guarded_or_binder])
     val _ =
       assert "alias/wildcard fixture duplicated the outer case"
         (count_constant result_case_name alias_wildcard = 1)

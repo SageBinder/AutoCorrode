@@ -1754,59 +1754,81 @@ struct
            flat_group_shape source_group) orelse
         is_flat_catchall_group source_group
 
+      fun guard_state_for_source NONE _ = NONE
+        | guard_state_for_source (SOME guarded_arm)
+            (source_arm, _) =
+            if guarded_arm = source_arm
+            then SOME guarded_arm
+            else NONE
+
       (* Every outer branch advances through alternatives by their original lexicographic
          (source-arm, or-alternative) position. Constructor entries, overlapping structural
          patterns, and catch-all entries may live in different merged groups, so selecting only the
          next entry in the current shape group reorders both interleaved arms and alternatives from
          one or-pattern. Catch-all payloads are specialized directly; a non-identical overlapping
          pattern is matched against the already reconstructed branch value, without reevaluating the
-         original scrutinee. *)
+         original scrutinee. A successful source guard is carried through the remaining alternatives
+         of its arm, so generated-guard failure does not evaluate it again. *)
       fun compile_flat_group_body all_groups branch_group
-            source_position =
+            source_position guarded_arm =
         (case next_flat_source
             all_groups branch_group source_position of
            NONE => fallback
          | SOME
              (next_position, source_group, source) =>
-             if can_specialize_flat_group
-                  branch_group source_group
-             then
-               compile_flat_source all_groups
-                 branch_group source_group source
-             else
-               let
-                 val (_, source_rebuild, _, _, _) =
-                   source_group
-                 val branch_pattern =
-                   flat_group_pattern branch_group
-                 val matched =
-                   compile_flat_source all_groups
-                     source_group source_group source
-                 val unmatched =
-                   compile_flat_group_body
-                     all_groups branch_group next_position
-               in
-                 case_term_on branch_pattern
-                   [source_rebuild matched,
-                    generated_wild
-                      (Term.incr_boundvars 1 unmatched)]
-               end)
+             let
+               val guarded_arm' =
+                 guard_state_for_source
+                   guarded_arm next_position
+             in
+               if can_specialize_flat_group
+                    branch_group source_group
+               then
+                 compile_flat_source all_groups
+                   branch_group source_group
+                   guarded_arm' source
+               else
+                 let
+                   val (_, source_rebuild, _, _, _) =
+                     source_group
+                   val branch_pattern =
+                     flat_group_pattern branch_group
+                   val matched =
+                     compile_flat_source all_groups
+                       source_group source_group
+                       guarded_arm' source
+                   val unmatched =
+                     compile_flat_group_body
+                       all_groups branch_group next_position
+                       guarded_arm'
+                 in
+                   case_term_on branch_pattern
+                     [source_rebuild matched,
+                      generated_wild
+                        (Term.incr_boundvars 1 unmatched)]
+                 end
+             end)
 
       and compile_flat_source all_groups branch_group
-          source_group
+          source_group guarded_arm
           (next_position as (source_arm, _),
            source_guard, alternatives) =
         let
           fun specialize term =
             specialize_flat_term
               branch_group source_group term
+          val guarded_arm' =
+            (case source_guard of
+               SOME _ => SOME source_arm
+             | NONE => guarded_arm)
           val source_fallback =
             compile_flat_group_body
               all_groups branch_group next_position
+                guarded_arm'
           val arm_fallback =
             compile_flat_group_body
               all_groups branch_group
-                (source_arm + 1, ~1)
+                (source_arm + 1, ~1) NONE
 
           fun compile_alternatives [] =
                 error
@@ -1829,9 +1851,10 @@ struct
           val matched =
             compile_alternatives alternatives
         in
-          (case source_guard of
-             NONE => matched
-           | SOME guard =>
+          (case (source_guard, guarded_arm) of
+             (NONE, _) => matched
+           | (SOME _, SOME _) => matched
+           | (SOME guard, NONE) =>
                T.conditional (specialize guard)
                  matched arm_fallback)
         end
@@ -1839,7 +1862,8 @@ struct
       fun compile_flat_group all_groups
           (group as (_, rebuild, _, _, _)) =
         rebuild
-          (compile_flat_group_body all_groups group (~1, ~1))
+          (compile_flat_group_body
+            all_groups group (~1, ~1) NONE)
 
       fun expression_of_flat_groups [] = fallback
         | expression_of_flat_groups all_groups =
