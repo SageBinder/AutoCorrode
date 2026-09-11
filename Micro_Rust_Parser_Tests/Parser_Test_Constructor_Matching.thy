@@ -135,6 +135,7 @@ section\<open>Nested registered nullary normalization\<close>
 datatype parser_nested_status =
     ParserPrimaryStatus
   | ParserSecondaryStatus
+  | ParserTertiaryStatus
 
 micro_rust_notation (literal)
   parser_nested_status.ParserPrimaryStatus
@@ -142,6 +143,9 @@ micro_rust_notation (literal)
 micro_rust_notation (literal)
   parser_nested_status.ParserSecondaryStatus
   ("NestedStatus::Secondary")
+micro_rust_notation (literal)
+  parser_nested_status.ParserTertiaryStatus
+  ("NestedStatus::Tertiary")
 
 urust_expr [conformance_check = true] parser_nested_registered_nullary
   \<open>
@@ -206,6 +210,19 @@ consts
   parser_nested_mixed_scrutinee :: \<open>parser_native_case option\<close>
   parser_nested_guarded_scrutinee ::
     \<open>(unit, parser_nested_status) result\<close>
+  parser_nested_alias_wild_scrutinee ::
+    \<open>(unit, parser_nested_status) result\<close>
+  parser_nested_alias_binder_scrutinee ::
+    \<open>(unit, parser_nested_status) result\<close>
+  parser_nested_alias_tag ::
+    \<open>(unit, parser_nested_status) result \<Rightarrow> nat\<close>
+  parser_nested_alias_rewrite ::
+    \<open>
+      (unit, parser_nested_status) result \<Rightarrow>
+        (unit, parser_nested_status) result
+    \<close>
+  parser_nested_alias_probe_result ::
+    \<open>(unit, parser_nested_status) result\<close>
   parser_nested_guard_marker :: bool
 
 urust_expr parser_nested_registered_mixed ::
@@ -225,6 +242,32 @@ urust_expr parser_nested_registered_guard_order ::
       Err(NestedStatus::Primary)
         if \<llangle>parser_nested_guard_marker\<rrangle> \<Rightarrow> 1,
       _ \<Rightarrow> 2
+    }
+  \<close>
+
+urust_expr parser_nested_alias_wildcard ::
+  \<open>(unit, nat, unit, unit, unit, unit) expression\<close>
+  \<open>
+    match \<llangle>parser_nested_alias_wild_scrutinee\<rrangle> {
+      Err(NestedStatus::Tertiary) \<Rightarrow> 0,
+      whole @ Err(NestedStatus::Primary) \<Rightarrow>
+        \<llangle>parser_nested_alias_tag whole\<rrangle>,
+      _ \<Rightarrow> 2
+    }
+  \<close>
+
+urust_expr parser_nested_alias_binder ::
+  \<open>
+    (unit, (unit, parser_nested_status) result,
+      unit, unit, unit, unit) expression
+  \<close>
+  \<open>
+    match \<llangle>parser_nested_alias_binder_scrutinee\<rrangle> {
+      Err(NestedStatus::Tertiary) \<Rightarrow>
+        \<llangle>parser_nested_alias_probe_result\<rrangle>,
+      whole @ Err(NestedStatus::Primary) \<Rightarrow>
+        \<llangle>parser_nested_alias_rewrite whole\<rrangle>,
+      res \<Rightarrow> res
     }
   \<close>
 
@@ -523,6 +566,51 @@ ML_val\<open>
                   (literal (2 :: nat)))) ::
           (unit, nat, unit, unit, unit, unit) expression
       \<close>
+    val alias_wildcard_expected =
+      \<^term>\<open>
+        (bind (literal parser_nested_alias_wild_scrutinee)
+          (\<lambda>value.
+            case value of
+              Ok result \<Rightarrow> literal (2 :: nat)
+            | Err error \<Rightarrow>
+                two_armed_conditional
+                  (urust_eq
+                    (literal error)
+                    (literal ParserTertiaryStatus))
+                  (literal (0 :: nat))
+                  (two_armed_conditional
+                    (urust_eq
+                      (literal error)
+                      (literal ParserPrimaryStatus))
+                    (bind (literal value)
+                      (\<lambda>whole.
+                        literal (parser_nested_alias_tag whole)))
+                    (literal (2 :: nat))))) ::
+          (unit, nat, unit, unit, unit, unit) expression
+      \<close>
+    val alias_binder_expected =
+      \<^term>\<open>
+        (bind (literal parser_nested_alias_binder_scrutinee)
+          (\<lambda>value.
+            case value of
+              Ok result \<Rightarrow> literal (Ok result)
+            | Err error \<Rightarrow>
+                two_armed_conditional
+                  (urust_eq
+                    (literal error)
+                    (literal ParserTertiaryStatus))
+                  (literal parser_nested_alias_probe_result)
+                  (two_armed_conditional
+                    (urust_eq
+                      (literal error)
+                      (literal ParserPrimaryStatus))
+                    (bind (literal value)
+                      (\<lambda>whole.
+                        literal (parser_nested_alias_rewrite whole)))
+                    (literal (Err error))))) ::
+          (unit, (unit, parser_nested_status) result,
+            unit, unit, unit, unit) expression
+      \<close>
     val ordered =
       checked_ordered_term
         "parser_nested_registered_ordered" ordered_expected
@@ -533,6 +621,32 @@ ML_val\<open>
       checked_ordered_term
         "parser_nested_registered_guard_order"
         guarded_order_expected
+    val alias_wildcard =
+      checked_ordered_term
+        "parser_nested_alias_wildcard" alias_wildcard_expected
+    val alias_binder =
+      checked_ordered_term
+        "parser_nested_alias_binder" alias_binder_expected
+    val (alias_wildcard_lhs, _) =
+      equation_of "parser_nested_alias_wildcard"
+    val (alias_binder_lhs, _) =
+      equation_of "parser_nested_alias_binder"
+    val (_, alias_wildcard_arguments) =
+      Term.strip_comb alias_wildcard_lhs
+    val (_, alias_binder_arguments) =
+      Term.strip_comb alias_binder_lhs
+    val _ =
+      assert "alias/wildcard fixture acquired an unintended definition argument"
+        (null alias_wildcard_arguments)
+    val _ =
+      assert "alias/wildcard fixture acquired an unintended function type"
+        (null (binder_types (fastype_of alias_wildcard_lhs)))
+    val _ =
+      assert "alias/binder fixture acquired an unintended definition argument"
+        (null alias_binder_arguments)
+    val _ =
+      assert "alias/binder fixture acquired an unintended function type"
+        (null (binder_types (fastype_of alias_binder_lhs)))
     val expected_equality_order =
       map constant_name
         [\<^term>\<open>ParserPrimaryStatus\<close>,
@@ -574,6 +688,39 @@ ML_val\<open>
       assert "guarded same-shape arm lost its generated equality"
         (count_constant \<^const_name>\<open>urust_eq\<close>
           guarded_order = 1)
+    val _ =
+      assert "alias/wildcard fixture duplicated the outer case"
+        (count_constant result_case_name alias_wildcard = 1)
+    val _ =
+      assert "alias/wildcard fixture duplicated its scrutinee"
+        (count_constant
+          \<^const_name>\<open>parser_nested_alias_wild_scrutinee\<close>
+          alias_wildcard = 1)
+    val _ =
+      assert "alias/wildcard fixture lost a generated equality"
+        (count_constant \<^const_name>\<open>urust_eq\<close>
+          alias_wildcard = 2)
+    val _ =
+      assert "alias/wildcard fixture lost its matching alias arm"
+        (count_constant \<^const_name>\<open>parser_nested_alias_tag\<close>
+          alias_wildcard = 1)
+    val _ =
+      assert "alias/binder fixture duplicated the outer case"
+        (count_constant result_case_name alias_binder = 1)
+    val _ =
+      assert "alias/binder fixture duplicated its scrutinee"
+        (count_constant
+          \<^const_name>\<open>parser_nested_alias_binder_scrutinee\<close>
+          alias_binder = 1)
+    val _ =
+      assert "alias/binder fixture lost a generated equality"
+        (count_constant \<^const_name>\<open>urust_eq\<close>
+          alias_binder = 2)
+    val _ =
+      assert "alias/binder fixture lost its matching alias arm"
+        (count_constant
+          \<^const_name>\<open>parser_nested_alias_rewrite\<close>
+          alias_binder = 1)
 
     val nested_payload = rhs_of "parser_nested_registered_payload"
     val SOME (native_case, _) =

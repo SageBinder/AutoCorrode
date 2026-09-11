@@ -1252,7 +1252,12 @@ struct
                compiler ctxt environment expression inner
            fun wrap rhs =
              alias_wrapper environment expression binder_sig rhs
-         in (basic, guards, wrappers @ [wrap]) end
+           (* Failure of the aliased inner pattern continues with the next source arm. The alias
+              wrapper binds only after that pattern succeeds, so it must not inherit a committing
+              generated guard from the legacy exact-nullary normalization. *)
+           val guards' =
+             map (fn (guard, _) => (guard, false)) guards
+         in (basic, guards', wrappers @ [wrap]) end
      | Case_Value (literal, _) =>
          (Basic_Wild NONE,
           [(T.binary Eq expression (T.literal literal), false)],
@@ -1638,14 +1643,42 @@ struct
                 merge_flat_groups current remaining
             end
 
-      fun compile_flat_group_body (_, _, _, _, sources) =
+      fun is_flat_catchall abstractions pattern =
+        (case (abstractions, pattern) of
+           ([_], Bound 0) => true
+         | _ => false)
+
+      fun flat_groups_after source_index groups =
+        map_filter
+          (fn (shape, rebuild, abstractions, pattern, sources) =>
+            let
+              val later =
+                filter
+                  (fn (index, _, _) => index > source_index)
+                  sources
+            in
+              if null later then NONE
+              else
+                SOME
+                  (shape, rebuild, abstractions, pattern, later)
+            end)
+          groups
+
+      (* Continuations are derived from the final merged groups, not captured while the suffix is
+         still being assembled. Equal outer shapes reuse their bound-slot layout; wildcard/binder
+         branches are specialized by replacing the whole-value slot with the current pattern. *)
+      fun compile_flat_group_body all_groups
+            (group as (_, _, _, _, sources)) =
         let
           fun compile_sources [] = fallback
             | compile_sources
-                ((source_guard, alternatives, source_fallback) :: rest) =
+                ((source_index, source_guard, alternatives) :: rest) =
                 let
                   val later_same_shape =
                     compile_sources rest
+                  val source_fallback =
+                    flat_group_continuation
+                      all_groups group source_index
 
                   fun compile_alternatives [] =
                         error
@@ -1676,45 +1709,42 @@ struct
                 end
         in compile_sources sources end
 
-      fun compile_flat_group
+      and compile_flat_group all_groups
           (group as (_, rebuild, _, _, _)) =
-        rebuild (compile_flat_group_body group)
+        rebuild (compile_flat_group_body all_groups group)
 
-      fun expression_of_flat_groups [] = fallback
-        | expression_of_flat_groups groups =
-            case_term (map compile_flat_group groups)
+      and expression_of_flat_groups _ [] = fallback
+        | expression_of_flat_groups all_groups groups =
+            case_term
+              (map (compile_flat_group all_groups) groups)
 
-      fun is_flat_catchall abstractions pattern =
-        (case (abstractions, pattern) of
-           ([_], Bound 0) => true
-         | _ => false)
-
-      (* A later equal outer shape already has the right bound-slot layout. A later wildcard/binder
-         branch is specialized by replacing its whole-value slot with the current constructor
-         pattern. Only a guarded catch-all needs the conservative complete-case fallback. *)
-      fun flat_group_continuation
-          (shape, _, abstractions, pattern, _) later =
+      and flat_group_continuation all_groups
+          (shape, _, abstractions, pattern, _) source_index =
         let
+          val later =
+            flat_groups_after source_index all_groups
+
           fun find [] =
                 if is_flat_catchall abstractions pattern
-                then expression_of_flat_groups later
+                then expression_of_flat_groups all_groups later
                 else fallback
             | find
                 ((group as
                   (candidate, _, candidate_abstractions,
                    candidate_pattern, _)) :: rest) =
                 if same_flat_shape (shape, candidate)
-                then compile_flat_group_body group
+                then compile_flat_group_body all_groups group
                 else if
                   is_flat_catchall
                     candidate_abstractions candidate_pattern
                 then
                   Term.subst_bound
-                    (pattern, compile_flat_group_body group)
+                    (pattern,
+                     compile_flat_group_body all_groups group)
                 else find rest
         in find later end
 
-      fun make_flat_source_group later
+      fun make_flat_source_group source_index
           (shape, rebuild, abstractions, pattern, clauses) =
         let
           val source_guard =
@@ -1737,27 +1767,29 @@ struct
               (fn (_, generated_guard, success) =>
                 (generated_guard, success))
               clauses
-          val source_fallback =
-            flat_group_continuation
-              (shape, rebuild, abstractions, pattern, clauses)
-              later
         in
           (shape, rebuild, abstractions, pattern,
-           [(source_guard, alternatives, source_fallback)])
+           [(source_index, source_guard, alternatives)])
         end
 
-      fun compile_flat_sources [] =
+      fun compile_flat_sources sources =
+        let
+          val fallback_index = length sources
+          val fallback_groups =
             (case explicit_fallback of
                SOME term =>
-                 map (make_flat_source_group [])
+                 map (make_flat_source_group fallback_index)
                    (group_flat_clauses
                      [make_flat_clause generated_wild
                        NONE NONE term])
              | NONE => [])
-        | compile_flat_sources
-            ({alternatives, binders, source_guard, rhs} :: rest) =
+
+          fun collect _ [] = fallback_groups
+            | collect source_index
+                ({alternatives, binders, source_guard, rhs} :: rest) =
             let
-              val rest_groups = compile_flat_sources rest
+              val rest_groups =
+                collect (source_index + 1) rest
               val handler = fold_rev Term.lambda binders rhs
 
               fun clause
@@ -1770,11 +1802,12 @@ struct
                     generated_guard success
                 end
               val current_groups =
-                map (make_flat_source_group rest_groups)
+                map (make_flat_source_group source_index)
                   (group_flat_clauses (map clause alternatives))
             in
               merge_flat_groups current_groups rest_groups
             end
+        in collect 0 sources end
 
       fun compile_guarded_sources [] = fallback
         | compile_guarded_sources
@@ -1818,8 +1851,9 @@ struct
       val selector =
         if has_committing_guard
         then
-          expression_of_flat_groups
-            (compile_flat_sources normalized)
+          let
+            val groups = compile_flat_sources normalized
+          in expression_of_flat_groups groups groups end
         else if List.exists has_generated_guard normalized
         then compile_guarded_sources normalized
         else compile_unguarded_sources normalized
