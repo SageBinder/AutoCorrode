@@ -1190,9 +1190,26 @@ struct
        subject: structural_subject,
        exclusions: structural_exclusion list}
 
+  datatype structural_selection_witness =
+      Selected_Any of
+        {binder: term option,
+         subject: structural_subject}
+    | Selected_Node of
+        {subject: structural_subject,
+         arguments: structural_selection_witness list}
+
+  datatype clause_selection =
+      Reused_Clause_Selection of structural_selection_witness
+    | Opened_Covering_Clause_Selection of
+        {abstraction: term -> term,
+         witness: structural_selection_witness}
+    | Opened_Partial_Clause_Selection of
+        {abstraction: term -> term,
+         witness: structural_selection_witness}
+
   datatype selected_row_state =
     Selected_Row_State of
-      {selected_subject: structural_subject,
+      {selection: structural_selection_witness,
        alternative_continuation: decision_state,
        arm_continuation: decision_state}
 
@@ -1246,8 +1263,10 @@ struct
       record preceding case clauses that failed in that region. selected_row_state keeps the two
       continuations explicit: generated-test failure uses the selected source row's region, while
       source-guard failure restarts the next arm from the one already-bound root scrutinee. The
-      selected subject remains separate so the source guard and body are scoped by exactly the
-      alternative that matched. Decision_Exclusion suppresses only its exact source position.
+      structural_selection_witness certifies recursively that the selected region and subject
+      decomposition conform before binders are extracted. Semantic totality never creates this
+      witness: a singleton constructor or tuple over Structural_Any is opened to obtain its children.
+      Decision_Exclusion suppresses only its exact source position.
       Nested_Group_Exclusion additionally records that a nested extraction group was bypassed, so a
       later alternative of that same arm is selected again from the already-bound root value. No
       binder or source-guard result is shared between alternatives.
@@ -1577,15 +1596,97 @@ struct
          subject = subject}
     end
 
-  fun structural_bindings pattern subject =
-    (case pattern of
-       Structural_Any NONE => []
-     | Structural_Any (SOME free) =>
-         [(free, subject_value subject)]
-     | Structural_Node {arguments, ...} =>
-         maps I
-           (map2 structural_bindings
-             arguments (subject_children subject)))
+  fun selection_subject
+      (Selected_Any {subject, ...}) = subject
+    | selection_subject
+        (Selected_Node {subject, ...}) = subject
+
+  fun make_structural_selection_witness
+      pattern region subject =
+    let
+      fun refine_arguments [] [] [] = SOME []
+        | refine_arguments
+            (pattern :: patterns)
+            (region :: regions)
+            (subject :: subjects) =
+            (case refine pattern region subject of
+               NONE => NONE
+             | SOME selected =>
+                 Option.map
+                   (fn rest => selected :: rest)
+                   (refine_arguments
+                     patterns regions subjects))
+        | refine_arguments _ _ _ = NONE
+      and refine
+          (Structural_Any binder) _ subject =
+            SOME
+              (Selected_Any
+                {binder = binder, subject = subject})
+        | refine
+            (Structural_Node
+              {head = pattern_head,
+               arguments = pattern_arguments, ...})
+            (Structural_Node
+              {head = region_head,
+               arguments = region_arguments, ...})
+            subject =
+            if same_constructor
+                (pattern_head, region_head)
+            then
+              Option.map
+                (fn selected_arguments =>
+                  Selected_Node
+                    {subject = subject,
+                     arguments = selected_arguments})
+                (refine_arguments
+                  pattern_arguments region_arguments
+                  (subject_children subject))
+            else NONE
+        | refine (Structural_Node _) (Structural_Any _) _ =
+            NONE
+    in refine pattern region subject end
+
+  fun select_structural_clause ctxt pattern
+      (Decision_State {region, subject, ...}) =
+    (case make_structural_selection_witness
+        pattern region subject of
+       SOME witness =>
+         Reused_Clause_Selection witness
+     | NONE =>
+         let
+           val shape = erase_structural_bindings pattern
+           val Opened_Pattern
+             {abstraction, subject = opened_subject} =
+               fresh_pattern_subject ctxt shape
+           val witness =
+             (case make_structural_selection_witness
+                 pattern shape opened_subject of
+                SOME selected => selected
+              | NONE =>
+                  error
+                    "urust_expr: internal invalid opened structural selection")
+         in
+           if structural_semantically_subsumes
+               (shape, region)
+           then
+             Opened_Covering_Clause_Selection
+               {abstraction = abstraction,
+                witness = witness}
+           else
+             Opened_Partial_Clause_Selection
+               {abstraction = abstraction,
+                witness = witness}
+         end)
+
+  fun structural_bindings
+      (Selected_Any {binder = NONE, ...}) = []
+    | structural_bindings
+        (Selected_Any
+          {binder = SOME free, subject}) =
+        [(free, subject_value subject)]
+    | structural_bindings
+        (Selected_Node {arguments, ...}) =
+        maps structural_bindings arguments
 
   fun specialize_term bindings =
     if null bindings then I
@@ -2139,52 +2240,36 @@ struct
             clause_scope_restarts_mismatch scope
         | continuation_requires_root_scope [] = false
 
-      fun matched_states
+      fun selected_states
           (state as Decision_State {exclusions, ...})
-          scope row_shape candidate_subject =
+          scope row_shape selection =
+        let val selected_subject =
+          selection_subject selection
+        in
         Selected_Row_State
-          {selected_subject = candidate_subject,
+          {selection = selection,
            alternative_continuation =
              if clause_scope_restarts_alternative scope
              then root_state
              else
                Decision_State
                  {region = row_shape,
-                  subject = candidate_subject,
+                  subject = selected_subject,
                   exclusions = exclusions},
            arm_continuation =
              if structural_is_any row_shape
              then state
              else root_state}
-
-      fun subsuming_states
-          (state as
-            Decision_State {subject, exclusions, ...})
-          scope row_shape =
-        Selected_Row_State
-          {selected_subject = subject,
-           alternative_continuation =
-             if clause_scope_restarts_alternative scope
-             then root_state
-             else
-               Decision_State
-                 {region = row_shape,
-                  subject = subject,
-                  exclusions = exclusions},
-           arm_continuation =
-             if structural_is_any row_shape
-             then state
-             else root_state}
+        end
 
       fun close_selected_clause
           (Case_Clause
-            {structural_pattern, generated_test, scope})
-          selected_subject source_guard body
+            {generated_test, scope, ...})
+          selection source_guard body
           alternative_failure arm_failure =
         let
           val bindings =
-            structural_bindings
-              structural_pattern selected_subject
+            structural_bindings selection
           val specialize = specialize_term bindings
           val guarded_body =
             (case source_guard of
@@ -2226,7 +2311,7 @@ struct
 
                fun compile_matched
                    (Selected_Row_State
-                     {selected_subject,
+                     {selection,
                       alternative_continuation,
                       arm_continuation}) =
                  let
@@ -2237,26 +2322,38 @@ struct
                        (drop_source_arm arm_index rest)
                  in
                    close_selected_clause clause
-                     selected_subject source_guard body
+                     selection source_guard body
                      next_alternative next_arm
                  end
+               val selection =
+                 select_structural_clause ctxt
+                   structural_pattern decision_state
              in
-               if structural_semantically_subsumes
-                   (shape,
-                    (case decision_state of
-                       Decision_State {region, ...} => region))
-               then
-                 compile_matched
-                   (subsuming_states
-                     decision_state scope shape)
-               else
-                 let
-                   val Opened_Pattern
-                     {abstraction, subject = candidate_subject} =
-                       fresh_pattern_subject ctxt shape
+                (case selection of
+                  Reused_Clause_Selection witness =>
+                    compile_matched
+                      (selected_states
+                        decision_state scope shape witness)
+                | Opened_Covering_Clause_Selection
+                    {abstraction, witness} =>
+                  let
+                    val success =
+                      compile_matched
+                        (selected_states
+                          decision_state scope shape witness)
+                  in
+                    case_term_on
+                      (case decision_state of
+                         Decision_State {subject, ...} =>
+                           subject_value subject)
+                      [abstraction success]
+                  end
+                | Opened_Partial_Clause_Selection
+                    {abstraction, witness} =>
+                  let
                    val selected_state =
-                     matched_states decision_state scope shape
-                       candidate_subject
+                     selected_states
+                       decision_state scope shape witness
                    val success =
                      compile_matched selected_state
                    val failure =
@@ -2272,7 +2369,7 @@ struct
                           subject_value subject)
                      [abstraction success,
                       generated_wild failure]
-                 end
+                  end)
              end)
 
       fun row_exclusion row pattern =
