@@ -108,9 +108,9 @@ ML\<open>
    * literal wraps a HOL value as a shallow expression. boolean_expression constructs the dedicated
      shallow true/false expression constants, while string_value and integer_value construct raw HOL
      values for later wrapping. string_value decodes the lexer-preserved string spelling at the given
-     position. integer_value accepts the parser's decimal or 0x hexadecimal lexeme, with no suffix or
-     one of u8, u16, u32, u64, and usize, optionally separated by one compatibility underscore; it
-     reports malformed numbers and unsupported suffixes at the source position.
+     position. integer_value centrally splits suffixes, detects binary/octal/decimal/hexadecimal
+     bases, validates digits and separators, removes underscores, converts the value, and applies one
+     of u8, u16, u32, u64, and usize. The compatibility underscore before a suffix remains accepted.
    * closure wraps one FunctionBody around the already-lowered body, abstracts the ordered formal
      Frees in source order, and then applies one outer literal. It imposes no call-arity limit.
    * pause is the direct primitive pause expression. primitive_log applies the raw priority and data
@@ -303,49 +303,110 @@ struct
     space_implode " " (map fst integer_suffix_types)
 
   fun is_decimal_digit c = #"0" <= c andalso c <= #"9"
-  fun is_hex_digit c =
-    is_decimal_digit c orelse
-    (#"a" <= c andalso c <= #"f") orelse
-    (#"A" <= c andalso c <= #"F")
+  fun digit_value c =
+    if #"0" <= c andalso c <= #"9" then SOME (Char.ord c - Char.ord #"0")
+    else if #"a" <= c andalso c <= #"f" then SOME (10 + Char.ord c - Char.ord #"a")
+    else if #"A" <= c andalso c <= #"F" then SOME (10 + Char.ord c - Char.ord #"A")
+    else NONE
+
+  fun valid_digit radix c =
+    (case digit_value c of
+       SOME value => value < radix
+     | NONE => false)
+
+  fun convert_digits radix digits =
+    fold
+      (fn c => fn value =>
+        radix * value + the (digit_value c))
+      (String.explode digits) 0
 
   fun scan_while predicate text start =
     if start < size text andalso predicate (String.sub (text, start))
     then scan_while predicate text (start + 1)
     else start
 
+  fun drop_underscores text =
+    String.implode (filter (fn c => c <> #"_") (String.explode text))
+
+  fun base_and_start lexeme =
+    if size lexeme >= 2 andalso
+       String.sub (lexeme, 0) = #"0" andalso String.sub (lexeme, 1) = #"b"
+    then (2, 2)
+    else if size lexeme >= 2 andalso
+            String.sub (lexeme, 0) = #"0" andalso String.sub (lexeme, 1) = #"o"
+    then (8, 2)
+    else if size lexeme >= 2 andalso
+            String.sub (lexeme, 0) = #"0" andalso String.sub (lexeme, 1) = #"x"
+    then (16, 2)
+    else (10, 0)
+
+  fun known_suffix_split lexeme =
+    let
+      fun split suffix =
+        if String.isSuffix suffix lexeme andalso size lexeme > size suffix
+        then
+          let
+            val suffix_start = size lexeme - size suffix
+            val compatibility =
+              suffix_start > 0 andalso
+              String.sub (lexeme, suffix_start - 1) = #"_"
+            val number_end =
+              if compatibility then suffix_start - 1 else suffix_start
+            val suffix_spelling =
+              String.extract (lexeme, number_end, NONE)
+          in SOME (number_end, suffix_spelling, suffix) end
+        else NONE
+    in get_first split (map fst integer_suffix_types) end
+
   fun split_integer_lexeme pos lexeme =
     let
-      val hex = String.isPrefix "0x" lexeme
-      val number_end =
-        if hex then scan_while is_hex_digit lexeme 2
-        else scan_while is_decimal_digit lexeme 0
+      val (radix, digits_start) = base_and_start lexeme
+      val scanned_end =
+        scan_while
+          (fn c => c = #"_" orelse valid_digit radix c)
+          lexeme digits_start
+      val (number_end, suffix_spelling, suffix) =
+        (case known_suffix_split lexeme of
+           SOME split => split
+         | NONE =>
+             if scanned_end = size lexeme
+             then (scanned_end, "", "")
+             else if is_decimal_digit (String.sub (lexeme, scanned_end))
+             then
+               error ("urust_expr: cannot read integer literal " ^ quote lexeme ^
+                 Position.here pos)
+             else
+               let
+                 val compatibility =
+                   scanned_end > digits_start andalso
+                   String.sub (lexeme, scanned_end - 1) = #"_"
+                 val end' = if compatibility then scanned_end - 1 else scanned_end
+                 val spelling = String.extract (lexeme, end', NONE)
+                 val suffix' =
+                   if compatibility
+                   then String.extract (spelling, 1, NONE)
+                   else spelling
+               in (end', spelling, suffix') end)
+      val number_text = String.substring (lexeme, 0, number_end)
+      val digit_text = String.extract (number_text, digits_start, NONE)
+      val digits = drop_underscores digit_text
       val _ =
-        if number_end = (if hex then 2 else 0)
+        if digits = "" orelse
+           digits_start >= size number_text orelse
+           not (valid_digit radix (String.sub (number_text, digits_start))) orelse
+           exists (fn c => c <> #"_" andalso not (valid_digit radix c))
+             (String.explode digit_text)
         then
           error ("urust_expr: cannot read integer literal " ^ quote lexeme ^
             Position.here pos)
         else ()
-      val number_text = String.substring (lexeme, 0, number_end)
-      val suffix_spelling = String.extract (lexeme, number_end, NONE)
-      val suffix =
-        if String.isPrefix "_" suffix_spelling
-        then String.extract (suffix_spelling, 1, NONE)
-        else suffix_spelling
-    in (number_text, suffix_spelling, suffix) end
+    in (radix, digits, number_text, suffix_spelling, suffix) end
 
   fun parse_integer pos lexeme =
     let
-      val (number_text, suffix_spelling, suffix) =
+      val (radix, digits, number_text, suffix_spelling, suffix) =
         split_integer_lexeme pos lexeme
-      val value =
-        (case (if String.isPrefix "0x" number_text
-               then StringCvt.scanString (Int.scan StringCvt.HEX)
-                 (String.extract (number_text, 2, NONE))
-               else Int.fromString number_text) of
-           SOME value => value
-         | NONE =>
-             error ("urust_expr: cannot read integer literal " ^ quote number_text ^
-               Position.here pos))
+      val value = convert_digits radix digits
     in
       if suffix_spelling = ""
       then (value, NONE)

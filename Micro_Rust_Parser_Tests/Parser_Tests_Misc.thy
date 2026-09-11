@@ -165,6 +165,85 @@ urust_expr typed_function_common ::
   (item)
   \<open> item \<close>
 
+text\<open>
+Parenthesized parameters use Isabelle liberal names. Minor keywords such as \<open>for\<close> are
+available unquoted, while major command keywords must be string-quoted because command-span parsing
+happens before the declaration parser. The collision example also checks that source parameters win
+the literal role over an identically named HOL constant and parser registration; it is intentionally
+parser-only because the legacy frontend resolves that spelling as the registered constant. The
+parameter named \<open>zip\<close> shadows the real HOL \<open>List.zip\<close> constant and closes its direct
+conformance proof by reflexivity, demonstrating that the legacy frontend receives a typed local fix
+before parsing. The callable case additionally checks that an unqualified direct call head uses the
+parameter before an exact NFunction registration; the method case pins the retained
+registration-first method policy. The internal-placeholder example checks that typed fixes use the
+completed declaration type.
+\<close>
+
+definition command_parameter_collision :: nat
+  where \<open> command_parameter_collision = 17 \<close>
+
+urust_notation (literal)
+  command_parameter_collision ("command_parameter_collision")
+
+urust_expr [attrs = [micro_rust_simps]]
+  attributed_expression ::
+  \<open>(unit, unit, unit, unit, unit, unit) expression\<close>
+  \<open> () \<close>
+
+urust_expr [attrs = []]
+  empty_attributes_expression ::
+  \<open>(unit, unit, unit, unit, unit, unit) expression\<close>
+  \<open> () \<close>
+
+urust_expr parenthesized_minor_keyword_expression ::
+  \<open>nat \<Rightarrow> (unit, unit, unit, unit, unit, unit) expression\<close>
+  (for)
+  \<open> () \<close>
+
+urust_fn [attrs = [], conformance_check = false]
+  partial_collision_function ::
+  \<open>nat \<Rightarrow> _\<close>
+  (command_parameter_collision)
+  \<open> command_parameter_collision \<close>
+
+urust_fn [attrs = [micro_rust_simps]]
+  partial_internal_placeholder ::
+  \<open>_ \<Rightarrow> _\<close>
+  (item)
+  \<open> \<llangle>item :: nat\<rrangle> \<close>
+
+urust_fn zip_parameter_value ::
+  \<open>nat \<Rightarrow> _\<close>
+  (zip)
+  \<open> zip \<close>
+
+definition command_registered_zip ::
+    \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
+  where \<open> command_registered_zip \<equiv> lift_fun1 (\<lambda>item. item + 1) \<close>
+
+urust_notation (call) command_registered_zip ("zip")
+
+urust_fn [conformance_check = false] zip_callable_parameter ::
+  \<open>
+    (nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body) \<Rightarrow>
+    nat \<Rightarrow> _
+  \<close>
+  (zip, item)
+  \<open> zip(item) \<close>
+
+urust_fn [conformance_check = false] zip_method_registration ::
+  \<open>
+    (nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body) \<Rightarrow>
+    nat \<Rightarrow> _
+  \<close>
+  (zip, item)
+  \<open> item.zip() \<close>
+
+urust_fn quoted_major_parameter ::
+  \<open>nat \<Rightarrow> _\<close>
+  ("lemma")
+  \<open> lemma \<close>
+
 thm typed_closed_conformance
 thm typed_contextual_conformance
 thm typed_heterogeneous_conformance
@@ -173,6 +252,143 @@ thm typed_polymorphic_conformance
 thm typed_sort_constrained_conformance
 thm typed_placeholders_conformance
 thm typed_function_common_conformance
+thm attributed_expression_conformance
+thm empty_attributes_expression_conformance
+thm parenthesized_minor_keyword_expression_conformance
+thm partial_internal_placeholder_conformance
+thm zip_parameter_value_conformance
+thm quoted_major_parameter_conformance
+
+ML_val\<open>
+  local
+    val ctxt = \<^context>
+    val thy = Proof_Context.theory_of ctxt
+    val attributes =
+      Named_Theorems.get ctxt \<^named_theorems>\<open>micro_rust_simps\<close>
+
+    fun theorem name = Proof_Context.get_thm ctxt name
+    fun has_attribute name =
+      exists (Thm.equiv_thm thy o pair (theorem name)) attributes
+
+    fun assert message condition =
+      if condition then () else error ("command surface audit: " ^ message)
+
+    val _ =
+      assert "urust_expr attrs did not decorate its _def theorem"
+        (has_attribute "attributed_expression_def")
+    val _ =
+      assert "urust_fn attrs did not decorate its _def theorem"
+        (has_attribute "partial_internal_placeholder_def")
+    val _ =
+      assert "urust_expr attrs leaked to its conformance theorem"
+        (not (has_attribute "attributed_expression_conformance"))
+    val _ =
+      assert "urust_fn attrs leaked to its conformance theorem"
+        (not (has_attribute "partial_internal_placeholder_conformance"))
+    val _ =
+      assert "attrs = [] unexpectedly decorated an expression definition"
+        (not (has_attribute "empty_attributes_expression_def"))
+    val _ =
+      assert "attrs = [] unexpectedly decorated a function definition"
+        (not (has_attribute "partial_collision_function_def"))
+
+    val collision_body =
+      theorem "partial_collision_function_def"
+      |> Thm.prop_of
+      |> Logic.dest_equals
+      |> #2
+    val registered_constant =
+      \<^const_name>\<open>command_parameter_collision\<close>
+    val _ =
+      assert "registered/HOL collision did not resolve to the lexical parameter"
+        (Term.exists_subterm (fn Bound 0 => true | _ => false) collision_body)
+    val _ =
+      assert "registered/HOL constant survived lexical parameter resolution"
+        (not
+          (Term.exists_subterm
+            (fn Const (name, _) => name = registered_constant | _ => false)
+            collision_body))
+
+    val zip_value_body =
+      theorem "zip_parameter_value_def"
+      |> Thm.prop_of
+      |> Logic.dest_equals
+      |> #2
+    val hol_zip = \<^const_name>\<open>List.zip\<close>
+    val _ =
+      assert "HOL zip collision did not resolve to the typed local fix"
+        (Term.exists_subterm
+          (fn Bound 0 => true | _ => false)
+          zip_value_body)
+    val _ =
+      assert "List.zip survived typed-fix resolution"
+        (not
+          (Term.exists_subterm
+            (fn Const (name, _) => name = hol_zip | _ => false)
+            zip_value_body))
+
+    val registered_zip = \<^const_name>\<open>command_registered_zip\<close>
+    val callable_body =
+      theorem "zip_callable_parameter_def"
+      |> Thm.prop_of
+      |> Logic.dest_equals
+      |> #2
+    val _ =
+      assert "callable zip parameter did not survive as a lexical head"
+        (Term.exists_subterm (fn Bound 1 => true | _ => false) callable_body)
+    val _ =
+      assert "List.zip survived direct callable-parameter resolution"
+        (not
+          (Term.exists_subterm
+            (fn Const (name, _) => name = hol_zip | _ => false)
+            callable_body))
+    val _ =
+      assert "registered zip survived direct callable-parameter resolution"
+        (not
+          (Term.exists_subterm
+            (fn Const (name, _) => name = registered_zip | _ => false)
+            callable_body))
+
+    val method_body =
+      theorem "zip_method_registration_def"
+      |> Thm.prop_of
+      |> Logic.dest_equals
+      |> #2
+    val _ =
+      assert "method zip stopped using its exact registration"
+        (Term.exists_subterm
+          (fn Const (name, _) => name = registered_zip | _ => false)
+          method_body)
+    val _ =
+      assert "HOL List.zip leaked into method registration resolution"
+        (not
+          (Term.exists_subterm
+            (fn Const (name, _) => name = hol_zip | _ => false)
+            method_body))
+
+    val partial_type =
+      Syntax.read_term ctxt "partial_internal_placeholder"
+      |> fastype_of
+    val (parameter_types, result_type) = Term.strip_type partial_type
+    val _ =
+      assert "internal argument placeholder did not infer nat"
+        (parameter_types = [HOLogic.natT])
+    val _ =
+      (case result_type of
+         Type (name, [stateT, valueT, returnT, abortT, inputT]) =>
+           (assert "terminal placeholder did not become function_body"
+              (name = \<^type_name>\<open>function_body\<close>);
+            assert "function result value channel did not infer nat"
+              (valueT = HOLogic.natT);
+            assert "fresh function_body channels were accidentally identified"
+              (length (distinct (op =) [stateT, returnT, abortT, inputT]) = 4))
+       | _ =>
+           error
+             "command surface audit: terminal placeholder has malformed completed type")
+  in
+    val _ = ()
+  end
+\<close>
 
 
 section\<open> Anonymous declarations \<close>
@@ -443,7 +659,13 @@ ML_val\<open>
       ["typed_closed", "typed_contextual", "typed_heterogeneous",
        "typed_higher_order", "typed_polymorphic",
        "typed_sort_constrained", "typed_placeholders",
-       "typed_function_common", "typed_flags_000", "typed_flags_010",
+       "typed_function_common", "attributed_expression",
+       "empty_attributes_expression",
+       "parenthesized_minor_keyword_expression",
+       "partial_collision_function", "partial_internal_placeholder",
+       "zip_parameter_value", "zip_callable_parameter",
+       "zip_method_registration", "quoted_major_parameter",
+       "typed_flags_000", "typed_flags_010",
        "typed_flags_100", "typed_flags_110", "typed_against"]
     val abbreviations =
       ["typed_flags_001", "typed_flags_011",
@@ -453,11 +675,18 @@ ML_val\<open>
       ["typed_closed", "typed_contextual", "typed_heterogeneous",
        "typed_higher_order", "typed_polymorphic",
        "typed_sort_constrained", "typed_placeholders",
-       "typed_function_common", "typed_flags_100",
+       "typed_function_common", "attributed_expression",
+       "empty_attributes_expression",
+       "parenthesized_minor_keyword_expression",
+       "partial_internal_placeholder", "zip_parameter_value",
+       "quoted_major_parameter",
+       "typed_flags_100",
        "typed_flags_101", "typed_flags_110", "typed_flags_111",
        "typed_function_abbrev_common", "typed_against"]
     val nonconforming =
-      ["typed_flags_000", "typed_flags_001",
+      ["partial_collision_function", "zip_callable_parameter",
+       "zip_method_registration",
+       "typed_flags_000", "typed_flags_001",
        "typed_flags_010", "typed_flags_011"]
 
     fun check_definition name =
@@ -1160,16 +1389,31 @@ term fun_nested_result
 term fun_explicit_prompt_output
 
 text\<open>
-The checked declarations prove frontend conformance. These additional shape lemmas are necessary to
-pin the stronger role-specific property: call and field notation win over same-named parameters.
+The field declaration retains registration-first selector resolution. The direct call declaration is
+parser-only because its declaration parameter now wins over the same-named NFunction registration,
+unlike the registration-first legacy frontend.
 \<close>
 
-lemma fun_registered_call_wins_shape:
-  \<open>
-    fun_registered_call_wins ignored value =
-      FunctionBody \<lbrakk> funCollision(value) \<rbrakk>
-  \<close>
-  unfolding fun_registered_call_wins_def by (rule refl)
+ML_val\<open>
+  local
+    val body =
+      Proof_Context.get_thm \<^context> "fun_parameter_call_wins_def"
+      |> Thm.prop_of
+      |> Logic.dest_equals
+      |> #2
+    val registered = \<^const_name>\<open>fun_registered_call\<close>
+    val _ =
+      if Term.exists_subterm (fn Bound 1 => true | _ => false) body then ()
+      else error "direct call parameter did not survive as the lexical function head"
+    val _ =
+      if Term.exists_subterm
+          (fn Const (name, _) => name = registered | _ => false) body
+      then error "registered direct-call backend survived lexical parameter resolution"
+      else ()
+  in
+    val _ = ()
+  end
+\<close>
 
 lemma fun_registered_field_wins_shape:
   \<open>
@@ -2166,6 +2410,34 @@ ML_val\<open>
           "expects true or false"
       end
 
+    fun test_attribute_options (case_ as (kind, abbreviation)) =
+      let
+        val label = "attrs-" ^ case_label case_
+      in
+        assert_rejected (label ^ "-missing-value")
+          (command kind
+            (option_block kind abbreviation ["attrs"])
+            "missing_attribute_value" "")
+          "expects an Isabelle attribute list";
+        assert_rejected (label ^ "-wrong-type")
+          (command kind
+            (option_block kind abbreviation ["attrs = true"])
+            "Boolean_attributes" "")
+          "expects an Isabelle attribute list";
+        assert_rejected (label ^ "-duplicate")
+          (command kind
+            (option_block kind abbreviation
+              ["attrs = []", "attrs = [micro_rust_simps]"])
+            "duplicate_attributes" "")
+          "duplicate uRust command option \"attrs\"";
+        assert_rejected (label ^ "-list-as-Boolean")
+          (command kind
+            (option_block kind abbreviation
+              ["conformance_check = [micro_rust_simps]"])
+            "attribute_list_conformance" "")
+          "expects true or false"
+      end
+
     val _ = List.app test_unknown command_cases
     val _ =
       List.app
@@ -2187,6 +2459,7 @@ ML_val\<open>
     val _ = List.app test_invalid_verbosity command_cases
     val _ = List.app test_missing_integer_value command_cases
     val _ = List.app test_wrong_option_type command_cases
+    val _ = List.app test_attribute_options command_cases
     val _ =
       assert_rejected "function-abbrev-option"
         (command Fn "[abbrev = true]" "function_abbrev" "")
@@ -2200,6 +2473,32 @@ ML_val\<open>
         ("declare [[urust_verbose = 3]]\n" ^
           "urust_expr invalid_scoped_verbosity " ^ unit_source)
         "must be 0, 1, or 2, but found 3"
+    val _ =
+      assert_rejected "attributes-on-expression-abbreviation"
+        (command Expr
+          "[abbrev = true, attrs = [micro_rust_simps]]"
+          "attributed_abbreviation" "")
+        "attrs is not supported in abbreviation mode"
+    val _ =
+      assert_rejected "attributes-on-anonymous-expression"
+        (command Expr "[abbrev = false, attrs = []]" "_" "")
+        "attrs is not supported for anonymous declarations"
+    val _ =
+      assert_rejected "attributes-on-anonymous-function"
+        (command Fn "[attrs = []]" "_" "")
+        "attrs is not supported for anonymous declarations"
+    val _ =
+      assert_rejected "unknown-expression-attribute"
+        (command Expr
+          "[abbrev = false, attrs = [unknown_command_surface_attribute]]"
+          "unknown_expression_attribute" "")
+        "unknown_command_surface_attribute"
+    val _ =
+      assert_rejected "unknown-function-attribute"
+        (command Fn
+          "[attrs = [unknown_command_surface_attribute]]"
+          "unknown_function_attribute" "")
+        "unknown_command_surface_attribute"
 
     val _ =
       ignore
@@ -2221,9 +2520,60 @@ ML_val\<open>
           ("urust_fn trailing_fun_args :: " ^ unary_body_type ^
             " (item,) " ^ Symbol.open_ ^ " item " ^ Symbol.close) ())
     val _ =
+      ignore
+        (run_command "terminal-placeholder-function"
+          ("urust_fn terminal_placeholder_fun :: " ^
+            Symbol.open_ ^ "_" ^ Symbol.close ^
+            " () " ^ unit_source) ())
+    val _ =
+      ignore
+        (run_command "terminal-and-internal-placeholder-function"
+          ("urust_fn internal_terminal_placeholder_fun :: " ^
+            Symbol.open_ ^ "_ \<Rightarrow> _" ^ Symbol.close ^
+            " (item) " ^
+            Symbol.open_ ^ " \<llangle>item :: nat\<rrangle> " ^ Symbol.close) ())
+    val _ =
+      ignore
+        (run_command "minor-keyword-function-parameter"
+          ("urust_fn minor_keyword_fun :: " ^
+            Symbol.open_ ^ "nat \<Rightarrow> _" ^ Symbol.close ^
+            " (for) " ^ unit_source) ())
+    val _ =
+      ignore
+        (run_command "quoted-major-expression-parameter"
+          ("urust_expr quoted_major_expr :: " ^
+            Symbol.open_ ^
+            "nat \<Rightarrow> (unit, nat, unit, unit, unit, unit) expression" ^
+            Symbol.close ^ " (\"lemma\") " ^
+            Symbol.open_ ^ " lemma " ^ Symbol.close) ())
+    val _ =
       assert_rejected "missing-function-type"
         ("urust_fn missing_fun_type () " ^ unit_source)
         "function elaboration requires a declared type"
+    val _ =
+      assert_rejected "partial-function-parameter-count"
+        ("urust_fn partial_parameter_count :: " ^
+          Symbol.open_ ^ "nat \<Rightarrow> _" ^ Symbol.close ^
+          " () " ^ unit_source)
+        "expects 1 parameter"
+    val _ =
+      assert_rejected "named-terminal-function-type"
+        ("urust_fn named_terminal_type :: " ^
+          Symbol.open_ ^ "nat \<Rightarrow> 'result" ^ Symbol.close ^
+          " (item) " ^ Symbol.open_ ^ " item " ^ Symbol.close)
+        "result type must be function_body"
+    val _ =
+      assert_rejected "schematic-terminal-function-type"
+        ("urust_fn schematic_terminal_type :: " ^
+          Symbol.open_ ^ "nat \<Rightarrow> ?'result" ^ Symbol.close ^
+          " (item) " ^ Symbol.open_ ^ " item " ^ Symbol.close)
+        "Illegal schematic type variable"
+    val _ =
+      assert_rejected "expression-terminal-placeholder"
+        ("urust_expr expression_terminal_placeholder :: " ^
+          Symbol.open_ ^ "_" ^ Symbol.close ^
+          " () " ^ unit_source)
+        "declared result type must be expression"
     val _ =
       assert_rejected "wildcard-expression-parameter"
         ("urust_expr wildcard_args (_) " ^ unit_source)
@@ -2254,6 +2604,12 @@ ML_val\<open>
           " against " ^ Symbol.open_ ^ " \<lbrakk> () \<rbrakk> " ^ Symbol.close ^
           " (item)")
         "command expected"
+    val _ =
+      assert_rejected "unquoted-major-command-parameter"
+        ("urust_fn unquoted_major_parameter :: " ^
+          unary_body_type ^ " (lemma) " ^
+          Symbol.open_ ^ " lemma " ^ Symbol.close)
+        "Outer syntax error"
   in
     val _ = ()
   end
@@ -6493,7 +6849,7 @@ section\<open> Cast AST, lowering, markup, and recovery \<close>
 
 text\<open>
 The cast audit pins the closed target representation, left association,
-cast-before-prefix precedence, source position, exact lowering table, semantic
+prefix-before-cast precedence, source position, exact lowering table, semantic
 collapses, reserved-word markup, and parser-state recovery after malformed
 targets.
 \<close>
@@ -6588,28 +6944,23 @@ ML_val\<open>
 
     val _ =
       (case parse "!value as u8" of
-         UE_Unary
-           (U_Not,
-            UE_Cast
-              (value, CT_Unsigned UT_U8, _),
-            _) =>
+         UE_Cast
+           (UE_Unary (U_Not, value, _),
+            CT_Unsigned UT_U8, _) =>
            audit_assert "not/cast operand changed"
              (path_named "value" value)
        | _ =>
-           error "cast regression audit: cast-before-not precedence changed")
+           error "cast regression audit: not-before-cast precedence changed")
 
     val _ =
       (case parse "*raw as *const u8" of
-         UE_Unary
-           (U_Deref,
-            UE_Cast
-              (raw,
-               CT_RawPointer (RPM_Const, UT_U8), _),
-            _) =>
+         UE_Cast
+           (UE_Unary (U_Deref, raw, _),
+            CT_RawPointer (RPM_Const, UT_U8), _) =>
            audit_assert "deref/cast operand changed"
              (path_named "raw" raw)
        | _ =>
-           error "cast regression audit: cast-before-deref precedence changed")
+           error "cast regression audit: deref-before-cast precedence changed")
 
     val _ =
       (case parse "(!value) as u8" of
@@ -10017,7 +10368,7 @@ ML_val\<open>
          \<^const_name>\<open>undefined\<close>,
          \<^const_name>\<open>RegisteredNullary\<close>]
 
-    val case_preferred =
+    val switch_preferred =
       checked
         ("match \<llangle>mixed_match_scrutinee_marker\<rrangle> { " ^
          "IntegrationAudit::Value \<Rightarrow> " ^
@@ -10026,15 +10377,15 @@ ML_val\<open>
     val _ =
       audit_assert "registered value without numeral selected switch"
         (count_constant \<^const_name>\<open>ncase_selector\<close>
-          case_preferred = 0)
+          switch_preferred = 1)
     val _ =
-      audit_assert "registered value without numeral lost case equality"
+      audit_assert "registered value without numeral retained case equality"
         (count_constant \<^const_name>\<open>urust_eq\<close>
-          case_preferred > 0)
+          switch_preferred = 0)
     val _ =
-      audit_assert "registered value without numeral lost case conditional"
+      audit_assert "registered value without numeral retained case conditional"
         (count_constant \<^const_name>\<open>two_armed_conditional\<close>
-          case_preferred > 0)
+          switch_preferred = 0)
 
     val constructor_wins =
       checked
@@ -10262,15 +10613,10 @@ ML_val\<open>
 
     val identifier_failure_text =
       "match 0 { 0 \<Rightarrow> (), unregistered_key \<Rightarrow> () }"
-    val identifier_failure_offset =
-      find_from identifier_failure_text "unregistered_key" 0
     val _ =
       expect_exact_rejection 3 "unregistered-identifier"
-        identifier_failure_text
-        (token_range "unregistered_key" identifier_failure_offset)
-        ("urust_expr: unsupported match_switch key " ^
-         quote "unregistered_key" ^
-         " (numeral or `_` only; const-id / path keys not yet supported)")
+        identifier_failure_text complete_range
+        "urust_expr: mixed numeral and constructor patterns in bare `match`"
 
     val constructor_wins_mixed_text =
       "match \<llangle>NegativeRegisteredNullary\<rrangle> { " ^

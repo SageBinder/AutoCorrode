@@ -47,6 +47,24 @@ urust_expr showoff_expression
     }
   \<close>
 
+subsection\<open> Rust-aligned grammar and integer literals \<close>
+
+text\<open>
+Features: binary and octal literals, internal and trailing separators, unified prefix operators,
+unary-before-cast precedence, and a direct conditional operand. Block-like classification affects
+only statement and match-arm separator elision; it does not form a separate precedence ladder.
+\<close>
+
+urust_expr [conformance_check = false] showoff_grammar_literals
+  \<open>
+    let mask = 0b1010_0001u32;
+    let permissions = 0o7_55u32;
+    let narrowed = !mask as u8;
+    let adjusted =
+      if true { mask } else { permissions } + 1_;
+    (mask, permissions, narrowed, adjusted)
+  \<close>
+
 subsection\<open> Logging and yield \<close>
 
 text\<open>
@@ -66,8 +84,10 @@ urust_expr showoff_logging_yield
 
 subsection\<open> Calls, methods, and propagation \<close>
 
-urust_fn [conformance_check = false] showoff_inline_disabled ::
-  \<open>(unit, 64 word, unit, unit, unit) function_body\<close>
+urust_fn
+  [attrs = [micro_rust_simps], conformance_check = false]
+  showoff_inline_disabled ::
+  \<open>_\<close>
   ()
   \<open> 3u64 \<close>
 
@@ -240,10 +260,18 @@ urust_expr showoff_registered_numeric_match
     }
   \<close>
 
+urust_expr [conformance_check = false] showoff_registered_nested_nullary_match
+  \<open>
+    match Some(Showoff::Event::Stop) {
+      Some(Showoff::Event::Stop) \<Rightarrow> True,
+      _ \<Rightarrow> False
+    }
+  \<close>
+
 text\<open>
 Features: automatic case and registered-value/numeral switch routing, an explicit
 numeric switch, datatype-aware qualified constructor markup, constructor and value patterns,
-or-patterns, full guard bodies,
+or-patterns, nested registered-nullary equality within structural case lowering, full guard bodies,
 semicolon-free explicit match sequencing, nested matches, ordered fall-through,
 and antiquotation capture of both a let-bound variable and an arm binder.
 \<close>
@@ -389,6 +417,22 @@ urust_expr showoff_for_and_while_let
     }
     assert_eq!(*total, 10_u32);
     *total
+  \<close>
+
+subsection\<open> Iterator combinators \<close>
+
+text\<open>
+Features: receiver-prepended iterator methods, chained \<open>into_iter\<close>
+conversion, shortest-input truncation, and pair-valued iterator elements.
+\<close>
+
+urust_fn showoff_iterator_zip ::
+  \<open>(unit,
+    (unit, 32 word \<times> bool \<times> tnil, unit, unit, unit) iterator,
+    unit, unit, unit) function_body\<close>
+  ()
+  \<open>
+    [1_u32, 2_u32].into_iter().zip([True, False].into_iter())
   \<close>
 
 text\<open>

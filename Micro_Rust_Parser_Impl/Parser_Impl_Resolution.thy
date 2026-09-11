@@ -72,6 +72,8 @@ sig
     Proof.context -> string * Position.T -> term option
   val registered_function_path:
     Proof.context -> URust_AST.ur_path -> term option
+  val is_nullary_function_path:
+    Proof.context -> environment -> URust_AST.ur_path -> bool
   val field_expression:
     Proof.context -> environment -> term -> string -> Position.T -> term
 
@@ -92,6 +94,7 @@ sig
   val constructor_term: constructor_info -> term
   val constructor_arity: constructor_info -> int
   val constructor_family: constructor_info -> (string * term list) option
+  val constructor_is_exact_registered: constructor_info -> bool
   val report_constructor:
     Proof.context -> constructor_resolver ->
       URust_AST.ur_path -> constructor_info -> unit
@@ -127,23 +130,29 @@ ML\<open>
 
   The public interface is:
 
-  - environment is an abstract, immutable lexical scope. empty_environment has no locals.
+  - environment is an abstract, immutable lexical scope and resolution policy. empty_environment
+    has no locals or declaration arguments and uses ordinary open resolution. quotation_environment
+    instead installs the exact role-specific dependency entries selected by quotation preflight and
+    disables every undeclared fallback.
     allocate_locals accepts source-name/definition-position pairs, rejects duplicate names within its
     input before allocating any of them, then extends the supplied scope with fresh dummy-typed locals
     while reporting their definitions. allocate_closure_formals instead permits repeated names,
     allocates one distinct Free per source formal in source order, and returns those Frees together
     with the final environment in which each later repeated name shadows its predecessors.
     allocate_expression_arguments and allocate_function_parameters reject `_` and duplicate names
-    through the same validation path, allocate the supplied types, and return the ordered Frees with
-    the extended environment. Untyped expression clients supply dummy types for inference; typed
-    clients supply argument or parameter types from the complete declaration type. use_local
-    performs a positioned lookup, reports a bound reference on success, and returns NONE without
-    fallback resolution; lookup_local performs the same lexical lookup without reporting. Single-local
-    allocation and the generic binder records are private implementation details.
+    through the same validation path, allocate the supplied types, mark those declaration arguments
+    for direct-call precedence, and return the ordered Frees with the extended environment. Untyped
+    expression clients supply dummy types for inference; typed clients supply argument or parameter
+    types from the complete declaration type. A nested ordinary binder with the same name removes
+    that precedence marker while shadowing the declaration argument. use_local performs a positioned
+    lookup, reports a bound reference on success, and returns NONE without fallback resolution;
+    lookup_local performs the same lexical lookup without reporting. Single-local allocation and the
+    generic binder records are private implementation details.
 
-  - parse_antiquotation parses an Input.source as a HOL term with every environment entry in lexical
-    scope. Lexical names shadow context fixes and constants, and occurrences are restored to the exact
-    local terms held by the environment while retaining ordinary HOL parsing and markup.
+  - parse_antiquotation parses an Input.source as a HOL term with every open-environment entry in
+    lexical scope. Lexical names shadow context fixes and constants, and occurrences are restored to
+    the exact local terms held by the environment while retaining ordinary HOL parsing and markup.
+    Quotation environments reject embedded HOL source instead.
     anonymous_abstraction introduces one anonymous dummy-typed Abs without manufacturing a Free.
     report_wildcard emits the parser's wildcard typing report. report_struct_label marks a
     struct-expression label as a syntax-only free name with a typing tooltip; it performs no
@@ -152,31 +161,41 @@ ML\<open>
   - literal_value lowers a literal payload to its unlifted HOL value, including binder-aware value
     antiquotations. literal_expression preserves the frontend's special boolean-expression shape and
     otherwise lifts literal_value. literal_identifier_value resolves locals before NLiteral
-    notation/HOL fallback without lifting, and literal_identifier lifts that result. In NFunction and
-    NField roles an exact registered notation wins; otherwise a lexical local wins before HOL fallback.
+    notation/HOL fallback without lifting, and literal_identifier lifts that result. A single-segment
+    direct NFunction call head resolves a declaration argument before an exact registration or HOL
+    fallback; qualified call paths and method names retain registration-first resolution. In the
+    NField role an exact registered notation wins, otherwise a lexical local wins before HOL fallback.
     ordinary_identifier_value resolves a lexical local before ordinary HOL parsing and deliberately
-    performs no micro_rust_notation lookup; log-data identifiers use this path.
-    function_identifier returns the selected unlifted callee. apply_generic_arguments parses the
-    retained restricted generic argument sources in the current lexical environment and applies them
-    to an already-resolved term from left to right.
+    performs no micro_rust_notation lookup; log-data identifiers use this path. function_identifier
+    returns the selected unlifted direct callee. apply_generic_arguments parses the retained
+    restricted generic argument sources in the current lexical environment and applies them to an
+    already-resolved term from left to right.
     registered_function performs an exact registered NFunction lookup without imposing a caller
-    naming policy. field_expression applies the same role policy and focuses the supplied receiver.
+    naming policy. is_nullary_function_path is a report-free ambiguity query used by control-head
+    validation: declaration arguments retain direct-call precedence, ordinary lexical values and
+    fixed variables remain value paths, and otherwise an exact registered backend or proper HOL
+    constant counts only when its declared type takes zero arguments before function_body.
+    field_expression applies the same role policy and focuses the supplied receiver.
     Registered notation is represented by the existing dispatch marker; unregistered names retain
     Syntax.parse_term behavior. For an exact registered literal path whose complete backend matches
-    genuine Ctr_Sugar constructor metadata, the nearest qualifier reports every distinct datatype
-    family with the constructor's keyword styling while earlier module-like qualifiers remain free;
-    registered nonconstructors and calls retain free qualifiers.
+    authentic Ctr_Sugar or native Case_Translation constructor metadata, the nearest qualifier
+    reports every distinct datatype family with the constructor's keyword styling while earlier
+    module-like qualifiers remain free; registered nonconstructors and calls retain free qualifiers.
 
   - constructor_info and constructor_resolver are abstract. make_constructor_resolver snapshots the
     context's non-record Ctr_Sugar constructors, constructor families/selectors, and HOL record names
     for a resolution site. classify_registered_literal is a report-free exact-registration query:
     it distinguishes absence, a nonconstructor value backend, and an authentic constructor backend
-    by reusing the complete registration-only constructor catalogue. It does not select a constructor,
-    diagnose ambiguity, or emit semantic markup. resolve_constructor performs those later operations;
-    it uses exact identity for qualified names and basename lookup for unqualified names, returning
-    NONE when absent and raising a positioned, deterministic ambiguity error for multiple matches.
+    by consulting Ctr_Sugar first and then native Case_Translation metadata for an exact registered
+    backend absent there. It does not select a constructor, diagnose ambiguity, or emit semantic
+    markup. resolve_constructor performs those later operations; unregistered lookup remains limited
+    to Ctr_Sugar or Code.is_constr constructors, using exact identity for qualified names and basename
+    lookup for unqualified names, returning NONE when absent and raising a positioned, deterministic
+    ambiguity error for multiple matches.
     constructor_term returns the dummy-typed constructor term, constructor_arity its argument count,
-    and constructor_family optionally the datatype identity with all family constructor terms.
+    constructor_family optionally the datatype identity with all family constructor terms, and
+    constructor_is_exact_registered records whether this occurrence was recovered through an exact
+    NLiteral registration.
     report_constructor emits source-path markup only after a caller has validated the resolved
     constructor. Exact registered literals reuse the same datatype-qualifier and ordinary notation
     use-site reports as value positions; unregistered HOL constructors retain free qualifiers and
@@ -205,9 +224,11 @@ struct
       Open_Resolution
     | Quotation_Resolution of Micro_Rust_Names.entry Symtab.table
 
+  type local_table = Parser_Utils.var_info Symtab.table
   datatype environment =
     Environment of
-      {locals: Parser_Utils.var_info Symtab.table,
+      {locals: local_table,
+       declaration_arguments: unit Symtab.table,
        resolution: resolution_mode}
 
   val variable_entity_kind = "urust_var"
@@ -220,6 +241,7 @@ struct
   val empty_environment =
     Environment
       {locals = Symtab.empty,
+       declaration_arguments = Symtab.empty,
        resolution = Open_Resolution}
 
   fun dependency_key kind name =
@@ -228,6 +250,7 @@ struct
   fun quotation_environment dependencies =
     Environment
       {locals = Symtab.empty,
+       declaration_arguments = Symtab.empty,
        resolution =
          Quotation_Resolution
            (Symtab.make
@@ -246,15 +269,22 @@ struct
     else T.Direct_Check
 
   fun locals_of (Environment {locals, ...}) = locals
+  fun declaration_arguments_of
+      (Environment {declaration_arguments, ...}) =
+    declaration_arguments
   fun resolution_of (Environment {resolution, ...}) = resolution
-  fun map_locals f (Environment {locals, resolution}) =
-    Environment {locals = f locals, resolution = resolution}
 
   fun quotation_entry environment kind name =
     (case resolution_of environment of
        Open_Resolution => NONE
      | Quotation_Resolution dependencies =>
          Symtab.lookup dependencies (dependency_key kind name))
+
+  fun visible_registrations ctxt environment kind name =
+    (case resolution_of environment of
+       Open_Resolution => Micro_Rust_Names.lookups ctxt kind name
+     | Quotation_Resolution _ =>
+         the_list (quotation_entry environment kind name))
 
   fun parse_antiquotation ctxt environment source =
     if is_quotation_environment environment then
@@ -266,6 +296,34 @@ struct
 
   val anonymous_abstraction = Parser_Utils.anon_abs
 
+  fun bind_ordinary_local ctxt
+      (Environment {locals, declaration_arguments, resolution})
+      (binding as (name, _)) =
+    let
+      val (free, locals') = bind_local ctxt locals binding
+    in
+      (free,
+       Environment
+         {locals = locals',
+          declaration_arguments =
+            Symtab.delete_safe name declaration_arguments,
+          resolution = resolution})
+    end
+
+  fun bind_declaration_argument ctxt
+      (Environment {locals, declaration_arguments, resolution})
+      (parameter as ((name, _), _)) =
+    let
+      val (free, locals') = bind_typed_local ctxt locals parameter
+    in
+      (free,
+       Environment
+         {locals = locals',
+          declaration_arguments =
+            Symtab.update (name, ()) declaration_arguments,
+          resolution = resolution})
+    end
+
   fun allocate_locals ctxt environment signatures =
     let
       fun validate (name, pos) seen =
@@ -276,10 +334,8 @@ struct
                Position.here pos ^ "\nThe original binder is here" ^
                Position.here original_pos))
       val _ = fold validate signatures Symtab.empty
-      fun allocate (name, pos) env =
-        map_locals
-          (fn locals => #2 (bind_local ctxt locals (name, pos)))
-          env
+      fun allocate binding env =
+        #2 (bind_ordinary_local ctxt env binding)
     in fold allocate signatures environment end
 
   fun allocate_closure_formals ctxt environment signatures =
@@ -287,9 +343,7 @@ struct
       fun allocate [] env frees = (rev frees, env)
         | allocate (formal :: rest) env frees =
             let
-              val (free, locals') =
-                bind_local ctxt (locals_of env) formal
-              val env' = map_locals (K locals') env
+              val (free, env') = bind_ordinary_local ctxt env formal
             in allocate rest env' (free :: frees) end
     in allocate signatures environment [] end
 
@@ -315,9 +369,8 @@ struct
               val _ =
                 Context_Position.report_text ctxt pos Markup.typing
                   ("uRust " ^ role ^ " :: " ^ Syntax.string_of_typ ctxt T)
-              val (free, locals') =
-                bind_typed_local ctxt (locals_of env) parameter
-              val env' = map_locals (K locals') env
+              val (free, env') =
+                bind_declaration_argument ctxt env parameter
             in allocate rest env' (free :: frees) end
     in allocate parameters environment [] end
 
@@ -335,6 +388,13 @@ struct
 
   fun lookup_local environment name =
     Option.map #free (Symtab.lookup (locals_of environment) name)
+
+  fun use_declaration_argument ctxt
+      environment
+      (identifier as (name, _)) =
+    if Symtab.defined (declaration_arguments_of environment) name
+    then use_local ctxt environment identifier
+    else NONE
 
   (* Syntax.parse_term wraps resolved constants in an internal type constraint. Resolution and
      call-role validation inspect through that wrapper while retaining it for the final check_term. *)
@@ -473,13 +533,72 @@ struct
   fun registered_identifier ctxt environment kind (name, pos) =
     (case resolution_of environment of
        Quotation_Resolution _ =>
-         Option.map
-           (selected_backend ctxt kind name pos)
-           (quotation_entry environment kind name)
+         (case visible_registrations ctxt environment kind name of
+            [entry] => SOME (selected_backend ctxt kind name pos entry)
+          | [] => NONE
+          | _ =>
+              error
+                ("uRust quotation: internal duplicate " ^
+                  Micro_Rust_Names.kind_to_string kind ^
+                  " dependency " ^ quote name ^
+                  Position.here pos))
      | Open_Resolution =>
-         if null (Micro_Rust_Names.lookups ctxt kind name)
+         if null (visible_registrations ctxt environment kind name)
          then NONE
          else SOME (resolve_identifier ctxt environment kind name pos))
+
+  type native_case_metadata =
+    {identity: string,
+     constructor: term,
+     arity: int,
+     family_name: string,
+     family_members: term list}
+
+  fun native_case_metadata ctxt backend =
+    (case identifier_leaf backend of
+       Const (identity, typ) =>
+         (case Case_Translation.lookup_by_constr_permissive ctxt
+             (identity, typ) of
+            NONE => NONE
+          | SOME (_, members) =>
+              let
+                val normalized_backend = Const (identity, dummyT)
+                fun normalize_member member =
+                  (case identifier_leaf member of
+                     Const (name, member_typ) =>
+                       SOME
+                         (Const (name, dummyT),
+                          try dest_Type_name (body_type member_typ))
+                   | _ => NONE)
+                val normalized = map_filter normalize_member members
+                val family_name = try dest_Type_name (body_type typ)
+                val exact_member =
+                  exists
+                    (fn (member, _) =>
+                      Term.aconv_untyped
+                        (normalized_backend, member))
+                    normalized
+                val one_family =
+                  (case family_name of
+                     NONE => false
+                   | SOME name =>
+                       length normalized = length members andalso
+                         List.all
+                           (fn (_, SOME member_name) =>
+                                 member_name = name
+                             | _ => false)
+                           normalized)
+              in
+                if exact_member andalso one_family then
+                  SOME
+                    {identity = identity,
+                     constructor = normalized_backend,
+                     arity = length (binder_types typ),
+                     family_name = the family_name,
+                     family_members = map fst normalized}
+                else NONE
+              end)
+     | _ => NONE)
 
   fun registered_constructor_family_names ctxt registrations =
     let
@@ -489,26 +608,33 @@ struct
             (fn ({hol_term, ...} : Micro_Rust_Names.entry) => hol_term))
           registrations
 
-      fun authentic_family
-          ({kind, T, ctrs, ...} : Ctr_Sugar.ctr_sugar) =
-        if (kind = Ctr_Sugar.Datatype orelse
-            kind = Ctr_Sugar.Codatatype) andalso
-            exists
-              (fn constructor =>
+      fun sugar_families backend =
+        Ctr_Sugar.ctr_sugars_of ctxt
+        |> map_filter
+          (fn ({kind, T, ctrs, ...} : Ctr_Sugar.ctr_sugar) =>
+            if (kind = Ctr_Sugar.Datatype orelse
+                kind = Ctr_Sugar.Codatatype) andalso
                 exists
-                  (fn backend =>
+                  (fn constructor =>
                     Term.aconv_untyped
                       (backend, identifier_leaf constructor))
-                  backends)
-              ctrs
-        then
-          (case T of
-             Type (name, _) => SOME name
-           | _ => NONE)
-        else NONE
+                  ctrs
+            then
+              (case T of
+                 Type (name, _) => SOME name
+               | _ => NONE)
+            else NONE)
+
+      fun backend_families backend =
+        (case sugar_families backend of
+           [] =>
+             (case native_case_metadata ctxt backend of
+                SOME {family_name, ...} => [family_name]
+              | NONE => [])
+         | families => families)
     in
-      Ctr_Sugar.ctr_sugars_of ctxt
-      |> map_filter authentic_family
+      backends
+      |> maps backend_families
       |> distinct (op =)
       |> sort_strings
     end
@@ -634,12 +760,14 @@ struct
         (render_path path, #2 (path_terminal path)) of
        SOME registered =>
          let
+           val registrations =
+             visible_registrations ctxt environment kind
+               (render_path path)
            val _ =
              if kind = Micro_Rust_Names.NLiteral
              then
                report_literal_path_qualifiers ctxt
-                 (Micro_Rust_Names.lookups ctxt kind (render_path path))
-                 path
+                 registrations path
              else report_path_qualifiers ctxt path
          in SOME registered end
      | NONE => NONE)
@@ -671,34 +799,51 @@ struct
     T.literal (literal_path_value ctxt environment path)
 
   fun function_identifier ctxt environment (identifier as (name, pos)) =
-    (case registered_identifier ctxt environment
-        Micro_Rust_Names.NFunction identifier of
-       SOME registered => registered
+    (case use_declaration_argument ctxt environment identifier of
+       SOME local_term => local_term
      | NONE =>
-         (case use_local ctxt environment identifier of
-            SOME local_term => local_term
+         (case registered_identifier ctxt environment
+             Micro_Rust_Names.NFunction identifier of
+            SOME registered => registered
           | NONE =>
-              resolve_identifier ctxt environment
-                Micro_Rust_Names.NFunction name pos))
+              (case use_local ctxt environment identifier of
+                 SOME local_term => local_term
+               | NONE =>
+                   resolve_identifier ctxt environment
+                     Micro_Rust_Names.NFunction name pos)))
 
-  fun function_path ctxt environment path =
+  fun resolve_function_path local_first ctxt environment path =
     let
       val head_pos = #2 (path_terminal path)
+      fun lexical_function () =
+        if local_first then
+          (case path_segments path of
+             [Path_Segment (name, pos, generic_arguments)] =>
+               Option.map
+                 (fn local_term =>
+                   apply_generic_arguments ctxt environment
+                     local_term generic_arguments)
+                 (use_declaration_argument ctxt environment (name, pos))
+           | _ => NONE)
+        else NONE
       val function =
-        (case exact_registered_path ctxt environment
-            Micro_Rust_Names.NFunction path of
-           SOME registered => registered
+        (case lexical_function () of
+           SOME local_term => local_term
          | NONE =>
-             let
-               val _ = reject_intermediate_generics path
-               val base = remove_final_generic_args path
-               val function =
-                 resolve_generic_free_path ctxt environment
-                   Micro_Rust_Names.NFunction false base
-             in
-               apply_generic_arguments ctxt environment function
-                 (segment_generic_args (final_segment path))
-             end)
+             (case exact_registered_path ctxt environment
+                 Micro_Rust_Names.NFunction path of
+                SOME registered => registered
+              | NONE =>
+                  let
+                    val _ = reject_intermediate_generics path
+                    val base = remove_final_generic_args path
+                    val function =
+                      resolve_generic_free_path ctxt environment
+                        Micro_Rust_Names.NFunction false base
+                  in
+                    apply_generic_arguments ctxt environment function
+                      (segment_generic_args (final_segment path))
+                  end))
       fun same_range position =
         Position.offset_of position = Position.offset_of head_pos andalso
         Position.end_offset_of position = Position.end_offset_of head_pos
@@ -714,9 +859,13 @@ struct
       else T.source_position (term_origin environment) head_pos function
     end
 
+  fun function_path ctxt environment path =
+    resolve_function_path true ctxt environment path
+
   fun method_path ctxt environment path =
     let
-      val function = function_path ctxt environment path
+      val function =
+        resolve_function_path false ctxt environment path
       val (name, pos) = path_terminal path
       val lexical =
         (case path_segments path of
@@ -758,6 +907,51 @@ struct
     exact_registered_path ctxt empty_environment
       Micro_Rust_Names.NFunction path
 
+  fun function_body_arity
+      (Type (\<^type_name>\<open>function_body\<close>, _)) = SOME 0
+    | function_body_arity
+        (Type (\<^type_name>\<open>fun\<close>, [_, result])) =
+        Option.map (Integer.add 1) (function_body_arity result)
+    | function_body_arity _ = NONE
+
+  fun is_nullary_function_type T =
+    function_body_arity T = SOME 0
+
+  fun is_nullary_function_path ctxt environment path =
+    let
+      fun registered () =
+        visible_registrations ctxt environment
+          Micro_Rust_Names.NFunction (render_path path)
+        |> exists
+            (fn ({hol_term, ...} : Micro_Rust_Names.entry) =>
+              is_nullary_function_type (fastype_of hol_term))
+
+      fun hol_constant () =
+        (case resolution_of environment of
+           Quotation_Resolution _ => false
+         | Open_Resolution =>
+             (case try
+                (Proof_Context.read_const
+                  {proper = true, strict = false} ctxt)
+                 (render_path path) of
+                SOME (Const (_, T)) => is_nullary_function_type T
+              | _ => false))
+    in
+      (case path_segments path of
+         [Path_Segment (name, _, NONE)] =>
+           (case Symtab.lookup (locals_of environment) name of
+              SOME {free, ...} =>
+                Symtab.defined
+                  (declaration_arguments_of environment) name andalso
+                  is_nullary_function_type (fastype_of free)
+            | NONE =>
+                if Variable.is_fixed ctxt name
+                then false
+                else if registered () then true else hol_constant ())
+       | _ =>
+           if registered () then true else hol_constant ())
+    end
+
   fun field_expression ctxt environment receiver name pos =
     T.focus_field
       (case registered_identifier ctxt environment
@@ -786,7 +980,8 @@ struct
      constructor: term,
      arity: int,
      family: (string * term list) option,
-     selectors: term list}
+     selectors: term list,
+     exact_registered: bool}
 
   datatype constructor_resolver =
     Constructor_Resolver of
@@ -810,6 +1005,9 @@ struct
       ({arity, ...} : constructor_info) = arity
   fun constructor_family
       ({family, ...} : constructor_info) = family
+  fun constructor_is_exact_registered
+      ({exact_registered, ...} : constructor_info) =
+    exact_registered
   fun constructor_selectors
       ({selectors, ...} : constructor_info) = selectors
 
@@ -841,29 +1039,6 @@ struct
       same_family (#family left, #family right) andalso
       eq_list (op aconv) (#selectors left, #selectors right)
 
-  fun merge_optional_family identity (NONE, family) = family
-    | merge_optional_family _ (family, NONE) = family
-    | merge_optional_family identity
-        (left as SOME _, right as SOME _) =
-        if same_family (left, right)
-        then left
-        else
-          error
-            ("urust_expr: inconsistent constructor family metadata for " ^
-              quote identity)
-
-  fun merge_selectors identity arity left right =
-    if eq_list (op aconv) (left, right)
-    then left
-    else if null left andalso arity > 0
-    then right
-    else if null right andalso arity > 0
-    then left
-    else
-      error
-        ("urust_expr: inconsistent constructor selector metadata for " ^
-          quote identity)
-
   fun merge_constructor_info pos
       (left : constructor_info, right : constructor_info) =
     let
@@ -877,17 +1052,57 @@ struct
           error
             ("urust_expr: inconsistent constructor core metadata for " ^
               quote identity ^ Position.here pos)
+      val _ =
+        if same_family (#family left, #family right) then ()
+        else
+          error
+            ("urust_expr: inconsistent constructor family metadata for " ^
+              quote identity ^ Position.here pos)
+      val _ =
+        if eq_list (op aconv) (#selectors left, #selectors right)
+        then ()
+        else
+          error
+            ("urust_expr: inconsistent constructor selector metadata for " ^
+              quote identity ^ Position.here pos)
     in
       {identity = identity,
        constructor = #constructor left,
        arity = #arity left,
-       family =
-         merge_optional_family identity
-           (#family left, #family right),
-       selectors =
-         merge_selectors identity (#arity left)
-           (#selectors left) (#selectors right)}
+       family = #family left,
+       selectors = #selectors left,
+       exact_registered =
+         #exact_registered left orelse
+           #exact_registered right}
     end
+
+  fun as_exact_registered (info : constructor_info) =
+    {identity = #identity info,
+     constructor = #constructor info,
+     arity = #arity info,
+     family = #family info,
+     selectors = #selectors info,
+     exact_registered = true}
+
+  fun as_unregistered (info : constructor_info) =
+    {identity = #identity info,
+     constructor = #constructor info,
+     arity = #arity info,
+     family = #family info,
+     selectors = #selectors info,
+     exact_registered = false}
+
+  fun native_case_constructor_info ctxt backend =
+    Option.map
+      (fn {identity, constructor, arity, family_name,
+            family_members} =>
+        {identity = identity,
+         constructor = constructor,
+         arity = arity,
+         family = SOME (family_name, family_members),
+         selectors = [],
+         exact_registered = true})
+      (native_case_metadata ctxt backend)
 
   fun describe_constructor_info (info : constructor_info) =
     "constructor " ^ quote (#identity info) ^
@@ -959,7 +1174,8 @@ struct
                             constructor = Const (identity, dummyT),
                             arity = arity,
                             family = family,
-                            selectors = normalized_selectors}
+                            selectors = normalized_selectors,
+                            exact_registered = false}
                        end
                      else NONE
                  | _ =>
@@ -983,8 +1199,9 @@ struct
                  table)
         end
 
-      val registered_by_identity =
-        fold add_entry (maps catalog_entries sugars) Symtab.empty
+      val sugar_entries = maps catalog_entries sugars
+      val sugar_by_identity =
+        fold add_entry sugar_entries Symtab.empty
 
       val by_identity =
         Symtab.fold
@@ -992,7 +1209,7 @@ struct
             if Code.is_constr theory identity
             then Symtab.update (identity, info)
             else I)
-          registered_by_identity Symtab.empty
+          sugar_by_identity Symtab.empty
 
       fun add_basename info =
         Symtab.map_default
@@ -1020,7 +1237,7 @@ struct
         |> sort_strings
     in
       Constructor_Resolver
-        {registered_by_identity = registered_by_identity,
+        {registered_by_identity = sugar_by_identity,
          by_identity = by_identity,
          by_basename = by_basename,
          type_fallbacks = type_fallbacks,
@@ -1032,16 +1249,43 @@ struct
                 SOME dependencies)}
     end
 
-  fun constructor_candidates
+  fun constructor_candidates ctxt
       (Constructor_Resolver
         {by_identity, by_basename, ...}) name =
-    if qualified_name name
-    then
-      (case Symtab.lookup by_identity name of
-         SOME info => [info]
-       | NONE => [])
-    else
-      the_default [] (Symtab.lookup by_basename name)
+    let
+      val theory = Proof_Context.theory_of ctxt
+      val sugar_candidates =
+        if qualified_name name
+        then
+          (case Symtab.lookup by_identity name of
+             SOME info => [info]
+           | NONE => [])
+        else
+          the_default [] (Symtab.lookup by_basename name)
+
+      fun requested_identity identity =
+        if qualified_name name
+        then identity = name
+        else canonical_name identity = name
+
+      val native_candidates =
+        Proof_Context.consts_of ctxt
+        |> Consts.dest
+        |> #constants
+        |> map_filter
+          (fn (identity, (typ, _)) =>
+            if requested_identity identity andalso
+                not (Symtab.defined by_identity identity) andalso
+                (Code.is_constr theory identity
+                  handle TYPE _ => false)
+            then
+              Option.map as_unregistered
+                (native_case_constructor_info ctxt
+                  (Const (identity, typ)))
+            else NONE)
+    in
+      sugar_candidates @ native_candidates
+    end
 
   fun ambiguity_error role name pos candidates =
     error
@@ -1078,20 +1322,25 @@ struct
       (Constructor_Resolver {quotation_literals = SOME _, ...}) = true
     | is_quotation_constructor_resolver _ = false
 
-  fun registered_constructor_candidates
+  fun registered_constructor_candidates ctxt
       (Constructor_Resolver {registered_by_identity, ...}) registrations =
     let
       val constructors =
         map #2 (Symtab.dest registered_by_identity)
 
       fun registered_matches entry =
-        let val backend = identifier_leaf (#hol_term entry)
+        let
+          val backend = identifier_leaf (#hol_term entry)
+          val sugar_matches =
+            filter
+              (fn info =>
+                Term.aconv_untyped
+                  (backend, constructor_term info))
+              constructors
         in
-          filter
-            (fn info =>
-              Term.aconv_untyped
-                (backend, constructor_term info))
-            constructors
+          if null sugar_matches
+          then the_list (native_case_constructor_info ctxt backend)
+          else map as_exact_registered sugar_matches
         end
     in
       registrations
@@ -1104,7 +1353,7 @@ struct
        [] => Unregistered_Literal
      | registrations =>
          if null
-             (registered_constructor_candidates resolver registrations)
+             (registered_constructor_candidates ctxt resolver registrations)
          then Registered_Value_Literal
          else Registered_Constructor_Literal)
 
@@ -1115,7 +1364,7 @@ struct
       val registrations =
         resolver_literal_registrations ctxt resolver path
       val registered =
-        registered_constructor_candidates resolver registrations
+        registered_constructor_candidates ctxt resolver registrations
       val candidates =
         if null registrations
         then if is_quotation_constructor_resolver resolver
@@ -1123,7 +1372,7 @@ struct
         else
           (reject_intermediate_generics path;
            case segment_generic_args (final_segment path) of
-             NONE => constructor_candidates resolver name
+             NONE => constructor_candidates ctxt resolver name
            | SOME (Generic_Args (_, generic_pos)) =>
                error
                  ("urust_expr: generic constructor paths require an exact literal registration" ^
@@ -1220,12 +1469,12 @@ struct
              Constructor_Candidate
                {info = info,
                 selectors = constructor_selectors info}))
-          (constructor_candidates resolver identifier_name)
+          (constructor_candidates ctxt resolver identifier_name)
 
       val registered_candidates =
         resolver_literal_registrations ctxt resolver
           (make_single_path (identifier_name, pos))
-        |> registered_constructor_candidates resolver
+        |> registered_constructor_candidates ctxt resolver
         |> map
             (fn info =>
               (constructor_identity info,

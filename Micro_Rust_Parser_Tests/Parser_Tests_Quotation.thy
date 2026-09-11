@@ -5,6 +5,7 @@ theory Parser_Tests_Quotation
   imports
     Parser_Test_Utils
     Micro_Rust_Parser_Impl.Parser_Term_Hook
+    Shallow_Micro_Rust.Simple_Word_Enum_uRust
 begin
 
 section\<open>Closed explicit-capture quotation\<close>
@@ -291,6 +292,70 @@ micro_rust_notation (call)
   quotation_literal_only_call_left ("quotation_literal_only")
 micro_rust_notation (call)
   quotation_literal_only_call_right ("quotation_literal_only")
+
+subsubsection\<open>Native case metadata in a closed quotation\<close>
+
+text\<open>
+The shared \<open>MessageKind\<close> fixture comes from \<open>simple_word_enum\<close>. Its exact literal
+registrations are not ordinary datatype constructors: the type has no \<open>Ctr_Sugar\<close> metadata and
+the constants are not \<open>Code.is_constr\<close> constructors. Pattern matching therefore has to recover
+the registered constructor family through native \<open>Case_Translation\<close> metadata.
+\<close>
+
+ML_val\<open>
+  local
+    fun assert message condition =
+      if condition then ()
+      else error ("quotation native-case fixture: " ^ message)
+
+    val ctxt = \<^context>
+    val theory = Proof_Context.theory_of ctxt
+    val constructor = \<^term>\<open>MK_Pong\<close>
+    val constructor_name =
+      (case constructor of
+         Const (name, _) => name
+       | _ => error "quotation native-case fixture: expected a constant")
+    val type_name = fst (dest_Type \<^typ>\<open>message_kind\<close>)
+    val native_case =
+      Case_Translation.lookup_by_constr_permissive ctxt
+        (constructor_name, fastype_of constructor)
+
+    val _ =
+      assert "simple_word_enum unexpectedly acquired Ctr_Sugar metadata"
+        (is_none (Ctr_Sugar.ctr_sugar_of ctxt type_name))
+    val _ =
+      assert "simple_word_enum unexpectedly became a Code constructor"
+        (not (Code.is_constr theory constructor_name))
+    val _ =
+      assert "simple_word_enum lost native Case_Translation metadata"
+        (is_some native_case)
+  in
+    val _ = ()
+  end
+\<close>
+
+lemma native_case_translation_constructor_conformance:
+  "(\<mu>(value := MK_Pong)
+      [using
+        \<open>MessageKind::MK_Ping\<close>,
+        \<open>MessageKind::MK_Pong\<close>,
+        \<open>MessageKind::MK_Data\<close>]
+      \<open>
+        match value {
+          MessageKind::MK_Ping \<Rightarrow> 1,
+          MessageKind::MK_Pong \<Rightarrow> 2,
+          MessageKind::MK_Data \<Rightarrow> 3
+        }
+      \<close> ::
+      (unit, nat, unit, unit, unit, unit) expression) =
+   \<lbrakk>
+     match \<llangle>MK_Pong\<rrangle> {
+       MessageKind::MK_Ping \<Rightarrow> 1,
+       MessageKind::MK_Pong \<Rightarrow> 2,
+       MessageKind::MK_Data \<Rightarrow> 3
+     }
+   \<rbrakk>"
+  by (rule refl)
 
 lemma combined_modifier_layout:
   "\<mu>(x := (1 :: nat),)

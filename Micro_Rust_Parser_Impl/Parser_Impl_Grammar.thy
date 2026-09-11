@@ -100,8 +100,9 @@ section\<open> Lexer + grammar \<close>
 
 text\<open>
 Lexer start states capture value and expression antiquotation bodies without lexing their
-HOL content. Yacc directives reproduce the frontend precedence
-(\<open>Micro_Rust_Syntax.thy:559-639\<close>). Only token shims remain lexer-local; positions use
+HOL content. Explicit ordinary and no-struct grammar tiers encode Rust-aligned precedence; the
+remaining Yacc directives resolve pattern-list context and nearest-else/delimiter conflicts rather
+than expression-operator precedence. Only token shims remain lexer-local; positions use
 \<open>Parser_Lex_Util\<close>.
 \<close>
 (*
@@ -186,9 +187,9 @@ fun take_comment_context () =
 
 (* A suffixed integer literal is deliberately NOT interpreted here: the lexer captures the raw lexeme and
    the elaboration term layer reads it against the single suffix table, so an unknown suffix is a
-   POSITIONED elaborator error rather than an unpositioned `raise Fail` in lexer code (D29). The bare-hex
-   rule precedes the general digit-plus-identifier rule so equal-length `0xff` is NUM, while longer
-   `0xffu8` and unsupported glued suffixes are each one NUMSFX token.
+   POSITIONED elaborator error rather than an unpositioned `raise Fail` in lexer code (D29). The
+   base-specific unsuffixed rules precede the general digit-plus-identifier rule so equal-length literals
+   are NUM, while longer suffixed or malformed candidates remain one NUMSFX token.
 
    Per-lexer source-layout ref + set-shadow; the position MATH is shared (Parser_Lex_Util). tok_ident
    emits NO colour -- ident_term does that once it knows the name's role, so the markup cannot split
@@ -310,12 +311,16 @@ lex_rules\<open>
     (report_text (yypos, yytext, Markup.comment1, "line comment"); lex());
 <INITIAL>\\"<comment>" =>
     (start_comment Initial_Comment yypos; YYBEGIN COMMENT_OPEN; lex());
-<INITIAL>"0x"{hexdigit}+ =>
+<INITIAL>"0b"[0-1_]+ =>
     (tok_valF (yypos, yytext, Markup.numeral, "NUM", Tokens.NUM, yytext));
-<INITIAL>{digit}+{idstart}{idchar}* =>
+<INITIAL>"0o"[0-7_]+ =>
+    (tok_valF (yypos, yytext, Markup.numeral, "NUM", Tokens.NUM, yytext));
+<INITIAL>"0x"[0-9a-fA-F_]+ =>
+    (tok_valF (yypos, yytext, Markup.numeral, "NUM", Tokens.NUM, yytext));
+<INITIAL>{digit}[0-9_]* =>
+    (tok_valF (yypos, yytext, Markup.numeral, "NUM", Tokens.NUM, yytext));
+<INITIAL>{digit}{idchar}* =>
     (tok_valF (yypos, yytext, Markup.numeral, "NUMSFX", Tokens.NUMSFX, yytext));
-<INITIAL>{digit}+ =>
-    (tok_valF (yypos, yytext, Markup.numeral, "NUM", Tokens.NUM, yytext));
 <INITIAL>"true"   => (tokF (yypos, yytext, Markup.keyword1, "TTRUE", Tokens.TTRUE));
 <INITIAL>"false"  => (tokF (yypos, yytext, Markup.keyword1, "TFALSE", Tokens.TFALSE));
 <INITIAL>"as"     => (tokF (yypos, yytext, Markup.keyword1, "TAS", Tokens.TAS));
@@ -553,6 +558,12 @@ fun finish_conditional
         (pattern, value, success, fallback,
          Position.range_position (pos, stop))
 
+datatype arm_head =
+  AH_Arm of ur_pat * (ur_expr * Position.T) option
+
+fun finish_arm (AH_Arm (pattern, guard), body) =
+  UR_Arm (pattern, guard, body)
+
 fun segment_position (Path_Segment (_, pos, NONE)) = pos
   | segment_position (Path_Segment (_, _, SOME (Generic_Args (_, pos)))) = pos
 
@@ -605,26 +616,8 @@ yacc_definitions\<open>
 %eop EOF
 %noshift EOF
 
-(* Operator precedence, loosest -> tightest (the frontend's infix priorities). Return is below
-   with-block expressions, so `return { e }` takes the block as its operand instead of becoming an
-   operandless return followed by a block statement. Comparisons are non-associative (Rust rejects
-   `a == b == c`). Ranges and assignment use structural tiers below. Reference prefixes and `!` use
-   structural tiers too; these directives keep the ambiguous `uexp OP uexp` productions
-   conflict-free. *)
-%right TRETURN
-%right TIF TELSE TLBRACE TLBRACK TUNSAFE TWHILE TLOOP TFOR
-%nonassoc TDOTDOT TDOTDOTEQ
-%left TBARBAR
-%left TAMPAMP
-%nonassoc TEQEQ TNE TLT TLE TGT TGE
 %nonassoc TPATCONTEXT
-%left TBAR
-%left TCARET
-%left TAMP
-%left TSHL TSHR
-%left TPLUS TMINUS
-%left TSTAR TSLASH TPERCENT
-%right TBANG
+%right TIF TELSE TLBRACE TLBRACK TUNSAFE TWHILE TLOOP TFOR
 
 %term NUM of string | NUMSFX of string | STRING of string | IDENT of string | LPAR | RPAR
     | VALAQ of Input.source | EXPRAQ of Input.source * Position.T
@@ -652,33 +645,44 @@ yacc_definitions\<open>
 %nonterm ustart of URust_AST.ur_expr option
        | ubody of URust_AST.ur_expr
        | ubinding_head of binding_head
-       | uval of URust_AST.ur_expr
-       | uclosure_arg of URust_AST.ur_expr
+       | uexpr of URust_AST.ur_expr
        | uclosure of URust_AST.ur_expr
        | uclosure_formals of URust_AST.ur_pat list
-       | uclosure_body of URust_AST.ur_expr
-       | uclosure_if_head of if_head
-       | uclosure_conditional of URust_AST.ur_expr
        | uassign of URust_AST.ur_expr
        | uassignop of URust_AST.assignop * Position.T
        | urange of URust_AST.ur_expr
-       | uexp of URust_AST.ur_expr
-       | urefprefix of URust_AST.ur_expr
-       | unotprefix of URust_AST.ur_expr
+       | ulogical_or of URust_AST.ur_expr
+       | ulogical_and of URust_AST.ur_expr
+       | ucomparison of URust_AST.ur_expr
+       | ubitwise_or of URust_AST.ur_expr
+       | ubitwise_xor of URust_AST.ur_expr
+       | ubitwise_and of URust_AST.ur_expr
+       | ushift of URust_AST.ur_expr
+       | uadditive of URust_AST.ur_expr
+       | umultiplicative of URust_AST.ur_expr
        | ucast of URust_AST.ur_expr
+       | uprefix of URust_AST.ur_expr
        | ucast_target of URust_AST.cast_target
        | upostfix of URust_AST.ur_expr
-       | uatom of URust_AST.ur_expr
-       | uatom_nonhead of URust_AST.ur_expr
-       | uval_no_struct of URust_AST.ur_expr
+       | uprimary of URust_AST.ur_expr
+       | uprimary_nonhead of URust_AST.ur_expr
+       | uexpr_no_struct of URust_AST.ur_expr
+       | uclosure_no_struct of URust_AST.ur_expr
        | uassign_no_struct of URust_AST.ur_expr
        | urange_no_struct of URust_AST.ur_expr
-       | uexp_no_struct of URust_AST.ur_expr
-       | urefprefix_no_struct of URust_AST.ur_expr
-       | unotprefix_no_struct of URust_AST.ur_expr
+       | ulogical_or_no_struct of URust_AST.ur_expr
+       | ulogical_and_no_struct of URust_AST.ur_expr
+       | ucomparison_no_struct of URust_AST.ur_expr
+       | ubitwise_or_no_struct of URust_AST.ur_expr
+       | ubitwise_xor_no_struct of URust_AST.ur_expr
+       | ubitwise_and_no_struct of URust_AST.ur_expr
+       | ushift_no_struct of URust_AST.ur_expr
+       | uadditive_no_struct of URust_AST.ur_expr
+       | umultiplicative_no_struct of URust_AST.ur_expr
        | ucast_no_struct of URust_AST.ur_expr
+       | uprefix_no_struct of URust_AST.ur_expr
        | upostfix_no_struct of URust_AST.ur_expr
-       | uatom_no_struct of URust_AST.ur_expr
+       | uprimary_no_struct of URust_AST.ur_expr
        | upath_segment of URust_AST.path_segment
        | upath of URust_AST.ur_path
        | ugeneric_args of URust_AST.generic_args
@@ -693,8 +697,7 @@ yacc_definitions\<open>
        | umacrocallargs of URust_AST.ur_expr list
        | ublock of URust_AST.ur_expr
        | uunsafe of URust_AST.ur_expr
-       | uwith_block_atom of URust_AST.ur_expr
-       | ucontrol_expr of URust_AST.ur_expr
+       | uwith_block_expr of URust_AST.ur_expr
        | usemi_free_stmt of URust_AST.ur_expr
        | uconditional of URust_AST.ur_expr
        | uif_head of if_head
@@ -703,7 +706,9 @@ yacc_definitions\<open>
        | umatch_kind of URust_AST.match_flavour * Position.T
        | umatch of URust_AST.ur_expr
        | uguard of URust_AST.ur_expr
+       | uarm_head of arm_head
        | uarm of URust_AST.ur_arm
+       | uarm_with_block of URust_AST.ur_arm
        | uarms of URust_AST.ur_arm list
        | upat of URust_AST.ur_pat
        | upat_range of URust_AST.ur_pat
@@ -725,48 +730,37 @@ yacc_definitions\<open>
 yacc_rules\<open>
   ustart : ubody (SOME ubody)
          | (NONE)
-  (* A body is a value, semicolon sequencing, a policy-approved semicolon-free statement followed by
-     another body, or a binding head followed by its required semicolon and continuation. The same
-     nonterminal is used for block contents and match guards, matching the old frontend's unrestricted
-     `urust` guard slot without duplicating statement syntax. *)
-  ubody : uval                              (uval)
-        | uclosure                          (uclosure)
-        | uval TSEMI ubody                  (UE_Seq (uval, ubody))
-        | uval TSEMI                        (finish_statement (uval, TSEMIleft))
+  (* With-block classification controls only separator elision. Every with-block form also enters the
+     primary-expression tier below, so operators can consume it without a second precedence ladder. *)
+  ubody : uexpr                             (uexpr)
+        | uexpr TSEMI ubody                 (UE_Seq (uexpr, ubody))
+        | uexpr TSEMI                       (finish_statement (uexpr, TSEMIleft))
         | usemi_free_stmt                   (usemi_free_stmt)
         | ubinding_head TSEMI ubody
             (finish_binding (ubinding_head, ubody, ubodyright))
-  (* Binding heads are grammar-private. The binder is the shared `upat`, so every site continues to use
-     the existing pattern validation and lowering policies. *)
-  ubinding_head : TLET upat TEQ uval
-                    (BH_Let (upat, uval))
-                | TLET TMUT upat TEQ uval
-                    (BH_LetMut (upat, uval, TMUTleft))
-                | TCONST upat TEQ uval
-                    (BH_Const (upat, uval))
-                | TLET upat TEQ uval TELSE ublock
-                    (BH_LetElse (upat, uval, ublock, TLETleft))
-  (* Value position: an operand OR a with-block control-flow expr. `uval` is where `if`/`match` (later
-     loops) are admitted -- let-RHS, condition, call args, parens -- WITHOUT being a bare binary-operator
-     operand (that stays `uexp`, closing divergence D-1 -- D25). *)
-  uval : uassign (uassign)
-       | TRETURN (UE_Return (NONE, TRETURNleft))
-       | TRETURN uclosure_arg
-           (UE_Return (SOME uclosure_arg, TRETURNleft))
-       | ucontrol_expr %prec TIF (ucontrol_expr)
-  (* Bare closures deliberately remain outside uval, uassign, and uexp. This delimiter-level category
-     is used only by the grammar sites where a closure may appear without grouping. Parentheses turn
-     the resulting closure node back into an ordinary atom. *)
-  uclosure_arg : uval                       (uval)
-               | uclosure                   (uclosure)
-  uclosure : TBARBAR uclosure_body
+  ubinding_head : TLET upat TEQ uexpr
+                    (BH_Let (upat, uexpr))
+                | TLET TMUT upat TEQ uexpr
+                    (BH_LetMut (upat, uexpr, TMUTleft))
+                | TCONST upat TEQ uexpr
+                    (BH_Const (upat, uexpr))
+                | TLET upat TEQ uexpr TELSE ublock
+                    (BH_LetElse (upat, uexpr, ublock, TLETleft))
+  (* Return and closures are low-precedence expressions outside the operator ladder. Their operands
+     and bodies are complete expressions, while assignment enters this layer only on its right. *)
+  uexpr : uassign                           (uassign)
+        | TRETURN                           (UE_Return (NONE, TRETURNleft))
+        | TRETURN uexpr
+            (UE_Return (SOME uexpr, TRETURNleft))
+        | uclosure                          (uclosure)
+  uclosure : TBARBAR uexpr
                 (mk_closure
-                  ([], uclosure_body,
-                   TBARBARleft, uclosure_bodyright))
-           | TBAR uclosure_formals TBAR uclosure_body
+                  ([], uexpr,
+                   TBARBARleft, uexprright))
+           | TBAR uclosure_formals TBAR uexpr
                 (mk_closure
-                  (uclosure_formals, uclosure_body,
-                   TBAR1left, uclosure_bodyright))
+                  (uclosure_formals, uexpr,
+                   TBAR1left, uexprright))
   (* Closure formals share the pattern representation, but this grammar accepts identifier spellings
      only. mk_bare_ident_pat normalizes `_` to P_Wild so the closure-formal elaboration gate can issue
      the positioned semantic rejection. Repeated identifiers and arbitrarily long lists are retained. *)
@@ -777,40 +771,10 @@ yacc_rules\<open>
                        (mk_bare_path_pat
                           (make_single_path (IDENT, IDENTleft)) ::
                           uclosure_formals)
-  (* This is the old frontend's priority-20 closure-body boundary: assignments and pure expressions,
-     ordinary conditionals, matches, blocks/unsafe blocks through uassign, and legacy semicolon-bearing
-     returns. Bindings, if-let, loops, sequencing, direct nested closures, and semicolon-free returns
-     enter only through an explicit block or another admitted delimiter context. *)
-  uclosure_body : uassign                   (uassign)
-                | uclosure_conditional      (uclosure_conditional)
-                | umatch                    (umatch)
-                | TRETURN TSEMI
-                    (UE_Return (NONE, TRETURNleft))
-                | TRETURN uclosure_arg TSEMI
-                    (UE_Return (SOME uclosure_arg, TRETURNleft))
-  (* This head deliberately does not reuse uif_head: closure-body priority admits only ordinary if,
-     and the recursive closure conditional must exclude if-let from every later else-if arm too. *)
-  uclosure_if_head : TIF uval_no_struct
-                       (IH_If (uval_no_struct, TIFleft))
-  uclosure_conditional : uclosure_if_head ublock %prec TIF
-                           (finish_conditional
-                             (uclosure_if_head, ublock, NONE,
-                              ublockright))
-                       | uclosure_if_head ublock TELSE ublock
-                           (finish_conditional
-                             (uclosure_if_head, ublock1, SOME ublock2,
-                              ublock2right))
-                       | uclosure_if_head ublock TELSE uclosure_conditional
-                           (finish_conditional
-                             (uclosure_if_head, ublock,
-                              SOME uclosure_conditional,
-                              uclosure_conditionalright))
-  (* Assignment is below ranges and every pure operator and recurses through its own tier on the right.
-     Blocks remain ordinary expression atoms, while lower-priority `if`/`match` forms require
-     parentheses on the RHS, matching the frontend's priority-40 boundary. The LHS crosses
-     expr_to_place exactly once. *)
+  (* Explicit ordinary precedence tiers, loosest to tightest. Assignment is right-associative;
+     ranges and comparisons are structurally non-associative. *)
   uassign : urange (urange)
-          | urange uassignop uassign (mk_assign uassignop urange uassign)
+          | urange uassignop uexpr (mk_assign uassignop urange uexpr)
   uassignop : TEQ        ((Assign, TEQleft))
             | TPLUSEQ    ((AssignAdd, TPLUSEQleft))
             | TMINUSEQ   ((AssignBin AssignSub, TMINUSEQleft))
@@ -821,18 +785,77 @@ yacc_rules\<open>
             | TCARETEQ   ((AssignBin AssignBXor, TCARETEQleft))
             | TSHLEQ     ((AssignBin AssignShl, TSHLEQleft))
             | TSHREQ     ((AssignBin AssignShr, TSHREQleft))
-  (* Bounded ranges form one non-associative tier between logical OR and assignment. Their endpoints
-     are complete pure expressions, so every tighter binary operator remains inside the endpoint. *)
-  urange : uexp (uexp)
-         | uexp TDOTDOT uexp
-             (UE_Range (RK_Exclusive, uexp1, uexp2, TDOTDOTleft))
-         | uexp TDOTDOTEQ uexp
-             (UE_Range (RK_Inclusive, uexp1, uexp2, TDOTDOTEQleft))
-  (* Postfixes form a structural tier above atoms, so `?`, field access, tuple projections, and
+  urange : ulogical_or (ulogical_or)
+         | ulogical_or TDOTDOT ulogical_or
+             (UE_Range
+               (RK_Exclusive, ulogical_or1, ulogical_or2, TDOTDOTleft))
+         | ulogical_or TDOTDOTEQ ulogical_or
+             (UE_Range
+               (RK_Inclusive, ulogical_or1, ulogical_or2, TDOTDOTEQleft))
+  ulogical_or : ulogical_and (ulogical_and)
+              | ulogical_or TBARBAR ulogical_and
+                  (UE_Bin (Or, ulogical_or, ulogical_and, TBARBARleft))
+  ulogical_and : ucomparison (ucomparison)
+               | ulogical_and TAMPAMP ucomparison
+                   (UE_Bin (And, ulogical_and, ucomparison, TAMPAMPleft))
+  ucomparison : ubitwise_or (ubitwise_or)
+              | ubitwise_or TEQEQ ubitwise_or
+                  (UE_Bin (Eq, ubitwise_or1, ubitwise_or2, TEQEQleft))
+              | ubitwise_or TNE ubitwise_or
+                  (UE_Bin (Ne, ubitwise_or1, ubitwise_or2, TNEleft))
+              | ubitwise_or TLT ubitwise_or
+                  (UE_Bin (Lt, ubitwise_or1, ubitwise_or2, TLTleft))
+              | ubitwise_or TLE ubitwise_or
+                  (UE_Bin (Le, ubitwise_or1, ubitwise_or2, TLEleft))
+              | ubitwise_or TGT ubitwise_or
+                  (UE_Bin (Gt, ubitwise_or1, ubitwise_or2, TGTleft))
+              | ubitwise_or TGE ubitwise_or
+                  (UE_Bin (Ge, ubitwise_or1, ubitwise_or2, TGEleft))
+  ubitwise_or : ubitwise_xor (ubitwise_xor)
+              | ubitwise_or TBAR ubitwise_xor
+                  (UE_Bin (BOr, ubitwise_or, ubitwise_xor, TBARleft))
+  ubitwise_xor : ubitwise_and (ubitwise_and)
+               | ubitwise_xor TCARET ubitwise_and
+                   (UE_Bin (BXor, ubitwise_xor, ubitwise_and, TCARETleft))
+  ubitwise_and : ushift (ushift)
+               | ubitwise_and TAMP ushift
+                   (UE_Bin (BAnd, ubitwise_and, ushift, TAMPleft))
+  ushift : uadditive (uadditive)
+         | ushift TSHL uadditive
+             (UE_Bin (Shl, ushift, uadditive, TSHLleft))
+         | ushift TSHR uadditive
+             (UE_Bin (Shr, ushift, uadditive, TSHRleft))
+  uadditive : umultiplicative (umultiplicative)
+            | uadditive TPLUS umultiplicative
+                (UE_Bin (Add, uadditive, umultiplicative, TPLUSleft))
+            | uadditive TMINUS umultiplicative
+                (UE_Bin (Sub, uadditive, umultiplicative, TMINUSleft))
+  umultiplicative : ucast (ucast)
+                  | umultiplicative TSTAR ucast
+                      (UE_Bin (Mul, umultiplicative, ucast, TSTARleft))
+                  | umultiplicative TSLASH ucast
+                      (UE_Bin (Div, umultiplicative, ucast, TSLASHleft))
+                  | umultiplicative TPERCENT ucast
+                      (UE_Bin (Mod, umultiplicative, ucast, TPERCENTleft))
+  (* Casts consume a complete prefix expression. Thus dereference binds before `as`, while postfix
+     operations remain tighter than every prefix and no general postfix invocation is introduced. *)
+  ucast : uprefix (uprefix)
+        | ucast TAS ucast_target
+            (UE_Cast (ucast, ucast_target, TASleft))
+  uprefix : upostfix (upostfix)
+          | TBANG uprefix
+              (UE_Unary (U_Not, uprefix, TBANGleft))
+          | TAMP uprefix
+              (UE_Unary (U_Borrow BM_Imm, uprefix, TAMPleft))
+          | TAMP TMUT uprefix
+              (UE_Unary (U_Borrow BM_Mut, uprefix, TAMPleft))
+          | TSTAR uprefix
+              (UE_Unary (U_Deref, uprefix, TSTARleft))
+  (* Postfixes form a structural tier above primaries, so `?`, field access, tuple projections, and
      methods compose left-to-right and bind tighter than prefix/binary operators. Indexing shares this
      tier. A dotted identifier followed by parentheses is a method; without parentheses it is an
      NField lens access. A dotted numeric token is validated as a canonical projection index 0..15. *)
-  upostfix : uatom (uatom)
+  upostfix : uprimary (uprimary)
            | upostfix TQUESTION
                (UE_Unary (U_Propagate, upostfix, TQUESTIONleft))
            | upostfix TDOT IDENT
@@ -845,14 +868,14 @@ yacc_rules\<open>
                (mk_call
                   (UC_Method (upostfix, upath_segment),
                    ucallargs, upostfixleft, RPARright))
-           | upostfix TLBRACK uclosure_arg TRBRACK
+           | upostfix TLBRACK uexpr TRBRACK
                (UE_Index
-                 (upostfix, uclosure_arg,
+                 (upostfix, uexpr,
                   Position.range_position (upostfixleft, TRBRACKright)))
-  uatom : upath      (UE_Path upath)
-        | ustruct_expr (ustruct_expr)
-        | uatom_nonhead (uatom_nonhead)
-  uatom_nonhead : NUM        (UE_Literal (LP_Integer (NUM, NUMleft)))
+  uprimary : upath           (UE_Path upath)
+           | ustruct_expr    (ustruct_expr)
+           | uprimary_nonhead (uprimary_nonhead)
+  uprimary_nonhead : NUM     (UE_Literal (LP_Integer (NUM, NUMleft)))
         | NUMSFX     (UE_Literal (LP_Integer (NUMSFX, NUMSFXleft)))
         | TTRUE      (UE_Literal (LP_Bool (true, TTRUEleft)))
         | TFALSE     (UE_Literal (LP_Bool (false, TFALSEleft)))
@@ -897,21 +920,18 @@ yacc_rules\<open>
               (upath, TBANGleft,
                MP_Arguments umacrocallargs,
                Position.range_position (upathleft, TRBRACKright)))
-        | TMATCHESBANG LPAR uclosure_arg COMMA upat RPAR
+        | TMATCHESBANG LPAR uexpr COMMA upat RPAR
             (UE_Macro
               (make_single_path
                  ("matches",
                   Position.range_position (TMATCHESBANGleft, TMATCHESBANG)),
                TMATCHESBANG,
-               MP_Matches (uclosure_arg, upat),
+               MP_Matches (uexpr, upat),
                Position.range_position (TMATCHESBANGleft, RPARright)))
-        (* The delimiter after the shared uval/uclosure prefix keeps these alternatives distinct:
-           COMMA selects tuple construction, TSEMI continues ubody sequencing, and RPAR closes a
-           complete grouped body. *)
         | LPAR RPAR  (UE_Unit LPARleft)
-        | LPAR uclosure_arg COMMA arglist RPAR
+        | LPAR uexpr COMMA arglist RPAR
             (UE_Tuple
-              (uclosure_arg :: arglist,
+              (uexpr :: arglist,
                Position.range_position (LPARleft, RPARright)))
         | LPAR ubody RPAR
             (UE_Group
@@ -923,7 +943,7 @@ yacc_rules\<open>
             (UE_Array (arglist, Position.range_position (TLBRACKleft, TRBRACKright)))
         | VALAQ      (UE_Literal (LP_ValAntiq VALAQ))
         | EXPRAQ     (UE_ExprAntiq (#1 EXPRAQ))
-        | uwith_block_atom %prec TIF (uwith_block_atom)
+        | uwith_block_expr %prec TIF (uwith_block_expr)
   upath_segment : IDENT
                     (Path_Segment (IDENT, IDENTleft, NONE))
                 | IDENT ugeneric_args
@@ -974,13 +994,6 @@ yacc_rules\<open>
                           Parsed_Fragment
                             (canonical ^ "::" ^ name,
                              layout, start, stop))
-  (* Casts form one left-recursive tier above every prefix and below postfix expressions. Repeated
-     casts therefore associate left, while a field, method, index, or propagation after a cast
-     requires grouping. The target grammar is closed to the legacy frontend's seven integral and ten
-     raw-pointer targets. *)
-  ucast : upostfix (upostfix)
-        | ucast TAS ucast_target
-            (UE_Cast (ucast, ucast_target, TASleft))
   ucast_target : TUINT
                    (CT_Unsigned TUINT)
                | TSINT
@@ -989,167 +1002,156 @@ yacc_rules\<open>
                    (CT_RawPointer (RPM_Const, TUINT))
                | TSTAR TMUT TUINT
                    (CT_RawPointer (RPM_Mut, TUINT))
-  (* Reference prefixes bind tighter than every binary operator and looser than `!`, matching the
-     frontend priorities. Casts bind tighter than all prefixes, resolving the old frontend's
-     type-dependent prefix/cast ambiguity deterministically. Recursing through the reference tier
-     makes `**x` two ordinary dereference nodes while preserving the binary meanings of `*` and `&`;
-     mixed and deeper recursion is a documented accepted-surface improvement over the frontend's
-     fixed prefix productions. *)
-  unotprefix : ucast (ucast)
-             | TBANG unotprefix (UE_Unary (U_Not, unotprefix, TBANGleft))
-  urefprefix : unotprefix (unotprefix)
-             | TAMP urefprefix
-                 (UE_Unary (U_Borrow BM_Imm, urefprefix, TAMPleft))
-             | TAMP TMUT urefprefix
-                 (UE_Unary (U_Borrow BM_Mut, urefprefix, TAMPleft))
-             | TSTAR urefprefix
-                 (UE_Unary (U_Deref, urefprefix, TSTARleft))
-  uexp : urefprefix (urefprefix)
-       (* `ucontrol_expr` is deliberately NOT a `uexp` alternative (closes D-1): it reaches value
-          position via `uval` and operand position only when parenthesized. *)
-       | uexp TPLUS uexp     (UE_Bin (Add,  uexp1, uexp2, TPLUSleft))
-       | uexp TMINUS uexp    (UE_Bin (Sub,  uexp1, uexp2, TMINUSleft))
-       | uexp TSTAR uexp     (UE_Bin (Mul,  uexp1, uexp2, TSTARleft))
-       | uexp TSLASH uexp    (UE_Bin (Div,  uexp1, uexp2, TSLASHleft))
-       | uexp TPERCENT uexp  (UE_Bin (Mod,  uexp1, uexp2, TPERCENTleft))
-       | uexp TSHL uexp      (UE_Bin (Shl,  uexp1, uexp2, TSHLleft))
-       | uexp TSHR uexp      (UE_Bin (Shr,  uexp1, uexp2, TSHRleft))
-       | uexp TAMP uexp      (UE_Bin (BAnd, uexp1, uexp2, TAMPleft))
-       | uexp TBAR uexp      (UE_Bin (BOr,  uexp1, uexp2, TBARleft))
-       | uexp TCARET uexp    (UE_Bin (BXor, uexp1, uexp2, TCARETleft))
-       | uexp TEQEQ uexp     (UE_Bin (Eq,   uexp1, uexp2, TEQEQleft))
-       | uexp TNE uexp       (UE_Bin (Ne,   uexp1, uexp2, TNEleft))
-       | uexp TLT uexp       (UE_Bin (Lt,   uexp1, uexp2, TLTleft))
-       | uexp TLE uexp       (UE_Bin (Le,   uexp1, uexp2, TLEleft))
-       | uexp TGT uexp       (UE_Bin (Gt,   uexp1, uexp2, TGTleft))
-       | uexp TGE uexp       (UE_Bin (Ge,   uexp1, uexp2, TGEleft))
-       | uexp TAMPAMP uexp   (UE_Bin (And,  uexp1, uexp2, TAMPAMPleft))
-       | uexp TBARBAR uexp   (UE_Bin (Or,   uexp1, uexp2, TBARBARleft))
-  (* Rust excludes unparenthesized struct expressions from control heads. This ladder mirrors the
-     ordinary precedence family but omits `ustruct_expr` from its atom. Every recursive operand stays
-     restricted; explicit delimiters inside `uatom_nonhead` re-enter the ordinary grammar. *)
-  uval_no_struct : uassign_no_struct
-                     (uassign_no_struct)
-                 | TRETURN uval_no_struct
-                     (UE_Return (SOME uval_no_struct, TRETURNleft))
-                 | ucontrol_expr %prec TIF
-                     (ucontrol_expr)
+  (* The no-struct family mirrors every ordinary tier. Only its primary excludes direct struct
+     expressions; explicit delimiters in the shared non-head primary restore unrestricted parsing. *)
+  uexpr_no_struct : uassign_no_struct       (uassign_no_struct)
+                  | TRETURN                 (UE_Return (NONE, TRETURNleft))
+                  | TRETURN uexpr_no_struct
+                      (UE_Return (SOME uexpr_no_struct, TRETURNleft))
+                  | uclosure_no_struct      (uclosure_no_struct)
+  uclosure_no_struct : TBARBAR uexpr_no_struct
+                         (mk_closure
+                           ([], uexpr_no_struct,
+                            TBARBARleft, uexpr_no_structright))
+                     | TBAR uclosure_formals TBAR uexpr_no_struct
+                         (mk_closure
+                           (uclosure_formals, uexpr_no_struct,
+                            TBAR1left, uexpr_no_structright))
   uassign_no_struct : urange_no_struct
                         (urange_no_struct)
-                    | urange_no_struct uassignop uassign_no_struct
+                    | urange_no_struct uassignop uexpr_no_struct
                         (mk_assign
-                          uassignop urange_no_struct uassign_no_struct)
-  urange_no_struct : uexp_no_struct
-                       (uexp_no_struct)
-                   | uexp_no_struct TDOTDOT uexp_no_struct
+                          uassignop urange_no_struct uexpr_no_struct)
+  urange_no_struct : ulogical_or_no_struct
+                       (ulogical_or_no_struct)
+                   | ulogical_or_no_struct TDOTDOT ulogical_or_no_struct
                        (UE_Range
-                         (RK_Exclusive, uexp_no_struct1,
-                          uexp_no_struct2, TDOTDOTleft))
-                   | uexp_no_struct TDOTDOTEQ uexp_no_struct
+                         (RK_Exclusive, ulogical_or_no_struct1,
+                          ulogical_or_no_struct2, TDOTDOTleft))
+                   | ulogical_or_no_struct TDOTDOTEQ ulogical_or_no_struct
                        (UE_Range
-                         (RK_Inclusive, uexp_no_struct1,
-                          uexp_no_struct2, TDOTDOTEQleft))
-  uexp_no_struct : urefprefix_no_struct
-                      (urefprefix_no_struct)
-                 | uexp_no_struct TPLUS uexp_no_struct
-                      (UE_Bin
-                        (Add, uexp_no_struct1, uexp_no_struct2,
-                         TPLUSleft))
-                 | uexp_no_struct TMINUS uexp_no_struct
-                      (UE_Bin
-                        (Sub, uexp_no_struct1, uexp_no_struct2,
-                         TMINUSleft))
-                 | uexp_no_struct TSTAR uexp_no_struct
-                      (UE_Bin
-                        (Mul, uexp_no_struct1, uexp_no_struct2,
-                         TSTARleft))
-                 | uexp_no_struct TSLASH uexp_no_struct
-                      (UE_Bin
-                        (Div, uexp_no_struct1, uexp_no_struct2,
-                         TSLASHleft))
-                 | uexp_no_struct TPERCENT uexp_no_struct
-                      (UE_Bin
-                        (Mod, uexp_no_struct1, uexp_no_struct2,
-                         TPERCENTleft))
-                 | uexp_no_struct TSHL uexp_no_struct
-                      (UE_Bin
-                        (Shl, uexp_no_struct1, uexp_no_struct2,
-                         TSHLleft))
-                 | uexp_no_struct TSHR uexp_no_struct
-                      (UE_Bin
-                        (Shr, uexp_no_struct1, uexp_no_struct2,
-                         TSHRleft))
-                 | uexp_no_struct TAMP uexp_no_struct
-                      (UE_Bin
-                        (BAnd, uexp_no_struct1, uexp_no_struct2,
-                         TAMPleft))
-                 | uexp_no_struct TBAR uexp_no_struct
-                      (UE_Bin
-                        (BOr, uexp_no_struct1, uexp_no_struct2,
-                         TBARleft))
-                 | uexp_no_struct TCARET uexp_no_struct
-                      (UE_Bin
-                        (BXor, uexp_no_struct1, uexp_no_struct2,
-                         TCARETleft))
-                 | uexp_no_struct TEQEQ uexp_no_struct
-                      (UE_Bin
-                        (Eq, uexp_no_struct1, uexp_no_struct2,
-                         TEQEQleft))
-                 | uexp_no_struct TNE uexp_no_struct
-                      (UE_Bin
-                        (Ne, uexp_no_struct1, uexp_no_struct2,
-                         TNEleft))
-                 | uexp_no_struct TLT uexp_no_struct
-                      (UE_Bin
-                        (Lt, uexp_no_struct1, uexp_no_struct2,
-                         TLTleft))
-                 | uexp_no_struct TLE uexp_no_struct
-                      (UE_Bin
-                        (Le, uexp_no_struct1, uexp_no_struct2,
-                         TLEleft))
-                 | uexp_no_struct TGT uexp_no_struct
-                      (UE_Bin
-                        (Gt, uexp_no_struct1, uexp_no_struct2,
-                         TGTleft))
-                 | uexp_no_struct TGE uexp_no_struct
-                      (UE_Bin
-                        (Ge, uexp_no_struct1, uexp_no_struct2,
-                         TGEleft))
-                 | uexp_no_struct TAMPAMP uexp_no_struct
-                      (UE_Bin
-                        (And, uexp_no_struct1, uexp_no_struct2,
-                         TAMPAMPleft))
-                 | uexp_no_struct TBARBAR uexp_no_struct
-                      (UE_Bin
-                        (Or, uexp_no_struct1, uexp_no_struct2,
-                         TBARBARleft))
-  urefprefix_no_struct : unotprefix_no_struct
-                           (unotprefix_no_struct)
-                       | TAMP urefprefix_no_struct
-                           (UE_Unary
-                             (U_Borrow BM_Imm,
-                              urefprefix_no_struct, TAMPleft))
-                       | TAMP TMUT urefprefix_no_struct
-                           (UE_Unary
-                             (U_Borrow BM_Mut,
-                              urefprefix_no_struct, TAMPleft))
-                       | TSTAR urefprefix_no_struct
-                           (UE_Unary
-                             (U_Deref, urefprefix_no_struct,
-                              TSTARleft))
-  unotprefix_no_struct : ucast_no_struct
-                           (ucast_no_struct)
-                       | TBANG unotprefix_no_struct
-                           (UE_Unary
-                             (U_Not, unotprefix_no_struct,
-                              TBANGleft))
-  ucast_no_struct : upostfix_no_struct
-                      (upostfix_no_struct)
+                         (RK_Inclusive, ulogical_or_no_struct1,
+                          ulogical_or_no_struct2, TDOTDOTEQleft))
+  ulogical_or_no_struct : ulogical_and_no_struct
+                            (ulogical_and_no_struct)
+                        | ulogical_or_no_struct TBARBAR
+                            ulogical_and_no_struct
+                            (UE_Bin
+                              (Or, ulogical_or_no_struct,
+                               ulogical_and_no_struct, TBARBARleft))
+  ulogical_and_no_struct : ucomparison_no_struct
+                             (ucomparison_no_struct)
+                         | ulogical_and_no_struct TAMPAMP
+                             ucomparison_no_struct
+                             (UE_Bin
+                               (And, ulogical_and_no_struct,
+                                ucomparison_no_struct, TAMPAMPleft))
+  ucomparison_no_struct : ubitwise_or_no_struct
+                            (ubitwise_or_no_struct)
+                        | ubitwise_or_no_struct TEQEQ ubitwise_or_no_struct
+                            (UE_Bin
+                              (Eq, ubitwise_or_no_struct1,
+                               ubitwise_or_no_struct2, TEQEQleft))
+                        | ubitwise_or_no_struct TNE ubitwise_or_no_struct
+                            (UE_Bin
+                              (Ne, ubitwise_or_no_struct1,
+                               ubitwise_or_no_struct2, TNEleft))
+                        | ubitwise_or_no_struct TLT ubitwise_or_no_struct
+                            (UE_Bin
+                              (Lt, ubitwise_or_no_struct1,
+                               ubitwise_or_no_struct2, TLTleft))
+                        | ubitwise_or_no_struct TLE ubitwise_or_no_struct
+                            (UE_Bin
+                              (Le, ubitwise_or_no_struct1,
+                               ubitwise_or_no_struct2, TLEleft))
+                        | ubitwise_or_no_struct TGT ubitwise_or_no_struct
+                            (UE_Bin
+                              (Gt, ubitwise_or_no_struct1,
+                               ubitwise_or_no_struct2, TGTleft))
+                        | ubitwise_or_no_struct TGE ubitwise_or_no_struct
+                            (UE_Bin
+                              (Ge, ubitwise_or_no_struct1,
+                               ubitwise_or_no_struct2, TGEleft))
+  ubitwise_or_no_struct : ubitwise_xor_no_struct
+                            (ubitwise_xor_no_struct)
+                        | ubitwise_or_no_struct TBAR
+                            ubitwise_xor_no_struct
+                            (UE_Bin
+                              (BOr, ubitwise_or_no_struct,
+                               ubitwise_xor_no_struct, TBARleft))
+  ubitwise_xor_no_struct : ubitwise_and_no_struct
+                             (ubitwise_and_no_struct)
+                         | ubitwise_xor_no_struct TCARET
+                             ubitwise_and_no_struct
+                             (UE_Bin
+                               (BXor, ubitwise_xor_no_struct,
+                                ubitwise_and_no_struct, TCARETleft))
+  ubitwise_and_no_struct : ushift_no_struct
+                             (ushift_no_struct)
+                         | ubitwise_and_no_struct TAMP ushift_no_struct
+                             (UE_Bin
+                               (BAnd, ubitwise_and_no_struct,
+                                ushift_no_struct, TAMPleft))
+  ushift_no_struct : uadditive_no_struct
+                       (uadditive_no_struct)
+                   | ushift_no_struct TSHL uadditive_no_struct
+                       (UE_Bin
+                         (Shl, ushift_no_struct,
+                          uadditive_no_struct, TSHLleft))
+                   | ushift_no_struct TSHR uadditive_no_struct
+                       (UE_Bin
+                         (Shr, ushift_no_struct,
+                          uadditive_no_struct, TSHRleft))
+  uadditive_no_struct : umultiplicative_no_struct
+                          (umultiplicative_no_struct)
+                      | uadditive_no_struct TPLUS
+                          umultiplicative_no_struct
+                          (UE_Bin
+                            (Add, uadditive_no_struct,
+                             umultiplicative_no_struct, TPLUSleft))
+                      | uadditive_no_struct TMINUS
+                          umultiplicative_no_struct
+                          (UE_Bin
+                            (Sub, uadditive_no_struct,
+                             umultiplicative_no_struct, TMINUSleft))
+  umultiplicative_no_struct : ucast_no_struct
+                               (ucast_no_struct)
+                           | umultiplicative_no_struct TSTAR
+                               ucast_no_struct
+                               (UE_Bin
+                                 (Mul, umultiplicative_no_struct,
+                                  ucast_no_struct, TSTARleft))
+                           | umultiplicative_no_struct TSLASH
+                               ucast_no_struct
+                               (UE_Bin
+                                 (Div, umultiplicative_no_struct,
+                                  ucast_no_struct, TSLASHleft))
+                           | umultiplicative_no_struct TPERCENT
+                               ucast_no_struct
+                               (UE_Bin
+                                 (Mod, umultiplicative_no_struct,
+                                  ucast_no_struct, TPERCENTleft))
+  ucast_no_struct : uprefix_no_struct
+                      (uprefix_no_struct)
                   | ucast_no_struct TAS ucast_target
                       (UE_Cast
                         (ucast_no_struct, ucast_target, TASleft))
-  upostfix_no_struct : uatom_no_struct
-                         (uatom_no_struct)
+  uprefix_no_struct : upostfix_no_struct
+                        (upostfix_no_struct)
+                    | TBANG uprefix_no_struct
+                        (UE_Unary
+                          (U_Not, uprefix_no_struct, TBANGleft))
+                    | TAMP uprefix_no_struct
+                        (UE_Unary
+                          (U_Borrow BM_Imm, uprefix_no_struct, TAMPleft))
+                    | TAMP TMUT uprefix_no_struct
+                        (UE_Unary
+                          (U_Borrow BM_Mut, uprefix_no_struct, TAMPleft))
+                    | TSTAR uprefix_no_struct
+                        (UE_Unary
+                          (U_Deref, uprefix_no_struct, TSTARleft))
+  upostfix_no_struct : uprimary_no_struct
+                         (uprimary_no_struct)
                      | upostfix_no_struct TQUESTION
                          (UE_Unary
                            (U_Propagate, upostfix_no_struct,
@@ -1171,16 +1173,16 @@ yacc_rules\<open>
                             ucallargs, upostfix_no_structleft,
                             RPARright))
                      | upostfix_no_struct TLBRACK
-                         uclosure_arg TRBRACK
+                         uexpr TRBRACK
                          (UE_Index
-                           (upostfix_no_struct, uclosure_arg,
+                           (upostfix_no_struct, uexpr,
                             Position.range_position
                               (upostfix_no_structleft,
                                TRBRACKright)))
-  uatom_no_struct : upath
-                       (UE_Path upath)
-                   | uatom_nonhead
-                       (uatom_nonhead)
+  uprimary_no_struct : upath
+                         (UE_Path upath)
+                     | uprimary_nonhead
+                         (uprimary_nonhead)
   (* Branches are brace-delimited, and right-associative TIF/TELSE precedence preserves nearest-else
      association through recursive mixed chains. The whole grammar is verified conflict-free via the
      [verbose] grm.desc export -- RE-CHECK IT after any grammar change. *)
@@ -1189,24 +1191,21 @@ yacc_rules\<open>
   (* Unsafe is block-like in operand and statement positions, but deliberately remains distinct from
      `ublock`: branch delimiters still require ordinary braces. Its frontend semantics are block erasure. *)
   uunsafe : TUNSAFE ublock                  (ublock)
-  (* Placement and semicolon policy are independent: with-block atoms are ordinary operands, control
-     expressions are values, and either category may be sequenced without a semicolon when another
-     body follows. *)
-  uwith_block_atom : ublock                 (ublock)
+  (* This direct category is used both as a primary and, separately, to decide whether a statement or
+     non-final match arm may omit its separator. Wrapping it in any operator leaves this category. *)
+  uwith_block_expr : ublock                 (ublock)
                    | uunsafe                (uunsafe)
-  usemi_free_stmt : uwith_block_atom ubody
-                      (UE_Seq (uwith_block_atom, ubody))
-                  | ucontrol_expr ubody
-                      (UE_Seq (ucontrol_expr, ubody))
-  ucontrol_expr : uconditional              (uconditional)
-                | uloop_expr                (uloop_expr)
-                | umatch                    (umatch)
+                   | uconditional           (uconditional)
+                   | uloop_expr             (uloop_expr)
+                   | umatch                 (umatch)
+  usemi_free_stmt : uwith_block_expr ubody
+                      (UE_Seq (uwith_block_expr, ubody))
   (* Conditional heads retain only the condition or pattern/scrutinee. The conditional consumes the
      success block once and preserves nearest-else association plus the existing AST/span shape. *)
-  uif_head : TIF uval_no_struct
-                (IH_If (uval_no_struct, TIFleft))
-           | TIF TLET upat TEQ uval_no_struct
-                (IH_IfLet (upat, uval_no_struct, TIFleft))
+  uif_head : TIF uexpr_no_struct
+                (IH_If (uexpr_no_struct, TIFleft))
+           | TIF TLET upat TEQ uexpr_no_struct
+                (IH_IfLet (upat, uexpr_no_struct, TIFleft))
   uconditional : uif_head ublock %prec TIF
                     (finish_conditional
                       (uif_head, ublock, NONE, ublockright))
@@ -1220,32 +1219,32 @@ yacc_rules\<open>
                        uconditionalright))
   ufuel : THASH TLBRACK TFUEL LPAR EXPRAQ RPAR TRBRACK
               ((#1 EXPRAQ, THASHleft))
-  uloop_expr : ufuel TWHILE LPAR uval RPAR ublock
-              (UE_While (#1 ufuel, uval, ublock,
+  uloop_expr : ufuel TWHILE LPAR uexpr RPAR ublock
+              (UE_While (#1 ufuel, uexpr, ublock,
                 Position.range_position (#2 ufuel, ublockright)))
              | ufuel TLOOP ublock
               (UE_Loop (#1 ufuel, ublock,
                 Position.range_position (#2 ufuel, ublockright)))
-             | TFOR upat TIN uval_no_struct ublock
+             | TFOR upat TIN uexpr_no_struct ublock
               (UE_For
-                (upat, uval_no_struct, ublock,
+                (upat, uexpr_no_struct, ublock,
                  Position.range_position
                    (TFORleft, ublockright)))
-             | ufuel TWHILE TLET upat TEQ uval_no_struct ublock
+             | ufuel TWHILE TLET upat TEQ uexpr_no_struct ublock
               (UE_WhileLet
-                (#1 ufuel, upat, uval_no_struct, ublock,
+                (#1 ufuel, upat, uexpr_no_struct, ublock,
                  Position.range_position
                    (#2 ufuel, ublockright)))
   (* Comma lists stay nonempty and right-nested (source order preserved). Each list has an explicit terminal
      comma production, so a trailing separator cannot create an empty element. Calls are dedicated
-     atom/method productions, so LPAR is never in FOLLOW(uexp) as a general postfix operator -- no
+     atom/method productions, so LPAR is never in FOLLOW(uexpr) as a general postfix operator -- no
      precedence directive is needed here (D23/D77). *)
-  arglist : uclosure_arg
-              ([uclosure_arg])
-          | uclosure_arg COMMA
-              ([uclosure_arg])
-          | uclosure_arg COMMA arglist
-              (uclosure_arg :: arglist)
+  arglist : uexpr
+              ([uexpr])
+          | uexpr COMMA
+              ([uexpr])
+          | uexpr COMMA arglist
+              (uexpr :: arglist)
   ucallargs : ([])
             | arglist (arglist)
   (* Generic macro arguments are complete, nonempty bodies separated by commas. The list as a whole
@@ -1264,21 +1263,26 @@ yacc_rules\<open>
   umatch_kind : TMATCH       ((MF_Auto, TMATCHleft))
               | TMATCHSWITCH ((MF_Switch, TMATCHSWITCHleft))
               | TMATCHCASE   ((MF_Case, TMATCHCASEleft))
-  umatch : umatch_kind uval_no_struct TLBRACE uarms TRBRACE
+  umatch : umatch_kind uexpr_no_struct TLBRACE uarms TRBRACE
               (UE_Match
-                (#1 umatch_kind, uval_no_struct, uarms,
+                (#1 umatch_kind, uexpr_no_struct, uarms,
                  Position.range_position
                    (#2 umatch_kind, TRBRACEright)))
   uguard : ubody (ubody)
-  uarm : upat TARROW uval
-            (UR_Arm (upat, NONE, uval))
-       | upat TIF uguard TARROW uval
-            (UR_Arm (upat, SOME (uguard, TIFleft), uval))
+  uarm_head : upat TARROW
+                (AH_Arm (upat, NONE))
+            | upat TIF uguard TARROW
+                (AH_Arm (upat, SOME (uguard, TIFleft)))
+  uarm : uarm_head uexpr
+           (finish_arm (uarm_head, uexpr))
+  uarm_with_block : uarm_head uwith_block_expr
+                      (finish_arm (uarm_head, uwith_block_expr))
   uarms : uarm                  ([uarm])
         | uarm COMMA            ([uarm])
         | uarm COMMA uarms      (uarm :: uarms)
+        | uarm_with_block uarms  (uarm_with_block :: uarms)
   (* The single pattern grammar, shared by every binding site above (D28). Its own nonterminals, disjoint
-     from `uexp`, so the constructor pattern cannot clash with the call production nor or-`|` with bitwise
+     from `uexpr`, so the constructor pattern cannot clash with the call production nor or-`|` with bitwise
      or. It deliberately ACCEPTS more than any one site can lower (a numeral in `let`, a constructor under
      `match_switch`); each site's elaborator rejects the rest WITH A POSITION, which beats a bare "syntax
      error" and keeps one grammar for one language. *)
@@ -1341,15 +1345,19 @@ yacc_rules\<open>
                       ([ustruct_field])
                  | ustruct_field COMMA ustruct_fields
                       (ustruct_field :: ustruct_fields)
-  (* Expression labels are retained only for markup and future metadata semantics. The active
-     frontend erases them and calls the head with source-ordered initializers. Unlike pattern fields,
-     this list is nonempty, colon-only, and has no trailing separator. *)
-  ustruct_expr : upath TLBRACE ustruct_expr_fields TRBRACE
+  (* Expression labels remain syntax-only and source-ordered. Empty fields and one terminal comma are
+     accepted without adding shorthand or rest syntax. *)
+  ustruct_expr : upath TLBRACE TRBRACE
+                   (make_struct_expression
+                     (upath, [], TRBRACEright))
+               | upath TLBRACE ustruct_expr_fields TRBRACE
                    (make_struct_expression
                      (upath, ustruct_expr_fields, TRBRACEright))
   ustruct_expr_field : IDENT TCOLON ubody
                          (SE_Field (IDENT, IDENTleft, ubody))
   ustruct_expr_fields : ustruct_expr_field
+                          ([ustruct_expr_field])
+                      | ustruct_expr_field COMMA
                           ([ustruct_expr_field])
                       | ustruct_expr_field COMMA ustruct_expr_fields
                           (ustruct_expr_field :: ustruct_expr_fields)
