@@ -33,7 +33,6 @@ in
 end
 \<close>
 
-
 declare [[urust_term_hook_conformance_check = true]]
 
 section\<open> Hook conformance corpus \<close>
@@ -50,16 +49,11 @@ from the closed quotation and references that require explicit captures or depen
 Accepted direct replacements are tested in \<open>Parser_Tests_Hook_Conformance.thy\<close>.
 \<close>
 
-
 section\<open> Expression goldens \<close>
 
 subsection\<open>Literals and Basic Values\<close>
 
 subsubsection\<open>Numeric Literals\<close>
-
-
-
-
 
 hook_rejects 5 \<open>\<mu>\<open> \<llangle>0 :: 32 word\<rrangle> \<close> = \<lbrakk> \<llangle>0 :: 32 word\<rrangle> \<rbrakk>\<close>
 hook_rejects 6 \<open>\<mu>\<open> \<llangle>1 :: 64 word\<rrangle> \<close> = \<lbrakk> \<llangle>1 :: 64 word\<rrangle> \<rbrakk>\<close>
@@ -79,10 +73,6 @@ context
   fixes f :: \<open>unit \<Rightarrow> ('s, 'a, unit, unit, unit) function_body\<close>
   fixes g :: \<open>unit \<Rightarrow> bool \<Rightarrow> ('s, 'a, unit, unit, unit) function_body\<close>
 begin
-
-
-
-
 
 hook_rejects 18 \<open>\<mu>\<open> f(()) \<close> = \<lbrakk> f(()) \<rbrakk>\<close>
 hook_rejects 19 \<open>\<mu>\<open> g((),True) \<close> = \<lbrakk> g((),True) \<rbrakk>\<close>
@@ -136,24 +126,6 @@ hook_rejects 40 \<open>\<mu>\<open> raw_buf as *mut u8 \<close> = \<lbrakk> raw_
 hook_rejects 41 \<open>\<mu>\<open> raw_buf as *mut u32 \<close> = \<lbrakk> raw_buf as *mut u32 \<rbrakk>\<close>
 hook_rejects 42 \<open>\<mu>\<open> raw_buf as *mut u64 \<close> = \<lbrakk> raw_buf as *mut u64 \<rbrakk>\<close>
 end
-
-subsubsection\<open>Numeric Ascriptions\<close>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 subsection\<open>Boolean Operators\<close>
 
@@ -271,25 +243,6 @@ hook_rejects 108 \<open>\<mu>\<open> \<llangle>True\<rrangle> || \<llangle>True\
 hook_rejects 109 \<open>\<mu>\<open> !\<llangle>True\<rrangle> && \<llangle>False\<rrangle> \<close> = \<lbrakk> !\<llangle>True\<rrangle> && \<llangle>False\<rrangle> \<rbrakk>\<close>
 hook_rejects 110 \<open>\<mu>\<open> !\<llangle>True\<rrangle> == \<llangle>False\<rrangle> \<close> = \<lbrakk> !\<llangle>True\<rrangle> == \<llangle>False\<rrangle> \<rbrakk>\<close>
 
-subsection\<open>Assignment Operators\<close>
-
-text\<open>
-Simple assignment and its identifier, grouped, dereferenced, field, antiquotation,
-precedence, associativity, and composition boundaries have runnable frontend-equivalence
-coverage in \<open>Parser_Test_Expr_Conformance.thy\<close>.
-\<close>
-
-subsubsection\<open>Compound Assignment\<close>
-
-text\<open>
-The frontend-supported operators \<open>+= -= *= %= &= |= ^= <<= >>=\<close> and their
-place, precedence, associativity, mutable-binding, and control-flow boundaries have
-runnable frontend-equivalence coverage in
-\<open>Parser_Test_Expr_Conformance.thy\<close>. The frontend does not provide \<open>/=\<close>;
-its fidelity rejection is checked in
-\<open>Parser_Tests_Negative_Conformance.thy\<close>.
-\<close>
-
 subsection\<open>Control Flow - Conditionals\<close>
 
 hook_rejects 111 \<open>\<mu>\<open> if True { return True; } else { return True; } \<close> = \<lbrakk> if True { return True; } else { return True; } \<rbrakk>\<close>
@@ -308,8 +261,6 @@ hook_rejects 120 \<open>\<mu>\<open> if True { () } else { () } () \<close> = \<
 hook_rejects 121 \<open>\<mu>\<open> if False { () } else if True { () } else { () } () \<close> = \<lbrakk> if False { () } else if True { () } else { () } () \<rbrakk>\<close>
 hook_rejects 122 \<open>\<mu>\<open> match Some(()) { Some(_) \<Rightarrow> (), _ \<Rightarrow> () } () \<close> = \<lbrakk> match Some(()) { Some(_) \<Rightarrow> (), _ \<Rightarrow> () } () \<rbrakk>\<close>
 hook_rejects 123 \<open>\<mu>\<open> let lst = \<llangle>(1 :: 32 word, 2 :: 32 word, TNil) # []\<rrangle>; for (a, b) in lst { () } () \<close> = \<lbrakk> let lst = \<llangle>(1 :: 32 word, 2 :: 32 word, TNil) # []\<rrangle>; for (a, b) in lst { () } () \<rbrakk>\<close>
-
-
 
 subsection\<open>Control Flow - If-Let and Let-Else\<close>
 
@@ -409,10 +360,6 @@ datatype struct_pattern_fixture = Foo (foo: "32 word") (goo: "32 word") | Other
 datatype_record struct_pattern_dr =
   dr_foo :: "32 word"
   dr_goo :: "32 word"
-
-record struct_pattern_rec =
-  rec_foo :: "32 word"
-  rec_goo :: "32 word"
 
 definition foo_struct_expr_lift where
   "foo_struct_expr_lift \<equiv> lift_fun2 Foo"
@@ -564,14 +511,8 @@ end
 
 subsection\<open>Control Flow - Return\<close>
 
-
-
 hook_rejects 200 \<open>\<mu>\<open> let v = \<llangle>42 :: 64 word\<rrangle>; return v; \<close> = \<lbrakk> let v = \<llangle>42 :: 64 word\<rrangle>; return v; \<rbrakk>\<close>
 hook_rejects 201 \<open>\<mu>\<open> let (a,b) = (\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>); return; \<close> = \<lbrakk> let (a,b) = (\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>); return; \<rbrakk>\<close>
-
-definition test :: \<open>(nat, unit, unit, unit, unit) function_body\<close> where
-  \<open>test \<equiv> (FunctionBody \<lbrakk> let x = \<llangle>Some (0 :: nat)\<rrangle>; let Some(foo) = x else { return; }; return; \<rbrakk>)\<close>
-hide_const test
 
 hook_rejects 202 \<open>((FunctionBody \<mu>\<open> let x = \<llangle>Some (0 :: nat)\<rrangle>; let Some(foo) = x else { return; }; return; \<close>) :: (nat, unit, unit, unit, unit) function_body) = ((FunctionBody \<lbrakk> let x = \<llangle>Some (0 :: nat)\<rrangle>; let Some(foo) = x else { return; }; return; \<rbrakk>) :: (nat, unit, unit, unit, unit) function_body)\<close>
 
@@ -710,14 +651,6 @@ hook_rejects 237 \<open>\<mu>\<open> || return x; \<close> = \<lbrakk> || return
 hook_rejects 239 \<open>\<mu>\<open> |x, y| { let z = f(x,y); return z; } \<close> = \<lbrakk> |x, y| { let z = f(x,y); return z; } \<rbrakk>\<close>
 hook_rejects 240 \<open>\<mu>\<open> h(n, |b| { let z = f(n,b); return \<llangle>n+z\<rrangle>; }) \<close> = \<lbrakk> h(n, |b| { let z = f(n,b); return \<llangle>n+z\<rrangle>; }) \<rbrakk>\<close>
 end
-
-subsection\<open>References and Mutation\<close>
-
-text\<open>
-Mutable allocation, borrow, read-dereference, simple assignment, and binary-operator
-preservation have runnable frontend-equivalence coverage in
-\<open>Parser_Test_Expr_Conformance.thy\<close>.
-\<close>
 
 subsection\<open>Field Access and Records\<close>
 
@@ -943,9 +876,6 @@ hook_rejects 307 \<open>\<mu>\<open> \<l>\<o>\<g> \<llangle>Trace\<rrangle> \<ll
 hook_rejects 308 \<open>\<mu>\<open> \<l>\<o>\<g> \<llangle>Fatal\<rrangle> \<llangle>[LogBool b]\<rrangle> \<close> = \<lbrakk> \<l>\<o>\<g> \<llangle>Fatal\<rrangle> \<llangle>[LogBool b]\<rrangle> \<rbrakk>\<close>
 end
 
-
-
-
 subsection\<open>Miscellaneous Features\<close>
 
 context
@@ -1007,14 +937,6 @@ end
 subsubsection\<open>Const Bindings\<close>
 
 hook_rejects 328 \<open>\<mu>\<open> const FOO = \<llangle>5 :: nat\<rrangle>; () \<close> = \<lbrakk> const FOO = \<llangle>5 :: nat\<rrangle>; () \<rbrakk>\<close>
-
-subsubsection\<open>Scoping and Block Expressions\<close>
-
-context
-  fixes x :: \<open>'s\<close>
-begin
-
-end
 
 subsubsection\<open>Sequencing\<close>
 
@@ -1094,8 +1016,6 @@ end
 
 subsection\<open>Disjunctive Patterns\<close>
 
-datatype three_case = CaseA nat | CaseB nat | CaseC
-
 hook_rejects 343 \<open>\<mu>\<open> match Some(\<llangle>42 :: nat\<rrangle>) { Some(x) | None \<Rightarrow> x } \<close> = \<lbrakk> match Some(\<llangle>42 :: nat\<rrangle>) { Some(x) | None \<Rightarrow> x } \<rbrakk>\<close>
 
 context
@@ -1126,43 +1046,7 @@ subsection\<open>Mutable Pattern Destructuring\<close>
 hook_rejects 350 \<open>\<mu>\<open> let mut (x, y) = (\<llangle>1 :: 32 word\<rrangle>, \<llangle>2 :: 32 word\<rrangle>); x + y \<close> = \<lbrakk> let mut (x, y) = (\<llangle>1 :: 32 word\<rrangle>, \<llangle>2 :: 32 word\<rrangle>); x + y \<rbrakk>\<close>
 hook_rejects 351 \<open>\<mu>\<open> let mut (a, b, c) = (\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>, \<llangle>3 :: nat\<rrangle>); a \<close> = \<lbrakk> let mut (a, b, c) = (\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>, \<llangle>3 :: nat\<rrangle>); a \<rbrakk>\<close>
 
-
 section\<open> Definition goldens \<close>
-
-subsection\<open>Function-definition tier — Rust fn \<rightarrow> Isabelle definition + FunctionBody\<close>
-
-text\<open>
-The HOL type and parameter binding encode the signature; only the body is embedded in
-\<open>FunctionBody \<lbrakk>\<dots>\<rbrakk>\<close>. Both the explicit Isabelle-typed \<open>urust_fn\<close> facade and
-the common typed \<open>urust_expr NAME :: TYPE (PARAMETERS) BODY\<close> form check corresponding
-signatures and bodies against the existing frontend. Their focused coverage lives in
-\<open>Parser_Test_Fun_Conformance.thy\<close> and \<open>Parser_Test_Expr_Types.thy\<close>. Future Rust-shaped item
-parsing must reproduce these complete declaration goldens.
-\<close>
-
-\<comment>\<open>rust:  fn answer() -> u32 { 42 }\<close>
-definition answer :: \<open>('s, 32 word, 'abort, 'i, 'o) function_body\<close> where
-  \<open>answer \<equiv> FunctionBody \<lbrakk> \<llangle>42 :: 32 word\<rrangle> \<rbrakk>\<close>
-
-\<comment>\<open>rust:  fn inc(x: u32) -> u32 { x + 1 }\<close>
-definition inc :: \<open>32 word \<Rightarrow> ('s, 32 word, 'abort, 'i, 'o) function_body\<close> where
-  \<open>inc x \<equiv> FunctionBody \<lbrakk> x + \<llangle>1 :: 32 word\<rrangle> \<rbrakk>\<close>
-
-\<comment>\<open>rust:  fn add3(a: u32, b: u32, c: u32) -> u32 { a + b + c }\<close>
-definition add3 :: \<open>32 word \<Rightarrow> 32 word \<Rightarrow> 32 word \<Rightarrow> ('s, 32 word, 'abort, 'i, 'o) function_body\<close> where
-  \<open>add3 a b c \<equiv> FunctionBody \<lbrakk> a + b + c \<rbrakk>\<close>
-
-\<comment>\<open>rust:  fn is_zero(x: u32) -> bool { x == 0 }\<close>
-definition is_zero :: \<open>32 word \<Rightarrow> ('s, bool, 'abort, 'i, 'o) function_body\<close> where
-  \<open>is_zero x \<equiv> FunctionBody \<lbrakk> x == \<llangle>0 :: 32 word\<rrangle> \<rbrakk>\<close>
-
-\<comment>\<open>rust:  fn safe_div(a: u32, b: u32) -> Result<u32,()> { if b == 0 { Err(()) } else { Ok(a / b) } }\<close>
-definition safe_div :: \<open>32 word \<Rightarrow> 32 word \<Rightarrow> ('s, (32 word, unit) result, 'abort, 'i, 'o) function_body\<close> where
-  \<open>safe_div a b \<equiv> FunctionBody \<lbrakk> if b == \<llangle>0 :: 32 word\<rrangle> { Err(()) } else { Ok(a / b) } \<rbrakk>\<close>
-
-\<comment>\<open>rust:  fn discard(x: u32) { () }\<close>
-definition discard :: \<open>32 word \<Rightarrow> ('s, unit, 'abort, 'i, 'o) function_body\<close> where
-  \<open>discard x \<equiv> FunctionBody \<lbrakk> () \<rbrakk>\<close>
 
 subsection\<open>Record-definition tier — Rust struct \<rightarrow> datatype_record + micro_rust_record\<close>
 
