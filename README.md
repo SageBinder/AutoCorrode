@@ -138,6 +138,14 @@ Production theories use these commands for complete definitions and named abbrev
 conformance checking enabled against the legacy frontend. The test session contains conformance
 corpora, regression tests, parser experiments, and legacy shallow-embedding tests.
 
+The production expression parser uses explicit Rust-aligned precedence tiers. Prefix operators bind
+before casts, supported postfix operations bind before prefixes, and block-like expressions remain
+ordinary primary operands. Their separate classification controls only omitted statement semicolons
+and non-final match-arm commas. Control heads recursively exclude unparenthesized struct expressions,
+while explicit delimiters restore unrestricted parsing. Integer literals support binary, octal,
+decimal, and hexadecimal bases, internal or trailing underscores, and the `u8`, `u16`, `u32`,
+`u64`, and `usize` suffixes.
+
 The parser implementation depends only on `Shallow_Micro_Rust_Base` and `Isabelle_Lex-Yacc`.
 Full `Shallow_Micro_Rust` adds the parser bridge, while the main `AutoCorrode` session includes both
 the implementation and test sessions.

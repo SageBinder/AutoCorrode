@@ -2432,14 +2432,11 @@ old_urust_rejects
     result
   \<close>
 
-section\<open>Deterministic cast-before-prefix precedence\<close>
+section\<open>Rust-aligned prefix-before-cast precedence\<close>
 
 text\<open>
-The old mixfix frontend can resolve an unparenthesized prefix/cast combination
-according to later type constraints. The dedicated grammar instead has one
-structural rule: every cast binds tighter than every prefix operator. These
-rows compare that deterministic parse with an explicitly parenthesized
-old-frontend term.
+The dedicated grammar parses every prefix before a following cast. These rows compare that structural
+parse with explicitly parenthesized old-frontend terms.
 \<close>
 
 context
@@ -2448,7 +2445,7 @@ begin
 
 urust_expr improvement_cast_before_not
   \<open> !cast_prefix_word as u8 \<close>
-  against \<open> \<lbrakk> !(cast_prefix_word as u8) \<rbrakk> \<close>
+  against \<open> \<lbrakk> (!cast_prefix_word) as u8 \<rbrakk> \<close>
 
 urust_expr improvement_cast_line_comment_before_target
   \<open>
@@ -2469,6 +2466,7 @@ adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereferenc
 
 context
   fixes cast_prefix_raw :: \<open>(unit, unit) gref\<close>
+    and cast_prefix_ref :: \<open>(unit, unit, 32 word) Global_Store.ref\<close>
 begin
 
 urust_expr improvement_cast_multiline_pointer_target
@@ -2490,16 +2488,8 @@ old_urust_rejects
   \<close>
 
 urust_expr improvement_cast_before_deref
-  \<open> *cast_prefix_raw as *const u8 \<close>
-  against \<open> \<lbrakk> *(cast_prefix_raw as *const u8) \<rbrakk> \<close>
-
-urust_expr improvement_cast_before_borrow
-  \<open> &cast_prefix_raw as *const u8 \<close>
-  against \<open> \<lbrakk> &(cast_prefix_raw as *const u8) \<rbrakk> \<close>
-
-urust_expr improvement_cast_before_mut_borrow
-  \<open> & mut cast_prefix_raw as *mut u8 \<close>
-  against \<open> \<lbrakk> & mut (cast_prefix_raw as *mut u8) \<rbrakk> \<close>
+  \<open> *cast_prefix_ref as u8 \<close>
+  against \<open> \<lbrakk> (*cast_prefix_ref) as u8 \<rbrakk> \<close>
 
 urust_expr improvement_cast_line_comments_in_pointer_target
   \<open>

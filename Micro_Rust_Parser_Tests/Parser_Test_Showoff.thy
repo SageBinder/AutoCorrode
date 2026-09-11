@@ -44,6 +44,24 @@ urust_expr showoff_expression
     }
   \<close>
 
+subsection\<open> Rust-aligned grammar and integer literals \<close>
+
+text\<open>
+Features: binary and octal literals, internal and trailing separators, unified prefix operators,
+unary-before-cast precedence, and a direct conditional operand. Block-like classification affects
+only statement and match-arm separator elision; it does not form a separate precedence ladder.
+\<close>
+
+urust_expr [conformance_check = false] showoff_grammar_literals
+  \<open>
+    let mask = 0b1010_0001u32;
+    let permissions = 0o7_55u32;
+    let narrowed = !mask as u8;
+    let adjusted =
+      if true { mask } else { permissions } + 1_;
+    (mask, permissions, narrowed, adjusted)
+  \<close>
+
 subsection\<open> Logging and yield \<close>
 
 text\<open>
