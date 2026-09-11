@@ -1235,14 +1235,14 @@ urust_expr closure_match_body
       }
   \<close>
 
-urust_expr closure_legacy_return_body
-  \<open> |x| return \<llangle>x :: nat\<rrangle>; \<close>
+urust_expr [conformance_check = false] closure_legacy_return_body
+  \<open> |x| return \<llangle>x :: nat\<rrangle> \<close>
 
-urust_expr closure_legacy_unit_return_body
-  \<open> || return; \<close>
+urust_expr [conformance_check = false] closure_legacy_unit_return_body
+  \<open> || return \<close>
 
-urust_expr closure_returning_closure
-  \<open> || return |x| \<llangle>x :: nat\<rrangle>; \<close>
+urust_expr [conformance_check = false] closure_returning_closure
+  \<open> || return |x| \<llangle>x :: nat\<rrangle> \<close>
 
 urust_expr closure_outer_capture
   \<open>
@@ -3233,7 +3233,7 @@ semicolon-free explicit forms are covered separately as accepted-surface improve
 \<close>
 urust_expr ma_stmt \<open> match x { Some(_) \<Rightarrow> (), None \<Rightarrow> () } () \<close>
 
-text\<open> Nested bare matches re-enter \<open>uval\<close>; the outer arms route to case and the inner arms to switch. \<close>
+text\<open> Nested bare matches re-enter the full expression grammar; the outer arms route to case and the inner arms to switch. \<close>
 urust_expr ma_nested
   \<open> match x { Some(y) \<Rightarrow> match y { 0 \<Rightarrow> 1, _ \<Rightarrow> 2 }, None \<Rightarrow> 0 } \<close>
 
@@ -3584,7 +3584,7 @@ text\<open>
 Fuel is an expression antiquotation lowered in the current lexical environment.
 Conditions, iterables, and scrutinees use the outer environment, while pattern
 binders scope over loop bodies. All loop forms are block-like values: they
-sequence without a semicolon and require grouping in binary operand position.
+sequence without a semicolon and can participate directly in binary expressions.
 \<close>
 
 adhoc_overloading assign_add_const \<rightleftharpoons> parser_assign_add_fixture
@@ -4615,9 +4615,12 @@ accepted-surface extensions live in \<open>Parser_Tests_Improvements.thy\<close>
 frontend-only expression forms stay as goldens in \<open>Conformance_Corpus.thy\<close>.
 \<close>
 
-subsection\<open>D-1 (RESOLVED 2026-08-25): \<open>if\<close> as a binary-operator operand -- both reject\<close>
+subsection\<open>D-1 (RESOLVED 2026-09-11): direct \<open>if\<close> binary operands\<close>
 
-text\<open> An unparenthesized \<open>if\<close> operand is rejected by both parsers; parentheses make it an operand. \<close>
+text\<open>
+The dedicated parser admits direct block-like operands. The parenthesized row remains a shared
+frontend conformance fixture; direct rows live in \<open>Parser_Tests_Grammar_Literals.thy\<close>.
+\<close>
 urust_expr d1_paren_operand
   \<open> (if \<llangle>True\<rrangle> { \<llangle>1 :: 32 word\<rrangle> } else { \<llangle>2 :: 32 word\<rrangle> }) + \<llangle>3 :: 32 word\<rrangle> \<close>
 

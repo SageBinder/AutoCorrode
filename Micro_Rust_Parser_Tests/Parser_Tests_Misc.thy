@@ -6848,7 +6848,7 @@ section\<open> Cast AST, lowering, markup, and recovery \<close>
 
 text\<open>
 The cast audit pins the closed target representation, left association,
-cast-before-prefix precedence, source position, exact lowering table, semantic
+prefix-before-cast precedence, source position, exact lowering table, semantic
 collapses, reserved-word markup, and parser-state recovery after malformed
 targets.
 \<close>
@@ -6943,28 +6943,23 @@ ML_val\<open>
 
     val _ =
       (case parse "!value as u8" of
-         UE_Unary
-           (U_Not,
-            UE_Cast
-              (value, CT_Unsigned UT_U8, _),
-            _) =>
+         UE_Cast
+           (UE_Unary (U_Not, value, _),
+            CT_Unsigned UT_U8, _) =>
            audit_assert "not/cast operand changed"
              (path_named "value" value)
        | _ =>
-           error "cast regression audit: cast-before-not precedence changed")
+           error "cast regression audit: not-before-cast precedence changed")
 
     val _ =
       (case parse "*raw as *const u8" of
-         UE_Unary
-           (U_Deref,
-            UE_Cast
-              (raw,
-               CT_RawPointer (RPM_Const, UT_U8), _),
-            _) =>
+         UE_Cast
+           (UE_Unary (U_Deref, raw, _),
+            CT_RawPointer (RPM_Const, UT_U8), _) =>
            audit_assert "deref/cast operand changed"
              (path_named "raw" raw)
        | _ =>
-           error "cast regression audit: cast-before-deref precedence changed")
+           error "cast regression audit: deref-before-cast precedence changed")
 
     val _ =
       (case parse "(!value) as u8" of

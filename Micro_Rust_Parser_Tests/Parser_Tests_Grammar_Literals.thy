@@ -1,0 +1,372 @@
+theory Parser_Tests_Grammar_Literals
+  imports Parser_Tests_Improvements Parser_Tests_Negative_Conformance
+begin
+
+declare [[urust_conformance_check = true]]
+declare [[urust_verbose = 0]]
+
+section\<open>Explicit precedence tiers\<close>
+
+adhoc_overloading store_reference_const \<rightleftharpoons> parser_reference_fixture
+adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
+
+context
+  fixes prefix_ref :: \<open>(unit, unit, 32 word) Global_Store.ref\<close>
+  fixes prefix_bool_ref :: \<open>(unit, unit, bool) Global_Store.ref\<close>
+begin
+
+urust_expr grammar_deref_before_cast
+  \<open> *prefix_ref as u8 \<close>
+  against \<open> \<lbrakk> (*prefix_ref) as u8 \<rbrakk> \<close>
+
+urust_expr grammar_not_deref
+  \<open> !*prefix_bool_ref \<close>
+  against \<open> \<lbrakk> !(*prefix_bool_ref) \<rbrakk> \<close>
+
+end
+
+no_adhoc_overloading store_reference_const \<rightleftharpoons> parser_reference_fixture
+no_adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
+
+urust_expr grammar_if_left_operand
+  \<open>
+    if true { \<llangle>1 :: 32 word\<rrangle> }
+    else { \<llangle>2 :: 32 word\<rrangle> }
+    + \<llangle>3 :: 32 word\<rrangle>
+  \<close>
+  against
+  \<open>
+    \<lbrakk>
+      (if true { \<llangle>1 :: 32 word\<rrangle> }
+       else { \<llangle>2 :: 32 word\<rrangle> })
+      + \<llangle>3 :: 32 word\<rrangle>
+    \<rbrakk>
+  \<close>
+
+urust_expr grammar_match_left_operand
+  \<open>
+    match true {
+      true \<Rightarrow> \<llangle>1 :: 32 word\<rrangle>,
+      false \<Rightarrow> \<llangle>2 :: 32 word\<rrangle>
+    } + \<llangle>3 :: 32 word\<rrangle>
+  \<close>
+  against
+  \<open>
+    \<lbrakk>
+      (match true {
+        true \<Rightarrow> \<llangle>1 :: 32 word\<rrangle>,
+        false \<Rightarrow> \<llangle>2 :: 32 word\<rrangle>
+      }) + \<llangle>3 :: 32 word\<rrangle>
+    \<rbrakk>
+  \<close>
+
+urust_expr grammar_semicolon_free_if_statement
+  \<open> if true { () } else { () } () \<close>
+
+new_urust_rejects audit
+  \<open>
+    if true { \<llangle>1 :: 32 word\<rrangle> }
+    else { \<llangle>2 :: 32 word\<rrangle> }
+    + \<llangle>3 :: 32 word\<rrangle>
+    ()
+  \<close>
+  \<open> syntax error \<close>
+
+new_urust_rejects audit
+  \<open>
+    (if true { \<llangle>1 :: 32 word\<rrangle> }
+     else { \<llangle>2 :: 32 word\<rrangle> })
+    + \<llangle>3 :: 32 word\<rrangle>
+    ()
+  \<close>
+  \<open> syntax error \<close>
+
+section\<open>Match-arm separators\<close>
+
+urust_expr [conformance_check = false] grammar_direct_with_block_arm
+  \<open>
+    match true {
+      true \<Rightarrow> if true { \<llangle>1 :: nat\<rrangle> } else { \<llangle>2 :: nat\<rrangle> }
+      false \<Rightarrow> \<llangle>3 :: nat\<rrangle>
+    }
+  \<close>
+
+new_urust_rejects audit
+  \<open>
+    match true {
+      true \<Rightarrow> (if true { \<llangle>1 :: nat\<rrangle> } else { \<llangle>2 :: nat\<rrangle> })
+      false \<Rightarrow> \<llangle>3 :: nat\<rrangle>
+    }
+  \<close>
+  \<open> syntax error \<close>
+
+new_urust_rejects audit
+  \<open>
+    match true {
+      true \<Rightarrow> return \<llangle>1 :: nat\<rrangle>;
+    }
+  \<close>
+  \<open> syntax error found at ; \<close>
+
+section\<open>Closures and binding RHSs\<close>
+
+urust_expr [conformance_check = false] grammar_direct_closure_initializer
+  \<open>
+    let f = |x| x + \<llangle>1 :: 32 word\<rrangle>;
+    ()
+  \<close>
+
+urust_expr grammar_closure_full_body
+  \<open>
+    |x| if true { x } else { x + \<llangle>1 :: 32 word\<rrangle> }
+  \<close>
+
+urust_expr [conformance_check = false] grammar_closure_if_let_body
+  \<open>
+    || if let Some(x) = Some(\<llangle>1 :: nat\<rrangle>) { x } else { 0 }
+  \<close>
+
+urust_expr [conformance_check = false] grammar_closure_mixed_if_body
+  \<open>
+    || if true { 0 } else if let Some(x) = Some(\<llangle>1 :: nat\<rrangle>) { x } else { 0 }
+  \<close>
+
+urust_expr [conformance_check = false] grammar_closure_return_body
+  \<open> || return \<llangle>1 :: nat\<rrangle> \<close>
+
+urust_expr [conformance_check = false] grammar_nested_closure_body
+  \<open> || || \<llangle>1 :: nat\<rrangle> \<close>
+
+urust_expr [conformance_check = false] grammar_if_let_operand
+  \<open>
+    if let Some(value) = Some(\<llangle>1 :: 32 word\<rrangle>) {
+      value
+    } else {
+      \<llangle>0 :: 32 word\<rrangle>
+    } + \<llangle>1 :: 32 word\<rrangle>
+  \<close>
+
+urust_expr [conformance_check = false] grammar_closure_match_scrutinee
+  \<open> match || true { _ \<Rightarrow> () } \<close>
+
+urust_expr [conformance_check = false] grammar_closure_match_arms
+  \<open>
+    match true {
+      true \<Rightarrow> || true,
+      false \<Rightarrow> || false
+    }
+  \<close>
+
+section\<open>Integer literal bases and separators\<close>
+
+urust_expr grammar_binary \<open> 0b1010 \<close>
+urust_expr grammar_binary_suffix
+  \<open> 0b1111u8 \<close>
+  against \<open> \<lbrakk> 15_u8 \<rbrakk> \<close>
+urust_expr grammar_binary_trailing_separator
+  \<open> 0b1010_ \<close>
+  against \<open> \<lbrakk> 10 \<rbrakk> \<close>
+urust_expr grammar_octal
+  \<open> 0o755 \<close>
+  against \<open> \<lbrakk> 493 \<rbrakk> \<close>
+urust_expr grammar_octal_suffix
+  \<open> 0o17_u16 \<close>
+  against \<open> \<lbrakk> 15_u16 \<rbrakk> \<close>
+urust_expr grammar_octal_trailing_separator
+  \<open> 0o17_ \<close>
+  against \<open> \<lbrakk> 15 \<rbrakk> \<close>
+urust_expr grammar_decimal_separators
+  \<open> 1_000_000u32 \<close>
+  against \<open> \<lbrakk> 1000000_u32 \<rbrakk> \<close>
+urust_expr grammar_hex_separators
+  \<open> 0xff_00u32 \<close>
+  against \<open> \<lbrakk> 0xff00_u32 \<rbrakk> \<close>
+urust_expr grammar_decimal_trailing_separator
+  \<open> 1_ \<close>
+  against \<open> \<lbrakk> 1 \<rbrakk> \<close>
+urust_expr grammar_hex_trailing_separator
+  \<open> 0xff_ \<close>
+  against \<open> \<lbrakk> 0xff \<rbrakk> \<close>
+
+old_urust_rejects \<open> 1_000_000u32 \<close>
+old_urust_rejects \<open> 0xff_00u32 \<close>
+old_urust_rejects \<open> 1_ \<close>
+old_urust_rejects \<open> 0xff_ \<close>
+
+section\<open>Struct expressions\<close>
+
+datatype grammar_empty_struct = GrammarEmptyStruct
+
+definition grammar_empty_struct_call ::
+    \<open>(unit, grammar_empty_struct, unit, unit, unit) function_body\<close>
+  where
+    \<open>grammar_empty_struct_call \<equiv> FunctionBody (literal GrammarEmptyStruct)\<close>
+
+micro_rust_notation (call) grammar_empty_struct_call ("GrammarEmptyStruct")
+
+urust_expr grammar_empty_struct_expression
+  \<open> GrammarEmptyStruct {} \<close>
+  against \<open> \<lbrakk> GrammarEmptyStruct() \<rbrakk> \<close>
+
+urust_expr [conformance_check = false] grammar_struct_trailing_comma
+  \<open>
+    D21Pair {
+      second: 2_u64,
+      first: 1_u64,
+    }
+  \<close>
+
+section\<open>AST and grammar-shape audit\<close>
+
+ML_val\<open>
+  local
+    open URust_AST
+    val ctxt = \<^context>
+    fun parse source =
+      (case URust_Parser.parse_source ctxt (Parser_Lex_Util.text_source source) of
+         SOME expression => expression
+       | NONE => error "expected a nonempty uRust expression")
+    fun assert message true = ()
+      | assert message false = error message
+  in
+    val _ =
+      (case parse "*x as usize" of
+         UE_Cast (UE_Unary (U_Deref, UE_Path _, _), CT_Unsigned UT_Usize, _) => ()
+       | _ => error "unary-before-cast AST shape changed")
+    val _ =
+      (case parse "!*p" of
+         UE_Unary (U_Not, UE_Unary (U_Deref, UE_Path _, _), _) => ()
+       | _ => error "mixed not/dereference prefix shape changed")
+    val _ =
+      (case parse "*& mut r" of
+         UE_Unary
+           (U_Deref, UE_Unary (U_Borrow BM_Mut, UE_Path _, _), _) => ()
+       | _ => error "mixed dereference/mutable-borrow prefix shape changed")
+    val _ =
+      (case parse "&!x" of
+         UE_Unary (U_Borrow BM_Imm, UE_Unary (U_Not, UE_Path _, _), _) => ()
+       | _ => error "mixed borrow/not prefix shape changed")
+    val _ =
+      (case parse "**p" of
+         UE_Unary (U_Deref, UE_Unary (U_Deref, UE_Path _, _), _) => ()
+       | _ => error "repeated dereference prefix shape changed")
+    val _ =
+      (case parse "if true { 1 } else { 2 } + 3" of
+         UE_Bin (Add, UE_If _, UE_Literal _, _) => ()
+       | _ => error "direct with-block operand AST shape changed")
+    val _ =
+      (case parse "if true { () } else { () } ()" of
+         UE_Seq (UE_If _, UE_Unit _) => ()
+       | _ => error "semicolon-free direct with-block statement shape changed")
+    val _ =
+      (case parse "0b10_01u8" of
+         UE_Literal (LP_Integer ("0b10_01u8", _)) => ()
+       | _ => error "integer literal raw spelling was not retained")
+    val _ =
+      (case parse "GrammarEmptyStruct {}" of
+         UE_Struct (_, [], _) => ()
+       | _ => error "empty struct expression AST shape changed")
+    val _ =
+      (case parse "AdvStruct { adv_right: 2, adv_left: 1, }" of
+         UE_Struct
+           (_, [SE_Field ("adv_right", _, _), SE_Field ("adv_left", _, _)], _) => ()
+       | _ => error "struct field source order or trailing-comma shape changed")
+    val _ =
+      (case parse "r = match flag { true => lhs, false => rhs }" of
+         UE_Assign (Assign, _, UE_Match _, _) => ()
+       | _ => error "direct match assignment RHS shape changed")
+    val _ =
+      (case parse "r += if flag { lhs } else { rhs }" of
+         UE_Assign (AssignAdd, _, UE_If _, _) => ()
+       | _ => error "direct conditional compound-assignment RHS shape changed")
+    val _ =
+      (case parse "#[fuel(\<epsilon>\<open>1 :: nat\<close>)] loop { () } == ()" of
+         UE_Bin (Eq, UE_Loop _, UE_Unit _, _) => ()
+       | _ => error "direct loop binary-operand shape changed")
+    val _ =
+      (case parse "for value in \<llangle>[1 :: nat]\<rrangle> { () } == ()" of
+         UE_Bin (Eq, UE_For _, UE_Unit _, _) => ()
+       | _ => error "direct for-loop binary-operand shape changed")
+    val _ =
+      (case parse
+          "#[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let Some(value) = \<llangle>Some (1 :: nat)\<rrangle> { () } == ()" of
+         UE_Bin (Eq, UE_WhileLet _, UE_Unit _, _) => ()
+       | _ => error "direct while-let binary-operand shape changed")
+    val _ =
+      (case parse "target = || 1" of
+         UE_Assign (Assign, _, UE_Closure _, _) => ()
+       | _ => error "closure assignment RHS shape changed")
+    val _ =
+      (case parse "|| target = 1" of
+         UE_Closure (_, UE_Assign (Assign, _, _, _), _) => ()
+       | _ => error "assignment closure-body shape changed")
+    val _ =
+      (case parse "|| #[fuel(\<epsilon>\<open>1 :: nat\<close>)] loop { () }" of
+         UE_Closure (_, UE_Loop _, _) => ()
+       | _ => error "loop closure-body shape changed")
+    val _ =
+      (case parse "|| (); ()" of
+         UE_Seq (UE_Closure (_, UE_Unit _, _), UE_Unit _) => ()
+       | _ => error "closure statement sequencing shape changed")
+    val _ =
+      (case parse "|| \<llangle>1 :: nat\<rrangle>; ()" of
+         UE_Seq (UE_Closure (_, UE_Literal _, _), UE_Unit _) => ()
+       | _ => error "closure left-sequencing shape changed")
+    val literal_text = "0b10_01u8"
+    val literal_start =
+      Position.make0 23 400 0 "" "" "grammar-literal-markup-audit"
+    val literal_stop =
+      Position.symbol_explode literal_text literal_start
+    val captured_reports =
+      Synchronized.var "grammar_literal_reports" ([] : string list)
+    fun capture_reports chunks =
+      Synchronized.change captured_reports (append chunks)
+    val _ =
+      Parser_Test_Report_Lock.run (fn () =>
+        Unsynchronized.setmp Private_Output.report_fn capture_reports
+          (fn () =>
+            Print_Mode.with_modes [Print_Mode.PIDE]
+              (fn () =>
+                (case URust_Parser.parse_source ctxt
+                    (Parser_Lex_Util.positioned_content_source
+                      literal_text literal_start) of
+                   SOME _ => ()
+                 | NONE => error "integer markup audit parsed empty input")) ())
+          ())
+    fun collect_markup (XML.Text _) result = result
+      | collect_markup (XML.Elem (markup, body)) result =
+          fold collect_markup body (markup :: result)
+    val literal_markup =
+      fold collect_markup
+        (maps YXML.parse_body (Synchronized.value captured_reports)) []
+    fun property_matches name value properties =
+      Properties.get properties name = Option.map Value.print_int value
+    val _ =
+      assert "integer candidate lost whole-token numeral markup"
+        (exists
+          (fn (name, properties) =>
+            name = Markup.numeralN andalso
+              property_matches Markup.offsetN
+                (Position.offset_of literal_start) properties andalso
+              property_matches Markup.end_offsetN
+                (Position.offset_of literal_stop) properties)
+          literal_markup)
+    val _ =
+      (case Exn.result
+          (Parser_Test_Elaboration.expression ctxt)
+          (Parser_Lex_Util.text_source "0b102u32") of
+         Exn.Exn exn =>
+           assert "malformed integer candidate changed diagnostic"
+             (String.isSubstring
+               "cannot read integer literal \"0b102u32\""
+               (Runtime.exn_message exn))
+       | Exn.Res _ => error "malformed integer candidate was accepted")
+    val _ =
+      (case parse "0x2a" of
+         UE_Literal (LP_Integer ("0x2a", _)) => ()
+       | _ => error "integer parser did not recover after malformed input")
+    val _ = assert "ordinary/no-struct audit fixture did not run" true
+  end
+\<close>
+
+end
