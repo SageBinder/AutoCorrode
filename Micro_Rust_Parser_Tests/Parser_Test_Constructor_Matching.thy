@@ -172,6 +172,36 @@ urust_expr [conformance_check = true] parser_nested_registered_nullary
 
 thm parser_nested_registered_nullary_conformance
 
+urust_expr parser_nested_registered_ordered ::
+  \<open>(unit, nat, unit, unit, unit, unit) expression\<close>
+  \<open>
+    match
+      \<llangle>
+        Err ParserSecondaryStatus ::
+          (unit, parser_nested_status) result
+      \<rrangle>
+    {
+      Err(NestedStatus::Primary) \<Rightarrow> 1,
+      Err(NestedStatus::Secondary) \<Rightarrow> 2,
+      _ \<Rightarrow> 3
+    }
+  \<close>
+
+urust_expr parser_nested_registered_or_ordered ::
+  \<open>(unit, nat, unit, unit, unit, unit) expression\<close>
+  \<open>
+    match
+      \<llangle>
+        Err ParserPrimaryStatus ::
+          (unit, parser_nested_status) result
+      \<rrangle>
+    {
+      Err(NestedStatus::Primary) |
+        Err(NestedStatus::Secondary) \<Rightarrow> 1,
+      _ \<Rightarrow> 0
+    }
+  \<close>
+
 declare [[urust_conformance_check = false]]
 
 urust_expr parser_nested_registered_payload
@@ -353,6 +383,132 @@ ML_val\<open>
     val _ =
       assert "nested exact nullary constructor lost its equality guard"
         (count_constant \<^const_name>\<open>urust_eq\<close> nested = 1)
+
+    fun checked_ordered_term name expected =
+      let
+        val rhs = rhs_of name
+        val _ =
+          assert (name ^ " has the wrong completed type")
+            (fastype_of rhs = fastype_of expected)
+        val _ =
+          assert (name ^ " differs from its complete ordered term")
+            (Term.aconv_untyped (rhs, expected))
+        val _ =
+          assert (name ^ " retained schematic variables")
+            (null (Term.add_vars rhs []))
+        val _ =
+          assert (name ^ " retained local free binders")
+            (null (Term.add_frees rhs []))
+      in rhs end
+
+    fun equality_constructor_order term =
+      let
+        fun collect
+              (Const (name, _) $
+                (Const (equality, _) $ _ $
+                  (Const (literal, _) $ constructor)) $
+                _ $ else_branch) =
+              if name = \<^const_name>\<open>two_armed_conditional\<close> andalso
+                 equality = \<^const_name>\<open>urust_eq\<close> andalso
+                 literal = \<^const_name>\<open>literal\<close>
+              then
+                constant_name constructor ::
+                  collect else_branch
+              else []
+          | collect _ = []
+
+        fun find
+              (candidate as
+                Const (name, _) $ _ $ _ $ _) =
+              if name = \<^const_name>\<open>two_armed_conditional\<close>
+              then
+                let val result = collect candidate
+                in if null result then NONE else SOME result end
+              else NONE
+          | find _ = NONE
+
+        fun first_some [] = NONE
+          | first_some (NONE :: rest) = first_some rest
+          | first_some (SOME value :: _) = SOME value
+
+        fun walk (left $ right) =
+              (case find (left $ right) of
+                 SOME result => SOME result
+               | NONE => first_some [walk left, walk right])
+          | walk (Abs (_, _, body)) = walk body
+          | walk term = find term
+      in the (walk term) end
+
+    val ordered_expected =
+      \<^term>\<open>
+        (bind (literal (Err ParserSecondaryStatus))
+          (\<lambda>value.
+            case value of
+              Ok result \<Rightarrow> literal (3 :: nat)
+            | Err error \<Rightarrow>
+                two_armed_conditional
+                  (urust_eq
+                    (literal error)
+                    (literal ParserPrimaryStatus))
+                  (literal (1 :: nat))
+                  (two_armed_conditional
+                    (urust_eq
+                      (literal error)
+                      (literal ParserSecondaryStatus))
+                    (literal (2 :: nat))
+                    undefined))) ::
+          (unit, nat, unit, unit, unit, unit) expression
+      \<close>
+    val ordered_or_expected =
+      \<^term>\<open>
+        (bind (literal (Err ParserPrimaryStatus))
+          (\<lambda>value.
+            case value of
+              Ok result \<Rightarrow> literal (0 :: nat)
+            | Err error \<Rightarrow>
+                two_armed_conditional
+                  (urust_eq
+                    (literal error)
+                    (literal ParserPrimaryStatus))
+                  (literal (1 :: nat))
+                  (two_armed_conditional
+                    (urust_eq
+                      (literal error)
+                      (literal ParserSecondaryStatus))
+                    (literal (1 :: nat))
+                    undefined))) ::
+          (unit, nat, unit, unit, unit, unit) expression
+      \<close>
+    val ordered =
+      checked_ordered_term
+        "parser_nested_registered_ordered" ordered_expected
+    val ordered_or =
+      checked_ordered_term
+        "parser_nested_registered_or_ordered" ordered_or_expected
+    val expected_equality_order =
+      map constant_name
+        [\<^term>\<open>ParserPrimaryStatus\<close>,
+         \<^term>\<open>ParserSecondaryStatus\<close>]
+    val _ =
+      assert "separate same-outer alternatives duplicated the outer case"
+        (count_constant result_case_name ordered = 1)
+    val _ =
+      assert "separate same-outer alternatives lost an equality guard"
+        (count_constant \<^const_name>\<open>urust_eq\<close> ordered = 2)
+    val _ =
+      assert "separate same-outer alternative order changed"
+        (equality_constructor_order ordered =
+          expected_equality_order)
+    val _ =
+      assert "or-pattern same-outer alternatives duplicated the outer case"
+        (count_constant result_case_name ordered_or = 1)
+    val _ =
+      assert "or-pattern same-outer alternatives lost an equality guard"
+        (count_constant \<^const_name>\<open>urust_eq\<close> ordered_or = 2)
+    val _ =
+      assert "or-pattern alternative order changed"
+        (equality_constructor_order ordered_or =
+          expected_equality_order)
 
     val nested_payload = rhs_of "parser_nested_registered_payload"
     val SOME (native_case, _) =

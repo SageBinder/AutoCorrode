@@ -1517,38 +1517,154 @@ struct
             List.exists generated_guard_falls_through alternatives)
           normalized
 
-      fun expression_of_branches [] = fallback
-        | expression_of_branches branches = case_term branches
+      fun dest_flat_branch term =
+        let
+          fun dest abstractions
+                (Const (name, _) $ Abs (binder_name, typ, body)) =
+                if name = \<^const_name>\<open>case_abs\<close>
+                then dest ((binder_name, typ) :: abstractions) body
+                else
+                  error
+                    "urust_expr: internal malformed flat case abstraction"
+            | dest abstractions
+                (Const (name, _) $ pattern $ body) =
+                if name = \<^const_name>\<open>case_elem\<close>
+                then (rev abstractions, pattern, body)
+                else
+                  error
+                    "urust_expr: internal malformed flat case element"
+            | dest _ _ =
+                error "urust_expr: internal malformed flat case branch"
+        in dest [] term end
+
+      fun rebuild_flat_branch abstractions pattern body =
+        fold_rev
+          (fn (binder_name, typ) => fn inner =>
+            T.case_abstraction (Abs (binder_name, typ, inner)))
+          abstractions (T.case_element pattern body)
+
+      fun dest_flat_payload
+            (Const (name, _) $ guard $ success) =
+            if name = \<^const_name>\<open>Pair\<close>
+            then (guard, success)
+            else error "urust_expr: internal malformed flat case payload"
+        | dest_flat_payload _ =
+            error "urust_expr: internal malformed flat case payload"
+
+      fun make_flat_clause abstraction generated_guard success =
+        let
+          val (packed_guard, guarded) =
+            (case generated_guard of
+               NONE => (T.literal T.true_value, false)
+             | SOME (guard, true) => (guard, true)
+             | SOME (_, false) =>
+                 error
+                   "urust_expr: internal fallthrough guard in flat case")
+          val packed =
+            abstraction (T.pair packed_guard success)
+          val (abstractions, pattern, payload) =
+            dest_flat_branch packed
+          val (guard, success') =
+            dest_flat_payload payload
+          fun rebuild body =
+            rebuild_flat_branch abstractions pattern body
+          val shape = rebuild T.undefined_value
+        in
+          (shape, rebuild,
+           (if guarded then SOME guard else NONE, success'))
+        end
+
+      fun same_flat_shape (left, right) =
+        Term.aconv (left, right)
+
+      fun remove_flat_group shape [] = (NONE, [])
+        | remove_flat_group shape
+            ((group as (candidate, _, _)) :: rest) =
+            if same_flat_shape (shape, candidate)
+            then (SOME group, rest)
+            else
+              let
+                val (found, remaining) =
+                  remove_flat_group shape rest
+              in (found, group :: remaining) end
+
+      (* Processing alternatives from right to left makes prepending both the clause and its first
+         occurrence group linear while retaining source order. Moving an existing group to the front
+         is necessary when another constructor alternative occurred between two equal outer shapes. *)
+      fun prepend_flat_clause
+          (shape, rebuild, payload) groups =
+        let
+          val (existing, remaining) =
+            remove_flat_group shape groups
+          val clauses =
+            (case existing of
+               SOME (_, _, later) => payload :: later
+             | NONE => [payload])
+        in (shape, rebuild, clauses) :: remaining end
+
+      fun group_flat_clauses clauses =
+        fold_rev prepend_flat_clause clauses []
+
+      (* Current source-arm groups precede later source-arm groups. Equal outer patterns are combined
+         into one group, with their conditionals concatenated in source order. *)
+      fun merge_flat_groups [] later = later
+        | merge_flat_groups
+            ((shape, rebuild, clauses) :: current) later =
+            let
+              val (existing, remaining) =
+                remove_flat_group shape later
+              val clauses' =
+                (case existing of
+                   SOME (_, _, later_clauses) =>
+                     clauses @ later_clauses
+                 | NONE => clauses)
+            in
+              (shape, rebuild, clauses') ::
+                merge_flat_groups current remaining
+            end
+
+      fun compile_flat_group (_, rebuild, clauses) =
+        let
+          fun compile_clauses [] = fallback
+            | compile_clauses ((NONE, success) :: _) = success
+            | compile_clauses
+                ((SOME guard, success) :: rest) =
+                T.conditional guard success
+                  (compile_clauses rest)
+        in rebuild (compile_clauses clauses) end
+
+      fun expression_of_flat_groups [] = fallback
+        | expression_of_flat_groups groups =
+            case_term (map compile_flat_group groups)
 
       fun compile_flat_sources [] =
             (case explicit_fallback of
-               SOME term => [generated_wild term]
+               SOME term =>
+                 group_flat_clauses
+                   [make_flat_clause generated_wild NONE term]
              | NONE => [])
         | compile_flat_sources
             ({alternatives, binders, source_guard, rhs} :: rest) =
             let
-              val rest_branches = compile_flat_sources rest
+              val rest_groups = compile_flat_sources rest
               val next_arm =
-                expression_of_branches rest_branches
+                expression_of_flat_groups rest_groups
               val handler =
                 handler_term binders source_guard rhs next_arm
 
-              fun branch
+              fun clause
                   (_, _, abstraction, generated_guard, wrap) =
                 let
                   val success =
                     wrap (handler_call handler binders)
-                  val guarded =
-                    (case generated_guard of
-                       NONE => success
-                     | SOME (guard, true) =>
-                         T.conditional guard success fallback
-                     | SOME (_, false) =>
-                         error
-                           "urust_expr: internal fallthrough guard in flat case")
-                in abstraction guarded end
+                in
+                  make_flat_clause abstraction
+                    generated_guard success
+                end
+              val current_groups =
+                group_flat_clauses (map clause alternatives)
             in
-              map branch alternatives @ rest_branches
+              merge_flat_groups current_groups rest_groups
             end
 
       fun compile_guarded_sources [] = fallback
@@ -1594,7 +1710,7 @@ struct
         if has_committing_guard andalso
             not has_fallthrough_generated_guard
         then
-          expression_of_branches
+          expression_of_flat_groups
             (compile_flat_sources normalized)
         else if List.exists has_generated_guard normalized
         then compile_guarded_sources normalized
