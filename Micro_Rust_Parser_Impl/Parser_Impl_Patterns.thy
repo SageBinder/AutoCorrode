@@ -1537,11 +1537,19 @@ struct
      | region => region)
 
   fun structural_semantically_subsumes
-      (left, right as Structural_Any _) =
-        structural_subsumes (left, right) orelse
-          structural_is_total left
-    | structural_semantically_subsumes pair =
-        structural_subsumes pair
+      (Structural_Any _, _) = true
+    | structural_semantically_subsumes
+        (left, Structural_Any _) =
+        structural_is_total left
+    | structural_semantically_subsumes
+        (Structural_Node
+           {head = left_head, arguments = left_arguments, ...},
+         Structural_Node
+           {head = right_head, arguments = right_arguments, ...}) =
+        same_constructor (left_head, right_head) andalso
+          eq_list structural_semantically_subsumes
+            (left_arguments, right_arguments)
+    | structural_semantically_subsumes _ = false
 
   fun replace_column index replacements row =
     take index row @ replacements @ drop (index + 1) row

@@ -151,6 +151,18 @@ type_synonym parser_nested_different_depth_input =
           (nat \<times> tnil)) \<times> tnil)
   \<close>
 
+type_synonym parser_recursive_coverage_pair =
+  \<open>
+    (unit, parser_nested_status) result \<times>
+      (nat \<times> tnil)
+  \<close>
+
+type_synonym parser_recursive_coverage_input =
+  \<open>
+    parser_recursive_coverage_pair \<times>
+      (parser_recursive_coverage_pair \<times> tnil)
+  \<close>
+
 micro_rust_notation (literal)
   parser_nested_status.ParserPrimaryStatus
   ("NestedStatus::Primary")
@@ -397,6 +409,33 @@ definition parser_nested_different_depth_miss_scrutinee ::
     \<open>
       parser_nested_different_depth_miss_scrutinee =
         (Ok (), ((Ok (), (44, TNil)), TNil))
+    \<close>
+
+definition parser_recursive_coverage_left_match ::
+  \<open>parser_recursive_coverage_input\<close>
+  where
+    \<open>
+      parser_recursive_coverage_left_match =
+        ((Err ParserPrimaryStatus, (11, TNil)),
+          ((Err ParserSecondaryStatus, (12, TNil)), TNil))
+    \<close>
+
+definition parser_recursive_coverage_right_match ::
+  \<open>parser_recursive_coverage_input\<close>
+  where
+    \<open>
+      parser_recursive_coverage_right_match =
+        ((Err ParserSecondaryStatus, (21, TNil)),
+          ((Err ParserPrimaryStatus, (22, TNil)), TNil))
+    \<close>
+
+definition parser_recursive_coverage_fallback ::
+  \<open>parser_recursive_coverage_input\<close>
+  where
+    \<open>
+      parser_recursive_coverage_fallback =
+        ((Err ParserSecondaryStatus, (31, TNil)),
+          ((Err ParserTertiaryStatus, (32, TNil)), TNil))
     \<close>
 
 definition parser_nested_exhaustive_first_miss_scrutinee ::
@@ -708,6 +747,66 @@ urust_expr parser_root_suffix_guarded_right ::
       (_, Err(NestedStatus::Primary))
         if \<epsilon>\<open>source_guard\<close> \<Rightarrow> Ok(()),
       (_, fallback) \<Rightarrow> fallback
+    }
+  \<close>
+
+urust_expr parser_recursive_coverage_unguarded_left ::
+  \<open>
+    parser_recursive_coverage_input \<Rightarrow>
+      (unit, (unit, parser_nested_status) result,
+        unit, unit, unit, unit) expression
+  \<close>
+  (scrutinee)
+  \<open>
+    match scrutinee {
+      ((Err(NestedStatus::Primary), _), _) \<Rightarrow> Ok(()),
+      ((fallback, left_marker), (other, right_marker)) \<Rightarrow> fallback
+    }
+  \<close>
+
+urust_expr parser_recursive_coverage_unguarded_right ::
+  \<open>
+    parser_recursive_coverage_input \<Rightarrow>
+      (unit, (unit, parser_nested_status) result,
+        unit, unit, unit, unit) expression
+  \<close>
+  (scrutinee)
+  \<open>
+    match scrutinee {
+      (_, (Err(NestedStatus::Primary), _)) \<Rightarrow> Ok(()),
+      ((other, left_marker), (fallback, right_marker)) \<Rightarrow> fallback
+    }
+  \<close>
+
+urust_expr parser_recursive_coverage_guarded_left ::
+  \<open>
+    parser_recursive_coverage_input \<Rightarrow>
+      (nat, bool, unit, unit, unit, unit) expression \<Rightarrow>
+      (nat, (unit, parser_nested_status) result,
+        unit, unit, unit, unit) expression
+  \<close>
+  (scrutinee, source_guard)
+  \<open>
+    match scrutinee {
+      ((Err(NestedStatus::Primary), _), _)
+        if \<epsilon>\<open>source_guard\<close> \<Rightarrow> Ok(()),
+      ((fallback, left_marker), (other, right_marker)) \<Rightarrow> fallback
+    }
+  \<close>
+
+urust_expr parser_recursive_coverage_guarded_right ::
+  \<open>
+    parser_recursive_coverage_input \<Rightarrow>
+      (nat, bool, unit, unit, unit, unit) expression \<Rightarrow>
+      (nat, (unit, parser_nested_status) result,
+        unit, unit, unit, unit) expression
+  \<close>
+  (scrutinee, source_guard)
+  \<open>
+    match scrutinee {
+      (_, (Err(NestedStatus::Primary), _))
+        if \<epsilon>\<open>source_guard\<close> \<Rightarrow> Ok(()),
+      ((other, left_marker), (fallback, right_marker)) \<Rightarrow> fallback
     }
   \<close>
 
@@ -1527,6 +1626,200 @@ lemma parser_root_suffix_guarded_right_structural_miss:
       literal_def
       Core_Expression.bind.simps)
 
+lemma parser_recursive_coverage_unguarded_left_match:
+  \<open>
+    parser_recursive_coverage_unguarded_left
+        parser_recursive_coverage_left_match =
+      literal (Ok ())
+  \<close>
+  by
+    (simp add:
+      parser_recursive_coverage_unguarded_left_def
+      parser_recursive_coverage_left_match_def
+      two_armed_conditional_def
+      urust_eq_def
+      micro_rust_simps)
+
+lemma parser_recursive_coverage_unguarded_left_fallback:
+  \<open>
+    parser_recursive_coverage_unguarded_left
+        parser_recursive_coverage_fallback =
+      literal (Err ParserSecondaryStatus)
+  \<close>
+  by
+    (simp add:
+      parser_recursive_coverage_unguarded_left_def
+      parser_recursive_coverage_fallback_def
+      two_armed_conditional_def
+      urust_eq_def
+      micro_rust_simps)
+
+lemma parser_recursive_coverage_unguarded_right_match:
+  \<open>
+    parser_recursive_coverage_unguarded_right
+        parser_recursive_coverage_right_match =
+      literal (Ok ())
+  \<close>
+  by
+    (simp add:
+      parser_recursive_coverage_unguarded_right_def
+      parser_recursive_coverage_right_match_def
+      two_armed_conditional_def
+      urust_eq_def
+      micro_rust_simps)
+
+lemma parser_recursive_coverage_unguarded_right_fallback:
+  \<open>
+    parser_recursive_coverage_unguarded_right
+        parser_recursive_coverage_fallback =
+      literal (Err ParserTertiaryStatus)
+  \<close>
+  by
+    (simp add:
+      parser_recursive_coverage_unguarded_right_def
+      parser_recursive_coverage_fallback_def
+      two_armed_conditional_def
+      urust_eq_def
+      micro_rust_simps)
+
+lemma parser_recursive_coverage_guarded_left_true:
+  \<open>
+    evaluate
+      (parser_recursive_coverage_guarded_left
+        parser_recursive_coverage_left_match
+        parser_nested_source_guard_true)
+      0 =
+    Success (Ok ()) 1
+  \<close>
+  by
+    (simp add:
+      parser_recursive_coverage_guarded_left_def
+      parser_recursive_coverage_left_match_def
+      parser_nested_source_guard_true_def
+      two_armed_conditional_def
+      urust_eq_def
+      micro_rust_simps
+      evaluate_def
+      sequence_def
+      put_def
+      literal_def
+      Core_Expression.bind.simps)
+
+lemma parser_recursive_coverage_guarded_left_false:
+  \<open>
+    evaluate
+      (parser_recursive_coverage_guarded_left
+        parser_recursive_coverage_left_match
+        parser_nested_source_guard_false)
+      0 =
+    Success (Err ParserPrimaryStatus) 1
+  \<close>
+  by
+    (simp add:
+      parser_recursive_coverage_guarded_left_def
+      parser_recursive_coverage_left_match_def
+      parser_nested_source_guard_false_def
+      two_armed_conditional_def
+      urust_eq_def
+      micro_rust_simps
+      evaluate_def
+      sequence_def
+      put_def
+      literal_def
+      Core_Expression.bind.simps)
+
+lemma parser_recursive_coverage_guarded_left_structural_miss:
+  \<open>
+    evaluate
+      (parser_recursive_coverage_guarded_left
+        parser_recursive_coverage_fallback
+        parser_nested_source_guard_true)
+      0 =
+    Success (Err ParserSecondaryStatus) 0
+  \<close>
+  by
+    (simp add:
+      parser_recursive_coverage_guarded_left_def
+      parser_recursive_coverage_fallback_def
+      parser_nested_source_guard_true_def
+      two_armed_conditional_def
+      urust_eq_def
+      micro_rust_simps
+      evaluate_def
+      sequence_def
+      put_def
+      literal_def
+      Core_Expression.bind.simps)
+
+lemma parser_recursive_coverage_guarded_right_true:
+  \<open>
+    evaluate
+      (parser_recursive_coverage_guarded_right
+        parser_recursive_coverage_right_match
+        parser_nested_source_guard_true)
+      0 =
+    Success (Ok ()) 1
+  \<close>
+  by
+    (simp add:
+      parser_recursive_coverage_guarded_right_def
+      parser_recursive_coverage_right_match_def
+      parser_nested_source_guard_true_def
+      two_armed_conditional_def
+      urust_eq_def
+      micro_rust_simps
+      evaluate_def
+      sequence_def
+      put_def
+      literal_def
+      Core_Expression.bind.simps)
+
+lemma parser_recursive_coverage_guarded_right_false:
+  \<open>
+    evaluate
+      (parser_recursive_coverage_guarded_right
+        parser_recursive_coverage_right_match
+        parser_nested_source_guard_false)
+      0 =
+    Success (Err ParserPrimaryStatus) 1
+  \<close>
+  by
+    (simp add:
+      parser_recursive_coverage_guarded_right_def
+      parser_recursive_coverage_right_match_def
+      parser_nested_source_guard_false_def
+      two_armed_conditional_def
+      urust_eq_def
+      micro_rust_simps
+      evaluate_def
+      sequence_def
+      put_def
+      literal_def
+      Core_Expression.bind.simps)
+
+lemma parser_recursive_coverage_guarded_right_structural_miss:
+  \<open>
+    evaluate
+      (parser_recursive_coverage_guarded_right
+        parser_recursive_coverage_fallback
+        parser_nested_source_guard_true)
+      0 =
+    Success (Err ParserTertiaryStatus) 0
+  \<close>
+  by
+    (simp add:
+      parser_recursive_coverage_guarded_right_def
+      parser_recursive_coverage_fallback_def
+      parser_nested_source_guard_true_def
+      two_armed_conditional_def
+      urust_eq_def
+      micro_rust_simps
+      evaluate_def
+      sequence_def
+      put_def
+      literal_def
+      Core_Expression.bind.simps)
+
 lemma parser_nested_exhaustive_first_miss:
   \<open>
     parser_nested_exhaustive_outer_shapes
@@ -2234,6 +2527,18 @@ ML_val\<open>
       equation_of "parser_root_suffix_guarded_left"
     val (root_guarded_right_lhs, root_guarded_right) =
       equation_of "parser_root_suffix_guarded_right"
+    val (recursive_unguarded_left_lhs,
+         recursive_unguarded_left) =
+      equation_of "parser_recursive_coverage_unguarded_left"
+    val (recursive_unguarded_right_lhs,
+         recursive_unguarded_right) =
+      equation_of "parser_recursive_coverage_unguarded_right"
+    val (recursive_guarded_left_lhs,
+         recursive_guarded_left) =
+      equation_of "parser_recursive_coverage_guarded_left"
+    val (recursive_guarded_right_lhs,
+         recursive_guarded_right) =
+      equation_of "parser_recursive_coverage_guarded_right"
     val guarded_or_instantiated =
       instantiate_definition guarded_or
         [\<^term>\<open>parser_nested_overlap_scrutinee\<close>,
@@ -2282,6 +2587,20 @@ ML_val\<open>
       instantiate_definition root_guarded_right
         [\<^term>\<open>parser_nested_or_overlap_later_scrutinee\<close>,
          \<^term>\<open>parser_nested_source_guard_true\<close>]
+    val recursive_unguarded_left_instantiated =
+      instantiate_definition recursive_unguarded_left
+        [\<^term>\<open>parser_recursive_coverage_fallback\<close>]
+    val recursive_unguarded_right_instantiated =
+      instantiate_definition recursive_unguarded_right
+        [\<^term>\<open>parser_recursive_coverage_fallback\<close>]
+    val recursive_guarded_left_instantiated =
+      instantiate_definition recursive_guarded_left
+        [\<^term>\<open>parser_recursive_coverage_left_match\<close>,
+         \<^term>\<open>parser_nested_source_guard_false\<close>]
+    val recursive_guarded_right_instantiated =
+      instantiate_definition recursive_guarded_right
+        [\<^term>\<open>parser_recursive_coverage_right_match\<close>,
+         \<^term>\<open>parser_nested_source_guard_true\<close>]
     val (global_ok_branch, global_err_branch) =
       result_case_branches global_source_order
     val alias_wildcard =
@@ -2328,6 +2647,56 @@ ML_val\<open>
       Term.strip_comb exhaustive_lhs
     val (_, exhaustive_guarded_arguments) =
       Term.strip_comb exhaustive_guarded_lhs
+    fun audit_product_case_closure name rhs =
+      let
+        fun is_product_type (Type (type_name, _)) =
+              type_name = \<^type_name>\<open>prod\<close>
+          | is_product_type _ = false
+        fun is_wildcard_pattern (Free _) = true
+          | is_wildcard_pattern (Var _) = true
+          | is_wildcard_pattern _ = false
+        fun close_bounds bound_types term =
+          subst_bounds
+            (map_index
+              (fn (index, typ) =>
+                Free
+                  ("_case_audit_" ^ string_of_int index,
+                   typ))
+              bound_types,
+             term)
+        fun inspect bound_types term =
+          let
+            val closed_term =
+              close_bounds bound_types term
+            val _ =
+              (case Case_Translation.strip_case ctxt false
+                  closed_term of
+                 SOME (scrutinee, clauses) =>
+                   if is_product_type (fastype_of scrutinee)
+                   then
+                     let
+                       val wildcard_clauses =
+                         filter
+                           (is_wildcard_pattern o fst)
+                           clauses
+                     in
+                       assert
+                         (name ^
+                           " emitted a redundant product wildcard")
+                         (null wildcard_clauses)
+                     end
+                   else ()
+               | NONE => ())
+          in
+            (case term of
+               left $ right =>
+                 (inspect bound_types left;
+                  inspect bound_types right)
+             | Abs (_, typ, body) =>
+                 inspect (typ :: bound_types) body
+             | _ => ())
+          end
+      in inspect [] rhs end
     fun audit_total_root_suffix
         name lhs rhs expected_argument_types instantiated
         scrutinee_name source_guard_name =
@@ -2376,6 +2745,13 @@ ML_val\<open>
        \<^typ>\<open>
          (nat, bool, unit, unit, unit, unit) expression
        \<close>]
+    val recursive_unguarded_argument_types =
+      [\<^typ>\<open>parser_recursive_coverage_input\<close>]
+    val recursive_guarded_argument_types =
+      [\<^typ>\<open>parser_recursive_coverage_input\<close>,
+       \<^typ>\<open>
+         (nat, bool, unit, unit, unit, unit) expression
+       \<close>]
     val _ =
       audit_total_root_suffix
         "left unguarded total-root fallback"
@@ -2408,6 +2784,60 @@ ML_val\<open>
         guarded_root_argument_types
         root_guarded_right_instantiated
         \<^const_name>\<open>parser_nested_or_overlap_later_scrutinee\<close>
+        (SOME
+          \<^const_name>\<open>parser_nested_source_guard_true\<close>)
+    val _ =
+      audit_product_case_closure
+        "left unguarded recursive total-root fallback"
+        recursive_unguarded_left
+    val _ =
+      audit_product_case_closure
+        "right unguarded recursive total-root fallback"
+        recursive_unguarded_right
+    val _ =
+      audit_product_case_closure
+        "left guarded recursive total-root fallback"
+        recursive_guarded_left
+    val _ =
+      audit_product_case_closure
+        "right guarded recursive total-root fallback"
+        recursive_guarded_right
+    val _ =
+      audit_total_root_suffix
+        "left unguarded recursive total-root fallback"
+        recursive_unguarded_left_lhs
+        recursive_unguarded_left
+        recursive_unguarded_argument_types
+        recursive_unguarded_left_instantiated
+        \<^const_name>\<open>parser_recursive_coverage_fallback\<close>
+        NONE
+    val _ =
+      audit_total_root_suffix
+        "right unguarded recursive total-root fallback"
+        recursive_unguarded_right_lhs
+        recursive_unguarded_right
+        recursive_unguarded_argument_types
+        recursive_unguarded_right_instantiated
+        \<^const_name>\<open>parser_recursive_coverage_fallback\<close>
+        NONE
+    val _ =
+      audit_total_root_suffix
+        "left guarded recursive total-root fallback"
+        recursive_guarded_left_lhs
+        recursive_guarded_left
+        recursive_guarded_argument_types
+        recursive_guarded_left_instantiated
+        \<^const_name>\<open>parser_recursive_coverage_left_match\<close>
+        (SOME
+          \<^const_name>\<open>parser_nested_source_guard_false\<close>)
+    val _ =
+      audit_total_root_suffix
+        "right guarded recursive total-root fallback"
+        recursive_guarded_right_lhs
+        recursive_guarded_right
+        recursive_guarded_argument_types
+        recursive_guarded_right_instantiated
+        \<^const_name>\<open>parser_recursive_coverage_right_match\<close>
         (SOME
           \<^const_name>\<open>parser_nested_source_guard_true\<close>)
     val _ =
