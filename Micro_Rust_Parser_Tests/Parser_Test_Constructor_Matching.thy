@@ -4,6 +4,7 @@ theory Parser_Test_Constructor_Matching
     Constructor_Ambiguity_Left
     Constructor_Ambiguity_Right
     Misc.Simple_Word_Enums
+    Shallow_Micro_Rust.Core_Expression_Lemmas
 begin
 
 declare [[urust_conformance_check = true]]
@@ -258,6 +259,38 @@ urust_expr parser_nested_global_source_order ::
       _ \<Rightarrow> 4
     }
   \<close>
+
+definition parser_nested_overlap_scrutinee ::
+  \<open>
+    (unit, parser_nested_status) result \<times>
+      ((unit, parser_nested_status) result \<times> tnil)
+  \<close>
+  where
+    \<open>
+      parser_nested_overlap_scrutinee =
+        (Err ParserSecondaryStatus,
+          (Err ParserSecondaryStatus, TNil))
+    \<close>
+
+urust_expr parser_nested_overlapping_tuple ::
+  \<open>(unit, nat, unit, unit, unit, unit) expression\<close>
+  \<open>
+    match \<llangle>parser_nested_overlap_scrutinee\<rrangle> {
+      (Err(NestedStatus::Primary), _) \<Rightarrow> 1,
+      (_, Err(NestedStatus::Secondary)) \<Rightarrow> 2,
+      _ \<Rightarrow> 3
+    }
+  \<close>
+
+lemma parser_nested_overlapping_tuple_evaluation:
+  \<open> parser_nested_overlapping_tuple = literal (2 :: nat) \<close>
+  by
+    (simp add:
+      parser_nested_overlapping_tuple_def
+      parser_nested_overlap_scrutinee_def
+      two_armed_conditional_def
+      urust_eq_def
+      micro_rust_simps)
 
 urust_expr parser_nested_alias_wildcard ::
   \<open>(unit, nat, unit, unit, unit, unit) expression\<close>
@@ -629,6 +662,59 @@ ML_val\<open>
                       (literal (4 :: nat)))))) ::
           (unit, nat, unit, unit, unit, unit) expression
       \<close>
+    val overlapping_tuple_expected =
+      \<^term>\<open>
+        (bind (literal parser_nested_overlap_scrutinee)
+          (\<lambda>value.
+            case value of
+              (Err first_error, second, TNil) \<Rightarrow>
+                two_armed_conditional
+                  (urust_eq
+                    (literal first_error)
+                    (literal ParserPrimaryStatus))
+                  (literal (1 :: nat))
+                  (case
+                    (Err first_error, second, TNil)
+                   of
+                    (_, Err second_error, TNil) \<Rightarrow>
+                      two_armed_conditional
+                        (urust_eq
+                          (literal second_error)
+                          (literal ParserSecondaryStatus))
+                        (literal (2 :: nat))
+                        (literal (3 :: nat))
+                  | _ \<Rightarrow> literal (3 :: nat))
+            | (first, Err second_error, TNil) \<Rightarrow>
+                (case
+                  (first, Err second_error, TNil)
+                 of
+                  (Err first_error, second, TNil) \<Rightarrow>
+                    two_armed_conditional
+                      (urust_eq
+                        (literal first_error)
+                        (literal ParserPrimaryStatus))
+                      (literal (1 :: nat))
+                      (case
+                        (Err first_error, second, TNil)
+                       of
+                        (_, Err later_error, TNil) \<Rightarrow>
+                          two_armed_conditional
+                            (urust_eq
+                              (literal later_error)
+                              (literal ParserSecondaryStatus))
+                            (literal (2 :: nat))
+                            (literal (3 :: nat))
+                      | _ \<Rightarrow> literal (3 :: nat))
+                | _ \<Rightarrow>
+                    two_armed_conditional
+                      (urust_eq
+                        (literal second_error)
+                        (literal ParserSecondaryStatus))
+                      (literal (2 :: nat))
+                      (literal (3 :: nat)))
+            | _ \<Rightarrow> literal (3 :: nat))) ::
+          (unit, nat, unit, unit, unit, unit) expression
+      \<close>
     val alias_wildcard_expected =
       \<^term>\<open>
         (bind (literal parser_nested_alias_wild_scrutinee)
@@ -688,6 +774,10 @@ ML_val\<open>
       checked_ordered_term
         "parser_nested_global_source_order"
         global_source_order_expected
+    val overlapping_tuple =
+      checked_ordered_term
+        "parser_nested_overlapping_tuple"
+        overlapping_tuple_expected
     val (global_ok_branch, global_err_branch) =
       result_case_branches global_source_order
     val alias_wildcard =
@@ -702,12 +792,16 @@ ML_val\<open>
       equation_of "parser_nested_alias_binder"
     val (global_source_order_lhs, _) =
       equation_of "parser_nested_global_source_order"
+    val (overlapping_tuple_lhs, _) =
+      equation_of "parser_nested_overlapping_tuple"
     val (_, alias_wildcard_arguments) =
       Term.strip_comb alias_wildcard_lhs
     val (_, alias_binder_arguments) =
       Term.strip_comb alias_binder_lhs
     val (_, global_source_order_arguments) =
       Term.strip_comb global_source_order_lhs
+    val (_, overlapping_tuple_arguments) =
+      Term.strip_comb overlapping_tuple_lhs
     val _ =
       assert "alias/wildcard fixture acquired an unintended definition argument"
         (null alias_wildcard_arguments)
@@ -726,6 +820,12 @@ ML_val\<open>
     val _ =
       assert "global source-order fixture acquired an unintended function type"
         (null (binder_types (fastype_of global_source_order_lhs)))
+    val _ =
+      assert "overlapping tuple fixture acquired an unintended definition argument"
+        (null overlapping_tuple_arguments)
+    val _ =
+      assert "overlapping tuple fixture acquired an unintended function type"
+        (null (binder_types (fastype_of overlapping_tuple_lhs)))
     val expected_equality_order =
       map constant_name
         [\<^term>\<open>ParserPrimaryStatus\<close>,
@@ -795,13 +895,18 @@ ML_val\<open>
           \<^const_name>\<open>parser_nested_interleaved_guard\<close>
           global_err_branch = 1)
     val _ =
+      assert "overlapping tuple fixture duplicated its scrutinee"
+        (count_constant
+          \<^const_name>\<open>parser_nested_overlap_scrutinee\<close>
+          overlapping_tuple = 1)
+    val _ =
       assert "a later applicable source arm still terminates at undefined"
         (List.all
           (fn term =>
             count_constant \<^const_name>\<open>undefined\<close>
               term = 0)
           [nested, ordered, ordered_or, guarded_order,
-           global_source_order])
+           global_source_order, overlapping_tuple])
     val _ =
       assert "alias/wildcard fixture duplicated the outer case"
         (count_constant result_case_name alias_wildcard = 1)
