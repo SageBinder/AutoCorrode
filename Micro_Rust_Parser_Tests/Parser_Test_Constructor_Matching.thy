@@ -171,7 +171,7 @@ urust_expr [conformance_check = true] parser_nested_registered_nullary
                   (literal error)
                   (literal ParserPrimaryStatus))
                 (funcall1 (lift_fun1 Ok) (literal ()))
-                undefined)
+                (literal (Err error)))
     \<close>
 
 thm parser_nested_registered_nullary_conformance
@@ -210,6 +210,8 @@ consts
   parser_nested_mixed_scrutinee :: \<open>parser_native_case option\<close>
   parser_nested_guarded_scrutinee ::
     \<open>(unit, parser_nested_status) result\<close>
+  parser_nested_interleaved_scrutinee ::
+    \<open>(unit, parser_nested_status) result\<close>
   parser_nested_alias_wild_scrutinee ::
     \<open>(unit, parser_nested_status) result\<close>
   parser_nested_alias_binder_scrutinee ::
@@ -224,6 +226,7 @@ consts
   parser_nested_alias_probe_result ::
     \<open>(unit, parser_nested_status) result\<close>
   parser_nested_guard_marker :: bool
+  parser_nested_interleaved_guard :: bool
 
 urust_expr parser_nested_registered_mixed ::
   \<open>(unit, nat, unit, unit, unit, unit) expression\<close>
@@ -242,6 +245,17 @@ urust_expr parser_nested_registered_guard_order ::
       Err(NestedStatus::Primary)
         if \<llangle>parser_nested_guard_marker\<rrangle> \<Rightarrow> 1,
       _ \<Rightarrow> 2
+    }
+  \<close>
+
+urust_expr parser_nested_global_source_order ::
+  \<open>(unit, nat, unit, unit, unit, unit) expression\<close>
+  \<open>
+    match \<llangle>parser_nested_interleaved_scrutinee\<rrangle> {
+      Err(NestedStatus::Primary) \<Rightarrow> 1,
+      res if \<llangle>parser_nested_interleaved_guard\<rrangle> \<Rightarrow> 2,
+      Err(NestedStatus::Secondary) \<Rightarrow> 3,
+      _ \<Rightarrow> 4
     }
   \<close>
 
@@ -424,7 +438,7 @@ ML_val\<open>
       assert "nested fixture conformance theorem changed its definition head"
         (Term.aconv (nested_lhs, conformance_lhs))
     val _ =
-      assert "nested fixture differs from its complete legacy term"
+      assert "nested fixture differs from its complete conformance term"
         (Term.aconv (nested, conformance_rhs))
     val _ =
       assert "nested fixture conformance target retained schematic variables"
@@ -443,6 +457,28 @@ ML_val\<open>
             \<^typ>\<open>(unit, parser_nested_status) result\<close>)) of
          SOME {casex, ...} => constant_name casex
        | NONE => error "constructor matching audit: missing result case sugar")
+    fun result_case_branches term =
+      let
+        fun seek candidate =
+          (case Term.strip_comb candidate of
+             (Const (name, _), [ok_branch, err_branch, _]) =>
+               if name = result_case_name
+               then SOME (ok_branch, err_branch)
+               else seek_arguments candidate
+           | _ => seek_arguments candidate)
+        and seek_arguments (left $ right) =
+              (case seek left of
+                 SOME result => SOME result
+               | NONE => seek right)
+          | seek_arguments (Abs (_, _, body)) = seek body
+          | seek_arguments _ = NONE
+      in
+        (case seek term of
+           SOME branches => branches
+         | NONE =>
+             error
+               "constructor matching audit: missing outer result case")
+      end
     val _ =
       assert "nested normalization lost the enclosing authentic case"
         (count_constant result_case_name nested > 0)
@@ -525,7 +561,7 @@ ML_val\<open>
                       (literal error)
                       (literal ParserSecondaryStatus))
                     (literal (2 :: nat))
-                    undefined))) ::
+                    (literal (3 :: nat))))) ::
           (unit, nat, unit, unit, unit, unit) expression
       \<close>
     val ordered_or_expected =
@@ -545,7 +581,7 @@ ML_val\<open>
                       (literal error)
                       (literal ParserSecondaryStatus))
                     (literal (1 :: nat))
-                    undefined))) ::
+                    (literal (0 :: nat))))) ::
           (unit, nat, unit, unit, unit, unit) expression
       \<close>
     val guarded_order_expected =
@@ -562,8 +598,35 @@ ML_val\<open>
                       (literal error)
                       (literal ParserPrimaryStatus))
                     (literal (1 :: nat))
-                    undefined)
+                    (literal (2 :: nat)))
                   (literal (2 :: nat)))) ::
+          (unit, nat, unit, unit, unit, unit) expression
+      \<close>
+    val global_source_order_expected =
+      \<^term>\<open>
+        (bind (literal parser_nested_interleaved_scrutinee)
+          (\<lambda>value.
+            case value of
+              Ok result \<Rightarrow>
+                two_armed_conditional
+                  (literal parser_nested_interleaved_guard)
+                  (literal (2 :: nat))
+                  (literal (4 :: nat))
+            | Err error \<Rightarrow>
+                two_armed_conditional
+                  (urust_eq
+                    (literal error)
+                    (literal ParserPrimaryStatus))
+                  (literal (1 :: nat))
+                  (two_armed_conditional
+                    (literal parser_nested_interleaved_guard)
+                    (literal (2 :: nat))
+                    (two_armed_conditional
+                      (urust_eq
+                        (literal error)
+                        (literal ParserSecondaryStatus))
+                      (literal (3 :: nat))
+                      (literal (4 :: nat)))))) ::
           (unit, nat, unit, unit, unit, unit) expression
       \<close>
     val alias_wildcard_expected =
@@ -621,6 +684,12 @@ ML_val\<open>
       checked_ordered_term
         "parser_nested_registered_guard_order"
         guarded_order_expected
+    val global_source_order =
+      checked_ordered_term
+        "parser_nested_global_source_order"
+        global_source_order_expected
+    val (global_ok_branch, global_err_branch) =
+      result_case_branches global_source_order
     val alias_wildcard =
       checked_ordered_term
         "parser_nested_alias_wildcard" alias_wildcard_expected
@@ -631,10 +700,14 @@ ML_val\<open>
       equation_of "parser_nested_alias_wildcard"
     val (alias_binder_lhs, _) =
       equation_of "parser_nested_alias_binder"
+    val (global_source_order_lhs, _) =
+      equation_of "parser_nested_global_source_order"
     val (_, alias_wildcard_arguments) =
       Term.strip_comb alias_wildcard_lhs
     val (_, alias_binder_arguments) =
       Term.strip_comb alias_binder_lhs
+    val (_, global_source_order_arguments) =
+      Term.strip_comb global_source_order_lhs
     val _ =
       assert "alias/wildcard fixture acquired an unintended definition argument"
         (null alias_wildcard_arguments)
@@ -647,6 +720,12 @@ ML_val\<open>
     val _ =
       assert "alias/binder fixture acquired an unintended function type"
         (null (binder_types (fastype_of alias_binder_lhs)))
+    val _ =
+      assert "global source-order fixture acquired an unintended definition argument"
+        (null global_source_order_arguments)
+    val _ =
+      assert "global source-order fixture acquired an unintended function type"
+        (null (binder_types (fastype_of global_source_order_lhs)))
     val expected_equality_order =
       map constant_name
         [\<^term>\<open>ParserPrimaryStatus\<close>,
@@ -688,6 +767,41 @@ ML_val\<open>
       assert "guarded same-shape arm lost its generated equality"
         (count_constant \<^const_name>\<open>urust_eq\<close>
           guarded_order = 1)
+    val _ =
+      assert "global source-order fixture duplicated the outer case"
+        (count_constant result_case_name global_source_order = 1)
+    val _ =
+      assert "global source-order fixture duplicated its scrutinee"
+        (count_constant
+          \<^const_name>\<open>parser_nested_interleaved_scrutinee\<close>
+          global_source_order = 1)
+    val _ =
+      assert "global source-order fixture lost an equality guard"
+        (count_constant \<^const_name>\<open>urust_eq\<close>
+          global_source_order = 2)
+    val _ =
+      assert "global source-order fixture changed guard evaluation count"
+        (count_constant
+          \<^const_name>\<open>parser_nested_interleaved_guard\<close>
+          global_source_order = 2)
+    val _ =
+      assert "global source-order Ok branch duplicated its source guard"
+        (count_constant
+          \<^const_name>\<open>parser_nested_interleaved_guard\<close>
+          global_ok_branch = 1)
+    val _ =
+      assert "global source-order Err branch duplicated its source guard"
+        (count_constant
+          \<^const_name>\<open>parser_nested_interleaved_guard\<close>
+          global_err_branch = 1)
+    val _ =
+      assert "a later applicable source arm still terminates at undefined"
+        (List.all
+          (fn term =>
+            count_constant \<^const_name>\<open>undefined\<close>
+              term = 0)
+          [nested, ordered, ordered_or, guarded_order,
+           global_source_order])
     val _ =
       assert "alias/wildcard fixture duplicated the outer case"
         (count_constant result_case_name alias_wildcard = 1)

@@ -1648,101 +1648,127 @@ struct
            ([_], Bound 0) => true
          | _ => false)
 
-      fun flat_groups_after source_index groups =
-        map_filter
-          (fn (shape, rebuild, abstractions, pattern, sources) =>
-            let
-              val later =
-                filter
-                  (fn (index, _, _) => index > source_index)
-                  sources
-            in
-              if null later then NONE
-              else
-                SOME
-                  (shape, rebuild, abstractions, pattern, later)
-            end)
-          groups
+      fun is_flat_catchall_group
+          (_, _, abstractions, pattern, _) =
+        is_flat_catchall abstractions pattern
 
-      (* Continuations are derived from the final merged groups, not captured while the suffix is
-         still being assembled. Equal outer shapes reuse their bound-slot layout; wildcard/binder
-         branches are specialized by replacing the whole-value slot with the current pattern. *)
-      fun compile_flat_group_body all_groups
-            (group as (_, _, _, _, sources)) =
+      fun first_flat_source_after source_index sources =
+        List.find
+          (fn (index, _, _) => index > source_index)
+          sources
+
+      fun flat_group_sources (_, _, _, _, sources) =
+        sources
+
+      fun applicable_flat_groups all_groups
+          (branch_group as (_, _, abstractions, pattern, _)) =
+        if is_flat_catchall abstractions pattern
+        then [branch_group]
+        else
+          branch_group ::
+            filter is_flat_catchall_group all_groups
+
+      fun next_flat_source all_groups branch_group source_index =
         let
-          fun compile_sources [] = fallback
-            | compile_sources
-                ((source_index, source_guard, alternatives) :: rest) =
-                let
-                  val later_same_shape =
-                    compile_sources rest
-                  val source_fallback =
-                    flat_group_continuation
-                      all_groups group source_index
+          fun choose group NONE =
+                Option.map
+                  (fn source as (index, _, _) =>
+                    (index, group, source))
+                  (first_flat_source_after source_index
+                    (flat_group_sources group))
+            | choose group
+                (best as SOME (best_index, _, _)) =
+                (case first_flat_source_after source_index
+                    (flat_group_sources group) of
+                   SOME (source as (index, _, _)) =>
+                     if index < best_index
+                     then SOME (index, group, source)
+                     else best
+                 | NONE => best)
+        in
+          fold choose
+            (applicable_flat_groups all_groups branch_group)
+            NONE
+        end
 
-                  fun compile_alternatives [] =
-                        error
-                          "urust_expr: internal empty flat source alternatives"
-                    | compile_alternatives
-                        [(NONE, success)] = success
-                    | compile_alternatives
-                        [(SOME (guard, commits), success)] =
-                        T.conditional guard success
-                          (if commits
-                           then later_same_shape
-                           else source_fallback)
-                    | compile_alternatives
-                        ((NONE, success) :: _) = success
-                    | compile_alternatives
-                        ((SOME (guard, _), success) :: rest) =
-                        T.conditional guard success
-                          (compile_alternatives rest)
+      fun specialize_flat_term
+          (branch_shape, _, _, branch_pattern, _)
+          (source_shape, _, source_abstractions,
+           source_pattern, _)
+          term =
+        if same_flat_shape (branch_shape, source_shape)
+        then term
+        else if
+          is_flat_catchall source_abstractions source_pattern
+        then Term.subst_bound (branch_pattern, term)
+        else
+          error
+            "urust_expr: internal inapplicable flat source group"
 
-                  val matched =
-                    compile_alternatives alternatives
-                in
-                  (case source_guard of
-                     NONE => matched
-                   | SOME guard =>
-                       T.conditional guard matched
-                         source_fallback)
-                end
-        in compile_sources sources end
+      (* Every outer branch advances through source arms by their original global index. Constructor
+         entries and catch-all entries may live in different merged groups, so selecting only the
+         next entry in the current shape group reorders interleaved arms. Catch-all payloads are
+         specialized to the current constructor pattern without introducing another outer case. *)
+      fun compile_flat_group_body all_groups branch_group
+            source_index =
+        (case next_flat_source
+            all_groups branch_group source_index of
+           NONE => fallback
+         | SOME
+             (next_index, source_group,
+              (_, source_guard, alternatives)) =>
+             let
+               fun specialize term =
+                 specialize_flat_term
+                   branch_group source_group term
+               val source_fallback =
+                 compile_flat_group_body
+                   all_groups branch_group next_index
 
-      and compile_flat_group all_groups
+               fun compile_alternatives [] =
+                     error
+                       "urust_expr: internal empty flat source alternatives"
+                 | compile_alternatives
+                     [(NONE, success)] = specialize success
+                 | compile_alternatives
+                     [(SOME (guard, _), success)] =
+                     T.conditional (specialize guard)
+                       (specialize success) source_fallback
+                 | compile_alternatives
+                     ((NONE, success) :: _) =
+                     specialize success
+                 | compile_alternatives
+                     ((SOME (guard, _), success) :: rest) =
+                     T.conditional (specialize guard)
+                       (specialize success)
+                       (compile_alternatives rest)
+
+               val matched =
+                 compile_alternatives alternatives
+             in
+               (case source_guard of
+                  NONE => matched
+                | SOME guard =>
+                    T.conditional (specialize guard)
+                      matched source_fallback)
+             end)
+
+      fun compile_flat_group all_groups
           (group as (_, rebuild, _, _, _)) =
-        rebuild (compile_flat_group_body all_groups group)
+        rebuild
+          (compile_flat_group_body all_groups group ~1)
 
-      and expression_of_flat_groups _ [] = fallback
-        | expression_of_flat_groups all_groups groups =
-            case_term
-              (map (compile_flat_group all_groups) groups)
-
-      and flat_group_continuation all_groups
-          (shape, _, abstractions, pattern, _) source_index =
-        let
-          val later =
-            flat_groups_after source_index all_groups
-
-          fun find [] =
-                if is_flat_catchall abstractions pattern
-                then expression_of_flat_groups all_groups later
-                else fallback
-            | find
-                ((group as
-                  (candidate, _, candidate_abstractions,
-                   candidate_pattern, _)) :: rest) =
-                if same_flat_shape (shape, candidate)
-                then compile_flat_group_body all_groups group
-                else if
-                  is_flat_catchall
-                    candidate_abstractions candidate_pattern
-                then
-                  Term.subst_bound
-                    (pattern,
-                     compile_flat_group_body all_groups group)
-                else find rest
-        in find later end
+      fun expression_of_flat_groups [] = fallback
+        | expression_of_flat_groups all_groups =
+            let
+              val (catchalls, constructors) =
+                List.partition
+                  is_flat_catchall_group all_groups
+            in
+              case_term
+                (map (compile_flat_group all_groups)
+                  (constructors @ catchalls))
+            end
 
       fun make_flat_source_group source_index
           (shape, rebuild, abstractions, pattern, clauses) =
@@ -1853,7 +1879,7 @@ struct
         then
           let
             val groups = compile_flat_sources normalized
-          in expression_of_flat_groups groups groups end
+          in expression_of_flat_groups groups end
         else if List.exists has_generated_guard normalized
         then compile_guarded_sources normalized
         else compile_unguarded_sources normalized
