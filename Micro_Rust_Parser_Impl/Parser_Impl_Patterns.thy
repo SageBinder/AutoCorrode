@@ -1120,40 +1120,529 @@ struct
          List.exists requires_nested_match arguments
      | _ => false)
 
-  datatype generated_guard_role =
-      Local_Generated_Guard
-    | Structural_Generated_Guard
+  datatype structural_constructor =
+    Structural_Constructor of {term: term, arity: int}
 
-  type generated_guard = generated_guard_role * term
+  datatype structural_family =
+    Structural_Family of
+      {name: string, members: structural_constructor list}
 
-  fun generated_guard_term (_, guard) = guard
+  datatype structural_pattern =
+      Structural_Any of term option
+    | Structural_Node of
+        {head: structural_constructor,
+         family: structural_family option,
+         arguments: structural_pattern list}
 
-  fun generated_guard_is_structural
-      (Structural_Generated_Guard, _) = true
-    | generated_guard_is_structural _ = false
+  datatype structural_subject =
+    Structural_Subject of
+      {value: term, children: structural_subject list}
 
-  fun combine_generated_guard_role
-      (Structural_Generated_Guard, _) =
-        Structural_Generated_Guard
-    | combine_generated_guard_role
-        (_, Structural_Generated_Guard) =
-        Structural_Generated_Guard
-    | combine_generated_guard_role _ =
-        Local_Generated_Guard
+  type source_position =
+    {arm_index: int, alternative_index: int}
 
-  (* Local guards are ordinary value/range/nested predicates. A structural guard is the equality
-     test produced for an exact registered nullary constructor nested below an authentic outer
-     constructor. Structural guards select the ordered decision compiler below; their failure still
-     follows ordinary source order there. The role records a lowering requirement, not a semantic
-     "commit" bit. *)
-  fun extend_generated_guard
-      generated NONE =
-        SOME generated
-    | extend_generated_guard
-        (role, guard) (SOME (prior_role, prior_guard)) =
-        SOME
-          (combine_generated_guard_role (role, prior_role),
-           T.binary And prior_guard guard)
+  datatype scope_wrapper =
+      Alias_Scope_Wrapper of (term -> term)
+    | Nested_Scope_Wrapper of (term -> term)
+    | Transformed_Scope_Wrapper of (term -> term)
+
+  datatype clause_scope =
+      Direct_Clause_Scope
+    | Alias_Clause_Scope of (term -> term)
+    | Nested_Clause_Scope of (term -> term)
+    | Transformed_Clause_Scope of (term -> term)
+
+  datatype case_clause =
+    Case_Clause of
+      {structural_pattern: structural_pattern,
+       generated_test: term option,
+       scope: clause_scope}
+
+  datatype alternative_plan =
+    Alternative_Plan of
+      {position: source_position, clause: case_clause}
+
+  datatype arm_plan =
+    Arm_Plan of
+      {arm_index: int,
+       alternatives: alternative_plan list,
+       source_guard: term option,
+       body: term}
+
+  datatype decision_row =
+    Decision_Row of
+      {position: source_position,
+       clause: case_clause,
+       source_guard: term option,
+       body: term}
+
+  datatype structural_exclusion =
+      Decision_Exclusion of
+        {position: source_position,
+         pattern: structural_pattern}
+    | Nested_Group_Exclusion of
+        {position: source_position,
+         pattern: structural_pattern}
+
+  datatype decision_state =
+    Decision_State of
+      {region: structural_pattern,
+       subject: structural_subject,
+       exclusions: structural_exclusion list}
+
+  datatype selected_row_state =
+    Selected_Row_State of
+      {selected_subject: structural_subject,
+       alternative_continuation: decision_state,
+       arm_continuation: decision_state}
+
+  datatype applicable_row =
+    Applicable_Row of
+      {row: decision_row,
+       decision_state: decision_state,
+       remaining_rows: decision_row list}
+
+  datatype opened_pattern =
+    Opened_Pattern of
+      {abstraction: term -> term,
+       subject: structural_subject}
+
+  datatype structural_group =
+    Structural_Group of
+      {pattern: structural_pattern,
+       catchall_exclusions: structural_exclusion list,
+       following_exclusion: structural_exclusion option}
+
+  datatype outer_group_phase =
+      Hoist_Outer_Groups
+    | Hoist_Guarded_Arm of int
+    | Root_Continuation_Only
+
+  datatype outer_group_plan =
+    Outer_Group_Plan of
+      {groups: structural_group list,
+       catchall: structural_group option,
+       phase: outer_group_phase}
+
+  type decision_source_arm =
+    {patterns: case_pattern list,
+     environment: R.environment,
+     source_guard: term option,
+     body: term}
+
+  (*
+    The ordered decision IR deliberately stays in ML until final case emission.
+
+    - structural_pattern is a typed algebraic pattern. Structural_Any optionally records the exact
+      Free that the source alternative binds at that point; constructor identity, arity, and complete
+      native family order remain explicit in Structural_Node.
+    - case_clause owns one structural pattern, its alternative-local generated test, and one explicit
+      clause_scope operation. A closing scope binds aliases and recursively extracted nested binders
+      around the source guard and body together; a direct scope is the identity operation.
+    - source_position is stable source order. alternative_plan and arm_plan preserve the distinction
+      between alternative failure and source-guard failure: a generated-test miss advances to the next
+      alternative, while a false source guard advances to the next arm.
+    - decision_state describes the structural region already selected by enclosing cases. exclusions
+      record preceding case clauses that failed in that region. selected_row_state keeps the two
+      continuations explicit: generated-test failure uses the selected source row's region, while
+      source-guard failure restarts the next arm from the one already-bound root scrutinee. The
+      selected subject remains separate so the source guard and body are scoped by exactly the
+      alternative that matched. Decision_Exclusion suppresses only its exact source position.
+      Nested_Group_Exclusion additionally records that a nested extraction group was bypassed, so a
+      later alternative of that same arm is selected again from the already-bound root value. No
+      binder or source-guard result is shared between alternatives.
+
+    One compiler below handles ordinary, guarded, overlapping, and recursive nested cases. It never
+    packs compiler metadata into HOL terms, never decodes generated terms, and never has separate
+    guarded/unguarded compilation paths.
+  *)
+
+  fun constructor_term
+      (Structural_Constructor {term, ...}) = term
+
+  fun constructor_arity
+      (Structural_Constructor {arity, ...}) = arity
+
+  fun same_constructor (left, right) =
+    Term.aconv_untyped
+      (constructor_term left, constructor_term right)
+
+  fun declared_constructor ctxt term =
+    (case term of
+       Const (name, _) =>
+         Structural_Constructor
+           {term = Const (name, dummyT),
+            arity =
+              length
+                (binder_types
+                  (Sign.the_const_type
+                    (Proof_Context.theory_of ctxt) name))}
+     | _ =>
+         error
+           "urust_expr: internal non-constant structural constructor")
+
+  fun constructor_family_from_terms ctxt name members =
+    Structural_Family
+      {name = name, members = map (declared_constructor ctxt) members}
+
+  fun constructor_head ctxt constructor family_hint =
+    let
+      val (name, typ) =
+        (case constructor of
+           Const (constructor_name, _) =>
+             (constructor_name,
+              Sign.the_const_type
+                (Proof_Context.theory_of ctxt)
+                constructor_name)
+         | _ =>
+             error
+               "urust_expr: internal non-constant structural constructor")
+      val head = declared_constructor ctxt constructor
+      val family =
+        (case Case_Translation.lookup_by_constr_permissive ctxt
+            (name, typ) of
+           SOME (_, members) =>
+             SOME
+               (constructor_family_from_terms ctxt
+                 (the_default name
+                   (try dest_Type_name (body_type typ)))
+                 members)
+         | NONE =>
+             Option.map
+               (fn (family_name, members) =>
+                 constructor_family_from_terms ctxt
+                   family_name members)
+               family_hint)
+    in (head, family) end
+
+  fun make_structural_node ctxt constructor family_hint arguments =
+    let val (head, family) =
+      constructor_head ctxt constructor family_hint
+    in
+      Structural_Node
+        {head = head, family = family, arguments = arguments}
+    end
+
+  fun structural_pattern_of_basic ctxt environment pattern =
+    let
+      fun local_free binder_sig =
+        let
+          val name = signature_name binder_sig
+          val pos = signature_position binder_sig
+        in
+          (case R.lookup_local environment name of
+             SOME free => free
+           | NONE =>
+               error ("urust_expr: internal unregistered case binder " ^
+                 quote name ^ Position.here pos))
+        end
+
+      fun tuple_pattern [] =
+            make_structural_node ctxt T.tuple_nil_constructor NONE []
+        | tuple_pattern (argument :: rest) =
+            make_structural_node ctxt T.pair_constructor NONE
+              [convert argument, tuple_pattern rest]
+      and convert (Basic_Wild _) = Structural_Any NONE
+        | convert (Basic_Bind binder_sig) =
+            Structural_Any (SOME (local_free binder_sig))
+        | convert (Basic_Generated free) =
+            Structural_Any (SOME free)
+        | convert
+            (Basic_Constructor (info, _, arguments)) =
+            make_structural_node ctxt
+              (R.constructor_term info)
+              (R.constructor_family info)
+              (map convert arguments)
+        | convert (Basic_Resolved (constructor, arguments)) =
+            make_structural_node ctxt constructor NONE
+              (map convert arguments)
+        | convert (Basic_Tuple arguments) =
+            tuple_pattern arguments
+    in convert pattern end
+
+  fun erase_structural_bindings (Structural_Any _) =
+        Structural_Any NONE
+    | erase_structural_bindings
+        (Structural_Node {head, family, arguments}) =
+        Structural_Node
+          {head = head, family = family,
+           arguments = map erase_structural_bindings arguments}
+
+  fun structural_is_any (Structural_Any _) = true
+    | structural_is_any _ = false
+
+  fun structural_same_shape
+      (Structural_Any _, Structural_Any _) = true
+    | structural_same_shape
+        (Structural_Node
+           {head = left_head, arguments = left_arguments, ...},
+         Structural_Node
+           {head = right_head, arguments = right_arguments, ...}) =
+        same_constructor (left_head, right_head) andalso
+          eq_list structural_same_shape
+            (left_arguments, right_arguments)
+    | structural_same_shape _ = false
+
+  fun structural_subsumes
+      (Structural_Any _, _) = true
+    | structural_subsumes
+        (Structural_Node
+           {head = left_head, arguments = left_arguments, ...},
+         Structural_Node
+           {head = right_head, arguments = right_arguments, ...}) =
+        same_constructor (left_head, right_head) andalso
+          eq_list structural_subsumes
+            (left_arguments, right_arguments)
+    | structural_subsumes _ = false
+
+  fun structural_intersection
+      (Structural_Any _, right) =
+        SOME (erase_structural_bindings right)
+    | structural_intersection
+        (left, Structural_Any _) =
+        SOME (erase_structural_bindings left)
+    | structural_intersection
+        (Structural_Node
+           {head = left_head, family = left_family,
+            arguments = left_arguments},
+         Structural_Node
+           {head = right_head, family = _,
+            arguments = right_arguments}) =
+        if same_constructor (left_head, right_head)
+        then
+          (case map2
+              (fn left => fn right =>
+                structural_intersection (left, right))
+              left_arguments right_arguments of
+             intersections =>
+               if List.all is_some intersections
+               then
+                 SOME
+                   (Structural_Node
+                     {head = left_head,
+                      family = left_family,
+                      arguments = map the intersections})
+               else NONE)
+        else NONE
+
+  fun family_members
+      (Structural_Family {members, ...}) = members
+
+  fun same_family
+      (Structural_Family
+         {name = left_name, members = left_members},
+       Structural_Family
+         {name = right_name, members = right_members}) =
+    left_name = right_name andalso
+      eq_list same_constructor (left_members, right_members)
+
+  fun structural_is_total (Structural_Any _) = true
+    | structural_is_total
+        (Structural_Node {head, family = SOME family, arguments}) =
+        (case family_members family of
+           [only] =>
+             same_constructor (head, only) andalso
+               List.all structural_is_total arguments
+         | _ => false)
+    | structural_is_total _ = false
+
+  fun structural_semantically_subsumes
+      (left, right as Structural_Any _) =
+        structural_subsumes (left, right) orelse
+          structural_is_total left
+    | structural_semantically_subsumes pair =
+        structural_subsumes pair
+
+  fun replace_column index replacements row =
+    take index row @ replacements @ drop (index + 1) row
+
+  fun first_structural_column rows =
+    let
+      val width =
+        (case rows of [] => 0 | row :: _ => length row)
+      fun has_node index =
+        List.exists
+          (fn row =>
+            (case nth row index of
+               Structural_Node _ => true
+             | Structural_Any _ => false))
+          rows
+      fun seek index =
+        if index >= width then NONE
+        else if has_node index then SOME index
+        else seek (index + 1)
+    in seek 0 end
+
+  fun matrix_covers_all rows =
+    if null rows then false
+    else if List.exists (List.all structural_is_total) rows
+    then true
+    else
+      (case first_structural_column rows of
+         NONE => false
+       | SOME column =>
+           let
+             val heads =
+               map_filter
+                 (fn row =>
+                   (case nth row column of
+                      Structural_Node {head, family, ...} =>
+                        SOME (head, family)
+                    | Structural_Any _ => NONE))
+                 rows
+             val family =
+               (case heads of
+                  [] => NONE
+                | (_, NONE) :: _ => NONE
+                | (_, SOME candidate) :: rest =>
+                    if List.all
+                        (fn (_, SOME other) =>
+                              same_family (candidate, other)
+                          | _ => false)
+                        rest
+                    then SOME candidate
+                    else NONE)
+
+             fun specialize member row =
+               (case nth row column of
+                  Structural_Any _ =>
+                    SOME
+                      (replace_column column
+                        (replicate (constructor_arity member)
+                          (Structural_Any NONE))
+                        row)
+                | Structural_Node {head, arguments, ...} =>
+                    if same_constructor (head, member)
+                    then SOME
+                      (replace_column column arguments row)
+                    else NONE)
+           in
+             (case family of
+                NONE => false
+              | SOME known =>
+                  List.all
+                    (fn member =>
+                      matrix_covers_all
+                        (map_filter (specialize member) rows))
+                    (family_members known))
+           end)
+
+  fun patterns_cover_all patterns =
+    matrix_covers_all
+      (map (fn pattern => [erase_structural_bindings pattern])
+        patterns)
+
+  fun subject_value
+      (Structural_Subject {value, ...}) = value
+
+  fun subject_children
+      (Structural_Subject {children, ...}) = children
+
+  fun fresh_pattern_subject ctxt pattern =
+    let
+      fun fresh_leaf () =
+        Free
+          ("_urust_region_" ^
+            string_of_int (serial ()), dummyT)
+
+      fun open_pattern (Structural_Any _) =
+            let
+              val free = fresh_leaf ()
+            in
+              (Basic_Generated free,
+               Structural_Subject {value = free, children = []})
+            end
+        | open_pattern
+            (Structural_Node {head, arguments, ...}) =
+            let
+              val opened = map open_pattern arguments
+              val basics = map fst opened
+              val subjects = map snd opened
+              val value =
+                Term.list_comb
+                  (constructor_term head,
+                   map subject_value subjects)
+            in
+              (Basic_Resolved
+                (constructor_term head, basics),
+               Structural_Subject
+                 {value = value, children = subjects})
+            end
+
+      val (basic, subject) = open_pattern pattern
+    in
+      Opened_Pattern
+        {abstraction =
+           bind_basic_pattern ctxt R.empty_environment basic,
+         subject = subject}
+    end
+
+  fun structural_bindings pattern subject =
+    (case pattern of
+       Structural_Any NONE => []
+     | Structural_Any (SOME free) =>
+         [(free, subject_value subject)]
+     | Structural_Node {arguments, ...} =>
+         maps I
+           (map2 structural_bindings
+             arguments (subject_children subject)))
+
+  fun specialize_term bindings =
+    if null bindings then I
+    else Term.subst_free bindings
+
+  fun close_clause_scope Direct_Clause_Scope rhs = rhs
+    | close_clause_scope
+        (Alias_Clause_Scope close_scope) rhs =
+        close_scope rhs
+    | close_clause_scope
+        (Nested_Clause_Scope close_scope) rhs =
+        close_scope rhs
+    | close_clause_scope
+        (Transformed_Clause_Scope close_scope) rhs =
+        close_scope rhs
+
+  fun scope_wrapper_operation
+      (Alias_Scope_Wrapper operation) = operation
+    | scope_wrapper_operation
+        (Nested_Scope_Wrapper operation) = operation
+    | scope_wrapper_operation
+        (Transformed_Scope_Wrapper operation) = operation
+
+  fun scope_wrapper_is_nested
+      (Nested_Scope_Wrapper _) = true
+    | scope_wrapper_is_nested _ = false
+
+  fun scope_wrapper_is_transformed
+      (Transformed_Scope_Wrapper _) = true
+    | scope_wrapper_is_transformed _ = false
+
+  fun clause_scope_restarts_mismatch
+      Direct_Clause_Scope = false
+    | clause_scope_restarts_mismatch
+        (Alias_Clause_Scope _) = false
+    | clause_scope_restarts_mismatch
+        (Nested_Clause_Scope _) = true
+    | clause_scope_restarts_mismatch
+        (Transformed_Clause_Scope _) = true
+
+  fun clause_scope_stays_continuation_local
+      (Transformed_Clause_Scope _) = true
+    | clause_scope_stays_continuation_local _ = false
+
+  fun clause_scope_closes_nested_match
+      (Nested_Clause_Scope _) = true
+    | clause_scope_closes_nested_match _ = false
+
+  fun clause_scope_restarts_alternative
+      (Nested_Clause_Scope _) = true
+    | clause_scope_restarts_alternative
+        (Transformed_Clause_Scope _) = true
+    | clause_scope_restarts_alternative _ = false
+
+  fun extend_generated_test generated NONE = SOME generated
+    | extend_generated_test generated (SOME prior) =
+        SOME (T.binary And prior generated)
 
   fun alias_wrapper environment expression binder_sig rhs =
     let
@@ -1196,8 +1685,7 @@ struct
                            T.binary Eq (T.literal temporary)
                              (T.literal (R.constructor_term info))
                        in
-                         (Basic_Generated temporary,
-                          [(Structural_Generated_Guard, guard)], [])
+                         (Basic_Generated temporary, [guard], [])
                        end
                      else
                        normalize_pattern_for_nested
@@ -1228,8 +1716,13 @@ struct
                              matched_expression matched_pattern
                              rhs T.undefined_value
                        in
-                         (Basic_Generated temporary,
-                          [(Local_Generated_Guard, guard)], [wrapper])
+                         (Basic_Generated temporary, [guard],
+                          [(case argument of
+                              Case_Slice_Suffix _ =>
+                                Transformed_Scope_Wrapper
+                                  wrapper
+                            | _ =>
+                                Nested_Scope_Wrapper wrapper)])
                        end
                      else
                        normalize_pattern_for_nested
@@ -1276,11 +1769,13 @@ struct
                compiler ctxt environment expression inner
            fun wrap rhs =
              alias_wrapper environment expression binder_sig rhs
-         in (basic, guards, wrappers @ [wrap]) end
+         in
+           (basic, guards,
+            wrappers @ [Alias_Scope_Wrapper wrap])
+         end
      | Case_Value (literal, _) =>
          (Basic_Wild NONE,
-          [(Local_Generated_Guard,
-            T.binary Eq expression (T.literal literal))],
+          [T.binary Eq expression (T.literal literal)],
           [])
      | Case_Range (kind, lower, upper, _) =>
          let
@@ -1292,9 +1787,8 @@ struct
                expression upper
          in
            (Basic_Wild NONE,
-            [(Local_Generated_Guard,
-              T.binary And
-                (T.binary Ge expression lower) upper_guard)],
+            [T.binary And
+              (T.binary Ge expression lower) upper_guard],
             [])
          end
      | Case_Slice_Suffix reversed_suffix =>
@@ -1310,8 +1804,8 @@ struct
                reversed_expression reversed_suffix
                rhs T.undefined_value
          in
-           (Basic_Wild NONE,
-            [(Local_Generated_Guard, guard)], [wrap])
+           (Basic_Wild NONE, [guard],
+            [Transformed_Scope_Wrapper wrap])
          end
      | _ =>
          normalize_pattern_for_nested
@@ -1323,973 +1817,707 @@ struct
       val (basic_pattern, generated_guards, wrappers) =
         normalize_extended_pattern
           compiler ctxt environment (T.literal value) pattern
-      val abstraction =
-        bind_basic_pattern ctxt environment basic_pattern
-      val generated_guard =
-        fold extend_generated_guard generated_guards NONE
-      fun wrap rhs =
-        fold_rev (fn wrapper => fn body => wrapper body)
-          wrappers rhs
-      (* A direct wildcard needs no case branch. An irrefutable binder still needs its abstraction:
-         treating those cases alike leaks the binder as a free schematic argument. *)
-      val (direct, irrefutable) =
-        (case basic_pattern of
-           Basic_Wild _ => (true, true)
-         | Basic_Bind _ => (false, true)
-         | Basic_Generated _ => (false, true)
-         | _ => (false, false))
+      val generated_test =
+        fold extend_generated_test generated_guards NONE
+      val scope =
+        if null wrappers
+        then Direct_Clause_Scope
+        else
+          let
+            val close_scope =
+              fn rhs =>
+                fold_rev
+                  (fn wrapper => fn body =>
+                    scope_wrapper_operation wrapper body)
+                  wrappers rhs
+          in
+            if List.exists scope_wrapper_is_transformed
+                wrappers
+            then Transformed_Clause_Scope close_scope
+            else if List.exists scope_wrapper_is_nested
+                wrappers
+            then Nested_Clause_Scope close_scope
+            else Alias_Clause_Scope close_scope
+          end
     in
-      (direct, irrefutable, abstraction, generated_guard, wrap)
-    end
-
-  fun normalize_case_arm compiler ctxt value
-      (pattern, environment, source_guard, rhs) =
-    let
-      val (direct, irrefutable, abstraction, generated_guard, wrap) =
-        normalize_case_alternative compiler ctxt value
-          (pattern, environment)
-      val guard =
-        (case generated_guard of
-           NONE =>
-             Option.map
-               (fn source =>
-                 (Local_Generated_Guard, source))
-               source_guard
-         | SOME (role, generated) =>
-             (case source_guard of
-                NONE => SOME (role, generated)
-              | SOME source =>
-                  SOME
-                    (role,
-                     T.binary And source generated)))
-    in
-      (direct, irrefutable, abstraction, guard, wrap rhs)
+      Case_Clause
+        {structural_pattern =
+           structural_pattern_of_basic
+             ctxt environment basic_pattern,
+         generated_test = generated_test,
+         scope = scope}
     end
 
   fun compile_pattern_case ctxt scrutinee arms =
+        compile_decision_case ctxt NONE scrutinee
+          (map
+            (fn (pattern, environment, source_guard, body) =>
+              {patterns = [pattern],
+               environment = environment,
+               source_guard = source_guard,
+               body = body})
+            arms)
+
+  and compile_decision_case ctxt explicit_fallback scrutinee source_arms =
     let
       val value =
         Free
           ("_urust_case_value_" ^
             string_of_int (serial ()), dummyT)
-      val normalized =
-        map (normalize_case_arm compile_pattern_case ctxt value) arms
 
-      fun case_term branches =
-        T.case_guard T.true_value value
+      fun case_term_on subject branches =
+        T.case_guard T.true_value subject
           (fold_rev T.case_cons branches T.case_nil)
 
       fun generated_wild rhs =
         bind_basic_pattern ctxt R.empty_environment
           (Basic_Wild NONE) rhs
 
-      val undefined = T.undefined_value
+      val terminal_fallback =
+        the_default T.undefined_value explicit_fallback
 
-      fun compile_branches [] =
-            error "urust_expr: internal empty case branch list"
-        | compile_branches
-            [(direct, _, abstraction, NONE, rhs)] =
-            if direct then rhs
-            else case_term [abstraction rhs]
-        | compile_branches
-            [(direct, irrefutable, abstraction,
-                SOME generated_guard, rhs)] =
-            if direct then
-              T.conditional
-                (generated_guard_term generated_guard)
-                rhs undefined
-            else if irrefutable then
-              case_term
-                [abstraction
-                  (T.conditional
-                    (generated_guard_term generated_guard)
-                    rhs undefined)]
-            else
-              let val fallback = undefined in
-                case_term
-                  [abstraction
-                    (T.conditional
-                      (generated_guard_term generated_guard)
-                      rhs fallback),
-                   generated_wild fallback]
-              end
-        | compile_branches
-            ((direct, irrefutable, abstraction, guard, rhs) :: rest) =
+      val source_arms_with_fallback =
+        source_arms @
+          (case explicit_fallback of
+             NONE => []
+           | SOME body =>
+               [{patterns = [Case_Wild Position.none],
+                 environment = R.empty_environment,
+                 source_guard = NONE,
+                 body = body}])
+
+      fun normalize_arm
+          (arm_index,
+           {patterns, environment, source_guard, body} :
+             decision_source_arm) =
+        let
+          fun normalize_alternative
+              (alternative_index, pattern) =
+            Alternative_Plan
+              {position =
+                 {arm_index = arm_index,
+                  alternative_index = alternative_index},
+               clause =
+                 normalize_case_alternative
+                   compile_pattern_case ctxt value
+                   (pattern, environment)}
+        in
+          Arm_Plan
+            {arm_index = arm_index,
+             alternatives =
+               map_index normalize_alternative patterns,
+             source_guard = source_guard,
+             body = body}
+        end
+
+      val arm_plans =
+        map_index normalize_arm source_arms_with_fallback
+
+      fun rows_of_arm
+          (Arm_Plan
+            {alternatives, source_guard, body, ...}) =
+        map
+          (fn Alternative_Plan
+                {position, clause} =>
+            Decision_Row
+              {position = position,
+               clause = clause,
+               source_guard = source_guard,
+               body = body})
+          alternatives
+
+      val rows = maps rows_of_arm arm_plans
+
+      fun unconditional_total_row
+          (Decision_Row
+            {clause =
+               Case_Clause
+                 {structural_pattern, generated_test, ...},
+             source_guard, ...}) =
+        is_none generated_test andalso
+          is_none source_guard andalso
+          structural_is_total structural_pattern
+
+      fun validate_row_reachability [] = ()
+        | validate_row_reachability [_] = ()
+        | validate_row_reachability (row :: rest) =
+            if unconditional_total_row row
+            then error "clauses are redundant"
+            else validate_row_reachability rest
+
+      (* The explicit false branch used by matches! is a real final decision row. Keeping this
+         elementary usefulness check in the typed matrix preserves the legacy redundancy diagnostic
+         for `_` and binder patterns instead of optimizing the unreachable row away. *)
+      val _ = validate_row_reachability rows
+
+      val root_state =
+        Decision_State
+          {region = Structural_Any NONE,
+           subject =
+             Structural_Subject
+               {value = value, children = []},
+           exclusions = []}
+
+      fun row_arm
+          (Decision_Row
+            {position = {arm_index, ...}, ...}) =
+        arm_index
+
+      fun row_position
+          (Decision_Row {position, ...}) =
+        position
+
+      fun row_pattern
+          (Decision_Row
+            {clause =
+               Case_Clause {structural_pattern, ...}, ...}) =
+        structural_pattern
+
+      fun row_has_generated_test
+          (Decision_Row
+            {clause =
+               Case_Clause {generated_test, ...}, ...}) =
+        is_some generated_test
+
+      fun row_has_source_guard
+          (Decision_Row {source_guard, ...}) =
+        is_some source_guard
+
+      fun row_scope
+          (Decision_Row
+            {clause = Case_Clause {scope, ...}, ...}) =
+        scope
+
+      fun row_requires_root_scope
+          (Decision_Row
+            {clause = Case_Clause {scope, ...}, ...}) =
+        clause_scope_stays_continuation_local scope
+
+      fun row_closes_nested_match
+          (Decision_Row
+            {clause = Case_Clause {scope, ...}, ...}) =
+        clause_scope_closes_nested_match scope
+
+      fun row_shape row =
+        erase_structural_bindings (row_pattern row)
+
+      fun drop_source_arm arm_index rows =
+        drop_prefix (fn row => row_arm row = arm_index) rows
+
+      fun same_source_position
+          ({arm_index = left_arm,
+            alternative_index = left_alternative} : source_position,
+           {arm_index = right_arm,
+            alternative_index = right_alternative} : source_position) =
+        left_arm = right_arm andalso
+          left_alternative = right_alternative
+
+      fun later_alternative_of_same_arm
+          ({arm_index = earlier_arm,
+            alternative_index = earlier_alternative} : source_position,
+           {arm_index = later_arm,
+            alternative_index = later_alternative} : source_position) =
+        earlier_arm = later_arm andalso
+          earlier_alternative < later_alternative
+
+      fun exclusion_position
+          (Decision_Exclusion {position, ...}) = position
+        | exclusion_position
+            (Nested_Group_Exclusion {position, ...}) = position
+
+      fun exclusion_pattern
+          (Decision_Exclusion {pattern, ...}) = pattern
+        | exclusion_pattern
+            (Nested_Group_Exclusion {pattern, ...}) = pattern
+
+      fun excluded_region exclusions position region =
+        List.exists
+          (fn exclusion =>
+            same_source_position
+              (exclusion_position exclusion, position) andalso
+              structural_semantically_subsumes
+                (exclusion_pattern exclusion, region))
+          exclusions
+
+      fun nested_group_requests_root exclusions position =
+        List.exists
+          (fn Nested_Group_Exclusion
+                {position = earlier, ...} =>
+                  later_alternative_of_same_arm
+                    (earlier, position)
+            | Decision_Exclusion _ => false)
+          exclusions
+
+      fun row_intersection
+          (Decision_State {region, exclusions, ...}) row =
+        (case structural_intersection
+            (region, row_shape row) of
+           NONE => NONE
+         | SOME matched =>
+             if excluded_region exclusions
+                 (row_position row) matched
+             then NONE
+             else SOME matched)
+
+      fun restart_at_root
+          (Decision_State {exclusions, ...}) =
+        let
+          val Decision_State {subject, ...} = root_state
+        in
+          Decision_State
+            {region = Structural_Any NONE,
+             subject = subject,
+             exclusions = exclusions}
+        end
+
+      fun first_applicable _ [] = NONE
+        | first_applicable state (row :: rest) =
             let
-              val fallback = compile_branches rest
-              val rhs' =
-                (case guard of
-                   SOME guard =>
-                     T.conditional
-                       (generated_guard_term guard)
-                       rhs fallback
-                 | NONE => rhs)
+              val decision_state =
+                (case state of
+                   Decision_State {exclusions, ...} =>
+                     if nested_group_requests_root exclusions
+                         (row_position row)
+                     then restart_at_root state
+                     else state)
             in
-              if direct then rhs'
-              else if irrefutable then
-                case_term [abstraction rhs']
-              else
-                case_term
-                  [abstraction rhs',
-                   generated_wild fallback]
+            (case row_intersection decision_state row of
+               SOME matched =>
+                 SOME
+                   (Applicable_Row
+                     {row = row,
+                      decision_state = decision_state,
+                      remaining_rows = rest})
+             | NONE =>
+                 if clause_scope_restarts_mismatch
+                     (row_scope row)
+                 then
+                   let val restarted = restart_at_root state
+                   in
+                     (case row_intersection restarted row of
+                        SOME matched =>
+                          SOME
+                            (Applicable_Row
+                              {row = row,
+                               decision_state = restarted,
+                               remaining_rows = rest})
+                      | NONE =>
+                          first_applicable state rest)
+                   end
+                 else first_applicable state rest)
             end
 
+      fun restart_with_exclusion
+          (Decision_State {exclusions, ...})
+          position pattern =
+        let
+          val Decision_State {subject, ...} = root_state
+        in
+          Decision_State
+            {region = Structural_Any NONE,
+             subject = subject,
+             exclusions =
+               Decision_Exclusion
+                 {position = position, pattern = pattern} ::
+               exclusions}
+        end
+
+      fun add_exclusion
+          (Decision_State {region, subject, exclusions})
+          position pattern =
+        Decision_State
+          {region = region,
+           subject = subject,
+           exclusions =
+             Decision_Exclusion
+               {position = position, pattern = pattern} ::
+             exclusions}
+
+      fun continuation_requires_root_scope
+          (Decision_Row
+            {clause = Case_Clause {scope, ...}, ...} :: _) =
+            clause_scope_restarts_mismatch scope
+        | continuation_requires_root_scope [] = false
+
+      fun matched_states
+          (state as Decision_State {exclusions, ...})
+          scope row_shape candidate_subject =
+        Selected_Row_State
+          {selected_subject = candidate_subject,
+           alternative_continuation =
+             if clause_scope_restarts_alternative scope
+             then root_state
+             else
+               Decision_State
+                 {region = row_shape,
+                  subject = candidate_subject,
+                  exclusions = exclusions},
+           arm_continuation =
+             if structural_is_any row_shape
+             then state
+             else root_state}
+
+      fun subsuming_states
+          (state as
+            Decision_State {subject, exclusions, ...})
+          scope row_shape =
+        Selected_Row_State
+          {selected_subject = subject,
+           alternative_continuation =
+             if clause_scope_restarts_alternative scope
+             then root_state
+             else
+               Decision_State
+                 {region = row_shape,
+                  subject = subject,
+                  exclusions = exclusions},
+           arm_continuation =
+             if structural_is_any row_shape
+             then state
+             else root_state}
+
+      fun close_selected_clause
+          (Case_Clause
+            {structural_pattern, generated_test, scope})
+          selected_subject source_guard body
+          alternative_failure arm_failure =
+        let
+          val bindings =
+            structural_bindings
+              structural_pattern selected_subject
+          val specialize = specialize_term bindings
+          val guarded_body =
+            (case source_guard of
+               NONE => body
+             | SOME guard =>
+                 T.conditional guard body arm_failure)
+          val scoped_body =
+            specialize
+              (close_clause_scope scope guarded_body)
+        in
+          (case generated_test of
+             NONE => scoped_body
+           | SOME test =>
+               T.conditional
+                 (specialize test)
+                 scoped_body alternative_failure)
+        end
+
+      fun compile_rows state remaining =
+        (case first_applicable state remaining of
+           NONE => terminal_fallback
+         | SOME
+             (Applicable_Row
+               {row =
+                  (row as
+                    Decision_Row
+                      {clause =
+                         (clause as
+                           Case_Clause
+                             {structural_pattern, scope, ...}),
+                       source_guard, body,
+                       position =
+                         (position as {arm_index, ...})}),
+                decision_state, remaining_rows = rest,
+                ...}) =>
+             let
+               val shape =
+                 erase_structural_bindings structural_pattern
+
+               fun compile_matched
+                   (Selected_Row_State
+                     {selected_subject,
+                      alternative_continuation,
+                      arm_continuation}) =
+                 let
+                   val next_alternative =
+                     compile_rows alternative_continuation rest
+                   val next_arm =
+                     compile_rows arm_continuation
+                       (drop_source_arm arm_index rest)
+                 in
+                   close_selected_clause clause
+                     selected_subject source_guard body
+                     next_alternative next_arm
+                 end
+             in
+               if structural_semantically_subsumes
+                   (shape,
+                    (case decision_state of
+                       Decision_State {region, ...} => region))
+               then
+                 compile_matched
+                   (subsuming_states
+                     decision_state scope shape)
+               else
+                 let
+                   val Opened_Pattern
+                     {abstraction, subject = candidate_subject} =
+                       fresh_pattern_subject ctxt shape
+                   val selected_state =
+                     matched_states decision_state scope shape
+                       candidate_subject
+                   val success =
+                     compile_matched selected_state
+                   val failure =
+                     compile_rows
+                       ((if continuation_requires_root_scope rest
+                         then restart_with_exclusion
+                         else add_exclusion)
+                         decision_state position shape) rest
+                 in
+                   case_term_on
+                     (case decision_state of
+                        Decision_State {subject, ...} =>
+                          subject_value subject)
+                     [abstraction success,
+                      generated_wild failure]
+                 end
+             end)
+
+      fun row_exclusion row pattern =
+        Decision_Exclusion
+          {position = row_position row, pattern = pattern}
+
+      fun nested_group_exclusion row pattern =
+        Nested_Group_Exclusion
+          {position = row_position row, pattern = pattern}
+
+      fun add_structural_group row shape [] =
+            let val exclusion = row_exclusion row shape
+            in
+              [Structural_Group
+                {pattern = shape,
+                 catchall_exclusions = [exclusion],
+                 (* Nested extraction owns a complete root-level continuation. Moving to a later
+                    outer group therefore excludes this exact alternative but preserves the fact
+                    that later alternatives of the same arm must reopen the root. Direct generated
+                    tests and transformed overlapping patterns remain available for ordered
+                    rechecks in later groups. *)
+                 following_exclusion =
+                   if row_has_generated_test row
+                   then
+                     if row_closes_nested_match row
+                     then SOME
+                       (nested_group_exclusion row shape)
+                     else NONE
+                   else SOME exclusion}]
+            end
+        | add_structural_group row shape
+            (Structural_Group
+              {pattern, catchall_exclusions,
+               following_exclusion} :: rest) =
+            if structural_same_shape (pattern, shape)
+            then
+              Structural_Group
+                {pattern = pattern,
+                 catchall_exclusions =
+                   if row_has_generated_test row
+                   then
+                     row_exclusion row shape ::
+                       catchall_exclusions
+                   else catchall_exclusions,
+                 following_exclusion =
+                   following_exclusion} ::
+                rest
+            else
+              Structural_Group
+                {pattern = pattern,
+                 catchall_exclusions =
+                   catchall_exclusions,
+                 following_exclusion =
+                   following_exclusion} ::
+                add_structural_group row shape rest
+
+      fun root_driver () =
+        Structural_Group
+          {pattern = Structural_Any NONE,
+           catchall_exclusions = [],
+           following_exclusion = NONE}
+
+      fun ensure_root_driver NONE = SOME (root_driver ())
+        | ensure_root_driver catchall = catchall
+
+      fun install_source_catchall row NONE =
+            SOME
+              (Structural_Group
+                {pattern = row_pattern row,
+                 catchall_exclusions = [],
+                 following_exclusion = NONE})
+        | install_source_catchall row
+            (SOME
+              (group as
+                Structural_Group {pattern, ...})) =
+            (case (pattern, row_pattern row) of
+               (Structural_Any NONE,
+                bound as Structural_Any (SOME _)) =>
+                 SOME
+                   (Structural_Group
+                     {pattern = bound,
+                      catchall_exclusions = [],
+                      following_exclusion = NONE})
+             | _ => SOME group)
+
+      fun add_group row
+          (Outer_Group_Plan
+            {groups, catchall, phase}) =
+        let
+          val shape = row_shape row
+          val active_phase =
+            (case phase of
+               Hoist_Guarded_Arm guarded_arm =>
+                 if row_arm row = guarded_arm
+                 then phase
+                 else Root_Continuation_Only
+             | _ => phase)
+          val (groups', catchall') =
+            (case active_phase of
+               Root_Continuation_Only =>
+                 if structural_is_any shape
+                 then
+                   (groups,
+                    install_source_catchall row catchall)
+                 else
+                   (groups, ensure_root_driver catchall)
+             | _ =>
+                 if structural_is_any shape
+                 then
+                   (groups,
+                    install_source_catchall row catchall)
+                 else if row_requires_root_scope row
+                 then
+                   (groups, ensure_root_driver catchall)
+                 else
+                   (add_structural_group row shape groups,
+                    catchall))
+          val phase' =
+            if row_requires_root_scope row
+            then Root_Continuation_Only
+            else
+              (case active_phase of
+                 Root_Continuation_Only =>
+                   Root_Continuation_Only
+               | Hoist_Guarded_Arm _ =>
+                   active_phase
+               | Hoist_Outer_Groups =>
+                   if row_has_source_guard row andalso
+                      (not (structural_is_any shape) orelse
+                       null groups)
+                   then Hoist_Guarded_Arm (row_arm row)
+                   else Hoist_Outer_Groups)
+        in
+          Outer_Group_Plan
+            {groups = groups',
+             catchall = catchall',
+             phase = phase'}
+        end
+
+      val Outer_Group_Plan
+        {groups = structural_groups,
+         catchall = catchall_group, ...} =
+        fold add_group rows
+          (Outer_Group_Plan
+            {groups = [], catchall = NONE,
+             phase = Hoist_Outer_Groups})
+
+      val structural_patterns =
+        map
+          (fn Structural_Group {pattern, ...} => pattern)
+          structural_groups
+
+      val structural_exclusions =
+        maps
+          (fn Structural_Group
+                {catchall_exclusions, ...} =>
+            catchall_exclusions)
+          structural_groups
+
+      val outer_catchall =
+        (case catchall_group of
+           NONE => NONE
+         | SOME group =>
+             if patterns_cover_all structural_patterns
+             then NONE
+             else SOME group)
+
+      fun compile_outer_pattern exclusions pattern =
+        let
+          val Opened_Pattern {abstraction, subject} =
+            fresh_pattern_subject ctxt pattern
+          val state =
+            Decision_State
+              {region = pattern,
+               subject = subject,
+               exclusions = exclusions}
+        in
+          abstraction (compile_rows state rows)
+        end
+
+      fun compile_outer_group exclusions
+          (Structural_Group {pattern, ...}) =
+        compile_outer_pattern exclusions pattern
+
+      fun compile_structural_groups [] _ = []
+        | compile_structural_groups
+            ((group as
+                Structural_Group
+                  {following_exclusion, ...}) :: rest)
+            exclusions =
+            compile_outer_group exclusions group ::
+              compile_structural_groups rest
+                (case following_exclusion of
+                   NONE => exclusions
+                 | SOME exclusion =>
+                     exclusion :: exclusions)
+
+      fun compile_outer_catchall exclusions
+          (Structural_Group {pattern, ...}) =
+        (case pattern of
+           Structural_Any NONE =>
+             let
+               val Decision_State {subject, ...} = root_state
+               val state =
+                 Decision_State
+                   {region = pattern,
+                    subject = subject,
+                    exclusions = exclusions}
+             in generated_wild (compile_rows state rows) end
+         | Structural_Any (SOME _) =>
+             compile_outer_pattern exclusions pattern
+         | Structural_Node _ =>
+             error
+               "urust_expr: internal non-wild outer catchall")
+
+      val outer_branches =
+        compile_structural_groups structural_groups [] @
+          (case outer_catchall of
+             NONE => []
+           | SOME group =>
+               [compile_outer_catchall
+                 structural_exclusions group])
+
       val selector =
-        if List.exists
-            (fn (_, _, _, guard, _) => is_some guard) normalized
-        then compile_branches normalized
-        else
-          case_term
-            (map
-              (fn (_, _, abstraction, _, rhs) =>
-                abstraction rhs) normalized)
-    in T.bind scrutinee (Term.lambda value selector) end
+        (case outer_branches of
+           [] => terminal_fallback
+         | _ =>
+             case_term_on value outer_branches)
+    in
+      T.bind scrutinee (Term.lambda value selector)
+    end
 
   fun compile_case_internal ctxt explicit_fallback scrutinee arms =
     let
-      val value =
-        Free
-          ("_urust_case_value_" ^
-            string_of_int (serial ()), dummyT)
-
-      fun case_term_on scrutinee branches =
-        T.case_guard T.true_value scrutinee
-          (fold_rev T.case_cons branches T.case_nil)
-
-      fun case_term branches =
-        case_term_on value branches
-
-      fun generated_wild rhs =
-        bind_basic_pattern ctxt R.empty_environment
-          (Basic_Wild NONE) rhs
-
-      fun normalize_source_arm
+      fun source_arm
           (Prepared_Case_Arm
-            {patterns, environment, binders, ...},
-           source_guard, rhs) =
-        {alternatives =
-           map
-             (normalize_case_alternative
-               compile_pattern_case ctxt value)
-             (map (fn pattern => (pattern, environment)) patterns),
-         binders = binders,
+            {patterns, environment, ...},
+           source_guard, body) =
+        {patterns = patterns,
+         environment = environment,
          source_guard = source_guard,
-         rhs = rhs}
-
-      val normalized = map normalize_source_arm arms
-
-      fun has_generated_guard
-          {alternatives, source_guard, ...} =
-        is_some source_guard orelse
-          List.exists
-            (fn (_, _, _, guard, _) => is_some guard)
-            alternatives
-
-      fun handler_term binders source_guard rhs next_arm =
-        fold_rev Term.lambda binders
-          (case source_guard of
-             SOME guard => T.conditional guard rhs next_arm
-           | NONE => rhs)
-
-      fun handler_call handler binders =
-        Term.list_comb (handler, binders)
-
-      val fallback =
-        the_default T.undefined_value explicit_fallback
-
-      fun compile_alternatives [] _ _ _ =
-            error "urust_expr: internal empty source-arm alternative list"
-        | compile_alternatives
-            [(direct, irrefutable, abstraction, generated_guard, wrap)]
-            handler binders next_arm =
-            let
-              val success = wrap (handler_call handler binders)
-              val guarded =
-                (case generated_guard of
-                   SOME guard =>
-                     T.conditional
-                       (generated_guard_term guard)
-                       success next_arm
-                 | NONE => success)
-            in
-              if direct then guarded
-              else if irrefutable then
-                case_term [abstraction guarded]
-              else
-                case_term
-                  [abstraction guarded,
-                   generated_wild next_arm]
-            end
-        | compile_alternatives
-            ((direct, irrefutable, abstraction,
-                generated_guard, wrap) :: rest)
-            handler binders next_arm =
-            let
-              val next_alternative =
-                compile_alternatives rest handler binders next_arm
-              val success = wrap (handler_call handler binders)
-              val guarded =
-                (case generated_guard of
-                   SOME guard =>
-                     T.conditional
-                       (generated_guard_term guard)
-                       success next_alternative
-                 | NONE => success)
-            in
-              if direct then guarded
-              else if irrefutable then
-                case_term [abstraction guarded]
-              else
-                case_term
-                  [abstraction guarded,
-                   generated_wild next_alternative]
-            end
-
-      fun alternative_requires_structural_decision
-          (_, _, _, SOME guard, _) =
-            generated_guard_is_structural guard
-        | alternative_requires_structural_decision _ = false
-
-      val requires_structural_decision =
-        List.exists
-          (fn {alternatives, ...} =>
-            List.exists
-              alternative_requires_structural_decision
-              alternatives)
-          normalized
-
-      fun dest_flat_branch term =
-        let
-          fun dest abstractions
-                (Const (name, _) $ Abs (binder_name, typ, body)) =
-                if name = \<^const_name>\<open>case_abs\<close>
-                then dest ((binder_name, typ) :: abstractions) body
-                else
-                  error
-                    "urust_expr: internal malformed flat case abstraction"
-            | dest abstractions
-                (Const (name, _) $ pattern $ body) =
-                if name = \<^const_name>\<open>case_elem\<close>
-                then (rev abstractions, pattern, body)
-                else
-                  error
-                    "urust_expr: internal malformed flat case element"
-            | dest _ _ =
-                error "urust_expr: internal malformed flat case branch"
-        in dest [] term end
-
-      fun rebuild_flat_branch abstractions pattern body =
-        fold_rev
-          (fn (binder_name, typ) => fn inner =>
-            T.case_abstraction (Abs (binder_name, typ, inner)))
-          abstractions (T.case_element pattern body)
-
-      fun dest_flat_payload
-            (Const (outer_name, _) $ source_guard $
-              (Const (inner_name, _) $ generated_guard $ success)) =
-            if outer_name = \<^const_name>\<open>Pair\<close> andalso
-               inner_name = \<^const_name>\<open>Pair\<close>
-            then (source_guard, generated_guard, success)
-            else error "urust_expr: internal malformed flat case payload"
-        | dest_flat_payload _ =
-            error "urust_expr: internal malformed flat case payload"
-
-      fun make_flat_clause abstraction source_guard generated_guard success =
-        let
-          val (packed_source_guard, has_source_guard) =
-            (case source_guard of
-               NONE => (T.literal T.true_value, false)
-             | SOME guard => (guard, true))
-          val (packed_generated_guard, generated_role) =
-            (case generated_guard of
-               NONE => (T.literal T.true_value, NONE)
-             | SOME (role, guard) => (guard, SOME role))
-          val packed =
-            abstraction
-              (T.pair packed_source_guard
-                (T.pair packed_generated_guard success))
-          val (abstractions, pattern, payload) =
-            dest_flat_branch packed
-          val (source_guard', generated_guard', success') =
-            dest_flat_payload payload
-          fun rebuild body =
-            rebuild_flat_branch abstractions pattern body
-          val shape = rebuild T.undefined_value
-        in
-          (shape, rebuild, abstractions, pattern,
-           (if has_source_guard then SOME source_guard' else NONE,
-            Option.map
-              (fn role => (role, generated_guard'))
-              generated_role,
-            success'))
-        end
-
-      fun index_flat_clause alternative_index
-          (shape, rebuild, abstractions, pattern, payload) =
-        (shape, rebuild, abstractions, pattern,
-          (alternative_index, payload))
-
-      fun same_flat_shape (left, right) =
-        Term.aconv (left, right)
-
-      fun remove_flat_group shape [] = (NONE, [])
-        | remove_flat_group shape
-            ((group as (candidate, _, _, _, _)) :: rest) =
-            if same_flat_shape (shape, candidate)
-            then (SOME group, rest)
-            else
-              let
-                val (found, remaining) =
-                  remove_flat_group shape rest
-              in (found, group :: remaining) end
-
-      (* Processing alternatives from right to left makes prepending both the clause and its first
-         occurrence group linear while retaining source order. Moving an existing group to the front
-         is necessary when another constructor alternative occurred between two equal outer shapes. *)
-      fun prepend_flat_clause
-          (shape, rebuild, abstractions, pattern, payload) groups =
-        let
-          val (existing, remaining) =
-            remove_flat_group shape groups
-          val clauses =
-            (case existing of
-               SOME (_, _, _, _, later) => payload :: later
-             | NONE => [payload])
-        in
-          (shape, rebuild, abstractions, pattern, clauses) ::
-            remaining
-        end
-
-      fun group_flat_clauses clauses =
-        fold_rev prepend_flat_clause clauses []
-
-      fun same_optional_term (NONE, NONE) = true
-        | same_optional_term (SOME left, SOME right) =
-            Term.aconv (left, right)
-        | same_optional_term _ = false
-
-      (* Current source-arm groups precede later source-arm groups. Equal outer patterns are combined
-         into one group, with their source entries concatenated in source order. *)
-      fun merge_flat_groups [] later = later
-        | merge_flat_groups
-            ((shape, rebuild, abstractions, pattern, sources) :: current)
-            later =
-            let
-              val (existing, remaining) =
-                remove_flat_group shape later
-              val sources' =
-                (case existing of
-                   SOME (_, _, _, _, later_sources) =>
-                     sources @ later_sources
-                 | NONE => sources)
-            in
-              (shape, rebuild, abstractions, pattern, sources') ::
-                merge_flat_groups current remaining
-            end
-
-      fun is_flat_catchall abstractions pattern =
-        (case (abstractions, pattern) of
-           ([_], Bound 0) => true
-         | _ => false)
-
-      fun is_flat_catchall_group
-          (_, _, abstractions, pattern, _) =
-        is_flat_catchall abstractions pattern
-
-      fun source_position_less
-          ((left_arm, left_alternative),
-           (right_arm, right_alternative)) =
-        left_arm < right_arm orelse
-          (left_arm = right_arm andalso
-            left_alternative < right_alternative)
-
-      fun source_position_ord (left, right) =
-        if source_position_less (left, right) then LESS
-        else if source_position_less (right, left) then GREATER
-        else EQUAL
-
-      fun flat_group_sources (_, _, _, _, sources) =
-        sources
-
-      fun flat_group_pattern (_, _, _, pattern, _) =
-        pattern
-
-      fun flat_group_shape (shape, _, _, _, _) =
-        shape
-
-      fun flat_patterns_overlap (Bound _, _) = true
-        | flat_patterns_overlap (_, Bound _) = true
-        | flat_patterns_overlap (left, right) =
-            let
-              val (left_head, left_arguments) =
-                Term.strip_comb left
-              val (right_head, right_arguments) =
-                Term.strip_comb right
-            in
-              Term.aconv (left_head, right_head) andalso
-              length left_arguments = length right_arguments andalso
-              ListPair.all flat_patterns_overlap
-                (left_arguments, right_arguments)
-            end
-
-      fun applicable_flat_groups all_groups
-          (branch_group as
-            (_, _, abstractions, pattern, _)) =
-        if is_flat_catchall abstractions pattern
-        then [branch_group]
-        else
-          filter
-            (fn source_group =>
-              flat_patterns_overlap
-                (flat_group_pattern branch_group,
-                 flat_group_pattern source_group))
-            all_groups
-
-      fun flat_decisions_after all_groups branch_group source_position =
-        let
-          fun collect source_group =
-            fold
-              (fn source as (position, _, _, _) => fn decisions =>
-                if source_position_less
-                    (source_position, position)
-                then (source_group, source) :: decisions
-                else decisions)
-              (flat_group_sources source_group)
-          fun decision_ord
-              ((_, (left, _, _, _)),
-               (_, (right, _, _, _))) =
-            source_position_ord (left, right)
-        in
-          sort decision_ord
-            (fold collect
-            (applicable_flat_groups all_groups branch_group)
-            [])
-        end
-
-      fun specialize_flat_term
-          (branch_shape, _, _, branch_pattern, _)
-          (source_shape, _, source_abstractions,
-           source_pattern, _)
-          term =
-        if same_flat_shape (branch_shape, source_shape)
-        then term
-        else if
-          is_flat_catchall source_abstractions source_pattern
-        then Term.subst_bound (branch_pattern, term)
-        else
-          error
-            "urust_expr: internal inapplicable flat source group"
-
-      fun can_specialize_flat_group branch_group source_group =
-        same_flat_shape
-          (flat_group_shape branch_group,
-           flat_group_shape source_group) orelse
-        is_flat_catchall_group source_group
-
-      datatype flat_arm_guard =
-          Flat_Unguarded_Arm
-        | Flat_Guarded_Arm
-
-      fun guard_mode_matches Flat_Unguarded_Arm NONE = true
-        | guard_mode_matches Flat_Guarded_Arm (SOME _) = true
-        | guard_mode_matches _ _ = false
-
-      fun next_flat_arm all_groups branch_group source_position =
-        let
-          val decisions =
-            flat_decisions_after
-              all_groups branch_group source_position
-
-          fun take_arm _ [] = []
-            | take_arm source_arm
-                ((decision as
-                  (_, ((candidate_arm, _), _, _, _))) :: rest) =
-                if source_arm = candidate_arm
-                then decision :: take_arm source_arm rest
-                else []
-        in
-          (case decisions of
-             [] => NONE
-           | (_, ((source_arm, _), first_guard, _, _)) :: _ =>
-               let
-                 val guard_mode =
-                   (case first_guard of
-                      NONE => Flat_Unguarded_Arm
-                    | SOME _ => Flat_Guarded_Arm)
-                 val arm_decisions =
-                   take_arm source_arm decisions
-                 val _ =
-                   if List.all
-                       (fn (_, (_, guard, _, _)) =>
-                         guard_mode_matches guard_mode guard)
-                       arm_decisions
-                   then ()
-                   else
-                     error
-                       "urust_expr: internal inconsistent source-arm guard"
-               in
-                 SOME
-                   (source_arm, guard_mode, arm_decisions)
-               end)
-        end
-
-      fun matched_flat_group branch_group source_group =
-        if can_specialize_flat_group
-            branch_group source_group
-        then branch_group
-        else source_group
-
-      fun adapt_flat_source_term branch_group source_group term =
-        if can_specialize_flat_group
-            branch_group source_group
-        then
-          specialize_flat_term
-            branch_group source_group term
-        else term
-
-      fun place_flat_decision branch_group source_group
-          matched unmatched =
-        if can_specialize_flat_group
-            branch_group source_group
-        then matched
-        else
-          let
-            val (_, source_rebuild, _, _, _) =
-              source_group
-          in
-            case_term_on
-              (flat_group_pattern branch_group)
-              [source_rebuild matched,
-               generated_wild
-                 (Term.incr_boundvars 1 unmatched)]
-          end
-
-      fun compile_generated_decision branch_group source_group
-          generated_guard success failure =
-        (case generated_guard of
-           NONE =>
-             adapt_flat_source_term
-               branch_group source_group success
-         | SOME guard =>
-             T.conditional
-               (adapt_flat_source_term
-                 branch_group source_group
-                 (generated_guard_term guard))
-               (adapt_flat_source_term
-                 branch_group source_group success)
-               failure)
-
-      (* Ordered structural decision representation.
-
-         - Every normalized alternative has the stable source position
-           (arm index, or-alternative index).
-         - An outer structural group denotes the values currently known to reach a branch. All
-           overlapping source groups are merged lexicographically by source position.
-         - Each source arm is compiled in one of two explicit phases. Before its source guard has
-           succeeded, structural mismatch tries the next alternative and guard failure skips the
-           whole arm. After success, generated-guard failure tries later alternatives without
-           reevaluating the source guard.
-         - Matching a non-identical overlapping shape refines the current structural group through a
-           nested case on the already-bound value. Catch-all and equal-shape sources are specialized
-           directly. Thus every continuation is derived from a source position and a structural
-           region; the original scrutinee is never reevaluated.
-         - Catch-all groups remain available to every continuation even when structural coverage
-           makes them unnecessary as outer clauses. *)
-      fun compile_flat_continuation
-          all_groups branch_group source_position =
-        (case next_flat_arm
-            all_groups branch_group source_position of
-           NONE => fallback
-         | SOME
-             (source_arm, Flat_Unguarded_Arm,
-              decisions) =>
-             compile_flat_unguarded_arm
-               all_groups branch_group
-               source_arm decisions
-         | SOME
-             (source_arm, Flat_Guarded_Arm,
-              decisions) =>
-             compile_flat_guard_pending
-               all_groups branch_group
-               source_arm decisions)
-
-      and compile_flat_unguarded_arm
-          all_groups branch_group source_arm [] =
-            compile_flat_continuation
-              all_groups branch_group
-              (source_arm + 1, ~1)
-        | compile_flat_unguarded_arm
-            all_groups branch_group source_arm
-            ((source_group,
-              (position, NONE,
-               generated_guard, success)) :: rest) =
-            let
-              val matched_group =
-                matched_flat_group
-                  branch_group source_group
-              val generated_fallback =
-                compile_flat_unguarded_tail
-                  all_groups matched_group
-                  source_arm position
-              val matched =
-                compile_generated_decision
-                  branch_group source_group
-                  generated_guard success
-                  generated_fallback
-              val unmatched =
-                compile_flat_unguarded_arm
-                  all_groups branch_group
-                  source_arm rest
-            in
-              place_flat_decision
-                branch_group source_group
-                matched unmatched
-            end
-        | compile_flat_unguarded_arm _ _ _ _ =
-            error
-              "urust_expr: internal guarded decision in unguarded arm"
-
-      and compile_flat_unguarded_tail
-          all_groups branch_group source_arm source_position =
-        (case next_flat_arm
-            all_groups branch_group source_position of
-           SOME
-             (candidate_arm, Flat_Unguarded_Arm,
-              decisions) =>
-               if candidate_arm = source_arm
-               then
-                 compile_flat_unguarded_arm
-                   all_groups branch_group
-                   source_arm decisions
-               else
-                 compile_flat_continuation
-                   all_groups branch_group
-                   (source_arm + 1, ~1)
-         | SOME (candidate_arm, _, _) =>
-             if candidate_arm = source_arm
-             then
-               error
-                 "urust_expr: internal source-arm guard changed"
-             else
-               compile_flat_continuation
-                 all_groups branch_group
-                 (source_arm + 1, ~1)
-         | NONE => fallback)
-
-      and compile_flat_guard_pending
-          all_groups branch_group source_arm [] =
-            compile_flat_continuation
-              all_groups branch_group
-              (source_arm + 1, ~1)
-        | compile_flat_guard_pending
-            all_groups branch_group source_arm
-            ((source_group,
-              (position, SOME source_guard,
-               generated_guard, success)) :: rest) =
-            let
-              val matched_group =
-                matched_flat_group
-                  branch_group source_group
-              val generated_fallback =
-                compile_flat_guard_passed_tail
-                  all_groups matched_group
-                  source_arm position
-              val generated =
-                compile_generated_decision
-                  branch_group source_group
-                  generated_guard success
-                  generated_fallback
-              val next_arm =
-                compile_flat_continuation
-                  all_groups matched_group
-                  (source_arm + 1, ~1)
-              val matched =
-                T.conditional
-                  (adapt_flat_source_term
-                    branch_group source_group
-                    source_guard)
-                  generated next_arm
-              val unmatched =
-                compile_flat_guard_pending
-                  all_groups branch_group
-                  source_arm rest
-            in
-              place_flat_decision
-                branch_group source_group
-                matched unmatched
-            end
-        | compile_flat_guard_pending _ _ _ _ =
-            error
-              "urust_expr: internal unguarded decision in guarded arm"
-
-      and compile_flat_guard_passed
-          all_groups branch_group source_arm [] =
-            compile_flat_continuation
-              all_groups branch_group
-              (source_arm + 1, ~1)
-        | compile_flat_guard_passed
-            all_groups branch_group source_arm
-            ((source_group,
-              (position, SOME _,
-               generated_guard, success)) :: rest) =
-            let
-              val matched_group =
-                matched_flat_group
-                  branch_group source_group
-              val generated_fallback =
-                compile_flat_guard_passed_tail
-                  all_groups matched_group
-                  source_arm position
-              val matched =
-                compile_generated_decision
-                  branch_group source_group
-                  generated_guard success
-                  generated_fallback
-              val unmatched =
-                compile_flat_guard_passed
-                  all_groups branch_group
-                  source_arm rest
-            in
-              place_flat_decision
-                branch_group source_group
-                matched unmatched
-            end
-        | compile_flat_guard_passed _ _ _ _ =
-            error
-              "urust_expr: internal unguarded decision after source guard"
-
-      and compile_flat_guard_passed_tail
-          all_groups branch_group source_arm source_position =
-        (case next_flat_arm
-            all_groups branch_group source_position of
-           SOME
-             (candidate_arm, Flat_Guarded_Arm,
-              decisions) =>
-               if candidate_arm = source_arm
-               then
-                 compile_flat_guard_passed
-                   all_groups branch_group
-                   source_arm decisions
-               else
-                 compile_flat_continuation
-                   all_groups branch_group
-                   (source_arm + 1, ~1)
-         | SOME (candidate_arm, _, _) =>
-             if candidate_arm = source_arm
-             then
-               error
-                 "urust_expr: internal source-arm guard changed"
-             else
-               compile_flat_continuation
-                 all_groups branch_group
-                 (source_arm + 1, ~1)
-         | NONE => fallback)
-
-      fun compile_flat_group all_groups
-          (group as (_, rebuild, _, _, _)) =
-        rebuild
-          (compile_flat_continuation
-            all_groups group (~1, ~1))
-
-      fun open_flat_group_pattern
-          (_, _, abstractions, pattern, _) =
-        let
-          val names =
-            Name.variants Name.context
-              (map (fn (name, _) =>
-                if name = "" then "pattern" else name)
-                abstractions)
-          val frees =
-            map Free
-              (names ~~ map snd abstractions)
-        in
-          subst_bounds (rev frees, pattern)
-        end
-
-      datatype flat_structural_coverage =
-          Flat_Structural_Complete
-        | Flat_Structural_Open
-
-      fun classify_flat_structural_coverage [] =
-            Flat_Structural_Open
-        | classify_flat_structural_coverage groups =
-            let
-              val patterns =
-                Syntax.check_terms ctxt
-                  (map open_flat_group_pattern groups)
-              val scrutinee =
-                Free
-                  ("_urust_case_coverage_" ^
-                    string_of_int (serial ()),
-                   fastype_of (hd patterns))
-              val clauses =
-                map (fn pattern =>
-                  (pattern, T.true_value)) patterns
-              val without_catchall =
-                Case_Translation.make_case ctxt
-                  Case_Translation.Quiet Name.context
-                  scrutinee clauses
-              val wildcard =
-                Free
-                  ("_urust_case_coverage_wild_" ^
-                    string_of_int (serial ()),
-                   fastype_of scrutinee)
-              val with_catchall =
-                Case_Translation.make_case ctxt
-                  Case_Translation.Quiet Name.context
-                  scrutinee
-                  (clauses @ [(wildcard, T.false_value)])
-            in
-              if Term.aconv_untyped
-                  (without_catchall, with_catchall)
-              then Flat_Structural_Complete
-              else Flat_Structural_Open
-            end
-
-      fun make_flat_outer_plan all_groups =
-        let
-          val (catchalls, structural_groups) =
-            List.partition
-              is_flat_catchall_group all_groups
-        in
-          (case catchalls of
-             [] => structural_groups
-           | _ =>
-               (case classify_flat_structural_coverage
-                   structural_groups of
-                  Flat_Structural_Complete =>
-                    structural_groups
-                | Flat_Structural_Open =>
-                    structural_groups @ catchalls))
-        end
-
-      fun expression_of_flat_groups [] = fallback
-        | expression_of_flat_groups all_groups =
-            case_term
-              (map (compile_flat_group all_groups)
-                (make_flat_outer_plan all_groups))
-
-      fun make_flat_source_group source_index
-          (shape, rebuild, abstractions, pattern, clauses) =
-        let
-          val source_guard =
-            (case clauses of
-               (_, (guard, _, _)) :: _ => guard
-             | [] =>
-                 error
-                   "urust_expr: internal empty flat source group")
-          val _ =
-            if List.all
-                (fn (_, (guard, _, _)) =>
-                  same_optional_term (source_guard, guard))
-                clauses
-            then ()
-            else
-              error
-                "urust_expr: internal inconsistent flat source guard"
-          val sources =
-            map
-              (fn (alternative_index,
-                    (guard, generated_guard, success)) =>
-                ((source_index, alternative_index), guard,
-                  generated_guard, success))
-              clauses
-        in
-          (shape, rebuild, abstractions, pattern,
-           sources)
-        end
-
-      fun compile_flat_sources sources =
-        let
-          val fallback_index = length sources
-          val fallback_groups =
-            (case explicit_fallback of
-               SOME term =>
-                 map (make_flat_source_group fallback_index)
-                   (group_flat_clauses
-                     [index_flat_clause 0
-                       (make_flat_clause generated_wild
-                         NONE NONE term)])
-             | NONE => [])
-
-          fun collect _ [] = fallback_groups
-            | collect source_index
-                ({alternatives, binders, source_guard, rhs} :: rest) =
-            let
-              val rest_groups =
-                collect (source_index + 1) rest
-              val handler = fold_rev Term.lambda binders rhs
-
-              fun clause
-                  (alternative_index,
-                   (_, _, abstraction, generated_guard, wrap)) =
-                let
-                  val success =
-                    wrap (handler_call handler binders)
-                in
-                  index_flat_clause alternative_index
-                    (make_flat_clause abstraction source_guard
-                      generated_guard success)
-                end
-              val current_groups =
-                map (make_flat_source_group source_index)
-                  (group_flat_clauses
-                    (map_index clause alternatives))
-            in
-              merge_flat_groups current_groups rest_groups
-            end
-        in collect 0 sources end
-
-      fun compile_guarded_sources [] = fallback
-        | compile_guarded_sources
-            ({alternatives, binders, source_guard, rhs} :: rest) =
-            let
-              val next_arm = compile_guarded_sources rest
-              val handler =
-                handler_term binders source_guard rhs next_arm
-            in
-              compile_alternatives alternatives
-                handler binders next_arm
-            end
-
-      fun compile_unguarded_sources sources =
-        let
-          fun install [] branches =
-                case_term
-                  (maps I (rev branches) @
-                    (case explicit_fallback of
-                       SOME term => [generated_wild term]
-                     | NONE => []))
-            | install
-                ({alternatives, binders, source_guard = NONE, rhs} :: rest)
-                branches =
-                let
-                  val handler = fold_rev Term.lambda binders rhs
-                  fun branch
-                      (_, _, abstraction, NONE, wrap) =
-                        abstraction
-                          (wrap (handler_call handler binders))
-                    | branch _ =
-                        error
-                          "urust_expr: internal guarded alternative in unguarded case"
-                  val current = map branch alternatives
-                in install rest (current :: branches) end
-            | install _ _ =
-                error
-                  "urust_expr: internal guarded source arm in unguarded case"
-        in install sources [] end
-
-      val selector =
-        if requires_structural_decision
-        then
-          let
-            val groups = compile_flat_sources normalized
-          in expression_of_flat_groups groups end
-        else if List.exists has_generated_guard normalized
-        then compile_guarded_sources normalized
-        else compile_unguarded_sources normalized
+         body = body}
     in
-      T.bind scrutinee (Term.lambda value selector)
+      compile_decision_case ctxt explicit_fallback scrutinee
+        (map source_arm arms)
     end
 
   fun compile_case ctxt fallback scrutinee arms =
