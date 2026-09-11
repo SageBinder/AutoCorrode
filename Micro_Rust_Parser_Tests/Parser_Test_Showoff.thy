@@ -63,8 +63,10 @@ urust_expr showoff_logging_yield
 
 subsection\<open> Calls, methods, and propagation \<close>
 
-urust_fn [conformance_check = false] showoff_inline_disabled ::
-  \<open>(unit, 64 word, unit, unit, unit) function_body\<close>
+urust_fn
+  [attrs = [micro_rust_simps], conformance_check = false]
+  showoff_inline_disabled ::
+  \<open>_\<close>
   ()
   \<open> 3u64 \<close>
 
