@@ -24,4 +24,5 @@ session Micro_Rust_Parser_Tests = HOL +
     Parser_Tests_Negative_Conformance
     Parser_Tests_Misc
     Parser_Test_Showoff
+    Parser_Tests_Hook_Properties
     Parser_Tests_Hook_Conformance
