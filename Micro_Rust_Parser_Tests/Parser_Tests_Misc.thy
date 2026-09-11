@@ -11419,12 +11419,6 @@ ML_val\<open>
 \<close>
 
 
-text\<open>
-The closed explicit-capture quotation properties are maintained in
-\<open>Parser_Tests_Hook_Properties.thy\<close>; the mechanically transformed complete frontend corpus is
-maintained in \<open>Parser_Tests_Hook_Conformance.thy\<close>.
-\<close>
-
 chapter\<open>Logging\<close>
 
 declare [[urust_conformance_check = false]]
