@@ -715,8 +715,18 @@ new_urust_rejects audit
       unregistered_key \<Rightarrow> ()
     }
   \<close>
-  \<open> unsupported match_switch key "unregistered_key" \<close>
-  \<comment> \<open> [AUDIT] an unregistered bare identifier retains the switch-key binder rejection. \<close>
+  \<open> mixed numeral and constructor patterns in bare `match` \<close>
+  \<comment> \<open> [AUDIT] an unregistered bare identifier remains a case-only binding pattern. \<close>
+
+new_urust_rejects audit
+  \<open>
+    match_switch \<llangle>NegativeRegisteredNullary\<rrangle> {
+      NegativeRegistered::Nullary \<Rightarrow> (),
+      _ \<Rightarrow> ()
+    }
+  \<close>
+  \<open> requires case-pattern lowering \<close>
+  \<comment> \<open> [AUDIT] authentic registered constructors remain case-only under an explicit switch. \<close>
 
 urust_expr_rejects fidelity
   \<open> match_case \<llangle>Some (2 :: nat)\<rrangle> { Some(1..2..3) \<Rightarrow> (), _ \<Rightarrow> () } \<close>

@@ -853,8 +853,8 @@ subsection\<open>Contextual bare-match routing\<close>
 
 text\<open>
 Exact registered nonconstructor values support both case and switch lowering. A numeral makes case
-lowering impossible, so bare \<open>match\<close> selects the existing switch term; without a numeral, case
-preference is unchanged. Explicit flavours remain authoritative.
+lowering impossible, and a binder-free, guard-free value/wildcard match selects the existing switch
+term even without a numeral. Explicit flavours remain authoritative.
 \<close>
 
 urust_expr match_auto_registered_path_middle
@@ -912,9 +912,9 @@ urust_expr match_explicit_registered_identifier_switch
     }
   \<close>
 
-urust_expr match_explicit_registered_constructor_switch
+urust_expr match_auto_registered_constructor_case
   \<open>
-    match_switch \<llangle>RegisteredNullary\<rrangle> {
+    match \<llangle>RegisteredNullary\<rrangle> {
       Registered::Nullary \<Rightarrow> 1,
       _ \<Rightarrow> 0
     }

@@ -90,6 +90,7 @@ sig
   val constructor_term: constructor_info -> term
   val constructor_arity: constructor_info -> int
   val constructor_family: constructor_info -> (string * term list) option
+  val constructor_is_exact_registered: constructor_info -> bool
   val report_constructor:
     Proof.context -> URust_AST.ur_path -> constructor_info -> unit
   val report_selector: Proof.context -> Position.T -> term -> unit
@@ -176,12 +177,16 @@ ML\<open>
     context's non-record Ctr_Sugar constructors, constructor families/selectors, and HOL record names
     for a resolution site. classify_registered_literal is a report-free exact-registration query:
     it distinguishes absence, a nonconstructor value backend, and an authentic constructor backend
-    by reusing the complete registration-only constructor catalogue. It does not select a constructor,
-    diagnose ambiguity, or emit semantic markup. resolve_constructor performs those later operations;
-    it uses exact identity for qualified names and basename lookup for unqualified names, returning
-    NONE when absent and raising a positioned, deterministic ambiguity error for multiple matches.
+    by consulting Ctr_Sugar first and then native Case_Translation metadata for an exact registered
+    backend absent there. It does not select a constructor, diagnose ambiguity, or emit semantic
+    markup. resolve_constructor performs those later operations; unregistered lookup remains limited
+    to Ctr_Sugar or Code.is_constr constructors, using exact identity for qualified names and basename
+    lookup for unqualified names, returning NONE when absent and raising a positioned, deterministic
+    ambiguity error for multiple matches.
     constructor_term returns the dummy-typed constructor term, constructor_arity its argument count,
-    and constructor_family optionally the datatype identity with all family constructor terms.
+    constructor_family optionally the datatype identity with all family constructor terms, and
+    constructor_is_exact_registered records whether this occurrence was recovered through an exact
+    NLiteral registration.
     report_constructor emits source-path markup only after a caller has validated the resolved
     constructor. Exact registered literals reuse the same datatype-qualifier and ordinary notation
     use-site reports as value positions; unregistered HOL constructors retain free qualifiers and
@@ -426,6 +431,59 @@ struct
     then NONE
     else SOME (resolve_identifier ctxt kind name pos)
 
+  type native_case_metadata =
+    {identity: string,
+     constructor: term,
+     arity: int,
+     family_name: string,
+     family_members: term list}
+
+  fun native_case_metadata ctxt backend =
+    (case identifier_leaf backend of
+       Const (identity, typ) =>
+         (case Case_Translation.lookup_by_constr_permissive ctxt
+             (identity, typ) of
+            NONE => NONE
+          | SOME (_, members) =>
+              let
+                val normalized_backend = Const (identity, dummyT)
+                fun normalize_member member =
+                  (case identifier_leaf member of
+                     Const (name, member_typ) =>
+                       SOME
+                         (Const (name, dummyT),
+                          try dest_Type_name (body_type member_typ))
+                   | _ => NONE)
+                val normalized = map_filter normalize_member members
+                val family_name = try dest_Type_name (body_type typ)
+                val exact_member =
+                  exists
+                    (fn (member, _) =>
+                      Term.aconv_untyped
+                        (normalized_backend, member))
+                    normalized
+                val one_family =
+                  (case family_name of
+                     NONE => false
+                   | SOME name =>
+                       length normalized = length members andalso
+                         List.all
+                           (fn (_, SOME member_name) =>
+                                 member_name = name
+                             | _ => false)
+                           normalized)
+              in
+                if exact_member andalso one_family then
+                  SOME
+                    {identity = identity,
+                     constructor = normalized_backend,
+                     arity = length (binder_types typ),
+                     family_name = the family_name,
+                     family_members = map fst normalized}
+                else NONE
+              end)
+     | _ => NONE)
+
   fun registered_constructor_family_names ctxt registrations =
     let
       val backends =
@@ -434,26 +492,33 @@ struct
             (fn ({hol_term, ...} : Micro_Rust_Names.entry) => hol_term))
           registrations
 
-      fun authentic_family
-          ({kind, T, ctrs, ...} : Ctr_Sugar.ctr_sugar) =
-        if (kind = Ctr_Sugar.Datatype orelse
-            kind = Ctr_Sugar.Codatatype) andalso
-            exists
-              (fn constructor =>
+      fun sugar_families backend =
+        Ctr_Sugar.ctr_sugars_of ctxt
+        |> map_filter
+          (fn ({kind, T, ctrs, ...} : Ctr_Sugar.ctr_sugar) =>
+            if (kind = Ctr_Sugar.Datatype orelse
+                kind = Ctr_Sugar.Codatatype) andalso
                 exists
-                  (fn backend =>
+                  (fn constructor =>
                     Term.aconv_untyped
                       (backend, identifier_leaf constructor))
-                  backends)
-              ctrs
-        then
-          (case T of
-             Type (name, _) => SOME name
-           | _ => NONE)
-        else NONE
+                  ctrs
+            then
+              (case T of
+                 Type (name, _) => SOME name
+               | _ => NONE)
+            else NONE)
+
+      fun backend_families backend =
+        (case sugar_families backend of
+           [] =>
+             (case native_case_metadata ctxt backend of
+                SOME {family_name, ...} => [family_name]
+              | NONE => [])
+         | families => families)
     in
-      Ctr_Sugar.ctr_sugars_of ctxt
-      |> map_filter authentic_family
+      backends
+      |> maps backend_families
       |> distinct (op =)
       |> sort_strings
     end
@@ -770,7 +835,8 @@ struct
      constructor: term,
      arity: int,
      family: (string * term list) option,
-     selectors: term list}
+     selectors: term list,
+     exact_registered: bool}
 
   datatype constructor_resolver =
     Constructor_Resolver of
@@ -793,6 +859,9 @@ struct
       ({arity, ...} : constructor_info) = arity
   fun constructor_family
       ({family, ...} : constructor_info) = family
+  fun constructor_is_exact_registered
+      ({exact_registered, ...} : constructor_info) =
+    exact_registered
   fun constructor_selectors
       ({selectors, ...} : constructor_info) = selectors
 
@@ -824,29 +893,6 @@ struct
       same_family (#family left, #family right) andalso
       eq_list (op aconv) (#selectors left, #selectors right)
 
-  fun merge_optional_family identity (NONE, family) = family
-    | merge_optional_family _ (family, NONE) = family
-    | merge_optional_family identity
-        (left as SOME _, right as SOME _) =
-        if same_family (left, right)
-        then left
-        else
-          error
-            ("urust_expr: inconsistent constructor family metadata for " ^
-              quote identity)
-
-  fun merge_selectors identity arity left right =
-    if eq_list (op aconv) (left, right)
-    then left
-    else if null left andalso arity > 0
-    then right
-    else if null right andalso arity > 0
-    then left
-    else
-      error
-        ("urust_expr: inconsistent constructor selector metadata for " ^
-          quote identity)
-
   fun merge_constructor_info pos
       (left : constructor_info, right : constructor_info) =
     let
@@ -860,17 +906,57 @@ struct
           error
             ("urust_expr: inconsistent constructor core metadata for " ^
               quote identity ^ Position.here pos)
+      val _ =
+        if same_family (#family left, #family right) then ()
+        else
+          error
+            ("urust_expr: inconsistent constructor family metadata for " ^
+              quote identity ^ Position.here pos)
+      val _ =
+        if eq_list (op aconv) (#selectors left, #selectors right)
+        then ()
+        else
+          error
+            ("urust_expr: inconsistent constructor selector metadata for " ^
+              quote identity ^ Position.here pos)
     in
       {identity = identity,
        constructor = #constructor left,
        arity = #arity left,
-       family =
-         merge_optional_family identity
-           (#family left, #family right),
-       selectors =
-         merge_selectors identity (#arity left)
-           (#selectors left) (#selectors right)}
+       family = #family left,
+       selectors = #selectors left,
+       exact_registered =
+         #exact_registered left orelse
+           #exact_registered right}
     end
+
+  fun as_exact_registered (info : constructor_info) =
+    {identity = #identity info,
+     constructor = #constructor info,
+     arity = #arity info,
+     family = #family info,
+     selectors = #selectors info,
+     exact_registered = true}
+
+  fun as_unregistered (info : constructor_info) =
+    {identity = #identity info,
+     constructor = #constructor info,
+     arity = #arity info,
+     family = #family info,
+     selectors = #selectors info,
+     exact_registered = false}
+
+  fun native_case_constructor_info ctxt backend =
+    Option.map
+      (fn {identity, constructor, arity, family_name,
+            family_members} =>
+        {identity = identity,
+         constructor = constructor,
+         arity = arity,
+         family = SOME (family_name, family_members),
+         selectors = [],
+         exact_registered = true})
+      (native_case_metadata ctxt backend)
 
   fun describe_constructor_info (info : constructor_info) =
     "constructor " ^ quote (#identity info) ^
@@ -942,7 +1028,8 @@ struct
                             constructor = Const (identity, dummyT),
                             arity = arity,
                             family = family,
-                            selectors = normalized_selectors}
+                            selectors = normalized_selectors,
+                            exact_registered = false}
                        end
                      else NONE
                  | _ =>
@@ -966,8 +1053,9 @@ struct
                  table)
         end
 
-      val registered_by_identity =
-        fold add_entry (maps catalog_entries sugars) Symtab.empty
+      val sugar_entries = maps catalog_entries sugars
+      val sugar_by_identity =
+        fold add_entry sugar_entries Symtab.empty
 
       val by_identity =
         Symtab.fold
@@ -975,7 +1063,7 @@ struct
             if Code.is_constr theory identity
             then Symtab.update (identity, info)
             else I)
-          registered_by_identity Symtab.empty
+          sugar_by_identity Symtab.empty
 
       fun add_basename info =
         Symtab.map_default
@@ -1003,23 +1091,50 @@ struct
         |> sort_strings
     in
       Constructor_Resolver
-        {registered_by_identity = registered_by_identity,
+        {registered_by_identity = sugar_by_identity,
          by_identity = by_identity,
          by_basename = by_basename,
          type_fallbacks = type_fallbacks,
          record_types = record_types}
     end
 
-  fun constructor_candidates
+  fun constructor_candidates ctxt
       (Constructor_Resolver
         {by_identity, by_basename, ...}) name =
-    if qualified_name name
-    then
-      (case Symtab.lookup by_identity name of
-         SOME info => [info]
-       | NONE => [])
-    else
-      the_default [] (Symtab.lookup by_basename name)
+    let
+      val theory = Proof_Context.theory_of ctxt
+      val sugar_candidates =
+        if qualified_name name
+        then
+          (case Symtab.lookup by_identity name of
+             SOME info => [info]
+           | NONE => [])
+        else
+          the_default [] (Symtab.lookup by_basename name)
+
+      fun requested_identity identity =
+        if qualified_name name
+        then identity = name
+        else canonical_name identity = name
+
+      val native_candidates =
+        Proof_Context.consts_of ctxt
+        |> Consts.dest
+        |> #constants
+        |> map_filter
+          (fn (identity, (typ, _)) =>
+            if requested_identity identity andalso
+                not (Symtab.defined by_identity identity) andalso
+                (Code.is_constr theory identity
+                  handle TYPE _ => false)
+            then
+              Option.map as_unregistered
+                (native_case_constructor_info ctxt
+                  (Const (identity, typ)))
+            else NONE)
+    in
+      sugar_candidates @ native_candidates
+    end
 
   fun ambiguity_error role name pos candidates =
     error
@@ -1041,20 +1156,25 @@ struct
     Micro_Rust_Names.lookups ctxt Micro_Rust_Names.NLiteral
       (render_path path)
 
-  fun registered_constructor_candidates
+  fun registered_constructor_candidates ctxt
       (Constructor_Resolver {registered_by_identity, ...}) registrations =
     let
       val constructors =
         map #2 (Symtab.dest registered_by_identity)
 
       fun registered_matches entry =
-        let val backend = identifier_leaf (#hol_term entry)
+        let
+          val backend = identifier_leaf (#hol_term entry)
+          val sugar_matches =
+            filter
+              (fn info =>
+                Term.aconv_untyped
+                  (backend, constructor_term info))
+              constructors
         in
-          filter
-            (fn info =>
-              Term.aconv_untyped
-                (backend, constructor_term info))
-            constructors
+          if null sugar_matches
+          then the_list (native_case_constructor_info ctxt backend)
+          else map as_exact_registered sugar_matches
         end
     in
       registrations
@@ -1067,7 +1187,7 @@ struct
        [] => Unregistered_Literal
      | registrations =>
          if null
-             (registered_constructor_candidates resolver registrations)
+             (registered_constructor_candidates ctxt resolver registrations)
          then Registered_Value_Literal
          else Registered_Constructor_Literal)
 
@@ -1077,13 +1197,13 @@ struct
       val pos = #2 (path_terminal path)
       val registrations = exact_literal_registrations ctxt path
       val registered =
-        registered_constructor_candidates resolver registrations
+        registered_constructor_candidates ctxt resolver registrations
       val candidates =
         if null registrations
         then
           (reject_intermediate_generics path;
            case segment_generic_args (final_segment path) of
-             NONE => constructor_candidates resolver name
+             NONE => constructor_candidates ctxt resolver name
            | SOME (Generic_Args (_, generic_pos)) =>
                error
                  ("urust_expr: generic constructor paths require an exact literal registration" ^
@@ -1179,7 +1299,7 @@ struct
              Constructor_Candidate
                {info = info,
                 selectors = constructor_selectors info}))
-          (constructor_candidates resolver identifier_name)
+          (constructor_candidates ctxt resolver identifier_name)
 
       val fallback_candidates =
         type_fallbacks

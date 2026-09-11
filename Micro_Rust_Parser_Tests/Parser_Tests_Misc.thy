@@ -10363,7 +10363,7 @@ ML_val\<open>
          \<^const_name>\<open>undefined\<close>,
          \<^const_name>\<open>RegisteredNullary\<close>]
 
-    val case_preferred =
+    val switch_preferred =
       checked
         ("match \<llangle>mixed_match_scrutinee_marker\<rrangle> { " ^
          "IntegrationAudit::Value \<Rightarrow> " ^
@@ -10372,15 +10372,15 @@ ML_val\<open>
     val _ =
       audit_assert "registered value without numeral selected switch"
         (count_constant \<^const_name>\<open>ncase_selector\<close>
-          case_preferred = 0)
+          switch_preferred = 1)
     val _ =
-      audit_assert "registered value without numeral lost case equality"
+      audit_assert "registered value without numeral retained case equality"
         (count_constant \<^const_name>\<open>urust_eq\<close>
-          case_preferred > 0)
+          switch_preferred = 0)
     val _ =
-      audit_assert "registered value without numeral lost case conditional"
+      audit_assert "registered value without numeral retained case conditional"
         (count_constant \<^const_name>\<open>two_armed_conditional\<close>
-          case_preferred > 0)
+          switch_preferred = 0)
 
     val constructor_wins =
       checked
@@ -10608,15 +10608,10 @@ ML_val\<open>
 
     val identifier_failure_text =
       "match 0 { 0 \<Rightarrow> (), unregistered_key \<Rightarrow> () }"
-    val identifier_failure_offset =
-      find_from identifier_failure_text "unregistered_key" 0
     val _ =
       expect_exact_rejection 3 "unregistered-identifier"
-        identifier_failure_text
-        (token_range "unregistered_key" identifier_failure_offset)
-        ("urust_expr: unsupported match_switch key " ^
-         quote "unregistered_key" ^
-         " (numeral or `_` only; const-id / path keys not yet supported)")
+        identifier_failure_text complete_range
+        "urust_expr: mixed numeral and constructor patterns in bare `match`"
 
     val constructor_wins_mixed_text =
       "match \<llangle>NegativeRegisteredNullary\<rrangle> { " ^
