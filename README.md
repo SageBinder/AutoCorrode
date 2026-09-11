@@ -141,7 +141,9 @@ syntax would otherwise group the helper application incorrectly.
 
 Production theories use these commands for complete definitions and named abbreviations, with
 conformance checking enabled against the legacy frontend. The test session contains conformance
-corpora, regression tests, parser experiments, and legacy shallow-embedding tests.
+corpora, regression tests, parser experiments, and legacy shallow-embedding tests. Its
+[README](Micro_Rust_Parser_Tests/README.md) records the integrated parser architecture,
+Rust-fidelity boundaries, focused regression layout, and migration-report dispositions.
 
 The production expression parser uses explicit Rust-aligned precedence tiers. Prefix operators bind
 before casts, supported postfix operations bind before prefixes, and block-like expressions remain
@@ -150,6 +152,20 @@ and non-final match-arm commas. Control heads recursively exclude unparenthesize
 while explicit delimiters restore unrestricted parsing. Integer literals support binary, octal,
 decimal, and hexadecimal bases, internal or trailing underscores, and the `u8`, `u16`, `u32`,
 `u64`, and `usize` suffixes.
+
+Constructor resolution uses Isabelle's datatype/codatatype metadata first and native case metadata
+for exact registered literal backends that are not represented by `Ctr_Sugar`. Registered literals
+without native case metadata remain values. Automatic matching selects equality/switch lowering
+only for binder-free, guard-free value/wildcard arms; authentic constructors and binding patterns
+retain case semantics. Nested exact registered nullary constructors can become equality guards
+inside an enclosing structural case. Ambiguous basenames remain errors, and the parser keeps no
+private constructor-family registry.
+
+The grammar retains compatibility extensions used by existing µRust sources, including complete
+guard bodies and statement bodies in groups, macros, and struct fields. Deliberately deferred Rust
+surface includes general postfix calls, one-element tuples, open ranges, array repeats, unary numeric
+negation, `/=`, leading `::`, full Rust generics, universal macro trailing commas, additional numeric
+families, and apostrophised identifiers.
 
 The parser implementation depends only on `Shallow_Micro_Rust_Base` and `Isabelle_Lex-Yacc`.
 Full `Shallow_Micro_Rust` adds the parser bridge, while the main `AutoCorrode` session includes both
