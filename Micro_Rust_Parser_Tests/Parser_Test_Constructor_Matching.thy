@@ -651,6 +651,66 @@ urust_expr parser_nested_guarded_different_depth_alias_reversed ::
     }
   \<close>
 
+urust_expr parser_root_suffix_unguarded_left ::
+  \<open>
+    parser_nested_overlap_input \<Rightarrow>
+      (unit, (unit, parser_nested_status) result,
+        unit, unit, unit, unit) expression
+  \<close>
+  (scrutinee)
+  \<open>
+    match scrutinee {
+      (Err(NestedStatus::Primary), _) \<Rightarrow> Ok(()),
+      (fallback, _) \<Rightarrow> fallback
+    }
+  \<close>
+
+urust_expr parser_root_suffix_unguarded_right ::
+  \<open>
+    parser_nested_overlap_input \<Rightarrow>
+      (unit, (unit, parser_nested_status) result,
+        unit, unit, unit, unit) expression
+  \<close>
+  (scrutinee)
+  \<open>
+    match scrutinee {
+      (_, Err(NestedStatus::Primary)) \<Rightarrow> Ok(()),
+      (_, fallback) \<Rightarrow> fallback
+    }
+  \<close>
+
+urust_expr parser_root_suffix_guarded_left ::
+  \<open>
+    parser_nested_overlap_input \<Rightarrow>
+      (nat, bool, unit, unit, unit, unit) expression \<Rightarrow>
+      (nat, (unit, parser_nested_status) result,
+        unit, unit, unit, unit) expression
+  \<close>
+  (scrutinee, source_guard)
+  \<open>
+    match scrutinee {
+      (Err(NestedStatus::Primary), _)
+        if \<epsilon>\<open>source_guard\<close> \<Rightarrow> Ok(()),
+      (fallback, _) \<Rightarrow> fallback
+    }
+  \<close>
+
+urust_expr parser_root_suffix_guarded_right ::
+  \<open>
+    parser_nested_overlap_input \<Rightarrow>
+      (nat, bool, unit, unit, unit, unit) expression \<Rightarrow>
+      (nat, (unit, parser_nested_status) result,
+        unit, unit, unit, unit) expression
+  \<close>
+  (scrutinee, source_guard)
+  \<open>
+    match scrutinee {
+      (_, Err(NestedStatus::Primary))
+        if \<epsilon>\<open>source_guard\<close> \<Rightarrow> Ok(()),
+      (_, fallback) \<Rightarrow> fallback
+    }
+  \<close>
+
 urust_expr parser_nested_exhaustive_outer_shapes ::
   \<open>
     parser_nested_overlap_input \<Rightarrow>
@@ -1264,6 +1324,200 @@ lemma parser_nested_different_depth_reversed_miss:
       parser_nested_guarded_different_depth_alias_reversed_def
       parser_nested_different_depth_miss_scrutinee_def
       parser_nested_alias_binder_source_guard_def
+      two_armed_conditional_def
+      urust_eq_def
+      micro_rust_simps
+      evaluate_def
+      sequence_def
+      put_def
+      literal_def
+      Core_Expression.bind.simps)
+
+lemma parser_root_suffix_unguarded_left_match:
+  \<open>
+    parser_root_suffix_unguarded_left
+        parser_nested_or_overlap_reverse_scrutinee =
+      literal (Ok ())
+  \<close>
+  by
+    (simp add:
+      parser_root_suffix_unguarded_left_def
+      parser_nested_or_overlap_reverse_scrutinee_def
+      two_armed_conditional_def
+      urust_eq_def
+      micro_rust_simps)
+
+lemma parser_root_suffix_unguarded_left_fallback:
+  \<open>
+    parser_root_suffix_unguarded_left
+        parser_nested_overlap_scrutinee =
+      literal (Err ParserSecondaryStatus)
+  \<close>
+  by
+    (simp add:
+      parser_root_suffix_unguarded_left_def
+      parser_nested_overlap_scrutinee_def
+      two_armed_conditional_def
+      urust_eq_def
+      micro_rust_simps)
+
+lemma parser_root_suffix_unguarded_right_match:
+  \<open>
+    parser_root_suffix_unguarded_right
+        parser_nested_or_overlap_later_scrutinee =
+      literal (Ok ())
+  \<close>
+  by
+    (simp add:
+      parser_root_suffix_unguarded_right_def
+      parser_nested_or_overlap_later_scrutinee_def
+      two_armed_conditional_def
+      urust_eq_def
+      micro_rust_simps)
+
+lemma parser_root_suffix_unguarded_right_fallback:
+  \<open>
+    parser_root_suffix_unguarded_right
+        parser_nested_overlap_scrutinee =
+      literal (Err ParserSecondaryStatus)
+  \<close>
+  by
+    (simp add:
+      parser_root_suffix_unguarded_right_def
+      parser_nested_overlap_scrutinee_def
+      two_armed_conditional_def
+      urust_eq_def
+      micro_rust_simps)
+
+lemma parser_root_suffix_guarded_left_true:
+  \<open>
+    evaluate
+      (parser_root_suffix_guarded_left
+        parser_nested_or_overlap_reverse_scrutinee
+        parser_nested_source_guard_true)
+      0 =
+    Success (Ok ()) 1
+  \<close>
+  by
+    (simp add:
+      parser_root_suffix_guarded_left_def
+      parser_nested_or_overlap_reverse_scrutinee_def
+      parser_nested_source_guard_true_def
+      two_armed_conditional_def
+      urust_eq_def
+      micro_rust_simps
+      evaluate_def
+      sequence_def
+      put_def
+      literal_def
+      Core_Expression.bind.simps)
+
+lemma parser_root_suffix_guarded_left_false:
+  \<open>
+    evaluate
+      (parser_root_suffix_guarded_left
+        parser_nested_or_overlap_reverse_scrutinee
+        parser_nested_source_guard_false)
+      0 =
+    Success (Err ParserPrimaryStatus) 1
+  \<close>
+  by
+    (simp add:
+      parser_root_suffix_guarded_left_def
+      parser_nested_or_overlap_reverse_scrutinee_def
+      parser_nested_source_guard_false_def
+      two_armed_conditional_def
+      urust_eq_def
+      micro_rust_simps
+      evaluate_def
+      sequence_def
+      put_def
+      literal_def
+      Core_Expression.bind.simps)
+
+lemma parser_root_suffix_guarded_left_structural_miss:
+  \<open>
+    evaluate
+      (parser_root_suffix_guarded_left
+        parser_nested_overlap_scrutinee
+        parser_nested_source_guard_true)
+      0 =
+    Success (Err ParserSecondaryStatus) 0
+  \<close>
+  by
+    (simp add:
+      parser_root_suffix_guarded_left_def
+      parser_nested_overlap_scrutinee_def
+      parser_nested_source_guard_true_def
+      two_armed_conditional_def
+      urust_eq_def
+      micro_rust_simps
+      evaluate_def
+      sequence_def
+      put_def
+      literal_def
+      Core_Expression.bind.simps)
+
+lemma parser_root_suffix_guarded_right_true:
+  \<open>
+    evaluate
+      (parser_root_suffix_guarded_right
+        parser_nested_or_overlap_later_scrutinee
+        parser_nested_source_guard_true)
+      0 =
+    Success (Ok ()) 1
+  \<close>
+  by
+    (simp add:
+      parser_root_suffix_guarded_right_def
+      parser_nested_or_overlap_later_scrutinee_def
+      parser_nested_source_guard_true_def
+      two_armed_conditional_def
+      urust_eq_def
+      micro_rust_simps
+      evaluate_def
+      sequence_def
+      put_def
+      literal_def
+      Core_Expression.bind.simps)
+
+lemma parser_root_suffix_guarded_right_false:
+  \<open>
+    evaluate
+      (parser_root_suffix_guarded_right
+        parser_nested_or_overlap_later_scrutinee
+        parser_nested_source_guard_false)
+      0 =
+    Success (Err ParserPrimaryStatus) 1
+  \<close>
+  by
+    (simp add:
+      parser_root_suffix_guarded_right_def
+      parser_nested_or_overlap_later_scrutinee_def
+      parser_nested_source_guard_false_def
+      two_armed_conditional_def
+      urust_eq_def
+      micro_rust_simps
+      evaluate_def
+      sequence_def
+      put_def
+      literal_def
+      Core_Expression.bind.simps)
+
+lemma parser_root_suffix_guarded_right_structural_miss:
+  \<open>
+    evaluate
+      (parser_root_suffix_guarded_right
+        parser_nested_overlap_scrutinee
+        parser_nested_source_guard_true)
+      0 =
+    Success (Err ParserSecondaryStatus) 0
+  \<close>
+  by
+    (simp add:
+      parser_root_suffix_guarded_right_def
+      parser_nested_overlap_scrutinee_def
+      parser_nested_source_guard_true_def
       two_armed_conditional_def
       urust_eq_def
       micro_rust_simps
@@ -1972,6 +2226,14 @@ ML_val\<open>
       equation_of "parser_nested_exhaustive_outer_shapes"
     val (exhaustive_guarded_lhs, exhaustive_guarded) =
       equation_of "parser_nested_exhaustive_outer_shapes_guarded"
+    val (root_unguarded_left_lhs, root_unguarded_left) =
+      equation_of "parser_root_suffix_unguarded_left"
+    val (root_unguarded_right_lhs, root_unguarded_right) =
+      equation_of "parser_root_suffix_unguarded_right"
+    val (root_guarded_left_lhs, root_guarded_left) =
+      equation_of "parser_root_suffix_guarded_left"
+    val (root_guarded_right_lhs, root_guarded_right) =
+      equation_of "parser_root_suffix_guarded_right"
     val guarded_or_instantiated =
       instantiate_definition guarded_or
         [\<^term>\<open>parser_nested_overlap_scrutinee\<close>,
@@ -2005,6 +2267,20 @@ ML_val\<open>
         [\<^term>\<open>
             parser_nested_exhaustive_first_miss_scrutinee
           \<close>,
+         \<^term>\<open>parser_nested_source_guard_true\<close>]
+    val root_unguarded_left_instantiated =
+      instantiate_definition root_unguarded_left
+        [\<^term>\<open>parser_nested_or_overlap_reverse_scrutinee\<close>]
+    val root_unguarded_right_instantiated =
+      instantiate_definition root_unguarded_right
+        [\<^term>\<open>parser_nested_or_overlap_later_scrutinee\<close>]
+    val root_guarded_left_instantiated =
+      instantiate_definition root_guarded_left
+        [\<^term>\<open>parser_nested_or_overlap_reverse_scrutinee\<close>,
+         \<^term>\<open>parser_nested_source_guard_false\<close>]
+    val root_guarded_right_instantiated =
+      instantiate_definition root_guarded_right
+        [\<^term>\<open>parser_nested_or_overlap_later_scrutinee\<close>,
          \<^term>\<open>parser_nested_source_guard_true\<close>]
     val (global_ok_branch, global_err_branch) =
       result_case_branches global_source_order
@@ -2052,6 +2328,88 @@ ML_val\<open>
       Term.strip_comb exhaustive_lhs
     val (_, exhaustive_guarded_arguments) =
       Term.strip_comb exhaustive_guarded_lhs
+    fun audit_total_root_suffix
+        name lhs rhs expected_argument_types instantiated
+        scrutinee_name source_guard_name =
+      let
+        val (_, arguments) = Term.strip_comb lhs
+        val clauses = outer_case_clauses rhs
+        val _ =
+          assert (name ^ " changed its definition head")
+            (null arguments)
+        val _ =
+          assert (name ^ " changed its argument types")
+            (binder_types (fastype_of lhs) =
+              expected_argument_types)
+        val _ =
+          assert (name ^ " retained schematic variables")
+            (null (Term.add_vars rhs []))
+        val _ =
+          assert (name ^ " retained local free binders")
+            (null (Term.add_frees rhs []))
+        val _ =
+          assert (name ^ " duplicated its outer scrutinee bind")
+            (count_constant \<^const_name>\<open>bind\<close> rhs = 1)
+        val _ =
+          assert (name ^ " reevaluated its instantiated scrutinee")
+            (count_constant scrutinee_name instantiated = 1)
+        val _ =
+          assert
+            (name ^ " emitted redundant outer clauses: " ^
+              string_of_int (length clauses))
+            (length clauses = 1)
+        val _ =
+          assert (name ^ " retained an undefined fallback")
+            (count_constant \<^const_name>\<open>undefined\<close>
+              rhs = 0)
+        val _ =
+          (case source_guard_name of
+             NONE => ()
+           | SOME guard_name =>
+               assert (name ^ " duplicated or lost its source guard")
+                 (count_constant guard_name instantiated = 1))
+      in () end
+    val unguarded_root_argument_types =
+      [\<^typ>\<open>parser_nested_overlap_input\<close>]
+    val guarded_root_argument_types =
+      [\<^typ>\<open>parser_nested_overlap_input\<close>,
+       \<^typ>\<open>
+         (nat, bool, unit, unit, unit, unit) expression
+       \<close>]
+    val _ =
+      audit_total_root_suffix
+        "left unguarded total-root fallback"
+        root_unguarded_left_lhs root_unguarded_left
+        unguarded_root_argument_types
+        root_unguarded_left_instantiated
+        \<^const_name>\<open>parser_nested_or_overlap_reverse_scrutinee\<close>
+        NONE
+    val _ =
+      audit_total_root_suffix
+        "right unguarded total-root fallback"
+        root_unguarded_right_lhs root_unguarded_right
+        unguarded_root_argument_types
+        root_unguarded_right_instantiated
+        \<^const_name>\<open>parser_nested_or_overlap_later_scrutinee\<close>
+        NONE
+    val _ =
+      audit_total_root_suffix
+        "left guarded total-root fallback"
+        root_guarded_left_lhs root_guarded_left
+        guarded_root_argument_types
+        root_guarded_left_instantiated
+        \<^const_name>\<open>parser_nested_or_overlap_reverse_scrutinee\<close>
+        (SOME
+          \<^const_name>\<open>parser_nested_source_guard_false\<close>)
+    val _ =
+      audit_total_root_suffix
+        "right guarded total-root fallback"
+        root_guarded_right_lhs root_guarded_right
+        guarded_root_argument_types
+        root_guarded_right_instantiated
+        \<^const_name>\<open>parser_nested_or_overlap_later_scrutinee\<close>
+        (SOME
+          \<^const_name>\<open>parser_nested_source_guard_true\<close>)
     val _ =
       assert "alias/wildcard fixture acquired an unintended definition argument"
         (null alias_wildcard_arguments)
