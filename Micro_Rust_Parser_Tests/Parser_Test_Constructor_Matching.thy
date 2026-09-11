@@ -143,9 +143,7 @@ micro_rust_notation (literal)
   parser_nested_status.ParserSecondaryStatus
   ("NestedStatus::Secondary")
 
-declare [[urust_conformance_check = false]]
-
-urust_expr parser_nested_registered_nullary
+urust_expr [conformance_check = true] parser_nested_registered_nullary
   \<open>
     match
       \<llangle>
@@ -157,6 +155,22 @@ urust_expr parser_nested_registered_nullary
       res \<Rightarrow> res
     }
   \<close>
+  against
+    \<open>
+      bind (literal (Err ParserPrimaryStatus))
+        (\<lambda>value.
+          case value of
+            Ok result \<Rightarrow> literal (Ok result)
+          | Err error \<Rightarrow>
+              two_armed_conditional
+                (urust_eq
+                  (literal error)
+                  (literal ParserPrimaryStatus))
+                (funcall1 (lift_fun1 Ok) (literal ()))
+                undefined)
+    \<close>
+
+thm parser_nested_registered_nullary_conformance
 
 declare [[urust_conformance_check = false]]
 
@@ -185,11 +199,12 @@ ML_val\<open>
           | _ => I)
         term 0
 
-    fun rhs_of name =
+    fun equation_of name =
       Proof_Context.get_thm ctxt (name ^ "_def")
       |> Thm.prop_of
       |> Logic.dest_equals
-      |> snd
+
+    fun rhs_of name = snd (equation_of name)
 
     fun constant_name term =
       (case Term.head_of term of
@@ -280,7 +295,44 @@ ML_val\<open>
         (count_constant \<^const_name>\<open>parser_raw_scrutinee\<close>
           metadata_free = 1)
 
-    val nested = rhs_of "parser_nested_registered_nullary"
+    val (nested_lhs, nested) =
+      equation_of "parser_nested_registered_nullary"
+    val nested_conformance =
+      Proof_Context.get_thm ctxt
+        "parser_nested_registered_nullary_conformance"
+    val (conformance_lhs, conformance_rhs) =
+      nested_conformance
+      |> Thm.prop_of
+      |> HOLogic.dest_Trueprop
+      |> HOLogic.dest_eq
+    val (_, nested_lhs_arguments) = Term.strip_comb nested_lhs
+    val _ =
+      assert "nested fixture acquired an unintended definition argument"
+        (null nested_lhs_arguments)
+    val _ =
+      assert "nested fixture acquired an unintended function type"
+        (null (binder_types (fastype_of nested_lhs)))
+    val _ =
+      assert "nested fixture retained a schematic term variable"
+        (null (Term.add_vars nested []))
+    val _ =
+      assert "nested fixture retained a local free binder"
+        (null (Term.add_frees nested []))
+    val _ =
+      assert "nested fixture conformance theorem has premises"
+        (Thm.nprems_of nested_conformance = 0)
+    val _ =
+      assert "nested fixture conformance theorem changed its definition head"
+        (Term.aconv (nested_lhs, conformance_lhs))
+    val _ =
+      assert "nested fixture differs from its complete legacy term"
+        (Term.aconv (nested, conformance_rhs))
+    val _ =
+      assert "nested fixture conformance target retained schematic variables"
+        (null (Term.add_vars conformance_rhs []))
+    val _ =
+      assert "nested fixture conformance target retained local free binders"
+        (null (Term.add_frees conformance_rhs []))
     val SOME (inner_case, _) =
       Case_Translation.lookup_by_constr_permissive ctxt
         (dest_Const_name \<^term>\<open>ParserPrimaryStatus\<close>,

@@ -1120,9 +1120,18 @@ struct
          List.exists requires_nested_match arguments
      | _ => false)
 
-  fun extend_guard generated NONE = SOME generated
-    | extend_guard generated (SOME source) =
-        SOME (T.binary And source generated)
+  (* A committing generated guard represents a nested exact registered nullary constructor. Once its
+     enclosing authentic constructor matches, guard failure uses the terminal fallback instead of
+     reconsidering later source arms for the same enclosing constructor. *)
+  fun extend_generated_guard
+      (generated, commits) NONE =
+        SOME (generated, commits)
+    | extend_generated_guard
+        (generated, commits)
+        (SOME (source, source_commits)) =
+        SOME
+          (T.binary And source generated,
+           source_commits orelse commits)
 
   fun alias_wrapper environment expression binder_sig rhs =
     let
@@ -1160,7 +1169,7 @@ struct
                            T.binary Eq (T.literal temporary)
                              (T.literal (R.constructor_term info))
                        in
-                         (Basic_Generated temporary, [guard], [])
+                         (Basic_Generated temporary, [(guard, true)], [])
                        end
                      else
                        normalize_pattern_for_nested
@@ -1189,7 +1198,7 @@ struct
                              matched_expression matched_pattern
                              rhs T.undefined_value
                        in
-                         (Basic_Generated temporary, [guard], [wrapper])
+                         (Basic_Generated temporary, [(guard, false)], [wrapper])
                        end
                      else
                        normalize_pattern_for_nested
@@ -1239,7 +1248,7 @@ struct
          in (basic, guards, wrappers @ [wrap]) end
      | Case_Value (literal, _) =>
          (Basic_Wild NONE,
-          [T.binary Eq expression (T.literal literal)],
+          [(T.binary Eq expression (T.literal literal), false)],
           [])
      | Case_Range (kind, lower, upper, _) =>
          let
@@ -1251,8 +1260,8 @@ struct
                expression upper
          in
            (Basic_Wild NONE,
-            [T.binary And
-              (T.binary Ge expression lower) upper_guard],
+            [(T.binary And
+              (T.binary Ge expression lower) upper_guard, false)],
             [])
          end
      | Case_Slice_Suffix reversed_suffix =>
@@ -1267,7 +1276,7 @@ struct
              compile_nested_case compiler ctxt environment
                reversed_expression reversed_suffix
                rhs T.undefined_value
-         in (Basic_Wild NONE, [guard], [wrap]) end
+         in (Basic_Wild NONE, [(guard, false)], [wrap]) end
      | _ =>
          normalize_pattern_for_nested
            compiler ctxt environment pattern)
@@ -1281,30 +1290,42 @@ struct
       val abstraction =
         bind_basic_pattern ctxt environment basic_pattern
       val generated_guard =
-        fold extend_guard generated_guards NONE
+        fold extend_generated_guard generated_guards NONE
       fun wrap rhs =
         fold_rev (fn wrapper => fn body => wrapper body)
           wrappers rhs
-      val wild =
+      (* A direct wildcard needs no case branch. An irrefutable binder still needs its abstraction:
+         treating those cases alike leaks the binder as a free schematic argument. *)
+      val (direct, irrefutable) =
         (case basic_pattern of
-           Basic_Wild _ => true
-         | Basic_Bind _ => true
-         | Basic_Generated _ => true
-         | _ => false)
-    in (wild, abstraction, generated_guard, wrap) end
+           Basic_Wild _ => (true, true)
+         | Basic_Bind _ => (false, true)
+         | Basic_Generated _ => (false, true)
+         | _ => (false, false))
+    in
+      (direct, irrefutable, abstraction, generated_guard, wrap)
+    end
 
   fun normalize_case_arm compiler ctxt value
       (pattern, environment, source_guard, rhs) =
     let
-      val (wild, abstraction, generated_guard, wrap) =
+      val (direct, irrefutable, abstraction, generated_guard, wrap) =
         normalize_case_alternative compiler ctxt value
           (pattern, environment)
       val guard =
         (case generated_guard of
-           NONE => source_guard
-         | SOME generated =>
-             extend_guard generated source_guard)
-    in (wild, abstraction, guard, wrap rhs) end
+           NONE =>
+             Option.map (fn source => (source, false)) source_guard
+         | SOME (generated, commits) =>
+             (case source_guard of
+                NONE => SOME (generated, commits)
+              | SOME source =>
+                  SOME
+                    (T.binary And source generated,
+                     false)))
+    in
+      (direct, irrefutable, abstraction, guard, wrap rhs)
+    end
 
   fun compile_pattern_case ctxt scrutinee arms =
     let
@@ -1327,11 +1348,18 @@ struct
 
       fun compile_branches [] =
             error "urust_expr: internal empty case branch list"
-        | compile_branches [(wild, abstraction, NONE, rhs)] =
-            if wild then rhs
+        | compile_branches
+            [(direct, _, abstraction, NONE, rhs)] =
+            if direct then rhs
             else case_term [abstraction rhs]
-        | compile_branches [(wild, abstraction, SOME guard, rhs)] =
-            if wild then T.conditional guard rhs undefined
+        | compile_branches
+            [(direct, irrefutable, abstraction,
+                SOME (guard, _), rhs)] =
+            if direct then T.conditional guard rhs undefined
+            else if irrefutable then
+              case_term
+                [abstraction
+                  (T.conditional guard rhs undefined)]
             else
               let val fallback = undefined in
                 case_term
@@ -1340,16 +1368,19 @@ struct
                    generated_wild fallback]
               end
         | compile_branches
-            ((wild, abstraction, guard, rhs) :: rest) =
+            ((direct, irrefutable, abstraction, guard, rhs) :: rest) =
             let
               val fallback = compile_branches rest
               val rhs' =
                 (case guard of
-                   SOME condition =>
-                     T.conditional condition rhs fallback
+                   SOME (condition, commits) =>
+                     T.conditional condition rhs
+                       (if commits then undefined else fallback)
                  | NONE => rhs)
             in
-              if wild then rhs'
+              if direct then rhs'
+              else if irrefutable then
+                case_term [abstraction rhs']
               else
                 case_term
                   [abstraction rhs',
@@ -1358,12 +1389,12 @@ struct
 
       val selector =
         if List.exists
-            (fn (_, _, guard, _) => is_some guard) normalized
+            (fn (_, _, _, guard, _) => is_some guard) normalized
         then compile_branches normalized
         else
           case_term
             (map
-              (fn (_, abstraction, _, rhs) =>
+              (fn (_, _, abstraction, _, rhs) =>
                 abstraction rhs) normalized)
     in T.bind scrutinee (Term.lambda value selector) end
 
@@ -1401,7 +1432,7 @@ struct
           {alternatives, source_guard, ...} =
         is_some source_guard orelse
           List.exists
-            (fn (_, _, guard, _) => is_some guard)
+            (fn (_, _, _, guard, _) => is_some guard)
             alternatives
 
       fun handler_term binders source_guard rhs next_arm =
@@ -1413,27 +1444,34 @@ struct
       fun handler_call handler binders =
         Term.list_comb (handler, binders)
 
+      val fallback =
+        the_default T.undefined_value explicit_fallback
+
       fun compile_alternatives [] _ _ _ =
             error "urust_expr: internal empty source-arm alternative list"
         | compile_alternatives
-            [(wild, abstraction, generated_guard, wrap)]
+            [(direct, irrefutable, abstraction, generated_guard, wrap)]
             handler binders next_arm =
             let
               val success = wrap (handler_call handler binders)
               val guarded =
                 (case generated_guard of
-                   SOME guard =>
-                     T.conditional guard success next_arm
+                   SOME (guard, commits) =>
+                     T.conditional guard success
+                       (if commits then fallback else next_arm)
                  | NONE => success)
             in
-              if wild then guarded
+              if direct then guarded
+              else if irrefutable then
+                case_term [abstraction guarded]
               else
                 case_term
                   [abstraction guarded,
                    generated_wild next_arm]
             end
         | compile_alternatives
-            ((wild, abstraction, generated_guard, wrap) :: rest)
+            ((direct, irrefutable, abstraction,
+                generated_guard, wrap) :: rest)
             handler binders next_arm =
             let
               val next_alternative =
@@ -1441,19 +1479,77 @@ struct
               val success = wrap (handler_call handler binders)
               val guarded =
                 (case generated_guard of
-                   SOME guard =>
-                     T.conditional guard success next_alternative
+                   SOME (guard, commits) =>
+                     T.conditional guard success
+                       (if commits then fallback
+                        else next_alternative)
                  | NONE => success)
             in
-              if wild then guarded
+              if direct then guarded
+              else if irrefutable then
+                case_term [abstraction guarded]
               else
                 case_term
                   [abstraction guarded,
                    generated_wild next_alternative]
             end
 
-      val fallback =
-        the_default T.undefined_value explicit_fallback
+      (* Committing equality guards can share one outer case with the remaining unguarded binder
+         branches. This preserves the binder abstraction and reconstructs only uncovered enclosing
+         constructors, matching the established frontend term. *)
+      fun generated_guard_commits
+          (_, _, _, SOME (_, commits), _) = commits
+        | generated_guard_commits _ = false
+
+      fun generated_guard_falls_through
+          (_, _, _, SOME (_, commits), _) = not commits
+        | generated_guard_falls_through _ = false
+
+      val has_committing_guard =
+        List.exists
+          (fn {alternatives, ...} =>
+            List.exists generated_guard_commits alternatives)
+          normalized
+
+      val has_fallthrough_generated_guard =
+        List.exists
+          (fn {alternatives, ...} =>
+            List.exists generated_guard_falls_through alternatives)
+          normalized
+
+      fun expression_of_branches [] = fallback
+        | expression_of_branches branches = case_term branches
+
+      fun compile_flat_sources [] =
+            (case explicit_fallback of
+               SOME term => [generated_wild term]
+             | NONE => [])
+        | compile_flat_sources
+            ({alternatives, binders, source_guard, rhs} :: rest) =
+            let
+              val rest_branches = compile_flat_sources rest
+              val next_arm =
+                expression_of_branches rest_branches
+              val handler =
+                handler_term binders source_guard rhs next_arm
+
+              fun branch
+                  (_, _, abstraction, generated_guard, wrap) =
+                let
+                  val success =
+                    wrap (handler_call handler binders)
+                  val guarded =
+                    (case generated_guard of
+                       NONE => success
+                     | SOME (guard, true) =>
+                         T.conditional guard success fallback
+                     | SOME (_, false) =>
+                         error
+                           "urust_expr: internal fallthrough guard in flat case")
+                in abstraction guarded end
+            in
+              map branch alternatives @ rest_branches
+            end
 
       fun compile_guarded_sources [] = fallback
         | compile_guarded_sources
@@ -1481,7 +1577,7 @@ struct
                 let
                   val handler = fold_rev Term.lambda binders rhs
                   fun branch
-                      (wild, abstraction, NONE, wrap) =
+                      (_, _, abstraction, NONE, wrap) =
                         abstraction
                           (wrap (handler_call handler binders))
                     | branch _ =
@@ -1495,7 +1591,12 @@ struct
         in install sources [] end
 
       val selector =
-        if List.exists has_generated_guard normalized
+        if has_committing_guard andalso
+            not has_fallthrough_generated_guard
+        then
+          expression_of_branches
+            (compile_flat_sources normalized)
+        else if List.exists has_generated_guard normalized
         then compile_guarded_sources normalized
         else compile_unguarded_sources normalized
     in
