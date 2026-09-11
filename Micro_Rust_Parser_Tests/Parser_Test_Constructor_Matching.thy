@@ -330,6 +330,23 @@ definition parser_nested_or_overlap_reversed_second_scrutinee ::
           (Err ParserPrimaryStatus, TNil))
     \<close>
 
+definition parser_nested_exhaustive_first_miss_scrutinee ::
+  \<open>parser_nested_overlap_input\<close>
+  where
+    \<open>
+      parser_nested_exhaustive_first_miss_scrutinee =
+        (Err ParserSecondaryStatus, (Ok (), TNil))
+    \<close>
+
+definition parser_nested_exhaustive_third_miss_scrutinee ::
+  \<open>parser_nested_overlap_input\<close>
+  where
+    \<open>
+      parser_nested_exhaustive_third_miss_scrutinee =
+        (Ok (),
+          (Err ParserPrimaryStatus, TNil))
+    \<close>
+
 definition parser_nested_source_guard_true ::
   \<open>(nat, bool, unit, unit, unit, unit) expression\<close>
   where
@@ -421,6 +438,38 @@ urust_expr parser_nested_guarded_or_binder ::
             parser_nested_binder_source_guard observed
           \<close> \<Rightarrow> 1,
       (Err(NestedStatus::Secondary), _) \<Rightarrow> 2,
+      _ \<Rightarrow> 3
+    }
+  \<close>
+
+urust_expr parser_nested_exhaustive_outer_shapes ::
+  \<open>
+    parser_nested_overlap_input \<Rightarrow>
+      (unit, nat, unit, unit, unit, unit) expression
+  \<close>
+  (scrutinee)
+  \<open>
+    match scrutinee {
+      (Err(NestedStatus::Primary), _) |
+        (Ok(_), Ok(_)) |
+        (_, Err(NestedStatus::Secondary)) \<Rightarrow> 1,
+      _ \<Rightarrow> 3
+    }
+  \<close>
+
+urust_expr parser_nested_exhaustive_outer_shapes_guarded ::
+  \<open>
+    parser_nested_overlap_input \<Rightarrow>
+      (nat, bool, unit, unit, unit, unit) expression \<Rightarrow>
+      (nat, nat, unit, unit, unit, unit) expression
+  \<close>
+  (scrutinee, source_guard)
+  \<open>
+    match scrutinee {
+      (Err(NestedStatus::Primary), _) |
+        (Ok(_), Ok(_)) |
+        (_, Err(NestedStatus::Secondary))
+        if \<epsilon>\<open>source_guard\<close> \<Rightarrow> 1,
       _ \<Rightarrow> 3
     }
   \<close>
@@ -632,6 +681,140 @@ lemma parser_nested_guarded_or_binder_second_alternative:
       parser_nested_guarded_or_binder_def
       parser_nested_overlap_scrutinee_def
       parser_nested_binder_source_guard_def
+      two_armed_conditional_def
+      urust_eq_def
+      micro_rust_simps
+      evaluate_def
+      sequence_def
+      put_def
+      literal_def
+      Core_Expression.bind.simps)
+
+lemma parser_nested_exhaustive_first_miss:
+  \<open>
+    parser_nested_exhaustive_outer_shapes
+        parser_nested_exhaustive_first_miss_scrutinee =
+      literal (3 :: nat)
+  \<close>
+  by
+    (simp add:
+      parser_nested_exhaustive_outer_shapes_def
+      parser_nested_exhaustive_first_miss_scrutinee_def
+      two_armed_conditional_def
+      urust_eq_def
+      micro_rust_simps)
+
+lemma parser_nested_exhaustive_third_miss:
+  \<open>
+    parser_nested_exhaustive_outer_shapes
+        parser_nested_exhaustive_third_miss_scrutinee =
+      literal (3 :: nat)
+  \<close>
+  by
+    (simp add:
+      parser_nested_exhaustive_outer_shapes_def
+      parser_nested_exhaustive_third_miss_scrutinee_def
+      two_armed_conditional_def
+      urust_eq_def
+      micro_rust_simps)
+
+lemma parser_nested_exhaustive_middle_match:
+  \<open>
+    parser_nested_exhaustive_outer_shapes
+        parser_nested_or_overlap_wildcard_scrutinee =
+      literal (1 :: nat)
+  \<close>
+  by
+    (simp add:
+      parser_nested_exhaustive_outer_shapes_def
+      parser_nested_or_overlap_wildcard_scrutinee_def
+      two_armed_conditional_def
+      urust_eq_def
+      micro_rust_simps)
+
+lemma parser_nested_exhaustive_guarded_first_miss:
+  \<open>
+    evaluate
+      (parser_nested_exhaustive_outer_shapes_guarded
+        parser_nested_exhaustive_first_miss_scrutinee
+        parser_nested_source_guard_true)
+      0 =
+    Success (3 :: nat) 1
+  \<close>
+  by
+    (simp add:
+      parser_nested_exhaustive_outer_shapes_guarded_def
+      parser_nested_exhaustive_first_miss_scrutinee_def
+      parser_nested_source_guard_true_def
+      two_armed_conditional_def
+      urust_eq_def
+      micro_rust_simps
+      evaluate_def
+      sequence_def
+      put_def
+      literal_def
+      Core_Expression.bind.simps)
+
+lemma parser_nested_exhaustive_guarded_third_miss:
+  \<open>
+    evaluate
+      (parser_nested_exhaustive_outer_shapes_guarded
+        parser_nested_exhaustive_third_miss_scrutinee
+        parser_nested_source_guard_true)
+      0 =
+    Success (3 :: nat) 1
+  \<close>
+  by
+    (simp add:
+      parser_nested_exhaustive_outer_shapes_guarded_def
+      parser_nested_exhaustive_third_miss_scrutinee_def
+      parser_nested_source_guard_true_def
+      two_armed_conditional_def
+      urust_eq_def
+      micro_rust_simps
+      evaluate_def
+      sequence_def
+      put_def
+      literal_def
+      Core_Expression.bind.simps)
+
+lemma parser_nested_exhaustive_guarded_middle_match:
+  \<open>
+    evaluate
+      (parser_nested_exhaustive_outer_shapes_guarded
+        parser_nested_or_overlap_wildcard_scrutinee
+        parser_nested_source_guard_true)
+      0 =
+    Success (1 :: nat) 1
+  \<close>
+  by
+    (simp add:
+      parser_nested_exhaustive_outer_shapes_guarded_def
+      parser_nested_or_overlap_wildcard_scrutinee_def
+      parser_nested_source_guard_true_def
+      two_armed_conditional_def
+      urust_eq_def
+      micro_rust_simps
+      evaluate_def
+      sequence_def
+      put_def
+      literal_def
+      Core_Expression.bind.simps)
+
+lemma parser_nested_exhaustive_guarded_false:
+  \<open>
+    evaluate
+      (parser_nested_exhaustive_outer_shapes_guarded
+        parser_nested_or_overlap_wildcard_scrutinee
+        parser_nested_source_guard_false)
+      0 =
+    Success (3 :: nat) 1
+  \<close>
+  by
+    (simp add:
+      parser_nested_exhaustive_outer_shapes_guarded_def
+      parser_nested_or_overlap_wildcard_scrutinee_def
+      parser_nested_source_guard_false_def
       two_armed_conditional_def
       urust_eq_def
       micro_rust_simps
@@ -963,6 +1146,38 @@ ML_val\<open>
       Envir.beta_eta_contract
         (Term.list_comb (rhs, arguments))
 
+    fun outer_case_selector rhs =
+      let
+        val (parameters, body) = Term.strip_abs rhs
+        val names =
+          Name.variants Name.context
+            (map (fn (name, _) =>
+              if name = "" then "parameter" else name)
+              parameters)
+        val frees =
+          map Free (names ~~ map snd parameters)
+        val body' = subst_bounds (rev frees, body)
+      in
+        (case body' of
+           Const (name, _) $ _ $ continuation =>
+             if name = \<^const_name>\<open>bind\<close>
+             then snd (Term.dest_abs_global continuation)
+             else
+               error
+                 "constructor matching audit: expected outer scrutinee bind"
+         | _ =>
+             error
+               "constructor matching audit: expected outer scrutinee bind")
+      end
+
+    fun outer_case_clauses rhs =
+      (case Case_Translation.strip_case ctxt false
+          (outer_case_selector rhs) of
+         SOME (_, clauses) => clauses
+       | NONE =>
+           error
+             "constructor matching audit: expected outer case")
+
     val ordered_expected =
       \<^term>\<open>
         (bind (literal (Err ParserSecondaryStatus))
@@ -1172,6 +1387,10 @@ ML_val\<open>
       equation_of "parser_nested_guarded_or_alternatives_reversed"
     val (guarded_or_binder_lhs, guarded_or_binder) =
       equation_of "parser_nested_guarded_or_binder"
+    val (exhaustive_lhs, exhaustive) =
+      equation_of "parser_nested_exhaustive_outer_shapes"
+    val (exhaustive_guarded_lhs, exhaustive_guarded) =
+      equation_of "parser_nested_exhaustive_outer_shapes_guarded"
     val guarded_or_instantiated =
       instantiate_definition guarded_or
         [\<^term>\<open>parser_nested_overlap_scrutinee\<close>,
@@ -1185,6 +1404,12 @@ ML_val\<open>
     val guarded_or_binder_instantiated =
       instantiate_definition guarded_or_binder
         [\<^term>\<open>parser_nested_overlap_scrutinee\<close>]
+    val exhaustive_guarded_instantiated =
+      instantiate_definition exhaustive_guarded
+        [\<^term>\<open>
+            parser_nested_exhaustive_first_miss_scrutinee
+          \<close>,
+         \<^term>\<open>parser_nested_source_guard_true\<close>]
     val (global_ok_branch, global_err_branch) =
       result_case_branches global_source_order
     val alias_wildcard =
@@ -1217,6 +1442,10 @@ ML_val\<open>
       Term.strip_comb guarded_or_reversed_lhs
     val (_, guarded_or_binder_arguments) =
       Term.strip_comb guarded_or_binder_lhs
+    val (_, exhaustive_arguments) =
+      Term.strip_comb exhaustive_lhs
+    val (_, exhaustive_guarded_arguments) =
+      Term.strip_comb exhaustive_guarded_lhs
     val _ =
       assert "alias/wildcard fixture acquired an unintended definition argument"
         (null alias_wildcard_arguments)
@@ -1308,6 +1537,54 @@ ML_val\<open>
       assert "binder-dependent guard fixture evaluated its scrutinee more than once"
         (count_constant \<^const_name>\<open>bind\<close>
           guarded_or_binder = 1)
+    val _ =
+      assert "exhaustive outer-shape fixture changed its definition head"
+        (null exhaustive_arguments)
+    val _ =
+      assert "exhaustive outer-shape fixture changed its argument type"
+        (binder_types (fastype_of exhaustive_lhs) =
+          [\<^typ>\<open>parser_nested_overlap_input\<close>])
+    val _ =
+      assert "exhaustive outer-shape fixture retained schematic variables"
+        (null (Term.add_vars exhaustive []))
+    val _ =
+      assert "exhaustive outer-shape fixture retained local free binders"
+        (null (Term.add_frees exhaustive []))
+    val _ =
+      assert "exhaustive outer-shape fixture duplicated its scrutinee"
+        (count_constant \<^const_name>\<open>bind\<close>
+          exhaustive = 1)
+    val _ =
+      assert
+        ("exhaustive outer-shape fixture emitted a redundant outer clause: " ^
+          string_of_int (length (outer_case_clauses exhaustive)))
+        (length (outer_case_clauses exhaustive) = 4)
+    val _ =
+      assert "guarded exhaustive outer-shape fixture changed its definition head"
+        (null exhaustive_guarded_arguments)
+    val _ =
+      assert "guarded exhaustive outer-shape fixture changed its argument types"
+        (binder_types (fastype_of exhaustive_guarded_lhs) =
+          [\<^typ>\<open>parser_nested_overlap_input\<close>,
+           \<^typ>\<open>
+             (nat, bool, unit, unit, unit, unit) expression
+           \<close>])
+    val _ =
+      assert "guarded exhaustive outer-shape fixture retained schematic variables"
+        (null (Term.add_vars exhaustive_guarded []))
+    val _ =
+      assert "guarded exhaustive outer-shape fixture retained local free binders"
+        (null (Term.add_frees exhaustive_guarded []))
+    val _ =
+      assert "guarded exhaustive outer-shape fixture duplicated its scrutinee"
+        (count_constant \<^const_name>\<open>bind\<close>
+          exhaustive_guarded = 1)
+    val _ =
+      assert
+        ("guarded exhaustive outer-shape fixture emitted a redundant outer clause: " ^
+          string_of_int (length
+            (outer_case_clauses exhaustive_guarded)))
+        (length (outer_case_clauses exhaustive_guarded) = 4)
     val expected_equality_order =
       map constant_name
         [\<^term>\<open>ParserPrimaryStatus\<close>,
@@ -1332,6 +1609,13 @@ ML_val\<open>
        (constant_name
           \<^term>\<open>ParserSecondaryStatus\<close>,
         \<^term>\<open>literal (2 :: nat)\<close>)]
+    val exhaustive_outer_order =
+      [(constant_name
+          \<^term>\<open>ParserPrimaryStatus\<close>,
+        \<^term>\<open>literal (1 :: nat)\<close>),
+       (constant_name
+          \<^term>\<open>ParserSecondaryStatus\<close>,
+        \<^term>\<open>literal (1 :: nat)\<close>)]
     val _ =
       assert "separate same-outer alternatives duplicated the outer case"
         (count_constant result_case_name ordered = 1)
@@ -1423,6 +1707,30 @@ ML_val\<open>
           overlapping_or_order
           guarded_or_binder_instantiated)
     val _ =
+      assert "exhaustive outer-shape equality continuations changed order"
+        (has_ordered_equality_results
+          exhaustive_outer_order exhaustive)
+    val _ =
+      assert "guarded exhaustive outer-shape source guard was not shared"
+        (has_shared_source_guard
+          \<^const_name>\<open>parser_nested_source_guard_true\<close>
+          exhaustive_outer_order
+          exhaustive_guarded_instantiated)
+    val _ =
+      assert "exhaustive outer-shape fallback was removed from continuations"
+        (Term.exists_subterm
+          (fn term =>
+            Term.aconv_untyped
+              (term, \<^term>\<open>literal (3 :: nat)\<close>))
+          exhaustive)
+    val _ =
+      assert "guarded exhaustive outer-shape fallback was removed from continuations"
+        (Term.exists_subterm
+          (fn term =>
+            Term.aconv_untyped
+              (term, \<^term>\<open>literal (3 :: nat)\<close>))
+          exhaustive_guarded)
+    val _ =
       assert "a later applicable source arm still terminates at undefined"
         (List.all
           (fn term =>
@@ -1431,7 +1739,8 @@ ML_val\<open>
           [nested, ordered, ordered_or, guarded_order,
            global_source_order, overlapping_tuple,
            overlapping_or, guarded_or,
-           guarded_or_reversed, guarded_or_binder])
+           guarded_or_reversed, guarded_or_binder,
+           exhaustive, exhaustive_guarded])
     val _ =
       assert "alias/wildcard fixture duplicated the outer case"
         (count_constant result_case_name alias_wildcard = 1)

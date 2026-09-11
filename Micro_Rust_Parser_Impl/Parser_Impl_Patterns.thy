@@ -1120,18 +1120,40 @@ struct
          List.exists requires_nested_match arguments
      | _ => false)
 
-  (* A committing generated guard represents a nested exact registered nullary constructor. Once its
-     enclosing authentic constructor matches, guard failure uses the terminal fallback instead of
-     reconsidering later source arms for the same enclosing constructor. *)
+  datatype generated_guard_role =
+      Local_Generated_Guard
+    | Structural_Generated_Guard
+
+  type generated_guard = generated_guard_role * term
+
+  fun generated_guard_term (_, guard) = guard
+
+  fun generated_guard_is_structural
+      (Structural_Generated_Guard, _) = true
+    | generated_guard_is_structural _ = false
+
+  fun combine_generated_guard_role
+      (Structural_Generated_Guard, _) =
+        Structural_Generated_Guard
+    | combine_generated_guard_role
+        (_, Structural_Generated_Guard) =
+        Structural_Generated_Guard
+    | combine_generated_guard_role _ =
+        Local_Generated_Guard
+
+  (* Local guards are ordinary value/range/nested predicates. A structural guard is the equality
+     test produced for an exact registered nullary constructor nested below an authentic outer
+     constructor. Structural guards select the ordered decision compiler below; their failure still
+     follows ordinary source order there. The role records a lowering requirement, not a semantic
+     "commit" bit. *)
   fun extend_generated_guard
-      (generated, commits) NONE =
-        SOME (generated, commits)
+      generated NONE =
+        SOME generated
     | extend_generated_guard
-        (generated, commits)
-        (SOME (source, source_commits)) =
+        (role, guard) (SOME (prior_role, prior_guard)) =
         SOME
-          (T.binary And source generated,
-           source_commits orelse commits)
+          (combine_generated_guard_role (role, prior_role),
+           T.binary And prior_guard guard)
 
   fun alias_wrapper environment expression binder_sig rhs =
     let
@@ -1174,7 +1196,8 @@ struct
                            T.binary Eq (T.literal temporary)
                              (T.literal (R.constructor_term info))
                        in
-                         (Basic_Generated temporary, [(guard, true)], [])
+                         (Basic_Generated temporary,
+                          [(Structural_Generated_Guard, guard)], [])
                        end
                      else
                        normalize_pattern_for_nested
@@ -1205,7 +1228,8 @@ struct
                              matched_expression matched_pattern
                              rhs T.undefined_value
                        in
-                         (Basic_Generated temporary, [(guard, false)], [wrapper])
+                         (Basic_Generated temporary,
+                          [(Local_Generated_Guard, guard)], [wrapper])
                        end
                      else
                        normalize_pattern_for_nested
@@ -1252,15 +1276,11 @@ struct
                compiler ctxt environment expression inner
            fun wrap rhs =
              alias_wrapper environment expression binder_sig rhs
-           (* Failure of the aliased inner pattern continues with the next source arm. The alias
-              wrapper binds only after that pattern succeeds, so it must not inherit a committing
-              generated guard from the legacy exact-nullary normalization. *)
-           val guards' =
-             map (fn (guard, _) => (guard, false)) guards
-         in (basic, guards', wrappers @ [wrap]) end
+         in (basic, guards, wrappers @ [wrap]) end
      | Case_Value (literal, _) =>
          (Basic_Wild NONE,
-          [(T.binary Eq expression (T.literal literal), false)],
+          [(Local_Generated_Guard,
+            T.binary Eq expression (T.literal literal))],
           [])
      | Case_Range (kind, lower, upper, _) =>
          let
@@ -1272,8 +1292,9 @@ struct
                expression upper
          in
            (Basic_Wild NONE,
-            [(T.binary And
-              (T.binary Ge expression lower) upper_guard, false)],
+            [(Local_Generated_Guard,
+              T.binary And
+                (T.binary Ge expression lower) upper_guard)],
             [])
          end
      | Case_Slice_Suffix reversed_suffix =>
@@ -1288,7 +1309,10 @@ struct
              compile_nested_case compiler ctxt environment
                reversed_expression reversed_suffix
                rhs T.undefined_value
-         in (Basic_Wild NONE, [(guard, false)], [wrap]) end
+         in
+           (Basic_Wild NONE,
+            [(Local_Generated_Guard, guard)], [wrap])
+         end
      | _ =>
          normalize_pattern_for_nested
            compiler ctxt environment pattern)
@@ -1327,14 +1351,17 @@ struct
       val guard =
         (case generated_guard of
            NONE =>
-             Option.map (fn source => (source, false)) source_guard
-         | SOME (generated, commits) =>
+             Option.map
+               (fn source =>
+                 (Local_Generated_Guard, source))
+               source_guard
+         | SOME (role, generated) =>
              (case source_guard of
-                NONE => SOME (generated, commits)
+                NONE => SOME (role, generated)
               | SOME source =>
                   SOME
-                    (T.binary And source generated,
-                     false)))
+                    (role,
+                     T.binary And source generated)))
     in
       (direct, irrefutable, abstraction, guard, wrap rhs)
     end
@@ -1366,17 +1393,24 @@ struct
             else case_term [abstraction rhs]
         | compile_branches
             [(direct, irrefutable, abstraction,
-                SOME (guard, _), rhs)] =
-            if direct then T.conditional guard rhs undefined
+                SOME generated_guard, rhs)] =
+            if direct then
+              T.conditional
+                (generated_guard_term generated_guard)
+                rhs undefined
             else if irrefutable then
               case_term
                 [abstraction
-                  (T.conditional guard rhs undefined)]
+                  (T.conditional
+                    (generated_guard_term generated_guard)
+                    rhs undefined)]
             else
               let val fallback = undefined in
                 case_term
                   [abstraction
-                    (T.conditional guard rhs fallback),
+                    (T.conditional
+                      (generated_guard_term generated_guard)
+                      rhs fallback),
                    generated_wild fallback]
               end
         | compile_branches
@@ -1385,9 +1419,10 @@ struct
               val fallback = compile_branches rest
               val rhs' =
                 (case guard of
-                   SOME (condition, commits) =>
-                     T.conditional condition rhs
-                       (if commits then undefined else fallback)
+                   SOME guard =>
+                     T.conditional
+                       (generated_guard_term guard)
+                       rhs fallback
                  | NONE => rhs)
             in
               if direct then rhs'
@@ -1471,9 +1506,10 @@ struct
               val success = wrap (handler_call handler binders)
               val guarded =
                 (case generated_guard of
-                   SOME (guard, commits) =>
-                     T.conditional guard success
-                       (if commits then fallback else next_arm)
+                   SOME guard =>
+                     T.conditional
+                       (generated_guard_term guard)
+                       success next_arm
                  | NONE => success)
             in
               if direct then guarded
@@ -1494,10 +1530,10 @@ struct
               val success = wrap (handler_call handler binders)
               val guarded =
                 (case generated_guard of
-                   SOME (guard, commits) =>
-                     T.conditional guard success
-                       (if commits then fallback
-                        else next_alternative)
+                   SOME guard =>
+                     T.conditional
+                       (generated_guard_term guard)
+                       success next_alternative
                  | NONE => success)
             in
               if direct then guarded
@@ -1509,17 +1545,17 @@ struct
                    generated_wild next_alternative]
             end
 
-      (* Committing equality guards can share one outer case with the remaining unguarded binder
-         branches. This preserves the binder abstraction and reconstructs only uncovered enclosing
-         constructors, matching the established frontend term. *)
-      fun generated_guard_commits
-          (_, _, _, SOME (_, commits), _) = commits
-        | generated_guard_commits _ = false
+      fun alternative_requires_structural_decision
+          (_, _, _, SOME guard, _) =
+            generated_guard_is_structural guard
+        | alternative_requires_structural_decision _ = false
 
-      val has_committing_guard =
+      val requires_structural_decision =
         List.exists
           (fn {alternatives, ...} =>
-            List.exists generated_guard_commits alternatives)
+            List.exists
+              alternative_requires_structural_decision
+              alternatives)
           normalized
 
       fun dest_flat_branch term =
@@ -1564,10 +1600,10 @@ struct
             (case source_guard of
                NONE => (T.literal T.true_value, false)
              | SOME guard => (guard, true))
-          val (packed_generated_guard, generated_commits) =
+          val (packed_generated_guard, generated_role) =
             (case generated_guard of
                NONE => (T.literal T.true_value, NONE)
-             | SOME (guard, commits) => (guard, SOME commits))
+             | SOME (role, guard) => (guard, SOME role))
           val packed =
             abstraction
               (T.pair packed_source_guard
@@ -1583,8 +1619,8 @@ struct
           (shape, rebuild, abstractions, pattern,
            (if has_source_guard then SOME source_guard' else NONE,
             Option.map
-              (fn commits => (generated_guard', commits))
-              generated_commits,
+              (fn role => (role, generated_guard'))
+              generated_role,
             success'))
         end
 
@@ -1667,11 +1703,10 @@ struct
           (left_arm = right_arm andalso
             left_alternative < right_alternative)
 
-      fun first_flat_source_after source_position sources =
-        List.find
-          (fn (position, _, _) =>
-            source_position_less (source_position, position))
-          sources
+      fun source_position_ord (left, right) =
+        if source_position_less (left, right) then LESS
+        else if source_position_less (right, left) then GREATER
+        else EQUAL
 
       fun flat_group_sources (_, _, _, _, sources) =
         sources
@@ -1710,28 +1745,25 @@ struct
                  flat_group_pattern source_group))
             all_groups
 
-      fun next_flat_source all_groups branch_group source_position =
+      fun flat_decisions_after all_groups branch_group source_position =
         let
-          fun choose group NONE =
-                Option.map
-                  (fn source as (position, _, _) =>
-                    (position, group, source))
-                  (first_flat_source_after source_position
-                    (flat_group_sources group))
-            | choose group
-                (best as SOME (best_position, _, _)) =
-                (case first_flat_source_after source_position
-                    (flat_group_sources group) of
-                   SOME (source as (position, _, _)) =>
-                     if source_position_less
-                          (position, best_position)
-                     then SOME (position, group, source)
-                     else best
-                 | NONE => best)
+          fun collect source_group =
+            fold
+              (fn source as (position, _, _, _) => fn decisions =>
+                if source_position_less
+                    (source_position, position)
+                then (source_group, source) :: decisions
+                else decisions)
+              (flat_group_sources source_group)
+          fun decision_ord
+              ((_, (left, _, _, _)),
+               (_, (right, _, _, _))) =
+            source_position_ord (left, right)
         in
-          fold choose
+          sort decision_ord
+            (fold collect
             (applicable_flat_groups all_groups branch_group)
-            NONE
+            [])
         end
 
       fun specialize_flat_term
@@ -1754,128 +1786,388 @@ struct
            flat_group_shape source_group) orelse
         is_flat_catchall_group source_group
 
-      fun guard_state_for_source NONE _ = NONE
-        | guard_state_for_source (SOME guarded_arm)
-            (source_arm, _) =
-            if guarded_arm = source_arm
-            then SOME guarded_arm
-            else NONE
+      datatype flat_arm_guard =
+          Flat_Unguarded_Arm
+        | Flat_Guarded_Arm
 
-      (* Every outer branch advances through alternatives by their original lexicographic
-         (source-arm, or-alternative) position. Constructor entries, overlapping structural
-         patterns, and catch-all entries may live in different merged groups, so selecting only the
-         next entry in the current shape group reorders both interleaved arms and alternatives from
-         one or-pattern. Catch-all payloads are specialized directly; a non-identical overlapping
-         pattern is matched against the already reconstructed branch value, without reevaluating the
-         original scrutinee. A successful source guard is carried through the remaining alternatives
-         of its arm, so generated-guard failure does not evaluate it again. *)
-      fun compile_flat_group_body all_groups branch_group
-            source_position guarded_arm =
-        (case next_flat_source
+      fun guard_mode_matches Flat_Unguarded_Arm NONE = true
+        | guard_mode_matches Flat_Guarded_Arm (SOME _) = true
+        | guard_mode_matches _ _ = false
+
+      fun next_flat_arm all_groups branch_group source_position =
+        let
+          val decisions =
+            flat_decisions_after
+              all_groups branch_group source_position
+
+          fun take_arm _ [] = []
+            | take_arm source_arm
+                ((decision as
+                  (_, ((candidate_arm, _), _, _, _))) :: rest) =
+                if source_arm = candidate_arm
+                then decision :: take_arm source_arm rest
+                else []
+        in
+          (case decisions of
+             [] => NONE
+           | (_, ((source_arm, _), first_guard, _, _)) :: _ =>
+               let
+                 val guard_mode =
+                   (case first_guard of
+                      NONE => Flat_Unguarded_Arm
+                    | SOME _ => Flat_Guarded_Arm)
+                 val arm_decisions =
+                   take_arm source_arm decisions
+                 val _ =
+                   if List.all
+                       (fn (_, (_, guard, _, _)) =>
+                         guard_mode_matches guard_mode guard)
+                       arm_decisions
+                   then ()
+                   else
+                     error
+                       "urust_expr: internal inconsistent source-arm guard"
+               in
+                 SOME
+                   (source_arm, guard_mode, arm_decisions)
+               end)
+        end
+
+      fun matched_flat_group branch_group source_group =
+        if can_specialize_flat_group
+            branch_group source_group
+        then branch_group
+        else source_group
+
+      fun adapt_flat_source_term branch_group source_group term =
+        if can_specialize_flat_group
+            branch_group source_group
+        then
+          specialize_flat_term
+            branch_group source_group term
+        else term
+
+      fun place_flat_decision branch_group source_group
+          matched unmatched =
+        if can_specialize_flat_group
+            branch_group source_group
+        then matched
+        else
+          let
+            val (_, source_rebuild, _, _, _) =
+              source_group
+          in
+            case_term_on
+              (flat_group_pattern branch_group)
+              [source_rebuild matched,
+               generated_wild
+                 (Term.incr_boundvars 1 unmatched)]
+          end
+
+      fun compile_generated_decision branch_group source_group
+          generated_guard success failure =
+        (case generated_guard of
+           NONE =>
+             adapt_flat_source_term
+               branch_group source_group success
+         | SOME guard =>
+             T.conditional
+               (adapt_flat_source_term
+                 branch_group source_group
+                 (generated_guard_term guard))
+               (adapt_flat_source_term
+                 branch_group source_group success)
+               failure)
+
+      (* Ordered structural decision representation.
+
+         - Every normalized alternative has the stable source position
+           (arm index, or-alternative index).
+         - An outer structural group denotes the values currently known to reach a branch. All
+           overlapping source groups are merged lexicographically by source position.
+         - Each source arm is compiled in one of two explicit phases. Before its source guard has
+           succeeded, structural mismatch tries the next alternative and guard failure skips the
+           whole arm. After success, generated-guard failure tries later alternatives without
+           reevaluating the source guard.
+         - Matching a non-identical overlapping shape refines the current structural group through a
+           nested case on the already-bound value. Catch-all and equal-shape sources are specialized
+           directly. Thus every continuation is derived from a source position and a structural
+           region; the original scrutinee is never reevaluated.
+         - Catch-all groups remain available to every continuation even when structural coverage
+           makes them unnecessary as outer clauses. *)
+      fun compile_flat_continuation
+          all_groups branch_group source_position =
+        (case next_flat_arm
             all_groups branch_group source_position of
            NONE => fallback
          | SOME
-             (next_position, source_group, source) =>
-             let
-               val guarded_arm' =
-                 guard_state_for_source
-                   guarded_arm next_position
-             in
-               if can_specialize_flat_group
-                    branch_group source_group
-               then
-                 compile_flat_source all_groups
-                   branch_group source_group
-                   guarded_arm' source
-               else
-                 let
-                   val (_, source_rebuild, _, _, _) =
-                     source_group
-                   val branch_pattern =
-                     flat_group_pattern branch_group
-                   val matched =
-                     compile_flat_source all_groups
-                       source_group source_group
-                       guarded_arm' source
-                   val unmatched =
-                     compile_flat_group_body
-                       all_groups branch_group next_position
-                       guarded_arm'
-                 in
-                   case_term_on branch_pattern
-                     [source_rebuild matched,
-                      generated_wild
-                        (Term.incr_boundvars 1 unmatched)]
-                 end
-             end)
+             (source_arm, Flat_Unguarded_Arm,
+              decisions) =>
+             compile_flat_unguarded_arm
+               all_groups branch_group
+               source_arm decisions
+         | SOME
+             (source_arm, Flat_Guarded_Arm,
+              decisions) =>
+             compile_flat_guard_pending
+               all_groups branch_group
+               source_arm decisions)
 
-      and compile_flat_source all_groups branch_group
-          source_group guarded_arm
-          (next_position as (source_arm, _),
-           source_guard, alternatives) =
-        let
-          fun specialize term =
-            specialize_flat_term
-              branch_group source_group term
-          val guarded_arm' =
-            (case source_guard of
-               SOME _ => SOME source_arm
-             | NONE => guarded_arm)
-          val source_fallback =
-            compile_flat_group_body
-              all_groups branch_group next_position
-                guarded_arm'
-          val arm_fallback =
-            compile_flat_group_body
+      and compile_flat_unguarded_arm
+          all_groups branch_group source_arm [] =
+            compile_flat_continuation
               all_groups branch_group
-                (source_arm + 1, ~1) NONE
+              (source_arm + 1, ~1)
+        | compile_flat_unguarded_arm
+            all_groups branch_group source_arm
+            ((source_group,
+              (position, NONE,
+               generated_guard, success)) :: rest) =
+            let
+              val matched_group =
+                matched_flat_group
+                  branch_group source_group
+              val generated_fallback =
+                compile_flat_unguarded_tail
+                  all_groups matched_group
+                  source_arm position
+              val matched =
+                compile_generated_decision
+                  branch_group source_group
+                  generated_guard success
+                  generated_fallback
+              val unmatched =
+                compile_flat_unguarded_arm
+                  all_groups branch_group
+                  source_arm rest
+            in
+              place_flat_decision
+                branch_group source_group
+                matched unmatched
+            end
+        | compile_flat_unguarded_arm _ _ _ _ =
+            error
+              "urust_expr: internal guarded decision in unguarded arm"
 
-          fun compile_alternatives [] =
-                error
-                  "urust_expr: internal empty flat source alternatives"
-            | compile_alternatives
-                [(NONE, success)] = specialize success
-            | compile_alternatives
-                [(SOME (guard, _), success)] =
-                T.conditional (specialize guard)
-                  (specialize success) source_fallback
-            | compile_alternatives
-                ((NONE, success) :: _) =
-                specialize success
-            | compile_alternatives
-                ((SOME (guard, _), success) :: rest) =
-                T.conditional (specialize guard)
-                  (specialize success)
-                  (compile_alternatives rest)
+      and compile_flat_unguarded_tail
+          all_groups branch_group source_arm source_position =
+        (case next_flat_arm
+            all_groups branch_group source_position of
+           SOME
+             (candidate_arm, Flat_Unguarded_Arm,
+              decisions) =>
+               if candidate_arm = source_arm
+               then
+                 compile_flat_unguarded_arm
+                   all_groups branch_group
+                   source_arm decisions
+               else
+                 compile_flat_continuation
+                   all_groups branch_group
+                   (source_arm + 1, ~1)
+         | SOME (candidate_arm, _, _) =>
+             if candidate_arm = source_arm
+             then
+               error
+                 "urust_expr: internal source-arm guard changed"
+             else
+               compile_flat_continuation
+                 all_groups branch_group
+                 (source_arm + 1, ~1)
+         | NONE => fallback)
 
-          val matched =
-            compile_alternatives alternatives
-        in
-          (case (source_guard, guarded_arm) of
-             (NONE, _) => matched
-           | (SOME _, SOME _) => matched
-           | (SOME guard, NONE) =>
-               T.conditional (specialize guard)
-                 matched arm_fallback)
-        end
+      and compile_flat_guard_pending
+          all_groups branch_group source_arm [] =
+            compile_flat_continuation
+              all_groups branch_group
+              (source_arm + 1, ~1)
+        | compile_flat_guard_pending
+            all_groups branch_group source_arm
+            ((source_group,
+              (position, SOME source_guard,
+               generated_guard, success)) :: rest) =
+            let
+              val matched_group =
+                matched_flat_group
+                  branch_group source_group
+              val generated_fallback =
+                compile_flat_guard_passed_tail
+                  all_groups matched_group
+                  source_arm position
+              val generated =
+                compile_generated_decision
+                  branch_group source_group
+                  generated_guard success
+                  generated_fallback
+              val next_arm =
+                compile_flat_continuation
+                  all_groups matched_group
+                  (source_arm + 1, ~1)
+              val matched =
+                T.conditional
+                  (adapt_flat_source_term
+                    branch_group source_group
+                    source_guard)
+                  generated next_arm
+              val unmatched =
+                compile_flat_guard_pending
+                  all_groups branch_group
+                  source_arm rest
+            in
+              place_flat_decision
+                branch_group source_group
+                matched unmatched
+            end
+        | compile_flat_guard_pending _ _ _ _ =
+            error
+              "urust_expr: internal unguarded decision in guarded arm"
+
+      and compile_flat_guard_passed
+          all_groups branch_group source_arm [] =
+            compile_flat_continuation
+              all_groups branch_group
+              (source_arm + 1, ~1)
+        | compile_flat_guard_passed
+            all_groups branch_group source_arm
+            ((source_group,
+              (position, SOME _,
+               generated_guard, success)) :: rest) =
+            let
+              val matched_group =
+                matched_flat_group
+                  branch_group source_group
+              val generated_fallback =
+                compile_flat_guard_passed_tail
+                  all_groups matched_group
+                  source_arm position
+              val matched =
+                compile_generated_decision
+                  branch_group source_group
+                  generated_guard success
+                  generated_fallback
+              val unmatched =
+                compile_flat_guard_passed
+                  all_groups branch_group
+                  source_arm rest
+            in
+              place_flat_decision
+                branch_group source_group
+                matched unmatched
+            end
+        | compile_flat_guard_passed _ _ _ _ =
+            error
+              "urust_expr: internal unguarded decision after source guard"
+
+      and compile_flat_guard_passed_tail
+          all_groups branch_group source_arm source_position =
+        (case next_flat_arm
+            all_groups branch_group source_position of
+           SOME
+             (candidate_arm, Flat_Guarded_Arm,
+              decisions) =>
+               if candidate_arm = source_arm
+               then
+                 compile_flat_guard_passed
+                   all_groups branch_group
+                   source_arm decisions
+               else
+                 compile_flat_continuation
+                   all_groups branch_group
+                   (source_arm + 1, ~1)
+         | SOME (candidate_arm, _, _) =>
+             if candidate_arm = source_arm
+             then
+               error
+                 "urust_expr: internal source-arm guard changed"
+             else
+               compile_flat_continuation
+                 all_groups branch_group
+                 (source_arm + 1, ~1)
+         | NONE => fallback)
 
       fun compile_flat_group all_groups
           (group as (_, rebuild, _, _, _)) =
         rebuild
-          (compile_flat_group_body
-            all_groups group (~1, ~1) NONE)
+          (compile_flat_continuation
+            all_groups group (~1, ~1))
+
+      fun open_flat_group_pattern
+          (_, _, abstractions, pattern, _) =
+        let
+          val names =
+            Name.variants Name.context
+              (map (fn (name, _) =>
+                if name = "" then "pattern" else name)
+                abstractions)
+          val frees =
+            map Free
+              (names ~~ map snd abstractions)
+        in
+          subst_bounds (rev frees, pattern)
+        end
+
+      datatype flat_structural_coverage =
+          Flat_Structural_Complete
+        | Flat_Structural_Open
+
+      fun classify_flat_structural_coverage [] =
+            Flat_Structural_Open
+        | classify_flat_structural_coverage groups =
+            let
+              val patterns =
+                Syntax.check_terms ctxt
+                  (map open_flat_group_pattern groups)
+              val scrutinee =
+                Free
+                  ("_urust_case_coverage_" ^
+                    string_of_int (serial ()),
+                   fastype_of (hd patterns))
+              val clauses =
+                map (fn pattern =>
+                  (pattern, T.true_value)) patterns
+              val without_catchall =
+                Case_Translation.make_case ctxt
+                  Case_Translation.Quiet Name.context
+                  scrutinee clauses
+              val wildcard =
+                Free
+                  ("_urust_case_coverage_wild_" ^
+                    string_of_int (serial ()),
+                   fastype_of scrutinee)
+              val with_catchall =
+                Case_Translation.make_case ctxt
+                  Case_Translation.Quiet Name.context
+                  scrutinee
+                  (clauses @ [(wildcard, T.false_value)])
+            in
+              if Term.aconv_untyped
+                  (without_catchall, with_catchall)
+              then Flat_Structural_Complete
+              else Flat_Structural_Open
+            end
+
+      fun make_flat_outer_plan all_groups =
+        let
+          val (catchalls, structural_groups) =
+            List.partition
+              is_flat_catchall_group all_groups
+        in
+          (case catchalls of
+             [] => structural_groups
+           | _ =>
+               (case classify_flat_structural_coverage
+                   structural_groups of
+                  Flat_Structural_Complete =>
+                    structural_groups
+                | Flat_Structural_Open =>
+                    structural_groups @ catchalls))
+        end
 
       fun expression_of_flat_groups [] = fallback
         | expression_of_flat_groups all_groups =
-            let
-              val (catchalls, constructors) =
-                List.partition
-                  is_flat_catchall_group all_groups
-            in
-              case_term
-                (map (compile_flat_group all_groups)
-                  (constructors @ catchalls))
-            end
+            case_term
+              (map (compile_flat_group all_groups)
+                (make_flat_outer_plan all_groups))
 
       fun make_flat_source_group source_index
           (shape, rebuild, abstractions, pattern, clauses) =
@@ -1900,7 +2192,7 @@ struct
               (fn (alternative_index,
                     (guard, generated_guard, success)) =>
                 ((source_index, alternative_index), guard,
-                  [(generated_guard, success)]))
+                  generated_guard, success))
               clauses
         in
           (shape, rebuild, abstractions, pattern,
@@ -1988,7 +2280,7 @@ struct
         in install sources [] end
 
       val selector =
-        if has_committing_guard
+        if requires_structural_decision
         then
           let
             val groups = compile_flat_sources normalized
