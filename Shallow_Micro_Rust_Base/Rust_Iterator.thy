@@ -4,7 +4,7 @@
 (*<*)
 theory Rust_Iterator
   imports "HOL-Library.Datatype_Records" Core_Expression
-    Misc.Array Misc.Vector Micro_Rust_Notations
+    Misc.Array Misc.Vector Micro_Rust_Notations Tuple
 begin
 (*>*)
 
@@ -53,6 +53,30 @@ definition map :: \<open>('s, 'a, 'abort, 'i, 'o) iterator \<Rightarrow> ('a \<R
 
 \<comment>\<open>uRust notation for the iterator \<^const>\<open>map\<close> combinator.\<close>
 micro_rust_notation (call) map ("map")
+
+definition iterator_zip_thunk ::
+    \<open>('s, 'a, 'abort, 'i, 'o) function_body \<Rightarrow>
+     ('s, 'b, 'abort, 'i, 'o) function_body \<Rightarrow>
+     ('s, 'a \<times> 'b \<times> tnil, 'abort, 'i, 'o) function_body\<close>
+  where
+  \<open>iterator_zip_thunk left right \<equiv> FunctionBody (
+    bind (call left) (\<lambda>left_value.
+      bind (call right) (\<lambda>right_value.
+        literal (left_value, right_value, TNil))))\<close>
+
+definition iterator_zip ::
+    \<open>('s, 'a, 'abort, 'i, 'o) iterator \<Rightarrow>
+     ('s, 'b, 'abort, 'i, 'o) iterator \<Rightarrow>
+     ('s, ('s, 'a \<times> 'b \<times> tnil, 'abort, 'i, 'o) iterator, 'abort, 'i, 'o) function_body\<close>
+  where
+  \<open>iterator_zip left right \<equiv> fun_literal (make_iterator
+    (List.map
+      (\<lambda>(left_thunk, right_thunk). iterator_zip_thunk left_thunk right_thunk)
+      (List.zip (iterator_thunks left) (iterator_thunks right))))\<close>
+
+\<comment>\<open>uRust method notation prepends the receiver, so
+  \<open>left.zip(right)\<close> lowers to the ordinary binary iterator combinator.\<close>
+micro_rust_notation (call) iterator_zip ("zip")
 
 subsection\<open>Looping over iterators\<close>
 

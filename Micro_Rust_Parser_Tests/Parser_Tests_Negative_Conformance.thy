@@ -133,7 +133,7 @@ val _ = Outer_Syntax.local_theory \<^command_keyword>\<open>new_urust_rejects\<c
 section\<open> Non-associative operators \<close>
 
 text\<open>
-Grammar \<open>%nonassoc\<close> rejects chained comparisons, matching Rust and the frontend.
+The explicit comparison tier accepts at most one comparison operator, matching Rust and the frontend.
 \<close>
 
 urust_expr_rejects fidelity \<open> 1 == 2 == 3 \<close> \<open> syntax error found at == \<close>
@@ -142,32 +142,13 @@ urust_expr_rejects fidelity \<open> 1 == 2 == 3 \<close> \<open> syntax error fo
 urust_expr_rejects fidelity \<open> 1 < 2 < 3 \<close> \<open> syntax error found at < \<close>
   \<comment> \<open> [FIDELITY] chained \<open><\<close>; same on both sides. \<close>
 
-section\<open> Reference-prefix precedence \<close>
+section\<open> Prefix and with-block expression boundaries \<close>
 
 text\<open>
-The frontend gives \<open>!\<close> a tighter prefix tier than borrow and dereference.
-Parentheses make the converse composition explicit; its positive row is
-\<open>ref_not_grouped_deref\<close>.
+Mixed prefixes and direct with-block operands are now positive Rust-aligned coverage in
+\<open>Parser_Tests_Grammar_Literals\<close>. Negative rows here retain only separator and deferred-feature
+boundaries.
 \<close>
-
-urust_expr_rejects fidelity \<open> ! *r \<close> \<open> syntax error found at * \<close>
-  \<comment> \<open> [FIDELITY] an unparenthesized dereference cannot be the operand of tighter \<open>!\<close>. \<close>
-
-urust_expr_rejects fidelity \<open> ! &r \<close> \<open> syntax error found at & \<close>
-  \<comment> \<open> [FIDELITY] borrow has the same boundary relative to \<open>!\<close>. \<close>
-
-section\<open> Control-flow stratification (D25 / divergence D-1) \<close>
-
-text\<open>
-Because \<open>ucontrol_expr\<close> is not a bare \<open>uexp\<close>, an unparenthesized \<open>if\<close>
-cannot be a binary operand. The positive \<open>d1_paren_operand\<close> row covers the
-parenthesized form.
-\<close>
-
-urust_expr_rejects fidelity
-  \<open> if \<llangle>True\<rrangle> { \<llangle>1 :: 32 word\<rrangle> } else { \<llangle>2 :: 32 word\<rrangle> } + \<llangle>3 :: 32 word\<rrangle> \<close>
-  \<open> syntax error found at + \<close>
-  \<comment> \<open> [FIDELITY] \<open>if\<close> as a \<open>+\<close> operand; the frontend rejects it too (priority mismatch). \<close>
 
 section\<open> Integer literals \<close>
 
@@ -212,17 +193,23 @@ urust_expr_rejects fidelity \<open> 0xffvalue \<close> \<open> unsupported integ
 urust_expr_rejects fidelity \<open> 1 foo \<close> \<open> syntax error found at <identifier> \<close>
   \<comment> \<open> [FIDELITY] whitespace terminates the numeric token; the following identifier is not swallowed. \<close>
 
-urust_expr_rejects fidelity \<open> 1_000 \<close> \<open> unsupported integer-literal suffix "_000" \<close>
-  \<comment> \<open> [FIDELITY] numeric separators remain out of scope and do not become decimal digits. \<close>
+urust_expr_rejects fidelity \<open> 0b102u32 \<close>
+  \<open> cannot read integer literal "0b102u32" \<close>
 
-urust_expr_rejects fidelity \<open> 0xff_00 \<close> \<open> unsupported integer-literal suffix "_00" \<close>
-  \<comment> \<open> [FIDELITY] numeric separators remain out of scope for hexadecimal literals too. \<close>
+urust_expr_rejects fidelity \<open> 0o8 \<close>
+  \<open> cannot read integer literal "0o8" \<close>
 
-urust_expr_rejects fidelity \<open> 1_ \<close> \<open> unsupported integer-literal suffix "_" \<close>
-  \<comment> \<open> [FIDELITY] a compatibility underscore must introduce one of the supported suffixes. \<close>
+urust_expr_rejects fidelity \<open> 0xg \<close>
+  \<open> cannot read integer literal "0xg" \<close>
 
-urust_expr_rejects fidelity \<open> 0xff_ \<close> \<open> unsupported integer-literal suffix "_" \<close>
-  \<comment> \<open> [FIDELITY] a trailing underscore is not an empty hexadecimal suffix. \<close>
+urust_expr_rejects fidelity \<open> 0b_1 \<close>
+  \<open> cannot read integer literal "0b_1" \<close>
+
+urust_expr_rejects fidelity \<open> 0o_7 \<close>
+  \<open> cannot read integer literal "0o_7" \<close>
+
+urust_expr_rejects fidelity \<open> 0x_f \<close>
+  \<open> cannot read integer literal "0x_f" \<close>
 
 urust_expr_rejects fidelity
   \<open> match_switch \<llangle>1 :: nat\<rrangle> { 1u8 \<Rightarrow> (), _ \<Rightarrow> () } \<close>
@@ -728,8 +715,18 @@ new_urust_rejects audit
       unregistered_key \<Rightarrow> ()
     }
   \<close>
-  \<open> unsupported match_switch key "unregistered_key" \<close>
-  \<comment> \<open> [AUDIT] an unregistered bare identifier retains the switch-key binder rejection. \<close>
+  \<open> mixed numeral and constructor patterns in bare `match` \<close>
+  \<comment> \<open> [AUDIT] an unregistered bare identifier remains a case-only binding pattern. \<close>
+
+new_urust_rejects audit
+  \<open>
+    match_switch \<llangle>NegativeRegisteredNullary\<rrangle> {
+      NegativeRegistered::Nullary \<Rightarrow> (),
+      _ \<Rightarrow> ()
+    }
+  \<close>
+  \<open> requires case-pattern lowering \<close>
+  \<comment> \<open> [AUDIT] authentic registered constructors remain case-only under an explicit switch. \<close>
 
 urust_expr_rejects fidelity
   \<open> match_case \<llangle>Some (2 :: nat)\<rrangle> { Some(1..2..3) \<Rightarrow> (), _ \<Rightarrow> () } \<close>
@@ -1406,30 +1403,10 @@ urust_expr_rejects fidelity \<open> matches!(Some(1_u32), Some(_)) = rhs \<close
 section\<open> Assignment right-hand control-flow precedence \<close>
 
 text\<open>
-The frontend's priority-40 assignment accepts block expressions directly, but
-priority-20/21 control-flow expressions require parentheses on the right-hand
-side. Assignment remains right-associative by recursing through its own tier.
+Assignment remains right-associative and its right-hand side is now a complete expression.
+Direct conditionals and matches on assignment and compound-assignment right-hand sides are positive
+Rust-aligned coverage in \<open>Parser_Tests_Grammar_Literals.thy\<close>.
 \<close>
-
-urust_expr_rejects fidelity
-  \<open> r = match flag { true \<Rightarrow> lhs, false \<Rightarrow> rhs } \<close>
-  \<open> syntax error: deleting  match \<close>
-  \<comment> \<open> [FIDELITY] bare match forms have the same assignment-RHS boundary as \<open>if\<close>. \<close>
-
-urust_expr_rejects fidelity
-  \<open> r = if flag { lhs } else { rhs } \<close>
-  \<open> syntax error: deleting  if \<close>
-  \<comment> \<open> [FIDELITY] a bare \<open>if\<close> is too weak to be an assignment RHS; the grouped form is positive. \<close>
-
-urust_expr_rejects fidelity
-  \<open> r += match flag { true \<Rightarrow> lhs, false \<Rightarrow> rhs } \<close>
-  \<open> syntax error: deleting  match \<close>
-  \<comment> \<open> [FIDELITY] compound assignment has the same bare-match RHS boundary. \<close>
-
-urust_expr_rejects fidelity
-  \<open> r += if flag { lhs } else { rhs } \<close>
-  \<open> syntax error: deleting  if \<close>
-  \<comment> \<open> [FIDELITY] compound assignment recurses through \<open>uassign\<close>, not lower-priority control flow. \<close>
 
 urust_expr_rejects fidelity \<open> r /= rhs \<close> \<open> = \<close>
   \<comment> \<open> [FIDELITY] the current frontend has no \<open>/=\<close> production; this remains a post-parity
@@ -1664,15 +1641,10 @@ urust_expr_rejects fidelity
   \<open> syntax error found at <identifier> \<close>
   \<comment> \<open> [FIDELITY] semicolon-free sequencing still consumes exactly one following statement. \<close>
 
-urust_expr_rejects fidelity
-  \<open> if let Some(value) = Some(1) { value } + 1 \<close>
-  \<open> syntax error found at + \<close>
-  \<comment> \<open> [FIDELITY] a bare conditional-let is not a binary operand. \<close>
-
-urust_expr_rejects fidelity
+new_urust_rejects divergent
   \<open> if let Some(value) = Some(1) { value } = rhs \<close>
-  \<open> syntax error found at = \<close>
-  \<comment> \<open> [FIDELITY] grouping is required before any attempted assignment-target validation. \<close>
+  \<open> invalid assignment target \<close>
+  \<comment> \<open> [DIVERGENT] the direct conditional is an expression, then place validation rejects it. \<close>
 
 subsection\<open> Pattern validation and fallback diagnostics \<close>
 
@@ -1820,21 +1792,10 @@ new_urust_rejects divergent
   \<comment> \<open> [DIVERGENT] the dedicated parser requires Rust's condition parentheses; Isabelle's
        mixfix parser accepts this spelling despite displaying parentheses on pretty-print. \<close>
 
-urust_expr_rejects fidelity
-  \<open> #[fuel(\<epsilon>\<open>1 :: nat\<close>)] loop { () } == () \<close>
-  \<open> syntax error found at == \<close>
-  \<comment> \<open> [FIDELITY] a fueled loop needs parentheses in binary operand position. \<close>
-
-urust_expr_rejects fidelity
-  \<open> for value in \<llangle>[1 :: nat]\<rrangle> { () } == () \<close>
-  \<open> syntax error found at == \<close>
-  \<comment> \<open> [FIDELITY] a bare \<open>for\<close> loop is not a binary operand. \<close>
-
-urust_expr_rejects fidelity
-  \<open> #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let Some(value) =
-    \<llangle>Some (1 :: nat)\<rrangle> { () } == () \<close>
-  \<open> syntax error found at == \<close>
-  \<comment> \<open> [FIDELITY] a bare \<open>while let\<close> loop is not a binary operand. \<close>
+text\<open>
+Direct fueled loops, \<open>for\<close>, and \<open>while let\<close> are primary expressions. Their binary-operand
+coverage is in \<open>Parser_Tests_Grammar_Literals.thy\<close>.
+\<close>
 
 urust_expr_rejects fidelity
   \<open> #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let Some(value)
@@ -2048,82 +2009,49 @@ urust_expr_rejects fidelity
   \<open> syntax error \<close>
   \<comment> \<open> [FIDELITY] a bare binding is below the closure-body priority; a block admits it. \<close>
 
-urust_expr_rejects fidelity
-  \<open> || if let Some(x) = Some(1) { x } else { 0 } \<close>
-  \<open> syntax error \<close>
-  \<comment> \<open> [FIDELITY] bare conditional bindings are not direct closure bodies. \<close>
+text\<open>
+Conditional bindings, mixed conditional chains, and fueled loops are complete expressions and are
+therefore valid direct closure bodies; focused positive coverage lives in
+\<open>Parser_Tests_Grammar_Literals.thy\<close>.
+\<close>
 
-urust_expr_rejects fidelity
-  \<open> || if true { 0 } else if let Some(x) = Some(1) { x } else { 0 } \<close>
-  \<open> syntax error \<close>
-  \<comment> \<open> [FIDELITY] conditional bindings are excluded from every bare closure-body arm. \<close>
+text\<open>
+A semicolon after a closure terminates the closure expression and starts the surrounding body; it
+does not become part of the closure body. The resulting sequence has focused AST coverage in
+\<open>Parser_Tests_Grammar_Literals.thy\<close>.
+\<close>
 
-urust_expr_rejects fidelity
-  \<open> || #[fuel(\<epsilon>\<open>1 :: nat\<close>)] loop { () } \<close>
-  \<open> syntax error \<close>
-  \<comment> \<open> [FIDELITY] loop expressions are not direct closure bodies. \<close>
-
-urust_expr_rejects fidelity
-  \<open> || (); () \<close>
-  \<open> syntax error \<close>
-  \<comment> \<open> [FIDELITY] direct closure bodies do not admit sequencing. \<close>
-
-urust_expr_rejects fidelity
-  \<open> || return \<llangle>1 :: nat\<rrangle> \<close>
-  \<open> syntax error \<close>
-  \<comment> \<open> [FIDELITY] the closure-body return form is the legacy semicolon-bearing spelling. \<close>
-
-urust_expr_rejects fidelity
-  \<open> || || \<llangle>1 :: nat\<rrangle> \<close>
-  \<open> syntax error \<close>
-  \<comment> \<open> [FIDELITY] a bare closure cannot directly be another closure's body. \<close>
+text\<open>
+Semicolon-free return expressions and nested closures are valid complete closure bodies; focused
+positive coverage lives in \<open>Parser_Tests_Grammar_Literals.thy\<close>.
+\<close>
 
 subsection\<open> Bare placement and invocation \<close>
 
-urust_expr_rejects fidelity
-  \<open> let closure = |x| x; () \<close>
-  \<open> syntax error \<close>
-  \<comment> \<open> [FIDELITY] a bare closure is not a binding initializer. \<close>
-
-urust_expr_rejects fidelity
-  \<open> target = || \<llangle>1 :: nat\<rrangle> \<close>
-  \<open> syntax error \<close>
-  \<comment> \<open> [FIDELITY] a bare closure is not an assignment RHS. \<close>
+text\<open>
+Bare closures are valid binding initializers and assignment right-hand sides. Positive coverage is
+in \<open>Parser_Tests_Grammar_Literals.thy\<close>.
+\<close>
 
 urust_expr_rejects fidelity
   \<open> \<llangle>1 :: nat\<rrangle> + || \<llangle>2 :: nat\<rrangle> \<close>
   \<open> syntax error \<close>
   \<comment> \<open> [FIDELITY] a bare closure is not a binary operand. \<close>
 
-urust_expr_rejects fidelity
+new_urust_rejects divergent
   \<open> if || true { () } \<close>
-  \<open> syntax error \<close>
-  \<comment> \<open> [FIDELITY] a bare closure is not a condition. \<close>
+  \<open> Type unification failed \<close>
+  \<comment> \<open> [DIVERGENT] the closure parses as the condition, then its function-body type is rejected. \<close>
 
-urust_expr_rejects fidelity
-  \<open> match || true { _ \<Rightarrow> () } \<close>
-  \<open> syntax error \<close>
-  \<comment> \<open> [FIDELITY] a bare closure is not a match scrutinee. \<close>
-
-urust_expr_rejects fidelity
+new_urust_rejects divergent
   \<open> for item in || [] { () } \<close>
-  \<open> syntax error \<close>
-  \<comment> \<open> [FIDELITY] a bare closure is not an iterable. \<close>
+  \<open> Unresolved adhoc overloading of constant \<close>
+  \<comment> \<open> [DIVERGENT] the closure parses as the iterable, then iterator typing rejects it. \<close>
 
-urust_expr_rejects fidelity
-  \<open>
-    match true {
-      true \<Rightarrow> || true,
-      false \<Rightarrow> || false
-    }
-  \<close>
-  \<open> syntax error \<close>
-  \<comment> \<open> [FIDELITY] a bare closure is not a match-arm body. \<close>
-
-urust_expr_rejects fidelity
-  \<open> || \<llangle>1 :: nat\<rrangle>; () \<close>
-  \<open> syntax error \<close>
-  \<comment> \<open> [FIDELITY] an unparenthesized closure cannot be the left side of sequencing. \<close>
+text\<open>
+Closures are valid match scrutinees, match-arm bodies, and expression statements before a
+semicolon. Focused positive and AST coverage is in \<open>Parser_Tests_Grammar_Literals.thy\<close>.
+\<close>
 
 urust_expr_rejects fidelity
   \<open> (|| \<llangle>1 :: nat\<rrangle>)() \<close>
@@ -2381,19 +2309,14 @@ micro_rust_notation (call) negative_d21_pair ("NegativeD21Pair")
 
 subsection\<open> Field-list grammar \<close>
 
-urust_expr_rejects fidelity
-  \<open> NegativeD21Pair {} \<close>
-  \<open> syntax error \<close>
-  \<comment> \<open> [FIDELITY] struct-expression field lists are nonempty. \<close>
+text\<open>
+Empty struct expressions and one trailing field comma are accepted Rust-aligned forms. Their
+positive, lowering, and field-order coverage is in \<open>Parser_Tests_Grammar_Literals.thy\<close>.
+\<close>
 
 urust_expr_rejects fidelity
   \<open> NegativeD21Pair {, left: 1_u64 } \<close>
   \<open> syntax error \<close>
-
-urust_expr_rejects fidelity
-  \<open> NegativeD21Pair { left: 1_u64, } \<close>
-  \<open> syntax error \<close>
-  \<comment> \<open> [FIDELITY] trailing field commas are not in the active frontend grammar. \<close>
 
 urust_expr_rejects fidelity
   \<open> NegativeD21Pair { left: 1_u64,, right: 2_u64 } \<close>
