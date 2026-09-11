@@ -120,6 +120,35 @@ struct
       val lowered_body = lower body_environment body
     in T.closure formal_terms lowered_body end
 
+  fun empty_block (UE_Block (UE_Unit _, _)) = true
+    | empty_block _ = false
+
+  (* In a no-struct control head, an empty struct at the right source boundary can be parsed as a bare
+     path followed by the control body's empty braces. Delimiters and postfixes stop the boundary walk:
+     their closing token means the following braces cannot belong to an inner struct expression. *)
+  fun trailing_ungrouped_path expression =
+    (case expression of
+       UE_Path path => SOME path
+     | UE_Return (SOME value, _) => trailing_ungrouped_path value
+     | UE_Closure (_, body, _) => trailing_ungrouped_path body
+     | UE_Bin (_, _, right, _) => trailing_ungrouped_path right
+     | UE_Range (_, _, upper, _) => trailing_ungrouped_path upper
+     | UE_Unary (_, operand, _) => trailing_ungrouped_path operand
+     | UE_Assign (_, _, rhs, _) => trailing_ungrouped_path rhs
+     | _ => NONE)
+
+  fun reject_ambiguous_empty_struct_head ctxt environment head body =
+    if empty_block body then
+      (case trailing_ungrouped_path head of
+         SOME path =>
+           if R.is_nullary_function_path ctxt environment path then
+             error
+               ("urust_expr: empty struct expression in a control head must be parenthesized" ^
+                 Position.here (expression_position body))
+           else ()
+       | NONE => ())
+    else ()
+
   (* Lexical scope is explicit: a let RHS uses the outer environment, while its body uses the exact
      environment returned by pattern binding. Closure bodies use the final duplicate-permitting formal
      environment, while every formal still contributes its own ordered abstraction. Case alternatives
@@ -200,14 +229,28 @@ struct
      | UE_Block (inner, _) =>
          lower_expression ctxt environment inner
      | UE_If (condition, then_branch, else_branch, _) =>
-         T.conditional
-           (lower_expression ctxt environment condition)
-           (lower_expression ctxt environment then_branch)
-           (case else_branch of
-              SOME branch => lower_expression ctxt environment branch
-            | NONE => T.literal HOLogic.unit)
-     | UE_IfLet if_let =>
-         M.lower_if_let (lower_expression ctxt) ctxt environment if_let
+         let
+           val _ =
+             reject_ambiguous_empty_struct_head ctxt environment
+               condition then_branch
+         in
+           T.conditional
+             (lower_expression ctxt environment condition)
+             (lower_expression ctxt environment then_branch)
+             (case else_branch of
+                SOME branch => lower_expression ctxt environment branch
+              | NONE => T.literal HOLogic.unit)
+         end
+     | UE_IfLet
+         (pattern, scrutinee, success, fallback, pos) =>
+         let
+           val _ =
+             reject_ambiguous_empty_struct_head ctxt environment
+               scrutinee success
+         in
+           M.lower_if_let (lower_expression ctxt) ctxt environment
+             (pattern, scrutinee, success, fallback, pos)
+         end
      | UE_LetElse let_else =>
          M.lower_let_else (lower_expression ctxt) ctxt environment let_else
      | UE_While (fuel, condition, body, _) =>
@@ -220,11 +263,23 @@ struct
            (lower_fuel ctxt environment fuel)
            (lower_expression ctxt environment body)
      | UE_For (pattern, iterable, body, _) =>
-         lower_for (lower_expression ctxt) ctxt environment
-           (pattern, iterable, body)
+         let
+           val _ =
+             reject_ambiguous_empty_struct_head ctxt environment
+               iterable body
+         in
+           lower_for (lower_expression ctxt) ctxt environment
+             (pattern, iterable, body)
+         end
      | UE_WhileLet (fuel, pattern, scrutinee, body, pos) =>
-         M.lower_while_let (lower_expression ctxt) ctxt environment
-           (fuel, pattern, scrutinee, body, pos)
+         let
+           val _ =
+             reject_ambiguous_empty_struct_head ctxt environment
+               scrutinee body
+         in
+           M.lower_while_let (lower_expression ctxt) ctxt environment
+             (fuel, pattern, scrutinee, body, pos)
+         end
      | UE_Let binding =>
          lower_binding (lower_expression ctxt) ctxt
            P.Let_Const_Binder environment binding

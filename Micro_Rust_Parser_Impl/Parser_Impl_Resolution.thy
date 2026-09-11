@@ -68,6 +68,8 @@ sig
     Proof.context -> string * Position.T -> term option
   val registered_function_path:
     Proof.context -> URust_AST.ur_path -> term option
+  val is_nullary_function_path:
+    Proof.context -> environment -> URust_AST.ur_path -> bool
   val field_expression:
     Proof.context -> environment -> term -> string -> Position.T -> term
 
@@ -159,7 +161,11 @@ ML\<open>
     restricted generic argument sources in the current lexical environment and applies them to an
     already-resolved term from left to right.
     registered_function performs an exact registered NFunction lookup without imposing a caller
-    naming policy. field_expression applies the same role policy and focuses the supplied receiver.
+    naming policy. is_nullary_function_path is a report-free ambiguity query used by control-head
+    validation: declaration arguments retain direct-call precedence, ordinary lexical values and
+    fixed variables remain value paths, and otherwise an exact registered backend or proper HOL
+    constant counts only when its declared type takes zero arguments before function_body.
+    field_expression applies the same role policy and focuses the supplied receiver.
     Registered notation is represented by the existing dispatch marker; unregistered names retain
     Syntax.parse_term behavior. For an exact registered literal path whose complete backend matches
     genuine Ctr_Sugar constructor metadata, the nearest qualifier reports every distinct datatype
@@ -696,6 +702,47 @@ struct
 
   fun registered_function_path ctxt path =
     exact_registered_path ctxt Micro_Rust_Names.NFunction path
+
+  fun function_body_arity
+      (Type (\<^type_name>\<open>function_body\<close>, _)) = SOME 0
+    | function_body_arity
+        (Type (\<^type_name>\<open>fun\<close>, [_, result])) =
+        Option.map (Integer.add 1) (function_body_arity result)
+    | function_body_arity _ = NONE
+
+  fun is_nullary_function_type T =
+    function_body_arity T = SOME 0
+
+  fun is_nullary_function_path ctxt
+      ({locals, declaration_arguments} : environment) path =
+    let
+      fun registered () =
+        Micro_Rust_Names.lookups ctxt Micro_Rust_Names.NFunction
+          (render_path path)
+        |> exists
+            (fn ({hol_term, ...} : Micro_Rust_Names.entry) =>
+              is_nullary_function_type (fastype_of hol_term))
+
+      fun hol_constant () =
+        (case try
+           (Proof_Context.read_const {proper = true, strict = false} ctxt)
+            (render_path path) of
+           SOME (Const (_, T)) => is_nullary_function_type T
+         | _ => false)
+    in
+      (case path_segments path of
+         [Path_Segment (name, _, NONE)] =>
+           (case Symtab.lookup locals name of
+              SOME {free, ...} =>
+                Symtab.defined declaration_arguments name andalso
+                  is_nullary_function_type (fastype_of free)
+            | NONE =>
+                if Variable.is_fixed ctxt name
+                then false
+                else if registered () then true else hol_constant ())
+       | _ =>
+           if registered () then true else hol_constant ())
+    end
 
   fun field_expression ctxt environment receiver name pos =
     T.focus_field

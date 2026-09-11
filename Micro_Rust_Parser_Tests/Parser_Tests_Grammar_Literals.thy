@@ -208,6 +208,202 @@ urust_expr grammar_empty_struct_expression
   \<open> GrammarEmptyStruct {} \<close>
   against \<open> \<lbrakk> GrammarEmptyStruct() \<rbrakk> \<close>
 
+definition grammar_empty_bool_value :: bool
+  where \<open>grammar_empty_bool_value \<equiv> True\<close>
+
+definition grammar_empty_bool_call ::
+    \<open>(unit, bool, unit, unit, unit) function_body\<close>
+  where
+    \<open>
+      grammar_empty_bool_call \<equiv>
+        FunctionBody (literal grammar_empty_bool_value)
+    \<close>
+
+definition grammar_empty_option_value :: \<open>unit option\<close>
+  where \<open>grammar_empty_option_value \<equiv> Some ()\<close>
+
+definition grammar_empty_option_call ::
+    \<open>(unit, unit option, unit, unit, unit) function_body\<close>
+  where
+    \<open>
+      grammar_empty_option_call \<equiv>
+        FunctionBody (literal grammar_empty_option_value)
+    \<close>
+
+definition grammar_empty_list_value :: \<open>unit list\<close>
+  where \<open>grammar_empty_list_value \<equiv> [()]\<close>
+
+definition grammar_empty_list_call ::
+    \<open>(unit, unit list, unit, unit, unit) function_body\<close>
+  where
+    \<open>
+      grammar_empty_list_call \<equiv>
+        FunctionBody (literal grammar_empty_list_value)
+    \<close>
+
+definition grammar_empty_nat_value :: nat
+  where \<open>grammar_empty_nat_value \<equiv> 1\<close>
+
+definition grammar_empty_nat_call ::
+    \<open>(unit, nat, unit, unit, unit) function_body\<close>
+  where
+    \<open>
+      grammar_empty_nat_call \<equiv>
+        FunctionBody (literal grammar_empty_nat_value)
+    \<close>
+
+micro_rust_notation (call)
+  grammar_empty_bool_call ("grammar_empty_bool_value")
+micro_rust_notation (call)
+  grammar_empty_option_call ("grammar_empty_option_value")
+micro_rust_notation (call)
+  grammar_empty_list_call ("grammar_empty_list_value")
+micro_rust_notation (call)
+  grammar_empty_nat_call ("grammar_empty_nat_value")
+
+subsection\<open>Empty struct expressions in control heads\<close>
+
+text\<open>
+Each surface name below is both a genuine bare HOL value and a registered nullary call. In a
+no-struct control head, its first empty braces must not be silently consumed as the control body.
+Explicit grouping restores unrestricted expression parsing.
+\<close>
+
+new_urust_rejects audit
+  \<open> if grammar_empty_bool_value {} {} \<close>
+  \<open> empty struct expression in a control head must be parenthesized \<close>
+
+new_urust_rejects audit
+  \<open>
+    if let Some(_) = grammar_empty_option_value {} {}
+  \<close>
+  \<open> empty struct expression in a control head must be parenthesized \<close>
+
+new_urust_rejects audit
+  \<open> if let _ = GrammarEmptyStruct {} {} \<close>
+  \<open> empty struct expression in a control head must be parenthesized \<close>
+
+new_urust_rejects audit
+  \<open> for _ in grammar_empty_list_value {} {} \<close>
+  \<open> empty struct expression in a control head must be parenthesized \<close>
+
+new_urust_rejects audit
+  \<open>
+    #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let Some(_) =
+      grammar_empty_option_value {} {}
+  \<close>
+  \<open> empty struct expression in a control head must be parenthesized \<close>
+
+new_urust_rejects audit
+  \<open>
+    match grammar_empty_bool_value {} {
+      true \<Rightarrow> (),
+      false \<Rightarrow> ()
+    }
+  \<close>
+  \<open> syntax error \<close>
+
+new_urust_rejects audit
+  \<open>
+    match_case grammar_empty_option_value {} {
+      Some(_) \<Rightarrow> (),
+      None \<Rightarrow> ()
+    }
+  \<close>
+  \<open> syntax error \<close>
+
+new_urust_rejects audit
+  \<open>
+    match_switch grammar_empty_nat_value {} {
+      1 \<Rightarrow> (),
+      _ \<Rightarrow> ()
+    }
+  \<close>
+  \<open> syntax error \<close>
+
+new_urust_rejects audit
+  \<open> if !grammar_empty_bool_value {} {} \<close>
+  \<open> empty struct expression in a control head must be parenthesized \<close>
+
+new_urust_rejects audit
+  \<open> if true && grammar_empty_bool_value {} {} \<close>
+  \<open> empty struct expression in a control head must be parenthesized \<close>
+
+new_urust_rejects audit
+  \<open>
+    if false || true && !grammar_empty_bool_value {} {}
+  \<close>
+  \<open> empty struct expression in a control head must be parenthesized \<close>
+
+new_urust_rejects audit
+  \<open>
+    if true == grammar_empty_bool_value {} {}
+  \<close>
+  \<open> empty struct expression in a control head must be parenthesized \<close>
+
+urust_expr [conformance_check = false] grammar_grouped_empty_struct_if
+  \<open>
+    if (grammar_empty_bool_value {}) {} else {}
+  \<close>
+
+urust_expr [conformance_check = false] grammar_grouped_empty_struct_if_let
+  \<open>
+    if let Some(_) = (grammar_empty_option_value {}) {} else {}
+  \<close>
+
+urust_expr [conformance_check = false] grammar_grouped_empty_struct_for
+  \<open> for _ in (grammar_empty_list_value {}) {} \<close>
+
+urust_expr [conformance_check = false] grammar_grouped_empty_struct_while_let
+  \<open>
+    #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let Some(_) =
+      (grammar_empty_option_value {}) {}
+  \<close>
+
+urust_expr [conformance_check = false] grammar_grouped_empty_struct_match
+  \<open>
+    match (grammar_empty_bool_value {}) {
+      true \<Rightarrow> (),
+      false \<Rightarrow> ()
+    }
+  \<close>
+
+urust_expr [conformance_check = false] grammar_grouped_empty_struct_match_case
+  \<open>
+    match_case (grammar_empty_option_value {}) {
+      Some(_) \<Rightarrow> (),
+      None \<Rightarrow> ()
+    }
+  \<close>
+
+urust_expr [conformance_check = false] grammar_grouped_empty_struct_match_switch
+  \<open>
+    match_switch (grammar_empty_nat_value {}) {
+      1 \<Rightarrow> (),
+      _ \<Rightarrow> ()
+    }
+  \<close>
+
+definition grammar_bare_flag :: bool
+  where \<open>grammar_bare_flag \<equiv> True\<close>
+
+urust_expr [conformance_check = false] grammar_bare_path_empty_body
+  \<open> if grammar_bare_flag {} \<close>
+
+urust_expr [conformance_check = false] grammar_bare_path_empty_body_sequence
+  \<open> if grammar_bare_flag {} {} \<close>
+
+urust_expr [conformance_check = false] grammar_nested_bare_path_empty_body_sequence
+  \<open> if true && grammar_bare_flag {} {} \<close>
+
+context fixes flag :: bool
+begin
+
+urust_expr [conformance_check = false] grammar_fixed_path_empty_body_sequence
+  \<open> if flag {} {} \<close>
+
+end
+
 urust_expr [conformance_check = false] grammar_struct_trailing_comma
   \<open>
     D21Pair {
