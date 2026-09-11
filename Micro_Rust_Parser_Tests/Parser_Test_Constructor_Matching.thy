@@ -138,6 +138,12 @@ datatype parser_nested_status =
   | ParserSecondaryStatus
   | ParserTertiaryStatus
 
+type_synonym parser_nested_overlap_input =
+  \<open>
+    (unit, parser_nested_status) result \<times>
+      ((unit, parser_nested_status) result \<times> tnil)
+  \<close>
+
 micro_rust_notation (literal)
   parser_nested_status.ParserPrimaryStatus
   ("NestedStatus::Primary")
@@ -261,10 +267,7 @@ urust_expr parser_nested_global_source_order ::
   \<close>
 
 definition parser_nested_overlap_scrutinee ::
-  \<open>
-    (unit, parser_nested_status) result \<times>
-      ((unit, parser_nested_status) result \<times> tnil)
-  \<close>
+  \<open>parser_nested_overlap_input\<close>
   where
     \<open>
       parser_nested_overlap_scrutinee =
@@ -288,6 +291,103 @@ lemma parser_nested_overlapping_tuple_evaluation:
     (simp add:
       parser_nested_overlapping_tuple_def
       parser_nested_overlap_scrutinee_def
+      two_armed_conditional_def
+      urust_eq_def
+      micro_rust_simps)
+
+definition parser_nested_or_overlap_reverse_scrutinee ::
+  \<open>parser_nested_overlap_input\<close>
+  where
+    \<open>
+      parser_nested_or_overlap_reverse_scrutinee =
+        (Err ParserPrimaryStatus,
+          (Err ParserSecondaryStatus, TNil))
+    \<close>
+
+definition parser_nested_or_overlap_later_scrutinee ::
+  \<open>parser_nested_overlap_input\<close>
+  where
+    \<open>
+      parser_nested_or_overlap_later_scrutinee =
+        (Err ParserSecondaryStatus,
+          (Err ParserPrimaryStatus, TNil))
+    \<close>
+
+definition parser_nested_or_overlap_wildcard_scrutinee ::
+  \<open>parser_nested_overlap_input\<close>
+  where
+    \<open>
+      parser_nested_or_overlap_wildcard_scrutinee =
+        (Ok (), (Ok (), TNil))
+    \<close>
+
+urust_expr parser_nested_overlapping_or_alternatives ::
+  \<open>
+    parser_nested_overlap_input \<Rightarrow>
+      (unit, nat, unit, unit, unit, unit) expression
+  \<close>
+  (scrutinee)
+  \<open>
+    match scrutinee {
+      (Err(NestedStatus::Primary), _) |
+        (_, Err(NestedStatus::Secondary)) \<Rightarrow> 1,
+      (Err(NestedStatus::Secondary), _) \<Rightarrow> 2,
+      _ \<Rightarrow> 3
+    }
+  \<close>
+
+lemma parser_nested_overlapping_or_second_alternative:
+  \<open>
+    parser_nested_overlapping_or_alternatives
+        parser_nested_overlap_scrutinee =
+      literal (1 :: nat)
+  \<close>
+  by
+    (simp add:
+      parser_nested_overlapping_or_alternatives_def
+      parser_nested_overlap_scrutinee_def
+      two_armed_conditional_def
+      urust_eq_def
+      micro_rust_simps)
+
+lemma parser_nested_overlapping_or_first_alternative:
+  \<open>
+    parser_nested_overlapping_or_alternatives
+        parser_nested_or_overlap_reverse_scrutinee =
+      literal (1 :: nat)
+  \<close>
+  by
+    (simp add:
+      parser_nested_overlapping_or_alternatives_def
+      parser_nested_or_overlap_reverse_scrutinee_def
+      two_armed_conditional_def
+      urust_eq_def
+      micro_rust_simps)
+
+lemma parser_nested_overlapping_or_later_arm:
+  \<open>
+    parser_nested_overlapping_or_alternatives
+        parser_nested_or_overlap_later_scrutinee =
+      literal (2 :: nat)
+  \<close>
+  by
+    (simp add:
+      parser_nested_overlapping_or_alternatives_def
+      parser_nested_or_overlap_later_scrutinee_def
+      two_armed_conditional_def
+      urust_eq_def
+      micro_rust_simps)
+
+lemma parser_nested_overlapping_or_wildcard:
+  \<open>
+    parser_nested_overlapping_or_alternatives
+        parser_nested_or_overlap_wildcard_scrutinee =
+      literal (3 :: nat)
+  \<close>
+  by
+    (simp add:
+      parser_nested_overlapping_or_alternatives_def
+      parser_nested_or_overlap_wildcard_scrutinee_def
       two_armed_conditional_def
       urust_eq_def
       micro_rust_simps)
@@ -577,6 +677,25 @@ ML_val\<open>
           | walk term = find term
       in the (walk term) end
 
+    fun has_ordered_equality_results [] _ = true
+      | has_ordered_equality_results
+          ((expected_constructor, expected_result) :: rest) term =
+        let
+          fun matches
+                (Const (conditional, _) $
+                  (Const (equality, _) $ _ $
+                    (Const (literal, _) $ constructor)) $
+                  success $ failure) =
+                conditional =
+                    \<^const_name>\<open>two_armed_conditional\<close> andalso
+                  equality = \<^const_name>\<open>urust_eq\<close> andalso
+                  literal = \<^const_name>\<open>literal\<close> andalso
+                  constant_name constructor = expected_constructor andalso
+                  Term.aconv_untyped (success, expected_result) andalso
+                  has_ordered_equality_results rest failure
+            | matches _ = false
+        in Term.exists_subterm matches term end
+
     val ordered_expected =
       \<^term>\<open>
         (bind (literal (Err ParserSecondaryStatus))
@@ -778,6 +897,8 @@ ML_val\<open>
       checked_ordered_term
         "parser_nested_overlapping_tuple"
         overlapping_tuple_expected
+    val (overlapping_or_lhs, overlapping_or) =
+      equation_of "parser_nested_overlapping_or_alternatives"
     val (global_ok_branch, global_err_branch) =
       result_case_branches global_source_order
     val alias_wildcard =
@@ -802,6 +923,8 @@ ML_val\<open>
       Term.strip_comb global_source_order_lhs
     val (_, overlapping_tuple_arguments) =
       Term.strip_comb overlapping_tuple_lhs
+    val (_, overlapping_or_arguments) =
+      Term.strip_comb overlapping_or_lhs
     val _ =
       assert "alias/wildcard fixture acquired an unintended definition argument"
         (null alias_wildcard_arguments)
@@ -826,10 +949,37 @@ ML_val\<open>
     val _ =
       assert "overlapping tuple fixture acquired an unintended function type"
         (null (binder_types (fastype_of overlapping_tuple_lhs)))
+    val _ =
+      assert "overlapping or-pattern fixture changed its definition head"
+        (null overlapping_or_arguments)
+    val _ =
+      assert "overlapping or-pattern fixture acquired an unintended argument"
+        (binder_types (fastype_of overlapping_or_lhs) =
+          [\<^typ>\<open>parser_nested_overlap_input\<close>])
+    val _ =
+      assert "overlapping or-pattern fixture retained schematic variables"
+        (null (Term.add_vars overlapping_or []))
+    val _ =
+      assert "overlapping or-pattern fixture retained local free binders"
+        (null (Term.add_frees overlapping_or []))
+    val _ =
+      assert "overlapping or-pattern fixture evaluated its scrutinee more than once"
+        (count_constant \<^const_name>\<open>bind\<close>
+          overlapping_or = 1)
     val expected_equality_order =
       map constant_name
         [\<^term>\<open>ParserPrimaryStatus\<close>,
          \<^term>\<open>ParserSecondaryStatus\<close>]
+    val overlapping_or_order =
+      [(constant_name
+          \<^term>\<open>ParserPrimaryStatus\<close>,
+        \<^term>\<open>literal (1 :: nat)\<close>),
+       (constant_name
+          \<^term>\<open>ParserSecondaryStatus\<close>,
+        \<^term>\<open>literal (1 :: nat)\<close>),
+       (constant_name
+          \<^term>\<open>ParserSecondaryStatus\<close>,
+        \<^term>\<open>literal (2 :: nat)\<close>)]
     val _ =
       assert "separate same-outer alternatives duplicated the outer case"
         (count_constant result_case_name ordered = 1)
@@ -900,13 +1050,18 @@ ML_val\<open>
           \<^const_name>\<open>parser_nested_overlap_scrutinee\<close>
           overlapping_tuple = 1)
     val _ =
+      assert "overlapping or-pattern alternatives changed source order"
+        (has_ordered_equality_results
+          overlapping_or_order overlapping_or)
+    val _ =
       assert "a later applicable source arm still terminates at undefined"
         (List.all
           (fn term =>
             count_constant \<^const_name>\<open>undefined\<close>
               term = 0)
           [nested, ordered, ordered_or, guarded_order,
-           global_source_order, overlapping_tuple])
+           global_source_order, overlapping_tuple,
+           overlapping_or])
     val _ =
       assert "alias/wildcard fixture duplicated the outer case"
         (count_constant result_case_name alias_wildcard = 1)

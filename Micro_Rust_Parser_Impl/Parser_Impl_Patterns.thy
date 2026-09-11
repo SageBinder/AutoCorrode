@@ -1588,6 +1588,11 @@ struct
             success'))
         end
 
+      fun index_flat_clause alternative_index
+          (shape, rebuild, abstractions, pattern, payload) =
+        (shape, rebuild, abstractions, pattern,
+          (alternative_index, payload))
+
       fun same_flat_shape (left, right) =
         Term.aconv (left, right)
 
@@ -1655,9 +1660,17 @@ struct
           (_, _, abstractions, pattern, _) =
         is_flat_catchall abstractions pattern
 
-      fun first_flat_source_after source_index sources =
+      fun source_position_less
+          ((left_arm, left_alternative),
+           (right_arm, right_alternative)) =
+        left_arm < right_arm orelse
+          (left_arm = right_arm andalso
+            left_alternative < right_alternative)
+
+      fun first_flat_source_after source_position sources =
         List.find
-          (fn (index, _, _) => index > source_index)
+          (fn (position, _, _) =>
+            source_position_less (source_position, position))
           sources
 
       fun flat_group_sources (_, _, _, _, sources) =
@@ -1697,21 +1710,22 @@ struct
                  flat_group_pattern source_group))
             all_groups
 
-      fun next_flat_source all_groups branch_group source_index =
+      fun next_flat_source all_groups branch_group source_position =
         let
           fun choose group NONE =
                 Option.map
-                  (fn source as (index, _, _) =>
-                    (index, group, source))
-                  (first_flat_source_after source_index
+                  (fn source as (position, _, _) =>
+                    (position, group, source))
+                  (first_flat_source_after source_position
                     (flat_group_sources group))
             | choose group
-                (best as SOME (best_index, _, _)) =
-                (case first_flat_source_after source_index
+                (best as SOME (best_position, _, _)) =
+                (case first_flat_source_after source_position
                     (flat_group_sources group) of
-                   SOME (source as (index, _, _)) =>
-                     if index < best_index
-                     then SOME (index, group, source)
+                   SOME (source as (position, _, _)) =>
+                     if source_position_less
+                          (position, best_position)
+                     then SOME (position, group, source)
                      else best
                  | NONE => best)
         in
@@ -1740,19 +1754,20 @@ struct
            flat_group_shape source_group) orelse
         is_flat_catchall_group source_group
 
-      (* Every outer branch advances through source arms by their original global index. Constructor
-         entries, overlapping structural patterns, and catch-all entries may live in different
-         merged groups, so selecting only the next entry in the current shape group reorders
-         interleaved arms. Catch-all payloads are specialized directly; a non-identical overlapping
+      (* Every outer branch advances through alternatives by their original lexicographic
+         (source-arm, or-alternative) position. Constructor entries, overlapping structural
+         patterns, and catch-all entries may live in different merged groups, so selecting only the
+         next entry in the current shape group reorders both interleaved arms and alternatives from
+         one or-pattern. Catch-all payloads are specialized directly; a non-identical overlapping
          pattern is matched against the already reconstructed branch value, without reevaluating the
          original scrutinee. *)
       fun compile_flat_group_body all_groups branch_group
-            source_index =
+            source_position =
         (case next_flat_source
-            all_groups branch_group source_index of
+            all_groups branch_group source_position of
            NONE => fallback
          | SOME
-             (next_index, source_group, source) =>
+             (next_position, source_group, source) =>
              if can_specialize_flat_group
                   branch_group source_group
              then
@@ -1769,7 +1784,7 @@ struct
                      source_group source_group source
                  val unmatched =
                    compile_flat_group_body
-                     all_groups branch_group next_index
+                     all_groups branch_group next_position
                in
                  case_term_on branch_pattern
                    [source_rebuild matched,
@@ -1779,14 +1794,19 @@ struct
 
       and compile_flat_source all_groups branch_group
           source_group
-          (next_index, source_guard, alternatives) =
+          (next_position as (source_arm, _),
+           source_guard, alternatives) =
         let
           fun specialize term =
             specialize_flat_term
               branch_group source_group term
           val source_fallback =
             compile_flat_group_body
-              all_groups branch_group next_index
+              all_groups branch_group next_position
+          val arm_fallback =
+            compile_flat_group_body
+              all_groups branch_group
+                (source_arm + 1, ~1)
 
           fun compile_alternatives [] =
                 error
@@ -1813,13 +1833,13 @@ struct
              NONE => matched
            | SOME guard =>
                T.conditional (specialize guard)
-                 matched source_fallback)
+                 matched arm_fallback)
         end
 
       fun compile_flat_group all_groups
           (group as (_, rebuild, _, _, _)) =
         rebuild
-          (compile_flat_group_body all_groups group ~1)
+          (compile_flat_group_body all_groups group (~1, ~1))
 
       fun expression_of_flat_groups [] = fallback
         | expression_of_flat_groups all_groups =
@@ -1838,27 +1858,29 @@ struct
         let
           val source_guard =
             (case clauses of
-               (guard, _, _) :: _ => guard
+               (_, (guard, _, _)) :: _ => guard
              | [] =>
                  error
                    "urust_expr: internal empty flat source group")
           val _ =
             if List.all
-                (fn (guard, _, _) =>
+                (fn (_, (guard, _, _)) =>
                   same_optional_term (source_guard, guard))
                 clauses
             then ()
             else
               error
                 "urust_expr: internal inconsistent flat source guard"
-          val alternatives =
+          val sources =
             map
-              (fn (_, generated_guard, success) =>
-                (generated_guard, success))
+              (fn (alternative_index,
+                    (guard, generated_guard, success)) =>
+                ((source_index, alternative_index), guard,
+                  [(generated_guard, success)]))
               clauses
         in
           (shape, rebuild, abstractions, pattern,
-           [(source_index, source_guard, alternatives)])
+           sources)
         end
 
       fun compile_flat_sources sources =
@@ -1869,8 +1891,9 @@ struct
                SOME term =>
                  map (make_flat_source_group fallback_index)
                    (group_flat_clauses
-                     [make_flat_clause generated_wild
-                       NONE NONE term])
+                     [index_flat_clause 0
+                       (make_flat_clause generated_wild
+                         NONE NONE term)])
              | NONE => [])
 
           fun collect _ [] = fallback_groups
@@ -1882,17 +1905,20 @@ struct
               val handler = fold_rev Term.lambda binders rhs
 
               fun clause
-                  (_, _, abstraction, generated_guard, wrap) =
+                  (alternative_index,
+                   (_, _, abstraction, generated_guard, wrap)) =
                 let
                   val success =
                     wrap (handler_call handler binders)
                 in
-                  make_flat_clause abstraction source_guard
-                    generated_guard success
+                  index_flat_clause alternative_index
+                    (make_flat_clause abstraction source_guard
+                      generated_guard success)
                 end
               val current_groups =
                 map (make_flat_source_group source_index)
-                  (group_flat_clauses (map clause alternatives))
+                  (group_flat_clauses
+                    (map_index clause alternatives))
             in
               merge_flat_groups current_groups rest_groups
             end
