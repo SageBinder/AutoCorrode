@@ -144,6 +144,13 @@ type_synonym parser_nested_overlap_input =
       ((unit, parser_nested_status) result \<times> tnil)
   \<close>
 
+type_synonym parser_nested_different_depth_input =
+  \<open>
+    (unit, parser_nested_status) result \<times>
+      (((unit, parser_nested_status) result \<times>
+          (nat \<times> tnil)) \<times> tnil)
+  \<close>
+
 micro_rust_notation (literal)
   parser_nested_status.ParserPrimaryStatus
   ("NestedStatus::Primary")
@@ -357,6 +364,41 @@ definition parser_nested_alias_binder_second_scrutinee ::
           (Err ParserSecondaryStatus, TNil))
     \<close>
 
+definition parser_nested_different_depth_first_scrutinee ::
+  \<open>parser_nested_different_depth_input\<close>
+  where
+    \<open>
+      parser_nested_different_depth_first_scrutinee =
+        (Err ParserPrimaryStatus,
+          ((Err ParserTertiaryStatus, (11, TNil)), TNil))
+    \<close>
+
+definition parser_nested_different_depth_second_scrutinee ::
+  \<open>parser_nested_different_depth_input\<close>
+  where
+    \<open>
+      parser_nested_different_depth_second_scrutinee =
+        (Err ParserTertiaryStatus,
+          ((Err ParserSecondaryStatus, (22, TNil)), TNil))
+    \<close>
+
+definition parser_nested_different_depth_both_scrutinee ::
+  \<open>parser_nested_different_depth_input\<close>
+  where
+    \<open>
+      parser_nested_different_depth_both_scrutinee =
+        (Err ParserPrimaryStatus,
+          ((Err ParserSecondaryStatus, (33, TNil)), TNil))
+    \<close>
+
+definition parser_nested_different_depth_miss_scrutinee ::
+  \<open>parser_nested_different_depth_input\<close>
+  where
+    \<open>
+      parser_nested_different_depth_miss_scrutinee =
+        (Ok (), ((Ok (), (44, TNil)), TNil))
+    \<close>
+
 definition parser_nested_exhaustive_first_miss_scrutinee ::
   \<open>parser_nested_overlap_input\<close>
   where
@@ -564,6 +606,48 @@ urust_expr parser_nested_guarded_or_alias_binder ::
               expected_whole expected_observed whole observed
           \<close> \<Rightarrow> 1,
       _ \<Rightarrow> 2
+    }
+  \<close>
+
+urust_expr parser_nested_guarded_different_depth_alias ::
+  \<open>
+    parser_nested_different_depth_input \<Rightarrow>
+      (unit, parser_nested_status) result \<Rightarrow>
+      (unit, parser_nested_status) result \<Rightarrow>
+      (nat, nat, unit, unit, unit, unit) expression
+  \<close>
+  (scrutinee, expected_whole, expected_observed)
+  \<open>
+    match scrutinee {
+      (whole @ Err(NestedStatus::Primary),
+        (observed, marker)) |
+        (observed, (whole @ Err(NestedStatus::Secondary), marker))
+        if \<epsilon>\<open>
+            parser_nested_alias_binder_source_guard
+              expected_whole expected_observed whole observed
+          \<close> \<Rightarrow> marker,
+      _ \<Rightarrow> 99
+    }
+  \<close>
+
+urust_expr parser_nested_guarded_different_depth_alias_reversed ::
+  \<open>
+    parser_nested_different_depth_input \<Rightarrow>
+      (unit, parser_nested_status) result \<Rightarrow>
+      (unit, parser_nested_status) result \<Rightarrow>
+      (nat, nat, unit, unit, unit, unit) expression
+  \<close>
+  (scrutinee, expected_whole, expected_observed)
+  \<open>
+    match scrutinee {
+      (observed, (whole @ Err(NestedStatus::Secondary), marker)) |
+        (whole @ Err(NestedStatus::Primary),
+          (observed, marker))
+        if \<epsilon>\<open>
+            parser_nested_alias_binder_source_guard
+              expected_whole expected_observed whole observed
+          \<close> \<Rightarrow> marker,
+      _ \<Rightarrow> 99
     }
   \<close>
 
@@ -987,6 +1071,198 @@ lemma parser_nested_alias_binder_false_skips_arm:
     (simp add:
       parser_nested_guarded_or_alias_binder_def
       parser_nested_or_overlap_both_scrutinee_def
+      parser_nested_alias_binder_source_guard_def
+      two_armed_conditional_def
+      urust_eq_def
+      micro_rust_simps
+      evaluate_def
+      sequence_def
+      put_def
+      literal_def
+      Core_Expression.bind.simps)
+
+lemma parser_nested_different_depth_first_alternative:
+  \<open>
+    evaluate
+      (parser_nested_guarded_different_depth_alias
+        parser_nested_different_depth_first_scrutinee
+        (Err ParserPrimaryStatus)
+        (Err ParserTertiaryStatus))
+      0 =
+    Success (11 :: nat) 1
+  \<close>
+  by
+    (simp add:
+      parser_nested_guarded_different_depth_alias_def
+      parser_nested_different_depth_first_scrutinee_def
+      parser_nested_alias_binder_source_guard_def
+      two_armed_conditional_def
+      urust_eq_def
+      micro_rust_simps
+      evaluate_def
+      sequence_def
+      put_def
+      literal_def
+      Core_Expression.bind.simps)
+
+lemma parser_nested_different_depth_second_alternative:
+  \<open>
+    evaluate
+      (parser_nested_guarded_different_depth_alias
+        parser_nested_different_depth_second_scrutinee
+        (Err ParserSecondaryStatus)
+        (Err ParserTertiaryStatus))
+      0 =
+    Success (22 :: nat) 1
+  \<close>
+  by
+    (simp add:
+      parser_nested_guarded_different_depth_alias_def
+      parser_nested_different_depth_second_scrutinee_def
+      parser_nested_alias_binder_source_guard_def
+      two_armed_conditional_def
+      urust_eq_def
+      micro_rust_simps
+      evaluate_def
+      sequence_def
+      put_def
+      literal_def
+      Core_Expression.bind.simps)
+
+lemma parser_nested_different_depth_reversed_first_alternative:
+  \<open>
+    evaluate
+      (parser_nested_guarded_different_depth_alias_reversed
+        parser_nested_different_depth_second_scrutinee
+        (Err ParserSecondaryStatus)
+        (Err ParserTertiaryStatus))
+      0 =
+    Success (22 :: nat) 1
+  \<close>
+  by
+    (simp add:
+      parser_nested_guarded_different_depth_alias_reversed_def
+      parser_nested_different_depth_second_scrutinee_def
+      parser_nested_alias_binder_source_guard_def
+      two_armed_conditional_def
+      urust_eq_def
+      micro_rust_simps
+      evaluate_def
+      sequence_def
+      put_def
+      literal_def
+      Core_Expression.bind.simps)
+
+lemma parser_nested_different_depth_reversed_second_alternative:
+  \<open>
+    evaluate
+      (parser_nested_guarded_different_depth_alias_reversed
+        parser_nested_different_depth_first_scrutinee
+        (Err ParserPrimaryStatus)
+        (Err ParserTertiaryStatus))
+      0 =
+    Success (11 :: nat) 1
+  \<close>
+  by
+    (simp add:
+      parser_nested_guarded_different_depth_alias_reversed_def
+      parser_nested_different_depth_first_scrutinee_def
+      parser_nested_alias_binder_source_guard_def
+      two_armed_conditional_def
+      urust_eq_def
+      micro_rust_simps
+      evaluate_def
+      sequence_def
+      put_def
+      literal_def
+      Core_Expression.bind.simps)
+
+lemma parser_nested_different_depth_false_skips_arm:
+  \<open>
+    evaluate
+      (parser_nested_guarded_different_depth_alias
+        parser_nested_different_depth_both_scrutinee
+        (Err ParserSecondaryStatus)
+        (Err ParserPrimaryStatus))
+      0 =
+    Success (99 :: nat) 1
+  \<close>
+  by
+    (simp add:
+      parser_nested_guarded_different_depth_alias_def
+      parser_nested_different_depth_both_scrutinee_def
+      parser_nested_alias_binder_source_guard_def
+      two_armed_conditional_def
+      urust_eq_def
+      micro_rust_simps
+      evaluate_def
+      sequence_def
+      put_def
+      literal_def
+      Core_Expression.bind.simps)
+
+lemma parser_nested_different_depth_reversed_false_skips_arm:
+  \<open>
+    evaluate
+      (parser_nested_guarded_different_depth_alias_reversed
+        parser_nested_different_depth_both_scrutinee
+        (Err ParserPrimaryStatus)
+        (Err ParserSecondaryStatus))
+      0 =
+    Success (99 :: nat) 1
+  \<close>
+  by
+    (simp add:
+      parser_nested_guarded_different_depth_alias_reversed_def
+      parser_nested_different_depth_both_scrutinee_def
+      parser_nested_alias_binder_source_guard_def
+      two_armed_conditional_def
+      urust_eq_def
+      micro_rust_simps
+      evaluate_def
+      sequence_def
+      put_def
+      literal_def
+      Core_Expression.bind.simps)
+
+lemma parser_nested_different_depth_miss:
+  \<open>
+    evaluate
+      (parser_nested_guarded_different_depth_alias
+        parser_nested_different_depth_miss_scrutinee
+        (Err ParserPrimaryStatus)
+        (Err ParserTertiaryStatus))
+      0 =
+    Success (99 :: nat) 0
+  \<close>
+  by
+    (simp add:
+      parser_nested_guarded_different_depth_alias_def
+      parser_nested_different_depth_miss_scrutinee_def
+      parser_nested_alias_binder_source_guard_def
+      two_armed_conditional_def
+      urust_eq_def
+      micro_rust_simps
+      evaluate_def
+      sequence_def
+      put_def
+      literal_def
+      Core_Expression.bind.simps)
+
+lemma parser_nested_different_depth_reversed_miss:
+  \<open>
+    evaluate
+      (parser_nested_guarded_different_depth_alias_reversed
+        parser_nested_different_depth_miss_scrutinee
+        (Err ParserSecondaryStatus)
+        (Err ParserTertiaryStatus))
+      0 =
+    Success (99 :: nat) 0
+  \<close>
+  by
+    (simp add:
+      parser_nested_guarded_different_depth_alias_reversed_def
+      parser_nested_different_depth_miss_scrutinee_def
       parser_nested_alias_binder_source_guard_def
       two_armed_conditional_def
       urust_eq_def
@@ -1686,6 +1962,12 @@ ML_val\<open>
       equation_of "parser_nested_alias_source_guard_match"
     val (alias_binder_guard_lhs, alias_binder_guard) =
       equation_of "parser_nested_guarded_or_alias_binder"
+    val (different_depth_lhs, different_depth) =
+      equation_of "parser_nested_guarded_different_depth_alias"
+    val (different_depth_reversed_lhs,
+         different_depth_reversed) =
+      equation_of
+        "parser_nested_guarded_different_depth_alias_reversed"
     val (exhaustive_lhs, exhaustive) =
       equation_of "parser_nested_exhaustive_outer_shapes"
     val (exhaustive_guarded_lhs, exhaustive_guarded) =
@@ -1708,6 +1990,16 @@ ML_val\<open>
         [\<^term>\<open>parser_nested_alias_binder_first_scrutinee\<close>,
          \<^term>\<open>Err ParserPrimaryStatus\<close>,
          \<^term>\<open>Err ParserTertiaryStatus\<close>]
+    val different_depth_instantiated =
+      instantiate_definition different_depth
+        [\<^term>\<open>parser_nested_different_depth_both_scrutinee\<close>,
+         \<^term>\<open>Err ParserSecondaryStatus\<close>,
+         \<^term>\<open>Err ParserPrimaryStatus\<close>]
+    val different_depth_reversed_instantiated =
+      instantiate_definition different_depth_reversed
+        [\<^term>\<open>parser_nested_different_depth_both_scrutinee\<close>,
+         \<^term>\<open>Err ParserPrimaryStatus\<close>,
+         \<^term>\<open>Err ParserSecondaryStatus\<close>]
     val exhaustive_guarded_instantiated =
       instantiate_definition exhaustive_guarded
         [\<^term>\<open>
@@ -1752,6 +2044,10 @@ ML_val\<open>
       Term.strip_comb alias_source_guard_lhs
     val (_, alias_binder_guard_arguments) =
       Term.strip_comb alias_binder_guard_lhs
+    val (_, different_depth_arguments) =
+      Term.strip_comb different_depth_lhs
+    val (_, different_depth_reversed_arguments) =
+      Term.strip_comb different_depth_reversed_lhs
     val (_, exhaustive_arguments) =
       Term.strip_comb exhaustive_lhs
     val (_, exhaustive_guarded_arguments) =
@@ -1909,6 +2205,76 @@ ML_val\<open>
         (count_constant
           \<^const_name>\<open>parser_nested_alias_binder_first_scrutinee\<close>
           alias_binder_guard_instantiated = 1)
+    val _ =
+      assert "different-depth alias fixture changed its definition head"
+        (null different_depth_arguments)
+    val _ =
+      assert "different-depth alias fixture changed its argument types"
+        (binder_types (fastype_of different_depth_lhs) =
+          [\<^typ>\<open>parser_nested_different_depth_input\<close>,
+           \<^typ>\<open>(unit, parser_nested_status) result\<close>,
+           \<^typ>\<open>(unit, parser_nested_status) result\<close>])
+    val _ =
+      assert "different-depth alias fixture retained schematic variables"
+        (null (Term.add_vars different_depth []))
+    val _ =
+      assert "different-depth alias fixture retained local free binders"
+        (null (Term.add_frees different_depth []))
+    val _ =
+      assert "different-depth alias fixture lost its scoped guard"
+        (count_constant
+          \<^const_name>\<open>parser_nested_alias_binder_source_guard\<close>
+          different_depth > 0)
+    val _ =
+      assert "different-depth alias fixture reevaluated its scrutinee"
+        (count_constant
+          \<^const_name>\<open>parser_nested_different_depth_both_scrutinee\<close>
+          different_depth_instantiated = 1)
+    val _ =
+      assert
+        ("different-depth alias fixture emitted redundant outer clauses: " ^
+          string_of_int
+            (length (outer_case_clauses different_depth)))
+        (length (outer_case_clauses different_depth) = 1)
+    val _ =
+      assert
+        "reversed different-depth alias fixture changed its definition head"
+        (null different_depth_reversed_arguments)
+    val _ =
+      assert
+        "reversed different-depth alias fixture changed its argument types"
+        (binder_types (fastype_of different_depth_reversed_lhs) =
+          [\<^typ>\<open>parser_nested_different_depth_input\<close>,
+           \<^typ>\<open>(unit, parser_nested_status) result\<close>,
+           \<^typ>\<open>(unit, parser_nested_status) result\<close>])
+    val _ =
+      assert
+        "reversed different-depth alias fixture retained schematic variables"
+        (null (Term.add_vars different_depth_reversed []))
+    val _ =
+      assert
+        "reversed different-depth alias fixture retained local free binders"
+        (null (Term.add_frees different_depth_reversed []))
+    val _ =
+      assert
+        "reversed different-depth alias fixture lost its scoped guard"
+        (count_constant
+          \<^const_name>\<open>parser_nested_alias_binder_source_guard\<close>
+          different_depth_reversed > 0)
+    val _ =
+      assert
+        "reversed different-depth alias fixture reevaluated its scrutinee"
+        (count_constant
+          \<^const_name>\<open>parser_nested_different_depth_both_scrutinee\<close>
+          different_depth_reversed_instantiated = 1)
+    val _ =
+      assert
+        ("reversed different-depth alias fixture emitted redundant outer clauses: " ^
+          string_of_int
+            (length
+              (outer_case_clauses different_depth_reversed)))
+        (length
+          (outer_case_clauses different_depth_reversed) = 1)
     val _ =
       assert "exhaustive outer-shape fixture changed its definition head"
         (null exhaustive_arguments)
