@@ -125,7 +125,9 @@ struct
 
   (* In a no-struct control head, an empty struct at the right source boundary can be parsed as a bare
      path followed by the control body's empty braces. Delimiters and postfixes stop the boundary walk:
-     their closing token means the following braces cannot belong to an inner struct expression. *)
+     their closing token means the following braces cannot belong to an inner struct expression.
+     U_Propagate shares the unary AST node with true prefix operators, but its source token is postfix
+     and therefore stops rather than continuing this walk. *)
   fun trailing_ungrouped_path expression =
     (case expression of
        UE_Path path => SOME path
@@ -133,7 +135,10 @@ struct
      | UE_Closure (_, body, _) => trailing_ungrouped_path body
      | UE_Bin (_, _, right, _) => trailing_ungrouped_path right
      | UE_Range (_, _, upper, _) => trailing_ungrouped_path upper
-     | UE_Unary (_, operand, _) => trailing_ungrouped_path operand
+     | UE_Unary (U_Not, operand, _) => trailing_ungrouped_path operand
+     | UE_Unary (U_Borrow _, operand, _) => trailing_ungrouped_path operand
+     | UE_Unary (U_Deref, operand, _) => trailing_ungrouped_path operand
+     | UE_Unary (U_Propagate, _, _) => NONE
      | UE_Assign (_, _, rhs, _) => trailing_ungrouped_path rhs
      | _ => NONE)
 

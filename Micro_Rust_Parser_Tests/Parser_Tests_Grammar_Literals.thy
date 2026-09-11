@@ -261,6 +261,59 @@ micro_rust_notation (call)
 micro_rust_notation (call)
   grammar_empty_nat_call ("grammar_empty_nat_value")
 
+definition grammar_propagate_bool_value :: \<open>bool option\<close>
+  where \<open>grammar_propagate_bool_value \<equiv> Some True\<close>
+
+definition grammar_propagate_bool_call ::
+    \<open>(unit, bool option, unit, unit, unit) function_body\<close>
+  where
+    \<open>
+      grammar_propagate_bool_call \<equiv>
+        FunctionBody (literal grammar_propagate_bool_value)
+    \<close>
+
+definition grammar_propagate_option_value :: \<open>unit option option\<close>
+  where \<open>grammar_propagate_option_value \<equiv> Some (Some ())\<close>
+
+definition grammar_propagate_option_call ::
+    \<open>(unit, unit option option, unit, unit, unit) function_body\<close>
+  where
+    \<open>
+      grammar_propagate_option_call \<equiv>
+        FunctionBody (literal grammar_propagate_option_value)
+    \<close>
+
+definition grammar_propagate_list_value :: \<open>unit list option\<close>
+  where \<open>grammar_propagate_list_value \<equiv> Some [()]\<close>
+
+definition grammar_propagate_list_call ::
+    \<open>(unit, unit list option, unit, unit, unit) function_body\<close>
+  where
+    \<open>
+      grammar_propagate_list_call \<equiv>
+        FunctionBody (literal grammar_propagate_list_value)
+    \<close>
+
+definition grammar_propagate_nat_value :: \<open>nat option\<close>
+  where \<open>grammar_propagate_nat_value \<equiv> Some 1\<close>
+
+definition grammar_propagate_nat_call ::
+    \<open>(unit, nat option, unit, unit, unit) function_body\<close>
+  where
+    \<open>
+      grammar_propagate_nat_call \<equiv>
+        FunctionBody (literal grammar_propagate_nat_value)
+    \<close>
+
+micro_rust_notation (call)
+  grammar_propagate_bool_call ("grammar_propagate_bool_value")
+micro_rust_notation (call)
+  grammar_propagate_option_call ("grammar_propagate_option_value")
+micro_rust_notation (call)
+  grammar_propagate_list_call ("grammar_propagate_list_value")
+micro_rust_notation (call)
+  grammar_propagate_nat_call ("grammar_propagate_nat_value")
+
 subsection\<open>Empty struct expressions in control heads\<close>
 
 text\<open>
@@ -340,6 +393,66 @@ new_urust_rejects audit
     if true == grammar_empty_bool_value {} {}
   \<close>
   \<open> empty struct expression in a control head must be parenthesized \<close>
+
+text\<open>
+Postfix propagation closes its operand before the control body begins. It therefore disambiguates
+the following empty braces even when the operand path also names a registered nullary call.
+True prefix operators surrounding the propagated expression retain that postfix boundary.
+\<close>
+
+urust_expr [conformance_check = false] grammar_propagate_empty_body_if
+  \<open> if grammar_propagate_bool_value? {} else {} \<close>
+
+urust_expr [conformance_check = false] grammar_propagate_empty_body_if_let
+  \<open>
+    if let Some(_) = grammar_propagate_option_value? {} else {}
+  \<close>
+
+urust_expr [conformance_check = false] grammar_propagate_empty_body_for
+  \<open> for _ in grammar_propagate_list_value? {} \<close>
+
+urust_expr [conformance_check = false] grammar_propagate_empty_body_while_let
+  \<open>
+    #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let Some(_) =
+      grammar_propagate_option_value? {}
+  \<close>
+
+urust_expr [conformance_check = false] grammar_propagate_empty_body_match
+  \<open>
+    match grammar_propagate_bool_value? {
+      true \<Rightarrow> (),
+      false \<Rightarrow> ()
+    }
+  \<close>
+
+urust_expr [conformance_check = false] grammar_propagate_empty_body_match_case
+  \<open>
+    match_case grammar_propagate_option_value? {
+      Some(_) \<Rightarrow> (),
+      None \<Rightarrow> ()
+    }
+  \<close>
+
+urust_expr [conformance_check = false] grammar_propagate_empty_body_match_switch
+  \<open>
+    match_switch grammar_propagate_nat_value? {
+      1 \<Rightarrow> (),
+      _ \<Rightarrow> ()
+    }
+  \<close>
+
+urust_expr [conformance_check = false] grammar_propagate_nested_prefix_empty_body
+  \<open> if !grammar_propagate_bool_value? {} else {} \<close>
+
+urust_expr [conformance_check = false] grammar_propagate_nested_binary_empty_body
+  \<open>
+    if false || grammar_propagate_bool_value? {} else {}
+  \<close>
+
+urust_expr [conformance_check = false] grammar_propagate_nested_comparison_empty_body
+  \<open>
+    if true == grammar_propagate_bool_value? {} else {}
+  \<close>
 
 urust_expr [conformance_check = false] grammar_grouped_empty_struct_if
   \<open>
