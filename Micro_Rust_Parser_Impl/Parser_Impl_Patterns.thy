@@ -96,8 +96,9 @@ ML\<open>
   select_match_flavour preserves an explicit MF_Case or MF_Switch (while rejecting switch guards) and
   resolves MF_Auto according to the current case-versus-numeral-switch policy; it never returns
   MF_Auto. The auto query is contextual only for exact literal registrations: authentic registered
-  constructors are case-only, registered nonconstructors support both lowerings, case still wins when
-  both are possible, and guards still force case. This is not general type-directed matching.
+  constructors are case-only, registered nonconstructors support both lowerings, switch wins when
+  every arm is binder-free, guard-free, and value/wildcard compatible, and guards still force case.
+  This is not general type-directed matching.
   prepare_switch_arm accepts an unguarded numeral/wildcard/registered-value pattern or an or-pattern
   composed from those forms, preserves alternative order, and returns the encoded option keys (Some
   value or None wildcard) with the unchanged source body for lowering in the outer environment.
@@ -194,11 +195,10 @@ struct
     let
       val resolver = R.make_constructor_resolver ctxt pos
 
-      fun registered_capability unregistered_switch path =
+      fun registered_capability path =
         (case R.classify_registered_literal ctxt resolver path of
            R.Unregistered_Literal =>
-             Match_Capability
-               {case_ok = true, switch_ok = unregistered_switch}
+             Match_Capability {case_ok = true, switch_ok = false}
          | R.Registered_Value_Literal =>
              Match_Capability {case_ok = true, switch_ok = true}
          | R.Registered_Constructor_Literal =>
@@ -209,8 +209,8 @@ struct
            P_Literal (LP_Integer _) =>
              Match_Capability {case_ok = false, switch_ok = true}
          | P_Ident identifier =>
-             registered_capability true (make_single_path identifier)
-         | P_Path path => registered_capability false path
+             registered_capability (make_single_path identifier)
+         | P_Path path => registered_capability path
          | P_Wild _ =>
              Match_Capability {case_ok = true, switch_ok = true}
          | _ =>
@@ -222,8 +222,8 @@ struct
           (Match_Capability {switch_ok, ...}) = switch_ok
     in
       if List.exists (is_some o arm_guard) arms then MF_Case
-      else if List.all case_compatible capabilities then MF_Case
       else if List.all switch_compatible capabilities then MF_Switch
+      else if List.all case_compatible capabilities then MF_Case
       else
         error ("urust_expr: mixed numeral and constructor patterns in bare `match`" ^
           Position.here pos)
@@ -744,8 +744,20 @@ struct
          [T.option_some (T.integer_value pos lexeme)]
      | P_Wild pos => (R.report_wildcard ctxt pos; [T.option_none])
      | P_Path path =>
-         [T.option_some
-            (R.literal_path_value ctxt R.empty_environment path)]
+         (case R.classify_registered_literal ctxt resolver path of
+            R.Registered_Value_Literal =>
+              [T.option_some
+                (R.literal_path_value ctxt R.empty_environment path)]
+          | R.Registered_Constructor_Literal =>
+              error ("urust_expr: authentic constructor " ^
+                quote (render_path path) ^
+                " requires case-pattern lowering" ^
+                Position.here (path_position path))
+          | R.Unregistered_Literal =>
+              error ("urust_expr: unsupported match_switch key " ^
+                quote (render_path path) ^
+                " (expected an exact registered literal value)" ^
+                Position.here (path_position path)))
      | P_Ident (name, pos) =>
          (case R.classify_registered_literal ctxt resolver
              (make_single_path (name, pos)) of
@@ -753,10 +765,13 @@ struct
               error ("urust_expr: unsupported match_switch key " ^ quote name ^
                 " (numeral or `_` only; const-id / path keys not yet supported)" ^
                 Position.here pos)
-          | _ =>
+          | R.Registered_Value_Literal =>
               [T.option_some
                 (R.literal_identifier_value ctxt R.empty_environment
-                  (name, pos))])
+                  (name, pos))]
+          | R.Registered_Constructor_Literal =>
+              error ("urust_expr: authentic constructor " ^ quote name ^
+                " requires case-pattern lowering" ^ Position.here pos))
      | unsupported =>
          error ("urust_expr: unsupported match_switch pattern" ^
            " (numeral, `_`, or an or-list of those; binding patterns need" ^
@@ -1133,34 +1148,52 @@ struct
         | normalize_arguments (argument :: rest) =
             let
               val (argument', guards0, wrappers0) =
-                if requires_nested_match argument then
-                  let
-                    val temporary =
-                      Free
-                        ("_urust_pat_" ^
-                          string_of_int (serial ()), dummyT)
-                    val temporary_expression = T.literal temporary
-                    val (matched_expression, matched_pattern) =
-                      (case argument of
-                         Case_Slice_Suffix reversed_suffix =>
-                           (T.reverse_list temporary_expression,
-                            reversed_suffix)
-                       | _ => (temporary_expression, argument))
-                    val guard =
-                      compile_nested_case compiler ctxt environment
-                        matched_expression matched_pattern
-                        (T.literal T.true_value)
-                        (T.literal T.false_value)
-                    fun wrapper rhs =
-                      compile_nested_case compiler ctxt environment
-                        matched_expression matched_pattern
-                        rhs T.undefined_value
-                  in
-                    (Basic_Generated temporary, [guard], [wrapper])
-                  end
-                else
-                  normalize_pattern_for_nested
-                    compiler ctxt environment argument
+                (case argument of
+                   Case_Constructor (info, _, []) =>
+                     if R.constructor_is_exact_registered info then
+                       let
+                         val temporary =
+                           Free
+                             ("_urust_pat_" ^
+                               string_of_int (serial ()), dummyT)
+                         val guard =
+                           T.binary Eq (T.literal temporary)
+                             (T.literal (R.constructor_term info))
+                       in
+                         (Basic_Generated temporary, [guard], [])
+                       end
+                     else
+                       normalize_pattern_for_nested
+                         compiler ctxt environment argument
+                 | _ =>
+                     if requires_nested_match argument then
+                       let
+                         val temporary =
+                           Free
+                             ("_urust_pat_" ^
+                               string_of_int (serial ()), dummyT)
+                         val temporary_expression = T.literal temporary
+                         val (matched_expression, matched_pattern) =
+                           (case argument of
+                              Case_Slice_Suffix reversed_suffix =>
+                                (T.reverse_list temporary_expression,
+                                 reversed_suffix)
+                            | _ => (temporary_expression, argument))
+                         val guard =
+                           compile_nested_case compiler ctxt environment
+                             matched_expression matched_pattern
+                             (T.literal T.true_value)
+                             (T.literal T.false_value)
+                         fun wrapper rhs =
+                           compile_nested_case compiler ctxt environment
+                             matched_expression matched_pattern
+                             rhs T.undefined_value
+                       in
+                         (Basic_Generated temporary, [guard], [wrapper])
+                       end
+                     else
+                       normalize_pattern_for_nested
+                         compiler ctxt environment argument)
               val (rest', guards1, wrappers1) =
                 normalize_arguments rest
             in
@@ -1255,6 +1288,8 @@ struct
       val wild =
         (case basic_pattern of
            Basic_Wild _ => true
+         | Basic_Bind _ => true
+         | Basic_Generated _ => true
          | _ => false)
     in (wild, abstraction, generated_guard, wrap) end
 
