@@ -709,7 +709,12 @@ Second-class closure parity has runnable coverage in
 role-sensitive notation resolution, closure-body forms, and every frontend placement. Parser-only
 delimiter compositions and grouped placements are checked in \<open>Parser_Tests_Improvements.thy\<close>;
 malformed formals, excluded bare placements, and direct invocation remain executable negative rows.
-The goldens below remain representative frontend examples rather than the complete coverage source.
+The dedicated grammar intentionally gives closures low-precedence full-expression bodies, so the
+ungrouped legacy spelling \<open>|| return x;\<close> is parser-only coverage in
+\<open>Parser_Tests_Expr.thy\<close>: the legacy frontend places the terminating sequence outside the
+closure. The block form below makes the closure-body boundary explicit in both frontends and remains
+an executable same-source golden. The other goldens remain representative frontend examples rather
+than the complete coverage source.
 \<close>
 
 context
@@ -718,7 +723,7 @@ context
   fixes n :: \<open>nat\<close>
   fixes x :: \<open>nat\<close>
 begin
-lemma \<open> \<mu>\<open> || return x; \<close> = \<lbrakk> || return x; \<rbrakk>\<close> by (rule refl)
+lemma \<open> \<mu>\<open> || { return x; } \<close> = \<lbrakk> || { return x; } \<rbrakk>\<close> by (rule refl)
 lemma \<open> \<mu>\<open> |x| x \<close> = \<lbrakk> |x| x \<rbrakk>\<close> by (rule refl)
 lemma \<open> \<mu>\<open> |x, y| { let z = f(x,y); return z; } \<close> = \<lbrakk> |x, y| { let z = f(x,y); return z; } \<rbrakk>\<close> by (rule refl)
 lemma \<open> \<mu>\<open> h(n, |b| { let z = f(n,b); return \<llangle>n+z\<rrangle>; }) \<close> = \<lbrakk> h(n, |b| { let z = f(n,b); return \<llangle>n+z\<rrangle>; }) \<rbrakk>\<close> by (rule refl)
