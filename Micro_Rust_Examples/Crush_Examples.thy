@@ -2,7 +2,9 @@
    SPDX-License-Identifier: MIT *)
 
 theory Crush_Examples
-  imports Micro_Rust_Std_Lib.StdLib_All
+  imports
+    Micro_Rust_Std_Lib.StdLib_All
+    Micro_Rust_Parser_Impl.Parser_Term_Hook
 begin
 
 declare [[urust_conformance_check = true]]
@@ -665,13 +667,17 @@ paragraph\<open>Case splitting\<close>
 
 experiment
 begin
-urust_expr [abbrev = true] Crush_Examples_urust_site_1
-  (x, f, g)
-  \<open> match x { Some(y) \<Rightarrow> f(), None \<Rightarrow> g() } \<close>
+abbreviation Crush_Examples_urust_site_1 where
+  "Crush_Examples_urust_site_1 x f g \<equiv>
+    \<mu>(x := x, none := None, f := f, g := g)\<open>
+      if x == none { g() } else { f() }
+    \<close>"
 
-urust_expr [abbrev = true] Crush_Examples_urust_site_2
-  (x, f, g)
-  \<open> match x { None \<Rightarrow> f(), Some(y) \<Rightarrow> g() } \<close>
+abbreviation Crush_Examples_urust_site_2 where
+  "Crush_Examples_urust_site_2 x f g \<equiv>
+    \<mu>(x := x, none := None, f := f, g := g)\<open>
+      if x == none { f() } else { g() }
+    \<close>"
 
 lemma \<open>(case y of Some t \<Rightarrow> True | None \<Rightarrow> True) \<Longrightarrow> \<alpha> \<longlongrightarrow> \<W>\<P> \<Gamma> (Crush_Examples_urust_site_1 x f g) \<beta> \<gamma> \<delta>\<close>
   \<comment>\<open>You could use the following, but that would aggressively split \<^verbatim>\<open>option\<close> everywhere.\<close>

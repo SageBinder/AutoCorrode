@@ -8,6 +8,7 @@ theory Weak_Triple
     Precision
     Locality
     Shallow_Micro_Rust.Shallow_Micro_Rust
+    Micro_Rust_Parser_Impl.Parser_Term_Hook
 begin
 
 declare [[urust_conformance_check = true]]
@@ -833,16 +834,16 @@ lemma striple_panic:
 
 text\<open>Pause / Breakpoint\<close>
 
-urust_expr [abbrev = true] striple_pause_urust_site_1
-  \<open> \<y>\<i>\<e>\<l>\<d> \<close>
+abbreviation striple_pause_urust_site_1 where
+  "striple_pause_urust_site_1 \<equiv> \<mu>\<open> \<y>\<i>\<e>\<l>\<d> \<close>"
 
 lemma striple_pause:
   assumes \<open>\<And>r. ucincl (\<psi> r)\<close>
     shows \<open>(\<Gamma> ; \<top> \<turnstile> striple_pause_urust_site_1 \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k \<top> \<bowtie> \<rho> \<bowtie> \<theta>)\<close>
 using assms by (simp add: striple_def urust_eval_action_simps atriple_def)
 
-urust_expr [abbrev = true] striple_pause'_urust_site_1
-  \<open> \<y>\<i>\<e>\<l>\<d> \<close>
+abbreviation striple_pause'_urust_site_1 where
+  "striple_pause'_urust_site_1 \<equiv> \<mu>\<open> \<y>\<i>\<e>\<l>\<d> \<close>"
 
 lemma striple_pause':
   assumes \<open>\<And>r. ucincl (\<psi> r)\<close>
@@ -955,30 +956,22 @@ lemma striple_call_inv:
 using assms by - (intro stripleI; elim stripleE_value stripleE_abort; simp add:
   urust_eval_predicate_call)
 
-urust_expr [abbrev = true] striple_call_funliteral_urust_site_1
-  (f1, v0)
-  \<open> \<llangle>f1\<rrangle>\<^sub>1 (v0) \<close>
-urust_expr [abbrev = true] striple_call_funliteral_urust_site_2
-  (f2, v0, v1)
-  \<open> \<llangle>f2\<rrangle>\<^sub>2 (v0, v1) \<close>
-urust_expr [abbrev = true] striple_call_funliteral_urust_site_3
-  (f3, v0, v1, v2)
-  \<open> \<llangle>f3\<rrangle>\<^sub>3 (v0, v1, v2) \<close>
-urust_expr [abbrev = true] striple_call_funliteral_urust_site_4
-  (f4, v0, v1, v2, v3)
-  \<open> \<llangle>f4\<rrangle>\<^sub>4 (v0, v1, v2, v3) \<close>
-urust_expr [abbrev = true] striple_call_funliteral_urust_site_5
-  (f5, v0, v1, v2, v3, v4)
-  \<open> \<llangle>f5\<rrangle>\<^sub>5 (v0, v1, v2, v3, v4) \<close>
-urust_expr [abbrev = true] striple_call_funliteral_urust_site_6
-  (f6, v0, v1, v2, v3, v4, v5)
-  \<open> \<llangle>f6\<rrangle>\<^sub>6 (v0, v1, v2, v3, v4, v5) \<close>
-urust_expr [abbrev = true] striple_call_funliteral_urust_site_7
-  (f7, v0, v1, v2, v3, v4, v5, v6)
-  \<open> \<llangle>f7\<rrangle>\<^sub>7 (v0, v1, v2, v3, v4, v5, v6) \<close>
-urust_expr [abbrev = true] striple_call_funliteral_urust_site_8
-  (f8, v0, v1, v2, v3, v4, v5, v6, v7)
-  \<open> \<llangle>f8\<rrangle>\<^sub>8 (v0, v1, v2, v3, v4, v5, v6, v7) \<close>
+abbreviation striple_call_funliteral_urust_site_1 where
+  "striple_call_funliteral_urust_site_1 f1 v0 \<equiv> \<mu>(function := lift_fun1 f1, v0 := v0)\<open> function(v0) \<close>"
+abbreviation striple_call_funliteral_urust_site_2 where
+  "striple_call_funliteral_urust_site_2 f2 v0 v1 \<equiv> \<mu>(function := lift_fun2 f2, v0 := v0, v1 := v1)\<open> function(v0, v1) \<close>"
+abbreviation striple_call_funliteral_urust_site_3 where
+  "striple_call_funliteral_urust_site_3 f3 v0 v1 v2 \<equiv> \<mu>(function := lift_fun3 f3, v0 := v0, v1 := v1, v2 := v2)\<open> function(v0, v1, v2) \<close>"
+abbreviation striple_call_funliteral_urust_site_4 where
+  "striple_call_funliteral_urust_site_4 f4 v0 v1 v2 v3 \<equiv> \<mu>(function := lift_fun4 f4, v0 := v0, v1 := v1, v2 := v2, v3 := v3)\<open> function(v0, v1, v2, v3) \<close>"
+abbreviation striple_call_funliteral_urust_site_5 where
+  "striple_call_funliteral_urust_site_5 f5 v0 v1 v2 v3 v4 \<equiv> \<mu>(function := lift_fun5 f5, v0 := v0, v1 := v1, v2 := v2, v3 := v3, v4 := v4)\<open> function(v0, v1, v2, v3, v4) \<close>"
+abbreviation striple_call_funliteral_urust_site_6 where
+  "striple_call_funliteral_urust_site_6 f6 v0 v1 v2 v3 v4 v5 \<equiv> \<mu>(function := lift_fun6 f6, v0 := v0, v1 := v1, v2 := v2, v3 := v3, v4 := v4, v5 := v5)\<open> function(v0, v1, v2, v3, v4, v5) \<close>"
+abbreviation striple_call_funliteral_urust_site_7 where
+  "striple_call_funliteral_urust_site_7 f7 v0 v1 v2 v3 v4 v5 v6 \<equiv> \<mu>(function := lift_fun7 f7, v0 := v0, v1 := v1, v2 := v2, v3 := v3, v4 := v4, v5 := v5, v6 := v6)\<open> function(v0, v1, v2, v3, v4, v5, v6) \<close>"
+abbreviation striple_call_funliteral_urust_site_8 where
+  "striple_call_funliteral_urust_site_8 f8 v0 v1 v2 v3 v4 v5 v6 v7 \<equiv> \<mu>(function := lift_fun8 f8, v0 := v0, v1 := v1, v2 := v2, v3 := v3, v4 := v4, v5 := v5, v6 := v6, v7 := v7)\<open> function(v0, v1, v2, v3, v4, v5, v6, v7) \<close>"
 
 lemma striple_call_funliteral:
   shows \<open>(\<Gamma> ; \<phi> \<turnstile> striple_call_funliteral_urust_site_1 f1 v0 \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k \<psi> \<bowtie> \<rho> \<bowtie> \<theta>) \<longleftrightarrow> (\<phi> \<longlongrightarrow> \<psi> (f1 v0) \<star> \<top>)\<close>
@@ -1009,9 +1002,8 @@ using assms by (intro stripleI; clarsimp simp add: urust_eval_predicate_put
 
 subsection\<open>Defining triples for numeric and bitwise operators\<close>
 
-urust_expr [abbrev = true] striple_word_add_no_wrapI_urust_site_1
-  (x, y)
-  \<open> x + y \<close>
+abbreviation striple_word_add_no_wrapI_urust_site_1 where
+  "striple_word_add_no_wrapI_urust_site_1 x y \<equiv> \<mu>(x := x, y := y)\<open> x + y \<close>"
 
 lemma striple_word_add_no_wrapI:
   fixes x y :: \<open>'l::{len} word\<close>
@@ -1019,9 +1011,8 @@ lemma striple_word_add_no_wrapI:
   by (intro stripleI; clarsimp simp add: urust_eval_predicate_add_no_wrap apure_def asepconj_simp
     atriple_post_true atriple_pre_false)
 
-urust_expr [abbrev = true] striple_word_mul_no_wrapI_urust_site_1
-  (x, y)
-  \<open> x * y \<close>
+abbreviation striple_word_mul_no_wrapI_urust_site_1 where
+  "striple_word_mul_no_wrapI_urust_site_1 x y \<equiv> \<mu>(x := x, y := y)\<open> x * y \<close>"
 
 lemma striple_word_mul_no_wrapI:
   fixes x y :: \<open>'l::{len} word\<close>
@@ -1029,9 +1020,8 @@ lemma striple_word_mul_no_wrapI:
   by (intro stripleI; clarsimp simp add: urust_eval_predicate_mul_no_wrap apure_def asepconj_simp
     atriple_post_true atriple_pre_false)
 
-urust_expr [abbrev = true] striple_word_sub_no_wrapI_urust_site_1
-  (x, y)
-  \<open> x - y \<close>
+abbreviation striple_word_sub_no_wrapI_urust_site_1 where
+  "striple_word_sub_no_wrapI_urust_site_1 x y \<equiv> \<mu>(x := x, y := y)\<open> x - y \<close>"
 
 lemma striple_word_sub_no_wrapI:
   fixes x y :: \<open>'l::{len} word\<close>
@@ -1039,9 +1029,8 @@ lemma striple_word_sub_no_wrapI:
   by (intro stripleI; clarsimp simp add: urust_eval_predicate_sub_no_wrap apure_def asepconj_simp
     atriple_post_true atriple_pre_false word_le_nat_alt)
 
-urust_expr [abbrev = true] striple_word_udivI_urust_site_1
-  (x, y)
-  \<open> x / y \<close>
+abbreviation striple_word_udivI_urust_site_1 where
+  "striple_word_udivI_urust_site_1 x y \<equiv> \<mu>(x := x, y := y)\<open> x / y \<close>"
 
 lemma striple_word_udivI:
   fixes x y :: \<open>'l::{len} word\<close>
@@ -1049,9 +1038,8 @@ lemma striple_word_udivI:
   by (intro stripleI; clarsimp simp add: urust_eval_predicate_div apure_def asepconj_simp
     atriple_post_true unat_eq_zero atriple_pre_false)
 
-urust_expr [abbrev = true] striple_word_umodI_urust_site_1
-  (x, y)
-  \<open> x % y \<close>
+abbreviation striple_word_umodI_urust_site_1 where
+  "striple_word_umodI_urust_site_1 x y \<equiv> \<mu>(x := x, y := y)\<open> x % y \<close>"
 
 lemma striple_word_umodI:
   fixes x y :: \<open>'l::{len} word\<close>
@@ -1059,9 +1047,8 @@ lemma striple_word_umodI:
 by (intro stripleI; clarsimp simp add: urust_eval_predicate_mod apure_def asepconj_simp
   atriple_post_true unat_eq_zero atriple_pre_false)
 
-urust_expr [abbrev = true] striple_word_shift_leftI_urust_site_1
-  (x, y)
-  \<open> x << y \<close>
+abbreviation striple_word_shift_leftI_urust_site_1 where
+  "striple_word_shift_leftI_urust_site_1 x y \<equiv> \<mu>(x := x, y := y)\<open> x << y \<close>"
 
 lemma striple_word_shift_leftI:
   fixes x :: \<open>'l0::{len} word\<close>
@@ -1070,9 +1057,8 @@ lemma striple_word_shift_leftI:
 by (intro stripleI; clarsimp simp add: asepconj_simp urust_eval_predicate_shift_left apure_def
   atriple_post_true atriple_pre_false)
 
-urust_expr [abbrev = true] striple_word_shift_rightI_urust_site_1
-  (x, y)
-  \<open> x >> y \<close>
+abbreviation striple_word_shift_rightI_urust_site_1 where
+  "striple_word_shift_rightI_urust_site_1 x y \<equiv> \<mu>(x := x, y := y)\<open> x >> y \<close>"
 
 lemma striple_word_shift_rightI:
   fixes x :: \<open>'l0::{len} word\<close>
@@ -1081,37 +1067,35 @@ lemma striple_word_shift_rightI:
 by (intro stripleI; clarsimp simp add: urust_eval_predicate_shift_right apure_def asepconj_simp
   atriple_post_true atriple_pre_false)
 
-urust_expr [abbrev = true] striple_bitwise_orI_urust_site_1
-  (x, y)
-  \<open> x | y \<close>
+abbreviation striple_bitwise_orI_urust_site_1 where
+  "striple_bitwise_orI_urust_site_1 x y \<equiv> \<mu>(x := x, y := y)\<open> x | y \<close>"
 
 lemma striple_bitwise_orI:
   fixes x y :: \<open>'l::{len} word\<close>
   shows \<open>\<Gamma> ; \<top> \<turnstile> striple_bitwise_orI_urust_site_1 x y \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k (\<lambda>r. \<langle>r = x OR y\<rangle>) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
 by (intro stripleI; clarsimp simp add: urust_eval_predicate_or apure_def atriple_post_true)
 
-urust_expr [abbrev = true] striple_bitwise_andI_urust_site_1
-  (x, y)
-  \<open> x & y \<close>
+abbreviation striple_bitwise_andI_urust_site_1 where
+  "striple_bitwise_andI_urust_site_1 x y \<equiv> \<mu>(x := x, y := y)\<open> x & y \<close>"
 
 lemma striple_bitwise_andI:
   fixes x y :: \<open>'l::{len} word\<close>
   shows \<open>\<Gamma> ; \<top> \<turnstile> striple_bitwise_andI_urust_site_1 x y \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k (\<lambda>r. \<langle>r = x AND y\<rangle>) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
 by (intro stripleI; clarsimp simp add: urust_eval_predicate_and apure_def atriple_post_true)
 
-urust_expr [abbrev = true] striple_bitwise_xorI_urust_site_1
-  (x, y)
-  \<open> x ^ y \<close>
+abbreviation striple_bitwise_xorI_urust_site_1 where
+  "striple_bitwise_xorI_urust_site_1 x y \<equiv> \<mu>(x := x, y := y)\<open> x ^ y \<close>"
 
 lemma striple_bitwise_xorI:
   fixes x y :: \<open>'l::{len} word\<close>
   shows \<open>\<Gamma> ; \<top> \<turnstile> striple_bitwise_xorI_urust_site_1 x y \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k (\<lambda>r. \<langle>r = x XOR y\<rangle>) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
 by (intro stripleI; clarsimp simp add: urust_eval_predicate_xor apure_def atriple_post_true)
 
-urust_expr [abbrev = true] striple_bitwise_notI_urust_site_1 ::
+abbreviation striple_bitwise_notI_urust_site_1 ::
   \<open>'l::len word \<Rightarrow> ('s, 'l word, 'r, 'abort, 'i, 'o) expression\<close>
-  (x)
-  \<open> !x \<close>
+  where
+  "striple_bitwise_notI_urust_site_1 x \<equiv>
+    \<mu>(x := x)\<open> !x \<close>"
 
 lemma striple_bitwise_notI:
   fixes x :: \<open>'l::{len} word\<close>

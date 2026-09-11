@@ -9,6 +9,10 @@ section\<open> Shallow term vocabulary \<close>
 ML\<open>
 signature URUST_SHALLOW_TERMS =
 sig
+  datatype term_origin =
+      Direct_Check
+    | Quotation_Parse
+
   val literal: term -> term
   val boolean_expression: bool -> term
   val string_value: string -> Position.T -> term
@@ -23,7 +27,7 @@ sig
   val log_data: term list -> term
 
   val apply_parameters: term -> term list -> term
-  val source_position: Position.T -> term -> term
+  val source_position: term_origin -> Position.T -> term -> term
   val lift_function: Position.T -> int -> term -> term
   val check_function_call_arity: Position.T -> int -> unit
   val function_call: Position.T -> term -> term list -> term
@@ -31,16 +35,18 @@ sig
   val sequence: term -> term -> term
   val return_value: term -> term
   val case_product: term -> term
-  val allocate_reference: Position.T -> term -> term
-  val update: Position.T -> term -> term -> term
-  val assign_add: Position.T -> term -> term -> term
+  val allocate_reference: term_origin -> Position.T -> term -> term
+  val update: term_origin -> Position.T -> term -> term -> term
+  val assign_add: term_origin -> Position.T -> term -> term -> term
   val focus_field: term -> term -> term
   val tuple: term list -> term
   val array_literal: term list -> term
   val bounded_range: URust_AST.range_kind -> term -> term -> term
   val index: term -> term -> term
   val tuple_projection: Position.T -> int -> term -> term
-  val cast: URust_AST.cast_target -> term -> term
+  val cast:
+    Proof.context -> term_origin ->
+      URust_AST.cast_target -> term -> term
   val assertion: term -> term
   val assertion_equal: term -> term -> term
   val assertion_not_equal: term -> term -> term
@@ -55,7 +61,8 @@ sig
   val into_iterator: term -> term
   val skip: term
   val binary: URust_AST.binop -> term -> term -> term
-  val unary: URust_AST.unaryop -> Position.T -> term -> term
+  val unary:
+    term_origin -> URust_AST.unaryop -> Position.T -> term -> term
   val assignment_binary: URust_AST.assign_binop -> term -> term -> term
 
   val option_some: term -> term
@@ -111,14 +118,17 @@ ML\<open>
      generate_debug_entry applies generate_debug to one already-resolved value; and log_data wraps
      one nonempty source-ordered entry list in exactly one literal, using no append for a singleton
      and a right-associated List.append tree otherwise.
-   * source_position attaches one source range to an unchecked term through Isabelle's standard
-     post-parse position constraint. lift_function maps a pure HOL function and source suffix arity 1
-     through 14 to lift_fun1 through lift_fun14. check_function_call_arity exposes the structural
-     funcall0-through-funcall14 policy without exposing its private table, and function_call
-     defensively applies the same lookup while constructing the call. Both reject larger runtime
-     arities at the complete call or struct position. bind takes an expression and a continuation
-     abstraction; sequence, return_value, and case_product preserve the corresponding
-     shallow-embedding constructors rather than interchangeable HOL encodings.
+   * term_origin distinguishes terms sent directly to Syntax.check_term from terms returned by the
+     quotation parse translation. source_position attaches one source range through Isabelle's
+     standard post-parse position constraint only for Direct_Check; quotation reports are emitted
+     eagerly and Quotation_Parse never places an internal type constraint in the returned syntax
+     tree. lift_function maps a pure HOL function and source suffix arity 1 through 14 to lift_fun1
+     through lift_fun14. check_function_call_arity exposes the structural funcall0-through-funcall14
+     policy without exposing its private table, and function_call defensively applies the same lookup
+     while constructing the call. Both reject larger runtime arities at the complete call or struct
+     position. bind takes an expression and a continuation abstraction; sequence, return_value, and
+     case_product preserve the corresponding shallow-embedding constructors rather than
+     interchangeable HOL encodings.
    * allocate_reference, update, and assign_add construct the positioned overloaded store operations.
      update takes place then RHS; assign_add uses the same order. focus_field takes a resolved field
      lens then its receiver. tuple accepts at least two expression terms and emits the frontend's
@@ -128,8 +138,11 @@ ML\<open>
      overloaded index_const through funcall2. tuple_projection selects one of the fixed
      tuple_index_0 through tuple_index_15 abbreviations and applies it directly, with no position
      constraint or literal/index wrapper. cast selects one of the legacy integral or raw-pointer
-     conversion constants from one closed table. usize selects the u64 conversion, and raw-pointer
-     const/mut targets remain distinct AST values while selecting the same shallow constant.
+     conversion constants from one closed table. Direct_Check uses the post-parse type constraint
+     consumed by Syntax.check_term; Quotation_Parse instead preserves a fresh inference-parameter
+     instance of the cast function's native type, so its result type is structural and no constraint
+     re-embedding pass is needed. usize selects the u64 conversion, and raw-pointer const/mut targets
+     remain distinct AST values while selecting the same shallow constant.
    * conditional, bounded_while, bounded_loop, for_loop, and into_iterator expose the control-flow
      combinators. Their arguments follow source order; for_loop takes the iterator expression then its
      body abstraction. bounded_loop supplies the true condition. skip is literal unit.
@@ -155,16 +168,22 @@ structure URust_Shallow_Terms :> URUST_SHALLOW_TERMS =
 struct
   open URust_AST
 
+  datatype term_origin =
+      Direct_Check
+    | Quotation_Parse
+
   fun constant name args = Term.list_comb (Const (name, dummyT), args)
 
   (* Direct check_term input uses the post-parse representation of source positions: an internal type
      constraint whose TFree is decoded by Type_Infer_Context.prepare_positions. *)
-  fun source_position pos term =
-    let val posT = TFree (Term_Position.encode_syntax [pos], dummyS)
-    in Type.constraint posT term end
+  fun source_position Direct_Check pos term =
+        let val posT = TFree (Term_Position.encode_syntax [pos], dummyS)
+        in Type.constraint posT term end
+    | source_position Quotation_Parse _ term = term
 
-  fun positioned_constant name pos args =
-    Term.list_comb (source_position pos (Const (name, dummyT)), args)
+  fun positioned_constant origin name pos args =
+    Term.list_comb
+      (source_position origin pos (Const (name, dummyT)), args)
 
   fun literal value = constant \<^const_name>\<open>literal\<close> [value]
   fun bindlift1 f expression = constant \<^const_name>\<open>bindlift1\<close> [f, expression]
@@ -354,35 +373,41 @@ struct
   fun return_value value = constant \<^const_name>\<open>return_func\<close> [value]
   fun case_product abstraction = constant \<^const_name>\<open>case_prod\<close> [abstraction]
 
-  fun allocate_reference pos expression =
+  fun allocate_reference origin pos expression =
     constant \<^const_name>\<open>funcall1\<close>
-      [positioned_constant \<^const_name>\<open>store_reference_const\<close> pos [], expression]
+      [positioned_constant origin
+         \<^const_name>\<open>store_reference_const\<close> pos [],
+       expression]
 
-  fun borrow mode pos expression =
+  fun borrow origin mode pos expression =
     bindlift1
-      (positioned_constant
+      (positioned_constant origin
         (case mode of
            BM_Imm => \<^const_name>\<open>ro_ref_from_ref\<close>
          | BM_Mut => \<^const_name>\<open>mut_ref_from_ref\<close>)
         pos [])
       expression
 
-  fun dereference pos expression =
+  fun dereference origin pos expression =
     bind expression
       (constant \<^const_name>\<open>deep_compose1\<close>
         [Const (\<^const_name>\<open>call\<close>, dummyT),
-         positioned_constant \<^const_name>\<open>store_dereference_const\<close> pos []])
+         positioned_constant origin
+           \<^const_name>\<open>store_dereference_const\<close> pos []])
 
-  fun update pos place rhs =
+  fun update origin pos place rhs =
     constant \<^const_name>\<open>bind2\<close>
       [constant \<^const_name>\<open>deep_compose2\<close>
         [Const (\<^const_name>\<open>call\<close>, dummyT),
-         positioned_constant \<^const_name>\<open>store_update_const\<close> pos []],
+         positioned_constant origin
+           \<^const_name>\<open>store_update_const\<close> pos []],
        place, rhs]
 
-  fun assign_add pos place rhs =
+  fun assign_add origin pos place rhs =
     constant \<^const_name>\<open>funcall2\<close>
-      [positioned_constant \<^const_name>\<open>assign_add_const\<close> pos [], place, rhs]
+      [positioned_constant origin
+         \<^const_name>\<open>assign_add_const\<close> pos [],
+       place, rhs]
 
   fun focus_field field receiver =
     bindlift1 (constant \<^const_name>\<open>focus_lens_const\<close> [field]) receiver
@@ -457,6 +482,30 @@ struct
     Term.map_atyps
       (fn TFree _ => dummyT | TVar _ => dummyT | atomic => atomic)
       typ
+
+  fun freshen_cast_function term =
+    let
+      val tfree_substitutions =
+        Term.add_tfrees term []
+        |> map
+            (fn (name, sort) =>
+              (name, Type_Infer.mk_param (serial ()) sort))
+        |> Symtab.make
+      val tvar_substitutions =
+        Term.add_tvars term []
+        |> map
+            (fn (name, sort) =>
+              (name, Type_Infer.mk_param (serial ()) sort))
+        |> Vartab.make
+
+      fun fresh_type (TFree (name, _)) =
+            the (Symtab.lookup tfree_substitutions name)
+        | fresh_type (TVar (name, _)) =
+            the (Vartab.lookup tvar_substitutions name)
+        | fresh_type atomic = atomic
+    in
+      Term.map_types (Term.map_atyps fresh_type) term
+    end
 
   val cast_functions =
     [(CT_Unsigned UT_U8,
@@ -558,12 +607,19 @@ struct
             'c, 'abort, 'i, 'o) expression
          \<close>))]
 
-  fun cast target expression =
+  fun cast _ origin target expression =
     (case AList.lookup (op =) cast_functions target of
        SOME (target_function, result_type) =>
-         Type.constraint result_type
-           (Term.list_comb
-             (Term.map_types (K dummyT) target_function, [expression]))
+         (case origin of
+            Direct_Check =>
+              Type.constraint result_type
+                (Term.list_comb
+                  (Term.map_types (K dummyT) target_function,
+                   [expression]))
+          | Quotation_Parse =>
+              Term.list_comb
+                (freshen_cast_function target_function,
+                 [expression]))
      | NONE => error "urust_expr: internal unsupported cast target")
 
   fun assertion expression =
@@ -612,14 +668,18 @@ struct
 
   val skip = literal HOLogic.unit
 
-  fun propagate pos expression =
-    positioned_constant \<^const_name>\<open>propagate_const\<close> pos [expression]
+  fun propagate origin pos expression =
+    positioned_constant origin
+      \<^const_name>\<open>propagate_const\<close> pos [expression]
 
-  fun unary U_Not _ expression =
+  fun unary _ U_Not _ expression =
         constant \<^const_name>\<open>negation_const\<close> [expression]
-    | unary (U_Borrow mode) pos expression = borrow mode pos expression
-    | unary U_Deref pos expression = dereference pos expression
-    | unary U_Propagate pos expression = propagate pos expression
+    | unary origin (U_Borrow mode) pos expression =
+        borrow origin mode pos expression
+    | unary origin U_Deref pos expression =
+        dereference origin pos expression
+    | unary origin U_Propagate pos expression =
+        propagate origin pos expression
 
   fun binary_constant Add = \<^const_name>\<open>urust_add\<close>
     | binary_constant Sub = \<^const_name>\<open>word_minus_no_wrap\<close>

@@ -9,6 +9,7 @@ theory Basic_Micro_Rust
     Micro_Rust_Runtime.Runtime_Heap  
     Micro_Rust_Std_Lib.StdLib_References  
     Micro_Rust_Std_Lib.StdLib_Slice
+    Micro_Rust_Parser_Impl.Parser_Term_Hook
     "HOL-Library.Code_Target_Numeral" \<comment> \<open>Map naturals/integers onto OCaml \<^verbatim>\<open>zarith\<close> types\<close>
     "HOL-Library.Code_Abstract_Char"  \<comment> \<open>Tidy up character and string literals a little\<close>
 begin
@@ -120,8 +121,8 @@ text\<open>To see Micro Rust programs in action, you can use the \<^verbatim>\<o
 in which the computation terminated. For the stateless examples considered here, any value will 
 do as the state.\<close>
 
-urust_expr [abbrev = true] Basic_Micro_Rust_urust_site_5
-  \<open> 1 + 2 \<close>
+abbreviation Basic_Micro_Rust_urust_site_5 where
+  "Basic_Micro_Rust_urust_site_5 \<equiv> \<mu>\<open> 1 + 2 \<close>"
 
 value \<open>evaluate Basic_Micro_Rust_urust_site_5 ()
   :: (unit, 64 word, 64 word, unit, unit, unit) continuation\<close>
@@ -331,11 +332,12 @@ urust_expr Basic_Micro_Rust_urust_site_20
 (* "bind (Ref::new \<langle>\<up>1\<rangle>) literal"
   :: "('a, (('b, 'c) gref, 'c, 64 word) focused, 'd, 'e, 'f) expression" *)
 
-urust_expr [abbrev = true] Basic_Micro_Rust_urust_site_21
-  \<open>
-     let mut acc = \<llangle>1 :: 64 word\<rrangle>;
-     acc
-  \<close>
+abbreviation Basic_Micro_Rust_urust_site_21 where
+  "Basic_Micro_Rust_urust_site_21 \<equiv>
+    \<mu>(one := (1 :: 64 word))\<open>
+      let mut acc = one;
+      acc
+    \<close>"
 
 value [simp] \<open>evaluate Basic_Micro_Rust_urust_site_21
   (make_s [100,200,300,400,500,600,700,800] 42)\<close>

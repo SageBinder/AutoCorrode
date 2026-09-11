@@ -2,7 +2,10 @@
    SPDX-License-Identifier: MIT *)
 
 theory Pair_References
-  imports Micro_Rust_Interfaces_Core.References Crush.Crush
+  imports
+    Micro_Rust_Interfaces_Core.References
+    Crush.Crush
+    Micro_Rust_Parser_Impl.Parser_Term_Hook
 begin
 
 declare [[urust_conformance_check = true]]
@@ -82,15 +85,25 @@ definition update_raw_fun ::
        | (Inr r1, Inr b1) \<Rightarrow> update_raw_funB r1 b1
        | _ \<Rightarrow> FunctionBody update_raw_fun_urust_site_1\<close>
 
-urust_expr [abbrev = true]
-  dereference_raw_fun_urust_site_1
-  (r0)
-  \<open> \<llangle>Inl\<rrangle>\<^sub>1 (dereference_raw_funA (r0)) \<close>
+abbreviation dereference_raw_fun_urust_site_1 where
+  "dereference_raw_fun_urust_site_1 r0 \<equiv>
+    \<mu>(
+      r0 := r0,
+      dereference := dereference_raw_funA,
+      inject := lift_fun1 Inl
+    )\<open>
+      inject(dereference(r0))
+    \<close>"
 
-urust_expr [abbrev = true]
-  dereference_raw_fun_urust_site_2
-  (r1)
-  \<open> \<llangle>Inr\<rrangle>\<^sub>1 (dereference_raw_funB (r1)) \<close>
+abbreviation dereference_raw_fun_urust_site_2 where
+  "dereference_raw_fun_urust_site_2 r1 \<equiv>
+    \<mu>(
+      r1 := r1,
+      dereference := dereference_raw_funB,
+      inject := lift_fun1 Inr
+    )\<open>
+      inject(dereference(r1))
+    \<close>"
 
 definition dereference_raw_fun :: 
   \<open>('a0 + 'a1, 'b0 + 'b1) gref \<Rightarrow> ('s, 'b0 + 'b1, 'abort, 'i prompt, 'o prompt_output) function_body\<close> where

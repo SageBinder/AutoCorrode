@@ -30,6 +30,7 @@ sig
 
   val select_match_flavour:
     Proof.context ->
+      URust_Resolution.environment ->
       URust_AST.match_flavour ->
       URust_AST.ur_arm list ->
       Position.T ->
@@ -37,6 +38,7 @@ sig
 
   val prepare_switch_arm:
     Proof.context ->
+      URust_Resolution.environment ->
       URust_AST.ur_arm ->
       term list * URust_AST.ur_expr
 
@@ -190,9 +192,10 @@ struct
   datatype match_capability =
     Match_Capability of {case_ok: bool, switch_ok: bool}
 
-  fun classify_match ctxt arms pos =
+  fun classify_match ctxt environment arms pos =
     let
-      val resolver = R.make_constructor_resolver ctxt pos
+      val resolver =
+        R.make_constructor_resolver ctxt environment pos
 
       fun registered_capability unregistered_switch path =
         (case R.classify_registered_literal ctxt resolver path of
@@ -233,11 +236,11 @@ struct
     | first_guard_position (UR_Arm (_, SOME (_, pos), _) :: _) = SOME pos
     | first_guard_position (_ :: rest) = first_guard_position rest
 
-  fun select_match_flavour ctxt flavour arms pos =
+  fun select_match_flavour ctxt environment flavour arms pos =
     let
       val selected =
         (case flavour of
-           MF_Auto => classify_match ctxt arms pos
+           MF_Auto => classify_match ctxt environment arms pos
          | explicit => explicit)
       val _ =
         (case (selected, first_guard_position arms) of
@@ -413,7 +416,7 @@ struct
                      NONE => Resolved_Bind (binding name pos)
                    | SOME info =>
                        (check_constructor_arity name pos info [];
-                        R.report_constructor ctxt
+                        R.report_constructor ctxt resolver
                           (make_single_path (name, pos)) info;
                         Resolved_Constructor (info, pos, []))))
          | P_Literal (payload as LP_Integer (_, pos)) =>
@@ -431,7 +434,7 @@ struct
                       segment_identifier (final_segment path)
                   in
                     check_constructor_arity name pos info [];
-                    R.report_constructor ctxt path info;
+                    R.report_constructor ctxt resolver path info;
                     Resolved_Constructor (info, pos, [])
                   end
               | NONE => Resolved_Path path)
@@ -446,7 +449,7 @@ struct
                     "` is not a known constructor" ^ Position.here pos)
               | SOME info =>
                   (check_constructor_arity name pos info arguments;
-                   R.report_constructor ctxt path info;
+                   R.report_constructor ctxt resolver path info;
                    Resolved_Constructor
                      (info, pos, map resolve arguments)))
               end
@@ -492,7 +495,8 @@ struct
                  (path, fields) of
                 R.Resolved_Constructor_Struct (info, ordered) =>
                   let
-                    val _ = R.report_constructor ctxt path info
+                    val _ =
+                      R.report_constructor ctxt resolver path info
                     fun resolve_field (selector, field_pos, nested) =
                       (case field_pos of
                          SOME source_pos =>
@@ -690,7 +694,8 @@ struct
            For_Binder => Resolve_Constructor_Binding
          | _ => Always_Binder)
       val resolver =
-        R.make_constructor_resolver ctxt (position pattern)
+        R.make_constructor_resolver ctxt environment
+          (position pattern)
       val resolved =
         resolve_pattern resolver ctxt policy pattern
       val signatures = collect_bindings resolved
@@ -701,7 +706,11 @@ struct
       val rhs_wrapper =
         (case (site, rhs_mode) of
            (Mutable_Let_Binder mutable_pos, Allocate_Rhs) =>
-             T.allocate_reference mutable_pos
+             T.allocate_reference
+               (if R.is_quotation_environment environment
+                then T.Quotation_Parse
+                else T.Direct_Check)
+               mutable_pos
          | _ => I)
       val environment' =
         R.allocate_locals ctxt environment signatures
@@ -736,16 +745,16 @@ struct
       rhs body =
     T.bind (rhs_wrapper rhs) (abstraction body)
 
-  fun switch_keys resolver ctxt pattern =
+  fun switch_keys resolver ctxt environment pattern =
     (case strip_groups pattern of
        P_Or (alternatives, _) =>
-         maps (switch_keys resolver ctxt) alternatives
+         maps (switch_keys resolver ctxt environment) alternatives
      | P_Literal (LP_Integer (lexeme, pos)) =>
          [T.option_some (T.integer_value pos lexeme)]
      | P_Wild pos => (R.report_wildcard ctxt pos; [T.option_none])
      | P_Path path =>
          [T.option_some
-            (R.literal_path_value ctxt R.empty_environment path)]
+            (R.literal_path_value ctxt environment path)]
      | P_Ident (name, pos) =>
          (case R.classify_registered_literal ctxt resolver
              (make_single_path (name, pos)) of
@@ -755,17 +764,19 @@ struct
                 Position.here pos)
           | _ =>
               [T.option_some
-                (R.literal_identifier_value ctxt R.empty_environment
+                (R.literal_identifier_value ctxt environment
                   (name, pos))])
      | unsupported =>
          error ("urust_expr: unsupported match_switch pattern" ^
            " (numeral, `_`, or an or-list of those; binding patterns need" ^
            " `match_case`)" ^ Position.here (position unsupported)))
 
-  fun prepare_switch_arm ctxt (UR_Arm (pattern, guard, body)) =
+  fun prepare_switch_arm ctxt environment
+      (UR_Arm (pattern, guard, body)) =
     let
       val resolver =
-        R.make_constructor_resolver ctxt (position pattern)
+        R.make_constructor_resolver ctxt environment
+          (position pattern)
       val _ = reject_reference_patterns pattern
       val _ =
         (case guard of
@@ -773,7 +784,7 @@ struct
          | SOME (_, pos) =>
              error ("urust_expr: guards are not supported in explicit `match_switch`" ^
                Position.here pos))
-    in (switch_keys resolver ctxt pattern, body) end
+    in (switch_keys resolver ctxt environment pattern, body) end
 
   datatype basic_case_pattern =
       Basic_Wild of Position.T option
@@ -968,7 +979,9 @@ struct
     end
 
   fun prepare_case_arms ctxt pos environment arms =
-    let val resolver = R.make_constructor_resolver ctxt pos
+    let
+      val resolver =
+        R.make_constructor_resolver ctxt environment pos
     in map (prepare_case_arm resolver ctxt environment) arms end
 
   fun prepared_environment

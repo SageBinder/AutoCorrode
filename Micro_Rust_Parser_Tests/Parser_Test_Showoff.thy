@@ -1,5 +1,8 @@
 theory Parser_Test_Showoff
-  imports Micro_Rust_Parser_Impl.Parser_Impl_Command Micro_Rust_Std_Lib.StdLib_Logging
+  imports
+    Micro_Rust_Parser_Impl.Parser_Impl_Command
+    Micro_Rust_Parser_Impl.Parser_Term_Hook
+    Micro_Rust_Std_Lib.StdLib_Logging
 begin
 
 declare [[urust_conformance_check = true]]
@@ -105,6 +108,18 @@ definition showoff_generic_parameter :: nat
 notation showoff_generic_parameter ("\<clubsuit>")
 
 urust_notation (call) showoff_generic_bump ("Showoff::bump")
+urust_notation (call) showoff_bump ("showoff_quote_bump")
+
+text\<open>
+The opt-in term hook is a closed quotation: ordinary HOL values are named in the capture clause,
+while semantic globals are named separately in \<open>using\<close>.
+\<close>
+
+term
+  "(\<mu>(value := (7 :: 64 word))
+      [using \<open>showoff_quote_bump\<close>]
+      \<open> showoff_quote_bump(value) \<close> ::
+    (unit, 64 word, unit, unit, unit, unit) expression)"
 
 text\<open>
 Features: an array literal, range slicing and indexing, a let-bound

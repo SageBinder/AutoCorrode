@@ -3,7 +3,10 @@
 
 (*<*)
 theory StdLib_Iterators
-  imports Crush.Crush StdLib_References
+  imports
+    Crush.Crush
+    StdLib_References
+    Micro_Rust_Parser_Impl.Parser_Term_Hook
 begin
 declare [[urust_conformance_check = true]]
 (*>*)
@@ -23,12 +26,12 @@ urust_fn find ::
     None
   \<close>
 
-urust_expr [abbrev = true] enumerate_urust_site_1
-  (i, f)
-  \<open>
+abbreviation enumerate_urust_site_1 where
+  "enumerate_urust_site_1 i f \<equiv>
+  \<mu>(index := word_of_nat i, f := f)\<open>
     let feval = f();
-    (\<llangle>word_of_nat i\<rrangle>, feval)
-  \<close>
+    (index, feval)
+  \<close>"
 
 definition enumerate :: \<open>('s, 'v, 'abort, 'i prompt, 'o prompt_output) iterator \<Rightarrow>
       ('s, ('s, 64 word \<times> 'v \<times> tnil, 'abort, 'i prompt, 'o prompt_output) iterator, 'abort, 'i prompt, 'o prompt_output) function_body\<close> where

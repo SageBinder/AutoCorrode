@@ -12,6 +12,10 @@ sig
   type environment
 
   val empty_environment: environment
+  val quotation_environment:
+    (Micro_Rust_Names.ctxt_kind * string * Micro_Rust_Names.entry) list ->
+      environment
+  val is_quotation_environment: environment -> bool
   val allocate_locals:
     Proof.context ->
       environment ->
@@ -78,7 +82,7 @@ sig
     | Registered_Value_Literal
     | Registered_Constructor_Literal
   val make_constructor_resolver:
-    Proof.context -> Position.T -> constructor_resolver
+    Proof.context -> environment -> Position.T -> constructor_resolver
   val classify_registered_literal:
     Proof.context -> constructor_resolver ->
       URust_AST.ur_path -> registered_literal_class
@@ -89,7 +93,8 @@ sig
   val constructor_arity: constructor_info -> int
   val constructor_family: constructor_info -> (string * term list) option
   val report_constructor:
-    Proof.context -> URust_AST.ur_path -> constructor_info -> unit
+    Proof.context -> constructor_resolver ->
+      URust_AST.ur_path -> constructor_info -> unit
   val report_selector: Proof.context -> Position.T -> term -> unit
 
   datatype resolved_struct_pattern =
@@ -196,15 +201,69 @@ struct
   open URust_AST
   structure T = URust_Shallow_Terms
 
-  type environment = Parser_Utils.var_info Symtab.table
+  datatype resolution_mode =
+      Open_Resolution
+    | Quotation_Resolution of Micro_Rust_Names.entry Symtab.table
+
+  datatype environment =
+    Environment of
+      {locals: Parser_Utils.var_info Symtab.table,
+       resolution: resolution_mode}
 
   val variable_entity_kind = "urust_var"
   val report_reference = Parser_Utils.report_ref variable_entity_kind
   val bind_local = Parser_Utils.bind_var variable_entity_kind
   val bind_typed_local = Parser_Utils.bind_typed_var variable_entity_kind
-  val parse_antiquotation = Parser_Utils.parse_antiq variable_entity_kind
+  val parse_open_antiquotation =
+    Parser_Utils.parse_antiq variable_entity_kind
 
-  val empty_environment = Symtab.empty
+  val empty_environment =
+    Environment
+      {locals = Symtab.empty,
+       resolution = Open_Resolution}
+
+  fun dependency_key kind name =
+    Micro_Rust_Names.kind_to_string kind ^ "\000" ^ name
+
+  fun quotation_environment dependencies =
+    Environment
+      {locals = Symtab.empty,
+       resolution =
+         Quotation_Resolution
+           (Symtab.make
+             (map
+               (fn (kind, name, entry) =>
+                 (dependency_key kind name, entry))
+               dependencies))}
+
+  fun is_quotation_environment
+      (Environment {resolution = Quotation_Resolution _, ...}) = true
+    | is_quotation_environment _ = false
+
+  fun term_origin environment =
+    if is_quotation_environment environment
+    then T.Quotation_Parse
+    else T.Direct_Check
+
+  fun locals_of (Environment {locals, ...}) = locals
+  fun resolution_of (Environment {resolution, ...}) = resolution
+  fun map_locals f (Environment {locals, resolution}) =
+    Environment {locals = f locals, resolution = resolution}
+
+  fun quotation_entry environment kind name =
+    (case resolution_of environment of
+       Open_Resolution => NONE
+     | Quotation_Resolution dependencies =>
+         Symtab.lookup dependencies (dependency_key kind name))
+
+  fun parse_antiquotation ctxt environment source =
+    if is_quotation_environment environment then
+      error
+        ("uRust quotation: embedded HOL source is not allowed" ^
+          Position.here (Input.pos_of source))
+    else
+      parse_open_antiquotation ctxt (locals_of environment) source
+
   val anonymous_abstraction = Parser_Utils.anon_abs
 
   fun allocate_locals ctxt environment signatures =
@@ -217,7 +276,10 @@ struct
                Position.here pos ^ "\nThe original binder is here" ^
                Position.here original_pos))
       val _ = fold validate signatures Symtab.empty
-      fun allocate (name, pos) env = #2 (bind_local ctxt env (name, pos))
+      fun allocate (name, pos) env =
+        map_locals
+          (fn locals => #2 (bind_local ctxt locals (name, pos)))
+          env
     in fold allocate signatures environment end
 
   fun allocate_closure_formals ctxt environment signatures =
@@ -225,7 +287,9 @@ struct
       fun allocate [] env frees = (rev frees, env)
         | allocate (formal :: rest) env frees =
             let
-              val (free, env') = bind_local ctxt env formal
+              val (free, locals') =
+                bind_local ctxt (locals_of env) formal
+              val env' = map_locals (K locals') env
             in allocate rest env' (free :: frees) end
     in allocate signatures environment [] end
 
@@ -251,7 +315,9 @@ struct
               val _ =
                 Context_Position.report_text ctxt pos Markup.typing
                   ("uRust " ^ role ^ " :: " ^ Syntax.string_of_typ ctxt T)
-              val (free, env') = bind_typed_local ctxt env parameter
+              val (free, locals') =
+                bind_typed_local ctxt (locals_of env) parameter
+              val env' = map_locals (K locals') env
             in allocate rest env' (free :: frees) end
     in allocate parameters environment [] end
 
@@ -262,13 +328,13 @@ struct
     allocate_parameters "urust_fn" "parameter" ctxt environment parameters
 
   fun use_local ctxt environment (name, pos) =
-    (case Symtab.lookup environment name of
+    (case Symtab.lookup (locals_of environment) name of
        SOME {free, def_pos, id} =>
          (report_reference ctxt id (name, def_pos) pos; SOME free)
      | NONE => NONE)
 
   fun lookup_local environment name =
-    Option.map #free (Symtab.lookup environment name)
+    Option.map #free (Symtab.lookup (locals_of environment) name)
 
   (* Syntax.parse_term wraps resolved constants in an internal type constraint. Resolution and
      call-role validation inspect through that wrapper while retaining it for the final check_term. *)
@@ -285,7 +351,7 @@ struct
         val _ =
           List.app (Context_Position.report ctxt pos)
             (Syntax_Phases.markup_free ctxt fixed)
-      in T.source_position pos (Free (fixed, dummyT)) end
+      in T.source_position T.Direct_Check pos (Free (fixed, dummyT)) end
     else
       let
         val source =
@@ -340,20 +406,47 @@ struct
 
   (* Registered notation witnesses must remain bare Frees until the enclosing Term.lambda can capture
      them. This is the witness-precedence rule that lets a lexical binder shadow a notation. *)
-  fun resolve_identifier ctxt kind name pos =
-    (case Micro_Rust_Names.lookups ctxt kind name of
-       [] => resolve_hol_identifier ctxt name pos
-         |> (case kind of
-               Micro_Rust_Names.NFunction =>
-                 constrain_call_head ctxt name pos
-             | _ => I)
-     | _ => Micro_Rust_Dispatch.mk_marker kind name pos (Free (name, dummyT)))
+  fun selected_backend ctxt kind name pos
+      ({hol_term, ...} : Micro_Rust_Names.entry) =
+    let
+      val _ =
+        Micro_Rust_Dispatch.emit_use_markup_at_pos
+          ctxt kind name pos
+    in
+      hol_term
+      |> Type.strip_constraints
+      |> Term.map_types (K dummyT)
+    end
+
+  fun resolve_identifier ctxt environment kind name pos =
+    (case resolution_of environment of
+       Quotation_Resolution _ =>
+         (case quotation_entry environment kind name of
+            SOME entry =>
+              selected_backend ctxt kind name pos entry
+          | NONE =>
+              error
+                ("uRust quotation: undeclared " ^
+                  Micro_Rust_Names.kind_to_string kind ^
+                  " dependency " ^ quote name ^
+                  Position.here pos))
+     | Open_Resolution =>
+         (case Micro_Rust_Names.lookups ctxt kind name of
+            [] => resolve_hol_identifier ctxt name pos
+              |> (case kind of
+                    Micro_Rust_Names.NFunction =>
+                      constrain_call_head ctxt name pos
+                  | _ => I)
+          | _ =>
+              Micro_Rust_Dispatch.mk_marker kind name pos
+                (Free (name, dummyT))))
 
   fun literal_identifier_value ctxt environment (identifier as (name, pos)) =
     (case use_local ctxt environment identifier of
-       SOME local_term => local_term
+     SOME local_term => local_term
      | NONE =>
-         resolve_identifier ctxt Micro_Rust_Names.NLiteral name pos)
+         resolve_identifier ctxt environment
+           Micro_Rust_Names.NLiteral name pos)
 
   fun literal_identifier ctxt environment identifier =
     T.literal (literal_identifier_value ctxt environment identifier)
@@ -367,13 +460,26 @@ struct
     in
       (case use_local ctxt environment identifier of
          SOME local_term => local_term
-       | NONE => resolve_hol_identifier ctxt name pos)
+       | NONE =>
+           (case resolution_of environment of
+              Open_Resolution => resolve_hol_identifier ctxt name pos
+            | Quotation_Resolution _ =>
+                error
+                  ("uRust quotation: log-data identifier " ^
+                    quote name ^ " must be lexical" ^
+                    Position.here pos)))
     end
 
-  fun registered_identifier ctxt kind (name, pos) =
-    if null (Micro_Rust_Names.lookups ctxt kind name)
-    then NONE
-    else SOME (resolve_identifier ctxt kind name pos)
+  fun registered_identifier ctxt environment kind (name, pos) =
+    (case resolution_of environment of
+       Quotation_Resolution _ =>
+         Option.map
+           (selected_backend ctxt kind name pos)
+           (quotation_entry environment kind name)
+     | Open_Resolution =>
+         if null (Micro_Rust_Names.lookups ctxt kind name)
+         then NONE
+         else SOME (resolve_identifier ctxt environment kind name pos))
 
   fun registered_constructor_family_names ctxt registrations =
     let
@@ -452,12 +558,18 @@ struct
     map generic_argument_source arguments
 
   fun apply_generic_arguments ctxt environment function arguments =
-    T.apply_parameters function
-      (case arguments of
-         NONE => []
-       | SOME generic_arguments =>
-           map (parse_antiquotation ctxt environment)
-             (generic_sources generic_arguments))
+    (case (resolution_of environment, arguments) of
+       (Quotation_Resolution _, SOME (Generic_Args (_, pos))) =>
+         error
+           ("uRust quotation: generic arguments are not allowed" ^
+             Position.here pos)
+     | _ =>
+         T.apply_parameters function
+           (case arguments of
+              NONE => []
+            | SOME generic_arguments =>
+                map (parse_antiquotation ctxt environment)
+                  (generic_sources generic_arguments)))
 
   fun has_intermediate_generics path =
     let
@@ -493,23 +605,32 @@ struct
          if local_first then
            (case use_local ctxt environment (name, pos) of
               SOME local_term => local_term
-            | NONE => resolve_identifier ctxt kind name pos)
+            | NONE => resolve_identifier ctxt environment kind name pos)
          else
-           (case registered_identifier ctxt kind (name, pos) of
+           (case registered_identifier ctxt environment kind (name, pos) of
               SOME registered => registered
             | NONE =>
                 (case use_local ctxt environment (name, pos) of
                    SOME local_term => local_term
-                 | NONE => resolve_identifier ctxt kind name pos))
+                 | NONE =>
+                     resolve_identifier ctxt environment kind name pos))
      | _ =>
-         (case registered_identifier ctxt kind
+         (case registered_identifier ctxt environment kind
              (render_path path, #2 (path_terminal path)) of
             SOME registered =>
               (report_path_qualifiers ctxt path; registered)
-          | NONE => opaque_path ctxt kind path))
+          | NONE =>
+              (case resolution_of environment of
+                 Open_Resolution => opaque_path ctxt kind path
+               | Quotation_Resolution _ =>
+                   error
+                     ("uRust quotation: undeclared " ^
+                       Micro_Rust_Names.kind_to_string kind ^
+                       " dependency " ^ quote (render_path path) ^
+                       Position.here (#2 (path_terminal path))))))
 
-  fun exact_registered_path ctxt kind path =
-    (case registered_identifier ctxt kind
+  fun exact_registered_path ctxt environment kind path =
+    (case registered_identifier ctxt environment kind
         (render_path path, #2 (path_terminal path)) of
        SOME registered =>
          let
@@ -528,7 +649,8 @@ struct
        [Path_Segment (name, pos, NONE)] =>
          literal_identifier_value ctxt environment (name, pos)
      | _ =>
-    (case exact_registered_path ctxt Micro_Rust_Names.NLiteral path of
+    (case exact_registered_path ctxt environment
+        Micro_Rust_Names.NLiteral path of
        SOME registered => registered
      | NONE =>
          let
@@ -549,19 +671,22 @@ struct
     T.literal (literal_path_value ctxt environment path)
 
   fun function_identifier ctxt environment (identifier as (name, pos)) =
-    (case registered_identifier ctxt Micro_Rust_Names.NFunction identifier of
+    (case registered_identifier ctxt environment
+        Micro_Rust_Names.NFunction identifier of
        SOME registered => registered
      | NONE =>
          (case use_local ctxt environment identifier of
             SOME local_term => local_term
           | NONE =>
-              resolve_identifier ctxt Micro_Rust_Names.NFunction name pos))
+              resolve_identifier ctxt environment
+                Micro_Rust_Names.NFunction name pos))
 
   fun function_path ctxt environment path =
     let
       val head_pos = #2 (path_terminal path)
       val function =
-        (case exact_registered_path ctxt Micro_Rust_Names.NFunction path of
+        (case exact_registered_path ctxt environment
+            Micro_Rust_Names.NFunction path of
            SOME registered => registered
          | NONE =>
              let
@@ -586,7 +711,7 @@ struct
          | _ => false)
     in
       if already_positioned then function
-      else T.source_position head_pos function
+      else T.source_position (term_origin environment) head_pos function
     end
 
   fun method_path ctxt environment path =
@@ -626,20 +751,24 @@ struct
     end
 
   fun registered_function ctxt identifier =
-    registered_identifier ctxt Micro_Rust_Names.NFunction identifier
+    registered_identifier ctxt empty_environment
+      Micro_Rust_Names.NFunction identifier
 
   fun registered_function_path ctxt path =
-    exact_registered_path ctxt Micro_Rust_Names.NFunction path
+    exact_registered_path ctxt empty_environment
+      Micro_Rust_Names.NFunction path
 
   fun field_expression ctxt environment receiver name pos =
     T.focus_field
-      (case registered_identifier ctxt Micro_Rust_Names.NField (name, pos) of
+      (case registered_identifier ctxt environment
+          Micro_Rust_Names.NField (name, pos) of
          SOME registered => registered
        | NONE =>
            (case use_local ctxt environment (name, pos) of
               SOME local_term => local_term
             | NONE =>
-                resolve_identifier ctxt Micro_Rust_Names.NField name pos))
+                resolve_identifier ctxt environment
+                  Micro_Rust_Names.NField name pos))
       receiver
 
   fun term_name_of (Const (name, _)) = SOME name
@@ -665,7 +794,8 @@ struct
        by_identity: constructor_info Symtab.table,
        by_basename: constructor_info list Symtab.table,
        type_fallbacks: (string * constructor_info) list,
-       record_types: string list}
+       record_types: string list,
+       quotation_literals: Micro_Rust_Names.entry Symtab.table option}
 
   datatype registered_literal_class =
       Unregistered_Literal
@@ -767,7 +897,7 @@ struct
         (map (the_default "<unnamed>" o term_name_of)
           (#selectors info)) ^ "])"
 
-  fun make_constructor_resolver ctxt pos =
+  fun make_constructor_resolver ctxt environment pos =
     let
       val theory = Proof_Context.theory_of ctxt
       val sugars = Ctr_Sugar.ctr_sugars_of ctxt
@@ -894,7 +1024,12 @@ struct
          by_identity = by_identity,
          by_basename = by_basename,
          type_fallbacks = type_fallbacks,
-         record_types = record_types}
+         record_types = record_types,
+         quotation_literals =
+           (case resolution_of environment of
+              Open_Resolution => NONE
+            | Quotation_Resolution dependencies =>
+                SOME dependencies)}
     end
 
   fun constructor_candidates
@@ -928,6 +1063,21 @@ struct
     Micro_Rust_Names.lookups ctxt Micro_Rust_Names.NLiteral
       (render_path path)
 
+  fun resolver_literal_registrations ctxt
+      (Constructor_Resolver {quotation_literals, ...}) path =
+    (case quotation_literals of
+       NONE => exact_literal_registrations ctxt path
+     | SOME dependencies =>
+         (case Symtab.lookup dependencies
+             (dependency_key Micro_Rust_Names.NLiteral
+               (render_path path)) of
+            SOME entry => [entry]
+          | NONE => []))
+
+  fun is_quotation_constructor_resolver
+      (Constructor_Resolver {quotation_literals = SOME _, ...}) = true
+    | is_quotation_constructor_resolver _ = false
+
   fun registered_constructor_candidates
       (Constructor_Resolver {registered_by_identity, ...}) registrations =
     let
@@ -950,7 +1100,7 @@ struct
     end
 
   fun classify_registered_literal ctxt resolver path =
-    (case exact_literal_registrations ctxt path of
+    (case resolver_literal_registrations ctxt resolver path of
        [] => Unregistered_Literal
      | registrations =>
          if null
@@ -962,12 +1112,15 @@ struct
     let
       val name = render_path path
       val pos = #2 (path_terminal path)
-      val registrations = exact_literal_registrations ctxt path
+      val registrations =
+        resolver_literal_registrations ctxt resolver path
       val registered =
         registered_constructor_candidates resolver registrations
       val candidates =
         if null registrations
-        then
+        then if is_quotation_constructor_resolver resolver
+        then []
+        else
           (reject_intermediate_generics path;
            case segment_generic_args (final_segment path) of
              NONE => constructor_candidates resolver name
@@ -989,11 +1142,12 @@ struct
           (Name_Space.markup (Consts.space_of (Proof_Context.consts_of ctxt)) name)
     | report_named_term _ _ _ = ()
 
-  fun report_constructor ctxt path info =
+  fun report_constructor ctxt resolver path info =
     let
       val name = render_path path
       val pos = #2 (path_terminal path)
-      val registrations = exact_literal_registrations ctxt path
+      val registrations =
+        resolver_literal_registrations ctxt resolver path
       val registered =
         exists
           (fn ({hol_term, ...} : Micro_Rust_Names.entry) =>
@@ -1049,7 +1203,7 @@ struct
   fun resolve_struct_constructor ctxt
       (resolver as
         Constructor_Resolver
-          {type_fallbacks, record_types, ...})
+          {type_fallbacks, record_types, quotation_literals, ...})
       (identifier_name, pos) =
     let
       val theory = Proof_Context.theory_of ctxt
@@ -1059,7 +1213,7 @@ struct
         then identity = identifier_name
         else canonical_name identity = identifier_name
 
-      val direct_candidates =
+      val metadata_candidates =
         map
           (fn info =>
             (constructor_identity info,
@@ -1067,6 +1221,22 @@ struct
                {info = info,
                 selectors = constructor_selectors info}))
           (constructor_candidates resolver identifier_name)
+
+      val registered_candidates =
+        resolver_literal_registrations ctxt resolver
+          (make_single_path (identifier_name, pos))
+        |> registered_constructor_candidates resolver
+        |> map
+            (fn info =>
+              (constructor_identity info,
+               Constructor_Candidate
+                 {info = info,
+                  selectors = constructor_selectors info}))
+
+      val direct_candidates =
+        (case quotation_literals of
+           NONE => metadata_candidates
+         | SOME _ => registered_candidates)
 
       val fallback_candidates =
         type_fallbacks
@@ -1156,8 +1326,11 @@ struct
 
       val candidates =
         fold add_candidate
-          (direct_candidates @ fallback_candidates @
-            record_candidates)
+          (case quotation_literals of
+             NONE =>
+               direct_candidates @ fallback_candidates @
+                 record_candidates
+           | SOME _ => direct_candidates)
           Symtab.empty
         |> Symtab.dest
         |> map snd

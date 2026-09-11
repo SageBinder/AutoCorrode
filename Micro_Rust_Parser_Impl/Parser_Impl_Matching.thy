@@ -213,7 +213,8 @@ struct
 
   fun lower_match lower ctxt environment (flavour, scrutinee, arms, pos) =
     let
-      val selected = P.select_match_flavour ctxt flavour arms pos
+      val selected =
+        P.select_match_flavour ctxt environment flavour arms pos
       val lowered_scrutinee = lower environment scrutinee
     in
       (case selected of
@@ -221,7 +222,8 @@ struct
            let
              fun arm_pairs arm =
                    let
-                     val (keys, body) = P.prepare_switch_arm ctxt arm
+                     val (keys, body) =
+                       P.prepare_switch_arm ctxt environment arm
                      val lowered_body = lower environment body
                    in
                      map (fn alternative =>
