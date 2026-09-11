@@ -112,10 +112,31 @@ This session define locales for modelling the verification context. For example,
 
 ### Micro_Rust_Parser_Impl and Micro_Rust_Parser_Tests
 
-The implementation session provides the production `urust_expr` and `urust_fun` commands. Production
-theories use these commands for complete definitions and named abbreviations, with conformance
-checking enabled against the legacy frontend. The test session contains conformance corpora,
-regression tests, parser experiments, and legacy shallow-embedding tests.
+The implementation session provides the production `urust_expr` and `urust_fn` commands:
+
+```isabelle
+urust_expr [OPTIONS] NAME [:: TYPE] [(ARG, ...)] \<open> body \<close>
+urust_fn [OPTIONS] NAME :: TYPE [(PARAMETER, ...)] \<open> body \<close>
+```
+
+The parenthesized argument list is optional, accepts a trailing comma, and uses Isabelle liberal
+names. Minor keywords such as `for` may be unquoted; major command keywords delimit outer command
+spans and therefore need string quoting, for example `("lemma")`. A chosen argument name denotes
+that lexical argument in value positions and as an unqualified direct-call head, even if a HOL
+constant or call registration has the same spelling; qualified calls and method names retain their
+normal registration lookup. `urust_fn` also accepts an exact terminal `_` in its declared type and
+infers a fresh five-parameter `function_body`; internal placeholders and declared argument types
+remain checked normally.
+
+Named definition-mode declarations accept `attrs = [ATTRIBUTE, ...]`, including `attrs = []`.
+These standard Isabelle attributes apply only to the generated `NAME_def` theorem; anonymous
+declarations and `urust_expr [abbrev]` reject them. Argument-taking `urust_expr [abbrev]` declarations
+are the supported HOL helper mechanism. At HOL use sites, write `(helper args)` when surrounding
+syntax would otherwise group the helper application incorrectly.
+
+Production theories use these commands for complete definitions and named abbreviations, with
+conformance checking enabled against the legacy frontend. The test session contains conformance
+corpora, regression tests, parser experiments, and legacy shallow-embedding tests.
 
 The parser implementation depends only on `Shallow_Micro_Rust_Base` and `Isabelle_Lex-Yacc`.
 Full `Shallow_Micro_Rust` adds the parser bridge, while the main `AutoCorrode` session includes both

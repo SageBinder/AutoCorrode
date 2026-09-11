@@ -129,12 +129,14 @@ ML\<open>
     allocates one distinct Free per source formal in source order, and returns those Frees together
     with the final environment in which each later repeated name shadows its predecessors.
     allocate_expression_arguments and allocate_function_parameters reject `_` and duplicate names
-    through the same validation path, allocate the supplied types, and return the ordered Frees with
-    the extended environment. Untyped expression clients supply dummy types for inference; typed
-    clients supply argument or parameter types from the complete declaration type. use_local
-    performs a positioned lookup, reports a bound reference on success, and returns NONE without
-    fallback resolution; lookup_local performs the same lexical lookup without reporting. Single-local
-    allocation and the generic binder records are private implementation details.
+    through the same validation path, allocate the supplied types, mark those declaration arguments
+    for direct-call precedence, and return the ordered Frees with the extended environment. Untyped
+    expression clients supply dummy types for inference; typed clients supply argument or parameter
+    types from the complete declaration type. A nested ordinary binder with the same name removes
+    that precedence marker while shadowing the declaration argument. use_local performs a positioned
+    lookup, reports a bound reference on success, and returns NONE without fallback resolution;
+    lookup_local performs the same lexical lookup without reporting. Single-local allocation and the
+    generic binder records are private implementation details.
 
   - parse_antiquotation parses an Input.source as a HOL term with every environment entry in lexical
     scope. Lexical names shadow context fixes and constants, and occurrences are restored to the exact
@@ -147,13 +149,15 @@ ML\<open>
   - literal_value lowers a literal payload to its unlifted HOL value, including binder-aware value
     antiquotations. literal_expression preserves the frontend's special boolean-expression shape and
     otherwise lifts literal_value. literal_identifier_value resolves locals before NLiteral
-    notation/HOL fallback without lifting, and literal_identifier lifts that result. In NFunction and
-    NField roles an exact registered notation wins; otherwise a lexical local wins before HOL fallback.
+    notation/HOL fallback without lifting, and literal_identifier lifts that result. A single-segment
+    direct NFunction call head resolves a declaration argument before an exact registration or HOL
+    fallback; qualified call paths and method names retain registration-first resolution. In the
+    NField role an exact registered notation wins, otherwise a lexical local wins before HOL fallback.
     ordinary_identifier_value resolves a lexical local before ordinary HOL parsing and deliberately
-    performs no micro_rust_notation lookup; log-data identifiers use this path.
-    function_identifier returns the selected unlifted callee. apply_generic_arguments parses the
-    retained restricted generic argument sources in the current lexical environment and applies them
-    to an already-resolved term from left to right.
+    performs no micro_rust_notation lookup; log-data identifiers use this path. function_identifier
+    returns the selected unlifted direct callee. apply_generic_arguments parses the retained
+    restricted generic argument sources in the current lexical environment and applies them to an
+    already-resolved term from left to right.
     registered_function performs an exact registered NFunction lookup without imposing a caller
     naming policy. field_expression applies the same role policy and focuses the supplied receiver.
     Registered notation is represented by the existing dispatch marker; unregistered names retain
@@ -196,16 +200,48 @@ struct
   open URust_AST
   structure T = URust_Shallow_Terms
 
-  type environment = Parser_Utils.var_info Symtab.table
+  type local_table = Parser_Utils.var_info Symtab.table
+  type environment =
+    {locals: local_table,
+     declaration_arguments: unit Symtab.table}
 
   val variable_entity_kind = "urust_var"
   val report_reference = Parser_Utils.report_ref variable_entity_kind
   val bind_local = Parser_Utils.bind_var variable_entity_kind
   val bind_typed_local = Parser_Utils.bind_typed_var variable_entity_kind
-  val parse_antiquotation = Parser_Utils.parse_antiq variable_entity_kind
 
-  val empty_environment = Symtab.empty
+  val empty_environment =
+    {locals = Symtab.empty,
+     declaration_arguments = Symtab.empty}
   val anonymous_abstraction = Parser_Utils.anon_abs
+
+  fun parse_antiquotation ctxt
+      ({locals, ...} : environment) source =
+    Parser_Utils.parse_antiq variable_entity_kind ctxt locals source
+
+  fun bind_ordinary_local ctxt
+      ({locals, declaration_arguments} : environment)
+      (binding as (name, _)) =
+    let
+      val (free, locals') = bind_local ctxt locals binding
+    in
+      (free,
+       {locals = locals',
+        declaration_arguments =
+          Symtab.delete_safe name declaration_arguments})
+    end
+
+  fun bind_declaration_argument ctxt
+      ({locals, declaration_arguments} : environment)
+      (parameter as ((name, _), _)) =
+    let
+      val (free, locals') = bind_typed_local ctxt locals parameter
+    in
+      (free,
+       {locals = locals',
+        declaration_arguments =
+          Symtab.update (name, ()) declaration_arguments})
+    end
 
   fun allocate_locals ctxt environment signatures =
     let
@@ -217,7 +253,8 @@ struct
                Position.here pos ^ "\nThe original binder is here" ^
                Position.here original_pos))
       val _ = fold validate signatures Symtab.empty
-      fun allocate (name, pos) env = #2 (bind_local ctxt env (name, pos))
+      fun allocate binding env =
+        #2 (bind_ordinary_local ctxt env binding)
     in fold allocate signatures environment end
 
   fun allocate_closure_formals ctxt environment signatures =
@@ -225,7 +262,7 @@ struct
       fun allocate [] env frees = (rev frees, env)
         | allocate (formal :: rest) env frees =
             let
-              val (free, env') = bind_local ctxt env formal
+              val (free, env') = bind_ordinary_local ctxt env formal
             in allocate rest env' (free :: frees) end
     in allocate signatures environment [] end
 
@@ -251,7 +288,8 @@ struct
               val _ =
                 Context_Position.report_text ctxt pos Markup.typing
                   ("uRust " ^ role ^ " :: " ^ Syntax.string_of_typ ctxt T)
-              val (free, env') = bind_typed_local ctxt env parameter
+              val (free, env') =
+                bind_declaration_argument ctxt env parameter
             in allocate rest env' (free :: frees) end
     in allocate parameters environment [] end
 
@@ -262,13 +300,20 @@ struct
     allocate_parameters "urust_fn" "parameter" ctxt environment parameters
 
   fun use_local ctxt environment (name, pos) =
-    (case Symtab.lookup environment name of
+    (case Symtab.lookup (#locals environment) name of
        SOME {free, def_pos, id} =>
          (report_reference ctxt id (name, def_pos) pos; SOME free)
      | NONE => NONE)
 
   fun lookup_local environment name =
-    Option.map #free (Symtab.lookup environment name)
+    Option.map #free (Symtab.lookup (#locals environment) name)
+
+  fun use_declaration_argument ctxt
+      (environment as {declaration_arguments, ...} : environment)
+      (identifier as (name, _)) =
+    if Symtab.defined declaration_arguments name
+    then use_local ctxt environment identifier
+    else NONE
 
   (* Syntax.parse_term wraps resolved constants in an internal type constraint. Resolution and
      call-role validation inspect through that wrapper while retaining it for the final check_term. *)
@@ -549,31 +594,48 @@ struct
     T.literal (literal_path_value ctxt environment path)
 
   fun function_identifier ctxt environment (identifier as (name, pos)) =
-    (case registered_identifier ctxt Micro_Rust_Names.NFunction identifier of
-       SOME registered => registered
+    (case use_declaration_argument ctxt environment identifier of
+       SOME local_term => local_term
      | NONE =>
-         (case use_local ctxt environment identifier of
-            SOME local_term => local_term
+         (case registered_identifier ctxt Micro_Rust_Names.NFunction identifier of
+            SOME registered => registered
           | NONE =>
-              resolve_identifier ctxt Micro_Rust_Names.NFunction name pos))
+              (case use_local ctxt environment identifier of
+                 SOME local_term => local_term
+               | NONE =>
+                   resolve_identifier ctxt Micro_Rust_Names.NFunction name pos)))
 
-  fun function_path ctxt environment path =
+  fun resolve_function_path local_first ctxt environment path =
     let
       val head_pos = #2 (path_terminal path)
+      fun lexical_function () =
+        if local_first then
+          (case path_segments path of
+             [Path_Segment (name, pos, generic_arguments)] =>
+               Option.map
+                 (fn local_term =>
+                   apply_generic_arguments ctxt environment
+                     local_term generic_arguments)
+                 (use_declaration_argument ctxt environment (name, pos))
+           | _ => NONE)
+        else NONE
       val function =
-        (case exact_registered_path ctxt Micro_Rust_Names.NFunction path of
-           SOME registered => registered
+        (case lexical_function () of
+           SOME local_term => local_term
          | NONE =>
-             let
-               val _ = reject_intermediate_generics path
-               val base = remove_final_generic_args path
-               val function =
-                 resolve_generic_free_path ctxt environment
-                   Micro_Rust_Names.NFunction false base
-             in
-               apply_generic_arguments ctxt environment function
-                 (segment_generic_args (final_segment path))
-             end)
+             (case exact_registered_path ctxt Micro_Rust_Names.NFunction path of
+                SOME registered => registered
+              | NONE =>
+                  let
+                    val _ = reject_intermediate_generics path
+                    val base = remove_final_generic_args path
+                    val function =
+                      resolve_generic_free_path ctxt environment
+                        Micro_Rust_Names.NFunction false base
+                  in
+                    apply_generic_arguments ctxt environment function
+                      (segment_generic_args (final_segment path))
+                  end))
       fun same_range position =
         Position.offset_of position = Position.offset_of head_pos andalso
         Position.end_offset_of position = Position.end_offset_of head_pos
@@ -589,9 +651,13 @@ struct
       else T.source_position head_pos function
     end
 
+  fun function_path ctxt environment path =
+    resolve_function_path true ctxt environment path
+
   fun method_path ctxt environment path =
     let
-      val function = function_path ctxt environment path
+      val function =
+        resolve_function_path false ctxt environment path
       val (name, pos) = path_terminal path
       val lexical =
         (case path_segments path of
