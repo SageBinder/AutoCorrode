@@ -396,6 +396,22 @@ urust_expr showoff_for_and_while_let
     *total
   \<close>
 
+subsection\<open> Iterator combinators \<close>
+
+text\<open>
+Features: receiver-prepended iterator methods, chained \<open>into_iter\<close>
+conversion, shortest-input truncation, and pair-valued iterator elements.
+\<close>
+
+urust_fn showoff_iterator_zip ::
+  \<open>(unit,
+    (unit, 32 word \<times> bool \<times> tnil, unit, unit, unit) iterator,
+    unit, unit, unit) function_body\<close>
+  ()
+  \<open>
+    [1_u32, 2_u32].into_iter().zip([True, False].into_iter())
+  \<close>
+
 text\<open>
 Features: a match expression in the while condition, a direct function call on
 dereferenced state, conditional loop-body control flow, a nested unconditional

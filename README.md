@@ -72,6 +72,11 @@ The following gives a brief overview over the Isabelle sessions contained in Aut
 
 The base session defines the ["µRust monad"](https://awslabs.github.io/AutoCorrode/Unsorted/AutoCorrode/Shallow_Micro_Rust_Base.Core_Expression.html#Core_Expression.expression|type), its core semantics, and the shallow embedding required by the parser. The full session adds parser-backed theories, lemmas, and automation. Despite its name and primary purpose as the target of the shallow embedding of µRust into Isabelle/HOL, the monad is quite generic and likely suitable for the modelling of other imperative languages as well. Concretely, the µRust monad is an inductive monad with support for exceptions, functions, and yields/prompts (similar to interaction trees).
 
+The shallow iterator model includes a shared `zip` method. It combines thunk
+lists with HOL `List.zip`, truncates to the shorter iterator, and evaluates each
+paired element left-to-right before returning the µRust pair `(left, right,
+TNil)`.
+
 ### [Shallow_Separation_Logic](https://awslabs.github.io/AutoCorrode/Unsorted/AutoCorrode/Shallow_Separation_Logic.Shallow_Separation_Logic.html)
 
 This session defines basic notions of separation logic. It also defines [Hoare triples](https://awslabs.github.io/AutoCorrode/Unsorted/AutoCorrode/Shallow_Separation_Logic.Triple.html) for the µRust Monad and derives a [weakest precondition calculus](https://awslabs.github.io/AutoCorrode/Unsorted/AutoCorrode/Shallow_Separation_Logic.Weakest_Precondition.html). Automatic reasoning within that calculus is the primary purpose of [Crush](https://awslabs.github.io/AutoCorrode/Unsorted/AutoCorrode/Crush.Crush.html).
