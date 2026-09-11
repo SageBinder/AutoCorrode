@@ -12,16 +12,16 @@ declare [[urust_term_hook_conformance_check = true]]
 section\<open> Hook conformance corpus \<close>
 
 text\<open>
-This theory is generated structurally from \<open>Conformance_Corpus.thy\<close>. Each lemma keeps the
-legacy-frontend RHS and replaces its LHS with a copy of that RHS in which every
-\<open>\<lbrakk>src\<rbrakk>\<close> embedding is written with \<open>\<mu>\<open>src\<close>\<close>. The resulting equality must
-close by \<open>refl\<close>.
+This theory is generated structurally from \<open>Conformance_Corpus.thy\<close>. Each retained
+lemma keeps the legacy-frontend RHS and replaces its LHS with a copy of that RHS in which every
+\<open>\<lbrakk>src\<rbrakk>\<close> embedding is written with \<open>\<mu>\<open>src\<close>\<close>. These are
+the direct replacements accepted by the closed quotation, and every equality must close by
+\<open>refl\<close>.
 
-The source inventory is deliberately unchanged, so this full audit also contains forms that the
-closed quotation intentionally rejects, including antiquotations, macros, function literals,
-generic arguments, primitive logging, and fuelled loops. The separate
-\<open>Parser_Tests_Hook_Properties.thy\<close> theory contains the passing closed subset and focused
-fail-closed checks. \<open>**\<close> and \<open>!!\<close> mean double dereference and negation.
+Rows whose exact replacement is intentionally rejected are tested in
+\<open>Parser_Tests_Hook_Negative_Conformance.thy\<close>. The focused semantic and diagnostic
+properties remain in \<open>Parser_Tests_Hook_Properties.thy\<close>. \<open>**\<close> and
+\<open>!!\<close> mean double dereference and negation.
 \<close>
 
 
@@ -35,17 +35,17 @@ lemma \<open>\<mu>\<open> 0 \<close> = \<lbrakk> 0 \<rbrakk>\<close> by (rule re
 lemma \<open>\<mu>\<open> 1 \<close> = \<lbrakk> 1 \<rbrakk>\<close> by (rule refl)
 lemma \<open>\<mu>\<open> 42 \<close> = \<lbrakk> 42 \<rbrakk>\<close> by (rule refl)
 lemma \<open>\<mu>\<open> 0xff \<close> = \<lbrakk> 0xff \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> \<llangle>0 :: 32 word\<rrangle> \<close> = \<lbrakk> \<llangle>0 :: 32 word\<rrangle> \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> \<llangle>1 :: 64 word\<rrangle> \<close> = \<lbrakk> \<llangle>1 :: 64 word\<rrangle> \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> \<llangle>255 :: 8 word\<rrangle> \<close> = \<lbrakk> \<llangle>255 :: 8 word\<rrangle> \<rbrakk>\<close> by (rule refl)
+
+
+
 
 subsubsection\<open>Boolean Literals\<close>
 
-lemma \<open>\<mu>\<open> \<epsilon>\<open>Bool_Type.true\<close> \<close> = \<lbrakk> \<epsilon>\<open>Bool_Type.true\<close> \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> True \<close> = \<lbrakk> True \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> False \<close> = \<lbrakk> False \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> \<llangle>True\<rrangle> \<close> = \<lbrakk> \<llangle>True\<rrangle> \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> \<llangle>False\<rrangle> \<close> = \<lbrakk> \<llangle>False\<rrangle> \<rbrakk>\<close> by (rule refl)
+
+
+
+
+
 
 subsubsection\<open>Unit Literal\<close>
 
@@ -58,8 +58,8 @@ lemma \<open>\<mu>\<open> (); () \<close> = \<lbrakk> (); () \<rbrakk>\<close> b
 lemma \<open>\<mu>\<open> (); (); \<close> = \<lbrakk> (); (); \<rbrakk>\<close> by (rule refl)
 lemma \<open>\<mu>\<open> return (); \<close> = \<lbrakk> return (); \<rbrakk>\<close> by (rule refl)
 lemma \<open>\<mu>\<open> return; \<close> = \<lbrakk> return; \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> f(()) \<close> = \<lbrakk> f(()) \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> g((),True) \<close> = \<lbrakk> g((),True) \<rbrakk>\<close> by (rule refl)
+
+
 end
 
 subsubsection\<open>String Literals\<close>
@@ -67,17 +67,17 @@ subsubsection\<open>String Literals\<close>
 context
   fixes msg :: \<open>String.literal\<close>
 begin
-lemma \<open>\<mu>\<open> panic!("oh no!") \<close> = \<lbrakk> panic!("oh no!") \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> panic!( \<llangle>''oh no!''\<rrangle> ) \<close> = \<lbrakk> panic!( \<llangle>''oh no!''\<rrangle> ) \<rbrakk>\<close> by (rule refl)
+
+
 end
 
 subsubsection\<open>HOL Value Injection (Antiquotation)\<close>
 
-lemma \<open>\<mu>\<open> \<llangle>0 :: 32 word\<rrangle> \<close> = \<lbrakk> \<llangle>0 :: 32 word\<rrangle> \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> \<llangle>True\<rrangle> \<close> = \<lbrakk> \<llangle>True\<rrangle> \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> \<llangle>Some (0 :: nat)\<rrangle> \<close> = \<lbrakk> \<llangle>Some (0 :: nat)\<rrangle> \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> \<llangle> \<mu>\<open> \<llangle>1 :: nat\<rrangle> \<close> \<rrangle> \<close> = \<lbrakk> \<llangle> \<lbrakk> \<llangle>1 :: nat\<rrangle> \<rbrakk> \<rrangle> \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> \<epsilon>\<open> \<mu>\<open> \<epsilon>\<open>\<up>(1 :: nat)\<close> \<close> \<close> \<close> = \<lbrakk> \<epsilon>\<open> \<lbrakk> \<epsilon>\<open>\<up>(1 :: nat)\<close> \<rbrakk> \<close> \<rbrakk>\<close> by (rule refl)
+
+
+
+
+
 
 subsection\<open>Type Casts and Ascriptions\<close>
 
@@ -86,14 +86,14 @@ subsubsection\<open>Type Casting\<close>
 context
   fixes a_value :: \<open>32 word\<close>
 begin
-lemma \<open>\<mu>\<open> a_value as u8\<close> = \<lbrakk> a_value as u8\<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> a_value as u16\<close> = \<lbrakk> a_value as u16\<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> a_value as u32\<close> = \<lbrakk> a_value as u32\<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> a_value as u64\<close> = \<lbrakk> a_value as u64\<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> a_value as u64; a_value as u64\<close> = \<lbrakk> a_value as u64; a_value as u64\<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> a_value as usize\<close> = \<lbrakk> a_value as usize\<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> a_value as i32\<close> = \<lbrakk> a_value as i32\<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> a_value as i64\<close> = \<lbrakk> a_value as i64\<rbrakk>\<close> by (rule refl)
+
+
+
+
+
+
+
+
 end
 
 subsubsection\<open>Raw Pointer Casts\<close>
@@ -101,14 +101,14 @@ subsubsection\<open>Raw Pointer Casts\<close>
 context
   fixes raw_buf :: \<open>('addr, 'gv) gref\<close>
 begin
-lemma \<open>\<mu>\<open> raw_buf as *const u8 \<close> = \<lbrakk> raw_buf as *const u8 \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> raw_buf as *const u16 \<close> = \<lbrakk> raw_buf as *const u16 \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> raw_buf as *const u32 \<close> = \<lbrakk> raw_buf as *const u32 \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> raw_buf as *const u64 \<close> = \<lbrakk> raw_buf as *const u64 \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> raw_buf as *const usize \<close> = \<lbrakk> raw_buf as *const usize \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> raw_buf as *mut u8 \<close> = \<lbrakk> raw_buf as *mut u8 \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> raw_buf as *mut u32 \<close> = \<lbrakk> raw_buf as *mut u32 \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> raw_buf as *mut u64 \<close> = \<lbrakk> raw_buf as *mut u64 \<rbrakk>\<close> by (rule refl)
+
+
+
+
+
+
+
+
 end
 
 subsubsection\<open>Numeric Ascriptions\<close>
@@ -133,26 +133,26 @@ subsection\<open>Boolean Operators\<close>
 
 subsubsection\<open>Boolean Negation\<close>
 
-lemma \<open>\<mu>\<open> !True \<close> = \<lbrakk> !True \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> !False \<close> = \<lbrakk> !False \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> !!True \<close> = \<lbrakk> !!True \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> if !True { return; } \<close> = \<lbrakk> if !True { return; } \<rbrakk>\<close> by (rule refl)
+
+
+
+
 
 subsubsection\<open>Boolean Conjunction\<close>
 
-lemma \<open>\<mu>\<open> True && True \<close> = \<lbrakk> True && True \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> True && False \<close> = \<lbrakk> True && False \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> False && True \<close> = \<lbrakk> False && True \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> False && False \<close> = \<lbrakk> False && False \<rbrakk>\<close> by (rule refl)
+
+
+
+
 
 subsubsection\<open>Boolean Disjunction\<close>
 
-lemma \<open>\<mu>\<open> True || True \<close> = \<lbrakk> True || True \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> True || False \<close> = \<lbrakk> True || False \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> False || True \<close> = \<lbrakk> False || True \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> False || False \<close> = \<lbrakk> False || False \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> if (\<llangle>True\<rrangle> || \<llangle>True\<rrangle> && \<llangle>False\<rrangle>) { \<epsilon>\<open>\<up>0\<close> } else { \<epsilon>\<open>\<up>0\<close> } \<close> = \<lbrakk> if (\<llangle>True\<rrangle> || \<llangle>True\<rrangle> && \<llangle>False\<rrangle>) { \<epsilon>\<open>\<up>0\<close> } else { \<epsilon>\<open>\<up>0\<close> } \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> if True || !True { {{{{{{{{{{ 42 }}}}}}}}}} } else { 0 } \<close> = \<lbrakk> if True || !True { {{{{{{{{{{ 42 }}}}}}}}}} } else { 0 } \<rbrakk>\<close> by (rule refl)
+
+
+
+
+
+
 
 subsection\<open>Comparison Operators\<close>
 
@@ -163,11 +163,11 @@ context
   fixes h :: \<open>nat \<Rightarrow> ('s, nat, unit, unit, unit) function_body\<close>
   fixes x y :: \<open>64 word\<close>
 begin
-lemma \<open>\<mu>\<open> m == n \<close> = \<lbrakk> m == n \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> !(m == n) \<close> = \<lbrakk> !(m == n) \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> m != n \<close> = \<lbrakk> m != n \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> m.h() \<close> = \<lbrakk> m.h() \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> if m.h() == n { m } else { n } \<close> = \<lbrakk> if m.h() == n { m } else { n } \<rbrakk>\<close> by (rule refl)
+
+
+
+
+
 end
 
 subsubsection\<open>Ordering Comparisons\<close>
@@ -175,44 +175,44 @@ subsubsection\<open>Ordering Comparisons\<close>
 context
   fixes x y :: \<open>32 word\<close>
 begin
-lemma \<open>\<mu>\<open> x < y \<close> = \<lbrakk> x < y \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> x <= y \<close> = \<lbrakk> x <= y \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> x > y \<close> = \<lbrakk> x > y \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> x >= y \<close> = \<lbrakk> x >= y \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> x > \<llangle>0 :: 32 word\<rrangle> \<close> = \<lbrakk> x > \<llangle>0 :: 32 word\<rrangle> \<rbrakk>\<close> by (rule refl)
+
+
+
+
+
 end
 
 subsection\<open>Arithmetic Operators\<close>
 
-lemma \<open>\<mu>\<open> let a = \<llangle>1 :: 32 word\<rrangle>; let b = \<llangle>2 :: 32 word\<rrangle>; a + b \<close> = \<lbrakk> let a = \<llangle>1 :: 32 word\<rrangle>; let b = \<llangle>2 :: 32 word\<rrangle>; a + b \<rbrakk>\<close> by (rule refl)
+
 
 context
   fixes x y :: \<open>64 word\<close>
 begin
-lemma \<open>\<mu>\<open> let (a,b,c) = (\<llangle>1 :: 64 word\<rrangle>, \<llangle>2 :: 64 word\<rrangle>, \<llangle>3 :: 64 word\<rrangle>); a + b + c \<close> = \<lbrakk> let (a,b,c) = (\<llangle>1 :: 64 word\<rrangle>, \<llangle>2 :: 64 word\<rrangle>, \<llangle>3 :: 64 word\<rrangle>); a + b + c \<rbrakk>\<close> by (rule refl)
+
 end
 
-lemma \<open>\<mu>\<open> let a = \<llangle>5 :: 32 word\<rrangle>; let b = \<llangle>3 :: 32 word\<rrangle>; a - b \<close> = \<lbrakk> let a = \<llangle>5 :: 32 word\<rrangle>; let b = \<llangle>3 :: 32 word\<rrangle>; a - b \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> let a = \<llangle>3 :: 32 word\<rrangle>; let b = \<llangle>4 :: 32 word\<rrangle>; a * b \<close> = \<lbrakk> let a = \<llangle>3 :: 32 word\<rrangle>; let b = \<llangle>4 :: 32 word\<rrangle>; a * b \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> let a = \<llangle>12 :: 32 word\<rrangle>; let b = \<llangle>4 :: 32 word\<rrangle>; a / b \<close> = \<lbrakk> let a = \<llangle>12 :: 32 word\<rrangle>; let b = \<llangle>4 :: 32 word\<rrangle>; a / b \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> let a = \<llangle>17 :: 32 word\<rrangle>; let b = \<llangle>5 :: 32 word\<rrangle>; a % b \<close> = \<lbrakk> let a = \<llangle>17 :: 32 word\<rrangle>; let b = \<llangle>5 :: 32 word\<rrangle>; a % b \<rbrakk>\<close> by (rule refl)
+
+
+
+
 
 subsection\<open>Bitwise Operators\<close>
 
-lemma \<open>\<mu>\<open> let a = \<llangle>0xFF :: 32 word\<rrangle>; let b = \<llangle>0x0F :: 32 word\<rrangle>; a & b \<close> = \<lbrakk> let a = \<llangle>0xFF :: 32 word\<rrangle>; let b = \<llangle>0x0F :: 32 word\<rrangle>; a & b \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> let a = \<llangle>0xF0 :: 32 word\<rrangle>; let b = \<llangle>0x0F :: 32 word\<rrangle>; a | b \<close> = \<lbrakk> let a = \<llangle>0xF0 :: 32 word\<rrangle>; let b = \<llangle>0x0F :: 32 word\<rrangle>; a | b \<rbrakk>\<close> by (rule refl)
+
+
 
 context
   fixes x y :: \<open>64 word\<close>
 begin
-lemma \<open>\<mu>\<open> !x + y \<close> = \<lbrakk> !x + y \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> !(!x == x^y) \<close> = \<lbrakk> !(!x == x^y) \<rbrakk>\<close> by (rule refl)
+
+
 end
 
-lemma \<open>\<mu>\<open> let a = \<llangle>0xFF :: 32 word\<rrangle>; let b = \<llangle>0x0F :: 32 word\<rrangle>; a ^ b \<close> = \<lbrakk> let a = \<llangle>0xFF :: 32 word\<rrangle>; let b = \<llangle>0x0F :: 32 word\<rrangle>; a ^ b \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> let a = \<llangle>0x00 :: 8 word\<rrangle>; !a \<close> = \<lbrakk> let a = \<llangle>0x00 :: 8 word\<rrangle>; !a \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> let a = \<llangle>1 :: 32 word\<rrangle>; a << \<llangle>4 :: 64 word\<rrangle> \<close> = \<lbrakk> let a = \<llangle>1 :: 32 word\<rrangle>; a << \<llangle>4 :: 64 word\<rrangle> \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> let a = \<llangle>16 :: 32 word\<rrangle>; a >> \<llangle>2 :: 64 word\<rrangle> \<close> = \<lbrakk> let a = \<llangle>16 :: 32 word\<rrangle>; a >> \<llangle>2 :: 64 word\<rrangle> \<rbrakk>\<close> by (rule refl)
+
+
+
+
 
 subsection\<open>Operator Precedence and Associativity\<close>
 
@@ -226,24 +226,24 @@ and covered by the negative tier.
 
 subsubsection\<open>Associativity (binary operators are left-associative)\<close>
 
-lemma \<open>\<mu>\<open> \<llangle>9 :: 32 word\<rrangle> - \<llangle>3 :: 32 word\<rrangle> - \<llangle>2 :: 32 word\<rrangle> \<close> = \<lbrakk> \<llangle>9 :: 32 word\<rrangle> - \<llangle>3 :: 32 word\<rrangle> - \<llangle>2 :: 32 word\<rrangle> \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> \<llangle>12 :: 32 word\<rrangle> / \<llangle>3 :: 32 word\<rrangle> / \<llangle>2 :: 32 word\<rrangle> \<close> = \<lbrakk> \<llangle>12 :: 32 word\<rrangle> / \<llangle>3 :: 32 word\<rrangle> / \<llangle>2 :: 32 word\<rrangle> \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> \<llangle>1 :: 32 word\<rrangle> << \<llangle>1 :: 64 word\<rrangle> << \<llangle>1 :: 64 word\<rrangle> \<close> = \<lbrakk> \<llangle>1 :: 32 word\<rrangle> << \<llangle>1 :: 64 word\<rrangle> << \<llangle>1 :: 64 word\<rrangle> \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> \<llangle>True\<rrangle> && \<llangle>True\<rrangle> && \<llangle>False\<rrangle> \<close> = \<lbrakk> \<llangle>True\<rrangle> && \<llangle>True\<rrangle> && \<llangle>False\<rrangle> \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> \<llangle>True\<rrangle> || \<llangle>True\<rrangle> || \<llangle>False\<rrangle> \<close> = \<lbrakk> \<llangle>True\<rrangle> || \<llangle>True\<rrangle> || \<llangle>False\<rrangle> \<rbrakk>\<close> by (rule refl)
+
+
+
+
+
 
 subsubsection\<open>Cross-tier precedence (the tighter operator groups first)\<close>
 
-lemma \<open>\<mu>\<open> \<llangle>1 :: 32 word\<rrangle> + \<llangle>2 :: 32 word\<rrangle> * \<llangle>3 :: 32 word\<rrangle> \<close> = \<lbrakk> \<llangle>1 :: 32 word\<rrangle> + \<llangle>2 :: 32 word\<rrangle> * \<llangle>3 :: 32 word\<rrangle> \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> \<llangle>1 :: 32 word\<rrangle> + \<llangle>2 :: 32 word\<rrangle> << \<llangle>1 :: 64 word\<rrangle> \<close> = \<lbrakk> \<llangle>1 :: 32 word\<rrangle> + \<llangle>2 :: 32 word\<rrangle> << \<llangle>1 :: 64 word\<rrangle> \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> \<llangle>1 :: 32 word\<rrangle> & \<llangle>2 :: 32 word\<rrangle> << \<llangle>1 :: 64 word\<rrangle> \<close> = \<lbrakk> \<llangle>1 :: 32 word\<rrangle> & \<llangle>2 :: 32 word\<rrangle> << \<llangle>1 :: 64 word\<rrangle> \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> \<llangle>1 :: 32 word\<rrangle> ^ \<llangle>2 :: 32 word\<rrangle> & \<llangle>3 :: 32 word\<rrangle> \<close> = \<lbrakk> \<llangle>1 :: 32 word\<rrangle> ^ \<llangle>2 :: 32 word\<rrangle> & \<llangle>3 :: 32 word\<rrangle> \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> \<llangle>1 :: 32 word\<rrangle> | \<llangle>2 :: 32 word\<rrangle> ^ \<llangle>3 :: 32 word\<rrangle> \<close> = \<lbrakk> \<llangle>1 :: 32 word\<rrangle> | \<llangle>2 :: 32 word\<rrangle> ^ \<llangle>3 :: 32 word\<rrangle> \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> \<llangle>1 :: 32 word\<rrangle> | \<llangle>2 :: 32 word\<rrangle> == \<llangle>3 :: 32 word\<rrangle> \<close> = \<lbrakk> \<llangle>1 :: 32 word\<rrangle> | \<llangle>2 :: 32 word\<rrangle> == \<llangle>3 :: 32 word\<rrangle> \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> \<llangle>1 :: 32 word\<rrangle> == \<llangle>2 :: 32 word\<rrangle> && \<llangle>True\<rrangle> \<close> = \<lbrakk> \<llangle>1 :: 32 word\<rrangle> == \<llangle>2 :: 32 word\<rrangle> && \<llangle>True\<rrangle> \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> \<llangle>True\<rrangle> || \<llangle>True\<rrangle> && \<llangle>False\<rrangle> \<close> = \<lbrakk> \<llangle>True\<rrangle> || \<llangle>True\<rrangle> && \<llangle>False\<rrangle> \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> !\<llangle>True\<rrangle> && \<llangle>False\<rrangle> \<close> = \<lbrakk> !\<llangle>True\<rrangle> && \<llangle>False\<rrangle> \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> !\<llangle>True\<rrangle> == \<llangle>False\<rrangle> \<close> = \<lbrakk> !\<llangle>True\<rrangle> == \<llangle>False\<rrangle> \<rbrakk>\<close> by (rule refl)
+
+
+
+
+
+
+
+
+
+
 
 subsection\<open>Assignment Operators\<close>
 
@@ -266,22 +266,22 @@ its fidelity rejection is checked in
 
 subsection\<open>Control Flow - Conditionals\<close>
 
-lemma \<open>\<mu>\<open> if True { return True; } else { return True; } \<close> = \<lbrakk> if True { return True; } else { return True; } \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> if \<llangle>True\<rrangle> { let v = 16; return v; } else { 42 } \<close> = \<lbrakk> if \<llangle>True\<rrangle> { let v = 16; return v; } else { 42 } \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> ((if True { 0 } else { 1 }, True), if False { (2_u32 as u32, 3_u32 as u32) } else { (4, 5) }) \<close> = \<lbrakk> ((if True { 0 } else { 1 }, True), if False { (2_u32 as u32, 3_u32 as u32) } else { (4, 5) }) \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> if False { \<llangle>0 :: 32 word\<rrangle> } else if True { \<llangle>1 :: 32 word\<rrangle> } else { \<llangle>2 :: 32 word\<rrangle> } \<close> = \<lbrakk> if False { \<llangle>0 :: 32 word\<rrangle> } else if True { \<llangle>1 :: 32 word\<rrangle> } else { \<llangle>2 :: 32 word\<rrangle> } \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> if False { \<llangle>0 :: 32 word\<rrangle> } else if False { \<llangle>1 :: 32 word\<rrangle> } else if True { \<llangle>2 :: 32 word\<rrangle> } else { \<llangle>3 :: 32 word\<rrangle> } \<close> = \<lbrakk> if False { \<llangle>0 :: 32 word\<rrangle> } else if False { \<llangle>1 :: 32 word\<rrangle> } else if True { \<llangle>2 :: 32 word\<rrangle> } else { \<llangle>3 :: 32 word\<rrangle> } \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> assert!((if False { False } else if True { True } else { False })) \<close> = \<lbrakk> assert!((if False { False } else if True { True } else { False })) \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> if True { () } \<close> = \<lbrakk> if True { () } \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> ((if True { 0 } else { 1 }, True), False) \<close> = \<lbrakk> ((if True { 0 } else { 1 }, True), False) \<rbrakk>\<close> by (rule refl)
+
+
+
+
+
+
+
+
 
 subsubsection\<open>Rust-Style Optional Semicolons for Block-Like Statements\<close>
 
-lemma \<open>\<mu>\<open> if True { () } () \<close> = \<lbrakk> if True { () } () \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> if True { () } else { () } () \<close> = \<lbrakk> if True { () } else { () } () \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> if False { () } else if True { () } else { () } () \<close> = \<lbrakk> if False { () } else if True { () } else { () } () \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> match Some(()) { Some(_) \<Rightarrow> (), _ \<Rightarrow> () } () \<close> = \<lbrakk> match Some(()) { Some(_) \<Rightarrow> (), _ \<Rightarrow> () } () \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> let lst = \<llangle>(1 :: 32 word, 2 :: 32 word, TNil) # []\<rrangle>; for (a, b) in lst { () } () \<close> = \<lbrakk> let lst = \<llangle>(1 :: 32 word, 2 :: 32 word, TNil) # []\<rrangle>; for (a, b) in lst { () } () \<rbrakk>\<close> by (rule refl)
+
+
+
+
+
 lemma \<open>(FunctionBody \<mu>\<open> { () } () \<close>) = (FunctionBody \<lbrakk> { () } () \<rbrakk>)\<close> by (rule refl)
 lemma \<open>\<mu>\<open> unsafe { () } () \<close> = \<lbrakk> unsafe { () } () \<rbrakk>\<close> by (rule refl)
 
@@ -295,86 +295,70 @@ boundaries are executable checks in
 \<open>Parser_Tests_Negative_Conformance.thy\<close>.
 \<close>
 
-lemma \<open>\<mu>\<open> let (a,_) = (1_u32,2_u32); let (_,b) = (1_u32,2_u32); \<llangle>(a,b)\<rrangle> \<close> = \<lbrakk> let (a,_) = (1_u32,2_u32); let (_,b) = (1_u32,2_u32); \<llangle>(a,b)\<rrangle> \<rbrakk>\<close> by (rule refl)
+
 
 subsection\<open>Control Flow - Match Expressions\<close>
 
 context
   fixes x :: \<open>32 word\<close>
 begin
-lemma \<open>\<mu>\<open> match Some(x) { Some(y) \<Rightarrow> { if True { return; } else { () } }, None \<Rightarrow> { if True { return; } else { () } } }; \<close> = \<lbrakk> match Some(x) { Some(y) \<Rightarrow> { if True { return; } else { () } }, None \<Rightarrow> { if True { return; } else { () } } }; \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> match Some(x) { None \<Rightarrow> { return; }, Some(y) \<Rightarrow> y }; \<close> = \<lbrakk> match Some(x) { None \<Rightarrow> { return; }, Some(y) \<Rightarrow> y }; \<rbrakk>\<close> by (rule refl)
+
+
 end
 
-lemma \<open>\<mu>\<open> let v = match Err(\<llangle>5 :: 32 word\<rrangle>) { Ok(ok_value) \<Rightarrow> \<llangle>0 * ok_value :: 32 word\<rrangle>, Err(x) \<Rightarrow> x }; assert!(v == \<llangle>5 :: 32 word\<rrangle>) \<close> = \<lbrakk> let v = match Err(\<llangle>5 :: 32 word\<rrangle>) { Ok(ok_value) \<Rightarrow> \<llangle>0 * ok_value :: 32 word\<rrangle>, Err(x) \<Rightarrow> x }; assert!(v == \<llangle>5 :: 32 word\<rrangle>) \<rbrakk>\<close> by (rule refl)
+
 
 subsubsection\<open>Wildcard Patterns\<close>
 
 context
   fixes a :: \<open>nat\<close>
 begin
-lemma \<open>\<mu>\<open>
-  let _ = 3;
-  let _ = (if True { False} else {True});
-  const _ = { assert!(True); assert!(False); };
-  let _ = assert!(let _ = False; if let Some(_) = None { False} else {True});
-  match Some(a) { Some(_) \<Rightarrow> (), _ \<Rightarrow> () };
-  if let Some(_) = Some(()) { () };
-  ()
-\<close> = \<lbrakk>
-  let _ = 3;
-  let _ = (if True { False} else {True});
-  const _ = { assert!(True); assert!(False); };
-  let _ = assert!(let _ = False; if let Some(_) = None { False} else {True});
-  match Some(a) { Some(_) \<Rightarrow> (), _ \<Rightarrow> () };
-  if let Some(_) = Some(()) { () };
-  ()
-\<rbrakk>\<close> by (rule refl)
+
 end
 
 subsubsection\<open>Variable Binding in Patterns\<close>
 
-lemma \<open>\<mu>\<open> let two = \<llangle>2 :: 32 word\<rrangle>; let res = match Some(Some(two)) { Some(Some(x)) \<Rightarrow> x, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }; assert!(res == two) \<close> = \<lbrakk> let two = \<llangle>2 :: 32 word\<rrangle>; let res = match Some(Some(two)) { Some(Some(x)) \<Rightarrow> x, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }; assert!(res == two) \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> let x = \<llangle>9 :: 32 word\<rrangle>; let y = match x { z \<Rightarrow> z }; assert!(y == x) \<close> = \<lbrakk> let x = \<llangle>9 :: 32 word\<rrangle>; let y = match x { z \<Rightarrow> z }; assert!(y == x) \<rbrakk>\<close> by (rule refl)
+
+
 
 subsubsection\<open>Grouped and Irrefutable Patterns\<close>
 
-lemma \<open>\<mu>\<open> let v = match Some(\<llangle>5 :: 32 word\<rrangle>) { (Some(x)) \<Rightarrow> x, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }; assert!(v == \<llangle>5 :: 32 word\<rrangle>) \<close> = \<lbrakk> let v = match Some(\<llangle>5 :: 32 word\<rrangle>) { (Some(x)) \<Rightarrow> x, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }; assert!(v == \<llangle>5 :: 32 word\<rrangle>) \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> let foo = (\<llangle>1 :: 32 word\<rrangle>, \<llangle>2 :: 32 word\<rrangle>); let (x, y) = foo; assert!(x == \<llangle>1 :: 32 word\<rrangle>); assert!(y == \<llangle>2 :: 32 word\<rrangle>) \<close> = \<lbrakk> let foo = (\<llangle>1 :: 32 word\<rrangle>, \<llangle>2 :: 32 word\<rrangle>); let (x, y) = foo; assert!(x == \<llangle>1 :: 32 word\<rrangle>); assert!(y == \<llangle>2 :: 32 word\<rrangle>) \<rbrakk>\<close> by (rule refl)
+
+
 
 subsubsection\<open>Slice Patterns\<close>
 
-lemma \<open>\<mu>\<open> let xs = \<llangle>[1 :: 32 word, 2, 3]\<rrangle>; let res = match xs { [a, b, c] \<Rightarrow> a + b + c, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }; assert!(res == \<llangle>6 :: 32 word\<rrangle>) \<close> = \<lbrakk> let xs = \<llangle>[1 :: 32 word, 2, 3]\<rrangle>; let res = match xs { [a, b, c] \<Rightarrow> a + b + c, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }; assert!(res == \<llangle>6 :: 32 word\<rrangle>) \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> let xs = \<llangle>[1 :: 32 word, 2, 3]\<rrangle>; let tag = match xs { [_, _] \<Rightarrow> \<llangle>1 :: 32 word\<rrangle>, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }; assert!(tag == \<llangle>0 :: 32 word\<rrangle>) \<close> = \<lbrakk> let xs = \<llangle>[1 :: 32 word, 2, 3]\<rrangle>; let tag = match xs { [_, _] \<Rightarrow> \<llangle>1 :: 32 word\<rrangle>, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }; assert!(tag == \<llangle>0 :: 32 word\<rrangle>) \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> let ys = \<llangle>([] :: 32 word list)\<rrangle>; let tag = match ys { [] \<Rightarrow> \<llangle>1 :: 32 word\<rrangle>, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }; assert!(tag == \<llangle>1 :: 32 word\<rrangle>) \<close> = \<lbrakk> let ys = \<llangle>([] :: 32 word list)\<rrangle>; let tag = match ys { [] \<Rightarrow> \<llangle>1 :: 32 word\<rrangle>, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }; assert!(tag == \<llangle>1 :: 32 word\<rrangle>) \<rbrakk>\<close> by (rule refl)
+
+
+
 
 subsubsection\<open>Extended Rust-Style Pattern Forms\<close>
 
-lemma \<open>\<mu>\<open> let y = match \<llangle>True\<rrangle> { true \<Rightarrow> \<llangle>1 :: 32 word\<rrangle>, false \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }; assert!(y == \<llangle>1 :: 32 word\<rrangle>) \<close> = \<lbrakk> let y = match \<llangle>True\<rrangle> { true \<Rightarrow> \<llangle>1 :: 32 word\<rrangle>, false \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }; assert!(y == \<llangle>1 :: 32 word\<rrangle>) \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> let y = match \<llangle>String.implode ''ok''\<rrangle> { "ok" \<Rightarrow> \<llangle>1 :: 32 word\<rrangle>, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }; assert!(y == \<llangle>1 :: 32 word\<rrangle>) \<close> = \<lbrakk> let y = match \<llangle>String.implode ''ok''\<rrangle> { "ok" \<Rightarrow> \<llangle>1 :: 32 word\<rrangle>, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }; assert!(y == \<llangle>1 :: 32 word\<rrangle>) \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> let y = match \<llangle>CHR ''a''\<rrangle> { \<llangle>CHR ''a''\<rrangle> \<Rightarrow> \<llangle>1 :: 32 word\<rrangle>, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }; assert!(y == \<llangle>1 :: 32 word\<rrangle>) \<close> = \<lbrakk> let y = match \<llangle>CHR ''a''\<rrangle> { \<llangle>CHR ''a''\<rrangle> \<Rightarrow> \<llangle>1 :: 32 word\<rrangle>, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }; assert!(y == \<llangle>1 :: 32 word\<rrangle>) \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> let y = match Some(\<llangle>7 :: 32 word\<rrangle>) { whole @ Some(v) \<Rightarrow> v, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }; assert!(y == \<llangle>7 :: 32 word\<rrangle>) \<close> = \<lbrakk> let y = match Some(\<llangle>7 :: 32 word\<rrangle>) { whole @ Some(v) \<Rightarrow> v, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }; assert!(y == \<llangle>7 :: 32 word\<rrangle>) \<rbrakk>\<close> by (rule refl)
+
+
+
+
 
 text\<open>Rust-style pattern binders \<open>ref p\<close> / \<open>ref mut p\<close> are intentionally unsupported (they clash
 with the reference syntax). Borrow patterns \<open>&v\<close> / \<open>& mut v\<close> are syntax-only wrappers during
 case preparation in both frontends; direct binders still reject them, and type-sensitive semantics
 remain deferred.\<close>
 
-lemma \<open>\<mu>\<open> let y = match Some(\<llangle>7 :: 32 word\<rrangle>) { Some(&v) \<Rightarrow> v, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }; assert!(y == \<llangle>7 :: 32 word\<rrangle>) \<close> = \<lbrakk> let y = match Some(\<llangle>7 :: 32 word\<rrangle>) { Some(&v) \<Rightarrow> v, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }; assert!(y == \<llangle>7 :: 32 word\<rrangle>) \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> let y = match Some(\<llangle>7 :: 32 word\<rrangle>) { Some(& mut v) \<Rightarrow> v, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }; assert!(y == \<llangle>7 :: 32 word\<rrangle>) \<close> = \<lbrakk> let y = match Some(\<llangle>7 :: 32 word\<rrangle>) { Some(& mut v) \<Rightarrow> v, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }; assert!(y == \<llangle>7 :: 32 word\<rrangle>) \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> let y = match Some(\<llangle>7 :: nat\<rrangle>) { Some(5..=7) \<Rightarrow> \<llangle>1 :: nat\<rrangle>, _ \<Rightarrow> \<llangle>0 :: nat\<rrangle> }; assert!(y == \<llangle>1 :: nat\<rrangle>) \<close> = \<lbrakk> let y = match Some(\<llangle>7 :: nat\<rrangle>) { Some(5..=7) \<Rightarrow> \<llangle>1 :: nat\<rrangle>, _ \<Rightarrow> \<llangle>0 :: nat\<rrangle> }; assert!(y == \<llangle>1 :: nat\<rrangle>) \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> let y = match Some(\<llangle>7 :: nat\<rrangle>) { Some(5..7) \<Rightarrow> \<llangle>1 :: nat\<rrangle>, _ \<Rightarrow> \<llangle>0 :: nat\<rrangle> }; assert!(y == \<llangle>0 :: nat\<rrangle>) \<close> = \<lbrakk> let y = match Some(\<llangle>7 :: nat\<rrangle>) { Some(5..7) \<Rightarrow> \<llangle>1 :: nat\<rrangle>, _ \<Rightarrow> \<llangle>0 :: nat\<rrangle> }; assert!(y == \<llangle>0 :: nat\<rrangle>) \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> let y = match \<llangle>[7 :: 32 word, 8, 9]\<rrangle> { [head, ..] \<Rightarrow> head, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }; assert!(y == \<llangle>7 :: 32 word\<rrangle>) \<close> = \<lbrakk> let y = match \<llangle>[7 :: 32 word, 8, 9]\<rrangle> { [head, ..] \<Rightarrow> head, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }; assert!(y == \<llangle>7 :: 32 word\<rrangle>) \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> let y = match \<llangle>[1 :: 32 word, 2, 3, 4]\<rrangle> { [a, b, .., y, z] \<Rightarrow> y + z, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }; assert!(y == \<llangle>7 :: 32 word\<rrangle>) \<close> = \<lbrakk> let y = match \<llangle>[1 :: 32 word, 2, 3, 4]\<rrangle> { [a, b, .., y, z] \<Rightarrow> y + z, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }; assert!(y == \<llangle>7 :: 32 word\<rrangle>) \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> let y = match \<llangle>[1 :: 32 word, 2, 3]\<rrangle> { [a, b, .., y, z] \<Rightarrow> \<llangle>1 :: 32 word\<rrangle>, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }; assert!(y == \<llangle>0 :: 32 word\<rrangle>) \<close> = \<lbrakk> let y = match \<llangle>[1 :: 32 word, 2, 3]\<rrangle> { [a, b, .., y, z] \<Rightarrow> \<llangle>1 :: 32 word\<rrangle>, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }; assert!(y == \<llangle>0 :: 32 word\<rrangle>) \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> let y = match \<llangle>[1 :: 32 word, 2, 3]\<rrangle> { [.., y, z] \<Rightarrow> y + z, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }; assert!(y == \<llangle>5 :: 32 word\<rrangle>) \<close> = \<lbrakk> let y = match \<llangle>[1 :: 32 word, 2, 3]\<rrangle> { [.., y, z] \<Rightarrow> y + z, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }; assert!(y == \<llangle>5 :: 32 word\<rrangle>) \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> let y = match Some(Some(True)) { Some(Some(True)) \<Rightarrow> \<llangle>1 :: 32 word\<rrangle>, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }; assert!(y == \<llangle>1 :: 32 word\<rrangle>) \<close> = \<lbrakk> let y = match Some(Some(True)) { Some(Some(True)) \<Rightarrow> \<llangle>1 :: 32 word\<rrangle>, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }; assert!(y == \<llangle>1 :: 32 word\<rrangle>) \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> let y = match Some(Some(\<llangle>7 :: 32 word\<rrangle>)) { Some(whole @ Some(v)) \<Rightarrow> v, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }; assert!(y == \<llangle>7 :: 32 word\<rrangle>) \<close> = \<lbrakk> let y = match Some(Some(\<llangle>7 :: 32 word\<rrangle>)) { Some(whole @ Some(v)) \<Rightarrow> v, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }; assert!(y == \<llangle>7 :: 32 word\<rrangle>) \<rbrakk>\<close> by (rule refl)
+
+
+
+
+
+
+
+
+
+
 
 subsubsection\<open>Nested Patterns\<close>
 
-lemma \<open>\<mu>\<open> let one = \<llangle>1 :: 32 word\<rrangle>; let zero = \<llangle>0 :: 32 word\<rrangle>; assert!((match Some(Some(\<llangle>None :: nat option\<rrangle>)) { Some(None) \<Rightarrow> one, _ \<Rightarrow> zero }) == zero) \<close> = \<lbrakk> let one = \<llangle>1 :: 32 word\<rrangle>; let zero = \<llangle>0 :: 32 word\<rrangle>; assert!((match Some(Some(\<llangle>None :: nat option\<rrangle>)) { Some(None) \<Rightarrow> one, _ \<Rightarrow> zero }) == zero) \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> let a = \<llangle>1 :: 32 word\<rrangle>; let b = \<llangle>2 :: 32 word\<rrangle>; let c = \<llangle>3 :: 32 word\<rrangle>; let res = match ((a, b), c) { ((x, y), z) \<Rightarrow> (x, y, z) }; assert!(res.0 == a); assert!(res.1 == b); assert!(res.2 == c) \<close> = \<lbrakk> let a = \<llangle>1 :: 32 word\<rrangle>; let b = \<llangle>2 :: 32 word\<rrangle>; let c = \<llangle>3 :: 32 word\<rrangle>; let res = match ((a, b), c) { ((x, y), z) \<Rightarrow> (x, y, z) }; assert!(res.0 == a); assert!(res.1 == b); assert!(res.2 == c) \<rbrakk>\<close> by (rule refl)
+
+
 
 subsubsection\<open>Struct fixtures (from the tests theory)\<close>
 
@@ -398,17 +382,17 @@ micro_rust_notation (call) struct_pattern_dr_struct_expr_lift ("struct_pattern_d
 
 subsubsection\<open>Tuple Patterns in Match\<close>
 
-lemma \<open>\<mu>\<open> match (\<llangle>1 :: 32 word\<rrangle>, \<llangle>2 :: 32 word\<rrangle>) { (a, b) \<Rightarrow> a } \<close> = \<lbrakk> match (\<llangle>1 :: 32 word\<rrangle>, \<llangle>2 :: 32 word\<rrangle>) { (a, b) \<Rightarrow> a } \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> let a = \<llangle>1 :: 32 word\<rrangle>; let b = \<llangle>2 :: 32 word\<rrangle>; let c = \<llangle>3 :: 32 word\<rrangle>; let res = match Some((a, b, c)) { Some((x, _, z)) \<Rightarrow> (x, z), _ \<Rightarrow> (\<llangle>0 :: 32 word\<rrangle>, \<llangle>0 :: 32 word\<rrangle>) }; assert!(res.0 == a); assert!(res.1 == c) \<close> = \<lbrakk> let a = \<llangle>1 :: 32 word\<rrangle>; let b = \<llangle>2 :: 32 word\<rrangle>; let c = \<llangle>3 :: 32 word\<rrangle>; let res = match Some((a, b, c)) { Some((x, _, z)) \<Rightarrow> (x, z), _ \<Rightarrow> (\<llangle>0 :: 32 word\<rrangle>, \<llangle>0 :: 32 word\<rrangle>) }; assert!(res.0 == a); assert!(res.1 == c) \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> let a = \<llangle>1 :: 32 word\<rrangle>; let b = \<llangle>2 :: 32 word\<rrangle>; let c = \<llangle>3 :: 32 word\<rrangle>; let d = \<llangle>4 :: 32 word\<rrangle>; let res = match ((a, b), (c, d)) { ((w, x), (y, z)) \<Rightarrow> (w, x, y, z) }; assert!(res.0 == a); assert!(res.1 == b); assert!(res.2 == c); assert!(res.3 == d) \<close> = \<lbrakk> let a = \<llangle>1 :: 32 word\<rrangle>; let b = \<llangle>2 :: 32 word\<rrangle>; let c = \<llangle>3 :: 32 word\<rrangle>; let d = \<llangle>4 :: 32 word\<rrangle>; let res = match ((a, b), (c, d)) { ((w, x), (y, z)) \<Rightarrow> (w, x, y, z) }; assert!(res.0 == a); assert!(res.1 == b); assert!(res.2 == c); assert!(res.3 == d) \<rbrakk>\<close> by (rule refl)
+
+
+
 
 subsubsection\<open>Struct Patterns\<close>
 
-lemma \<open>\<mu>\<open> match \<llangle>Foo (1 :: 32 word) 2\<rrangle> { Foo { foo: p, goo: q } \<Rightarrow> p + q, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<close> = \<lbrakk> match \<llangle>Foo (1 :: 32 word) 2\<rrangle> { Foo { foo: p, goo: q } \<Rightarrow> p + q, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> let res = match \<llangle>Foo (3 :: 32 word) 4\<rrangle> { Foo { foo: p, goo: q } \<Rightarrow> p + q, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }; assert!(res == \<llangle>7 :: 32 word\<rrangle>) \<close> = \<lbrakk> let res = match \<llangle>Foo (3 :: 32 word) 4\<rrangle> { Foo { foo: p, goo: q } \<Rightarrow> p + q, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }; assert!(res == \<llangle>7 :: 32 word\<rrangle>) \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> let res = match \<llangle>make_struct_pattern_dr (10 :: 32 word) 11\<rrangle> { struct_pattern_dr { dr_goo: q, dr_foo: p } \<Rightarrow> p + q }; assert!(res == \<llangle>21 :: 32 word\<rrangle>) \<close> = \<lbrakk> let res = match \<llangle>make_struct_pattern_dr (10 :: 32 word) 11\<rrangle> { struct_pattern_dr { dr_goo: q, dr_foo: p } \<Rightarrow> p + q }; assert!(res == \<llangle>21 :: 32 word\<rrangle>) \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> let res = match \<llangle>Foo (12 :: 32 word) 34\<rrangle> { Foo { foo, goo } \<Rightarrow> foo + goo, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }; assert!(res == \<llangle>46 :: 32 word\<rrangle>) \<close> = \<lbrakk> let res = match \<llangle>Foo (12 :: 32 word) 34\<rrangle> { Foo { foo, goo } \<Rightarrow> foo + goo, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }; assert!(res == \<llangle>46 :: 32 word\<rrangle>) \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> let res = match \<llangle>Foo (12 :: 32 word) 34\<rrangle> { Foo { foo, .. } \<Rightarrow> foo, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }; assert!(res == \<llangle>12 :: 32 word\<rrangle>) \<close> = \<lbrakk> let res = match \<llangle>Foo (12 :: 32 word) 34\<rrangle> { Foo { foo, .. } \<Rightarrow> foo, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }; assert!(res == \<llangle>12 :: 32 word\<rrangle>) \<rbrakk>\<close> by (rule refl)
+
+
+
+
+
 
 subsubsection\<open>Struct Expressions\<close>
 
@@ -419,23 +403,23 @@ head as an ordinary call with source-ordered initializers; Rust-correct metadata
 to T-39.
 \<close>
 
-lemma \<open>\<mu>\<open> Foo { foo: \<llangle>1 :: 32 word\<rrangle>, goo: \<llangle>2 :: 32 word\<rrangle> } \<close> = \<lbrakk> Foo { foo: \<llangle>1 :: 32 word\<rrangle>, goo: \<llangle>2 :: 32 word\<rrangle> } \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> Foo { goo: \<llangle>2 :: 32 word\<rrangle>, foo: \<llangle>1 :: 32 word\<rrangle> } \<close> = \<lbrakk> Foo { goo: \<llangle>2 :: 32 word\<rrangle>, foo: \<llangle>1 :: 32 word\<rrangle> } \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> struct_pattern_dr { dr_goo: \<llangle>11 :: 32 word\<rrangle>, dr_foo: \<llangle>10 :: 32 word\<rrangle> } \<close> = \<lbrakk> struct_pattern_dr { dr_goo: \<llangle>11 :: 32 word\<rrangle>, dr_foo: \<llangle>10 :: 32 word\<rrangle> } \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> Foo { foo: \<llangle>1 :: 32 word\<rrangle> + \<llangle>2 :: 32 word\<rrangle>, goo: \<llangle>4 :: 32 word\<rrangle> / \<llangle>2 :: 32 word\<rrangle> } \<close> = \<lbrakk> Foo { foo: \<llangle>1 :: 32 word\<rrangle> + \<llangle>2 :: 32 word\<rrangle>, goo: \<llangle>4 :: 32 word\<rrangle> / \<llangle>2 :: 32 word\<rrangle> } \<rbrakk>\<close> by (rule refl)
+
+
+
+
 
 subsubsection\<open>Pattern Guards\<close>
 
 context
   fixes x :: \<open>32 word\<close>
 begin
-lemma \<open>\<mu>\<open> match Some(x) { Some(y) if y > \<llangle>0 :: 32 word\<rrangle> \<Rightarrow> y, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<close> = \<lbrakk> match Some(x) { Some(y) if y > \<llangle>0 :: 32 word\<rrangle> \<Rightarrow> y, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> match Some(x) { Some(y) if (if True { True } else { False }) \<Rightarrow> y, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<close> = \<lbrakk> match Some(x) { Some(y) if (if True { True } else { False }) \<Rightarrow> y, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> match Some(x) { Some(y) \<Rightarrow> { if True { return; } else { () } }, None \<Rightarrow> { if True { return; } else { () } } }; \<close> = \<lbrakk> match Some(x) { Some(y) \<Rightarrow> { if True { return; } else { () } }, None \<Rightarrow> { if True { return; } else { () } } }; \<rbrakk>\<close> by (rule refl)
+
+
+
 end
 
-lemma \<open>\<mu>\<open> let zero = \<llangle>0 :: 32 word\<rrangle>; let one = \<llangle>1 :: 32 word\<rrangle>; let res = match Some(one) { Some(x) if x > zero \<Rightarrow> x, _ \<Rightarrow> zero }; assert!(res == one) \<close> = \<lbrakk> let zero = \<llangle>0 :: 32 word\<rrangle>; let one = \<llangle>1 :: 32 word\<rrangle>; let res = match Some(one) { Some(x) if x > zero \<Rightarrow> x, _ \<Rightarrow> zero }; assert!(res == one) \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> let zero = \<llangle>0 :: 32 word\<rrangle>; let res = match Some(zero) { Some(x) if x > zero \<Rightarrow> \<llangle>1 :: 32 word\<rrangle>, Some(x) \<Rightarrow> x, _ \<Rightarrow> \<llangle>2 :: 32 word\<rrangle> }; assert!(res == zero) \<close> = \<lbrakk> let zero = \<llangle>0 :: 32 word\<rrangle>; let res = match Some(zero) { Some(x) if x > zero \<Rightarrow> \<llangle>1 :: 32 word\<rrangle>, Some(x) \<Rightarrow> x, _ \<Rightarrow> \<llangle>2 :: 32 word\<rrangle> }; assert!(res == zero) \<rbrakk>\<close> by (rule refl)
+
+
 
 subsubsection\<open>Nested Match Expressions\<close>
 
@@ -450,19 +434,19 @@ datatype nm_case = NmA "32 word" | NmB "32 word" | NmC
 context
   fixes r :: \<open>(32 word option, unit) result\<close>
 begin
-lemma \<open>\<mu>\<open> match r { Ok(ov) \<Rightarrow> match ov { Some(x) \<Rightarrow> x, None \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }, Err(_) \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<close> = \<lbrakk> match r { Ok(ov) \<Rightarrow> match ov { Some(x) \<Rightarrow> x, None \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }, Err(_) \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<rbrakk>\<close> by (rule refl)
+
 end
 
-lemma \<open>\<mu>\<open> match (match Some(\<llangle>1 :: 32 word\<rrangle>) { Some(y) \<Rightarrow> y, None \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }) { z \<Rightarrow> z } \<close> = \<lbrakk> match (match Some(\<llangle>1 :: 32 word\<rrangle>) { Some(y) \<Rightarrow> y, None \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }) { z \<Rightarrow> z } \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> match Some(\<llangle>1 :: 32 word\<rrangle>) { Some(x) \<Rightarrow> { let t = match Ok(x) { Ok(v) \<Rightarrow> v, Err(err_value) \<Rightarrow> \<llangle>0 * err_value :: 32 word\<rrangle> }; t }, None \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<close> = \<lbrakk> match Some(\<llangle>1 :: 32 word\<rrangle>) { Some(x) \<Rightarrow> { let t = match Ok(x) { Ok(v) \<Rightarrow> v, Err(err_value) \<Rightarrow> \<llangle>0 * err_value :: 32 word\<rrangle> }; t }, None \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<rbrakk>\<close> by (rule refl)
+
+
 
 context
   fixes x :: \<open>32 word\<close>
 begin
-lemma \<open>\<mu>\<open> match Some(x) { Some(y) if (match Some(y) { Some(_) \<Rightarrow> True, None \<Rightarrow> False }) \<Rightarrow> y, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<close> = \<lbrakk> match Some(x) { Some(y) if (match Some(y) { Some(_) \<Rightarrow> True, None \<Rightarrow> False }) \<Rightarrow> y, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<rbrakk>\<close> by (rule refl)
+
 end
 
-lemma \<open>\<mu>\<open> match Some(\<llangle>1 :: 32 word\<rrangle>) { Some(x) \<Rightarrow> { match Some(x) { Some(_) \<Rightarrow> (), None \<Rightarrow> () }; match Ok(x) { Ok(_) \<Rightarrow> (), Err(err_value) \<Rightarrow> { let _ = \<llangle>err_value :: 32 word\<rrangle>; () } } }, None \<Rightarrow> () } \<close> = \<lbrakk> match Some(\<llangle>1 :: 32 word\<rrangle>) { Some(x) \<Rightarrow> { match Some(x) { Some(_) \<Rightarrow> (), None \<Rightarrow> () }; match Ok(x) { Ok(_) \<Rightarrow> (), Err(err_value) \<Rightarrow> { let _ = \<llangle>err_value :: 32 word\<rrangle>; () } } }, None \<Rightarrow> () } \<rbrakk>\<close> by (rule refl)
+
 
 \<comment>\<open>Nesting depth / breadth: depth-3, depth-4, and inner matches in multiple arms.\<close>
 context
@@ -471,57 +455,57 @@ context
   fixes a4 :: \<open>(((32 word option, unit) result, unit) result, unit) result\<close>
   fixes r2 :: \<open>(32 word option, 32 word option) result\<close>
 begin
-lemma \<open>\<mu>\<open> match a3 { Ok(b) \<Rightarrow> match b { Ok(c) \<Rightarrow> match c { Some(v) \<Rightarrow> v, None \<Rightarrow> z }, Err(_) \<Rightarrow> z }, Err(_) \<Rightarrow> z } \<close> = \<lbrakk> match a3 { Ok(b) \<Rightarrow> match b { Ok(c) \<Rightarrow> match c { Some(v) \<Rightarrow> v, None \<Rightarrow> z }, Err(_) \<Rightarrow> z }, Err(_) \<Rightarrow> z } \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> match a4 { Ok(b) \<Rightarrow> match b { Ok(c) \<Rightarrow> match c { Ok(d) \<Rightarrow> match d { Some(v) \<Rightarrow> v, None \<Rightarrow> z }, Err(_) \<Rightarrow> z }, Err(_) \<Rightarrow> z }, Err(_) \<Rightarrow> z } \<close> = \<lbrakk> match a4 { Ok(b) \<Rightarrow> match b { Ok(c) \<Rightarrow> match c { Ok(d) \<Rightarrow> match d { Some(v) \<Rightarrow> v, None \<Rightarrow> z }, Err(_) \<Rightarrow> z }, Err(_) \<Rightarrow> z }, Err(_) \<Rightarrow> z } \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> match r2 { Ok(ov) \<Rightarrow> match ov { Some(x) \<Rightarrow> x, None \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }, Err(e) \<Rightarrow> match e { Some(x) \<Rightarrow> x, None \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } } \<close> = \<lbrakk> match r2 { Ok(ov) \<Rightarrow> match ov { Some(x) \<Rightarrow> x, None \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }, Err(e) \<Rightarrow> match e { Some(x) \<Rightarrow> x, None \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } } \<rbrakk>\<close> by (rule refl)
+
+
+
 end
 
 \<comment>\<open>Interaction with other pattern features:
     nested/constructor, tuple, guard, or-patterns; local datatype; and match_switch both ways.\<close>
-lemma \<open>\<mu>\<open> match Some(Some(\<llangle>1 :: 32 word\<rrangle>)) { Some(Some(x)) \<Rightarrow> match Some(x) { Some(y) \<Rightarrow> y, None \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<close> = \<lbrakk> match Some(Some(\<llangle>1 :: 32 word\<rrangle>)) { Some(Some(x)) \<Rightarrow> match Some(x) { Some(y) \<Rightarrow> y, None \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<rbrakk>\<close> by (rule refl)
+
 
 context
   fixes p q :: \<open>32 word option\<close>
 begin
-lemma \<open>\<mu>\<open> match (p, q) { (Some(x), qq) \<Rightarrow> match qq { Some(y) \<Rightarrow> x + y, None \<Rightarrow> x }, (None, _) \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<close> = \<lbrakk> match (p, q) { (Some(x), qq) \<Rightarrow> match qq { Some(y) \<Rightarrow> x + y, None \<Rightarrow> x }, (None, _) \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<rbrakk>\<close> by (rule refl)
+
 end
 
 context
   fixes ov :: \<open>32 word option\<close>
 begin
-lemma \<open>\<mu>\<open> match ov { Some(y) if y > \<llangle>0 :: 32 word\<rrangle> \<Rightarrow> match Some(y) { Some(v) \<Rightarrow> v, None \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<close> = \<lbrakk> match ov { Some(y) if y > \<llangle>0 :: 32 word\<rrangle> \<Rightarrow> match Some(y) { Some(v) \<Rightarrow> v, None \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<rbrakk>\<close> by (rule refl)
+
 end
 
-lemma \<open>\<mu>\<open> match \<llangle>NmA (1 :: 32 word)\<rrangle> { NmA(n) | NmB(n) \<Rightarrow> match Some(n) { Some(v) \<Rightarrow> v, None \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }, NmC \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<close> = \<lbrakk> match \<llangle>NmA (1 :: 32 word)\<rrangle> { NmA(n) | NmB(n) \<Rightarrow> match Some(n) { Some(v) \<Rightarrow> v, None \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }, NmC \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> match Some(\<llangle>Foo (1 :: 32 word) 2\<rrangle>) { Some(s) \<Rightarrow> match s { Foo { foo: fp, goo: gq } \<Rightarrow> fp + gq, Other \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }, None \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<close> = \<lbrakk> match Some(\<llangle>Foo (1 :: 32 word) 2\<rrangle>) { Some(s) \<Rightarrow> match s { Foo { foo: fp, goo: gq } \<Rightarrow> fp + gq, Other \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }, None \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<rbrakk>\<close> by (rule refl)
+
+
 
 context
   fixes n :: \<open>32 word\<close>
   fixes ov :: \<open>32 word option\<close>
 begin
-lemma \<open>\<mu>\<open> match ov { Some(x) \<Rightarrow> match_switch x { 0 \<Rightarrow> \<llangle>10 :: 32 word\<rrangle>, _ \<Rightarrow> x }, None \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<close> = \<lbrakk> match ov { Some(x) \<Rightarrow> match_switch x { 0 \<Rightarrow> \<llangle>10 :: 32 word\<rrangle>, _ \<Rightarrow> x }, None \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> match_switch n { 0 \<Rightarrow> match ov { Some(x) \<Rightarrow> x, None \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }, _ \<Rightarrow> \<llangle>1 :: 32 word\<rrangle> } \<close> = \<lbrakk> match_switch n { 0 \<Rightarrow> match ov { Some(x) \<Rightarrow> x, None \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }, _ \<Rightarrow> \<llangle>1 :: 32 word\<rrangle> } \<rbrakk>\<close> by (rule refl)
+
+
 end
 
 subsection\<open>Control Flow - Loops\<close>
 
-lemma \<open>\<mu>\<open> let lst = \<llangle>(1 :: 32 word, 2 :: 32 word, TNil) # (3, 4, TNil) # []\<rrangle>; for (a, b) in lst { let _ = a; let _ = b; () }; () \<close> = \<lbrakk> let lst = \<llangle>(1 :: 32 word, 2 :: 32 word, TNil) # (3, 4, TNil) # []\<rrangle>; for (a, b) in lst { let _ = a; let _ = b; () }; () \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> let mut x = \<llangle>0 :: 32 word\<rrangle>; let lst = \<llangle>(1, 2, (True, False, ()), ()) # (1, 2, (True, False, ()), ()) # []\<rrangle>; for i in lst { if (i.2.0) && i.2.1 { *x = i.0; } else { *x = i.1; } }; x \<close> = \<lbrakk> let mut x = \<llangle>0 :: 32 word\<rrangle>; let lst = \<llangle>(1, 2, (True, False, ()), ()) # (1, 2, (True, False, ()), ()) # []\<rrangle>; for i in lst { if (i.2.0) && i.2.1 { *x = i.0; } else { *x = i.1; } }; x \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> let mut x = \<llangle>0 :: 32 word\<rrangle>; let lst = \<llangle>((1 :: 32 word), (2 :: 32 word), (True, False, nil), nil) # ((1 :: 32 word), (2 :: 32 word), (True, False, nil), nil) # []\<rrangle>; for (a, b, (c, d)) in lst { if c && d { x += a; } else { x += b; } }; x \<close> = \<lbrakk> let mut x = \<llangle>0 :: 32 word\<rrangle>; let lst = \<llangle>((1 :: 32 word), (2 :: 32 word), (True, False, nil), nil) # ((1 :: 32 word), (2 :: 32 word), (True, False, nil), nil) # []\<rrangle>; for (a, b, (c, d)) in lst { if c && d { x += a; } else { x += b; } }; x \<rbrakk>\<close> by (rule refl)
+
+
+
 
 context
   fixes x y :: \<open>32 word\<close>
 begin
-lemma \<open>\<mu>\<open> for i in x .. y { () } \<close> = \<lbrakk> for i in x .. y { () } \<rbrakk>\<close> by (rule refl)
+
 end
 
 context
   fixes n :: nat
 begin
-lemma \<open>\<mu>\<open> let mut x = \<llangle>0 :: 32 word\<rrangle>; let _ = \<llangle>x :: (unit, unit, 32 word) Global_Store.ref\<rrangle>; #[fuel(\<epsilon>\<open>n\<close>) ] while (*x < 10_u32) { x += 1_u32; }; *x \<close> = \<lbrakk> let mut x = \<llangle>0 :: 32 word\<rrangle>; let _ = \<llangle>x :: (unit, unit, 32 word) Global_Store.ref\<rrangle>; #[fuel(\<epsilon>\<open>n\<close>) ] while (*x < 10_u32) { x += 1_u32; }; *x \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> let mut x = \<llangle>0 :: 32 word\<rrangle>; let _ = \<llangle>x :: (unit, unit, 32 word) Global_Store.ref\<rrangle>; #[fuel(\<epsilon>\<open>n :: nat\<close>) ] while (*x < 10_u32) { x += 1_u32; } *x \<close> = \<lbrakk> let mut x = \<llangle>0 :: 32 word\<rrangle>; let _ = \<llangle>x :: (unit, unit, 32 word) Global_Store.ref\<rrangle>; #[fuel(\<epsilon>\<open>n :: nat\<close>) ] while (*x < 10_u32) { x += 1_u32; } *x \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> let mut x = \<llangle>0 :: 32 word\<rrangle>; let _ = \<llangle>x :: (unit, unit, 32 word) Global_Store.ref\<rrangle>; #[fuel(\<epsilon>\<open>n\<close>) ] loop { x += 1_u32; }; *x \<close> = \<lbrakk> let mut x = \<llangle>0 :: 32 word\<rrangle>; let _ = \<llangle>x :: (unit, unit, 32 word) Global_Store.ref\<rrangle>; #[fuel(\<epsilon>\<open>n\<close>) ] loop { x += 1_u32; }; *x \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> let mut x = \<llangle>0 :: 32 word\<rrangle>; let _ = \<llangle>x :: (unit, unit, 32 word) Global_Store.ref\<rrangle>; #[fuel(\<epsilon>\<open>n :: nat\<close>) ] loop { x += 1_u32; } *x \<close> = \<lbrakk> let mut x = \<llangle>0 :: 32 word\<rrangle>; let _ = \<llangle>x :: (unit, unit, 32 word) Global_Store.ref\<rrangle>; #[fuel(\<epsilon>\<open>n :: nat\<close>) ] loop { x += 1_u32; } *x \<rbrakk>\<close> by (rule refl)
+
+
+
+
 end
 
 subsubsection\<open>While Let\<close>
@@ -530,82 +514,82 @@ context
   fixes n :: nat
   fixes g :: \<open>'s\<close>
 begin
-lemma \<open>\<mu>\<open> #[fuel(\<epsilon>\<open>n\<close>)] while let Some(v) = Some(g) { () }; () \<close> = \<lbrakk> #[fuel(\<epsilon>\<open>n\<close>)] while let Some(v) = Some(g) { () }; () \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> #[fuel(\<epsilon>\<open>n :: nat\<close>)] while let Some(v) = Some(g) { () } () \<close> = \<lbrakk> #[fuel(\<epsilon>\<open>n :: nat\<close>)] while let Some(v) = Some(g) { () } () \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> #[fuel(\<epsilon>\<open>n\<close>)] while let Ok(v) = \<llangle>Ok g :: ('s, unit) result\<rrangle> { () }; () \<close> = \<lbrakk> #[fuel(\<epsilon>\<open>n\<close>)] while let Ok(v) = \<llangle>Ok g :: ('s, unit) result\<rrangle> { () }; () \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> #[fuel(\<epsilon>\<open>n\<close>)] while let (a, b) = (\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>) { () }; () \<close> = \<lbrakk> #[fuel(\<epsilon>\<open>n\<close>)] while let (a, b) = (\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>) { () }; () \<rbrakk>\<close> by (rule refl)
+
+
+
+
 end
 
 subsection\<open>Control Flow - Return\<close>
 
 lemma \<open>\<mu>\<open> return; \<close> = \<lbrakk> return; \<rbrakk>\<close> by (rule refl)
 lemma \<open>(FunctionBody \<mu>\<open> ({return;}) == (); return; \<close>) = (FunctionBody \<lbrakk> ({return;}) == (); return; \<rbrakk>)\<close> by (rule refl)
-lemma \<open>\<mu>\<open> let v = \<llangle>42 :: 64 word\<rrangle>; return v; \<close> = \<lbrakk> let v = \<llangle>42 :: 64 word\<rrangle>; return v; \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> let (a,b) = (\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>); return; \<close> = \<lbrakk> let (a,b) = (\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>); return; \<rbrakk>\<close> by (rule refl)
+
+
 
 definition test :: \<open>(nat, unit, unit, unit, unit) function_body\<close> where
   \<open>test \<equiv> (FunctionBody \<lbrakk> let x = \<llangle>Some (0 :: nat)\<rrangle>; let Some(foo) = x else { return; }; return; \<rbrakk>)\<close>
 hide_const test
 
-lemma \<open>((FunctionBody \<mu>\<open> let x = \<llangle>Some (0 :: nat)\<rrangle>; let Some(foo) = x else { return; }; return; \<close>) :: (nat, unit, unit, unit, unit) function_body) = ((FunctionBody \<lbrakk> let x = \<llangle>Some (0 :: nat)\<rrangle>; let Some(foo) = x else { return; }; return; \<rbrakk>) :: (nat, unit, unit, unit, unit) function_body)\<close> by (rule refl)
+
 
 context
   fixes x :: \<open>'s\<close>
   fixes g :: \<open>'s \<Rightarrow> ('a, nat option, unit, unit, unit) function_body\<close>
 begin
-lemma \<open>\<mu>\<open> let blub = 0_u32; (if let Some(x) = g(x) { return 0; } else { return 42; }) + 0_u32; return 12; \<close> = \<lbrakk> let blub = 0_u32; (if let Some(x) = g(x) { return 0; } else { return 42; }) + 0_u32; return 12; \<rbrakk>\<close> by (rule refl)
+
 end
 
-lemma \<open>\<mu>\<open> let x = if True { 0 } else { 1 }; return x; \<close> = \<lbrakk> let x = if True { 0 } else { 1 }; return x; \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> let x = (if True { 0 } else { 1 }); return x; \<close> = \<lbrakk> let x = (if True { 0 } else { 1 }); return x; \<rbrakk>\<close> by (rule refl)
+
+
 
 subsection\<open>Control Flow - Error Propagation\<close>
 
 context
   fixes opt :: \<open>nat option\<close>
 begin
-lemma \<open>\<mu>\<open> opt? \<close> = \<lbrakk> opt? \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> let x = opt?; x \<close> = \<lbrakk> let x = opt?; x \<rbrakk>\<close> by (rule refl)
+
+
 end
 
 context
   fixes res :: \<open>(nat, bool) result\<close>
 begin
-lemma \<open>\<mu>\<open> res? \<close> = \<lbrakk> res? \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> let x = res?; x \<close> = \<lbrakk> let x = res?; x \<rbrakk>\<close> by (rule refl)
+
+
 end
 
 subsection\<open>Data Structures - Tuples\<close>
 
-lemma \<open>\<mu>\<open> (\<llangle>0 :: 32 word\<rrangle>, \<llangle>1 :: 32 word\<rrangle>) \<close> = \<lbrakk> (\<llangle>0 :: 32 word\<rrangle>, \<llangle>1 :: 32 word\<rrangle>) \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> (\<llangle>0 :: 32 word\<rrangle>, \<llangle>1 :: 32 word\<rrangle>, True, False) \<close> = \<lbrakk> (\<llangle>0 :: 32 word\<rrangle>, \<llangle>1 :: 32 word\<rrangle>, True, False) \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> ((False, True), False) \<close> = \<lbrakk> ((False, True), False) \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> assert!((\<llangle>0 :: 32 word\<rrangle>, \<llangle>1 :: 32 word\<rrangle>).0 == \<llangle>0 :: 32 word\<rrangle>); assert!((\<llangle>0 :: 32 word\<rrangle>, \<llangle>1 :: 32 word\<rrangle>).1 == \<llangle>1 :: 32 word\<rrangle>); \<close> = \<lbrakk> assert!((\<llangle>0 :: 32 word\<rrangle>, \<llangle>1 :: 32 word\<rrangle>).0 == \<llangle>0 :: 32 word\<rrangle>); assert!((\<llangle>0 :: 32 word\<rrangle>, \<llangle>1 :: 32 word\<rrangle>).1 == \<llangle>1 :: 32 word\<rrangle>); \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> let tup = (\<llangle>0 :: 32 word\<rrangle>, \<llangle>1 :: 32 word\<rrangle>, \<llangle>2 :: 32 word\<rrangle>, \<llangle>3 :: 32 word\<rrangle>, \<llangle>4 :: 32 word\<rrangle>, \<llangle>5 :: 32 word\<rrangle>, \<llangle>6 :: 32 word\<rrangle>, \<llangle>7 :: 32 word\<rrangle>, \<llangle>8 :: 32 word\<rrangle>, \<llangle>9 :: 32 word\<rrangle>, \<llangle>10 :: 32 word\<rrangle>, \<llangle>11 :: 32 word\<rrangle>, \<llangle>12 :: 32 word\<rrangle>, \<llangle>13 :: 32 word\<rrangle>, \<llangle>14 :: 32 word\<rrangle>, \<llangle>15 :: 32 word\<rrangle>); assert!(tup.6 == \<llangle>6 :: 32 word\<rrangle>); assert!(tup.10 == \<llangle>10 :: 32 word\<rrangle>); assert!(tup.15 == \<llangle>15 :: 32 word\<rrangle>) \<close> = \<lbrakk> let tup = (\<llangle>0 :: 32 word\<rrangle>, \<llangle>1 :: 32 word\<rrangle>, \<llangle>2 :: 32 word\<rrangle>, \<llangle>3 :: 32 word\<rrangle>, \<llangle>4 :: 32 word\<rrangle>, \<llangle>5 :: 32 word\<rrangle>, \<llangle>6 :: 32 word\<rrangle>, \<llangle>7 :: 32 word\<rrangle>, \<llangle>8 :: 32 word\<rrangle>, \<llangle>9 :: 32 word\<rrangle>, \<llangle>10 :: 32 word\<rrangle>, \<llangle>11 :: 32 word\<rrangle>, \<llangle>12 :: 32 word\<rrangle>, \<llangle>13 :: 32 word\<rrangle>, \<llangle>14 :: 32 word\<rrangle>, \<llangle>15 :: 32 word\<rrangle>); assert!(tup.6 == \<llangle>6 :: 32 word\<rrangle>); assert!(tup.10 == \<llangle>10 :: 32 word\<rrangle>); assert!(tup.15 == \<llangle>15 :: 32 word\<rrangle>) \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> let a = \<llangle>0 :: 32 word\<rrangle>; let b = \<llangle>1 :: 32 word\<rrangle>; let c = \<llangle>2 :: 32 word\<rrangle>; let tup = (a, b, c, (False, True)); assert!(tup.3.0 == False); assert!(tup.3.1 == True); \<close> = \<lbrakk> let a = \<llangle>0 :: 32 word\<rrangle>; let b = \<llangle>1 :: 32 word\<rrangle>; let c = \<llangle>2 :: 32 word\<rrangle>; let tup = (a, b, c, (False, True)); assert!(tup.3.0 == False); assert!(tup.3.1 == True); \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> let a = \<llangle>0 :: 32 word\<rrangle>; let b = \<llangle>1 :: 32 word\<rrangle>; let tup = (a, (b, a)); let (aaa, (bbb, ccc)) = tup; assert!(aaa == a); assert!(bbb == b); assert!(ccc == a); \<close> = \<lbrakk> let a = \<llangle>0 :: 32 word\<rrangle>; let b = \<llangle>1 :: 32 word\<rrangle>; let tup = (a, (b, a)); let (aaa, (bbb, ccc)) = tup; assert!(aaa == a); assert!(bbb == b); assert!(ccc == a); \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> let a = \<llangle>10 :: 32 word\<rrangle>; let b = \<llangle>20 :: 32 word\<rrangle>; let c = \<llangle>30 :: 32 word\<rrangle>; let tup = (a, (b, c)); let (x, (y, z)) = tup; assert!(x == a); assert!(y == b); assert!(z == c) \<close> = \<lbrakk> let a = \<llangle>10 :: 32 word\<rrangle>; let b = \<llangle>20 :: 32 word\<rrangle>; let c = \<llangle>30 :: 32 word\<rrangle>; let tup = (a, (b, c)); let (x, (y, z)) = tup; assert!(x == a); assert!(y == b); assert!(z == c) \<rbrakk>\<close> by (rule refl)
+
+
+
+
+
+
+
+
 
 subsection\<open>Data Structures - Option and Result\<close>
 
-lemma \<open>\<mu>\<open> Some(\<llangle>42 :: nat\<rrangle>) \<close> = \<lbrakk> Some(\<llangle>42 :: nat\<rrangle>) \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> None \<close> = \<lbrakk> None \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> \<llangle>Some (0 :: nat)\<rrangle> \<close> = \<lbrakk> \<llangle>Some (0 :: nat)\<rrangle> \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> Ok(\<llangle>42 :: nat\<rrangle>) \<close> = \<lbrakk> Ok(\<llangle>42 :: nat\<rrangle>) \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> Err(\<llangle>42 :: nat\<rrangle>) \<close> = \<lbrakk> Err(\<llangle>42 :: nat\<rrangle>) \<rbrakk>\<close> by (rule refl)
+
+
+
+
+
 
 subsection\<open>Data Structures - Ranges\<close>
 
 context
   fixes x y :: \<open>32 word\<close>
 begin
-lemma \<open>\<mu>\<open> x..y \<close> = \<lbrakk> x..y \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> x..=y \<close> = \<lbrakk> x..=y \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> let rng = x ..= x+y; rng.is_empty() \<close> = \<lbrakk> let rng = x ..= x+y; rng.is_empty() \<rbrakk>\<close> by (rule refl)
+
+
+
 end
 
-lemma \<open>\<mu>\<open> let int_max = \<llangle>255 :: 8 word\<rrangle>; let inclusive = int_max ..= int_max; assert!(!(inclusive.is_empty())); assert!(inclusive.contains(int_max)); let exclusive = int_max .. int_max; assert!(exclusive.is_empty()); () \<close> = \<lbrakk> let int_max = \<llangle>255 :: 8 word\<rrangle>; let inclusive = int_max ..= int_max; assert!(!(inclusive.is_empty())); assert!(inclusive.contains(int_max)); let exclusive = int_max .. int_max; assert!(exclusive.is_empty()); () \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> let mut count = \<llangle>0 :: 8 word\<rrangle>; let _ = \<llangle>count :: (unit, unit, 8 word) Global_Store.ref\<rrangle>; let int_max = \<llangle>255 :: 8 word\<rrangle>; for i in int_max ..= int_max { count += \<llangle>1 :: 8 word\<rrangle>; }; assert!(*count == \<llangle>1 :: 8 word\<rrangle>); () \<close> = \<lbrakk> let mut count = \<llangle>0 :: 8 word\<rrangle>; let _ = \<llangle>count :: (unit, unit, 8 word) Global_Store.ref\<rrangle>; let int_max = \<llangle>255 :: 8 word\<rrangle>; for i in int_max ..= int_max { count += \<llangle>1 :: 8 word\<rrangle>; }; assert!(*count == \<llangle>1 :: 8 word\<rrangle>); () \<rbrakk>\<close> by (rule refl)
+
+
 
 subsection\<open>Functions and Closures\<close>
 
@@ -618,10 +602,10 @@ context
   fixes h :: \<open>'s \<Rightarrow> 't \<Rightarrow> 'u \<Rightarrow> 's \<Rightarrow> ('a, 'b, unit, unit, unit) function_body\<close>
   fixes i :: \<open>'s \<Rightarrow> 't \<Rightarrow> 'u \<Rightarrow> 's \<Rightarrow> 't \<Rightarrow> ('a, 'b, unit, unit, unit) function_body\<close>
 begin
-lemma \<open>\<mu>\<open> h(a, b, c, a) \<close> = \<lbrakk> h(a, b, c, a) \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> i(a, b, c, a, b) \<close> = \<lbrakk> i(a, b, c, a, b) \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> \<epsilon>\<open>g\<close>(c); g(c); f(a,b); a.f(b); f(g(c),b); g(c).f(b) \<close> = \<lbrakk> \<epsilon>\<open>g\<close>(c); g(c); f(a,b); a.f(b); f(g(c),b); g(c).f(b) \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> f(g(c),b) \<close> = \<lbrakk> f(g(c),b) \<rbrakk>\<close> by (rule refl)
+
+
+
+
 end
 
 context
@@ -630,7 +614,7 @@ context
     nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow>
     (unit, nat, unit, unit, unit) function_body \<close>
 begin
-lemma \<open>\<mu>\<open> f14(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13) \<close> = \<lbrakk> f14(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13) \<rbrakk>\<close> by (rule refl)
+
 end
 
 subsubsection\<open>Method-Style Calls\<close>
@@ -642,8 +626,8 @@ context
   fixes f :: \<open>'s \<Rightarrow> 't \<Rightarrow> ('a, 'b, unit, unit, unit) function_body\<close>
   fixes g :: \<open>'u \<Rightarrow> ('a, 's, unit, unit, unit) function_body\<close>
 begin
-lemma \<open>\<mu>\<open> g(c); c.g(); \<close> = \<lbrakk> g(c); c.g(); \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> a.f(b) \<close> = \<lbrakk> a.f(b) \<rbrakk>\<close> by (rule refl)
+
+
 end
 
 subsubsection\<open>Turbofish Syntax\<close>
@@ -658,8 +642,8 @@ context
   fixes f :: \<open>nat \<Rightarrow> ('s, 'a, unit, unit, unit) function_body\<close>
   fixes g :: \<open>nat \<Rightarrow> bool \<Rightarrow> ('s, 'a, unit, unit, unit) function_body\<close>
 begin
-lemma \<open>\<mu>\<open> f::<5>() \<close> = \<lbrakk> f::<5>() \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> g::<10>(True) \<close> = \<lbrakk> g::<10>(True) \<rbrakk>\<close> by (rule refl)
+
+
 end
 
 subsubsection\<open>Closures\<close>
@@ -679,10 +663,10 @@ context
   fixes n :: \<open>nat\<close>
   fixes x :: \<open>nat\<close>
 begin
-lemma \<open>\<mu>\<open> || return x; \<close> = \<lbrakk> || return x; \<rbrakk>\<close> by (rule refl)
+
 lemma \<open>\<mu>\<open> |x| x \<close> = \<lbrakk> |x| x \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> |x, y| { let z = f(x,y); return z; } \<close> = \<lbrakk> |x, y| { let z = f(x,y); return z; } \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> h(n, |b| { let z = f(n,b); return \<llangle>n+z\<rrangle>; }) \<close> = \<lbrakk> h(n, |b| { let z = f(n,b); return \<llangle>n+z\<rrangle>; }) \<rbrakk>\<close> by (rule refl)
+
+
 end
 
 subsection\<open>References and Mutation\<close>
@@ -709,10 +693,10 @@ context
   fixes x :: testrec
   fixes y :: testrec2
 begin
-lemma \<open>\<mu>\<open> x \<close> = \<lbrakk> x \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> x.field1 \<close> = \<lbrakk> x.field1 \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> y.field4 \<close> = \<lbrakk> y.field4 \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> y.field3.field1 \<close> = \<lbrakk> y.field3.field1 \<rbrakk>\<close> by (rule refl)
+
+
+
+
 end
 
 subsubsection\<open>Declaring micro_rust_records in locales\<close>
@@ -725,8 +709,8 @@ datatype_record foobar =
   field5 :: \<open>64 word\<close>
   field6 :: \<open>64 word\<close>
 micro_rust_record foobar
-lemma \<open>(\<lambda> x :: foobar. \<mu>\<open> x.field5 + x.field6 \<close>) = (\<lambda> x :: foobar. \<lbrakk> x.field5 + x.field6 \<rbrakk>)\<close> by (rule refl)
-lemma \<open>(\<lambda> x :: ('addr, 'fv, foobar) ref. \<mu>\<open> *x.field5 + *x.field6 \<close>) = (\<lambda> x :: ('addr, 'fv, foobar) ref. \<lbrakk> *x.field5 + *x.field6 \<rbrakk>)\<close> by (rule refl)
+
+
 end
 
 subsubsection\<open>Field Assignment Through Lenses\<close>
@@ -739,14 +723,14 @@ begin
 private definition dummy_dereference_field :: \<open>('s, 'b, 'v) Global_Store.ref \<Rightarrow> ('s, 'v, unit, unit, unit) function_body\<close> where
   \<open>dummy_dereference_field \<equiv> undefined\<close>
 adhoc_overloading store_dereference_const \<rightleftharpoons> dummy_dereference_field
-lemma \<open>\<mu>\<open> r.f(10) \<close> = \<lbrakk> r.f(10) \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> *(s. field3_lens) \<close> = \<lbrakk> *(s. field3_lens) \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> (*s). field3_lens \<close> = \<lbrakk> (*s). field3_lens \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> *r \<close> = \<lbrakk> *r \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> *(s.field4_lens) \<close> = \<lbrakk> *(s.field4_lens) \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> (*s).field4_lens \<close> = \<lbrakk> (*s).field4_lens \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> s.testrec2_field3_lens \<close> = \<lbrakk> s.testrec2_field3_lens \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> s.testrec2_field3_lens.testrec_field2_lens \<close> = \<lbrakk> s.testrec2_field3_lens.testrec_field2_lens \<rbrakk>\<close> by (rule refl)
+
+
+
+
+
+
+
+
 no_adhoc_overloading store_dereference_const \<rightleftharpoons> dummy_dereference_field
 end
 
@@ -764,12 +748,12 @@ micro_rust_record bounds_rec
 context
   fixes m :: bounds_rec
 begin
-lemma \<open>\<mu>\<open> m.lo \<close> = \<lbrakk> m.lo \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> m.end \<close> = \<lbrakk> m.end \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> m.flag \<close> = \<lbrakk> m.flag \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> m.bounds_rec_bounds_rec_lo_lens \<close> = \<lbrakk> m.bounds_rec_bounds_rec_lo_lens \<rbrakk>\<close>   by (rule refl)
-lemma \<open>\<mu>\<open> m.bounds_rec_bounds_rec_hi_lens \<close> = \<lbrakk> m.bounds_rec_bounds_rec_hi_lens \<rbrakk>\<close>   by (rule refl)
-lemma \<open>\<mu>\<open> m.bounds_rec_bounds_rec_flag_lens \<close> = \<lbrakk> m.bounds_rec_bounds_rec_flag_lens \<rbrakk>\<close> by (rule refl)
+
+
+
+
+
+
 end
 
 subsubsection\<open>Partial uRust Field-Name Overrides\<close>
@@ -783,8 +767,8 @@ micro_rust_record partial_override_rec
 context
   fixes p :: partial_override_rec
 begin
-lemma \<open>\<mu>\<open> p.renamed \<close> = \<lbrakk> p.renamed \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> p.por_kept \<close> = \<lbrakk> p.por_kept \<rbrakk>\<close> by (rule refl)
+
+
 end
 
 subsubsection\<open>Default Registration (no mapping)\<close>
@@ -797,8 +781,8 @@ micro_rust_record no_override_rec
 context
   fixes n :: no_override_rec
 begin
-lemma \<open>\<mu>\<open> n.nor_a \<close> = \<lbrakk> n.nor_a \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> n.nor_b \<close> = \<lbrakk> n.nor_b \<rbrakk>\<close> by (rule refl)
+
+
 end
 
 subsubsection\<open>Custom Names on Nested Records\<close>
@@ -817,9 +801,9 @@ micro_rust_record outer_named
 context
   fixes ob :: outer_named
 begin
-lemma \<open>\<mu>\<open> ob.inner \<close> = \<lbrakk> ob.inner \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> ob.flag \<close> = \<lbrakk> ob.flag \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> ob.inner.value \<close> = \<lbrakk> ob.inner.value \<rbrakk>\<close> by (rule refl)
+
+
+
 end
 
 subsubsection\<open>Custom Names in a Locale\<close>
@@ -834,8 +818,8 @@ datatype_record loc_named =
 micro_rust_record loc_named
   (loc_named_lo = "lo",
    loc_named_hi = "hi")
-lemma \<open>(\<lambda> x :: loc_named. \<mu>\<open> x.lo + x.hi \<close>) = (\<lambda> x :: loc_named. \<lbrakk> x.lo + x.hi \<rbrakk>)\<close> by (rule refl)
-lemma \<open>(\<lambda> x :: ('addr, 'fv, loc_named) ref. \<mu>\<open> *x.lo + *x.hi \<close>) = (\<lambda> x :: ('addr, 'fv, loc_named) ref. \<lbrakk> *x.lo + *x.hi \<rbrakk>)\<close> by (rule refl)
+
+
 end
 
 subsection\<open>Macros\<close>
@@ -855,19 +839,19 @@ context
   fixes a_value :: \<open>32 word\<close>
   fixes x y :: \<open>nat\<close>
 begin
-lemma \<open>\<mu>\<open> assert!( b ) \<close> = \<lbrakk> assert!( b ) \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> debug_assert!( b ) \<close> = \<lbrakk> debug_assert!( b ) \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> assert!(!o.is_none()) \<close> = \<lbrakk> assert!(!o.is_none()) \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> assert!(b); a_value as u16\<close> = \<lbrakk> assert!(b); a_value as u16\<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> assert!(a_value as usize == a_value as usize); a_value as u16\<close> = \<lbrakk> assert!(a_value as usize == a_value as usize); a_value as u16\<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> assert_eq!(x, y) \<close> = \<lbrakk> assert_eq!(x, y) \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> assert_ne!(x, y) \<close> = \<lbrakk> assert_ne!(x, y) \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> assert!(b, "ignored assertion message") \<close> = \<lbrakk> assert!(b, "ignored assertion message") \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> debug_assert!(b, "ignored debug assertion message", x) \<close> = \<lbrakk> debug_assert!(b, "ignored debug assertion message", x) \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> assert_eq!(x, y, "ignored assert_eq message", x) \<close> = \<lbrakk> assert_eq!(x, y, "ignored assert_eq message", x) \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> assert_ne!(x, y, "ignored assert_ne message", y) \<close> = \<lbrakk> assert_ne!(x, y, "ignored assert_ne message", y) \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> debug_assert_eq!(x, y, "ignored debug_assert_eq message") \<close> = \<lbrakk> debug_assert_eq!(x, y, "ignored debug_assert_eq message") \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> debug_assert_ne!(x, y, "ignored debug_assert_ne message") \<close> = \<lbrakk> debug_assert_ne!(x, y, "ignored debug_assert_ne message") \<rbrakk>\<close> by (rule refl)
+
+
+
+
+
+
+
+
+
+
+
+
+
 end
 
 context
@@ -876,29 +860,29 @@ context
   and r :: \<open>('a, 'b, 'v) ref\<close>
   and nm :: \<open>String.literal\<close>
 begin
-lemma \<open>\<mu>\<open> panic!(msg) \<close> = \<lbrakk> panic!(msg) \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> fatal!(msg) \<close> = \<lbrakk> fatal!(msg) \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> unimplemented!("some_fun") \<close> = \<lbrakk> unimplemented!("some_fun") \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> unimplemented!(nm) \<close> = \<lbrakk> unimplemented!(nm) \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> todo!("oh no!") \<close> = \<lbrakk> todo!("oh no!") \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> fatal!("yikes!") \<close> = \<lbrakk> fatal!("yikes!") \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> fatal!( \<llangle>''yikes!''\<rrangle> ) \<close> = \<lbrakk> fatal!( \<llangle>''yikes!''\<rrangle> ) \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> panic!() \<close> = \<lbrakk> panic!() \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> unimplemented!() \<close> = \<lbrakk> unimplemented!() \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> todo!() \<close> = \<lbrakk> todo!() \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> fatal!() \<close> = \<lbrakk> fatal!() \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> panic!("first", msg) \<close> = \<lbrakk> panic!("first", msg) \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> unimplemented!("first", msg) \<close> = \<lbrakk> unimplemented!("first", msg) \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> todo!("first", msg) \<close> = \<lbrakk> todo!("first", msg) \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> fatal!("first", msg) \<close> = \<lbrakk> fatal!("first", msg) \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> unreachable!() \<close> = \<lbrakk> unreachable!() \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> unreachable!("should not reach here") \<close> = \<lbrakk> unreachable!("should not reach here") \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> unreachable!("bad state: {}", msg) \<close> = \<lbrakk> unreachable!("bad state: {}", msg) \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> panic!("Invalid index: {}", idx) \<close> = \<lbrakk> panic!("Invalid index: {}", idx) \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> unimplemented!("not done: {} {}", idx, idx) \<close> = \<lbrakk> unimplemented!("not done: {} {}", idx, idx) \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> todo!("implement: {}", idx) \<close> = \<lbrakk> todo!("implement: {}", idx) \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> addr_of!(r) \<close> = \<lbrakk> addr_of!(r) \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> addr_of_mut!(r) \<close> = \<lbrakk> addr_of_mut!(r) \<rbrakk>\<close> by (rule refl)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 end
 
 subsubsection\<open>Logging\<close>
@@ -912,9 +896,9 @@ calls are isolated in \<open>Parser_Test_Logging.thy\<close>.
 context
   fixes b :: \<open>bool\<close>
 begin
-lemma \<open>\<mu>\<open> \<l>\<o>\<g> \<llangle>Error\<rrangle> \<llangle>[LogNat 32]\<rrangle> \<close> = \<lbrakk> \<l>\<o>\<g> \<llangle>Error\<rrangle> \<llangle>[LogNat 32]\<rrangle> \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> \<l>\<o>\<g> \<llangle>Trace\<rrangle> \<llangle>[LogNat 32, LogString (String.implode ''goo'')]\<rrangle> \<close> = \<lbrakk> \<l>\<o>\<g> \<llangle>Trace\<rrangle> \<llangle>[LogNat 32, LogString (String.implode ''goo'')]\<rrangle> \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> \<l>\<o>\<g> \<llangle>Fatal\<rrangle> \<llangle>[LogBool b]\<rrangle> \<close> = \<lbrakk> \<l>\<o>\<g> \<llangle>Fatal\<rrangle> \<llangle>[LogBool b]\<rrangle> \<rbrakk>\<close> by (rule refl)
+
+
+
 end
 
 lemma \<open>\<mu>\<open> \<y>\<i>\<e>\<l>\<d> \<close> = \<lbrakk> \<y>\<i>\<e>\<l>\<d> \<rbrakk>\<close> by (rule refl)
@@ -925,18 +909,18 @@ subsection\<open>Miscellaneous Features\<close>
 context
   fixes msg :: \<open>String.literal\<close>
 begin
-lemma \<open>\<mu>\<open> unsafe { panic!("msg") } \<close> = \<lbrakk> unsafe { panic!("msg") } \<rbrakk>\<close> by (rule refl)
+
 end
 
 subsubsection\<open>Array and Slice Expression Literals\<close>
 
-lemma \<open>\<mu>\<open> [\<llangle>1 :: 32 word\<rrangle>, \<llangle>2 :: 32 word\<rrangle>, \<llangle>3 :: 32 word\<rrangle>] \<close> = \<lbrakk> [\<llangle>1 :: 32 word\<rrangle>, \<llangle>2 :: 32 word\<rrangle>, \<llangle>3 :: 32 word\<rrangle>] \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> &[\<llangle>1 :: 32 word\<rrangle>, \<llangle>2 :: 32 word\<rrangle>] \<close> = \<lbrakk> &[\<llangle>1 :: 32 word\<rrangle>, \<llangle>2 :: 32 word\<rrangle>] \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> & mut [\<llangle>1 :: 32 word\<rrangle>, \<llangle>2 :: 32 word\<rrangle>] \<close> = \<lbrakk> & mut [\<llangle>1 :: 32 word\<rrangle>, \<llangle>2 :: 32 word\<rrangle>] \<rbrakk>\<close> by (rule refl)
+
+
+
 lemma \<open>\<mu>\<open> & mut [] \<close> = \<lbrakk> & mut [] \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> [\<llangle>1 :: 32 word\<rrangle> + \<llangle>2 :: 32 word\<rrangle>, \<llangle>3 :: 32 word\<rrangle>] \<close> = \<lbrakk> [\<llangle>1 :: 32 word\<rrangle> + \<llangle>2 :: 32 word\<rrangle>, \<llangle>3 :: 32 word\<rrangle>] \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> let xs = [\<llangle>1 :: 32 word\<rrangle>, \<llangle>2 :: 32 word\<rrangle>, \<llangle>3 :: 32 word\<rrangle>]; assert!(xs[0_usize] == \<llangle>1 :: 32 word\<rrangle>); assert!(xs[2_usize] == \<llangle>3 :: 32 word\<rrangle>) \<close> = \<lbrakk> let xs = [\<llangle>1 :: 32 word\<rrangle>, \<llangle>2 :: 32 word\<rrangle>, \<llangle>3 :: 32 word\<rrangle>]; assert!(xs[0_usize] == \<llangle>1 :: 32 word\<rrangle>); assert!(xs[2_usize] == \<llangle>3 :: 32 word\<rrangle>) \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> let xs = &[\<llangle>4 :: 32 word\<rrangle>, \<llangle>5 :: 32 word\<rrangle>]; let s = match xs { [a, b] \<Rightarrow> a + b, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }; assert!(s == \<llangle>9 :: 32 word\<rrangle>) \<close> = \<lbrakk> let xs = &[\<llangle>4 :: 32 word\<rrangle>, \<llangle>5 :: 32 word\<rrangle>]; let s = match xs { [a, b] \<Rightarrow> a + b, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> }; assert!(s == \<llangle>9 :: 32 word\<rrangle>) \<rbrakk>\<close> by (rule refl)
+
+
+
 
 subsubsection\<open>Vec Macro\<close>
 
@@ -945,9 +929,9 @@ These rows are promoted in \<open>Parser_Test_Expr_Conformance.thy\<close>, incl
 nested, indexed, parenthesized, and borrow-interaction variants.
 \<close>
 
-lemma \<open>\<mu>\<open> vec![\<llangle>1 :: 32 word\<rrangle>, \<llangle>2 :: 32 word\<rrangle>, \<llangle>3 :: 32 word\<rrangle>] \<close> = \<lbrakk> vec![\<llangle>1 :: 32 word\<rrangle>, \<llangle>2 :: 32 word\<rrangle>, \<llangle>3 :: 32 word\<rrangle>] \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> vec![] \<close> = \<lbrakk> vec![] \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> let xs = vec![\<llangle>10 :: 32 word\<rrangle>, \<llangle>20 :: 32 word\<rrangle>]; assert!(xs[0_usize] == \<llangle>10 :: 32 word\<rrangle>) \<close> = \<lbrakk> let xs = vec![\<llangle>10 :: 32 word\<rrangle>, \<llangle>20 :: 32 word\<rrangle>]; assert!(xs[0_usize] == \<llangle>10 :: 32 word\<rrangle>) \<rbrakk>\<close> by (rule refl)
+
+
+
 
 subsubsection\<open>Matches Macro\<close>
 
@@ -962,9 +946,9 @@ context
   fixes x :: \<open>nat option\<close>
   and y :: \<open>bool option\<close>
 begin
-lemma \<open>\<mu>\<open> matches!(x, Some(_)) \<close> = \<lbrakk> matches!(x, Some(_)) \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> matches!(x, None) \<close> = \<lbrakk> matches!(x, None) \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> matches!(y, Some(true) | None) \<close> = \<lbrakk> matches!(y, Some(true) | None) \<rbrakk>\<close> by (rule refl)
+
+
+
 end
 
 subsubsection\<open>Indexing\<close>
@@ -973,14 +957,14 @@ context
   fixes xs :: \<open>nat list\<close>
   fixes xss :: \<open>nat list list\<close>
 begin
-lemma \<open>\<mu>\<open> xs [0_usize..100_usize][42_usize] \<close> = \<lbrakk> xs [0_usize..100_usize][42_usize] \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> xss[10_usize] \<close> = \<lbrakk> xss[10_usize] \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> xss[10_usize][100_usize] \<close> = \<lbrakk> xss[10_usize][100_usize] \<rbrakk>\<close> by (rule refl)
+
+
+
 end
 
 subsubsection\<open>Const Bindings\<close>
 
-lemma \<open>\<mu>\<open> const FOO = \<llangle>5 :: nat\<rrangle>; () \<close> = \<lbrakk> const FOO = \<llangle>5 :: nat\<rrangle>; () \<rbrakk>\<close> by (rule refl)
+
 
 subsubsection\<open>Scoping and Block Expressions\<close>
 
@@ -992,7 +976,7 @@ end
 
 subsubsection\<open>Sequencing\<close>
 
-lemma \<open>\<mu>\<open> let a = 1; let b = \<llangle>2 :: nat\<rrangle>; a \<close> = \<lbrakk> let a = 1; let b = \<llangle>2 :: nat\<rrangle>; a \<rbrakk>\<close> by (rule refl)
+
 
 subsection\<open>Rust Path Expressions\<close>
 
@@ -1013,13 +997,13 @@ micro_rust_notation (literal) True ("foo::bar::test3")
 definition \<open>the_record \<equiv> make_testrec 1 False\<close>
 micro_rust_notation (literal) the_record ("the::record")
 
-lemma \<open>\<mu>\<open>the::record\<close> = \<lbrakk>the::record\<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open>(the::record).field1\<close> = \<lbrakk>(the::record).field1\<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open>the::record.field1\<close> = \<lbrakk>the::record.field1\<rbrakk>\<close> by (rule refl)
 
-lemma \<open>\<mu>\<open> foo::bar::test1 \<close> = \<lbrakk> foo::bar::test1 \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> foo::bar:: test2 \<close> = \<lbrakk> foo::bar:: test2 \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> foo:: bar::test3 \<close> = \<lbrakk> foo:: bar::test3 \<rbrakk>\<close> by (rule refl)
+
+
+
+
+
+
 
 datatype pe_test =
     Test1
@@ -1037,32 +1021,12 @@ micro_rust_notation (literal) plus_two_lift ("plus2::lifted")
 definition three :: \<open>64 word\<close> where \<open>three = 3\<close>
 micro_rust_notation (literal) three ("number::three")
 
-lemma \<open>\<mu>\<open> test::Test_1 \<close> = \<lbrakk> test::Test_1 \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open>plus2::lifted(three)\<close> = \<lbrakk>plus2::lifted(three)\<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open>plus_two_lift(three)\<close> = \<lbrakk>plus_two_lift(three)\<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open>
-  let arg = test::Test_1;
-  let fun = plus2::lifted;
-  match arg { test::Test_1 \<Rightarrow> fun(three), test::Test_2 \<Rightarrow> plus2::lifted(three) }
-\<close> = \<lbrakk>
-  let arg = test::Test_1;
-  let fun = plus2::lifted;
-  match arg { test::Test_1 \<Rightarrow> fun(three), test::Test_2 \<Rightarrow> plus2::lifted(three) }
-\<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open>
-  let x = 5;
-  match x { 2 \<Rightarrow> False, number::three \<Rightarrow> False, 0 \<Rightarrow> False, 1 \<Rightarrow> False, _ \<Rightarrow> True }
-\<close> = \<lbrakk>
-  let x = 5;
-  match x { 2 \<Rightarrow> False, number::three \<Rightarrow> False, 0 \<Rightarrow> False, 1 \<Rightarrow> False, _ \<Rightarrow> True }
-\<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open>
-  let x = 5;
-  match_switch x { number::three \<Rightarrow> False, _ \<Rightarrow> True }
-\<close> = \<lbrakk>
-  let x = 5;
-  match_switch x { number::three \<Rightarrow> False, _ \<Rightarrow> True }
-\<rbrakk>\<close> by (rule refl)
+
+
+
+
+
+
 
 end
 
@@ -1070,35 +1034,35 @@ subsection\<open>Disjunctive Patterns\<close>
 
 datatype three_case = CaseA nat | CaseB nat | CaseC
 
-lemma \<open>\<mu>\<open> match Some(\<llangle>42 :: nat\<rrangle>) { Some(x) | None \<Rightarrow> x } \<close> = \<lbrakk> match Some(\<llangle>42 :: nat\<rrangle>) { Some(x) | None \<Rightarrow> x } \<rbrakk>\<close> by (rule refl)
+
 
 context
   fixes x :: \<open>32 word\<close>
 begin
-lemma \<open>\<mu>\<open> match_switch x { 1 | 2 | 3 \<Rightarrow> True, _ \<Rightarrow> False } \<close> = \<lbrakk> match_switch x { 1 | 2 | 3 \<Rightarrow> True, _ \<Rightarrow> False } \<rbrakk>\<close> by (rule refl)
+
 end
 
 context
   fixes x :: \<open>32 word option\<close>
 begin
-lemma \<open>\<mu>\<open> match x { Some(y) | None if y > \<llangle>0 :: 32 word\<rrangle> \<Rightarrow> y, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<close> = \<lbrakk> match x { Some(y) | None if y > \<llangle>0 :: 32 word\<rrangle> \<Rightarrow> y, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<rbrakk>\<close> by (rule refl)
+
 end
 
-lemma \<open>\<mu>\<open> match Some(Ok(\<llangle>1 :: nat\<rrangle>)) { Some(Ok(x) | Err(x)) \<Rightarrow> x, _ \<Rightarrow> \<llangle>0 :: nat\<rrangle> } \<close> = \<lbrakk> match Some(Ok(\<llangle>1 :: nat\<rrangle>)) { Some(Ok(x) | Err(x)) \<Rightarrow> x, _ \<Rightarrow> \<llangle>0 :: nat\<rrangle> } \<rbrakk>\<close> by (rule refl)
+
 
 context
   fixes x :: \<open>64 word\<close>
 begin
-lemma \<open>\<mu>\<open> match_switch x { 0 | 1 \<Rightarrow> False, _ \<Rightarrow> True } \<close> = \<lbrakk> match_switch x { 0 | 1 \<Rightarrow> False, _ \<Rightarrow> True } \<rbrakk>\<close> by (rule refl)
+
 end
 
-lemma \<open>\<mu>\<open> let res = match Ok(\<llangle>10 :: 32 word\<rrangle>) { Ok(x) | Err(x) \<Rightarrow> x }; assert!(res == \<llangle>10 :: 32 word\<rrangle>) \<close> = \<lbrakk> let res = match Ok(\<llangle>10 :: 32 word\<rrangle>) { Ok(x) | Err(x) \<Rightarrow> x }; assert!(res == \<llangle>10 :: 32 word\<rrangle>) \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> match (Some(\<llangle>1 :: nat\<rrangle>), Some(\<llangle>2 :: nat\<rrangle>)) { (Some(x), Some(y)) | (None, Some(y)) \<Rightarrow> y, _ \<Rightarrow> \<llangle>0 :: nat\<rrangle> } \<close> = \<lbrakk> match (Some(\<llangle>1 :: nat\<rrangle>), Some(\<llangle>2 :: nat\<rrangle>)) { (Some(x), Some(y)) | (None, Some(y)) \<Rightarrow> y, _ \<Rightarrow> \<llangle>0 :: nat\<rrangle> } \<rbrakk>\<close> by (rule refl)
+
+
 
 subsection\<open>Mutable Pattern Destructuring\<close>
 
-lemma \<open>\<mu>\<open> let mut (x, y) = (\<llangle>1 :: 32 word\<rrangle>, \<llangle>2 :: 32 word\<rrangle>); x + y \<close> = \<lbrakk> let mut (x, y) = (\<llangle>1 :: 32 word\<rrangle>, \<llangle>2 :: 32 word\<rrangle>); x + y \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> let mut (a, b, c) = (\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>, \<llangle>3 :: nat\<rrangle>); a \<close> = \<lbrakk> let mut (a, b, c) = (\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>, \<llangle>3 :: nat\<rrangle>); a \<rbrakk>\<close> by (rule refl)
+
+
 
 
 section\<open> Definition goldens \<close>
@@ -1170,23 +1134,23 @@ datatype_record line =
 micro_rust_record line (line_from = "from", line_to = "to")
 
 context fixes p :: point begin
-lemma \<open>\<mu>\<open> p.x \<close> = \<lbrakk> p.x \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> p.y \<close> = \<lbrakk> p.y \<rbrakk>\<close> by (rule refl)
+
+
 end
 
 context fixes fl :: flags begin
-lemma \<open>\<mu>\<open> fl.bits \<close> = \<lbrakk> fl.bits \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> fl.enabled \<close> = \<lbrakk> fl.enabled \<rbrakk>\<close> by (rule refl)
+
+
 end
 
 context fixes w :: wrapper begin
-lemma \<open>\<mu>\<open> w.value \<close> = \<lbrakk> w.value \<rbrakk>\<close> by (rule refl)
+
 end
 
 context fixes ln :: line begin
-lemma \<open>\<mu>\<open> ln.from \<close> = \<lbrakk> ln.from \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> ln.to \<close> = \<lbrakk> ln.to \<rbrakk>\<close> by (rule refl)
-lemma \<open>\<mu>\<open> ln.from.x \<close> = \<lbrakk> ln.from.x \<rbrakk>\<close> by (rule refl)
+
+
+
 end
 
 subsection\<open>Enum-definition tier — Rust enum \<rightarrow> datatype + micro_rust_notation\<close>
@@ -1203,14 +1167,10 @@ micro_rust_notation (literal) color.Red   ("Color::Red")
 micro_rust_notation (literal) color.Green ("Color::Green")
 micro_rust_notation (literal) color.Blue  ("Color::Blue")
 
-lemma \<open>\<mu>\<open> Color::Red \<close> = \<lbrakk> Color::Red \<rbrakk>\<close> by (rule refl)
+
 
 context fixes c :: color begin
-lemma \<open>\<mu>\<open>
-  match c { Color::Red \<Rightarrow> \<llangle>0 :: nat\<rrangle>, Color::Green \<Rightarrow> \<llangle>1 :: nat\<rrangle>, Color::Blue \<Rightarrow> \<llangle>2 :: nat\<rrangle> }
-\<close> = \<lbrakk>
-  match c { Color::Red \<Rightarrow> \<llangle>0 :: nat\<rrangle>, Color::Green \<Rightarrow> \<llangle>1 :: nat\<rrangle>, Color::Blue \<Rightarrow> \<llangle>2 :: nat\<rrangle> }
-\<rbrakk>\<close> by (rule refl)
+
 end
 
 section\<open> Frontend rejections \<close>
