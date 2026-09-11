@@ -2030,6 +2030,7 @@ ML_val\<open>
         val path = make_path text
         val resolver =
           URust_Resolution.make_constructor_resolver ctxt
+            URust_Resolution.empty_environment
             (URust_AST.path_position path)
       in
         the (URust_Resolution.resolve_constructor ctxt resolver path)
@@ -2044,6 +2045,7 @@ ML_val\<open>
     val raw_path = make_path "ParserRaw::First"
     val raw_resolver =
       URust_Resolution.make_constructor_resolver ctxt
+        URust_Resolution.empty_environment
         (URust_AST.path_position raw_path)
 
     val (_, native_members) = native_family
@@ -3350,6 +3352,7 @@ ML_val\<open>
     val ambiguity_path = make_path "Shared"
     val ambiguity_resolver =
       URust_Resolution.make_constructor_resolver ctxt
+        URust_Resolution.empty_environment
         (URust_AST.path_position ambiguity_path)
     val ambiguity =
       (URust_Resolution.resolve_constructor ctxt

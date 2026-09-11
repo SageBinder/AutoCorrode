@@ -14,5 +14,6 @@ session Micro_Rust_Parser_Impl = HOL +
     Parser_Impl_Matching
     Parser_Impl_Macros
     Parser_Impl_Translate
+    Parser_Impl_Quotation
     Parser_Term_Hook
     Parser_Impl_Command
