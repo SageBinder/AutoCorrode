@@ -202,6 +202,32 @@ urust_expr parser_nested_registered_or_ordered ::
     }
   \<close>
 
+consts
+  parser_nested_mixed_scrutinee :: \<open>parser_native_case option\<close>
+  parser_nested_guarded_scrutinee ::
+    \<open>(unit, parser_nested_status) result\<close>
+  parser_nested_guard_marker :: bool
+
+urust_expr parser_nested_registered_mixed ::
+  \<open>(unit, nat, unit, unit, unit, unit) expression\<close>
+  \<open>
+    match \<llangle>parser_nested_mixed_scrutinee\<rrangle> {
+      Some(ParserNative::Empty) \<Rightarrow> 1,
+      Some(ParserNative::Payload(value)) \<Rightarrow> value,
+      _ \<Rightarrow> 0
+    }
+  \<close>
+
+urust_expr parser_nested_registered_guard_order ::
+  \<open>(unit, nat, unit, unit, unit, unit) expression\<close>
+  \<open>
+    match \<llangle>parser_nested_guarded_scrutinee\<rrangle> {
+      Err(NestedStatus::Primary)
+        if \<llangle>parser_nested_guard_marker\<rrangle> \<Rightarrow> 1,
+      _ \<Rightarrow> 2
+    }
+  \<close>
+
 declare [[urust_conformance_check = false]]
 
 urust_expr parser_nested_registered_payload
@@ -479,12 +505,34 @@ ML_val\<open>
                     undefined))) ::
           (unit, nat, unit, unit, unit, unit) expression
       \<close>
+    val guarded_order_expected =
+      \<^term>\<open>
+        (bind (literal parser_nested_guarded_scrutinee)
+          (\<lambda>value.
+            case value of
+              Ok result \<Rightarrow> literal (2 :: nat)
+            | Err error \<Rightarrow>
+                two_armed_conditional
+                  (literal parser_nested_guard_marker)
+                  (two_armed_conditional
+                    (urust_eq
+                      (literal error)
+                      (literal ParserPrimaryStatus))
+                    (literal (1 :: nat))
+                    undefined)
+                  (literal (2 :: nat)))) ::
+          (unit, nat, unit, unit, unit, unit) expression
+      \<close>
     val ordered =
       checked_ordered_term
         "parser_nested_registered_ordered" ordered_expected
     val ordered_or =
       checked_ordered_term
         "parser_nested_registered_or_ordered" ordered_or_expected
+    val guarded_order =
+      checked_ordered_term
+        "parser_nested_registered_guard_order"
+        guarded_order_expected
     val expected_equality_order =
       map constant_name
         [\<^term>\<open>ParserPrimaryStatus\<close>,
@@ -509,6 +557,23 @@ ML_val\<open>
       assert "or-pattern alternative order changed"
         (equality_constructor_order ordered_or =
           expected_equality_order)
+    val _ =
+      assert "guarded same-shape arm duplicated the outer case"
+        (count_constant result_case_name guarded_order = 1)
+    val _ =
+      assert "guarded same-shape arm duplicated its scrutinee"
+        (count_constant
+          \<^const_name>\<open>parser_nested_guarded_scrutinee\<close>
+          guarded_order = 1)
+    val _ =
+      assert "guarded same-shape arm duplicated its source guard"
+        (count_constant
+          \<^const_name>\<open>parser_nested_guard_marker\<close>
+          guarded_order = 1)
+    val _ =
+      assert "guarded same-shape arm lost its generated equality"
+        (count_constant \<^const_name>\<open>urust_eq\<close>
+          guarded_order = 1)
 
     val nested_payload = rhs_of "parser_nested_registered_payload"
     val SOME (native_case, _) =
@@ -516,6 +581,12 @@ ML_val\<open>
         (dest_Const_name \<^term>\<open>ParserNativePayload\<close>,
          fastype_of \<^term>\<open>ParserNativePayload\<close>)
     val native_case_name = constant_name native_case
+    val option_case_name =
+      (case Ctr_Sugar.ctr_sugar_of ctxt
+          (fst (dest_Type \<^typ>\<open>parser_native_case option\<close>)) of
+         SOME {casex, ...} => constant_name casex
+       | NONE =>
+           error "constructor matching audit: missing option case sugar")
     val _ =
       assert "argument-bearing nested constructor lost recursive case lowering"
         (count_constant native_case_name nested_payload > 0)
@@ -523,6 +594,54 @@ ML_val\<open>
       assert "argument-bearing nested constructor was normalized as equality"
         (count_constant \<^const_name>\<open>urust_eq\<close>
           nested_payload = 0)
+
+    val mixed = rhs_of "parser_nested_registered_mixed"
+    val _ =
+      assert "mixed nested alternatives duplicated the outer option case"
+        (count_constant option_case_name mixed = 1)
+    val _ =
+      assert "mixed nested alternatives lost the native payload case"
+        (count_constant native_case_name mixed > 0)
+    val _ =
+      assert "mixed nested alternatives lost exact-nullary equality"
+        (count_constant \<^const_name>\<open>urust_eq\<close> mixed = 1)
+    val _ =
+      assert "mixed nested alternatives duplicated their scrutinee"
+        (count_constant
+          \<^const_name>\<open>parser_nested_mixed_scrutinee\<close>
+          mixed = 1)
+    val _ =
+      assert "mixed nested alternatives retained schematic variables"
+        (null (Term.add_vars mixed []))
+    val _ =
+      assert "mixed nested alternatives retained local free binders"
+        (null (Term.add_frees mixed []))
+    val native_empty_name =
+      dest_Const_name \<^term>\<open>ParserNativeEmpty\<close>
+    fun find_empty_conditional term =
+      (case Term.strip_comb term of
+         (Const (name, _), [condition, _, else_branch]) =>
+           if name = \<^const_name>\<open>two_armed_conditional\<close> andalso
+              count_constant native_empty_name condition = 1
+           then SOME (condition, else_branch)
+           else find_empty_conditional_arguments term
+       | _ => find_empty_conditional_arguments term)
+    and find_empty_conditional_arguments (left $ right) =
+          (case find_empty_conditional left of
+             SOME result => SOME result
+           | NONE => find_empty_conditional right)
+      | find_empty_conditional_arguments (Abs (_, _, body)) =
+          find_empty_conditional body
+      | find_empty_conditional_arguments _ = NONE
+    val (_, mixed_after_empty) =
+      (case find_empty_conditional mixed of
+         SOME result => result
+       | NONE =>
+           error
+             "constructor matching audit: missing mixed empty conditional")
+    val _ =
+      assert "mixed nested source order moved payload before exact empty"
+        (count_constant native_case_name mixed_after_empty > 0)
 
     val ambiguity_path = make_path "Shared"
     val ambiguity_resolver =

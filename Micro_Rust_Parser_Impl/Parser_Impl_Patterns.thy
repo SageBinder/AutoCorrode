@@ -1153,6 +1153,11 @@ struct
 
   fun normalize_pattern_for_nested compiler ctxt environment pattern =
     let
+      fun requires_registered_nested_case
+            (Case_Constructor (info, _, _ :: _)) =
+            R.constructor_is_exact_registered info
+        | requires_registered_nested_case _ = false
+
       fun normalize_arguments [] = ([], [], [])
         | normalize_arguments (argument :: rest) =
             let
@@ -1175,7 +1180,9 @@ struct
                        normalize_pattern_for_nested
                          compiler ctxt environment argument
                  | _ =>
-                     if requires_nested_match argument then
+                     if requires_nested_match argument orelse
+                        requires_registered_nested_case argument
+                     then
                        let
                          val temporary =
                            Free
@@ -1501,20 +1508,10 @@ struct
           (_, _, _, SOME (_, commits), _) = commits
         | generated_guard_commits _ = false
 
-      fun generated_guard_falls_through
-          (_, _, _, SOME (_, commits), _) = not commits
-        | generated_guard_falls_through _ = false
-
       val has_committing_guard =
         List.exists
           (fn {alternatives, ...} =>
             List.exists generated_guard_commits alternatives)
-          normalized
-
-      val has_fallthrough_generated_guard =
-        List.exists
-          (fn {alternatives, ...} =>
-            List.exists generated_guard_falls_through alternatives)
           normalized
 
       fun dest_flat_branch term =
@@ -1544,34 +1541,43 @@ struct
           abstractions (T.case_element pattern body)
 
       fun dest_flat_payload
-            (Const (name, _) $ guard $ success) =
-            if name = \<^const_name>\<open>Pair\<close>
-            then (guard, success)
+            (Const (outer_name, _) $ source_guard $
+              (Const (inner_name, _) $ generated_guard $ success)) =
+            if outer_name = \<^const_name>\<open>Pair\<close> andalso
+               inner_name = \<^const_name>\<open>Pair\<close>
+            then (source_guard, generated_guard, success)
             else error "urust_expr: internal malformed flat case payload"
         | dest_flat_payload _ =
             error "urust_expr: internal malformed flat case payload"
 
-      fun make_flat_clause abstraction generated_guard success =
+      fun make_flat_clause abstraction source_guard generated_guard success =
         let
-          val (packed_guard, guarded) =
-            (case generated_guard of
+          val (packed_source_guard, has_source_guard) =
+            (case source_guard of
                NONE => (T.literal T.true_value, false)
-             | SOME (guard, true) => (guard, true)
-             | SOME (_, false) =>
-                 error
-                   "urust_expr: internal fallthrough guard in flat case")
+             | SOME guard => (guard, true))
+          val (packed_generated_guard, generated_commits) =
+            (case generated_guard of
+               NONE => (T.literal T.true_value, NONE)
+             | SOME (guard, commits) => (guard, SOME commits))
           val packed =
-            abstraction (T.pair packed_guard success)
+            abstraction
+              (T.pair packed_source_guard
+                (T.pair packed_generated_guard success))
           val (abstractions, pattern, payload) =
             dest_flat_branch packed
-          val (guard, success') =
+          val (source_guard', generated_guard', success') =
             dest_flat_payload payload
           fun rebuild body =
             rebuild_flat_branch abstractions pattern body
           val shape = rebuild T.undefined_value
         in
-          (shape, rebuild,
-           (if guarded then SOME guard else NONE, success'))
+          (shape, rebuild, abstractions, pattern,
+           (if has_source_guard then SOME source_guard' else NONE,
+            Option.map
+              (fn commits => (generated_guard', commits))
+              generated_commits,
+            success'))
         end
 
       fun same_flat_shape (left, right) =
@@ -1579,7 +1585,7 @@ struct
 
       fun remove_flat_group shape [] = (NONE, [])
         | remove_flat_group shape
-            ((group as (candidate, _, _)) :: rest) =
+            ((group as (candidate, _, _, _, _)) :: rest) =
             if same_flat_shape (shape, candidate)
             then (SOME group, rest)
             else
@@ -1592,65 +1598,167 @@ struct
          occurrence group linear while retaining source order. Moving an existing group to the front
          is necessary when another constructor alternative occurred between two equal outer shapes. *)
       fun prepend_flat_clause
-          (shape, rebuild, payload) groups =
+          (shape, rebuild, abstractions, pattern, payload) groups =
         let
           val (existing, remaining) =
             remove_flat_group shape groups
           val clauses =
             (case existing of
-               SOME (_, _, later) => payload :: later
+               SOME (_, _, _, _, later) => payload :: later
              | NONE => [payload])
-        in (shape, rebuild, clauses) :: remaining end
+        in
+          (shape, rebuild, abstractions, pattern, clauses) ::
+            remaining
+        end
 
       fun group_flat_clauses clauses =
         fold_rev prepend_flat_clause clauses []
 
+      fun same_optional_term (NONE, NONE) = true
+        | same_optional_term (SOME left, SOME right) =
+            Term.aconv (left, right)
+        | same_optional_term _ = false
+
       (* Current source-arm groups precede later source-arm groups. Equal outer patterns are combined
-         into one group, with their conditionals concatenated in source order. *)
+         into one group, with their source entries concatenated in source order. *)
       fun merge_flat_groups [] later = later
         | merge_flat_groups
-            ((shape, rebuild, clauses) :: current) later =
+            ((shape, rebuild, abstractions, pattern, sources) :: current)
+            later =
             let
               val (existing, remaining) =
                 remove_flat_group shape later
-              val clauses' =
+              val sources' =
                 (case existing of
-                   SOME (_, _, later_clauses) =>
-                     clauses @ later_clauses
-                 | NONE => clauses)
+                   SOME (_, _, _, _, later_sources) =>
+                     sources @ later_sources
+                 | NONE => sources)
             in
-              (shape, rebuild, clauses') ::
+              (shape, rebuild, abstractions, pattern, sources') ::
                 merge_flat_groups current remaining
             end
 
-      fun compile_flat_group (_, rebuild, clauses) =
+      fun compile_flat_group_body (_, _, _, _, sources) =
         let
-          fun compile_clauses [] = fallback
-            | compile_clauses ((NONE, success) :: _) = success
-            | compile_clauses
-                ((SOME guard, success) :: rest) =
-                T.conditional guard success
-                  (compile_clauses rest)
-        in rebuild (compile_clauses clauses) end
+          fun compile_sources [] = fallback
+            | compile_sources
+                ((source_guard, alternatives, source_fallback) :: rest) =
+                let
+                  val later_same_shape =
+                    compile_sources rest
+
+                  fun compile_alternatives [] =
+                        error
+                          "urust_expr: internal empty flat source alternatives"
+                    | compile_alternatives
+                        [(NONE, success)] = success
+                    | compile_alternatives
+                        [(SOME (guard, commits), success)] =
+                        T.conditional guard success
+                          (if commits
+                           then later_same_shape
+                           else source_fallback)
+                    | compile_alternatives
+                        ((NONE, success) :: _) = success
+                    | compile_alternatives
+                        ((SOME (guard, _), success) :: rest) =
+                        T.conditional guard success
+                          (compile_alternatives rest)
+
+                  val matched =
+                    compile_alternatives alternatives
+                in
+                  (case source_guard of
+                     NONE => matched
+                   | SOME guard =>
+                       T.conditional guard matched
+                         source_fallback)
+                end
+        in compile_sources sources end
+
+      fun compile_flat_group
+          (group as (_, rebuild, _, _, _)) =
+        rebuild (compile_flat_group_body group)
 
       fun expression_of_flat_groups [] = fallback
         | expression_of_flat_groups groups =
             case_term (map compile_flat_group groups)
 
+      fun is_flat_catchall abstractions pattern =
+        (case (abstractions, pattern) of
+           ([_], Bound 0) => true
+         | _ => false)
+
+      (* A later equal outer shape already has the right bound-slot layout. A later wildcard/binder
+         branch is specialized by replacing its whole-value slot with the current constructor
+         pattern. Only a guarded catch-all needs the conservative complete-case fallback. *)
+      fun flat_group_continuation
+          (shape, _, abstractions, pattern, _) later =
+        let
+          fun find [] =
+                if is_flat_catchall abstractions pattern
+                then expression_of_flat_groups later
+                else fallback
+            | find
+                ((group as
+                  (candidate, _, candidate_abstractions,
+                   candidate_pattern, _)) :: rest) =
+                if same_flat_shape (shape, candidate)
+                then compile_flat_group_body group
+                else if
+                  is_flat_catchall
+                    candidate_abstractions candidate_pattern
+                then
+                  Term.subst_bound
+                    (pattern, compile_flat_group_body group)
+                else find rest
+        in find later end
+
+      fun make_flat_source_group later
+          (shape, rebuild, abstractions, pattern, clauses) =
+        let
+          val source_guard =
+            (case clauses of
+               (guard, _, _) :: _ => guard
+             | [] =>
+                 error
+                   "urust_expr: internal empty flat source group")
+          val _ =
+            if List.all
+                (fn (guard, _, _) =>
+                  same_optional_term (source_guard, guard))
+                clauses
+            then ()
+            else
+              error
+                "urust_expr: internal inconsistent flat source guard"
+          val alternatives =
+            map
+              (fn (_, generated_guard, success) =>
+                (generated_guard, success))
+              clauses
+          val source_fallback =
+            flat_group_continuation
+              (shape, rebuild, abstractions, pattern, clauses)
+              later
+        in
+          (shape, rebuild, abstractions, pattern,
+           [(source_guard, alternatives, source_fallback)])
+        end
+
       fun compile_flat_sources [] =
             (case explicit_fallback of
                SOME term =>
-                 group_flat_clauses
-                   [make_flat_clause generated_wild NONE term]
+                 map (make_flat_source_group [])
+                   (group_flat_clauses
+                     [make_flat_clause generated_wild
+                       NONE NONE term])
              | NONE => [])
         | compile_flat_sources
             ({alternatives, binders, source_guard, rhs} :: rest) =
             let
               val rest_groups = compile_flat_sources rest
-              val next_arm =
-                expression_of_flat_groups rest_groups
-              val handler =
-                handler_term binders source_guard rhs next_arm
+              val handler = fold_rev Term.lambda binders rhs
 
               fun clause
                   (_, _, abstraction, generated_guard, wrap) =
@@ -1658,11 +1766,12 @@ struct
                   val success =
                     wrap (handler_call handler binders)
                 in
-                  make_flat_clause abstraction
+                  make_flat_clause abstraction source_guard
                     generated_guard success
                 end
               val current_groups =
-                group_flat_clauses (map clause alternatives)
+                map (make_flat_source_group rest_groups)
+                  (group_flat_clauses (map clause alternatives))
             in
               merge_flat_groups current_groups rest_groups
             end
@@ -1707,8 +1816,7 @@ struct
         in install sources [] end
 
       val selector =
-        if has_committing_guard andalso
-            not has_fallthrough_generated_guard
+        if has_committing_guard
         then
           expression_of_flat_groups
             (compile_flat_sources normalized)
