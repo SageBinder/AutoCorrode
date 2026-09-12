@@ -7,7 +7,6 @@ theory Core_Expression_Lemmas
     Shallow_Micro_Rust_Base.Core_Expression
     Shallow_Micro_Rust_Base.Core_Syntax
     Micro_Rust_Parser_Bridge
-    Micro_Rust_Parser_Impl.Parser_Term_Hook
 begin
 declare [[urust_conformance_check = true]]
 (*>*)
@@ -527,19 +526,21 @@ lemma evaluate_call_function_bodyI [micro_rust_intros]:
     shows \<open>evaluate (call_function_body e) \<sigma> = k\<close>
   using assms by (cases \<open>evaluate e \<sigma>\<close>; simp add: evaluate_def Core_Expression.call_function_body.simps)
 
-abbreviation Core_Expression_Lemmas_urust_site_7 where
-  "Core_Expression_Lemmas_urust_site_7 v \<equiv> \<mu>(v := v)\<open> return v; \<close>"
+urust_expr [abbrev = true] call_return_expr
+  (v)
+  \<open> return v; \<close>
 
 lemma call_return [micro_rust_simps]:
-  shows \<open>(call (FunctionBody (Core_Expression_Lemmas_urust_site_7 v))) = (literal v)\<close>
+  shows \<open>(call (FunctionBody (call_return_expr v))) = (literal v)\<close>
   by (simp add: call_def call_function_body.simps Core_Expression.bind.simps evaluate_def literal_def
       return_func_def return_val_def)
 
-abbreviation Core_Expression_Lemmas_urust_site_8 where
-  "Core_Expression_Lemmas_urust_site_8 v \<equiv> \<mu>(v := v)\<open> v \<close>"
+urust_expr [abbrev = true] call_literal_expr
+  (v)
+  \<open> v \<close>
 
 lemma call_literal [micro_rust_simps]:
-  shows \<open>(call (FunctionBody (Core_Expression_Lemmas_urust_site_8 v))) = (literal v)\<close>
+  shows \<open>(call (FunctionBody (call_literal_expr v))) = (literal v)\<close>
   by (simp add: call_def call_function_body.simps evaluate_def literal_def)
 
 lemma call_literal2 [micro_rust_simps]:

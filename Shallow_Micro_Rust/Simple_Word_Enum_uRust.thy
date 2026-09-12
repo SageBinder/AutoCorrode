@@ -296,36 +296,24 @@ text\<open>The acceptance test: the \<open>\<mu>Rust\<close> path really does re
 equal to the \<^const>\<open>literal\<close> of the HOL variant --- \<^emph>\<open>not\<close> a free variable named
 \<^verbatim>\<open>MessageKind::MK_Ping\<close>.\<close>
 
-abbreviation Simple_Word_Enum_uRust_urust_site_1 where
-  "Simple_Word_Enum_uRust_urust_site_1 \<equiv>
-    \<mu>[using \<open>MessageKind::MK_Ping\<close>]\<open>
-      MessageKind::MK_Ping
-    \<close>"
+urust_expr [abbrev = true] ping_term_expr
+  \<open> MessageKind::MK_Ping \<close>
 
-term \<open>Simple_Word_Enum_uRust_urust_site_1\<close>
+term \<open>ping_term_expr\<close>
 
-abbreviation Simple_Word_Enum_uRust_urust_site_2 where
-  "Simple_Word_Enum_uRust_urust_site_2 \<equiv>
-    \<mu>[using \<open>MessageKind::MK_Ping\<close>]\<open>
-      MessageKind::MK_Ping
-    \<close>"
+urust_expr [abbrev = true] ping_literal_expr
+  \<open> MessageKind::MK_Ping \<close>
 
-abbreviation Simple_Word_Enum_uRust_urust_site_3 where
-  "Simple_Word_Enum_uRust_urust_site_3 \<equiv>
-    \<mu>[using \<open>MessageKind::MK_Pong\<close>]\<open>
-      MessageKind::MK_Pong
-    \<close>"
+urust_expr [abbrev = true] pong_literal_expr
+  \<open> MessageKind::MK_Pong \<close>
 
-abbreviation Simple_Word_Enum_uRust_urust_site_4 where
-  "Simple_Word_Enum_uRust_urust_site_4 \<equiv>
-    \<mu>[using \<open>MessageKind::MK_Data\<close>]\<open>
-      MessageKind::MK_Data
-    \<close>"
+urust_expr [abbrev = true] data_literal_expr
+  \<open> MessageKind::MK_Data \<close>
 
 lemma
-  shows \<open>Simple_Word_Enum_uRust_urust_site_2 = literal MK_Ping\<close>
-    and \<open>Simple_Word_Enum_uRust_urust_site_3 = literal MK_Pong\<close>
-    and \<open>Simple_Word_Enum_uRust_urust_site_4 = literal MK_Data\<close>
+  shows \<open>ping_literal_expr = literal MK_Ping\<close>
+    and \<open>pong_literal_expr = literal MK_Pong\<close>
+    and \<open>data_literal_expr = literal MK_Data\<close>
   by (rule refl)+
 
 text\<open>The lifted conversion functions exist and are \<^const>\<open>lift_fun1\<close> of the pure ones.\<close>
@@ -357,63 +345,48 @@ text\<open>Their \<open>\<mu>Rust\<close> paths resolve as function calls --- th
 unregistered path would leave a free variable and fail to elaborate at the \<^const>\<open>function_body\<close>
 type the call position demands.\<close>
 
-abbreviation Simple_Word_Enum_uRust_urust_site_5 where
-  "Simple_Word_Enum_uRust_urust_site_5 e \<equiv>
-    \<mu>(e := e)[using \<open>MessageKind::to_u32\<close>]\<open>
-      MessageKind::to_u32(e)
-    \<close>"
+urust_expr [abbrev = true] to_u32_term_expr
+  (e)
+  \<open> MessageKind::to_u32(e) \<close>
 
-term \<open>Simple_Word_Enum_uRust_urust_site_5 e\<close>
+term \<open>to_u32_term_expr e\<close>
 
-abbreviation Simple_Word_Enum_uRust_urust_site_6 where
-  "Simple_Word_Enum_uRust_urust_site_6 w \<equiv>
-    \<mu>(w := w)[using \<open>MessageKind::try_from\<close>]\<open>
-      MessageKind::try_from(w)
-    \<close>"
+urust_expr [abbrev = true] try_from_term_expr
+  (w)
+  \<open> MessageKind::try_from(w) \<close>
 
-term \<open>Simple_Word_Enum_uRust_urust_site_6 w\<close>
+term \<open>try_from_term_expr w\<close>
 
 text\<open>Naming the \<^verbatim>\<open>_def\<close> fact unfolds a call to its pure function --- which is what makes the
 \<^verbatim>\<open>_alt\<close> characterisations from \<^verbatim>\<open>word_conversion\<close> usable on \<open>\<mu>Rust\<close> code. Evaluated on a concrete
 variant, a call then reduces to a literal:\<close>
 
-abbreviation Simple_Word_Enum_uRust_urust_site_7 where
-  "Simple_Word_Enum_uRust_urust_site_7 \<equiv>
-    \<mu>(data := MK_Data)[using \<open>MessageKind::to_u32\<close>]\<open>
-      MessageKind::to_u32(data)
-    \<close>"
+urust_expr [abbrev = true] to_u32_data_expr
+  \<open> MessageKind::to_u32(MK_Data) \<close>
 
 lemma
-  shows \<open>Simple_Word_Enum_uRust_urust_site_7 = \<up>(0xff :: 32 word)\<close>
+  shows \<open>to_u32_data_expr = \<up>(0xff :: 32 word)\<close>
   by (simp add: micro_rust_simps message_kind_to_u32_def message_kind_to_u32_pure_def)
 
 text\<open>Since the \<^verbatim>\<open>_def\<close>s are not \<^verbatim>\<open>[micro_rust_simps]\<close>, \<^emph>\<open>not\<close> naming them leaves the call
 unreduced --- the caller decides when to unfold.\<close>
 
-abbreviation Simple_Word_Enum_uRust_urust_site_8 where
-  "Simple_Word_Enum_uRust_urust_site_8 \<equiv>
-    \<mu>(data := MK_Data)[using \<open>MessageKind::to_u32\<close>]\<open>
-      MessageKind::to_u32(data)
-    \<close>"
+urust_expr [abbrev = true] to_u32_call_expr
+  \<open> MessageKind::to_u32(MK_Data) \<close>
 
 lemma
-  shows \<open>Simple_Word_Enum_uRust_urust_site_8 =
+  shows \<open>to_u32_call_expr =
     message_kind_to_u32 \<langle>\<up>MK_Data\<rangle>\<close>
   by (simp add: micro_rust_simps)
 
 text\<open>End to end: a \<open>\<mu>Rust\<close> round trip on a variant named the \<open>\<mu>Rust\<close> way, discharged by the round-trip
 lemma \<^verbatim>\<open>word_conversion\<close> proves.\<close>
 
-abbreviation Simple_Word_Enum_uRust_urust_site_9 where
-  "Simple_Word_Enum_uRust_urust_site_9 \<equiv>
-    \<mu>(data := MK_Data)
-      [using \<open>MessageKind::try_from\<close>, \<open>MessageKind::to_u32\<close>]
-      \<open>
-        MessageKind::try_from(MessageKind::to_u32(data))
-      \<close>"
+urust_expr [abbrev = true] roundtrip_expr
+  \<open> MessageKind::try_from(MessageKind::to_u32(MK_Data)) \<close>
 
 lemma
-  shows \<open>Simple_Word_Enum_uRust_urust_site_9 = \<up>(Ok MK_Data)\<close>
+  shows \<open>roundtrip_expr = \<up>(Ok MK_Data)\<close>
   by (simp add: micro_rust_simps message_kind_to_u32_def message_kind_try_from_u32_def
         message_kind_to_u32_pure_then_try_from)
 
@@ -476,14 +449,12 @@ ML \<open>
 text\<open>The variant has to be spelled the HOL way here, since \<^verbatim>\<open>urust_notation\<close> was suppressed ---
 but the \<^emph>\<open>function\<close> path still resolves, which is the independence being tested.\<close>
 
-abbreviation Simple_Word_Enum_uRust_urust_site_10 where
-  "Simple_Word_Enum_uRust_urust_site_10 w \<equiv>
-    \<mu>(w := w)[using \<open>ConvsOnly::try_from\<close>]\<open>
-      ConvsOnly::try_from(w)
-    \<close>"
+urust_expr [abbrev = true] convs_only_expr
+  (w)
+  \<open> ConvsOnly::try_from(w) \<close>
 
 lemma
-  shows \<open>Simple_Word_Enum_uRust_urust_site_10 w =
+  shows \<open>convs_only_expr w =
     \<up>(convs_only_try_from_u8_pure w)\<close>
   by (simp add: micro_rust_simps convs_only_try_from_u8_def)
 

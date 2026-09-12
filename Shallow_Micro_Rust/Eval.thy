@@ -4,7 +4,6 @@
 theory Eval
   imports Core_Expression_Lemmas "HOL-Library.Datatype_Records"
     Numeric_Types_Lemmas
-    Micro_Rust_Parser_Impl.Parser_Term_Hook
 begin
 declare [[urust_conformance_check = true]]
 
@@ -588,363 +587,229 @@ by (auto simp add: urust_eval_action_put_assert urust_eval_predicate_via_action 
 
 text\<open>Numeric operators\<close>
 
-abbreviation Eval_urust_site_1 where
-  "Eval_urust_site_1 x y \<equiv> \<mu>(x := x, y := y)\<open> x + y \<close>"
-abbreviation Eval_urust_site_2 where
-  "Eval_urust_site_2 x y \<equiv> \<mu>(x := x, y := y)\<open> x + y \<close>"
-abbreviation Eval_urust_site_3 where
-  "Eval_urust_site_3 x y \<equiv> \<mu>(x := x, y := y)\<open> x + y \<close>"
-
+urust_expr [abbrev = true] urust_eval_action_add_no_wrap_expr (x, y) \<open> x + y \<close>
 lemma urust_eval_action_add_no_wrap [urust_eval_action_simps]:
   fixes x y :: \<open>'l::{len} word\<close>
-  shows \<open>((\<Gamma>, Eval_urust_site_1 x y) \<diamondop>\<^sub>a \<sigma>) =
+  shows \<open>((\<Gamma>, urust_eval_action_add_no_wrap_expr x y) \<diamondop>\<^sub>a \<sigma>) =
             (if (unat x + unat y < 2 ^ LENGTH('l)) then {} else { (Panic overflow_err_msg, \<sigma>) })\<close>
-    and \<open>((\<Gamma>, Eval_urust_site_2 x y) \<diamondop>\<^sub>v \<sigma>) =
+    and \<open>((\<Gamma>, urust_eval_action_add_no_wrap_expr x y) \<diamondop>\<^sub>v \<sigma>) =
             (if (unat x + unat y < 2 ^ LENGTH('l)) then {(x + y, \<sigma>)} else {})\<close>
-    and \<open>((\<Gamma>, Eval_urust_site_3 x y) \<diamondop>\<^sub>r \<sigma>) = {}\<close>
+    and \<open>((\<Gamma>, urust_eval_action_add_no_wrap_expr x y) \<diamondop>\<^sub>r \<sigma>) = {}\<close>
   by (auto simp add: word_add_no_wrap_def urust_eval_action_bind micro_rust_simps
     urust_eval_action_literal urust_eval_action_abort  word_add_no_wrap_core_def Let_def
     word_add_no_wrap_as_urust_def urust_eval_action_call word_op_no_wrap_pure_def option_unwrap_expr_def)
 
-abbreviation Eval_urust_site_4 where
-  "Eval_urust_site_4 x y \<equiv> \<mu>(x := x, y := y)\<open> x + y \<close>"
-abbreviation Eval_urust_site_5 where
-  "Eval_urust_site_5 x y \<equiv> \<mu>(x := x, y := y)\<open> x + y \<close>"
-abbreviation Eval_urust_site_6 where
-  "Eval_urust_site_6 x y \<equiv> \<mu>(x := x, y := y)\<open> x + y \<close>"
-
+urust_expr [abbrev = true] urust_eval_predicate_add_no_wrap_expr (x, y) \<open> x + y \<close>
 corollary urust_eval_predicate_add_no_wrap [urust_eval_predicate_simps]:
   fixes x y :: \<open>'l::{len} word\<close>
-  shows \<open>\<sigma> \<leadsto>\<^sub>v \<langle>\<Gamma>, Eval_urust_site_4 x y\<rangle> (v, \<sigma>') \<longleftrightarrow> (unat x + unat y < 2^LENGTH('l)) \<and> \<sigma> = \<sigma>' \<and> v = x + y\<close>
-    and \<open>\<sigma> \<leadsto>\<^sub>r \<langle>\<Gamma>, Eval_urust_site_5 x y\<rangle> (r, \<sigma>') \<longleftrightarrow> False\<close>
-    and \<open>\<sigma> \<leadsto>\<^sub>a \<langle>\<Gamma>, Eval_urust_site_6 x y\<rangle> (a, \<sigma>') \<longleftrightarrow> (unat x + unat y \<ge> 2^LENGTH('l)) \<and> a = Panic overflow_err_msg \<and> \<sigma> = \<sigma>'\<close>
+  shows \<open>\<sigma> \<leadsto>\<^sub>v \<langle>\<Gamma>, urust_eval_predicate_add_no_wrap_expr x y\<rangle> (v, \<sigma>') \<longleftrightarrow> (unat x + unat y < 2^LENGTH('l)) \<and> \<sigma> = \<sigma>' \<and> v = x + y\<close>
+    and \<open>\<sigma> \<leadsto>\<^sub>r \<langle>\<Gamma>, urust_eval_predicate_add_no_wrap_expr x y\<rangle> (r, \<sigma>') \<longleftrightarrow> False\<close>
+    and \<open>\<sigma> \<leadsto>\<^sub>a \<langle>\<Gamma>, urust_eval_predicate_add_no_wrap_expr x y\<rangle> (a, \<sigma>') \<longleftrightarrow> (unat x + unat y \<ge> 2^LENGTH('l)) \<and> a = Panic overflow_err_msg \<and> \<sigma> = \<sigma>'\<close>
 by (auto simp add: urust_eval_predicate_via_action urust_eval_action_add_no_wrap)
 
-abbreviation Eval_urust_site_7 where
-  "Eval_urust_site_7 x y \<equiv> \<mu>(x := x, y := y)\<open> x * y \<close>"
-abbreviation Eval_urust_site_8 where
-  "Eval_urust_site_8 x y \<equiv> \<mu>(x := x, y := y)\<open> x * y \<close>"
-abbreviation Eval_urust_site_9 where
-  "Eval_urust_site_9 x y \<equiv> \<mu>(x := x, y := y)\<open> x * y \<close>"
-
+urust_expr [abbrev = true] urust_eval_action_mul_no_wrap_expr (x, y) \<open> x * y \<close>
 lemma urust_eval_action_mul_no_wrap [urust_eval_action_simps]:
   fixes x y :: \<open>'l::{len} word\<close>
-  shows \<open>((\<Gamma>, Eval_urust_site_7 x y) \<diamondop>\<^sub>a \<sigma>) =
+  shows \<open>((\<Gamma>, urust_eval_action_mul_no_wrap_expr x y) \<diamondop>\<^sub>a \<sigma>) =
             (if (unat x * unat y < 2 ^ LENGTH('l)) then {} else { (Panic overflow_err_msg, \<sigma>) })\<close>
-    and \<open>((\<Gamma>, Eval_urust_site_8 x y) \<diamondop>\<^sub>v \<sigma>) =
+    and \<open>((\<Gamma>, urust_eval_action_mul_no_wrap_expr x y) \<diamondop>\<^sub>v \<sigma>) =
             (if (unat x * unat y < 2 ^ LENGTH('l)) then {(x * y, \<sigma>)} else {})\<close>
-    and \<open>((\<Gamma>, Eval_urust_site_9 x y) \<diamondop>\<^sub>r \<sigma>) = {}\<close>
+    and \<open>((\<Gamma>, urust_eval_action_mul_no_wrap_expr x y) \<diamondop>\<^sub>r \<sigma>) = {}\<close>
 by (auto simp add: word_mul_no_wrap_def urust_eval_action_bind micro_rust_simps
   urust_eval_action_literal urust_eval_action_abort word_mul_no_wrap_core_def Let_def
   word_mul_no_wrap_as_urust_def urust_eval_action_call word_op_no_wrap_pure_def option_unwrap_expr_def)
 
-abbreviation Eval_urust_site_10 where
-  "Eval_urust_site_10 x y \<equiv> \<mu>(x := x, y := y)\<open> x * y \<close>"
-abbreviation Eval_urust_site_11 where
-  "Eval_urust_site_11 x y \<equiv> \<mu>(x := x, y := y)\<open> x * y \<close>"
-abbreviation Eval_urust_site_12 where
-  "Eval_urust_site_12 x y \<equiv> \<mu>(x := x, y := y)\<open> x * y \<close>"
-
+urust_expr [abbrev = true] urust_eval_predicate_mul_no_wrap_expr (x, y) \<open> x * y \<close>
 corollary urust_eval_predicate_mul_no_wrap [urust_eval_predicate_simps]:
   fixes x y :: \<open>'l::{len} word\<close>
-  shows \<open>\<sigma> \<leadsto>\<^sub>v \<langle>\<Gamma>, Eval_urust_site_10 x y\<rangle> (v, \<sigma>') \<longleftrightarrow> (unat x * unat y < 2^LENGTH('l)) \<and> \<sigma> = \<sigma>' \<and> v = x * y\<close>
-    and \<open>\<sigma> \<leadsto>\<^sub>r \<langle>\<Gamma>, Eval_urust_site_11 x y\<rangle> (r, \<sigma>') \<longleftrightarrow> False\<close>
-    and \<open>\<sigma> \<leadsto>\<^sub>a \<langle>\<Gamma>, Eval_urust_site_12 x y\<rangle> (a, \<sigma>') \<longleftrightarrow> (unat x * unat y \<ge> 2^LENGTH('l)) \<and> \<sigma> = \<sigma>' \<and> a = Panic overflow_err_msg\<close>
+  shows \<open>\<sigma> \<leadsto>\<^sub>v \<langle>\<Gamma>, urust_eval_predicate_mul_no_wrap_expr x y\<rangle> (v, \<sigma>') \<longleftrightarrow> (unat x * unat y < 2^LENGTH('l)) \<and> \<sigma> = \<sigma>' \<and> v = x * y\<close>
+    and \<open>\<sigma> \<leadsto>\<^sub>r \<langle>\<Gamma>, urust_eval_predicate_mul_no_wrap_expr x y\<rangle> (r, \<sigma>') \<longleftrightarrow> False\<close>
+    and \<open>\<sigma> \<leadsto>\<^sub>a \<langle>\<Gamma>, urust_eval_predicate_mul_no_wrap_expr x y\<rangle> (a, \<sigma>') \<longleftrightarrow> (unat x * unat y \<ge> 2^LENGTH('l)) \<and> \<sigma> = \<sigma>' \<and> a = Panic overflow_err_msg\<close>
 by (auto simp add: urust_eval_predicate_via_action urust_eval_action_mul_no_wrap)
 
-abbreviation Eval_urust_site_13 where
-  "Eval_urust_site_13 x y \<equiv> \<mu>(x := x, y := y)\<open> x - y \<close>"
-abbreviation Eval_urust_site_14 where
-  "Eval_urust_site_14 x y \<equiv> \<mu>(x := x, y := y)\<open> x - y \<close>"
-abbreviation Eval_urust_site_15 where
-  "Eval_urust_site_15 x y \<equiv> \<mu>(x := x, y := y)\<open> x - y \<close>"
-
+urust_expr [abbrev = true] urust_eval_action_sub_no_wrap_expr (x, y) \<open> x - y \<close>
 lemma urust_eval_action_sub_no_wrap [urust_eval_action_simps]:
   fixes x y :: \<open>'l::{len} word\<close>
-  shows \<open>((\<Gamma>, Eval_urust_site_13 x y) \<diamondop>\<^sub>a \<sigma>) =
+  shows \<open>((\<Gamma>, urust_eval_action_sub_no_wrap_expr x y) \<diamondop>\<^sub>a \<sigma>) =
             (if ( unat y \<le> unat x) then {} else { (Panic overflow_err_msg, \<sigma>) })\<close>
-    and \<open>((\<Gamma>, Eval_urust_site_14 x y) \<diamondop>\<^sub>v \<sigma>) =
+    and \<open>((\<Gamma>, urust_eval_action_sub_no_wrap_expr x y) \<diamondop>\<^sub>v \<sigma>) =
             (if ( unat y \<le> unat x) then {(x - y, \<sigma>)} else {})\<close>
-    and \<open>((\<Gamma>, Eval_urust_site_15 x y) \<diamondop>\<^sub>r \<sigma>) = {}\<close>
+    and \<open>((\<Gamma>, urust_eval_action_sub_no_wrap_expr x y) \<diamondop>\<^sub>r \<sigma>) = {}\<close>
 by (auto simp flip: word_le_nat_alt simp add: word_minus_no_wrap_def urust_eval_action_bind
   micro_rust_simps urust_eval_action_literal urust_eval_action_abort word_minus_no_wrap_core_def
   word_minus_no_wrap_as_urust_def urust_eval_action_call word_op_no_wrap_pure_def
   word_minus_no_wrap_pure_def option_unwrap_expr_def Let_def)
 
-abbreviation Eval_urust_site_16 where
-  "Eval_urust_site_16 x y \<equiv> \<mu>(x := x, y := y)\<open> x - y \<close>"
-abbreviation Eval_urust_site_17 where
-  "Eval_urust_site_17 x y \<equiv> \<mu>(x := x, y := y)\<open> x - y \<close>"
-abbreviation Eval_urust_site_18 where
-  "Eval_urust_site_18 x y \<equiv> \<mu>(x := x, y := y)\<open> x - y \<close>"
-
+urust_expr [abbrev = true] urust_eval_predicate_sub_no_wrap_expr (x, y) \<open> x - y \<close>
 corollary urust_eval_predicate_sub_no_wrap [urust_eval_predicate_simps]:
   fixes x y :: \<open>'l::{len} word\<close>
-  shows \<open>\<sigma> \<leadsto>\<^sub>v \<langle>\<Gamma>, Eval_urust_site_16 x y\<rangle> (v, \<sigma>') \<longleftrightarrow> (unat y \<le> unat x) \<and> \<sigma> = \<sigma>' \<and> v = x - y\<close>
-    and \<open>\<sigma> \<leadsto>\<^sub>r \<langle>\<Gamma>, Eval_urust_site_17 x y\<rangle> (r, \<sigma>') \<longleftrightarrow> False\<close>
-    and \<open>\<sigma> \<leadsto>\<^sub>a \<langle>\<Gamma>, Eval_urust_site_18 x y\<rangle> (a, \<sigma>') \<longleftrightarrow> (unat y > unat x) \<and> a = Panic overflow_err_msg \<and> \<sigma> = \<sigma>'\<close>
+  shows \<open>\<sigma> \<leadsto>\<^sub>v \<langle>\<Gamma>, urust_eval_predicate_sub_no_wrap_expr x y\<rangle> (v, \<sigma>') \<longleftrightarrow> (unat y \<le> unat x) \<and> \<sigma> = \<sigma>' \<and> v = x - y\<close>
+    and \<open>\<sigma> \<leadsto>\<^sub>r \<langle>\<Gamma>, urust_eval_predicate_sub_no_wrap_expr x y\<rangle> (r, \<sigma>') \<longleftrightarrow> False\<close>
+    and \<open>\<sigma> \<leadsto>\<^sub>a \<langle>\<Gamma>, urust_eval_predicate_sub_no_wrap_expr x y\<rangle> (a, \<sigma>') \<longleftrightarrow> (unat y > unat x) \<and> a = Panic overflow_err_msg \<and> \<sigma> = \<sigma>'\<close>
 by (auto simp add: urust_eval_predicate_via_action urust_eval_action_sub_no_wrap)
 
-abbreviation Eval_urust_site_19 where
-  "Eval_urust_site_19 x y \<equiv> \<mu>(x := x, y := y)\<open> x / y \<close>"
-abbreviation Eval_urust_site_20 where
-  "Eval_urust_site_20 x y \<equiv> \<mu>(x := x, y := y)\<open> x / y \<close>"
-abbreviation Eval_urust_site_21 where
-  "Eval_urust_site_21 x y \<equiv> \<mu>(x := x, y := y)\<open> x / y \<close>"
-
+urust_expr [abbrev = true] urust_eval_action_div_expr (x, y) \<open> x / y \<close>
 lemma urust_eval_action_div [urust_eval_action_simps]:
   fixes x y :: \<open>'l::{len} word\<close>
-  shows \<open>((\<Gamma>, Eval_urust_site_19 x y) \<diamondop>\<^sub>a \<sigma>) =
+  shows \<open>((\<Gamma>, urust_eval_action_div_expr x y) \<diamondop>\<^sub>a \<sigma>) =
             (if ( unat y \<noteq> 0) then {} else { (Panic (String.implode ''division by zero''), \<sigma>) })\<close>
-    and \<open>((\<Gamma>, Eval_urust_site_20 x y) \<diamondop>\<^sub>v \<sigma>) =
+    and \<open>((\<Gamma>, urust_eval_action_div_expr x y) \<diamondop>\<^sub>v \<sigma>) =
             (if ( unat y \<noteq> 0) then {(x div y, \<sigma>)} else {})\<close>
-    and \<open>((\<Gamma>, Eval_urust_site_21 x y) \<diamondop>\<^sub>r \<sigma>) = {}\<close>
+    and \<open>((\<Gamma>, urust_eval_action_div_expr x y) \<diamondop>\<^sub>r \<sigma>) = {}\<close>
 by (auto simp add: unat_gt_0 word_div_def urust_eval_action_bind micro_rust_simps
   urust_eval_action_literal urust_eval_action_abort word_udiv_core_def word_udiv_def
   urust_eval_action_call)
 
-abbreviation Eval_urust_site_22 where
-  "Eval_urust_site_22 x y \<equiv> \<mu>(x := x, y := y)\<open> x / y \<close>"
-abbreviation Eval_urust_site_23 where
-  "Eval_urust_site_23 x y \<equiv> \<mu>(x := x, y := y)\<open> x / y \<close>"
-abbreviation Eval_urust_site_24 where
-  "Eval_urust_site_24 x y \<equiv> \<mu>(x := x, y := y)\<open> x / y \<close>"
-
+urust_expr [abbrev = true] urust_eval_predicate_div_expr (x, y) \<open> x / y \<close>
 corollary urust_eval_predicate_div [urust_eval_predicate_simps]:
   fixes x y :: \<open>'l::{len} word\<close>
-  shows \<open>\<sigma> \<leadsto>\<^sub>v \<langle>\<Gamma>, Eval_urust_site_22 x y\<rangle> (v, \<sigma>') \<longleftrightarrow> (unat y \<noteq> 0) \<and> \<sigma> = \<sigma>' \<and> v = x div y\<close>
-    and \<open>\<sigma> \<leadsto>\<^sub>r \<langle>\<Gamma>, Eval_urust_site_23 x y\<rangle> (r, \<sigma>') \<longleftrightarrow> False\<close>
-    and \<open>\<sigma> \<leadsto>\<^sub>a \<langle>\<Gamma>, Eval_urust_site_24 x y\<rangle> (a, \<sigma>') \<longleftrightarrow> (unat y = 0) \<and> \<sigma> = \<sigma>' \<and> a = Panic (String.implode ''division by zero'')\<close>
+  shows \<open>\<sigma> \<leadsto>\<^sub>v \<langle>\<Gamma>, urust_eval_predicate_div_expr x y\<rangle> (v, \<sigma>') \<longleftrightarrow> (unat y \<noteq> 0) \<and> \<sigma> = \<sigma>' \<and> v = x div y\<close>
+    and \<open>\<sigma> \<leadsto>\<^sub>r \<langle>\<Gamma>, urust_eval_predicate_div_expr x y\<rangle> (r, \<sigma>') \<longleftrightarrow> False\<close>
+    and \<open>\<sigma> \<leadsto>\<^sub>a \<langle>\<Gamma>, urust_eval_predicate_div_expr x y\<rangle> (a, \<sigma>') \<longleftrightarrow> (unat y = 0) \<and> \<sigma> = \<sigma>' \<and> a = Panic (String.implode ''division by zero'')\<close>
 by (auto simp add: urust_eval_predicate_via_action urust_eval_action_div)
 
-abbreviation Eval_urust_site_25 where
-  "Eval_urust_site_25 x y \<equiv> \<mu>(x := x, y := y)\<open> x % y \<close>"
-abbreviation Eval_urust_site_26 where
-  "Eval_urust_site_26 x y \<equiv> \<mu>(x := x, y := y)\<open> x % y \<close>"
-abbreviation Eval_urust_site_27 where
-  "Eval_urust_site_27 x y \<equiv> \<mu>(x := x, y := y)\<open> x % y \<close>"
-
+urust_expr [abbrev = true] urust_eval_action_mod_expr (x, y) \<open> x % y \<close>
 lemma urust_eval_action_mod [urust_eval_action_simps]:
   fixes x y :: \<open>'l::{len} word\<close>
-  shows \<open>((\<Gamma>, Eval_urust_site_25 x y) \<diamondop>\<^sub>a \<sigma>) =
+  shows \<open>((\<Gamma>, urust_eval_action_mod_expr x y) \<diamondop>\<^sub>a \<sigma>) =
             (if ( unat y \<noteq> 0) then {} else { (Panic (String.implode ''division by zero''), \<sigma>) })\<close>
-    and \<open>((\<Gamma>, Eval_urust_site_26 x y) \<diamondop>\<^sub>v \<sigma>) =
+    and \<open>((\<Gamma>, urust_eval_action_mod_expr x y) \<diamondop>\<^sub>v \<sigma>) =
             (if ( unat y \<noteq> 0) then {(x mod y, \<sigma>)} else {})\<close>
-    and \<open>((\<Gamma>, Eval_urust_site_27 x y) \<diamondop>\<^sub>r \<sigma>) = {}\<close>
+    and \<open>((\<Gamma>, urust_eval_action_mod_expr x y) \<diamondop>\<^sub>r \<sigma>) = {}\<close>
 by (auto simp add: unat_gt_0 word_mod_def urust_eval_action_bind micro_rust_simps
   urust_eval_action_literal urust_eval_action_abort word_umod_core_def word_umod_def
   urust_eval_action_call)
 
-abbreviation Eval_urust_site_28 where
-  "Eval_urust_site_28 x y \<equiv> \<mu>(x := x, y := y)\<open> x % y \<close>"
-abbreviation Eval_urust_site_29 where
-  "Eval_urust_site_29 x y \<equiv> \<mu>(x := x, y := y)\<open> x % y \<close>"
-abbreviation Eval_urust_site_30 where
-  "Eval_urust_site_30 x y \<equiv> \<mu>(x := x, y := y)\<open> x % y \<close>"
-
+urust_expr [abbrev = true] urust_eval_predicate_mod_expr (x, y) \<open> x % y \<close>
 corollary urust_eval_predicate_mod [urust_eval_predicate_simps]:
   fixes x y :: \<open>'l::{len} word\<close>
-  shows \<open>\<sigma> \<leadsto>\<^sub>v \<langle>\<Gamma>, Eval_urust_site_28 x y\<rangle> (v, \<sigma>') \<longleftrightarrow> (unat y \<noteq> 0) \<and> \<sigma> = \<sigma>' \<and> v = x mod y\<close>
-    and \<open>\<sigma> \<leadsto>\<^sub>r \<langle>\<Gamma>, Eval_urust_site_29 x y\<rangle> (r, \<sigma>') \<longleftrightarrow> False\<close>
-    and \<open>\<sigma> \<leadsto>\<^sub>a \<langle>\<Gamma>, Eval_urust_site_30 x y\<rangle> (a, \<sigma>') \<longleftrightarrow> (unat y = 0) \<and> a = Panic (String.implode ''division by zero'') \<and> \<sigma> = \<sigma>'\<close>
+  shows \<open>\<sigma> \<leadsto>\<^sub>v \<langle>\<Gamma>, urust_eval_predicate_mod_expr x y\<rangle> (v, \<sigma>') \<longleftrightarrow> (unat y \<noteq> 0) \<and> \<sigma> = \<sigma>' \<and> v = x mod y\<close>
+    and \<open>\<sigma> \<leadsto>\<^sub>r \<langle>\<Gamma>, urust_eval_predicate_mod_expr x y\<rangle> (r, \<sigma>') \<longleftrightarrow> False\<close>
+    and \<open>\<sigma> \<leadsto>\<^sub>a \<langle>\<Gamma>, urust_eval_predicate_mod_expr x y\<rangle> (a, \<sigma>') \<longleftrightarrow> (unat y = 0) \<and> a = Panic (String.implode ''division by zero'') \<and> \<sigma> = \<sigma>'\<close>
 by (auto simp add: urust_eval_predicate_via_action urust_eval_action_mod)
 
-abbreviation Eval_urust_site_31 where
-  "Eval_urust_site_31 x y \<equiv> \<mu>(x := x, y := y)\<open> x << y \<close>"
-abbreviation Eval_urust_site_32 where
-  "Eval_urust_site_32 x y \<equiv> \<mu>(x := x, y := y)\<open> x << y \<close>"
-abbreviation Eval_urust_site_33 where
-  "Eval_urust_site_33 x y \<equiv> \<mu>(x := x, y := y)\<open> x << y \<close>"
-
+urust_expr [abbrev = true] urust_eval_action_shift_left_expr (x, y) \<open> x << y \<close>
 lemma urust_eval_action_shift_left [urust_eval_action_simps]:
   fixes x :: \<open>'l0::{len} word\<close>
     and y :: \<open>64 word\<close>
-  shows \<open>((\<Gamma>, Eval_urust_site_31 x y) \<diamondop>\<^sub>a \<sigma>) =
+  shows \<open>((\<Gamma>, urust_eval_action_shift_left_expr x y) \<diamondop>\<^sub>a \<sigma>) =
             (if unat y < LENGTH('l0) then {} else {(Panic overflow_err_msg, \<sigma>)})\<close>
-    and \<open>((\<Gamma>, Eval_urust_site_32 x y) \<diamondop>\<^sub>v \<sigma>) =
+    and \<open>((\<Gamma>, urust_eval_action_shift_left_expr x y) \<diamondop>\<^sub>v \<sigma>) =
             (if unat y < LENGTH('l0) then {(push_bit (unat y) x, \<sigma>)} else {})\<close>
-    and \<open>((\<Gamma>, Eval_urust_site_33 x y) \<diamondop>\<^sub>r \<sigma>) = {}\<close>
+    and \<open>((\<Gamma>, urust_eval_action_shift_left_expr x y) \<diamondop>\<^sub>r \<sigma>) = {}\<close>
 by (auto simp flip: word_le_nat_alt simp add: word_shift_left_pure_def urust_eval_action_bind
   micro_rust_simps urust_eval_action_literal urust_eval_action_abort word_shift_left_core_def
   word_shift_left_as_urust_def urust_eval_action_call word_shift_left_def
   word_shift_left_shift64_def option_unwrap_expr_def Let_def)
 
-abbreviation Eval_urust_site_34 where
-  "Eval_urust_site_34 x y \<equiv> \<mu>(x := x, y := y)\<open> x << y \<close>"
-abbreviation Eval_urust_site_35 where
-  "Eval_urust_site_35 x y \<equiv> \<mu>(x := x, y := y)\<open> x << y \<close>"
-abbreviation Eval_urust_site_36 where
-  "Eval_urust_site_36 x y \<equiv> \<mu>(x := x, y := y)\<open> x << y \<close>"
-
+urust_expr [abbrev = true] urust_eval_predicate_shift_left_expr (x, y) \<open> x << y \<close>
 corollary urust_eval_predicate_shift_left [urust_eval_predicate_simps]:
   fixes x :: \<open>'l0::{len} word\<close>
     and y :: \<open>64 word\<close>
-  shows \<open>\<sigma> \<leadsto>\<^sub>v \<langle>\<Gamma>, Eval_urust_site_34 x y\<rangle> (v, \<sigma>') \<longleftrightarrow>
+  shows \<open>\<sigma> \<leadsto>\<^sub>v \<langle>\<Gamma>, urust_eval_predicate_shift_left_expr x y\<rangle> (v, \<sigma>') \<longleftrightarrow>
             unat y < LENGTH('l0) \<and> \<sigma> = \<sigma>' \<and> v = push_bit (unat y) x\<close>
-    and \<open>\<sigma> \<leadsto>\<^sub>r \<langle>\<Gamma>, Eval_urust_site_35 x y\<rangle> (r, \<sigma>') \<longleftrightarrow> False\<close>
-    and \<open>\<sigma> \<leadsto>\<^sub>a \<langle>\<Gamma>, Eval_urust_site_36 x y\<rangle> (a, \<sigma>') \<longleftrightarrow> (unat y \<ge> LENGTH('l0) \<and> \<sigma> = \<sigma>' \<and> a = Panic overflow_err_msg)\<close>
+    and \<open>\<sigma> \<leadsto>\<^sub>r \<langle>\<Gamma>, urust_eval_predicate_shift_left_expr x y\<rangle> (r, \<sigma>') \<longleftrightarrow> False\<close>
+    and \<open>\<sigma> \<leadsto>\<^sub>a \<langle>\<Gamma>, urust_eval_predicate_shift_left_expr x y\<rangle> (a, \<sigma>') \<longleftrightarrow> (unat y \<ge> LENGTH('l0) \<and> \<sigma> = \<sigma>' \<and> a = Panic overflow_err_msg)\<close>
 by (auto simp add: urust_eval_predicate_via_action urust_eval_action_shift_left)
 
-abbreviation Eval_urust_site_37 where
-  "Eval_urust_site_37 x y \<equiv> \<mu>(x := x, y := y)\<open> x >> y \<close>"
-abbreviation Eval_urust_site_38 where
-  "Eval_urust_site_38 x y \<equiv> \<mu>(x := x, y := y)\<open> x >> y \<close>"
-abbreviation Eval_urust_site_39 where
-  "Eval_urust_site_39 x y \<equiv> \<mu>(x := x, y := y)\<open> x >> y \<close>"
-
+urust_expr [abbrev = true] urust_eval_action_shift_right_expr (x, y) \<open> x >> y \<close>
 lemma urust_eval_action_shift_right [urust_eval_action_simps]:
   fixes x :: \<open>'l0::{len} word\<close>
     and y :: \<open>64 word\<close>
-  shows \<open>((\<Gamma>, Eval_urust_site_37 x y) \<diamondop>\<^sub>a \<sigma>) =
+  shows \<open>((\<Gamma>, urust_eval_action_shift_right_expr x y) \<diamondop>\<^sub>a \<sigma>) =
             (if unat y < LENGTH('l0) then {} else {(Panic overflow_err_msg, \<sigma>)})\<close>
-    and \<open>((\<Gamma>, Eval_urust_site_38 x y) \<diamondop>\<^sub>v \<sigma>) =
+    and \<open>((\<Gamma>, urust_eval_action_shift_right_expr x y) \<diamondop>\<^sub>v \<sigma>) =
             (if unat y < LENGTH('l0) then {(drop_bit (unat y) x, \<sigma>)} else {})\<close>
-    and \<open>((\<Gamma>, Eval_urust_site_39 x y) \<diamondop>\<^sub>r \<sigma>) = {}\<close>
+    and \<open>((\<Gamma>, urust_eval_action_shift_right_expr x y) \<diamondop>\<^sub>r \<sigma>) = {}\<close>
 by (auto simp flip: word_le_nat_alt simp add: word_shift_right_pure_def urust_eval_action_bind
   micro_rust_simps urust_eval_action_literal urust_eval_action_abort word_shift_right_core_def
   word_shift_right_as_urust_def urust_eval_action_call word_shift_right_def
   word_shift_right_shift64_def option_unwrap_expr_def Let_def)
 
-abbreviation Eval_urust_site_40 where
-  "Eval_urust_site_40 x y \<equiv> \<mu>(x := x, y := y)\<open> x >> y \<close>"
-abbreviation Eval_urust_site_41 where
-  "Eval_urust_site_41 x y \<equiv> \<mu>(x := x, y := y)\<open> x >> y \<close>"
-abbreviation Eval_urust_site_42 where
-  "Eval_urust_site_42 x y \<equiv> \<mu>(x := x, y := y)\<open> x >> y \<close>"
-
+urust_expr [abbrev = true] urust_eval_predicate_shift_right_expr (x, y) \<open> x >> y \<close>
 corollary urust_eval_predicate_shift_right [urust_eval_predicate_simps]:
   fixes x :: \<open>'l0::{len} word\<close>
     and y :: \<open>64 word\<close>
-  shows \<open>\<sigma> \<leadsto>\<^sub>v \<langle>\<Gamma>, Eval_urust_site_40 x y\<rangle> (v, \<sigma>') \<longleftrightarrow>
+  shows \<open>\<sigma> \<leadsto>\<^sub>v \<langle>\<Gamma>, urust_eval_predicate_shift_right_expr x y\<rangle> (v, \<sigma>') \<longleftrightarrow>
             unat y < LENGTH('l0) \<and> \<sigma> = \<sigma>' \<and> v = drop_bit (unat y) x\<close>
-    and \<open>\<sigma> \<leadsto>\<^sub>r \<langle>\<Gamma>, Eval_urust_site_41 x y\<rangle> (r, \<sigma>') \<longleftrightarrow> False\<close>
-    and \<open>\<sigma> \<leadsto>\<^sub>a \<langle>\<Gamma>, Eval_urust_site_42 x y\<rangle> (a, \<sigma>') \<longleftrightarrow> (unat y \<ge> LENGTH('l0) \<and> \<sigma> = \<sigma>' \<and> a = Panic overflow_err_msg)\<close>
+    and \<open>\<sigma> \<leadsto>\<^sub>r \<langle>\<Gamma>, urust_eval_predicate_shift_right_expr x y\<rangle> (r, \<sigma>') \<longleftrightarrow> False\<close>
+    and \<open>\<sigma> \<leadsto>\<^sub>a \<langle>\<Gamma>, urust_eval_predicate_shift_right_expr x y\<rangle> (a, \<sigma>') \<longleftrightarrow> (unat y \<ge> LENGTH('l0) \<and> \<sigma> = \<sigma>' \<and> a = Panic overflow_err_msg)\<close>
 by (auto simp add: urust_eval_predicate_via_action urust_eval_action_shift_right)
 
-abbreviation Eval_urust_site_43 where
-  "Eval_urust_site_43 x y \<equiv> \<mu>(x := x, y := y)\<open> x ^ y \<close>"
-abbreviation Eval_urust_site_44 where
-  "Eval_urust_site_44 x y \<equiv> \<mu>(x := x, y := y)\<open> x ^ y \<close>"
-abbreviation Eval_urust_site_45 where
-  "Eval_urust_site_45 x y \<equiv> \<mu>(x := x, y := y)\<open> x ^ y \<close>"
-
+urust_expr [abbrev = true] urust_eval_action_xor_expr (x, y) \<open> x ^ y \<close>
 lemma urust_eval_action_xor [urust_eval_action_simps]:
   fixes x y :: \<open>'l::{len} word\<close>
-  shows \<open>((\<Gamma>, Eval_urust_site_43 x y) \<diamondop>\<^sub>a \<sigma>) = {}\<close>
-    and \<open>((\<Gamma>, Eval_urust_site_44 x y) \<diamondop>\<^sub>v \<sigma>) = {(x XOR y, \<sigma>)}\<close>
-    and \<open>((\<Gamma>, Eval_urust_site_45 x y) \<diamondop>\<^sub>r \<sigma>) = {}\<close>
+  shows \<open>((\<Gamma>, urust_eval_action_xor_expr x y) \<diamondop>\<^sub>a \<sigma>) = {}\<close>
+    and \<open>((\<Gamma>, urust_eval_action_xor_expr x y) \<diamondop>\<^sub>v \<sigma>) = {(x XOR y, \<sigma>)}\<close>
+    and \<open>((\<Gamma>, urust_eval_action_xor_expr x y) \<diamondop>\<^sub>r \<sigma>) = {}\<close>
 by (simp add: urust_eval_action_bind micro_rust_simps urust_eval_action_literal
   urust_eval_action_abort urust_eval_action_call)+
 
-abbreviation Eval_urust_site_46 where
-  "Eval_urust_site_46 x y \<equiv> \<mu>(x := x, y := y)\<open> x ^ y \<close>"
-abbreviation Eval_urust_site_47 where
-  "Eval_urust_site_47 x y \<equiv> \<mu>(x := x, y := y)\<open> x ^ y \<close>"
-abbreviation Eval_urust_site_48 where
-  "Eval_urust_site_48 x y \<equiv> \<mu>(x := x, y := y)\<open> x ^ y \<close>"
-
+urust_expr [abbrev = true] urust_eval_predicate_xor_expr (x, y) \<open> x ^ y \<close>
 corollary urust_eval_predicate_xor [urust_eval_predicate_simps]:
   fixes x y :: \<open>'l::{len} word\<close>
-  shows \<open>\<sigma> \<leadsto>\<^sub>v \<langle>\<Gamma>, Eval_urust_site_46 x y\<rangle> (v, \<sigma>') \<longleftrightarrow> \<sigma> = \<sigma>' \<and> v = x XOR y\<close>
-    and \<open>\<sigma> \<leadsto>\<^sub>r \<langle>\<Gamma>, Eval_urust_site_47 x y\<rangle> (r, \<sigma>') \<longleftrightarrow> False\<close>
-    and \<open>\<sigma> \<leadsto>\<^sub>a \<langle>\<Gamma>, Eval_urust_site_48 x y\<rangle> (a, \<sigma>') \<longleftrightarrow> False\<close>
+  shows \<open>\<sigma> \<leadsto>\<^sub>v \<langle>\<Gamma>, urust_eval_predicate_xor_expr x y\<rangle> (v, \<sigma>') \<longleftrightarrow> \<sigma> = \<sigma>' \<and> v = x XOR y\<close>
+    and \<open>\<sigma> \<leadsto>\<^sub>r \<langle>\<Gamma>, urust_eval_predicate_xor_expr x y\<rangle> (r, \<sigma>') \<longleftrightarrow> False\<close>
+    and \<open>\<sigma> \<leadsto>\<^sub>a \<langle>\<Gamma>, urust_eval_predicate_xor_expr x y\<rangle> (a, \<sigma>') \<longleftrightarrow> False\<close>
 by (auto simp add: urust_eval_predicate_via_action urust_eval_action_xor)
 
-abbreviation Eval_urust_site_49 where
-  "Eval_urust_site_49 x y \<equiv> \<mu>(x := x, y := y)\<open> x | y \<close>"
-abbreviation Eval_urust_site_50 where
-  "Eval_urust_site_50 x y \<equiv> \<mu>(x := x, y := y)\<open> x | y \<close>"
-abbreviation Eval_urust_site_51 where
-  "Eval_urust_site_51 x y \<equiv> \<mu>(x := x, y := y)\<open> x | y \<close>"
-
+urust_expr [abbrev = true] urust_eval_action_or_expr (x, y) \<open> x | y \<close>
 lemma urust_eval_action_or [urust_eval_action_simps]:
   fixes x y :: \<open>'l::{len} word\<close>
-  shows \<open>((\<Gamma>, Eval_urust_site_49 x y) \<diamondop>\<^sub>a \<sigma>) = {}\<close>
-    and \<open>((\<Gamma>, Eval_urust_site_50 x y) \<diamondop>\<^sub>v \<sigma>) = {(x OR y, \<sigma>)}\<close>
-    and \<open>((\<Gamma>, Eval_urust_site_51 x y) \<diamondop>\<^sub>r \<sigma>) = {}\<close>
+  shows \<open>((\<Gamma>, urust_eval_action_or_expr x y) \<diamondop>\<^sub>a \<sigma>) = {}\<close>
+    and \<open>((\<Gamma>, urust_eval_action_or_expr x y) \<diamondop>\<^sub>v \<sigma>) = {(x OR y, \<sigma>)}\<close>
+    and \<open>((\<Gamma>, urust_eval_action_or_expr x y) \<diamondop>\<^sub>r \<sigma>) = {}\<close>
 by (simp add: urust_eval_action_bind micro_rust_simps urust_eval_action_literal
   urust_eval_action_abort urust_eval_action_call)+
 
-abbreviation Eval_urust_site_52 where
-  "Eval_urust_site_52 x y \<equiv> \<mu>(x := x, y := y)\<open> x | y \<close>"
-abbreviation Eval_urust_site_53 where
-  "Eval_urust_site_53 x y \<equiv> \<mu>(x := x, y := y)\<open> x | y \<close>"
-abbreviation Eval_urust_site_54 where
-  "Eval_urust_site_54 x y \<equiv> \<mu>(x := x, y := y)\<open> x | y \<close>"
-
+urust_expr [abbrev = true] urust_eval_predicate_or_expr (x, y) \<open> x | y \<close>
 corollary urust_eval_predicate_or [urust_eval_predicate_simps]:
   fixes x y :: \<open>'l::{len} word\<close>
-  shows \<open>\<sigma> \<leadsto>\<^sub>v \<langle>\<Gamma>, Eval_urust_site_52 x y\<rangle> (v, \<sigma>') \<longleftrightarrow> \<sigma> = \<sigma>' \<and> v = x OR y\<close>
-    and \<open>\<sigma> \<leadsto>\<^sub>r \<langle>\<Gamma>, Eval_urust_site_53 x y\<rangle> (r, \<sigma>') \<longleftrightarrow> False\<close>
-    and \<open>\<sigma> \<leadsto>\<^sub>a \<langle>\<Gamma>, Eval_urust_site_54 x y\<rangle> (a, \<sigma>') \<longleftrightarrow> False\<close>
+  shows \<open>\<sigma> \<leadsto>\<^sub>v \<langle>\<Gamma>, urust_eval_predicate_or_expr x y\<rangle> (v, \<sigma>') \<longleftrightarrow> \<sigma> = \<sigma>' \<and> v = x OR y\<close>
+    and \<open>\<sigma> \<leadsto>\<^sub>r \<langle>\<Gamma>, urust_eval_predicate_or_expr x y\<rangle> (r, \<sigma>') \<longleftrightarrow> False\<close>
+    and \<open>\<sigma> \<leadsto>\<^sub>a \<langle>\<Gamma>, urust_eval_predicate_or_expr x y\<rangle> (a, \<sigma>') \<longleftrightarrow> False\<close>
 by (auto simp add: urust_eval_predicate_via_action urust_eval_action_or)
 
-abbreviation Eval_urust_site_55 where
-  "Eval_urust_site_55 x y \<equiv> \<mu>(x := x, y := y)\<open> x & y \<close>"
-abbreviation Eval_urust_site_56 where
-  "Eval_urust_site_56 x y \<equiv> \<mu>(x := x, y := y)\<open> x & y \<close>"
-abbreviation Eval_urust_site_57 where
-  "Eval_urust_site_57 x y \<equiv> \<mu>(x := x, y := y)\<open> x & y \<close>"
-
+urust_expr [abbrev = true] urust_eval_action_and_expr (x, y) \<open> x & y \<close>
 lemma urust_eval_action_and [urust_eval_action_simps]:
   fixes x y :: \<open>'l::{len} word\<close>
-  shows \<open>((\<Gamma>, Eval_urust_site_55 x y) \<diamondop>\<^sub>a \<sigma>) = {}\<close>
-    and \<open>((\<Gamma>, Eval_urust_site_56 x y) \<diamondop>\<^sub>v \<sigma>) = {(x AND y, \<sigma>)}\<close>
-    and \<open>((\<Gamma>, Eval_urust_site_57 x y) \<diamondop>\<^sub>r \<sigma>) = {}\<close>
+  shows \<open>((\<Gamma>, urust_eval_action_and_expr x y) \<diamondop>\<^sub>a \<sigma>) = {}\<close>
+    and \<open>((\<Gamma>, urust_eval_action_and_expr x y) \<diamondop>\<^sub>v \<sigma>) = {(x AND y, \<sigma>)}\<close>
+    and \<open>((\<Gamma>, urust_eval_action_and_expr x y) \<diamondop>\<^sub>r \<sigma>) = {}\<close>
 by (simp add: urust_eval_action_bind micro_rust_simps urust_eval_action_literal
   urust_eval_action_abort urust_eval_action_call)+
 
-abbreviation Eval_urust_site_58 where
-  "Eval_urust_site_58 x y \<equiv> \<mu>(x := x, y := y)\<open> x & y \<close>"
-abbreviation Eval_urust_site_59 where
-  "Eval_urust_site_59 x y \<equiv> \<mu>(x := x, y := y)\<open> x & y \<close>"
-abbreviation Eval_urust_site_60 where
-  "Eval_urust_site_60 x y \<equiv> \<mu>(x := x, y := y)\<open> x & y \<close>"
-
+urust_expr [abbrev = true] urust_eval_predicate_and_expr (x, y) \<open> x & y \<close>
 corollary urust_eval_predicate_and [urust_eval_predicate_simps]:
   fixes x y :: \<open>'l::{len} word\<close>
-  shows \<open>\<sigma> \<leadsto>\<^sub>v \<langle>\<Gamma>, Eval_urust_site_58 x y\<rangle> (v, \<sigma>') \<longleftrightarrow> \<sigma> = \<sigma>' \<and> v = x AND y\<close>
-    and \<open>\<sigma> \<leadsto>\<^sub>r \<langle>\<Gamma>, Eval_urust_site_59 x y\<rangle> (r, \<sigma>') \<longleftrightarrow> False\<close>
-    and \<open>\<sigma> \<leadsto>\<^sub>a \<langle>\<Gamma>, Eval_urust_site_60 x y\<rangle> (a, \<sigma>') \<longleftrightarrow> False\<close>
+  shows \<open>\<sigma> \<leadsto>\<^sub>v \<langle>\<Gamma>, urust_eval_predicate_and_expr x y\<rangle> (v, \<sigma>') \<longleftrightarrow> \<sigma> = \<sigma>' \<and> v = x AND y\<close>
+    and \<open>\<sigma> \<leadsto>\<^sub>r \<langle>\<Gamma>, urust_eval_predicate_and_expr x y\<rangle> (r, \<sigma>') \<longleftrightarrow> False\<close>
+    and \<open>\<sigma> \<leadsto>\<^sub>a \<langle>\<Gamma>, urust_eval_predicate_and_expr x y\<rangle> (a, \<sigma>') \<longleftrightarrow> False\<close>
 by (auto simp add: urust_eval_predicate_via_action urust_eval_action_and)
 
-abbreviation Eval_urust_site_61 ::
+urust_expr [abbrev = true] urust_eval_action_not_expr ::
   \<open>'l::len word \<Rightarrow> ('s, 'l word, 'r, 'abort, 'i, 'o) expression\<close>
-  where "Eval_urust_site_61 x \<equiv> \<mu>(x := x)\<open> !x \<close>"
-
-abbreviation Eval_urust_site_62 ::
-  \<open>'l::len word \<Rightarrow> ('s, 'l word, 'r, 'abort, 'i, 'o) expression\<close>
-  where "Eval_urust_site_62 x \<equiv> \<mu>(x := x)\<open> !x \<close>"
-
-abbreviation Eval_urust_site_63 ::
-  \<open>'l::len word \<Rightarrow> ('s, 'l word, 'r, 'abort, 'i, 'o) expression\<close>
-  where "Eval_urust_site_63 x \<equiv> \<mu>(x := x)\<open> !x \<close>"
+  (x)
+  \<open> !x \<close>
 
 lemma urust_eval_action_not [urust_eval_action_simps]:
   fixes x y :: \<open>'l::{len} word\<close>
-  shows \<open>((\<Gamma>, Eval_urust_site_61 x) \<diamondop>\<^sub>a \<sigma>) = {}\<close>
-    and \<open>((\<Gamma>, Eval_urust_site_62 x) \<diamondop>\<^sub>v \<sigma>) = {(NOT x, \<sigma>)}\<close>
-    and \<open>((\<Gamma>, Eval_urust_site_63 x) \<diamondop>\<^sub>r \<sigma>) = {}\<close>
+  shows \<open>((\<Gamma>, urust_eval_action_not_expr x) \<diamondop>\<^sub>a \<sigma>) = {}\<close>
+    and \<open>((\<Gamma>, urust_eval_action_not_expr x) \<diamondop>\<^sub>v \<sigma>) = {(NOT x, \<sigma>)}\<close>
+    and \<open>((\<Gamma>, urust_eval_action_not_expr x) \<diamondop>\<^sub>r \<sigma>) = {}\<close>
 by (simp add: urust_eval_action_bind micro_rust_simps urust_eval_action_literal
   urust_eval_action_abort urust_eval_action_call)+
 
-abbreviation Eval_urust_site_64 ::
+urust_expr [abbrev = true] urust_eval_predicate_not_expr ::
   \<open>'l::len word \<Rightarrow> ('s, 'l word, 'r, 'abort, 'i, 'o) expression\<close>
-  where "Eval_urust_site_64 x \<equiv> \<mu>(x := x)\<open> !x \<close>"
-
-abbreviation Eval_urust_site_65 ::
-  \<open>'l::len word \<Rightarrow> ('s, 'l word, 'r, 'abort, 'i, 'o) expression\<close>
-  where "Eval_urust_site_65 x \<equiv> \<mu>(x := x)\<open> !x \<close>"
-
-abbreviation Eval_urust_site_66 ::
-  \<open>'l::len word \<Rightarrow> ('s, 'l word, 'r, 'abort, 'i, 'o) expression\<close>
-  where "Eval_urust_site_66 x \<equiv> \<mu>(x := x)\<open> !x \<close>"
+  (x)
+  \<open> !x \<close>
 
 corollary urust_eval_predicate_not [urust_eval_predicate_simps]:
   fixes x y :: \<open>'l::{len} word\<close>
-  shows \<open>\<sigma> \<leadsto>\<^sub>v \<langle>\<Gamma>, Eval_urust_site_64 x\<rangle> (v, \<sigma>') \<longleftrightarrow> \<sigma> = \<sigma>' \<and> v = NOT x\<close>
-    and \<open>\<sigma> \<leadsto>\<^sub>r \<langle>\<Gamma>, Eval_urust_site_65 x\<rangle> (r, \<sigma>') \<longleftrightarrow> False\<close>
-    and \<open>\<sigma> \<leadsto>\<^sub>a \<langle>\<Gamma>, Eval_urust_site_66 x\<rangle> (a, \<sigma>') \<longleftrightarrow> False\<close>
+  shows \<open>\<sigma> \<leadsto>\<^sub>v \<langle>\<Gamma>, urust_eval_predicate_not_expr x\<rangle> (v, \<sigma>') \<longleftrightarrow> \<sigma> = \<sigma>' \<and> v = NOT x\<close>
+    and \<open>\<sigma> \<leadsto>\<^sub>r \<langle>\<Gamma>, urust_eval_predicate_not_expr x\<rangle> (r, \<sigma>') \<longleftrightarrow> False\<close>
+    and \<open>\<sigma> \<leadsto>\<^sub>a \<langle>\<Gamma>, urust_eval_predicate_not_expr x\<rangle> (a, \<sigma>') \<longleftrightarrow> False\<close>
 by (auto simp add: urust_eval_predicate_via_action urust_eval_action_not)
 
 end

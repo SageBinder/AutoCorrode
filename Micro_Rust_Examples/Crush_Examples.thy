@@ -2,9 +2,7 @@
    SPDX-License-Identifier: MIT *)
 
 theory Crush_Examples
-  imports
-    Micro_Rust_Std_Lib.StdLib_All
-    Micro_Rust_Parser_Impl.Parser_Term_Hook
+  imports Micro_Rust_Std_Lib.StdLib_All
 begin
 
 declare [[urust_conformance_check = true]]
@@ -667,19 +665,15 @@ paragraph\<open>Case splitting\<close>
 
 experiment
 begin
-abbreviation Crush_Examples_urust_site_1 where
-  "Crush_Examples_urust_site_1 x f g \<equiv>
-    \<mu>(x := x, none := None, f := f, g := g)\<open>
-      if x == none { g() } else { f() }
-    \<close>"
+urust_expr [abbrev = true] case_split_all_expr
+  (x, f, g)
+  \<open> match x { Some(y) \<Rightarrow> f(), None \<Rightarrow> g() } \<close>
 
-abbreviation Crush_Examples_urust_site_2 where
-  "Crush_Examples_urust_site_2 x f g \<equiv>
-    \<mu>(x := x, none := None, f := f, g := g)\<open>
-      if x == none { f() } else { g() }
-    \<close>"
+urust_expr [abbrev = true] case_split_wp_expr
+  (x, f, g)
+  \<open> match x { None \<Rightarrow> f(), Some(y) \<Rightarrow> g() } \<close>
 
-lemma \<open>(case y of Some t \<Rightarrow> True | None \<Rightarrow> True) \<Longrightarrow> \<alpha> \<longlongrightarrow> \<W>\<P> \<Gamma> (Crush_Examples_urust_site_1 x f g) \<beta> \<gamma> \<delta>\<close>
+lemma \<open>(case y of Some t \<Rightarrow> True | None \<Rightarrow> True) \<Longrightarrow> \<alpha> \<longlongrightarrow> \<W>\<P> \<Gamma> (case_split_all_expr x f g) \<beta> \<gamma> \<delta>\<close>
   \<comment>\<open>You could use the following, but that would aggressively split \<^verbatim>\<open>option\<close> everywhere.\<close>
   apply (crush_base split!: option.splits)
   \<comment>\<open>\<^verbatim>\<open> 1. \<And>x2 x2a. x = Some x2 \<Longrightarrow> y = Some x2a \<Longrightarrow> \<alpha> \<longlongrightarrow> \<W>\<P> \<Gamma> (call f) \<beta> \<gamma> \<delta>
@@ -688,7 +682,7 @@ lemma \<open>(case y of Some t \<Rightarrow> True | None \<Rightarrow> True) \<L
         4. x = None \<Longrightarrow> y = None \<Longrightarrow> \<alpha> \<longlongrightarrow> \<W>\<P> \<Gamma> (call g) \<beta> \<gamma> \<delta>\<close>\<close>
   oops
 
-lemma \<open>(case y of Some t \<Rightarrow> True | None \<Rightarrow> True) \<Longrightarrow> \<alpha> \<longlongrightarrow> \<W>\<P> \<Gamma> (Crush_Examples_urust_site_2 x f g) \<beta> \<gamma> \<delta>\<close>
+lemma \<open>(case y of Some t \<Rightarrow> True | None \<Rightarrow> True) \<Longrightarrow> \<alpha> \<longlongrightarrow> \<W>\<P> \<Gamma> (case_split_wp_expr x f g) \<beta> \<gamma> \<delta>\<close>
   \<comment>\<open>If you instead want to split only micro rust expressions, use \<^verbatim>\<open>wp split: ...\<close>\<close> 
   apply (crush_base wp split: option.splits)
   \<comment>\<open>\<^verbatim>\<open> 1. \<And>x2. case y of None \<Rightarrow> True | _ \<Rightarrow> True \<Longrightarrow> x = Some x2 \<Longrightarrow> \<alpha> \<longlongrightarrow> \<W>\<P> \<Gamma> (call g) \<beta> \<gamma> \<delta>

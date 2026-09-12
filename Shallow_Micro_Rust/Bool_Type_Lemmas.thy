@@ -150,18 +150,17 @@ lemma assert_true_sequence [micro_rust_simps]:
   shows \<open>Bool_Type_Lemmas_urust_site_5 e = e\<close>
   by (simp add: micro_rust_simps assert_def assert_val_def)
 
-abbreviation Bool_Type_Lemmas_urust_site_6 ::
+urust_expr [abbrev = true] evaluate_negation_literal_1 ::
   \<open>bool \<Rightarrow> ('s, bool, 'r, 'abort, 'i, 'o) expression\<close>
-  where
-  "Bool_Type_Lemmas_urust_site_6 c \<equiv>
-    \<mu>(c := c)\<open> !c \<close>"
+  (c)
+  \<open> !c \<close>
 
-abbreviation Bool_Type_Lemmas_urust_site_7 where
-  "Bool_Type_Lemmas_urust_site_7 c \<equiv>
-    \<mu>(value := \<not>c)\<open> value \<close>"
+urust_expr [abbrev = true] evaluate_negation_literal_2
+  (c)
+  \<open> \<llangle>\<not>c\<rrangle> \<close>
 
 lemma evaluate_negation_literal [micro_rust_simps]:
-  shows \<open>Bool_Type_Lemmas_urust_site_6 c = Bool_Type_Lemmas_urust_site_7 c\<close>
+  shows \<open>evaluate_negation_literal_1 c = evaluate_negation_literal_2 c\<close>
   by (clarsimp simp add: micro_rust_simps negation_def)
 
 urust_expr [abbrev = true] Bool_Type_Lemmas_urust_site_8
@@ -188,64 +187,67 @@ lemma evaluate_disjunction_literal [micro_rust_simps]:
   shows \<open>Bool_Type_Lemmas_urust_site_10 c e = Bool_Type_Lemmas_urust_site_11 c e\<close>
   by (clarsimp simp add: micro_rust_simps urust_disj_def two_armed_conditional_def true_def)
 
-abbreviation Bool_Type_Lemmas_urust_site_12 where
-  "Bool_Type_Lemmas_urust_site_12 c d \<equiv> \<mu>(c := c, d := d)\<open> c == d \<close>"
+urust_expr [abbrev = true] evaluate_eq_literal_1
+  (c, d)
+  \<open> c == d \<close>
 
-abbreviation Bool_Type_Lemmas_urust_site_13 where
-  "Bool_Type_Lemmas_urust_site_13 c d \<equiv>
-    \<mu>(value := c = d)\<open> value \<close>"
+urust_expr [abbrev = true] evaluate_eq_literal_2
+  (c, d)
+  \<open> \<llangle>c = d\<rrangle> \<close>
 
 lemma evaluate_eq_literal [micro_rust_simps]:
-  shows \<open>Bool_Type_Lemmas_urust_site_12 c d = Bool_Type_Lemmas_urust_site_13 c d\<close>
+  shows \<open>evaluate_eq_literal_1 c d = evaluate_eq_literal_2 c d\<close>
   by (clarsimp simp add: micro_rust_simps urust_eq_def)
 
-abbreviation Bool_Type_Lemmas_urust_site_14 where
-  "Bool_Type_Lemmas_urust_site_14 c d \<equiv> \<mu>(c := c, d := d)\<open> c != d \<close>"
+urust_expr [abbrev = true] evaluate_neq_literal_1
+  (c, d)
+  \<open> c != d \<close>
 
-abbreviation Bool_Type_Lemmas_urust_site_15 where
-  "Bool_Type_Lemmas_urust_site_15 c d \<equiv>
-    \<mu>(value := c \<noteq> d)\<open> value \<close>"
+urust_expr [abbrev = true] evaluate_neq_literal_2
+  (c, d)
+  \<open> \<llangle>c \<noteq> d\<rrangle> \<close>
 
 lemma evaluate_neq_literal [micro_rust_simps]:
-  shows \<open>Bool_Type_Lemmas_urust_site_14 c d = Bool_Type_Lemmas_urust_site_15 c d\<close>
+  shows \<open>evaluate_neq_literal_1 c d = evaluate_neq_literal_2 c d\<close>
   by (clarsimp simp add: micro_rust_simps urust_neq_def)
 
 (* We don't add these to micro_rust_simps as it can leads to overly aggressive case-splitting
    by HOL's if_split rule. Still, it can be useful in specific proofs. *)
 
-abbreviation Bool_Type_Lemmas_urust_site_16 where
-  "Bool_Type_Lemmas_urust_site_16 x y z \<equiv> \<mu>(x := x, y := y, z := z)\<open> if x { y } else { z } \<close>"
+urust_expr [abbrev = true] evaluate_pure_if_1
+  (x, y, z)
+  \<open> if x { y } else { z } \<close>
 
-abbreviation Bool_Type_Lemmas_urust_site_17 where
-  "Bool_Type_Lemmas_urust_site_17 x y z \<equiv>
-    \<mu>(value := if x then y else z)\<open> value \<close>"
+urust_expr [abbrev = true] evaluate_pure_if_2
+  (x, y, z)
+  \<open> \<llangle>if x then y else z\<rrangle> \<close>
 
 lemma evaluate_pure_if:
-  shows \<open>Bool_Type_Lemmas_urust_site_16 x y z = Bool_Type_Lemmas_urust_site_17 x y z\<close>
+  shows \<open>evaluate_pure_if_1 x y z = evaluate_pure_if_2 x y z\<close>
   by (clarsimp simp add: micro_rust_simps)
 
-abbreviation Bool_Type_Lemmas_urust_site_18 where
-  "Bool_Type_Lemmas_urust_site_18 x z \<equiv>
-    \<mu>(value := if x then True else z)\<open> value \<close>"
+urust_expr [abbrev = true] evaluate_pure_if_then_True_1
+  (x, z)
+  \<open> \<llangle>if x then True else z\<rrangle> \<close>
 
-abbreviation Bool_Type_Lemmas_urust_site_19 where
-  "Bool_Type_Lemmas_urust_site_19 x z \<equiv>
-    \<mu>(value := x \<or> z)\<open> value \<close>"
+urust_expr [abbrev = true] evaluate_pure_if_then_True_2
+  (x, z)
+  \<open> \<llangle>x \<or> z\<rrangle> \<close>
 
 lemma evaluate_pure_if_then_True:
-  shows \<open>Bool_Type_Lemmas_urust_site_18 x z = Bool_Type_Lemmas_urust_site_19 x z\<close>
+  shows \<open>evaluate_pure_if_then_True_1 x z = evaluate_pure_if_then_True_2 x z\<close>
   by simp
 
-abbreviation Bool_Type_Lemmas_urust_site_20 where
-  "Bool_Type_Lemmas_urust_site_20 x y \<equiv>
-    \<mu>(value := if x then y else True)\<open> value \<close>"
+urust_expr [abbrev = true] evaluate_pure_if_else_True_1
+  (x, y)
+  \<open> \<llangle>if x then y else True\<rrangle> \<close>
 
-abbreviation Bool_Type_Lemmas_urust_site_21 where
-  "Bool_Type_Lemmas_urust_site_21 x y \<equiv>
-    \<mu>(value := \<not>x \<or> y)\<open> value \<close>"
+urust_expr [abbrev = true] evaluate_pure_if_else_True_2
+  (x, y)
+  \<open> \<llangle>\<not>x \<or> y\<rrangle> \<close>
 
 lemma evaluate_pure_if_else_True:
-  shows \<open>Bool_Type_Lemmas_urust_site_20 x y = Bool_Type_Lemmas_urust_site_21 x y\<close>
+  shows \<open>evaluate_pure_if_else_True_1 x y = evaluate_pure_if_else_True_2 x y\<close>
   by simp
 
 

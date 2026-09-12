@@ -3,10 +3,7 @@
 
 (*<*)
 theory StdLib_Iterators
-  imports
-    Crush.Crush
-    StdLib_References
-    Micro_Rust_Parser_Impl.Parser_Term_Hook
+  imports Crush.Crush StdLib_References
 begin
 declare [[urust_conformance_check = true]]
 (*>*)
@@ -26,17 +23,17 @@ urust_fn find ::
     None
   \<close>
 
-abbreviation enumerate_urust_site_1 where
-  "enumerate_urust_site_1 i f \<equiv>
-  \<mu>(index := word_of_nat i, f := f)\<open>
+urust_expr [abbrev = true] enumerate_expr
+  (i, f)
+  \<open>
     let feval = f();
-    (index, feval)
-  \<close>"
+    (\<llangle>word_of_nat i\<rrangle>, feval)
+  \<close>
 
 definition enumerate :: \<open>('s, 'v, 'abort, 'i prompt, 'o prompt_output) iterator \<Rightarrow>
       ('s, ('s, 64 word \<times> 'v \<times> tnil, 'abort, 'i prompt, 'o prompt_output) iterator, 'abort, 'i prompt, 'o prompt_output) function_body\<close> where
   \<open>enumerate self \<equiv> FunctionBody (literal (make_iterator
-    (mapi (\<lambda>i f. FunctionBody (enumerate_urust_site_1 i f)) (iterator_thunks self))))\<close>
+    (mapi (\<lambda>i f. FunctionBody (enumerate_expr i f)) (iterator_thunks self))))\<close>
 
 urust_fn any :: \<open>('s, 'v, 'abort, 'i prompt, 'o prompt_output) iterator \<Rightarrow>
     ('v \<Rightarrow> ('s, bool, 'abort, 'i prompt, 'o prompt_output) function_body) \<Rightarrow>
