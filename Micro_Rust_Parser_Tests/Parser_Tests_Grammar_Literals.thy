@@ -5,7 +5,7 @@ begin
 declare [[urust_conformance_check = true]]
 declare [[urust_verbose = 0]]
 
-section\<open>Explicit precedence tiers\<close>
+section\<open>Expression precedence\<close>
 
 adhoc_overloading store_reference_const \<rightleftharpoons> parser_reference_fixture
 adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture

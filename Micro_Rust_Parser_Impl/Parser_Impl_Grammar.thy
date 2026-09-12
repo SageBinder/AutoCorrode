@@ -100,9 +100,9 @@ section\<open> Lexer + grammar \<close>
 
 text\<open>
 Lexer start states capture value and expression antiquotation bodies without lexing their
-HOL content. Explicit ordinary and no-struct grammar tiers encode Rust-aligned precedence; the
-remaining Yacc directives resolve pattern-list context and nearest-else/delimiter conflicts rather
-than expression-operator precedence. Only token shims remain lexer-local; positions use
+HOL content. Structural grammar tiers encode assignment, range, cast, prefix, and postfix boundaries;
+ML-Yacc precedence declarations encode the ordinary binary-operator table for both the unrestricted
+and no-struct expression families. Only token shims remain lexer-local; positions use
 \<open>Parser_Lex_Util\<close>.
 \<close>
 (*
@@ -616,8 +616,22 @@ yacc_definitions\<open>
 %eop EOF
 %noshift EOF
 
-%nonassoc TPATCONTEXT
+(* Binary operators use ML-Yacc's native precedence mechanism instead of one grammar nonterminal per
+   tier. Assignment, ranges, casts, prefixes, and postfixes remain structural because their accepted
+   operand languages differ, not merely their precedence or associativity. TRETURN and the
+   with-block delimiters resolve the two low-precedence expression/statement boundaries. *)
+%right TRETURN
 %right TIF TELSE TLBRACE TLBRACK TUNSAFE TWHILE TLOOP TFOR
+%left TBARBAR
+%left TAMPAMP
+%nonassoc TEQEQ TNE TLT TLE TGT TGE
+%nonassoc TPATCONTEXT
+%left TBAR
+%left TCARET
+%left TAMP
+%left TSHL TSHR
+%left TPLUS TMINUS
+%left TSTAR TSLASH TPERCENT
 
 %term NUM of string | NUMSFX of string | STRING of string | IDENT of string | LPAR | RPAR
     | VALAQ of Input.source | EXPRAQ of Input.source * Position.T
@@ -651,15 +665,7 @@ yacc_definitions\<open>
        | uassign of URust_AST.ur_expr
        | uassignop of URust_AST.assignop * Position.T
        | urange of URust_AST.ur_expr
-       | ulogical_or of URust_AST.ur_expr
-       | ulogical_and of URust_AST.ur_expr
-       | ucomparison of URust_AST.ur_expr
-       | ubitwise_or of URust_AST.ur_expr
-       | ubitwise_xor of URust_AST.ur_expr
-       | ubitwise_and of URust_AST.ur_expr
-       | ushift of URust_AST.ur_expr
-       | uadditive of URust_AST.ur_expr
-       | umultiplicative of URust_AST.ur_expr
+       | ubinary of URust_AST.ur_expr
        | ucast of URust_AST.ur_expr
        | uprefix of URust_AST.ur_expr
        | ucast_target of URust_AST.cast_target
@@ -670,15 +676,7 @@ yacc_definitions\<open>
        | uclosure_no_struct of URust_AST.ur_expr
        | uassign_no_struct of URust_AST.ur_expr
        | urange_no_struct of URust_AST.ur_expr
-       | ulogical_or_no_struct of URust_AST.ur_expr
-       | ulogical_and_no_struct of URust_AST.ur_expr
-       | ucomparison_no_struct of URust_AST.ur_expr
-       | ubitwise_or_no_struct of URust_AST.ur_expr
-       | ubitwise_xor_no_struct of URust_AST.ur_expr
-       | ubitwise_and_no_struct of URust_AST.ur_expr
-       | ushift_no_struct of URust_AST.ur_expr
-       | uadditive_no_struct of URust_AST.ur_expr
-       | umultiplicative_no_struct of URust_AST.ur_expr
+       | ubinary_no_struct of URust_AST.ur_expr
        | ucast_no_struct of URust_AST.ur_expr
        | uprefix_no_struct of URust_AST.ur_expr
        | upostfix_no_struct of URust_AST.ur_expr
@@ -771,8 +769,8 @@ yacc_rules\<open>
                        (mk_bare_path_pat
                           (make_single_path (IDENT, IDENTleft)) ::
                           uclosure_formals)
-  (* Explicit ordinary precedence tiers, loosest to tightest. Assignment is right-associative;
-     ranges and comparisons are structurally non-associative. *)
+  (* Assignment is structurally right-associative and ranges are structurally non-associative.
+     Binary precedence and associativity come from the declarations above. *)
   uassign : urange (urange)
           | urange uassignop uexpr (mk_assign uassignop urange uexpr)
   uassignop : TEQ        ((Assign, TEQleft))
@@ -785,58 +783,48 @@ yacc_rules\<open>
             | TCARETEQ   ((AssignBin AssignBXor, TCARETEQleft))
             | TSHLEQ     ((AssignBin AssignShl, TSHLEQleft))
             | TSHREQ     ((AssignBin AssignShr, TSHREQleft))
-  urange : ulogical_or (ulogical_or)
-         | ulogical_or TDOTDOT ulogical_or
-             (UE_Range
-               (RK_Exclusive, ulogical_or1, ulogical_or2, TDOTDOTleft))
-         | ulogical_or TDOTDOTEQ ulogical_or
-             (UE_Range
-               (RK_Inclusive, ulogical_or1, ulogical_or2, TDOTDOTEQleft))
-  ulogical_or : ulogical_and (ulogical_and)
-              | ulogical_or TBARBAR ulogical_and
-                  (UE_Bin (Or, ulogical_or, ulogical_and, TBARBARleft))
-  ulogical_and : ucomparison (ucomparison)
-               | ulogical_and TAMPAMP ucomparison
-                   (UE_Bin (And, ulogical_and, ucomparison, TAMPAMPleft))
-  ucomparison : ubitwise_or (ubitwise_or)
-              | ubitwise_or TEQEQ ubitwise_or
-                  (UE_Bin (Eq, ubitwise_or1, ubitwise_or2, TEQEQleft))
-              | ubitwise_or TNE ubitwise_or
-                  (UE_Bin (Ne, ubitwise_or1, ubitwise_or2, TNEleft))
-              | ubitwise_or TLT ubitwise_or
-                  (UE_Bin (Lt, ubitwise_or1, ubitwise_or2, TLTleft))
-              | ubitwise_or TLE ubitwise_or
-                  (UE_Bin (Le, ubitwise_or1, ubitwise_or2, TLEleft))
-              | ubitwise_or TGT ubitwise_or
-                  (UE_Bin (Gt, ubitwise_or1, ubitwise_or2, TGTleft))
-              | ubitwise_or TGE ubitwise_or
-                  (UE_Bin (Ge, ubitwise_or1, ubitwise_or2, TGEleft))
-  ubitwise_or : ubitwise_xor (ubitwise_xor)
-              | ubitwise_or TBAR ubitwise_xor
-                  (UE_Bin (BOr, ubitwise_or, ubitwise_xor, TBARleft))
-  ubitwise_xor : ubitwise_and (ubitwise_and)
-               | ubitwise_xor TCARET ubitwise_and
-                   (UE_Bin (BXor, ubitwise_xor, ubitwise_and, TCARETleft))
-  ubitwise_and : ushift (ushift)
-               | ubitwise_and TAMP ushift
-                   (UE_Bin (BAnd, ubitwise_and, ushift, TAMPleft))
-  ushift : uadditive (uadditive)
-         | ushift TSHL uadditive
-             (UE_Bin (Shl, ushift, uadditive, TSHLleft))
-         | ushift TSHR uadditive
-             (UE_Bin (Shr, ushift, uadditive, TSHRleft))
-  uadditive : umultiplicative (umultiplicative)
-            | uadditive TPLUS umultiplicative
-                (UE_Bin (Add, uadditive, umultiplicative, TPLUSleft))
-            | uadditive TMINUS umultiplicative
-                (UE_Bin (Sub, uadditive, umultiplicative, TMINUSleft))
-  umultiplicative : ucast (ucast)
-                  | umultiplicative TSTAR ucast
-                      (UE_Bin (Mul, umultiplicative, ucast, TSTARleft))
-                  | umultiplicative TSLASH ucast
-                      (UE_Bin (Div, umultiplicative, ucast, TSLASHleft))
-                  | umultiplicative TPERCENT ucast
-                      (UE_Bin (Mod, umultiplicative, ucast, TPERCENTleft))
+  urange : ubinary (ubinary)
+         | ubinary TDOTDOT ubinary
+             (UE_Range (RK_Exclusive, ubinary1, ubinary2, TDOTDOTleft))
+         | ubinary TDOTDOTEQ ubinary
+             (UE_Range (RK_Inclusive, ubinary1, ubinary2, TDOTDOTEQleft))
+  ubinary : ucast (ucast)
+          | ubinary TBARBAR ubinary
+              (UE_Bin (Or, ubinary1, ubinary2, TBARBARleft))
+          | ubinary TAMPAMP ubinary
+              (UE_Bin (And, ubinary1, ubinary2, TAMPAMPleft))
+          | ubinary TEQEQ ubinary
+              (UE_Bin (Eq, ubinary1, ubinary2, TEQEQleft))
+          | ubinary TNE ubinary
+              (UE_Bin (Ne, ubinary1, ubinary2, TNEleft))
+          | ubinary TLT ubinary
+              (UE_Bin (Lt, ubinary1, ubinary2, TLTleft))
+          | ubinary TLE ubinary
+              (UE_Bin (Le, ubinary1, ubinary2, TLEleft))
+          | ubinary TGT ubinary
+              (UE_Bin (Gt, ubinary1, ubinary2, TGTleft))
+          | ubinary TGE ubinary
+              (UE_Bin (Ge, ubinary1, ubinary2, TGEleft))
+          | ubinary TBAR ubinary
+              (UE_Bin (BOr, ubinary1, ubinary2, TBARleft))
+          | ubinary TCARET ubinary
+              (UE_Bin (BXor, ubinary1, ubinary2, TCARETleft))
+          | ubinary TAMP ubinary
+              (UE_Bin (BAnd, ubinary1, ubinary2, TAMPleft))
+          | ubinary TSHL ubinary
+              (UE_Bin (Shl, ubinary1, ubinary2, TSHLleft))
+          | ubinary TSHR ubinary
+              (UE_Bin (Shr, ubinary1, ubinary2, TSHRleft))
+          | ubinary TPLUS ubinary
+              (UE_Bin (Add, ubinary1, ubinary2, TPLUSleft))
+          | ubinary TMINUS ubinary
+              (UE_Bin (Sub, ubinary1, ubinary2, TMINUSleft))
+          | ubinary TSTAR ubinary
+              (UE_Bin (Mul, ubinary1, ubinary2, TSTARleft))
+          | ubinary TSLASH ubinary
+              (UE_Bin (Div, ubinary1, ubinary2, TSLASHleft))
+          | ubinary TPERCENT ubinary
+              (UE_Bin (Mod, ubinary1, ubinary2, TPERCENTleft))
   (* Casts consume a complete prefix expression. Thus dereference binds before `as`, while postfix
      operations remain tighter than every prefix and no general postfix invocation is introduced. *)
   ucast : uprefix (uprefix)
@@ -1002,10 +990,12 @@ yacc_rules\<open>
                    (CT_RawPointer (RPM_Const, TUINT))
                | TSTAR TMUT TUINT
                    (CT_RawPointer (RPM_Mut, TUINT))
-  (* The no-struct family mirrors every ordinary tier. Only its primary excludes direct struct
-     expressions; explicit delimiters in the shared non-head primary restore unrestricted parsing. *)
+  (* The no-struct family mirrors the structural expression boundaries and binary operator rule.
+     Only its primary excludes direct struct expressions; explicit delimiters in the shared non-head
+     primary restore unrestricted parsing. A bare operandless return is intentionally absent here:
+     the following mandatory control-body block is always parsed as its operand, so the old alternative
+     was unreachable. Ordinary expression and guard contexts still support operandless return. *)
   uexpr_no_struct : uassign_no_struct       (uassign_no_struct)
-                  | TRETURN                 (UE_Return (NONE, TRETURNleft))
                   | TRETURN uexpr_no_struct
                       (UE_Return (SOME uexpr_no_struct, TRETURNleft))
                   | uclosure_no_struct      (uclosure_no_struct)
@@ -1022,115 +1012,90 @@ yacc_rules\<open>
                     | urange_no_struct uassignop uexpr_no_struct
                         (mk_assign
                           uassignop urange_no_struct uexpr_no_struct)
-  urange_no_struct : ulogical_or_no_struct
-                       (ulogical_or_no_struct)
-                   | ulogical_or_no_struct TDOTDOT ulogical_or_no_struct
+  urange_no_struct : ubinary_no_struct
+                       (ubinary_no_struct)
+                   | ubinary_no_struct TDOTDOT ubinary_no_struct
                        (UE_Range
-                         (RK_Exclusive, ulogical_or_no_struct1,
-                          ulogical_or_no_struct2, TDOTDOTleft))
-                   | ulogical_or_no_struct TDOTDOTEQ ulogical_or_no_struct
+                         (RK_Exclusive, ubinary_no_struct1,
+                          ubinary_no_struct2, TDOTDOTleft))
+                   | ubinary_no_struct TDOTDOTEQ ubinary_no_struct
                        (UE_Range
-                         (RK_Inclusive, ulogical_or_no_struct1,
-                          ulogical_or_no_struct2, TDOTDOTEQleft))
-  ulogical_or_no_struct : ulogical_and_no_struct
-                            (ulogical_and_no_struct)
-                        | ulogical_or_no_struct TBARBAR
-                            ulogical_and_no_struct
-                            (UE_Bin
-                              (Or, ulogical_or_no_struct,
-                               ulogical_and_no_struct, TBARBARleft))
-  ulogical_and_no_struct : ucomparison_no_struct
-                             (ucomparison_no_struct)
-                         | ulogical_and_no_struct TAMPAMP
-                             ucomparison_no_struct
-                             (UE_Bin
-                               (And, ulogical_and_no_struct,
-                                ucomparison_no_struct, TAMPAMPleft))
-  ucomparison_no_struct : ubitwise_or_no_struct
-                            (ubitwise_or_no_struct)
-                        | ubitwise_or_no_struct TEQEQ ubitwise_or_no_struct
-                            (UE_Bin
-                              (Eq, ubitwise_or_no_struct1,
-                               ubitwise_or_no_struct2, TEQEQleft))
-                        | ubitwise_or_no_struct TNE ubitwise_or_no_struct
-                            (UE_Bin
-                              (Ne, ubitwise_or_no_struct1,
-                               ubitwise_or_no_struct2, TNEleft))
-                        | ubitwise_or_no_struct TLT ubitwise_or_no_struct
-                            (UE_Bin
-                              (Lt, ubitwise_or_no_struct1,
-                               ubitwise_or_no_struct2, TLTleft))
-                        | ubitwise_or_no_struct TLE ubitwise_or_no_struct
-                            (UE_Bin
-                              (Le, ubitwise_or_no_struct1,
-                               ubitwise_or_no_struct2, TLEleft))
-                        | ubitwise_or_no_struct TGT ubitwise_or_no_struct
-                            (UE_Bin
-                              (Gt, ubitwise_or_no_struct1,
-                               ubitwise_or_no_struct2, TGTleft))
-                        | ubitwise_or_no_struct TGE ubitwise_or_no_struct
-                            (UE_Bin
-                              (Ge, ubitwise_or_no_struct1,
-                               ubitwise_or_no_struct2, TGEleft))
-  ubitwise_or_no_struct : ubitwise_xor_no_struct
-                            (ubitwise_xor_no_struct)
-                        | ubitwise_or_no_struct TBAR
-                            ubitwise_xor_no_struct
-                            (UE_Bin
-                              (BOr, ubitwise_or_no_struct,
-                               ubitwise_xor_no_struct, TBARleft))
-  ubitwise_xor_no_struct : ubitwise_and_no_struct
-                             (ubitwise_and_no_struct)
-                         | ubitwise_xor_no_struct TCARET
-                             ubitwise_and_no_struct
-                             (UE_Bin
-                               (BXor, ubitwise_xor_no_struct,
-                                ubitwise_and_no_struct, TCARETleft))
-  ubitwise_and_no_struct : ushift_no_struct
-                             (ushift_no_struct)
-                         | ubitwise_and_no_struct TAMP ushift_no_struct
-                             (UE_Bin
-                               (BAnd, ubitwise_and_no_struct,
-                                ushift_no_struct, TAMPleft))
-  ushift_no_struct : uadditive_no_struct
-                       (uadditive_no_struct)
-                   | ushift_no_struct TSHL uadditive_no_struct
-                       (UE_Bin
-                         (Shl, ushift_no_struct,
-                          uadditive_no_struct, TSHLleft))
-                   | ushift_no_struct TSHR uadditive_no_struct
-                       (UE_Bin
-                         (Shr, ushift_no_struct,
-                          uadditive_no_struct, TSHRleft))
-  uadditive_no_struct : umultiplicative_no_struct
-                          (umultiplicative_no_struct)
-                      | uadditive_no_struct TPLUS
-                          umultiplicative_no_struct
-                          (UE_Bin
-                            (Add, uadditive_no_struct,
-                             umultiplicative_no_struct, TPLUSleft))
-                      | uadditive_no_struct TMINUS
-                          umultiplicative_no_struct
-                          (UE_Bin
-                            (Sub, uadditive_no_struct,
-                             umultiplicative_no_struct, TMINUSleft))
-  umultiplicative_no_struct : ucast_no_struct
-                               (ucast_no_struct)
-                           | umultiplicative_no_struct TSTAR
-                               ucast_no_struct
-                               (UE_Bin
-                                 (Mul, umultiplicative_no_struct,
-                                  ucast_no_struct, TSTARleft))
-                           | umultiplicative_no_struct TSLASH
-                               ucast_no_struct
-                               (UE_Bin
-                                 (Div, umultiplicative_no_struct,
-                                  ucast_no_struct, TSLASHleft))
-                           | umultiplicative_no_struct TPERCENT
-                               ucast_no_struct
-                               (UE_Bin
-                                 (Mod, umultiplicative_no_struct,
-                                  ucast_no_struct, TPERCENTleft))
+                         (RK_Inclusive, ubinary_no_struct1,
+                          ubinary_no_struct2, TDOTDOTEQleft))
+  ubinary_no_struct : ucast_no_struct
+                        (ucast_no_struct)
+                    | ubinary_no_struct TBARBAR ubinary_no_struct
+                        (UE_Bin
+                          (Or, ubinary_no_struct1,
+                           ubinary_no_struct2, TBARBARleft))
+                    | ubinary_no_struct TAMPAMP ubinary_no_struct
+                        (UE_Bin
+                          (And, ubinary_no_struct1,
+                           ubinary_no_struct2, TAMPAMPleft))
+                    | ubinary_no_struct TEQEQ ubinary_no_struct
+                        (UE_Bin
+                          (Eq, ubinary_no_struct1,
+                           ubinary_no_struct2, TEQEQleft))
+                    | ubinary_no_struct TNE ubinary_no_struct
+                        (UE_Bin
+                          (Ne, ubinary_no_struct1,
+                           ubinary_no_struct2, TNEleft))
+                    | ubinary_no_struct TLT ubinary_no_struct
+                        (UE_Bin
+                          (Lt, ubinary_no_struct1,
+                           ubinary_no_struct2, TLTleft))
+                    | ubinary_no_struct TLE ubinary_no_struct
+                        (UE_Bin
+                          (Le, ubinary_no_struct1,
+                           ubinary_no_struct2, TLEleft))
+                    | ubinary_no_struct TGT ubinary_no_struct
+                        (UE_Bin
+                          (Gt, ubinary_no_struct1,
+                           ubinary_no_struct2, TGTleft))
+                    | ubinary_no_struct TGE ubinary_no_struct
+                        (UE_Bin
+                          (Ge, ubinary_no_struct1,
+                           ubinary_no_struct2, TGEleft))
+                    | ubinary_no_struct TBAR ubinary_no_struct
+                        (UE_Bin
+                          (BOr, ubinary_no_struct1,
+                           ubinary_no_struct2, TBARleft))
+                    | ubinary_no_struct TCARET ubinary_no_struct
+                        (UE_Bin
+                          (BXor, ubinary_no_struct1,
+                           ubinary_no_struct2, TCARETleft))
+                    | ubinary_no_struct TAMP ubinary_no_struct
+                        (UE_Bin
+                          (BAnd, ubinary_no_struct1,
+                           ubinary_no_struct2, TAMPleft))
+                    | ubinary_no_struct TSHL ubinary_no_struct
+                        (UE_Bin
+                          (Shl, ubinary_no_struct1,
+                           ubinary_no_struct2, TSHLleft))
+                    | ubinary_no_struct TSHR ubinary_no_struct
+                        (UE_Bin
+                          (Shr, ubinary_no_struct1,
+                           ubinary_no_struct2, TSHRleft))
+                    | ubinary_no_struct TPLUS ubinary_no_struct
+                        (UE_Bin
+                          (Add, ubinary_no_struct1,
+                           ubinary_no_struct2, TPLUSleft))
+                    | ubinary_no_struct TMINUS ubinary_no_struct
+                        (UE_Bin
+                          (Sub, ubinary_no_struct1,
+                           ubinary_no_struct2, TMINUSleft))
+                    | ubinary_no_struct TSTAR ubinary_no_struct
+                        (UE_Bin
+                          (Mul, ubinary_no_struct1,
+                           ubinary_no_struct2, TSTARleft))
+                    | ubinary_no_struct TSLASH ubinary_no_struct
+                        (UE_Bin
+                          (Div, ubinary_no_struct1,
+                           ubinary_no_struct2, TSLASHleft))
+                    | ubinary_no_struct TPERCENT ubinary_no_struct
+                        (UE_Bin
+                          (Mod, ubinary_no_struct1,
+                           ubinary_no_struct2, TPERCENTleft))
   ucast_no_struct : uprefix_no_struct
                       (uprefix_no_struct)
                   | ucast_no_struct TAS ucast_target
@@ -1184,8 +1149,10 @@ yacc_rules\<open>
                      | uprimary_nonhead
                          (uprimary_nonhead)
   (* Branches are brace-delimited, and right-associative TIF/TELSE precedence preserves nearest-else
-     association through recursive mixed chains. The whole grammar is verified conflict-free via the
-     [verbose] grm.desc export -- RE-CHECK IT after any grammar change. *)
+     association through recursive mixed chains. Re-check the [verbose] grm.desc after grammar
+     changes. Its only expected conflicts are the two reduce/reduce choices at a comma-free direct
+     with-block match arm followed by an `&` or `[` pattern; those tokens can instead continue the
+     current body as binary-and or indexing, so such following arms require an explicit comma. *)
   ublock : TLBRACE ubody TRBRACE            (UE_Block (ubody, TLBRACEleft))
          | TLBRACE TRBRACE                  (UE_Block (UE_Unit TLBRACEleft, TLBRACEleft))
   (* Unsafe is block-like in operand and statement positions, but deliberately remains distinct from
