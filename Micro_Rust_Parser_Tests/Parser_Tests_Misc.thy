@@ -15,6 +15,7 @@ chapter\<open>Parser facade\<close>
 declare [[urust_conformance_check = false]]
 declare [[urust_verbose = 0]]
 declare [[urust_abbrev = false]]
+declare [[urust_application_def = false]]
 declare [[urust_term_hook_conformance_check = false]]
 
 section\<open> Parser facade smoke test \<close>
@@ -37,6 +38,7 @@ chapter\<open>Typed expression and shared command API\<close>
 declare [[urust_conformance_check = false]]
 declare [[urust_verbose = 0]]
 declare [[urust_abbrev = false]]
+declare [[urust_application_def = false]]
 declare [[urust_term_hook_conformance_check = false]]
 
 section\<open> Common elaboration API \<close>
@@ -165,6 +167,40 @@ urust_expr typed_function_common ::
   (item)
   \<open> item \<close>
 
+urust_expr [application_def, attrs = [micro_rust_simps]]
+  typed_application_expression ::
+  \<open>nat \<Rightarrow> bool \<Rightarrow>
+    (unit, nat \<times> bool, unit, unit, unit, unit) expression\<close>
+  (number, flag)
+  \<open> \<llangle>(number, flag)\<rrangle> \<close>
+
+urust_fn [application_def]
+  typed_application_function ::
+  \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
+  (item)
+  \<open> item \<close>
+
+urust_expr [application_def, conformance_check = false]
+  typed_application_implicit_parameter
+  (item)
+  \<open> \<llangle>(item :: nat) + ambient_adjustment\<rrangle> \<close>
+
+urust_expr typed_zero_expression_default ::
+  \<open>(unit, nat, unit, unit, unit, unit) expression\<close>
+  \<open> \<llangle>7 :: nat\<rrangle> \<close>
+
+urust_expr [application_def] typed_zero_expression_application ::
+  \<open>(unit, nat, unit, unit, unit, unit) expression\<close>
+  \<open> \<llangle>7 :: nat\<rrangle> \<close>
+
+urust_fn typed_zero_function_default ::
+  \<open>(unit, nat, unit, unit, unit) function_body\<close>
+  \<open> \<llangle>7 :: nat\<rrangle> \<close>
+
+urust_fn [application_def] typed_zero_function_application ::
+  \<open>(unit, nat, unit, unit, unit) function_body\<close>
+  \<open> \<llangle>7 :: nat\<rrangle> \<close>
+
 text\<open>
 Parenthesized parameters use Isabelle liberal names. Minor keywords such as \<open>for\<close> are
 available unquoted, while major command keywords must be string-quoted because command-span parsing
@@ -252,6 +288,12 @@ thm typed_polymorphic_conformance
 thm typed_sort_constrained_conformance
 thm typed_placeholders_conformance
 thm typed_function_common_conformance
+thm typed_application_expression_conformance
+thm typed_application_function_conformance
+thm typed_zero_expression_default_conformance
+thm typed_zero_expression_application_conformance
+thm typed_zero_function_default_conformance
+thm typed_zero_function_application_conformance
 thm attributed_expression_conformance
 thm empty_attributes_expression_conformance
 thm parenthesized_minor_keyword_expression_conformance
@@ -273,6 +315,18 @@ ML_val\<open>
     fun assert message condition =
       if condition then () else error ("command surface audit: " ^ message)
 
+    fun definition_equation name =
+      theorem name
+      |> Thm.prop_of
+      |> Logic.dest_equals
+
+    fun definition_term name =
+      let
+        val (lhs, rhs) = definition_equation name
+      in
+        fold_rev Term.lambda (#2 (Term.strip_comb lhs)) rhs
+      end
+
     val _ =
       assert "urust_expr attrs did not decorate its _def theorem"
         (has_attribute "attributed_expression_def")
@@ -291,12 +345,12 @@ ML_val\<open>
     val _ =
       assert "attrs = [] unexpectedly decorated a function definition"
         (not (has_attribute "partial_collision_function_def"))
+    val _ =
+      assert "application-shaped urust_expr lost its _def attributes"
+        (has_attribute "typed_application_expression_def")
 
     val collision_body =
-      theorem "partial_collision_function_def"
-      |> Thm.prop_of
-      |> Logic.dest_equals
-      |> #2
+      definition_term "partial_collision_function_def"
     val registered_constant =
       \<^const_name>\<open>command_parameter_collision\<close>
     val _ =
@@ -310,10 +364,7 @@ ML_val\<open>
             collision_body))
 
     val zip_value_body =
-      theorem "zip_parameter_value_def"
-      |> Thm.prop_of
-      |> Logic.dest_equals
-      |> #2
+      definition_term "zip_parameter_value_def"
     val hol_zip = \<^const_name>\<open>List.zip\<close>
     val _ =
       assert "HOL zip collision did not resolve to the typed local fix"
@@ -329,10 +380,7 @@ ML_val\<open>
 
     val registered_zip = \<^const_name>\<open>command_registered_zip\<close>
     val callable_body =
-      theorem "zip_callable_parameter_def"
-      |> Thm.prop_of
-      |> Logic.dest_equals
-      |> #2
+      definition_term "zip_callable_parameter_def"
     val _ =
       assert "callable zip parameter did not survive as a lexical head"
         (Term.exists_subterm (fn Bound 1 => true | _ => false) callable_body)
@@ -399,12 +447,12 @@ constant, definition, abbreviation, or code equation. Both command facades use a
 source-position name for the conformance fact and informational output only.
 \<close>
 
-urust_expr [conformance_check = true] _ ::
+urust_expr [application_def, conformance_check = true] _ ::
   \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit, unit) expression\<close>
   (item)
   \<open> item \<close>
 
-urust_fn [conformance_check = true] _ ::
+urust_fn [application_def, conformance_check = true] _ ::
   \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
   (item)
   \<open> item \<close>
@@ -659,7 +707,11 @@ ML_val\<open>
       ["typed_closed", "typed_contextual", "typed_heterogeneous",
        "typed_higher_order", "typed_polymorphic",
        "typed_sort_constrained", "typed_placeholders",
-       "typed_function_common", "attributed_expression",
+       "typed_function_common", "typed_application_expression",
+       "typed_application_function", "typed_application_implicit_parameter",
+       "typed_zero_expression_default", "typed_zero_expression_application",
+       "typed_zero_function_default", "typed_zero_function_application",
+       "attributed_expression",
        "empty_attributes_expression",
        "parenthesized_minor_keyword_expression",
        "partial_collision_function", "partial_internal_placeholder",
@@ -675,7 +727,11 @@ ML_val\<open>
       ["typed_closed", "typed_contextual", "typed_heterogeneous",
        "typed_higher_order", "typed_polymorphic",
        "typed_sort_constrained", "typed_placeholders",
-       "typed_function_common", "attributed_expression",
+       "typed_function_common", "typed_application_expression",
+       "typed_application_function",
+       "typed_zero_expression_default", "typed_zero_expression_application",
+       "typed_zero_function_default", "typed_zero_function_application",
+       "attributed_expression",
        "empty_attributes_expression",
        "parenthesized_minor_keyword_expression",
        "partial_internal_placeholder", "zip_parameter_value",
@@ -685,7 +741,7 @@ ML_val\<open>
        "typed_function_abbrev_common", "typed_against"]
     val nonconforming =
       ["partial_collision_function", "zip_callable_parameter",
-       "zip_method_registration",
+       "zip_method_registration", "typed_application_implicit_parameter",
        "typed_flags_000", "typed_flags_001",
        "typed_flags_010", "typed_flags_011"]
 
@@ -743,14 +799,43 @@ ML_val\<open>
   local
     val ctxt = \<^context>
 
-    fun definition_rhs name =
+    fun definition_equation name =
       Proof_Context.get_thm ctxt (name ^ "_def")
       |> Thm.prop_of
       |> Logic.dest_equals
-      |> #2
 
-    val expression = definition_rhs "typed_heterogeneous"
-    val function = definition_rhs "typed_function_common"
+    val (default_expression_lhs, default_expression_rhs) =
+      definition_equation "typed_heterogeneous"
+    val (default_function_lhs, default_function_rhs) =
+      definition_equation "typed_function_common"
+    val (application_expression_lhs, application_expression_rhs) =
+      definition_equation "typed_application_expression"
+    val (application_function_lhs, application_function_rhs) =
+      definition_equation "typed_application_function"
+    val (implicit_lhs, implicit_rhs) =
+      definition_equation "typed_application_implicit_parameter"
+    val (zero_expression_default_lhs, zero_expression_default_rhs) =
+      definition_equation "typed_zero_expression_default"
+    val (zero_expression_application_lhs, zero_expression_application_rhs) =
+      definition_equation "typed_zero_expression_application"
+    val (zero_function_default_lhs, zero_function_default_rhs) =
+      definition_equation "typed_zero_function_default"
+    val (zero_function_application_lhs, zero_function_application_rhs) =
+      definition_equation "typed_zero_function_application"
+    val application_expression_arguments =
+      #2 (Term.strip_comb application_expression_lhs)
+    val application_function_arguments =
+      #2 (Term.strip_comb application_function_lhs)
+    val implicit_arguments =
+      #2 (Term.strip_comb implicit_lhs)
+    val application_expression =
+      fold_rev Term.lambda
+        application_expression_arguments application_expression_rhs
+    val application_function =
+      fold_rev Term.lambda
+        application_function_arguments application_function_rhs
+    val implicit_definition =
+      fold_rev Term.lambda implicit_arguments implicit_rhs
     val expression_type =
       "nat \<Rightarrow> bool \<Rightarrow> " ^
       "(unit, nat \<times> bool, unit, unit, unit, unit) expression"
@@ -766,6 +851,11 @@ ML_val\<open>
         (Type.constraint (Syntax.read_typ ctxt function_type)
           (Syntax.parse_term ctxt
             "(\<lambda>(item :: nat). FunctionBody \<lbrakk> item \<rbrakk>)"))
+    val expected_implicit_definition =
+      Syntax.check_term ctxt
+        (Syntax.parse_term ctxt
+          "(\<lambda>(ambient_adjustment :: nat) (item :: nat). \
+          \\<lbrakk> \<llangle>item + ambient_adjustment\<rrangle> \<rbrakk>)")
 
     fun count_constant expected =
       Term.fold_aterms
@@ -774,19 +864,62 @@ ML_val\<open>
           | _ => I)
 
     val _ =
-      if Term.aconv (expression, expected_expression) then ()
-      else error "typed urust_expr: expression lambda shape changed"
+      if null (#2 (Term.strip_comb default_expression_lhs)) then ()
+      else error "typed urust_expr: default definition moved arguments to the lhs"
     val _ =
-      if Term.aconv (function, expected_function) then ()
-      else error "typed urust_expr: function lambda shape changed"
+      if null (#2 (Term.strip_comb default_function_lhs)) then ()
+      else error "typed function: default definition moved arguments to the lhs"
+    val _ =
+      if Term.aconv (default_expression_rhs, expected_expression) then ()
+      else error "typed urust_expr: default curried definition changed"
+    val _ =
+      if Term.aconv (default_function_rhs, expected_function) then ()
+      else error "typed function: default curried definition changed"
+    val _ =
+      if map fastype_of application_expression_arguments =
+          [HOLogic.natT, HOLogic.boolT]
+      then ()
+      else error "typed urust_expr: application definition argument order changed"
+    val _ =
+      if map fastype_of application_function_arguments = [HOLogic.natT]
+      then ()
+      else error "typed function: application definition omitted its lhs argument"
+    val _ =
+      if Term.aconv (application_expression, expected_expression) then ()
+      else error "typed urust_expr: application definition changed the curried value"
+    val _ =
+      if Term.aconv (application_function, expected_function) then ()
+      else error "typed function: application definition changed the curried value"
+    val _ =
+      if map fastype_of implicit_arguments = [HOLogic.natT, HOLogic.natT] andalso
+         Term.aconv_untyped
+           (implicit_definition, expected_implicit_definition)
+      then ()
+      else
+        error
+          "typed urust_expr: implicit definition parameter did not precede the source argument"
+    val _ =
+      if null (#2 (Term.strip_comb zero_expression_default_lhs)) andalso
+         null (#2 (Term.strip_comb zero_expression_application_lhs)) andalso
+         Term.aconv
+           (zero_expression_default_rhs, zero_expression_application_rhs)
+      then ()
+      else error "typed urust_expr: zero-argument application mode changed the definition"
+    val _ =
+      if null (#2 (Term.strip_comb zero_function_default_lhs)) andalso
+         null (#2 (Term.strip_comb zero_function_application_lhs)) andalso
+         Term.aconv
+           (zero_function_default_rhs, zero_function_application_rhs)
+      then ()
+      else error "typed urust_fn: zero-argument application mode changed the definition"
     val _ =
       if count_constant \<^const_name>\<open>FunctionBody\<close>
-          expression 0 = 0
+          application_expression_rhs 0 = 0
       then ()
       else error "typed urust_expr: expression gained a FunctionBody wrapper"
     val _ =
       if count_constant \<^const_name>\<open>FunctionBody\<close>
-          function 0 = 1
+          application_function_rhs 0 = 1
       then ()
       else error "typed urust_expr: function wrapper count changed"
   in
@@ -1309,6 +1442,7 @@ chapter\<open>Expression structural audits\<close>
 declare [[urust_conformance_check = false]]
 declare [[urust_verbose = 0]]
 declare [[urust_abbrev = false]]
+declare [[urust_application_def = false]]
 declare [[urust_term_hook_conformance_check = false]]
 
 text\<open>
@@ -1818,6 +1952,7 @@ chapter\<open>Command options\<close>
 declare [[urust_conformance_check = false]]
 declare [[urust_verbose = 0]]
 declare [[urust_abbrev = false]]
+declare [[urust_application_def = false]]
 declare [[urust_term_hook_conformance_check = false]]
 
 section\<open> Default settings \<close>
@@ -1842,18 +1977,21 @@ ML_val\<open>
       List.app assert_default
         ["urust_conformance_check: bool = false",
          "urust_verbose: int = 0",
-         "urust_abbrev: bool = false"]
+         "urust_abbrev: bool = false",
+         "urust_application_def: bool = false"]
   in
     val _ = ()
   end
 \<close>
 
-urust_expr default_expr_flags \<open> () \<close>
+urust_expr default_expr_flags
+  (item)
+  \<open> \<llangle>item :: nat\<rrangle> \<close>
 
 urust_fn default_fun_flags ::
-  \<open>(unit, unit, unit, unit, unit) function_body\<close>
-  ()
-  \<open> () \<close>
+  \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
+  (item)
+  \<open> item \<close>
 
 
 section\<open> Inline flag combinations \<close>
@@ -1921,8 +2059,10 @@ section\<open> Scoped settings and overrides \<close>
 declare [[urust_conformance_check = true]]
 declare [[urust_verbose = 2]]
 declare [[urust_abbrev = true]]
+declare [[urust_application_def = true]]
 
-urust_expr scoped_all_true_expr \<open> () \<close>
+urust_expr [application_def = false]
+  scoped_all_true_expr \<open> () \<close>
 
 urust_fn scoped_all_true_fun ::
   \<open>(unit, unit, unit, unit, unit) function_body\<close>
@@ -1930,15 +2070,28 @@ urust_fn scoped_all_true_fun ::
   \<open> () \<close>
 
 urust_expr
-  [verbose = 0, abbrev = false, conformance_check = false]
-  scoped_all_false_expr \<open> () \<close>
+  [verbose = 0, abbrev = false, conformance_check = false,
+   application_def = false]
+  scoped_all_false_expr
+  (item)
+  \<open> \<llangle>item :: nat\<rrangle> \<close>
 
 urust_fn
-  [conformance_check = false, verbose = 0]
+  [conformance_check = false, verbose = 0, application_def = false]
   scoped_all_false_fun ::
-  \<open>(unit, unit, unit, unit, unit) function_body\<close>
-  ()
-  \<open> () \<close>
+  \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
+  (item)
+  \<open> item \<close>
+
+urust_expr [abbrev = false]
+  scoped_application_expression
+  (item)
+  \<open> \<llangle>item :: nat\<rrangle> \<close>
+
+urust_fn scoped_application_function ::
+  \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
+  (item)
+  \<open> item \<close>
 
 urust_expr [abbrev = false]
   scoped_partial_definition_expr \<open> () \<close>
@@ -1952,6 +2105,7 @@ urust_fn [conformance_check = false]
 declare [[urust_conformance_check = false]]
 declare [[urust_verbose = 0]]
 declare [[urust_abbrev = false]]
+declare [[urust_application_def = false]]
 
 urust_expr reset_expr_flags \<open> () \<close>
 
@@ -2111,6 +2265,7 @@ ML_val\<open>
        "inline_fun_10", "inline_fun_11", "inline_fun_12",
        "scoped_all_true_fun",
        "scoped_all_false_expr", "scoped_all_false_fun",
+       "scoped_application_expression", "scoped_application_function",
        "scoped_partial_definition_expr", "scoped_partial_definition_fun",
        "reset_expr_flags", "reset_fun_flags",
        "contextual_order", "contextual_antiquotation",
@@ -2128,6 +2283,7 @@ ML_val\<open>
        "inline_expr_110", "inline_expr_111",
        "inline_fun_10", "inline_fun_11", "inline_fun_12",
        "scoped_all_true_expr", "scoped_all_true_fun",
+       "scoped_application_expression", "scoped_application_function",
        "scoped_partial_definition_expr",
        "contextual_order", "contextual_antiquotation",
        "contextual_shadowing", "nie_contextual_helper",
@@ -2173,6 +2329,34 @@ ML_val\<open>
           assert (quote name ^ " unexpectedly has _conformance")
             (not (has_fact (name ^ "_conformance"))))
         nonconforming
+
+    fun definition_argument_count name =
+      Proof_Context.get_thm ctxt (name ^ "_def")
+      |> Thm.prop_of
+      |> Logic.dest_equals
+      |> #1
+      |> Term.strip_comb
+      |> #2
+      |> length
+
+    val _ =
+      assert "default urust_expr definition did not retain its lambda-shaped rhs"
+        (definition_argument_count "default_expr_flags" = 0)
+    val _ =
+      assert "default urust_fn definition did not retain its lambda-shaped rhs"
+        (definition_argument_count "default_fun_flags" = 0)
+    val _ =
+      assert "scoped application_def did not affect urust_expr"
+        (definition_argument_count "scoped_application_expression" = 1)
+    val _ =
+      assert "scoped application_def did not affect urust_fn"
+        (definition_argument_count "scoped_application_function" = 1)
+    val _ =
+      assert "inline false did not override scoped application_def for urust_expr"
+        (definition_argument_count "scoped_all_false_expr" = 0)
+    val _ =
+      assert "inline false did not override scoped application_def for urust_fn"
+        (definition_argument_count "scoped_all_false_fun" = 0)
 
     fun assert_expanded client abbreviation =
       let
@@ -2407,6 +2591,12 @@ ML_val\<open>
             (option_block kind abbreviation
               ["conformance_check = 1"])
             "integer_conformance" "")
+          "expects true or false";
+        assert_rejected (label ^ "-application-definition")
+          (command kind
+            (option_block kind abbreviation
+              ["application_def = 1"])
+            "integer_application_definition" "")
           "expects true or false"
       end
 
@@ -2435,6 +2625,12 @@ ML_val\<open>
             (option_block kind abbreviation
               ["conformance_check = [micro_rust_simps]"])
             "attribute_list_conformance" "")
+          "expects true or false";
+        assert_rejected (label ^ "-list-as-application-definition")
+          (command kind
+            (option_block kind abbreviation
+              ["application_def = [micro_rust_simps]"])
+            "attribute_list_application_definition" "")
           "expects true or false"
       end
 
@@ -2443,16 +2639,19 @@ ML_val\<open>
       List.app
         (fn prefixed =>
           List.app (test_prefixed prefixed) command_cases)
-        ["urust_conformance_check", "urust_verbose", "urust_abbrev"]
+        ["urust_conformance_check", "urust_verbose", "urust_abbrev",
+         "urust_application_def"]
     val _ =
       List.app
         (fn flag =>
           List.app (test_duplicate flag) command_cases)
-        ["conformance_check", "verbose"]
+        ["conformance_check", "verbose", "application_def"]
     val _ =
       List.app (test_duplicate "abbrev") expression_cases
     val _ =
       List.app (test_shorthand_duplicate "conformance_check") command_cases
+    val _ =
+      List.app (test_shorthand_duplicate "application_def") command_cases
     val _ =
       List.app (test_shorthand_duplicate "abbrev") expression_cases
     val _ = List.app test_contradiction command_cases
@@ -2479,6 +2678,18 @@ ML_val\<open>
           "[abbrev = true, attrs = [micro_rust_simps]]"
           "attributed_abbreviation" "")
         "attrs is not supported in abbreviation mode"
+    val _ =
+      assert_rejected "application-definition-on-expression-abbreviation"
+        (command Expr
+          "[abbrev = true, application_def]"
+          "application_definition_abbreviation" "")
+        "abbreviation mode cannot be combined with `application_def`"
+    val _ =
+      assert_rejected "scoped-application-definition-on-expression-abbreviation"
+        ("declare [[urust_application_def = true]]\n" ^
+          "urust_expr [abbrev] scoped_application_definition_abbreviation " ^
+          unit_source)
+        "abbreviation mode cannot be combined with `application_def`"
     val _ =
       assert_rejected "attributes-on-anonymous-expression"
         (command Expr "[abbrev = false, attrs = []]" "_" "")
