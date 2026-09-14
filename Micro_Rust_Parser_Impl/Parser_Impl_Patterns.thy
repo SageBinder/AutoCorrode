@@ -1114,9 +1114,11 @@ struct
       val (tree, (slots_rev, _)) = walk pattern ([], 0)
     in
       fn body =>
-        abstract_slots T.case_abstraction (rev slots_rev)
+        abstract_slots Basic_Case_Expression.case_abstraction
+          (rev slots_rev)
           (fn arguments =>
-            T.case_element (instantiate_pattern arguments tree) body)
+            Basic_Case_Expression.case_element
+              (instantiate_pattern arguments tree) body)
     end
 
   fun requires_nested_match pattern =
@@ -1311,6 +1313,8 @@ struct
       binds aliases and recursively extracted nested binders around the source guard and body together;
       a direct scope is the identity operation. The direct renderer is derived from the normalized basic
       pattern and is only selected when every row in the matrix has the same structural capability.
+      Both direct and recursive case emission use the backend constructors owned by
+      Basic_Case_Expression.
     - source_position is stable source order. alternative_plan and arm_plan preserve the distinction
       between alternative failure and source-guard failure: a generated-test miss advances to the next
       alternative, while a false source guard advances to the next arm.
@@ -2101,8 +2105,8 @@ struct
             string_of_int (serial ()), dummyT)
 
       fun case_term_on subject branches =
-        T.case_guard T.true_value subject
-          (fold_rev T.case_cons branches T.case_nil)
+        Basic_Case_Expression.make_case
+          T.true_value subject branches
 
       fun plain_fragment semantic =
         Compiled_Decision_Fragment

@@ -155,12 +155,15 @@ ML\<open>
      provide the value vocabulary used by switch and pattern lowering. true_value, false_value, and
      undefined_value are raw HOL values. list_cons_constructor, list_nil_constructor,
      pair_constructor, and tuple_nil_constructor are unapplied constructor terms for pattern trees.
-   * case_guard takes guard, scrutinee, then a case list. case_cons and case_nil build that list;
-     case_element takes pattern then body, and case_abstraction wraps the resulting abstraction.
+   * The case helpers preserve the compatibility interface while delegating all five raw backend
+     constants to Basic_Case_Expression. case_guard takes guard, scrutinee, then a case list.
+     case_cons and case_nil build that list; case_element takes pattern then body, and
+     case_abstraction wraps the resulting abstraction.
 
-   The raw constant builders, position encoding mechanics, function-constant vector, suffix-table
-   representation and integer scanners, tuple recursion, and operator lookup functions are
-   implementation details. Their representations may change, but the supported arities, literal
+   The raw constant builder used outside case construction, position encoding mechanics,
+   function-constant vector, suffix-table representation and integer scanners, tuple recursion, and
+   operator lookup functions are implementation details. Basic_Case_Expression alone owns the raw
+   case-backend constants. These representations may change, but the supported arities, literal
    spellings, operator meanings, diagnostics, argument order, and shallow term shapes described above
    are interface behavior relied on by resolution, pattern compilation, translation, and frontend
    conformance checks. No additional declarations in the structure are public through the signature. *)
@@ -792,14 +795,11 @@ struct
   val pair_constructor = Const (\<^const_name>\<open>Product_Type.Pair\<close>, dummyT)
   val tuple_nil_constructor = Const (\<^const_name>\<open>TNil\<close>, dummyT)
 
-  fun case_guard guard scrutinee cases =
-    constant \<^const_name>\<open>case_guard\<close> [guard, scrutinee, cases]
-  fun case_cons head tail = constant \<^const_name>\<open>case_cons\<close> [head, tail]
-  val case_nil = Const (\<^const_name>\<open>case_nil\<close>, dummyT)
-  fun case_element pattern body =
-    constant \<^const_name>\<open>case_elem\<close> [pattern, body]
-  fun case_abstraction abstraction =
-    constant \<^const_name>\<open>case_abs\<close> [abstraction]
+  val case_guard = Basic_Case_Expression.case_guard
+  val case_cons = Basic_Case_Expression.case_cons
+  val case_nil = Basic_Case_Expression.case_nil
+  val case_element = Basic_Case_Expression.case_element
+  val case_abstraction = Basic_Case_Expression.case_abstraction
 end
 \<close>
 
