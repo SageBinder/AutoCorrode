@@ -162,10 +162,12 @@ inside an enclosing structural case. Ambiguous basenames remain errors, and the 
 private constructor-family registry.
 
 The grammar retains compatibility extensions used by existing µRust sources, including complete
-guard bodies and statement bodies in groups, macros, and struct fields. Deliberately deferred Rust
-surface includes general postfix calls, one-element tuples, open ranges, array repeats, unary numeric
-negation, `/=`, leading `::`, full Rust generics, universal macro trailing commas, additional numeric
-families, and apostrophised identifiers.
+guard bodies and statement bodies in groups, macros, and struct fields. During production migration
+it also accepts apostrophised identifiers, return-arm semicolons, exact native constructor paths
+written with `::`, and narrow legacy dereference/postfix grouping. Explicitly grouping the complete
+dereference operand retains Rust precedence. Deliberately deferred Rust surface includes general
+postfix calls, one-element tuples, open ranges, array repeats, unary numeric negation, `/=`, leading
+`::`, full Rust generics, universal macro trailing commas, and additional numeric families.
 
 The parser implementation depends only on `Shallow_Micro_Rust_Base` and `Isabelle_Lex-Yacc`.
 Full `Shallow_Micro_Rust` adds the parser bridge, while the main `AutoCorrode` session includes both

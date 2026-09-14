@@ -74,11 +74,11 @@ yield and logging, and ordinary sequencing.
 
 urust_expr showoff_logging_yield
   \<open>
-    let request = \<llangle>7 :: nat\<rrangle>;
-    info!(l\<llangle>"request ", request, " started"\<rrangle>);
+    let request' = \<llangle>7 :: nat\<rrangle>;
+    info!(l\<llangle>"request ", request', " started"\<rrangle>);
     \<y>\<i>\<e>\<l>\<d>;
-    \<l>\<o>\<g> \<llangle>Trace\<rrangle> \<llangle>[LogNat request]\<rrangle>;
-    debug!(l\<llangle>"request ", request, " resumed"\<rrangle>)
+    \<l>\<o>\<g> \<llangle>Trace\<rrangle> \<llangle>[LogNat request']\<rrangle>;
+    debug!(l\<llangle>"request ", request', " resumed"\<rrangle>)
   \<close>
 
 

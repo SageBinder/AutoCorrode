@@ -190,8 +190,9 @@ ML\<open>
     backend absent there. It does not select a constructor, diagnose ambiguity, or emit semantic
     markup. resolve_constructor performs those later operations; unregistered lookup remains limited
     to Ctr_Sugar or Code.is_constr constructors, using exact identity for qualified names and basename
-    lookup for unqualified names, returning NONE when absent and raising a positioned, deterministic
-    ambiguity error for multiple matches.
+    lookup for unqualified names. Native qualified source paths translate Rust \<open>::\<close>
+    separators to HOL long-name separators before exact identity lookup. Resolution returns NONE
+    when absent and raises a positioned, deterministic ambiguity error for multiple matches.
     constructor_term returns the dummy-typed constructor term, constructor_arity its argument count,
     constructor_family optionally the datatype identity with all family constructor terms, and
     constructor_is_exact_registered records whether this occurrence was recovered through an exact
@@ -1014,7 +1015,13 @@ struct
   val canonical_name = Long_Name.base_name
 
   fun qualified_name name =
+    String.isSubstring "::" name orelse
     String.isSubstring Long_Name.separator name
+
+  fun hol_name_of_source_path name =
+    if String.isSubstring "::" name
+    then Long_Name.implode (String.tokens (fn c => c = #":") name)
+    else name
 
   fun named_constant role pos term =
     (case term_name_of term of
@@ -1254,10 +1261,11 @@ struct
         {by_identity, by_basename, ...}) name =
     let
       val theory = Proof_Context.theory_of ctxt
+      val requested_name = hol_name_of_source_path name
       val sugar_candidates =
         if qualified_name name
         then
-          (case Symtab.lookup by_identity name of
+          (case Symtab.lookup by_identity requested_name of
              SOME info => [info]
            | NONE => [])
         else
@@ -1265,7 +1273,7 @@ struct
 
       fun requested_identity identity =
         if qualified_name name
-        then identity = name
+        then identity = requested_name
         else canonical_name identity = name
 
       val native_candidates =
@@ -1456,10 +1464,11 @@ struct
       (identifier_name, pos) =
     let
       val theory = Proof_Context.theory_of ctxt
+      val requested_name = hol_name_of_source_path identifier_name
 
       fun name_matches identity =
         if qualified_name identifier_name
-        then identity = identifier_name
+        then identity = requested_name
         else canonical_name identity = identifier_name
 
       val metadata_candidates =

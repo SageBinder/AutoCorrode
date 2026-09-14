@@ -100,13 +100,31 @@ new_urust_rejects audit
   \<close>
   \<open> syntax error \<close>
 
+urust_expr grammar_return_arm_semicolons
+  \<open>
+    match true {
+      true \<Rightarrow> return \<llangle>1 :: nat\<rrangle>;,
+      false \<Rightarrow> return \<llangle>2 :: nat\<rrangle>;
+    }
+  \<close>
+
+urust_expr grammar_operandless_return_arm_semicolons
+  \<open>
+    match true {
+      true \<Rightarrow> return;,
+      false \<Rightarrow> return;
+    }
+  \<close>
+
 new_urust_rejects audit
   \<open>
     match true {
-      true \<Rightarrow> return \<llangle>1 :: nat\<rrangle>;
+      true \<Rightarrow> \<llangle>1 :: nat\<rrangle>;,
+      false \<Rightarrow> \<llangle>2 :: nat\<rrangle>
     }
   \<close>
-  \<open> syntax error found at ; \<close>
+  \<open> syntax error \<close>
+  \<comment> \<open> Only a return arm owns this compatibility semicolon; arbitrary arm bodies do not. \<close>
 
 section\<open>Closures and binding RHSs\<close>
 
@@ -543,6 +561,51 @@ ML_val\<open>
          UE_Cast (UE_Unary (U_Deref, UE_Path _, _), CT_Unsigned UT_Usize, _) => ()
        | _ => error "unary-before-cast AST shape changed")
     val _ =
+      (case parse "*base[index]" of
+         UE_Index (UE_Unary (U_Deref, UE_Path _, _), UE_Path _, _) => ()
+       | _ => error "legacy dereference-before-index AST shape changed")
+    val _ =
+      (case parse "*(base[index])" of
+         UE_Unary
+           (U_Deref, UE_Group (UE_Index (UE_Path _, UE_Path _, _), _), _) => ()
+       | _ => error "explicit Rust-grouped dereference/index AST shape changed")
+    val _ =
+      (case parse "*base.field" of
+         UE_Unary (U_Deref, UE_Field (UE_Path _, "field", _), _) => ()
+       | _ => error "ordinary path-field dereference AST shape changed")
+    val _ =
+      (case parse "*(base).field" of
+         UE_Field
+           (UE_Unary (U_Deref, UE_Group (UE_Path _, _), _), "field", _) => ()
+       | _ => error "grouped-receiver dereference/field AST shape changed")
+    val _ =
+      (case parse "*make().field" of
+         UE_Field
+           (UE_Unary (U_Deref, UE_Call _, _), "field", _) => ()
+       | _ => error "call-receiver dereference/field AST shape changed")
+    val _ =
+      (case parse "*base[index].field.0.method()?" of
+         UE_Unary
+           (U_Propagate,
+            UE_Call
+              (UC_Method
+                (UE_TupleProjection
+                  (UE_Field
+                    (UE_Index
+                      (UE_Unary (U_Deref, UE_Path _, _), UE_Path _, _),
+                     "field", _),
+                   0, _),
+                 Path_Segment ("method", _, _)),
+               [], _),
+            _) => ()
+       | _ => error "postfixes after legacy dereference reassociation changed")
+    val _ =
+      (case parse "*base.field as u64" of
+         UE_Cast
+           (UE_Unary (U_Deref, UE_Field (UE_Path _, "field", _), _),
+            CT_Unsigned UT_U64, _) => ()
+       | _ => error "legacy dereference compatibility crossed a cast")
+    val _ =
       (case parse "!*p" of
          UE_Unary (U_Not, UE_Unary (U_Deref, UE_Path _, _), _) => ()
        | _ => error "mixed not/dereference prefix shape changed")
@@ -621,6 +684,12 @@ ML_val\<open>
       (case parse "|| \<llangle>1 :: nat\<rrangle>; ()" of
          UE_Seq (UE_Closure (_, UE_Literal _, _), UE_Unit _) => ()
        | _ => error "closure left-sequencing shape changed")
+    val _ =
+      (case parse
+          "match true { true => return 1;, false => return 2; }" of
+         UE_Match
+           (_, _, [UR_Arm (_, _, UE_Return _), UR_Arm (_, _, UE_Return _)], _) => ()
+       | _ => error "return-arm semicolon changed the arm-body AST")
     val literal_text = "0b10_01u8"
     val literal_start =
       Position.make0 23 400 0 "" "" "grammar-literal-markup-audit"

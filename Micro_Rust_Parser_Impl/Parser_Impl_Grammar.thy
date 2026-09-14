@@ -301,6 +301,7 @@ digit=[0-9];
 hexdigit=[0-9a-fA-F];
 idstart=[A-Za-z_];
 idchar=[A-Za-z0-9_];
+identchar=[A-Za-z0-9_'];
 ws = [\ \t\r];
 pathws = [\ \t\r\n];
 \<close>
@@ -393,7 +394,7 @@ lex_rules\<open>
 <INITIAL>"\""     => (URust_Grammar.string_error (fixed_pos yypos));
 <INITIAL>"l"\\"<llangle>" =>
     (YYBEGIN LOGDATA; tok_log_data_open (yypos, yytext));
-<INITIAL>{idstart}{idchar}* => (tok_ident (yypos, yytext));
+<INITIAL>{idstart}{identchar}* => (tok_ident (yypos, yytext));
 <INITIAL>"("      => (tokF (yypos, yytext, Markup.delimiter, "LPAR", Tokens.LPAR));
 <INITIAL>")"      => (tokF (yypos, yytext, Markup.delimiter, "RPAR", Tokens.RPAR));
 <INITIAL>","      => (tokF (yypos, yytext, Markup.delimiter, "COMMA", Tokens.COMMA));
@@ -460,7 +461,7 @@ lex_rules\<open>
     (tok_generic_value Markup.numeral "GNUM" Tokens.GNUM (yypos, yytext));
 <GENERIC>{digit}+ =>
     (tok_generic_value Markup.numeral "GNUM" Tokens.GNUM (yypos, yytext));
-<GENERIC>{idstart}{idchar}* => (tok_generic_ident (yypos, yytext));
+<GENERIC>{idstart}{identchar}* => (tok_generic_ident (yypos, yytext));
 <GENERIC>"::"     => (tokF (yypos, yytext, Markup.delimiter, "TCOLONCOLON", Tokens.TCOLONCOLON));
 <GENERIC>"("      => (tok_generic_raw Markup.delimiter "GLPAR" Tokens.GLPAR (yypos, yytext));
 <GENERIC>")"      => (tok_generic_raw Markup.delimiter "GRPAR" Tokens.GRPAR (yypos, yytext));
@@ -479,7 +480,7 @@ lex_rules\<open>
       (yypos, yytext, Markup.inner_string, "LOGSTRING",
        Tokens.LOGSTRING, yytext));
 <LOGDATA>"\""     => (URust_Grammar.string_error (fixed_pos yypos));
-<LOGDATA>{idstart}{idchar}* =>
+<LOGDATA>{idstart}{identchar}* =>
     (tok_log_identifier (yypos, yytext));
 <LOGDATA>","      =>
     (tokF (yypos, yytext, Markup.delimiter, "COMMA", Tokens.COMMA));
@@ -696,6 +697,7 @@ yacc_definitions\<open>
        | ublock of URust_AST.ur_expr
        | uunsafe of URust_AST.ur_expr
        | uwith_block_expr of URust_AST.ur_expr
+       | ureturn of URust_AST.ur_expr
        | usemi_free_stmt of URust_AST.ur_expr
        | uconditional of URust_AST.ur_expr
        | uif_head of if_head
@@ -747,10 +749,11 @@ yacc_rules\<open>
   (* Return and closures are low-precedence expressions outside the operator ladder. Their operands
      and bodies are complete expressions, while assignment enters this layer only on its right. *)
   uexpr : uassign                           (uassign)
-        | TRETURN                           (UE_Return (NONE, TRETURNleft))
-        | TRETURN uexpr
-            (UE_Return (SOME uexpr, TRETURNleft))
+        | ureturn                           (ureturn)
         | uclosure                          (uclosure)
+  ureturn : TRETURN                         (UE_Return (NONE, TRETURNleft))
+          | TRETURN uexpr
+              (UE_Return (SOME uexpr, TRETURNleft))
   uclosure : TBARBAR uexpr
                 (mk_closure
                   ([], uexpr,
@@ -838,7 +841,7 @@ yacc_rules\<open>
           | TAMP TMUT uprefix
               (UE_Unary (U_Borrow BM_Mut, uprefix, TAMPleft))
           | TSTAR uprefix
-              (UE_Unary (U_Deref, uprefix, TSTARleft))
+              (mk_deref (uprefix, TSTARleft))
   (* Postfixes form a structural tier above primaries, so `?`, field access, tuple projections, and
      methods compose left-to-right and bind tighter than prefix/binary operators. Indexing shares this
      tier. A dotted identifier followed by parentheses is a method; without parentheses it is an
@@ -1113,8 +1116,8 @@ yacc_rules\<open>
                         (UE_Unary
                           (U_Borrow BM_Mut, uprefix_no_struct, TAMPleft))
                     | TSTAR uprefix_no_struct
-                        (UE_Unary
-                          (U_Deref, uprefix_no_struct, TSTARleft))
+                        (mk_deref
+                          (uprefix_no_struct, TSTARleft))
   upostfix_no_struct : uprimary_no_struct
                          (uprimary_no_struct)
                      | upostfix_no_struct TQUESTION
@@ -1242,6 +1245,8 @@ yacc_rules\<open>
                 (AH_Arm (upat, SOME (uguard, TIFleft)))
   uarm : uarm_head uexpr
            (finish_arm (uarm_head, uexpr))
+       | uarm_head ureturn TSEMI
+           (finish_arm (uarm_head, ureturn))
   uarm_with_block : uarm_head uwith_block_expr
                       (finish_arm (uarm_head, uwith_block_expr))
   uarms : uarm                  ([uarm])

@@ -147,6 +147,11 @@ urust_fn fun_plain_parameter ::
   (item)
   \<open> item \<close>
 
+urust_fn fun_prime_parameter ::
+  \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
+  (item')
+  \<open> item' \<close>
+
 urust_fn fun_value_antiquotation ::
   \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
   (item)

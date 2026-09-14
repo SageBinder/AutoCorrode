@@ -159,6 +159,7 @@ sig
   val mk_assign:
     assignop * Position.T -> ur_expr -> ur_expr -> ur_expr
   val finish_statement: ur_expr * Position.T -> ur_expr
+  val mk_deref: ur_expr * Position.T -> ur_expr
   val mk_bare_path_pat: ur_path -> ur_pat
   val mk_ctor_pat: ur_path * ur_pat list -> ur_pat
   val mk_alias_pat:
@@ -535,6 +536,56 @@ struct
   fun finish_statement (return as UE_Return _, _) = return
     | finish_statement (expression, semi_pos) =
         UE_Seq (expression, UE_Unit semi_pos)
+
+  (* Legacy source placed dereference immediately before the first index, or before a field whose
+     receiver was explicitly grouped or call-like. Preserve that narrow compatibility while carrying
+     any later postfixes. Explicit grouping around the whole postfix expression still selects Rust
+     precedence, and ordinary path-field receivers retain the grammar's native prefix precedence. *)
+  fun mk_deref (operand, deref_pos) =
+    let
+      fun legacy_field_receiver (UE_Group _) = true
+        | legacy_field_receiver (UE_Call _) = true
+        | legacy_field_receiver _ = false
+
+      fun insert_before_legacy_postfix (UE_Index (base, index, pos)) =
+            (case insert_before_legacy_postfix base of
+               SOME base' => SOME (UE_Index (base', index, pos))
+             | NONE =>
+                 SOME
+                   (UE_Index
+                     (UE_Unary (U_Deref, base, deref_pos), index, pos)))
+        | insert_before_legacy_postfix (UE_Field (base, name, pos)) =
+            (case insert_before_legacy_postfix base of
+               SOME base' => SOME (UE_Field (base', name, pos))
+             | NONE =>
+                 if legacy_field_receiver base
+                 then
+                   SOME
+                     (UE_Field
+                       (UE_Unary (U_Deref, base, deref_pos), name, pos))
+                 else NONE)
+        | insert_before_legacy_postfix
+            (UE_TupleProjection (base, index, pos)) =
+            Option.map
+              (fn base' => UE_TupleProjection (base', index, pos))
+              (insert_before_legacy_postfix base)
+        | insert_before_legacy_postfix
+            (UE_Call (UC_Method (base, method), args, pos)) =
+            Option.map
+              (fn base' =>
+                UE_Call (UC_Method (base', method), args, pos))
+              (insert_before_legacy_postfix base)
+        | insert_before_legacy_postfix
+            (UE_Unary (U_Propagate, base, pos)) =
+            Option.map
+              (fn base' => UE_Unary (U_Propagate, base', pos))
+              (insert_before_legacy_postfix base)
+        | insert_before_legacy_postfix _ = NONE
+    in
+      (case insert_before_legacy_postfix operand of
+         SOME compatible => compatible
+       | NONE => UE_Unary (U_Deref, operand, deref_pos))
+    end
 
   (* `_` lexes as an ordinary IDENT: normalise to P_Wild in ONE place, not an `= "_"` test at every site. *)
   fun mk_bare_path_pat path =

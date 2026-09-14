@@ -198,6 +198,25 @@ urust_expr let_wild \<open> let _ = \<llangle>5 :: nat\<rrangle>; () \<close>
 text\<open> Its \<open>Abs\<close>/\<open>Bound\<close> representation cannot capture an outer binder. \<close>
 urust_expr let_wild_hyg \<open> let uu = \<llangle>5 :: nat\<rrangle>; let _ = \<llangle>7 :: nat\<rrangle>; uu \<close>
 
+subsection\<open>Apostrophised identifiers\<close>
+
+text\<open>
+Trailing primes are a temporary compatibility extension inherited from Isabelle identifiers and
+the legacy frontend. They remain part of one identifier token in bindings, uses, and patterns.
+\<close>
+
+urust_expr let_prime_identifier
+  \<open> let item' = \<llangle>5 :: nat\<rrangle>; item' \<close>
+
+urust_expr let_multiple_prime_identifier
+  \<open> let item'' = \<llangle>7 :: nat\<rrangle>; item'' \<close>
+
+urust_expr tuple_prime_identifiers
+  \<open>
+    let (left', right'') = (\<llangle>2 :: nat\<rrangle>, \<llangle>3 :: nat\<rrangle>);
+    \<llangle>left' + right''\<rrangle>
+  \<close>
+
 text\<open>
 Refutable binding patterns and forms excluded by a consumer-specific pattern policy have positioned
 rows in \<open>Parser_Tests_Misc.thy\<close>.
@@ -658,6 +677,9 @@ Registered callees use NFunction dispatch. Rows cover a local notation and the
 micro_rust_notation (call) cf1 ("regCall")
 urust_expr call_reg \<open> regCall(\<llangle>3 :: 64 word\<rrangle>) \<close>
 
+micro_rust_notation (call) cf1 ("regCall'")
+urust_expr call_prime_identifier \<open> regCall'(\<llangle>4 :: 64 word\<rrangle>) \<close>
+
 subsection\<open>Registered paths\<close>
 
 definition path_literal_42 :: nat where
@@ -723,6 +745,10 @@ datatype path_pattern_fixture =
   | PathOther nat
   | PathNone
 
+datatype native_qualified_constructor_left =
+    NativeQualifiedShared
+  | NativeQualifiedLeftOnly
+
 definition path_some_call ::
   \<open>nat \<Rightarrow>
     (unit, path_pattern_fixture, unit, unit, unit) function_body\<close>
@@ -779,6 +805,23 @@ urust_expr path_grouped_constructor_pattern
       (Path::Some(value)) \<Rightarrow> value,
       Path::None \<Rightarrow> 0
     }
+  \<close>
+
+urust_expr native_qualified_constructor_pattern
+  \<open>
+    match_case \<llangle>native_qualified_constructor_left.NativeQualifiedShared\<rrangle> {
+      Parser_Tests_Expr::native_qualified_constructor_left::NativeQualifiedShared \<Rightarrow> 1,
+      Parser_Tests_Expr::native_qualified_constructor_left::NativeQualifiedLeftOnly \<Rightarrow> 0
+    }
+  \<close>
+  against
+  \<open>
+    \<lbrakk>
+      match_case \<llangle>native_qualified_constructor_left.NativeQualifiedShared\<rrangle> {
+        NativeQualifiedShared \<Rightarrow> 1,
+        NativeQualifiedLeftOnly \<Rightarrow> 0
+      }
+    \<rbrakk>
   \<close>
 
 urust_expr path_constructor_or_pattern
@@ -1009,6 +1052,19 @@ urust_expr turbofish_shadowed_context_parameter
       \<llangle>3 :: 64 word\<rrangle>
     )
   \<close>
+end
+
+context
+  fixes context_parameter' :: nat
+begin
+
+urust_expr turbofish_prime_context_parameter
+  \<open>
+    turbofish_ignore_one::<context_parameter'>(
+      \<llangle>3 :: 64 word\<rrangle>
+    )
+  \<close>
+
 end
 
 urust_expr turbofish_closure_formal
@@ -1620,6 +1676,14 @@ definition postfix_to_value ::
   where \<open> postfix_to_value \<equiv> lift_fun1 postfix_inner_value \<close>
 micro_rust_notation (call) postfix_to_value ("to_value")
 
+definition postfix_ref_identity ::
+    \<open>
+      (unit, unit, postfix_outer) Global_Store.ref \<Rightarrow>
+      (unit, (unit, unit, postfix_outer) Global_Store.ref,
+       unit, unit, unit) function_body
+    \<close>
+  where \<open>postfix_ref_identity \<equiv> lift_fun1 (\<lambda>reference. reference)\<close>
+
 context
   fixes d :: postfix_default
   fixes i :: postfix_inner
@@ -1646,6 +1710,17 @@ adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereferenc
 context fixes rp :: \<open>(unit, unit, postfix_inner) Global_Store.ref\<close>
 begin
 urust_expr ref_deref_field_postfix \<open> *rp.value \<close>
+end
+
+context fixes rp :: \<open>(unit, unit, postfix_outer) Global_Store.ref\<close>
+begin
+
+urust_expr deref_grouped_receiver_field_compatibility
+  \<open> *(rp).inner.value \<close>
+
+urust_expr deref_call_receiver_field_compatibility
+  \<open> *postfix_ref_identity(rp).inner.value \<close>
+
 end
 
 no_adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
@@ -1770,6 +1845,30 @@ The frontend composes indexing directly with another index or field access. A
 following method call or propagation requires grouping at the shared mixfix
 priorities, so the corresponding rows retain those parentheses.
 \<close>
+
+adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
+
+context
+  fixes array_ref ::
+    \<open>(unit, unit, (32 word, 4) array) Global_Store.ref\<close>
+    and reference_array ::
+      \<open>((unit, unit, 32 word) Global_Store.ref, 4) array\<close>
+begin
+
+text\<open>
+During migration, an unparenthesised dereference binds before the first following index. Explicitly
+grouping the indexed operand retains ordinary Rust prefix/postfix grouping.
+\<close>
+
+urust_expr deref_before_index_compatibility
+  \<open> *array_ref[0_usize] \<close>
+
+urust_expr grouped_index_before_deref
+  \<open> *(reference_array[0_usize]) \<close>
+
+end
+
+no_adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
 
 datatype_record parser_index_packet =
   parser_index_packet_values :: \<open>32 word list\<close>

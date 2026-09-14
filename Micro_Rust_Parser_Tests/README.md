@@ -66,13 +66,16 @@ method uses ordinary receiver-prepending call resolution and returns the establi
 
 Retained compatibility extensions include complete µRust bodies in guards and statement bodies in
 groups, macros, and struct fields. The underscore-before-integer-suffix spelling also remains
-accepted. The parser supports binary, octal, decimal, and hexadecimal integers with internal or
+accepted. During production migration the parser additionally accepts apostrophised identifiers,
+return-arm semicolons, exact native constructor paths written with `::`, and narrow legacy
+dereference/postfix grouping. Explicitly grouping the complete dereference operand retains Rust
+precedence. The parser supports binary, octal, decimal, and hexadecimal integers with internal or
 trailing underscores and `u8`, `u16`, `u32`, `u64`, and `usize` suffixes.
 
 The following remain deliberately unsupported: one-element tuples, general postfix invocation, open
 ranges, array repeats, unary numeric negation, `/=`, leading `::`, full Rust generics, universal macro
-trailing commas, signed integers, `u128`, floating/character/scientific literals, and apostrophised
-Rust identifiers. Focused negative rows preserve these boundaries.
+trailing commas, signed integers, `u128`, and floating/character/scientific literals. Focused
+negative rows preserve these boundaries.
 
 The experimental `Parser_Term_Hook` remains opt-in. Ordinary command and roll-up theories do not
 import it; only the two focused hook test theories in this session do.
@@ -98,16 +101,16 @@ Every `.thy` file in this directory is registered in `ROOT`.
 | Item | Disposition |
 |---|---|
 | H-D1 | Fixed with parenthesized lexical declaration arguments; chosen names shadow unqualified HOL/direct-call names. |
-| H-D2 | Kept Rust-correct postfix-before-dereference behavior. |
+| H-D2 | Temporarily accepts the legacy dereference-before-first-index shape and grouped/call-receiver field shapes; explicit whole-operand grouping selects Rust precedence. |
 | H-D3 postfix | Kept. |
 | H-D3 cast | Fixed with unary-before-cast precedence. |
 | H-D4 | Fixed through exact registered `Case_Translation` recovery. |
 | H-D5 | Qualification remains required for ambiguous basenames. |
 | H-D6 families | Fixed without downstream or parser-private family registration. |
 | H-D6 nested pattern | Fixed through narrow nested-nullary equality normalization inside structural case lowering. |
-| H-D7 | Match-arm semicolons remain rejected. |
+| H-D7 | Accepts semicolons only after return arm bodies, without adding sequencing or unit. |
 | H-D8 | Fixed by centralized integer candidate parsing and validation. |
-| H-D9 | Apostrophised Rust identifiers remain rejected. |
+| H-D9 | Temporarily accepts apostrophised identifiers in ordinary, turbofish, and logging-data contexts. |
 | H-D10 | Fixed with exact terminal-`_` `function_body` inference. |
 | H-D11 | Fixed by the shared shallow iterator `zip`. |
 | H-D12 | Import semantics/public bridge documented; no parser change. |
