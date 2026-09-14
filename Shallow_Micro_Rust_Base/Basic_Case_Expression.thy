@@ -118,6 +118,23 @@ ML\<open>
     | print_term (Abs(str, _, term)) = "%" ^ str ^ " -> " ^ (print_term term)
     | print_term (t $ u) = "(" ^ (print_term t) ^ " $ " ^ (print_term u) ^ ")";
 
+local
+fun case_constant name arguments =
+      Term.list_comb (Const (name, dummyT), arguments);
+fun case_guard guard scrutinee cases =
+      case_constant \<^const_name>\<open>case_guard\<close>
+        [guard, scrutinee, cases];
+fun case_cons head tail =
+      case_constant \<^const_name>\<open>case_cons\<close> [head, tail];
+val case_nil = Const (\<^const_name>\<open>case_nil\<close>, dummyT);
+fun case_element pattern body =
+      case_constant \<^const_name>\<open>case_elem\<close> [pattern, body];
+fun case_abstraction abstraction =
+      case_constant \<^const_name>\<open>case_abs\<close> [abstraction];
+fun make_case guard scrutinee branches =
+      case_guard guard scrutinee
+        (fold_rev case_cons branches case_nil);
+
 fun case_error s = error ("Error in bcase expression:\n" ^ s);
 fun case_tr err ctxt [t, u] =
       let
@@ -129,7 +146,7 @@ fun case_tr err ctxt [t, u] =
             jump-to-definition on a use of \<open>x\<close> in the branch RHS can find the
             pattern occurrence.\<close>
         fun abs p t =
-          Syntax.const \<^const_syntax>\<open>case_abs\<close> $ Syntax_Trans.abs_tr [p, t];
+          case_abstraction (Syntax_Trans.abs_tr [p, t]);
 
         fun pattern_args_destruct (Const( \<^syntax_const>\<open>_case_basic_pattern_args_single\<close>,_) $ t) = [t]
           | pattern_args_destruct (Const( \<^syntax_const>\<open>_case_basic_pattern_args_app\<close>,_) $ t $ rem) = t :: (pattern_args_destruct rem)
@@ -322,12 +339,12 @@ fun case_tr err ctxt [t, u] =
         fun handle_pattern (Const (\<^syntax_const>\<open>_case_basic_pattern_other\<close>, _)) exp =
             let val (constr_str, _) = Name.variant "C" (Term.declare_free_names t Name.context)
                 val constr = Free (constr_str, dummyT) in
-                abs constr (Syntax.const \<^const_syntax>\<open>case_elem\<close> $ constr $ exp) end
+                abs constr (case_element constr exp) end
           | handle_pattern pattern exp =
             let val used0 = Term.declare_free_names exp Name.context
                 val used = fold Name.declare (collect_ids_from_pattern pattern) used0
                 val (term, binders, _) = pattern_term_of_pattern pattern used
-            in fold abs binders (Syntax.const \<^const_syntax>\<open>case_elem\<close> $ term $ exp) end
+            in fold abs binders (case_element term exp) end
 
         fun dest_case_basic1 (Const (\<^syntax_const>\<open>_case_basic1\<close>, _) $ pattern $ exp) = 
             handle_pattern pattern exp
@@ -338,16 +355,73 @@ fun case_tr err ctxt [t, u] =
 
         val errt = Syntax.const (if err then \<^const_syntax>\<open>True\<close> else \<^const_syntax>\<open>False\<close>);
       in
-        Syntax.const \<^const_syntax>\<open>case_guard\<close> $ errt $ t $
+        make_case errt t
           (fold_rev
-            (fn t => fn u => Syntax.const \<^const_syntax>\<open>case_cons\<close> $ dest_case_basic1 t $ u)
-            (dest_case_basic2 u)
-            (Syntax.const \<^const_syntax>\<open>case_nil\<close>))
+            (fn branch => fn branches =>
+              dest_case_basic1 branch :: branches)
+            (dest_case_basic2 u) [])
       end
   | case_tr _ _ _ = case_error "case_tr";
 
-val _ = Theory.setup (Sign.parse_translation [(\<^syntax_const>\<open>_case_basic_syntax\<close>, case_tr true)]);
-structure Basic_Case_Expression = struct val case_tr = case_tr end;
+in
+val case_error = case_error;
+val case_tr = case_tr;
+
+structure Basic_Case_Expression =
+struct
+  val case_guard = case_guard
+  val case_cons = case_cons
+  val case_nil = case_nil
+  val case_element = case_element
+  val case_abstraction = case_abstraction
+  val make_case = make_case
+  val case_tr = case_tr
+end;
+
+val _ =
+  Theory.setup
+    (Sign.parse_translation
+      [(\<^syntax_const>\<open>_case_basic_syntax\<close>,
+        Basic_Case_Expression.case_tr true)]);
+end;
+
+val _ =
+  let
+    fun assert message condition =
+      if condition then ()
+      else error ("Basic_Case_Expression regression: " ^ message)
+    val guard = Free ("guard", dummyT)
+    val scrutinee = Free ("scrutinee", dummyT)
+    val first = Free ("first", dummyT)
+    val second = Free ("second", dummyT)
+    val pattern = Free ("pattern", dummyT)
+    val body = Free ("body", dummyT)
+    val abstraction = Abs ("x", dummyT, Bound 0)
+    val expected_case =
+      Const (\<^const_name>\<open>case_guard\<close>, dummyT) $
+        guard $ scrutinee $
+        (Const (\<^const_name>\<open>case_cons\<close>, dummyT) $ first $
+          (Const (\<^const_name>\<open>case_cons\<close>, dummyT) $ second $
+            Const (\<^const_name>\<open>case_nil\<close>, dummyT)))
+    val expected_element =
+      Const (\<^const_name>\<open>case_elem\<close>, dummyT) $ pattern $ body
+    val expected_abstraction =
+      Const (\<^const_name>\<open>case_abs\<close>, dummyT) $ abstraction
+  in
+    assert "make_case changed the unchecked backend tree"
+      (Term.aconv_untyped
+        (Basic_Case_Expression.make_case guard scrutinee
+          [first, second],
+         expected_case));
+    assert "case_element changed its unchecked shape"
+      (Term.aconv_untyped
+        (Basic_Case_Expression.case_element pattern body,
+         expected_element));
+    assert "case_abstraction changed its unchecked shape"
+      (Term.aconv_untyped
+        (Basic_Case_Expression.case_abstraction abstraction,
+         expected_abstraction))
+  end;
 \<close>
 
 subsubsection\<open>Some tests\<close>
