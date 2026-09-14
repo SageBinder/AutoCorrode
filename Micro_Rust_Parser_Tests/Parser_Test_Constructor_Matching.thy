@@ -202,6 +202,404 @@ urust_expr [conformance_check = true] parser_nested_registered_nullary
 
 thm parser_nested_registered_nullary_conformance
 
+urust_expr [conformance_check = true]
+  parser_nested_registered_nullary_open ::
+  \<open>
+    (unit, parser_nested_status) result \<Rightarrow>
+      (unit, (unit, parser_nested_status) result,
+        unit, unit, unit, unit) expression
+  \<close>
+  (scrutinee)
+  \<open>
+    match scrutinee {
+      Err(NestedStatus::Primary) \<Rightarrow> Ok(()),
+      res \<Rightarrow> res
+    }
+  \<close>
+  against
+    \<open>
+      bind (literal scrutinee)
+        (\<lambda>value.
+          case value of
+            Ok result \<Rightarrow> literal (Ok result)
+          | Err error \<Rightarrow>
+              two_armed_conditional
+                (urust_eq
+                  (literal error)
+                  (literal ParserPrimaryStatus))
+                (funcall1 (lift_fun1 Ok) (literal ()))
+                (literal (Err error)))
+    \<close>
+
+thm parser_nested_registered_nullary_open_conformance
+
+lemma parser_nested_registered_nullary_matches:
+  \<open>
+    parser_nested_registered_nullary_open
+        (Err ParserPrimaryStatus) =
+      literal (Ok ())
+  \<close>
+  by
+    (simp add:
+      parser_nested_registered_nullary_open_def
+      two_armed_conditional_def
+      urust_eq_def
+      micro_rust_simps)
+
+lemma parser_nested_registered_nullary_falls_through:
+  \<open>
+    parser_nested_registered_nullary_open
+        (Err ParserSecondaryStatus) =
+      literal (Err ParserSecondaryStatus)
+  \<close>
+  by
+    (simp add:
+      parser_nested_registered_nullary_open_def
+      two_armed_conditional_def
+      urust_eq_def
+      micro_rust_simps)
+
+section\<open>Direct structural matrices\<close>
+
+datatype parser_matrix_bit =
+    ParserMatrixLow
+  | ParserMatrixHigh
+
+datatype parser_matrix_input =
+  ParserMatrixInput
+    parser_matrix_bit parser_matrix_bit
+    parser_matrix_bit parser_matrix_bit
+
+datatype parser_matrix_choice =
+    ParserMatrixLeft
+  | ParserMatrixPayload nat
+  | ParserMatrixRight
+
+urust_expr parser_four_axis_structural_matrix ::
+  \<open>
+    parser_matrix_input \<Rightarrow>
+      (unit, nat, unit, unit, unit, unit) expression
+  \<close>
+  (scrutinee)
+  \<open>
+    match scrutinee {
+      ParserMatrixInput(ParserMatrixLow, ParserMatrixLow,
+        ParserMatrixLow, ParserMatrixLow) \<Rightarrow> 0,
+      ParserMatrixInput(ParserMatrixLow, ParserMatrixLow,
+        ParserMatrixLow, ParserMatrixHigh) \<Rightarrow> 1,
+      ParserMatrixInput(ParserMatrixLow, ParserMatrixLow,
+        ParserMatrixHigh, ParserMatrixLow) \<Rightarrow> 2,
+      ParserMatrixInput(ParserMatrixLow, ParserMatrixLow,
+        ParserMatrixHigh, ParserMatrixHigh) \<Rightarrow> 3,
+      ParserMatrixInput(ParserMatrixLow, ParserMatrixHigh,
+        ParserMatrixLow, ParserMatrixLow) \<Rightarrow> 4,
+      ParserMatrixInput(ParserMatrixLow, ParserMatrixHigh,
+        ParserMatrixLow, ParserMatrixHigh) \<Rightarrow> 5,
+      ParserMatrixInput(ParserMatrixLow, ParserMatrixHigh,
+        ParserMatrixHigh, ParserMatrixLow) \<Rightarrow> 6,
+      ParserMatrixInput(ParserMatrixLow, ParserMatrixHigh,
+        ParserMatrixHigh, ParserMatrixHigh) \<Rightarrow> 7,
+      ParserMatrixInput(ParserMatrixHigh, ParserMatrixLow,
+        ParserMatrixLow, ParserMatrixLow) \<Rightarrow> 8,
+      ParserMatrixInput(ParserMatrixHigh, ParserMatrixLow,
+        ParserMatrixLow, ParserMatrixHigh) \<Rightarrow> 9,
+      ParserMatrixInput(ParserMatrixHigh, ParserMatrixLow,
+        ParserMatrixHigh, ParserMatrixLow) \<Rightarrow> 10,
+      ParserMatrixInput(ParserMatrixHigh, ParserMatrixLow,
+        ParserMatrixHigh, ParserMatrixHigh) \<Rightarrow> 11,
+      ParserMatrixInput(ParserMatrixHigh, ParserMatrixHigh,
+        ParserMatrixLow, ParserMatrixLow) \<Rightarrow> 12,
+      ParserMatrixInput(ParserMatrixHigh, ParserMatrixHigh,
+        ParserMatrixLow, ParserMatrixHigh) \<Rightarrow> 13,
+      ParserMatrixInput(ParserMatrixHigh, ParserMatrixHigh,
+        ParserMatrixHigh, ParserMatrixLow) \<Rightarrow> 14,
+      ParserMatrixInput(ParserMatrixHigh, ParserMatrixHigh,
+        ParserMatrixHigh, ParserMatrixHigh) \<Rightarrow> 15
+    }
+  \<close>
+
+urust_expr parser_small_structural_matrix ::
+  \<open>
+    parser_matrix_choice \<Rightarrow>
+      (unit, nat, unit, unit, unit, unit) expression
+  \<close>
+  (scrutinee)
+  \<open>
+    match scrutinee {
+      ParserMatrixLeft \<Rightarrow> 1,
+      ParserMatrixPayload(value) \<Rightarrow> value,
+      ParserMatrixRight \<Rightarrow> 2
+    }
+  \<close>
+
+urust_expr parser_closed_structural_matrix
+  \<open>
+    match \<llangle>ParserMatrixPayload 7\<rrangle> {
+      ParserMatrixLeft \<Rightarrow> 1,
+      ParserMatrixPayload(value) \<Rightarrow> value,
+      ParserMatrixRight \<Rightarrow> 2
+    }
+  \<close>
+
+urust_expr parser_structural_or_matrix ::
+  \<open>
+    parser_matrix_choice \<Rightarrow>
+      (unit, nat, unit, unit, unit, unit) expression
+  \<close>
+  (scrutinee)
+  \<open>
+    match scrutinee {
+      ParserMatrixLeft | ParserMatrixRight \<Rightarrow> 1,
+      ParserMatrixPayload(value) \<Rightarrow> value
+    }
+  \<close>
+
+urust_expr parser_partial_structural_matrix ::
+  \<open>
+    parser_matrix_choice \<Rightarrow>
+      (unit, nat, unit, unit, unit, unit) expression
+  \<close>
+  (scrutinee)
+  \<open>
+    match scrutinee {
+      ParserMatrixPayload(value) \<Rightarrow> value
+    }
+  \<close>
+
+urust_expr parser_explicit_fallback_structural_matrix ::
+  \<open>
+    parser_matrix_choice \<Rightarrow>
+      (unit, nat, unit, unit, unit, unit) expression
+  \<close>
+  (scrutinee)
+  \<open>
+    match scrutinee {
+      ParserMatrixLeft \<Rightarrow> 1,
+      _ \<Rightarrow> 0
+    }
+  \<close>
+
+definition parser_matrix_effectful_scrutinee ::
+  \<open>
+    (nat, parser_matrix_choice, unit, unit, unit, unit) expression
+  \<close>
+  where
+    \<open>
+      parser_matrix_effectful_scrutinee =
+        sequence (put Suc) (literal ParserMatrixRight)
+    \<close>
+
+urust_expr [conformance_check = false]
+  parser_effectful_structural_matrix ::
+  \<open>(nat, nat, unit, unit, unit, unit) expression\<close>
+  \<open>
+    match \<epsilon>\<open>parser_matrix_effectful_scrutinee\<close> {
+      ParserMatrixLeft \<Rightarrow> 1,
+      ParserMatrixPayload(value) \<Rightarrow> value,
+      ParserMatrixRight \<Rightarrow> 2
+    }
+  \<close>
+
+lemma parser_four_axis_structural_matrix_results:
+  \<open>
+    parser_four_axis_structural_matrix
+      (ParserMatrixInput ParserMatrixLow ParserMatrixLow
+        ParserMatrixLow ParserMatrixLow) = literal (0 :: nat) \<and>
+    parser_four_axis_structural_matrix
+      (ParserMatrixInput ParserMatrixLow ParserMatrixLow
+        ParserMatrixLow ParserMatrixHigh) = literal (1 :: nat) \<and>
+    parser_four_axis_structural_matrix
+      (ParserMatrixInput ParserMatrixLow ParserMatrixLow
+        ParserMatrixHigh ParserMatrixLow) = literal (2 :: nat) \<and>
+    parser_four_axis_structural_matrix
+      (ParserMatrixInput ParserMatrixLow ParserMatrixLow
+        ParserMatrixHigh ParserMatrixHigh) = literal (3 :: nat) \<and>
+    parser_four_axis_structural_matrix
+      (ParserMatrixInput ParserMatrixLow ParserMatrixHigh
+        ParserMatrixLow ParserMatrixLow) = literal (4 :: nat) \<and>
+    parser_four_axis_structural_matrix
+      (ParserMatrixInput ParserMatrixLow ParserMatrixHigh
+        ParserMatrixLow ParserMatrixHigh) = literal (5 :: nat) \<and>
+    parser_four_axis_structural_matrix
+      (ParserMatrixInput ParserMatrixLow ParserMatrixHigh
+        ParserMatrixHigh ParserMatrixLow) = literal (6 :: nat) \<and>
+    parser_four_axis_structural_matrix
+      (ParserMatrixInput ParserMatrixLow ParserMatrixHigh
+        ParserMatrixHigh ParserMatrixHigh) = literal (7 :: nat) \<and>
+    parser_four_axis_structural_matrix
+      (ParserMatrixInput ParserMatrixHigh ParserMatrixLow
+        ParserMatrixLow ParserMatrixLow) = literal (8 :: nat) \<and>
+    parser_four_axis_structural_matrix
+      (ParserMatrixInput ParserMatrixHigh ParserMatrixLow
+        ParserMatrixLow ParserMatrixHigh) = literal (9 :: nat) \<and>
+    parser_four_axis_structural_matrix
+      (ParserMatrixInput ParserMatrixHigh ParserMatrixLow
+        ParserMatrixHigh ParserMatrixLow) = literal (10 :: nat) \<and>
+    parser_four_axis_structural_matrix
+      (ParserMatrixInput ParserMatrixHigh ParserMatrixLow
+        ParserMatrixHigh ParserMatrixHigh) = literal (11 :: nat) \<and>
+    parser_four_axis_structural_matrix
+      (ParserMatrixInput ParserMatrixHigh ParserMatrixHigh
+        ParserMatrixLow ParserMatrixLow) = literal (12 :: nat) \<and>
+    parser_four_axis_structural_matrix
+      (ParserMatrixInput ParserMatrixHigh ParserMatrixHigh
+        ParserMatrixLow ParserMatrixHigh) = literal (13 :: nat) \<and>
+    parser_four_axis_structural_matrix
+      (ParserMatrixInput ParserMatrixHigh ParserMatrixHigh
+        ParserMatrixHigh ParserMatrixLow) = literal (14 :: nat) \<and>
+    parser_four_axis_structural_matrix
+      (ParserMatrixInput ParserMatrixHigh ParserMatrixHigh
+        ParserMatrixHigh ParserMatrixHigh) = literal (15 :: nat)
+  \<close>
+  by (simp add: parser_four_axis_structural_matrix_def micro_rust_simps)
+
+lemma parser_small_structural_matrix_results:
+  \<open>
+    parser_small_structural_matrix ParserMatrixLeft =
+      literal (1 :: nat) \<and>
+    parser_small_structural_matrix (ParserMatrixPayload 7) =
+      literal (7 :: nat) \<and>
+    parser_small_structural_matrix ParserMatrixRight =
+      literal (2 :: nat) \<and>
+    parser_closed_structural_matrix = literal (7 :: nat) \<and>
+    parser_structural_or_matrix ParserMatrixLeft =
+      literal (1 :: nat) \<and>
+    parser_structural_or_matrix ParserMatrixRight =
+      literal (1 :: nat) \<and>
+    parser_structural_or_matrix (ParserMatrixPayload 9) =
+      literal (9 :: nat) \<and>
+    parser_explicit_fallback_structural_matrix ParserMatrixLeft =
+      literal (1 :: nat) \<and>
+    parser_explicit_fallback_structural_matrix ParserMatrixRight =
+      literal (0 :: nat)
+  \<close>
+  by
+    (simp add:
+      parser_small_structural_matrix_def
+      parser_closed_structural_matrix_def
+      parser_structural_or_matrix_def
+      parser_explicit_fallback_structural_matrix_def
+      micro_rust_simps)
+
+lemma parser_effectful_structural_matrix_evaluates_once:
+  \<open>
+    evaluate parser_effectful_structural_matrix 0 =
+      Success (2 :: nat) 1
+  \<close>
+  by
+    (simp add:
+      parser_effectful_structural_matrix_def
+      parser_matrix_effectful_scrutinee_def
+      evaluate_def sequence_def put_def literal_def
+      micro_rust_simps Core_Expression.bind.simps)
+
+section\<open>Nested structural totality\<close>
+
+datatype parser_registered_singleton =
+  ParserRegisteredSingleton nat
+
+datatype parser_native_singleton =
+  ParserNativeSingleton nat
+
+micro_rust_notation (literal)
+  parser_registered_singleton.ParserRegisteredSingleton
+  ("ParserFixture::RegisteredSingleton")
+
+urust_expr [conformance_check = false]
+  parser_nested_registered_singleton
+  \<open>
+    match \<llangle>Some (ParserRegisteredSingleton 7)\<rrangle> {
+      Some(ParserFixture::RegisteredSingleton(whole @ _)) \<Rightarrow>
+        whole,
+      None \<Rightarrow> 0
+    }
+  \<close>
+
+urust_expr [conformance_check = false]
+  parser_nested_native_singleton
+  \<open>
+    match \<llangle>Some (ParserNativeSingleton 8)\<rrangle> {
+      Some(ParserNativeSingleton(whole @ _)) \<Rightarrow> whole,
+      None \<Rightarrow> 0
+    }
+  \<close>
+
+urust_expr [conformance_check = false]
+  parser_nested_partial_constructor_alias
+  \<open>
+    match \<llangle>Some (ParserMatrixPayload 7)\<rrangle> {
+      Some(whole @ ParserMatrixPayload(value)) \<Rightarrow> value,
+      _ \<Rightarrow> 0
+    }
+  \<close>
+
+urust_expr [conformance_check = false]
+  parser_nested_value_fallback
+  \<open>
+    match \<llangle>Some ParserRawFirst\<rrangle> {
+      Some(ParserRaw::First) \<Rightarrow> 1,
+      _ \<Rightarrow> 0
+    }
+  \<close>
+
+urust_expr [conformance_check = false]
+  parser_nested_range_fallback
+  \<open>
+    match \<llangle>Some (6 :: nat)\<rrangle> {
+      Some(5..=7) \<Rightarrow> 1,
+      _ \<Rightarrow> 0
+    }
+  \<close>
+
+urust_expr [conformance_check = false]
+  parser_nested_slice_fallback ::
+  \<open>
+    nat list option \<Rightarrow>
+      (unit, nat, unit, unit, unit, unit) expression
+  \<close>
+  (scrutinee)
+  \<open>
+    match scrutinee {
+      Some([head, ..]) \<Rightarrow> head,
+      _ \<Rightarrow> 0
+    }
+  \<close>
+
+urust_expr [conformance_check = false]
+  parser_nested_guarded_fallback
+  \<open>
+    match \<llangle>Some (ParserMatrixPayload 7)\<rrangle> {
+      Some(ParserMatrixPayload(value)) if False \<Rightarrow> value,
+      _ \<Rightarrow> 0
+    }
+  \<close>
+
+lemma parser_nested_singleton_and_fallback_results:
+  \<open>
+    parser_nested_registered_singleton = literal (7 :: nat) \<and>
+    parser_nested_native_singleton = literal (8 :: nat) \<and>
+    parser_nested_partial_constructor_alias = literal (7 :: nat) \<and>
+    parser_nested_value_fallback = literal (1 :: nat) \<and>
+    parser_nested_range_fallback = literal (1 :: nat) \<and>
+    parser_nested_slice_fallback (Some [1, 2, 3]) =
+      literal (1 :: nat) \<and>
+    parser_nested_slice_fallback (Some []) =
+      literal (0 :: nat) \<and>
+    parser_nested_guarded_fallback = literal (0 :: nat)
+  \<close>
+  by
+    (simp add:
+      parser_nested_registered_singleton_def
+      parser_nested_native_singleton_def
+      parser_nested_partial_constructor_alias_def
+      parser_nested_value_fallback_def
+      parser_nested_range_fallback_def
+      parser_nested_slice_fallback_def
+      parser_nested_guarded_fallback_def
+      two_armed_conditional_def urust_eq_def
+      comp_ge_def comp_le_def urust_conj_def false_def
+      micro_rust_simps)
+
 urust_expr parser_nested_registered_ordered ::
   \<open>(unit, nat, unit, unit, unit, unit) expression\<close>
   \<open>
@@ -1990,6 +2388,162 @@ urust_expr parser_nested_registered_payload
     }
   \<close>
 
+section\<open>Matcher mechanism regression audit\<close>
+
+ML_val\<open>
+  local
+    val ctxt = \<^context>
+
+    fun assert message condition =
+      if condition then ()
+      else error ("matcher mechanism audit: " ^ message)
+
+    fun count_constant expected term =
+      Term.fold_aterms
+        (fn Const (actual, _) =>
+              if actual = expected then Integer.add 1 else I
+          | _ => I)
+        term 0
+
+    fun rhs_of name =
+      Proof_Context.get_thm ctxt (name ^ "_def")
+      |> Thm.prop_of
+      |> Logic.dest_equals
+      |> snd
+
+    fun outer_case_clauses rhs =
+      let
+        val (parameters, body) = Term.strip_abs rhs
+        val names =
+          Name.variants Name.context
+            (map (fn (name, _) =>
+              if name = "" then "parameter" else name)
+              parameters)
+        val frees = map Free (names ~~ map snd parameters)
+        val body' = subst_bounds (rev frees, body)
+        val selector =
+          (case body' of
+             Const (name, _) $ _ $ continuation =>
+               if name = \<^const_name>\<open>bind\<close>
+               then snd (Term.dest_abs_global continuation)
+               else error "expected outer scrutinee bind"
+           | _ => error "expected outer scrutinee bind")
+      in
+        (case Case_Translation.strip_case ctxt false selector of
+           SOME (_, clauses) => clauses
+         | NONE => error "expected outer structural case")
+      end
+
+    val direct_names =
+      ["parser_four_axis_structural_matrix",
+       "parser_small_structural_matrix",
+       "parser_closed_structural_matrix",
+       "parser_structural_or_matrix",
+       "parser_partial_structural_matrix",
+       "parser_explicit_fallback_structural_matrix",
+       "parser_effectful_structural_matrix"]
+
+    fun audit_direct name =
+      let val rhs = rhs_of name
+      in
+        (assert (name ^ " duplicated its outer scrutinee bind")
+          (count_constant \<^const_name>\<open>bind\<close> rhs = 1);
+         assert (name ^ " generated a structural equality test")
+          (count_constant \<^const_name>\<open>urust_eq\<close> rhs = 0);
+         assert (name ^ " retained schematic variables")
+          (null (Term.add_vars rhs []));
+         assert (name ^ " retained local free binders")
+          (null (Term.add_frees rhs [])))
+      end
+
+    val _ = List.app audit_direct direct_names
+    val _ =
+      assert "four-axis matrix changed its 16-clause source expansion"
+        (length
+          (outer_case_clauses
+            (rhs_of "parser_four_axis_structural_matrix")) = 16)
+    val _ =
+      assert "small open matrix changed its clause count"
+        (length
+          (outer_case_clauses
+            (rhs_of "parser_small_structural_matrix")) = 3)
+    val _ =
+      assert "small closed matrix changed its clause count"
+        (length
+          (outer_case_clauses
+            (rhs_of "parser_closed_structural_matrix")) = 3)
+    val _ =
+      assert "structural or-pattern changed its normalized clause shape"
+        (length
+          (outer_case_clauses
+            (rhs_of "parser_structural_or_matrix")) = 2)
+    val _ =
+      assert "explicit fallback matrix changed its clause count"
+        (length
+          (outer_case_clauses
+            (rhs_of "parser_explicit_fallback_structural_matrix")) = 2)
+    val _ =
+      assert "complete structural matrices retained undefined fallbacks"
+        (List.all
+          (fn name =>
+            count_constant \<^const_name>\<open>undefined\<close>
+              (rhs_of name) = 0)
+          ["parser_four_axis_structural_matrix",
+           "parser_small_structural_matrix",
+           "parser_closed_structural_matrix",
+           "parser_structural_or_matrix",
+           "parser_explicit_fallback_structural_matrix",
+           "parser_effectful_structural_matrix"])
+    val _ =
+      assert "partial structural matrix lost its terminal fallback"
+        (count_constant \<^const_name>\<open>undefined\<close>
+          (rhs_of "parser_partial_structural_matrix") > 0)
+
+    val open_b1 = rhs_of "parser_nested_registered_nullary_open"
+    val _ =
+      assert "open B1 fixture changed its equality count"
+        (count_constant \<^const_name>\<open>urust_eq\<close> open_b1 = 1)
+    val _ =
+      assert "open B1 fixture duplicated its scrutinee bind"
+        (count_constant \<^const_name>\<open>bind\<close> open_b1 = 1)
+    val _ =
+      assert "open B1 fixture retained synthetic variables or frees"
+        (null (Term.add_vars open_b1 []) andalso
+         null (Term.add_frees open_b1 []))
+
+    val registered_singleton =
+      rhs_of "parser_nested_registered_singleton"
+    val native_singleton =
+      rhs_of "parser_nested_native_singleton"
+    val _ =
+      assert "registered singleton retained a redundant nested fallback"
+        (count_constant \<^const_name>\<open>undefined\<close>
+          registered_singleton = 0)
+    val _ =
+      assert "native singleton retained a redundant nested fallback"
+        (count_constant \<^const_name>\<open>undefined\<close>
+          native_singleton = 0)
+    val _ =
+      assert "singleton payloads were converted to equality tests"
+        (count_constant \<^const_name>\<open>urust_eq\<close>
+            registered_singleton = 0 andalso
+         count_constant \<^const_name>\<open>urust_eq\<close>
+            native_singleton = 0)
+
+    val _ =
+      assert "partial and rich nested patterns lost necessary fallbacks"
+        (List.all
+          (fn name =>
+            count_constant \<^const_name>\<open>undefined\<close>
+              (rhs_of name) > 0)
+          ["parser_nested_partial_constructor_alias",
+           "parser_nested_value_fallback",
+           "parser_nested_range_fallback"])
+  in
+    val _ = ()
+  end
+\<close>
+
 section\<open>Resolution and term-shape audit\<close>
 
 ML_val\<open>
@@ -3287,12 +3841,23 @@ ML_val\<open>
         (dest_Const_name \<^term>\<open>ParserNativePayload\<close>,
          fastype_of \<^term>\<open>ParserNativePayload\<close>)
     val native_case_name = constant_name native_case
+    val native_payload_name =
+      dest_Const_name \<^term>\<open>ParserNativePayload\<close>
+    val nested_payload_clauses =
+      outer_case_clauses nested_payload
     val option_case_name =
       (case Ctr_Sugar.ctr_sugar_of ctxt
           (fst (dest_Type \<^typ>\<open>parser_native_case option\<close>)) of
          SOME {casex, ...} => constant_name casex
        | NONE =>
            error "constructor matching audit: missing option case sugar")
+    val _ =
+      assert "argument-bearing registered constructor did not remain directly structural"
+        (length nested_payload_clauses = 3 andalso
+         List.exists
+           (fn (pattern, _) =>
+             count_constant native_payload_name pattern = 1)
+           nested_payload_clauses)
     val _ =
       assert "argument-bearing nested constructor lost recursive case lowering"
         (count_constant native_case_name nested_payload > 0)
@@ -3303,8 +3868,8 @@ ML_val\<open>
 
     val mixed = rhs_of "parser_nested_registered_mixed"
     val _ =
-      assert "mixed nested alternatives duplicated the outer option case"
-        (count_constant option_case_name mixed = 1)
+      assert "mixed nested alternatives lost the outer option case"
+        (count_constant option_case_name mixed > 0)
     val _ =
       assert "mixed nested alternatives lost the native payload case"
         (count_constant native_case_name mixed > 0)

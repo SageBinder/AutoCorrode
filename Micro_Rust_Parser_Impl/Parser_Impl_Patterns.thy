@@ -1169,7 +1169,8 @@ struct
     Case_Clause of
       {structural_pattern: structural_pattern,
        generated_test: term option,
-       scope: clause_scope}
+       scope: clause_scope,
+       direct_branch: (term -> term) option}
 
   datatype alternative_plan =
     Alternative_Plan of
@@ -1305,9 +1306,11 @@ struct
     - structural_pattern is a typed algebraic pattern. Structural_Any optionally records the exact
       Free that the source alternative binds at that point; constructor identity, arity, and complete
       native family order remain explicit in Structural_Node.
-    - case_clause owns one structural pattern, its alternative-local generated test, and one explicit
-      clause_scope operation. A closing scope binds aliases and recursively extracted nested binders
-      around the source guard and body together; a direct scope is the identity operation.
+    - case_clause owns one structural pattern, its alternative-local generated test, one explicit
+      clause_scope operation, and an optional renderer for direct structural lowering. A closing scope
+      binds aliases and recursively extracted nested binders around the source guard and body together;
+      a direct scope is the identity operation. The direct renderer is derived from the normalized basic
+      pattern and is only selected when every row in the matrix has the same structural capability.
     - source_position is stable source order. alternative_plan and arm_plan preserve the distinction
       between alternative failure and source-guard failure: a generated-test miss advances to the next
       alternative, while a false source guard advances to the next arm.
@@ -1524,6 +1527,42 @@ struct
                List.all structural_is_total arguments
          | _ => false)
     | structural_is_total _ = false
+
+  fun case_pattern_structurally_total ctxt pattern =
+    let
+      fun check candidate =
+        let
+          fun convert_all [] = SOME []
+            | convert_all (nested :: rest) =
+                (case (convert nested, convert_all rest) of
+                   (SOME converted, SOME converted_rest) =>
+                     SOME (converted :: converted_rest)
+                 | _ => NONE)
+          and convert (Case_Wild _) = SOME (Basic_Wild NONE)
+            | convert (Case_Bind _) = SOME (Basic_Wild NONE)
+            | convert (Case_Value _) = NONE
+            | convert (Case_Constructor (info, pos, arguments)) =
+                Option.map
+                  (fn nested => Basic_Constructor (info, pos, nested))
+                  (convert_all arguments)
+            | convert (Case_Resolved (constructor, arguments)) =
+                Option.map
+                  (fn nested => Basic_Resolved (constructor, nested))
+                  (convert_all arguments)
+            | convert (Case_Tuple arguments) =
+                Option.map Basic_Tuple (convert_all arguments)
+            | convert (Case_Alias (_, inner)) = convert inner
+            | convert (Case_Range _) = NONE
+            | convert (Case_Slice_Suffix _) = NONE
+        in
+          (case convert candidate of
+             SOME basic =>
+               structural_is_total
+                 (structural_pattern_of_basic
+                   ctxt R.empty_environment basic)
+           | NONE => false)
+        end
+    in the_default false (try check pattern) end
 
   fun structural_root_region (Structural_Any _) =
         Structural_Any NONE
@@ -1832,16 +1871,15 @@ struct
   fun compile_nested_case compiler ctxt environment expression pattern
       success fallback =
     compiler ctxt expression
-      [(pattern, environment, NONE, success),
-       (Case_Wild Position.none, environment, NONE, fallback)]
+      ([(pattern, environment, NONE, success)] @
+       (if case_pattern_structurally_total ctxt pattern
+        then []
+        else
+          [(Case_Wild Position.none,
+            environment, NONE, fallback)]))
 
   fun normalize_pattern_for_nested compiler ctxt environment pattern =
     let
-      fun requires_registered_nested_case
-            (Case_Constructor (info, _, _ :: _)) =
-            R.constructor_is_exact_registered info
-        | requires_registered_nested_case _ = false
-
       fun normalize_arguments [] = ([], [], [])
         | normalize_arguments (argument :: rest) =
             let
@@ -1864,8 +1902,7 @@ struct
                        normalize_pattern_for_nested
                          compiler ctxt environment argument
                  | _ =>
-                     if requires_nested_match argument orelse
-                        requires_registered_nested_case argument
+                     if requires_nested_match argument
                      then
                        let
                          val temporary =
@@ -1879,17 +1916,23 @@ struct
                                 (T.reverse_list temporary_expression,
                                  reversed_suffix)
                             | _ => (temporary_expression, argument))
-                         val guard =
-                           compile_nested_case compiler ctxt environment
-                             matched_expression matched_pattern
-                             (T.literal T.true_value)
-                             (T.literal T.false_value)
+                         val structurally_total =
+                           case_pattern_structurally_total
+                             ctxt matched_pattern
+                         val guards =
+                           if structurally_total
+                           then []
+                           else
+                             [compile_nested_case compiler ctxt environment
+                               matched_expression matched_pattern
+                               (T.literal T.true_value)
+                               (T.literal T.false_value)]
                          fun wrapper rhs =
                            compile_nested_case compiler ctxt environment
                              matched_expression matched_pattern
                              rhs T.undefined_value
                        in
-                         (Basic_Generated temporary, [guard],
+                         (Basic_Generated temporary, guards,
                           [(case argument of
                               Case_Slice_Suffix _ =>
                                 Transformed_Scope_Wrapper
@@ -2012,13 +2055,32 @@ struct
             then Nested_Clause_Scope close_scope
             else Alias_Clause_Scope close_scope
           end
+      fun erase_wildcard_positions (Basic_Wild _) = Basic_Wild NONE
+        | erase_wildcard_positions (Basic_Bind binder_sig) =
+            Basic_Bind binder_sig
+        | erase_wildcard_positions (Basic_Generated free) =
+            Basic_Generated free
+        | erase_wildcard_positions
+            (Basic_Constructor (info, pos, arguments)) =
+            Basic_Constructor
+              (info, pos, map erase_wildcard_positions arguments)
+        | erase_wildcard_positions
+            (Basic_Resolved (constructor, arguments)) =
+            Basic_Resolved
+              (constructor, map erase_wildcard_positions arguments)
+        | erase_wildcard_positions (Basic_Tuple arguments) =
+            Basic_Tuple (map erase_wildcard_positions arguments)
+      val direct_branch =
+        try (bind_basic_pattern ctxt environment)
+          (erase_wildcard_positions basic_pattern)
     in
       Case_Clause
         {structural_pattern =
            structural_pattern_of_basic
              ctxt environment basic_pattern,
          generated_test = generated_test,
-         scope = scope}
+         scope = scope,
+         direct_branch = direct_branch}
     end
 
   fun compile_pattern_case ctxt scrutinee arms =
@@ -2117,6 +2179,25 @@ struct
           alternatives
 
       val rows = maps rows_of_arm arm_plans
+
+      fun direct_structural_branch
+          (Decision_Row
+            {clause =
+               Case_Clause
+                 {generated_test, scope, direct_branch, ...},
+             source_guard, body, ...}) =
+        (case (source_guard, generated_test, scope, direct_branch) of
+           (NONE, NONE, Direct_Clause_Scope, SOME render) =>
+             SOME (render body)
+         | _ => NONE)
+
+      fun direct_structural_matrix () =
+        let val branches = map direct_structural_branch rows
+        in
+          if List.all is_some branches
+          then SOME (map the branches)
+          else NONE
+        end
 
       fun unconditional_total_row
           (Decision_Row
@@ -2360,6 +2441,34 @@ struct
                    row_exclusion row (row_shape row))
                  (filter row_has_generated_test rest))
 
+      fun historical_group_is_generated_test
+          (Structural_Group {members, ...}) =
+        (case members of
+           first :: _ => row_has_generated_test first
+         | [] =>
+             error
+               "urust_expr: internal empty historical structural group")
+
+      fun historical_group_pattern
+          (Structural_Group {pattern, ...}) = pattern
+
+      fun remove_subsumed_historical_groups groups =
+        let
+          fun covered prior candidate =
+            List.exists
+              (fn group =>
+                historical_group_is_generated_test group andalso
+                  structural_subsumes
+                    (historical_group_pattern group,
+                     historical_group_pattern candidate))
+              prior
+          fun retain _ [] = []
+            | retain prior (group :: rest) =
+                if covered prior group
+                then retain prior rest
+                else group :: retain (prior @ [group]) rest
+        in retain [] groups end
+
       fun plan_root_suffix context planned_rows =
         let
           val Outer_Group_Plan
@@ -2416,22 +2525,23 @@ struct
                   | Compatibility_Root_Plan _ =>
                       ([], not (null planned_rows))))
           val historical_groups =
-            (case coverage_complete_group of
-               SOME group =>
-                 [group]
-             | NONE =>
-                 if reconstruct_historical_root_tail
-                 then
-                   fold
-                     (fn row => fn planned_groups =>
-                       if structural_is_any (row_shape row)
-                       then planned_groups
-                       else
-                         add_historical_group
-                           row (row_shape row)
-                           planned_groups)
-                     historical_prefix_rows []
-                 else maps historical_groups_of groups)
+            remove_subsumed_historical_groups
+              (case coverage_complete_group of
+                 SOME group =>
+                   [group]
+               | NONE =>
+                   if reconstruct_historical_root_tail
+                   then
+                     fold
+                       (fn row => fn planned_groups =>
+                         if structural_is_any (row_shape row)
+                         then planned_groups
+                         else
+                           add_historical_group
+                             row (row_shape row)
+                             planned_groups)
+                       historical_prefix_rows []
+                   else maps historical_groups_of groups)
           val historical_patterns =
             map
               (fn Structural_Group {pattern, ...} =>
@@ -3054,17 +3164,23 @@ struct
           plain_fragment historical
         end
 
-      val root_plan =
-        plan_root_suffix Normal_Root_Plan rows
-      val semantic_selector =
-        render_semantic_root_suffix_plan root_plan
-      val historical_selector =
-        render_historical_root_suffix_plan root_plan
       val selector =
-        compatibility_term
-          (Compiled_Decision_Fragment
-            {semantic = semantic_selector,
-             historical = historical_selector})
+        (case direct_structural_matrix () of
+           SOME branches => selector_of branches
+         | NONE =>
+             let
+               val root_plan =
+                 plan_root_suffix Normal_Root_Plan rows
+               val semantic_selector =
+                 render_semantic_root_suffix_plan root_plan
+               val historical_selector =
+                 render_historical_root_suffix_plan root_plan
+             in
+               compatibility_term
+                 (Compiled_Decision_Fragment
+                   {semantic = semantic_selector,
+                    historical = historical_selector})
+             end)
     in
       T.bind scrutinee (Term.lambda value selector)
     end
