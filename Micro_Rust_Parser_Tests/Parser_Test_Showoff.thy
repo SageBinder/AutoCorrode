@@ -234,12 +234,18 @@ datatype showoff_registered_event =
     ShowoffRegisteredData nat
   | ShowoffRegisteredStop
 
+datatype showoff_singleton_event =
+  ShowoffSingletonEvent nat
+
 micro_rust_notation (literal)
   showoff_registered_event.ShowoffRegisteredData
   ("Showoff::Event::Data")
 micro_rust_notation (literal)
   showoff_registered_event.ShowoffRegisteredStop
   ("Showoff::Event::Stop")
+micro_rust_notation (literal)
+  showoff_singleton_event.ShowoffSingletonEvent
+  ("Showoff::Singleton::Event")
 
 definition showoff_registered_number :: nat where
   \<open> showoff_registered_number \<equiv> 7 \<close>
@@ -265,20 +271,46 @@ urust_expr showoff_registered_numeric_match
     }
   \<close>
 
-urust_expr [conformance_check = false] showoff_registered_nested_nullary_match
+urust_expr showoff_registered_nested_nullary_match
   \<open>
     match Some(Showoff::Event::Stop) {
       Some(Showoff::Event::Stop) \<Rightarrow> True,
       _ \<Rightarrow> False
     }
   \<close>
+  against
+    \<open>
+      bind
+        (funcall1
+          (lift_fun1 Some)
+          (literal ShowoffRegisteredStop))
+        (\<lambda>value.
+          case value of
+            None \<Rightarrow> literal False
+          | Some event \<Rightarrow>
+              two_armed_conditional
+                (urust_eq
+                  (literal event)
+                  (literal ShowoffRegisteredStop))
+                (literal True)
+                (literal False))
+    \<close>
+
+urust_expr [conformance_check = false] showoff_registered_singleton_match
+  \<open>
+    match Some(Showoff::Singleton::Event(9)) {
+      Some(Showoff::Singleton::Event(whole @ _)) \<Rightarrow> whole,
+      None \<Rightarrow> 0
+    }
+  \<close>
 
 text\<open>
 Features: automatic case and registered-value/numeral switch routing, an explicit
 numeric switch, datatype-aware qualified constructor markup, constructor and value patterns,
-or-patterns, nested registered-nullary equality within structural case lowering, full guard bodies,
-semicolon-free explicit match sequencing, nested matches, ordered fall-through,
-and antiquotation capture of both a let-bound variable and an arm binder.
+or-patterns, direct structural-matrix lowering, nested registered-nullary equality with genuine
+fall-through, structural-totality removal of redundant singleton fallbacks, full guard bodies,
+semicolon-free explicit match sequencing, nested matches, ordered fall-through, and antiquotation
+capture of both a let-bound variable and an arm binder.
 \<close>
 
 text\<open>

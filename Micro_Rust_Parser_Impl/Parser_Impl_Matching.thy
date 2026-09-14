@@ -72,8 +72,10 @@ ML\<open>
     match flavour before lowering the scrutinee. Switch lowering prepares each source arm and lowers
     its body in the unchanged outer environment, preserving alternative and arm order. Case lowering
     prepares all source arms before lowering any guard or body; each guard and body is lowered once in
-    that prepared arm's exact environment. The resulting term evaluates the lowered scrutinee once and
-    preserves the existing frontend-shaped handler and fallback expansion.
+    that prepared arm's exact environment. The resulting term evaluates the lowered scrutinee once.
+    Fully structural normalized matrices lower directly through one native case expression; guards,
+    generated tests, aliases, and transformed patterns retain recursive decision compilation and its
+    historical term-shape compatibility rendering.
 
   - lower_while_let lower ctxt environment (fuel, pattern, scrutinee, body, position) lowers fuel and
     scrutinee in the outer environment, in that order, before preparing the pattern. Only the loop body
