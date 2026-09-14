@@ -5,7 +5,7 @@
 theory StdLib_Slice
   imports Crush.Crush StdLib_References StdLib_Logging
 begin
-declare [[urust_conformance_check = true]]
+declare [[urust_conformance = true]]
 (*>*)
 
 definition range_new_contract :: \<open>'a \<Rightarrow> 'a \<Rightarrow> ('s::sepalg, 'a range, 'abort) function_contract\<close> where

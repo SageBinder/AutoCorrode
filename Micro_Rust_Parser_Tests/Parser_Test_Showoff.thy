@@ -5,7 +5,7 @@ theory Parser_Test_Showoff
     Micro_Rust_Std_Lib.StdLib_Logging
 begin
 
-declare [[urust_conformance_check = true]]
+declare [[urust_conformance = true]]
 
 section\<open> Showcase \<close>
 
@@ -15,6 +15,32 @@ same text against the existing frontend. The explicit \<open>urust_fn\<close> an
 \<open>urust_expr\<close> function examples give equivalent old-frontend spellings; the combined
 parser-only expression has its witness in \<open>Parser_Test_Improvements\<close>.
 \<close>
+
+subsection\<open> Opt-in parser timing \<close>
+
+text\<open>
+The inline \<open>timing_info\<close> option prints the new parser pipeline even without conformance. The
+scoped \<open>urust_timing_info\<close> setting additionally prints the old parser and signed
+\<open>new - old\<close> elapsed-time delta when conformance is enabled. Timing is diagnostic only, so these
+demonstrations are discarded with the surrounding experiment.
+\<close>
+
+experiment
+begin
+
+urust_expr [timing_info, conformance = false]
+  showoff_timing_new_only
+  \<open> let value = 1_u32; value + 2_u32 \<close>
+
+declare [[urust_timing_info = true]]
+
+urust_fn [conformance]
+  showoff_timing_comparison ::
+  \<open>32 word \<Rightarrow> (unit, 32 word, unit, unit, unit) function_body\<close>
+  (item)
+  \<open> item + 1_u32 \<close>
+
+end
 
 subsection\<open> Expressions, bindings, and control flow \<close>
 
@@ -55,7 +81,7 @@ unary-before-cast precedence, and a direct conditional operand. Block-like class
 only statement and match-arm separator elision; it does not form a separate precedence ladder.
 \<close>
 
-urust_expr [conformance_check = false] showoff_grammar_literals
+urust_expr [conformance = false] showoff_grammar_literals
   \<open>
     let mask = 0b1010_0001u32;
     let permissions = 0o7_55u32;
@@ -85,7 +111,7 @@ urust_expr showoff_logging_yield
 subsection\<open> Calls, methods, and propagation \<close>
 
 urust_fn
-  [attrs = [micro_rust_simps], conformance_check = false]
+  [attrs = [micro_rust_simps], conformance = false]
   showoff_inline_disabled ::
   \<open>_\<close>
   ()
@@ -96,14 +122,14 @@ The optional \<open>application_def\<close> shape keeps the explicit source para
 definition theorem's left-hand side without changing the curried function value.
 \<close>
 
-urust_fn [application_def, conformance_check, verbose = 2] showoff_declared_mix ::
+urust_fn [application_def, conformance, verbosity = 2] showoff_declared_mix ::
   \<open>64 word \<Rightarrow> 64 word \<Rightarrow>
     (unit, 64 word, unit, unit, unit) function_body\<close>
   (left, right)
   \<open> left * 3u64 + right \<close>
   against \<open> \<lbrakk> left * 3_u64 + right \<rbrakk> \<close>
 
-urust_expr [verbose = 2] showoff_typed_common ::
+urust_expr [verbosity = 2] showoff_typed_common ::
   \<open>64 word \<Rightarrow> 64 word \<Rightarrow>
     (unit, 64 word, unit, unit, unit) function_body\<close>
   (left, right)
@@ -288,7 +314,7 @@ urust_expr showoff_registered_nested_nullary_match
       \<rbrakk>
     \<close>
 
-urust_expr [conformance_check = false] showoff_registered_singleton_match
+urust_expr [conformance = false] showoff_registered_singleton_match
   \<open>
     match Some(Showoff::Singleton::Event(9)) {
       Some(Showoff::Singleton::Event(whole @ _)) \<Rightarrow> whole,
@@ -310,7 +336,7 @@ C1-I5 gives a guarded or-pattern one source-arm guard and next-arm fall-through,
 uses the corrected semantics instead of asserting equality with the old alternative expansion.
 \<close>
 
-urust_expr [conformance_check = false] showoff_matches
+urust_expr [conformance = false] showoff_matches
   \<open>
     let floor = \<llangle>2 :: nat\<rrangle>;
     match \<llangle>ShowoffData (Some 7) True\<rrangle> {
@@ -357,7 +383,7 @@ or-patterns in one match, followed by a guard and antiquotation capture of
 bindings from deep inside the pattern.
 \<close>
 
-urust_expr [conformance_check = false] showoff_patterns
+urust_expr [conformance = false] showoff_patterns
   \<open>
     match \<llangle>ShowoffPacket 2 [3, 5, 8] (Some 13)\<rrangle> {
       ShowoffPacket {
@@ -579,7 +605,7 @@ a total conditional binding without an unreachable fallback in the checked term,
 and empty ordinary and unsafe blocks.
 \<close>
 
-urust_expr [conformance_check = false] showoff_improvements
+urust_expr [conformance = false] showoff_improvements
   \<open>
     // These spellings are accepted only by the dedicated parser.
     let seeds = [1u64, 2u64,];
@@ -615,7 +641,7 @@ ML_val\<open>
   val _ =
     if Global_Theory.defined_fact \<^theory> "showoff_improvements_conformance" orelse
        Global_Theory.defined_fact \<^theory> "showoff_inline_disabled_conformance"
-    then error "inline urust_conformance_check overrides unexpectedly generated a theorem"
+    then error "inline urust_conformance overrides unexpectedly generated a theorem"
     else ()
 \<close>
 

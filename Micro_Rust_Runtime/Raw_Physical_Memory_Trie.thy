@@ -8,7 +8,7 @@ theory Raw_Physical_Memory_Trie
     Micro_Rust_Interfaces_Core.Raw_Physical_Memory
 begin
 
-declare [[urust_conformance_check = true]]
+declare [[urust_conformance = true]]
 (*>*)
 
 section\<open>Derived material around trie-based physical memory\<close>

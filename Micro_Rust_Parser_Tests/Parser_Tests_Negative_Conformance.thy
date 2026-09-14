@@ -16,8 +16,8 @@ begin
 
 chapter\<open>Negative conformance\<close>
 
-declare [[urust_conformance_check = false]]
-declare [[urust_verbose = 0]]
+declare [[urust_conformance = false]]
+declare [[urust_verbosity = 0]]
 declare [[urust_abbrev = false]]
 
 section\<open> The command \<close>

@@ -5,7 +5,7 @@
 theory Bool_Type_Lemmas
   imports Core_Expression_Lemmas Shallow_Micro_Rust_Base.Bool_Type
 begin
-declare [[urust_conformance_check = true]]
+declare [[urust_conformance = true]]
 (*>*)
 
 lemma evaluate_trueE [micro_rust_elims]:

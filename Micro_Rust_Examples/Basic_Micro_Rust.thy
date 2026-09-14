@@ -12,8 +12,8 @@ theory Basic_Micro_Rust
     "HOL-Library.Code_Target_Numeral" \<comment> \<open>Map naturals/integers onto OCaml \<^verbatim>\<open>zarith\<close> types\<close>
     "HOL-Library.Code_Abstract_Char"  \<comment> \<open>Tidy up character and string literals a little\<close>
 begin
-declare [[urust_conformance_check = true]]
-declare [[urust_verbose = 2]]
+declare [[urust_conformance = true]]
+declare [[urust_verbosity = 2]]
 (*>*)
 
 section\<open>Working introduction to Micro Rust\<close>

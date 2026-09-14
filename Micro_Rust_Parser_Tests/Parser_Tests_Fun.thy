@@ -5,7 +5,7 @@ theory Parser_Tests_Fun
   imports Parser_Test_Utils Conformance_Corpus
 begin
 
-declare [[urust_conformance_check = true]]
+declare [[urust_conformance = true]]
 
 section\<open>Corpus FunctionBody definitions\<close>
 
@@ -268,7 +268,7 @@ micro_rust_record fun_field_record
 micro_rust_notation (literal) fun_registered_literal ("funCollision")
 micro_rust_notation (call) fun_registered_call ("funCollision")
 
-urust_fn [conformance_check = false] fun_parameter_call_wins ::
+urust_fn [conformance = false] fun_parameter_call_wins ::
   \<open>
     (nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body) \<Rightarrow>
     nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body

@@ -10,8 +10,8 @@ theory Reference_Examples
     Byte_Level_Encoding.Byte_Parser
     Byte_Level_Encoding.Byte_Encoding_Word_Nat
 begin
-declare [[urust_conformance_check = true]]
-declare [[urust_verbose = 2]]
+declare [[urust_conformance = true]]
+declare [[urust_verbosity = 2]]
 
 section\<open>References\<close>
 

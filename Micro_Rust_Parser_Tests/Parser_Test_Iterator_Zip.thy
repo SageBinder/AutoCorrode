@@ -4,7 +4,7 @@ theory Parser_Test_Iterator_Zip
     Shallow_Micro_Rust.Eval
 begin
 
-declare [[urust_conformance_check = true]]
+declare [[urust_conformance = true]]
 
 section\<open>Shared iterator zip\<close>
 

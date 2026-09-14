@@ -5,7 +5,7 @@
 theory StdLib_References
   imports Crush.Crush
 begin
-declare [[urust_conformance_check = true]]
+declare [[urust_conformance = true]]
 (*>*)
 
 context reference

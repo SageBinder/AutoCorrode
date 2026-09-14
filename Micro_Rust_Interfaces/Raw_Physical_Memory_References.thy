@@ -9,7 +9,7 @@ theory Raw_Physical_Memory_References
     Crush.Crush
 begin
 
-declare [[urust_conformance_check = true]]
+declare [[urust_conformance = true]]
 
 section\<open>References backed in physical memory\<close>
 

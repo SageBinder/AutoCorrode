@@ -8,8 +8,8 @@ theory MLKEM_Zq
     Crush.Crush
 begin
 
-declare [[urust_conformance_check = true]]
-declare [[urust_verbose = 2]]
+declare [[urust_conformance = true]]
+declare [[urust_verbosity = 2]]
 
 text\<open>
   \<open>\<mu>Rust\<close> implementations of \<^verbatim>\<open>Z_q\<close> arithmetic operations with contracts proving refinement

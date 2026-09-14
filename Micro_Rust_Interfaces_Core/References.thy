@@ -11,7 +11,7 @@ theory References
     Shallow_Micro_Rust_Base.Core_Expression
 begin
 
-declare [[urust_conformance_check = true]]
+declare [[urust_conformance = true]]
 (*>*)
 
 named_theorems reference_axioms

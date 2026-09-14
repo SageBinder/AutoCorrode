@@ -1,0 +1,11 @@
+title = Micro_Rust_Parser_Timing
+module = lib/micro_rust_parser_timing.jar
+requirements = \
+  env:ISABELLE_SCALA_JAR
+sources = \
+  src/timing.scala \
+  src/tool.scala \
+  src/test_tool.scala \
+  src/tools.scala
+services = \
+  isabelle.micro_rust_parser_timing.Tools

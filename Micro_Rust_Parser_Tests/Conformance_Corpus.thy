@@ -11,7 +11,7 @@ text\<open>
 The inner-syntax frontend is the oracle. Expression goldens use
 \<open>undefined = \<lbrakk>src\<rbrakk>\<close>; parser equality is tested in
 \<open>Parser_Test_Expr_Conformance.thy\<close>. Function signatures and bodies are exercised through both
-\<open>urust_fn\<close> and typed \<open>urust_expr\<close> under enabled \<open>urust_conformance_check\<close> in
+\<open>urust_fn\<close> and typed \<open>urust_expr\<close> under enabled \<open>urust_conformance\<close> in
 \<open>Parser_Test_Fun_Conformance.thy\<close> and \<open>Parser_Test_Expr_Types.thy\<close>; the handwritten definitions
 remain declaration goldens for future Rust-shaped item commands. The final tier records frontend
 rejections. Proofs remain \<open>sorry\<close>, so the session uses \<open>quick_and_dirty\<close>. \<open>**\<close> and \<open>!!\<close>

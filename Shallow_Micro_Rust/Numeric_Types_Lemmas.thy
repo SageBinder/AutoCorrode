@@ -5,7 +5,7 @@
 theory Numeric_Types_Lemmas
   imports Core_Expression_Lemmas Shallow_Micro_Rust_Base.Numeric_Types
 begin
-declare [[urust_conformance_check = true]]
+declare [[urust_conformance = true]]
 (*>*)
 
 urust_expr [abbrev = true] evaluate_lt_literal_1

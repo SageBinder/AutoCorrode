@@ -4,7 +4,7 @@ theory Parser_Tests_Expr
   imports Micro_Rust_Parser_Impl.Parser_Impl_Command "HOL.Real"
 begin
 
-declare [[urust_conformance_check = true]]
+declare [[urust_conformance = true]]
 
 section\<open>Numeric literals (Corpus PART I, "Numeric Literals")\<close>
 
@@ -1291,13 +1291,13 @@ urust_expr closure_match_body
       }
   \<close>
 
-urust_expr [conformance_check = false] closure_legacy_return_body
+urust_expr [conformance = false] closure_legacy_return_body
   \<open> |x| return \<llangle>x :: nat\<rrangle> \<close>
 
-urust_expr [conformance_check = false] closure_legacy_unit_return_body
+urust_expr [conformance = false] closure_legacy_unit_return_body
   \<open> || return \<close>
 
-urust_expr [conformance_check = false] closure_returning_closure
+urust_expr [conformance = false] closure_returning_closure
   \<open> || return |x| \<llangle>x :: nat\<rrangle> \<close>
 
 urust_expr closure_outer_capture

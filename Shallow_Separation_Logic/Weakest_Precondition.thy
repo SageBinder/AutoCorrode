@@ -5,7 +5,7 @@
 theory Weakest_Precondition
   imports Assertion_Language Triple Function_Contract "Shallow_Micro_Rust.Micro_Rust" Representability
 begin
-declare [[urust_conformance_check = true]]
+declare [[urust_conformance = true]]
 (*>*)
 
 section\<open>A weakest precondition calculus\<close>

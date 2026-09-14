@@ -5,7 +5,7 @@
 theory StdLib_Option    
   imports Crush.Crush StdLib_References Misc.Result
 begin
-declare [[urust_conformance_check = true]]
+declare [[urust_conformance = true]]
 (*>*)
 
 urust_fn option_expect :: \<open>'v option \<Rightarrow> String.literal \<Rightarrow> ('s, 'v, 'abort, 'i, 'o) function_body\<close>

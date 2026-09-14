@@ -8,7 +8,7 @@ theory Core_Expression_Lemmas
     Shallow_Micro_Rust_Base.Core_Syntax
     Micro_Rust_Parser_Bridge
 begin
-declare [[urust_conformance_check = true]]
+declare [[urust_conformance = true]]
 (*>*)
 
 section\<open>Basic lemmas about the \<^typ>\<open>('s, 'v, 'r, 'abort, 'i, 'o) expression\<close> monad\<close>

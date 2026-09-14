@@ -2,8 +2,8 @@ theory Parser_Tests_Grammar_Literals
   imports Parser_Tests_Improvements Parser_Tests_Negative_Conformance
 begin
 
-declare [[urust_conformance_check = true]]
-declare [[urust_verbose = 0]]
+declare [[urust_conformance = true]]
+declare [[urust_verbosity = 0]]
 
 section\<open>Expression precedence\<close>
 
@@ -83,7 +83,7 @@ new_urust_rejects audit
 
 section\<open>Match-arm separators\<close>
 
-urust_expr [conformance_check = false] grammar_direct_with_block_arm
+urust_expr [conformance = false] grammar_direct_with_block_arm
   \<open>
     match true {
       true \<Rightarrow> if true { \<llangle>1 :: nat\<rrangle> } else { \<llangle>2 :: nat\<rrangle> }
@@ -128,7 +128,7 @@ new_urust_rejects audit
 
 section\<open>Closures and binding RHSs\<close>
 
-urust_expr [conformance_check = false] grammar_direct_closure_initializer
+urust_expr [conformance = false] grammar_direct_closure_initializer
   \<open>
     let f = |x| x + \<llangle>1 :: 32 word\<rrangle>;
     ()
@@ -139,23 +139,23 @@ urust_expr grammar_closure_full_body
     |x| if true { x } else { x + \<llangle>1 :: 32 word\<rrangle> }
   \<close>
 
-urust_expr [conformance_check = false] grammar_closure_if_let_body
+urust_expr [conformance = false] grammar_closure_if_let_body
   \<open>
     || if let Some(x) = Some(\<llangle>1 :: nat\<rrangle>) { x } else { 0 }
   \<close>
 
-urust_expr [conformance_check = false] grammar_closure_mixed_if_body
+urust_expr [conformance = false] grammar_closure_mixed_if_body
   \<open>
     || if true { 0 } else if let Some(x) = Some(\<llangle>1 :: nat\<rrangle>) { x } else { 0 }
   \<close>
 
-urust_expr [conformance_check = false] grammar_closure_return_body
+urust_expr [conformance = false] grammar_closure_return_body
   \<open> || return \<llangle>1 :: nat\<rrangle> \<close>
 
-urust_expr [conformance_check = false] grammar_nested_closure_body
+urust_expr [conformance = false] grammar_nested_closure_body
   \<open> || || \<llangle>1 :: nat\<rrangle> \<close>
 
-urust_expr [conformance_check = false] grammar_if_let_operand
+urust_expr [conformance = false] grammar_if_let_operand
   \<open>
     if let Some(value) = Some(\<llangle>1 :: 32 word\<rrangle>) {
       value
@@ -164,10 +164,10 @@ urust_expr [conformance_check = false] grammar_if_let_operand
     } + \<llangle>1 :: 32 word\<rrangle>
   \<close>
 
-urust_expr [conformance_check = false] grammar_closure_match_scrutinee
+urust_expr [conformance = false] grammar_closure_match_scrutinee
   \<open> match || true { _ \<Rightarrow> () } \<close>
 
-urust_expr [conformance_check = false] grammar_closure_match_arms
+urust_expr [conformance = false] grammar_closure_match_arms
   \<open>
     match true {
       true \<Rightarrow> || true,
@@ -418,24 +418,24 @@ the following empty braces even when the operand path also names a registered nu
 True prefix operators surrounding the propagated expression retain that postfix boundary.
 \<close>
 
-urust_expr [conformance_check = false] grammar_propagate_empty_body_if
+urust_expr [conformance = false] grammar_propagate_empty_body_if
   \<open> if grammar_propagate_bool_value? {} else {} \<close>
 
-urust_expr [conformance_check = false] grammar_propagate_empty_body_if_let
+urust_expr [conformance = false] grammar_propagate_empty_body_if_let
   \<open>
     if let Some(_) = grammar_propagate_option_value? {} else {}
   \<close>
 
-urust_expr [conformance_check = false] grammar_propagate_empty_body_for
+urust_expr [conformance = false] grammar_propagate_empty_body_for
   \<open> for _ in grammar_propagate_list_value? {} \<close>
 
-urust_expr [conformance_check = false] grammar_propagate_empty_body_while_let
+urust_expr [conformance = false] grammar_propagate_empty_body_while_let
   \<open>
     #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let Some(_) =
       grammar_propagate_option_value? {}
   \<close>
 
-urust_expr [conformance_check = false] grammar_propagate_empty_body_match
+urust_expr [conformance = false] grammar_propagate_empty_body_match
   \<open>
     match grammar_propagate_bool_value? {
       true \<Rightarrow> (),
@@ -443,7 +443,7 @@ urust_expr [conformance_check = false] grammar_propagate_empty_body_match
     }
   \<close>
 
-urust_expr [conformance_check = false] grammar_propagate_empty_body_match_case
+urust_expr [conformance = false] grammar_propagate_empty_body_match_case
   \<open>
     match_case grammar_propagate_option_value? {
       Some(_) \<Rightarrow> (),
@@ -451,7 +451,7 @@ urust_expr [conformance_check = false] grammar_propagate_empty_body_match_case
     }
   \<close>
 
-urust_expr [conformance_check = false] grammar_propagate_empty_body_match_switch
+urust_expr [conformance = false] grammar_propagate_empty_body_match_switch
   \<open>
     match_switch grammar_propagate_nat_value? {
       1 \<Rightarrow> (),
@@ -459,39 +459,39 @@ urust_expr [conformance_check = false] grammar_propagate_empty_body_match_switch
     }
   \<close>
 
-urust_expr [conformance_check = false] grammar_propagate_nested_prefix_empty_body
+urust_expr [conformance = false] grammar_propagate_nested_prefix_empty_body
   \<open> if !grammar_propagate_bool_value? {} else {} \<close>
 
-urust_expr [conformance_check = false] grammar_propagate_nested_binary_empty_body
+urust_expr [conformance = false] grammar_propagate_nested_binary_empty_body
   \<open>
     if false || grammar_propagate_bool_value? {} else {}
   \<close>
 
-urust_expr [conformance_check = false] grammar_propagate_nested_comparison_empty_body
+urust_expr [conformance = false] grammar_propagate_nested_comparison_empty_body
   \<open>
     if true == grammar_propagate_bool_value? {} else {}
   \<close>
 
-urust_expr [conformance_check = false] grammar_grouped_empty_struct_if
+urust_expr [conformance = false] grammar_grouped_empty_struct_if
   \<open>
     if (grammar_empty_bool_value {}) {} else {}
   \<close>
 
-urust_expr [conformance_check = false] grammar_grouped_empty_struct_if_let
+urust_expr [conformance = false] grammar_grouped_empty_struct_if_let
   \<open>
     if let Some(_) = (grammar_empty_option_value {}) {} else {}
   \<close>
 
-urust_expr [conformance_check = false] grammar_grouped_empty_struct_for
+urust_expr [conformance = false] grammar_grouped_empty_struct_for
   \<open> for _ in (grammar_empty_list_value {}) {} \<close>
 
-urust_expr [conformance_check = false] grammar_grouped_empty_struct_while_let
+urust_expr [conformance = false] grammar_grouped_empty_struct_while_let
   \<open>
     #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let Some(_) =
       (grammar_empty_option_value {}) {}
   \<close>
 
-urust_expr [conformance_check = false] grammar_grouped_empty_struct_match
+urust_expr [conformance = false] grammar_grouped_empty_struct_match
   \<open>
     match (grammar_empty_bool_value {}) {
       true \<Rightarrow> (),
@@ -499,7 +499,7 @@ urust_expr [conformance_check = false] grammar_grouped_empty_struct_match
     }
   \<close>
 
-urust_expr [conformance_check = false] grammar_grouped_empty_struct_match_case
+urust_expr [conformance = false] grammar_grouped_empty_struct_match_case
   \<open>
     match_case (grammar_empty_option_value {}) {
       Some(_) \<Rightarrow> (),
@@ -507,7 +507,7 @@ urust_expr [conformance_check = false] grammar_grouped_empty_struct_match_case
     }
   \<close>
 
-urust_expr [conformance_check = false] grammar_grouped_empty_struct_match_switch
+urust_expr [conformance = false] grammar_grouped_empty_struct_match_switch
   \<open>
     match_switch (grammar_empty_nat_value {}) {
       1 \<Rightarrow> (),
@@ -518,24 +518,24 @@ urust_expr [conformance_check = false] grammar_grouped_empty_struct_match_switch
 definition grammar_bare_flag :: bool
   where \<open>grammar_bare_flag \<equiv> True\<close>
 
-urust_expr [conformance_check = false] grammar_bare_path_empty_body
+urust_expr [conformance = false] grammar_bare_path_empty_body
   \<open> if grammar_bare_flag {} \<close>
 
-urust_expr [conformance_check = false] grammar_bare_path_empty_body_sequence
+urust_expr [conformance = false] grammar_bare_path_empty_body_sequence
   \<open> if grammar_bare_flag {} {} \<close>
 
-urust_expr [conformance_check = false] grammar_nested_bare_path_empty_body_sequence
+urust_expr [conformance = false] grammar_nested_bare_path_empty_body_sequence
   \<open> if true && grammar_bare_flag {} {} \<close>
 
 context fixes flag :: bool
 begin
 
-urust_expr [conformance_check = false] grammar_fixed_path_empty_body_sequence
+urust_expr [conformance = false] grammar_fixed_path_empty_body_sequence
   \<open> if flag {} {} \<close>
 
 end
 
-urust_expr [conformance_check = false] grammar_struct_trailing_comma
+urust_expr [conformance = false] grammar_struct_trailing_comma
   \<open>
     D21Pair {
       second: 2_u64,

@@ -6,8 +6,8 @@ theory MLKEM_NTT
     MLKEM_Polynomial
 begin
 
-declare [[urust_conformance_check = true]]
-declare [[urust_verbose = 2]]
+declare [[urust_conformance = true]]
+declare [[urust_verbosity = 2]]
 
 text\<open>
   NTT (Number Theoretic Transform) for MLKEM. This theory contains:

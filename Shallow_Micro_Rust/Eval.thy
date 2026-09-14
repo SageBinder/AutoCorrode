@@ -5,7 +5,7 @@ theory Eval
   imports Core_Expression_Lemmas "HOL-Library.Datatype_Records"
     Numeric_Types_Lemmas
 begin
-declare [[urust_conformance_check = true]]
+declare [[urust_conformance = true]]
 
 text\<open>The following definitions are central: They provide a declarative view of the
 execution of \<^verbatim>\<open>\<mu>Rust\<close> programs. Currently, they are derived from the deterministic evaluation

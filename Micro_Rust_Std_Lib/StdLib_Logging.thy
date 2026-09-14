@@ -6,7 +6,7 @@ theory StdLib_Logging
   imports
     Shallow_Micro_Rust.Shallow_Micro_Rust
 begin
-declare [[urust_conformance_check = true]]
+declare [[urust_conformance = true]]
 (*>*)
 
 section\<open>The Rust logging facade\<close>

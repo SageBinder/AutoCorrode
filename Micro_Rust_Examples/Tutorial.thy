@@ -6,8 +6,8 @@ theory Tutorial
     Micro_Rust_Std_Lib.StdLib_All
 begin
 
-declare [[urust_conformance_check = true]]
-declare [[urust_verbose = 2]]
+declare [[urust_conformance = true]]
+declare [[urust_verbosity = 2]]
 
 section\<open>Verifying \<mu>Rust programs with AutoCorrode\<close>
 

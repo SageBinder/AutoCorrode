@@ -6,7 +6,7 @@ theory SSA
   imports Core_Expression_Lemmas Bool_Type_Lemmas Rust_Iterator_Lemmas
           "HOL-Library.Rewrite"
 begin
-declare [[urust_conformance_check = true]]
+declare [[urust_conformance = true]]
 (*>*)
 
 subsection\<open>Converting expressions to SSA form\<close>

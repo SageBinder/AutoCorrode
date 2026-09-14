@@ -7,8 +7,8 @@ theory MLKEM_Polynomial
     Micro_Rust_Std_Lib.StdLib_Slice
 begin
 
-declare [[urust_conformance_check = true]]
-declare [[urust_verbose = 2]]
+declare [[urust_conformance = true]]
+declare [[urust_verbosity = 2]]
 
 text\<open>
   \<open>\<mu>Rust\<close> polynomial operations with contracts proving refinement against the

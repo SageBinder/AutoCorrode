@@ -7,7 +7,7 @@ theory Parser_Test_Constructor_Matching
     Shallow_Micro_Rust.Core_Expression_Lemmas
 begin
 
-declare [[urust_conformance_check = true]]
+declare [[urust_conformance = true]]
 
 section\<open>Native constructor metadata\<close>
 
@@ -120,7 +120,7 @@ consts parser_raw_scrutinee :: parser_raw_value
 micro_rust_notation (literal) ParserRawFirst ("ParserRaw::First")
 micro_rust_notation (literal) ParserRawSecond ("ParserRaw::Second")
 
-declare [[urust_conformance_check = false]]
+declare [[urust_conformance = false]]
 
 urust_expr parser_metadata_free_switch
   \<open>
@@ -189,7 +189,7 @@ micro_rust_notation (literal)
   parser_nested_status.ParserTertiaryStatus
   ("NestedStatus::Tertiary")
 
-urust_expr [conformance_check = true] parser_nested_registered_nullary
+urust_expr [conformance = true] parser_nested_registered_nullary
   \<open>
     match
       \<llangle>
@@ -218,7 +218,7 @@ urust_expr [conformance_check = true] parser_nested_registered_nullary
 
 thm parser_nested_registered_nullary_conformance
 
-urust_expr [conformance_check = true]
+urust_expr [conformance = true]
   parser_nested_registered_nullary_open ::
   \<open>
     (unit, parser_nested_status) result \<Rightarrow>
@@ -396,7 +396,7 @@ definition parser_matrix_effectful_scrutinee ::
         sequence (put Suc) (literal ParserMatrixRight)
     \<close>
 
-urust_expr [conformance_check = false]
+urust_expr [conformance = false]
   parser_effectful_structural_matrix ::
   \<open>(nat, nat, unit, unit, unit, unit) expression\<close>
   \<open>
@@ -512,7 +512,7 @@ micro_rust_notation (literal)
   parser_registered_singleton.ParserRegisteredSingleton
   ("ParserFixture::RegisteredSingleton")
 
-urust_expr [conformance_check = false]
+urust_expr [conformance = false]
   parser_nested_registered_singleton
   \<open>
     match \<llangle>Some (ParserRegisteredSingleton 7)\<rrangle> {
@@ -522,7 +522,7 @@ urust_expr [conformance_check = false]
     }
   \<close>
 
-urust_expr [conformance_check = false]
+urust_expr [conformance = false]
   parser_nested_native_singleton
   \<open>
     match \<llangle>Some (ParserNativeSingleton 8)\<rrangle> {
@@ -531,7 +531,7 @@ urust_expr [conformance_check = false]
     }
   \<close>
 
-urust_expr [conformance_check = false]
+urust_expr [conformance = false]
   parser_nested_partial_constructor_alias
   \<open>
     match \<llangle>Some (ParserMatrixPayload 7)\<rrangle> {
@@ -540,7 +540,7 @@ urust_expr [conformance_check = false]
     }
   \<close>
 
-urust_expr [conformance_check = false]
+urust_expr [conformance = false]
   parser_nested_value_fallback
   \<open>
     match \<llangle>Some ParserRawFirst\<rrangle> {
@@ -549,7 +549,7 @@ urust_expr [conformance_check = false]
     }
   \<close>
 
-urust_expr [conformance_check = false]
+urust_expr [conformance = false]
   parser_nested_range_fallback
   \<open>
     match \<llangle>Some (6 :: nat)\<rrangle> {
@@ -558,7 +558,7 @@ urust_expr [conformance_check = false]
     }
   \<close>
 
-urust_expr [conformance_check = false]
+urust_expr [conformance = false]
   parser_nested_slice_fallback ::
   \<open>
     nat list option \<Rightarrow>
@@ -572,7 +572,7 @@ urust_expr [conformance_check = false]
     }
   \<close>
 
-urust_expr [conformance_check = false]
+urust_expr [conformance = false]
   parser_nested_guarded_fallback
   \<open>
     match \<llangle>Some (ParserMatrixPayload 7)\<rrangle> {
@@ -2330,7 +2330,7 @@ urust_expr parser_nested_alias_binder ::
     }
   \<close>
 
-declare [[urust_conformance_check = false]]
+declare [[urust_conformance = false]]
 
 urust_expr parser_nested_registered_payload
   \<open>

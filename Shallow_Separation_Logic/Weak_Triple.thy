@@ -10,7 +10,7 @@ theory Weak_Triple
     Shallow_Micro_Rust.Shallow_Micro_Rust
 begin
 
-declare [[urust_conformance_check = true]]
+declare [[urust_conformance = true]]
 
 text\<open>This type captures logical context that is necessary to specify the full program logic, but
 that changes rarely or never during verification.  This will encode things like rely/guarantee

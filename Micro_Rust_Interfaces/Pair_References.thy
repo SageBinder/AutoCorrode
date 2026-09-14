@@ -5,7 +5,7 @@ theory Pair_References
   imports Micro_Rust_Interfaces_Core.References Crush.Crush
 begin
 
-declare [[urust_conformance_check = true]]
+declare [[urust_conformance = true]]
 
 section\<open>Combining two reference implementations\<close>
 

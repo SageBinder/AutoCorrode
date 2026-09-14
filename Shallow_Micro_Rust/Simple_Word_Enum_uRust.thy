@@ -24,7 +24,7 @@ theory Simple_Word_Enum_uRust
     Shallow_Micro_Rust_Base.Micro_Rust_Shallow_Embedding
     Core_Expression_Lemmas
 begin
-declare [[urust_conformance_check = true]]
+declare [[urust_conformance = true]]
 (*>*)
 
 section\<open>\<open>\<mu>Rust\<close> notation for simple word enums\<close>

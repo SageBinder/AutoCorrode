@@ -5,7 +5,7 @@
 theory Triple
   imports Assertion_Language Shallow_Micro_Rust.Shallow_Micro_Rust Precision Weak_Triple
 begin
-declare [[urust_conformance_check = true]]
+declare [[urust_conformance = true]]
 (*>*)
 
 section\<open>Triples\<close>

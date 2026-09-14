@@ -12,8 +12,9 @@ begin
 
 chapter\<open>Parser facade\<close>
 
-declare [[urust_conformance_check = false]]
-declare [[urust_verbose = 0]]
+declare [[urust_conformance = false]]
+declare [[urust_timing_info = false]]
+declare [[urust_verbosity = 0]]
 declare [[urust_abbrev = false]]
 declare [[urust_application_def = false]]
 declare [[urust_term_hook_conformance_check = false]]
@@ -28,15 +29,16 @@ thm smoke_num_def smoke_sfx_def smoke_unit_def
 ML_val\<open>
   val _ =
     if Global_Theory.defined_fact \<^theory> "smoke_num_conformance"
-    then error "default urust_conformance_check unexpectedly generated a theorem"
+    then error "default urust_conformance unexpectedly generated a theorem"
     else ()
 \<close>
 
 
 chapter\<open>Typed expression and shared command API\<close>
 
-declare [[urust_conformance_check = false]]
-declare [[urust_verbose = 0]]
+declare [[urust_conformance = false]]
+declare [[urust_timing_info = false]]
+declare [[urust_verbosity = 0]]
 declare [[urust_abbrev = false]]
 declare [[urust_application_def = false]]
 declare [[urust_term_hook_conformance_check = false]]
@@ -118,7 +120,7 @@ ML_val\<open>
 
 section\<open> Typed declaration surface \<close>
 
-declare [[urust_conformance_check = true]]
+declare [[urust_conformance = true]]
 
 urust_expr typed_closed ::
   \<open>(unit, nat, unit, unit, unit, unit) expression\<close>
@@ -180,7 +182,7 @@ urust_fn [application_def]
   (item)
   \<open> item \<close>
 
-urust_expr [application_def, conformance_check = false]
+urust_expr [application_def, conformance = false]
   typed_application_implicit_parameter
   (item)
   \<open> \<llangle>(item :: nat) + ambient_adjustment\<rrangle> \<close>
@@ -236,7 +238,7 @@ urust_expr parenthesized_minor_keyword_expression ::
   (for)
   \<open> () \<close>
 
-urust_fn [attrs = [], conformance_check = false]
+urust_fn [attrs = [], conformance = false]
   partial_collision_function ::
   \<open>nat \<Rightarrow> _\<close>
   (command_parameter_collision)
@@ -259,7 +261,7 @@ definition command_registered_zip ::
 
 urust_notation (call) command_registered_zip ("zip")
 
-urust_fn [conformance_check = false] zip_callable_parameter ::
+urust_fn [conformance = false] zip_callable_parameter ::
   \<open>
     (nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body) \<Rightarrow>
     nat \<Rightarrow> _
@@ -267,7 +269,7 @@ urust_fn [conformance_check = false] zip_callable_parameter ::
   (zip, item)
   \<open> zip(item) \<close>
 
-urust_fn [conformance_check = false] zip_method_registration ::
+urust_fn [conformance = false] zip_method_registration ::
   \<open>
     (nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body) \<Rightarrow>
     nat \<Rightarrow> _
@@ -447,17 +449,17 @@ constant, definition, abbreviation, or code equation. Both command facades use a
 source-position name for the conformance fact and informational output only.
 \<close>
 
-urust_expr [application_def, conformance_check = true] _ ::
+urust_expr [application_def, conformance = true] _ ::
   \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit, unit) expression\<close>
   (item)
   \<open> item \<close>
 
-urust_fn [application_def, conformance_check = true] _ ::
+urust_fn [application_def, conformance = true] _ ::
   \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
   (item)
   \<open> item \<close>
 
-urust_expr [abbrev = true, conformance_check = false] _
+urust_expr [abbrev = true, conformance = false] _
   \<open> () \<close>
 
 ML_val\<open>
@@ -508,58 +510,58 @@ ML_val\<open>
 
 section\<open> Definitions, abbreviations, flags, locales, and against \<close>
 
-declare [[urust_conformance_check = false]]
+declare [[urust_conformance = false]]
 
 urust_expr
-  [conformance_check = false, verbose = 0, abbrev = false]
+  [conformance = false, verbosity = 0, abbrev = false]
   typed_flags_000 ::
   \<open>(unit, unit, unit, unit, unit, unit) expression\<close>
   \<open> () \<close>
 
 urust_expr
-  [abbrev = true, conformance_check = false, verbose = 0]
+  [abbrev = true, conformance = false, verbosity = 0]
   typed_flags_001 ::
   \<open>(unit, unit, unit, unit, unit, unit) expression\<close>
   \<open> () \<close>
 
 urust_expr
-  [verbose = 1, abbrev = false, conformance_check = false]
+  [verbosity = 1, abbrev = false, conformance = false]
   typed_flags_010 ::
   \<open>(unit, unit, unit, unit, unit, unit) expression\<close>
   \<open> () \<close>
 
 urust_expr
-  [conformance_check = false, abbrev = true, verbose = 1]
+  [conformance = false, abbrev = true, verbosity = 1]
   typed_flags_011 ::
   \<open>(unit, unit, unit, unit, unit, unit) expression\<close>
   \<open> () \<close>
 
 urust_expr
-  [verbose = 0, conformance_check = true, abbrev = false]
+  [verbosity = 0, conformance = true, abbrev = false]
   typed_flags_100 ::
   \<open>(unit, unit, unit, unit, unit, unit) expression\<close>
   \<open> () \<close>
 
 urust_expr
-  [abbrev, verbose = 0, conformance_check = true]
+  [abbrev, verbosity = 0, conformance = true]
   typed_flags_101 ::
   \<open>(unit, unit, unit, unit, unit, unit) expression\<close>
   \<open> () \<close>
 
 urust_expr
-  [conformance_check, verbose = 2, abbrev = false]
+  [conformance, verbosity = 2, abbrev = false]
   typed_flags_110 ::
   \<open>(unit, unit, unit, unit, unit, unit) expression\<close>
   \<open> () \<close>
 
 urust_expr
-  [verbose = 2, abbrev = true, conformance_check = true]
+  [verbosity = 2, abbrev = true, conformance = true]
   typed_flags_111 ::
   \<open>(unit, unit, unit, unit, unit, unit) expression\<close>
   \<open> () \<close>
 
 urust_expr
-  [abbrev, conformance_check, verbose = 2]
+  [abbrev, conformance, verbosity = 2]
   typed_function_abbrev_common ::
   \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
   (item)
@@ -577,7 +579,7 @@ locale typed_expression_locale =
 begin
 
 urust_expr
-  [abbrev, conformance_check]
+  [abbrev, conformance]
   typed_local_add ::
   \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit, unit) expression\<close>
   (item)
@@ -593,7 +595,7 @@ locale typed_ambient_tfree_locale =
 begin
 
 urust_expr
-  [conformance_check = true]
+  [conformance = true]
   typed_ambient_tfree_function ::
   \<open>(unit, nat, unit, unit, unit) function_body\<close>
   \<open> \<llangle>typed_ambient_probe TYPE('ambient)\<rrangle> \<close>
@@ -930,7 +932,7 @@ ML_val\<open>
 
 section\<open> Migration-sensitive typed expressions \<close>
 
-declare [[urust_conformance_check = true]]
+declare [[urust_conformance = true]]
 
 urust_expr typed_boolean_negation ::
   \<open>bool \<Rightarrow> ('s, bool, 'r, 'abort, 'i, 'o) expression\<close>
@@ -1439,8 +1441,9 @@ ML_val\<open>
 
 chapter\<open>Expression structural audits\<close>
 
-declare [[urust_conformance_check = false]]
-declare [[urust_verbose = 0]]
+declare [[urust_conformance = false]]
+declare [[urust_timing_info = false]]
+declare [[urust_verbosity = 0]]
 declare [[urust_abbrev = false]]
 declare [[urust_application_def = false]]
 declare [[urust_term_hook_conformance_check = false]]
@@ -1507,8 +1510,8 @@ ML_val\<open>
 
 chapter\<open>Function declaration and elaboration audits\<close>
 
-declare [[urust_conformance_check = false]]
-declare [[urust_verbose = 0]]
+declare [[urust_conformance = false]]
+declare [[urust_verbosity = 0]]
 declare [[urust_abbrev = false]]
 declare [[urust_term_hook_conformance_check = false]]
 
@@ -1949,8 +1952,9 @@ ML_val\<open>
 
 chapter\<open>Command options\<close>
 
-declare [[urust_conformance_check = false]]
-declare [[urust_verbose = 0]]
+declare [[urust_conformance = false]]
+declare [[urust_timing_info = false]]
+declare [[urust_verbosity = 0]]
 declare [[urust_abbrev = false]]
 declare [[urust_application_def = false]]
 declare [[urust_term_hook_conformance_check = false]]
@@ -1975,8 +1979,9 @@ ML_val\<open>
             " in:\n" ^ output)
     val _ =
       List.app assert_default
-        ["urust_conformance_check: bool = false",
-         "urust_verbose: int = 0",
+        ["urust_conformance: bool = false",
+         "urust_timing_info: bool = false",
+         "urust_verbosity: int = 0",
          "urust_abbrev: bool = false",
          "urust_application_def: bool = false"]
   in
@@ -1997,67 +2002,69 @@ urust_fn default_fun_flags ::
 section\<open> Inline flag combinations \<close>
 
 text\<open>
-\<open>urust_expr\<close> exercises every Boolean flag combination and all three verbosity levels.
-\<open>urust_fn\<close> exercises both conformance settings at every verbosity level. The option order is
-deliberately varied. Both commands exercise the omitted \<open>= true\<close> shorthand for their Boolean
-options while retaining explicit true and false coverage.
+\<open>urust_expr\<close> exercises every conformance/abbreviation combination and all three verbosity
+levels. \<open>urust_fn\<close> exercises both conformance settings at every verbosity level. The option order
+is deliberately varied. Both commands exercise the omitted \<open>= true\<close> shorthand for their Boolean
+options while retaining explicit true and false coverage. Timing output has a separate focused
+matrix below so routine option tests do not emit benchmark reports.
 \<close>
 
 urust_expr
-  [conformance_check = false, verbose = 0, abbrev = false]
+  [conformance = false, verbosity = 0, abbrev = false]
   inline_expr_000 \<open> () \<close>
 urust_expr
-  [abbrev = true, conformance_check = false, verbose = 0]
+  [abbrev = true, conformance = false, verbosity = 0]
   inline_expr_001 \<open> () \<close>
 urust_expr
-  [verbose = 1, abbrev = false, conformance_check = false]
+  [verbosity = 1, abbrev = false, conformance = false]
   inline_expr_010 \<open> () \<close>
 urust_expr
-  [conformance_check = false, abbrev = true, verbose = 1]
+  [conformance = false, abbrev = true, verbosity = 1]
   inline_expr_011 \<open> () \<close>
 urust_expr
-  [verbose = 0, conformance_check = true, abbrev = false]
+  [verbosity = 0, conformance = true, abbrev = false]
   inline_expr_100 \<open> () \<close>
 urust_expr
-  [abbrev, verbose = 0, conformance_check = true]
+  [abbrev, verbosity = 0, conformance = true]
   inline_expr_101 \<open> () \<close>
 urust_expr
-  [conformance_check, verbose = 2, abbrev = false]
+  [conformance, verbosity = 2, abbrev = false]
   inline_expr_110 \<open> () \<close>
 urust_expr
-  [verbose = 2, abbrev, conformance_check]
+  [verbosity = 2, abbrev, conformance]
   inline_expr_111 \<open> () \<close>
 
 urust_fn
-  [verbose = 0, conformance_check = false]
+  [verbosity = 0, conformance = false]
   inline_fun_00 ::
   \<open>(unit, unit, unit, unit, unit) function_body\<close> () \<open> () \<close>
 urust_fn
-  [conformance_check = false, verbose = 1]
+  [conformance = false, verbosity = 1]
   inline_fun_01 ::
   \<open>(unit, unit, unit, unit, unit) function_body\<close> () \<open> () \<close>
 urust_fn
-  [verbose = 2, conformance_check = false]
+  [verbosity = 2, conformance = false]
   inline_fun_02 ::
   \<open>(unit, unit, unit, unit, unit) function_body\<close> () \<open> () \<close>
 urust_fn
-  [conformance_check, verbose = 0]
+  [conformance, verbosity = 0]
   inline_fun_10 ::
   \<open>(unit, unit, unit, unit, unit) function_body\<close> () \<open> () \<close>
 urust_fn
-  [verbose = 1, conformance_check = true]
+  [verbosity = 1, conformance = true]
   inline_fun_11 ::
   \<open>(unit, unit, unit, unit, unit) function_body\<close> () \<open> () \<close>
 urust_fn
-  [conformance_check = true, verbose = 2]
+  [conformance = true, verbosity = 2]
   inline_fun_12 ::
   \<open>(unit, unit, unit, unit, unit) function_body\<close> () \<open> () \<close>
 
 
 section\<open> Scoped settings and overrides \<close>
 
-declare [[urust_conformance_check = true]]
-declare [[urust_verbose = 2]]
+declare [[urust_conformance = true]]
+declare [[urust_timing_info = true]]
+declare [[urust_verbosity = 2]]
 declare [[urust_abbrev = true]]
 declare [[urust_application_def = true]]
 
@@ -2070,14 +2077,16 @@ urust_fn scoped_all_true_fun ::
   \<open> () \<close>
 
 urust_expr
-  [verbose = 0, abbrev = false, conformance_check = false,
+  [verbosity = 0, abbrev = false, conformance = false,
+   timing_info = false,
    application_def = false]
   scoped_all_false_expr
   (item)
   \<open> \<llangle>item :: nat\<rrangle> \<close>
 
 urust_fn
-  [conformance_check = false, verbose = 0, application_def = false]
+  [conformance = false, timing_info = false, verbosity = 0,
+   application_def = false]
   scoped_all_false_fun ::
   \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
   (item)
@@ -2096,14 +2105,15 @@ urust_fn scoped_application_function ::
 urust_expr [abbrev = false]
   scoped_partial_definition_expr \<open> () \<close>
 
-urust_fn [conformance_check = false]
+urust_fn [conformance = false]
   scoped_partial_definition_fun ::
   \<open>(unit, unit, unit, unit, unit) function_body\<close>
   ()
   \<open> () \<close>
 
-declare [[urust_conformance_check = false]]
-declare [[urust_verbose = 0]]
+declare [[urust_conformance = false]]
+declare [[urust_timing_info = false]]
+declare [[urust_verbosity = 0]]
 declare [[urust_abbrev = false]]
 declare [[urust_application_def = false]]
 
@@ -2115,25 +2125,159 @@ urust_fn reset_fun_flags ::
   \<open> () \<close>
 
 
+section\<open> Timing information \<close>
+
+text\<open>
+\<open>timing_info\<close> is shared by both declaration commands and may be enabled independently of
+conformance. A new-parser-only report omits the old-parser and delta lines. Same-source and
+\<open>against\<close>-implied conformance reports include both parser totals, the signed absolute
+\<open>new - old\<close> elapsed-time delta, and the conformance-proof breakdown. The global
+\<open>urust_timing_info\<close> setting and an inline false override follow the ordinary scoped-option
+policy.
+\<close>
+
+ML_val\<open>
+  local
+    val unit_source = Symbol.open_ ^ " () " ^ Symbol.close
+    val body_type =
+      Symbol.open_ ^
+      "(unit, unit, unit, unit, unit) function_body" ^
+      Symbol.close
+
+    fun run_command source_name command_text () =
+      let
+        val thy = \<^theory>
+        val transitions =
+          Outer_Syntax.parse_text thy (K thy)
+            (Position.line_file 1 source_name) command_text
+      in
+        fold (Toplevel.command_exception false) transitions
+          (Toplevel.make_state (SOME thy))
+      end
+
+    fun capture_command source_name command_text =
+      let
+        val captured =
+          Synchronized.var
+            ("urust_timing_info_" ^ source_name)
+            ([]: string list)
+        fun capture chunks =
+          Synchronized.change captured (append chunks)
+        val _ =
+          Unsynchronized.setmp Private_Output.writeln_fn capture
+            (run_command source_name command_text) ()
+      in
+        XML.content_of
+          (YXML.parse_body
+            (implode (Synchronized.value captured)))
+      end
+
+    fun assert_contains label expected output =
+      if String.isSubstring expected output then ()
+      else
+        error
+          ("uRust timing report " ^ label ^
+            " is missing " ^ quote expected ^ ":\n" ^ output)
+
+    fun assert_absent label unexpected output =
+      if String.isSubstring unexpected output
+      then
+        error
+          ("uRust timing report " ^ label ^
+            " unexpectedly contains " ^ quote unexpected ^ ":\n" ^ output)
+      else ()
+
+    val new_only =
+      capture_command "timing-new-only"
+        ("urust_expr [timing_info, conformance = false] " ^
+          "timing_new_only " ^ unit_source)
+    val compared =
+      capture_command "timing-compared"
+        ("urust_fn [timing_info = true, conformance] " ^
+          "timing_compared :: " ^ body_type ^ " () " ^ unit_source)
+    val scoped =
+      capture_command "timing-scoped"
+        ("declare [[urust_timing_info = true]]\n" ^
+          "urust_expr [conformance = false] " ^
+          "timing_scoped " ^ unit_source)
+    val disabled =
+      capture_command "timing-disabled"
+        ("declare [[urust_timing_info = true]]\n" ^
+          "urust_expr [timing_info = false, conformance = false] " ^
+          "timing_disabled " ^ unit_source)
+    val against =
+      capture_command "timing-against"
+        ("urust_expr [timing_info] timing_against " ^ unit_source ^
+          " against " ^ Symbol.open_ ^
+          " \<lbrakk> () \<rbrakk> " ^ Symbol.close)
+
+    val _ =
+      List.app
+        (fn expected => assert_contains "new-only" expected new_only)
+        ["urust_expr timing_new_only timing information",
+         "new parser:",
+         "parse source:",
+         "lower AST:",
+         "check term:",
+         "declaration installation:"]
+    val _ =
+      List.app
+        (fn unexpected => assert_absent "new-only" unexpected new_only)
+        ["old parser:",
+         "delta (new - old elapsed):",
+         "conformance:"]
+    val _ =
+      List.app
+        (fn expected => assert_contains "compared" expected compared)
+        ["urust_fn timing_compared timing information",
+         "new parser:",
+         "old parser:",
+         "delta (new - old elapsed):",
+         " us (negative means the new parser is faster)",
+         "prepare context:",
+         "conformance:",
+         "prove reflexive equality:"]
+    val _ =
+      List.app
+        (fn expected => assert_contains "scoped" expected scoped)
+        ["urust_expr timing_scoped timing information",
+         "new parser:"]
+    val _ =
+      assert_absent "scoped" "old parser:" scoped
+    val _ =
+      assert_absent "inline-disabled" "timing information" disabled
+    val _ =
+      List.app
+        (fn expected => assert_contains "against" expected against)
+        ["urust_expr timing_against timing information",
+         "new parser:",
+         "old parser:",
+         "delta (new - old elapsed):"]
+  in
+    val _ = ()
+  end
+\<close>
+
+
 section\<open> Contextual expressions \<close>
 
-urust_expr [conformance_check = true]
+urust_expr [conformance = true]
   contextual_order
   (first, second)
   \<open> \<llangle>(first :: nat, second :: bool)\<rrangle> \<close>
 
-urust_expr [conformance_check = true]
+urust_expr [conformance = true]
   contextual_antiquotation
   (left, right)
   \<open> \<llangle>(left :: nat) + right\<rrangle> \<close>
 
-urust_expr [conformance_check = true]
+urust_expr [conformance = true]
   contextual_shadowing
   (item, outer)
   \<open> let item = true; \<llangle>(item, outer :: nat)\<rrangle> \<close>
 
 urust_expr
-  [abbrev, conformance_check, verbose = 2]
+  [abbrev, conformance, verbosity = 2]
   nie_contextual_helper
   (address, size)
   \<open> \<llangle>(address :: nat) + size\<rrangle> \<close>
@@ -2166,7 +2310,7 @@ locale contextual_flags_locale =
   fixes offset :: nat
 begin
 
-urust_expr [abbrev, conformance_check]
+urust_expr [abbrev, conformance]
   contextual_locale_helper
   (operand)
   \<open> \<llangle>operand + offset\<rrangle> \<close>
@@ -2500,13 +2644,27 @@ ML_val\<open>
           ("unknown uRust command option " ^ quote prefixed)
       end
 
+    fun test_legacy_inline legacy (case_ as (kind, abbreviation)) =
+      let
+        val label =
+          "legacy-inline-" ^ legacy ^ "-" ^ case_label case_
+        val value =
+          if legacy = "verbose" then " = 1" else ""
+        val options =
+          option_block kind abbreviation [legacy ^ value]
+      in
+        assert_rejected label
+          (command kind options "legacy_inline_flag" "")
+          ("unknown uRust command option " ^ quote legacy)
+      end
+
     fun test_duplicate flag (case_ as (kind, abbreviation)) =
       let
         val label =
           "duplicate-" ^ flag ^ "-" ^ case_label case_
         val value = Bool.toString abbreviation
         val (first, second) =
-          if flag = "verbose" then ("0", "1")
+          if flag = "verbosity" then ("0", "1")
           else ("true", "false")
         val options =
           if flag = "abbrev" then
@@ -2527,13 +2685,13 @@ ML_val\<open>
           "contradictory-" ^ case_label case_
         val options =
           option_block kind abbreviation
-            ["conformance_check = false"]
+            ["conformance = false"]
         val suffix =
           " against " ^ Symbol.open_ ^ " \<lbrakk> () \<rbrakk> " ^ Symbol.close
       in
         assert_rejected label
           (command kind options "contradictory_flag" suffix)
-          "[conformance_check = false] cannot be combined with `against`"
+          "[conformance = false] cannot be combined with `against`"
       end
 
     fun test_shorthand_duplicate flag (case_ as (kind, abbreviation)) =
@@ -2557,7 +2715,7 @@ ML_val\<open>
         val label =
           "invalid-verbosity-" ^ case_label case_
         val options =
-          option_block kind abbreviation ["verbose = 3"]
+          option_block kind abbreviation ["verbosity = 3"]
       in
         assert_rejected label
           (command kind options "invalid_verbosity" "")
@@ -2571,7 +2729,7 @@ ML_val\<open>
       in
         assert_rejected label
           (command kind
-            (option_block kind abbreviation ["verbose"])
+            (option_block kind abbreviation ["verbosity"])
             "missing_integer_value" "")
           "expects an integer from 0 to 2"
       end
@@ -2583,14 +2741,20 @@ ML_val\<open>
       in
         assert_rejected (label ^ "-verbosity")
           (command kind
-            (option_block kind abbreviation ["verbose = true"])
+            (option_block kind abbreviation ["verbosity = true"])
             "Boolean_verbosity" "")
           "expects an integer from 0 to 2";
         assert_rejected (label ^ "-conformance")
           (command kind
             (option_block kind abbreviation
-              ["conformance_check = 1"])
+              ["conformance = 1"])
             "integer_conformance" "")
+          "expects true or false";
+        assert_rejected (label ^ "-timing")
+          (command kind
+            (option_block kind abbreviation
+              ["timing_info = 1"])
+            "integer_timing" "")
           "expects true or false";
         assert_rejected (label ^ "-application-definition")
           (command kind
@@ -2623,8 +2787,14 @@ ML_val\<open>
         assert_rejected (label ^ "-list-as-Boolean")
           (command kind
             (option_block kind abbreviation
-              ["conformance_check = [micro_rust_simps]"])
+              ["conformance = [micro_rust_simps]"])
             "attribute_list_conformance" "")
+          "expects true or false";
+        assert_rejected (label ^ "-list-as-timing")
+          (command kind
+            (option_block kind abbreviation
+              ["timing_info = [micro_rust_simps]"])
+            "attribute_list_timing" "")
           "expects true or false";
         assert_rejected (label ^ "-list-as-application-definition")
           (command kind
@@ -2639,17 +2809,24 @@ ML_val\<open>
       List.app
         (fn prefixed =>
           List.app (test_prefixed prefixed) command_cases)
-        ["urust_conformance_check", "urust_verbose", "urust_abbrev",
-         "urust_application_def"]
+        ["urust_conformance", "urust_timing_info", "urust_verbosity",
+         "urust_abbrev", "urust_application_def"]
+    val _ =
+      List.app
+        (fn legacy =>
+          List.app (test_legacy_inline legacy) command_cases)
+        ["conformance_check", "verbose"]
     val _ =
       List.app
         (fn flag =>
           List.app (test_duplicate flag) command_cases)
-        ["conformance_check", "verbose", "application_def"]
+        ["conformance", "timing_info", "verbosity", "application_def"]
     val _ =
       List.app (test_duplicate "abbrev") expression_cases
     val _ =
-      List.app (test_shorthand_duplicate "conformance_check") command_cases
+      List.app (test_shorthand_duplicate "conformance") command_cases
+    val _ =
+      List.app (test_shorthand_duplicate "timing_info") command_cases
     val _ =
       List.app (test_shorthand_duplicate "application_def") command_cases
     val _ =
@@ -2669,9 +2846,19 @@ ML_val\<open>
         "unknown uRust command option \"abbrev\""
     val _ =
       assert_rejected "invalid-scoped-verbosity"
-        ("declare [[urust_verbose = 3]]\n" ^
+        ("declare [[urust_verbosity = 3]]\n" ^
           "urust_expr invalid_scoped_verbosity " ^ unit_source)
         "must be 0, 1, or 2, but found 3"
+    val _ =
+      assert_rejected "legacy-scoped-conformance"
+        ("declare [[urust_conformance_check = true]]\n" ^
+          "urust_expr legacy_scoped_conformance " ^ unit_source)
+        "urust_conformance_check"
+    val _ =
+      assert_rejected "legacy-scoped-verbosity"
+        ("declare [[urust_verbose = 1]]\n" ^
+          "urust_expr legacy_scoped_verbosity " ^ unit_source)
+        "urust_verbose"
     val _ =
       assert_rejected "attributes-on-expression-abbreviation"
         (command Expr
@@ -2942,8 +3129,8 @@ ML_val\<open>
 
 chapter\<open>Regression audits\<close>
 
-declare [[urust_conformance_check = false]]
-declare [[urust_verbose = 0]]
+declare [[urust_conformance = false]]
+declare [[urust_verbosity = 0]]
 declare [[urust_abbrev = false]]
 declare [[urust_term_hook_conformance_check = false]]
 
@@ -11422,8 +11609,8 @@ ML_val\<open>
 
 chapter\<open>Turbofish\<close>
 
-declare [[urust_conformance_check = false]]
-declare [[urust_verbose = 0]]
+declare [[urust_conformance = false]]
+declare [[urust_verbosity = 0]]
 declare [[urust_abbrev = false]]
 declare [[urust_term_hook_conformance_check = false]]
 
@@ -11978,12 +12165,12 @@ ML_val\<open>
 
 chapter\<open>Logging\<close>
 
-declare [[urust_conformance_check = false]]
-declare [[urust_verbose = 0]]
+declare [[urust_conformance = false]]
+declare [[urust_verbosity = 0]]
 declare [[urust_abbrev = false]]
 declare [[urust_term_hook_conformance_check = false]]
 
-declare [[urust_conformance_check = true]]
+declare [[urust_conformance = true]]
 
 text\<open>
 This suite is evaluated after \<open>Parser_Tests_Expr\<close>, so the logging import does not affect that theory's built-in macro coverage.
@@ -12115,8 +12302,8 @@ import \<open>StdLib_Logging\<close>, so its built-in \<open>fatal!\<close> cove
 
 chapter\<open>Yield and logging audits\<close>
 
-declare [[urust_conformance_check = false]]
-declare [[urust_verbose = 0]]
+declare [[urust_conformance = false]]
+declare [[urust_verbosity = 0]]
 declare [[urust_abbrev = false]]
 declare [[urust_term_hook_conformance_check = false]]
 
@@ -12638,12 +12825,12 @@ ML_val\<open>
 
 chapter\<open>Isabelle comments\<close>
 
-declare [[urust_conformance_check = false]]
-declare [[urust_verbose = 0]]
+declare [[urust_conformance = false]]
+declare [[urust_verbosity = 0]]
 declare [[urust_abbrev = false]]
 declare [[urust_term_hook_conformance_check = false]]
 
-declare [[urust_conformance_check = true]]
+declare [[urust_conformance = true]]
 
 section\<open> Isabelle formal comments \<close>
 
@@ -12697,7 +12884,7 @@ urust_expr isabelle_comment_document_antiquotations
     ()
   \<close>
 
-declare [[urust_verbose = 1]]
+declare [[urust_verbosity = 1]]
 
 urust_fn isabelle_comment_function ::
   \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
@@ -12707,7 +12894,7 @@ urust_fn isabelle_comment_function ::
     item \<comment> \<open>Inline function-body comment.\<close>
   \<close>
 
-declare [[urust_verbose = 0]]
+declare [[urust_verbosity = 0]]
 
 
 subsection\<open> Specialized lexer contexts \<close>
