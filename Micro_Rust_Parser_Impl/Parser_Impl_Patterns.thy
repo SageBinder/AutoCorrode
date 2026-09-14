@@ -1888,65 +1888,47 @@ struct
         | normalize_arguments (argument :: rest) =
             let
               val (argument', guards0, wrappers0) =
-                (case argument of
-                   Case_Constructor (info, _, []) =>
-                     if R.constructor_is_exact_registered info then
-                       let
-                         val temporary =
-                           Free
-                             ("_urust_pat_" ^
-                               string_of_int (serial ()), dummyT)
-                         val guard =
-                           T.binary Eq (T.literal temporary)
-                             (T.literal (R.constructor_term info))
-                       in
-                         (Basic_Generated temporary, [guard], [])
-                       end
-                     else
-                       normalize_pattern_for_nested
-                         compiler ctxt environment argument
-                 | _ =>
-                     if requires_nested_match argument
-                     then
-                       let
-                         val temporary =
-                           Free
-                             ("_urust_pat_" ^
-                               string_of_int (serial ()), dummyT)
-                         val temporary_expression = T.literal temporary
-                         val (matched_expression, matched_pattern) =
-                           (case argument of
-                              Case_Slice_Suffix reversed_suffix =>
-                                (T.reverse_list temporary_expression,
-                                 reversed_suffix)
-                            | _ => (temporary_expression, argument))
-                         val structurally_total =
-                           case_pattern_structurally_total
-                             ctxt matched_pattern
-                         val guards =
-                           if structurally_total
-                           then []
-                           else
-                             [compile_nested_case compiler ctxt environment
-                               matched_expression matched_pattern
-                               (T.literal T.true_value)
-                               (T.literal T.false_value)]
-                         fun wrapper rhs =
-                           compile_nested_case compiler ctxt environment
-                             matched_expression matched_pattern
-                             rhs T.undefined_value
-                       in
-                         (Basic_Generated temporary, guards,
-                          [(case argument of
-                              Case_Slice_Suffix _ =>
-                                Transformed_Scope_Wrapper
-                                  wrapper
-                            | _ =>
-                                Nested_Scope_Wrapper wrapper)])
-                       end
-                     else
-                       normalize_pattern_for_nested
-                         compiler ctxt environment argument)
+                if requires_nested_match argument
+                then
+                  let
+                    val temporary =
+                      Free
+                        ("_urust_pat_" ^
+                          string_of_int (serial ()), dummyT)
+                    val temporary_expression = T.literal temporary
+                    val (matched_expression, matched_pattern) =
+                      (case argument of
+                         Case_Slice_Suffix reversed_suffix =>
+                           (T.reverse_list temporary_expression,
+                            reversed_suffix)
+                       | _ => (temporary_expression, argument))
+                    val structurally_total =
+                      case_pattern_structurally_total
+                        ctxt matched_pattern
+                    val guards =
+                      if structurally_total
+                      then []
+                      else
+                        [compile_nested_case compiler ctxt environment
+                          matched_expression matched_pattern
+                          (T.literal T.true_value)
+                          (T.literal T.false_value)]
+                    fun wrapper rhs =
+                      compile_nested_case compiler ctxt environment
+                        matched_expression matched_pattern
+                        rhs T.undefined_value
+                  in
+                    (Basic_Generated temporary, guards,
+                     [(case argument of
+                         Case_Slice_Suffix _ =>
+                           Transformed_Scope_Wrapper
+                             wrapper
+                       | _ =>
+                           Nested_Scope_Wrapper wrapper)])
+                  end
+                else
+                  normalize_pattern_for_nested
+                    compiler ctxt environment argument
               val (rest', guards1, wrappers1) =
                 normalize_arguments rest
             in

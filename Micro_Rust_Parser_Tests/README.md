@@ -53,9 +53,9 @@ Constructor resolution follows one chain:
 Registered literals with native case metadata are constructors. Registered literals without it are
 values and need no downstream family registration. Binder-free, guard-free value/wildcard arms may
 use switch/equality lowering; authentic constructors, bindings, and other structural patterns use
-case lowering. A nested exact registered nullary constructor without payload binding may become an
-equality guard while its enclosing authentic constructor remains case-lowered. Bare basename
-ambiguity reports every candidate and is never resolved from the expected result type.
+case lowering at every nesting depth, including registered nullary constructors. Exact registration
+remains a resolution and markup route, not a lowering distinction. Bare basename ambiguity reports
+every candidate and is never resolved from the expected result type.
 
 The shared shallow iterator `zip` combines iterator thunk lists with HOL `List.zip`, truncates to the
 shorter input, and calls each left thunk before its paired right thunk exactly once. The registered
@@ -86,9 +86,9 @@ import it; only the two focused hook test theories in this session do.
   wrapped block-like operands, statement/arm separators, recursive no-struct heads, closures,
   structs, integer lexing, generated grammar, markup, and recovery.
 - `Parser_Test_Constructor_Matching.thy`: `Ctr_Sugar`, custom enum and simple-word-enum native case
-  metadata, metadata-free values, ambiguity, nested registered-nullary normalization, recursive
-  structural matching, guards, coverage, source order, single evaluation, term shape, markup, and
-  recovery.
+  metadata, metadata-free value/literal equality and switch controls, ambiguity, deep registered
+  nullary structural matching, guards, coverage, source order, single evaluation, term shape, markup,
+  and recovery.
 - `Parser_Test_Iterator_Zip.thy`: empty and unequal inputs, truncation, effect order, single
   evaluation, direct/method/chained resolution, arity preflight, notation registration, and
   separation from pure HOL `List.zip`.
@@ -107,7 +107,7 @@ Every `.thy` file in this directory is registered in `ROOT`.
 | H-D4 | Fixed through exact registered `Case_Translation` recovery. |
 | H-D5 | Qualification remains required for ambiguous basenames. |
 | H-D6 families | Fixed without downstream or parser-private family registration. |
-| H-D6 nested pattern | Fixed through narrow nested-nullary equality normalization inside structural case lowering. |
+| H-D6 nested pattern | Fixed by lowering every authenticated constructor structurally, including registered nullaries. |
 | H-D7 | Accepts semicolons only after return arm bodies, without adding sequencing or unit. |
 | H-D8 | Fixed by centralized integer candidate parsing and validation. |
 | H-D9 | Temporarily accepts apostrophised identifiers in ordinary, turbofish, and logging-data contexts. |

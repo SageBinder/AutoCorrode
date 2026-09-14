@@ -94,7 +94,6 @@ sig
   val constructor_term: constructor_info -> term
   val constructor_arity: constructor_info -> int
   val constructor_family: constructor_info -> (string * term list) option
-  val constructor_is_exact_registered: constructor_info -> bool
   val report_constructor:
     Proof.context -> constructor_resolver ->
       URust_AST.ur_path -> constructor_info -> unit
@@ -194,9 +193,9 @@ ML\<open>
     separators to HOL long-name separators before exact identity lookup. Resolution returns NONE
     when absent and raises a positioned, deterministic ambiguity error for multiple matches.
     constructor_term returns the dummy-typed constructor term, constructor_arity its argument count,
-    constructor_family optionally the datatype identity with all family constructor terms, and
-    constructor_is_exact_registered records whether this occurrence was recovered through an exact
-    NLiteral registration.
+    and constructor_family optionally the datatype identity with all family constructor terms.
+    Constructor metadata deliberately carries no registration provenance: once native Isabelle
+    metadata authenticates a backend as a constructor, every downstream pattern use is structural.
     report_constructor emits source-path markup only after a caller has validated the resolved
     constructor. Exact registered literals reuse the same datatype-qualifier and ordinary notation
     use-site reports as value positions; unregistered HOL constructors retain free qualifiers and
@@ -981,8 +980,7 @@ struct
      constructor: term,
      arity: int,
      family: (string * term list) option,
-     selectors: term list,
-     exact_registered: bool}
+     selectors: term list}
 
   datatype constructor_resolver =
     Constructor_Resolver of
@@ -1006,9 +1004,6 @@ struct
       ({arity, ...} : constructor_info) = arity
   fun constructor_family
       ({family, ...} : constructor_info) = family
-  fun constructor_is_exact_registered
-      ({exact_registered, ...} : constructor_info) =
-    exact_registered
   fun constructor_selectors
       ({selectors, ...} : constructor_info) = selectors
 
@@ -1077,27 +1072,8 @@ struct
        constructor = #constructor left,
        arity = #arity left,
        family = #family left,
-       selectors = #selectors left,
-       exact_registered =
-         #exact_registered left orelse
-           #exact_registered right}
+       selectors = #selectors left}
     end
-
-  fun as_exact_registered (info : constructor_info) =
-    {identity = #identity info,
-     constructor = #constructor info,
-     arity = #arity info,
-     family = #family info,
-     selectors = #selectors info,
-     exact_registered = true}
-
-  fun as_unregistered (info : constructor_info) =
-    {identity = #identity info,
-     constructor = #constructor info,
-     arity = #arity info,
-     family = #family info,
-     selectors = #selectors info,
-     exact_registered = false}
 
   fun native_case_constructor_info ctxt backend =
     Option.map
@@ -1107,8 +1083,7 @@ struct
          constructor = constructor,
          arity = arity,
          family = SOME (family_name, family_members),
-         selectors = [],
-         exact_registered = true})
+         selectors = []})
       (native_case_metadata ctxt backend)
 
   fun describe_constructor_info (info : constructor_info) =
@@ -1181,8 +1156,7 @@ struct
                             constructor = Const (identity, dummyT),
                             arity = arity,
                             family = family,
-                            selectors = normalized_selectors,
-                            exact_registered = false}
+                            selectors = normalized_selectors}
                        end
                      else NONE
                  | _ =>
@@ -1287,9 +1261,8 @@ struct
                 (Code.is_constr theory identity
                   handle TYPE _ => false)
             then
-              Option.map as_unregistered
-                (native_case_constructor_info ctxt
-                  (Const (identity, typ)))
+              native_case_constructor_info ctxt
+                (Const (identity, typ))
             else NONE)
     in
       sugar_candidates @ native_candidates
@@ -1356,7 +1329,7 @@ struct
         in
           if null sugar_matches
           then the_list (native_case_constructor_info ctxt backend)
-          else map as_exact_registered sugar_matches
+          else sugar_matches
         end
     in
       registrations
