@@ -23,6 +23,10 @@ First build the target session with parser timing enabled on the declarations to
 declare [[urust_timing_info = true]]
 ```
 
+The independent `urust_timing_verbosity` setting may remain at its default `0` for a silent build;
+the structured records are still stored. Set it to `1` for an InfoView summary or `2` for the summary
+and phase breakdown.
+
 Then read its stored results:
 
 ```text

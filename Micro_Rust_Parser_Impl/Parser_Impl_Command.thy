@@ -53,10 +53,12 @@ declaration against the existing \<open>\<lbrakk>src\<rbrakk>\<close> frontend a
 \<open>NAME_conformance\<close>. Contextual legacy bodies are parsed under temporary fixes carrying the
 new declaration's inferred argument types, then abstracted in the same order.
 \<open>urust_timing_info\<close> defaults to false. Its inline alias is \<open>timing_info\<close>. When enabled, the
-command prints exception-safe Isabelle/ML elapsed, CPU, and GC timings for the new parser pipeline.
-A conformance-enabled command additionally prints the old parser pipeline and the signed absolute
-elapsed-time delta \<open>new - old\<close>; a negative delta means that the new parser is faster. Detailed subphase
-timings follow the summary and do not change generated terms, declarations, or proofs.
+command measures the parser pipeline and emits a structured timing record. The independent integer
+\<open>urust_timing_verbosity\<close> configuration and inline \<open>timing_verbosity\<close> option default to 0:
+0 prints nothing, 1 prints the aligned, PIDE-marked summary, and 2 additionally prints the phase
+breakdown. A nonzero timing verbosity requires timing information to be enabled. Conformance adds
+the old-parser time and signed elapsed-time delta \<open>new - old\<close>; a negative delta means that the new
+parser is faster. Timing does not change generated terms, declarations, or proofs.
 
 An optional trailing \<open>against old_term\<close> supplies a distinct existing-frontend term and implies
 conformance checking even when the configuration is false. Combining it with an explicit
@@ -84,8 +86,9 @@ checking is enabled. The standard interactive and \<open>show_results\<close> ga
 output.
 
 The option parser is parameterized by a command-specific schema. Both commands accept Boolean
-\<open>conformance\<close>, \<open>timing_info\<close>, and \<open>application_def\<close>, integer \<open>verbosity\<close>, and
-attribute-list \<open>attrs\<close>; only \<open>urust_expr\<close> accepts Boolean \<open>abbrev\<close>. The
+\<open>conformance\<close>, \<open>timing_info\<close>, and \<open>application_def\<close>, integers \<open>verbosity\<close> and
+\<open>timing_verbosity\<close>, and attribute-list \<open>attrs\<close>; only \<open>urust_expr\<close> accepts Boolean
+\<open>abbrev\<close>. The
 configuration-backed short names are inline-only aliases for the globally prefixed configurations.
 Options may appear in any order. For Boolean options, omitting \<open>= true\<close> enables the option, so
 both commands accept \<open>[conformance]\<close>, \<open>[timing_info]\<close>, and
@@ -135,6 +138,9 @@ val urust_conformance =
 val urust_timing_info =
   Attrib.setup_config_bool \<^binding>\<open>urust_timing_info\<close> (K false)
 
+val urust_timing_verbosity =
+  Attrib.setup_config_int \<^binding>\<open>urust_timing_verbosity\<close> (K 0)
+
 val urust_verbosity =
   Attrib.setup_config_int \<^binding>\<open>urust_verbosity\<close> (K 0)
 
@@ -146,6 +152,7 @@ val urust_application_def =
 
 val conformance_option = "conformance"
 val timing_info_option = "timing_info"
+val timing_verbosity_option = "timing_verbosity"
 val verbosity_option = "verbosity"
 val abbrev_option = "abbrev"
 val application_def_option = "application_def"
@@ -154,8 +161,11 @@ val attributes_option = "attrs"
 (* Command configurations:
    - urust_conformance controls reflexive old-frontend comparison for both commands; its
      inline alias is conformance.
-   - urust_timing_info prints the new parser pipeline timing for both commands; its inline alias is
-     timing_info. Old parser and delta lines appear only when conformance checking runs.
+   - urust_timing_info measures both commands and emits structured records; its inline alias is
+     timing_info.
+   - urust_timing_verbosity controls only InfoView output: 0 is silent, 1 prints the summary, and
+     2 adds the phase breakdown. Its inline alias is timing_verbosity, and nonzero values require
+     effective timing_info = true.
    - urust_verbosity is cumulative: 0 prints nothing, 1 prints the generated definition or
      abbreviation, and 2 additionally prints the generated conformance theorem; its inline alias is
      verbosity.
@@ -179,6 +189,7 @@ datatype command_option_config =
 val common_option_configs =
   [(conformance_option, Boolean_Config urust_conformance),
    (timing_info_option, Boolean_Config urust_timing_info),
+   (timing_verbosity_option, Integer_Config urust_timing_verbosity),
    (verbosity_option, Integer_Config urust_verbosity),
    (application_def_option, Boolean_Config urust_application_def),
    (attributes_option, Attributes_Config)]
@@ -192,15 +203,15 @@ val function_option_configs = Symtab.make common_option_configs
 
 type command_options = (command_option_value * Position.T) Symtab.table
 
-fun verbosity_error level pos =
+fun verbosity_error name level pos =
   error
-    ("uRust command option " ^ quote verbosity_option ^
+    ("uRust command option " ^ quote name ^
       " must be 0, 1, or 2, but found " ^ string_of_int level ^
       Position.here pos)
 
-fun validate_verbosity pos level =
+fun validate_verbosity name pos level =
   if 0 <= level andalso level <= 2 then level
-  else verbosity_error level pos
+  else verbosity_error name level pos
 
 fun option_type_error name expected pos =
   error
@@ -234,7 +245,7 @@ fun add_inline_option option_configs
               | (Boolean_Config _, SOME (Boolean_Value enabled, _)) =>
                   Boolean_Value enabled
               | (Integer_Config _, SOME (Integer_Value level, value_pos)) =>
-                  Integer_Value (validate_verbosity value_pos level)
+                  Integer_Value (validate_verbosity name value_pos level)
               | (Attributes_Config, SOME (Attributes_Value attributes, _)) =>
                   Attributes_Value attributes
               | (Boolean_Config _, SOME (Integer_Value _, value_pos)) =>
@@ -260,45 +271,85 @@ fun configured_flag lthy options name config =
        error ("internal non-Boolean uRust command option " ^ quote name)
    | NONE => Config.get lthy config)
 
-fun configured_verbosity lthy options =
-  (case Symtab.lookup options verbosity_option of
+fun configured_integer lthy options name config =
+  (case Symtab.lookup options name of
      SOME (Integer_Value level, _) => level
    | SOME (Boolean_Value _, _) =>
        error
-         ("internal non-integer uRust command option " ^ quote verbosity_option)
+         ("internal non-integer uRust command option " ^ quote name)
    | SOME (Attributes_Value _, _) =>
        error
-         ("internal non-integer uRust command option " ^ quote verbosity_option)
-   | NONE => validate_verbosity Position.none (Config.get lthy urust_verbosity))
+         ("internal non-integer uRust command option " ^ quote name)
+   | NONE => validate_verbosity name Position.none (Config.get lthy config))
+
+fun configured_verbosity lthy options =
+  configured_integer lthy options verbosity_option urust_verbosity
+
+fun configured_timing lthy options =
+  let
+    val timing_info =
+      configured_flag lthy options timing_info_option urust_timing_info
+    val timing_verbosity =
+      configured_integer lthy options timing_verbosity_option
+        urust_timing_verbosity
+    val pos =
+      (case Symtab.lookup options timing_verbosity_option of
+         SOME (_, option_pos) => option_pos
+       | NONE =>
+           (case Symtab.lookup options timing_info_option of
+              SOME (_, option_pos) => option_pos
+            | NONE => Position.none))
+    val _ =
+      if timing_verbosity = 0 orelse timing_info then ()
+      else
+        error
+          ("uRust command option " ^ quote timing_verbosity_option ^
+            " requires timing_info = true" ^
+            Position.here pos)
+  in
+    (timing_info, timing_verbosity)
+  end
 
 datatype command_timer =
     Timing_Disabled
   | Command_Timer of
       {depth: int Unsynchronized.ref,
-       entries: (int * string * Timing.timing) list Unsynchronized.ref}
+       next_sequence: int Unsynchronized.ref,
+       entries:
+         (int * int * string * Timing.timing) list Unsynchronized.ref}
 
 fun new_command_timer false = Timing_Disabled
   | new_command_timer true =
       Command_Timer
         {depth = Unsynchronized.ref 0,
+         next_sequence = Unsynchronized.ref 0,
          entries = Unsynchronized.ref []}
 
 fun timing_phase Timing_Disabled _ f = f ()
-  | timing_phase (Command_Timer {depth, entries}) name f =
+  | timing_phase
+      (Command_Timer {depth, next_sequence, entries}) name f =
       let
         val current_depth = ! depth
+        val sequence = ! next_sequence
+        val _ = next_sequence := sequence + 1
         val _ = depth := current_depth + 1
         val start = Timing.start ()
         val result = Exn.result f ()
         val measured = Timing.result start
         val _ = depth := current_depth
-        val _ = entries := (current_depth, name, measured) :: ! entries
+        val _ =
+          entries :=
+            (sequence, current_depth, name, measured) :: ! entries
       in
         Exn.release result
       end
 
 fun timer_entries Timing_Disabled = []
-  | timer_entries (Command_Timer {entries, ...}) = rev (! entries)
+  | timer_entries (Command_Timer {entries, ...}) =
+      ! entries
+      |> sort (int_ord o apply2 #1)
+      |> map (fn (_, depth, name, measured) =>
+          (depth, name, measured))
 
 fun add_timing
     ({elapsed, cpu, gc}: Timing.timing)
@@ -321,69 +372,248 @@ fun top_level_timing timer expected =
       | _ => NONE)
     (timer_entries timer)
 
-fun elapsed_microseconds ({elapsed, ...}: Timing.timing) =
-  IntInf.toString (Time.toMicroseconds elapsed) ^ " us elapsed"
-
 fun decimal_intinf value =
   if value < 0 then "-" ^ IntInf.toString (~value)
   else IntInf.toString value
 
-fun elapsed_delta
+type timing_report_cell = {number: string, unit: string}
+
+type timing_report_row =
+  {depth: int,
+   name: string,
+   elapsed: timing_report_cell option,
+   cpu: timing_report_cell option,
+   gc: timing_report_cell option,
+   emphasized: bool,
+   heading: bool}
+
+fun timing_report_cell time =
+  ({number = Time.print time, unit = "s"}: timing_report_cell)
+  handle Time.Time => {number = "?", unit = ""}
+
+fun timing_report_row depth name emphasized
+    ({elapsed, cpu, gc}: Timing.timing): timing_report_row =
+  {depth = depth,
+   name = name,
+   elapsed = SOME (timing_report_cell elapsed),
+   cpu = SOME (timing_report_cell cpu),
+   gc = SOME (timing_report_cell gc),
+   emphasized = emphasized,
+   heading = false}
+
+fun normalize_timing_delta_number "-0.000" = "0.000"
+  | normalize_timing_delta_number number = number
+
+val _ =
+  if normalize_timing_delta_number "-0.000" = "0.000" then ()
+  else error "uRust timing delta normalization failed"
+
+fun elapsed_delta_cell
     (new_timing: Timing.timing)
-    (old_timing: Timing.timing) =
+    (old_timing: Timing.timing): timing_report_cell =
   let
-    val new_elapsed = Time.toMicroseconds (#elapsed new_timing)
-    val old_elapsed = Time.toMicroseconds (#elapsed old_timing)
-    val delta = new_elapsed - old_elapsed
-    val signed_delta =
-      if delta < 0 then decimal_intinf delta
-      else if delta > 0 then "+" ^ IntInf.toString delta
-      else "0"
+    val delta = #elapsed new_timing - #elapsed old_timing
   in
-    signed_delta ^ " us (negative means the new parser is faster)"
+    {number = normalize_timing_delta_number (Time.print delta), unit = "s"}
   end
 
-fun command_timing_report title source timer =
+fun elapsed_delta_row new_timing old_timing: timing_report_row =
+  {depth = 0,
+   name = "delta (new - old)",
+   elapsed = SOME (elapsed_delta_cell new_timing old_timing),
+   cpu = NONE,
+   gc = NONE,
+   emphasized = true,
+   heading = false}
+
+fun timing_report_heading_row depth name: timing_report_row =
+  {depth = depth,
+   name = name,
+   elapsed = NONE,
+   cpu = NONE,
+   gc = NONE,
+   emphasized = false,
+   heading = true}
+
+fun timing_report_cell_text NONE = ""
+  | timing_report_cell_text
+      (SOME ({number, unit}: timing_report_cell)) =
+      number ^ unit
+
+fun timing_report_row_label
+    ({depth, name, ...}: timing_report_row) =
+  replicate_string (4 + 2 * depth) " " ^ name ^ ":"
+
+fun timing_report_column_width heading project rows =
+  fold
+    (fn row => fn width =>
+      Integer.max width
+        (size (timing_report_cell_text (project row))))
+    rows (size heading)
+
+fun timing_report_padding width text =
+  replicate_string (Integer.max 0 (width - size text)) " "
+
+fun pretty_timing_report_cell width NONE =
+      Pretty.str (replicate_string width " ")
+  | pretty_timing_report_cell width
+      (SOME ({number, unit}: timing_report_cell)) =
+      Pretty.block0
+        [Pretty.str (timing_report_padding width (number ^ unit)),
+         Pretty.mark_str (Markup.numeral, number),
+         Pretty.str unit]
+
+fun pretty_timing_report_heading width heading =
+  Pretty.block0
+    [Pretty.str (timing_report_padding width heading),
+     Pretty.keyword2 heading]
+
+fun pretty_timing_report_row
+    label_width elapsed_width cpu_width gc_width
+    (row as
+      {depth, name, elapsed, cpu, gc, emphasized, heading}:
+        timing_report_row) =
+  let
+    val indentation = replicate_string (4 + 2 * depth) " "
+    val label = name ^ ":"
+    val full_label = timing_report_row_label row
+    val pretty_label =
+      if heading
+      then
+        Pretty.block0
+          [Pretty.keyword2 name,
+           Pretty.str ":"]
+      else if emphasized
+      then Pretty.mark Markup.intensify (Pretty.str label)
+      else Pretty.str label
+  in
+    Pretty.block0
+      [Pretty.str indentation,
+       pretty_label,
+       Pretty.str (timing_report_padding label_width full_label),
+       Pretty.str "  ",
+       pretty_timing_report_cell elapsed_width elapsed,
+       Pretty.str "  ",
+       pretty_timing_report_cell cpu_width cpu,
+       Pretty.str "  ",
+       pretty_timing_report_cell gc_width gc]
+  end
+
+fun pretty_timing_report_table rows =
+  let
+    val label_heading = "    phase"
+    val label_width =
+      fold
+        (Integer.max o size o timing_report_row_label)
+        rows (Integer.max 36 (size label_heading))
+    val elapsed_width =
+      timing_report_column_width "elapsed" #elapsed rows
+    val cpu_width =
+      timing_report_column_width "CPU" #cpu rows
+    val gc_width =
+      timing_report_column_width "GC" #gc rows
+    val heading =
+      Pretty.block0
+        [Pretty.str "    ",
+         Pretty.keyword2 "phase",
+         Pretty.str (timing_report_padding label_width label_heading),
+         Pretty.str "  ",
+         pretty_timing_report_heading elapsed_width "elapsed",
+         Pretty.str "  ",
+         pretty_timing_report_heading cpu_width "CPU",
+         Pretty.str "  ",
+         pretty_timing_report_heading gc_width "GC"]
+  in
+    heading ::
+      map
+        (pretty_timing_report_row
+          label_width elapsed_width cpu_width gc_width)
+        rows
+  end
+
+fun pretty_timing_report_section name =
+  Pretty.block0
+    [Pretty.str "  ",
+     Pretty.keyword2 name,
+     Pretty.str ":"]
+
+fun command_timing_report timing_verbosity title declaration_name source timer =
   let
     val text = Input.string_of source
     val entries = timer_entries timer
     val new_timing = top_level_timing timer "new parser"
     val old_timing = top_level_timing timer "old parser"
-    val summary =
+    val summary_rows =
       (case new_timing of
          NONE => []
        | SOME measured =>
-           ["  new parser: " ^ Timing.message measured ^
-              " (" ^ elapsed_microseconds measured ^ ")"]) @
+           [timing_report_row 0 "new parser" true measured]) @
       (case (new_timing, old_timing) of
          (SOME new_measured, SOME old_measured) =>
-           ["  old parser: " ^ Timing.message old_measured ^
-              " (" ^ elapsed_microseconds old_measured ^ ")",
-            "  delta (new - old elapsed): " ^
-              elapsed_delta new_measured old_measured]
-       | _ => [])
-    fun format_entry (depth, name, measured) =
-      replicate_string (2 * (depth + 1)) " " ^
-        name ^ ": " ^ Timing.message measured
-    val details =
-      if null entries then []
+           [timing_report_row 0 "old parser" true old_measured,
+            elapsed_delta_row new_measured old_measured]
+       | _ => []) @
+      (if null entries then []
+       else
+         [timing_report_row 0 "recorded command total" false
+            (timer_total timer)])
+    val detail_rows =
+      entries
+      |> map
+          (fn (depth, name, measured) =>
+            if depth = 0 andalso
+                (name = "new parser" orelse
+                 name = "old parser" orelse
+                 name = "conformance")
+            then timing_report_heading_row depth name
+            else timing_report_row depth name false measured)
+    val title_line =
+      Pretty.mark_position (Input.pos_of source)
+        (Pretty.block0
+          ([(case declaration_name of
+               NONE => Pretty.str title
+             | SOME _ => Pretty.keyword1 title)] @
+           (case declaration_name of
+              NONE => []
+            | SOME name =>
+                [Pretty.str " ",
+                 Pretty.mark Markup.intensify (Pretty.str name)]) @
+           [Pretty.str " timing information"]))
+    val source_size_line =
+      Pretty.block0
+        [Pretty.str "  (",
+         Pretty.mark_str
+           (Markup.numeral,
+            string_of_int (length (Symbol.explode text))),
+         Pretty.str " source symbols, ",
+         Pretty.mark_str (Markup.numeral, string_of_int (size text)),
+         Pretty.str " source bytes)"]
+    val summary =
+      if null summary_rows then []
       else
-        ["  recorded command total: " ^ Timing.message (timer_total timer),
-         "  phase breakdown:"] @
-        map format_entry entries
+        pretty_timing_report_section "summary" ::
+          pretty_timing_report_table summary_rows
+    val details =
+      if timing_verbosity < 2 orelse null detail_rows then []
+      else
+        Pretty.str "" ::
+        pretty_timing_report_section "phase breakdown" ::
+          pretty_timing_report_table detail_rows
   in
-    cat_lines
-      ([title ^ " timing information (" ^
-         string_of_int (length (Symbol.explode text)) ^ " source symbols, " ^
-         string_of_int (size text) ^ " source bytes):"] @
-       summary @ details)
+    Pretty.block0
+      (Pretty.fbreaks (title_line :: source_size_line :: summary @ details))
   end
 
-fun run_with_timing Timing_Disabled _ _ f = f ()
-  | run_with_timing timer title source f =
+fun run_with_timing Timing_Disabled _ _ _ f = f ()
+  | run_with_timing timer timing_verbosity title source f =
       let
         val result = Exn.result f ()
-        val _ = writeln (command_timing_report title source timer)
+        val _ =
+          if timing_verbosity = 0 then ()
+          else
+            Pretty.writeln
+              (command_timing_report timing_verbosity
+                title NONE source timer)
       in
         Exn.release result
       end
@@ -422,10 +652,16 @@ fun emit_command_timing_record command declaration_name source timer =
        end)
 
 fun run_command_with_timing Timing_Disabled _ _ _ _ f = f ()
-  | run_command_with_timing timer command declaration_name title source f =
+  | run_command_with_timing
+      timer timing_verbosity command declaration_name source f =
       let
         val result = Exn.result f ()
-        val _ = writeln (command_timing_report title source timer)
+        val _ =
+          if timing_verbosity = 0 then ()
+          else
+            Pretty.writeln
+              (command_timing_report timing_verbosity command
+                (SOME declaration_name) source timer)
         val _ =
           emit_command_timing_record command declaration_name source timer
       in
@@ -693,10 +929,12 @@ fun elaborate lthy
       {kind = _, source, arguments = _, arguments_pos = _,
        declared_type = _}) =
   let
-    val timer =
-      new_command_timer (Config.get lthy urust_timing_info)
+    val (timing_info, timing_verbosity) =
+      configured_timing lthy Symtab.empty
+    val timer = new_command_timer timing_info
   in
-    run_with_timing timer "URust_Command.elaborate" source
+    run_with_timing timer timing_verbosity
+      "URust_Command.elaborate" source
       (fn () => elaborate_with_timing timer lthy args)
   end
 
@@ -845,19 +1083,31 @@ fun declare_urust_result timer abbreviation application_definition attributes ki
 
 fun old_frontend_source source = "\<lbrakk> " ^ Input.string_of source ^ " \<rbrakk>"
 
+fun verbosity_output_enabled interactive lthy =
+  interactive orelse Config.get lthy Proof_Display.show_results
+
+fun pretty_generated_result kind name lthy thms =
+  Pretty.block1
+    [Pretty.block
+       [Pretty.mark_position (Position.thread_data ())
+          (Pretty.keyword1 kind),
+        Pretty.brk 1,
+        Pretty.str (Long_Name.base_name name),
+        Pretty.str ":"],
+     Pretty.fbrk,
+     Proof_Context.pretty_fact lthy ("", thms)]
+
 fun print_generated_result interactive verbosity minimum kind lthy (name, thms) =
-  if verbosity >= minimum
-  then
-    Proof_Display.print_results
-      {interactive = interactive, pos = Position.thread_data ()}
-      lthy ((kind, name), [("", thms)])
+  if verbosity >= minimum andalso
+      verbosity_output_enabled interactive lthy
+  then Pretty.writeln (pretty_generated_result kind name lthy thms)
   else ()
 
 fun print_abbreviation interactive verbosity lthy name lhs rhs =
   if verbosity >= 1 andalso
-     (interactive orelse Config.get lthy Proof_Display.show_results)
+     verbosity_output_enabled interactive lthy
   then
-    Pretty.writeln_urgent
+    Pretty.writeln
       (Pretty.block1
         [Pretty.block
            [Pretty.mark_position (Position.thread_data ())
@@ -873,9 +1123,9 @@ fun print_abbreviation interactive verbosity lthy name lhs rhs =
 
 fun print_anonymous interactive verbosity lthy kind name term =
   if verbosity >= 1 andalso
-     (interactive orelse Config.get lthy Proof_Display.show_results)
+     verbosity_output_enabled interactive lthy
   then
-    Pretty.writeln_urgent
+    Pretty.writeln
       (Pretty.block1
         [Pretty.block
            [Pretty.mark_position (Position.thread_data ())
@@ -1067,9 +1317,9 @@ fun define_urust_expr
      against) interactive lthy =
   let
     val _ = reject_contradictory_against "urust_expr" options against
-    val timer =
-      new_command_timer
-        (configured_flag lthy options timing_info_option urust_timing_info)
+    val (timing_info, timing_verbosity) =
+      configured_timing lthy options
+    val timer = new_command_timer timing_info
     val verbosity = configured_verbosity lthy options
     val abbreviation =
       configured_flag lthy options abbrev_option urust_abbrev
@@ -1109,8 +1359,8 @@ fun define_urust_expr
            then checked (old_frontend_source source)
            else declare_and_print declaration interactive verbosity lthy)
   in
-    run_command_with_timing timer "urust_expr" (Binding.name_of binding)
-      ("urust_expr " ^ Binding.name_of binding) source run
+    run_command_with_timing timer timing_verbosity
+      "urust_expr" (Binding.name_of binding) source run
   end
 
 fun define_urust_fn
@@ -1119,9 +1369,9 @@ fun define_urust_fn
      against) interactive lthy =
   let
     val _ = reject_contradictory_against "urust_fn" options against
-    val timer =
-      new_command_timer
-        (configured_flag lthy options timing_info_option urust_timing_info)
+    val (timing_info, timing_verbosity) =
+      configured_timing lthy options
+    val timer = new_command_timer timing_info
     val verbosity = configured_verbosity lthy options
     val application_definition =
       configured_flag lthy options application_def_option
@@ -1149,8 +1399,8 @@ fun define_urust_fn
            then checked (old_frontend_source body)
            else declare_and_print declaration interactive verbosity lthy)
   in
-    run_command_with_timing timer "urust_fn" (Binding.name_of binding)
-      ("urust_fn " ^ Binding.name_of binding) body run
+    run_command_with_timing timer timing_verbosity
+      "urust_fn" (Binding.name_of binding) body run
   end
 
 val parse_option_value =
