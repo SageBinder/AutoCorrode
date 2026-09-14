@@ -280,20 +280,12 @@ urust_expr showoff_registered_nested_nullary_match
   \<close>
   against
     \<open>
-      bind
-        (funcall1
-          (lift_fun1 Some)
-          (literal ShowoffRegisteredStop))
-        (\<lambda>value.
-          case value of
-            None \<Rightarrow> literal False
-          | Some event \<Rightarrow>
-              two_armed_conditional
-                (urust_eq
-                  (literal event)
-                  (literal ShowoffRegisteredStop))
-                (literal True)
-                (literal False))
+      \<lbrakk>
+        match Some(ShowoffRegisteredStop) {
+          Some(ShowoffRegisteredStop) \<Rightarrow> True,
+          _ \<Rightarrow> False
+        }
+      \<rbrakk>
     \<close>
 
 urust_expr [conformance_check = false] showoff_registered_singleton_match
@@ -307,8 +299,8 @@ urust_expr [conformance_check = false] showoff_registered_singleton_match
 text\<open>
 Features: automatic case and registered-value/numeral switch routing, an explicit
 numeric switch, datatype-aware qualified constructor markup, constructor and value patterns,
-or-patterns, direct structural-matrix lowering, nested registered-nullary equality with genuine
-fall-through, structural-totality removal of redundant singleton fallbacks, full guard bodies,
+or-patterns, direct structural-matrix lowering, deep registered-nullary constructor cases with
+genuine fall-through, structural-totality removal of redundant singleton fallbacks, full guard bodies,
 semicolon-free explicit match sequencing, nested matches, ordered fall-through, and antiquotation
 capture of both a let-bound variable and an arm binder.
 \<close>

@@ -157,9 +157,9 @@ Constructor resolution uses Isabelle's datatype/codatatype metadata first and na
 for exact registered literal backends that are not represented by `Ctr_Sugar`. Registered literals
 without native case metadata remain values. Automatic matching selects equality/switch lowering
 only for binder-free, guard-free value/wildcard arms; authentic constructors and binding patterns
-retain case semantics. Nested exact registered nullary constructors can become equality guards
-inside an enclosing structural case. Ambiguous basenames remain errors, and the parser keeps no
-private constructor-family registry.
+retain case semantics at every nesting depth, including registered nullary constructors. Resolution
+provenance affects exact lookup and markup but never changes constructor lowering. Ambiguous
+basenames remain errors, and the parser keeps no private constructor-family registry.
 
 The grammar retains compatibility extensions used by existing µRust sources, including complete
 guard bodies and statement bodies in groups, macros, and struct fields. During production migration

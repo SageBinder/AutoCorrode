@@ -131,7 +131,23 @@ urust_expr parser_metadata_free_switch
     }
   \<close>
 
-section\<open>Nested registered nullary normalization\<close>
+urust_expr parser_metadata_free_case
+  \<open>
+    match_case \<llangle>parser_raw_scrutinee\<rrangle> {
+      ParserRaw::First \<Rightarrow> 1,
+      _ \<Rightarrow> 2
+    }
+  \<close>
+
+urust_expr parser_literal_switch
+  \<open>
+    match \<llangle>2 :: nat\<rrangle> {
+      1 \<Rightarrow> 1,
+      _ \<Rightarrow> 2
+    }
+  \<close>
+
+section\<open>Deep registered nullary constructor matching\<close>
 
 datatype parser_nested_status =
     ParserPrimaryStatus
@@ -187,17 +203,17 @@ urust_expr [conformance_check = true] parser_nested_registered_nullary
   \<close>
   against
     \<open>
-      bind (literal (Err ParserPrimaryStatus))
-        (\<lambda>value.
-          case value of
-            Ok result \<Rightarrow> literal (Ok result)
-          | Err error \<Rightarrow>
-              two_armed_conditional
-                (urust_eq
-                  (literal error)
-                  (literal ParserPrimaryStatus))
-                (funcall1 (lift_fun1 Ok) (literal ()))
-                (literal (Err error)))
+      \<lbrakk>
+        match
+          \<llangle>
+            Err ParserPrimaryStatus ::
+              (unit, parser_nested_status) result
+          \<rrangle>
+        {
+          Err(ParserPrimaryStatus) \<Rightarrow> Ok(()),
+          res \<Rightarrow> res
+        }
+      \<rbrakk>
     \<close>
 
 thm parser_nested_registered_nullary_conformance
@@ -218,17 +234,12 @@ urust_expr [conformance_check = true]
   \<close>
   against
     \<open>
-      bind (literal scrutinee)
-        (\<lambda>value.
-          case value of
-            Ok result \<Rightarrow> literal (Ok result)
-          | Err error \<Rightarrow>
-              two_armed_conditional
-                (urust_eq
-                  (literal error)
-                  (literal ParserPrimaryStatus))
-                (funcall1 (lift_fun1 Ok) (literal ()))
-                (literal (Err error)))
+      \<lbrakk>
+        match scrutinee {
+          Err(ParserPrimaryStatus) \<Rightarrow> Ok(()),
+          res \<Rightarrow> res
+        }
+      \<rbrakk>
     \<close>
 
 thm parser_nested_registered_nullary_open_conformance
@@ -242,8 +253,6 @@ lemma parser_nested_registered_nullary_matches:
   by
     (simp add:
       parser_nested_registered_nullary_open_def
-      two_armed_conditional_def
-      urust_eq_def
       micro_rust_simps)
 
 lemma parser_nested_registered_nullary_falls_through:
@@ -255,8 +264,6 @@ lemma parser_nested_registered_nullary_falls_through:
   by
     (simp add:
       parser_nested_registered_nullary_open_def
-      two_armed_conditional_def
-      urust_eq_def
       micro_rust_simps)
 
 section\<open>Direct structural matrices\<close>
@@ -709,7 +716,6 @@ lemma parser_nested_overlapping_tuple_evaluation:
       parser_nested_overlapping_tuple_def
       parser_nested_overlap_scrutinee_def
       two_armed_conditional_def
-      urust_eq_def
       micro_rust_simps)
 
 definition parser_nested_or_overlap_reverse_scrutinee ::
@@ -1251,7 +1257,6 @@ lemma parser_nested_overlapping_or_second_alternative:
       parser_nested_overlapping_or_alternatives_def
       parser_nested_overlap_scrutinee_def
       two_armed_conditional_def
-      urust_eq_def
       micro_rust_simps)
 
 lemma parser_nested_overlapping_or_first_alternative:
@@ -1265,7 +1270,6 @@ lemma parser_nested_overlapping_or_first_alternative:
       parser_nested_overlapping_or_alternatives_def
       parser_nested_or_overlap_reverse_scrutinee_def
       two_armed_conditional_def
-      urust_eq_def
       micro_rust_simps)
 
 lemma parser_nested_overlapping_or_later_arm:
@@ -1279,7 +1283,6 @@ lemma parser_nested_overlapping_or_later_arm:
       parser_nested_overlapping_or_alternatives_def
       parser_nested_or_overlap_later_scrutinee_def
       two_armed_conditional_def
-      urust_eq_def
       micro_rust_simps)
 
 lemma parser_nested_overlapping_or_wildcard:
@@ -1293,7 +1296,6 @@ lemma parser_nested_overlapping_or_wildcard:
       parser_nested_overlapping_or_alternatives_def
       parser_nested_or_overlap_wildcard_scrutinee_def
       two_armed_conditional_def
-      urust_eq_def
       micro_rust_simps)
 
 lemma parser_nested_guarded_or_second_alternative:
@@ -1311,7 +1313,6 @@ lemma parser_nested_guarded_or_second_alternative:
       parser_nested_overlap_scrutinee_def
       parser_nested_source_guard_true_def
       two_armed_conditional_def
-      urust_eq_def
       micro_rust_simps
       evaluate_def
       sequence_def
@@ -1334,7 +1335,6 @@ lemma parser_nested_guarded_or_reversed_second_alternative:
       parser_nested_or_overlap_reversed_second_scrutinee_def
       parser_nested_source_guard_true_def
       two_armed_conditional_def
-      urust_eq_def
       micro_rust_simps
       evaluate_def
       sequence_def
@@ -1357,7 +1357,6 @@ lemma parser_nested_guarded_or_both_miss:
       parser_nested_or_overlap_later_scrutinee_def
       parser_nested_source_guard_true_def
       two_armed_conditional_def
-      urust_eq_def
       micro_rust_simps
       evaluate_def
       sequence_def
@@ -1380,7 +1379,6 @@ lemma parser_nested_guarded_or_false:
       parser_nested_overlap_scrutinee_def
       parser_nested_source_guard_false_def
       two_armed_conditional_def
-      urust_eq_def
       micro_rust_simps
       evaluate_def
       sequence_def
@@ -1403,7 +1401,6 @@ lemma parser_nested_guarded_or_first_alternative:
       parser_nested_or_overlap_reverse_scrutinee_def
       parser_nested_source_guard_true_def
       two_armed_conditional_def
-      urust_eq_def
       micro_rust_simps
       evaluate_def
       sequence_def
@@ -1426,7 +1423,6 @@ lemma parser_nested_guarded_or_wildcard:
       parser_nested_or_overlap_wildcard_scrutinee_def
       parser_nested_source_guard_true_def
       two_armed_conditional_def
-      urust_eq_def
       micro_rust_simps
       evaluate_def
       sequence_def
@@ -1448,7 +1444,6 @@ lemma parser_nested_guarded_or_binder_second_alternative:
       parser_nested_overlap_scrutinee_def
       parser_nested_binder_source_guard_def
       two_armed_conditional_def
-      urust_eq_def
       micro_rust_simps
       evaluate_def
       sequence_def
@@ -1470,7 +1465,6 @@ lemma parser_nested_guarded_or_binder_overlapping_first_binding:
       parser_nested_or_overlap_both_scrutinee_def
       parser_nested_binder_source_guard_def
       two_armed_conditional_def
-      urust_eq_def
       micro_rust_simps
       evaluate_def
       sequence_def
@@ -1492,7 +1486,6 @@ lemma parser_nested_guarded_or_differing_binding_once:
       parser_nested_or_overlap_both_scrutinee_def
       parser_nested_binder_source_guard_inhomogeneous_def
       two_armed_conditional_def
-      urust_eq_def
       micro_rust_simps
       evaluate_def
       sequence_def
@@ -1514,7 +1507,6 @@ lemma parser_nested_alias_source_guard_hit:
       parser_nested_alias_source_guard_match_def
       parser_nested_alias_source_guard_def
       two_armed_conditional_def
-      urust_eq_def
       micro_rust_simps
       evaluate_def
       sequence_def
@@ -1536,7 +1528,6 @@ lemma parser_nested_alias_source_guard_false:
       parser_nested_alias_source_guard_match_def
       parser_nested_alias_source_guard_def
       two_armed_conditional_def
-      urust_eq_def
       micro_rust_simps
       evaluate_def
       sequence_def
@@ -1558,7 +1549,6 @@ lemma parser_nested_alias_source_guard_pattern_miss:
       parser_nested_alias_source_guard_match_def
       parser_nested_alias_source_guard_def
       two_armed_conditional_def
-      urust_eq_def
       micro_rust_simps
       evaluate_def
       sequence_def
@@ -1582,7 +1572,6 @@ lemma parser_nested_alias_binder_first_alternative:
       parser_nested_alias_binder_first_scrutinee_def
       parser_nested_alias_binder_source_guard_def
       two_armed_conditional_def
-      urust_eq_def
       micro_rust_simps
       evaluate_def
       sequence_def
@@ -1606,7 +1595,6 @@ lemma parser_nested_alias_binder_second_alternative:
       parser_nested_alias_binder_second_scrutinee_def
       parser_nested_alias_binder_source_guard_def
       two_armed_conditional_def
-      urust_eq_def
       micro_rust_simps
       evaluate_def
       sequence_def
@@ -1630,7 +1618,6 @@ lemma parser_nested_alias_binder_false_skips_arm:
       parser_nested_or_overlap_both_scrutinee_def
       parser_nested_alias_binder_source_guard_def
       two_armed_conditional_def
-      urust_eq_def
       micro_rust_simps
       evaluate_def
       sequence_def
@@ -1654,7 +1641,6 @@ lemma parser_nested_different_depth_first_alternative:
       parser_nested_different_depth_first_scrutinee_def
       parser_nested_alias_binder_source_guard_def
       two_armed_conditional_def
-      urust_eq_def
       micro_rust_simps
       evaluate_def
       sequence_def
@@ -1678,7 +1664,6 @@ lemma parser_nested_different_depth_second_alternative:
       parser_nested_different_depth_second_scrutinee_def
       parser_nested_alias_binder_source_guard_def
       two_armed_conditional_def
-      urust_eq_def
       micro_rust_simps
       evaluate_def
       sequence_def
@@ -1702,7 +1687,6 @@ lemma parser_nested_different_depth_reversed_first_alternative:
       parser_nested_different_depth_second_scrutinee_def
       parser_nested_alias_binder_source_guard_def
       two_armed_conditional_def
-      urust_eq_def
       micro_rust_simps
       evaluate_def
       sequence_def
@@ -1726,7 +1710,6 @@ lemma parser_nested_different_depth_reversed_second_alternative:
       parser_nested_different_depth_first_scrutinee_def
       parser_nested_alias_binder_source_guard_def
       two_armed_conditional_def
-      urust_eq_def
       micro_rust_simps
       evaluate_def
       sequence_def
@@ -1750,7 +1733,6 @@ lemma parser_nested_different_depth_false_skips_arm:
       parser_nested_different_depth_both_scrutinee_def
       parser_nested_alias_binder_source_guard_def
       two_armed_conditional_def
-      urust_eq_def
       micro_rust_simps
       evaluate_def
       sequence_def
@@ -1774,7 +1756,6 @@ lemma parser_nested_different_depth_reversed_false_skips_arm:
       parser_nested_different_depth_both_scrutinee_def
       parser_nested_alias_binder_source_guard_def
       two_armed_conditional_def
-      urust_eq_def
       micro_rust_simps
       evaluate_def
       sequence_def
@@ -1798,7 +1779,6 @@ lemma parser_nested_different_depth_miss:
       parser_nested_different_depth_miss_scrutinee_def
       parser_nested_alias_binder_source_guard_def
       two_armed_conditional_def
-      urust_eq_def
       micro_rust_simps
       evaluate_def
       sequence_def
@@ -1822,7 +1802,6 @@ lemma parser_nested_different_depth_reversed_miss:
       parser_nested_different_depth_miss_scrutinee_def
       parser_nested_alias_binder_source_guard_def
       two_armed_conditional_def
-      urust_eq_def
       micro_rust_simps
       evaluate_def
       sequence_def
@@ -1841,7 +1820,6 @@ lemma parser_root_suffix_unguarded_left_match:
       parser_root_suffix_unguarded_left_def
       parser_nested_or_overlap_reverse_scrutinee_def
       two_armed_conditional_def
-      urust_eq_def
       micro_rust_simps)
 
 lemma parser_root_suffix_unguarded_left_fallback:
@@ -1855,7 +1833,6 @@ lemma parser_root_suffix_unguarded_left_fallback:
       parser_root_suffix_unguarded_left_def
       parser_nested_overlap_scrutinee_def
       two_armed_conditional_def
-      urust_eq_def
       micro_rust_simps)
 
 lemma parser_root_suffix_unguarded_right_match:
@@ -1869,7 +1846,6 @@ lemma parser_root_suffix_unguarded_right_match:
       parser_root_suffix_unguarded_right_def
       parser_nested_or_overlap_later_scrutinee_def
       two_armed_conditional_def
-      urust_eq_def
       micro_rust_simps)
 
 lemma parser_root_suffix_unguarded_right_fallback:
@@ -1883,7 +1859,6 @@ lemma parser_root_suffix_unguarded_right_fallback:
       parser_root_suffix_unguarded_right_def
       parser_nested_overlap_scrutinee_def
       two_armed_conditional_def
-      urust_eq_def
       micro_rust_simps)
 
 lemma parser_root_suffix_guarded_left_true:
@@ -1901,7 +1876,6 @@ lemma parser_root_suffix_guarded_left_true:
       parser_nested_or_overlap_reverse_scrutinee_def
       parser_nested_source_guard_true_def
       two_armed_conditional_def
-      urust_eq_def
       micro_rust_simps
       evaluate_def
       sequence_def
@@ -1924,7 +1898,6 @@ lemma parser_root_suffix_guarded_left_false:
       parser_nested_or_overlap_reverse_scrutinee_def
       parser_nested_source_guard_false_def
       two_armed_conditional_def
-      urust_eq_def
       micro_rust_simps
       evaluate_def
       sequence_def
@@ -1947,7 +1920,6 @@ lemma parser_root_suffix_guarded_left_structural_miss:
       parser_nested_overlap_scrutinee_def
       parser_nested_source_guard_true_def
       two_armed_conditional_def
-      urust_eq_def
       micro_rust_simps
       evaluate_def
       sequence_def
@@ -1970,7 +1942,6 @@ lemma parser_root_suffix_guarded_right_true:
       parser_nested_or_overlap_later_scrutinee_def
       parser_nested_source_guard_true_def
       two_armed_conditional_def
-      urust_eq_def
       micro_rust_simps
       evaluate_def
       sequence_def
@@ -1993,7 +1964,6 @@ lemma parser_root_suffix_guarded_right_false:
       parser_nested_or_overlap_later_scrutinee_def
       parser_nested_source_guard_false_def
       two_armed_conditional_def
-      urust_eq_def
       micro_rust_simps
       evaluate_def
       sequence_def
@@ -2016,7 +1986,6 @@ lemma parser_root_suffix_guarded_right_structural_miss:
       parser_nested_overlap_scrutinee_def
       parser_nested_source_guard_true_def
       two_armed_conditional_def
-      urust_eq_def
       micro_rust_simps
       evaluate_def
       sequence_def
@@ -2035,7 +2004,6 @@ lemma parser_recursive_coverage_unguarded_left_match:
       parser_recursive_coverage_unguarded_left_def
       parser_recursive_coverage_left_match_def
       two_armed_conditional_def
-      urust_eq_def
       micro_rust_simps)
 
 lemma parser_recursive_coverage_unguarded_left_fallback:
@@ -2049,7 +2017,6 @@ lemma parser_recursive_coverage_unguarded_left_fallback:
       parser_recursive_coverage_unguarded_left_def
       parser_recursive_coverage_fallback_def
       two_armed_conditional_def
-      urust_eq_def
       micro_rust_simps)
 
 lemma parser_recursive_coverage_unguarded_right_match:
@@ -2063,7 +2030,6 @@ lemma parser_recursive_coverage_unguarded_right_match:
       parser_recursive_coverage_unguarded_right_def
       parser_recursive_coverage_right_match_def
       two_armed_conditional_def
-      urust_eq_def
       micro_rust_simps)
 
 lemma parser_recursive_coverage_unguarded_right_fallback:
@@ -2077,7 +2043,6 @@ lemma parser_recursive_coverage_unguarded_right_fallback:
       parser_recursive_coverage_unguarded_right_def
       parser_recursive_coverage_fallback_def
       two_armed_conditional_def
-      urust_eq_def
       micro_rust_simps)
 
 lemma parser_recursive_coverage_guarded_left_true:
@@ -2095,7 +2060,6 @@ lemma parser_recursive_coverage_guarded_left_true:
       parser_recursive_coverage_left_match_def
       parser_nested_source_guard_true_def
       two_armed_conditional_def
-      urust_eq_def
       micro_rust_simps
       evaluate_def
       sequence_def
@@ -2118,7 +2082,6 @@ lemma parser_recursive_coverage_guarded_left_false:
       parser_recursive_coverage_left_match_def
       parser_nested_source_guard_false_def
       two_armed_conditional_def
-      urust_eq_def
       micro_rust_simps
       evaluate_def
       sequence_def
@@ -2141,7 +2104,6 @@ lemma parser_recursive_coverage_guarded_left_structural_miss:
       parser_recursive_coverage_fallback_def
       parser_nested_source_guard_true_def
       two_armed_conditional_def
-      urust_eq_def
       micro_rust_simps
       evaluate_def
       sequence_def
@@ -2164,7 +2126,6 @@ lemma parser_recursive_coverage_guarded_right_true:
       parser_recursive_coverage_right_match_def
       parser_nested_source_guard_true_def
       two_armed_conditional_def
-      urust_eq_def
       micro_rust_simps
       evaluate_def
       sequence_def
@@ -2187,7 +2148,6 @@ lemma parser_recursive_coverage_guarded_right_false:
       parser_recursive_coverage_right_match_def
       parser_nested_source_guard_false_def
       two_armed_conditional_def
-      urust_eq_def
       micro_rust_simps
       evaluate_def
       sequence_def
@@ -2210,7 +2170,6 @@ lemma parser_recursive_coverage_guarded_right_structural_miss:
       parser_recursive_coverage_fallback_def
       parser_nested_source_guard_true_def
       two_armed_conditional_def
-      urust_eq_def
       micro_rust_simps
       evaluate_def
       sequence_def
@@ -2229,7 +2188,6 @@ lemma parser_nested_exhaustive_first_miss:
       parser_nested_exhaustive_outer_shapes_def
       parser_nested_exhaustive_first_miss_scrutinee_def
       two_armed_conditional_def
-      urust_eq_def
       micro_rust_simps)
 
 lemma parser_nested_exhaustive_third_miss:
@@ -2243,7 +2201,6 @@ lemma parser_nested_exhaustive_third_miss:
       parser_nested_exhaustive_outer_shapes_def
       parser_nested_exhaustive_third_miss_scrutinee_def
       two_armed_conditional_def
-      urust_eq_def
       micro_rust_simps)
 
 lemma parser_nested_exhaustive_middle_match:
@@ -2257,7 +2214,6 @@ lemma parser_nested_exhaustive_middle_match:
       parser_nested_exhaustive_outer_shapes_def
       parser_nested_or_overlap_wildcard_scrutinee_def
       two_armed_conditional_def
-      urust_eq_def
       micro_rust_simps)
 
 lemma parser_nested_exhaustive_guarded_first_miss:
@@ -2275,7 +2231,6 @@ lemma parser_nested_exhaustive_guarded_first_miss:
       parser_nested_exhaustive_first_miss_scrutinee_def
       parser_nested_source_guard_true_def
       two_armed_conditional_def
-      urust_eq_def
       micro_rust_simps
       evaluate_def
       sequence_def
@@ -2298,7 +2253,6 @@ lemma parser_nested_exhaustive_guarded_third_miss:
       parser_nested_exhaustive_third_miss_scrutinee_def
       parser_nested_source_guard_true_def
       two_armed_conditional_def
-      urust_eq_def
       micro_rust_simps
       evaluate_def
       sequence_def
@@ -2321,7 +2275,6 @@ lemma parser_nested_exhaustive_guarded_middle_match:
       parser_nested_or_overlap_wildcard_scrutinee_def
       parser_nested_source_guard_true_def
       two_armed_conditional_def
-      urust_eq_def
       micro_rust_simps
       evaluate_def
       sequence_def
@@ -2344,7 +2297,6 @@ lemma parser_nested_exhaustive_guarded_false:
       parser_nested_or_overlap_wildcard_scrutinee_def
       parser_nested_source_guard_false_def
       two_armed_conditional_def
-      urust_eq_def
       micro_rust_simps
       evaluate_def
       sequence_def
@@ -2500,9 +2452,20 @@ ML_val\<open>
           (rhs_of "parser_partial_structural_matrix") > 0)
 
     val open_b1 = rhs_of "parser_nested_registered_nullary_open"
+    val SOME (nested_case, _) =
+      Case_Translation.lookup_by_constr_permissive ctxt
+        (dest_Const_name \<^term>\<open>ParserPrimaryStatus\<close>,
+         fastype_of \<^term>\<open>ParserPrimaryStatus\<close>)
+    val nested_case_name =
+      (case Term.head_of nested_case of
+         Const (name, _) => name
+       | _ => error "expected nested constructor case constant")
     val _ =
-      assert "open B1 fixture changed its equality count"
-        (count_constant \<^const_name>\<open>urust_eq\<close> open_b1 = 1)
+      assert "open B1 fixture retained a constructor equality"
+        (count_constant \<^const_name>\<open>urust_eq\<close> open_b1 = 0)
+    val _ =
+      assert "open B1 fixture lost its nested constructor case"
+        (count_constant nested_case_name open_b1 > 0)
     val _ =
       assert "open B1 fixture duplicated its scrutinee bind"
         (count_constant \<^const_name>\<open>bind\<close> open_b1 = 1)
@@ -2510,6 +2473,25 @@ ML_val\<open>
       assert "open B1 fixture retained synthetic variables or frees"
         (null (Term.add_vars open_b1 []) andalso
          null (Term.add_frees open_b1 []))
+
+    val metadata_free_switch =
+      rhs_of "parser_metadata_free_switch"
+    val metadata_free_case =
+      rhs_of "parser_metadata_free_case"
+    val literal_switch =
+      rhs_of "parser_literal_switch"
+    val _ =
+      assert "metadata-free registered values lost switch lowering"
+        (count_constant \<^const_name>\<open>ncase_selector\<close>
+          metadata_free_switch = 1)
+    val _ =
+      assert "metadata-free registered values lost equality lowering"
+        (count_constant \<^const_name>\<open>urust_eq\<close>
+          metadata_free_case = 1)
+    val _ =
+      assert "integer literals lost switch lowering"
+        (count_constant \<^const_name>\<open>ncase_selector\<close>
+          literal_switch = 1)
 
     val registered_singleton =
       rhs_of "parser_nested_registered_singleton"
@@ -2607,9 +2589,6 @@ ML_val\<open>
     val _ =
       assert "custom enum positional arity was not recovered"
         (URust_Resolution.constructor_arity native_payload = 1)
-    val _ =
-      assert "custom enum registration was not marked exact"
-        (URust_Resolution.constructor_is_exact_registered native_payload)
     val _ =
       assert "custom enum unexpectedly acquired Ctr_Sugar metadata"
         (is_none
@@ -2734,21 +2713,21 @@ ML_val\<open>
       assert "nested normalization lost the enclosing authentic case"
         (count_constant result_case_name nested > 0)
     val _ =
-      assert "nested exact nullary constructor retained a native inner case"
-        (count_constant inner_case_name nested = 0)
+      assert "nested exact nullary constructor lost its native inner case"
+        (count_constant inner_case_name nested > 0)
     val _ =
-      assert "nested exact nullary constructor lost its equality guard"
-        (count_constant \<^const_name>\<open>urust_eq\<close> nested = 1)
+      assert "nested exact nullary constructor retained an equality guard"
+        (count_constant \<^const_name>\<open>urust_eq\<close> nested = 0)
 
-    fun checked_ordered_term name expected =
+    fun checked_structural_term name =
       let
         val rhs = rhs_of name
         val _ =
-          assert (name ^ " has the wrong completed type")
-            (fastype_of rhs = fastype_of expected)
+          assert (name ^ " retained a constructor equality")
+            (count_constant \<^const_name>\<open>urust_eq\<close> rhs = 0)
         val _ =
-          assert (name ^ " differs from its complete ordered term")
-            (Term.aconv_untyped (rhs, expected))
+          assert (name ^ " lost structural constructor matching")
+            (count_constant inner_case_name rhs > 0)
         val _ =
           assert (name ^ " retained schematic variables")
             (null (Term.add_vars rhs []))
@@ -2756,63 +2735,6 @@ ML_val\<open>
           assert (name ^ " retained local free binders")
             (null (Term.add_frees rhs []))
       in rhs end
-
-    fun equality_constructor_order term =
-      let
-        fun collect
-              (Const (name, _) $
-                (Const (equality, _) $ _ $
-                  (Const (literal, _) $ constructor)) $
-                _ $ else_branch) =
-              if name = \<^const_name>\<open>two_armed_conditional\<close> andalso
-                 equality = \<^const_name>\<open>urust_eq\<close> andalso
-                 literal = \<^const_name>\<open>literal\<close>
-              then
-                constant_name constructor ::
-                  collect else_branch
-              else []
-          | collect _ = []
-
-        fun find
-              (candidate as
-                Const (name, _) $ _ $ _ $ _) =
-              if name = \<^const_name>\<open>two_armed_conditional\<close>
-              then
-                let val result = collect candidate
-                in if null result then NONE else SOME result end
-              else NONE
-          | find _ = NONE
-
-        fun first_some [] = NONE
-          | first_some (NONE :: rest) = first_some rest
-          | first_some (SOME value :: _) = SOME value
-
-        fun walk (left $ right) =
-              (case find (left $ right) of
-                 SOME result => SOME result
-               | NONE => first_some [walk left, walk right])
-          | walk (Abs (_, _, body)) = walk body
-          | walk term = find term
-      in the (walk term) end
-
-    fun has_ordered_equality_results [] _ = true
-      | has_ordered_equality_results
-          ((expected_constructor, expected_result) :: rest) term =
-        let
-          fun matches
-                (Const (conditional, _) $
-                  (Const (equality, _) $ _ $
-                    (Const (literal, _) $ constructor)) $
-                  success $ failure) =
-                conditional =
-                    \<^const_name>\<open>two_armed_conditional\<close> andalso
-                  equality = \<^const_name>\<open>urust_eq\<close> andalso
-                  literal = \<^const_name>\<open>literal\<close> andalso
-                  constant_name constructor = expected_constructor andalso
-                  Term.aconv_untyped (success, expected_result) andalso
-                  has_ordered_equality_results rest failure
-            | matches _ = false
-        in Term.exists_subterm matches term end
 
     fun instantiate_definition rhs arguments =
       Envir.beta_eta_contract
@@ -2850,207 +2772,44 @@ ML_val\<open>
            error
              "constructor matching audit: expected outer case")
 
-    val ordered_expected =
-      \<^term>\<open>
-        (bind (literal (Err ParserSecondaryStatus))
-          (\<lambda>value.
-            case value of
-              Ok result \<Rightarrow> literal (3 :: nat)
-            | Err error \<Rightarrow>
-                two_armed_conditional
-                  (urust_eq
-                    (literal error)
-                    (literal ParserPrimaryStatus))
-                  (literal (1 :: nat))
-                  (two_armed_conditional
-                    (urust_eq
-                      (literal error)
-                      (literal ParserSecondaryStatus))
-                    (literal (2 :: nat))
-                    (literal (3 :: nat))))) ::
-          (unit, nat, unit, unit, unit, unit) expression
-      \<close>
-    val ordered_or_expected =
-      \<^term>\<open>
-        (bind (literal (Err ParserPrimaryStatus))
-          (\<lambda>value.
-            case value of
-              Ok result \<Rightarrow> literal (0 :: nat)
-            | Err error \<Rightarrow>
-                two_armed_conditional
-                  (urust_eq
-                    (literal error)
-                    (literal ParserPrimaryStatus))
-                  (literal (1 :: nat))
-                  (two_armed_conditional
-                    (urust_eq
-                      (literal error)
-                      (literal ParserSecondaryStatus))
-                    (literal (1 :: nat))
-                    (literal (0 :: nat))))) ::
-          (unit, nat, unit, unit, unit, unit) expression
-      \<close>
-    val guarded_order_expected =
-      \<^term>\<open>
-        (bind (literal parser_nested_guarded_scrutinee)
-          (\<lambda>value.
-            case value of
-              Ok result \<Rightarrow> literal (2 :: nat)
-            | Err error \<Rightarrow>
-                two_armed_conditional
-                  (urust_eq
-                    (literal error)
-                    (literal ParserPrimaryStatus))
-                  (two_armed_conditional
-                    (literal parser_nested_guard_marker)
-                    (literal (1 :: nat))
-                    (literal (2 :: nat)))
-                  (literal (2 :: nat)))) ::
-          (unit, nat, unit, unit, unit, unit) expression
-      \<close>
-    val global_source_order_expected =
-      \<^term>\<open>
-        (bind (literal parser_nested_interleaved_scrutinee)
-          (\<lambda>value.
-            case value of
-              Ok result \<Rightarrow>
-                two_armed_conditional
-                  (literal parser_nested_interleaved_guard)
-                  (literal (2 :: nat))
-                  (literal (4 :: nat))
-            | Err error \<Rightarrow>
-                two_armed_conditional
-                  (urust_eq
-                    (literal error)
-                    (literal ParserPrimaryStatus))
-                  (literal (1 :: nat))
-                  (two_armed_conditional
-                    (literal parser_nested_interleaved_guard)
-                    (literal (2 :: nat))
-                    (two_armed_conditional
-                      (urust_eq
-                        (literal error)
-                        (literal ParserSecondaryStatus))
-                      (literal (3 :: nat))
-                      (literal (4 :: nat)))))) ::
-          (unit, nat, unit, unit, unit, unit) expression
-      \<close>
-    val overlapping_tuple_expected =
-      \<^term>\<open>
-        (bind (literal parser_nested_overlap_scrutinee)
-          (\<lambda>value.
-            case value of
-              (Err first_error, second, TNil) \<Rightarrow>
-                two_armed_conditional
-                  (urust_eq
-                    (literal first_error)
-                    (literal ParserPrimaryStatus))
-                  (literal (1 :: nat))
-                  (case
-                    (Err first_error, second, TNil)
-                   of
-                    (_, Err second_error, TNil) \<Rightarrow>
-                      two_armed_conditional
-                        (urust_eq
-                          (literal second_error)
-                          (literal ParserSecondaryStatus))
-                        (literal (2 :: nat))
-                        (literal (3 :: nat))
-                  | _ \<Rightarrow> literal (3 :: nat))
-            | (first, Err second_error, TNil) \<Rightarrow>
-                (case
-                  (first, Err second_error, TNil)
-                 of
-                  (Err first_error, second, TNil) \<Rightarrow>
-                    two_armed_conditional
-                      (urust_eq
-                        (literal first_error)
-                        (literal ParserPrimaryStatus))
-                      (literal (1 :: nat))
-                      (case
-                        (Err first_error, second, TNil)
-                       of
-                        (_, Err later_error, TNil) \<Rightarrow>
-                          two_armed_conditional
-                            (urust_eq
-                              (literal later_error)
-                              (literal ParserSecondaryStatus))
-                            (literal (2 :: nat))
-                            (literal (3 :: nat))
-                      | _ \<Rightarrow> literal (3 :: nat))
-                | _ \<Rightarrow>
-                    two_armed_conditional
-                      (urust_eq
-                        (literal second_error)
-                        (literal ParserSecondaryStatus))
-                      (literal (2 :: nat))
-                      (literal (3 :: nat)))
-            | _ \<Rightarrow> literal (3 :: nat))) ::
-          (unit, nat, unit, unit, unit, unit) expression
-      \<close>
-    val alias_wildcard_expected =
-      \<^term>\<open>
-        (bind (literal parser_nested_alias_wild_scrutinee)
-          (\<lambda>value.
-            case value of
-              Ok result \<Rightarrow> literal (2 :: nat)
-            | Err error \<Rightarrow>
-                two_armed_conditional
-                  (urust_eq
-                    (literal error)
-                    (literal ParserTertiaryStatus))
-                  (literal (0 :: nat))
-                  (two_armed_conditional
-                    (urust_eq
-                      (literal error)
-                      (literal ParserPrimaryStatus))
-                    (bind (literal value)
-                      (\<lambda>whole.
-                        literal (parser_nested_alias_tag whole)))
-                    (literal (2 :: nat))))) ::
-          (unit, nat, unit, unit, unit, unit) expression
-      \<close>
-    val alias_binder_expected =
-      \<^term>\<open>
-        (bind (literal parser_nested_alias_binder_scrutinee)
-          (\<lambda>value.
-            case value of
-              Ok result \<Rightarrow> literal (Ok result)
-            | Err error \<Rightarrow>
-                two_armed_conditional
-                  (urust_eq
-                    (literal error)
-                    (literal ParserTertiaryStatus))
-                  (literal parser_nested_alias_probe_result)
-                  (two_armed_conditional
-                    (urust_eq
-                      (literal error)
-                      (literal ParserPrimaryStatus))
-                    (bind (literal value)
-                      (\<lambda>whole.
-                        literal (parser_nested_alias_rewrite whole)))
-                    (literal (Err error))))) ::
-          (unit, (unit, parser_nested_status) result,
-            unit, unit, unit, unit) expression
-      \<close>
+    val status_constructor_names =
+      map constant_name
+        [\<^term>\<open>ParserPrimaryStatus\<close>,
+         \<^term>\<open>ParserSecondaryStatus\<close>,
+         \<^term>\<open>ParserTertiaryStatus\<close>]
+
+    fun selected_constructors selected term =
+      Term.fold_aterms
+        (fn Const (name, _) =>
+              if member (op =) selected name
+              then cons name
+              else I
+          | _ => I)
+        term []
+      |> rev
+
+    fun structural_constructor_rows selected rhs =
+      map (selected_constructors selected o fst)
+        (outer_case_clauses rhs)
+
+    fun structural_status_rows rhs =
+      structural_constructor_rows status_constructor_names rhs
+
     val ordered =
-      checked_ordered_term
-        "parser_nested_registered_ordered" ordered_expected
+      checked_structural_term
+        "parser_nested_registered_ordered"
     val ordered_or =
-      checked_ordered_term
-        "parser_nested_registered_or_ordered" ordered_or_expected
+      checked_structural_term
+        "parser_nested_registered_or_ordered"
     val guarded_order =
-      checked_ordered_term
+      checked_structural_term
         "parser_nested_registered_guard_order"
-        guarded_order_expected
     val global_source_order =
-      checked_ordered_term
+      checked_structural_term
         "parser_nested_global_source_order"
-        global_source_order_expected
     val overlapping_tuple =
-      checked_ordered_term
+      checked_structural_term
         "parser_nested_overlapping_tuple"
-        overlapping_tuple_expected
     val (overlapping_or_lhs, overlapping_or) =
       equation_of "parser_nested_overlapping_or_alternatives"
     val (guarded_or_lhs, guarded_or) =
@@ -3160,11 +2919,11 @@ ML_val\<open>
     val (global_ok_branch, global_err_branch) =
       result_case_branches global_source_order
     val alias_wildcard =
-      checked_ordered_term
-        "parser_nested_alias_wildcard" alias_wildcard_expected
+      checked_structural_term
+        "parser_nested_alias_wildcard"
     val alias_binder =
-      checked_ordered_term
-        "parser_nested_alias_binder" alias_binder_expected
+      checked_structural_term
+        "parser_nested_alias_binder"
     val (alias_wildcard_lhs, _) =
       equation_of "parser_nested_alias_wildcard"
     val (alias_binder_lhs, _) =
@@ -3280,9 +3039,9 @@ ML_val\<open>
             (count_constant scrutinee_name instantiated = 1)
         val _ =
           assert
-            (name ^ " emitted redundant outer clauses: " ^
+            (name ^ " lost its outer structural clauses: " ^
               string_of_int (length clauses))
-            (length clauses = 1)
+            (not (null clauses))
         val _ =
           assert (name ^ " retained an undefined fallback")
             (count_constant \<^const_name>\<open>undefined\<close>
@@ -3576,10 +3335,10 @@ ML_val\<open>
           different_depth_instantiated = 1)
     val _ =
       assert
-        ("different-depth alias fixture emitted redundant outer clauses: " ^
+        ("different-depth alias fixture lost its outer structural clauses: " ^
           string_of_int
             (length (outer_case_clauses different_depth)))
-        (length (outer_case_clauses different_depth) = 1)
+        (not (null (outer_case_clauses different_depth)))
     val _ =
       assert
         "reversed different-depth alias fixture changed its definition head"
@@ -3613,12 +3372,12 @@ ML_val\<open>
           different_depth_reversed_instantiated = 1)
     val _ =
       assert
-        ("reversed different-depth alias fixture emitted redundant outer clauses: " ^
+        ("reversed different-depth alias fixture lost its outer structural clauses: " ^
           string_of_int
             (length
               (outer_case_clauses different_depth_reversed)))
-        (length
-          (outer_case_clauses different_depth_reversed) = 1)
+        (not (null
+          (outer_case_clauses different_depth_reversed)))
     val _ =
       assert "exhaustive outer-shape fixture changed its definition head"
         (null exhaustive_arguments)
@@ -3638,9 +3397,9 @@ ML_val\<open>
           exhaustive = 1)
     val _ =
       assert
-        ("exhaustive outer-shape fixture emitted a redundant outer clause: " ^
+        ("exhaustive outer-shape fixture changed its structural clause expansion: " ^
           string_of_int (length (outer_case_clauses exhaustive)))
-        (length (outer_case_clauses exhaustive) = 4)
+        (length (outer_case_clauses exhaustive) = 9)
     val _ =
       assert "guarded exhaustive outer-shape fixture changed its definition head"
         (null exhaustive_guarded_arguments)
@@ -3663,61 +3422,51 @@ ML_val\<open>
           exhaustive_guarded = 1)
     val _ =
       assert
-        ("guarded exhaustive outer-shape fixture emitted a redundant outer clause: " ^
+        ("guarded exhaustive outer-shape fixture changed its structural clause expansion: " ^
           string_of_int (length
             (outer_case_clauses exhaustive_guarded)))
-        (length (outer_case_clauses exhaustive_guarded) = 4)
-    val expected_equality_order =
-      map constant_name
-        [\<^term>\<open>ParserPrimaryStatus\<close>,
-         \<^term>\<open>ParserSecondaryStatus\<close>]
-    val overlapping_or_order =
-      [(constant_name
-          \<^term>\<open>ParserPrimaryStatus\<close>,
-        \<^term>\<open>literal (1 :: nat)\<close>),
-       (constant_name
-          \<^term>\<open>ParserSecondaryStatus\<close>,
-        \<^term>\<open>literal (1 :: nat)\<close>),
-       (constant_name
-          \<^term>\<open>ParserSecondaryStatus\<close>,
-        \<^term>\<open>literal (2 :: nat)\<close>)]
-    val overlapping_or_reversed_order =
-      [(constant_name
-          \<^term>\<open>ParserSecondaryStatus\<close>,
-        \<^term>\<open>literal (1 :: nat)\<close>),
-       (constant_name
-          \<^term>\<open>ParserPrimaryStatus\<close>,
-        \<^term>\<open>literal (1 :: nat)\<close>),
-       (constant_name
-          \<^term>\<open>ParserSecondaryStatus\<close>,
-        \<^term>\<open>literal (2 :: nat)\<close>)]
-    val exhaustive_outer_order =
-      [(constant_name
-          \<^term>\<open>ParserPrimaryStatus\<close>,
-        \<^term>\<open>literal (1 :: nat)\<close>),
-       (constant_name
-          \<^term>\<open>ParserSecondaryStatus\<close>,
-        \<^term>\<open>literal (1 :: nat)\<close>)]
+        (length (outer_case_clauses exhaustive_guarded) = 9)
+    val [primary_name, secondary_name, tertiary_name] =
+      status_constructor_names
+    val ordered_structural_rows =
+      [[], [primary_name], [secondary_name], [tertiary_name]]
+    val ordered_or_structural_rows =
+      [[], [tertiary_name], []]
+    val overlapping_tuple_structural_rows =
+      [[], [secondary_name], [],
+       [primary_name], [primary_name, primary_name],
+       [primary_name], [], [secondary_name], []]
+    val overlapping_or_structural_rows =
+      [[], [secondary_name], [],
+       [primary_name], [primary_name, primary_name],
+       [primary_name], [secondary_name],
+       [secondary_name, secondary_name], [secondary_name],
+       [tertiary_name], [tertiary_name, secondary_name],
+       [tertiary_name]]
+    val exhaustive_structural_rows =
+      [[], [secondary_name], [],
+       [primary_name], [primary_name, primary_name],
+       [primary_name], [], [secondary_name], []]
     val _ =
       assert "separate same-outer alternatives duplicated the outer case"
         (count_constant result_case_name ordered = 1)
     val _ =
-      assert "separate same-outer alternatives lost an equality guard"
-        (count_constant \<^const_name>\<open>urust_eq\<close> ordered = 2)
+      assert "separate same-outer alternatives retained equality guards"
+        (count_constant \<^const_name>\<open>urust_eq\<close> ordered = 0)
     val _ =
-      assert "separate same-outer alternative order changed"
-        (equality_constructor_order ordered =
-          expected_equality_order)
+      assert "separate same-outer structural clause order changed"
+        (structural_status_rows ordered =
+          ordered_structural_rows)
     val _ =
       assert "or-pattern same-outer alternatives duplicated the outer case"
         (count_constant result_case_name ordered_or = 1)
     val _ =
-      assert "or-pattern same-outer alternatives lost an equality guard"
-        (count_constant \<^const_name>\<open>urust_eq\<close> ordered_or = 2)
+      assert "or-pattern same-outer alternatives retained equality guards"
+        (count_constant \<^const_name>\<open>urust_eq\<close> ordered_or = 0)
     val _ =
-      assert "or-pattern alternative order changed"
-        (equality_constructor_order ordered_or =
-          expected_equality_order)
+      assert "or-pattern structural clause order changed"
+        (structural_status_rows ordered_or =
+          ordered_or_structural_rows)
     val _ =
       assert "guarded same-shape arm duplicated the outer case"
         (count_constant result_case_name guarded_order = 1)
@@ -3732,9 +3481,12 @@ ML_val\<open>
           \<^const_name>\<open>parser_nested_guard_marker\<close>
           guarded_order = 1)
     val _ =
-      assert "guarded same-shape arm lost its generated equality"
+      assert "guarded same-shape arm retained a constructor equality"
         (count_constant \<^const_name>\<open>urust_eq\<close>
-          guarded_order = 1)
+          guarded_order = 0)
+    val _ =
+      assert "guarded same-shape arm lost its nested constructor case"
+        (count_constant inner_case_name guarded_order > 0)
     val _ =
       assert "global source-order fixture duplicated the outer case"
         (count_constant result_case_name global_source_order = 1)
@@ -3744,14 +3496,18 @@ ML_val\<open>
           \<^const_name>\<open>parser_nested_interleaved_scrutinee\<close>
           global_source_order = 1)
     val _ =
-      assert "global source-order fixture lost an equality guard"
+      assert "global source-order fixture retained constructor equalities"
         (count_constant \<^const_name>\<open>urust_eq\<close>
-          global_source_order = 2)
+          global_source_order = 0)
+    val _ =
+      assert "global source-order structural clauses changed order"
+        (structural_status_rows global_source_order =
+          ordered_structural_rows)
     val _ =
       assert "global source-order fixture changed guard evaluation count"
         (count_constant
           \<^const_name>\<open>parser_nested_interleaved_guard\<close>
-          global_source_order = 2)
+          global_source_order = 3)
     val _ =
       assert "global source-order Ok branch duplicated its source guard"
         (count_constant
@@ -3761,20 +3517,28 @@ ML_val\<open>
       assert "global source-order Err branch duplicated its source guard"
         (count_constant
           \<^const_name>\<open>parser_nested_interleaved_guard\<close>
-          global_err_branch = 1)
+          global_err_branch = 2)
     val _ =
       assert "overlapping tuple fixture duplicated its scrutinee"
         (count_constant
           \<^const_name>\<open>parser_nested_overlap_scrutinee\<close>
           overlapping_tuple = 1)
     val _ =
-      assert "overlapping or-pattern alternatives changed source order"
-        (has_ordered_equality_results
-          overlapping_or_order overlapping_or)
+      assert "overlapping tuple structural clauses changed order"
+        (structural_status_rows overlapping_tuple =
+          overlapping_tuple_structural_rows)
     val _ =
-      assert "exhaustive outer-shape equality continuations changed order"
-        (has_ordered_equality_results
-          exhaustive_outer_order exhaustive)
+      assert "overlapping or-pattern structural clauses changed order"
+        (structural_status_rows overlapping_or =
+          overlapping_or_structural_rows)
+    val _ =
+      assert "exhaustive outer-shape structural clauses changed order"
+        (structural_status_rows exhaustive =
+          exhaustive_structural_rows)
+    val _ =
+      assert "guarded exhaustive structural clauses changed order"
+        (structural_status_rows exhaustive_guarded =
+          exhaustive_structural_rows)
     val _ =
       assert "exhaustive outer-shape fallback was removed from continuations"
         (Term.exists_subterm
@@ -3810,9 +3574,9 @@ ML_val\<open>
           \<^const_name>\<open>parser_nested_alias_wild_scrutinee\<close>
           alias_wildcard = 1)
     val _ =
-      assert "alias/wildcard fixture lost a generated equality"
+      assert "alias/wildcard fixture retained constructor equalities"
         (count_constant \<^const_name>\<open>urust_eq\<close>
-          alias_wildcard = 2)
+          alias_wildcard = 0)
     val _ =
       assert "alias/wildcard fixture lost its matching alias arm"
         (count_constant \<^const_name>\<open>parser_nested_alias_tag\<close>
@@ -3826,9 +3590,9 @@ ML_val\<open>
           \<^const_name>\<open>parser_nested_alias_binder_scrutinee\<close>
           alias_binder = 1)
     val _ =
-      assert "alias/binder fixture lost a generated equality"
+      assert "alias/binder fixture retained constructor equalities"
         (count_constant \<^const_name>\<open>urust_eq\<close>
-          alias_binder = 2)
+          alias_binder = 0)
     val _ =
       assert "alias/binder fixture lost its matching alias arm"
         (count_constant
@@ -3874,8 +3638,8 @@ ML_val\<open>
       assert "mixed nested alternatives lost the native payload case"
         (count_constant native_case_name mixed > 0)
     val _ =
-      assert "mixed nested alternatives lost exact-nullary equality"
-        (count_constant \<^const_name>\<open>urust_eq\<close> mixed = 1)
+      assert "mixed nested alternatives retained constructor equality"
+        (count_constant \<^const_name>\<open>urust_eq\<close> mixed = 0)
     val _ =
       assert "mixed nested alternatives duplicated their scrutinee"
         (count_constant
@@ -3889,30 +3653,15 @@ ML_val\<open>
         (null (Term.add_frees mixed []))
     val native_empty_name =
       dest_Const_name \<^term>\<open>ParserNativeEmpty\<close>
-    fun find_empty_conditional term =
-      (case Term.strip_comb term of
-         (Const (name, _), [condition, _, else_branch]) =>
-           if name = \<^const_name>\<open>two_armed_conditional\<close> andalso
-              count_constant native_empty_name condition = 1
-           then SOME (condition, else_branch)
-           else find_empty_conditional_arguments term
-       | _ => find_empty_conditional_arguments term)
-    and find_empty_conditional_arguments (left $ right) =
-          (case find_empty_conditional left of
-             SOME result => SOME result
-           | NONE => find_empty_conditional right)
-      | find_empty_conditional_arguments (Abs (_, _, body)) =
-          find_empty_conditional body
-      | find_empty_conditional_arguments _ = NONE
-    val (_, mixed_after_empty) =
-      (case find_empty_conditional mixed of
-         SOME result => result
-       | NONE =>
-           error
-             "constructor matching audit: missing mixed empty conditional")
+    val native_other_name =
+      dest_Const_name \<^term>\<open>ParserNativeOther\<close>
     val _ =
-      assert "mixed nested source order moved payload before exact empty"
-        (count_constant native_case_name mixed_after_empty > 0)
+      assert "mixed nested structural constructor order changed"
+        (structural_constructor_rows
+          [native_empty_name, native_payload_name, native_other_name]
+          mixed =
+         [[], [native_empty_name], [native_payload_name],
+          [native_other_name]])
 
     val ambiguity_path = make_path "Shared"
     val ambiguity_resolver =
