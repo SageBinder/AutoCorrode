@@ -1295,13 +1295,21 @@ struct
       sugar_candidates @ native_candidates
     end
 
-  fun ambiguity_error role name pos candidates =
+  fun missing_literal_notation_guidance name =
+    "\nMissing exact micro_rust_notation (literal) declaration for " ^
+      quote name ^
+      "; declare the intended backend under this name or qualify the constructor path."
+
+  fun ambiguity_error role name pos has_exact_registration candidates =
     error
       ("urust_expr: " ^ role ^ " " ^ quote name ^
         " is ambiguous; candidates: " ^
         space_implode ", "
           (sort_strings
             (map constructor_identity candidates)) ^
+        (if has_exact_registration
+         then ""
+         else missing_literal_notation_guidance name) ^
         Position.here pos)
 
   fun distinct_constructor_infos infos =
@@ -1391,7 +1399,8 @@ struct
          [] => NONE
        | [info] => SOME info
        | ambiguous =>
-           ambiguity_error "constructor pattern" name pos ambiguous)
+           ambiguity_error "constructor pattern" name pos
+             (not (null registrations)) ambiguous)
     end
 
   fun report_named_term ctxt pos (Const (name, _)) =
@@ -1465,6 +1474,11 @@ struct
     let
       val theory = Proof_Context.theory_of ctxt
       val requested_name = hol_name_of_source_path identifier_name
+      val has_exact_registration =
+        not
+          (null
+            (resolver_literal_registrations ctxt resolver
+              (make_single_path (identifier_name, pos))))
 
       fun name_matches identity =
         if qualified_name identifier_name
@@ -1604,6 +1618,9 @@ struct
            error ("urust_expr: struct pattern " ^ quote identifier_name ^
              " is ambiguous; candidates: " ^
              space_implode ", " (map fst candidates) ^
+             (if has_exact_registration
+              then ""
+              else missing_literal_notation_guidance identifier_name) ^
              Position.here pos))
     end
 

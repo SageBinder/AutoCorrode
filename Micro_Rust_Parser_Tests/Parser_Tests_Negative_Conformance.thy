@@ -822,9 +822,10 @@ urust_expr_rejects fidelity
 
 new_urust_rejects divergent
   \<open> match_case \<llangle>undefined\<rrangle> { AmbiguousStruct { ambiguous_field: x } \<Rightarrow> x } \<close>
-  \<open> Struct_Ambiguity_Left.struct_ambiguity_left.AmbiguousStruct \<close>
+  \<open> Missing exact micro_rust_notation (literal) declaration for "AmbiguousStruct" \<close>
   \<comment> \<open> [DIVERGENT] the existing frontend silently picks one of two same-basename constructors.
-       The new parser rejects and reports their qualified identities instead. \<close>
+       The new parser rejects, reports their qualified identities, and identifies the missing exact
+       literal registration or source qualification needed to disambiguate them. \<close>
 
 ML\<open>
 local
@@ -853,6 +854,10 @@ local
            let val message = Runtime.exn_message exn in
              assert (label ^ " did not report ambiguity")
                (String.isSubstring "is ambiguous; candidates:" message);
+             assert (label ^ " did not identify the missing notation declaration")
+               (String.isSubstring
+                 "Missing exact micro_rust_notation (literal) declaration"
+                 message);
              List.app
                (fn identity =>
                  assert
