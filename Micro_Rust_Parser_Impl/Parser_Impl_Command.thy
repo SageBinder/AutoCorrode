@@ -38,6 +38,16 @@ ordinary named definitions expose non-contextual frees as definition parameters,
 context fixes remain local-theory dependencies. The dummy name \<open>_\<close> elaborates and checks the
 result without registering a constant, definition, abbreviation, or code equation. It receives a
 stable source-position-based name only for conformance facts and informational output.
+Ordinary named definitions preserve the complete curried term on the right-hand side of
+\<open>NAME_def\<close> by default. The Boolean \<open>application_def\<close> option instead retains explicit source
+arguments on the theorem's left-hand side, producing
+\<open>NAME arg\<^sub>1 ... arg\<^sub>n \<equiv> body\<close>. Implicit definition parameters remain before those
+explicit arguments. Both forms install the same curried constant value, conformance theorem,
+attributes, and code equation. The application form is useful when existing proofs fold a named
+sub-expression, while the default form remains suitable for rewriting a bare function constant.
+Zero-argument definitions are identical in either mode. Anonymous declarations are unchanged, and
+input abbreviations reject an effective \<open>application_def = true\<close>; an inline false value may
+override a true scoped setting.
 \<open>urust_conformance_check\<close> defaults to false. When enabled, the command also checks the generated
 declaration against the existing \<open>\<lbrakk>src\<rbrakk>\<close> frontend and records
 \<open>NAME_conformance\<close>. Contextual legacy bodies are parsed under temporary fixes carrying the
@@ -69,13 +79,13 @@ checking is enabled. The standard interactive and \<open>show_results\<close> ga
 output.
 
 The option parser is parameterized by a command-specific schema. Both commands accept Boolean
-\<open>conformance_check\<close>, integer \<open>verbose\<close>, and attribute-list \<open>attrs\<close>; only
-\<open>urust_expr\<close> accepts Boolean \<open>abbrev\<close>. The configuration-backed short names are inline-only
-aliases for the globally prefixed configurations. Options may appear in any order. For Boolean
-options, omitting \<open>= true\<close> enables the option, so both commands accept
-\<open>[conformance_check]\<close> and \<open>urust_expr\<close> also accepts \<open>[abbrev]\<close>. Explicit
-\<open>= true\<close> and \<open>= false\<close> remain available; integer and attribute-list options always require a
-value.
+\<open>conformance_check\<close> and \<open>application_def\<close>, integer \<open>verbose\<close>, and attribute-list
+\<open>attrs\<close>; only \<open>urust_expr\<close> accepts Boolean \<open>abbrev\<close>. The configuration-backed short names
+are inline-only aliases for the globally prefixed configurations. Options may appear in any order.
+For Boolean options, omitting \<open>= true\<close> enables the option, so both commands accept
+\<open>[conformance_check]\<close> and \<open>[application_def]\<close>, while \<open>urust_expr\<close> also accepts
+\<open>[abbrev]\<close>. Explicit \<open>= true\<close> and \<open>= false\<close> remain available; integer and
+attribute-list options always require a value.
 
 An argument-taking \<open>urust_expr [abbrev]\<close> declaration is the supported way to expose a parser
 expression as a HOL helper. At HOL use sites, write \<open>(helper args)\<close> when surrounding syntax would
@@ -122,9 +132,13 @@ val urust_verbose =
 val urust_abbrev =
   Attrib.setup_config_bool \<^binding>\<open>urust_abbrev\<close> (K false)
 
+val urust_application_def =
+  Attrib.setup_config_bool \<^binding>\<open>urust_application_def\<close> (K false)
+
 val conformance_option = "conformance_check"
 val verbose_option = "verbose"
 val abbrev_option = "abbrev"
+val application_def_option = "application_def"
 val attributes_option = "attrs"
 
 (* Command configurations:
@@ -135,6 +149,8 @@ val attributes_option = "attrs"
      verbose.
    - urust_abbrev controls input-only abbreviations for urust_expr only; its inline alias is abbrev,
      and urust_fn always defines.
+   - urust_application_def puts explicit source arguments on the generated definition theorem's
+     left-hand side; its inline alias is application_def.
    - attrs is inline-only and carries Isabelle theorem attributes for the generated _def theorem of
      a named definition.
    Verbosity values outside 0..2 are rejected. *)
@@ -151,6 +167,7 @@ datatype command_option_config =
 val common_option_configs =
   [(conformance_option, Boolean_Config urust_conformance_check),
    (verbose_option, Integer_Config urust_verbose),
+   (application_def_option, Boolean_Config urust_application_def),
    (attributes_option, Attributes_Config)]
 
 val expression_option_configs =
@@ -537,7 +554,8 @@ fun declaration_name fallback lhs =
    | Free (name, _) => name
    | _ => fallback)
 
-fun install_urust_result abbreviation attributes binding term lthy =
+fun install_urust_result abbreviation application_definition
+    attributes binding argument_count term lthy =
   let
     val name = Binding.name_of binding
     (* Keep declaration installation silent even when show_results is enabled; the cumulative
@@ -549,13 +567,17 @@ fun install_urust_result abbreviation attributes binding term lthy =
       |> filter_out (Variable.is_fixed lthy o #1)
       |> rev
       |> map Free
+    val (definition_arguments, definition_rhs) =
+      if application_definition
+      then Term.strip_abs_eta argument_count term
+      else ([], term)
     val definition_lhs =
       list_comb
         (Free
           (name,
            map fastype_of definition_parameters --->
              fastype_of term),
-         definition_parameters)
+         definition_parameters @ map Free definition_arguments)
   in
     if abbreviation then
       let
@@ -575,7 +597,7 @@ fun install_urust_result abbreviation attributes binding term lthy =
           Specification.definition
             (SOME (binding, NONE, NoSyn)) [] []
             ((Thm.def_binding binding, attributes),
-              Logic.mk_equals (definition_lhs, term)) silent_lthy
+              Logic.mk_equals (definition_lhs, definition_rhs)) silent_lthy
         val lhs = list_comb (defined_lhs, definition_parameters)
       in
         (Definition_Result
@@ -584,7 +606,7 @@ fun install_urust_result abbreviation attributes binding term lthy =
       end
   end
 
-fun declare_urust_result abbreviation attributes kind
+fun declare_urust_result abbreviation application_definition attributes kind
     (target, declared_type, source, arguments_pos, arguments) lthy =
   let
     val term =
@@ -597,7 +619,8 @@ fun declare_urust_result abbreviation attributes kind
   in
     (case target of
        Named_Target binding =>
-         install_urust_result abbreviation attributes binding term lthy
+         install_urust_result abbreviation application_definition attributes binding
+           (length arguments) term lthy
      | Anonymous_Target _ =>
          let
            val binding = target_binding kind target
@@ -818,12 +841,22 @@ fun define_urust_expr
     val verbosity = configured_verbosity lthy options
     val abbreviation =
       configured_flag lthy options abbrev_option urust_abbrev
+    val application_definition =
+      configured_flag lthy options application_def_option
+        urust_application_def
+    val _ =
+      if abbreviation andalso application_definition
+      then
+        error
+          "urust_expr: abbreviation mode cannot be combined with `application_def`"
+      else ()
     val attributes =
       declaration_attributes lthy "urust_expr" target abbreviation options
     val kind = command_elaboration_kind lthy declared_type
     val binding = target_binding kind target
     fun declaration lthy' =
-      declare_urust_result abbreviation attributes kind args lthy'
+      declare_urust_result abbreviation application_definition
+        attributes kind args lthy'
     fun checked old_body =
       declare_with_frontend_check declaration binding
         (fn ctxt => fn complete_type =>
@@ -852,12 +885,15 @@ fun define_urust_fn
   let
     val _ = reject_contradictory_against "urust_fn" options against
     val verbosity = configured_verbosity lthy options
+    val application_definition =
+      configured_flag lthy options application_def_option
+        urust_application_def
     val attributes =
       declaration_attributes lthy "urust_fn" target false options
     val raw_type = require_function_type body declared_type
     val binding = target_binding Function target
     fun declaration lthy' =
-      declare_urust_result false attributes Function
+      declare_urust_result false application_definition attributes Function
         (target, SOME raw_type, body, parameters_pos, parameters) lthy'
     fun checked old_body =
       declare_with_frontend_check declaration binding

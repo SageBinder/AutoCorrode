@@ -91,7 +91,12 @@ urust_fn
   ()
   \<open> 3u64 \<close>
 
-urust_fn [conformance_check, verbose = 2] showoff_declared_mix ::
+text\<open>
+The optional \<open>application_def\<close> shape keeps the explicit source parameters on the generated
+definition theorem's left-hand side without changing the curried function value.
+\<close>
+
+urust_fn [application_def, conformance_check, verbose = 2] showoff_declared_mix ::
   \<open>64 word \<Rightarrow> 64 word \<Rightarrow>
     (unit, 64 word, unit, unit, unit) function_body\<close>
   (left, right)
