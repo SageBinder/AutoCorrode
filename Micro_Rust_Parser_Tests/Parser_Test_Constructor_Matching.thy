@@ -2330,6 +2330,84 @@ urust_expr parser_nested_alias_binder ::
     }
   \<close>
 
+lemma parser_nested_registered_ordered_evaluation:
+  \<open>parser_nested_registered_ordered = literal (2 :: nat)\<close>
+  by (simp add: parser_nested_registered_ordered_def micro_rust_simps)
+
+lemma parser_nested_registered_or_ordered_evaluation:
+  \<open>parser_nested_registered_or_ordered = literal (1 :: nat)\<close>
+  by (simp add: parser_nested_registered_or_ordered_def micro_rust_simps)
+
+lemma parser_nested_registered_guard_order_evaluation:
+  assumes \<open>parser_nested_guarded_scrutinee = Err ParserPrimaryStatus\<close>
+      and \<open>parser_nested_guard_marker\<close>
+  shows \<open>parser_nested_registered_guard_order = literal (1 :: nat)\<close>
+  by (simp add: assms parser_nested_registered_guard_order_def
+      two_armed_conditional_def micro_rust_simps)
+
+lemma parser_nested_registered_guard_fallback_evaluation:
+  assumes \<open>parser_nested_guarded_scrutinee = Err ParserPrimaryStatus\<close>
+      and \<open>\<not> parser_nested_guard_marker\<close>
+  shows \<open>parser_nested_registered_guard_order = literal (2 :: nat)\<close>
+  by (simp add: assms parser_nested_registered_guard_order_def
+      two_armed_conditional_def micro_rust_simps)
+
+lemma parser_nested_global_primary_evaluation:
+  assumes \<open>parser_nested_interleaved_scrutinee = Err ParserPrimaryStatus\<close>
+  shows \<open>parser_nested_global_source_order = literal (1 :: nat)\<close>
+  by (simp add: assms parser_nested_global_source_order_def
+      two_armed_conditional_def micro_rust_simps)
+
+lemma parser_nested_global_guard_evaluation:
+  assumes \<open>parser_nested_interleaved_scrutinee = Err ParserSecondaryStatus\<close>
+      and \<open>parser_nested_interleaved_guard\<close>
+  shows \<open>parser_nested_global_source_order = literal (2 :: nat)\<close>
+  by (simp add: assms parser_nested_global_source_order_def
+      two_armed_conditional_def micro_rust_simps)
+
+lemma parser_nested_global_secondary_evaluation:
+  assumes \<open>parser_nested_interleaved_scrutinee = Err ParserSecondaryStatus\<close>
+      and \<open>\<not> parser_nested_interleaved_guard\<close>
+  shows \<open>parser_nested_global_source_order = literal (3 :: nat)\<close>
+  by (simp add: assms parser_nested_global_source_order_def
+      two_armed_conditional_def micro_rust_simps)
+
+lemma parser_nested_global_fallback_evaluation:
+  assumes \<open>parser_nested_interleaved_scrutinee = Ok ()\<close>
+      and \<open>\<not> parser_nested_interleaved_guard\<close>
+  shows \<open>parser_nested_global_source_order = literal (4 :: nat)\<close>
+  by (simp add: assms parser_nested_global_source_order_def
+      two_armed_conditional_def micro_rust_simps)
+
+lemma parser_nested_alias_wildcard_evaluations:
+  assumes \<open>parser_nested_alias_wild_scrutinee = Err ParserPrimaryStatus\<close>
+  shows
+    \<open>parser_nested_alias_wildcard =
+      literal (parser_nested_alias_tag (Err ParserPrimaryStatus))\<close>
+  by (simp add: assms parser_nested_alias_wildcard_def
+      two_armed_conditional_def micro_rust_simps)
+
+lemma parser_nested_alias_wildcard_fallback_evaluations:
+  assumes \<open>parser_nested_alias_wild_scrutinee = Err ParserSecondaryStatus\<close>
+  shows \<open>parser_nested_alias_wildcard = literal (2 :: nat)\<close>
+  by (simp add: assms parser_nested_alias_wildcard_def
+      two_armed_conditional_def micro_rust_simps)
+
+lemma parser_nested_alias_binder_evaluations:
+  assumes \<open>parser_nested_alias_binder_scrutinee = Err ParserPrimaryStatus\<close>
+  shows
+    \<open>parser_nested_alias_binder =
+      literal (parser_nested_alias_rewrite (Err ParserPrimaryStatus))\<close>
+  by (simp add: assms parser_nested_alias_binder_def
+      two_armed_conditional_def micro_rust_simps)
+
+lemma parser_nested_alias_binder_fallback_evaluations:
+  assumes \<open>parser_nested_alias_binder_scrutinee = Err ParserSecondaryStatus\<close>
+  shows
+    \<open>parser_nested_alias_binder = literal (Err ParserSecondaryStatus)\<close>
+  by (simp add: assms parser_nested_alias_binder_def
+      two_armed_conditional_def micro_rust_simps)
+
 declare [[urust_conformance = false]]
 
 urust_expr parser_nested_registered_payload
