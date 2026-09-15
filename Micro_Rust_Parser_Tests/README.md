@@ -77,9 +77,6 @@ ranges, array repeats, unary numeric negation, `/=`, leading `::`, full Rust gen
 trailing commas, signed integers, `u128`, and floating/character/scientific literals. Focused
 negative rows preserve these boundaries.
 
-The experimental `Parser_Term_Hook` remains opt-in. Ordinary command and roll-up theories do not
-import it; only the two focused hook test theories in this session do.
-
 ## Focused regression theories
 
 - `Parser_Tests_Grammar_Literals.thy`: precedence adjacency, unary/cast/postfix behavior, direct and

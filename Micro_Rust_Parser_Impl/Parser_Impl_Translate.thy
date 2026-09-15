@@ -12,13 +12,6 @@ sig
       ((string * Position.T) * typ) list ->
       URust_AST.ur_expr ->
       term
-  val mk_quotation_expression:
-    Proof.context ->
-      (Micro_Rust_Names.ctxt_kind * string *
-        Micro_Rust_Names.entry) list ->
-      ((string * Position.T) * typ) list ->
-      URust_AST.ur_expr ->
-      term
   val mk_function:
     Proof.context ->
       ((string * Position.T) * typ) list ->
@@ -61,11 +54,6 @@ struct
   structure P = URust_Patterns
   structure M = URust_Matching
   structure X = URust_Macros
-
-  fun term_origin environment =
-    if R.is_quotation_environment environment
-    then T.Quotation_Parse
-    else T.Direct_Check
 
   fun lower_place lower ctxt environment place =
     (case place of
@@ -229,7 +217,7 @@ struct
            (lower_expression ctxt environment left)
            (lower_expression ctxt environment right)
      | UE_Cast (operand, target, _) =>
-         T.cast ctxt (term_origin environment) target
+         T.cast target
            (lower_expression ctxt environment operand)
      | UE_Range (kind, lower, upper, _) =>
          T.bounded_range kind
@@ -240,8 +228,7 @@ struct
          T.array_literal
            (map (lower_expression ctxt environment) elements)
      | UE_Unary (operator, operand, pos) =>
-         T.unary (term_origin environment) operator pos
-           (lower_expression ctxt environment operand)
+         T.unary operator pos (lower_expression ctxt environment operand)
      | UE_Group (inner, _) =>
          lower_expression ctxt environment inner
      | UE_Block (inner, _) =>
@@ -359,48 +346,32 @@ struct
            val lowered_rhs = lower_expression ctxt environment rhs
          in
            (case operator of
-              Assign =>
-                T.update (term_origin environment) pos
-                  lowered_place lowered_rhs
-            | AssignAdd =>
-                T.assign_add (term_origin environment) pos
-                  lowered_place lowered_rhs
+              Assign => T.update pos lowered_place lowered_rhs
+            | AssignAdd => T.assign_add pos lowered_place lowered_rhs
             | AssignBin binary_operator =>
-                T.update (term_origin environment) pos lowered_place
+                T.update pos lowered_place
                   (T.assignment_binary binary_operator
-                    (T.unary (term_origin environment)
-                      U_Deref pos lowered_place)
-                    lowered_rhs))
+                    (T.unary U_Deref pos lowered_place) lowered_rhs))
          end
-     | UE_Macro (macro as (_, _, _, pos)) =>
-         if R.is_quotation_environment environment then
-           error
-             ("uRust quotation: macros are not allowed" ^
-               Position.here pos)
-         else
-           X.lower_macro (lower_expression ctxt) ctxt environment macro
+     | UE_Macro macro =>
+         X.lower_macro (lower_expression ctxt) ctxt environment macro
      | UE_Match match =>
          M.lower_match (lower_expression ctxt) ctxt environment match)
 
-  fun mk_with_wrapper allocate wrapper ctxt initial_environment
-      arguments expression =
+  fun mk_with_wrapper allocate wrapper ctxt arguments expression =
     let
       val (argument_terms, environment) =
-        allocate ctxt initial_environment arguments
+        allocate ctxt R.empty_environment arguments
       val body = lower_expression ctxt environment expression
     in fold_rev Term.lambda argument_terms (wrapper body) end
 
   fun mk_expression ctxt arguments expression =
     mk_with_wrapper R.allocate_expression_arguments I
-      ctxt R.empty_environment arguments expression
-
-  fun mk_quotation_expression ctxt dependencies captures expression =
-    mk_with_wrapper R.allocate_expression_arguments I ctxt
-      (R.quotation_environment dependencies) captures expression
+      ctxt arguments expression
 
   fun mk_function ctxt parameters expression =
     mk_with_wrapper R.allocate_function_parameters T.function_body
-      ctxt R.empty_environment parameters expression
+      ctxt parameters expression
 end
 \<close>
 

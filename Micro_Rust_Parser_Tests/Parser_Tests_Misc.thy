@@ -1,4 +1,4 @@
-(* Consolidated parser command, regression, logging, and term-hook tests. *)
+(* Consolidated parser command, regression, and logging tests. *)
 
 theory Parser_Tests_Misc
   imports
@@ -7,7 +7,6 @@ theory Parser_Tests_Misc
     Struct_Ambiguity_Right
     Parser_Test_Registered_Constructor_Fixtures
     Micro_Rust_Std_Lib.StdLib_Logging
-    Micro_Rust_Parser_Impl.Parser_Term_Hook
 begin
 
 chapter\<open>Parser facade\<close>
@@ -18,7 +17,6 @@ declare [[urust_timing_verbosity = 0]]
 declare [[urust_verbosity = 0]]
 declare [[urust_abbrev = false]]
 declare [[urust_application_def = false]]
-declare [[urust_term_hook_conformance_check = false]]
 
 section\<open> Parser facade smoke test \<close>
 
@@ -43,7 +41,6 @@ declare [[urust_timing_verbosity = 0]]
 declare [[urust_verbosity = 0]]
 declare [[urust_abbrev = false]]
 declare [[urust_application_def = false]]
-declare [[urust_term_hook_conformance_check = false]]
 
 section\<open> Common elaboration API \<close>
 
@@ -1449,7 +1446,6 @@ declare [[urust_timing_verbosity = 0]]
 declare [[urust_verbosity = 0]]
 declare [[urust_abbrev = false]]
 declare [[urust_application_def = false]]
-declare [[urust_term_hook_conformance_check = false]]
 
 text\<open>
 This direct resolver regression checks that an HOL record uses the record-specific result variant and
@@ -1466,8 +1462,7 @@ val _ =
        URust_AST.SF_Field ("adv_rec_right", Position.none, wildcard)]
     val resolver =
       URust_Resolution.make_constructor_resolver
-        \<^context> URust_Resolution.empty_environment
-        Position.none
+        \<^context> Position.none
   in
     (case URust_Resolution.resolve_struct_pattern
         \<^context> resolver
@@ -1516,7 +1511,6 @@ chapter\<open>Function declaration and elaboration audits\<close>
 declare [[urust_conformance = false]]
 declare [[urust_verbosity = 0]]
 declare [[urust_abbrev = false]]
-declare [[urust_term_hook_conformance_check = false]]
 
 section\<open>Signature term checks\<close>
 
@@ -1961,7 +1955,6 @@ declare [[urust_timing_verbosity = 0]]
 declare [[urust_verbosity = 0]]
 declare [[urust_abbrev = false]]
 declare [[urust_application_def = false]]
-declare [[urust_term_hook_conformance_check = false]]
 
 section\<open> Default settings \<close>
 
@@ -3548,7 +3541,6 @@ chapter\<open>Regression audits\<close>
 declare [[urust_conformance = false]]
 declare [[urust_verbosity = 0]]
 declare [[urust_abbrev = false]]
-declare [[urust_term_hook_conformance_check = false]]
 
 section\<open> Frontend-shape structural audit \<close>
 
@@ -9645,8 +9637,7 @@ ML_val\<open>
          not (Code.is_constr theory unregistered_name))
 
     val resolver =
-      URust_Resolution.make_constructor_resolver ctxt
-        URust_Resolution.empty_environment Position.none
+      URust_Resolution.make_constructor_resolver ctxt Position.none
     val registered_info =
       the
         (URust_Resolution.resolve_constructor ctxt resolver
@@ -10018,8 +10009,7 @@ ML_val\<open>
 
     val resolver =
       URust_Resolution.make_constructor_resolver
-        ctxt URust_Resolution.empty_environment
-        Position.none
+        ctxt Position.none
     val unary_info =
       the
         (URust_Resolution.resolve_constructor ctxt resolver
@@ -10887,8 +10877,7 @@ ML_val\<open>
       let
         val resolver =
           URust_Resolution.make_constructor_resolver
-            ctxt URust_Resolution.empty_environment
-            (path_position path)
+            ctxt (path_position path)
         val actual =
           URust_Resolution.classify_registered_literal
             ctxt resolver path
@@ -10922,8 +10911,7 @@ ML_val\<open>
             (Parser_Lex_Util.positioned_content_source text start)
         val resolver =
           URust_Resolution.make_constructor_resolver
-            ctxt URust_Resolution.empty_environment
-            (path_position path)
+            ctxt (path_position path)
         val captured =
           Synchronized.var
             ("contextual_match_" ^ label ^ "_classification_reports")
@@ -12028,7 +12016,6 @@ chapter\<open>Turbofish\<close>
 declare [[urust_conformance = false]]
 declare [[urust_verbosity = 0]]
 declare [[urust_abbrev = false]]
-declare [[urust_term_hook_conformance_check = false]]
 
 section\<open> Additive payload fixtures \<close>
 
@@ -12584,7 +12571,6 @@ chapter\<open>Logging\<close>
 declare [[urust_conformance = false]]
 declare [[urust_verbosity = 0]]
 declare [[urust_abbrev = false]]
-declare [[urust_term_hook_conformance_check = false]]
 
 declare [[urust_conformance = true]]
 
@@ -12721,7 +12707,6 @@ chapter\<open>Yield and logging audits\<close>
 declare [[urust_conformance = false]]
 declare [[urust_verbosity = 0]]
 declare [[urust_abbrev = false]]
-declare [[urust_term_hook_conformance_check = false]]
 
 section\<open> Yield and logging structural audit \<close>
 
@@ -13244,7 +13229,6 @@ chapter\<open>Isabelle comments\<close>
 declare [[urust_conformance = false]]
 declare [[urust_verbosity = 0]]
 declare [[urust_abbrev = false]]
-declare [[urust_term_hook_conformance_check = false]]
 
 declare [[urust_conformance = true]]
 
