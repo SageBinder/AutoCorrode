@@ -132,6 +132,13 @@ qualified, generic-free paths only in that context. Aliases lower to the identic
 cast term. Identical registrations are idempotent; conflicts report both declaration positions.
 Alias chains, general Rust types, and named aliases in repeat lengths remain unsupported.
 
+Exact registered associated items may use the existing integer primitive tokens as path heads:
+`u8`, `u16`, `u32`, `u64`, `usize`, `i32`, and `i64`. Literal-role registration is mandatory for
+values, patterns, and repeat lengths; call-role registration is mandatory for calls. The primitive
+head does not participate in lexical, HOL-name, unresolved-free, or native-constructor fallback.
+Identifier-headed paths retain their previous behavior, including unsupported widths such as
+`u128`.
+
 ## Rust-fidelity boundaries
 
 List matching supports closed lists and a single bare or bound rest at any position:
@@ -193,6 +200,9 @@ negative rows preserve these boundaries.
   basename ambiguity, binder fallback, deep registered nullary
   structural matching, guards, coverage, source order, single evaluation, term shape, markup, and
   recovery.
+- `Parser_Primitive_Path_Heads_Tests.thy`: all seven primitive heads, exact literal/call roles,
+  comments and token boundaries, expressions, patterns, repeats, cast aliases, positions,
+  current notation navigation, fallback rejection, and recovery.
 - `Parser_Name_Resolution_Tests.thy`: notation dispatch, navigation, qualifier markup, turbofish,
   and the shared iterator `zip` registration audit.
 - `Parser_Slice_Pattern_Syntax_Tests.thy`: positioned bound-rest ASTs, binder markup, malformed

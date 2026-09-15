@@ -31,6 +31,7 @@ session Micro_Rust_Parser_Tests = HOL +
     Parser_Array_Repeats_Tests
     Parser_Block_Comments_Tests
     Parser_Cast_Target_Aliases_Tests
+    Parser_Primitive_Path_Heads_Tests
     Parser_Pattern_Matching_Tests
     Parser_Slice_Pattern_Syntax_Tests
     Parser_Slice_Pattern_Tests
