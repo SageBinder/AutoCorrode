@@ -93,17 +93,14 @@ ranges, unary numeric negation, `/=`, leading `::`, full Rust generics, universa
 trailing commas, signed integers, `u128`, and floating/character/scientific literals. Focused
 negative rows preserve these boundaries.
 
-The experimental `Parser_Term_Hook` remains opt-in. Ordinary command and roll-up theories do not
-import it; only the two focused hook test theories in this session do.
-
 ## Focused regression theories
 
 - `Parser_Tests_Grammar_Literals.thy`: precedence adjacency, unary/cast/postfix behavior, direct and
   wrapped block-like operands, statement/arm separators, recursive no-struct heads, closures,
   structs, integer lexing, generated grammar, markup, and recovery.
 - `Parser_Tests_Cast_Target_Aliases.thy`: bundle and locale scoping, all integral and raw-pointer
-  aliases, exact qualified paths, primitive term equivalence, conflicts and idempotence, quotation
-  rejection, diagnostics, markup, and parser recovery.
+  aliases, exact qualified paths, primitive term equivalence, conflicts and idempotence, diagnostics,
+  markup, and parser recovery.
 - `Parser_Test_Constructor_Matching.thy`: `Ctr_Sugar`, custom enum and simple-word-enum native case
   metadata, metadata-free value/literal equality and switch controls, ambiguity, deep registered
   nullary structural matching, guards, coverage, source order, single evaluation, term shape, markup,
@@ -112,8 +109,8 @@ import it; only the two focused hook test theories in this session do.
   evaluation, direct/method/chained resolution, arity preflight, notation registration, and
   separation from pure HOL `List.zip`.
 - `Parser_Tests_Array_Repeats.thy`: ordinary and inline-const syntax, restricted length validation,
-  evaluation count/order and control propagation, quotation dependency accounting, term compactness,
-  frontend divergence, markup/navigation, positioned diagnostics, recovery, and regression coverage.
+  evaluation count/order and control propagation, term compactness, frontend divergence,
+  markup/navigation, positioned diagnostics, recovery, and regression coverage.
 - `Parser_Tests_Improvements.thy`: the executable accepted-improvement inventory, including nested
   block comments, ordinary and inline-const array-repeat behavior, scoped cast-target aliases, and a
   dedicated legacy-matcher-bug section for nested registered nullaries, guarded-or fallthrough,

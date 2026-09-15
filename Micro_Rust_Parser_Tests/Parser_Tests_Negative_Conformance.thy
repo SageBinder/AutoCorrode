@@ -893,8 +893,7 @@ local
 
   val resolver =
     URust_Resolution.make_constructor_resolver
-      \<^context> URust_Resolution.empty_environment
-      Position.none
+      \<^context> Position.none
 
   fun qualified identity =
     (case URust_Resolution.resolve_constructor \<^context> resolver

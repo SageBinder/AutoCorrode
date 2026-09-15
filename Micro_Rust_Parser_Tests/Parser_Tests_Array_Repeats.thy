@@ -1,7 +1,6 @@
 theory Parser_Tests_Array_Repeats
   imports
     Parser_Tests_Negative_Conformance
-    Micro_Rust_Parser_Impl.Parser_Term_Hook
     Shallow_Micro_Rust.Eval
 begin
 
@@ -241,117 +240,6 @@ new_urust_rejects audit \<open> [1; fixed_repeat_length] \<close>
 end
 
 urust_expr repeat_recovery_after_rejections \<open> [7; 2] \<close>
-
-subsection\<open>Closed quotation dependency accounting\<close>
-
-lemma repeat_quotation_declared_dependency:
-  \<open>
-    (\<mu>[using \<open>RepeatFixture::Length\<close>]\<open>
-       [1; RepeatFixture::Length]
-     \<close> ::
-      (unit, nat list, unit, unit, unit, unit) expression) =
-    \<mu>[using \<open>RepeatFixture::Length\<close>,]\<open>
-      [1; RepeatFixture::Length]
-    \<close>
-  \<close>
-  by (rule refl)
-
-lemma repeat_quotation_repeated_dependency:
-  \<open>
-    (\<mu>[using \<open>RepeatFixture::Length\<close>]\<open>
-       [[1; RepeatFixture::Length]; RepeatFixture::Length]
-     \<close> ::
-      (unit, nat list list, unit, unit, unit, unit) expression) =
-    \<mu>[using \<open>RepeatFixture::Length\<close>,]\<open>
-      [[1; RepeatFixture::Length]; RepeatFixture::Length]
-    \<close>
-  \<close>
-  by (rule refl)
-
-lemma repeat_quotation_capture_operand:
-  \<open>
-    (\<mu>(captured := (1 :: nat))
-        [using \<open>RepeatFixture::Length\<close>]\<open>
-       [captured; RepeatFixture::Length]
-     \<close> ::
-      (unit, nat list, unit, unit, unit, unit) expression) =
-    \<mu>(renamed := (1 :: nat))
-        [using \<open>RepeatFixture::Length\<close>]\<open>
-      [renamed; RepeatFixture::Length]
-    \<close>
-  \<close>
-  by (rule refl)
-
-lemma repeat_quotation_inline_capture_operand:
-  \<open>
-    (\<mu>(captured := (1 :: nat))
-        [using \<open>RepeatFixture::Length\<close>]\<open>
-       [const { captured }; RepeatFixture::Length]
-     \<close> ::
-      (unit, nat list, unit, unit, unit, unit) expression) =
-    \<mu>(renamed := (1 :: nat))
-        [using \<open>RepeatFixture::Length\<close>]\<open>
-      [const { renamed }; RepeatFixture::Length]
-    \<close>
-  \<close>
-  by (rule refl)
-
-ML_val\<open>
-  local
-    val ctxt = \<^context>
-
-    fun plain_message exn =
-      XML.content_of (YXML.parse_body (Runtime.exn_message exn))
-        handle Fail _ => Runtime.exn_message exn
-
-    fun expect_failure label expected text =
-      (case Exn.result (Syntax.read_term ctxt) text of
-         Exn.Res term =>
-           error
-             ("array repeat quotation audit: " ^ label ^
-               " unexpectedly succeeded: " ^
-               Syntax.string_of_term ctxt term)
-       | Exn.Exn exn =>
-           if Exn.is_interrupt exn then Exn.reraise exn
-           else if String.isSubstring expected (plain_message exn)
-           then ()
-           else
-             error
-               ("array repeat quotation audit: " ^ label ^
-                 " produced the wrong diagnostic:\n" ^
-                 plain_message exn))
-
-    val failures =
-      [("undeclared registered length",
-        "undeclared literal dependency",
-        "\<mu>\<open> [1; RepeatFixture::Length] \<close>"),
-       ("unregistered HOL fallback",
-        "undeclared literal dependency",
-        "\<mu>\<open> [1; repeat_global_length] \<close>"),
-       ("capture in length",
-        "array repeat length cannot use capture or lexical local",
-        "\<mu>(count := (2 :: 64 word))\<open> [1; count] \<close>"),
-       ("lexical local in length",
-        "array repeat length cannot use capture or lexical local",
-        "\<mu>\<open> let count = 2; [1; count] \<close>"),
-       ("length dependency before operand dependency",
-        "missing_length",
-        "\<mu>\<open> [missing_operand; missing_length] \<close>"),
-       ("unused length dependency",
-        "unused dependency",
-        "\<mu>[using \<open>RepeatFixture::Length\<close>]\<open> [1; 2] \<close>")]
-
-    val _ =
-      List.app
-        (fn (label, expected, text) =>
-          expect_failure label expected text)
-        failures
-  in
-    val _ =
-      writeln
-        "Array repeat quotation dependencies and fail-closed behavior passed"
-  end
-\<close>
 
 subsection\<open>Lowering shape, compactness, and regressions\<close>
 

@@ -1,7 +1,5 @@
 theory Parser_Tests_Cast_Target_Aliases
-  imports
-    Parser_Test_Cast_Alias_Fixtures
-    Micro_Rust_Parser_Impl.Parser_Term_Hook
+  imports Parser_Test_Cast_Alias_Fixtures
 begin
 
 chapter\<open>Scoped cast-target aliases\<close>
@@ -239,13 +237,6 @@ ML_val\<open>
             (Parser_Lex_Util.text_source
               "0_u64 as U8Alias::<Width>"))
         "generic arguments are not allowed in cast-target aliases"
-
-    val _ =
-      expect_failure "quotation use"
-        (fn () =>
-          Syntax.read_term \<^context>
-            "\<mu>\<open> 0_u64 as U8Alias \<close>")
-        "named cast-target aliases are not allowed"
   in
     val _ = ()
   end
