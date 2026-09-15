@@ -83,6 +83,14 @@ new_urust_rejects audit
 
 section\<open>Match-arm separators\<close>
 
+text\<open>
+A direct with-block arm may omit its comma when the following pattern has an unambiguous first
+token. Top-level borrow and slice patterns still require a comma because \<open>&\<close> and \<open>[\<close>
+can continue the preceding body as binary-and or indexing. The AST audit below checks the complete
+restricted-start pattern family, both explicit-comma cases, rejection without the comma, and parser
+recovery.
+\<close>
+
 urust_expr [conformance = false] grammar_direct_with_block_arm
   \<open>
     match true {
@@ -555,6 +563,118 @@ ML_val\<open>
        | NONE => error "expected a nonempty uRust expression")
     fun assert message true = ()
       | assert message false = error message
+    fun following_pattern separator pattern =
+      (case parse
+          ("match scrutinee { _ => if flag { left } else { right }" ^
+           separator ^ pattern ^ " => body }") of
+         UE_Match
+           (_, _,
+            [UR_Arm (_, _, UE_If _),
+             UR_Arm (following, _, _)],
+            _) => following
+       | _ =>
+           error
+             ("match-arm separator AST shape changed for pattern " ^
+              quote pattern))
+    fun assert_comma_free_follow (label, pattern) =
+      (case Exn.result (following_pattern " ") pattern of
+         Exn.Res _ => ()
+       | Exn.Exn exn =>
+           Exn.reraise
+             (ERROR
+               ("comma-free direct with-block arm rejected " ^ label ^
+                " pattern " ^ quote pattern ^ ":\n" ^
+                Runtime.exn_message exn)))
+    fun assert_comma_required (label, pattern) =
+      (case Exn.result (following_pattern " ") pattern of
+         Exn.Exn exn =>
+           assert
+             ("comma-free " ^ label ^
+              " pattern changed its syntax diagnostic")
+             (String.isSubstring "syntax error"
+               (Runtime.exn_message exn))
+       | Exn.Res _ =>
+           error
+             ("comma-free direct with-block arm accepted top-level " ^
+              label ^ " pattern " ^ quote pattern))
+    val _ =
+      List.app assert_comma_free_follow
+        [("wildcard", "_"),
+         ("path", "Module::Next"),
+         ("numeral", "1"),
+         ("Boolean", "true"),
+         ("string", "\"key\""),
+         ("value antiquotation", "\<llangle>value\<rrangle>"),
+         ("constructor", "Some(item)"),
+         ("group", "(Next)"),
+         ("tuple", "(left, right)"),
+         ("struct", "Shape { field: item }"),
+         ("alias with borrowed inner pattern", "binding @ &item"),
+         ("range", "1..=2"),
+         ("or-pattern with borrowed tail", "Next | &item"),
+         ("grouped slice", "([item])")]
+    val _ =
+      (case following_pattern ", " "&item" of
+         P_Borrow (BM_Imm, P_Ident ("item", _), _) => ()
+       | _ => error "explicit-comma borrowed arm pattern shape changed")
+    val _ =
+      (case following_pattern ", " "[item]" of
+         P_Slice ([SI_Pat (P_Ident ("item", _))], _) => ()
+       | _ => error "explicit-comma slice arm pattern shape changed")
+    val _ = assert_comma_required ("borrow", "&item")
+    val _ = assert_comma_required ("slice", "[item]")
+    val _ = following_pattern " " "Recovery"
+    val _ =
+      (case parse
+          "match value { First => if flag { left } else { right } Second if guard => body }" of
+         UE_Match
+           (_, _,
+            [UR_Arm (_, _, UE_If _),
+             UR_Arm
+               (P_Ident ("Second", _),
+                SOME (UE_Path _, _), UE_Path _)],
+            _) => ()
+       | _ => error "guarded arm after comma-free block changed shape")
+    val _ =
+      (case parse
+          ("match value { First => if flag { left } else { right } " ^
+           "Second => if guard { middle } else { other } Third => tail }") of
+         UE_Match
+           (_, _,
+            [UR_Arm (_, _, UE_If _),
+             UR_Arm (_, _, UE_If _),
+             UR_Arm (P_Ident ("Third", _), _, UE_Path _)],
+            _) => ()
+       | _ => error "chained comma-free block arms changed shape")
+    val _ =
+      (case parse
+          "match value { First => if flag { left } else { right } Second => return result; }" of
+         UE_Match
+           (_, _,
+            [UR_Arm (_, _, UE_If _),
+             UR_Arm
+               (P_Ident ("Second", _), _, UE_Return _)],
+            _) => ()
+       | _ => error "return arm after comma-free block changed shape")
+    val _ =
+      (case parse
+          "match value { First => if flag { left } else { right } Second => middle, &third => tail }" of
+         UE_Match
+           (_, _,
+            [UR_Arm (_, _, UE_If _),
+             UR_Arm (P_Ident ("Second", _), _, UE_Path _),
+             UR_Arm (P_Borrow _, _, UE_Path _)],
+            _) => ()
+       | _ => error "comma did not restore unrestricted following arms")
+    val _ =
+      (case parse
+          "match value { First => if flag { left } else { right } Second => tail, }" of
+         UE_Match
+           (_, _,
+            [UR_Arm (_, _, UE_If _),
+             UR_Arm (P_Ident ("Second", _), _, UE_Path _)],
+            _) => ()
+       | _ => error "trailing comma after restricted following arm changed")
   in
     val _ =
       (case parse "*x as usize" of
