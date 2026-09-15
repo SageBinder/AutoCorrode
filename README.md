@@ -189,6 +189,11 @@ parentheses, `+ - * / %`, and `as usize`; unsuffixed and `usize` literals are ac
 while other word widths require the cast. Ordinary operands run exactly once, including at length
 zero. Inline-const bodies run once per element and not at all at length zero.
 
+`Parser_Tests_Improvements.thy` provides a consolidated positive baseline for array repeats, nested
+block comments, and scoped cast-target aliases. Its separate legacy matcher-bug section demonstrates
+nested registered-nullary preservation, guarded-or fallthrough, fallback-binder hygiene, and nested
+alias preservation.
+
 Constructor resolution uses Isabelle's datatype/codatatype metadata first and native case metadata
 for exact registered literal backends that are not represented by `Ctr_Sugar`. Registered literals
 without native case metadata remain values. Automatic matching selects equality/switch lowering

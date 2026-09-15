@@ -114,11 +114,14 @@ import it; only the two focused hook test theories in this session do.
 - `Parser_Tests_Array_Repeats.thy`: ordinary and inline-const syntax, restricted length validation,
   evaluation count/order and control propagation, quotation dependency accounting, term compactness,
   frontend divergence, markup/navigation, positioned diagnostics, recovery, and regression coverage.
-- `Parser_Tests_Improvements.thy`, `Parser_Tests_Negative_Conformance.thy`, and
-  `Parser_Tests_Misc.thy`: nested block-comment acceptance against comment-free legacy terms,
-  outer-opener diagnostics, exact full-span markup, literal-state boundaries, and lexer recovery.
+- `Parser_Tests_Improvements.thy`: the executable accepted-improvement inventory, including nested
+  block comments, ordinary and inline-const array-repeat behavior, scoped cast-target aliases, and a
+  dedicated legacy-matcher-bug section for nested registered nullaries, guarded-or fallthrough,
+  shadowed fallback binders, and nested alias capture.
+- `Parser_Tests_Negative_Conformance.thy` and `Parser_Tests_Misc.thy`: focused fidelity boundaries,
+  outer-opener diagnostics, exact full-span comment markup, literal-state boundaries, and recovery.
 - `Parser_Test_Showoff.thy`: combined command, grammar, matching, block-comment, array-repeat, and
-  iterator examples.
+  scoped cast-alias, and iterator examples.
 
 Every `.thy` file in this directory is registered in `ROOT`.
 

@@ -2,7 +2,10 @@
    Test order is significant and matches the former focused theory. *)
 
 theory Parser_Tests_Improvements
-  imports Parser_Tests_Expr Parser_Tests_Fun
+  imports
+    Parser_Tests_Expr
+    Parser_Tests_Fun
+    Parser_Test_Cast_Alias_Fixtures
   keywords
     "old_urust_rejects" :: thy_decl
 begin
@@ -183,6 +186,276 @@ ML_val\<open>
         (contains_bound 1 old_field)
   end
 \<close>
+
+
+section\<open>Legacy frontend matcher bugs\<close>
+
+text\<open>
+These regressions demonstrate silently wrong legacy matcher behavior. They are separate from
+accepted-surface improvements: both frontends may accept the source, but the dedicated matcher
+preserves constructor tests, source-arm fallthrough, and lexical binder identity.
+\<close>
+
+subsection\<open>Nested registered nullary constructors\<close>
+
+datatype improvement_legacy_status =
+    ImprovementLegacyPrimary
+  | ImprovementLegacySecondary
+  | ImprovementLegacyTertiary
+
+micro_rust_notation (literal)
+  improvement_legacy_status.ImprovementLegacyPrimary
+  ("ImprovementLegacyStatus::Primary")
+micro_rust_notation (literal)
+  improvement_legacy_status.ImprovementLegacySecondary
+  ("ImprovementLegacyStatus::Secondary")
+micro_rust_notation (literal)
+  improvement_legacy_status.ImprovementLegacyTertiary
+  ("ImprovementLegacyStatus::Tertiary")
+
+urust_expr improvement_legacy_nested_nullary_fixed
+  \<open>
+    match
+      \<llangle>
+        Err ImprovementLegacySecondary ::
+          (unit, improvement_legacy_status) result
+      \<rrangle>
+    {
+      Err(ImprovementLegacyStatus::Primary) \<Rightarrow> Ok(()),
+      res \<Rightarrow> res
+    }
+  \<close>
+  against
+    \<open>
+      \<lbrakk>
+        match
+          \<llangle>
+            Err ImprovementLegacySecondary ::
+              (unit, improvement_legacy_status) result
+          \<rrangle>
+        {
+          Err(ImprovementLegacyPrimary) \<Rightarrow> Ok(()),
+          res \<Rightarrow> res
+        }
+      \<rbrakk>
+    \<close>
+
+definition improvement_legacy_nested_nullary_old ::
+  \<open>
+    (unit, (unit, improvement_legacy_status) result,
+      unit, unit, unit, unit) expression
+  \<close>
+  where
+    \<open>
+      improvement_legacy_nested_nullary_old =
+        \<lbrakk>
+          match
+            \<llangle>
+              Err ImprovementLegacySecondary ::
+                (unit, improvement_legacy_status) result
+            \<rrangle>
+          {
+            Err(ImprovementLegacyStatus::Primary) \<Rightarrow> Ok(()),
+            res \<Rightarrow> res
+          }
+        \<rbrakk>
+    \<close>
+
+lemma improvement_legacy_nested_nullary_fixed_result:
+  \<open>
+    improvement_legacy_nested_nullary_fixed =
+      literal (Err ImprovementLegacySecondary)
+  \<close>
+  by
+    (simp add:
+      improvement_legacy_nested_nullary_fixed_def
+      micro_rust_simps
+      Core_Expression.bind.simps
+      evaluate_def
+      literal_def)
+
+lemma improvement_legacy_nested_nullary_old_result:
+  \<open>
+    improvement_legacy_nested_nullary_old =
+      literal (Ok ())
+  \<close>
+  by
+    (simp add:
+      improvement_legacy_nested_nullary_old_def
+      micro_rust_simps
+      Core_Expression.bind.simps
+      Core_Expression.call_function_body.simps
+      call_def
+      fun_literal_def
+      evaluate_def
+      literal_def)
+
+subsection\<open>Guarded or-pattern source-arm fallthrough\<close>
+
+definition improvement_legacy_false_guard ::
+  \<open>(nat, bool, unit, unit, unit, unit) expression\<close>
+  where
+    \<open>
+      improvement_legacy_false_guard =
+        sequence (put Suc) (literal False)
+    \<close>
+
+urust_expr improvement_legacy_guarded_or_fixed ::
+  \<open>(nat, nat, unit, unit, unit, unit) expression\<close>
+  \<open>
+    match true {
+      true | _ if
+        \<epsilon>\<open> improvement_legacy_false_guard \<close>
+        \<Rightarrow> \<llangle>1 :: nat\<rrangle>,
+      _ \<Rightarrow> \<llangle>2 :: nat\<rrangle>
+    }
+  \<close>
+
+definition improvement_legacy_guarded_or_old ::
+  \<open>(nat, nat, unit, unit, unit, unit) expression\<close>
+  where
+    \<open>
+      improvement_legacy_guarded_or_old =
+        \<lbrakk>
+          match true {
+            true | _ if
+              \<epsilon>\<open> improvement_legacy_false_guard \<close>
+              \<Rightarrow> \<llangle>1 :: nat\<rrangle>,
+            _ \<Rightarrow> \<llangle>2 :: nat\<rrangle>
+          }
+        \<rbrakk>
+    \<close>
+
+lemma improvement_legacy_guarded_or_fixed_result:
+  \<open>
+    evaluate improvement_legacy_guarded_or_fixed 0 =
+      Success (2 :: nat) 1
+  \<close>
+  by
+    (simp add:
+      improvement_legacy_guarded_or_fixed_def
+      improvement_legacy_false_guard_def
+      two_armed_conditional_def
+      urust_eq_def
+      true_def
+      micro_rust_simps
+      evaluate_def
+      sequence_def
+      put_def
+      literal_def
+      Core_Expression.bind.simps)
+
+lemma improvement_legacy_guarded_or_old_retries:
+  \<open>
+    evaluate improvement_legacy_guarded_or_old 0 =
+      Success (2 :: nat) 2
+  \<close>
+  by
+    (simp add:
+      improvement_legacy_guarded_or_old_def
+      improvement_legacy_false_guard_def
+      two_armed_conditional_def
+      urust_eq_def
+      urust_conj_def
+      true_def
+      false_def
+      micro_rust_simps
+      evaluate_def
+      sequence_def
+      put_def
+      literal_def
+      Core_Expression.bind.simps)
+
+subsection\<open>Shadowed fallback binders\<close>
+
+urust_expr improvement_legacy_shadowed_fallback_fixed
+  \<open>
+    let x = \<llangle>0 :: nat\<rrangle>;
+    match \<llangle>Some (1 :: nat)\<rrangle> {
+      Some(x) if False \<Rightarrow> \<llangle>x\<rrangle>,
+      _ \<Rightarrow> x
+    }
+  \<close>
+
+definition improvement_legacy_shadowed_fallback_old ::
+  \<open>(unit, nat, unit, unit, unit, unit) expression\<close>
+  where
+    \<open>
+      improvement_legacy_shadowed_fallback_old =
+        \<lbrakk>
+          let x = \<llangle>0 :: nat\<rrangle>;
+          match \<llangle>Some (1 :: nat)\<rrangle> {
+            Some(x) if False \<Rightarrow> \<llangle>x\<rrangle>,
+            _ \<Rightarrow> x
+          }
+        \<rbrakk>
+    \<close>
+
+lemma improvement_legacy_shadowed_fallback_fixed_result:
+  \<open>
+    improvement_legacy_shadowed_fallback_fixed =
+      literal (0 :: nat)
+  \<close>
+  by
+    (simp add:
+      improvement_legacy_shadowed_fallback_fixed_def
+      two_armed_conditional_def
+      micro_rust_simps
+      Core_Expression.bind.simps
+      literal_def
+      evaluate_def
+      false_def)
+
+lemma improvement_legacy_shadowed_fallback_old_result:
+  \<open>
+    improvement_legacy_shadowed_fallback_old =
+      literal (1 :: nat)
+  \<close>
+  by
+    (simp add:
+      improvement_legacy_shadowed_fallback_old_def
+      two_armed_conditional_def
+      micro_rust_simps
+      Core_Expression.bind.simps
+      literal_def
+      evaluate_def
+      false_def)
+
+subsection\<open>Nested alias capture\<close>
+
+datatype improvement_legacy_packet =
+    ImprovementLegacyPacket
+      (improvement_legacy_tag: nat)
+      (improvement_legacy_values: "nat list")
+  | ImprovementLegacyEmpty
+
+urust_expr improvement_legacy_alias_fixed
+  \<open>
+    match \<llangle>ImprovementLegacyPacket 2 [5, 8]\<rrangle> {
+      whole @ ImprovementLegacyPacket {
+        improvement_legacy_tag: _,
+        improvement_legacy_values: [head, .., tail]
+      } \<Rightarrow>
+        whole,
+      _ \<Rightarrow>
+        \<llangle>ImprovementLegacyEmpty\<rrangle>
+    }
+  \<close>
+
+lemma improvement_legacy_alias_fixed_result:
+  \<open>
+    improvement_legacy_alias_fixed =
+      literal (ImprovementLegacyPacket 2 [5, 8])
+  \<close>
+  by
+    (simp add:
+      improvement_legacy_alias_fixed_def
+      two_armed_conditional_def
+      micro_rust_simps
+      Core_Expression.bind.simps
+      literal_def
+      evaluate_def
+      bindlift1_def)
 
 
 section\<open>Intentional checked-term corrections\<close>
@@ -1196,6 +1469,132 @@ old_urust_rejects
       4_u64 /* trailing branch layout */
     }
   \<close>
+
+
+section\<open>Array repeats\<close>
+
+text\<open>
+Ordinary repeats evaluate their operand once and replicate the resulting value. The legacy frontend
+accepts the same spelling as a one-element array containing a sequence, so the two checked results
+are intentionally different. Repeat-local inline-const bodies are new syntax.
+\<close>
+
+lemma improvement_array_repeat_unat_word64_2 [simp]:
+  \<open>unat (2 :: 64 word) = 2\<close>
+  by eval
+
+lemma improvement_array_repeat_unat_word64_3 [simp]:
+  \<open>unat (3 :: 64 word) = 3\<close>
+  by eval
+
+lemma improvement_array_repeat_take_bit_word64_2 [simp]:
+  \<open>take_bit LENGTH(64) (2 :: nat) = 2\<close>
+  by (rule take_bit_nat_eq_self; simp)
+
+lemma improvement_array_repeat_take_bit_word64_3 [simp]:
+  \<open>take_bit LENGTH(64) (3 :: nat) = 3\<close>
+  by (rule take_bit_nat_eq_self; simp)
+
+urust_expr improvement_array_repeat_ordinary ::
+  \<open>(unit, nat list, unit, unit, unit, unit) expression\<close>
+  \<open> [\<llangle>1 :: nat\<rrangle>; 3] \<close>
+
+definition improvement_array_repeat_legacy ::
+  \<open>(unit, nat list, unit, unit, unit, unit) expression\<close>
+  where
+    \<open>
+      improvement_array_repeat_legacy =
+        \<lbrakk> [\<llangle>1 :: nat\<rrangle>; 3] \<rbrakk>
+    \<close>
+
+lemma improvement_array_repeat_ordinary_result:
+  \<open>
+    evaluate improvement_array_repeat_ordinary () =
+      Success [1, 1, 1] ()
+  \<close>
+  by
+    (simp add:
+      improvement_array_repeat_ordinary_def
+      evaluate_def
+      literal_def
+      Core_Expression.bind.simps;
+      simp add: eval_nat_numeral)
+
+lemma improvement_array_repeat_legacy_result:
+  \<open>
+    evaluate improvement_array_repeat_legacy () =
+      Success [3] ()
+  \<close>
+  by
+    (simp add:
+      improvement_array_repeat_legacy_def
+      micro_rust_simps
+      evaluate_def
+      sequence_def
+      literal_def
+      Core_Expression.bind.simps)
+
+urust_expr improvement_array_repeat_inline_const ::
+  \<open>(unit, nat option list, unit, unit, unit, unit) expression\<close>
+  \<open> [const { Some(\<llangle>1 :: nat\<rrangle>) }; 2] \<close>
+
+lemma improvement_array_repeat_inline_const_result:
+  \<open>
+    evaluate improvement_array_repeat_inline_const () =
+      Success [Some 1, Some 1] ()
+  \<close>
+  apply (simp add: improvement_array_repeat_inline_const_def)
+  apply (simp add: micro_rust_simps)
+  apply
+    (simp add:
+      Core_Expression.bind.simps
+      Core_Expression.call_function_body.simps
+      evaluate_def
+      literal_def
+      call_def
+      fun_literal_def)
+  apply
+    (simp add:
+      eval_nat_numeral
+      list_sequence.simps
+      evaluate_def
+      literal_def
+      Core_Expression.bind.simps)
+  done
+
+
+section\<open>Scoped cast-target aliases\<close>
+
+text\<open>
+An explicitly included bundle activates exact path aliases for the existing primitive cast targets.
+The alias changes only source spelling: checked terms remain identical to primitive casts.
+\<close>
+
+context includes module_cast_aliases
+begin
+
+context
+  fixes improvement_cast_alias_word :: "64 word"
+begin
+
+urust_expr improvement_cast_target_alias_integral
+  \<open> improvement_cast_alias_word as types::U16Alias \<close>
+  against \<open> \<lbrakk> improvement_cast_alias_word as u16 \<rbrakk> \<close>
+
+end
+
+context
+  fixes improvement_cast_alias_raw :: "('address, 'global) gref"
+begin
+
+urust_expr improvement_cast_target_alias_pointer
+  \<open> improvement_cast_alias_raw as MutUsizePointer \<close>
+  against
+    \<open> \<lbrakk> improvement_cast_alias_raw as *mut usize \<rbrakk> \<close>
+
+end
+
+end
 
 
 section\<open>Rust-compatible integer suffixes\<close>
