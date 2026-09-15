@@ -751,14 +751,23 @@ yacc_definitions\<open>
        | umatch of URust_AST.ur_expr
        | uguard of URust_AST.ur_expr
        | uarm_head of arm_head
+       | uarm_head_after_block of arm_head
        | uarm of URust_AST.ur_arm
        | uarm_with_block of URust_AST.ur_arm
+       | uarm_after_block of URust_AST.ur_arm
+       | uarm_with_block_after_block of URust_AST.ur_arm
        | uarms of URust_AST.ur_arm list
+       | uarms_after_block of URust_AST.ur_arm list
        | upat of URust_AST.ur_pat
+       | upat_after_block of URust_AST.ur_pat
        | upat_range of URust_AST.ur_pat
+       | upat_range_after_block of URust_AST.ur_pat
        | upat_alias of URust_AST.ur_pat
+       | upat_alias_after_block of URust_AST.ur_pat
        | upat_prefix of URust_AST.ur_pat
        | upat_atom of URust_AST.ur_pat
+       | upat_atom_after_block of URust_AST.ur_pat
+       | upat_atom_non_slice of URust_AST.ur_pat
        | upat_ident of string * Position.T
        | upats of URust_AST.ur_pat list
        | uslice_item of URust_AST.slice_item
@@ -1205,9 +1214,9 @@ yacc_rules\<open>
                          (uprimary_nonhead)
   (* Branches are brace-delimited, and right-associative TIF/TELSE precedence preserves nearest-else
      association through recursive mixed chains. Re-check the [verbose] grm.desc after grammar
-     changes. Its only expected conflicts are the two reduce/reduce choices at a comma-free direct
-     with-block match arm followed by an `&` or `[` pattern; those tokens can instead continue the
-     current body as binary-and or indexing, so such following arms require an explicit comma. *)
+     changes. Match-arm recursion below encodes the comma requirement for an `&`- or `[`-headed arm
+     after a direct with-block body, keeping those tokens available for binary-and or indexing
+     without a generated-parser conflict. *)
   ublock : TLBRACE ubody TRBRACE            (UE_Block (ubody, TLBRACEleft))
          | TLBRACE TRBRACE                  (UE_Block (UE_Unit TLBRACEleft, TLBRACEleft))
   (* Unsafe is block-like in operand and statement positions, but deliberately remains distinct from
@@ -1295,16 +1304,46 @@ yacc_rules\<open>
                 (AH_Arm (upat, NONE))
             | upat TIF uguard TARROW
                 (AH_Arm (upat, SOME (uguard, TIFleft)))
+  (* After a comma-free direct with-block arm, the next pattern may start with any ordinary pattern
+     token except `&` or `[`. Those two tokens can continue the preceding body as binary-and or
+     indexing and therefore require an explicit comma. The restricted family changes only the first
+     token: aliases, ranges, or-pattern tails, and explicitly delimited nested patterns remain full. *)
+  uarm_head_after_block : upat_after_block TARROW
+                            (AH_Arm (upat_after_block, NONE))
+                        | upat_after_block TIF uguard TARROW
+                            (AH_Arm
+                              (upat_after_block,
+                               SOME (uguard, TIFleft)))
   uarm : uarm_head uexpr
            (finish_arm (uarm_head, uexpr))
        | uarm_head ureturn TSEMI
            (finish_arm (uarm_head, ureturn))
   uarm_with_block : uarm_head uwith_block_expr
                       (finish_arm (uarm_head, uwith_block_expr))
+  uarm_after_block : uarm_head_after_block uexpr
+                       (finish_arm
+                         (uarm_head_after_block, uexpr))
+                   | uarm_head_after_block ureturn TSEMI
+                       (finish_arm
+                         (uarm_head_after_block, ureturn))
+  uarm_with_block_after_block :
+      uarm_head_after_block uwith_block_expr
+        (finish_arm
+          (uarm_head_after_block, uwith_block_expr))
   uarms : uarm                  ([uarm])
         | uarm COMMA            ([uarm])
         | uarm COMMA uarms      (uarm :: uarms)
-        | uarm_with_block uarms  (uarm_with_block :: uarms)
+        | uarm_with_block uarms_after_block
+            (uarm_with_block :: uarms_after_block)
+  uarms_after_block :
+      uarm_after_block
+        ([uarm_after_block])
+    | uarm_after_block COMMA
+        ([uarm_after_block])
+    | uarm_after_block COMMA uarms
+        (uarm_after_block :: uarms)
+    | uarm_with_block_after_block uarms_after_block
+        (uarm_with_block_after_block :: uarms_after_block)
   (* The single pattern grammar, shared by every binding site above (D28). Its own nonterminals, disjoint
      from `uexpr`, so the constructor pattern cannot clash with the call production nor or-`|` with bitwise
      or. It deliberately ACCEPTS more than any one site can lower (a numeral in `let`, a constructor under
@@ -1315,37 +1354,74 @@ yacc_rules\<open>
   upat : upat_alias               (upat_alias)
         | upat_alias TBAR upat
             (mk_or_pat (upat_alias, upat, TBARleft))
+  upat_after_block : upat_alias_after_block
+                       (upat_alias_after_block)
+                   | upat_alias_after_block TBAR upat
+                       (mk_or_pat
+                         (upat_alias_after_block, upat,
+                          TBARleft))
   upat_alias : upat_range         (upat_range)
               | upat_ident TAT upat_alias
                   (mk_alias_pat (upat_ident, upat_alias, TATleft))
+  upat_alias_after_block : upat_range_after_block
+                             (upat_range_after_block)
+                         | upat_ident TAT upat_alias
+                             (mk_alias_pat
+                               (upat_ident, upat_alias,
+                                TATleft))
   upat_range : upat_prefix        (upat_prefix)
               | upat_range TDOTDOT upat_prefix
                   (P_Range (RK_Exclusive, upat_range, upat_prefix, TDOTDOTleft))
               | upat_range TDOTDOTEQ upat_prefix
                   (P_Range (RK_Inclusive, upat_range, upat_prefix, TDOTDOTEQleft))
+  upat_range_after_block : upat_atom_after_block
+                             (upat_atom_after_block)
+                         | upat_range_after_block TDOTDOT upat_prefix
+                             (P_Range
+                               (RK_Exclusive,
+                                upat_range_after_block,
+                                upat_prefix, TDOTDOTleft))
+                         | upat_range_after_block TDOTDOTEQ upat_prefix
+                             (P_Range
+                               (RK_Inclusive,
+                                upat_range_after_block,
+                                upat_prefix, TDOTDOTEQleft))
   upat_prefix : upat_atom         (upat_atom)
                | TAMP upat_prefix
                    (P_Borrow (BM_Imm, upat_prefix, TAMPleft))
                | TAMP TMUT upat_prefix
                    (P_Borrow (BM_Mut, upat_prefix, TAMPleft))
-  upat_atom : upath               (mk_bare_path_pat upath)
-             | NUM                (P_Literal (LP_Integer (NUM, NUMleft)))
-             | TTRUE              (P_Literal (LP_Bool (true, TTRUEleft)))
-             | TFALSE             (P_Literal (LP_Bool (false, TFALSEleft)))
-             | STRING             (P_Literal (LP_String (STRING, STRINGleft)))
-             | VALAQ              (P_Literal (LP_ValAntiq VALAQ))
-             | upath LPAR upats RPAR
-                 (mk_ctor_pat (upath, upats))
-             | LPAR upat RPAR
-                 (P_Group upat)
-             | LPAR upat COMMA upats RPAR
-                 (P_Tuple (upat :: upats, Position.range_position (LPARleft, RPARright)))
+  upat_atom : upat_atom_non_slice
+                 (upat_atom_non_slice)
              | TLBRACK TRBRACK
                  (P_Slice ([], Position.range_position (TLBRACKleft, TRBRACKright)))
              | TLBRACK uslice_items TRBRACK
                  (P_Slice (uslice_items, Position.range_position (TLBRACKleft, TRBRACKright)))
-             | upath TLBRACE ustruct_fields TRBRACE
-                 (mk_struct_pat (upath, ustruct_fields))
+  upat_atom_after_block : upat_atom_non_slice
+                             (upat_atom_non_slice)
+  upat_atom_non_slice :
+      upath
+        (mk_bare_path_pat upath)
+    | NUM
+        (P_Literal (LP_Integer (NUM, NUMleft)))
+    | TTRUE
+        (P_Literal (LP_Bool (true, TTRUEleft)))
+    | TFALSE
+        (P_Literal (LP_Bool (false, TFALSEleft)))
+    | STRING
+        (P_Literal (LP_String (STRING, STRINGleft)))
+    | VALAQ
+        (P_Literal (LP_ValAntiq VALAQ))
+    | upath LPAR upats RPAR
+        (mk_ctor_pat (upath, upats))
+    | LPAR upat RPAR
+        (P_Group upat)
+    | LPAR upat COMMA upats RPAR
+        (P_Tuple
+          (upat :: upats,
+           Position.range_position (LPARleft, RPARright)))
+    | upath TLBRACE ustruct_fields TRBRACE
+        (mk_struct_pat (upath, ustruct_fields))
   upat_ident : IDENT              ((IDENT, IDENTleft))
   upats : upat %prec TPATCONTEXT ([upat])
         | upat COMMA              ([upat])
