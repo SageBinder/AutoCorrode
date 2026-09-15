@@ -160,7 +160,8 @@ ordinary primary operands. Their separate classification controls only omitted s
 and non-final match-arm commas. Control heads recursively exclude unparenthesized struct expressions,
 while explicit delimiters restore unrestricted parsing. Integer literals support binary, octal,
 decimal, and hexadecimal bases, internal or trailing underscores, and the `u8`, `u16`, `u32`,
-`u64`, and `usize` suffixes.
+`u64`, and `usize` suffixes. Ordinary source also accepts nested Rust `/* ... */` comments as
+layout, with complete outer-span editor markup and no grammar or AST representation.
 
 List patterns accept one unnamed `..` or named `rest @ ..` at any position, including
 `[first, rest @ .., last]`. A capture contains the unmatched middle in its original order.

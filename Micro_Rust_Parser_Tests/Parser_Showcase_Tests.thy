@@ -47,7 +47,7 @@ subsection\<open> Rust-aligned grammar and integer literals \<close>
 
 text\<open>
 Features: binary and octal literals, internal and trailing separators, unified prefix operators,
-unary-before-cast precedence, and a direct conditional operand. Block-like classification affects
+unary-before-cast precedence, nested block comments, and a direct conditional operand. Block-like classification affects
 only statement and match-arm separator elision; it does not form a separate precedence ladder.
 \<close>
 
@@ -56,6 +56,8 @@ urust_expr  showoff_grammar_literals
     let mask = 0b1010_0001u32;
     let permissions = 0o7_55u32;
     let narrowed = !mask as u8;
+    /* Nested Rust block comments are ordinary layout.
+       /* Their contents are not tokenized as uRust. */ */
     let adjusted =
       if true { mask } else { permissions } + 1_;
     (mask, permissions, narrowed, adjusted)
@@ -94,8 +96,8 @@ and arithmetic or contextual repeat lengths converted from \<mu>Rust \<open>usiz
 
 urust_expr showoff_array_repeats
   \<open>
-    let ordinary = [0u64; (1 + 1) * 2];
-    let generated = [const { Some(0u64) }; 3usize];
+    let ordinary = [0u64/* repeat operand */; (1 + 1) * 2];
+    let generated = [const { /* outer /* nested */ */ Some(0u64) }; 3usize];
     (ordinary, generated)
   \<close>
 

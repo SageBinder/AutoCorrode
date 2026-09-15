@@ -150,7 +150,10 @@ and return-arm semicolons. Dereference follows Rust's uniform postfix-before-pre
 dereference-before-index. `Parser_Precedence_Tests.thy` covers indexed, grouped, call, and field
 operands, explicit grouping, and the restricted control-head grammar.
 The parser supports binary, octal, decimal, and hexadecimal integers with internal or
-trailing underscores and `u8`, `u16`, `u32`, `u64`, and `usize` suffixes.
+trailing underscores and `u8`, `u16`, `u32`, `u64`, and `usize` suffixes. Ordinary source accepts
+nested Rust block comments as layout; strings and antiquotations retain marker text, while
+restricted turbofish and log-data syntax continue to reject it. Documentation-shaped comments
+`/** ... */` and `/*! ... */` are expression layout, without documentation-item semantics.
 
 The following remain deliberately unsupported: one-element tuples, general postfix invocation, open
 ranges, unary numeric negation, `/=`, leading `::`, full Rust generics, universal macro
@@ -168,6 +171,9 @@ negative rows preserve these boundaries.
 - `Parser_Syntax_Tests.thy`: precedence adjacency, unary/cast/postfix behavior, direct and
   wrapped block-like operands, statement/arm separators, recursive no-struct heads, closures,
   structs, integer lexing, generated grammar, markup, and recovery.
+- `Parser_Block_Comments_Tests.thy`: nested and adjacent layout, token boundaries, full symbol-aware
+  markup, positioned diagnostics, literal and lexer-state boundaries, recovery, repeats, and
+  dereference/postfix precedence.
 - `Parser_Array_Repeats_Tests.thy`: ordinary and inline-const syntax, restricted length validation,
   evaluation count/order and control propagation, term compactness, markup/navigation, positioned
   diagnostics, recovery, and array/index/borrow/macro regressions.
