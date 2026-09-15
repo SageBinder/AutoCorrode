@@ -179,6 +179,12 @@ Direct top-level tuples in `if let` and `let … else` retain the existing restr
 Their children must satisfy the local `const` pattern policy. Constructor-wrapped tuples use the
 structural case compiler, as do ordinary matches and `while let`.
 
+Array repeats support ordinary `[value; length]` and repeat-local
+`[const { value }; length]`. Lengths admit integer literals, resolved global constants,
+parentheses, `+ - * / %`, and `as usize`; unsuffixed and `usize` literals are accepted directly,
+while other word widths require the cast. Ordinary operands run exactly once, including at length
+zero. Inline-const bodies run once per element and not at all at length zero.
+
 Constructor resolution uses Isabelle's datatype/codatatype metadata first and native case metadata
 for exact registered literal backends that are not represented by `Ctr_Sugar`. Registered literals
 without native case metadata remain values. Automatic matching selects equality/switch lowering
@@ -197,7 +203,7 @@ it also accepts apostrophised identifiers and return-arm semicolons.
 Dereference follows Rust's uniform postfix-before-prefix precedence: `*base[index]` means
 `*(base[index])`, while dereference-before-index requires `(*base)[index]`.
 Deliberately deferred Rust surface includes general
-postfix calls, one-element tuples, open ranges, array repeats, unary numeric negation, `/=`, leading
+postfix calls, one-element tuples, open ranges, unary numeric negation, `/=`, leading
 `::`, full Rust generics, universal macro trailing commas, and additional numeric families.
 
 The parser implementation depends only on `Shallow_Micro_Rust` and `Isabelle_Lex-Yacc`.

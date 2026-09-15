@@ -107,6 +107,14 @@ shorter input, and calls each left thunk before its paired right thunk exactly o
 method uses ordinary receiver-prepending call resolution and returns the established µRust pair
 `(left, right, TNil)`.
 
+Array repeats are a parser-only post-migration extension. Ordinary `[value; length]` evaluates the
+length first and the value exactly once, then returns `List.replicate (unat length) value`.
+Repeat-local `[const { value }; length]` evaluates the length first and uses
+`list_sequence (List.replicate (unat length) value)`, so its body executes once per element.
+Lengths are restricted to integer literals, resolved global constant paths, parentheses,
+`+ - * / %`, and `as usize`. The legacy frontend interprets `[value; length]` as a one-element array
+containing a sequence, so array repeats require conformance-disabled declarations.
+
 ## Rust-fidelity boundaries
 
 List matching supports closed lists and a single bare or bound rest at any position:
@@ -134,7 +142,7 @@ The parser supports binary, octal, decimal, and hexadecimal integers with intern
 trailing underscores and `u8`, `u16`, `u32`, `u64`, and `usize` suffixes.
 
 The following remain deliberately unsupported: one-element tuples, general postfix invocation, open
-ranges, array repeats, unary numeric negation, `/=`, leading `::`, full Rust generics, universal macro
+ranges, unary numeric negation, `/=`, leading `::`, full Rust generics, universal macro
 trailing commas, signed integers, `u128`, and floating/character/scientific literals. Focused
 negative rows preserve these boundaries.
 
@@ -149,6 +157,9 @@ negative rows preserve these boundaries.
 - `Parser_Syntax_Tests.thy`: precedence adjacency, unary/cast/postfix behavior, direct and
   wrapped block-like operands, statement/arm separators, recursive no-struct heads, closures,
   structs, integer lexing, generated grammar, markup, and recovery.
+- `Parser_Array_Repeats_Tests.thy`: ordinary and inline-const syntax, restricted length validation,
+  evaluation count/order and control propagation, term compactness, markup/navigation, positioned
+  diagnostics, recovery, and array/index/borrow/macro regressions.
 - `Parser_Pattern_Matching_Tests.thy`: `Ctr_Sugar`, custom enum and simple-word-enum native case
   metadata, bare and qualified exhaustive/partial/guarded/or/nested and singleton simple-word-enum
   matches, metadata-free value/literal equality and switch controls, ordinary and typedef-backed
@@ -162,7 +173,7 @@ negative rows preserve these boundaries.
 - `Parser_Slice_Pattern_Tests.thy`: ordered extraction and fallback equations, bare suffix
   regressions, structural integer matching, irrefutable aliases, scoping, and evaluation effects.
 - `Parser_Rejection_Tests.thy`: parser diagnostics and iterator arity failures.
-- `Parser_Showcase_Tests.thy`: combined command, grammar, matching, and iterator examples.
+- `Parser_Showcase_Tests.thy`: combined command, grammar, matching, array-repeat, and iterator examples.
 
 Shared declaration-only setup lives in `Parser_Iterator_Fixtures.thy`,
 `Parser_Registered_Constructor_Fixtures.thy`, and the four ambiguity fixture theories. Shared ML

@@ -84,6 +84,21 @@ lemma showoff_list_captures_result:
   \<close>
   by (simp add: showoff_list_captures_def micro_rust_simps)
 
+
+subsection\<open> Array repeats \<close>
+
+text\<open>
+Features: ordinary repeat operands evaluated once, inline-const bodies evaluated once per element,
+and arithmetic repeat lengths converted from \<mu>Rust \<open>usize\<close> values.
+\<close>
+
+urust_expr [conformance = false] showoff_array_repeats
+  \<open>
+    let ordinary = [0u64; (1 + 1) * 2];
+    let generated = [const { Some(0u64) }; 3usize];
+    (ordinary, generated)
+  \<close>
+
 subsection\<open> Logging and yield \<close>
 
 text\<open>
