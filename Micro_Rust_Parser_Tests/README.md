@@ -43,6 +43,10 @@ Blocks, `unsafe`, conditionals, loops, and matches are ordinary primary expressi
 direct-with-block category is used only to decide whether an outer statement semicolon or non-final
 match-arm comma may be omitted. Control heads use the parallel no-struct family recursively; an
 explicit delimiter restores unrestricted expression parsing.
+After a comma-free direct-with-block arm, the grammar admits only following patterns whose first
+token cannot continue the preceding expression. Top-level `&` and `[` patterns therefore require an
+explicit comma, while parenthesized forms remain accepted; this boundary is encoded without
+generated shift/reduce or reduce/reduce conflicts.
 
 Name and constructor metadata operations remain in `URust_Resolution`. `URust_Patterns` owns one
 typed recursive decision compiler for binding, structural selection, guards, source-order fallback,
