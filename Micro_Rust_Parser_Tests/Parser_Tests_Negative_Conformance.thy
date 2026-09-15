@@ -158,10 +158,35 @@ urust_expr_rejects fidelity \<open> 1_u7 \<close> \<open> unsupported integer-li
 
 section\<open> Comments \<close>
 
-urust_expr_rejects fidelity \<open> /* block comments remain unsupported */ () \<close>
-  \<open> / \<close>
-  \<comment> \<open> [FIDELITY] this increment adds only Rust line comments; neither frontend accepts block
-       comments. \<close>
+urust_expr_rejects fidelity \<open> /* comment-only input */ \<close>
+  \<open> empty expression \<close>
+  \<comment> \<open> [FIDELITY] removing all block-comment layout leaves the ordinary empty-input result. \<close>
+
+urust_expr_rejects fidelity \<open> /* unterminated outer comment \<close>
+  \<open> unterminated block comment \<close>
+  \<comment> \<open> [FIDELITY] the dedicated diagnostic is anchored at the outer opener. \<close>
+
+urust_expr_rejects fidelity
+  \<open> /* outer /* nested comment */ still open \<close>
+  \<open> unterminated block comment \<close>
+  \<comment> \<open> [FIDELITY] closing a nested level does not close the outer comment. \<close>
+
+urust_expr_rejects fidelity \<open> /*/ \<close>
+  \<open> unterminated block comment \<close>
+  \<comment> \<open> [FIDELITY] the final slash is body text, not a reversed closer. \<close>
+
+urust_expr_rejects fidelity \<open> 1_u64 */ 2_u64 \<close>
+  \<open> syntax error found at / \<close>
+  \<comment> \<open> [FIDELITY] an unmatched closer remains the ordinary \<open>*\<close> and \<open>/\<close> operator tokens. \<close>
+
+urust_expr_rejects fidelity \<open> f::<1 /* layout */ + 2>() \<close>
+  \<open> unexpected input "/" \<close>
+  \<comment> \<open> [FIDELITY] restricted turbofish syntax does not admit Rust block-comment layout. \<close>
+
+urust_expr_rejects fidelity
+  \<open> l\<llangle>"value", /* layout */ True\<rrangle> \<close>
+  \<open> unexpected input "/" \<close>
+  \<comment> \<open> [FIDELITY] structured log-data syntax retains its deliberately restricted lexer state. \<close>
 
 section\<open> Unsupported Rust-compatible integer suffixes \<close>
 

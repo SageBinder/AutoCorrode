@@ -1100,6 +1100,104 @@ old_urust_rejects
   \<close>
 
 
+section\<open>Nested Rust block comments\<close>
+
+text\<open>
+Nested \<open>/* ... */\<close> comments are ordinary-source layout for the dedicated parser. The old
+inner-syntax frontend has no block-comment token, so each accepted spelling is checked against a
+comment-free frontend witness. Strings and both antiquotation states retain the same marker text as
+literal content in the shared conformance theory.
+\<close>
+
+urust_expr improvement_block_comment_empty
+  \<open> /**/ () \<close>
+  against \<open> \<lbrakk> () \<rbrakk> \<close>
+old_urust_rejects \<open> /**/ () \<close>
+
+urust_expr improvement_block_comment_leading
+  \<open>
+    /** ordinary documentation-shaped comment */
+    ()
+  \<close>
+  against \<open> \<lbrakk> () \<rbrakk> \<close>
+old_urust_rejects
+  \<open>
+    /** ordinary documentation-shaped comment */
+    ()
+  \<close>
+
+urust_expr improvement_block_comment_trailing
+  \<open>
+    ()
+    /*! ordinary inner-documentation-shaped comment */
+  \<close>
+  against \<open> \<lbrakk> () \<rbrakk> \<close>
+old_urust_rejects
+  \<open>
+    ()
+    /*! ordinary inner-documentation-shaped comment */
+  \<close>
+
+urust_expr improvement_block_comment_token_adjacent
+  \<open> 1_u64/* left */+/* right */2_u64 \<close>
+  against \<open> \<lbrakk> 1_u64 + 2_u64 \<rbrakk> \<close>
+old_urust_rejects \<open> 1_u64/* left */+/* right */2_u64 \<close>
+
+urust_expr improvement_block_comment_multiline_nested
+  \<open>
+    1_u64 /*
+      Operators and delimiters are inert: + - * / // => { [ ( , ;.
+      Quotes are inert too: "/* not an opener in a string language */".
+      Formal-comment-shaped text remains body text:
+        \<comment> \<open>not an Isabelle comment at this lexer layer\<close>
+      Escaped symbols remain body text: \<alpha> \<Rightarrow>.
+      /* nested /* deeply nested */ comment */
+    */ + 2_u64
+  \<close>
+  against \<open> \<lbrakk> 1_u64 + 2_u64 \<rbrakk> \<close>
+old_urust_rejects
+  \<open>
+    1_u64 /*
+      Operators and delimiters are inert: + - * / // => { [ ( , ;.
+      Quotes are inert too: "/* not an opener in a string language */".
+      Formal-comment-shaped text remains body text:
+        \<comment> \<open>not an Isabelle comment at this lexer layer\<close>
+      Escaped symbols remain body text: \<alpha> \<Rightarrow>.
+      /* nested /* deeply nested */ comment */
+    */ + 2_u64
+  \<close>
+
+urust_expr improvement_block_comment_division_adjacent
+  \<open> 8_u64/**//2_u64 \<close>
+  against \<open> \<lbrakk> 8_u64 / 2_u64 \<rbrakk> \<close>
+old_urust_rejects \<open> 8_u64/**//2_u64 \<close>
+
+urust_expr improvement_block_comment_multiplication_adjacent
+  \<open> 2_u64*/* layout after multiplication */3_u64 \<close>
+  against \<open> \<lbrakk> 2_u64 * 3_u64 \<rbrakk> \<close>
+old_urust_rejects \<open> 2_u64*/* layout after multiplication */3_u64 \<close>
+
+urust_expr improvement_block_comment_nested_control
+  \<open>
+    if true {
+      /* outer /* inner */ */
+      3_u64
+    } else {
+      4_u64 /* trailing branch layout */
+    }
+  \<close>
+  against \<open> \<lbrakk> if true { 3_u64 } else { 4_u64 } \<rbrakk> \<close>
+old_urust_rejects
+  \<open>
+    if true {
+      /* outer /* inner */ */
+      3_u64
+    } else {
+      4_u64 /* trailing branch layout */
+    }
+  \<close>
+
+
 section\<open>Rust-compatible integer suffixes\<close>
 
 text\<open>
