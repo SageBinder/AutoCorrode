@@ -48,13 +48,6 @@ urust_expr_rejects \<open> 1_u7 \<close> \<open> unsupported integer-literal suf
   \<comment> \<open> [FIDELITY] unknown width suffix, from the single term-layer suffix table (D29); the frontend's
        numeral-ascription syntax rejects it too. Adding \<open>u7\<close> would break this row -- deliberately. \<close>
 
-section\<open> Comments \<close>
-
-urust_expr_rejects \<open> /* block comments remain unsupported */ () \<close>
-  \<open> / \<close>
-  \<comment> \<open> [FIDELITY] this increment adds only Rust line comments; neither frontend accepts block
-       comments. \<close>
-
 section\<open> Unsupported Rust-compatible integer suffixes \<close>
 
 urust_expr_rejects \<open> 1u128 \<close> \<open> unsupported integer-literal suffix "u128" \<close>
