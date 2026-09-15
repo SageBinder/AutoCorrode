@@ -18,6 +18,7 @@ sig
   val string_value: string -> Position.T -> term
   val string_from_characters: term -> term
   val integer_value: Position.T -> string -> term
+  val repeat_length_integer: bool -> Position.T -> string -> term
   val function_body: term -> term
   val closure: term list -> term -> term
   val pause: term
@@ -41,6 +42,8 @@ sig
   val focus_field: term -> term -> term
   val tuple: term list -> term
   val array_literal: term list -> term
+  val array_repeat: term -> term -> term
+  val array_repeat_inline_const: term -> term -> term
   val bounded_range: URust_AST.range_kind -> term -> term -> term
   val index: term -> term -> term
   val tuple_projection: Position.T -> int -> term -> term
@@ -110,7 +113,9 @@ ML\<open>
      values for later wrapping. string_value decodes the lexer-preserved string spelling at the given
      position. integer_value centrally splits suffixes, detects binary/octal/decimal/hexadecimal
      bases, validates digits and separators, removes underscores, converts the value, and applies one
-     of u8, u16, u32, u64, and usize. The compatibility underscore before a suffix remains accepted.
+     of u8, u16, u32, u64, and usize. repeat_length_integer uses that same parser, fixes unsuffixed
+     and usize literals to 64 words, and admits another supported width only beneath an explicit
+     repeat-length `as usize`. The compatibility underscore before a suffix remains accepted.
    * closure wraps one FunctionBody around the already-lowered body, abstracts the ordered formal
      Frees in source order, and then applies one outer literal. It imposes no call-arity limit.
    * pause is the direct primitive pause expression. primitive_log applies the raw priority and data
@@ -134,6 +139,11 @@ ML\<open>
      lens then its receiver. tuple accepts at least two expression terms and emits the frontend's
      right-nested bindlift2/product representation ending in TNil, rejecting shorter lists.
      array_literal emits right-nested bindlift2/List.Cons applications ending in literal List.Nil.
+     array_repeat evaluates its length first and its element exactly once before returning a
+     List.replicate value. array_repeat_inline_const also evaluates the length first, then applies
+     list_sequence to a compact replicated list of the element expression, so the body runs once per
+     element and not at all for length zero. Both convert the fixed 64-word length through unat and
+     retain List.replicate symbolically rather than expanding it.
      bounded_range selects range_new or range_eq_new and applies it through funcall2. index applies the
      overloaded index_const through funcall2. tuple_projection selects one of the fixed
      tuple_index_0 through tuple_index_15 abbreviations and applies it directly, with no position
@@ -405,17 +415,17 @@ struct
         else ()
     in (radix, digits, number_text, suffix_spelling, suffix) end
 
-  fun parse_integer pos lexeme =
+  fun parse_integer_details pos lexeme =
     let
       val (radix, digits, number_text, suffix_spelling, suffix) =
         split_integer_lexeme pos lexeme
       val value = convert_digits radix digits
     in
       if suffix_spelling = ""
-      then (value, NONE)
+      then (value, NONE, suffix_spelling, suffix)
       else
         (case integer_suffix_type suffix of
-           SOME typ => (value, SOME typ)
+           SOME typ => (value, SOME typ, suffix_spelling, suffix)
          | NONE =>
              error ("urust_expr: unsupported integer-literal suffix " ^
                quote suffix_spelling ^
@@ -424,10 +434,32 @@ struct
                Position.here (Position.symbol_explode number_text pos)))
     end
 
+  fun parse_integer pos lexeme =
+    let val (value, typ, _, _) = parse_integer_details pos lexeme
+    in (value, typ) end
+
   fun integer_value pos lexeme =
     (case parse_integer pos lexeme of
        (value, NONE) => HOLogic.mk_number dummyT value
      | (value, SOME typ) => HOLogic.mk_number typ value)
+
+  fun repeat_length_integer allow_sized pos lexeme =
+    let
+      val (value, typ, suffix_spelling, suffix) =
+        parse_integer_details pos lexeme
+      val usizeT = \<^typ>\<open>64 word\<close>
+    in
+      if suffix = "" orelse suffix = "usize"
+      then HOLogic.mk_number usizeT value
+      else if allow_sized
+      then HOLogic.mk_number (the typ) value
+      else
+        error
+          ("urust_expr: array repeat length integer suffix " ^
+            quote suffix_spelling ^
+            " requires an explicit `as usize` cast" ^
+            Position.here pos)
+    end
 
   (* Sequencing must use sequence: replacing it with an anonymous bind changes the generated term. *)
   fun bind expression abstraction =
@@ -498,6 +530,32 @@ struct
         constant \<^const_name>\<open>bindlift2\<close>
           [Const (\<^const_name>\<open>List.Cons\<close>, dummyT),
            first, array_literal rest]
+
+  fun repeat_count count =
+    constant \<^const_name>\<open>unsigned\<close> [count]
+
+  fun replicated count value =
+    constant \<^const_name>\<open>List.replicate\<close>
+      [repeat_count count, value]
+
+  fun array_repeat length element =
+    let
+      val count = Free ("count", \<^typ>\<open>64 word\<close>)
+      val value = Free ("value", dummyT)
+      val result = literal (replicated count value)
+    in
+      bind length
+        (Term.lambda count
+          (bind element (Term.lambda value result)))
+    end
+
+  fun array_repeat_inline_const length element =
+    let
+      val count = Free ("count", \<^typ>\<open>64 word\<close>)
+      val result =
+        constant \<^const_name>\<open>list_sequence\<close>
+          [replicated count element]
+    in bind length (Term.lambda count result) end
 
   fun bounded_range kind lower upper =
     constant \<^const_name>\<open>funcall2\<close>

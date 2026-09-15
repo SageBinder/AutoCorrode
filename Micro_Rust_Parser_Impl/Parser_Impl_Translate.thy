@@ -132,6 +132,25 @@ struct
       val lowered_body = lower body_environment body
     in T.closure formal_terms lowered_body end
 
+  fun lower_repeat_length ctxt environment allow_sized length =
+    (case length of
+       RL_Integer (lexeme, pos) =>
+         T.literal
+           (T.repeat_length_integer allow_sized pos lexeme)
+     | RL_Path path =>
+         T.literal
+           (R.global_constant_path_value ctxt environment path)
+     | RL_Bin (operator, left, right, _) =>
+         T.binary operator
+           (lower_repeat_length ctxt environment allow_sized left)
+           (lower_repeat_length ctxt environment allow_sized right)
+     | RL_Group (inner, _) =>
+         lower_repeat_length ctxt environment allow_sized inner
+     | RL_CastUsize (inner, _) =>
+         T.cast ctxt (term_origin environment)
+           (CT_Unsigned UT_Usize)
+           (lower_repeat_length ctxt environment true inner))
+
   fun empty_block (UE_Block (UE_Unit _, _)) = true
     | empty_block _ = false
 
@@ -179,6 +198,20 @@ struct
      | UE_Array (elements, _) =>
          T.array_literal
            (map (lower_expression ctxt environment) elements)
+     | UE_ArrayRepeat (mode, value, length, _) =>
+         let
+           val lowered_length =
+             lower_repeat_length ctxt environment false length
+           val lowered_value =
+             lower_expression ctxt environment value
+         in
+           (case mode of
+              AR_Ordinary =>
+                T.array_repeat lowered_length lowered_value
+            | AR_InlineConst =>
+                T.array_repeat_inline_const
+                  lowered_length lowered_value)
+         end
      | UE_Struct (head, fields, struct_pos) =>
          let
            fun label (SE_Field (name, pos, _)) = (name, pos)
