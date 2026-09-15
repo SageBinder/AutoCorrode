@@ -6,6 +6,7 @@ session Micro_Rust_Parser_Impl = HOL +
   theories [document = false]
     Parser_Utils
     Parser_Impl_AST
+    Parser_Impl_Cast_Aliases
     Parser_Impl_Grammar
     Parser_Impl_Shallow_Terms
     Parser_Impl_Resolution

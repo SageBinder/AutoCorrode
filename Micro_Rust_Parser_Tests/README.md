@@ -126,6 +126,12 @@ literal whose backend can depend on the surrounding proof context, or a genuine 
 `[value; length]` as a one-element array containing a sequence, so array repeats require
 conformance-disabled declarations.
 
+Scoped cast-target aliases are declared with `urust_cast_alias "SmallId" = "u16"` and may be
+captured in bundles. Importing a fixture does not activate its aliases; inclusion activates exact,
+qualified, generic-free paths only in that context. Aliases lower to the identical existing primitive
+cast term. Identical registrations are idempotent; conflicts report both declaration positions.
+Alias chains, general Rust types, and named aliases in repeat lengths remain unsupported.
+
 ## Rust-fidelity boundaries
 
 List matching supports closed lists and a single bare or bound rest at any position:
@@ -171,6 +177,10 @@ negative rows preserve these boundaries.
 - `Parser_Syntax_Tests.thy`: precedence adjacency, unary/cast/postfix behavior, direct and
   wrapped block-like operands, statement/arm separators, recursive no-struct heads, closures,
   structs, integer lexing, generated grammar, markup, and recovery.
+- `Parser_Cast_Target_Aliases_Tests.thy`: bundle and locale scoping, every integral and raw-pointer
+  target, exact qualified paths, primitive term equality, repeat integration, conflicts, idempotence,
+  positioned diagnostics, navigation markup, and recovery. Its declaration-only fixture is
+  `Parser_Cast_Alias_Fixtures.thy`.
 - `Parser_Block_Comments_Tests.thy`: nested and adjacent layout, token boundaries, full symbol-aware
   markup, positioned diagnostics, literal and lexer-state boundaries, recovery, repeats, and
   dereference/postfix precedence.
