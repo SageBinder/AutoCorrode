@@ -2141,8 +2141,9 @@ conformance. \<open>timing_verbosity\<close> controls only InfoView output: 0 is
 and 2 adds the phase breakdown. A new-parser-only report omits the old-parser and delta lines.
 Same-source and \<open>against\<close>-implied conformance reports include both parser totals and the signed
 absolute \<open>new - old\<close> elapsed-time delta. Reports use PIDE markup and align elapsed, CPU, and GC
-values in whitespace-separated columns. The global settings and inline overrides follow the
-ordinary scoped-option policy.
+values in whitespace-separated columns. Their title marks the command keyword and renders the
+declaration name in bold rather than highlighted markup. The global settings and inline overrides
+follow the ordinary scoped-option policy.
 \<close>
 
 ML_val\<open>
@@ -2164,6 +2165,12 @@ ML_val\<open>
           (Toplevel.make_state (SOME thy))
       end
 
+    fun plain_content body =
+      XML.content_of body
+      |> Symbol.explode
+      |> filter_out Symbol.is_control
+      |> implode
+
     fun capture_command_with interactive source_name command_text =
       let
         val captured =
@@ -2183,7 +2190,7 @@ ML_val\<open>
             YXML.parse_body
               (implode (Synchronized.value captured))
         in
-          (body, XML.content_of body)
+          (body, plain_content body)
         end
       end
 
@@ -2209,9 +2216,9 @@ ML_val\<open>
               (capture urgent)
               (run_command interactive source_name command_text)) ()
         fun content target =
-          XML.content_of
-            (YXML.parse_body
-              (implode (Synchronized.value target)))
+          YXML.parse_body
+            (implode (Synchronized.value target))
+          |> plain_content
       in
         (content ordinary, content urgent)
       end
@@ -2261,6 +2268,32 @@ ML_val\<open>
           ("uRust timing report " ^ label ^
             " is missing PIDE markup " ^ quote expected_markup ^
             " on " ^ quote expected_text)
+
+    fun assert_not_marked_text label unexpected_markup unexpected_text body =
+      if exists
+          (tree_has_marked_text unexpected_markup unexpected_text)
+          body
+      then
+        error
+          ("uRust timing report " ^ label ^
+            " unexpectedly has PIDE markup " ^ quote unexpected_markup ^
+            " on " ^ quote unexpected_text)
+      else ()
+
+    fun tree_has_text expected (XML.Elem (_, body)) =
+          exists (tree_has_text expected) body
+      | tree_has_text expected (XML.Text actual) =
+          String.isSubstring expected actual
+
+    fun assert_bold_text label expected body =
+      if exists
+          (tree_has_text (Symbol.make_bold expected))
+          body
+      then ()
+      else
+        error
+          ("uRust timing report " ^ label ^
+            " is missing bold text " ^ quote expected)
 
     fun find_output_line label expected output =
       (case find_first (String.isSubstring expected) (split_lines output) of
@@ -2471,7 +2504,10 @@ ML_val\<open>
       assert_marked_text "command name"
         Markup.keyword1N "urust_fn" compared_body
     val _ =
-      assert_marked_text "declaration name"
+      assert_bold_text "declaration name"
+        "timing_compared" compared_body
+    val _ =
+      assert_not_marked_text "declaration name"
         Markup.intensifyN "timing_compared" compared_body
     val _ =
       assert_contains "source-size line"

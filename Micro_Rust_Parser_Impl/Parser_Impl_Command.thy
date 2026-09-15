@@ -56,9 +56,10 @@ new declaration's inferred argument types, then abstracted in the same order.
 command measures the parser pipeline and emits a structured timing record. The independent integer
 \<open>urust_timing_verbosity\<close> configuration and inline \<open>timing_verbosity\<close> option default to 0:
 0 prints nothing, 1 prints the aligned, PIDE-marked summary, and 2 additionally prints the phase
-breakdown. A nonzero timing verbosity requires timing information to be enabled. Conformance adds
-the old-parser time and signed elapsed-time delta \<open>new - old\<close>; a negative delta means that the new
-parser is faster. Timing does not change generated terms, declarations, or proofs.
+breakdown. The report title marks the command keyword and renders the declaration name in bold. A
+nonzero timing verbosity requires timing information to be enabled. Conformance adds the old-parser
+time and signed elapsed-time delta \<open>new - old\<close>; a negative delta means that the new parser is
+faster. Timing does not change generated terms, declarations, or proofs.
 
 An optional trailing \<open>against old_term\<close> supplies a distinct existing-frontend term and implies
 conformance checking even when the configuration is false. Combining it with an explicit
@@ -577,7 +578,7 @@ fun command_timing_report timing_verbosity title declaration_name source timer =
               NONE => []
             | SOME name =>
                 [Pretty.str " ",
-                 Pretty.mark Markup.intensify (Pretty.str name)]) @
+                 Pretty.str (Symbol.make_bold name)]) @
            [Pretty.str " timing information"]))
     val source_size_line =
       Pretty.block0
