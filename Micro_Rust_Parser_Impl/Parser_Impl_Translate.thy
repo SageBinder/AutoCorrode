@@ -345,7 +345,7 @@ struct
                   (R.function_path ctxt environment path, arguments)
               | UC_Method (receiver, segment) =>
                   (R.method_path ctxt environment
-                     (UR_Path ([segment],
+                     (UR_Path (Identifier_Head, [segment],
                        (case segment_generic_args segment of
                           SOME (Generic_Args (_, pos)) => pos
                         | NONE => #2 (segment_identifier segment)))),

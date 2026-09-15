@@ -532,20 +532,24 @@ struct
     Context_Position.report ctxt
       (#2 (segment_identifier segment)) Markup.free
 
-  fun report_path_qualifiers ctxt path =
+  fun identifier_qualifiers path =
     let
       val segments = path_segments path
       val qualifiers =
         if null segments then [] else take (length segments - 1) segments
     in
-      List.app (report_free_path_segment ctxt) qualifiers
+      if is_primitive_path path andalso not (null qualifiers)
+      then tl qualifiers
+      else qualifiers
     end
+
+  fun report_path_qualifiers ctxt path =
+    List.app (report_free_path_segment ctxt)
+      (identifier_qualifiers path)
 
   fun report_literal_path_qualifiers ctxt registrations path =
     let
-      val segments = path_segments path
-      val qualifiers =
-        if null segments then [] else take (length segments - 1) segments
+      val qualifiers = identifier_qualifiers path
       val families =
         registered_constructor_family_names ctxt registrations
 
@@ -558,6 +562,9 @@ struct
             [Name_Space.markup type_space family, Markup.keyword3]
         end
     in
+      if is_primitive_path path then
+        List.app (report_free_path_segment ctxt) qualifiers
+      else
       (case rev qualifiers of
          [] => ()
        | nearest :: earlier =>
@@ -644,6 +651,23 @@ struct
          in SOME registered end
      | NONE => NONE)
 
+  fun primitive_registration_error kind path =
+    let
+      val name = render_path path
+      val pos = #2 (path_terminal path)
+      val role =
+        (case kind of
+           Micro_Rust_Names.NLiteral => "literal"
+         | Micro_Rust_Names.NFunction => "call"
+         | Micro_Rust_Names.NField => "field")
+    in
+      error
+        ("urust_expr: primitive associated-item path " ^ quote name ^
+          " requires an exact micro_rust_notation (" ^
+          role ^ ") declaration" ^
+          Position.here pos)
+    end
+
   fun global_constant_path_value ctxt environment path =
     let
       val name = render_path path
@@ -673,46 +697,58 @@ struct
       (case exact_registered_path ctxt Micro_Rust_Names.NLiteral path of
          SOME registered => registered
        | NONE =>
-           let
-             val hol_name =
-               if String.isSubstring "::" name
-               then
-                 Long_Name.implode
-                   (String.tokens (fn c => c = #":") name)
-               else name
-           in
-             (case try
-                 (Proof_Context.read_const
-                   {proper = true, strict = false} ctxt)
-                 hol_name of
-                SOME (Const (constant_name, _)) =>
-                  let
-                    val consts = Proof_Context.consts_of ctxt
-                    val constant_type =
-                      Consts.the_constraint consts constant_name
-                    val _ = report_path_qualifiers ctxt path
-                    val _ =
-                      List.app (Context_Position.report ctxt pos)
-                        [Name_Space.markup
-                           (Consts.space_of consts) constant_name,
-                         Markup.const]
-                    val _ =
-                      Context_Position.report_text ctxt pos Markup.typing
-                        (Syntax.string_of_typ ctxt constant_type)
-                  in
-                    T.source_position pos
-                      (Const (constant_name, dummyT))
-                  end
-              | _ =>
-                  error
-                    ("urust_expr: array repeat length path " ^
-                      quote name ^
-                      " does not resolve to a global constant" ^
-                      Position.here pos))
-           end)
+           if is_primitive_path path then
+             primitive_registration_error
+               Micro_Rust_Names.NLiteral path
+           else
+             let
+               val hol_name =
+                 if String.isSubstring "::" name
+                 then
+                   Long_Name.implode
+                     (String.tokens (fn c => c = #":") name)
+                 else name
+             in
+               (case try
+                   (Proof_Context.read_const
+                     {proper = true, strict = false} ctxt)
+                   hol_name of
+                  SOME (Const (constant_name, _)) =>
+                    let
+                      val consts = Proof_Context.consts_of ctxt
+                      val constant_type =
+                        Consts.the_constraint consts constant_name
+                      val _ = report_path_qualifiers ctxt path
+                      val _ =
+                        List.app (Context_Position.report ctxt pos)
+                          [Name_Space.markup
+                             (Consts.space_of consts) constant_name,
+                           Markup.const]
+                      val _ =
+                        Context_Position.report_text ctxt pos Markup.typing
+                          (Syntax.string_of_typ ctxt constant_type)
+                    in
+                      T.source_position pos
+                        (Const (constant_name, dummyT))
+                    end
+                | _ =>
+                    error
+                      ("urust_expr: array repeat length path " ^
+                        quote name ^
+                        " does not resolve to a global constant" ^
+                        Position.here pos))
+             end)
     end
 
   fun literal_path_value ctxt environment path =
+    if is_primitive_path path then
+      (case exact_registered_path ctxt
+          Micro_Rust_Names.NLiteral path of
+         SOME registered => registered
+       | NONE =>
+           primitive_registration_error
+             Micro_Rust_Names.NLiteral path)
+    else
     (case path_segments path of
        [Path_Segment (name, pos, NONE)] =>
          literal_identifier_value ctxt environment (name, pos)
@@ -770,6 +806,10 @@ struct
              (case exact_registered_path ctxt Micro_Rust_Names.NFunction path of
                 SOME registered => registered
               | NONE =>
+                  if is_primitive_path path then
+                    primitive_registration_error
+                      Micro_Rust_Names.NFunction path
+                  else
                   let
                     val _ = reject_intermediate_generics path
                     val base = remove_final_generic_args path
@@ -868,6 +908,8 @@ struct
            SOME (Const (_, T)) => is_nullary_function_type T
          | _ => false)
     in
+      if is_primitive_path path then registered ()
+      else
       (case path_segments path of
          [Path_Segment (name, _, NONE)] =>
            (case Symtab.lookup locals name of
@@ -1248,12 +1290,15 @@ struct
     (case exact_literal_registrations ctxt path of
        [] => Unregistered_Literal
      | registrations =>
-         if null
+         if is_primitive_path path then Registered_Value_Literal
+         else if null
              (registered_constructor_candidates ctxt resolver registrations)
          then Registered_Value_Literal
          else Registered_Constructor_Literal)
 
   fun resolve_constructor ctxt resolver path =
+    if is_primitive_path path then NONE
+    else
     let
       val name = render_path path
       val pos = #2 (path_terminal path)

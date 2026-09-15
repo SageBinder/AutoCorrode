@@ -125,6 +125,46 @@ urust_expr showoff_scoped_cast_alias
 
 end
 
+subsection\<open> Primitive associated items \<close>
+
+definition showoff_primitive_u8_max :: \<open>8 word\<close>
+  where \<open>showoff_primitive_u8_max = 7\<close>
+
+definition showoff_primitive_u64_max :: \<open>64 word\<close>
+  where \<open>showoff_primitive_u64_max = 63\<close>
+
+definition showoff_primitive_count :: \<open>64 word\<close>
+  where \<open>showoff_primitive_count = 3\<close>
+
+definition showoff_primitive_values :: \<open>64 word option list\<close>
+  where \<open>showoff_primitive_values = [Some 5, None]\<close>
+
+definition showoff_primitive_from ::
+    \<open>64 word \<Rightarrow> (unit, 64 word, unit, unit, unit) function_body\<close>
+  where \<open>showoff_primitive_from = lift_fun1 id\<close>
+
+micro_rust_notation (literal) showoff_primitive_u8_max ("u8::MAX")
+micro_rust_notation (literal) showoff_primitive_u64_max ("u64::MAX")
+micro_rust_notation (literal) showoff_primitive_count ("usize::COUNT")
+micro_rust_notation (literal) showoff_primitive_values ("u64::VALUES")
+micro_rust_notation (call) showoff_primitive_from ("u64::from")
+
+text\<open>
+Exact registered primitive heads compose with ordinary layout, casts, calls, postfixes, and repeat
+lengths. The primitive token remains a keyword while the terminal associated item carries notation
+navigation.
+\<close>
+
+urust_expr [conformance = false] showoff_primitive_associated_items
+  \<open>
+    let repeated =
+      [u64 /* associated constant */ :: MAX; usize::COUNT];
+    let widened = u8::MAX as u64;
+    let converted = u64::from(widened);
+    let selected = u64::VALUES[0_usize]?;
+    (repeated, converted, selected)
+  \<close>
+
 subsection\<open> Logging and yield \<close>
 
 text\<open>

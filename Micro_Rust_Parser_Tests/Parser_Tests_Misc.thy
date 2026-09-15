@@ -12067,12 +12067,15 @@ ML_val\<open>
 
     fun generic_arguments text =
       (case parse text of
-         UE_Call
-           (UC_Path
-             (UR_Path
-               ([Path_Segment
-                  ("f", _, SOME (Generic_Args (arguments, _)))], _)),
-            [], _) => arguments
+         UE_Call (UC_Path path, [], _) =>
+           (case path_segments path of
+              [Path_Segment
+                ("f", _, SOME (Generic_Args (arguments, _)))] =>
+                  arguments
+            | _ =>
+                error
+                  ("restricted turbofish audit: path shape changed for " ^
+                    quote text))
        | _ =>
            error ("restricted turbofish audit: call shape changed for " ^
              quote text))
@@ -12106,16 +12109,14 @@ ML_val\<open>
           spaced_text spaced_start)
     val _ =
       (case spaced of
-         UE_Call
-           (UC_Path
-             (UR_Path
-               ([Path_Segment
-                  ("f", _,
-                   SOME (Generic_Args
-                     ([Generic_Arg (first_canonical, first_source),
-                       Generic_Arg (second_canonical, second_source)],
-                      generic_pos)))], _)),
-            [], _) =>
+         UE_Call (UC_Path path, [], _) =>
+           (case path_segments path of
+              [Path_Segment
+                ("f", _,
+                 SOME (Generic_Args
+                   ([Generic_Arg (first_canonical, first_source),
+                     Generic_Arg (second_canonical, second_source)],
+                    generic_pos)))] =>
            let
              val expected_generic_start =
                Position.symbol_explode "f" spaced_start
@@ -12147,6 +12148,9 @@ ML_val\<open>
                (Position.offset_of generic_pos =
                   Position.offset_of expected_generic_start)
            end
+            | _ =>
+                error
+                  "restricted turbofish audit: multiline path shape changed")
        | _ => error "restricted turbofish audit: multiline call shape changed")
 
     fun checked_generic_argument source =

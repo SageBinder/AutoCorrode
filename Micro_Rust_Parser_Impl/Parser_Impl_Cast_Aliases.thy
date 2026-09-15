@@ -230,6 +230,13 @@ struct
   fun resolve _ (SCT_Primitive target) = target
     | resolve ctxt (SCT_Named path) =
         let
+          val _ =
+            if is_primitive_path path then
+              error
+                ("urust_expr: primitive associated-item paths cannot be " ^
+                  "cast-target aliases" ^
+                  Position.here (path_position path))
+            else ()
           val _ = reject_generics path
           val alias = render_path path
         in

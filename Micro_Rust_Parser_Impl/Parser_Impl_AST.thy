@@ -33,8 +33,14 @@ sig
     Generic_Args of generic_arg list * Position.T
   datatype path_segment =
     Path_Segment of string * Position.T * generic_args option
+  datatype primitive_type =
+      Primitive_Unsigned of unsigned_type
+    | Primitive_Signed of signed_type
+  datatype path_head =
+      Identifier_Head
+    | Primitive_Head of primitive_type
   datatype ur_path =
-    UR_Path of path_segment list * Position.T
+    UR_Path of path_head * path_segment list * Position.T
 
   datatype source_cast_target =
       SCT_Primitive of cast_target
@@ -42,6 +48,8 @@ sig
 
   val generic_argument_source: generic_arg -> Input.source
   val path_position: ur_path -> Position.T
+  val path_head: ur_path -> path_head
+  val is_primitive_path: ur_path -> bool
   val path_segments: ur_path -> path_segment list
   val segment_identifier: path_segment -> string * Position.T
   val segment_generic_args: path_segment -> generic_args option
@@ -49,6 +57,8 @@ sig
   val remove_final_generic_args: ur_path -> ur_path
   val render_path: ur_path -> string
   val make_single_path: string * Position.T -> ur_path
+  val make_primitive_path:
+    primitive_type * Position.T * path_segment -> ur_path
 
   datatype ur_pat =
       P_Wild of Position.T
@@ -213,6 +223,8 @@ end
       retain raw source spelling; antiquotations retain their positioned Input.source.
     * canonical_fragment and Generic_Arg. A generic argument pairs the grammar-produced, trivia-free
       canonical fragment with its exact positioned source slice for later binder-aware HOL parsing.
+      path_head distinguishes ordinary identifier-headed paths from the seven primitive-token-headed
+      associated-item paths without discarding the common ordered segment representation.
     * borrow_mode (BM_Imm, BM_Mut), range_kind (RK_Exclusive, RK_Inclusive), unsigned_type
       (UT_U8, UT_U16, UT_U32, UT_U64, UT_Usize), signed_type (ST_I32, ST_I64),
       raw_pointer_mutability (RPM_Const, RPM_Mut), primitive cast_target (CT_Unsigned, CT_Signed,
@@ -324,8 +336,14 @@ struct
     Generic_Args of generic_arg list * Position.T
   datatype path_segment =
     Path_Segment of string * Position.T * generic_args option
+  datatype primitive_type =
+      Primitive_Unsigned of unsigned_type
+    | Primitive_Signed of signed_type
+  datatype path_head =
+      Identifier_Head
+    | Primitive_Head of primitive_type
   datatype ur_path =
-    UR_Path of path_segment list * Position.T
+    UR_Path of path_head * path_segment list * Position.T
 
   datatype source_cast_target =
       SCT_Primitive of cast_target
@@ -334,19 +352,24 @@ struct
   fun generic_argument_canonical (Generic_Arg (canonical, _)) = canonical
   fun generic_argument_source (Generic_Arg (_, source)) = source
 
-  fun path_position (UR_Path (_, pos)) = pos
-  fun path_segments (UR_Path (segments, _)) = segments
+  fun path_position (UR_Path (_, _, pos)) = pos
+  fun path_head (UR_Path (head, _, _)) = head
+  fun is_primitive_path path =
+    (case path_head path of
+       Identifier_Head => false
+     | Primitive_Head _ => true)
+  fun path_segments (UR_Path (_, segments, _)) = segments
   fun segment_identifier (Path_Segment (name, pos, _)) = (name, pos)
   fun segment_generic_args (Path_Segment (_, _, arguments)) = arguments
-  fun final_segment (UR_Path (segments, _)) =
+  fun final_segment (UR_Path (_, segments, _)) =
     (case rev segments of
        segment :: _ => segment
      | [] => error "urust_expr: internal empty path")
-  fun remove_final_generic_args (UR_Path (segments, pos)) =
+  fun remove_final_generic_args (UR_Path (head, segments, pos)) =
     (case rev segments of
        Path_Segment (name, name_pos, _) :: rest =>
          UR_Path
-           (rev (Path_Segment (name, name_pos, NONE) :: rest), pos)
+           (head, rev (Path_Segment (name, name_pos, NONE) :: rest), pos)
      | [] => error "urust_expr: internal empty path")
   fun render_generic_args (Generic_Args (arguments, _)) =
     "::<" ^
@@ -355,10 +378,34 @@ struct
       ">"
   fun render_segment (Path_Segment (name, _, arguments)) =
     name ^ the_default "" (Option.map render_generic_args arguments)
-  fun render_path (UR_Path (segments, _)) =
+  fun render_path (UR_Path (_, segments, _)) =
     space_implode "::" (map render_segment segments)
   fun make_single_path (name, pos) =
-    UR_Path ([Path_Segment (name, pos, NONE)], pos)
+    UR_Path
+      (Identifier_Head, [Path_Segment (name, pos, NONE)], pos)
+  fun primitive_name (Primitive_Unsigned UT_U8) = "u8"
+    | primitive_name (Primitive_Unsigned UT_U16) = "u16"
+    | primitive_name (Primitive_Unsigned UT_U32) = "u32"
+    | primitive_name (Primitive_Unsigned UT_U64) = "u64"
+    | primitive_name (Primitive_Unsigned UT_Usize) = "usize"
+    | primitive_name (Primitive_Signed ST_I32) = "i32"
+    | primitive_name (Primitive_Signed ST_I64) = "i64"
+  fun make_primitive_path (primitive, primitive_pos, segment) =
+    let
+      val head_segment =
+        Path_Segment
+          (primitive_name primitive, primitive_pos, NONE)
+    in
+      UR_Path
+        (Primitive_Head primitive,
+         [head_segment, segment],
+         Position.range_position
+           (primitive_pos,
+            Parser_Lex_Util.exclusive_end
+              (case segment_generic_args segment of
+                 NONE => #2 (segment_identifier segment)
+               | SOME (Generic_Args (_, pos)) => pos)))
+    end
 
   datatype ur_pat =
       P_Wild   of Position.T                          (* _ *)
@@ -569,7 +616,12 @@ struct
   (* Assignment parses an ordinary expression on the left, then crosses this one validation boundary.
      Keeping target recognition out of the grammar gives every invalid expression a stable positioned
      diagnostic and lets grouped/dereferenced field chains compose without parallel productions. *)
-  fun expr_to_place (UE_Path path) = UP_Path path
+  fun expr_to_place (UE_Path path) =
+        if is_primitive_path path then
+          error
+            ("urust_expr: primitive associated-item path is not an assignment target" ^
+              Position.here (path_position path))
+        else UP_Path path
     | expr_to_place (UE_ExprAntiq src) = UP_Antiq src
     | expr_to_place (UE_Group (expr, _)) = expr_to_place expr
     | expr_to_place (UE_Unary (U_Deref, expr, pos)) = UP_Deref (expr, pos)

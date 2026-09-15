@@ -76,6 +76,13 @@ Lengths are restricted to integer literals, resolved global constant paths, pare
 `+ - * / %`, and `as usize`. The legacy frontend interprets `[value; length]` as a one-element array
 containing a sequence, so array repeats require conformance-disabled declarations.
 
+Exact registered associated items may use the existing integer primitive tokens as path heads:
+`u8`, `u16`, `u32`, `u64`, `usize`, `i32`, and `i64`. Literal-role registration is mandatory for
+values, patterns, and repeat lengths; call-role registration is mandatory for calls. The primitive
+head does not participate in lexical, HOL-name, unresolved-free, or native-constructor fallback.
+Identifier-headed paths retain their previous behavior, including unsupported widths such as
+`u128`.
+
 ## Rust-fidelity boundaries
 
 Retained compatibility extensions include complete µRust bodies in guards and statement bodies in
@@ -111,14 +118,17 @@ negative rows preserve these boundaries.
 - `Parser_Tests_Array_Repeats.thy`: ordinary and inline-const syntax, restricted length validation,
   evaluation count/order and control propagation, term compactness, frontend divergence,
   markup/navigation, positioned diagnostics, recovery, and regression coverage.
+- `Parser_Tests_Primitive_Path_Heads.thy`: all seven primitive heads, exact literal/call role
+  selection, comments and token boundaries, expression/pattern/place interactions, AST/range/markup
+  audits, fallback rejection, and recovery.
 - `Parser_Tests_Improvements.thy`: the executable accepted-improvement inventory, including nested
   block comments, ordinary and inline-const array-repeat behavior, scoped cast-target aliases, and a
   dedicated legacy-matcher-bug section for nested registered nullaries, guarded-or fallthrough,
   shadowed fallback binders, and nested alias capture.
 - `Parser_Tests_Negative_Conformance.thy` and `Parser_Tests_Misc.thy`: focused fidelity boundaries,
   outer-opener diagnostics, exact full-span comment markup, literal-state boundaries, and recovery.
-- `Parser_Test_Showoff.thy`: combined command, grammar, matching, block-comment, array-repeat, and
-  scoped cast-alias, and iterator examples.
+- `Parser_Test_Showoff.thy`: combined command, grammar, matching, block-comment, array-repeat,
+  scoped cast-alias, primitive-associated-item, and iterator examples.
 
 Every `.thy` file in this directory is registered in `ROOT`.
 

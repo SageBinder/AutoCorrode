@@ -612,12 +612,13 @@ fun finish_arm (AH_Arm (pattern, guard), body) =
 fun segment_position (Path_Segment (_, pos, NONE)) = pos
   | segment_position (Path_Segment (_, _, SOME (Generic_Args (_, pos)))) = pos
 
-fun make_path segment =
-  UR_Path ([segment], segment_position segment)
-
-fun append_path (UR_Path (segments, pos), segment) =
+fun make_identifier_path segment =
   UR_Path
-    (segments @ [segment],
+    (Identifier_Head, [segment], segment_position segment)
+
+fun append_path (UR_Path (head, segments, pos), segment) =
+  UR_Path
+    (head, segments @ [segment],
      Position.range_position
        (pos, Parser_Lex_Util.exclusive_end (segment_position segment)))
 
@@ -727,6 +728,8 @@ yacc_definitions\<open>
        | upostfix_no_struct of URust_AST.ur_expr
        | uprimary_no_struct of URust_AST.ur_expr
        | upath_segment of URust_AST.path_segment
+       | uidentifier_path of URust_AST.ur_path
+       | uprimitive_path of URust_AST.ur_path
        | upath of URust_AST.ur_path
        | ugeneric_args of URust_AST.generic_args
        | ugeneric_arglist of URust_AST.generic_arg list
@@ -945,16 +948,16 @@ yacc_rules\<open>
                  FUNARITYleft, FUNARITYright,
                  SOME ugeneric_args),
                ucallargs, VALAQleft, RPARright))
-        | upath TBANG LPAR umacrocallargs RPAR
+        | uidentifier_path TBANG LPAR umacrocallargs RPAR
             (UE_Macro
-              (upath, TBANGleft,
+              (uidentifier_path, TBANGleft,
                MP_Arguments umacrocallargs,
-               Position.range_position (upathleft, RPARright)))
-        | upath TBANG TLBRACK umacrocallargs TRBRACK
+               Position.range_position (uidentifier_pathleft, RPARright)))
+        | uidentifier_path TBANG TLBRACK umacrocallargs TRBRACK
             (UE_Macro
-              (upath, TBANGleft,
+              (uidentifier_path, TBANGleft,
                MP_Arguments umacrocallargs,
-               Position.range_position (upathleft, TRBRACKright)))
+               Position.range_position (uidentifier_pathleft, TRBRACKright)))
         | TMATCHESBANG LPAR uexpr COMMA upat RPAR
             (UE_Macro
               (make_single_path
@@ -991,10 +994,22 @@ yacc_rules\<open>
                     (Path_Segment (IDENT, IDENTleft, NONE))
                 | IDENT ugeneric_args
                     (Path_Segment (IDENT, IDENTleft, SOME ugeneric_args))
-  upath : upath_segment
-            (make_path upath_segment)
-        | upath TCOLONCOLON upath_segment
-            (append_path (upath, upath_segment))
+  uidentifier_path : upath_segment
+                       (make_identifier_path upath_segment)
+                   | uidentifier_path TCOLONCOLON upath_segment
+                       (append_path (uidentifier_path, upath_segment))
+  uprimitive_path : TUINT TCOLONCOLON upath_segment
+                      (make_primitive_path
+                        (Primitive_Unsigned TUINT, TUINTleft,
+                         upath_segment))
+                  | TSINT TCOLONCOLON upath_segment
+                      (make_primitive_path
+                        (Primitive_Signed TSINT, TSINTleft,
+                         upath_segment))
+                  | uprimitive_path TCOLONCOLON upath_segment
+                      (append_path (uprimitive_path, upath_segment))
+  upath : uidentifier_path (uidentifier_path)
+        | uprimitive_path (uprimitive_path)
   ugeneric_args : TGOPEN ugeneric_arglist TGT
                     (Generic_Args
                       (ugeneric_arglist,
@@ -1047,8 +1062,8 @@ yacc_rules\<open>
                | TSTAR TMUT TUINT
                    (SCT_Primitive
                      (CT_RawPointer (RPM_Mut, TUINT)))
-               | upath
-                   (SCT_Named upath)
+               | uidentifier_path
+                   (SCT_Named uidentifier_path)
   (* The no-struct family mirrors the structural expression boundaries and binary operator rule.
      Only its primary excludes direct struct expressions; explicit delimiters in the shared non-head
      primary restore unrestricted parsing. A bare operandless return is intentionally absent here:
@@ -1338,8 +1353,8 @@ yacc_rules\<open>
              | TFALSE             (P_Literal (LP_Bool (false, TFALSEleft)))
              | STRING             (P_Literal (LP_String (STRING, STRINGleft)))
              | VALAQ              (P_Literal (LP_ValAntiq VALAQ))
-             | upath LPAR upats RPAR
-                 (mk_ctor_pat (upath, upats))
+             | uidentifier_path LPAR upats RPAR
+                 (mk_ctor_pat (uidentifier_path, upats))
              | LPAR upat RPAR
                  (P_Group upat)
              | LPAR upat COMMA upats RPAR
@@ -1348,8 +1363,8 @@ yacc_rules\<open>
                  (P_Slice ([], Position.range_position (TLBRACKleft, TRBRACKright)))
              | TLBRACK uslice_items TRBRACK
                  (P_Slice (uslice_items, Position.range_position (TLBRACKleft, TRBRACKright)))
-             | upath TLBRACE ustruct_fields TRBRACE
-                 (mk_struct_pat (upath, ustruct_fields))
+             | uidentifier_path TLBRACE ustruct_fields TRBRACE
+                 (mk_struct_pat (uidentifier_path, ustruct_fields))
   upat_ident : IDENT              ((IDENT, IDENTleft))
   upats : upat %prec TPATCONTEXT ([upat])
         | upat COMMA              ([upat])
@@ -1375,12 +1390,12 @@ yacc_rules\<open>
                       (ustruct_field :: ustruct_fields)
   (* Expression labels remain syntax-only and source-ordered. Empty fields and one terminal comma are
      accepted without adding shorthand or rest syntax. *)
-  ustruct_expr : upath TLBRACE TRBRACE
+  ustruct_expr : uidentifier_path TLBRACE TRBRACE
                    (make_struct_expression
-                     (upath, [], TRBRACEright))
-               | upath TLBRACE ustruct_expr_fields TRBRACE
+                     (uidentifier_path, [], TRBRACEright))
+               | uidentifier_path TLBRACE ustruct_expr_fields TRBRACE
                    (make_struct_expression
-                     (upath, ustruct_expr_fields, TRBRACEright))
+                     (uidentifier_path, ustruct_expr_fields, TRBRACEright))
   ustruct_expr_field : IDENT TCOLON ubody
                          (SE_Field (IDENT, IDENTleft, ubody))
   ustruct_expr_fields : ustruct_expr_field

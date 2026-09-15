@@ -194,6 +194,12 @@ block comments, and scoped cast-target aliases. Its separate legacy matcher-bug 
 nested registered-nullary preservation, guarded-or fallthrough, fallback-binder hygiene, and nested
 alias preservation.
 
+The existing integer primitive tokens may head exact registered associated-item paths such as
+`u64::MAX`, `u8::MAX as u64`, and `u64::from(x)`. Literal positions, patterns, repeat lengths, and
+calls select their own registration roles; primitive-headed paths never fall back to lexical names,
+HOL names, unresolved frees, or native constructors. Bare primitive values and primitive-headed
+places, struct/macro heads, field labels, and method names remain invalid.
+
 Constructor resolution uses Isabelle's datatype/codatatype metadata first and native case metadata
 for exact registered literal backends that are not represented by `Ctr_Sugar`. Registered literals
 without native case metadata remain values. Automatic matching selects equality/switch lowering
