@@ -70,7 +70,9 @@ accepted. During production migration the parser additionally accepts apostrophi
 return-arm semicolons, exact native constructor paths written with `::`, and narrow legacy
 dereference/postfix grouping. Explicitly grouping the complete dereference operand retains Rust
 precedence. The parser supports binary, octal, decimal, and hexadecimal integers with internal or
-trailing underscores and `u8`, `u16`, `u32`, `u64`, and `usize` suffixes.
+trailing underscores and `u8`, `u16`, `u32`, `u64`, and `usize` suffixes. Ordinary source accepts
+nested Rust block comments as layout; strings and antiquotations retain the same marker text, while
+restricted turbofish and log-data syntax continue to reject it.
 
 The following remain deliberately unsupported: one-element tuples, general postfix invocation, open
 ranges, array repeats, unary numeric negation, `/=`, leading `::`, full Rust generics, universal macro
@@ -93,6 +95,9 @@ import it; only the two focused hook test theories in this session do.
   evaluation, direct/method/chained resolution, arity preflight, notation registration, and
   separation from pure HOL `List.zip`.
 - `Parser_Test_Showoff.thy`: combined command, grammar, matching, and iterator examples.
+- `Parser_Tests_Improvements.thy`, `Parser_Tests_Negative_Conformance.thy`, and
+  `Parser_Tests_Misc.thy`: nested block-comment acceptance against comment-free legacy terms,
+  outer-opener diagnostics, exact full-span markup, literal-state boundaries, and lexer recovery.
 
 Every `.thy` file in this directory is registered in `ROOT`.
 
