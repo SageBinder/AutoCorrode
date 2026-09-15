@@ -191,6 +191,8 @@ jobs:
         ip/configure-remote.py setup root@localhost \
           --local-isabelle $ISABELLE_HOME \
           --remote-isabelle /root/Isabelle-remote \
+          --remote-heaps /root/Isabelle-remote-heaps \
+          --remote-ml-platform x86_64_32-linux \
           --ml-platform localhost-test
 
     - name: Generate ISABELLE_REMOTE flags
@@ -198,6 +200,8 @@ jobs:
         FLAGS=$(ip/configure-remote.py run root@localhost \
           --local-isabelle $ISABELLE_HOME \
           --remote-isabelle /root/Isabelle-remote \
+          --remote-heaps /root/Isabelle-remote-heaps \
+          --remote-ml-platform x86_64_32-linux \
           --ml-platform localhost-test)
         echo "ISABELLE_REMOTE=$FLAGS" >> $GITHUB_ENV
 
