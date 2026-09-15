@@ -59,6 +59,8 @@ sig
     Proof.context -> environment -> URust_AST.ur_path -> term
   val literal_path:
     Proof.context -> environment -> URust_AST.ur_path -> term
+  val global_constant_path_value:
+    Proof.context -> environment -> URust_AST.ur_path -> term
   val function_identifier:
     Proof.context -> environment -> string * Position.T -> term
   val function_path:
@@ -169,6 +171,9 @@ ML\<open>
     returns the selected unlifted direct callee. apply_generic_arguments parses the retained
     restricted generic argument sources in the current lexical environment and applies them to an
     already-resolved term from left to right.
+    global_constant_path_value is the stricter array-repeat-length route: it rejects lexical locals
+    and fixed parameters, accepts an exact literal registration or genuine HOL constant, translates
+    source `::` to HOL qualification, and never creates an unresolved Free.
     registered_function performs an exact registered NFunction lookup without imposing a caller
     naming policy. is_nullary_function_path is a report-free ambiguity query used by control-head
     validation: declaration arguments retain direct-call precedence, ordinary lexical values and
@@ -771,6 +776,81 @@ struct
              else report_path_qualifiers ctxt path
          in SOME registered end
      | NONE => NONE)
+
+  fun global_constant_path_value ctxt environment path =
+    let
+      val name = render_path path
+      val (_, pos) = path_terminal path
+      val _ = reject_intermediate_generics path
+      val _ =
+        (case segment_generic_args (final_segment path) of
+           NONE => ()
+         | SOME (Generic_Args (_, generic_pos)) =>
+             error
+               ("urust_expr: generic arguments are not allowed in an array repeat length" ^
+                 Position.here generic_pos))
+      val _ =
+        (case path_segments path of
+           [Path_Segment (local_name, local_pos, NONE)] =>
+             if is_some (lookup_local environment local_name) then
+               error
+                 ("urust_expr: array repeat length cannot use lexical local " ^
+                   quote local_name ^ Position.here local_pos)
+             else if Variable.is_fixed ctxt local_name then
+               error
+                 ("urust_expr: array repeat length cannot use fixed parameter " ^
+                   quote local_name ^ Position.here local_pos)
+             else ()
+         | _ => ())
+    in
+      (case exact_registered_path ctxt environment
+          Micro_Rust_Names.NLiteral path of
+         SOME registered => registered
+       | NONE =>
+           (case resolution_of environment of
+              Quotation_Resolution _ =>
+                error
+                  ("uRust quotation: undeclared literal dependency " ^
+                    quote name ^ Position.here pos)
+            | Open_Resolution =>
+                let
+                  val hol_name =
+                    if String.isSubstring "::" name
+                    then
+                      Long_Name.implode
+                        (String.tokens (fn c => c = #":") name)
+                    else name
+                in
+                  (case try
+                      (Proof_Context.read_const
+                        {proper = true, strict = false} ctxt)
+                      hol_name of
+                     SOME (Const (constant_name, _)) =>
+                       let
+                         val consts = Proof_Context.consts_of ctxt
+                         val constant_type =
+                           Consts.the_constraint consts constant_name
+                         val _ = report_path_qualifiers ctxt path
+                         val _ =
+                           List.app (Context_Position.report ctxt pos)
+                             [Name_Space.markup
+                                (Consts.space_of consts) constant_name,
+                              Markup.const]
+                         val _ =
+                           Context_Position.report_text ctxt pos Markup.typing
+                             (Syntax.string_of_typ ctxt constant_type)
+                       in
+                         T.source_position T.Direct_Check pos
+                           (Const (constant_name, dummyT))
+                       end
+                   | _ =>
+                       error
+                         ("urust_expr: array repeat length path " ^
+                           quote name ^
+                           " does not resolve to a global constant" ^
+                           Position.here pos))
+                end))
+    end
 
   fun literal_path_value ctxt environment path =
     (case path_segments path of

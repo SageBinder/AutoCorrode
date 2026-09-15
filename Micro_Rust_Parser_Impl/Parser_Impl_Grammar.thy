@@ -930,6 +930,14 @@ yacc_rules\<open>
                Position.range_position (LPARleft, RPARright)))
         | TLBRACK TRBRACK
             (UE_Array ([], Position.range_position (TLBRACKleft, TRBRACKright)))
+        | TLBRACK uexpr TSEMI uexpr TRBRACK
+            (mk_array_repeat
+              (AR_Ordinary, uexpr1, uexpr2,
+               TLBRACKleft, TRBRACKright))
+        | TLBRACK TCONST ublock TSEMI uexpr TRBRACK
+            (mk_array_repeat
+              (AR_InlineConst, ublock, uexpr,
+               TLBRACKleft, TRBRACKright))
         | TLBRACK arglist TRBRACK
             (UE_Array (arglist, Position.range_position (TLBRACKleft, TRBRACKright)))
         | VALAQ      (UE_Literal (LP_ValAntiq VALAQ))

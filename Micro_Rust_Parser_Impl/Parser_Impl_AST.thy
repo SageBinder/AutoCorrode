@@ -90,6 +90,18 @@ sig
     | AssignAdd
     | AssignBin of assign_binop
 
+  datatype array_repeat_mode =
+      AR_Ordinary
+    | AR_InlineConst
+  datatype repeat_length =
+      RL_Integer of string * Position.T
+    | RL_Path of ur_path
+    | RL_Bin of binop * repeat_length * repeat_length * Position.T
+    | RL_Group of repeat_length * Position.T
+    | RL_CastUsize of repeat_length * Position.T
+
+  val repeat_length_position: repeat_length -> Position.T
+
   datatype log_data_entry =
       LDE_String of string * Position.T
     | LDE_Identifier of string * Position.T
@@ -105,6 +117,8 @@ sig
       UE_Unit of Position.T
     | UE_Tuple of ur_expr list * Position.T
     | UE_Array of ur_expr list * Position.T
+    | UE_ArrayRepeat of
+        array_repeat_mode * ur_expr * repeat_length * Position.T
     | UE_Struct of ur_path * struct_expr_field list * Position.T
     | UE_Path of ur_path
     | UE_Literal of literal_payload
@@ -158,6 +172,9 @@ sig
   val expression_position: ur_expr -> Position.T
   val mk_assign:
     assignop * Position.T -> ur_expr -> ur_expr -> ur_expr
+  val mk_array_repeat:
+    array_repeat_mode * ur_expr * ur_expr * Position.T * Position.T ->
+      ur_expr
   val finish_statement: ur_expr * Position.T -> ur_expr
   val mk_deref: ur_expr * Position.T -> ur_expr
   val mk_bare_path_pat: ur_path -> ur_pat
@@ -209,8 +226,13 @@ end
       versus constructor.
     * match_flavour and MF_Switch, MF_Case, MF_Auto.  MF_Auto requests downstream classification; it
       is not a fourth lowering.
-    * the mutually recursive expression interface ur_expr (UE_Unit, UE_Tuple, UE_Array, UE_Struct,
-      UE_Path, UE_Literal, UE_ExprAntiq, UE_Yield, UE_Log, UE_LogData, UE_Closure, UE_Let,
+    * array_repeat_mode (AR_Ordinary, AR_InlineConst) and repeat_length (RL_Integer, RL_Path,
+      RL_Bin, RL_Group, RL_CastUsize). The repeat-length tree is produced by validating an ordinary
+      parsed expression, so unsupported runtime constructs retain their smallest source position
+      without entering repeat lowering.
+    * the mutually recursive expression interface ur_expr (UE_Unit, UE_Tuple, UE_Array,
+      UE_ArrayRepeat, UE_Struct, UE_Path, UE_Literal, UE_ExprAntiq, UE_Yield, UE_Log, UE_LogData,
+      UE_Closure, UE_Let,
       UE_LetMut, UE_Const, UE_Seq, UE_Return, UE_Bin, UE_Cast, UE_Unary, UE_Group, UE_Block, UE_If,
       UE_IfLet, UE_LetElse, UE_While, UE_Loop, UE_For, UE_WhileLet, UE_Call, UE_Field, UE_Index,
       UE_TupleProjection, UE_Range, UE_Assign, UE_Macro, UE_Match),
@@ -380,6 +402,22 @@ struct
     | AssignAdd
     | AssignBin of assign_binop
 
+  datatype array_repeat_mode =
+      AR_Ordinary
+    | AR_InlineConst
+  datatype repeat_length =
+      RL_Integer of string * Position.T
+    | RL_Path of ur_path
+    | RL_Bin of binop * repeat_length * repeat_length * Position.T
+    | RL_Group of repeat_length * Position.T
+    | RL_CastUsize of repeat_length * Position.T
+
+  fun repeat_length_position (RL_Integer (_, pos)) = pos
+    | repeat_length_position (RL_Path path) = path_position path
+    | repeat_length_position (RL_Bin (_, _, _, pos)) = pos
+    | repeat_length_position (RL_Group (_, pos)) = pos
+    | repeat_length_position (RL_CastUsize (_, pos)) = pos
+
   datatype log_data_entry =
       LDE_String of string * Position.T
     | LDE_Identifier of string * Position.T
@@ -395,6 +433,9 @@ struct
       UE_Unit      of Position.T                      (* () *)
     | UE_Tuple     of ur_expr list * Position.T       (* (e0, e1, ..), at least two elements *)
     | UE_Array     of ur_expr list * Position.T       (* [e0, e1, ..], including empty *)
+    | UE_ArrayRepeat of
+        array_repeat_mode * ur_expr * repeat_length * Position.T
+                                                      (* [value; length] / [const { value }; length] *)
     | UE_Struct    of ur_path * struct_expr_field list * Position.T
                                                       (* Head { label: value, ... }, at full span *)
     | UE_Path      of ur_path
@@ -480,6 +521,7 @@ struct
   fun expression_position (UE_Unit pos) = pos
     | expression_position (UE_Tuple (_, pos)) = pos
     | expression_position (UE_Array (_, pos)) = pos
+    | expression_position (UE_ArrayRepeat (_, _, _, pos)) = pos
     | expression_position (UE_Struct (_, _, pos)) = pos
     | expression_position (UE_Path path) = path_position path
     | expression_position (UE_Literal payload) = literal_position payload
@@ -531,6 +573,43 @@ struct
 
   fun mk_assign (aop, pos) lhs rhs =
     UE_Assign (aop, expr_to_place lhs, rhs, pos)
+
+  fun mk_array_repeat (mode, value, raw_length, left, right) =
+    let
+      fun repeat_operator Add = true
+        | repeat_operator Sub = true
+        | repeat_operator Mul = true
+        | repeat_operator Div = true
+        | repeat_operator Mod = true
+        | repeat_operator _ = false
+
+      fun invalid expression =
+        error
+          ("urust_expr: array repeat length supports only integer literals, global constant paths, " ^
+            "parentheses, `+`, `-`, `*`, `/`, `%`, and `as usize`" ^
+            Position.here (expression_position expression))
+
+      fun validate expression =
+        (case expression of
+           UE_Literal (LP_Integer integer) => RL_Integer integer
+         | UE_Path path => RL_Path path
+         | UE_Bin (operator, left_operand, right_operand, pos) =>
+             if repeat_operator operator
+             then
+               RL_Bin
+                 (operator, validate left_operand,
+                  validate right_operand, pos)
+             else invalid expression
+         | UE_Group (inner, pos) =>
+             RL_Group (validate inner, pos)
+         | UE_Cast (inner, CT_Unsigned UT_Usize, pos) =>
+             RL_CastUsize (validate inner, pos)
+         | _ => invalid expression)
+    in
+      UE_ArrayRepeat
+        (mode, value, validate raw_length,
+         Position.range_position (left, right))
+    end
 
   (* A return's legacy semicolon belongs to its surface production, not to sequencing. *)
   fun finish_statement (return as UE_Return _, _) = return
