@@ -19,6 +19,7 @@ sig
   val antiquotation_error: string -> Position.T -> 'a
   val formal_comment_open_error: Position.T -> 'a
   val formal_comment_close_error: Position.T -> 'a
+  val block_comment_error: Position.T -> 'a
   val log_data_error: Position.T -> 'a
   val turbofish_error: Position.T -> 'a
   val function_literal_suffix_error: Position.T -> 'a
@@ -45,6 +46,8 @@ end
     * formal_comment_open_error pos raises when `\<comment>` is not followed by an opening cartouche.
     * formal_comment_close_error pos raises when a formal-comment cartouche is not closed. Both
       formal-comment failures report at the `\<comment>` opener.
+    * block_comment_error pos raises when a nested Rust block comment is not closed and reports at
+      the outermost `/*` opener.
     * log_data_error pos raises the unterminated-log-data diagnostic at the adjacent `l` opener.
     * turbofish_error pos raises the unterminated-group diagnostic at the generic opener.
     * function_literal_suffix_error pos rejects an arity suffix separated from its value
@@ -52,7 +55,7 @@ end
     * struct_head_generics_error pos rejects generic arguments on any struct-expression head
       segment and reports at that argument group.
 
-  All nine functions have result type 'a because they always raise via error.  Their exact string
+  All ten functions have result type 'a because they always raise via error.  Their exact string
   assembly and use of quote are implementation details, subject to the message and position contracts
   above.  The SML_import below only makes this Isabelle/ML-owned interface available to generated lexer
   code; it does not create a second owner.
@@ -75,6 +78,9 @@ struct
 
   fun formal_comment_close_error pos =
     error ("urust_expr: unterminated formal comment" ^ Position.here pos)
+
+  fun block_comment_error pos =
+    error ("urust_expr: unterminated block comment" ^ Position.here pos)
 
   fun log_data_error pos =
     error ("urust_expr: unterminated log data" ^ Position.here pos)
@@ -155,6 +161,8 @@ val aq_open = ref 0
 val aq_depth = ref 0
 val generic_open = ref (NONE : Position.T option)
 val log_data_open = ref (NONE : Position.T option)
+val block_comment_open = ref (NONE : int option)
+val block_comment_depth = ref 0
 
 datatype comment_context =
     Initial_Comment
@@ -168,10 +176,13 @@ fun reset_aq () =
   (aq_kind := No_AQ; aq_buf := []; aq_start := 0; aq_open := 0; aq_depth := 0)
 fun reset_generic () = generic_open := NONE
 fun reset_log_data () = log_data_open := NONE
+fun reset_block_comment () =
+  (block_comment_open := NONE; block_comment_depth := 0)
 fun reset_comment () =
   (comment_context := NONE; comment_open := 0; comment_depth := ~1)
 fun reset_state () =
-  (reset_aq (); reset_generic (); reset_log_data (); reset_comment ())
+  (reset_aq (); reset_generic (); reset_log_data ();
+   reset_block_comment (); reset_comment ())
 fun start_aq kind open_pos body_pos =
   (aq_kind := kind; aq_buf := []; aq_start := body_pos; aq_open := open_pos; aq_depth := 0)
 fun push_aq fragment = aq_buf := fragment :: !aq_buf
@@ -180,6 +191,8 @@ fun take_aq () =
   in reset_aq (); body end
 fun start_comment context open_pos =
   (comment_context := SOME context; comment_open := open_pos; comment_depth := ~1)
+fun start_block_comment open_pos =
+  (block_comment_open := SOME open_pos; block_comment_depth := 1)
 fun take_comment_context () =
   (case !comment_context of
      SOME context => (reset_comment (); context)
@@ -209,6 +222,20 @@ fun fixed_pos yypos = Parser_Lex_Util.fixed_pos (!source_layout) yypos
 fun tokF args       = Parser_Lex_Util.tokF (!source_layout) args
 fun tok_valF args   = Parser_Lex_Util.tok_valF (!source_layout) args
 fun report_text args = Parser_Lex_Util.report_text (!source_layout) args
+fun finish_block_comment (close_pos, close_text) =
+  (case !block_comment_open of
+     SOME open_pos =>
+       let
+         val stop = close_pos + size close_text
+         val text =
+           String.substring
+             (Parser_Lex_Util.text_of (!source_layout),
+              open_pos, stop - open_pos)
+         val _ =
+           report_text
+             (open_pos, text, Markup.comment1, "block comment")
+       in reset_block_comment () end
+   | NONE => raise Fail "uRust lexer: missing block-comment opener")
 fun tok_ident (yypos, yytext) =
   let val p = Parser_Lex_Util.ident_pos (!source_layout) (yypos, yytext)
   in Tokens.IDENT (yytext, p, p) end
@@ -282,21 +309,25 @@ fun eof () =
        then URust_Grammar.formal_comment_open_error (fixed_pos (!comment_open))
        else URust_Grammar.formal_comment_close_error (fixed_pos (!comment_open))
    | NONE =>
-       (case !aq_kind of
-          No_AQ =>
-            (case !log_data_open of
-               SOME pos => URust_Grammar.log_data_error pos
-             | NONE =>
-                 (case !generic_open of
-                    NONE => Tokens.EOF (Position.none, Position.none)
-                  | SOME pos =>
-                      URust_Grammar.turbofish_error pos))
-        | Value_AQ => URust_Grammar.antiquotation_error "value" (fixed_pos (!aq_open))
-        | Expr_AQ => URust_Grammar.antiquotation_error "expression" (fixed_pos (!aq_open))))
+       (case !block_comment_open of
+          SOME open_pos =>
+            URust_Grammar.block_comment_error (fixed_pos open_pos)
+        | NONE =>
+            (case !aq_kind of
+               No_AQ =>
+                 (case !log_data_open of
+                    SOME pos => URust_Grammar.log_data_error pos
+                  | NONE =>
+                      (case !generic_open of
+                         NONE => Tokens.EOF (Position.none, Position.none)
+                       | SOME pos =>
+                           URust_Grammar.turbofish_error pos))
+             | Value_AQ => URust_Grammar.antiquotation_error "value" (fixed_pos (!aq_open))
+             | Expr_AQ => URust_Grammar.antiquotation_error "expression" (fixed_pos (!aq_open)))))
 \<close>
 lex_definitions\<open>
 %header (functor URustLexFun(structure Tokens: URust_TOKENS));
-%s VAQ EAQ GENERIC LOGDATA COMMENT_OPEN COMMENT;
+%s VAQ EAQ GENERIC LOGDATA BLOCK_COMMENT COMMENT_OPEN COMMENT;
 digit=[0-9];
 hexdigit=[0-9a-fA-F];
 idstart=[A-Za-z_];
@@ -310,6 +341,8 @@ lex_rules\<open>
 <INITIAL>{ws}+    => (lex());
 <INITIAL>"//"[^\n]* =>
     (report_text (yypos, yytext, Markup.comment1, "line comment"); lex());
+<INITIAL>"/*" =>
+    (start_block_comment yypos; YYBEGIN BLOCK_COMMENT; lex());
 <INITIAL>\\"<comment>" =>
     (start_comment Initial_Comment yypos; YYBEGIN COMMENT_OPEN; lex());
 <INITIAL>"0b"[0-1_]+ =>
@@ -490,6 +523,17 @@ lex_rules\<open>
        (yypos, yytext, Markup.delimiter, "TLOGDATACLOSE",
         Tokens.TLOGDATACLOSE));
 <LOGDATA>.        => (URust_Grammar.lex_error yytext (fixed_pos yypos));
+<BLOCK_COMMENT>"/*" =>
+    (block_comment_depth := !block_comment_depth + 1; lex());
+<BLOCK_COMMENT>"*/" =>
+    (if !block_comment_depth > 1 then
+       (block_comment_depth := !block_comment_depth - 1; lex())
+     else
+       (finish_block_comment (yypos, yytext);
+        YYBEGIN INITIAL;
+        lex()));
+<BLOCK_COMMENT>\n => (lex());
+<BLOCK_COMMENT>.  => (lex());
 <COMMENT_OPEN>\n       => (lex());
 <COMMENT_OPEN>{ws}+    => (lex());
 <COMMENT_OPEN>\\"<open>" =>

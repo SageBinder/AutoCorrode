@@ -87,6 +87,8 @@ urust_expr [conformance = false] showoff_grammar_literals
     let mask = 0b1010_0001u32;
     let permissions = 0o7_55u32;
     let narrowed = !mask as u8;
+    /* Nested Rust block comments are ordinary layout.
+       /* Their contents are not tokenized as uRust. */ */
     let adjusted =
       if true { mask } else { permissions } + 1_;
     (mask, permissions, narrowed, adjusted)

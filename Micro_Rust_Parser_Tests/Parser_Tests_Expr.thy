@@ -73,6 +73,8 @@ urust_expr lit_string_backslash \<open> "a\\b" \<close>
 
 urust_expr lit_string_line_comment_text \<open> "https://example.invalid//path" \<close>
 
+urust_expr lit_string_block_comment_text \<open> "literal /* string */ text" \<close>
+
 
 section\<open>Value antiquotation \<open>\<llangle>_\<rrangle>\<close> (Corpus PART I, "HOL Value Injection")\<close>
 
@@ -92,6 +94,8 @@ urust_expr lit_aq_some \<open> \<llangle>Some (0 :: nat)\<rrangle> \<close>
 
 urust_expr lit_aq_line_comment_text \<open> \<llangle>''// value''\<rrangle> \<close>
 
+urust_expr lit_aq_block_comment_text \<open> \<llangle>''/* value */''\<rrangle> \<close>
+
 
 section\<open>Expression antiquotation \<open>\<epsilon>\<open>_\<close>\<close> (Corpus PART I, "Boolean Literals")\<close>
 
@@ -101,6 +105,9 @@ urust_expr lit_eaq_true \<open> \<epsilon>\<open>Bool_Type.true\<close> \<close>
 
 urust_expr lit_eaq_line_comment_text
   \<open> \<epsilon>\<open>\<up>(''// expression'')\<close> \<close>
+
+urust_expr lit_eaq_block_comment_text
+  \<open> \<epsilon>\<open>\<up>(''/* expression */'')\<close> \<close>
 
 urust_expr aq_nested_value
   \<open> \<llangle> \<lbrakk> \<llangle>1 :: nat\<rrangle> \<rbrakk> \<rrangle> \<close>
