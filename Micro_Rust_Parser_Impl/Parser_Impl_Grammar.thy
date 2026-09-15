@@ -669,7 +669,7 @@ yacc_definitions\<open>
        | ubinary of URust_AST.ur_expr
        | ucast of URust_AST.ur_expr
        | uprefix of URust_AST.ur_expr
-       | ucast_target of URust_AST.cast_target
+       | ucast_target of URust_AST.source_cast_target
        | upostfix of URust_AST.ur_expr
        | uprimary of URust_AST.ur_expr
        | uprimary_nonhead of URust_AST.ur_expr
@@ -986,13 +986,17 @@ yacc_rules\<open>
                             (canonical ^ "::" ^ name,
                              layout, start, stop))
   ucast_target : TUINT
-                   (CT_Unsigned TUINT)
+                   (SCT_Primitive (CT_Unsigned TUINT))
                | TSINT
-                   (CT_Signed TSINT)
+                   (SCT_Primitive (CT_Signed TSINT))
                | TSTAR TCONST TUINT
-                   (CT_RawPointer (RPM_Const, TUINT))
+                   (SCT_Primitive
+                     (CT_RawPointer (RPM_Const, TUINT)))
                | TSTAR TMUT TUINT
-                   (CT_RawPointer (RPM_Mut, TUINT))
+                   (SCT_Primitive
+                     (CT_RawPointer (RPM_Mut, TUINT)))
+               | upath
+                   (SCT_Named upath)
   (* The no-struct family mirrors the structural expression boundaries and binary operator rule.
      Only its primary excludes direct struct expressions; explicit delimiters in the shared non-head
      primary restore unrestricted parsing. A bare operandless return is intentionally absent here:

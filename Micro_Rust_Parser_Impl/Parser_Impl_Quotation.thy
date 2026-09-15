@@ -586,8 +586,12 @@ struct
        | UE_Bin (_, left, right, _) =>
            inspect_expression ctxt dependency_table scope right
              (inspect_expression ctxt dependency_table scope left usage)
-       | UE_Cast (operand, _, _) =>
+       | UE_Cast (operand, SCT_Primitive _, _) =>
            inspect_expression ctxt dependency_table scope operand usage
+       | UE_Cast (_, SCT_Named path, _) =>
+           quotation_error
+             "named cast-target aliases are not allowed"
+             (path_position path)
        | UE_Unary (_, operand, _) =>
            inspect_expression ctxt dependency_table scope operand usage
        | UE_Group (inner, _) =>

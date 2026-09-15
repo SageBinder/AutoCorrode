@@ -132,6 +132,27 @@ urust_expr [OPTIONS] NAME [:: TYPE] [(ARG, ...)] \<open> body \<close>
 urust_fn [OPTIONS] NAME :: TYPE [(PARAMETER, ...)] \<open> body \<close>
 ```
 
+Existing integral and raw-pointer cast targets may also receive context-local source aliases:
+
+```isabelle
+bundle module_cast_aliases begin
+  urust_cast_alias "WordId" = "u16"
+  urust_cast_alias "ConstBytePtr" = "*const u8"
+end
+
+context includes module_cast_aliases
+begin
+  urust_expr example ‹ value as WordId ›
+end
+```
+
+Defining or importing a bundle does not activate its aliases. Bundle inclusion is the explicit
+correspondence to the intended Rust file or module scope; aliases disappear when the confined
+context ends. Isabelle named contexts and locales use the native `opening` form, for example
+`context some_locale opening module_cast_aliases begin`. Alias paths may be qualified but may not
+contain generic arguments, and aliases always resolve directly to one primitive cast target rather
+than to another alias.
+
 The parenthesized argument list is optional, accepts a trailing comma, and uses Isabelle liberal
 names. Minor keywords such as `for` may be unquoted; major command keywords delimit outer command
 spans and therefore need string quoting, for example `("lemma")`. A chosen argument name denotes

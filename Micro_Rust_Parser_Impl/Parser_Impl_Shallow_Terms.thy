@@ -1,6 +1,6 @@
 theory Parser_Impl_Shallow_Terms
   imports
-    Parser_Impl_AST
+    Parser_Impl_Cast_Aliases
     Shallow_Micro_Rust_Base.Micro_Rust_Shallow_Embedding
 begin
 

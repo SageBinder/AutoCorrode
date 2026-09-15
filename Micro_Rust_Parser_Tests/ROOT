@@ -13,6 +13,7 @@ session Micro_Rust_Parser_Tests = HOL +
   theories [document = false]
     Conformance_Corpus
     Parser_Test_Utils
+    Parser_Test_Cast_Alias_Fixtures
     Parser_Test_Registered_Constructor_Fixtures
     Constructor_Ambiguity_Left
     Constructor_Ambiguity_Right
@@ -25,6 +26,7 @@ session Micro_Rust_Parser_Tests = HOL +
     Parser_Tests_Improvements
     Parser_Tests_Negative_Conformance
     Parser_Tests_Grammar_Literals
+    Parser_Tests_Cast_Target_Aliases
     Parser_Tests_Misc
     Parser_Test_Constructor_Matching
     Parser_Test_Iterator_Zip

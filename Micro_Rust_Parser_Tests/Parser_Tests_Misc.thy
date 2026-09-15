@@ -7690,7 +7690,8 @@ ML_val\<open>
           render_path path = expected
       | path_named _ _ = false
 
-    fun target_is expected actual = expected = actual
+    fun target_is expected (SCT_Primitive actual) = expected = actual
+      | target_is _ _ = false
 
     val positioned_text = "operand as *mut usize"
     val positioned_start =
@@ -7708,7 +7709,8 @@ ML_val\<open>
       (case positioned_ast of
          UE_Cast
            (operand,
-            CT_RawPointer (RPM_Mut, UT_Usize),
+            SCT_Primitive
+              (CT_RawPointer (RPM_Mut, UT_Usize)),
             as_position) =>
            (audit_assert "cast operand changed"
               (path_named "operand" operand);
@@ -7730,7 +7732,7 @@ ML_val\<open>
                    [], _),
                  UE_Literal (LP_Integer ("0", _)), _),
               _),
-            CT_Signed ST_I64, _) =>
+            SCT_Primitive (CT_Signed ST_I64), _) =>
            audit_assert "cast lost its complete postfix operand"
              (path_named "source" source)
        | _ =>
@@ -7760,7 +7762,7 @@ ML_val\<open>
       (case parse "!value as u8" of
          UE_Cast
            (UE_Unary (U_Not, value, _),
-            CT_Unsigned UT_U8, _) =>
+            SCT_Primitive (CT_Unsigned UT_U8), _) =>
            audit_assert "not/cast operand changed"
              (path_named "value" value)
        | _ =>
@@ -7770,7 +7772,8 @@ ML_val\<open>
       (case parse "*raw as *const u8" of
          UE_Cast
            (UE_Unary (U_Deref, raw, _),
-            CT_RawPointer (RPM_Const, UT_U8), _) =>
+            SCT_Primitive
+              (CT_RawPointer (RPM_Const, UT_U8)), _) =>
            audit_assert "deref/cast operand changed"
              (path_named "raw" raw)
        | _ =>
@@ -7781,7 +7784,7 @@ ML_val\<open>
          UE_Cast
            (UE_Group
              (UE_Unary (U_Not, value, _), _),
-            CT_Unsigned UT_U8, _) =>
+            SCT_Primitive (CT_Unsigned UT_U8), _) =>
            audit_assert "grouped opposite interpretation changed"
              (path_named "value" value)
        | _ =>
@@ -7797,7 +7800,8 @@ ML_val\<open>
                   (UE_Field
                     (UE_Group
                       (UE_Cast
-                        (value, CT_Unsigned UT_U32, _), _),
+                        (value,
+                         SCT_Primitive (CT_Unsigned UT_U32), _), _),
                      "field", _),
                    Path_Segment ("method", _, NONE)),
                  [], _),
@@ -8076,18 +8080,6 @@ ML_val\<open>
        "value as *",
        "value as *const",
        "value as *mut",
-       "value as u128",
-       "value as i8",
-       "value as i16",
-       "value as i128",
-       "value as isize",
-       "value as f32",
-       "value as f64",
-       "value as char",
-       "value as bool",
-       "value as Target",
-       "value as Target::Word",
-       "value as Vec::<u8>",
        "value as *const i32",
        "value as *mut i64",
        "value as *const bool",
@@ -8106,8 +8098,6 @@ ML_val\<open>
        "value as u8,",
        "value as u8 trailing",
        "value asu8",
-       "value as U8",
-       "value as u8_u16",
        "value as u32.field",
        "value as u32.method()",
        "value as u32[0]",
@@ -8127,7 +8117,8 @@ ML_val\<open>
                if Exn.is_interrupt exn then Exn.reraise exn else ())
         val _ =
           (case parse "value as u8" of
-             UE_Cast (_, CT_Unsigned UT_U8, _) => ()
+             UE_Cast
+               (_, SCT_Primitive (CT_Unsigned UT_U8), _) => ()
            | _ =>
                error
                  ("cast regression audit: parser did not recover after " ^

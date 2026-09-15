@@ -2081,40 +2081,40 @@ section\<open> Cast targets, placement, and recovery boundaries \<close>
 subsection\<open> Unsupported targets \<close>
 
 urust_expr_rejects fidelity \<open> value as u128 \<close>
-  \<open> syntax error found at <identifier> \<close>
+  \<open> unknown cast-target alias "u128" \<close>
 
 urust_expr_rejects fidelity \<open> value as i8 \<close>
-  \<open> syntax error found at <identifier> \<close>
+  \<open> unknown cast-target alias "i8" \<close>
 
 urust_expr_rejects fidelity \<open> value as i16 \<close>
-  \<open> syntax error found at <identifier> \<close>
+  \<open> unknown cast-target alias "i16" \<close>
 
 urust_expr_rejects fidelity \<open> value as i128 \<close>
-  \<open> syntax error found at <identifier> \<close>
+  \<open> unknown cast-target alias "i128" \<close>
 
 urust_expr_rejects fidelity \<open> value as isize \<close>
-  \<open> syntax error found at <identifier> \<close>
+  \<open> unknown cast-target alias "isize" \<close>
 
 urust_expr_rejects fidelity \<open> value as f32 \<close>
-  \<open> syntax error found at <identifier> \<close>
+  \<open> unknown cast-target alias "f32" \<close>
 
 urust_expr_rejects fidelity \<open> value as f64 \<close>
-  \<open> syntax error found at <identifier> \<close>
+  \<open> unknown cast-target alias "f64" \<close>
 
 urust_expr_rejects fidelity \<open> value as char \<close>
-  \<open> syntax error found at <identifier> \<close>
+  \<open> unknown cast-target alias "char" \<close>
 
 urust_expr_rejects fidelity \<open> value as bool \<close>
-  \<open> syntax error found at <identifier> \<close>
+  \<open> unknown cast-target alias "bool" \<close>
 
 urust_expr_rejects fidelity \<open> value as Target \<close>
-  \<open> syntax error found at <identifier> \<close>
+  \<open> unknown cast-target alias "Target" \<close>
 
 urust_expr_rejects fidelity \<open> value as Target::Word \<close>
-  \<open> syntax error \<close>
+  \<open> unknown cast-target alias "Target::Word" \<close>
 
 urust_expr_rejects fidelity \<open> value as Vec::<u8> \<close>
-  \<open> syntax error \<close>
+  \<open> generic arguments are not allowed in cast-target aliases \<close>
 
 urust_expr_rejects fidelity \<open> value as *const i32 \<close>
   \<open> syntax error found at <signed cast type> \<close>
@@ -2194,10 +2194,10 @@ urust_expr_rejects fidelity \<open> value asu8 \<close>
   \<open> syntax error found at <identifier> \<close>
 
 urust_expr_rejects fidelity \<open> value as U8 \<close>
-  \<open> syntax error found at <identifier> \<close>
+  \<open> unknown cast-target alias "U8" \<close>
 
 urust_expr_rejects fidelity \<open> value as u8_u16 \<close>
-  \<open> syntax error found at <identifier> \<close>
+  \<open> unknown cast-target alias "u8_u16" \<close>
 
 subsection\<open> Invalid source types and cast chains \<close>
 

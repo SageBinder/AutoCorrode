@@ -36,6 +36,10 @@ sig
   datatype ur_path =
     UR_Path of path_segment list * Position.T
 
+  datatype source_cast_target =
+      SCT_Primitive of cast_target
+    | SCT_Named of ur_path
+
   val generic_argument_source: generic_arg -> Input.source
   val path_position: ur_path -> Position.T
   val path_segments: ur_path -> path_segment list
@@ -119,7 +123,7 @@ sig
     | UE_Seq of ur_expr * ur_expr
     | UE_Return of ur_expr option * Position.T
     | UE_Bin of binop * ur_expr * ur_expr * Position.T
-    | UE_Cast of ur_expr * cast_target * Position.T
+    | UE_Cast of ur_expr * source_cast_target * Position.T
     | UE_Unary of unaryop * ur_expr * Position.T
     | UE_Group of ur_expr * Position.T
     | UE_Block of ur_expr * Position.T
@@ -194,14 +198,16 @@ end
       canonical fragment with its exact positioned source slice for later binder-aware HOL parsing.
     * borrow_mode (BM_Imm, BM_Mut), range_kind (RK_Exclusive, RK_Inclusive), unsigned_type
       (UT_U8, UT_U16, UT_U32, UT_U64, UT_Usize), signed_type (ST_I32, ST_I64),
-      raw_pointer_mutability (RPM_Const, RPM_Mut), cast_target (CT_Unsigned, CT_Signed,
-      CT_RawPointer), binop (Add, Sub, Mul, Div, Mod, Shl, Shr, BAnd, BOr, BXor, Eq, Ne, Lt, Le,
-      Gt, Ge, And, Or), unaryop (U_Not, U_Borrow, U_Deref, U_Propagate), assign_binop (AssignSub,
-      AssignMul, AssignMod, AssignBAnd, AssignBOr, AssignBXor, AssignShl, AssignShr), and assignop
-      (Assign, AssignAdd, AssignBin). These tags describe surface operations only; their HOL
-      constants and semantics belong to later modules. CT_RawPointer retains source mutability even
-      though the current shallow frontend lowers const and mut targets identically. log_data_entry
-      retains each quoted string or identifier in source order with its token position.
+      raw_pointer_mutability (RPM_Const, RPM_Mut), primitive cast_target (CT_Unsigned, CT_Signed,
+      CT_RawPointer), source_cast_target (SCT_Primitive, SCT_Named), binop (Add, Sub, Mul, Div, Mod,
+      Shl, Shr, BAnd, BOr, BXor, Eq, Ne, Lt, Le, Gt, Ge, And, Or), unaryop (U_Not, U_Borrow,
+      U_Deref, U_Propagate), assign_binop (AssignSub, AssignMul, AssignMod, AssignBAnd, AssignBOr,
+      AssignBXor, AssignShl, AssignShr), and assignop (Assign, AssignAdd, AssignBin). These tags
+      describe surface operations only; their HOL constants and semantics belong to later modules.
+      SCT_Named retains an exact unresolved path for context-local cast-alias resolution.
+      CT_RawPointer retains source mutability even though the current shallow frontend lowers const
+      and mut targets identically. log_data_entry retains each quoted string or identifier in source
+      order with its token position.
     * ur_pat and P_Wild, P_Ident, P_Literal, P_Constr, P_Tuple, P_Group, P_Borrow, P_Alias, P_Range,
       P_Slice, P_Struct, P_Or, together with slice_item (SI_Pat, SI_Rest) and struct_field (SF_Field,
       SF_Shorthand, SF_Rest). Lists retain source order; grammar-produced tuple lists contain at least
@@ -298,6 +304,10 @@ struct
     Path_Segment of string * Position.T * generic_args option
   datatype ur_path =
     UR_Path of path_segment list * Position.T
+
+  datatype source_cast_target =
+      SCT_Primitive of cast_target
+    | SCT_Named of ur_path
 
   fun generic_argument_canonical (Generic_Arg (canonical, _)) = canonical
   fun generic_argument_source (Generic_Arg (_, source)) = source
@@ -415,7 +425,7 @@ struct
     | UE_Seq       of ur_expr * ur_expr               (* e1; e2 -> sequence (trailing `;`: e2 = unit) *)
     | UE_Return    of ur_expr option * Position.T     (* return [value]; semicolon is never stored *)
     | UE_Bin       of binop * ur_expr * ur_expr * Position.T   (* a <binop> b *)
-    | UE_Cast      of ur_expr * cast_target * Position.T
+    | UE_Cast      of ur_expr * source_cast_target * Position.T
                                                       (* operand as target, at the `as` keyword *)
     | UE_Unary     of unaryop * ur_expr * Position.T
                                                       (* !a / &a / & mut a / *a / a? *)

@@ -92,6 +92,26 @@ urust_expr [conformance = false] showoff_grammar_literals
     (mask, permissions, narrowed, adjusted)
   \<close>
 
+subsection\<open> Scoped cast-target aliases \<close>
+
+text\<open>
+A bundle corresponds explicitly to the Rust file or module scope selected by its inclusion site.
+The alias changes only source spelling: its checked term is identical to the primitive target.
+\<close>
+
+bundle showoff_cast_aliases begin
+  urust_cast_alias "RegisterWidth" = "u16"
+end
+
+context includes showoff_cast_aliases
+begin
+
+urust_expr showoff_scoped_cast_alias
+  \<open> 0_u64 as RegisterWidth \<close>
+  against \<open> \<lbrakk> 0_u64 as u16 \<rbrakk> \<close>
+
+end
+
 subsection\<open> Logging and yield \<close>
 
 text\<open>
