@@ -612,7 +612,8 @@ struct
              else invalid expression
          | UE_Group (inner, pos) =>
              RL_Group (validate inner, pos)
-         | UE_Cast (inner, CT_Unsigned UT_Usize, pos) =>
+         | UE_Cast
+             (inner, SCT_Primitive (CT_Unsigned UT_Usize), pos) =>
              RL_CastUsize (validate inner, pos)
          | _ => invalid expression)
     in
