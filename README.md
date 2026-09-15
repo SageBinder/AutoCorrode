@@ -161,6 +161,12 @@ while explicit delimiters restore unrestricted parsing. Integer literals support
 decimal, and hexadecimal bases, internal or trailing underscores, and the `u8`, `u16`, `u32`,
 `u64`, and `usize` suffixes.
 
+Array repeats support ordinary `[value; length]` and repeat-local
+`[const { value }; length]`. Lengths admit integer literals, resolved global constants,
+parentheses, `+ - * / %`, and `as usize`; unsuffixed and `usize` literals are accepted directly,
+while other word widths require the cast. Ordinary operands run exactly once, including at length
+zero. Inline-const bodies run once per element and not at all at length zero.
+
 Constructor resolution uses Isabelle's datatype/codatatype metadata first and native case metadata
 for exact registered literal backends that are not represented by `Ctr_Sugar`. Registered literals
 without native case metadata remain values. Automatic matching selects equality/switch lowering
@@ -174,7 +180,7 @@ guard bodies and statement bodies in groups, macros, and struct fields. During p
 it also accepts apostrophised identifiers, return-arm semicolons, exact native constructor paths
 written with `::`, and narrow legacy dereference/postfix grouping. Explicitly grouping the complete
 dereference operand retains Rust precedence. Deliberately deferred Rust surface includes general
-postfix calls, one-element tuples, open ranges, array repeats, unary numeric negation, `/=`, leading
+postfix calls, one-element tuples, open ranges, unary numeric negation, `/=`, leading
 `::`, full Rust generics, universal macro trailing commas, and additional numeric families.
 
 The parser implementation depends only on `Shallow_Micro_Rust_Base` and `Isabelle_Lex-Yacc`.

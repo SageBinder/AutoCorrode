@@ -62,6 +62,14 @@ shorter input, and calls each left thunk before its paired right thunk exactly o
 method uses ordinary receiver-prepending call resolution and returns the established µRust pair
 `(left, right, TNil)`.
 
+Array repeats are a parser-only post-migration extension. Ordinary `[value; length]` evaluates the
+length first and the value exactly once, then returns `List.replicate (unat length) value`.
+Repeat-local `[const { value }; length]` evaluates the length first and uses
+`list_sequence (List.replicate (unat length) value)`, so its body executes once per element.
+Lengths are restricted to integer literals, resolved global constant paths, parentheses,
+`+ - * / %`, and `as usize`. The legacy frontend interprets `[value; length]` as a one-element array
+containing a sequence, so array repeats require conformance-disabled declarations.
+
 ## Rust-fidelity boundaries
 
 Retained compatibility extensions include complete µRust bodies in guards and statement bodies in
@@ -73,7 +81,7 @@ precedence. The parser supports binary, octal, decimal, and hexadecimal integers
 trailing underscores and `u8`, `u16`, `u32`, `u64`, and `usize` suffixes.
 
 The following remain deliberately unsupported: one-element tuples, general postfix invocation, open
-ranges, array repeats, unary numeric negation, `/=`, leading `::`, full Rust generics, universal macro
+ranges, unary numeric negation, `/=`, leading `::`, full Rust generics, universal macro
 trailing commas, signed integers, `u128`, and floating/character/scientific literals. Focused
 negative rows preserve these boundaries.
 
@@ -92,7 +100,10 @@ import it; only the two focused hook test theories in this session do.
 - `Parser_Test_Iterator_Zip.thy`: empty and unequal inputs, truncation, effect order, single
   evaluation, direct/method/chained resolution, arity preflight, notation registration, and
   separation from pure HOL `List.zip`.
-- `Parser_Test_Showoff.thy`: combined command, grammar, matching, and iterator examples.
+- `Parser_Tests_Array_Repeats.thy`: ordinary and inline-const syntax, restricted length validation,
+  evaluation count/order and control propagation, quotation dependency accounting, term compactness,
+  frontend divergence, markup/navigation, positioned diagnostics, recovery, and regression coverage.
+- `Parser_Test_Showoff.thy`: combined command, grammar, matching, array-repeat, and iterator examples.
 
 Every `.thy` file in this directory is registered in `ROOT`.
 

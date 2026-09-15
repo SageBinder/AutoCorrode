@@ -480,6 +480,33 @@ struct
                  branch state''')
         end
 
+      fun inspect_repeat_length length state =
+        (case length of
+           RL_Integer _ => state
+         | RL_Path path =>
+             let
+               val _ =
+                 (case path_segments path of
+                    [Path_Segment (name, pos, NONE)] =>
+                      if Symtab.defined scope name then
+                        quotation_error
+                          ("array repeat length cannot use capture or lexical local " ^
+                            quote name)
+                          pos
+                      else ()
+                  | _ => ())
+             in
+               use_path dependency_table scope
+                 Micro_Rust_Names.NLiteral false path state
+             end
+         | RL_Bin (_, left, right, _) =>
+             inspect_repeat_length right
+               (inspect_repeat_length left state)
+         | RL_Group (inner, _) =>
+             inspect_repeat_length inner state
+         | RL_CastUsize (inner, _) =>
+             inspect_repeat_length inner state)
+
       fun inspect_place place state =
         (case place of
            UP_Path path =>
@@ -503,6 +530,9 @@ struct
          UE_Unit _ => usage
        | UE_Tuple (elements, _) => inspect_list elements usage
        | UE_Array (elements, _) => inspect_list elements usage
+       | UE_ArrayRepeat (_, value, length, _) =>
+           inspect_expression ctxt dependency_table scope value
+             (inspect_repeat_length length usage)
        | UE_Struct (head, fields, _) =>
            let
              val usage' =
