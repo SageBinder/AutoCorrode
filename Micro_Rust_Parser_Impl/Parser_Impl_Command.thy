@@ -1,6 +1,6 @@
 theory Parser_Impl_Command
   imports
-    Parser_Impl
+    Parser_Impl_Grammar
     Parser_Impl_Translate
     Micro_Rust_Parsing_Legacy_Frontend.Micro_Rust_Parsing_Legacy_Frontend
   keywords

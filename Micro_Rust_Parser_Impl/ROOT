@@ -7,7 +7,6 @@ session Micro_Rust_Parser_Impl = HOL +
     Parser_Utils
     Parser_Impl_AST
     Parser_Impl_Grammar
-    Parser_Impl
     Parser_Impl_Shallow_Terms
     Parser_Impl_Resolution
     Parser_Impl_Patterns

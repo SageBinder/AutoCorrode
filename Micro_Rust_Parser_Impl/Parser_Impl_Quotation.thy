@@ -1,6 +1,6 @@
 theory Parser_Impl_Quotation
   imports
-    Parser_Impl
+    Parser_Impl_Grammar
     Parser_Impl_Translate
 begin
 
