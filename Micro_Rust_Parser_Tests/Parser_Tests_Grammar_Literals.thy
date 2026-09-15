@@ -558,7 +558,9 @@ ML_val\<open>
   in
     val _ =
       (case parse "*x as usize" of
-         UE_Cast (UE_Unary (U_Deref, UE_Path _, _), CT_Unsigned UT_Usize, _) => ()
+         UE_Cast
+           (UE_Unary (U_Deref, UE_Path _, _),
+            SCT_Primitive (CT_Unsigned UT_Usize), _) => ()
        | _ => error "unary-before-cast AST shape changed")
     val _ =
       (case parse "*base[index]" of
@@ -603,7 +605,7 @@ ML_val\<open>
       (case parse "*base.field as u64" of
          UE_Cast
            (UE_Unary (U_Deref, UE_Field (UE_Path _, "field", _), _),
-            CT_Unsigned UT_U64, _) => ()
+            SCT_Primitive (CT_Unsigned UT_U64), _) => ()
        | _ => error "legacy dereference compatibility crossed a cast")
     val _ =
       (case parse "!*p" of

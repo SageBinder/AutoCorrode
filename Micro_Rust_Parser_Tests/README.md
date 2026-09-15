@@ -33,6 +33,12 @@ shifts, additive, multiplicative, cast, prefix, postfix, and primary. Prefix ope
 casts, postfix operations bind before prefixes, assignment is right-associative, and ranges and
 comparisons are non-associative.
 
+Primitive cast targets may be registered under exact, generic-free paths with
+`urust_cast_alias`. The registration is a local declaration, so bundles can capture it and callers
+must activate file- or module-local aliases explicitly with `context includes ...`; named locale
+contexts use Isabelle's corresponding `opening` syntax. Alias lowering emits exactly the primitive
+cast term.
+
 Blocks, `unsafe`, conditionals, loops, and matches are ordinary primary expressions. Their separate
 direct-with-block category is used only to decide whether an outer statement semicolon or non-final
 match-arm comma may be omitted. Control heads use the parallel no-struct family recursively; an
@@ -95,6 +101,9 @@ import it; only the two focused hook test theories in this session do.
 - `Parser_Tests_Grammar_Literals.thy`: precedence adjacency, unary/cast/postfix behavior, direct and
   wrapped block-like operands, statement/arm separators, recursive no-struct heads, closures,
   structs, integer lexing, generated grammar, markup, and recovery.
+- `Parser_Tests_Cast_Target_Aliases.thy`: bundle and locale scoping, all integral and raw-pointer
+  aliases, exact qualified paths, primitive term equivalence, conflicts and idempotence, quotation
+  rejection, diagnostics, markup, and parser recovery.
 - `Parser_Test_Constructor_Matching.thy`: `Ctr_Sugar`, custom enum and simple-word-enum native case
   metadata, metadata-free value/literal equality and switch controls, ambiguity, deep registered
   nullary structural matching, guards, coverage, source order, single evaluation, term shape, markup,

@@ -57,6 +57,7 @@ structure URust_Translate :> URUST_TRANSLATE =
 struct
   open URust_AST
   structure T = URust_Shallow_Terms
+  structure A = URust_Cast_Aliases
   structure R = URust_Resolution
   structure P = URust_Patterns
   structure M = URust_Matching
@@ -262,8 +263,12 @@ struct
            (lower_expression ctxt environment left)
            (lower_expression ctxt environment right)
      | UE_Cast (operand, target, _) =>
-         T.cast ctxt (term_origin environment) target
-           (lower_expression ctxt environment operand)
+         let
+           val primitive_target = A.resolve ctxt target
+         in
+           T.cast ctxt (term_origin environment) primitive_target
+             (lower_expression ctxt environment operand)
+         end
      | UE_Range (kind, lower, upper, _) =>
          T.bounded_range kind
            (lower_expression ctxt environment lower)
