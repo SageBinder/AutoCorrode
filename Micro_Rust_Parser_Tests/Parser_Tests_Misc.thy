@@ -11573,6 +11573,458 @@ ML_val\<open>
 \<close>
 
 
+section\<open> Lifted backend navigation audit \<close>
+
+definition lifted_navigation_pure :: \<open>nat \<Rightarrow> nat\<close>
+  where \<open> lifted_navigation_pure value = value + 1 \<close>
+
+micro_rust_notation (call)
+  \<open>lift_fun1 lifted_navigation_pure\<close>
+  ("LiftedNavigation::named")
+
+micro_rust_notation (call)
+  \<open>lift_fun1 (\<lambda>value :: nat. value)\<close>
+  ("LiftedNavigation::anonymous")
+
+ML_val\<open>
+  local
+    open URust_AST
+
+    val ctxt = \<^context>
+
+    fun audit_assert message condition =
+      if condition then ()
+      else error ("lifted backend navigation audit: " ^ message)
+
+    fun find_from text needle offset =
+      if offset + size needle > size text then
+        error ("missing " ^ quote needle)
+      else if String.substring (text, offset, size needle) = needle
+      then offset
+      else find_from text needle (offset + 1)
+
+    fun token_position text start needle offset =
+      let
+        val raw = find_from text needle offset
+        val token_start =
+          Position.symbol_explode
+            (String.substring (text, 0, raw)) start
+      in
+        (raw,
+         Position.range_position
+           (token_start, Position.symbol_explode needle token_start))
+      end
+
+    fun collect_markup (XML.Text _) result = result
+      | collect_markup (XML.Elem (markup, body)) result =
+          fold collect_markup body (markup :: result)
+
+    fun capture serial label text declared_type =
+      let
+        val start =
+          Position.make0 (240 + serial) (60000 + serial * 600) 0 "" ""
+            ("lifted-navigation-" ^ label ^ "-audit")
+        val source =
+          Parser_Lex_Util.positioned_content_source text start
+        val ast =
+          (case URust_Parser.parse_source ctxt source of
+             SOME expression => expression
+           | NONE => error (label ^ " parsed as empty input"))
+        val captured =
+          Synchronized.var
+            ("lifted_navigation_" ^ label ^ "_reports")
+            ([]: string list)
+        fun report chunks =
+          Synchronized.change captured (append chunks)
+        val result =
+          Parser_Test_Report_Lock.run (fn () =>
+            Unsynchronized.setmp Private_Output.report_fn report
+              (fn () =>
+                Print_Mode.with_modes [Print_Mode.PIDE]
+                  (fn () =>
+                    Exn.result
+                      (fn () =>
+                        URust_Command.elaborate ctxt
+                          {kind = URust_Command.Expression,
+                           source = source,
+                           arguments = [],
+                           arguments_pos = #2 (Input.range_of source),
+                           declared_type =
+                             Option.map
+                               (fn typ => (typ, Position.none))
+                               declared_type}) ())
+                  ())
+              ())
+        val term =
+          (case result of
+             Exn.Res checked => checked
+           | Exn.Exn exn =>
+               if Exn.is_interrupt exn then Exn.reraise exn
+               else
+                 error
+                   (label ^ " failed: " ^ Runtime.exn_message exn))
+        val trees =
+          maps YXML.parse_body (Synchronized.value captured)
+      in
+        (start, ast, term, fold collect_markup trees [])
+      end
+
+    fun has_position properties position =
+      Properties.get properties Markup.offsetN =
+        Option.map Value.print_int (Position.offset_of position) andalso
+      Properties.get properties Markup.end_offsetN =
+        Option.map Value.print_int (Position.end_offset_of position) andalso
+      Properties.get properties Markup.idN =
+        Position.id_of position
+
+    fun count_markup markup_name position markup =
+      length
+        (filter
+          (fn (name, properties) =>
+            name = markup_name andalso
+              has_position properties position)
+          markup)
+
+    fun entity_names kind position markup =
+      markup
+      |> map_filter
+          (fn (name, properties) =>
+            if name = Markup.entityN andalso
+                Properties.get properties Markup.kindN = SOME kind andalso
+                has_position properties position
+            then Properties.get properties Markup.nameN
+            else NONE)
+
+    fun count_entity kind name position markup =
+      entity_names kind position markup
+      |> filter (fn actual => actual = name)
+      |> length
+
+    fun distinct_entity_names kind position markup =
+      entity_names kind position markup
+      |> distinct (op =)
+      |> sort_strings
+
+    fun assert_registered_terminal
+        label notation target position markup =
+      (audit_assert (label ^ " notation navigation count changed")
+         (count_entity Micro_Rust_Names.notationN notation
+           position markup = 1);
+       audit_assert (label ^ " lost keyword3 styling")
+         (count_markup Markup.keyword3N position markup = 1);
+       audit_assert (label ^ " did not link to wrapped target")
+         (count_entity Markup.constantN target position markup >= 1);
+       audit_assert (label ^ " retained lift_fun1 navigation")
+         (count_entity Markup.constantN
+           \<^const_name>\<open>lift_fun1\<close> position markup = 0);
+       audit_assert (label ^ " linked to an unrelated constant")
+         (distinct_entity_names Markup.constantN position markup =
+           [target]))
+
+    fun assert_pattern_terminal label target position markup =
+      (audit_assert (label ^ " acquired notation navigation")
+         (entity_names Micro_Rust_Names.notationN
+           position markup = []);
+       audit_assert (label ^ " acquired registered keyword styling")
+         (count_markup Markup.keyword3N position markup = 0);
+       audit_assert (label ^ " did not retain native constructor navigation")
+         (distinct_entity_names Markup.constantN position markup =
+           [target]);
+       audit_assert (label ^ " linked to lift_fun1")
+         (count_entity Markup.constantN
+           \<^const_name>\<open>lift_fun1\<close> position markup = 0))
+
+    fun count_constant name term =
+      Term.fold_aterms
+        (fn Const (actual, _) =>
+              if actual = name then Integer.add 1 else I
+          | _ => I)
+        term 0
+
+    fun assert_call_ast label expected expected_arity ast =
+      (case ast of
+         UE_Call (UC_Path path, arguments, _) =>
+           (audit_assert (label ^ " call path changed")
+              (render_path path = expected);
+            audit_assert (label ^ " call arity changed")
+              (length arguments = expected_arity))
+       | _ => error (label ^ " call AST changed"))
+
+    fun assert_match_ast label value_name pattern_name ast =
+      (case ast of
+         UE_Match
+           (_, UE_Call (UC_Path value_path, [_], _),
+            UR_Arm (P_Constr (pattern_path, [_]), _, _) :: _, _) =>
+           (audit_assert (label ^ " value-call AST changed")
+              (render_path value_path = value_name);
+            audit_assert (label ^ " constructor-pattern AST changed")
+              (render_path pattern_path = pattern_name))
+       | _ => error (label ^ " match AST changed"))
+
+    fun assert_wrapped_registration notation wrapped =
+      (case
+        Micro_Rust_Names.lookups ctxt Micro_Rust_Names.NFunction notation of
+         [{hol_term, ...}] =>
+           (case Term.strip_comb
+               (Term_Position.strip_positions hol_term) of
+              (Const (wrapper, _), [argument]) =>
+                (audit_assert (notation ^ " registration wrapper changed")
+                   (wrapper = \<^const_name>\<open>lift_fun1\<close>);
+                 audit_assert (notation ^ " wrapped backend changed")
+                   (wrapped argument))
+            | _ => error (notation ^ " registration term shape changed"))
+       | _ => error (notation ^ " registration multiplicity changed"))
+
+    val some_text =
+      "match_case Some(\<llangle>1 :: nat\<rrangle>) { " ^
+      "Some(value) \<Rightarrow> value, None \<Rightarrow> 0 }"
+    val (some_start, some_ast, some_term, some_markup) =
+      capture 0 "some" some_text NONE
+    val (some_value_raw, some_value_position) =
+      token_position some_text some_start "Some" 0
+    val (_, some_pattern_position) =
+      token_position some_text some_start "Some"
+        (some_value_raw + size "Some")
+    val _ =
+      assert_registered_terminal "Some value" "Some"
+        \<^const_name>\<open>Option.Some\<close>
+        some_value_position some_markup
+    val _ =
+      assert_pattern_terminal "Some pattern"
+        \<^const_name>\<open>Option.Some\<close>
+        some_pattern_position some_markup
+    val _ =
+      assert_match_ast "Some" "Some" "Some" some_ast
+    val _ =
+      audit_assert "Some checked term lost lift_fun1"
+        (count_constant \<^const_name>\<open>lift_fun1\<close> some_term = 1)
+    val _ =
+      audit_assert "Some checked term lost Option.Some"
+        (count_constant \<^const_name>\<open>Option.Some\<close> some_term = 1)
+
+    val ok_text =
+      "match_case Ok(\<llangle>1 :: nat\<rrangle>) { " ^
+      "Ok(value) \<Rightarrow> value, Err(error) \<Rightarrow> error }"
+    val (ok_start, ok_ast, ok_term, ok_markup) =
+      capture 1 "ok" ok_text NONE
+    val (ok_value_raw, ok_value_position) =
+      token_position ok_text ok_start "Ok" 0
+    val (_, ok_pattern_position) =
+      token_position ok_text ok_start "Ok"
+        (ok_value_raw + size "Ok")
+    val (_, err_pattern_position) =
+      token_position ok_text ok_start "Err" 0
+    val _ =
+      assert_registered_terminal "Ok value" "Ok"
+        \<^const_name>\<open>Ok\<close> ok_value_position ok_markup
+    val _ =
+      assert_pattern_terminal "Ok pattern"
+        \<^const_name>\<open>Ok\<close> ok_pattern_position ok_markup
+    val _ =
+      assert_pattern_terminal "Err pattern"
+        \<^const_name>\<open>Err\<close> err_pattern_position ok_markup
+    val _ =
+      assert_match_ast "Ok" "Ok" "Ok" ok_ast
+    val _ =
+      audit_assert "Ok checked term lost lift_fun1"
+        (count_constant \<^const_name>\<open>lift_fun1\<close> ok_term = 1)
+    val _ =
+      audit_assert "Ok checked term lost result constructors"
+        (count_constant \<^const_name>\<open>Ok\<close> ok_term = 1)
+
+    val err_text = "Err(\<llangle>1 :: nat\<rrangle>)"
+    val (err_start, err_ast, err_term, err_markup) =
+      capture 2 "err" err_text NONE
+    val (_, err_value_position) =
+      token_position err_text err_start "Err" 0
+    val _ =
+      assert_registered_terminal "Err value" "Err"
+        \<^const_name>\<open>Err\<close> err_value_position err_markup
+    val _ = assert_call_ast "Err" "Err" 1 err_ast
+    val _ =
+      audit_assert "Err checked term shape changed"
+        (count_constant \<^const_name>\<open>lift_fun1\<close> err_term = 1 andalso
+         count_constant \<^const_name>\<open>Err\<close> err_term = 1)
+
+    val named_text =
+      "LiftedNavigation::named(\<llangle>4 :: nat\<rrangle>)"
+    val (named_start, named_ast, named_term, named_markup) =
+      capture 3 "named" named_text NONE
+    val (named_outer_raw, named_qualifier) =
+      token_position named_text named_start "LiftedNavigation" 0
+    val (_, named_terminal) =
+      token_position named_text named_start "named"
+        (named_outer_raw + size "LiftedNavigation::")
+    val _ =
+      assert_registered_terminal "named lifted function"
+        "LiftedNavigation::named"
+        \<^const_name>\<open>lifted_navigation_pure\<close>
+        named_terminal named_markup
+    val _ =
+      audit_assert "named lifted qualifier notation changed"
+        (count_entity Micro_Rust_Names.notationN
+           "LiftedNavigation::named"
+           named_qualifier named_markup = 1)
+    val _ =
+      audit_assert "named lifted qualifier typing changed"
+        (count_markup Markup.typingN
+           named_qualifier named_markup = 1)
+    val _ =
+      audit_assert "named lifted qualifier acquired terminal identity"
+        (entity_names Markup.constantN
+           named_qualifier named_markup = [])
+    val _ =
+      assert_call_ast "named lifted function"
+        "LiftedNavigation::named" 1 named_ast
+    val _ =
+      audit_assert "named lifted checked term changed"
+        (count_constant \<^const_name>\<open>lift_fun1\<close> named_term = 1 andalso
+         count_constant \<^const_name>\<open>lifted_navigation_pure\<close>
+           named_term = 1)
+
+    val anonymous_text =
+      "LiftedNavigation::anonymous(\<llangle>5 :: nat\<rrangle>)"
+    val (anonymous_start, anonymous_ast,
+         anonymous_term, anonymous_markup) =
+      capture 4 "anonymous" anonymous_text NONE
+    val (_, anonymous_terminal) =
+      token_position anonymous_text anonymous_start "anonymous"
+        (size "LiftedNavigation::")
+    val _ =
+      audit_assert "lifted lambda notation navigation changed"
+        (count_entity Micro_Rust_Names.notationN
+           "LiftedNavigation::anonymous"
+           anonymous_terminal anonymous_markup = 1)
+    val _ =
+      audit_assert "lifted lambda lost keyword3 styling"
+        (count_markup Markup.keyword3N
+           anonymous_terminal anonymous_markup = 1)
+    val _ =
+      audit_assert "lifted lambda acquired a constant target"
+        (entity_names Markup.constantN
+           anonymous_terminal anonymous_markup = [])
+    val _ =
+      assert_call_ast "lifted lambda"
+        "LiftedNavigation::anonymous" 1 anonymous_ast
+    val _ =
+      audit_assert "lifted lambda checked term lost its wrapper"
+        (count_constant \<^const_name>\<open>lift_fun1\<close>
+           anonymous_term = 1)
+
+    val ordinary_text = "Module::Call::invoke()"
+    val (ordinary_start, ordinary_ast,
+         ordinary_term, ordinary_markup) =
+      capture 5 "ordinary" ordinary_text NONE
+    val (_, ordinary_terminal) =
+      token_position ordinary_text ordinary_start "invoke"
+        (size "Module::Call::")
+    val _ =
+      audit_assert "ordinary registration navigation changed"
+        (distinct_entity_names Markup.constantN
+           ordinary_terminal ordinary_markup =
+           [\<^const_name>\<open>constructor_qualifier_call\<close>])
+    val _ =
+      audit_assert "ordinary registration styling changed"
+        (count_markup Markup.keyword3N
+           ordinary_terminal ordinary_markup = 1)
+    val _ =
+      assert_call_ast "ordinary registration"
+        "Module::Call::invoke" 0 ordinary_ast
+    val _ =
+      audit_assert "ordinary checked term changed"
+        (count_constant \<^const_name>\<open>constructor_qualifier_call\<close>
+           ordinary_term = 1)
+
+    val multi_text = "Multi::Registered::Value"
+    val (multi_start, multi_ast, multi_term, multi_markup) =
+      capture 6 "multiplicity" multi_text
+        (SOME "(unit, nat, unit, unit, unit, unit) expression")
+    val (multi_outer_raw, multi_outer) =
+      token_position multi_text multi_start "Multi" 0
+    val (_, multi_inner) =
+      token_position multi_text multi_start "Registered"
+        (multi_outer_raw + size "Multi::")
+    val (_, multi_terminal) =
+      token_position multi_text multi_start "Value"
+        (size "Multi::Registered::")
+    val _ =
+      audit_assert "multi-backend registration count changed"
+        (length
+          (Micro_Rust_Names.lookups ctxt Micro_Rust_Names.NLiteral
+            "Multi::Registered::Value") = 2)
+    val _ =
+      List.app
+        (fn position =>
+          (audit_assert "multi-backend qualifier notation changed"
+             (count_entity Micro_Rust_Names.notationN
+                "Multi::Registered::Value"
+                position multi_markup = 2);
+           audit_assert "multi-backend qualifier tooltip multiplied"
+             (count_markup Markup.typingN position multi_markup = 1);
+           audit_assert "multi-backend qualifier acquired constant identity"
+             (entity_names Markup.constantN position multi_markup = [])))
+        [multi_outer, multi_inner]
+    val _ =
+      audit_assert "multi-backend terminal notation count changed"
+        (count_entity Micro_Rust_Names.notationN
+           "Multi::Registered::Value"
+           multi_terminal multi_markup = 2)
+    val _ =
+      audit_assert "multi-backend terminal targets changed"
+        (distinct_entity_names Markup.constantN
+           multi_terminal multi_markup =
+           sort_strings
+             [\<^const_name>\<open>qualifier_multi_nat\<close>,
+              \<^const_name>\<open>qualifier_multi_bool\<close>])
+    val _ =
+      (case multi_ast of
+         UE_Path path =>
+           audit_assert "multi-backend value AST changed"
+             (render_path path = "Multi::Registered::Value")
+       | _ => error "multi-backend value AST changed")
+    val _ =
+      audit_assert "multi-backend checked term selected a different backend"
+        (count_constant \<^const_name>\<open>qualifier_multi_nat\<close>
+           multi_term = 1 andalso
+         count_constant \<^const_name>\<open>qualifier_multi_bool\<close>
+           multi_term = 0)
+
+    val _ =
+      assert_wrapped_registration "Some"
+        (fn argument =>
+          (case Term.head_of argument of
+             Const (name, _) => name = \<^const_name>\<open>Option.Some\<close>
+           | _ => false))
+    val _ =
+      assert_wrapped_registration "Ok"
+        (fn argument =>
+          (case Term.head_of argument of
+             Const (name, _) => name = \<^const_name>\<open>Ok\<close>
+           | _ => false))
+    val _ =
+      assert_wrapped_registration "Err"
+        (fn argument =>
+          (case Term.head_of argument of
+             Const (name, _) => name = \<^const_name>\<open>Err\<close>
+           | _ => false))
+    val _ =
+      assert_wrapped_registration "LiftedNavigation::named"
+        (fn argument =>
+          (case Term.head_of argument of
+             Const (name, _) =>
+               name = \<^const_name>\<open>lifted_navigation_pure\<close>
+           | _ => false))
+    val _ =
+      assert_wrapped_registration "LiftedNavigation::anonymous"
+        (fn Abs _ => true | _ => false)
+  in
+    val _ =
+      writeln
+        "Lifted constructor/function navigation, neutral patterns, wrapper-free lambdas, registration shape, AST, term, qualifier, and multiplicity regressions passed"
+  end
+\<close>
+
+
 section\<open> Contextual bare-match classification audit \<close>
 
 consts

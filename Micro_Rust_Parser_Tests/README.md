@@ -46,6 +46,15 @@ struct heads, both turbofish lookup routes, complete macro keys including `!`, r
 multiplicity and idempotence, constructor families, delayed failures, recovery, and lexical/fixed
 controls.
 
+Terminal dispatch now treats the registered `lift_fun0` through `lift_fun14` backend wrappers as
+transparent for constant navigation without changing the stored backend or generated term. Applied
+wrappers link to the wrapped term's head constant; `Some`, `Ok`, and `Err` value calls therefore
+retain notation navigation and `keyword3` styling while linking to their HOL constructors instead of
+`lift_fun1`. Their constructor-pattern occurrences remain ordinary neutral constructor references.
+A lifted lambda keeps notation navigation and styling but emits no false wrapper-constant target.
+Ordinary registrations, multi-backend multiplicity, qualifier reports, ASTs, and checked terms retain
+their previous behavior. `Parser_Tests_Misc.thy` audits each boundary directly.
+
 ## Parser and lowering architecture
 
 The grammar has parallel ordinary and no-struct expression families with explicit tiers:

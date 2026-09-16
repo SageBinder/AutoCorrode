@@ -326,6 +326,27 @@ consts urust_dispatch :: \<open>'x \<Rightarrow> 'y urust_witness \<Rightarrow> 
 ML\<open>
 structure Micro_Rust_Dispatch = struct
 
+\<comment>\<open>Some registered backends are administrative wrappers around the
+  source-level HOL identity that editor navigation should expose. Keep that
+  policy in merge-stable theory data rather than recognizing wrapper names in
+  the generic dispatch algorithm. The internal registration operation is
+  intentionally theory-only: wrapper transparency is global semantic metadata,
+  not a proof-context notation declaration.\<close>
+structure Backend_Identity_Wrappers = Theory_Data
+(
+  type T = unit Symtab.table;
+  val empty = Symtab.empty;
+  val merge = Symtab.merge (op =);
+);
+
+fun register_backend_identity_wrapper name =
+  Backend_Identity_Wrappers.map (Symtab.update (name, ()));
+
+fun is_backend_identity_wrapper ctxt name =
+  Symtab.defined
+    (Backend_Identity_Wrappers.get (Proof_Context.theory_of ctxt))
+    name;
+
 \<comment>\<open>The marker's payload encodes \<open>(kind, name, source_pos)\<close> as a
   bare \<^verbatim>\<open>Const\<close> with the data packed into the constant's name.
   Using a \<^verbatim>\<open>Const\<close> rather than a HOL \<^typ>\<open>String.literal\<close> avoids the
@@ -712,15 +733,19 @@ fun emit_notation_entity_at_pos
 
 \<comment>\<open>Emit terminal use-site markup at \<open>pos\<close> for every registered
   backend under \<open>(kind, name)\<close>: the neutral notation entities above, plus
-  a \<^verbatim>\<open>Name_Space.markup\<close> + \<^verbatim>\<open>Markup.keyword3\<close> chain when
-  the backend itself has a bare constant head (ctrl-click to its definition,
-  coloured as a keyword). Called by \<open>resolve\<close> when a marker is actually
-  replaced by a registered backend, and by constructor-pattern resolution
-  only after exact registration, constructor identity, and arity or field
-  validation have succeeded. It is never called when the witness wins. This
-  stops markup from leaking onto an identifier whose witness ends up being a
-  lambda binder (e.g. \<open>let x = \<dots>; x\<close> where \<open>x\<close> is also a registered
-  notation).\<close>
+  \<^verbatim>\<open>Markup.keyword3\<close> styling and, when available, a
+  \<^verbatim>\<open>Name_Space.markup\<close> target for the backend's source-level
+  identity. Applied wrappers registered through
+  \<open>register_backend_identity_wrapper\<close> are transparent for that target: the
+  wrapped term's head constant is used, while a wrapped lambda, free term, or
+  other unnamed expression emits no misleading constant entity. Styling
+  remains attached to the notation occurrence. Called by \<open>resolve\<close> when a
+  marker is actually replaced by a registered backend, and by
+  constructor-pattern resolution only after exact registration, constructor
+  identity, and arity or field validation have succeeded. It is never called
+  when the witness wins. This stops markup from leaking onto an identifier
+  whose witness ends up being a lambda binder (e.g. \<open>let x = \<dots>; x\<close> where
+  \<open>x\<close> is also a registered notation).\<close>
 fun emit_use_markup_at_pos ctxt kind name pos =
   if not (Position.is_reported pos) then ()
   else
@@ -729,28 +754,32 @@ fun emit_use_markup_at_pos ctxt kind name pos =
       val _ = emit_notation_entity_at_pos ctxt kind name pos
       fun report_one ({hol_term, ...} : Micro_Rust_Names.entry) =
         let
-          \<comment>\<open>Walk to the head \<^verbatim>\<open>Const\<close> of the backend so wrapper
-            forms like \<^verbatim>\<open>lift_fun1 Some\<close> still get const-styling
-            (color + ctrl-click) attached at the use site, not just the
-            \<open>micro_rust_notation\<close> entity ref. We use the standard
-            \<^verbatim>\<open>Name_Space.markup\<close> (an entity-style markup keyed by the
-            constant's def-site serial) for the click target, plus the
-            \<^verbatim>\<open>Markup.keyword3\<close> kind tag for the colour face (so
-            notation-resolved constants are coloured as keywords rather than
-            as ordinary constants).\<close>
+          val stripped = Term_Position.strip_positions hol_term
+
           fun head_const t =
-            (case Term_Position.strip_positions t of
-               Const (c, _) => SOME c
-             | u $ _ => head_const u
+            (case Term.strip_comb t of
+               (Const (c, _), wrapped :: _) =>
+                 if is_backend_identity_wrapper ctxt c
+                 then head_const wrapped
+                 else SOME c
+             | (Const (c, _), []) => SOME c
              | _ => NONE)
-          val const_markup =
-            (case head_const hol_term of
+
+          val had_named_head =
+            (case Term.strip_comb stripped of
+               (Const _, _) => true
+             | _ => false)
+          val constant_markup =
+            (case head_const stripped of
                SOME c =>
-                 [Name_Space.markup (Consts.space_of (Proof_Context.consts_of ctxt)) c,
-                  Markup.keyword3]
+                 [Name_Space.markup
+                    (Consts.space_of (Proof_Context.consts_of ctxt)) c]
              | NONE => [])
+          val style_markup =
+            if had_named_head then [Markup.keyword3] else []
         in
-          app (Context_Position.report ctxt pos) const_markup
+          app (Context_Position.report ctxt pos)
+            (constant_markup @ style_markup)
         end
     in
       app report_one entries
