@@ -2496,6 +2496,62 @@ end
 no_adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
 
 
+section\<open>Rust-aligned dereference/postfix precedence\<close>
+
+text\<open>
+Postfix operators bind before dereference uniformly. The dedicated parser therefore reads an
+unparenthesized index or field chain as the dereference operand. The explicit legacy witnesses group
+that complete operand for the old frontend. Parenthesizing the dereference itself retains the former
+\<open>(*base)[index]\<close> meaning.
+\<close>
+
+datatype_record deref_postfix_fixture =
+  deref_postfix_fixture_field ::
+    \<open>(unit, unit, 64 word) Global_Store.ref\<close>
+micro_rust_record deref_postfix_fixture
+  (deref_postfix_fixture_field = "field")
+
+definition deref_postfix_identity ::
+    \<open>
+      deref_postfix_fixture \<Rightarrow>
+      (unit, deref_postfix_fixture, unit, unit, unit) function_body
+    \<close>
+  where \<open>deref_postfix_identity \<equiv> lift_fun1 (\<lambda>value. value)\<close>
+
+adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
+
+context
+  fixes references :: \<open>(unit, unit, 64 word) Global_Store.ref list\<close>
+    and base :: deref_postfix_fixture
+    and array_ref ::
+      \<open>(unit, unit, (64 word, 4) array) Global_Store.ref\<close>
+begin
+
+urust_expr improvement_deref_index_operand
+  \<open> *references[0_usize] \<close>
+  against \<open> \<lbrakk> *(references[0_usize]) \<rbrakk> \<close>
+
+urust_expr improvement_deref_grouped_field_operand
+  \<open> *(base).field \<close>
+  against \<open> \<lbrakk> *((base).field) \<rbrakk> \<close>
+
+urust_expr improvement_deref_call_field_operand
+  \<open> *deref_postfix_identity(base).field \<close>
+  against \<open> \<lbrakk> *(deref_postfix_identity(base).field) \<rbrakk> \<close>
+
+urust_expr improvement_deref_simple_field_operand
+  \<open> *base.field \<close>
+  against \<open> \<lbrakk> *(base.field) \<rbrakk> \<close>
+
+urust_expr improvement_group_deref_before_index
+  \<open> (*array_ref)[0_usize] \<close>
+  against \<open> \<lbrakk> (*array_ref)[0_usize] \<rbrakk> \<close>
+
+end
+
+no_adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
+
+
 section\<open>Expression-antiquotation places\<close>
 
 text\<open>

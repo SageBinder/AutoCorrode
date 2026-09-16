@@ -100,14 +100,15 @@ unsupported widths such as `u128` remain identifier tokens.
 ## Rust-fidelity boundaries
 
 Retained compatibility extensions include complete µRust bodies in guards and statement bodies in
-groups, macros, and struct fields. The underscore-before-integer-suffix spelling also remains
-accepted. During production migration the parser additionally accepts apostrophised identifiers,
-return-arm semicolons, and narrow legacy
-dereference/postfix grouping. Explicitly grouping the complete dereference operand retains Rust
-precedence. The parser supports binary, octal, decimal, and hexadecimal integers with internal or
-trailing underscores and `u8`, `u16`, `u32`, `u64`, and `usize` suffixes. Ordinary source accepts
-nested Rust block comments as layout; strings and antiquotations retain the same marker text, while
-restricted turbofish and log-data syntax continue to reject it.
+groups, macros, and struct fields. The underscore-before-integer-suffix spelling and apostrophised
+identifiers also remain accepted during production migration. Dereference follows Rust's uniform
+postfix-before-prefix precedence, so `*base[index]` dereferences the indexed value and
+`(*base)[index]` explicitly selects the former dereference-before-index meaning. Direct return match
+arms require a comma; semicolon-terminated returns remain accepted inside braced arm bodies. The
+parser supports binary, octal, decimal, and hexadecimal integers with internal or trailing
+underscores and `u8`, `u16`, `u32`, `u64`, and `usize` suffixes. Ordinary source accepts nested Rust
+block comments as layout; strings and antiquotations retain the same marker text, while restricted
+turbofish and log-data syntax continue to reject it.
 
 The following remain deliberately unsupported: one-element tuples, general postfix invocation, open
 ranges, unary numeric negation, `/=`, leading `::`, full Rust generics, universal macro
@@ -151,14 +152,14 @@ Every `.thy` file in this directory is registered in `ROOT`.
 | Item | Disposition |
 |---|---|
 | H-D1 | Fixed with parenthesized lexical declaration arguments; chosen names shadow unqualified HOL/direct-call names. |
-| H-D2 | Temporarily accepts the legacy dereference-before-first-index shape and grouped/call-receiver field shapes; explicit whole-operand grouping selects Rust precedence. |
+| H-D2 | Fixed on `more-features`: postfixes bind before dereference uniformly; the former index meaning requires `(*base)[index]`. |
 | H-D3 postfix | Kept. |
 | H-D3 cast | Fixed with unary-before-cast precedence. |
 | H-D4 | Fixed through exact registered `Case_Translation` recovery. |
 | H-D5 | Qualification remains required for ambiguous basenames. |
 | H-D6 families | Fixed without downstream or parser-private family registration. |
 | H-D6 nested pattern | Fixed by lowering every authenticated constructor structurally, including registered nullaries. |
-| H-D7 | Accepts semicolons only after return arm bodies, without adding sequencing or unit. |
+| H-D7 | Fixed on `more-features`: direct return arms require commas, while braced return statements retain ordinary semicolons. |
 | H-D8 | Fixed by centralized integer candidate parsing and validation. |
 | H-D9 | Temporarily accepts apostrophised identifiers in ordinary, turbofish, and logging-data contexts. |
 | H-D10 | Fixed with exact terminal-`_` `function_body` inference. |

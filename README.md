@@ -218,12 +218,14 @@ constructor metadata is recovered from the registered backend rather than by tra
 constructor basenames remain unchanged.
 
 The grammar retains compatibility extensions used by existing µRust sources, including complete
-guard bodies and statement bodies in groups, macros, and struct fields. During production migration
-it also accepts apostrophised identifiers, return-arm semicolons, and narrow legacy
-dereference/postfix grouping. Explicitly grouping the complete
-dereference operand retains Rust precedence. Deliberately deferred Rust surface includes general
-postfix calls, one-element tuples, open ranges, unary numeric negation, `/=`, leading
-`::`, full Rust generics, universal macro trailing commas, and additional numeric families.
+guard bodies and statement bodies in groups, macros, and struct fields. Apostrophised identifiers
+also remain accepted during production migration. Dereference otherwise follows Rust's uniform
+postfix-before-prefix precedence: `*base[index]` means `*(base[index])`, while the former
+dereference-before-index meaning requires `(*base)[index]`. A direct return match arm requires a
+comma; a semicolon is accepted as an ordinary return statement only inside braces. Deliberately
+deferred Rust surface includes general postfix calls, one-element tuples, open ranges, unary numeric
+negation, `/=`, leading `::`, full Rust generics, universal macro trailing commas, and additional
+numeric families.
 
 The parser implementation depends only on `Shallow_Micro_Rust_Base` and `Isabelle_Lex-Yacc`.
 Full `Shallow_Micro_Rust` adds the parser bridge, while the main `AutoCorrode` session includes both

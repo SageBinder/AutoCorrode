@@ -1690,14 +1690,6 @@ definition postfix_to_value ::
   where \<open> postfix_to_value \<equiv> lift_fun1 postfix_inner_value \<close>
 micro_rust_notation (call) postfix_to_value ("to_value")
 
-definition postfix_ref_identity ::
-    \<open>
-      (unit, unit, postfix_outer) Global_Store.ref \<Rightarrow>
-      (unit, (unit, unit, postfix_outer) Global_Store.ref,
-       unit, unit, unit) function_body
-    \<close>
-  where \<open>postfix_ref_identity \<equiv> lift_fun1 (\<lambda>reference. reference)\<close>
-
 context
   fixes d :: postfix_default
   fixes i :: postfix_inner
@@ -1724,17 +1716,6 @@ adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereferenc
 context fixes rp :: \<open>(unit, unit, postfix_inner) Global_Store.ref\<close>
 begin
 urust_expr ref_deref_field_postfix \<open> *rp.value \<close>
-end
-
-context fixes rp :: \<open>(unit, unit, postfix_outer) Global_Store.ref\<close>
-begin
-
-urust_expr deref_grouped_receiver_field_compatibility
-  \<open> *(rp).inner.value \<close>
-
-urust_expr deref_call_receiver_field_compatibility
-  \<open> *postfix_ref_identity(rp).inner.value \<close>
-
 end
 
 no_adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
@@ -1863,19 +1844,13 @@ priorities, so the corresponding rows retain those parentheses.
 adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
 
 context
-  fixes array_ref ::
-    \<open>(unit, unit, (32 word, 4) array) Global_Store.ref\<close>
-    and reference_array ::
-      \<open>((unit, unit, 32 word) Global_Store.ref, 4) array\<close>
+  fixes reference_array ::
+    \<open>((unit, unit, 32 word) Global_Store.ref, 4) array\<close>
 begin
 
 text\<open>
-During migration, an unparenthesised dereference binds before the first following index. Explicitly
-grouping the indexed operand retains ordinary Rust prefix/postfix grouping.
+Explicitly grouping the indexed operand makes the postfix boundary visible in both frontends.
 \<close>
-
-urust_expr deref_before_index_compatibility
-  \<open> *array_ref[0_usize] \<close>
 
 urust_expr grouped_index_before_deref
   \<open> *(reference_array[0_usize]) \<close>

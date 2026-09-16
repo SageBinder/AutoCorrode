@@ -744,7 +744,6 @@ yacc_definitions\<open>
        | ublock of URust_AST.ur_expr
        | uunsafe of URust_AST.ur_expr
        | uwith_block_expr of URust_AST.ur_expr
-       | ureturn of URust_AST.ur_expr
        | usemi_free_stmt of URust_AST.ur_expr
        | uconditional of URust_AST.ur_expr
        | uif_head of if_head
@@ -805,11 +804,10 @@ yacc_rules\<open>
   (* Return and closures are low-precedence expressions outside the operator ladder. Their operands
      and bodies are complete expressions, while assignment enters this layer only on its right. *)
   uexpr : uassign                           (uassign)
-        | ureturn                           (ureturn)
+        | TRETURN                           (UE_Return (NONE, TRETURNleft))
+        | TRETURN uexpr
+            (UE_Return (SOME uexpr, TRETURNleft))
         | uclosure                          (uclosure)
-  ureturn : TRETURN                         (UE_Return (NONE, TRETURNleft))
-          | TRETURN uexpr
-              (UE_Return (SOME uexpr, TRETURNleft))
   uclosure : TBARBAR uexpr
                 (mk_closure
                   ([], uexpr,
@@ -897,7 +895,7 @@ yacc_rules\<open>
           | TAMP TMUT uprefix
               (UE_Unary (U_Borrow BM_Mut, uprefix, TAMPleft))
           | TSTAR uprefix
-              (mk_deref (uprefix, TSTARleft))
+              (UE_Unary (U_Deref, uprefix, TSTARleft))
   (* Postfixes form a structural tier above primaries, so `?`, field access, tuple projections, and
      methods compose left-to-right and bind tighter than prefix/binary operators. Indexing shares this
      tier. A dotted identifier followed by parentheses is a method; without parentheses it is an
@@ -1196,8 +1194,8 @@ yacc_rules\<open>
                         (UE_Unary
                           (U_Borrow BM_Mut, uprefix_no_struct, TAMPleft))
                     | TSTAR uprefix_no_struct
-                        (mk_deref
-                          (uprefix_no_struct, TSTARleft))
+                        (UE_Unary
+                          (U_Deref, uprefix_no_struct, TSTARleft))
   upostfix_no_struct : uprimary_no_struct
                          (uprimary_no_struct)
                      | upostfix_no_struct TQUESTION
@@ -1335,16 +1333,11 @@ yacc_rules\<open>
                                SOME (uguard, TIFleft)))
   uarm : uarm_head uexpr
            (finish_arm (uarm_head, uexpr))
-       | uarm_head ureturn TSEMI
-           (finish_arm (uarm_head, ureturn))
   uarm_with_block : uarm_head uwith_block_expr
                       (finish_arm (uarm_head, uwith_block_expr))
   uarm_after_block : uarm_head_after_block uexpr
                        (finish_arm
                          (uarm_head_after_block, uexpr))
-                   | uarm_head_after_block ureturn TSEMI
-                       (finish_arm
-                         (uarm_head_after_block, ureturn))
   uarm_with_block_after_block :
       uarm_head_after_block uwith_block_expr
         (finish_arm
