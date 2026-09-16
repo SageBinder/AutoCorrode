@@ -3,6 +3,7 @@ theory Parser_Tests_Grammar_Literals
 begin
 
 declare [[urust_conformance = true]]
+declare [[urust_pp_test = true]]
 declare [[urust_verbosity = 0]]
 
 section\<open>Expression precedence\<close>

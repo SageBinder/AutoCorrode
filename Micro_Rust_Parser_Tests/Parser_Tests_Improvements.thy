@@ -11,6 +11,7 @@ theory Parser_Tests_Improvements
 begin
 
 declare [[urust_conformance = false]]
+declare [[urust_pp_test = true]]
 
 section\<open>Test support\<close>
 

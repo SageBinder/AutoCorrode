@@ -1709,10 +1709,11 @@ end
 
   The intended stable parser-module interface is:
 
-    * parse_source ctxt source initializes the generated lexer for the position-carrying Input.source
-      and parses it with ctxt.  It returns NONE for empty input and SOME unresolved
-      URust_AST.ur_expr for a recognized expression, preserving the AST positions and lexer markup
-      produced by URust.  Lexical and syntax failures raise positioned ERROR exceptions; syntax
+    * parse_source ctxt source reports the complete input as embedded uRust, initializes the
+      generated lexer for the position-carrying Input.source, and parses it with ctxt.  It returns
+      NONE for empty input and SOME unresolved URust_AST.ur_expr for a recognized expression,
+      preserving the AST positions and lexer markup produced by URust.  Lexical and syntax failures
+      raise positioned ERROR exceptions; syntax
       errors name the encountered terminal by its uRust source spelling (or a descriptive placeholder
       for value-bearing terminals), never by the generated ML-Yacc terminal name. The operation owns
       the shared parser lock for its complete lexer initialization and parser consumption, so callers
@@ -1964,31 +1965,48 @@ struct
           layout
     end
 
+  fun report_source_language ctxt source =
+    Context_Position.report ctxt
+      (Position.range_position (Input.range_of source))
+      (Markup.language
+        {name = "uRust",
+         symbols = true,
+         antiquotes = true,
+         delimited = Input.is_delimited source})
+
   fun parse_source ctxt source =
     Parser_Utils.with_parser_lock (fn () =>
-      (case parse_layout ctxt
-          (Parser_Lex_Util.make_source_layout source) of
-         SOME (URust_AST.Parsed_Expression expression) =>
-           SOME expression
-       | SOME (URust_AST.Parsed_Datatype item) =>
-           error
-             ("urust_expr: expected a complete expression" ^
-               Position.here
-                 (URust_AST.datatype_item_position item))
-       | NONE => NONE))
+      let
+        val _ = report_source_language ctxt source
+      in
+        (case parse_layout ctxt
+            (Parser_Lex_Util.make_source_layout source) of
+           SOME (URust_AST.Parsed_Expression expression) =>
+             SOME expression
+         | SOME (URust_AST.Parsed_Datatype item) =>
+             error
+               ("urust_expr: expected a complete expression" ^
+                 Position.here
+                   (URust_AST.datatype_item_position item))
+         | NONE => NONE)
+      end)
 
   fun parse_item_source ctxt source =
     Parser_Utils.with_parser_lock (fn () =>
-      (case parse_item_layout ctxt
-          (Parser_Lex_Util.make_source_layout source) of
-         SOME (URust_AST.Parsed_Datatype item) =>
-           SOME item
-       | SOME (URust_AST.Parsed_Expression expression) =>
-           error
-             ("urust_datatype: expected a struct or enum item" ^
-               Position.here
-                 (URust_AST.expression_position expression))
-       | NONE => NONE))
+      let
+        val _ = report_source_language ctxt source
+      in
+        (case parse_item_layout ctxt
+            (Parser_Lex_Util.make_source_layout source) of
+           SOME (URust_AST.Parsed_Datatype item) =>
+             SOME item
+         | SOME (URust_AST.Parsed_Expression expression) =>
+             error
+               ("urust_datatype: expected a struct or enum item" ^
+                 Position.here
+                   (URust_AST.expression_position expression))
+         | NONE => NONE)
+      end)
 end
 \<close>
 

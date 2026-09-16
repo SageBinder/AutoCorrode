@@ -5,6 +5,7 @@ begin
 chapter\<open>Scoped cast-target aliases\<close>
 
 declare [[urust_conformance = false]]
+declare [[urust_pp_test = true]]
 declare [[urust_verbosity = 0]]
 
 section\<open>Imported bundles remain inactive\<close>

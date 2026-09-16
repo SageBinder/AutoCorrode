@@ -15,6 +15,30 @@ urust_fn [OPTIONS] NAME :: TYPE [(PARAMETER, ...)] \<open> body \<close>
 urust_datatype [verbosity = 0|1|2] [HOL_NAME] \<open> struct-or-enum \<close>
 ```
 
+Both commands accept the Boolean `pp_test` option, backed by scoped `urust_pp_test`. It serializes
+the parsed AST, reparses the generated source without positions, and compares the abstract canonical
+token streams before lowering. The check is silent on success and appears as a nested
+`pretty-print roundtrip` timing phase when timing is enabled.
+
+Both commands also accept Boolean `pretty`, backed by scoped `urust_pretty`. At verbosity levels 1
+and 2 it renders the generated definition, abbreviation, or anonymous result with a human-readable
+uRust right-hand side inside a symbolic `µ‹…›` wrapper. The wrapper is presentation only and is
+unrelated to source quotation syntax. At verbosity 0 it prints nothing and warns that `pretty` has
+no effect. Conformance theorems remain ordinary HOL output because their right-hand side is produced
+by the legacy frontend. Command arguments appear as uRust closure formals on the pretty right-hand
+side by default; `application_def` instead displays them as applications on the left-hand side. The
+symbolic opening follows the equation marker on the same line; right-hand closure formals and the
+body occupy successively indented lines. In human mode, nonempty code blocks for control flow,
+matches, closures, bindings, and assignments always place their code on indented lines,
+independently of the PIDE margin; opening braces remain on the construct line and `} else {` remains
+together. Serialized mode retains compact canonical blocks where possible. Multiline brace bodies
+use two-space nesting from the construct's line indentation rather than aligning beneath the
+opening brace. The rendered body is reparsed through the new frontend and transfers its complete
+PIDE report structure to the formatted spans, including lexical roles, bound/free and entity
+markup, typing payloads, and markup from embedded HOL. The printer does not infer those semantic
+roles itself. The pure printer core finalizes one source-mapped canonical document; the separate
+output adapter consumes its generated source and lexeme ranges without a second location pass.
+
 The list is optional, may be empty, and accepts one trailing comma. Declaration arguments are
 allocated as typed lexical locals before body elaboration. They therefore shadow existing
 unqualified HOL constants and direct-call registrations in value and direct-call positions.
@@ -212,14 +236,20 @@ negative rows preserve these boundaries.
 - `Parser_Tests_Primitive_Path_Heads.thy`: all seven primitive heads, exact literal/call role
   selection, comments and token boundaries, expression/pattern/place interactions, AST/range/markup
   audits, fallback rejection, and recovery.
+- All command-bearing parser theories enable scoped `urust_pp_test`, so their ordinary
+  `urust_expr` and `urust_fn` declarations exercise serialized parse-print-parse checking.
+  `Parser_Test_Printer.thy` demonstrates human-readable verbose declaration output and covers human
+  formatting idempotence, grouping and precedence, position independence, rendering margins and
+  indentation, erased-syntax canonicalization, report-driven InfoView markup and typing payloads,
+  option behavior, and malformed hand-built AST diagnostics.
 - `Parser_Tests_Improvements.thy`: the executable accepted-improvement inventory, including nested
   block comments, ordinary and inline-const array-repeat behavior, scoped cast-target aliases, and a
   dedicated legacy-matcher-bug section for nested registered nullaries, guarded-or fallthrough,
   shadowed fallback binders, and nested alias capture.
 - `Parser_Tests_Negative_Conformance.thy` and `Parser_Tests_Misc.thy`: focused fidelity boundaries,
   outer-opener diagnostics, exact full-span comment markup, literal-state boundaries, and recovery.
-- `Parser_Test_Showoff.thy`: combined command, grammar, matching, block-comment, array-repeat,
-  scoped cast-alias, primitive-associated-item, and iterator examples.
+- `Parser_Test_Showoff.thy`: combined command, AST-printer, grammar, matching, block-comment,
+  array-repeat, scoped cast-alias, primitive-associated-item, and iterator examples.
 
 Every `.thy` file in this directory is registered in `ROOT`.
 
