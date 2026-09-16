@@ -71,6 +71,14 @@ position, and qualified generated constructor terminals receive constructor styl
 does not contain `urust_datatype` should take only the generic `report_struct_label` change and the
 corresponding `Parser_Tests_Misc.thy` assertions.
 
+Successful generated item uses retain their HOL type or constructor navigation and then link finally
+to the matching `urust_datatype` source declaration. Generated named fields similarly retain
+selector-constant navigation and link finally to the stored source-field declaration in expressions
+and patterns; field identity comes from item scope rather than use-site spelling. Native constructors
+remain HOL-only. Generated source and backend semantic reports are emitted only after the applicable
+role, shape, arity, generic, ambiguity, and pattern-field validation succeeds, while source-field
+references wait until complete command checking succeeds.
+
 Every qualifier of an exact registered path has one role-specific tooltip without pretending to be
 a HOL Free, constant, type, or constructor. An authenticated constructor's nearest qualifier retains
 its datatype navigation and `keyword3` styling; earlier module-like segments remain neutral.

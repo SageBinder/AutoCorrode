@@ -271,8 +271,10 @@ fun source_field_entries shape selectors =
        then
          map2
            (fn field => fn selector =>
-             (datatype_field_name field,
-              Const (dest_Const_name selector, dummyT)))
+             {rust_name = datatype_field_name field,
+              rust_pos = datatype_field_position field,
+              selector =
+                Const (dest_Const_name selector, dummyT)})
            fields selectors
        else
          error
@@ -345,7 +347,8 @@ fun register_generated_datatype
         ((rust_path, position, origin, shape),
          (constructor, selectors)) =
       URust_Item_Scope.register_constructor
-        {rust_path = rust_path,
+        {rust_type = rust_name,
+         rust_path = rust_path,
          rust_pos = position,
          hol_type_name = hol_type_name,
          constructor =
@@ -596,10 +599,10 @@ fun report_generated_field_declarations lthy
          URust_AST.Named_Shape fields =>
            let
              val aliases =
-               URust_Item_Scope.constructor_fields entry
+               URust_Item_Scope.constructor_field_entries entry
              val _ =
                if map datatype_field_name fields =
-                   map fst aliases
+                   map URust_Item_Scope.field_rust_name aliases
                then ()
                else
                  error
@@ -607,16 +610,20 @@ fun report_generated_field_declarations lthy
            in
              ignore
                (map2
-                 (fn field => fn (_, selector) =>
-                   (case selector of
+                 (fn field => fn source_field =>
+                   (case URust_Item_Scope.field_selector source_field of
                       Const (name, _) =>
-                        Position.report
-                          (datatype_field_position field)
-                          (Name_Space.markup
-                            (Consts.space_of
-                              (Proof_Context.consts_of lthy))
-                            name)
-                    | _ => ()))
+                        (Position.report
+                           (datatype_field_position field)
+                           (Name_Space.markup
+                             (Consts.space_of
+                               (Proof_Context.consts_of lthy))
+                             name);
+                         URust_Item_Scope.report_field_definition
+                           source_field)
+                    | _ =>
+                        URust_Item_Scope.report_field_definition
+                          source_field))
                  fields aliases)
            end
        | _ => ())

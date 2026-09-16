@@ -906,6 +906,664 @@ ML_val \<open>
   end
 \<close>
 
+section\<open> Generated source navigation markup \<close>
+
+ML_val \<open>
+  local
+    structure I = URust_Item_Scope
+
+    val ctxt = Context_Position.set_visible true \<^context>
+    val item_kind = "urust_item"
+    val constructor_kind = "urust_constructor"
+    val field_kind = "urust_field"
+
+    fun audit_assert message condition =
+      if condition then ()
+      else error ("generated source navigation audit: " ^ message)
+
+    fun find_from text needle offset =
+      if offset + size needle > size text
+      then error ("missing " ^ quote needle)
+      else if String.substring (text, offset, size needle) = needle
+      then offset
+      else find_from text needle (offset + 1)
+
+    fun token_position text start needle offset =
+      let
+        val raw = find_from text needle offset
+        val token_start =
+          Position.symbol_explode
+            (String.substring (text, 0, raw)) start
+      in
+        (raw,
+         Position.range_position
+           (token_start,
+            Position.symbol_explode needle token_start))
+      end
+
+    fun collect_markup_order (XML.Text _) = []
+      | collect_markup_order (XML.Elem (markup, body)) =
+          markup :: maps collect_markup_order body
+
+    fun capture_reports label action =
+      let
+        val captured =
+          Synchronized.var
+            ("generated_source_" ^ label ^ "_reports")
+            ([]: string list)
+        fun report chunks =
+          Synchronized.change captured
+            (fn current => current @ chunks)
+        val result =
+          Parser_Test_Report_Lock.run (fn () =>
+            Unsynchronized.setmp Private_Output.report_fn report
+              (fn () =>
+                Print_Mode.with_modes [Print_Mode.PIDE]
+                  (fn () => Exn.result action ()) ())
+              ())
+      in
+        (result,
+         Synchronized.value captured
+         |> maps YXML.parse_body
+         |> maps collect_markup_order)
+      end
+
+    fun capture serial label text declared_type =
+      let
+        val start =
+          Position.make0
+            (120 + serial) (12000 + serial * 1200) 0
+            "" "" ("generated-source-" ^ label)
+        val source =
+          Parser_Lex_Util.positioned_content_source text start
+        val (result, markup) =
+          capture_reports label
+            (fn () =>
+              URust_Command.elaborate ctxt
+                {kind = URust_Command.Expression,
+                 source = source,
+                 arguments = [],
+                 arguments_pos = #2 (Input.range_of source),
+                 declared_type =
+                   Option.map
+                     (fn typ => (typ, Position.none))
+                     declared_type})
+      in (start, result, markup) end
+
+    fun require_success label (Exn.Res term) = term
+      | require_success label (Exn.Exn exn) =
+          if Exn.is_interrupt exn then Exn.reraise exn
+          else
+            error
+              (label ^ " failed: " ^
+                Runtime.exn_message exn)
+
+    fun require_failure label (Exn.Exn exn) =
+          if Exn.is_interrupt exn then Exn.reraise exn
+          else ()
+      | require_failure label (Exn.Res _) =
+          error (label ^ " unexpectedly succeeded")
+
+    fun has_position properties position =
+      Properties.get properties Markup.offsetN =
+        Option.map Value.print_int
+          (Position.offset_of position) andalso
+      Properties.get properties Markup.end_offsetN =
+        Option.map Value.print_int
+          (Position.end_offset_of position) andalso
+      Properties.get properties Markup.idN =
+        Position.id_of position
+
+    fun entity_events position markup =
+      markup
+      |> map_filter
+          (fn (name, properties) =>
+            if name = Markup.entityN andalso
+                has_position properties position
+            then
+              SOME
+                (Properties.get properties Markup.kindN,
+                 Properties.get properties Markup.nameN,
+                 Properties.get properties Markup.defN,
+                 Properties.get properties Markup.refN)
+            else NONE)
+
+    fun definition_id kind name position markup =
+      (case
+        entity_events position markup
+        |> map_filter
+            (fn (SOME actual_kind, SOME actual_name,
+                 definition, _) =>
+                  if actual_kind = kind andalso
+                      actual_name = name
+                  then definition
+                  else NONE
+              | _ => NONE)
+        |> distinct (op =)
+       of
+         [identity] => identity
+       | identities =>
+           error
+             ("expected one definition identity for " ^
+               quote (kind ^ ":" ^ name) ^ ", found [" ^
+               commas_quote identities ^ "]"))
+
+    fun source_reference kind name position markup =
+      entity_events position markup
+      |> map_filter
+          (fn (SOME actual_kind, SOME actual_name, _, reference) =>
+                if actual_kind = kind andalso
+                    actual_name = name
+                then reference
+                else NONE
+            | _ => NONE)
+
+    fun print_option NONE = "-"
+      | print_option (SOME value) = value
+
+    fun print_event (kind, name, definition, reference) =
+      "(" ^ print_option kind ^ "," ^ print_option name ^
+        ",def=" ^ print_option definition ^
+        ",ref=" ^ print_option reference ^ ")"
+
+    fun assert_source_final label source_kind source_name
+        source_identity backend_kind backend_name position markup =
+      let
+        val events = entity_events position markup
+        val final_event =
+          if null events then NONE else SOME (List.last events)
+        val source_refs =
+          source_reference source_kind source_name position markup
+      in
+        audit_assert (label ^ " lost backend navigation")
+          (exists
+            (fn (SOME kind, SOME name, _, _) =>
+                  kind = backend_kind andalso
+                    name = backend_name
+              | _ => false)
+            events);
+        audit_assert (label ^ " source reference changed")
+          (source_refs = [source_identity]);
+        if final_event =
+            SOME
+              (SOME source_kind, SOME source_name,
+               NONE, SOME source_identity)
+        then ()
+        else
+          error
+            ("generated source navigation audit: " ^ label ^
+              " source declaration was not final; events = " ^
+              commas_quote (map print_event events));
+        audit_assert (label ^ " acquired notation ownership")
+          (not
+            (exists
+              (fn (SOME kind, _, _, _) =>
+                    kind = Micro_Rust_Names.notationN
+                | _ => false)
+              events))
+      end
+
+    fun assert_no_semantic label position markup =
+      let
+        fun semantic_kind kind =
+          member (op =)
+            [item_kind, constructor_kind, field_kind,
+             Micro_Rust_Names.notationN,
+             Markup.constantN, Markup.type_nameN]
+            kind
+      in
+        audit_assert (label ^ " emitted premature semantic entity")
+          (not
+            (exists
+              (fn (SOME kind, _, _, _) => semantic_kind kind
+                | _ => false)
+              (entity_events position markup)))
+      end
+
+    fun constructor_name entry =
+      (case I.constructor_term entry of
+         Const (name, _) => name
+       | _ => error "generated constructor has no constant identity")
+
+    fun selector_name field =
+      (case I.field_selector field of
+         Const (name, _) => name
+       | _ => error "generated field has no selector identity")
+
+    fun source_field entry name =
+      (case
+        I.constructor_field_entries entry
+        |> filter (fn field => I.field_rust_name field = name)
+       of
+         [field] => field
+       | fields =>
+           error
+             ("expected one stored source field " ^ quote name ^
+               ", found " ^ string_of_int (length fields)))
+
+    val SOME point_type =
+      I.lookup_type ctxt "ParserPoint"
+    val SOME message_type =
+      I.lookup_type ctxt "ParserMessage"
+    val SOME marker_constructor =
+      I.lookup_constructor ctxt "ParserMarker"
+    val SOME tuple_constructor =
+      I.lookup_constructor ctxt "ParserTuple"
+    val SOME point_constructor =
+      I.lookup_constructor ctxt "ParserPoint"
+    val SOME empty_constructor =
+      I.lookup_constructor ctxt "ParserMessage::Empty"
+    val SOME data_constructor =
+      I.lookup_constructor ctxt "ParserMessage::Data"
+    val SOME named_constructor =
+      I.lookup_constructor ctxt "ParserMessage::Named"
+
+    val point_x = source_field point_constructor "x"
+    val point_history = source_field point_constructor "history"
+    val named_code = source_field named_constructor "code"
+    val named_payload = source_field named_constructor "payload"
+
+    val (definition_result, definition_markup) =
+      capture_reports "definitions"
+        (fn () =>
+          (I.report_type_definition point_type;
+           I.report_type_definition message_type;
+           List.app I.report_constructor_definition
+             [marker_constructor, tuple_constructor,
+              point_constructor, empty_constructor,
+              data_constructor, named_constructor];
+           List.app I.report_field_definition
+             [point_x, point_history, named_code, named_payload]))
+    val _ = ignore (require_success "definition replay" definition_result)
+
+    fun type_definition entry =
+      definition_id item_kind (I.type_rust_name entry)
+        (I.type_position entry) definition_markup
+    fun constructor_definition entry =
+      definition_id constructor_kind
+        (I.constructor_rust_path entry)
+        (I.constructor_position entry) definition_markup
+    fun field_definition entry =
+      definition_id field_kind
+        (I.field_rust_path entry ^
+          "." ^ I.field_rust_name entry)
+        (I.field_position entry) definition_markup
+
+    val point_type_id = type_definition point_type
+    val message_type_id = type_definition message_type
+    val marker_constructor_id =
+      constructor_definition marker_constructor
+    val tuple_constructor_id =
+      constructor_definition tuple_constructor
+    val point_constructor_id =
+      constructor_definition point_constructor
+    val empty_constructor_id =
+      constructor_definition empty_constructor
+    val data_constructor_id =
+      constructor_definition data_constructor
+    val named_constructor_id =
+      constructor_definition named_constructor
+    val point_x_id = field_definition point_x
+    val point_history_id = field_definition point_history
+    val named_code_id = field_definition named_code
+    val named_payload_id = field_definition named_payload
+
+    val marker_text = "ParserMarker"
+    val (marker_start, marker_result, marker_markup) =
+      capture 1 "struct-value" marker_text NONE
+    val _ = ignore (require_success "generated struct value" marker_result)
+    val (_, marker_position) =
+      token_position marker_text marker_start "ParserMarker" 0
+    val _ =
+      assert_source_final "generated struct value"
+        constructor_kind "ParserMarker"
+        marker_constructor_id Markup.constantN
+        (constructor_name marker_constructor)
+        marker_position marker_markup
+
+    val tuple_text = "ParserTuple(1u32, true, None)"
+    val (tuple_start, tuple_result, tuple_markup) =
+      capture 2 "struct-call" tuple_text NONE
+    val _ = ignore (require_success "generated struct call" tuple_result)
+    val (_, tuple_position) =
+      token_position tuple_text tuple_start "ParserTuple" 0
+    val _ =
+      assert_source_final "generated struct call"
+        constructor_kind "ParserTuple"
+        tuple_constructor_id Markup.constantN
+        (constructor_name tuple_constructor)
+        tuple_position tuple_markup
+
+    val struct_text =
+      "ParserPoint { x: 1u32, history: " ^
+        "\<llangle>[] :: 32 word list\<rrangle>, }"
+    val (struct_start, struct_result, struct_markup) =
+      capture 3 "struct-expression" struct_text NONE
+    val _ =
+      ignore
+        (require_success "generated struct expression" struct_result)
+    val (_, struct_head) =
+      token_position struct_text struct_start "ParserPoint" 0
+    val (struct_x_raw, struct_x_position) =
+      token_position struct_text struct_start "x" 0
+    val (_, struct_history_position) =
+      token_position struct_text struct_start "history"
+        (struct_x_raw + size "x")
+    val _ =
+      assert_source_final "generated struct-expression head"
+        constructor_kind "ParserPoint"
+        point_constructor_id Markup.constantN
+        (constructor_name point_constructor)
+        struct_head struct_markup
+    val _ =
+      assert_source_final "generated struct-expression field x"
+        field_kind "ParserPoint.x"
+        point_x_id Markup.constantN
+        (selector_name point_x)
+        struct_x_position struct_markup
+    val _ =
+      assert_source_final "generated struct-expression field history"
+        field_kind "ParserPoint.history"
+        point_history_id Markup.constantN
+        (selector_name point_history)
+        struct_history_position struct_markup
+
+    val empty_text = "ParserMessage::Empty"
+    val (empty_start, empty_result, empty_markup) =
+      capture 4 "enum-value" empty_text NONE
+    val _ = ignore (require_success "generated enum value" empty_result)
+    val (empty_qualifier_raw, empty_qualifier) =
+      token_position empty_text empty_start "ParserMessage" 0
+    val (_, empty_terminal) =
+      token_position empty_text empty_start "Empty"
+        (empty_qualifier_raw + size "ParserMessage::")
+    val _ =
+      assert_source_final "generated enum value qualifier"
+        item_kind "ParserMessage"
+        message_type_id Markup.type_nameN
+        (I.type_hol_name message_type)
+        empty_qualifier empty_markup
+    val _ =
+      assert_source_final "generated enum value terminal"
+        constructor_kind "ParserMessage::Empty"
+        empty_constructor_id Markup.constantN
+        (constructor_name empty_constructor)
+        empty_terminal empty_markup
+
+    val call_text = "ParserMessage::Data(2u32, None)"
+    val (call_start, call_result, call_markup) =
+      capture 5 "enum-call" call_text NONE
+    val _ = ignore (require_success "generated enum call" call_result)
+    val (call_qualifier_raw, call_qualifier) =
+      token_position call_text call_start "ParserMessage" 0
+    val (_, call_terminal) =
+      token_position call_text call_start "Data"
+        (call_qualifier_raw + size "ParserMessage::")
+    val _ =
+      assert_source_final "generated enum call qualifier"
+        item_kind "ParserMessage"
+        message_type_id Markup.type_nameN
+        (I.type_hol_name message_type)
+        call_qualifier call_markup
+    val _ =
+      assert_source_final "generated enum call terminal"
+        constructor_kind "ParserMessage::Data"
+        data_constructor_id Markup.constantN
+        (constructor_name data_constructor)
+        call_terminal call_markup
+
+    val pattern_text =
+      "match \<llangle>undefined :: parser_message\<rrangle> { " ^
+        "ParserMessage::Named { code, payload: _ } \<Rightarrow> code, " ^
+        "_ \<Rightarrow> 0u32, }"
+    val (pattern_start, pattern_result, pattern_markup) =
+      capture 6 "enum-pattern" pattern_text NONE
+    val _ =
+      ignore
+        (require_success "generated enum pattern" pattern_result)
+    val (pattern_qualifier_raw, pattern_qualifier) =
+      token_position pattern_text pattern_start "ParserMessage" 0
+    val (pattern_terminal_raw, pattern_terminal) =
+      token_position pattern_text pattern_start "Named"
+        (pattern_qualifier_raw + size "ParserMessage::")
+    val (pattern_code_raw, pattern_code) =
+      token_position pattern_text pattern_start "code"
+        (pattern_terminal_raw + size "Named")
+    val (_, pattern_payload) =
+      token_position pattern_text pattern_start "payload"
+        (pattern_code_raw + size "code")
+    val _ =
+      assert_source_final "generated enum pattern qualifier"
+        item_kind "ParserMessage"
+        message_type_id Markup.type_nameN
+        (I.type_hol_name message_type)
+        pattern_qualifier pattern_markup
+    val _ =
+      assert_source_final "generated enum pattern terminal"
+        constructor_kind "ParserMessage::Named"
+        named_constructor_id Markup.constantN
+        (constructor_name named_constructor)
+        pattern_terminal pattern_markup
+    val _ =
+      assert_source_final "generated enum pattern field code"
+        field_kind "ParserMessage::Named.code"
+        named_code_id Markup.constantN
+        (selector_name named_code)
+        pattern_code pattern_markup
+    val _ =
+      assert_source_final "generated enum pattern field payload"
+        field_kind "ParserMessage::Named.payload"
+        named_payload_id Markup.constantN
+        (selector_name named_payload)
+        pattern_payload pattern_markup
+
+    val native_text = "None"
+    val (native_start, native_result, native_markup) =
+      capture 7 "native-constructor" native_text
+        (SOME
+          "(unit, 32 word option, unit, unit, unit, unit) expression")
+    val _ =
+      ignore
+        (require_success "native constructor control" native_result)
+    val (_, native_position) =
+      token_position native_text native_start "None" 0
+    val native_events = entity_events native_position native_markup
+    val _ =
+      audit_assert "native constructor lost HOL navigation"
+        (exists
+          (fn (SOME kind, SOME name, _, _) =>
+                kind = Markup.constantN andalso
+                  name = \<^const_name>\<open>None\<close>
+            | _ => false)
+          native_events)
+    val _ =
+      audit_assert "native constructor acquired generated ownership"
+        (not
+          (exists
+            (fn (SOME kind, _, _, _) =>
+                  member (op =)
+                    [item_kind, constructor_kind, field_kind,
+                     Micro_Rust_Names.notationN]
+                    kind
+              | _ => false)
+            native_events))
+
+    val lifted_text = "Some(3u32)"
+    val (lifted_start, lifted_result, lifted_markup) =
+      capture 8 "lifted-backend" lifted_text NONE
+    val _ =
+      ignore
+        (require_success "lifted backend control" lifted_result)
+    val (_, lifted_position) =
+      token_position lifted_text lifted_start "Some" 0
+    val lifted_events =
+      entity_events lifted_position lifted_markup
+    val some_entry =
+      (case
+        Micro_Rust_Names.lookups
+          ctxt Micro_Rust_Names.NFunction "Some"
+       of
+         [entry] => entry
+       | entries =>
+           error
+             ("expected one Some registration, found " ^
+               string_of_int (length entries)))
+    val some_ref = Value.print_int (#serial some_entry)
+    val _ =
+      audit_assert "lifted backend lost wrapped constructor navigation"
+        (exists
+          (fn (SOME kind, SOME name, _, _) =>
+                kind = Markup.constantN andalso
+                  name = \<^const_name>\<open>Some\<close>
+            | _ => false)
+          lifted_events)
+    val _ =
+      audit_assert "lifted backend retained wrapper navigation"
+        (not
+          (exists
+            (fn (SOME kind, SOME name, _, _) =>
+                  kind = Markup.constantN andalso
+                    name = \<^const_name>\<open>lift_fun1\<close>
+              | _ => false)
+            lifted_events))
+    val _ =
+      audit_assert "selected notation declaration was not final"
+        (List.last lifted_events =
+          (SOME Micro_Rust_Names.notationN, SOME "Some",
+           NONE, SOME some_ref))
+
+    fun failure_case serial label text token_specs =
+      let
+        val (start, result, markup) =
+          capture serial label text NONE
+        val _ = require_failure label result
+        val _ =
+          List.app
+            (fn (token, offset) =>
+              let
+                val (_, position) =
+                  token_position text start token offset
+              in
+                assert_no_semantic
+                  (label ^ " " ^ quote token)
+                  position markup
+              end)
+            token_specs
+      in () end
+
+    val wrong_arity_text =
+      "ParserMessage::Data(1u32)"
+    val wrong_arity_qualifier =
+      find_from wrong_arity_text "ParserMessage" 0
+    val _ =
+      failure_case 9 "wrong-generated-arity"
+        wrong_arity_text
+        [("ParserMessage", wrong_arity_qualifier),
+         ("Data",
+          wrong_arity_qualifier + size "ParserMessage::")]
+
+    val _ =
+      failure_case 10 "unsupported-generated-generics"
+        "ParserTuple::<1>(1u32, true, None)"
+        [("ParserTuple", 0)]
+
+    val _ =
+      failure_case 11 "wrong-generated-value-shape"
+        "ParserTuple"
+        [("ParserTuple", 0)]
+
+    val named_expression_text =
+      "ParserMessage::Named { code: 1u32, payload: " ^
+        "\<llangle>[] :: 8 word list\<rrangle>, }"
+    val named_expression_qualifier =
+      find_from named_expression_text "ParserMessage" 0
+    val named_expression_terminal =
+      find_from named_expression_text "Named"
+        (named_expression_qualifier + size "ParserMessage::")
+    val _ =
+      failure_case 12 "wrong-generated-struct-role"
+        named_expression_text
+        [("ParserMessage", named_expression_qualifier),
+         ("Named", named_expression_terminal),
+         ("code",
+          named_expression_terminal + size "Named"),
+         ("payload",
+          named_expression_terminal + size "Named")]
+
+    val missing_field_text =
+      "match \<llangle>undefined :: parser_point\<rrangle> { " ^
+        "ParserPoint { x } \<Rightarrow> x, }"
+    val missing_head =
+      find_from missing_field_text "ParserPoint" 0
+    val _ =
+      failure_case 13 "missing-generated-pattern-field"
+        missing_field_text
+        [("ParserPoint", missing_head),
+         ("x", missing_head + size "ParserPoint")]
+
+    val unknown_field_text =
+      "match \<llangle>undefined :: parser_point\<rrangle> { " ^
+        "ParserPoint { unknown: _, .. } \<Rightarrow> 0u32, }"
+    val unknown_head =
+      find_from unknown_field_text "ParserPoint" 0
+    val _ =
+      failure_case 14 "unknown-generated-pattern-field"
+        unknown_field_text
+        [("ParserPoint", unknown_head),
+         ("unknown", unknown_head + size "ParserPoint")]
+
+    val duplicate_field_text =
+      "match \<llangle>undefined :: parser_point\<rrangle> { " ^
+        "ParserPoint { x: _, x: _, .. } \<Rightarrow> 0u32, }"
+    val duplicate_head =
+      find_from duplicate_field_text "ParserPoint" 0
+    val duplicate_first =
+      find_from duplicate_field_text "x"
+        (duplicate_head + size "ParserPoint")
+    val duplicate_second =
+      find_from duplicate_field_text "x"
+        (duplicate_first + size "x")
+    val _ =
+      failure_case 15 "duplicate-generated-pattern-field"
+        duplicate_field_text
+        [("ParserPoint", duplicate_head),
+         ("x", duplicate_first),
+         ("x", duplicate_second)]
+
+    val malformed_nested_text =
+      "match \<llangle>undefined :: parser_point\<rrangle> { " ^
+        "ParserPoint { x: ParserMessage::Data(_, _, _), " ^
+        "history: _ } \<Rightarrow> 0u32, }"
+    val malformed_outer =
+      find_from malformed_nested_text "ParserPoint" 0
+    val malformed_x =
+      find_from malformed_nested_text "x"
+        (malformed_outer + size "ParserPoint")
+    val malformed_inner =
+      find_from malformed_nested_text "ParserMessage"
+        (malformed_x + size "x")
+    val malformed_data =
+      find_from malformed_nested_text "Data"
+        (malformed_inner + size "ParserMessage::")
+    val _ =
+      failure_case 16 "malformed-nested-generated-pattern"
+        malformed_nested_text
+        [("ParserPoint", malformed_outer),
+         ("x", malformed_x),
+         ("ParserMessage", malformed_inner),
+         ("Data", malformed_data)]
+
+    val _ =
+      failure_case 17 "ambiguous-generated-basename"
+        "SharedPayload(1u32)"
+        [("SharedPayload", 0)]
+  in
+    val _ =
+      writeln
+        "Generated item, constructor, field, native, lifted, ordering, target, and delayed-failure navigation regressions passed"
+  end
+\<close>
+
 section\<open> Command diagnostics and output \<close>
 
 ML_val \<open>

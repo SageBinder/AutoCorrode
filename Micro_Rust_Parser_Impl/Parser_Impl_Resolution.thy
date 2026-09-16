@@ -64,9 +64,9 @@ sig
   val function_identifier:
     Proof.context -> environment -> string * Position.T -> term
   val function_path:
-    Proof.context -> environment -> URust_AST.ur_path -> term
+    Proof.context -> environment -> URust_AST.ur_path -> int -> term
   val struct_function_path:
-    Proof.context -> environment -> URust_AST.ur_path -> term
+    Proof.context -> environment -> URust_AST.ur_path -> int -> term
   val method_path:
     Proof.context -> environment -> URust_AST.ur_path -> term
   val apply_generic_arguments:
@@ -102,13 +102,19 @@ sig
   val constructor_family: constructor_info -> (string * term list) option
   val report_constructor:
     Proof.context -> URust_AST.ur_path -> constructor_info -> unit
-  val report_selector: Proof.context -> Position.T -> term -> unit
+  type field_reference
+  val report_field:
+    Proof.context -> Position.T -> term -> field_reference option -> unit
 
   datatype resolved_struct_pattern =
       Resolved_Constructor_Struct of
-        constructor_info * (term * Position.T option * URust_AST.ur_pat) list
+        constructor_info *
+          (term * field_reference option *
+            Position.T option * URust_AST.ur_pat) list
     | Resolved_Record_Struct of
-        string * (term * Position.T option * URust_AST.ur_pat) list
+        string *
+          (term * field_reference option *
+            Position.T option * URust_AST.ur_pat) list
 
   val resolve_struct_pattern:
     Proof.context -> constructor_resolver ->
@@ -214,14 +220,18 @@ ML\<open>
     constructor. Exact registered literals report backend/datatype information first, retain every
     registration reference, and make the lowest-serial declaration authenticating the selected
     constructor the final target on every source segment. Unregistered HOL constructors retain free
-    qualifiers and constant terminal markup. report_selector emits constant markup at the supplied
-    source position.
+    qualifiers and constant terminal markup. Generated item references likewise retain HOL type and
+    constructor navigation before making the source datatype declaration the final target.
+    report_field emits selector-constant markup immediately and queues an authenticated generated
+    source-field reference for replay after complete command checking; native fields have no source
+    reference.
 
   - resolve_struct_pattern resolves a struct head as a constructor, a single-constructor datatype
     type name, or a HOL record type. It validates duplicate, unknown, missing, and repeated-rest
     fields, expands shorthand fields, and returns fields in metadata declaration order. Each ordered
-    field is (selector, SOME source_position, pattern) when written or
-    (selector, NONE, P_Wild Position.none) when supplied by `..`.
+    field carries its selector, an optional authenticated generated source-field identity, and
+    (SOME source_position, pattern) when written or
+    (NONE, P_Wild Position.none) when supplied by `..`.
     Resolved_Constructor_Struct carries constructor_info plus those fields;
     Resolved_Record_Struct carries the qualified record type name plus those fields. Policy for
     rejecting the currently unsupported HOL-record lowering belongs to URust_Patterns.
@@ -237,6 +247,7 @@ struct
   structure T = URust_Shallow_Terms
   structure I = URust_Item_Scope
 
+  type field_reference = I.field_entry
   type local_table = Parser_Utils.var_info Symtab.table
   type environment =
     {locals: local_table,
@@ -694,11 +705,21 @@ struct
         let
           val pos = #2 (segment_identifier segment)
           val type_name = I.constructor_hol_type entry
+          val type_entry =
+            (case I.lookup_type ctxt
+                (I.constructor_rust_type entry) of
+               SOME registered => registered
+             | NONE =>
+                 error
+                   ("urust_expr: generated Rust constructor " ^
+                     quote (I.constructor_rust_path entry) ^
+                     " has no source type identity"))
         in
           List.app (Context_Position.report ctxt pos)
             [Name_Space.markup
                (Proof_Context.type_space ctxt) type_name,
-             Markup.keyword3]
+             Markup.keyword3];
+          I.report_type_reference ctxt pos type_entry
         end
     in
       (case rev qualifiers of
@@ -713,7 +734,6 @@ struct
       val (_, pos) = path_terminal path
       val constructor = I.constructor_term entry
       val _ = report_item_qualifiers ctxt path entry
-      val _ = I.report_constructor_reference ctxt pos entry
       val _ = Context_Position.report ctxt pos Markup.keyword3
       val _ =
         (case constructor of
@@ -723,6 +743,7 @@ struct
                  (Consts.space_of (Proof_Context.consts_of ctxt))
                  name)
          | _ => ())
+      val _ = I.report_constructor_reference ctxt pos entry
     in () end
 
   fun item_constructor_arity ctxt entry =
@@ -1024,7 +1045,7 @@ struct
     | Struct_Item_Call
     | No_Item_Call
 
-  fun item_function_path role ctxt path entry =
+  fun item_function_path role ctxt path actual_arity entry =
     let
       val _ = reject_item_generics path
       val name = render_path path
@@ -1069,6 +1090,15 @@ struct
          | (No_Item_Call, _, _) =>
              error "urust_expr: internal generated item method resolution")
       val arity = item_constructor_arity ctxt entry
+      val _ =
+        if arity = actual_arity then ()
+        else
+          error
+            ("Type unification failed: generated Rust constructor " ^
+              quote name ^ " expects " ^ string_of_int arity ^
+              " argument(s), but got " ^
+              string_of_int actual_arity ^
+              Position.here pos)
       val _ = report_item_constructor ctxt path entry
     in
       T.source_position pos
@@ -1076,7 +1106,8 @@ struct
           (I.constructor_term entry))
     end
 
-  fun resolve_function_path item_role local_first ctxt environment path =
+  fun resolve_function_path item_role local_first actual_arity
+      ctxt environment path =
     let
       val head_pos = #2 (path_terminal path)
       fun lexical_function () =
@@ -1100,7 +1131,8 @@ struct
                 else exact_item_constructor ctxt path
               of
                 SOME entry =>
-                  item_function_path item_role ctxt path entry
+                  item_function_path item_role ctxt path
+                    actual_arity entry
               | NONE =>
                   (case exact_registered_path ctxt
                       Micro_Rust_Names.NFunction path of
@@ -1142,18 +1174,19 @@ struct
       else T.source_position head_pos function
     end
 
-  fun function_path ctxt environment path =
-    resolve_function_path Ordinary_Item_Call true
+  fun function_path ctxt environment path actual_arity =
+    resolve_function_path Ordinary_Item_Call true actual_arity
       ctxt environment path
 
-  fun struct_function_path ctxt environment path =
-    resolve_function_path Struct_Item_Call false
+  fun struct_function_path ctxt environment path actual_arity =
+    resolve_function_path Struct_Item_Call false actual_arity
       ctxt environment path
 
   fun method_path ctxt environment path =
     let
       val function =
-        resolve_function_path No_Item_Call false ctxt environment path
+        resolve_function_path No_Item_Call false 0
+          ctxt environment path
       val (name, pos) = path_terminal path
       val lexical =
         (case path_segments path of
@@ -1754,7 +1787,9 @@ struct
          | NONE => report_named_term ctxt pos (constructor_term info))
     end
 
-  val report_selector = report_named_term
+  fun report_field ctxt pos selector field =
+    (report_named_term ctxt pos selector;
+     Option.app (I.defer_field_reference ctxt pos) field)
 
   fun report_wildcard ctxt pos =
     Context_Position.report_text ctxt pos Markup.typing "wildcard pattern"
@@ -1769,17 +1804,28 @@ struct
       fun report_alias aliases field =
         let val (name, pos) = label field in
           (case AList.lookup (op =) aliases name of
-             SOME selector =>
-               (report_named_term ctxt pos selector;
-                Context_Position.report_text ctxt pos Markup.typing
-                  "generated Rust field")
+             SOME source_field =>
+               (Context_Position.report_text ctxt pos Markup.typing
+                  "generated Rust field";
+                report_field ctxt pos
+                  (I.field_selector source_field)
+                  (SOME source_field))
            | NONE => report_struct_label ctxt (name, pos))
         end
     in
       (case exact_item_constructor ctxt path of
          SOME entry =>
+           let
+             val aliases =
+               map
+                 (fn source_field =>
+                   (I.field_rust_name source_field,
+                    source_field))
+                 (I.constructor_field_entries entry)
+           in
            List.app
-             (report_alias (I.constructor_fields entry)) fields
+             (report_alias aliases) fields
+           end
        | NONE => List.app (report_struct_label ctxt o label) fields)
     end
 
@@ -1801,9 +1847,13 @@ struct
 
   datatype resolved_struct_pattern =
       Resolved_Constructor_Struct of
-        constructor_info * (term * Position.T option * ur_pat) list
+        constructor_info *
+          (term * field_reference option *
+            Position.T option * ur_pat) list
     | Resolved_Record_Struct of
-        string * (term * Position.T option * ur_pat) list
+        string *
+          (term * field_reference option *
+            Position.T option * ur_pat) list
 
   (* Struct heads accept either a constructor name or the type name of a single-constructor datatype.
      Records come only from Record.get_info; Ctr_Sugar's record entry belongs to a different lowering
@@ -2001,7 +2051,7 @@ struct
 
       fun native_selector_entry selector =
         (case term_name_of selector of
-           SOME name => (canonical_name name, selector)
+           SOME name => (canonical_name name, selector, NONE)
          | NONE =>
              error
                ("urust_expr: unnamed selector in struct metadata for " ^
@@ -2011,11 +2061,17 @@ struct
         (case item of
            SOME entry =>
              let
-               val aliases = I.constructor_fields entry
-               val alias_terms = map snd aliases
+               val aliases = I.constructor_field_entries entry
+               val alias_terms = map I.field_selector aliases
              in
                if eq_list (op aconv) (alias_terms, selectors)
-               then aliases
+               then
+                 map
+                   (fn source_field =>
+                     (I.field_rust_name source_field,
+                      I.field_selector source_field,
+                      SOME source_field))
+                   aliases
                else
                  error
                    ("urust_expr: generated Rust field aliases disagree with native selector metadata for " ^
@@ -2023,7 +2079,7 @@ struct
                      Position.here head_pos)
              end
          | NONE => map native_selector_entry selectors)
-      val selector_names = map fst selector_entries
+      val selector_names = map #1 selector_entries
 
       fun add_field (name, pos, pattern) (entries, rest_pos) =
         let val field = canonical_name name in
@@ -2067,10 +2123,13 @@ struct
             " is missing field(s): " ^ space_implode ", " missing ^
             Position.here head_pos)
       val ordered =
-        map (fn (name, selector) =>
+        map (fn (name, selector, field_reference) =>
           (case AList.lookup (op =) entries name of
-             SOME (pos, pattern) => (selector, SOME pos, pattern)
-           | NONE => (selector, NONE, P_Wild Position.none)))
+             SOME (pos, pattern) =>
+               (selector, field_reference, SOME pos, pattern)
+           | NONE =>
+               (selector, field_reference,
+                NONE, P_Wild Position.none)))
           selector_entries
     in
       (case candidate of

@@ -401,6 +401,11 @@ struct
 
   fun resolve_pattern resolver ctxt policy pattern =
     let
+      val pending_reports =
+        Unsynchronized.ref ([]: (unit -> unit) list)
+      fun defer report =
+        pending_reports := report :: !pending_reports
+
       fun resolve source_pattern =
         (case source_pattern of
            P_Wild pos => Resolved_Wild pos
@@ -413,8 +418,10 @@ struct
                      NONE => Resolved_Bind (binding name pos)
                    | SOME info =>
                        (check_constructor_arity name pos info [];
-                        R.report_constructor ctxt
-                          (make_single_path (name, pos)) info;
+                        defer
+                          (fn () =>
+                            R.report_constructor ctxt
+                              (make_single_path (name, pos)) info);
                         Resolved_Constructor (info, pos, []))))
          | P_Literal (payload as LP_Integer (_, pos)) =>
              (case policy of
@@ -431,7 +438,9 @@ struct
                       segment_identifier (final_segment path)
                   in
                     check_constructor_arity name pos info [];
-                    R.report_constructor ctxt path info;
+                    defer
+                      (fn () =>
+                        R.report_constructor ctxt path info);
                     Resolved_Constructor (info, pos, [])
                   end
               | NONE => Resolved_Path path)
@@ -446,7 +455,9 @@ struct
                     "` is not a known constructor" ^ Position.here pos)
               | SOME info =>
                   (check_constructor_arity name pos info arguments;
-                   R.report_constructor ctxt path info;
+                   defer
+                     (fn () =>
+                       R.report_constructor ctxt path info);
                    Resolved_Constructor
                      (info, pos, map resolve arguments)))
               end
@@ -492,11 +503,19 @@ struct
                  (path, fields) of
                 R.Resolved_Constructor_Struct (info, ordered) =>
                   let
-                    val _ = R.report_constructor ctxt path info
-                    fun resolve_field (selector, field_pos, nested) =
+                    val _ =
+                      defer
+                        (fn () =>
+                          R.report_constructor ctxt path info)
+                    fun resolve_field
+                        (selector, field_reference,
+                         field_pos, nested) =
                       (case field_pos of
                          SOME source_pos =>
-                           R.report_selector ctxt source_pos selector
+                           defer
+                             (fn () =>
+                               R.report_field ctxt source_pos
+                                 selector field_reference)
                        | NONE => ();
                        resolve nested)
                   in
@@ -515,8 +534,11 @@ struct
       (case policy of
          Resolve_Constructor_Case => ()
        | _ => reject_reference_patterns pattern);
-      resolve pattern
+      (resolve pattern, rev (!pending_reports))
     end
+
+  fun emit_semantic_reports reports =
+    List.app (fn report => report ()) reports
 
   fun signature_name (name, _) = name
   fun signature_position (_, pos) = pos
@@ -691,7 +713,7 @@ struct
          | _ => Always_Binder)
       val resolver =
         R.make_constructor_resolver ctxt (position pattern)
-      val resolved =
+      val (resolved, reports) =
         resolve_pattern resolver ctxt policy pattern
       val signatures = collect_bindings resolved
       val rhs_mode =
@@ -720,6 +742,7 @@ struct
                  binder_site_description diagnostic_site ^
                  Position.here (resolved_position resolved))
              end)
+      val _ = emit_semantic_reports reports
     in
       Prepared_Binding
         {environment = environment',
@@ -957,7 +980,7 @@ struct
   fun prepare_case_arm resolver ctxt environment
       (UR_Arm (pattern, guard, body)) =
     let
-      val resolved =
+      val (resolved, reports) =
         resolve_pattern resolver ctxt Resolve_Constructor_Case pattern
       val signatures = collect_bindings resolved
       val arm_environment =
@@ -972,19 +995,27 @@ struct
       val total =
         coverage_is_total (resolved_coverage resolved)
     in
-      Prepared_Case_Arm
-        {patterns = patterns,
-         environment = arm_environment,
-         binders = binders,
-         guard = guard,
-         body = body,
-         direct_abstraction = direct,
-         total = total}
+      (Prepared_Case_Arm
+         {patterns = patterns,
+          environment = arm_environment,
+          binders = binders,
+          guard = guard,
+          body = body,
+          direct_abstraction = direct,
+          total = total},
+       reports)
     end
 
   fun prepare_case_arms ctxt pos environment arms =
-    let val resolver = R.make_constructor_resolver ctxt pos
-    in map (prepare_case_arm resolver ctxt environment) arms end
+    let
+      val resolver = R.make_constructor_resolver ctxt pos
+      val prepared =
+        map (prepare_case_arm resolver ctxt environment) arms
+      val _ =
+        prepared
+        |> maps snd
+        |> emit_semantic_reports
+    in map fst prepared end
 
   fun prepared_environment
       (Prepared_Case_Arm {environment, ...}) = environment

@@ -205,9 +205,10 @@ struct
            fun initializer (SE_Field (_, _, expression)) = expression
            val _ =
              T.check_function_call_arity struct_pos (length fields)
-           val _ = R.report_struct_labels ctxt head fields
            val function =
-             R.struct_function_path ctxt environment head
+             R.struct_function_path ctxt environment
+               head (length fields)
+           val _ = R.report_struct_labels ctxt head fields
            val lowered_initializers =
              map
                (lower_expression ctxt environment o initializer)
@@ -338,7 +339,9 @@ struct
            val (function, source_arguments) =
              (case callee of
                 UC_Path path =>
-                  (R.function_path ctxt environment path, arguments)
+                  (R.function_path ctxt environment path
+                     (length arguments),
+                   arguments)
               | UC_Method (receiver, segment) =>
                   (R.method_path ctxt environment
                      (UR_Path (Identifier_Head, [segment],
