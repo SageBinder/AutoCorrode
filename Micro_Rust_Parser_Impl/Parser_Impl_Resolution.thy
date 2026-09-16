@@ -175,9 +175,10 @@ ML\<open>
     returns the selected unlifted direct callee. apply_generic_arguments parses the retained
     restricted generic argument sources in the current lexical environment and applies them to an
     already-resolved term from left to right.
-    global_constant_path_value is the stricter array-repeat-length route: it rejects lexical locals
-    and fixed parameters, accepts an exact literal registration or genuine HOL constant;
-    qualified paths require exact literal registration, and it never creates an unresolved Free.
+    global_constant_path_value is the stricter array-repeat-length route: it rejects lexical locals,
+    accepts exact literal registrations whose selected backend may depend on the proof context,
+    direct fixed parameters, or genuine unqualified HOL constants. Qualified paths require exact
+    literal registration, and it never creates an unresolved Free.
     registered_function performs an exact registered NFunction lookup without imposing a caller
     naming policy. registered_macro_path performs the same lookup for the complete spelling including
     `!`, but rejects an unregistered qualified source path through the common call-role diagnostic.
@@ -764,37 +765,53 @@ struct
                error
                  ("urust_expr: array repeat length cannot use lexical local " ^
                    quote local_name ^ Position.here local_pos)
-             else if Variable.is_fixed ctxt local_name then
-               error
-                 ("urust_expr: array repeat length cannot use fixed parameter " ^
-                   quote local_name ^ Position.here local_pos)
              else ()
          | _ => ())
+
+      fun resolve_global_constant () =
+          (case try
+              (Proof_Context.read_const
+                {proper = true, strict = false} ctxt)
+              name of
+             SOME (Const (constant_name, _)) =>
+               let
+                 val consts = Proof_Context.consts_of ctxt
+                 val constant_type =
+                   Consts.the_constraint consts constant_name
+                 val _ = report_path_qualifiers ctxt path
+                 val _ =
+                   List.app (Context_Position.report ctxt pos)
+                     [Name_Space.markup
+                        (Consts.space_of consts) constant_name,
+                      Markup.const]
+                 val _ =
+                   Context_Position.report_text ctxt pos Markup.typing
+                     (Syntax.string_of_typ ctxt constant_type)
+               in
+                 T.source_position pos
+                   (Const (constant_name, dummyT))
+               end
+           | _ =>
+               error
+                 ("urust_expr: array repeat length path " ^
+                   quote name ^
+                   " does not resolve to a global constant, fixed parameter, or exact literal registration" ^
+                   Position.here pos))
+
+      fun resolve_contextual_or_global () =
+        (case path_segments path of
+           [Path_Segment (fixed_name, fixed_pos, NONE)] =>
+             if Variable.is_fixed ctxt fixed_name
+             then resolve_hol_identifier ctxt fixed_name fixed_pos
+             else resolve_global_constant ()
+         | _ => resolve_global_constant ())
     in
       (case exact_registered_path ctxt Micro_Rust_Names.NLiteral path of
          SOME registered => registered
        | NONE =>
            if is_qualified_path path then
              qualified_registration_error Micro_Rust_Names.NLiteral path name pos
-           else
-             (case try
-                 (Proof_Context.read_const {proper = true, strict = false} ctxt) name of
-                SOME (Const (constant_name, _)) =>
-                  let
-                    val consts = Proof_Context.consts_of ctxt
-                    val constant_type = Consts.the_constraint consts constant_name
-                    val _ =
-                      List.app (Context_Position.report ctxt pos)
-                        [Name_Space.markup (Consts.space_of consts) constant_name,
-                         Markup.const]
-                    val _ =
-                      Context_Position.report_text ctxt pos Markup.typing
-                        (Syntax.string_of_typ ctxt constant_type)
-                  in T.source_position pos (Const (constant_name, dummyT)) end
-              | _ =>
-                  error
-                    ("urust_expr: array repeat length path " ^ quote name ^
-                      " does not resolve to a global constant" ^ Position.here pos)))
+           else resolve_contextual_or_global ())
     end
 
   fun literal_path_value ctxt environment path =

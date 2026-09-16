@@ -180,10 +180,12 @@ Their children must satisfy the local `const` pattern policy. Constructor-wrappe
 structural case compiler, as do ordinary matches and `while let`.
 
 Array repeats support ordinary `[value; length]` and repeat-local
-`[const { value }; length]`. Lengths admit integer literals, resolved global constants,
-parentheses, `+ - * / %`, and `as usize`; unsuffixed and `usize` literals are accepted directly,
-while other word widths require the cast. Ordinary operands run exactly once, including at length
-zero. Inline-const bodies run once per element and not at all at length zero.
+`[const { value }; length]`. Lengths admit integer literals, direct Isabelle fixed parameters,
+exact registered literal paths, genuine global constants, parentheses, `+ - * / %`, and
+`as usize`; a registered backend may itself depend on the surrounding proof context. Unsuffixed and
+`usize` literals are accepted directly, while other word widths require the cast. Ordinary operands
+run exactly once, including at length zero. Inline-const bodies run once per element and not at all
+at length zero.
 
 Constructor resolution uses Isabelle's datatype/codatatype metadata first and native case metadata
 for exact registered literal backends that are not represented by `Ctr_Sugar`. Registered literals
