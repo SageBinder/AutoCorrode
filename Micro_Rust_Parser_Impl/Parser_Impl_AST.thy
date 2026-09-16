@@ -647,7 +647,7 @@ struct
 
       fun invalid expression =
         error
-          ("urust_expr: array repeat length supports only integer literals, global constant paths, " ^
+          ("urust_expr: array repeat length supports only integer literals, symbolic length paths, " ^
             "parentheses, `+`, `-`, `*`, `/`, `%`, and `as usize`" ^
             Position.here (expression_position expression))
 

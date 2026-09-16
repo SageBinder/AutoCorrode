@@ -184,10 +184,12 @@ decimal, and hexadecimal bases, internal or trailing underscores, and the `u8`, 
 layout, with complete outer-span editor markup and no grammar or AST representation.
 
 Array repeats support ordinary `[value; length]` and repeat-local
-`[const { value }; length]`. Lengths admit integer literals, resolved global constants,
-parentheses, `+ - * / %`, and `as usize`; unsuffixed and `usize` literals are accepted directly,
-while other word widths require the cast. Ordinary operands run exactly once, including at length
-zero. Inline-const bodies run once per element and not at all at length zero.
+`[const { value }; length]`. Lengths admit integer literals, direct Isabelle fixed parameters,
+exact registered literal paths, genuine global constants, parentheses, `+ - * / %`, and
+`as usize`; a registered backend may itself depend on the surrounding proof context. Unsuffixed and
+`usize` literals are accepted directly, while other word widths require the cast. Ordinary operands
+run exactly once, including at length zero. Inline-const bodies run once per element and not at all
+at length zero.
 
 `Parser_Tests_Improvements.thy` provides a consolidated positive baseline for array repeats, nested
 block comments, and scoped cast-target aliases. Its separate legacy matcher-bug section demonstrates

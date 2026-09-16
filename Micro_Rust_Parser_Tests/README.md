@@ -76,9 +76,12 @@ Array repeats are a parser-only post-migration extension. Ordinary `[value; leng
 length first and the value exactly once, then returns `List.replicate (unat length) value`.
 Repeat-local `[const { value }; length]` evaluates the length first and uses
 `list_sequence (List.replicate (unat length) value)`, so its body executes once per element.
-Lengths are restricted to integer literals, resolved global constant paths, parentheses,
-`+ - * / %`, and `as usize`. The legacy frontend interprets `[value; length]` as a one-element array
-containing a sequence, so array repeats require conformance-disabled declarations.
+Lengths are restricted to integer literals, contextual symbolic paths, parentheses, `+ - * / %`,
+and `as usize`. A symbolic path may be a direct Isabelle fixed parameter, an exact registered
+literal whose backend can depend on the surrounding proof context, or a genuine global constant.
+µRust lexical locals and unresolved names remain rejected. The legacy frontend interprets
+`[value; length]` as a one-element array containing a sequence, so array repeats require
+conformance-disabled declarations.
 
 Exact registered associated items may use the existing integer primitive tokens as path heads:
 `u8`, `u16`, `u32`, `u64`, `usize`, `i32`, and `i64`. Literal-role registration is mandatory for

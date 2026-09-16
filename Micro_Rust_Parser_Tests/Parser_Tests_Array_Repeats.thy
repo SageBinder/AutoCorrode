@@ -25,6 +25,22 @@ definition repeat_registered_length :: \<open>64 word\<close>
 micro_rust_notation (literal)
   repeat_registered_length ("RepeatFixture::Length")
 
+locale repeat_contextual_lengths =
+  fixes direct_context_length :: \<open>64 word\<close>
+    and registered_context_length :: \<open>64 word\<close>
+begin
+
+micro_rust_notation (literal)
+  registered_context_length ("RepeatFixture::ContextLength")
+
+urust_expr repeat_direct_context_length
+  \<open> [1; direct_context_length] \<close>
+
+urust_expr repeat_registered_context_length
+  \<open> [1; RepeatFixture::ContextLength] \<close>
+
+end
+
 subsection\<open>Accepted syntax and length arithmetic\<close>
 
 urust_expr repeat_zero \<open> [1; 0] \<close>
@@ -229,15 +245,6 @@ new_urust_rejects audit \<open> [1; (1, 2)] \<close>
   \<open> array repeat length supports only \<close>
 new_urust_rejects audit \<open> [1; 2 as u32] \<close>
   \<open> array repeat length supports only \<close>
-
-context
-  fixes fixed_repeat_length :: \<open>64 word\<close>
-begin
-
-new_urust_rejects audit \<open> [1; fixed_repeat_length] \<close>
-  \<open> cannot use fixed parameter \<close>
-
-end
 
 urust_expr repeat_recovery_after_rejections \<open> [7; 2] \<close>
 
