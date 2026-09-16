@@ -233,6 +233,136 @@ record negative_record_fixture =
   negative_record_left :: nat
   negative_record_right :: nat
 
+subsection\<open>Qualified path registration policy\<close>
+
+definition qualified_wrong_role_literal :: unit
+  where \<open> qualified_wrong_role_literal \<equiv> () \<close>
+
+definition qualified_wrong_role_call ::
+    \<open>(unit, unit, unit, unit, unit) function_body\<close>
+  where \<open> qualified_wrong_role_call \<equiv> lift_fun0 () \<close>
+
+micro_rust_notation (call)
+  qualified_wrong_role_call
+  ("WrongRole::Value")
+micro_rust_notation (literal)
+  qualified_wrong_role_literal
+  ("WrongRole::Call")
+micro_rust_notation (call)
+  qualified_wrong_role_call
+  ("WrongRole::Pattern")
+micro_rust_notation (literal)
+  qualified_wrong_role_literal
+  ("WrongRole::StructExpression")
+micro_rust_notation (literal)
+  qualified_wrong_role_literal
+  ("WrongRole::Macro!")
+
+new_urust_rejects audit
+  \<open> UnregisteredValue::Item \<close>
+  \<open> qualified path "UnregisteredValue::Item" requires an exact micro_rust_notation (literal) declaration \<close>
+
+new_urust_rejects audit
+  \<open> WrongRole::Value \<close>
+  \<open> qualified path "WrongRole::Value" requires an exact micro_rust_notation (literal) declaration \<close>
+
+new_urust_rejects audit
+  \<open> UnregisteredCall::run() \<close>
+  \<open> qualified path "UnregisteredCall::run" requires an exact micro_rust_notation (call) declaration \<close>
+
+new_urust_rejects audit
+  \<open> WrongRole::Call() \<close>
+  \<open> qualified path "WrongRole::Call" requires an exact micro_rust_notation (call) declaration \<close>
+
+new_urust_rejects audit
+  \<open> UnregisteredPlace::slot = () \<close>
+  \<open> qualified path "UnregisteredPlace::slot" requires an exact micro_rust_notation (literal) declaration \<close>
+
+new_urust_rejects audit
+  \<open> UnregisteredMacro::run!() \<close>
+  \<open> qualified path "UnregisteredMacro::run!" requires an exact micro_rust_notation (call) declaration \<close>
+
+new_urust_rejects audit
+  \<open> WrongRole::Macro!() \<close>
+  \<open> qualified path "WrongRole::Macro!" requires an exact micro_rust_notation (call) declaration \<close>
+
+new_urust_rejects audit
+  \<open>
+    match_case \<llangle>Some (1 :: nat)\<rrangle> {
+      UnregisteredConstructor::Some(value) \<Rightarrow> value,
+      _ \<Rightarrow> 0
+    }
+  \<close>
+  \<open> qualified path "UnregisteredConstructor::Some" requires an exact micro_rust_notation (literal) declaration \<close>
+
+new_urust_rejects audit
+  \<open>
+    match_case \<llangle>Some (1 :: nat)\<rrangle> {
+      WrongRole::Pattern(value) \<Rightarrow> value,
+      _ \<Rightarrow> 0
+    }
+  \<close>
+  \<open> qualified path "WrongRole::Pattern" requires an exact micro_rust_notation (literal) declaration \<close>
+
+new_urust_rejects audit
+  \<open>
+    match_case \<llangle>NegativeStruct 1 2\<rrangle> {
+      UnregisteredStruct::Pattern { negative_left: x, .. } \<Rightarrow> x
+    }
+  \<close>
+  \<open> qualified path "UnregisteredStruct::Pattern" requires an exact micro_rust_notation (literal) declaration \<close>
+
+new_urust_rejects audit
+  \<open> UnregisteredStruct::Expression { value: () } \<close>
+  \<open> qualified path "UnregisteredStruct::Expression" requires an exact micro_rust_notation (call) declaration \<close>
+
+new_urust_rejects audit
+  \<open> WrongRole::StructExpression { value: () } \<close>
+  \<open> qualified path "WrongRole::StructExpression" requires an exact micro_rust_notation (call) declaration \<close>
+
+urust_expr qualified_path_policy_recovery \<open> () \<close>
+
+ML_val\<open>
+  local
+    val text = "RecoveryAudit::Missing"
+    val start =
+      Position.make0 37 900 0 "" ""
+        "qualified-path-recovery-audit"
+    val position =
+      Position.range_position
+        (start, Position.symbol_explode text start)
+    val source =
+      Parser_Lex_Util.positioned_content_source text start
+    val expected =
+      "urust_expr: qualified path \"RecoveryAudit::Missing\" " ^
+      "requires an exact micro_rust_notation (literal) declaration" ^
+      Position.here position
+    val _ =
+      (case Exn.result
+          (fn () =>
+            Parser_Test_Elaboration.expression
+              \<^context> source) () of
+         Exn.Res _ =>
+           error
+             "qualified path diagnostic audit: missing registration was accepted"
+       | Exn.Exn exn =>
+           if Exn.is_interrupt exn then Exn.reraise exn
+           else
+             \<^assert> (Runtime.exn_message exn = expected))
+    val recovered =
+      Parser_Test_Elaboration.expression
+        \<^context> (Parser_Lex_Util.text_source "()")
+    val _ =
+      \<^assert>
+        (Term.exists_subterm
+          (fn Const (name, _) =>
+                name = \<^const_name>\<open>Product_Type.Unity\<close>
+            | _ => false)
+          recovered)
+  in
+  end
+\<close>
+
 subsection\<open> Cycle 1 atomic binder validation (C1-I1--C1-I3) \<close>
 
 text\<open>
@@ -705,8 +835,8 @@ new_urust_rejects audit
       Unregistered::Value \<Rightarrow> ()
     }
   \<close>
-  \<open> mixed numeral and constructor patterns in bare `match` \<close>
-  \<comment> \<open> [AUDIT] an unregistered qualified path remains case-only. \<close>
+  \<open> qualified path "Unregistered::Value" requires an exact micro_rust_notation (literal) declaration \<close>
+  \<comment> \<open> [AUDIT] an unregistered qualified pattern fails before automatic match routing. \<close>
 
 new_urust_rejects audit
   \<open>

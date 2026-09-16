@@ -149,6 +149,8 @@ struct
       val name_pos = #2 (segment_identifier (final_segment path))
       val complete_name = name ^ "!"
       val complete_name_pos = macro_name_position (path_position path) bang_pos
+      val adjacent =
+        positions_are_adjacent (path_position path) bang_pos
 
       fun lower_argument expression = lower environment expression
 
@@ -221,8 +223,16 @@ struct
               (scrutinee, pattern, position))
        | MP_Arguments arguments =>
            (case
-               if positions_are_adjacent (path_position path) bang_pos
-               then R.registered_function ctxt (complete_name, complete_name_pos)
+               if adjacent
+               then
+                 R.registered_macro_path ctxt path
+                   (complete_name, complete_name_pos)
+               else if is_qualified_path path
+               then
+                 (ignore
+                   (R.registered_macro_path ctxt path
+                     (complete_name, complete_name_pos));
+                  NONE)
                else NONE
             of
               SOME function =>

@@ -39,6 +39,7 @@ sig
   val generic_argument_source: generic_arg -> Input.source
   val path_position: ur_path -> Position.T
   val path_segments: ur_path -> path_segment list
+  val is_qualified_path: ur_path -> bool
   val segment_identifier: path_segment -> string * Position.T
   val segment_generic_args: path_segment -> generic_args option
   val final_segment: ur_path -> path_segment
@@ -304,6 +305,8 @@ struct
 
   fun path_position (UR_Path (_, pos)) = pos
   fun path_segments (UR_Path (segments, _)) = segments
+  fun is_qualified_path (UR_Path (_ :: _ :: _, _)) = true
+    | is_qualified_path _ = false
   fun segment_identifier (Path_Segment (name, pos, _)) = (name, pos)
   fun segment_generic_args (Path_Segment (_, _, arguments)) = arguments
   fun final_segment (UR_Path (segments, _)) =

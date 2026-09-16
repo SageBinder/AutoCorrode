@@ -10985,9 +10985,28 @@ ML_val\<open>
         URust_Resolution.Registered_Value_Literal
         (path_of "NegativeRegistered::Applied")
     val _ =
-      expect_class "unregistered qualified path"
-        URust_Resolution.Unregistered_Literal
-        (path_of "Unregistered::Value")
+      (case Exn.result
+          (fn () =>
+            let
+              val path = path_of "Unregistered::Value"
+              val resolver =
+                URust_Resolution.make_constructor_resolver
+                  ctxt (path_position path)
+            in
+              URust_Resolution.classify_registered_literal
+                ctxt resolver path
+            end) () of
+         Exn.Res _ =>
+           error
+             "contextual bare-match classification audit: unregistered qualified path was accepted"
+       | Exn.Exn exn =>
+           if Exn.is_interrupt exn then Exn.reraise exn
+           else
+             audit_assert
+               "unregistered qualified path diagnostic changed"
+               (String.isSubstring
+                 "qualified path \"Unregistered::Value\" requires an exact micro_rust_notation (literal) declaration"
+                 (Runtime.exn_message exn)))
 
     fun find_from text needle offset =
       if offset + size needle > size text then

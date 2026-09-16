@@ -749,6 +749,13 @@ datatype native_qualified_constructor_left =
     NativeQualifiedShared
   | NativeQualifiedLeftOnly
 
+micro_rust_notation (literal)
+  native_qualified_constructor_left.NativeQualifiedShared
+  ("Parser_Tests_Expr::native_qualified_constructor_left::NativeQualifiedShared")
+micro_rust_notation (literal)
+  native_qualified_constructor_left.NativeQualifiedLeftOnly
+  ("Parser_Tests_Expr::native_qualified_constructor_left::NativeQualifiedLeftOnly")
+
 definition path_some_call ::
   \<open>nat \<Rightarrow>
     (unit, path_pattern_fixture, unit, unit, unit) function_body\<close>
@@ -3001,6 +3008,10 @@ datatype adv_struct_fixture =
   AdvStruct (adv_left: nat) (adv_right: nat)
 | AdvOther
 
+micro_rust_notation (literal)
+  adv_struct_fixture.AdvStruct
+  ("QualifiedStruct::Adv")
+
 datatype adv_nested_fixture =
   AdvNested (adv_option: "nat option") (adv_values: "nat list")
 
@@ -3012,8 +3023,6 @@ record adv_record_fixture =
   adv_rec_left :: nat
   adv_rec_right :: nat
 
-
-
 urust_expr adv_struct_reordered
   \<open> match \<llangle>AdvStruct 1 2\<rrangle> { AdvStruct { adv_right: y, adv_left: x } \<Rightarrow> x, _ \<Rightarrow> 0 } \<close>
 
@@ -3022,6 +3031,14 @@ urust_expr adv_struct_shorthand
 
 urust_expr adv_struct_rest
   \<open> match \<llangle>AdvStruct 1 2\<rrangle> { AdvStruct { adv_left, .. } \<Rightarrow> adv_left, _ \<Rightarrow> 0 } \<close>
+
+urust_expr [conformance = false] adv_struct_registered_qualified
+  \<open>
+    match \<llangle>AdvStruct 1 2\<rrangle> {
+      QualifiedStruct::Adv { adv_right: y, adv_left: x } \<Rightarrow> x,
+      _ \<Rightarrow> 0
+    }
+  \<close>
 
 urust_expr adv_struct_or
   \<open> match \<llangle>AdvStruct 1 2\<rrangle> { AdvStruct { adv_left: _, adv_right: _ } | AdvOther \<Rightarrow> \<llangle>True\<rrangle> } \<close>

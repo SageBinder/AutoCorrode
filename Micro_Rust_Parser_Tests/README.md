@@ -16,7 +16,11 @@ urust_fn [OPTIONS] NAME :: TYPE [(PARAMETER, ...)] \<open> body \<close>
 The list is optional, may be empty, and accepts one trailing comma. Declaration arguments are
 allocated as typed lexical locals before body elaboration. They therefore shadow existing
 unqualified HOL constants and direct-call registrations in value and direct-call positions.
-Qualified calls and method names retain registration-first resolution. `Parser_Tests_Misc.thy`
+Every multi-segment path instead requires an exact role-appropriate registration: `(literal)` for
+values, places, and constructor/struct patterns; `(call)` for calls, struct
+expressions, and registered macros, whose key includes the trailing `!`. A registration in another
+role does not satisfy the check. Method names remain single-segment and retain registration-first
+resolution. `Parser_Tests_Misc.thy`
 contains the exact `zip` collision: a parameter named `zip` shadows HOL `List.zip`, the conformance
 theorem closes by reflexivity, and the generated definition is structurally checked not to contain
 `List.zip`.
@@ -48,7 +52,7 @@ Constructor resolution follows one chain:
 1. ordinary datatype/codatatype metadata from `Ctr_Sugar`;
 2. native `Case_Translation` metadata for an exact registered `NLiteral` backend absent from
    `Ctr_Sugar`;
-3. authentic `Code.is_constr`/`Ctr_Sugar` lookup only for unregistered names.
+3. authentic `Code.is_constr`/`Ctr_Sugar` lookup only for unqualified unregistered names.
 
 Registered literals with native case metadata are constructors. Registered literals without it are
 values and need no downstream family registration. Binder-free, guard-free value/wildcard arms may
@@ -56,6 +60,8 @@ use switch/equality lowering; authentic constructors, bindings, and other struct
 case lowering at every nesting depth, including registered nullary constructors. Exact registration
 remains a resolution and markup route, not a lowering distinction. Bare basename ambiguity reports
 every candidate and is never resolved from the expected result type.
+Qualified constructor and struct-pattern metadata is selected from the exact registered `NLiteral`
+backend; parsed source `::` separators are never treated as Isabelle long-name separators.
 
 The shared shallow iterator `zip` combines iterator thunk lists with HOL `List.zip`, truncates to the
 shorter input, and calls each left thunk before its paired right thunk exactly once. The registered
@@ -67,7 +73,7 @@ method uses ordinary receiver-prepending call resolution and returns the establi
 Retained compatibility extensions include complete µRust bodies in guards and statement bodies in
 groups, macros, and struct fields. The underscore-before-integer-suffix spelling also remains
 accepted. During production migration the parser additionally accepts apostrophised identifiers,
-return-arm semicolons, exact native constructor paths written with `::`, and narrow legacy
+return-arm semicolons, and narrow legacy
 dereference/postfix grouping. Explicitly grouping the complete dereference operand retains Rust
 precedence. The parser supports binary, octal, decimal, and hexadecimal integers with internal or
 trailing underscores and `u8`, `u16`, `u32`, `u64`, and `usize` suffixes.

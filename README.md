@@ -136,8 +136,11 @@ The parenthesized argument list is optional, accepts a trailing comma, and uses 
 names. Minor keywords such as `for` may be unquoted; major command keywords delimit outer command
 spans and therefore need string quoting, for example `("lemma")`. A chosen argument name denotes
 that lexical argument in value positions and as an unqualified direct-call head, even if a HOL
-constant or call registration has the same spelling; qualified calls and method names retain their
-normal registration lookup. `urust_fn` also accepts an exact terminal `_` in its declared type and
+constant or call registration has the same spelling. Every multi-segment path requires an exact
+role-appropriate `micro_rust_notation`: values and places use `(literal)`, while calls, struct
+expressions, and registered macros use `(call)` (with `!` included in a macro key). Method names
+remain single-segment and retain their normal registration lookup. `urust_fn` also accepts an exact
+terminal `_` in its declared type and
 infers a fresh five-parameter `function_body`; internal placeholders and declared argument types
 remain checked normally.
 
@@ -168,11 +171,15 @@ only for binder-free, guard-free value/wildcard arms; authentic constructors and
 retain case semantics at every nesting depth, including registered nullary constructors. Resolution
 provenance affects exact lookup and markup but never changes constructor lowering. Ambiguous
 basenames remain errors, and the parser keeps no private constructor-family registry.
+Qualified constructor and struct patterns must have an exact `(literal)` registration; their
+constructor metadata is recovered from the registered backend rather than by translating source
+`::` separators into Isabelle long names. Unqualified HOL constants, fixed parameters, and native
+constructor basenames remain unchanged.
 
 The grammar retains compatibility extensions used by existing µRust sources, including complete
 guard bodies and statement bodies in groups, macros, and struct fields. During production migration
-it also accepts apostrophised identifiers, return-arm semicolons, exact native constructor paths
-written with `::`, and narrow legacy dereference/postfix grouping. Explicitly grouping the complete
+it also accepts apostrophised identifiers, return-arm semicolons, and narrow legacy
+dereference/postfix grouping. Explicitly grouping the complete
 dereference operand retains Rust precedence. Deliberately deferred Rust surface includes general
 postfix calls, one-element tuples, open ranges, array repeats, unary numeric negation, `/=`, leading
 `::`, full Rust generics, universal macro trailing commas, and additional numeric families.

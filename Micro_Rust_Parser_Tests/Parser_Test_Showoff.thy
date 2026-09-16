@@ -259,6 +259,18 @@ micro_rust_notation (literal)
   showoff_singleton_event.ShowoffSingletonEvent
   ("Showoff::Singleton::Event")
 
+definition showoff_singleton_event_lift ::
+    \<open>
+      nat \<Rightarrow>
+      (unit, showoff_singleton_event, unit, unit, unit) function_body
+    \<close>
+  where
+    \<open> showoff_singleton_event_lift \<equiv> lift_fun1 ShowoffSingletonEvent \<close>
+
+micro_rust_notation (call)
+  showoff_singleton_event_lift
+  ("Showoff::Singleton::Event")
+
 definition showoff_registered_number :: nat where
   \<open> showoff_registered_number \<equiv> 7 \<close>
 
