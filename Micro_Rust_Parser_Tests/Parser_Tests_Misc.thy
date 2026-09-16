@@ -10336,6 +10336,26 @@ ML_val\<open>
                       expected_qualifier_position)
                 rejection_markup))
         val _ =
+          audit_assert (label ^ " emitted premature qualifier notation entity")
+            (not
+              (exists
+                (fn (name, properties) =>
+                  name = Markup.entityN andalso
+                    Properties.get properties Markup.kindN =
+                      SOME Micro_Rust_Names.notationN andalso
+                    has_position properties
+                      expected_qualifier_position)
+                rejection_markup))
+        val _ =
+          audit_assert (label ^ " emitted premature qualifier typing markup")
+            (not
+              (exists
+                (fn (name, properties) =>
+                  name = Markup.typingN andalso
+                    has_position properties
+                      expected_qualifier_position)
+                rejection_markup))
+        val _ =
           audit_assert (label ^ " emitted premature terminal free markup")
             (not
               (exists
@@ -10467,6 +10487,81 @@ micro_rust_notation (call)
   constructor_qualifier_call
   ("Module::Call::invoke")
 
+definition qualifier_struct_call ::
+    \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
+  where
+    \<open>
+      qualifier_struct_call =
+        lift_fun1 (\<lambda>value. value)
+    \<close>
+
+micro_rust_notation (call)
+  qualifier_struct_call
+  ("StructModule::Builder::new")
+
+definition qualifier_generic_call ::
+    \<open>nat \<Rightarrow> nat \<Rightarrow>
+      (unit, nat, unit, unit, unit) function_body\<close>
+  where
+    \<open>
+      qualifier_generic_call parameter =
+        lift_fun1 (\<lambda>argument. parameter + argument)
+    \<close>
+
+micro_rust_notation (call)
+  qualifier_generic_call
+  ("GenericBase::invoke")
+
+micro_rust_notation (call)
+  constructor_qualifier_call
+  ("GenericExact::<Token>::invoke")
+
+definition qualifier_macro_call ::
+    \<open>bool \<Rightarrow> (unit, bool, unit, unit, unit) function_body\<close>
+  where
+    \<open>
+      qualifier_macro_call =
+        lift_fun1 (\<lambda>value. value)
+    \<close>
+
+micro_rust_notation (call)
+  qualifier_macro_call
+  ("MacroModule::invoke!")
+micro_rust_notation (call)
+  qualifier_macro_call
+  ("MacroGeneric::<Token>::invoke!")
+
+definition qualifier_multi_nat :: nat
+  where \<open> qualifier_multi_nat = 29 \<close>
+
+definition qualifier_multi_bool :: bool
+  where \<open> qualifier_multi_bool = True \<close>
+
+micro_rust_notation (literal)
+  qualifier_multi_nat
+  ("Multi::Registered::Value")
+micro_rust_notation (literal)
+  qualifier_multi_bool
+  ("Multi::Registered::Value")
+
+micro_rust_notation (literal)
+  qualifier_multi_nat
+  ("Duplicate::Registered::Value")
+micro_rust_notation (literal)
+  qualifier_multi_nat
+  ("Duplicate::Registered::Value")
+
+micro_rust_notation (call)
+  constructor_qualifier_call
+  ("Wrong::Role::Item")
+
+micro_rust_notation (literal)
+  constructor_qualifier_left.ConstructorQualifierLeft
+  ("Module::Families::Variant")
+micro_rust_notation (literal)
+  constructor_qualifier_right.ConstructorQualifierRight
+  ("Module::Families::Variant")
+
 ML_val\<open>
   local
     val ctxt = \<^context>
@@ -10594,7 +10689,32 @@ ML_val\<open>
        audit_assert (label ^ " lost constructor keyword3 styling")
          (count_markup Markup.keyword3N position markup = 1);
        audit_assert (label ^ " retained obsolete tconst styling")
-         (count_markup Markup.tconstN position markup = 0))
+         (count_markup Markup.tconstN position markup = 0);
+       audit_assert (label ^ " acquired neutral typing markup")
+         (count_markup Markup.typingN position markup = 0);
+       audit_assert (label ^ " acquired notation navigation")
+         (count_entity_kind Micro_Rust_Names.notationN
+           position markup = 0);
+       audit_assert (label ^ " acquired backend constant identity")
+         (count_entity_kind Markup.constantN position markup = 0))
+
+    fun assert_neutral_qualifier
+        label notation expected_entities position markup =
+      (audit_assert (label ^ " retained free markup")
+         (count_markup Markup.freeN position markup = 0);
+       audit_assert (label ^ " notation entity count changed")
+         (count_entity Micro_Rust_Names.notationN notation
+           position markup = expected_entities);
+       audit_assert (label ^ " typing tooltip count changed")
+         (count_markup Markup.typingN position markup = 1);
+       audit_assert (label ^ " acquired keyword styling")
+         (count_markup Markup.keyword3N position markup = 0);
+       audit_assert (label ^ " acquired obsolete tconst styling")
+         (count_markup Markup.tconstN position markup = 0);
+       audit_assert (label ^ " acquired datatype identity")
+         (count_entity_kind Markup.type_nameN position markup = 0);
+       audit_assert (label ^ " acquired backend constant identity")
+         (count_entity_kind Markup.constantN position markup = 0))
 
     fun assert_terminal label notation constructor position markup =
       (audit_assert (label ^ " notation entity count changed")
@@ -10672,15 +10792,9 @@ ML_val\<open>
     val _ =
       List.app
         (fn (label, position) =>
-          (audit_assert (label ^ " lost module-like free markup")
-             (count_markup Markup.freeN position module_markup = 1);
-           audit_assert (label ^ " acquired constructor styling")
-             (count_markup Markup.keyword3N position module_markup = 0);
-           audit_assert (label ^ " acquired obsolete tconst styling")
-             (count_markup Markup.tconstN position module_markup = 0);
-           audit_assert (label ^ " acquired datatype navigation")
-             (count_entity_kind Markup.type_nameN position
-               module_markup = 0)))
+          assert_neutral_qualifier label
+            "Module::Type::Variant" 1
+            position module_markup)
         [("value outer qualifier", module_value_outer),
          ("pattern outer qualifier", module_pattern_outer)]
     val _ =
@@ -10709,15 +10823,9 @@ ML_val\<open>
     val _ =
       List.app
         (fn (label, position) =>
-          (audit_assert (label ^ " lost free markup")
-             (count_markup Markup.freeN position value_markup = 1);
-           audit_assert (label ^ " acquired constructor styling")
-             (count_markup Markup.keyword3N position value_markup = 0);
-           audit_assert (label ^ " acquired obsolete tconst styling")
-             (count_markup Markup.tconstN position value_markup = 0);
-           audit_assert (label ^ " acquired datatype navigation")
-             (count_entity_kind Markup.type_nameN position
-               value_markup = 0)))
+          assert_neutral_qualifier label
+            "Module::Value::Item" 1
+            position value_markup)
         [("registered value outer qualifier", value_outer),
          ("registered value nearest qualifier", value_nearest)]
     val _ =
@@ -10743,15 +10851,9 @@ ML_val\<open>
     val _ =
       List.app
         (fn (label, position) =>
-          (audit_assert (label ^ " lost free markup")
-             (count_markup Markup.freeN position call_markup = 1);
-           audit_assert (label ^ " acquired constructor styling")
-             (count_markup Markup.keyword3N position call_markup = 0);
-           audit_assert (label ^ " acquired obsolete tconst styling")
-             (count_markup Markup.tconstN position call_markup = 0);
-           audit_assert (label ^ " acquired datatype navigation")
-             (count_entity_kind Markup.type_nameN position
-               call_markup = 0)))
+          assert_neutral_qualifier label
+            "Module::Call::invoke" 1
+            position call_markup)
         [("registered call outer qualifier", call_outer),
          ("registered call nearest qualifier", call_nearest)]
     val _ =
@@ -10814,6 +10916,659 @@ ML_val\<open>
     val _ =
       writeln
         "Registered constructor qualifier datatype, module, value, call, and all-backend markup regressions passed"
+  end
+\<close>
+
+
+section\<open> Neutral registered path qualifier markup audit \<close>
+
+ML_val\<open>
+  local
+    open URust_AST
+
+    val ctxt = \<^context>
+    val color_ctxt =
+      Proof_Context.init_global \<^theory>\<open>Parser_Tests_Expr\<close>
+
+    fun audit_assert message condition =
+      if condition then ()
+      else error ("neutral registered path qualifier markup audit: " ^ message)
+
+    fun find_from text needle offset =
+      if offset + size needle > size text then
+        error ("missing " ^ quote needle)
+      else if String.substring (text, offset, size needle) = needle
+      then offset
+      else find_from text needle (offset + 1)
+
+    fun token_position text start needle offset =
+      let
+        val raw = find_from text needle offset
+        val token_start =
+          Position.symbol_explode
+            (String.substring (text, 0, raw)) start
+      in
+        (raw,
+         Position.range_position
+           (token_start, Position.symbol_explode needle token_start))
+      end
+
+    fun collect_markup (XML.Text _) result = result
+      | collect_markup (XML.Elem (markup, body)) result =
+          fold collect_markup body (markup :: result)
+
+    fun capture active_ctxt serial label text declared_type =
+      let
+        val start =
+          Position.make0 (180 + serial) (40000 + serial * 500) 0 "" ""
+            ("neutral-registered-" ^ label ^ "-audit")
+        val source =
+          Parser_Lex_Util.positioned_content_source text start
+        val captured =
+          Synchronized.var
+            ("neutral_registered_" ^ label ^ "_reports")
+            ([]: string list)
+        fun report chunks =
+          Synchronized.change captured (append chunks)
+        val result =
+          Parser_Test_Report_Lock.run (fn () =>
+            Unsynchronized.setmp Private_Output.report_fn report
+              (fn () =>
+                Print_Mode.with_modes [Print_Mode.PIDE]
+                  (fn () =>
+                    Exn.result
+                      (fn () =>
+                        URust_Command.elaborate active_ctxt
+                          {kind = URust_Command.Expression,
+                           source = source,
+                           arguments = [],
+                           arguments_pos = #2 (Input.range_of source),
+                           declared_type =
+                             Option.map
+                               (fn typ => (typ, Position.none))
+                               declared_type}) ())
+                  ())
+              ())
+        val trees =
+          maps YXML.parse_body (Synchronized.value captured)
+      in
+        (start, result, trees, fold collect_markup trees [])
+      end
+
+    fun require_success label (Exn.Res term) = term
+      | require_success label (Exn.Exn exn) =
+          if Exn.is_interrupt exn then Exn.reraise exn
+          else
+            error
+              ("neutral registered path qualifier markup audit: " ^
+                label ^ " failed: " ^ Runtime.exn_message exn)
+
+    fun require_failure label (Exn.Exn exn) =
+          if Exn.is_interrupt exn then Exn.reraise exn else ()
+      | require_failure label (Exn.Res term) =
+          error
+            ("neutral registered path qualifier markup audit: " ^
+              label ^ " unexpectedly elaborated to " ^
+              Syntax.string_of_term ctxt term)
+
+    fun has_position properties position =
+      Properties.get properties Markup.offsetN =
+        Option.map Value.print_int (Position.offset_of position) andalso
+      Properties.get properties Markup.end_offsetN =
+        Option.map Value.print_int (Position.end_offset_of position) andalso
+      Properties.get properties Markup.idN =
+        Position.id_of position
+
+    fun count_markup markup_name position markup =
+      length
+        (filter
+          (fn (name, properties) =>
+            name = markup_name andalso
+              has_position properties position)
+          markup)
+
+    fun count_entity_kind kind position markup =
+      length
+        (filter
+          (fn (name, properties) =>
+            name = Markup.entityN andalso
+              Properties.get properties Markup.kindN = SOME kind andalso
+              has_position properties position)
+          markup)
+
+    fun entity_refs kind notation position markup =
+      markup
+      |> map_filter
+          (fn (name, properties) =>
+            if name = Markup.entityN andalso
+                Properties.get properties Markup.kindN = SOME kind andalso
+                Properties.get properties Markup.nameN = SOME notation andalso
+                has_position properties position
+            then Properties.get properties Markup.refN
+            else NONE)
+      |> sort_strings
+
+    fun registration_refs active_ctxt kind notation =
+      Micro_Rust_Names.lookups active_ctxt kind notation
+      |> map
+          (fn ({serial, ...} : Micro_Rust_Names.entry) =>
+            Value.print_int serial)
+      |> sort_strings
+
+    fun typing_texts position trees =
+      let
+        fun collect (XML.Text _) result = result
+          | collect (XML.Elem ((name, properties), body)) result =
+              let
+                val result' =
+                  if name = Markup.typingN andalso
+                      has_position properties position
+                  then XML.content_of body :: result
+                  else result
+              in fold collect body result' end
+      in rev (fold collect trees []) end
+
+    fun assert_neutral active_ctxt label role kind notation
+        position trees markup =
+      let
+        val expected_refs =
+          registration_refs active_ctxt kind notation
+        val expected_tooltip =
+          "registered " ^ role ^ " path qualifier for " ^
+            quote notation
+      in
+        audit_assert (label ^ " retained free markup")
+          (count_markup Markup.freeN position markup = 0);
+        audit_assert (label ^ " notation navigation changed")
+          (entity_refs Micro_Rust_Names.notationN notation
+             position markup = expected_refs andalso
+           not (null expected_refs));
+        audit_assert (label ^ " typing tooltip count changed")
+          (count_markup Markup.typingN position markup = 1);
+        audit_assert (label ^ " typing tooltip text changed")
+          (typing_texts position trees = [expected_tooltip]);
+        audit_assert (label ^ " acquired terminal styling")
+          (count_markup Markup.keyword3N position markup = 0);
+        audit_assert (label ^ " acquired type styling")
+          (count_markup Markup.tconstN position markup = 0);
+        audit_assert (label ^ " acquired datatype identity")
+          (count_entity_kind Markup.type_nameN position markup = 0);
+        audit_assert (label ^ " acquired backend constant identity")
+          (count_entity_kind Markup.constantN position markup = 0)
+      end
+
+    fun assert_terminal active_ctxt label kind notation position markup =
+      let
+        val expected_refs =
+          registration_refs active_ctxt kind notation
+        val backend_count = length expected_refs
+        val actual_refs =
+          entity_refs Micro_Rust_Names.notationN notation
+            position markup
+        val reported_ranges =
+          markup
+          |> map_filter
+              (fn (name, properties) =>
+                if name = Markup.entityN andalso
+                    Properties.get properties Markup.kindN =
+                      SOME Micro_Rust_Names.notationN andalso
+                    Properties.get properties Markup.nameN =
+                      SOME notation
+                then
+                  SOME
+                    (the_default "?"
+                       (Properties.get properties Markup.offsetN) ^
+                     "-" ^
+                     the_default "?"
+                       (Properties.get properties Markup.end_offsetN))
+                else NONE)
+      in
+        audit_assert
+          (label ^ " notation navigation changed: expected refs " ^
+            commas expected_refs ^ ", actual refs " ^
+            commas actual_refs ^ ", reported ranges " ^
+            commas reported_ranges ^ ", expected range " ^
+            the_default "?"
+              (Option.map Value.print_int
+                (Position.offset_of position)) ^
+            "-" ^
+            the_default "?"
+              (Option.map Value.print_int
+                (Position.end_offset_of position)))
+          (actual_refs = expected_refs);
+        audit_assert (label ^ " keyword styling count changed")
+          (count_markup Markup.keyword3N position markup =
+            backend_count);
+        audit_assert (label ^ " backend identity count changed")
+          (count_entity_kind Markup.constantN position markup =
+            backend_count);
+        audit_assert (label ^ " acquired free markup")
+          (count_markup Markup.freeN position markup = 0)
+      end
+
+    fun assert_no_semantic label position markup =
+      (audit_assert (label ^ " acquired free markup")
+         (count_markup Markup.freeN position markup = 0);
+       audit_assert (label ^ " acquired typing markup")
+         (count_markup Markup.typingN position markup = 0);
+       audit_assert (label ^ " acquired notation identity")
+         (count_entity_kind Micro_Rust_Names.notationN
+           position markup = 0);
+       audit_assert (label ^ " acquired backend identity")
+         (count_entity_kind Markup.constantN position markup = 0);
+       audit_assert (label ^ " acquired datatype identity")
+         (count_entity_kind Markup.type_nameN position markup = 0);
+       audit_assert (label ^ " acquired keyword styling")
+         (count_markup Markup.keyword3N position markup = 0))
+
+    val color_text =
+      "match_switch Color::Red { Color::Red \<Rightarrow> 1, _ \<Rightarrow> 0 }"
+    val (color_start, color_result, color_trees, color_markup) =
+      capture color_ctxt 0 "color" color_text NONE
+    val _ = ignore (require_success "Color::Red reproduction" color_result)
+    val (color_value_raw, _) =
+      token_position color_text color_start "Color::Red" 0
+    val (_, color_value_qualifier) =
+      token_position color_text color_start "Color" color_value_raw
+    val (_, color_value_terminal) =
+      token_position color_text color_start "Red"
+        (color_value_raw + size "Color::")
+    val (color_pattern_raw, _) =
+      token_position color_text color_start "Color::Red"
+        (color_value_raw + size "Color::Red")
+    val (_, color_pattern_qualifier) =
+      token_position color_text color_start "Color"
+        color_pattern_raw
+    val (_, color_pattern_terminal) =
+      token_position color_text color_start "Red"
+        (color_pattern_raw + size "Color::")
+    val _ =
+      List.app
+        (fn (label, position) =>
+          assert_neutral color_ctxt label "literal"
+            Micro_Rust_Names.NLiteral "Color::Red"
+            position color_trees color_markup)
+        [("Color::Red scrutinee qualifier", color_value_qualifier),
+         ("Color::Red pattern qualifier", color_pattern_qualifier)]
+    val _ =
+      List.app
+        (fn (label, position) =>
+          assert_terminal color_ctxt label
+            Micro_Rust_Names.NLiteral "Color::Red"
+            position color_markup)
+        [("Color::Red scrutinee terminal", color_value_terminal),
+         ("Color::Red pattern terminal", color_pattern_terminal)]
+
+    val deep_text =
+      "match_switch Module::Value::Item { " ^
+      "Module::Value::Item \<Rightarrow> 1, _ \<Rightarrow> 0 }"
+    val (deep_start, deep_result, deep_trees, deep_markup) =
+      capture ctxt 1 "deep-literal" deep_text NONE
+    val _ = ignore (require_success "deep literal path" deep_result)
+    val (deep_value_raw, _) =
+      token_position deep_text deep_start "Module::Value::Item" 0
+    val (deep_value_module_raw, deep_value_module) =
+      token_position deep_text deep_start "Module" deep_value_raw
+    val (_, deep_value_value) =
+      token_position deep_text deep_start "Value"
+        (deep_value_module_raw + size "Module::")
+    val (_, deep_value_terminal) =
+      token_position deep_text deep_start "Item"
+        (deep_value_raw + size "Module::Value::")
+    val (deep_pattern_raw, _) =
+      token_position deep_text deep_start "Module::Value::Item"
+        (deep_value_raw + size "Module::Value::Item")
+    val (deep_pattern_module_raw, deep_pattern_module) =
+      token_position deep_text deep_start "Module" deep_pattern_raw
+    val (_, deep_pattern_value) =
+      token_position deep_text deep_start "Value"
+        (deep_pattern_module_raw + size "Module::")
+    val (_, deep_pattern_terminal) =
+      token_position deep_text deep_start "Item"
+        (deep_pattern_raw + size "Module::Value::")
+    val _ =
+      List.app
+        (fn (label, position) =>
+          assert_neutral ctxt label "literal"
+            Micro_Rust_Names.NLiteral "Module::Value::Item"
+            position deep_trees deep_markup)
+        [("deep value outer qualifier", deep_value_module),
+         ("deep value inner qualifier", deep_value_value),
+         ("deep pattern outer qualifier", deep_pattern_module),
+         ("deep pattern inner qualifier", deep_pattern_value)]
+    val _ =
+      List.app
+        (fn (label, position) =>
+          assert_terminal ctxt label
+            Micro_Rust_Names.NLiteral "Module::Value::Item"
+            position deep_markup)
+        [("deep value terminal", deep_value_terminal),
+         ("deep pattern terminal", deep_pattern_terminal)]
+
+    fun audit_call serial label text notation terminal_name
+        qualifier_spellings =
+      let
+        val (start, result, trees, markup) =
+          capture ctxt serial label text NONE
+        val _ = ignore (require_success label result)
+        val _ =
+          List.app
+            (fn (spelling, offset) =>
+              let
+                val (_, position) =
+                  token_position text start spelling offset
+              in
+                assert_neutral ctxt
+                  (label ^ " qualifier " ^ quote spelling)
+                  "call" Micro_Rust_Names.NFunction notation
+                  position trees markup
+              end)
+            qualifier_spellings
+        val terminal_offset =
+          find_from text terminal_name 0
+        val (_, terminal_position) =
+          token_position text start terminal_name terminal_offset
+        val _ =
+          assert_terminal ctxt (label ^ " terminal")
+            Micro_Rust_Names.NFunction notation
+            terminal_position markup
+      in () end
+
+    val _ =
+      audit_call 2 "qualified call"
+        "Module::Call::invoke()" "Module::Call::invoke" "invoke"
+        [("Module", 0), ("Call", size "Module::")]
+    val _ =
+      audit_call 3 "qualified struct head"
+        "StructModule::Builder::new { value: 7 }"
+        "StructModule::Builder::new" "new"
+        [("StructModule", 0),
+         ("Builder", size "StructModule::")]
+    val _ =
+      audit_call 4 "base registration with turbofish"
+        "GenericBase::invoke::<1>(2)"
+        "GenericBase::invoke" "invoke"
+        [("GenericBase", 0)]
+    val _ =
+      audit_call 5 "exact generic registration"
+        "GenericExact::<Token>::invoke()"
+        "GenericExact::<Token>::invoke" "invoke"
+        [("GenericExact", 0)]
+
+    fun audit_macro serial label text notation qualifier =
+      let
+        val (start, result, trees, markup) =
+          capture ctxt serial label text NONE
+        val _ = ignore (require_success label result)
+        val source =
+          Parser_Lex_Util.positioned_content_source text start
+        val (_, qualifier_position) =
+          token_position text start qualifier 0
+        val (_, bang_position) =
+          token_position text start "!" 0
+        val complete_position =
+          (case URust_Parser.parse_source ctxt source of
+             SOME (UE_Macro (path, bang_pos, _, _)) =>
+               Position.range_position
+                 (path_position path,
+                  Position.symbol_explode "!" bang_pos)
+           | _ =>
+               error
+                 ("neutral registered path qualifier markup audit: " ^
+                   label ^ " macro AST changed"))
+        val _ =
+          assert_neutral ctxt (label ^ " qualifier") "call"
+            Micro_Rust_Names.NFunction notation
+            qualifier_position trees markup
+        val _ =
+          assert_terminal ctxt (label ^ " complete terminal")
+            Micro_Rust_Names.NFunction notation
+            complete_position markup
+        val _ =
+          audit_assert (label ^ " bang operator markup changed")
+            (count_markup Markup.operatorN bang_position markup = 1)
+      in () end
+
+    val _ =
+      audit_macro 6 "qualified macro"
+        "MacroModule::invoke!(true)"
+        "MacroModule::invoke!" "MacroModule"
+    val _ =
+      audit_macro 7 "generic qualified macro"
+        "MacroGeneric::<Token>::invoke!(true)"
+        "MacroGeneric::<Token>::invoke!" "MacroGeneric"
+
+    val multi_text = "Multi::Registered::Value"
+    val (multi_start, multi_result, multi_trees, multi_markup) =
+      capture ctxt 8 "multi-backend" multi_text
+        (SOME "(unit, nat, unit, unit, unit, unit) expression")
+    val _ = ignore (require_success "multi-backend literal" multi_result)
+    val (multi_outer_raw, multi_outer) =
+      token_position multi_text multi_start "Multi" 0
+    val (_, multi_inner) =
+      token_position multi_text multi_start "Registered"
+        (multi_outer_raw + size "Multi::")
+    val (_, multi_terminal) =
+      token_position multi_text multi_start "Value"
+        (size "Multi::Registered::")
+    val _ =
+      List.app
+        (fn (label, position) =>
+          assert_neutral ctxt label "literal"
+            Micro_Rust_Names.NLiteral "Multi::Registered::Value"
+            position multi_trees multi_markup)
+        [("multi-backend outer qualifier", multi_outer),
+         ("multi-backend inner qualifier", multi_inner)]
+    val _ =
+      assert_terminal ctxt "multi-backend terminal"
+        Micro_Rust_Names.NLiteral "Multi::Registered::Value"
+        multi_terminal multi_markup
+    val _ =
+      audit_assert "multi-backend qualifier tooltip multiplied"
+        (count_markup Markup.typingN multi_outer multi_markup = 1)
+
+    val duplicate_text = "Duplicate::Registered::Value"
+    val (duplicate_start, duplicate_result,
+         duplicate_trees, duplicate_markup) =
+      capture ctxt 9 "duplicate-registration" duplicate_text NONE
+    val _ =
+      ignore (require_success "duplicate registration" duplicate_result)
+    val (duplicate_outer_raw, duplicate_outer) =
+      token_position duplicate_text duplicate_start "Duplicate" 0
+    val (_, duplicate_inner) =
+      token_position duplicate_text duplicate_start "Registered"
+        (duplicate_outer_raw + size "Duplicate::")
+    val (_, duplicate_terminal) =
+      token_position duplicate_text duplicate_start "Value"
+        (size "Duplicate::Registered::")
+    val _ =
+      audit_assert "idempotent duplicate survived in registry"
+        (length
+          (Micro_Rust_Names.lookups ctxt Micro_Rust_Names.NLiteral
+            "Duplicate::Registered::Value") = 1)
+    val _ =
+      List.app
+        (fn (label, position) =>
+          assert_neutral ctxt label "literal"
+            Micro_Rust_Names.NLiteral
+            "Duplicate::Registered::Value"
+            position duplicate_trees duplicate_markup)
+        [("duplicate outer qualifier", duplicate_outer),
+         ("duplicate inner qualifier", duplicate_inner)]
+    val _ =
+      assert_terminal ctxt "duplicate terminal"
+        Micro_Rust_Names.NLiteral "Duplicate::Registered::Value"
+        duplicate_terminal duplicate_markup
+
+    val families_text = "Module::Families::Variant"
+    val (families_start, families_result,
+         families_trees, families_markup) =
+      capture ctxt 10 "constructor-families" families_text
+        (SOME
+          "(unit, constructor_qualifier_left, unit, unit, unit, unit) expression")
+    val _ =
+      ignore (require_success "constructor families" families_result)
+    val (families_outer_raw, families_outer) =
+      token_position families_text families_start "Module" 0
+    val (_, families_nearest) =
+      token_position families_text families_start "Families"
+        (families_outer_raw + size "Module::")
+    val (_, families_terminal) =
+      token_position families_text families_start "Variant"
+        (size "Module::Families::")
+    val _ =
+      assert_neutral ctxt "constructor outer module qualifier"
+        "literal" Micro_Rust_Names.NLiteral
+        "Module::Families::Variant"
+        families_outer families_trees families_markup
+    val _ =
+      audit_assert "nearest constructor qualifier retained free markup"
+        (count_markup Markup.freeN families_nearest families_markup = 0)
+    val _ =
+      audit_assert "nearest constructor qualifier lost family navigation"
+        (count_entity_kind Markup.type_nameN
+          families_nearest families_markup = 2)
+    val _ =
+      audit_assert "nearest constructor qualifier styling count changed"
+        (count_markup Markup.keyword3N
+          families_nearest families_markup = 2)
+    val _ =
+      audit_assert "nearest constructor qualifier became neutral"
+        (count_entity_kind Micro_Rust_Names.notationN
+           families_nearest families_markup = 0 andalso
+         count_markup Markup.typingN
+           families_nearest families_markup = 0)
+    val _ =
+      assert_terminal ctxt "multi-family constructor terminal"
+        Micro_Rust_Names.NLiteral "Module::Families::Variant"
+        families_terminal families_markup
+
+    fun failure_case serial label text qualifier =
+      let
+        val (start, result, _, markup) =
+          capture ctxt serial label text NONE
+        val _ = require_failure label result
+        val (_, qualifier_position) =
+          token_position text start qualifier 0
+        val _ =
+          assert_no_semantic (label ^ " qualifier")
+            qualifier_position markup
+      in () end
+
+    val _ =
+      failure_case 11 "wrong role"
+        "Wrong::Role::Item" "Wrong"
+    val _ =
+      failure_case 12 "unregistered path"
+        "Missing::Path::Item" "Missing"
+    val _ =
+      failure_case 13 "nonadjacent registered macro"
+        "MacroModule::invoke !(true)" "MacroModule"
+
+    val malformed_text =
+      "match_case Type::Variant { " ^
+      "Type::Variant(value) \<Rightarrow> (), _ \<Rightarrow> () }"
+    val (malformed_start, malformed_result, _, malformed_markup) =
+      capture ctxt 14 "malformed-constructor" malformed_text NONE
+    val _ =
+      require_failure "malformed constructor pattern" malformed_result
+    val first_variant =
+      find_from malformed_text "Type::Variant" 0
+    val second_variant =
+      find_from malformed_text "Type::Variant"
+        (first_variant + size "Type::Variant")
+    val (_, malformed_qualifier) =
+      token_position malformed_text malformed_start "Type"
+        second_variant
+    val (_, malformed_terminal) =
+      token_position malformed_text malformed_start "Variant"
+        (second_variant + size "Type::")
+    val _ =
+      assert_no_semantic "malformed constructor qualifier"
+        malformed_qualifier malformed_markup
+    val _ =
+      assert_no_semantic "malformed constructor terminal"
+        malformed_terminal malformed_markup
+
+    val recovery_text = "Module::Value::Item"
+    val (recovery_start, recovery_result,
+         recovery_trees, recovery_markup) =
+      capture ctxt 15 "recovery" recovery_text NONE
+    val _ =
+      ignore (require_success "post-failure recovery" recovery_result)
+    val (_, recovery_qualifier) =
+      token_position recovery_text recovery_start "Module" 0
+    val _ =
+      assert_neutral ctxt "post-failure recovery qualifier"
+        "literal" Micro_Rust_Names.NLiteral
+        "Module::Value::Item"
+        recovery_qualifier recovery_trees recovery_markup
+
+    val single_text = "registered_seven"
+    val (single_start, single_result, _, single_markup) =
+      capture ctxt 16 "single-segment" single_text NONE
+    val _ =
+      ignore (require_success "single-segment registration" single_result)
+    val (_, single_position) =
+      token_position single_text single_start single_text 0
+    val _ =
+      assert_terminal ctxt "single-segment registration"
+        Micro_Rust_Names.NLiteral "registered_seven"
+        single_position single_markup
+
+    val unresolved_text = "actual_unresolved_identifier"
+    val (unresolved_start, unresolved_result, _, unresolved_markup) =
+      capture ctxt 17 "unresolved-control" unresolved_text NONE
+    val _ =
+      ignore (require_success "unresolved identifier control"
+        unresolved_result)
+    val (_, unresolved_position) =
+      token_position unresolved_text unresolved_start unresolved_text 0
+    val _ =
+      audit_assert "genuine unresolved identifier lost free markup"
+        (count_markup Markup.freeN
+          unresolved_position unresolved_markup = 1)
+
+    val lexical_text =
+      "let lexical_control = 1; lexical_control"
+    val (lexical_start, lexical_result, _, lexical_markup) =
+      capture ctxt 18 "lexical-control" lexical_text NONE
+    val _ =
+      ignore (require_success "lexical binder control" lexical_result)
+    val (lexical_definition_raw, lexical_definition) =
+      token_position lexical_text lexical_start "lexical_control" 0
+    val (_, lexical_reference) =
+      token_position lexical_text lexical_start "lexical_control"
+        (lexical_definition_raw + size "lexical_control")
+    val _ =
+      List.app
+        (fn (label, position) =>
+          (audit_assert (label ^ " lost bound markup")
+             (count_markup Markup.boundN position lexical_markup = 1);
+           audit_assert (label ^ " acquired free markup")
+             (count_markup Markup.freeN position lexical_markup = 0)))
+        [("lexical definition", lexical_definition),
+         ("lexical reference", lexical_reference)]
+
+    val (_, fixed_ctxt) =
+      Proof_Context.add_fixes
+        [(Binding.name "fixed_qualifier_control",
+          SOME \<^typ>\<open>nat\<close>, NoSyn)]
+        ctxt
+    val fixed_text = "fixed_qualifier_control"
+    val (fixed_start, fixed_result, _, fixed_markup) =
+      capture fixed_ctxt 19 "fixed-control" fixed_text NONE
+    val _ =
+      ignore (require_success "fixed identifier control" fixed_result)
+    val (_, fixed_position) =
+      token_position fixed_text fixed_start fixed_text 0
+    val _ =
+      audit_assert "fixed parameter changed free-name markup"
+        (count_markup Markup.freeN fixed_position fixed_markup = 1)
+  in
+    val _ =
+      writeln
+        "Neutral registered qualifier navigation, tooltip, styling, multiplicity, constructor, failure, recovery, and binder-boundary regressions passed"
   end
 \<close>
 
@@ -11287,9 +12042,22 @@ ML_val\<open>
         (count_markup Markup.typingN expected_second_numeral
           qualified_markup = 1)
     val _ =
-      audit_assert "registered qualifier free markup duplicated or disappeared"
+      audit_assert "registered qualifier retained free markup"
         (count_markup Markup.freeN expected_qualifier
+          qualified_markup = 0)
+    val _ =
+      audit_assert "registered qualifier notation report duplicated"
+        (count_entity Micro_Rust_Names.notationN
+          "IntegrationAudit::Value"
+          expected_qualifier qualified_markup = 1)
+    val _ =
+      audit_assert "registered qualifier typing tooltip duplicated or disappeared"
+        (count_markup Markup.typingN expected_qualifier
           qualified_markup = 1)
+    val _ =
+      audit_assert "registered qualifier acquired terminal styling"
+        (count_markup Markup.keyword3N expected_qualifier
+          qualified_markup = 0)
     val _ =
       audit_assert "registered terminal notation report duplicated"
         (count_entity Micro_Rust_Names.notationN "IntegrationAudit::Value"

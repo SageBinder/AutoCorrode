@@ -36,6 +36,16 @@ denote HOL terms. `URust_Resolution.report_struct_label` therefore retains their
 tooltip without reporting them as `Markup.free`. `Parser_Tests_Misc.thy` checks ordinary registered
 struct calls, nested expressions, and grouped control heads.
 
+Every qualifier of an exact registered path now links to the complete `micro_rust_notation`
+declaration and has one role-specific tooltip without pretending to be a HOL Free, constant, type,
+or constructor. An authenticated constructor's nearest qualifier retains its datatype navigation
+and `keyword3` styling; only earlier module-like segments use the neutral notation report. Terminal
+notation/backend styling, single-segment names, unresolved identifiers, diagnostics, ASTs, and
+checked terms are unchanged. The consolidated markup audit covers values and patterns, calls and
+struct heads, both turbofish lookup routes, complete macro keys including `!`, registration
+multiplicity and idempotence, constructor families, delayed failures, recovery, and lexical/fixed
+controls.
+
 ## Parser and lowering architecture
 
 The grammar has parallel ordinary and no-struct expression families with explicit tiers:

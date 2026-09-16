@@ -229,10 +229,16 @@ struct
                    (complete_name, complete_name_pos)
                else if is_qualified_path path
                then
-                 (ignore
-                   (R.registered_macro_path ctxt path
-                     (complete_name, complete_name_pos));
-                  NONE)
+                 (case
+                    R.registered_function ctxt
+                      (complete_name, complete_name_pos)
+                  of
+                    SOME _ => NONE
+                  | NONE =>
+                      (ignore
+                        (R.registered_macro_path ctxt path
+                          (complete_name, complete_name_pos));
+                       NONE))
                else NONE
             of
               SOME function =>

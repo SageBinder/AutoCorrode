@@ -691,29 +691,44 @@ fun resolve_bound ctxt =
   survived \<^verbatim>\<open>resolve_bound\<close> here have a witness that is NOT a lambda binder
   (so \<^verbatim>\<open>Free\<close> or \<^verbatim>\<open>Const\<close>), or are path markers (no witness). Now we
   have full types and can do the typed table lookup.\<close>
-\<comment>\<open>Emit use-site markup at \<open>pos\<close> for every registered backend under
-  \<open>(kind, name)\<close>: an entity ref to the registration site (so ctrl-click
-  jumps back to \<open>micro_rust_notation\<close>), plus a \<^verbatim>\<open>Name_Space.markup\<close> +
-  \<^verbatim>\<open>Markup.keyword3\<close> chain when the backend itself is a bare constant
-  (ctrl-click to its definition, coloured as a keyword). Called by \<open>resolve\<close>
-  when a marker is actually replaced by a registered backend, and by
-  constructor-pattern resolution only after exact registration, constructor
-  identity, and arity or field validation have succeeded. It is never called
-  when the witness wins. This is what stops the markup from
-  leaking onto an identifier whose witness ends up being a lambda binder
-  (e.g. \<open>let x = \<dots>; x\<close> where \<open>x\<close> is also a registered notation: the
-  trailing \<open>x\<close> resolves to the let-binder, so no notation markup
-  should be attached).\<close>
+\<comment>\<open>Emit only ref-side notation entities at \<open>pos\<close>, one for every
+  registered backend under \<open>(kind, name)\<close>. This is the neutral navigation
+  primitive for source tokens that belong to an exact registered path but do
+  not themselves denote the backend HOL term. In particular it deliberately
+  emits neither backend-constant entities nor \<^verbatim>\<open>Markup.keyword3\<close>.\<close>
+fun emit_notation_entity_at_pos
+    (ctxt : Proof.context)
+    (kind : Micro_Rust_Names.ctxt_kind)
+    (name : string)
+    (pos : Position.T) : unit =
+  if not (Position.is_reported pos) then ()
+  else
+    Micro_Rust_Names.lookups ctxt kind name
+    |> app
+        (fn ({serial, reg_pos, ...} : Micro_Rust_Names.entry) =>
+          Context_Position.report ctxt pos
+            (Position.make_entity_markup {def = false} serial
+              Micro_Rust_Names.notationN (name, reg_pos)));
+
+\<comment>\<open>Emit terminal use-site markup at \<open>pos\<close> for every registered
+  backend under \<open>(kind, name)\<close>: the neutral notation entities above, plus
+  a \<^verbatim>\<open>Name_Space.markup\<close> + \<^verbatim>\<open>Markup.keyword3\<close> chain when
+  the backend itself has a bare constant head (ctrl-click to its definition,
+  coloured as a keyword). Called by \<open>resolve\<close> when a marker is actually
+  replaced by a registered backend, and by constructor-pattern resolution
+  only after exact registration, constructor identity, and arity or field
+  validation have succeeded. It is never called when the witness wins. This
+  stops markup from leaking onto an identifier whose witness ends up being a
+  lambda binder (e.g. \<open>let x = \<dots>; x\<close> where \<open>x\<close> is also a registered
+  notation).\<close>
 fun emit_use_markup_at_pos ctxt kind name pos =
   if not (Position.is_reported pos) then ()
   else
     let
       val entries = Micro_Rust_Names.lookups ctxt kind name
-      fun report_one ({serial, reg_pos, hol_term} : Micro_Rust_Names.entry) =
+      val _ = emit_notation_entity_at_pos ctxt kind name pos
+      fun report_one ({hol_term, ...} : Micro_Rust_Names.entry) =
         let
-          val notation_markup =
-            [Position.make_entity_markup {def = false} serial
-               Micro_Rust_Names.notationN (name, reg_pos)]
           \<comment>\<open>Walk to the head \<^verbatim>\<open>Const\<close> of the backend so wrapper
             forms like \<^verbatim>\<open>lift_fun1 Some\<close> still get const-styling
             (color + ctrl-click) attached at the use site, not just the
@@ -735,7 +750,7 @@ fun emit_use_markup_at_pos ctxt kind name pos =
                   Markup.keyword3]
              | NONE => [])
         in
-          app (Context_Position.report ctxt pos) (notation_markup @ const_markup)
+          app (Context_Position.report ctxt pos) const_markup
         end
     in
       app report_one entries
