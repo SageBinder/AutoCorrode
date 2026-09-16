@@ -771,8 +771,15 @@ ML_val\<open>
       assert "second separator lost delimiter markup"
         (count_markup Markup.delimiterN second_separator_pos markup = 1)
     val _ =
-      assert "identifier continuation lost free markup"
-        (count_markup Markup.freeN nested_pos markup = 1)
+      assert "identifier continuation retained free markup"
+        (count_markup Markup.freeN nested_pos markup = 0)
+    val _ =
+      assert "identifier continuation lost registered-path typing"
+        (count_markup Markup.typingN nested_pos markup = 1)
+    val _ =
+      assert "identifier continuation lost notation navigation"
+        (count_entity Micro_Rust_Names.notationN
+          "u64::Nested::MAX" nested_pos markup = 1)
     val _ =
       assert "terminal lost notation navigation"
         (count_entity Micro_Rust_Names.notationN

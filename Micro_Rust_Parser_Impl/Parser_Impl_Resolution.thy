@@ -156,7 +156,7 @@ ML\<open>
     anonymous_abstraction introduces one anonymous dummy-typed Abs without manufacturing a Free.
     report_wildcard emits the parser's wildcard typing report. report_struct_label marks one
     metadata-free struct-expression label with a syntax tooltip but deliberately does not report a
-    HOL Free: legacy struct labels are erased by source-order lowering and do not denote terms.
+    HOL Free: labels are erased by source-order lowering and do not denote terms.
     report_struct_labels resolves field aliases for generated datatype constructors and reports
     their selector constants, falling back to report_struct_label when no alias is available.
 
@@ -185,12 +185,14 @@ ML\<open>
     constant counts only when its declared type takes zero arguments before function_body.
     field_expression applies the same role policy and focuses the supplied receiver.
     Registered notation is represented by the existing dispatch marker; unregistered names retain
-    Syntax.parse_term behavior. For an exact registered literal path whose complete backend matches
-    genuine Ctr_Sugar constructor metadata, the nearest qualifier reports every distinct datatype
-    family with the constructor's keyword styling while earlier module-like qualifiers remain free;
-    registered nonconstructors and calls retain free qualifiers. Every multi-segment source path
-    requires an exact role-appropriate notation registration; unqualified lexical, fixed, HOL, and
-    constructor fallback remains unchanged.
+    Syntax.parse_term behavior. Every module-like qualifier of an exact registered path receives one
+    role tooltip without pretending to be a HOL Free or backend constant, while its notation
+    references are deferred until typed dispatch selects a registration. For an exact registered
+    literal path whose complete backend matches genuine Ctr_Sugar constructor metadata, the nearest
+    qualifier instead reports every distinct datatype family with the constructor's keyword styling;
+    typed dispatch subsequently gives every segment the selected declaration target. Every
+    multi-segment source path requires an exact role-appropriate notation registration; unqualified
+    lexical, fixed, HOL, and constructor fallback remains unchanged.
 
   - constructor_info and constructor_resolver are abstract. make_constructor_resolver snapshots the
     context's non-record Ctr_Sugar constructors, constructor families/selectors, and HOL record names
@@ -209,9 +211,11 @@ ML\<open>
     Constructor metadata deliberately carries no registration provenance: once native Isabelle
     metadata authenticates a backend as a constructor, every downstream pattern use is structural.
     report_constructor emits source-path markup only after a caller has validated the resolved
-    constructor. Exact registered literals reuse the same datatype-qualifier and ordinary notation
-    use-site reports as value positions; unregistered HOL constructors retain free qualifiers and
-    constant terminal markup. report_selector emits constant markup at the supplied source position.
+    constructor. Exact registered literals report backend/datatype information first, retain every
+    registration reference, and make the lowest-serial declaration authenticating the selected
+    constructor the final target on every source segment. Unregistered HOL constructors retain free
+    qualifiers and constant terminal markup. report_selector emits constant markup at the supplied
+    source position.
 
   - resolve_struct_pattern resolves a struct head as a constructor, a single-constructor datatype
     type name, or a HOL record type. It validates duplicate, unknown, missing, and repeated-rest
@@ -418,14 +422,19 @@ struct
 
   (* Registered notation witnesses must remain bare Frees until the enclosing Term.lambda can capture
      them. This is the witness-precedence rule that lets a lexical binder shadow a notation. *)
-  fun resolve_identifier ctxt kind name pos =
+  fun resolve_identifier_at_positions ctxt kind name pos qualifier_positions =
     (case Micro_Rust_Names.lookups ctxt kind name of
        [] => resolve_hol_identifier ctxt name pos
          |> (case kind of
                Micro_Rust_Names.NFunction =>
                  constrain_call_head ctxt name pos
              | _ => I)
-     | _ => Micro_Rust_Dispatch.mk_marker kind name pos (Free (name, dummyT)))
+     | _ =>
+         Micro_Rust_Dispatch.mk_marker_positions
+           kind name pos qualifier_positions (Free (name, dummyT)))
+
+  fun resolve_identifier ctxt kind name pos =
+    resolve_identifier_at_positions ctxt kind name pos []
 
   fun literal_identifier_value ctxt environment (identifier as (name, pos)) =
     (case use_local ctxt environment identifier of
@@ -452,6 +461,15 @@ struct
     if null (Micro_Rust_Names.lookups ctxt kind name)
     then NONE
     else SOME (resolve_identifier ctxt kind name pos)
+
+  fun registered_identifier_at_positions ctxt kind
+      (name, pos) qualifier_positions =
+    if null (Micro_Rust_Names.lookups ctxt kind name)
+    then NONE
+    else
+      SOME
+        (resolve_identifier_at_positions
+          ctxt kind name pos qualifier_positions)
 
   type native_case_metadata =
     {identity: string,
@@ -549,6 +567,19 @@ struct
     Context_Position.report ctxt
       (#2 (segment_identifier segment)) Markup.free
 
+  fun notation_role Micro_Rust_Names.NLiteral = "literal"
+    | notation_role Micro_Rust_Names.NFunction = "call"
+    | notation_role Micro_Rust_Names.NField = "field"
+
+  fun report_registered_path_segment ctxt kind name segment =
+    let
+      val pos = #2 (segment_identifier segment)
+    in
+      Context_Position.report_text ctxt pos Markup.typing
+        ("registered " ^ notation_role kind ^
+          " path qualifier for " ^ quote name)
+    end
+
   fun identifier_qualifiers path =
     let
       val segments = path_segments path
@@ -564,8 +595,19 @@ struct
     List.app (report_free_path_segment ctxt)
       (identifier_qualifiers path)
 
+  fun report_registered_path_qualifiers ctxt kind name path =
+    let val qualifiers = identifier_qualifiers path in
+      List.app
+        (report_registered_path_segment ctxt kind name)
+        qualifiers
+    end
+
+  fun path_qualifier_positions path =
+    map (#2 o segment_identifier) (identifier_qualifiers path)
+
   fun report_literal_path_qualifiers ctxt registrations path =
     let
+      val name = render_path path
       val qualifiers = identifier_qualifiers path
       val families =
         registered_constructor_family_names ctxt registrations
@@ -579,15 +621,17 @@ struct
             [Name_Space.markup type_space family, Markup.keyword3]
         end
     in
-      if is_primitive_path path then
-        List.app (report_free_path_segment ctxt) qualifiers
-      else
       (case rev qualifiers of
          [] => ()
        | nearest :: earlier =>
-           (List.app (report_free_path_segment ctxt) (rev earlier);
+           (List.app
+              (report_registered_path_segment
+                ctxt Micro_Rust_Names.NLiteral name)
+              (rev earlier);
             if null families
-            then report_free_path_segment ctxt nearest
+            then
+              report_registered_path_segment
+                ctxt Micro_Rust_Names.NLiteral name nearest
             else List.app (report_family nearest) families))
     end
 
@@ -774,10 +818,6 @@ struct
       val _ = Context_Position.report ctxt pos Markup.free
     in Free (render_path path, dummyT) end
 
-  fun notation_role Micro_Rust_Names.NLiteral = "literal"
-    | notation_role Micro_Rust_Names.NFunction = "call"
-    | notation_role Micro_Rust_Names.NField = "field"
-
   fun qualified_registration_error kind path displayed_name pos =
     error
       ("urust_expr: qualified path " ^ quote displayed_name ^
@@ -800,10 +840,13 @@ struct
                    SOME local_term => local_term
                  | NONE => resolve_identifier ctxt kind name pos))
      | _ =>
-         (case registered_identifier ctxt kind
-             (render_path path, #2 (path_terminal path)) of
+         (case registered_identifier_at_positions ctxt kind
+             (render_path path, #2 (path_terminal path))
+             (path_qualifier_positions path) of
             SOME registered =>
-              (report_path_qualifiers ctxt path; registered)
+              (report_registered_path_qualifiers ctxt kind
+                 (render_path path) path;
+               registered)
           | NONE =>
               if is_qualified_path path
               then
@@ -812,8 +855,9 @@ struct
               else opaque_path ctxt kind path))
 
   fun exact_registered_path ctxt kind path =
-    (case registered_identifier ctxt kind
-        (render_path path, #2 (path_terminal path)) of
+    (case registered_identifier_at_positions ctxt kind
+        (render_path path, #2 (path_terminal path))
+        (path_qualifier_positions path) of
        SOME registered =>
          let
            val _ =
@@ -822,7 +866,9 @@ struct
                report_literal_path_qualifiers ctxt
                  (Micro_Rust_Names.lookups ctxt kind (render_path path))
                  path
-             else report_path_qualifiers ctxt path
+             else
+               report_registered_path_qualifiers ctxt kind
+                 (render_path path) path
          in SOME registered end
      | NONE => NONE)
 
@@ -1145,8 +1191,14 @@ struct
     registered_identifier ctxt Micro_Rust_Names.NFunction identifier
 
   fun registered_macro_path ctxt path (complete_name, complete_pos) =
-    (case registered_function ctxt (complete_name, complete_pos) of
-       SOME registered => SOME registered
+    (case registered_identifier_at_positions ctxt
+        Micro_Rust_Names.NFunction
+        (complete_name, complete_pos)
+        (path_qualifier_positions path) of
+       SOME registered =>
+         (report_registered_path_qualifiers ctxt
+            Micro_Rust_Names.NFunction complete_name path;
+          SOME registered)
      | NONE =>
          if is_qualified_path path
          then
@@ -1674,24 +1726,32 @@ struct
                (identifier_leaf (I.constructor_term entry),
                 constructor_term info)
          | NONE => false)
-      val registered =
-        exists
-          (fn ({hol_term, ...} : Micro_Rust_Names.entry) =>
-            Term.aconv_untyped
-              (identifier_leaf hol_term, constructor_term info))
-          registrations
+      val authenticating =
+        registrations
+        |> filter
+            (fn ({hol_term, ...} : Micro_Rust_Names.entry) =>
+              Term.aconv_untyped
+                (identifier_leaf hol_term, constructor_term info))
+        |> sort
+            (fn (left : Micro_Rust_Names.entry, right) =>
+              int_ord (#serial left, #serial right))
+      val selected = try hd authenticating
       val _ =
         if item_registered then
           report_item_constructor ctxt path (the item)
-        else if registered
+        else if is_some selected
         then report_literal_path_qualifiers ctxt registrations path
         else report_path_qualifiers ctxt path
     in
       if item_registered then ()
-      else if registered then
-        Micro_Rust_Dispatch.emit_use_markup_at_pos
-          ctxt Micro_Rust_Names.NLiteral name pos
-      else report_named_term ctxt pos (constructor_term info)
+      else
+        (case selected of
+           SOME entry =>
+             Micro_Rust_Dispatch.emit_selected_use_markup_at_positions
+               ctxt Micro_Rust_Names.NLiteral name entry
+               {terminal_pos = pos,
+                qualifier_positions = path_qualifier_positions path}
+         | NONE => report_named_term ctxt pos (constructor_term info))
     end
 
   val report_selector = report_named_term

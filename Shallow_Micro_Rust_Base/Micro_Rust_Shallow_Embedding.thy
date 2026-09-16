@@ -875,6 +875,25 @@ translations
   "_shallow (_urust_while_let (_urust_antiquotation fuel) ptrn expr body)"
     \<rightharpoonup> "_urust_shallow_while_let fuel (_shallow_match_pattern ptrn) (_shallow expr) (_shallow body)"
 
+setup \<open>
+  fold Micro_Rust_Dispatch.register_backend_identity_wrapper
+    [\<^const_name>\<open>lift_fun0\<close>,
+     \<^const_name>\<open>lift_fun1\<close>,
+     \<^const_name>\<open>lift_fun2\<close>,
+     \<^const_name>\<open>lift_fun3\<close>,
+     \<^const_name>\<open>lift_fun4\<close>,
+     \<^const_name>\<open>lift_fun5\<close>,
+     \<^const_name>\<open>lift_fun6\<close>,
+     \<^const_name>\<open>lift_fun7\<close>,
+     \<^const_name>\<open>lift_fun8\<close>,
+     \<^const_name>\<open>lift_fun9\<close>,
+     \<^const_name>\<open>lift_fun10\<close>,
+     \<^const_name>\<open>lift_fun11\<close>,
+     \<^const_name>\<open>lift_fun12\<close>,
+     \<^const_name>\<open>lift_fun13\<close>,
+     \<^const_name>\<open>lift_fun14\<close>]
+\<close>
+
 micro_rust_notation \<open>lift_fun1 Some\<close> ("Some")
 micro_rust_notation \<open>lift_fun1 Ok\<close>   ("Ok")
 micro_rust_notation \<open>lift_fun1 Err\<close>  ("Err")
