@@ -125,12 +125,29 @@ This session define locales for modelling the verification context. For example,
 
 ### Micro_Rust_Parser_Impl and Micro_Rust_Parser_Tests
 
-The implementation session provides the production `urust_expr` and `urust_fn` commands:
+The implementation session provides the production `urust_expr`, `urust_fn`, and
+`urust_datatype` commands:
 
 ```isabelle
 urust_expr [OPTIONS] NAME [:: TYPE] [(ARG, ...)] \<open> body \<close>
 urust_fn [OPTIONS] NAME :: TYPE [(PARAMETER, ...)] \<open> body \<close>
+urust_datatype [verbosity = 0|1|2] [HOL_NAME] \<open> struct-or-enum \<close>
 ```
+
+`urust_datatype` accepts one complete Rust-shaped struct or enum item. The HOL type name is
+optional and otherwise inferred with acronym-aware ASCII snake case (`HTTPServer` becomes
+`http_server`). Primitive field types `u8`, `u16`, `u32`, `u64`, `usize`, `i32`, `i64`, `bool`,
+and `()` are built in; arbitrary checked HOL types use `τ‹TYPE›`, with `τ` carrying the same literal
+markup as the `ε` expression-antiquotation prefix. Named structs generate a `datatype_record`,
+field lenses, and exact Rust field aliases. Unit and tuple structs generate
+`make_NAME`; enum variants are registered under exact paths such as `Message::Data`. Generated
+constructors use those exact Rust identities in values, calls, patterns, and struct expressions;
+they are not rediscovered through HOL basenames.
+
+Datatype verbosity is cumulative. Level 0 is quiet, level 1 reports the completed public type,
+constructors, selectors, lenses, and installed Rust mappings, and level 2 additionally prints the
+normalized declaration and public selector/lens definitions. Output is emitted only after the
+whole declaration and item-scope registration succeed.
 
 Existing integral and raw-pointer cast targets may also receive context-local source aliases:
 

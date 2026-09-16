@@ -40,6 +40,41 @@ urust_fn [conformance]
 
 end
 
+subsection\<open> Rust datatype items \<close>
+
+urust_datatype datatype_packet \<open>
+  struct DatatypePacket {
+    tag: u32,
+    bytes: \<tau>\<open>8 word list\<close>,
+  }
+\<close>
+
+urust_datatype \<open>
+  enum DatatypeEvent {
+    Idle,
+    Packet(\<tau>\<open>datatype_packet\<close>),
+  }
+\<close>
+
+text\<open>
+The item command generates the HOL datatype, field lenses, and exact Rust constructor paths in one
+local-theory transaction. The parser then uses those identities consistently for construction,
+field access, and patterns.
+\<close>
+
+urust_expr [conformance = false] showoff_datatype_items
+  \<open>
+    match DatatypeEvent::Packet(
+      DatatypePacket {
+        tag: 7u32,
+        bytes: \<llangle>[] :: 8 word list\<rrangle>,
+      }
+    ) {
+      DatatypeEvent::Packet(packet) \<Rightarrow> packet.tag,
+      DatatypeEvent::Idle \<Rightarrow> 0u32,
+    }
+  \<close>
+
 subsection\<open> Expressions, bindings, and control flow \<close>
 
 text\<open>

@@ -6,11 +6,13 @@ term-shape audits, markup/recovery checks, and combined showoff examples in one 
 
 ## Command surface
 
-`urust_expr` and `urust_fn` retain the parenthesized declaration-argument syntax:
+`urust_expr` and `urust_fn` retain the parenthesized declaration-argument syntax, and
+`urust_datatype` adds complete Rust-shaped datatype items:
 
 ```isabelle
 urust_expr [OPTIONS] NAME [:: TYPE] [(ARG, ...)] \<open> body \<close>
 urust_fn [OPTIONS] NAME :: TYPE [(PARAMETER, ...)] \<open> body \<close>
+urust_datatype [verbosity = 0|1|2] [HOL_NAME] \<open> struct-or-enum \<close>
 ```
 
 The list is optional, may be empty, and accepts one trailing comma. Declaration arguments are
@@ -29,13 +31,45 @@ Named definition-mode declarations accept standard Isabelle attributes through `
 the attributes apply only to the generated `_def` theorem. An exact terminal `_` in an `urust_fn`
 type is completed to a fresh five-parameter `function_body` before ordinary checked elaboration.
 
+`urust_datatype` infers an omitted HOL binding with acronym-aware ASCII snake case and does not
+accept `_` as a placeholder. Named structs use `datatype_record` plus the programmatic
+`micro_rust_record` API; tuple/unit structs and enums use native BNF datatypes. Primitive Rust types
+and positioned `τ‹TYPE›` HOL type cartouches are checked before generation; the `τ` prefix receives
+literal PIDE markup like the existing `ε` expression-antiquotation prefix. A context-local item
+table maps exact Rust paths to the completed HOL constructors and field aliases. Native `Ctr_Sugar`,
+`Case_Translation`, and `Code.is_constr` metadata remain authoritative for patterns and arity;
+generated constructors are deliberately excluded from unqualified basename fallback.
+
+Implementation ownership is intentionally separated. `Parser_Impl_Datatype.thy` seals datatype
+validation, generation, item registration, declaration markup, and verbosity rendering behind the
+single `URust_Datatype.define` operation. `Parser_Impl_Command.thy` retains only the common option
+machinery, the thin datatype adapter, outer-syntax parser, and command registration.
+
+`Parser_Tests_Datatypes.thy` covers every supported shape, inferred and renamed HOL identities,
+acronym/digit conversion, every primitive, nested positioned types, exact 14-field arity, comments,
+trailing commas, source-order field aliases, overloaded field spellings, repeated variant basenames,
+exact-path resolution, native constructor/case metadata, generated lenses, locale lifetime, markup,
+parser recovery, output gates, and cumulative verbosity. Its rejection matrix pins declarations
+inside `urust_expr` and `urust_fn`, `_` names, recursive/polymorphic/malformed/unsupported types,
+source and generated-name duplicates, incomplete or trailing items, option-schema errors, notation
+ownership conflicts, shape/role and arity mismatches, forbidden generic item paths, basename
+ambiguity, named-pattern field errors, named-variant construction, and tuple-struct projection.
+
 ## Markup corrections and portability
 
-Struct-expression labels used by the legacy source-order call syntax were reported as HOL free
-variables even though lowering erases the labels completely. The general
-`URust_Resolution.report_struct_label` hook now retains only its syntax typing tooltip and emits no
-`Markup.free`. This applies to ordinary registered struct-call syntax, nested expressions, and
-grouped control heads; `Parser_Tests_Misc.thy` contains the portable regression checks.
+T-41 exposed one pre-existing, datatype-independent markup bug. Struct-expression labels used by
+the legacy source-order call syntax were reported as HOL free variables even though lowering erases
+the labels completely. The general `URust_Resolution.report_struct_label` hook now retains only its
+syntax typing tooltip and emits no `Markup.free`. This applies to ordinary registered struct-call
+syntax, nested expressions, and grouped control heads; `Parser_Tests_Misc.thy` contains the portable
+regression checks.
+
+That correction is separate from the datatype-specific enhancements. Exact `urust_datatype`
+constructor fields are reported as their generated selector constants, generated declaration names
+are reported after local-theory completion, primitive `bool` is keyword-marked in datatype type
+position, and qualified generated constructor terminals receive constructor styling. A branch that
+does not contain `urust_datatype` should take only the generic `report_struct_label` change and the
+corresponding `Parser_Tests_Misc.thy` assertions.
 
 ## Parser and lowering architecture
 
