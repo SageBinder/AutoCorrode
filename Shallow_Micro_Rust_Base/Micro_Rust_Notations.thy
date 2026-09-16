@@ -316,7 +316,7 @@ end
 datatype 'a urust_witness = Witness 'a | NoWitness
 
 \<comment>\<open>The dispatch marker carries a payload term \<open>'x\<close> (an opaque
-  carrier for kind/name/source-pos metadata, built in ML by
+  carrier for kind/name/terminal-and-qualifier position metadata, built in ML by
   \<open>Micro_Rust_Dispatch.mk_payload\<close>) and an optional witness
   \<open>'y urust_witness\<close>. The result type \<open>'z\<close> is independent so
   the marker's elaboration doesn't get pinned by the witness or
@@ -347,14 +347,18 @@ fun is_backend_identity_wrapper ctxt name =
     (Backend_Identity_Wrappers.get (Proof_Context.theory_of ctxt))
     name;
 
-\<comment>\<open>The marker's payload encodes \<open>(kind, name, source_pos)\<close> as a
-  bare \<^verbatim>\<open>Const\<close> with the data packed into the constant's name.
-  Using a \<^verbatim>\<open>Const\<close> rather than a HOL \<^typ>\<open>String.literal\<close> avoids the
+\<comment>\<open>The marker's payload encodes the registration kind and name together
+  with the terminal source position and any qualified-path segment positions
+  as a bare \<^verbatim>\<open>Free\<close> with the data packed into the variable's name.
+  Using a \<^verbatim>\<open>Free\<close> rather than a HOL \<^typ>\<open>String.literal\<close> avoids the
   ~7n nested-constructor blowup of bit-list literal strings; the
   payload is two heap cells regardless of name length. The sentinel
   prefix keeps the encoded name out of any real namespace.\<close>
 val payload_prefix = "_urust_dispatch_payload___";
 val payload_sep = String.str (Char.chr 0);
+
+type marker_positions =
+  {terminal_pos: Position.T, qualifier_positions: Position.T list};
 
 \<comment>\<open>Drop the \<^verbatim>\<open>file\<close> property of a position. CRITICAL: the encoded
   position is spliced into the payload \<^verbatim>\<open>Free\<close>'s \<^emph>\<open>name\<close> (see
@@ -373,28 +377,44 @@ fun strip_file pos =
   in Position.make {line = line, offset = offset, end_offset = end_offset,
        props = {label = label, file = "", id = id}} end;
 
-fun encode_payload kind name pos =
+fun encode_payload_positions kind name
+    ({terminal_pos, qualifier_positions} : marker_positions) =
   let
     val tag = Micro_Rust_Names.kind_to_string kind ^ payload_sep ^ name
+    val positions = terminal_pos :: qualifier_positions
   in
-    if Position.is_reported pos
-    then tag ^ payload_sep ^ Term_Position.encode_no_syntax [strip_file pos]
+    if exists Position.is_reported positions
+    then
+      tag ^ payload_sep ^
+        Term_Position.encode_no_syntax (map strip_file positions)
     else tag
   end;
 
 fun decode_payload s =
   let
     val parts = String.fields (fn ch => ch = Char.chr 0) s
-    val (kind_str, name, pos) =
+    val (kind_str, name, positions) =
       (case parts of
-         [k, n] => (k, n, Position.none)
-       | [k, n, enc] =>
+         [k, n] =>
            (k, n,
-            case Term_Position.decode enc of
-              {pos, ...} :: _ => pos
-            | [] => Position.none)
+            {terminal_pos = Position.none,
+             qualifier_positions = []})
+       | [k, n, enc] =>
+           let
+             val decoded = map #pos (Term_Position.decode enc)
+           in
+             (case decoded of
+                terminal_pos :: qualifier_positions =>
+                  (k, n,
+                   {terminal_pos = terminal_pos,
+                    qualifier_positions = qualifier_positions})
+              | [] =>
+                  (k, n,
+                   {terminal_pos = Position.none,
+                    qualifier_positions = []}))
+           end
        | _ => error "malformed urust_dispatch payload")
-  in (Micro_Rust_Names.string_to_kind kind_str, name, pos) end;
+  in (Micro_Rust_Names.string_to_kind kind_str, name, positions) end;
 
 \<comment>\<open>Build the payload \<^verbatim>\<open>Free\<close> with the encoded data in its name.
 
@@ -404,10 +424,20 @@ fun decode_payload s =
   that lookup; the decoder accepts the free variable verbatim. The
   sentinel prefix is reserved enough that no user identifier could
   collide with it.\<close>
-fun mk_payload kind name pos =
-  Free (payload_prefix ^ encode_payload kind name pos, dummyT);
+fun mk_payload_positions kind name positions =
+  Free
+    (payload_prefix ^ encode_payload_positions kind name positions,
+     dummyT);
 
-\<comment>\<open>Recognise the payload \<^verbatim>\<open>Free\<close> and recover \<open>(kind, name, pos)\<close>.\<close>
+\<comment>\<open>Retain the original single-position payload API for the legacy
+  frontend and direct clients. Dedicated-parser qualified paths use
+  \<open>mk_marker_positions\<close> below to retain every identifier segment.\<close>
+fun mk_payload kind name pos =
+  mk_payload_positions kind name
+    {terminal_pos = pos, qualifier_positions = []};
+
+\<comment>\<open>Recognise the payload \<^verbatim>\<open>Free\<close> and recover
+  \<open>(kind, name, marker_positions)\<close>.\<close>
 fun dest_payload (Free (s, _)) =
       if String.isPrefix payload_prefix s
       then SOME (decode_payload (String.extract (s, size payload_prefix, NONE)))
@@ -454,10 +484,16 @@ fun mk_marker_term opt_witness =
   (e.g. \<^verbatim>\<open>Free "Some"\<close> becomes \<^const>\<open>Option.Some\<close>), the decoder ALSO
   emits \<^verbatim>\<open>Markup.const\<close> at the user's source token, which can stack
   visibly with the \<open>micro_rust_notation\<close> entity ref \<open>resolve\<close> emits.\<close>
-fun mk_marker kind name pos witness =
-  mk_marker_term (SOME witness) (mk_payload kind name pos);
+fun mk_marker_positions kind name terminal_pos qualifier_positions witness =
+  mk_marker_term (SOME witness)
+    (mk_payload_positions kind name
+      {terminal_pos = terminal_pos,
+       qualifier_positions = qualifier_positions});
 
-\<comment>\<open>Recognise a marker. Returns \<open>SOME ((kind, name, src_pos),
+fun mk_marker kind name pos witness =
+  mk_marker_positions kind name pos [] witness;
+
+\<comment>\<open>Recognise a marker. Returns \<open>SOME ((kind, name, positions),
   opt_witness, T)\<close> where \<open>opt_witness\<close> is \<open>SOME witness\<close> for plain ids
   (the elaborated witness term) and \<open>NONE\<close> for paths, and \<open>T\<close> is the
   marker's inferred result type at this occurrence.\<close>
@@ -536,14 +572,16 @@ fun unify_and_instantiate ctxt T t =
   end;
 
 \<comment>\<open>Candidate backends for \<open>(kind, name)\<close> whose type unifies with \<open>T\<close>.
-  Each backend term is freshly \<^emph>\<open>polymorphised\<close> (its \<open>TFree\<close>s are generalised
-  to schematic \<open>TVar\<close>s) and then imported with fresh schematic indices ---
-  this is the same dance \<open>adhoc_overloading\<close>'s variant table does, and is
-  what lets a registered term whose declared type is \<open>'a \<Rightarrow> 'a option\<close>
-  match an occurrence whose inferred type is \<open>nat \<Rightarrow> nat option\<close>.
-  Skipping the polymorphisation leaves \<open>TFree\<close>s in the backend, which
-  do not unify with the occurrence's schematic Vars and cause spurious
-  "no backend matches type" errors.\<close>
+  Each result retains its complete registration entry alongside the
+  instantiated term, so typed resolution can report the declaration it
+  actually selected. The backend term is freshly \<^emph>\<open>polymorphised\<close> (its
+  \<open>TFree\<close>s are generalised to schematic \<open>TVar\<close>s) and then imported with
+  fresh schematic indices --- this is the same dance
+  \<open>adhoc_overloading\<close>'s variant table does, and is what lets a registered
+  term whose declared type is \<open>'a \<Rightarrow> 'a option\<close> match an occurrence whose
+  inferred type is \<open>nat \<Rightarrow> nat option\<close>. Skipping the polymorphisation
+  leaves \<open>TFree\<close>s in the backend, which do not unify with the occurrence's
+  schematic Vars and cause spurious "no backend matches type" errors.\<close>
 \<comment>\<open>Generalise a backend's free type variables to schematics, leaving
   any pre-existing schematics untouched. Distinct from
   \<open>Logic.varify_types_global\<close>, which raises on pre-existing schematics
@@ -554,9 +592,12 @@ fun varify_tfrees_in_term t =
   Term.map_types (Term.map_atyps
     (fn TFree (a, S) => TVar ((a, 0), S) | T => T)) t;
 
+type dispatch_candidate =
+  {entry: Micro_Rust_Names.entry, term: term};
+
 fun candidates ctxt kind name T =
   Micro_Rust_Names.lookups ctxt kind name
-  |> map_filter (fn { hol_term, ... } =>
+  |> map_filter (fn entry as { hol_term, ... } =>
        \<comment>\<open>Mirror \<open>adhoc_overloading.ML\<close>: keep the backend's type for
          the unifiability check, but splice the term with all internal
          types erased to \<open>dummyT\<close> --- subsequent type inference re-checks
@@ -567,7 +608,12 @@ fun candidates ctxt kind name T =
        let val varified = varify_tfrees_in_term hol_term
        in
          if unifiable_types ctxt (T, fastype_of varified)
-         then SOME (Type.constraint T (Term.map_types (K dummyT) varified))
+         then
+           SOME
+             {entry = entry,
+              term =
+                Type.constraint T
+                  (Term.map_types (K dummyT) varified)}
          else NONE
        end);
 
@@ -668,7 +714,9 @@ fun witness_takes_precedence Micro_Rust_Names.NLiteral (Bound _) = true
 
   Resolution rules (lambda binders already consumed at stage \<^verbatim>\<open>~1\<close> by
   \<open>resolve_bound\<close>, so any surviving witness here is \<open>Free\<close>/\<open>Const\<close>):
-   - exactly one type-compatible candidate: splice it in and emit use-site markup;
+   - exactly one type-compatible candidate: splice it in, report backend
+     information first, then report every notation declaration once with the
+     selected registration last on the terminal and all retained qualifiers;
    - multiple candidates: leave the ambiguous marker for \<open>reject_unresolved\<close>;
    - no candidates: the name IS registered (a marker would not exist
      otherwise) but no backend type-unifies with the occurrence, so call
@@ -696,9 +744,12 @@ fun resolve_bound ctxt =
   let
     fun go t =
       (case dest_marker_untyped t of
-         SOME ((kind, _, pos), SOME w) =>
+         SOME ((kind, _, positions), SOME w) =>
            if witness_takes_precedence kind w then
-             let val _ = Context_Position.report ctxt pos Markup.bound
+             let
+               val _ =
+                 Context_Position.report ctxt
+                   (#terminal_pos positions) Markup.bound
              in w end
            else t
        | _ =>
@@ -712,46 +763,69 @@ fun resolve_bound ctxt =
   survived \<^verbatim>\<open>resolve_bound\<close> here have a witness that is NOT a lambda binder
   (so \<^verbatim>\<open>Free\<close> or \<^verbatim>\<open>Const\<close>), or are path markers (no witness). Now we
   have full types and can do the typed table lookup.\<close>
+fun emit_notation_entries_at_pos
+    (ctxt : Proof.context) (name : string)
+    (entries : Micro_Rust_Names.entry list)
+    (pos : Position.T) : unit =
+  if not (Position.is_reported pos) then ()
+  else
+    app
+        (fn ({serial, reg_pos, ...} : Micro_Rust_Names.entry) =>
+          Context_Position.report ctxt pos
+            (Position.make_entity_markup {def = false} serial
+              Micro_Rust_Names.notationN (name, reg_pos)))
+        entries;
+
+fun selected_entry_last
+    (selected : Micro_Rust_Names.entry)
+    (entries : Micro_Rust_Names.entry list) =
+  filter
+    (fn (entry : Micro_Rust_Names.entry) =>
+      #serial entry <> #serial selected)
+    entries @ [selected];
+
 \<comment>\<open>Emit only ref-side notation entities at \<open>pos\<close>, one for every
-  registered backend under \<open>(kind, name)\<close>. This is the neutral navigation
-  primitive for source tokens that belong to an exact registered path but do
-  not themselves denote the backend HOL term. In particular it deliberately
-  emits neither backend-constant entities nor \<^verbatim>\<open>Markup.keyword3\<close>.\<close>
+  registered backend under \<open>(kind, name)\<close>. This is the compatibility
+  primitive for clients that do not yet have a typed selected entry.\<close>
 fun emit_notation_entity_at_pos
     (ctxt : Proof.context)
     (kind : Micro_Rust_Names.ctxt_kind)
     (name : string)
     (pos : Position.T) : unit =
-  if not (Position.is_reported pos) then ()
-  else
-    Micro_Rust_Names.lookups ctxt kind name
-    |> app
-        (fn ({serial, reg_pos, ...} : Micro_Rust_Names.entry) =>
-          Context_Position.report ctxt pos
-            (Position.make_entity_markup {def = false} serial
-              Micro_Rust_Names.notationN (name, reg_pos)));
+  emit_notation_entries_at_pos ctxt name
+    (Micro_Rust_Names.lookups ctxt kind name) pos;
 
-\<comment>\<open>Emit terminal use-site markup at \<open>pos\<close> for every registered
-  backend under \<open>(kind, name)\<close>: the neutral notation entities above, plus
-  \<^verbatim>\<open>Markup.keyword3\<close> styling and, when available, a
+\<comment>\<open>Typed dispatch and validated constructor patterns use the selected
+  variant: every declaration reference is retained exactly once, while the
+  selected declaration is reported last so it is the ordinary jEdit
+  navigation destination.\<close>
+fun emit_selected_notation_entities_at_pos ctxt kind name selected pos =
+  emit_notation_entries_at_pos ctxt name
+    (selected_entry_last selected
+      (Micro_Rust_Names.lookups ctxt kind name))
+    pos;
+
+\<comment>\<open>Emit terminal backend markup at \<open>pos\<close> for every registered
+  backend under \<open>(kind, name)\<close>: \<^verbatim>\<open>Markup.keyword3\<close> styling and,
+  when available, a
   \<^verbatim>\<open>Name_Space.markup\<close> target for the backend's source-level
   identity. Applied wrappers registered through
   \<open>register_backend_identity_wrapper\<close> are transparent for that target: the
   wrapped term's head constant is used, while a wrapped lambda, free term, or
   other unnamed expression emits no misleading constant entity. Styling
-  remains attached to the notation occurrence. Called by \<open>resolve\<close> when a
-  marker is actually replaced by a registered backend, and by
-  constructor-pattern resolution only after exact registration, constructor
-  identity, and arity or field validation have succeeded. It is never called
-  when the witness wins. This stops markup from leaking onto an identifier
-  whose witness ends up being a lambda binder (e.g. \<open>let x = \<dots>; x\<close> where
-  \<open>x\<close> is also a registered notation).\<close>
-fun emit_use_markup_at_pos ctxt kind name pos =
+  remains attached to the notation occurrence. Selected notation references
+  are emitted separately after these backend reports. The selected-use path is
+  called by \<open>resolve\<close> when a marker is actually replaced by a registered
+  backend, and by constructor-pattern resolution only after exact
+  registration, constructor identity, and arity or field validation have
+  succeeded. It is never called when the witness wins. This stops markup from
+  leaking onto an identifier whose witness ends up being a lambda binder
+  (e.g. \<open>let x = \<dots>; x\<close> where \<open>x\<close> is also a registered notation).\<close>
+fun emit_backend_markup_at_pos ctxt kind name pos =
   if not (Position.is_reported pos) then ()
   else
     let
       val entries = Micro_Rust_Names.lookups ctxt kind name
-      val _ = emit_notation_entity_at_pos ctxt kind name pos
       fun report_one ({hol_term, ...} : Micro_Rust_Names.entry) =
         let
           val stripped = Term_Position.strip_positions hol_term
@@ -785,6 +859,27 @@ fun emit_use_markup_at_pos ctxt kind name pos =
       app report_one entries
     end;
 
+\<comment>\<open>Compatibility single-position reporter. Backend identities and
+  styling precede notation references, but no typed declaration is
+  prioritized because this API does not receive one.\<close>
+fun emit_use_markup_at_pos ctxt kind name pos =
+  (emit_backend_markup_at_pos ctxt kind name pos;
+   emit_notation_entity_at_pos ctxt kind name pos);
+
+\<comment>\<open>Complete selected-use reporter for dedicated-parser dispatch markers.
+  The terminal first receives every existing backend identity and style.
+  Every terminal and qualifier token then receives all declaration
+  references exactly once with the selected declaration last.\<close>
+fun emit_selected_use_markup_at_positions ctxt kind name selected
+    ({terminal_pos, qualifier_positions} : marker_positions) =
+  (emit_backend_markup_at_pos ctxt kind name terminal_pos;
+   emit_selected_notation_entities_at_pos
+     ctxt kind name selected terminal_pos;
+   List.app
+     (emit_selected_notation_entities_at_pos
+       ctxt kind name selected)
+     qualifier_positions);
+
 \<comment>\<open>A marker only exists because \<open>lookup_id_tr\<close> found a registration for
   \<open>(kind, name)\<close> (it emits nothing otherwise). So by the time \<open>resolve\<close>
   runs --- with lambda binders already consumed by \<open>resolve_bound\<close> at stage
@@ -810,21 +905,25 @@ fun resolve ctxt =
   let
     fun go t =
       (case dest_marker t of
-         SOME ((kind, name, pos), opt_witness, T) =>
+         SOME ((kind, name, positions), opt_witness, T) =>
            let
+             val pos = #terminal_pos positions
              val cands = candidates ctxt kind name T
              val _ = shadow_check ctxt kind name T pos (not (null cands))
-             fun emit () = emit_use_markup_at_pos ctxt kind name pos
+             fun select ({entry, term} : dispatch_candidate) =
+               (emit_selected_use_markup_at_positions
+                  ctxt kind name entry positions;
+                term)
            in
              (case (opt_witness, cands) of
                 (SOME w, _) =>
                   if witness_takes_precedence kind w then w \<comment>\<open>binder wins, no markup\<close>
                   else
                     (case cands of
-                       [single] => (emit (); single)
+                       [single] => select single
                      | [] => no_match_error ctxt kind name pos T
                      | _ => t \<comment>\<open>ambiguous: leave for \<open>reject_unresolved\<close>\<close>)
-              | (NONE, [single]) => (emit (); single)
+              | (NONE, [single]) => select single
               | (NONE, []) => no_match_error ctxt kind name pos T
               | (NONE, _) => t)
            end
@@ -841,7 +940,9 @@ fun reject_unresolved ctxt =
   let
     fun check t =
       (case dest_marker t of
-         SOME ((kind, name, pos), _, T) =>
+         SOME ((kind, name, positions), _, T) =>
+           let val pos = #terminal_pos positions
+           in
            error (Pretty.string_of (Pretty.chunks
              [Pretty.block [Pretty.str ("Ambiguous uRust notation \<open>" ^ name ^
                 "\<close> at type "), Syntax.pretty_typ ctxt T,
@@ -849,6 +950,7 @@ fun reject_unresolved ctxt =
               Pretty.big_list "candidate backends:"
                 (map (Syntax.pretty_term ctxt o #hol_term)
                    (Micro_Rust_Names.lookups ctxt kind name))]))
+           end
        | NONE =>
            (case t of u $ v => (check u; check v) | Abs (_, _, b) => check b | _ => ()));
   in app check end;
