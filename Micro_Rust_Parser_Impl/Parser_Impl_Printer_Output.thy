@@ -7,10 +7,13 @@ begin
 section\<open> Report-transferred printer output \<close>
 
 text\<open>
-Human declaration output uses the canonical generated source and lexeme ranges finalized by the
-pure printer core. This adapter reparses that source through a caller-supplied new-frontend callback,
-captures its PIDE reports, removes synthetic position properties, and attaches the transferred
-markup to individual lexeme nodes before the ordinary Pretty layout chooses line breaks.
+Human expression and datatype output uses the canonical generated source and lexeme ranges
+finalized by the pure printer core. This adapter reparses that source through a caller-supplied
+new-frontend callback, captures its PIDE reports, removes synthetic position properties, and
+attaches the transferred markup to individual lexeme nodes before the ordinary Pretty layout
+chooses line breaks. Expression replay preserves unrelated source-language reports required by the
+declaration command; datatype replay is a private validation pass and forwards only reports that
+belong to the generated probe.
 \<close>
 
 ML\<open>
@@ -18,6 +21,9 @@ signature URUST_PRINTER_OUTPUT =
 sig
   val pretty_human_expr_with_reparse:
     (Input.source -> unit) -> URust_AST.ur_expr -> Pretty.T
+  val pretty_human_datatype_with_reparse:
+    (Input.source -> unit) ->
+      URust_AST.urust_datatype -> Pretty.T
 end
 
 local
@@ -40,7 +46,7 @@ fun tree_uses_position_id expected tree =
        exists (tree_uses_position_id expected) body
    | XML.Text _ => false)
 
-fun capture_reports probe_id action =
+fun capture_reports forward_other probe_id action =
   Synchronized.change_result report_capture_lock (fn () =>
     let
       val captured =
@@ -61,7 +67,7 @@ fun capture_reports probe_id action =
             Synchronized.change captured
               (fn reports => rev probe_chunks @ reports)
           val _ =
-            if null other_chunks then ()
+            if not forward_other orelse null other_chunks then ()
             else previous other_chunks
         in
           ()
@@ -198,10 +204,9 @@ fun reported_lexeme reports
     |> Pretty.block0
   end
 
-fun pretty_human_expr_with_reparse reparse expression =
+fun pretty_human_document_with_reparse
+    forward_other reparse document =
   let
-    val document =
-      URust_Printer_Document.human_expr expression
     val text =
       URust_Printer_Document.probe_text document
     val probe_id = Value.print_int (serial ())
@@ -213,7 +218,7 @@ fun pretty_human_expr_with_reparse reparse expression =
       Parser_Lex_Util.delimited_content_source
         text (Position.range (probe_start, probe_stop))
     val (_, chunks) =
-      capture_reports probe_id (fn () =>
+      capture_reports forward_other probe_id (fn () =>
         Print_Mode.with_modes [Print_Mode.PIDE] reparse source)
     val reports = reports_for_id probe_id chunks
   in
@@ -221,12 +226,22 @@ fun pretty_human_expr_with_reparse reparse expression =
       (reported_lexeme reports) document
   end
 
+fun pretty_human_expr_with_reparse reparse expression =
+  pretty_human_document_with_reparse true reparse
+    (URust_Printer_Document.human_expr expression)
+
+fun pretty_human_datatype_with_reparse reparse item =
+  pretty_human_document_with_reparse false reparse
+    (URust_Printer_Document.human_datatype item)
+
 in
 
 structure URust_Printer_Output :> URUST_PRINTER_OUTPUT =
 struct
   val pretty_human_expr_with_reparse =
     pretty_human_expr_with_reparse
+  val pretty_human_datatype_with_reparse =
+    pretty_human_datatype_with_reparse
 end
 
 end

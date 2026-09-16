@@ -43,7 +43,7 @@ end
 
 subsection\<open> Rust datatype items \<close>
 
-urust_datatype datatype_packet \<open>
+urust_datatype [pretty, verbosity = 1] datatype_packet \<open>
   struct DatatypePacket {
     tag: u32,
     bytes: \<tau>\<open>8 word list\<close>,
@@ -79,9 +79,10 @@ urust_expr [conformance = false] showoff_datatype_items
 subsection\<open> Pretty declaration output \<close>
 
 text\<open>
-The common \<open>pretty\<close> option changes verbosity-controlled declaration output so its right-hand side
-uses human-readable uRust. It removes redundant groups while preserving required precedence.
-The formatted body is reparsed by the new frontend so the InfoView inherits the parser's lexical,
+The common \<open>pretty\<close> option changes verbosity-controlled declaration output to include
+human-readable uRust. For expressions it removes redundant groups while preserving required
+precedence; for datatypes it prints the normalized declaration after the artifact manifest. The
+formatted source is reparsed by the new frontend so the InfoView inherits the parser's lexical,
 semantic, entity, typing, and embedded-language markup.
 \<close>
 

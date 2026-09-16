@@ -12,21 +12,23 @@ term-shape audits, markup/recovery checks, and combined showoff examples in one 
 ```isabelle
 urust_expr [OPTIONS] NAME [:: TYPE] [(ARG, ...)] \<open> body \<close>
 urust_fn [OPTIONS] NAME :: TYPE [(PARAMETER, ...)] \<open> body \<close>
-urust_datatype [verbosity = 0|1|2] [HOL_NAME] \<open> struct-or-enum \<close>
+urust_datatype [OPTIONS] [HOL_NAME] \<open> struct-or-enum \<close>
 ```
 
-Both commands accept the Boolean `pp_test` option, backed by scoped `urust_pp_test`. It serializes
-the parsed AST, reparses the generated source without positions, and compares the abstract canonical
-token streams before lowering. The check is silent on success and appears as a nested
-`pretty-print roundtrip` timing phase when timing is enabled.
+All three commands accept the Boolean `pp_test` option, backed by scoped `urust_pp_test`. It
+serializes the parsed AST, reparses the generated source without positions, and compares the
+abstract canonical token streams before lowering or datatype generation. The check is silent on
+success and appears as a nested `pretty-print roundtrip` timing phase when timing is enabled.
 
-Both commands also accept Boolean `pretty`, backed by scoped `urust_pretty`. At verbosity levels 1
-and 2 it renders the generated definition, abbreviation, or anonymous result with a human-readable
-uRust right-hand side inside a symbolic `µ‹…›` wrapper. The wrapper is presentation only and is
-unrelated to source quotation syntax. At verbosity 0 it prints nothing and warns that `pretty` has
-no effect. Conformance theorems remain ordinary HOL output because their right-hand side is produced
-by the legacy frontend. Command arguments appear as uRust closure formals on the pretty right-hand
-side by default; `application_def` instead displays them as applications on the left-hand side. The
+All three commands also accept Boolean `pretty`, backed by scoped `urust_pretty`. At verbosity
+levels 1 and 2, expression commands render the generated definition, abbreviation, or anonymous
+result with a human-readable uRust right-hand side inside a symbolic `µ‹…›` wrapper. Datatype
+commands retain the artifact manifest and insert a normalized uRust declaration before the
+verbosity-2 generated HOL details. The wrapper is presentation only and is unrelated to source
+quotation syntax. At verbosity 0 `pretty` prints nothing and warns that it has no effect.
+Conformance theorems remain ordinary HOL output because their right-hand side is produced by the
+legacy frontend. Command arguments appear as uRust closure formals on the pretty right-hand side by
+default; `application_def` instead displays them as applications on the left-hand side. The
 symbolic opening follows the equation marker on the same line; right-hand closure formals and the
 body occupy successively indented lines. In human mode, nonempty code blocks for control flow,
 matches, closures, bindings, and assignments always place their code on indented lines,
@@ -38,6 +40,10 @@ PIDE report structure to the formatted spans, including lexical roles, bound/fre
 markup, typing payloads, and markup from embedded HOL. The printer does not infer those semantic
 roles itself. The pure printer core finalizes one source-mapped canonical document; the separate
 output adapter consumes its generated source and lexeme ranges without a second location pass.
+Datatype replay uses the same adapter but validates only against the artifacts and item-scope
+identities produced by the real command. It adds generated HOL navigation before final links to the
+original uRust declarations, forwards no synthetic probe reports, and never generates or registers
+items a second time.
 
 The list is optional, may be empty, and accepts one trailing comma. Declaration arguments are
 allocated as typed lexical locals before body elaboration. They therefore shadow existing
@@ -237,11 +243,12 @@ negative rows preserve these boundaries.
   selection, comments and token boundaries, expression/pattern/place interactions, AST/range/markup
   audits, fallback rejection, and recovery.
 - All command-bearing parser theories enable scoped `urust_pp_test`, so their ordinary
-  `urust_expr` and `urust_fn` declarations exercise serialized parse-print-parse checking.
-  `Parser_Test_Printer.thy` demonstrates human-readable verbose declaration output and covers human
-  formatting idempotence, grouping and precedence, position independence, rendering margins and
-  indentation, erased-syntax canonicalization, report-driven InfoView markup and typing payloads,
-  option behavior, and malformed hand-built AST diagnostics.
+  `urust_expr`, `urust_fn`, and positive `urust_datatype` declarations exercise serialized
+  parse-print-parse checking. `Parser_Test_Printer.thy` demonstrates human-readable verbose
+  declaration output and covers expression and datatype token/pretty/string operations, formatting
+  idempotence, grouping and precedence, position independence, rendering margins and indentation,
+  erased-syntax canonicalization, report-driven InfoView markup and typing payloads, option
+  behavior, raw HOL type preservation, and malformed hand-built AST diagnostics.
 - `Parser_Tests_Improvements.thy`: the executable accepted-improvement inventory, including nested
   block comments, ordinary and inline-const array-repeat behavior, scoped cast-target aliases, and a
   dedicated legacy-matcher-bug section for nested registered nullaries, guarded-or fallthrough,

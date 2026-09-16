@@ -21,11 +21,29 @@ struct
   fun parse source =
     parse_input (Parser_Lex_Util.text_source source)
 
+  fun parse_datatype_input source =
+    (case URust_Parser.parse_item_source \<^context>
+        source of
+       SOME item => item
+     | NONE => error "datatype printer test parsed empty source")
+
+  fun parse_datatype source =
+    parse_datatype_input (Parser_Lex_Util.text_source source)
+
   fun render options source =
     URust_Printer.string_of_expr options (parse source)
 
+  fun render_datatype options source =
+    URust_Printer.string_of_datatype options
+      (parse_datatype source)
+
   fun render_margin margin options source =
     URust_Printer.pretty_expr options (parse source)
+    |> Pretty.string_of_ops (Pretty.pure_output_ops (SOME margin))
+
+  fun render_datatype_margin margin options source =
+    URust_Printer.pretty_datatype options
+      (parse_datatype source)
     |> Pretty.string_of_ops (Pretty.pure_output_ops (SOME margin))
 
   fun human_idempotence source =
@@ -46,6 +64,33 @@ struct
           "\nexpected: " ^ quote expected ^
           "\nactual:   " ^ quote actual)
         (actual = expected)
+    end
+
+  fun canonical_datatype source expected =
+    let
+      val actual =
+        render_datatype URust_Printer.serialized_options source
+    in
+      assert
+        ("canonical datatype printer output changed for " ^
+          quote source ^
+          "\nexpected: " ^ quote expected ^
+          "\nactual:   " ^ quote actual)
+        (actual = expected)
+    end
+
+  fun datatype_human_idempotence source =
+    let
+      val first =
+        render_datatype URust_Printer.human_options source
+      val second =
+        render_datatype URust_Printer.human_options first
+    in
+      assert
+        ("human datatype printer idempotence failed for " ^
+          quote source ^ "\nfirst:\n" ^ first ^
+          "\nsecond:\n" ^ second)
+        (first = second)
     end
 
   fun expect_error label fragment action =
@@ -185,7 +230,122 @@ urust_expr [pretty, verbosity = 1, conformance = false]
         adjusted * 2_u32
       }
     }
-  \<close>
+\<close>
+
+subsection\<open> Datatype token, pretty, and string operations \<close>
+
+ML_val\<open>
+  let
+    open Parser_Printer_Test
+
+    val unit_struct = "struct PrinterUnit;"
+    val tuple_struct =
+      "struct PrinterTuple(u32, bool, " ^
+        "\<tau>\<open>  nat option  \<close>);"
+    val named_struct =
+      "struct PrinterNamed { left: u32, right: bool, }"
+    val enum_item =
+      "enum C { E, P(u8, ()), " ^
+        "N { c: i32, r: " ^
+        "\<tau>\<open>8 word\<close>, }, }"
+    val all_primitives =
+      "struct PrinterPrimitives(" ^
+        "u8, u16, u32, u64, usize, i32, i64, bool, ());"
+
+    val _ = canonical_datatype unit_struct unit_struct
+    val _ =
+      canonical_datatype tuple_struct
+        ("struct PrinterTuple(u32, bool, " ^
+          "\<tau>\<open>  nat option  \<close>);")
+    val _ =
+      canonical_datatype named_struct
+        "struct PrinterNamed { left: u32, right: bool }"
+    val _ =
+      canonical_datatype enum_item
+        ("enum C { E, P(u8, ()), " ^
+          "N { c: i32, r: " ^
+          "\<tau>\<open>8 word\<close> } }")
+    val _ =
+      canonical_datatype all_primitives all_primitives
+
+    val sources =
+      [unit_struct, tuple_struct, named_struct,
+       enum_item, all_primitives]
+    val _ = List.app datatype_human_idempotence sources
+
+    val named_human =
+      render_datatype_margin 80
+        URust_Printer.human_options named_struct
+    val _ =
+      assert
+        ("human named struct layout changed:\n" ^
+          named_human)
+        (named_human =
+          "struct PrinterNamed {\n" ^
+          "  left: u32,\n" ^
+          "  right: bool\n" ^
+          "}")
+
+    val enum_human =
+      render_datatype_margin 80
+        URust_Printer.human_options enum_item
+    val _ =
+      assert
+        ("human enum layout changed:\n" ^
+          enum_human)
+        (enum_human =
+          "enum C {\n" ^
+          "  E,\n" ^
+          "  P(u8, ()),\n" ^
+          "  N {\n" ^
+          "    c: i32,\n" ^
+          "    r: \<tau>\<open>8 word\<close>\n" ^
+          "  }\n" ^
+          "}")
+
+    val positioned_text =
+      "enum Positioned { Unit, Tuple(u64), " ^
+        "Named { value: \<tau>\<open>  nat option  \<close>, }, }"
+    val left =
+      Parser_Lex_Util.positioned_content_source
+        positioned_text
+        (Position.make0 12 300 0 "" "datatype-printer-left" "")
+    val right =
+      Parser_Lex_Util.positioned_content_source
+        positioned_text
+        (Position.make0 40 900 0 "" "datatype-printer-right" "")
+    val left_item = parse_datatype_input left
+    val right_item = parse_datatype_input right
+    val left_tokens =
+      URust_Printer.tokens_of_datatype
+        URust_Printer.serialized_options left_item
+    val right_tokens =
+      URust_Printer.tokens_of_datatype
+        URust_Printer.serialized_options right_item
+    val _ =
+      assert "datatype tokens retained source positions"
+        (left_tokens = right_tokens)
+    val token_pretty =
+      URust_Printer.pretty_tokens left_tokens
+      |> Pretty.string_of_ops
+          (Pretty.pure_output_ops (SOME 80))
+    val datatype_pretty =
+      URust_Printer.pretty_datatype
+        URust_Printer.serialized_options left_item
+      |> Pretty.string_of_ops
+          (Pretty.pure_output_ops (SOME 80))
+    val _ =
+      assert "datatype token and direct pretty operations disagree"
+        (token_pretty = datatype_pretty)
+    val _ =
+      assert "raw positioned HOL type body was normalized"
+        (String.isSubstring
+          "\<tau>\<open>  nat option  \<close>"
+          datatype_pretty)
+  in
+    ()
+  end
+\<close>
 
 subsection\<open> Human-mode constructor and enum instances \<close>
 
@@ -1043,6 +1203,81 @@ ML_val\<open>
       "terminal return cannot be represented"
       (fn () =>
         print (UE_Seq (UE_Return (NONE, pos), UE_Unit pos)))
+
+    fun print_datatype item =
+      URust_Printer.string_of_datatype
+        URust_Printer.serialized_options item
+    fun field name =
+      Datatype_Field
+        (name, pos, Primitive_Type (DPT_U32, pos))
+    fun variant name shape =
+      Datatype_Variant (name, pos, shape)
+
+    val _ = expect_error "empty tuple struct"
+      "empty tuple shape"
+      (fn () =>
+        print_datatype
+          (Struct_Item ("EmptyTuple", pos,
+            Tuple_Shape [], pos)))
+    val _ = expect_error "empty named struct"
+      "empty named shape"
+      (fn () =>
+        print_datatype
+          (Struct_Item ("EmptyNamed", pos,
+            Named_Shape [], pos)))
+    val _ = expect_error "empty enum"
+      "enum declaration requires at least one member"
+      (fn () =>
+        print_datatype
+          (Enum_Item ("EmptyEnum", pos, [], pos)))
+    val _ = expect_error "duplicate enum variant"
+      "duplicate identifier"
+      (fn () =>
+        print_datatype
+          (Enum_Item
+            ("DuplicateVariant", pos,
+             [variant "Same" Unit_Shape,
+              variant "Same" Unit_Shape], pos)))
+    val _ = expect_error "duplicate datatype field"
+      "duplicate identifier"
+      (fn () =>
+        print_datatype
+          (Struct_Item
+            ("DuplicateField", pos,
+             Named_Shape [field "value", field "value"],
+             pos)))
+    val _ = expect_error "placeholder datatype name"
+      "cannot be `_`"
+      (fn () =>
+        print_datatype
+          (Struct_Item ("_", pos, Unit_Shape, pos)))
+    val _ = expect_error "placeholder datatype field"
+      "cannot be `_`"
+      (fn () =>
+        print_datatype
+          (Struct_Item
+            ("PlaceholderField", pos,
+             Named_Shape [field "_"], pos)))
+    val _ = expect_error "empty raw datatype type"
+      "HOL datatype type source is empty"
+      (fn () =>
+        print_datatype
+          (Struct_Item
+            ("EmptyRawType", pos,
+             Tuple_Shape
+               [HOL_Type_Source
+                 (Parser_Lex_Util.text_source "")],
+             pos)))
+    val _ = expect_error "excessive datatype arity"
+      "at most 14 are supported"
+      (fn () =>
+        print_datatype
+          (Struct_Item
+            ("Excessive", pos,
+             Tuple_Shape
+               (replicate 15
+                 (Primitive_Type (DPT_U32, pos))),
+             pos)))
   in
     ()
   end

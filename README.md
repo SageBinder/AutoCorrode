@@ -131,7 +131,7 @@ The implementation session provides the production `urust_expr`, `urust_fn`, and
 ```isabelle
 urust_expr [OPTIONS] NAME [:: TYPE] [(ARG, ...)] \<open> body \<close>
 urust_fn [OPTIONS] NAME :: TYPE [(PARAMETER, ...)] \<open> body \<close>
-urust_datatype [verbosity = 0|1|2] [HOL_NAME] \<open> struct-or-enum \<close>
+urust_datatype [OPTIONS] [HOL_NAME] \<open> struct-or-enum \<close>
 ```
 
 `urust_datatype` accepts one complete Rust-shaped struct or enum item. The HOL type name is
@@ -146,18 +146,21 @@ they are not rediscovered through HOL basenames.
 
 Datatype verbosity is cumulative. Level 0 is quiet, level 1 reports the completed public type,
 constructors, selectors, lenses, and installed Rust mappings, and level 2 additionally prints the
-normalized declaration and public selector/lens definitions. Output is emitted only after the
-whole declaration and item-scope registration succeed.
+normalized generated HOL declaration and public selector/lens definitions. With `pretty = true`,
+levels 1 and 2 insert the normalized uRust declaration immediately after the artifact manifest.
+Output is emitted only after the whole declaration and item-scope registration succeed.
 
 It also exposes the position-independent `URust_Printer` ML API. Serialized mode preserves explicit
 AST groups and is used by the common Boolean `pp_test` declaration option (or scoped
-`urust_pp_test`) for a silent parse-print-parse token comparison before lowering. Human mode removes
-redundant grouping and is available in verbosity-controlled `urust_expr` and `urust_fn` output
-through the common Boolean `pretty` option (or scoped `urust_pretty`). At verbosity 0, `pretty` has
-no output to affect and produces a warning. Conformance theorems retain ordinary HOL rendering
-because their right-hand side comes from the legacy frontend. For human output, the formatted body
-appears inside a symbolic `µ‹…›` wrapper that is unrelated to source quotation syntax, and comes
-from a pure source-mapped document whose public token projection remains position-free.
+`urust_pp_test`) for a silent parse-print-parse token comparison before lowering or datatype
+generation. The sealed API provides parallel token, pretty, and string operations for expression
+and datatype ASTs. Human mode removes redundant expression grouping and is available in
+verbosity-controlled command output through the common Boolean `pretty` option (or scoped
+`urust_pretty`). At verbosity 0, `pretty` has no output to affect and produces a warning.
+Conformance theorems retain ordinary HOL rendering because their right-hand side comes from the
+legacy frontend. For expression output, the formatted body appears inside a symbolic `µ‹…›`
+wrapper that is unrelated to source quotation syntax, and comes from a pure source-mapped document
+whose public token projection remains position-free.
 Command arguments appear as uRust closure formals on the pretty right-hand side by default;
 `application_def` instead displays them as applications on the left-hand side.
 The symbolic opening follows the equation marker on the same line; right-hand closure formals and
@@ -170,7 +173,10 @@ indentation rather than aligning beneath the opening brace.
 `Parser_Impl_Printer_Output` reparses that canonical generated source only through the new frontend
 and transfers every resulting lexical, semantic, entity, typing, and embedded-HOL PIDE report to the
 document's matching lexeme span before final line layout. The InfoView therefore inherits parser
-markup without the printer reconstructing binder or identifier roles.
+markup without the printer reconstructing binder or identifier roles. Datatype replay validates
+the synthetic declaration against the already generated item-scope identities and reports generated
+HOL entities before final links to the original uRust type, constructor, and field declarations. It
+does not regenerate declarations, mutate item scope, or forward probe reports to the live document.
 The parser test session enables the
 scoped roundtrip check across its command-bearing theories; `Parser_Test_Printer.thy` separately
 demonstrates and audits human-readable formatting.

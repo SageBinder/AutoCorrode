@@ -108,14 +108,17 @@ statements or abbreviation equations; level 2 additionally prints \<open>NAME_co
 checking is enabled. The standard interactive and \<open>show_results\<close> gates still control enabled
 output.
 
-\<open>urust_datatype\<close> reuses only the scoped/inline \<open>verbosity\<close> option. It accepts an optional
-HOL binding followed by one required source cartouche containing a complete Rust-shaped struct or
-enum item. Composite and user-defined HOL field types use \<open>\<tau>\<open>TYPE\<close>\<close>, mirroring the
-\<open>\<epsilon>\<open>TERM\<close>\<close> expression antiquotation. An omitted binding is inferred with
-acronym-aware ASCII snake case. Level 0 is quiet;
+\<open>urust_datatype\<close> accepts the common scoped/inline \<open>pp_test\<close>, \<open>pretty\<close>, and
+\<open>verbosity\<close> options. It accepts an optional HOL binding followed by one required source
+cartouche containing a complete Rust-shaped struct or enum item. Composite and user-defined HOL
+field types use \<open>\<tau>\<open>TYPE\<close>\<close>, mirroring the \<open>\<epsilon>\<open>TERM\<close>\<close> expression
+antiquotation. An omitted binding is inferred with acronym-aware ASCII snake case. Level 0 is quiet;
 level 1 reports the completed public type, constructors, selectors, lenses, and exact Rust mappings;
-level 2 adds the normalized datatype declaration and complete public selector/lens definitions.
-Generation and item-scope registration run silently and atomically before any result report.
+level 2 adds the normalized generated HOL declaration and complete public selector/lens definitions.
+With \<open>pretty = true\<close>, levels 1 and 2 additionally show the normalized human-readable uRust
+declaration after the manifest. Its markup is replayed against the completed generated artifacts
+without generating or registering anything again. Generation and item-scope registration run
+silently and atomically before any result report. Datatype \<open>pp_test\<close> runs before generation.
 
 The option parser is parameterized by a command-specific schema. Both commands accept Boolean
 \<open>conformance\<close>, \<open>timing_info\<close>, \<open>pp_test\<close>, \<open>pretty\<close>, and \<open>application_def\<close>, integers
@@ -250,7 +253,9 @@ val function_option_configs = Symtab.make common_option_configs
 
 val datatype_option_configs =
   Symtab.make
-    [(verbosity_option, Integer_Config urust_verbosity)]
+    [(pp_test_option, Boolean_Config urust_pp_test),
+     (pretty_option, Boolean_Config urust_pretty),
+     (verbosity_option, Integer_Config urust_verbosity)]
 
 type command_options = (command_option_value * Position.T) Symtab.table
 
@@ -1690,12 +1695,24 @@ fun define_urust_fn
 
 fun define_urust_datatype
     ((options, explicit_binding), source) interactive lthy =
-  URust_Datatype.define
-    {source = source,
-     explicit_binding = explicit_binding,
-     interactive = interactive,
-     verbosity = configured_verbosity lthy options}
-    lthy
+  let
+    val verbosity = configured_verbosity lthy options
+    val pp_test =
+      configured_flag lthy options pp_test_option urust_pp_test
+    val pretty =
+      configured_flag lthy options pretty_option urust_pretty
+    val _ =
+      warn_ineffective_pretty options source pretty verbosity
+  in
+    URust_Datatype.define
+      {source = source,
+       explicit_binding = explicit_binding,
+       interactive = interactive,
+       verbosity = verbosity,
+       pp_test = pp_test,
+       pretty = pretty}
+      lthy
+  end
 
 val parse_option_value =
   Parse.position Parse.attribs >>

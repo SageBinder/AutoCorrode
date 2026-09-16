@@ -25,9 +25,15 @@ sig
 
   eqtype token
   val tokens_of_expr: options -> URust_AST.ur_expr -> token list
+  val tokens_of_datatype:
+    options -> URust_AST.urust_datatype -> token list
   val pretty_tokens: token list -> Pretty.T
   val pretty_expr: options -> URust_AST.ur_expr -> Pretty.T
+  val pretty_datatype:
+    options -> URust_AST.urust_datatype -> Pretty.T
   val string_of_expr: options -> URust_AST.ur_expr -> string
+  val string_of_datatype:
+    options -> URust_AST.urust_datatype -> string
 end
 
 signature URUST_PRINTER_DOCUMENT =
@@ -39,6 +45,7 @@ sig
      fallback: string -> Pretty.T}
 
   val human_expr: URust_AST.ur_expr -> document
+  val human_datatype: URust_AST.urust_datatype -> document
   val probe_text: document -> string
   val pretty: (lexeme -> Pretty.T) -> document -> Pretty.T
 end
@@ -146,6 +153,19 @@ fun require_at_least what minimum values =
 fun require_identifier what name =
   if name = "" then malformed (what ^ " has an empty identifier")
   else name
+
+fun require_datatype_identifier what name =
+  if name = "_" then malformed (what ^ " cannot be `_`")
+  else require_identifier what name
+
+fun reject_duplicate_names what names =
+  let
+    fun check _ [] = ()
+      | check seen (name :: rest) =
+          if Symtab.defined seen name
+          then malformed (what ^ " contains duplicate identifier " ^ quote name)
+          else check (Symtab.update (name, ()) seen) rest
+  in check Symtab.empty names end
 
 fun unsigned_name UT_U8 = "u8"
   | unsigned_name UT_U16 = "u16"
@@ -409,6 +429,157 @@ fun repeat_length_document options required repeat_length =
              (repeat_length_document options cast_precedence inner @
               space @ keyword "as" @ space @ keyword "usize")
        in wrap_document required cast_precedence document end)
+
+fun datatype_primitive_name DPT_U8 = "u8"
+  | datatype_primitive_name DPT_U16 = "u16"
+  | datatype_primitive_name DPT_U32 = "u32"
+  | datatype_primitive_name DPT_U64 = "u64"
+  | datatype_primitive_name DPT_Usize = "usize"
+  | datatype_primitive_name DPT_I32 = "i32"
+  | datatype_primitive_name DPT_I64 = "i64"
+  | datatype_primitive_name DPT_Bool = "bool"
+  | datatype_primitive_name DPT_Unit = "()"
+
+fun datatype_type_document datatype_type =
+  (case datatype_type of
+     Primitive_Type (DPT_Unit, _) =>
+       delimiter "(" @ delimiter ")"
+   | Primitive_Type (primitive, _) =>
+       keyword (datatype_primitive_name primitive)
+   | HOL_Type_Source source =>
+       let
+         val body = Input.string_of source
+         val _ =
+           if body = ""
+           then malformed "HOL datatype type source is empty"
+           else ()
+       in
+         lexeme Embedded_Role "\<tau>" @
+         delimiter Symbol.open_ @
+         embedded body @
+         delimiter Symbol.close
+       end)
+
+fun datatype_shape_arity Unit_Shape = 0
+  | datatype_shape_arity (Tuple_Shape types) = length types
+  | datatype_shape_arity (Named_Shape fields) = length fields
+
+fun validate_datatype_shape what shape =
+  let
+    val arity = datatype_shape_arity shape
+    val _ =
+      (case shape of
+         Unit_Shape => ()
+       | Tuple_Shape [] =>
+           malformed (what ^ " has an empty tuple shape")
+       | Tuple_Shape _ => ()
+       | Named_Shape [] =>
+           malformed (what ^ " has an empty named shape")
+       | Named_Shape fields =>
+           let
+             val names =
+               map
+                 (fn Datatype_Field (name, _, _) =>
+                   require_datatype_identifier
+                     (what ^ " field") name)
+                 fields
+           in reject_duplicate_names (what ^ " named shape") names end)
+    val _ =
+      if arity <= 14 then ()
+      else
+        malformed
+          (what ^ " has " ^ string_of_int arity ^
+            " members; at most 14 are supported")
+  in () end
+
+fun datatype_shape_after options what prefix shape =
+  let
+    val _ = validate_datatype_shape what shape
+    fun field_document (Datatype_Field (name, _, datatype_type)) =
+      identifier
+        (require_datatype_identifier
+          (what ^ " field") name) @
+      delimiter ":" @ space @
+      datatype_type_document datatype_type
+    fun named_body fields =
+      if mode_is_serialized options
+      then comma_documents (map field_document fields)
+      else comma_lines (map field_document fields)
+  in
+    (case shape of
+       Unit_Shape => prefix
+     | Tuple_Shape types =>
+         prefix @
+         parenthesized
+           (comma_documents
+             (map datatype_type_document types))
+     | Named_Shape fields =>
+         if mode_is_serialized options
+         then braced_after (prefix @ space) (named_body fields)
+         else
+           multiline_braced_after
+             (prefix @ space) (named_body fields))
+  end
+
+fun datatype_variant_document options
+    (Datatype_Variant (name, _, shape)) =
+  let
+    val name =
+      require_datatype_identifier "datatype variant" name
+  in
+    datatype_shape_after options
+      ("datatype variant " ^ quote name)
+      (identifier name) shape
+  end
+
+fun datatype_document options item =
+  (case item of
+     Struct_Item (name, _, shape, _) =>
+       let
+         val name =
+           require_datatype_identifier "datatype item" name
+       in
+         datatype_shape_after options
+           ("struct " ^ quote name)
+           (keyword "struct" @ space @ identifier name)
+           shape @
+         (case shape of
+            Unit_Shape => delimiter ";"
+          | Tuple_Shape _ => delimiter ";"
+          | Named_Shape _ => [])
+       end
+   | Enum_Item (name, _, variants, _) =>
+       let
+         val name =
+           require_datatype_identifier "datatype item" name
+         val variants =
+           require_nonempty "enum declaration" variants
+         val variant_names =
+           map
+             (fn Datatype_Variant (variant_name, _, _) =>
+               require_datatype_identifier
+                 "datatype variant" variant_name)
+             variants
+         val _ =
+           reject_duplicate_names
+             ("enum " ^ quote name) variant_names
+         val body =
+           if mode_is_serialized options
+           then comma_documents
+             (map (datatype_variant_document options) variants)
+           else comma_lines
+             (map (datatype_variant_document options) variants)
+       in
+         if mode_is_serialized options
+         then
+           braced_after
+             (keyword "enum" @ space @ identifier name @ space)
+             body
+         else
+           multiline_braced_after
+             (keyword "enum" @ space @ identifier name @ space)
+             body
+       end)
 
 fun pattern_document options required pattern =
   let
@@ -1187,6 +1358,9 @@ fun expression_document options required expression =
 fun events_of_expr options expression =
   expression_document options expression_body_precedence expression
 
+fun events_of_datatype options item =
+  datatype_document options item
+
 fun lexical_pretty Keyword_Role text =
       Pretty.mark_str (Markup.keyword1, text)
   | lexical_pretty Operator_Role text =
@@ -1266,6 +1440,9 @@ fun finalize_document tokens =
 fun document_of_expr options expression =
   finalize_document (events_of_expr options expression)
 
+fun document_of_datatype options item =
+  finalize_document (events_of_datatype options item)
+
 fun document_tokens (Document {tokens, ...}) = tokens
 fun probe_text (Document {probe_text, ...}) = probe_text
 
@@ -1328,6 +1505,9 @@ fun default_lexeme
 fun tokens_of_expr options expression =
   document_tokens (document_of_expr options expression)
 
+fun tokens_of_datatype options item =
+  document_tokens (document_of_datatype options item)
+
 fun pretty_tokens tokens =
   render_document default_lexeme (finalize_document tokens)
 
@@ -1335,8 +1515,16 @@ fun pretty_expr options expression =
   render_document default_lexeme
     (document_of_expr options expression)
 
+fun pretty_datatype options item =
+  render_document default_lexeme
+    (document_of_datatype options item)
+
 fun string_of_expr options =
   pretty_expr options #>
+  Pretty.string_of_ops (Pretty.pure_output_ops (SOME 80))
+
+fun string_of_datatype options =
+  pretty_datatype options #>
   Pretty.string_of_ops (Pretty.pure_output_ops (SOME 80))
 end
 
@@ -1352,6 +1540,9 @@ struct
 
   val human_expr =
     URust_Printer_Implementation.document_of_expr
+      URust_Printer_Implementation.human_options
+  val human_datatype =
+    URust_Printer_Implementation.document_of_datatype
       URust_Printer_Implementation.human_options
   val probe_text = URust_Printer_Implementation.probe_text
   val pretty = URust_Printer_Implementation.render_document

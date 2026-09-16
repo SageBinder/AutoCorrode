@@ -2,6 +2,8 @@ theory Parser_Tests_Datatypes
   imports Parser_Test_Utils
 begin
 
+declare [[urust_pp_test = true]]
+
 section\<open> Rust datatype declarations \<close>
 
 urust_datatype parser_point \<open>
@@ -1566,6 +1568,9 @@ ML_val \<open>
 
 section\<open> Command diagnostics and output \<close>
 
+declare [[urust_pp_test = false]]
+declare [[urust_pretty = false]]
+
 ML_val \<open>
   local
     fun run_command interactive source_name command_text () =
@@ -1602,6 +1607,63 @@ ML_val \<open>
           YXML.parse_body
             (implode (Synchronized.value captured))
       in (result, body, plain_content body) end
+
+    fun capture_full_result interactive source_name command_text =
+      let
+        val output =
+          Synchronized.var
+            ("urust_datatype_full_output_" ^ source_name)
+            ([]: string list)
+        val reports =
+          Synchronized.var
+            ("urust_datatype_full_reports_" ^ source_name)
+            ([]: string list)
+        fun collect target chunks =
+          Synchronized.change target (append chunks)
+        val result =
+          Parser_Test_Report_Lock.run (fn () =>
+            Unsynchronized.setmp Private_Output.report_fn
+              (collect reports)
+              (fn () =>
+                Unsynchronized.setmp Private_Output.writeln_fn
+                  (collect output)
+                  (fn () =>
+                    Exn.result
+                      (run_command interactive source_name command_text)
+                      ()) ())
+              ())
+        val body =
+          YXML.parse_body
+            (implode (Synchronized.value output))
+      in
+        {result = result,
+         body = body,
+         plain = plain_content body,
+         reports =
+           maps YXML.parse_body
+             (Synchronized.value reports)}
+      end
+
+    fun capture_warning source_name command_text =
+      let
+        val warnings =
+          Synchronized.var
+            ("urust_datatype_warnings_" ^ source_name)
+            ([]: string list)
+        fun collect chunks =
+          Synchronized.change warnings (append chunks)
+        val result =
+          Unsynchronized.setmp Private_Output.warning_fn collect
+            (fn () =>
+              Exn.result
+                (run_command true source_name command_text)
+                ()) ()
+      in
+        (result,
+         maps YXML.parse_body
+           (Synchronized.value warnings)
+         |> XML.content_of)
+      end
 
     fun cartouche text =
       Symbol.open_ ^ text ^ Symbol.close
@@ -1702,6 +1764,39 @@ ML_val \<open>
             exists (tree_has_markup expected) body
       | tree_has_markup _ (XML.Text _) = false
 
+    fun wrapped_markup_properties
+          expected_markup expected_text tree =
+      (case XML.unwrap_elem tree of
+         SOME (((actual_markup, properties), _), body) =>
+           (if actual_markup = expected_markup andalso
+                XML.content_of body = expected_text
+            then [properties]
+            else []) @
+           maps
+             (wrapped_markup_properties
+               expected_markup expected_text)
+             body
+       | NONE =>
+           (case tree of
+              XML.Elem (_, body) =>
+                maps
+                  (wrapped_markup_properties
+                    expected_markup expected_text)
+                  body
+            | XML.Text _ => []))
+
+    fun entity_kinds text body =
+      maps
+        (wrapped_markup_properties Markup.entityN text)
+        body
+      |> map_filter
+          (fn properties =>
+            Properties.get properties Markup.kindN)
+
+    fun last_element label [] =
+          error (label ^ " has no markup events")
+      | last_element _ values = List.last values
+
     fun substring_index needle text =
       let
         val needle_size = size needle
@@ -1743,7 +1838,8 @@ ML_val \<open>
       List.app
         (fn unexpected =>
           assert_absent "verbosity 1" unexpected manifest)
-        ["normalized generated declaration", "definition"]
+        ["normalized uRust declaration",
+         "normalized generated declaration", "definition"]
     val _ =
       (case
           (substring_index "output_manifest_first" manifest,
@@ -1851,6 +1947,216 @@ ML_val \<open>
     val _ =
       assert_contains "scoped verbosity"
         "urust_datatype generated artifacts" scoped
+
+    val _ =
+      assert_succeeded "inline-pp-test"
+        ("urust_datatype [pp_test] inline_pp_test " ^
+          datatype_source "InlinePpTest" "value: u32,")
+    val _ =
+      assert_succeeded "scoped-pp-test"
+        ("declare [[urust_pp_test = true]]\n" ^
+         "urust_datatype scoped_pp_test " ^
+          datatype_source "ScopedPpTest" "value: bool,")
+    val _ =
+      assert_succeeded "scoped-pp-false-override"
+        ("declare [[urust_pp_test = true]]\n" ^
+         "urust_datatype [pp_test = false] scoped_pp_false " ^
+          datatype_source "ScopedPpFalse" "value: u64,")
+
+    val pretty_replay =
+      capture_full_result true "pretty-replay"
+        ("urust_datatype [pretty, verbosity = 1] pretty_replay " ^
+          cartouche
+            (" enum PrettyReplay { Empty, " ^
+             "Named { value: u32, raw: " ^
+             type_cartouche "nat option" ^ ", }, } "))
+    val pretty_replay_state =
+      (case #result pretty_replay of
+         Exn.Res state => state
+       | Exn.Exn exn => Exn.reraise exn)
+    val pretty_replay_ctxt =
+      Toplevel.context_of pretty_replay_state
+    val _ =
+      List.app
+        (fn expected =>
+          assert_contains "pretty datatype output" expected
+            (#plain pretty_replay))
+        ["urust_datatype generated artifacts",
+         "normalized uRust declaration",
+         "enum PrettyReplay {",
+         "Named {",
+         "value: u32",
+         "raw: " ^ type_cartouche "nat option"]
+    val _ =
+      assert_absent "verbosity 1 pretty datatype"
+        "normalized generated declaration"
+        (#plain pretty_replay)
+    val type_kinds =
+      entity_kinds "PrettyReplay" (#body pretty_replay)
+    val constructor_kinds =
+      entity_kinds "Named" (#body pretty_replay)
+    val field_kinds =
+      entity_kinds "value" (#body pretty_replay)
+    val _ =
+      if member (op =) type_kinds Markup.type_nameN andalso
+          last_element "pretty datatype type" type_kinds =
+            "urust_item"
+      then ()
+      else
+        error
+          ("pretty datatype type target order changed: " ^
+            commas_quote type_kinds)
+    val _ =
+      if member (op =) constructor_kinds Markup.constantN andalso
+          last_element "pretty datatype constructor"
+            constructor_kinds = "urust_constructor"
+      then ()
+      else
+        error
+          ("pretty datatype constructor target order changed: " ^
+            commas_quote constructor_kinds)
+    val _ =
+      if member (op =) field_kinds Markup.constantN andalso
+          last_element "pretty datatype field" field_kinds =
+            "urust_field"
+      then ()
+      else
+        error
+          ("pretty datatype field target order changed: " ^
+            commas_quote field_kinds)
+    val _ =
+      if exists
+          (fn tree =>
+            tree_has_markup Markup.keyword1N tree)
+          (#body pretty_replay)
+      then ()
+      else error "pretty datatype output lost lexical keyword markup"
+    val _ =
+      if not
+          (null
+            (maps
+              (wrapped_markup_properties
+                Markup.tconstN "nat")
+              (#body pretty_replay)))
+      then ()
+      else error "pretty datatype output lost embedded HOL type markup"
+    val replay_probe_item =
+      (case
+          URust_Parser.parse_item_source \<^context>
+            (Parser_Lex_Util.text_source
+              "struct PrettyReplayProbe;") of
+         SOME item => item
+       | NONE => error "datatype replay probe parsed as empty input")
+    val replay_probe_reports =
+      Synchronized.var
+        "urust_datatype_replay_probe_reports"
+        ([]: string list)
+    val replay_probe_called =
+      Unsynchronized.ref false
+    val replay_external_start =
+      Position.make0 1 1 0 "" ""
+        "urust-datatype-pretty-replay-external"
+    val _ =
+      Parser_Test_Report_Lock.run (fn () =>
+        Unsynchronized.setmp Private_Output.report_fn
+          (fn chunks =>
+            Synchronized.change replay_probe_reports
+              (append chunks))
+          (fn () =>
+            ignore
+              (URust_Printer_Output.pretty_human_datatype_with_reparse
+                (fn source =>
+                  (replay_probe_called := true;
+                   ignore
+                     (URust_Parser.parse_item_source
+                       \<^context> source);
+                   Position.report replay_external_start
+                     Markup.keyword1))
+                replay_probe_item)) ())
+    val _ =
+      if ! replay_probe_called then ()
+      else error "datatype pretty replay callback was not invoked"
+    val _ =
+      if null (Synchronized.value replay_probe_reports) then ()
+      else
+        error
+          "datatype pretty replay forwarded synthetic or unrelated reports"
+    val pretty_types =
+      URust_Item_Scope.dump_types pretty_replay_ctxt
+      |> filter
+          (fn entry =>
+            URust_Item_Scope.type_rust_name entry =
+              "PrettyReplay")
+    val pretty_constructors =
+      URust_Item_Scope.dump_constructors pretty_replay_ctxt
+      |> filter
+          (fn entry =>
+            String.isPrefix "PrettyReplay"
+              (URust_Item_Scope.constructor_rust_path entry))
+    val _ =
+      if length pretty_types = 1 andalso
+          length pretty_constructors = 2
+      then ()
+      else
+        error
+          "pretty datatype replay generated or registered artifacts more than once"
+
+    val (_, _, pretty_detailed) =
+      capture_result true "pretty-detailed"
+        ("urust_datatype [pretty, verbosity = 2] pretty_detailed " ^
+          datatype_source "PrettyDetailed" "value: u32,")
+    val _ =
+      List.app
+        (fn expected =>
+          assert_contains "verbosity 2 pretty datatype"
+            expected pretty_detailed)
+        ["urust_datatype generated artifacts",
+         "normalized uRust declaration",
+         "struct PrettyDetailed",
+         "normalized generated declaration",
+         "datatype_record", "definition"]
+    val _ =
+      (case
+          (substring_index
+             "normalized uRust declaration" pretty_detailed,
+           substring_index
+             "normalized generated declaration" pretty_detailed) of
+         (SOME human, SOME generated) =>
+           if human < generated then ()
+           else
+             error
+               "human datatype declaration no longer precedes generated HOL details"
+       | _ =>
+           error "verbosity 2 pretty datatype output is incomplete")
+
+    val (_, _, scoped_pretty) =
+      capture_result true "scoped-pretty"
+        ("declare [[urust_pretty = true, urust_verbosity = 1]]\n" ^
+         "urust_datatype scoped_pretty_datatype " ^
+          datatype_source "ScopedPrettyDatatype" "value: u32,")
+    val _ =
+      assert_contains "scoped datatype pretty"
+        "normalized uRust declaration" scoped_pretty
+    val (_, _, pretty_false) =
+      capture_result true "pretty-false"
+        ("declare [[urust_pretty = true, urust_verbosity = 1]]\n" ^
+         "urust_datatype [pretty = false] pretty_false_datatype " ^
+          datatype_source "PrettyFalseDatatype" "value: u32,")
+    val _ =
+      assert_absent "datatype pretty false override"
+        "normalized uRust declaration" pretty_false
+    val (pretty_quiet_result, pretty_quiet_warning) =
+      capture_warning "pretty-quiet"
+        ("urust_datatype [pretty, verbosity = 0] pretty_quiet " ^
+          cartouche " struct PrettyQuiet; ")
+    val _ =
+      (case pretty_quiet_result of
+         Exn.Res _ => ()
+       | Exn.Exn exn => Exn.reraise exn)
+    val _ =
+      assert_contains "datatype pretty verbosity warning"
+        "uRust command option \"pretty\" has no effect when verbosity = 0"
+        pretty_quiet_warning
 
     val (_, _, inferred) =
       capture_result true "inferred"
@@ -2238,6 +2544,28 @@ ML_val \<open>
         "unknown uRust command option \"attrs\""
         ("urust_datatype [attrs = []] unsupported_attrs " ^
           cartouche " struct UnsupportedAttrs; ")
+    val _ =
+      assert_rejected "invalid-inline-pp-test"
+        "expects true or false"
+        ("urust_datatype [pp_test = 1] invalid_pp_test " ^
+          cartouche " struct InvalidPpTest; ")
+    val _ =
+      assert_rejected "invalid-inline-pretty"
+        "expects true or false"
+        ("urust_datatype [pretty = 1] invalid_pretty " ^
+          cartouche " struct InvalidPretty; ")
+    val _ =
+      assert_rejected "duplicate-inline-pp-test"
+        "duplicate uRust command option \"pp_test\""
+        ("urust_datatype [pp_test, pp_test = false] " ^
+          "duplicate_pp_test " ^
+          cartouche " struct DuplicatePpTest; ")
+    val _ =
+      assert_rejected "duplicate-inline-pretty"
+        "duplicate uRust command option \"pretty\""
+        ("urust_datatype [pretty, pretty = false] " ^
+          "duplicate_pretty " ^
+          cartouche " struct DuplicatePretty; ")
     val _ =
       assert_rejected "invalid-inline-verbosity"
         "must be 0, 1, or 2, but found 3"

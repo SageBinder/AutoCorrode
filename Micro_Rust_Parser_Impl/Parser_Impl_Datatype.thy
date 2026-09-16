@@ -1,6 +1,7 @@
 theory Parser_Impl_Datatype
   imports
     Parser_Impl_Grammar
+    Parser_Impl_Printer_Output
     Parser_Impl_Translate
 begin
 
@@ -9,8 +10,10 @@ section\<open> Rust datatype declarations \<close>
 text\<open>
 This theory owns the complete implementation behind \<open>urust_datatype\<close>: source validation,
 Isabelle datatype generation, Rust item-scope installation, declaration markup, and deterministic
-verbosity output. The outer command supplies only its already-validated options and source through
-the sealed \<open>URust_Datatype.define\<close> operation.
+verbosity output. Its serialized printer check runs before generation. Human output replays the
+synthetic declaration only to validate and report against the already generated artifacts; it does
+not generate or register anything. The outer command supplies only its already-validated options
+and source through the sealed \<open>URust_Datatype.define\<close> operation.
 \<close>
 
 ML\<open>
@@ -20,12 +23,16 @@ sig
     {source: Input.source,
      explicit_binding: binding option,
      interactive: bool,
-     verbosity: int} ->
+     verbosity: int,
+     pp_test: bool,
+     pretty: bool} ->
     local_theory -> local_theory
 end
 
 structure URust_Datatype :> URUST_DATATYPE =
 struct
+
+structure I = URust_Item_Scope
 
 fun verbosity_output_enabled interactive lthy =
   interactive orelse Config.get lthy Proof_Display.show_results
@@ -98,6 +105,54 @@ fun snake_case name =
 
 fun positioned_datatype_error message pos =
   error ("urust_datatype: " ^ message ^ Position.here pos)
+
+fun first_differing_token_index left right =
+  let
+    fun first index [] [] = index
+      | first index [] (_ :: _) = index
+      | first index (_ :: _) [] = index
+      | first index (left_token :: left_tokens)
+          (right_token :: right_tokens) =
+          if left_token = right_token
+          then first (index + 1) left_tokens right_tokens
+          else index
+  in first 0 left right end
+
+fun datatype_roundtrip ctxt source item =
+  let
+    val original_tokens =
+      URust_Printer.tokens_of_datatype
+        URust_Printer.serialized_options item
+    val generated =
+      URust_Printer.string_of_datatype
+        URust_Printer.serialized_options item
+    fun mismatch index detail =
+      error
+        ("uRust datatype pretty-printer roundtrip mismatch" ^
+          Position.here (Input.pos_of source) ^ "\n" ^
+          "generated source:\n" ^ generated ^ "\n" ^
+          "first differing token index: " ^ string_of_int index ^
+          (if detail = "" then "" else "\n" ^ detail))
+    val reparsed =
+      (case Exn.capture
+          (URust_Parser.parse_item_source ctxt)
+          (Parser_Lex_Util.text_source generated) of
+         Exn.Res (SOME reparsed) => reparsed
+       | Exn.Res NONE =>
+           mismatch 0 "generated source reparsed as empty input"
+       | Exn.Exn exn =>
+           mismatch 0
+             ("generated source failed to parse: " ^
+               Runtime.exn_message exn))
+    val reparsed_tokens =
+      URust_Printer.tokens_of_datatype
+        URust_Printer.serialized_options reparsed
+  in
+    if original_tokens = reparsed_tokens then ()
+    else
+      mismatch
+        (first_differing_token_index original_tokens reparsed_tokens) ""
+  end
 
 fun validate_rust_item_name what (name, pos) =
   if name = "_"
@@ -647,6 +702,178 @@ fun report_generated_field_declarations lthy
       (shapes ~~ constructors)
   end
 
+fun report_generated_datatype_replay lthy
+    ({rust_name, hol_type_name, constructors, item = original_item, ...}:
+      generated_artifacts)
+    source =
+  let
+    val replayed_item =
+      (case URust_Parser.parse_item_source lthy source of
+         SOME item => item
+       | NONE =>
+           positioned_datatype_error
+             "pretty output reparsed as empty input"
+             (Input.pos_of source))
+    val original_tokens =
+      URust_Printer.tokens_of_datatype
+        URust_Printer.serialized_options original_item
+    val replayed_tokens =
+      URust_Printer.tokens_of_datatype
+        URust_Printer.serialized_options replayed_item
+    val _ =
+      if original_tokens = replayed_tokens then ()
+      else
+        positioned_datatype_error
+          "pretty output changed the generated datatype AST"
+          (Input.pos_of source)
+
+    val type_entry =
+      (case I.lookup_type lthy rust_name of
+         SOME entry =>
+           if I.type_hol_name entry = hol_type_name
+           then entry
+           else
+             error
+               "urust_datatype: pretty replay found a mismatched generated type identity"
+       | NONE =>
+           error
+             "urust_datatype: pretty replay could not find the generated type identity")
+
+    fun constructor_for rust_path =
+      (case AList.lookup (op =) constructors rust_path of
+         SOME entry =>
+           (case I.lookup_constructor lthy rust_path of
+              SOME current =>
+                if Term.aconv_untyped
+                    (I.constructor_term entry,
+                     I.constructor_term current)
+                then current
+                else
+                  error
+                    "urust_datatype: pretty replay found a mismatched generated constructor identity"
+            | NONE =>
+                error
+                  "urust_datatype: pretty replay could not find a generated constructor identity")
+       | NONE =>
+           error
+             ("urust_datatype: pretty replay found an unexpected constructor path " ^
+               quote rust_path))
+
+    fun report_type_backend pos =
+      (Context_Position.report lthy pos
+         (Name_Space.markup
+           (Proof_Context.type_space lthy)
+           (I.type_hol_name type_entry));
+       Context_Position.report lthy pos Markup.keyword3)
+
+    fun report_constructor_backend pos entry =
+      (case I.constructor_term entry of
+         Const (name, _) =>
+           Context_Position.report lthy pos
+             (Name_Space.markup
+               (Consts.space_of
+                 (Proof_Context.consts_of lthy)) name)
+       | _ =>
+           error
+             "urust_datatype: pretty replay constructor has no constant identity")
+
+    fun report_field_backend pos entry =
+      (case I.field_selector entry of
+         Const (name, _) =>
+           Context_Position.report lthy pos
+             (Name_Space.markup
+               (Consts.space_of
+                 (Proof_Context.consts_of lthy)) name)
+       | _ =>
+           error
+             "urust_datatype: pretty replay field has no selector identity")
+
+    fun validate_type datatype_type =
+      ignore (read_datatype_type lthy datatype_type)
+
+    fun report_shape shape entry =
+      (case shape of
+         URust_AST.Unit_Shape =>
+           if I.constructor_shape entry = I.Unit_Constructor
+           then ()
+           else
+             error
+               "urust_datatype: pretty replay changed a unit constructor shape"
+       | URust_AST.Tuple_Shape types =>
+           (if I.constructor_shape entry = I.Tuple_Constructor
+            then ()
+            else
+              error
+                "urust_datatype: pretty replay changed a tuple constructor shape";
+            List.app validate_type types)
+       | URust_AST.Named_Shape fields =>
+           let
+             val field_entries =
+               I.constructor_field_entries entry
+             val source_names =
+               map datatype_field_name fields
+             val stored_names =
+               map I.field_rust_name field_entries
+             val _ =
+               if I.constructor_shape entry = I.Named_Constructor andalso
+                   source_names = stored_names
+               then ()
+               else
+                 error
+                   "urust_datatype: pretty replay changed generated field identities"
+             val _ =
+               ignore
+                 (map2
+                   (fn field => fn field_entry =>
+                     let
+                       val field_pos = datatype_field_position field
+                       val _ =
+                         validate_type (datatype_field_type field)
+                       val _ =
+                         report_field_backend field_pos field_entry
+                       val _ =
+                         I.report_field_reference
+                           lthy field_pos field_entry
+                     in () end)
+                   fields field_entries)
+           in () end)
+
+    fun report_constructor rust_path pos shape =
+      let
+        val entry = constructor_for rust_path
+        val _ = report_constructor_backend pos entry
+        val _ = Context_Position.report lthy pos Markup.keyword3
+        val _ = I.report_constructor_reference lthy pos entry
+        val _ = report_shape shape entry
+      in () end
+
+    val _ =
+      (case replayed_item of
+         URust_AST.Struct_Item (name, pos, shape, _) =>
+           let
+             val entry = constructor_for name
+             val _ = report_type_backend pos
+             val _ = report_constructor_backend pos entry
+             val _ = Context_Position.report lthy pos Markup.keyword3
+             val _ = I.report_type_reference lthy pos type_entry
+             val _ = I.report_constructor_reference lthy pos entry
+             val _ = report_shape shape entry
+           in () end
+       | URust_AST.Enum_Item (name, pos, variants, _) =>
+           let
+             val _ = report_type_backend pos
+             val _ = I.report_type_reference lthy pos type_entry
+             val _ =
+               List.app
+                 (fn URust_AST.Datatype_Variant
+                     (variant_name, variant_pos, shape) =>
+                   report_constructor
+                     (name ^ "::" ^ variant_name)
+                     variant_pos shape)
+                 variants
+           in () end)
+  in () end
+
 fun pretty_type_identity lthy name =
   Pretty.mark
     (Name_Space.markup
@@ -798,13 +1025,21 @@ fun pretty_public_definition lthy (name, theorem) =
   pretty_generated_result "definition" name lthy
     [theorem]
 
-fun print_generated_datatype interactive verbosity lthy artifacts =
+fun print_generated_datatype
+    interactive verbosity pretty lthy artifacts =
   if verbosity = 0 orelse
       not (verbosity_output_enabled interactive lthy)
   then ()
   else
     let
       val manifest = pretty_datatype_manifest lthy artifacts
+      val human =
+        (case pretty of
+           NONE => []
+         | SOME declaration =>
+             [Pretty.str "",
+              Pretty.keyword1 "normalized uRust declaration",
+              declaration])
       val details =
         if verbosity < 2
         then []
@@ -823,11 +1058,12 @@ fun print_generated_datatype interactive verbosity lthy artifacts =
             (#lens_definitions artifacts)
     in
       Pretty.writeln
-        (Pretty.chunks (manifest :: details))
+        (Pretty.chunks (manifest :: human @ details))
     end
 
 fun define
-    {source, explicit_binding, interactive, verbosity} lthy =
+    {source, explicit_binding, interactive, verbosity,
+     pp_test, pretty} lthy =
   let
     val item =
       (case URust_Parser.parse_item_source lthy source of
@@ -839,6 +1075,10 @@ fun define
       (case item of
          URust_AST.Struct_Item (name, pos, _, _) => (name, pos)
        | URust_AST.Enum_Item (name, pos, _, _) => (name, pos))
+    val _ =
+      if pp_test
+      then datatype_roundtrip lthy source item
+      else ()
     val type_binding =
       the_default (infer_datatype_binding rust_name rust_pos)
         explicit_binding
@@ -859,8 +1099,19 @@ fun define
       completed_generated_artifacts generated final_lthy
     val _ =
       report_generated_field_declarations final_lthy artifacts
+    val pretty_declaration =
+      if pretty andalso verbosity > 0 andalso
+          verbosity_output_enabled interactive final_lthy
+      then
+        SOME
+          (URust_Printer_Output.pretty_human_datatype_with_reparse
+            (report_generated_datatype_replay
+              final_lthy artifacts)
+            item)
+      else NONE
     val _ =
       print_generated_datatype interactive verbosity
+        pretty_declaration
         final_lthy artifacts
   in
     final_lthy
