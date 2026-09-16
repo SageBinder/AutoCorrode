@@ -202,16 +202,12 @@ struct
          end
      | UE_Struct (head, fields, struct_pos) =>
          let
-           fun label (SE_Field (name, pos, _)) = (name, pos)
            fun initializer (SE_Field (_, _, expression)) = expression
            val _ =
              T.check_function_call_arity struct_pos (length fields)
-           val _ =
-             List.app
-               (R.report_struct_label ctxt o label)
-               fields
+           val _ = R.report_struct_labels ctxt head fields
            val function =
-             R.function_path ctxt environment head
+             R.struct_function_path ctxt environment head
            val lowered_initializers =
              map
                (lower_expression ctxt environment o initializer)

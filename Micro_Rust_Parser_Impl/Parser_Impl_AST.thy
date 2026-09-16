@@ -46,6 +46,36 @@ sig
       SCT_Primitive of cast_target
     | SCT_Named of ur_path
 
+  datatype datatype_primitive_type =
+      DPT_U8
+    | DPT_U16
+    | DPT_U32
+    | DPT_U64
+    | DPT_Usize
+    | DPT_I32
+    | DPT_I64
+    | DPT_Bool
+    | DPT_Unit
+  datatype datatype_type =
+      Primitive_Type of datatype_primitive_type * Position.T
+    | HOL_Type_Source of Input.source
+  datatype datatype_field =
+    Datatype_Field of string * Position.T * datatype_type
+  datatype datatype_shape =
+      Unit_Shape
+    | Tuple_Shape of datatype_type list
+    | Named_Shape of datatype_field list
+  datatype datatype_variant =
+    Datatype_Variant of string * Position.T * datatype_shape
+  datatype urust_datatype =
+      Struct_Item of
+        string * Position.T * datatype_shape * Position.T
+    | Enum_Item of
+        string * Position.T * datatype_variant list * Position.T
+
+  val datatype_type_position: datatype_type -> Position.T
+  val datatype_item_position: urust_datatype -> Position.T
+
   val generic_argument_source: generic_arg -> Input.source
   val path_position: ur_path -> Position.T
   val path_head: ur_path -> path_head
@@ -183,6 +213,10 @@ sig
     | UP_Antiq of Input.source
   and ur_arm =
       UR_Arm of ur_pat * (ur_expr * Position.T) option * ur_expr
+
+  datatype parse_result =
+      Parsed_Expression of ur_expr
+    | Parsed_Datatype of urust_datatype
 
   val expression_position: ur_expr -> Position.T
   val mk_assign:
@@ -348,6 +382,41 @@ struct
   datatype source_cast_target =
       SCT_Primitive of cast_target
     | SCT_Named of ur_path
+
+  datatype datatype_primitive_type =
+      DPT_U8
+    | DPT_U16
+    | DPT_U32
+    | DPT_U64
+    | DPT_Usize
+    | DPT_I32
+    | DPT_I64
+    | DPT_Bool
+    | DPT_Unit
+  datatype datatype_type =
+      Primitive_Type of datatype_primitive_type * Position.T
+    | HOL_Type_Source of Input.source
+  datatype datatype_field =
+    Datatype_Field of string * Position.T * datatype_type
+  datatype datatype_shape =
+      Unit_Shape
+    | Tuple_Shape of datatype_type list
+    | Named_Shape of datatype_field list
+  datatype datatype_variant =
+    Datatype_Variant of string * Position.T * datatype_shape
+  datatype urust_datatype =
+      Struct_Item of
+        string * Position.T * datatype_shape * Position.T
+    | Enum_Item of
+        string * Position.T * datatype_variant list * Position.T
+
+  fun datatype_type_position (Primitive_Type (_, pos)) = pos
+    | datatype_type_position (HOL_Type_Source source) = Input.pos_of source
+
+  fun datatype_item_position
+      (Struct_Item (_, _, _, pos)) = pos
+    | datatype_item_position
+      (Enum_Item (_, _, _, pos)) = pos
 
   fun generic_argument_canonical (Generic_Arg (canonical, _)) = canonical
   fun generic_argument_source (Generic_Arg (_, source)) = source
@@ -576,6 +645,10 @@ struct
     | UP_Antiq of Input.source
   and ur_arm =
       UR_Arm of ur_pat * (ur_expr * Position.T) option * ur_expr
+
+  datatype parse_result =
+      Parsed_Expression of ur_expr
+    | Parsed_Datatype of urust_datatype
 
   fun expression_position (UE_Unit pos) = pos
     | expression_position (UE_Tuple (_, pos)) = pos

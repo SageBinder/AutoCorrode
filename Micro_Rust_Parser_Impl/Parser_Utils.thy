@@ -245,6 +245,52 @@ struct
       loop lexer
     end
 
+  fun parse_source_complete_with_layout
+      parse make_lexer get same_token token_range eof
+      trailing_message layout =
+    let
+      val input_text = text_of layout
+      val eof_position = eof_position layout
+
+      fun canonical_position position =
+        if position = Position.none
+        then eof_position
+        else position
+
+      fun invoke lexstream =
+        parse
+          (0, lexstream,
+           fn (message, start, stop) =>
+             print_error_with_layout layout
+               (message,
+                canonical_position start,
+                canonical_position stop),
+           ())
+
+      val parsed = Unsynchronized.ref false
+      fun input_string _ =
+        if !parsed then ""
+        else (parsed := true; input_text)
+
+      val lexer = make_lexer input_string
+      val dummy_eof =
+        eof (eof_position, eof_position)
+      val (result, lexer') = invoke lexer
+      val (next_token, _) = get lexer'
+    in
+      if same_token (next_token, dummy_eof)
+      then result
+      else
+        let
+          val (start, stop) = token_range next_token
+        in
+          print_error_with_layout layout
+            (trailing_message,
+             canonical_position start,
+             canonical_position stop)
+        end
+    end
+
   fun parse_source
       parse make_lexer get same_token eof source =
     parse_source_with_layout

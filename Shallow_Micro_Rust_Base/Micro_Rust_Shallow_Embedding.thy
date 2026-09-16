@@ -88,6 +88,16 @@ ML\<open>
 \<close>
 
 ML\<open>
+signature MICRO_RUST_RECORD =
+sig
+  val make:
+    {with_fields: bool,
+     record_name: string,
+     overrides: (string * (string * Position.T)) list,
+     report: bool} ->
+    local_theory -> local_theory
+end
+
    \<comment>\<open>Register an auto-generated field lens as \<^verbatim>\<open>micro_rust_notation (field)\<close>
      under its uRust name, via the command's \<open>do_register\<close>. By default the
      uRust name is the bare (record-prefixed) HOL field name; the optional
@@ -156,14 +166,17 @@ ML\<open>
         Pretty.writeln (Pretty.chunks (map (fn s => Pretty.str ("• " ^ s)) bullets))
       end
 
-   fun make_lenses ((with_fields, rec_name), overrides) _ lthy =
+   fun make_lenses_core report with_fields rec_name overrides lthy =
       let val _ =
             if with_fields orelse null overrides then ()
             else error "micro_rust_record: a uRust-name mapping cannot be combined \
                        \with [no_fields], which suppresses field registration"
           val fields = get_fields rec_name lthy
           val _ = check_override_fields rec_name fields overrides
-          val _ = summarise_micro_rust_record rec_name fields overrides with_fields
+          val _ =
+            if report
+            then summarise_micro_rust_record rec_name fields overrides with_fields
+            else ()
       in
         lthy
      |> lens_autogen_defs                                                                          rec_name
@@ -179,6 +192,19 @@ ML\<open>
            I)
      |> instantiate_localizable_class rec_name
       end
+
+   structure Micro_Rust_Record :> MICRO_RUST_RECORD =
+   struct
+     fun make {with_fields, record_name, overrides, report} =
+       make_lenses_core report with_fields record_name overrides
+   end
+
+   fun make_lenses ((with_fields, rec_name), overrides) _ =
+     Micro_Rust_Record.make
+       {with_fields = with_fields,
+        record_name = rec_name,
+        overrides = overrides,
+        report = true}
 
    \<comment>\<open>Parse an optional \<^verbatim>\<open>(hol_field = "urust_name", \<dots>)\<close> mapping after the
      record name. Each \<^verbatim>\<open>"urust_name"\<close> is position-tracked so its use-site

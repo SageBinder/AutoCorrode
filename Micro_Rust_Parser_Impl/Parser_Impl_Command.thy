@@ -2,10 +2,12 @@ theory Parser_Impl_Command
   imports
     Parser_Impl_Grammar
     Parser_Impl_Translate
+    Parser_Impl_Datatype
     Micro_Rust_Parsing_Legacy_Frontend.Micro_Rust_Parsing_Legacy_Frontend
   keywords
     "urust_expr" :: thy_decl
     and "urust_fn" :: thy_decl
+    and "urust_datatype" :: thy_decl
     and "urust_notation" :: thy_decl
     and "against"
 begin
@@ -13,7 +15,7 @@ begin
 section\<open> The command \<close>
 
 text\<open>
-The two outer commands deliberately share one declaration-body parser:
+The two expression outer commands deliberately share one declaration-body parser:
 \<open>COMMAND [OPTIONS] NAME|_ [:: TYPE] [(ARG, ...)] src [against TERM]\<close>.
 \<open>urust_expr\<close> infers an untyped expression or accepts a complete declaration type. A terminal
 \<open>expression\<close> type produces an ordinary expression abstraction, while a terminal
@@ -85,6 +87,15 @@ an integer from 0 to 2 that defaults to 0. Level 0 is quiet; level 1 prints comp
 statements or abbreviation equations; level 2 additionally prints \<open>NAME_conformance\<close> when
 checking is enabled. The standard interactive and \<open>show_results\<close> gates still control enabled
 output.
+
+\<open>urust_datatype\<close> reuses only the scoped/inline \<open>verbosity\<close> option. It accepts an optional
+HOL binding followed by one required source cartouche containing a complete Rust-shaped struct or
+enum item. Composite and user-defined HOL field types use \<open>\<tau>\<open>TYPE\<close>\<close>, mirroring the
+\<open>\<epsilon>\<open>TERM\<close>\<close> expression antiquotation. An omitted binding is inferred with
+acronym-aware ASCII snake case. Level 0 is quiet;
+level 1 reports the completed public type, constructors, selectors, lenses, and exact Rust mappings;
+level 2 adds the normalized datatype declaration and complete public selector/lens definitions.
+Generation and item-scope registration run silently and atomically before any result report.
 
 The option parser is parameterized by a command-specific schema. Both commands accept Boolean
 \<open>conformance\<close>, \<open>timing_info\<close>, and \<open>application_def\<close>, integers \<open>verbosity\<close> and
@@ -201,6 +212,10 @@ val expression_option_configs =
       [(abbrev_option, Boolean_Config urust_abbrev)])
 
 val function_option_configs = Symtab.make common_option_configs
+
+val datatype_option_configs =
+  Symtab.make
+    [(verbosity_option, Integer_Config urust_verbosity)]
 
 type command_options = (command_option_value * Position.T) Symtab.table
 
@@ -1404,6 +1419,15 @@ fun define_urust_fn
       "urust_fn" (Binding.name_of binding) body run
   end
 
+fun define_urust_datatype
+    ((options, explicit_binding), source) interactive lthy =
+  URust_Datatype.define
+    {source = source,
+     explicit_binding = explicit_binding,
+     interactive = interactive,
+     verbosity = configured_verbosity lthy options}
+    lthy
+
 val parse_option_value =
   Parse.position Parse.attribs >>
     (fn (attributes, pos) => (Attributes_Value attributes, pos)) ||
@@ -1485,6 +1509,25 @@ val _ =
     "Declare a typed uRust function body, optionally checking existing-frontend conformance by refl"
     (parse_urust_declaration function_option_configs >>
       define_urust_fn)
+
+val parse_datatype_binding =
+  (Parse.position Parse.underscore >>
+    (fn (_, pos) =>
+      error
+        ("urust_datatype: _ is not a datatype naming placeholder" ^
+          Position.here pos))) ||
+  Parse.binding
+
+val parse_urust_datatype =
+  parse_command_options datatype_option_configs --
+    Scan.option parse_datatype_binding --
+    (Parse.token Parse.cartouche >>
+      Parser_Lex_Util.cartouche_source)
+
+val _ =
+  Outer_Syntax.local_theory' \<^command_keyword>\<open>urust_datatype\<close>
+    "Declare a Rust-shaped struct or enum as an Isabelle datatype"
+    (parse_urust_datatype >> define_urust_datatype)
 end
 \<close>
 
@@ -1522,8 +1565,24 @@ local
     in URust_AST.render_path path ^ bang end
 
   fun register kind_opt (hol_src, rust_name) lthy =
-    Micro_Rust_Notation_Cmd.do_register kind_opt
-      (hol_src, (canonical_name lthy rust_name, #2 rust_name)) lthy
+    let
+      val canonical = canonical_name lthy rust_name
+      val pos = #2 rust_name
+      val _ =
+        if is_some
+            (URust_Item_Scope.lookup_type lthy canonical) orelse
+           is_some
+            (URust_Item_Scope.lookup_constructor lthy canonical)
+        then
+          error
+            ("urust_notation: Rust path " ^ quote canonical ^
+              " is already owned by urust_datatype" ^
+              Position.here pos)
+        else ()
+    in
+      Micro_Rust_Notation_Cmd.do_register kind_opt
+        (hol_src, (canonical, pos)) lthy
+    end
 
   fun configure (bit, names) lthy =
     Micro_Rust_Notation_Cmd.do_config

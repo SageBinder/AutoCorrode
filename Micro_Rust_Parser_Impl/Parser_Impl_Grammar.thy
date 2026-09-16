@@ -24,6 +24,10 @@ sig
   val turbofish_error: Position.T -> 'a
   val function_literal_suffix_error: Position.T -> 'a
   val struct_head_generics_error: Position.T -> 'a
+  val hol_type_error: Position.T -> 'a
+  val hol_type_prefix_error: Position.T -> 'a
+  val datatype_type_error: string -> Position.T -> 'a
+  val item_in_expression_error: string -> Position.T -> 'a
 end
 
 (*
@@ -54,11 +58,15 @@ end
       antiquotation and reports at that suffix.
     * struct_head_generics_error pos rejects generic arguments on any struct-expression head
       segment and reports at that argument group.
+    * hol_type_prefix_error pos rejects an unprefixed HOL type cartouche and directs the user to the
+      required \<tau> prefix.
+    * item_in_expression_error kind pos rejects a struct or enum declaration selected through the
+      expression parser and directs the user to urust_datatype.
 
-  All ten functions have result type 'a because they always raise via error.  Their exact string
-  assembly and use of quote are implementation details, subject to the message and position contracts
-  above.  The SML_import below only makes this Isabelle/ML-owned interface available to generated lexer
-  code; it does not create a second owner.
+  All exported failure functions have result type 'a because they always raise via error. Their
+  exact string assembly and use of quote are implementation details, subject to the message and
+  position contracts above. The SML_import below only makes this Isabelle/ML-owned interface
+  available to generated lexer code; it does not create a second owner.
 *)
 structure URust_Grammar :> URUST_GRAMMAR =
 struct
@@ -97,6 +105,28 @@ struct
     error
       ("urust_expr: generic arguments are not supported in struct-expression heads" ^
         Position.here pos)
+
+  fun hol_type_error pos =
+    error
+      ("urust_datatype: unterminated \<tau>-prefixed HOL type cartouche" ^
+        Position.here pos)
+
+  fun hol_type_prefix_error pos =
+    error
+      ("uRust HOL type cartouches must use the \<tau> prefix" ^
+        Position.here pos)
+
+  fun datatype_type_error name pos =
+    error
+      ("urust_datatype: unsupported bare field type " ^ quote name ^
+        "; use a \<tau>-prefixed HOL type cartouche" ^
+        Position.here pos)
+
+  fun item_in_expression_error kind pos =
+    error
+      ("uRust " ^ kind ^
+        " declarations are not expressions; use urust_datatype" ^
+        Position.here pos)
 end
 \<close>
 SML_import \<open> structure URust_Grammar = URust_Grammar \<close>
@@ -133,9 +163,10 @@ and no-struct expression families. Only token shims remain lexer-local; position
       token. Other generated token constructors are lexer implementation details; terminal additions
       or reordering must still be reflected in URust_Parser's exhaustive terminal identity
       table.
-    * The start result is URust_AST.ur_expr option.  NONE represents empty input; SOME ast preserves
-      source order and the token/span positions recorded by URust_AST.  Syntax rejection raises a
-      positioned ERROR rather than returning NONE.
+    * The adapter injects exactly one private start-mode token before the source. TEXPRSTART selects
+      the expression grammar, where NONE represents empty input; TITEMSTART selects the complete item
+      grammar, where an item is required. SOME ast preserves source order and the token/span positions
+      recorded by URust_AST. Syntax rejection raises a positioned ERROR rather than returning NONE.
 
   Expert mode deliberately generates no unsealed URust structure or default parse_source operation.
   Parser clients use the sealed URust_Parser.parse_source boundary. Lexer refs, start states,
@@ -163,6 +194,9 @@ val generic_open = ref (NONE : Position.T option)
 val log_data_open = ref (NONE : Position.T option)
 val block_comment_open = ref (NONE : int option)
 val block_comment_depth = ref 0
+val hol_type_open = ref (NONE : int option)
+val hol_type_start = ref 0
+val hol_type_depth = ref 0
 
 datatype comment_context =
     Initial_Comment
@@ -178,11 +212,13 @@ fun reset_generic () = generic_open := NONE
 fun reset_log_data () = log_data_open := NONE
 fun reset_block_comment () =
   (block_comment_open := NONE; block_comment_depth := 0)
+fun reset_hol_type () =
+  (hol_type_open := NONE; hol_type_start := 0; hol_type_depth := 0)
 fun reset_comment () =
   (comment_context := NONE; comment_open := 0; comment_depth := ~1)
 fun reset_state () =
   (reset_aq (); reset_generic (); reset_log_data ();
-   reset_block_comment (); reset_comment ())
+   reset_block_comment (); reset_hol_type (); reset_comment ())
 fun start_aq kind open_pos body_pos =
   (aq_kind := kind; aq_buf := []; aq_start := body_pos; aq_open := open_pos; aq_depth := 0)
 fun push_aq fragment = aq_buf := fragment :: !aq_buf
@@ -193,6 +229,10 @@ fun start_comment context open_pos =
   (comment_context := SOME context; comment_open := open_pos; comment_depth := ~1)
 fun start_block_comment open_pos =
   (block_comment_open := SOME open_pos; block_comment_depth := 1)
+fun start_hol_type open_pos open_text =
+  (hol_type_open := SOME open_pos;
+   hol_type_start := open_pos + size open_text;
+   hol_type_depth := 1)
 fun take_comment_context () =
   (case !comment_context of
      SOME context => (reset_comment (); context)
@@ -222,6 +262,17 @@ fun fixed_pos yypos = Parser_Lex_Util.fixed_pos (!source_layout) yypos
 fun tokF args       = Parser_Lex_Util.tokF (!source_layout) args
 fun tok_valF args   = Parser_Lex_Util.tok_valF (!source_layout) args
 fun report_text args = Parser_Lex_Util.report_text (!source_layout) args
+fun start_hol_type_token (yypos, yytext) =
+  let
+    val symbols = Symbol.explode yytext
+    val prefix = hd symbols
+    val opener = hd (tl symbols)
+    val opener_pos = yypos + size prefix
+    val _ = report_text (yypos, prefix, Markup.literal, "HOLTYPE")
+    val _ =
+      report_text
+        (opener_pos, opener, Markup.delimiter, "HOLTYPE")
+  in start_hol_type yypos yytext end
 fun finish_block_comment (close_pos, close_text) =
   (case !block_comment_open of
      SOME open_pos =>
@@ -302,6 +353,30 @@ fun tok_log_identifier (yypos, yytext) =
   let val p = Parser_Lex_Util.ident_pos (!source_layout) (yypos, yytext)
   in Tokens.LOGIDENT (yytext, p, p) end
 
+fun finish_hol_type (close_pos, close_text) =
+  (case !hol_type_open of
+     SOME open_pos =>
+       let
+         val body =
+           if !hol_type_start = close_pos
+           then
+             Input.source true ""
+               (Position.range
+                 (fixed_pos (!hol_type_start),
+                  fixed_pos close_pos))
+           else
+             Parser_Lex_Util.source_slice
+               (!source_layout) (!hol_type_start) close_pos
+         val token_start = fixed_pos open_pos
+         val close_start = fixed_pos close_pos
+         val token_stop = Position.symbol_explode close_text close_start
+         val _ =
+           report_text
+             (close_pos, close_text, Markup.delimiter, "HOLTYPE")
+         val _ = reset_hol_type ()
+       in Tokens.HOLTYPE (body, token_start, token_stop) end
+   | NONE => raise Fail "uRust lexer: missing HOL type opener")
+
 fun eof () =
   (case !comment_context of
      SOME _ =>
@@ -309,25 +384,29 @@ fun eof () =
        then URust_Grammar.formal_comment_open_error (fixed_pos (!comment_open))
        else URust_Grammar.formal_comment_close_error (fixed_pos (!comment_open))
    | NONE =>
-       (case !block_comment_open of
+       (case !hol_type_open of
           SOME open_pos =>
-            URust_Grammar.block_comment_error (fixed_pos open_pos)
+            URust_Grammar.hol_type_error (fixed_pos open_pos)
         | NONE =>
-            (case !aq_kind of
-               No_AQ =>
-                 (case !log_data_open of
-                    SOME pos => URust_Grammar.log_data_error pos
-                  | NONE =>
-                      (case !generic_open of
-                         NONE => Tokens.EOF (Position.none, Position.none)
-                       | SOME pos =>
-                           URust_Grammar.turbofish_error pos))
-             | Value_AQ => URust_Grammar.antiquotation_error "value" (fixed_pos (!aq_open))
-             | Expr_AQ => URust_Grammar.antiquotation_error "expression" (fixed_pos (!aq_open)))))
+            (case !block_comment_open of
+               SOME open_pos =>
+                 URust_Grammar.block_comment_error (fixed_pos open_pos)
+             | NONE =>
+                 (case !aq_kind of
+                    No_AQ =>
+                      (case !log_data_open of
+                         SOME pos => URust_Grammar.log_data_error pos
+                       | NONE =>
+                           (case !generic_open of
+                              NONE => Tokens.EOF (Position.none, Position.none)
+                            | SOME pos =>
+                                URust_Grammar.turbofish_error pos))
+                  | Value_AQ => URust_Grammar.antiquotation_error "value" (fixed_pos (!aq_open))
+                  | Expr_AQ => URust_Grammar.antiquotation_error "expression" (fixed_pos (!aq_open))))))
 \<close>
 lex_definitions\<open>
 %header (functor URustLexFun(structure Tokens: URust_TOKENS));
-%s VAQ EAQ GENERIC LOGDATA BLOCK_COMMENT COMMENT_OPEN COMMENT;
+%s VAQ EAQ GENERIC LOGDATA BLOCK_COMMENT HOLTYPE COMMENT_OPEN COMMENT;
 digit=[0-9];
 hexdigit=[0-9a-fA-F];
 idstart=[A-Za-z_];
@@ -357,6 +436,8 @@ lex_rules\<open>
     (tok_valF (yypos, yytext, Markup.numeral, "NUMSFX", Tokens.NUMSFX, yytext));
 <INITIAL>"true"   => (tokF (yypos, yytext, Markup.keyword1, "TTRUE", Tokens.TTRUE));
 <INITIAL>"false"  => (tokF (yypos, yytext, Markup.keyword1, "TFALSE", Tokens.TFALSE));
+<INITIAL>"struct" => (tokF (yypos, yytext, Markup.keyword1, "TSTRUCT", Tokens.TSTRUCT));
+<INITIAL>"enum"   => (tokF (yypos, yytext, Markup.keyword1, "TENUM", Tokens.TENUM));
 <INITIAL>"as"     => (tokF (yypos, yytext, Markup.keyword1, "TAS", Tokens.TAS));
 <INITIAL>"u8"     => (tok_valF (yypos, yytext, Markup.keyword1, "TUINT", Tokens.TUINT, UT_U8));
 <INITIAL>"u16"    => (tok_valF (yypos, yytext, Markup.keyword1, "TUINT", Tokens.TUINT, UT_U16));
@@ -427,6 +508,12 @@ lex_rules\<open>
 <INITIAL>"\""     => (URust_Grammar.string_error (fixed_pos yypos));
 <INITIAL>"l"\\"<llangle>" =>
     (YYBEGIN LOGDATA; tok_log_data_open (yypos, yytext));
+<INITIAL>\\"<tau>"\\"<open>" =>
+    (start_hol_type_token (yypos, yytext);
+     YYBEGIN HOLTYPE;
+     lex());
+<INITIAL>\\"<open>" =>
+    (URust_Grammar.hol_type_prefix_error (fixed_pos yypos));
 <INITIAL>{idstart}{identchar}* => (tok_ident (yypos, yytext));
 <INITIAL>"("      => (tokF (yypos, yytext, Markup.delimiter, "LPAR", Tokens.LPAR));
 <INITIAL>")"      => (tokF (yypos, yytext, Markup.delimiter, "RPAR", Tokens.RPAR));
@@ -534,6 +621,16 @@ lex_rules\<open>
         lex()));
 <BLOCK_COMMENT>\n => (lex());
 <BLOCK_COMMENT>.  => (lex());
+<HOLTYPE>\\"<open>" =>
+    (hol_type_depth := !hol_type_depth + 1; lex());
+<HOLTYPE>\\"<close>" =>
+    (if !hol_type_depth > 1 then
+       (hol_type_depth := !hol_type_depth - 1; lex())
+     else
+       (YYBEGIN INITIAL;
+        finish_hol_type (yypos, yytext)));
+<HOLTYPE>\n => (lex());
+<HOLTYPE>.  => (lex());
 <COMMENT_OPEN>\n       => (lex());
 <COMMENT_OPEN>{ws}+    => (lex());
 <COMMENT_OPEN>\\"<open>" =>
@@ -655,6 +752,36 @@ fun make_function_literal
        arguments)
   else
     URust_Grammar.function_literal_suffix_error suffix_left
+
+fun datatype_unsigned_type UT_U8 = DPT_U8
+  | datatype_unsigned_type UT_U16 = DPT_U16
+  | datatype_unsigned_type UT_U32 = DPT_U32
+  | datatype_unsigned_type UT_U64 = DPT_U64
+  | datatype_unsigned_type UT_Usize = DPT_Usize
+
+fun datatype_signed_type ST_I32 = DPT_I32
+  | datatype_signed_type ST_I64 = DPT_I64
+
+fun report_datatype_keyword pos typ =
+  (Position.report pos Markup.keyword1;
+   Position.report_text pos Markup.typing typ)
+
+fun datatype_identifier_type (name, pos) =
+  if name = "bool"
+  then
+    (report_datatype_keyword pos "TBOOL";
+     Primitive_Type (DPT_Bool, pos))
+  else URust_Grammar.datatype_type_error name pos
+
+fun datatype_variant (name, pos, shape) =
+  Datatype_Variant (name, pos, shape)
+
+fun reject_datatype_item_in_expression
+      (Struct_Item (_, _, _, pos)) =
+      URust_Grammar.item_in_expression_error "struct" pos
+  | reject_datatype_item_in_expression
+      (Enum_Item (_, _, _, pos)) =
+      URust_Grammar.item_in_expression_error "enum" pos
 \<close>
 yacc_definitions\<open>
 %name URust
@@ -702,7 +829,16 @@ yacc_definitions\<open>
     | FUNARITY of int
     | TYIELD | TLOG | TLOGDATAOPEN | LOGSTRING of string | LOGIDENT of string
     | TLOGDATACLOSE
-%nonterm ustart of URust_AST.ur_expr option
+    | TSTRUCT | TENUM | HOLTYPE of Input.source
+    | TEXPRSTART | TITEMSTART
+%nonterm ustart of URust_AST.parse_result option
+       | uitem of URust_AST.urust_datatype
+       | uvariant of URust_AST.datatype_variant
+       | uvariants of URust_AST.datatype_variant list
+       | udatatype_type of URust_AST.datatype_type
+       | udatatype_types of URust_AST.datatype_type list
+       | udatatype_field of URust_AST.datatype_field
+       | udatatype_fields of URust_AST.datatype_field list
        | ubody of URust_AST.ur_expr
        | ubinding_head of binding_head
        | uexpr of URust_AST.ur_expr
@@ -783,8 +919,65 @@ yacc_definitions\<open>
        | ulog_data_entries of URust_AST.log_data_entry list
 \<close>
 yacc_rules\<open>
-  ustart : ubody (SOME ubody)
-         | (NONE)
+  ustart : TEXPRSTART ubody (SOME (Parsed_Expression ubody))
+         | TEXPRSTART (NONE)
+         | TITEMSTART uitem (SOME (Parsed_Datatype uitem))
+  uitem :
+      TSTRUCT IDENT TSEMI
+        (Struct_Item
+          (IDENT, IDENTleft, Unit_Shape,
+           Position.range_position (TSTRUCTleft, TSEMIright)))
+    | TSTRUCT IDENT LPAR udatatype_types RPAR TSEMI
+        (Struct_Item
+          (IDENT, IDENTleft, Tuple_Shape udatatype_types,
+           Position.range_position (TSTRUCTleft, TSEMIright)))
+    | TSTRUCT IDENT TLBRACE udatatype_fields TRBRACE
+        (Struct_Item
+          (IDENT, IDENTleft, Named_Shape udatatype_fields,
+           Position.range_position (TSTRUCTleft, TRBRACEright)))
+    | TENUM IDENT TLBRACE uvariants TRBRACE
+        (Enum_Item
+          (IDENT, IDENTleft, uvariants,
+           Position.range_position (TENUMleft, TRBRACEright)))
+  uvariant :
+      IDENT
+        (datatype_variant (IDENT, IDENTleft, Unit_Shape))
+    | IDENT LPAR udatatype_types RPAR
+        (datatype_variant
+          (IDENT, IDENTleft, Tuple_Shape udatatype_types))
+    | IDENT TLBRACE udatatype_fields TRBRACE
+        (datatype_variant
+          (IDENT, IDENTleft, Named_Shape udatatype_fields))
+  uvariants : uvariant ([uvariant])
+            | uvariant COMMA ([uvariant])
+            | uvariant COMMA uvariants (uvariant :: uvariants)
+  udatatype_type :
+      TUINT
+        (Primitive_Type
+          (datatype_unsigned_type TUINT, TUINTleft))
+    | TSINT
+        (Primitive_Type
+          (datatype_signed_type TSINT, TSINTleft))
+    | IDENT
+        (datatype_identifier_type (IDENT, IDENTleft))
+    | LPAR RPAR
+        (Primitive_Type
+          (DPT_Unit,
+           Position.range_position (LPARleft, RPARright)))
+    | HOLTYPE
+        (HOL_Type_Source HOLTYPE)
+  udatatype_types : udatatype_type ([udatatype_type])
+                  | udatatype_type COMMA ([udatatype_type])
+                  | udatatype_type COMMA udatatype_types
+                      (udatatype_type :: udatatype_types)
+  udatatype_field :
+      IDENT TCOLON udatatype_type
+        (Datatype_Field
+          (IDENT, IDENTleft, udatatype_type))
+  udatatype_fields : udatatype_field ([udatatype_field])
+                   | udatatype_field COMMA ([udatatype_field])
+                   | udatatype_field COMMA udatatype_fields
+                       (udatatype_field :: udatatype_fields)
   (* With-block classification controls only separator elision. Every with-block form also enters the
      primary-expression tier below, so operators can consume it without a second precedence ladder. *)
   ubody : uexpr                             (uexpr)
@@ -808,6 +1001,8 @@ yacc_rules\<open>
         | TRETURN uexpr
             (UE_Return (SOME uexpr, TRETURNleft))
         | uclosure                          (uclosure)
+        | uitem
+            (reject_datatype_item_in_expression uitem)
   uclosure : TBARBAR uexpr
                 (mk_closure
                   ([], uexpr,
@@ -1501,6 +1696,8 @@ signature URUST_PARSER =
 sig
   val parse_source:
     Proof.context -> Input.source -> URust_AST.ur_expr option
+  val parse_item_source:
+    Proof.context -> Input.source -> URust_AST.urust_datatype option
 end
 
 (*
@@ -1631,7 +1828,12 @@ struct
      (83, "TLOGDATAOPEN", "l\<llangle>"),
      (84, "LOGSTRING", "<log string>"),
      (85, "LOGIDENT", "<log identifier>"),
-     (86, "TLOGDATACLOSE", "\<rrangle>")]
+     (86, "TLOGDATACLOSE", "\<rrangle>"),
+     (87, "TSTRUCT", "struct"),
+     (88, "TENUM", "enum"),
+     (89, "HOLTYPE", "<HOL type>"),
+     (90, "TEXPRSTART", "<expression input>"),
+     (91, "TITEMSTART", "<datatype item input>")]
 
   val terminal_count = length terminal_specs
 
@@ -1692,7 +1894,7 @@ struct
       Original.EC.terms
 
   val value_bearing_terminal_ids =
-    [0, 1, 2, 3, 6, 7, 9, 10, 11, 12, 76, 78, 79, 80, 84, 85]
+    [0, 1, 2, 3, 6, 7, 9, 10, 11, 12, 76, 78, 79, 80, 84, 85, 89]
 
   val _ =
     List.app
@@ -1728,18 +1930,65 @@ struct
       structure ParserData = ParserData
       structure Lex = URustLex)
 
+  fun make_mode_lexer start_token input_string =
+    let
+      val raw_lexer = URustLex.makeLexer input_string
+      val pending = Unsynchronized.ref true
+      fun next_token () =
+        if !pending
+        then (pending := false; start_token (Position.none, Position.none))
+        else raw_lexer ()
+    in Source_Parser.Stream.streamify next_token end
+
   fun parse_layout ctxt layout =
     let val _ = URustLex.UserDeclarations.set_layout layout ctxt in
       Parser_Lex_Util.parse_source_with_layout
-          Source_Parser.parse Source_Parser.makeLexer
+          Source_Parser.parse
+          (make_mode_lexer URustLrVals.Tokens.TEXPRSTART)
           Source_Parser.Stream.get Source_Parser.sameToken
           URustLrVals.Tokens.EOF layout
     end
 
+  fun token_range
+      (Source_Parser.Token.TOKEN (_, (_, start, stop))) =
+    (start, stop)
+
+  fun parse_item_layout ctxt layout =
+    let val _ = URustLex.UserDeclarations.set_layout layout ctxt in
+      Parser_Lex_Util.parse_source_complete_with_layout
+          Source_Parser.parse
+          (make_mode_lexer URustLrVals.Tokens.TITEMSTART)
+          Source_Parser.Stream.get Source_Parser.sameToken
+          token_range URustLrVals.Tokens.EOF
+          "urust_datatype: trailing input after complete item"
+          layout
+    end
+
   fun parse_source ctxt source =
     Parser_Utils.with_parser_lock (fn () =>
-      parse_layout ctxt
-        (Parser_Lex_Util.make_source_layout source))
+      (case parse_layout ctxt
+          (Parser_Lex_Util.make_source_layout source) of
+         SOME (URust_AST.Parsed_Expression expression) =>
+           SOME expression
+       | SOME (URust_AST.Parsed_Datatype item) =>
+           error
+             ("urust_expr: expected a complete expression" ^
+               Position.here
+                 (URust_AST.datatype_item_position item))
+       | NONE => NONE))
+
+  fun parse_item_source ctxt source =
+    Parser_Utils.with_parser_lock (fn () =>
+      (case parse_item_layout ctxt
+          (Parser_Lex_Util.make_source_layout source) of
+         SOME (URust_AST.Parsed_Datatype item) =>
+           SOME item
+       | SOME (URust_AST.Parsed_Expression expression) =>
+           error
+             ("urust_datatype: expected a struct or enum item" ^
+               Position.here
+                 (URust_AST.expression_position expression))
+       | NONE => NONE))
 end
 \<close>
 
