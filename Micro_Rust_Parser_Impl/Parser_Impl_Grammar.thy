@@ -850,7 +850,7 @@ yacc_rules\<open>
           | TAMP TMUT uprefix
               (UE_Unary (U_Borrow BM_Mut, uprefix, TAMPleft))
           | TSTAR uprefix
-              (mk_deref (uprefix, TSTARleft))
+              (UE_Unary (U_Deref, uprefix, TSTARleft))
   (* Postfixes form a structural tier above primaries, so `?`, field access, tuple projections, and
      methods compose left-to-right and bind tighter than prefix/binary operators. Indexing shares this
      tier. A dotted identifier followed by parentheses is a method; without parentheses it is an
@@ -1125,8 +1125,8 @@ yacc_rules\<open>
                         (UE_Unary
                           (U_Borrow BM_Mut, uprefix_no_struct, TAMPleft))
                     | TSTAR uprefix_no_struct
-                        (mk_deref
-                          (uprefix_no_struct, TSTARleft))
+                        (UE_Unary
+                          (U_Deref, uprefix_no_struct, TSTARleft))
   upostfix_no_struct : uprimary_no_struct
                          (uprimary_no_struct)
                      | upostfix_no_struct TQUESTION

@@ -193,9 +193,10 @@ constructor basenames remain unchanged.
 
 The grammar retains compatibility extensions used by existing µRust sources, including complete
 guard bodies and statement bodies in groups, macros, and struct fields. During production migration
-it also accepts apostrophised identifiers, return-arm semicolons, and narrow legacy
-dereference/postfix grouping. Explicitly grouping the complete
-dereference operand retains Rust precedence. Deliberately deferred Rust surface includes general
+it also accepts apostrophised identifiers and return-arm semicolons.
+Dereference follows Rust's uniform postfix-before-prefix precedence: `*base[index]` means
+`*(base[index])`, while dereference-before-index requires `(*base)[index]`.
+Deliberately deferred Rust surface includes general
 postfix calls, one-element tuples, open ranges, array repeats, unary numeric negation, `/=`, leading
 `::`, full Rust generics, universal macro trailing commas, and additional numeric families.
 

@@ -647,50 +647,60 @@ ML_val\<open>
          UE_Cast (UE_Unary (U_Deref, UE_Path _, _), CT_Unsigned UT_Usize, _) => ()
        | _ => error "unary-before-cast AST shape changed")
     val _ =
-      (case parse "*base[index]" of
-         UE_Index (UE_Unary (U_Deref, UE_Path _, _), UE_Path _, _) => ()
-       | _ => error "legacy dereference-before-index AST shape changed")
+       (case parse "*base[index]" of
+         UE_Unary
+           (U_Deref, UE_Index (UE_Path _, UE_Path _, _), _) => ()
+       | _ => error "postfix-before-dereference index AST shape changed")
     val _ =
       (case parse "*(base[index])" of
          UE_Unary
            (U_Deref, UE_Group (UE_Index (UE_Path _, UE_Path _, _), _), _) => ()
        | _ => error "explicit Rust-grouped dereference/index AST shape changed")
     val _ =
+      (case parse "(*base)[index]" of
+         UE_Index
+           (UE_Group (UE_Unary (U_Deref, UE_Path _, _), _),
+            UE_Path _, _) => ()
+       | _ => error "explicit grouped-dereference/index AST shape changed")
+    val _ =
       (case parse "*base.field" of
          UE_Unary (U_Deref, UE_Field (UE_Path _, "field", _), _) => ()
        | _ => error "ordinary path-field dereference AST shape changed")
     val _ =
-      (case parse "*(base).field" of
-         UE_Field
-           (UE_Unary (U_Deref, UE_Group (UE_Path _, _), _), "field", _) => ()
-       | _ => error "grouped-receiver dereference/field AST shape changed")
-    val _ =
-      (case parse "*make().field" of
-         UE_Field
-           (UE_Unary (U_Deref, UE_Call _, _), "field", _) => ()
-       | _ => error "call-receiver dereference/field AST shape changed")
-    val _ =
-      (case parse "*base[index].field.0.method()?" of
+       (case parse "*(base).field" of
          UE_Unary
-           (U_Propagate,
-            UE_Call
-              (UC_Method
-                (UE_TupleProjection
-                  (UE_Field
-                    (UE_Index
-                      (UE_Unary (U_Deref, UE_Path _, _), UE_Path _, _),
-                     "field", _),
-                   0, _),
-                 Path_Segment ("method", _, _)),
-               [], _),
+           (U_Deref,
+            UE_Field (UE_Group (UE_Path _, _), "field", _), _) => ()
+       | _ => error "grouped field operand dereference AST shape changed")
+    val _ =
+       (case parse "*make().field" of
+         UE_Unary
+           (U_Deref, UE_Field (UE_Call _, "field", _), _) => ()
+       | _ => error "call field operand dereference AST shape changed")
+    val _ =
+       (case parse "*base[index].field.0.method()?" of
+         UE_Unary
+           (U_Deref,
+            UE_Unary
+              (U_Propagate,
+               UE_Call
+                 (UC_Method
+                   (UE_TupleProjection
+                     (UE_Field
+                       (UE_Index (UE_Path _, UE_Path _, _),
+                        "field", _),
+                      0, _),
+                    Path_Segment ("method", _, _)),
+                  [], _),
+               _),
             _) => ()
-       | _ => error "postfixes after legacy dereference reassociation changed")
+       | _ => error "long postfix operand dereference AST shape changed")
     val _ =
       (case parse "*base.field as u64" of
          UE_Cast
            (UE_Unary (U_Deref, UE_Field (UE_Path _, "field", _), _),
             CT_Unsigned UT_U64, _) => ()
-       | _ => error "legacy dereference compatibility crossed a cast")
+       | _ => error "dereference operand crossed the cast boundary")
     val _ =
       (case parse "!*p" of
          UE_Unary (U_Not, UE_Unary (U_Deref, UE_Path _, _), _) => ()

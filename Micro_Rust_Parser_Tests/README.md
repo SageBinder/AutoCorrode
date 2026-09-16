@@ -125,10 +125,12 @@ conditional tuples remain separate work. Existing rejection rows preserve this b
 
 Retained compatibility extensions include complete µRust bodies in guards and statement bodies in
 groups, macros, and struct fields. The underscore-before-integer-suffix spelling also remains
-accepted. During production migration the parser additionally accepts apostrophised identifiers,
-return-arm semicolons, and narrow legacy
-dereference/postfix grouping. Explicitly grouping the complete dereference operand retains Rust
-precedence. The parser supports binary, octal, decimal, and hexadecimal integers with internal or
+accepted. During production migration the parser additionally accepts apostrophised identifiers
+and return-arm semicolons. Dereference follows Rust's uniform postfix-before-prefix precedence:
+`*base[index]` dereferences the indexed value, while `(*base)[index]` explicitly selects
+dereference-before-index. `Parser_Precedence_Tests.thy` covers indexed, grouped, call, and field
+operands, explicit grouping, and the restricted control-head grammar.
+The parser supports binary, octal, decimal, and hexadecimal integers with internal or
 trailing underscores and `u8`, `u16`, `u32`, `u64`, and `usize` suffixes.
 
 The following remain deliberately unsupported: one-element tuples, general postfix invocation, open

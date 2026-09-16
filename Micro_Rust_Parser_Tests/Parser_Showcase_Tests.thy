@@ -467,13 +467,13 @@ urust_expr showoff_nested_loops
     let mut active = \<llangle>True\<rrangle>;
     let registers = [phase];
     #[fuel(\<epsilon>\<open>outer_fuel\<close>)] while (*active) {
-      match_switch *(registers[0_usize]) {
+      match_switch *registers[0_usize] {
         0 \<Rightarrow> {
-          *(registers[0_usize]) = *(registers[0_usize]) + 1_u32;
+          *registers[0_usize] = *registers[0_usize] + 1_u32;
         },
         1 \<Rightarrow> {
           #[fuel(\<epsilon>\<open>inner_fuel\<close>)] loop {
-            *(registers[0_usize]) = *(registers[0_usize]) + 1_u32;
+            *registers[0_usize] = *registers[0_usize] + 1_u32;
           }
           *active = false;
         },
@@ -482,7 +482,7 @@ urust_expr showoff_nested_loops
         }
       };
     }
-    (*(registers[0_usize]), *active)
+    (*registers[0_usize], *active)
   \<close>
 
 urust_expr showoff_for_and_while_let
