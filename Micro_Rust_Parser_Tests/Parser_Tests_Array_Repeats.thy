@@ -59,8 +59,6 @@ urust_expr repeat_cast_u64 \<open> [1; 3u64 as usize] \<close>
 urust_expr repeat_cast_small_global
   \<open> [1; repeat_small_length as usize] \<close>
 urust_expr repeat_global \<open> [1; repeat_global_length] \<close>
-urust_expr repeat_qualified_global
-  \<open> [1; Parser_Tests_Array_Repeats::repeat_global_length] \<close>
 urust_expr repeat_registered \<open> [1; RepeatFixture::Length] \<close>
 urust_expr repeat_add \<open> [1; 1 + 2] \<close>
 urust_expr repeat_sub \<open> [1; 4 - 1] \<close>
@@ -209,6 +207,11 @@ new_urust_rejects audit \<open> [1; 2i32] \<close>
   \<open> unsupported integer-literal suffix "i32" \<close>
 new_urust_rejects audit \<open> [1; unresolved_repeat_length] \<close>
   \<open> does not resolve to a global constant \<close>
+new_urust_rejects audit
+  \<open> [1; Parser_Tests_Array_Repeats::repeat_global_length] \<close>
+  \<open> qualified path "Parser_Tests_Array_Repeats::repeat_global_length" requires an exact micro_rust_notation (literal) declaration \<close>
+new_urust_rejects audit \<open> [1; WrongRole::Value] \<close>
+  \<open> qualified path "WrongRole::Value" requires an exact micro_rust_notation (literal) declaration \<close>
 new_urust_rejects audit \<open> [1; repeat_wrong_length] \<close>
   \<open> Type unification failed \<close>
 new_urust_rejects audit \<open> let count = 2; [1; count] \<close>
@@ -604,6 +607,11 @@ ML_val\<open>
         "[\<y>\<i>\<e>\<l>\<d>; missing_length]"
         "missing_length"
         "does not resolve to a global constant"
+    val _ =
+      expect_positioned_failure 3 "qualified-global"
+        "[1; Parser_Tests_Array_Repeats::repeat_global_length]"
+        "Parser_Tests_Array_Repeats::repeat_global_length"
+        "requires an exact micro_rust_notation (literal) declaration"
   in
     val _ =
       writeln

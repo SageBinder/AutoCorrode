@@ -68,6 +68,8 @@ sig
       URust_AST.generic_args option -> term
   val registered_function:
     Proof.context -> string * Position.T -> term option
+  val registered_macro_path:
+    Proof.context -> URust_AST.ur_path -> string * Position.T -> term option
   val registered_function_path:
     Proof.context -> URust_AST.ur_path -> term option
   val is_nullary_function_path:
@@ -164,10 +166,12 @@ ML\<open>
     already-resolved term from left to right.
     global_constant_path_value is the stricter array-repeat-length route: it rejects lexical locals,
     accepts exact literal registrations whose selected backend may depend on the proof context,
-    direct fixed parameters, or genuine HOL constants, translates source `::` to HOL qualification,
-    and never creates an unresolved Free.
+    direct fixed parameters, or genuine unqualified HOL constants. Qualified paths require exact
+    literal registration, and the route never creates an unresolved Free.
     registered_function performs an exact registered NFunction lookup without imposing a caller
-    naming policy. is_nullary_function_path is a report-free ambiguity query used by control-head
+    naming policy. registered_macro_path performs the same lookup for the complete spelling including
+    `!`, but rejects an unregistered qualified source path through the common call-role diagnostic.
+    is_nullary_function_path is a report-free ambiguity query used by control-head
     validation: declaration arguments retain direct-call precedence, ordinary lexical values and
     fixed variables remain value paths, and otherwise an exact registered backend or proper HOL
     constant counts only when its declared type takes zero arguments before function_body.
@@ -176,7 +180,9 @@ ML\<open>
     Syntax.parse_term behavior. For an exact registered literal path whose complete backend matches
     genuine Ctr_Sugar constructor metadata, the nearest qualifier reports every distinct datatype
     family with the constructor's keyword styling while earlier module-like qualifiers remain free;
-    registered nonconstructors and calls retain free qualifiers.
+    registered nonconstructors and calls retain free qualifiers. Every multi-segment source path
+    requires an exact role-appropriate notation registration; unqualified lexical, fixed, HOL, and
+    constructor fallback remains unchanged.
 
   - constructor_info and constructor_resolver are abstract. make_constructor_resolver snapshots the
     context's non-record Ctr_Sugar constructors, constructor families/selectors, and HOL record names
@@ -186,9 +192,10 @@ ML\<open>
     backend absent there. It does not select a constructor, diagnose ambiguity, or emit semantic
     markup. resolve_constructor performs those later operations; unregistered lookup remains limited
     to Ctr_Sugar or Code.is_constr constructors, using exact identity for qualified names and basename
-    lookup for unqualified names. Native qualified source paths translate Rust \<open>::\<close>
-    separators to HOL long-name separators before exact identity lookup. Resolution returns NONE
-    when absent and raises a positioned, deterministic ambiguity error for multiple matches.
+    lookup for unqualified names. Qualified source constructor paths resolve only through their exact
+    literal registration; no parsed Rust path is translated into an Isabelle long name. Resolution
+    returns NONE when an unqualified name is absent and raises a positioned, deterministic ambiguity
+    error for multiple matches.
     constructor_term returns the dummy-typed constructor term, constructor_arity its argument count,
     and constructor_family optionally the datatype identity with all family constructor terms.
     Constructor metadata deliberately carries no registration provenance: once native Isabelle
@@ -616,6 +623,17 @@ struct
       val _ = Context_Position.report ctxt pos Markup.free
     in Free (render_path path, dummyT) end
 
+  fun notation_role Micro_Rust_Names.NLiteral = "literal"
+    | notation_role Micro_Rust_Names.NFunction = "call"
+    | notation_role Micro_Rust_Names.NField = "field"
+
+  fun qualified_registration_error kind path displayed_name pos =
+    error
+      ("urust_expr: qualified path " ^ quote displayed_name ^
+        " requires an exact micro_rust_notation (" ^
+        notation_role kind ^ ") declaration" ^
+        Position.here pos)
+
   fun resolve_generic_free_path ctxt environment kind local_first path =
     (case path_segments path of
        [Path_Segment (name, pos, NONE)] =>
@@ -635,7 +653,12 @@ struct
              (render_path path, #2 (path_terminal path)) of
             SOME registered =>
               (report_path_qualifiers ctxt path; registered)
-          | NONE => opaque_path ctxt kind path))
+          | NONE =>
+              if is_qualified_path path
+              then
+                qualified_registration_error kind path
+                  (render_path path) (path_position path)
+              else opaque_path ctxt kind path))
 
   fun exact_registered_path ctxt kind path =
     (case registered_identifier ctxt kind
@@ -692,18 +715,10 @@ struct
          | _ => ())
 
       fun resolve_global_constant () =
-        let
-          val hol_name =
-            if String.isSubstring "::" name
-            then
-              Long_Name.implode
-                (String.tokens (fn c => c = #":") name)
-            else name
-        in
-          (case try
-              (Proof_Context.read_const
-                {proper = true, strict = false} ctxt)
-              hol_name of
+        (case try
+            (Proof_Context.read_const
+              {proper = true, strict = false} ctxt)
+            name of
              SOME (Const (constant_name, _)) =>
                let
                  val consts = Proof_Context.consts_of ctxt
@@ -728,7 +743,6 @@ struct
                    quote name ^
                    " does not resolve to a global constant, fixed parameter, or exact literal registration" ^
                    Position.here pos))
-        end
 
       fun resolve_contextual_or_global () =
         (case path_segments path of
@@ -744,6 +758,9 @@ struct
            if is_primitive_path path then
              primitive_registration_error
                Micro_Rust_Names.NLiteral path
+           else if is_qualified_path path then
+             qualified_registration_error
+               Micro_Rust_Names.NLiteral path name (path_position path)
            else resolve_contextual_or_global ())
     end
 
@@ -885,6 +902,16 @@ struct
   fun registered_function ctxt identifier =
     registered_identifier ctxt Micro_Rust_Names.NFunction identifier
 
+  fun registered_macro_path ctxt path (complete_name, complete_pos) =
+    (case registered_function ctxt (complete_name, complete_pos) of
+       SOME registered => SOME registered
+     | NONE =>
+         if is_qualified_path path
+         then
+           qualified_registration_error Micro_Rust_Names.NFunction path
+             complete_name complete_pos
+         else NONE)
+
   fun registered_function_path ctxt path =
     exact_registered_path ctxt Micro_Rust_Names.NFunction path
 
@@ -928,7 +955,7 @@ struct
                 then false
                 else if registered () then true else hol_constant ())
        | _ =>
-           if registered () then true else hol_constant ())
+           registered ())
     end
 
   fun field_expression ctxt environment receiver name pos =
@@ -988,11 +1015,6 @@ struct
   fun qualified_name name =
     String.isSubstring "::" name orelse
     String.isSubstring Long_Name.separator name
-
-  fun hol_name_of_source_path name =
-    if String.isSubstring "::" name
-    then Long_Name.implode (String.tokens (fn c => c = #":") name)
-    else name
 
   fun named_constant role pos term =
     (case term_name_of term of
@@ -1206,7 +1228,7 @@ struct
         {by_identity, by_basename, ...}) name =
     let
       val theory = Proof_Context.theory_of ctxt
-      val requested_name = hol_name_of_source_path name
+      val requested_name = name
       val sugar_candidates =
         if qualified_name name
         then
@@ -1295,7 +1317,12 @@ struct
 
   fun classify_registered_literal ctxt resolver path =
     (case exact_literal_registrations ctxt path of
-       [] => Unregistered_Literal
+       [] =>
+         if is_qualified_path path
+         then
+           qualified_registration_error Micro_Rust_Names.NLiteral path
+             (render_path path) (path_position path)
+         else Unregistered_Literal
      | registrations =>
          if is_primitive_path path then Registered_Value_Literal
          else if null
@@ -1315,13 +1342,18 @@ struct
       val candidates =
         if null registrations
         then
-          (reject_intermediate_generics path;
-           case segment_generic_args (final_segment path) of
-             NONE => constructor_candidates ctxt resolver name
-           | SOME (Generic_Args (_, generic_pos)) =>
-               error
-                 ("urust_expr: generic constructor paths require an exact literal registration" ^
-                   Position.here generic_pos))
+          if is_qualified_path path
+          then
+            qualified_registration_error Micro_Rust_Names.NLiteral path
+              name (path_position path)
+          else
+            (reject_intermediate_generics path;
+             case segment_generic_args (final_segment path) of
+               NONE => constructor_candidates ctxt resolver name
+             | SOME (Generic_Args (_, generic_pos)) =>
+                 error
+                   ("urust_expr: generic constructor paths require an exact literal registration" ^
+                     Position.here generic_pos))
         else registered
     in
       (case candidates of
@@ -1398,42 +1430,52 @@ struct
       (resolver as
         Constructor_Resolver
           {type_fallbacks, record_types, ...})
-      (identifier_name, pos) =
+      head_path =
     let
       val theory = Proof_Context.theory_of ctxt
-      val requested_name = hol_name_of_source_path identifier_name
-      val has_exact_registration =
-        not
-          (null
-            (exact_literal_registrations ctxt
-              (make_single_path (identifier_name, pos))))
+      val identifier_name = render_path head_path
+      val pos = #2 (path_terminal head_path)
+      val registrations = exact_literal_registrations ctxt head_path
+      val qualified = is_qualified_path head_path
+      val has_exact_registration = not (null registrations)
+      val _ =
+        if qualified andalso not has_exact_registration
+        then
+          qualified_registration_error Micro_Rust_Names.NLiteral
+            head_path identifier_name (path_position head_path)
+        else ()
 
       fun name_matches identity =
         if qualified_name identifier_name
-        then identity = requested_name
+        then identity = identifier_name
         else canonical_name identity = identifier_name
 
       val direct_candidates =
-        map
-          (fn info =>
-            (constructor_identity info,
-             Constructor_Candidate
-               {info = info,
-                selectors = constructor_selectors info}))
-          (constructor_candidates ctxt resolver identifier_name)
+        (if qualified
+         then
+           registered_constructor_candidates ctxt resolver registrations
+         else constructor_candidates ctxt resolver identifier_name)
+        |> map
+            (fn info =>
+              (constructor_identity info,
+               Constructor_Candidate
+                 {info = info,
+                  selectors = constructor_selectors info}))
 
       val fallback_candidates =
-        type_fallbacks
-        |> map_filter
-          (fn (type_name, info) =>
-            if name_matches type_name
-            then
-              SOME
-                (constructor_identity info,
-                 Constructor_Candidate
-                   {info = info,
-                    selectors = constructor_selectors info})
-            else NONE)
+        if qualified then []
+        else
+          type_fallbacks
+          |> map_filter
+            (fn (type_name, info) =>
+              if name_matches type_name
+              then
+                SOME
+                  (constructor_identity info,
+                   Constructor_Candidate
+                     {info = info,
+                      selectors = constructor_selectors info})
+              else NONE)
 
       fun record_candidate record_name =
         (case Record.get_info theory record_name of
@@ -1451,9 +1493,11 @@ struct
                      (#fields record_info)}))
 
       val record_candidates =
-        record_types
-        |> filter name_matches
-        |> map record_candidate
+        if qualified then []
+        else
+          record_types
+          |> filter name_matches
+          |> map record_candidate
 
       fun same_candidate
           (Constructor_Candidate
@@ -1538,17 +1582,20 @@ struct
     let
       val head = render_path head_path
       val head_pos = #2 (path_terminal head_path)
+      val registrations = exact_literal_registrations ctxt head_path
       val _ = reject_intermediate_generics head_path
       val _ =
         (case segment_generic_args (final_segment head_path) of
            NONE => ()
          | SOME (Generic_Args (_, pos)) =>
-             error
-               ("urust_expr: generic struct-pattern paths require an exact literal registration" ^
-                 Position.here pos))
+             if null registrations
+             then
+               error
+                 ("urust_expr: generic struct-pattern paths require an exact literal registration" ^
+                   Position.here pos)
+             else ())
       val candidate =
-        resolve_struct_constructor ctxt resolver
-          (head, head_pos)
+        resolve_struct_constructor ctxt resolver head_path
       val (display_name, selectors) =
         (case candidate of
            Constructor_Candidate {info, selectors} =>
