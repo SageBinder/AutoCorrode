@@ -8556,8 +8556,8 @@ ML_val\<open>
        audit_assert
          "grouped control-head struct lost registered-call styling"
          (has_markup Markup.keyword3N control_head_pos);
-       audit_assert "grouped control-head label lost free markup"
-         (has_markup Markup.freeN control_label_pos);
+       audit_assert "grouped control-head label retained free-variable markup"
+         (not (has_markup Markup.freeN control_label_pos));
        audit_assert "grouped control-head label lost typing markup"
          (has_markup Markup.typingN control_label_pos);
        audit_assert "grouped control-head label received entity markup"
@@ -8570,8 +8570,9 @@ ML_val\<open>
       List.app
         (fn (label, pos) =>
           (audit_assert
-             ("label " ^ quote label ^ " lost free markup")
-             (has_markup Markup.freeN pos);
+             ("label " ^ quote label ^
+               " retained free-variable markup")
+             (not (has_markup Markup.freeN pos));
            audit_assert
              ("label " ^ quote label ^ " lost typing markup")
              (has_markup Markup.typingN pos);

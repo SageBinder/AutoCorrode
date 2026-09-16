@@ -29,6 +29,13 @@ Named definition-mode declarations accept standard Isabelle attributes through `
 the attributes apply only to the generated `_def` theorem. An exact terminal `_` in an `urust_fn`
 type is completed to a fresh five-parameter `function_body` before ordinary checked elaboration.
 
+## Markup correction
+
+Struct-expression labels used by the source-order call syntax are erased during lowering and do not
+denote HOL terms. `URust_Resolution.report_struct_label` therefore retains their syntax typing
+tooltip without reporting them as `Markup.free`. `Parser_Tests_Misc.thy` checks ordinary registered
+struct calls, nested expressions, and grouped control heads.
+
 ## Parser and lowering architecture
 
 The grammar has parallel ordinary and no-struct expression families with explicit tiers:
