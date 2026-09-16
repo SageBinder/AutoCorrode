@@ -13,6 +13,7 @@ chapter\<open>Parser facade\<close>
 
 declare [[urust_conformance = false]]
 declare [[urust_timing_info = false]]
+declare [[urust_pp_test = true]]
 declare [[urust_timing_verbosity = 0]]
 declare [[urust_verbosity = 0]]
 declare [[urust_abbrev = false]]
@@ -37,6 +38,7 @@ chapter\<open>Typed expression and shared command API\<close>
 
 declare [[urust_conformance = false]]
 declare [[urust_timing_info = false]]
+declare [[urust_pp_test = true]]
 declare [[urust_timing_verbosity = 0]]
 declare [[urust_verbosity = 0]]
 declare [[urust_abbrev = false]]
@@ -1442,6 +1444,7 @@ chapter\<open>Expression structural audits\<close>
 
 declare [[urust_conformance = false]]
 declare [[urust_timing_info = false]]
+declare [[urust_pp_test = true]]
 declare [[urust_timing_verbosity = 0]]
 declare [[urust_verbosity = 0]]
 declare [[urust_abbrev = false]]
@@ -1951,6 +1954,8 @@ chapter\<open>Command options\<close>
 
 declare [[urust_conformance = false]]
 declare [[urust_timing_info = false]]
+declare [[urust_pp_test = false]]
+declare [[urust_pretty = false]]
 declare [[urust_timing_verbosity = 0]]
 declare [[urust_verbosity = 0]]
 declare [[urust_abbrev = false]]
@@ -1978,6 +1983,8 @@ ML_val\<open>
       List.app assert_default
         ["urust_conformance: bool = false",
          "urust_timing_info: bool = false",
+         "urust_pp_test: bool = false",
+         "urust_pretty: bool = false",
          "urust_timing_verbosity: int = 0",
          "urust_verbosity: int = 0",
          "urust_abbrev: bool = false",
@@ -1996,6 +2003,7 @@ urust_fn default_fun_flags ::
   (item)
   \<open> item \<close>
 
+declare [[urust_pp_test = true]]
 
 section\<open> Inline flag combinations \<close>
 
@@ -2062,6 +2070,8 @@ section\<open> Scoped settings and overrides \<close>
 
 declare [[urust_conformance = true]]
 declare [[urust_timing_info = true]]
+declare [[urust_pp_test = true]]
+declare [[urust_pretty = true]]
 declare [[urust_timing_verbosity = 2]]
 declare [[urust_verbosity = 2]]
 declare [[urust_abbrev = true]]
@@ -2077,14 +2087,17 @@ urust_fn scoped_all_true_fun ::
 
 urust_expr
   [verbosity = 0, abbrev = false, conformance = false,
-   timing_info = false, timing_verbosity = 0,
+   timing_info = false, pp_test = false, pretty = false,
+   timing_verbosity = 0,
    application_def = false]
   scoped_all_false_expr
   (item)
   \<open> \<llangle>item :: nat\<rrangle> \<close>
 
 urust_fn
-  [conformance = false, timing_info = false, timing_verbosity = 0,
+  [conformance = false, timing_info = false, pp_test = false,
+   pretty = false,
+   timing_verbosity = 0,
    verbosity = 0,
    application_def = false]
   scoped_all_false_fun ::
@@ -2113,6 +2126,8 @@ urust_fn [conformance = false]
 
 declare [[urust_conformance = false]]
 declare [[urust_timing_info = false]]
+declare [[urust_pp_test = false]]
+declare [[urust_pretty = false]]
 declare [[urust_timing_verbosity = 0]]
 declare [[urust_verbosity = 0]]
 declare [[urust_abbrev = false]]
@@ -2124,6 +2139,87 @@ urust_fn reset_fun_flags ::
   \<open>(unit, unit, unit, unit, unit) function_body\<close>
   ()
   \<open> () \<close>
+
+section\<open> Pretty-printer roundtrip checking \<close>
+
+text\<open>
+The common Boolean \<open>pp_test\<close> option performs the serialized AST roundtrip before lowering.
+These declarations cover definitions, abbreviations, application-shaped definitions, anonymous
+targets, conformance, scoped enablement, and an inline false override. Enabled and disabled
+declarations retain exactly the same checked terms.
+\<close>
+
+urust_expr [pp_test = false] pp_expr_disabled
+  (item)
+  \<open> let value = \<llangle>item :: nat\<rrangle>; (value) \<close>
+
+urust_expr [pp_test] pp_expr_enabled
+  (item)
+  \<open> let value = \<llangle>item :: nat\<rrangle>; (value) \<close>
+
+lemma pp_expr_enabled_same:
+  \<open>pp_expr_enabled = pp_expr_disabled\<close>
+  unfolding pp_expr_enabled_def pp_expr_disabled_def
+  by (rule refl)
+
+urust_fn [pp_test = false] pp_fun_disabled ::
+  \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
+  (item)
+  \<open> item \<close>
+
+urust_fn [pp_test = true] pp_fun_enabled ::
+  \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
+  (item)
+  \<open> item \<close>
+
+lemma pp_fun_enabled_same:
+  \<open>pp_fun_enabled = pp_fun_disabled\<close>
+  unfolding pp_fun_enabled_def pp_fun_disabled_def
+  by (rule refl)
+
+urust_expr [abbrev, pp_test] pp_abbreviation
+  (item)
+  \<open> \<llangle>item :: nat\<rrangle> \<close>
+
+urust_expr [application_def, pp_test] pp_application_definition
+  (item)
+  \<open> \<llangle>item :: nat\<rrangle> \<close>
+
+urust_expr [pp_test, conformance] pp_conforming_expression
+  \<open> let item = 1; item + 2 \<close>
+
+urust_fn [pp_test, conformance] pp_conforming_function ::
+  \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
+  (item)
+  \<open> item \<close>
+
+urust_expr [pp_test] _ \<open> let item = 1; item \<close>
+
+urust_fn [pp_test] _ ::
+  \<open>(unit, unit, unit, unit, unit) function_body\<close>
+  ()
+  \<open> () \<close>
+
+declare [[urust_pp_test = true]]
+
+urust_expr scoped_pp_expression \<open> let item = 1; item \<close>
+
+urust_fn scoped_pp_function ::
+  \<open>(unit, unit, unit, unit, unit) function_body\<close>
+  ()
+  \<open> () \<close>
+
+urust_expr [pp_test = false] scoped_pp_false_override
+  \<open> let item = 1; item \<close>
+
+ML_val\<open>
+  val _ =
+    Parser_Test_Elaboration.expression \<^context>
+      (Parser_Lex_Util.text_source
+        "let item = 1; (item + 2) * 3")
+\<close>
+
+declare [[urust_pp_test = false]]
 
 
 section\<open> Timing information \<close>
@@ -2409,6 +2505,12 @@ ML_val\<open>
         ("urust_expr " ^
           "[timing_info, timing_verbosity = 2, conformance = false] " ^
           "timing_new_only " ^ unit_source)
+    val (_, pp_roundtrip) =
+      capture_command "timing-pp-roundtrip"
+        ("urust_expr " ^
+          "[timing_info, timing_verbosity = 2, pp_test, " ^
+          "conformance = false] " ^
+          "timing_pp_roundtrip " ^ unit_source)
     val (compared_body, compared) =
       capture_command "timing-compared"
         ("urust_fn " ^
@@ -2475,7 +2577,17 @@ ML_val\<open>
         (fn unexpected => assert_absent "new-only" unexpected new_only)
         ["old parser:",
          "delta (new - old):",
-         "conformance:"]
+         "conformance:",
+         "pretty-print roundtrip:"]
+    val _ =
+      List.app
+        (fn expected =>
+          assert_contains "pretty-printer roundtrip" expected pp_roundtrip)
+        ["urust_expr timing_pp_roundtrip timing information",
+         "new parser:",
+         "parse source:",
+         "pretty-print roundtrip:",
+         "lower AST:"]
     val _ =
       List.app
         (fn expected => assert_contains "compared" expected compared)
@@ -2623,6 +2735,7 @@ ML_val\<open>
   end
 \<close>
 
+declare [[urust_pp_test = true]]
 
 section\<open> Contextual expressions \<close>
 
@@ -3129,6 +3242,18 @@ ML_val\<open>
               ["timing_info = 1"])
             "integer_timing" "")
           "expects true or false";
+        assert_rejected (label ^ "-pp-test")
+          (command kind
+            (option_block kind abbreviation
+              ["pp_test = 1"])
+            "integer_pp_test" "")
+          "expects true or false";
+        assert_rejected (label ^ "-pretty")
+          (command kind
+            (option_block kind abbreviation
+              ["pretty = 1"])
+            "integer_pretty" "")
+          "expects true or false";
         assert_rejected (label ^ "-application-definition")
           (command kind
             (option_block kind abbreviation
@@ -3183,6 +3308,18 @@ ML_val\<open>
               ["timing_info = [micro_rust_simps]"])
             "attribute_list_timing" "")
           "expects true or false";
+        assert_rejected (label ^ "-list-as-pp-test")
+          (command kind
+            (option_block kind abbreviation
+              ["pp_test = [micro_rust_simps]"])
+            "attribute_list_pp_test" "")
+          "expects true or false";
+        assert_rejected (label ^ "-list-as-pretty")
+          (command kind
+            (option_block kind abbreviation
+              ["pretty = [micro_rust_simps]"])
+            "attribute_list_pretty" "")
+          "expects true or false";
         assert_rejected (label ^ "-list-as-application-definition")
           (command kind
             (option_block kind abbreviation
@@ -3196,7 +3333,8 @@ ML_val\<open>
       List.app
         (fn prefixed =>
           List.app (test_prefixed prefixed) command_cases)
-        ["urust_conformance", "urust_timing_info",
+        ["urust_conformance", "urust_timing_info", "urust_pp_test",
+         "urust_pretty",
          "urust_timing_verbosity", "urust_verbosity",
          "urust_abbrev", "urust_application_def"]
     val _ =
@@ -3208,7 +3346,8 @@ ML_val\<open>
       List.app
         (fn flag =>
           List.app (test_duplicate flag) command_cases)
-        ["conformance", "timing_info", "timing_verbosity",
+        ["conformance", "timing_info", "pp_test", "pretty",
+         "timing_verbosity",
          "verbosity", "application_def"]
     val _ =
       List.app (test_duplicate "abbrev") expression_cases
@@ -3216,6 +3355,10 @@ ML_val\<open>
       List.app (test_shorthand_duplicate "conformance") command_cases
     val _ =
       List.app (test_shorthand_duplicate "timing_info") command_cases
+    val _ =
+      List.app (test_shorthand_duplicate "pp_test") command_cases
+    val _ =
+      List.app (test_shorthand_duplicate "pretty") command_cases
     val _ =
       List.app (test_shorthand_duplicate "application_def") command_cases
     val _ =

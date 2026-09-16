@@ -6,6 +6,7 @@ theory Parser_Tests_Fun
 begin
 
 declare [[urust_conformance = true]]
+declare [[urust_pp_test = true]]
 
 section\<open>Corpus FunctionBody definitions\<close>
 

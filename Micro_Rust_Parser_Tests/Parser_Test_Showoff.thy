@@ -3,6 +3,7 @@ theory Parser_Test_Showoff
 begin
 
 declare [[urust_conformance = true]]
+declare [[urust_pp_test = true]]
 
 section\<open> Showcase \<close>
 
@@ -39,6 +40,22 @@ urust_fn [conformance]
   \<open> item + 1_u32 \<close>
 
 end
+
+subsection\<open> Pretty declaration output \<close>
+
+text\<open>
+The common \<open>pretty\<close> option changes verbosity-controlled declaration output so its right-hand side
+uses human-readable uRust. It removes redundant groups while preserving required precedence.
+The formatted body is reparsed by the new frontend so the InfoView inherits the parser's lexical,
+semantic, entity, typing, and embedded-language markup.
+\<close>
+
+urust_expr [pretty, verbosity = 1, conformance = false]
+  showoff_pretty_expression
+  \<open>
+    let grouped = (((1 + 1)));
+    if grouped > 2 { grouped } else { 0 }
+  \<close>
 
 subsection\<open> Expressions, bindings, and control flow \<close>
 

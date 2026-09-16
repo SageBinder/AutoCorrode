@@ -24,6 +24,9 @@ struct
   fun content_source text range =
     Input.source false text range
 
+  fun delimited_content_source text range =
+    Input.source true text range
+
   fun positioned_content_source text start =
     content_source text
       (Position.range (start, Position.symbol_explode text start))
@@ -57,7 +60,7 @@ struct
                  Position.here token_start)
          | _ => ())
     in
-      content_source content
+      delimited_content_source content
         (Position.range (content_start, content_stop))
     end
 
@@ -348,8 +351,8 @@ ML_val\<open>
         (Input.text_of source = content andalso
          source_content = content)
     val _ =
-      assert "canonical source remained delimited"
-        (not (Input.is_delimited source))
+      assert "cartouche source lost its delimited-language identity"
+        (Input.is_delimited source)
     val _ =
       assert "source_content did not report the first content symbol"
         (offset source_position = offset content_start)

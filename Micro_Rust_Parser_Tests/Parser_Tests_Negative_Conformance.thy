@@ -17,8 +17,15 @@ begin
 chapter\<open>Negative conformance\<close>
 
 declare [[urust_conformance = false]]
+declare [[urust_pp_test = false]]
 declare [[urust_verbosity = 0]]
 declare [[urust_abbrev = false]]
+
+text\<open>
+The custom rejection commands keep roundtrip checking disabled because they assert the parser or
+lowering diagnostic that follows a successful parse. Actual recovery declarations enable
+\<open>urust_pp_test\<close> explicitly.
+\<close>
 
 section\<open> The command \<close>
 
@@ -345,7 +352,11 @@ new_urust_rejects audit
   \<open> WrongRole::StructExpression { value: () } \<close>
   \<open> qualified path "WrongRole::StructExpression" requires an exact micro_rust_notation (call) declaration \<close>
 
+declare [[urust_pp_test = true]]
+
 urust_expr qualified_path_policy_recovery \<open> () \<close>
+
+declare [[urust_pp_test = false]]
 
 ML_val\<open>
   local

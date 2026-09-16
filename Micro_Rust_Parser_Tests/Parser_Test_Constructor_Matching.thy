@@ -8,6 +8,7 @@ theory Parser_Test_Constructor_Matching
 begin
 
 declare [[urust_conformance = true]]
+declare [[urust_pp_test = true]]
 
 section\<open>Native constructor metadata\<close>
 

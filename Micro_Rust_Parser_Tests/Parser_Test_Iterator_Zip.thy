@@ -5,6 +5,7 @@ theory Parser_Test_Iterator_Zip
 begin
 
 declare [[urust_conformance = true]]
+declare [[urust_pp_test = true]]
 
 section\<open>Shared iterator zip\<close>
 

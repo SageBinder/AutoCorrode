@@ -7,6 +7,7 @@ begin
 section\<open>Array repeats\<close>
 
 declare [[urust_conformance = false]]
+declare [[urust_pp_test = true]]
 declare [[urust_verbosity = 0]]
 declare [[urust_abbrev = false]]
 

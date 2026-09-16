@@ -1,6 +1,7 @@
 theory Parser_Impl_Command
   imports
     Parser_Impl_Grammar
+    Parser_Impl_Printer_Output
     Parser_Impl_Translate
     Micro_Rust_Parsing_Legacy_Frontend.Micro_Rust_Parsing_Legacy_Frontend
   keywords
@@ -45,6 +46,8 @@ arguments on the theorem's left-hand side, producing
 explicit arguments. Both forms install the same curried constant value, conformance theorem,
 attributes, and code equation. The application form is useful when existing proofs fold a named
 sub-expression, while the default form remains suitable for rewriting a bare function constant.
+Pretty output follows the same shape: default definitions display source arguments as a uRust
+closure on the right-hand side, while application definitions display them only on the left.
 Zero-argument definitions are identical in either mode. Anonymous declarations are unchanged, and
 input abbreviations reject an effective \<open>application_def = true\<close>; an inline false value may
 override a true scoped setting.
@@ -60,6 +63,23 @@ breakdown. The report title marks the command keyword and renders the declaratio
 nonzero timing verbosity requires timing information to be enabled. Conformance adds the old-parser
 time and signed elapsed-time delta \<open>new - old\<close>; a negative delta means that the new parser is
 faster. Timing does not change generated terms, declarations, or proofs.
+
+\<open>urust_pp_test\<close> defaults to false. Its common Boolean inline alias is \<open>pp_test\<close>. When
+enabled, the parsed AST is serialized, reparsed without source positions, and compared through the
+position-independent serialized token stream before lowering. A successful check is silent. A
+mismatch aborts before declaration installation and reports the generated source plus the first
+differing token index. Under timing, the diagnostic work is recorded as a nested
+\<open>pretty-print roundtrip\<close> phase.
+
+\<open>urust_pretty\<close> defaults to false. Its common Boolean inline alias is \<open>pretty\<close>. At verbosity
+levels 1 and 2, false retains the ordinary HOL rendering of generated definitions, abbreviations,
+and anonymous results; true instead prints the same declaration heading and left-hand side with the
+right-hand side rendered as human-readable uRust inside a symbolic \<open>\<mu>\<open>...\<close>\<close> wrapper.
+The wrapper is presentation only and is unrelated to source quotation syntax. Conformance theorems
+remain ordinary HOL output because their right-hand side comes from the legacy frontend. At
+verbosity 0 no result is printed; an effective \<open>pretty = true\<close> receives a warning because it has
+no effect. Source arguments appear as closure formals on the right unless
+\<open>application_def = true\<close> puts them on the left.
 
 An optional trailing \<open>against old_term\<close> supplies a distinct existing-frontend term and implies
 conformance checking even when the configuration is false. Combining it with an explicit
@@ -87,12 +107,12 @@ checking is enabled. The standard interactive and \<open>show_results\<close> ga
 output.
 
 The option parser is parameterized by a command-specific schema. Both commands accept Boolean
-\<open>conformance\<close>, \<open>timing_info\<close>, and \<open>application_def\<close>, integers \<open>verbosity\<close> and
-\<open>timing_verbosity\<close>, and attribute-list \<open>attrs\<close>; only \<open>urust_expr\<close> accepts Boolean
+\<open>conformance\<close>, \<open>timing_info\<close>, \<open>pp_test\<close>, \<open>pretty\<close>, and \<open>application_def\<close>, integers
+\<open>verbosity\<close> and \<open>timing_verbosity\<close>, and attribute-list \<open>attrs\<close>; only \<open>urust_expr\<close> accepts Boolean
 \<open>abbrev\<close>. The
 configuration-backed short names are inline-only aliases for the globally prefixed configurations.
 Options may appear in any order. For Boolean options, omitting \<open>= true\<close> enables the option, so
-both commands accept \<open>[conformance]\<close>, \<open>[timing_info]\<close>, and
+both commands accept \<open>[conformance]\<close>, \<open>[timing_info]\<close>, \<open>[pp_test]\<close>, \<open>[pretty]\<close>, and
 \<open>[application_def]\<close>, while \<open>urust_expr\<close> also accepts \<open>[abbrev]\<close>. Explicit
 \<open>= true\<close> and \<open>= false\<close> remain available; integer and attribute-list options always require a
 value.
@@ -139,6 +159,12 @@ val urust_conformance =
 val urust_timing_info =
   Attrib.setup_config_bool \<^binding>\<open>urust_timing_info\<close> (K false)
 
+val urust_pp_test =
+  Attrib.setup_config_bool \<^binding>\<open>urust_pp_test\<close> (K false)
+
+val urust_pretty =
+  Attrib.setup_config_bool \<^binding>\<open>urust_pretty\<close> (K false)
+
 val urust_timing_verbosity =
   Attrib.setup_config_int \<^binding>\<open>urust_timing_verbosity\<close> (K 0)
 
@@ -153,6 +179,8 @@ val urust_application_def =
 
 val conformance_option = "conformance"
 val timing_info_option = "timing_info"
+val pp_test_option = "pp_test"
+val pretty_option = "pretty"
 val timing_verbosity_option = "timing_verbosity"
 val verbosity_option = "verbosity"
 val abbrev_option = "abbrev"
@@ -164,6 +192,11 @@ val attributes_option = "attrs"
      inline alias is conformance.
    - urust_timing_info measures both commands and emits structured records; its inline alias is
      timing_info.
+   - urust_pp_test performs a serialized parse-print-parse token comparison for both commands; its
+     inline alias is pp_test.
+   - urust_pretty selects human uRust in a symbolic \<mu>\<open>...\<close> wrapper for
+     verbosity-controlled declaration right-hand sides; its inline alias is pretty. It does not
+     affect conformance-theorem output or source quotation syntax.
    - urust_timing_verbosity controls only InfoView output: 0 is silent, 1 prints the summary, and
      2 adds the phase breakdown. Its inline alias is timing_verbosity, and nonzero values require
      effective timing_info = true.
@@ -190,6 +223,8 @@ datatype command_option_config =
 val common_option_configs =
   [(conformance_option, Boolean_Config urust_conformance),
    (timing_info_option, Boolean_Config urust_timing_info),
+   (pp_test_option, Boolean_Config urust_pp_test),
+   (pretty_option, Boolean_Config urust_pretty),
    (timing_verbosity_option, Integer_Config urust_timing_verbosity),
    (verbosity_option, Integer_Config urust_verbosity),
    (application_def_option, Boolean_Config urust_application_def),
@@ -873,8 +908,60 @@ fun close_typed_term kind lthy type_pos checked =
       checked
   end
 
-fun elaborate_with_timing timer lthy
-    {kind, source, arguments, arguments_pos, declared_type = raw_declared_type} : term =
+fun first_differing_token_index left right =
+  let
+    fun first index [] [] = index
+      | first index [] (_ :: _) = index
+      | first index (_ :: _) [] = index
+      | first index (left_token :: left_tokens)
+          (right_token :: right_tokens) =
+          if left_token = right_token
+          then first (index + 1) left_tokens right_tokens
+          else index
+  in first 0 left right end
+
+fun pretty_roundtrip ctxt source ast =
+  let
+    val original_tokens =
+      URust_Printer.tokens_of_expr
+        URust_Printer.serialized_options ast
+    val generated =
+      URust_Printer.string_of_expr
+        URust_Printer.serialized_options ast
+    fun mismatch index detail =
+      error
+        ("uRust pretty-printer roundtrip mismatch" ^
+          Position.here (Input.pos_of source) ^ "\n" ^
+          "generated source:\n" ^ generated ^ "\n" ^
+          "first differing token index: " ^ string_of_int index ^
+          (if detail = "" then "" else "\n" ^ detail))
+    val reparsed =
+      (case Exn.capture
+          (URust_Parser.parse_source ctxt)
+          (Parser_Lex_Util.text_source generated) of
+         Exn.Res (SOME reparsed) => reparsed
+       | Exn.Res NONE =>
+           mismatch 0 "generated source reparsed as empty input"
+       | Exn.Exn exn =>
+           mismatch 0
+             ("generated source failed to parse: " ^
+               Runtime.exn_message exn))
+    val reparsed_tokens =
+      URust_Printer.tokens_of_expr
+        URust_Printer.serialized_options reparsed
+  in
+    if original_tokens = reparsed_tokens then ()
+    else
+      mismatch
+        (first_differing_token_index original_tokens reparsed_tokens) ""
+  end
+
+type elaborated =
+  {ast: URust_AST.ur_expr,
+   term: term}
+
+fun elaborate_with_timing timer pp_test lthy
+    {kind, source, arguments, arguments_pos, declared_type = raw_declared_type} : elaborated =
   timing_phase timer "new parser" (fn () =>
     let
       val (declared_type, arguments_with_types) =
@@ -895,6 +982,12 @@ fun elaborate_with_timing timer lthy
                error
                  (empty_source_message kind ^
                    Position.here (Input.pos_of source))))
+      val _ =
+        if pp_test
+        then
+          timing_phase timer "pretty-print roundtrip" (fn () =>
+            pretty_roundtrip lthy source ast)
+        else ()
       val unchecked =
         timing_phase timer "lower AST" (fn () =>
           lower kind lthy arguments_with_types ast)
@@ -922,7 +1015,7 @@ fun elaborate_with_timing timer lthy
             closed
           end)
     in
-      closed
+      {ast = ast, term = closed}
     end)
 
 fun elaborate lthy
@@ -933,19 +1026,27 @@ fun elaborate lthy
     val (timing_info, timing_verbosity) =
       configured_timing lthy Symtab.empty
     val timer = new_command_timer timing_info
+    val pp_test = Config.get lthy urust_pp_test
   in
     run_with_timing timer timing_verbosity
       "URust_Command.elaborate" source
-      (fn () => elaborate_with_timing timer lthy args)
+      (fn () => #term (elaborate_with_timing timer pp_test lthy args))
   end
 
 datatype declaration_result =
     Definition_Result of
-      {lhs: term, fact_name: string, theorem: thm}
+      {lhs: term, display_lhs: term,
+       fact_name: string, theorem: thm,
+       pretty_arguments: string list,
+       pretty_body: Pretty.T option}
   | Abbreviation_Result of
-      {lhs: term, rhs: term, name: string}
+      {lhs: term, rhs: term, name: string,
+       pretty_arguments: string list,
+       pretty_body: Pretty.T option}
   | Anonymous_Result of
-      {term: term, name: string, kind: elaboration_kind}
+      {term: term, name: string, kind: elaboration_kind,
+       pretty_arguments: string list,
+       pretty_body: Pretty.T option}
 
 datatype declaration_target =
     Named_Target of Binding.binding
@@ -1003,7 +1104,7 @@ fun declaration_name fallback lhs =
    | _ => fallback)
 
 fun install_urust_result abbreviation application_definition
-    attributes binding argument_count term lthy =
+    attributes binding arguments pretty_body term lthy =
   let
     val name = Binding.name_of binding
     (* Keep declaration installation silent even when show_results is enabled; the cumulative
@@ -1017,8 +1118,14 @@ fun install_urust_result abbreviation application_definition
       |> map Free
     val (definition_arguments, definition_rhs) =
       if application_definition
-      then Term.strip_abs_eta argument_count term
+      then Term.strip_abs_eta (length arguments) term
       else ([], term)
+    val display_arguments =
+      if application_definition then
+        map2
+          (fn (source_name, _) => fn (_, T) => Free (source_name, T))
+          arguments definition_arguments
+      else []
     val definition_lhs =
       list_comb
         (Free
@@ -1036,7 +1143,9 @@ fun install_urust_result abbreviation application_definition
           declaration_name (Local_Theory.full_name lthy binding) lhs
       in
         (Abbreviation_Result
-          {lhs = lhs, rhs = rhs, name = full_name},
+          {lhs = lhs, rhs = rhs, name = full_name,
+           pretty_arguments = map #1 arguments,
+           pretty_body = pretty_body},
          Config.put Proof_Display.show_results show_results lthy')
       end
     else
@@ -1047,29 +1156,57 @@ fun install_urust_result abbreviation application_definition
             ((Thm.def_binding binding, attributes),
               Logic.mk_equals (definition_lhs, definition_rhs)) silent_lthy
         val lhs = list_comb (defined_lhs, definition_parameters)
+        val display_lhs =
+          list_comb
+            (defined_lhs,
+             definition_parameters @ display_arguments)
       in
         (Definition_Result
-          {lhs = lhs, fact_name = fact_name, theorem = theorem},
+          {lhs = lhs, display_lhs = display_lhs,
+           fact_name = fact_name, theorem = theorem,
+           pretty_arguments =
+             if application_definition then [] else map #1 arguments,
+           pretty_body = pretty_body},
          Config.put Proof_Display.show_results show_results lthy')
       end
   end
 
-fun declare_urust_result timer abbreviation application_definition attributes kind
+fun declare_urust_result timer pp_test render_pretty
+    abbreviation application_definition attributes kind
     (target, declared_type, source, arguments_pos, arguments) lthy =
   let
-    val term =
-      elaborate_with_timing timer lthy
+    val {ast, term} =
+      elaborate_with_timing timer pp_test lthy
         {kind = kind,
          source = source,
          arguments = arguments,
          arguments_pos = arguments_pos,
          declared_type = declared_type}
+    val pretty_body =
+      if render_pretty then
+        timing_phase timer "pretty output markup" (fn () =>
+          let
+            fun reparse pretty_source =
+              ignore
+                (elaborate_with_timing
+                  (new_command_timer false) false lthy
+                  {kind = kind,
+                   source = pretty_source,
+                   arguments = arguments,
+                   arguments_pos = arguments_pos,
+                   declared_type = declared_type})
+          in
+            SOME
+              (URust_Printer_Output.pretty_human_expr_with_reparse
+                reparse ast)
+          end)
+      else NONE
   in
     timing_phase timer "declaration installation" (fn () =>
       (case target of
-         Named_Target binding =>
+       Named_Target binding =>
            install_urust_result abbreviation application_definition attributes binding
-             (length arguments) term lthy
+             arguments pretty_body term lthy
        | Anonymous_Target _ =>
            let
              val binding = target_binding kind target
@@ -1077,7 +1214,9 @@ fun declare_urust_result timer abbreviation application_definition attributes ki
              (Anonymous_Result
                 {term = term,
                  name = Local_Theory.full_name lthy binding,
-                 kind = kind},
+                 kind = kind,
+                 pretty_arguments = map #1 arguments,
+                 pretty_body = pretty_body},
               lthy)
            end))
   end
@@ -1138,14 +1277,99 @@ fun print_anonymous interactive verbosity lthy kind name term =
          Syntax.pretty_term lthy term])
   else ()
 
-fun print_declaration interactive verbosity lthy declaration =
+fun pretty_declaration_heading kind name =
+  Pretty.block
+    [Pretty.mark_position (Position.thread_data ())
+       (Pretty.keyword1 kind),
+     Pretty.brk 1,
+     Pretty.str (Long_Name.base_name name),
+     Pretty.str ":"]
+
+fun the_pretty_body (SOME pretty) = pretty
+  | the_pretty_body NONE =
+      error "uRust command: internal missing pretty-print body"
+
+val symbolic_urust_open =
+  Pretty.block
+    [Pretty.mark_str (Markup.keyword1, "\<mu>"),
+     Pretty.mark_str (Markup.delimiter, Symbol.open_)]
+
+val symbolic_urust_close =
+  Pretty.mark_str (Markup.delimiter, Symbol.close)
+
+fun pretty_urust_formals arguments =
+  Pretty.block
+    ([Pretty.mark_str (Markup.operator, "|")] @
+     Pretty.commas
+       (map (Pretty.mark_str o pair Markup.bound) arguments) @
+     [Pretty.mark_str (Markup.operator, "|")])
+
+fun pretty_urust_lines opening arguments pretty_body =
+  let
+    val pretty = the_pretty_body pretty_body
+    val contents =
+      if null arguments
+      then [Pretty.indent 2 pretty]
+      else
+        [Pretty.indent 2 (pretty_urust_formals arguments),
+         Pretty.indent 4 pretty]
+  in
+    Pretty.chunks (opening :: contents @ [symbolic_urust_close])
+  end
+
+fun pretty_urust_equation lthy lhs pretty_arguments pretty_body =
+  let
+    val opening =
+      Pretty.block1
+        [Syntax.pretty_term
+           (Config.put Proof_Context.show_abbrevs false lthy)
+           lhs,
+         Pretty.brk 1,
+         Pretty.str "\<equiv>",
+         Pretty.str " ",
+         symbolic_urust_open]
+  in
+    pretty_urust_lines opening pretty_arguments pretty_body
+  end
+
+fun pretty_urust_declaration lthy declaration =
+  (case declaration of
+     Definition_Result
+       {fact_name, display_lhs, pretty_arguments, pretty_body, ...} =>
+       Pretty.chunks
+         [pretty_declaration_heading "definition" fact_name,
+          pretty_urust_equation lthy display_lhs
+            pretty_arguments pretty_body]
+   | Abbreviation_Result
+       {lhs, name, pretty_arguments, pretty_body, ...} =>
+       Pretty.chunks
+         [pretty_declaration_heading "abbreviation" name,
+          pretty_urust_equation lthy lhs
+            pretty_arguments pretty_body]
+   | Anonymous_Result
+       {name, kind, pretty_arguments, pretty_body, ...} =>
+       Pretty.chunks
+       [pretty_declaration_heading (command_label kind) name,
+        pretty_urust_lines symbolic_urust_open
+          pretty_arguments pretty_body])
+
+fun print_pretty_declaration interactive verbosity lthy declaration =
+  if verbosity >= 1 andalso
+     verbosity_output_enabled interactive lthy
+  then Pretty.writeln (pretty_urust_declaration lthy declaration)
+  else ()
+
+fun print_declaration interactive verbosity pretty lthy declaration =
+  if pretty then
+    print_pretty_declaration interactive verbosity lthy declaration
+  else
   (case declaration of
      Definition_Result {fact_name, theorem, ...} =>
        print_generated_result interactive verbosity 1 "definition" lthy
          (fact_name, [theorem])
-   | Abbreviation_Result {lhs, rhs, name} =>
+   | Abbreviation_Result {lhs, rhs, name, ...} =>
        print_abbreviation interactive verbosity lthy name lhs rhs
-   | Anonymous_Result {term, name, kind} =>
+   | Anonymous_Result {term, name, kind, ...} =>
        print_anonymous interactive verbosity lthy kind name term)
 
 fun note_conformance timer binding declaration old_frontend lthy =
@@ -1265,7 +1489,7 @@ fun old_frontend_function timer lthy declared_type parameters old_body_source =
   end
 
 fun declare_with_frontend_check
-    timer declaration binding make_old interactive verbosity lthy =
+    timer declaration binding make_old interactive verbosity pretty lthy =
   let
     val (result, lthy') = declaration lthy
     val declaration_term = declaration_conformance_term result
@@ -1276,7 +1500,7 @@ fun declare_with_frontend_check
           (fastype_of declaration_term))
     val (conformance, lthy'') =
       note_conformance timer binding result old_frontend lthy'
-    val _ = print_declaration interactive verbosity lthy'' result
+    val _ = print_declaration interactive verbosity pretty lthy'' result
     val _ =
       print_generated_result interactive verbosity 2 Thm.theoremK lthy''
         conformance
@@ -1284,11 +1508,26 @@ fun declare_with_frontend_check
     lthy''
   end
 
-fun declare_and_print declaration interactive verbosity lthy =
+fun declare_and_print declaration interactive verbosity pretty lthy =
   let
     val (result, lthy') = declaration lthy
-    val _ = print_declaration interactive verbosity lthy' result
+    val _ = print_declaration interactive verbosity pretty lthy' result
   in lthy' end
+
+fun warn_ineffective_pretty options source pretty verbosity =
+  if pretty andalso verbosity = 0 then
+    let
+      val pos =
+        (case Symtab.lookup options pretty_option of
+           SOME (_, option_pos) => option_pos
+         | NONE => Input.pos_of source)
+    in
+      warning
+        ("uRust command option " ^ quote pretty_option ^
+          " has no effect when verbosity = 0" ^
+          Position.here pos)
+    end
+  else ()
 
 fun reject_contradictory_against command options against =
   (case (Symtab.lookup options conformance_option, against) of
@@ -1321,7 +1560,15 @@ fun define_urust_expr
     val (timing_info, timing_verbosity) =
       configured_timing lthy options
     val timer = new_command_timer timing_info
+    val pp_test =
+      configured_flag lthy options pp_test_option urust_pp_test
     val verbosity = configured_verbosity lthy options
+    val pretty =
+      configured_flag lthy options pretty_option urust_pretty
+    val _ = warn_ineffective_pretty options source pretty verbosity
+    val render_pretty =
+      pretty andalso verbosity >= 1 andalso
+        verbosity_output_enabled interactive lthy
     val abbreviation =
       configured_flag lthy options abbrev_option urust_abbrev
     val application_definition =
@@ -1338,7 +1585,8 @@ fun define_urust_expr
     val kind = command_elaboration_kind lthy declared_type
     val binding = target_binding kind target
     fun declaration lthy' =
-      declare_urust_result timer abbreviation application_definition
+      declare_urust_result timer pp_test render_pretty
+        abbreviation application_definition
         attributes kind args lthy'
     fun checked old_body =
       declare_with_frontend_check timer declaration binding
@@ -1349,7 +1597,7 @@ fun define_urust_expr
                  old_frontend_expression timer ctxt complete_type arguments old_body
              | Function =>
                  old_frontend_function timer ctxt complete_type arguments old_body))
-        interactive verbosity lthy
+        interactive verbosity pretty lthy
     fun run () =
       (case against of
          SOME (old_frontend, _) =>
@@ -1358,7 +1606,8 @@ fun define_urust_expr
            if configured_flag lthy options conformance_option
                 urust_conformance
            then checked (old_frontend_source source)
-           else declare_and_print declaration interactive verbosity lthy)
+           else
+             declare_and_print declaration interactive verbosity pretty lthy)
   in
     run_command_with_timing timer timing_verbosity
       "urust_expr" (Binding.name_of binding) source run
@@ -1373,7 +1622,15 @@ fun define_urust_fn
     val (timing_info, timing_verbosity) =
       configured_timing lthy options
     val timer = new_command_timer timing_info
+    val pp_test =
+      configured_flag lthy options pp_test_option urust_pp_test
     val verbosity = configured_verbosity lthy options
+    val pretty =
+      configured_flag lthy options pretty_option urust_pretty
+    val _ = warn_ineffective_pretty options body pretty verbosity
+    val render_pretty =
+      pretty andalso verbosity >= 1 andalso
+        verbosity_output_enabled interactive lthy
     val application_definition =
       configured_flag lthy options application_def_option
         urust_application_def
@@ -1382,14 +1639,15 @@ fun define_urust_fn
     val raw_type = require_function_type body declared_type
     val binding = target_binding Function target
     fun declaration lthy' =
-      declare_urust_result timer false application_definition attributes Function
+      declare_urust_result timer pp_test render_pretty
+        false application_definition attributes Function
         (target, SOME raw_type, body, parameters_pos, parameters) lthy'
     fun checked old_body =
       declare_with_frontend_check timer declaration binding
         (fn ctxt => fn complete_type =>
           close_typed_term Function ctxt (#2 raw_type)
             (old_frontend_function timer ctxt complete_type parameters old_body))
-        interactive verbosity lthy
+        interactive verbosity pretty lthy
     fun run () =
       (case against of
          SOME (old_frontend, _) =>
@@ -1398,7 +1656,8 @@ fun define_urust_fn
            if configured_flag lthy options conformance_option
                 urust_conformance
            then checked (old_frontend_source body)
-           else declare_and_print declaration interactive verbosity lthy)
+           else
+             declare_and_print declaration interactive verbosity pretty lthy)
   in
     run_command_with_timing timer timing_verbosity
       "urust_fn" (Binding.name_of binding) body run

@@ -5,6 +5,7 @@ theory Parser_Tests_Expr
 begin
 
 declare [[urust_conformance = true]]
+declare [[urust_pp_test = true]]
 
 section\<open>Numeric literals (Corpus PART I, "Numeric Literals")\<close>
 

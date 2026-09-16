@@ -132,6 +132,32 @@ urust_expr [OPTIONS] NAME [:: TYPE] [(ARG, ...)] \<open> body \<close>
 urust_fn [OPTIONS] NAME :: TYPE [(PARAMETER, ...)] \<open> body \<close>
 ```
 
+It also exposes the position-independent `URust_Printer` ML API. Serialized mode preserves explicit
+AST groups and is used by the common Boolean `pp_test` declaration option (or scoped
+`urust_pp_test`) for a silent parse-print-parse token comparison before lowering. Human mode removes
+redundant grouping and is available in verbosity-controlled `urust_expr` and `urust_fn` output
+through the common Boolean `pretty` option (or scoped `urust_pretty`). At verbosity 0, `pretty` has
+no output to affect and produces a warning. Conformance theorems retain ordinary HOL rendering
+because their right-hand side comes from the legacy frontend. For human output, the formatted body
+appears inside a symbolic `µ‹…›` wrapper that is unrelated to source quotation syntax, and comes
+from a pure source-mapped document whose public token projection remains position-free.
+Command arguments appear as uRust closure formals on the pretty right-hand side by default;
+`application_def` instead displays them as applications on the left-hand side.
+The symbolic opening follows the equation marker on the same line; right-hand closure formals and
+the body occupy successively indented lines.
+In human mode, nonempty code blocks for control flow, matches, closures, bindings, and assignments
+always place their code on indented lines, independently of the PIDE margin; opening braces remain
+on the construct line and `} else {` remains together. Serialized mode retains compact canonical
+blocks where possible. Multiline brace bodies use two-space nesting from the construct's line
+indentation rather than aligning beneath the opening brace.
+`Parser_Impl_Printer_Output` reparses that canonical generated source only through the new frontend
+and transfers every resulting lexical, semantic, entity, typing, and embedded-HOL PIDE report to the
+document's matching lexeme span before final line layout. The InfoView therefore inherits parser
+markup without the printer reconstructing binder or identifier roles.
+The parser test session enables the
+scoped roundtrip check across its command-bearing theories; `Parser_Test_Printer.thy` separately
+demonstrates and audits human-readable formatting.
+
 Existing integral and raw-pointer cast targets may also receive context-local source aliases:
 
 ```isabelle
