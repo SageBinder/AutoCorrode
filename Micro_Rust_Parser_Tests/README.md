@@ -133,9 +133,10 @@ negative rows preserve these boundaries.
   structs, integer lexing, comments, exhaustive array-repeat coverage, generated grammar, markup,
   and recovery.
 - `Parser_Pattern_Matching_Tests.thy`: `Ctr_Sugar`, custom enum and simple-word-enum native case
-  metadata, metadata-free value/literal equality and switch controls, ambiguity, deep registered
-  nullary structural matching, guards, coverage, source order, single evaluation, term shape, markup,
-  and recovery.
+  metadata, exhaustive/partial/guarded/or/nested and singleton simple-word-enum matches, the legacy
+  nested-variant catch-all bug, metadata-free value/literal equality and switch controls, ambiguity,
+  deep registered nullary structural matching, guards, coverage, source order, single evaluation,
+  term shape, markup, and recovery.
 - `Parser_Name_Resolution_Tests.thy`: notation dispatch, navigation, qualifier markup, turbofish,
   scoped cast-target aliases, primitive-type path heads, and the shared iterator `zip` registration
   audit.
