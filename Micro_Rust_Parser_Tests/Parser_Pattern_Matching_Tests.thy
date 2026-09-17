@@ -155,9 +155,11 @@ urust_expr parser_word_family_matches ::
 text\<open>
 The legacy frontend's nested-pattern path asks \<open>Basic_Case_Expression\<close> whether a free
 identifier is a \<open>Code.is_constr\<close> constructor. A \<open>simple_word_enum\<close> variant instead receives
-native case metadata through \<open>Case_Translation\<close>, so the legacy frontend silently treats the
-nested variant below as a binder. The dedicated parser resolves the same metadata before calling the
-shared case backend and therefore preserves the constructor test.
+native case metadata through \<open>Case_Translation\<close>. Unlike the other qualification-sensitive legacy
+bug, this failure also occurs with the unqualified variant name: the legacy frontend silently treats
+both that spelling and the fully qualified nested variant below as binders. The dedicated parser
+resolves the same metadata before calling the shared case backend and therefore preserves the
+constructor test.
 \<close>
 
 definition parser_word_family_legacy_nested ::
@@ -170,7 +172,7 @@ definition parser_word_family_legacy_nested ::
       parser_word_family_legacy_nested scrutinee \<equiv>
         \<lbrakk>
           match scrutinee {
-            Some(ParserWordFirst) \<Rightarrow> 1,
+            Some(ParserWordFamily::First) \<Rightarrow> 1,
             _ \<Rightarrow> 0
           }
         \<rbrakk>

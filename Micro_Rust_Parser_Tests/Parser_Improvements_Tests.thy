@@ -2476,8 +2476,10 @@ section\<open>Nested simple-word-enum constructors\<close>
 text\<open>
 The legacy basic-case frontend recognizes a nested free constructor identifier only through
 \<open>Code.is_constr\<close>. A \<open>simple_word_enum\<close> variant instead receives its constructor family from
-\<open>Case_Translation\<close>, so the old frontend silently treats the nested variant as a binder. The
-dedicated parser resolves the native case metadata first and retains the intended constructor test.
+\<open>Case_Translation\<close>. Unlike the other qualification-sensitive legacy bug, this failure also
+occurs with the unqualified variant name: the old frontend silently treats both that spelling and
+the fully qualified nested variant below as binders. The dedicated parser resolves the native case
+metadata first and retains the intended constructor test.
 \<close>
 
 simple_word_enum (plugins del: word_conversion) (8)
@@ -2513,7 +2515,7 @@ definition legacy_nested_simple_word_enum ::
       legacy_nested_simple_word_enum scrutinee \<equiv>
         \<lbrakk>
           match scrutinee {
-            Some(ImprovementWordFirst) \<Rightarrow> 1,
+            Some(ImprovementWordKind::ImprovementWordFirst) \<Rightarrow> 1,
             _ \<Rightarrow> 0
           }
         \<rbrakk>
