@@ -1,8 +1,8 @@
 (* Accepted-surface improvements and intentional checked-term corrections.
    Test order is significant and matches the former focused theory. *)
 
-theory Parser_Tests_Improvements
-  imports Parser_Tests_Expr Parser_Tests_Fun
+theory Parser_Improvements_Tests
+  imports Parser_Expr_Conformance_Tests Parser_Fn_Conformance_Tests
   keywords
     "old_urust_rejects" :: thy_decl
 begin
@@ -190,7 +190,7 @@ section\<open>Intentional checked-term corrections\<close>
 text\<open>
 These sources are accepted by both parsers, but the dedicated parser intentionally corrects a
 legacy checked-term behavior. They remain executable acceptance tests here, while
-\<open>Parser_Tests_Misc.thy\<close> pins the associated corrected term shapes. They are not same-source
+\<open>Parser_Misc_Tests.thy\<close> pins the associated corrected term shapes. They are not same-source
 conformance rows.
 \<close>
 
@@ -1266,7 +1266,7 @@ section\<open>Trailing commas\<close>
 
 text\<open>
 The old frontend accepts trailing commas only in slice patterns, whose shared
-cases are in \<open>Parser_Tests_Expr\<close>. Calls, arms, constructor
+cases are in \<open>Parser_Expr_Conformance_Tests\<close>. Calls, arms, constructor
 patterns, tuples, array literals, and struct patterns reject there. Each source
 below is checked against the same old-frontend term with only its terminal comma
 removed.

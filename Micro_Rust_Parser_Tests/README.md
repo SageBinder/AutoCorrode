@@ -20,7 +20,7 @@ Every multi-segment path instead requires an exact role-appropriate registration
 values, places, and constructor/struct patterns; `(call)` for calls, struct
 expressions, and registered macros, whose key includes the trailing `!`. A registration in another
 role does not satisfy the check. Method names remain single-segment and retain registration-first
-resolution. `Parser_Tests_Misc.thy`
+resolution. `Parser_Misc_Tests.thy`
 contains the exact `zip` collision: a parameter named `zip` shadows HOL `List.zip`, the conformance
 theorem closes by reflexivity, and the generated definition is structurally checked not to contain
 `List.zip`.
@@ -33,7 +33,7 @@ type is completed to a fresh five-parameter `function_body` before ordinary chec
 
 Struct-expression labels used by the source-order call syntax are erased during lowering and do not
 denote HOL terms. `URust_Resolution.report_struct_label` therefore retains their syntax typing
-tooltip without reporting them as `Markup.free`. `Parser_Tests_Misc.thy` checks ordinary registered
+tooltip without reporting them as `Markup.free`. `Parser_Misc_Tests.thy` checks ordinary registered
 struct calls, nested expressions, and grouped control heads.
 
 Every qualifier of an exact registered path has one role-specific tooltip without pretending to be
@@ -60,7 +60,7 @@ retain notation navigation and `keyword3` styling while linking to their HOL con
 `lift_fun1`. Their constructor-pattern occurrences remain ordinary neutral constructor references.
 A lifted lambda keeps notation navigation and styling but emits no false wrapper-constant target.
 Ordinary registrations, multi-backend multiplicity, qualifier reports, ASTs, and checked terms retain
-their previous behavior. `Parser_Tests_Misc.thy` audits each boundary directly.
+their previous behavior. `Parser_Misc_Tests.thy` audits each boundary directly.
 
 ## Parser and lowering architecture
 
@@ -122,17 +122,17 @@ negative rows preserve these boundaries.
 
 ## Focused regression theories
 
-- `Parser_Tests_Grammar_Literals.thy`: precedence adjacency, unary/cast/postfix behavior, direct and
+- `Parser_Syntax_Tests.thy`: precedence adjacency, unary/cast/postfix behavior, direct and
   wrapped block-like operands, statement/arm separators, recursive no-struct heads, closures,
   structs, integer lexing, generated grammar, markup, and recovery.
-- `Parser_Test_Constructor_Matching.thy`: `Ctr_Sugar`, custom enum and simple-word-enum native case
+- `Parser_Pattern_Matching_Tests.thy`: `Ctr_Sugar`, custom enum and simple-word-enum native case
   metadata, metadata-free value/literal equality and switch controls, ambiguity, deep registered
   nullary structural matching, guards, coverage, source order, single evaluation, term shape, markup,
   and recovery.
-- `Parser_Test_Iterator_Zip.thy`: empty and unequal inputs, truncation, effect order, single
+- `Parser_Iterator_Tests.thy`: empty and unequal inputs, truncation, effect order, single
   evaluation, direct/method/chained resolution, arity preflight, notation registration, and
   separation from pure HOL `List.zip`.
-- `Parser_Test_Showoff.thy`: combined command, grammar, matching, and iterator examples.
+- `Parser_Showcase_Tests.thy`: combined command, grammar, matching, and iterator examples.
 
 Every `.thy` file in this directory is registered in `ROOT`.
 

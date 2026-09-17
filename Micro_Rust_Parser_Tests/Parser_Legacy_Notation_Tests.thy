@@ -7,7 +7,7 @@
    `Micro_Rust_Names`, emits a `urust_dispatch` marker, and the typed
    term_check phase resolves it (e.g. to `my_test_some`). *)
 
-theory Micro_Rust_Notations_Test
+theory Parser_Legacy_Notation_Tests
   imports Shallow_Micro_Rust_Base.Micro_Rust_Shallow_Embedding
 begin
 

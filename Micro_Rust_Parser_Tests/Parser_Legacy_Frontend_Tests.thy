@@ -1,7 +1,7 @@
 (* Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
    SPDX-License-Identifier: MIT *)
 
-theory Micro_Rust_Shallow_Embedding_Tests
+theory Parser_Legacy_Frontend_Tests
   imports
     Shallow_Micro_Rust_Base.Micro_Rust_Shallow_Embedding
 begin

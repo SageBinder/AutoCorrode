@@ -1,5 +1,5 @@
-theory Parser_Tests_Grammar_Literals
-  imports Parser_Tests_Improvements Parser_Tests_Negative_Conformance
+theory Parser_Syntax_Tests
+  imports Parser_Improvements_Tests Parser_Rejection_Tests
 begin
 
 declare [[urust_conformance = true]]

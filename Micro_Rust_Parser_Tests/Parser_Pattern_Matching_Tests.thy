@@ -1,8 +1,8 @@
-theory Parser_Test_Constructor_Matching
+theory Parser_Pattern_Matching_Tests
   imports
     Parser_Test_Utils
-    Constructor_Ambiguity_Left
-    Constructor_Ambiguity_Right
+    Parser_Constructor_Ambiguity_Left_Fixtures
+    Parser_Constructor_Ambiguity_Right_Fixtures
     Misc.Simple_Word_Enums
     Shallow_Micro_Rust.Core_Expression_Lemmas
 begin
@@ -3755,10 +3755,10 @@ ML_val\<open>
            error "constructor matching audit: expected constructor ambiguity")
     val left_name =
       dest_Const_name
-        \<^term>\<open>Constructor_Ambiguity_Left.Shared\<close>
+        \<^term>\<open>Parser_Constructor_Ambiguity_Left_Fixtures.Shared\<close>
     val right_name =
       dest_Const_name
-        \<^term>\<open>Constructor_Ambiguity_Right.Shared\<close>
+        \<^term>\<open>Parser_Constructor_Ambiguity_Right_Fixtures.Shared\<close>
     val _ =
       assert "ambiguity diagnostic omitted the left qualified candidate"
         (String.isSubstring left_name ambiguity_message)

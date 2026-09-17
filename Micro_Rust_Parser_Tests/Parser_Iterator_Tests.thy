@@ -1,4 +1,4 @@
-theory Parser_Test_Iterator_Zip
+theory Parser_Iterator_Tests
   imports
     Micro_Rust_Parser_Impl.Parser_Impl_Command
     Shallow_Micro_Rust.Eval

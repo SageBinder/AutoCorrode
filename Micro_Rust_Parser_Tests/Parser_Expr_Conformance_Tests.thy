@@ -1,6 +1,6 @@
 (* Positive expression conformance against the legacy inner-syntax frontend. *)
 
-theory Parser_Tests_Expr
+theory Parser_Expr_Conformance_Tests
   imports Micro_Rust_Parser_Impl.Parser_Impl_Command "HOL.Real"
 begin
 
@@ -219,7 +219,7 @@ urust_expr tuple_prime_identifiers
 
 text\<open>
 Refutable binding patterns and forms excluded by a consumer-specific pattern policy have positioned
-rows in \<open>Parser_Tests_Misc.thy\<close>.
+rows in \<open>Parser_Misc_Tests.thy\<close>.
 \<close>
 
 section\<open>Tuple values and irrefutable tuple binders\<close>
@@ -751,10 +751,10 @@ datatype native_qualified_constructor_left =
 
 micro_rust_notation (literal)
   native_qualified_constructor_left.NativeQualifiedShared
-  ("Parser_Tests_Expr::native_qualified_constructor_left::NativeQualifiedShared")
+  ("Parser_Expr_Conformance_Tests::native_qualified_constructor_left::NativeQualifiedShared")
 micro_rust_notation (literal)
   native_qualified_constructor_left.NativeQualifiedLeftOnly
-  ("Parser_Tests_Expr::native_qualified_constructor_left::NativeQualifiedLeftOnly")
+  ("Parser_Expr_Conformance_Tests::native_qualified_constructor_left::NativeQualifiedLeftOnly")
 
 definition path_some_call ::
   \<open>nat \<Rightarrow>
@@ -817,8 +817,8 @@ urust_expr path_grouped_constructor_pattern
 urust_expr native_qualified_constructor_pattern
   \<open>
     match_case \<llangle>native_qualified_constructor_left.NativeQualifiedShared\<rrangle> {
-      Parser_Tests_Expr::native_qualified_constructor_left::NativeQualifiedShared \<Rightarrow> 1,
-      Parser_Tests_Expr::native_qualified_constructor_left::NativeQualifiedLeftOnly \<Rightarrow> 0
+      Parser_Expr_Conformance_Tests::native_qualified_constructor_left::NativeQualifiedShared \<Rightarrow> 1,
+      Parser_Expr_Conformance_Tests::native_qualified_constructor_left::NativeQualifiedLeftOnly \<Rightarrow> 0
     }
   \<close>
   against
@@ -2404,7 +2404,7 @@ urust_expr msw_or \<open> match_switch n { 1 | 2 | 3 \<Rightarrow> \<llangle>Tru
 text\<open>
 Rows cover a let RHS and the frontend-shared statement spelling, where explicit
 \<open>match_switch\<close> uses a semicolon. The dedicated parser's semicolon-free extension is checked
-against this spelling in \<open>Parser_Tests_Improvements.thy\<close>.
+against this spelling in \<open>Parser_Improvements_Tests.thy\<close>.
 \<close>
 urust_expr msw_let \<open> let r = match_switch n { 0 \<Rightarrow> \<llangle>True\<rrangle>, _ \<Rightarrow> \<llangle>False\<rrangle> }; r \<close>
 
@@ -2455,7 +2455,7 @@ urust_expr mc_let \<open> let r = match_case x { Some(y) \<Rightarrow> y, None \
 
 text\<open>
 As a \<open>;\<close>-terminated statement shared with the frontend. The dedicated parser also admits
-semicolon-free explicit matches, with equivalence witnesses in \<open>Parser_Tests_Improvements.thy\<close>.
+semicolon-free explicit matches, with equivalence witnesses in \<open>Parser_Improvements_Tests.thy\<close>.
 \<close>
 urust_expr mc_stmt \<open> match_case x { Some(_) \<Rightarrow> () , None \<Rightarrow> () } ; () \<close>
 
@@ -4726,16 +4726,16 @@ section\<open>Resolved divergences and current parity boundary\<close>
 text\<open>
 This theory keeps representative same-source positive rows for resolved parser/frontend differences.
 Shared and intentional parser-only rejections live in
-\<open>Parser_Tests_Negative_Conformance.thy\<close>;
-accepted-surface extensions live in \<open>Parser_Tests_Improvements.thy\<close>; and the remaining
-frontend-only expression forms stay as goldens in \<open>Conformance_Corpus.thy\<close>.
+\<open>Parser_Rejection_Tests.thy\<close>;
+accepted-surface extensions live in \<open>Parser_Improvements_Tests.thy\<close>; and the remaining
+frontend-only expression forms stay as goldens in \<open>Parser_Conformance_Corpus.thy\<close>.
 \<close>
 
 subsection\<open>D-1 (RESOLVED 2026-09-11): direct \<open>if\<close> binary operands\<close>
 
 text\<open>
 The dedicated parser admits direct block-like operands. The parenthesized row remains a shared
-frontend conformance fixture; direct rows live in \<open>Parser_Tests_Grammar_Literals.thy\<close>.
+frontend conformance fixture; direct rows live in \<open>Parser_Syntax_Tests.thy\<close>.
 \<close>
 urust_expr d1_paren_operand
   \<open> (if \<llangle>True\<rrangle> { \<llangle>1 :: 32 word\<rrangle> } else { \<llangle>2 :: 32 word\<rrangle> }) + \<llangle>3 :: 32 word\<rrangle> \<close>

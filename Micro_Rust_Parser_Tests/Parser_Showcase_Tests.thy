@@ -1,4 +1,4 @@
-theory Parser_Test_Showoff
+theory Parser_Showcase_Tests
   imports Micro_Rust_Parser_Impl.Parser_Impl_Command Micro_Rust_Std_Lib.StdLib_Logging
 begin
 

@@ -1,8 +1,8 @@
 (* Positive function conformance against the seven corpus FunctionBody definitions
    and the supported urust_fn declaration surface. *)
 
-theory Parser_Tests_Fun
-  imports Parser_Test_Utils Conformance_Corpus
+theory Parser_Fn_Conformance_Tests
+  imports Parser_Test_Utils Parser_Conformance_Corpus
 begin
 
 declare [[urust_conformance = true]]

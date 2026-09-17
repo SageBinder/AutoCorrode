@@ -1,4 +1,4 @@
-theory Parser_Test_Registered_Constructor_Fixtures
+theory Parser_Registered_Constructor_Fixtures
   imports Parser_Test_Utils
 begin
 

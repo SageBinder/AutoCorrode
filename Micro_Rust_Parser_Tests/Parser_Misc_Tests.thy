@@ -1,11 +1,11 @@
 (* Consolidated parser command, regression, and logging tests. *)
 
-theory Parser_Tests_Misc
+theory Parser_Misc_Tests
   imports
-    Parser_Tests_Improvements
-    Struct_Ambiguity_Left
-    Struct_Ambiguity_Right
-    Parser_Test_Registered_Constructor_Fixtures
+    Parser_Improvements_Tests
+    Parser_Struct_Ambiguity_Left_Fixtures
+    Parser_Struct_Ambiguity_Right_Fixtures
+    Parser_Registered_Constructor_Fixtures
     Micro_Rust_Std_Lib.StdLib_Logging
 begin
 
@@ -5271,7 +5271,7 @@ section\<open> Range, array, and indexing structure \<close>
 text\<open>
 The public AST keeps each source form explicit, while the term layer emits only
 the frontend vocabulary before the command's single final \<open>Syntax.check_term\<close>.
-Same-source commands in \<open>Parser_Tests_Expr\<close> separately require the
+Same-source commands in \<open>Parser_Expr_Conformance_Tests\<close> separately require the
 checked terms to close by \<open>refl\<close>.
 \<close>
 
@@ -10937,7 +10937,7 @@ ML_val\<open>
 
     val ctxt = \<^context>
     val color_ctxt =
-      Proof_Context.init_global \<^theory>\<open>Parser_Tests_Expr\<close>
+      Proof_Context.init_global \<^theory>\<open>Parser_Expr_Conformance_Tests\<close>
 
     fun audit_assert message condition =
       if condition then ()
@@ -14470,7 +14470,7 @@ declare [[urust_abbrev = false]]
 declare [[urust_conformance = true]]
 
 text\<open>
-This suite is evaluated after \<open>Parser_Tests_Expr\<close>, so the logging import does not affect that theory's built-in macro coverage.
+This suite is evaluated after \<open>Parser_Expr_Conformance_Tests\<close>, so the logging import does not affect that theory's built-in macro coverage.
 The \<open>StdLib_Logging\<close> import supplies the legacy frontend syntax used as the
 oracle for \<open>l\<llangle>...\<rrangle>\<close>, and it also registers \<open>fatal!\<close>,
 \<open>info!\<close>, and the other logger calls. In particular, registered
