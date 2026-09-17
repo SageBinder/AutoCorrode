@@ -2,7 +2,10 @@
    Test order is significant and matches the former focused theory. *)
 
 theory Parser_Improvements_Tests
-  imports Parser_Expr_Conformance_Tests Parser_Fn_Conformance_Tests
+  imports
+    Parser_Expr_Conformance_Tests
+    Parser_Fn_Conformance_Tests
+    Misc.Simple_Word_Enums
 begin
 
 declare [[urust_conformance = false]]
@@ -2467,6 +2470,79 @@ urust_expr while_let_nested_exhaustive_option
 
 
 chapter\<open>Demonstrated legacy-parser bugs\<close>
+
+section\<open>Nested simple-word-enum constructors\<close>
+
+text\<open>
+The legacy basic-case frontend recognizes a nested free constructor identifier only through
+\<open>Code.is_constr\<close>. A \<open>simple_word_enum\<close> variant instead receives its constructor family from
+\<open>Case_Translation\<close>, so the old frontend silently treats the nested variant as a binder. The
+dedicated parser resolves the native case metadata first and retains the intended constructor test.
+\<close>
+
+simple_word_enum (plugins del: word_conversion) (8)
+  improvement_word_kind =
+    ImprovementWordFirst = 1
+  | ImprovementWordSecond = 2
+
+micro_rust_notation (literal)
+  ImprovementWordFirst ("ImprovementWordKind::ImprovementWordFirst")
+micro_rust_notation (literal)
+  ImprovementWordSecond ("ImprovementWordKind::ImprovementWordSecond")
+
+urust_expr improvement_nested_simple_word_enum ::
+  \<open>
+    improvement_word_kind option \<Rightarrow>
+      (unit, nat, unit, unit, unit, unit) expression
+  \<close>
+  (scrutinee)
+  \<open>
+    match scrutinee {
+      Some(ImprovementWordKind::ImprovementWordFirst) \<Rightarrow> 1,
+      _ \<Rightarrow> 0
+    }
+  \<close>
+
+definition legacy_nested_simple_word_enum ::
+  \<open>
+    improvement_word_kind option \<Rightarrow>
+      (unit, nat, unit, unit, unit, unit) expression
+  \<close>
+  where
+    \<open>
+      legacy_nested_simple_word_enum scrutinee \<equiv>
+        \<lbrakk>
+          match scrutinee {
+            Some(ImprovementWordFirst) \<Rightarrow> 1,
+            _ \<Rightarrow> 0
+          }
+        \<rbrakk>
+    \<close>
+
+lemma improvement_nested_simple_word_enum_results:
+  shows
+    \<open>
+      improvement_nested_simple_word_enum
+          (Some ImprovementWordFirst) =
+        literal (1 :: nat)
+    \<close>
+    and
+    \<open>
+      improvement_nested_simple_word_enum
+          (Some ImprovementWordSecond) =
+        literal (0 :: nat)
+    \<close>
+    and
+    \<open>
+      legacy_nested_simple_word_enum
+          (Some ImprovementWordSecond) =
+        literal (1 :: nat)
+    \<close>
+  by
+    (simp_all add:
+      improvement_nested_simple_word_enum_def
+      legacy_nested_simple_word_enum_def
+      micro_rust_simps)
 
 section\<open>Function parameter precedence\<close>
 

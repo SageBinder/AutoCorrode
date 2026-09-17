@@ -104,6 +104,226 @@ urust_expr parser_word_family_sparse
     }
   \<close>
 
+urust_expr parser_word_family_exhaustive ::
+  \<open>
+    parser_word_family \<Rightarrow>
+      (unit, nat, unit, unit, unit, unit) expression
+  \<close>
+  (scrutinee)
+  \<open>
+    match_case scrutinee {
+      ParserWordFamily::Third \<Rightarrow> 30,
+      ParserWordFamily::First \<Rightarrow> 10,
+      ParserWordFamily::Second \<Rightarrow> 20
+    }
+  \<close>
+
+urust_expr parser_word_family_partial ::
+  \<open>
+    parser_word_family \<Rightarrow>
+      (unit, nat, unit, unit, unit, unit) expression
+  \<close>
+  (scrutinee)
+  \<open>
+    match_case scrutinee {
+      ParserWordFamily::Second \<Rightarrow> 2
+    }
+  \<close>
+
+urust_expr parser_word_family_guarded ::
+  \<open>
+    parser_word_family \<Rightarrow> bool \<Rightarrow>
+      (unit, nat, unit, unit, unit, unit) expression
+  \<close>
+  (scrutinee, enabled)
+  \<open>
+    match scrutinee {
+      ParserWordFamily::First if enabled \<Rightarrow> 10,
+      ParserWordFamily::First \<Rightarrow> 11,
+      ParserWordFamily::Second | ParserWordFamily::Third \<Rightarrow> 20
+    }
+  \<close>
+
+urust_expr parser_word_family_matches ::
+  \<open>
+    parser_word_family \<Rightarrow>
+      (unit, bool, unit, unit, unit, unit) expression
+  \<close>
+  (scrutinee)
+  \<open> matches!(scrutinee, ParserWordFamily::Second) \<close>
+
+text\<open>
+The legacy frontend's nested-pattern path asks \<open>Basic_Case_Expression\<close> whether a free
+identifier is a \<open>Code.is_constr\<close> constructor. A \<open>simple_word_enum\<close> variant instead receives
+native case metadata through \<open>Case_Translation\<close>, so the legacy frontend silently treats the
+nested variant below as a binder. The dedicated parser resolves the same metadata before calling the
+shared case backend and therefore preserves the constructor test.
+\<close>
+
+definition parser_word_family_legacy_nested ::
+  \<open>
+    parser_word_family option \<Rightarrow>
+      (unit, nat, unit, unit, unit, unit) expression
+  \<close>
+  where
+    \<open>
+      parser_word_family_legacy_nested scrutinee \<equiv>
+        \<lbrakk>
+          match scrutinee {
+            Some(ParserWordFirst) \<Rightarrow> 1,
+            _ \<Rightarrow> 0
+          }
+        \<rbrakk>
+    \<close>
+
+urust_expr [conformance = false] parser_word_family_nested ::
+  \<open>
+    parser_word_family option \<Rightarrow>
+      (unit, nat, unit, unit, unit, unit) expression
+  \<close>
+  (scrutinee)
+  \<open>
+    match scrutinee {
+      Some(ParserWordFamily::First | ParserWordFamily::Third) \<Rightarrow> 13,
+      Some(ParserWordFamily::Second) \<Rightarrow> 2,
+      None \<Rightarrow> 0
+    }
+  \<close>
+
+simple_word_enum (plugins del: word_conversion) (8)
+  parser_single_word_family =
+    ParserWordOnly = 173
+
+micro_rust_notation (literal)
+  ParserWordOnly ("ParserSingleWordFamily::ParserWordOnly")
+
+urust_expr parser_single_word_family_exhaustive ::
+  \<open>
+    parser_single_word_family \<Rightarrow>
+      (unit, nat, unit, unit, unit, unit) expression
+  \<close>
+  (scrutinee)
+  \<open>
+    match scrutinee {
+      ParserSingleWordFamily::ParserWordOnly \<Rightarrow> 1
+    }
+  \<close>
+
+lemma parser_word_family_results:
+  shows
+    \<open>
+      parser_word_family_exhaustive ParserWordFirst =
+        literal (10 :: nat)
+    \<close>
+    and
+    \<open>
+      parser_word_family_exhaustive ParserWordSecond =
+        literal (20 :: nat)
+    \<close>
+    and
+    \<open>
+      parser_word_family_exhaustive ParserWordThird =
+        literal (30 :: nat)
+    \<close>
+    and
+    \<open>
+      parser_word_family_guarded ParserWordFirst True =
+        literal (10 :: nat)
+    \<close>
+    and
+    \<open>
+      parser_word_family_guarded ParserWordFirst False =
+        literal (11 :: nat)
+    \<close>
+    and
+    \<open>
+      parser_word_family_guarded ParserWordSecond True =
+        literal (20 :: nat)
+    \<close>
+    and
+    \<open>
+      parser_word_family_guarded ParserWordThird False =
+        literal (20 :: nat)
+    \<close>
+    and
+    \<open>
+      parser_word_family_matches ParserWordSecond =
+        literal True
+    \<close>
+    and
+    \<open>
+      parser_word_family_matches ParserWordFirst =
+        literal False
+    \<close>
+    and
+    \<open>
+      parser_word_family_matches ParserWordThird =
+        literal False
+    \<close>
+  by
+    (simp_all add:
+      parser_word_family_exhaustive_def
+      parser_word_family_guarded_def
+      parser_word_family_matches_def
+      micro_rust_simps)
+
+lemma parser_word_family_nested_results:
+  shows
+    \<open>
+      parser_word_family_nested (Some ParserWordFirst) =
+        literal (13 :: nat)
+    \<close>
+    and
+    \<open>
+      parser_word_family_nested (Some ParserWordSecond) =
+        literal (2 :: nat)
+    \<close>
+    and
+    \<open>
+      parser_word_family_nested (Some ParserWordThird) =
+        literal (13 :: nat)
+    \<close>
+    and
+    \<open>
+      parser_word_family_nested None =
+        literal (0 :: nat)
+    \<close>
+  by
+    (simp_all add:
+      parser_word_family_nested_def
+      micro_rust_simps)
+
+lemma parser_word_family_legacy_nested_is_catchall:
+  shows
+    \<open>
+      parser_word_family_legacy_nested (Some ParserWordFirst) =
+        literal (1 :: nat)
+    \<close>
+    and
+    \<open>
+      parser_word_family_legacy_nested (Some ParserWordSecond) =
+        literal (1 :: nat)
+    \<close>
+    and
+    \<open>
+      parser_word_family_legacy_nested None =
+        literal (0 :: nat)
+    \<close>
+  by
+    (simp_all add:
+      parser_word_family_legacy_nested_def
+      micro_rust_simps)
+
+lemma parser_single_word_family_result:
+  \<open>
+    parser_single_word_family_exhaustive ParserWordOnly =
+      literal (1 :: nat)
+  \<close>
+  by
+    (simp add:
+      parser_single_word_family_exhaustive_def
+      micro_rust_simps)
+
 section\<open>Metadata-free registered values\<close>
 
 typedef parser_raw_value = \<open>UNIV :: nat set\<close>
@@ -2652,9 +2872,22 @@ ML_val\<open>
     val native_payload = resolve "ParserNative::Payload"
     val native_family =
       the (URust_Resolution.constructor_family native_payload)
+    val word_path = make_path "ParserWordFamily::Second"
+    val word_resolver =
+      URust_Resolution.make_constructor_resolver ctxt
+        (URust_AST.path_position word_path)
     val word_second = resolve "ParserWordFamily::Second"
     val word_family =
       the (URust_Resolution.constructor_family word_second)
+    val single_word_only =
+      resolve "ParserSingleWordFamily::ParserWordOnly"
+    val single_word_family =
+      the (URust_Resolution.constructor_family single_word_only)
+    val (word_case, word_case_members) =
+      the
+        (Case_Translation.lookup_by_constr_permissive ctxt
+          (dest_Const_name \<^term>\<open>ParserWordSecond\<close>,
+           fastype_of \<^term>\<open>ParserWordSecond\<close>))
     val raw_path = make_path "ParserRaw::First"
     val raw_resolver =
       URust_Resolution.make_constructor_resolver ctxt
@@ -2662,6 +2895,11 @@ ML_val\<open>
 
     val (_, native_members) = native_family
     val (_, word_members) = word_family
+    val (_, single_word_members) = single_word_family
+    val word_case_name =
+      dest_Const_name \<^term>\<open>case_parser_word_family\<close>
+    val single_word_case_name =
+      dest_Const_name \<^term>\<open>case_parser_single_word_family\<close>
     val _ =
       assert "custom enum positional arity was not recovered"
         (URust_Resolution.constructor_arity native_payload = 1)
@@ -2689,9 +2927,29 @@ ML_val\<open>
              \<^term>\<open>ParserWordSecond\<close>,
              \<^term>\<open>ParserWordThird\<close>])
     val _ =
+      assert "simple_word_enum native case registration changed"
+        (constant_name word_case = word_case_name andalso
+          map constant_name word_case_members =
+            map constant_name
+              [\<^term>\<open>ParserWordFirst\<close>,
+               \<^term>\<open>ParserWordSecond\<close>,
+               \<^term>\<open>ParserWordThird\<close>])
+    val _ =
+      assert "simple_word_enum was not classified as a registered constructor"
+        (URust_Resolution.classify_registered_literal ctxt
+          word_resolver word_path =
+            URust_Resolution.Registered_Constructor_Literal)
+    val _ =
+      assert "simple_word_enum constructor arity changed"
+        (URust_Resolution.constructor_arity word_second = 0)
+    val _ =
       assert "simple_word_enum unexpectedly became a Code constructor"
         (not (Code.is_constr theory
           (dest_Const_name \<^term>\<open>ParserWordSecond\<close>)))
+    val _ =
+      assert "singleton simple_word_enum family changed"
+        (map constant_name single_word_members =
+          [constant_name \<^term>\<open>ParserWordOnly\<close>])
     val _ =
       assert "metadata-free value acquired constructor identity"
         (URust_Resolution.classify_registered_literal ctxt
@@ -2713,6 +2971,83 @@ ML_val\<open>
       assert "metadata-free switch duplicated its scrutinee"
         (count_constant \<^const_name>\<open>parser_raw_scrutinee\<close>
           metadata_free = 1)
+
+    val word_exhaustive =
+      rhs_of "parser_word_family_exhaustive"
+    val word_partial =
+      rhs_of "parser_word_family_partial"
+    val word_guarded =
+      rhs_of "parser_word_family_guarded"
+    val word_matches =
+      rhs_of "parser_word_family_matches"
+    val word_nested =
+      rhs_of "parser_word_family_nested"
+    val word_legacy_nested =
+      rhs_of "parser_word_family_legacy_nested"
+    val single_word_exhaustive =
+      rhs_of "parser_single_word_family_exhaustive"
+    val _ =
+      assert "exhaustive simple_word_enum match lost its case combinator"
+        (count_constant word_case_name word_exhaustive = 1)
+    val _ =
+      assert "exhaustive simple_word_enum match retained undefined"
+        (count_constant \<^const_name>\<open>undefined\<close>
+          word_exhaustive = 0)
+    val _ =
+      assert "exhaustive simple_word_enum match used equality lowering"
+        (count_constant \<^const_name>\<open>urust_eq\<close>
+          word_exhaustive = 0)
+    val _ =
+      assert "partial simple_word_enum match lost its case combinator"
+        (count_constant word_case_name word_partial = 1)
+    val _ =
+      assert "partial simple_word_enum match lost its unmatched fallback"
+        (count_constant \<^const_name>\<open>undefined\<close>
+          word_partial > 0)
+    val _ =
+      assert "partial simple_word_enum match used equality lowering"
+        (count_constant \<^const_name>\<open>urust_eq\<close>
+          word_partial = 0)
+    val _ =
+      assert "guarded simple_word_enum match lost structural lowering"
+        (count_constant word_case_name word_guarded > 0)
+    val _ =
+      assert "guarded simple_word_enum match used equality lowering"
+        (count_constant \<^const_name>\<open>urust_eq\<close>
+          word_guarded = 0)
+    val _ =
+      assert "simple_word_enum matches! lost structural lowering"
+        (count_constant word_case_name word_matches = 1)
+    val _ =
+      assert "simple_word_enum matches! retained undefined"
+        (count_constant \<^const_name>\<open>undefined\<close>
+          word_matches = 0)
+    val _ =
+      assert "nested simple_word_enum match lost its case combinator"
+        (count_constant word_case_name word_nested = 1)
+    val _ =
+      assert "nested exhaustive simple_word_enum match retained undefined"
+        (count_constant \<^const_name>\<open>undefined\<close>
+          word_nested = 0)
+    val _ =
+      assert "nested simple_word_enum match used equality lowering"
+        (count_constant \<^const_name>\<open>urust_eq\<close>
+          word_nested = 0)
+    val _ =
+      assert "legacy nested simple_word_enum unexpectedly retained its constructor"
+        (count_constant \<^const_name>\<open>ParserWordFirst\<close>
+          word_legacy_nested = 0)
+    val _ =
+      assert "legacy nested simple_word_enum unexpectedly used its native case"
+        (count_constant word_case_name word_legacy_nested = 0)
+    val _ =
+      assert "singleton simple_word_enum match lost its case combinator"
+        (count_constant single_word_case_name
+          single_word_exhaustive = 1)
+    val _ =
+      assert "singleton simple_word_enum match retained undefined"
+        (count_constant \<^const_name>\<open>undefined\<close>
+          single_word_exhaustive = 0)
 
     val (nested_lhs, nested) =
       equation_of "parser_nested_registered_nullary"
