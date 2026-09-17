@@ -1,4 +1,4 @@
-theory Constructor_Ambiguity_Left
+theory Parser_Constructor_Ambiguity_Left_Fixtures
   imports Enum_Theory.Enum_Theory
 begin
 

@@ -1,4 +1,4 @@
-theory Parser_Test_Printer
+theory Parser_Printer_Tests
   imports Parser_Test_Utils
 begin
 
@@ -677,13 +677,14 @@ ML_val\<open>
         fun collect target chunks =
           Synchronized.change target (append chunks)
         val _ =
-          Unsynchronized.setmp Private_Output.warning_fn
-            (collect warnings)
-            (Unsynchronized.setmp Private_Output.writeln_fn
-              (collect ordinary)
-              (Unsynchronized.setmp Private_Output.writeln_urgent_fn
-                (collect urgent)
-                (run_command source_name command_text))) ()
+          Parser_Test_Report_Lock.run (fn () =>
+            Unsynchronized.setmp Private_Output.warning_fn
+              (collect warnings)
+              (Unsynchronized.setmp Private_Output.writeln_fn
+                (collect ordinary)
+                (Unsynchronized.setmp Private_Output.writeln_urgent_fn
+                  (collect urgent)
+                  (run_command source_name command_text))) ())
         val ordinary_chunks = Synchronized.value ordinary
         val urgent_chunks = Synchronized.value urgent
         val warning_chunks = Synchronized.value warnings

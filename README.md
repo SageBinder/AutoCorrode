@@ -178,7 +178,7 @@ the synthetic declaration against the already generated item-scope identities an
 HOL entities before final links to the original uRust type, constructor, and field declarations. It
 does not regenerate declarations, mutate item scope, or forward probe reports to the live document.
 The parser test session enables the
-scoped roundtrip check across its command-bearing theories; `Parser_Test_Printer.thy` separately
+scoped roundtrip check across its command-bearing theories; `Parser_Printer_Tests.thy` separately
 demonstrates and audits human-readable formatting.
 
 Existing integral and raw-pointer cast targets may also receive context-local source aliases:
@@ -243,7 +243,7 @@ length paths require exact `(literal)` registration. Unsuffixed and `usize` lite
 directly, while other word widths require the cast. Ordinary operands run exactly once, including at
 length zero. Inline-const bodies run once per element and not at all at length zero.
 
-`Parser_Tests_Improvements.thy` provides a consolidated positive baseline for array repeats, nested
+`Parser_Improvements_Tests.thy` provides a consolidated positive baseline for array repeats, nested
 block comments, and scoped cast-target aliases. Its separate legacy matcher-bug section demonstrates
 nested registered-nullary preservation, guarded-or fallthrough, fallback-binder hygiene, and nested
 alias preservation.

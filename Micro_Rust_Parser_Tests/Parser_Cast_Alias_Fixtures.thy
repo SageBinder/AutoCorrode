@@ -1,4 +1,4 @@
-theory Parser_Test_Cast_Alias_Fixtures
+theory Parser_Cast_Alias_Fixtures
   imports Parser_Test_Utils
 begin
 

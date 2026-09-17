@@ -11,27 +11,24 @@ session Micro_Rust_Parser_Tests = HOL +
     Lenses_And_Other_Optics
     Byte_Level_Encoding
   theories [document = false]
-    Conformance_Corpus
+    Parser_Conformance_Corpus
     Parser_Test_Utils
-    Parser_Test_Cast_Alias_Fixtures
-    Parser_Test_Registered_Constructor_Fixtures
-    Constructor_Ambiguity_Left
-    Constructor_Ambiguity_Right
-    Struct_Ambiguity_Left
-    Struct_Ambiguity_Right
-    Micro_Rust_Notations_Test
-    Micro_Rust_Shallow_Embedding_Tests
-    Parser_Tests_Expr
-    Parser_Tests_Fun
-    Parser_Tests_Improvements
-    Parser_Tests_Negative_Conformance
-    Parser_Tests_Grammar_Literals
-    Parser_Tests_Cast_Target_Aliases
-    Parser_Tests_Misc
-    Parser_Tests_Array_Repeats
-    Parser_Tests_Primitive_Path_Heads
-    Parser_Tests_Datatypes
-    Parser_Test_Constructor_Matching
-    Parser_Test_Iterator_Zip
-    Parser_Test_Printer
-    Parser_Test_Showoff
+    Parser_Cast_Alias_Fixtures
+    Parser_Iterator_Fixtures
+    Parser_Registered_Constructor_Fixtures
+    Parser_Constructor_Ambiguity_Left_Fixtures
+    Parser_Constructor_Ambiguity_Right_Fixtures
+    Parser_Struct_Ambiguity_Left_Fixtures
+    Parser_Struct_Ambiguity_Right_Fixtures
+    Parser_Legacy_Frontend_Tests
+    Parser_Expr_Conformance_Tests
+    Parser_Fn_Conformance_Tests
+    Parser_Improvements_Tests
+    Parser_Command_Tests
+    Parser_Rejection_Tests
+    Parser_Syntax_Tests
+    Parser_Pattern_Matching_Tests
+    Parser_Name_Resolution_Tests
+    Parser_Datatype_Tests
+    Parser_Printer_Tests
+    Parser_Showcase_Tests

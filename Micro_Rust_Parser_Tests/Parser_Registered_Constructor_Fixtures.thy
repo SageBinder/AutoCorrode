@@ -1,4 +1,4 @@
-theory Parser_Test_Registered_Constructor_Fixtures
+theory Parser_Registered_Constructor_Fixtures
   imports Parser_Test_Utils
 begin
 
@@ -73,5 +73,12 @@ micro_rust_notation (literal)
       bool negative_registered_phantom
   \<close>
   ("NegativeRegistered::Phantom")
+
+definition integration_registered_value_audit :: nat
+  where \<open> integration_registered_value_audit = 42 \<close>
+
+micro_rust_notation (literal)
+  integration_registered_value_audit
+  ("IntegrationAudit::Value")
 
 end

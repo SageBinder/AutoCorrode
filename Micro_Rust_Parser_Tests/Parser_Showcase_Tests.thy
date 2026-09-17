@@ -1,4 +1,4 @@
-theory Parser_Test_Showoff
+theory Parser_Showcase_Tests
   imports Micro_Rust_Parser_Impl.Parser_Impl_Command Micro_Rust_Std_Lib.StdLib_Logging
 begin
 
@@ -11,7 +11,7 @@ text\<open>
 These examples intentionally combine features. Shared-source examples check the
 same text against the existing frontend. The explicit \<open>urust_fn\<close> and common typed
 \<open>urust_expr\<close> function examples give equivalent old-frontend spellings; the combined
-parser-only expression has its witness in \<open>Parser_Test_Improvements\<close>.
+parser-only expression has its witness in \<open>Parser_Improvements_Tests\<close>.
 \<close>
 
 subsection\<open> Opt-in parser timing \<close>

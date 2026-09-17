@@ -1,4 +1,4 @@
-theory Parser_Tests_Datatypes
+theory Parser_Datatype_Tests
   imports Parser_Test_Utils
 begin
 
@@ -1598,11 +1598,12 @@ ML_val \<open>
         fun capture chunks =
           Synchronized.change captured (append chunks)
         val result =
-          Unsynchronized.setmp Private_Output.writeln_fn capture
-            (fn () =>
-              Exn.result
-                (run_command interactive source_name command_text)
-                ()) ()
+          Parser_Test_Report_Lock.run (fn () =>
+            Unsynchronized.setmp Private_Output.writeln_fn capture
+              (fn () =>
+                Exn.result
+                  (run_command interactive source_name command_text)
+                  ()) ())
         val body =
           YXML.parse_body
             (implode (Synchronized.value captured))
@@ -1653,11 +1654,12 @@ ML_val \<open>
         fun collect chunks =
           Synchronized.change warnings (append chunks)
         val result =
-          Unsynchronized.setmp Private_Output.warning_fn collect
-            (fn () =>
-              Exn.result
-                (run_command true source_name command_text)
-                ()) ()
+          Parser_Test_Report_Lock.run (fn () =>
+            Unsynchronized.setmp Private_Output.warning_fn collect
+              (fn () =>
+                Exn.result
+                  (run_command true source_name command_text)
+                  ()) ())
       in
         (result,
          maps YXML.parse_body
@@ -1815,8 +1817,8 @@ ML_val \<open>
         ("urust_datatype [verbosity = 0] output_quiet " ^
           datatype_source "OutputQuiet" "value: u32,")
     val _ =
-      if quiet = "" then ()
-      else error ("verbosity 0 produced output:\n" ^ quiet)
+      assert_absent "verbosity 0"
+        "urust_datatype generated artifacts" quiet
 
     val (_, manifest_body, manifest) =
       capture_result true "manifest"
@@ -2179,11 +2181,8 @@ ML_val \<open>
          "urust_datatype [verbosity = 0] inline_override " ^
           cartouche " struct InlineOverride; ")
     val _ =
-      if inline_override = "" then ()
-      else
-        error
-          ("inline verbosity override produced output:\n" ^
-            inline_override)
+      assert_absent "inline verbosity override"
+        "urust_datatype generated artifacts" inline_override
 
     val (_, _, interactive_gated) =
       capture_result false "interactive-gated"
@@ -2211,11 +2210,8 @@ ML_val \<open>
          "urust_datatype [verbosity = 2] fully_gated " ^
           cartouche " struct FullyGated; ")
     val _ =
-      if fully_gated = "" then ()
-      else
-        error
-          ("combined interactive/show_results gate produced output:\n" ^
-            fully_gated)
+      assert_absent "combined interactive/show_results gate"
+        "urust_datatype generated artifacts" fully_gated
 
     val (_, _, timing_independent) =
       capture_result true "timing-independent"
@@ -2224,11 +2220,12 @@ ML_val \<open>
          "urust_datatype [verbosity = 0] timing_independent " ^
           cartouche " struct TimingIndependent; ")
     val _ =
-      if timing_independent = "" then ()
-      else
-        error
-          ("datatype command produced expression timing output:\n" ^
-            timing_independent)
+      List.app
+        (fn unexpected =>
+          assert_absent "datatype timing independence"
+            unexpected timing_independent)
+        ["urust_datatype generated artifacts",
+         "timing information"]
 
     val (failed_result, _, failed_output) =
       capture_result true "failed-output"

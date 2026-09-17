@@ -3,15 +3,12 @@
    contain a stable substring. Divergent rows may additionally prove that the existing frontend
    accepts. *)
 
-theory Parser_Tests_Negative_Conformance
+theory Parser_Rejection_Tests
   imports
-    Struct_Ambiguity_Left
-    Struct_Ambiguity_Right
-    Parser_Test_Registered_Constructor_Fixtures
+    Parser_Struct_Ambiguity_Left_Fixtures
+    Parser_Struct_Ambiguity_Right_Fixtures
+    Parser_Registered_Constructor_Fixtures
     Micro_Rust_Std_Lib.StdLib_Logging
-  keywords
-    "urust_expr_rejects" :: thy_decl
-    and "new_urust_rejects" :: thy_decl
 begin
 
 chapter\<open>Negative conformance\<close>
@@ -27,115 +24,6 @@ lowering diagnostic that follows a successful parse. Actual recovery declaration
 \<open>urust_pp_test\<close> explicitly.
 \<close>
 
-section\<open> The command \<close>
-
-text\<open>
-\<open>urust_expr_rejects fidelity source expected\<close> requires both frontends to reject and
-checks the new parser's reason. The new-parser-only variant accepts \<open>frontend_accepts\<close> when
-the row must prove that the existing frontend accepts, \<open>divergent\<close> for another recorded
-acceptance-boundary difference, or \<open>audit\<close> for a custom-parser invariant whose old-frontend
-behavior is deliberately not part of the row. The tags are validated locally by this negative-test
-command; bracketed comment labels remain explanatory only.
-\<close>
-ML\<open>
-fun negative_frontend_source source = "\<lbrakk> " ^ source ^ " \<rbrakk>"
-
-val _ = Syntax.read_term \<^context> (negative_frontend_source "()")
-
-datatype rejection_tag = Fidelity | FrontendAccepts | Divergent | Audit
-
-fun validate_rejection_tag check_frontend tag =
-  (case (check_frontend, tag) of
-     (true, Fidelity) => ()
-   | (true, _) =>
-       error "urust_expr_rejects requires the `fidelity` tag"
-   | (false, Fidelity) =>
-       error
-         "new_urust_rejects requires the `frontend_accepts`, `divergent`, or `audit` tag"
-   | (false, _) => ())
-
-fun parse_rejection_tag (name, pos) =
-  (case name of
-     "fidelity" => Fidelity
-   | "frontend_accepts" => FrontendAccepts
-   | "divergent" => Divergent
-   | "audit" => Audit
-   | _ =>
-       error
-         ("unknown rejection tag " ^ quote name ^
-           "; expected `fidelity`, `frontend_accepts`, `divergent`, or `audit`" ^
-           Position.here pos))
-
-fun urust_rejects check_frontend ((tag, source), expected) lthy =
-  let
-    val _ = validate_rejection_tag check_frontend tag
-    val pos      = Input.pos_of source
-    (* trim: the cartouche-spacing convention pads content with a blank on each side *)
-    val expected = Symbol.trim_blanks (Input.string_of expected)
-    fun fail msg = error ("urust_expr_rejects: " ^ msg ^ Position.here pos)
-
-    fun check_parser_rejection () =
-      (* Lexer, parser, elaborator, and type errors are all valid new-parser rejections. *)
-      (case Exn.result (fn () => Parser_Test_Elaboration.expression lthy source) () of
-         Exn.Res t =>
-           fail ("expected the new parser to reject, but it accepted and elaborated to: " ^
-                 Syntax.string_of_term lthy t)
-       | Exn.Exn exn =>
-           if Exn.is_interrupt exn then Exn.reraise exn
-           else
-             let val msg = Runtime.exn_message exn in
-               if String.isSubstring expected msg
-               then writeln ("new parser rejected as expected: " ^ msg)
-               else fail ("new parser rejected, but not for the expected reason.\n" ^
-                          "  expected substring: " ^ quote expected ^
-                          "\n  actual message: " ^ msg)
-             end)
-
-    fun check_frontend_rejection () =
-      (case Exn.result (Syntax.read_term lthy)
-              (negative_frontend_source (Input.string_of source)) of
-         Exn.Res t =>
-           fail ("expected the existing frontend to reject, but it accepted and elaborated to: " ^
-                 Syntax.string_of_term lthy t)
-       | Exn.Exn exn =>
-           if Exn.is_interrupt exn then Exn.reraise exn
-           else writeln ("existing frontend rejected as expected: " ^ Runtime.exn_message exn))
-
-    fun check_frontend_acceptance () =
-      (case Exn.result (Syntax.read_term lthy)
-              (negative_frontend_source (Input.string_of source)) of
-         Exn.Res _ =>
-           writeln "existing frontend accepted as expected"
-       | Exn.Exn exn =>
-           if Exn.is_interrupt exn then Exn.reraise exn
-           else
-             fail
-               ("expected the existing frontend to accept, but it rejected: " ^
-                Runtime.exn_message exn))
-
-    val _ = check_parser_rejection ()
-    val _ =
-      (case (check_frontend, tag) of
-         (true, Fidelity) => check_frontend_rejection ()
-       | (false, FrontendAccepts) => check_frontend_acceptance ()
-       | _ => ())
-  in lthy end
-
-val rejection_args =
-  (Parse.name_position >> parse_rejection_tag) --
-    (Parse.token Parse.cartouche >>
-      Parser_Lex_Util.cartouche_source) --
-    (Parse.token Parse.cartouche >>
-      Parser_Lex_Util.cartouche_source)
-
-val _ = Outer_Syntax.local_theory \<^command_keyword>\<open>urust_expr_rejects\<close>
-          "Assert that both uRust frontends reject; check the new parser's reason"
-          (rejection_args >> urust_rejects true)
-
-val _ = Outer_Syntax.local_theory \<^command_keyword>\<open>new_urust_rejects\<close>
-          "Assert that the new uRust parser rejects under the selected frontend policy"
-          (rejection_args >> urust_rejects false)
-\<close>
 
 section\<open> Non-associative operators \<close>
 
@@ -153,7 +41,7 @@ section\<open> Prefix and with-block expression boundaries \<close>
 
 text\<open>
 Mixed prefixes and direct with-block operands are now positive Rust-aligned coverage in
-\<open>Parser_Tests_Grammar_Literals\<close>. Negative rows here retain only separator and deferred-feature
+\<open>Parser_Syntax_Tests\<close>. Negative rows here retain only separator and deferred-feature
 boundaries.
 \<close>
 
@@ -996,13 +884,13 @@ new_urust_rejects divergent
 ML\<open>
 local
   val left_struct =
-    "Struct_Ambiguity_Left.struct_ambiguity_left.AmbiguousStruct"
+    "Parser_Struct_Ambiguity_Left_Fixtures.struct_ambiguity_left.AmbiguousStruct"
   val right_struct =
-    "Struct_Ambiguity_Right.struct_ambiguity_right.AmbiguousStruct"
+    "Parser_Struct_Ambiguity_Right_Fixtures.struct_ambiguity_right.AmbiguousStruct"
   val left_nullary =
-    "Struct_Ambiguity_Left.nullary_ambiguity_left.AmbiguousNullary"
+    "Parser_Struct_Ambiguity_Left_Fixtures.nullary_ambiguity_left.AmbiguousNullary"
   val right_nullary =
-    "Struct_Ambiguity_Right.nullary_ambiguity_right.AmbiguousNullary"
+    "Parser_Struct_Ambiguity_Right_Fixtures.nullary_ambiguity_right.AmbiguousNullary"
 
   fun assert message condition =
     if condition then () else error message
@@ -1059,7 +947,7 @@ local
        SOME (family, members) =>
          (assert "qualified constructor family changed"
             (family =
-              "Struct_Ambiguity_Left.struct_ambiguity_left");
+              "Parser_Struct_Ambiguity_Left_Fixtures.struct_ambiguity_left");
           assert "qualified constructor family members changed"
             (map_filter
               (fn Const (name, _) => SOME name | _ => NONE)
@@ -1180,6 +1068,11 @@ new_urust_rejects audit
 new_urust_rejects audit
   \<open> ncf1(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14) \<close>
   \<open> unsupported call arity 15 \<close>
+
+new_urust_rejects audit
+  \<open> unknown.zip(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14) \<close>
+  \<open> unsupported call arity 15 \<close>
+  \<comment> \<open> Iterator methods use the shared receiver-prepending arity preflight. \<close>
 
 new_urust_rejects audit
   \<open> Suc(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14) \<close>
@@ -1576,7 +1469,7 @@ section\<open> Assignment right-hand control-flow precedence \<close>
 text\<open>
 Assignment remains right-associative and its right-hand side is now a complete expression.
 Direct conditionals and matches on assignment and compound-assignment right-hand sides are positive
-Rust-aligned coverage in \<open>Parser_Tests_Grammar_Literals.thy\<close>.
+Rust-aligned coverage in \<open>Parser_Syntax_Tests.thy\<close>.
 \<close>
 
 urust_expr_rejects fidelity \<open> r /= rhs \<close> \<open> = \<close>
@@ -1965,7 +1858,7 @@ new_urust_rejects divergent
 
 text\<open>
 Direct fueled loops, \<open>for\<close>, and \<open>while let\<close> are primary expressions. Their binary-operand
-coverage is in \<open>Parser_Tests_Grammar_Literals.thy\<close>.
+coverage is in \<open>Parser_Syntax_Tests.thy\<close>.
 \<close>
 
 urust_expr_rejects fidelity
@@ -2183,25 +2076,25 @@ urust_expr_rejects fidelity
 text\<open>
 Conditional bindings, mixed conditional chains, and fueled loops are complete expressions and are
 therefore valid direct closure bodies; focused positive coverage lives in
-\<open>Parser_Tests_Grammar_Literals.thy\<close>.
+\<open>Parser_Syntax_Tests.thy\<close>.
 \<close>
 
 text\<open>
 A semicolon after a closure terminates the closure expression and starts the surrounding body; it
 does not become part of the closure body. The resulting sequence has focused AST coverage in
-\<open>Parser_Tests_Grammar_Literals.thy\<close>.
+\<open>Parser_Syntax_Tests.thy\<close>.
 \<close>
 
 text\<open>
 Semicolon-free return expressions and nested closures are valid complete closure bodies; focused
-positive coverage lives in \<open>Parser_Tests_Grammar_Literals.thy\<close>.
+positive coverage lives in \<open>Parser_Syntax_Tests.thy\<close>.
 \<close>
 
 subsection\<open> Bare placement and invocation \<close>
 
 text\<open>
 Bare closures are valid binding initializers and assignment right-hand sides. Positive coverage is
-in \<open>Parser_Tests_Grammar_Literals.thy\<close>.
+in \<open>Parser_Syntax_Tests.thy\<close>.
 \<close>
 
 urust_expr_rejects fidelity
@@ -2221,7 +2114,7 @@ new_urust_rejects divergent
 
 text\<open>
 Closures are valid match scrutinees, match-arm bodies, and expression statements before a
-semicolon. Focused positive and AST coverage is in \<open>Parser_Tests_Grammar_Literals.thy\<close>.
+semicolon. Focused positive and AST coverage is in \<open>Parser_Syntax_Tests.thy\<close>.
 \<close>
 
 urust_expr_rejects fidelity
@@ -2482,7 +2375,7 @@ subsection\<open> Field-list grammar \<close>
 
 text\<open>
 Empty struct expressions and one trailing field comma are accepted Rust-aligned forms. Their
-positive, lowering, and field-order coverage is in \<open>Parser_Tests_Grammar_Literals.thy\<close>.
+positive, lowering, and field-order coverage is in \<open>Parser_Syntax_Tests.thy\<close>.
 \<close>
 
 urust_expr_rejects fidelity
