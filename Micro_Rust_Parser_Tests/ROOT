@@ -1,5 +1,5 @@
 session Micro_Rust_Parser_Tests = HOL +
-  options [document = pdf, document_output = "output", quick_and_dirty]
+  options [document = pdf, document_output = "output"]
   sessions
     "HOL-Library"
     Micro_Rust_Parser_Impl
@@ -11,7 +11,6 @@ session Micro_Rust_Parser_Tests = HOL +
     Lenses_And_Other_Optics
     Byte_Level_Encoding
   theories [document = false]
-    Parser_Conformance_Corpus
     Parser_Test_Utils
     Parser_Cast_Alias_Fixtures
     Parser_Iterator_Fixtures

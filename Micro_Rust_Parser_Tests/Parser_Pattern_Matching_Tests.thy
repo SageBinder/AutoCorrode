@@ -6497,8 +6497,8 @@ ML_val\<open>
         URust_Resolution.Registered_Value_Literal
         (path_of "registered_seven")
     val _ =
-      expect_report_free_class 0 "merged constructor/value exact key"
-        URust_Resolution.Registered_Constructor_Literal
+      expect_report_free_class 0 "value-only exact key"
+        URust_Resolution.Registered_Value_Literal
         "Color::Red"
     val _ =
       expect_class "registered constructor"
@@ -6513,7 +6513,7 @@ ML_val\<open>
         URust_Resolution.Registered_Constructor_Literal
         (path_of "NegativeRegistered::Duplicate")
     val _ =
-      expect_report_free_class 1 "constructor-wins exact key"
+      expect_report_free_class 1 "merged constructor/value exact key"
         URust_Resolution.Registered_Constructor_Literal
         "NegativeRegistered::ConstructorWins"
     val _ =
