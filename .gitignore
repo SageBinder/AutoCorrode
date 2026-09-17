@@ -16,4 +16,3 @@ __pycache__/
 Conformance_Testing/
 
 Micro_Rust_Parser_Tests/Conformance_Corpus_NIE.thy
-Micro_Rust_Parser_Tests/test-notes-traceability.md
