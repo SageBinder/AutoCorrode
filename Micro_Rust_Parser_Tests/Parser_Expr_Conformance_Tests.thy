@@ -4740,8 +4740,7 @@ text\<open>
 This theory keeps representative same-source positive rows for resolved parser/frontend differences.
 Shared and intentional parser-only rejections live in
 \<open>Parser_Rejection_Tests.thy\<close>;
-accepted-surface extensions live in \<open>Parser_Improvements_Tests.thy\<close>; and the remaining
-frontend-only expression forms stay as goldens in \<open>Parser_Conformance_Corpus.thy\<close>.
+accepted-surface extensions live in \<open>Parser_Improvements_Tests.thy\<close>.
 \<close>
 
 subsection\<open>Resolved 2026-09-11: direct \<open>if\<close> binary operands\<close>
