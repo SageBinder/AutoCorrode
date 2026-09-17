@@ -256,6 +256,12 @@ urust_fn [application_def, conformance, verbosity = 2] showoff_declared_mix ::
   \<open> left * 3u64 + right \<close>
   against \<open> \<lbrakk> left * 3_u64 + right \<rbrakk> \<close>
 
+urust_fn [abbrev, verbosity = 2] showoff_abbreviated_function ::
+  \<open>64 word \<Rightarrow>
+    (unit, 64 word, unit, unit, unit) function_body\<close>
+  (item)
+  \<open> item + 1_u64 \<close>
+
 urust_expr [verbosity = 2] showoff_typed_common ::
   \<open>64 word \<Rightarrow> 64 word \<Rightarrow>
     (unit, 64 word, unit, unit, unit) function_body\<close>
@@ -330,6 +336,9 @@ urust_expr showoff_calls
 
 urust_expr showoff_function_command_call
   \<open> showoff_declared_mix(4_u64, 2_u64) \<close>
+
+urust_expr showoff_function_abbreviation_call
+  \<open> showoff_abbreviated_function(4_u64) \<close>
 
 subsection\<open> Registered struct construction \<close>
 
