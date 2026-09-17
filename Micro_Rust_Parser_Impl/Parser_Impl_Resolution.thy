@@ -1071,7 +1071,7 @@ struct
               I.Named_Constructor) =>
              error
                ("urust_expr: construction of named enum variant " ^
-                 quote name ^ " is not supported until T-39" ^
+                 quote name ^ " requires metadata-aware struct construction" ^
                  Position.here pos)
          | (Struct_Item_Call, I.Struct_Constructor,
               I.Named_Constructor) => ()
@@ -1079,7 +1079,7 @@ struct
               I.Named_Constructor) =>
              error
                ("urust_expr: construction of named enum variant " ^
-                 quote name ^ " is not supported until T-39" ^
+                 quote name ^ " requires metadata-aware struct construction" ^
                  Position.here pos)
          | (Struct_Item_Call, _, _) =>
              error

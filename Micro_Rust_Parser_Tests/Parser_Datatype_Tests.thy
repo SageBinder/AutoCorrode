@@ -2656,7 +2656,7 @@ ML_val \<open>
 
     val _ =
       assert_rejected "named-variant-construction"
-        "not supported until T-39"
+        "requires metadata-aware struct construction"
         ("urust_expr _ " ^
           cartouche
             " ParserMessage::Named { code: 1u32, payload: \<llangle>[] :: 8 word list\<rrangle>, } ")
