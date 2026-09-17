@@ -1,6 +1,6 @@
 theory Parser_Pattern_Matching_Tests
   imports
-    Parser_Test_Utils
+    Parser_Syntax_Tests
     Parser_Constructor_Ambiguity_Left_Fixtures
     Parser_Constructor_Ambiguity_Right_Fixtures
     Misc.Simple_Word_Enums
@@ -3831,5 +3831,3351 @@ ML_val\<open>
     val _ = ()
   end
 \<close>
+
+
+declare [[urust_conformance = false]]
+
+section\<open> Frontend-shape structural audit \<close>
+
+text\<open>
+Guarded case compilation must reproduce the existing frontend's expanded term directly. In
+particular, the scrutinee is evaluated once, source handlers are duplicated across expanded
+or-alternatives exactly as in the frontend, and a false source guard enters the next source arm rather
+than retrying a sibling alternative. No parser-private HOL constant may mediate that term shape.
+\<close>
+
+datatype cycle1_case =
+    Cycle1_A | Cycle1_B
+
+consts
+  cycle1_scrutinee :: cycle1_case
+  cycle1_guard_marker :: \<open>nat \<Rightarrow> bool\<close>
+  cycle1_first_body :: nat
+  cycle1_next_body :: nat
+  cycle1_last_body :: nat
+  cycle1_while_body_marker :: unit
+
+ML_val\<open>
+  local
+    val ctxt = \<^context>
+
+    fun audit_assert message condition =
+      if condition then ()
+      else error ("Cycle 1 pattern audit: " ^ message)
+
+    fun checked source =
+      Parser_Test_Elaboration.expression ctxt (Parser_Lex_Util.text_source source)
+
+    fun antiquotation source =
+      "\<llangle>" ^ source ^ "\<rrangle>"
+
+    fun count_constant name term =
+      Term.fold_aterms
+        (fn Const (candidate, _) =>
+              if candidate = name then Integer.add 1 else I
+          | _ => I)
+        term 0
+
+    fun count_named_constant base_name term =
+      Term.fold_aterms
+        (fn Const (name, _) =>
+              if Long_Name.base_name name = base_name
+              then Integer.add 1
+              else I
+          | _ => I)
+        term 0
+
+    fun conditional_branches term =
+      let
+        fun collect
+            (Const (name, _) $ condition $ then_branch $ else_branch) branches =
+              let
+                val nested =
+                  collect condition
+                    (collect then_branch
+                      (collect else_branch branches))
+              in
+                if name = \<^const_name>\<open>two_armed_conditional\<close>
+                then (condition, then_branch, else_branch) :: nested
+                else nested
+              end
+          | collect (left $ right) branches =
+              collect left (collect right branches)
+          | collect (Abs (_, _, body)) branches =
+              collect body branches
+          | collect _ branches = branches
+      in collect term [] end
+
+    val fallthrough =
+      checked
+        ("match " ^ antiquotation "cycle1_scrutinee" ^ " { " ^
+         "Cycle1_A | Cycle1_B if " ^
+         antiquotation "cycle1_guard_marker 99" ^ " \<Rightarrow> " ^
+         antiquotation "cycle1_first_body" ^
+         ", Cycle1_B \<Rightarrow> " ^ antiquotation "cycle1_next_body" ^
+         ", _ \<Rightarrow> " ^ antiquotation "cycle1_last_body" ^ " }")
+    val _ =
+      audit_assert "the guarded match did not bind its scrutinee exactly once"
+        (count_constant \<^const_name>\<open>cycle1_scrutinee\<close> fallthrough = 1)
+    val _ =
+      audit_assert "the guarded source body did not retain frontend expansion"
+        (count_constant \<^const_name>\<open>cycle1_first_body\<close> fallthrough = 2)
+    val _ =
+      audit_assert "the term contains a parser-private administrative constant"
+        (count_named_constant "urust_admin_let" fallthrough = 0)
+    val guarded =
+      filter
+        (fn (_, then_branch, _) =>
+          count_constant \<^const_name>\<open>cycle1_first_body\<close>
+            then_branch > 0)
+        (conditional_branches fallthrough)
+    val _ =
+      audit_assert "the direct term contains no source-guard false branch"
+        (not (null guarded))
+    val _ =
+      List.app
+        (fn (_, _, else_branch) =>
+          (audit_assert
+             "a false source guard retried a sibling or-alternative"
+             (count_constant \<^const_name>\<open>cycle1_first_body\<close>
+                else_branch = 0);
+           audit_assert
+             "a false source guard did not continue with the next source arm"
+             (count_constant \<^const_name>\<open>cycle1_next_body\<close>
+                else_branch > 0)))
+        guarded
+  in
+    val _ = ()
+  end
+\<close>
+
+section\<open> Conservative while-let coverage \<close>
+
+text\<open>
+C1-I6 removes the false continuation only for coverage proved by the resolved-pattern metadata.
+The condition still sequences the source body with true, and the bounded loop body remains skip.
+Partial patterns retain exactly one false fallback.
+\<close>
+
+ML_val\<open>
+  local
+    val ctxt = \<^context>
+
+    fun audit_assert message condition =
+      if condition then ()
+      else error ("Cycle 1 while-let audit: " ^ message)
+
+    fun checked source =
+      Parser_Test_Elaboration.expression ctxt (Parser_Lex_Util.text_source source)
+
+    fun antiquotation source =
+      "\<llangle>" ^ source ^ "\<rrangle>"
+
+    fun count_constant name term =
+      Term.fold_aterms
+        (fn Const (candidate, _) =>
+              if candidate = name then Integer.add 1 else I
+          | _ => I)
+        term 0
+
+    fun loop_source pattern scrutinee =
+      "#[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let " ^
+      pattern ^ " = " ^ scrutinee ^ " { let _ = " ^
+      antiquotation "cycle1_while_body_marker" ^ "; () }"
+
+    fun bounded_while_arguments term =
+      let
+        fun find
+            (Const (name, _) $ fuel $ condition $ body) =
+              if name = \<^const_name>\<open>bounded_while\<close>
+              then SOME (fuel, condition, body)
+              else
+                get_first find [fuel, condition, body]
+          | find (left $ right) =
+              (case find left of
+                 SOME result => SOME result
+               | NONE => find right)
+          | find (Abs (_, _, body)) = find body
+          | find _ = NONE
+      in
+        (case find term of
+           SOME result => result
+         | NONE => error "Cycle 1 while-let audit: bounded_while was not generated")
+      end
+
+    fun is_skip term =
+      (case Term.strip_comb term of
+         (Const (literal_name, _), [Const (unit_name, _)]) =>
+           literal_name = \<^const_name>\<open>literal\<close> andalso
+             unit_name = \<^const_name>\<open>Product_Type.Unity\<close>
+       | _ => false)
+
+    fun check_exhaustive label source =
+      let
+        val term = checked source
+        val (_, condition, body) = bounded_while_arguments term
+      in
+        audit_assert (label ^ " retained a false fallback")
+          (count_constant \<^const_name>\<open>False\<close> term = 0);
+        audit_assert (label ^ " moved the source body out of the condition")
+          (count_constant
+             \<^const_name>\<open>cycle1_while_body_marker\<close>
+             condition > 0);
+        audit_assert (label ^ " did not keep skip as the bounded loop body")
+          (is_skip body)
+      end
+
+    val _ =
+      check_exhaustive "TNil"
+        (loop_source "TNil" "TNil")
+    val _ =
+      check_exhaustive "complete option family"
+        (loop_source "Some(_) | None"
+          (antiquotation "Some (1 :: nat)"))
+    val _ =
+      check_exhaustive "nested complete option family"
+        (loop_source "Some(Some(_) | None) | None"
+          (antiquotation "Some (None :: nat option)"))
+
+    val partial =
+      checked
+        (loop_source "Some(_)"
+          (antiquotation "None :: nat option"))
+    val (_, partial_condition, partial_body) =
+      bounded_while_arguments partial
+    val _ =
+      audit_assert "a partial while-let pattern lost its false fallback"
+        (count_constant \<^const_name>\<open>False\<close> partial = 1)
+    val _ =
+      audit_assert "a partial while-let moved the source body out of the condition"
+        (count_constant
+           \<^const_name>\<open>cycle1_while_body_marker\<close>
+           partial_condition > 0)
+    val _ =
+      audit_assert "a partial while-let did not keep skip as the bounded loop body"
+        (is_skip partial_body)
+  in
+    val _ = writeln "Cycle 1 conservative while-let coverage audit passed"
+  end
+\<close>
+
+section\<open> Conditional binding structure and markup \<close>
+
+text\<open>
+Certified-total conditional bindings use the same case shape as an explicit complete match and omit
+the unreachable fallback only after lowering it. Partial patterns retain the frontend-shaped wildcard
+case. These audits also pin mixed-chain pruning, the top-level tuple exception, conservative coverage,
+scope, diagnostics, recovery, and editor markup.
+\<close>
+
+consts
+  conditional_let_scrutinee_marker :: \<open>nat option\<close>
+  conditional_let_success_marker :: nat
+  conditional_let_fallback_marker :: nat
+  conditional_chain_first_scrutinee_marker :: \<open>nat option\<close>
+  conditional_chain_second_condition_marker :: bool
+  conditional_chain_last_scrutinee_marker :: \<open>nat option\<close>
+  conditional_chain_first_success_marker :: nat
+  conditional_chain_second_success_marker :: nat
+  conditional_chain_last_success_marker :: nat
+  conditional_chain_fallback_marker :: nat
+
+ML_val\<open>
+  local
+    open URust_AST
+
+    val ctxt = \<^context>
+
+    fun audit_assert message condition =
+      if condition then ()
+      else error ("conditional-binding regression audit: " ^ message)
+
+    fun parse source =
+      (case URust_Parser.parse_source ctxt source of
+         SOME expression => expression
+       | NONE => error "conditional-binding regression audit: empty parse")
+
+    fun parse_text text =
+      parse (Parser_Lex_Util.text_source text)
+
+    fun checked text =
+      Parser_Test_Elaboration.expression ctxt (Parser_Lex_Util.text_source text)
+
+    fun unchecked text =
+      URust_Translate.mk_expression ctxt [] (parse_text text)
+
+    fun path_named name path = render_path path = name
+    fun expression_named name (UE_Path path) = path_named name path
+      | expression_named _ _ = false
+    fun call_named name (UE_Call (UC_Path path, _, _)) =
+          path_named name path
+      | call_named _ _ = false
+
+    fun count_constant name term =
+      Term.fold_aterms
+        (fn Const (candidate, _) =>
+              if candidate = name then Integer.add 1 else I
+          | _ => I)
+        term 0
+
+    val if_text =
+      "if let Some(value) = Some(1) { value } else { 0 }"
+    val if_start =
+      Position.make0 7 30 0 "" "" "conditional-binding-ast-audit"
+    val if_stop =
+      Position.symbol_explode if_text if_start
+    val if_ast =
+      parse
+        (Parser_Lex_Util.positioned_content_source
+          if_text if_start)
+    val _ =
+      (case if_ast of
+         UE_IfLet
+           (P_Constr (pattern_path, [P_Ident ("value", _)]),
+            call,
+            UE_Block (body, _),
+            SOME (UE_Block (UE_Literal (LP_Integer ("0", _)), _)),
+            position) =>
+           (audit_assert "if-let path structure changed"
+              (path_named "Some" pattern_path andalso
+               call_named "Some" call andalso
+               expression_named "value" body);
+            audit_assert "if-let span start moved"
+              (Position.offset_of position =
+                Position.offset_of if_start);
+            audit_assert "if-let span end moved"
+              (Position.end_offset_of position =
+                Position.offset_of if_stop))
+       | _ =>
+           error "conditional-binding regression audit: if-let AST changed")
+
+    val mixed_text =
+      "if let Some(first) = Some(1) { first } else if false { 2 } " ^
+      "else if let Some(last) = Some(3) { last } else { 4 }"
+    val mixed_start =
+      Position.make0 13 70 0 "" "" "conditional-chain-ast-audit"
+    val mixed_stop =
+      Position.symbol_explode mixed_text mixed_start
+    val mixed_ast =
+      parse
+        (Parser_Lex_Util.positioned_content_source
+          mixed_text mixed_start)
+    val _ =
+      (case mixed_ast of
+         UE_IfLet
+           (P_Constr (first_pattern_path, [P_Ident ("first", _)]),
+            first_call,
+            UE_Block (first_body, _),
+            SOME
+              (UE_If
+                (UE_Literal (LP_Bool (false, _)),
+                 UE_Block (UE_Literal (LP_Integer ("2", _)), _),
+                 SOME
+                   (UE_IfLet
+                     (P_Constr (last_pattern_path, [P_Ident ("last", _)]),
+                      last_call,
+                      UE_Block (last_body, _),
+                      SOME
+                        (UE_Block
+                          (UE_Literal (LP_Integer ("4", _)), _)),
+                      nested_position)),
+                 _)),
+            position) =>
+           (audit_assert "mixed-chain path structure changed"
+              (path_named "Some" first_pattern_path andalso
+               call_named "Some" first_call andalso
+               expression_named "first" first_body andalso
+               path_named "Some" last_pattern_path andalso
+               call_named "Some" last_call andalso
+               expression_named "last" last_body);
+            audit_assert "mixed-chain span start moved"
+              (Position.offset_of position =
+                Position.offset_of mixed_start);
+            audit_assert "mixed-chain span stopped before the final arm"
+              (Position.end_offset_of position =
+                Position.offset_of mixed_stop);
+            audit_assert "nested if-let span stopped before its fallback"
+              (Position.end_offset_of nested_position =
+                Position.offset_of mixed_stop))
+       | _ =>
+           error
+             "conditional-binding regression audit: mixed-chain AST changed")
+
+    val let_text =
+      "let Some(value) = Some(1) else { 0 }; value"
+    val let_start =
+      Position.make0 11 50 0 "" "" "conditional-binding-ast-audit"
+    val let_stop =
+      Position.symbol_explode let_text let_start
+    val let_ast =
+      parse
+        (Parser_Lex_Util.positioned_content_source
+          let_text let_start)
+    val _ =
+      (case let_ast of
+         UE_LetElse
+           (P_Constr (pattern_path, [P_Ident ("value", _)]),
+            call,
+            UE_Block (UE_Literal (LP_Integer ("0", _)), _),
+            body,
+            position) =>
+           (audit_assert "let-else path structure changed"
+              (path_named "Some" pattern_path andalso
+               call_named "Some" call andalso
+               expression_named "value" body);
+            audit_assert "let-else span start moved"
+              (Position.offset_of position =
+                Position.offset_of let_start);
+            audit_assert "let-else span end moved"
+              (Position.end_offset_of position =
+                Position.offset_of let_stop))
+       | _ =>
+           error "conditional-binding regression audit: let-else AST changed")
+
+    val mixed_chain =
+      checked
+        ("if let Some(first) = " ^
+         "\<llangle>conditional_chain_first_scrutinee_marker\<rrangle> { " ^
+         "let _ = first; " ^
+         "\<llangle>conditional_chain_first_success_marker\<rrangle> " ^
+         "} else if " ^
+         "\<llangle>conditional_chain_second_condition_marker\<rrangle> { " ^
+         "\<llangle>conditional_chain_second_success_marker\<rrangle> " ^
+         "} else if let Some(last) = " ^
+         "\<llangle>conditional_chain_last_scrutinee_marker\<rrangle> { " ^
+         "let _ = last; " ^
+         "\<llangle>conditional_chain_last_success_marker\<rrangle> " ^
+         "} else { " ^
+         "\<llangle>conditional_chain_fallback_marker\<rrangle> }")
+    val nested_mixed_chain =
+      checked
+        ("if let Some(first) = " ^
+         "\<llangle>conditional_chain_first_scrutinee_marker\<rrangle> { " ^
+         "let _ = first; " ^
+         "\<llangle>conditional_chain_first_success_marker\<rrangle> " ^
+         "} else { if " ^
+         "\<llangle>conditional_chain_second_condition_marker\<rrangle> { " ^
+         "\<llangle>conditional_chain_second_success_marker\<rrangle> " ^
+         "} else { if let Some(last) = " ^
+         "\<llangle>conditional_chain_last_scrutinee_marker\<rrangle> { " ^
+         "let _ = last; " ^
+         "\<llangle>conditional_chain_last_success_marker\<rrangle> " ^
+         "} else { " ^
+         "\<llangle>conditional_chain_fallback_marker\<rrangle> } } }")
+    val _ =
+      audit_assert "mixed chain lost right-associated branch order"
+        (Term.aconv (mixed_chain, nested_mixed_chain))
+    val _ =
+      List.app
+        (fn (name, label) =>
+          audit_assert (label ^ " was not lowered exactly once")
+            (count_constant name mixed_chain = 1))
+        [(\<^const_name>\<open>conditional_chain_first_scrutinee_marker\<close>,
+          "first mixed-chain scrutinee"),
+         (\<^const_name>\<open>conditional_chain_second_condition_marker\<close>,
+          "mixed-chain ordinary condition"),
+         (\<^const_name>\<open>conditional_chain_last_scrutinee_marker\<close>,
+          "last mixed-chain scrutinee"),
+         (\<^const_name>\<open>conditional_chain_first_success_marker\<close>,
+          "first mixed-chain success branch"),
+         (\<^const_name>\<open>conditional_chain_second_success_marker\<close>,
+          "mixed-chain ordinary success branch"),
+         (\<^const_name>\<open>conditional_chain_last_success_marker\<close>,
+          "last mixed-chain success branch"),
+         (\<^const_name>\<open>conditional_chain_fallback_marker\<close>,
+          "mixed-chain final fallback")]
+
+    val total_mixed_chain =
+      checked
+        ("if " ^
+         "\<llangle>conditional_chain_second_condition_marker\<rrangle> { " ^
+         "\<llangle>conditional_chain_second_success_marker\<rrangle> " ^
+         "} else if let _ = " ^
+         "\<llangle>conditional_chain_last_scrutinee_marker\<rrangle> { " ^
+         "\<llangle>conditional_chain_last_success_marker\<rrangle> " ^
+         "} else { " ^
+         "\<llangle>conditional_chain_fallback_marker\<rrangle> }")
+    val explicit_total_mixed_chain =
+      checked
+        ("if " ^
+         "\<llangle>conditional_chain_second_condition_marker\<rrangle> { " ^
+         "\<llangle>conditional_chain_second_success_marker\<rrangle> " ^
+         "} else { match_case " ^
+         "\<llangle>conditional_chain_last_scrutinee_marker\<rrangle> { " ^
+         "_ \<Rightarrow> " ^
+         "\<llangle>conditional_chain_last_success_marker\<rrangle> } }")
+    val _ =
+      audit_assert "a total mixed-chain arm retained its unreachable remainder"
+        (Term.aconv (total_mixed_chain, explicit_total_mixed_chain))
+    val _ =
+      List.app
+        (fn (name, expected, label) =>
+          audit_assert (label ^ " has the wrong occurrence count")
+            (count_constant name total_mixed_chain = expected))
+        [(\<^const_name>\<open>conditional_chain_second_condition_marker\<close>,
+          1, "total mixed-chain ordinary condition"),
+         (\<^const_name>\<open>conditional_chain_second_success_marker\<close>,
+          1, "total mixed-chain ordinary success"),
+         (\<^const_name>\<open>conditional_chain_last_scrutinee_marker\<close>,
+          1, "total mixed-chain scrutinee"),
+         (\<^const_name>\<open>conditional_chain_last_success_marker\<close>,
+          1, "total mixed-chain success"),
+         (\<^const_name>\<open>conditional_chain_fallback_marker\<close>,
+          0, "total mixed-chain unreachable fallback")]
+
+    val two_armed =
+      checked
+        ("if let Some(value) = " ^
+         "\<llangle>conditional_let_scrutinee_marker\<rrangle> { " ^
+         "\<llangle>conditional_let_success_marker\<rrangle> } else { " ^
+         "\<llangle>conditional_let_fallback_marker\<rrangle> }")
+    val explicit_two_armed =
+      checked
+        ("match_case " ^
+         "\<llangle>conditional_let_scrutinee_marker\<rrangle> { " ^
+         "Some(value) \<Rightarrow> " ^
+         "\<llangle>conditional_let_success_marker\<rrangle>, _ \<Rightarrow> " ^
+         "\<llangle>conditional_let_fallback_marker\<rrangle> }")
+    val _ =
+      audit_assert "two-armed if-let stopped using the explicit case shape"
+        (Term.aconv (two_armed, explicit_two_armed))
+    val _ =
+      audit_assert "if-let lowered its scrutinee more than once"
+        (count_constant
+          \<^const_name>\<open>conditional_let_scrutinee_marker\<close>
+          two_armed = 1)
+    val _ =
+      audit_assert "if-let lost success/fallback ordering"
+        (count_constant
+          \<^const_name>\<open>conditional_let_success_marker\<close>
+          two_armed = 1 andalso
+         count_constant
+          \<^const_name>\<open>conditional_let_fallback_marker\<close>
+          two_armed = 1)
+
+    val total_two_armed =
+      checked
+        ("if let _ = " ^
+         "\<llangle>conditional_let_scrutinee_marker\<rrangle> { " ^
+         "\<llangle>conditional_let_success_marker\<rrangle> } else { " ^
+         "\<llangle>conditional_let_fallback_marker\<rrangle> }")
+    val explicit_total_two_armed =
+      checked
+        ("match_case " ^
+         "\<llangle>conditional_let_scrutinee_marker\<rrangle> { " ^
+         "_ \<Rightarrow> " ^
+         "\<llangle>conditional_let_success_marker\<rrangle> }")
+    val _ =
+      audit_assert "total if-let did not match a complete case without fallback"
+        (Term.aconv (total_two_armed, explicit_total_two_armed))
+    val _ =
+      audit_assert "total if-let changed scrutinee/success multiplicity"
+        (count_constant
+           \<^const_name>\<open>conditional_let_scrutinee_marker\<close>
+           total_two_armed = 1 andalso
+         count_constant
+           \<^const_name>\<open>conditional_let_success_marker\<close>
+           total_two_armed = 1)
+    val _ =
+      audit_assert "total if-let retained its unreachable fallback"
+        (count_constant
+           \<^const_name>\<open>conditional_let_fallback_marker\<close>
+           total_two_armed = 0)
+
+    val one_armed =
+      checked
+        ("if let Some(value) = " ^
+         "\<llangle>conditional_let_scrutinee_marker\<rrangle> { let _ = " ^
+         "\<llangle>conditional_let_success_marker\<rrangle>; () }")
+    val explicit_one_armed =
+      checked
+        ("match_case " ^
+         "\<llangle>conditional_let_scrutinee_marker\<rrangle> { " ^
+         "Some(value) \<Rightarrow> { let _ = " ^
+         "\<llangle>conditional_let_success_marker\<rrangle>; () }, _ \<Rightarrow> () }")
+    val _ =
+      audit_assert "one-armed if-let lost its skip fallback"
+        (Term.aconv (one_armed, explicit_one_armed))
+    val _ =
+      audit_assert "partial one-armed if-let lost its synthetic skip"
+        (count_constant
+           \<^const_name>\<open>Product_Type.Unity\<close>
+           one_armed = 2)
+
+    val total_one_armed =
+      checked
+        ("if let value = " ^
+         "\<llangle>conditional_let_scrutinee_marker\<rrangle> { let _ = " ^
+         "value; \<llangle>conditional_let_success_marker\<rrangle> }")
+    val explicit_total_one_armed =
+      checked
+        ("match_case " ^
+         "\<llangle>conditional_let_scrutinee_marker\<rrangle> { " ^
+         "value \<Rightarrow> { let _ = value; " ^
+         "\<llangle>conditional_let_success_marker\<rrangle> } }")
+    val _ =
+      audit_assert "total one-armed if-let retained synthetic skip"
+        (Term.aconv (total_one_armed, explicit_total_one_armed) andalso
+         count_constant
+           \<^const_name>\<open>Product_Type.Unity\<close>
+           total_one_armed = 0)
+
+    val let_else =
+      checked
+        ("let Some(value) = " ^
+         "\<llangle>conditional_let_scrutinee_marker\<rrangle> else { " ^
+         "\<llangle>conditional_let_fallback_marker\<rrangle> }; " ^
+         "\<llangle>value + conditional_let_success_marker\<rrangle>")
+    val explicit_let_else =
+      checked
+        ("match_case " ^
+         "\<llangle>conditional_let_scrutinee_marker\<rrangle> { " ^
+         "Some(value) \<Rightarrow> " ^
+         "\<llangle>value + conditional_let_success_marker\<rrangle>, _ \<Rightarrow> " ^
+         "\<llangle>conditional_let_fallback_marker\<rrangle> }")
+    val _ =
+      audit_assert "let-else stopped placing its continuation in the success arm"
+        (Term.aconv (let_else, explicit_let_else))
+
+    val total_let_else =
+      checked
+        ("let _ = " ^
+         "\<llangle>conditional_let_scrutinee_marker\<rrangle> else { " ^
+         "\<llangle>conditional_let_fallback_marker\<rrangle> }; " ^
+         "\<llangle>conditional_let_success_marker\<rrangle>")
+    val explicit_total_let_else =
+      checked
+        ("match_case " ^
+         "\<llangle>conditional_let_scrutinee_marker\<rrangle> { " ^
+         "_ \<Rightarrow> " ^
+         "\<llangle>conditional_let_success_marker\<rrangle> }")
+    val _ =
+      audit_assert "total let-else retained its unreachable fallback"
+        (Term.aconv (total_let_else, explicit_total_let_else) andalso
+         count_constant
+           \<^const_name>\<open>conditional_let_fallback_marker\<close>
+           total_let_else = 0)
+
+    val tuple_if =
+      checked
+        ("if let (left, right) = " ^
+         "(\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>) { " ^
+         "\<llangle>left + right\<rrangle> } else { missing_tuple_audit }")
+    val tuple_bind =
+      checked
+        ("let (left, right) = " ^
+         "(\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>); " ^
+         "\<llangle>left + right\<rrangle>")
+    val _ =
+      audit_assert "top-level tuple stopped using the frontend's direct binding"
+        (Term.aconv (tuple_if, tuple_bind))
+
+    fun conditional_source pattern scrutinee =
+      "if let " ^ pattern ^ " = " ^ scrutinee ^ " { " ^
+      "\<llangle>conditional_let_success_marker\<rrangle> } else { " ^
+      "\<llangle>conditional_let_fallback_marker\<rrangle> }"
+
+    fun explicit_case_source pattern scrutinee fallback =
+      "match_case " ^ scrutinee ^ " { " ^ pattern ^ " \<Rightarrow> " ^
+      "\<llangle>conditional_let_success_marker\<rrangle>" ^
+      (if fallback
+       then ", _ \<Rightarrow> \<llangle>conditional_let_fallback_marker\<rrangle>"
+       else "") ^ " }"
+
+    fun check_total label pattern scrutinee =
+      let
+        val actual = unchecked (conditional_source pattern scrutinee)
+        val explicit =
+          unchecked (explicit_case_source pattern scrutinee false)
+      in
+        audit_assert (label ^ " did not use the complete case shape")
+          (Term.aconv (actual, explicit));
+        audit_assert (label ^ " retained a fallback")
+          (count_constant
+             \<^const_name>\<open>conditional_let_fallback_marker\<close>
+             actual = 0)
+      end
+
+    val _ =
+      List.app
+        (fn (label, pattern, scrutinee) =>
+          check_total label pattern scrutinee)
+        [("wildcard totality", "_", "\<llangle>1 :: nat\<rrangle>"),
+         ("identifier totality", "value", "\<llangle>1 :: nat\<rrangle>"),
+         ("group totality", "(value)", "\<llangle>1 :: nat\<rrangle>"),
+         ("alias totality", "whole @ _", "\<llangle>1 :: nat\<rrangle>"),
+         ("grouped recursive tuple totality",
+          "((left, (middle, right)))",
+          "(\<llangle>1 :: nat\<rrangle>, " ^
+            "(\<llangle>2 :: nat\<rrangle>, \<llangle>3 :: nat\<rrangle>))"),
+         ("sole-constructor totality", "TNil", "TNil"),
+         ("complete option totality", "Some(_) | None",
+          "\<llangle>Some (1 :: nat)\<rrangle>"),
+         ("nested complete option totality",
+          "Some(Some(_) | None) | None",
+          "\<llangle>Some (Some (1 :: nat))\<rrangle>"),
+         ("wildcard-alternative totality", "Some(_) | _",
+          "\<llangle>Some (1 :: nat)\<rrangle>"),
+         ("borrow-wrapper totality", "&_", "\<llangle>1 :: nat\<rrangle>")]
+
+    fun check_partial label pattern scrutinee =
+      let
+        val actual = unchecked (conditional_source pattern scrutinee)
+        val explicit =
+          unchecked (explicit_case_source pattern scrutinee true)
+      in
+        audit_assert (label ^ " lost the explicit wildcard-case shape")
+          (Term.aconv (actual, explicit));
+        audit_assert (label ^ " incorrectly discarded its fallback")
+          (count_constant
+             \<^const_name>\<open>conditional_let_fallback_marker\<close>
+             actual > 0)
+      end
+
+    val _ =
+      List.app
+        (fn (label, pattern, scrutinee) =>
+          check_partial label pattern scrutinee)
+        [("Some-only option coverage", "Some(_)",
+          "\<llangle>Some (1 :: nat)\<rrangle>"),
+         ("None-only option coverage", "None",
+          "\<llangle>None :: nat option\<rrangle>"),
+         ("incomplete multi-constructor family",
+          "ConditionalLetA(_) | ConditionalLetB(_)",
+          "\<llangle>ConditionalLetA 1\<rrangle>"),
+         ("internally complete but externally partial family",
+          "Some(Some(_) | None)",
+          "\<llangle>Some (Some (1 :: nat))\<rrangle>"),
+         ("literal pattern", "true", "\<llangle>True\<rrangle>"),
+         ("value pattern", "\<llangle>1 :: nat\<rrangle>",
+          "\<llangle>1 :: nat\<rrangle>"),
+         ("range pattern", "1..=3", "\<llangle>2 :: nat\<rrangle>"),
+         ("slice pattern", "[_, ..]", "\<llangle>[1 :: nat, 2]\<rrangle>"),
+         ("struct pattern",
+          "AdvStruct { adv_left: _, adv_right: _ }",
+          "\<llangle>AdvStruct 1 2\<rrangle>"),
+         ("nonconstructor path pattern", "Color::Red", "Color::Red"),
+         ("constructor with a partial argument", "Some(true)",
+          "\<llangle>Some True\<rrangle>"),
+         ("or-pattern from different constructor families",
+          "Some(_) | ConditionalLetA(_)",
+          "\<llangle>Some (1 :: nat)\<rrangle>")]
+
+    val callback_ast =
+      parse_text
+        ("if let _ = callback_scrutinee { callback_success } " ^
+         "else { callback_fallback }")
+    val callback_count = Unsynchronized.ref 0
+    fun callback_lower _ _ =
+      let
+        val index = !callback_count + 1
+        val _ = callback_count := index
+      in
+        (case index of
+           1 =>
+             URust_Shallow_Terms.literal
+               \<^term>\<open>conditional_let_scrutinee_marker\<close>
+         | 2 =>
+             URust_Shallow_Terms.literal
+               \<^term>\<open>conditional_let_success_marker\<close>
+         | 3 =>
+             URust_Shallow_Terms.literal
+               \<^term>\<open>conditional_let_fallback_marker\<close>
+         | _ =>
+             error
+               "conditional-binding regression audit: lowering callback called too often")
+      end
+    val callback_term =
+      (case callback_ast of
+         UE_IfLet (pattern, scrutinee, success, fallback, position) =>
+           URust_Matching.lower_if_let callback_lower ctxt
+             URust_Resolution.empty_environment
+             (pattern, scrutinee, success, fallback, position)
+       | _ =>
+           error
+             "conditional-binding regression audit: callback fixture AST changed")
+    val _ =
+      audit_assert "discarded total fallback was not lowered exactly once"
+        (!callback_count = 3)
+    val _ =
+      audit_assert "discarded callback fallback leaked into the final term"
+        (count_constant
+           \<^const_name>\<open>conditional_let_fallback_marker\<close>
+           callback_term = 0)
+
+    fun find_from text needle offset =
+      if offset + size needle > size text then
+        error
+          ("conditional-binding regression audit: missing " ^ quote needle)
+      else if
+        String.substring (text, offset, size needle) = needle
+      then offset
+      else find_from text needle (offset + 1)
+
+    fun token_position text start needle offset =
+      let
+        val raw = find_from text needle offset
+        val token_start =
+          Position.symbol_explode
+            (String.substring (text, 0, raw)) start
+      in
+        (raw,
+         Position.range_position
+           (token_start,
+            Position.symbol_explode needle token_start))
+      end
+
+    fun expect_positioned_rejection label text start expected needle =
+      let
+        val (_, position) = token_position text start needle 0
+        val expected_here =
+          XML.content_of (YXML.parse_body (Position.here position))
+      in
+        (case Exn.result
+            (fn () =>
+              Parser_Test_Elaboration.expression ctxt
+                (Parser_Lex_Util.positioned_content_source
+                  text start)) () of
+           Exn.Res _ =>
+             error
+               ("conditional-binding regression audit: " ^ label ^
+                " unexpectedly elaborated")
+         | Exn.Exn exn =>
+             if Exn.is_interrupt exn then Exn.reraise exn
+             else
+               let
+                 val message =
+                   XML.content_of
+                     (YXML.parse_body (Runtime.exn_message exn))
+               in
+                 audit_assert (label ^ " changed its diagnostic")
+                   (String.isSubstring expected message);
+                 audit_assert (label ^ " moved its diagnostic")
+                   (String.isSubstring expected_here message)
+               end)
+      end
+
+    val bad_total_text =
+      "if let _ = \<llangle>1 :: nat\<rrangle> { 1 } else { " ^
+      "unknown_total_fallback!() }"
+    val bad_total_start =
+      Position.make0 19 120 900 "" ""
+        "conditional-total-fallback-diagnostic-audit"
+    val _ =
+      expect_positioned_rejection "total fallback"
+        bad_total_text bad_total_start
+        "unknown macro \"unknown_total_fallback!\""
+        "unknown_total_fallback"
+
+    val bad_partial_text =
+      "if let Some(_) = \<llangle>Some (1 :: nat)\<rrangle> { 1 } else { " ^
+      "unknown_partial_fallback!() }"
+    val bad_partial_start =
+      Position.make0 23 160 1200 "" ""
+        "conditional-partial-fallback-diagnostic-audit"
+    val _ =
+      expect_positioned_rejection "partial fallback"
+        bad_partial_text bad_partial_start
+        "unknown macro \"unknown_partial_fallback!\""
+        "unknown_partial_fallback"
+
+    val recovered_total =
+      checked
+        ("if let _ = \<llangle>1 :: nat\<rrangle> { " ^
+         "\<llangle>conditional_let_success_marker\<rrangle> } else { " ^
+         "\<llangle>conditional_let_fallback_marker\<rrangle> }")
+    val _ =
+      audit_assert "failed total fallback leaked state into the next command"
+        (count_constant
+           \<^const_name>\<open>conditional_let_success_marker\<close>
+           recovered_total = 1 andalso
+         count_constant
+           \<^const_name>\<open>conditional_let_fallback_marker\<close>
+           recovered_total = 0)
+
+    val total_markup_text =
+      "let outer = \<llangle>1 :: nat\<rrangle>; " ^
+      "if let _ = \<llangle>2 :: nat\<rrangle> { 3 } else { outer }"
+    val total_markup_start =
+      Position.make0 29 200 1600 "" ""
+        "conditional-total-fallback-markup-audit"
+    val partial_markup_text =
+      "let outer = \<llangle>1 :: nat\<rrangle>; " ^
+      "if let Some(_) = \<llangle>Some (2 :: nat)\<rrangle> { 3 } " ^
+      "else { outer }"
+    val partial_markup_start =
+      Position.make0 31 220 2000 "" ""
+        "conditional-partial-fallback-markup-audit"
+
+    val captured_reports = Synchronized.var "parser_test_reports" ([]: string list)
+    fun capture_reports chunks =
+      Synchronized.change captured_reports (append chunks)
+    fun capture_elaboration text start =
+      Parser_Test_Report_Lock.run (fn () =>
+        Unsynchronized.setmp Private_Output.report_fn capture_reports
+          (fn () =>
+            Print_Mode.with_modes [Print_Mode.PIDE]
+              (fn () =>
+                ignore
+                  (Parser_Test_Elaboration.expression ctxt
+                    (Parser_Lex_Util.positioned_content_source
+                      text start))) ())
+          ())
+    val _ = capture_elaboration total_markup_text total_markup_start
+    val _ = capture_elaboration partial_markup_text partial_markup_start
+    val _ =
+      Parser_Test_Report_Lock.run (fn () =>
+        Unsynchronized.setmp Private_Output.report_fn capture_reports
+          (fn () =>
+            Print_Mode.with_modes [Print_Mode.PIDE]
+              (fn () =>
+                parse
+                  (Parser_Lex_Util.positioned_content_source
+                    if_text if_start)) ())
+          ())
+    val _ =
+      Parser_Test_Report_Lock.run (fn () =>
+        Unsynchronized.setmp Private_Output.report_fn capture_reports
+          (fn () =>
+            Print_Mode.with_modes [Print_Mode.PIDE]
+              (fn () =>
+                parse
+                  (Parser_Lex_Util.positioned_content_source
+                    mixed_text mixed_start)) ())
+          ())
+    val _ =
+      Parser_Test_Report_Lock.run (fn () =>
+        Unsynchronized.setmp Private_Output.report_fn capture_reports
+          (fn () =>
+            Print_Mode.with_modes [Print_Mode.PIDE]
+              (fn () =>
+                parse
+                  (Parser_Lex_Util.positioned_content_source
+                    let_text let_start)) ())
+          ())
+
+    fun collect_markup (XML.Text _) result = result
+      | collect_markup (XML.Elem (markup, body)) result =
+          fold collect_markup body (markup :: result)
+    val markup =
+      fold collect_markup
+        (maps YXML.parse_body (Synchronized.value captured_reports)) []
+    fun has_position properties position =
+      Properties.get properties Markup.offsetN =
+        Option.map Value.print_int (Position.offset_of position) andalso
+      Properties.get properties Markup.end_offsetN =
+        Option.map Value.print_int (Position.end_offset_of position)
+    fun has_markup markup_name position =
+      exists
+        (fn (name, properties) =>
+          name = markup_name andalso
+            has_position properties position)
+        markup
+    fun entity_id property position =
+      let
+        val ids =
+          markup
+          |> map_filter
+              (fn (name, properties) =>
+                if name = Markup.entityN andalso
+                   Properties.get properties Markup.kindN =
+                     SOME "urust_var" andalso
+                   has_position properties position
+                then Properties.get properties property
+                else NONE)
+          |> distinct (op =)
+      in
+        (case ids of
+           [id] => id
+         | _ =>
+             error
+               "conditional-binding regression audit: binder entity markup changed")
+      end
+
+    val (total_outer_offset, total_outer_definition) =
+      token_position total_markup_text total_markup_start "outer" 0
+    val (_, total_outer_fallback) =
+      token_position total_markup_text total_markup_start "outer"
+        (total_outer_offset + size "outer")
+    val (partial_outer_offset, partial_outer_definition) =
+      token_position partial_markup_text partial_markup_start "outer" 0
+    val (_, partial_outer_fallback) =
+      token_position partial_markup_text partial_markup_start "outer"
+        (partial_outer_offset + size "outer")
+    val _ =
+      audit_assert "discarded total fallback lost outer-scope resolution markup"
+        (has_markup Markup.boundN total_outer_fallback andalso
+         entity_id Markup.defN total_outer_definition =
+           entity_id Markup.refN total_outer_fallback)
+    val _ =
+      audit_assert "partial fallback outer-scope resolution markup changed"
+        (has_markup Markup.boundN partial_outer_fallback andalso
+         entity_id Markup.defN partial_outer_definition =
+           entity_id Markup.refN partial_outer_fallback)
+
+    val (_, if_keyword) = token_position if_text if_start "if" 0
+    val (if_offset, if_let_keyword) =
+      token_position if_text if_start "let" 0
+    val (if_let_offset, if_equals) =
+      token_position if_text if_start "=" (if_offset + 2)
+    val (_, if_else_keyword) =
+      token_position if_text if_start "else" (if_let_offset + 3)
+    val (mixed_else_offset, mixed_else_keyword) =
+      token_position mixed_text mixed_start "else" 0
+    val (mixed_if_offset, mixed_if_keyword) =
+      token_position mixed_text mixed_start "if" (mixed_else_offset + 4)
+    val (mixed_second_else_offset, mixed_second_else_keyword) =
+      token_position mixed_text mixed_start "else" (mixed_if_offset + 2)
+    val (mixed_if_let_offset, mixed_if_let_keyword) =
+      token_position mixed_text mixed_start "if"
+        (mixed_second_else_offset + 4)
+    val (_, mixed_let_keyword) =
+      token_position mixed_text mixed_start "let" (mixed_if_let_offset + 2)
+    val (_, let_semicolon) =
+      token_position let_text let_start ";" 0
+    val _ =
+      audit_assert "if keyword markup changed"
+        (has_markup Markup.keyword1N if_keyword)
+    val _ =
+      audit_assert "let keyword markup changed"
+        (has_markup Markup.keyword1N if_let_keyword)
+    val _ =
+      audit_assert "equals delimiter markup changed"
+        (has_markup Markup.delimiterN if_equals)
+    val _ =
+      audit_assert "else keyword markup changed"
+        (has_markup Markup.keyword1N if_else_keyword)
+    val _ =
+      List.app
+        (fn (position, label) =>
+          audit_assert (label ^ " keyword markup changed")
+            (has_markup Markup.keyword1N position))
+        [(mixed_else_keyword, "mixed-chain else"),
+         (mixed_if_keyword, "mixed-chain ordinary if"),
+         (mixed_second_else_keyword, "mixed-chain second else"),
+         (mixed_if_let_keyword, "mixed-chain if-let if"),
+         (mixed_let_keyword, "mixed-chain if-let let")]
+    val _ =
+      audit_assert "let-else semicolon delimiter markup changed"
+        (has_markup Markup.delimiterN let_semicolon)
+  in
+    val _ = writeln "Conditional-binding structure and markup regressions passed"
+  end
+\<close>
+
+section\<open> Positions and pattern grammar \<close>
+
+ML_val\<open>
+  local
+    open URust_AST
+
+    val ctxt = \<^context>
+
+    fun audit_assert message condition =
+      if condition then ()
+      else error ("parser regression audit: " ^ message)
+
+    fun parse text =
+      (case URust_Parser.parse_source ctxt
+          (Parser_Lex_Util.text_source text) of
+         SOME expression => expression
+       | NONE => error "parser regression audit: empty parse")
+
+    fun pattern_source pattern =
+      "match_case \<llangle>undefined\<rrangle> { " ^ pattern ^
+      " \<Rightarrow> \<llangle>undefined\<rrangle> }"
+
+    fun parse_pattern pattern =
+      (case parse (pattern_source pattern) of
+         UE_Match (_, _, [UR_Arm (result, NONE, _)], _) => result
+       | _ => error "parser regression audit: unexpected pattern AST")
+
+    fun integer text (P_Literal (LP_Integer (actual, _))) =
+          actual = text
+      | integer _ _ = false
+
+    fun range kind lower upper
+        (P_Range (actual_kind, actual_lower, actual_upper, _)) =
+          actual_kind = kind andalso
+          integer lower actual_lower andalso
+          integer upper actual_upper
+      | range _ _ _ _ = false
+
+    fun find_from text needle offset =
+      if offset + size needle > size text then
+        error
+          ("parser regression audit: missing " ^ quote needle)
+      else if
+        String.substring (text, offset, size needle) = needle
+      then offset
+      else find_from text needle (offset + 1)
+
+    val _ =
+      audit_assert "exclusive range shape changed"
+        (range RK_Exclusive "5" "7"
+          (parse_pattern "5..7"))
+    val _ =
+      audit_assert "inclusive range shape changed"
+        (range RK_Inclusive "5" "7"
+          (parse_pattern "5..=7"))
+
+    val borrow_text = pattern_source "& mut &value"
+    val outer_borrow_offset = find_from borrow_text "&" 0
+    val inner_borrow_offset = find_from borrow_text "&" (outer_borrow_offset + 1)
+    val borrow_start = Position.make0 11 4 0 "" "" ""
+    val outer_borrow_position =
+      Position.symbol_explode
+        (String.substring (borrow_text, 0, outer_borrow_offset))
+        borrow_start
+    val inner_borrow_position =
+      Position.symbol_explode
+        (String.substring (borrow_text, 0, inner_borrow_offset))
+        borrow_start
+    val _ =
+      (case URust_Parser.parse_source ctxt
+          (Parser_Lex_Util.positioned_content_source
+            borrow_text borrow_start) of
+         SOME
+           (UE_Match
+             (_, _,
+              [UR_Arm
+                (P_Borrow
+                  (BM_Mut,
+                   P_Borrow (BM_Imm, P_Ident ("value", _), inner_pos),
+                   outer_pos),
+                 NONE, _)],
+              _)) =>
+           (audit_assert "outer borrow-pattern mode or position changed"
+              (Position.offset_of outer_pos =
+                Position.offset_of outer_borrow_position);
+            audit_assert "inner borrow-pattern mode or position changed"
+              (Position.offset_of inner_pos =
+                Position.offset_of inner_borrow_position))
+       | _ =>
+           error
+             "parser regression audit: nested borrow-pattern AST changed")
+
+    val _ =
+      (case parse_pattern "whole @ 5..=7" of
+         P_Alias ("whole", _, inner, _) =>
+           audit_assert "alias did not bind the whole range"
+             (range RK_Inclusive "5" "7" inner)
+       | _ =>
+           error "parser regression audit: range alias shape changed")
+
+    val _ =
+      (case parse_pattern "outer @ inner @ 5..7" of
+         P_Alias ("outer", _,
+           P_Alias ("inner", _, nested, _), _) =>
+             audit_assert "nested aliases lost right associativity"
+               (range RK_Exclusive "5" "7" nested)
+       | _ =>
+           error "parser regression audit: nested alias shape changed")
+
+    val _ =
+      (case parse_pattern "whole @ Some(5..=7)" of
+         P_Alias ("whole", _,
+           P_Constr (path, [nested]), _) =>
+             audit_assert "constructor alias lost its path or range argument"
+               (render_path path = "Some" andalso
+                range RK_Inclusive "5" "7" nested)
+       | _ =>
+           error
+             "parser regression audit: constructor alias shape changed")
+
+    val _ =
+      (case parse_pattern "whole @ Head { field: 5..7 }" of
+         P_Alias ("whole", _,
+           P_Struct (path,
+             [SF_Field ("field", _, nested)]), _) =>
+             audit_assert "struct alias lost its path or range field"
+               (render_path path = "Head" andalso
+                range RK_Exclusive "5" "7" nested)
+       | _ =>
+           error "parser regression audit: struct alias shape changed")
+
+    val _ =
+      (case parse_pattern "left @ 1..2 | right @ 3..=4" of
+         P_Or
+           ([P_Alias ("left", _, left, _),
+             P_Alias ("right", _, right, _)], _) =>
+             (audit_assert "exclusive range lost alias precedence"
+                (range RK_Exclusive "1" "2" left);
+              audit_assert "inclusive range lost alias precedence"
+                (range RK_Inclusive "3" "4" right))
+       | _ =>
+           error
+             "parser regression audit: alias/range/or precedence changed")
+
+    val chained_text =
+      pattern_source "1..2..3"
+    val chained_start =
+      Position.make0 7 1 0 "" "" ""
+
+    val first_range =
+      find_from chained_text ".." 0
+    val second_range =
+      find_from chained_text ".." (first_range + 2)
+    val second_range_position =
+      Position.symbol_explode
+        (String.substring (chained_text, 0, second_range))
+        chained_start
+    val second_range_here =
+      XML.content_of
+        (YXML.parse_body
+          (Position.here second_range_position))
+    val _ =
+      (case Exn.result
+          (fn () =>
+            Parser_Test_Elaboration.expression ctxt
+              (Parser_Lex_Util.positioned_content_source
+                chained_text chained_start)) () of
+         Exn.Res _ =>
+           error
+             "parser regression audit: chained range unexpectedly elaborated"
+       | Exn.Exn exn =>
+           if Exn.is_interrupt exn then Exn.reraise exn
+           else
+             let
+               val message =
+                 XML.content_of
+                   (YXML.parse_body
+                     (Runtime.exn_message exn))
+             in
+               audit_assert "chained range missed semantic validation"
+                 (String.isSubstring
+                   "range patterns are non-associative" message);
+               audit_assert "chained range diagnostic moved"
+                 (String.isSubstring second_range_here message)
+             end)
+
+    fun alternative_name index =
+      "regression_alt_" ^ string_of_int index
+
+    fun audit_alternatives count =
+      let
+        val alternatives =
+          space_implode " | "
+            (map alternative_name (0 upto (count - 1)))
+      in
+        (case parse_pattern alternatives of
+           P_Or (patterns, _) =>
+             (audit_assert
+                ("large or-pattern was not flattened at " ^
+                  string_of_int count)
+                (length patterns = count);
+              audit_assert
+                ("large or-pattern source order changed at " ^
+                  string_of_int count)
+                (case (hd patterns, List.last patterns) of
+                   (P_Ident (first, _), P_Ident (last, _)) =>
+                     first = alternative_name 0 andalso
+                     last = alternative_name (count - 1)
+                 | _ => false))
+         | _ =>
+             error
+               ("parser regression audit: large or-pattern AST changed at " ^
+                 string_of_int count))
+      end
+
+    val _ = audit_alternatives 4096
+    val _ = audit_alternatives 16384
+
+    fun expect_positioned_rejection
+        label text start expected expected_position =
+      let
+        val expected_here =
+          XML.content_of
+            (YXML.parse_body (Position.here expected_position))
+      in
+        (case Exn.result
+            (fn () =>
+              Parser_Test_Elaboration.expression ctxt
+                (Parser_Lex_Util.positioned_content_source
+                  text start)) () of
+           Exn.Res _ =>
+             error
+               ("parser regression audit: " ^ label ^
+                 " unexpectedly parsed")
+         | Exn.Exn exn =>
+             if Exn.is_interrupt exn then Exn.reraise exn
+             else
+               let
+                 val message =
+                   XML.content_of
+                     (YXML.parse_body
+                       (Runtime.exn_message exn))
+               in
+                 audit_assert (label ^ " diagnostic changed")
+                   (String.isSubstring expected message);
+                 audit_assert (label ^ " position changed")
+                   (String.isSubstring expected_here message)
+               end)
+      end
+
+    val operator_text = "1 + 2 ++ 3"
+    val operator_start =
+      Position.make0 4 10 0 "" "" ""
+    val second_operator =
+      Position.symbol_explode
+        (String.substring (operator_text, 0, 7))
+        operator_start
+    val _ =
+      expect_positioned_rejection
+        "malformed operator"
+        operator_text operator_start
+        "syntax error found at +"
+        second_operator
+
+    val eof_text = "{ ()"
+    val eof_start =
+      Position.make0 3 12 0 "" "" ""
+    val eof_stop =
+      Position.symbol_explode eof_text eof_start
+    val _ =
+      expect_positioned_rejection
+        "malformed EOF"
+        eof_text eof_start
+        "syntax error found at end of input"
+        eof_stop
+  in
+    val _ = writeln "Parser position and pattern grammar regressions passed"
+  end
+\<close>
+
+section\<open> Concealed registered-constructor lookup boundary \<close>
+
+experiment
+begin
+
+datatype concealed_constructor_audit =
+    ConcealedRegistered
+  | ConcealedUnregistered
+
+micro_rust_notation (literal)
+  concealed_constructor_audit.ConcealedRegistered
+  ("ConcealedAudit::Registered")
+micro_rust_notation (literal)
+  concealed_constructor_audit.ConcealedUnregistered
+  ("ConcealedAudit::Unregistered")
+
+ML_val\<open>
+  local
+    open URust_AST
+
+    val ctxt = \<^context>
+
+    fun audit_assert message condition =
+      if condition then ()
+      else error ("concealed constructor lookup audit: " ^ message)
+
+    fun parse source =
+      (case URust_Parser.parse_source ctxt
+          (Parser_Lex_Util.text_source source) of
+         SOME expression => expression
+       | NONE => error "concealed constructor lookup audit: empty parse")
+
+    fun path_of source =
+      (case parse source of
+         UE_Path path => path
+       | _ => error ("expected path " ^ quote source))
+
+    fun checked_source source =
+      Parser_Test_Elaboration.expression ctxt source
+
+    fun checked source =
+      checked_source (Parser_Lex_Util.text_source source)
+
+    fun count_constant name term =
+      Term.fold_aterms
+        (fn Const (candidate, _) =>
+              if candidate = name then Integer.add 1 else I
+          | _ => I)
+        term 0
+
+    fun case_constant_name constructor =
+      let
+        val (type_name, _) =
+          dest_Type (body_type (fastype_of constructor))
+      in
+        (case Ctr_Sugar.ctr_sugar_of ctxt type_name of
+           SOME {casex = Const (name, _), ...} => name
+         | _ =>
+             error
+               ("concealed constructor lookup audit: missing case metadata for " ^
+                 quote type_name))
+      end
+
+    val theory = Proof_Context.theory_of ctxt
+    val registered_name =
+      \<^const_name>\<open>ConcealedRegistered\<close>
+    val unregistered_name =
+      \<^const_name>\<open>ConcealedUnregistered\<close>
+    val concealed_case_name =
+      case_constant_name \<^term>\<open>ConcealedRegistered\<close>
+    val _ =
+      audit_assert "fixture constructor unexpectedly entered Code.is_constr"
+        (not (Code.is_constr theory registered_name) andalso
+         not (Code.is_constr theory unregistered_name))
+
+    val resolver =
+      URust_Resolution.make_constructor_resolver ctxt Position.none
+    val registered_info =
+      the
+        (URust_Resolution.resolve_constructor ctxt resolver
+          (path_of "ConcealedAudit::Registered"))
+    val _ =
+      (case URust_Resolution.classify_registered_literal ctxt resolver
+          (path_of "ConcealedAudit::Registered") of
+         URust_Resolution.Registered_Constructor_Literal => ()
+       | _ =>
+           error
+             "concealed constructor lookup audit: registered concealed literal was not classified as a constructor")
+    val _ =
+      audit_assert "registered concealed identity was not recovered"
+        (Term.aconv_untyped
+          (URust_Resolution.constructor_term registered_info,
+           \<^term>\<open>ConcealedRegistered\<close>))
+    val _ =
+      audit_assert "registered concealed constructor leaked into basename lookup"
+        (is_none
+          (URust_Resolution.resolve_constructor ctxt resolver
+            (path_of "ConcealedRegistered")))
+    val _ =
+      audit_assert "second concealed constructor leaked into basename lookup"
+        (is_none
+          (URust_Resolution.resolve_constructor ctxt resolver
+            (path_of "ConcealedUnregistered")))
+
+    val registered_match =
+      checked
+        ("match_case \<llangle>ConcealedRegistered\<rrangle> { " ^
+         "ConcealedAudit::Registered \<Rightarrow> 0, " ^
+         "ConcealedAudit::Unregistered \<Rightarrow> 1 }")
+    val _ =
+      audit_assert "registered concealed match lost its authentic case combinator"
+        (count_constant concealed_case_name registered_match = 1)
+    val _ =
+      audit_assert "registered concealed exhaustive match retained undefined"
+        (count_constant \<^const_name>\<open>undefined\<close>
+          registered_match = 0)
+
+    val unregistered_binder =
+      checked
+        ("match_case \<llangle>ConcealedUnregistered\<rrangle> { " ^
+         "ConcealedUnregistered \<Rightarrow> 0 }")
+    val _ =
+      audit_assert "unregistered concealed basename stopped being a binder"
+        (count_constant unregistered_name unregistered_binder = 1)
+
+    fun diagnostic_ranges body =
+      let
+        fun collect (XML.Text _) ranges = ranges
+          | collect (XML.Elem ((_, properties), children)) ranges =
+              let
+                val ranges' =
+                  (case
+                    (Properties.get properties Markup.offsetN,
+                     Properties.get properties Markup.end_offsetN) of
+                     (SOME offset, SOME end_offset) =>
+                       (offset, end_offset) :: ranges
+                   | _ => ranges)
+              in fold collect children ranges' end
+      in distinct (op =) (fold collect body []) end
+
+    val concealed_mixed_text =
+      "match \<llangle>ConcealedRegistered\<rrangle> { " ^
+      "0 \<Rightarrow> (), ConcealedAudit::Registered \<Rightarrow> () }"
+    val concealed_mixed_start =
+      Position.make0 64 900 0 "" ""
+        "concealed-constructor-mixed-match-audit"
+    val concealed_mixed_position =
+      Position.range_position
+        (concealed_mixed_start,
+         Position.symbol_explode concealed_mixed_text concealed_mixed_start)
+    val concealed_mixed_source =
+      Parser_Lex_Util.positioned_content_source
+        concealed_mixed_text concealed_mixed_start
+    val concealed_mixed_expected =
+      "urust_expr: mixed numeral and constructor patterns in bare `match`" ^
+      Position.here concealed_mixed_position
+    val concealed_mixed_range =
+      (Value.print_int
+        (the (Position.offset_of concealed_mixed_position)),
+       Value.print_int
+        (the (Position.end_offset_of concealed_mixed_position)))
+    val concealed_mixed_body =
+      (case Exn.result (fn () => checked_source concealed_mixed_source) () of
+         Exn.Res term =>
+           error
+             ("concealed constructor lookup audit: mixed numeral match " ^
+              "unexpectedly elaborated to " ^
+              Syntax.string_of_term ctxt term)
+       | Exn.Exn exn =>
+           if Exn.is_interrupt exn then Exn.reraise exn
+           else
+             let val actual = Runtime.exn_message exn
+             in
+               audit_assert
+                 "concealed constructor mixed-match diagnostic changed"
+                 (actual = concealed_mixed_expected);
+               YXML.parse_body actual
+             end)
+    val _ =
+      audit_assert
+        "concealed constructor mixed-match range changed"
+        (diagnostic_ranges concealed_mixed_body =
+          [concealed_mixed_range])
+
+    val recovered_switch =
+      checked
+        ("match 42 { 0 \<Rightarrow> 0, IntegrationAudit::Value \<Rightarrow> 1, " ^
+         "_ \<Rightarrow> 2 }")
+    val recovered_case =
+      checked
+        ("match_case \<llangle>ConcealedRegistered\<rrangle> { " ^
+         "ConcealedAudit::Registered \<Rightarrow> 0, " ^
+         "ConcealedAudit::Unregistered \<Rightarrow> 1 }")
+    val recovered_unit = checked "()"
+    val _ =
+      audit_assert "concealed rejection lost switch recovery"
+        (count_constant \<^const_name>\<open>ncase_selector\<close>
+          recovered_switch = 1)
+    val _ =
+      audit_assert "concealed rejection lost constructor recovery"
+        (count_constant concealed_case_name recovered_case = 1)
+    val _ =
+      audit_assert "concealed rejection lost unit recovery"
+        (count_constant \<^const_name>\<open>Product_Type.Unity\<close>
+          recovered_unit = 1)
+  in
+    val _ =
+      writeln
+        "Concealed registered identity, mixed-match rejection, recovery, and filtered unregistered lookup regressions passed"
+  end
+\<close>
+
+end
+
+
+section\<open> Registered constructor identity audit \<close>
+
+consts
+  registered_constructor_scrutinee :: registered_constructor_fixture
+  registered_constructor_guard_marker :: bool
+  registered_constructor_first_marker :: nat
+  registered_constructor_second_marker :: nat
+
+ML_val\<open>
+  local
+    open URust_AST
+
+    val ctxt = \<^context>
+
+    fun audit_assert message condition =
+      if condition then ()
+      else error ("registered constructor identity audit: " ^ message)
+
+    fun checked source =
+      Parser_Test_Elaboration.expression ctxt
+        (Parser_Lex_Util.text_source source)
+
+    fun parse source =
+      (case URust_Parser.parse_source ctxt source of
+         SOME expression => expression
+       | NONE => error "empty parse")
+
+    fun count_constant name term =
+      Term.fold_aterms
+        (fn Const (candidate, _) =>
+              if candidate = name then Integer.add 1 else I
+          | _ => I)
+        term 0
+
+    fun constant_name term =
+      (case Term.head_of term of
+         Const (name, _) => name
+       | _ => error "expected constant")
+
+    fun case_constant_name constructor =
+      let
+        val (type_name, _) =
+          dest_Type (body_type (fastype_of constructor))
+      in
+        (case Ctr_Sugar.ctr_sugar_of ctxt type_name of
+           SOME {casex, ...} => constant_name casex
+         | NONE =>
+             error
+               ("registered constructor identity audit: missing case metadata for " ^
+                 quote type_name))
+      end
+
+    val nullary_name =
+      constant_name \<^term>\<open>RegisteredNullary\<close>
+    val unary_name =
+      constant_name \<^term>\<open>RegisteredUnary\<close>
+    val other_name =
+      constant_name \<^term>\<open>RegisteredOther\<close>
+    val registered_type_name =
+      fst (dest_Type \<^typ>\<open>registered_constructor_fixture\<close>)
+    val phantom_a_name =
+      constant_name
+        \<^term>\<open>RegisteredPhantomA :: nat registered_phantom\<close>
+    val phantom_b_name =
+      constant_name
+        \<^term>\<open>RegisteredPhantomB :: nat registered_phantom\<close>
+    val negative_nullary_name =
+      constant_name \<^term>\<open>NegativeRegisteredNullary\<close>
+    val negative_other_name =
+      constant_name \<^term>\<open>NegativeRegisteredOther\<close>
+    val negative_phantom_name =
+      constant_name
+        \<^term>\<open>
+          NegativeRegisteredPhantom ::
+            nat negative_registered_phantom
+        \<close>
+    val registered_case_name =
+      case_constant_name \<^term>\<open>RegisteredNullary\<close>
+    val negative_case_name =
+      case_constant_name \<^term>\<open>NegativeRegisteredNullary\<close>
+    val negative_phantom_case_name =
+      case_constant_name
+        \<^term>\<open>
+          NegativeRegisteredPhantom ::
+            nat negative_registered_phantom
+        \<close>
+
+    val exhaustive =
+      checked
+        ("match_case \<llangle>registered_constructor_scrutinee\<rrangle> { " ^
+         "Registered::Nullary \<Rightarrow> \<llangle>registered_constructor_first_marker\<rrangle>, " ^
+         "Registered::Unary(value) \<Rightarrow> value, " ^
+         "Registered::Other \<Rightarrow> \<llangle>registered_constructor_second_marker\<rrangle> }")
+    val partial =
+      checked
+        ("match_case \<llangle>registered_constructor_scrutinee\<rrangle> { " ^
+         "Registered::Unary(value) \<Rightarrow> value }")
+    val guarded =
+      checked
+        ("match_case \<llangle>registered_constructor_scrutinee\<rrangle> { " ^
+         "Registered::Unary(value) if " ^
+         "\<llangle>registered_constructor_guard_marker\<rrangle> \<Rightarrow> " ^
+         "\<llangle>registered_constructor_first_marker\<rrangle>, " ^
+         "_ \<Rightarrow> \<llangle>registered_constructor_second_marker\<rrangle> }")
+    val nonconstructor =
+      checked
+        ("match_case IntegrationAudit::Value { IntegrationAudit::Value \<Rightarrow> " ^
+         "\<llangle>registered_constructor_first_marker\<rrangle>, " ^
+         "_ \<Rightarrow> \<llangle>registered_constructor_second_marker\<rrangle> }")
+    val applied_nonconstructor =
+      checked
+        ("match_case \<llangle>NegativeRegisteredUnary 0\<rrangle> { " ^
+         "NegativeRegistered::Applied \<Rightarrow> " ^
+         "\<llangle>registered_constructor_first_marker\<rrangle>, " ^
+         "_ \<Rightarrow> \<llangle>registered_constructor_second_marker\<rrangle> }")
+    val duplicate_constructor =
+      checked
+        ("match_case \<llangle>NegativeRegisteredNullary\<rrangle> { " ^
+         "NegativeRegistered::Duplicate \<Rightarrow> 0, " ^
+         "NegativeRegistered::Unary(value) \<Rightarrow> value, " ^
+         "NegativeRegistered::Other \<Rightarrow> 1 }")
+    val duplicate_phantom =
+      checked
+        ("match_case " ^
+         "\<llangle>NegativeRegisteredPhantom :: " ^
+         "nat negative_registered_phantom\<rrangle> { " ^
+         "NegativeRegistered::Phantom \<Rightarrow> 0 }")
+
+    val _ =
+      audit_assert "exhaustive match duplicated its scrutinee"
+        (count_constant
+          \<^const_name>\<open>registered_constructor_scrutinee\<close>
+          exhaustive = 1)
+    val _ =
+      audit_assert "partial match duplicated its scrutinee"
+        (count_constant
+          \<^const_name>\<open>registered_constructor_scrutinee\<close>
+          partial = 1)
+    val _ =
+      audit_assert "guarded match duplicated its scrutinee"
+        (count_constant
+          \<^const_name>\<open>registered_constructor_scrutinee\<close>
+          guarded = 1)
+    val _ =
+      audit_assert "exhaustive match lost its authentic case combinator"
+        (count_constant registered_case_name exhaustive = 1)
+    val _ =
+      audit_assert "exhaustive constructor match retained undefined"
+        (count_constant \<^const_name>\<open>undefined\<close> exhaustive = 0)
+    val _ =
+      audit_assert "exhaustive constructor match used generated equality"
+        (count_constant \<^const_name>\<open>urust_eq\<close> exhaustive = 0)
+    val _ =
+      audit_assert "exhaustive constructor match used generated conditional"
+        (count_constant
+          \<^const_name>\<open>two_armed_conditional\<close> exhaustive = 0)
+    val _ =
+      audit_assert "partial constructor match lost its case combinator"
+        (count_constant registered_case_name partial = 1)
+    val _ =
+      audit_assert "partial constructor match used generated equality"
+        (count_constant \<^const_name>\<open>urust_eq\<close> partial = 0)
+    val _ =
+      audit_assert "partial constructor match lost its unmatched fallback"
+        (count_constant \<^const_name>\<open>undefined\<close> partial > 0)
+    val _ =
+      audit_assert "guard marker was duplicated or dropped"
+        (count_constant
+          \<^const_name>\<open>registered_constructor_guard_marker\<close>
+          guarded = 1)
+    val _ =
+      audit_assert "guarded constructor match lost its authentic case combinator"
+        (count_constant registered_case_name guarded = 1)
+    val _ =
+      audit_assert "guarded constructor match used generated equality"
+        (count_constant \<^const_name>\<open>urust_eq\<close> guarded = 0)
+    val _ =
+      audit_assert "guarded match with wildcard fallback retained undefined"
+        (count_constant \<^const_name>\<open>undefined\<close> guarded = 0)
+    val _ =
+      audit_assert "guarded false fall-through lost the next source arm"
+        (count_constant
+          \<^const_name>\<open>registered_constructor_second_marker\<close>
+          guarded > 0)
+    val _ =
+      audit_assert "registered nonconstructor value-key count changed"
+        (count_constant \<^const_name>\<open>integration_registered_value_audit\<close>
+          nonconstructor = 2)
+    val _ =
+      audit_assert "registered nonconstructor lost equality lowering"
+        (count_constant \<^const_name>\<open>urust_eq\<close>
+          nonconstructor > 0)
+    val _ =
+      audit_assert "registered nonconstructor lost conditional lowering"
+        (count_constant
+          \<^const_name>\<open>two_armed_conditional\<close>
+          nonconstructor > 0)
+    val _ =
+      List.app
+        (fn name =>
+          audit_assert
+            ("registered nonconstructor acquired constructor classification " ^
+              quote name)
+            (count_constant name nonconstructor = 0))
+        [nullary_name, unary_name, other_name]
+    val _ =
+      audit_assert "constructor-headed registered application lost its two values"
+        (count_constant
+          \<^const_name>\<open>NegativeRegisteredUnary\<close>
+          applied_nonconstructor = 2)
+    val _ =
+      audit_assert "constructor-headed registered application lost equality lowering"
+        (count_constant \<^const_name>\<open>urust_eq\<close>
+          applied_nonconstructor > 0)
+    val _ =
+      audit_assert "constructor-headed registered application lost conditional lowering"
+        (count_constant
+          \<^const_name>\<open>two_armed_conditional\<close>
+          applied_nonconstructor > 0)
+    val _ =
+      audit_assert "duplicate same-constructor registrations became ambiguous"
+        (count_constant negative_case_name duplicate_constructor = 1)
+    val _ =
+      audit_assert "phantom type-instantiated registrations became ambiguous"
+        (count_constant negative_phantom_case_name duplicate_phantom = 1)
+
+    fun path_of source =
+      (case parse (Parser_Lex_Util.text_source source) of
+         UE_Path path => path
+       | _ => error ("expected path " ^ quote source))
+
+    val resolver =
+      URust_Resolution.make_constructor_resolver
+        ctxt Position.none
+    val unary_info =
+      the
+        (URust_Resolution.resolve_constructor ctxt resolver
+          (path_of "Registered::Unary"))
+    val phantom_info =
+      the
+        (URust_Resolution.resolve_constructor ctxt resolver
+          (path_of "RegisteredPhantom::A"))
+    val duplicate_info =
+      the
+        (URust_Resolution.resolve_constructor ctxt resolver
+          (path_of "NegativeRegistered::Duplicate"))
+    val duplicate_phantom_info =
+      the
+        (URust_Resolution.resolve_constructor ctxt resolver
+          (path_of "NegativeRegistered::Phantom"))
+    val _ =
+      audit_assert "registered nonconstructor became a constructor"
+        (is_none
+          (URust_Resolution.resolve_constructor ctxt resolver
+            (path_of "IntegrationAudit::Value")))
+    val _ =
+      audit_assert "constructor-equal definition became a constructor"
+        (is_none
+          (URust_Resolution.resolve_constructor ctxt resolver
+            (path_of "NegativeRegistered::Value")))
+    val _ =
+      audit_assert "constructor-headed application became a constructor"
+        (is_none
+          (URust_Resolution.resolve_constructor ctxt resolver
+            (path_of "NegativeRegistered::Applied")))
+    val _ =
+      audit_assert "registered unary did not return catalogue identity"
+        (Term.aconv_untyped
+          (URust_Resolution.constructor_term unary_info,
+           \<^term>\<open>RegisteredUnary\<close>))
+    val _ =
+      (case URust_Resolution.constructor_family unary_info of
+         SOME (_, members) =>
+           audit_assert "registered constructor family is incomplete"
+             (sort_strings (map constant_name members) =
+              sort_strings [nullary_name, unary_name, other_name])
+       | NONE => error "registered constructor lost family metadata")
+    val _ =
+      audit_assert "polymorphic phantom registration lost constructor identity"
+        (Term.aconv_untyped
+          (URust_Resolution.constructor_term phantom_info,
+           \<^term>\<open>RegisteredPhantomA :: bool registered_phantom\<close>))
+    val _ =
+      (case URust_Resolution.constructor_family phantom_info of
+         SOME (_, members) =>
+           audit_assert "phantom constructor family is incomplete"
+             (sort_strings (map constant_name members) =
+              sort_strings [phantom_a_name, phantom_b_name])
+       | NONE => error "phantom constructor lost family metadata")
+    val _ =
+      audit_assert "duplicate identical registrations lost constructor identity"
+        (Term.aconv_untyped
+          (URust_Resolution.constructor_term duplicate_info,
+           \<^term>\<open>NegativeRegisteredNullary\<close>))
+    val _ =
+      audit_assert "phantom registrations did not deduplicate by untyped identity"
+        (Term.aconv_untyped
+          (URust_Resolution.constructor_term duplicate_phantom_info,
+           \<^term>\<open>
+             NegativeRegisteredPhantom ::
+               bool negative_registered_phantom
+           \<close>))
+
+    fun find_from text needle offset =
+      if offset + size needle > size text then
+        error ("missing " ^ quote needle)
+      else if String.substring (text, offset, size needle) = needle
+      then offset
+      else find_from text needle (offset + 1)
+
+    fun token_position text start needle offset =
+      let
+        val raw = find_from text needle offset
+        val token_start =
+          Position.symbol_explode
+            (String.substring (text, 0, raw)) start
+      in
+        (raw,
+         Position.range_position
+           (token_start, Position.symbol_explode needle token_start))
+      end
+
+    fun same_range left right =
+      Position.offset_of left = Position.offset_of right andalso
+      Position.end_offset_of left = Position.end_offset_of right
+
+    val markup_text =
+      "match_case \<llangle>RegisteredUnary 1\<rrangle> { " ^
+      "Registered::Unary(value) \<Rightarrow> (), _ \<Rightarrow> () }"
+    val markup_start =
+      Position.make0 29 700 0 "" ""
+        "registered-constructor-markup-audit"
+    val markup_source =
+      Parser_Lex_Util.positioned_content_source
+        markup_text markup_start
+    val (path_raw, expected_path) =
+      token_position markup_text markup_start
+        "Registered::Unary" 0
+    val (_, expected_qualifier) =
+      token_position markup_text markup_start
+        "Registered" path_raw
+    val (_, expected_terminal) =
+      token_position markup_text markup_start
+        "Unary" (path_raw + size "Registered::")
+    val pattern_path =
+      (case parse markup_source of
+         UE_Match
+           (_, _, UR_Arm (P_Constr (path, [_]), NONE, _) :: _, _) =>
+           path
+       | _ => error "registered constructor pattern AST changed")
+    val (_, terminal_position) =
+      segment_identifier (final_segment pattern_path)
+    val _ =
+      audit_assert "registered constructor path span changed"
+        (same_range (path_position pattern_path) expected_path)
+    val _ =
+      audit_assert "registered constructor terminal range changed"
+        (same_range terminal_position expected_terminal)
+
+    val captured_reports =
+      Synchronized.var "registered_constructor_reports"
+        ([]: string list)
+    fun capture_reports chunks =
+      Synchronized.change captured_reports (append chunks)
+    val _ =
+      Parser_Test_Report_Lock.run (fn () =>
+        Unsynchronized.setmp Private_Output.report_fn capture_reports
+          (fn () =>
+            Print_Mode.with_modes [Print_Mode.PIDE]
+              (fn () =>
+                ignore
+                  (Parser_Test_Elaboration.expression
+                    ctxt markup_source)) ())
+          ())
+
+    fun collect_markup (XML.Text _) result = result
+      | collect_markup (XML.Elem (markup, body)) result =
+          fold collect_markup body (markup :: result)
+    val markup =
+      fold collect_markup
+        (maps YXML.parse_body
+          (Synchronized.value captured_reports)) []
+    fun has_position properties position =
+      Properties.get properties Markup.offsetN =
+        Option.map Value.print_int (Position.offset_of position) andalso
+      Properties.get properties Markup.end_offsetN =
+        Option.map Value.print_int (Position.end_offset_of position)
+    fun count_markup markup_name position =
+      length
+        (filter
+          (fn (name, properties) =>
+            name = markup_name andalso
+              has_position properties position)
+          markup)
+    fun count_entity kind identity position =
+      length
+        (filter
+          (fn (name, properties) =>
+            name = Markup.entityN andalso
+              Properties.get properties Markup.kindN = SOME kind andalso
+              Properties.get properties Markup.nameN = SOME identity andalso
+              has_position properties position)
+          markup)
+
+    val _ =
+      audit_assert "constructor qualifier retained free markup"
+        (count_markup Markup.freeN expected_qualifier = 0)
+    val _ =
+      audit_assert "constructor qualifier datatype entity duplicated or disappeared"
+        (count_entity Markup.type_nameN registered_type_name
+          expected_qualifier = 1)
+    val _ =
+      audit_assert "constructor qualifier keyword3 styling duplicated or disappeared"
+        (count_markup Markup.keyword3N expected_qualifier = 1)
+    val _ =
+      audit_assert "constructor qualifier retained obsolete tconst styling"
+        (count_markup Markup.tconstN expected_qualifier = 0)
+    val _ =
+      audit_assert "constructor terminal constant entity duplicated or disappeared"
+        (count_entity Markup.constantN unary_name expected_terminal = 1)
+    val _ =
+      audit_assert "constructor terminal was reported as a free binder"
+        (count_markup Markup.freeN expected_terminal = 0)
+    val _ =
+      audit_assert "constructor terminal notation entity duplicated or disappeared"
+        (count_entity Micro_Rust_Names.notationN
+          "Registered::Unary" expected_terminal = 1)
+    val _ =
+      audit_assert "constructor terminal keyword3 styling duplicated or disappeared"
+        (count_markup Markup.keyword3N expected_terminal = 1)
+
+    fun recovery_checks () =
+      let
+        val constructor_recovery =
+          checked
+            ("match_case \<llangle>NegativeRegisteredUnary 3\<rrangle> { " ^
+             "NegativeRegistered::Nullary \<Rightarrow> 0, " ^
+             "NegativeRegistered::Unary(value) \<Rightarrow> value, " ^
+             "NegativeRegistered::Other \<Rightarrow> 1 }")
+        val nonconstructor_recovery =
+          checked
+            ("match_case \<llangle>negative_registered_nonconstructor\<rrangle> { " ^
+             "NegativeRegistered::Value \<Rightarrow> " ^
+             "NegativeRegisteredNullary, " ^
+             "_ \<Rightarrow> NegativeRegisteredOther }")
+      in
+        audit_assert "constructor recovery lost authentic identity"
+          (count_constant
+            \<^const_name>\<open>NegativeRegisteredUnary\<close>
+            constructor_recovery > 0);
+        audit_assert "nonconstructor recovery lost equality lowering"
+          (count_constant \<^const_name>\<open>urust_eq\<close>
+            nonconstructor_recovery > 0)
+      end
+
+    fun diagnostic_ranges body =
+      let
+        fun collect (XML.Text _) ranges = ranges
+          | collect (XML.Elem ((_, properties), children)) ranges =
+              let
+                val ranges' =
+                  (case
+                    (Properties.get properties Markup.offsetN,
+                     Properties.get properties Markup.end_offsetN) of
+                     (SOME offset, SOME end_offset) =>
+                       (offset, end_offset) :: ranges
+                   | _ => ranges)
+              in fold collect children ranges' end
+      in distinct (op =) (fold collect body []) end
+
+    fun expect_exact_rejection serial label text path terminal expected =
+      let
+        val start =
+          Position.make0 (40 + serial) (900 + serial * 200) 0 "" ""
+            ("registered-constructor-" ^ label ^ "-audit")
+        val source =
+          Parser_Lex_Util.positioned_content_source text start
+        val (path_raw, _) =
+          token_position text start path 0
+        val terminal_raw =
+          path_raw + size path - size terminal
+        val (_, expected_position) =
+          token_position text start terminal terminal_raw
+        val qualifier_length = find_from path "::" 0
+        val qualifier =
+          String.substring (path, 0, qualifier_length)
+        val (_, expected_qualifier_position) =
+          token_position text start qualifier path_raw
+        val expected_message =
+          expected ^ Position.here expected_position
+        val expected_range =
+          (Value.print_int (the (Position.offset_of expected_position)),
+           Value.print_int (the (Position.end_offset_of expected_position)))
+        val captured =
+          Synchronized.var
+            ("registered_constructor_" ^ label ^ "_reports")
+            ([]: string list)
+        fun capture chunks =
+          Synchronized.change captured (append chunks)
+        val result =
+          Parser_Test_Report_Lock.run (fn () =>
+            Unsynchronized.setmp Private_Output.report_fn capture
+              (fn () =>
+                Exn.result
+                  (fn () =>
+                    Parser_Test_Elaboration.expression ctxt source) ())
+              ())
+        val body =
+          (case result of
+             Exn.Res term =>
+               error
+                 ("registered constructor identity audit: " ^ label ^
+                  " unexpectedly elaborated to " ^
+                  Syntax.string_of_term ctxt term)
+           | Exn.Exn exn =>
+               if Exn.is_interrupt exn then Exn.reraise exn
+               else
+                 let val actual = Runtime.exn_message exn
+                 in
+                   audit_assert (label ^ " exact diagnostic changed")
+                     (actual = expected_message);
+                   YXML.parse_body actual
+                 end)
+        val rejection_markup =
+          fold collect_markup
+            (maps YXML.parse_body (Synchronized.value captured)) []
+        val _ =
+          audit_assert (label ^ " YXML offset/end_offset changed")
+            (diagnostic_ranges body = [expected_range])
+        val _ =
+          audit_assert (label ^ " emitted premature qualifier free markup")
+            (not
+              (exists
+                (fn (name, properties) =>
+                  name = Markup.freeN andalso
+                    has_position properties
+                      expected_qualifier_position)
+                rejection_markup))
+        val _ =
+          audit_assert (label ^ " emitted premature qualifier keyword3 markup")
+            (not
+              (exists
+                (fn (name, properties) =>
+                  name = Markup.keyword3N andalso
+                    has_position properties
+                      expected_qualifier_position)
+                rejection_markup))
+        val _ =
+          audit_assert (label ^ " emitted premature qualifier type entity")
+            (not
+              (exists
+                (fn (name, properties) =>
+                  name = Markup.entityN andalso
+                    Properties.get properties Markup.kindN =
+                      SOME Markup.type_nameN andalso
+                    has_position properties
+                      expected_qualifier_position)
+                rejection_markup))
+        val _ =
+          audit_assert (label ^ " emitted premature qualifier notation entity")
+            (not
+              (exists
+                (fn (name, properties) =>
+                  name = Markup.entityN andalso
+                    Properties.get properties Markup.kindN =
+                      SOME Micro_Rust_Names.notationN andalso
+                    has_position properties
+                      expected_qualifier_position)
+                rejection_markup))
+        val _ =
+          audit_assert (label ^ " emitted premature qualifier typing markup")
+            (not
+              (exists
+                (fn (name, properties) =>
+                  name = Markup.typingN andalso
+                    has_position properties
+                      expected_qualifier_position)
+                rejection_markup))
+        val _ =
+          audit_assert (label ^ " emitted premature terminal free markup")
+            (not
+              (exists
+                (fn (name, properties) =>
+                  name = Markup.freeN andalso
+                    has_position properties expected_position)
+                rejection_markup))
+        val _ =
+          audit_assert (label ^ " emitted premature terminal keyword3 markup")
+            (not
+              (exists
+                (fn (name, properties) =>
+                  name = Markup.keyword3N andalso
+                    has_position properties expected_position)
+                rejection_markup))
+        val _ =
+          audit_assert (label ^ " emitted premature terminal notation entity")
+            (not
+              (exists
+                (fn (name, properties) =>
+                  name = Markup.entityN andalso
+                    Properties.get properties Markup.kindN =
+                      SOME Micro_Rust_Names.notationN andalso
+                    has_position properties expected_position)
+                rejection_markup))
+        val _ =
+          audit_assert (label ^ " emitted premature terminal constant entity")
+            (not
+              (exists
+                (fn (name, properties) =>
+                  name = Markup.entityN andalso
+                    Properties.get properties Markup.kindN =
+                      SOME Markup.constantN andalso
+                    has_position properties expected_position)
+                rejection_markup))
+        val _ = recovery_checks ()
+      in () end
+
+    val unary_path = "NegativeRegistered::Unary"
+    val value_path = "NegativeRegistered::Value"
+    val ambiguous_path = "NegativeRegistered::Ambiguous"
+    val applied_path = "NegativeRegistered::Applied"
+    val _ =
+      expect_exact_rejection 0 "zero-arity"
+        ("match_case \<llangle>NegativeRegisteredUnary 0\<rrangle> { " ^
+         unary_path ^ " \<Rightarrow> 0, _ \<Rightarrow> 1 }")
+        unary_path "Unary"
+        ("urust_expr: constructor " ^ quote "Unary" ^
+         " expects 1 pattern argument(s), but got 0")
+    val _ =
+      expect_exact_rejection 1 "excess-arity"
+        ("match_case \<llangle>NegativeRegisteredUnary 0\<rrangle> { " ^
+         unary_path ^ "(left, right) \<Rightarrow> left, _ \<Rightarrow> 0 }")
+        unary_path "Unary"
+        ("urust_expr: constructor " ^ quote unary_path ^
+         " expects 1 pattern argument(s), but got 2")
+    val _ =
+      expect_exact_rejection 2 "nonconstructor-application"
+        ("match_case \<llangle>negative_registered_nonconstructor\<rrangle> { " ^
+         value_path ^ "(value) \<Rightarrow> value, _ \<Rightarrow> " ^
+         "NegativeRegisteredNullary }")
+        value_path "Value"
+        ("urust_expr: `" ^ value_path ^ "` is not a known constructor")
+    val _ =
+      expect_exact_rejection 3 "distinct-constructor-ambiguity"
+        ("match_case \<llangle>NegativeRegisteredNullary\<rrangle> { " ^
+         ambiguous_path ^ " \<Rightarrow> 0, _ \<Rightarrow> 1 }")
+        ambiguous_path "Ambiguous"
+        ("urust_expr: constructor pattern " ^ quote ambiguous_path ^
+         " is ambiguous; candidates: " ^
+         space_implode ", "
+           (sort_strings [negative_nullary_name, negative_other_name]))
+    val _ =
+      expect_exact_rejection 4 "constructor-headed-application"
+        ("match_case \<llangle>NegativeRegisteredUnary 0\<rrangle> { " ^
+         applied_path ^ "(value) \<Rightarrow> value, _ \<Rightarrow> 0 }")
+        applied_path "Applied"
+        ("urust_expr: `" ^ applied_path ^ "` is not a known constructor")
+  in
+    val _ =
+      writeln
+        "Registered constructor identity, diagnostics, recovery, lowering, range, markup, and single-evaluation regressions passed"
+  end
+\<close>
+
+
+section\<open> Contextual bare-match classification audit \<close>
+
+consts
+  mixed_match_scrutinee_marker :: nat
+  mixed_match_first_body_marker :: nat
+  mixed_match_second_body_marker :: nat
+  mixed_match_fallback_marker :: nat
+
+ML_val\<open>
+  local
+    open URust_AST
+
+    val ctxt = \<^context>
+
+    fun audit_assert message condition =
+      if condition then ()
+      else error ("contextual bare-match classification audit: " ^ message)
+
+    fun parse_source source =
+      (case URust_Parser.parse_source ctxt source of
+         SOME expression => expression
+       | NONE =>
+           error "contextual bare-match classification audit: empty parse")
+
+    fun parse text =
+      parse_source (Parser_Lex_Util.text_source text)
+
+    fun checked_source source =
+      Parser_Test_Elaboration.expression ctxt source
+
+    fun checked text =
+      checked_source (Parser_Lex_Util.text_source text)
+
+    fun path_of_source source =
+      (case parse_source source of
+         UE_Path path => path
+       | _ => error "contextual bare-match classification audit: expected path")
+
+    fun path_of text =
+      path_of_source (Parser_Lex_Util.text_source text)
+
+    fun class_matches expected actual =
+      (case (expected, actual) of
+         (URust_Resolution.Unregistered_Literal,
+          URust_Resolution.Unregistered_Literal) => true
+       | (URust_Resolution.Registered_Value_Literal,
+          URust_Resolution.Registered_Value_Literal) => true
+       | (URust_Resolution.Registered_Constructor_Literal,
+          URust_Resolution.Registered_Constructor_Literal) => true
+       | _ => false)
+
+    fun class_name URust_Resolution.Unregistered_Literal = "unregistered"
+      | class_name URust_Resolution.Registered_Value_Literal = "value"
+      | class_name URust_Resolution.Registered_Constructor_Literal =
+          "constructor"
+
+    fun expect_class label expected path =
+      let
+        val resolver =
+          URust_Resolution.make_constructor_resolver
+            ctxt (path_position path)
+        val actual =
+          URust_Resolution.classify_registered_literal
+            ctxt resolver path
+      in
+        if class_matches expected actual
+        then ()
+        else
+          error
+            ("contextual bare-match classification audit: " ^ label ^
+              " classification changed from " ^ class_name expected ^
+              " to " ^ class_name actual)
+      end
+
+    fun collect_markup (XML.Text _) result = result
+      | collect_markup (XML.Elem (markup, body)) result =
+          fold collect_markup body (markup :: result)
+
+    fun has_position properties position =
+      Properties.get properties Markup.offsetN =
+        Option.map Value.print_int (Position.offset_of position) andalso
+      Properties.get properties Markup.end_offsetN =
+        Option.map Value.print_int (Position.end_offset_of position)
+
+    fun expect_report_free_class serial label expected text =
+      let
+        val start =
+          Position.make0 (96 + serial) (33000 + serial * 500) 0 "" ""
+            ("contextual-match-" ^ label ^ "-classification-audit")
+        val path =
+          path_of_source
+            (Parser_Lex_Util.positioned_content_source text start)
+        val resolver =
+          URust_Resolution.make_constructor_resolver
+            ctxt (path_position path)
+        val captured =
+          Synchronized.var
+            ("contextual_match_" ^ label ^ "_classification_reports")
+            ([]: string list)
+        fun capture chunks =
+          Synchronized.change captured (append chunks)
+        val actual =
+          Parser_Test_Report_Lock.run (fn () =>
+            Unsynchronized.setmp Private_Output.report_fn capture
+              (fn () =>
+                Print_Mode.with_modes [Print_Mode.PIDE]
+                  (fn () =>
+                    URust_Resolution.classify_registered_literal
+                      ctxt resolver path) ())
+              ())
+        val markup =
+          fold collect_markup
+            (maps YXML.parse_body (Synchronized.value captured)) []
+        val segment_positions =
+          map (#2 o segment_identifier) (path_segments path)
+        val reported_at_path =
+          exists
+            (fn (_, properties) =>
+              exists (has_position properties) segment_positions)
+            markup
+      in
+        audit_assert (label ^ " classification changed")
+          (class_matches expected actual);
+        audit_assert (label ^ " classification emitted path reports")
+          (not reported_at_path)
+      end
+
+    val _ =
+      expect_class "qualified registered value"
+        URust_Resolution.Registered_Value_Literal
+        (path_of "IntegrationAudit::Value")
+    val _ =
+      expect_class "single-segment registered value"
+        URust_Resolution.Registered_Value_Literal
+        (path_of "registered_seven")
+    val _ =
+      expect_report_free_class 0 "merged constructor/value exact key"
+        URust_Resolution.Registered_Constructor_Literal
+        "Color::Red"
+    val _ =
+      expect_class "registered constructor"
+        URust_Resolution.Registered_Constructor_Literal
+        (path_of "Registered::Nullary")
+    val _ =
+      expect_class "registered phantom constructor"
+        URust_Resolution.Registered_Constructor_Literal
+        (path_of "RegisteredPhantom::A")
+    val _ =
+      expect_class "duplicate registered constructor"
+        URust_Resolution.Registered_Constructor_Literal
+        (path_of "NegativeRegistered::Duplicate")
+    val _ =
+      expect_report_free_class 1 "constructor-wins exact key"
+        URust_Resolution.Registered_Constructor_Literal
+        "NegativeRegistered::ConstructorWins"
+    val _ =
+      expect_report_free_class 2 "two-constructor exact key"
+        URust_Resolution.Registered_Constructor_Literal
+        "NegativeRegistered::Ambiguous"
+    val _ =
+      expect_class "constructor-equal definition"
+        URust_Resolution.Registered_Value_Literal
+        (path_of "NegativeRegistered::Value")
+    val _ =
+      expect_class "constructor-headed application"
+        URust_Resolution.Registered_Value_Literal
+        (path_of "NegativeRegistered::Applied")
+    val _ =
+      (case Exn.result
+          (fn () =>
+            let
+              val path = path_of "Unregistered::Value"
+              val resolver =
+                URust_Resolution.make_constructor_resolver
+                  ctxt (path_position path)
+            in
+              URust_Resolution.classify_registered_literal
+                ctxt resolver path
+            end) () of
+         Exn.Res _ =>
+           error
+             "contextual bare-match classification audit: unregistered qualified path was accepted"
+       | Exn.Exn exn =>
+           if Exn.is_interrupt exn then Exn.reraise exn
+           else
+             audit_assert
+               "unregistered qualified path diagnostic changed"
+               (String.isSubstring
+                 "qualified path \"Unregistered::Value\" requires an exact micro_rust_notation (literal) declaration"
+                 (Runtime.exn_message exn)))
+
+    fun find_from text needle offset =
+      if offset + size needle > size text then
+        error ("missing " ^ quote needle)
+      else if String.substring (text, offset, size needle) = needle
+      then offset
+      else find_from text needle (offset + 1)
+
+    fun token_position text start needle offset =
+      let
+        val raw = find_from text needle offset
+        val token_start =
+          Position.symbol_explode
+            (String.substring (text, 0, raw)) start
+      in
+        (raw,
+         Position.range_position
+           (token_start, Position.symbol_explode needle token_start))
+      end
+
+    fun same_range left right =
+      Position.offset_of left = Position.offset_of right andalso
+      Position.end_offset_of left = Position.end_offset_of right
+
+    val ast_text =
+      "match 42 { 0 \<Rightarrow> 0, IntegrationAudit::Value \<Rightarrow> 1, 7 \<Rightarrow> 2, _ \<Rightarrow> 3 }"
+    val ast_start =
+      Position.make0 71 1700 0 "" ""
+        "contextual-match-ast-audit"
+    val ast_source =
+      Parser_Lex_Util.positioned_content_source ast_text ast_start
+    val ast_stop = Position.symbol_explode ast_text ast_start
+    val expected_match =
+      Position.range_position (ast_start, ast_stop)
+    val (first_numeral_raw, expected_first_numeral) =
+      token_position ast_text ast_start "0" (size "match 42 { ")
+    val (_, expected_value_path) =
+      token_position ast_text ast_start "IntegrationAudit::Value"
+        (first_numeral_raw + 1)
+    val (value_raw, expected_qualifier) =
+      token_position ast_text ast_start "IntegrationAudit"
+        (first_numeral_raw + 1)
+    val (_, expected_terminal) =
+      token_position ast_text ast_start "Value"
+        (value_raw + size "IntegrationAudit::")
+    val (_, expected_second_numeral) =
+      token_position ast_text ast_start "7"
+        (value_raw + size "IntegrationAudit::Value")
+    val _ =
+      (case parse_source ast_source of
+         UE_Match
+           (MF_Auto, _,
+            [UR_Arm (P_Literal (LP_Integer (_, first_pos)), NONE, _),
+             UR_Arm (P_Path path, NONE, _),
+             UR_Arm (P_Literal (LP_Integer (_, second_pos)), NONE, _),
+             UR_Arm (P_Wild _, NONE, _)],
+            match_pos) =>
+           let
+             val (_, terminal_pos) =
+               segment_identifier (final_segment path)
+             val qualifier_pos =
+               #2
+                 (segment_identifier
+                   (hd (path_segments path)))
+           in
+             audit_assert "contextual classification rewrote MF_Auto"
+               true;
+             audit_assert "bare match span changed"
+               (same_range match_pos expected_match);
+             audit_assert "first numeral range changed"
+               (same_range first_pos expected_first_numeral);
+             audit_assert "second numeral range changed"
+               (same_range second_pos expected_second_numeral);
+             audit_assert "registered path range changed"
+               (same_range (path_position path) expected_value_path);
+             audit_assert "registered qualifier range changed"
+               (same_range qualifier_pos expected_qualifier);
+             audit_assert "registered terminal range changed"
+               (same_range terminal_pos expected_terminal)
+           end
+       | _ => error "contextual bare-match classification audit: AST changed")
+
+    val identifier_text =
+      "match 7 { 0 \<Rightarrow> 0, registered_seven \<Rightarrow> 1, _ \<Rightarrow> 2 }"
+    val identifier_start =
+      Position.make0 72 1900 0 "" ""
+        "contextual-match-identifier-ast-audit"
+    val (_, expected_identifier) =
+      token_position identifier_text identifier_start
+        "registered_seven" 0
+    val _ =
+      (case parse_source
+          (Parser_Lex_Util.positioned_content_source
+            identifier_text identifier_start) of
+         UE_Match
+           (_, _,
+            [_,
+             UR_Arm (P_Ident (_, identifier_pos), NONE, _),
+             _],
+            _) =>
+           audit_assert "single-segment registered key range changed"
+             (same_range identifier_pos expected_identifier)
+       | _ =>
+           error
+             "contextual bare-match classification audit: identifier AST changed")
+
+    fun count_constant name term =
+      Term.fold_aterms
+        (fn Const (candidate, _) =>
+              if candidate = name then Integer.add 1 else I
+          | _ => I)
+        term 0
+
+    fun case_constant_name constructor =
+      let
+        val (type_name, _) =
+          dest_Type (body_type (fastype_of constructor))
+      in
+        (case Ctr_Sugar.ctr_sugar_of ctxt type_name of
+           SOME {casex = Const (name, _), ...} => name
+         | _ =>
+             error
+               ("contextual bare-match classification audit: missing case metadata for " ^
+                 quote type_name))
+      end
+
+    val registered_case_name =
+      case_constant_name \<^term>\<open>RegisteredNullary\<close>
+    val negative_case_name =
+      case_constant_name \<^term>\<open>NegativeRegisteredNullary\<close>
+
+    val auto =
+      checked
+        ("match \<llangle>mixed_match_scrutinee_marker\<rrangle> { " ^
+         "0 \<Rightarrow> \<llangle>mixed_match_first_body_marker\<rrangle>, " ^
+         "IntegrationAudit::Value \<Rightarrow> " ^
+         "\<llangle>mixed_match_second_body_marker\<rrangle>, " ^
+         "_ \<Rightarrow> \<llangle>mixed_match_fallback_marker\<rrangle> }")
+    val explicit =
+      checked
+        ("match_switch \<llangle>mixed_match_scrutinee_marker\<rrangle> { " ^
+         "0 \<Rightarrow> \<llangle>mixed_match_first_body_marker\<rrangle>, " ^
+         "IntegrationAudit::Value \<Rightarrow> " ^
+         "\<llangle>mixed_match_second_body_marker\<rrangle>, " ^
+         "_ \<Rightarrow> \<llangle>mixed_match_fallback_marker\<rrangle> }")
+    val _ =
+      audit_assert "auto registered-value mixture differs from explicit switch"
+        (Term.aconv (auto, explicit))
+    val _ =
+      audit_assert "auto registered-value mixture lost ncase_selector"
+        (count_constant \<^const_name>\<open>ncase_selector\<close> auto = 1)
+    val _ =
+      audit_assert "auto registered-value mixture duplicated its scrutinee"
+        (count_constant
+          \<^const_name>\<open>mixed_match_scrutinee_marker\<close>
+          auto = 1)
+    val _ =
+      audit_assert "registered backend was duplicated or dropped"
+        (count_constant
+          \<^const_name>\<open>integration_registered_value_audit\<close>
+          auto = 1)
+    val _ =
+      List.app
+        (fn name =>
+          audit_assert
+            ("switch body marker was duplicated or dropped: " ^ name)
+            (count_constant name auto = 1))
+        [\<^const_name>\<open>mixed_match_first_body_marker\<close>,
+         \<^const_name>\<open>mixed_match_second_body_marker\<close>,
+         \<^const_name>\<open>mixed_match_fallback_marker\<close>]
+    val _ =
+      List.app
+        (fn name =>
+          audit_assert
+            ("switch lowering introduced " ^ quote name)
+            (count_constant name auto = 0))
+        [\<^const_name>\<open>case_guard\<close>,
+         \<^const_name>\<open>urust_eq\<close>,
+         \<^const_name>\<open>two_armed_conditional\<close>,
+         \<^const_name>\<open>undefined\<close>,
+         \<^const_name>\<open>RegisteredNullary\<close>]
+
+    val switch_preferred =
+      checked
+        ("match \<llangle>mixed_match_scrutinee_marker\<rrangle> { " ^
+         "IntegrationAudit::Value \<Rightarrow> " ^
+         "\<llangle>mixed_match_first_body_marker\<rrangle>, " ^
+         "_ \<Rightarrow> \<llangle>mixed_match_fallback_marker\<rrangle> }")
+    val _ =
+      audit_assert "registered value without numeral selected switch"
+        (count_constant \<^const_name>\<open>ncase_selector\<close>
+          switch_preferred = 1)
+    val _ =
+      audit_assert "registered value without numeral retained case equality"
+        (count_constant \<^const_name>\<open>urust_eq\<close>
+          switch_preferred = 0)
+    val _ =
+      audit_assert "registered value without numeral retained case conditional"
+        (count_constant \<^const_name>\<open>two_armed_conditional\<close>
+          switch_preferred = 0)
+
+    val constructor_wins =
+      checked
+        ("match_case \<llangle>NegativeRegisteredNullary\<rrangle> { " ^
+         "NegativeRegistered::ConstructorWins \<Rightarrow> 0, " ^
+         "NegativeRegistered::Unary(value) \<Rightarrow> value, " ^
+         "NegativeRegistered::Other \<Rightarrow> 1 }")
+    val _ =
+      audit_assert "constructor/nonconstructor exact key did not select the constructor"
+        (count_constant negative_case_name constructor_wins = 1)
+
+    fun collect_markup (XML.Text _) result = result
+      | collect_markup (XML.Elem (markup, body)) result =
+          fold collect_markup body (markup :: result)
+
+    fun capture_markup label source =
+      let
+        val captured =
+          Synchronized.var
+            ("contextual_match_" ^ label ^ "_reports")
+            ([]: string list)
+        fun capture chunks =
+          Synchronized.change captured (append chunks)
+        val _ =
+          Parser_Test_Report_Lock.run (fn () =>
+            Unsynchronized.setmp Private_Output.report_fn capture
+              (fn () =>
+                Print_Mode.with_modes [Print_Mode.PIDE]
+                  (fn () => ignore (checked_source source)) ())
+              ())
+      in
+        fold collect_markup
+          (maps YXML.parse_body (Synchronized.value captured)) []
+      end
+
+    fun has_position properties position =
+      Properties.get properties Markup.offsetN =
+        Option.map Value.print_int (Position.offset_of position) andalso
+      Properties.get properties Markup.end_offsetN =
+        Option.map Value.print_int (Position.end_offset_of position) andalso
+      Properties.get properties Markup.idN =
+        Position.id_of position
+
+    fun count_markup markup_name position markup =
+      length
+        (filter
+          (fn (name, properties) =>
+            name = markup_name andalso
+              has_position properties position)
+          markup)
+
+    fun count_entity kind identity position markup =
+      length
+        (filter
+          (fn (name, properties) =>
+            name = Markup.entityN andalso
+              Properties.get properties Markup.kindN = SOME kind andalso
+              Properties.get properties Markup.nameN = SOME identity andalso
+              has_position properties position)
+          markup)
+
+    val qualified_markup = capture_markup "qualified" ast_source
+    val _ =
+      audit_assert "first numeral markup duplicated or disappeared"
+        (count_markup Markup.numeralN expected_first_numeral
+          qualified_markup = 1)
+    val _ =
+      audit_assert "second numeral markup duplicated or disappeared"
+        (count_markup Markup.numeralN expected_second_numeral
+          qualified_markup = 1)
+    val _ =
+      audit_assert "first numeral typing markup duplicated or disappeared"
+        (count_markup Markup.typingN expected_first_numeral
+          qualified_markup = 1)
+    val _ =
+      audit_assert "second numeral typing markup duplicated or disappeared"
+        (count_markup Markup.typingN expected_second_numeral
+          qualified_markup = 1)
+    val _ =
+      audit_assert "registered qualifier retained free markup"
+        (count_markup Markup.freeN expected_qualifier
+          qualified_markup = 0)
+    val _ =
+      audit_assert "registered qualifier notation report duplicated"
+        (count_entity Micro_Rust_Names.notationN
+          "IntegrationAudit::Value"
+          expected_qualifier qualified_markup = 1)
+    val _ =
+      audit_assert "registered qualifier typing tooltip duplicated or disappeared"
+        (count_markup Markup.typingN expected_qualifier
+          qualified_markup = 1)
+    val _ =
+      audit_assert "registered qualifier acquired terminal styling"
+        (count_markup Markup.keyword3N expected_qualifier
+          qualified_markup = 0)
+    val _ =
+      audit_assert "registered terminal notation report duplicated"
+        (count_entity Micro_Rust_Names.notationN "IntegrationAudit::Value"
+          expected_terminal qualified_markup = 1)
+    val _ =
+      audit_assert "registered terminal keyword3 styling duplicated or disappeared"
+        (count_markup Markup.keyword3N expected_terminal
+          qualified_markup = 1)
+    val _ =
+      audit_assert "registered terminal acquired typing markup"
+        (count_markup Markup.typingN expected_terminal
+          qualified_markup = 0)
+    val _ =
+      audit_assert "registered nonconstructor constant entity count changed"
+        (count_entity Markup.constantN
+          \<^const_name>\<open>integration_registered_value_audit\<close>
+          expected_terminal qualified_markup = 1)
+
+    val identifier_source =
+      Parser_Lex_Util.positioned_content_source
+        identifier_text identifier_start
+    val identifier_markup =
+      capture_markup "identifier" identifier_source
+    val _ =
+      audit_assert "single-segment notation report duplicated"
+        (count_entity Micro_Rust_Names.notationN "registered_seven"
+          expected_identifier identifier_markup = 1)
+    val _ =
+      audit_assert "single-segment keyword3 styling duplicated or disappeared"
+        (count_markup Markup.keyword3N expected_identifier
+          identifier_markup = 1)
+    val _ =
+      audit_assert "single-segment registration acquired typing markup"
+        (count_markup Markup.typingN expected_identifier
+          identifier_markup = 0)
+
+    fun diagnostic_ranges body =
+      let
+        fun collect (XML.Text _) ranges = ranges
+          | collect (XML.Elem ((_, properties), children)) ranges =
+              let
+                val ranges' =
+                  (case
+                    (Properties.get properties Markup.offsetN,
+                     Properties.get properties Markup.end_offsetN) of
+                     (SOME offset, SOME end_offset) =>
+                       (offset, end_offset) :: ranges
+                   | _ => ranges)
+              in fold collect children ranges' end
+      in distinct (op =) (fold collect body []) end
+
+    fun recovery_checks () =
+      let
+        val recovered_switch =
+          checked
+            ("match 42 { 0 \<Rightarrow> 0, IntegrationAudit::Value \<Rightarrow> 1, " ^
+             "_ \<Rightarrow> 2 }")
+        val recovered_case =
+          checked
+            ("match \<llangle>RegisteredNullary\<rrangle> { " ^
+             "Registered::Nullary \<Rightarrow> 0, " ^
+             "Registered::Unary(value) \<Rightarrow> value, " ^
+             "Registered::Other \<Rightarrow> 1 }")
+        val recovered_unit = checked "()"
+      in
+        audit_assert "registered-value switch recovery failed"
+          (count_constant \<^const_name>\<open>ncase_selector\<close>
+            recovered_switch = 1);
+        audit_assert "registered-constructor case recovery failed"
+          (count_constant registered_case_name recovered_case = 1);
+        audit_assert "unit recovery failed"
+          (count_constant \<^const_name>\<open>Product_Type.Unity\<close>
+            recovered_unit = 1)
+      end
+
+    fun expect_exact_rejection serial label text expected_position expected =
+      let
+        val start =
+          Position.make0 (80 + serial) (2300 + serial * 300) 0 "" ""
+            ("contextual-match-" ^ label ^ "-audit")
+        val source =
+          Parser_Lex_Util.positioned_content_source text start
+        val position = expected_position text start
+        val expected_message = expected ^ Position.here position
+        val expected_range =
+          (Value.print_int (the (Position.offset_of position)),
+           Value.print_int (the (Position.end_offset_of position)))
+        val body =
+          (case Exn.result (fn () => checked_source source) () of
+             Exn.Res term =>
+               error
+                 ("contextual bare-match classification audit: " ^
+                  label ^ " unexpectedly elaborated to " ^
+                  Syntax.string_of_term ctxt term)
+           | Exn.Exn exn =>
+               if Exn.is_interrupt exn then Exn.reraise exn
+               else
+                 let val actual = Runtime.exn_message exn
+                 in
+                   audit_assert (label ^ " exact diagnostic changed")
+                     (actual = expected_message);
+                   YXML.parse_body actual
+                 end)
+        val _ =
+          audit_assert (label ^ " YXML offset/end_offset changed")
+            (diagnostic_ranges body = [expected_range])
+        val _ = recovery_checks ()
+      in () end
+
+    fun complete_range text start =
+      Position.range_position
+        (start, Position.symbol_explode text start)
+
+    fun token_range needle offset text start =
+      #2 (token_position text start needle offset)
+
+    val constructor_mixed_text =
+      "match \<llangle>RegisteredNullary\<rrangle> { " ^
+      "0 \<Rightarrow> (), Registered::Nullary \<Rightarrow> () }"
+    val _ =
+      expect_exact_rejection 0 "registered-constructor-mix"
+        constructor_mixed_text complete_range
+        "urust_expr: mixed numeral and constructor patterns in bare `match`"
+
+    val guarded_text =
+      "match 42 { 0 if True \<Rightarrow> (), IntegrationAudit::Value \<Rightarrow> (), " ^
+      "_ \<Rightarrow> () }"
+    val guarded_numeral_offset =
+      find_from guarded_text "0" (size "match 42 { ")
+    val _ =
+      expect_exact_rejection 1 "guard-forced-case"
+        guarded_text (token_range "0" guarded_numeral_offset)
+        "urust_expr: numeric patterns are not supported in case patterns"
+
+    val switch_guard_text =
+      "match_switch 42 { IntegrationAudit::Value if True \<Rightarrow> (), _ \<Rightarrow> () }"
+    val switch_guard_offset =
+      find_from switch_guard_text "if" 0
+    val _ =
+      expect_exact_rejection 2 "explicit-switch-guard"
+        switch_guard_text (token_range "if" switch_guard_offset)
+        "urust_expr: guards are not supported in explicit `match_switch`"
+
+    val identifier_failure_text =
+      "match 0 { 0 \<Rightarrow> (), unregistered_key \<Rightarrow> () }"
+    val _ =
+      expect_exact_rejection 3 "unregistered-identifier"
+        identifier_failure_text complete_range
+        "urust_expr: mixed numeral and constructor patterns in bare `match`"
+
+    val constructor_wins_mixed_text =
+      "match \<llangle>NegativeRegisteredNullary\<rrangle> { " ^
+      "0 \<Rightarrow> (), NegativeRegistered::ConstructorWins \<Rightarrow> () }"
+    val _ =
+      expect_exact_rejection 4 "constructor-wins-mix"
+        constructor_wins_mixed_text complete_range
+        "urust_expr: mixed numeral and constructor patterns in bare `match`"
+
+    val ambiguous_mixed_text =
+      "match \<llangle>NegativeRegisteredNullary\<rrangle> { " ^
+      "0 \<Rightarrow> (), NegativeRegistered::Ambiguous \<Rightarrow> () }"
+    val _ =
+      expect_exact_rejection 5 "two-constructor-mix"
+        ambiguous_mixed_text complete_range
+        "urust_expr: mixed numeral and constructor patterns in bare `match`"
+  in
+    val _ =
+      writeln
+        "Contextual bare-match classification, lowering, range, markup, diagnostics, recovery, and single-evaluation regressions passed"
+  end
+\<close>
+
+
+section\<open> Or-pattern binder-set validation \<close>
+
+datatype binder_or_audit_fixture =
+    BinderAuditA nat nat
+  | BinderAuditB nat nat
+  | BinderAuditC nat nat
+  | BinderAuditSliceA \<open>nat list\<close>
+  | BinderAuditSliceB \<open>nat list\<close>
+
+text\<open>
+The first alternative is the canonical binder signature. Every alternative is recursively checked
+for duplicates before the name sets are compared; rejection precedes local allocation and guard/body
+lowering. Successful alternatives share the first signature's entity identities even when source
+order and structural positions differ.
+\<close>
+
+ML_val\<open>
+  local
+    open URust_AST
+
+    val ctxt = \<^context>
+
+    fun audit_assert message condition =
+      if condition then ()
+      else error ("or-pattern binder audit: " ^ message)
+
+    fun checked_source source =
+      Parser_Test_Elaboration.expression ctxt source
+
+    fun checked text =
+      checked_source (Parser_Lex_Util.text_source text)
+
+    fun find_from text needle offset =
+      if offset + size needle > size text then
+        error ("or-pattern binder audit: missing " ^ quote needle)
+      else if String.substring (text, offset, size needle) = needle
+      then offset
+      else find_from text needle (offset + 1)
+
+    fun nth_raw text needle index =
+      let
+        fun seek 0 offset = find_from text needle offset
+          | seek remaining offset =
+              let val found = find_from text needle offset
+              in seek (remaining - 1) (found + size needle) end
+      in seek index 0 end
+
+    fun token_position text start needle index =
+      let
+        val raw = nth_raw text needle index
+        val token_start =
+          Position.symbol_explode
+            (String.substring (text, 0, raw)) start
+      in
+        Position.range_position
+          (token_start, Position.symbol_explode needle token_start)
+      end
+
+    fun position_range position =
+      (Value.print_int (the (Position.offset_of position)),
+       Value.print_int (the (Position.end_offset_of position)))
+
+    fun diagnostic_ranges body =
+      let
+        fun collect (XML.Text _) ranges = ranges
+          | collect (XML.Elem ((_, properties), children)) ranges =
+              let
+                val ranges' =
+                  (case
+                    (Properties.get properties Markup.offsetN,
+                     Properties.get properties Markup.end_offsetN) of
+                     (SOME offset, SOME end_offset) =>
+                       (offset, end_offset) :: ranges
+                   | _ => ranges)
+              in fold collect children ranges' end
+      in distinct (op =) (fold collect body []) end
+
+    fun same_ranges left right =
+      length left = length right andalso
+        List.all (fn range => member (op =) right range) left
+
+    fun collect_markup (XML.Text _) result = result
+      | collect_markup (XML.Elem (markup, body)) result =
+          fold collect_markup body (markup :: result)
+
+    fun markup_of reports =
+      fold collect_markup (maps YXML.parse_body reports) []
+
+    fun has_position properties position =
+      Properties.get properties Markup.offsetN =
+        Option.map Value.print_int (Position.offset_of position) andalso
+      Properties.get properties Markup.end_offsetN =
+        Option.map Value.print_int (Position.end_offset_of position)
+
+    fun has_markup markup_name position markup =
+      exists
+        (fn (name, properties) =>
+          name = markup_name andalso has_position properties position)
+        markup
+
+    fun has_urust_entity position markup =
+      exists
+        (fn (name, properties) =>
+          name = Markup.entityN andalso
+            Properties.get properties Markup.kindN = SOME "urust_var" andalso
+            has_position properties position)
+        markup
+
+    fun entity_id property position markup =
+      let
+        val ids =
+          markup
+          |> map_filter
+              (fn (name, properties) =>
+                if name = Markup.entityN andalso
+                   Properties.get properties Markup.kindN =
+                     SOME "urust_var" andalso
+                   has_position properties position
+                then Properties.get properties property
+                else NONE)
+          |> distinct (op =)
+      in
+        (case ids of
+           [id] => id
+         | _ =>
+             error
+               ("or-pattern binder audit: entity markup changed" ^
+                 Position.here position))
+      end
+
+    fun has_entity_property property position markup =
+      exists
+        (fn (name, properties) =>
+          name = Markup.entityN andalso
+            Properties.get properties Markup.kindN = SOME "urust_var" andalso
+            is_some (Properties.get properties property) andalso
+            has_position properties position)
+        markup
+
+    fun capture_expression text start =
+      let
+        val captured =
+          Synchronized.var "or_pattern_binder_reports" ([]: string list)
+        fun capture_reports chunks =
+          Synchronized.change captured (append chunks)
+        val result =
+          Parser_Test_Report_Lock.run (fn () =>
+            Unsynchronized.setmp Private_Output.report_fn capture_reports
+              (fn () =>
+                Print_Mode.with_modes [Print_Mode.PIDE]
+                  (fn () =>
+                    Exn.result
+                      (fn () =>
+                        checked_source
+                          (Parser_Lex_Util.positioned_content_source
+                            text start)) ()) ())
+              ())
+      in (result, markup_of (Synchronized.value captured)) end
+
+    val recovery_text =
+      "match_case \<llangle>BinderAuditA 1 2\<rrangle> { " ^
+      "BinderAuditA(x, y) | BinderAuditB(y, x) | " ^
+      "BinderAuditC(x, y) \<Rightarrow> x }"
+
+    fun recover label =
+      (ignore (checked recovery_text);
+       ignore (checked "()");
+       writeln ("or-pattern recovery passed after " ^ label))
+
+    fun expect_rejection serial label text expected positions forbidden =
+      let
+        val start =
+          Position.make0 (110 + serial) (7000 + serial * 400) 0 "" ""
+            ("or-pattern-" ^ label ^ "-audit")
+        val (result, markup) = capture_expression text start
+        val actual =
+          (case result of
+             Exn.Res term =>
+               error
+                 ("or-pattern binder audit: " ^ label ^
+                  " unexpectedly elaborated to " ^
+                  Syntax.string_of_term ctxt term)
+           | Exn.Exn exn =>
+               if Exn.is_interrupt exn then Exn.reraise exn
+               else Runtime.exn_message exn)
+        val _ =
+          audit_assert (label ^ " exact diagnostic changed")
+            (actual = expected start)
+        val actual_ranges = diagnostic_ranges (YXML.parse_body actual)
+        val expected_ranges =
+          map (position_range o (fn position => position start)) positions
+        val _ =
+          audit_assert (label ^ " diagnostic ranges changed")
+            (same_ranges actual_ranges expected_ranges)
+        val _ =
+          List.app
+            (fn unexpected =>
+              audit_assert
+                (label ^ " elaborated " ^ quote unexpected)
+                (not (String.isSubstring unexpected actual)))
+            forbidden
+        val _ = recover label
+      in (start, markup) end
+
+    fun missing_message name primary secondary start =
+      "urust_expr: or-pattern alternative is missing binder " ^ quote name ^
+      Position.here (primary start) ^
+      "\nThe first alternative binds it here" ^
+      Position.here (secondary start)
+
+    fun extra_message name primary start =
+      "urust_expr: or-pattern alternative has extra binder " ^ quote name ^
+      Position.here (primary start)
+
+    fun duplicate_message name repeated original start =
+      "urust_expr: duplicate pattern binder " ^ quote name ^
+      Position.here (repeated start) ^
+      "\nThe original binder is here" ^
+      Position.here (original start)
+
+    val missing_text =
+      "match_case \<llangle>Some (1 :: nat)\<rrangle> { Some(x) | None \<Rightarrow> x }"
+    fun missing_bar start = token_position missing_text start "|" 0
+    fun missing_first_x start = token_position missing_text start "x" 0
+    fun missing_body_x start = token_position missing_text start "x" 1
+    val (missing_start, missing_markup) =
+      expect_rejection 0 "missing" missing_text
+        (missing_message "x" missing_bar missing_first_x)
+        [missing_bar, missing_first_x] []
+    val _ =
+      audit_assert "missing-binder bar lost operator markup"
+        (has_markup Markup.operatorN
+          (missing_bar missing_start) missing_markup)
+    val _ =
+      audit_assert "missing-binder bar lost typing markup"
+        (has_markup Markup.typingN
+          (missing_bar missing_start) missing_markup)
+    val _ =
+      List.app
+        (fn position =>
+          (audit_assert "rejected binder acquired bound markup"
+             (not (has_markup Markup.boundN position missing_markup));
+           audit_assert "rejected binder acquired an entity"
+             (not (has_urust_entity position missing_markup))))
+        [missing_first_x missing_start, missing_body_x missing_start]
+
+    val extra_text =
+      "match_case \<llangle>Some (1 :: nat)\<rrangle> { None | Some(x) \<Rightarrow> 0 }"
+    fun extra_x start = token_position extra_text start "x" 0
+    val (extra_start, extra_markup) =
+      expect_rejection 1 "extra" extra_text
+        (extra_message "x" extra_x) [extra_x] []
+    val _ =
+      audit_assert "extra rejected binder acquired bound markup"
+        (not (has_markup Markup.boundN (extra_x extra_start) extra_markup))
+    val _ =
+      audit_assert "extra rejected binder acquired an entity"
+        (not (has_urust_entity (extra_x extra_start) extra_markup))
+
+    val deterministic_text =
+      "match_case \<llangle>BinderAuditA 1 2\<rrangle> { " ^
+      "BinderAuditA(z, x) | BinderAuditB(_, _) \<Rightarrow> 0, _ \<Rightarrow> 0 }"
+    fun deterministic_bar start =
+      token_position deterministic_text start "|" 0
+    fun deterministic_x start =
+      token_position deterministic_text start "x" 0
+    val _ =
+      expect_rejection 2 "deterministic-missing" deterministic_text
+        (missing_message "x" deterministic_bar deterministic_x)
+        [deterministic_bar, deterministic_x] []
+
+    val third_text =
+      "match_case \<llangle>BinderAuditA 1 2\<rrangle> { " ^
+      "BinderAuditA(x, _) | BinderAuditB(x, _) | " ^
+      "BinderAuditC(_, _) \<Rightarrow> 0, _ \<Rightarrow> 0 }"
+    fun third_first_bar start = token_position third_text start "|" 0
+    fun third_first_x start = token_position third_text start "x" 0
+    val _ =
+      expect_rejection 3 "third-alternative" third_text
+        (missing_message "x" third_first_bar third_first_x)
+        [third_first_bar, third_first_x] []
+
+    val nested_missing_text =
+      "match_case \<llangle>Some (Ok (1 :: nat))\<rrangle> { " ^
+      "Some(Ok(x) | Err(y)) \<Rightarrow> 0, _ \<Rightarrow> 0 }"
+    fun nested_missing_bar start =
+      token_position nested_missing_text start "|" 0
+    fun nested_missing_x start =
+      token_position nested_missing_text start "x" 0
+    val _ =
+      expect_rejection 4 "nested-missing-before-extra" nested_missing_text
+        (missing_message "x" nested_missing_bar nested_missing_x)
+        [nested_missing_bar, nested_missing_x] []
+
+    val nested_extra_text =
+      "match_case \<llangle>Some (Some (1 :: nat))\<rrangle> { " ^
+      "Some(None | Some(x)) \<Rightarrow> 0, _ \<Rightarrow> 0 }"
+    fun nested_extra_x start =
+      token_position nested_extra_text start "x" 0
+    val _ =
+      expect_rejection 5 "nested-extra" nested_extra_text
+        (extra_message "x" nested_extra_x) [nested_extra_x] []
+
+    val guarded_text =
+      "match_case \<llangle>Some (1 :: nat)\<rrangle> { " ^
+      "Some(x) | None if unknown_binder_guard!() \<Rightarrow> " ^
+      "unknown_binder_body!(), _ \<Rightarrow> 0 }"
+    fun guarded_bar start = token_position guarded_text start "|" 0
+    fun guarded_x start = token_position guarded_text start "x" 0
+    val _ =
+      expect_rejection 6 "guarded" guarded_text
+        (missing_message "x" guarded_bar guarded_x)
+        [guarded_bar, guarded_x]
+        ["unknown_binder_guard", "unknown_binder_body"]
+
+    val slice_missing_text =
+      "match_case \<llangle>BinderAuditSliceA [1 :: nat, 2]\<rrangle> { " ^
+      "BinderAuditSliceA([x, ..]) | BinderAuditSliceB([]) \<Rightarrow> 0, " ^
+      "_ \<Rightarrow> 0 }"
+    fun slice_missing_bar start =
+      token_position slice_missing_text start "|" 0
+    fun slice_missing_x start =
+      token_position slice_missing_text start "x" 0
+    val _ =
+      expect_rejection 7 "slice-missing" slice_missing_text
+        (missing_message "x" slice_missing_bar slice_missing_x)
+        [slice_missing_bar, slice_missing_x] []
+
+    val slice_extra_text =
+      "match_case \<llangle>BinderAuditSliceA [1 :: nat, 2]\<rrangle> { " ^
+      "BinderAuditSliceA([]) | BinderAuditSliceB([.., x]) \<Rightarrow> 0, " ^
+      "_ \<Rightarrow> 0 }"
+    fun slice_extra_x start =
+      token_position slice_extra_text start "x" 0
+    val _ =
+      expect_rejection 8 "slice-extra" slice_extra_text
+        (extra_message "x" slice_extra_x) [slice_extra_x] []
+
+    val duplicate_first_text =
+      "match_case \<llangle>BinderAuditA 1 2\<rrangle> { " ^
+      "BinderAuditA(x, x) | BinderAuditB(y, _) \<Rightarrow> 0, _ \<Rightarrow> 0 }"
+    fun duplicate_first_original start =
+      token_position duplicate_first_text start "x" 0
+    fun duplicate_first_repeated start =
+      token_position duplicate_first_text start "x" 1
+    val _ =
+      expect_rejection 9 "duplicate-first" duplicate_first_text
+        (duplicate_message "x"
+          duplicate_first_repeated duplicate_first_original)
+        [duplicate_first_repeated, duplicate_first_original] []
+
+    val duplicate_later_text =
+      "match_case \<llangle>BinderAuditA 1 2\<rrangle> { " ^
+      "BinderAuditA(x, _) | BinderAuditB(y, y) \<Rightarrow> 0, _ \<Rightarrow> 0 }"
+    fun duplicate_later_original start =
+      token_position duplicate_later_text start "y" 0
+    fun duplicate_later_repeated start =
+      token_position duplicate_later_text start "y" 1
+    val _ =
+      expect_rejection 10 "duplicate-later" duplicate_later_text
+        (duplicate_message "y"
+          duplicate_later_repeated duplicate_later_original)
+        [duplicate_later_repeated, duplicate_later_original] []
+
+    fun parse text =
+      (case URust_Parser.parse_source ctxt
+          (Parser_Lex_Util.text_source text) of
+         SOME expression => expression
+       | NONE => error "or-pattern binder audit: empty parse")
+
+    fun callback_trace text =
+      let
+        val calls = Unsynchronized.ref ([]: string list)
+        fun lower _ expression =
+          let
+            val label =
+              (case expression of
+                 UE_Path path => render_path path
+               | _ => "<non-path>")
+            val _ = calls := label :: !calls
+          in Free ("_" ^ label, dummyT) end
+        val result =
+          (case parse text of
+             UE_Match arguments =>
+               Exn.result
+                 (fn () =>
+                   URust_Matching.lower_match lower ctxt
+                     URust_Resolution.empty_environment arguments) ()
+           | _ => error "or-pattern binder audit: callback fixture changed")
+      in (result, rev (!calls)) end
+
+    val invalid_callback_text =
+      "match_case binder_or_scrutinee_probe { " ^
+      "BinderAuditA(x, _) | BinderAuditB(_, _) " ^
+      "if binder_or_guard_probe \<Rightarrow> binder_or_body_probe, " ^
+      "_ \<Rightarrow> binder_or_fallback_probe }"
+    val (invalid_callback_result, invalid_callback_calls) =
+      callback_trace invalid_callback_text
+    val _ =
+      (case invalid_callback_result of
+         Exn.Res _ =>
+           error "or-pattern binder audit: invalid callback fixture elaborated"
+       | Exn.Exn exn =>
+           if Exn.is_interrupt exn then Exn.reraise exn
+           else
+             audit_assert "callback rejection changed"
+               (String.isSubstring
+                 "or-pattern alternative is missing binder \"x\""
+                 (Runtime.exn_message exn)))
+    val _ =
+      audit_assert "rejected arm lowered its guard or body"
+        (invalid_callback_calls = ["binder_or_scrutinee_probe"])
+
+    val valid_callback_text =
+      "match_case binder_or_scrutinee_probe { " ^
+      "BinderAuditA(x, y) | BinderAuditB(y, x) | BinderAuditC(x, y) " ^
+      "if binder_or_guard_probe \<Rightarrow> binder_or_body_probe, " ^
+      "_ \<Rightarrow> binder_or_fallback_probe }"
+    val (valid_callback_result, valid_callback_calls) =
+      callback_trace valid_callback_text
+    val _ =
+      (case valid_callback_result of
+         Exn.Res _ => ()
+       | Exn.Exn exn => Exn.reraise exn)
+    val _ =
+      audit_assert "valid arm source expressions were not lowered once"
+        (valid_callback_calls =
+          ["binder_or_scrutinee_probe", "binder_or_guard_probe",
+           "binder_or_body_probe", "binder_or_fallback_probe"])
+
+    val valid_markup_text =
+      "match_case \<llangle>BinderAuditA 1 2\<rrangle> { " ^
+      "BinderAuditA(x, y) | BinderAuditB(y, x) | BinderAuditC(x, y) " ^
+      "if x < y \<Rightarrow> x, _ \<Rightarrow> 0 }"
+    val valid_markup_start =
+      Position.make0 140 14000 0 "" "" "or-pattern-valid-markup-audit"
+    val (valid_markup_result, valid_markup) =
+      capture_expression valid_markup_text valid_markup_start
+    val _ =
+      (case valid_markup_result of
+         Exn.Res _ => ()
+       | Exn.Exn exn => Exn.reraise exn)
+    val x_positions =
+      map (token_position valid_markup_text valid_markup_start "x")
+        (0 upto 4)
+    val y_positions =
+      map (token_position valid_markup_text valid_markup_start "y")
+        (0 upto 3)
+    fun assert_shared name positions =
+      let
+        val definition = hd positions
+        val references = tl positions
+        val id = entity_id Markup.defN definition valid_markup
+        val _ =
+          audit_assert (name ^ " definition lost bound markup")
+            (has_markup Markup.boundN definition valid_markup)
+        val _ =
+          List.app
+            (fn position =>
+              (audit_assert (name ^ " occurrence lost bound markup")
+                 (has_markup Markup.boundN position valid_markup);
+               audit_assert (name ^ " occurrence changed entity identity")
+                 (entity_id Markup.refN position valid_markup = id)))
+            references
+        val _ =
+          List.app
+            (fn position =>
+              audit_assert (name ^ " later alternative allocated a definition")
+                (not
+                  (has_entity_property Markup.defN
+                    position valid_markup)))
+            (tl positions)
+      in () end
+    val _ = assert_shared "x" x_positions
+    val _ = assert_shared "y" y_positions
+
+    val _ =
+      ignore
+        (checked
+          ("match_case \<llangle>(Some (1 :: nat), " ^
+           "(Some (2 :: nat), TNil))\<rrangle> { " ^
+           "(Some(x), y) | (y, Some(x)) \<Rightarrow> x, _ \<Rightarrow> 0 }"))
+    val _ =
+      ignore
+        (checked
+          ("match \<llangle>BinderAuditSliceA [1 :: nat, 2]\<rrangle> { " ^
+           "BinderAuditSliceA([x, ..]) | " ^
+           "BinderAuditSliceB([.., x]) \<Rightarrow> x, _ \<Rightarrow> 0 }"))
+  in
+    val _ =
+      writeln
+        "Or-pattern binder diagnostics, ranges, precedence, markup, recovery, and shared-environment regressions passed"
+  end
+\<close>
+
+
 
 end

@@ -3,13 +3,9 @@
 
 theory Parser_Improvements_Tests
   imports Parser_Expr_Conformance_Tests Parser_Fn_Conformance_Tests
-  keywords
-    "old_urust_rejects" :: thy_decl
 begin
 
 declare [[urust_conformance = false]]
-
-section\<open>Test support\<close>
 
 text\<open>
 Each example is accepted by the new parser. Where an equivalent old-frontend
@@ -18,275 +14,7 @@ results by \<open>refl\<close>.
 The paired command feeds the new spelling to the old frontend and requires it to reject.
 \<close>
 
-ML\<open>
-fun old_urust_source source = "\<lbrakk> " ^ source ^ " \<rbrakk>"
-
-val _ = Syntax.read_term \<^context> (old_urust_source "()")
-
-fun old_urust_rejects source lthy =
-  let
-    val pos = Input.pos_of source
-    val wrapped = old_urust_source (Input.string_of source)
-    fun fail term =
-      error ("old_urust_rejects: expected the old frontend to reject, but it accepted:\n" ^
-        Syntax.string_of_term lthy term ^ Position.here pos)
-  in
-    (case Exn.result (Syntax.read_term lthy) wrapped of
-       Exn.Res term => fail term
-     | Exn.Exn exn =>
-         if Exn.is_interrupt exn then Exn.reraise exn
-         else
-           (writeln ("old frontend rejected as expected: " ^ Runtime.exn_message exn);
-            lthy))
-  end
-
-val _ = Outer_Syntax.local_theory \<^command_keyword>\<open>old_urust_rejects\<close>
-  "Assert that the old inner-syntax uRust frontend rejects a source expression"
-  (Parse.token Parse.cartouche >>
-    Parser_Lex_Util.cartouche_source >>
-    old_urust_rejects)
-\<close>
-
-section\<open>Function parameter precedence\<close>
-
-text\<open>
-A typed function parameter shadows registered literal notation in the dedicated parser. The existing
-frontend instead selects the registered literal and ignores the same-named parameter. The explicit
-legacy spelling captures the parameter with a value antiquotation, so the complete generated
-functions can still be checked by \<open>refl\<close>.
-\<close>
-
-urust_fn fun_literal_parameter_wins ::
-  \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
-  (funCollision)
-  \<open> funCollision \<close>
-  against \<open> \<lbrakk> \<llangle>funCollision\<rrangle> \<rbrakk> \<close>
-
-thm fun_literal_parameter_wins_conformance
-
-ML_val\<open>
-  local
-    fun definition_rhs name =
-      Proof_Context.get_thm \<^context> name
-      |> Thm.prop_of
-      |> Logic.dest_equals
-      |> #2
-
-    fun old_function complete_type parameters source =
-      let
-        val (parameter_types, result_type) = Term.strip_type complete_type
-        val body_type =
-          (case result_type of
-             Type (_, [stateT, returnT, abortT, inputT, outputT]) =>
-               Type
-                 (\<^type_name>\<open>expression\<close>,
-                   [stateT, returnT, returnT, abortT, inputT, outputT])
-           | _ => error "D-24 regression: malformed function_body result type")
-        val fixes =
-          map2
-            (fn name => fn T => (Binding.name name, SOME T, NoSyn))
-            parameters parameter_types
-        val (internal_names, body_ctxt) =
-          Proof_Context.add_fixes fixes
-            (Variable.set_body true \<^context>)
-        val formals =
-          map2 (fn name => fn T => Free (name, T))
-            internal_names parameter_types
-        val old_body =
-          Syntax.parse_term body_ctxt source
-          |> Type.constraint body_type
-          |> Syntax.check_term body_ctxt
-        val checked =
-          URust_Shallow_Terms.function_body old_body
-          |> fold_rev Term.lambda formals
-          |> Type.constraint complete_type
-          |> Syntax.check_term body_ctxt
-      in
-        singleton
-          (Variable.export_terms body_ctxt \<^context>)
-          checked
-      end
-
-    fun contains_const name =
-      Term.exists_subterm
-        (fn Const (candidate, _) => candidate = name | _ => false)
-
-    fun contains_bound index =
-      Term.exists_subterm
-        (fn Bound candidate => candidate = index | _ => false)
-
-    fun assert message condition =
-      if condition then () else error ("D-24 regression: " ^ message)
-
-    val literal_type =
-      \<^typ>\<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
-    val old_literal =
-      old_function literal_type ["funCollision"]
-        "\<lbrakk> funCollision \<rbrakk>"
-    val explicit_literal =
-      old_function literal_type ["funCollision"]
-        "\<lbrakk> \<llangle>funCollision\<rrangle> \<rbrakk>"
-    val corrected_literal =
-      definition_rhs "fun_literal_parameter_wins_def"
-    val literal_backend = \<^const_name>\<open>fun_registered_literal\<close>
-
-    val call_type =
-      \<^typ>\<open>
-        (nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body) \<Rightarrow>
-        nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body
-      \<close>
-    val old_call =
-      old_function call_type ["funCollision", "item"]
-        "\<lbrakk> funCollision(item) \<rbrakk>"
-    val call_backend = \<^const_name>\<open>fun_registered_call\<close>
-
-    val field_type =
-      \<^typ>\<open>
-        fun_field_record \<Rightarrow> (fun_field_record, nat) lens \<Rightarrow>
-        (unit, nat, unit, unit, unit) function_body
-      \<close>
-    val old_field =
-      old_function field_type ["item", "funFieldCollision"]
-        "\<lbrakk> item.funFieldCollision \<rbrakk>"
-    val corrected_field =
-      definition_rhs "fun_registered_field_wins_def"
-  in
-    val _ =
-      assert "same-source legacy literal did not select its registration"
-        (contains_const literal_backend old_literal)
-    val _ =
-      assert "same-source legacy literal still depends on the parameter"
-        (not (contains_bound 0 old_literal))
-    val _ =
-      assert "dedicated-parser literal did not retain its parameter"
-        (contains_bound 0 corrected_literal)
-    val _ =
-      assert "registered literal survived dedicated parameter resolution"
-        (not (contains_const literal_backend corrected_literal))
-    val _ =
-      assert "explicit legacy value witness differs from the corrected function"
-        (Term.aconv (explicit_literal, corrected_literal))
-    val _ =
-      assert "legacy call role did not select its call registration"
-        (contains_const call_backend old_call)
-    val _ =
-      assert "legacy call registration unexpectedly retained the callable parameter"
-        (not (contains_bound 1 old_call))
-    val _ =
-      assert "legacy and dedicated field-role controls differ"
-        (Term.aconv (old_field, corrected_field))
-    val _ =
-      assert "field-role control unexpectedly retained the colliding lens parameter"
-        (not (contains_bound 0 old_field))
-    val _ =
-      assert "field-role control lost its receiver parameter"
-        (contains_bound 1 old_field)
-  end
-\<close>
-
-
-section\<open>Intentional checked-term corrections\<close>
-
-text\<open>
-These sources are accepted by both parsers, but the dedicated parser intentionally corrects a
-legacy checked-term behavior. They remain executable acceptance tests here, while
-\<open>Parser_Misc_Tests.thy\<close> pins the associated corrected term shapes. They are not same-source
-conformance rows.
-\<close>
-
-context fixes r :: rich_case
-begin
-
-urust_expr rich_or_guarded
-  \<open> match r { RMA(x) | RMB(x) if x > \<llangle>0 :: 32 word\<rrangle> \<Rightarrow> x, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<close>
-
-urust_expr rich_or_three_guard_fallthrough
-  \<open> match r { RMA(x) | RMB(x) | RMD(x) if False \<Rightarrow> \<llangle>1 :: 32 word\<rrangle>, RMA(x) | RMB(x) | RMD(x) \<Rightarrow> x, RMC \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<close>
-
-end
-
-context fixes b :: bool
-begin
-
-urust_expr value_pat_source_guard
-  \<open> match b { true if False \<Rightarrow> True, _ \<Rightarrow> False } \<close>
-
-end
-
-urust_expr value_pat_guard_order
-  \<open> match \<llangle>VPP True (String.implode ''ok'')\<rrangle> {
-      VPP(true, "ok") if True \<Rightarrow> True, _ \<Rightarrow> False } \<close>
-
-urust_expr adv_range_guard
-  \<open> match_case \<llangle>Some (6 :: nat)\<rrangle> { Some(5..=7) if True \<Rightarrow> \<llangle>1 :: nat\<rrangle>, Some(5..=7) \<Rightarrow> \<llangle>2 :: nat\<rrangle>, _ \<Rightarrow> \<llangle>3 :: nat\<rrangle> } \<close>
-
-urust_expr adv_struct_nested
-  \<open> match \<llangle>AdvNested (Some (3 :: nat)) [4, 5]\<rrangle> { AdvNested { adv_option: Some(x), adv_values: [y, .., z] } if True \<Rightarrow> z, _ \<Rightarrow> 0 } \<close>
-
-urust_expr bind_match_guard_shadow
-  \<open>
-    let x = \<llangle>0 :: nat\<rrangle>;
-    match \<llangle>Some (1 :: nat)\<rrangle> {
-      Some(x) if x > \<llangle>0 :: nat\<rrangle> \<Rightarrow> \<llangle>x\<rrangle>,
-      _ \<Rightarrow> x
-    }
-  \<close>
-
-urust_expr bind_match_slice_shadow
-  \<open>
-    let head = \<llangle>0 :: nat\<rrangle>;
-    let tail = \<llangle>0 :: nat\<rrangle>;
-    match \<llangle>[1 :: nat, 2, 3]\<rrangle> {
-      [head, .., tail] \<Rightarrow> { let _ = \<llangle>tail\<rrangle>; \<llangle>head\<rrangle> },
-      _ \<Rightarrow> head
-    }
-  \<close>
-
-urust_expr bind_match_or_shadow
-  \<open>
-    let x = \<llangle>0 :: 32 word\<rrangle>;
-    match \<llangle>RMA (1 :: 32 word)\<rrangle> {
-      RMA(x) | RMB(x) if x > \<llangle>0 :: 32 word\<rrangle> \<Rightarrow> \<llangle>x\<rrangle>,
-      _ \<Rightarrow> x
-    }
-  \<close>
-
-context fixes x :: nat and y :: bool
-begin
-
-urust_expr bind_hol_match_guard_shadow
-  \<open>
-    match Some(x) {
-      Some(x) if x == \<llangle>x\<rrangle> \<Rightarrow> x,
-      None \<Rightarrow> x
-    }
-  \<close>
-
-end
-
-urust_expr while_let_exhaustive_tnil
-  \<open>
-    #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let TNil = TNil {
-      ()
-    }
-  \<close>
-
-urust_expr while_let_exhaustive_option
-  \<open>
-    #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let Some(_) | None =
-      \<llangle>Some (1 :: nat)\<rrangle> {
-      ()
-    }
-  \<close>
-
-urust_expr while_let_nested_exhaustive_option
-  \<open>
-    #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let
-      Some(Some(_) | None) | None =
-      \<llangle>Some (None :: nat option)\<rrangle> {
-      ()
-    }
-  \<close>
+chapter\<open>Accepted language improvements\<close>
 
 section\<open>Total conditional bindings\<close>
 
@@ -2629,5 +2357,254 @@ end
 
 no_adhoc_overloading store_reference_const \<rightleftharpoons> parser_reference_fixture
 no_adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
+
+
+chapter\<open>Intentional semantic corrections\<close>
+
+section\<open>Checked-term corrections\<close>
+
+text\<open>
+These sources are accepted by both parsers, but the dedicated parser intentionally corrects a
+legacy checked-term behavior. They remain executable acceptance tests here, while
+\<open>Parser_Pattern_Matching_Tests.thy\<close> pins the associated corrected term shapes. They are not same-source
+conformance rows.
+\<close>
+
+context fixes r :: rich_case
+begin
+
+urust_expr rich_or_guarded
+  \<open> match r { RMA(x) | RMB(x) if x > \<llangle>0 :: 32 word\<rrangle> \<Rightarrow> x, _ \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<close>
+
+urust_expr rich_or_three_guard_fallthrough
+  \<open> match r { RMA(x) | RMB(x) | RMD(x) if False \<Rightarrow> \<llangle>1 :: 32 word\<rrangle>, RMA(x) | RMB(x) | RMD(x) \<Rightarrow> x, RMC \<Rightarrow> \<llangle>0 :: 32 word\<rrangle> } \<close>
+
+end
+
+context fixes b :: bool
+begin
+
+urust_expr value_pat_source_guard
+  \<open> match b { true if False \<Rightarrow> True, _ \<Rightarrow> False } \<close>
+
+end
+
+urust_expr value_pat_guard_order
+  \<open> match \<llangle>VPP True (String.implode ''ok'')\<rrangle> {
+      VPP(true, "ok") if True \<Rightarrow> True, _ \<Rightarrow> False } \<close>
+
+urust_expr adv_range_guard
+  \<open> match_case \<llangle>Some (6 :: nat)\<rrangle> { Some(5..=7) if True \<Rightarrow> \<llangle>1 :: nat\<rrangle>, Some(5..=7) \<Rightarrow> \<llangle>2 :: nat\<rrangle>, _ \<Rightarrow> \<llangle>3 :: nat\<rrangle> } \<close>
+
+urust_expr adv_struct_nested
+  \<open> match \<llangle>AdvNested (Some (3 :: nat)) [4, 5]\<rrangle> { AdvNested { adv_option: Some(x), adv_values: [y, .., z] } if True \<Rightarrow> z, _ \<Rightarrow> 0 } \<close>
+
+urust_expr bind_match_guard_shadow
+  \<open>
+    let x = \<llangle>0 :: nat\<rrangle>;
+    match \<llangle>Some (1 :: nat)\<rrangle> {
+      Some(x) if x > \<llangle>0 :: nat\<rrangle> \<Rightarrow> \<llangle>x\<rrangle>,
+      _ \<Rightarrow> x
+    }
+  \<close>
+
+urust_expr bind_match_slice_shadow
+  \<open>
+    let head = \<llangle>0 :: nat\<rrangle>;
+    let tail = \<llangle>0 :: nat\<rrangle>;
+    match \<llangle>[1 :: nat, 2, 3]\<rrangle> {
+      [head, .., tail] \<Rightarrow> { let _ = \<llangle>tail\<rrangle>; \<llangle>head\<rrangle> },
+      _ \<Rightarrow> head
+    }
+  \<close>
+
+urust_expr bind_match_or_shadow
+  \<open>
+    let x = \<llangle>0 :: 32 word\<rrangle>;
+    match \<llangle>RMA (1 :: 32 word)\<rrangle> {
+      RMA(x) | RMB(x) if x > \<llangle>0 :: 32 word\<rrangle> \<Rightarrow> \<llangle>x\<rrangle>,
+      _ \<Rightarrow> x
+    }
+  \<close>
+
+context fixes x :: nat and y :: bool
+begin
+
+urust_expr bind_hol_match_guard_shadow
+  \<open>
+    match Some(x) {
+      Some(x) if x == \<llangle>x\<rrangle> \<Rightarrow> x,
+      None \<Rightarrow> x
+    }
+  \<close>
+
+end
+
+urust_expr while_let_exhaustive_tnil
+  \<open>
+    #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let TNil = TNil {
+      ()
+    }
+  \<close>
+
+urust_expr while_let_exhaustive_option
+  \<open>
+    #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let Some(_) | None =
+      \<llangle>Some (1 :: nat)\<rrangle> {
+      ()
+    }
+  \<close>
+
+urust_expr while_let_nested_exhaustive_option
+  \<open>
+    #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let
+      Some(Some(_) | None) | None =
+      \<llangle>Some (None :: nat option)\<rrangle> {
+      ()
+    }
+  \<close>
+
+
+
+chapter\<open>Demonstrated legacy-parser bugs\<close>
+
+section\<open>Function parameter precedence\<close>
+
+text\<open>
+A typed function parameter shadows registered literal notation in the dedicated parser. The existing
+frontend instead selects the registered literal and ignores the same-named parameter. The explicit
+legacy spelling captures the parameter with a value antiquotation, so the complete generated
+functions can still be checked by \<open>refl\<close>.
+\<close>
+
+urust_fn fun_literal_parameter_wins ::
+  \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
+  (funCollision)
+  \<open> funCollision \<close>
+  against \<open> \<lbrakk> \<llangle>funCollision\<rrangle> \<rbrakk> \<close>
+
+thm fun_literal_parameter_wins_conformance
+
+ML_val\<open>
+  local
+    fun definition_rhs name =
+      Proof_Context.get_thm \<^context> name
+      |> Thm.prop_of
+      |> Logic.dest_equals
+      |> #2
+
+    fun old_function complete_type parameters source =
+      let
+        val (parameter_types, result_type) = Term.strip_type complete_type
+        val body_type =
+          (case result_type of
+             Type (_, [stateT, returnT, abortT, inputT, outputT]) =>
+               Type
+                 (\<^type_name>\<open>expression\<close>,
+                   [stateT, returnT, returnT, abortT, inputT, outputT])
+           | _ => error "D-24 regression: malformed function_body result type")
+        val fixes =
+          map2
+            (fn name => fn T => (Binding.name name, SOME T, NoSyn))
+            parameters parameter_types
+        val (internal_names, body_ctxt) =
+          Proof_Context.add_fixes fixes
+            (Variable.set_body true \<^context>)
+        val formals =
+          map2 (fn name => fn T => Free (name, T))
+            internal_names parameter_types
+        val old_body =
+          Syntax.parse_term body_ctxt source
+          |> Type.constraint body_type
+          |> Syntax.check_term body_ctxt
+        val checked =
+          URust_Shallow_Terms.function_body old_body
+          |> fold_rev Term.lambda formals
+          |> Type.constraint complete_type
+          |> Syntax.check_term body_ctxt
+      in
+        singleton
+          (Variable.export_terms body_ctxt \<^context>)
+          checked
+      end
+
+    fun contains_const name =
+      Term.exists_subterm
+        (fn Const (candidate, _) => candidate = name | _ => false)
+
+    fun contains_bound index =
+      Term.exists_subterm
+        (fn Bound candidate => candidate = index | _ => false)
+
+    fun assert message condition =
+      if condition then () else error ("D-24 regression: " ^ message)
+
+    val literal_type =
+      \<^typ>\<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
+    val old_literal =
+      old_function literal_type ["funCollision"]
+        "\<lbrakk> funCollision \<rbrakk>"
+    val explicit_literal =
+      old_function literal_type ["funCollision"]
+        "\<lbrakk> \<llangle>funCollision\<rrangle> \<rbrakk>"
+    val corrected_literal =
+      definition_rhs "fun_literal_parameter_wins_def"
+    val literal_backend = \<^const_name>\<open>fun_registered_literal\<close>
+
+    val call_type =
+      \<^typ>\<open>
+        (nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body) \<Rightarrow>
+        nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body
+      \<close>
+    val old_call =
+      old_function call_type ["funCollision", "item"]
+        "\<lbrakk> funCollision(item) \<rbrakk>"
+    val call_backend = \<^const_name>\<open>fun_registered_call\<close>
+
+    val field_type =
+      \<^typ>\<open>
+        fun_field_record \<Rightarrow> (fun_field_record, nat) lens \<Rightarrow>
+        (unit, nat, unit, unit, unit) function_body
+      \<close>
+    val old_field =
+      old_function field_type ["item", "funFieldCollision"]
+        "\<lbrakk> item.funFieldCollision \<rbrakk>"
+    val corrected_field =
+      definition_rhs "fun_registered_field_wins_def"
+  in
+    val _ =
+      assert "same-source legacy literal did not select its registration"
+        (contains_const literal_backend old_literal)
+    val _ =
+      assert "same-source legacy literal still depends on the parameter"
+        (not (contains_bound 0 old_literal))
+    val _ =
+      assert "dedicated-parser literal did not retain its parameter"
+        (contains_bound 0 corrected_literal)
+    val _ =
+      assert "registered literal survived dedicated parameter resolution"
+        (not (contains_const literal_backend corrected_literal))
+    val _ =
+      assert "explicit legacy value witness differs from the corrected function"
+        (Term.aconv (explicit_literal, corrected_literal))
+    val _ =
+      assert "legacy call role did not select its call registration"
+        (contains_const call_backend old_call)
+    val _ =
+      assert "legacy call registration unexpectedly retained the callable parameter"
+        (not (contains_bound 1 old_call))
+    val _ =
+      assert "legacy and dedicated field-role controls differ"
+        (Term.aconv (old_field, corrected_field))
+    val _ =
+      assert "field-role control unexpectedly retained the colliding lens parameter"
+        (not (contains_bound 0 old_field))
+    val _ =
+      assert "field-role control lost its receiver parameter"
+        (contains_bound 1 old_field)
+  end
+\<close>
+
+
 
 end

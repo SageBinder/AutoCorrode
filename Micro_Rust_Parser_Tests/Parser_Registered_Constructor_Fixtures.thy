@@ -74,4 +74,11 @@ micro_rust_notation (literal)
   \<close>
   ("NegativeRegistered::Phantom")
 
+definition integration_registered_value_audit :: nat
+  where \<open> integration_registered_value_audit = 42 \<close>
+
+micro_rust_notation (literal)
+  integration_registered_value_audit
+  ("IntegrationAudit::Value")
+
 end

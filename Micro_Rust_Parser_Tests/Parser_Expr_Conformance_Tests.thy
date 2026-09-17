@@ -1,10 +1,39 @@
 (* Positive expression conformance against the legacy inner-syntax frontend. *)
 
 theory Parser_Expr_Conformance_Tests
-  imports Micro_Rust_Parser_Impl.Parser_Impl_Command "HOL.Real"
+  imports Parser_Iterator_Fixtures "HOL.Real"
 begin
 
 declare [[urust_conformance = true]]
+
+section\<open>Iterator call syntax\<close>
+
+text\<open>
+Expression-mode declarations cover the direct, method, and chained iterator spellings independently
+of the corresponding function-mode declarations.
+\<close>
+
+urust_expr iterator_zip_expr_direct ::
+  \<open>zip_left_iterator \<Rightarrow> zip_right_iterator \<Rightarrow>
+   (nat list, zip_pair_iterator, unit, unit, unit) function_body\<close>
+  (left, right)
+  \<open> zip(left, right) \<close>
+
+urust_expr iterator_zip_expr_method ::
+  \<open>zip_left_iterator \<Rightarrow> zip_right_iterator \<Rightarrow>
+   (nat list, zip_pair_iterator, unit, unit, unit) function_body\<close>
+  (left, right)
+  \<open> left.zip(right) \<close>
+
+urust_expr iterator_zip_expr_chained ::
+  \<open>zip_left_iterator \<Rightarrow> zip_right_iterator \<Rightarrow>
+   (nat list, zip_pair_iterator, unit, unit, unit) function_body\<close>
+  (left, right)
+  \<open> left.into_iter().zip(right.into_iter()) \<close>
+
+thm iterator_zip_expr_direct_conformance
+thm iterator_zip_expr_method_conformance
+thm iterator_zip_expr_chained_conformance
 
 section\<open>Numeric literals (Corpus PART I, "Numeric Literals")\<close>
 
@@ -219,7 +248,7 @@ urust_expr tuple_prime_identifiers
 
 text\<open>
 Refutable binding patterns and forms excluded by a consumer-specific pattern policy have positioned
-rows in \<open>Parser_Misc_Tests.thy\<close>.
+rows in \<open>Parser_Pattern_Matching_Tests.thy\<close>.
 \<close>
 
 section\<open>Tuple values and irrefutable tuple binders\<close>

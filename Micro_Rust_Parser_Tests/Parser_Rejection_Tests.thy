@@ -9,9 +9,6 @@ theory Parser_Rejection_Tests
     Parser_Struct_Ambiguity_Right_Fixtures
     Parser_Registered_Constructor_Fixtures
     Micro_Rust_Std_Lib.StdLib_Logging
-  keywords
-    "urust_expr_rejects" :: thy_decl
-    and "new_urust_rejects" :: thy_decl
 begin
 
 chapter\<open>Negative conformance\<close>
@@ -20,8 +17,6 @@ declare [[urust_conformance = false]]
 declare [[urust_verbosity = 0]]
 declare [[urust_abbrev = false]]
 
-section\<open> The command \<close>
-
 text\<open>
 \<open>urust_expr_rejects fidelity source expected\<close> requires both frontends to reject and
 checks the new parser's reason. The new-parser-only variant accepts \<open>frontend_accepts\<close> when
@@ -29,105 +24,6 @@ the row must prove that the existing frontend accepts, \<open>divergent\<close> 
 acceptance-boundary difference, or \<open>audit\<close> for a custom-parser invariant whose old-frontend
 behavior is deliberately not part of the row. The tags are validated locally by this negative-test
 command; bracketed comment labels remain explanatory only.
-\<close>
-ML\<open>
-fun negative_frontend_source source = "\<lbrakk> " ^ source ^ " \<rbrakk>"
-
-val _ = Syntax.read_term \<^context> (negative_frontend_source "()")
-
-datatype rejection_tag = Fidelity | FrontendAccepts | Divergent | Audit
-
-fun validate_rejection_tag check_frontend tag =
-  (case (check_frontend, tag) of
-     (true, Fidelity) => ()
-   | (true, _) =>
-       error "urust_expr_rejects requires the `fidelity` tag"
-   | (false, Fidelity) =>
-       error
-         "new_urust_rejects requires the `frontend_accepts`, `divergent`, or `audit` tag"
-   | (false, _) => ())
-
-fun parse_rejection_tag (name, pos) =
-  (case name of
-     "fidelity" => Fidelity
-   | "frontend_accepts" => FrontendAccepts
-   | "divergent" => Divergent
-   | "audit" => Audit
-   | _ =>
-       error
-         ("unknown rejection tag " ^ quote name ^
-           "; expected `fidelity`, `frontend_accepts`, `divergent`, or `audit`" ^
-           Position.here pos))
-
-fun urust_rejects check_frontend ((tag, source), expected) lthy =
-  let
-    val _ = validate_rejection_tag check_frontend tag
-    val pos      = Input.pos_of source
-    (* trim: the cartouche-spacing convention pads content with a blank on each side *)
-    val expected = Symbol.trim_blanks (Input.string_of expected)
-    fun fail msg = error ("urust_expr_rejects: " ^ msg ^ Position.here pos)
-
-    fun check_parser_rejection () =
-      (* Lexer, parser, elaborator, and type errors are all valid new-parser rejections. *)
-      (case Exn.result (fn () => Parser_Test_Elaboration.expression lthy source) () of
-         Exn.Res t =>
-           fail ("expected the new parser to reject, but it accepted and elaborated to: " ^
-                 Syntax.string_of_term lthy t)
-       | Exn.Exn exn =>
-           if Exn.is_interrupt exn then Exn.reraise exn
-           else
-             let val msg = Runtime.exn_message exn in
-               if String.isSubstring expected msg
-               then writeln ("new parser rejected as expected: " ^ msg)
-               else fail ("new parser rejected, but not for the expected reason.\n" ^
-                          "  expected substring: " ^ quote expected ^
-                          "\n  actual message: " ^ msg)
-             end)
-
-    fun check_frontend_rejection () =
-      (case Exn.result (Syntax.read_term lthy)
-              (negative_frontend_source (Input.string_of source)) of
-         Exn.Res t =>
-           fail ("expected the existing frontend to reject, but it accepted and elaborated to: " ^
-                 Syntax.string_of_term lthy t)
-       | Exn.Exn exn =>
-           if Exn.is_interrupt exn then Exn.reraise exn
-           else writeln ("existing frontend rejected as expected: " ^ Runtime.exn_message exn))
-
-    fun check_frontend_acceptance () =
-      (case Exn.result (Syntax.read_term lthy)
-              (negative_frontend_source (Input.string_of source)) of
-         Exn.Res _ =>
-           writeln "existing frontend accepted as expected"
-       | Exn.Exn exn =>
-           if Exn.is_interrupt exn then Exn.reraise exn
-           else
-             fail
-               ("expected the existing frontend to accept, but it rejected: " ^
-                Runtime.exn_message exn))
-
-    val _ = check_parser_rejection ()
-    val _ =
-      (case (check_frontend, tag) of
-         (true, Fidelity) => check_frontend_rejection ()
-       | (false, FrontendAccepts) => check_frontend_acceptance ()
-       | _ => ())
-  in lthy end
-
-val rejection_args =
-  (Parse.name_position >> parse_rejection_tag) --
-    (Parse.token Parse.cartouche >>
-      Parser_Lex_Util.cartouche_source) --
-    (Parse.token Parse.cartouche >>
-      Parser_Lex_Util.cartouche_source)
-
-val _ = Outer_Syntax.local_theory \<^command_keyword>\<open>urust_expr_rejects\<close>
-          "Assert that both uRust frontends reject; check the new parser's reason"
-          (rejection_args >> urust_rejects true)
-
-val _ = Outer_Syntax.local_theory \<^command_keyword>\<open>new_urust_rejects\<close>
-          "Assert that the new uRust parser rejects under the selected frontend policy"
-          (rejection_args >> urust_rejects false)
 \<close>
 
 section\<open> Non-associative operators \<close>
@@ -1144,6 +1040,11 @@ new_urust_rejects audit
 new_urust_rejects audit
   \<open> ncf1(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14) \<close>
   \<open> unsupported call arity 15 \<close>
+
+new_urust_rejects audit
+  \<open> unknown.zip(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14) \<close>
+  \<open> unsupported call arity 15 \<close>
+  \<comment> \<open> Iterator methods use the shared receiver-prepending arity preflight. \<close>
 
 new_urust_rejects audit
   \<open> Suc(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14) \<close>

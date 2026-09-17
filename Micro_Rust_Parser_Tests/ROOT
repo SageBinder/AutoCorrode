@@ -13,19 +13,19 @@ session Micro_Rust_Parser_Tests = HOL +
   theories [document = false]
     Parser_Conformance_Corpus
     Parser_Test_Utils
+    Parser_Iterator_Fixtures
     Parser_Registered_Constructor_Fixtures
     Parser_Constructor_Ambiguity_Left_Fixtures
     Parser_Constructor_Ambiguity_Right_Fixtures
     Parser_Struct_Ambiguity_Left_Fixtures
     Parser_Struct_Ambiguity_Right_Fixtures
-    Parser_Legacy_Notation_Tests
     Parser_Legacy_Frontend_Tests
     Parser_Expr_Conformance_Tests
     Parser_Fn_Conformance_Tests
     Parser_Improvements_Tests
+    Parser_Command_Tests
     Parser_Rejection_Tests
     Parser_Syntax_Tests
-    Parser_Misc_Tests
     Parser_Pattern_Matching_Tests
-    Parser_Iterator_Tests
+    Parser_Name_Resolution_Tests
     Parser_Showcase_Tests
