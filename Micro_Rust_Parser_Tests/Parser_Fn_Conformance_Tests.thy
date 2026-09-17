@@ -1,8 +1,7 @@
-(* Positive function conformance against the seven corpus FunctionBody definitions
-   and the supported urust_fn declaration surface. *)
+(* Positive function conformance for the supported urust_fn declaration surface. *)
 
 theory Parser_Fn_Conformance_Tests
-  imports Parser_Test_Utils Parser_Conformance_Corpus Parser_Iterator_Fixtures
+  imports Parser_Test_Utils Parser_Iterator_Fixtures
 begin
 
 declare [[urust_conformance = true]]
@@ -81,7 +80,7 @@ lemma hol_list_zip_is_unchanged:
   shows \<open>List.zip [1 :: nat, 2] [True] = [(1, True)]\<close>
   by simp
 
-section\<open>Corpus FunctionBody definitions\<close>
+section\<open>FunctionBody definitions\<close>
 
 urust_fn answer ::
   \<open>('s, 32 word, 'abort, 'i, 'o) function_body\<close>
