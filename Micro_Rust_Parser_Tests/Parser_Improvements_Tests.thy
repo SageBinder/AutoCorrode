@@ -2580,7 +2580,7 @@ ML_val\<open>
                Type
                  (\<^type_name>\<open>expression\<close>,
                    [stateT, returnT, returnT, abortT, inputT, outputT])
-           | _ => error "D-24 regression: malformed function_body result type")
+           | _ => error "function parameter precedence regression: malformed function_body result type")
         val fixes =
           map2
             (fn name => fn T => (Binding.name name, SOME T, NoSyn))
@@ -2615,7 +2615,7 @@ ML_val\<open>
         (fn Bound candidate => candidate = index | _ => false)
 
     fun assert message condition =
-      if condition then () else error ("D-24 regression: " ^ message)
+      if condition then () else error ("function parameter precedence regression: " ^ message)
 
     val literal_type =
       \<^typ>\<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>

@@ -784,7 +784,7 @@ urust_expr_rejects fidelity
   \<open> match_case \<llangle>\<lparr>negative_record_left = 1, negative_record_right = 2\<rparr>\<rrangle> { negative_record_fixture { negative_record_left: x, negative_record_right: _ } \<Rightarrow> x } \<close>
   \<open> HOL record pattern "negative_record_fixture" requires selector-based lowering \<close>
   \<comment> \<open> [FIDELITY] both frontends reject HOL record extension constructors. The custom parser
-       exposes the explicit boundary for future selector-based lowering (T-29). \<close>
+       exposes the explicit boundary for future selector-based lowering. \<close>
 
 urust_expr_rejects fidelity
   \<open> match_case \<llangle>NegativeStruct 1 2\<rrangle> { NegativeStruct { unknown: x, .. } \<Rightarrow> x } \<close>
@@ -1249,7 +1249,7 @@ urust_expr_rejects fidelity
 new_urust_rejects divergent
   \<open> \<llangle>\<lambda>x. x\<rrangle>\<^sub>1::<-1>() \<close>
   \<open> unexpected input \<close>
-  \<comment> \<open> [DIVERGENT] function literals use the same restricted D-20 turbofish grammar. \<close>
+  \<comment> \<open> [DIVERGENT] function literals use the same restricted turbofish grammar. \<close>
 
 new_urust_rejects divergent
   \<open> \<llangle>\<lambda>x. x\<rrangle>\<^sub>1::<1 * 2>() \<close>
@@ -2322,7 +2322,7 @@ urust_expr_rejects fidelity \<open> let i32 = 1; i32 \<close>
 urust_expr_rejects fidelity \<open> let i64 = 1; i64 \<close>
   \<open> syntax error \<close>
 
-section\<open> Struct-expression failures (D-21) \<close>
+section\<open> Struct-expression failures \<close>
 
 definition negative_d21_identity ::
     \<open>'a \<Rightarrow> ('s, 'a, 'abort, 'i, 'o) function_body\<close>
@@ -2466,7 +2466,7 @@ new_urust_rejects audit
   \<open> unsupported call arity 15 \<close>
   \<comment> \<open> Structural arity wins before label reporting, head resolution, and initializer lowering. \<close>
 
-section\<open> Unparenthesized struct expressions in control heads (D-23) \<close>
+section\<open> Unparenthesized struct expressions in control heads \<close>
 
 text\<open>
 Rust excludes an unparenthesized struct expression throughout the outer precedence depth of a

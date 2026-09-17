@@ -2517,10 +2517,11 @@ section\<open>Rich case-pattern lowering\<close>
 text\<open>
 Case arms are normalized in stages: recursive disjunction expansion, recursive
 constructor compilation, and ordered guard fall-through. Case numerals remain
-frontend-fidelity rejections. The first rows are positive witnesses for formerly rejected D-7 forms.
+frontend-fidelity rejections. The first rows are positive witnesses for formerly rejected
+advanced-pattern forms.
 \<close>
 
-subsection\<open>Former D-7 surface\<close>
+subsection\<open>Formerly rejected advanced-pattern surface\<close>
 
 urust_expr rich_explicit_nested
   \<open> match_case \<llangle>Some (Some (0 :: nat))\<rrangle> { Some(Some(y)) \<Rightarrow> (), _ \<Rightarrow> () } \<close>
@@ -4760,7 +4761,7 @@ accepted-surface extensions live in \<open>Parser_Improvements_Tests.thy\<close>
 frontend-only expression forms stay as goldens in \<open>Parser_Conformance_Corpus.thy\<close>.
 \<close>
 
-subsection\<open>D-1 (RESOLVED 2026-09-11): direct \<open>if\<close> binary operands\<close>
+subsection\<open>Resolved 2026-09-11: direct \<open>if\<close> binary operands\<close>
 
 text\<open>
 The dedicated parser admits direct block-like operands. The parenthesized row remains a shared
@@ -4769,7 +4770,7 @@ frontend conformance fixture; direct rows live in \<open>Parser_Syntax_Tests.thy
 urust_expr d1_paren_operand
   \<open> (if \<llangle>True\<rrangle> { \<llangle>1 :: 32 word\<rrangle> } else { \<llangle>2 :: 32 word\<rrangle> }) + \<llangle>3 :: 32 word\<rrangle> \<close>
 
-subsection\<open>D-2 (RESOLVED 2026-08-25): no-\<open>;\<close> sequencing of block-like expressions -- now accepted\<close>
+subsection\<open>Resolved 2026-08-25: no-\<open>;\<close> sequencing of block-like expressions -- now accepted\<close>
 
 text\<open> Block-like statements sequence without a trailing \<open>;\<close>, matching the frontend. \<close>
 urust_expr d2_blk_seq \<open> { () } { () } \<close>
@@ -4778,7 +4779,7 @@ urust_expr d2_if_seq \<open> if \<llangle>True\<rrangle> { () } () \<close>
 
 urust_expr d2_ifelse_seq \<open> if \<llangle>True\<rrangle> { () } else { () } () \<close>
 
-subsection\<open>D-3 (RESOLVED 2026-08-24): HOL-constant-named binders are captured in antiquotations\<close>
+subsection\<open>Resolved 2026-08-24: HOL-constant-named binders are captured in antiquotations\<close>
 
 text\<open> Enclosing binders shadow same-named HOL constants and registered notation names in antiquotations. \<close>
 urust_expr div_binder_const \<open> let id = \<llangle>5 :: nat\<rrangle>; \<llangle>id\<rrangle> \<close>
@@ -4789,15 +4790,15 @@ urust_expr cap_const_deep \<open> let id = \<llangle>5 :: nat\<rrangle>; \<llang
 
 urust_expr cap_notation \<open> let myReg = \<llangle>5 :: nat\<rrangle>; \<llangle>myReg\<rrangle> \<close>  \<comment>\<open> binder name = a registered notation surface name (guard) \<close>
 
-subsection\<open>D-5 (RESOLVED 2026-09-05): embedded HOL callees\<close>
+subsection\<open>Resolved 2026-09-05: embedded HOL callees\<close>
 
 text\<open>
-D-5 is closed by two dedicated call atoms. An expression antiquotation is parsed once in the current
-lexical environment and passed directly to \<open>funcall0\<close> through \<open>funcall14\<close>. An adjacent
-arity-indexed value antiquotation applies \<open>lift_fun1\<close> through \<open>lift_fun14\<close>, then optional
-restricted D-20 generic arguments, then the independently selected runtime \<open>funcallN\<close>. Neither form
-enables general expression invocation: chained calls such as \<open>f(a)(b)\<close> and grouped callees such
-as \<open>(g)(x)\<close> remain shared rejections.
+Embedded HOL callees use two dedicated call atoms. An expression antiquotation is parsed once in the
+current lexical environment and passed directly to \<open>funcall0\<close> through \<open>funcall14\<close>. An
+adjacent arity-indexed value antiquotation applies \<open>lift_fun1\<close> through \<open>lift_fun14\<close>, then
+optional restricted generic arguments, then the independently selected runtime \<open>funcallN\<close>.
+Neither form enables general expression invocation: chained calls such as \<open>f(a)(b)\<close> and grouped
+callees such as \<open>(g)(x)\<close> remain shared rejections.
 \<close>
 
 subsubsection\<open>Expression-antiquotation callees\<close>
@@ -5103,7 +5104,7 @@ urust_expr d5_function_literal_runtime14
       (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13)
   \<close>
 
-section\<open>Frontend-compatible struct expressions (D-21)\<close>
+section\<open>Frontend-compatible struct expressions\<close>
 
 text\<open>
 Struct-expression labels are syntax-only in the active frontend. The head uses ordinary call
@@ -5618,13 +5619,13 @@ urust_expr d21_layout_multiline
     }
   \<close>
 
-subsection\<open>D-7 (RESOLVED): advanced patterns and consumer-specific gates\<close>
+subsection\<open>Resolved: advanced patterns and consumer-specific gates\<close>
 
 text\<open>
-D-7 is closed across ordinary and explicit matches, \<open>let\<close>/\<open>const\<close>, conditional bindings,
-\<open>while let\<close>, and \<open>matches!\<close>. Groups are transparent. Aliases, ranges, slices, and structs
-use case preparation where admitted and retain positioned rejection at irrefutable-binding or explicit
-switch sites. Immutable and mutable reference prefixes erase recursively after entering case
+Advanced-pattern support covers ordinary and explicit matches, \<open>let\<close>/\<open>const\<close>, conditional
+bindings, \<open>while let\<close>, and \<open>matches!\<close>. Groups are transparent. Aliases, ranges, slices, and
+structs use case preparation where admitted and retain positioned rejection at irrefutable-binding or
+explicit switch sites. Immutable and mutable reference prefixes erase recursively after entering case
 preparation, matching the frontend; direct binders, explicit switches, top-level tuple conditional
 binders, and range endpoints retain their consumer-specific rejection. Case numerals remain shared
 frontend-fidelity rejections rather than an open divergence.
@@ -5854,14 +5855,14 @@ urust_expr primitive_log_closure_body
 subsection\<open>Open exceptions and post-parity surface\<close>
 
 text\<open>
-The current approved exceptions are D-13 (ambiguous unqualified struct heads), D-14 (the frontend's
-ordinary-selector \<open>more\<close> omission), D-15 (unparenthesized fueled-\<open>while\<close> conditions),
-D-20 (arbitrary unquoted HOL turbofish payloads), and D-23 (unparenthesized struct expressions in
-control heads). They are non-blocking and have executable negative or fixture coverage.
+The current approved exceptions are ambiguous unqualified struct heads; the frontend's
+ordinary-selector \<open>more\<close> omission; unparenthesized fueled-\<open>while\<close> conditions; arbitrary
+unquoted HOL turbofish payloads; and unparenthesized struct expressions in control heads. They are
+non-blocking and have executable negative or fixture coverage.
 
-D-21 struct expressions and D-22 yield, primitive log, and logging-data expressions are resolved.
-General postfix invocation, Rust closure/reference semantics, real Rust format interpolation, and
-declaration commands are post-parity work, not missing expression-frontend parity.
+Struct expressions, yield, primitive log, and logging-data expressions are resolved. General postfix
+invocation, Rust closure/reference semantics, real Rust format interpolation, and declaration
+commands are post-parity work, not missing expression-frontend parity.
 \<close>
 
 end
