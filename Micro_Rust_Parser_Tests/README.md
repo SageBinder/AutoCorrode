@@ -143,9 +143,8 @@ negative rows preserve these boundaries.
 
 Shared declaration-only setup lives in `Parser_Iterator_Fixtures.thy`,
 `Parser_Registered_Constructor_Fixtures.thy`, and the four ambiguity fixture theories. Shared ML
-support and test-only rejection commands live in `Parser_Test_Utils.thy`; frontend goldens remain in
-`Parser_Conformance_Corpus.thy`. Every tracked `.thy` file in this directory is registered in
-`ROOT`.
+support and test-only rejection commands live in `Parser_Test_Utils.thy`. Every tracked `.thy` file
+in this directory is registered in `ROOT`.
 
 ## Migration-report disposition
 
