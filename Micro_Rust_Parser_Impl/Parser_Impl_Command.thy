@@ -65,19 +65,18 @@ An optional trailing \<open>against old_term\<close> supplies a distinct existin
 conformance checking even when the configuration is false. Combining it with an explicit
 \<open>[conformance = false]\<close> is rejected by either command.
 
-The scoped \<open>urust_abbrev\<close> configuration defaults to false and applies only to
-\<open>urust_expr\<close>; the corresponding inline option is \<open>abbrev\<close>. False uses Isabelle's
+The scoped \<open>urust_abbrev\<close> configuration defaults to false and applies to both commands; the
+corresponding inline option is \<open>abbrev\<close>. False uses Isabelle's
 standard definition mechanism, supplying
 \<open>NAME_def\<close> and one default code equation without adding the definition to the global simp set.
 True uses an input-only \<open>Local_Theory.abbrev\<close>, supplying neither artifact; checked client terms
 contain the expanded right-hand side, and normal pretty printing does not fold it back to
 \<open>NAME\<close>. Definition conformance unfolds only \<open>NAME_def\<close> before \<open>refl\<close>; abbreviation
-conformance closes directly by \<open>refl\<close>. \<open>urust_fn\<close> always installs an ordinary definition,
-does not accept an inline \<open>abbrev\<close> option, and ignores the scoped setting.
+conformance closes directly by \<open>refl\<close>.
 
 Both commands accept \<open>attrs = [ATTRIBUTE, ...]\<close> for named definitions. Isabelle's standard
 attribute parser checks the list, including the empty list, and applies it only to the generated
-\<open>NAME_def\<close> theorem. Anonymous declarations and expression abbreviation mode reject
+\<open>NAME_def\<close> theorem. Anonymous declarations and abbreviation mode reject
 \<open>attrs\<close>.
 
 Successful interactive command output is controlled by the scoped \<open>urust_verbosity\<close> configuration,
@@ -88,18 +87,17 @@ output.
 
 The option parser is parameterized by a command-specific schema. Both commands accept Boolean
 \<open>conformance\<close>, \<open>timing_info\<close>, and \<open>application_def\<close>, integers \<open>verbosity\<close> and
-\<open>timing_verbosity\<close>, and attribute-list \<open>attrs\<close>; only \<open>urust_expr\<close> accepts Boolean
-\<open>abbrev\<close>. The
+\<open>timing_verbosity\<close>, attribute-list \<open>attrs\<close>, and Boolean \<open>abbrev\<close>. The
 configuration-backed short names are inline-only aliases for the globally prefixed configurations.
 Options may appear in any order. For Boolean options, omitting \<open>= true\<close> enables the option, so
 both commands accept \<open>[conformance]\<close>, \<open>[timing_info]\<close>, and
-\<open>[application_def]\<close>, while \<open>urust_expr\<close> also accepts \<open>[abbrev]\<close>. Explicit
+\<open>[application_def]\<close>, as well as \<open>[abbrev]\<close>. Explicit
 \<open>= true\<close> and \<open>= false\<close> remain available; integer and attribute-list options always require a
 value.
 
-An argument-taking \<open>urust_expr [abbrev]\<close> declaration is the supported way to expose a parser
-expression as a HOL helper. At HOL use sites, write \<open>(helper args)\<close> when surrounding syntax would
-otherwise group the helper application incorrectly.
+An argument-taking abbreviation declaration exposes a parser expression or function body as a HOL
+helper. At HOL use sites, write \<open>(helper args)\<close> when surrounding syntax would otherwise group the
+helper application incorrectly.
 \<close>
 ML\<open>
 signature URUST_COMMAND =
@@ -170,8 +168,8 @@ val attributes_option = "attrs"
    - urust_verbosity is cumulative: 0 prints nothing, 1 prints the generated definition or
      abbreviation, and 2 additionally prints the generated conformance theorem; its inline alias is
      verbosity.
-   - urust_abbrev controls input-only abbreviations for urust_expr only; its inline alias is abbrev,
-     and urust_fn always defines.
+   - urust_abbrev controls input-only abbreviations for both declaration commands; its inline alias
+     is abbrev.
    - urust_application_def puts explicit source arguments on the generated definition theorem's
      left-hand side; its inline alias is application_def.
    - attrs is inline-only and carries Isabelle theorem attributes for the generated _def theorem of
@@ -195,12 +193,13 @@ val common_option_configs =
    (application_def_option, Boolean_Config urust_application_def),
    (attributes_option, Attributes_Config)]
 
-val expression_option_configs =
+val declaration_option_configs =
   Symtab.make
     (common_option_configs @
       [(abbrev_option, Boolean_Config urust_abbrev)])
 
-val function_option_configs = Symtab.make common_option_configs
+val expression_option_configs = declaration_option_configs
+val function_option_configs = declaration_option_configs
 
 type command_options = (command_option_value * Position.T) Symtab.table
 
@@ -1312,6 +1311,15 @@ fun close_declared_legacy kind declared_type lthy term =
      SOME (_, type_pos) => close_typed_term kind lthy type_pos term
    | NONE => term)
 
+fun reject_abbreviation_application_definition command
+    abbreviation application_definition =
+  if abbreviation andalso application_definition
+  then
+    error
+      (command ^
+        ": abbreviation mode cannot be combined with `application_def`")
+  else ()
+
 fun define_urust_expr
     (options,
      args as (target, declared_type, source, _, arguments),
@@ -1328,11 +1336,8 @@ fun define_urust_expr
       configured_flag lthy options application_def_option
         urust_application_def
     val _ =
-      if abbreviation andalso application_definition
-      then
-        error
-          "urust_expr: abbreviation mode cannot be combined with `application_def`"
-      else ()
+      reject_abbreviation_application_definition
+        "urust_expr" abbreviation application_definition
     val attributes =
       declaration_attributes lthy "urust_expr" target abbreviation options
     val kind = command_elaboration_kind lthy declared_type
@@ -1374,15 +1379,21 @@ fun define_urust_fn
       configured_timing lthy options
     val timer = new_command_timer timing_info
     val verbosity = configured_verbosity lthy options
+    val abbreviation =
+      configured_flag lthy options abbrev_option urust_abbrev
     val application_definition =
       configured_flag lthy options application_def_option
         urust_application_def
+    val _ =
+      reject_abbreviation_application_definition
+        "urust_fn" abbreviation application_definition
     val attributes =
-      declaration_attributes lthy "urust_fn" target false options
+      declaration_attributes lthy "urust_fn" target abbreviation options
     val raw_type = require_function_type body declared_type
     val binding = target_binding Function target
     fun declaration lthy' =
-      declare_urust_result timer false application_definition attributes Function
+      declare_urust_result timer abbreviation application_definition
+        attributes Function
         (target, SOME raw_type, body, parameters_pos, parameters) lthy'
     fun checked old_body =
       declare_with_frontend_check timer declaration binding

@@ -566,6 +566,13 @@ urust_expr
   (item)
   \<open> item \<close>
 
+urust_fn
+  [abbrev, conformance, verbosity = 2]
+  typed_function_abbrev_command ::
+  \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
+  (item)
+  \<open> item \<close>
+
 urust_expr typed_against ::
   \<open>32 word \<Rightarrow>
     (unit, 32 word, unit, unit, unit, unit) expression\<close>
@@ -723,7 +730,8 @@ ML_val\<open>
     val abbreviations =
       ["typed_flags_001", "typed_flags_011",
        "typed_flags_101", "typed_flags_111",
-       "typed_function_abbrev_common"]
+       "typed_function_abbrev_common",
+       "typed_function_abbrev_command"]
     val conforming =
       ["typed_closed", "typed_contextual", "typed_heterogeneous",
        "typed_higher_order", "typed_polymorphic",
@@ -739,7 +747,8 @@ ML_val\<open>
        "quoted_major_parameter",
        "typed_flags_100",
        "typed_flags_101", "typed_flags_110", "typed_flags_111",
-       "typed_function_abbrev_common", "typed_against"]
+       "typed_function_abbrev_common", "typed_function_abbrev_command",
+       "typed_against"]
     val nonconforming =
       ["partial_collision_function", "zip_callable_parameter",
        "zip_method_registration", "typed_application_implicit_parameter",
@@ -2057,6 +2066,15 @@ urust_fn
   inline_fun_12 ::
   \<open>(unit, unit, unit, unit, unit) function_body\<close> () \<open> () \<close>
 
+urust_fn
+  [abbrev, conformance = false, verbosity = 0]
+  inline_fun_abbrev_00 ::
+  \<open>(unit, unit, unit, unit, unit) function_body\<close> () \<open> () \<close>
+urust_fn
+  [conformance, verbosity = 2, abbrev]
+  inline_fun_abbrev_12 ::
+  \<open>(unit, unit, unit, unit, unit) function_body\<close> () \<open> () \<close>
+
 
 section\<open> Scoped settings and overrides \<close>
 
@@ -2070,7 +2088,7 @@ declare [[urust_application_def = true]]
 urust_expr [application_def = false]
   scoped_all_true_expr \<open> () \<close>
 
-urust_fn scoped_all_true_fun ::
+urust_fn [application_def = false] scoped_all_true_fun ::
   \<open>(unit, unit, unit, unit, unit) function_body\<close>
   ()
   \<open> () \<close>
@@ -2085,7 +2103,7 @@ urust_expr
 
 urust_fn
   [conformance = false, timing_info = false, timing_verbosity = 0,
-   verbosity = 0,
+   verbosity = 0, abbrev = false,
    application_def = false]
   scoped_all_false_fun ::
   \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
@@ -2097,7 +2115,7 @@ urust_expr [abbrev = false]
   (item)
   \<open> \<llangle>item :: nat\<rrangle> \<close>
 
-urust_fn scoped_application_function ::
+urust_fn [abbrev = false] scoped_application_function ::
   \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
   (item)
   \<open> item \<close>
@@ -2105,7 +2123,7 @@ urust_fn scoped_application_function ::
 urust_expr [abbrev = false]
   scoped_partial_definition_expr \<open> () \<close>
 
-urust_fn [conformance = false]
+urust_fn [conformance = false, abbrev = false]
   scoped_partial_definition_fun ::
   \<open>(unit, unit, unit, unit, unit) function_body\<close>
   ()
@@ -2730,6 +2748,9 @@ section\<open> Declaration artifacts \<close>
 definition expr_abbrev_client where
   \<open> expr_abbrev_client = inline_expr_001 \<close>
 
+definition fun_abbrev_client where
+  \<open> fun_abbrev_client = inline_fun_abbrev_00 \<close>
+
 ML_val\<open>
   local
     val ctxt = \<^context>
@@ -2772,7 +2793,6 @@ ML_val\<open>
        "inline_expr_100", "inline_expr_110",
        "inline_fun_00", "inline_fun_01", "inline_fun_02",
        "inline_fun_10", "inline_fun_11", "inline_fun_12",
-       "scoped_all_true_fun",
        "scoped_all_false_expr", "scoped_all_false_fun",
        "scoped_application_expression", "scoped_application_function",
        "scoped_partial_definition_expr", "scoped_partial_definition_fun",
@@ -2784,13 +2804,16 @@ ML_val\<open>
     val abbreviations =
       ["inline_expr_001", "inline_expr_011",
        "inline_expr_101", "inline_expr_111",
-       "scoped_all_true_expr", "nie_contextual_helper",
+       "inline_fun_abbrev_00", "inline_fun_abbrev_12",
+       "scoped_all_true_expr", "scoped_all_true_fun",
+       "nie_contextual_helper",
        "contextual_abbrev_against"]
 
     val conforming =
       ["inline_expr_100", "inline_expr_101",
        "inline_expr_110", "inline_expr_111",
        "inline_fun_10", "inline_fun_11", "inline_fun_12",
+       "inline_fun_abbrev_12",
        "scoped_all_true_expr", "scoped_all_true_fun",
        "scoped_application_expression", "scoped_application_function",
        "scoped_partial_definition_expr",
@@ -2804,6 +2827,7 @@ ML_val\<open>
        "inline_expr_000", "inline_expr_001",
        "inline_expr_010", "inline_expr_011",
        "inline_fun_00", "inline_fun_01", "inline_fun_02",
+       "inline_fun_abbrev_00",
        "scoped_all_false_expr", "scoped_all_false_fun",
        "scoped_partial_definition_fun",
        "reset_expr_flags", "reset_fun_flags"]
@@ -2887,6 +2911,7 @@ ML_val\<open>
       end
 
     val _ = assert_expanded "expr_abbrev_client" "inline_expr_001"
+    val _ = assert_expanded "fun_abbrev_client" "inline_fun_abbrev_00"
   in
     val _ = ()
   end
@@ -2970,19 +2995,14 @@ ML_val\<open>
       kind_label kind ^
         (if abbreviation then "-abbrev" else "-definition")
 
-    fun option_block kind abbreviation options =
-      let
-        val expression_options =
-          (case kind of
-             Expr =>
-               ("abbrev = " ^ Bool.toString abbreviation) :: options
-           | Fn => options)
-      in
-        "[" ^ commas expression_options ^ "]"
-      end
+    fun option_block _ abbreviation options =
+      "[" ^
+        commas
+          (("abbrev = " ^ Bool.toString abbreviation) :: options) ^
+        "]"
 
     val expression_cases = [(Expr, false), (Expr, true)]
-    val command_cases = expression_cases @ [(Fn, false)]
+    val command_cases = expression_cases @ [(Fn, false), (Fn, true)]
 
     fun test_unknown (case_ as (kind, abbreviation)) =
       let
@@ -3211,7 +3231,7 @@ ML_val\<open>
         ["conformance", "timing_info", "timing_verbosity",
          "verbosity", "application_def"]
     val _ =
-      List.app (test_duplicate "abbrev") expression_cases
+      List.app (test_duplicate "abbrev") command_cases
     val _ =
       List.app (test_shorthand_duplicate "conformance") command_cases
     val _ =
@@ -3219,7 +3239,7 @@ ML_val\<open>
     val _ =
       List.app (test_shorthand_duplicate "application_def") command_cases
     val _ =
-      List.app (test_shorthand_duplicate "abbrev") expression_cases
+      List.app (test_shorthand_duplicate "abbrev") command_cases
     val _ = List.app test_contradiction command_cases
     val _ =
       List.app
@@ -3235,14 +3255,6 @@ ML_val\<open>
     val _ =
       List.app test_timing_verbosity_requires_timing command_cases
     val _ = List.app test_attribute_options command_cases
-    val _ =
-      assert_rejected "function-abbrev-option"
-        (command Fn "[abbrev = true]" "function_abbrev" "")
-        "unknown uRust command option \"abbrev\""
-    val _ =
-      assert_rejected "function-bare-abbrev-option"
-        (command Fn "[abbrev]" "function_bare_abbrev" "")
-        "unknown uRust command option \"abbrev\""
     val _ =
       assert_rejected "invalid-scoped-verbosity"
         ("declare [[urust_verbosity = 3]]\n" ^
@@ -3275,16 +3287,34 @@ ML_val\<open>
           "attributed_abbreviation" "")
         "attrs is not supported in abbreviation mode"
     val _ =
+      assert_rejected "attributes-on-function-abbreviation"
+        (command Fn
+          "[abbrev = true, attrs = [micro_rust_simps]]"
+          "attributed_function_abbreviation" "")
+        "attrs is not supported in abbreviation mode"
+    val _ =
       assert_rejected "application-definition-on-expression-abbreviation"
         (command Expr
           "[abbrev = true, application_def]"
           "application_definition_abbreviation" "")
         "abbreviation mode cannot be combined with `application_def`"
     val _ =
+      assert_rejected "application-definition-on-function-abbreviation"
+        (command Fn
+          "[abbrev = true, application_def]"
+          "application_definition_function_abbreviation" "")
+        "abbreviation mode cannot be combined with `application_def`"
+    val _ =
       assert_rejected "scoped-application-definition-on-expression-abbreviation"
         ("declare [[urust_application_def = true]]\n" ^
           "urust_expr [abbrev] scoped_application_definition_abbreviation " ^
           unit_source)
+        "abbreviation mode cannot be combined with `application_def`"
+    val _ =
+      assert_rejected "scoped-application-definition-on-function-abbreviation"
+        ("declare [[urust_application_def = true]]\n" ^
+          "urust_fn [abbrev] scoped_application_definition_function_abbreviation :: " ^
+          body_type ^ " () " ^ unit_source)
         "abbreviation mode cannot be combined with `application_def`"
     val _ =
       assert_rejected "attributes-on-anonymous-expression"
