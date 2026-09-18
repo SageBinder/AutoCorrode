@@ -16,19 +16,16 @@ theory Core_Expression
 begin
 (*>*)
 
-section\<open>Core Micro Rust\<close>
+section\<open>Shallow computation core\<close>
 
-named_theorems micro_rust_simps
+named_theorems shallow_computation_simps
+named_theorems shallow_computation_intros
+named_theorems shallow_computation_elims
 
 subsection\<open>Runtime aborts\<close>
 
-text\<open>This describes the different ways that a runtime abort may have come about.  We have:
-\begin{enumerate*}
-\item A runtime panic, caused by the programmer making an explicit call to the \<^verbatim>\<open>panic!\<close> macro, or a
-similar construct in Rust.
-\item A programmer-facing assertion failed dynamically at runtime.
-\item A dangling pointer.
-\end{enumerate*}\<close>
+text\<open>The built-in constructors retain the existing failure vocabulary for compatibility.
+Language-specific failures may also be represented through \<^verbatim>\<open>CustomAbort\<close>.\<close>
 datatype 'abort abort
   = Panic \<open>String.literal\<close>
   | Unimplemented \<open>String.literal\<close>
@@ -41,11 +38,11 @@ datatype 'abort abort
 
 subsection\<open>Continuations\<close>
 
-text\<open>When working towards embedding \<^verbatim>\<open>\<mu>Rust\<close> in Isabelle, we define all of the different ways that
-a computation can end, using a dedicated \<^bold>\<open>continuation\<close> type.  In particular, in Rust, we can:
+text\<open>We define the different ways that a computation can end using a dedicated
+\<^bold>\<open>continuation\<close> type:
 \begin{enumerate*}
 \item Compute a value successfully,
-\item Panic at runtime, raising a runtime exception,
+\item Abort at runtime,
 \item Return early, with a value, from a computation.
 \end{enumerate*}
 These are captured below:\<close>
@@ -61,18 +58,14 @@ datatype ('s, 'v, 'r, 'abort, 'i, 'o) continuation
 text\<open>Explicitly define a well-founded relation on continuations which makes continuations wrapped
 in a \<^term>\<open>Yield\<close> larger than any of the values of the continuations.\<close>
 
-subsection\<open>The type of shallow-embedded Micro Rust expressions\<close>
+subsection\<open>Shallow computation expressions\<close>
 
-text\<open>Rust is an expression-oriented language, and expressions can have side-effects, with function
-calls modifying the global state, and otherwise-imperative features like variable assignment also
-treated as unit-valued expressions.  Moreover, expressions can fail for a variety of reasons, most
-notably a call to the \<^verbatim>\<open>panic!\<close> macro, or some other similar macro that induces a runtime abort.  As
-a result of this, we model expressions as maps from some abstract \<^emph>\<open>state\<close> type, \<^typ>\<open>'s\<close>, to values
-of \<^typ>\<open>('s, 'v, 'r, 'abort, 'i, 'o) continuation\<close>.  Moreover, note that our embedding of Rust expressions
-is typed, piggy-backing off the HOL type system:\<close>
+text\<open>Expressions may modify an abstract state, return a value, return early, abort, or yield.
+They are modelled as maps from a state of type \<^typ>\<open>'s\<close> to values of
+\<^typ>\<open>('s, 'v, 'r, 'abort, 'i, 'o) continuation\<close>, using the HOL type system throughout.\<close>
 
 text\<open>We can \<^emph>\<open>evaluate\<close> an expression by simply "feeding it" a state, getting a continuation back:\<close>
-definition evaluate :: \<open>('s, 'v, 'r, 'abort, 'i, 'o) expression \<Rightarrow> \<comment> \<open>Micro Rust expression to evaluate\<close>
+definition evaluate :: \<open>('s, 'v, 'r, 'abort, 'i, 'o) expression \<Rightarrow> \<comment> \<open>Expression to evaluate\<close>
                         's \<Rightarrow>                      \<comment> \<open>State to evaluate expression in\<close>
                         ('s, 'v, 'r, 'abort, 'i, 'o) continuation\<close> where
   \<open>evaluate e s \<equiv> case e of Expression f \<Rightarrow> f s\<close>
@@ -137,15 +130,15 @@ lemma expression_wf_is_wf[intro]:
   shows \<open>wf expression_wf\<close>
 by (auto simp add: expression_wf_def intro: wf_trancl[OF expression_wf_base_is_wf])
 
-subsection\<open>Deep evaluation of Micro Rust expressions\<close>
+subsection\<open>Deep evaluation of expressions\<close>
 
 text\<open>Evaluation via \<^term>\<open>evaluate\<close> need not produce a result (\<^verbatim>\<open>Literal\<close>,\<^term>\<open>Return\<close> or
  \<^verbatim>\<open>Abort\<close>), but can also \<^verbatim>\<open>Yield\<close>. In this section, we define various 'deep' evaluation 
-functions for \<^verbatim>\<open>\<mu>Rust\<close> expressions, resolving yields by means of 'yield handlers'.\<close>
+functions for shallow expressions, resolving yields by means of 'yield handlers'.\<close>
 
 subsubsection\<open>Yield handlers\<close>
 
-text\<open>A \<^emph>\<open>yield handler\<close> is a means to continue evaluation of a uRust program when its evaluation
+text\<open>A \<^emph>\<open>yield handler\<close> is a means to continue evaluation of a computation when its evaluation
 via \<^verbatim>\<open>evaluate\<close> produces a \<^term>\<open>Yield\<close>. It receives the yield prompt, the current state, and the
 continuation of the program, and makes a decision on how to continue evaluation.
 
@@ -301,7 +294,7 @@ applied and returns \<^typ>\<open>'b\<close>, while operating on machine state t
 datatype ('s, 'b, 'abort, 'i, 'o) function_body
   = FunctionBody (function_body: \<open>('s, 'b, 'b, 'abort, 'i, 'o) expression\<close>)
 
-lemma function_body_simp [simp, micro_rust_simps]:
+lemma function_body_simp [simp, shallow_computation_simps]:
   shows \<open>function_body (FunctionBody f) = f\<close>
 by (simp add: function_body_def)
 
@@ -312,144 +305,145 @@ definition literal :: \<open>'v \<Rightarrow> \<comment> \<open>HOL value to lif
   \<open>literal v \<equiv> Expression (Success v)\<close>
 
 definition deep_compose1 :: \<open>('b \<Rightarrow> 'c) \<Rightarrow> ('t0 \<Rightarrow> 'b) \<Rightarrow> ('t0 \<Rightarrow> 'c)\<close>
-  where [micro_rust_simps]: \<open>deep_compose1 g f \<equiv> \<lambda>t0. (g (f t0))\<close>
+  where [shallow_computation_simps]: \<open>deep_compose1 g f \<equiv> \<lambda>t0. (g (f t0))\<close>
 definition deep_compose2 :: \<open>('b \<Rightarrow> 'c) \<Rightarrow> ('t0 \<Rightarrow> 't1 \<Rightarrow> 'b) \<Rightarrow> ('t0 \<Rightarrow> 't1 \<Rightarrow> 'c)\<close>
-  where [micro_rust_simps]: \<open>deep_compose2 g f \<equiv> \<lambda>t0 t1. (g (f t0 t1))\<close>
+  where [shallow_computation_simps]: \<open>deep_compose2 g f \<equiv> \<lambda>t0 t1. (g (f t0 t1))\<close>
 definition deep_compose3 :: \<open>('b \<Rightarrow> 'c) \<Rightarrow> ('t0 \<Rightarrow> 't1 \<Rightarrow> 't2 \<Rightarrow> 'b) \<Rightarrow> ('t0 \<Rightarrow> 't1 \<Rightarrow> 't2 \<Rightarrow> 'c)\<close>
-  where [micro_rust_simps]: \<open>deep_compose3 g f \<equiv> \<lambda>t0 t1 t2. (g (f t0 t1 t2))\<close>
+  where [shallow_computation_simps]: \<open>deep_compose3 g f \<equiv> \<lambda>t0 t1 t2. (g (f t0 t1 t2))\<close>
 definition deep_compose4 :: \<open>('b \<Rightarrow> 'c) \<Rightarrow> ('t0 \<Rightarrow> 't1 \<Rightarrow> 't2 \<Rightarrow> 't3 \<Rightarrow> 'b) \<Rightarrow> ('t0 \<Rightarrow> 't1 \<Rightarrow> 't2 \<Rightarrow> 't3 \<Rightarrow> 'c)\<close>
-  where [micro_rust_simps]: \<open>deep_compose4 g f \<equiv> \<lambda>t0 t1 t2 t3. (g (f t0 t1 t2 t3))\<close>
+  where [shallow_computation_simps]: \<open>deep_compose4 g f \<equiv> \<lambda>t0 t1 t2 t3. (g (f t0 t1 t2 t3))\<close>
 definition deep_compose5 :: \<open>('b \<Rightarrow> 'c) \<Rightarrow>
                              ('t0 \<Rightarrow> 't1 \<Rightarrow> 't2 \<Rightarrow> 't3 \<Rightarrow> 't4 \<Rightarrow> 'b) \<Rightarrow>
                              ('t0 \<Rightarrow> 't1 \<Rightarrow> 't2 \<Rightarrow> 't3 \<Rightarrow> 't4 \<Rightarrow> 'c)\<close>
-  where [micro_rust_simps]: \<open>deep_compose5 g f \<equiv> \<lambda>t0 t1 t2 t3 t4. (g (f t0 t1 t2 t3 t4))\<close>
+  where [shallow_computation_simps]: \<open>deep_compose5 g f \<equiv> \<lambda>t0 t1 t2 t3 t4. (g (f t0 t1 t2 t3 t4))\<close>
 definition deep_compose6 :: \<open>('b \<Rightarrow> 'c) \<Rightarrow>
                              ('t0 \<Rightarrow> 't1 \<Rightarrow> 't2 \<Rightarrow> 't3 \<Rightarrow> 't4 \<Rightarrow> 't5 \<Rightarrow> 'b) \<Rightarrow>
                              ('t0 \<Rightarrow> 't1 \<Rightarrow> 't2 \<Rightarrow> 't3 \<Rightarrow> 't4 \<Rightarrow> 't5 \<Rightarrow> 'c)\<close>
-  where [micro_rust_simps]: \<open>deep_compose6 g f \<equiv> \<lambda>t0 t1 t2 t3 t4 t5. (g (f t0 t1 t2 t3 t4 t5))\<close>
+  where [shallow_computation_simps]: \<open>deep_compose6 g f \<equiv> \<lambda>t0 t1 t2 t3 t4 t5. (g (f t0 t1 t2 t3 t4 t5))\<close>
 definition deep_compose7 :: \<open>('b \<Rightarrow> 'c) \<Rightarrow>
                              ('t0 \<Rightarrow> 't1 \<Rightarrow> 't2 \<Rightarrow> 't3 \<Rightarrow> 't4 \<Rightarrow> 't5 \<Rightarrow> 't6 \<Rightarrow> 'b) \<Rightarrow>
                              ('t0 \<Rightarrow> 't1 \<Rightarrow> 't2 \<Rightarrow> 't3 \<Rightarrow> 't4 \<Rightarrow> 't5 \<Rightarrow> 't6 \<Rightarrow> 'c)\<close>
-  where [micro_rust_simps]: \<open>deep_compose7 g f \<equiv> \<lambda>t0 t1 t2 t3 t4 t5 t6. (g (f t0 t1 t2 t3 t4 t5 t6))\<close>
+  where [shallow_computation_simps]: \<open>deep_compose7 g f \<equiv> \<lambda>t0 t1 t2 t3 t4 t5 t6. (g (f t0 t1 t2 t3 t4 t5 t6))\<close>
 definition deep_compose8 :: \<open>('b \<Rightarrow> 'c) \<Rightarrow>
                              ('t0 \<Rightarrow> 't1 \<Rightarrow> 't2 \<Rightarrow> 't3 \<Rightarrow> 't4 \<Rightarrow> 't5 \<Rightarrow> 't6 \<Rightarrow> 't7 \<Rightarrow> 'b) \<Rightarrow>
                              ('t0 \<Rightarrow> 't1 \<Rightarrow> 't2 \<Rightarrow> 't3 \<Rightarrow> 't4 \<Rightarrow> 't5 \<Rightarrow> 't6 \<Rightarrow> 't7 \<Rightarrow> 'c)\<close>
-  where [micro_rust_simps]: \<open>deep_compose8 g f \<equiv> \<lambda>t0 t1 t2 t3 t4 t5 t6 t7. (g (f t0 t1 t2 t3 t4 t5 t6 t7))\<close>
+  where [shallow_computation_simps]: \<open>deep_compose8 g f \<equiv> \<lambda>t0 t1 t2 t3 t4 t5 t6 t7. (g (f t0 t1 t2 t3 t4 t5 t6 t7))\<close>
 definition deep_compose9 :: \<open>('b \<Rightarrow> 'c) \<Rightarrow>
                              ('t0 \<Rightarrow> 't1 \<Rightarrow> 't2 \<Rightarrow> 't3 \<Rightarrow> 't4 \<Rightarrow> 't5 \<Rightarrow> 't6 \<Rightarrow> 't7 \<Rightarrow> 't8 \<Rightarrow> 'b) \<Rightarrow>
                              ('t0 \<Rightarrow> 't1 \<Rightarrow> 't2 \<Rightarrow> 't3 \<Rightarrow> 't4 \<Rightarrow> 't5 \<Rightarrow> 't6 \<Rightarrow> 't7 \<Rightarrow> 't8 \<Rightarrow> 'c)\<close>
-  where [micro_rust_simps]: \<open>deep_compose9 g f \<equiv> \<lambda>t0 t1 t2 t3 t4 t5 t6 t7 t8. (g (f t0 t1 t2 t3 t4 t5 t6 t7 t8))\<close>
+  where [shallow_computation_simps]: \<open>deep_compose9 g f \<equiv> \<lambda>t0 t1 t2 t3 t4 t5 t6 t7 t8. (g (f t0 t1 t2 t3 t4 t5 t6 t7 t8))\<close>
 definition deep_compose10 :: \<open>('b \<Rightarrow> 'c) \<Rightarrow>
                              ('t0 \<Rightarrow> 't1 \<Rightarrow> 't2 \<Rightarrow> 't3 \<Rightarrow> 't4 \<Rightarrow> 't5 \<Rightarrow> 't6 \<Rightarrow> 't7 \<Rightarrow> 't8 \<Rightarrow> 't9 \<Rightarrow> 'b) \<Rightarrow>
                              ('t0 \<Rightarrow> 't1 \<Rightarrow> 't2 \<Rightarrow> 't3 \<Rightarrow> 't4 \<Rightarrow> 't5 \<Rightarrow> 't6 \<Rightarrow> 't7 \<Rightarrow> 't8 \<Rightarrow> 't9 \<Rightarrow> 'c)\<close>
-  where [micro_rust_simps]: \<open>deep_compose10 g f \<equiv> \<lambda>t0 t1 t2 t3 t4 t5 t6 t7 t8 t9. (g (f t0 t1 t2 t3 t4 t5 t6 t7 t8 t9))\<close>
+  where [shallow_computation_simps]: \<open>deep_compose10 g f \<equiv> \<lambda>t0 t1 t2 t3 t4 t5 t6 t7 t8 t9. (g (f t0 t1 t2 t3 t4 t5 t6 t7 t8 t9))\<close>
 definition deep_compose11 :: \<open>('b \<Rightarrow> 'c) \<Rightarrow>
                              ('t0 \<Rightarrow> 't1 \<Rightarrow> 't2 \<Rightarrow> 't3 \<Rightarrow> 't4 \<Rightarrow> 't5 \<Rightarrow> 't6 \<Rightarrow> 't7 \<Rightarrow> 't8 \<Rightarrow> 't9 \<Rightarrow> 't10 \<Rightarrow> 'b) \<Rightarrow>
                              ('t0 \<Rightarrow> 't1 \<Rightarrow> 't2 \<Rightarrow> 't3 \<Rightarrow> 't4 \<Rightarrow> 't5 \<Rightarrow> 't6 \<Rightarrow> 't7 \<Rightarrow> 't8 \<Rightarrow> 't9 \<Rightarrow> 't10 \<Rightarrow> 'c)\<close>
-  where [micro_rust_simps]: \<open>deep_compose11 g f \<equiv> \<lambda>t0 t1 t2 t3 t4 t5 t6 t7 t8 t9 t10. (g (f t0 t1 t2 t3 t4 t5 t6 t7 t8 t9 t10))\<close>
+  where [shallow_computation_simps]: \<open>deep_compose11 g f \<equiv> \<lambda>t0 t1 t2 t3 t4 t5 t6 t7 t8 t9 t10. (g (f t0 t1 t2 t3 t4 t5 t6 t7 t8 t9 t10))\<close>
 definition deep_compose12 :: \<open>('b \<Rightarrow> 'c) \<Rightarrow>
                              ('t0 \<Rightarrow> 't1 \<Rightarrow> 't2 \<Rightarrow> 't3 \<Rightarrow> 't4 \<Rightarrow> 't5 \<Rightarrow> 't6 \<Rightarrow> 't7 \<Rightarrow> 't8 \<Rightarrow> 't9 \<Rightarrow> 't10 \<Rightarrow> 't11 \<Rightarrow> 'b) \<Rightarrow>
                              ('t0 \<Rightarrow> 't1 \<Rightarrow> 't2 \<Rightarrow> 't3 \<Rightarrow> 't4 \<Rightarrow> 't5 \<Rightarrow> 't6 \<Rightarrow> 't7 \<Rightarrow> 't8 \<Rightarrow> 't9 \<Rightarrow> 't10 \<Rightarrow> 't11 \<Rightarrow> 'c)\<close>
-  where [micro_rust_simps]: \<open>deep_compose12 g f \<equiv> \<lambda>t0 t1 t2 t3 t4 t5 t6 t7 t8 t9 t10 t11. (g (f t0 t1 t2 t3 t4 t5 t6 t7 t8 t9 t10 t11))\<close>
+  where [shallow_computation_simps]: \<open>deep_compose12 g f \<equiv> \<lambda>t0 t1 t2 t3 t4 t5 t6 t7 t8 t9 t10 t11. (g (f t0 t1 t2 t3 t4 t5 t6 t7 t8 t9 t10 t11))\<close>
 definition deep_compose13 :: \<open>('b \<Rightarrow> 'c) \<Rightarrow>
                              ('t0 \<Rightarrow> 't1 \<Rightarrow> 't2 \<Rightarrow> 't3 \<Rightarrow> 't4 \<Rightarrow> 't5 \<Rightarrow> 't6 \<Rightarrow> 't7 \<Rightarrow> 't8 \<Rightarrow> 't9 \<Rightarrow> 't10 \<Rightarrow> 't11 \<Rightarrow> 't12 \<Rightarrow> 'b) \<Rightarrow>
                              ('t0 \<Rightarrow> 't1 \<Rightarrow> 't2 \<Rightarrow> 't3 \<Rightarrow> 't4 \<Rightarrow> 't5 \<Rightarrow> 't6 \<Rightarrow> 't7 \<Rightarrow> 't8 \<Rightarrow> 't9 \<Rightarrow> 't10 \<Rightarrow> 't11 \<Rightarrow> 't12 \<Rightarrow> 'c)\<close>
-  where [micro_rust_simps]: \<open>deep_compose13 g f \<equiv> \<lambda>t0 t1 t2 t3 t4 t5 t6 t7 t8 t9 t10 t11 t12. (g (f t0 t1 t2 t3 t4 t5 t6 t7 t8 t9 t10 t11 t12))\<close>
+  where [shallow_computation_simps]: \<open>deep_compose13 g f \<equiv> \<lambda>t0 t1 t2 t3 t4 t5 t6 t7 t8 t9 t10 t11 t12. (g (f t0 t1 t2 t3 t4 t5 t6 t7 t8 t9 t10 t11 t12))\<close>
 definition deep_compose14 :: \<open>('b \<Rightarrow> 'c) \<Rightarrow>
                              ('t0 \<Rightarrow> 't1 \<Rightarrow> 't2 \<Rightarrow> 't3 \<Rightarrow> 't4 \<Rightarrow> 't5 \<Rightarrow> 't6 \<Rightarrow> 't7 \<Rightarrow> 't8 \<Rightarrow> 't9 \<Rightarrow> 't10 \<Rightarrow> 't11 \<Rightarrow> 't12 \<Rightarrow> 't13 \<Rightarrow> 'b) \<Rightarrow>
                              ('t0 \<Rightarrow> 't1 \<Rightarrow> 't2 \<Rightarrow> 't3 \<Rightarrow> 't4 \<Rightarrow> 't5 \<Rightarrow> 't6 \<Rightarrow> 't7 \<Rightarrow> 't8 \<Rightarrow> 't9 \<Rightarrow> 't10 \<Rightarrow> 't11 \<Rightarrow> 't12 \<Rightarrow> 't13 \<Rightarrow> 'c)\<close>
-  where [micro_rust_simps]: \<open>deep_compose14 g f \<equiv> \<lambda>t0 t1 t2 t3 t4 t5 t6 t7 t8 t9 t10 t11 t12 t13. (g (f t0 t1 t2 t3 t4 t5 t6 t7 t8 t9 t10 t11 t12 t13))\<close>
+  where [shallow_computation_simps]: \<open>deep_compose14 g f \<equiv> \<lambda>t0 t1 t2 t3 t4 t5 t6 t7 t8 t9 t10 t11 t12 t13. (g (f t0 t1 t2 t3 t4 t5 t6 t7 t8 t9 t10 t11 t12 t13))\<close>
 definition deep_compose15 :: \<open>('b \<Rightarrow> 'c) \<Rightarrow>
                              ('t0 \<Rightarrow> 't1 \<Rightarrow> 't2 \<Rightarrow> 't3 \<Rightarrow> 't4 \<Rightarrow> 't5 \<Rightarrow> 't6 \<Rightarrow> 't7 \<Rightarrow> 't8 \<Rightarrow> 't9 \<Rightarrow> 't10 \<Rightarrow> 't11 \<Rightarrow> 't12 \<Rightarrow> 't13 \<Rightarrow> 't14 \<Rightarrow> 'b) \<Rightarrow>
                              ('t0 \<Rightarrow> 't1 \<Rightarrow> 't2 \<Rightarrow> 't3 \<Rightarrow> 't4 \<Rightarrow> 't5 \<Rightarrow> 't6 \<Rightarrow> 't7 \<Rightarrow> 't8 \<Rightarrow> 't9 \<Rightarrow> 't10 \<Rightarrow> 't11 \<Rightarrow> 't12 \<Rightarrow> 't13 \<Rightarrow> 't14 \<Rightarrow> 'c)\<close>
-  where [micro_rust_simps]: \<open>deep_compose15 g f \<equiv> \<lambda>t0 t1 t2 t3 t4 t5 t6 t7 t8 t9 t10 t11 t12 t13 t14. (g (f t0 t1 t2 t3 t4 t5 t6 t7 t8 t9 t10 t11 t12 t13 t14))\<close>
+  where [shallow_computation_simps]: \<open>deep_compose15 g f \<equiv> \<lambda>t0 t1 t2 t3 t4 t5 t6 t7 t8 t9 t10 t11 t12 t13 t14. (g (f t0 t1 t2 t3 t4 t5 t6 t7 t8 t9 t10 t11 t12 t13 t14))\<close>
 definition deep_compose16 :: \<open>('b \<Rightarrow> 'c) \<Rightarrow>
                              ('t0 \<Rightarrow> 't1 \<Rightarrow> 't2 \<Rightarrow> 't3 \<Rightarrow> 't4 \<Rightarrow> 't5 \<Rightarrow> 't6 \<Rightarrow> 't7 \<Rightarrow> 't8 \<Rightarrow> 't9 \<Rightarrow> 't10 \<Rightarrow> 't11 \<Rightarrow> 't12 \<Rightarrow> 't13 \<Rightarrow> 't14 \<Rightarrow> 't15 \<Rightarrow> 'b) \<Rightarrow>
                              ('t0 \<Rightarrow> 't1 \<Rightarrow> 't2 \<Rightarrow> 't3 \<Rightarrow> 't4 \<Rightarrow> 't5 \<Rightarrow> 't6 \<Rightarrow> 't7 \<Rightarrow> 't8 \<Rightarrow> 't9 \<Rightarrow> 't10 \<Rightarrow> 't11 \<Rightarrow> 't12 \<Rightarrow> 't13 \<Rightarrow> 't14 \<Rightarrow> 't15 \<Rightarrow> 'c)\<close>
-  where [micro_rust_simps]: \<open>deep_compose16 g f \<equiv> \<lambda>t0 t1 t2 t3 t4 t5 t6 t7 t8 t9 t10 t11 t12 t13 t14 t15. (g (f t0 t1 t2 t3 t4 t5 t6 t7 t8 t9 t10 t11 t12 t13 t14 t15))\<close>
+  where [shallow_computation_simps]: \<open>deep_compose16 g f \<equiv> \<lambda>t0 t1 t2 t3 t4 t5 t6 t7 t8 t9 t10 t11 t12 t13 t14 t15. (g (f t0 t1 t2 t3 t4 t5 t6 t7 t8 t9 t10 t11 t12 t13 t14 t15))\<close>
 
-text\<open>A bunch of convenience functions for lifting pure functions to Micro Rust expressions:\<close>
+text\<open>Convenience functions for lifting pure functions to shallow expressions:\<close>
 
 abbreviation (input) lift_exp0 :: \<open>'v \<Rightarrow> ('s, 'v, 'r, 'abort, 'i, 'o) expression\<close>
   where \<open>lift_exp0 \<equiv> literal\<close>
 definition lift_exp1 :: \<open>('a \<Rightarrow> 'b) \<Rightarrow>
                          ('a \<Rightarrow> ('s, 'b, 'r, 'abort, 'i, 'o) expression)\<close>
-  where [micro_rust_simps]: \<open>lift_exp1 \<equiv> deep_compose1 literal\<close>
+  where [shallow_computation_simps]: \<open>lift_exp1 \<equiv> deep_compose1 literal\<close>
 definition lift_exp2 :: \<open>('a \<Rightarrow> 'b \<Rightarrow> 'c) \<Rightarrow>
                          ('a \<Rightarrow> 'b \<Rightarrow> ('s, 'c, 'r, 'abort, 'i, 'o) expression)\<close>
-  where [micro_rust_simps]: \<open>lift_exp2 \<equiv> deep_compose2 literal\<close>
+  where [shallow_computation_simps]: \<open>lift_exp2 \<equiv> deep_compose2 literal\<close>
 definition lift_exp3 :: \<open>('a \<Rightarrow> 'b \<Rightarrow> 'c \<Rightarrow> 'd) \<Rightarrow>
                          ('a \<Rightarrow> 'b \<Rightarrow> 'c \<Rightarrow> ('s, 'd, 'r, 'abort, 'i, 'o) expression)\<close>
-  where [micro_rust_simps]: \<open>lift_exp3 \<equiv> deep_compose3 literal\<close>
+  where [shallow_computation_simps]: \<open>lift_exp3 \<equiv> deep_compose3 literal\<close>
 definition lift_exp4 :: \<open>('a \<Rightarrow> 'b \<Rightarrow> 'c \<Rightarrow> 'd \<Rightarrow> 'e) \<Rightarrow>
                          ('a \<Rightarrow> 'b \<Rightarrow> 'c \<Rightarrow> 'd \<Rightarrow> ('s, 'e, 'r, 'abort, 'i, 'o) expression)\<close>
-  where [micro_rust_simps]: \<open>lift_exp4 \<equiv> deep_compose4 literal\<close>
+  where [shallow_computation_simps]: \<open>lift_exp4 \<equiv> deep_compose4 literal\<close>
 definition lift_exp5 :: \<open>('t0 \<Rightarrow> 't1 \<Rightarrow> 't2 \<Rightarrow> 't3 \<Rightarrow> 't4 \<Rightarrow> 'v) \<Rightarrow>
                          ('t0 \<Rightarrow> 't1 \<Rightarrow> 't2 \<Rightarrow> 't3 \<Rightarrow> 't4 \<Rightarrow> ('s, 'v, 'r, 'abort, 'i, 'o) expression)\<close>
-  where [micro_rust_simps]: \<open>lift_exp5 \<equiv> deep_compose5 literal\<close>
+  where [shallow_computation_simps]: \<open>lift_exp5 \<equiv> deep_compose5 literal\<close>
 definition lift_exp6 :: \<open>('t0 \<Rightarrow> 't1 \<Rightarrow> 't2 \<Rightarrow> 't3 \<Rightarrow> 't4 \<Rightarrow> 't5 \<Rightarrow> 'v) \<Rightarrow>
                          ('t0 \<Rightarrow> 't1 \<Rightarrow> 't2 \<Rightarrow> 't3 \<Rightarrow> 't4 \<Rightarrow> 't5 \<Rightarrow> ('s, 'v, 'r, 'abort, 'i, 'o) expression)\<close>
-  where [micro_rust_simps]: \<open>lift_exp6 \<equiv> deep_compose6 literal\<close>
+  where [shallow_computation_simps]: \<open>lift_exp6 \<equiv> deep_compose6 literal\<close>
 definition lift_exp7 :: \<open>('t0 \<Rightarrow> 't1 \<Rightarrow> 't2 \<Rightarrow> 't3 \<Rightarrow> 't4 \<Rightarrow> 't5 \<Rightarrow> 't6 \<Rightarrow> 'v) \<Rightarrow>
                          ('t0 \<Rightarrow> 't1 \<Rightarrow> 't2 \<Rightarrow> 't3 \<Rightarrow> 't4 \<Rightarrow> 't5 \<Rightarrow> 't6 \<Rightarrow> ('s, 'v, 'r, 'abort, 'i, 'o) expression)\<close>
-  where [micro_rust_simps]: \<open>lift_exp7 \<equiv> deep_compose7 literal\<close>
+  where [shallow_computation_simps]: \<open>lift_exp7 \<equiv> deep_compose7 literal\<close>
 definition lift_exp8 :: \<open>('t0 \<Rightarrow> 't1 \<Rightarrow> 't2 \<Rightarrow> 't3 \<Rightarrow> 't4 \<Rightarrow> 't5 \<Rightarrow> 't6 \<Rightarrow> 't7 \<Rightarrow> 'v) \<Rightarrow>
                          ('t0 \<Rightarrow> 't1 \<Rightarrow> 't2 \<Rightarrow> 't3 \<Rightarrow> 't4 \<Rightarrow> 't5 \<Rightarrow> 't6 \<Rightarrow> 't7 \<Rightarrow> ('s, 'v, 'r, 'abort, 'i, 'o) expression)\<close>
-  where [micro_rust_simps]: \<open>lift_exp8 \<equiv> deep_compose8 literal\<close>
+  where [shallow_computation_simps]: \<open>lift_exp8 \<equiv> deep_compose8 literal\<close>
 
-text\<open>A \<^bold>\<open>function literal\<close> lifts a value as a Micro Rust \<^typ>\<open>('s, 'v, 'abort, 'i, 'o) function_body\<close>.\<close>
+text\<open>A \<^bold>\<open>function literal\<close> lifts a value as a
+\<^typ>\<open>('s, 'v, 'abort, 'i, 'o) function_body\<close>.\<close>
 definition fun_literal :: \<open>'v \<Rightarrow> ('s, 'v, 'abort, 'i, 'o) function_body\<close> where
   \<open>fun_literal v \<equiv> FunctionBody (literal v)\<close>
 
-text\<open>More convenience functions for lifting pure functions to Micro Rust functions, i.e. values
+text\<open>More convenience functions for lifting pure functions to shallow function bodies, i.e. values
 of type \<^typ>\<open>('s, 'v, 'abort, 'i, 'o) function_body\<close>.\<close>
 
 definition lift_fun0 :: \<open>'v \<Rightarrow> ('s, 'v, 'abort, 'i, 'o) function_body\<close>
-  where [micro_rust_simps]: \<open>lift_fun0 \<equiv> fun_literal\<close>
+  where [shallow_computation_simps]: \<open>lift_fun0 \<equiv> fun_literal\<close>
 definition lift_fun1 :: \<open>('a \<Rightarrow> 'b) \<Rightarrow>
                          ('a \<Rightarrow> ('s, 'b, 'abort, 'i, 'o) function_body)\<close>
-  where [micro_rust_simps]: \<open>lift_fun1 \<equiv> deep_compose1 fun_literal\<close>
+  where [shallow_computation_simps]: \<open>lift_fun1 \<equiv> deep_compose1 fun_literal\<close>
 definition lift_fun2 :: \<open>('a \<Rightarrow> 'b \<Rightarrow> 'c) \<Rightarrow>
                          ('a \<Rightarrow> 'b \<Rightarrow> ('s, 'c, 'abort, 'i, 'o) function_body)\<close>
-  where [micro_rust_simps]: \<open>lift_fun2 \<equiv> deep_compose2 fun_literal\<close>
+  where [shallow_computation_simps]: \<open>lift_fun2 \<equiv> deep_compose2 fun_literal\<close>
 definition lift_fun3 :: \<open>('a \<Rightarrow> 'b \<Rightarrow> 'c \<Rightarrow> 'd) \<Rightarrow>
                          ('a \<Rightarrow> 'b \<Rightarrow> 'c \<Rightarrow> ('s, 'd, 'abort, 'i, 'o) function_body)\<close>
-  where [micro_rust_simps]: \<open>lift_fun3 \<equiv> deep_compose3 fun_literal\<close>
+  where [shallow_computation_simps]: \<open>lift_fun3 \<equiv> deep_compose3 fun_literal\<close>
 definition lift_fun4 :: \<open>('a \<Rightarrow> 'b \<Rightarrow> 'c \<Rightarrow> 'd \<Rightarrow> 'e) \<Rightarrow>
                          ('a \<Rightarrow> 'b \<Rightarrow> 'c \<Rightarrow> 'd \<Rightarrow> ('s, 'e, 'abort, 'i, 'o) function_body)\<close>
-  where [micro_rust_simps]: \<open>lift_fun4 \<equiv> deep_compose4 fun_literal\<close>
+  where [shallow_computation_simps]: \<open>lift_fun4 \<equiv> deep_compose4 fun_literal\<close>
 definition lift_fun5 :: \<open>('t0 \<Rightarrow> 't1 \<Rightarrow> 't2 \<Rightarrow> 't3 \<Rightarrow> 't4 \<Rightarrow> 'v) \<Rightarrow>
                          ('t0 \<Rightarrow> 't1 \<Rightarrow> 't2 \<Rightarrow> 't3 \<Rightarrow> 't4 \<Rightarrow> ('s, 'v, 'abort, 'i, 'o) function_body)\<close>
-  where [micro_rust_simps]: \<open>lift_fun5 \<equiv> deep_compose5 fun_literal\<close>
+  where [shallow_computation_simps]: \<open>lift_fun5 \<equiv> deep_compose5 fun_literal\<close>
 definition lift_fun6 :: \<open>('t0 \<Rightarrow> 't1 \<Rightarrow> 't2 \<Rightarrow> 't3 \<Rightarrow> 't4 \<Rightarrow> 't5 \<Rightarrow> 'v) \<Rightarrow>
                          ('t0 \<Rightarrow> 't1 \<Rightarrow> 't2 \<Rightarrow> 't3 \<Rightarrow> 't4 \<Rightarrow> 't5 \<Rightarrow> ('s, 'v, 'abort, 'i, 'o) function_body)\<close>
-  where [micro_rust_simps]: \<open>lift_fun6 \<equiv> deep_compose6 fun_literal\<close>
+  where [shallow_computation_simps]: \<open>lift_fun6 \<equiv> deep_compose6 fun_literal\<close>
 definition lift_fun7 :: \<open>('t0 \<Rightarrow> 't1 \<Rightarrow> 't2 \<Rightarrow> 't3 \<Rightarrow> 't4 \<Rightarrow> 't5 \<Rightarrow> 't6 \<Rightarrow> 'v) \<Rightarrow>
                          ('t0 \<Rightarrow> 't1 \<Rightarrow> 't2 \<Rightarrow> 't3 \<Rightarrow> 't4 \<Rightarrow> 't5 \<Rightarrow> 't6 \<Rightarrow> ('s, 'v, 'abort, 'i, 'o) function_body)\<close>
-  where [micro_rust_simps]: \<open>lift_fun7 \<equiv> deep_compose7 fun_literal\<close>
+  where [shallow_computation_simps]: \<open>lift_fun7 \<equiv> deep_compose7 fun_literal\<close>
 definition lift_fun8 :: \<open>('t0 \<Rightarrow> 't1 \<Rightarrow> 't2 \<Rightarrow> 't3 \<Rightarrow> 't4 \<Rightarrow> 't5 \<Rightarrow> 't6 \<Rightarrow> 't7 \<Rightarrow> 'v) \<Rightarrow>
                          ('t0 \<Rightarrow> 't1 \<Rightarrow> 't2 \<Rightarrow> 't3 \<Rightarrow> 't4 \<Rightarrow> 't5 \<Rightarrow> 't6 \<Rightarrow> 't7 \<Rightarrow> ('s, 'v, 'abort, 'i, 'o) function_body)\<close>
-  where [micro_rust_simps]: \<open>lift_fun8 \<equiv> deep_compose8 fun_literal\<close>
+  where [shallow_computation_simps]: \<open>lift_fun8 \<equiv> deep_compose8 fun_literal\<close>
 definition lift_fun9 :: \<open>('t0 \<Rightarrow> 't1 \<Rightarrow> 't2 \<Rightarrow> 't3 \<Rightarrow> 't4 \<Rightarrow> 't5 \<Rightarrow> 't6 \<Rightarrow> 't7 \<Rightarrow> 't8 \<Rightarrow> 'v) \<Rightarrow>
                          ('t0 \<Rightarrow> 't1 \<Rightarrow> 't2 \<Rightarrow> 't3 \<Rightarrow> 't4 \<Rightarrow> 't5 \<Rightarrow> 't6 \<Rightarrow> 't7 \<Rightarrow> 't8 \<Rightarrow> ('s, 'v, 'abort, 'i, 'o) function_body)\<close>
-  where [micro_rust_simps]: \<open>lift_fun9 \<equiv> deep_compose9 fun_literal\<close>
+  where [shallow_computation_simps]: \<open>lift_fun9 \<equiv> deep_compose9 fun_literal\<close>
 definition lift_fun10 :: \<open>('t0 \<Rightarrow> 't1 \<Rightarrow> 't2 \<Rightarrow> 't3 \<Rightarrow> 't4 \<Rightarrow> 't5 \<Rightarrow> 't6 \<Rightarrow> 't7 \<Rightarrow> 't8 \<Rightarrow> 't9 \<Rightarrow> 'v) \<Rightarrow>
                          ('t0 \<Rightarrow> 't1 \<Rightarrow> 't2 \<Rightarrow> 't3 \<Rightarrow> 't4 \<Rightarrow> 't5 \<Rightarrow> 't6 \<Rightarrow> 't7 \<Rightarrow> 't8 \<Rightarrow> 't9 \<Rightarrow> ('s, 'v, 'abort, 'i, 'o) function_body)\<close>
-  where [micro_rust_simps]: \<open>lift_fun10 \<equiv> deep_compose10 fun_literal\<close>
+  where [shallow_computation_simps]: \<open>lift_fun10 \<equiv> deep_compose10 fun_literal\<close>
 definition lift_fun11 :: \<open>('t0 \<Rightarrow> 't1 \<Rightarrow> 't2 \<Rightarrow> 't3 \<Rightarrow> 't4 \<Rightarrow> 't5 \<Rightarrow> 't6 \<Rightarrow> 't7 \<Rightarrow> 't8 \<Rightarrow> 't9 \<Rightarrow> 't10 \<Rightarrow> 'v) \<Rightarrow>
                          ('t0 \<Rightarrow> 't1 \<Rightarrow> 't2 \<Rightarrow> 't3 \<Rightarrow> 't4 \<Rightarrow> 't5 \<Rightarrow> 't6 \<Rightarrow> 't7 \<Rightarrow> 't8 \<Rightarrow> 't9 \<Rightarrow> 't10 \<Rightarrow> ('s, 'v, 'abort, 'i, 'o) function_body)\<close>
-  where [micro_rust_simps]: \<open>lift_fun11 \<equiv> deep_compose11 fun_literal\<close>
+  where [shallow_computation_simps]: \<open>lift_fun11 \<equiv> deep_compose11 fun_literal\<close>
 definition lift_fun12 :: \<open>('t0 \<Rightarrow> 't1 \<Rightarrow> 't2 \<Rightarrow> 't3 \<Rightarrow> 't4 \<Rightarrow> 't5 \<Rightarrow> 't6 \<Rightarrow> 't7 \<Rightarrow> 't8 \<Rightarrow> 't9 \<Rightarrow> 't10 \<Rightarrow> 't11 \<Rightarrow> 'v) \<Rightarrow>
                          ('t0 \<Rightarrow> 't1 \<Rightarrow> 't2 \<Rightarrow> 't3 \<Rightarrow> 't4 \<Rightarrow> 't5 \<Rightarrow> 't6 \<Rightarrow> 't7 \<Rightarrow> 't8 \<Rightarrow> 't9 \<Rightarrow> 't10 \<Rightarrow> 't11 \<Rightarrow> ('s, 'v, 'abort, 'i, 'o) function_body)\<close>
-  where [micro_rust_simps]: \<open>lift_fun12 \<equiv> deep_compose12 fun_literal\<close>
+  where [shallow_computation_simps]: \<open>lift_fun12 \<equiv> deep_compose12 fun_literal\<close>
 definition lift_fun13 :: \<open>('t0 \<Rightarrow> 't1 \<Rightarrow> 't2 \<Rightarrow> 't3 \<Rightarrow> 't4 \<Rightarrow> 't5 \<Rightarrow> 't6 \<Rightarrow> 't7 \<Rightarrow> 't8 \<Rightarrow> 't9 \<Rightarrow> 't10 \<Rightarrow> 't11 \<Rightarrow> 't12 \<Rightarrow> 'v) \<Rightarrow>
                          ('t0 \<Rightarrow> 't1 \<Rightarrow> 't2 \<Rightarrow> 't3 \<Rightarrow> 't4 \<Rightarrow> 't5 \<Rightarrow> 't6 \<Rightarrow> 't7 \<Rightarrow> 't8 \<Rightarrow> 't9 \<Rightarrow> 't10 \<Rightarrow> 't11 \<Rightarrow> 't12 \<Rightarrow> ('s, 'v, 'abort, 'i, 'o) function_body)\<close>
-  where [micro_rust_simps]: \<open>lift_fun13 \<equiv> deep_compose13 fun_literal\<close>
+  where [shallow_computation_simps]: \<open>lift_fun13 \<equiv> deep_compose13 fun_literal\<close>
 definition lift_fun14 :: \<open>('t0 \<Rightarrow> 't1 \<Rightarrow> 't2 \<Rightarrow> 't3 \<Rightarrow> 't4 \<Rightarrow> 't5 \<Rightarrow> 't6 \<Rightarrow> 't7 \<Rightarrow> 't8 \<Rightarrow> 't9 \<Rightarrow> 't10 \<Rightarrow> 't11 \<Rightarrow> 't12 \<Rightarrow> 't13 \<Rightarrow> 'v) \<Rightarrow>
                          ('t0 \<Rightarrow> 't1 \<Rightarrow> 't2 \<Rightarrow> 't3 \<Rightarrow> 't4 \<Rightarrow> 't5 \<Rightarrow> 't6 \<Rightarrow> 't7 \<Rightarrow> 't8 \<Rightarrow> 't9 \<Rightarrow> 't10 \<Rightarrow> 't11 \<Rightarrow> 't12 \<Rightarrow> 't13 \<Rightarrow> ('s, 'v, 'abort, 'i, 'o) function_body)\<close>
-  where [micro_rust_simps]: \<open>lift_fun14 \<equiv> deep_compose14 fun_literal\<close>
+  where [shallow_computation_simps]: \<open>lift_fun14 \<equiv> deep_compose14 fun_literal\<close>
 
-text\<open>As an example of a \<^term>\<open>fun_literal\<close> Micro Rust expression, we introduce the \<^emph>\<open>skip\<close> command:
+text\<open>As an example of a \<^term>\<open>fun_literal\<close> expression, we introduce the \<^emph>\<open>skip\<close> command:
 This is just an abbreviation for the unit literal, though with a more suggestive name for when we
 use it later.  Though this looks useless, it will prove useful later when we come to \<^emph>\<open>derive\<close> new
 expressions from old:\<close>
@@ -460,33 +454,10 @@ text\<open>An \<^emph>\<open>abort\<close> expression aborts computation at runt
 definition abort :: \<open>'abort abort \<Rightarrow> ('s, 'v, 'r, 'abort, 'i, 'o) expression\<close> where
   \<open>abort a \<equiv> Expression (Abort a)\<close>
 
-text\<open>A \<^emph>\<open>panic\<close> expression aborts computation at runtime with a defined error message.  Note that
-the panic message must be a string literal:\<close>
-abbreviation panic :: \<open>String.literal \<Rightarrow> ('s, 'v, 'r, 'abort, 'i, 'o) expression\<close> where
-  \<open>panic msg \<equiv> abort (Panic msg)\<close>
-
-text \<open>An \<^emph>\<open>unimplemented\<close> expression aborts a computation at runtime, indicating that some
-function is not implemented. The given string should indicate the name of the unimplemented function.
-This is the same as a \<^emph>\<open>panic\<close> in most ways, but callers can distinguish an
-unimplemented abort and report it separately.\<close>
-abbreviation unimplemented :: \<open>String.literal \<Rightarrow> ('s, 'v, 'r, 'abort, 'i, 'o) expression\<close> where
-  \<open>unimplemented nm \<equiv> abort (Unimplemented nm)\<close>
-
-text\<open>This will sometimes prove useful to help disambiguate complex expressions, making it look like
-we are introducing a new stack scope:\<close>
-abbreviation (input) scoped :: \<open>('s, 'v, 'r, 'abort, 'i, 'o) expression \<Rightarrow> ('s, 'v, 'r, 'abort, 'i, 'o) expression\<close> where
-  \<open>scoped e \<equiv> e\<close>
-
 subsection\<open>Monadic computation\<close>
 
-text\<open>We now develop some infrastructure related to the type of expressions, which will be
-generally useful all over the place.  This is the \<^emph>\<open>monadic bind\<close> construct: note that it is
-essentially a generalized form of \<^emph>\<open>let\<close>, and in fact this is the syntax which we will assign it in
-Micro Rust, rather than working in the \<^emph>\<open>do-block\<close> style familiar from Haskell (though we will often
-use this style when providing \<^emph>\<open>definitions\<close> of Micro Rust expressions).  Note that sequencing
-(i.e., the semicolon from Rust) is also a degenerate form of this construct where the unit-valued
-result of the first expression in the sequence is bound to a variable name which is never used in
-the second expression:\<close>
+text\<open>The \<^emph>\<open>monadic bind\<close> construct is a generalized form of \<^emph>\<open>let\<close>. Sequencing is
+a degenerate form where the unit-valued result of the first expression is ignored by the second:\<close>
 function bind :: \<open>('s, 'v, 'r, 'abort, 'i, 'o) expression \<Rightarrow>         \<comment> \<open>Expression to bind to variable\<close>
                     ('v \<Rightarrow> ('s, 'a, 'r, 'abort, 'i, 'o) expression) \<Rightarrow> \<comment> \<open>Body of let construct, with new binding\<close>
                     ('s, 'a, 'r, 'abort, 'i, 'o) expression\<close> where
@@ -570,13 +541,10 @@ fun list_sequence :: \<open>('s, 'v, 'r, 'abort, 'i, 'o) expression list \<Right
 
 subsection\<open>Return expressions\<close>
 
-text\<open>The \<^verbatim>\<open>return_func\<close> command returns a value from a function early, capturing the current state
-in doing so.  Note that the \<^emph>\<open>return\<close> command can appear in lots of unexpected places in Rust.
-Partly, this is why our \<^typ>\<open>('s, 'v, 'r, 'abort, 'i, 'o) continuation\<close> type is so complex, accepting an extra type
-parameter, \<^typ>\<open>'r\<close>, compared to what one may normally expect from a state monad.  This is because
-there is a distinction between the type of \<^verbatim>\<open>return_func\<close>, which can be used at type \<^verbatim>\<open>bool\<close> when it
-appears as the "test" expression in a conditional, and the type of the value that it returns, namely
-the expected return type of the enclosing function.\<close>
+text\<open>The \<^verbatim>\<open>return_func\<close> command returns a value from a function early, capturing the current
+state. This motivates the additional \<^typ>\<open>'r\<close> parameter of
+\<^typ>\<open>('s, 'v, 'r, 'abort, 'i, 'o) continuation\<close>: the expression value type may differ from the
+enclosing function's return type.\<close>
 
 definition return_val :: \<open>'r \<Rightarrow> ('s, 'v, 'r, 'abort, 'i, 'o) expression\<close> where
   \<open>return_val r \<equiv> Expression (\<lambda>\<sigma>. Return r \<sigma>)\<close>
@@ -589,7 +557,7 @@ the name if you are coming from Haskell!  That is \<^term>\<open>literal\<close>
 
 subsection \<open>Calling functions\<close>
 
-text \<open>Execute a Rust function.\<close>
+text \<open>Execute a function body.\<close>
 function call_function_body :: \<open>('s, 'b, 'b, 'abort, 'i, 'o) expression \<Rightarrow> ('s, 'b, 'r, 'abort, 'i, 'o) expression\<close> where
   \<open>call_function_body e =
     Expression (\<lambda>\<sigma>.
@@ -624,34 +592,23 @@ lemma evaluate_call_function_body:
 
 declare Core_Expression.call_function_body.simps[simp del]
 
-text \<open>Execute a Rust function.\<close>
+text \<open>Execute a packaged function body.\<close>
 definition call :: \<open>('s, 'b, 'abort, 'i, 'o) function_body \<Rightarrow> ('s, 'b, 'r, 'abort, 'i, 'o) expression\<close> where
   \<open>call fn \<equiv> case fn of FunctionBody body \<Rightarrow> call_function_body body\<close>
-
-subsection\<open>Binary operations\<close>
-
-text\<open>A bit of sugar to reduce the typing burden for binary operations on expressions.\<close>
-
-type_synonym ('s, 'a, 'b, 'c, 'r, 'abort, 'i, 'o) urust_binop3 =
-  \<open>('s, 'a, 'r, 'abort, 'i, 'o) expression \<Rightarrow> ('s, 'b, 'r, 'abort, 'i, 'o) expression \<Rightarrow> ('s, 'c, 'r, 'abort, 'i, 'o) expression\<close>
-type_synonym ('s, 'a,         'r, 'abort, 'i, 'o) urust_binop  =
-  \<open>('s, 'a, 'a, 'a, 'r, 'abort, 'i, 'o) urust_binop3\<close>
-type_synonym ('s, 'a,     'c, 'r, 'abort, 'i, 'o) urust_binop2 =
-  \<open>('s, 'a, 'a, 'c, 'r, 'abort, 'i, 'o) urust_binop3\<close>
 
 subsection \<open>Derived constructions\<close>
 
 definition bind1
    :: \<open>('arg0 \<Rightarrow> ('s, 'v, 'c, 'abort, 'i, 'o) expression) \<Rightarrow>
       ('s, 'arg0, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
-      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [micro_rust_simps]:
+      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [shallow_computation_simps]:
    \<open>bind1 f e0 \<equiv> bind e0 (\<lambda>v0. f v0)\<close>
 
 definition bind2
    :: \<open>('arg0 \<Rightarrow> 'arg1 \<Rightarrow> ('s, 'v, 'c, 'abort, 'i, 'o) expression) \<Rightarrow>
       ('s, 'arg0, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg1, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
-      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [micro_rust_simps]:
+      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [shallow_computation_simps]:
    \<open>bind2 f e0 e1 \<equiv> bind e0 (\<lambda>v0. bind e1 (\<lambda>v1. (f v0 v1)))\<close>
 
 definition bind3
@@ -659,7 +616,7 @@ definition bind3
       ('s, 'arg0, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg1, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg2, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
-      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [micro_rust_simps]:
+      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [shallow_computation_simps]:
    \<open>bind3 f e0 \<equiv> \<lambda>e1 e2. bind e0 (\<lambda>v0. bind2 (f v0) e1 e2)\<close>
 
 definition bind4
@@ -668,7 +625,7 @@ definition bind4
       ('s, 'arg1, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg2, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg3, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
-      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [micro_rust_simps]:
+      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [shallow_computation_simps]:
    \<open>bind4 f e0 \<equiv> \<lambda>e1 e2 e3. bind e0 (\<lambda>v0. bind3 (f v0) e1 e2 e3)\<close>
 
 definition bind5
@@ -678,7 +635,7 @@ definition bind5
       ('s, 'arg2, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg3, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg4, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
-      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [micro_rust_simps]:
+      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [shallow_computation_simps]:
    \<open>bind5 f e0 \<equiv> \<lambda>e1 e2 e3 e4. bind e0 (\<lambda>v0. bind4 (f v0) e1 e2 e3 e4)\<close>
 
 definition bind6
@@ -689,7 +646,7 @@ definition bind6
       ('s, 'arg3, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg4, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg5, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
-      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [micro_rust_simps]:
+      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [shallow_computation_simps]:
    \<open>bind6 f e0 \<equiv> \<lambda>e1 e2 e3 e4 e5. bind e0 (\<lambda>v0. bind5 (f v0) e1 e2 e3 e4 e5)\<close>
 
 definition bind7
@@ -701,7 +658,7 @@ definition bind7
       ('s, 'arg4, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg5, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg6, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
-      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [micro_rust_simps]:
+      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [shallow_computation_simps]:
    \<open>bind7 f e0 \<equiv> \<lambda>e1 e2 e3 e4 e5 e6. bind e0 (\<lambda>v0. bind6 (f v0) e1 e2 e3 e4 e5 e6)\<close>
 
 definition bind8
@@ -714,7 +671,7 @@ definition bind8
       ('s, 'arg5, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg6, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg7, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
-      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [micro_rust_simps]:
+      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [shallow_computation_simps]:
    \<open>bind8 f e0 \<equiv> \<lambda>e1 e2 e3 e4 e5 e6 e7. bind e0 (\<lambda>v0. bind7 (f v0) e1 e2 e3 e4 e5 e6 e7)\<close>
 
 definition bind9
@@ -728,7 +685,7 @@ definition bind9
       ('s, 'arg6, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg7, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg8, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
-      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [micro_rust_simps]:
+      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [shallow_computation_simps]:
    \<open>bind9 f e0 \<equiv> \<lambda>e1 e2 e3 e4 e5 e6 e7 e8. bind e0 (\<lambda>v0. bind8 (f v0) e1 e2 e3 e4 e5 e6 e7 e8)\<close>
 
 definition bind10
@@ -743,7 +700,7 @@ definition bind10
       ('s, 'arg7, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg8, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg9, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
-      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [micro_rust_simps]:
+      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [shallow_computation_simps]:
    \<open>bind10 f e0 \<equiv> \<lambda>e1 e2 e3 e4 e5 e6 e7 e8 e9. bind e0 (\<lambda>v0. bind9 (f v0) e1 e2 e3 e4 e5 e6 e7 e8 e9)\<close>
 
 definition bind11
@@ -759,7 +716,7 @@ definition bind11
       ('s, 'arg8, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg9, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg10, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
-      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [micro_rust_simps]:
+      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [shallow_computation_simps]:
    \<open>bind11 f e0 \<equiv> \<lambda>e1 e2 e3 e4 e5 e6 e7 e8 e9 e10. bind e0 (\<lambda>v0. bind10 (f v0) e1 e2 e3 e4 e5 e6 e7 e8 e9 e10)\<close>
 
 definition bind12
@@ -776,7 +733,7 @@ definition bind12
       ('s, 'arg9, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg10, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg11, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
-      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [micro_rust_simps]:
+      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [shallow_computation_simps]:
    \<open>bind12 f e0 \<equiv> \<lambda>e1 e2 e3 e4 e5 e6 e7 e8 e9 e10 e11. bind e0 (\<lambda>v0. bind11 (f v0) e1 e2 e3 e4 e5 e6 e7 e8 e9 e10 e11)\<close>
 
 definition bind13
@@ -794,7 +751,7 @@ definition bind13
       ('s, 'arg10, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg11, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg12, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
-      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [micro_rust_simps]:
+      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [shallow_computation_simps]:
    \<open>bind13 f e0 \<equiv> \<lambda>e1 e2 e3 e4 e5 e6 e7 e8 e9 e10 e11 e12. bind e0 (\<lambda>v0. bind12 (f v0) e1 e2 e3 e4 e5 e6 e7 e8 e9 e10 e11 e12)\<close>
 
 definition bind14
@@ -813,7 +770,7 @@ definition bind14
       ('s, 'arg11, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg12, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg13, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
-      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [micro_rust_simps]:
+      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [shallow_computation_simps]:
    \<open>bind14 f e0 \<equiv> \<lambda>e1 e2 e3 e4 e5 e6 e7 e8 e9 e10 e11 e12 e13. bind e0 (\<lambda>v0. bind13 (f v0) e1 e2 e3 e4 e5 e6 e7 e8 e9 e10 e11 e12 e13)\<close>
 
 definition bind15
@@ -833,7 +790,7 @@ definition bind15
       ('s, 'arg12, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg13, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg14, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
-      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [micro_rust_simps]:
+      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [shallow_computation_simps]:
    \<open>bind15 f e0 \<equiv> \<lambda>e1 e2 e3 e4 e5 e6 e7 e8 e9 e10 e11 e12 e13 e14. bind e0 (\<lambda>v0. bind14 (f v0) e1 e2 e3 e4 e5 e6 e7 e8 e9 e10 e11 e12 e13 e14)\<close>
 
 definition bind16
@@ -854,20 +811,20 @@ definition bind16
       ('s, 'arg13, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg14, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg15, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
-      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [micro_rust_simps]:
+      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [shallow_computation_simps]:
    \<open>bind16 f e0 \<equiv> \<lambda>e1 e2 e3 e4 e5 e6 e7 e8 e9 e10 e11 e12 e13 e14 e15. bind e0 (\<lambda>v0. bind15 (f v0) e1 e2 e3 e4 e5 e6 e7 e8 e9 e10 e11 e12 e13 e14 e15)\<close>
 
 definition bindlift1
    :: \<open>('arg0 \<Rightarrow> 'v) \<Rightarrow>
       ('s, 'arg0, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
-      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [micro_rust_simps]:
+      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [shallow_computation_simps]:
    \<open>bindlift1 \<equiv> bind1 \<circ> lift_exp1\<close>
 
 definition bindlift2
    :: \<open>('arg0 \<Rightarrow> 'arg1 \<Rightarrow> 'v) \<Rightarrow>
       ('s, 'arg0, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg1, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
-      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [micro_rust_simps]:
+      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [shallow_computation_simps]:
    \<open>bindlift2 \<equiv> bind2 \<circ> lift_exp2\<close>
 
 definition bindlift3
@@ -875,7 +832,7 @@ definition bindlift3
       ('s, 'arg0, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg1, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg2, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
-      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [micro_rust_simps]:
+      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [shallow_computation_simps]:
    \<open>bindlift3 \<equiv> bind3 \<circ> lift_exp3\<close>
 
 definition bindlift4
@@ -884,7 +841,7 @@ definition bindlift4
       ('s, 'arg1, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg2, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg3, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
-      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [micro_rust_simps]:
+      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [shallow_computation_simps]:
    \<open>bindlift4 \<equiv> bind4 \<circ> lift_exp4\<close>
 
 definition bindlift5
@@ -894,7 +851,7 @@ definition bindlift5
       ('s, 'arg2, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg3, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg4, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
-      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [micro_rust_simps]:
+      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [shallow_computation_simps]:
    \<open>bindlift5 \<equiv> bind5 \<circ> lift_exp5\<close>
 
 definition bindlift6
@@ -905,7 +862,7 @@ definition bindlift6
       ('s, 'arg3, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg4, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg5, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
-      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [micro_rust_simps]:
+      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [shallow_computation_simps]:
    \<open>bindlift6 \<equiv> bind6 \<circ> lift_exp6\<close>
 
 definition bindlift7
@@ -917,7 +874,7 @@ definition bindlift7
       ('s, 'arg4, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg5, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg6, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
-      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [micro_rust_simps]:
+      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [shallow_computation_simps]:
    \<open>bindlift7 \<equiv> bind7 \<circ> lift_exp7\<close>
 
 definition bindlift8
@@ -930,7 +887,7 @@ definition bindlift8
       ('s, 'arg5, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg6, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg7, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
-      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [micro_rust_simps]:
+      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [shallow_computation_simps]:
    \<open>bindlift8 \<equiv> bind8 \<circ> lift_exp8\<close>
 
 abbreviation call_deep1 :: \<open>('t0 \<Rightarrow> ('s, 'b, 'abort, 'i, 'o) function_body) \<Rightarrow> ('t0 \<Rightarrow> ('s, 'b, 'r, 'abort, 'i, 'o) expression)\<close> where
@@ -979,20 +936,20 @@ abbreviation call_deep16 :: \<open>('t0 \<Rightarrow> 't1 \<Rightarrow> 't2 \<Ri
   \<open>call_deep16 \<equiv> deep_compose16 call\<close>
 
 definition funcall0
-   :: \<open>('s, 'b, 'abort, 'i, 'o) function_body \<Rightarrow> ('s, 'b, 'r, 'abort, 'i, 'o) expression\<close> where [micro_rust_simps]:
+   :: \<open>('s, 'b, 'abort, 'i, 'o) function_body \<Rightarrow> ('s, 'b, 'r, 'abort, 'i, 'o) expression\<close> where [shallow_computation_simps]:
    \<open>funcall0 f \<equiv> call f\<close>
 
 definition funcall1
    :: \<open>('arg0 \<Rightarrow> ('s, 'v, 'abort, 'i, 'o) function_body) \<Rightarrow>
       ('s, 'arg0, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
-      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [micro_rust_simps]:
+      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [shallow_computation_simps]:
 \<open>funcall1 f e0 \<equiv> bind1 (call_deep1 f) e0\<close>
 
 definition funcall2
    :: \<open>('arg0 \<Rightarrow> 'arg1 \<Rightarrow> ('s, 'v, 'abort, 'i, 'o) function_body) \<Rightarrow>
       ('s, 'arg0, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg1, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
-      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [micro_rust_simps]:
+      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [shallow_computation_simps]:
 \<open>funcall2 f e0 e1 \<equiv> bind2 (call_deep2 f) e0 e1\<close>
 
 definition funcall3
@@ -1000,7 +957,7 @@ definition funcall3
       ('s, 'arg0, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg1, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg2, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
-      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [micro_rust_simps]:
+      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [shallow_computation_simps]:
 \<open>funcall3 f e0 e1 e2 \<equiv> bind3 (call_deep3 f) e0 e1 e2\<close>
 
 definition funcall4
@@ -1009,7 +966,7 @@ definition funcall4
       ('s, 'arg1, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg2, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg3, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
-      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [micro_rust_simps]:
+      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [shallow_computation_simps]:
 \<open>funcall4 f e0 e1 e2 e3 \<equiv> bind4 (call_deep4 f) e0 e1 e2 e3\<close>
 
 definition funcall5
@@ -1019,7 +976,7 @@ definition funcall5
       ('s, 'arg2, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg3, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg4, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
-      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [micro_rust_simps]:
+      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [shallow_computation_simps]:
 \<open>funcall5 f e0 e1 e2 e3 e4 \<equiv> bind5 (call_deep5 f) e0 e1 e2 e3 e4\<close>
 
 definition funcall6
@@ -1030,7 +987,7 @@ definition funcall6
       ('s, 'arg3, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg4, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg5, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
-      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [micro_rust_simps]:
+      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [shallow_computation_simps]:
 \<open>funcall6 f e0 e1 e2 e3 e4 e5 \<equiv> bind6 (call_deep6 f) e0 e1 e2 e3 e4 e5\<close>
 
 definition funcall7
@@ -1042,7 +999,7 @@ definition funcall7
       ('s, 'arg4, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg5, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg6, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
-      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [micro_rust_simps]:
+      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [shallow_computation_simps]:
 \<open>funcall7 f e0 e1 e2 e3 e4 e5 e6 \<equiv> bind7 (call_deep7 f) e0 e1 e2 e3 e4 e5 e6\<close>
 
 definition funcall8
@@ -1055,7 +1012,7 @@ definition funcall8
       ('s, 'arg5, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg6, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg7, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
-      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [micro_rust_simps]:
+      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [shallow_computation_simps]:
    \<open>funcall8 f e0 e1 e2 e3 e4 e5 e6 e7 \<equiv> bind8 (call_deep8 f) e0 e1 e2 e3 e4 e5 e6 e7\<close>
 
 definition funcall9
@@ -1069,7 +1026,7 @@ definition funcall9
       ('s, 'arg6, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg7, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg8, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
-      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [micro_rust_simps]:
+      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [shallow_computation_simps]:
    \<open>funcall9 f e0 e1 e2 e3 e4 e5 e6 e7 e8 \<equiv> bind9 (call_deep9 f) e0 e1 e2 e3 e4 e5 e6 e7 e8\<close>
 
 definition funcall10
@@ -1084,7 +1041,7 @@ definition funcall10
       ('s, 'arg7, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg8, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg9, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
-      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [micro_rust_simps]:
+      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [shallow_computation_simps]:
    \<open>funcall10 f e0 e1 e2 e3 e4 e5 e6 e7 e8 e9 \<equiv> bind10 (call_deep10 f) e0 e1 e2 e3 e4 e5 e6 e7 e8 e9\<close>
 
 definition funcall11
@@ -1100,7 +1057,7 @@ definition funcall11
       ('s, 'arg8, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg9, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg10, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
-      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [micro_rust_simps]:
+      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [shallow_computation_simps]:
    \<open>funcall11 f e0 e1 e2 e3 e4 e5 e6 e7 e8 e9 e10 \<equiv> bind11 (call_deep11 f) e0 e1 e2 e3 e4 e5 e6 e7 e8 e9 e10\<close>
 
 definition funcall12
@@ -1117,7 +1074,7 @@ definition funcall12
       ('s, 'arg9, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg10, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg11, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
-      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [micro_rust_simps]:
+      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [shallow_computation_simps]:
    \<open>funcall12 f e0 e1 e2 e3 e4 e5 e6 e7 e8 e9 e10 e11 \<equiv> bind12 (call_deep12 f) e0 e1 e2 e3 e4 e5 e6 e7 e8 e9 e10 e11\<close>
 
 definition funcall13
@@ -1135,7 +1092,7 @@ definition funcall13
       ('s, 'arg10, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg11, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg12, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
-      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [micro_rust_simps]:
+      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [shallow_computation_simps]:
    \<open>funcall13 f e0 e1 e2 e3 e4 e5 e6 e7 e8 e9 e10 e11 e12 \<equiv> bind13 (call_deep13 f) e0 e1 e2 e3 e4 e5 e6 e7 e8 e9 e10 e11 e12\<close>
 
 definition funcall14
@@ -1154,7 +1111,7 @@ definition funcall14
       ('s, 'arg11, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg12, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg13, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
-      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [micro_rust_simps]:
+      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [shallow_computation_simps]:
    \<open>funcall14 f e0 e1 e2 e3 e4 e5 e6 e7 e8 e9 e10 e11 e12 e13 \<equiv> bind14 (call_deep14 f) e0 e1 e2 e3 e4 e5 e6 e7 e8 e9 e10 e11 e12 e13\<close>
 
 definition funcall15
@@ -1174,7 +1131,7 @@ definition funcall15
       ('s, 'arg12, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg13, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg14, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
-      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [micro_rust_simps]:
+      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [shallow_computation_simps]:
    \<open>funcall15 f e0 e1 e2 e3 e4 e5 e6 e7 e8 e9 e10 e11 e12 e13 e14 \<equiv> bind15 (call_deep15 f) e0 e1 e2 e3 e4 e5 e6 e7 e8 e9 e10 e11 e12 e13 e14\<close>
 
 definition funcall16
@@ -1195,7 +1152,7 @@ definition funcall16
       ('s, 'arg13, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg14, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
       ('s, 'arg15, 'c, 'abort, 'i, 'o) expression \<Rightarrow>
-      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [micro_rust_simps]:
+      ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> where [shallow_computation_simps]:
    \<open>funcall16 f e0 e1 e2 e3 e4 e5 e6 e7 e8 e9 e10 e11 e12 e13 e14 e15 \<equiv> bind16 (call_deep16 f) e0 e1 e2 e3 e4 e5 e6 e7 e8 e9 e10 e11 e12 e13 e14 e15\<close>
 
 (*<*)

@@ -4,7 +4,7 @@
 (*<*)
 theory Global_Store
   imports Lenses_And_Other_Optics.Lenses_And_Other_Optics Misc.Array Misc.Vector
-      Shallow_Computation.Core_Expression Result_Type (* Range_Type *)
+      Core_Expression_Profile Result_Type (* Range_Type *)
 begin
 (*>*)
 

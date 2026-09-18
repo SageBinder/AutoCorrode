@@ -3,7 +3,7 @@
 
 (*<*)
 theory Prompts_And_Responses
-  imports Shallow_Computation.Core_Expression
+  imports Core_Expression_Profile
 begin
 (*>*)
 

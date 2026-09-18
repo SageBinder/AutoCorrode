@@ -3,7 +3,7 @@
 
 (*<*)
 theory Option_Type
-  imports Shallow_Computation.Core_Expression Bool_Type
+  imports Core_Expression_Profile Bool_Type
 begin
 (*>*)
 

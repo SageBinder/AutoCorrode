@@ -3,7 +3,7 @@
 
 (*<*)
 theory Range_Type
-  imports Shallow_Computation.Core_Expression Rust_Iterator "HOL-Library.Datatype_Records"
+  imports Core_Expression_Profile Rust_Iterator "HOL-Library.Datatype_Records"
 begin
 (*>*)
 

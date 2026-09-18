@@ -5,6 +5,7 @@ theory Direct_Core_Compatibility
   imports
     Shallow_Computation.Case_Term_Backend
     Shallow_Computation.Core_Expression
+    Shallow_Micro_Rust.Core_Expression_Profile
     Dependency_Audit
 begin
 
@@ -25,6 +26,13 @@ term Core_Expression.Yield
 term Core_Expression.bind
 term Core_Expression.call_function_body
 term Core_Expression.funcall16
+term Core_Expression.panic
+term Core_Expression.unimplemented
+term Core_Expression.scoped
+
+typ \<open>(unit, unit, unit, unit, unit, unit) Core_Expression.urust_binop\<close>
+typ \<open>(unit, unit, unit, unit, unit, unit, unit) Core_Expression.urust_binop2\<close>
+typ \<open>(unit, unit, unit, unit, unit, unit, unit, unit) Core_Expression.urust_binop3\<close>
 
 thm Core_Expression.bind.simps
 thm Core_Expression.call_function_body.simps

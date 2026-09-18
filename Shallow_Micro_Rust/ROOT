@@ -9,6 +9,7 @@ session Shallow_Micro_Rust = HOL +
     Shallow_Computation
   theories [document = false]
     Semantic_Navigation
+    Core_Expression_Profile
     Bool_Type
     Option_Type
     Result_Type

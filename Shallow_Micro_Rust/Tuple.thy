@@ -4,7 +4,7 @@
 (*<*)
 theory Tuple
   imports
-    Shallow_Computation.Core_Expression
+    Core_Expression_Profile
 begin
 (*>*)
 
