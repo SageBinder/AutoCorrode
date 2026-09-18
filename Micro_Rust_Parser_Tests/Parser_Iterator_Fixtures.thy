@@ -1,7 +1,7 @@
 theory Parser_Iterator_Fixtures
   imports
     Parser_Test_Utils
-    Shallow_Micro_Rust.Eval
+    Shallow_Micro_Rust.Eval_Profile
 begin
 
 section\<open>Shared iterator fixtures\<close>

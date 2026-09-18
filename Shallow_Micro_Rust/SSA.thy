@@ -3,7 +3,7 @@
 
 (*<*)
 theory SSA
-  imports Core_Expression_Lemmas Bool_Type_Lemmas Rust_Iterator_Lemmas
+  imports Core_Expression_Lemmas_Profile Bool_Type_Lemmas Rust_Iterator_Lemmas
           "HOL-Library.Rewrite"
 begin
 (*>*)

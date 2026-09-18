@@ -3,7 +3,7 @@
 
 theory Parser_Compatibility
   imports
-    Shallow_Micro_Rust.Eval
+    Shallow_Micro_Rust.Eval_Profile
     Dependency_Audit
 begin
 

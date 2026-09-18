@@ -4,7 +4,7 @@ theory Parser_Pattern_Matching_Tests
     Parser_Constructor_Ambiguity_Left_Fixtures
     Parser_Constructor_Ambiguity_Right_Fixtures
     Misc.Simple_Word_Enums
-    Shallow_Micro_Rust.Core_Expression_Lemmas
+    Shallow_Micro_Rust.Core_Expression_Lemmas_Profile
 begin
 
 declare [[urust_pp_test = true]]

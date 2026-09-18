@@ -8,4 +8,7 @@ session Shallow_Computation = HOL +
   theories [document = false]
     Case_Term_Backend
     Core_Expression
+    Core_Expression_Lemmas
+    Eval
+    Pullback
     Shallow_Computation

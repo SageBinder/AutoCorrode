@@ -68,9 +68,27 @@ If you want to cite AutoCorrode, consider using the following BibTeX entry:
 
 The following gives a brief overview over the Isabelle sessions contained in AutoCorrode.
 
+### [Shallow_Computation](https://awslabs.github.io/AutoCorrode/Unsorted/AutoCorrode/Shallow_Computation.Shallow_Computation.html)
+
+This language-neutral session owns the shallow computation kernel: expressions, continuations,
+function bodies, state and control combinators, generic lemmas, relational evaluation, and
+pullback along lenses. Its canonical roll-up import is
+`Shallow_Computation.Shallow_Computation`; direct component imports include
+`Shallow_Computation.Core_Expression`, `Shallow_Computation.Eval`, and
+`Shallow_Computation.Pullback`.
+
+Neutral extensions use the `shallow_computation_*` named-theorem collections. The session has no
+dependency on µRust parsing, µRust syntax or prompt policy, C, or Isabelle/C.
+
 ### [Shallow_Micro_Rust](https://awslabs.github.io/AutoCorrode/Unsorted/AutoCorrode/Shallow_Micro_Rust.Shallow_Micro_Rust.html)
 
-This session defines the ["µRust monad"](https://awslabs.github.io/AutoCorrode/Unsorted/AutoCorrode/Shallow_Micro_Rust.Core_Expression.html#Core_Expression.expression|type), its core semantics, parser target, lemmas, and automation. The session is parser-independent; parser-backed sessions import the production parser separately. Despite its name and primary purpose as the target of the shallow embedding of µRust into Isabelle/HOL, the monad is quite generic and likely suitable for the modelling of other imperative languages as well. Concretely, the µRust monad is an inductive monad with support for exceptions, functions, and yields/prompts (similar to interaction trees).
+This parser-independent session layers the µRust profile, semantic target vocabulary, notation,
+prompts, profile lemmas, evaluation rules, and automation over `Shallow_Computation`.
+Parser-backed sessions import the production parser separately. Existing declaration and theorem namespaces such as `Core_Expression`,
+`Eval`, and `Pullback`, together with the mutable `micro_rust_*` and `urust_eval_*` collections,
+remain available. Direct profile imports use `Core_Expression_Lemmas_Profile`, `Eval_Profile`, and
+`Pullback_Profile`; the `Shallow_Micro_Rust.Shallow_Micro_Rust` roll-up exposes the complete
+legacy-facing surface.
 
 The shallow iterator model includes a shared `zip` method. It combines thunk
 lists with HOL `List.zip`, truncates to the shorter iterator, and evaluates each

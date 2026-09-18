@@ -2,7 +2,7 @@
    SPDX-License-Identifier: MIT *)
 
 theory Shallow_Computation
-  imports Core_Expression
+  imports Pullback
 begin
 
 end

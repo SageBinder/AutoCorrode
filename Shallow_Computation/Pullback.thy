@@ -2,21 +2,21 @@
    SPDX-License-Identifier: MIT *)
 
 theory Pullback
-  imports Core_Expression_Lemmas Eval
+  imports Eval Lenses_And_Other_Optics.Lens
 begin
 
-section\<open>Pulling back Micro Rust expressions along lenses\<close>
+section\<open>Pulling back shallow computations along lenses\<close>
 
 text\<open>Suppose  \<^verbatim>\<open>'r \<Rightarrow> 'v\<close> is a lens from record-like type \<^verbatim>\<open>'r\<close> to a 'field' type
 \<^verbatim>\<open>'v\<close>. Then, by definition of lenses, any endomorphism \<^verbatim>\<open>f :: 'v \<Rightarrow> 'v\<close> yields a
 (chosen) \<^emph>\<open>lift\<close> \<^verbatim>\<open>\<nabla>f :: 'r \<Rightarrow> 'r\<close>.
 
-On the other hand, micro rust expressions on \<open>'v\<close> (or, more precisely, their denotations under
-the shallow embedding into HOL) are \<^emph>\<open>essentially\<close> endomorphisms on \<^verbatim>\<open>'r\<close>, with the tweak
+On the other hand, shallow expressions on \<open>'v\<close> are \<^emph>\<open>essentially\<close> endomorphisms on
+\<^verbatim>\<open>'r\<close>, with the tweak
 that they may abort and produce return or literal values.
 
-Intuitively, one would therefore expect that it should be possible to 'pull back' micro rust
-expressions on \<^verbatim>\<open>'v\<close> to micro rust expressions on \<^verbatim>\<open>'a\<close>. The goal of this section is to
+Intuitively, one would therefore expect that it should be possible to pull back shallow
+expressions on \<^verbatim>\<open>'v\<close> to shallow expressions on \<^verbatim>\<open>'a\<close>. The goal of this section is to
 make this precise.\<close>
 
 consts pull_back_const :: \<open>'a \<Rightarrow> 'b\<close> ("_\<inverse>" [1000] 1000)
@@ -138,34 +138,12 @@ definition canonical_pull_back_yield_handler ::
   \<open>('b, 'abort, 'i, 'o) yield_handler_nondet_basic \<Rightarrow> ('a, 'abort, 'i, 'o) yield_handler_nondet_basic\<close> where
   \<open>canonical_pull_back_yield_handler y \<pi> \<sigma> \<equiv> lift_yield_result \<sigma> ` y \<pi> (lens_view l \<sigma>)\<close>
 
-lemma canonical_pull_back_yield_handler_no_yield[simp]:
-  shows \<open>canonical_pull_back_yield_handler yield_handler_no_yield =
-            yield_handler_no_yield\<close>
-  unfolding fun_eq_iff 
-  by (simp add: canonical_pull_back_yield_handler_def yield_handler_no_yield_def
-                lift_yield_result_def LV lens_laws_update(2))
-
 \<comment>\<open>NOTE: This lemma is not used at present, but seems worth keeping.\<close>
 lemma canonical_pull_back_yield_handler_is_lift:
   \<open>is_lifted_yield_handler y (canonical_pull_back_yield_handler y)\<close>
   by (force simp add: canonical_pull_back_yield_handler_def is_lifted_yield_handler_def
     lift_yield_result_def lower_yield_result_def lens_laws[OF LV]
     image_comp case_prod_unfold split!: prod.splits yield_handler_nondet_basic_result.splits)
-
-lemma canonical_pull_back_yield_handler_log_preserving:
-  assumes \<open>is_log_transparent_yield_handler y\<close>
-  shows \<open>is_log_transparent_yield_handler (canonical_pull_back_yield_handler y)\<close>
-  using assms by (clarsimp simp add: is_log_transparent_yield_handler_def
-    canonical_pull_back_yield_handler_def lift_yield_result_def)
-    (metis LV is_valid_lens_def lens_update_def)
-
-lemma canonical_pull_back_yield_handler_nondet_order_preserving:
-  assumes \<open>is_nondet_order_yield_handler y\<close>
-  shows \<open>is_nondet_order_yield_handler (canonical_pull_back_yield_handler y)\<close>
-  using assms
-  by (clarsimp simp add: is_nondet_order_yield_handler_def
-    canonical_pull_back_yield_handler_def lift_yield_result_def)
-    (metis LV is_valid_lens_def lens_update_def)
 
 text\<open>At the level of the evaluation relation, pullback of expressions is pullback of relations:\<close>
 
@@ -256,7 +234,7 @@ qed
 lemma expression_pull_back_eval_action_abort:
   assumes \<open>is_lifted_yield_handler y x\<close>
   shows \<open>(apsnd (lens_view l)) ` ((x, l\<inverse> e) \<diamondop>\<^sub>a \<sigma>) = (y, e) \<diamondop>\<^sub>a (lens_view l \<sigma>)\<close>
-  using assms by (auto simp add: abort_evaluations_def urust_eval_predicate_defs
+  using assms by (auto simp add: abort_evaluations_def shallow_computation_eval_predicate_defs
      continuation_map_def deep_evaluate_basic_no_yield' split!: continuation.splits
      simp flip: expression_pull_back_deep_evaluates) force+
 
@@ -264,12 +242,12 @@ corollary expression_pull_back_eval_abort:
   assumes \<open>is_lifted_yield_handler y x\<close>
   shows \<open>(lens_view l \<sigma>) \<leadsto>\<^sub>a\<langle>y, e\<rangle> (a, \<tau>') \<longleftrightarrow> (\<exists>\<sigma>'. \<sigma> \<leadsto>\<^sub>a\<langle>x, l\<inverse> e\<rangle> (a, \<sigma>') \<and> lens_view l \<sigma>' = \<tau>')\<close>
   using assms by (auto simp flip: expression_pull_back_eval_action_abort
-    simp add: apsnd_def map_prod_def urust_eval_predicate_via_action)
+    simp add: apsnd_def map_prod_def shallow_computation_eval_predicate_via_action)
 
 lemma expression_pull_back_eval_action_value:
   assumes \<open>is_lifted_yield_handler y x\<close>
   shows \<open>(apsnd (lens_view l)) ` ((x, l\<inverse> e) \<diamondop>\<^sub>v \<sigma>) = (y, e) \<diamondop>\<^sub>v (lens_view l \<sigma>)\<close>
-  using assms by (auto simp add: value_evaluations_def urust_eval_predicate_defs
+  using assms by (auto simp add: value_evaluations_def shallow_computation_eval_predicate_defs
      continuation_map_def deep_evaluate_basic_no_yield' split!: continuation.splits
      simp flip: expression_pull_back_deep_evaluates) force+
 
@@ -277,7 +255,7 @@ corollary expression_pull_back_eval_value:
   assumes \<open>is_lifted_yield_handler y x\<close>
   shows \<open>(lens_view l \<sigma>) \<leadsto>\<^sub>v\<langle>y, e\<rangle> (v, \<tau>') \<longleftrightarrow> (\<exists>\<sigma>'. \<sigma> \<leadsto>\<^sub>v\<langle>x, l\<inverse> e\<rangle> (v, \<sigma>') \<and> lens_view l \<sigma>' = \<tau>')\<close>
   using assms by (auto simp flip: expression_pull_back_eval_action_value
-    simp add: apsnd_def map_prod_def urust_eval_predicate_via_action)
+    simp add: apsnd_def map_prod_def shallow_computation_eval_predicate_via_action)
 
 corollary expression_pull_back_eval_value':
   assumes \<open>is_lifted_yield_handler y x\<close>
@@ -288,7 +266,7 @@ corollary expression_pull_back_eval_value':
 lemma expression_pull_back_eval_action_return:
   assumes \<open>is_lifted_yield_handler y x\<close>
   shows \<open>(apsnd (lens_view l)) ` ((x, l\<inverse> e) \<diamondop>\<^sub>r \<sigma>) = (y, e) \<diamondop>\<^sub>r (lens_view l \<sigma>)\<close>
-  using assms by (auto simp add: return_evaluations_def urust_eval_predicate_defs
+  using assms by (auto simp add: return_evaluations_def shallow_computation_eval_predicate_defs
      continuation_map_def deep_evaluate_basic_no_yield' split!: continuation.splits
      simp flip: expression_pull_back_deep_evaluates) force+
 
@@ -303,7 +281,7 @@ corollary expression_pull_back_eval_return:
   assumes \<open>is_lifted_yield_handler y x\<close>
   shows \<open>(lens_view l \<sigma>) \<leadsto>\<^sub>r\<langle>y, e\<rangle> (r, \<tau>') \<longleftrightarrow> (\<exists>\<sigma>'. \<sigma> \<leadsto>\<^sub>r\<langle>x, l\<inverse> e\<rangle> (r, \<sigma>') \<and> lens_view l \<sigma>' = \<tau>')\<close>
   using assms by (auto simp flip: expression_pull_back_eval_action_return
-    simp add: apsnd_def map_prod_def urust_eval_predicate_via_action)
+    simp add: apsnd_def map_prod_def shallow_computation_eval_predicate_via_action)
 
 corollary expression_pull_back_eval_return':
   assumes \<open>is_lifted_yield_handler y x\<close>
@@ -372,7 +350,7 @@ qed
 lemma expression_pull_back_eval_action_abort_canonical:
   shows \<open>(canonical_pull_back_yield_handler y, l\<inverse> e) \<diamondop>\<^sub>a \<sigma> =
            (apsnd (\<lambda>\<tau>'. lens_update l \<tau>' \<sigma>)) `  ((y, e) \<diamondop>\<^sub>a (lens_view l \<sigma>))\<close>
-  by (auto simp add: abort_evaluations_def urust_eval_predicate_defs
+  by (auto simp add: abort_evaluations_def shallow_computation_eval_predicate_defs
      continuation_lift_def deep_evaluate_basic_no_yield' split!: continuation.splits
      simp add: expression_pull_back_deep_evaluates_canonical) force+
 
@@ -380,12 +358,12 @@ corollary expression_pull_back_eval_abort_canonical:
   shows \<open>\<sigma> \<leadsto>\<^sub>a\<langle>canonical_pull_back_yield_handler y, l\<inverse> e\<rangle> (a, \<sigma>') \<longleftrightarrow>
            (\<exists>\<tau>'. (lens_view l \<sigma>) \<leadsto>\<^sub>a\<langle>y, e\<rangle> (a, \<tau>') \<and> lens_update l \<tau>' \<sigma> = \<sigma>')\<close>
   by (auto simp add: expression_pull_back_eval_action_abort_canonical
-    simp add: apsnd_def map_prod_def urust_eval_predicate_via_action)
+    simp add: apsnd_def map_prod_def shallow_computation_eval_predicate_via_action)
 
 lemma expression_pull_back_eval_action_value_canonical:
   shows \<open>(canonical_pull_back_yield_handler y, l\<inverse> e) \<diamondop>\<^sub>v \<sigma>
             = (apsnd (\<lambda>\<tau>'. lens_update l \<tau>' \<sigma>)) ` ((y, e) \<diamondop>\<^sub>v (lens_view l \<sigma>))\<close>
-  by (auto simp add: value_evaluations_def urust_eval_predicate_defs
+  by (auto simp add: value_evaluations_def shallow_computation_eval_predicate_defs
      continuation_lift_def deep_evaluate_basic_no_yield' split!: continuation.splits
      simp add: expression_pull_back_deep_evaluates_canonical) force+
 
@@ -393,12 +371,12 @@ corollary expression_pull_back_eval_value_canonical:
   shows \<open>\<sigma> \<leadsto>\<^sub>v\<langle>canonical_pull_back_yield_handler y, l\<inverse> e\<rangle> (v, \<sigma>') \<longleftrightarrow>
      (\<exists>\<tau>'. (lens_view l \<sigma>) \<leadsto>\<^sub>v\<langle>y, e\<rangle> (v, \<tau>') \<and> lens_update l \<tau>' \<sigma> = \<sigma>')\<close>
   by (auto simp add: expression_pull_back_eval_action_value_canonical
-    simp add: apsnd_def map_prod_def urust_eval_predicate_via_action)
+    simp add: apsnd_def map_prod_def shallow_computation_eval_predicate_via_action)
 
 lemma expression_pull_back_eval_action_return_canonical:
   shows \<open>(canonical_pull_back_yield_handler y, l\<inverse> e) \<diamondop>\<^sub>r \<sigma>
             = (apsnd (\<lambda>\<tau>'. lens_update l \<tau>' \<sigma>)) ` ((y, e) \<diamondop>\<^sub>r (lens_view l \<sigma>))\<close>
-  by (auto simp add: return_evaluations_def urust_eval_predicate_defs
+  by (auto simp add: return_evaluations_def shallow_computation_eval_predicate_defs
      continuation_lift_def deep_evaluate_basic_no_yield' split!: continuation.splits
      simp add: expression_pull_back_deep_evaluates_canonical) force+
 
@@ -406,7 +384,7 @@ corollary expression_pull_back_eval_return_canonical:
   shows \<open>\<sigma> \<leadsto>\<^sub>r\<langle>canonical_pull_back_yield_handler y, l\<inverse> e\<rangle> (v, \<sigma>') \<longleftrightarrow>
      (\<exists>\<tau>'. (lens_view l \<sigma>) \<leadsto>\<^sub>r\<langle>y, e\<rangle> (v, \<tau>') \<and> lens_update l \<tau>' \<sigma> = \<sigma>')\<close>
   by (auto simp add: expression_pull_back_eval_action_return_canonical
-    simp add: apsnd_def map_prod_def urust_eval_predicate_via_action)
+    simp add: apsnd_def map_prod_def shallow_computation_eval_predicate_via_action)
 
 end
 

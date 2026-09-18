@@ -3,7 +3,8 @@
 
 theory Direct_Lemmas_Compatibility
   imports
-    Shallow_Micro_Rust.Core_Expression_Lemmas
+    Shallow_Computation.Core_Expression_Lemmas
+    Shallow_Micro_Rust.Core_Expression_Lemmas_Profile
     Dependency_Audit
 begin
 

@@ -3,7 +3,7 @@
 
 (*<*)
 theory Numeric_Types_Lemmas
-  imports Core_Expression_Lemmas Numeric_Types
+  imports Core_Expression_Lemmas_Profile Numeric_Types
 begin
 (*>*)
 

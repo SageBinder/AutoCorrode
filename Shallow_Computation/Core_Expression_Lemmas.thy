@@ -3,17 +3,11 @@
 
 (*<*)
 theory Core_Expression_Lemmas
-  imports
-    Shallow_Computation.Core_Expression
-    Micro_Rust_Parser_Target
+  imports Core_Expression
 begin
 (*>*)
 
 section\<open>Basic lemmas about the \<^typ>\<open>('s, 'v, 'r, 'abort, 'i, 'o) expression\<close> monad\<close>
-
-named_theorems micro_rust_intros
-named_theorems micro_rust_elims
-named_theorems micro_rust_ssa
 
 subsection\<open>Equality and semantic equivalence\<close>
 
@@ -233,7 +227,7 @@ qed
 
 subsection\<open>General facts about monadic composition\<close>
 
-lemma evaluate_bindI [micro_rust_intros]:
+lemma evaluate_bindI [shallow_computation_intros]:
   notes Core_Expression.bind.simps[simp]
   assumes \<open>\<And>a \<sigma>'. evaluate e \<sigma> = Abort a \<sigma>' \<Longrightarrow> k = Abort a \<sigma>'\<close>
       and \<open>\<And>r \<sigma>'. evaluate e \<sigma> = Return r \<sigma>' \<Longrightarrow> k = Return r \<sigma>'\<close>
@@ -242,7 +236,7 @@ lemma evaluate_bindI [micro_rust_intros]:
   shows \<open>evaluate (bind e f) \<sigma> = k\<close>
   using assms by (auto simp: evaluate_def split: continuation.splits)
 
-lemma evaluate_bindE [micro_rust_elims]:
+lemma evaluate_bindE [shallow_computation_elims]:
   notes Core_Expression.bind.simps[simp]
   assumes \<open>evaluate (bind e g) \<sigma> = k\<close>
     and \<open>\<And>v \<sigma>'. evaluate e \<sigma> = Success v \<sigma>' \<Longrightarrow> evaluate (g v) \<sigma>' = k\<Longrightarrow> R\<close>
@@ -256,7 +250,7 @@ lemma evaluate_bindE [micro_rust_elims]:
 text\<open>Moreover, the monad \<^term>\<open>Core_Expression.bind\<close> operation is also \<^emph>\<open>associative\<close>
 in the following sense, allowing us to reorder sequences of expressions:\<close>
 
-lemma bind_assoc[micro_rust_simps]:
+lemma bind_assoc[shallow_computation_simps]:
   notes Core_Expression.bind.simps[simp]
   fixes e :: \<open>('s, 'v, 'r, 'abort, 'i, 'o) expression\<close>
   shows \<open>bind (bind e f) g = bind e (\<lambda>x. bind (f x) g)\<close>
@@ -270,7 +264,7 @@ proof (induction e rule: wf_induct_rule)
     using expression_eqI2 by blast
 qed
 
-lemma evaluate_sequenceI [micro_rust_intros]:
+lemma evaluate_sequenceI [shallow_computation_intros]:
   assumes \<open>(\<exists>a \<sigma>'. evaluate e \<sigma> = Abort a \<sigma>' \<and> k = Abort a \<sigma>') \<or>
     (\<exists>r \<sigma>'. evaluate e \<sigma> = Return r \<sigma>' \<and> k = Return r \<sigma>') \<or>
     (\<exists>v \<sigma>'. evaluate e \<sigma> = Success v \<sigma>' \<and> k = evaluate f \<sigma>') \<or>
@@ -278,12 +272,13 @@ lemma evaluate_sequenceI [micro_rust_intros]:
   shows \<open>evaluate (sequence e f) \<sigma> = k\<close>
   using assms by (simp only: sequence_def; intro evaluate_bindI; auto)
 
-lemma evaluate_sequenceE [micro_rust_elims]:
+lemma evaluate_sequenceE [shallow_computation_elims]:
   assumes \<open>evaluate (sequence e f) \<sigma> = k\<close>
     and \<open>\<And>v \<sigma>'. evaluate e \<sigma> = Success v \<sigma>' \<Longrightarrow> evaluate f \<sigma>' = k \<Longrightarrow> R\<close>
     and \<open>\<And>r \<sigma>'. evaluate e \<sigma> = Return r \<sigma>' \<Longrightarrow> k = Return r \<sigma>' \<Longrightarrow> R\<close>
     and \<open>\<And>a \<sigma>'. evaluate e \<sigma> = Abort a \<sigma>' \<Longrightarrow> k = Abort a \<sigma>' \<Longrightarrow> R\<close>
-    and \<open>\<And>\<pi> \<sigma>' e'. evaluate e \<sigma> = Yield \<pi> \<sigma>' e' \<Longrightarrow> k = Yield \<pi> \<sigma>' (\<lambda>\<omega>. sequence (e' \<omega>) f) \<Longrightarrow> R\<close>
+    and \<open>\<And>\<pi> \<sigma>' e'. evaluate e \<sigma> = Yield \<pi> \<sigma>' e' \<Longrightarrow>
+      k = Yield \<pi> \<sigma>' (\<lambda>\<omega>. sequence (e' \<omega>) f) \<Longrightarrow> R\<close>
   shows \<open>R\<close>
   using assms by (simp add: sequence_def; elim evaluate_bindE)
 
@@ -291,21 +286,19 @@ text\<open>The fact that \<^term>\<open>Core_Expression.sequence\<close> is a de
 immediately gives us a few properties.  Sequencing is immediately associative for example, which is
 an immediate corollary of the fact that the monadic bind operation is also associative, too:\<close>
 
-
-lemma sequence_assoc [micro_rust_simps]:
-  shows \<open>(sequence (sequence e f) g) =
-    (sequence e (sequence f g))\<close>
+lemma sequence_assoc [shallow_computation_simps]:
+  shows \<open>sequence (sequence e f) g = sequence e (sequence f g)\<close>
   by (simp add: sequence_def Core_Expression_Lemmas.bind_assoc)
 
 subsection\<open>Literals\<close>
 
-lemma evaluate_literalE [micro_rust_elims]:
+lemma evaluate_literalE [shallow_computation_elims]:
   assumes \<open>evaluate (literal v) \<sigma> = k\<close>
     and \<open>k = Success v \<sigma> \<Longrightarrow> R\<close>
   shows \<open>R\<close>
   using assms by (auto simp: literal_def evaluate_def)
 
-lemma evaluate_literal [micro_rust_simps]:
+lemma evaluate_literal [shallow_computation_simps]:
   shows \<open>evaluate (literal v) \<sigma> = Success v \<sigma>\<close>
   by (auto simp: evaluate_def literal_def)
 
@@ -314,12 +307,12 @@ little bit like an identity element with respect to the monadic bind operation. 
 \<^term>\<open>literal\<close> definition was introduced first, at the top of this section, before everything else.
 We can make this idea more precise by \<^emph>\<open>proving\<close> the following lemma:\<close>
 
-lemma bind_literal_unit [micro_rust_simps]:
+lemma bind_literal_unit [shallow_computation_simps]:
   notes Core_Expression.bind.simps[simp]
   shows \<open>bind (literal v) f = f v\<close>
   by (cases \<open>f v\<close>) (clarsimp simp: evaluate_def literal_def)
 
-lemma bind_literal_unit2 [micro_rust_simps]:
+lemma bind_literal_unit2 [shallow_computation_simps]:
   notes Core_Expression.bind.simps[simp]
   fixes e :: \<open>('s, 'v, 'r, 'abort, 'i, 'o) expression\<close>
   shows \<open>bind e literal = e\<close>
@@ -334,13 +327,13 @@ qed
 
 subsection\<open>State extraction and modification\<close>
 
-lemma evaluate_getE [micro_rust_elims]:
+lemma evaluate_getE [shallow_computation_elims]:
   assumes \<open>evaluate (get f) \<sigma> = k\<close>
     and \<open>k = Success (f \<sigma>) \<sigma> \<Longrightarrow> R\<close>
   shows \<open>R\<close>
   using assms by (auto simp: evaluate_def get_def)
 
-lemma evaluate_get [micro_rust_simps]:
+lemma evaluate_get [shallow_computation_simps]:
   shows \<open>evaluate (get f) \<sigma> = Success (f \<sigma>) \<sigma>\<close>
   by (auto simp: evaluate_def get_def)
 
@@ -349,32 +342,25 @@ in between the reads, then we can reorder these reads (this is akin to a compile
 reorder reads):\<close>
 \<comment>\<open>NOTE: This lemma is not used at present, but seems worth keeping.\<close>
 lemma get_reorder:
-  shows \<open>do { f_val \<leftarrow> get f; g_val \<leftarrow> get g; e f_val g_val } =
-    do { g_val \<leftarrow> get g; f_val \<leftarrow> get f; e f_val g_val }\<close>
+  shows \<open>bind (get f) (\<lambda>vf. bind (get g) (\<lambda>vg. e vf vg)) =
+    bind (get g) (\<lambda>vg. bind (get f) (\<lambda>vf. e vf vg))\<close>
   by (auto simp: evaluate_def Core_Expression.bind.simps get_def split: expression.splits
     continuation.splits)
 
 text\<open>Alternatively, we can merge the two get operations into a single one:\<close>
-
-
-lemma get_merge[micro_rust_simps]:
-  shows \<open>(do { vf \<leftarrow> (get f :: ('a, 'b, 'e, 'f, 'g, 'h) expression);
-         vg \<leftarrow> (get g :: ('a, 'c, 'e, 'f, 'g, 'h) expression);
-         e vf vg }) =
-    (do { values \<leftarrow>
-           (get (\<lambda>\<sigma>. (f \<sigma>, g \<sigma>, nil))
-             :: ('a, 'b \<times> 'c \<times> tnil, 'e, 'f, 'g, 'h) expression);
-         e (fst values) (fst (snd values)) })\<close>
+lemma get_merge[shallow_computation_simps]:
+  shows \<open>bind (get f) (\<lambda>vf. bind (get g) (\<lambda>vg. e vf vg)) =
+    bind (get (\<lambda>\<sigma>. (f \<sigma>, g \<sigma>, marker))) (\<lambda>(vf, vg, _). e vf vg)\<close>
   by (auto simp: Core_Expression.bind.simps evaluate_def get_def split: expression.splits
     continuation.splits)
 
-lemma evaluate_putE [micro_rust_elims]:
+lemma evaluate_putE [shallow_computation_elims]:
   assumes \<open>evaluate (put f) \<sigma> = k\<close>
     and \<open>k = Success () (f \<sigma>) \<Longrightarrow> R\<close>
   shows \<open>R\<close>
   using assms by (auto simp: evaluate_def put_def)
 
-lemma evaluate_put [micro_rust_simps]:
+lemma evaluate_put [shallow_computation_simps]:
   shows \<open>evaluate (put f) \<sigma> = Success () (f \<sigma>)\<close>
   by (auto simp: evaluate_def put_def)
 
@@ -388,12 +374,9 @@ lemma put_reorder:
   using commut by (clarsimp simp: Core_Expression.bind.simps sequence_def evaluate_def put_def)
     (metis comp_apply)
 
-
-
-lemma put_merge[micro_rust_simps]:
-  shows \<open>(sequence (put f) (put g)) =
-    (put (g \<circ> f))\<close>
-  by (clarsimp simp: micro_rust_simps put_def Core_Expression.bind.simps evaluate_def
+lemma put_merge[shallow_computation_simps]:
+  shows \<open>sequence (put f) (put g) = put (g \<circ> f)\<close>
+  by (clarsimp simp: shallow_computation_simps put_def Core_Expression.bind.simps evaluate_def
     sequence_def)
 
 subsection\<open>Calls and repeated bindings\<close>
@@ -401,20 +384,20 @@ subsection\<open>Calls and repeated bindings\<close>
 text\<open>Lifting the \<^emph>\<open>identity function\<close> into an expression just gives you back that same expression,
 i.e., the result of the expression is unmodified:\<close>
 
-lemma bindlift1_ident [micro_rust_simps]:
+lemma bindlift1_ident [shallow_computation_simps]:
   shows \<open>bindlift1 id = id\<close>
-  by (auto simp: micro_rust_simps)
+  by (auto simp: shallow_computation_simps)
 
 text\<open>Moreover, lifting two functions, one after the other, is equivalent to lifting a single
 composed function:\<close>
-lemma bindlift1_comp [micro_rust_simps]:
+lemma bindlift1_comp [shallow_computation_simps]:
   shows \<open>bindlift1 f (bindlift1 g e) = bindlift1 (f \<circ> g) e\<close>
-  by (auto simp: micro_rust_simps)
+  by (auto simp: shallow_computation_simps)
 
 text\<open>The following is an \<^emph>\<open>elimination rule\<close> which allows us to perform a case analysis on the
 different reasons why the evaluation of a \<^term>\<open>bindlift1\<close> expression either succeeds or fails:\<close>
-lemma evaluate_bindlift1E [micro_rust_elims]:
-  notes micro_rust_simps[simp]
+lemma evaluate_bindlift1E [shallow_computation_elims]:
+  notes shallow_computation_simps[simp]
   assumes \<open>evaluate (bindlift1 f e) \<sigma> = k\<close>
     and \<open>\<And>r \<sigma>'. k = Success (f r) \<sigma>' \<Longrightarrow> evaluate e \<sigma> = Success r \<sigma>' \<Longrightarrow> R\<close>
     and \<open>\<And>r \<sigma>'. k = Return r \<sigma>' \<Longrightarrow> evaluate e \<sigma> = Return r \<sigma>' \<Longrightarrow> R\<close>
@@ -423,8 +406,8 @@ lemma evaluate_bindlift1E [micro_rust_elims]:
   shows \<open>R\<close>
   using assms by (simp; elim evaluate_bindE evaluate_literalE; auto)
 
-lemma evaluate_bindlift1I [micro_rust_intros]:
-  notes micro_rust_simps[simp]
+lemma evaluate_bindlift1I [shallow_computation_intros]:
+  notes shallow_computation_simps[simp]
   assumes \<open>\<And>r \<sigma>'. evaluate e \<sigma> = Success r \<sigma>' \<Longrightarrow> k = Success (f r) \<sigma>'\<close>
     and \<open>\<And>r \<sigma>'. evaluate e \<sigma> = Return r \<sigma>' \<Longrightarrow> k = Return r \<sigma>'\<close>
     and \<open>\<And>a \<sigma>'. evaluate e \<sigma> = Abort a \<sigma>' \<Longrightarrow> k = Abort a \<sigma>'\<close>
@@ -438,23 +421,23 @@ lemma evaluate_bindlift1I [micro_rust_intros]:
 
 subsection\<open>Return\<close>
 
-lemma evaluate_return_val[micro_rust_simps]:
+lemma evaluate_return_val[shallow_computation_simps]:
   shows \<open>evaluate (return_val r) \<sigma> = Return r \<sigma>\<close>
   by (simp add: evaluate_def return_val_def)
 
-lemma evaluate_return_valE [micro_rust_elims]:
+lemma evaluate_return_valE [shallow_computation_elims]:
   assumes \<open>evaluate (return_val r) \<sigma> = k\<close>
     and \<open>k = Return r \<sigma> \<Longrightarrow> R\<close>
   shows \<open>R\<close>
   using assms by (auto simp: return_val_def evaluate_def)
 
-lemma evaluate_return_valE' [micro_rust_elims]:
+lemma evaluate_return_valE' [shallow_computation_elims]:
   assumes \<open>k = evaluate (return_val r) \<sigma>\<close>
     and \<open>k = Return r \<sigma> \<Longrightarrow> R\<close>
   shows \<open>R\<close>
   using assms by (auto simp: return_val_def evaluate_def)
 
-lemma evaluate_returnE [micro_rust_elims]:
+lemma evaluate_returnE [shallow_computation_elims]:
   assumes \<open>evaluate (return_func r) \<sigma> = k\<close>
     and \<open>\<And>v \<sigma>'. k = Return v \<sigma>' \<Longrightarrow> evaluate r \<sigma> = Success v \<sigma>' \<Longrightarrow> R\<close>
     and \<open>\<And>a \<sigma>'. k = Abort a \<sigma>' \<Longrightarrow> evaluate r \<sigma> = Abort a \<sigma>' \<Longrightarrow> R\<close>
@@ -464,7 +447,7 @@ lemma evaluate_returnE [micro_rust_elims]:
   using assms unfolding return_func_def
   by (elim evaluate_bindE evaluate_return_valE; auto)
 
-lemma evaluate_returnI [micro_rust_intros]:
+lemma evaluate_returnI [shallow_computation_intros]:
   assumes \<open>\<And>v \<sigma>'. evaluate r \<sigma> = Success v \<sigma>' \<Longrightarrow> k = Return v \<sigma>'\<close>
     and \<open>\<And>a \<sigma>'. evaluate r \<sigma> = Abort a \<sigma>' \<Longrightarrow> k = Abort a \<sigma>'\<close>
     and \<open>\<And>v \<sigma>'. evaluate r \<sigma> = Return v \<sigma>' \<Longrightarrow> k = Return v \<sigma>'\<close>
@@ -476,12 +459,12 @@ lemma evaluate_returnI [micro_rust_intros]:
   apply (auto simp: evaluate_def return_val_def)
   done
 
-lemma evaluate_return_literal [micro_rust_simps]:
-  notes micro_rust_simps[simp]
+lemma evaluate_return_literal [shallow_computation_simps]:
+  notes shallow_computation_simps[simp]
   shows \<open>evaluate (return_func (literal v)) \<sigma> = Return v \<sigma>\<close>
   by (simp add: evaluate_def return_func_def return_val_def)
 
-lemma evaluate_call_function_bodyE [micro_rust_elims]:
+lemma evaluate_call_function_bodyE [shallow_computation_elims]:
   assumes \<open>evaluate (call_function_body e) \<sigma> = k\<close>
       and \<open>\<And>v \<sigma>'. evaluate e \<sigma> = Success v \<sigma>' \<Longrightarrow> k = Success v \<sigma>' \<Longrightarrow> R\<close>
       and \<open>\<And>r \<sigma>'. evaluate e \<sigma> = Return r \<sigma>' \<Longrightarrow> k = Success r \<sigma>' \<Longrightarrow> R\<close>
@@ -490,7 +473,7 @@ lemma evaluate_call_function_bodyE [micro_rust_elims]:
     shows \<open>R\<close>
   using assms by (cases \<open>evaluate e \<sigma>\<close>; simp add: evaluate_def Core_Expression.call_function_body.simps)
 
-lemma evaluate_call_function_bodyI [micro_rust_intros]:
+lemma evaluate_call_function_bodyI [shallow_computation_intros]:
   assumes \<open>\<And>v \<sigma>'. evaluate e \<sigma> = Success v \<sigma>' \<Longrightarrow> k = Success v \<sigma>'\<close>
       and \<open>\<And>r \<sigma>'. evaluate e \<sigma> = Return r \<sigma>' \<Longrightarrow> k = Success r \<sigma>'\<close>
       and \<open>\<And>\<pi> \<sigma>' e'. evaluate e \<sigma> = Yield \<pi> \<sigma>' e' \<Longrightarrow> k = Yield \<pi> \<sigma>' (\<lambda>\<omega>. call_function_body (e' \<omega>))\<close>
@@ -498,20 +481,18 @@ lemma evaluate_call_function_bodyI [micro_rust_intros]:
     shows \<open>evaluate (call_function_body e) \<sigma> = k\<close>
   using assms by (cases \<open>evaluate e \<sigma>\<close>; simp add: evaluate_def Core_Expression.call_function_body.simps)
 
-
-lemma call_return [micro_rust_simps]:
-  shows \<open>(call (FunctionBody (return_func (literal v)))) = literal v\<close>
+lemma call_return [shallow_computation_simps]:
+  shows \<open>call (FunctionBody (return_func (literal v))) = literal v\<close>
   by (simp add: call_def call_function_body.simps Core_Expression.bind.simps evaluate_def literal_def
       return_func_def return_val_def)
 
-
-lemma call_literal [micro_rust_simps]:
-  shows \<open>(call (FunctionBody ((literal v)))) = (literal v)\<close>
+lemma call_literal [shallow_computation_simps]:
+  shows \<open>call (FunctionBody (literal v)) = literal v\<close>
   by (simp add: call_def call_function_body.simps evaluate_def literal_def)
 
-lemma call_literal2 [micro_rust_simps]:
+lemma call_literal2 [shallow_computation_simps]:
   shows \<open>(call (fun_literal v)) = (literal v)\<close>
-  by (simp add: micro_rust_simps fun_literal_def)
+  by (simp add: shallow_computation_simps fun_literal_def)
 
 text\<open>Note that \<^term>\<open>return_func\<close> is not the \<^emph>\<open>unit\<close> of the expression monad, as one may expect from the
 name if you are coming from Haskell!  That is \<^term>\<open>literal\<close>.\<close>
@@ -690,70 +671,35 @@ qed
 
 subsection\<open>Aborts\<close>
 
-lemma evaluate_abortE [micro_rust_elims]:
+lemma evaluate_abortE [shallow_computation_elims]:
   assumes \<open>evaluate (abort a) \<sigma> = k\<close>
     and \<open>k = Abort a \<sigma> \<Longrightarrow> R\<close>
   shows \<open>R\<close>
   using assms by (auto simp: evaluate_def abort_def)
 
-lemma evaluate_abort [micro_rust_simps]:
+lemma evaluate_abort [shallow_computation_simps]:
   shows \<open>evaluate (abort a) \<sigma> = Abort a \<sigma>\<close>
   by (auto simp: abort_def evaluate_def)
 
-lemma evaluate_panicE [micro_rust_elims]:
-  assumes \<open>evaluate (panic m) \<sigma> = k\<close>
-    and \<open>k = Abort (Panic m) \<sigma> \<Longrightarrow> R\<close>
-  shows \<open>R\<close>
-  using assms by (auto simp: evaluate_def abort_def)
-
-lemma evaluate_panic [micro_rust_simps]:
-  shows \<open>evaluate (panic msg) \<sigma> = Abort (Panic msg) \<sigma>\<close>
-  by (simp add: evaluate_abort)
-
 text\<open>Moreover \<^term>\<open>skip\<close>, which as we saw above is merely a \<^term>\<open>literal\<close> in disguise, and which is
 known to be the unit value of the monad, is the unit value for sequencing:\<close>
-lemma skip_sequence_ident [micro_rust_simps]:
+lemma skip_sequence_ident [shallow_computation_simps]:
   shows \<open>sequence skip f = f\<close>
     and \<open>sequence e skip = e\<close>
-  by (auto simp: micro_rust_simps sequence_def)
+  by (auto simp: shallow_computation_simps sequence_def)
 
-text\<open>As a result, we can always "rewrite away" instances of \<^term>\<open>skip\<close> whenever and wherever they
-appear in a chain of sequenced expressions, as one would expect.  Similarly, the expression
- \<^term>\<open>panic\<close>, and more generally any \<^term>\<open>abort\<close>, acts as a form of "zero" value for the sequencing
-operation, in the following sense:\<close>
+text\<open>Similarly, an \<^term>\<open>abort\<close> acts as a zero value for sequencing:\<close>
 
-
-
-lemma abort_sequence_zero [micro_rust_simps]:
-  shows \<open>(sequence (abort a) e) =
-    (abort a)\<close>
+lemma abort_sequence_zero [shallow_computation_simps]:
+  shows \<open>sequence (abort a) e = abort a\<close>
   by (simp add: evaluate_abort evaluate_sequenceI expression_eqI2)
 
+text\<open>Nested binds can be flattened.\<close>
 
-
-lemma panic_sequence_zero [micro_rust_simps]:
-  fixes msg :: \<open>String.literal\<close>
-  shows \<open>(sequence (panic msg) e) =
-    (panic msg)\<close>
-  by (simp only: abort_sequence_zero)
-
-  text\<open>This, too, also allows us to rewrite a chain of sequenced expressions should they contain an
-instance of \<^term>\<open>panic\<close>.\<close>
-
-text\<open>The SSA transformation often produces nested let bindings which can be flattened out.\<close>
-
-
-
-lemma let_nested [micro_rust_simps]:
-  shows \<open>(do { v0 \<leftarrow> do {
-           v1 \<leftarrow> (v1_expr :: ('s, 'v1, 'r, 'abort, 'i, 'o) expression);
-           cont1 v1
-         };
-         cont0 v0 }) =
-    (do { v1 \<leftarrow> v1_expr;
-         v0 \<leftarrow> cont1 v1;
-         cont0 v0 })\<close>
-  by (simp add: micro_rust_simps)
+lemma let_nested [shallow_computation_simps]:
+  shows \<open>bind (bind v1_expr cont1) cont0 =
+    bind v1_expr (\<lambda>v1. bind (cont1 v1) cont0)\<close>
+  by (simp add: shallow_computation_simps)
 
 (*<*)
 end

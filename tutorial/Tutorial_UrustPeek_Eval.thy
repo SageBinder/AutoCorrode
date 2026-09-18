@@ -1,7 +1,7 @@
 theory Tutorial_UrustPeek_Eval
   imports
     Slides
-    Shallow_Micro_Rust.Eval
+    Shallow_Micro_Rust.Eval_Profile
 begin
 
 text \<open>uRust has \<^emph>\<open>three\<close> evaluation relations -- \<open>\<leadsto>\<^sub>v\<close>, \<open>\<leadsto>\<^sub>r\<close>, \<open>\<leadsto>\<^sub>a\<close> for value, return, and abort.\<close>

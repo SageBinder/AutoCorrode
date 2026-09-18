@@ -54,11 +54,6 @@ datatype 'a prompt_output
 
 subsection\<open>Calling primitive prompts from Micro Rust\<close>
 
-text\<open>A generic yield:\<close>
-
-definition yield :: \<open>'i prompt \<Rightarrow> ('s, 'o prompt_output, 'r, 'abort, 'i prompt, 'o prompt_output) expression\<close> where
-  \<open>yield \<omega> \<equiv> Expression (\<lambda>\<sigma>. Yield \<omega> \<sigma> literal)\<close>
-
 text\<open>The following is a yield to the external environment for informational purposes. The value
 returned from the environment is ignored and should be an \<^verbatim>\<open>Ack\<close>.\<close>
 
@@ -168,17 +163,25 @@ respect to a yield handler that may \<^emph>\<open>YieldAbort\<close>, it will a
 other yield handler which choses a different set of actions at the respective yield prompt. We
 encapsulate this in the following partial order on yield handlers:\<close>
 
-definition yield_handler_no_abort_at :: \<open>('s, 'abort, 'i prompt, 'o prompt_output) yield_handler_nondet_basic \<Rightarrow>
+abbreviation yield_handler_no_abort_at ::
+    \<open>('s, 'abort, 'i prompt, 'o prompt_output) yield_handler_nondet_basic \<Rightarrow>
       'i prompt \<Rightarrow> 's \<Rightarrow> bool\<close> where
-  \<open>yield_handler_no_abort_at y \<pi> \<sigma> \<equiv> \<forall>a \<sigma>'. YieldAbort a \<sigma>' \<notin> y \<pi> \<sigma>\<close>
+  \<open>yield_handler_no_abort_at \<equiv> Core_Expression.yield_handler_no_abort_at\<close>
 
-abbreviation yield_handler_abort_at :: \<open>('s, 'abort, 'i prompt, 'o prompt_output) yield_handler_nondet_basic \<Rightarrow>
+abbreviation yield_handler_abort_at ::
+    \<open>('s, 'abort, 'i prompt, 'o prompt_output) yield_handler_nondet_basic \<Rightarrow>
       'i prompt \<Rightarrow> 's \<Rightarrow> bool\<close> where
-  \<open>yield_handler_abort_at y \<pi> \<sigma> \<equiv> \<not> yield_handler_no_abort_at y \<pi> \<sigma>\<close>
+  \<open>yield_handler_abort_at \<equiv> Core_Expression.yield_handler_abort_at\<close>
 
-definition yield_handler_nondet_basic_refines :: \<open>('s, 'abort, 'i prompt, 'o prompt_output) yield_handler_nondet_basic \<Rightarrow>
-    ('s, 'abort, 'i prompt, 'o prompt_output) yield_handler_nondet_basic \<Rightarrow> bool\<close> where
-  \<open>yield_handler_nondet_basic_refines y x \<equiv> \<forall>\<pi> \<sigma>. yield_handler_no_abort_at x \<pi> \<sigma> \<longrightarrow> y \<pi> \<sigma> = x \<pi> \<sigma>\<close>
+abbreviation yield_handler_nondet_basic_refines ::
+    \<open>('s, 'abort, 'i prompt, 'o prompt_output) yield_handler_nondet_basic \<Rightarrow>
+      ('s, 'abort, 'i prompt, 'o prompt_output) yield_handler_nondet_basic \<Rightarrow> bool\<close> where
+  \<open>yield_handler_nondet_basic_refines \<equiv>
+    Core_Expression.yield_handler_nondet_basic_refines\<close>
+
+lemmas yield_handler_no_abort_at_def = Core_Expression.yield_handler_no_abort_at_def
+lemmas yield_handler_nondet_basic_refines_def =
+  Core_Expression.yield_handler_nondet_basic_refines_def
 
 lemma yield_handler_no_yield_abort_at:
   shows \<open>yield_handler_no_abort_at yield_handler_no_yield p \<sigma> = (is_log_prompt p \<or> p = NondetOrder)\<close>

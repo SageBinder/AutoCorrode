@@ -6,7 +6,7 @@ theory Rust_Iterator_Lemmas
   imports
     Rust_Iterator
     Shallow_Computation.Core_Expression
-    Core_Expression_Lemmas
+    Core_Expression_Lemmas_Profile
     Range_Type
 begin
 (*>*)

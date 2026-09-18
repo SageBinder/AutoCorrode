@@ -142,8 +142,8 @@ text\<open>A \<^emph>\<open>yield handler\<close> is a means to continue evaluat
 via \<^verbatim>\<open>evaluate\<close> produces a \<^term>\<open>Yield\<close>. It receives the yield prompt, the current state, and the
 continuation of the program, and makes a decision on how to continue evaluation.
 
-We consider multiple definitions trading simplicity and generality -- their equivalence is proved 
-in \<^file>\<open>Core_Expression_Lemmas.thy\<close>\<close>
+We consider multiple definitions trading simplicity and generality -- their equivalence is proved
+in \<^file>\<open>Core_Expression_Lemmas.thy\<close>.\<close>
 
 text\<open>First, a \<^emph>\<open>deterministic\<close> yield handler takes a prompt input as well as a continuation parametrized
 by a prompt output, and deterministically return a continuation expression. Note, however, that 
@@ -286,6 +286,21 @@ one result:\<close>
 
 definition is_nonempty_yield_handler :: \<open>('s, 'abort, 'i, 'o) yield_handler_nondet_basic \<Rightarrow> bool\<close> where
   \<open>is_nonempty_yield_handler y \<equiv> (\<forall>a b. y a b \<noteq> {})\<close>
+
+definition yield_handler_no_abort_at ::
+    \<open>('s, 'abort, 'i, 'o) yield_handler_nondet_basic \<Rightarrow> 'i \<Rightarrow> 's \<Rightarrow> bool\<close> where
+  \<open>yield_handler_no_abort_at y \<pi> \<sigma> \<equiv>
+    \<forall>a \<sigma>'. YieldAbort a \<sigma>' \<notin> y \<pi> \<sigma>\<close>
+
+abbreviation yield_handler_abort_at ::
+    \<open>('s, 'abort, 'i, 'o) yield_handler_nondet_basic \<Rightarrow> 'i \<Rightarrow> 's \<Rightarrow> bool\<close> where
+  \<open>yield_handler_abort_at y \<pi> \<sigma> \<equiv> \<not> yield_handler_no_abort_at y \<pi> \<sigma>\<close>
+
+definition yield_handler_nondet_basic_refines ::
+    \<open>('s, 'abort, 'i, 'o) yield_handler_nondet_basic \<Rightarrow>
+      ('s, 'abort, 'i, 'o) yield_handler_nondet_basic \<Rightarrow> bool\<close> where
+  \<open>yield_handler_nondet_basic_refines y x \<equiv>
+    \<forall>\<pi> \<sigma>. yield_handler_no_abort_at x \<pi> \<sigma> \<longrightarrow> y \<pi> \<sigma> = x \<pi> \<sigma>\<close>
   
 subsection\<open>More basic material\<close>
 
@@ -303,6 +318,10 @@ reflected in the type of the expression:\<close>
 definition literal :: \<open>'v \<Rightarrow> \<comment> \<open>HOL value to lift into an expression\<close>
                        ('s, 'v, 'r, 'abort, 'i, 'o) expression\<close> where
   \<open>literal v \<equiv> Expression (Success v)\<close>
+
+text\<open>A generic yield to the computation environment.\<close>
+definition yield :: \<open>'i \<Rightarrow> ('s, 'o, 'r, 'abort, 'i, 'o) expression\<close> where
+  \<open>yield \<omega> \<equiv> Expression (\<lambda>\<sigma>. Yield \<omega> \<sigma> literal)\<close>
 
 definition deep_compose1 :: \<open>('b \<Rightarrow> 'c) \<Rightarrow> ('t0 \<Rightarrow> 'b) \<Rightarrow> ('t0 \<Rightarrow> 'c)\<close>
   where [shallow_computation_simps]: \<open>deep_compose1 g f \<equiv> \<lambda>t0. (g (f t0))\<close>

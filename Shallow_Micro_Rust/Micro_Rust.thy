@@ -7,7 +7,7 @@ theory Micro_Rust
     Bool_Type
     Bool_Type_Lemmas
     Shallow_Computation.Core_Expression
-    Core_Expression_Lemmas
+    Core_Expression_Lemmas_Profile
     Micro_Rust_Parser_Target
     Result_Type
     Option_Type

@@ -17,11 +17,11 @@
 theory Simple_Word_Enum_uRust
   imports
     Misc.Simple_Word_Enums
-    (* Micro_Rust_Notations for the neutral registry itself, and Core_Expression_Lemmas for the
+    (* Micro_Rust_Notations for the neutral registry itself, and the profile lemmas for the
        micro_rust_simps rules (call_literal2 in particular) that reduce a lifted call in these
        tests. *)
     Micro_Rust_Parser_Target
-    Core_Expression_Lemmas
+    Core_Expression_Lemmas_Profile
 begin
 (*>*)
 
