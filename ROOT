@@ -11,6 +11,7 @@ session AutoCorrode = HOL +
     "Data_Structures"
     "Enum_Theory"
     "iq"
+    "Language_Isolation_Tests"
     "Micro_Rust_Examples"
     "Micro_Rust_Interfaces"
     "Micro_Rust_Interfaces_Core"

@@ -1,0 +1,14 @@
+session Language_Isolation_Tests = HOL +
+  options [document = false]
+  sessions
+    Micro_Rust_Parser_Impl
+    Shallow_Micro_Rust
+  theories [document = false]
+    Dependency_Audit
+    Direct_Core_Compatibility
+    Direct_Lemmas_Compatibility
+    Direct_Eval_Compatibility
+    Direct_Pullback_Compatibility
+    Parser_Compatibility
+    Rollup_Compatibility
+    Language_Isolation_Tests
