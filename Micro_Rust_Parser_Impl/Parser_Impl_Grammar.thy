@@ -1673,7 +1673,7 @@ struct
     end
 
   fun parse_source ctxt source =
-    Parser_Utils.with_parser_lock (fn () =>
+    Parser_Lex_Util.with_parser_lock (fn () =>
       parse_layout ctxt
         (Parser_Lex_Util.make_source_layout source))
 end
