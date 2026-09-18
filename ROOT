@@ -5,6 +5,7 @@ session AutoCorrode = HOL +
     "Word_Lib"
     (* AutoCorrode specific *)
     "Autogen"
+    "Parser_Common"
     "Byte_Level_Encoding"
     "Crush"
     "Data_Structures"

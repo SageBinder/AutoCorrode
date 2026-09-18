@@ -123,6 +123,12 @@ This session contains documentation and examples illustrating how to use AutoCor
 
 This session define locales for modelling the verification context. For example, [References.thy](https://awslabs.github.io/AutoCorrode/Unsorted/AutoCorrode/Micro_Rust_Interfaces_Core.References.html) defines the `Reference` locale which provides axioms for reasoning about references and mutable local variables in µRust. It also defines "transfer locales" which use separation lenses (see Optics, above) to extend interpretations of the interface locales to larger separation algebras.
 
+### Parser_Common
+
+This session provides language-neutral source-position, reporting, parser-driver, and runtime-lock
+support for Isabelle_Lex-Yacc frontends. Language-specific grammar, AST, binder, and elaboration
+policy remains in each frontend. See the session [README](Parser_Common/README.md).
+
 ### Micro_Rust_Parser_Impl and Micro_Rust_Parser_Tests
 
 The implementation session provides the production `urust_expr` and `urust_fn` commands:
