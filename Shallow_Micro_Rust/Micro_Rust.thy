@@ -6,7 +6,7 @@ theory Micro_Rust
   imports
     Bool_Type
     Bool_Type_Lemmas
-    Core_Expression
+    Shallow_Computation.Core_Expression
     Core_Expression_Lemmas
     Micro_Rust_Parser_Target
     Result_Type

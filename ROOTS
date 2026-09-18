@@ -9,6 +9,7 @@ Lenses_And_Other_Optics
 Language_Isolation_Tests
 Misc
 Separation_Lenses
+Shallow_Computation
 Shallow_Micro_Rust
 Shallow_Separation_Logic
 Micro_Rust_Examples

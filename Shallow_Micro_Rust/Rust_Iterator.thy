@@ -3,7 +3,7 @@
 
 (*<*)
 theory Rust_Iterator
-  imports "HOL-Library.Datatype_Records" Core_Expression
+  imports "HOL-Library.Datatype_Records" Shallow_Computation.Core_Expression
     Misc.Array Misc.Vector Micro_Rust_Notations Tuple
 begin
 (*>*)

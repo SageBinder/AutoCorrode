@@ -3,7 +3,7 @@
 
 (*<*)
 theory Numeric_Types
-  imports Core_Expression Option_Type
+  imports Shallow_Computation.Core_Expression Option_Type
 begin
 (*>*)
 

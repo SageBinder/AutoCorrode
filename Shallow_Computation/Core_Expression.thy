@@ -1,6 +1,8 @@
 (* Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
    SPDX-License-Identifier: MIT *)
 
+(* Language-neutral shallow computation semantics. *)
+
 (*<*)
 theory Core_Expression
   imports

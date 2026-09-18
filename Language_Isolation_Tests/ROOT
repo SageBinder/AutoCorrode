@@ -5,6 +5,7 @@ session Language_Isolation_Tests = HOL +
     Shallow_Micro_Rust
   theories [document = false]
     Dependency_Audit
+    Neutral_Core_Isolation
     Direct_Core_Compatibility
     Direct_Lemmas_Compatibility
     Direct_Eval_Compatibility

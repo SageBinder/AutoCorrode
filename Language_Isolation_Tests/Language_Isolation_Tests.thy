@@ -3,6 +3,7 @@
 
 theory Language_Isolation_Tests
   imports
+    Neutral_Core_Isolation
     Direct_Core_Compatibility
     Direct_Lemmas_Compatibility
     Direct_Eval_Compatibility

@@ -6,10 +6,9 @@ session Shallow_Micro_Rust = HOL +
     Autogen
     Misc
     Lenses_And_Other_Optics
+    Shallow_Computation
   theories [document = false]
     Semantic_Navigation
-    Case_Term_Backend
-    Core_Expression
     Bool_Type
     Option_Type
     Result_Type

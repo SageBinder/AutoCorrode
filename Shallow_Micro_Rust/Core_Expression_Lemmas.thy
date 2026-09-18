@@ -4,6 +4,7 @@
 (*<*)
 theory Core_Expression_Lemmas
   imports
+    Shallow_Computation.Core_Expression
     Micro_Rust_Parser_Target
 begin
 (*>*)

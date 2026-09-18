@@ -18,6 +18,7 @@ theory AutoCorrode
     "Misc.Misc"
     "Lenses_And_Other_Optics.Lenses_And_Other_Optics"
     "Separation_Lenses.Separation_Lenses"
+    "Shallow_Computation.Shallow_Computation"
     "Shallow_Micro_Rust.Shallow_Micro_Rust"
     "Shallow_Separation_Logic.Shallow_Separation_Logic"
 begin

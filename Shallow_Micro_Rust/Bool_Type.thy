@@ -3,7 +3,7 @@
 
 (*<*)
 theory Bool_Type
-  imports Core_Expression "HOL-Library.Word" Word_Lib.Bit_Shifts_Infix_Syntax
+  imports Shallow_Computation.Core_Expression "HOL-Library.Word" Word_Lib.Bit_Shifts_Infix_Syntax
 begin
 (*>*)
 

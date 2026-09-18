@@ -1,0 +1,11 @@
+session Shallow_Computation = HOL +
+  options [document = false]
+  sessions
+    "HOL-Eisbach"
+    "HOL-Library"
+    Misc
+    Lenses_And_Other_Optics
+  theories [document = false]
+    Case_Term_Backend
+    Core_Expression
+    Shallow_Computation

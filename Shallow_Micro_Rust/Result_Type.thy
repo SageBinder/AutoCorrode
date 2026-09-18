@@ -3,7 +3,7 @@
 
 (*<*)
 theory Result_Type
-  imports Core_Expression Bool_Type Misc.Result
+  imports Shallow_Computation.Core_Expression Bool_Type Misc.Result
 begin
 (*>*)
 

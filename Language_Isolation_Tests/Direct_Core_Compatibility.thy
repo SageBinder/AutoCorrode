@@ -3,24 +3,19 @@
 
 theory Direct_Core_Compatibility
   imports
-    Shallow_Micro_Rust_Base.Basic_Case_Expression
-    Shallow_Micro_Rust_Base.Core_Expression
+    Shallow_Computation.Case_Term_Backend
+    Shallow_Computation.Core_Expression
     Dependency_Audit
 begin
 
-datatype isolation_choice =
-    Isolation_None
-  | Isolation_Some nat
+text\<open>The neutral owner changes the session-qualified import path. The globally visible
+declaration names remain unchanged, including generated equations and named-theorem
+registrations.\<close>
 
-definition isolation_choice_value :: \<open>isolation_choice \<Rightarrow> nat\<close> where
-  \<open>isolation_choice_value value =
-    (bcase value of
-       Isolation_None \<Rightarrow> 0
-     | Isolation_Some n \<Rightarrow> n)\<close>
-
-lemma isolation_choice_value_some:
-  shows \<open>isolation_choice_value (Isolation_Some n) = n\<close>
-  by (simp add: isolation_choice_value_def)
+ML_val\<open>
+  val _ = Case_Term_Backend.case_nil
+  val _ = Case_Term_Backend.make_case
+\<close>
 
 term Core_Expression.Expression
 term Core_Expression.Success
