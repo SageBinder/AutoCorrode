@@ -278,8 +278,9 @@ struct
      match_case arm, and later closure params, `for` patterns, fn parameters) -- Rust has one pattern
      grammar, whose sites differ only in which patterns are LEGAL there, so each site's elaborator gates
      what it accepts with a positioned error instead of the grammar forking (D28). A bare id's ROLE
-     (nullary ctor vs variable binder) needs `Code.is_constr`, invisible to the parser -- hence one
-     `P_Ident`. Adding a pattern form = ONE constructor here + one clause per consuming site. *)
+     (nullary ctor vs variable binder) needs native code-constructor or case-translation metadata,
+     invisible to the parser -- hence one `P_Ident`. Adding a pattern form = ONE constructor here +
+     one clause per consuming site. *)
   datatype borrow_mode = BM_Imm | BM_Mut
   datatype range_kind = RK_Exclusive | RK_Inclusive
   datatype unsigned_type = UT_U8 | UT_U16 | UT_U32 | UT_U64 | UT_Usize

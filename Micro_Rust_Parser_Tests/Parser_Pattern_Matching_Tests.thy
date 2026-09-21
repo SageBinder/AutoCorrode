@@ -95,6 +95,19 @@ micro_rust_notation (literal)
   ParserWordThird
   ("ParserWordFamily::Third")
 
+micro_rust_notation (literal)
+  Parser_Constructor_Ambiguity_Left_Fixtures.SharedWordState
+  ("ParserWordAmbiguityLeft::Shared")
+micro_rust_notation (literal)
+  Parser_Constructor_Ambiguity_Left_Fixtures.LeftWordState
+  ("ParserWordAmbiguityLeft::LeftOnly")
+micro_rust_notation (literal)
+  Parser_Constructor_Ambiguity_Right_Fixtures.SharedWordState
+  ("ParserWordAmbiguityRight::Shared")
+micro_rust_notation (literal)
+  Parser_Constructor_Ambiguity_Right_Fixtures.RightWordState
+  ("ParserWordAmbiguityRight::RightOnly")
+
 urust_expr parser_word_family_sparse
   \<open>
     match ParserWordFamily::Second {
@@ -141,6 +154,57 @@ urust_expr parser_word_family_guarded ::
       ParserWordFamily::First if enabled \<Rightarrow> 10,
       ParserWordFamily::First \<Rightarrow> 11,
       ParserWordFamily::Second | ParserWordFamily::Third \<Rightarrow> 20
+    }
+  \<close>
+
+urust_expr [conformance = false] parser_word_family_unqualified ::
+  \<open>
+    parser_word_family \<Rightarrow>
+      (unit, nat, unit, unit, unit, unit) expression
+  \<close>
+  (scrutinee)
+  \<open>
+    match_case scrutinee {
+      ParserWordFirst \<Rightarrow> 10,
+      ParserWordSecond | ParserWordThird \<Rightarrow> 20
+    }
+  \<close>
+
+urust_expr parser_word_ambiguity_left_qualified ::
+  \<open>
+    word_constructor_ambiguity_left \<Rightarrow>
+      (unit, nat, unit, unit, unit, unit) expression
+  \<close>
+  (scrutinee)
+  \<open>
+    match_case scrutinee {
+      ParserWordAmbiguityLeft::Shared \<Rightarrow> 1,
+      ParserWordAmbiguityLeft::LeftOnly \<Rightarrow> 2
+    }
+  \<close>
+
+urust_expr parser_word_ambiguity_right_qualified ::
+  \<open>
+    word_constructor_ambiguity_right \<Rightarrow>
+      (unit, nat, unit, unit, unit, unit) expression
+  \<close>
+  (scrutinee)
+  \<open>
+    match_case scrutinee {
+      ParserWordAmbiguityRight::Shared \<Rightarrow> 3,
+      ParserWordAmbiguityRight::RightOnly \<Rightarrow> 4
+    }
+  \<close>
+
+urust_expr parser_unknown_bare_identifier_binder ::
+  \<open>
+    nat \<Rightarrow>
+      (unit, nat, unit, unit, unit, unit) expression
+  \<close>
+  (scrutinee)
+  \<open>
+    match_case scrutinee {
+      parser_unknown_state \<Rightarrow> parser_unknown_state
     }
   \<close>
 
@@ -229,6 +293,38 @@ lemma parser_word_family_results:
     \<close>
     and
     \<open>
+      parser_word_family_unqualified ParserWordFirst =
+        literal (10 :: nat)
+    \<close>
+    and
+    \<open>
+      parser_word_family_unqualified ParserWordSecond =
+        literal (20 :: nat)
+    \<close>
+    and
+    \<open>
+      parser_word_family_unqualified ParserWordThird =
+        literal (20 :: nat)
+    \<close>
+    and
+    \<open>
+      parser_word_ambiguity_left_qualified
+        Parser_Constructor_Ambiguity_Left_Fixtures.SharedWordState =
+        literal (1 :: nat)
+    \<close>
+    and
+    \<open>
+      parser_word_ambiguity_right_qualified
+        Parser_Constructor_Ambiguity_Right_Fixtures.RightWordState =
+        literal (4 :: nat)
+    \<close>
+    and
+    \<open>
+      parser_unknown_bare_identifier_binder 7 =
+        literal (7 :: nat)
+    \<close>
+    and
+    \<open>
       parser_word_family_guarded ParserWordFirst True =
         literal (10 :: nat)
     \<close>
@@ -265,6 +361,10 @@ lemma parser_word_family_results:
   by
     (simp_all add:
       parser_word_family_exhaustive_def
+      parser_word_family_unqualified_def
+      parser_word_ambiguity_left_qualified_def
+      parser_word_ambiguity_right_qualified_def
+      parser_unknown_bare_identifier_binder_def
       parser_word_family_guarded_def
       parser_word_family_matches_def
       micro_rust_simps)
@@ -2881,6 +2981,9 @@ ML_val\<open>
     val word_second = resolve "ParserWordFamily::Second"
     val word_family =
       the (URust_Resolution.constructor_family word_second)
+    val bare_word_second = resolve "ParserWordSecond"
+    val bare_word_family =
+      the (URust_Resolution.constructor_family bare_word_second)
     val single_word_only =
       resolve "ParserSingleWordFamily::ParserWordOnly"
     val single_word_family =
@@ -2897,6 +3000,7 @@ ML_val\<open>
 
     val (_, native_members) = native_family
     val (_, word_members) = word_family
+    val (_, bare_word_members) = bare_word_family
     val (_, single_word_members) = single_word_family
     val word_case_name =
       dest_Const_name \<^term>\<open>case_parser_word_family\<close>
@@ -2928,6 +3032,15 @@ ML_val\<open>
             [\<^term>\<open>ParserWordFirst\<close>,
              \<^term>\<open>ParserWordSecond\<close>,
              \<^term>\<open>ParserWordThird\<close>])
+    val _ =
+      assert "bare simple_word_enum constructor identity changed"
+        (Term.aconv_untyped
+          (URust_Resolution.constructor_term bare_word_second,
+           \<^term>\<open>ParserWordSecond\<close>))
+    val _ =
+      assert "bare simple_word_enum family order changed"
+        (map constant_name bare_word_members =
+          map constant_name word_members)
     val _ =
       assert "simple_word_enum native case registration changed"
         (constant_name word_case = word_case_name andalso
@@ -5480,7 +5593,7 @@ ML_val\<open>
   end
 \<close>
 
-section\<open> Concealed registered-constructor lookup boundary \<close>
+section\<open> Concealed native-constructor lookup boundary \<close>
 
 experiment
 begin
@@ -5573,16 +5686,24 @@ ML_val\<open>
         (Term.aconv_untyped
           (URust_Resolution.constructor_term registered_info,
            \<^term>\<open>ConcealedRegistered\<close>))
+    val bare_registered_info =
+      the
+        (URust_Resolution.resolve_constructor ctxt resolver
+          (path_of "ConcealedRegistered"))
+    val bare_unregistered_info =
+      the
+        (URust_Resolution.resolve_constructor ctxt resolver
+          (path_of "ConcealedUnregistered"))
     val _ =
-      audit_assert "registered concealed constructor leaked into basename lookup"
-        (is_none
-          (URust_Resolution.resolve_constructor ctxt resolver
-            (path_of "ConcealedRegistered")))
+      audit_assert "registered concealed constructor lost bare lookup"
+        (Term.aconv_untyped
+          (URust_Resolution.constructor_term bare_registered_info,
+           \<^term>\<open>ConcealedRegistered\<close>))
     val _ =
-      audit_assert "second concealed constructor leaked into basename lookup"
-        (is_none
-          (URust_Resolution.resolve_constructor ctxt resolver
-            (path_of "ConcealedUnregistered")))
+      audit_assert "unregistered concealed constructor lost bare lookup"
+        (Term.aconv_untyped
+          (URust_Resolution.constructor_term bare_unregistered_info,
+           \<^term>\<open>ConcealedUnregistered\<close>))
 
     val registered_match =
       checked
@@ -5597,13 +5718,17 @@ ML_val\<open>
         (count_constant \<^const_name>\<open>undefined\<close>
           registered_match = 0)
 
-    val unregistered_binder =
+    val unregistered_match =
       checked
         ("match_case \<llangle>ConcealedUnregistered\<rrangle> { " ^
          "ConcealedUnregistered \<Rightarrow> 0 }")
     val _ =
-      audit_assert "unregistered concealed basename stopped being a binder"
-        (count_constant unregistered_name unregistered_binder = 1)
+      audit_assert "unregistered concealed basename lost native case lowering"
+        (count_constant concealed_case_name unregistered_match = 1)
+    val _ =
+      audit_assert "partial concealed match lost its unmatched fallback"
+        (count_constant \<^const_name>\<open>undefined\<close>
+          unregistered_match > 0)
 
     fun diagnostic_ranges body =
       let
@@ -5688,7 +5813,7 @@ ML_val\<open>
   in
     val _ =
       writeln
-        "Concealed registered identity, mixed-match rejection, recovery, and filtered unregistered lookup regressions passed"
+        "Concealed registered identity, native basename lookup, mixed-match rejection, and recovery regressions passed"
   end
 \<close>
 
