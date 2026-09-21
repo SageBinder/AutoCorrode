@@ -60,7 +60,7 @@ definition dereference_raw_contract
 
 text\<open>Lifting the raw reference operations to typed ones using foci:\<close>
 
-urust_fn reference_fun ::
+urust_fn [attrs = [all_reference_defs']] reference_fun ::
   \<open>('b, 'v) prism \<Rightarrow>
    'v \<Rightarrow>
    ('s, ('a, 'b, 'v) Global_Store.ref, 'abort, 'i, 'o) function_body\<close>
@@ -70,15 +70,13 @@ urust_fn reference_fun ::
     \<llangle>make_ref_typed_from_untyped\<rrangle>\<^sub>2(r, \<llangle>prism_to_focus p\<rrangle>)
   \<close>
 
-declare reference_fun_def[all_reference_defs']
-
 \<comment>\<open>\<^verbatim>\<open>prism_to_focus p\<close> has no (unconditional) code equations. Instead, specific instances of
 for valid \<^verbatim>\<open>p\<close> have to be wrapped as definitions and given code equations by instantiating
 \<^verbatim>\<open>prism_to_focus.rep_eq\<close>. However, those specialized code equations will only be recognized 
 during code generation if \<^verbatim>\<open>reference_fun\<close> is inlined -- thus the need for \<^verbatim>\<open>code_unfold\<close>.\<close>
 declare reference_fun_def[code_unfold]
 
-urust_fn modify_raw_fun ::
+urust_fn [attrs = [all_reference_defs']] modify_raw_fun ::
   \<open>('a, 'b) gref \<Rightarrow> ('b \<Rightarrow> 'b) \<Rightarrow> ('s, unit, 'abort, 'i, 'o) function_body\<close>
   (r, f)
   \<open>
@@ -86,25 +84,19 @@ urust_fn modify_raw_fun ::
     update_raw_fun(r, \<llangle>f\<rrangle>\<^sub>1(g))
   \<close>
 
-declare modify_raw_fun_def[all_reference_defs']
-
-urust_fn modify_fun ::
+urust_fn [attrs = [all_reference_defs']] modify_fun ::
   \<open>('a, 'b, 'v) Global_Store.ref \<Rightarrow> ('v \<Rightarrow> 'v) \<Rightarrow> ('s, unit, 'abort, 'i, 'o) function_body\<close>
   (ref, f)
   \<open>
     modify_raw_fun (\<llangle>untype_ref\<rrangle>\<^sub>1(ref), \<llangle>focus_modify (get_focus ref) f\<rrangle>)
   \<close>
 
-declare modify_fun_def[all_reference_defs']
-
-urust_fn update_fun ::
+urust_fn [attrs = [all_reference_defs']] update_fun ::
   \<open>('a, 'b, 'v) Global_Store.ref \<Rightarrow> 'v \<Rightarrow> ('s, unit, 'abort, 'i, 'o) function_body\<close>
   (ref, v)
   \<open> modify_fun(ref, \<llangle>\<lambda>_. v\<rrangle>) \<close>
 
-declare update_fun_def[all_reference_defs']
-
-urust_fn dereference_fun ::
+urust_fn [attrs = [all_reference_defs']] dereference_fun ::
   \<open>('a, 'b, 'v) Global_Store.ref \<Rightarrow> ('s, 'v, 'abort, 'i, 'o) function_body\<close>
   (ref)
   \<open>
@@ -115,14 +107,10 @@ urust_fn dereference_fun ::
     }
   \<close>
 
-declare dereference_fun_def[all_reference_defs']
-
-urust_fn ro_dereference_fun ::
+urust_fn [attrs = [all_reference_defs']] ro_dereference_fun ::
   \<open>('a, 'b, 'v) ro_ref \<Rightarrow> ('s, 'v, 'abort, 'i, 'o) function_body\<close>
   (r)
   \<open> dereference_fun(\<llangle>unsafe_ref_from_ro_ref\<rrangle>\<^sub>1(r)) \<close>
-
-declare ro_dereference_fun_def[all_reference_defs']
 
 definition is_valid_ref_for :: \<open>('a, 'b, 'v) Global_Store.ref \<Rightarrow> 'b set \<Rightarrow> bool\<close>
   where \<open>is_valid_ref_for r P \<equiv> focus_dom (get_focus r) \<subseteq> P\<close>
