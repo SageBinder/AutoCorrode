@@ -152,25 +152,3 @@ Shared declaration-only setup lives in `Parser_Iterator_Fixtures.thy`,
 `Parser_Registered_Constructor_Fixtures.thy`, `Parser_Cast_Alias_Fixtures.thy`, and the four
 ambiguity fixture theories. Shared ML support and test-only rejection commands live in
 `Parser_Test_Utils.thy`. Every tracked `.thy` file in this directory is registered in `ROOT`.
-
-## Migration-report disposition
-
-| Item | Disposition |
-|---|---|
-| H-D1 | Fixed with parenthesized lexical declaration arguments; chosen names shadow unqualified HOL/direct-call names. |
-| H-D2 | Temporarily accepts the legacy dereference-before-first-index shape and grouped/call-receiver field shapes; explicit whole-operand grouping selects Rust precedence. |
-| H-D3 postfix | Kept. |
-| H-D3 cast | Fixed with unary-before-cast precedence. |
-| H-D4 | Fixed through exact registered `Case_Translation` recovery. |
-| H-D5 | Qualification remains required for ambiguous basenames. |
-| H-D6 families | Fixed without downstream or parser-private family registration. |
-| H-D6 nested pattern | Fixed by lowering every authenticated constructor structurally, including registered nullaries. |
-| H-D7 | Accepts semicolons only after return arm bodies, without adding sequencing or unit. |
-| H-D8 | Fixed by centralized integer candidate parsing and validation. |
-| H-D9 | Temporarily accepts apostrophised identifiers in ordinary, turbofish, and logging-data contexts. |
-| H-D10 | Fixed with exact terminal-`_` `function_body` inference. |
-| H-D11 | Fixed by the shared shallow iterator `zip`. |
-| H-D12 | Import semantics/public bridge documented; no parser change. |
-| P10/P14 | Use argument-taking abbreviations and declaration attributes. |
-| P5/P13 | Out of scope; no `ic2` change. |
-| Other P-items | Migration tooling/environment issues; no AutoCorrode language feature added. |
