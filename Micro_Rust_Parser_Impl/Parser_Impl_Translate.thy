@@ -32,17 +32,18 @@ ML\<open>
    It delegates matching and macro lowering to their sealed feature layers; it does not parse source,
    type-check terms, or install definitions.
 
-   The public operations accept the Proof.context, typed lexical arguments, and one expression AST.
-   mk_expression lowers under those arguments and abstracts them in source order without adding a
-   FunctionBody wrapper. mk_function performs the same lowering, wraps the body once in FunctionBody,
-   and then abstracts the arguments. Untyped clients represent inferred argument types with dummyT.
-   Both operations return one unchecked HOL term: the command layer optionally constrains the complete
-   term and passes it to Syntax.check_term exactly once in the same context. Successful lowering
-   preserves lexical scope and the existing shallow-embedding term shape; for syntax shared with the
-   old frontend, callers may rely on alpha-identical checked output directly. Command-level
-   conformance either unfolds a generated definition or compares an expanded abbreviation right-hand
-   side before closing by reflexivity. Resolution and pattern-validation failures are propagated with
-   their source positions. The signature exposes no public types or constructors.
+   The public operations accept the Proof.context, typed declaration slots, and one expression AST.
+   Named slots become lexical arguments; wildcard slots retain their type and source-order abstraction
+   but enter no lexical environment. mk_expression lowers under that environment and applies the
+   ordered abstractions without adding a FunctionBody wrapper. mk_function performs the same lowering,
+   wraps the body once in FunctionBody, and then applies the abstractions. Untyped clients represent
+   inferred slot types with dummyT. Both operations return one unchecked HOL term: the command layer
+   optionally constrains the complete term and passes it to Syntax.check_term exactly once in the same
+   context. Successful lowering preserves lexical scope and the existing shallow-embedding term shape;
+   for syntax shared with the old frontend, callers may rely on alpha-identical checked output directly.
+   Command-level conformance either unfolds a generated definition or compares an expanded abbreviation
+   right-hand side before closing by reflexivity. Resolution and pattern-validation failures are
+   propagated with their source positions. The signature exposes no public types or constructors.
 
    All lower_* functions, the recursive traversal order, module aliases, and the division of work among
    helper functions are implementation details hidden by URUST_TRANSLATE. *)
@@ -396,10 +397,13 @@ struct
 
   fun mk_with_wrapper allocate wrapper ctxt arguments expression =
     let
-      val (argument_terms, environment) =
+      val (abstractions, environment) =
         allocate ctxt R.empty_environment arguments
       val body = lower_expression ctxt environment expression
-    in fold_rev Term.lambda argument_terms (wrapper body) end
+    in
+      fold_rev (fn abstraction => fn term => abstraction term)
+        abstractions (wrapper body)
+    end
 
   fun mk_expression ctxt arguments expression =
     mk_with_wrapper R.allocate_expression_arguments I

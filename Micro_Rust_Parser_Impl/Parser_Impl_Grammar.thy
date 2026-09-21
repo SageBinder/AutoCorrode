@@ -1975,7 +1975,7 @@ struct
          delimited = Input.is_delimited source})
 
   fun parse_source ctxt source =
-    Parser_Utils.with_parser_lock (fn () =>
+    Parser_Lex_Util.with_parser_lock (fn () =>
       let
         val _ = report_source_language ctxt source
       in
@@ -1992,7 +1992,7 @@ struct
       end)
 
   fun parse_item_source ctxt source =
-    Parser_Utils.with_parser_lock (fn () =>
+    Parser_Lex_Util.with_parser_lock (fn () =>
       let
         val _ = report_source_language ctxt source
       in

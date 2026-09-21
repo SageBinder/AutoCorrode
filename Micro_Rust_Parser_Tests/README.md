@@ -127,7 +127,8 @@ negative rows preserve these boundaries.
   shared-source parity suites, including direct, method, and chained iterator syntax.
 - `Parser_Improvements_Tests.thy`: accepted language improvements, intentional semantic
   corrections, and demonstrated legacy-parser bugs.
-- `Parser_Command_Tests.thy`: declaration behavior, options, artifacts, timing, and facade audits.
+- `Parser_Command_Tests.thy`: declaration behavior, named and wildcard parameter slots, options,
+  artifacts, timing, markup, and facade audits.
 - `Parser_Syntax_Tests.thy`: precedence adjacency, unary/cast/postfix behavior, direct and
   wrapped block-like operands, statement/arm separators, recursive no-struct heads, closures,
   structs, integer lexing, comments, exhaustive array-repeat coverage, generated grammar, markup,

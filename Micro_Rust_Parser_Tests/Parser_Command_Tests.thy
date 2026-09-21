@@ -283,6 +283,65 @@ urust_fn quoted_major_parameter ::
   ("lemma")
   \<open> lemma \<close>
 
+text\<open>
+A declaration wildcard consumes one argument type and contributes one anonymous abstraction without
+entering lexical name resolution. Single, repeated, and mixed wildcard slots are accepted by both
+commands; named slots retain their ordinary source-order scope and conformance behavior.
+\<close>
+
+urust_expr wildcard_expression_single ::
+  \<open>nat \<Rightarrow> (unit, unit, unit, unit, unit, unit) expression\<close>
+  (_)
+  \<open> () \<close>
+
+urust_expr wildcard_expression_mixed ::
+  \<open>nat \<Rightarrow> bool \<Rightarrow> 32 word \<Rightarrow>
+    (unit, bool, unit, unit, unit, unit) expression\<close>
+  (_, kept, _)
+  \<open> kept \<close>
+
+urust_fn wildcard_function_single ::
+  \<open>nat \<Rightarrow> (unit, unit, unit, unit, unit) function_body\<close>
+  (_)
+  \<open> () \<close>
+
+urust_fn wildcard_function_mixed ::
+  \<open>nat \<Rightarrow> bool \<Rightarrow> 32 word \<Rightarrow>
+    (unit, bool, unit, unit, unit) function_body\<close>
+  (_, kept, _)
+  \<open> kept \<close>
+
+urust_expr [conformance = false] wildcard_expression_inferred
+  (_)
+  \<open> () \<close>
+
+urust_fn [conformance = false] wildcard_function_inferred ::
+  \<open>_ \<Rightarrow> _\<close>
+  (_)
+  \<open> \<llangle>0 :: nat\<rrangle> \<close>
+
+urust_expr [application_def] wildcard_expression_application ::
+  \<open>nat \<Rightarrow> (unit, unit, unit, unit, unit, unit) expression\<close>
+  (_)
+  \<open> () \<close>
+
+urust_fn [application_def] wildcard_function_application ::
+  \<open>nat \<Rightarrow> (unit, unit, unit, unit, unit) function_body\<close>
+  (_)
+  \<open> () \<close>
+
+urust_expr [abbrev] wildcard_expression_abbreviation ::
+  \<open>nat \<Rightarrow> bool \<Rightarrow>
+    (unit, bool, unit, unit, unit, unit) expression\<close>
+  (_, kept)
+  \<open> kept \<close>
+
+urust_fn [abbrev] wildcard_function_abbreviation ::
+  \<open>nat \<Rightarrow> bool \<Rightarrow>
+    (unit, bool, unit, unit, unit) function_body\<close>
+  (_, kept)
+  \<open> kept \<close>
+
 thm typed_closed_conformance
 thm typed_contextual_conformance
 thm typed_heterogeneous_conformance
@@ -303,6 +362,14 @@ thm parenthesized_minor_keyword_expression_conformance
 thm partial_internal_placeholder_conformance
 thm zip_parameter_value_conformance
 thm quoted_major_parameter_conformance
+thm wildcard_expression_single_conformance
+thm wildcard_expression_mixed_conformance
+thm wildcard_function_single_conformance
+thm wildcard_function_mixed_conformance
+thm wildcard_expression_application_conformance
+thm wildcard_function_application_conformance
+thm wildcard_expression_abbreviation_conformance
+thm wildcard_function_abbreviation_conformance
 
 ML_val\<open>
   local
@@ -436,6 +503,143 @@ ML_val\<open>
        | _ =>
            error
              "command surface audit: terminal placeholder has malformed completed type")
+  in
+    val _ = ()
+  end
+\<close>
+
+ML_val\<open>
+  local
+    val ctxt = \<^context>
+
+    fun assert message condition =
+      if condition then ()
+      else error ("declaration wildcard audit: " ^ message)
+
+    fun definition_equation name =
+      Proof_Context.get_thm ctxt (name ^ "_def")
+      |> Thm.prop_of
+      |> Logic.dest_equals
+
+    fun strip_abstractions 0 term = ([], term)
+      | strip_abstractions count (Abs (name, T, body)) =
+          strip_abstractions (count - 1) body
+          |>> cons (name, T)
+      | strip_abstractions _ _ =
+          error "declaration wildcard audit: missing abstraction"
+
+    fun contains_bound index =
+      Term.exists_subterm
+        (fn Bound candidate => candidate = index | _ => false)
+
+    fun count_constant expected =
+      Term.fold_aterms
+        (fn Const (actual, _) =>
+              if actual = expected then Integer.add 1 else I
+          | _ => I)
+
+    val (_, expression_term) =
+      definition_equation "wildcard_expression_mixed"
+    val (expression_abstractions, expression_body) =
+      strip_abstractions 3 expression_term
+    val (_, function_term) =
+      definition_equation "wildcard_function_mixed"
+    val (function_abstractions, function_body) =
+      strip_abstractions 3 function_term
+    val expected_types =
+      [HOLogic.natT, HOLogic.boolT, \<^typ>\<open>32 word\<close>]
+
+    val _ =
+      assert "typed expression slots changed order"
+        (map #2 expression_abstractions = expected_types)
+    val _ =
+      assert "typed function slots changed order"
+        (map #2 function_abstractions = expected_types)
+    val _ =
+      assert "expression wildcards are not anonymous binders"
+        (map #1 expression_abstractions
+          |> (fn [first, _, third] =>
+                first = Name.uu andalso third = Name.uu
+               | _ => false))
+    val _ =
+      assert "function wildcards are not anonymous binders"
+        (map #1 function_abstractions
+          |> (fn [first, _, third] =>
+                first = Name.uu andalso third = Name.uu
+               | _ => false))
+    val _ =
+      assert "mixed expression lost the named middle argument"
+        (contains_bound 1 expression_body andalso
+         not (contains_bound 0 expression_body) andalso
+         not (contains_bound 2 expression_body))
+    val _ =
+      assert "mixed function lost the named middle parameter"
+        (contains_bound 1 function_body andalso
+         not (contains_bound 0 function_body) andalso
+         not (contains_bound 2 function_body))
+    val _ =
+      assert "urust_expr gained a FunctionBody wrapper"
+        (count_constant \<^const_name>\<open>FunctionBody\<close>
+          expression_term 0 = 0)
+    val _ =
+      assert "urust_fn does not contain exactly one FunctionBody"
+        (count_constant \<^const_name>\<open>FunctionBody\<close>
+          function_term 0 = 1)
+
+    val (allocation, environment) =
+      URust_Resolution.allocate_expression_arguments ctxt
+        URust_Resolution.empty_environment
+        [(("_", Position.none), HOLogic.natT)]
+    val allocated =
+      fold_rev (fn abstraction => fn term => abstraction term)
+        allocation (Free ("wildcard_probe", HOLogic.boolT))
+    val _ =
+      assert "wildcard entered lexical lookup"
+        (is_none (URust_Resolution.lookup_local environment "_"))
+    val _ =
+      assert "wildcard allocation lost its declared type"
+        (case allocated of
+           Abs (name, T, Free ("wildcard_probe", bodyT)) =>
+             name = Name.uu andalso T = HOLogic.natT andalso
+               bodyT = HOLogic.boolT
+         | _ => false)
+
+    fun reconstructed_application name =
+      let
+        val (lhs, rhs) = definition_equation name
+      in
+        fold_rev Term.lambda (#2 (Term.strip_comb lhs)) rhs
+      end
+
+    val (_, expression_single) =
+      definition_equation "wildcard_expression_single"
+    val (_, function_single) =
+      definition_equation "wildcard_function_single"
+    val _ =
+      assert "application_def changed the anonymous expression slot"
+        (Term.aconv
+          (expression_single,
+           reconstructed_application "wildcard_expression_application"))
+    val _ =
+      assert "application_def changed the anonymous function slot"
+        (Term.aconv
+          (function_single,
+           reconstructed_application "wildcard_function_application"))
+
+    fun declaration_type name =
+      Syntax.read_term ctxt name |> fastype_of
+    val (inferred_expression_arguments, _) =
+      Term.strip_type (declaration_type "wildcard_expression_inferred")
+    val (inferred_function_arguments, _) =
+      Term.strip_type (declaration_type "wildcard_function_inferred")
+    val _ =
+      assert "untyped urust_expr did not infer one wildcard slot"
+        (length inferred_expression_arguments = 1 andalso
+         hd inferred_expression_arguments <> dummyT)
+    val _ =
+      assert "placeholder-typed urust_fn did not infer one wildcard slot"
+        (length inferred_function_arguments = 1 andalso
+         hd inferred_function_arguments <> dummyT)
   in
     val _ = ()
   end
@@ -681,6 +885,18 @@ end
 definition typed_flags_abbrev_client where
   \<open>typed_flags_abbrev_client = typed_flags_001\<close>
 
+definition wildcard_expression_abbreviation_client where
+  \<open>
+    wildcard_expression_abbreviation_client =
+      wildcard_expression_abbreviation (0 :: nat) True
+  \<close>
+
+definition wildcard_function_abbreviation_client where
+  \<open>
+    wildcard_function_abbreviation_client =
+      wildcard_function_abbreviation (0 :: nat) True
+  \<close>
+
 ML_val\<open>
   local
     val ctxt = \<^context>
@@ -727,13 +943,19 @@ ML_val\<open>
        "partial_collision_function", "partial_internal_placeholder",
        "zip_parameter_value", "zip_callable_parameter",
        "zip_method_registration", "quoted_major_parameter",
+       "wildcard_expression_single", "wildcard_expression_mixed",
+       "wildcard_function_single", "wildcard_function_mixed",
+       "wildcard_expression_inferred", "wildcard_function_inferred",
+       "wildcard_expression_application", "wildcard_function_application",
        "typed_flags_000", "typed_flags_010",
        "typed_flags_100", "typed_flags_110", "typed_against"]
     val abbreviations =
       ["typed_flags_001", "typed_flags_011",
        "typed_flags_101", "typed_flags_111",
        "typed_function_abbrev_common",
-       "typed_function_abbrev_command"]
+       "typed_function_abbrev_command",
+       "wildcard_expression_abbreviation",
+       "wildcard_function_abbreviation"]
     val conforming =
       ["typed_closed", "typed_contextual", "typed_heterogeneous",
        "typed_higher_order", "typed_polymorphic",
@@ -747,6 +969,11 @@ ML_val\<open>
        "parenthesized_minor_keyword_expression",
        "partial_internal_placeholder", "zip_parameter_value",
        "quoted_major_parameter",
+       "wildcard_expression_single", "wildcard_expression_mixed",
+       "wildcard_function_single", "wildcard_function_mixed",
+       "wildcard_expression_application", "wildcard_function_application",
+       "wildcard_expression_abbreviation",
+       "wildcard_function_abbreviation",
        "typed_flags_100",
        "typed_flags_101", "typed_flags_110", "typed_flags_111",
        "typed_function_abbrev_common", "typed_function_abbrev_command",
@@ -754,6 +981,7 @@ ML_val\<open>
     val nonconforming =
       ["partial_collision_function", "zip_callable_parameter",
        "zip_method_registration", "typed_application_implicit_parameter",
+       "wildcard_expression_inferred", "wildcard_function_inferred",
        "typed_flags_000", "typed_flags_001",
        "typed_flags_010", "typed_flags_011"]
 
@@ -788,17 +1016,28 @@ ML_val\<open>
             (not (has_fact (name ^ "_conformance"))))
         nonconforming
 
-    val abbreviation_proposition =
-      Thm.prop_of
-        (Proof_Context.get_thm ctxt "typed_flags_abbrev_client_def")
-    val abbreviation_name = constant_name "typed_flags_001"
+    fun assert_expanded client abbreviation =
+      let
+        val proposition =
+          Thm.prop_of
+            (Proof_Context.get_thm ctxt (client ^ "_def"))
+        val abbreviation_name = constant_name abbreviation
+      in
+        assert (quote abbreviation ^ " survived in a checked client term")
+          (not
+            (Term.exists_subterm
+              (fn Const (name, _) => name = abbreviation_name
+                | _ => false)
+              proposition))
+      end
+
+    val _ = assert_expanded "typed_flags_abbrev_client" "typed_flags_001"
     val _ =
-      assert "abbreviation survived in a checked client term"
-        (not
-          (Term.exists_subterm
-            (fn Const (name, _) => name = abbreviation_name
-              | _ => false)
-            abbreviation_proposition))
+      assert_expanded "wildcard_expression_abbreviation_client"
+        "wildcard_expression_abbreviation"
+    val _ =
+      assert_expanded "wildcard_function_abbreviation_client"
+        "wildcard_function_abbreviation"
   in
     val _ = ()
   end
@@ -1088,6 +1327,9 @@ ML_val\<open>
       "nat \<Rightarrow> " ^ expression_type
     val binary_expression_type =
       "nat \<Rightarrow> bool \<Rightarrow> " ^ expression_type
+    val ternary_expression_type =
+      "nat \<Rightarrow> bool \<Rightarrow> nat \<Rightarrow> " ^
+        expression_type
     val function_type =
       "nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body"
 
@@ -1128,15 +1370,9 @@ ML_val\<open>
         "duplicate typed arguments" "duplicate argument" [19, 23]
         (fn () =>
           elaborate URust_Command.Expression
-            (SOME binary_expression_type)
-            [argument 19 190 "same", argument 23 230 "same"] "same")
-    val _ =
-      expect_positioned_rejection
-        "wildcard typed argument" "name `_` is not allowed" [29]
-        (fn () =>
-          elaborate URust_Command.Expression
-            (SOME unary_expression_type)
-            [argument 29 290 "_"] "0")
+            (SOME ternary_expression_type)
+            [argument 19 190 "same", argument 21 210 "_",
+             argument 23 230 "same"] "same")
     val _ =
       expect_rejection
         "argument type mismatch" "Clash of types"
@@ -1162,11 +1398,20 @@ ML_val\<open>
       elaborate URust_Command.Expression
         (SOME unary_expression_type)
         [argument 37 370 "item"] "item"
+    val wildcard =
+      elaborate URust_Command.Expression
+        (SOME unary_expression_type)
+        [argument 39 390 "_"] "0"
     val _ =
       if fastype_of recovered =
           Syntax.read_typ ctxt unary_expression_type
       then ()
       else fail "successful elaboration did not recover after failures"
+    val _ =
+      if fastype_of wildcard =
+          Syntax.read_typ ctxt unary_expression_type
+      then ()
+      else fail "typed wildcard argument did not retain its type slot"
   in
     val _ = ()
   end
@@ -1175,6 +1420,7 @@ ML_val\<open>
 ML_val\<open>
   local
     val unit_source = Symbol.open_ ^ " () " ^ Symbol.close
+    val zero_source = Symbol.open_ ^ " 0 " ^ Symbol.close
     val unit_expression_type =
       Symbol.open_ ^
       "(unit, unit, unit, unit, unit, unit) expression" ^
@@ -1247,9 +1493,10 @@ ML_val\<open>
           "(unit, nat, unit, unit, unit, unit) expression" ^
           Symbol.close ^ " (item, item) " ^ unit_source)
     val _ =
-      assert_rejected "typed-wildcard-argument"
-        ("urust_expr typed_wildcard_argument :: " ^
-          unary_expression_type ^ " (_) " ^ unit_source)
+      ignore
+        (run_command "typed-wildcard-argument"
+          ("urust_expr typed_wildcard_argument :: " ^
+            unary_expression_type ^ " (_) " ^ zero_source) ())
     val _ =
       assert_rejected "typed-missing-argument"
         ("urust_expr typed_missing_argument :: " ^
@@ -1267,10 +1514,14 @@ ML_val\<open>
     val ctxt = \<^context>
     val file = "urust-typed-binder-markup"
     val document_id = "urust-typed-binder-markup"
-    val first_definition =
+    val first_wildcard =
       Position.make0 11 100 0 "" file document_id
-    val second_definition =
+    val first_definition =
+      Position.make0 11 105 0 "" file document_id
+    val second_wildcard =
       Position.make0 11 110 0 "" file document_id
+    val second_definition =
+      Position.make0 11 115 0 "" file document_id
     val body_text =
       "\<llangle>(first, second, first)\<rrangle>"
     val body_start =
@@ -1292,12 +1543,14 @@ ML_val\<open>
                   {kind = URust_Command.Expression,
                    source = body_source,
                    arguments =
-                     [("first", first_definition),
+                     [("_", first_wildcard),
+                      ("first", first_definition),
+                      ("_", second_wildcard),
                       ("second", second_definition)],
                    arguments_pos = Position.line_file 9 file,
                    declared_type =
                      SOME
-                       ("nat \<Rightarrow> bool \<Rightarrow> " ^
+                       ("unit \<Rightarrow> nat \<Rightarrow> 32 word \<Rightarrow> bool \<Rightarrow> " ^
                         "(unit, nat \<times> bool \<times> nat, " ^
                         "unit, unit, unit, unit) expression",
                         Position.line_file 7 file)}) ())
@@ -1341,6 +1594,15 @@ ML_val\<open>
           name = markup_name andalso has_position properties position)
         markup
 
+    fun has_variable_entity position =
+      exists
+        (fn (name, properties) =>
+          name = Markup.entityN andalso
+          Properties.get properties Markup.kindN =
+            SOME "urust_var" andalso
+          has_position properties position)
+        markup
+
     fun entity_id property position =
       let
         val ids =
@@ -1373,9 +1635,20 @@ ML_val\<open>
     val second_id = entity_id Markup.defN second_definition
     val _ =
       if has_markup Markup.typingN first_definition andalso
-         has_markup Markup.typingN second_definition
+         has_markup Markup.typingN second_definition andalso
+         has_markup Markup.typingN first_wildcard andalso
+         has_markup Markup.typingN second_wildcard
       then ()
       else error "typed binder markup audit: typed definitions lost tooltips"
+    val _ =
+      if not (has_markup Markup.boundN first_wildcard) andalso
+         not (has_markup Markup.boundN second_wildcard) andalso
+         not (has_variable_entity first_wildcard) andalso
+         not (has_variable_entity second_wildcard)
+      then ()
+      else
+        error
+          "typed binder markup audit: wildcard received bound-variable/entity markup"
     val _ =
       if first_id <> second_id then ()
       else error "typed binder markup audit: arguments reused an entity ID"
@@ -1667,13 +1940,15 @@ ML_val\<open>
       expect_rejection "duplicate parameters" "duplicate parameter"
         (fn () =>
           elaborate
-            ("nat \<Rightarrow> nat \<Rightarrow> " ^ body_type)
-            [parameter 11 110 "value", parameter 13 130 "value"]
+            ("nat \<Rightarrow> bool \<Rightarrow> nat \<Rightarrow> " ^ body_type)
+            [parameter 11 110 "value", parameter 12 120 "_",
+             parameter 13 130 "value"]
             "value")
+    val wildcard =
+      elaborate unary_type [parameter 17 170 "_"] "0"
     val _ =
-      expect_rejection "wildcard parameter" "name `_` is not allowed"
-        (fn () =>
-          elaborate unary_type [parameter 17 170 "_"] "0")
+      if fastype_of wildcard = Syntax.read_typ ctxt unary_type then ()
+      else fail "wildcard parameter did not retain its type slot"
     val _ =
       expect_rejection "too few names" "expects 2 parameters"
         (fn () =>
@@ -3558,9 +3833,9 @@ ML_val\<open>
           " () " ^ unit_source)
         "declared result type must be expression"
     val _ =
-      assert_rejected "wildcard-expression-parameter"
-        ("urust_expr wildcard_args (_) " ^ unit_source)
-        "argument name `_` is not allowed"
+      ignore
+        (run_command "wildcard-expression-parameter"
+          ("urust_expr wildcard_args (_) " ^ unit_source) ())
     val _ =
       assert_rejected "duplicate-expression-parameters"
         ("urust_expr duplicate_args (item, item) " ^ unit_source)

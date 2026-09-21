@@ -123,14 +123,20 @@ This session contains documentation and examples illustrating how to use AutoCor
 
 This session define locales for modelling the verification context. For example, [References.thy](https://awslabs.github.io/AutoCorrode/Unsorted/AutoCorrode/Micro_Rust_Interfaces_Core.References.html) defines the `Reference` locale which provides axioms for reasoning about references and mutable local variables in µRust. It also defines "transfer locales" which use separation lenses (see Optics, above) to extend interpretations of the interface locales to larger separation algebras.
 
+### Parser_Common
+
+This session provides language-neutral source-position, reporting, parser-driver, and runtime-lock
+support for Isabelle_Lex-Yacc frontends. Language-specific grammar, AST, binder, and elaboration
+policy remains in each frontend. See the session [README](Parser_Common/README.md).
+
 ### Micro_Rust_Parser_Impl and Micro_Rust_Parser_Tests
 
 The implementation session provides the production `urust_expr`, `urust_fn`, and
 `urust_datatype` commands:
 
 ```isabelle
-urust_expr [OPTIONS] NAME [:: TYPE] [(ARG, ...)] \<open> body \<close>
-urust_fn [OPTIONS] NAME :: TYPE [(PARAMETER, ...)] \<open> body \<close>
+urust_expr [OPTIONS] NAME [:: TYPE] [(ARG|_, ...)] \<open> body \<close>
+urust_fn [OPTIONS] NAME :: TYPE [(PARAMETER|_, ...)] \<open> body \<close>
 urust_datatype [OPTIONS] [HOL_NAME] \<open> struct-or-enum \<close>
 ```
 
@@ -206,11 +212,13 @@ The parenthesized argument list is optional, accepts a trailing comma, and uses 
 names. Minor keywords such as `for` may be unquoted; major command keywords delimit outer command
 spans and therefore need string quoting, for example `("lemma")`. A chosen argument name denotes
 that lexical argument in value positions and as an unqualified direct-call head, even if a HOL
-constant or call registration has the same spelling. Every multi-segment path requires an exact
-role-appropriate `micro_rust_notation`: values and places use `(literal)`, while calls, struct
-expressions, and registered macros use `(call)` (with `!` included in a macro key). Method names
-remain single-segment and retain their normal registration lookup. `urust_fn` also accepts an exact
-terminal `_` in its declared type and
+constant or call registration has the same spelling. A bare `_` consumes one argument type and
+creates a typed anonymous abstraction without entering lexical name resolution; it may be repeated
+or mixed with named arguments. Duplicate named arguments remain errors. Every multi-segment path
+requires an exact role-appropriate `micro_rust_notation`: values and places use `(literal)`, while
+calls, struct expressions, and registered macros use `(call)` (with `!` included in a macro key).
+Method names remain single-segment and retain their normal registration lookup. `urust_fn` also
+accepts an exact terminal `_` in its declared type and
 infers a fresh five-parameter `function_body`; internal placeholders and declared argument types
 remain checked normally.
 
