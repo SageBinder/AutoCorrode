@@ -43,24 +43,24 @@ text\<open>At present, SSA rewrites happen bottom-up. In this case, the SSA cont
 not needed on the RHS of an SSA rewrite rule. We keep it to allow falling back to the original top-down
 application of SSA rules if necessary.\<close>
 
-urust_expr [abbrev = true] SSA_urust_site_1
+urust_expr [abbrev] ssa_transform_funcall1_expr1
   (f, e)
   \<open> \<epsilon>\<open>f\<close>(\<epsilon>\<open>e\<close>) \<close>
 
-urust_expr [abbrev = true] SSA_urust_site_2
+urust_expr [abbrev] ssa_transform_funcall1_expr2
   (e, f)
   \<open> let x0 = \<epsilon>\<open>MICRO_RUST_SSA_CONTROL e\<close>; \<epsilon>\<open>f\<close>(x0) \<close>
 
 lemma ssa_transform_funcall1 [micro_rust_ssa]:
-  shows \<open>MICRO_RUST_SSA_CONTROL (SSA_urust_site_1 f e) = SSA_urust_site_2 e f\<close>
+  shows \<open>MICRO_RUST_SSA_CONTROL (ssa_transform_funcall1_expr1 f e) = ssa_transform_funcall1_expr2 e f\<close>
   unfolding MICRO_RUST_SSA_CONTROL_def
   by (clarsimp simp add: micro_rust_simps)
 
-urust_expr [abbrev = true] SSA_urust_site_3
+urust_expr [abbrev] ssa_transform_funcall2_expr1
   (fn, e, f)
   \<open> \<epsilon>\<open>fn\<close>(\<epsilon>\<open>e\<close>,\<epsilon>\<open>f\<close>) \<close>
 
-urust_expr [abbrev = true] SSA_urust_site_4
+urust_expr [abbrev] ssa_transform_funcall2_expr2
   (e, f, fn)
   \<open>
     let x0 = \<epsilon>\<open>MICRO_RUST_SSA_CONTROL e\<close>;
@@ -69,15 +69,15 @@ urust_expr [abbrev = true] SSA_urust_site_4
   \<close>
 
 lemma ssa_transform_funcall2 [micro_rust_ssa]:
-  shows \<open>MICRO_RUST_SSA_CONTROL (SSA_urust_site_3 fn e f) = SSA_urust_site_4 e f fn\<close>
+  shows \<open>MICRO_RUST_SSA_CONTROL (ssa_transform_funcall2_expr1 fn e f) = ssa_transform_funcall2_expr2 e f fn\<close>
   unfolding MICRO_RUST_SSA_CONTROL_def
   by (clarsimp simp add: micro_rust_simps)
 
-urust_expr [abbrev = true] SSA_urust_site_5
+urust_expr [abbrev] ssa_transform_funcall3_expr1
   (fn, e0, e1, e2)
   \<open> \<epsilon>\<open>fn\<close> (\<epsilon>\<open>e0\<close>,\<epsilon>\<open>e1\<close>,\<epsilon>\<open>e2\<close>) \<close>
 
-urust_expr [abbrev = true] SSA_urust_site_6
+urust_expr [abbrev] ssa_transform_funcall3_expr2
   (e0, e1, e2, fn)
   \<open>
     let v0 = \<epsilon>\<open>MICRO_RUST_SSA_CONTROL e0\<close>;
@@ -87,16 +87,16 @@ urust_expr [abbrev = true] SSA_urust_site_6
   \<close>
 
 lemma ssa_transform_funcall3 [micro_rust_ssa]:
-  shows \<open>MICRO_RUST_SSA_CONTROL (SSA_urust_site_5 fn e0 e1 e2) =
-    SSA_urust_site_6 e0 e1 e2 fn\<close>
+  shows \<open>MICRO_RUST_SSA_CONTROL (ssa_transform_funcall3_expr1 fn e0 e1 e2) =
+    ssa_transform_funcall3_expr2 e0 e1 e2 fn\<close>
   unfolding MICRO_RUST_SSA_CONTROL_def
   by (clarsimp simp add: micro_rust_simps)
 
-urust_expr [abbrev = true] SSA_urust_site_7
+urust_expr [abbrev] ssa_transform_funcall4_expr1
   (fn, e0, e1, e2, e3)
   \<open> \<epsilon>\<open>fn\<close> (\<epsilon>\<open>e0\<close>,\<epsilon>\<open>e1\<close>,\<epsilon>\<open>e2\<close>,\<epsilon>\<open>e3\<close>) \<close>
 
-urust_expr [abbrev = true] SSA_urust_site_8
+urust_expr [abbrev] ssa_transform_funcall4_expr2
   (e0, e1, e2, e3, fn)
   \<open>
     let x0 = \<epsilon>\<open>MICRO_RUST_SSA_CONTROL e0\<close>;
@@ -107,16 +107,16 @@ urust_expr [abbrev = true] SSA_urust_site_8
   \<close>
 
 lemma ssa_transform_funcall4 [micro_rust_ssa]:
-  shows \<open>MICRO_RUST_SSA_CONTROL (SSA_urust_site_7 fn e0 e1 e2 e3) =
-    SSA_urust_site_8 e0 e1 e2 e3 fn\<close>
+  shows \<open>MICRO_RUST_SSA_CONTROL (ssa_transform_funcall4_expr1 fn e0 e1 e2 e3) =
+    ssa_transform_funcall4_expr2 e0 e1 e2 e3 fn\<close>
   unfolding MICRO_RUST_SSA_CONTROL_def
   by (clarsimp simp add: micro_rust_simps)
 
-urust_expr [abbrev = true] SSA_urust_site_9
+urust_expr [abbrev] ssa_transform_funcall5_expr1
   (fn, e0, e1, e2, e3, e4)
   \<open> \<epsilon>\<open>fn\<close> (\<epsilon>\<open>e0\<close>,\<epsilon>\<open>e1\<close>,\<epsilon>\<open>e2\<close>,\<epsilon>\<open>e3\<close>,\<epsilon>\<open>e4\<close>) \<close>
 
-urust_expr [abbrev = true] SSA_urust_site_10
+urust_expr [abbrev] ssa_transform_funcall5_expr2
   (e0, e1, e2, e3, e4, fn)
   \<open>
     let x0 = \<epsilon>\<open>MICRO_RUST_SSA_CONTROL e0\<close>;
@@ -128,16 +128,16 @@ urust_expr [abbrev = true] SSA_urust_site_10
   \<close>
 
 lemma ssa_transform_funcall5 [micro_rust_ssa]:
-  shows \<open>MICRO_RUST_SSA_CONTROL (SSA_urust_site_9 fn e0 e1 e2 e3 e4) =
-    SSA_urust_site_10 e0 e1 e2 e3 e4 fn\<close>
+  shows \<open>MICRO_RUST_SSA_CONTROL (ssa_transform_funcall5_expr1 fn e0 e1 e2 e3 e4) =
+    ssa_transform_funcall5_expr2 e0 e1 e2 e3 e4 fn\<close>
   unfolding MICRO_RUST_SSA_CONTROL_def
   by (clarsimp simp add: micro_rust_simps)
 
-urust_expr [abbrev = true] SSA_urust_site_11
+urust_expr [abbrev] ssa_transform_funcall6_expr1
   (fn, e0, e1, e2, e3, e4, e5)
   \<open> \<epsilon>\<open>fn\<close> (\<epsilon>\<open>e0\<close>,\<epsilon>\<open>e1\<close>,\<epsilon>\<open>e2\<close>,\<epsilon>\<open>e3\<close>,\<epsilon>\<open>e4\<close>,\<epsilon>\<open>e5\<close>) \<close>
 
-urust_expr [abbrev = true] SSA_urust_site_12
+urust_expr [abbrev] ssa_transform_funcall6_expr2
   (e0, e1, e2, e3, e4, e5, fn)
   \<open>
     let x0 = \<epsilon>\<open>MICRO_RUST_SSA_CONTROL e0\<close>;
@@ -150,16 +150,16 @@ urust_expr [abbrev = true] SSA_urust_site_12
   \<close>
 
 lemma ssa_transform_funcall6 [micro_rust_ssa]:
-  shows \<open>MICRO_RUST_SSA_CONTROL (SSA_urust_site_11 fn e0 e1 e2 e3 e4 e5) =
-    SSA_urust_site_12 e0 e1 e2 e3 e4 e5 fn\<close>
+  shows \<open>MICRO_RUST_SSA_CONTROL (ssa_transform_funcall6_expr1 fn e0 e1 e2 e3 e4 e5) =
+    ssa_transform_funcall6_expr2 e0 e1 e2 e3 e4 e5 fn\<close>
   unfolding MICRO_RUST_SSA_CONTROL_def
   by (clarsimp simp add: micro_rust_simps)
 
-urust_expr [abbrev = true] SSA_urust_site_13
+urust_expr [abbrev] ssa_transform_funcall7_expr1
   (fn, e0, e1, e2, e3, e4, e5, e6)
   \<open> \<epsilon>\<open>fn\<close> (\<epsilon>\<open>e0\<close>,\<epsilon>\<open>e1\<close>,\<epsilon>\<open>e2\<close>,\<epsilon>\<open>e3\<close>,\<epsilon>\<open>e4\<close>,\<epsilon>\<open>e5\<close>,\<epsilon>\<open>e6\<close>) \<close>
 
-urust_expr [abbrev = true] SSA_urust_site_14
+urust_expr [abbrev] ssa_transform_funcall7_expr2
   (e0, e1, e2, e3, e4, e5, e6, fn)
   \<open>
     let x0 = \<epsilon>\<open>MICRO_RUST_SSA_CONTROL e0\<close>;
@@ -173,16 +173,16 @@ urust_expr [abbrev = true] SSA_urust_site_14
   \<close>
 
 lemma ssa_transform_funcall7 [micro_rust_ssa]:
-  shows \<open>MICRO_RUST_SSA_CONTROL (SSA_urust_site_13 fn e0 e1 e2 e3 e4 e5 e6) =
-    SSA_urust_site_14 e0 e1 e2 e3 e4 e5 e6 fn\<close>
+  shows \<open>MICRO_RUST_SSA_CONTROL (ssa_transform_funcall7_expr1 fn e0 e1 e2 e3 e4 e5 e6) =
+    ssa_transform_funcall7_expr2 e0 e1 e2 e3 e4 e5 e6 fn\<close>
   unfolding MICRO_RUST_SSA_CONTROL_def
   by (clarsimp simp add: micro_rust_simps)
 
-urust_expr [abbrev = true] SSA_urust_site_15
+urust_expr [abbrev] ssa_transform_funcall8_expr1
   (fn, e0, e1, e2, e3, e4, e5, e6, e7)
   \<open> \<epsilon>\<open>fn\<close> (\<epsilon>\<open>e0\<close>,\<epsilon>\<open>e1\<close>,\<epsilon>\<open>e2\<close>,\<epsilon>\<open>e3\<close>,\<epsilon>\<open>e4\<close>,\<epsilon>\<open>e5\<close>,\<epsilon>\<open>e6\<close>,\<epsilon>\<open>e7\<close>) \<close>
 
-urust_expr [abbrev = true] SSA_urust_site_16
+urust_expr [abbrev] ssa_transform_funcall8_expr2
   (e0, e1, e2, e3, e4, e5, e6, e7, fn)
   \<open>
     let x0 = \<epsilon>\<open>MICRO_RUST_SSA_CONTROL e0\<close>;
@@ -197,16 +197,16 @@ urust_expr [abbrev = true] SSA_urust_site_16
   \<close>
 
 lemma ssa_transform_funcall8 [micro_rust_ssa]:
-  shows \<open>MICRO_RUST_SSA_CONTROL (SSA_urust_site_15 fn e0 e1 e2 e3 e4 e5 e6 e7) =
-    SSA_urust_site_16 e0 e1 e2 e3 e4 e5 e6 e7 fn\<close>
+  shows \<open>MICRO_RUST_SSA_CONTROL (ssa_transform_funcall8_expr1 fn e0 e1 e2 e3 e4 e5 e6 e7) =
+    ssa_transform_funcall8_expr2 e0 e1 e2 e3 e4 e5 e6 e7 fn\<close>
   unfolding MICRO_RUST_SSA_CONTROL_def
   by (clarsimp simp add: micro_rust_simps)
 
-urust_expr [abbrev = true] SSA_urust_site_17
+urust_expr [abbrev] ssa_transform_funcall9_expr1
   (fn, e0, e1, e2, e3, e4, e5, e6, e7, e8)
   \<open> \<epsilon>\<open>fn\<close> (\<epsilon>\<open>e0\<close>,\<epsilon>\<open>e1\<close>,\<epsilon>\<open>e2\<close>,\<epsilon>\<open>e3\<close>,\<epsilon>\<open>e4\<close>,\<epsilon>\<open>e5\<close>,\<epsilon>\<open>e6\<close>,\<epsilon>\<open>e7\<close>,\<epsilon>\<open>e8\<close>) \<close>
 
-urust_expr [abbrev = true] SSA_urust_site_18
+urust_expr [abbrev] ssa_transform_funcall9_expr2
   (e0, e1, e2, e3, e4, e5, e6, e7, e8, fn)
   \<open>
     let x0 = \<epsilon>\<open>MICRO_RUST_SSA_CONTROL e0\<close>;
@@ -222,16 +222,16 @@ urust_expr [abbrev = true] SSA_urust_site_18
   \<close>
 
 lemma ssa_transform_funcall9 [micro_rust_ssa]:
-  shows \<open>MICRO_RUST_SSA_CONTROL (SSA_urust_site_17 fn e0 e1 e2 e3 e4 e5 e6 e7 e8) =
-    SSA_urust_site_18 e0 e1 e2 e3 e4 e5 e6 e7 e8 fn\<close>
+  shows \<open>MICRO_RUST_SSA_CONTROL (ssa_transform_funcall9_expr1 fn e0 e1 e2 e3 e4 e5 e6 e7 e8) =
+    ssa_transform_funcall9_expr2 e0 e1 e2 e3 e4 e5 e6 e7 e8 fn\<close>
   unfolding MICRO_RUST_SSA_CONTROL_def
   by (clarsimp simp add: micro_rust_simps)
 
-urust_expr [abbrev = true] SSA_urust_site_19
+urust_expr [abbrev] ssa_transform_funcall10_expr1
   (fn, e0, e1, e2, e3, e4, e5, e6, e7, e8, e9)
   \<open> \<epsilon>\<open>fn\<close> (\<epsilon>\<open>e0\<close>,\<epsilon>\<open>e1\<close>,\<epsilon>\<open>e2\<close>,\<epsilon>\<open>e3\<close>,\<epsilon>\<open>e4\<close>,\<epsilon>\<open>e5\<close>,\<epsilon>\<open>e6\<close>,\<epsilon>\<open>e7\<close>,\<epsilon>\<open>e8\<close>,\<epsilon>\<open>e9\<close>) \<close>
 
-urust_expr [abbrev = true] SSA_urust_site_20
+urust_expr [abbrev] ssa_transform_funcall10_expr2
   (e0, e1, e2, e3, e4, e5, e6, e7, e8, e9, fn)
   \<open>
     let x0 = \<epsilon>\<open>MICRO_RUST_SSA_CONTROL e0\<close>;
@@ -248,23 +248,23 @@ urust_expr [abbrev = true] SSA_urust_site_20
   \<close>
 
 lemma ssa_transform_funcall10 [micro_rust_ssa]:
-  shows \<open>MICRO_RUST_SSA_CONTROL (SSA_urust_site_19 fn e0 e1 e2 e3 e4 e5 e6 e7 e8 e9) =
-    SSA_urust_site_20 e0 e1 e2 e3 e4 e5 e6 e7 e8 e9 fn\<close>
+  shows \<open>MICRO_RUST_SSA_CONTROL (ssa_transform_funcall10_expr1 fn e0 e1 e2 e3 e4 e5 e6 e7 e8 e9) =
+    ssa_transform_funcall10_expr2 e0 e1 e2 e3 e4 e5 e6 e7 e8 e9 fn\<close>
   unfolding MICRO_RUST_SSA_CONTROL_def
   by (clarsimp simp add: micro_rust_simps)
 
 text\<open>We hoist the expression to be returned out of the \<^verbatim>\<open>return\<close> expression, simplify it recursively
 and bind it to a variable.  We then return that variable:\<close>
-urust_expr [abbrev = true] SSA_urust_site_21
+urust_expr [abbrev] ssa_transform_return_expr1
   (r)
   \<open> return \<epsilon>\<open>r\<close>; \<close>
 
-urust_expr [abbrev = true] SSA_urust_site_22
+urust_expr [abbrev] ssa_transform_return_expr2
   (r)
   \<open> let x = \<epsilon>\<open>MICRO_RUST_SSA_CONTROL r\<close>; return x; \<close>
 
 lemma ssa_transform_return [micro_rust_ssa]:
-  shows \<open>MICRO_RUST_SSA_CONTROL (SSA_urust_site_21 r) = SSA_urust_site_22 r\<close>
+  shows \<open>MICRO_RUST_SSA_CONTROL (ssa_transform_return_expr1 r) = ssa_transform_return_expr2 r\<close>
   by (simp add: MICRO_RUST_SSA_CONTROL_def return_func_def micro_rust_simps)
 
 lemma ssa_transform_bind2 [micro_rust_ssa]:
@@ -344,7 +344,7 @@ lemma ssa_transform_bind8 [micro_rust_ssa]:
   unfolding MICRO_RUST_SSA_CONTROL_def
   by (clarsimp simp add: micro_rust_simps)
 
-urust_expr [abbrev = true] SSA_urust_site_23
+urust_expr [abbrev] ssa_transform_option_propagate_expr1
   (exp)
   \<open>
     let x = \<epsilon>\<open>MICRO_RUST_SSA_CONTROL exp\<close>;
@@ -356,11 +356,11 @@ urust_expr [abbrev = true] SSA_urust_site_23
 
 lemma ssa_transform_option_propagate [micro_rust_ssa]:
   shows \<open>MICRO_RUST_SSA_CONTROL (propagate_option exp) =
-    SSA_urust_site_23 exp\<close>
+    ssa_transform_option_propagate_expr1 exp\<close>
   unfolding MICRO_RUST_SSA_CONTROL_def propagate_option_def
     by (clarsimp simp add: micro_rust_simps)
 
-urust_expr [abbrev = true] SSA_urust_site_24
+urust_expr [abbrev] ssa_transform_result_propagate_expr1
   (exp)
   \<open>
     let x = \<epsilon>\<open>MICRO_RUST_SSA_CONTROL exp\<close>;
@@ -372,7 +372,7 @@ urust_expr [abbrev = true] SSA_urust_site_24
 
 lemma ssa_transform_result_propagate [micro_rust_ssa]:
   shows \<open>MICRO_RUST_SSA_CONTROL (propagate_result exp) =
-    SSA_urust_site_24 exp\<close>
+    ssa_transform_result_propagate_expr1 exp\<close>
   unfolding MICRO_RUST_SSA_CONTROL_def propagate_result_def
     by (clarsimp simp add: micro_rust_simps)
 subsection\<open>Single static assignment form for \<^emph>\<open>Bool\<close>\<close>
@@ -381,11 +381,11 @@ lemma ssa_transform_assert [micro_rust_ssa]:
   shows \<open>MICRO_RUST_SSA_CONTROL (assert e) = \<lbrace> let x = MICRO_RUST_SSA_CONTROL e; assert (\<up>x) \<rbrace>\<close>
   by (simp add: MICRO_RUST_SSA_CONTROL_def assert_def micro_rust_simps)
 
-urust_expr [abbrev = true] SSA_urust_site_25
+urust_expr [abbrev] ssa_transform_assert_eq_expr1
   (e, f)
   \<open> assert_eq!(\<epsilon>\<open>e\<close>, \<epsilon>\<open>f\<close>) \<close>
 
-urust_expr [abbrev = true] SSA_urust_site_26
+urust_expr [abbrev] ssa_transform_assert_eq_expr2
   (e, f)
   \<open>
     let x = \<epsilon>\<open>MICRO_RUST_SSA_CONTROL e\<close>;
@@ -394,15 +394,15 @@ urust_expr [abbrev = true] SSA_urust_site_26
   \<close>
 
 lemma ssa_transform_assert_eq [micro_rust_ssa]:
-  shows \<open>MICRO_RUST_SSA_CONTROL (SSA_urust_site_25 e f) = SSA_urust_site_26 e f\<close>
+  shows \<open>MICRO_RUST_SSA_CONTROL (ssa_transform_assert_eq_expr1 e f) = ssa_transform_assert_eq_expr2 e f\<close>
 unfolding MICRO_RUST_SSA_CONTROL_def by (rule expression_eqI; clarsimp simp add: bind2_def
   assert_eq_def bind_literal_unit)
 
-urust_expr [abbrev = true] SSA_urust_site_27
+urust_expr [abbrev] ssa_transform_assert_ne_expr1
   (e, f)
   \<open> assert_ne!(\<epsilon>\<open>e\<close>, \<epsilon>\<open>f\<close>) \<close>
 
-urust_expr [abbrev = true] SSA_urust_site_28
+urust_expr [abbrev] ssa_transform_assert_ne_expr2
   (e, f)
   \<open>
     let x = \<epsilon>\<open>MICRO_RUST_SSA_CONTROL e\<close>;
@@ -411,13 +411,13 @@ urust_expr [abbrev = true] SSA_urust_site_28
   \<close>
 
 lemma ssa_transform_assert_ne [micro_rust_ssa]:
-  shows \<open>MICRO_RUST_SSA_CONTROL (SSA_urust_site_27 e f) = SSA_urust_site_28 e f\<close>
+  shows \<open>MICRO_RUST_SSA_CONTROL (ssa_transform_assert_ne_expr1 e f) = ssa_transform_assert_ne_expr2 e f\<close>
 unfolding MICRO_RUST_SSA_CONTROL_def by (rule expression_eqI; clarsimp simp add: bind2_def
   assert_ne_def bind_literal_unit)
 
 subsection\<open>Single static assignment form for numeric and bitwise operators\<close>
 
-urust_expr [abbrev = true] SSA_urust_site_29
+urust_expr [abbrev] ssa_transform_two_armed_conditional_expr1
   (condition_exp, true_branch, false_branch)
   \<open>
     if \<epsilon>\<open>condition_exp\<close> {
@@ -427,7 +427,7 @@ urust_expr [abbrev = true] SSA_urust_site_29
     }
   \<close>
 
-urust_expr [abbrev = true] SSA_urust_site_30
+urust_expr [abbrev] ssa_transform_two_armed_conditional_expr2
   (condition_exp, true_branch, false_branch)
   \<open>
     let condition_val = \<epsilon>\<open>MICRO_RUST_SSA_CONTROL condition_exp\<close>;
@@ -440,30 +440,30 @@ urust_expr [abbrev = true] SSA_urust_site_30
 
 lemma ssa_transform_two_armed_conditional [micro_rust_ssa]:
   shows \<open>MICRO_RUST_SSA_CONTROL
-    (SSA_urust_site_29 condition_exp true_branch false_branch) =
-    SSA_urust_site_30 condition_exp true_branch false_branch\<close>
+    (ssa_transform_two_armed_conditional_expr1 condition_exp true_branch false_branch) =
+    ssa_transform_two_armed_conditional_expr2 condition_exp true_branch false_branch\<close>
   unfolding MICRO_RUST_SSA_CONTROL_def by (rule expression_eqI; elim micro_rust_elims;
       clarsimp; intro micro_rust_intros;
       clarsimp simp add: micro_rust_simps two_armed_conditional_def; force)
 
-urust_expr [abbrev = true] SSA_urust_site_31
+urust_expr [abbrev] ssa_transform_one_armed_conditional_expr1
   (e, t)
   \<open> if (\<epsilon>\<open>e\<close>) { \<epsilon>\<open>t\<close> } \<close>
 
-urust_expr [abbrev = true] SSA_urust_site_32
+urust_expr [abbrev] ssa_transform_one_armed_conditional_expr2
   (e, t)
   \<open> let x = \<epsilon>\<open>MICRO_RUST_SSA_CONTROL e\<close>; if (x) { \<epsilon>\<open>MICRO_RUST_SSA_CONTROL t\<close> } \<close>
 
 corollary ssa_transform_one_armed_conditional:
-  shows \<open>MICRO_RUST_SSA_CONTROL (SSA_urust_site_31 e t) = SSA_urust_site_32 e t\<close>
+  shows \<open>MICRO_RUST_SSA_CONTROL (ssa_transform_one_armed_conditional_expr1 e t) = ssa_transform_one_armed_conditional_expr2 e t\<close>
   unfolding MICRO_RUST_SSA_CONTROL_def
     by(metis MICRO_RUST_SSA_CONTROL_def ssa_transform_two_armed_conditional)
 
-urust_expr [abbrev = true] SSA_urust_site_33
+urust_expr [abbrev] ssa_transform_boolean_not_expr1
   (e)
   \<open> !\<epsilon>\<open>e :: ('s, bool, 'r, 'abort, 'i, 'o) expression\<close> \<close>
 
-urust_expr [abbrev = true] SSA_urust_site_34 ::
+urust_expr [abbrev] ssa_transform_boolean_not_expr2 ::
   \<open>
     ('s, bool, 'r, 'abort, 'i, 'o) expression \<Rightarrow>
     ('s, bool, 'r, 'abort, 'i, 'o) expression
@@ -472,15 +472,15 @@ urust_expr [abbrev = true] SSA_urust_site_34 ::
   \<open> let x = \<epsilon>\<open>MICRO_RUST_SSA_CONTROL e\<close>; !x \<close>
 
 lemma ssa_transform_boolean_not [micro_rust_ssa]:
-  shows \<open>MICRO_RUST_SSA_CONTROL (SSA_urust_site_33 e) = SSA_urust_site_34 e\<close>
+  shows \<open>MICRO_RUST_SSA_CONTROL (ssa_transform_boolean_not_expr1 e) = ssa_transform_boolean_not_expr2 e\<close>
   unfolding MICRO_RUST_SSA_CONTROL_def
   by (rule expression_eqI2; clarsimp simp add:micro_rust_simps negation_def)
 
-urust_expr [abbrev = true] SSA_urust_site_35
+urust_expr [abbrev] ssa_transform_binary_not_expr1
   (e)
   \<open> !\<epsilon>\<open>e :: ('s, 64 word, 'r, 'abort, 'i, 'o) expression\<close> \<close>
 
-urust_expr [abbrev = true] SSA_urust_site_36 ::
+urust_expr [abbrev] ssa_transform_binary_not_expr2 ::
   \<open>
     ('s, 64 word, 'r, 'abort, 'i, 'o) expression \<Rightarrow>
     ('s, 64 word, 'r, 'abort, 'i, 'o) expression
@@ -489,16 +489,16 @@ urust_expr [abbrev = true] SSA_urust_site_36 ::
   \<open> let x = \<epsilon>\<open>MICRO_RUST_SSA_CONTROL e\<close>; !x \<close>
 
 lemma ssa_transform_binary_not [micro_rust_ssa]:
-  shows \<open>MICRO_RUST_SSA_CONTROL (SSA_urust_site_35 e) = SSA_urust_site_36 e\<close>
+  shows \<open>MICRO_RUST_SSA_CONTROL (ssa_transform_binary_not_expr1 e) = ssa_transform_binary_not_expr2 e\<close>
   unfolding MICRO_RUST_SSA_CONTROL_def
   by (rule expression_eqI2; clarsimp simp add:micro_rust_simps word_bitwise_not_pure_def
                                               word_bitwise_not_def)
 
-urust_expr [abbrev = true] SSA_urust_site_37
+urust_expr [abbrev] ssa_transform_binary_or_expr1
   (e, f)
   \<open> \<epsilon>\<open>e\<close> | \<epsilon>\<open>f\<close> \<close>
 
-urust_expr [abbrev = true] SSA_urust_site_38
+urust_expr [abbrev] ssa_transform_binary_or_expr2
   (e, f)
   \<open>
     let x = \<epsilon>\<open>MICRO_RUST_SSA_CONTROL e\<close>;
@@ -507,16 +507,16 @@ urust_expr [abbrev = true] SSA_urust_site_38
   \<close>
 
 lemma ssa_transform_binary_or [micro_rust_ssa]:
-  shows \<open>MICRO_RUST_SSA_CONTROL (SSA_urust_site_37 e f) = SSA_urust_site_38 e f\<close>
+  shows \<open>MICRO_RUST_SSA_CONTROL (ssa_transform_binary_or_expr1 e f) = ssa_transform_binary_or_expr2 e f\<close>
   unfolding MICRO_RUST_SSA_CONTROL_def
   by (rule expression_eqI2; clarsimp simp add:micro_rust_simps word_bitwise_or_pure_def
                                               word_bitwise_or_def)
 
-urust_expr [abbrev = true] SSA_urust_site_39
+urust_expr [abbrev] ssa_transform_add_expr1
   (e, f)
   \<open> \<epsilon>\<open>e\<close> + \<epsilon>\<open>f\<close> \<close>
 
-urust_expr [abbrev = true] SSA_urust_site_40
+urust_expr [abbrev] ssa_transform_add_expr2
   (e, f)
   \<open>
     let x = \<epsilon>\<open>MICRO_RUST_SSA_CONTROL e\<close>;
@@ -525,15 +525,15 @@ urust_expr [abbrev = true] SSA_urust_site_40
   \<close>
 
 lemma ssa_transform_add [micro_rust_ssa]:
-  shows \<open>MICRO_RUST_SSA_CONTROL (SSA_urust_site_39 e f) = SSA_urust_site_40 e f\<close>
+  shows \<open>MICRO_RUST_SSA_CONTROL (ssa_transform_add_expr1 e f) = ssa_transform_add_expr2 e f\<close>
   unfolding MICRO_RUST_SSA_CONTROL_def 
   by (simp add: bind2_def bind_literal_unit word_add_no_wrap_def)
 
-urust_expr [abbrev = true] SSA_urust_site_41
+urust_expr [abbrev] ssa_transform_minus_expr1
   (e, f)
   \<open> \<epsilon>\<open>e\<close> - \<epsilon>\<open>f\<close> \<close>
 
-urust_expr [abbrev = true] SSA_urust_site_42
+urust_expr [abbrev] ssa_transform_minus_expr2
   (e, f)
   \<open>
     let x = \<epsilon>\<open>MICRO_RUST_SSA_CONTROL e\<close>;
@@ -542,15 +542,15 @@ urust_expr [abbrev = true] SSA_urust_site_42
   \<close>
 
 lemma ssa_transform_minus [micro_rust_ssa]:
-  shows \<open>MICRO_RUST_SSA_CONTROL (SSA_urust_site_41 e f) = SSA_urust_site_42 e f\<close>
+  shows \<open>MICRO_RUST_SSA_CONTROL (ssa_transform_minus_expr1 e f) = ssa_transform_minus_expr2 e f\<close>
   unfolding MICRO_RUST_SSA_CONTROL_def 
   by (simp add: bind2_def bind_literal_unit word_minus_no_wrap_def)
 
-urust_expr [abbrev = true] SSA_urust_site_43
+urust_expr [abbrev] ssa_transform_mul_expr1
   (e, f)
   \<open> \<epsilon>\<open>e\<close> * \<epsilon>\<open>f\<close> \<close>
 
-urust_expr [abbrev = true] SSA_urust_site_44
+urust_expr [abbrev] ssa_transform_mul_expr2
   (e, f)
   \<open>
     let x = \<epsilon>\<open>MICRO_RUST_SSA_CONTROL e\<close>;
@@ -559,15 +559,15 @@ urust_expr [abbrev = true] SSA_urust_site_44
   \<close>
 
 lemma ssa_transform_mul [micro_rust_ssa]:
-  shows \<open>MICRO_RUST_SSA_CONTROL (SSA_urust_site_43 e f) = SSA_urust_site_44 e f\<close>
+  shows \<open>MICRO_RUST_SSA_CONTROL (ssa_transform_mul_expr1 e f) = ssa_transform_mul_expr2 e f\<close>
   unfolding MICRO_RUST_SSA_CONTROL_def 
   by (simp add: bind2_def bind_literal_unit word_mul_no_wrap_def)
 
-urust_expr [abbrev = true] SSA_urust_site_45
+urust_expr [abbrev] ssa_transform_div_expr1
   (e, f)
   \<open> \<epsilon>\<open>e\<close> / \<epsilon>\<open>f\<close> \<close>
 
-urust_expr [abbrev = true] SSA_urust_site_46
+urust_expr [abbrev] ssa_transform_div_expr2
   (e, f)
   \<open>
     let x = \<epsilon>\<open>MICRO_RUST_SSA_CONTROL e\<close>;
@@ -576,15 +576,15 @@ urust_expr [abbrev = true] SSA_urust_site_46
   \<close>
 
 lemma ssa_transform_div [micro_rust_ssa]:
-  shows \<open>MICRO_RUST_SSA_CONTROL (SSA_urust_site_45 e f) = SSA_urust_site_46 e f\<close>
+  shows \<open>MICRO_RUST_SSA_CONTROL (ssa_transform_div_expr1 e f) = ssa_transform_div_expr2 e f\<close>
   unfolding MICRO_RUST_SSA_CONTROL_def
   by (simp add: bind2_def bind_literal_unit word_udiv_def)
 
-urust_expr [abbrev = true] SSA_urust_site_47
+urust_expr [abbrev] ssa_transform_mod_expr1
   (e, f)
   \<open> \<epsilon>\<open>e\<close> % \<epsilon>\<open>f\<close> \<close>
 
-urust_expr [abbrev = true] SSA_urust_site_48
+urust_expr [abbrev] ssa_transform_mod_expr2
   (e, f)
   \<open>
     let x = \<epsilon>\<open>MICRO_RUST_SSA_CONTROL e\<close>;
@@ -593,15 +593,15 @@ urust_expr [abbrev = true] SSA_urust_site_48
   \<close>
 
 lemma ssa_transform_mod [micro_rust_ssa]:
-  shows \<open>MICRO_RUST_SSA_CONTROL (SSA_urust_site_47 e f) = SSA_urust_site_48 e f\<close>
+  shows \<open>MICRO_RUST_SSA_CONTROL (ssa_transform_mod_expr1 e f) = ssa_transform_mod_expr2 e f\<close>
   unfolding MICRO_RUST_SSA_CONTROL_def
   by (simp add: bind2_def bind_literal_unit word_umod_def)
 
-urust_expr [abbrev = true] SSA_urust_site_49
+urust_expr [abbrev] ssa_transform_binary_xor_expr1
   (e, f)
   \<open> \<epsilon>\<open>e\<close> ^ \<epsilon>\<open>f\<close> \<close>
 
-urust_expr [abbrev = true] SSA_urust_site_50
+urust_expr [abbrev] ssa_transform_binary_xor_expr2
   (e, f)
   \<open>
     let x = \<epsilon>\<open>MICRO_RUST_SSA_CONTROL e\<close>;
@@ -610,15 +610,15 @@ urust_expr [abbrev = true] SSA_urust_site_50
   \<close>
 
 lemma ssa_transform_binary_xor [micro_rust_ssa]:
-  shows \<open>MICRO_RUST_SSA_CONTROL (SSA_urust_site_49 e f) = SSA_urust_site_50 e f\<close>
+  shows \<open>MICRO_RUST_SSA_CONTROL (ssa_transform_binary_xor_expr1 e f) = ssa_transform_binary_xor_expr2 e f\<close>
   unfolding MICRO_RUST_SSA_CONTROL_def
   by (clarsimp simp add:micro_rust_simps word_bitwise_xor_pure_def word_bitwise_xor_def)
 
-urust_expr [abbrev = true] SSA_urust_site_51
+urust_expr [abbrev] ssa_transform_binary_and_expr1
   (e, f)
   \<open> \<epsilon>\<open>e\<close> & \<epsilon>\<open>f\<close> \<close>
 
-urust_expr [abbrev = true] SSA_urust_site_52
+urust_expr [abbrev] ssa_transform_binary_and_expr2
   (e, f)
   \<open>
     let x = \<epsilon>\<open>MICRO_RUST_SSA_CONTROL e\<close>;
@@ -627,15 +627,15 @@ urust_expr [abbrev = true] SSA_urust_site_52
   \<close>
 
 lemma ssa_transform_binary_and [micro_rust_ssa]:
-  shows \<open>MICRO_RUST_SSA_CONTROL (SSA_urust_site_51 e f) = SSA_urust_site_52 e f\<close>
+  shows \<open>MICRO_RUST_SSA_CONTROL (ssa_transform_binary_and_expr1 e f) = ssa_transform_binary_and_expr2 e f\<close>
   unfolding MICRO_RUST_SSA_CONTROL_def
   by (clarsimp simp add:micro_rust_simps word_bitwise_and_pure_def word_bitwise_and_def)
 
-urust_expr [abbrev = true] SSA_urust_site_53
+urust_expr [abbrev] ssa_transform_word_shift_left_expr1
   (e, f)
   \<open> \<epsilon>\<open>e\<close> << \<epsilon>\<open>f\<close> \<close>
 
-urust_expr [abbrev = true] SSA_urust_site_54
+urust_expr [abbrev] ssa_transform_word_shift_left_expr2
   (e, f)
   \<open>
     let x = \<epsilon>\<open>MICRO_RUST_SSA_CONTROL e\<close>;
@@ -644,15 +644,15 @@ urust_expr [abbrev = true] SSA_urust_site_54
   \<close>
 
 lemma ssa_transform_word_shift_left [micro_rust_ssa]:
-  shows \<open>MICRO_RUST_SSA_CONTROL (SSA_urust_site_53 e f) = SSA_urust_site_54 e f\<close>
+  shows \<open>MICRO_RUST_SSA_CONTROL (ssa_transform_word_shift_left_expr1 e f) = ssa_transform_word_shift_left_expr2 e f\<close>
   unfolding MICRO_RUST_SSA_CONTROL_def
   by (clarsimp simp add:micro_rust_simps word_shift_left_shift64_def word_shift_left_def)
 
-urust_expr [abbrev = true] SSA_urust_site_55
+urust_expr [abbrev] ssa_transform_word_shift_right_expr1
   (e, f)
   \<open> \<epsilon>\<open>e\<close> >> \<epsilon>\<open>f\<close> \<close>
 
-urust_expr [abbrev = true] SSA_urust_site_56
+urust_expr [abbrev] ssa_transform_word_shift_right_expr2
   (e, f)
   \<open>
     let x = \<epsilon>\<open>MICRO_RUST_SSA_CONTROL e\<close>;
@@ -661,15 +661,15 @@ urust_expr [abbrev = true] SSA_urust_site_56
   \<close>
 
 lemma ssa_transform_word_shift_right [micro_rust_ssa]:
-  shows \<open>MICRO_RUST_SSA_CONTROL (SSA_urust_site_55 e f) = SSA_urust_site_56 e f\<close>
+  shows \<open>MICRO_RUST_SSA_CONTROL (ssa_transform_word_shift_right_expr1 e f) = ssa_transform_word_shift_right_expr2 e f\<close>
   unfolding MICRO_RUST_SSA_CONTROL_def
   by (clarsimp simp add:micro_rust_simps word_shift_right_shift64_def word_shift_right_def)
 
-urust_expr [abbrev = true] SSA_urust_site_57
+urust_expr [abbrev] ssa_transform_urust_neq_expr1
   (e, f)
   \<open> \<epsilon>\<open>e\<close> != \<epsilon>\<open>f\<close> \<close>
 
-urust_expr [abbrev = true] SSA_urust_site_58
+urust_expr [abbrev] ssa_transform_urust_neq_expr2
   (e, f)
   \<open>
     let x = \<epsilon>\<open>MICRO_RUST_SSA_CONTROL e\<close>;
@@ -678,15 +678,15 @@ urust_expr [abbrev = true] SSA_urust_site_58
   \<close>
 
 lemma ssa_transform_urust_neq [micro_rust_ssa]:
-  shows \<open>MICRO_RUST_SSA_CONTROL (SSA_urust_site_57 e f) = SSA_urust_site_58 e f\<close>
+  shows \<open>MICRO_RUST_SSA_CONTROL (ssa_transform_urust_neq_expr1 e f) = ssa_transform_urust_neq_expr2 e f\<close>
   unfolding MICRO_RUST_SSA_CONTROL_def
   by (clarsimp simp add: micro_rust_simps urust_neq_def)
 
-urust_expr [abbrev = true] SSA_urust_site_59
+urust_expr [abbrev] ssa_transform_urust_eq_expr1
   (e, f)
   \<open> \<epsilon>\<open>e\<close> == \<epsilon>\<open>f\<close> \<close>
 
-urust_expr [abbrev = true] SSA_urust_site_60
+urust_expr [abbrev] ssa_transform_urust_eq_expr2
   (e, f)
   \<open>
     let x = \<epsilon>\<open>MICRO_RUST_SSA_CONTROL e\<close>;
@@ -695,15 +695,15 @@ urust_expr [abbrev = true] SSA_urust_site_60
   \<close>
 
 lemma ssa_transform_urust_eq [micro_rust_ssa]:
-  shows \<open>MICRO_RUST_SSA_CONTROL (SSA_urust_site_59 e f) = SSA_urust_site_60 e f\<close>
+  shows \<open>MICRO_RUST_SSA_CONTROL (ssa_transform_urust_eq_expr1 e f) = ssa_transform_urust_eq_expr2 e f\<close>
   unfolding MICRO_RUST_SSA_CONTROL_def
   by (clarsimp simp add: micro_rust_simps urust_eq_def)
 
-urust_expr [abbrev = true] SSA_urust_site_61
+urust_expr [abbrev] ssa_transform_urust_disj_expr1
   (e, f)
   \<open> \<epsilon>\<open>e\<close> || \<epsilon>\<open>f\<close> \<close>
 
-urust_expr [abbrev = true] SSA_urust_site_62
+urust_expr [abbrev] ssa_transform_urust_disj_expr2
   (e, f)
   \<open>
     let x = \<epsilon>\<open>MICRO_RUST_SSA_CONTROL e\<close>;
@@ -716,15 +716,15 @@ urust_expr [abbrev = true] SSA_urust_site_62
   \<close>
 
 lemma ssa_transform_urust_disj [micro_rust_ssa]:
-  shows \<open>MICRO_RUST_SSA_CONTROL (SSA_urust_site_61 e f) = SSA_urust_site_62 e f\<close>
+  shows \<open>MICRO_RUST_SSA_CONTROL (ssa_transform_urust_disj_expr1 e f) = ssa_transform_urust_disj_expr2 e f\<close>
   by (simp add: urust_disj_def micro_rust_simps MICRO_RUST_SSA_CONTROL_def
     two_armed_conditional_def) (meson true_def)
 
-urust_expr [abbrev = true] SSA_urust_site_63
+urust_expr [abbrev] ssa_transform_urust_conj_expr1
   (e, f)
   \<open> \<epsilon>\<open>e\<close> && \<epsilon>\<open>f\<close> \<close>
 
-urust_expr [abbrev = true] SSA_urust_site_64
+urust_expr [abbrev] ssa_transform_urust_conj_expr2
   (e, f)
   \<open>
     let x = \<epsilon>\<open>MICRO_RUST_SSA_CONTROL e\<close>;
@@ -737,15 +737,15 @@ urust_expr [abbrev = true] SSA_urust_site_64
   \<close>
 
 lemma ssa_transform_urust_conj [micro_rust_ssa]:
-  shows \<open>MICRO_RUST_SSA_CONTROL (SSA_urust_site_63 e f) = SSA_urust_site_64 e f\<close>
+  shows \<open>MICRO_RUST_SSA_CONTROL (ssa_transform_urust_conj_expr1 e f) = ssa_transform_urust_conj_expr2 e f\<close>
   by (clarsimp simp add: MICRO_RUST_SSA_CONTROL_def micro_rust_simps urust_conj_def
     two_armed_conditional_def) (meson false_def)
 
-urust_expr [abbrev = true] SSA_urust_site_65
+urust_expr [abbrev] ssa_transform_urust_ge_expr1
   (e, f)
   \<open> \<epsilon>\<open>e\<close> >= \<epsilon>\<open>f\<close> \<close>
 
-urust_expr [abbrev = true] SSA_urust_site_66
+urust_expr [abbrev] ssa_transform_urust_ge_expr2
   (e, f)
   \<open>
     let x = \<epsilon>\<open>MICRO_RUST_SSA_CONTROL e\<close>;
@@ -754,14 +754,14 @@ urust_expr [abbrev = true] SSA_urust_site_66
   \<close>
 
 lemma ssa_transform_urust_ge [micro_rust_ssa]:
-  shows \<open>MICRO_RUST_SSA_CONTROL (SSA_urust_site_65 e f) = SSA_urust_site_66 e f\<close>
+  shows \<open>MICRO_RUST_SSA_CONTROL (ssa_transform_urust_ge_expr1 e f) = ssa_transform_urust_ge_expr2 e f\<close>
   unfolding MICRO_RUST_SSA_CONTROL_def by (clarsimp simp add: micro_rust_simps comp_ge_def) 
 
-urust_expr [abbrev = true] SSA_urust_site_67
+urust_expr [abbrev] ssa_transform_urust_le_expr1
   (e, f)
   \<open> \<epsilon>\<open>e\<close> <= \<epsilon>\<open>f\<close> \<close>
 
-urust_expr [abbrev = true] SSA_urust_site_68
+urust_expr [abbrev] ssa_transform_urust_le_expr2
   (e, f)
   \<open>
     let x = \<epsilon>\<open>MICRO_RUST_SSA_CONTROL e\<close>;
@@ -770,14 +770,14 @@ urust_expr [abbrev = true] SSA_urust_site_68
   \<close>
 
 lemma ssa_transform_urust_le [micro_rust_ssa]:
-  shows \<open>MICRO_RUST_SSA_CONTROL (SSA_urust_site_67 e f) = SSA_urust_site_68 e f\<close>
+  shows \<open>MICRO_RUST_SSA_CONTROL (ssa_transform_urust_le_expr1 e f) = ssa_transform_urust_le_expr2 e f\<close>
   unfolding MICRO_RUST_SSA_CONTROL_def by (clarsimp simp add: micro_rust_simps comp_le_def) 
 
-urust_expr [abbrev = true] SSA_urust_site_69
+urust_expr [abbrev] ssa_transform_urust_gt_expr1
   (e, f)
   \<open> \<epsilon>\<open>e\<close> > \<epsilon>\<open>f\<close> \<close>
 
-urust_expr [abbrev = true] SSA_urust_site_70
+urust_expr [abbrev] ssa_transform_urust_gt_expr2
   (e, f)
   \<open>
     let x = \<epsilon>\<open>MICRO_RUST_SSA_CONTROL e\<close>;
@@ -786,14 +786,14 @@ urust_expr [abbrev = true] SSA_urust_site_70
   \<close>
 
 lemma ssa_transform_urust_gt [micro_rust_ssa]:
-  shows \<open>MICRO_RUST_SSA_CONTROL (SSA_urust_site_69 e f) = SSA_urust_site_70 e f\<close>
+  shows \<open>MICRO_RUST_SSA_CONTROL (ssa_transform_urust_gt_expr1 e f) = ssa_transform_urust_gt_expr2 e f\<close>
   unfolding MICRO_RUST_SSA_CONTROL_def by (clarsimp simp add: micro_rust_simps comp_gt_def) 
 
-urust_expr [abbrev = true] SSA_urust_site_71
+urust_expr [abbrev] ssa_transform_urust_lt_expr1
   (e, f)
   \<open> \<epsilon>\<open>e\<close> < \<epsilon>\<open>f\<close> \<close>
 
-urust_expr [abbrev = true] SSA_urust_site_72
+urust_expr [abbrev] ssa_transform_urust_lt_expr2
   (e, f)
   \<open>
     let x = \<epsilon>\<open>MICRO_RUST_SSA_CONTROL e\<close>;
@@ -802,7 +802,7 @@ urust_expr [abbrev = true] SSA_urust_site_72
   \<close>
 
 lemma ssa_transform_urust_lt [micro_rust_ssa]:
-  shows \<open>MICRO_RUST_SSA_CONTROL (SSA_urust_site_71 e f) = SSA_urust_site_72 e f\<close>
+  shows \<open>MICRO_RUST_SSA_CONTROL (ssa_transform_urust_lt_expr1 e f) = ssa_transform_urust_lt_expr2 e f\<close>
   unfolding MICRO_RUST_SSA_CONTROL_def by (clarsimp simp add: micro_rust_simps comp_lt_def) 
 
 subsection\<open>Single static assignment form for loops\<close>

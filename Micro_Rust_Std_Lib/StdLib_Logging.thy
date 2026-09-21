@@ -19,7 +19,7 @@ underlying primitive logger, provided as a yield handler.  Note that strictly sp
 also \<^emph>\<open>macros\<close> in Rust; we use \<^verbatim>\<open>\<mu>Rust\<close> functions to model logging instead.
 
 First, the \<^verbatim>\<open>fatal\<close> logger:\<close>
-urust_expr [abbrev = true] fatal ::
+urust_expr [abbrev] fatal ::
   \<open>log_data \<Rightarrow> ('s, unit, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (m)
   \<open>
@@ -28,7 +28,7 @@ urust_expr [abbrev = true] fatal ::
 micro_rust_notation (call) fatal ("fatal!")
 
 text\<open>The \<^verbatim>\<open>info\<close> logger:\<close>
-urust_expr [abbrev = true] info ::
+urust_expr [abbrev] info ::
   \<open>log_data \<Rightarrow> ('s, unit, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (m)
   \<open>
@@ -37,7 +37,7 @@ urust_expr [abbrev = true] info ::
 micro_rust_notation (call) info ("info!")
 
 text\<open>The \<^verbatim>\<open>error\<close> logger:\<close>
-urust_expr [abbrev = true] error ::
+urust_expr [abbrev] error ::
   \<open>log_data \<Rightarrow> ('s, unit, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (m)
   \<open>
@@ -46,7 +46,7 @@ urust_expr [abbrev = true] error ::
 micro_rust_notation (call) error ("error!")
 
 text\<open>The \<^verbatim>\<open>debug\<close> logger:\<close>
-urust_expr [abbrev = true] debug ::
+urust_expr [abbrev] debug ::
   \<open>log_data \<Rightarrow> ('s, unit, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (m)
   \<open>
@@ -55,7 +55,7 @@ urust_expr [abbrev = true] debug ::
 micro_rust_notation (call) debug ("debug!")
 
 text\<open>The \<^verbatim>\<open>trace\<close> logger:\<close>
-urust_expr [abbrev = true] trace ::
+urust_expr [abbrev] trace ::
   \<open>log_data \<Rightarrow> ('s, unit, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (m)
   \<open>
@@ -87,13 +87,13 @@ translations
   "_log_entry_to_hol (_log_entry_id s)" \<rightharpoonup> "CONST generate_debug s"
   "_shallow (_urust_log_data es)" \<rightharpoonup> "CONST literal (_log_entry_list_to_hol es)"
 
-urust_expr [abbrev = true] StdLib_Logging_urust_site_1
+urust_expr [abbrev] StdLib_Logging_ex1
   (x, y, z)
   \<open>
   fatal!(l\<llangle>"this ", x, " is ", y, " a ", z, " test "\<rrangle>)
   \<close>
 
-term \<open>StdLib_Logging_urust_site_1 x y z\<close>
+term \<open>StdLib_Logging_ex1 x y z\<close>
 
 (*<*)
 end

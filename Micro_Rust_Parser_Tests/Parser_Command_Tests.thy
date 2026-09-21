@@ -649,11 +649,21 @@ section\<open> Anonymous declarations \<close>
 text\<open>
 The dummy declaration name elaborates and optionally proves conformance without installing a
 constant, definition, abbreviation, or code equation. Both command facades use an invented
-source-position name for the conformance fact and informational output only.
+fresh internal name for the conformance fact and informational output only.
 \<close>
 
 urust_expr [application_def, conformance = true] _ ::
   \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit, unit) expression\<close>
+  (item)
+  \<open> item \<close>
+
+urust_expr [application_def, conformance = true] _ ::
+  \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit, unit) expression\<close>
+  (item)
+  \<open> item \<close>
+
+urust_fn [application_def, conformance = true] _ ::
+  \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
   (item)
   \<open> item \<close>
 
@@ -697,8 +707,8 @@ ML_val\<open>
     val function_facts =
       filter (anonymous_conformance "urust_fn") facts
     val _ =
-      if length expression_facts = 1 andalso
-         length function_facts = 1
+      if length expression_facts = 2 andalso
+         length function_facts = 2
       then ()
       else
         error

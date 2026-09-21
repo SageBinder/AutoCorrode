@@ -665,11 +665,11 @@ paragraph\<open>Case splitting\<close>
 
 experiment
 begin
-urust_expr [abbrev = true] case_split_all_expr
+urust_expr [abbrev] case_split_all_expr
   (x, f, g)
   \<open> match x { Some(y) \<Rightarrow> f(), None \<Rightarrow> g() } \<close>
 
-urust_expr [abbrev = true] case_split_wp_expr
+urust_expr [abbrev] case_split_wp_expr
   (x, f, g)
   \<open> match x { None \<Rightarrow> f(), Some(y) \<Rightarrow> g() } \<close>
 

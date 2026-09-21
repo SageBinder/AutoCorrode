@@ -980,15 +980,9 @@ fun declaration_attributes lthy command target abbreviation options =
            quote attributes_option ^ Position.here option_pos))
 
 fun anonymous_binding kind pos =
-  let
-    val line = the_default 0 (Position.line_of pos)
-    val offset = the_default 0 (Position.offset_of pos)
-  in
-    Binding.make
-      (command_label kind ^ "_anonymous_" ^
-        string_of_int line ^ "_" ^ string_of_int offset,
-       pos)
-  end
+  Binding.make
+    (command_label kind ^ "_anonymous_" ^ string_of_int (serial ()),
+     pos)
 
 fun target_binding _ (Named_Target binding) = binding
   | target_binding kind (Anonymous_Target pos) =
@@ -1059,7 +1053,7 @@ fun install_urust_result abbreviation application_definition
       end
   end
 
-fun declare_urust_result timer abbreviation application_definition attributes kind
+fun declare_urust_result timer abbreviation application_definition attributes binding kind
     (target, declared_type, source, arguments_pos, arguments) lthy =
   let
     val term =
@@ -1072,19 +1066,15 @@ fun declare_urust_result timer abbreviation application_definition attributes ki
   in
     timing_phase timer "declaration installation" (fn () =>
       (case target of
-         Named_Target binding =>
+         Named_Target _ =>
            install_urust_result abbreviation application_definition attributes binding
              (length arguments) term lthy
        | Anonymous_Target _ =>
-           let
-             val binding = target_binding kind target
-           in
-             (Anonymous_Result
-                {term = term,
-                 name = Local_Theory.full_name lthy binding,
-                 kind = kind},
-              lthy)
-           end))
+           (Anonymous_Result
+              {term = term,
+               name = Local_Theory.full_name lthy binding,
+               kind = kind},
+            lthy)))
   end
 
 fun old_frontend_source source = "\<lbrakk> " ^ Input.string_of source ^ " \<rbrakk>"
@@ -1375,7 +1365,7 @@ fun define_urust_expr
     val binding = target_binding kind target
     fun declaration lthy' =
       declare_urust_result timer abbreviation application_definition
-        attributes kind args lthy'
+        attributes binding kind args lthy'
     fun checked old_body =
       declare_with_frontend_check timer declaration binding
         (fn ctxt => fn complete_type =>
@@ -1424,7 +1414,7 @@ fun define_urust_fn
     val binding = target_binding Function target
     fun declaration lthy' =
       declare_urust_result timer abbreviation application_definition
-        attributes Function
+        attributes binding Function
         (target, SOME raw_type, body, parameters_pos, parameters) lthy'
     fun checked old_body =
       declare_with_frontend_check timer declaration binding
