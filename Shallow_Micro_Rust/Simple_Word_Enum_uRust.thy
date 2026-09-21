@@ -296,18 +296,18 @@ text\<open>The acceptance test: the \<open>\<mu>Rust\<close> path really does re
 equal to the \<^const>\<open>literal\<close> of the HOL variant --- \<^emph>\<open>not\<close> a free variable named
 \<^verbatim>\<open>MessageKind::MK_Ping\<close>.\<close>
 
-urust_expr [abbrev = true] ping_term_expr
+urust_expr [abbrev] ping_term_expr
   \<open> MessageKind::MK_Ping \<close>
 
 term \<open>ping_term_expr\<close>
 
-urust_expr [abbrev = true] ping_literal_expr
+urust_expr [abbrev] ping_literal_expr
   \<open> MessageKind::MK_Ping \<close>
 
-urust_expr [abbrev = true] pong_literal_expr
+urust_expr [abbrev] pong_literal_expr
   \<open> MessageKind::MK_Pong \<close>
 
-urust_expr [abbrev = true] data_literal_expr
+urust_expr [abbrev] data_literal_expr
   \<open> MessageKind::MK_Data \<close>
 
 lemma
@@ -345,13 +345,13 @@ text\<open>Their \<open>\<mu>Rust\<close> paths resolve as function calls --- th
 unregistered path would leave a free variable and fail to elaborate at the \<^const>\<open>function_body\<close>
 type the call position demands.\<close>
 
-urust_expr [abbrev = true] to_u32_term_expr
+urust_expr [abbrev] to_u32_term_expr
   (e)
   \<open> MessageKind::to_u32(e) \<close>
 
 term \<open>to_u32_term_expr e\<close>
 
-urust_expr [abbrev = true] try_from_term_expr
+urust_expr [abbrev] try_from_term_expr
   (w)
   \<open> MessageKind::try_from(w) \<close>
 
@@ -361,7 +361,7 @@ text\<open>Naming the \<^verbatim>\<open>_def\<close> fact unfolds a call to its
 \<^verbatim>\<open>_alt\<close> characterisations from \<^verbatim>\<open>word_conversion\<close> usable on \<open>\<mu>Rust\<close> code. Evaluated on a concrete
 variant, a call then reduces to a literal:\<close>
 
-urust_expr [abbrev = true] to_u32_data_expr
+urust_expr [abbrev] to_u32_data_expr
   \<open> MessageKind::to_u32(MK_Data) \<close>
 
 lemma
@@ -371,7 +371,7 @@ lemma
 text\<open>Since the \<^verbatim>\<open>_def\<close>s are not \<^verbatim>\<open>[micro_rust_simps]\<close>, \<^emph>\<open>not\<close> naming them leaves the call
 unreduced --- the caller decides when to unfold.\<close>
 
-urust_expr [abbrev = true] to_u32_call_expr
+urust_expr [abbrev] to_u32_call_expr
   \<open> MessageKind::to_u32(MK_Data) \<close>
 
 lemma
@@ -382,7 +382,7 @@ lemma
 text\<open>End to end: a \<open>\<mu>Rust\<close> round trip on a variant named the \<open>\<mu>Rust\<close> way, discharged by the round-trip
 lemma \<^verbatim>\<open>word_conversion\<close> proves.\<close>
 
-urust_expr [abbrev = true] roundtrip_expr
+urust_expr [abbrev] roundtrip_expr
   \<open> MessageKind::try_from(MessageKind::to_u32(MK_Data)) \<close>
 
 lemma
@@ -449,7 +449,7 @@ ML \<open>
 text\<open>The variant has to be spelled the HOL way here, since \<^verbatim>\<open>urust_notation\<close> was suppressed ---
 but the \<^emph>\<open>function\<close> path still resolves, which is the independence being tested.\<close>
 
-urust_expr [abbrev = true] convs_only_expr
+urust_expr [abbrev] convs_only_expr
   (w)
   \<open> ConvsOnly::try_from(w) \<close>
 

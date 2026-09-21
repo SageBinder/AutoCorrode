@@ -89,14 +89,17 @@ Constructor resolution follows one chain:
 1. ordinary datatype/codatatype metadata from `Ctr_Sugar`;
 2. native `Case_Translation` metadata for an exact registered `NLiteral` backend absent from
    `Ctr_Sugar`;
-3. authentic `Code.is_constr`/`Ctr_Sugar` lookup only for unqualified unregistered names.
+3. native unqualified lookup only for constants recognized by `Code.is_constr` or
+   `Case_Translation`.
 
 Registered literals with native case metadata are constructors. Registered literals without it are
 values and need no downstream family registration. Binder-free, guard-free value/wildcard arms may
 use switch/equality lowering; authentic constructors, bindings, and other structural patterns use
 case lowering at every nesting depth, including registered nullary constructors. Exact registration
 remains a resolution and markup route, not a lowering distinction. Bare basename ambiguity reports
-every candidate and is never resolved from the expected result type.
+every candidate and is never resolved from the expected result type. Bare `simple_word_enum`
+variants therefore resolve structurally without requiring a notation alias; unknown identifiers
+still fall back to binders.
 Qualified constructor and struct-pattern metadata is selected from the exact registered `NLiteral`
 backend; parsed source `::` separators are never treated as Isabelle long-name separators.
 
@@ -134,10 +137,11 @@ negative rows preserve these boundaries.
   structs, integer lexing, comments, exhaustive array-repeat coverage, generated grammar, markup,
   and recovery.
 - `Parser_Pattern_Matching_Tests.thy`: `Ctr_Sugar`, custom enum and simple-word-enum native case
-  metadata, exhaustive/partial/guarded/or/nested and singleton simple-word-enum matches, the legacy
-  nested-variant catch-all bug, metadata-free value/literal equality and switch controls, ambiguity,
-  deep registered nullary structural matching, guards, coverage, source order, single evaluation,
-  term shape, markup, and recovery.
+  metadata, bare and qualified exhaustive/partial/guarded/or/nested and singleton simple-word-enum
+  matches, the legacy nested-variant catch-all bug, metadata-free value/literal equality and switch
+  controls, ordinary and typedef-backed basename ambiguity, binder fallback, deep registered nullary
+  structural matching, guards, coverage, source order, single evaluation, term shape, markup, and
+  recovery.
 - `Parser_Name_Resolution_Tests.thy`: notation dispatch, navigation, qualifier markup, turbofish,
   scoped cast-target aliases, primitive-type path heads, and the shared iterator `zip` registration
   audit.

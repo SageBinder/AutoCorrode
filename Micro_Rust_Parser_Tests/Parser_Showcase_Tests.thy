@@ -1,5 +1,8 @@
 theory Parser_Showcase_Tests
-  imports Micro_Rust_Parser_Impl.Parser_Impl_Command Micro_Rust_Std_Lib.StdLib_Logging
+  imports
+    Micro_Rust_Parser_Impl.Parser_Impl_Command
+    Micro_Rust_Std_Lib.StdLib_Logging
+    Misc.Simple_Word_Enums
 begin
 
 declare [[urust_conformance = true]]
@@ -404,6 +407,12 @@ datatype showoff_registered_event =
 datatype showoff_singleton_event =
   ShowoffSingletonEvent nat
 
+simple_word_enum (plugins del: word_conversion) (8)
+  showoff_word_state =
+    ShowoffWordIdle = 1
+  | ShowoffWordRunning = 2
+  | ShowoffWordSleeping = 3
+
 micro_rust_notation (literal)
   showoff_registered_event.ShowoffRegisteredData
   ("Showoff::Event::Data")
@@ -475,13 +484,27 @@ urust_expr [conformance = false] showoff_registered_singleton_match
     }
   \<close>
 
+urust_expr [conformance = false] showoff_bare_word_state_match ::
+  \<open>
+    showoff_word_state \<Rightarrow>
+      (unit, nat, unit, unit, unit, unit) expression
+  \<close>
+  (state)
+  \<open>
+    match_case state {
+      ShowoffWordIdle \<Rightarrow> 0,
+      ShowoffWordRunning | ShowoffWordSleeping \<Rightarrow> 1
+    }
+  \<close>
+
 text\<open>
 Features: automatic case and registered-value/numeral switch routing, an explicit
 numeric switch, datatype-aware qualified constructor markup, constructor and value patterns,
-or-patterns, direct structural-matrix lowering, deep registered-nullary constructor cases with
-genuine fall-through, structural-totality removal of redundant singleton fallbacks, full guard bodies,
-semicolon-free explicit match sequencing, nested matches, ordered fall-through, and antiquotation
-capture of both a let-bound variable and an arm binder.
+bare typedef-backed variants, or-patterns, direct structural-matrix lowering, deep
+registered-nullary constructor cases with genuine fall-through, structural-totality removal of
+redundant singleton fallbacks, full guard bodies, semicolon-free explicit match sequencing, nested
+matches, ordered fall-through, and antiquotation capture of both a let-bound variable and an arm
+binder.
 \<close>
 
 text\<open>

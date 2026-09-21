@@ -210,11 +210,11 @@ ML\<open>
     by consulting Ctr_Sugar first and then native Case_Translation metadata for an exact registered
     backend absent there. It does not select a constructor, diagnose ambiguity, or emit semantic
     markup. resolve_constructor performs those later operations; unregistered lookup remains limited
-    to Ctr_Sugar or Code.is_constr constructors, using exact identity for qualified names and basename
-    lookup for unqualified names. Qualified source constructor paths resolve only through their exact
-    literal registration; no parsed Rust path is translated into an Isabelle long name. Resolution
-    returns NONE when an unqualified name is absent and raises a positioned, deterministic ambiguity
-    error for multiple matches.
+    to constructors authenticated by Code.is_constr or Case_Translation metadata, using exact
+    identity for qualified names and basename lookup for unqualified names. Qualified source
+    constructor paths resolve only through their exact literal registration; no parsed Rust path is
+    translated into an Isabelle long name. Resolution returns NONE when an unqualified name is absent
+    and raises a positioned, deterministic ambiguity error for multiple matches.
     constructor_term returns the dummy-typed constructor term, constructor_arity its argument count,
     and constructor_family optionally the datatype identity with all family constructor terms.
     Constructor metadata deliberately carries no registration provenance: once native Isabelle
@@ -1417,6 +1417,21 @@ struct
          selectors = []})
       (native_case_metadata ctxt backend)
 
+  (* Keep bare native lookup aligned with Basic_Case_Expression: typedef-backed constructors may be
+     known through case translation even when the code generator does not classify them. Candidate
+     metadata is still recovered and validated by native_case_constructor_info below. *)
+  fun known_native_constructor ctxt (identity, typ) =
+    let
+      val theory = Proof_Context.theory_of ctxt
+      val code_constructor =
+        (Code.is_constr theory identity
+          handle TYPE _ => false)
+      val case_constructor =
+        Option.isSome
+          (Case_Translation.lookup_by_constr_permissive ctxt
+            (identity, typ))
+    in code_constructor orelse case_constructor end
+
   fun describe_constructor_info (info : constructor_info) =
     "constructor " ^ quote (#identity info) ^
       " (arity " ^ string_of_int (#arity info) ^
@@ -1562,7 +1577,6 @@ struct
       (Constructor_Resolver
         {by_identity, by_basename, ...}) name =
     let
-      val theory = Proof_Context.theory_of ctxt
       val requested_name = name
       val sugar_candidates =
         if qualified_name name
@@ -1589,8 +1603,7 @@ struct
                 not (member (op =)
                   (item_constructor_identities ctxt)
                   identity) andalso
-                (Code.is_constr theory identity
-                  handle TYPE _ => false)
+                known_native_constructor ctxt (identity, typ)
             then
               native_case_constructor_info ctxt
                 (Const (identity, typ))

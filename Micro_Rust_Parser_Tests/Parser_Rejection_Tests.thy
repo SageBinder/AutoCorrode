@@ -7,6 +7,8 @@ theory Parser_Rejection_Tests
   imports
     Parser_Struct_Ambiguity_Left_Fixtures
     Parser_Struct_Ambiguity_Right_Fixtures
+    Parser_Constructor_Ambiguity_Left_Fixtures
+    Parser_Constructor_Ambiguity_Right_Fixtures
     Parser_Registered_Constructor_Fixtures
     Micro_Rust_Std_Lib.StdLib_Logging
 begin
@@ -881,6 +883,12 @@ new_urust_rejects divergent
        The new parser rejects, reports their qualified identities, and identifies the missing exact
        literal registration or source qualification needed to disambiguate them. \<close>
 
+new_urust_rejects divergent
+  \<open> match_case \<llangle>undefined\<rrangle> { SharedWordState \<Rightarrow> \<llangle>True\<rrangle> } \<close>
+  \<open> constructor pattern "SharedWordState" is ambiguous; candidates: \<close>
+  \<comment> \<open> [DIVERGENT] typedef-backed case constructors participate in the same deterministic
+       unqualified-basename ambiguity diagnostic as ordinary datatype constructors. \<close>
+
 ML\<open>
 local
   val left_struct =
@@ -891,6 +899,12 @@ local
     "Parser_Struct_Ambiguity_Left_Fixtures.nullary_ambiguity_left.AmbiguousNullary"
   val right_nullary =
     "Parser_Struct_Ambiguity_Right_Fixtures.nullary_ambiguity_right.AmbiguousNullary"
+  val left_word =
+    "Parser_Constructor_Ambiguity_Left_Fixtures.word_constructor_ambiguity_left.SharedWordState"
+  val left_word_only =
+    "Parser_Constructor_Ambiguity_Left_Fixtures.word_constructor_ambiguity_left.LeftWordState"
+  val right_word =
+    "Parser_Constructor_Ambiguity_Right_Fixtures.word_constructor_ambiguity_right.SharedWordState"
 
   fun assert message condition =
     if condition then () else error message
@@ -935,6 +949,7 @@ local
 
   val struct_info = qualified left_struct
   val nullary_info = qualified left_nullary
+  val word_info = qualified left_word
 
   val _ =
     assert "qualified positional constructor arity changed"
@@ -942,6 +957,9 @@ local
   val _ =
     assert "qualified nullary constructor arity changed"
       (URust_Resolution.constructor_arity nullary_info = 0)
+  val _ =
+    assert "qualified word constructor arity changed"
+      (URust_Resolution.constructor_arity word_info = 0)
   val _ =
     (case URust_Resolution.constructor_family struct_info of
        SOME (family, members) =>
@@ -954,6 +972,18 @@ local
               members = [left_struct]))
      | NONE =>
          error "qualified constructor lost family metadata")
+  val _ =
+    (case URust_Resolution.constructor_family word_info of
+       SOME (family, members) =>
+         (assert "qualified word constructor family changed"
+            (family =
+              "Parser_Constructor_Ambiguity_Left_Fixtures.word_constructor_ambiguity_left");
+          assert "qualified word constructor family members changed"
+            (map_filter
+              (fn Const (name, _) => SOME name | _ => NONE)
+              members = [left_word, left_word_only]))
+     | NONE =>
+         error "qualified word constructor lost family metadata")
 
   val _ =
     expect_ambiguity "positional constructor ambiguity"
@@ -963,6 +993,10 @@ local
     expect_ambiguity "nullary constructor ambiguity"
       "match_case \<llangle>undefined\<rrangle> { AmbiguousNullary \<Rightarrow> \<llangle>True\<rrangle> }"
       [left_nullary, right_nullary]
+  val _ =
+    expect_ambiguity "word constructor ambiguity"
+      "match_case \<llangle>undefined\<rrangle> { SharedWordState \<Rightarrow> \<llangle>True\<rrangle> }"
+      [left_word, right_word]
 in
 end
 \<close>
