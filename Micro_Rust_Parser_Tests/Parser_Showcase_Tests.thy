@@ -127,6 +127,23 @@ urust_fn [application_def, conformance, verbosity = 2] showoff_declared_mix ::
   \<open> left * 3u64 + right \<close>
   against \<open> \<lbrakk> left * 3_u64 + right \<rbrakk> \<close>
 
+text\<open>
+Bare declaration wildcards keep their typed argument slots and source order but introduce no
+lexical name. They may be repeated or mixed with named parameters in either command.
+\<close>
+
+urust_fn [application_def] showoff_wildcard_function ::
+  \<open>unit \<Rightarrow> 64 word \<Rightarrow> bool \<Rightarrow>
+    (unit, 64 word, unit, unit, unit) function_body\<close>
+  (_, kept, _)
+  \<open> kept + 1_u64 \<close>
+
+urust_expr [abbrev] showoff_wildcard_expression ::
+  \<open>unit \<Rightarrow> 64 word \<Rightarrow>
+    (unit, 64 word, unit, unit, unit, unit) expression\<close>
+  (_, kept)
+  \<open> kept \<close>
+
 urust_fn [abbrev, verbosity = 2] showoff_abbreviated_function ::
   \<open>64 word \<Rightarrow>
     (unit, 64 word, unit, unit, unit) function_body\<close>

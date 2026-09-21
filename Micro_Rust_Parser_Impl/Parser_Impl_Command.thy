@@ -14,7 +14,7 @@ section\<open> The command \<close>
 
 text\<open>
 The two outer commands deliberately share one declaration-body parser:
-\<open>COMMAND [OPTIONS] NAME|_ [:: TYPE] [(ARG, ...)] src [against TERM]\<close>.
+\<open>COMMAND [OPTIONS] NAME|_ [:: TYPE] [(ARG|_, ...)] src [against TERM]\<close>.
 \<open>urust_expr\<close> infers an untyped expression or accepts a complete declaration type. A terminal
 \<open>expression\<close> type produces an ordinary expression abstraction, while a terminal
 \<open>function_body\<close> type wraps the body once in \<open>FunctionBody\<close>. \<open>urust_fn\<close> selects function
@@ -29,15 +29,18 @@ The optional parenthesized, comma-separated argument list occurs immediately bef
 cartouche and accepts an empty list or trailing comma. Omitting it is equivalent to \<open>()\<close>.
 \<open>Parse.liberal_name\<close> admits ordinary identifiers, symbolic names, quoted names, and minor
 keywords such as \<open>for\<close>. Isabelle major command keywords delimit command spans before this parser
-runs, so use string quoting for those names, for example \<open>("lemma")\<close>. Arguments introduce lexical
-names in source order. Without a declaration type, \<open>urust_expr\<close> infers their types and produces
-\<open>\<lambda>ARG.... src\<close>. A declaration type supplies the complete curried type, including one
-argument type per source argument. Other terminal constructors and argument-count mismatches are
-rejected. Source-level HOL frees not introduced by the argument list remain free during elaboration;
-ordinary named definitions expose non-contextual frees as definition parameters, while existing
-context fixes remain local-theory dependencies. The dummy name \<open>_\<close> elaborates and checks the
-result without registering a constant, definition, abbreviation, or code equation. It receives a
-stable source-position-based name only for conformance facts and informational output.
+runs, so use string quoting for those names, for example \<open>("lemma")\<close>. Named arguments introduce
+lexical names in source order. A bare \<open>_\<close> instead consumes one ordered type slot and produces a
+typed anonymous abstraction without introducing a resolvable name; repeated and mixed wildcards are
+permitted, while duplicate named arguments remain rejected. Without a declaration type,
+\<open>urust_expr\<close> infers all slot types and produces the corresponding abstraction. A declaration type
+supplies the complete curried type, including one argument type per source slot. Other terminal
+constructors and argument-count mismatches are rejected. Source-level HOL frees not introduced by
+the argument list remain free during elaboration; ordinary named definitions expose non-contextual
+frees as definition parameters, while existing context fixes remain local-theory dependencies. The
+dummy declaration target \<open>_\<close> elaborates and checks the result without registering a constant,
+definition, abbreviation, or code equation. It receives a stable source-position-based name only for
+conformance facts and informational output.
 Ordinary named definitions preserve the complete curried term on the right-hand side of
 \<open>NAME_def\<close> by default. The Boolean \<open>application_def\<close> option instead retains explicit source
 arguments on the theorem's left-hand side, producing
@@ -51,7 +54,8 @@ override a true scoped setting.
 \<open>urust_conformance\<close> defaults to false. When enabled, the command also checks the generated
 declaration against the existing \<open>\<lbrakk>src\<rbrakk>\<close> frontend and records
 \<open>NAME_conformance\<close>. Contextual legacy bodies are parsed under temporary fixes carrying the
-new declaration's inferred argument types, then abstracted in the same order.
+new declaration's inferred named-argument types. Wildcard slots create typed anonymous abstractions
+directly, and all abstractions are applied in source order.
 \<open>urust_timing_info\<close> defaults to false. Its inline alias is \<open>timing_info\<close>. When enabled, the
 command measures the parser pipeline and emits a structured timing record. The independent integer
 \<open>urust_timing_verbosity\<close> configuration and inline \<open>timing_verbosity\<close> option default to 0:
@@ -117,12 +121,14 @@ end
 (* THE expression pipeline, exported: every declaration command and programmatic client supplies an
    explicit elaboration kind to elaborate. Expression accepts no type or a complete declaration type
    ending in expression; Function requires a curried declaration type ending in function_body, or an
-   exact terminal _ that is completed before checking. Typed argument types are allocated before AST
-   lowering, the complete unchecked term receives one Type.constraint, and the result passes through
-   Syntax.check_term exactly once. Residual internal type variables that occur in neither the checked
-   declaration type nor already-declared ambient fixed-parameter types are then closed with its
-   terminal value channel. All failures are positioned. URust_Parser.parse_source owns serialization
-   of the generated runtime; elaboration and check_term remain outside that lock.
+   exact terminal _ that is completed before checking. Typed declaration slots are allocated before
+   AST lowering: named slots become lexical Frees and wildcard slots become typed anonymous
+   abstractions without entering name resolution. The complete unchecked term receives one
+   Type.constraint, and the result passes through Syntax.check_term exactly once. Residual internal
+   type variables that occur in neither the checked declaration type nor already-declared ambient
+   fixed-parameter types are then closed with its terminal value channel. All failures are positioned.
+   URust_Parser.parse_source owns serialization of the generated runtime; elaboration and check_term
+   remain outside that lock.
 
    Declaration installation, command-kind inference, conformance-proof assembly, the shared
    declaration-body parser, command-specific option schemas, both outer-command facades, and command
@@ -1197,7 +1203,7 @@ fun note_conformance timer binding declaration old_frontend lthy =
 fun with_typed_fixes timer lthy command complete_type parameters
     body_type wrap_body old_body_source =
   let
-    val (body_ctxt, formals) =
+    val (body_ctxt, abstractions) =
       timing_phase timer "prepare context" (fn () =>
         let
           val (parameter_types, _) = Term.strip_type complete_type
@@ -1206,17 +1212,42 @@ fun with_typed_fixes timer lthy command complete_type parameters
             else
               error
                 (command ^ ": internal legacy parameter/type count mismatch")
+          val slots = parameters ~~ parameter_types
+          val named_slots =
+            filter (fn ((name, _), _) => name <> "_") slots
           val fixes =
-            map2
-              (fn (name, _) => fn T => (Binding.name name, SOME T, NoSyn))
-              parameters parameter_types
+            map
+              (fn ((name, _), T) =>
+                (Binding.name name, SOME T, NoSyn))
+              named_slots
           val (internal_names, body_ctxt) =
             Proof_Context.add_fixes fixes (Variable.set_body true lthy)
-          val formals =
-            map2 (fn name => fn T => Free (name, T))
-              internal_names parameter_types
+          val named_formals =
+            map2
+              (fn internal_name => fn ((_, _), T) =>
+                Free (internal_name, T))
+              internal_names named_slots
+
+          fun make_abstractions [] [] = []
+            | make_abstractions (((name, _), T) :: rest) formals =
+                if name = "_" then
+                  (fn body => Abs (Name.uu, T, body)) ::
+                    make_abstractions rest formals
+                else
+                  (case formals of
+                     formal :: remaining =>
+                       (fn body => Term.lambda formal body) ::
+                         make_abstractions rest remaining
+                   | [] =>
+                       error
+                         (command ^
+                           ": internal legacy named-parameter mismatch"))
+            | make_abstractions [] (_ :: _) =
+                error
+                  (command ^
+                    ": internal legacy named-parameter mismatch")
         in
-          (body_ctxt, formals)
+          (body_ctxt, make_abstractions slots named_formals)
         end)
     val parsed =
       timing_phase timer "parse source" (fn () =>
@@ -1227,8 +1258,8 @@ fun with_typed_fixes timer lthy command complete_type parameters
           (Type.constraint body_type parsed))
     val unchecked =
       timing_phase timer "abstract body" (fn () =>
-        fold_rev Term.lambda formals
-          (wrap_body old_body))
+        fold_rev (fn abstraction => fn body => abstraction body)
+          abstractions (wrap_body old_body))
     val checked =
       timing_phase timer "check complete term" (fn () =>
         Syntax.check_term body_ctxt

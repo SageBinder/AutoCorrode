@@ -26,12 +26,12 @@ sig
     Proof.context ->
       environment ->
       ((string * Position.T) * typ) list ->
-      term list * environment
+      (term -> term) list * environment
   val allocate_function_parameters:
     Proof.context ->
       environment ->
       ((string * Position.T) * typ) list ->
-      term list * environment
+      (term -> term) list * environment
   val use_local:
     Proof.context -> environment -> string * Position.T -> term option
   val lookup_local: environment -> string -> term option
@@ -132,15 +132,18 @@ ML\<open>
     while reporting their definitions. allocate_closure_formals instead permits repeated names,
     allocates one distinct Free per source formal in source order, and returns those Frees together
     with the final environment in which each later repeated name shadows its predecessors.
-    allocate_expression_arguments and allocate_function_parameters reject `_` and duplicate names
-    through the same validation path, allocate the supplied types, mark those declaration arguments
-    for direct-call precedence, and return the ordered Frees with the extended environment. Untyped
-    expression clients supply dummy types for inference; typed clients supply argument or parameter
-    types from the complete declaration type. A nested ordinary binder with the same name removes
-    that precedence marker while shadowing the declaration argument. use_local performs a positioned
-    lookup, reports a bound reference on success, and returns NONE without fallback resolution;
-    lookup_local performs the same lexical lookup without reporting. Single-local allocation and the
-    generic binder records are private implementation details.
+    allocate_expression_arguments and allocate_function_parameters reject duplicate named
+    parameters through the same validation path. Named slots allocate the supplied type, enter the
+    lexical environment with direct-call precedence, and return a source-ordered Term.lambda
+    operation. A `_` slot enters no environment and returns a typed anonymous Abs operation instead;
+    repeated and mixed wildcards therefore retain their type slots and abstraction order without
+    becoming resolvable names. Untyped expression clients supply dummy types for inference; typed
+    clients supply argument or parameter types from the complete declaration type. A nested ordinary
+    binder with the same name removes the declaration-argument precedence marker while shadowing the
+    outer argument. use_local performs a positioned lookup, reports a bound reference on success, and
+    returns NONE without fallback resolution; lookup_local performs the same lexical lookup without
+    reporting. Single-local allocation and the generic binder records are private implementation
+    details.
 
   - parse_antiquotation parses an Input.source as a HOL term with every environment entry in lexical
     scope. Lexical names shadow context fixes and constants, and occurrences are restored to the exact
@@ -291,10 +294,7 @@ struct
   fun allocate_parameters command role ctxt environment parameters =
     let
       fun validate ((name, pos), _) seen =
-        if name = "_" then
-          error
-            (command ^ ": " ^ role ^ " name `_` is not allowed" ^
-              Position.here pos)
+        if name = "_" then seen
         else
           (case Symtab.lookup seen name of
              NONE => Symtab.update (name, pos) seen
@@ -304,15 +304,21 @@ struct
                    Position.here pos ^ "\nThe original " ^ role ^ " is here" ^
                    Position.here original_pos))
       val _ = fold validate parameters Symtab.empty
-      fun allocate [] env frees = (rev frees, env)
-        | allocate ((parameter as ((_, pos), T)) :: rest) env frees =
+      fun allocate [] env abstractions = (rev abstractions, env)
+        | allocate ((parameter as ((name, pos), T)) :: rest) env abstractions =
             let
               val _ =
                 Context_Position.report_text ctxt pos Markup.typing
                   ("uRust " ^ role ^ " :: " ^ Syntax.string_of_typ ctxt T)
-              val (free, env') =
-                bind_declaration_argument ctxt env parameter
-            in allocate rest env' (free :: frees) end
+              val (abstraction, env') =
+                if name = "_" then
+                  ((fn body => Abs (Name.uu, T, body)), env)
+                else
+                  let
+                    val (free, env') =
+                      bind_declaration_argument ctxt env parameter
+                  in ((fn body => Term.lambda free body), env') end
+            in allocate rest env' (abstraction :: abstractions) end
     in allocate parameters environment [] end
 
   fun allocate_expression_arguments ctxt environment arguments =
