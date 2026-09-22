@@ -31,3 +31,4 @@ session Micro_Rust_Parser_Tests = HOL +
     Parser_Datatype_Tests
     Parser_Printer_Tests
     Parser_Showcase_Tests
+    Parser_Old_New_Comparison

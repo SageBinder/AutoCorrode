@@ -157,6 +157,10 @@ negative rows preserve these boundaries.
 - `Parser_Printer_Tests.thy`: serialized and human-readable expression and datatype printing,
   canonicalization, layout, positions, and malformed-AST diagnostics.
 - `Parser_Showcase_Tests.thy`: combined command, grammar, matching, and iterator examples.
+- `Parser_Old_New_Comparison.thy`: eight bounded legacy/dedicated parser pairs covering shared
+  source and PIDE navigation, composed Rust-shaped improvements, matcher hygiene, and generated
+  function declarations. Each pair keeps its two snippets within 40 lines, parses both sides
+  explicitly, and deliberately creates no conformance facts.
 
 Shared declaration-only setup lives in `Parser_Iterator_Fixtures.thy`,
 `Parser_Registered_Constructor_Fixtures.thy`, `Parser_Cast_Alias_Fixtures.thy`, and the four
