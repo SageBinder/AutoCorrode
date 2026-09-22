@@ -124,7 +124,7 @@ struct
     UR_Arm
       (pattern, NONE, body, synthetic_layout position)
 
-  fun lower_prepared_case ctxt source_positions
+  fun lower_prepared_case compilation_mode ctxt source_positions
       scrutinee lower_result prepared_arms =
     let
       fun lower_arm (tag, prepared) =
@@ -134,11 +134,13 @@ struct
             lower_result tag arm_environment prepared
         in (prepared, lowered_guard, lowered_body) end
     in
-      P.compile_case ctxt source_positions NONE scrutinee
+      P.compile_case compilation_mode
+        ctxt source_positions NONE scrutinee
         (map lower_arm prepared_arms)
     end
 
-  fun lower_case_arms ctxt environment position source_positions
+  fun lower_case_arms compilation_mode ctxt environment
+      position source_positions
       scrutinee lower_result arms =
     let
       val prepared =
@@ -146,7 +148,7 @@ struct
           (map snd arms)
       val tagged = map2 pair (map fst arms) prepared
     in
-      lower_prepared_case ctxt source_positions
+      lower_prepared_case compilation_mode ctxt source_positions
         scrutinee lower_result tagged
     end
 
@@ -157,7 +159,11 @@ struct
       val pattern_positions =
         keyword_positions ["let"] layout
       val loop_positions =
-        keyword_positions ["fuel", "while"] layout
+        source_token_positions_for layout
+          [Delimiter_Token "#[",
+           Keyword_Token "fuel",
+           Delimiter_Token "]",
+           Keyword_Token "while"]
       val lowered_fuel =
         URust_Resolution.parse_antiquotation ctxt environment fuel
       val lowered_scrutinee = lower environment scrutinee
@@ -181,10 +187,12 @@ struct
              in
                if P.prepared_is_total prepared
                then
-                 P.compile_case ctxt pattern_positions
+                 P.compile_case P.Ordinary_Case_Compilation
+                   ctxt pattern_positions
                    NONE lowered_scrutinee [arm]
                else
-                 P.compile_case ctxt pattern_positions
+                 P.compile_case P.Ordinary_Case_Compilation
+                   ctxt pattern_positions
                    (SOME (T.literal T.false_value))
                    lowered_scrutinee [arm]
              end)
@@ -226,7 +234,8 @@ struct
              val lowered_fallback =
                lower environment fallback
            in
-             P.compile_case ctxt source_positions
+             P.compile_case P.Ordinary_Case_Compilation
+               ctxt source_positions
                (if P.prepared_is_total prepared
                 then NONE
                 else SOME lowered_fallback)
@@ -295,13 +304,14 @@ struct
              val alternatives = map (fn arm => ((), arm)) arms
              fun lower_result () arm_environment prepared =
                (Option.map
-                  (fn (guard, _) => lower arm_environment guard)
+                  (fn (guard, guard_pos) =>
+                    (lower arm_environment guard, guard_pos))
                   (P.prepared_guard prepared),
                 lower arm_environment (P.prepared_body prepared))
            in
-             lower_case_arms ctxt environment pos match_positions
-               lowered_scrutinee
-               lower_result alternatives
+             lower_case_arms P.Source_Match_Compilation
+               ctxt environment pos match_positions
+               lowered_scrutinee lower_result alternatives
            end
        | MF_Auto =>
            error "urust_expr: internal unresolved auto match flavour")
@@ -321,7 +331,8 @@ struct
             [synthetic_arm position pattern
               (UE_Unit (synthetic_layout position))])
     in
-      P.compile_case ctxt source_positions
+      P.compile_case P.Ordinary_Case_Compilation
+        ctxt source_positions
         (SOME (T.literal T.false_value))
         lowered_scrutinee
         [(prepared, NONE, T.literal T.true_value)]

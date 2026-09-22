@@ -189,6 +189,7 @@ val aq_kind = ref No_AQ
 val aq_buf = ref ([] : string list)
 val aq_start = ref 0   (* char offset of the antiquotation BODY start (just after the opener) *)
 val aq_open = ref 0
+val aq_open_text = ref ""
 val aq_depth = ref 0
 val generic_open = ref (NONE : Position.T option)
 val log_data_open = ref (NONE : Position.T option)
@@ -207,7 +208,8 @@ val comment_open = ref 0
 val comment_depth = ref ~1
 
 fun reset_aq () =
-  (aq_kind := No_AQ; aq_buf := []; aq_start := 0; aq_open := 0; aq_depth := 0)
+  (aq_kind := No_AQ; aq_buf := []; aq_start := 0; aq_open := 0;
+   aq_open_text := ""; aq_depth := 0)
 fun reset_generic () = generic_open := NONE
 fun reset_log_data () = log_data_open := NONE
 fun reset_block_comment () =
@@ -219,8 +221,9 @@ fun reset_comment () =
 fun reset_state () =
   (reset_aq (); reset_generic (); reset_log_data ();
    reset_block_comment (); reset_hol_type (); reset_comment ())
-fun start_aq kind open_pos body_pos =
-  (aq_kind := kind; aq_buf := []; aq_start := body_pos; aq_open := open_pos; aq_depth := 0)
+fun start_aq kind open_pos open_text body_pos =
+  (aq_kind := kind; aq_buf := []; aq_start := body_pos; aq_open := open_pos;
+   aq_open_text := open_text; aq_depth := 0)
 fun push_aq fragment = aq_buf := fragment :: !aq_buf
 fun take_aq () =
   let val body = String.concat (rev (!aq_buf))
@@ -258,6 +261,107 @@ fun fixed_pos yypos = Parser_Lex_Util.fixed_pos (!source_layout) yypos
 fun tokF args       = Parser_Lex_Util.tokF (!source_layout) args
 fun tok_valF args   = Parser_Lex_Util.tok_valF (!source_layout) args
 fun report_text args = Parser_Lex_Util.report_text (!source_layout) args
+fun source_position (yypos, text) =
+  Position.range_position
+    (Parser_Lex_Util.text_range (!source_layout) (yypos, text))
+
+val source_integer_suffixes = ["u8", "u16", "u32", "u64", "usize"]
+
+fun source_digit_value c =
+  if #"0" <= c andalso c <= #"9" then SOME (Char.ord c - Char.ord #"0")
+  else if #"a" <= c andalso c <= #"f" then SOME (10 + Char.ord c - Char.ord #"a")
+  else if #"A" <= c andalso c <= #"F" then SOME (10 + Char.ord c - Char.ord #"A")
+  else NONE
+
+fun source_valid_digit radix c =
+  (case source_digit_value c of
+     SOME value => value < radix
+   | NONE => false)
+
+fun source_integer_base lexeme =
+  if String.isPrefix "0b" lexeme then (2, 2)
+  else if String.isPrefix "0o" lexeme then (8, 2)
+  else if String.isPrefix "0x" lexeme then (16, 2)
+  else (10, 0)
+
+fun source_scan_integer radix lexeme offset =
+  if offset < size lexeme andalso
+      (String.sub (lexeme, offset) = #"_" orelse
+       source_valid_digit radix (String.sub (lexeme, offset)))
+  then source_scan_integer radix lexeme (offset + 1)
+  else offset
+
+fun source_known_suffix lexeme =
+  let
+    fun split suffix =
+      if String.isSuffix suffix lexeme andalso size lexeme > size suffix
+      then
+        let
+          val suffix_start = size lexeme - size suffix
+          val compatibility =
+            suffix_start > 0 andalso
+            String.sub (lexeme, suffix_start - 1) = #"_"
+        in
+          SOME (if compatibility then suffix_start - 1 else suffix_start)
+        end
+      else NONE
+    fun find [] = NONE
+      | find (suffix :: suffixes) =
+          (case split suffix of
+             NONE => find suffixes
+           | result => result)
+  in find source_integer_suffixes end
+
+fun source_integer_parts lexeme =
+  let
+    val (radix, digits_start) = source_integer_base lexeme
+    val scanned_end =
+      source_scan_integer radix lexeme digits_start
+    val suffix_start =
+      (case source_known_suffix lexeme of
+         SOME offset => SOME offset
+       | NONE =>
+           if scanned_end = size lexeme orelse
+               (#"0" <= String.sub (lexeme, scanned_end) andalso
+                String.sub (lexeme, scanned_end) <= #"9")
+           then NONE
+           else
+             SOME
+               (if scanned_end > digits_start andalso
+                   String.sub (lexeme, scanned_end - 1) = #"_"
+                then scanned_end - 1
+                else scanned_end))
+  in
+    (case suffix_start of
+       NONE => (lexeme, NONE)
+     | SOME offset =>
+         (String.substring (lexeme, 0, offset),
+          SOME (offset, String.extract (lexeme, offset, NONE))))
+  end
+
+fun tok_integer typ cons (yypos, yytext) =
+  let
+    val range as (start, stop) =
+      Parser_Lex_Util.text_range (!source_layout) (yypos, yytext)
+    val whole_pos = Position.range_position range
+    val (numeric_text, suffix) = source_integer_parts yytext
+    val numeric_pos = source_position (yypos, numeric_text)
+    val suffix_pos =
+      Option.map
+        (fn (offset, text) =>
+          source_position (yypos + offset, text))
+        suffix
+    val literal =
+      Integer_Literal
+        (yytext,
+         make_source_layout whole_pos
+           [(Literal_Token, numeric_pos)],
+         suffix_pos)
+    val _ =
+      Parser_Lex_Util.report_range
+        (range, Markup.numeral, typ)
+  in cons (literal, start, stop) end
+
 fun start_hol_type_token (yypos, yytext) =
   let
     val symbols = Symbol.explode yytext
@@ -453,15 +557,15 @@ lex_rules\<open>
 <INITIAL>\\"<comment>" =>
     (start_comment Initial_Comment yypos; YYBEGIN COMMENT_OPEN; lex());
 <INITIAL>"0b"[0-1_]+ =>
-    (tok_valF (yypos, yytext, Markup.numeral, "NUM", Tokens.NUM, yytext));
+    (tok_integer "NUM" Tokens.NUM (yypos, yytext));
 <INITIAL>"0o"[0-7_]+ =>
-    (tok_valF (yypos, yytext, Markup.numeral, "NUM", Tokens.NUM, yytext));
+    (tok_integer "NUM" Tokens.NUM (yypos, yytext));
 <INITIAL>"0x"[0-9a-fA-F_]+ =>
-    (tok_valF (yypos, yytext, Markup.numeral, "NUM", Tokens.NUM, yytext));
+    (tok_integer "NUM" Tokens.NUM (yypos, yytext));
 <INITIAL>{digit}[0-9_]* =>
-    (tok_valF (yypos, yytext, Markup.numeral, "NUM", Tokens.NUM, yytext));
+    (tok_integer "NUM" Tokens.NUM (yypos, yytext));
 <INITIAL>{digit}{idchar}* =>
-    (tok_valF (yypos, yytext, Markup.numeral, "NUMSFX", Tokens.NUMSFX, yytext));
+    (tok_integer "NUMSFX" Tokens.NUMSFX (yypos, yytext));
 <INITIAL>"true"   => (tokF (yypos, yytext, Markup.keyword1, "TTRUE", Tokens.TTRUE));
 <INITIAL>"false"  => (tokF (yypos, yytext, Markup.keyword1, "TFALSE", Tokens.TFALSE));
 <INITIAL>"struct" => (tokF (yypos, yytext, Markup.keyword1, "TSTRUCT", Tokens.TSTRUCT));
@@ -554,8 +658,8 @@ lex_rules\<open>
 <INITIAL>"]"      => (tokF (yypos, yytext, Markup.delimiter, "TRBRACK", Tokens.TRBRACK));
 <INITIAL>"{"      => (tokF (yypos, yytext, Markup.delimiter, "TLBRACE", Tokens.TLBRACE));
 <INITIAL>"}"      => (tokF (yypos, yytext, Markup.delimiter, "TRBRACE", Tokens.TRBRACE));
-<INITIAL>\\"<llangle>"          => (report_text (yypos, yytext, Markup.delimiter, "VALAQ"); start_aq Value_AQ yypos (yypos + size yytext); YYBEGIN VAQ; lex());
-<INITIAL>\\"<epsilon>"\\"<open>" => (report_text (yypos, hd (Symbol.explode yytext), Markup.literal, "EXPRAQ"); start_aq Expr_AQ yypos (yypos + size yytext); YYBEGIN EAQ; lex());
+<INITIAL>\\"<llangle>"          => (report_text (yypos, yytext, Markup.delimiter, "VALAQ"); start_aq Value_AQ yypos yytext (yypos + size yytext); YYBEGIN VAQ; lex());
+<INITIAL>\\"<epsilon>"\\"<open>" => (report_text (yypos, hd (Symbol.explode yytext), Markup.literal, "EXPRAQ"); start_aq Expr_AQ yypos yytext (yypos + size yytext); YYBEGIN EAQ; lex());
 <INITIAL>\\"<Rightarrow>" => (tokF (yypos, yytext, Markup.delimiter, "TARROW", Tokens.TARROW));
 <INITIAL>\\"<^sub>""1"\\"<^sub>""0" => (tok_valF (yypos, yytext, Markup.delimiter, "FUNARITY", Tokens.FUNARITY, 10));
 <INITIAL>\\"<^sub>""1"\\"<^sub>""1" => (tok_valF (yypos, yytext, Markup.delimiter, "FUNARITY", Tokens.FUNARITY, 11));
@@ -579,13 +683,25 @@ lex_rules\<open>
        let
          val p = fixed_pos (!aq_start)
          val q = fixed_pos yypos
-         val open_pos = fixed_pos (!aq_open)
-         val token_stop = Position.symbol_explode yytext q
+         val open_range as (token_start, _) =
+           Parser_Lex_Util.text_range
+             (!source_layout) (!aq_open, !aq_open_text)
+         val close_range as (_, token_stop) =
+           Parser_Lex_Util.text_range
+             (!source_layout) (yypos, yytext)
+         val open_pos = Position.range_position open_range
+         val close_pos = Position.range_position close_range
+         val layout =
+           make_source_layout
+             (Position.range_position (token_start, token_stop))
+             [(Literal_Token, open_pos),
+              (Literal_Token, close_pos)]
          val body = take_aq ()
        in
          Tokens.VALAQ
-           (Input.source true body (Position.range (p, q)),
-            open_pos, token_stop)
+           (Value_Antiquotation
+              (Input.source true body (Position.range (p, q)), layout),
+            token_start, token_stop)
        end));
 <VAQ>\n           => (push_aq "\n"; lex());
 <VAQ>.            => (push_aq yytext; lex());
@@ -872,6 +988,21 @@ fun make_struct_expression
           (Delimiter_Token "}", right_brace)])
   end
 
+fun make_slice_pattern (items, left_bracket, right_bracket, right_stop) =
+  let
+    fun rest_tokens [] = []
+      | rest_tokens (SI_Rest pos :: rest) =
+          (Delimiter_Token "..", pos) :: rest_tokens rest
+      | rest_tokens (SI_Pat _ :: rest) = rest_tokens rest
+  in
+    P_Slice
+      (items,
+       syntax_layout left_bracket right_stop
+         ((Delimiter_Token "[", left_bracket) ::
+          rest_tokens items @
+          [(Delimiter_Token "]", right_bracket)]))
+  end
+
 fun same_offset left right =
   (case (Position.offset_of left, Position.offset_of right) of
      (SOME left_offset, SOME right_offset) =>
@@ -879,10 +1010,10 @@ fun same_offset left right =
    | _ => left = right)
 
 fun make_function_literal
-    (source, arity, value_right, suffix_left, suffix_right, arguments) =
+    (antiquotation, arity, value_right, suffix_left, suffix_right, arguments) =
   if same_offset value_right suffix_left then
     UC_FunLiteral
-      (source, arity,
+      (antiquotation, arity,
        Position.range_position (suffix_left, suffix_right),
        arguments)
   else
@@ -941,8 +1072,11 @@ yacc_definitions\<open>
 %left TPLUS TMINUS
 %left TSTAR TSLASH TPERCENT
 
-%term NUM of string | NUMSFX of string | STRING of string | IDENT of string | LPAR | RPAR
-    | VALAQ of Input.source | EXPRAQ of Input.source * Position.T
+%term NUM of URust_AST.integer_literal
+    | NUMSFX of URust_AST.integer_literal
+    | STRING of string | IDENT of string | LPAR | RPAR
+    | VALAQ of URust_AST.value_antiquotation
+    | EXPRAQ of Input.source * Position.T
     | TGOPEN
     | GNUM of string * Parser_Lex_Util.source_layout * int * int
     | GIDENT of string * Parser_Lex_Util.source_layout * int * int
@@ -1273,13 +1407,13 @@ yacc_rules\<open>
                      (Name_Token, IDENTleft)]))
            | upostfix TDOT NUM
                (mk_tuple_projection
-                 (upostfix, NUM,
+                 (upostfix, integer_literal_lexeme NUM,
                   syntax_layout upostfixleft NUMright
                     [(Delimiter_Token ".", TDOTleft),
                      (Name_Token, NUMleft)]))
            | upostfix TDOT NUMSFX
                (mk_tuple_projection
-                 (upostfix, NUMSFX,
+                 (upostfix, integer_literal_lexeme NUMSFX,
                   syntax_layout upostfixleft NUMSFXright
                     [(Delimiter_Token ".", TDOTleft),
                      (Name_Token, NUMSFXleft)]))
@@ -1300,8 +1434,8 @@ yacc_rules\<open>
   uprimary : upath           (UE_Path upath)
            | ustruct_expr    (ustruct_expr)
            | uprimary_nonhead (uprimary_nonhead)
-  uprimary_nonhead : NUM     (UE_Literal (LP_Integer (NUM, NUMleft)))
-        | NUMSFX     (UE_Literal (LP_Integer (NUMSFX, NUMSFXleft)))
+  uprimary_nonhead : NUM     (UE_Literal (LP_Integer NUM))
+        | NUMSFX     (UE_Literal (LP_Integer NUMSFX))
         | TTRUE      (UE_Literal (LP_Bool (true, TTRUEleft)))
         | TFALSE     (UE_Literal (LP_Bool (false, TFALSEleft)))
         | STRING     (UE_Literal (LP_String (STRING, STRINGleft)))
@@ -1489,15 +1623,15 @@ yacc_rules\<open>
                             (canonical ^ "::" ^ name,
                              layout, start, stop))
   ucast_target : TUINT
-                   (SCT_Primitive (CT_Unsigned TUINT))
+                   (SCT_Primitive (CT_Unsigned TUINT, TUINTleft))
                | TSINT
-                   (SCT_Primitive (CT_Signed TSINT))
+                   (SCT_Primitive (CT_Signed TSINT, TSINTleft))
                | TSTAR TCONST TUINT
                    (SCT_Primitive
-                     (CT_RawPointer (RPM_Const, TUINT)))
+                     (CT_RawPointer (RPM_Const, TUINT), TUINTleft))
                | TSTAR TMUT TUINT
                    (SCT_Primitive
-                     (CT_RawPointer (RPM_Mut, TUINT)))
+                     (CT_RawPointer (RPM_Mut, TUINT), TUINTleft))
                | uidentifier_path
                    (SCT_Named uidentifier_path)
   (* The no-struct family mirrors the structural expression boundaries and binary operator rule.
@@ -1655,14 +1789,16 @@ yacc_rules\<open>
                                (Name_Token, IDENTleft)]))
                      | upostfix_no_struct TDOT NUM
                          (mk_tuple_projection
-                           (upostfix_no_struct, NUM,
+                           (upostfix_no_struct,
+                            integer_literal_lexeme NUM,
                             syntax_layout upostfix_no_structleft
                               NUMright
                               [(Delimiter_Token ".", TDOTleft),
                                (Name_Token, NUMleft)]))
                      | upostfix_no_struct TDOT NUMSFX
                          (mk_tuple_projection
-                           (upostfix_no_struct, NUMSFX,
+                           (upostfix_no_struct,
+                            integer_literal_lexeme NUMSFX,
                             syntax_layout upostfix_no_structleft
                               NUMSFXright
                               [(Delimiter_Token ".", TDOTleft),
@@ -1752,7 +1888,10 @@ yacc_rules\<open>
   ufuel : THASH TLBRACK TFUEL LPAR EXPRAQ RPAR TRBRACK
               (Fuel_Head
                 (#1 EXPRAQ, THASHleft,
-                 [(Keyword_Token "fuel", TFUELleft)]))
+                 [(Delimiter_Token "#[",
+                    spanning_position THASHleft TLBRACKleft),
+                  (Keyword_Token "fuel", TFUELleft),
+                  (Delimiter_Token "]", TRBRACKleft)]))
   uloop_expr : ufuel TWHILE LPAR uexpr RPAR ublock
               (UE_While
                 (fuel_source ufuel, uexpr, ublock,
@@ -1968,24 +2107,19 @@ yacc_rules\<open>
   upat_atom : upat_atom_non_slice
                  (upat_atom_non_slice)
              | TLBRACK TRBRACK
-                 (P_Slice
-                   ([],
-                    syntax_layout TLBRACKleft TRBRACKright
-                      [(Delimiter_Token "[", TLBRACKleft),
-                       (Delimiter_Token "]", TRBRACKleft)]))
+                 (make_slice_pattern
+                   ([], TLBRACKleft, TRBRACKleft, TRBRACKright))
              | TLBRACK uslice_items TRBRACK
-                 (P_Slice
-                   (uslice_items,
-                    syntax_layout TLBRACKleft TRBRACKright
-                      [(Delimiter_Token "[", TLBRACKleft),
-                       (Delimiter_Token "]", TRBRACKleft)]))
+                 (make_slice_pattern
+                   (uslice_items, TLBRACKleft,
+                    TRBRACKleft, TRBRACKright))
   upat_atom_after_block : upat_atom_non_slice
                              (upat_atom_non_slice)
   upat_atom_non_slice :
       upath
         (mk_bare_path_pat upath)
     | NUM
-        (P_Literal (LP_Integer (NUM, NUMleft)))
+        (P_Literal (LP_Integer NUM))
     | TTRUE
         (P_Literal (LP_Bool (true, TTRUEleft)))
     | TFALSE

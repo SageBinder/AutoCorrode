@@ -17,6 +17,7 @@ sig
     | Delimiter_Token of string
     | Name_Token
     | Bang_Token
+    | Literal_Token
   datatype source_layout =
     Source_Layout of Position.T * (source_token * Position.T) list
 
@@ -26,17 +27,30 @@ sig
   val source_tokens: source_layout -> (source_token * Position.T) list
   val source_token_positions:
     source_layout -> source_token -> Position.T list
+  val source_token_positions_for:
+    source_layout -> source_token list -> Position.T list
   val source_token_position:
     source_layout -> source_token -> Position.T option
   val the_source_token_position:
     source_layout -> source_token -> Position.T
 
+  datatype integer_literal =
+    Integer_Literal of string * source_layout * Position.T option
+  datatype value_antiquotation =
+    Value_Antiquotation of Input.source * source_layout
   datatype literal_payload =
-      LP_Integer of string * Position.T
+      LP_Integer of integer_literal
     | LP_Bool of bool * Position.T
     | LP_String of string * Position.T
-    | LP_ValAntiq of Input.source
+    | LP_ValAntiq of value_antiquotation
 
+  val integer_literal_lexeme: integer_literal -> string
+  val integer_literal_position: integer_literal -> Position.T
+  val integer_literal_numeric_position: integer_literal -> Position.T
+  val integer_literal_suffix_position: integer_literal -> Position.T option
+  val value_antiquotation_source: value_antiquotation -> Input.source
+  val value_antiquotation_source_layout:
+    value_antiquotation -> source_layout
   val literal_position: literal_payload -> Position.T
   val literal_source_layout: literal_payload -> source_layout
 
@@ -67,8 +81,11 @@ sig
     UR_Path of path_head * path_segment list * Position.T
 
   datatype source_cast_target =
-      SCT_Primitive of cast_target
+      SCT_Primitive of cast_target * Position.T
     | SCT_Named of ur_path
+
+  val source_cast_target_type_position:
+    source_cast_target -> Position.T option
 
   datatype datatype_primitive_type =
       DPT_U8
@@ -163,7 +180,7 @@ sig
       AR_Ordinary
     | AR_InlineConst
   datatype repeat_length =
-      RL_Integer of string * Position.T
+      RL_Integer of integer_literal
     | RL_Path of ur_path
     | RL_Bin of binop * repeat_length * repeat_length * source_layout
     | RL_Group of repeat_length * source_layout
@@ -181,7 +198,7 @@ sig
     | UC_Method of ur_expr * path_segment
     | UC_Antiq of Input.source
     | UC_FunLiteral of
-        Input.source * int * Position.T * generic_args option
+        value_antiquotation * int * Position.T * generic_args option
 
   and ur_expr =
       UE_Unit of source_layout
@@ -194,7 +211,7 @@ sig
     | UE_Literal of literal_payload
     | UE_ExprAntiq of Input.source
     | UE_Yield of source_layout
-    | UE_Log of Input.source * Input.source * source_layout
+    | UE_Log of value_antiquotation * value_antiquotation * source_layout
     | UE_LogData of log_data_entry list * source_layout
     | UE_Closure of ur_pat list * ur_expr * source_layout
     | UE_Let of ur_pat * ur_expr * ur_expr * source_layout
@@ -284,11 +301,14 @@ end
 
     * source_layout and source_token. A source layout pairs the complete symbol-counted construct
       span with source-ordered exact ranges for denotational keywords, operators, delimiters, names,
-      and macro bangs. Layouts are syntax metadata only: they do not select HOL constants or report
-      semantic entities. The accessors preserve token multiplicity and order so a later phase can
-      distinguish repeated controls such as the two bars of a closure.
-    * literal_payload and LP_Integer, LP_Bool, LP_String, LP_ValAntiq.  Integer and string payloads
-      retain raw source spelling; antiquotations retain their positioned Input.source.
+      macro bangs, and literal subdivisions. Layouts are syntax metadata only: they do not select
+      HOL constants or report semantic entities. The accessors preserve token multiplicity and order
+      so a later phase can distinguish repeated controls such as the two bars of a closure or the two
+      delimiters of a value antiquotation.
+    * literal_payload and LP_Integer, LP_Bool, LP_String, LP_ValAntiq. Integer literals retain their
+      raw spelling, complete span, exact numeric range, and optional exact suffix range. Strings
+      retain their raw spelling. Value antiquotations retain their positioned body source plus a
+      complete layout whose two Literal_Token entries identify the opening and closing delimiters.
     * canonical_fragment and Generic_Arg. A generic argument pairs the grammar-produced, trivia-free
       canonical fragment with its exact positioned source slice for later binder-aware HOL parsing.
       path_head distinguishes ordinary identifier-headed paths from the seven primitive-token-headed
@@ -301,7 +321,8 @@ end
       U_Deref, U_Propagate), assign_binop (AssignSub, AssignMul, AssignMod, AssignBAnd, AssignBOr,
       AssignBXor, AssignShl, AssignShr), and assignop (Assign, AssignAdd, AssignBin). These tags
       describe surface operations only; their HOL constants and semantics belong to later modules.
-      SCT_Named retains an exact unresolved path for context-local cast-alias resolution.
+      SCT_Primitive retains the exact primitive type-token position; SCT_Named retains an exact
+      unresolved path for context-local cast-alias resolution.
       CT_RawPointer retains source mutability even though the current shallow frontend lowers const
       and mut targets identically. log_data_entry retains each quoted string or identifier in source
       order with its token position.
@@ -331,7 +352,8 @@ end
       contains its pattern, an optional guard paired with the guard-keyword position, and its body.
       UE_Struct retains its complete head-through-closing-brace span and source-ordered SE_Field
       entries; each entry retains the syntax-only label, its position, and the initializer AST.
-      UE_Log retains the two positioned raw HOL operands and its complete primitive-log span.
+      UE_Log retains the two value-antiquotation operands, including their delimiter layouts, and its
+      complete primitive-log span.
       UE_LogData retains a nonempty source-ordered entry list and its complete opener-through-closer
       span.
       UE_Closure retains ordered pattern-shaped formals and the full closure span; its grammar admits
@@ -340,16 +362,18 @@ end
       UE_IfLet retains an optional source else branch; UE_LetElse retains its fallback and required
       continuation separately. A UE_Return never stores a semicolon; a method invocation is
       represented as UC_Method and prepended during lowering; UC_Antiq retains the exact positioned
-      embedded HOL callee source; UC_FunLiteral additionally retains its lift arity, suffix position,
-      and optional restricted generic arguments. UE_TupleProjection retains its canonical numeric
-      index and numeric-token position; it is a value postfix and deliberately has no ur_place
-      counterpart. ur_place contains only validated assignment-target shapes.
+      embedded HOL callee source; UC_FunLiteral additionally retains the value-antiquotation
+      delimiter layout, lift arity, suffix position, and optional restricted generic arguments.
+      UE_TupleProjection retains its canonical numeric index and numeric-token position; it is a
+      value postfix and deliberately has no ur_place counterpart. ur_place contains only validated
+      assignment-target shapes.
 
   Position.T fields identify the single token documented at each constructor. Composite expressions,
-  patterns, places, repeat lengths, and arms instead carry source_layout values. Consumers may use
-  either kind of source metadata for markup and diagnostics, but must not infer semantic validity
-  from its presence. literal_position returns the source position of every literal payload;
-  expression_position and pattern_position return complete construct spans.
+  patterns, places, repeat lengths, and arms instead carry source_layout values; integer and
+  value-antiquotation wrappers carry layouts for their audited literal subdivisions. Consumers may
+  use either kind of source metadata for markup and diagnostics, but must not infer semantic
+  validity from its presence. literal_position returns the complete source position of every literal
+  payload; expression_position and pattern_position return complete construct spans.
 
   The remaining public functions are grammar-facing construction contracts. mk_assign accepts
   identifiers, expression antiquotations, dereferences, fields and indices over recursively valid
@@ -376,6 +400,7 @@ struct
     | Delimiter_Token of string
     | Name_Token
     | Bang_Token
+    | Literal_Token
   datatype source_layout =
     Source_Layout of Position.T * (source_token * Position.T) list
 
@@ -388,6 +413,11 @@ struct
     |> map_filter
         (fn (candidate, pos) =>
           if candidate = token then SOME pos else NONE)
+  fun source_token_positions_for layout tokens =
+    source_tokens layout
+    |> map_filter
+        (fn (candidate, pos) =>
+          if member (op =) tokens candidate then SOME pos else NONE)
   fun source_token_position layout token =
     get_first
       (fn (candidate, pos) =>
@@ -398,27 +428,49 @@ struct
        SOME pos => pos
      | NONE => error "uRust AST source layout is missing a required token")
 
+  datatype integer_literal =
+    Integer_Literal of string * source_layout * Position.T option
+  datatype value_antiquotation =
+    Value_Antiquotation of Input.source * source_layout
   datatype literal_payload =
-      LP_Integer  of string * Position.T
+      LP_Integer  of integer_literal
     | LP_Bool     of bool * Position.T
     | LP_String   of string * Position.T
-    | LP_ValAntiq of Input.source
+    | LP_ValAntiq of value_antiquotation
 
-  fun literal_position (LP_Integer (_, pos)) = pos
+  fun integer_literal_lexeme
+      (Integer_Literal (lexeme, _, _)) = lexeme
+  fun integer_literal_position
+      (Integer_Literal (_, layout, _)) = source_span layout
+  fun integer_literal_numeric_position
+      (Integer_Literal (_, layout, _)) =
+        the_source_token_position layout Literal_Token
+  fun integer_literal_suffix_position
+      (Integer_Literal (_, _, suffix_pos)) = suffix_pos
+
+  fun value_antiquotation_source
+      (Value_Antiquotation (source, _)) = source
+  fun value_antiquotation_source_layout
+      (Value_Antiquotation (_, layout)) = layout
+
+  fun literal_position (LP_Integer integer) =
+        integer_literal_position integer
     | literal_position (LP_Bool (_, pos)) = pos
     | literal_position (LP_String (_, pos)) = pos
-    | literal_position (LP_ValAntiq source) = Input.pos_of source
+    | literal_position (LP_ValAntiq antiquotation) =
+        source_span
+          (value_antiquotation_source_layout antiquotation)
 
   fun literal_source_layout payload =
-    let
-      val pos = literal_position payload
-      val tokens =
-        (case payload of
-           LP_Bool (value, _) =>
-             [(Keyword_Token
-                (if value then "true" else "false"), pos)]
-         | _ => [])
-    in make_source_layout pos tokens end
+    (case payload of
+       LP_Integer (Integer_Literal (_, layout, _)) => layout
+     | LP_Bool (value, pos) =>
+         make_source_layout pos
+           [(Keyword_Token
+              (if value then "true" else "false"), pos)]
+     | LP_String (_, pos) => make_source_layout pos []
+     | LP_ValAntiq antiquotation =>
+         value_antiquotation_source_layout antiquotation)
 
   (* THE pattern language: ONE datatype for EVERY binding site (let / const binder, match_switch key,
      match_case arm, and later closure params, `for` patterns, fn parameters) -- Rust has one pattern
@@ -454,8 +506,12 @@ struct
     UR_Path of path_head * path_segment list * Position.T
 
   datatype source_cast_target =
-      SCT_Primitive of cast_target
+      SCT_Primitive of cast_target * Position.T
     | SCT_Named of ur_path
+
+  fun source_cast_target_type_position
+      (SCT_Primitive (_, pos)) = SOME pos
+    | source_cast_target_type_position (SCT_Named _) = NONE
 
   datatype datatype_primitive_type =
       DPT_U8
@@ -609,13 +665,14 @@ struct
       AR_Ordinary
     | AR_InlineConst
   datatype repeat_length =
-      RL_Integer of string * Position.T
+      RL_Integer of integer_literal
     | RL_Path of ur_path
     | RL_Bin of binop * repeat_length * repeat_length * source_layout
     | RL_Group of repeat_length * source_layout
     | RL_CastUsize of repeat_length * source_layout
 
-  fun repeat_length_position (RL_Integer (_, pos)) = pos
+  fun repeat_length_position (RL_Integer integer) =
+        integer_literal_position integer
     | repeat_length_position (RL_Path path) = path_position path
     | repeat_length_position (RL_Bin (_, _, _, layout)) =
         source_span layout
@@ -624,8 +681,10 @@ struct
     | repeat_length_position (RL_CastUsize (_, layout)) =
         source_span layout
 
-  fun repeat_length_source_layout (RL_Integer (_, pos)) =
-        make_source_layout pos []
+  fun repeat_length_source_layout (RL_Integer integer) =
+        let
+          val Integer_Literal (_, layout, _) = integer
+        in layout end
     | repeat_length_source_layout (RL_Path path) =
         make_source_layout (path_position path) []
     | repeat_length_source_layout (RL_Bin (_, _, _, layout)) = layout
@@ -641,7 +700,7 @@ struct
     | UC_Method of ur_expr * path_segment
     | UC_Antiq of Input.source
     | UC_FunLiteral of
-        Input.source * int * Position.T * generic_args option
+        value_antiquotation * int * Position.T * generic_args option
 
   and ur_expr =
       UE_Unit      of source_layout                   (* () *)
@@ -656,7 +715,7 @@ struct
     | UE_Literal   of literal_payload                 (* integer / bool / string / <<value>> *)
     | UE_ExprAntiq of Input.source                    (* eps<e> body as a POSITIONED source -> e *)
     | UE_Yield     of source_layout                   (* yield -> pause *)
-    | UE_Log       of Input.source * Input.source * source_layout
+    | UE_Log       of value_antiquotation * value_antiquotation * source_layout
                                                       (* log <<priority>> <<data>>, at full span *)
     | UE_LogData   of log_data_entry list * source_layout
                                                       (* l<<"text", value>>, at full span *)
@@ -889,7 +948,7 @@ struct
          | UE_Group (inner, expression_layout) =>
              RL_Group (validate inner, expression_layout)
          | UE_Cast
-             (inner, SCT_Primitive (CT_Unsigned UT_Usize),
+             (inner, SCT_Primitive (CT_Unsigned UT_Usize, _),
               expression_layout) =>
              RL_CastUsize (validate inner, expression_layout)
          | _ => invalid expression)

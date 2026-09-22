@@ -68,12 +68,90 @@ struct
   fun with_delimiter layout delimiter action =
     with_token layout (Delimiter_Token delimiter) action
 
+  fun with_tokens layout tokens action =
+    Navigation.with_source
+      (source_token_positions_for layout tokens) action
+
+  fun with_delimiters layout delimiters action =
+    with_tokens layout (map Delimiter_Token delimiters) action
+
+  val word_type_name =
+    (case \<^typ>\<open>64 word\<close> of
+       Type (name, _) => name
+     | _ => error "urust_expr: internal word type is not a type constructor")
+
+  fun annotate_literal body =
+    Navigation.annotate Navigation.Primary
+      (Const (\<^const_name>\<open>Core_Expression.literal\<close>, dummyT))
+      body
+
+  fun with_literal_positions positions action =
+    Navigation.with_source positions (fn () =>
+      annotate_literal (action ()))
+
+  fun lower_value_antiquotation ctxt environment antiquotation =
+    with_literal_positions
+      (source_tokens
+        (value_antiquotation_source_layout antiquotation)
+        |> map #2)
+      (fn () =>
+        R.parse_antiquotation ctxt environment
+          (value_antiquotation_source antiquotation))
+
+  fun lower_source_literal ctxt environment payload =
+    (case payload of
+       LP_Integer integer =>
+         let
+           val _ =
+             Option.app
+               (fn suffix_pos =>
+                 Navigation.defer_type ctxt suffix_pos word_type_name)
+               (integer_literal_suffix_position integer)
+         in
+           with_literal_positions
+             [integer_literal_numeric_position integer]
+             (fn () =>
+               R.literal_expression ctxt environment payload)
+         end
+     | LP_Bool (value, _) =>
+         with_keyword (literal_source_layout payload)
+           (if value then "true" else "false")
+           (fn () =>
+             R.literal_expression ctxt environment payload)
+     | LP_String (_, pos) =>
+         with_literal_positions [pos] (fn () =>
+           R.literal_expression ctxt environment payload)
+     | LP_ValAntiq antiquotation =>
+         with_literal_positions
+           (source_tokens
+             (value_antiquotation_source_layout antiquotation)
+             |> map #2)
+           (fn () =>
+             R.literal_expression ctxt environment payload))
+
+  fun index_positions layout =
+    source_token_positions_for layout
+      [Delimiter_Token "[", Delimiter_Token "]"]
+
+  fun function_literal_positions antiquotation suffix_pos =
+    source_token_positions
+      (value_antiquotation_source_layout antiquotation)
+      Literal_Token @ [suffix_pos]
+
   fun lower_place lower ctxt environment place =
     (case place of
        UP_Path path =>
          R.literal_path ctxt environment path
-     | UP_Deref (expression, _) =>
-         lower environment expression
+     | UP_Deref (expression, layout) =>
+         let
+           val pos =
+             the_source_token_position layout Operator_Token
+           val lowered = lower environment expression
+         in
+           with_token layout Operator_Token (fn () =>
+             Navigation.probe
+               (T.unary U_Deref pos lowered) lowered)
+         end
      | UP_Field (base, name, layout) =>
          let
            val lowered_base =
@@ -89,7 +167,7 @@ struct
              lower_place lower ctxt environment base
            val lowered_index = lower environment index
          in
-           with_delimiter layout "[" (fn () =>
+           Navigation.with_source (index_positions layout) (fn () =>
              T.index lowered_base lowered_index)
          end
      | UP_Antiq source =>
@@ -103,9 +181,19 @@ struct
         P.prepare_binding site ctxt environment pattern
       val body_environment = P.binding_environment prepared
       val lowered_body = lower body_environment body
+      val binding =
+        with_tokens layout
+          [Keyword_Token keyword, Delimiter_Token "="] (fn () =>
+          P.bind_prepared prepared lowered_rhs lowered_body)
     in
-      with_keyword layout keyword (fn () =>
-        P.bind_prepared prepared lowered_rhs lowered_body)
+      Navigation.with_source
+        (source_token_positions layout (Delimiter_Token ";"))
+        (fn () =>
+          Navigation.annotate Navigation.Primary
+            (Const
+              (\<^const_name>\<open>Core_Expression.sequence\<close>,
+               dummyT))
+            binding)
     end
 
   fun lower_fuel ctxt environment source =
@@ -159,9 +247,22 @@ struct
 
   fun lower_repeat_length ctxt environment allow_sized length =
     (case length of
-       RL_Integer (lexeme, pos) =>
-         T.literal
-           (T.repeat_length_integer allow_sized pos lexeme)
+       RL_Integer integer =>
+         let
+           val _ =
+             Option.app
+               (fn suffix_pos =>
+                 Navigation.defer_type ctxt suffix_pos word_type_name)
+               (integer_literal_suffix_position integer)
+         in
+           with_literal_positions
+             [integer_literal_numeric_position integer]
+             (fn () =>
+               T.literal
+                 (T.repeat_length_integer allow_sized
+                   (integer_literal_position integer)
+                   (integer_literal_lexeme integer)))
+         end
      | RL_Path path =>
          T.literal
            (R.global_constant_path_value ctxt environment path)
@@ -233,7 +334,7 @@ struct
            val lowered =
              map (lower_expression ctxt environment) arguments
          in
-           with_delimiter layout "(" (fn () =>
+           with_delimiters layout ["(", ")"] (fn () =>
              T.tuple lowered)
          end
      | UE_Array (elements, layout) =>
@@ -241,7 +342,7 @@ struct
            val lowered =
              map (lower_expression ctxt environment) elements
          in
-           with_delimiter layout "[" (fn () =>
+           with_delimiters layout ["[", "]"] (fn () =>
              T.array_literal lowered)
          end
      | UE_ArrayRepeat (mode, value, length, layout) =>
@@ -251,10 +352,11 @@ struct
            val lowered_value =
              lower_expression ctxt environment value
            val positions =
-             source_token_positions layout
-               (Delimiter_Token ";") @
-             source_token_positions layout
-               (Keyword_Token "const")
+             source_token_positions_for layout
+               [Delimiter_Token "[",
+                Keyword_Token "const",
+                Delimiter_Token ";",
+                Delimiter_Token "]"]
          in
            Navigation.with_source positions (fn () =>
              (case mode of
@@ -279,19 +381,14 @@ struct
                (lower_expression ctxt environment o initializer)
                fields
          in
-           with_delimiter struct_layout "{" (fn () =>
+           with_delimiters struct_layout ["{", "}"] (fn () =>
              T.function_call struct_pos function
                lowered_initializers)
          end
      | UE_Path path =>
          R.literal_path ctxt environment path
      | UE_Literal payload =>
-         let val layout = literal_source_layout payload
-         in
-           Navigation.with_source (source_tokens layout |> map #2)
-             (fn () =>
-               R.literal_expression ctxt environment payload)
-         end
+         lower_source_literal ctxt environment payload
      | UE_ExprAntiq source =>
          R.parse_antiquotation ctxt environment source
      | UE_Yield layout =>
@@ -299,15 +396,25 @@ struct
      | UE_Log (priority, data, layout) =>
          let
            val lowered_priority =
-             R.parse_antiquotation ctxt environment priority
+             lower_value_antiquotation ctxt environment priority
            val lowered_data =
-             R.parse_antiquotation ctxt environment data
+             lower_value_antiquotation ctxt environment data
          in
            with_keyword layout "log" (fn () =>
              T.primitive_log lowered_priority lowered_data)
          end
-     | UE_LogData (entries, _) =>
-         lower_log_data ctxt environment entries
+     | UE_LogData (entries, layout) =>
+         let
+           val positions =
+             source_token_positions layout (Keyword_Token "l") @
+             source_token_positions layout
+               (Delimiter_Token "log-data-open") @
+             source_token_positions layout
+               (Delimiter_Token "log-data-close")
+         in
+           with_literal_positions positions (fn () =>
+             lower_log_data ctxt environment entries)
+         end
      | UE_Closure (formals, body, layout) =>
          lower_closure (lower_expression ctxt) ctxt environment
            (formals, body, layout)
@@ -345,6 +452,11 @@ struct
      | UE_Cast (operand, target, layout) =>
          let
            val primitive_target = A.resolve ctxt target
+           val _ =
+             Option.app
+               (fn type_pos =>
+                 Navigation.defer_type ctxt type_pos word_type_name)
+               (source_cast_target_type_position target)
            val lowered_operand =
              lower_expression ctxt environment operand
          in
@@ -367,7 +479,7 @@ struct
            val lowered =
              map (lower_expression ctxt environment) elements
          in
-           with_delimiter array_layout "[" (fn () =>
+           with_delimiters array_layout ["[", "]"] (fn () =>
              T.array_literal lowered)
          end
      | UE_Unary (operator, operand, layout) =>
@@ -376,8 +488,15 @@ struct
              the_source_token_position layout Operator_Token
            val lowered_operand =
              lower_expression ctxt environment operand
+           val positions =
+             source_token_positions layout Operator_Token @
+             (case operator of
+                U_Borrow BM_Mut =>
+                  source_token_positions layout
+                    (Keyword_Token "mut")
+              | _ => [])
          in
-           with_token layout Operator_Token (fn () =>
+           Navigation.with_source positions (fn () =>
              T.unary operator pos lowered_operand)
          end
      | UE_Group (inner, _) =>
@@ -431,10 +550,11 @@ struct
            val lowered_body =
              lower_expression ctxt environment body
            val positions =
-             source_token_positions layout
-               (Keyword_Token "fuel") @
-             source_token_positions layout
-               (Keyword_Token "while")
+             source_token_positions_for layout
+               [Delimiter_Token "#[",
+                Keyword_Token "fuel",
+                Delimiter_Token "]",
+                Keyword_Token "while"]
          in
            Navigation.with_source positions (fn () =>
              T.bounded_while lowered_fuel
@@ -447,10 +567,11 @@ struct
            val lowered_body =
              lower_expression ctxt environment body
            val positions =
-             source_token_positions layout
-               (Keyword_Token "fuel") @
-             source_token_positions layout
-               (Keyword_Token "loop")
+             source_token_positions_for layout
+               [Delimiter_Token "#[",
+                Keyword_Token "fuel",
+                Delimiter_Token "]",
+                Keyword_Token "loop"]
          in
            Navigation.with_source positions (fn () =>
              T.bounded_loop lowered_fuel lowered_body)
@@ -511,12 +632,16 @@ struct
               | UC_Antiq source =>
                   (R.parse_antiquotation ctxt environment source, arguments)
               | UC_FunLiteral
-                  (source, lift_arity, suffix_pos, generic_arguments) =>
+                  (antiquotation, lift_arity, suffix_pos,
+                   generic_arguments) =>
                   let
                     val pure_function =
-                      R.parse_antiquotation ctxt environment source
+                      R.parse_antiquotation ctxt environment
+                        (value_antiquotation_source antiquotation)
                     val lifted_function =
-                      Navigation.with_source_position suffix_pos
+                      Navigation.with_source
+                        (function_literal_positions
+                          antiquotation suffix_pos)
                         (fn () =>
                           T.lift_function suffix_pos
                             lift_arity pure_function)
@@ -527,7 +652,7 @@ struct
            val lowered_arguments =
              map (lower_expression ctxt environment) source_arguments
          in
-           with_delimiter call_layout "(" (fn () =>
+           with_delimiters call_layout ["(", ")"] (fn () =>
              T.function_call call_pos function
                lowered_arguments)
          end
@@ -548,7 +673,7 @@ struct
            val lowered_index =
              lower_expression ctxt environment index
          in
-           with_delimiter layout "[" (fn () =>
+           Navigation.with_source (index_positions layout) (fn () =>
              T.index lowered_receiver lowered_index)
          end
      | UE_TupleProjection (receiver, index, layout) =>

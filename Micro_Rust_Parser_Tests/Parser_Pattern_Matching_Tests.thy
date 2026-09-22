@@ -4586,7 +4586,11 @@ ML_val\<open>
               (pattern_path, [P_Ident ("value", _)], _),
             call,
             UE_Block (body, _),
-            SOME (UE_Block (UE_Literal (LP_Integer ("0", _)), _)),
+            SOME
+              (UE_Block
+                (UE_Literal
+                  (LP_Integer
+                    (Integer_Literal ("0", _, _))), _)),
             layout) =>
            (audit_assert "if-let path structure changed"
               (path_named "Some" pattern_path andalso
@@ -4622,7 +4626,10 @@ ML_val\<open>
             SOME
               (UE_If
                 (UE_Literal (LP_Bool (false, _)),
-                 UE_Block (UE_Literal (LP_Integer ("2", _)), _),
+                 UE_Block
+                   (UE_Literal
+                     (LP_Integer
+                       (Integer_Literal ("2", _, _))), _),
                  SOME
                    (UE_IfLet
                      (P_Constr
@@ -4631,7 +4638,9 @@ ML_val\<open>
                       UE_Block (last_body, _),
                       SOME
                         (UE_Block
-                          (UE_Literal (LP_Integer ("4", _)), _)),
+                          (UE_Literal
+                            (LP_Integer
+                              (Integer_Literal ("4", _, _))), _)),
                       nested_layout)),
                  _)),
             layout) =>
@@ -4671,7 +4680,10 @@ ML_val\<open>
            (P_Constr
               (pattern_path, [P_Ident ("value", _)], _),
             call,
-            UE_Block (UE_Literal (LP_Integer ("0", _)), _),
+            UE_Block
+              (UE_Literal
+                (LP_Integer
+                  (Integer_Literal ("0", _, _))), _),
             body,
             layout) =>
            (audit_assert "let-else path structure changed"
@@ -5345,8 +5357,8 @@ ML_val\<open>
          UE_Match (_, _, [UR_Arm (result, NONE, _, _)], _) => result
        | _ => error "parser regression audit: unexpected pattern AST")
 
-    fun integer text (P_Literal (LP_Integer (actual, _))) =
-          actual = text
+    fun integer text (P_Literal (LP_Integer actual)) =
+          integer_literal_lexeme actual = text
       | integer _ _ = false
 
     fun range kind lower upper
@@ -6735,13 +6747,17 @@ ML_val\<open>
          UE_Match
            (MF_Auto, _,
             [UR_Arm
-               (P_Literal (LP_Integer (_, first_pos)), NONE, _, _),
+               (P_Literal (LP_Integer first_integer), NONE, _, _),
              UR_Arm (P_Path path, NONE, _, _),
              UR_Arm
-               (P_Literal (LP_Integer (_, second_pos)), NONE, _, _),
+               (P_Literal (LP_Integer second_integer), NONE, _, _),
              UR_Arm (P_Wild _, NONE, _, _)],
             match_layout) =>
            let
+             val first_pos =
+               integer_literal_position first_integer
+             val second_pos =
+               integer_literal_position second_integer
              val (_, terminal_pos) =
                segment_identifier (final_segment path)
              val qualifier_pos =

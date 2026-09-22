@@ -274,14 +274,15 @@ fun expression_antiquotation source =
   embedded (Input.string_of source) @
   delimiter "\<close>"
 
-fun literal_document (LP_Integer (raw, _)) =
-      numeral raw
+fun literal_document (LP_Integer integer) =
+      numeral (integer_literal_lexeme integer)
   | literal_document (LP_Bool (value, _)) =
       keyword (if value then "true" else "false")
   | literal_document (LP_String (raw, _)) =
       string_literal raw
-  | literal_document (LP_ValAntiq source) =
-      value_antiquotation source
+  | literal_document (LP_ValAntiq antiquotation) =
+      value_antiquotation
+        (value_antiquotation_source antiquotation)
 
 fun binop_text Add = "+"
   | binop_text Sub = "-"
@@ -400,8 +401,9 @@ fun repeat_operator_precedence Add = additive_precedence
 
 fun repeat_length_document options required repeat_length =
   (case repeat_length of
-     RL_Integer (raw, _) =>
-       wrap_document required primary_precedence (numeral raw)
+     RL_Integer integer =>
+       wrap_document required primary_precedence
+         (numeral (integer_literal_lexeme integer))
    | RL_Path path =>
        wrap_document required primary_precedence (path_document path)
    | RL_Bin (operator_tag, left, right, _) =>
@@ -718,7 +720,7 @@ fun pattern_document options required pattern =
          in wrap_document required pattern_or_precedence document end)
   end
 
-fun source_cast_target_document (SCT_Primitive target) =
+fun source_cast_target_document (SCT_Primitive (target, _)) =
       cast_target_document target
   | source_cast_target_document (SCT_Named path) =
       identifier_head_path "named cast target" path
@@ -859,9 +861,11 @@ fun expression_document options required expression =
          | UC_Antiq source =>
              (primary_precedence,
               expression_antiquotation source @ argument_document)
-         | UC_FunLiteral (source, arity, _, generic_arguments) =>
+         | UC_FunLiteral
+             (antiquotation, arity, _, generic_arguments) =>
              (primary_precedence,
-              value_antiquotation source @
+              value_antiquotation
+                (value_antiquotation_source antiquotation) @
               function_arity_document arity @
               (case generic_arguments of
                  NONE => []
@@ -1075,8 +1079,10 @@ fun expression_document options required expression =
        | UE_Log (priority, data, _) =>
            wrap_document required primary_precedence
              (keyword "\<l>\<o>\<g>" @ space @
-              value_antiquotation priority @ space @
-              value_antiquotation data)
+              value_antiquotation
+                (value_antiquotation_source priority) @ space @
+              value_antiquotation
+                (value_antiquotation_source data))
        | UE_LogData (entries, _) =>
            let
              val entries =

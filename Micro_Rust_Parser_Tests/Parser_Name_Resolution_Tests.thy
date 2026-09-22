@@ -522,12 +522,16 @@ ML_val\<open>
       (case ast of
          UE_Call
            (UC_FunLiteral
-              (source, 14, suffix_pos,
+              (antiquotation, 14, suffix_pos,
                SOME
                  (Generic_Args
                    ([Generic_Arg (canonical, generic_source)], _))),
             [first, second], call_layout) =>
-           (audit_assert "runtime argument order changed"
+           let
+             val source =
+               value_antiquotation_source antiquotation
+           in
+             audit_assert "runtime argument order changed"
               (is_path "first" first andalso is_path "second" second);
             audit_assert "retained HOL body text changed"
               (Input.string_of source = body);
@@ -553,7 +557,8 @@ ML_val\<open>
               (same_stop (source_span call_layout) call_stop);
             audit_assert "expression_position lost the complete call span"
               (same_start (expression_position ast) ast_start andalso
-               same_stop (expression_position ast) call_stop))
+               same_stop (expression_position ast) call_stop)
+           end
        | _ => error "function-literal callee audit: call AST changed")
 
     val suffix9_text = "\<llangle>id\<rrangle>\<^sub>9(0)"
@@ -3431,12 +3436,14 @@ ML_val\<open>
     val high_serial = serial ()
     val low_entry : Micro_Rust_Names.entry =
       {hol_term = synthetic_constructor,
+       source_const = SOME synthetic_constructor,
        reg_pos =
          Position.make0 390 93000 0 "" ""
            "synthetic-notation-low-declaration",
        serial = low_serial}
     val high_entry : Micro_Rust_Names.entry =
       {hol_term = synthetic_constructor,
+       source_const = SOME synthetic_constructor,
        reg_pos =
          Position.make0 391 93100 0 "" ""
            "synthetic-notation-high-declaration",
@@ -3568,7 +3575,7 @@ ML_val\<open>
               has_position properties position)
       |> length
 
-    val source_text = "panic!"
+    val source_text = "panic!()"
     val source_start =
       Position.make0 410 97000 0 "" ""
         "deferred-semantic-target-navigation-audit"
@@ -3576,17 +3583,15 @@ ML_val\<open>
       token_position source_text source_start "panic" 0
     val bang_position =
       token_position source_text source_start "!" 0
-    val message = Free ("semantic_navigation_message", dummyT)
+    val source =
+      Parser_Lex_Util.positioned_content_source
+        source_text source_start
 
-    val (((), reports), during_markup) =
+    val ((_, reports), during_markup) =
       capture_markup "capture" (fn () =>
         Navigation.capture (fn () =>
           (Navigation.defer_report ctxt bang_position Markup.keyword3;
-           Navigation.with_source
-             [panic_position, bang_position, panic_position]
-             (fn () =>
-               (ignore (URust_Shallow_Terms.panic_message message);
-                ignore (URust_Shallow_Terms.panic_message message))))))
+           Parser_Test_Elaboration.expression ctxt source)))
 
     val _ =
       List.app
@@ -3636,11 +3641,9 @@ ML_val\<open>
         Exn.result
           (fn () =>
             Navigation.capture (fn () =>
-              Navigation.with_source_position panic_position
-                (fn () =>
-                  (ignore
-                    (URust_Shallow_Terms.panic_message message);
-                   error "intentional semantic navigation failure"))))
+              (ignore
+                (Parser_Test_Elaboration.expression ctxt source);
+               error "intentional semantic navigation failure")))
           ())
     val _ =
       (case failure_result of

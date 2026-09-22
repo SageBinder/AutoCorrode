@@ -65,18 +65,21 @@ fun infer_kind_of_type (Type ("Core_Expression.function_body", _)) = NFunction
   | infer_kind_of_type _ = NLiteral;
 
 \<comment>\<open>A registered entry: the resolved HOL \<^emph>\<open>term\<close> the notation stands for,
-  the position of the registering command (so leaf markup can hyperlink to
-  the declaration site), and a unique \<open>serial\<close> that pairs the def-side
+  an optional source constant retained before abbreviation expansion, the
+  position of the registering command (so leaf markup can hyperlink to the
+  declaration site), and a unique \<open>serial\<close> that pairs the def-side
   markup at the registration site with ref-side markup at every use site
   (mirrors the \<open>def\<close>/\<open>ref\<close> protocol of \<^ML>\<open>Position.make_entity_markup\<close>;
   see e.g. \<open>Pure/Isar/calculation.ML\<close> for a textbook use). Storing a TERM
   (not just a constant name) is what lets a notation target an arbitrary
   expression --- in particular a locale-fixed parameter (a \<open>Free\<close>) or a
   local definition --- not only a global constant. The declaration
-  morphism is applied to this term at registration (see \<open>do_register\<close>),
-  so under locale interpretation / derivation the stored term tracks the
-  parameter substitution.\<close>
-type entry = { hol_term : term, reg_pos : Position.T, serial : serial };
+  morphism is applied to both stored terms at registration (see
+  \<open>do_register\<close>), so under locale interpretation / derivation they track
+  the parameter substitution.\<close>
+type entry =
+  {hol_term: term, source_const: term option,
+   reg_pos: Position.T, serial: serial};
 
 \<comment>\<open>MULTIPLE BACKENDS PER NAME (adhoc-overloading-style dispatch). A single
   uRust name may have several HOL backends differing only by type, just as
@@ -243,16 +246,21 @@ fun set_shadow_bit kind names bit =
   emits a \<open>def\<close>-side entity markup at \<open>reg_pos\<close>. Use sites later emit
   matching \<open>ref\<close>-side markup pointing back here, so jEdit's
   jump-to-definition lands on the registering command.\<close>
-fun register kind name hol_term reg_pos context =
+fun register_with_source kind name hol_term source_const reg_pos context =
   let
     val s = serial ();
-    val entry = { hol_term = hol_term, reg_pos = reg_pos, serial = s };
+    val entry =
+      {hol_term = hol_term, source_const = source_const,
+       reg_pos = reg_pos, serial = s};
     val ctxt = Context.proof_of context;
     val _ = Context_Position.report ctxt reg_pos
       (Position.make_entity_markup {def = true} s notationN (name, reg_pos));
   in
     context |> Data.map (Symtab.insert_list reg_eq (mk_key kind name, entry))
   end;
+
+fun register kind name hol_term reg_pos =
+  register_with_source kind name hol_term NONE reg_pos;
 
 \<comment>\<open>All backends registered for a \<open>(kind, name)\<close>, or \<open>[]\<close> if none.\<close>
 fun lookups ctxt kind name =
@@ -870,10 +878,9 @@ fun emit_selected_notation_entities_at_pos ctxt kind name selected pos =
   succeeded. It is never called when the witness wins. This stops markup from
   leaking onto an identifier whose witness ends up being a lambda binder
   (e.g. \<open>let x = \<dots>; x\<close> where \<open>x\<close> is also a registered notation).\<close>
-fun backend_identity_constant ctxt hol_term =
+fun backend_identity_constant ctxt
+    ({hol_term, source_const, ...} : Micro_Rust_Names.entry) =
   let
-    val stripped = Term_Position.strip_positions hol_term
-
     fun head_const t =
       (case Term.strip_comb t of
          (Const (c, _), wrapped :: _) =>
@@ -882,23 +889,36 @@ fun backend_identity_constant ctxt hol_term =
            else SOME c
        | (Const (c, _), []) => SOME c
        | _ => NONE)
-  in head_const stripped end;
+  in
+    (case source_const of
+       SOME source =>
+         (case Term_Position.strip_positions source of
+            Const (c, _) => SOME c
+          | _ => NONE)
+     | NONE =>
+         head_const (Term_Position.strip_positions hol_term))
+  end;
 
 fun emit_backend_markup_at_pos ctxt kind name pos =
   if not (Position.is_reported pos) then ()
   else
     let
       val entries = Micro_Rust_Names.lookups ctxt kind name
-      fun report_one ({hol_term, ...} : Micro_Rust_Names.entry) =
+      fun report_one
+          (entry as {hol_term, source_const, ...} :
+            Micro_Rust_Names.entry) =
         let
-          val stripped = Term_Position.strip_positions hol_term
-
           val had_named_head =
-            (case Term.strip_comb stripped of
-               (Const _, _) => true
-             | _ => false)
+            (case source_const of
+               SOME (Const _) => true
+             | _ =>
+                 (case
+                     Term.strip_comb
+                       (Term_Position.strip_positions hol_term) of
+                    (Const _, _) => true
+                  | _ => false))
           val constant_markup =
-            (case backend_identity_constant ctxt hol_term of
+            (case backend_identity_constant ctxt entry of
                SOME c =>
                  [Name_Space.markup
                     (Consts.space_of (Proof_Context.consts_of ctxt)) c]
@@ -919,10 +939,10 @@ fun emit_backend_markup_at_pos ctxt kind name pos =
   by typed dispatch. The ordinary lexical role markup remains in place, and an
   arbitrary or lambda backend deliberately adds no constant target.\<close>
 fun emit_selected_backend_target_at_pos ctxt
-    ({hol_term, ...} : Micro_Rust_Names.entry) pos =
+    (entry : Micro_Rust_Names.entry) pos =
   if not (Position.is_reported pos) then ()
   else
-    (case backend_identity_constant ctxt hol_term of
+    (case backend_identity_constant ctxt entry of
        SOME c =>
          List.app
            (Micro_Rust_Semantic_Navigation.defer_report ctxt pos)
@@ -1140,7 +1160,7 @@ fun is_grammatical_name name =
   \<^verbatim>\<open>read_term\<close> returns the \<^emph>\<open>expansion\<close> (head \<^verbatim>\<open>Abs\<close>), so we recover \<open>c\<close>
   from the source string via \<^ML>\<open>Proof_Context.read_const\<close> (no unfolding).
   Error only if neither yields a constant.\<close>
-fun emit_bespoke_syntax hol_src rust_name t0 lthy =
+fun emit_bespoke_syntax hol_src rust_name source_const t0 lthy =
   if is_grammatical_name rust_name then lthy
   else
     let
@@ -1148,7 +1168,7 @@ fun emit_bespoke_syntax hol_src rust_name t0 lthy =
         (case Term.head_of t0 of
            Const (c, _) => c
          | _ =>
-           (case try (Proof_Context.read_const {proper = true, strict = false} lthy) hol_src of
+           (case source_const of
               SOME (Const (c, _)) => c
             | _ =>
              error (Pretty.string_of (Pretty.chunks
@@ -1206,16 +1226,27 @@ fun emit_bespoke_syntax hol_src rust_name t0 lthy =
 fun do_register kind_opt (hol_src, (rust_name, rust_pos)) lthy =
   let
     val t0 = Syntax.read_term lthy hol_src
+    val source_const =
+      (case
+          try
+            (Proof_Context.read_const
+              {proper = true, strict = false} lthy)
+            hol_src of
+         SOME (constant as Const _) => SOME constant
+       | _ => NONE)
     val kind =
       case kind_opt of
         SOME k => (check_forced_kind k lthy t0; k)
       | NONE => Micro_Rust_Names.infer_kind_of_type (fastype_of t0)
   in
     lthy
-    |> emit_bespoke_syntax hol_src rust_name t0
+    |> emit_bespoke_syntax hol_src rust_name source_const t0
     |> Local_Theory.declaration {pervasive=false, syntax=true, pos=Position.none}
       (fn phi =>
-        Micro_Rust_Names.register kind rust_name (Morphism.term phi t0) rust_pos)
+        Micro_Rust_Names.register_with_source kind rust_name
+          (Morphism.term phi t0)
+          (Option.map (Morphism.term phi) source_const)
+          rust_pos)
   end;
 
 \<comment>\<open>Config sub-command: parse \<open>[mode] "name"+\<close> and update the

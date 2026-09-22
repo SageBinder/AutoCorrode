@@ -70,6 +70,28 @@ ML_val\<open>
            ListPair.allEq same_token (actual, expected))
       end
 
+    fun assert_nested_layout label source layout span_text
+        specifications =
+      let
+        val text = Input.text_of source
+        val lex_layout = Parser_Lex_Util.make_source_layout source
+        val span_raw = find_from text span_text 0
+        val expected_span =
+          expected_position lex_layout span_raw span_text
+        val expected = expected_tokens source specifications
+        val actual = source_tokens layout
+        fun same_token
+            ((left_role, left_pos), (right_role, right_pos)) =
+          left_role = right_role andalso
+          same_range left_pos right_pos
+      in
+        audit_assert (label ^ " complete span changed")
+          (same_range (source_span layout) expected_span);
+        audit_assert (label ^ " exact token list changed")
+          (length actual = length expected andalso
+           ListPair.allEq same_token (actual, expected))
+      end
+
     fun assert_token_at label source layout role spelling cursor =
       let
         val text = Input.text_of source
@@ -161,6 +183,126 @@ ML_val\<open>
        | _ =>
            error "source-layout regression audit: conditional AST changed")
 
+    fun audit_integer_literal label spelling numeric suffix =
+      let
+        val source =
+          positioned ("source-layout-integer-" ^ label)
+            ("true; " ^ spelling)
+        val text = Input.text_of source
+        val lex_layout = Parser_Lex_Util.make_source_layout source
+        val literal_raw = find_from text spelling 0
+        val numeric_raw = find_from text numeric literal_raw
+        val expected_literal =
+          expected_position lex_layout literal_raw spelling
+        val expected_numeric =
+          expected_position lex_layout numeric_raw numeric
+        val expected_suffix =
+          Option.map
+            (fn suffix_text =>
+              let
+                val suffix_raw =
+                  find_from text suffix_text
+                    (numeric_raw + size numeric)
+              in
+                expected_position lex_layout suffix_raw suffix_text
+              end)
+            suffix
+        val integer =
+          (case parse source of
+             UE_Seq (_, UE_Literal (LP_Integer integer), _) =>
+               integer
+           | _ =>
+               error
+                 ("source-layout regression audit: " ^
+                   label ^ " integer AST changed"))
+      in
+        audit_assert (label ^ " complete literal range changed")
+          (same_range
+            (integer_literal_position integer)
+            expected_literal);
+        audit_assert (label ^ " numeric portion range changed")
+          (same_range
+            (integer_literal_numeric_position integer)
+            expected_numeric);
+        audit_assert (label ^ " suffix range changed")
+          (case
+              (integer_literal_suffix_position integer,
+               expected_suffix) of
+             (NONE, NONE) => true
+           | (SOME actual, SOME expected) =>
+               same_range actual expected
+           | _ => false)
+      end
+
+    val _ =
+      audit_integer_literal
+        "decimal-unsuffixed" "42" "42" NONE
+    val _ =
+      audit_integer_literal
+        "binary-suffixed" "0b10_01u8" "0b10_01" (SOME "u8")
+    val _ =
+      audit_integer_literal
+        "octal-compatibility-suffix"
+        "0o7_5_u16" "0o7_5" (SOME "_u16")
+    val _ =
+      audit_integer_literal
+        "hexadecimal-suffixed"
+        "0xff_00u32" "0xff_00" (SOME "u32")
+
+    val value_antiquotation_input =
+      positioned "source-layout-value-antiquotation"
+        "true; \<llangle>value\<rrangle>"
+    val value_antiquotation_text =
+      Input.text_of value_antiquotation_input
+    val value_antiquotation_lex_layout =
+      Parser_Lex_Util.make_source_layout
+        value_antiquotation_input
+    val value_antiquotation_raw =
+      find_from value_antiquotation_text
+        "\<llangle>value\<rrangle>" 0
+    val value_antiquotation_expected_span =
+      expected_position value_antiquotation_lex_layout
+        value_antiquotation_raw "\<llangle>value\<rrangle>"
+    val value_antiquotation_expected_tokens =
+      expected_tokens value_antiquotation_input
+        [(Literal_Token, "\<llangle>"),
+         (Literal_Token, "\<rrangle>")]
+    val _ =
+      (case parse value_antiquotation_input of
+         UE_Seq
+           (_, UE_Literal (LP_ValAntiq antiquotation), _) =>
+           let
+             val layout =
+               value_antiquotation_source_layout antiquotation
+             val actual_tokens = source_tokens layout
+             fun same_token
+                 ((left_role, left_pos),
+                  (right_role, right_pos)) =
+               left_role = right_role andalso
+               same_range left_pos right_pos
+           in
+             audit_assert
+               "value antiquotation complete span changed"
+               (same_range
+                 (source_span layout)
+                 value_antiquotation_expected_span);
+             audit_assert
+               "value antiquotation delimiter ranges changed"
+               (length actual_tokens =
+                  length value_antiquotation_expected_tokens andalso
+                ListPair.allEq same_token
+                  (actual_tokens,
+                   value_antiquotation_expected_tokens));
+             audit_assert
+               "value antiquotation body source changed"
+               (Input.string_of
+                  (value_antiquotation_source antiquotation) =
+                "value")
+           end
+       | _ =>
+           error
+             "source-layout regression audit: value antiquotation AST changed")
+
     val while_source =
       positioned "source-layout-while"
         "#[fuel(\<epsilon>\<open>1 :: nat\<close>)] while (true) { () }"
@@ -168,7 +310,9 @@ ML_val\<open>
       (case parse while_source of
          UE_While (_, _, _, layout) =>
            assert_layout "fuelled while" while_source layout
-             [(Keyword_Token "fuel", "fuel"),
+             [(Delimiter_Token "#[", "#["),
+              (Keyword_Token "fuel", "fuel"),
+              (Delimiter_Token "]", "]"),
               (Keyword_Token "while", "while"),
               (Delimiter_Token "(", "("),
               (Delimiter_Token ")", ")")]
@@ -182,10 +326,48 @@ ML_val\<open>
       (case parse loop_source of
          UE_Loop (_, _, layout) =>
            assert_layout "fuelled loop" loop_source layout
-             [(Keyword_Token "fuel", "fuel"),
+             [(Delimiter_Token "#[", "#["),
+              (Keyword_Token "fuel", "fuel"),
+              (Delimiter_Token "]", "]"),
               (Keyword_Token "loop", "loop")]
        | _ =>
            error "source-layout regression audit: loop AST changed")
+
+    val while_let_source =
+      positioned "source-layout-while-let"
+        ("#[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let " ^
+         "Some(_) = value { () }")
+    val _ =
+      (case parse while_let_source of
+         UE_WhileLet (_, _, _, _, layout) =>
+           assert_layout "fuelled while let"
+             while_let_source layout
+             [(Delimiter_Token "#[", "#["),
+              (Keyword_Token "fuel", "fuel"),
+              (Delimiter_Token "]", "]"),
+              (Keyword_Token "while", "while"),
+              (Keyword_Token "let", "let"),
+              (Delimiter_Token "=", "=")]
+       | _ =>
+           error
+             "source-layout regression audit: while-let AST changed")
+
+    val slice_source =
+      positioned "source-layout-slice-pattern"
+        "match values { [head, .., tail] => head, _ => 0 }"
+    val _ =
+      (case parse slice_source of
+         UE_Match
+           (_, _,
+            UR_Arm (P_Slice (_, layout), _, _, _) :: _, _) =>
+           assert_nested_layout "slice pattern" slice_source
+             layout "[head, .., tail]"
+             [(Delimiter_Token "[", "["),
+              (Delimiter_Token "..", ".."),
+              (Delimiter_Token "]", "]")]
+       | _ =>
+           error
+             "source-layout regression audit: slice AST changed")
 
     val for_source =
       positioned "source-layout-for" "for item in items { item }"
@@ -1095,7 +1277,7 @@ ML_val\<open>
       (case parse "*x as usize" of
          UE_Cast
            (UE_Unary (U_Deref, UE_Path _, _),
-            SCT_Primitive (CT_Unsigned UT_Usize), _) => ()
+            SCT_Primitive (CT_Unsigned UT_Usize, _), _) => ()
        | _ => error "unary-before-cast AST shape changed")
     val _ =
       (case parse "*base[index]" of
@@ -1150,7 +1332,7 @@ ML_val\<open>
       (case parse "*base.field as u64" of
          UE_Cast
            (UE_Unary (U_Deref, UE_Field (UE_Path _, "field", _), _),
-            SCT_Primitive (CT_Unsigned UT_U64), _) => ()
+            SCT_Primitive (CT_Unsigned UT_U64, _), _) => ()
        | _ => error "dereference operand crossed the cast boundary")
     val _ =
       (case parse "!*p" of
@@ -1179,7 +1361,9 @@ ML_val\<open>
        | _ => error "semicolon-free direct with-block statement shape changed")
     val _ =
       (case parse "0b10_01u8" of
-         UE_Literal (LP_Integer ("0b10_01u8", _)) => ()
+         UE_Literal
+           (LP_Integer
+             (Integer_Literal ("0b10_01u8", _, _))) => ()
        | _ => error "integer literal raw spelling was not retained")
     val _ =
       (case parse "GrammarEmptyStruct {}" of
@@ -1293,7 +1477,8 @@ ML_val\<open>
        | Exn.Res _ => error "malformed integer candidate was accepted")
     val _ =
       (case parse "0x2a" of
-         UE_Literal (LP_Integer ("0x2a", _)) => ()
+         UE_Literal
+           (LP_Integer (Integer_Literal ("0x2a", _, _))) => ()
        | _ => error "integer parser did not recover after malformed input")
     val _ = assert "ordinary/no-struct audit fixture did not run" true
   end
@@ -1604,8 +1789,8 @@ ML_val\<open>
        | NONE =>
            error "range/array/index regression audit: empty parse")
 
-    fun integer text (UE_Literal (LP_Integer (actual, _))) =
-          actual = text
+    fun integer text (UE_Literal (LP_Integer integer)) =
+          integer_literal_lexeme integer = text
       | integer _ _ = false
 
     fun identifier text (UE_Path path) = render_path path = text
@@ -1811,7 +1996,8 @@ ML_val\<open>
          UE_TupleProjection
            (UE_Index
              (UE_Field (base, "field", _),
-              UE_Literal (LP_Integer ("0", _)), _),
+              UE_Literal
+                (LP_Integer (Integer_Literal ("0", _, _))), _),
             1, _) =>
            audit_assert "field/index/projection source order changed"
              (path_named "source" base)
@@ -3356,6 +3542,11 @@ ML_val\<open>
       if condition then ()
       else error ("cast regression audit: " ^ message)
 
+    fun same_range left right =
+      Position.offset_of left = Position.offset_of right andalso
+      Position.end_offset_of left =
+        Position.end_offset_of right
+
     fun parse_source source =
       (case URust_Parser.parse_source ctxt source of
          SOME expression => expression
@@ -3364,11 +3555,39 @@ ML_val\<open>
     fun parse text =
       parse_source (Parser_Lex_Util.text_source text)
 
+    fun exact_source_position source spelling cursor =
+      let
+        val text = Input.text_of source
+        fun seek offset =
+          if offset + size spelling > size text then
+            error
+              ("cast regression audit: missing " ^
+                quote spelling)
+          else if
+            String.substring
+              (text, offset, size spelling) = spelling
+          then offset
+          else seek (offset + 1)
+        val raw =
+          let
+            fun from offset =
+              if offset < cursor then from (offset + 1)
+              else seek offset
+          in from 0 end
+        val layout =
+          Parser_Lex_Util.make_source_layout source
+      in
+        Position.range_position
+          (Parser_Lex_Util.text_range
+            layout (raw, spelling))
+      end
+
     fun path_named expected (UE_Path path) =
           render_path path = expected
       | path_named _ _ = false
 
-    fun target_is expected (SCT_Primitive actual) = expected = actual
+    fun target_is expected (SCT_Primitive (actual, _)) =
+          expected = actual
       | target_is _ _ = false
 
     val positioned_text = "operand as *mut usize"
@@ -3388,7 +3607,8 @@ ML_val\<open>
          UE_Cast
            (operand,
             SCT_Primitive
-              (CT_RawPointer (RPM_Mut, UT_Usize)),
+              (CT_RawPointer (RPM_Mut, UT_Usize),
+               target_type_pos),
             cast_layout) =>
            (audit_assert "cast operand changed"
               (path_named "operand" operand);
@@ -3396,8 +3616,76 @@ ML_val\<open>
               (Position.offset_of
                 (the_source_token_position
                   cast_layout (Keyword_Token "as")) =
-                Position.offset_of expected_as))
+                Position.offset_of expected_as);
+            audit_assert "cast target type-token range moved"
+              (let
+                 val source =
+                   Parser_Lex_Util.positioned_content_source
+                     positioned_text positioned_start
+               in
+                 same_range target_type_pos
+                   (exact_source_position source
+                     "usize" 0)
+               end))
        | _ => error "cast regression audit: positioned cast AST changed")
+
+    val cast_type_cases =
+      [("u8", "u8"),
+       ("u16", "u16"),
+       ("u32", "u32"),
+       ("u64", "u64"),
+       ("usize", "usize"),
+       ("i32", "i32"),
+       ("i64", "i64"),
+       ("*const u8", "u8"),
+       ("*const u16", "u16"),
+       ("*const u32", "u32"),
+       ("*const u64", "u64"),
+       ("*const usize", "usize"),
+       ("*mut u8", "u8"),
+       ("*mut u16", "u16"),
+       ("*mut u32", "u32"),
+       ("*mut u64", "u64"),
+       ("*mut usize", "usize")]
+
+    val _ =
+      cast_type_cases
+      |> map_index
+          (fn (index, (target_text, type_text)) =>
+            let
+              val text =
+                "\<llangle>0 :: 64 word\<rrangle> as " ^
+                  target_text
+              val source =
+                Parser_Lex_Util.positioned_content_source text
+                  (Position.make0 (40 + index)
+                    (2000 + index * 100) 0 "" ""
+                    ("cast-type-range-" ^
+                      string_of_int index))
+              val expected =
+                exact_source_position source type_text
+                  0
+            in
+              (case parse_source source of
+                 UE_Cast
+                   (_, primitive_target as SCT_Primitive _, _) =>
+                   (case
+                       source_cast_target_type_position
+                         primitive_target of
+                      SOME actual =>
+                        audit_assert
+                          ("cast target range changed for " ^
+                            quote target_text)
+                          (same_range actual expected)
+                    | NONE =>
+                        error
+                          "cast regression audit: primitive target lost its type range")
+               | _ =>
+                   error
+                     ("cast regression audit: target AST changed for " ^
+                       quote target_text))
+            end)
+      |> List.app I
 
     val _ =
       (case parse "source.field.method()[0]? as i64" of
@@ -3410,9 +3698,11 @@ ML_val\<open>
                     (UE_Field (source, "field", _),
                      Path_Segment ("method", _, NONE)),
                    [], _),
-                 UE_Literal (LP_Integer ("0", _)), _),
+                 UE_Literal
+                   (LP_Integer
+                     (Integer_Literal ("0", _, _))), _),
               _),
-            SCT_Primitive (CT_Signed ST_I64), _) =>
+            SCT_Primitive (CT_Signed ST_I64, _), _) =>
            audit_assert "cast lost its complete postfix operand"
              (path_named "source" source)
        | _ =>
@@ -3442,7 +3732,7 @@ ML_val\<open>
       (case parse "!value as u8" of
          UE_Cast
            (UE_Unary (U_Not, value, _),
-            SCT_Primitive (CT_Unsigned UT_U8), _) =>
+            SCT_Primitive (CT_Unsigned UT_U8, _), _) =>
            audit_assert "not/cast operand changed"
              (path_named "value" value)
        | _ =>
@@ -3453,7 +3743,7 @@ ML_val\<open>
          UE_Cast
            (UE_Unary (U_Deref, raw, _),
             SCT_Primitive
-              (CT_RawPointer (RPM_Const, UT_U8)), _) =>
+              (CT_RawPointer (RPM_Const, UT_U8), _), _) =>
            audit_assert "deref/cast operand changed"
              (path_named "raw" raw)
        | _ =>
@@ -3464,7 +3754,7 @@ ML_val\<open>
          UE_Cast
            (UE_Group
              (UE_Unary (U_Not, value, _), _),
-            SCT_Primitive (CT_Unsigned UT_U8), _) =>
+            SCT_Primitive (CT_Unsigned UT_U8, _), _) =>
            audit_assert "grouped opposite interpretation changed"
              (path_named "value" value)
        | _ =>
@@ -3481,11 +3771,14 @@ ML_val\<open>
                     (UE_Group
                       (UE_Cast
                         (value,
-                         SCT_Primitive (CT_Unsigned UT_U32), _), _),
+                         SCT_Primitive
+                           (CT_Unsigned UT_U32, _), _), _),
                      "field", _),
                    Path_Segment ("method", _, NONE)),
                  [], _),
-               UE_Literal (LP_Integer ("0", _)), _),
+               UE_Literal
+                 (LP_Integer
+                   (Integer_Literal ("0", _, _))), _),
             _) =>
            audit_assert "grouped cast postfix chain changed"
              (path_named "value" value)
@@ -3798,7 +4091,7 @@ ML_val\<open>
         val _ =
           (case parse "value as u8" of
              UE_Cast
-               (_, SCT_Primitive (CT_Unsigned UT_U8), _) => ()
+               (_, SCT_Primitive (CT_Unsigned UT_U8, _), _) => ()
            | _ =>
                error
                  ("cast regression audit: parser did not recover after " ^
@@ -5113,9 +5406,15 @@ ML_val\<open>
       (case parse primitive_source of
          UE_Log (priority, data, layout) =>
            (audit_assert "primitive-log priority source changed"
-              (Symbol.trim_blanks (Input.string_of priority) = "Error");
+              (Symbol.trim_blanks
+                (Input.string_of
+                  (value_antiquotation_source priority)) =
+                "Error");
             audit_assert "primitive-log data source changed"
-              (Symbol.trim_blanks (Input.string_of data) = "[LogNat 1]");
+              (Symbol.trim_blanks
+                (Input.string_of
+                  (value_antiquotation_source data)) =
+                "[LogNat 1]");
             audit_assert "primitive-log span changed"
               (Position.offset_of (source_span layout) =
                  Position.offset_of primitive_start andalso
@@ -5687,12 +5986,17 @@ ML_val\<open>
       (case parse_source structural_source of
          UE_Bin
            (Add,
-            UE_Literal (LP_Integer ("1_u64", actual_left)),
-            UE_Literal (LP_Integer ("2_u64", actual_right)),
+            UE_Literal (LP_Integer first_integer),
+            UE_Literal (LP_Integer second_integer),
             operator_layout) =>
            (audit_assert "comment changed a neighboring literal range"
-              (same_range actual_left left_pos andalso
-               same_range actual_right right_pos);
+              (same_range
+                 (integer_literal_position first_integer) left_pos andalso
+               same_range
+                 (integer_literal_position second_integer) right_pos);
+            audit_assert "comment changed a neighboring literal spelling"
+              (integer_literal_lexeme first_integer = "1_u64" andalso
+               integer_literal_lexeme second_integer = "2_u64");
             audit_assert "operator range moved across the comment"
               (same_range
                 (the_source_token_position
@@ -5744,9 +6048,11 @@ ML_val\<open>
        | _ => error "block-comment regression audit: string AST changed")
     val _ =
       (case parse_text value_aq_text of
-         UE_Literal (LP_ValAntiq source) =>
+         UE_Literal (LP_ValAntiq antiquotation) =>
            audit_assert "value antiquotation block markers were consumed"
-             (Input.string_of source = "''/* value */''")
+             (Input.string_of
+               (value_antiquotation_source antiquotation) =
+              "''/* value */''")
        | _ =>
            error "block-comment regression audit: value antiquotation AST changed")
     val _ =
@@ -6074,12 +6380,17 @@ ML_val\<open>
       (case structural_ast of
          UE_Bin
            (Add,
-            UE_Literal (LP_Integer ("1_u64", actual_left)),
-            UE_Literal (LP_Integer ("2_u64", actual_right)),
+            UE_Literal (LP_Integer first_integer),
+            UE_Literal (LP_Integer second_integer),
             operator_layout) =>
            (audit_assert "comment created or changed an AST node"
-              (same_range actual_left left_pos andalso
-               same_range actual_right right_pos);
+              (same_range
+                 (integer_literal_position first_integer) left_pos andalso
+               same_range
+                 (integer_literal_position second_integer) right_pos);
+            audit_assert "comment changed an integer spelling"
+              (integer_literal_lexeme first_integer = "1_u64" andalso
+               integer_literal_lexeme second_integer = "2_u64");
             audit_assert "operator position moved across the comment"
               (same_range
                 (the_source_token_position
@@ -6179,9 +6490,10 @@ ML_val\<open>
            error "Isabelle-comment regression audit: string AST changed")
     val _ =
       (case parse_text value_aq_text of
-         UE_Literal (LP_ValAntiq source) =>
+         UE_Literal (LP_ValAntiq antiquotation) =>
            audit_assert "comment-shaped value antiquotation text was consumed"
-             (Input.string_of source =
+             (Input.string_of
+                (value_antiquotation_source antiquotation) =
                "''" ^ formal_comment "value literal" ^ "''")
        | _ =>
            error
@@ -6426,14 +6738,16 @@ ML_val\<open>
       if condition then ()
       else error ("array repeat AST audit: " ^ message)
 
-    fun integer expected (RL_Integer (actual, _)) =
-          expected = actual
+    fun integer expected (RL_Integer actual) =
+          expected = integer_literal_lexeme actual
       | integer _ _ = false
 
     val _ =
       (case parse "[1; 2 + 3 * 4]" of
          UE_ArrayRepeat
-           (AR_Ordinary, UE_Literal (LP_Integer ("1", _)),
+           (AR_Ordinary,
+            UE_Literal
+              (LP_Integer (Integer_Literal ("1", _, _))),
             RL_Bin
               (Add, left,
                RL_Bin (Mul, middle, right, _), _), _) =>

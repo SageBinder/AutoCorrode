@@ -1864,10 +1864,15 @@ struct
 
   fun literal_value ctxt environment payload =
     (case payload of
-       LP_Integer (lexeme, pos) => T.integer_value pos lexeme
+       LP_Integer integer =>
+         T.integer_value
+           (integer_literal_position integer)
+           (integer_literal_lexeme integer)
      | LP_Bool (value, _) => if value then T.true_value else T.false_value
      | LP_String (raw, pos) => T.string_value raw pos
-     | LP_ValAntiq source => parse_antiquotation ctxt environment source)
+     | LP_ValAntiq antiquotation =>
+         parse_antiquotation ctxt environment
+           (value_antiquotation_source antiquotation))
 
   fun literal_expression _ _ (LP_Bool (value, _)) =
         T.boolean_expression value

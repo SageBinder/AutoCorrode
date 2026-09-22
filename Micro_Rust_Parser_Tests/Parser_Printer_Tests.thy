@@ -66,6 +66,20 @@ struct
         (actual = expected)
     end
 
+  fun serialized_roundtrip source =
+    let
+      val first =
+        render URust_Printer.serialized_options source
+      val second =
+        render URust_Printer.serialized_options first
+    in
+      assert
+        ("serialized printer roundtrip failed for " ^
+          quote source ^ "\nfirst:\n" ^ first ^
+          "\nsecond:\n" ^ second)
+        (first = second)
+    end
+
   fun canonical_datatype source expected =
     let
       val actual =
@@ -104,6 +118,138 @@ struct
                Runtime.exn_message exn)
              (String.isSubstring fragment (Runtime.exn_message exn)))
 end
+\<close>
+
+subsection\<open> Literal and cast source metadata roundtrips \<close>
+
+ML_val\<open>
+  let
+    open Parser_Printer_Test
+    open URust_AST
+
+    fun same_range left right =
+      Position.offset_of left = Position.offset_of right andalso
+      Position.end_offset_of left =
+        Position.end_offset_of right
+
+    fun expected_position source spelling cursor =
+      let
+        val text = Input.text_of source
+        fun seek offset =
+          if offset + size spelling > size text then
+            error
+              ("printer metadata roundtrip: missing " ^
+                quote spelling)
+          else if
+            String.substring
+              (text, offset, size spelling) = spelling
+          then offset
+          else seek (offset + 1)
+        val raw = seek cursor
+        val layout =
+          Parser_Lex_Util.make_source_layout source
+      in
+        Position.range_position
+          (Parser_Lex_Util.text_range
+            layout (raw, spelling))
+      end
+
+    val roundtrip_sources =
+      ["0b10_01u8",
+       "0o7_5_u16",
+       "0xff_00u32",
+       "0xff_u32 as *const u8",
+       "\<llangle>value\<rrangle>"]
+
+    val _ =
+      List.app serialized_roundtrip roundtrip_sources
+
+    val _ =
+      List.app
+        (fn (source, expected) =>
+          canonical source expected)
+        [("0b10_01u8", "0b10_01u8"),
+         ("0o7_5_u16", "0o7_5_u16"),
+         ("0xff_00u32", "0xff_00u32"),
+         ("0xff_u32 as *const u8",
+          "0xff_u32 as * const u8"),
+         ("\<llangle>value\<rrangle>",
+          "\<llangle>value\<rrangle>")]
+
+    val cast_text =
+      render URust_Printer.serialized_options
+        "0xff_u32 as *const u8"
+    val cast_source =
+      Parser_Lex_Util.positioned_content_source
+        cast_text
+        (Position.make0 31 9000 0 "" ""
+          "printer-cast-metadata-roundtrip")
+    val _ =
+      (case parse_input cast_source of
+         UE_Cast
+           (UE_Literal (LP_Integer integer),
+            primitive_target as SCT_Primitive _, _) =>
+           (assert "printer roundtrip changed the integer spelling"
+              (integer_literal_lexeme integer = "0xff_u32");
+            assert "printer roundtrip changed the numeric range"
+              (same_range
+                (integer_literal_numeric_position integer)
+                (expected_position cast_source "0xff" 0));
+            assert "printer roundtrip changed the suffix range"
+              (case integer_literal_suffix_position integer of
+                 SOME actual =>
+                   same_range actual
+                     (expected_position cast_source "_u32" 0)
+               | NONE => false);
+            assert "printer roundtrip changed the cast type range"
+              (case
+                  source_cast_target_type_position
+                    primitive_target of
+                 SOME actual =>
+                   same_range actual
+                     (expected_position cast_source "u8"
+                       (size "0xff_u32"))
+               | NONE => false))
+       | _ =>
+           error
+             "printer metadata roundtrip: cast AST changed")
+
+    val antiquotation_text =
+      render URust_Printer.serialized_options
+        "\<llangle>value\<rrangle>"
+    val antiquotation_source =
+      Parser_Lex_Util.positioned_content_source
+        antiquotation_text
+        (Position.make0 37 12000 0 "" ""
+          "printer-antiquotation-metadata-roundtrip")
+    val _ =
+      (case parse_input antiquotation_source of
+         UE_Literal (LP_ValAntiq antiquotation) =>
+           (case
+               source_tokens
+                 (value_antiquotation_source_layout
+                   antiquotation) of
+              [(Literal_Token, open_pos),
+               (Literal_Token, close_pos)] =>
+                (assert
+                   "printer roundtrip changed the value-antiquotation opener range"
+                   (same_range open_pos
+                     (expected_position antiquotation_source
+                       "\<llangle>" 0));
+                 assert
+                   "printer roundtrip changed the value-antiquotation closer range"
+                   (same_range close_pos
+                     (expected_position antiquotation_source
+                       "\<rrangle>" 0)))
+            | _ =>
+                error
+                  "printer metadata roundtrip: value-antiquotation delimiter layout changed")
+       | _ =>
+           error
+             "printer metadata roundtrip: value-antiquotation AST changed")
+  in
+    ()
+  end
 \<close>
 
 subsection\<open> Human-readable printer examples \<close>
@@ -1114,8 +1260,15 @@ ML_val\<open>
     open URust_AST
     val pos = Position.none
     val layout = make_source_layout pos []
+    val literal_layout =
+      make_source_layout pos [(Literal_Token, pos)]
+    val integer =
+      Integer_Literal ("1", literal_layout, NONE)
+    val antiquotation =
+      Value_Antiquotation
+        (Parser_Lex_Util.text_source "callee", layout)
     val unit = UE_Unit layout
-    val one = UE_Literal (LP_Integer ("1", pos))
+    val one = UE_Literal (LP_Integer integer)
     val path = make_single_path ("value", pos)
     val matches_path = make_single_path ("matches", pos)
     val primitive_single =
@@ -1186,7 +1339,7 @@ ML_val\<open>
         print
           (UE_Call
             (UC_FunLiteral
-              (Parser_Lex_Util.text_source "callee", 0, pos, NONE),
+              (antiquotation, 0, pos, NONE),
              [], layout)))
     val _ = expect_error "primitive path without associated item"
       "primitive path requires an associated-item segment"
@@ -1212,7 +1365,7 @@ ML_val\<open>
       (fn () =>
         print
           (UE_ArrayRepeat
-            (AR_InlineConst, one, RL_Integer ("1", pos), layout)))
+            (AR_InlineConst, one, RL_Integer integer, layout)))
     val _ = expect_error "if without success block"
       "if success branch requires a block"
       (fn () => print (UE_If (one, one, NONE, layout)))

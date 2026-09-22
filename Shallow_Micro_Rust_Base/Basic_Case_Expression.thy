@@ -120,29 +120,40 @@ ML\<open>
 
 local
 structure Navigation = Micro_Rust_Semantic_Navigation;
-fun case_constant kind name arguments =
-      (Navigation.select kind name;
-       Term.list_comb (Const (name, dummyT), arguments));
+fun case_constant name arguments =
+      Term.list_comb (Const (name, dummyT), arguments);
 fun case_guard guard scrutinee cases =
-      case_constant Navigation.Primary \<^const_name>\<open>case_guard\<close>
+      case_constant \<^const_name>\<open>case_guard\<close>
         [guard, scrutinee, cases];
 fun case_cons head tail =
-      case_constant Navigation.Secondary \<^const_name>\<open>case_cons\<close>
+      case_constant \<^const_name>\<open>case_cons\<close>
         [head, tail];
 val case_nil = Const (\<^const_name>\<open>case_nil\<close>, dummyT);
-fun selected_case_nil () =
-      (Navigation.select Navigation.Secondary
-         \<^const_name>\<open>case_nil\<close>;
-       case_nil);
 fun case_element pattern body =
-      case_constant Navigation.Secondary \<^const_name>\<open>case_elem\<close>
+      case_constant \<^const_name>\<open>case_elem\<close>
         [pattern, body];
 fun case_abstraction abstraction =
-      case_constant Navigation.Secondary \<^const_name>\<open>case_abs\<close>
+      case_constant \<^const_name>\<open>case_abs\<close>
         [abstraction];
 fun make_case guard scrutinee branches =
-      case_guard guard scrutinee
-        (fold_rev case_cons branches (selected_case_nil ()));
+      let
+        val raw =
+          case_guard guard scrutinee
+            (fold_rev case_cons branches case_nil)
+        val internals =
+          [\<^const_name>\<open>case_nil\<close>,
+           \<^const_name>\<open>case_cons\<close>,
+           \<^const_name>\<open>case_elem\<close>,
+           \<^const_name>\<open>case_abs\<close>,
+           \<^const_name>\<open>case_guard\<close>]
+      in
+        fold_rev
+          (fn name =>
+            Navigation.annotate Navigation.Secondary
+              (Const (name, dummyT)))
+          internals
+          (Navigation.mark Navigation.Primary raw)
+      end;
 
 fun case_error s = error ("Error in bcase expression:\n" ^ s);
 fun case_tr err ctxt [t, u] =

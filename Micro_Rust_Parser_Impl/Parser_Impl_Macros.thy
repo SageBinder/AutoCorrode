@@ -76,6 +76,14 @@ struct
   structure M = URust_Matching
   structure Navigation = Micro_Rust_Semantic_Navigation
 
+  fun with_literal_positions positions action =
+    Navigation.with_source positions (fn () =>
+      Navigation.annotate Navigation.Primary
+        (Const
+          (\<^const_name>\<open>Core_Expression.literal\<close>,
+           dummyT))
+        (action ()))
+
   fun positions_are_adjacent left right =
     (case (Position.end_offset_of left, Position.offset_of right) of
        (SOME left_end, SOME right_start) => left_end = right_start
@@ -136,10 +144,17 @@ struct
        UE_Path path =>
          R.literal_path_value ctxt environment path
      | UE_Literal (LP_String (raw, pos)) =>
-         T.string_value raw pos
-     | UE_Literal (LP_ValAntiq source) =>
-         T.string_from_characters
-           (R.parse_antiquotation ctxt environment source)
+         with_literal_positions [pos] (fn () =>
+           T.string_value raw pos)
+     | UE_Literal (LP_ValAntiq antiquotation) =>
+         with_literal_positions
+           (source_tokens
+             (value_antiquotation_source_layout antiquotation)
+             |> map #2)
+           (fn () =>
+             T.string_from_characters
+               (R.parse_antiquotation ctxt environment
+                 (value_antiquotation_source antiquotation)))
      | _ =>
          error
            ("urust_expr: macro message must be an identifier, quoted string, or value antiquotation" ^

@@ -227,7 +227,7 @@ struct
            ("urust_expr: generic arguments are not allowed in " ^
              "cast-target aliases" ^ Position.here pos))
 
-  fun resolve _ (SCT_Primitive target) = target
+  fun resolve _ (SCT_Primitive (target, _)) = target
     | resolve ctxt (SCT_Named path) =
         let
           val _ =

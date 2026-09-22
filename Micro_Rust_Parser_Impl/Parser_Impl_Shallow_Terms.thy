@@ -177,8 +177,8 @@ struct
   fun constant name args = Term.list_comb (Const (name, dummyT), args)
 
   fun selected_constant kind name args =
-    (Navigation.select kind name;
-     constant name args)
+    Term.list_comb
+      (Navigation.mark kind (Const (name, dummyT)), args)
 
   fun primary_constant name args =
     selected_constant Navigation.Primary name args
@@ -187,14 +187,7 @@ struct
     selected_constant Navigation.Secondary name args
 
   fun selected_term kind term =
-    let
-      val head =
-        Term.head_of (Term_Position.strip_positions term)
-      val _ =
-        (case head of
-           Const (name, _) => Navigation.select kind name
-         | _ => ())
-    in term end
+    Navigation.mark kind term
 
   (* Direct check_term input uses the post-parse representation of source positions: an internal type
      constraint whose TFree is decoded by Type_Infer_Context.prepare_positions. *)
@@ -204,6 +197,12 @@ struct
 
   fun positioned_constant name pos args =
     Term.list_comb (source_position pos (Const (name, dummyT)), args)
+
+  fun selected_positioned_constant kind name pos args =
+    Term.list_comb
+      (source_position pos
+        (Navigation.mark kind (Const (name, dummyT))),
+       args)
 
   fun literal value = constant \<^const_name>\<open>literal\<close> [value]
   fun bindlift1 f expression = constant \<^const_name>\<open>bindlift1\<close> [f, expression]
@@ -215,11 +214,11 @@ struct
     primary_constant \<^const_name>\<open>FunctionBody\<close> [body]
 
   fun closure formals body =
-    (Navigation.select Navigation.Primary
-       \<^const_name>\<open>FunctionBody\<close>;
-     literal
-       (fold_rev Term.lambda formals
-         (function_body_term body)))
+    Navigation.annotate Navigation.Primary
+      (Const (\<^const_name>\<open>FunctionBody\<close>, dummyT))
+      (literal
+        (fold_rev Term.lambda formals
+          (function_body_term body)))
 
   fun apply_parameters function parameters =
     Term.list_comb (function, parameters)
@@ -229,10 +228,7 @@ struct
       val name =
         if value then \<^const_name>\<open>Bool_Type.true\<close>
         else \<^const_name>\<open>Bool_Type.false\<close>
-    in
-      Navigation.select Navigation.Primary name;
-      Const (name, dummyT)
-    end
+    in Navigation.mark Navigation.Primary (Const (name, dummyT)) end
 
   fun boolean_value value =
     let
@@ -240,8 +236,9 @@ struct
         if value then \<^const_name>\<open>Bool_Type.true\<close>
         else \<^const_name>\<open>Bool_Type.false\<close>
     in
-      Navigation.select Navigation.Primary name;
-      if value then \<^term>\<open>True\<close> else \<^term>\<open>False\<close>
+      Navigation.annotate Navigation.Primary
+        (Const (name, dummyT))
+        (if value then \<^term>\<open>True\<close> else \<^term>\<open>False\<close>)
     end
 
   fun string_from_characters characters =
@@ -504,9 +501,8 @@ struct
     constant \<^const_name>\<open>Core_Expression.bind\<close>
       [expression, abstraction]
   fun bind expression abstraction =
-    (Navigation.select Navigation.Primary
-       \<^const_name>\<open>Core_Expression.bind\<close>;
-     bind_term expression abstraction)
+    primary_constant \<^const_name>\<open>Core_Expression.bind\<close>
+      [expression, abstraction]
   fun sequence first second =
     primary_constant \<^const_name>\<open>Core_Expression.sequence\<close>
       [first, second]
@@ -516,12 +512,10 @@ struct
     primary_constant \<^const_name>\<open>case_prod\<close> [abstraction]
 
   fun allocate_reference pos expression =
-    (Navigation.select Navigation.Primary
-       \<^const_name>\<open>store_reference_const\<close>;
-     constant \<^const_name>\<open>funcall1\<close>
-       [positioned_constant
-          \<^const_name>\<open>store_reference_const\<close> pos [],
-        expression])
+    constant \<^const_name>\<open>funcall1\<close>
+      [selected_positioned_constant Navigation.Primary
+         \<^const_name>\<open>store_reference_const\<close> pos [],
+       expression]
 
   fun borrow mode pos expression =
     let
@@ -530,44 +524,38 @@ struct
            BM_Imm => \<^const_name>\<open>ro_ref_from_ref\<close>
          | BM_Mut => \<^const_name>\<open>mut_ref_from_ref\<close>)
     in
-      Navigation.select Navigation.Primary name;
-      bindlift1 (positioned_constant name pos []) expression
+      bindlift1
+        (selected_positioned_constant Navigation.Primary name pos [])
+        expression
     end
 
   fun dereference pos expression =
-    (Navigation.select Navigation.Primary
-       \<^const_name>\<open>store_dereference_const\<close>;
-     constant \<^const_name>\<open>Core_Expression.bind\<close>
-       [expression,
-        constant \<^const_name>\<open>deep_compose1\<close>
-          [Const (\<^const_name>\<open>call\<close>, dummyT),
-           positioned_constant
-             \<^const_name>\<open>store_dereference_const\<close> pos []]])
+    constant \<^const_name>\<open>Core_Expression.bind\<close>
+      [expression,
+       constant \<^const_name>\<open>deep_compose1\<close>
+         [Const (\<^const_name>\<open>call\<close>, dummyT),
+          selected_positioned_constant Navigation.Primary
+            \<^const_name>\<open>store_dereference_const\<close> pos []]]
 
   fun update pos place rhs =
-    (Navigation.select Navigation.Primary
-       \<^const_name>\<open>store_update_const\<close>;
-     constant \<^const_name>\<open>bind2\<close>
-       [constant \<^const_name>\<open>deep_compose2\<close>
-         [Const (\<^const_name>\<open>call\<close>, dummyT),
-          positioned_constant
-            \<^const_name>\<open>store_update_const\<close> pos []],
-        place, rhs])
+    constant \<^const_name>\<open>bind2\<close>
+      [constant \<^const_name>\<open>deep_compose2\<close>
+        [Const (\<^const_name>\<open>call\<close>, dummyT),
+         selected_positioned_constant Navigation.Primary
+           \<^const_name>\<open>store_update_const\<close> pos []],
+       place, rhs]
 
   fun assign_add pos place rhs =
-    (Navigation.select Navigation.Primary
-       \<^const_name>\<open>assign_add_const\<close>;
-     constant \<^const_name>\<open>funcall2\<close>
-       [positioned_constant
-          \<^const_name>\<open>assign_add_const\<close> pos [],
-        place, rhs])
+    constant \<^const_name>\<open>funcall2\<close>
+      [selected_positioned_constant Navigation.Primary
+         \<^const_name>\<open>assign_add_const\<close> pos [],
+       place, rhs]
 
   fun focus_field field receiver =
-    (Navigation.select Navigation.Primary
-       \<^const_name>\<open>focus_lens_const\<close>;
-     bindlift1
-       (constant \<^const_name>\<open>focus_lens_const\<close> [field])
-       receiver)
+    bindlift1
+      (selected_constant Navigation.Primary
+        \<^const_name>\<open>focus_lens_const\<close> [field])
+      receiver
 
   fun tuple_lift terminal first second =
     let
@@ -590,9 +578,9 @@ struct
         error "urust_expr: internal tuple with fewer than two elements"
 
   fun tuple elements =
-    (Navigation.select Navigation.Primary
-       \<^const_name>\<open>Product_Type.Pair\<close>;
-     tuple_terms elements)
+    Navigation.annotate Navigation.Primary
+      (Const (\<^const_name>\<open>Product_Type.Pair\<close>, dummyT))
+      (tuple_terms elements)
 
   fun array_terms [] =
         literal (Const (\<^const_name>\<open>List.Nil\<close>, dummyT))
@@ -602,23 +590,24 @@ struct
            first, array_terms rest]
 
   fun array_literal elements =
-    (Navigation.select Navigation.Primary
-       (if null elements then \<^const_name>\<open>List.Nil\<close>
-        else \<^const_name>\<open>List.Cons\<close>);
-     array_terms elements)
+    let
+      val name =
+        if null elements then \<^const_name>\<open>List.Nil\<close>
+        else \<^const_name>\<open>List.Cons\<close>
+    in
+      Navigation.annotate Navigation.Primary
+        (Const (name, dummyT)) (array_terms elements)
+    end
 
   fun repeat_count count =
     constant \<^const_name>\<open>unsigned\<close> [count]
 
   fun replicated count value =
-    constant \<^const_name>\<open>List.replicate\<close>
+    primary_constant \<^const_name>\<open>List.replicate\<close>
       [repeat_count count, value]
 
   fun array_repeat length element =
     let
-      val _ =
-        Navigation.select Navigation.Primary
-          \<^const_name>\<open>List.replicate\<close>
       val count = Free ("count", \<^typ>\<open>64 word\<close>)
       val value = Free ("value", dummyT)
       val result = literal (replicated count value)
@@ -630,9 +619,6 @@ struct
 
   fun array_repeat_inline_const length element =
     let
-      val _ =
-        Navigation.select Navigation.Primary
-          \<^const_name>\<open>List.replicate\<close>
       val count = Free ("count", \<^typ>\<open>64 word\<close>)
       val result =
         constant \<^const_name>\<open>list_sequence\<close>
@@ -646,17 +632,16 @@ struct
            RK_Exclusive => \<^const_name>\<open>range_new\<close>
          | RK_Inclusive => \<^const_name>\<open>range_eq_new\<close>)
     in
-      Navigation.select Navigation.Primary name;
       constant \<^const_name>\<open>funcall2\<close>
-        [Const (name, dummyT), lower, upper]
+        [Navigation.mark Navigation.Primary (Const (name, dummyT)),
+         lower, upper]
     end
 
   fun index expression subscript =
-    (Navigation.select Navigation.Primary
-       \<^const_name>\<open>index_const\<close>;
-     constant \<^const_name>\<open>funcall2\<close>
-       [Const (\<^const_name>\<open>index_const\<close>, dummyT),
-        expression, subscript])
+    constant \<^const_name>\<open>funcall2\<close>
+      [Navigation.mark Navigation.Primary
+         (Const (\<^const_name>\<open>index_const\<close>, dummyT)),
+       expression, subscript]
 
   fun unchecked_template term = Term.map_types (K dummyT) term
 
@@ -693,6 +678,48 @@ struct
     Term.map_atyps
       (fn TFree _ => dummyT | TVar _ => dummyT | atomic => atomic)
       typ
+
+  fun template_head_constant label term =
+    (case Term.head_of (Term_Position.strip_positions term) of
+       Const (name, _) => name
+     | _ =>
+         error
+           ("urust_expr: internal " ^ label ^
+             " cast primitive lacks a constant head"))
+
+  val ucast_navigation_constant =
+    template_head_constant "ucast" \<^term>\<open>ucast\<close>
+
+  val scast_navigation_constant =
+    template_head_constant "scast" \<^term>\<open>scast\<close>
+
+  fun cast_navigation_constant (CT_Unsigned _) =
+        ucast_navigation_constant
+    | cast_navigation_constant (CT_Signed _) =
+        scast_navigation_constant
+    | cast_navigation_constant (CT_RawPointer _) =
+        \<^const_name>\<open>raw_ptr_cast\<close>
+
+  fun mark_template_constant kind selected_name term =
+    let
+      val found = Unsynchronized.ref false
+      fun mark atom =
+        (case atom of
+           Const (name, _) =>
+             if name = selected_name
+             then
+               (found := true;
+                Navigation.mark kind atom)
+             else atom
+         | _ => atom)
+      val marked = Term.map_aterms mark term
+      val _ =
+        if !found then ()
+        else
+          error
+            ("urust_expr: internal cast template lacks navigation " ^
+              "constant " ^ quote selected_name)
+    in marked end
 
   val cast_functions =
     [(CT_Unsigned UT_U8,
@@ -799,7 +826,8 @@ struct
        SOME (target_function, result_type) =>
          let
            val selected =
-             selected_term Navigation.Primary target_function
+             mark_template_constant Navigation.Primary
+               (cast_navigation_constant target) target_function
          in
            Type.constraint result_type
              (Term.list_comb
@@ -817,31 +845,22 @@ struct
     primary_constant \<^const_name>\<open>assert_ne\<close> [left, right]
 
   fun panic_message message =
-    (Navigation.select Navigation.Secondary
-       \<^const_name>\<open>abort\<close>;
-     Navigation.select Navigation.Primary
-       \<^const_name>\<open>Panic\<close>;
-     constant \<^const_name>\<open>abort\<close>
-       [constant \<^const_name>\<open>Panic\<close> [message]])
+    secondary_constant \<^const_name>\<open>abort\<close>
+      [primary_constant \<^const_name>\<open>Panic\<close> [message]]
 
   fun fatal_message message =
     primary_constant \<^const_name>\<open>fatal\<close> [message]
 
   fun unimplemented_message message =
-    (Navigation.select Navigation.Secondary
-       \<^const_name>\<open>abort\<close>;
-     Navigation.select Navigation.Primary
-       \<^const_name>\<open>Unimplemented\<close>;
-     constant \<^const_name>\<open>abort\<close>
-       [constant \<^const_name>\<open>Unimplemented\<close> [message]])
+    secondary_constant \<^const_name>\<open>abort\<close>
+      [primary_constant \<^const_name>\<open>Unimplemented\<close> [message]]
 
   val legacy_ref_address =
     Term.map_types (K dummyT) \<^term>\<open>ref_address\<close>
 
   fun address_of expression =
-    (Navigation.select Navigation.Primary
-       \<^const_name>\<open>bindlift1\<close>;
-     bindlift1 legacy_ref_address expression)
+    primary_constant \<^const_name>\<open>bindlift1\<close>
+      [legacy_ref_address, expression]
 
   fun conditional condition then_branch else_branch =
     primary_constant \<^const_name>\<open>two_armed_conditional\<close>
@@ -852,31 +871,26 @@ struct
       [fuel, condition, body]
 
   fun bounded_loop fuel body =
-    (Navigation.select Navigation.Primary
-       \<^const_name>\<open>bounded_while\<close>;
-     constant \<^const_name>\<open>bounded_while\<close>
-       [fuel,
-        literal (Const (\<^const_name>\<open>True\<close>, dummyT)),
-        body])
+    primary_constant \<^const_name>\<open>bounded_while\<close>
+      [fuel,
+       literal (Const (\<^const_name>\<open>True\<close>, dummyT)),
+       body]
 
   fun for_loop iterator body =
     primary_constant \<^const_name>\<open>for_loop\<close>
       [iterator, body]
 
   fun into_iterator iterable =
-    (Navigation.select Navigation.Primary
-       \<^const_name>\<open>into_iter\<close>;
-     constant \<^const_name>\<open>funcall1\<close>
-       [Const (\<^const_name>\<open>into_iter\<close>, dummyT),
-        iterable])
+    constant \<^const_name>\<open>funcall1\<close>
+      [Navigation.mark Navigation.Primary
+         (Const (\<^const_name>\<open>into_iter\<close>, dummyT)),
+       iterable]
 
   val skip = literal HOLogic.unit
 
   fun propagate pos expression =
-    (Navigation.select Navigation.Primary
-       \<^const_name>\<open>propagate_const\<close>;
-     positioned_constant
-       \<^const_name>\<open>propagate_const\<close> pos [expression])
+    selected_positioned_constant Navigation.Primary
+      \<^const_name>\<open>propagate_const\<close> pos [expression]
 
   fun unary U_Not _ expression =
         primary_constant \<^const_name>\<open>negation_const\<close>
