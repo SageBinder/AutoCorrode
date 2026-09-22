@@ -53,6 +53,12 @@ values and patterns, struct heads, both turbofish lookup routes, complete macro 
 lifted functions and lambdas, registration multiplicity and idempotence, constructor families,
 delayed failures, recovery, and lexical/fixed controls.
 
+Generic macro heads that fall through registered-call lookup now pair their semantic keyword styling
+with one exact identifier-range typing tooltip. This prevents the enclosing uRust language report
+from becoming the hover range for built-ins such as `assert!`; the same shared path covers assertion
+aliases, message macros, `vec!`, and address macros. The dedicated `matches!` token retains its
+existing lexer-owned typing report without duplication.
+
 Terminal dispatch now treats the registered `lift_fun0` through `lift_fun14` backend wrappers as
 transparent for constant navigation without changing the stored backend or generated term. Applied
 wrappers link to the wrapped term's head constant; `Some`, `Ok`, and `Err` value calls therefore

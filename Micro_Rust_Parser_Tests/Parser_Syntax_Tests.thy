@@ -2011,7 +2011,7 @@ ML_val\<open>
       parse
         (Parser_Lex_Util.positioned_content_source
           bracket_body_text bracket_body_start)
-    val bracket_body_invocation_pos =
+    val (bracket_body_name_pos, bracket_body_invocation_pos) =
       (case bracket_body of
          UE_Macro
            (path, _,
@@ -2031,7 +2031,7 @@ ML_val\<open>
             audit_assert "bracket full-body argument order changed"
               (render_path left_path = "left" andalso
                render_path right_path = "right");
-            invocation_pos)
+            (path_position path, invocation_pos))
        | _ =>
            error "legacy macro regression audit: bracket full-body AST changed")
     val _ =
@@ -2221,6 +2221,9 @@ ML_val\<open>
     val _ =
       audit_assert "generic built-in macro keyword markup moved"
         (has_markup Markup.keyword1N spaced_name_pos)
+    val _ =
+      audit_assert "generic built-in macro hover range moved"
+        (has_markup Markup.typingN spaced_name_pos)
     val spaced_bang_markup_pos =
       Position.range_position
         (spaced_bang_pos,
@@ -2286,8 +2289,14 @@ ML_val\<open>
       audit_assert "full-body built-in macro keyword markup moved"
         (has_markup Markup.keyword1N full_body_name_pos)
     val _ =
+      audit_assert "full-body built-in macro hover range moved"
+        (has_markup Markup.typingN full_body_name_pos)
+    val _ =
       audit_assert "full-body macro bang operator markup moved"
         (has_markup Markup.operatorN full_body_bang_markup_pos)
+    val _ =
+      audit_assert "bracket built-in macro hover range moved"
+        (has_markup Markup.typingN bracket_body_name_pos)
     val _ =
       audit_assert "retained full-body binder navigation changed"
         (has_markup Markup.boundN full_body_definition andalso

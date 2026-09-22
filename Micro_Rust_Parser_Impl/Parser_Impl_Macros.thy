@@ -41,12 +41,14 @@ ML\<open>
 
   For MP_Arguments, an exact registered NFunction name including `!` is considered only when the name
   and bang positions are adjacent. A registered name wins over every builtin and lowers every argument
-  in source order through the callback. Otherwise builtin markup is reported at the name before
-  dispatch and arity validation. Assertion and debug-assert families lower only their first one or two
-  operands; discarded arguments are never resolved, lowered, checked, or evaluated. vec! lowers every
-  element through the shared array builder. addr_of! and addr_of_mut! require exactly one argument and
-  share the legacy address term. Unknown names and arity failures preserve their existing text and
-  invocation/name spans.
+  in source order through the callback. Otherwise builtin keyword markup and an exact-range macro-head
+  typing tooltip are reported at the name before dispatch and arity validation. Assertion and
+  debug-assert families lower only their first one or two operands; discarded arguments are never
+  resolved, lowered, checked, or evaluated. vec! lowers every element through the shared array builder.
+  addr_of! and addr_of_mut! require exactly one argument and share the legacy address term. Unknown
+  names and arity failures preserve their existing text and invocation/name spans. The dedicated
+  matches! token already receives its typing tooltip in the lexer, so semantic lowering does not
+  duplicate it.
 
   Message macros retain only the first argument. No argument produces the empty String.implode value;
   an identifier uses the resolution layer's unlifted lexical-before-NLiteral lookup, a quoted string
@@ -139,8 +141,13 @@ struct
            ("urust_expr: macro message must be an identifier, quoted string, or value antiquotation" ^
              Position.here (expression_position expression)))
 
-  fun report_builtin ctxt pos =
-    Context_Position.report ctxt pos Markup.keyword1
+  fun report_builtin ctxt report_typing pos =
+    (Context_Position.report ctxt pos Markup.keyword1;
+     if report_typing
+     then
+       Context_Position.report_text ctxt pos Markup.typing
+         "uRust macro head"
+     else ())
 
   fun lower_macro lower ctxt environment
       (path, bang_pos, payload, position) =
@@ -165,7 +172,7 @@ struct
       fun lower_builtin arguments =
         let
           val actual = length arguments
-          val _ = report_builtin ctxt name_pos
+          val _ = report_builtin ctxt true name_pos
         in
           (case name of
              "assert" =>
@@ -217,7 +224,7 @@ struct
     in
       (case payload of
          MP_Matches (scrutinee, pattern) =>
-           (report_builtin ctxt name_pos;
+           (report_builtin ctxt false name_pos;
             reject_legacy_matches_ranges pattern;
             M.lower_boolean_match lower ctxt environment
               (scrutinee, pattern, position))
