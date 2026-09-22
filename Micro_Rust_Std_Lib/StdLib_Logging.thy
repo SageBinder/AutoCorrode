@@ -19,7 +19,7 @@ underlying primitive logger, provided as a yield handler.  Note that strictly sp
 also \<^emph>\<open>macros\<close> in Rust; we use \<^verbatim>\<open>\<mu>Rust\<close> functions to model logging instead.
 
 First, the \<^verbatim>\<open>fatal\<close> logger:\<close>
-urust_expr [abbrev] fatal ::
+urust_fn [abbrev] fatal ::
   \<open>log_data \<Rightarrow> ('s, unit, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (m)
   \<open>
@@ -28,7 +28,7 @@ urust_expr [abbrev] fatal ::
 micro_rust_notation (call) fatal ("fatal!")
 
 text\<open>The \<^verbatim>\<open>info\<close> logger:\<close>
-urust_expr [abbrev] info ::
+urust_fn [abbrev] info ::
   \<open>log_data \<Rightarrow> ('s, unit, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (m)
   \<open>
@@ -37,7 +37,7 @@ urust_expr [abbrev] info ::
 micro_rust_notation (call) info ("info!")
 
 text\<open>The \<^verbatim>\<open>error\<close> logger:\<close>
-urust_expr [abbrev] error ::
+urust_fn [abbrev] error ::
   \<open>log_data \<Rightarrow> ('s, unit, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (m)
   \<open>
@@ -46,7 +46,7 @@ urust_expr [abbrev] error ::
 micro_rust_notation (call) error ("error!")
 
 text\<open>The \<^verbatim>\<open>debug\<close> logger:\<close>
-urust_expr [abbrev] debug ::
+urust_fn [abbrev] debug ::
   \<open>log_data \<Rightarrow> ('s, unit, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (m)
   \<open>
@@ -55,7 +55,7 @@ urust_expr [abbrev] debug ::
 micro_rust_notation (call) debug ("debug!")
 
 text\<open>The \<^verbatim>\<open>trace\<close> logger:\<close>
-urust_expr [abbrev] trace ::
+urust_fn [abbrev] trace ::
   \<open>log_data \<Rightarrow> ('s, unit, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (m)
   \<open>
