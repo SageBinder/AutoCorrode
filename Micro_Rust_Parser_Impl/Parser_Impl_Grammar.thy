@@ -233,10 +233,6 @@ fun start_hol_type open_pos open_text =
   (hol_type_open := SOME open_pos;
    hol_type_start := open_pos + size open_text;
    hol_type_depth := 1)
-fun take_comment_context () =
-  (case !comment_context of
-     SOME context => (reset_comment (); context)
-   | NONE => raise Fail "uRust lexer: missing formal-comment return context")
 
 (* A suffixed integer literal is deliberately NOT interpreted here: the lexer captures the raw lexeme and
    the elaboration term layer reads it against the single suffix table, so an unknown suffix is a
@@ -287,6 +283,22 @@ fun finish_block_comment (close_pos, close_text) =
              (open_pos, text, Markup.comment1, "block comment")
        in reset_block_comment () end
    | NONE => raise Fail "uRust lexer: missing block-comment opener")
+fun finish_formal_comment (close_pos, close_text) =
+  (case !comment_context of
+     SOME context =>
+       let
+         val open_pos = !comment_open
+         val stop = close_pos + size close_text
+         val text =
+           String.substring
+             (Parser_Lex_Util.text_of (!source_layout),
+              open_pos, stop - open_pos)
+         val _ =
+           report_text
+             (open_pos, text, Markup.comment1, "formal comment")
+         val _ = reset_comment ()
+       in context end
+   | NONE => raise Fail "uRust lexer: missing formal-comment return context")
 fun tok_ident (yypos, yytext) =
   let val p = Parser_Lex_Util.ident_pos (!source_layout) (yypos, yytext)
   in Tokens.IDENT (yytext, p, p) end
@@ -643,7 +655,7 @@ lex_rules\<open>
     (if !comment_depth > 0 then
        (comment_depth := !comment_depth - 1; lex())
      else
-       ((case take_comment_context () of
+       ((case finish_formal_comment (yypos, yytext) of
            Initial_Comment => YYBEGIN INITIAL
          | Generic_Comment => YYBEGIN GENERIC
          | Log_Data_Comment => YYBEGIN LOGDATA);

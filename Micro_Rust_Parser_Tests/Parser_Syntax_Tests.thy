@@ -5460,8 +5460,9 @@ declare [[urust_conformance = true]]
 section\<open> Isabelle formal comments \<close>
 
 text\<open>
-Formal comments are layout for the dedicated parser. Isabelle's command-span processing remains
-responsible for checking document antiquotations and producing formal-comment markup.
+Formal comments are layout for the dedicated parser. The lexer reports their complete source span
+with Isabelle's inner-syntax comment style, while Isabelle's document machinery remains responsible
+for checking document antiquotations inside the cartouche.
 \<close>
 
 subsection\<open> Expression and function parity \<close>
@@ -5652,12 +5653,14 @@ ML_val\<open>
     val physical_lambda =
       Byte.bytesToString
         (Word8Vector.fromList [0wxCE, 0wxBB])
-    val structural_text =
-      "1_u64 " ^
+    val structural_comment =
       formal_comment
         ("physical Unicode " ^ physical_lambda ^
+         "; dashes ---" ^
          "; nested " ^ Symbol.open_ ^ "{ [ ( + => :: ) ] }" ^
-         Symbol.close ^ "; escaped \<alpha>") ^
+         Symbol.close ^ "; escaped \<alpha>")
+    val structural_text =
+      "1_u64 " ^ structural_comment ^
       " + 2_u64"
     val structural_start =
       Position.make0 41 400 0 "" "" "isabelle-comment-structure"
@@ -5666,8 +5669,10 @@ ML_val\<open>
         structural_text structural_start
     val (left_raw, left_pos) =
       token_position structural_text structural_start "1_u64" 0
-    val (comment_raw, _) =
-      token_position structural_text structural_start Symbol.comment left_raw
+    val (comment_raw, comment_pos) =
+      token_position structural_text structural_start structural_comment left_raw
+    val (_, dash_pos) =
+      token_position structural_text structural_start "---" comment_raw
     val (inner_plus_raw, inner_plus_pos) =
       token_position structural_text structural_start "+"
         comment_raw
@@ -5709,12 +5714,18 @@ ML_val\<open>
           ignore
             (Parser_Test_Elaboration.expression ctxt structural_source))
     val _ =
-      (audit_assert "left numeral lost markup"
+      (audit_assert "formal comment lost full-span comment markup"
+         (has_markup parser_markup Markup.comment1N comment_pos);
+       audit_assert "formal comment lost full-span typing markup"
+         (has_markup parser_markup Markup.typingN comment_pos);
+       audit_assert "left numeral lost markup"
          (has_markup parser_markup Markup.numeralN left_pos);
        audit_assert "operator after comment lost markup"
          (has_markup parser_markup Markup.operatorN outer_plus_pos);
        audit_assert "right numeral lost markup"
          (has_markup parser_markup Markup.numeralN right_pos);
+       audit_assert "comment dashes received uRust operator markup"
+         (not (has_markup parser_markup Markup.operatorN dash_pos));
        audit_assert "comment content received uRust operator markup"
          (not (has_markup parser_markup Markup.operatorN inner_plus_pos)))
 
