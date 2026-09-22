@@ -4,10 +4,33 @@ begin
 
 section\<open> Reified AST \<close>
 
-text\<open> One constructor per uRust surface form. Positions are carried for markup/diagnostics. \<close>
+text\<open>
+One constructor per uRust surface form. Composite syntax retains a complete source span for
+diagnostics and exact, role-tagged token ranges for later PIDE markup.
+\<close>
 ML\<open>
 signature URUST_AST =
 sig
+  datatype source_token =
+      Keyword_Token of string
+    | Operator_Token
+    | Delimiter_Token of string
+    | Name_Token
+    | Bang_Token
+  datatype source_layout =
+    Source_Layout of Position.T * (source_token * Position.T) list
+
+  val make_source_layout:
+    Position.T -> (source_token * Position.T) list -> source_layout
+  val source_span: source_layout -> Position.T
+  val source_tokens: source_layout -> (source_token * Position.T) list
+  val source_token_positions:
+    source_layout -> source_token -> Position.T list
+  val source_token_position:
+    source_layout -> source_token -> Position.T option
+  val the_source_token_position:
+    source_layout -> source_token -> Position.T
+
   datatype literal_payload =
       LP_Integer of string * Position.T
     | LP_Bool of bool * Position.T
@@ -15,6 +38,7 @@ sig
     | LP_ValAntiq of Input.source
 
   val literal_position: literal_payload -> Position.T
+  val literal_source_layout: literal_payload -> source_layout
 
   datatype borrow_mode = BM_Imm | BM_Mut
   datatype range_kind = RK_Exclusive | RK_Inclusive
@@ -96,15 +120,15 @@ sig
     | P_Ident of string * Position.T
     | P_Path of ur_path
     | P_Literal of literal_payload
-    | P_Constr of ur_path * ur_pat list
-    | P_Tuple of ur_pat list * Position.T
-    | P_Group of ur_pat
-    | P_Borrow of borrow_mode * ur_pat * Position.T
-    | P_Alias of string * Position.T * ur_pat * Position.T
-    | P_Range of range_kind * ur_pat * ur_pat * Position.T
-    | P_Slice of slice_item list * Position.T
-    | P_Struct of ur_path * struct_field list
-    | P_Or of ur_pat list * Position.T
+    | P_Constr of ur_path * ur_pat list * source_layout
+    | P_Tuple of ur_pat list * source_layout
+    | P_Group of ur_pat * source_layout
+    | P_Borrow of borrow_mode * ur_pat * source_layout
+    | P_Alias of string * Position.T * ur_pat * source_layout
+    | P_Range of range_kind * ur_pat * ur_pat * source_layout
+    | P_Slice of slice_item list * source_layout
+    | P_Struct of ur_path * struct_field list * source_layout
+    | P_Or of ur_pat list * source_layout
   and slice_item =
       SI_Pat of ur_pat
     | SI_Rest of Position.T
@@ -141,11 +165,12 @@ sig
   datatype repeat_length =
       RL_Integer of string * Position.T
     | RL_Path of ur_path
-    | RL_Bin of binop * repeat_length * repeat_length * Position.T
-    | RL_Group of repeat_length * Position.T
-    | RL_CastUsize of repeat_length * Position.T
+    | RL_Bin of binop * repeat_length * repeat_length * source_layout
+    | RL_Group of repeat_length * source_layout
+    | RL_CastUsize of repeat_length * source_layout
 
   val repeat_length_position: repeat_length -> Position.T
+  val repeat_length_source_layout: repeat_length -> source_layout
 
   datatype log_data_entry =
       LDE_String of string * Position.T
@@ -159,47 +184,47 @@ sig
         Input.source * int * Position.T * generic_args option
 
   and ur_expr =
-      UE_Unit of Position.T
-    | UE_Tuple of ur_expr list * Position.T
-    | UE_Array of ur_expr list * Position.T
+      UE_Unit of source_layout
+    | UE_Tuple of ur_expr list * source_layout
+    | UE_Array of ur_expr list * source_layout
     | UE_ArrayRepeat of
-        array_repeat_mode * ur_expr * repeat_length * Position.T
-    | UE_Struct of ur_path * struct_expr_field list * Position.T
+        array_repeat_mode * ur_expr * repeat_length * source_layout
+    | UE_Struct of ur_path * struct_expr_field list * source_layout
     | UE_Path of ur_path
     | UE_Literal of literal_payload
     | UE_ExprAntiq of Input.source
-    | UE_Yield of Position.T
-    | UE_Log of Input.source * Input.source * Position.T
-    | UE_LogData of log_data_entry list * Position.T
-    | UE_Closure of ur_pat list * ur_expr * Position.T
-    | UE_Let of ur_pat * ur_expr * ur_expr
-    | UE_LetMut of ur_pat * ur_expr * ur_expr * Position.T
-    | UE_Const of ur_pat * ur_expr * ur_expr
-    | UE_Seq of ur_expr * ur_expr
-    | UE_Return of ur_expr option * Position.T
-    | UE_Bin of binop * ur_expr * ur_expr * Position.T
-    | UE_Cast of ur_expr * source_cast_target * Position.T
-    | UE_Unary of unaryop * ur_expr * Position.T
-    | UE_Group of ur_expr * Position.T
-    | UE_Block of ur_expr * Position.T
-    | UE_If of ur_expr * ur_expr * ur_expr option * Position.T
+    | UE_Yield of source_layout
+    | UE_Log of Input.source * Input.source * source_layout
+    | UE_LogData of log_data_entry list * source_layout
+    | UE_Closure of ur_pat list * ur_expr * source_layout
+    | UE_Let of ur_pat * ur_expr * ur_expr * source_layout
+    | UE_LetMut of ur_pat * ur_expr * ur_expr * source_layout
+    | UE_Const of ur_pat * ur_expr * ur_expr * source_layout
+    | UE_Seq of ur_expr * ur_expr * source_layout
+    | UE_Return of ur_expr option * source_layout
+    | UE_Bin of binop * ur_expr * ur_expr * source_layout
+    | UE_Cast of ur_expr * source_cast_target * source_layout
+    | UE_Unary of unaryop * ur_expr * source_layout
+    | UE_Group of ur_expr * source_layout
+    | UE_Block of ur_expr * source_layout
+    | UE_If of ur_expr * ur_expr * ur_expr option * source_layout
     | UE_IfLet of
-        ur_pat * ur_expr * ur_expr * ur_expr option * Position.T
+        ur_pat * ur_expr * ur_expr * ur_expr option * source_layout
     | UE_LetElse of
-        ur_pat * ur_expr * ur_expr * ur_expr * Position.T
-    | UE_While of Input.source * ur_expr * ur_expr * Position.T
-    | UE_Loop of Input.source * ur_expr * Position.T
-    | UE_For of ur_pat * ur_expr * ur_expr * Position.T
-    | UE_WhileLet of Input.source * ur_pat * ur_expr * ur_expr * Position.T
-    | UE_Call of ur_callee * ur_expr list * Position.T
-    | UE_Field of ur_expr * string * Position.T
-    | UE_Index of ur_expr * ur_expr * Position.T
-    | UE_TupleProjection of ur_expr * int * Position.T
-    | UE_Range of range_kind * ur_expr * ur_expr * Position.T
-    | UE_Assign of assignop * ur_place * ur_expr * Position.T
+        ur_pat * ur_expr * ur_expr * ur_expr * source_layout
+    | UE_While of Input.source * ur_expr * ur_expr * source_layout
+    | UE_Loop of Input.source * ur_expr * source_layout
+    | UE_For of ur_pat * ur_expr * ur_expr * source_layout
+    | UE_WhileLet of Input.source * ur_pat * ur_expr * ur_expr * source_layout
+    | UE_Call of ur_callee * ur_expr list * source_layout
+    | UE_Field of ur_expr * string * source_layout
+    | UE_Index of ur_expr * ur_expr * source_layout
+    | UE_TupleProjection of ur_expr * int * source_layout
+    | UE_Range of range_kind * ur_expr * ur_expr * source_layout
+    | UE_Assign of assignop * ur_place * ur_expr * source_layout
     | UE_Macro of
-        ur_path * Position.T * macro_payload * Position.T
-    | UE_Match of match_flavour * ur_expr * ur_arm list * Position.T
+        ur_path * macro_payload * source_layout
+    | UE_Match of match_flavour * ur_expr * ur_arm list * source_layout
   and struct_expr_field =
       SE_Field of string * Position.T * ur_expr
   and macro_payload =
@@ -207,39 +232,43 @@ sig
     | MP_Matches of ur_expr * ur_pat
   and ur_place =
       UP_Path of ur_path
-    | UP_Deref of ur_expr * Position.T
-    | UP_Field of ur_place * string * Position.T
-    | UP_Index of ur_place * ur_expr * Position.T
+    | UP_Deref of ur_expr * source_layout
+    | UP_Field of ur_place * string * source_layout
+    | UP_Index of ur_place * ur_expr * source_layout
     | UP_Antiq of Input.source
   and ur_arm =
-      UR_Arm of ur_pat * (ur_expr * Position.T) option * ur_expr
+      UR_Arm of ur_pat * (ur_expr * Position.T) option * ur_expr * source_layout
 
   datatype parse_result =
       Parsed_Expression of ur_expr
     | Parsed_Datatype of urust_datatype
 
   val expression_position: ur_expr -> Position.T
+  val expression_source_layout: ur_expr -> source_layout
+  val pattern_position: ur_pat -> Position.T
+  val pattern_source_layout: ur_pat -> source_layout
+  val arm_source_layout: ur_arm -> source_layout
   val mk_assign:
     assignop * Position.T -> ur_expr -> ur_expr -> ur_expr
   val mk_array_repeat:
-    array_repeat_mode * ur_expr * ur_expr * Position.T * Position.T ->
+    array_repeat_mode * ur_expr * ur_expr * source_layout ->
       ur_expr
   val finish_statement: ur_expr * Position.T -> ur_expr
   val mk_bare_path_pat: ur_path -> ur_pat
-  val mk_ctor_pat: ur_path * ur_pat list -> ur_pat
+  val mk_ctor_pat: ur_path * ur_pat list * source_layout -> ur_pat
   val mk_alias_pat:
-    (string * Position.T) * ur_pat * Position.T -> ur_pat
-  val mk_struct_pat: ur_path * struct_field list -> ur_pat
+    (string * Position.T) * ur_pat * source_layout -> ur_pat
+  val mk_struct_pat: ur_path * struct_field list * source_layout -> ur_pat
   val mk_closure:
-    ur_pat list * ur_expr * Position.T * Position.T -> ur_expr
+    ur_pat list * ur_expr * source_layout -> ur_expr
   val mk_call:
-    ur_callee * ur_expr list * Position.T * Position.T -> ur_expr
+    ur_callee * ur_expr list * source_layout -> ur_expr
   val mk_tuple_projection:
-    ur_expr * string * Position.T -> ur_expr
+    ur_expr * string * source_layout -> ur_expr
   val mk_let_else:
     ur_pat * ur_expr * ur_expr * ur_expr *
-      Position.T * Position.T -> ur_expr
-  val mk_or_pat: ur_pat * ur_pat * Position.T -> ur_pat
+      source_layout -> ur_expr
+  val mk_or_pat: ur_pat * ur_pat * source_layout -> ur_pat
 end
 
 (*
@@ -253,6 +282,11 @@ end
 
   The public representation comprises:
 
+    * source_layout and source_token. A source layout pairs the complete symbol-counted construct
+      span with source-ordered exact ranges for denotational keywords, operators, delimiters, names,
+      and macro bangs. Layouts are syntax metadata only: they do not select HOL constants or report
+      semantic entities. The accessors preserve token multiplicity and order so a later phase can
+      distinguish repeated controls such as the two bars of a closure.
     * literal_payload and LP_Integer, LP_Bool, LP_String, LP_ValAntiq.  Integer and string payloads
       retain raw source spelling; antiquotations retain their positioned Input.source.
     * canonical_fragment and Generic_Arg. A generic argument pairs the grammar-produced, trivia-free
@@ -311,9 +345,11 @@ end
       index and numeric-token position; it is a value postfix and deliberately has no ur_place
       counterpart. ur_place contains only validated assignment-target shapes.
 
-  Position.T fields identify the token or span documented at each constructor. Consumers may use them
-  for markup and diagnostics, but must not infer semantic validity from their presence.
-  literal_position returns the source position of every literal payload.
+  Position.T fields identify the single token documented at each constructor. Composite expressions,
+  patterns, places, repeat lengths, and arms instead carry source_layout values. Consumers may use
+  either kind of source metadata for markup and diagnostics, but must not infer semantic validity
+  from its presence. literal_position returns the source position of every literal payload;
+  expression_position and pattern_position return complete construct spans.
 
   The remaining public functions are grammar-facing construction contracts. mk_assign accepts
   identifiers, expression antiquotations, dereferences, fields and indices over recursively valid
@@ -323,11 +359,9 @@ end
   finish_statement leaves a terminal UE_Return unchanged and otherwise sequences the expression with
   UE_Unit at the semicolon. mk_bare_ident_pat normalises "_"
   to P_Wild; the other pattern smart constructors consume ordinary (name, position) pairs without a
-  parser-only wrapper datatype. mk_closure converts a final ranged body token to its exclusive endpoint
-  before constructing the full source span. mk_call combines any callee with its arguments and supplied
-  source endpoints into the call span. mk_let_else applies the same
-  exclusive-end correction to its final ranged token. mk_or_pat preserves source order while
-  flattening a right-recursive P_Or.
+  parser-only wrapper datatype. Grammar actions construct every layout from the symbol-counted token
+  ranges supplied by Parser_Lex_Util; smart constructors preserve those layouts while checking AST
+  invariants. mk_or_pat preserves source order while flattening a right-recursive P_Or.
 
   Constructor-resolution policy, legal-pattern subsets at each use site, lowering choices, and the
   private expression-position/place conversion helpers remain implementation details. Directly
@@ -336,6 +370,34 @@ end
 *)
 structure URust_AST :> URUST_AST =
 struct
+  datatype source_token =
+      Keyword_Token of string
+    | Operator_Token
+    | Delimiter_Token of string
+    | Name_Token
+    | Bang_Token
+  datatype source_layout =
+    Source_Layout of Position.T * (source_token * Position.T) list
+
+  fun make_source_layout span tokens =
+    Source_Layout (span, tokens)
+  fun source_span (Source_Layout (span, _)) = span
+  fun source_tokens (Source_Layout (_, tokens)) = tokens
+  fun source_token_positions layout token =
+    source_tokens layout
+    |> map_filter
+        (fn (candidate, pos) =>
+          if candidate = token then SOME pos else NONE)
+  fun source_token_position layout token =
+    get_first
+      (fn (candidate, pos) =>
+        if candidate = token then SOME pos else NONE)
+      (source_tokens layout)
+  fun the_source_token_position layout token =
+    (case source_token_position layout token of
+       SOME pos => pos
+     | NONE => error "uRust AST source layout is missing a required token")
+
   datatype literal_payload =
       LP_Integer  of string * Position.T
     | LP_Bool     of bool * Position.T
@@ -346,6 +408,17 @@ struct
     | literal_position (LP_Bool (_, pos)) = pos
     | literal_position (LP_String (_, pos)) = pos
     | literal_position (LP_ValAntiq source) = Input.pos_of source
+
+  fun literal_source_layout payload =
+    let
+      val pos = literal_position payload
+      val tokens =
+        (case payload of
+           LP_Bool (value, _) =>
+             [(Keyword_Token
+                (if value then "true" else "false"), pos)]
+         | _ => [])
+    in make_source_layout pos tokens end
 
   (* THE pattern language: ONE datatype for EVERY binding site (let / const binder, match_switch key,
      match_case arm, and later closure params, `for` patterns, fn parameters) -- Rust has one pattern
@@ -484,18 +557,19 @@ struct
     | P_Ident  of string * Position.T                 (* bare id: nullary ctor OR variable binder *)
     | P_Path   of ur_path
     | P_Literal of literal_payload                    (* numeral switch key or equality pattern *)
-    | P_Constr of ur_path * ur_pat list
-    | P_Tuple  of ur_pat list * Position.T            (* (p0, p1, ..), at least two elements *)
-    | P_Group  of ur_pat                              (* (p), transparent wrapper *)
-    | P_Borrow of borrow_mode * ur_pat * Position.T   (* &p / & mut p; syntax-only today *)
-    | P_Alias  of string * Position.T * ur_pat * Position.T
-                                                       (* name @ p: name-pos, inner, @-pos *)
-    | P_Range  of range_kind * ur_pat * ur_pat * Position.T
-                                                       (* lo..hi / lo..=hi, at operator *)
-    | P_Slice  of slice_item list * Position.T        (* [p, .., q], at full span *)
-    | P_Struct of ur_path * struct_field list
-                                                       (* Head { fields }, at head-pos *)
-    | P_Or     of ur_pat list * Position.T            (* p | q | r  (flattened; source order) *)
+    | P_Constr of ur_path * ur_pat list * source_layout
+    | P_Tuple  of ur_pat list * source_layout         (* (p0, p1, ..), at least two elements *)
+    | P_Group  of ur_pat * source_layout              (* (p), transparent wrapper *)
+    | P_Borrow of borrow_mode * ur_pat * source_layout
+                                                       (* &p / & mut p; syntax-only today *)
+    | P_Alias  of string * Position.T * ur_pat * source_layout
+                                                       (* name @ p *)
+    | P_Range  of range_kind * ur_pat * ur_pat * source_layout
+                                                       (* lo..hi / lo..=hi *)
+    | P_Slice  of slice_item list * source_layout     (* [p, .., q] *)
+    | P_Struct of ur_path * struct_field list * source_layout
+                                                       (* Head { fields } *)
+    | P_Or     of ur_pat list * source_layout         (* p | q | r  (flattened; source order) *)
   and slice_item =
       SI_Pat of ur_pat
     | SI_Rest of Position.T
@@ -537,15 +611,26 @@ struct
   datatype repeat_length =
       RL_Integer of string * Position.T
     | RL_Path of ur_path
-    | RL_Bin of binop * repeat_length * repeat_length * Position.T
-    | RL_Group of repeat_length * Position.T
-    | RL_CastUsize of repeat_length * Position.T
+    | RL_Bin of binop * repeat_length * repeat_length * source_layout
+    | RL_Group of repeat_length * source_layout
+    | RL_CastUsize of repeat_length * source_layout
 
   fun repeat_length_position (RL_Integer (_, pos)) = pos
     | repeat_length_position (RL_Path path) = path_position path
-    | repeat_length_position (RL_Bin (_, _, _, pos)) = pos
-    | repeat_length_position (RL_Group (_, pos)) = pos
-    | repeat_length_position (RL_CastUsize (_, pos)) = pos
+    | repeat_length_position (RL_Bin (_, _, _, layout)) =
+        source_span layout
+    | repeat_length_position (RL_Group (_, layout)) =
+        source_span layout
+    | repeat_length_position (RL_CastUsize (_, layout)) =
+        source_span layout
+
+  fun repeat_length_source_layout (RL_Integer (_, pos)) =
+        make_source_layout pos []
+    | repeat_length_source_layout (RL_Path path) =
+        make_source_layout (path_position path) []
+    | repeat_length_source_layout (RL_Bin (_, _, _, layout)) = layout
+    | repeat_length_source_layout (RL_Group (_, layout)) = layout
+    | repeat_length_source_layout (RL_CastUsize (_, layout)) = layout
 
   datatype log_data_entry =
       LDE_String of string * Position.T
@@ -559,74 +644,79 @@ struct
         Input.source * int * Position.T * generic_args option
 
   and ur_expr =
-      UE_Unit      of Position.T                      (* () *)
-    | UE_Tuple     of ur_expr list * Position.T       (* (e0, e1, ..), at least two elements *)
-    | UE_Array     of ur_expr list * Position.T       (* [e0, e1, ..], including empty *)
+      UE_Unit      of source_layout                   (* () *)
+    | UE_Tuple     of ur_expr list * source_layout    (* (e0, e1, ..), at least two elements *)
+    | UE_Array     of ur_expr list * source_layout    (* [e0, e1, ..], including empty *)
     | UE_ArrayRepeat of
-        array_repeat_mode * ur_expr * repeat_length * Position.T
+        array_repeat_mode * ur_expr * repeat_length * source_layout
                                                       (* [value; length] / [const { value }; length] *)
-    | UE_Struct    of ur_path * struct_expr_field list * Position.T
+    | UE_Struct    of ur_path * struct_expr_field list * source_layout
                                                       (* Head { label: value, ... }, at full span *)
     | UE_Path      of ur_path
     | UE_Literal   of literal_payload                 (* integer / bool / string / <<value>> *)
     | UE_ExprAntiq of Input.source                    (* eps<e> body as a POSITIONED source -> e *)
-    | UE_Yield     of Position.T                      (* yield -> pause *)
-    | UE_Log       of Input.source * Input.source * Position.T
+    | UE_Yield     of source_layout                   (* yield -> pause *)
+    | UE_Log       of Input.source * Input.source * source_layout
                                                       (* log <<priority>> <<data>>, at full span *)
-    | UE_LogData   of log_data_entry list * Position.T
+    | UE_LogData   of log_data_entry list * source_layout
                                                       (* l<<"text", value>>, at full span *)
-    | UE_Closure   of ur_pat list * ur_expr * Position.T
+    | UE_Closure   of ur_pat list * ur_expr * source_layout
                                                       (* |x, ...| body / || body, at full span *)
-    | UE_Let       of ur_pat * ur_expr * ur_expr      (* let <pat> = rhs; body -> bind *)
-    | UE_LetMut    of ur_pat * ur_expr * ur_expr * Position.T
+    | UE_Let       of ur_pat * ur_expr * ur_expr * source_layout
+                                                      (* let <pat> = rhs; body -> bind *)
+    | UE_LetMut    of ur_pat * ur_expr * ur_expr * source_layout
                                                       (* let mut <pat> = rhs; body *)
-    | UE_Const     of ur_pat * ur_expr * ur_expr      (* const: same desugaring as let today; distinct node
+    | UE_Const     of ur_pat * ur_expr * ur_expr * source_layout
+                                                      (* const: same desugaring as let today; distinct node
                                                          keeps the keyword for when it diverges (B7) *)
-    | UE_Seq       of ur_expr * ur_expr               (* e1; e2 -> sequence (trailing `;`: e2 = unit) *)
-    | UE_Return    of ur_expr option * Position.T     (* return [value]; semicolon is never stored *)
-    | UE_Bin       of binop * ur_expr * ur_expr * Position.T   (* a <binop> b *)
-    | UE_Cast      of ur_expr * source_cast_target * Position.T
+    | UE_Seq       of ur_expr * ur_expr * source_layout
+                                                      (* e1; e2 -> sequence (trailing `;`: e2 = unit) *)
+    | UE_Return    of ur_expr option * source_layout  (* return [value]; semicolon is never stored *)
+    | UE_Bin       of binop * ur_expr * ur_expr * source_layout
+                                                      (* a <binop> b *)
+    | UE_Cast      of ur_expr * source_cast_target * source_layout
                                                       (* operand as target, at the `as` keyword *)
-    | UE_Unary     of unaryop * ur_expr * Position.T
+    | UE_Unary     of unaryop * ur_expr * source_layout
                                                       (* !a / &a / & mut a / *a / a? *)
-    | UE_Group     of ur_expr * Position.T                      (* (a), transparent during lowering *)
-    | UE_Block     of ur_expr * Position.T            (* { stmts } -- ERASES to <stmts>, no `scoped`
+    | UE_Group     of ur_expr * source_layout         (* (a), transparent during lowering *)
+    | UE_Block     of ur_expr * source_layout         (* { stmts } -- ERASES to <stmts>, no `scoped`
                                                          wrapper: `_urust_scoping` is identity (D22) *)
-    | UE_If        of ur_expr * ur_expr * ur_expr option * Position.T
+    | UE_If        of ur_expr * ur_expr * ur_expr option * source_layout
                                                       (* NONE else-branch = one-armed -> skip (D22) *)
     | UE_IfLet     of
-        ur_pat * ur_expr * ur_expr * ur_expr option * Position.T
+        ur_pat * ur_expr * ur_expr * ur_expr option * source_layout
                                                       (* if let pattern = value { success } [else] *)
     | UE_LetElse   of
-        ur_pat * ur_expr * ur_expr * ur_expr * Position.T
+        ur_pat * ur_expr * ur_expr * ur_expr * source_layout
                                                       (* let pattern = value else fallback; continuation *)
-    | UE_While     of Input.source * ur_expr * ur_expr * Position.T
+    | UE_While     of Input.source * ur_expr * ur_expr * source_layout
                                                       (* #[fuel(eps<n>)] while (condition) body *)
-    | UE_Loop      of Input.source * ur_expr * Position.T
+    | UE_Loop      of Input.source * ur_expr * source_layout
                                                       (* #[fuel(eps<n>)] loop body *)
-    | UE_For       of ur_pat * ur_expr * ur_expr * Position.T
+    | UE_For       of ur_pat * ur_expr * ur_expr * source_layout
                                                       (* for pattern in iterable body *)
-    | UE_WhileLet  of Input.source * ur_pat * ur_expr * ur_expr * Position.T
+    | UE_WhileLet  of Input.source * ur_pat * ur_expr * ur_expr * source_layout
                                                       (* #[fuel(eps<n>)] while let pattern = value body *)
-    | UE_Call      of ur_callee * ur_expr list * Position.T
+    | UE_Call      of ur_callee * ur_expr list * source_layout
                                                       (* callee(a0..aN) -> funcallN. Paths/methods use
                                                          NFunction resolution; antiquotations are direct
                                                          embedded HOL callees; function literals first
                                                          apply lift_funN and optional generic parameters.
                                                          Args and the complete call span are retained so
                                                          an arity error underlines the whole invocation. *)
-    | UE_Field     of ur_expr * string * Position.T   (* e.field -> NField lens focus *)
-    | UE_Index     of ur_expr * ur_expr * Position.T  (* e[i] -> index_const, at full span *)
-    | UE_TupleProjection of ur_expr * int * Position.T
+    | UE_Field     of ur_expr * string * source_layout
+                                                      (* e.field -> NField lens focus *)
+    | UE_Index     of ur_expr * ur_expr * source_layout
+                                                      (* e[i] -> index_const, at full span *)
+    | UE_TupleProjection of ur_expr * int * source_layout
                                                       (* e.N -> tuple_index_N, at numeric token *)
-    | UE_Range     of range_kind * ur_expr * ur_expr * Position.T
+    | UE_Range     of range_kind * ur_expr * ur_expr * source_layout
                                                       (* lo..hi / lo..=hi, at operator *)
-    | UE_Assign    of assignop * ur_place * ur_expr * Position.T
+    | UE_Assign    of assignop * ur_place * ur_expr * source_layout
                                                       (* place assignment-op rhs, at the operator *)
     | UE_Macro     of
-        ur_path * Position.T * macro_payload * Position.T
-                                                      (* head, !-pos, payload, full span *)
-    | UE_Match     of match_flavour * ur_expr * ur_arm list * Position.T
+        ur_path * macro_payload * source_layout       (* head, payload, source layout *)
+    | UE_Match     of match_flavour * ur_expr * ur_arm list * source_layout
                                                       (* match_<flavour> scrut { pat => body, .. }. ONE node
                                                          for both keywords; only the LOWERING differs --
                                                          MF_Switch -> ncase_selector (first-order, D26),
@@ -640,54 +730,105 @@ struct
     | MP_Matches of ur_expr * ur_pat
   and ur_place =
       UP_Path of ur_path
-    | UP_Deref of ur_expr * Position.T
-    | UP_Field of ur_place * string * Position.T
-    | UP_Index of ur_place * ur_expr * Position.T
+    | UP_Deref of ur_expr * source_layout
+    | UP_Field of ur_place * string * source_layout
+    | UP_Index of ur_place * ur_expr * source_layout
     | UP_Antiq of Input.source
   and ur_arm =
-      UR_Arm of ur_pat * (ur_expr * Position.T) option * ur_expr
+      UR_Arm of ur_pat * (ur_expr * Position.T) option * ur_expr * source_layout
 
   datatype parse_result =
       Parsed_Expression of ur_expr
     | Parsed_Datatype of urust_datatype
 
-  fun expression_position (UE_Unit pos) = pos
-    | expression_position (UE_Tuple (_, pos)) = pos
-    | expression_position (UE_Array (_, pos)) = pos
-    | expression_position (UE_ArrayRepeat (_, _, _, pos)) = pos
-    | expression_position (UE_Struct (_, _, pos)) = pos
-    | expression_position (UE_Path path) = path_position path
-    | expression_position (UE_Literal payload) = literal_position payload
-    | expression_position (UE_ExprAntiq src) = Input.pos_of src
-    | expression_position (UE_Yield pos) = pos
-    | expression_position (UE_Log (_, _, pos)) = pos
-    | expression_position (UE_LogData (_, pos)) = pos
-    | expression_position (UE_Closure (_, _, pos)) = pos
-    | expression_position (UE_Let _) = Position.none
-    | expression_position (UE_LetMut (_, _, _, pos)) = pos
-    | expression_position (UE_Const _) = Position.none
-    | expression_position (UE_Seq _) = Position.none
-    | expression_position (UE_Return (_, pos)) = pos
-    | expression_position (UE_Bin (_, _, _, pos)) = pos
-    | expression_position (UE_Cast (_, _, pos)) = pos
-    | expression_position (UE_Unary (_, _, pos)) = pos
-    | expression_position (UE_Group (_, pos)) = pos
-    | expression_position (UE_Block (_, pos)) = pos
-    | expression_position (UE_If (_, _, _, pos)) = pos
-    | expression_position (UE_IfLet (_, _, _, _, pos)) = pos
-    | expression_position (UE_LetElse (_, _, _, _, pos)) = pos
-    | expression_position (UE_While (_, _, _, pos)) = pos
-    | expression_position (UE_Loop (_, _, pos)) = pos
-    | expression_position (UE_For (_, _, _, pos)) = pos
-    | expression_position (UE_WhileLet (_, _, _, _, pos)) = pos
-    | expression_position (UE_Call (_, _, pos)) = pos
-    | expression_position (UE_Field (_, _, pos)) = pos
-    | expression_position (UE_Index (_, _, pos)) = pos
-    | expression_position (UE_TupleProjection (_, _, pos)) = pos
-    | expression_position (UE_Range (_, _, _, pos)) = pos
-    | expression_position (UE_Assign (_, _, _, pos)) = pos
-    | expression_position (UE_Macro (_, _, _, pos)) = pos
-    | expression_position (UE_Match (_, _, _, pos)) = pos
+  fun expression_source_layout (UE_Unit layout) = layout
+    | expression_source_layout (UE_Tuple (_, layout)) = layout
+    | expression_source_layout (UE_Array (_, layout)) = layout
+    | expression_source_layout (UE_ArrayRepeat (_, _, _, layout)) = layout
+    | expression_source_layout (UE_Struct (_, _, layout)) = layout
+    | expression_source_layout (UE_Path path) =
+        make_source_layout (path_position path) []
+    | expression_source_layout (UE_Literal payload) =
+        literal_source_layout payload
+    | expression_source_layout (UE_ExprAntiq source) =
+        make_source_layout (Input.pos_of source) []
+    | expression_source_layout (UE_Yield layout) = layout
+    | expression_source_layout (UE_Log (_, _, layout)) = layout
+    | expression_source_layout (UE_LogData (_, layout)) = layout
+    | expression_source_layout (UE_Closure (_, _, layout)) = layout
+    | expression_source_layout (UE_Let (_, _, _, layout)) = layout
+    | expression_source_layout (UE_LetMut (_, _, _, layout)) = layout
+    | expression_source_layout (UE_Const (_, _, _, layout)) = layout
+    | expression_source_layout (UE_Seq (_, _, layout)) = layout
+    | expression_source_layout (UE_Return (_, layout)) = layout
+    | expression_source_layout (UE_Bin (_, _, _, layout)) = layout
+    | expression_source_layout (UE_Cast (_, _, layout)) = layout
+    | expression_source_layout (UE_Unary (_, _, layout)) = layout
+    | expression_source_layout (UE_Group (_, layout)) = layout
+    | expression_source_layout (UE_Block (_, layout)) = layout
+    | expression_source_layout (UE_If (_, _, _, layout)) = layout
+    | expression_source_layout (UE_IfLet (_, _, _, _, layout)) = layout
+    | expression_source_layout (UE_LetElse (_, _, _, _, layout)) = layout
+    | expression_source_layout (UE_While (_, _, _, layout)) = layout
+    | expression_source_layout (UE_Loop (_, _, layout)) = layout
+    | expression_source_layout (UE_For (_, _, _, layout)) = layout
+    | expression_source_layout (UE_WhileLet (_, _, _, _, layout)) = layout
+    | expression_source_layout (UE_Call (_, _, layout)) = layout
+    | expression_source_layout (UE_Field (_, _, layout)) = layout
+    | expression_source_layout (UE_Index (_, _, layout)) = layout
+    | expression_source_layout (UE_TupleProjection (_, _, layout)) = layout
+    | expression_source_layout (UE_Range (_, _, _, layout)) = layout
+    | expression_source_layout (UE_Assign (_, _, _, layout)) = layout
+    | expression_source_layout (UE_Macro (_, _, layout)) = layout
+    | expression_source_layout (UE_Match (_, _, _, layout)) = layout
+
+  fun expression_position expression =
+    source_span (expression_source_layout expression)
+
+  fun pattern_source_layout (P_Wild pos) =
+        make_source_layout pos [(Name_Token, pos)]
+    | pattern_source_layout (P_Ident (_, pos)) =
+        make_source_layout pos [(Name_Token, pos)]
+    | pattern_source_layout (P_Path path) =
+        make_source_layout (path_position path) []
+    | pattern_source_layout (P_Literal payload) =
+        literal_source_layout payload
+    | pattern_source_layout (P_Constr (_, _, layout)) = layout
+    | pattern_source_layout (P_Tuple (_, layout)) = layout
+    | pattern_source_layout (P_Group (_, layout)) = layout
+    | pattern_source_layout (P_Borrow (_, _, layout)) = layout
+    | pattern_source_layout (P_Alias (_, _, _, layout)) = layout
+    | pattern_source_layout (P_Range (_, _, _, layout)) = layout
+    | pattern_source_layout (P_Slice (_, layout)) = layout
+    | pattern_source_layout (P_Struct (_, _, layout)) = layout
+    | pattern_source_layout (P_Or (_, layout)) = layout
+
+  fun pattern_position pattern =
+    source_span (pattern_source_layout pattern)
+
+  fun arm_source_layout (UR_Arm (_, _, _, layout)) = layout
+
+  fun spanning_position left right =
+    Position.range_position
+      (left, Parser_Lex_Util.exclusive_end right)
+
+  fun expression_diagnostic_position expression =
+    let
+      fun locally_meaningful
+          (Operator_Token, pos) = SOME pos
+        | locally_meaningful
+          (Name_Token, pos) = SOME pos
+        | locally_meaningful
+          (Keyword_Token _, pos) = SOME pos
+        | locally_meaningful
+          (Bang_Token, pos) = SOME pos
+        | locally_meaningful _ = NONE
+    in
+      the_default (expression_position expression)
+        (get_first locally_meaningful
+          (source_tokens
+            (expression_source_layout expression)))
+    end
 
   (* Assignment parses an ordinary expression on the left, then crosses this one validation boundary.
      Keeping target recognition out of the grammar gives every invalid expression a stable positioned
@@ -700,19 +841,25 @@ struct
         else UP_Path path
     | expr_to_place (UE_ExprAntiq src) = UP_Antiq src
     | expr_to_place (UE_Group (expr, _)) = expr_to_place expr
-    | expr_to_place (UE_Unary (U_Deref, expr, pos)) = UP_Deref (expr, pos)
-    | expr_to_place (UE_Field (base, name, pos)) =
-        UP_Field (expr_to_place base, name, pos)
-    | expr_to_place (UE_Index (base, index, pos)) =
-        UP_Index (expr_to_place base, index, pos)
+    | expr_to_place (UE_Unary (U_Deref, expr, layout)) =
+        UP_Deref (expr, layout)
+    | expr_to_place (UE_Field (base, name, layout)) =
+        UP_Field (expr_to_place base, name, layout)
+    | expr_to_place (UE_Index (base, index, layout)) =
+        UP_Index (expr_to_place base, index, layout)
     | expr_to_place expr =
         error ("urust_expr: invalid assignment target" ^
-          Position.here (expression_position expr))
+          Position.here (expression_diagnostic_position expr))
 
   fun mk_assign (aop, pos) lhs rhs =
-    UE_Assign (aop, expr_to_place lhs, rhs, pos)
+    UE_Assign
+      (aop, expr_to_place lhs, rhs,
+       make_source_layout
+         (spanning_position
+           (expression_position lhs) (expression_position rhs))
+         [(Operator_Token, pos)])
 
-  fun mk_array_repeat (mode, value, raw_length, left, right) =
+  fun mk_array_repeat (mode, value, raw_length, layout) =
     let
       fun repeat_operator Add = true
         | repeat_operator Sub = true
@@ -725,35 +872,45 @@ struct
         error
           ("urust_expr: array repeat length supports only integer literals, symbolic length paths, " ^
             "parentheses, `+`, `-`, `*`, `/`, `%`, and `as usize`" ^
-            Position.here (expression_position expression))
+            Position.here
+              (expression_diagnostic_position expression))
 
       fun validate expression =
         (case expression of
            UE_Literal (LP_Integer integer) => RL_Integer integer
          | UE_Path path => RL_Path path
-         | UE_Bin (operator, left_operand, right_operand, pos) =>
+         | UE_Bin (operator, left_operand, right_operand, expression_layout) =>
              if repeat_operator operator
              then
                RL_Bin
                  (operator, validate left_operand,
-                  validate right_operand, pos)
+                  validate right_operand, expression_layout)
              else invalid expression
-         | UE_Group (inner, pos) =>
-             RL_Group (validate inner, pos)
+         | UE_Group (inner, expression_layout) =>
+             RL_Group (validate inner, expression_layout)
          | UE_Cast
-             (inner, SCT_Primitive (CT_Unsigned UT_Usize), pos) =>
-             RL_CastUsize (validate inner, pos)
+             (inner, SCT_Primitive (CT_Unsigned UT_Usize),
+              expression_layout) =>
+             RL_CastUsize (validate inner, expression_layout)
          | _ => invalid expression)
     in
       UE_ArrayRepeat
-        (mode, value, validate raw_length,
-         Position.range_position (left, right))
+        (mode, value, validate raw_length, layout)
     end
 
   (* A terminal return statement keeps the return expression instead of sequencing it with unit. *)
   fun finish_statement (return as UE_Return _, _) = return
     | finish_statement (expression, semi_pos) =
-        UE_Seq (expression, UE_Unit semi_pos)
+        let
+          val unit_layout = make_source_layout semi_pos []
+          val sequence_layout =
+            make_source_layout
+              (spanning_position
+                (expression_position expression) semi_pos)
+              [(Delimiter_Token ";", semi_pos)]
+        in
+          UE_Seq (expression, UE_Unit unit_layout, sequence_layout)
+        end
 
   (* `_` lexes as an ordinary IDENT: normalise to P_Wild in ONE place, not an `= "_"` test at every site. *)
   fun mk_bare_path_pat path =
@@ -761,21 +918,20 @@ struct
        [Path_Segment ("_", pos, NONE)] => P_Wild pos
      | [Path_Segment (name, pos, NONE)] => P_Ident (name, pos)
      | _ => P_Path path)
-  fun mk_ctor_pat (path, args) = P_Constr (path, args)
-  fun mk_alias_pat ((name, pos), inner, at_pos) =
-    P_Alias (name, pos, inner, at_pos)
-  fun mk_struct_pat (path, fields) = P_Struct (path, fields)
+  fun mk_ctor_pat (path, args, layout) = P_Constr (path, args, layout)
+  fun mk_alias_pat ((name, pos), inner, layout) =
+    P_Alias (name, pos, inner, layout)
+  fun mk_struct_pat (path, fields, layout) =
+    P_Struct (path, fields, layout)
 
-  fun mk_closure (formals, body, left, right) =
-    UE_Closure
-      (formals, body,
-       Position.range_position (left, Parser_Lex_Util.exclusive_end right))
-  fun mk_call (callee, args, left, right) =
-    UE_Call
-      (callee, args, Position.range_position (left, right))
+  fun mk_closure (formals, body, layout) =
+    UE_Closure (formals, body, layout)
+  fun mk_call (callee, args, layout) =
+    UE_Call (callee, args, layout)
 
-  fun mk_tuple_projection (receiver, raw, pos) =
+  fun mk_tuple_projection (receiver, raw, layout) =
     let
+      val pos = the_source_token_position layout Name_Token
       fun invalid () =
         error
           ("urust_expr: invalid tuple projection index " ^ quote raw ^
@@ -785,23 +941,26 @@ struct
       (case Int.fromString raw of
          SOME index =>
            if 0 <= index andalso index <= 15 andalso Int.toString index = raw
-           then UE_TupleProjection (receiver, index, pos)
+           then UE_TupleProjection (receiver, index, layout)
            else invalid ()
        | NONE => invalid ())
     end
 
   fun mk_let_else
-      (pattern, scrutinee, fallback, continuation, left, right) =
+      (pattern, scrutinee, fallback, continuation, layout) =
     UE_LetElse
-      (pattern, scrutinee, fallback, continuation,
-       Position.range_position
-         (left, Parser_Lex_Util.exclusive_end right))
+      (pattern, scrutinee, fallback, continuation, layout)
 
   (* The grammar is right-recursive, so prepend the left alternative in O(1) while retaining source order. *)
-  fun mk_or_pat (p, P_Or (alternatives, _), pos) =
-        P_Or (p :: alternatives, pos)
-    | mk_or_pat (p, q, pos) =
-        P_Or ([p, q], pos)
+  fun mk_or_pat (p, P_Or (alternatives, right_layout), layout) =
+        P_Or
+          (p :: alternatives,
+           make_source_layout
+             (spanning_position
+               (pattern_position p) (source_span right_layout))
+             (source_tokens layout @ source_tokens right_layout))
+    | mk_or_pat (p, q, layout) =
+        P_Or ([p, q], layout)
 end
 \<close>
 

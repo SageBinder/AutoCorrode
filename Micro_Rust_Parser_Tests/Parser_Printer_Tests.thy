@@ -538,12 +538,18 @@ ML_val\<open>
       (case URust_Parser.parse_source \<^context> source of
          SOME expression => expression
        | NONE => error "position-independence source was empty")
+    val left_ast = parse_source left_source
+    val right_ast = parse_source right_source
     val left_tokens =
       URust_Printer.tokens_of_expr URust_Printer.serialized_options
-        (parse_source left_source)
+        left_ast
     val right_tokens =
       URust_Printer.tokens_of_expr URust_Printer.serialized_options
-        (parse_source right_source)
+        right_ast
+    val _ =
+      assert "source layouts did not retain independent offsets"
+        (Position.offset_of (URust_AST.expression_position left_ast) <>
+         Position.offset_of (URust_AST.expression_position right_ast))
     val _ =
       assert "serialized tokens retained source positions"
         (left_tokens = right_tokens)
@@ -1107,7 +1113,8 @@ ML_val\<open>
     open Parser_Printer_Test
     open URust_AST
     val pos = Position.none
-    val unit = UE_Unit pos
+    val layout = make_source_layout pos []
+    val unit = UE_Unit layout
     val one = UE_Literal (LP_Integer ("1", pos))
     val path = make_single_path ("value", pos)
     val matches_path = make_single_path ("matches", pos)
@@ -1133,38 +1140,46 @@ ML_val\<open>
                pos))))
     val _ = expect_error "one-element tuple expression"
       "tuple expression requires at least 2 members"
-      (fn () => print (UE_Tuple ([unit], pos)))
+      (fn () => print (UE_Tuple ([unit], layout)))
     val _ = expect_error "one-element tuple pattern"
       "tuple pattern requires at least 2 members"
       (fn () =>
         print
           (UE_Match
             (MF_Auto, unit,
-             [UR_Arm (P_Tuple ([P_Wild pos], pos), NONE, unit)], pos)))
+             [UR_Arm
+               (P_Tuple ([P_Wild pos], layout), NONE, unit, layout)],
+             layout)))
     val _ = expect_error "empty constructor pattern"
       "constructor pattern requires at least one member"
       (fn () =>
         print
           (UE_Match
             (MF_Auto, unit,
-             [UR_Arm (P_Constr (path, []), NONE, unit)], pos)))
+             [UR_Arm
+               (P_Constr (path, [], layout), NONE, unit, layout)],
+             layout)))
     val _ = expect_error "empty struct pattern"
       "struct pattern requires at least one member"
       (fn () =>
         print
           (UE_Match
             (MF_Auto, unit,
-             [UR_Arm (P_Struct (path, []), NONE, unit)], pos)))
+             [UR_Arm
+               (P_Struct (path, [], layout), NONE, unit, layout)],
+             layout)))
     val _ = expect_error "singleton or-pattern"
       "or-pattern requires at least 2 members"
       (fn () =>
         print
           (UE_Match
             (MF_Auto, unit,
-             [UR_Arm (P_Or ([P_Wild pos], pos), NONE, unit)], pos)))
+             [UR_Arm
+               (P_Or ([P_Wild pos], layout), NONE, unit, layout)],
+             layout)))
     val _ = expect_error "invalid tuple projection"
       "tuple projection index 16"
-      (fn () => print (UE_TupleProjection (unit, 16, pos)))
+      (fn () => print (UE_TupleProjection (unit, 16, layout)))
     val _ = expect_error "invalid function-literal arity"
       "outside the supported range 1 through 14"
       (fn () =>
@@ -1172,38 +1187,41 @@ ML_val\<open>
           (UE_Call
             (UC_FunLiteral
               (Parser_Lex_Util.text_source "callee", 0, pos, NONE),
-             [], pos)))
+             [], layout)))
     val _ = expect_error "primitive path without associated item"
       "primitive path requires an associated-item segment"
       (fn () => print (UE_Path primitive_single))
     val _ = expect_error "primitive named cast target"
       "named cast target cannot use a primitive path head"
-      (fn () => print (UE_Cast (one, SCT_Named primitive_single, pos)))
+      (fn () =>
+        print (UE_Cast (one, SCT_Named primitive_single, layout)))
     val _ = expect_error "matches arguments payload"
       "matches! requires the dedicated expression/pattern payload"
       (fn () =>
         print
           (UE_Macro
-            (matches_path, pos, MP_Arguments [one], pos)))
+            (matches_path, MP_Arguments [one], layout)))
     val _ = expect_error "wrong matches payload head"
       "MP_Matches requires the exact matches! macro head"
       (fn () =>
         print
           (UE_Macro
-            (path, pos, MP_Matches (one, P_Wild pos), pos)))
+            (path, MP_Matches (one, P_Wild pos), layout)))
     val _ = expect_error "inline const without block"
       "inline-const array repeat operand requires a block"
       (fn () =>
         print
           (UE_ArrayRepeat
-            (AR_InlineConst, one, RL_Integer ("1", pos), pos)))
+            (AR_InlineConst, one, RL_Integer ("1", pos), layout)))
     val _ = expect_error "if without success block"
       "if success branch requires a block"
-      (fn () => print (UE_If (one, one, NONE, pos)))
+      (fn () => print (UE_If (one, one, NONE, layout)))
     val _ = expect_error "terminal return sequence"
       "terminal return cannot be represented"
       (fn () =>
-        print (UE_Seq (UE_Return (NONE, pos), UE_Unit pos)))
+        print
+          (UE_Seq
+            (UE_Return (NONE, layout), UE_Unit layout, layout)))
 
     fun print_datatype item =
       URust_Printer.string_of_datatype

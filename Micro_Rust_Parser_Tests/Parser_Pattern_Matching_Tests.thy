@@ -4582,20 +4582,21 @@ ML_val\<open>
     val _ =
       (case if_ast of
          UE_IfLet
-           (P_Constr (pattern_path, [P_Ident ("value", _)]),
+           (P_Constr
+              (pattern_path, [P_Ident ("value", _)], _),
             call,
             UE_Block (body, _),
             SOME (UE_Block (UE_Literal (LP_Integer ("0", _)), _)),
-            position) =>
+            layout) =>
            (audit_assert "if-let path structure changed"
               (path_named "Some" pattern_path andalso
                call_named "Some" call andalso
                expression_named "value" body);
             audit_assert "if-let span start moved"
-              (Position.offset_of position =
+              (Position.offset_of (source_span layout) =
                 Position.offset_of if_start);
             audit_assert "if-let span end moved"
-              (Position.end_offset_of position =
+              (Position.end_offset_of (source_span layout) =
                 Position.offset_of if_stop))
        | _ =>
            error "conditional-binding regression audit: if-let AST changed")
@@ -4614,7 +4615,8 @@ ML_val\<open>
     val _ =
       (case mixed_ast of
          UE_IfLet
-           (P_Constr (first_pattern_path, [P_Ident ("first", _)]),
+           (P_Constr
+              (first_pattern_path, [P_Ident ("first", _)], _),
             first_call,
             UE_Block (first_body, _),
             SOME
@@ -4623,15 +4625,16 @@ ML_val\<open>
                  UE_Block (UE_Literal (LP_Integer ("2", _)), _),
                  SOME
                    (UE_IfLet
-                     (P_Constr (last_pattern_path, [P_Ident ("last", _)]),
+                     (P_Constr
+                        (last_pattern_path, [P_Ident ("last", _)], _),
                       last_call,
                       UE_Block (last_body, _),
                       SOME
                         (UE_Block
                           (UE_Literal (LP_Integer ("4", _)), _)),
-                      nested_position)),
+                      nested_layout)),
                  _)),
-            position) =>
+            layout) =>
            (audit_assert "mixed-chain path structure changed"
               (path_named "Some" first_pattern_path andalso
                call_named "Some" first_call andalso
@@ -4640,13 +4643,13 @@ ML_val\<open>
                call_named "Some" last_call andalso
                expression_named "last" last_body);
             audit_assert "mixed-chain span start moved"
-              (Position.offset_of position =
+              (Position.offset_of (source_span layout) =
                 Position.offset_of mixed_start);
             audit_assert "mixed-chain span stopped before the final arm"
-              (Position.end_offset_of position =
+              (Position.end_offset_of (source_span layout) =
                 Position.offset_of mixed_stop);
             audit_assert "nested if-let span stopped before its fallback"
-              (Position.end_offset_of nested_position =
+              (Position.end_offset_of (source_span nested_layout) =
                 Position.offset_of mixed_stop))
        | _ =>
            error
@@ -4665,20 +4668,21 @@ ML_val\<open>
     val _ =
       (case let_ast of
          UE_LetElse
-           (P_Constr (pattern_path, [P_Ident ("value", _)]),
+           (P_Constr
+              (pattern_path, [P_Ident ("value", _)], _),
             call,
             UE_Block (UE_Literal (LP_Integer ("0", _)), _),
             body,
-            position) =>
+            layout) =>
            (audit_assert "let-else path structure changed"
               (path_named "Some" pattern_path andalso
                call_named "Some" call andalso
                expression_named "value" body);
             audit_assert "let-else span start moved"
-              (Position.offset_of position =
+              (Position.offset_of (source_span layout) =
                 Position.offset_of let_start);
             audit_assert "let-else span end moved"
-              (Position.end_offset_of position =
+              (Position.end_offset_of (source_span layout) =
                 Position.offset_of let_stop))
        | _ =>
            error "conditional-binding regression audit: let-else AST changed")
@@ -5038,10 +5042,10 @@ ML_val\<open>
       end
     val callback_term =
       (case callback_ast of
-         UE_IfLet (pattern, scrutinee, success, fallback, position) =>
-           URust_Matching.lower_if_let callback_lower ctxt
-             URust_Resolution.empty_environment
-             (pattern, scrutinee, success, fallback, position)
+         UE_IfLet (pattern, scrutinee, success, fallback, layout) =>
+             URust_Matching.lower_if_let callback_lower ctxt
+               URust_Resolution.empty_environment
+               (pattern, scrutinee, success, fallback, layout)
        | _ =>
            error
              "conditional-binding regression audit: callback fixture AST changed")
@@ -5338,7 +5342,7 @@ ML_val\<open>
 
     fun parse_pattern pattern =
       (case parse (pattern_source pattern) of
-         UE_Match (_, _, [UR_Arm (result, NONE, _)], _) => result
+         UE_Match (_, _, [UR_Arm (result, NONE, _, _)], _) => result
        | _ => error "parser regression audit: unexpected pattern AST")
 
     fun integer text (P_Literal (LP_Integer (actual, _))) =
@@ -5392,15 +5396,16 @@ ML_val\<open>
               [UR_Arm
                 (P_Borrow
                   (BM_Mut,
-                   P_Borrow (BM_Imm, P_Ident ("value", _), inner_pos),
-                   outer_pos),
-                 NONE, _)],
+                   P_Borrow
+                     (BM_Imm, P_Ident ("value", _), inner_layout),
+                   outer_layout),
+                 NONE, _, _)],
               _)) =>
            (audit_assert "outer borrow-pattern mode or position changed"
-              (Position.offset_of outer_pos =
+              (Position.offset_of (source_span outer_layout) =
                 Position.offset_of outer_borrow_position);
             audit_assert "inner borrow-pattern mode or position changed"
-              (Position.offset_of inner_pos =
+              (Position.offset_of (source_span inner_layout) =
                 Position.offset_of inner_borrow_position))
        | _ =>
            error
@@ -5426,7 +5431,7 @@ ML_val\<open>
     val _ =
       (case parse_pattern "whole @ Some(5..=7)" of
          P_Alias ("whole", _,
-           P_Constr (path, [nested]), _) =>
+           P_Constr (path, [nested], _), _) =>
              audit_assert "constructor alias lost its path or range argument"
                (render_path path = "Some" andalso
                 range RK_Inclusive "5" "7" nested)
@@ -5438,7 +5443,7 @@ ML_val\<open>
       (case parse_pattern "whole @ Head { field: 5..7 }" of
          P_Alias ("whole", _,
            P_Struct (path,
-             [SF_Field ("field", _, nested)]), _) =>
+             [SF_Field ("field", _, nested)], _), _) =>
              audit_assert "struct alias lost its path or range field"
                (render_path path = "Head" andalso
                 range RK_Exclusive "5" "7" nested)
@@ -6168,7 +6173,8 @@ ML_val\<open>
     val pattern_path =
       (case parse markup_source of
          UE_Match
-           (_, _, UR_Arm (P_Constr (path, [_]), NONE, _) :: _, _) =>
+           (_, _,
+            UR_Arm (P_Constr (path, [_], _), NONE, _, _) :: _, _) =>
            path
        | _ => error "registered constructor pattern AST changed")
     val (_, terminal_position) =
@@ -6728,11 +6734,13 @@ ML_val\<open>
       (case parse_source ast_source of
          UE_Match
            (MF_Auto, _,
-            [UR_Arm (P_Literal (LP_Integer (_, first_pos)), NONE, _),
-             UR_Arm (P_Path path, NONE, _),
-             UR_Arm (P_Literal (LP_Integer (_, second_pos)), NONE, _),
-             UR_Arm (P_Wild _, NONE, _)],
-            match_pos) =>
+            [UR_Arm
+               (P_Literal (LP_Integer (_, first_pos)), NONE, _, _),
+             UR_Arm (P_Path path, NONE, _, _),
+             UR_Arm
+               (P_Literal (LP_Integer (_, second_pos)), NONE, _, _),
+             UR_Arm (P_Wild _, NONE, _, _)],
+            match_layout) =>
            let
              val (_, terminal_pos) =
                segment_identifier (final_segment path)
@@ -6744,7 +6752,7 @@ ML_val\<open>
              audit_assert "contextual classification rewrote MF_Auto"
                true;
              audit_assert "bare match span changed"
-               (same_range match_pos expected_match);
+               (same_range (source_span match_layout) expected_match);
              audit_assert "first numeral range changed"
                (same_range first_pos expected_first_numeral);
              audit_assert "second numeral range changed"
@@ -6773,7 +6781,7 @@ ML_val\<open>
          UE_Match
            (_, _,
             [_,
-             UR_Arm (P_Ident (_, identifier_pos), NONE, _),
+             UR_Arm (P_Ident (_, identifier_pos), NONE, _, _),
              _],
             _) =>
            audit_assert "single-segment registered key range changed"
@@ -7527,11 +7535,12 @@ ML_val\<open>
           in Free ("_" ^ label, dummyT) end
         val result =
           (case parse text of
-             UE_Match arguments =>
+             UE_Match (flavour, scrutinee, arms, layout) =>
                Exn.result
                  (fn () =>
                    URust_Matching.lower_match lower ctxt
-                     URust_Resolution.empty_environment arguments) ()
+                     URust_Resolution.empty_environment
+                     (flavour, scrutinee, arms, layout)) ()
            | _ => error "or-pattern binder audit: callback fixture changed")
       in (result, rev (!calls)) end
 

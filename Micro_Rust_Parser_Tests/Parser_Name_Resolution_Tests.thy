@@ -221,7 +221,7 @@ ML_val\<open>
     val _ =
       (case ast of
          UE_Call
-           (UC_Antiq source, [first, second], call_pos) =>
+           (UC_Antiq source, [first, second], call_layout) =>
            (audit_assert "callee constructor changed"
               (is_path "first" first andalso is_path "second" second);
             audit_assert "retained body text changed"
@@ -233,16 +233,16 @@ ML_val\<open>
               (Position.offset_of (#2 (Input.range_of source)) =
                 Position.offset_of body_stop);
             audit_assert "call span no longer starts at the antiquotation opener"
-              (Position.offset_of call_pos =
+              (Position.offset_of (source_span call_layout) =
                 Position.offset_of ast_start);
             audit_assert "call span no longer includes the closing parenthesis"
-              (Position.end_offset_of call_pos =
+              (Position.end_offset_of (source_span call_layout) =
                 Position.offset_of call_stop);
             audit_assert "expression_position lost the complete call span"
               (Position.offset_of (expression_position ast) =
-                 Position.offset_of call_pos andalso
+                 Position.offset_of (source_span call_layout) andalso
                Position.end_offset_of (expression_position ast) =
-                 Position.end_offset_of call_pos))
+                 Position.end_offset_of (source_span call_layout)))
        | _ =>
            error "expression-antiquotation callee audit: call AST changed")
 
@@ -526,7 +526,7 @@ ML_val\<open>
                SOME
                  (Generic_Args
                    ([Generic_Arg (canonical, generic_source)], _))),
-            [first, second], call_pos) =>
+            [first, second], call_layout) =>
            (audit_assert "runtime argument order changed"
               (is_path "first" first andalso is_path "second" second);
             audit_assert "retained HOL body text changed"
@@ -548,9 +548,9 @@ ML_val\<open>
               (Position.offset_of (#2 (Input.range_of generic_source)) =
                 Position.offset_of generic_stop);
             audit_assert "call span no longer starts at the value opener"
-              (same_start call_pos ast_start);
+              (same_start (source_span call_layout) ast_start);
             audit_assert "call span no longer includes the closing parenthesis"
-              (same_stop call_pos call_stop);
+              (same_stop (source_span call_layout) call_stop);
             audit_assert "expression_position lost the complete call span"
               (same_start (expression_position ast) ast_start andalso
                same_stop (expression_position ast) call_stop))
@@ -901,7 +901,7 @@ ML_val\<open>
     val method_position =
       (case ast of
          UE_Macro
-           (macro_path, _, MP_Arguments
+           (macro_path, MP_Arguments
              [UE_Unary
                (U_Not,
                 UE_Call
@@ -909,7 +909,7 @@ ML_val\<open>
                     (UE_Path receiver_path,
                      Path_Segment
                        ("is_none", method_pos, NONE)),
-                   [], call_pos),
+                   [], call_layout),
                 _)],
             _) =>
            (audit_assert "assert macro wrapper changed"
@@ -919,7 +919,8 @@ ML_val\<open>
             audit_assert "method identifier range moved"
               (same_range method_pos expected_method);
             audit_assert "method call span moved"
-              (same_range call_pos expected_call);
+              (same_range
+                (source_span call_layout) expected_call);
             method_pos)
        | _ => error "method resolution boundary audit: method AST changed")
 
@@ -1279,6 +1280,9 @@ micro_rust_notation (call)
 micro_rust_notation (call)
   qualifier_macro_call
   ("MacroGeneric::<Token>::invoke!")
+micro_rust_notation (call)
+  \<open>lift_fun1 (\<lambda>value :: bool. value)\<close>
+  ("MacroModule::anonymous!")
 
 definition qualifier_multi_nat :: nat
   where \<open> qualifier_multi_nat = 29 \<close>
@@ -2053,48 +2057,50 @@ ML_val\<open>
         "GenericExact::<Token>::invoke" "invoke"
         [("GenericExact", 0)]
 
-    fun audit_macro serial label text notation qualifier =
+    fun audit_macro serial label text notation qualifier terminal_name =
       let
         val (start, result, trees, markup) =
           capture ctxt serial label text NONE
         val _ = ignore (require_success label result)
-        val source =
-          Parser_Lex_Util.positioned_content_source text start
         val (_, qualifier_position) =
           token_position text start qualifier 0
+        val (_, terminal_position) =
+          token_position text start terminal_name
+            (find_from text terminal_name 0)
         val (_, bang_position) =
           token_position text start "!" 0
-        val complete_position =
-          (case URust_Parser.parse_source ctxt source of
-             SOME (UE_Macro (path, bang_pos, _, _)) =>
-               Position.range_position
-                 (path_position path,
-                  Position.symbol_explode "!" bang_pos)
-           | _ =>
-               error
-                 ("neutral registered path qualifier markup audit: " ^
-                   label ^ " macro AST changed"))
         val _ =
           assert_neutral ctxt (label ^ " qualifier") "call"
             Micro_Rust_Names.NFunction notation
             qualifier_position trees markup
         val _ =
-          assert_terminal ctxt (label ^ " complete terminal")
+          assert_terminal ctxt (label ^ " identifier terminal")
             Micro_Rust_Names.NFunction notation
-            complete_position markup
+            terminal_position markup
         val _ =
           audit_assert (label ^ " bang operator markup changed")
             (count_markup Markup.operatorN bang_position markup = 1)
+        val _ =
+          audit_assert (label ^ " bang acquired notation navigation")
+            (count_entity_kind Micro_Rust_Names.notationN
+              bang_position markup = 0)
+        val _ =
+          audit_assert (label ^ " bang selected-backend count changed")
+            (count_entity_kind Markup.constantN
+              bang_position markup = 1)
+        val _ =
+          audit_assert (label ^ " bang constant styling changed")
+            (count_markup Markup.constN bang_position markup = 1)
       in () end
 
     val _ =
       audit_macro 6 "qualified macro"
         "MacroModule::invoke!(true)"
-        "MacroModule::invoke!" "MacroModule"
+        "MacroModule::invoke!" "MacroModule" "invoke"
     val _ =
       audit_macro 7 "generic qualified macro"
         "MacroGeneric::<Token>::invoke!(true)"
-        "MacroGeneric::<Token>::invoke!" "MacroGeneric"
+        "MacroGeneric::<Token>::invoke!" "MacroGeneric" "invoke"
 
     val multi_text = "Multi::Registered::Value"
     val (multi_start, multi_result, multi_trees, multi_markup) =
@@ -2514,7 +2520,8 @@ ML_val\<open>
       (case ast of
          UE_Match
            (_, UE_Call (UC_Path value_path, [_], _),
-            UR_Arm (P_Constr (pattern_path, [_]), _, _) :: _, _) =>
+            UR_Arm
+              (P_Constr (pattern_path, [_], _), _, _, _) :: _, _) =>
            (audit_assert (label ^ " value-call AST changed")
               (render_path value_path = value_name);
             audit_assert (label ^ " constructor-pattern AST changed")
@@ -3235,22 +3242,9 @@ ML_val\<open>
         val (_, qualifier_position) =
           token_position text start qualifier 0
         val terminal_position =
-          if String.isSuffix "!" notation then
-            let
-              val source =
-                Parser_Lex_Util.positioned_content_source text start
-            in
-              (case URust_Parser.parse_source ctxt source of
-                 SOME (UE_Macro (path, bang_pos, _, _)) =>
-                   Position.range_position
-                     (path_position path,
-                      Position.symbol_explode "!" bang_pos)
-               | _ => error (label ^ " macro AST changed"))
-            end
-          else
-            #2
-              (token_position text start terminal_name
-                (find_from text terminal_name 0))
+          #2
+            (token_position text start terminal_name
+              (find_from text terminal_name 0))
         val entry =
           only_entry ctxt Micro_Rust_Names.NFunction notation
         val _ =
@@ -3270,7 +3264,27 @@ ML_val\<open>
           audit_assert (label ^ " checked backend changed")
             (count_constant expected_backend term = 1)
         val _ =
-          if String.isSuffix "!" notation then ()
+          if String.isSuffix "!" notation then
+            let
+              val (_, bang_position) =
+                token_position text start "!" 0
+              val bang_events =
+                entity_events bang_position markup
+            in
+              audit_assert
+                (label ^ " bang acquired notation navigation")
+                (notation_ref_order notation bang_position markup = []);
+              audit_assert
+                (label ^ " bang target changed")
+                (map
+                  (fn (kind, name, _) => (kind, name))
+                  bang_events =
+                  [(SOME Markup.constantN,
+                    SOME expected_backend)]);
+              audit_assert
+                (label ^ " bang constant styling changed")
+                (count_markup Markup.constN bang_position markup = 1)
+            end
           else assert_call_ast label notation ast
       in () end
 
@@ -3279,6 +3293,49 @@ ML_val\<open>
         "MacroModule::invoke!(true)"
         "MacroModule::invoke!" "MacroModule" "invoke"
         \<^const_name>\<open>qualifier_macro_call\<close>
+
+    val anonymous_macro_text =
+      "MacroModule::anonymous!(true)"
+    val (anonymous_macro_start, _, anonymous_macro_term,
+         anonymous_macro_markup) =
+      capture ctxt 13 "anonymous-registered-macro"
+        anonymous_macro_text NONE
+    val (_, anonymous_macro_qualifier) =
+      token_position anonymous_macro_text anonymous_macro_start
+        "MacroModule" 0
+    val (_, anonymous_macro_terminal) =
+      token_position anonymous_macro_text anonymous_macro_start
+        "anonymous" (size "MacroModule::")
+    val (_, anonymous_macro_bang) =
+      token_position anonymous_macro_text anonymous_macro_start "!" 0
+    val anonymous_macro_entry =
+      only_entry ctxt Micro_Rust_Names.NFunction
+        "MacroModule::anonymous!"
+    val _ =
+      List.app
+        (fn (label, position) =>
+          assert_selected_token ctxt label
+            Micro_Rust_Names.NFunction
+            "MacroModule::anonymous!"
+            anonymous_macro_entry position
+            anonymous_macro_markup)
+        [("anonymous macro qualifier", anonymous_macro_qualifier),
+         ("anonymous macro terminal", anonymous_macro_terminal)]
+    val _ =
+      audit_assert "anonymous macro bang acquired notation navigation"
+        (notation_ref_order "MacroModule::anonymous!"
+          anonymous_macro_bang anonymous_macro_markup = [])
+    val _ =
+      audit_assert "anonymous macro bang acquired a false backend target"
+        (entity_events anonymous_macro_bang anonymous_macro_markup = [])
+    val _ =
+      audit_assert "anonymous macro bang acquired constant styling"
+        (count_markup Markup.constN
+          anonymous_macro_bang anonymous_macro_markup = 0)
+    val _ =
+      audit_assert "anonymous macro checked term changed"
+        (count_constant \<^const_name>\<open>lift_fun1\<close>
+          anonymous_macro_term = 1)
     val _ =
       audit_registered_call 7 "exact turbofish"
         "GenericExact::<Token>::invoke()"
@@ -3425,6 +3482,182 @@ ML_val\<open>
     val _ =
       writeln
         "Selected notation declarations are final on registered literal, call, field, constructor, macro, turbofish, lifted, and overloaded tokens while backend/type hover, native fallback, ASTs, terms, multiplicity, and deterministic constructor priority remain intact"
+  end
+\<close>
+
+
+section\<open> Deferred semantic target navigation audit \<close>
+
+ML_val\<open>
+  local
+    structure Navigation = Micro_Rust_Semantic_Navigation
+
+    val ctxt = \<^context>
+
+    fun audit_assert message condition =
+      if condition then ()
+      else error ("deferred semantic target navigation audit: " ^ message)
+
+    fun collect_markup_order (XML.Text _) = []
+      | collect_markup_order (XML.Elem (markup, body)) =
+          markup :: maps collect_markup_order body
+
+    fun capture_markup label action =
+      let
+        val captured =
+          Synchronized.var
+            ("semantic_navigation_" ^ label ^ "_reports")
+            ([]: string list)
+        fun report chunks =
+          Synchronized.change captured
+            (fn current => current @ chunks)
+        val result =
+          Parser_Test_Report_Lock.run (fn () =>
+            Unsynchronized.setmp Private_Output.report_fn report
+              (fn () =>
+                Print_Mode.with_modes [Print_Mode.PIDE] action ())
+              ())
+        val markup =
+          Synchronized.value captured
+          |> maps YXML.parse_body
+          |> maps collect_markup_order
+      in (result, markup) end
+
+    fun find_from text needle offset =
+      if offset + size needle > size text then
+        error ("missing " ^ quote needle)
+      else if String.substring (text, offset, size needle) = needle
+      then offset
+      else find_from text needle (offset + 1)
+
+    fun token_position text start needle offset =
+      let
+        val raw = find_from text needle offset
+        val token_start =
+          Position.symbol_explode
+            (String.substring (text, 0, raw)) start
+      in
+        Position.range_position
+          (token_start, Position.symbol_explode needle token_start)
+      end
+
+    fun has_position properties position =
+      Properties.get properties Markup.offsetN =
+        Option.map Value.print_int (Position.offset_of position) andalso
+      Properties.get properties Markup.end_offsetN =
+        Option.map Value.print_int (Position.end_offset_of position) andalso
+      Properties.get properties Markup.idN =
+        Position.id_of position
+
+    fun constant_targets position markup =
+      markup
+      |> map_filter
+          (fn (name, properties) =>
+            if name = Markup.entityN andalso
+                Properties.get properties Markup.kindN =
+                  SOME Markup.constantN andalso
+                has_position properties position
+            then Properties.get properties Markup.nameN
+            else NONE)
+
+    fun count_markup markup_name position markup =
+      markup
+      |> filter
+          (fn (name, properties) =>
+            name = markup_name andalso
+              has_position properties position)
+      |> length
+
+    val source_text = "panic!"
+    val source_start =
+      Position.make0 410 97000 0 "" ""
+        "deferred-semantic-target-navigation-audit"
+    val panic_position =
+      token_position source_text source_start "panic" 0
+    val bang_position =
+      token_position source_text source_start "!" 0
+    val message = Free ("semantic_navigation_message", dummyT)
+
+    val (((), reports), during_markup) =
+      capture_markup "capture" (fn () =>
+        Navigation.capture (fn () =>
+          (Navigation.defer_report ctxt bang_position Markup.keyword3;
+           Navigation.with_source
+             [panic_position, bang_position, panic_position]
+             (fn () =>
+               (ignore (URust_Shallow_Terms.panic_message message);
+                ignore (URust_Shallow_Terms.panic_message message))))))
+
+    val _ =
+      List.app
+        (fn (label, position) =>
+          (audit_assert
+             (label ^ " emitted targets before replay")
+             (constant_targets position during_markup = []);
+           audit_assert
+             (label ^ " emitted constant styling before replay")
+             (count_markup Markup.constN
+                position during_markup = 0)))
+        [("panic token", panic_position),
+         ("bang token", bang_position)]
+    val _ =
+      audit_assert "generic markup was not deferred"
+        (count_markup Markup.keyword3N
+          bang_position during_markup = 0)
+
+    val ((), replay_markup) =
+      capture_markup "replay" (fn () =>
+        Navigation.replay ctxt reports)
+    val expected_targets =
+      [\<^const_name>\<open>abort\<close>,
+       \<^const_name>\<open>Panic\<close>]
+    val _ =
+      List.app
+        (fn (label, position) =>
+          (audit_assert
+             (label ^
+              " target order, stable deduplication, or primary-last " ^
+              "classification changed")
+             (constant_targets position replay_markup =
+               expected_targets);
+           audit_assert
+             (label ^ " native constant styling count changed")
+             (count_markup Markup.constN
+                position replay_markup = 2)))
+        [("panic token", panic_position),
+         ("bang token", bang_position)]
+    val _ =
+      audit_assert "generic deferred markup was not replayed"
+        (count_markup Markup.keyword3N
+          bang_position replay_markup = 1)
+
+    val (failure_result, failure_markup) =
+      capture_markup "failure" (fn () =>
+        Exn.result
+          (fn () =>
+            Navigation.capture (fn () =>
+              Navigation.with_source_position panic_position
+                (fn () =>
+                  (ignore
+                    (URust_Shallow_Terms.panic_message message);
+                   error "intentional semantic navigation failure"))))
+          ())
+    val _ =
+      (case failure_result of
+         Exn.Exn exn =>
+           if Exn.is_interrupt exn then Exn.reraise exn else ()
+       | Exn.Res _ =>
+           error
+             ("deferred semantic target navigation audit: " ^
+              "intentional failure unexpectedly succeeded"))
+    val _ =
+      audit_assert "failed capture leaked semantic targets"
+        (constant_targets panic_position failure_markup = [] andalso
+         count_markup Markup.constN panic_position failure_markup = 0)
+  in
+    val _ =
+      writeln
+        "Deferred semantic navigation target order, exact ranges, stable deduplication, native entity/style markup, generic replay, and failure isolation passed"
   end
 \<close>
 

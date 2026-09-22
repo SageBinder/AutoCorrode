@@ -13,7 +13,7 @@
 
 theory Micro_Rust_Notations
   imports
-    Main
+    Semantic_Navigation
   keywords
     "micro_rust_notation" :: thy_decl and
     "print_micro_rust_notations" :: diag
@@ -358,7 +358,9 @@ val payload_prefix = "_urust_dispatch_payload___";
 val payload_sep = String.str (Char.chr 0);
 
 type marker_positions =
-  {terminal_pos: Position.T, qualifier_positions: Position.T list};
+  {terminal_pos: Position.T,
+   qualifier_positions: Position.T list,
+   backend_only_positions: Position.T list};
 
 \<comment>\<open>Drop the \<^verbatim>\<open>file\<close> property of a position. CRITICAL: the encoded
   position is spliced into the payload \<^verbatim>\<open>Free\<close>'s \<^emph>\<open>name\<close> (see
@@ -378,14 +380,17 @@ fun strip_file pos =
        props = {label = label, file = "", id = id}} end;
 
 fun encode_payload_positions kind name
-    ({terminal_pos, qualifier_positions} : marker_positions) =
+    ({terminal_pos, qualifier_positions,
+      backend_only_positions} : marker_positions) =
   let
     val tag = Micro_Rust_Names.kind_to_string kind ^ payload_sep ^ name
-    val positions = terminal_pos :: qualifier_positions
+    val positions =
+      terminal_pos :: qualifier_positions @ backend_only_positions
   in
     if exists Position.is_reported positions
     then
       tag ^ payload_sep ^
+        string_of_int (length qualifier_positions) ^ payload_sep ^
         Term_Position.encode_no_syntax (map strip_file positions)
     else tag
   end;
@@ -393,12 +398,34 @@ fun encode_payload_positions kind name
 fun decode_payload s =
   let
     val parts = String.fields (fn ch => ch = Char.chr 0) s
+    fun decoded_positions qualifier_count enc =
+      let
+        val decoded = map #pos (Term_Position.decode enc)
+      in
+        (case decoded of
+           terminal_pos :: rest =>
+             let
+               val qualifier_positions =
+                 take qualifier_count rest
+               val backend_only_positions =
+                 drop qualifier_count rest
+             in
+               {terminal_pos = terminal_pos,
+                qualifier_positions = qualifier_positions,
+                backend_only_positions = backend_only_positions}
+             end
+         | [] =>
+             {terminal_pos = Position.none,
+              qualifier_positions = [],
+              backend_only_positions = []})
+      end
     val (kind_str, name, positions) =
       (case parts of
          [k, n] =>
            (k, n,
             {terminal_pos = Position.none,
-             qualifier_positions = []})
+             qualifier_positions = [],
+             backend_only_positions = []})
        | [k, n, enc] =>
            let
              val decoded = map #pos (Term_Position.decode enc)
@@ -407,12 +434,18 @@ fun decode_payload s =
                 terminal_pos :: qualifier_positions =>
                   (k, n,
                    {terminal_pos = terminal_pos,
-                    qualifier_positions = qualifier_positions})
+                    qualifier_positions = qualifier_positions,
+                    backend_only_positions = []})
               | [] =>
                   (k, n,
                    {terminal_pos = Position.none,
-                    qualifier_positions = []}))
+                    qualifier_positions = [],
+                    backend_only_positions = []}))
            end
+       | [k, n, qualifier_count, enc] =>
+           (k, n,
+            decoded_positions
+              (Value.parse_int qualifier_count) enc)
        | _ => error "malformed urust_dispatch payload")
   in (Micro_Rust_Names.string_to_kind kind_str, name, positions) end;
 
@@ -434,7 +467,9 @@ fun mk_payload_positions kind name positions =
   \<open>mk_marker_positions\<close> below to retain every identifier segment.\<close>
 fun mk_payload kind name pos =
   mk_payload_positions kind name
-    {terminal_pos = pos, qualifier_positions = []};
+    {terminal_pos = pos,
+     qualifier_positions = [],
+     backend_only_positions = []};
 
 \<comment>\<open>Recognise the payload \<^verbatim>\<open>Free\<close> and recover
   \<open>(kind, name, marker_positions)\<close>.\<close>
@@ -488,7 +523,21 @@ fun mk_marker_positions kind name terminal_pos qualifier_positions witness =
   mk_marker_term (SOME witness)
     (mk_payload_positions kind name
       {terminal_pos = terminal_pos,
-       qualifier_positions = qualifier_positions});
+       qualifier_positions = qualifier_positions,
+       backend_only_positions = []});
+
+\<comment>\<open>Registered macro markers keep source identifiers on notation
+  declaration navigation while retaining a distinct punctuation position for
+  the selected backend constant. Backends without a named constant identity
+  leave those backend-only positions unlinked.\<close>
+fun mk_marker_positions_with_backend_targets
+    kind name terminal_pos qualifier_positions
+    backend_only_positions witness =
+  mk_marker_term (SOME witness)
+    (mk_payload_positions kind name
+      {terminal_pos = terminal_pos,
+       qualifier_positions = qualifier_positions,
+       backend_only_positions = backend_only_positions});
 
 fun mk_marker kind name pos witness =
   mk_marker_positions kind name pos [] witness;
@@ -771,7 +820,7 @@ fun emit_notation_entries_at_pos
   else
     app
         (fn ({serial, reg_pos, ...} : Micro_Rust_Names.entry) =>
-          Context_Position.report ctxt pos
+          Micro_Rust_Semantic_Navigation.defer_report ctxt pos
             (Position.make_entity_markup {def = false} serial
               Micro_Rust_Names.notationN (name, reg_pos)))
         entries;
@@ -821,6 +870,20 @@ fun emit_selected_notation_entities_at_pos ctxt kind name selected pos =
   succeeded. It is never called when the witness wins. This stops markup from
   leaking onto an identifier whose witness ends up being a lambda binder
   (e.g. \<open>let x = \<dots>; x\<close> where \<open>x\<close> is also a registered notation).\<close>
+fun backend_identity_constant ctxt hol_term =
+  let
+    val stripped = Term_Position.strip_positions hol_term
+
+    fun head_const t =
+      (case Term.strip_comb t of
+         (Const (c, _), wrapped :: _) =>
+           if is_backend_identity_wrapper ctxt c
+           then head_const wrapped
+           else SOME c
+       | (Const (c, _), []) => SOME c
+       | _ => NONE)
+  in head_const stripped end;
+
 fun emit_backend_markup_at_pos ctxt kind name pos =
   if not (Position.is_reported pos) then ()
   else
@@ -830,21 +893,12 @@ fun emit_backend_markup_at_pos ctxt kind name pos =
         let
           val stripped = Term_Position.strip_positions hol_term
 
-          fun head_const t =
-            (case Term.strip_comb t of
-               (Const (c, _), wrapped :: _) =>
-                 if is_backend_identity_wrapper ctxt c
-                 then head_const wrapped
-                 else SOME c
-             | (Const (c, _), []) => SOME c
-             | _ => NONE)
-
           val had_named_head =
             (case Term.strip_comb stripped of
                (Const _, _) => true
              | _ => false)
           val constant_markup =
-            (case head_const stripped of
+            (case backend_identity_constant ctxt hol_term of
                SOME c =>
                  [Name_Space.markup
                     (Consts.space_of (Proof_Context.consts_of ctxt)) c]
@@ -852,12 +906,30 @@ fun emit_backend_markup_at_pos ctxt kind name pos =
           val style_markup =
             if had_named_head then [Markup.keyword3] else []
         in
-          app (Context_Position.report ctxt pos)
+          app
+            (Micro_Rust_Semantic_Navigation.defer_report ctxt pos)
             (constant_markup @ style_markup)
         end
     in
       app report_one entries
     end;
+
+\<comment>\<open>Backend-only source positions, currently the separate \<open>!\<close>
+  of a registered macro, receive native navigation to only the backend chosen
+  by typed dispatch. The ordinary lexical role markup remains in place, and an
+  arbitrary or lambda backend deliberately adds no constant target.\<close>
+fun emit_selected_backend_target_at_pos ctxt
+    ({hol_term, ...} : Micro_Rust_Names.entry) pos =
+  if not (Position.is_reported pos) then ()
+  else
+    (case backend_identity_constant ctxt hol_term of
+       SOME c =>
+         List.app
+           (Micro_Rust_Semantic_Navigation.defer_report ctxt pos)
+           [Name_Space.markup
+              (Consts.space_of (Proof_Context.consts_of ctxt)) c,
+            Markup.const]
+     | NONE => ());
 
 \<comment>\<open>Compatibility single-position reporter. Backend identities and
   styling precede notation references, but no typed declaration is
@@ -871,14 +943,18 @@ fun emit_use_markup_at_pos ctxt kind name pos =
   Every terminal and qualifier token then receives all declaration
   references exactly once with the selected declaration last.\<close>
 fun emit_selected_use_markup_at_positions ctxt kind name selected
-    ({terminal_pos, qualifier_positions} : marker_positions) =
+    ({terminal_pos, qualifier_positions,
+      backend_only_positions} : marker_positions) =
   (emit_backend_markup_at_pos ctxt kind name terminal_pos;
    emit_selected_notation_entities_at_pos
      ctxt kind name selected terminal_pos;
    List.app
      (emit_selected_notation_entities_at_pos
        ctxt kind name selected)
-     qualifier_positions);
+     qualifier_positions;
+   List.app
+     (emit_selected_backend_target_at_pos ctxt selected)
+     backend_only_positions);
 
 \<comment>\<open>A marker only exists because \<open>lookup_id_tr\<close> found a registration for
   \<open>(kind, name)\<close> (it emits nothing otherwise). So by the time \<open>resolve\<close>

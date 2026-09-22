@@ -12,6 +12,7 @@ session Micro_Rust_Parser_Tests = HOL +
     Byte_Level_Encoding
   theories [document = false]
     Parser_Test_Utils
+    Parser_Semantic_Navigation_Tests
     Parser_Cast_Alias_Fixtures
     Parser_Iterator_Fixtures
     Parser_Registered_Constructor_Fixtures

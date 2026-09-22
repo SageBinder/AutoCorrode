@@ -56,6 +56,17 @@ struct
   structure P = URust_Patterns
   structure M = URust_Matching
   structure X = URust_Macros
+  structure Navigation = Micro_Rust_Semantic_Navigation
+
+  fun with_token layout token action =
+    Navigation.with_source
+      (source_token_positions layout token) action
+
+  fun with_keyword layout keyword action =
+    with_token layout (Keyword_Token keyword) action
+
+  fun with_delimiter layout delimiter action =
+    with_token layout (Delimiter_Token delimiter) action
 
   fun lower_place lower ctxt environment place =
     (case place of
@@ -63,25 +74,39 @@ struct
          R.literal_path ctxt environment path
      | UP_Deref (expression, _) =>
          lower environment expression
-     | UP_Field (base, name, pos) =>
-         R.field_expression ctxt environment
-           (lower_place lower ctxt environment base) name pos
-     | UP_Index (base, index, _) =>
-         T.index
-           (lower_place lower ctxt environment base)
-           (lower environment index)
+     | UP_Field (base, name, layout) =>
+         let
+           val lowered_base =
+             lower_place lower ctxt environment base
+         in
+           with_delimiter layout "." (fn () =>
+             R.field_expression ctxt environment lowered_base name
+               (the_source_token_position layout Name_Token))
+         end
+     | UP_Index (base, index, layout) =>
+         let
+           val lowered_base =
+             lower_place lower ctxt environment base
+           val lowered_index = lower environment index
+         in
+           with_delimiter layout "[" (fn () =>
+             T.index lowered_base lowered_index)
+         end
      | UP_Antiq source =>
          R.parse_antiquotation ctxt environment source)
 
   fun lower_binding lower ctxt site environment
-      (pattern, rhs, body) =
+      (pattern, rhs, body, layout, keyword) =
     let
       val lowered_rhs = lower environment rhs
       val prepared =
         P.prepare_binding site ctxt environment pattern
       val body_environment = P.binding_environment prepared
       val lowered_body = lower body_environment body
-    in P.bind_prepared prepared lowered_rhs lowered_body end
+    in
+      with_keyword layout keyword (fn () =>
+        P.bind_prepared prepared lowered_rhs lowered_body)
+    end
 
   fun lower_fuel ctxt environment source =
     R.parse_antiquotation ctxt environment source
@@ -95,19 +120,26 @@ struct
               (R.ordinary_identifier_value ctxt environment identifier)
     in T.log_data (map lower_entry entries) end
 
-  fun lower_for lower ctxt environment (pattern, iterable, body) =
+  fun lower_for lower ctxt environment
+      (pattern, iterable, body, layout) =
     let
       val lowered_iterable = lower environment iterable
       val prepared =
         P.prepare_binding P.For_Binder ctxt environment pattern
       val body_environment = P.binding_environment prepared
       val lowered_body = lower body_environment body
+      val iterator =
+        with_keyword layout "in" (fn () =>
+          T.into_iterator lowered_iterable)
+      val abstraction =
+        P.binding_abstraction prepared lowered_body
     in
-      T.for_loop (T.into_iterator lowered_iterable)
-        (P.binding_abstraction prepared lowered_body)
+      with_keyword layout "for" (fn () =>
+        T.for_loop iterator abstraction)
     end
 
-  fun lower_closure lower ctxt environment (formals, body) =
+  fun lower_closure lower ctxt environment
+      (formals, body, layout) =
     let
       fun formal_signature (P_Ident formal) = formal
         | formal_signature (P_Wild pos) =
@@ -120,7 +152,10 @@ struct
       val (formal_terms, body_environment) =
         R.allocate_closure_formals ctxt environment signatures
       val lowered_body = lower body_environment body
-    in T.closure formal_terms lowered_body end
+    in
+      with_token layout Operator_Token (fn () =>
+        T.closure formal_terms lowered_body)
+    end
 
   fun lower_repeat_length ctxt environment allow_sized length =
     (case length of
@@ -130,15 +165,26 @@ struct
      | RL_Path path =>
          T.literal
            (R.global_constant_path_value ctxt environment path)
-     | RL_Bin (operator, left, right, _) =>
-         T.binary operator
-           (lower_repeat_length ctxt environment allow_sized left)
-           (lower_repeat_length ctxt environment allow_sized right)
+     | RL_Bin (operator, left, right, layout) =>
+         let
+           val lowered_left =
+             lower_repeat_length ctxt environment allow_sized left
+           val lowered_right =
+             lower_repeat_length ctxt environment allow_sized right
+         in
+           with_token layout Operator_Token (fn () =>
+             T.binary operator lowered_left lowered_right)
+         end
      | RL_Group (inner, _) =>
          lower_repeat_length ctxt environment allow_sized inner
-     | RL_CastUsize (inner, _) =>
-         T.cast (CT_Unsigned UT_Usize)
-           (lower_repeat_length ctxt environment true inner))
+     | RL_CastUsize (inner, layout) =>
+         let
+           val lowered_inner =
+             lower_repeat_length ctxt environment true inner
+         in
+           with_keyword layout "as" (fn () =>
+             T.cast (CT_Unsigned UT_Usize) lowered_inner)
+         end)
 
   fun empty_block (UE_Block (UE_Unit _, _)) = true
     | empty_block _ = false
@@ -182,27 +228,45 @@ struct
     (case expression of
        UE_Unit _ =>
          T.literal HOLogic.unit
-     | UE_Tuple (arguments, _) =>
-         T.tuple (map (lower_expression ctxt environment) arguments)
-     | UE_Array (elements, _) =>
-         T.array_literal
-           (map (lower_expression ctxt environment) elements)
-     | UE_ArrayRepeat (mode, value, length, _) =>
+     | UE_Tuple (arguments, layout) =>
+         let
+           val lowered =
+             map (lower_expression ctxt environment) arguments
+         in
+           with_delimiter layout "(" (fn () =>
+             T.tuple lowered)
+         end
+     | UE_Array (elements, layout) =>
+         let
+           val lowered =
+             map (lower_expression ctxt environment) elements
+         in
+           with_delimiter layout "[" (fn () =>
+             T.array_literal lowered)
+         end
+     | UE_ArrayRepeat (mode, value, length, layout) =>
          let
            val lowered_length =
              lower_repeat_length ctxt environment false length
            val lowered_value =
              lower_expression ctxt environment value
+           val positions =
+             source_token_positions layout
+               (Delimiter_Token ";") @
+             source_token_positions layout
+               (Keyword_Token "const")
          in
-           (case mode of
-              AR_Ordinary =>
-                T.array_repeat lowered_length lowered_value
-            | AR_InlineConst =>
-                T.array_repeat_inline_const
-                  lowered_length lowered_value)
+           Navigation.with_source positions (fn () =>
+             (case mode of
+                AR_Ordinary =>
+                  T.array_repeat lowered_length lowered_value
+              | AR_InlineConst =>
+                  T.array_repeat_inline_const
+                    lowered_length lowered_value))
          end
-     | UE_Struct (head, fields, struct_pos) =>
+     | UE_Struct (head, fields, struct_layout) =>
          let
+           val struct_pos = source_span struct_layout
            fun initializer (SE_Field (_, _, expression)) = expression
            val _ =
              T.check_function_call_arity struct_pos (length fields)
@@ -215,123 +279,217 @@ struct
                (lower_expression ctxt environment o initializer)
                fields
          in
-           T.function_call struct_pos function lowered_initializers
+           with_delimiter struct_layout "{" (fn () =>
+             T.function_call struct_pos function
+               lowered_initializers)
          end
      | UE_Path path =>
          R.literal_path ctxt environment path
      | UE_Literal payload =>
-         R.literal_expression ctxt environment payload
+         let val layout = literal_source_layout payload
+         in
+           Navigation.with_source (source_tokens layout |> map #2)
+             (fn () =>
+               R.literal_expression ctxt environment payload)
+         end
      | UE_ExprAntiq source =>
          R.parse_antiquotation ctxt environment source
-     | UE_Yield _ =>
-         T.pause
-     | UE_Log (priority, data, _) =>
-         T.primitive_log
-           (R.parse_antiquotation ctxt environment priority)
-           (R.parse_antiquotation ctxt environment data)
+     | UE_Yield layout =>
+         with_keyword layout "yield" T.pause_expression
+     | UE_Log (priority, data, layout) =>
+         let
+           val lowered_priority =
+             R.parse_antiquotation ctxt environment priority
+           val lowered_data =
+             R.parse_antiquotation ctxt environment data
+         in
+           with_keyword layout "log" (fn () =>
+             T.primitive_log lowered_priority lowered_data)
+         end
      | UE_LogData (entries, _) =>
          lower_log_data ctxt environment entries
-     | UE_Closure (formals, body, _) =>
+     | UE_Closure (formals, body, layout) =>
          lower_closure (lower_expression ctxt) ctxt environment
-           (formals, body)
-     | UE_Seq (first, second) =>
-         T.sequence
-           (lower_expression ctxt environment first)
-           (lower_expression ctxt environment second)
-     | UE_Return (value, _) =>
-         T.return_value
-           (case value of
-              SOME expression => lower_expression ctxt environment expression
-            | NONE => T.literal HOLogic.unit)
-     | UE_Bin (operator, left, right, _) =>
-         T.binary operator
-           (lower_expression ctxt environment left)
-           (lower_expression ctxt environment right)
-     | UE_Cast (operand, target, _) =>
+           (formals, body, layout)
+     | UE_Seq (first, second, layout) =>
+         let
+           val lowered_first =
+             lower_expression ctxt environment first
+           val lowered_second =
+             lower_expression ctxt environment second
+         in
+           with_delimiter layout ";" (fn () =>
+             T.sequence lowered_first lowered_second)
+         end
+     | UE_Return (value, layout) =>
+         let
+           val lowered =
+             (case value of
+                SOME expression =>
+                  lower_expression ctxt environment expression
+              | NONE => T.literal HOLogic.unit)
+         in
+           with_keyword layout "return" (fn () =>
+             T.return_value lowered)
+         end
+     | UE_Bin (operator, left, right, layout) =>
+         let
+           val lowered_left =
+             lower_expression ctxt environment left
+           val lowered_right =
+             lower_expression ctxt environment right
+         in
+           with_token layout Operator_Token (fn () =>
+             T.binary operator lowered_left lowered_right)
+         end
+     | UE_Cast (operand, target, layout) =>
          let
            val primitive_target = A.resolve ctxt target
+           val lowered_operand =
+             lower_expression ctxt environment operand
          in
-           T.cast primitive_target
-             (lower_expression ctxt environment operand)
+           with_keyword layout "as" (fn () =>
+             T.cast primitive_target lowered_operand)
          end
-     | UE_Range (kind, lower, upper, _) =>
-         T.bounded_range kind
-           (lower_expression ctxt environment lower)
-           (lower_expression ctxt environment upper)
+     | UE_Range (kind, lower, upper, layout) =>
+         let
+           val lowered_lower =
+             lower_expression ctxt environment lower
+           val lowered_upper =
+             lower_expression ctxt environment upper
+         in
+           with_token layout Operator_Token (fn () =>
+             T.bounded_range kind lowered_lower lowered_upper)
+         end
      | UE_Unary
-         (U_Borrow _, UE_Array (elements, _), _) =>
-         T.array_literal
-           (map (lower_expression ctxt environment) elements)
-     | UE_Unary (operator, operand, pos) =>
-         T.unary operator pos (lower_expression ctxt environment operand)
+         (U_Borrow _, UE_Array (elements, array_layout), _) =>
+         let
+           val lowered =
+             map (lower_expression ctxt environment) elements
+         in
+           with_delimiter array_layout "[" (fn () =>
+             T.array_literal lowered)
+         end
+     | UE_Unary (operator, operand, layout) =>
+         let
+           val pos =
+             the_source_token_position layout Operator_Token
+           val lowered_operand =
+             lower_expression ctxt environment operand
+         in
+           with_token layout Operator_Token (fn () =>
+             T.unary operator pos lowered_operand)
+         end
      | UE_Group (inner, _) =>
          lower_expression ctxt environment inner
      | UE_Block (inner, _) =>
          lower_expression ctxt environment inner
-     | UE_If (condition, then_branch, else_branch, _) =>
+     | UE_If (condition, then_branch, else_branch, layout) =>
          let
            val _ =
              reject_ambiguous_empty_struct_head ctxt environment
                condition then_branch
-         in
-           T.conditional
-             (lower_expression ctxt environment condition)
-             (lower_expression ctxt environment then_branch)
+           val lowered_condition =
+             lower_expression ctxt environment condition
+           val lowered_then =
+             lower_expression ctxt environment then_branch
+           val lowered_else =
              (case else_branch of
-                SOME branch => lower_expression ctxt environment branch
+                SOME branch =>
+                  lower_expression ctxt environment branch
               | NONE => T.literal HOLogic.unit)
+           val positions =
+             source_token_positions layout
+               (Keyword_Token "if") @
+             source_token_positions layout
+               (Keyword_Token "else")
+         in
+           Navigation.with_source positions (fn () =>
+             T.conditional lowered_condition
+               lowered_then lowered_else)
          end
      | UE_IfLet
-         (pattern, scrutinee, success, fallback, pos) =>
+         (pattern, scrutinee, success, fallback, layout) =>
          let
            val _ =
              reject_ambiguous_empty_struct_head ctxt environment
                scrutinee success
          in
            M.lower_if_let (lower_expression ctxt) ctxt environment
-             (pattern, scrutinee, success, fallback, pos)
+             (pattern, scrutinee, success, fallback, layout)
          end
-     | UE_LetElse let_else =>
-         M.lower_let_else (lower_expression ctxt) ctxt environment let_else
-     | UE_While (fuel, condition, body, _) =>
-         T.bounded_while
-           (lower_fuel ctxt environment fuel)
-           (lower_expression ctxt environment condition)
-           (lower_expression ctxt environment body)
-     | UE_Loop (fuel, body, _) =>
-         T.bounded_loop
-           (lower_fuel ctxt environment fuel)
-           (lower_expression ctxt environment body)
-     | UE_For (pattern, iterable, body, _) =>
+     | UE_LetElse
+         (pattern, scrutinee, fallback, continuation, layout) =>
+         M.lower_let_else (lower_expression ctxt) ctxt environment
+           (pattern, scrutinee, fallback, continuation, layout)
+     | UE_While (fuel, condition, body, layout) =>
+         let
+           val lowered_fuel =
+             lower_fuel ctxt environment fuel
+           val lowered_condition =
+             lower_expression ctxt environment condition
+           val lowered_body =
+             lower_expression ctxt environment body
+           val positions =
+             source_token_positions layout
+               (Keyword_Token "fuel") @
+             source_token_positions layout
+               (Keyword_Token "while")
+         in
+           Navigation.with_source positions (fn () =>
+             T.bounded_while lowered_fuel
+               lowered_condition lowered_body)
+         end
+     | UE_Loop (fuel, body, layout) =>
+         let
+           val lowered_fuel =
+             lower_fuel ctxt environment fuel
+           val lowered_body =
+             lower_expression ctxt environment body
+           val positions =
+             source_token_positions layout
+               (Keyword_Token "fuel") @
+             source_token_positions layout
+               (Keyword_Token "loop")
+         in
+           Navigation.with_source positions (fn () =>
+             T.bounded_loop lowered_fuel lowered_body)
+         end
+     | UE_For (pattern, iterable, body, layout) =>
          let
            val _ =
              reject_ambiguous_empty_struct_head ctxt environment
                iterable body
          in
            lower_for (lower_expression ctxt) ctxt environment
-             (pattern, iterable, body)
+             (pattern, iterable, body, layout)
          end
-     | UE_WhileLet (fuel, pattern, scrutinee, body, pos) =>
+     | UE_WhileLet (fuel, pattern, scrutinee, body, layout) =>
          let
            val _ =
              reject_ambiguous_empty_struct_head ctxt environment
                scrutinee body
          in
            M.lower_while_let (lower_expression ctxt) ctxt environment
-             (fuel, pattern, scrutinee, body, pos)
+             (fuel, pattern, scrutinee, body, layout)
          end
-     | UE_Let binding =>
+     | UE_Let (pattern, rhs, body, layout) =>
          lower_binding (lower_expression ctxt) ctxt
-           P.Let_Const_Binder environment binding
-     | UE_LetMut (pattern, rhs, body, mutable_pos) =>
+           P.Let_Const_Binder environment
+           (pattern, rhs, body, layout, "let")
+     | UE_LetMut (pattern, rhs, body, layout) =>
          lower_binding (lower_expression ctxt) ctxt
-           (P.Mutable_Let_Binder mutable_pos) environment
-           (pattern, rhs, body)
-     | UE_Const binding =>
+           (P.Mutable_Let_Binder
+             (the_source_token_position layout
+               (Keyword_Token "mut"))) environment
+           (pattern, rhs, body, layout, "let")
+     | UE_Const (pattern, rhs, body, layout) =>
          lower_binding (lower_expression ctxt) ctxt
-           P.Let_Const_Binder environment binding
-     | UE_Call (callee, arguments, call_pos) =>
+           P.Let_Const_Binder environment
+           (pattern, rhs, body, layout, "const")
+     | UE_Call (callee, arguments, call_layout) =>
          let
+           val call_pos = source_span call_layout
            val runtime_arity =
              length arguments +
                (case callee of UC_Method _ => 1 | _ => 0)
@@ -358,42 +516,85 @@ struct
                     val pure_function =
                       R.parse_antiquotation ctxt environment source
                     val lifted_function =
-                      T.lift_function suffix_pos lift_arity pure_function
+                      Navigation.with_source_position suffix_pos
+                        (fn () =>
+                          T.lift_function suffix_pos
+                            lift_arity pure_function)
                     val parameterized_function =
                       R.apply_generic_arguments ctxt environment
                         lifted_function generic_arguments
                   in (parameterized_function, arguments) end)
            val lowered_arguments =
              map (lower_expression ctxt environment) source_arguments
-         in T.function_call call_pos function lowered_arguments end
-     | UE_Field (receiver, name, pos) =>
-         R.field_expression ctxt environment
-           (lower_expression ctxt environment receiver) name pos
-     | UE_Index (receiver, index, _) =>
-         T.index
-           (lower_expression ctxt environment receiver)
-           (lower_expression ctxt environment index)
-     | UE_TupleProjection (receiver, index, pos) =>
-         T.tuple_projection pos index
-           (lower_expression ctxt environment receiver)
-     | UE_Assign (operator, place, rhs, pos) =>
+         in
+           with_delimiter call_layout "(" (fn () =>
+             T.function_call call_pos function
+               lowered_arguments)
+         end
+     | UE_Field (receiver, name, layout) =>
          let
+           val lowered_receiver =
+             lower_expression ctxt environment receiver
+         in
+           with_delimiter layout "." (fn () =>
+             R.field_expression ctxt environment
+               lowered_receiver name
+               (the_source_token_position layout Name_Token))
+         end
+     | UE_Index (receiver, index, layout) =>
+         let
+           val lowered_receiver =
+             lower_expression ctxt environment receiver
+           val lowered_index =
+             lower_expression ctxt environment index
+         in
+           with_delimiter layout "[" (fn () =>
+             T.index lowered_receiver lowered_index)
+         end
+     | UE_TupleProjection (receiver, index, layout) =>
+         let
+           val pos =
+             the_source_token_position layout Name_Token
+           val lowered_receiver =
+             lower_expression ctxt environment receiver
+         in
+           with_token layout Name_Token (fn () =>
+             T.tuple_projection pos index lowered_receiver)
+         end
+     | UE_Assign (operator, place, rhs, layout) =>
+         let
+           val pos =
+             the_source_token_position layout Operator_Token
            val lowered_place =
              lower_place (lower_expression ctxt) ctxt environment place
            val lowered_rhs = lower_expression ctxt environment rhs
          in
            (case operator of
-              Assign => T.update pos lowered_place lowered_rhs
-            | AssignAdd => T.assign_add pos lowered_place lowered_rhs
+              Assign =>
+                with_token layout Operator_Token (fn () =>
+                  T.update pos lowered_place lowered_rhs)
+            | AssignAdd =>
+                with_token layout Operator_Token (fn () =>
+                  T.assign_add pos lowered_place lowered_rhs)
             | AssignBin binary_operator =>
-                T.update pos lowered_place
-                  (T.assignment_binary binary_operator
-                    (T.unary U_Deref pos lowered_place) lowered_rhs))
+                let
+                  val old_value =
+                    T.unary U_Deref pos lowered_place
+                  val updated_value =
+                    with_token layout Operator_Token (fn () =>
+                      T.assignment_binary binary_operator
+                        old_value lowered_rhs)
+                in
+                  with_token layout Operator_Token (fn () =>
+                    T.update pos lowered_place updated_value)
+                end)
          end
-     | UE_Macro macro =>
-         X.lower_macro (lower_expression ctxt) ctxt environment macro
-     | UE_Match match =>
-         M.lower_match (lower_expression ctxt) ctxt environment match)
+     | UE_Macro (path, payload, layout) =>
+         X.lower_macro (lower_expression ctxt) ctxt environment
+           (path, payload, layout)
+     | UE_Match (flavour, scrutinee, arms, layout) =>
+         M.lower_match (lower_expression ctxt) ctxt environment
+           (flavour, scrutinee, arms, layout))
 
   fun mk_with_wrapper allocate wrapper ctxt arguments expression =
     let

@@ -8,6 +8,7 @@ session Shallow_Micro_Rust_Base = HOL +
     Misc
     Lenses_And_Other_Optics
   theories [document = false]
+    Semantic_Navigation
     Basic_Case_Expression
     Core_Expression
     Bool_Type

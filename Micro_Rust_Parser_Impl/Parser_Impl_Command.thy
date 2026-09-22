@@ -171,6 +171,7 @@ end
 structure URust_Command :> URUST_COMMAND =
 struct
 datatype elaboration_kind = Expression | Function
+structure Navigation = Micro_Rust_Semantic_Navigation
 
 val urust_conformance =
   Attrib.setup_config_bool \<^binding>\<open>urust_conformance\<close> (K false)
@@ -1014,42 +1015,45 @@ fun elaborate_with_timing timer pp_test lthy
           timing_phase timer "pretty-print roundtrip" (fn () =>
             pretty_roundtrip lthy source ast)
         else ()
-      val (closed, field_reports) =
-        URust_Item_Scope.capture_field_reports (fn () =>
-          let
-            val unchecked =
-              timing_phase timer "lower AST" (fn () =>
-                lower kind lthy arguments_with_types ast)
-            val checked =
-              timing_phase timer "check term" (fn () =>
-                let
-                  val constrained =
-                    (case declared_type of
-                       SOME (complete_type, _) =>
-                         Type.constraint complete_type unchecked
-                     | NONE => unchecked)
-                in
-                  Syntax.check_term lthy constrained
-                end)
-            val closed =
-              timing_phase timer "close and audit term" (fn () =>
-                let
-                  val closed =
-                    (case declared_type of
-                       SOME (_, type_pos) =>
-                         close_typed_term kind lthy type_pos checked
-                     | NONE => checked)
-                  val _ =
-                    reject_unresolved kind lthy source closed
-                in
-                  closed
-                end)
-          in
-            closed
-          end)
+      val ((closed, field_reports), navigation_reports) =
+        Navigation.capture (fn () =>
+          URust_Item_Scope.capture_field_reports (fn () =>
+            let
+              val unchecked =
+                timing_phase timer "lower AST" (fn () =>
+                  lower kind lthy arguments_with_types ast)
+              val checked =
+                timing_phase timer "check term" (fn () =>
+                  let
+                    val constrained =
+                      (case declared_type of
+                         SOME (complete_type, _) =>
+                           Type.constraint complete_type unchecked
+                       | NONE => unchecked)
+                  in
+                    Syntax.check_term lthy constrained
+                  end)
+              val closed =
+                timing_phase timer "close and audit term" (fn () =>
+                  let
+                    val closed =
+                      (case declared_type of
+                         SOME (_, type_pos) =>
+                           close_typed_term kind lthy type_pos checked
+                       | NONE => checked)
+                    val _ =
+                      reject_unresolved kind lthy source closed
+                  in
+                    closed
+                  end)
+            in
+              closed
+            end))
       val _ =
         URust_Item_Scope.replay_field_reports
           lthy field_reports
+      val _ =
+        Navigation.replay lthy navigation_reports
     in
       {ast = ast, term = closed}
     end)

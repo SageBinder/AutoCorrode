@@ -586,7 +586,7 @@ fun pattern_document options required pattern =
     fun pattern_identifier what name =
       identifier (require_identifier what name)
     fun starts_with_borrow (P_Borrow _) = true
-      | starts_with_borrow (P_Group inner) =
+      | starts_with_borrow (P_Group (inner, _)) =
           not (mode_is_serialized options) andalso starts_with_borrow inner
       | starts_with_borrow _ = false
     fun field_document (SF_Field (name, _, inner)) =
@@ -625,7 +625,7 @@ fun pattern_document options required pattern =
      | P_Literal payload =>
          wrap_document required pattern_atom_precedence
            (literal_document payload)
-     | P_Constr (path, arguments) =>
+     | P_Constr (path, arguments, _) =>
          let
            val arguments =
              require_nonempty "constructor pattern" arguments
@@ -649,7 +649,7 @@ fun pattern_document options required pattern =
                      pattern_or_precedence)
                    members))
          in wrap_document required pattern_atom_precedence document end
-     | P_Group inner =>
+     | P_Group (inner, _) =>
          if mode_is_serialized options
          then
            wrap_document required pattern_atom_precedence
@@ -695,7 +695,7 @@ fun pattern_document options required pattern =
          wrap_document required pattern_atom_precedence
            (bracketed
              (comma_documents (map slice_document items)))
-     | P_Struct (path, fields) =>
+     | P_Struct (path, fields, _) =>
          let
            val fields = require_nonempty "struct pattern" fields
            val document =
@@ -881,7 +881,7 @@ fun expression_document options required expression =
       | log_data_entry_document (LDE_Identifier (name, _)) =
           identifier (require_identifier "logging-data entry" name)
 
-    fun arm_document (UR_Arm (pattern, guard, body)) =
+    fun arm_document (UR_Arm (pattern, guard, body, _)) =
       let
         val prefix =
           pattern_document options pattern_or_precedence pattern @
@@ -980,14 +980,14 @@ fun expression_document options required expression =
 
     fun body_document expression =
       (case expression of
-         UE_Let (pattern, value, body) =>
+         UE_Let (pattern, value, body, _) =>
            binding_statement_document
              (keyword "let") pattern value body
        | UE_LetMut (pattern, value, body, _) =>
            binding_statement_document
              (keyword "let" @ space @ keyword "mut")
              pattern value body
-       | UE_Const (pattern, value, body) =>
+       | UE_Const (pattern, value, body, _) =>
            binding_statement_document
              (keyword "const") pattern value body
        | UE_LetElse
@@ -1004,7 +1004,7 @@ fun expression_document options required expression =
            delimiter ";" @ line @
            expression_document options
              expression_body_precedence continuation
-       | UE_Seq (first, second) =>
+       | UE_Seq (first, second, _) =>
            if is_unit second then
              (case first of
                 UE_Return _ =>
@@ -1287,7 +1287,7 @@ fun expression_document options required expression =
                     space @ operator (assignop_text assignment) @ space)
                    low_expression_precedence right)
            in wrap_document required assignment_precedence document end
-       | UE_Macro (path, _, payload, _) =>
+       | UE_Macro (path, payload, _) =>
            let
              val path_name = single_plain_path path
              val document =

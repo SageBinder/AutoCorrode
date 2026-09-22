@@ -18,6 +18,8 @@ sig
   val function_body: term -> term
   val closure: term list -> term -> term
   val pause: term
+  val pause_expression: unit -> term
+  val boolean_value: bool -> term
   val primitive_log: term -> term -> term
   val log_string_entry: string -> Position.T -> term
   val generate_debug_entry: term -> term
@@ -102,20 +104,23 @@ ML\<open>
    URUST_SHALLOW_TERMS is the complete public interface:
 
    * literal wraps a HOL value as a shallow expression. boolean_expression constructs the dedicated
-     shallow true/false expression constants, while string_value and integer_value construct raw HOL
-     values for later wrapping. string_value decodes the lexer-preserved string spelling at the given
-     position. integer_value centrally splits suffixes, detects binary/octal/decimal/hexadecimal
-     bases, validates digits and separators, removes underscores, converts the value, and applies one
-     of u8, u16, u32, u64, and usize. repeat_length_integer uses that same parser, fixes unsuffixed
-     and usize literals to 64 words, and admits another supported width only beneath an explicit
-     repeat-length `as usize`. The compatibility underscore before a suffix remains accepted.
+     shallow true/false expression constants. boolean_value retains the raw HOL True/False value used
+     by pattern construction while selecting that same surface-level destination for navigation.
+     string_value and integer_value construct raw HOL values for later wrapping. string_value decodes
+     the lexer-preserved string spelling at the given position. integer_value centrally splits
+     suffixes, detects binary/octal/decimal/hexadecimal bases, validates digits and separators,
+     removes underscores, converts the value, and applies one of u8, u16, u32, u64, and usize.
+     repeat_length_integer uses that same parser, fixes unsuffixed and usize literals to 64 words, and
+     admits another supported width only beneath an explicit repeat-length `as usize` cast. The
+     compatibility underscore before a suffix remains accepted.
    * closure wraps one FunctionBody around the already-lowered body, abstracts the ordered formal
      Frees in source order, and then applies one outer literal. It imposes no call-arity limit.
-   * pause is the direct primitive pause expression. primitive_log applies the raw priority and data
-     values directly to log. log_string_entry builds one singleton LogString list;
-     generate_debug_entry applies generate_debug to one already-resolved value; and log_data wraps
-     one nonempty source-ordered entry list in exactly one literal, using no append for a singleton
-     and a right-associated List.append tree otherwise.
+   * pause is the compatibility direct primitive value; pause_expression constructs the same term
+     while recording the selected primitive. primitive_log applies the raw priority and data values
+     directly to log. log_string_entry builds one singleton LogString list; generate_debug_entry
+     applies generate_debug to one already-resolved value; and log_data wraps one nonempty
+     source-ordered entry list in exactly one literal, using no append for a singleton and a
+     right-associated List.append tree otherwise.
    * source_position attaches one source range to an unchecked term through Isabelle's standard
      post-parse position constraint. lift_function maps a pure HOL function and source suffix arity 1
      through 14 to lift_fun1 through lift_fun14. check_function_call_arity exposes the structural
@@ -167,8 +172,29 @@ ML\<open>
 structure URust_Shallow_Terms :> URUST_SHALLOW_TERMS =
 struct
   open URust_AST
+  structure Navigation = Micro_Rust_Semantic_Navigation
 
   fun constant name args = Term.list_comb (Const (name, dummyT), args)
+
+  fun selected_constant kind name args =
+    (Navigation.select kind name;
+     constant name args)
+
+  fun primary_constant name args =
+    selected_constant Navigation.Primary name args
+
+  fun secondary_constant name args =
+    selected_constant Navigation.Secondary name args
+
+  fun selected_term kind term =
+    let
+      val head =
+        Term.head_of (Term_Position.strip_positions term)
+      val _ =
+        (case head of
+           Const (name, _) => Navigation.select kind name
+         | _ => ())
+    in term end
 
   (* Direct check_term input uses the post-parse representation of source positions: an internal type
      constraint whose TFree is decoded by Type_Infer_Context.prepare_positions. *)
@@ -182,18 +208,41 @@ struct
   fun literal value = constant \<^const_name>\<open>literal\<close> [value]
   fun bindlift1 f expression = constant \<^const_name>\<open>bindlift1\<close> [f, expression]
 
-  fun function_body body =
+  fun function_body_term body =
     constant \<^const_name>\<open>FunctionBody\<close> [body]
 
+  fun function_body body =
+    primary_constant \<^const_name>\<open>FunctionBody\<close> [body]
+
   fun closure formals body =
-    literal (fold_rev Term.lambda formals (function_body body))
+    (Navigation.select Navigation.Primary
+       \<^const_name>\<open>FunctionBody\<close>;
+     literal
+       (fold_rev Term.lambda formals
+         (function_body_term body)))
 
   fun apply_parameters function parameters =
     Term.list_comb (function, parameters)
 
   fun boolean_expression value =
-    Const (if value then \<^const_name>\<open>Bool_Type.true\<close>
-           else \<^const_name>\<open>Bool_Type.false\<close>, dummyT)
+    let
+      val name =
+        if value then \<^const_name>\<open>Bool_Type.true\<close>
+        else \<^const_name>\<open>Bool_Type.false\<close>
+    in
+      Navigation.select Navigation.Primary name;
+      Const (name, dummyT)
+    end
+
+  fun boolean_value value =
+    let
+      val name =
+        if value then \<^const_name>\<open>Bool_Type.true\<close>
+        else \<^const_name>\<open>Bool_Type.false\<close>
+    in
+      Navigation.select Navigation.Primary name;
+      if value then \<^term>\<open>True\<close> else \<^term>\<open>False\<close>
+    end
 
   fun string_from_characters characters =
     constant \<^const_name>\<open>String.implode\<close> [characters]
@@ -215,8 +264,11 @@ struct
 
   val pause = Const (\<^const_name>\<open>pause\<close>, dummyT)
 
+  fun pause_expression () =
+    primary_constant \<^const_name>\<open>pause\<close> []
+
   fun primitive_log priority data =
-    constant \<^const_name>\<open>log\<close> [priority, data]
+    primary_constant \<^const_name>\<open>log\<close> [priority, data]
 
   fun log_string_entry raw pos =
     constant \<^const_name>\<open>List.Cons\<close>
@@ -261,7 +313,10 @@ struct
 
   fun lift_function pos arity function =
     if minimum_lift_arity <= arity andalso arity <= maximum_lift_arity
-    then constant (Vector.sub (lift_function_constants, arity - 1)) [function]
+    then
+      primary_constant
+        (Vector.sub (lift_function_constants, arity - 1))
+        [function]
     else
       error ("urust_expr: unsupported function-literal arity " ^
         string_of_int arity ^ " (expected " ^
@@ -280,7 +335,9 @@ struct
     ignore (function_constant pos arity)
 
   fun function_call pos function arguments =
-    constant (function_constant pos (length arguments)) (function :: arguments)
+    primary_constant
+      (function_constant pos (length arguments))
+      (function :: arguments)
 
   (* Integer-literal suffix knowledge has one owner. *)
   val integer_suffix_types =
@@ -443,45 +500,74 @@ struct
     end
 
   (* Sequencing must use sequence: replacing it with an anonymous bind changes the generated term. *)
+  fun bind_term expression abstraction =
+    constant \<^const_name>\<open>Core_Expression.bind\<close>
+      [expression, abstraction]
   fun bind expression abstraction =
-    constant \<^const_name>\<open>Core_Expression.bind\<close> [expression, abstraction]
+    (Navigation.select Navigation.Primary
+       \<^const_name>\<open>Core_Expression.bind\<close>;
+     bind_term expression abstraction)
   fun sequence first second =
-    constant \<^const_name>\<open>Core_Expression.sequence\<close> [first, second]
-  fun return_value value = constant \<^const_name>\<open>return_func\<close> [value]
-  fun case_product abstraction = constant \<^const_name>\<open>case_prod\<close> [abstraction]
+    primary_constant \<^const_name>\<open>Core_Expression.sequence\<close>
+      [first, second]
+  fun return_value value =
+    primary_constant \<^const_name>\<open>return_func\<close> [value]
+  fun case_product abstraction =
+    primary_constant \<^const_name>\<open>case_prod\<close> [abstraction]
 
   fun allocate_reference pos expression =
-    constant \<^const_name>\<open>funcall1\<close>
-      [positioned_constant \<^const_name>\<open>store_reference_const\<close> pos [], expression]
+    (Navigation.select Navigation.Primary
+       \<^const_name>\<open>store_reference_const\<close>;
+     constant \<^const_name>\<open>funcall1\<close>
+       [positioned_constant
+          \<^const_name>\<open>store_reference_const\<close> pos [],
+        expression])
 
   fun borrow mode pos expression =
-    bindlift1
-      (positioned_constant
+    let
+      val name =
         (case mode of
            BM_Imm => \<^const_name>\<open>ro_ref_from_ref\<close>
          | BM_Mut => \<^const_name>\<open>mut_ref_from_ref\<close>)
-        pos [])
-      expression
+    in
+      Navigation.select Navigation.Primary name;
+      bindlift1 (positioned_constant name pos []) expression
+    end
 
   fun dereference pos expression =
-    bind expression
-      (constant \<^const_name>\<open>deep_compose1\<close>
-        [Const (\<^const_name>\<open>call\<close>, dummyT),
-         positioned_constant \<^const_name>\<open>store_dereference_const\<close> pos []])
+    (Navigation.select Navigation.Primary
+       \<^const_name>\<open>store_dereference_const\<close>;
+     constant \<^const_name>\<open>Core_Expression.bind\<close>
+       [expression,
+        constant \<^const_name>\<open>deep_compose1\<close>
+          [Const (\<^const_name>\<open>call\<close>, dummyT),
+           positioned_constant
+             \<^const_name>\<open>store_dereference_const\<close> pos []]])
 
   fun update pos place rhs =
-    constant \<^const_name>\<open>bind2\<close>
-      [constant \<^const_name>\<open>deep_compose2\<close>
-        [Const (\<^const_name>\<open>call\<close>, dummyT),
-         positioned_constant \<^const_name>\<open>store_update_const\<close> pos []],
-       place, rhs]
+    (Navigation.select Navigation.Primary
+       \<^const_name>\<open>store_update_const\<close>;
+     constant \<^const_name>\<open>bind2\<close>
+       [constant \<^const_name>\<open>deep_compose2\<close>
+         [Const (\<^const_name>\<open>call\<close>, dummyT),
+          positioned_constant
+            \<^const_name>\<open>store_update_const\<close> pos []],
+        place, rhs])
 
   fun assign_add pos place rhs =
-    constant \<^const_name>\<open>funcall2\<close>
-      [positioned_constant \<^const_name>\<open>assign_add_const\<close> pos [], place, rhs]
+    (Navigation.select Navigation.Primary
+       \<^const_name>\<open>assign_add_const\<close>;
+     constant \<^const_name>\<open>funcall2\<close>
+       [positioned_constant
+          \<^const_name>\<open>assign_add_const\<close> pos [],
+        place, rhs])
 
   fun focus_field field receiver =
-    bindlift1 (constant \<^const_name>\<open>focus_lens_const\<close> [field]) receiver
+    (Navigation.select Navigation.Primary
+       \<^const_name>\<open>focus_lens_const\<close>;
+     bindlift1
+       (constant \<^const_name>\<open>focus_lens_const\<close> [field])
+       receiver)
 
   fun tuple_lift terminal first second =
     let
@@ -496,15 +582,30 @@ struct
       val abstraction = Term.lambda x (Term.lambda y result)
     in constant \<^const_name>\<open>bindlift2\<close> [abstraction, first, second] end
 
-  fun tuple [first, second] = tuple_lift true first second
-    | tuple (first :: rest) = tuple_lift false first (tuple rest)
-    | tuple _ = error "urust_expr: internal tuple with fewer than two elements"
+  fun tuple_terms [first, second] =
+        tuple_lift true first second
+    | tuple_terms (first :: rest) =
+        tuple_lift false first (tuple_terms rest)
+    | tuple_terms _ =
+        error "urust_expr: internal tuple with fewer than two elements"
 
-  fun array_literal [] = literal (Const (\<^const_name>\<open>List.Nil\<close>, dummyT))
-    | array_literal (first :: rest) =
+  fun tuple elements =
+    (Navigation.select Navigation.Primary
+       \<^const_name>\<open>Product_Type.Pair\<close>;
+     tuple_terms elements)
+
+  fun array_terms [] =
+        literal (Const (\<^const_name>\<open>List.Nil\<close>, dummyT))
+    | array_terms (first :: rest) =
         constant \<^const_name>\<open>bindlift2\<close>
           [Const (\<^const_name>\<open>List.Cons\<close>, dummyT),
-           first, array_literal rest]
+           first, array_terms rest]
+
+  fun array_literal elements =
+    (Navigation.select Navigation.Primary
+       (if null elements then \<^const_name>\<open>List.Nil\<close>
+        else \<^const_name>\<open>List.Cons\<close>);
+     array_terms elements)
 
   fun repeat_count count =
     constant \<^const_name>\<open>unsigned\<close> [count]
@@ -515,36 +616,47 @@ struct
 
   fun array_repeat length element =
     let
+      val _ =
+        Navigation.select Navigation.Primary
+          \<^const_name>\<open>List.replicate\<close>
       val count = Free ("count", \<^typ>\<open>64 word\<close>)
       val value = Free ("value", dummyT)
       val result = literal (replicated count value)
     in
-      bind length
+      bind_term length
         (Term.lambda count
-          (bind element (Term.lambda value result)))
+          (bind_term element (Term.lambda value result)))
     end
 
   fun array_repeat_inline_const length element =
     let
+      val _ =
+        Navigation.select Navigation.Primary
+          \<^const_name>\<open>List.replicate\<close>
       val count = Free ("count", \<^typ>\<open>64 word\<close>)
       val result =
         constant \<^const_name>\<open>list_sequence\<close>
           [replicated count element]
-    in bind length (Term.lambda count result) end
+    in bind_term length (Term.lambda count result) end
 
   fun bounded_range kind lower upper =
-    constant \<^const_name>\<open>funcall2\<close>
-      [Const
-        ((case kind of
-            RK_Exclusive => \<^const_name>\<open>range_new\<close>
-          | RK_Inclusive => \<^const_name>\<open>range_eq_new\<close>),
-         dummyT),
-       lower, upper]
+    let
+      val name =
+        (case kind of
+           RK_Exclusive => \<^const_name>\<open>range_new\<close>
+         | RK_Inclusive => \<^const_name>\<open>range_eq_new\<close>)
+    in
+      Navigation.select Navigation.Primary name;
+      constant \<^const_name>\<open>funcall2\<close>
+        [Const (name, dummyT), lower, upper]
+    end
 
   fun index expression subscript =
-    constant \<^const_name>\<open>funcall2\<close>
-      [Const (\<^const_name>\<open>index_const\<close>, dummyT),
-       expression, subscript]
+    (Navigation.select Navigation.Primary
+       \<^const_name>\<open>index_const\<close>;
+     constant \<^const_name>\<open>funcall2\<close>
+       [Const (\<^const_name>\<open>index_const\<close>, dummyT),
+        expression, subscript])
 
   fun unchecked_template term = Term.map_types (K dummyT) term
 
@@ -568,7 +680,9 @@ struct
 
   fun tuple_projection pos index receiver =
     if 0 <= index andalso index < Vector.length tuple_projection_functions
-    then Vector.sub (tuple_projection_functions, index) $ receiver
+    then
+      selected_term Navigation.Primary
+        (Vector.sub (tuple_projection_functions, index)) $ receiver
     else
       error
         ("urust_expr: internal tuple projection index " ^
@@ -683,62 +797,90 @@ struct
   fun cast target expression =
     (case AList.lookup (op =) cast_functions target of
        SOME (target_function, result_type) =>
-         Type.constraint result_type
-           (Term.list_comb
-             (Term.map_types (K dummyT) target_function, [expression]))
+         let
+           val selected =
+             selected_term Navigation.Primary target_function
+         in
+           Type.constraint result_type
+             (Term.list_comb
+               (Term.map_types (K dummyT) selected, [expression]))
+         end
      | NONE => error "urust_expr: internal unsupported cast target")
 
   fun assertion expression =
-    constant \<^const_name>\<open>assert\<close> [expression]
+    primary_constant \<^const_name>\<open>assert\<close> [expression]
 
   fun assertion_equal left right =
-    constant \<^const_name>\<open>assert_eq\<close> [left, right]
+    primary_constant \<^const_name>\<open>assert_eq\<close> [left, right]
 
   fun assertion_not_equal left right =
-    constant \<^const_name>\<open>assert_ne\<close> [left, right]
+    primary_constant \<^const_name>\<open>assert_ne\<close> [left, right]
 
   fun panic_message message =
-    constant \<^const_name>\<open>abort\<close>
-      [constant \<^const_name>\<open>Panic\<close> [message]]
+    (Navigation.select Navigation.Secondary
+       \<^const_name>\<open>abort\<close>;
+     Navigation.select Navigation.Primary
+       \<^const_name>\<open>Panic\<close>;
+     constant \<^const_name>\<open>abort\<close>
+       [constant \<^const_name>\<open>Panic\<close> [message]])
 
   fun fatal_message message =
-    constant \<^const_name>\<open>fatal\<close> [message]
+    primary_constant \<^const_name>\<open>fatal\<close> [message]
 
   fun unimplemented_message message =
-    constant \<^const_name>\<open>abort\<close>
-      [constant \<^const_name>\<open>Unimplemented\<close> [message]]
+    (Navigation.select Navigation.Secondary
+       \<^const_name>\<open>abort\<close>;
+     Navigation.select Navigation.Primary
+       \<^const_name>\<open>Unimplemented\<close>;
+     constant \<^const_name>\<open>abort\<close>
+       [constant \<^const_name>\<open>Unimplemented\<close> [message]])
 
   val legacy_ref_address =
     Term.map_types (K dummyT) \<^term>\<open>ref_address\<close>
 
   fun address_of expression =
-    bindlift1 legacy_ref_address expression
+    (Navigation.select Navigation.Primary
+       \<^const_name>\<open>bindlift1\<close>;
+     bindlift1 legacy_ref_address expression)
 
   fun conditional condition then_branch else_branch =
-    constant \<^const_name>\<open>two_armed_conditional\<close>
+    primary_constant \<^const_name>\<open>two_armed_conditional\<close>
       [condition, then_branch, else_branch]
 
   fun bounded_while fuel condition body =
-    constant \<^const_name>\<open>bounded_while\<close> [fuel, condition, body]
+    primary_constant \<^const_name>\<open>bounded_while\<close>
+      [fuel, condition, body]
 
   fun bounded_loop fuel body =
-    bounded_while fuel
-      (literal (Const (\<^const_name>\<open>True\<close>, dummyT))) body
+    (Navigation.select Navigation.Primary
+       \<^const_name>\<open>bounded_while\<close>;
+     constant \<^const_name>\<open>bounded_while\<close>
+       [fuel,
+        literal (Const (\<^const_name>\<open>True\<close>, dummyT)),
+        body])
 
   fun for_loop iterator body =
-    constant \<^const_name>\<open>for_loop\<close> [iterator, body]
+    primary_constant \<^const_name>\<open>for_loop\<close>
+      [iterator, body]
 
   fun into_iterator iterable =
-    constant \<^const_name>\<open>funcall1\<close>
-      [Const (\<^const_name>\<open>into_iter\<close>, dummyT), iterable]
+    (Navigation.select Navigation.Primary
+       \<^const_name>\<open>into_iter\<close>;
+     constant \<^const_name>\<open>funcall1\<close>
+       [Const (\<^const_name>\<open>into_iter\<close>, dummyT),
+        iterable])
 
   val skip = literal HOLogic.unit
 
   fun propagate pos expression =
-    positioned_constant \<^const_name>\<open>propagate_const\<close> pos [expression]
+    (Navigation.select Navigation.Primary
+       \<^const_name>\<open>propagate_const\<close>;
+     positioned_constant
+       \<^const_name>\<open>propagate_const\<close> pos [expression])
 
   fun unary U_Not _ expression =
-        constant \<^const_name>\<open>negation_const\<close> [expression]
+        primary_constant \<^const_name>\<open>negation_const\<close>
+          [expression]
     | unary (U_Borrow mode) pos expression = borrow mode pos expression
     | unary U_Deref pos expression = dereference pos expression
     | unary U_Propagate pos expression = propagate pos expression
@@ -771,9 +913,12 @@ struct
     | assigned_binary_operator AssignShl = Shl
     | assigned_binary_operator AssignShr = Shr
 
-  fun binary operator left right = constant (binary_constant operator) [left, right]
+  fun binary operator left right =
+    primary_constant (binary_constant operator) [left, right]
   fun assignment_binary operator left right =
-    binary (assigned_binary_operator operator) left right
+    secondary_constant
+      (binary_constant (assigned_binary_operator operator))
+      [left, right]
 
   fun option_some value = constant \<^const_name>\<open>Option.Some\<close> [value]
   val option_none = Const (\<^const_name>\<open>Option.None\<close>, dummyT)
@@ -781,7 +926,8 @@ struct
   fun list_cons head tail = constant \<^const_name>\<open>List.Cons\<close> [head, tail]
   val list_nil = Const (\<^const_name>\<open>List.Nil\<close>, dummyT)
   fun numeral_case_selector alternatives =
-    constant \<^const_name>\<open>ncase_selector\<close> [alternatives]
+    primary_constant \<^const_name>\<open>ncase_selector\<close>
+      [alternatives]
   fun reverse_list expression =
     bindlift1 (Const (\<^const_name>\<open>List.rev\<close>, dummyT)) expression
 

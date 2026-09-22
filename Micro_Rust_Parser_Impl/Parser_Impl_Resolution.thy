@@ -75,7 +75,11 @@ sig
   val registered_function:
     Proof.context -> string * Position.T -> term option
   val registered_macro_path:
-    Proof.context -> URust_AST.ur_path -> string * Position.T -> term option
+    Proof.context -> URust_AST.ur_path ->
+      {complete_name: string,
+       complete_pos: Position.T,
+       bang_pos: Position.T} ->
+      term option
   val registered_function_path:
     Proof.context -> URust_AST.ur_path -> term option
   val is_nullary_function_path:
@@ -1229,21 +1233,30 @@ struct
   fun registered_function ctxt identifier =
     registered_identifier ctxt Micro_Rust_Names.NFunction identifier
 
-  fun registered_macro_path ctxt path (complete_name, complete_pos) =
-    (case registered_identifier_at_positions ctxt
-        Micro_Rust_Names.NFunction
-        (complete_name, complete_pos)
-        (path_qualifier_positions path) of
-       SOME registered =>
-         (report_registered_path_qualifiers ctxt
-            Micro_Rust_Names.NFunction complete_name path;
-          SOME registered)
-     | NONE =>
-         if is_qualified_path path
-         then
-           qualified_registration_error Micro_Rust_Names.NFunction path
-             complete_name complete_pos
-         else NONE)
+  fun registered_macro_path ctxt path
+      {complete_name, complete_pos, bang_pos} =
+    if null
+        (Micro_Rust_Names.lookups
+          ctxt Micro_Rust_Names.NFunction complete_name)
+    then
+      if is_qualified_path path
+      then
+        qualified_registration_error Micro_Rust_Names.NFunction path
+          complete_name complete_pos
+      else NONE
+    else
+      let
+        val terminal_pos =
+          #2 (segment_identifier (final_segment path))
+        val registered =
+          Micro_Rust_Dispatch.mk_marker_positions_with_backend_targets
+            Micro_Rust_Names.NFunction complete_name terminal_pos
+            (path_qualifier_positions path) [bang_pos]
+            (Free (complete_name, dummyT))
+        val _ =
+          report_registered_path_qualifiers ctxt
+            Micro_Rust_Names.NFunction complete_name path
+      in SOME registered end
 
   fun registered_function_path ctxt path =
     exact_registered_path ctxt Micro_Rust_Names.NFunction path
@@ -1802,7 +1815,8 @@ struct
              Micro_Rust_Dispatch.emit_selected_use_markup_at_positions
                ctxt Micro_Rust_Names.NLiteral name entry
                {terminal_pos = pos,
-                qualifier_positions = path_qualifier_positions path}
+                qualifier_positions = path_qualifier_positions path,
+                backend_only_positions = []}
          | NONE => report_named_term ctxt pos (constructor_term info))
     end
 

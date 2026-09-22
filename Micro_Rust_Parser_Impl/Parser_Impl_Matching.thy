@@ -12,34 +12,35 @@ sig
       Proof.context ->
       URust_Resolution.environment ->
       URust_AST.match_flavour * URust_AST.ur_expr *
-        URust_AST.ur_arm list * Position.T ->
+        URust_AST.ur_arm list * URust_AST.source_layout ->
       term
   val lower_while_let:
     (URust_Resolution.environment -> URust_AST.ur_expr -> term) ->
       Proof.context ->
       URust_Resolution.environment ->
       Input.source * URust_AST.ur_pat * URust_AST.ur_expr *
-        URust_AST.ur_expr * Position.T ->
+        URust_AST.ur_expr * URust_AST.source_layout ->
       term
   val lower_if_let:
     (URust_Resolution.environment -> URust_AST.ur_expr -> term) ->
       Proof.context ->
       URust_Resolution.environment ->
       URust_AST.ur_pat * URust_AST.ur_expr * URust_AST.ur_expr *
-        URust_AST.ur_expr option * Position.T ->
+        URust_AST.ur_expr option * URust_AST.source_layout ->
       term
   val lower_let_else:
     (URust_Resolution.environment -> URust_AST.ur_expr -> term) ->
       Proof.context ->
       URust_Resolution.environment ->
       URust_AST.ur_pat * URust_AST.ur_expr * URust_AST.ur_expr *
-        URust_AST.ur_expr * Position.T ->
+        URust_AST.ur_expr * URust_AST.source_layout ->
       term
   val lower_boolean_match:
     (URust_Resolution.environment -> URust_AST.ur_expr -> term) ->
       Proof.context ->
       URust_Resolution.environment ->
-      URust_AST.ur_expr * URust_AST.ur_pat * Position.T ->
+      URust_AST.ur_expr * URust_AST.ur_pat *
+        URust_AST.source_layout ->
       term
 end
 \<close>
@@ -107,8 +108,24 @@ struct
   open URust_AST
   structure T = URust_Shallow_Terms
   structure P = URust_Patterns
+  structure Navigation = Micro_Rust_Semantic_Navigation
 
-  fun lower_prepared_case ctxt scrutinee lower_result prepared_arms =
+  fun keyword_positions names layout =
+    source_tokens layout
+    |> map_filter
+        (fn (Keyword_Token name, pos) =>
+              if member (op =) names name then SOME pos else NONE
+          | _ => NONE)
+
+  fun synthetic_layout position =
+    make_source_layout position []
+
+  fun synthetic_arm position pattern body =
+    UR_Arm
+      (pattern, NONE, body, synthetic_layout position)
+
+  fun lower_prepared_case ctxt source_positions
+      scrutinee lower_result prepared_arms =
     let
       fun lower_arm (tag, prepared) =
         let
@@ -117,30 +134,37 @@ struct
             lower_result tag arm_environment prepared
         in (prepared, lowered_guard, lowered_body) end
     in
-      P.compile_case ctxt NONE scrutinee
+      P.compile_case ctxt source_positions NONE scrutinee
         (map lower_arm prepared_arms)
     end
 
-  fun lower_case_arms ctxt environment position scrutinee lower_result arms =
+  fun lower_case_arms ctxt environment position source_positions
+      scrutinee lower_result arms =
     let
       val prepared =
         P.prepare_case_arms ctxt position environment
           (map snd arms)
       val tagged = map2 pair (map fst arms) prepared
     in
-      lower_prepared_case ctxt scrutinee lower_result tagged
+      lower_prepared_case ctxt source_positions
+        scrutinee lower_result tagged
     end
 
   fun lower_while_let lower ctxt environment
-      (fuel, pattern, scrutinee, body, position) =
+      (fuel, pattern, scrutinee, body, layout) =
     let
+      val position = source_span layout
+      val pattern_positions =
+        keyword_positions ["let"] layout
+      val loop_positions =
+        keyword_positions ["fuel", "while"] layout
       val lowered_fuel =
         URust_Resolution.parse_antiquotation ctxt environment fuel
       val lowered_scrutinee = lower environment scrutinee
       val prepared =
         the_single
           (P.prepare_case_arms ctxt position environment
-            [UR_Arm (pattern, NONE, body)])
+            [synthetic_arm position pattern body])
       val body_environment =
         P.prepared_environment prepared
       val success =
@@ -149,22 +173,29 @@ struct
       val condition =
         (case P.prepared_direct_abstraction prepared of
            SOME abstraction =>
-             T.bind lowered_scrutinee (abstraction success)
+             Navigation.with_source pattern_positions (fn () =>
+               T.bind lowered_scrutinee (abstraction success))
          | NONE =>
              let
                val arm = (prepared, NONE, success)
              in
                if P.prepared_is_total prepared
-               then P.compile_case ctxt NONE lowered_scrutinee [arm]
+               then
+                 P.compile_case ctxt pattern_positions
+                   NONE lowered_scrutinee [arm]
                else
-                 P.compile_case ctxt
+                 P.compile_case ctxt pattern_positions
                    (SOME (T.literal T.false_value))
                    lowered_scrutinee [arm]
              end)
-    in T.bounded_while lowered_fuel condition T.skip end
+    in
+      Navigation.with_source loop_positions (fn () =>
+        T.bounded_while lowered_fuel condition T.skip)
+    end
 
   fun lower_pattern_branch lower ctxt environment
-      (pattern, scrutinee, success, fallback, position) =
+      (pattern, scrutinee, success, fallback,
+       position, source_positions) =
     let
       val lowered_scrutinee = lower environment scrutinee
     in
@@ -178,14 +209,16 @@ struct
              val lowered_success =
                lower success_environment success
            in
-             P.bind_prepared prepared lowered_scrutinee lowered_success
+             Navigation.with_source source_positions (fn () =>
+               P.bind_prepared prepared
+                 lowered_scrutinee lowered_success)
            end
        | _ =>
            let
              val prepared =
                the_single
                  (P.prepare_case_arms ctxt position environment
-                   [UR_Arm (pattern, NONE, success)])
+                   [synthetic_arm position pattern success])
              val success_environment =
                P.prepared_environment prepared
              val lowered_success =
@@ -193,7 +226,7 @@ struct
              val lowered_fallback =
                lower environment fallback
            in
-             P.compile_case ctxt
+             P.compile_case ctxt source_positions
                (if P.prepared_is_total prepared
                 then NONE
                 else SOME lowered_fallback)
@@ -203,18 +236,37 @@ struct
     end
 
   fun lower_if_let lower ctxt environment
-      (pattern, scrutinee, success, fallback, position) =
+      (pattern, scrutinee, success, fallback, layout) =
+    let val position = source_span layout
+    in
     lower_pattern_branch lower ctxt environment
       (pattern, scrutinee, success,
-       the_default (UE_Unit position) fallback, position)
+       the_default
+         (UE_Unit (synthetic_layout position)) fallback,
+       position,
+       keyword_positions ["if", "let", "else"] layout)
+    end
 
   fun lower_let_else lower ctxt environment
-      (pattern, scrutinee, fallback, continuation, position) =
+      (pattern, scrutinee, fallback, continuation, layout) =
+    let val position = source_span layout
+    in
     lower_pattern_branch lower ctxt environment
-      (pattern, scrutinee, continuation, fallback, position)
+      (pattern, scrutinee, continuation, fallback, position,
+       keyword_positions ["let", "else"] layout)
+    end
 
-  fun lower_match lower ctxt environment (flavour, scrutinee, arms, pos) =
+  fun lower_match lower ctxt environment
+      (flavour, scrutinee, arms, layout) =
     let
+      val pos = source_span layout
+      val match_positions =
+        keyword_positions
+          [(case flavour of
+              MF_Auto => "match"
+            | MF_Switch => "match_switch"
+            | MF_Case => "match_case")]
+          layout
       val selected = P.select_match_flavour ctxt flavour arms pos
       val lowered_scrutinee = lower environment scrutinee
     in
@@ -231,10 +283,12 @@ struct
                        keys
                    end
              val pairs = maps arm_pairs arms
+             val selector =
+               Navigation.with_source match_positions (fn () =>
+                 T.numeral_case_selector
+                   (fold_rev T.list_cons pairs T.list_nil))
            in
-             T.bind lowered_scrutinee
-               (T.numeral_case_selector
-                 (fold_rev T.list_cons pairs T.list_nil))
+             T.bind lowered_scrutinee selector
            end
        | MF_Case =>
            let
@@ -245,7 +299,8 @@ struct
                   (P.prepared_guard prepared),
                 lower arm_environment (P.prepared_body prepared))
            in
-             lower_case_arms ctxt environment pos lowered_scrutinee
+             lower_case_arms ctxt environment pos match_positions
+               lowered_scrutinee
                lower_result alternatives
            end
        | MF_Auto =>
@@ -253,15 +308,20 @@ struct
     end
 
   fun lower_boolean_match lower ctxt environment
-      (scrutinee, pattern, position) =
+      (scrutinee, pattern, layout) =
     let
+      val position = source_span layout
+      val source_positions =
+        keyword_positions ["matches"] layout @
+          source_token_positions layout Bang_Token
       val lowered_scrutinee = lower environment scrutinee
       val prepared =
         the_single
           (P.prepare_case_arms ctxt position environment
-            [UR_Arm (pattern, NONE, UE_Unit position)])
+            [synthetic_arm position pattern
+              (UE_Unit (synthetic_layout position))])
     in
-      P.compile_case ctxt
+      P.compile_case ctxt source_positions
         (SOME (T.literal T.false_value))
         lowered_scrutinee
         [(prepared, NONE, T.literal T.true_value)]

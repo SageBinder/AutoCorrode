@@ -6,6 +6,335 @@ declare [[urust_conformance = true]]
 declare [[urust_pp_test = true]]
 declare [[urust_verbosity = 0]]
 
+section\<open>AST source layouts\<close>
+
+text\<open>
+Composite AST nodes retain their complete diagnostic span separately from exact source-token
+ranges. This syntax-only audit uses positioned inputs containing Isabelle symbols so byte offsets
+cannot accidentally stand in for symbol offsets.
+\<close>
+
+ML_val\<open>
+  let
+    open URust_AST
+
+    fun audit_assert label condition =
+      if condition then ()
+      else error ("source-layout regression audit: " ^ label)
+
+    fun same_range left right =
+      Position.offset_of left = Position.offset_of right andalso
+      Position.end_offset_of left = Position.end_offset_of right
+
+    fun find_from text needle offset =
+      if offset + size needle > size text then
+        error
+          ("source-layout regression audit: missing " ^ quote needle)
+      else if String.substring (text, offset, size needle) = needle
+      then offset
+      else find_from text needle (offset + 1)
+
+    fun expected_position lex_layout raw spelling =
+      Position.range_position
+        (Parser_Lex_Util.text_range lex_layout (raw, spelling))
+
+    fun expected_tokens source specifications =
+      let
+        val text = Input.text_of source
+        val lex_layout = Parser_Lex_Util.make_source_layout source
+        fun collect [] _ = []
+          | collect ((role, spelling) :: rest) cursor =
+              let
+                val raw = find_from text spelling cursor
+              in
+                (role, expected_position lex_layout raw spelling) ::
+                  collect rest (raw + size spelling)
+              end
+      in collect specifications 0 end
+
+    fun assert_layout label source layout specifications =
+      let
+        val text = Input.text_of source
+        val lex_layout = Parser_Lex_Util.make_source_layout source
+        val expected_span = expected_position lex_layout 0 text
+        val expected = expected_tokens source specifications
+        val actual = source_tokens layout
+        fun same_token
+            ((left_role, left_pos), (right_role, right_pos)) =
+          left_role = right_role andalso same_range left_pos right_pos
+      in
+        audit_assert (label ^ " complete span changed")
+          (same_range (source_span layout) expected_span);
+        audit_assert (label ^ " exact token list changed")
+          (length actual = length expected andalso
+           ListPair.allEq same_token (actual, expected))
+      end
+
+    fun assert_token_at label source layout role spelling cursor =
+      let
+        val text = Input.text_of source
+        val lex_layout = Parser_Lex_Util.make_source_layout source
+        val raw = find_from text spelling cursor
+        val expected = expected_position lex_layout raw spelling
+      in
+        (case source_token_positions layout role of
+           [actual] =>
+             audit_assert (label ^ " exact range changed")
+               (same_range actual expected)
+         | _ =>
+             error
+               ("source-layout regression audit: " ^ label ^
+                " token multiplicity changed"))
+      end
+
+    fun positioned label text =
+      Parser_Lex_Util.positioned_content_source text
+        (Position.make0 17 300 0 "" "" label)
+
+    fun parse source =
+      (case URust_Parser.parse_source \<^context> source of
+         SOME expression => expression
+       | NONE => error "source-layout regression audit: empty parse")
+
+    val binding_source =
+      positioned "source-layout-binding"
+        "let mut slot = true; slot"
+    val _ =
+      (case parse binding_source of
+         UE_LetMut
+           (_, UE_Literal boolean, _, binding_layout) =>
+           (assert_layout "mutable binding" binding_source binding_layout
+              [(Keyword_Token "let", "let"),
+               (Keyword_Token "mut", "mut"),
+               (Delimiter_Token "=", "="),
+               (Delimiter_Token ";", ";")];
+            assert_token_at "boolean literal" binding_source
+              (literal_source_layout boolean)
+              (Keyword_Token "true") "true" 0)
+       | _ =>
+           error "source-layout regression audit: mutable binding AST changed")
+
+    val sequence_source =
+      positioned "source-layout-sequence" "left; return right"
+    val return_source =
+      positioned "source-layout-return" "return right"
+    val _ =
+      (case parse sequence_source of
+         UE_Seq (_, UE_Return _, sequence_layout) =>
+           assert_layout "sequence" sequence_source sequence_layout
+             [(Delimiter_Token ";", ";")]
+       | _ =>
+           error "source-layout regression audit: sequence AST changed")
+    val _ =
+      (case parse return_source of
+         UE_Return (_, return_layout) =>
+           assert_layout "return" return_source return_layout
+             [(Keyword_Token "return", "return")]
+       | _ =>
+           error "source-layout regression audit: return AST changed")
+
+    val conditional_source =
+      positioned "source-layout-conditional"
+        "if \<llangle>condition\<rrangle> { true } else { false }"
+    val _ =
+      (case parse conditional_source of
+         UE_If
+           (_, UE_Block (UE_Literal true_payload, _),
+            SOME (UE_Block (UE_Literal false_payload, _)),
+            conditional_layout) =>
+           (assert_layout "conditional" conditional_source
+              conditional_layout
+              [(Keyword_Token "if", "if"),
+               (Keyword_Token "else", "else")];
+            audit_assert "true literal token changed"
+              (same_range
+                (the_source_token_position
+                  (literal_source_layout true_payload)
+                  (Keyword_Token "true"))
+                (#2
+                  (hd
+                    (expected_tokens conditional_source
+                      [(Keyword_Token "true", "true")]))));
+            assert_token_at "false literal" conditional_source
+              (literal_source_layout false_payload)
+              (Keyword_Token "false") "false" 0)
+       | _ =>
+           error "source-layout regression audit: conditional AST changed")
+
+    val while_source =
+      positioned "source-layout-while"
+        "#[fuel(\<epsilon>\<open>1 :: nat\<close>)] while (true) { () }"
+    val _ =
+      (case parse while_source of
+         UE_While (_, _, _, layout) =>
+           assert_layout "fuelled while" while_source layout
+             [(Keyword_Token "fuel", "fuel"),
+              (Keyword_Token "while", "while"),
+              (Delimiter_Token "(", "("),
+              (Delimiter_Token ")", ")")]
+       | _ =>
+           error "source-layout regression audit: while AST changed")
+
+    val loop_source =
+      positioned "source-layout-loop"
+        "#[fuel(\<epsilon>\<open>1 :: nat\<close>)] loop { () }"
+    val _ =
+      (case parse loop_source of
+         UE_Loop (_, _, layout) =>
+           assert_layout "fuelled loop" loop_source layout
+             [(Keyword_Token "fuel", "fuel"),
+              (Keyword_Token "loop", "loop")]
+       | _ =>
+           error "source-layout regression audit: loop AST changed")
+
+    val for_source =
+      positioned "source-layout-for" "for item in items { item }"
+    val _ =
+      (case parse for_source of
+         UE_For (_, _, _, layout) =>
+           assert_layout "for loop" for_source layout
+             [(Keyword_Token "for", "for"),
+              (Keyword_Token "in", "in")]
+       | _ =>
+           error "source-layout regression audit: for AST changed")
+
+    val postfix_source =
+      positioned "source-layout-postfix" "target(value)[0].field"
+    val _ =
+      (case parse postfix_source of
+         UE_Field
+           (UE_Index
+             (UE_Call (_, _, call_layout), _, index_layout),
+            "field", field_layout) =>
+           (assert_layout "call"
+              (positioned "source-layout-call" "target(value)")
+              call_layout
+              [(Delimiter_Token "(", "("),
+               (Delimiter_Token ")", ")")];
+            audit_assert "index delimiters changed"
+              (map #1 (source_tokens index_layout) =
+                [Delimiter_Token "[", Delimiter_Token "]"]);
+            assert_token_at "index opener" postfix_source index_layout
+              (Delimiter_Token "[") "[" 0;
+            assert_token_at "index closer" postfix_source index_layout
+              (Delimiter_Token "]") "]" 0;
+            audit_assert "field selector tokens changed"
+              (map #1 (source_tokens field_layout) =
+                [Delimiter_Token ".", Name_Token]);
+            assert_token_at "field dot" postfix_source field_layout
+              (Delimiter_Token ".") "." 0;
+            assert_token_at "field name" postfix_source field_layout
+              Name_Token "field" 0)
+       | _ =>
+           error "source-layout regression audit: postfix AST changed")
+
+    val operator_source =
+      positioned "source-layout-operators"
+        "slot += lower + upper..=limit as usize"
+    val _ =
+      (case parse operator_source of
+         UE_Assign
+           (AssignAdd, _, UE_Range
+             (RK_Inclusive, UE_Bin (_, _, _, binary_layout),
+              UE_Cast (_, _, cast_layout), range_layout),
+            assign_layout) =>
+           (audit_assert "assignment operator token changed"
+              (map #1 (source_tokens assign_layout) = [Operator_Token]);
+            assert_token_at "assignment operator" operator_source
+              assign_layout Operator_Token "+=" 0;
+            assert_token_at "binary operator" operator_source
+              binary_layout Operator_Token "+" 7;
+            assert_token_at "range operator" operator_source
+              range_layout Operator_Token "..=" 0;
+            assert_token_at "cast keyword" operator_source
+              cast_layout (Keyword_Token "as") "as" 0)
+       | _ =>
+           error "source-layout regression audit: operator AST changed")
+
+    val match_source =
+      positioned "source-layout-match"
+        ("match_switch value { " ^
+         "whole @ & mut Some(1..=2) if guard => true, _ => false }")
+    val _ =
+      (case parse match_source of
+         UE_Match
+           (MF_Switch, _,
+            UR_Arm
+              (P_Alias
+                (_, _, P_Borrow
+                  (BM_Mut,
+                   P_Constr
+                     (_, [P_Range (_, _, _, range_layout)],
+                      constructor_layout),
+                   borrow_layout),
+                 alias_layout),
+               SOME (_, _), UE_Literal _, arm_layout) :: _,
+            match_layout) =>
+           (assert_layout "match" match_source match_layout
+              [(Keyword_Token "match_switch", "match_switch"),
+               (Delimiter_Token "{", "{"),
+               (Delimiter_Token "}", "}")];
+            audit_assert "guarded arm controls changed"
+              (map #1 (source_tokens arm_layout) =
+                [Keyword_Token "if", Delimiter_Token "=>"]);
+            assert_token_at "arm guard" match_source arm_layout
+              (Keyword_Token "if") "if" 0;
+            assert_token_at "arm arrow" match_source arm_layout
+              (Delimiter_Token "=>") "=>" 0;
+            audit_assert "alias control changed"
+              (map #1 (source_tokens alias_layout) = [Operator_Token]);
+            assert_token_at "pattern alias" match_source alias_layout
+              Operator_Token "@" 0;
+            audit_assert "borrow controls changed"
+              (map #1 (source_tokens borrow_layout) =
+                [Operator_Token, Keyword_Token "mut"]);
+            assert_token_at "pattern borrow" match_source borrow_layout
+              Operator_Token "&" 0;
+            assert_token_at "pattern mut" match_source borrow_layout
+              (Keyword_Token "mut") "mut" 0;
+            audit_assert "constructor delimiters changed"
+              (map #1 (source_tokens constructor_layout) =
+                [Delimiter_Token "(", Delimiter_Token ")"]);
+            assert_token_at "constructor opener" match_source
+              constructor_layout (Delimiter_Token "(") "(" 0;
+            assert_token_at "constructor closer" match_source
+              constructor_layout (Delimiter_Token ")") ")" 0;
+            audit_assert "pattern range control changed"
+              (map #1 (source_tokens range_layout) = [Operator_Token]);
+            assert_token_at "pattern range" match_source range_layout
+              Operator_Token "..=" 0)
+       | _ =>
+           error "source-layout regression audit: match AST changed")
+
+    val macro_source =
+      positioned "source-layout-macros"
+        "Module::invoke!(matches!(true, _))"
+    val _ =
+      (case parse macro_source of
+         UE_Macro
+           (_, MP_Arguments
+             [UE_Macro (_, MP_Matches _, matches_layout)],
+            macro_layout) =>
+           (audit_assert "registered macro controls changed"
+              (map #1 (source_tokens macro_layout) =
+                [Bang_Token,
+                 Delimiter_Token "(", Delimiter_Token ")"]);
+            assert_token_at "registered macro bang" macro_source
+              macro_layout Bang_Token "!" 0;
+            audit_assert "matches macro controls changed"
+              (map #1 (source_tokens matches_layout) =
+                [Keyword_Token "matches", Bang_Token,
+                 Delimiter_Token "(", Delimiter_Token ",",
+                 Delimiter_Token ")"]);
+            assert_token_at "matches macro bang" macro_source
+              matches_layout Bang_Token "!" 16)
+       | _ =>
+           error "source-layout regression audit: macro AST changed")
+  in
+    writeln "AST source-layout regressions passed"
+  end
+\<close>
+
 section\<open>Expression precedence\<close>
 
 adhoc_overloading store_reference_const \<rightleftharpoons> parser_reference_fixture
@@ -637,8 +966,8 @@ ML_val\<open>
            separator ^ pattern ^ " => body }") of
          UE_Match
            (_, _,
-            [UR_Arm (_, _, UE_If _),
-             UR_Arm (following, _, _)],
+            [UR_Arm (_, _, UE_If _, _),
+             UR_Arm (following, _, _, _)],
             _) => following
        | _ =>
            error
@@ -715,10 +1044,10 @@ ML_val\<open>
           "match value { First => if flag { left } else { right } Second if guard => body }" of
          UE_Match
            (_, _,
-            [UR_Arm (_, _, UE_If _),
+            [UR_Arm (_, _, UE_If _, _),
              UR_Arm
                (P_Ident ("Second", _),
-                SOME (UE_Path _, _), UE_Path _)],
+                SOME (UE_Path _, _), UE_Path _, _)],
             _) => ()
        | _ => error "guarded arm after comma-free block changed shape")
     val _ =
@@ -727,9 +1056,9 @@ ML_val\<open>
            "Second => if guard { middle } else { other } Third => tail }") of
          UE_Match
            (_, _,
-            [UR_Arm (_, _, UE_If _),
-             UR_Arm (_, _, UE_If _),
-             UR_Arm (P_Ident ("Third", _), _, UE_Path _)],
+            [UR_Arm (_, _, UE_If _, _),
+             UR_Arm (_, _, UE_If _, _),
+             UR_Arm (P_Ident ("Third", _), _, UE_Path _, _)],
             _) => ()
        | _ => error "chained comma-free block arms changed shape")
     val _ =
@@ -737,9 +1066,9 @@ ML_val\<open>
           "match value { First => if flag { left } else { right } Second => return result, }" of
          UE_Match
            (_, _,
-            [UR_Arm (_, _, UE_If _),
+            [UR_Arm (_, _, UE_If _, _),
              UR_Arm
-               (P_Ident ("Second", _), _, UE_Return _)],
+               (P_Ident ("Second", _), _, UE_Return _, _)],
             _) => ()
        | _ => error "comma-delimited return arm after comma-free block changed shape")
     val _ =
@@ -747,9 +1076,9 @@ ML_val\<open>
           "match value { First => if flag { left } else { right } Second => middle, &third => tail }" of
          UE_Match
            (_, _,
-            [UR_Arm (_, _, UE_If _),
-             UR_Arm (P_Ident ("Second", _), _, UE_Path _),
-             UR_Arm (P_Borrow _, _, UE_Path _)],
+            [UR_Arm (_, _, UE_If _, _),
+             UR_Arm (P_Ident ("Second", _), _, UE_Path _, _),
+             UR_Arm (P_Borrow _, _, UE_Path _, _)],
             _) => ()
        | _ => error "comma did not restore unrestricted following arms")
     val _ =
@@ -757,8 +1086,8 @@ ML_val\<open>
           "match value { First => if flag { left } else { right } Second => tail, }" of
          UE_Match
            (_, _,
-            [UR_Arm (_, _, UE_If _),
-             UR_Arm (P_Ident ("Second", _), _, UE_Path _)],
+            [UR_Arm (_, _, UE_If _, _),
+             UR_Arm (P_Ident ("Second", _), _, UE_Path _, _)],
             _) => ()
        | _ => error "trailing comma after restricted following arm changed")
   in
@@ -846,7 +1175,7 @@ ML_val\<open>
        | _ => error "direct with-block operand AST shape changed")
     val _ =
       (case parse "if true { () } else { () } ()" of
-         UE_Seq (UE_If _, UE_Unit _) => ()
+         UE_Seq (UE_If _, UE_Unit _, _) => ()
        | _ => error "semicolon-free direct with-block statement shape changed")
     val _ =
       (case parse "0b10_01u8" of
@@ -896,19 +1225,21 @@ ML_val\<open>
        | _ => error "loop closure-body shape changed")
     val _ =
       (case parse "|| (); ()" of
-         UE_Seq (UE_Closure (_, UE_Unit _, _), UE_Unit _) => ()
+         UE_Seq
+           (UE_Closure (_, UE_Unit _, _), UE_Unit _, _) => ()
        | _ => error "closure statement sequencing shape changed")
     val _ =
       (case parse "|| \<llangle>1 :: nat\<rrangle>; ()" of
-         UE_Seq (UE_Closure (_, UE_Literal _, _), UE_Unit _) => ()
+         UE_Seq
+           (UE_Closure (_, UE_Literal _, _), UE_Unit _, _) => ()
        | _ => error "closure left-sequencing shape changed")
     val _ =
       (case parse
           "match true { true => return 1, false => { return 2; } }" of
          UE_Match
            (_, _,
-            [UR_Arm (_, _, UE_Return _),
-             UR_Arm (_, _, UE_Block (UE_Return _, _))],
+            [UR_Arm (_, _, UE_Return _, _),
+             UR_Arm (_, _, UE_Block (UE_Return _, _), _)],
             _) => ()
        | _ => error "comma and braced return-arm AST shapes changed")
     val literal_text = "0b10_01u8"
@@ -1001,8 +1332,8 @@ ML_val\<open>
       (case parse source of
          UE_Match
            (MF_Case, _,
-            UR_Arm (_, SOME (guard, if_pos), UE_Unit _) ::
-              UR_Arm (_, NONE, UE_Unit _) :: [],
+            UR_Arm (_, SOME (guard, if_pos), UE_Unit _, _) ::
+              UR_Arm (_, NONE, UE_Unit _, _) :: [],
             _) =>
            (guard, if_pos)
        | _ =>
@@ -1031,43 +1362,45 @@ ML_val\<open>
     val _ = check_guard "terminal value" "true" is_true
     val _ =
       check_guard "semicolon value sequence" "(); true"
-        (fn UE_Seq (left, right) =>
+        (fn UE_Seq (left, right, _) =>
               is_unit left andalso is_true right
           | _ => false)
     val _ =
       check_guard "terminal statement" "();"
-        (fn UE_Seq (left, right) =>
+        (fn UE_Seq (left, right, _) =>
               is_unit left andalso is_unit right
           | _ => false)
     val _ =
       check_guard "block prefix" "{ () } true"
-        (fn UE_Seq (UE_Block (body, _), right) =>
+        (fn UE_Seq (UE_Block (body, _), right, _) =>
               is_unit body andalso is_true right
           | _ => false)
     val _ =
       check_guard "unsafe-block prefix" "unsafe { () } true"
-        (fn UE_Seq (UE_Block (body, _), right) =>
+        (fn UE_Seq (UE_Block (body, _), right, _) =>
               is_unit body andalso is_true right
           | _ => false)
     val _ =
       check_guard "conditional prefix"
         "if false { () } else { () } true"
-        (fn UE_Seq (UE_If _, right) => is_true right
+        (fn UE_Seq (UE_If _, right, _) => is_true right
           | _ => false)
     val _ =
       check_guard "while prefix"
         ("#[fuel(\<epsilon>\<open>1 :: nat\<close>)] while (false) { () } true")
-        (fn UE_Seq (UE_While _, right) => is_true right
+        (fn UE_Seq (UE_While _, right, _) => is_true right
           | _ => false)
     val _ =
       check_guard "loop prefix"
         ("#[fuel(\<epsilon>\<open>1 :: nat\<close>)] loop { () } true")
-        (fn UE_Seq (UE_Loop _, right) => is_true right
+        (fn UE_Seq (UE_Loop _, right, _) => is_true right
           | _ => false)
     val _ =
       check_guard "for prefix"
         "for item in values { () } true"
-        (fn UE_Seq (UE_For (P_Ident ("item", _), _, _, _), right) =>
+        (fn UE_Seq
+              (UE_For (P_Ident ("item", _), _, _, _),
+               right, _) =>
               is_true right
           | _ => false)
     val _ =
@@ -1076,33 +1409,33 @@ ML_val\<open>
          "Some(item) = Some(()) { () } true")
         (fn UE_Seq
               (UE_WhileLet
-                (_, P_Constr (path, [P_Ident ("item", _)]),
+                (_, P_Constr (path, [P_Ident ("item", _)], _),
                  _, _, _),
-               right) =>
+               right, _) =>
               render_path path = "Some" andalso is_true right
           | _ => false)
     val _ =
       check_guard "bare-match prefix"
         "match true { true => (), false => () } true"
-        (fn UE_Seq (UE_Match (MF_Auto, _, _, _), right) =>
+        (fn UE_Seq (UE_Match (MF_Auto, _, _, _), right, _) =>
               is_true right
           | _ => false)
     val _ =
       check_guard "explicit case-match prefix"
         "match_case Some(()) { Some(value) => value, None => () } true"
-        (fn UE_Seq (UE_Match (MF_Case, _, _, _), right) =>
+        (fn UE_Seq (UE_Match (MF_Case, _, _, _), right, _) =>
               is_true right
           | _ => false)
     val _ =
       check_guard "explicit switch-match prefix"
         "match_switch 0 { 0 => (), _ => () } true"
-        (fn UE_Seq (UE_Match (MF_Switch, _, _, _), right) =>
+        (fn UE_Seq (UE_Match (MF_Switch, _, _, _), right, _) =>
               is_true right
           | _ => false)
     val _ =
       check_guard "let binding"
         "let flag = true; flag"
-        (fn UE_Let (P_Ident ("flag", _), value, body) =>
+        (fn UE_Let (P_Ident ("flag", _), value, body, _) =>
               is_true value andalso is_path "flag" body
           | _ => false)
     val _ =
@@ -1114,14 +1447,14 @@ ML_val\<open>
     val _ =
       check_guard "const binding"
         "const FLAG = true; FLAG"
-        (fn UE_Const (P_Ident ("FLAG", _), value, body) =>
+        (fn UE_Const (P_Ident ("FLAG", _), value, body, _) =>
               is_true value andalso is_path "FLAG" body
           | _ => false)
     val _ =
       check_guard "let-else binding"
         "let Some(flag) = Some(true) else { false }; flag"
         (fn UE_LetElse
-              (P_Constr (path, [P_Ident ("flag", _)]),
+              (P_Constr (path, [P_Ident ("flag", _)], _),
                _, UE_Block (fallback, _), body, _) =>
               render_path path = "Some" andalso is_path "flag" body andalso
                 (case fallback of
@@ -1134,14 +1467,15 @@ ML_val\<open>
         (fn UE_Let
               (P_Ident ("first", _), _,
                UE_Const
-                 (P_Ident ("SECOND", _), first, second)) =>
+                 (P_Ident ("SECOND", _), first, second, _),
+               _) =>
               is_path "first" first andalso is_path "SECOND" second
           | _ => false)
     val _ =
       check_guard "if-let value"
         "if let Some(flag) = Some(true) { flag } else { false }"
         (fn UE_IfLet
-              (P_Constr (path, [P_Ident ("flag", _)]),
+              (P_Constr (path, [P_Ident ("flag", _)], _),
                _, UE_Block (body, _),
                SOME (UE_Block (UE_Literal (LP_Bool (false, _)), _)), _) =>
               render_path path = "Some" andalso is_path "flag" body
@@ -1180,12 +1514,12 @@ ML_val\<open>
           Position.offset_of (position_at arm_if_raw))
     val _ =
       (case positioned_ast of
-         UE_IfLet (_, _, _, _, span) =>
+         UE_IfLet (_, _, _, _, layout) =>
            (audit_assert "if-let guard span start moved"
-              (Position.offset_of span =
+              (Position.offset_of (source_span layout) =
                 Position.offset_of (position_at (size arm_prefix)));
             audit_assert "if-let guard span stopped before the arrow"
-              (Position.end_offset_of span =
+              (Position.end_offset_of (source_span layout) =
                 Position.offset_of (position_at guard_stop_raw)))
        | _ =>
            error
@@ -1206,12 +1540,12 @@ ML_val\<open>
         positioned_start
     val _ =
       (case positioned_let_else_ast of
-         UE_LetElse (_, _, _, _, span) =>
+         UE_LetElse (_, _, _, _, layout) =>
            (audit_assert "let-else guard span start moved"
-              (Position.offset_of span =
+              (Position.offset_of (source_span layout) =
                 Position.offset_of (position_at (size arm_prefix)));
             audit_assert "let-else guard span stopped before the arrow"
-              (Position.end_offset_of span =
+              (Position.end_offset_of (source_span layout) =
                 Position.offset_of positioned_let_else_stop))
        | _ =>
            error
@@ -1223,7 +1557,7 @@ ML_val\<open>
     val _ =
       audit_assert "non-boolean terminal statement did not parse"
         (case non_boolean_ast of
-           UE_Seq (left, right) =>
+           UE_Seq (left, right, _) =>
              is_unit left andalso is_unit right
          | _ => false)
     val _ =
@@ -1549,6 +1883,10 @@ ML_val\<open>
     val ranged_start =
       Position.make0 13 70 700 "" ""
         "tuple-projection-range-audit"
+    val ranged_stop =
+      Position.symbol_explode ranged_text ranged_start
+    val ranged_span =
+      Position.range_position (ranged_start, ranged_stop)
     val (ten_offset, ten_position) =
       token_position ranged_text ranged_start "10" 0
     val (_, fifteen_position) =
@@ -1562,15 +1900,21 @@ ML_val\<open>
       (case ranged_ast of
          UE_TupleProjection
            (UE_TupleProjection
-             (UE_Literal (LP_ValAntiq _), 10, inner_position),
-            15, outer_position) =>
+             (UE_Literal (LP_ValAntiq _), 10, inner_layout),
+            15, outer_layout) =>
            (audit_assert "inner two-digit token range changed"
-              (same_range inner_position ten_position);
-            audit_assert "outer two-digit token range changed"
-              (same_range outer_position fifteen_position);
-            audit_assert "expression_position lost the outer numeric token"
               (same_range
-                (expression_position ranged_ast) fifteen_position))
+                (the_source_token_position
+                  inner_layout Name_Token)
+                ten_position);
+            audit_assert "outer two-digit token range changed"
+              (same_range
+                (the_source_token_position
+                  outer_layout Name_Token)
+                fifteen_position);
+            audit_assert "expression_position lost the projection span"
+              (same_range
+                (expression_position ranged_ast) ranged_span))
        | _ =>
            error
              "tuple-projection regression audit: ranged AST changed")
@@ -1911,21 +2255,22 @@ ML_val\<open>
          full_body_literal_pos, full_body_if_pos) =
       (case full_body of
          UE_Macro
-           (path, bang_pos,
+           (path,
             MP_Arguments
               [UE_Let
                 (P_Ident ("flag", binder_pos),
                  UE_Literal (LP_Bool (true, literal_pos)),
                  UE_IfLet
-                   (P_Constr (pattern_path, [P_Wild _]),
+                   (P_Constr (pattern_path, [P_Wild _], _),
                     UE_Call
                       (UC_Path call_path, [UE_Path scrutinee_path], _),
                     UE_Block (UE_Path then_path, _),
                     SOME
                       (UE_Block
                         (UE_Literal (LP_Bool (false, _)), _)),
-                    if_pos))],
-           invocation_pos) =>
+                    if_layout),
+                 _)],
+            macro_layout) =>
            (audit_assert "full-body macro path changed"
               (render_path path = "debug_assert");
             audit_assert "full-body condition escaped its binding continuation"
@@ -1933,8 +2278,10 @@ ML_val\<open>
                render_path call_path = "Some" andalso
                render_path scrutinee_path = "flag" andalso
                render_path then_path = "flag");
-            (path_position path, bang_pos, invocation_pos,
-             binder_pos, literal_pos, if_pos))
+            (path_position path,
+             the_source_token_position macro_layout Bang_Token,
+             source_span macro_layout,
+             binder_pos, literal_pos, source_span if_layout))
        | _ =>
            error "legacy macro regression audit: full-body macro AST changed")
     val _ =
@@ -1985,10 +2332,7 @@ ML_val\<open>
            Position.offset_of full_body_name_token andalso
          Position.end_offset_of full_body_name_pos =
            Position.end_offset_of full_body_name_token)
-    val full_body_bang_markup_pos =
-      Position.range_position
-        (full_body_bang_pos,
-         Position.symbol_explode "!" full_body_bang_pos)
+    val full_body_bang_markup_pos = full_body_bang_pos
     val _ =
       audit_assert "full-body macro bang span moved"
         (Position.offset_of full_body_bang_markup_pos =
@@ -2014,24 +2358,26 @@ ML_val\<open>
     val (bracket_body_name_pos, bracket_body_invocation_pos) =
       (case bracket_body of
          UE_Macro
-           (path, _,
+           (path,
             MP_Arguments
               [UE_Let
                 (P_Ident ("left", _),
                  UE_Literal (LP_Bool (true, _)),
-                 UE_Path left_path),
+                 UE_Path left_path, _),
                UE_Const
                 (P_Ident ("right", _),
                  UE_Literal (LP_Bool (false, _)),
                  UE_If
-                   (UE_Path right_path, UE_Block _, SOME (UE_Block _), _))],
-            invocation_pos) =>
+                   (UE_Path right_path, UE_Block _,
+                    SOME (UE_Block _), _),
+                 _)],
+            macro_layout) =>
            (audit_assert "bracket full-body macro path changed"
               (render_path path = "assert_eq");
             audit_assert "bracket full-body argument order changed"
               (render_path left_path = "left" andalso
                render_path right_path = "right");
-            (path_position path, invocation_pos))
+            (path_position path, source_span macro_layout))
        | _ =>
            error "legacy macro regression audit: bracket full-body AST changed")
     val _ =
@@ -2055,10 +2401,14 @@ ML_val\<open>
     val (spaced_name_pos, spaced_bang_pos, spaced_invocation_pos) =
       (case spaced of
          UE_Macro
-           (path, bang_pos,
-            MP_Arguments [UE_Literal (LP_ValAntiq _)],
-            invocation_pos) =>
-           let val name_pos = path_position path in
+           (path, MP_Arguments [UE_Literal (LP_ValAntiq _)],
+            macro_layout) =>
+           let
+             val name_pos = path_position path
+             val bang_pos =
+               the_source_token_position macro_layout Bang_Token
+             val invocation_pos = source_span macro_layout
+           in
            (audit_assert "generic macro path changed"
               (render_path path = "assert");
             audit_assert "generic macro name span moved"
@@ -2121,15 +2471,18 @@ ML_val\<open>
     val (matches_name_pos, matches_bang_pos, matches_invocation_pos) =
       (case matches of
          UE_Macro
-           (path, bang_pos,
+           (path,
             MP_Matches
               (UE_Call (UC_Path call_path, [_], _),
-               P_Constr (pattern_path, [P_Wild _])),
-            invocation_pos) =>
+               P_Constr (pattern_path, [P_Wild _], _)),
+            macro_layout) =>
            if render_path path = "matches" andalso
                render_path call_path = "Some" andalso
                render_path pattern_path = "Some"
-           then (path_position path, bang_pos, invocation_pos)
+           then
+             (path_position path,
+              the_source_token_position macro_layout Bang_Token,
+              source_span macro_layout)
            else error "legacy macro regression audit: matches paths changed"
        | _ =>
            error "legacy macro regression audit: matches macro AST changed")
@@ -2156,10 +2509,13 @@ ML_val\<open>
     val (registered_name_pos, registered_bang_pos) =
       (case registered of
          UE_Macro
-           (path, bang_pos,
-            MP_Arguments [UE_Literal (LP_Bool (true, _))], _) =>
+           (path,
+            MP_Arguments [UE_Literal (LP_Bool (true, _))],
+            macro_layout) =>
            if render_path path = "shout"
-           then (path_position path, bang_pos)
+           then
+             (path_position path,
+              the_source_token_position macro_layout Bang_Token)
            else error "legacy macro regression audit: registered macro path changed"
        | _ =>
            error "legacy macro regression audit: registered macro AST changed")
@@ -2167,10 +2523,6 @@ ML_val\<open>
       audit_assert "registered macro name and bang stopped being adjacent"
         (Position.end_offset_of registered_name_pos =
           Position.offset_of registered_bang_pos)
-    val registered_complete_name_pos =
-      Position.range_position
-        (registered_name_pos,
-         Position.symbol_explode "!" registered_bang_pos)
     val _ = capture_elaboration registered_text registered_start
 
     fun collect_markup (XML.Text _) result = result
@@ -2224,10 +2576,7 @@ ML_val\<open>
     val _ =
       audit_assert "generic built-in macro hover range moved"
         (has_markup Markup.typingN spaced_name_pos)
-    val spaced_bang_markup_pos =
-      Position.range_position
-        (spaced_bang_pos,
-         Position.symbol_explode "!" spaced_bang_pos)
+    val spaced_bang_markup_pos = spaced_bang_pos
     val _ =
       audit_assert "generic built-in macro bang markup moved"
         (has_markup Markup.operatorN spaced_bang_markup_pos)
@@ -2238,20 +2587,17 @@ ML_val\<open>
     val _ =
       audit_assert "matches keyword markup moved"
         (has_markup Markup.keyword1N matches_name_pos)
-    val matches_bang_markup_pos =
-      Position.range_position
-        (matches_bang_pos,
-         Position.symbol_explode "!" matches_bang_pos)
+    val matches_bang_markup_pos = matches_bang_pos
     val _ =
       audit_assert "matches bang operator markup moved"
         (has_markup Markup.operatorN matches_bang_markup_pos)
     val _ =
-      audit_assert "registered complete-bang-name notation markup moved"
+      audit_assert "registered identifier notation markup moved"
         (has_entity_markup
-          Micro_Rust_Names.notationN registered_complete_name_pos)
+          Micro_Rust_Names.notationN registered_name_pos)
     val _ =
-      audit_assert "registered complete-bang-name dispatch styling moved"
-        (has_markup Markup.keyword3N registered_complete_name_pos)
+      audit_assert "registered identifier dispatch styling moved"
+        (has_markup Markup.keyword3N registered_name_pos)
 
     val (_, full_body_let_keyword) =
       token_position full_body_text full_body_start "let" 0
@@ -2471,7 +2817,7 @@ ML_val\<open>
     fun is_recovered_full_body expression =
       (case expression of
          UE_Macro
-           (path, _,
+           (path,
             MP_Arguments
               [UE_Let
                 (P_Ident ("recovered", _),
@@ -2479,7 +2825,8 @@ ML_val\<open>
                  UE_If
                    (UE_Path condition_path,
                     UE_Block (UE_Path then_path, _),
-                    SOME (UE_Block _), _))],
+                    SOME (UE_Block _), _),
+                 _)],
             _) =>
            render_path path = "debug_assert" andalso
            render_path condition_path = "recovered" andalso
@@ -2600,26 +2947,29 @@ ML_val\<open>
       (case ast of
          UE_Closure
            ([P_Ident ("first", _), P_Ident ("second", _)],
-            UE_Path body_path, closure_pos) =>
+            UE_Path body_path, closure_layout) =>
            (audit_assert "closure body path changed"
               (render_path body_path = "second");
             audit_assert "full closure span start moved"
-              (Position.offset_of closure_pos =
+              (Position.offset_of (source_span closure_layout) =
                 Position.offset_of ast_start);
             audit_assert "full closure span end moved"
-              (Position.end_offset_of closure_pos =
+              (Position.end_offset_of
+                (source_span closure_layout) =
                 Position.offset_of ast_stop);
             audit_assert "expression_position lost the closure span"
               (Position.offset_of (expression_position ast) =
-                 Position.offset_of closure_pos andalso
+                 Position.offset_of
+                   (source_span closure_layout) andalso
                Position.end_offset_of (expression_position ast) =
-                 Position.end_offset_of closure_pos))
+                 Position.end_offset_of
+                   (source_span closure_layout)))
        | _ =>
            error "closure regression audit: closure AST changed")
 
     val _ =
       (case parse_text "let f = (|| 1); ()" of
-         UE_Let (_, initializer, _) =>
+         UE_Let (_, initializer, _, _) =>
            audit_assert "grouped closure initializer stopped parsing"
              (is_grouped_closure initializer)
        | _ =>
@@ -2664,7 +3014,9 @@ ML_val\<open>
           parse_text
             "match true { true \<Rightarrow> (|| true), false \<Rightarrow> (|| false) }" of
          UE_Match
-           (_, _, [UR_Arm (_, _, first), UR_Arm (_, _, second)], _) =>
+           (_, _,
+            [UR_Arm (_, _, first, _),
+             UR_Arm (_, _, second, _)], _) =>
            (audit_assert "first grouped closure arm stopped parsing"
               (is_grouped_closure first);
             audit_assert "second grouped closure arm stopped parsing"
@@ -2673,7 +3025,7 @@ ML_val\<open>
            error "closure regression audit: grouped arm AST changed")
     val _ =
       (case parse_text "(|| 1); ()" of
-         UE_Seq (left, _) =>
+         UE_Seq (left, _, _) =>
            audit_assert "grouped closure sequencing-left stopped parsing"
              (is_grouped_closure left)
        | _ =>
@@ -2694,7 +3046,10 @@ ML_val\<open>
          UE_Match
            (_, _,
             UR_Arm
-              (_, SOME (UE_Closure ([], UE_Literal (LP_Bool (true, _)), _), _), _) :: _,
+              (_, SOME
+                (UE_Closure
+                  ([], UE_Literal (LP_Bool (true, _)), _), _),
+               _, _) :: _,
             _) =>
            ()
        | _ =>
@@ -3034,11 +3389,13 @@ ML_val\<open>
            (operand,
             SCT_Primitive
               (CT_RawPointer (RPM_Mut, UT_Usize)),
-            as_position) =>
+            cast_layout) =>
            (audit_assert "cast operand changed"
               (path_named "operand" operand);
             audit_assert "as position moved"
-              (Position.offset_of as_position =
+              (Position.offset_of
+                (the_source_token_position
+                  cast_layout (Keyword_Token "as")) =
                 Position.offset_of expected_as))
        | _ => error "cast regression audit: positioned cast AST changed")
 
@@ -3647,8 +4004,8 @@ ML_val\<open>
                       SE_Field
                         ("delta", fourth_label_pos,
                          UE_Literal (LP_ValAntiq _))],
-                     nested_pos))],
-            outer_pos) =>
+                     nested_layout))],
+            outer_layout) =>
            (audit_assert "outer head changed"
               (render_path head = "D21AuditPair");
             audit_assert "nested head changed"
@@ -3660,12 +4017,13 @@ ML_val\<open>
               (same_range third_label_pos gamma_pos andalso
                same_range fourth_label_pos delta_pos);
             audit_assert "outer span no longer covers head through closing brace"
-              (Position.offset_of outer_pos =
+              (Position.offset_of (source_span outer_layout) =
                  Position.offset_of outer_head_pos andalso
-               Position.end_offset_of outer_pos =
+               Position.end_offset_of (source_span outer_layout) =
                  Position.offset_of structural_stop);
             audit_assert "nested struct span changed"
-              (same_range nested_pos nested_span);
+              (same_range
+                (source_span nested_layout) nested_span);
             audit_assert "expression_position lost the nested struct boundary"
               (same_range (expression_position nested) nested_span))
        | _ =>
@@ -3680,23 +4038,26 @@ ML_val\<open>
                  UE_Struct
                    (head,
                     [SE_Field ("value", label_pos, _)],
-                    struct_pos),
-               group_pos),
-            _, match_pos) =>
+                    struct_layout),
+               group_layout),
+            _, match_layout) =>
            (audit_assert "grouped control-head struct changed"
               (render_path head = "D21AuditOne");
             audit_assert "grouped control-head label position changed"
               (same_range label_pos control_label_pos);
             audit_assert "grouped control-head struct span changed"
-              (same_range struct_pos control_struct_span andalso
+              (same_range
+                 (source_span struct_layout)
+                 control_struct_span andalso
                same_range
                  (expression_position nested) control_struct_span);
             audit_assert "grouped control-head span changed"
-              (same_range group_pos control_group_span);
+              (same_range
+                (source_span group_layout) control_group_span);
             audit_assert "grouped control-head match span changed"
-              (Position.offset_of match_pos =
+              (Position.offset_of (source_span match_layout) =
                  Position.offset_of control_match_pos andalso
-               Position.end_offset_of match_pos =
+               Position.end_offset_of (source_span match_layout) =
                  Position.offset_of control_stop))
        | _ =>
            error
@@ -4734,9 +5095,9 @@ ML_val\<open>
         (yield_start, Position.symbol_explode yield_text yield_start)
     val _ =
       (case parse yield_source of
-         UE_Yield pos =>
+         UE_Yield layout =>
            audit_assert "yield AST span changed"
-             (same_range pos yield_span)
+             (same_range (source_span layout) yield_span)
        | _ => error "yield/logging regression audit: yield AST changed")
 
     val primitive_text =
@@ -4750,15 +5111,15 @@ ML_val\<open>
         primitive_text primitive_start
     val _ =
       (case parse primitive_source of
-         UE_Log (priority, data, pos) =>
+         UE_Log (priority, data, layout) =>
            (audit_assert "primitive-log priority source changed"
               (Symbol.trim_blanks (Input.string_of priority) = "Error");
             audit_assert "primitive-log data source changed"
               (Symbol.trim_blanks (Input.string_of data) = "[LogNat 1]");
             audit_assert "primitive-log span changed"
-              (Position.offset_of pos =
+              (Position.offset_of (source_span layout) =
                  Position.offset_of primitive_start andalso
-               Position.end_offset_of pos =
+               Position.end_offset_of (source_span layout) =
                  Position.offset_of primitive_stop))
        | _ => error "yield/logging regression audit: primitive-log AST changed")
 
@@ -4770,14 +5131,15 @@ ML_val\<open>
       Position.symbol_explode data_text data_start
     val data_source =
       Parser_Lex_Util.positioned_content_source data_text data_start
-    val (string_raw, string_pos, identifier_pos, data_pos) =
+    val (string_raw, string_pos, identifier_pos, data_layout) =
       (case parse data_source of
          UE_LogData
            ([LDE_String (raw, first_pos),
              LDE_Identifier ("True", second_pos)],
-            pos) =>
-           (raw, first_pos, second_pos, pos)
+            layout) =>
+           (raw, first_pos, second_pos, layout)
        | _ => error "yield/logging regression audit: log-data AST changed")
+    val data_pos = source_span data_layout
     val _ =
       audit_assert "log-data string terminated at embedded syntax"
         (string_raw = "\"left, // \<rrangle> text\"")
@@ -4788,12 +5150,33 @@ ML_val\<open>
     val (_, expected_string_pos) =
       token_position data_text data_start
         "\"left, // \<rrangle> text\"" 0
-    val (_, expected_identifier_pos) =
+    val (identifier_raw, expected_identifier_pos) =
       token_position data_text data_start "True" 0
+    val (name_raw, expected_name_pos) =
+      token_position data_text data_start "l" 0
+    val (open_raw, expected_open_pos) =
+      token_position data_text data_start "\<llangle>" (name_raw + 1)
+    val (_, expected_close_pos) =
+      token_position data_text data_start "\<rrangle>"
+        (identifier_raw + size "True")
     val _ =
       audit_assert "log-data entry spans changed"
         (same_range string_pos expected_string_pos andalso
          same_range identifier_pos expected_identifier_pos)
+    val _ =
+      audit_assert "log-data control-token spans changed"
+        (same_range
+           (the_source_token_position
+             data_layout (Keyword_Token "l"))
+           expected_name_pos andalso
+         same_range
+           (the_source_token_position
+             data_layout (Delimiter_Token "log-data-open"))
+           expected_open_pos andalso
+         same_range
+           (the_source_token_position
+             data_layout (Delimiter_Token "log-data-close"))
+           expected_close_pos)
 
     val yield_term = checked yield_text
     val _ =
@@ -5013,8 +5396,8 @@ ML_val\<open>
              (has_markup Markup.keyword1N pos);
            audit_assert (label ^ " lost typing markup")
              (has_markup Markup.typingN pos);
-           audit_assert (label ^ " received identifier entity markup")
-             (not (has_any_entity pos))))
+           audit_assert (label ^ " received a binding entity")
+             (not (has_entity_markup "urust_var" pos))))
         [("yield keyword", yield_keyword),
          ("log keyword", log_keyword),
          ("log-data l", data_l_symbol)]
@@ -5306,12 +5689,15 @@ ML_val\<open>
            (Add,
             UE_Literal (LP_Integer ("1_u64", actual_left)),
             UE_Literal (LP_Integer ("2_u64", actual_right)),
-            actual_operator) =>
+            operator_layout) =>
            (audit_assert "comment changed a neighboring literal range"
               (same_range actual_left left_pos andalso
                same_range actual_right right_pos);
             audit_assert "operator range moved across the comment"
-              (same_range actual_operator outer_plus_pos))
+              (same_range
+                (the_source_token_position
+                  operator_layout Operator_Token)
+                outer_plus_pos))
        | _ =>
            error "block-comment regression audit: expression AST changed")
 
@@ -5690,12 +6076,15 @@ ML_val\<open>
            (Add,
             UE_Literal (LP_Integer ("1_u64", actual_left)),
             UE_Literal (LP_Integer ("2_u64", actual_right)),
-            actual_operator) =>
+            operator_layout) =>
            (audit_assert "comment created or changed an AST node"
               (same_range actual_left left_pos andalso
                same_range actual_right right_pos);
             audit_assert "operator position moved across the comment"
-              (same_range actual_operator outer_plus_pos))
+              (same_range
+                (the_source_token_position
+                  operator_layout Operator_Token)
+                outer_plus_pos))
        | _ =>
            error "Isabelle-comment regression audit: expression AST changed")
 

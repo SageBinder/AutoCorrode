@@ -127,6 +127,32 @@ urust_expr showoff_expression
     }
   \<close>
 
+subsection\<open> Denotation navigation \<close>
+
+text\<open>
+Surface tokens now retain their exact denotational source ranges. In jEdit, control-flow keywords,
+operators, casts, collection delimiters, calls, projections, and built-in macro heads jump to the
+HOL constant selected by lowering. For example, the two \<open>match\<close> expressions below deliberately
+select different roots: the numeral form targets \<^const>\<open>ncase_selector\<close>, while the constructor
+form targets the native case encoding.
+\<close>
+
+urust_expr [conformance = false] showoff_denotation_navigation
+  \<open>
+    let values = [1u64, 2u64];
+    let selected =
+      match values[0usize] {
+        0 \<Rightarrow> 0u64,
+        _ \<Rightarrow> values[1usize] as u64,
+      };
+    let wrapped = Some(selected);
+    assert!(selected > 0u64);
+    match wrapped {
+      Some(value) \<Rightarrow> value + 1u64,
+      None \<Rightarrow> 0u64,
+    }
+  \<close>
+
 subsection\<open> Rust-aligned grammar and integer literals \<close>
 
 text\<open>

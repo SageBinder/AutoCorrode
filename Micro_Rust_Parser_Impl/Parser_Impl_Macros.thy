@@ -11,7 +11,8 @@ sig
     (URust_Resolution.environment -> URust_AST.ur_expr -> term) ->
       Proof.context ->
       URust_Resolution.environment ->
-      URust_AST.ur_path * Position.T * URust_AST.macro_payload * Position.T ->
+      URust_AST.ur_path * URust_AST.macro_payload *
+        URust_AST.source_layout ->
       term
 end
 \<close>
@@ -73,6 +74,7 @@ struct
   structure T = URust_Shallow_Terms
   structure R = URust_Resolution
   structure M = URust_Matching
+  structure Navigation = Micro_Rust_Semantic_Navigation
 
   fun positions_are_adjacent left right =
     (case (Position.end_offset_of left, Position.offset_of right) of
@@ -81,7 +83,7 @@ struct
 
   fun macro_name_position name_pos bang_pos =
     Position.range_position
-      (name_pos, Position.symbol_explode "!" bang_pos)
+      (name_pos, Parser_Lex_Util.exclusive_end bang_pos)
 
   fun require_macro_arity name expected actual pos =
     if expected = actual then ()
@@ -103,13 +105,15 @@ struct
     let
       fun reject source_pattern =
         (case source_pattern of
-           P_Range (_, _, _, pos) =>
+           P_Range (_, _, _, layout) =>
              error
                ("urust_expr: range patterns are not supported by legacy matches!" ^
-                 Position.here pos)
-         | P_Constr (_, arguments) => List.app reject arguments
+                 Position.here
+                   (the_source_token_position
+                     layout Operator_Token))
+         | P_Constr (_, arguments, _) => List.app reject arguments
          | P_Tuple (arguments, _) => List.app reject arguments
-         | P_Group inner => reject inner
+         | P_Group (inner, _) => reject inner
          | P_Borrow (_, inner, _) => reject inner
          | P_Alias (_, _, inner, _) => reject inner
          | P_Slice (items, _) =>
@@ -117,7 +121,7 @@ struct
                (fn SI_Pat inner => reject inner
                  | SI_Rest _ => ())
                items
-         | P_Struct (_, fields) =>
+         | P_Struct (_, fields, _) =>
              List.app
                (fn SF_Field (_, _, inner) => reject inner
                  | SF_Shorthand _ => ()
@@ -142,22 +146,32 @@ struct
              Position.here (expression_position expression)))
 
   fun report_builtin ctxt report_typing pos =
-    (Context_Position.report ctxt pos Markup.keyword1;
+    (Navigation.defer_report ctxt pos Markup.keyword1;
      if report_typing
      then
-       Context_Position.report_text ctxt pos Markup.typing
-         "uRust macro head"
+       Navigation.defer_report ctxt pos
+         (Markup.properties
+           [(Markup.nameN, "uRust macro head")]
+           Markup.typing)
      else ())
 
   fun lower_macro lower ctxt environment
-      (path, bang_pos, payload, position) =
+      (path, payload, layout) =
     let
+      val bang_pos =
+        the_source_token_position layout Bang_Token
+      val position = source_span layout
       val name = render_path path
       val name_pos = #2 (segment_identifier (final_segment path))
       val complete_name = name ^ "!"
       val complete_name_pos = macro_name_position (path_position path) bang_pos
+      val bang_range = bang_pos
       val adjacent =
         positions_are_adjacent (path_position path) bang_pos
+      val builtin_positions = [name_pos, bang_range]
+
+      fun select_builtin action =
+        Navigation.with_source builtin_positions action
 
       fun lower_argument expression = lower environment expression
 
@@ -167,7 +181,7 @@ struct
             (case arguments of
                [] => T.string_from_characters T.list_nil
              | first :: _ => raw_message ctxt environment first)
-        in target message end
+        in select_builtin (fn () => target message) end
 
       fun lower_builtin arguments =
         let
@@ -177,30 +191,48 @@ struct
           (case name of
              "assert" =>
                (require_macro_minimum_arity name 1 actual position;
-                T.assertion (lower_argument (hd arguments)))
+                let val argument = lower_argument (hd arguments)
+                in select_builtin (fn () => T.assertion argument) end)
            | "debug_assert" =>
                (require_macro_minimum_arity name 1 actual position;
-                T.assertion (lower_argument (hd arguments)))
+                let val argument = lower_argument (hd arguments)
+                in select_builtin (fn () => T.assertion argument) end)
            | "assert_eq" =>
                (require_macro_minimum_arity name 2 actual position;
-                T.assertion_equal
-                  (lower_argument (hd arguments))
-                  (lower_argument (nth arguments 1)))
+                let
+                  val left = lower_argument (hd arguments)
+                  val right = lower_argument (nth arguments 1)
+                in
+                  select_builtin (fn () =>
+                    T.assertion_equal left right)
+                end)
            | "debug_assert_eq" =>
                (require_macro_minimum_arity name 2 actual position;
-                T.assertion_equal
-                  (lower_argument (hd arguments))
-                  (lower_argument (nth arguments 1)))
+                let
+                  val left = lower_argument (hd arguments)
+                  val right = lower_argument (nth arguments 1)
+                in
+                  select_builtin (fn () =>
+                    T.assertion_equal left right)
+                end)
            | "assert_ne" =>
                (require_macro_minimum_arity name 2 actual position;
-                T.assertion_not_equal
-                  (lower_argument (hd arguments))
-                  (lower_argument (nth arguments 1)))
+                let
+                  val left = lower_argument (hd arguments)
+                  val right = lower_argument (nth arguments 1)
+                in
+                  select_builtin (fn () =>
+                    T.assertion_not_equal left right)
+                end)
            | "debug_assert_ne" =>
                (require_macro_minimum_arity name 2 actual position;
-                T.assertion_not_equal
-                  (lower_argument (hd arguments))
-                  (lower_argument (nth arguments 1)))
+                let
+                  val left = lower_argument (hd arguments)
+                  val right = lower_argument (nth arguments 1)
+                in
+                  select_builtin (fn () =>
+                    T.assertion_not_equal left right)
+                end)
            | "panic" => lower_message T.panic_message arguments
            | "unreachable" => lower_message T.panic_message arguments
            | "fatal" => lower_message T.fatal_message arguments
@@ -209,13 +241,25 @@ struct
            | "todo" =>
                lower_message T.unimplemented_message arguments
            | "vec" =>
-               T.array_literal (map lower_argument arguments)
+               let val elements = map lower_argument arguments
+               in
+                 select_builtin (fn () =>
+                   T.array_literal elements)
+               end
            | "addr_of" =>
                (require_macro_arity name 1 actual position;
-                T.address_of (lower_argument (hd arguments)))
+                let val argument = lower_argument (hd arguments)
+                in
+                  select_builtin (fn () =>
+                    T.address_of argument)
+                end)
            | "addr_of_mut" =>
                (require_macro_arity name 1 actual position;
-                T.address_of (lower_argument (hd arguments)))
+                let val argument = lower_argument (hd arguments)
+                in
+                  select_builtin (fn () =>
+                    T.address_of argument)
+                end)
            | _ =>
                error
                  ("urust_expr: unknown macro " ^ quote complete_name ^
@@ -227,13 +271,15 @@ struct
            (report_builtin ctxt false name_pos;
             reject_legacy_matches_ranges pattern;
             M.lower_boolean_match lower ctxt environment
-              (scrutinee, pattern, position))
+              (scrutinee, pattern, layout))
        | MP_Arguments arguments =>
            (case
                if adjacent
                then
                  R.registered_macro_path ctxt path
-                   (complete_name, complete_name_pos)
+                   {complete_name = complete_name,
+                    complete_pos = complete_name_pos,
+                    bang_pos = bang_range}
                else if is_qualified_path path
                then
                  (case
@@ -244,7 +290,9 @@ struct
                   | NONE =>
                       (ignore
                         (R.registered_macro_path ctxt path
-                          (complete_name, complete_name_pos));
+                          {complete_name = complete_name,
+                           complete_pos = complete_name_pos,
+                           bang_pos = bang_range});
                        NONE))
                else NONE
             of

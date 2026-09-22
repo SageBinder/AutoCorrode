@@ -56,6 +56,7 @@ sig
   val prepared_is_total: prepared_case_arm -> bool
   val compile_case:
     Proof.context ->
+      Position.T list ->
       term option ->
       term ->
       (prepared_case_arm * term option * term) list ->
@@ -133,6 +134,7 @@ struct
   open URust_AST
   structure T = URust_Shallow_Terms
   structure R = URust_Resolution
+  structure Navigation = Micro_Rust_Semantic_Navigation
 
   type binding_signature = string * Position.T
 
@@ -149,31 +151,36 @@ struct
     | position (P_Ident (_, pos)) = pos
     | position (P_Literal payload) = literal_position payload
     | position (P_Path path) = path_position path
-    | position (P_Constr (path, _)) = path_position path
-    | position (P_Tuple (_, pos)) = pos
-    | position (P_Group pattern) = position pattern
-    | position (P_Borrow (_, _, pos)) = pos
-    | position (P_Alias (_, _, _, pos)) = pos
-    | position (P_Range (_, _, _, pos)) = pos
-    | position (P_Slice (_, pos)) = pos
-    | position (P_Struct (path, _)) = path_position path
-    | position (P_Or (_, pos)) = pos
+    | position (P_Constr (path, _, _)) = path_position path
+    | position (P_Tuple (_, layout)) = source_span layout
+    | position (P_Group (pattern, _)) = position pattern
+    | position (P_Borrow (_, _, layout)) =
+        the_source_token_position layout Operator_Token
+    | position (P_Alias (_, _, _, layout)) =
+        the_source_token_position layout Operator_Token
+    | position (P_Range (_, _, _, layout)) =
+        the_source_token_position layout Operator_Token
+    | position (P_Slice (_, layout)) = source_span layout
+    | position (P_Struct (path, _, _)) = path_position path
+    | position (P_Or (_, layout)) =
+        the_source_token_position layout Operator_Token
 
   fun reject_reference_patterns pattern =
     let
-      fun reject (P_Borrow (_, _, pos)) =
+      fun reject (P_Borrow (_, _, layout)) =
             error ("urust_expr: reference patterns are not implemented" ^
-              Position.here pos)
-        | reject (P_Constr (_, arguments)) = List.app reject arguments
+              Position.here
+                (the_source_token_position layout Operator_Token))
+        | reject (P_Constr (_, arguments, _)) = List.app reject arguments
         | reject (P_Tuple (arguments, _)) = List.app reject arguments
-        | reject (P_Group inner) = reject inner
+        | reject (P_Group (inner, _)) = reject inner
         | reject (P_Alias (_, _, inner, _)) = reject inner
         | reject (P_Range (_, lower, upper, _)) =
             (reject lower; reject upper)
         | reject (P_Slice (items, _)) =
             List.app
               (fn SI_Pat nested => reject nested | SI_Rest _ => ()) items
-        | reject (P_Struct (_, fields)) =
+        | reject (P_Struct (_, fields, _)) =
             List.app
               (fn SF_Field (_, _, nested) => reject nested
                 | SF_Shorthand _ => ()
@@ -182,11 +189,11 @@ struct
         | reject _ = ()
     in reject pattern end
 
-  fun strip_groups (P_Group pattern) = strip_groups pattern
+  fun strip_groups (P_Group (pattern, _)) = strip_groups pattern
     | strip_groups pattern = pattern
 
-  fun arm_pattern (UR_Arm (pattern, _, _)) = pattern
-  fun arm_guard (UR_Arm (_, guard, _)) = guard
+  fun arm_pattern (UR_Arm (pattern, _, _, _)) = pattern
+  fun arm_guard (UR_Arm (_, guard, _, _)) = guard
 
   datatype match_capability =
     Match_Capability of {case_ok: bool, switch_ok: bool}
@@ -230,7 +237,8 @@ struct
     end
 
   fun first_guard_position [] = NONE
-    | first_guard_position (UR_Arm (_, SOME (_, pos), _) :: _) = SOME pos
+    | first_guard_position
+        (UR_Arm (_, SOME (_, pos), _, _) :: _) = SOME pos
     | first_guard_position (_ :: rest) = first_guard_position rest
 
   fun select_match_flavour ctxt flavour arms pos =
@@ -444,7 +452,7 @@ struct
                     Resolved_Constructor (info, pos, [])
                   end
               | NONE => Resolved_Path path)
-         | P_Constr (path, arguments) =>
+         | P_Constr (path, arguments, _) =>
               let
                 val name = render_path path
                 val pos = #2 (segment_identifier (final_segment path))
@@ -461,27 +469,34 @@ struct
                    Resolved_Constructor
                      (info, pos, map resolve arguments)))
               end
-         | P_Tuple (arguments, pos) =>
-             Resolved_Tuple (map resolve arguments, pos)
-         | P_Group inner => resolve inner
-         | P_Borrow (_, inner, pos) =>
+         | P_Tuple (arguments, layout) =>
+             Resolved_Tuple
+               (map resolve arguments, source_span layout)
+         | P_Group (inner, _) => resolve inner
+         | P_Borrow (_, inner, layout) =>
              (case policy of
                 Resolve_Constructor_Case => resolve inner
               | _ =>
                   error ("urust_expr: reference patterns are not implemented" ^
-                    Position.here pos))
+                    Position.here
+                      (the_source_token_position
+                        layout Operator_Token)))
          | P_Alias ("_", pos, _, _) =>
              error ("urust_expr: alias pattern binder cannot be `_`" ^
                Position.here pos)
-         | P_Alias (name, pos, inner, alias_pos) =>
-             Resolved_Alias (binding name pos, resolve inner, alias_pos)
-         | P_Range (_, P_Range _, _, pos) =>
+         | P_Alias (name, pos, inner, layout) =>
+             Resolved_Alias
+               (binding name pos, resolve inner,
+                the_source_token_position layout Operator_Token)
+         | P_Range (_, P_Range _, _, layout) =>
              error ("urust_expr: range patterns are non-associative" ^
-               Position.here pos)
-         | P_Range (kind, lower, upper, pos) =>
+               Position.here
+                 (the_source_token_position layout Operator_Token))
+         | P_Range (kind, lower, upper, layout) =>
              Resolved_Range
-               (kind, resolve_value lower, resolve_value upper, pos)
-         | P_Slice (items, pos) =>
+               (kind, resolve_value lower, resolve_value upper,
+                the_source_token_position layout Operator_Token)
+         | P_Slice (items, layout) =>
              let
                fun resolve_items _ [] = []
                  | resolve_items seen_rest (SI_Rest rest_pos :: rest) =
@@ -494,8 +509,11 @@ struct
                  | resolve_items seen_rest (SI_Pat nested :: rest) =
                      Resolved_Slice_Pattern (resolve nested) ::
                        resolve_items seen_rest rest
-             in Resolved_Slice (resolve_items false items, pos) end
-         | P_Struct (path, fields) =>
+             in
+               Resolved_Slice
+                 (resolve_items false items, source_span layout)
+             end
+         | P_Struct (path, fields, _) =>
              let
                val pos = #2 (segment_identifier (final_segment path))
              in
@@ -528,8 +546,10 @@ struct
                     " requires selector-based lowering" ^
                     Position.here pos))
              end
-         | P_Or (alternatives, pos) =>
-             Resolved_Or (map resolve alternatives, pos))
+         | P_Or (alternatives, layout) =>
+             Resolved_Or
+               (map resolve alternatives,
+                the_source_token_position layout Operator_Token))
     in
       (case policy of
          Resolve_Constructor_Case => ()
@@ -723,7 +743,9 @@ struct
       val rhs_wrapper =
         (case (site, rhs_mode) of
            (Mutable_Let_Binder mutable_pos, Allocate_Rhs) =>
-             T.allocate_reference mutable_pos
+             (fn rhs =>
+               Navigation.with_source_position mutable_pos
+                 (fn () => T.allocate_reference mutable_pos rhs))
          | _ => I)
       val environment' =
         R.allocate_locals ctxt environment signatures
@@ -800,7 +822,7 @@ struct
            " (numeral, `_`, or an or-list of those; binding patterns need" ^
            " `match_case`)" ^ Position.here (position unsupported)))
 
-  fun prepare_switch_arm ctxt (UR_Arm (pattern, guard, body)) =
+  fun prepare_switch_arm ctxt (UR_Arm (pattern, guard, body, _)) =
     let
       val resolver =
         R.make_constructor_resolver ctxt (position pattern)
@@ -978,7 +1000,7 @@ struct
            Position.here pos))
 
   fun prepare_case_arm resolver ctxt environment
-      (UR_Arm (pattern, guard, body)) =
+      (UR_Arm (pattern, guard, body, _)) =
     let
       val (resolved, reports) =
         resolve_pattern resolver ctxt Resolve_Constructor_Case pattern
@@ -2088,7 +2110,7 @@ struct
     end
 
   fun compile_pattern_case ctxt scrutinee arms =
-        compile_decision_case ctxt NONE scrutinee
+        compile_decision_case ctxt [] NONE scrutinee
           (map
             (fn (pattern, environment, source_guard, body) =>
               {patterns = [pattern],
@@ -2097,7 +2119,8 @@ struct
                body = body})
             arms)
 
-  and compile_decision_case ctxt explicit_fallback scrutinee source_arms =
+  and compile_decision_case ctxt source_positions
+      explicit_fallback scrutinee source_arms =
     let
       val value =
         Free
@@ -3169,27 +3192,29 @@ struct
         end
 
       val selector =
-        (case direct_structural_matrix () of
-           SOME branches => selector_of branches
-         | NONE =>
-             let
-               val root_plan =
-                 plan_root_suffix Normal_Root_Plan rows
-               val semantic_selector =
-                 render_semantic_root_suffix_plan root_plan
-               val historical_selector =
-                 render_historical_root_suffix_plan root_plan
-             in
-               compatibility_term
-                 (Compiled_Decision_Fragment
-                   {semantic = semantic_selector,
-                    historical = historical_selector})
-             end)
+        Navigation.with_source source_positions (fn () =>
+          (case direct_structural_matrix () of
+             SOME branches => selector_of branches
+           | NONE =>
+               let
+                 val root_plan =
+                   plan_root_suffix Normal_Root_Plan rows
+                 val semantic_selector =
+                   render_semantic_root_suffix_plan root_plan
+                 val historical_selector =
+                   render_historical_root_suffix_plan root_plan
+               in
+                 compatibility_term
+                   (Compiled_Decision_Fragment
+                     {semantic = semantic_selector,
+                      historical = historical_selector})
+               end))
     in
       T.bind scrutinee (Term.lambda value selector)
     end
 
-  fun compile_case_internal ctxt explicit_fallback scrutinee arms =
+  fun compile_case_internal ctxt source_positions
+      explicit_fallback scrutinee arms =
     let
       fun source_arm
           (Prepared_Case_Arm
@@ -3200,12 +3225,13 @@ struct
          source_guard = source_guard,
          body = body}
     in
-      compile_decision_case ctxt explicit_fallback scrutinee
+      compile_decision_case ctxt source_positions
+        explicit_fallback scrutinee
         (map source_arm arms)
     end
 
-  fun compile_case ctxt fallback scrutinee arms =
-    compile_case_internal ctxt fallback scrutinee arms
+  fun compile_case ctxt source_positions fallback scrutinee arms =
+    compile_case_internal ctxt source_positions fallback scrutinee arms
 end
 \<close>
 
