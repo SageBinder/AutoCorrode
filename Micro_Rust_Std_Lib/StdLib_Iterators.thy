@@ -23,7 +23,10 @@ urust_fn find ::
     None
   \<close>
 
-urust_expr [abbrev] enumerate_expr1
+urust_fn [abbrev] enumerate_fn1 ::
+  \<open>nat \<Rightarrow>
+   ('s, 'v, 'abort, 'i prompt, 'o prompt_output) function_body \<Rightarrow>
+   ('s, 64 word \<times> 'v \<times> tnil, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (i, f)
   \<open>
     let feval = f();
@@ -33,7 +36,7 @@ urust_expr [abbrev] enumerate_expr1
 definition enumerate :: \<open>('s, 'v, 'abort, 'i prompt, 'o prompt_output) iterator \<Rightarrow>
       ('s, ('s, 64 word \<times> 'v \<times> tnil, 'abort, 'i prompt, 'o prompt_output) iterator, 'abort, 'i prompt, 'o prompt_output) function_body\<close> where
   \<open>enumerate self \<equiv> FunctionBody (literal (make_iterator
-    (mapi (\<lambda>i f. FunctionBody (enumerate_expr1 i f)) (iterator_thunks self))))\<close>
+    (mapi enumerate_fn1 (iterator_thunks self))))\<close>
 
 urust_fn any :: \<open>('s, 'v, 'abort, 'i prompt, 'o prompt_output) iterator \<Rightarrow>
     ('v \<Rightarrow> ('s, bool, 'abort, 'i prompt, 'o prompt_output) function_body) \<Rightarrow>

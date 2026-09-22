@@ -70,8 +70,9 @@ The new address type is \<^verbatim>\<open>'a0 + 'a1\<close> -- that is, the dis
 of the input interpretations. Similarly, the global value type is the disjoint union
 \<^verbatim>\<open>'b0 + 'b1\<close> of the global value types of the individual interpretations.\<close>
 
-urust_expr [abbrev]
-  update_raw_fun_expr1
+urust_fn [abbrev]
+  update_raw_fun_fn1 ::
+  \<open>('s, unit, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   \<open> panic!("Invalid update on pair reference") \<close>
 
 definition update_raw_fun :: 
@@ -80,15 +81,19 @@ definition update_raw_fun ::
       case (plus_gref r, b) of 
          (Inl r0, Inl b0) \<Rightarrow> update_raw_funA r0 b0
        | (Inr r1, Inr b1) \<Rightarrow> update_raw_funB r1 b1
-       | _ \<Rightarrow> FunctionBody update_raw_fun_expr1\<close>
+       | _ \<Rightarrow> update_raw_fun_fn1\<close>
 
-urust_expr [abbrev]
-  dereference_raw_fun_expr1
+urust_fn [abbrev]
+  dereference_raw_fun_fn1 ::
+  \<open>('a0, 'b0) gref \<Rightarrow>
+   ('s, 'b0 + 'b1, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (r0)
   \<open> \<llangle>Inl\<rrangle>\<^sub>1 (dereference_raw_funA (r0)) \<close>
 
-urust_expr [abbrev]
-  dereference_raw_fun_expr2
+urust_fn [abbrev]
+  dereference_raw_fun_fn2 ::
+  \<open>('a1, 'b1) gref \<Rightarrow>
+   ('s, 'b0 + 'b1, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (r1)
   \<open> \<llangle>Inr\<rrangle>\<^sub>1 (dereference_raw_funB (r1)) \<close>
 
@@ -96,8 +101,8 @@ definition dereference_raw_fun ::
   \<open>('a0 + 'a1, 'b0 + 'b1) gref \<Rightarrow> ('s, 'b0 + 'b1, 'abort, 'i prompt, 'o prompt_output) function_body\<close> where
   \<open>dereference_raw_fun r \<equiv> 
       case plus_gref r of 
-         Inl r0 \<Rightarrow> FunctionBody (dereference_raw_fun_expr1 r0)
-       | Inr r1 \<Rightarrow> FunctionBody (dereference_raw_fun_expr2 r1)\<close>
+         Inl r0 \<Rightarrow> dereference_raw_fun_fn1 r0
+       | Inr r1 \<Rightarrow> dereference_raw_fun_fn2 r1\<close>
 
 text\<open>Allocations are currently only possible with \<^emph>\<open>one\<close> of the two allocators.
 The axioms need suitable generalization if we ever need to combine two reference
