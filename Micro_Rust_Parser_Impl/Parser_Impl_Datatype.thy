@@ -56,52 +56,7 @@ type generated_datatype =
    lenses: (string * string) list,
    item: URust_AST.urust_datatype}
 
-fun ascii_lower character =
-  if #"A" <= character andalso character <= #"Z"
-  then Char.chr (Char.ord character + Char.ord #"a" - Char.ord #"A")
-  else character
-
-fun ascii_upper character =
-  #"A" <= character andalso character <= #"Z"
-
-fun ascii_lowercase character =
-  #"a" <= character andalso character <= #"z"
-
-fun ascii_digit character =
-  #"0" <= character andalso character <= #"9"
-
-fun snake_case name =
-  let
-    val characters = String.explode name
-    fun previous index =
-      if index = 0 then NONE else SOME (nth characters (index - 1))
-    fun following index =
-      if index + 1 >= length characters
-      then NONE
-      else SOME (nth characters (index + 1))
-    fun boundary index character =
-      if not (ascii_upper character) orelse index = 0
-      then false
-      else
-        (case previous index of
-           SOME previous_character =>
-             ascii_lowercase previous_character orelse
-             ascii_digit previous_character orelse
-             (ascii_upper previous_character andalso
-               (case following index of
-                  SOME following_character =>
-                    ascii_lowercase following_character
-                | NONE => false))
-         | NONE => false)
-    fun append (index, character) result =
-      (if boundary index character then "_" else "") ^
-        String.str (ascii_lower character) ^ result
-  in
-    String.concat
-      (map_index
-        (fn pair => append pair "")
-        characters)
-  end
+val snake_case = URust_AST.rust_snake_case
 
 fun positioned_datatype_error message pos =
   error ("urust_datatype: " ^ message ^ Position.here pos)
@@ -135,7 +90,7 @@ fun datatype_roundtrip ctxt source item =
           (if detail = "" then "" else "\n" ^ detail))
     val reparsed =
       (case Exn.capture
-          (URust_Parser.parse_item_source ctxt)
+          (URust_Parser.parse_datatype_source ctxt)
           (Parser_Lex_Util.text_source generated) of
          Exn.Res (SOME reparsed) => reparsed
        | Exn.Res NONE =>
@@ -183,10 +138,20 @@ fun primitive_type_source URust_AST.DPT_U8 = "8 word"
   | primitive_type_source URust_AST.DPT_U16 = "16 word"
   | primitive_type_source URust_AST.DPT_U32 = "32 word"
   | primitive_type_source URust_AST.DPT_U64 = "64 word"
+  | primitive_type_source URust_AST.DPT_U128 = "128 word"
   | primitive_type_source URust_AST.DPT_Usize = "64 word"
+  | primitive_type_source URust_AST.DPT_I8 = "8 word"
+  | primitive_type_source URust_AST.DPT_I16 = "16 word"
   | primitive_type_source URust_AST.DPT_I32 = "32 word"
   | primitive_type_source URust_AST.DPT_I64 = "64 word"
+  | primitive_type_source URust_AST.DPT_I128 = "128 word"
+  | primitive_type_source URust_AST.DPT_Isize = "64 word"
   | primitive_type_source URust_AST.DPT_Bool = "bool"
+  | primitive_type_source URust_AST.DPT_Char = "char"
+  | primitive_type_source URust_AST.DPT_Str =
+      error "urust_datatype: Rust str is not a supported datatype field type"
+  | primitive_type_source URust_AST.DPT_Never =
+      error "urust_datatype: Rust ! is not a supported datatype field type"
   | primitive_type_source URust_AST.DPT_Unit = "unit"
 
 fun read_datatype_type lthy datatype_type =
@@ -345,7 +310,13 @@ fun reject_item_notation_conflict lthy rust_path rust_pos =
         [Micro_Rust_Names.NLiteral,
          Micro_Rust_Names.NFunction]
   in
-    if null registrations then ()
+    if is_some (URust_Item_Scope.lookup_function lthy rust_path)
+    then
+      positioned_datatype_error
+        ("Rust item path " ^ quote rust_path ^
+          " conflicts with an existing Rust function item")
+        rust_pos
+    else if null registrations then ()
     else
       positioned_datatype_error
         ("Rust item path " ^ quote rust_path ^
@@ -708,7 +679,7 @@ fun report_generated_datatype_replay lthy
     source =
   let
     val replayed_item =
-      (case URust_Parser.parse_item_source lthy source of
+      (case URust_Parser.parse_datatype_source lthy source of
          SOME item => item
        | NONE =>
            positioned_datatype_error
@@ -1066,7 +1037,7 @@ fun define
      pp_test, pretty} lthy =
   let
     val item =
-      (case URust_Parser.parse_item_source lthy source of
+      (case URust_Parser.parse_datatype_source lthy source of
          SOME item => item
        | NONE =>
            positioned_datatype_error

@@ -983,24 +983,132 @@ fun pretty_roundtrip ctxt source ast =
         (first_differing_token_index original_tokens reparsed_tokens) ""
   end
 
+fun function_pretty_roundtrip ctxt source function =
+  let
+    val original_tokens =
+      URust_Printer.tokens_of_function
+        URust_Printer.serialized_options function
+    val generated =
+      URust_Printer.string_of_function
+        URust_Printer.serialized_options function
+    fun mismatch index detail =
+      error
+        ("uRust function pretty-printer roundtrip mismatch" ^
+          Position.here (Input.pos_of source) ^ "\n" ^
+          "generated source:\n" ^ generated ^ "\n" ^
+          "first differing token index: " ^ string_of_int index ^
+          (if detail = "" then "" else "\n" ^ detail))
+    val reparsed =
+      (case Exn.capture
+          (URust_Parser.parse_function_source ctxt)
+          (Parser_Lex_Util.text_source generated) of
+         Exn.Res (SOME reparsed) => reparsed
+       | Exn.Res NONE =>
+           mismatch 0 "generated source reparsed as empty input"
+       | Exn.Exn exn =>
+           mismatch 0
+             ("generated source failed to parse: " ^
+               Runtime.exn_message exn))
+    val reparsed_tokens =
+      URust_Printer.tokens_of_function
+        URust_Printer.serialized_options reparsed
+  in
+    if original_tokens = reparsed_tokens then ()
+    else
+      mismatch
+        (first_differing_token_index original_tokens reparsed_tokens) ""
+  end
+
 type elaborated =
   {ast: URust_AST.ur_expr,
    term: term}
 
+fun prepare_declaration_with_timing timer lthy
+    kind source arguments_pos arguments raw_declared_type =
+  timing_phase timer "prepare declaration" (fn () =>
+    let
+      val declared_type =
+        Option.map (read_declared_type lthy kind) raw_declared_type
+      val arguments_with_types =
+        prepare_arguments kind source arguments_pos arguments declared_type
+    in
+      (declared_type, arguments_with_types)
+    end)
+
+fun elaborate_prepared_ast_with_timing timer lthy
+    {kind, source, declared_type, arguments_with_types, ast} : elaborated =
+    let
+      val (((closed, field_reports), function_reports),
+            navigation_reports) =
+        Navigation.capture (fn () =>
+          URust_Item_Scope.capture_function_reports (fn () =>
+            URust_Item_Scope.capture_field_reports (fn () =>
+              let
+                val unchecked =
+                  timing_phase timer "lower AST" (fn () =>
+                    lower kind lthy arguments_with_types ast)
+                val checked =
+                  timing_phase timer "check term" (fn () =>
+                    let
+                      val constrained =
+                        (case declared_type of
+                           SOME (complete_type, _) =>
+                             Type.constraint complete_type unchecked
+                         | NONE => unchecked)
+                    in
+                      Syntax.check_term lthy constrained
+                    end)
+                val closed =
+                  timing_phase timer "close and audit term" (fn () =>
+                    let
+                      val closed =
+                        (case declared_type of
+                           SOME (_, type_pos) =>
+                             close_typed_term kind lthy type_pos checked
+                         | NONE => checked)
+                      val _ =
+                        reject_unresolved kind lthy source closed
+                    in
+                      closed
+                    end)
+              in
+                closed
+              end)))
+      val _ =
+        URust_Item_Scope.replay_field_reports
+          lthy field_reports
+      val _ =
+        URust_Item_Scope.replay_function_reports
+          lthy function_reports
+      val _ =
+        Navigation.replay lthy navigation_reports
+    in
+      {ast = ast, term = closed}
+    end
+
+fun elaborate_ast_with_timing timer lthy
+    {kind, source, arguments, arguments_pos,
+     declared_type = raw_declared_type, ast} : elaborated =
+  let
+    val (declared_type, arguments_with_types) =
+      prepare_declaration_with_timing timer lthy
+        kind source arguments_pos arguments raw_declared_type
+  in
+    elaborate_prepared_ast_with_timing timer lthy
+      {kind = kind,
+       source = source,
+       declared_type = declared_type,
+       arguments_with_types = arguments_with_types,
+       ast = ast}
+  end
+
 fun elaborate_with_timing timer pp_test lthy
-    {kind, source, arguments, arguments_pos, declared_type = raw_declared_type} : elaborated =
+    {kind, source, arguments, arguments_pos, declared_type} : elaborated =
   timing_phase timer "new parser" (fn () =>
     let
-      val (declared_type, arguments_with_types) =
-        timing_phase timer "prepare declaration" (fn () =>
-          let
-            val declared_type =
-              Option.map (read_declared_type lthy kind) raw_declared_type
-            val arguments_with_types =
-              prepare_arguments kind source arguments_pos arguments declared_type
-          in
-            (declared_type, arguments_with_types)
-          end)
+      val (prepared_type, arguments_with_types) =
+        prepare_declaration_with_timing timer lthy
+          kind source arguments_pos arguments declared_type
       val ast =
         timing_phase timer "parse source" (fn () =>
           (case URust_Parser.parse_source lthy source of
@@ -1015,47 +1123,13 @@ fun elaborate_with_timing timer pp_test lthy
           timing_phase timer "pretty-print roundtrip" (fn () =>
             pretty_roundtrip lthy source ast)
         else ()
-      val ((closed, field_reports), navigation_reports) =
-        Navigation.capture (fn () =>
-          URust_Item_Scope.capture_field_reports (fn () =>
-            let
-              val unchecked =
-                timing_phase timer "lower AST" (fn () =>
-                  lower kind lthy arguments_with_types ast)
-              val checked =
-                timing_phase timer "check term" (fn () =>
-                  let
-                    val constrained =
-                      (case declared_type of
-                         SOME (complete_type, _) =>
-                           Type.constraint complete_type unchecked
-                       | NONE => unchecked)
-                  in
-                    Syntax.check_term lthy constrained
-                  end)
-              val closed =
-                timing_phase timer "close and audit term" (fn () =>
-                  let
-                    val closed =
-                      (case declared_type of
-                         SOME (_, type_pos) =>
-                           close_typed_term kind lthy type_pos checked
-                       | NONE => checked)
-                    val _ =
-                      reject_unresolved kind lthy source closed
-                  in
-                    closed
-                  end)
-            in
-              closed
-            end))
-      val _ =
-        URust_Item_Scope.replay_field_reports
-          lthy field_reports
-      val _ =
-        Navigation.replay lthy navigation_reports
     in
-      {ast = ast, term = closed}
+      elaborate_prepared_ast_with_timing timer lthy
+        {kind = kind,
+         source = source,
+         declared_type = prepared_type,
+         arguments_with_types = arguments_with_types,
+         ast = ast}
     end)
 
 fun elaborate lthy
@@ -1249,6 +1323,185 @@ fun declare_urust_result timer pp_test render_pretty
                pretty_arguments = map #1 arguments,
                pretty_body = pretty_body},
             lthy)))
+  end
+
+fun function_parameter_argument parameter =
+  let
+    val URust_AST.Function_Parameter
+      (mutable_pos, pattern, _, _) = parameter
+    fun unsupported pos =
+      error
+        ("urust_fn: unsupported function parameter pattern" ^
+          Position.here pos)
+  in
+    (case (mutable_pos, pattern) of
+       (NONE, URust_AST.P_Wild pos) => ("_", pos)
+     | (SOME pos, URust_AST.P_Wild _) => unsupported pos
+     | (_, URust_AST.P_Ident ("self", pos)) =>
+         error
+           ("urust_fn: receiver parameters are not supported" ^
+             Position.here pos)
+     | (_, URust_AST.P_Ident (name, pos)) => (name, pos)
+     | (SOME pos, _) => unsupported pos
+     | (NONE, _) =>
+         unsupported (URust_AST.pattern_position pattern))
+  end
+
+fun function_arguments function =
+  map function_parameter_argument
+    (URust_AST.function_parameters function)
+
+fun source_subrange source range =
+  let
+    val source_start =
+      the (Position.offset_of (Input.pos_of source))
+    val range_start =
+      the (Position.offset_of range)
+    val range_stop =
+      the (Position.end_offset_of range)
+    val symbols = Symbol.explode (Input.string_of source)
+    val left = range_start - source_start
+    val count = range_stop - range_start
+    val _ =
+      if 0 <= left andalso 0 <= count andalso
+          left + count <= length symbols
+      then ()
+      else error "urust_fn: internal function body source range mismatch"
+    val text =
+      symbols |> drop left |> take count |> String.concat
+    val start = range
+    val stop = Parser_Lex_Util.exclusive_end range
+  in
+    Input.source true text (Position.range (start, stop))
+  end
+
+fun function_body_source source function =
+  source_subrange source
+    (URust_AST.expression_position
+      (URust_AST.function_body function))
+
+fun function_arguments_position function =
+  (case
+      URust_AST.source_token_positions
+        (URust_AST.function_source_layout function)
+        (URust_AST.Delimiter_Token ")") of
+     pos :: _ => pos
+   | [] => URust_AST.function_item_position function)
+
+fun elaborate_function_item_with_timing timer pp_test lthy
+    source raw_type function =
+  timing_phase timer "new parser" (fn () =>
+    let
+      val arguments = function_arguments function
+      val body_source = function_body_source source function
+      val _ =
+        if pp_test
+        then
+          timing_phase timer "pretty-print roundtrip" (fn () =>
+            function_pretty_roundtrip lthy source function)
+        else ()
+      val {term, ...} =
+        elaborate_ast_with_timing timer lthy
+          {kind = Function,
+           source = body_source,
+           arguments = arguments,
+           arguments_pos = function_arguments_position function,
+           declared_type = SOME raw_type,
+           ast = URust_AST.function_body function}
+    in
+      {term = term,
+       arguments = arguments,
+       body_source = body_source}
+    end)
+
+fun declaration_registered_term
+      (Definition_Result {lhs, ...}) = lhs
+  | declaration_registered_term
+      (Abbreviation_Result {lhs, ...}) = lhs
+  | declaration_registered_term
+      (Anonymous_Result {term, ...}) = term
+
+fun reject_function_item_conflict lthy (rust_name, rust_pos) =
+  if is_some (URust_Item_Scope.lookup_function lthy rust_name)
+  then
+    error
+      ("urust_fn: Rust function path " ^ quote rust_name ^
+        " is already owned by a Rust function item" ^
+        Position.here rust_pos)
+  else if is_some
+      (URust_Item_Scope.lookup_constructor lthy rust_name)
+  then
+    error
+      ("urust_fn: Rust function path " ^ quote rust_name ^
+        " is already owned by a Rust constructor item" ^
+        Position.here rust_pos)
+  else if not
+      (null
+        (Micro_Rust_Names.lookups
+          lthy Micro_Rust_Names.NFunction rust_name))
+  then
+    error
+      ("urust_fn: Rust function path " ^ quote rust_name ^
+        " conflicts with an existing micro_rust_notation (call) declaration" ^
+        Position.here rust_pos)
+  else ()
+
+fun register_function_result target (rust_name, rust_pos)
+    declaration lthy =
+  (case target of
+     Anonymous_Target _ => lthy
+   | Named_Target _ =>
+       URust_Item_Scope.register_function
+         {rust_name = rust_name,
+          rust_pos = rust_pos,
+          function = declaration_registered_term declaration}
+         lthy)
+
+fun declare_urust_function_result timer pp_test render_pretty
+    abbreviation application_definition attributes binding
+    target raw_type source function lthy =
+  let
+    val {term, arguments, ...} =
+      elaborate_function_item_with_timing timer pp_test lthy
+        source raw_type function
+    val pretty_body =
+      if render_pretty then
+        timing_phase timer "pretty output markup" (fn () =>
+          let
+            fun reparse pretty_source =
+              (case URust_Parser.parse_function_source lthy pretty_source of
+                 SOME pretty_function =>
+                   ignore
+                     (elaborate_function_item_with_timing
+                       (new_command_timer false) false lthy
+                       pretty_source raw_type pretty_function)
+               | NONE =>
+                   error "urust_fn: pretty function reparsed as empty input")
+          in
+            SOME
+              (URust_Printer_Output.pretty_human_function_with_reparse
+                reparse function)
+          end)
+      else NONE
+    val (declaration, lthy') =
+      timing_phase timer "declaration installation" (fn () =>
+        (case target of
+           Named_Target _ =>
+             install_urust_result abbreviation application_definition
+               attributes binding arguments pretty_body term lthy
+         | Anonymous_Target _ =>
+             (Anonymous_Result
+                {term = term,
+                 name = Local_Theory.full_name lthy binding,
+                 kind = Function,
+                 pretty_arguments = [],
+                 pretty_body = pretty_body},
+              lthy)))
+    val lthy'' =
+      register_function_result target
+        (URust_AST.function_name function) declaration lthy'
+  in
+    (declaration, lthy'')
   end
 
 fun old_frontend_source source = "\<lbrakk> " ^ Input.string_of source ^ " \<rbrakk>"
@@ -1674,7 +1927,7 @@ fun define_urust_expr
       "urust_expr" (Binding.name_of binding) source run
   end
 
-fun define_urust_fn
+fun define_legacy_urust_fn
     (options,
      (target, declared_type, body, parameters_pos, parameters),
      against) interactive lthy =
@@ -1728,6 +1981,111 @@ fun define_urust_fn
     run_command_with_timing timer timing_verbosity
       "urust_fn" (Binding.name_of binding) body run
   end
+
+fun define_rust_item_urust_fn
+    (options, (target_option, declared_type, source), against)
+    interactive lthy =
+  let
+    val _ = reject_contradictory_against "urust_fn" options against
+    val (timing_info, timing_verbosity) =
+      configured_timing lthy options
+    val timer = new_command_timer timing_info
+    val function =
+      timing_phase timer "parse source" (fn () =>
+        (case URust_Parser.parse_function_source lthy source of
+           SOME function => function
+         | NONE =>
+             error
+               ("urust_fn: empty function item" ^
+                 Position.here (Input.pos_of source))))
+    val (rust_name, rust_pos) =
+      URust_AST.function_name function
+    val target =
+      (case target_option of
+         SOME target => target
+       | NONE =>
+           Named_Target
+             (Binding.make
+               (URust_AST.rust_snake_case rust_name, rust_pos)))
+    val _ =
+      (case target of
+         Named_Target _ =>
+           reject_function_item_conflict lthy (rust_name, rust_pos)
+       | Anonymous_Target _ => ())
+    val raw_type = require_function_type source declared_type
+    val parameters = function_arguments function
+    val body_source = function_body_source source function
+    val pp_test =
+      configured_flag lthy options pp_test_option urust_pp_test
+    val verbosity = configured_verbosity lthy options
+    val pretty =
+      configured_flag lthy options pretty_option urust_pretty
+    val _ = warn_ineffective_pretty options source pretty verbosity
+    val render_pretty =
+      pretty andalso verbosity >= 1 andalso
+        verbosity_output_enabled interactive lthy
+    val abbreviation =
+      configured_flag lthy options abbrev_option urust_abbrev
+    val application_definition =
+      configured_flag lthy options application_def_option
+        urust_application_def
+    val _ =
+      reject_abbreviation_application_definition
+        "urust_fn" abbreviation application_definition
+    val attributes =
+      declaration_attributes lthy "urust_fn" target abbreviation options
+    val binding = target_binding Function target
+    fun declaration lthy' =
+      declare_urust_function_result timer pp_test render_pretty
+        abbreviation application_definition attributes binding
+        target raw_type source function lthy'
+    fun checked old_body =
+      declare_with_frontend_check timer declaration binding
+        (fn ctxt => fn complete_type =>
+          close_typed_term Function ctxt (#2 raw_type)
+            (old_frontend_function timer ctxt complete_type
+              parameters old_body))
+        interactive verbosity pretty lthy
+    fun run () =
+      (case against of
+         SOME (old_frontend, _) => checked old_frontend
+       | NONE =>
+           if configured_flag lthy options conformance_option
+                urust_conformance
+           then checked (old_frontend_source body_source)
+           else
+             declare_and_print declaration interactive verbosity pretty lthy)
+  in
+    run_command_with_timing timer timing_verbosity
+      "urust_fn" (Binding.name_of binding) source run
+  end
+
+fun define_urust_fn
+    (options,
+     (target_option, declared_type, source, parameter_clause),
+     against) interactive lthy =
+  (case parameter_clause of
+     SOME (parameters_pos, parameters) =>
+       let
+         val target =
+           (case target_option of
+              SOME target => target
+            | NONE =>
+                error
+                  ("urust_fn: legacy body syntax requires an explicit HOL declaration target" ^
+                    Position.here (Input.pos_of source)))
+       in
+         define_legacy_urust_fn
+           (options,
+            (target, declared_type, source,
+             parameters_pos, parameters),
+            against)
+           interactive lthy
+       end
+   | NONE =>
+       define_rust_item_urust_fn
+         (options, (target_option, declared_type, source), against)
+         interactive lthy)
 
 fun define_urust_datatype
     ((options, explicit_binding), source) interactive lthy =
@@ -1820,6 +2178,19 @@ fun parse_urust_declaration option_configs =
        against)
     end)
 
+fun parse_urust_fn_declaration option_configs =
+  parse_command_options option_configs --
+    (Scan.option parse_declaration_target --
+      parse_declared_type --
+      Scan.option parse_parameters --
+      (Parse.token Parse.cartouche >>
+        Parser_Lex_Util.cartouche_source) >>
+      (fn (((target, declared_type), parameters), source) =>
+        (target, declared_type, source, parameters))) --
+    parse_against >>
+  (fn ((options, payload), against) =>
+    (options, payload, against))
+
 val _ =
   Outer_Syntax.local_theory' \<^command_keyword>\<open>urust_expr\<close>
     "Declare a uRust expression, optionally checking existing-frontend conformance by refl"
@@ -1829,7 +2200,7 @@ val _ =
 val _ =
   Outer_Syntax.local_theory' \<^command_keyword>\<open>urust_fn\<close>
     "Declare a typed uRust function body, optionally checking existing-frontend conformance by refl"
-    (parse_urust_declaration function_option_configs >>
+    (parse_urust_fn_declaration function_option_configs >>
       define_urust_fn)
 
 val parse_datatype_binding =
@@ -1899,6 +2270,13 @@ local
           error
             ("urust_notation: Rust path " ^ quote canonical ^
               " is already owned by urust_datatype" ^
+              Position.here pos)
+        else if is_some
+            (URust_Item_Scope.lookup_function lthy canonical)
+        then
+          error
+            ("urust_notation: Rust path " ^ quote canonical ^
+              " is already owned by urust_fn" ^
               Position.here pos)
         else ()
     in

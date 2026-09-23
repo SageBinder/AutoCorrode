@@ -19,6 +19,8 @@ sig
   type field_entry
   type field_report
   type constructor_entry
+  type function_entry
+  type function_report
 
   val register_type:
     {rust_name: string,
@@ -40,9 +42,17 @@ sig
         selector: term} list} ->
     local_theory -> local_theory
 
+  val register_function:
+    {rust_name: string,
+     rust_pos: Position.T,
+     function: term} ->
+    local_theory -> local_theory
+
   val lookup_type: Proof.context -> string -> type_entry option
   val lookup_constructor:
     Proof.context -> string -> constructor_entry option
+  val lookup_function:
+    Proof.context -> string -> function_entry option
 
   val type_rust_name: type_entry -> string
   val type_position: type_entry -> Position.T
@@ -60,6 +70,9 @@ sig
   val field_rust_name: field_entry -> string
   val field_position: field_entry -> Position.T
   val field_selector: field_entry -> term
+  val function_rust_name: function_entry -> string
+  val function_position: function_entry -> Position.T
+  val function_term: function_entry -> term
 
   val report_type_reference:
     Proof.context -> Position.T -> type_entry -> unit
@@ -70,6 +83,15 @@ sig
   val report_field_definition: field_entry -> unit
   val report_field_reference:
     Proof.context -> Position.T -> field_entry -> unit
+  val report_function_reference:
+    Proof.context -> Position.T -> function_entry -> unit
+  val report_function_definition: function_entry -> unit
+  val defer_function_reference:
+    Proof.context -> Position.T -> function_entry -> unit
+  val capture_function_reports:
+    (unit -> 'a) -> 'a * function_report list
+  val replay_function_reports:
+    Proof.context -> function_report list -> unit
   val defer_field_reference:
     Proof.context -> Position.T -> field_entry -> unit
   val capture_field_reports:
@@ -79,6 +101,7 @@ sig
 
   val dump_types: Proof.context -> type_entry list
   val dump_constructors: Proof.context -> constructor_entry list
+  val dump_functions: Proof.context -> function_entry list
 end
 
 structure URust_Item_Scope :> URUST_ITEM_SCOPE =
@@ -117,12 +140,23 @@ struct
      fields: field_entry list,
      serial: serial}
 
+  type function_entry =
+    {rust_name: string,
+     rust_pos: Position.T,
+     function: term,
+     serial: serial}
+
+  type function_report = Position.T * function_entry
+
   type data =
     {types: type_entry Symtab.table,
-     constructors: constructor_entry Symtab.table}
+     constructors: constructor_entry Symtab.table,
+     functions: function_entry Symtab.table}
 
   val empty_data: data =
-    {types = Symtab.empty, constructors = Symtab.empty}
+    {types = Symtab.empty,
+     constructors = Symtab.empty,
+     functions = Symtab.empty}
 
   fun same_shape (Unit_Constructor, Unit_Constructor) = true
     | same_shape (Tuple_Constructor, Tuple_Constructor) = true
@@ -157,6 +191,11 @@ struct
       same_shape (#shape left, #shape right) andalso
       same_fields (#fields left, #fields right)
 
+  fun same_function_entry
+      (left: function_entry, right: function_entry) =
+    #rust_name left = #rust_name right andalso
+      Term.aconv_untyped (#function left, #function right)
+
   fun merge_entry kind same (left, right) =
     if same (left, right) then left
     else
@@ -165,8 +204,10 @@ struct
           " mapping")
 
   fun merge_data
-      ({types = left_types, constructors = left_constructors},
-       {types = right_types, constructors = right_constructors}) =
+      ({types = left_types, constructors = left_constructors,
+        functions = left_functions},
+       {types = right_types, constructors = right_constructors,
+        functions = right_functions}) =
     {types =
        Symtab.join
          (K (merge_entry "item" same_type_entry))
@@ -174,7 +215,11 @@ struct
      constructors =
        Symtab.join
          (K (merge_entry "constructor" same_constructor_entry))
-         (left_constructors, right_constructors)}
+         (left_constructors, right_constructors),
+     functions =
+       Symtab.join
+         (K (merge_entry "function" same_function_entry))
+         (left_functions, right_functions)}
 
   structure Data = Generic_Data
   (
@@ -186,6 +231,7 @@ struct
   val type_entity = "urust_item"
   val constructor_entity = "urust_constructor"
   val field_entity = "urust_field"
+  val function_entity = "urust_function"
 
   fun lookup_type ctxt rust_name =
     Symtab.lookup (#types (Data.get (Context.Proof ctxt))) rust_name
@@ -193,6 +239,10 @@ struct
   fun lookup_constructor ctxt rust_path =
     Symtab.lookup
       (#constructors (Data.get (Context.Proof ctxt))) rust_path
+
+  fun lookup_function ctxt rust_name =
+    Symtab.lookup
+      (#functions (Data.get (Context.Proof ctxt))) rust_name
 
   fun type_rust_name ({rust_name, ...}: type_entry) = rust_name
   fun type_position ({rust_pos, ...}: type_entry) = rust_pos
@@ -227,6 +277,12 @@ struct
       ({rust_pos, ...}: field_entry) = rust_pos
   fun field_selector
       ({selector, ...}: field_entry) = selector
+  fun function_rust_name
+      ({rust_name, ...}: function_entry) = rust_name
+  fun function_position
+      ({rust_pos, ...}: function_entry) = rust_pos
+  fun function_term
+      ({function, ...}: function_entry) = function
 
   fun field_entity_name
       ({rust_path, rust_name, ...}: field_entry) =
@@ -272,6 +328,46 @@ struct
         {def = false} serial field_entity
         (field_entity_name entry, rust_pos))
 
+  fun report_function_reference ctxt use_pos
+      ({rust_name, rust_pos, serial, ...}: function_entry) =
+    Context_Position.report ctxt use_pos
+      (Position.make_entity_markup
+        {def = false} serial function_entity
+        (rust_name, rust_pos))
+
+  fun report_function_definition
+      ({rust_name, rust_pos, serial, ...}: function_entry) =
+    Position.report rust_pos
+      (Position.make_entity_markup
+        {def = true} serial function_entity
+        (rust_name, rust_pos))
+
+  val function_reports:
+    function_report list Unsynchronized.ref Thread_Data.var =
+      Thread_Data.var ()
+
+  fun defer_function_reference ctxt use_pos entry =
+    (case Thread_Data.get function_reports of
+       SOME reports =>
+         reports := (use_pos, entry) :: !reports
+     | NONE =>
+         report_function_reference ctxt use_pos entry)
+
+  fun capture_function_reports action =
+    let
+      val reports =
+        Unsynchronized.ref ([]: function_report list)
+      val result =
+        Thread_Data.setmp function_reports (SOME reports)
+          action ()
+    in (result, rev (!reports)) end
+
+  fun replay_function_reports ctxt reports =
+    List.app
+      (fn (use_pos, entry) =>
+        report_function_reference ctxt use_pos entry)
+      reports
+
   val field_reports:
     field_report list Unsynchronized.ref Thread_Data.var =
       Thread_Data.var ()
@@ -298,7 +394,7 @@ struct
         report_field_reference ctxt use_pos entry)
       reports
 
-  fun insert_type entry ({types, constructors}: data) =
+  fun insert_type entry ({types, constructors, functions}: data) =
     {types =
        (case Symtab.lookup types (#rust_name entry) of
           NONE => Symtab.update (#rust_name entry, entry) types
@@ -312,9 +408,18 @@ struct
                   " is already mapped to HOL type " ^
                   quote (#hol_type_name existing) ^
                   Position.here (#rust_pos entry))),
-     constructors = constructors}
+     constructors = constructors,
+     functions = functions}
 
-  fun insert_constructor entry ({types, constructors}: data) =
+  fun insert_constructor entry ({types, constructors, functions}: data) =
+    if Symtab.defined functions (#rust_path entry)
+    then
+      error
+        ("urust_datatype: Rust constructor path " ^
+          quote (#rust_path entry) ^
+          " is already owned by a Rust function item" ^
+          Position.here (#rust_pos entry))
+    else
     {types = types,
      constructors =
        (case Symtab.lookup constructors (#rust_path entry) of
@@ -328,7 +433,33 @@ struct
                 ("urust_datatype: Rust constructor path " ^
                   quote (#rust_path entry) ^
                   " is already mapped to a different HOL constructor" ^
-                  Position.here (#rust_pos entry)))}
+                  Position.here (#rust_pos entry))),
+     functions = functions}
+
+  fun insert_function entry ({types, constructors, functions}: data) =
+    if Symtab.defined constructors (#rust_name entry)
+    then
+      error
+        ("urust_fn: Rust function path " ^
+          quote (#rust_name entry) ^
+          " is already owned by a Rust constructor item" ^
+          Position.here (#rust_pos entry))
+    else
+      {types = types,
+       constructors = constructors,
+       functions =
+         (case Symtab.lookup functions (#rust_name entry) of
+            NONE =>
+              Symtab.update (#rust_name entry, entry) functions
+          | SOME existing =>
+              if same_function_entry (existing, entry)
+              then functions
+              else
+                error
+                  ("urust_fn: Rust function path " ^
+                    quote (#rust_name entry) ^
+                    " is already mapped to a different HOL function" ^
+                    Position.here (#rust_pos entry)))}
 
   fun register_type {rust_name, rust_pos, hol_type_name} lthy =
     let
@@ -441,6 +572,48 @@ struct
             in Data.map (insert_constructor mapped) end)
     end
 
+  fun register_function {rust_name, rust_pos, function} lthy =
+    let
+      val entry: function_entry =
+        {rust_name = rust_name,
+         rust_pos = rust_pos,
+         function = function,
+         serial = serial ()}
+      val _ =
+        (case lookup_function lthy rust_name of
+           NONE => ()
+         | SOME existing =>
+             if same_function_entry (existing, entry)
+             then ()
+             else
+               error
+                 ("urust_fn: Rust function path " ^
+                   quote rust_name ^
+                   " is already mapped to a different HOL function" ^
+                   Position.here rust_pos))
+      val _ =
+        (case function of
+           Const (name, _) =>
+             Position.report rust_pos
+               (Name_Space.markup
+                 (Consts.space_of
+                   (Proof_Context.consts_of lthy)) name)
+         | _ => ())
+      val _ = Position.report rust_pos Markup.keyword3
+      val _ = report_function_definition entry
+    in
+      lthy
+      |> Local_Theory.declaration
+          {pervasive = false, syntax = false, pos = rust_pos}
+          (fn phi =>
+            Data.map
+              (insert_function
+                {rust_name = rust_name,
+                 rust_pos = rust_pos,
+                 function = Morphism.term phi function,
+                 serial = #serial entry}))
+    end
+
   fun dump_types ctxt =
     #types (Data.get (Context.Proof ctxt))
     |> Symtab.dest
@@ -448,6 +621,11 @@ struct
 
   fun dump_constructors ctxt =
     #constructors (Data.get (Context.Proof ctxt))
+    |> Symtab.dest
+    |> map snd
+
+  fun dump_functions ctxt =
+    #functions (Data.get (Context.Proof ctxt))
     |> Symtab.dest
     |> map snd
 end

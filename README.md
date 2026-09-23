@@ -136,9 +136,19 @@ The implementation session provides the production `urust_expr`, `urust_fn`, and
 
 ```isabelle
 urust_expr [OPTIONS] NAME [:: TYPE] [(ARG|_, ...)] \<open> body \<close>
-urust_fn [OPTIONS] NAME :: TYPE [(PARAMETER|_, ...)] \<open> body \<close>
+urust_fn [OPTIONS] [HOL_NAME|_] :: TYPE \<open> fn RustName(PATTERN: RUST_TYPE, ...) [-> RUST_TYPE] { body } \<close>
+urust_fn [OPTIONS] HOL_NAME|_ :: TYPE (PARAMETER|_, ...) \<open> legacy-body \<close>
 urust_datatype [OPTIONS] [HOL_NAME] \<open> struct-or-enum \<close>
 ```
+
+With no outer parameter clause, `urust_fn` requires one complete Rust-shaped free-function item.
+The HOL name may be explicit, `_` for anonymous check-only use, or omitted and inferred with the
+same acronym-aware snake-case conversion as `urust_datatype` (`HTTPServer` becomes `http_server`).
+An outer parameter clause, including `()`, selects the compatibility body syntax. Rust signature
+types are retained for printing and markup, while the required HOL type remains authoritative for
+elaboration. Supported signature types include integer primitives, `bool`, `char`, `str`, `!`,
+unit, paths with nested type or numeric generic arguments, tuples, references, raw pointers, slices,
+and arrays. Parameters currently lower only identifiers, `_`, and `mut identifier`.
 
 `urust_datatype` accepts one complete Rust-shaped struct or enum item. The HOL type name is
 optional and otherwise inferred with acronym-aware ASCII snake case (`HTTPServer` becomes
@@ -158,9 +168,9 @@ Output is emitted only after the whole declaration and item-scope registration s
 
 It also exposes the position-independent `URust_Printer` ML API. Serialized mode preserves explicit
 AST groups and is used by the common Boolean `pp_test` declaration option (or scoped
-`urust_pp_test`) for a silent parse-print-parse token comparison before lowering or datatype
-generation. The sealed API provides parallel token, pretty, and string operations for expression
-and datatype ASTs. Human mode removes redundant expression grouping and is available in
+`urust_pp_test`) for a silent parse-print-parse token comparison before lowering or item
+generation. The sealed API provides parallel token, pretty, and string operations for expression,
+datatype, and function ASTs. Human mode removes redundant expression grouping and is available in
 verbosity-controlled command output through the common Boolean `pretty` option (or scoped
 `urust_pretty`). At verbosity 0, `pretty` has no output to affect and produces a warning.
 Conformance theorems retain ordinary HOL rendering because their right-hand side comes from the
@@ -208,9 +218,10 @@ context ends. Isabelle named contexts and locales use the native `opening` form,
 contain generic arguments, and aliases always resolve directly to one primitive cast target rather
 than to another alias.
 
-The parenthesized argument list is optional, accepts a trailing comma, and uses Isabelle liberal
-names. Minor keywords such as `for` may be unquoted; major command keywords delimit outer command
-spans and therefore need string quoting, for example `("lemma")`. A chosen argument name denotes
+The compatibility parenthesized argument list accepts a trailing comma and uses Isabelle liberal
+names. Its presence selects legacy `urust_fn` body mode; write `()` for a zero-parameter legacy
+declaration. Minor keywords such as `for` may be unquoted; major command keywords delimit outer
+command spans and therefore need string quoting, for example `("lemma")`. A chosen argument name denotes
 that lexical argument in value positions and as an unqualified direct-call head, even if a HOL
 constant or call registration has the same spelling. A bare `_` consumes one argument type and
 creates a typed anonymous abstraction without entering lexical name resolution; it may be repeated
@@ -220,7 +231,8 @@ calls, struct expressions, and registered macros use `(call)` (with `!` included
 Method names remain single-segment and retain their normal registration lookup. `urust_fn` also
 accepts an exact terminal `_` in its declared type and
 infers a fresh five-parameter `function_body`; internal placeholders and declared argument types
-remain checked normally.
+remain checked normally. Named Rust-shaped function items register their Rust name for subsequent
+direct calls; lexical parameters shadow those entries. Anonymous items do not register a name.
 
 Named definition-mode declarations accept `attrs = [ATTRIBUTE, ...]`, including `attrs = []`.
 These standard Isabelle attributes apply only to the generated `NAME_def` theorem; anonymous

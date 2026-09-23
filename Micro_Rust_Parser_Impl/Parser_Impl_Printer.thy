@@ -27,13 +27,19 @@ sig
   val tokens_of_expr: options -> URust_AST.ur_expr -> token list
   val tokens_of_datatype:
     options -> URust_AST.urust_datatype -> token list
+  val tokens_of_function:
+    options -> URust_AST.urust_function -> token list
   val pretty_tokens: token list -> Pretty.T
   val pretty_expr: options -> URust_AST.ur_expr -> Pretty.T
   val pretty_datatype:
     options -> URust_AST.urust_datatype -> Pretty.T
+  val pretty_function:
+    options -> URust_AST.urust_function -> Pretty.T
   val string_of_expr: options -> URust_AST.ur_expr -> string
   val string_of_datatype:
     options -> URust_AST.urust_datatype -> string
+  val string_of_function:
+    options -> URust_AST.urust_function -> string
 end
 
 signature URUST_PRINTER_DOCUMENT =
@@ -46,6 +52,7 @@ sig
 
   val human_expr: URust_AST.ur_expr -> document
   val human_datatype: URust_AST.urust_datatype -> document
+  val human_function: URust_AST.urust_function -> document
   val probe_text: document -> string
   val pretty: (lexeme -> Pretty.T) -> document -> Pretty.T
 end
@@ -436,18 +443,83 @@ fun datatype_primitive_name DPT_U8 = "u8"
   | datatype_primitive_name DPT_U16 = "u16"
   | datatype_primitive_name DPT_U32 = "u32"
   | datatype_primitive_name DPT_U64 = "u64"
+  | datatype_primitive_name DPT_U128 = "u128"
   | datatype_primitive_name DPT_Usize = "usize"
+  | datatype_primitive_name DPT_I8 = "i8"
+  | datatype_primitive_name DPT_I16 = "i16"
   | datatype_primitive_name DPT_I32 = "i32"
   | datatype_primitive_name DPT_I64 = "i64"
+  | datatype_primitive_name DPT_I128 = "i128"
+  | datatype_primitive_name DPT_Isize = "isize"
   | datatype_primitive_name DPT_Bool = "bool"
+  | datatype_primitive_name DPT_Char = "char"
+  | datatype_primitive_name DPT_Str = "str"
+  | datatype_primitive_name DPT_Never = "!"
   | datatype_primitive_name DPT_Unit = "()"
 
-fun datatype_type_document datatype_type =
-  (case datatype_type of
+fun rust_type_document rust_type =
+  let
+    fun generic_argument_document argument =
+      (case argument of
+         Rust_Type_Argument typ => rust_type_document typ
+       | Rust_Numeric_Argument integer =>
+           numeral (integer_literal_lexeme integer))
+    fun segment_document
+        (Rust_Type_Path_Segment (name, _, arguments, _)) =
+      identifier (require_identifier "Rust type path segment" name) @
+      (case arguments of
+         NONE => []
+       | SOME values =>
+           delimiter "<" @
+           comma_documents (map generic_argument_document values) @
+           delimiter ">")
+    fun path_document segments =
+      let
+        fun documents [] = []
+          | documents [segment] = segment_document segment
+          | documents (segment :: rest) =
+              segment_document segment @ delimiter "::" @
+              documents rest
+      in documents (require_nonempty "Rust type path" segments) end
+  in
+  (case rust_type of
      Primitive_Type (DPT_Unit, _) =>
        delimiter "(" @ delimiter ")"
+   | Primitive_Type (DPT_Never, _) =>
+       delimiter "!"
    | Primitive_Type (primitive, _) =>
        keyword (datatype_primitive_name primitive)
+   | Path_Type (segments, _) =>
+       path_document segments
+   | Tuple_Type (types, _) =>
+       parenthesized
+         (case types of
+            [typ] =>
+              rust_type_document typ @ delimiter ","
+          | _ =>
+              comma_documents
+                (map rust_type_document
+                  (require_nonempty "Rust tuple type" types)))
+   | Group_Type (typ, _) =>
+       parenthesized (rust_type_document typ)
+   | Reference_Type (mode, typ, _) =>
+       operator "&" @
+       (case mode of
+          BM_Imm => []
+        | BM_Mut => space @ keyword "mut") @
+       space @ rust_type_document typ
+   | Raw_Pointer_Type (mutability, typ, _) =>
+       operator "*" @
+       (case mutability of
+          RPM_Const => keyword "const"
+        | RPM_Mut => keyword "mut") @
+       space @ rust_type_document typ
+   | Slice_Type (typ, _) =>
+       bracketed (rust_type_document typ)
+   | Array_Type (typ, integer, _) =>
+       bracketed
+         (rust_type_document typ @ delimiter ";" @ space @
+          numeral (integer_literal_lexeme integer))
    | HOL_Type_Source source =>
        let
          val body = Input.string_of source
@@ -461,6 +533,7 @@ fun datatype_type_document datatype_type =
          embedded body @
          delimiter Symbol.close
        end)
+  end
 
 fun datatype_shape_arity Unit_Shape = 0
   | datatype_shape_arity (Tuple_Shape types) = length types
@@ -502,7 +575,7 @@ fun datatype_shape_after options what prefix shape =
         (require_datatype_identifier
           (what ^ " field") name) @
       delimiter ":" @ space @
-      datatype_type_document datatype_type
+      rust_type_document datatype_type
     fun named_body fields =
       if mode_is_serialized options
       then comma_documents (map field_document fields)
@@ -514,7 +587,7 @@ fun datatype_shape_after options what prefix shape =
          prefix @
          parenthesized
            (comma_documents
-             (map datatype_type_document types))
+             (map rust_type_document types))
      | Named_Shape fields =>
          if mode_is_serialized options
          then braced_after (prefix @ space) (named_body fields)
@@ -1367,6 +1440,36 @@ fun events_of_expr options expression =
 fun events_of_datatype options item =
   datatype_document options item
 
+fun function_document options
+    (Function_Item
+      (name, _, parameters, return_type, body, _)) =
+  let
+    val name = require_identifier "function item" name
+    fun parameter_document
+        (Function_Parameter (mutable_pos, pattern, typ, _)) =
+      (case mutable_pos of
+         SOME _ => keyword "mut" @ space
+       | NONE => []) @
+      pattern_document options pattern_or_precedence pattern @
+      delimiter ":" @ space @ rust_type_document typ
+    val header =
+      keyword "fn" @ space @ identifier name @
+      parenthesized
+        (comma_documents (map parameter_document parameters)) @
+      (case return_type of
+         NONE => []
+       | SOME typ =>
+           space @ delimiter "->" @ space @ rust_type_document typ)
+    val body_document =
+      (case body of
+         UE_Block _ =>
+           expression_document options expression_body_precedence body
+       | _ => malformed "function item body is not brace-delimited")
+  in block 2 false (header @ space @ body_document) end
+
+fun events_of_function options function =
+  function_document options function
+
 fun lexical_pretty Keyword_Role text =
       Pretty.mark_str (Markup.keyword1, text)
   | lexical_pretty Operator_Role text =
@@ -1449,6 +1552,9 @@ fun document_of_expr options expression =
 fun document_of_datatype options item =
   finalize_document (events_of_datatype options item)
 
+fun document_of_function options function =
+  finalize_document (events_of_function options function)
+
 fun document_tokens (Document {tokens, ...}) = tokens
 fun probe_text (Document {probe_text, ...}) = probe_text
 
@@ -1514,6 +1620,9 @@ fun tokens_of_expr options expression =
 fun tokens_of_datatype options item =
   document_tokens (document_of_datatype options item)
 
+fun tokens_of_function options function =
+  document_tokens (document_of_function options function)
+
 fun pretty_tokens tokens =
   render_document default_lexeme (finalize_document tokens)
 
@@ -1525,12 +1634,20 @@ fun pretty_datatype options item =
   render_document default_lexeme
     (document_of_datatype options item)
 
+fun pretty_function options function =
+  render_document default_lexeme
+    (document_of_function options function)
+
 fun string_of_expr options =
   pretty_expr options #>
   Pretty.string_of_ops (Pretty.pure_output_ops (SOME 80))
 
 fun string_of_datatype options =
   pretty_datatype options #>
+  Pretty.string_of_ops (Pretty.pure_output_ops (SOME 80))
+
+fun string_of_function options =
+  pretty_function options #>
   Pretty.string_of_ops (Pretty.pure_output_ops (SOME 80))
 end
 
@@ -1549,6 +1666,9 @@ struct
       URust_Printer_Implementation.human_options
   val human_datatype =
     URust_Printer_Implementation.document_of_datatype
+      URust_Printer_Implementation.human_options
+  val human_function =
+    URust_Printer_Implementation.document_of_function
       URust_Printer_Implementation.human_options
   val probe_text = URust_Printer_Implementation.probe_text
   val pretty = URust_Printer_Implementation.render_document

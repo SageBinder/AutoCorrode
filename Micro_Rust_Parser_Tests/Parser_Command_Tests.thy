@@ -198,10 +198,12 @@ urust_expr [application_def] typed_zero_expression_application ::
 
 urust_fn typed_zero_function_default ::
   \<open>(unit, nat, unit, unit, unit) function_body\<close>
+  ()
   \<open> \<llangle>7 :: nat\<rrangle> \<close>
 
 urust_fn [application_def] typed_zero_function_application ::
   \<open>(unit, nat, unit, unit, unit) function_body\<close>
+  ()
   \<open> \<llangle>7 :: nat\<rrangle> \<close>
 
 text\<open>
@@ -3779,9 +3781,9 @@ ML_val\<open>
             Symbol.open_ ^ " \<llangle>item :: nat\<rrangle> " ^ Symbol.close) ())
     val _ =
       ignore
-        (run_command "omitted-function-parameters"
+        (run_command "explicit-empty-function-parameters"
           ("urust_fn omitted_fun_args :: " ^ body_type ^ " " ^
-            unit_source) ())
+            "() " ^ unit_source) ())
     val _ =
       ignore
         (run_command "trailing-comma-function-parameters"

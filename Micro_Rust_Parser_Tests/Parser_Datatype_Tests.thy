@@ -384,7 +384,7 @@ ML_val \<open>
             Print_Mode.with_modes [Print_Mode.PIDE]
               (fn () =>
                 ignore
-                  (URust_Parser.parse_item_source
+                  (URust_Parser.parse_datatype_source
                     \<^context>
                     (Parser_Lex_Util.positioned_content_source
                       source_text source_start))) ())
@@ -1728,7 +1728,7 @@ ML_val \<open>
       in
         (case Exn.result
             (fn () =>
-              URust_Parser.parse_item_source
+              URust_Parser.parse_datatype_source
                 \<^context> source) () of
            Exn.Res _ =>
              error (label ^ " item source unexpectedly parsed")
@@ -1755,7 +1755,7 @@ ML_val \<open>
           Parser_Lex_Util.positioned_content_source
             text position
       in
-        (case URust_Parser.parse_item_source \<^context> source of
+        (case URust_Parser.parse_datatype_source \<^context> source of
            SOME _ => ()
          | NONE => error (label ^ " item source parsed as empty"))
       end
@@ -2044,7 +2044,7 @@ ML_val \<open>
       else error "pretty datatype output lost embedded HOL type markup"
     val replay_probe_item =
       (case
-          URust_Parser.parse_item_source \<^context>
+          URust_Parser.parse_datatype_source \<^context>
             (Parser_Lex_Util.text_source
               "struct PrettyReplayProbe;") of
          SOME item => item
@@ -2070,7 +2070,7 @@ ML_val \<open>
                 (fn source =>
                   (replay_probe_called := true;
                    ignore
-                     (URust_Parser.parse_item_source
+                     (URust_Parser.parse_datatype_source
                        \<^context> source);
                    Position.report replay_external_start
                      Markup.keyword1))
@@ -2278,12 +2278,12 @@ ML_val \<open>
       assert_rejected "struct-inside-urust-fn"
         "uRust struct declarations are not expressions; use urust_datatype"
         ("urust_fn struct_inside_fn :: " ^ function_type ^ " " ^
-          cartouche " struct LocalStruct; ")
+          "() " ^ cartouche " struct LocalStruct; ")
     val _ =
       assert_rejected "enum-inside-urust-fn"
         "uRust enum declarations are not expressions; use urust_datatype"
         ("urust_fn enum_inside_fn :: " ^ function_type ^ " " ^
-          cartouche " enum LocalEnum { Empty, } ")
+          "() " ^ cartouche " enum LocalEnum { Empty, } ")
     val _ =
       assert_rejected "nested-struct-inside-urust-expr"
         "uRust struct declarations are not expressions; use urust_datatype"
@@ -2294,7 +2294,7 @@ ML_val \<open>
       assert_rejected "nested-enum-inside-urust-fn"
         "uRust enum declarations are not expressions; use urust_datatype"
         ("urust_fn nested_enum_inside_fn :: " ^ function_type ^ " " ^
-          cartouche
+          "() " ^ cartouche
             " { enum NestedEnum { Ready, } } ")
 
     val _ =

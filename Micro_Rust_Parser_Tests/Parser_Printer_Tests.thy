@@ -22,7 +22,7 @@ struct
     parse_input (Parser_Lex_Util.text_source source)
 
   fun parse_datatype_input source =
-    (case URust_Parser.parse_item_source \<^context>
+    (case URust_Parser.parse_datatype_source \<^context>
         source of
        SOME item => item
      | NONE => error "datatype printer test parsed empty source")
