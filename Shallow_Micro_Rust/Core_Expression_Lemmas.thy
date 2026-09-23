@@ -6,7 +6,7 @@ theory Core_Expression_Lemmas
   imports
     Shallow_Micro_Rust_Base.Core_Expression
     Shallow_Micro_Rust_Base.Core_Syntax
-    Micro_Rust_Parser_Bridge
+    Micro_Rust_Parser_Impl.Parser_Impl_Command
 begin
 declare [[urust_conformance = true]]
 (*>*)

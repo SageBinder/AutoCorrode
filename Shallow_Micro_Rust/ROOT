@@ -3,7 +3,6 @@ session Shallow_Micro_Rust = Shallow_Micro_Rust_Base +
   sessions
     Micro_Rust_Parser_Impl
   theories
-    Micro_Rust_Parser_Bridge
     Core_Expression_Lemmas
     Bool_Type_Lemmas
     Numeric_Types_Lemmas
