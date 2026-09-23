@@ -1055,6 +1055,15 @@ struct
     | Struct_Item_Call
     | No_Item_Call
 
+  fun item_function_entry ctxt path entry =
+    let
+      val _ = reject_item_generics path
+      val pos = #2 (path_terminal path)
+      val _ = I.defer_function_reference ctxt pos entry
+    in
+      T.source_position pos (I.function_term entry)
+    end
+
   fun item_function_path role ctxt path actual_arity entry =
     let
       val _ = reject_item_generics path
@@ -1138,6 +1147,14 @@ struct
              (case
                 if item_role = No_Item_Call
                 then NONE
+                else I.lookup_function ctxt (render_path path)
+              of
+                SOME entry =>
+                  item_function_entry ctxt path entry
+              | NONE =>
+             (case
+                if item_role = No_Item_Call
+                then NONE
                 else exact_item_constructor ctxt path
               of
                 SOME entry =>
@@ -1168,7 +1185,7 @@ struct
                            function
                            (segment_generic_args
                              (final_segment path))
-                       end)))
+                       end))))
       fun same_range position =
         Position.offset_of position = Position.offset_of head_pos andalso
         Position.end_offset_of position = Position.end_offset_of head_pos

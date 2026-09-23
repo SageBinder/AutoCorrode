@@ -73,6 +73,7 @@ of the input interpretations. Similarly, the global value type is the disjoint u
 urust_fn [abbrev]
   update_raw_fun_fn1 ::
   \<open>('s, unit, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
+  ()
   \<open> panic!("Invalid update on pair reference") \<close>
 
 definition update_raw_fun :: 

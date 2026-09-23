@@ -60,6 +60,25 @@ urust_datatype \<open>
   }
 \<close>
 
+subsection\<open> Rust-shaped function items \<close>
+
+text\<open>
+Without an outer parameter clause, \<open>urust_fn\<close> parses a complete Rust-shaped function item.
+The source signature is retained for tooling, while the declared HOL type controls elaboration.
+Omitting the HOL binding infers it from the Rust name.
+\<close>
+
+urust_fn [application_def] ::
+  \<open>64 word \<Rightarrow>
+    (unit, 64 word, unit, unit, unit) function_body\<close>
+  \<open>
+    fn PacketLength(packet: u64) -> u64 {
+      packet + 1_u64
+    }
+  \<close>
+
+thm packet_length_def
+
 text\<open>
 The item command generates the HOL datatype, field lenses, and exact Rust constructor paths in one
 local-theory transaction. The parser then uses those identities consistently for construction,

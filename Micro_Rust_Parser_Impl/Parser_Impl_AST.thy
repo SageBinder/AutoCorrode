@@ -87,19 +87,43 @@ sig
   val source_cast_target_type_position:
     source_cast_target -> Position.T option
 
-  datatype datatype_primitive_type =
+  datatype rust_primitive_type =
       DPT_U8
     | DPT_U16
     | DPT_U32
     | DPT_U64
+    | DPT_U128
     | DPT_Usize
+    | DPT_I8
+    | DPT_I16
     | DPT_I32
     | DPT_I64
+    | DPT_I128
+    | DPT_Isize
     | DPT_Bool
+    | DPT_Char
+    | DPT_Str
+    | DPT_Never
     | DPT_Unit
-  datatype datatype_type =
-      Primitive_Type of datatype_primitive_type * Position.T
+  datatype rust_type =
+      Primitive_Type of rust_primitive_type * Position.T
+    | Path_Type of rust_type_path_segment list * source_layout
+    | Tuple_Type of rust_type list * source_layout
+    | Group_Type of rust_type * source_layout
+    | Reference_Type of borrow_mode * rust_type * source_layout
+    | Raw_Pointer_Type of
+        raw_pointer_mutability * rust_type * source_layout
+    | Slice_Type of rust_type * source_layout
+    | Array_Type of rust_type * integer_literal * source_layout
     | HOL_Type_Source of Input.source
+  and rust_generic_argument =
+      Rust_Type_Argument of rust_type
+    | Rust_Numeric_Argument of integer_literal
+  and rust_type_path_segment =
+    Rust_Type_Path_Segment of
+      string * Position.T * rust_generic_argument list option * source_layout
+
+  type datatype_type = rust_type
   datatype datatype_field =
     Datatype_Field of string * Position.T * datatype_type
   datatype datatype_shape =
@@ -114,6 +138,7 @@ sig
     | Enum_Item of
         string * Position.T * datatype_variant list * Position.T
 
+  val rust_type_position: rust_type -> Position.T
   val datatype_type_position: datatype_type -> Position.T
   val datatype_item_position: urust_datatype -> Position.T
 
@@ -256,9 +281,29 @@ sig
   and ur_arm =
       UR_Arm of ur_pat * (ur_expr * Position.T) option * ur_expr * source_layout
 
+  datatype function_parameter =
+    Function_Parameter of
+      Position.T option * ur_pat * rust_type * source_layout
+  datatype urust_function =
+    Function_Item of
+      string * Position.T * function_parameter list *
+      rust_type option * ur_expr * source_layout
+  datatype urust_item =
+      Datatype_Item of urust_datatype
+    | Function_Item_Node of urust_function
+
+  val function_item_position: urust_function -> Position.T
+  val function_source_layout: urust_function -> source_layout
+  val function_body: urust_function -> ur_expr
+  val function_name: urust_function -> string * Position.T
+  val function_parameters: urust_function -> function_parameter list
+  val function_return_type: urust_function -> rust_type option
+  val function_parameter_position: function_parameter -> Position.T
+  val rust_snake_case: string -> string
+
   datatype parse_result =
       Parsed_Expression of ur_expr
-    | Parsed_Datatype of urust_datatype
+    | Parsed_Item of urust_item
 
   val expression_position: ur_expr -> Position.T
   val expression_source_layout: ur_expr -> source_layout
@@ -513,19 +558,43 @@ struct
       (SCT_Primitive (_, pos)) = SOME pos
     | source_cast_target_type_position (SCT_Named _) = NONE
 
-  datatype datatype_primitive_type =
+  datatype rust_primitive_type =
       DPT_U8
     | DPT_U16
     | DPT_U32
     | DPT_U64
+    | DPT_U128
     | DPT_Usize
+    | DPT_I8
+    | DPT_I16
     | DPT_I32
     | DPT_I64
+    | DPT_I128
+    | DPT_Isize
     | DPT_Bool
+    | DPT_Char
+    | DPT_Str
+    | DPT_Never
     | DPT_Unit
-  datatype datatype_type =
-      Primitive_Type of datatype_primitive_type * Position.T
+  datatype rust_type =
+      Primitive_Type of rust_primitive_type * Position.T
+    | Path_Type of rust_type_path_segment list * source_layout
+    | Tuple_Type of rust_type list * source_layout
+    | Group_Type of rust_type * source_layout
+    | Reference_Type of borrow_mode * rust_type * source_layout
+    | Raw_Pointer_Type of
+        raw_pointer_mutability * rust_type * source_layout
+    | Slice_Type of rust_type * source_layout
+    | Array_Type of rust_type * integer_literal * source_layout
     | HOL_Type_Source of Input.source
+  and rust_generic_argument =
+      Rust_Type_Argument of rust_type
+    | Rust_Numeric_Argument of integer_literal
+  and rust_type_path_segment =
+    Rust_Type_Path_Segment of
+      string * Position.T * rust_generic_argument list option * source_layout
+
+  type datatype_type = rust_type
   datatype datatype_field =
     Datatype_Field of string * Position.T * datatype_type
   datatype datatype_shape =
@@ -540,8 +609,17 @@ struct
     | Enum_Item of
         string * Position.T * datatype_variant list * Position.T
 
-  fun datatype_type_position (Primitive_Type (_, pos)) = pos
-    | datatype_type_position (HOL_Type_Source source) = Input.pos_of source
+  fun rust_type_position (Primitive_Type (_, pos)) = pos
+    | rust_type_position (Path_Type (_, layout)) = source_span layout
+    | rust_type_position (Tuple_Type (_, layout)) = source_span layout
+    | rust_type_position (Group_Type (_, layout)) = source_span layout
+    | rust_type_position (Reference_Type (_, _, layout)) = source_span layout
+    | rust_type_position (Raw_Pointer_Type (_, _, layout)) = source_span layout
+    | rust_type_position (Slice_Type (_, layout)) = source_span layout
+    | rust_type_position (Array_Type (_, _, layout)) = source_span layout
+    | rust_type_position (HOL_Type_Source source) = Input.pos_of source
+
+  val datatype_type_position = rust_type_position
 
   fun datatype_item_position
       (Struct_Item (_, _, _, pos)) = pos
@@ -796,9 +874,78 @@ struct
   and ur_arm =
       UR_Arm of ur_pat * (ur_expr * Position.T) option * ur_expr * source_layout
 
+  datatype function_parameter =
+    Function_Parameter of
+      Position.T option * ur_pat * rust_type * source_layout
+  datatype urust_function =
+    Function_Item of
+      string * Position.T * function_parameter list *
+      rust_type option * ur_expr * source_layout
+  datatype urust_item =
+      Datatype_Item of urust_datatype
+    | Function_Item_Node of urust_function
+
+  fun function_item_position
+      (Function_Item (_, _, _, _, _, layout)) = source_span layout
+
+  fun function_source_layout
+      (Function_Item (_, _, _, _, _, layout)) = layout
+
+  fun function_body
+      (Function_Item (_, _, _, _, body, _)) = body
+
+  fun function_name
+      (Function_Item (name, pos, _, _, _, _)) = (name, pos)
+
+  fun function_parameters
+      (Function_Item (_, _, parameters, _, _, _)) = parameters
+
+  fun function_return_type
+      (Function_Item (_, _, _, return_type, _, _)) = return_type
+
+  fun function_parameter_position
+      (Function_Parameter (_, _, _, layout)) = source_span layout
+
+  fun ascii_lower character =
+    if #"A" <= character andalso character <= #"Z"
+    then Char.chr
+      (Char.ord character + Char.ord #"a" - Char.ord #"A")
+    else character
+
+  fun rust_snake_case name =
+    let
+      val characters = String.explode name
+      fun upper character =
+        #"A" <= character andalso character <= #"Z"
+      fun lower character =
+        #"a" <= character andalso character <= #"z"
+      fun digit character =
+        #"0" <= character andalso character <= #"9"
+      fun previous index =
+        if index = 0 then NONE else SOME (nth characters (index - 1))
+      fun following index =
+        if index + 1 >= length characters
+        then NONE
+        else SOME (nth characters (index + 1))
+      fun boundary index character =
+        upper character andalso index > 0 andalso
+          (case previous index of
+             SOME previous_character =>
+               lower previous_character orelse
+               digit previous_character orelse
+               (upper previous_character andalso
+                 (case following index of
+                    SOME following_character => lower following_character
+                  | NONE => false))
+           | NONE => false)
+      fun convert (index, character) =
+        (if boundary index character then "_" else "") ^
+          String.str (ascii_lower character)
+    in String.concat (map_index convert characters) end
+
   datatype parse_result =
       Parsed_Expression of ur_expr
-    | Parsed_Datatype of urust_datatype
+    | Parsed_Item of urust_item
 
   fun expression_source_layout (UE_Unit layout) = layout
     | expression_source_layout (UE_Tuple (_, layout)) = layout

@@ -24,6 +24,9 @@ sig
   val pretty_human_datatype_with_reparse:
     (Input.source -> unit) ->
       URust_AST.urust_datatype -> Pretty.T
+  val pretty_human_function_with_reparse:
+    (Input.source -> unit) ->
+      URust_AST.urust_function -> Pretty.T
 end
 
 local
@@ -234,6 +237,10 @@ fun pretty_human_datatype_with_reparse reparse item =
   pretty_human_document_with_reparse false reparse
     (URust_Printer_Document.human_datatype item)
 
+fun pretty_human_function_with_reparse reparse function =
+  pretty_human_document_with_reparse true reparse
+    (URust_Printer_Document.human_function function)
+
 in
 
 structure URust_Printer_Output :> URUST_PRINTER_OUTPUT =
@@ -242,6 +249,8 @@ struct
     pretty_human_expr_with_reparse
   val pretty_human_datatype_with_reparse =
     pretty_human_datatype_with_reparse
+  val pretty_human_function_with_reparse =
+    pretty_human_function_with_reparse
 end
 
 end
