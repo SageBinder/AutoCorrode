@@ -2746,23 +2746,37 @@ ML_val\<open>
           "timing_against " ^ unit_source ^
           " against " ^ Symbol.open_ ^
           " \<lbrakk> () \<rbrakk> " ^ Symbol.close)
-    val (verbose_definition, verbose_definition_urgent) =
-      capture_command_channels true "verbosity-definition"
+    val (compact_definition, compact_definition_urgent) =
+      capture_command_channels true "verbosity-compact-definition"
         ("urust_expr " ^
           "[verbosity = 1, timing_info = false, conformance = false] " ^
-          "verbosity_definition " ^ unit_source)
-    val (verbose_timing_definition, verbose_timing_definition_urgent) =
-      capture_command_channels true "verbosity-timing-definition"
+          "verbosity_compact_definition " ^
+          Symbol.open_ ^ " 37 " ^ Symbol.close)
+    val (compact_abbreviation, compact_abbreviation_urgent) =
+      capture_command_channels true "verbosity-compact-abbreviation"
+        ("urust_expr " ^
+          "[verbosity = 1, abbrev, timing_info = false, conformance = false] " ^
+          "verbosity_compact_abbreviation " ^
+          Symbol.open_ ^ " 41 " ^ Symbol.close)
+    val (compact_timing_definition, compact_timing_definition_urgent) =
+      capture_command_channels true "verbosity-compact-timing-definition"
         ("urust_expr " ^
           "[verbosity = 1, timing_info = true, timing_verbosity = 2, " ^
           "conformance = false] " ^
-          "verbosity_timing_definition " ^ unit_source)
+          "verbosity_compact_timing_definition " ^ unit_source)
     val (verbose_conformance, verbose_conformance_urgent) =
       capture_command_channels true "verbosity-conformance"
         ("urust_expr " ^
           "[verbosity = 2, timing_info = true, timing_verbosity = 2, " ^
           "conformance = true] " ^
-          "verbosity_conformance " ^ unit_source)
+          "verbosity_conformance " ^
+          Symbol.open_ ^ " 43 " ^ Symbol.close)
+    val (full_abbreviation, full_abbreviation_urgent) =
+      capture_command_channels true "verbosity-full-abbreviation"
+        ("urust_expr " ^
+          "[verbosity = 2, abbrev, timing_info = false, conformance = false] " ^
+          "verbosity_full_abbreviation " ^
+          Symbol.open_ ^ " 47 " ^ Symbol.close)
 
     val _ =
       List.app
@@ -2882,23 +2896,45 @@ ML_val\<open>
     val _ =
       assert_absent "inline-disabled" "timing information" disabled
     val _ =
-      assert_contains "verbosity definition"
-        "definition verbosity_definition_def:" verbose_definition
+      List.app
+        (fn expected =>
+          assert_contains "compact verbosity definition" expected
+            compact_definition)
+        ["definition verbosity_compact_definition_def:",
+         "..."]
     val _ =
-      assert_absent "urgent verbosity definition"
-        "definition verbosity_definition_def:"
-        verbose_definition_urgent
+      assert_absent "compact verbosity definition body"
+        "37" compact_definition
+    val _ =
+      assert_absent "urgent compact verbosity definition"
+        "definition verbosity_compact_definition_def:"
+        compact_definition_urgent
     val _ =
       List.app
         (fn expected =>
-          assert_contains "verbosity with timing" expected
-            verbose_timing_definition)
-        ["definition verbosity_timing_definition_def:",
-         "urust_expr verbosity_timing_definition timing information"]
+          assert_contains "compact verbosity abbreviation" expected
+            compact_abbreviation)
+        ["abbreviation verbosity_compact_abbreviation:",
+         "..."]
     val _ =
-      assert_absent "urgent verbosity with timing"
-        "definition verbosity_timing_definition_def:"
-        verbose_timing_definition_urgent
+      assert_absent "compact verbosity abbreviation body"
+        "41" compact_abbreviation
+    val _ =
+      assert_absent "urgent compact verbosity abbreviation"
+        "abbreviation verbosity_compact_abbreviation:"
+        compact_abbreviation_urgent
+    val _ =
+      List.app
+        (fn expected =>
+          assert_contains "compact verbosity with timing" expected
+            compact_timing_definition)
+        ["definition verbosity_compact_timing_definition_def:",
+         "...",
+         "urust_expr verbosity_compact_timing_definition timing information"]
+    val _ =
+      assert_absent "urgent compact verbosity with timing"
+        "definition verbosity_compact_timing_definition_def:"
+        compact_timing_definition_urgent
     val _ =
       List.app
         (fn expected =>
@@ -2906,7 +2942,8 @@ ML_val\<open>
             verbose_conformance)
         ["definition verbosity_conformance_def:",
          "theorem verbosity_conformance_conformance:",
-         "urust_expr verbosity_conformance timing information"]
+         "urust_expr verbosity_conformance timing information",
+         "43"]
     val _ =
       List.app
         (fn unexpected =>
@@ -2914,6 +2951,17 @@ ML_val\<open>
             verbose_conformance_urgent)
         ["definition verbosity_conformance_def:",
          "theorem verbosity_conformance_conformance:"]
+    val _ =
+      List.app
+        (fn expected =>
+          assert_contains "full verbosity abbreviation" expected
+            full_abbreviation)
+        ["abbreviation verbosity_full_abbreviation:",
+         "47"]
+    val _ =
+      assert_absent "urgent full verbosity abbreviation"
+        "abbreviation verbosity_full_abbreviation:"
+        full_abbreviation_urgent
     val _ =
       List.app
         (fn expected => assert_contains "against" expected against)

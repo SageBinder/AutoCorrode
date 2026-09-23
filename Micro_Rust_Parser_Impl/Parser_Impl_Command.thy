@@ -84,10 +84,10 @@ attribute parser checks the list, including the empty list, and applies it only 
 \<open>attrs\<close>.
 
 Successful interactive command output is controlled by the scoped \<open>urust_verbosity\<close> configuration,
-an integer from 0 to 2 that defaults to 0. Level 0 is quiet; level 1 prints complete definition
-statements or abbreviation equations; level 2 additionally prints \<open>NAME_conformance\<close> when
-checking is enabled. The standard interactive and \<open>show_results\<close> gates still control enabled
-output.
+an integer from 0 to 2 that defaults to 0. Level 0 is quiet; level 1 prints only compact declaration
+headings; level 2 prints complete definition statements or abbreviation equations and
+\<open>NAME_conformance\<close> when checking is enabled. The standard interactive and \<open>show_results\<close>
+gates still control enabled output.
 
 The option parser is parameterized by a command-specific schema. Both commands accept Boolean
 \<open>conformance\<close>, \<open>timing_info\<close>, and \<open>application_def\<close>, integers \<open>verbosity\<close> and
@@ -171,9 +171,9 @@ val attributes_option = "attrs"
    - urust_timing_verbosity controls only InfoView output: 0 is silent, 1 prints the summary, and
      2 adds the phase breakdown. Its inline alias is timing_verbosity, and nonzero values require
      effective timing_info = true.
-   - urust_verbosity is cumulative: 0 prints nothing, 1 prints the generated definition or
-     abbreviation, and 2 additionally prints the generated conformance theorem; its inline alias is
-     verbosity.
+   - urust_verbosity is cumulative: 0 prints nothing, 1 prints compact declaration headings, and 2
+     prints complete generated definitions or abbreviation equations plus generated conformance
+     theorems; its inline alias is verbosity.
    - urust_abbrev controls input-only abbreviations for both declaration commands; its inline alias
      is abbrev.
    - urust_application_def puts explicit source arguments on the generated definition theorem's
@@ -1082,62 +1082,66 @@ fun old_frontend_source source = "\<lbrakk> " ^ Input.string_of source ^ " \<rbr
 fun verbosity_output_enabled interactive lthy =
   interactive orelse Config.get lthy Proof_Display.show_results
 
+fun pretty_result_heading kind name =
+  Pretty.block
+    [Pretty.mark_position (Position.thread_data ())
+       (Pretty.keyword1 kind),
+     Pretty.brk 1,
+     Pretty.str (Long_Name.base_name name),
+     Pretty.str ":"]
+
+fun pretty_compact_result kind name =
+  Pretty.block1
+    [pretty_result_heading kind name,
+     Pretty.fbrk,
+     Pretty.str "..."]
+
 fun pretty_generated_result kind name lthy thms =
   Pretty.block1
-    [Pretty.block
-       [Pretty.mark_position (Position.thread_data ())
-          (Pretty.keyword1 kind),
-        Pretty.brk 1,
-        Pretty.str (Long_Name.base_name name),
-        Pretty.str ":"],
+    [pretty_result_heading kind name,
      Pretty.fbrk,
      Proof_Context.pretty_fact lthy ("", thms)]
 
-fun print_generated_result interactive verbosity minimum kind lthy (name, thms) =
-  if verbosity >= minimum andalso
+fun print_declaration_result interactive verbosity kind name lthy full =
+  if verbosity_output_enabled interactive lthy
+  then
+    if verbosity = 1
+    then Pretty.writeln (pretty_compact_result kind name)
+    else if verbosity >= 2
+    then Pretty.writeln (full ())
+    else ()
+  else ()
+
+fun print_theorem_result interactive verbosity kind name lthy thms =
+  if verbosity >= 2 andalso
       verbosity_output_enabled interactive lthy
   then Pretty.writeln (pretty_generated_result kind name lthy thms)
   else ()
 
 fun print_abbreviation interactive verbosity lthy name lhs rhs =
-  if verbosity >= 1 andalso
-     verbosity_output_enabled interactive lthy
-  then
-    Pretty.writeln
-      (Pretty.block1
-        [Pretty.block
-           [Pretty.mark_position (Position.thread_data ())
-              (Pretty.keyword1 "abbreviation"),
-            Pretty.brk 1,
-            Pretty.str (Long_Name.base_name name),
-            Pretty.str ":"],
+  print_declaration_result interactive verbosity "abbreviation" name lthy
+    (fn () =>
+      Pretty.block1
+        [pretty_result_heading "abbreviation" name,
          Pretty.fbrk,
          Syntax.pretty_term
            (Config.put Proof_Context.show_abbrevs false lthy)
            (Logic.mk_equals (lhs, rhs))])
-  else ()
 
 fun print_anonymous interactive verbosity lthy kind name term =
-  if verbosity >= 1 andalso
-     verbosity_output_enabled interactive lthy
-  then
-    Pretty.writeln
-      (Pretty.block1
-        [Pretty.block
-           [Pretty.mark_position (Position.thread_data ())
-              (Pretty.keyword1 (command_label kind)),
-            Pretty.brk 1,
-            Pretty.str (Long_Name.base_name name),
-            Pretty.str ":"],
+  print_declaration_result interactive verbosity (command_label kind) name lthy
+    (fn () =>
+      Pretty.block1
+        [pretty_result_heading (command_label kind) name,
          Pretty.fbrk,
          Syntax.pretty_term lthy term])
-  else ()
 
 fun print_declaration interactive verbosity lthy declaration =
   (case declaration of
      Definition_Result {fact_name, theorem, ...} =>
-       print_generated_result interactive verbosity 1 "definition" lthy
-         (fact_name, [theorem])
+       print_declaration_result interactive verbosity "definition" fact_name lthy
+         (fn () =>
+           pretty_generated_result "definition" fact_name lthy [theorem])
    | Abbreviation_Result {lhs, rhs, name} =>
        print_abbreviation interactive verbosity lthy name lhs rhs
    | Anonymous_Result {term, name, kind} =>
@@ -1298,8 +1302,9 @@ fun declare_with_frontend_check
       note_conformance timer binding result old_frontend lthy'
     val _ = print_declaration interactive verbosity lthy'' result
     val _ =
-      print_generated_result interactive verbosity 2 Thm.theoremK lthy''
-        conformance
+      print_theorem_result interactive verbosity Thm.theoremK
+        (fst conformance) lthy''
+        (snd conformance)
   in
     lthy''
   end
