@@ -3,16 +3,14 @@
 
 theory Shallow_Micro_Rust
   imports
-    Shallow_Micro_Rust_Base.Basic_Case_Expression
     Shallow_Micro_Rust_Base.Bool_Type
     Bool_Type_Lemmas
     Shallow_Micro_Rust_Base.Core_Expression
     Core_Expression_Lemmas
-    Shallow_Micro_Rust_Base.Core_Syntax
+    Shallow_Micro_Rust_Base.Micro_Rust_Parser_Target
     Eval
     Shallow_Micro_Rust_Base.Global_Store
     Micro_Rust     
-    Shallow_Micro_Rust_Base.Micro_Rust_Shallow_Embedding
     Shallow_Micro_Rust_Base.Numeric_Types
     Numeric_Types_Lemmas
     Shallow_Micro_Rust_Base.Option_Type

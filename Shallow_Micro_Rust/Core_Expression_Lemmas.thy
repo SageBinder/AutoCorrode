@@ -4,11 +4,8 @@
 (*<*)
 theory Core_Expression_Lemmas
   imports
-    Shallow_Micro_Rust_Base.Core_Expression
-    Shallow_Micro_Rust_Base.Core_Syntax
-    Micro_Rust_Parser_Impl.Parser_Impl_Command
+    Shallow_Micro_Rust_Base.Micro_Rust_Parser_Target
 begin
-declare [[urust_conformance = true]]
 (*>*)
 
 section\<open>Basic lemmas about the \<^typ>\<open>('s, 'v, 'r, 'abort, 'i, 'o) expression\<close> monad\<close>
@@ -292,13 +289,11 @@ lemma evaluate_sequenceE [micro_rust_elims]:
 text\<open>The fact that \<^term>\<open>Core_Expression.sequence\<close> is a degenerate instance of the monadic bind operation
 immediately gives us a few properties.  Sequencing is immediately associative for example, which is
 an immediate corollary of the fact that the monadic bind operation is also associative, too:\<close>
-urust_expr [abbrev] sequence_assoc_expr1
-  (e, f, g)
-  \<open> { \<epsilon>\<open>e\<close>; \<epsilon>\<open>f\<close> }; \<epsilon>\<open>g\<close> \<close>
+abbreviation sequence_assoc_expr1 where
+  \<open>sequence_assoc_expr1 e f g \<equiv> sequence (sequence e f) g\<close>
 
-urust_expr [abbrev] sequence_assoc_expr2
-  (e, f, g)
-  \<open> \<epsilon>\<open>e\<close>; \<epsilon>\<open>f\<close>; \<epsilon>\<open>g\<close> \<close>
+abbreviation sequence_assoc_expr2 where
+  \<open>sequence_assoc_expr2 e f g \<equiv> sequence e (sequence f g)\<close>
 
 lemma sequence_assoc [micro_rust_simps]:
   shows \<open>sequence_assoc_expr1 e f g =
@@ -362,15 +357,19 @@ lemma get_reorder:
     continuation.splits)
 
 text\<open>Alternatively, we can merge the two get operations into a single one:\<close>
-urust_expr [abbrev] get_merge_expr1
-  (f, g, e)
+definition get_merge_expr1 ::
   \<open>
-    let vf = \<epsilon>\<open>get f\<close>;
-    let vg = \<epsilon>\<open>get g\<close>;
-    \<epsilon>\<open>e vf vg\<close>
+    ('a \<Rightarrow> 'b) \<Rightarrow>
+    ('a \<Rightarrow> 'c) \<Rightarrow>
+    ('b \<Rightarrow> 'c \<Rightarrow> ('a, 'd, 'e, 'f, 'g, 'h) expression) \<Rightarrow>
+    ('a, 'd, 'e, 'f, 'g, 'h) expression
   \<close>
+  where \<open>get_merge_expr1 f g e \<equiv>
+    do { vf \<leftarrow> (get f :: ('a, 'b, 'e, 'f, 'g, 'h) expression);
+         vg \<leftarrow> (get g :: ('a, 'c, 'e, 'f, 'g, 'h) expression);
+         e vf vg }\<close>
 
-urust_expr [abbrev] get_merge_expr2 ::
+definition get_merge_expr2 ::
   \<open>
     ('a \<Rightarrow> 'b) \<Rightarrow>
     ('a \<Rightarrow> 'c) \<Rightarrow>
@@ -378,11 +377,11 @@ urust_expr [abbrev] get_merge_expr2 ::
     ('b \<Rightarrow> 'c \<Rightarrow> ('a, 'd, 'e, 'f, 'g, 'h) expression) \<Rightarrow>
     ('a, 'd, 'e, 'f, 'g, 'h) expression
   \<close>
-  (f, g, nil, e)
-  \<open>
-    let (vf, vg) = \<epsilon>\<open>get (\<lambda>\<sigma>. ((f \<sigma>), (g \<sigma>), nil))\<close>;
-    \<epsilon>\<open>e vf vg\<close>
-  \<close>
+  where \<open>get_merge_expr2 f g nil e \<equiv>
+    do { values \<leftarrow>
+           (get (\<lambda>\<sigma>. (f \<sigma>, g \<sigma>, nil))
+             :: ('a, 'b \<times> 'c \<times> tnil, 'e, 'f, 'g, 'h) expression);
+         e (fst values) (fst (snd values)) }\<close>
 
 lemma get_merge[micro_rust_simps]:
   shows \<open>get_merge_expr1 f g e =
@@ -410,13 +409,11 @@ lemma put_reorder:
   using commut by (clarsimp simp: Core_Expression.bind.simps sequence_def evaluate_def put_def)
     (metis comp_apply)
 
-urust_expr [abbrev] put_merge_expr1
-  (f, g)
-  \<open> \<epsilon>\<open>put f\<close>; \<epsilon>\<open>put g\<close> \<close>
+abbreviation put_merge_expr1 where
+  \<open>put_merge_expr1 f g \<equiv> sequence (put f) (put g)\<close>
 
-urust_expr [abbrev] put_merge_expr2
-  (g, f)
-  \<open> \<epsilon>\<open>put (g \<circ> f)\<close> \<close>
+abbreviation put_merge_expr2 where
+  \<open>put_merge_expr2 g f \<equiv> put (g \<circ> f)\<close>
 
 lemma put_merge[micro_rust_simps]:
   shows \<open>put_merge_expr1 f g =
@@ -526,18 +523,16 @@ lemma evaluate_call_function_bodyI [micro_rust_intros]:
     shows \<open>evaluate (call_function_body e) \<sigma> = k\<close>
   using assms by (cases \<open>evaluate e \<sigma>\<close>; simp add: evaluate_def Core_Expression.call_function_body.simps)
 
-urust_expr [abbrev] call_return_expr1
-  (v)
-  \<open> return v; \<close>
+abbreviation call_return_expr1 where
+  \<open>call_return_expr1 v \<equiv> return_func v\<close>
 
 lemma call_return [micro_rust_simps]:
   shows \<open>(call (FunctionBody (call_return_expr1 v))) = (literal v)\<close>
   by (simp add: call_def call_function_body.simps Core_Expression.bind.simps evaluate_def literal_def
       return_func_def return_val_def)
 
-urust_expr [abbrev] call_literal_expr1
-  (v)
-  \<open> v \<close>
+abbreviation call_literal_expr1 where
+  \<open>call_literal_expr1 v \<equiv> literal v\<close>
 
 lemma call_literal [micro_rust_simps]:
   shows \<open>(call (FunctionBody (call_literal_expr1 v))) = (literal v)\<close>
@@ -756,36 +751,32 @@ appear in a chain of sequenced expressions, as one would expect.  Similarly, the
  \<^term>\<open>panic\<close>, and more generally any \<^term>\<open>abort\<close>, acts as a form of "zero" value for the sequencing
 operation, in the following sense:\<close>
 
-urust_expr [abbrev] abort_sequence_zero_expr1 ::
+abbreviation abort_sequence_zero_expr1 ::
   \<open>
     'abort abort \<Rightarrow>
     ('s, 'v, 'r, 'abort, 'i, 'o) expression \<Rightarrow>
     ('s, 'v, 'r, 'abort, 'i, 'o) expression
   \<close>
-  (a, e)
-  \<open> \<epsilon>\<open>abort a\<close>; \<epsilon>\<open>e\<close> \<close>
+  where \<open>abort_sequence_zero_expr1 a e \<equiv> sequence (abort a) e\<close>
 
-urust_expr [abbrev] abort_sequence_zero_expr2
-  (a)
-  \<open> \<epsilon>\<open>abort a\<close> \<close>
+abbreviation abort_sequence_zero_expr2 where
+  \<open>abort_sequence_zero_expr2 a \<equiv> abort a\<close>
 
 lemma abort_sequence_zero [micro_rust_simps]:
   shows \<open>abort_sequence_zero_expr1 a e =
     abort_sequence_zero_expr2 a\<close>
   by (simp add: evaluate_abort evaluate_sequenceI expression_eqI2)
 
-urust_expr [abbrev] panic_sequence_zero_expr1 ::
+abbreviation panic_sequence_zero_expr1 ::
   \<open>
     String.literal \<Rightarrow>
     ('s, 'v, 'r, 'abort, 'i, 'o) expression \<Rightarrow>
     ('s, 'v, 'r, 'abort, 'i, 'o) expression
   \<close>
-  (msg, e)
-  \<open> panic!(msg); \<epsilon>\<open>e\<close> \<close>
+  where \<open>panic_sequence_zero_expr1 msg e \<equiv> sequence (panic msg) e\<close>
 
-urust_expr [abbrev] panic_sequence_zero_expr2
-  (msg)
-  \<open> panic!(msg) \<close>
+abbreviation panic_sequence_zero_expr2 where
+  \<open>panic_sequence_zero_expr2 msg \<equiv> panic msg\<close>
 
 lemma panic_sequence_zero [micro_rust_simps]:
   fixes msg :: \<open>String.literal\<close>
@@ -798,23 +789,16 @@ instance of \<^term>\<open>panic\<close>.\<close>
 
 text\<open>The SSA transformation often produces nested let bindings which can be flattened out.\<close>
 
-urust_expr [abbrev] let_nested_expr1
-  (v1_expr, cont1, cont0)
-  \<open>
-    let v0 = {
-      let v1 = \<epsilon>\<open>v1_expr\<close>;
-      \<epsilon>\<open>cont1 v1\<close>
-    };
-    \<epsilon>\<open>cont0 v0\<close>
-  \<close>
+abbreviation let_nested_expr1 where
+  \<open>let_nested_expr1 v1_expr cont1 cont0 \<equiv>
+    do { v0 \<leftarrow> do { v1 \<leftarrow> v1_expr; cont1 v1 };
+         cont0 v0 }\<close>
 
-urust_expr [abbrev] let_nested_expr2
-  (v1_expr, cont1, cont0)
-  \<open>
-    let v1 = \<epsilon>\<open>v1_expr\<close>;
-    let v0 = \<epsilon>\<open>cont1 v1\<close>;
-    \<epsilon>\<open>cont0 v0\<close>
-  \<close>
+abbreviation let_nested_expr2 where
+  \<open>let_nested_expr2 v1_expr cont1 cont0 \<equiv>
+    do { v1 \<leftarrow> v1_expr;
+         v0 \<leftarrow> cont1 v1;
+         cont0 v0 }\<close>
 
 lemma let_nested [micro_rust_simps]:
   shows \<open>let_nested_expr1 v1_expr cont1 cont0 =

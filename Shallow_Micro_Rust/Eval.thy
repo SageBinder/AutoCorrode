@@ -5,8 +5,6 @@ theory Eval
   imports Core_Expression_Lemmas "HOL-Library.Datatype_Records"
     Numeric_Types_Lemmas
 begin
-declare [[urust_conformance = true]]
-
 text\<open>The following definitions are central: They provide a declarative view of the
 execution of \<^verbatim>\<open>\<mu>Rust\<close> programs. Currently, they are derived from the deterministic evaluation
 function associated with \<^verbatim>\<open>\<mu>Rust\<close> expressions, but if and when non-deterministic elements get
@@ -587,7 +585,9 @@ by (auto simp add: urust_eval_action_put_assert urust_eval_predicate_via_action 
 
 text\<open>Numeric operators\<close>
 
-urust_expr [abbrev] urust_eval_action_add_no_wrap_expr1 (x, y) \<open> x + y \<close>
+abbreviation urust_eval_action_add_no_wrap_expr1 where
+  \<open>urust_eval_action_add_no_wrap_expr1 x y \<equiv>
+    word_add_no_wrap (literal x) (literal y)\<close>
 lemma urust_eval_action_add_no_wrap [urust_eval_action_simps]:
   fixes x y :: \<open>'l::{len} word\<close>
   shows \<open>((\<Gamma>, urust_eval_action_add_no_wrap_expr1 x y) \<diamondop>\<^sub>a \<sigma>) =
@@ -599,7 +599,9 @@ lemma urust_eval_action_add_no_wrap [urust_eval_action_simps]:
     urust_eval_action_literal urust_eval_action_abort  word_add_no_wrap_core_def Let_def
     word_add_no_wrap_as_urust_def urust_eval_action_call word_op_no_wrap_pure_def option_unwrap_expr_def)
 
-urust_expr [abbrev] urust_eval_predicate_add_no_wrap_expr1 (x, y) \<open> x + y \<close>
+abbreviation urust_eval_predicate_add_no_wrap_expr1 where
+  \<open>urust_eval_predicate_add_no_wrap_expr1 x y \<equiv>
+    word_add_no_wrap (literal x) (literal y)\<close>
 corollary urust_eval_predicate_add_no_wrap [urust_eval_predicate_simps]:
   fixes x y :: \<open>'l::{len} word\<close>
   shows \<open>\<sigma> \<leadsto>\<^sub>v \<langle>\<Gamma>, urust_eval_predicate_add_no_wrap_expr1 x y\<rangle> (v, \<sigma>') \<longleftrightarrow> (unat x + unat y < 2^LENGTH('l)) \<and> \<sigma> = \<sigma>' \<and> v = x + y\<close>
@@ -607,7 +609,9 @@ corollary urust_eval_predicate_add_no_wrap [urust_eval_predicate_simps]:
     and \<open>\<sigma> \<leadsto>\<^sub>a \<langle>\<Gamma>, urust_eval_predicate_add_no_wrap_expr1 x y\<rangle> (a, \<sigma>') \<longleftrightarrow> (unat x + unat y \<ge> 2^LENGTH('l)) \<and> a = Panic overflow_err_msg \<and> \<sigma> = \<sigma>'\<close>
 by (auto simp add: urust_eval_predicate_via_action urust_eval_action_add_no_wrap)
 
-urust_expr [abbrev] urust_eval_action_mul_no_wrap_expr1 (x, y) \<open> x * y \<close>
+abbreviation urust_eval_action_mul_no_wrap_expr1 where
+  \<open>urust_eval_action_mul_no_wrap_expr1 x y \<equiv>
+    word_mul_no_wrap (literal x) (literal y)\<close>
 lemma urust_eval_action_mul_no_wrap [urust_eval_action_simps]:
   fixes x y :: \<open>'l::{len} word\<close>
   shows \<open>((\<Gamma>, urust_eval_action_mul_no_wrap_expr1 x y) \<diamondop>\<^sub>a \<sigma>) =
@@ -619,7 +623,9 @@ by (auto simp add: word_mul_no_wrap_def urust_eval_action_bind micro_rust_simps
   urust_eval_action_literal urust_eval_action_abort word_mul_no_wrap_core_def Let_def
   word_mul_no_wrap_as_urust_def urust_eval_action_call word_op_no_wrap_pure_def option_unwrap_expr_def)
 
-urust_expr [abbrev] urust_eval_predicate_mul_no_wrap_expr1 (x, y) \<open> x * y \<close>
+abbreviation urust_eval_predicate_mul_no_wrap_expr1 where
+  \<open>urust_eval_predicate_mul_no_wrap_expr1 x y \<equiv>
+    word_mul_no_wrap (literal x) (literal y)\<close>
 corollary urust_eval_predicate_mul_no_wrap [urust_eval_predicate_simps]:
   fixes x y :: \<open>'l::{len} word\<close>
   shows \<open>\<sigma> \<leadsto>\<^sub>v \<langle>\<Gamma>, urust_eval_predicate_mul_no_wrap_expr1 x y\<rangle> (v, \<sigma>') \<longleftrightarrow> (unat x * unat y < 2^LENGTH('l)) \<and> \<sigma> = \<sigma>' \<and> v = x * y\<close>
@@ -627,7 +633,9 @@ corollary urust_eval_predicate_mul_no_wrap [urust_eval_predicate_simps]:
     and \<open>\<sigma> \<leadsto>\<^sub>a \<langle>\<Gamma>, urust_eval_predicate_mul_no_wrap_expr1 x y\<rangle> (a, \<sigma>') \<longleftrightarrow> (unat x * unat y \<ge> 2^LENGTH('l)) \<and> \<sigma> = \<sigma>' \<and> a = Panic overflow_err_msg\<close>
 by (auto simp add: urust_eval_predicate_via_action urust_eval_action_mul_no_wrap)
 
-urust_expr [abbrev] urust_eval_action_sub_no_wrap_expr1 (x, y) \<open> x - y \<close>
+abbreviation urust_eval_action_sub_no_wrap_expr1 where
+  \<open>urust_eval_action_sub_no_wrap_expr1 x y \<equiv>
+    word_minus_no_wrap (literal x) (literal y)\<close>
 lemma urust_eval_action_sub_no_wrap [urust_eval_action_simps]:
   fixes x y :: \<open>'l::{len} word\<close>
   shows \<open>((\<Gamma>, urust_eval_action_sub_no_wrap_expr1 x y) \<diamondop>\<^sub>a \<sigma>) =
@@ -640,7 +648,9 @@ by (auto simp flip: word_le_nat_alt simp add: word_minus_no_wrap_def urust_eval_
   word_minus_no_wrap_as_urust_def urust_eval_action_call word_op_no_wrap_pure_def
   word_minus_no_wrap_pure_def option_unwrap_expr_def Let_def)
 
-urust_expr [abbrev] urust_eval_predicate_sub_no_wrap_expr1 (x, y) \<open> x - y \<close>
+abbreviation urust_eval_predicate_sub_no_wrap_expr1 where
+  \<open>urust_eval_predicate_sub_no_wrap_expr1 x y \<equiv>
+    word_minus_no_wrap (literal x) (literal y)\<close>
 corollary urust_eval_predicate_sub_no_wrap [urust_eval_predicate_simps]:
   fixes x y :: \<open>'l::{len} word\<close>
   shows \<open>\<sigma> \<leadsto>\<^sub>v \<langle>\<Gamma>, urust_eval_predicate_sub_no_wrap_expr1 x y\<rangle> (v, \<sigma>') \<longleftrightarrow> (unat y \<le> unat x) \<and> \<sigma> = \<sigma>' \<and> v = x - y\<close>
@@ -648,7 +658,9 @@ corollary urust_eval_predicate_sub_no_wrap [urust_eval_predicate_simps]:
     and \<open>\<sigma> \<leadsto>\<^sub>a \<langle>\<Gamma>, urust_eval_predicate_sub_no_wrap_expr1 x y\<rangle> (a, \<sigma>') \<longleftrightarrow> (unat y > unat x) \<and> a = Panic overflow_err_msg \<and> \<sigma> = \<sigma>'\<close>
 by (auto simp add: urust_eval_predicate_via_action urust_eval_action_sub_no_wrap)
 
-urust_expr [abbrev] urust_eval_action_div_expr1 (x, y) \<open> x / y \<close>
+abbreviation urust_eval_action_div_expr1 where
+  \<open>urust_eval_action_div_expr1 x y \<equiv>
+    word_udiv (literal x) (literal y)\<close>
 lemma urust_eval_action_div [urust_eval_action_simps]:
   fixes x y :: \<open>'l::{len} word\<close>
   shows \<open>((\<Gamma>, urust_eval_action_div_expr1 x y) \<diamondop>\<^sub>a \<sigma>) =
@@ -660,7 +672,9 @@ by (auto simp add: unat_gt_0 word_div_def urust_eval_action_bind micro_rust_simp
   urust_eval_action_literal urust_eval_action_abort word_udiv_core_def word_udiv_def
   urust_eval_action_call)
 
-urust_expr [abbrev] urust_eval_predicate_div_expr1 (x, y) \<open> x / y \<close>
+abbreviation urust_eval_predicate_div_expr1 where
+  \<open>urust_eval_predicate_div_expr1 x y \<equiv>
+    word_udiv (literal x) (literal y)\<close>
 corollary urust_eval_predicate_div [urust_eval_predicate_simps]:
   fixes x y :: \<open>'l::{len} word\<close>
   shows \<open>\<sigma> \<leadsto>\<^sub>v \<langle>\<Gamma>, urust_eval_predicate_div_expr1 x y\<rangle> (v, \<sigma>') \<longleftrightarrow> (unat y \<noteq> 0) \<and> \<sigma> = \<sigma>' \<and> v = x div y\<close>
@@ -668,7 +682,9 @@ corollary urust_eval_predicate_div [urust_eval_predicate_simps]:
     and \<open>\<sigma> \<leadsto>\<^sub>a \<langle>\<Gamma>, urust_eval_predicate_div_expr1 x y\<rangle> (a, \<sigma>') \<longleftrightarrow> (unat y = 0) \<and> \<sigma> = \<sigma>' \<and> a = Panic (String.implode ''division by zero'')\<close>
 by (auto simp add: urust_eval_predicate_via_action urust_eval_action_div)
 
-urust_expr [abbrev] urust_eval_action_mod_expr1 (x, y) \<open> x % y \<close>
+abbreviation urust_eval_action_mod_expr1 where
+  \<open>urust_eval_action_mod_expr1 x y \<equiv>
+    word_umod (literal x) (literal y)\<close>
 lemma urust_eval_action_mod [urust_eval_action_simps]:
   fixes x y :: \<open>'l::{len} word\<close>
   shows \<open>((\<Gamma>, urust_eval_action_mod_expr1 x y) \<diamondop>\<^sub>a \<sigma>) =
@@ -680,7 +696,9 @@ by (auto simp add: unat_gt_0 word_mod_def urust_eval_action_bind micro_rust_simp
   urust_eval_action_literal urust_eval_action_abort word_umod_core_def word_umod_def
   urust_eval_action_call)
 
-urust_expr [abbrev] urust_eval_predicate_mod_expr1 (x, y) \<open> x % y \<close>
+abbreviation urust_eval_predicate_mod_expr1 where
+  \<open>urust_eval_predicate_mod_expr1 x y \<equiv>
+    word_umod (literal x) (literal y)\<close>
 corollary urust_eval_predicate_mod [urust_eval_predicate_simps]:
   fixes x y :: \<open>'l::{len} word\<close>
   shows \<open>\<sigma> \<leadsto>\<^sub>v \<langle>\<Gamma>, urust_eval_predicate_mod_expr1 x y\<rangle> (v, \<sigma>') \<longleftrightarrow> (unat y \<noteq> 0) \<and> \<sigma> = \<sigma>' \<and> v = x mod y\<close>
@@ -688,7 +706,9 @@ corollary urust_eval_predicate_mod [urust_eval_predicate_simps]:
     and \<open>\<sigma> \<leadsto>\<^sub>a \<langle>\<Gamma>, urust_eval_predicate_mod_expr1 x y\<rangle> (a, \<sigma>') \<longleftrightarrow> (unat y = 0) \<and> a = Panic (String.implode ''division by zero'') \<and> \<sigma> = \<sigma>'\<close>
 by (auto simp add: urust_eval_predicate_via_action urust_eval_action_mod)
 
-urust_expr [abbrev] urust_eval_action_shift_left_expr1 (x, y) \<open> x << y \<close>
+abbreviation urust_eval_action_shift_left_expr1 where
+  \<open>urust_eval_action_shift_left_expr1 x y \<equiv>
+    word_shift_left_shift64 (literal x) (literal y)\<close>
 lemma urust_eval_action_shift_left [urust_eval_action_simps]:
   fixes x :: \<open>'l0::{len} word\<close>
     and y :: \<open>64 word\<close>
@@ -702,7 +722,9 @@ by (auto simp flip: word_le_nat_alt simp add: word_shift_left_pure_def urust_eva
   word_shift_left_as_urust_def urust_eval_action_call word_shift_left_def
   word_shift_left_shift64_def option_unwrap_expr_def Let_def)
 
-urust_expr [abbrev] urust_eval_predicate_shift_left_expr1 (x, y) \<open> x << y \<close>
+abbreviation urust_eval_predicate_shift_left_expr1 where
+  \<open>urust_eval_predicate_shift_left_expr1 x y \<equiv>
+    word_shift_left_shift64 (literal x) (literal y)\<close>
 corollary urust_eval_predicate_shift_left [urust_eval_predicate_simps]:
   fixes x :: \<open>'l0::{len} word\<close>
     and y :: \<open>64 word\<close>
@@ -712,7 +734,9 @@ corollary urust_eval_predicate_shift_left [urust_eval_predicate_simps]:
     and \<open>\<sigma> \<leadsto>\<^sub>a \<langle>\<Gamma>, urust_eval_predicate_shift_left_expr1 x y\<rangle> (a, \<sigma>') \<longleftrightarrow> (unat y \<ge> LENGTH('l0) \<and> \<sigma> = \<sigma>' \<and> a = Panic overflow_err_msg)\<close>
 by (auto simp add: urust_eval_predicate_via_action urust_eval_action_shift_left)
 
-urust_expr [abbrev] urust_eval_action_shift_right_expr1 (x, y) \<open> x >> y \<close>
+abbreviation urust_eval_action_shift_right_expr1 where
+  \<open>urust_eval_action_shift_right_expr1 x y \<equiv>
+    word_shift_right_shift64 (literal x) (literal y)\<close>
 lemma urust_eval_action_shift_right [urust_eval_action_simps]:
   fixes x :: \<open>'l0::{len} word\<close>
     and y :: \<open>64 word\<close>
@@ -726,7 +750,9 @@ by (auto simp flip: word_le_nat_alt simp add: word_shift_right_pure_def urust_ev
   word_shift_right_as_urust_def urust_eval_action_call word_shift_right_def
   word_shift_right_shift64_def option_unwrap_expr_def Let_def)
 
-urust_expr [abbrev] urust_eval_predicate_shift_right_expr1 (x, y) \<open> x >> y \<close>
+abbreviation urust_eval_predicate_shift_right_expr1 where
+  \<open>urust_eval_predicate_shift_right_expr1 x y \<equiv>
+    word_shift_right_shift64 (literal x) (literal y)\<close>
 corollary urust_eval_predicate_shift_right [urust_eval_predicate_simps]:
   fixes x :: \<open>'l0::{len} word\<close>
     and y :: \<open>64 word\<close>
@@ -736,7 +762,9 @@ corollary urust_eval_predicate_shift_right [urust_eval_predicate_simps]:
     and \<open>\<sigma> \<leadsto>\<^sub>a \<langle>\<Gamma>, urust_eval_predicate_shift_right_expr1 x y\<rangle> (a, \<sigma>') \<longleftrightarrow> (unat y \<ge> LENGTH('l0) \<and> \<sigma> = \<sigma>' \<and> a = Panic overflow_err_msg)\<close>
 by (auto simp add: urust_eval_predicate_via_action urust_eval_action_shift_right)
 
-urust_expr [abbrev] urust_eval_action_xor_expr1 (x, y) \<open> x ^ y \<close>
+abbreviation urust_eval_action_xor_expr1 where
+  \<open>urust_eval_action_xor_expr1 x y \<equiv>
+    Numeric_Types.word_bitwise_xor (literal x) (literal y)\<close>
 lemma urust_eval_action_xor [urust_eval_action_simps]:
   fixes x y :: \<open>'l::{len} word\<close>
   shows \<open>((\<Gamma>, urust_eval_action_xor_expr1 x y) \<diamondop>\<^sub>a \<sigma>) = {}\<close>
@@ -745,7 +773,9 @@ lemma urust_eval_action_xor [urust_eval_action_simps]:
 by (simp add: urust_eval_action_bind micro_rust_simps urust_eval_action_literal
   urust_eval_action_abort urust_eval_action_call)+
 
-urust_expr [abbrev] urust_eval_predicate_xor_expr1 (x, y) \<open> x ^ y \<close>
+abbreviation urust_eval_predicate_xor_expr1 where
+  \<open>urust_eval_predicate_xor_expr1 x y \<equiv>
+    Numeric_Types.word_bitwise_xor (literal x) (literal y)\<close>
 corollary urust_eval_predicate_xor [urust_eval_predicate_simps]:
   fixes x y :: \<open>'l::{len} word\<close>
   shows \<open>\<sigma> \<leadsto>\<^sub>v \<langle>\<Gamma>, urust_eval_predicate_xor_expr1 x y\<rangle> (v, \<sigma>') \<longleftrightarrow> \<sigma> = \<sigma>' \<and> v = x XOR y\<close>
@@ -753,7 +783,9 @@ corollary urust_eval_predicate_xor [urust_eval_predicate_simps]:
     and \<open>\<sigma> \<leadsto>\<^sub>a \<langle>\<Gamma>, urust_eval_predicate_xor_expr1 x y\<rangle> (a, \<sigma>') \<longleftrightarrow> False\<close>
 by (auto simp add: urust_eval_predicate_via_action urust_eval_action_xor)
 
-urust_expr [abbrev] urust_eval_action_or_expr1 (x, y) \<open> x | y \<close>
+abbreviation urust_eval_action_or_expr1 where
+  \<open>urust_eval_action_or_expr1 x y \<equiv>
+    Numeric_Types.word_bitwise_or (literal x) (literal y)\<close>
 lemma urust_eval_action_or [urust_eval_action_simps]:
   fixes x y :: \<open>'l::{len} word\<close>
   shows \<open>((\<Gamma>, urust_eval_action_or_expr1 x y) \<diamondop>\<^sub>a \<sigma>) = {}\<close>
@@ -762,7 +794,9 @@ lemma urust_eval_action_or [urust_eval_action_simps]:
 by (simp add: urust_eval_action_bind micro_rust_simps urust_eval_action_literal
   urust_eval_action_abort urust_eval_action_call)+
 
-urust_expr [abbrev] urust_eval_predicate_or_expr1 (x, y) \<open> x | y \<close>
+abbreviation urust_eval_predicate_or_expr1 where
+  \<open>urust_eval_predicate_or_expr1 x y \<equiv>
+    Numeric_Types.word_bitwise_or (literal x) (literal y)\<close>
 corollary urust_eval_predicate_or [urust_eval_predicate_simps]:
   fixes x y :: \<open>'l::{len} word\<close>
   shows \<open>\<sigma> \<leadsto>\<^sub>v \<langle>\<Gamma>, urust_eval_predicate_or_expr1 x y\<rangle> (v, \<sigma>') \<longleftrightarrow> \<sigma> = \<sigma>' \<and> v = x OR y\<close>
@@ -770,7 +804,9 @@ corollary urust_eval_predicate_or [urust_eval_predicate_simps]:
     and \<open>\<sigma> \<leadsto>\<^sub>a \<langle>\<Gamma>, urust_eval_predicate_or_expr1 x y\<rangle> (a, \<sigma>') \<longleftrightarrow> False\<close>
 by (auto simp add: urust_eval_predicate_via_action urust_eval_action_or)
 
-urust_expr [abbrev] urust_eval_action_and_expr1 (x, y) \<open> x & y \<close>
+abbreviation urust_eval_action_and_expr1 where
+  \<open>urust_eval_action_and_expr1 x y \<equiv>
+    Numeric_Types.word_bitwise_and (literal x) (literal y)\<close>
 lemma urust_eval_action_and [urust_eval_action_simps]:
   fixes x y :: \<open>'l::{len} word\<close>
   shows \<open>((\<Gamma>, urust_eval_action_and_expr1 x y) \<diamondop>\<^sub>a \<sigma>) = {}\<close>
@@ -779,7 +815,9 @@ lemma urust_eval_action_and [urust_eval_action_simps]:
 by (simp add: urust_eval_action_bind micro_rust_simps urust_eval_action_literal
   urust_eval_action_abort urust_eval_action_call)+
 
-urust_expr [abbrev] urust_eval_predicate_and_expr1 (x, y) \<open> x & y \<close>
+abbreviation urust_eval_predicate_and_expr1 where
+  \<open>urust_eval_predicate_and_expr1 x y \<equiv>
+    Numeric_Types.word_bitwise_and (literal x) (literal y)\<close>
 corollary urust_eval_predicate_and [urust_eval_predicate_simps]:
   fixes x y :: \<open>'l::{len} word\<close>
   shows \<open>\<sigma> \<leadsto>\<^sub>v \<langle>\<Gamma>, urust_eval_predicate_and_expr1 x y\<rangle> (v, \<sigma>') \<longleftrightarrow> \<sigma> = \<sigma>' \<and> v = x AND y\<close>
@@ -787,10 +825,10 @@ corollary urust_eval_predicate_and [urust_eval_predicate_simps]:
     and \<open>\<sigma> \<leadsto>\<^sub>a \<langle>\<Gamma>, urust_eval_predicate_and_expr1 x y\<rangle> (a, \<sigma>') \<longleftrightarrow> False\<close>
 by (auto simp add: urust_eval_predicate_via_action urust_eval_action_and)
 
-urust_expr [abbrev] urust_eval_action_not_expr1 ::
+abbreviation urust_eval_action_not_expr1 ::
   \<open>'l::len word \<Rightarrow> ('s, 'l word, 'r, 'abort, 'i, 'o) expression\<close>
-  (x)
-  \<open> !x \<close>
+  where \<open>urust_eval_action_not_expr1 x \<equiv>
+    Numeric_Types.word_bitwise_not (literal x)\<close>
 
 lemma urust_eval_action_not [urust_eval_action_simps]:
   fixes x y :: \<open>'l::{len} word\<close>
@@ -800,10 +838,10 @@ lemma urust_eval_action_not [urust_eval_action_simps]:
 by (simp add: urust_eval_action_bind micro_rust_simps urust_eval_action_literal
   urust_eval_action_abort urust_eval_action_call)+
 
-urust_expr [abbrev] urust_eval_predicate_not_expr1 ::
+abbreviation urust_eval_predicate_not_expr1 ::
   \<open>'l::len word \<Rightarrow> ('s, 'l word, 'r, 'abort, 'i, 'o) expression\<close>
-  (x)
-  \<open> !x \<close>
+  where \<open>urust_eval_predicate_not_expr1 x \<equiv>
+    Numeric_Types.word_bitwise_not (literal x)\<close>
 
 corollary urust_eval_predicate_not [urust_eval_predicate_simps]:
   fixes x y :: \<open>'l::{len} word\<close>

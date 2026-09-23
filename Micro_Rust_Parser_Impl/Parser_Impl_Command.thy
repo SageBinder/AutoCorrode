@@ -2,7 +2,6 @@ theory Parser_Impl_Command
   imports
     Parser_Impl_Grammar
     Parser_Impl_Translate
-    Micro_Rust_Parsing_Legacy_Frontend.Micro_Rust_Parsing_Legacy_Frontend
   keywords
     "urust_expr" :: thy_decl
     and "urust_fn" :: thy_decl
@@ -103,6 +102,26 @@ An argument-taking abbreviation declaration exposes a parser expression or funct
 helper. At HOL use sites, write \<open>(helper args)\<close> when surrounding syntax would otherwise group the
 helper application incorrectly.
 \<close>
+
+ML\<open>
+structure Micro_Rust_Legacy_Parser_Provider =
+struct
+  type provider = Proof.context -> Input.source -> term
+
+  structure Data = Generic_Data
+  (
+    type T = provider option
+    val empty = NONE
+    fun merge (NONE, right) = right
+      | merge (left, NONE) = left
+      | merge (left, SOME _) = left
+  )
+
+  fun register provider = Data.put (SOME provider)
+  fun get ctxt = Data.get (Context.Proof ctxt)
+end
+\<close>
+
 ML\<open>
 signature URUST_COMMAND =
 sig
@@ -1077,7 +1096,20 @@ fun declare_urust_result timer abbreviation application_definition attributes bi
             lthy)))
   end
 
-fun old_frontend_source source = "\<lbrakk> " ^ Input.string_of source ^ " \<rbrakk>"
+fun old_frontend_source source =
+  Input.source true
+    ("\<lbrakk> " ^ Input.string_of source ^ " \<rbrakk>")
+    (Input.range_of source)
+
+fun direct_old_term ctxt source =
+  Syntax.parse_term ctxt (Input.string_of source)
+
+fun missing_provider_warning command source =
+  warning
+    (command ^
+      ": [conformance] requested, but no legacy parser provider is installed; \
+      \skipping the old-frontend comparison" ^
+      Position.here (Input.pos_of source))
 
 fun verbosity_output_enabled interactive lthy =
   interactive orelse Config.get lthy Proof_Display.show_results
@@ -1191,7 +1223,7 @@ fun note_conformance timer binding declaration old_frontend lthy =
     end)
 
 fun with_typed_fixes timer lthy command complete_type parameters
-    body_type wrap_body old_body_source =
+    body_type wrap_body parse_old old_body_source =
   let
     val (body_ctxt, abstractions) =
       timing_phase timer "prepare context" (fn () =>
@@ -1241,7 +1273,7 @@ fun with_typed_fixes timer lthy command complete_type parameters
         end)
     val parsed =
       timing_phase timer "parse source" (fn () =>
-        Syntax.parse_term body_ctxt old_body_source)
+        parse_old body_ctxt old_body_source)
     val old_body =
       timing_phase timer "check body" (fn () =>
         Syntax.check_term body_ctxt
@@ -1259,15 +1291,17 @@ fun with_typed_fixes timer lthy command complete_type parameters
       singleton (Variable.export_terms body_ctxt lthy) checked)
   end
 
-fun old_frontend_expression timer lthy complete_type arguments old_body_source =
+fun old_frontend_expression
+    timer lthy complete_type arguments parse_old old_body_source =
   let
     val (_, result_type) = Term.strip_type complete_type
   in
     with_typed_fixes timer lthy "urust_expr" complete_type arguments
-      result_type I old_body_source
+      result_type I parse_old old_body_source
   end
 
-fun old_frontend_function timer lthy declared_type parameters old_body_source =
+fun old_frontend_function
+    timer lthy declared_type parameters parse_old old_body_source =
   let
     val (_, result_type) = Term.strip_type declared_type
     val body_type =
@@ -1281,7 +1315,7 @@ fun old_frontend_function timer lthy declared_type parameters old_body_source =
              "urust_fn: internal malformed function_body result type")
   in
     with_typed_fixes timer lthy "urust_fn" declared_type parameters
-      body_type URust_Shallow_Terms.function_body old_body_source
+      body_type URust_Shallow_Terms.function_body parse_old old_body_source
   end
 
 fun declare_with_frontend_check
@@ -1366,24 +1400,32 @@ fun define_urust_expr
     fun declaration lthy' =
       declare_urust_result timer abbreviation application_definition
         attributes binding kind args lthy'
-    fun checked old_body =
+    fun checked parse_old old_body =
       declare_with_frontend_check timer declaration binding
         (fn ctxt => fn complete_type =>
           close_declared_legacy kind declared_type ctxt
             (case kind of
                Expression =>
-                 old_frontend_expression timer ctxt complete_type arguments old_body
+                 old_frontend_expression
+                   timer ctxt complete_type arguments parse_old old_body
              | Function =>
-                 old_frontend_function timer ctxt complete_type arguments old_body))
+                 old_frontend_function
+                   timer ctxt complete_type arguments parse_old old_body))
         interactive verbosity lthy
     fun run () =
       (case against of
          SOME (old_frontend, _) =>
-           checked old_frontend
+           checked direct_old_term old_frontend
        | NONE =>
            if configured_flag lthy options conformance_option
                 urust_conformance
-           then checked (old_frontend_source source)
+           then
+             (case Micro_Rust_Legacy_Parser_Provider.get lthy of
+                SOME parse_old =>
+                  checked parse_old (old_frontend_source source)
+              | NONE =>
+                  (missing_provider_warning "urust_expr" source;
+                   declare_and_print declaration interactive verbosity lthy))
            else declare_and_print declaration interactive verbosity lthy)
   in
     run_command_with_timing timer timing_verbosity
@@ -1416,20 +1458,27 @@ fun define_urust_fn
       declare_urust_result timer abbreviation application_definition
         attributes binding Function
         (target, SOME raw_type, body, parameters_pos, parameters) lthy'
-    fun checked old_body =
+    fun checked parse_old old_body =
       declare_with_frontend_check timer declaration binding
         (fn ctxt => fn complete_type =>
           close_typed_term Function ctxt (#2 raw_type)
-            (old_frontend_function timer ctxt complete_type parameters old_body))
+            (old_frontend_function
+              timer ctxt complete_type parameters parse_old old_body))
         interactive verbosity lthy
     fun run () =
       (case against of
          SOME (old_frontend, _) =>
-           checked old_frontend
+           checked direct_old_term old_frontend
        | NONE =>
            if configured_flag lthy options conformance_option
                 urust_conformance
-           then checked (old_frontend_source body)
+           then
+             (case Micro_Rust_Legacy_Parser_Provider.get lthy of
+                SOME parse_old =>
+                  checked parse_old (old_frontend_source body)
+              | NONE =>
+                  (missing_provider_warning "urust_fn" body;
+                   declare_and_print declaration interactive verbosity lthy))
            else declare_and_print declaration interactive verbosity lthy)
   in
     run_command_with_timing timer timing_verbosity

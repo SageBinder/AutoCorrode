@@ -5,7 +5,6 @@
 theory Bool_Type_Lemmas
   imports Core_Expression_Lemmas Shallow_Micro_Rust_Base.Bool_Type
 begin
-declare [[urust_conformance = true]]
 (*>*)
 
 lemma evaluate_trueE [micro_rust_elims]:
@@ -51,13 +50,13 @@ lemma evaluate_two_armed_conditionalE [micro_rust_elims]:
 
 text\<open>Note that conditionals satisfy some "obvious" properties.  For example, testing against the
 \<^emph>\<open>truth\<close> and \<^emph>\<open>falsity\<close> constants collapses the conditional, as one would expect:\<close>
-urust_expr [abbrev] two_armed_conditional_true_false_collapse_expr1
-  (e, f)
-  \<open> if True { \<epsilon>\<open>e\<close> } else { \<epsilon>\<open>f\<close> } \<close>
+abbreviation two_armed_conditional_true_false_collapse_expr1 where
+  \<open>two_armed_conditional_true_false_collapse_expr1 e f \<equiv>
+    two_armed_conditional (literal True) e f\<close>
 
-urust_expr [abbrev] two_armed_conditional_true_false_collapse_expr2
-  (e, f)
-  \<open> if False { \<epsilon>\<open>e\<close> } else { \<epsilon>\<open>f\<close> } \<close>
+abbreviation two_armed_conditional_true_false_collapse_expr2 where
+  \<open>two_armed_conditional_true_false_collapse_expr2 e f \<equiv>
+    two_armed_conditional (literal False) e f\<close>
 
 lemma two_armed_conditional_true_false_collapse [micro_rust_simps]:
   shows \<open>two_armed_conditional_true_false_collapse_expr1 e f = e\<close>
@@ -66,28 +65,13 @@ lemma two_armed_conditional_true_false_collapse [micro_rust_simps]:
 
 text\<open>Moreover, we can also perform some common-subexpression elimination, by "hoisting" common
 expressions that appear in both branches of the conditional out, as follows:\<close>
-urust_expr [abbrev] two_armed_conditional_sequence_hoist_expr1
-  (c, e, g, f)
-  \<open>
-    if \<epsilon>\<open>c\<close> {
-      \<epsilon>\<open>e\<close>;
-      \<epsilon>\<open>g\<close>
-    } else {
-      \<epsilon>\<open>f\<close>;
-      \<epsilon>\<open>g\<close>
-    }
-  \<close>
+abbreviation two_armed_conditional_sequence_hoist_expr1 where
+  \<open>two_armed_conditional_sequence_hoist_expr1 c e g f \<equiv>
+    two_armed_conditional c (sequence e g) (sequence f g)\<close>
 
-urust_expr [abbrev] two_armed_conditional_sequence_hoist_expr2
-  (c, e, f, g)
-  \<open>
-    if \<epsilon>\<open>c\<close> {
-      \<epsilon>\<open>e\<close>
-    } else {
-      \<epsilon>\<open>f\<close>
-    };
-    \<epsilon>\<open>g\<close>
-  \<close>
+abbreviation two_armed_conditional_sequence_hoist_expr2 where
+  \<open>two_armed_conditional_sequence_hoist_expr2 c e f g \<equiv>
+    sequence (two_armed_conditional c e f) g\<close>
 
 lemma two_armed_conditional_sequence_hoist [micro_rust_simps]:
   shows \<open>two_armed_conditional_sequence_hoist_expr1 c e g f =
@@ -142,70 +126,62 @@ lemma assert_false_sequence [micro_rust_simps]:
   by (simp add: micro_rust_simps assert_def assert_val_def)
 
 text\<open>...and \<^term>\<open>skip\<close>:\<close>
-urust_expr [abbrev] assert_true_sequence_expr1
-  (e)
-  \<open> assert!(True); \<epsilon>\<open>e\<close> \<close>
+abbreviation assert_true_sequence_expr1 where
+  \<open>assert_true_sequence_expr1 e \<equiv>
+    sequence (assert (literal True)) e\<close>
 
 lemma assert_true_sequence [micro_rust_simps]:
   shows \<open>assert_true_sequence_expr1 e = e\<close>
   by (simp add: micro_rust_simps assert_def assert_val_def)
 
-urust_expr [abbrev] evaluate_negation_literal_expr1 ::
+abbreviation evaluate_negation_literal_expr1 ::
   \<open>bool \<Rightarrow> ('s, bool, 'r, 'abort, 'i, 'o) expression\<close>
-  (c)
-  \<open> !c \<close>
+  where \<open>evaluate_negation_literal_expr1 c \<equiv> negation (literal c)\<close>
 
-urust_expr [abbrev] evaluate_negation_literal_expr2
-  (c)
-  \<open> \<llangle>\<not>c\<rrangle> \<close>
+abbreviation evaluate_negation_literal_expr2 where
+  \<open>evaluate_negation_literal_expr2 c \<equiv> literal (\<not>c)\<close>
 
 lemma evaluate_negation_literal [micro_rust_simps]:
   shows \<open>evaluate_negation_literal_expr1 c = evaluate_negation_literal_expr2 c\<close>
   by (clarsimp simp add: micro_rust_simps negation_def)
 
-urust_expr [abbrev] evaluate_conjunction_literal_expr1
-  (c, d)
-  \<open> c && \<epsilon>\<open>d\<close> \<close>
+abbreviation evaluate_conjunction_literal_expr1 where
+  \<open>evaluate_conjunction_literal_expr1 c d \<equiv> urust_conj (literal c) d\<close>
 
-urust_expr [abbrev] evaluate_conjunction_literal_expr2
-  (c, d)
-  \<open> if c { \<epsilon>\<open>d\<close> } else { False } \<close>
+abbreviation evaluate_conjunction_literal_expr2 where
+  \<open>evaluate_conjunction_literal_expr2 c d \<equiv>
+    two_armed_conditional (literal c) d (literal False)\<close>
 
 lemma evaluate_conjunction_literal [micro_rust_simps]:
   shows \<open>evaluate_conjunction_literal_expr1 c d = evaluate_conjunction_literal_expr2 c d\<close>
   by (clarsimp simp add: micro_rust_simps urust_conj_def two_armed_conditional_def false_def)
 
-urust_expr [abbrev] evaluate_disjunction_literal_expr1
-  (c, e)
-  \<open> c || \<epsilon>\<open>e\<close> \<close>
+abbreviation evaluate_disjunction_literal_expr1 where
+  \<open>evaluate_disjunction_literal_expr1 c e \<equiv> urust_disj (literal c) e\<close>
 
-urust_expr [abbrev] evaluate_disjunction_literal_expr2
-  (c, e)
-  \<open> if c { True } else { \<epsilon>\<open>e\<close> } \<close>
+abbreviation evaluate_disjunction_literal_expr2 where
+  \<open>evaluate_disjunction_literal_expr2 c e \<equiv>
+    two_armed_conditional (literal c) (literal True) e\<close>
 
 lemma evaluate_disjunction_literal [micro_rust_simps]:
   shows \<open>evaluate_disjunction_literal_expr1 c e = evaluate_disjunction_literal_expr2 c e\<close>
   by (clarsimp simp add: micro_rust_simps urust_disj_def two_armed_conditional_def true_def)
 
-urust_expr [abbrev] evaluate_eq_literal_expr1
-  (c, d)
-  \<open> c == d \<close>
+abbreviation evaluate_eq_literal_expr1 where
+  \<open>evaluate_eq_literal_expr1 c d \<equiv> urust_eq (literal c) (literal d)\<close>
 
-urust_expr [abbrev] evaluate_eq_literal_expr2
-  (c, d)
-  \<open> \<llangle>c = d\<rrangle> \<close>
+abbreviation evaluate_eq_literal_expr2 where
+  \<open>evaluate_eq_literal_expr2 c d \<equiv> literal (c = d)\<close>
 
 lemma evaluate_eq_literal [micro_rust_simps]:
   shows \<open>evaluate_eq_literal_expr1 c d = evaluate_eq_literal_expr2 c d\<close>
   by (clarsimp simp add: micro_rust_simps urust_eq_def)
 
-urust_expr [abbrev] evaluate_neq_literal_expr1
-  (c, d)
-  \<open> c != d \<close>
+abbreviation evaluate_neq_literal_expr1 where
+  \<open>evaluate_neq_literal_expr1 c d \<equiv> urust_neq (literal c) (literal d)\<close>
 
-urust_expr [abbrev] evaluate_neq_literal_expr2
-  (c, d)
-  \<open> \<llangle>c \<noteq> d\<rrangle> \<close>
+abbreviation evaluate_neq_literal_expr2 where
+  \<open>evaluate_neq_literal_expr2 c d \<equiv> literal (c \<noteq> d)\<close>
 
 lemma evaluate_neq_literal [micro_rust_simps]:
   shows \<open>evaluate_neq_literal_expr1 c d = evaluate_neq_literal_expr2 c d\<close>
@@ -214,37 +190,34 @@ lemma evaluate_neq_literal [micro_rust_simps]:
 (* We don't add these to micro_rust_simps as it can leads to overly aggressive case-splitting
    by HOL's if_split rule. Still, it can be useful in specific proofs. *)
 
-urust_expr [abbrev] evaluate_pure_if_expr1
-  (x, y, z)
-  \<open> if x { y } else { z } \<close>
+abbreviation evaluate_pure_if_expr1 where
+  \<open>evaluate_pure_if_expr1 x y z \<equiv>
+    two_armed_conditional (literal x) (literal y) (literal z)\<close>
 
-urust_expr [abbrev] evaluate_pure_if_expr2
-  (x, y, z)
-  \<open> \<llangle>if x then y else z\<rrangle> \<close>
+abbreviation evaluate_pure_if_expr2 where
+  \<open>evaluate_pure_if_expr2 x y z \<equiv> literal (if x then y else z)\<close>
 
 lemma evaluate_pure_if:
   shows \<open>evaluate_pure_if_expr1 x y z = evaluate_pure_if_expr2 x y z\<close>
   by (clarsimp simp add: micro_rust_simps)
 
-urust_expr [abbrev] evaluate_pure_if_then_True_expr1
-  (x, z)
-  \<open> \<llangle>if x then True else z\<rrangle> \<close>
+abbreviation evaluate_pure_if_then_True_expr1 where
+  \<open>evaluate_pure_if_then_True_expr1 x z \<equiv>
+    literal (if x then True else z)\<close>
 
-urust_expr [abbrev] evaluate_pure_if_then_True_expr2
-  (x, z)
-  \<open> \<llangle>x \<or> z\<rrangle> \<close>
+abbreviation evaluate_pure_if_then_True_expr2 where
+  \<open>evaluate_pure_if_then_True_expr2 x z \<equiv> literal (x \<or> z)\<close>
 
 lemma evaluate_pure_if_then_True:
   shows \<open>evaluate_pure_if_then_True_expr1 x z = evaluate_pure_if_then_True_expr2 x z\<close>
   by simp
 
-urust_expr [abbrev] evaluate_pure_if_else_True_expr1
-  (x, y)
-  \<open> \<llangle>if x then y else True\<rrangle> \<close>
+abbreviation evaluate_pure_if_else_True_expr1 where
+  \<open>evaluate_pure_if_else_True_expr1 x y \<equiv>
+    literal (if x then y else True)\<close>
 
-urust_expr [abbrev] evaluate_pure_if_else_True_expr2
-  (x, y)
-  \<open> \<llangle>\<not>x \<or> y\<rrangle> \<close>
+abbreviation evaluate_pure_if_else_True_expr2 where
+  \<open>evaluate_pure_if_else_True_expr2 x y \<equiv> literal (\<not>x \<or> y)\<close>
 
 lemma evaluate_pure_if_else_True:
   shows \<open>evaluate_pure_if_else_True_expr1 x y = evaluate_pure_if_else_True_expr2 x y\<close>

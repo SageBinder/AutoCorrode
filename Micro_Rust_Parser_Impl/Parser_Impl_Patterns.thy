@@ -1101,10 +1101,10 @@ struct
       val (tree, (slots_rev, _)) = walk pattern ([], 0)
     in
       fn body =>
-        abstract_slots Basic_Case_Expression.case_abstraction
+        abstract_slots Case_Term_Backend.case_abstraction
           (rev slots_rev)
           (fn arguments =>
-            Basic_Case_Expression.case_element
+            Case_Term_Backend.case_element
               (instantiate_pattern arguments tree) body)
     end
 
@@ -2074,7 +2074,7 @@ struct
             string_of_int (serial ()), dummyT)
 
       fun case_term_on subject branches =
-        Basic_Case_Expression.make_case
+        Case_Term_Backend.make_case
           T.true_value subject branches
 
       fun plain_fragment semantic =

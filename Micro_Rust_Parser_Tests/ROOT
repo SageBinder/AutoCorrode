@@ -1,8 +1,9 @@
-session Micro_Rust_Parser_Tests = HOL +
+session Micro_Rust_Parser_Conformance_Tests = HOL +
   options [document = pdf, document_output = "output"]
   sessions
     "HOL-Library"
     Micro_Rust_Parser_Impl
+    Micro_Rust_Parsing_Legacy_Frontend
     Separation_Lenses
     Shallow_Micro_Rust
     Micro_Rust_Std_Lib
@@ -11,14 +12,12 @@ session Micro_Rust_Parser_Tests = HOL +
     Lenses_And_Other_Optics
     Byte_Level_Encoding
   theories [document = false]
-    Parser_Test_Utils
     Parser_Iterator_Fixtures
     Parser_Registered_Constructor_Fixtures
     Parser_Constructor_Ambiguity_Left_Fixtures
     Parser_Constructor_Ambiguity_Right_Fixtures
     Parser_Struct_Ambiguity_Left_Fixtures
     Parser_Struct_Ambiguity_Right_Fixtures
-    Parser_Legacy_Frontend_Tests
     Parser_Expr_Conformance_Tests
     Parser_Fn_Conformance_Tests
     Parser_Improvements_Tests

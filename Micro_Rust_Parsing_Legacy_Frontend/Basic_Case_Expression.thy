@@ -3,7 +3,7 @@
 
 (*<*)
 theory Basic_Case_Expression
-  imports Main
+  imports Shallow_Micro_Rust_Base.Case_Term_Backend
 begin
 (*>*)
 
@@ -119,21 +119,12 @@ ML\<open>
     | print_term (t $ u) = "(" ^ (print_term t) ^ " $ " ^ (print_term u) ^ ")";
 
 local
-fun case_constant name arguments =
-      Term.list_comb (Const (name, dummyT), arguments);
-fun case_guard guard scrutinee cases =
-      case_constant \<^const_name>\<open>case_guard\<close>
-        [guard, scrutinee, cases];
-fun case_cons head tail =
-      case_constant \<^const_name>\<open>case_cons\<close> [head, tail];
-val case_nil = Const (\<^const_name>\<open>case_nil\<close>, dummyT);
-fun case_element pattern body =
-      case_constant \<^const_name>\<open>case_elem\<close> [pattern, body];
-fun case_abstraction abstraction =
-      case_constant \<^const_name>\<open>case_abs\<close> [abstraction];
-fun make_case guard scrutinee branches =
-      case_guard guard scrutinee
-        (fold_rev case_cons branches case_nil);
+val case_guard = Case_Term_Backend.case_guard;
+val case_cons = Case_Term_Backend.case_cons;
+val case_nil = Case_Term_Backend.case_nil;
+val case_element = Case_Term_Backend.case_element;
+val case_abstraction = Case_Term_Backend.case_abstraction;
+val make_case = Case_Term_Backend.make_case;
 
 fun case_error s = error ("Error in bcase expression:\n" ^ s);
 fun case_tr err ctxt [t, u] =

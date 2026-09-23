@@ -8,8 +8,9 @@ theory Core_Expression
         with \<^verbatim>\<open>SIMPLIFIER\<close> exceptions raised about congruences.\<close>
     "Misc.Debug_Logging"
     "HOL-Library.Word"
+    "HOL-Library.Monad_Syntax"
     "HOL-Eisbach.Eisbach"
-    Basic_Case_Expression
+    Case_Term_Backend
 begin
 (*>*)
 
@@ -521,6 +522,8 @@ text\<open>Contrary to definitions by \<^verbatim>\<open>Definition\<close>, the
 by default. Removing it to keep the default behaviour of \<^verbatim>\<open>definitions\<close> of not being unfolded 
 automatically.\<close>
 declare Core_Expression.bind.simps[simp del]
+
+adhoc_overloading Monad_Syntax.bind \<rightleftharpoons> Core_Expression.bind
 
 text\<open>The following is the sequencing operator (the semicolon), familiar from C-language family
 programming languages.  Note that it is again well-typed: both expressions being sequenced must be

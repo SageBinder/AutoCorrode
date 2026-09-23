@@ -14,8 +14,6 @@ session AutoCorrode = HOL +
     "Micro_Rust_Interfaces"
     "Micro_Rust_Interfaces_Core"
     "Micro_Rust_Parser_Impl"
-    "Micro_Rust_Parser_Tests"
-    "Micro_Rust_Parsing_Legacy_Frontend"
     "Micro_Rust_Runtime"
     "Micro_Rust_Std_Lib"
     "Misc"

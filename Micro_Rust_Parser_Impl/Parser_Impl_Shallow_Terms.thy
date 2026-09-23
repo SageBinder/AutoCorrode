@@ -1,7 +1,7 @@
 theory Parser_Impl_Shallow_Terms
   imports
     Parser_Impl_AST
-    Shallow_Micro_Rust_Base.Micro_Rust_Shallow_Embedding
+    Shallow_Micro_Rust_Base.Micro_Rust_Parser_Target
 begin
 
 section\<open> Shallow term vocabulary \<close>
@@ -735,11 +735,11 @@ struct
   val pair_constructor = Const (\<^const_name>\<open>Product_Type.Pair\<close>, dummyT)
   val tuple_nil_constructor = Const (\<^const_name>\<open>TNil\<close>, dummyT)
 
-  val case_guard = Basic_Case_Expression.case_guard
-  val case_cons = Basic_Case_Expression.case_cons
-  val case_nil = Basic_Case_Expression.case_nil
-  val case_element = Basic_Case_Expression.case_element
-  val case_abstraction = Basic_Case_Expression.case_abstraction
+  val case_guard = Case_Term_Backend.case_guard
+  val case_cons = Case_Term_Backend.case_cons
+  val case_nil = Case_Term_Backend.case_nil
+  val case_element = Case_Term_Backend.case_element
+  val case_abstraction = Case_Term_Backend.case_abstraction
 end
 \<close>
 

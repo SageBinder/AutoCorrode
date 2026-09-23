@@ -17,14 +17,12 @@
 theory Simple_Word_Enum_uRust
   imports
     Misc.Simple_Word_Enums
-    (* Micro_Rust_Notations for the registry itself; the shallow embedding infrastructure used by
-       the parser commands below to check that the names really do resolve in uRust, and
-       Core_Expression_Lemmas for the micro_rust_simps rules (call_literal2 in particular) that
-       reduce a lifted call in those tests. *)
-    Shallow_Micro_Rust_Base.Micro_Rust_Shallow_Embedding
+    (* Micro_Rust_Notations for the neutral registry itself, and Core_Expression_Lemmas for the
+       micro_rust_simps rules (call_literal2 in particular) that reduce a lifted call in these
+       tests. *)
+    Shallow_Micro_Rust_Base.Micro_Rust_Parser_Target
     Core_Expression_Lemmas
 begin
-declare [[urust_conformance = true]]
 (*>*)
 
 section\<open>\<open>\<mu>Rust\<close> notation for simple word enums\<close>
@@ -296,19 +294,19 @@ text\<open>The acceptance test: the \<open>\<mu>Rust\<close> path really does re
 equal to the \<^const>\<open>literal\<close> of the HOL variant --- \<^emph>\<open>not\<close> a free variable named
 \<^verbatim>\<open>MessageKind::MK_Ping\<close>.\<close>
 
-urust_expr [abbrev] ping_term_expr
-  \<open> MessageKind::MK_Ping \<close>
+abbreviation ping_term_expr where
+  \<open>ping_term_expr \<equiv> literal MK_Ping\<close>
 
 term \<open>ping_term_expr\<close>
 
-urust_expr [abbrev] ping_literal_expr
-  \<open> MessageKind::MK_Ping \<close>
+abbreviation ping_literal_expr where
+  \<open>ping_literal_expr \<equiv> literal MK_Ping\<close>
 
-urust_expr [abbrev] pong_literal_expr
-  \<open> MessageKind::MK_Pong \<close>
+abbreviation pong_literal_expr where
+  \<open>pong_literal_expr \<equiv> literal MK_Pong\<close>
 
-urust_expr [abbrev] data_literal_expr
-  \<open> MessageKind::MK_Data \<close>
+abbreviation data_literal_expr where
+  \<open>data_literal_expr \<equiv> literal MK_Data\<close>
 
 lemma
   shows \<open>ping_literal_expr = literal MK_Ping\<close>
@@ -345,15 +343,13 @@ text\<open>Their \<open>\<mu>Rust\<close> paths resolve as function calls --- th
 unregistered path would leave a free variable and fail to elaborate at the \<^const>\<open>function_body\<close>
 type the call position demands.\<close>
 
-urust_expr [abbrev] to_u32_term_expr
-  (e)
-  \<open> MessageKind::to_u32(e) \<close>
+abbreviation to_u32_term_expr where
+  \<open>to_u32_term_expr e \<equiv> funcall1 message_kind_to_u32 (literal e)\<close>
 
 term \<open>to_u32_term_expr e\<close>
 
-urust_expr [abbrev] try_from_term_expr
-  (w)
-  \<open> MessageKind::try_from(w) \<close>
+abbreviation try_from_term_expr where
+  \<open>try_from_term_expr w \<equiv> funcall1 message_kind_try_from_u32 (literal w)\<close>
 
 term \<open>try_from_term_expr w\<close>
 
@@ -361,8 +357,8 @@ text\<open>Naming the \<^verbatim>\<open>_def\<close> fact unfolds a call to its
 \<^verbatim>\<open>_alt\<close> characterisations from \<^verbatim>\<open>word_conversion\<close> usable on \<open>\<mu>Rust\<close> code. Evaluated on a concrete
 variant, a call then reduces to a literal:\<close>
 
-urust_expr [abbrev] to_u32_data_expr
-  \<open> MessageKind::to_u32(MK_Data) \<close>
+abbreviation to_u32_data_expr where
+  \<open>to_u32_data_expr \<equiv> funcall1 message_kind_to_u32 (literal MK_Data)\<close>
 
 lemma
   shows \<open>to_u32_data_expr = \<up>(0xff :: 32 word)\<close>
@@ -371,8 +367,8 @@ lemma
 text\<open>Since the \<^verbatim>\<open>_def\<close>s are not \<^verbatim>\<open>[micro_rust_simps]\<close>, \<^emph>\<open>not\<close> naming them leaves the call
 unreduced --- the caller decides when to unfold.\<close>
 
-urust_expr [abbrev] to_u32_call_expr
-  \<open> MessageKind::to_u32(MK_Data) \<close>
+abbreviation to_u32_call_expr where
+  \<open>to_u32_call_expr \<equiv> funcall1 message_kind_to_u32 (literal MK_Data)\<close>
 
 lemma
   shows \<open>to_u32_call_expr =
@@ -382,8 +378,10 @@ lemma
 text\<open>End to end: a \<open>\<mu>Rust\<close> round trip on a variant named the \<open>\<mu>Rust\<close> way, discharged by the round-trip
 lemma \<^verbatim>\<open>word_conversion\<close> proves.\<close>
 
-urust_expr [abbrev] roundtrip_expr
-  \<open> MessageKind::try_from(MessageKind::to_u32(MK_Data)) \<close>
+abbreviation roundtrip_expr where
+  \<open>roundtrip_expr \<equiv>
+    funcall1 message_kind_try_from_u32
+      (funcall1 message_kind_to_u32 (literal MK_Data))\<close>
 
 lemma
   shows \<open>roundtrip_expr = \<up>(Ok MK_Data)\<close>
@@ -449,9 +447,8 @@ ML \<open>
 text\<open>The variant has to be spelled the HOL way here, since \<^verbatim>\<open>urust_notation\<close> was suppressed ---
 but the \<^emph>\<open>function\<close> path still resolves, which is the independence being tested.\<close>
 
-urust_expr [abbrev] convs_only_expr
-  (w)
-  \<open> ConvsOnly::try_from(w) \<close>
+abbreviation convs_only_expr where
+  \<open>convs_only_expr w \<equiv> funcall1 convs_only_try_from_u8 (literal w)\<close>
 
 lemma
   shows \<open>convs_only_expr w =

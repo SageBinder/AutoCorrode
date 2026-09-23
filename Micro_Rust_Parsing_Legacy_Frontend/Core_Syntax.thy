@@ -3,8 +3,9 @@
 
 (*<*)
 theory Core_Syntax
-  imports Core_Expression Rust_Iterator Result_Type Numeric_Types Option_Type
-    Range_Type Bool_Type Global_Store Misc.Num_Case_Expression Basic_Case_Expression
+  imports
+    Shallow_Micro_Rust_Base.Micro_Rust_Parser_Target
+    Basic_Case_Expression
 begin
 (*>*)
 
@@ -336,17 +337,6 @@ text\<open>We now give meaning to the syntax for shallowly embedded Micro Rust d
 Most of the time, we directly bind the corresponding grammar production to the respective
 HOL constant via \<^text>\<open>translations\<close>. For overloaded syntrax such as \<^text>\<open>expect\<close>, we map
 the syntax to an undefined generic constant, and use adhoc-overloading for type-based dispatch.\<close>
-
-consts
-  unwrap :: \<open>'a \<Rightarrow> ('s, 'b, 'abort, 'i, 'o) function_body\<close>
-  expect :: \<open>'a \<Rightarrow> String.literal \<Rightarrow> ('s, 'b, 'abort, 'i, 'o) function_body\<close>
-  store_update_const :: \<open>('a, 'b, 'v) Global_Store.ref \<Rightarrow> 'v \<Rightarrow> ('s, unit, 'abort, 'i, 'o) function_body\<close>
-  store_reference_const :: \<open>'v \<Rightarrow> ('s, ('a, 'b, 'v) Global_Store.ref, 'abort, 'i, 'o) function_body\<close>
-  store_dereference_const :: \<open>'a \<Rightarrow> ('s, 'v, 'abort, 'i, 'o) function_body\<close>
-  index_const :: \<open>'a \<Rightarrow> 'idx \<Rightarrow> ('s,'b, 'abort, 'i, 'o) function_body\<close>
-  negation_const :: \<open>('s,'v,'c, 'abort, 'i, 'o) expression \<Rightarrow> ('s,'v,'c, 'abort, 'i, 'o) expression\<close>
-  propagate_const :: \<open>('s,'v,'c, 'abort, 'i, 'o) expression \<Rightarrow> ('s,'w,'c, 'abort, 'i, 'o) expression\<close>
-  assign_add_const :: \<open>('a, 'b, 'v) Global_Store.ref \<Rightarrow> 'w \<Rightarrow> ('s,unit, 'abort, 'i, 'o) function_body\<close>
 
 syntax
   "_urust_shallow_match_convert_branches" :: \<open>urust_shallow_match_branches \<Rightarrow> case_basic_branches\<close>
@@ -1135,24 +1125,6 @@ in
   [(\<^syntax_const>\<open>_urust_shallow_match\<close>, urust_shallow_match_tr)]
 end
 \<close>
-
-section\<open>Syntactic support for \<^emph>\<open>expect\<close> and friends\<close>
-
-text\<open>The \<^verbatim>\<open>?\<close> operator is used to propagate error conditions directly
-to the return values of functions. This adhoc overloading allows the propagation
-operator to be used at option and result types.\<close>
-adhoc_overloading propagate_const \<rightleftharpoons> propagate_option propagate_result
-
-subsection\<open>Unary negation operator\<close>
-text\<open>Rust uses the same tm\<open>!\<close> operator for both boolean and bitwise negation.
-We use adhoc overloading here to resolve the distinction via types.\<close>
-
-adhoc_overloading negation_const \<rightleftharpoons> negation Numeric_Types.word_bitwise_not
-
-subsection \<open>Index syntax support\<close>
-
-adhoc_overloading index_const \<rightleftharpoons>
-  list_index array_index vector_index list_index_range array_index_range vector_index_range
 
 subsection\<open>Manipulating and querying 'structures'\<close>
 
