@@ -12,7 +12,9 @@ session Micro_Rust_Parser_Conformance_Tests = HOL +
     Lenses_And_Other_Optics
     Byte_Level_Encoding
   theories [document = false]
+    Parser_Legacy_Logging_Fixtures
     Parser_Iterator_Fixtures
+    Parser_Simple_Word_Enum_Tests
     Parser_Registered_Constructor_Fixtures
     Parser_Constructor_Ambiguity_Left_Fixtures
     Parser_Constructor_Ambiguity_Right_Fixtures

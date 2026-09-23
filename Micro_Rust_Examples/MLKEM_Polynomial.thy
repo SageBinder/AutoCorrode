@@ -7,7 +7,6 @@ theory MLKEM_Polynomial
     Micro_Rust_Std_Lib.StdLib_Slice
 begin
 
-declare [[urust_conformance = true]]
 declare [[urust_verbosity = 2]]
 
 text\<open>

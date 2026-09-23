@@ -11,8 +11,7 @@ section\<open>Legacy conformance provider\<close>
 
 ML\<open>
 fun legacy_micro_rust_parse ctxt source =
-  Syntax.parse_term ctxt
-    ("\<lbrakk> " ^ Input.string_of source ^ " \<rbrakk>")
+  Syntax.parse_term ctxt (Input.string_of source)
 \<close>
 
 setup \<open>

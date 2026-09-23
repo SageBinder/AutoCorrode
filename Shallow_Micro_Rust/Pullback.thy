@@ -81,7 +81,8 @@ qed
 
 \<comment>\<open>NOTE: This lemma is not used at present, but seems worth keeping.\<close>
 lemma expression_pull_back_sequence:
-  shows \<open>is_valid_lens l \<Longrightarrow> l\<inverse> (e ; f) = (l\<inverse> e ; l\<inverse> f)\<close>
+  shows \<open>is_valid_lens l \<Longrightarrow>
+    l\<inverse> (sequence e f) = sequence (l\<inverse> e) (l\<inverse> f)\<close>
   by (simp add: expression_pull_back_bind sequence_def)
 
 \<comment>\<open>NOTE: This lemma is not used at present, but seems worth keeping.\<close>

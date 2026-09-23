@@ -1,7 +1,6 @@
 theory Parser_Showcase_Tests
   imports
-    Micro_Rust_Parser_Impl.Parser_Impl_Command
-    Micro_Rust_Std_Lib.StdLib_Logging
+    Parser_Legacy_Logging_Fixtures
     Misc.Simple_Word_Enums
 begin
 

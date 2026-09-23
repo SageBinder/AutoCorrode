@@ -1,7 +1,9 @@
 (* Positive function conformance for the supported urust_fn declaration surface. *)
 
 theory Parser_Fn_Conformance_Tests
-  imports Parser_Test_Utils Parser_Iterator_Fixtures
+  imports
+    Micro_Rust_Parsing_Legacy_Frontend.Parser_Test_Utils
+    Parser_Iterator_Fixtures
 begin
 
 declare [[urust_conformance = true]]

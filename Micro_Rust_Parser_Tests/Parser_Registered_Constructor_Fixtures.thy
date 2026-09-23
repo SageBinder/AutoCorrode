@@ -1,5 +1,5 @@
 theory Parser_Registered_Constructor_Fixtures
-  imports Parser_Test_Utils
+  imports Micro_Rust_Parsing_Legacy_Frontend.Parser_Test_Utils
 begin
 
 text\<open>

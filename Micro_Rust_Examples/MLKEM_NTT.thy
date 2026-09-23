@@ -6,7 +6,6 @@ theory MLKEM_NTT
     MLKEM_Polynomial
 begin
 
-declare [[urust_conformance = true]]
 declare [[urust_verbosity = 2]]
 
 text\<open>

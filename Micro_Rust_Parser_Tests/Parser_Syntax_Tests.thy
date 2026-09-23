@@ -4399,9 +4399,9 @@ declare [[urust_conformance = true]]
 
 text\<open>
 This suite is evaluated after \<open>Parser_Expr_Conformance_Tests\<close>, so the logging import does not affect that theory's built-in macro coverage.
-The \<open>StdLib_Logging\<close> import supplies the legacy frontend syntax used as the
-oracle for \<open>l\<llangle>...\<rrangle>\<close>, and it also registers \<open>fatal!\<close>,
-\<open>info!\<close>, and the other logger calls. In particular, registered
+The parser-test logging fixture supplies the legacy frontend syntax used as the
+oracle for \<open>l\<llangle>...\<rrangle>\<close>; \<open>StdLib_Logging\<close> registers
+\<open>fatal!\<close>, \<open>info!\<close>, and the other logger calls. In particular, registered
 \<open>fatal!\<close> takes precedence over the built-in macro in this context.
 Keeping the import isolated preserves the main suite's built-in \<open>fatal!\<close>
 coverage.

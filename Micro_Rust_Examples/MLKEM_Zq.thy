@@ -8,7 +8,6 @@ theory MLKEM_Zq
     Crush.Crush
 begin
 
-declare [[urust_conformance = true]]
 declare [[urust_verbosity = 2]]
 
 text\<open>

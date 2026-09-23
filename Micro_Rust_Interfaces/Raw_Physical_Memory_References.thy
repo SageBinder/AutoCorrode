@@ -9,8 +9,6 @@ theory Raw_Physical_Memory_References
     Crush.Crush
 begin
 
-declare [[urust_conformance = true]]
-
 section\<open>References backed in physical memory\<close>
 
 text\<open>In this section, we demonstrate how the \<^locale>\<open>reference\<close> locale can be interpreted in the

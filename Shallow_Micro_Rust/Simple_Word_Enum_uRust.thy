@@ -86,7 +86,16 @@ fun urust_name_of (info: Simple_Word_Enum.enum_info) =
    declared in. *)
 fun register_notation kind rust_name t =
   Local_Theory.declaration {pervasive = false, syntax = true, pos = \<^here>}
-    (fn phi => Micro_Rust_Names.register kind rust_name (Morphism.term phi t) \<^here>)
+    (fn phi =>
+      let
+        val t' = Morphism.term phi t
+        val backend_const =
+          (case Term.head_of t' of
+             Const (name, _) => SOME name
+           | _ => NONE)
+      in
+        Micro_Rust_Names.register kind rust_name t' \<^here> backend_const
+      end)
 
 end
 \<close>
@@ -290,29 +299,10 @@ ML \<open>
   in writeln "MessageKind::* registered, resolving to the HOL variants" end
 \<close>
 
-text\<open>The acceptance test: the \<open>\<mu>Rust\<close> path really does resolve, so the embedding is syntactically
-equal to the \<^const>\<open>literal\<close> of the HOL variant --- \<^emph>\<open>not\<close> a free variable named
-\<^verbatim>\<open>MessageKind::MK_Ping\<close>.\<close>
-
-abbreviation ping_term_expr where
-  \<open>ping_term_expr \<equiv> literal MK_Ping\<close>
-
-term \<open>ping_term_expr\<close>
-
-abbreviation ping_literal_expr where
-  \<open>ping_literal_expr \<equiv> literal MK_Ping\<close>
-
-abbreviation pong_literal_expr where
-  \<open>pong_literal_expr \<equiv> literal MK_Pong\<close>
-
-abbreviation data_literal_expr where
-  \<open>data_literal_expr \<equiv> literal MK_Data\<close>
-
-lemma
-  shows \<open>ping_literal_expr = literal MK_Ping\<close>
-    and \<open>pong_literal_expr = literal MK_Pong\<close>
-    and \<open>data_literal_expr = literal MK_Data\<close>
-  by (rule refl)+
+text\<open>Parser-level checks that these registrations resolve the source paths
+\<^verbatim>\<open>MessageKind::MK_Ping\<close>, \<^verbatim>\<open>MessageKind::MK_Pong\<close>, and
+\<^verbatim>\<open>MessageKind::MK_Data\<close> live in
+\<^file>\<open>../Micro_Rust_Parser_Tests/Parser_Simple_Word_Enum_Tests.thy\<close>.\<close>
 
 text\<open>The lifted conversion functions exist and are \<^const>\<open>lift_fun1\<close> of the pure ones.\<close>
 
@@ -339,52 +329,29 @@ value \<open>message_kind_to_u32_pure MK_Data\<close>
 value \<open>message_kind_try_from_u32_pure 2\<close>
 value \<open>message_kind_try_from_u32_pure 7\<close>
 
-text\<open>Their \<open>\<mu>Rust\<close> paths resolve as function calls --- these type-check, which is the point: an
-unregistered path would leave a free variable and fail to elaborate at the \<^const>\<open>function_body\<close>
-type the call position demands.\<close>
-
-abbreviation to_u32_term_expr where
-  \<open>to_u32_term_expr e \<equiv> funcall1 message_kind_to_u32 (literal e)\<close>
-
-term \<open>to_u32_term_expr e\<close>
-
-abbreviation try_from_term_expr where
-  \<open>try_from_term_expr w \<equiv> funcall1 message_kind_try_from_u32 (literal w)\<close>
-
-term \<open>try_from_term_expr w\<close>
+text\<open>The parser-level function-path and unreduced-call checks also live in
+\<^file>\<open>../Micro_Rust_Parser_Tests/Parser_Simple_Word_Enum_Tests.thy\<close>. The lemmas below
+test the generated conversion functions independently of source parsing.\<close>
 
 text\<open>Naming the \<^verbatim>\<open>_def\<close> fact unfolds a call to its pure function --- which is what makes the
 \<^verbatim>\<open>_alt\<close> characterisations from \<^verbatim>\<open>word_conversion\<close> usable on \<open>\<mu>Rust\<close> code. Evaluated on a concrete
 variant, a call then reduces to a literal:\<close>
 
-abbreviation to_u32_data_expr where
-  \<open>to_u32_data_expr \<equiv> funcall1 message_kind_to_u32 (literal MK_Data)\<close>
 
 lemma
-  shows \<open>to_u32_data_expr = \<up>(0xff :: 32 word)\<close>
+  shows \<open>(funcall1 message_kind_to_u32 (literal MK_Data)) = literal (0xff :: 32 word)\<close>
   by (simp add: micro_rust_simps message_kind_to_u32_def message_kind_to_u32_pure_def)
 
-text\<open>Since the \<^verbatim>\<open>_def\<close>s are not \<^verbatim>\<open>[micro_rust_simps]\<close>, \<^emph>\<open>not\<close> naming them leaves the call
-unreduced --- the caller decides when to unfold.\<close>
-
-abbreviation to_u32_call_expr where
-  \<open>to_u32_call_expr \<equiv> funcall1 message_kind_to_u32 (literal MK_Data)\<close>
-
-lemma
-  shows \<open>to_u32_call_expr =
-    message_kind_to_u32 \<langle>\<up>MK_Data\<rangle>\<close>
-  by (simp add: micro_rust_simps)
+text\<open>The generated \<^verbatim>\<open>_def\<close>s are not tagged \<^verbatim>\<open>[micro_rust_simps]\<close>; the
+parser-specific test confirms that omitting the definition leaves the registered call unreduced.\<close>
 
 text\<open>End to end: a \<open>\<mu>Rust\<close> round trip on a variant named the \<open>\<mu>Rust\<close> way, discharged by the round-trip
 lemma \<^verbatim>\<open>word_conversion\<close> proves.\<close>
 
-abbreviation roundtrip_expr where
-  \<open>roundtrip_expr \<equiv>
-    funcall1 message_kind_try_from_u32
-      (funcall1 message_kind_to_u32 (literal MK_Data))\<close>
 
 lemma
-  shows \<open>roundtrip_expr = \<up>(Ok MK_Data)\<close>
+  shows \<open>(funcall1 message_kind_try_from_u32
+      (funcall1 message_kind_to_u32 (literal MK_Data))) = literal (Ok MK_Data)\<close>
   by (simp add: micro_rust_simps message_kind_to_u32_def message_kind_try_from_u32_def
         message_kind_to_u32_pure_then_try_from)
 
@@ -444,15 +411,13 @@ ML \<open>
   end
 \<close>
 
-text\<open>The variant has to be spelled the HOL way here, since \<^verbatim>\<open>urust_notation\<close> was suppressed ---
-but the \<^emph>\<open>function\<close> path still resolves, which is the independence being tested.\<close>
+text\<open>The variant has to be spelled the HOL way here, since \<^verbatim>\<open>urust_notation\<close> was suppressed.
+The parser-specific test confirms independently that the generated function path still resolves.\<close>
 
-abbreviation convs_only_expr where
-  \<open>convs_only_expr w \<equiv> funcall1 convs_only_try_from_u8 (literal w)\<close>
 
 lemma
-  shows \<open>convs_only_expr w =
-    \<up>(convs_only_try_from_u8_pure w)\<close>
+  shows \<open>(funcall1 convs_only_try_from_u8 (literal w)) =
+    literal (convs_only_try_from_u8_pure w)\<close>
   by (simp add: micro_rust_simps convs_only_try_from_u8_def)
 
 text\<open>Both suppressed at once.\<close>

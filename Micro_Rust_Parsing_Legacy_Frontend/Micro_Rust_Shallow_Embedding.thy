@@ -4,7 +4,7 @@
 (*<*)
 theory Micro_Rust_Shallow_Embedding
   imports
-    Micro_Rust_Parsing_Legacy_Frontend.Micro_Rust_Syntax
+    Legacy_Micro_Rust_Notations
     Core_Syntax
     Shallow_Micro_Rust_Base.Micro_Rust_Parser_Target
 begin
@@ -719,10 +719,6 @@ setup \<open>
      \<^const_name>\<open>lift_fun13\<close>,
      \<^const_name>\<open>lift_fun14\<close>]
 \<close>
-
-micro_rust_notation \<open>lift_fun1 Some\<close> ("Some")
-micro_rust_notation \<open>lift_fun1 Ok\<close>   ("Ok")
-micro_rust_notation \<open>lift_fun1 Err\<close>  ("Err")
 
 text\<open>By default, we map all identifiers to HOL through the identity function on their names.
 We register this as a parse translation rather than a rule so that names registered via

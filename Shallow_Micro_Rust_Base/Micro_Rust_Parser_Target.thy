@@ -45,6 +45,12 @@ adhoc_overloading negation_const \<rightleftharpoons> negation Numeric_Types.wor
 adhoc_overloading index_const \<rightleftharpoons>
   list_index array_index vector_index list_index_range array_index_range vector_index_range
 
+section\<open>Canonical constructor names\<close>
+
+micro_rust_notation (call) \<open>lift_fun1 Some\<close> ("Some")
+micro_rust_notation (call) \<open>lift_fun1 Ok\<close> ("Ok")
+micro_rust_notation (call) \<open>lift_fun1 Err\<close> ("Err")
+
 section\<open>Record support\<close>
 
 named_theorems micro_rust_record_simps

@@ -152,8 +152,8 @@ declarations and `urust_expr [abbrev]` reject them. Argument-taking `urust_expr 
 are the supported HOL helper mechanism. At HOL use sites, write `(helper args)` when surrounding
 syntax would otherwise group the helper application incorrectly.
 
-Production theories use these commands for complete definitions and named abbreviations, with
-conformance checking enabled against the legacy frontend. The test session contains conformance
+Production theories use these commands for complete definitions and named abbreviations without
+loading or invoking the legacy frontend. The parser test session contains isolated conformance
 corpora, regression tests, parser experiments, and legacy shallow-embedding tests. Its
 [README](Micro_Rust_Parser_Tests/README.md) records the integrated parser architecture,
 Rust-fidelity boundaries, focused regression layout, and migration-report dispositions.
@@ -187,8 +187,9 @@ postfix calls, one-element tuples, open ranges, array repeats, unary numeric neg
 `::`, full Rust generics, universal macro trailing commas, and additional numeric families.
 
 The parser implementation depends only on `Shallow_Micro_Rust_Base` and `Isabelle_Lex-Yacc`.
-Full `Shallow_Micro_Rust` adds the parser bridge, while the main `AutoCorrode` session includes both
-the implementation and test sessions.
+The `Shallow_Micro_Rust` theories remain parser-independent; parser-backed production sessions
+import the dedicated parser where needed. The main `AutoCorrode` session includes the production
+parser implementation, while conformance tests remain in their separate session.
 
 Timed declarations also emit hidden schema-versioned PIDE records. The independent
 [Micro_Rust_Parser_Timing](Micro_Rust_Parser_Timing) component reads those records from the final
@@ -196,9 +197,10 @@ snapshots in a completed session database and exposes them through `isabelle uru
 
 ### [Micro_Rust_Parsing_Legacy_Frontend](https://awslabs.github.io/AutoCorrode/Unsorted/AutoCorrode/Micro_Rust_Parsing_Legacy_Frontend.Micro_Rust_Parsing_Legacy_Frontend.html)
 
-The legacy inner-syntax frontend remains as the permanent conformance oracle for the production
-parser. It defines the custom µRust syntax category and shallow-embedding bracket used by
-conformance checks; production µRust declarations and expression sites use the parser commands.
+The legacy inner-syntax frontend is isolated in this session. It defines the custom µRust syntax
+category and shallow-embedding bracket used only by explicit parser conformance tests; production
+µRust theories neither import it nor enable legacy conformance. Run
+`make check-legacy-parser-isolation` to audit this boundary.
 
 ### [Micro_Rust_Runtime](https://awslabs.github.io/AutoCorrode/Unsorted/AutoCorrode/Micro_Rust_Runtime.Micro_Rust_Runtime.html)
 

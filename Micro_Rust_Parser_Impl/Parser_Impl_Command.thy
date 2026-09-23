@@ -1509,8 +1509,9 @@ fun parse_command_options option_configs =
 
 val parse_against =
   Scan.option
-    (Parse.position (Parse.$$$ "against") -- Parse.term >>
-      (fn ((_, pos), term) => (term, pos)))
+    (Parse.$$$ "against" |-- Parse.position Parse.term >>
+      (fn (term, pos) =>
+        (Input.source true term (Position.range (pos, pos)), pos)))
 
 val parse_parameter =
   Parse.position Parse.liberal_name || Parse.position Parse.underscore

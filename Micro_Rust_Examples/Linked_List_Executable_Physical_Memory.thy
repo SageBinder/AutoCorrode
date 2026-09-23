@@ -10,7 +10,6 @@ theory Linked_List_Executable_Physical_Memory
     Micro_Rust_Runtime.Raw_Physical_Memory_Trie_PP
     Micro_Rust_Runtime.Raw_Physical_References
 begin
-declare [[urust_conformance = true]]
 declare [[urust_verbosity = 2]]
 
 section\<open>Linked List reversal via physical references\<close>

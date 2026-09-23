@@ -1,7 +1,6 @@
 theory Parser_Test_Utils
   imports
-    Micro_Rust_Shallow_Embedding
-    Micro_Rust_Parser_Impl.Parser_Impl_Command
+    Legacy_Parser_Provider
   keywords
     "old_urust_rejects" :: thy_decl
     and "urust_expr_rejects" :: thy_decl

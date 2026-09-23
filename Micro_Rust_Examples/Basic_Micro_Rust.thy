@@ -12,7 +12,6 @@ theory Basic_Micro_Rust
     "HOL-Library.Code_Target_Numeral" \<comment> \<open>Map naturals/integers onto OCaml \<^verbatim>\<open>zarith\<close> types\<close>
     "HOL-Library.Code_Abstract_Char"  \<comment> \<open>Tidy up character and string literals a little\<close>
 begin
-declare [[urust_conformance = true]]
 declare [[urust_verbosity = 2]]
 (*>*)
 
@@ -79,9 +78,8 @@ declares its shallow HOL denotation, producing a value of type \<^verbatim>\<ope
 \<^verbatim>\<open>urust_fn\<close> does the same for a complete, explicitly typed
 \<^verbatim>\<open>function_body\<close>. The parser first produces a positioned Micro Rust AST in Isabelle/ML,
 then elaborates that AST directly into the denotational semantics; it does not expose a persistent
-object-level AST in HOL. The legacy shallow-embedding bracket is retained as a conformance oracle, so
-production declarations can prove that the parser-generated term is identical to the established
-frontend term.\<close>
+object-level AST in HOL. Production theories use only this parser path; the isolated legacy
+frontend is not imported or invoked here.\<close>
 
 text\<open>Shallow embeddings of Micro Rust programs into HOL are values of type
 \<^verbatim>\<open>expression\<close>, which is effectively a state monad: Elements of \<^verbatim>\<open>('s, 'v, 'r, \<dots>) expression\<close>
@@ -201,27 +199,26 @@ value \<open>evaluate Basic_Micro_Rust_ex13 ()
 (* "Success 10 ()"
   :: "(unit, 64 word, unit, unit, unit, unit) continuation" *)
 
-text\<open>\<^verbatim>\<open>\<up>\<close> is an abbreviation for \<^verbatim>\<open>literal\<close>:\<close>
+text\<open>Inside a HOL antiquotation, use \<^const>\<open>literal\<close> explicitly:\<close>
 
 urust_expr _
   \<open> 4 + \<epsilon>\<open>literal (sum id {0,1,2,3})\<close> \<close>
 
 urust_expr [abbrev] Basic_Micro_Rust_ex15
-  \<open> 4 + \<epsilon>\<open>\<up> (sum id {0,1,2,3})\<close> \<close>
+  \<open> 4 + \<epsilon>\<open>literal (sum id {0,1,2,3})\<close> \<close>
 
 value \<open>evaluate Basic_Micro_Rust_ex15 ()
    :: (unit, 64 word, unit, unit, unit, unit) continuation\<close>
 (* "Success 10 ()"
   :: "(unit, 64 word, unit, unit, unit, unit) continuation" *)
 
-text\<open>Since the pattern \<^verbatim>\<open>\<epsilon>\<open>\<up>(\<dots>)\<close>\<close> is so common, it has an abbreviation itself:
-The antiquotation \<^verbatim>\<open>\<llangle>\<dots>\<rrangle>\<close> embeds HOL terms as Micro Rust \<^emph>\<open>literals\<close>:\<close>
+text\<open>The source antiquotation \<^verbatim>\<open>\<llangle>\<dots>\<rrangle>\<close> embeds HOL terms as
+Micro Rust \<^emph>\<open>literals\<close>:\<close>
 
 urust_expr _
   \<open> \<llangle>4 :: 32 word\<rrangle> + \<llangle>12 :: 32 word\<rrangle> \<close>
 
-text\<open>The \<^verbatim>\<open>literal\<close> and \<^verbatim>\<open>\<up>\<close> antiquotation is automatic for numerals and identifiers
-in Micro Rust: So if you wrtite\<close>
+text\<open>The literal lift is automatic for numerals and identifiers in Micro Rust. So if you write\<close>
 
 urust_expr _
   \<open> x \<close>

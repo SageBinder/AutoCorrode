@@ -14,5 +14,6 @@ session Shallow_Micro_Rust = Shallow_Micro_Rust_Base +
     SSA
   theories [document=false]
     Shallow_Micro_Rust
+    Legacy_Parser_Isolation_Tests
   document_files
     "root.tex"

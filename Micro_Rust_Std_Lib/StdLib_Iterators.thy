@@ -5,7 +5,6 @@
 theory StdLib_Iterators
   imports Crush.Crush StdLib_References
 begin
-declare [[urust_conformance = true]]
 (*>*)
 
 \<comment>\<open>Force one-by-one unrolling of loops\<close>

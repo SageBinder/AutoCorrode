@@ -6,7 +6,7 @@ theory Parser_Command_Tests
     Parser_Struct_Ambiguity_Left_Fixtures
     Parser_Struct_Ambiguity_Right_Fixtures
     Parser_Registered_Constructor_Fixtures
-    Micro_Rust_Std_Lib.StdLib_Logging
+    Parser_Legacy_Logging_Fixtures
 begin
 
 chapter\<open>Parser facade\<close>

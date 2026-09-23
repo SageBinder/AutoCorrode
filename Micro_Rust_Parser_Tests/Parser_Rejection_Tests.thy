@@ -10,7 +10,7 @@ theory Parser_Rejection_Tests
     Parser_Constructor_Ambiguity_Left_Fixtures
     Parser_Constructor_Ambiguity_Right_Fixtures
     Parser_Registered_Constructor_Fixtures
-    Micro_Rust_Std_Lib.StdLib_Logging
+    Parser_Legacy_Logging_Fixtures
 begin
 
 chapter\<open>Negative conformance\<close>

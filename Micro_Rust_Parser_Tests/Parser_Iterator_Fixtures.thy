@@ -1,6 +1,6 @@
 theory Parser_Iterator_Fixtures
   imports
-    Micro_Rust_Parser_Impl.Parser_Impl_Command
+    Micro_Rust_Parsing_Legacy_Frontend.Legacy_Parser_Provider
     Shallow_Micro_Rust.Eval
 begin
 

@@ -9,9 +9,9 @@ theory References
     Shallow_Separation_Logic.Triple 
     Shallow_Separation_Logic.Weakest_Precondition
     Shallow_Micro_Rust_Base.Core_Expression
+    Micro_Rust_Parser_Impl.Parser_Impl_Command
 begin
 
-declare [[urust_conformance = true]]
 (*>*)
 
 named_theorems reference_axioms

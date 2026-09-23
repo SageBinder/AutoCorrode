@@ -2805,7 +2805,6 @@ positions is the opposite, and these tests pin it down:
 
 \<open>shdw\<close> is registered in all three kinds (\<open>shadow_test_lens\<close> field,
 \<open>shadow_test_fn\<close> call, \<open>shadow_test_lit\<close> literal); see
-\<^ML>\<open>Micro_Rust_Notation_Cmd.is_grammatical_name\<close> and
 \<open>witness_takes_precedence\<close> in
 \<^file>\<open>../Shallow_Micro_Rust_Base/Micro_Rust_Notations.thy\<close>.\<close>
 
@@ -3110,10 +3109,10 @@ subsection\<open>Non-grammatical names (turbofish / macro forms)\<close>
 text\<open>Names that are neither plain identifiers nor \<^verbatim>\<open>::\<close>-style paths ---
 turbofish forms like \<open>Foo::<T>::new\<close> --- contain characters (\<open><\<close>, \<open>>\<close>)
 that no µRust grammar production covers, so the surface token cannot be
-parsed at all. \<^verbatim>\<open>micro_rust_notation\<close> detects this (via
-\<^ML>\<open>Micro_Rust_Notation_Cmd.is_grammatical_name\<close>) and additionally emits
-a bespoke \<^verbatim>\<open>syntax\<close> production (a new lexer token whose template IS the
-rust name) plus a \<^verbatim>\<open>parse_ast_translation\<close> that rewrites the token to
+parsed at all. The legacy adapter detects this via
+\<^ML>\<open>Legacy_Micro_Rust_Notations.is_grammatical_name\<close> and emits a bespoke
+\<^verbatim>\<open>syntax\<close> production (a new lexer token whose template IS the rust name)
+plus a \<^verbatim>\<open>parse_ast_translation\<close> that rewrites the token to
 the ordinary \<^verbatim>\<open>_urust_identifier_id\<close> AST node --- so it flows through the
 exact same table-dispatch pipeline as a plain or path identifier (no
 backend special-casing; type-directed dispatch, markup, and binder/field
@@ -3166,8 +3165,9 @@ lemma test_turbofish_lit_dispatched:
 text\<open>\<^bold>\<open>Macro name backed by an \<^theory_text>\<open>abbreviation\<close>\<close> (the std-lib
 logger shape: \<^verbatim>\<open>StdLib_Logging.fatal\<close> registered as \<^verbatim>\<open>fatal!\<close>). The
 \<^verbatim>\<open>!\<close> makes the name non-grammatical, and \<^ML>\<open>Syntax.read_term\<close> expands
-the abbreviation to an \<^verbatim>\<open>Abs\<close> --- so \<^verbatim>\<open>emit_bespoke_syntax\<close> recovers the
-backend constant via \<^ML>\<open>Proof_Context.read_const\<close> for its markup binding.
+the abbreviation to an \<^verbatim>\<open>Abs\<close> --- so
+\<^ML>\<open>Legacy_Micro_Rust_Notations.emit\<close> uses the backend constant retained by
+the neutral registration observer for its markup binding.
 This pins that such a name both registers (would throw without the
 \<^verbatim>\<open>read_const\<close> recovery) and resolves at a use site (would not parse
 without the bespoke grammar production).\<close>
