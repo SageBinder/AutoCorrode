@@ -12,8 +12,6 @@ begin
 chapter\<open>Parser facade\<close>
 
 declare [[urust_conformance = false]]
-declare [[urust_timing_info = false]]
-declare [[urust_timing_verbosity = 0]]
 declare [[urust_verbosity = 0]]
 declare [[urust_abbrev = false]]
 declare [[urust_application_def = false]]
@@ -36,8 +34,6 @@ ML_val\<open>
 chapter\<open>Typed expression and shared command API\<close>
 
 declare [[urust_conformance = false]]
-declare [[urust_timing_info = false]]
-declare [[urust_timing_verbosity = 0]]
 declare [[urust_verbosity = 0]]
 declare [[urust_abbrev = false]]
 declare [[urust_application_def = false]]
@@ -1733,8 +1729,6 @@ ML_val\<open>
 chapter\<open>Expression structural audits\<close>
 
 declare [[urust_conformance = false]]
-declare [[urust_timing_info = false]]
-declare [[urust_timing_verbosity = 0]]
 declare [[urust_verbosity = 0]]
 declare [[urust_abbrev = false]]
 declare [[urust_application_def = false]]
@@ -2244,8 +2238,6 @@ ML_val\<open>
 chapter\<open>Command options\<close>
 
 declare [[urust_conformance = false]]
-declare [[urust_timing_info = false]]
-declare [[urust_timing_verbosity = 0]]
 declare [[urust_verbosity = 0]]
 declare [[urust_abbrev = false]]
 declare [[urust_application_def = false]]
@@ -2271,8 +2263,6 @@ ML_val\<open>
     val _ =
       List.app assert_default
         ["urust_conformance: bool = false",
-         "urust_timing_info: bool = false",
-         "urust_timing_verbosity: int = 0",
          "urust_verbosity: int = 0",
          "urust_abbrev: bool = false",
          "urust_application_def: bool = false"]
@@ -2297,8 +2287,7 @@ text\<open>
 \<open>urust_expr\<close> exercises every conformance/abbreviation combination and all three verbosity
 levels. \<open>urust_fn\<close> exercises both conformance settings at every verbosity level. The option order
 is deliberately varied. Both commands exercise the omitted \<open>= true\<close> shorthand for their Boolean
-options while retaining explicit true and false coverage. Timing output has a separate focused
-matrix below so routine option tests do not emit benchmark reports.
+options while retaining explicit true and false coverage.
 \<close>
 
 urust_expr
@@ -2364,8 +2353,6 @@ urust_fn
 section\<open> Scoped settings and overrides \<close>
 
 declare [[urust_conformance = true]]
-declare [[urust_timing_info = true]]
-declare [[urust_timing_verbosity = 2]]
 declare [[urust_verbosity = 2]]
 declare [[urust_abbrev = true]]
 declare [[urust_application_def = true]]
@@ -2379,17 +2366,13 @@ urust_fn [application_def = false] scoped_all_true_fun ::
   \<open> () \<close>
 
 urust_expr
-  [verbosity = 0, abbrev = false, conformance = false,
-   timing_info = false, timing_verbosity = 0,
-   application_def = false]
+  [verbosity = 0, abbrev = false, conformance = false, application_def = false]
   scoped_all_false_expr
   (item)
   \<open> \<llangle>item :: nat\<rrangle> \<close>
 
 urust_fn
-  [conformance = false, timing_info = false, timing_verbosity = 0,
-   verbosity = 0, abbrev = false,
-   application_def = false]
+  [conformance = false, verbosity = 0, abbrev = false, application_def = false]
   scoped_all_false_fun ::
   \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
   (item)
@@ -2415,8 +2398,6 @@ urust_fn [conformance = false, abbrev = false]
   \<open> () \<close>
 
 declare [[urust_conformance = false]]
-declare [[urust_timing_info = false]]
-declare [[urust_timing_verbosity = 0]]
 declare [[urust_verbosity = 0]]
 declare [[urust_abbrev = false]]
 declare [[urust_application_def = false]]
@@ -2427,504 +2408,6 @@ urust_fn reset_fun_flags ::
   \<open>(unit, unit, unit, unit, unit) function_body\<close>
   ()
   \<open> () \<close>
-
-
-section\<open> Timing information \<close>
-
-text\<open>
-\<open>timing_info\<close> is shared by both declaration commands and enables measurements independently of
-conformance. \<open>timing_verbosity\<close> controls only InfoView output: 0 is silent, 1 prints the summary,
-and 2 adds the phase breakdown. A new-parser-only report omits the old-parser and delta lines.
-Same-source and \<open>against\<close>-implied conformance reports include both parser totals and the signed
-absolute \<open>new - old\<close> elapsed-time delta. Reports use PIDE markup and align elapsed, CPU, and GC
-values in whitespace-separated columns. Their title marks the command keyword and renders the
-declaration name in bold rather than highlighted markup. The global settings and inline overrides
-follow the ordinary scoped-option policy.
-\<close>
-
-ML_val\<open>
-  local
-    val unit_source = Symbol.open_ ^ " () " ^ Symbol.close
-    val body_type =
-      Symbol.open_ ^
-      "(unit, unit, unit, unit, unit) function_body" ^
-      Symbol.close
-
-    fun run_command interactive source_name command_text () =
-      let
-        val thy = \<^theory>
-        val transitions =
-          Outer_Syntax.parse_text thy (K thy)
-            (Position.line_file 1 source_name) command_text
-      in
-        fold (Toplevel.command_exception interactive) transitions
-          (Toplevel.make_state (SOME thy))
-      end
-
-    fun plain_content body =
-      XML.content_of body
-      |> Symbol.explode
-      |> filter_out Symbol.is_control
-      |> implode
-
-    fun capture_command_with interactive source_name command_text =
-      let
-        val captured =
-          Synchronized.var
-            ("urust_timing_info_" ^ source_name)
-            ([]: string list)
-        fun capture chunks =
-          Synchronized.change captured (append chunks)
-        val _ =
-          Unsynchronized.setmp Private_Output.writeln_fn capture
-            (Unsynchronized.setmp
-              Private_Output.writeln_urgent_fn capture
-              (run_command interactive source_name command_text)) ()
-      in
-        let
-          val body =
-            YXML.parse_body
-              (implode (Synchronized.value captured))
-        in
-          (body, plain_content body)
-        end
-      end
-
-    val capture_command = capture_command_with false
-
-    fun capture_command_channels interactive source_name command_text =
-      let
-        val ordinary =
-          Synchronized.var
-            ("urust_ordinary_output_" ^ source_name)
-            ([]: string list)
-        val urgent =
-          Synchronized.var
-            ("urust_urgent_output_" ^ source_name)
-            ([]: string list)
-        fun capture target chunks =
-          Synchronized.change target (append chunks)
-        val _ =
-          Unsynchronized.setmp Private_Output.writeln_fn
-            (capture ordinary)
-            (Unsynchronized.setmp
-              Private_Output.writeln_urgent_fn
-              (capture urgent)
-              (run_command interactive source_name command_text)) ()
-        fun content target =
-          YXML.parse_body
-            (implode (Synchronized.value target))
-          |> plain_content
-      in
-        (content ordinary, content urgent)
-      end
-
-    fun assert_contains label expected output =
-      if String.isSubstring expected output then ()
-      else
-        error
-          ("uRust timing report " ^ label ^
-            " is missing " ^ quote expected ^ ":\n" ^ output)
-
-    fun assert_absent label unexpected output =
-      if String.isSubstring unexpected output
-      then
-        error
-          ("uRust timing report " ^ label ^
-            " unexpectedly contains " ^ quote unexpected ^ ":\n" ^ output)
-      else ()
-
-    fun tree_has_markup expected (XML.Elem ((actual, _), body)) =
-          actual = expected orelse exists (tree_has_markup expected) body
-      | tree_has_markup _ (XML.Text _) = false
-
-    fun assert_markup label expected body =
-      if exists (tree_has_markup expected) body then ()
-      else
-        error
-          ("uRust timing report " ^ label ^
-            " is missing PIDE markup " ^ quote expected)
-
-    fun tree_has_marked_text expected_markup expected_text
-          (XML.Elem ((actual_markup, _), body)) =
-          (actual_markup = expected_markup andalso
-            XML.content_of body = expected_text) orelse
-          exists
-            (tree_has_marked_text expected_markup expected_text)
-            body
-      | tree_has_marked_text _ _ (XML.Text _) = false
-
-    fun assert_marked_text label expected_markup expected_text body =
-      if exists
-          (tree_has_marked_text expected_markup expected_text)
-          body
-      then ()
-      else
-        error
-          ("uRust timing report " ^ label ^
-            " is missing PIDE markup " ^ quote expected_markup ^
-            " on " ^ quote expected_text)
-
-    fun assert_not_marked_text label unexpected_markup unexpected_text body =
-      if exists
-          (tree_has_marked_text unexpected_markup unexpected_text)
-          body
-      then
-        error
-          ("uRust timing report " ^ label ^
-            " unexpectedly has PIDE markup " ^ quote unexpected_markup ^
-            " on " ^ quote unexpected_text)
-      else ()
-
-    fun tree_has_text expected (XML.Elem (_, body)) =
-          exists (tree_has_text expected) body
-      | tree_has_text expected (XML.Text actual) =
-          String.isSubstring expected actual
-
-    fun assert_bold_text label expected body =
-      if exists
-          (tree_has_text (Symbol.make_bold expected))
-          body
-      then ()
-      else
-        error
-          ("uRust timing report " ^ label ^
-            " is missing bold text " ^ quote expected)
-
-    fun find_output_line label expected output =
-      (case find_first (String.isSubstring expected) (split_lines output) of
-         SOME line => line
-       | NONE =>
-           error
-             ("uRust timing report " ^ label ^
-               " is missing line containing " ^ quote expected ^
-               ":\n" ^ output))
-
-    fun timing_value_columns line =
-      filter
-        (fn index =>
-          Char.isDigit (String.sub (line, index)) andalso
-          (index = 0 orelse
-            Char.isSpace (String.sub (line, index - 1))))
-        (0 upto (size line - 1))
-
-    fun assert_aligned label expected_lines output =
-      let
-        val lines =
-          map (fn expected => find_output_line label expected output)
-            expected_lines
-        val columns = map timing_value_columns lines
-      in
-        (case columns of
-           [] => ()
-         | first :: rest =>
-             if length first = 3 andalso forall (fn actual => actual = first) rest
-             then ()
-             else
-               error
-                 ("uRust timing report " ^ label ^
-                   " has unaligned timing columns:\n" ^
-                   cat_lines lines))
-      end
-
-    fun assert_seconds_3 label expected output =
-      let
-        val line = find_output_line label expected output
-        fun digits text =
-          text <> "" andalso
-            forall Char.isDigit (String.explode text)
-        fun seconds_3 token =
-          size token >= 6 andalso
-          String.sub (token, size token - 1) = #"s" andalso
-          let
-            val number = String.substring (token, 0, size token - 1)
-            val unsigned =
-              if String.isPrefix "-" number
-              then String.extract (number, 1, NONE)
-              else number
-          in
-            (case space_explode "." unsigned of
-               [whole, fraction] =>
-                 digits whole andalso
-                 size fraction = 3 andalso digits fraction
-             | _ => false)
-          end
-      in
-        if exists seconds_3 (String.tokens Char.isSpace line) then ()
-        else
-          error
-            ("uRust timing report " ^ label ^
-              " does not use seconds to three decimal places:\n" ^
-              line)
-      end
-
-    fun assert_blank_measurements label expected output =
-      let
-        val line = find_output_line label expected output
-      in
-        if null (timing_value_columns line) then ()
-        else
-          error
-            ("uRust timing report " ^ label ^
-              " unexpectedly includes aggregate measurements:\n" ^
-              line)
-      end
-
-    fun output_after label marker output =
-      let
-        val (_, suffix) =
-          Substring.position marker (Substring.full output)
-      in
-        if Substring.isEmpty suffix
-        then
-          error
-            ("uRust timing report " ^ label ^
-              " is missing " ^ quote marker ^ ":\n" ^ output)
-        else
-          Substring.string
-            (Substring.triml (size marker) suffix)
-      end
-
-    fun assert_sequential label expected output =
-      let
-        fun consume [] _ = ()
-          | consume (item :: items) remaining =
-              let
-                val (_, suffix) =
-                  Substring.position item remaining
-              in
-                if Substring.isEmpty suffix
-                then
-                  error
-                    ("uRust timing report " ^ label ^
-                      " does not contain " ^ quote item ^
-                      " in the expected sequence:\n" ^ output)
-                else
-                  consume items
-                    (Substring.triml (size item) suffix)
-              end
-      in
-        consume expected (Substring.full output)
-      end
-
-    val (_, new_only) =
-      capture_command "timing-new-only"
-        ("urust_expr " ^
-          "[timing_info, timing_verbosity = 2, conformance = false] " ^
-          "timing_new_only " ^ unit_source)
-    val (compared_body, compared) =
-      capture_command "timing-compared"
-        ("urust_fn " ^
-          "[timing_info = true, timing_verbosity = 2, conformance] " ^
-          "timing_compared :: " ^ body_type ^ " () " ^ unit_source)
-    val (_, summary_only) =
-      capture_command "timing-summary-only"
-        ("urust_fn " ^
-          "[timing_info, timing_verbosity = 1, conformance] " ^
-          "timing_summary_only :: " ^ body_type ^ " () " ^ unit_source)
-    val (_, silent) =
-      capture_command "timing-silent"
-        ("urust_expr " ^
-          "[timing_info, timing_verbosity = 0, conformance = false] " ^
-          "timing_silent " ^ unit_source)
-    val (_, scoped) =
-      capture_command "timing-scoped"
-        ("declare [[urust_timing_info = true]]\n" ^
-          "declare [[urust_timing_verbosity = 2]]\n" ^
-          "urust_expr [conformance = false] " ^
-          "timing_scoped " ^ unit_source)
-    val (_, disabled) =
-      capture_command "timing-disabled"
-        ("declare [[urust_timing_info = true]]\n" ^
-          "declare [[urust_timing_verbosity = 2]]\n" ^
-          "urust_expr " ^
-          "[timing_info = false, timing_verbosity = 0, conformance = false] " ^
-          "timing_disabled " ^ unit_source)
-    val (_, against) =
-      capture_command "timing-against"
-        ("urust_expr [timing_info, timing_verbosity = 2] " ^
-          "timing_against " ^ unit_source ^
-          " against " ^ Symbol.open_ ^
-          " \<lbrakk> () \<rbrakk> " ^ Symbol.close)
-    val (verbose_definition, verbose_definition_urgent) =
-      capture_command_channels true "verbosity-definition"
-        ("urust_expr " ^
-          "[verbosity = 1, timing_info = false, conformance = false] " ^
-          "verbosity_definition " ^ unit_source)
-    val (verbose_timing_definition, verbose_timing_definition_urgent) =
-      capture_command_channels true "verbosity-timing-definition"
-        ("urust_expr " ^
-          "[verbosity = 1, timing_info = true, timing_verbosity = 2, " ^
-          "conformance = false] " ^
-          "verbosity_timing_definition " ^ unit_source)
-    val (verbose_conformance, verbose_conformance_urgent) =
-      capture_command_channels true "verbosity-conformance"
-        ("urust_expr " ^
-          "[verbosity = 2, timing_info = true, timing_verbosity = 2, " ^
-          "conformance = true] " ^
-          "verbosity_conformance " ^ unit_source)
-
-    val _ =
-      List.app
-        (fn expected => assert_contains "new-only" expected new_only)
-        ["urust_expr timing_new_only timing information",
-         "new parser:",
-         "parse source:",
-         "lower AST:",
-         "check term:",
-         "declaration installation:"]
-    val _ =
-      List.app
-        (fn unexpected => assert_absent "new-only" unexpected new_only)
-        ["old parser:",
-         "delta (new - old):",
-         "conformance:"]
-    val _ =
-      List.app
-        (fn expected => assert_contains "compared" expected compared)
-        ["urust_fn timing_compared timing information",
-         "new parser:",
-         "old parser:",
-         "delta (new - old):",
-         "\n\n  phase breakdown:",
-         "parse source:",
-         "prepare context:",
-         "conformance:",
-         "prove reflexive equality:"]
-    val _ =
-      List.app
-        (fn markup => assert_markup "compared" markup compared_body)
-        [Markup.intensifyN, Markup.keyword1N,
-         Markup.keyword2N, Markup.numeralN]
-    val _ =
-      assert_marked_text "command name"
-        Markup.keyword1N "urust_fn" compared_body
-    val _ =
-      assert_bold_text "declaration name"
-        "timing_compared" compared_body
-    val _ =
-      assert_not_marked_text "declaration name"
-        Markup.intensifyN "timing_compared" compared_body
-    val _ =
-      assert_contains "source-size line"
-        "urust_fn timing_compared timing information\n  ("
-        compared
-    val _ =
-      assert_contains "source-size line ending"
-        " source bytes)" compared
-    val _ =
-      assert_absent "source-size line ending"
-        " source bytes):" compared
-    val _ =
-      assert_absent "compared"
-        "negative delta means the new parser is faster" compared
-    val _ =
-      assert_absent "compared delta" "-0.000s" compared
-    val _ =
-      assert_marked_text "phase heading"
-        Markup.keyword2N "phase" compared_body
-    val _ =
-      List.app
-        (fn heading =>
-          assert_marked_text "phase subheading"
-            Markup.keyword2N heading compared_body)
-        ["new parser", "old parser", "conformance"]
-    val _ =
-      assert_aligned "compared summary"
-        ["    new parser:",
-         "    old parser:",
-         "    recorded command total:"]
-        compared
-    val _ =
-      assert_seconds_3 "compared delta"
-        "    delta (new - old):" compared
-    val compared_breakdown =
-      output_after "compared" "  phase breakdown:" compared
-    val _ =
-      List.app
-        (fn heading =>
-          assert_blank_measurements "phase subheading"
-            ("    " ^ heading ^ ":") compared_breakdown)
-        ["new parser", "old parser", "conformance"]
-    val _ =
-      assert_sequential "compared phase breakdown"
-        ["    new parser:",
-         "      prepare declaration:",
-         "      parse source:",
-         "      lower AST:",
-         "    declaration installation:",
-         "    old parser:",
-         "      prepare context:",
-         "      parse source:",
-         "      export term:",
-         "    conformance:",
-         "      prove reflexive equality:"]
-        compared_breakdown
-    val _ =
-      List.app
-        (fn expected => assert_contains "scoped" expected scoped)
-        ["urust_expr timing_scoped timing information",
-         "new parser:"]
-    val _ =
-      assert_absent "scoped" "old parser:" scoped
-    val _ =
-      List.app
-        (fn expected =>
-          assert_contains "summary-only" expected summary_only)
-        ["timing_summary_only timing information",
-         "  summary:",
-         "new parser:",
-         "old parser:"]
-    val _ =
-      assert_absent "summary-only" "phase breakdown:" summary_only
-    val _ =
-      assert_absent "silent timing" "timing information" silent
-    val _ =
-      assert_absent "inline-disabled" "timing information" disabled
-    val _ =
-      assert_contains "verbosity definition"
-        "definition verbosity_definition_def:" verbose_definition
-    val _ =
-      assert_absent "urgent verbosity definition"
-        "definition verbosity_definition_def:"
-        verbose_definition_urgent
-    val _ =
-      List.app
-        (fn expected =>
-          assert_contains "verbosity with timing" expected
-            verbose_timing_definition)
-        ["definition verbosity_timing_definition_def:",
-         "urust_expr verbosity_timing_definition timing information"]
-    val _ =
-      assert_absent "urgent verbosity with timing"
-        "definition verbosity_timing_definition_def:"
-        verbose_timing_definition_urgent
-    val _ =
-      List.app
-        (fn expected =>
-          assert_contains "verbosity conformance" expected
-            verbose_conformance)
-        ["definition verbosity_conformance_def:",
-         "theorem verbosity_conformance_conformance:",
-         "urust_expr verbosity_conformance timing information"]
-    val _ =
-      List.app
-        (fn unexpected =>
-          assert_absent "urgent verbosity conformance" unexpected
-            verbose_conformance_urgent)
-        ["definition verbosity_conformance_def:",
-         "theorem verbosity_conformance_conformance:"]
-    val _ =
-      List.app
-        (fn expected => assert_contains "against" expected against)
-        ["urust_expr timing_against timing information",
-         "new parser:",
-         "old parser:",
-         "delta (new - old):"]
-  in
-    val _ = ()
-  end
-\<close>
 
 
 section\<open> Contextual expressions \<close>
@@ -3334,7 +2817,7 @@ ML_val\<open>
           "duplicate-" ^ flag ^ "-" ^ case_label case_
         val value = Bool.toString abbreviation
         val (first, second) =
-          if flag = "verbosity" orelse flag = "timing_verbosity"
+          if flag = "verbosity"
           then ("0", "1")
           else ("true", "false")
         val options =
@@ -3416,23 +2899,11 @@ ML_val\<open>
             (option_block kind abbreviation ["verbosity = true"])
             "Boolean_verbosity" "")
           "expects an integer from 0 to 2";
-        assert_rejected (label ^ "-timing-verbosity")
-          (command kind
-            (option_block kind abbreviation
-              ["timing_verbosity = true"])
-            "Boolean_timing_verbosity" "")
-          "expects an integer from 0 to 2";
         assert_rejected (label ^ "-conformance")
           (command kind
             (option_block kind abbreviation
               ["conformance = 1"])
             "integer_conformance" "")
-          "expects true or false";
-        assert_rejected (label ^ "-timing")
-          (command kind
-            (option_block kind abbreviation
-              ["timing_info = 1"])
-            "integer_timing" "")
           "expects true or false";
         assert_rejected (label ^ "-application-definition")
           (command kind
@@ -3440,20 +2911,6 @@ ML_val\<open>
               ["application_def = 1"])
             "integer_application_definition" "")
           "expects true or false"
-      end
-
-    fun test_timing_verbosity_requires_timing
-        (case_ as (kind, abbreviation)) =
-      let
-        val label =
-          "timing-verbosity-without-timing-" ^ case_label case_
-        val options =
-          option_block kind abbreviation
-            ["timing_info = false", "timing_verbosity = 1"]
-      in
-        assert_rejected label
-          (command kind options "timing_without_measurement" "")
-          "timing_verbosity\" requires timing_info = true"
       end
 
     fun test_attribute_options (case_ as (kind, abbreviation)) =
@@ -3482,12 +2939,6 @@ ML_val\<open>
               ["conformance = [micro_rust_simps]"])
             "attribute_list_conformance" "")
           "expects true or false";
-        assert_rejected (label ^ "-list-as-timing")
-          (command kind
-            (option_block kind abbreviation
-              ["timing_info = [micro_rust_simps]"])
-            "attribute_list_timing" "")
-          "expects true or false";
         assert_rejected (label ^ "-list-as-application-definition")
           (command kind
             (option_block kind abbreviation
@@ -3501,8 +2952,7 @@ ML_val\<open>
       List.app
         (fn prefixed =>
           List.app (test_prefixed prefixed) command_cases)
-        ["urust_conformance", "urust_timing_info",
-         "urust_timing_verbosity", "urust_verbosity",
+        ["urust_conformance", "urust_verbosity",
          "urust_abbrev", "urust_application_def"]
     val _ =
       List.app
@@ -3513,14 +2963,11 @@ ML_val\<open>
       List.app
         (fn flag =>
           List.app (test_duplicate flag) command_cases)
-        ["conformance", "timing_info", "timing_verbosity",
-         "verbosity", "application_def"]
+        ["conformance", "verbosity", "application_def"]
     val _ =
       List.app (test_duplicate "abbrev") command_cases
     val _ =
       List.app (test_shorthand_duplicate "conformance") command_cases
-    val _ =
-      List.app (test_shorthand_duplicate "timing_info") command_cases
     val _ =
       List.app (test_shorthand_duplicate "application_def") command_cases
     val _ =
@@ -3530,31 +2977,19 @@ ML_val\<open>
       List.app
         (fn option =>
           List.app (test_invalid_integer_option option) command_cases)
-        ["verbosity", "timing_verbosity"]
+        ["verbosity"]
     val _ =
       List.app
         (fn option =>
           List.app (test_missing_integer_value option) command_cases)
-        ["verbosity", "timing_verbosity"]
+        ["verbosity"]
     val _ = List.app test_wrong_option_type command_cases
-    val _ =
-      List.app test_timing_verbosity_requires_timing command_cases
     val _ = List.app test_attribute_options command_cases
     val _ =
       assert_rejected "invalid-scoped-verbosity"
         ("declare [[urust_verbosity = 3]]\n" ^
           "urust_expr invalid_scoped_verbosity " ^ unit_source)
         "must be 0, 1, or 2, but found 3"
-    val _ =
-      assert_rejected "invalid-scoped-timing-verbosity"
-        ("declare [[urust_timing_verbosity = 3]]\n" ^
-          "urust_expr invalid_scoped_timing_verbosity " ^ unit_source)
-        "must be 0, 1, or 2, but found 3"
-    val _ =
-      assert_rejected "scoped-timing-verbosity-without-timing"
-        ("declare [[urust_timing_verbosity = 1]]\n" ^
-          "urust_expr scoped_timing_without_measurement " ^ unit_source)
-        "timing_verbosity\" requires timing_info = true"
     val _ =
       assert_rejected "legacy-scoped-conformance"
         ("declare [[urust_conformance_check = true]]\n" ^

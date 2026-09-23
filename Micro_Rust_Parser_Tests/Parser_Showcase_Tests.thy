@@ -16,33 +16,6 @@ same text against the existing frontend. The explicit \<open>urust_fn\<close> an
 parser-only expression has its witness in \<open>Parser_Test_Improvements\<close>.
 \<close>
 
-subsection\<open> Opt-in parser timing \<close>
-
-text\<open>
-The inline \<open>timing_info\<close> option enables measurement, while \<open>timing_verbosity = 2\<close> prints the
-summary and phase breakdown. The scoped settings additionally display the old parser and signed
-\<open>new - old\<close> elapsed-time delta when conformance is enabled. Timing is diagnostic only, so these
-demonstrations are discarded with the surrounding experiment.
-\<close>
-
-experiment
-begin
-
-urust_expr [timing_info, timing_verbosity = 2, conformance = false]
-  showoff_timing_new_only
-  \<open> let value = 1_u32; value + 2_u32 \<close>
-
-declare [[urust_timing_info = true]]
-declare [[urust_timing_verbosity = 2]]
-
-urust_fn [conformance]
-  showoff_timing_comparison ::
-  \<open>32 word \<Rightarrow> (unit, 32 word, unit, unit, unit) function_body\<close>
-  (item)
-  \<open> item + 1_u32 \<close>
-
-end
-
 subsection\<open> Expressions, bindings, and control flow \<close>
 
 text\<open>
