@@ -152,8 +152,8 @@ ML\<open>
    operator lookup functions are implementation details. Basic_Case_Expression alone owns the raw
    case-backend constants. These representations may change, but the supported arities, literal
    spellings, operator meanings, diagnostics, argument order, and shallow term shapes described above
-   are interface behavior relied on by resolution, pattern compilation, translation, and frontend
-   conformance checks. No additional declarations in the structure are public through the signature. *)
+   are interface behavior relied on by resolution, pattern compilation, and translation. No
+   additional declarations in the structure are public through the signature. *)
 structure URust_Shallow_Terms :> URUST_SHALLOW_TERMS =
 struct
   open URust_AST

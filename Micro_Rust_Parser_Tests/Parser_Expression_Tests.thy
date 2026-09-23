@@ -1,10 +1,8 @@
-(* Positive expression conformance against the legacy inner-syntax frontend. *)
+(* Positive expression tests for the dedicated uRust parser. *)
 
-theory Parser_Expr_Conformance_Tests
+theory Parser_Expression_Tests
   imports Parser_Iterator_Fixtures "HOL.Real"
 begin
-
-declare [[urust_conformance = true]]
 
 section\<open>Iterator call syntax\<close>
 
@@ -30,17 +28,9 @@ urust_expr iterator_zip_expr_chained ::
    (nat list, zip_pair_iterator, unit, unit, unit) function_body\<close>
   (left, right)
   \<open> left.into_iter().zip(right.into_iter()) \<close>
-
-thm iterator_zip_expr_direct_conformance
-thm iterator_zip_expr_method_conformance
-thm iterator_zip_expr_chained_conformance
-
 section\<open>Numeric literals (Corpus PART I, "Numeric Literals")\<close>
 
 urust_expr lit_0  \<open> 0 \<close>
-
-thm lit_0_conformance
-
 urust_expr lit_1  \<open> 1 \<close>
 
 urust_expr lit_42 \<open> 42 \<close>
@@ -128,16 +118,6 @@ text\<open> Passthrough (no \<open>literal\<close> wrapper): the body already de
 
 urust_expr lit_eaq_true \<open> \<epsilon>\<open>Bool_Type.true\<close> \<close>
 
-urust_expr lit_eaq_line_comment_text
-  \<open> \<epsilon>\<open>\<up>(''// expression'')\<close> \<close>
-
-urust_expr aq_nested_value
-  \<open> \<llangle> \<lbrakk> \<llangle>1 :: nat\<rrangle> \<rbrakk> \<rrangle> \<close>
-
-urust_expr aq_nested_expr
-  \<open> \<epsilon>\<open> \<lbrakk> \<epsilon>\<open>\<up>(1 :: nat)\<close> \<rbrakk> \<close> \<close>
-
-
 section\<open>Bare identifiers at value position (dispatch reuse)\<close>
 
 text\<open>
@@ -166,8 +146,6 @@ an explicit parameter list or abbreviation mode.
 urust_expr lit_open \<open> x + y \<close>
 
 thm lit_open_def
-thm lit_open_conformance
-
 text\<open>
 Registered names use the existing \<open>urust_dispatch\<close> term-check phase.
 \<close>
@@ -192,9 +170,6 @@ text\<open> Parentheses admit the complete body grammar, including semicolon seq
 
 urust_expr seq_parenthesized_body
   \<open> (\<llangle>1 :: nat\<rrangle>; \<llangle>2 :: nat\<rrangle>) \<close>
-
-thm seq_parenthesized_body_conformance
-
 text\<open>
 \<open>let x = e; k\<close> lowers to HOAS \<open>bind e (\<lambda>x. k)\<close>.
 Unused binders need a type pin (R1).
@@ -231,7 +206,7 @@ subsection\<open>Apostrophised identifiers\<close>
 
 text\<open>
 Trailing primes are a temporary compatibility extension inherited from Isabelle identifiers and
-the legacy frontend. They remain part of one identifier token in bindings, uses, and patterns.
+remain part of one identifier token in bindings, uses, and patterns.
 \<close>
 
 urust_expr let_prime_identifier
@@ -639,7 +614,7 @@ urust_expr if_cmp \<open> if \<llangle>1 :: 32 word\<rrangle> == \<llangle>2 :: 
 
 urust_expr if_nest \<open> if \<llangle>True\<rrangle> { if \<llangle>False\<rrangle> { () } else { () } } else { () } \<close>
 
-urust_expr ext_if_par_cond \<open> if (\<llangle>True\<rrangle> || \<llangle>True\<rrangle> && \<llangle>False\<rrangle>) { \<epsilon>\<open>\<up>0\<close> } else { \<epsilon>\<open>\<up>0\<close> } \<close>
+urust_expr ext_if_par_cond \<open> if (\<llangle>True\<rrangle> || \<llangle>True\<rrangle> && \<llangle>False\<rrangle>) { \<epsilon>\<open>literal (0 :: nat)\<close> } else { \<epsilon>\<open>literal (0 :: nat)\<close> } \<close>
 
 urust_expr ext_if_deepblock \<open> if True || !True { {{{{{{{{{{ 42 }}}}}}}}}} } else { 0 } \<close>
 
@@ -780,10 +755,10 @@ datatype native_qualified_constructor_left =
 
 micro_rust_notation (literal)
   native_qualified_constructor_left.NativeQualifiedShared
-  ("Parser_Expr_Conformance_Tests::native_qualified_constructor_left::NativeQualifiedShared")
+  ("Parser_Expression_Tests::native_qualified_constructor_left::NativeQualifiedShared")
 micro_rust_notation (literal)
   native_qualified_constructor_left.NativeQualifiedLeftOnly
-  ("Parser_Expr_Conformance_Tests::native_qualified_constructor_left::NativeQualifiedLeftOnly")
+  ("Parser_Expression_Tests::native_qualified_constructor_left::NativeQualifiedLeftOnly")
 
 definition path_some_call ::
   \<open>nat \<Rightarrow>
@@ -846,18 +821,9 @@ urust_expr path_grouped_constructor_pattern
 urust_expr native_qualified_constructor_pattern
   \<open>
     match_case \<llangle>native_qualified_constructor_left.NativeQualifiedShared\<rrangle> {
-      Parser_Expr_Conformance_Tests::native_qualified_constructor_left::NativeQualifiedShared \<Rightarrow> 1,
-      Parser_Expr_Conformance_Tests::native_qualified_constructor_left::NativeQualifiedLeftOnly \<Rightarrow> 0
+      Parser_Expression_Tests::native_qualified_constructor_left::NativeQualifiedShared \<Rightarrow> 1,
+      Parser_Expression_Tests::native_qualified_constructor_left::NativeQualifiedLeftOnly \<Rightarrow> 0
     }
-  \<close>
-  against
-  \<open>
-    \<lbrakk>
-      match_case \<llangle>native_qualified_constructor_left.NativeQualifiedShared\<rrangle> {
-        NativeQualifiedShared \<Rightarrow> 1,
-        NativeQualifiedLeftOnly \<Rightarrow> 0
-      }
-    \<rbrakk>
   \<close>
 
 urust_expr path_constructor_or_pattern
@@ -1327,13 +1293,13 @@ urust_expr closure_match_body
       }
   \<close>
 
-urust_expr [conformance = false] closure_legacy_return_body
+urust_expr  closure_legacy_return_body
   \<open> |x| return \<llangle>x :: nat\<rrangle> \<close>
 
-urust_expr [conformance = false] closure_legacy_unit_return_body
+urust_expr  closure_legacy_unit_return_body
   \<open> || return \<close>
 
-urust_expr [conformance = false] closure_returning_closure
+urust_expr  closure_returning_closure
   \<open> || return |x| \<llangle>x :: nat\<rrangle> \<close>
 
 urust_expr closure_outer_capture
@@ -2084,10 +2050,8 @@ section\<open>Assignment places and test fixtures\<close>
 
 text\<open>
 The definitions below provide typed constants for ad-hoc overload resolution in
-parser/frontend conformance tests. Their bodies are never executed: both
-frontends resolve to the same constants and the resulting equality closes by
-\<open>refl\<close>. The registered backend also exercises notation lookup and lexical
-shadowing at assignment targets.
+assignment tests. Their bodies are never executed. The registered backend also
+exercises notation lookup and lexical shadowing at assignment targets.
 \<close>
 
 definition parser_update_fixture ::
@@ -2433,7 +2397,7 @@ urust_expr msw_or \<open> match_switch n { 1 | 2 | 3 \<Rightarrow> \<llangle>Tru
 text\<open>
 Rows cover a let RHS and the frontend-shared statement spelling, where explicit
 \<open>match_switch\<close> uses a semicolon. The dedicated parser's semicolon-free extension is checked
-against this spelling in \<open>Parser_Improvements_Tests.thy\<close>.
+.
 \<close>
 urust_expr msw_let \<open> let r = match_switch n { 0 \<Rightarrow> \<llangle>True\<rrangle>, _ \<Rightarrow> \<llangle>False\<rrangle> }; r \<close>
 
@@ -2605,9 +2569,8 @@ end
 subsection\<open>Full guard bodies\<close>
 
 text\<open>
-The old frontend gives a match guard the complete \<open>urust\<close> category. The dedicated grammar
-therefore reuses its complete body category here: control flow, sequencing, bindings, and legacy
-semicolon-bearing returns all retain the ordinary AST and lowering.
+Match guards reuse the complete body category: control flow, sequencing,
+bindings, and semicolon-bearing returns all retain the ordinary AST and lowering.
 \<close>
 
 urust_expr guard_body_if_let
@@ -2997,9 +2960,7 @@ urust_expr adv_range_nested
 subsection\<open>Slice patterns\<close>
 
 text\<open>
-The old frontend already accepts a terminal comma in slice patterns because its
-slice-argument grammar has an empty tail. These same-source rows cover ordinary,
-rest, and recursively nested slice lists.
+These rows cover terminal commas in ordinary, rest, and recursively nested slice lists.
 \<close>
 
 urust_expr trailing_slice_closed
@@ -3062,7 +3023,7 @@ urust_expr adv_struct_shorthand
 urust_expr adv_struct_rest
   \<open> match \<llangle>AdvStruct 1 2\<rrangle> { AdvStruct { adv_left, .. } \<Rightarrow> adv_left, _ \<Rightarrow> 0 } \<close>
 
-urust_expr [conformance = false] adv_struct_registered_qualified
+urust_expr  adv_struct_registered_qualified
   \<open>
     match \<llangle>AdvStruct 1 2\<rrangle> {
       QualifiedStruct::Adv { adv_right: y, adv_left: x } \<Rightarrow> x,
@@ -3374,8 +3335,8 @@ text\<open> Bare \<open>match\<close> in a let RHS. \<close>
 urust_expr ma_let \<open> let r = match x { Some(y) \<Rightarrow> y, None \<Rightarrow> 0 }; r \<close>
 
 text\<open>
-Bare \<open>match\<close> is a semicolon-free block-like statement in both frontends. The parser-only
-semicolon-free explicit forms are covered separately as accepted-surface improvements.
+Bare \<open>match\<close> is a semicolon-free block-like statement. The explicit forms are covered
+separately as accepted-surface improvements.
 \<close>
 urust_expr ma_stmt \<open> match x { Some(_) \<Rightarrow> (), None \<Rightarrow> () } () \<close>
 
@@ -3424,7 +3385,7 @@ urust_expr bind_if_branch_scope
 text\<open> Expression antiquotations use the same lexical environment as value antiquotations. \<close>
 
 urust_expr bind_expression_antiquotation
-  \<open> let x = \<llangle>5 :: nat\<rrangle>; \<epsilon>\<open>\<up>x\<close> \<close>
+  \<open> let x = \<llangle>5 :: nat\<rrangle>; \<epsilon>\<open>literal x\<close> \<close>
 
 urust_expr bind_tuple_rhs_outer
   \<open>
@@ -4017,10 +3978,9 @@ urust_expr return_in_match_arms
 section\<open>Legacy macros\<close>
 
 text\<open>
-Generic macro invocations retain their parsed argument ASTs until the centralized legacy dispatcher
-selects the exact leading arguments used by the old frontend. Discarded arguments are never lowered,
-resolved, captured, or type-checked. Every row in this section checks the same source through both
-frontends and closes by unfolding only the generated definition followed by \<open>refl\<close>.
+Generic macro invocations retain their parsed argument ASTs until the centralized macro dispatcher
+selects the required leading arguments. Discarded arguments are never lowered, resolved, captured,
+or type-checked.
 \<close>
 
 definition macro_unit_call ::
@@ -4572,7 +4532,7 @@ urust_expr cast_value_antiquotation
   \<open> \<llangle>cast_word\<rrangle> as i64 \<close>
 
 urust_expr cast_expression_antiquotation
-  \<open> \<epsilon>\<open>\<up>(cast_word)\<close> as u8 \<close>
+  \<open> \<epsilon>\<open>literal cast_word\<close> as u8 \<close>
 
 urust_expr cast_call_operand
   \<open> cf1(\<llangle>ucast cast_word :: 64 word\<rrangle>) as u8 \<close>
@@ -4751,27 +4711,26 @@ end
 
 no_adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
 
-section\<open>Resolved divergences and current parity boundary\<close>
+section\<open>Resolved parser regressions\<close>
 
 text\<open>
-This theory keeps representative same-source positive rows for resolved parser/frontend differences.
-Shared and intentional parser-only rejections live in
-\<open>Parser_Rejection_Tests.thy\<close>;
+This theory keeps representative positive rows for resolved parser regressions.
+Intentional rejections live in \<open>Parser_Rejection_Tests.thy\<close>;
 accepted-surface extensions live in \<open>Parser_Improvements_Tests.thy\<close>.
 \<close>
 
 subsection\<open>Resolved 2026-09-11: direct \<open>if\<close> binary operands\<close>
 
 text\<open>
-The dedicated parser admits direct block-like operands. The parenthesized row remains a shared
-frontend conformance fixture; direct rows live in \<open>Parser_Syntax_Tests.thy\<close>.
+The parser admits direct block-like operands. This parenthesized control remains alongside the
+direct rows in \<open>Parser_Syntax_Tests.thy\<close>.
 \<close>
 urust_expr d1_paren_operand
   \<open> (if \<llangle>True\<rrangle> { \<llangle>1 :: 32 word\<rrangle> } else { \<llangle>2 :: 32 word\<rrangle> }) + \<llangle>3 :: 32 word\<rrangle> \<close>
 
 subsection\<open>Resolved 2026-08-25: no-\<open>;\<close> sequencing of block-like expressions -- now accepted\<close>
 
-text\<open> Block-like statements sequence without a trailing \<open>;\<close>, matching the frontend. \<close>
+text\<open> Block-like statements sequence without a trailing \<open>;\<close>. \<close>
 urust_expr d2_blk_seq \<open> { () } { () } \<close>
 
 urust_expr d2_if_seq \<open> if \<llangle>True\<rrangle> { () } () \<close>
@@ -5768,14 +5727,14 @@ urust_expr primitive_log_nested_antiquotation_delimiters
     \<l>\<o>\<g>
       \<llangle>
         let _ =
-          (\<lbrakk> \<llangle>Error\<rrangle> \<rbrakk> ::
+          (literal Error ::
             (unit, log_priority, unit, unit,
              unit prompt, unit prompt_output) expression)
         in Error
       \<rrangle>
       \<llangle>
         let _ =
-          (\<lbrakk> \<llangle>[LogNat 4]\<rrangle> \<rbrakk> ::
+          (literal [LogNat 4] ::
             (unit, log_data, unit, unit,
              unit prompt, unit prompt_output) expression)
         in [LogNat 5]
@@ -5851,17 +5810,17 @@ urust_expr primitive_log_control_flow
 urust_expr primitive_log_closure_body
   \<open> || \<l>\<o>\<g> \<llangle>Trace\<rrangle> \<llangle>[]\<rrangle> \<close>
 
-subsection\<open>Open exceptions and post-parity surface\<close>
+subsection\<open>Open surface exceptions\<close>
 
 text\<open>
-The current approved exceptions are ambiguous unqualified struct heads; the frontend's
-ordinary-selector \<open>more\<close> omission; unparenthesized fueled-\<open>while\<close> conditions; arbitrary
-unquoted HOL turbofish payloads; and unparenthesized struct expressions in control heads. They are
-non-blocking and have executable negative or fixture coverage.
+The current approved exceptions are ambiguous unqualified struct heads, the ordinary-selector
+\<open>more\<close> omission, unparenthesized fueled-\<open>while\<close> conditions, arbitrary unquoted HOL
+turbofish payloads, and unparenthesized struct expressions in control heads. They are non-blocking
+and have executable negative or fixture coverage.
 
 Struct expressions, yield, primitive log, and logging-data expressions are resolved. General postfix
 invocation, Rust closure/reference semantics, real Rust format interpolation, and declaration
-commands are post-parity work, not missing expression-frontend parity.
+commands remain outside the current surface.
 \<close>
 
 end

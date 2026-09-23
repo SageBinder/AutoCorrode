@@ -465,8 +465,8 @@ abbreviation panic :: \<open>String.literal \<Rightarrow> ('s, 'v, 'r, 'abort, '
 
 text \<open>An \<^emph>\<open>unimplemented\<close> expression aborts a computation at runtime, indicating that some
 function is not implemented. The given string should indicate the name of the unimplemented function.
-This is the same as a \<^emph>\<open>panic\<close> in most ways, but conformance testing will end early with a warning,
-instead of an error, if it encounters an unimplemented abort.\<close>
+This is the same as a \<^emph>\<open>panic\<close> in most ways, but callers can distinguish an
+unimplemented abort and report it separately.\<close>
 abbreviation unimplemented :: \<open>String.literal \<Rightarrow> ('s, 'v, 'r, 'abort, 'i, 'o) expression\<close> where
   \<open>unimplemented nm \<equiv> abort (Unimplemented nm)\<close>
 

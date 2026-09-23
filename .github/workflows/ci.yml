@@ -22,13 +22,6 @@ jobs:
     - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
     - uses: gaurav-nelson/github-action-markdown-link-check@3c3b66f1f7d0900e37b71eca45b63ea9eedfce31 # v1.0.17
 
-  legacy-parser-isolation:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - name: Check legacy parser isolation
-        run: make check-legacy-parser-isolation
-
   build:
     runs-on: ubuntu-latest
     container:
@@ -49,7 +42,7 @@ jobs:
             -d $AFP_COMPONENT_BASE/Word_Lib \
             AutoCorrode
 
-  parser-conformance:
+  parser-tests:
     runs-on: ubuntu-latest
     container:
       image: makarius/isabelle:Isabelle2025-2
@@ -62,11 +55,11 @@ jobs:
       - name: Setup Isabelle
         uses: ./.github/actions/setup-isabelle-action
 
-      - name: Build isolated parser conformance tests
+      - name: Build parser regression tests
         run: |
           $ISABELLE_HOME/bin/isabelle build -v -b -d . -o document=false \
             -d $AFP_COMPONENT_BASE/Word_Lib \
-            Micro_Rust_Parser_Conformance_Tests
+            Micro_Rust_Parser_Tests
 
   tutorial-build:
     runs-on: ubuntu-latest

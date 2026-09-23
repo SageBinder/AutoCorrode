@@ -8,7 +8,7 @@
 ######################################################################
 
 .DEFAULT_GOAL: jedit
-.PHONY: register-afp-components build conformance check-legacy-parser-isolation jedit tutorial \
+.PHONY: register-afp-components build parser-tests jedit tutorial \
         build-ic2 ic2 ic2-status ic2-stop
 
 # Set this to the directory containing the Isabelle2025-2 binary
@@ -49,12 +49,9 @@ register-afp-components:
 build: register-afp-components
 	$(ISABELLE_HOME)/isabelle build $(ISABELLE_FLAGS) -d . AutoCorrode
 
-conformance: register-afp-components
+parser-tests: register-afp-components
 	$(ISABELLE_HOME)/isabelle build $(ISABELLE_FLAGS) -o document=false -d . \
-		Micro_Rust_Parser_Conformance_Tests
-
-check-legacy-parser-isolation:
-	./scripts/check-legacy-parser-isolation.sh
+		Micro_Rust_Parser_Tests
 
 # Build the slide-deck tutorial in tutorial/. Inherits the AutoCorrode
 # parent heap, so run `make build` first if it isn't built yet.

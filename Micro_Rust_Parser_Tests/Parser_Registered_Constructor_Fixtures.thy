@@ -1,9 +1,9 @@
 theory Parser_Registered_Constructor_Fixtures
-  imports Micro_Rust_Parsing_Legacy_Frontend.Parser_Test_Utils
+  imports Parser_Test_Utils
 begin
 
 text\<open>
-Shared registered-constructor fixtures used by negative conformance and the structural regression
+Shared registered-constructor fixtures used by negative tests and the structural regression
 audits. Keeping these declarations neutral avoids making either test suite import the other.
 \<close>
 

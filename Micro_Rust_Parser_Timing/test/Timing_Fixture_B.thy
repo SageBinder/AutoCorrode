@@ -4,11 +4,11 @@ begin
 
 declare [[urust_timing_info = true]]
 
-urust_expr [conformance = false]
+urust_expr
   timing_fixture_gamma
   \<open> let first = 3_u16; let second = 4_u16; first + second \<close>
 
-urust_fn [conformance]
+urust_fn
   timing_fixture_delta ::
   \<open>16 word \<Rightarrow> (unit, 16 word, unit, unit, unit) function_body\<close>
   (item)

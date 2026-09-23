@@ -50,17 +50,11 @@ object Timing_Test_Tool {
     private def record(
       theory: String,
       name: String,
-      new_us: Long,
-      old_us: Option[Long] = None,
+      elapsed_us: Long,
       kind: String = "urust_expr",
       version: String = "1",
       extra: Properties.T = Nil
     ): XML.Elem = {
-      val paired =
-        old_us.toList.flatMap(old =>
-          List(
-            "old_elapsed_us" -> old.toString,
-            "delta_us" -> (new_us - old).toString))
       XML.Elem(
         Markup(
           element_name,
@@ -70,8 +64,7 @@ object Timing_Test_Tool {
             "declaration_name" -> name,
             "source_symbols" -> "7",
             "source_bytes" -> "9",
-            "new_elapsed_us" -> new_us.toString) :::
-            paired :::
+            "elapsed_us" -> elapsed_us.toString) :::
             Position.Line_File(3, theory + ".thy") :::
             Position.Range(Text.Range(10, 17)) :::
             extra),
@@ -81,8 +74,7 @@ object Timing_Test_Tool {
     private def entry(
       theory: String,
       name: String,
-      new_us: Long,
-      old_us: Option[Long] = None,
+      elapsed_us: Long,
       kind: String = "urust_expr"
     ): Entry =
       Entry(
@@ -92,24 +84,16 @@ object Timing_Test_Tool {
         Source_Position(Some(theory + ".thy"), Some(3), Some(10), Some(17)),
         7,
         9,
-        new_us,
-        old_us,
-        old_us.map(new_us - _))
+        elapsed_us)
 
     def unit(): Boolean = {
       test("record decoding") {
-        decode("A", record("A", "paired", 90, Some(40), kind = "urust_fn")) match {
+        decode("A", record("A", "function", 90, kind = "urust_fn")) match {
           case Decoded(got) =>
-            assert_true(got.declaration_name == "paired", "wrong declaration name")
+            assert_true(got.declaration_name == "function", "wrong declaration name")
             assert_true(got.command_kind == "urust_fn", "wrong command kind")
-            assert_true(got.old_elapsed_us.contains(40), "old time missing")
-            assert_true(got.delta_us.contains(50), "delta missing")
+            assert_true(got.elapsed_us == 90, "wrong elapsed time")
             assert_true(got.position.line.contains(3), "source line missing")
-          case other => error("unexpected decode result: " + other)
-        }
-        decode("A", record("A", "new_only", 12)) match {
-          case Decoded(got) =>
-            assert_true(got.old_elapsed_us.isEmpty, "new-only record became paired")
           case other => error("unexpected decode result: " + other)
         }
       }
@@ -124,24 +108,11 @@ object Timing_Test_Tool {
             markup =
               Markup(
                 element_name,
-                record("A", "bad", 5).markup.properties.filterNot(_._1 == "new_elapsed_us")))
+                record("A", "bad", 5).markup.properties.filterNot(_._1 == "elapsed_us")))
         decode("A", malformed) match {
           case Malformed(message) =>
-            assert_true(message.contains("new_elapsed_us"), "malformed diagnostic lacks field")
+            assert_true(message.contains("elapsed_us"), "malformed diagnostic lacks field")
           case other => error("malformed record was accepted: " + other)
-        }
-        val inconsistent =
-          record("A", "bad_delta", 5, Some(3)).copy(
-            markup =
-              Markup(
-                element_name,
-                Properties.put(
-                  record("A", "bad_delta", 5, Some(3)).markup.properties,
-                  "delta_us" -> "99")))
-        decode("A", inconsistent) match {
-          case Malformed(message) =>
-            assert_true(message.contains("inconsistent"), "bad delta diagnostic is unclear")
-          case other => error("inconsistent delta was accepted: " + other)
         }
       }
 
@@ -149,15 +120,13 @@ object Timing_Test_Tool {
         val entries =
           List(
             entry("B", "middle", 20),
-            entry("A", "slow", 30, Some(10)),
+            entry("A", "slow", 30),
             entry("A", "fast", 10))
         val report = Timing_Report.make("S", List("A", "B"), entries, Nil, Nil)
         assert_true(
           report.declarations.map(_.declaration_name) == List("slow", "middle", "fast"),
           "hotspot ordering is not slowest-first")
-        assert_true(report.totals.new_elapsed_us == 60, "bad new-parser total")
-        assert_true(report.totals.old_elapsed_us == 10, "bad paired old-parser total")
-        assert_true(report.totals.delta_us == 20, "bad paired delta total")
+        assert_true(report.totals.elapsed_us == 60, "bad parser total")
 
         val filtered = Timing_Report.make("S", List("A", "B"), entries, Nil, List("B"))
         assert_true(
@@ -171,7 +140,7 @@ object Timing_Test_Tool {
           Timing_Report.make(
             "S",
             List("A"),
-            List(entry("A", "slow", 30, Some(10))),
+            List(entry("A", "slow", 30)),
             Nil,
             Nil)
         val json = report.json
@@ -205,11 +174,9 @@ object Timing_Test_Tool {
             "timing_fixture_gamma",
             "timing_fixture_delta")
         assert_true(names == expected, "unexpected fixture declarations: " + names)
-        assert_true(report.declarations.count(_.paired) == 2, "expected two paired records")
-        assert_true(report.declarations.count(!_.paired) == 2, "expected two new-only records")
         assert_true(
-          report.declarations.map(_.new_elapsed_us) ==
-            report.declarations.map(_.new_elapsed_us).sorted.reverse,
+          report.declarations.map(_.elapsed_us) ==
+            report.declarations.map(_.elapsed_us).sorted.reverse,
           "database records are not ordered slowest-first")
         assert_true(
           report.declarations.forall(entry =>

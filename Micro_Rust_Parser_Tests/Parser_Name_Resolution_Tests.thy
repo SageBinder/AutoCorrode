@@ -2,7 +2,6 @@ theory Parser_Name_Resolution_Tests
   imports Parser_Pattern_Matching_Tests
 begin
 
-declare [[urust_conformance = false]]
 declare [[urust_verbosity = 0]]
 
 section\<open> Antiquotation markup under HOL shadowing \<close>
@@ -29,11 +28,6 @@ ML_val\<open>
         "antiquotation-shadowing-markup-audit"
     val source =
       Parser_Lex_Util.positioned_content_source source_text source_start
-    val expected =
-      Syntax.parse_term ctxt
-        ("\<lbrakk> let x = \<llangle>1 :: nat\<rrangle>; " ^
-         "\<llangle>(\<lambda>x :: nat. x) x\<rrangle> \<rbrakk>")
-      |> Syntax.check_term ctxt
 
     val captured_reports =
       Synchronized.var "antiquotation_shadowing_markup_audit"
@@ -124,9 +118,6 @@ ML_val\<open>
     val hol_use_id =
       entity_id Markup.boundN Markup.refN hol_bound_use
 
-    val _ =
-      audit_assert "checked term differs from the legacy frontend"
-        (Term.aconv (actual, expected))
     val _ =
       audit_assert "native HOL binder navigation changed"
         (hol_binder_id = hol_use_id)
@@ -452,7 +443,7 @@ ML_val\<open>
 section\<open> Arity-indexed function-literal callee audit \<close>
 
 text\<open>
-These checks pin the function-literal boundary independently of same-source conformance: exact HOL and
+These checks pin the function-literal boundary directly: exact HOL and
 suffix ranges, complete call spans, lift-before-parameter-before-call lowering, argument order,
 dispatch/literal bypass, failure recovery, suffix token markup, and captured-binder navigation.
 \<close>
@@ -1685,7 +1676,7 @@ ML_val\<open>
 
     val ctxt = \<^context>
     val color_ctxt =
-      Proof_Context.init_global \<^theory>\<open>Parser_Expr_Conformance_Tests\<close>
+      Proof_Context.init_global \<^theory>\<open>Parser_Expression_Tests\<close>
 
     fun audit_assert message condition =
       if condition then ()
@@ -3434,7 +3425,6 @@ ML_val\<open>
 
 chapter\<open>Turbofish\<close>
 
-declare [[urust_conformance = false]]
 declare [[urust_verbosity = 0]]
 declare [[urust_abbrev = false]]
 

@@ -52,12 +52,8 @@ object Timing_Record {
     position: Source_Position,
     source_symbols: Int,
     source_bytes: Int,
-    new_elapsed_us: Long,
-    old_elapsed_us: Option[Long],
-    delta_us: Option[Long]
+    elapsed_us: Long
   ) {
-    def paired: Boolean = old_elapsed_us.isDefined
-
     def json: JSON.Object.T =
       JSON.Object(
         "theory" -> theory,
@@ -66,9 +62,7 @@ object Timing_Record {
         "source_position" -> position.json,
         "source_symbols" -> source_symbols,
         "source_bytes" -> source_bytes,
-        "new_elapsed_us" -> new_elapsed_us,
-        "old_elapsed_us" -> old_elapsed_us.map(_.asInstanceOf[JSON.T]).orNull,
-        "delta_us" -> delta_us.map(_.asInstanceOf[JSON.T]).orNull)
+        "elapsed_us" -> elapsed_us)
   }
 
   private def required(props: Properties.T, name: String): Either[String, String] =
@@ -84,19 +78,6 @@ object Timing_Record {
   private def parse_long(props: Properties.T, name: String): Either[String, Long] =
     required(props, name).flatMap(value =>
       Value.Long.unapply(value).toRight("bad integer property " + quote(name) + ": " + quote(value)))
-
-  private def parse_optional_long(
-    props: Properties.T,
-    name: String
-  ): Either[String, Option[Long]] =
-    Properties.get(props, name) match {
-      case None => Right(None)
-      case Some(value) =>
-        Value.Long.unapply(value) match {
-          case Some(n) => Right(Some(n))
-          case None => Left("bad integer property " + quote(name) + ": " + quote(value))
-        }
-    }
 
   def decode(
     theory: String,
@@ -127,26 +108,10 @@ object Timing_Record {
             _ <-
               if (source_bytes >= 0) Right(())
               else Left("negative source byte count")
-            new_elapsed_us <- parse_long(props, "new_elapsed_us")
+            elapsed_us <- parse_long(props, "elapsed_us")
             _ <-
-              if (new_elapsed_us >= 0) Right(())
-              else Left("negative new-parser elapsed time")
-            old_elapsed_us <- parse_optional_long(props, "old_elapsed_us")
-            _ <-
-              if (old_elapsed_us.forall(_ >= 0)) Right(())
-              else Left("negative old-parser elapsed time")
-            delta_us <- parse_optional_long(props, "delta_us")
-            _ <-
-              (old_elapsed_us, delta_us) match {
-                case (None, None) => Right(())
-                case (Some(old_us), Some(delta)) if delta == new_elapsed_us - old_us => Right(())
-                case (Some(_), None) => Left("missing paired delta")
-                case (None, Some(_)) => Left("delta without old-parser elapsed time")
-                case (Some(old_us), Some(delta)) =>
-                  Left(
-                    "inconsistent paired delta " + delta +
-                      " (expected " + (new_elapsed_us - old_us) + ")")
-              }
+              if (elapsed_us >= 0) Right(())
+              else Left("negative parser elapsed time")
           } yield {
             val position =
               source_position.getOrElse(
@@ -162,9 +127,7 @@ object Timing_Record {
               position = position,
               source_symbols = source_symbols,
               source_bytes = source_bytes,
-              new_elapsed_us = new_elapsed_us,
-              old_elapsed_us = old_elapsed_us,
-              delta_us = delta_us)
+              elapsed_us = elapsed_us)
           }
 
         decoded match {
@@ -222,39 +185,27 @@ object Timing_Report {
 
   final case class Summary(
     declarations: Int,
-    paired: Int,
     source_symbols: Long,
     source_bytes: Long,
-    new_elapsed_us: Long,
-    old_elapsed_us: Long,
-    delta_us: Long
+    elapsed_us: Long
   ) {
-    def new_only: Int = declarations - paired
-
     def json: JSON.Object.T =
       JSON.Object(
         "declarations" -> declarations,
-        "paired_declarations" -> paired,
-        "new_only_declarations" -> new_only,
         "source_symbols" -> source_symbols,
         "source_bytes" -> source_bytes,
-        "new_elapsed_us" -> new_elapsed_us,
-        "paired_old_elapsed_us" -> old_elapsed_us,
-        "paired_delta_us" -> delta_us)
+        "elapsed_us" -> elapsed_us)
   }
 
   object Summary {
     def apply(entries: Iterable[Entry]): Summary =
-      entries.foldLeft(Summary(0, 0, 0L, 0L, 0L, 0L, 0L)) {
+      entries.foldLeft(Summary(0, 0L, 0L, 0L)) {
         case (summary, entry) =>
           Summary(
             declarations = summary.declarations + 1,
-            paired = summary.paired + (if (entry.paired) 1 else 0),
             source_symbols = summary.source_symbols + entry.source_symbols,
             source_bytes = summary.source_bytes + entry.source_bytes,
-            new_elapsed_us = summary.new_elapsed_us + entry.new_elapsed_us,
-            old_elapsed_us = summary.old_elapsed_us + entry.old_elapsed_us.getOrElse(0L),
-            delta_us = summary.delta_us + entry.delta_us.getOrElse(0L))
+            elapsed_us = summary.elapsed_us + entry.elapsed_us)
       }
   }
 
@@ -273,8 +224,6 @@ object Timing_Report {
     private val integer_format = NumberFormat.getIntegerInstance(Locale.ROOT)
 
     private def number(n: Long): String = integer_format.format(n)
-    private def signed(n: Long): String =
-      if (n > 0) "+" + number(n) else number(n)
 
     private def table(headers: List[String], rows: List[List[String]]): String = {
       val widths =
@@ -291,26 +240,17 @@ object Timing_Report {
       val filter_line =
         if (theory_filters.isEmpty) Nil
         else List("Theories: " + theory_filters.mkString(", "))
-      val paired_lines =
-        if (totals.paired == 0) Nil
-        else
-          List(
-            "Paired old-parser cumulative elapsed: " + number(totals.old_elapsed_us) + " us",
-            "Paired delta (new - old): " + signed(totals.delta_us) + " us")
       val theory_rows =
         theories.map { theory =>
           val s = theory.summary
           List(
             theory.theory,
             s.declarations.toString,
-            s.paired.toString,
-            number(s.new_elapsed_us),
-            if (s.paired == 0) "-" else number(s.old_elapsed_us),
-            if (s.paired == 0) "-" else signed(s.delta_us))
+            number(s.elapsed_us))
         }
       val theory_table =
         table(
-          List("Theory", "Decls", "Paired", "New us", "Old us", "Delta us"),
+          List("Theory", "Decls", "Elapsed us"),
           theory_rows)
       val hotspot_lines =
         hotspots match {
@@ -321,27 +261,25 @@ object Timing_Report {
             val rows =
               selected.map(entry =>
                 List(
-                  entry.new_elapsed_us.toString,
+                  entry.elapsed_us.toString,
                   entry.command_kind,
                   entry.theory,
                   entry.declaration_name,
                   entry.position.print))
             List(
               "",
-              "Slowest declarations by new-parser elapsed time:",
-              table(List("New us", "Kind", "Theory", "Declaration", "Position"), rows))
+              "Slowest declarations by parser elapsed time:",
+              table(List("Elapsed us", "Kind", "Theory", "Declaration", "Position"), rows))
         }
 
       (List(
         "µRust parser timing report for session " + quote(session)) :::
         filter_line :::
         List(
-          "Declarations: " + totals.declarations +
-            " (" + totals.paired + " paired, " + totals.new_only + " new-only)",
+          "Declarations: " + totals.declarations,
           "Source size: " + number(totals.source_symbols) + " symbols, " +
             number(totals.source_bytes) + " bytes",
-          "New-parser cumulative elapsed: " + number(totals.new_elapsed_us) + " us") :::
-        paired_lines :::
+          "Parser cumulative elapsed: " + number(totals.elapsed_us) + " us") :::
         List(
           "",
           "Per-theory cumulative declaration latency:",
@@ -361,8 +299,8 @@ object Timing_Report {
   }
 
   private def slower(left: Entry, right: Entry): Boolean =
-    if (left.new_elapsed_us != right.new_elapsed_us)
-      left.new_elapsed_us > right.new_elapsed_us
+    if (left.elapsed_us != right.elapsed_us)
+      left.elapsed_us > right.elapsed_us
     else {
       val left_key =
         (left.theory, left.declaration_name, left.command_kind, left.position.offset.getOrElse(0))

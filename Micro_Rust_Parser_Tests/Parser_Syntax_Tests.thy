@@ -2,7 +2,6 @@ theory Parser_Syntax_Tests
   imports Parser_Command_Tests Parser_Rejection_Tests
 begin
 
-declare [[urust_conformance = true]]
 declare [[urust_verbosity = 0]]
 
 section\<open>Expression precedence\<close>
@@ -17,11 +16,9 @@ begin
 
 urust_expr grammar_deref_before_cast
   \<open> *prefix_ref as u8 \<close>
-  against \<open> \<lbrakk> (*prefix_ref) as u8 \<rbrakk> \<close>
 
 urust_expr grammar_not_deref
   \<open> !*prefix_bool_ref \<close>
-  against \<open> \<lbrakk> !(*prefix_bool_ref) \<rbrakk> \<close>
 
 end
 
@@ -34,14 +31,6 @@ urust_expr grammar_if_left_operand
     else { \<llangle>2 :: 32 word\<rrangle> }
     + \<llangle>3 :: 32 word\<rrangle>
   \<close>
-  against
-  \<open>
-    \<lbrakk>
-      (if true { \<llangle>1 :: 32 word\<rrangle> }
-       else { \<llangle>2 :: 32 word\<rrangle> })
-      + \<llangle>3 :: 32 word\<rrangle>
-    \<rbrakk>
-  \<close>
 
 urust_expr grammar_match_left_operand
   \<open>
@@ -50,20 +39,11 @@ urust_expr grammar_match_left_operand
       false \<Rightarrow> \<llangle>2 :: 32 word\<rrangle>
     } + \<llangle>3 :: 32 word\<rrangle>
   \<close>
-  against
-  \<open>
-    \<lbrakk>
-      (match true {
-        true \<Rightarrow> \<llangle>1 :: 32 word\<rrangle>,
-        false \<Rightarrow> \<llangle>2 :: 32 word\<rrangle>
-      }) + \<llangle>3 :: 32 word\<rrangle>
-    \<rbrakk>
-  \<close>
 
 urust_expr grammar_semicolon_free_if_statement
   \<open> if true { () } else { () } () \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open>
     if true { \<llangle>1 :: 32 word\<rrangle> }
     else { \<llangle>2 :: 32 word\<rrangle> }
@@ -72,7 +52,7 @@ new_urust_rejects audit
   \<close>
   \<open> syntax error \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open>
     (if true { \<llangle>1 :: 32 word\<rrangle> }
      else { \<llangle>2 :: 32 word\<rrangle> })
@@ -91,7 +71,7 @@ restricted-start pattern family, both explicit-comma cases, rejection without th
 recovery.
 \<close>
 
-urust_expr [conformance = false] grammar_direct_with_block_arm
+urust_expr  grammar_direct_with_block_arm
   \<open>
     match true {
       true \<Rightarrow> if true { \<llangle>1 :: nat\<rrangle> } else { \<llangle>2 :: nat\<rrangle> }
@@ -99,7 +79,7 @@ urust_expr [conformance = false] grammar_direct_with_block_arm
     }
   \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open>
     match true {
       true \<Rightarrow> (if true { \<llangle>1 :: nat\<rrangle> } else { \<llangle>2 :: nat\<rrangle> })
@@ -124,7 +104,7 @@ urust_expr grammar_operandless_return_arm_semicolons
     }
   \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open>
     match true {
       true \<Rightarrow> \<llangle>1 :: nat\<rrangle>;,
@@ -136,7 +116,7 @@ new_urust_rejects audit
 
 section\<open>Closures and binding RHSs\<close>
 
-urust_expr [conformance = false] grammar_direct_closure_initializer
+urust_expr  grammar_direct_closure_initializer
   \<open>
     let f = |x| x + \<llangle>1 :: 32 word\<rrangle>;
     ()
@@ -147,23 +127,23 @@ urust_expr grammar_closure_full_body
     |x| if true { x } else { x + \<llangle>1 :: 32 word\<rrangle> }
   \<close>
 
-urust_expr [conformance = false] grammar_closure_if_let_body
+urust_expr  grammar_closure_if_let_body
   \<open>
     || if let Some(x) = Some(\<llangle>1 :: nat\<rrangle>) { x } else { 0 }
   \<close>
 
-urust_expr [conformance = false] grammar_closure_mixed_if_body
+urust_expr  grammar_closure_mixed_if_body
   \<open>
     || if true { 0 } else if let Some(x) = Some(\<llangle>1 :: nat\<rrangle>) { x } else { 0 }
   \<close>
 
-urust_expr [conformance = false] grammar_closure_return_body
+urust_expr  grammar_closure_return_body
   \<open> || return \<llangle>1 :: nat\<rrangle> \<close>
 
-urust_expr [conformance = false] grammar_nested_closure_body
+urust_expr  grammar_nested_closure_body
   \<open> || || \<llangle>1 :: nat\<rrangle> \<close>
 
-urust_expr [conformance = false] grammar_if_let_operand
+urust_expr  grammar_if_let_operand
   \<open>
     if let Some(value) = Some(\<llangle>1 :: 32 word\<rrangle>) {
       value
@@ -172,10 +152,10 @@ urust_expr [conformance = false] grammar_if_let_operand
     } + \<llangle>1 :: 32 word\<rrangle>
   \<close>
 
-urust_expr [conformance = false] grammar_closure_match_scrutinee
+urust_expr  grammar_closure_match_scrutinee
   \<open> match || true { _ \<Rightarrow> () } \<close>
 
-urust_expr [conformance = false] grammar_closure_match_arms
+urust_expr  grammar_closure_match_arms
   \<open>
     match true {
       true \<Rightarrow> || true,
@@ -188,36 +168,23 @@ section\<open>Integer literal bases and separators\<close>
 urust_expr grammar_binary \<open> 0b1010 \<close>
 urust_expr grammar_binary_suffix
   \<open> 0b1111u8 \<close>
-  against \<open> \<lbrakk> 15_u8 \<rbrakk> \<close>
 urust_expr grammar_binary_trailing_separator
   \<open> 0b1010_ \<close>
-  against \<open> \<lbrakk> 10 \<rbrakk> \<close>
 urust_expr grammar_octal
   \<open> 0o755 \<close>
-  against \<open> \<lbrakk> 493 \<rbrakk> \<close>
 urust_expr grammar_octal_suffix
   \<open> 0o17_u16 \<close>
-  against \<open> \<lbrakk> 15_u16 \<rbrakk> \<close>
 urust_expr grammar_octal_trailing_separator
   \<open> 0o17_ \<close>
-  against \<open> \<lbrakk> 15 \<rbrakk> \<close>
 urust_expr grammar_decimal_separators
   \<open> 1_000_000u32 \<close>
-  against \<open> \<lbrakk> 1000000_u32 \<rbrakk> \<close>
 urust_expr grammar_hex_separators
   \<open> 0xff_00u32 \<close>
-  against \<open> \<lbrakk> 0xff00_u32 \<rbrakk> \<close>
 urust_expr grammar_decimal_trailing_separator
   \<open> 1_ \<close>
-  against \<open> \<lbrakk> 1 \<rbrakk> \<close>
 urust_expr grammar_hex_trailing_separator
   \<open> 0xff_ \<close>
-  against \<open> \<lbrakk> 0xff \<rbrakk> \<close>
 
-old_urust_rejects \<open> 1_000_000u32 \<close>
-old_urust_rejects \<open> 0xff_00u32 \<close>
-old_urust_rejects \<open> 1_ \<close>
-old_urust_rejects \<open> 0xff_ \<close>
 
 section\<open>Struct expressions\<close>
 
@@ -232,7 +199,6 @@ micro_rust_notation (call) grammar_empty_struct_call ("GrammarEmptyStruct")
 
 urust_expr grammar_empty_struct_expression
   \<open> GrammarEmptyStruct {} \<close>
-  against \<open> \<lbrakk> GrammarEmptyStruct() \<rbrakk> \<close>
 
 definition grammar_empty_bool_value :: bool
   where \<open>grammar_empty_bool_value \<equiv> True\<close>
@@ -348,32 +314,32 @@ no-struct control head, its first empty braces must not be silently consumed as 
 Explicit grouping restores unrestricted expression parsing.
 \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open> if grammar_empty_bool_value {} {} \<close>
   \<open> empty struct expression in a control head must be parenthesized \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open>
     if let Some(_) = grammar_empty_option_value {} {}
   \<close>
   \<open> empty struct expression in a control head must be parenthesized \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open> if let _ = GrammarEmptyStruct {} {} \<close>
   \<open> empty struct expression in a control head must be parenthesized \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open> for _ in grammar_empty_list_value {} {} \<close>
   \<open> empty struct expression in a control head must be parenthesized \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open>
     #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let Some(_) =
       grammar_empty_option_value {} {}
   \<close>
   \<open> empty struct expression in a control head must be parenthesized \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open>
     match grammar_empty_bool_value {} {
       true \<Rightarrow> (),
@@ -382,7 +348,7 @@ new_urust_rejects audit
   \<close>
   \<open> syntax error \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open>
     match_case grammar_empty_option_value {} {
       Some(_) \<Rightarrow> (),
@@ -391,7 +357,7 @@ new_urust_rejects audit
   \<close>
   \<open> syntax error \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open>
     match_switch grammar_empty_nat_value {} {
       1 \<Rightarrow> (),
@@ -400,21 +366,21 @@ new_urust_rejects audit
   \<close>
   \<open> syntax error \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open> if !grammar_empty_bool_value {} {} \<close>
   \<open> empty struct expression in a control head must be parenthesized \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open> if true && grammar_empty_bool_value {} {} \<close>
   \<open> empty struct expression in a control head must be parenthesized \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open>
     if false || true && !grammar_empty_bool_value {} {}
   \<close>
   \<open> empty struct expression in a control head must be parenthesized \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open>
     if true == grammar_empty_bool_value {} {}
   \<close>
@@ -426,24 +392,24 @@ the following empty braces even when the operand path also names a registered nu
 True prefix operators surrounding the propagated expression retain that postfix boundary.
 \<close>
 
-urust_expr [conformance = false] grammar_propagate_empty_body_if
+urust_expr  grammar_propagate_empty_body_if
   \<open> if grammar_propagate_bool_value? {} else {} \<close>
 
-urust_expr [conformance = false] grammar_propagate_empty_body_if_let
+urust_expr  grammar_propagate_empty_body_if_let
   \<open>
     if let Some(_) = grammar_propagate_option_value? {} else {}
   \<close>
 
-urust_expr [conformance = false] grammar_propagate_empty_body_for
+urust_expr  grammar_propagate_empty_body_for
   \<open> for _ in grammar_propagate_list_value? {} \<close>
 
-urust_expr [conformance = false] grammar_propagate_empty_body_while_let
+urust_expr  grammar_propagate_empty_body_while_let
   \<open>
     #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let Some(_) =
       grammar_propagate_option_value? {}
   \<close>
 
-urust_expr [conformance = false] grammar_propagate_empty_body_match
+urust_expr  grammar_propagate_empty_body_match
   \<open>
     match grammar_propagate_bool_value? {
       true \<Rightarrow> (),
@@ -451,7 +417,7 @@ urust_expr [conformance = false] grammar_propagate_empty_body_match
     }
   \<close>
 
-urust_expr [conformance = false] grammar_propagate_empty_body_match_case
+urust_expr  grammar_propagate_empty_body_match_case
   \<open>
     match_case grammar_propagate_option_value? {
       Some(_) \<Rightarrow> (),
@@ -459,7 +425,7 @@ urust_expr [conformance = false] grammar_propagate_empty_body_match_case
     }
   \<close>
 
-urust_expr [conformance = false] grammar_propagate_empty_body_match_switch
+urust_expr  grammar_propagate_empty_body_match_switch
   \<open>
     match_switch grammar_propagate_nat_value? {
       1 \<Rightarrow> (),
@@ -467,39 +433,39 @@ urust_expr [conformance = false] grammar_propagate_empty_body_match_switch
     }
   \<close>
 
-urust_expr [conformance = false] grammar_propagate_nested_prefix_empty_body
+urust_expr  grammar_propagate_nested_prefix_empty_body
   \<open> if !grammar_propagate_bool_value? {} else {} \<close>
 
-urust_expr [conformance = false] grammar_propagate_nested_binary_empty_body
+urust_expr  grammar_propagate_nested_binary_empty_body
   \<open>
     if false || grammar_propagate_bool_value? {} else {}
   \<close>
 
-urust_expr [conformance = false] grammar_propagate_nested_comparison_empty_body
+urust_expr  grammar_propagate_nested_comparison_empty_body
   \<open>
     if true == grammar_propagate_bool_value? {} else {}
   \<close>
 
-urust_expr [conformance = false] grammar_grouped_empty_struct_if
+urust_expr  grammar_grouped_empty_struct_if
   \<open>
     if (grammar_empty_bool_value {}) {} else {}
   \<close>
 
-urust_expr [conformance = false] grammar_grouped_empty_struct_if_let
+urust_expr  grammar_grouped_empty_struct_if_let
   \<open>
     if let Some(_) = (grammar_empty_option_value {}) {} else {}
   \<close>
 
-urust_expr [conformance = false] grammar_grouped_empty_struct_for
+urust_expr  grammar_grouped_empty_struct_for
   \<open> for _ in (grammar_empty_list_value {}) {} \<close>
 
-urust_expr [conformance = false] grammar_grouped_empty_struct_while_let
+urust_expr  grammar_grouped_empty_struct_while_let
   \<open>
     #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let Some(_) =
       (grammar_empty_option_value {}) {}
   \<close>
 
-urust_expr [conformance = false] grammar_grouped_empty_struct_match
+urust_expr  grammar_grouped_empty_struct_match
   \<open>
     match (grammar_empty_bool_value {}) {
       true \<Rightarrow> (),
@@ -507,7 +473,7 @@ urust_expr [conformance = false] grammar_grouped_empty_struct_match
     }
   \<close>
 
-urust_expr [conformance = false] grammar_grouped_empty_struct_match_case
+urust_expr  grammar_grouped_empty_struct_match_case
   \<open>
     match_case (grammar_empty_option_value {}) {
       Some(_) \<Rightarrow> (),
@@ -515,7 +481,7 @@ urust_expr [conformance = false] grammar_grouped_empty_struct_match_case
     }
   \<close>
 
-urust_expr [conformance = false] grammar_grouped_empty_struct_match_switch
+urust_expr  grammar_grouped_empty_struct_match_switch
   \<open>
     match_switch (grammar_empty_nat_value {}) {
       1 \<Rightarrow> (),
@@ -526,24 +492,24 @@ urust_expr [conformance = false] grammar_grouped_empty_struct_match_switch
 definition grammar_bare_flag :: bool
   where \<open>grammar_bare_flag \<equiv> True\<close>
 
-urust_expr [conformance = false] grammar_bare_path_empty_body
+urust_expr  grammar_bare_path_empty_body
   \<open> if grammar_bare_flag {} \<close>
 
-urust_expr [conformance = false] grammar_bare_path_empty_body_sequence
+urust_expr  grammar_bare_path_empty_body_sequence
   \<open> if grammar_bare_flag {} {} \<close>
 
-urust_expr [conformance = false] grammar_nested_bare_path_empty_body_sequence
+urust_expr  grammar_nested_bare_path_empty_body_sequence
   \<open> if true && grammar_bare_flag {} {} \<close>
 
 context fixes flag :: bool
 begin
 
-urust_expr [conformance = false] grammar_fixed_path_empty_body_sequence
+urust_expr  grammar_fixed_path_empty_body_sequence
   \<open> if flag {} {} \<close>
 
 end
 
-urust_expr [conformance = false] grammar_struct_trailing_comma
+urust_expr  grammar_struct_trailing_comma
   \<open>
     D21Pair {
       second: 2_u64,
@@ -868,7 +834,6 @@ ML_val\<open>
 \<close>
 
 
-declare [[urust_conformance = false]]
 
 section\<open> Full guard-body grammar audit \<close>
 
@@ -1147,9 +1112,8 @@ section\<open> Range, array, and indexing structure \<close>
 
 text\<open>
 The public AST keeps each source form explicit, while the term layer emits only
-the frontend vocabulary before the command's single final \<open>Syntax.check_term\<close>.
-Same-source commands in \<open>Parser_Expr_Conformance_Tests\<close> separately require the
-checked terms to close by \<open>refl\<close>.
+the shallow semantic vocabulary before the command's single final
+\<open>Syntax.check_term\<close>.
 \<close>
 
 ML_val\<open>
@@ -3398,9 +3362,6 @@ ML_val\<open>
       Parser_Test_Elaboration.expression ctxt
         (Parser_Lex_Util.text_source text)
 
-    fun frontend text =
-      Syntax.read_term ctxt ("\<lbrakk> " ^ text ^ " \<rbrakk>")
-
     fun count_constant name term =
       Term.fold_aterms
         (fn Const (candidate, _) =>
@@ -3675,32 +3636,6 @@ ML_val\<open>
     val _ =
       audit_assert "labels stopped erasing completely"
         (Term.aconv (canonical, renamed))
-
-    val parity_sources =
-      ["let mut slot = 1_u64; " ^
-         "D21AuditOne { value: slot = 2_u64 }",
-       "D21AuditOne { value: " ^
-         "[\<llangle>(\<lambda>left::nat. \<lambda>right::nat. " ^
-           "FunctionBody (literal (left + right)))\<rrangle>, " ^
-          "|left, right| \<llangle>left + right :: nat\<rrangle>] }",
-       "for _ in (D21AuditOne { value: [1, 2] }) " ^
-         "{ D21AuditOne { value: () }; () }",
-       "#[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let Some(_) = " ^
-         "(D21AuditOne { value: Some(3) }) " ^
-         "{ D21AuditOne { value: () }; () }",
-       "match (D21AuditOne { value: Some(3) }) " ^
-         "{ Some(_) \<Rightarrow> D21AuditOne { value: 1 }, None \<Rightarrow> 0 }",
-       "match_case (D21AuditOne { value: Some(3) }) " ^
-         "{ Some(_) \<Rightarrow> D21AuditOne { value: 1 }, None \<Rightarrow> 0 }",
-       "match_switch (D21AuditOne { value: 42 }) " ^
-         "{ 42 \<Rightarrow> D21AuditOne { value: () }, _ \<Rightarrow> () }"]
-    val _ =
-      List.app
-        (fn source =>
-          audit_assert
-            ("direct frontend alpha parity failed for " ^ quote source)
-            (Term.aconv (checked source, frontend source)))
-        parity_sources
 
     val captured_reports = Synchronized.var "parser_test_reports" ([]: string list)
     fun capture_reports chunks =
@@ -4391,16 +4326,14 @@ ML_val\<open>
 
 chapter\<open>Logging\<close>
 
-declare [[urust_conformance = false]]
 declare [[urust_verbosity = 0]]
 declare [[urust_abbrev = false]]
 
-declare [[urust_conformance = true]]
 
 text\<open>
-This suite is evaluated after \<open>Parser_Expr_Conformance_Tests\<close>, so the logging import does not affect that theory's built-in macro coverage.
-The parser-test logging fixture supplies the legacy frontend syntax used as the
-oracle for \<open>l\<llangle>...\<rrangle>\<close>; \<open>StdLib_Logging\<close> registers
+This suite is evaluated after \<open>Parser_Expression_Tests\<close>, so the logging import does not affect that theory's built-in macro coverage.
+The parser-test logging fixture imports \<open>StdLib_Logging\<close>, which registers
+the syntax used by \<open>l\<llangle>...\<rrangle>\<close> together with
 \<open>fatal!\<close>, \<open>info!\<close>, and the other logger calls. In particular, registered
 \<open>fatal!\<close> takes precedence over the built-in macro in this context.
 Keeping the import isolated preserves the main suite's built-in \<open>fatal!\<close>
@@ -4520,24 +4453,22 @@ urust_expr registered_trace_logger
 
 text\<open>
 The first row specifically checks that the adjacent registered \<open>fatal!\<close> call wins over the
-built-in message macro in this import context. The main conformance theory intentionally does not
-import \<open>StdLib_Logging\<close>, so its built-in \<open>fatal!\<close> coverage remains unchanged.
+built-in message macro in this import context. The expression suite does not import
+\<open>StdLib_Logging\<close>, so its built-in \<open>fatal!\<close> coverage remains unchanged.
 \<close>
 
 
 chapter\<open>Yield and logging audits\<close>
 
-declare [[urust_conformance = false]]
 declare [[urust_verbosity = 0]]
 declare [[urust_abbrev = false]]
 
 section\<open> Yield and logging structural audit \<close>
 
 text\<open>
-This theory audits parser properties that equation-based conformance tests cannot expose directly:
-the yield, primitive-log, and log-data ASTs and source spans; exact lowering shape; local-first
-identifier resolution; editor markup; positioned diagnostics; and lexer/parser recovery after
-malformed input.
+This theory audits the yield, primitive-log, and log-data ASTs and source spans;
+exact lowering shape; local-first identifier resolution; editor markup;
+positioned diagnostics; and lexer/parser recovery after malformed input.
 \<close>
 
 definition yield_logging_audit_collision :: nat
@@ -5049,11 +4980,9 @@ ML_val\<open>
 
 chapter\<open>Isabelle comments\<close>
 
-declare [[urust_conformance = false]]
 declare [[urust_verbosity = 0]]
 declare [[urust_abbrev = false]]
 
-declare [[urust_conformance = true]]
 
 section\<open> Isabelle formal comments \<close>
 
@@ -5365,7 +5294,7 @@ ML_val\<open>
     val value_aq_text =
       "\<llangle>''" ^ formal_comment "value literal" ^ "''\<rrangle>"
     val expression_aq_text =
-      "\<epsilon>\<open>\<up>(''" ^
+      "\<epsilon>\<open>literal (''" ^
       formal_comment "expression literal" ^
       "'')\<close>"
     val _ =
@@ -5389,7 +5318,7 @@ ML_val\<open>
          UE_ExprAntiq source =>
            audit_assert "comment-shaped expression antiquotation text was consumed"
              (Input.string_of source =
-               "\<up>(''" ^ formal_comment "expression literal" ^ "'')")
+               "literal (''" ^ formal_comment "expression literal" ^ "'')")
        | _ =>
            error
              "Isabelle-comment regression audit: expression antiquotation AST changed")

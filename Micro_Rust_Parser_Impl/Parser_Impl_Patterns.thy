@@ -120,7 +120,7 @@ ML\<open>
   or-alternative order, binds pattern variables before evaluating guards and bodies, and makes a false
   guard fall through to the next alternative or arm. NONE uses the existing case encoding's unmatched
   behavior; SOME term installs that term as the terminal unmatched result. Compilation preserves the
-  shallow term shape required for old-frontend conformance.
+  established shallow term shape.
 
   The representations of prepared_binding and prepared_case_arm are intentionally abstract.
   Pattern-position inspection, resolution policies, resolved/basic/case pattern datatypes, or-pattern

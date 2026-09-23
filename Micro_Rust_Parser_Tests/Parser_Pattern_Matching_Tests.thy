@@ -7,7 +7,6 @@ theory Parser_Pattern_Matching_Tests
     Shallow_Micro_Rust.Core_Expression_Lemmas
 begin
 
-declare [[urust_conformance = true]]
 
 section\<open>Native constructor metadata\<close>
 
@@ -157,7 +156,7 @@ urust_expr parser_word_family_guarded ::
     }
   \<close>
 
-urust_expr [conformance = false] parser_word_family_unqualified ::
+urust_expr  parser_word_family_unqualified ::
   \<open>
     parser_word_family \<Rightarrow>
       (unit, nat, unit, unit, unit, unit) expression
@@ -216,33 +215,7 @@ urust_expr parser_word_family_matches ::
   (scrutinee)
   \<open> matches!(scrutinee, ParserWordFamily::Second) \<close>
 
-text\<open>
-The legacy frontend's nested-pattern path asks \<open>Basic_Case_Expression\<close> whether a free
-identifier is a \<open>Code.is_constr\<close> constructor. A \<open>simple_word_enum\<close> variant instead receives
-native case metadata through \<open>Case_Translation\<close>. Unlike the other qualification-sensitive legacy
-bug, this failure also occurs with the unqualified variant name: the legacy frontend silently treats
-both that spelling and the fully qualified nested variant below as binders. The dedicated parser
-resolves the same metadata before calling the shared case backend and therefore preserves the
-constructor test.
-\<close>
-
-definition parser_word_family_legacy_nested ::
-  \<open>
-    parser_word_family option \<Rightarrow>
-      (unit, nat, unit, unit, unit, unit) expression
-  \<close>
-  where
-    \<open>
-      parser_word_family_legacy_nested scrutinee \<equiv>
-        \<lbrakk>
-          match scrutinee {
-            Some(ParserWordFamily::First) \<Rightarrow> 1,
-            _ \<Rightarrow> 0
-          }
-        \<rbrakk>
-    \<close>
-
-urust_expr [conformance = false] parser_word_family_nested ::
+urust_expr  parser_word_family_nested ::
   \<open>
     parser_word_family option \<Rightarrow>
       (unit, nat, unit, unit, unit, unit) expression
@@ -395,27 +368,6 @@ lemma parser_word_family_nested_results:
       parser_word_family_nested_def
       micro_rust_simps)
 
-lemma parser_word_family_legacy_nested_is_catchall:
-  shows
-    \<open>
-      parser_word_family_legacy_nested (Some ParserWordFirst) =
-        literal (1 :: nat)
-    \<close>
-    and
-    \<open>
-      parser_word_family_legacy_nested (Some ParserWordSecond) =
-        literal (1 :: nat)
-    \<close>
-    and
-    \<open>
-      parser_word_family_legacy_nested None =
-        literal (0 :: nat)
-    \<close>
-  by
-    (simp_all add:
-      parser_word_family_legacy_nested_def
-      micro_rust_simps)
-
 lemma parser_single_word_family_result:
   \<open>
     parser_single_word_family_exhaustive ParserWordOnly =
@@ -442,7 +394,6 @@ consts parser_raw_scrutinee :: parser_raw_value
 micro_rust_notation (literal) ParserRawFirst ("ParserRaw::First")
 micro_rust_notation (literal) ParserRawSecond ("ParserRaw::Second")
 
-declare [[urust_conformance = false]]
 
 urust_expr parser_metadata_free_switch
   \<open>
@@ -511,7 +462,7 @@ micro_rust_notation (literal)
   parser_nested_status.ParserTertiaryStatus
   ("NestedStatus::Tertiary")
 
-urust_expr [conformance = true] parser_nested_registered_nullary
+urust_expr  parser_nested_registered_nullary
   \<open>
     match
       \<llangle>
@@ -523,24 +474,7 @@ urust_expr [conformance = true] parser_nested_registered_nullary
       res \<Rightarrow> res
     }
   \<close>
-  against
-    \<open>
-      \<lbrakk>
-        match
-          \<llangle>
-            Err ParserPrimaryStatus ::
-              (unit, parser_nested_status) result
-          \<rrangle>
-        {
-          Err(ParserPrimaryStatus) \<Rightarrow> Ok(()),
-          res \<Rightarrow> res
-        }
-      \<rbrakk>
-    \<close>
-
-thm parser_nested_registered_nullary_conformance
-
-urust_expr [conformance = true]
+urust_expr
   parser_nested_registered_nullary_open ::
   \<open>
     (unit, parser_nested_status) result \<Rightarrow>
@@ -554,18 +488,6 @@ urust_expr [conformance = true]
       res \<Rightarrow> res
     }
   \<close>
-  against
-    \<open>
-      \<lbrakk>
-        match scrutinee {
-          Err(ParserPrimaryStatus) \<Rightarrow> Ok(()),
-          res \<Rightarrow> res
-        }
-      \<rbrakk>
-    \<close>
-
-thm parser_nested_registered_nullary_open_conformance
-
 lemma parser_nested_registered_nullary_matches:
   \<open>
     parser_nested_registered_nullary_open
@@ -718,7 +640,7 @@ definition parser_matrix_effectful_scrutinee ::
         sequence (put Suc) (literal ParserMatrixRight)
     \<close>
 
-urust_expr [conformance = false]
+urust_expr
   parser_effectful_structural_matrix ::
   \<open>(nat, nat, unit, unit, unit, unit) expression\<close>
   \<open>
@@ -834,7 +756,7 @@ micro_rust_notation (literal)
   parser_registered_singleton.ParserRegisteredSingleton
   ("ParserFixture::RegisteredSingleton")
 
-urust_expr [conformance = false]
+urust_expr
   parser_nested_registered_singleton
   \<open>
     match \<llangle>Some (ParserRegisteredSingleton 7)\<rrangle> {
@@ -844,7 +766,7 @@ urust_expr [conformance = false]
     }
   \<close>
 
-urust_expr [conformance = false]
+urust_expr
   parser_nested_native_singleton
   \<open>
     match \<llangle>Some (ParserNativeSingleton 8)\<rrangle> {
@@ -853,7 +775,7 @@ urust_expr [conformance = false]
     }
   \<close>
 
-urust_expr [conformance = false]
+urust_expr
   parser_nested_partial_constructor_alias
   \<open>
     match \<llangle>Some (ParserMatrixPayload 7)\<rrangle> {
@@ -862,7 +784,7 @@ urust_expr [conformance = false]
     }
   \<close>
 
-urust_expr [conformance = false]
+urust_expr
   parser_nested_value_fallback
   \<open>
     match \<llangle>Some ParserRawFirst\<rrangle> {
@@ -871,7 +793,7 @@ urust_expr [conformance = false]
     }
   \<close>
 
-urust_expr [conformance = false]
+urust_expr
   parser_nested_range_fallback
   \<open>
     match \<llangle>Some (6 :: nat)\<rrangle> {
@@ -880,7 +802,7 @@ urust_expr [conformance = false]
     }
   \<close>
 
-urust_expr [conformance = false]
+urust_expr
   parser_nested_slice_fallback ::
   \<open>
     nat list option \<Rightarrow>
@@ -894,7 +816,7 @@ urust_expr [conformance = false]
     }
   \<close>
 
-urust_expr [conformance = false]
+urust_expr
   parser_nested_guarded_fallback
   \<open>
     match \<llangle>Some (ParserMatrixPayload 7)\<rrangle> {
@@ -2730,7 +2652,6 @@ lemma parser_nested_alias_binder_fallback_evaluations:
   by (simp add: assms parser_nested_alias_binder_def
       two_armed_conditional_def micro_rust_simps)
 
-declare [[urust_conformance = false]]
 
 urust_expr parser_nested_registered_payload
   \<open>
@@ -3097,8 +3018,6 @@ ML_val\<open>
       rhs_of "parser_word_family_matches"
     val word_nested =
       rhs_of "parser_word_family_nested"
-    val word_legacy_nested =
-      rhs_of "parser_word_family_legacy_nested"
     val single_word_exhaustive =
       rhs_of "parser_single_word_family_exhaustive"
     val _ =
@@ -3149,13 +3068,6 @@ ML_val\<open>
         (count_constant \<^const_name>\<open>urust_eq\<close>
           word_nested = 0)
     val _ =
-      assert "legacy nested simple_word_enum unexpectedly retained its constructor"
-        (count_constant \<^const_name>\<open>ParserWordFirst\<close>
-          word_legacy_nested = 0)
-    val _ =
-      assert "legacy nested simple_word_enum unexpectedly used its native case"
-        (count_constant word_case_name word_legacy_nested = 0)
-    val _ =
       assert "singleton simple_word_enum match lost its case combinator"
         (count_constant single_word_case_name
           single_word_exhaustive = 1)
@@ -3166,14 +3078,6 @@ ML_val\<open>
 
     val (nested_lhs, nested) =
       equation_of "parser_nested_registered_nullary"
-    val nested_conformance =
-      Proof_Context.get_thm ctxt
-        "parser_nested_registered_nullary_conformance"
-    val (conformance_lhs, conformance_rhs) =
-      nested_conformance
-      |> Thm.prop_of
-      |> HOLogic.dest_Trueprop
-      |> HOLogic.dest_eq
     val (_, nested_lhs_arguments) = Term.strip_comb nested_lhs
     val _ =
       assert "nested fixture acquired an unintended definition argument"
@@ -3187,21 +3091,6 @@ ML_val\<open>
     val _ =
       assert "nested fixture retained a local free binder"
         (null (Term.add_frees nested []))
-    val _ =
-      assert "nested fixture conformance theorem has premises"
-        (Thm.nprems_of nested_conformance = 0)
-    val _ =
-      assert "nested fixture conformance theorem changed its definition head"
-        (Term.aconv (nested_lhs, conformance_lhs))
-    val _ =
-      assert "nested fixture differs from its complete conformance term"
-        (Term.aconv (nested, conformance_rhs))
-    val _ =
-      assert "nested fixture conformance target retained schematic variables"
-        (null (Term.add_vars conformance_rhs []))
-    val _ =
-      assert "nested fixture conformance target retained local free binders"
-        (null (Term.add_frees conformance_rhs []))
     val SOME (inner_case, _) =
       Case_Translation.lookup_by_constr_permissive ctxt
         (dest_Const_name \<^term>\<open>ParserPrimaryStatus\<close>,
@@ -4283,12 +4172,11 @@ ML_val\<open>
 \<close>
 
 
-declare [[urust_conformance = false]]
 
 section\<open> Frontend-shape structural audit \<close>
 
 text\<open>
-Guarded case compilation must reproduce the existing frontend's expanded term directly. In
+Guarded case compilation must preserve the established expanded term directly. In
 particular, the scrutinee is evaluated once, source handlers are duplicated across expanded
 or-alternatives exactly as in the frontend, and a false source guard enters the next source arm rather
 than retrying a sibling alternative. No parser-private HOL constant may mediate that term shape.

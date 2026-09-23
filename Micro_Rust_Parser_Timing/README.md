@@ -34,20 +34,19 @@ Then read its stored results:
 isabelle urust_timing [OPTIONS] SESSION
 
   -T NAME      restrict to a theory; repeatable
-  -C NUM       show the NUM slowest declarations by new-parser time
+  -C NUM       show the NUM slowest declarations by parser time
                (0 shows all declarations)
   -J FILE      atomically write the complete JSON report
   -o OPTION    override Isabelle system/database options
 ```
 
 The default text report contains session totals and a per-theory table. `-C` adds a hotspot table.
-The JSON report always contains every selected declaration, sorted by decreasing new-parser elapsed
+The JSON report always contains every selected declaration, sorted by decreasing parser elapsed
 time.
 
 Only declaration elapsed latency is aggregated. CPU and GC measurements are intentionally omitted
 because declarations may run concurrently. The cumulative elapsed total includes time waiting for
-the parser lock and is not session wall-clock overhead. Old-parser totals and signed `new − old`
-deltas cover only declarations that ran conformance checking.
+the parser lock and is not session wall-clock overhead.
 
 Malformed records and unknown record versions are ignored with warnings. A missing database, a failed
 session build, an unknown theory filter, or a missing final PIDE snapshot is an error.
@@ -60,5 +59,5 @@ make -C Micro_Rust_Parser_Timing test
 
 The unit suite checks record decoding, aggregation, filtering, deterministic hotspot ordering, JSON,
 and malformed/versioned data. The end-to-end suite builds a neutral two-theory fixture with parallel
-workers, then checks paired and new-only records, declaration names, theory filtering, ordering, and
-atomic JSON output without timing thresholds.
+workers, then checks declaration names, theory filtering, ordering, and atomic JSON output without
+timing thresholds.

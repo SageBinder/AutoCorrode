@@ -30,7 +30,7 @@ Usage: isabelle urust_timing [OPTIONS] SESSION
 
   Options are:
     -T NAME      restrict to a theory; repeatable
-    -C NUM       show the NUM slowest declarations by new-parser time
+    -C NUM       show the NUM slowest declarations by parser time
                  (0 shows all declarations)
     -J FILE      atomically write the complete JSON report
     -o OPTION    override Isabelle system/database options

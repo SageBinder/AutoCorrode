@@ -39,11 +39,9 @@ ML\<open>
    wraps the body once in FunctionBody, and then applies the abstractions. Untyped clients represent
    inferred slot types with dummyT. Both operations return one unchecked HOL term: the command layer
    optionally constrains the complete term and passes it to Syntax.check_term exactly once in the same
-   context. Successful lowering preserves lexical scope and the existing shallow-embedding term shape;
-   for syntax shared with the old frontend, callers may rely on alpha-identical checked output directly.
-   Command-level conformance either unfolds a generated definition or compares an expanded abbreviation
-   right-hand side before closing by reflexivity. Resolution and pattern-validation failures are
-   propagated with their source positions. The signature exposes no public types or constructors.
+   context. Successful lowering preserves lexical scope and the established shallow-embedding term
+   shape. Resolution and pattern-validation failures are propagated with their source positions. The
+   signature exposes no public types or constructors.
 
    All lower_* functions, the recursive traversal order, module aliases, and the division of work among
    helper functions are implementation details hidden by URUST_TRANSLATE. *)

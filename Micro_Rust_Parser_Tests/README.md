@@ -1,8 +1,8 @@
 # µRust parser integration status
 
-This session is the executable specification for the production µRust parser. It keeps shared-source
-conformance against the legacy frontend, parser-only improvements, negative fidelity boundaries,
-term-shape audits, markup/recovery checks, and combined showcase examples in one registered session.
+This session is the executable specification for the production µRust parser. It keeps positive and
+negative syntax coverage, accepted-language improvements, term-shape audits, markup/recovery checks,
+and combined showcase examples in one registered session.
 
 ## Command surface
 
@@ -21,9 +21,8 @@ values, places, and constructor/struct patterns; `(call)` for calls, struct
 expressions, and registered macros, whose key includes the trailing `!`. A registration in another
 role does not satisfy the check. Method names remain single-segment and retain registration-first
 resolution. `Parser_Command_Tests.thy`
-contains the exact `zip` collision: a parameter named `zip` shadows HOL `List.zip`, the conformance
-theorem closes by reflexivity, and the generated definition is structurally checked not to contain
-`List.zip`.
+contains the exact `zip` collision: a parameter named `zip` shadows HOL `List.zip`, and the generated
+definition is structurally checked not to contain `List.zip`.
 
 Named definition-mode declarations accept standard Isabelle attributes through `attrs = [...]`;
 the attributes apply only to the generated `_def` theorem. An exact terminal `_` in an `urust_fn`
@@ -125,11 +124,10 @@ negative rows preserve these boundaries.
 
 ## Focused regression theories
 
-- `Parser_Legacy_Frontend_Tests.thy`: legacy inner-syntax and notation-registry tests.
-- `Parser_Expr_Conformance_Tests.thy` and `Parser_Fn_Conformance_Tests.thy`: independent
-  shared-source parity suites, including direct, method, and chained iterator syntax.
-- `Parser_Improvements_Tests.thy`: accepted language improvements, intentional semantic
-  corrections, and demonstrated legacy-parser bugs.
+- `Parser_Expression_Tests.thy` and `Parser_Function_Tests.thy`: independent
+  positive suites, including direct, method, and chained iterator syntax.
+- `Parser_Improvements_Tests.thy`: accepted language improvements and intentional semantic
+  corrections.
 - `Parser_Command_Tests.thy`: declaration behavior, named and wildcard parameter slots, options,
   artifacts, timing, markup, and facade audits.
 - `Parser_Syntax_Tests.thy`: precedence adjacency, unary/cast/postfix behavior, direct and
@@ -137,13 +135,13 @@ negative rows preserve these boundaries.
   structs, integer lexing, generated grammar, markup, and recovery.
 - `Parser_Pattern_Matching_Tests.thy`: `Ctr_Sugar`, custom enum and simple-word-enum native case
   metadata, bare and qualified exhaustive/partial/guarded/or/nested and singleton simple-word-enum
-  matches, the legacy nested-variant catch-all bug, metadata-free value/literal equality and switch
-  controls, ordinary and typedef-backed basename ambiguity, binder fallback, deep registered nullary
+  matches, metadata-free value/literal equality and switch controls, ordinary and typedef-backed
+  basename ambiguity, binder fallback, deep registered nullary
   structural matching, guards, coverage, source order, single evaluation, term shape, markup, and
   recovery.
 - `Parser_Name_Resolution_Tests.thy`: notation dispatch, navigation, qualifier markup, turbofish,
   and the shared iterator `zip` registration audit.
-- `Parser_Rejection_Tests.thy`: parser/frontend rejection parity and iterator arity failures.
+- `Parser_Rejection_Tests.thy`: parser diagnostics and iterator arity failures.
 - `Parser_Showcase_Tests.thy`: combined command, grammar, matching, and iterator examples.
 
 Shared declaration-only setup lives in `Parser_Iterator_Fixtures.thy`,
