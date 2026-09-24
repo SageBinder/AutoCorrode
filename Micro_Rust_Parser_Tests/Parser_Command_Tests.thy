@@ -11,8 +11,6 @@ begin
 
 chapter\<open>Parser facade\<close>
 
-declare [[urust_timing_info = false]]
-declare [[urust_timing_verbosity = 0]]
 declare [[urust_verbosity = 0]]
 declare [[urust_abbrev = false]]
 declare [[urust_application_def = false]]
@@ -28,8 +26,6 @@ thm smoke_num_def smoke_sfx_def smoke_unit_def
 
 chapter\<open>Typed expression and shared command API\<close>
 
-declare [[urust_timing_info = false]]
-declare [[urust_timing_verbosity = 0]]
 declare [[urust_verbosity = 0]]
 declare [[urust_abbrev = false]]
 declare [[urust_application_def = false]]
@@ -965,16 +961,13 @@ ML_val\<open>
         "unknown uRust command option"
     val _ =
       assert_rejected "duplicate-option"
-        ("urust_expr [timing_info, timing_info = false] duplicate_flag " ^ unit_source)
+        ("urust_expr [application_def, application_def = false] duplicate_flag " ^
+          unit_source)
         "duplicate uRust command option"
     val _ =
       assert_rejected "invalid-verbosity"
         ("urust_expr [verbosity = 3] invalid_verbosity " ^ unit_source)
         "must be 0, 1, or 2"
-    val _ =
-      assert_rejected "timing-verbosity-without-timing"
-        ("urust_expr [timing_info = false, timing_verbosity = 1] invalid_timing " ^ unit_source)
-        "requires timing_info = true"
     val _ =
       assert_rejected "attributes-on-abbreviation"
         ("urust_expr [abbrev, attrs = []] attributed_abbreviation " ^ unit_source)

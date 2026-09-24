@@ -31,14 +31,6 @@ or collaboratively conduct interactive theorem proving using Isabelle. See [iq](
 
 [IC2](ic2) manages headless, persistent Isabelle sessions from the command line -- similar to `isabelle server` and `isabelle client`, but integrated with [I/R](ir) and [I/Q](iq). A resident session serves repeated `.thy` checks and diagnostic queries, and can bring up I/R against the same session, optionally over MCP, so an agent can drive Isar proofs without a separate Isabelle/jEdit + I/Q. See [ic2](ic2) for more information.
 
-## µRust parser timing
-
-[Micro_Rust_Parser_Timing](Micro_Rust_Parser_Timing) provides
-`isabelle urust_timing SESSION`. Timed `urust_expr` and `urust_fn` declarations store structured,
-versioned records in the session's final PIDE snapshots; the tool aggregates an already-built session
-without rebuilding it or checking source freshness. It reports session and per-theory cumulative
-declaration latency, optional hotspots, and complete atomic JSON output.
-
 ## Isabelle Assistant
 
 [Isabelle Assistant](isabelle-assistant) is an LLM-powered proof assistant for Isabelle/jEdit, built on [AWS Bedrock](https://aws.amazon.com/bedrock/). It provides autonomous proof search, interactive chat with LaTeX rendering, proof suggestions, code explanation, refactoring, and more — all integrated into the Isabelle/jEdit IDE. When combined with [I/Q](iq), generated proofs are automatically verified against Isabelle before display. See [isabelle-assistant](isabelle-assistant) for more information.
@@ -190,10 +182,6 @@ The `Shallow_Micro_Rust` theories remain parser-independent; parser-backed produ
 import the dedicated parser where needed. The main `AutoCorrode` session includes the production
 parser implementation. The `Micro_Rust_Parser_Tests` session contains the larger parser regression
 suite.
-
-Timed declarations also emit hidden schema-versioned PIDE records. The independent
-[Micro_Rust_Parser_Timing](Micro_Rust_Parser_Timing) component reads those records from the final
-snapshots in a completed session database and exposes them through `isabelle urust_timing`.
 
 ### [Micro_Rust_Runtime](https://awslabs.github.io/AutoCorrode/Unsorted/AutoCorrode/Micro_Rust_Runtime.Micro_Rust_Runtime.html)
 

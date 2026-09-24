@@ -1,7 +1,0 @@
-# -*- shell-script -*- :mode=shellscript:
-
-ISABELLE_MICRO_RUST_PARSER_TIMING_HOME="$COMPONENT"
-
-classpath "$ISABELLE_MICRO_RUST_PARSER_TIMING_HOME/lib/micro_rust_parser_timing.jar"
-
-isabelle_scala_service "isabelle.micro_rust_parser_timing.Tools"
