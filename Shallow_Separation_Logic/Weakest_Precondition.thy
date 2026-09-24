@@ -9,7 +9,6 @@ theory Weakest_Precondition
     Function_Contract
     "Shallow_Micro_Rust.Micro_Rust"
     Representability
-    Micro_Rust_Parser_Impl.Parser_Impl_Command
 begin
 (*>*)
 
@@ -527,80 +526,118 @@ lemma wp_two_armed_conditional_elseI:
 \<comment>\<open>TODO: This is not uniform with the treatment of conditionals
 which are discharged using \<^verbatim>\<open>micro_rust_wp_intros\<close> rather than
 \<^verbatim>\<open>micro_rust_wp_simps\<close>.\<close>
-urust_expr [abbrev] wp_option_cases_expr1
-  (x, nn, sm)
-  \<open> match x { None \<Rightarrow> \<epsilon>\<open>nn\<close>, Some(s) \<Rightarrow> \<epsilon>\<open>sm s\<close> } \<close>
-
 lemma wp_option_cases: (* [micro_rust_wp_simps]: *)
-  shows \<open>\<W>\<P> \<Gamma> (wp_option_cases_expr1 x nn sm) \<psi> \<rho> \<theta> =
-          (case x of
-             None   \<Rightarrow> \<W>\<P> \<Gamma> nn \<psi> \<rho> \<theta>
-           | Some s \<Rightarrow> \<W>\<P> \<Gamma> (sm s) \<psi> \<rho> \<theta>)\<close>
+  shows
+    \<open>
+      \<W>\<P> \<Gamma>
+        (do {
+          case_value \<leftarrow> literal x;
+          case case_value of None \<Rightarrow> nn | Some s \<Rightarrow> sm s
+        })
+        \<psi> \<rho> \<theta> =
+      (case x of
+         None   \<Rightarrow> \<W>\<P> \<Gamma> nn \<psi> \<rho> \<theta>
+       | Some s \<Rightarrow> \<W>\<P> \<Gamma> (sm s) \<psi> \<rho> \<theta>)
+    \<close>
 by (rule asat_semequivI; cases \<open>x\<close>) (auto simp add: micro_rust_simps)
 
-urust_expr [abbrev] wp_option_cases_none_expr1
-  (sm, nn)
-  \<open> match None { Some(s) \<Rightarrow> \<epsilon>\<open>sm s\<close>, None \<Rightarrow> \<epsilon>\<open>nn\<close> } \<close>
-
 lemma wp_option_cases_none[micro_rust_wp_simps]:
-  shows \<open>\<W>\<P> \<Gamma> (wp_option_cases_none_expr1 sm nn) \<psi> \<rho> \<theta> = \<W>\<P> \<Gamma> nn \<psi> \<rho> \<theta>\<close>
+  shows
+    \<open>
+      \<W>\<P> \<Gamma>
+        (do {
+          case_value \<leftarrow> literal None;
+          case case_value of None \<Rightarrow> nn | Some s \<Rightarrow> sm s
+        })
+        \<psi> \<rho> \<theta> =
+      \<W>\<P> \<Gamma> nn \<psi> \<rho> \<theta>
+    \<close>
   by (simp add: wp_option_cases)
 
-urust_expr [abbrev] wp_option_cases_some_expr1
-  (s, sm, nn)
-  \<open> match \<llangle>Some s\<rrangle> { Some(s) \<Rightarrow> \<epsilon>\<open>sm s\<close>, None \<Rightarrow> \<epsilon>\<open>nn\<close> } \<close>
-
 lemma wp_option_cases_some[micro_rust_wp_simps]:
-  shows \<open>\<W>\<P> \<Gamma> (wp_option_cases_some_expr1 s sm nn) \<psi> \<rho> \<theta> = \<W>\<P> \<Gamma> (sm s) \<psi> \<rho> \<theta>\<close>
+  shows
+    \<open>
+      \<W>\<P> \<Gamma>
+        (do {
+          case_value \<leftarrow> literal (Some s);
+          case case_value of None \<Rightarrow> nn | Some s \<Rightarrow> sm s
+        })
+        \<psi> \<rho> \<theta> =
+      \<W>\<P> \<Gamma> (sm s) \<psi> \<rho> \<theta>
+    \<close>
   by (simp add: wp_option_cases)
 
 \<comment>\<open>NOTE: This lemma is not used at present, but seems worth keeping.\<close>
-urust_expr [abbrev] wp_option_casesI_expr1
-  (x, nn, sm)
-  \<open> match x { None \<Rightarrow> \<epsilon>\<open>nn\<close>, Some(s) \<Rightarrow> \<epsilon>\<open>sm s\<close> } \<close>
-
 lemma wp_option_casesI:
   assumes \<open>x = None \<Longrightarrow> \<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> nn \<psi> \<rho> \<theta>\<close>
      and \<open>\<And>s. x = Some s \<Longrightarrow> \<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> (sm s) \<psi> \<rho> \<theta>\<close>
-   shows \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> (wp_option_casesI_expr1 x nn sm) \<psi> \<rho> \<theta>\<close>
+   shows
+     \<open>
+       \<phi> \<longlongrightarrow>
+       \<W>\<P> \<Gamma>
+         (do {
+           case_value \<leftarrow> literal x;
+           case case_value of None \<Rightarrow> nn | Some s \<Rightarrow> sm s
+         })
+         \<psi> \<rho> \<theta>
+     \<close>
   using assms by (clarsimp simp add: wp_option_cases split!: option.splits)
 
-urust_expr [abbrev] wp_result_cases_expr1
-  (x, ok, err)
-  \<open> match x { Ok(k) \<Rightarrow> \<epsilon>\<open>ok k\<close>, Err(e) \<Rightarrow> \<epsilon>\<open>err e\<close> } \<close>
-
 lemma wp_result_cases: (* [micro_rust_wp_simps]: *)
-  shows \<open>\<W>\<P> \<Gamma> (wp_result_cases_expr1 x ok err) \<psi> \<rho> \<theta> =
-           (case x of
-              Ok k  \<Rightarrow> \<W>\<P> \<Gamma> (ok k) \<psi> \<rho> \<theta>
-            | Err e \<Rightarrow> \<W>\<P> \<Gamma> (err e) \<psi> \<rho> \<theta>)\<close>
+  shows
+    \<open>
+      \<W>\<P> \<Gamma>
+        (do {
+          case_value \<leftarrow> literal x;
+          case case_value of Ok k \<Rightarrow> ok k | Err e \<Rightarrow> err e
+        })
+        \<psi> \<rho> \<theta> =
+      (case x of
+         Ok k  \<Rightarrow> \<W>\<P> \<Gamma> (ok k) \<psi> \<rho> \<theta>
+       | Err e \<Rightarrow> \<W>\<P> \<Gamma> (err e) \<psi> \<rho> \<theta>)
+    \<close>
 by (rule asat_semequivI; cases \<open>x\<close>) (auto simp add:micro_rust_simps)
 
-urust_expr [abbrev] wp_result_cases_ok_expr1
-  (k, ok, err)
-  \<open> match \<llangle>Ok k\<rrangle> { Ok(k) \<Rightarrow> \<epsilon>\<open>ok k\<close>, Err(e) \<Rightarrow> \<epsilon>\<open>err e\<close> } \<close>
-
 lemma wp_result_cases_ok[micro_rust_wp_simps]:
-  shows \<open>\<W>\<P> \<Gamma> (wp_result_cases_ok_expr1 k ok err) \<psi> \<rho> \<theta> = \<W>\<P> \<Gamma> (ok k) \<psi> \<rho> \<theta>\<close>
+  shows
+    \<open>
+      \<W>\<P> \<Gamma>
+        (do {
+          case_value \<leftarrow> literal (Ok k);
+          case case_value of Ok k \<Rightarrow> ok k | Err e \<Rightarrow> err e
+        })
+        \<psi> \<rho> \<theta> =
+      \<W>\<P> \<Gamma> (ok k) \<psi> \<rho> \<theta>
+    \<close>
   by (simp add: wp_result_cases)
 
-urust_expr [abbrev] wp_result_cases_err_expr1
-  (e, ok, err)
-  \<open> match \<llangle>Err e\<rrangle> { Ok(k) \<Rightarrow> \<epsilon>\<open>ok k\<close>, Err(e) \<Rightarrow> \<epsilon>\<open>err e\<close> } \<close>
-
 lemma wp_result_cases_err[micro_rust_wp_simps]:
-  shows \<open>\<W>\<P> \<Gamma> (wp_result_cases_err_expr1 e ok err) \<psi> \<rho> \<theta> = \<W>\<P> \<Gamma> (err e) \<psi> \<rho> \<theta>\<close>
+  shows
+    \<open>
+      \<W>\<P> \<Gamma>
+        (do {
+          case_value \<leftarrow> literal (Err e);
+          case case_value of Ok k \<Rightarrow> ok k | Err e \<Rightarrow> err e
+        })
+        \<psi> \<rho> \<theta> =
+      \<W>\<P> \<Gamma> (err e) \<psi> \<rho> \<theta>
+    \<close>
   by (simp add: wp_result_cases)
 
 \<comment>\<open>NOTE: This lemma is not used at present, but seems worth keeping.\<close>
-urust_expr [abbrev] wp_result_casesI_expr1
-  (x, ok, err)
-  \<open> match x { Ok(k) \<Rightarrow> \<epsilon>\<open>ok k\<close>, Err(e) \<Rightarrow> \<epsilon>\<open>err e\<close> } \<close>
-
 lemma wp_result_casesI:
   assumes \<open>\<And>k. x = Ok k \<Longrightarrow> \<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> (ok k) \<psi> \<rho> \<theta>\<close>
      and \<open>\<And>e. x = Err e \<Longrightarrow> \<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> (err e) \<psi> \<rho> \<theta>\<close>
-   shows \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> (wp_result_casesI_expr1 x ok err) \<psi> \<rho> \<theta>\<close>
+   shows
+     \<open>
+       \<phi> \<longlongrightarrow>
+       \<W>\<P> \<Gamma>
+         (do {
+           case_value \<leftarrow> literal x;
+           case case_value of Ok k \<Rightarrow> ok k | Err e \<Rightarrow> err e
+         })
+         \<psi> \<rho> \<theta>
+     \<close>
   using assms by (clarsimp simp add: wp_result_cases split!: result.splits)
 
 lemma wp_get:

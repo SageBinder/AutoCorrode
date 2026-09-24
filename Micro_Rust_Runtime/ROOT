@@ -3,6 +3,7 @@ session Micro_Rust_Runtime = HOL +
   sessions
     "HOL-Eisbach"
     "HOL-Library"
+    Micro_Rust_Parser_Impl
     Shallow_Micro_Rust
     Separation_Lenses
     Shallow_Separation_Logic

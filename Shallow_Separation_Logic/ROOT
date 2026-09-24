@@ -3,7 +3,6 @@ session Shallow_Separation_Logic = HOL +
   sessions
     "HOL-Eisbach"
     "HOL-Library"
-    Micro_Rust_Parser_Impl
     Shallow_Micro_Rust
   theories
     Adequacy
