@@ -43,7 +43,16 @@ An HTML rendering of the AutoCorrode source code is available [here](https://aws
 
 AutoCorrode requires Isabelle2025-2, which can be downloaded [here](https://isabelle.in.tum.de/website-Isabelle2025-2/). Set `ISABELLE_HOME` to the directory containing the `isabelle` binary.
 
-AutoCorrode also requires the [WordLib](https://www.isa-afp.org/entries/Word_Lib.html) AFP entry. Set `AFP_COMPONENT_BASE` to the directory contaning the `Word_Lib` directory. By default, AutoCorrode expects it to be located in [dependencies/afp](dependencies/afp).
+AutoCorrode also requires the [WordLib](https://www.isa-afp.org/entries/Word_Lib.html) AFP entry. Set `AFP_COMPONENT_BASE` to the directory containing the `Word_Lib` directory. By default, AutoCorrode expects it to be located in [dependencies/afp](dependencies/afp).
+
+The isolated C parser baseline additionally uses the pinned AFP
+[Isabelle/C](https://www.isa-afp.org/entries/Isabelle_C.html) entry. Set `AFP_SOURCE_BASE` to the
+`thys` directory of the pinned AFP checkout, then run `make prepare-isabelle-c` followed by
+`make build-isabelle-c` or `make build-micro-c-isabelle-c-adapter`. Preparation copies and patches
+Isabelle/C under the ignored worktree-local `dependencies/afp`; it never modifies the AFP source
+checkout. The C build targets also use an ignored worktree-local Isabelle user directory to avoid
+conflicts with globally registered AFP snapshots. Ordinary AutoCorrode and µRust targets continue
+to require only `Word_Lib`.
 
 ## Usage
 
@@ -138,6 +147,14 @@ This session define locales for modelling the verification context. For example,
 This session provides language-neutral source-position, reporting, parser-driver, and runtime-lock
 support for Isabelle_Lex-Yacc frontends. Language-specific grammar, AST, binder, and elaboration
 policy remains in each frontend. See the session [README](Parser_Common/README.md).
+
+### Micro_C_Isabelle_C_Adapter
+
+This separately built session is the sole Isabelle/C import boundary. Its current baseline checks
+only that the pinned, compatibility-patched frontend parses two complete C translation units,
+including a function with `unsigned long long` parameters. It intentionally provides no C AST
+traversal, scalar semantics, or lowering yet and is omitted from top-level `ROOTS` so ordinary
+AutoCorrode and µRust builds do not acquire an Isabelle/C dependency.
 
 ### Micro_Rust_Parser_Impl and Micro_Rust_Parser_Tests
 

@@ -1,0 +1,6 @@
+session Micro_C_Isabelle_C_Adapter = HOL +
+  options [document = false]
+  sessions
+    Isabelle_C
+  theories [document = false]
+    Micro_C_Isabelle_C_Adapter

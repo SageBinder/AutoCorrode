@@ -38,7 +38,8 @@ ML_val\<open>
     open Language_Isolation_Dependency_Audit
 
     val forbidden =
-      ["Micro_Rust_Parser_Impl", "Micro_Rust_Parsing_Legacy_Frontend", "Isabelle_C"]
+      ["Micro_Rust_Parser_Impl", "Micro_Rust_Parsing_Legacy_Frontend",
+       "Micro_C_Isabelle_C_Adapter", "Isabelle_C"]
 
     fun assert message condition =
       if condition then () else error ("dependency-audit unit test: " ^ message)

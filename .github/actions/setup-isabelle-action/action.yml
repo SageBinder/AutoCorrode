@@ -8,13 +8,20 @@ runs:
     - name: Checkout AFP
       uses: actions/checkout@v3
       with:
-        repository: isabelle-prover/mirror-afp-2025-1
+        repository: isabelle-prover/mirror-afp-2025-2
+        ref: 42452c8a5661996af380ce4ee01c253a3ec8fa52
         path: afp
 
     - name: Set AFP component base
       shell: bash
       run: |
         echo "AFP_COMPONENT_BASE=afp/thys" >> $GITHUB_ENV
+        echo "AFP_SOURCE_BASE=afp/thys" >> $GITHUB_ENV
+
+    - name: Register Isabelle_Lex-Yacc
+      shell: bash
+      run: |
+        /home/isabelle/Isabelle/bin/isabelle components -u afp/thys/Isabelle_Lex-Yacc
 
     - name: Set Isabelle home
       shell: bash
@@ -35,4 +42,4 @@ runs:
       uses: actions/cache@v3
       with:
         path: ${{ env.ISABELLE_HOME_USER }}/heaps/
-        key: heap-images-${{ github.ref_name }}
+        key: heap-images-isabelle2025-2-afp-42452c8-${{ github.ref_name }}

@@ -41,6 +41,7 @@ ML_val\<open>
          "Micro_Rust_Parser_Impl",
          "Shallow_Micro_Rust_Base",
          "Shallow_Micro_Rust",
+         "Micro_C_Isabelle_C_Adapter",
          "Isabelle_C",
          "C"]
         ctxt

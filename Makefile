@@ -8,8 +8,10 @@
 ######################################################################
 
 .DEFAULT_GOAL: jedit
-.PHONY: register-afp-components build parser-tests jedit tutorial \
-        build-ic2 ic2 ic2-status ic2-stop
+.PHONY: register-afp-components prepare-isabelle-c test-isabelle-c-preparation \
+        check-isabelle-c-boundary build-isabelle-c \
+        build-micro-c-isabelle-c-adapter language-isolation-tests c-baseline \
+        build parser-tests jedit tutorial build-ic2 ic2 ic2-status ic2-stop
 
 # Set this to the directory containing the Isabelle2025-2 binary
 ISABELLE_HOME?=/Applications/Isabelle2025-2.app/bin
@@ -17,6 +19,18 @@ ISABELLE_HOME?=/Applications/Isabelle2025-2.app/bin
 USER_HOME?=$(HOME)
 # Set this to where you maintain, or want to maintain, AFP dependencies
 AFP_COMPONENT_BASE?=./dependencies/afp
+# Source checkout for the pinned AFP Isabelle/C entry. The preparation step
+# copies and patches this component under the worktree instead of changing the
+# source checkout.
+AFP_SOURCE_BASE?=$(AFP_COMPONENT_BASE)
+# Worktree-private destination for the patched Isabelle/C component.
+ISABELLE_C_COMPONENT_BASE?=./dependencies/afp
+# Isolate C baseline heaps and component registrations from machine-global AFP
+# installations, which may provide another session named Isabelle_C. Isabelle
+# derives ISABELLE_HOME_USER from USER_HOME during startup.
+ISABELLE_C_USER_HOME?=$(abspath ./dependencies/isabelle-c-user-home)
+# Isabelle/C depends on the Isar_Ref documentation session.
+ISABELLE_DOC_DIR?=$(abspath $(ISABELLE_HOME)/../src/Doc)
 # Set this option to accept `sorry`'ed proofs
 ifdef QUICK_AND_DIRTY
 	ISABELLE_FLAGS += -o quick_and_dirty
@@ -45,6 +59,40 @@ jedit: register-afp-components
 
 register-afp-components:
 	$(ISABELLE_HOME)/isabelle components -u $(AFP_COMPONENT_BASE)/Word_Lib
+
+prepare-isabelle-c:
+	AFP_SOURCE_BASE="$(AFP_SOURCE_BASE)" \
+		ISABELLE_C_COMPONENT_BASE="$(ISABELLE_C_COMPONENT_BASE)" \
+		./tools/isabelle-c/prepare-isabelle-c.sh
+
+test-isabelle-c-preparation:
+	AFP_SOURCE_BASE="$(AFP_SOURCE_BASE)" \
+		./tools/isabelle-c/test-prepare-isabelle-c.sh
+
+check-isabelle-c-boundary:
+	./tools/isabelle-c/check-isabelle-c-boundary.sh
+
+build-isabelle-c: prepare-isabelle-c
+	USER_HOME="$(ISABELLE_C_USER_HOME)" \
+		$(ISABELLE_HOME)/isabelle build $(ISABELLE_FLAGS) -o document=false \
+		-d "$(ISABELLE_DOC_DIR)" \
+		-d "$(ISABELLE_C_COMPONENT_BASE)/Isabelle_C" \
+		Isabelle_C
+
+build-micro-c-isabelle-c-adapter: build-isabelle-c
+	USER_HOME="$(ISABELLE_C_USER_HOME)" \
+		$(ISABELLE_HOME)/isabelle build $(ISABELLE_FLAGS) -o document=false \
+		-d "$(ISABELLE_DOC_DIR)" \
+		-d "$(ISABELLE_C_COMPONENT_BASE)/Isabelle_C" \
+		-d Micro_C_Isabelle_C_Adapter \
+		Micro_C_Isabelle_C_Adapter
+
+language-isolation-tests: register-afp-components
+	$(ISABELLE_HOME)/isabelle build $(ISABELLE_FLAGS) -o document=false -d . \
+		Language_Isolation_Tests
+
+c-baseline: test-isabelle-c-preparation check-isabelle-c-boundary \
+            build-micro-c-isabelle-c-adapter language-isolation-tests build
 
 build: register-afp-components
 	$(ISABELLE_HOME)/isabelle build $(ISABELLE_FLAGS) -d . AutoCorrode
