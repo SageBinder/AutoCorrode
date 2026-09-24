@@ -3,6 +3,8 @@ theory Parser_Rust_Function_Tests
 begin
 
 declare [[urust_pp_test = true]]
+declare [[urust_pretty = true]]
+declare [[urust_verbosity = 2]]
 
 section\<open> Rust-shaped function items \<close>
 

@@ -9,12 +9,13 @@ theory Parser_Command_Tests
     Parser_Logging_Fixtures
 begin
 
-chapter\<open>Parser facade\<close>
-
 declare [[urust_pp_test = true]]
-declare [[urust_verbosity = 0]]
+declare [[urust_pretty = true]]
+declare [[urust_verbosity = 2]]
 declare [[urust_abbrev = false]]
 declare [[urust_application_def = false]]
+
+chapter\<open>Parser facade\<close>
 
 section\<open> Parser facade smoke test \<close>
 
@@ -28,7 +29,8 @@ thm smoke_num_def smoke_sfx_def smoke_unit_def
 chapter\<open>Typed expression and shared command API\<close>
 
 declare [[urust_pp_test = true]]
-declare [[urust_verbosity = 0]]
+declare [[urust_pretty = true]]
+declare [[urust_verbosity = 2]]
 declare [[urust_abbrev = false]]
 declare [[urust_application_def = false]]
 

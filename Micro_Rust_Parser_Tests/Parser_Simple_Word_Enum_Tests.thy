@@ -7,7 +7,9 @@ theory Parser_Simple_Word_Enum_Tests
     Micro_Rust_Parser_Impl.Parser_Impl_Command
 begin
 
-declare [[urust_verbosity = 0]]
+declare [[urust_pp_test = true]]
+declare [[urust_pretty = true]]
+declare [[urust_verbosity = 2]]
 
 section\<open>Simple word enum path resolution\<close>
 

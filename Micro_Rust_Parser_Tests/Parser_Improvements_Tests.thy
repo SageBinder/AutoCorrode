@@ -10,6 +10,8 @@ theory Parser_Improvements_Tests
 begin
 
 declare [[urust_pp_test = true]]
+declare [[urust_pretty = true]]
+declare [[urust_verbosity = 2]]
 
 text\<open>
 Each example exercises syntax accepted by the production parser beyond the

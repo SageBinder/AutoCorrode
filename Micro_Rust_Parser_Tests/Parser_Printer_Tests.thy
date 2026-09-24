@@ -3,6 +3,8 @@ theory Parser_Printer_Tests
 begin
 
 declare [[urust_pp_test = true]]
+declare [[urust_pretty = true]]
+declare [[urust_verbosity = 2]]
 
 section\<open> Canonical AST printer \<close>
 
@@ -827,7 +829,10 @@ ML_val\<open>
             ("urust_pretty_warnings_" ^ source_name)
             ([]: string list)
         fun collect target chunks =
-          Synchronized.change target (append chunks)
+          if Position.file_of (Position.thread_data ()) =
+              SOME source_name
+          then Synchronized.change target (append chunks)
+          else ()
         val _ =
           Parser_Test_Report_Lock.run (fn () =>
             Unsynchronized.setmp Private_Output.warning_fn

@@ -2,6 +2,10 @@ theory Parser_Registered_Constructor_Fixtures
   imports Parser_Test_Utils
 begin
 
+declare [[urust_pp_test = true]]
+declare [[urust_pretty = true]]
+declare [[urust_verbosity = 2]]
+
 text\<open>
 Shared registered-constructor fixtures used by negative tests and the structural regression
 audits. Keeping these declarations neutral avoids making either test suite import the other.

@@ -5,6 +5,8 @@ theory Parser_Showcase_Tests
 begin
 
 declare [[urust_pp_test = true]]
+declare [[urust_pretty = true]]
+declare [[urust_verbosity = 2]]
 
 section\<open> Showcase \<close>
 

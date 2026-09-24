@@ -118,6 +118,8 @@ signature URUST_COMMAND =
 sig
   datatype elaboration_kind = Expression | Function
 
+  val urust_pp_test: bool Config.T
+
   val elaborate:
     local_theory ->
       {kind: elaboration_kind,

@@ -4,6 +4,10 @@ theory Parser_Iterator_Fixtures
     Shallow_Micro_Rust.Eval
 begin
 
+declare [[urust_pp_test = true]]
+declare [[urust_pretty = true]]
+declare [[urust_verbosity = 2]]
+
 section\<open>Shared iterator fixtures\<close>
 
 type_synonym zip_left_iterator =

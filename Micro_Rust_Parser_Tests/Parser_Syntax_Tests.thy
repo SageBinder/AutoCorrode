@@ -3,7 +3,8 @@ theory Parser_Syntax_Tests
 begin
 
 declare [[urust_pp_test = true]]
-declare [[urust_verbosity = 0]]
+declare [[urust_pretty = true]]
+declare [[urust_verbosity = 2]]
 
 section\<open>AST source layouts\<close>
 
@@ -5061,7 +5062,7 @@ ML_val\<open>
 
 chapter\<open>Logging\<close>
 
-declare [[urust_verbosity = 0]]
+declare [[urust_verbosity = 2]]
 declare [[urust_abbrev = false]]
 
 
@@ -5195,7 +5196,7 @@ built-in message macro in this import context. The expression suite does not imp
 
 chapter\<open>Yield and logging audits\<close>
 
-declare [[urust_verbosity = 0]]
+declare [[urust_verbosity = 2]]
 declare [[urust_abbrev = false]]
 
 section\<open> Yield and logging structural audit \<close>
@@ -5743,7 +5744,7 @@ ML_val\<open>
 
 chapter\<open>Comments\<close>
 
-declare [[urust_verbosity = 0]]
+declare [[urust_verbosity = 2]]
 declare [[urust_abbrev = false]]
 
 section\<open> Nested Rust block comments \<close>
@@ -6109,7 +6110,7 @@ urust_expr isabelle_comment_document_antiquotations
     ()
   \<close>
 
-declare [[urust_verbosity = 1]]
+declare [[urust_verbosity = 2]]
 
 urust_fn isabelle_comment_function ::
   \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
@@ -6119,7 +6120,7 @@ urust_fn isabelle_comment_function ::
     item \<comment> \<open>Inline function-body comment.\<close>
   \<close>
 
-declare [[urust_verbosity = 0]]
+declare [[urust_verbosity = 2]]
 
 
 subsection\<open> Specialized lexer contexts \<close>
@@ -6525,7 +6526,8 @@ ML_val\<open>
 section\<open>Array repeats\<close>
 
 declare [[urust_pp_test = true]]
-declare [[urust_verbosity = 0]]
+declare [[urust_pretty = true]]
+declare [[urust_verbosity = 2]]
 declare [[urust_abbrev = false]]
 
 definition repeat_global_length :: \<open>64 word\<close>

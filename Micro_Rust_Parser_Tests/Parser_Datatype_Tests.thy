@@ -3,6 +3,8 @@ theory Parser_Datatype_Tests
 begin
 
 declare [[urust_pp_test = true]]
+declare [[urust_pretty = true]]
+declare [[urust_verbosity = 2]]
 
 section\<open> Rust datatype declarations \<close>
 
@@ -1568,17 +1570,18 @@ ML_val \<open>
 
 section\<open> Command diagnostics and output \<close>
 
-declare [[urust_pp_test = false]]
-declare [[urust_pretty = false]]
-
 ML_val \<open>
   local
     fun run_command interactive source_name command_text () =
       let
         val thy = \<^theory>
+        val quiet_baseline =
+          "declare [[urust_pp_test = false, " ^
+          "urust_pretty = false, urust_verbosity = 0]]\n"
         val transitions =
           Outer_Syntax.parse_text thy (K thy)
-            (Position.line_file 1 source_name) command_text
+            (Position.line_file 1 source_name)
+            (quiet_baseline ^ command_text)
       in
         fold (Toplevel.command_exception interactive) transitions
           (Toplevel.make_state (SOME thy))
@@ -1596,7 +1599,10 @@ ML_val \<open>
           Synchronized.var
             ("urust_datatype_" ^ source_name) ([]: string list)
         fun capture chunks =
-          Synchronized.change captured (append chunks)
+          if Position.file_of (Position.thread_data ()) =
+              SOME source_name
+          then Synchronized.change captured (append chunks)
+          else ()
         val result =
           Parser_Test_Report_Lock.run (fn () =>
             Unsynchronized.setmp Private_Output.writeln_fn capture
@@ -1620,7 +1626,10 @@ ML_val \<open>
             ("urust_datatype_full_reports_" ^ source_name)
             ([]: string list)
         fun collect target chunks =
-          Synchronized.change target (append chunks)
+          if Position.file_of (Position.thread_data ()) =
+              SOME source_name
+          then Synchronized.change target (append chunks)
+          else ()
         val result =
           Parser_Test_Report_Lock.run (fn () =>
             Unsynchronized.setmp Private_Output.report_fn
@@ -1652,7 +1661,10 @@ ML_val \<open>
             ("urust_datatype_warnings_" ^ source_name)
             ([]: string list)
         fun collect chunks =
-          Synchronized.change warnings (append chunks)
+          if Position.file_of (Position.thread_data ()) =
+              SOME source_name
+          then Synchronized.change warnings (append chunks)
+          else ()
         val result =
           Parser_Test_Report_Lock.run (fn () =>
             Unsynchronized.setmp Private_Output.warning_fn collect
