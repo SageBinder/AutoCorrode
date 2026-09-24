@@ -6,6 +6,7 @@ session Shallow_Computation = HOL +
     Misc
     Lenses_And_Other_Optics
   theories [document = false]
+    Semantic_Navigation
     Case_Term_Backend
     Core_Expression
     Core_Expression_Lemmas

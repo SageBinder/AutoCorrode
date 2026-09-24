@@ -20,7 +20,7 @@ consts
   semantic_navigation_probe :: \<open>'a \<Rightarrow> 'b \<Rightarrow> 'b\<close>
 
 ML\<open>
-signature MICRO_RUST_SEMANTIC_NAVIGATION =
+signature SEMANTIC_NAVIGATION =
 sig
   datatype target_kind = Primary | Secondary
   type reports
@@ -45,8 +45,8 @@ sig
     term -> term -> term
 end
 
-structure Micro_Rust_Semantic_Navigation
-  :> MICRO_RUST_SEMANTIC_NAVIGATION =
+structure Semantic_Navigation
+  :> SEMANTIC_NAVIGATION =
 struct
   datatype target_kind = Primary | Secondary
 
@@ -72,7 +72,7 @@ struct
        SOME reports => reports := event :: !reports
      | NONE =>
          error
-           "Micro_Rust_Semantic_Navigation: no active report capture")
+           "Semantic_Navigation: no active report capture")
 
   fun capture action =
     (case Thread_Data.get active_reports of
@@ -124,7 +124,7 @@ struct
   fun with_source_position pos action =
     with_source [pos] action
 
-  val payload_prefix = "_urust_semantic_navigation_payload___"
+  val payload_prefix = "_semantic_navigation_payload___"
   val payload_sep = String.str (Char.chr 0)
 
   fun strip_file pos =
@@ -144,7 +144,7 @@ struct
     | tag_kind "secondary" = Secondary
     | tag_kind tag =
         error
-          ("Micro_Rust_Semantic_Navigation: malformed target kind " ^
+          ("Semantic_Navigation: malformed target kind " ^
             quote tag)
 
   fun mk_payload kind positions =
@@ -167,7 +167,7 @@ struct
                     (Term_Position.decode encoded_positions))
            | _ =>
                error
-                 "Micro_Rust_Semantic_Navigation: malformed target payload")
+                 "Semantic_Navigation: malformed target payload")
         else NONE
     | dest_payload _ = NONE
 
@@ -335,7 +335,7 @@ struct
             resolved
         then
           error
-            ("Micro_Rust_Semantic_Navigation: internal target marker " ^
+            ("Semantic_Navigation: internal target marker " ^
               "survived checking")
         else ()
 
@@ -370,9 +370,11 @@ struct
 
   val _ =
     Context.>>
-      (Syntax_Phases.term_check 2 "micro_rust_semantic_navigation"
+      (Syntax_Phases.term_check 2 "semantic_navigation"
         resolve_markers)
 end
+
+structure Micro_Rust_Semantic_Navigation = Semantic_Navigation
 \<close>
 
 end

@@ -8,7 +8,6 @@ session Shallow_Micro_Rust = HOL +
     Lenses_And_Other_Optics
     Shallow_Computation
   theories [document = false]
-    Semantic_Navigation
     Core_Expression_Profile
     Bool_Type
     Option_Type

@@ -13,7 +13,7 @@
 
 theory Micro_Rust_Notations
   imports
-    Semantic_Navigation
+    Shallow_Computation.Semantic_Navigation
   keywords
     "micro_rust_notation" :: thy_decl and
     "print_micro_rust_notations" :: diag

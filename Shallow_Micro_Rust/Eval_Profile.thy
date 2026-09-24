@@ -7,6 +7,7 @@ theory Eval_Profile
     Core_Expression_Lemmas_Profile
     "HOL-Library.Datatype_Records"
     Numeric_Types_Lemmas
+    Prompts_And_Responses
 begin
 
 named_theorems urust_eval_predicate_defs

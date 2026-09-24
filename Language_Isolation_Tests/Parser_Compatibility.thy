@@ -3,11 +3,10 @@
 
 theory Parser_Compatibility
   imports
+    Micro_Rust_Parser_Impl.Parser_Impl_Command
     Shallow_Micro_Rust.Eval_Profile
     Dependency_Audit
 begin
-
-declare [[urust_conformance = true]]
 
 urust_expr [attrs = [micro_rust_simps]] isolation_parser_literal
   (x)

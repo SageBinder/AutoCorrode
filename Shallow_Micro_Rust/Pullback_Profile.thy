@@ -5,6 +5,7 @@ theory Pullback_Profile
   imports
     Shallow_Computation.Pullback
     Eval_Profile
+    Prompts_And_Responses
 begin
 
 setup \<open>Sign.root_path #> Sign.add_path "Pullback"\<close>
@@ -15,8 +16,11 @@ context
 begin
 
 lemma canonical_pull_back_yield_handler_no_yield[simp]:
-  shows \<open>canonical_pull_back_yield_handler l yield_handler_no_yield =
-            yield_handler_no_yield\<close>
+  shows \<open>canonical_pull_back_yield_handler l
+      (yield_handler_no_yield ::
+        ('b, 'abort, 'i prompt, 'o prompt_output) yield_handler_nondet_basic) =
+    (yield_handler_no_yield ::
+      ('a, 'abort, 'i prompt, 'o prompt_output) yield_handler_nondet_basic)\<close>
   unfolding fun_eq_iff
   by (simp add: canonical_pull_back_yield_handler_def yield_handler_no_yield_def
                 lift_yield_result_def LV lens_laws_update(2))
