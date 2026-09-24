@@ -472,6 +472,49 @@ type enum_info = {
   report: bool
 }
 
+fun morph_case_result phi
+    ({ case_const, case_def, match_def, index_def, indices }:
+      Case_For_Typedef.case_result) : Case_For_Typedef.case_result =
+  { case_const = Morphism.term phi case_const,
+    case_def = Morphism.thm phi case_def,
+    match_def = Morphism.thm phi match_def,
+    index_def = Morphism.thm phi index_def,
+    indices = map (Morphism.thm phi) indices }
+
+fun morph_enum_info phi
+    ({ type_name, urust_name, absT, wordT, width, variant_bindings,
+       variant_consts, words, variants_const, variants_def, variants_distinct,
+       variants_alt, all_const, all_def, all_concrete, all_distinct, all_total,
+       type_definition, Abs_name, Rep_name, case_result, rep_defs, defs, timer,
+       report }: enum_info) : enum_info =
+  { type_name = type_name,
+    urust_name = urust_name,
+    absT = Morphism.typ phi absT,
+    wordT = Morphism.typ phi wordT,
+    width = width,
+    variant_bindings = map (Morphism.binding phi) variant_bindings,
+    variant_consts = map (Morphism.term phi) variant_consts,
+    words = map (Morphism.term phi) words,
+    variants_const = Morphism.term phi variants_const,
+    variants_def = Morphism.thm phi variants_def,
+    variants_distinct = Morphism.thm phi variants_distinct,
+    variants_alt = Morphism.thm phi variants_alt,
+    all_const = Morphism.term phi all_const,
+    all_def = Morphism.thm phi all_def,
+    all_concrete = Morphism.thm phi all_concrete,
+    all_distinct = Morphism.thm phi all_distinct,
+    all_total = Morphism.thm phi all_total,
+    type_definition = Morphism.thm phi type_definition,
+    Abs_name = Abs_name,
+    Rep_name = Rep_name,
+    case_result = morph_case_result phi case_result,
+    rep_defs = rep_defs,
+    defs = defs,
+    timer = timer,
+    report = report }
+
+val transfer_enum_info = morph_enum_info o Morphism.transfer_morphism
+
 (* The plugin mechanism is Isabelle's own (Pure/Tools/plugin.ML), as used by datatype,
    typedef and bnf_lfp_size: registered plugins run by default and are selected per
    declaration with the `(plugins only:/del: ...)` group. *)
@@ -481,8 +524,14 @@ structure Enum_Plugin = Plugin(type T = enum_info)
    introduce sit beside the enum's own. Note we deliberately do *not* re-root the background
    naming the way Typedef.interpretation does: that would discard an enclosing local target
    (e.g. an `experiment`), and the enum's own constants --- `case_T` in particular --- live
-   inside it. *)
-fun interpretation name f = Enum_Plugin.interpretation name f
+   inside it.
+
+   An interpretation may first meet an enum when two independent theory branches merge.
+   Transfer the stored payload into that merged theory before the plugin combines its
+   theorems with the enum's theorems, as Ctr_Sugar does for its plugin payload. *)
+fun interpretation name f =
+  Enum_Plugin.interpretation name (fn info => fn lthy =>
+    f (transfer_enum_info (Proof_Context.theory_of lthy) info) lthy)
 
 (* Naming conventions for the generated constants and facts. *)
 fun variants_name type_name = type_name ^ "_variants"
@@ -530,31 +579,45 @@ fun define_variants type_name wordT words lthy =
     val ((const, def_thm), lthy) =
       define_const (variants_name type_name) (HOLogic.mk_list wordT words) lthy
 
-    (* distinct (list.map unat T_variants).
-
-       Normalize the backing words, cast the naturals injectively to integers, then
-       evaluate HOL's merge sort followed by distinct_adj. The integer representation keeps
-       code evaluation efficient for large word values. *)
+    (* distinct (list.map unat T_variants). *)
     val unatT = wordT --> HOLogic.natT
     val unat = Const (\<^const_name>\<open>unsigned\<close>, unatT)
     val mapped = \<^Const>\<open>map wordT HOLogic.natT\<close> $ unat $ const
     val goal = HOLogic.mk_Trueprop (\<^Const>\<open>distinct HOLogic.natT\<close> $ mapped)
     val distinct_thm = Goal.prove lthy [] [] goal (fn {context = ctxt, ...} =>
-      let
-        (* Keep mergesort and its efficient integer comparator opaque to simp.
-           Their code equations are used by eval after the surrounding word
-           and list expressions have been normalized. *)
-        val eval_ctxt =
-          ctxt delsimps
-            [@{thm Sorting_Algorithms.mergesort_is_sort},
-             @{thm comparator_linordered_group_def}]
-      in
+      (* Direct simp avoids eval's substantial fixed code-generation cost, but grows
+         quadratically with the number of variants. Local benchmarks put the crossover
+         near 100 variants. This cutoff is only a heuristic, but works well enough in
+         practice; exactly 100 variants takes the scalable eval path.
+
+         Applying the merge-sort distinctness lemma does not make simp a cheap n*log(n)
+         alternative. `mergesort_is_sort` is a simp rule that rewrites merge sort to
+         insertion sort; deleting it leaves merge sort opaque because its recursive
+         equation is a code equation, not a simp rule. Shape-specific recursive simp
+         rules can retain the n*log(n) comparison count, but simp must then reduce
+         length/div/take/drop/merge and construct all intermediate proof terms. In local
+         benchmarks this took about 15 s for 256 variants and 56 s for 512, versus about
+         2 s and 4 s with eval. *)
+      if length words < 100 then
         Local_Defs.unfold_tac ctxt [def_thm] THEN
-        resolve_tac ctxt
-          [@{thm simple_word_enum_distinct_iff_distinct_adj_mergesort_int[THEN iffD2]}] 1 THEN
-        simp_tac eval_ctxt 1 THEN
-        closed_eval_tac eval_ctxt
-      end)
+        simp_tac ctxt 1
+      else
+        let
+          (* Normalize the backing words, cast the naturals injectively to integers, then
+             evaluate HOL's merge sort followed by distinct_adj. Keep mergesort and its
+             efficient integer comparator opaque to simp: their code equations are used
+             by eval after the surrounding word and list expressions have been normalized. *)
+          val eval_ctxt =
+            ctxt delsimps
+              [@{thm Sorting_Algorithms.mergesort_is_sort},
+               @{thm comparator_linordered_group_def}]
+        in
+          Local_Defs.unfold_tac ctxt [def_thm] THEN
+          resolve_tac ctxt
+            [@{thm simple_word_enum_distinct_iff_distinct_adj_mergesort_int[THEN iffD2]}] 1 THEN
+          simp_tac eval_ctxt 1 THEN
+          closed_eval_tac eval_ctxt
+        end)
     val (distinct_thm, lthy) =
       note_thm (variants_distinct_name type_name) [] distinct_thm lthy
   in ((const, def_thm, distinct_thm, mapped), lthy) end

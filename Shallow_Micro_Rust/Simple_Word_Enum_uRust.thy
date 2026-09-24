@@ -57,27 +57,25 @@ want \<open>\<mu>Rust\<close> notation. It can also be suppressed explicitly wit
 because \<^verbatim>\<open>urust_notation\<close> is also an outer command keyword in this session.
 
 Note that \<^verbatim>\<open>Name::Ci\<close> is a \<^verbatim>\<open>::\<close>-path, which the \<open>\<mu>Rust\<close> frontend's grammar already parses, so
-no bespoke grammar production is needed --- the dispatch-table entry alone suffices. A
-\<^verbatim>\<open>urust:\<close> name that is not a plain identifier is therefore rejected up front, rather than
-producing a registration whose use sites could never parse.\<close>
+no bespoke grammar production is needed --- the dispatch-table entry alone suffices. The
+\<^verbatim>\<open>urust:\<close> prefix may itself be a path, for example
+\<^verbatim>\<open>Register::Field::Value\<close>; every path segment must be an identifier.\<close>
 
 ML \<open>
 (* Shared by both plugins below: the `urust:` name, validated, or NONE when the declaration
    gave none (in which case both plugins are no-ops). *)
 structure Simple_Word_Enum_uRust = struct
 
-(* The name has to be a plain identifier: it becomes the head of a ::-path, and anything else
-   (turbofish, `!`, ...) would need a bespoke grammar production that neither plugin emits.
-   Rejecting here gives a message pointing at the declaration rather than at a later,
-   mysterious parse failure. *)
+(* The name becomes the prefix of a ::-path. Plain identifiers and existing ::-paths are
+   accepted by the ordinary uRust identifier grammar; turbofish, macros, malformed paths,
+   and similar bespoke syntax are rejected here so the error points at the declaration. *)
 fun urust_name_of (info: Simple_Word_Enum.enum_info) =
   case #urust_name info of
     NONE => NONE
   | SOME name =>
-      if Symbol_Pos.is_identifier name then SOME name
+      if Micro_Rust_Notation_Cmd.is_identifier_path name then SOME name
       else error ("simple_word_enum " ^ #type_name info ^ ": urust name " ^ quote name ^
-        " is not a plain identifier, so " ^ quote (name ^ "::<item>") ^
-        " would not parse as a uRust path")
+        " is not an identifier or ::-separated identifier path")
 
 (* Register `rust_name` as a uRust notation for the term `t`, in the given kind. This is what
    `micro_rust_notation (<kind>) <term> ("<rust_name>")` does; `Name::item` is a ::-path, which
@@ -302,6 +300,33 @@ ML \<open>
 text\<open>Parser-level checks that these registrations resolve the source paths
 \<^verbatim>\<open>MessageKind::MK_Ping\<close>, \<^verbatim>\<open>MessageKind::MK_Pong\<close>, and
 \<^verbatim>\<open>MessageKind::MK_Data\<close> live in
+\<^file>\<open>../Micro_Rust_Parser_Tests/Parser_Simple_Word_Enum_Tests.thy\<close>.\<close>
+
+text\<open>The \<^verbatim>\<open>urust:\<close> prefix may itself be a path. The plugins append the variant and
+conversion names to the whole prefix.\<close>
+
+simple_word_enum (8) path_kind urust: "Outer::Inner::PathKind" =
+    PK_First = 1
+  | PK_Second = 2
+
+ML \<open>
+  let
+    fun lookup kind name = Micro_Rust_Names.lookups @{context} kind name
+    val prefix = "Outer::Inner::PathKind"
+  in
+    @{assert} (length (lookup Micro_Rust_Names.NLiteral (prefix ^ "::PK_First")) = 1);
+    @{assert} (length (lookup Micro_Rust_Names.NLiteral (prefix ^ "::PK_Second")) = 1);
+    @{assert} (length (lookup Micro_Rust_Names.NFunction (prefix ^ "::to_u8")) = 1);
+    @{assert} (length (lookup Micro_Rust_Names.NFunction (prefix ^ "::try_from")) = 1);
+    writeln "path-valued urust: prefix registered"
+  end
+\<close>
+
+text\<open>A path-valued prefix is deliberately only a notation-registration feature here.
+Nested pattern leaves retain their existing behaviour and do not resolve a registered
+\<^verbatim>\<open>Path::Variant\<close> through the notation table. Bare HOL variant constants are recognized
+through Isabelle's case-translation registry. Parser-level checks for the path-qualified
+variant and functions, together with a nested bare-variant match, live in
 \<^file>\<open>../Micro_Rust_Parser_Tests/Parser_Simple_Word_Enum_Tests.thy\<close>.\<close>
 
 text\<open>The lifted conversion functions exist and are \<^const>\<open>lift_fun1\<close> of the pure ones.\<close>

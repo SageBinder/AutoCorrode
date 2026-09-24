@@ -59,6 +59,35 @@ lemma parser_message_kind_round_trip_value:
       message_kind_to_u32_def message_kind_try_from_u32_def
       message_kind_to_u32_pure_then_try_from)
 
+urust_expr parser_path_kind_first
+  \<open> Outer::Inner::PathKind::PK_First \<close>
+
+urust_expr parser_path_kind_to_u8
+  (e)
+  \<open> Outer::Inner::PathKind::to_u8(e) \<close>
+
+urust_expr parser_path_kind_try_from
+  (w)
+  \<open> Outer::Inner::PathKind::try_from(w) \<close>
+
+lemma parser_path_kind_paths:
+  shows \<open>parser_path_kind_first = literal PK_First\<close>
+    and \<open>parser_path_kind_to_u8 e =
+      funcall1 path_kind_to_u8 (literal e)\<close>
+    and \<open>parser_path_kind_try_from w =
+      funcall1 path_kind_try_from_u8 (literal w)\<close>
+  by (simp_all only: parser_path_kind_first_def parser_path_kind_to_u8_def
+      parser_path_kind_try_from_def)
+
+urust_expr parser_path_kind_nested_bare_match
+  (x, y)
+  \<open>
+    match (x, y) {
+      (PK_First, PK_Second) \<Rightarrow> true,
+      _ \<Rightarrow> false
+    }
+  \<close>
+
 urust_expr parser_convs_only_try_from
   (w)
   \<open> ConvsOnly::try_from(w) \<close>

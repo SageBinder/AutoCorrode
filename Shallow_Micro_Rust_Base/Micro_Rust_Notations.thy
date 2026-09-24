@@ -1062,6 +1062,18 @@ fun check_forced_kind kind ctxt t =
          Pretty.block [Pretty.str "Type: ", Syntax.pretty_typ ctxt T]]))
   end;
 
+\<comment>\<open>A Rust notation name is an identifier path when it consists of one or
+  more identifier segments separated by exactly \<open>::\<close>. Parser-aware commands
+  may use this shared predicate when validating names before registration.\<close>
+fun is_identifier_path name =
+  let
+    val segments = String.tokens (fn c => c = #":") name
+  in
+    not (null segments)
+      andalso space_implode "::" segments = name
+      andalso forall Symbol_Pos.is_identifier segments
+  end;
+
 fun backend_const_of hol_src t0 lthy =
   (case Term.head_of t0 of
      Const (name, _) => SOME name
