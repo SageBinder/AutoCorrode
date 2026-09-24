@@ -49,11 +49,12 @@ arguments on the theorem's left-hand side, producing
 explicit arguments. Both forms install the same curried constant value, attributes, and code
 equation. The application form is useful when existing proofs fold a named
 sub-expression, while the default form remains suitable for rewriting a bare function constant.
-Pretty output follows the same shape: default definitions display source arguments as a uRust
-closure on the right-hand side, while application definitions display them only on the left.
-Zero-argument definitions are identical in either mode. Anonymous declarations are unchanged, and
-input abbreviations reject an effective \<open>application_def = true\<close>; an inline false value may
-override a true scoped setting.
+Pretty output is presentation-only: \<open>urust_fn\<close> displays source parameters on the left-hand side
+even for a default curried definition, while \<open>urust_expr\<close> retains source arguments as a uRust
+closure on the right. Application definitions also display arguments only on the left.
+Zero-argument definitions are identical in either mode. Anonymous declarations retain closure
+formals because they have no equation left-hand side. Input abbreviations reject an effective
+\<open>application_def = true\<close>; an inline false value may override a true scoped setting.
 \<open>urust_pp_test\<close> defaults to false. Its common Boolean inline alias is \<open>pp_test\<close>. When
 enabled, the parsed AST is serialized, reparsed without source positions, and compared through the
 position-independent serialized token stream before lowering. A successful check is silent. A
@@ -66,7 +67,11 @@ and anonymous results; true instead prints the same declaration heading and left
 right-hand side rendered as human-readable uRust inside a symbolic \<open>\<mu>\<open>...\<close>\<close> wrapper.
 The wrapper is presentation only and is unrelated to source quotation syntax. At verbosity 0 no
 result is printed; an effective \<open>pretty = true\<close> receives a warning because it has no effect.
-Source arguments appear as closure formals on the right unless
+Named \<open>urust_fn\<close> parameters appear on the left of \<open>\<equiv>\<close>; Rust-shaped function items print
+only their body on the right, omitting its outer braces and the documentary Rust name and signature.
+Printed function bodies are prefixed by \<open>FunctionBody\<close> before the symbolic uRust wrapper,
+distinguishing them from expression declarations.
+Other source arguments appear as closure formals on the right unless
 \<open>application_def = true\<close> puts them on the left.
 
 The scoped \<open>urust_abbrev\<close> configuration defaults to false and applies to both commands; the
@@ -694,11 +699,13 @@ fun elaborate lthy
 datatype declaration_result =
     Definition_Result of
       {lhs: term, display_lhs: term,
-       fact_name: string, theorem: thm,
+       fact_name: string, theorem: thm, kind: elaboration_kind,
+       pretty_lhs_arguments: string list,
        pretty_arguments: string list,
        pretty_body: Pretty.T option}
   | Abbreviation_Result of
-      {lhs: term, rhs: term, name: string,
+      {lhs: term, rhs: term, name: string, kind: elaboration_kind,
+       pretty_lhs_arguments: string list,
        pretty_arguments: string list,
        pretty_body: Pretty.T option}
   | Anonymous_Result of
@@ -748,7 +755,7 @@ fun declaration_name fallback lhs =
    | Free (name, _) => name
    | _ => fallback)
 
-fun install_urust_result abbreviation application_definition
+fun install_urust_result abbreviation application_definition kind
     attributes binding arguments pretty_body term lthy =
   let
     val name = Binding.name_of binding
@@ -778,6 +785,12 @@ fun install_urust_result abbreviation application_definition
            map fastype_of definition_parameters --->
              fastype_of term),
          definition_parameters @ map Free definition_arguments)
+    val pretty_argument_names = map #1 arguments
+    val (pretty_lhs_arguments, pretty_arguments) =
+      if application_definition then ([], [])
+      else if kind = Function
+      then (pretty_argument_names, [])
+      else ([], pretty_argument_names)
   in
     if abbreviation then
       let
@@ -788,8 +801,9 @@ fun install_urust_result abbreviation application_definition
           declaration_name (Local_Theory.full_name lthy binding) lhs
       in
         (Abbreviation_Result
-          {lhs = lhs, rhs = rhs, name = full_name,
-           pretty_arguments = map #1 arguments,
+          {lhs = lhs, rhs = rhs, name = full_name, kind = kind,
+           pretty_lhs_arguments = pretty_lhs_arguments,
+           pretty_arguments = pretty_arguments,
            pretty_body = pretty_body},
          Config.put Proof_Display.show_results show_results lthy')
       end
@@ -808,9 +822,9 @@ fun install_urust_result abbreviation application_definition
       in
         (Definition_Result
           {lhs = lhs, display_lhs = display_lhs,
-           fact_name = fact_name, theorem = theorem,
-           pretty_arguments =
-             if application_definition then [] else map #1 arguments,
+           fact_name = fact_name, theorem = theorem, kind = kind,
+           pretty_lhs_arguments = pretty_lhs_arguments,
+           pretty_arguments = pretty_arguments,
            pretty_body = pretty_body},
          Config.put Proof_Display.show_results show_results lthy')
       end
@@ -847,8 +861,8 @@ fun declare_urust_result pp_test render_pretty
   in
     (case target of
        Named_Target _ =>
-         install_urust_result abbreviation application_definition attributes binding
-           arguments pretty_body term lthy
+         install_urust_result abbreviation application_definition
+           kind attributes binding arguments pretty_body term lthy
      | Anonymous_Target _ =>
          (Anonymous_Result
             {term = term,
@@ -913,6 +927,13 @@ fun function_body_source source function =
   source_subrange source
     (URust_AST.expression_position
       (URust_AST.function_body function))
+
+fun function_pretty_body function =
+  (case URust_AST.function_body function of
+     URust_AST.UE_Block (body, _) => body
+   | _ =>
+       error
+         "urust_fn: internal Rust-shaped function body is not a block")
 
 fun function_arguments_position function =
   (case
@@ -998,31 +1019,34 @@ fun declare_urust_function_result pp_test render_pretty
     val pretty_body =
       if render_pretty then
         let
+          val body = function_pretty_body function
+          val arguments_pos =
+            function_arguments_position function
           fun reparse pretty_source =
-            (case URust_Parser.parse_function_source lthy pretty_source of
-               SOME pretty_function =>
-                 ignore
-                   (elaborate_function_item false lthy
-                     pretty_source raw_type pretty_function)
-             | NONE =>
-                 error "urust_fn: pretty function reparsed as empty input")
+            ignore
+              (elaborate_result false lthy
+                {kind = Function,
+                 source = pretty_source,
+                 arguments = arguments,
+                 arguments_pos = arguments_pos,
+                 declared_type = SOME raw_type})
         in
           SOME
-            (URust_Printer_Output.pretty_human_function_with_reparse
-              reparse function)
+            (URust_Printer_Output.pretty_human_expr_with_reparse
+              reparse body)
         end
       else NONE
     val (declaration, lthy') =
       (case target of
          Named_Target _ =>
            install_urust_result abbreviation application_definition
-             attributes binding arguments pretty_body term lthy
+             Function attributes binding arguments pretty_body term lthy
        | Anonymous_Target _ =>
            (Anonymous_Result
               {term = term,
                name = Local_Theory.full_name lthy binding,
                kind = Function,
-               pretty_arguments = [],
+               pretty_arguments = map #1 arguments,
                pretty_body = pretty_body},
             lthy))
     val lthy'' =
@@ -1105,11 +1129,29 @@ val symbolic_urust_open =
 val symbolic_urust_close =
   Pretty.mark_str (Markup.delimiter, Symbol.close)
 
+fun pretty_function_body lthy =
+  Pretty.mark
+    (Name_Space.markup
+      (Consts.space_of (Proof_Context.consts_of lthy))
+      \<^const_name>\<open>FunctionBody\<close>)
+    (Pretty.str "FunctionBody")
+
+fun pretty_urust_open _ Expression = symbolic_urust_open
+  | pretty_urust_open lthy Function =
+      Pretty.block
+        [pretty_function_body lthy,
+         Pretty.brk 1,
+         symbolic_urust_open]
+
+fun pretty_urust_argument "_" = Pretty.str "_"
+  | pretty_urust_argument argument =
+      Pretty.mark_str (Markup.bound, argument)
+
 fun pretty_urust_formals arguments =
   Pretty.block
     ([Pretty.mark_str (Markup.operator, "|")] @
      Pretty.commas
-       (map (Pretty.mark_str o pair Markup.bound) arguments) @
+       (map pretty_urust_argument arguments) @
      [Pretty.mark_str (Markup.operator, "|")])
 
 fun pretty_urust_lines opening arguments pretty_body =
@@ -1125,17 +1167,26 @@ fun pretty_urust_lines opening arguments pretty_body =
     Pretty.chunks (opening :: contents @ [symbolic_urust_close])
   end
 
-fun pretty_urust_equation lthy lhs pretty_arguments pretty_body =
+fun pretty_urust_lhs lthy lhs arguments =
+  Pretty.block
+    (Syntax.pretty_term
+       (Config.put Proof_Context.show_abbrevs false lthy)
+       lhs ::
+     maps
+       (fn argument =>
+         [Pretty.brk 1, pretty_urust_argument argument])
+       arguments)
+
+fun pretty_urust_equation lthy kind lhs pretty_lhs_arguments
+    pretty_arguments pretty_body =
   let
     val opening =
       Pretty.block1
-        [Syntax.pretty_term
-           (Config.put Proof_Context.show_abbrevs false lthy)
-           lhs,
+        [pretty_urust_lhs lthy lhs pretty_lhs_arguments,
          Pretty.brk 1,
          Pretty.str "\<equiv>",
          Pretty.str " ",
-         symbolic_urust_open]
+         pretty_urust_open lthy kind]
   in
     pretty_urust_lines opening pretty_arguments pretty_body
   end
@@ -1143,22 +1194,24 @@ fun pretty_urust_equation lthy lhs pretty_arguments pretty_body =
 fun pretty_urust_declaration lthy declaration =
   (case declaration of
      Definition_Result
-       {fact_name, display_lhs, pretty_arguments, pretty_body, ...} =>
+       {fact_name, display_lhs, kind, pretty_lhs_arguments,
+        pretty_arguments, pretty_body, ...} =>
        Pretty.chunks
          [pretty_declaration_heading "definition" fact_name,
-          pretty_urust_equation lthy display_lhs
-            pretty_arguments pretty_body]
+          pretty_urust_equation lthy kind display_lhs
+            pretty_lhs_arguments pretty_arguments pretty_body]
    | Abbreviation_Result
-       {lhs, name, pretty_arguments, pretty_body, ...} =>
+       {lhs, name, kind, pretty_lhs_arguments,
+        pretty_arguments, pretty_body, ...} =>
        Pretty.chunks
          [pretty_declaration_heading "abbreviation" name,
-          pretty_urust_equation lthy lhs
-            pretty_arguments pretty_body]
+          pretty_urust_equation lthy kind lhs
+            pretty_lhs_arguments pretty_arguments pretty_body]
    | Anonymous_Result
        {name, kind, pretty_arguments, pretty_body, ...} =>
        Pretty.chunks
        [pretty_declaration_heading (command_label kind) name,
-        pretty_urust_lines symbolic_urust_open
+        pretty_urust_lines (pretty_urust_open lthy kind)
           pretty_arguments pretty_body])
 
 fun print_pretty_declaration interactive verbosity lthy declaration =

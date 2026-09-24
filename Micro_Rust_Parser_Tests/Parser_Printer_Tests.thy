@@ -261,8 +261,9 @@ The declaration corpus enables \<open>urust_pp_test\<close>, so every ordinary
 \<open>urust_expr\<close> and \<open>urust_fn\<close> instance exercises serialized roundtripping.
 The common \<open>pretty\<close> option changes verbosity-controlled declaration output to the
 position-independent human mode inside a symbolic \<open>\<mu>\<open>...\<close>\<close> wrapper. This visual
-wrapper is unrelated to source quotation syntax. Human mode removes redundant groups while retaining
-groups required by precedence and grammar.
+wrapper is unrelated to source quotation syntax. Printed functions place \<open>FunctionBody\<close> before
+the wrapper, distinguishing them from expressions. Human mode removes redundant groups while
+retaining groups required by precedence and grammar.
 \<close>
 
 urust_expr [pretty, verbosity = 1]
@@ -292,9 +293,9 @@ elaborated HOL.
 
 text\<open>
 The first example is a typed function with mutable state, array iteration, compound assignment, and
-a final conditional. Its two command parameters appear as closure formals on the rendered
-right-hand side. The printer keeps the source-level function shape while laying out each block and
-statement independently.
+a final conditional. Its two command parameters appear as applications on the rendered left-hand
+side. The printer keeps the source-level function body while laying out each block and statement
+independently.
 \<close>
 
 urust_fn [pretty, verbosity = 1]
@@ -971,6 +972,16 @@ ML_val\<open>
       Symbol.open_ ^
       " let value = (((item))); (value + 1u64) * 2u64 " ^
       Symbol.close
+    val rust_function_type =
+      Symbol.open_ ^
+      "64 word \<Rightarrow> bool \<Rightarrow> " ^
+      "(unit, 64 word, unit, unit, unit) function_body" ^
+      Symbol.close
+    val rust_function_source =
+      Symbol.open_ ^
+      " fn PrettyRust(item: u64, flag: bool) -> Ignored::Result { " ^
+      "if flag { item } else { 0u64 } } " ^
+      Symbol.close
     val antiquotation_source =
       Symbol.open_ ^ " \<llangle>item :: nat\<rrangle> " ^ Symbol.close
 
@@ -1062,13 +1073,13 @@ ML_val\<open>
           assert_contains "pretty function" expected
             (#ordinary pretty_function))
         ["definition pretty_function_def:",
-         "|item|",
+         "pretty_function item \<equiv>",
          "let value = item;",
          "(value + 1u64) * 2u64"]
     val _ =
       assert_contains "pretty function layout"
-        ("pretty_function \<equiv> \<mu>" ^ Symbol.open_ ^
-          "\n  |item|\n    let value = item;")
+        ("pretty_function item \<equiv> FunctionBody \<mu>" ^ Symbol.open_ ^
+          "\n  let value = item;")
         (#ordinary pretty_function)
     val _ =
       List.app
@@ -1084,6 +1095,44 @@ ML_val\<open>
     val _ =
       assert_marked_text "pretty function displayed formal"
         Markup.boundN "item" (#ordinary_body pretty_function)
+
+    val pretty_rust_function =
+      capture "pretty-rust-function"
+        ("urust_fn " ^
+          "[pretty = true, verbosity = 2] " ^
+          "pretty_rust_function :: " ^ rust_function_type ^
+          " " ^ rust_function_source)
+    val _ =
+      List.app
+        (fn expected =>
+          assert_contains "pretty Rust function" expected
+            (#ordinary pretty_rust_function))
+        ["definition pretty_rust_function_def:",
+         "pretty_rust_function item flag \<equiv>",
+         "if flag {",
+         "item",
+         "0u64"]
+    val _ =
+      assert_contains "pretty Rust function layout"
+        ("pretty_rust_function item flag \<equiv> FunctionBody \<mu>" ^
+          Symbol.open_ ^ "\n  if flag {")
+        (#ordinary pretty_rust_function)
+    val _ =
+      List.app
+        (fn unexpected =>
+          assert_absent "pretty Rust function"
+            unexpected (#ordinary pretty_rust_function))
+        ["|item, flag|", "fn PrettyRust", "Ignored::Result", "->"]
+    val _ =
+      List.app
+        (fn name =>
+          assert_marked_text "pretty Rust function formal"
+            Markup.boundN name (#ordinary_body pretty_rust_function))
+        ["item", "flag"]
+    val _ =
+      assert_symbolic_urust_wrapper "pretty Rust function wrapper"
+        (#ordinary pretty_rust_function)
+        (#ordinary_body pretty_rust_function)
 
     val pretty_abbreviation =
       capture "pretty-abbreviation"
@@ -1149,7 +1198,7 @@ ML_val\<open>
          "(value + 1u64) * 2u64"]
     val _ =
       assert_contains "pretty application function layout"
-        ("pretty_application_function item \<equiv> \<mu>" ^
+        ("pretty_application_function item \<equiv> FunctionBody \<mu>" ^
           Symbol.open_ ^ "\n  let value = item;")
         (#ordinary pretty_application_function)
     val _ =
@@ -1174,6 +1223,23 @@ ML_val\<open>
     val _ =
       assert_symbolic_urust_wrapper "pretty anonymous wrapper"
         (#ordinary pretty_anonymous) (#ordinary_body pretty_anonymous)
+    val _ =
+      assert_absent "pretty anonymous expression"
+        "FunctionBody" (#ordinary pretty_anonymous)
+
+    val pretty_anonymous_function =
+      capture "pretty-anonymous-function"
+        ("urust_fn " ^
+          "[pretty, verbosity = 1] _ :: " ^ function_type ^
+          " (item) " ^ function_source)
+    val _ =
+      assert_contains "pretty anonymous function"
+        ("FunctionBody \<mu>" ^ Symbol.open_)
+        (#ordinary pretty_anonymous_function)
+    val _ =
+      assert_symbolic_urust_wrapper "pretty anonymous function wrapper"
+        (#ordinary pretty_anonymous_function)
+        (#ordinary_body pretty_anonymous_function)
 
     val scoped_pretty =
       capture "pretty-scoped"
