@@ -17,14 +17,12 @@
 theory Simple_Word_Enum_uRust
   imports
     Misc.Simple_Word_Enums
-    (* Micro_Rust_Notations for the registry itself; the shallow embedding infrastructure used by
-       the parser commands below to check that the names really do resolve in uRust, and
-       Core_Expression_Lemmas for the micro_rust_simps rules (call_literal2 in particular) that
-       reduce a lifted call in those tests. *)
-    Shallow_Micro_Rust_Base.Micro_Rust_Shallow_Embedding
+    (* Micro_Rust_Notations for the neutral registry itself, and Core_Expression_Lemmas for the
+       micro_rust_simps rules (call_literal2 in particular) that reduce a lifted call in these
+       tests. *)
+    Shallow_Micro_Rust_Base.Micro_Rust_Parser_Target
     Core_Expression_Lemmas
 begin
-declare [[urust_conformance = true]]
 (*>*)
 
 section\<open>\<open>\<mu>Rust\<close> notation for simple word enums\<close>
@@ -59,27 +57,25 @@ want \<open>\<mu>Rust\<close> notation. It can also be suppressed explicitly wit
 because \<^verbatim>\<open>urust_notation\<close> is also an outer command keyword in this session.
 
 Note that \<^verbatim>\<open>Name::Ci\<close> is a \<^verbatim>\<open>::\<close>-path, which the \<open>\<mu>Rust\<close> frontend's grammar already parses, so
-no bespoke grammar production is needed --- the dispatch-table entry alone suffices. A
-\<^verbatim>\<open>urust:\<close> name that is not a plain identifier is therefore rejected up front, rather than
-producing a registration whose use sites could never parse.\<close>
+no bespoke grammar production is needed --- the dispatch-table entry alone suffices. The
+\<^verbatim>\<open>urust:\<close> prefix may itself be a path, for example
+\<^verbatim>\<open>Register::Field::Value\<close>; every path segment must be an identifier.\<close>
 
 ML \<open>
 (* Shared by both plugins below: the `urust:` name, validated, or NONE when the declaration
    gave none (in which case both plugins are no-ops). *)
 structure Simple_Word_Enum_uRust = struct
 
-(* The name has to be a plain identifier: it becomes the head of a ::-path, and anything else
-   (turbofish, `!`, ...) would need a bespoke grammar production that neither plugin emits.
-   Rejecting here gives a message pointing at the declaration rather than at a later,
-   mysterious parse failure. *)
+(* The name becomes the prefix of a ::-path. Plain identifiers and existing ::-paths are
+   accepted by the ordinary uRust identifier grammar; turbofish, macros, malformed paths,
+   and similar bespoke syntax are rejected here so the error points at the declaration. *)
 fun urust_name_of (info: Simple_Word_Enum.enum_info) =
   case #urust_name info of
     NONE => NONE
   | SOME name =>
-      if Symbol_Pos.is_identifier name then SOME name
+      if Micro_Rust_Notation_Cmd.is_identifier_path name then SOME name
       else error ("simple_word_enum " ^ #type_name info ^ ": urust name " ^ quote name ^
-        " is not a plain identifier, so " ^ quote (name ^ "::<item>") ^
-        " would not parse as a uRust path")
+        " is not an identifier or ::-separated identifier path")
 
 (* Register `rust_name` as a uRust notation for the term `t`, in the given kind. This is what
    `micro_rust_notation (<kind>) <term> ("<rust_name>")` does; `Name::item` is a ::-path, which
@@ -88,7 +84,16 @@ fun urust_name_of (info: Simple_Word_Enum.enum_info) =
    declared in. *)
 fun register_notation kind rust_name t =
   Local_Theory.declaration {pervasive = false, syntax = true, pos = \<^here>}
-    (fn phi => Micro_Rust_Names.register kind rust_name (Morphism.term phi t) \<^here>)
+    (fn phi =>
+      let
+        val t' = Morphism.term phi t
+        val backend_const =
+          (case Term.head_of t' of
+             Const (name, _) => SOME name
+           | _ => NONE)
+      in
+        Micro_Rust_Names.register kind rust_name t' \<^here> backend_const
+      end)
 
 end
 \<close>
@@ -292,29 +297,37 @@ ML \<open>
   in writeln "MessageKind::* registered, resolving to the HOL variants" end
 \<close>
 
-text\<open>The acceptance test: the \<open>\<mu>Rust\<close> path really does resolve, so the embedding is syntactically
-equal to the \<^const>\<open>literal\<close> of the HOL variant --- \<^emph>\<open>not\<close> a free variable named
-\<^verbatim>\<open>MessageKind::MK_Ping\<close>.\<close>
+text\<open>Parser-level checks that these registrations resolve the source paths
+\<^verbatim>\<open>MessageKind::MK_Ping\<close>, \<^verbatim>\<open>MessageKind::MK_Pong\<close>, and
+\<^verbatim>\<open>MessageKind::MK_Data\<close> live in
+\<^file>\<open>../Micro_Rust_Parser_Tests/Parser_Simple_Word_Enum_Tests.thy\<close>.\<close>
 
-urust_expr [abbrev] ping_term_expr
-  \<open> MessageKind::MK_Ping \<close>
+text\<open>The \<^verbatim>\<open>urust:\<close> prefix may itself be a path. The plugins append the variant and
+conversion names to the whole prefix.\<close>
 
-term \<open>ping_term_expr\<close>
+simple_word_enum (8) path_kind urust: "Outer::Inner::PathKind" =
+    PK_First = 1
+  | PK_Second = 2
 
-urust_expr [abbrev] ping_literal_expr
-  \<open> MessageKind::MK_Ping \<close>
+ML \<open>
+  let
+    fun lookup kind name = Micro_Rust_Names.lookups @{context} kind name
+    val prefix = "Outer::Inner::PathKind"
+  in
+    @{assert} (length (lookup Micro_Rust_Names.NLiteral (prefix ^ "::PK_First")) = 1);
+    @{assert} (length (lookup Micro_Rust_Names.NLiteral (prefix ^ "::PK_Second")) = 1);
+    @{assert} (length (lookup Micro_Rust_Names.NFunction (prefix ^ "::to_u8")) = 1);
+    @{assert} (length (lookup Micro_Rust_Names.NFunction (prefix ^ "::try_from")) = 1);
+    writeln "path-valued urust: prefix registered"
+  end
+\<close>
 
-urust_expr [abbrev] pong_literal_expr
-  \<open> MessageKind::MK_Pong \<close>
-
-urust_expr [abbrev] data_literal_expr
-  \<open> MessageKind::MK_Data \<close>
-
-lemma
-  shows \<open>ping_literal_expr = literal MK_Ping\<close>
-    and \<open>pong_literal_expr = literal MK_Pong\<close>
-    and \<open>data_literal_expr = literal MK_Data\<close>
-  by (rule refl)+
+text\<open>A path-valued prefix is deliberately only a notation-registration feature here.
+Nested pattern leaves retain their existing behaviour and do not resolve a registered
+\<^verbatim>\<open>Path::Variant\<close> through the notation table. Bare HOL variant constants are recognized
+through Isabelle's case-translation registry. Parser-level checks for the path-qualified
+variant and functions, together with a nested bare-variant match, live in
+\<^file>\<open>../Micro_Rust_Parser_Tests/Parser_Simple_Word_Enum_Tests.thy\<close>.\<close>
 
 text\<open>The lifted conversion functions exist and are \<^const>\<open>lift_fun1\<close> of the pure ones.\<close>
 
@@ -341,52 +354,29 @@ value \<open>message_kind_to_u32_pure MK_Data\<close>
 value \<open>message_kind_try_from_u32_pure 2\<close>
 value \<open>message_kind_try_from_u32_pure 7\<close>
 
-text\<open>Their \<open>\<mu>Rust\<close> paths resolve as function calls --- these type-check, which is the point: an
-unregistered path would leave a free variable and fail to elaborate at the \<^const>\<open>function_body\<close>
-type the call position demands.\<close>
-
-urust_expr [abbrev] to_u32_term_expr
-  (e)
-  \<open> MessageKind::to_u32(e) \<close>
-
-term \<open>to_u32_term_expr e\<close>
-
-urust_expr [abbrev] try_from_term_expr
-  (w)
-  \<open> MessageKind::try_from(w) \<close>
-
-term \<open>try_from_term_expr w\<close>
+text\<open>The parser-level function-path and unreduced-call checks also live in
+\<^file>\<open>../Micro_Rust_Parser_Tests/Parser_Simple_Word_Enum_Tests.thy\<close>. The lemmas below
+test the generated conversion functions independently of source parsing.\<close>
 
 text\<open>Naming the \<^verbatim>\<open>_def\<close> fact unfolds a call to its pure function --- which is what makes the
 \<^verbatim>\<open>_alt\<close> characterisations from \<^verbatim>\<open>word_conversion\<close> usable on \<open>\<mu>Rust\<close> code. Evaluated on a concrete
 variant, a call then reduces to a literal:\<close>
 
-urust_expr [abbrev] to_u32_data_expr
-  \<open> MessageKind::to_u32(MK_Data) \<close>
 
 lemma
-  shows \<open>to_u32_data_expr = \<up>(0xff :: 32 word)\<close>
+  shows \<open>(funcall1 message_kind_to_u32 (literal MK_Data)) = literal (0xff :: 32 word)\<close>
   by (simp add: micro_rust_simps message_kind_to_u32_def message_kind_to_u32_pure_def)
 
-text\<open>Since the \<^verbatim>\<open>_def\<close>s are not \<^verbatim>\<open>[micro_rust_simps]\<close>, \<^emph>\<open>not\<close> naming them leaves the call
-unreduced --- the caller decides when to unfold.\<close>
-
-urust_expr [abbrev] to_u32_call_expr
-  \<open> MessageKind::to_u32(MK_Data) \<close>
-
-lemma
-  shows \<open>to_u32_call_expr =
-    message_kind_to_u32 \<langle>\<up>MK_Data\<rangle>\<close>
-  by (simp add: micro_rust_simps)
+text\<open>The generated \<^verbatim>\<open>_def\<close>s are not tagged \<^verbatim>\<open>[micro_rust_simps]\<close>; the
+parser-specific test confirms that omitting the definition leaves the registered call unreduced.\<close>
 
 text\<open>End to end: a \<open>\<mu>Rust\<close> round trip on a variant named the \<open>\<mu>Rust\<close> way, discharged by the round-trip
 lemma \<^verbatim>\<open>word_conversion\<close> proves.\<close>
 
-urust_expr [abbrev] roundtrip_expr
-  \<open> MessageKind::try_from(MessageKind::to_u32(MK_Data)) \<close>
 
 lemma
-  shows \<open>roundtrip_expr = \<up>(Ok MK_Data)\<close>
+  shows \<open>(funcall1 message_kind_try_from_u32
+      (funcall1 message_kind_to_u32 (literal MK_Data))) = literal (Ok MK_Data)\<close>
   by (simp add: micro_rust_simps message_kind_to_u32_def message_kind_try_from_u32_def
         message_kind_to_u32_pure_then_try_from)
 
@@ -446,16 +436,13 @@ ML \<open>
   end
 \<close>
 
-text\<open>The variant has to be spelled the HOL way here, since \<^verbatim>\<open>urust_notation\<close> was suppressed ---
-but the \<^emph>\<open>function\<close> path still resolves, which is the independence being tested.\<close>
+text\<open>The variant has to be spelled the HOL way here, since \<^verbatim>\<open>urust_notation\<close> was suppressed.
+The parser-specific test confirms independently that the generated function path still resolves.\<close>
 
-urust_expr [abbrev] convs_only_expr
-  (w)
-  \<open> ConvsOnly::try_from(w) \<close>
 
 lemma
-  shows \<open>convs_only_expr w =
-    \<up>(convs_only_try_from_u8_pure w)\<close>
+  shows \<open>(funcall1 convs_only_try_from_u8 (literal w)) =
+    literal (convs_only_try_from_u8_pure w)\<close>
   by (simp add: micro_rust_simps convs_only_try_from_u8_def)
 
 text\<open>Both suppressed at once.\<close>

@@ -5,8 +5,6 @@ theory Pair_References
   imports Micro_Rust_Interfaces_Core.References Crush.Crush
 begin
 
-declare [[urust_conformance = true]]
-
 section\<open>Combining two reference implementations\<close>
 
 text\<open>The goal of this section is to show that two interpretations of the \<^locale>\<open>reference\<close>
@@ -70,40 +68,22 @@ The new address type is \<^verbatim>\<open>'a0 + 'a1\<close> -- that is, the dis
 of the input interpretations. Similarly, the global value type is the disjoint union
 \<^verbatim>\<open>'b0 + 'b1\<close> of the global value types of the individual interpretations.\<close>
 
-urust_fn [abbrev]
-  update_raw_fun_fn1 ::
-  \<open>('s, unit, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
-  ()
-  \<open> panic!("Invalid update on pair reference") \<close>
-
 definition update_raw_fun :: 
   \<open>('a0 + 'a1, 'b0 + 'b1) gref \<Rightarrow> 'b0 + 'b1 \<Rightarrow> ('s, unit, 'abort, 'i prompt, 'o prompt_output) function_body\<close> where
   \<open>update_raw_fun r b \<equiv> 
       case (plus_gref r, b) of 
          (Inl r0, Inl b0) \<Rightarrow> update_raw_funA r0 b0
        | (Inr r1, Inr b1) \<Rightarrow> update_raw_funB r1 b1
-       | _ \<Rightarrow> update_raw_fun_fn1\<close>
-
-urust_fn [abbrev]
-  dereference_raw_fun_fn1 ::
-  \<open>('a0, 'b0) gref \<Rightarrow>
-   ('s, 'b0 + 'b1, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
-  (r0)
-  \<open> \<llangle>Inl\<rrangle>\<^sub>1 (dereference_raw_funA (r0)) \<close>
-
-urust_fn [abbrev]
-  dereference_raw_fun_fn2 ::
-  \<open>('a1, 'b1) gref \<Rightarrow>
-   ('s, 'b0 + 'b1, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
-  (r1)
-  \<open> \<llangle>Inr\<rrangle>\<^sub>1 (dereference_raw_funB (r1)) \<close>
+       | _ \<Rightarrow> FunctionBody (panic (String.implode ''Invalid update on pair reference''))\<close>
 
 definition dereference_raw_fun :: 
   \<open>('a0 + 'a1, 'b0 + 'b1) gref \<Rightarrow> ('s, 'b0 + 'b1, 'abort, 'i prompt, 'o prompt_output) function_body\<close> where
   \<open>dereference_raw_fun r \<equiv> 
       case plus_gref r of 
-         Inl r0 \<Rightarrow> dereference_raw_fun_fn1 r0
-       | Inr r1 \<Rightarrow> dereference_raw_fun_fn2 r1\<close>
+         Inl r0 \<Rightarrow> FunctionBody
+           (funcall1 (lift_fun1 Inl) (funcall1 dereference_raw_funA (literal r0)))
+       | Inr r1 \<Rightarrow> FunctionBody
+           (funcall1 (lift_fun1 Inr) (funcall1 dereference_raw_funB (literal r1)))\<close>
 
 text\<open>Allocations are currently only possible with \<^emph>\<open>one\<close> of the two allocators.
 The axioms need suitable generalization if we ever need to combine two reference

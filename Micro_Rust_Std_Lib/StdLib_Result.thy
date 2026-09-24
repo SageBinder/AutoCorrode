@@ -5,7 +5,6 @@
 theory StdLib_Result
   imports Crush.Crush Misc.Result StdLib_References
 begin
-declare [[urust_conformance = true]]
 (*>*)
 
 section\<open>Core material related to the \<^emph>\<open>Result\<close> type\<close>

@@ -8,7 +8,7 @@ theory Micro_Rust
     Bool_Type_Lemmas
     Shallow_Micro_Rust_Base.Core_Expression
     Core_Expression_Lemmas
-    Shallow_Micro_Rust_Base.Core_Syntax
+    Shallow_Micro_Rust_Base.Micro_Rust_Parser_Target
     Shallow_Micro_Rust_Base.Result_Type
     Shallow_Micro_Rust_Base.Option_Type
     Shallow_Micro_Rust_Base.Range_Type
@@ -18,7 +18,6 @@ theory Micro_Rust
     Numeric_Types_Lemmas
     Shallow_Micro_Rust_Base.Global_Store
     SSA
-    Shallow_Micro_Rust_Base.Micro_Rust_Shallow_Embedding
 begin
 (*>*)
 

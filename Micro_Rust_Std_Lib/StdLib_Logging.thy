@@ -4,9 +4,9 @@
 (*<*)
 theory StdLib_Logging
   imports
+    Micro_Rust_Parser_Impl.Parser_Impl_Command
     Shallow_Micro_Rust.Shallow_Micro_Rust
 begin
-declare [[urust_conformance = true]]
 (*>*)
 
 section\<open>The Rust logging facade\<close>
@@ -62,30 +62,6 @@ urust_fn [abbrev] trace ::
      \<l>\<o>\<g> \<llangle>Trace\<rrangle> \<llangle>m\<rrangle>
   \<close>
 micro_rust_notation (call) trace ("trace!")
-
-\<comment>\<open>A bit of syntax sugar to reduce the pain of writing logging expressions:
-   Write \<^verbatim>\<open>trace! ([["string0", data0, "string1", data1, ...]])\<close>\<close>
-nonterminal log_entry
-nonterminal log_entry_list
-syntax
-  "_log_entry_id" :: "id \<Rightarrow> log_entry"
-    ("_" [0]1000)
-  "_log_entry_string" :: "string_token \<Rightarrow> log_entry"
-    ("_" [0]1000)
-  "_log_entry_list_single" :: "log_entry \<Rightarrow> log_entry_list"
-    ("_" [0]1000)
-  "_log_entry_list_cons" :: "log_entry \<Rightarrow> log_entry_list \<Rightarrow> log_entry_list"
-    ("_, _" [0, 0] 1000)
-  "_log_entry_list_to_hol" :: "log_entry_list \<Rightarrow> logic"
-  "_log_entry_to_hol" :: "log_entry \<Rightarrow> logic"
-  "_urust_log_data" :: "log_entry_list \<Rightarrow> urust"
-    ("l\<llangle>_\<rrangle>" [0] 1000)
-translations
-  "_log_entry_list_to_hol (_log_entry_list_single e)" \<rightharpoonup> "_log_entry_to_hol e"
-  "_log_entry_list_to_hol (_log_entry_list_cons e es)" \<rightharpoonup> "CONST List.append (_log_entry_to_hol e) (_log_entry_list_to_hol es)"
-  "_log_entry_to_hol (_log_entry_string s)" \<rightharpoonup> "CONST Cons (CONST LogString (_string_token_to_hol s)) (CONST Nil)"
-  "_log_entry_to_hol (_log_entry_id s)" \<rightharpoonup> "CONST generate_debug s"
-  "_shallow (_urust_log_data es)" \<rightharpoonup> "CONST literal (_log_entry_list_to_hol es)"
 
 urust_expr [abbrev] StdLib_Logging_ex1
   (x, y, z)

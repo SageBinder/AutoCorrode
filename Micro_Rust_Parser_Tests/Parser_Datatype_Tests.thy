@@ -2213,20 +2213,6 @@ ML_val \<open>
       assert_absent "combined interactive/show_results gate"
         "urust_datatype generated artifacts" fully_gated
 
-    val (_, _, timing_independent) =
-      capture_result true "timing-independent"
-        ("declare [[urust_timing_info = true, " ^
-          "urust_timing_verbosity = 2]]\n" ^
-         "urust_datatype [verbosity = 0] timing_independent " ^
-          cartouche " struct TimingIndependent; ")
-    val _ =
-      List.app
-        (fn unexpected =>
-          assert_absent "datatype timing independence"
-            unexpected timing_independent)
-        ["urust_datatype generated artifacts",
-         "timing information"]
-
     val (failed_result, _, failed_output) =
       capture_result true "failed-output"
         ("urust_datatype [verbosity = 2] failed_output " ^

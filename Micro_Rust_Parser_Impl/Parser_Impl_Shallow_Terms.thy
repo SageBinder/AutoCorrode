@@ -1,7 +1,7 @@
 theory Parser_Impl_Shallow_Terms
   imports
     Parser_Impl_Cast_Aliases
-    Shallow_Micro_Rust_Base.Micro_Rust_Shallow_Embedding
+    Shallow_Micro_Rust_Base.Micro_Rust_Parser_Target
 begin
 
 section\<open> Shallow term vocabulary \<close>
@@ -158,17 +158,17 @@ ML\<open>
      undefined_value are raw HOL values. list_cons_constructor, list_nil_constructor,
      pair_constructor, and tuple_nil_constructor are unapplied constructor terms for pattern trees.
    * The case helpers preserve the compatibility interface while delegating all five raw backend
-     constants to Basic_Case_Expression. case_guard takes guard, scrutinee, then a case list.
+  constants to Case_Term_Backend. case_guard takes guard, scrutinee, then a case list.
      case_cons and case_nil build that list; case_element takes pattern then body, and
      case_abstraction wraps the resulting abstraction.
 
    The raw constant builder used outside case construction, position encoding mechanics,
    function-constant vector, suffix-table representation and integer scanners, tuple recursion, and
-   operator lookup functions are implementation details. Basic_Case_Expression alone owns the raw
+  operator lookup functions are implementation details. Case_Term_Backend alone owns the raw
    case-backend constants. These representations may change, but the supported arities, literal
    spellings, operator meanings, diagnostics, argument order, and shallow term shapes described above
-   are interface behavior relied on by resolution, pattern compilation, translation, and frontend
-   conformance checks. No additional declarations in the structure are public through the signature. *)
+   are interface behavior relied on by resolution, pattern compilation, and translation. No
+   additional declarations in the structure are public through the signature. *)
 structure URust_Shallow_Terms :> URUST_SHALLOW_TERMS =
 struct
   open URust_AST
@@ -953,11 +953,11 @@ struct
   val pair_constructor = Const (\<^const_name>\<open>Product_Type.Pair\<close>, dummyT)
   val tuple_nil_constructor = Const (\<^const_name>\<open>TNil\<close>, dummyT)
 
-  val case_guard = Basic_Case_Expression.case_guard
-  val case_cons = Basic_Case_Expression.case_cons
-  val case_nil = Basic_Case_Expression.case_nil
-  val case_element = Basic_Case_Expression.case_element
-  val case_abstraction = Basic_Case_Expression.case_abstraction
+  val case_guard = Case_Term_Backend.case_guard
+  val case_cons = Case_Term_Backend.case_cons
+  val case_nil = Case_Term_Backend.case_nil
+  val case_element = Case_Term_Backend.case_element
+  val case_abstraction = Case_Term_Backend.case_abstraction
 end
 \<close>
 

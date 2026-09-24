@@ -14,15 +14,16 @@ session Micro_Rust_Parser_Tests = HOL +
     Parser_Test_Utils
     Parser_Semantic_Navigation_Tests
     Parser_Cast_Alias_Fixtures
+    Parser_Logging_Fixtures
     Parser_Iterator_Fixtures
+    Parser_Simple_Word_Enum_Tests
     Parser_Registered_Constructor_Fixtures
     Parser_Constructor_Ambiguity_Left_Fixtures
     Parser_Constructor_Ambiguity_Right_Fixtures
     Parser_Struct_Ambiguity_Left_Fixtures
     Parser_Struct_Ambiguity_Right_Fixtures
-    Parser_Legacy_Frontend_Tests
-    Parser_Expr_Conformance_Tests
-    Parser_Fn_Conformance_Tests
+    Parser_Expression_Tests
+    Parser_Function_Tests
     Parser_Improvements_Tests
     Parser_Command_Tests
     Parser_Rejection_Tests
@@ -33,4 +34,3 @@ session Micro_Rust_Parser_Tests = HOL +
     Parser_Printer_Tests
     Parser_Rust_Function_Tests
     Parser_Showcase_Tests
-    Parser_Old_New_Comparison

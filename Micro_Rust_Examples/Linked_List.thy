@@ -8,7 +8,6 @@ theory Linked_List
     Crush.Crush
     Micro_Rust_Std_Lib.StdLib_All
 begin
-declare [[urust_conformance = true]]
 declare [[urust_verbosity = 2]]
 (*>*)
 

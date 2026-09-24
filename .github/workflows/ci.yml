@@ -42,6 +42,25 @@ jobs:
             -d $AFP_COMPONENT_BASE/Word_Lib \
             AutoCorrode
 
+  parser-tests:
+    runs-on: ubuntu-latest
+    container:
+      image: makarius/isabelle:Isabelle2025-2
+      options: --user root
+
+    steps:
+      - name: Checkout AutoCorrode
+        uses: actions/checkout@v3
+
+      - name: Setup Isabelle
+        uses: ./.github/actions/setup-isabelle-action
+
+      - name: Build parser regression tests
+        run: |
+          $ISABELLE_HOME/bin/isabelle build -v -b -d . -o document=false \
+            -d $AFP_COMPONENT_BASE/Word_Lib \
+            Micro_Rust_Parser_Tests
+
   tutorial-build:
     runs-on: ubuntu-latest
     container:

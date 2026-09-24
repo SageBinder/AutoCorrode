@@ -1447,7 +1447,7 @@ struct
          selectors = []})
       (native_case_metadata ctxt backend)
 
-  (* Keep bare native lookup aligned with Basic_Case_Expression: typedef-backed constructors may be
+  (* Keep bare native lookup aligned with Case_Term_Backend: typedef-backed constructors may be
      known through case translation even when the code generator does not classify them. Candidate
      metadata is still recovered and validated by native_case_constructor_info below. *)
   fun known_native_constructor ctxt (identity, typ) =

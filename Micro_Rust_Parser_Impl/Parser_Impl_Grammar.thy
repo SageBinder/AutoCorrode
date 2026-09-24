@@ -2264,7 +2264,7 @@ yacc_rules\<open>
   (* A tuple has one element before the comma and a nonempty `arglist` after it. Even when `arglist` has a
      terminal comma, this requires at least two elements and keeps `(x,)` outside the grammar. *)
   (* All match spellings share one production and differ only in the existing flavour tag. Guards reuse
-     the complete body grammar, as in the old frontend. One arm production plus the ordinary nonempty
+     the complete body grammar for compatibility. One arm production plus the ordinary nonempty
      trailing-comma list keeps guarded and unguarded termination identical. *)
   umatch_kind : TMATCH       ((MF_Auto, TMATCHleft))
               | TMATCHSWITCH ((MF_Switch, TMATCHSWITCHleft))

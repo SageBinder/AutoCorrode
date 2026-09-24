@@ -7,7 +7,6 @@ theory Rust_Iterator_Lemmas
     Shallow_Micro_Rust_Base.Rust_Iterator
     Shallow_Micro_Rust_Base.Core_Expression
     Core_Expression_Lemmas
-    Shallow_Micro_Rust_Base.Core_Syntax
     Shallow_Micro_Rust_Base.Range_Type
 begin
 (*>*)
@@ -35,7 +34,7 @@ lemma raw_for_loop_nil [micro_rust_simps]:
   by (auto simp add: raw_for_loop_def micro_rust_simps)
 
 lemma raw_for_loop_cons [micro_rust_simps]:
-  shows \<open>raw_for_loop (x#xs) body = (body x; raw_for_loop xs body)\<close>
+  shows \<open>raw_for_loop (x#xs) body = sequence (body x) (raw_for_loop xs body)\<close>
   by (auto simp add: raw_for_loop_def micro_rust_simps)
 
 lemma bounded_while_zero [micro_rust_simps]:
@@ -52,14 +51,15 @@ lemma bounded_while_Suc [micro_rust_simps]:
 lemma raw_for_loop_standard_unroll_once_simp:
   shows \<open>raw_for_loop (list.map word64_of_nat [n..<m]) body =
          (if n < m then
-                   (body (word64_of_nat n); raw_for_loop (list.map word64_of_nat [(Suc n)..<m]) body)
+                   sequence (body (word64_of_nat n))
+                     (raw_for_loop (list.map word64_of_nat [(Suc n)..<m]) body)
                 else
                    skip)\<close> 
   by (simp add: raw_for_loop_cons raw_for_loop_nil upt_rec)
 
 lemma urust_sequence_cong:
   assumes \<open>e = e'\<close>
-  shows \<open>(e; f) = (e'; f)\<close>
+  shows \<open>sequence e f = sequence e' f\<close>
   using assms by simp
 
 lemmas raw_for_loop_unroll_once_cong = urust_sequence_cong[where f=\<open>raw_for_loop _ _\<close>]
@@ -92,7 +92,7 @@ lemma bind_map [micro_rust_simps]:
   using map_nth' by fastforce
 
 lemma for_loop_list [micro_rust_simps]:
-  shows \<open>for_loop (\<up>(make_iterator_from_list ls)) body = raw_for_loop ls body\<close>
+  shows \<open>for_loop (literal (make_iterator_from_list ls)) body = raw_for_loop ls body\<close>
   by (clarsimp simp add: for_loop_def for_loop_core_def raw_for_loop_def micro_rust_simps)
 
 (*<*)

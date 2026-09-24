@@ -31,14 +31,6 @@ or collaboratively conduct interactive theorem proving using Isabelle. See [iq](
 
 [IC2](ic2) manages headless, persistent Isabelle sessions from the command line -- similar to `isabelle server` and `isabelle client`, but integrated with [I/R](ir) and [I/Q](iq). A resident session serves repeated `.thy` checks and diagnostic queries, and can bring up I/R against the same session, optionally over MCP, so an agent can drive Isar proofs without a separate Isabelle/jEdit + I/Q. See [ic2](ic2) for more information.
 
-## µRust parser timing
-
-[Micro_Rust_Parser_Timing](Micro_Rust_Parser_Timing) provides
-`isabelle urust_timing SESSION`. Timed `urust_expr` and `urust_fn` declarations store structured,
-versioned records in the session's final PIDE snapshots; the tool aggregates an already-built session
-without rebuilding it or checking source freshness. It reports session and per-theory cumulative
-declaration latency, optional hotspots, and complete atomic JSON output.
-
 ## Isabelle Assistant
 
 [Isabelle Assistant](isabelle-assistant) is an LLM-powered proof assistant for Isabelle/jEdit, built on [AWS Bedrock](https://aws.amazon.com/bedrock/). It provides autonomous proof search, interactive chat with LaTeX rendering, proof suggestions, code explanation, refactoring, and more — all integrated into the Isabelle/jEdit IDE. When combined with [I/Q](iq), generated proofs are automatically verified against Isabelle before display. See [isabelle-assistant](isabelle-assistant) for more information.
@@ -173,10 +165,9 @@ generation. The sealed API provides parallel token, pretty, and string operation
 datatype, and function ASTs. Human mode removes redundant expression grouping and is available in
 verbosity-controlled command output through the common Boolean `pretty` option (or scoped
 `urust_pretty`). At verbosity 0, `pretty` has no output to affect and produces a warning.
-Conformance theorems retain ordinary HOL rendering because their right-hand side comes from the
-legacy frontend. For expression output, the formatted body appears inside a symbolic `µ‹…›`
-wrapper that is unrelated to source quotation syntax, and comes from a pure source-mapped document
-whose public token projection remains position-free.
+For expression output, the formatted body appears inside a symbolic `µ‹…›` wrapper that is
+unrelated to source quotation syntax, and comes from a pure source-mapped document whose public
+token projection remains position-free.
 Command arguments appear as uRust closure formals on the pretty right-hand side by default;
 `application_def` instead displays them as applications on the left-hand side.
 The symbolic opening follows the equation marker on the same line; right-hand closure formals and
@@ -240,9 +231,8 @@ declarations and `urust_expr [abbrev]` reject them. Argument-taking `urust_expr 
 are the supported HOL helper mechanism. At HOL use sites, write `(helper args)` when surrounding
 syntax would otherwise group the helper application incorrectly.
 
-Production theories use these commands for complete definitions and named abbreviations, with
-conformance checking enabled against the legacy frontend. The test session contains conformance
-corpora, regression tests, parser experiments, and legacy shallow-embedding tests. Its
+Production theories use these commands for complete definitions and named abbreviations. The parser
+test session contains regression tests, parser experiments, and focused negative tests. Its
 [README](Micro_Rust_Parser_Tests/README.md) records the integrated parser architecture,
 Rust-fidelity boundaries, focused regression layout, and migration-report dispositions.
 
@@ -297,18 +287,10 @@ negation, `/=`, leading `::`, full Rust generics, universal macro trailing comma
 numeric families.
 
 The parser implementation depends only on `Shallow_Micro_Rust_Base` and `Isabelle_Lex-Yacc`.
-Full `Shallow_Micro_Rust` adds the parser bridge, while the main `AutoCorrode` session includes both
-the implementation and test sessions.
-
-Timed declarations also emit hidden schema-versioned PIDE records. The independent
-[Micro_Rust_Parser_Timing](Micro_Rust_Parser_Timing) component reads those records from the final
-snapshots in a completed session database and exposes them through `isabelle urust_timing`.
-
-### [Micro_Rust_Parsing_Legacy_Frontend](https://awslabs.github.io/AutoCorrode/Unsorted/AutoCorrode/Micro_Rust_Parsing_Legacy_Frontend.Micro_Rust_Parsing_Legacy_Frontend.html)
-
-The legacy inner-syntax frontend remains as the permanent conformance oracle for the production
-parser. It defines the custom µRust syntax category and shallow-embedding bracket used by
-conformance checks; production µRust declarations and expression sites use the parser commands.
+The `Shallow_Micro_Rust` theories remain parser-independent; parser-backed production sessions
+import the dedicated parser where needed. The main `AutoCorrode` session includes the production
+parser implementation. The `Micro_Rust_Parser_Tests` session contains the larger parser regression
+suite.
 
 ### [Micro_Rust_Runtime](https://awslabs.github.io/AutoCorrode/Unsorted/AutoCorrode/Micro_Rust_Runtime.Micro_Rust_Runtime.html)
 

@@ -126,7 +126,7 @@ ML\<open>
   or-alternative order, binds pattern variables before evaluating guards and bodies, and makes a false
   guard fall through to the next alternative or arm. NONE uses the existing case encoding's unmatched
   behavior; SOME term installs that term as the terminal unmatched result. Compilation preserves the
-  shallow term shape required for old-frontend conformance. Ordinary_Case_Compilation retains the
+  established shallow term shape. Ordinary_Case_Compilation retains the
   existing constructor-selector navigation used by `if let`, `while let`, `let ... else`, and
   `matches!`. Source_Match_Compilation additionally gives nonstructural source matches an explicit
   control target without placing generated comparison predicates under the match-token range.
@@ -1230,10 +1230,10 @@ struct
       val (tree, (slots_rev, _)) = walk pattern ([], 0)
     in
       fn body =>
-        abstract_slots Basic_Case_Expression.case_abstraction
+        abstract_slots Case_Term_Backend.case_abstraction
           (rev slots_rev)
           (fn arguments =>
-            Basic_Case_Expression.case_element
+            Case_Term_Backend.case_element
               (instantiate_pattern arguments tree) body)
     end
 
@@ -1432,7 +1432,7 @@ struct
       a direct scope is the identity operation. The direct renderer is derived from the normalized basic
       pattern and is only selected when every row in the matrix has the same structural capability.
       Both direct and recursive case emission use the backend constructors owned by
-      Basic_Case_Expression.
+      Case_Term_Backend.
     - source_position is stable source order. alternative_plan and arm_plan preserve the distinction
       between alternative failure and source-guard failure: a generated-test miss advances to the next
       alternative, while a false source guard advances to the next arm.
@@ -2258,7 +2258,7 @@ struct
             string_of_int (serial ()), dummyT)
 
       fun case_term_on subject branches =
-        Basic_Case_Expression.make_case
+        Case_Term_Backend.make_case
           T.true_value subject branches
 
       fun plain_fragment semantic =

@@ -4,11 +4,8 @@
 (*<*)
 theory Core_Expression_Lemmas
   imports
-    Shallow_Micro_Rust_Base.Core_Expression
-    Shallow_Micro_Rust_Base.Core_Syntax
-    Micro_Rust_Parser_Bridge
+    Shallow_Micro_Rust_Base.Micro_Rust_Parser_Target
 begin
-declare [[urust_conformance = true]]
 (*>*)
 
 section\<open>Basic lemmas about the \<^typ>\<open>('s, 'v, 'r, 'abort, 'i, 'o) expression\<close> monad\<close>
@@ -277,32 +274,26 @@ lemma evaluate_sequenceI [micro_rust_intros]:
     (\<exists>r \<sigma>'. evaluate e \<sigma> = Return r \<sigma>' \<and> k = Return r \<sigma>') \<or>
     (\<exists>v \<sigma>'. evaluate e \<sigma> = Success v \<sigma>' \<and> k = evaluate f \<sigma>') \<or>
     (\<exists>\<pi> \<sigma>' e'. evaluate e \<sigma> = Yield \<pi> \<sigma>' e' \<and> k = Yield \<pi> \<sigma>' (\<lambda>\<omega>. sequence (e' \<omega>) f))\<close>
-  shows \<open>evaluate (e; f) \<sigma> = k\<close>
+  shows \<open>evaluate (sequence e f) \<sigma> = k\<close>
   using assms by (simp only: sequence_def; intro evaluate_bindI; auto)
 
 lemma evaluate_sequenceE [micro_rust_elims]:
-  assumes \<open>evaluate (e; f) \<sigma> = k\<close>
+  assumes \<open>evaluate (sequence e f) \<sigma> = k\<close>
     and \<open>\<And>v \<sigma>'. evaluate e \<sigma> = Success v \<sigma>' \<Longrightarrow> evaluate f \<sigma>' = k \<Longrightarrow> R\<close>
     and \<open>\<And>r \<sigma>'. evaluate e \<sigma> = Return r \<sigma>' \<Longrightarrow> k = Return r \<sigma>' \<Longrightarrow> R\<close>
     and \<open>\<And>a \<sigma>'. evaluate e \<sigma> = Abort a \<sigma>' \<Longrightarrow> k = Abort a \<sigma>' \<Longrightarrow> R\<close>
-    and \<open>\<And>\<pi> \<sigma>' e'. evaluate e \<sigma> = Yield \<pi> \<sigma>' e' \<Longrightarrow> k = Yield \<pi> \<sigma>' (\<lambda>\<omega>. (e' \<omega>); f) \<Longrightarrow> R\<close>
+    and \<open>\<And>\<pi> \<sigma>' e'. evaluate e \<sigma> = Yield \<pi> \<sigma>' e' \<Longrightarrow> k = Yield \<pi> \<sigma>' (\<lambda>\<omega>. sequence (e' \<omega>) f) \<Longrightarrow> R\<close>
   shows \<open>R\<close>
   using assms by (simp add: sequence_def; elim evaluate_bindE)
 
 text\<open>The fact that \<^term>\<open>Core_Expression.sequence\<close> is a degenerate instance of the monadic bind operation
 immediately gives us a few properties.  Sequencing is immediately associative for example, which is
 an immediate corollary of the fact that the monadic bind operation is also associative, too:\<close>
-urust_expr [abbrev] sequence_assoc_expr1
-  (e, f, g)
-  \<open> { \<epsilon>\<open>e\<close>; \<epsilon>\<open>f\<close> }; \<epsilon>\<open>g\<close> \<close>
 
-urust_expr [abbrev] sequence_assoc_expr2
-  (e, f, g)
-  \<open> \<epsilon>\<open>e\<close>; \<epsilon>\<open>f\<close>; \<epsilon>\<open>g\<close> \<close>
 
 lemma sequence_assoc [micro_rust_simps]:
-  shows \<open>sequence_assoc_expr1 e f g =
-    sequence_assoc_expr2 e f g\<close>
+  shows \<open>(sequence (sequence e f) g) =
+    (sequence e (sequence f g))\<close>
   by (simp add: sequence_def Core_Expression_Lemmas.bind_assoc)
 
 subsection\<open>Literals\<close>
@@ -314,7 +305,7 @@ lemma evaluate_literalE [micro_rust_elims]:
   using assms by (auto simp: literal_def evaluate_def)
 
 lemma evaluate_literal [micro_rust_simps]:
-  shows \<open>evaluate (\<up>v) \<sigma> = Success v \<sigma>\<close>
+  shows \<open>evaluate (literal v) \<sigma> = Success v \<sigma>\<close>
   by (auto simp: evaluate_def literal_def)
 
 text\<open>Note that \<^term>\<open>literal\<close> is the \<^emph>\<open>unit\<close> of the expression monad, in the sense that it behaves a
@@ -324,7 +315,7 @@ We can make this idea more precise by \<^emph>\<open>proving\<close> the followi
 
 lemma bind_literal_unit [micro_rust_simps]:
   notes Core_Expression.bind.simps[simp]
-  shows \<open>bind (\<up>v) f = f v\<close>
+  shows \<open>bind (literal v) f = f v\<close>
   by (cases \<open>f v\<close>) (clarsimp simp: evaluate_def literal_def)
 
 lemma bind_literal_unit2 [micro_rust_simps]:
@@ -357,36 +348,22 @@ in between the reads, then we can reorder these reads (this is akin to a compile
 reorder reads):\<close>
 \<comment>\<open>NOTE: This lemma is not used at present, but seems worth keeping.\<close>
 lemma get_reorder:
-  shows \<open>\<lbrace> let f = get f; let g = get g; e f g \<rbrace> = \<lbrace> let g = get g; let f = get f; e f g \<rbrace>\<close>
+  shows \<open>do { f_val \<leftarrow> get f; g_val \<leftarrow> get g; e f_val g_val } =
+    do { g_val \<leftarrow> get g; f_val \<leftarrow> get f; e f_val g_val }\<close>
   by (auto simp: evaluate_def Core_Expression.bind.simps get_def split: expression.splits
     continuation.splits)
 
 text\<open>Alternatively, we can merge the two get operations into a single one:\<close>
-urust_expr [abbrev] get_merge_expr1
-  (f, g, e)
-  \<open>
-    let vf = \<epsilon>\<open>get f\<close>;
-    let vg = \<epsilon>\<open>get g\<close>;
-    \<epsilon>\<open>e vf vg\<close>
-  \<close>
 
-urust_expr [abbrev] get_merge_expr2 ::
-  \<open>
-    ('a \<Rightarrow> 'b) \<Rightarrow>
-    ('a \<Rightarrow> 'c) \<Rightarrow>
-    tnil \<Rightarrow>
-    ('b \<Rightarrow> 'c \<Rightarrow> ('a, 'd, 'e, 'f, 'g, 'h) expression) \<Rightarrow>
-    ('a, 'd, 'e, 'f, 'g, 'h) expression
-  \<close>
-  (f, g, nil, e)
-  \<open>
-    let (vf, vg) = \<epsilon>\<open>get (\<lambda>\<sigma>. ((f \<sigma>), (g \<sigma>), nil))\<close>;
-    \<epsilon>\<open>e vf vg\<close>
-  \<close>
 
 lemma get_merge[micro_rust_simps]:
-  shows \<open>get_merge_expr1 f g e =
-    get_merge_expr2 f g nil e\<close>
+  shows \<open>(do { vf \<leftarrow> (get f :: ('a, 'b, 'e, 'f, 'g, 'h) expression);
+         vg \<leftarrow> (get g :: ('a, 'c, 'e, 'f, 'g, 'h) expression);
+         e vf vg }) =
+    (do { values \<leftarrow>
+           (get (\<lambda>\<sigma>. (f \<sigma>, g \<sigma>, nil))
+             :: ('a, 'b \<times> 'c \<times> tnil, 'e, 'f, 'g, 'h) expression);
+         e (fst values) (fst (snd values)) })\<close>
   by (auto simp: Core_Expression.bind.simps evaluate_def get_def split: expression.splits
     continuation.splits)
 
@@ -406,21 +383,15 @@ the underlying machine state, like distinct registers):\<close>
 \<comment>\<open>NOTE: This lemma is not used at present, but seems worth keeping.\<close>
 lemma put_reorder:
   assumes commut: \<open>f \<circ> g = g \<circ> f\<close>
-  shows \<open> \<lbrace> put f; put g \<rbrace> = \<lbrace> put g; put f \<rbrace>\<close>
+  shows \<open>sequence (put f) (put g) = sequence (put g) (put f)\<close>
   using commut by (clarsimp simp: Core_Expression.bind.simps sequence_def evaluate_def put_def)
     (metis comp_apply)
 
-urust_expr [abbrev] put_merge_expr1
-  (f, g)
-  \<open> \<epsilon>\<open>put f\<close>; \<epsilon>\<open>put g\<close> \<close>
 
-urust_expr [abbrev] put_merge_expr2
-  (g, f)
-  \<open> \<epsilon>\<open>put (g \<circ> f)\<close> \<close>
 
 lemma put_merge[micro_rust_simps]:
-  shows \<open>put_merge_expr1 f g =
-    put_merge_expr2 g f\<close>
+  shows \<open>(sequence (put f) (put g)) =
+    (put (g \<circ> f))\<close>
   by (clarsimp simp: micro_rust_simps put_def Core_Expression.bind.simps evaluate_def
     sequence_def)
 
@@ -506,7 +477,7 @@ lemma evaluate_returnI [micro_rust_intros]:
 
 lemma evaluate_return_literal [micro_rust_simps]:
   notes micro_rust_simps[simp]
-  shows \<open>evaluate (return (\<up>v)) \<sigma> = Return v \<sigma>\<close>
+  shows \<open>evaluate (return_func (literal v)) \<sigma> = Return v \<sigma>\<close>
   by (simp add: evaluate_def return_func_def return_val_def)
 
 lemma evaluate_call_function_bodyE [micro_rust_elims]:
@@ -526,21 +497,15 @@ lemma evaluate_call_function_bodyI [micro_rust_intros]:
     shows \<open>evaluate (call_function_body e) \<sigma> = k\<close>
   using assms by (cases \<open>evaluate e \<sigma>\<close>; simp add: evaluate_def Core_Expression.call_function_body.simps)
 
-urust_expr [abbrev] call_return_expr1
-  (v)
-  \<open> return v; \<close>
 
 lemma call_return [micro_rust_simps]:
-  shows \<open>(call (FunctionBody (call_return_expr1 v))) = (literal v)\<close>
+  shows \<open>(call (FunctionBody (return_func (literal v)))) = literal v\<close>
   by (simp add: call_def call_function_body.simps Core_Expression.bind.simps evaluate_def literal_def
       return_func_def return_val_def)
 
-urust_expr [abbrev] call_literal_expr1
-  (v)
-  \<open> v \<close>
 
 lemma call_literal [micro_rust_simps]:
-  shows \<open>(call (FunctionBody (call_literal_expr1 v))) = (literal v)\<close>
+  shows \<open>(call (FunctionBody ((literal v)))) = (literal v)\<close>
   by (simp add: call_def call_function_body.simps evaluate_def literal_def)
 
 lemma call_literal2 [micro_rust_simps]:
@@ -747,8 +712,8 @@ lemma evaluate_panic [micro_rust_simps]:
 text\<open>Moreover \<^term>\<open>skip\<close>, which as we saw above is merely a \<^term>\<open>literal\<close> in disguise, and which is
 known to be the unit value of the monad, is the unit value for sequencing:\<close>
 lemma skip_sequence_ident [micro_rust_simps]:
-  shows \<open>\<lbrace> skip; f \<rbrace> = f\<close>
-    and \<open>\<lbrace> e; skip \<rbrace> = e\<close>
+  shows \<open>sequence skip f = f\<close>
+    and \<open>sequence e skip = e\<close>
   by (auto simp: micro_rust_simps sequence_def)
 
 text\<open>As a result, we can always "rewrite away" instances of \<^term>\<open>skip\<close> whenever and wherever they
@@ -756,41 +721,19 @@ appear in a chain of sequenced expressions, as one would expect.  Similarly, the
  \<^term>\<open>panic\<close>, and more generally any \<^term>\<open>abort\<close>, acts as a form of "zero" value for the sequencing
 operation, in the following sense:\<close>
 
-urust_expr [abbrev] abort_sequence_zero_expr1 ::
-  \<open>
-    'abort abort \<Rightarrow>
-    ('s, 'v, 'r, 'abort, 'i, 'o) expression \<Rightarrow>
-    ('s, 'v, 'r, 'abort, 'i, 'o) expression
-  \<close>
-  (a, e)
-  \<open> \<epsilon>\<open>abort a\<close>; \<epsilon>\<open>e\<close> \<close>
 
-urust_expr [abbrev] abort_sequence_zero_expr2
-  (a)
-  \<open> \<epsilon>\<open>abort a\<close> \<close>
 
 lemma abort_sequence_zero [micro_rust_simps]:
-  shows \<open>abort_sequence_zero_expr1 a e =
-    abort_sequence_zero_expr2 a\<close>
+  shows \<open>(sequence (abort a) e) =
+    (abort a)\<close>
   by (simp add: evaluate_abort evaluate_sequenceI expression_eqI2)
 
-urust_expr [abbrev] panic_sequence_zero_expr1 ::
-  \<open>
-    String.literal \<Rightarrow>
-    ('s, 'v, 'r, 'abort, 'i, 'o) expression \<Rightarrow>
-    ('s, 'v, 'r, 'abort, 'i, 'o) expression
-  \<close>
-  (msg, e)
-  \<open> panic!(msg); \<epsilon>\<open>e\<close> \<close>
 
-urust_expr [abbrev] panic_sequence_zero_expr2
-  (msg)
-  \<open> panic!(msg) \<close>
 
 lemma panic_sequence_zero [micro_rust_simps]:
   fixes msg :: \<open>String.literal\<close>
-  shows \<open>panic_sequence_zero_expr1 msg e =
-    panic_sequence_zero_expr2 msg\<close>
+  shows \<open>(sequence (panic msg) e) =
+    (panic msg)\<close>
   by (simp only: abort_sequence_zero)
 
   text\<open>This, too, also allows us to rewrite a chain of sequenced expressions should they contain an
@@ -798,27 +741,17 @@ instance of \<^term>\<open>panic\<close>.\<close>
 
 text\<open>The SSA transformation often produces nested let bindings which can be flattened out.\<close>
 
-urust_expr [abbrev] let_nested_expr1
-  (v1_expr, cont1, cont0)
-  \<open>
-    let v0 = {
-      let v1 = \<epsilon>\<open>v1_expr\<close>;
-      \<epsilon>\<open>cont1 v1\<close>
-    };
-    \<epsilon>\<open>cont0 v0\<close>
-  \<close>
 
-urust_expr [abbrev] let_nested_expr2
-  (v1_expr, cont1, cont0)
-  \<open>
-    let v1 = \<epsilon>\<open>v1_expr\<close>;
-    let v0 = \<epsilon>\<open>cont1 v1\<close>;
-    \<epsilon>\<open>cont0 v0\<close>
-  \<close>
 
 lemma let_nested [micro_rust_simps]:
-  shows \<open>let_nested_expr1 v1_expr cont1 cont0 =
-    let_nested_expr2 v1_expr cont1 cont0\<close>
+  shows \<open>(do { v0 \<leftarrow> do {
+           v1 \<leftarrow> (v1_expr :: ('s, 'v1, 'r, 'abort, 'i, 'o) expression);
+           cont1 v1
+         };
+         cont0 v0 }) =
+    (do { v1 \<leftarrow> v1_expr;
+         v0 \<leftarrow> cont1 v1;
+         cont0 v0 })\<close>
   by (simp add: micro_rust_simps)
 
 (*<*)

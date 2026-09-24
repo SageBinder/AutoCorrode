@@ -1,7 +1,5 @@
-(* Rejection tests for the custom uRust parser. Normal rows require both the consolidated
-   `URust_Command.elaborate` API and the existing frontend to reject; the new parser's error must
-   contain a stable substring. Divergent rows may additionally prove that the existing frontend
-   accepts. *)
+(* Rejection tests for the production uRust parser. Each row requires the
+   consolidated `URust_Command.elaborate` API to reject with a stable substring. *)
 
 theory Parser_Rejection_Tests
   imports
@@ -10,12 +8,11 @@ theory Parser_Rejection_Tests
     Parser_Constructor_Ambiguity_Left_Fixtures
     Parser_Constructor_Ambiguity_Right_Fixtures
     Parser_Registered_Constructor_Fixtures
-    Micro_Rust_Std_Lib.StdLib_Logging
+    Parser_Logging_Fixtures
 begin
 
-chapter\<open>Negative conformance\<close>
+chapter\<open>Negative parser tests\<close>
 
-declare [[urust_conformance = false]]
 declare [[urust_pp_test = false]]
 declare [[urust_verbosity = 0]]
 declare [[urust_abbrev = false]]
@@ -30,13 +27,13 @@ lowering diagnostic that follows a successful parse. Actual recovery declaration
 section\<open> Non-associative operators \<close>
 
 text\<open>
-The explicit comparison tier accepts at most one comparison operator, matching Rust and the frontend.
+The explicit comparison tier accepts at most one comparison operator, matching Rust.
 \<close>
 
-urust_expr_rejects fidelity \<open> 1 == 2 == 3 \<close> \<open> syntax error found at == \<close>
+urust_expr_rejects \<open> 1 == 2 == 3 \<close> \<open> syntax error found at == \<close>
   \<comment> \<open> [FIDELITY] chained \<open>==\<close>; the frontend rejects it with an inner-syntax error. \<close>
 
-urust_expr_rejects fidelity \<open> 1 < 2 < 3 \<close> \<open> syntax error found at < \<close>
+urust_expr_rejects \<open> 1 < 2 < 3 \<close> \<open> syntax error found at < \<close>
   \<comment> \<open> [FIDELITY] chained \<open><\<close>; same on both sides. \<close>
 
 section\<open> Prefix and with-block expression boundaries \<close>
@@ -49,96 +46,96 @@ boundaries.
 
 section\<open> Integer literals \<close>
 
-urust_expr_rejects fidelity \<open> 1_u7 \<close> \<open> unsupported integer-literal suffix "_u7" \<close>
+urust_expr_rejects \<open> 1_u7 \<close> \<open> unsupported integer-literal suffix "_u7" \<close>
   \<comment> \<open> [FIDELITY] unknown width suffix, from the single term-layer suffix table (D29); the frontend's
        numeral-ascription syntax rejects it too. Adding \<open>u7\<close> would break this row -- deliberately. \<close>
 
 section\<open> Comments \<close>
 
-urust_expr_rejects fidelity \<open> /* comment-only input */ \<close>
+urust_expr_rejects \<open> /* comment-only input */ \<close>
   \<open> empty expression \<close>
   \<comment> \<open> [FIDELITY] removing all block-comment layout leaves the ordinary empty-input result. \<close>
 
-urust_expr_rejects fidelity \<open> /* unterminated outer comment \<close>
+urust_expr_rejects \<open> /* unterminated outer comment \<close>
   \<open> unterminated block comment \<close>
   \<comment> \<open> [FIDELITY] the dedicated diagnostic is anchored at the outer opener. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> /* outer /* nested comment */ still open \<close>
   \<open> unterminated block comment \<close>
   \<comment> \<open> [FIDELITY] closing a nested level does not close the outer comment. \<close>
 
-urust_expr_rejects fidelity \<open> /*/ \<close>
+urust_expr_rejects \<open> /*/ \<close>
   \<open> unterminated block comment \<close>
   \<comment> \<open> [FIDELITY] the final slash is body text, not a reversed closer. \<close>
 
-urust_expr_rejects fidelity \<open> 1_u64 */ 2_u64 \<close>
+urust_expr_rejects \<open> 1_u64 */ 2_u64 \<close>
   \<open> syntax error found at / \<close>
   \<comment> \<open> [FIDELITY] an unmatched closer remains the ordinary \<open>*\<close> and \<open>/\<close> operator tokens. \<close>
 
-urust_expr_rejects fidelity \<open> f::<1 /* layout */ + 2>() \<close>
+urust_expr_rejects \<open> f::<1 /* layout */ + 2>() \<close>
   \<open> unexpected input "/" \<close>
   \<comment> \<open> [FIDELITY] restricted turbofish syntax does not admit Rust block-comment layout. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> l\<llangle>"value", /* layout */ True\<rrangle> \<close>
   \<open> unexpected input "/" \<close>
   \<comment> \<open> [FIDELITY] structured log-data syntax retains its deliberately restricted lexer state. \<close>
 
 section\<open> Unsupported Rust-compatible integer suffixes \<close>
 
-urust_expr_rejects fidelity \<open> 1u128 \<close> \<open> unsupported integer-literal suffix "u128" \<close>
+urust_expr_rejects \<open> 1u128 \<close> \<open> unsupported integer-literal suffix "u128" \<close>
   \<comment> \<open> [FIDELITY] a glued unsupported decimal width is one numeric token and is rejected at its
        suffix by the sole term-layer table. \<close>
 
-urust_expr_rejects fidelity \<open> 0xffu128 \<close> \<open> unsupported integer-literal suffix "u128" \<close>
+urust_expr_rejects \<open> 0xffu128 \<close> \<open> unsupported integer-literal suffix "u128" \<close>
   \<comment> \<open> [FIDELITY] the same longest-match and positioned suffix diagnostic apply after hex digits. \<close>
 
-urust_expr_rejects fidelity \<open> 1i32 \<close> \<open> unsupported integer-literal suffix "i32" \<close>
+urust_expr_rejects \<open> 1i32 \<close> \<open> unsupported integer-literal suffix "i32" \<close>
   \<comment> \<open> [FIDELITY] signed integer types are not added by the glued-suffix syntax improvement. \<close>
 
-urust_expr_rejects fidelity \<open> 0xffi32 \<close> \<open> unsupported integer-literal suffix "i32" \<close>
+urust_expr_rejects \<open> 0xffi32 \<close> \<open> unsupported integer-literal suffix "i32" \<close>
   \<comment> \<open> [FIDELITY] unsupported signed suffixes also stay intact after a hex literal. \<close>
 
-urust_expr_rejects fidelity \<open> 1u32tail \<close> \<open> unsupported integer-literal suffix "u32tail" \<close>
+urust_expr_rejects \<open> 1u32tail \<close> \<open> unsupported integer-literal suffix "u32tail" \<close>
   \<comment> \<open> [FIDELITY] lexical longest-match must not accept the supported prefix and leave an identifier. \<close>
 
-urust_expr_rejects fidelity \<open> 0xffu8tail \<close> \<open> unsupported integer-literal suffix "u8tail" \<close>
+urust_expr_rejects \<open> 0xffu8tail \<close> \<open> unsupported integer-literal suffix "u8tail" \<close>
   \<comment> \<open> [FIDELITY] hexadecimal suffix candidates obey the same whole-token boundary. \<close>
 
-urust_expr_rejects fidelity \<open> 1foo \<close> \<open> unsupported integer-literal suffix "foo" \<close>
+urust_expr_rejects \<open> 1foo \<close> \<open> unsupported integer-literal suffix "foo" \<close>
   \<comment> \<open> [FIDELITY] immediate identifier adjacency is a suffix candidate, not a second token. \<close>
 
-urust_expr_rejects fidelity \<open> 0xffvalue \<close> \<open> unsupported integer-literal suffix "value" \<close>
+urust_expr_rejects \<open> 0xffvalue \<close> \<open> unsupported integer-literal suffix "value" \<close>
   \<comment> \<open> [FIDELITY] a non-hex identifier start establishes the corresponding hex suffix boundary. \<close>
 
-urust_expr_rejects fidelity \<open> 1 foo \<close> \<open> syntax error found at <identifier> \<close>
+urust_expr_rejects \<open> 1 foo \<close> \<open> syntax error found at <identifier> \<close>
   \<comment> \<open> [FIDELITY] whitespace terminates the numeric token; the following identifier is not swallowed. \<close>
 
-urust_expr_rejects fidelity \<open> 0b102u32 \<close>
+urust_expr_rejects \<open> 0b102u32 \<close>
   \<open> cannot read integer literal "0b102u32" \<close>
 
-urust_expr_rejects fidelity \<open> 0o8 \<close>
+urust_expr_rejects \<open> 0o8 \<close>
   \<open> cannot read integer literal "0o8" \<close>
 
-urust_expr_rejects fidelity \<open> 0xg \<close>
+urust_expr_rejects \<open> 0xg \<close>
   \<open> cannot read integer literal "0xg" \<close>
 
-urust_expr_rejects fidelity \<open> 0b_1 \<close>
+urust_expr_rejects \<open> 0b_1 \<close>
   \<open> cannot read integer literal "0b_1" \<close>
 
-urust_expr_rejects fidelity \<open> 0o_7 \<close>
+urust_expr_rejects \<open> 0o_7 \<close>
   \<open> cannot read integer literal "0o_7" \<close>
 
-urust_expr_rejects fidelity \<open> 0x_f \<close>
+urust_expr_rejects \<open> 0x_f \<close>
   \<open> cannot read integer literal "0x_f" \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> match_switch \<llangle>1 :: nat\<rrangle> { 1u8 \<Rightarrow> (), _ \<Rightarrow> () } \<close>
   \<open> <integer> => \<close>
   \<comment> \<open> [FIDELITY] suffixed decimal literals remain outside the pattern grammar. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> match_switch \<llangle>1 :: nat\<rrangle> { 0xffu8 \<Rightarrow> (), _ \<Rightarrow> () } \<close>
   \<open> <integer> => \<close>
   \<comment> \<open> [FIDELITY] suffixed hexadecimal literals preserve the same pattern boundary. \<close>
@@ -180,35 +177,35 @@ micro_rust_notation (literal)
   qualified_wrong_role_literal
   ("WrongRole::Macro!")
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open> UnregisteredValue::Item \<close>
   \<open> qualified path "UnregisteredValue::Item" requires an exact micro_rust_notation (literal) declaration \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open> WrongRole::Value \<close>
   \<open> qualified path "WrongRole::Value" requires an exact micro_rust_notation (literal) declaration \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open> UnregisteredCall::run() \<close>
   \<open> qualified path "UnregisteredCall::run" requires an exact micro_rust_notation (call) declaration \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open> WrongRole::Call() \<close>
   \<open> qualified path "WrongRole::Call" requires an exact micro_rust_notation (call) declaration \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open> UnregisteredPlace::slot = () \<close>
   \<open> qualified path "UnregisteredPlace::slot" requires an exact micro_rust_notation (literal) declaration \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open> UnregisteredMacro::run!() \<close>
   \<open> qualified path "UnregisteredMacro::run!" requires an exact micro_rust_notation (call) declaration \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open> WrongRole::Macro!() \<close>
   \<open> qualified path "WrongRole::Macro!" requires an exact micro_rust_notation (call) declaration \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open>
     match_case \<llangle>Some (1 :: nat)\<rrangle> {
       UnregisteredConstructor::Some(value) \<Rightarrow> value,
@@ -217,7 +214,7 @@ new_urust_rejects audit
   \<close>
   \<open> qualified path "UnregisteredConstructor::Some" requires an exact micro_rust_notation (literal) declaration \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open>
     match_case \<llangle>Some (1 :: nat)\<rrangle> {
       WrongRole::Pattern(value) \<Rightarrow> value,
@@ -226,7 +223,7 @@ new_urust_rejects audit
   \<close>
   \<open> qualified path "WrongRole::Pattern" requires an exact micro_rust_notation (literal) declaration \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open>
     match_case \<llangle>NegativeStruct 1 2\<rrangle> {
       UnregisteredStruct::Pattern { negative_left: x, .. } \<Rightarrow> x
@@ -234,11 +231,11 @@ new_urust_rejects audit
   \<close>
   \<open> qualified path "UnregisteredStruct::Pattern" requires an exact micro_rust_notation (literal) declaration \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open> UnregisteredStruct::Expression { value: () } \<close>
   \<open> qualified path "UnregisteredStruct::Expression" requires an exact micro_rust_notation (call) declaration \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open> WrongRole::StructExpression { value: () } \<close>
   \<open> qualified path "WrongRole::StructExpression" requires an exact micro_rust_notation (call) declaration \<close>
 
@@ -296,27 +293,27 @@ Every alternative is validated before Resolution allocates any local. These rows
 diagnostics across the recursive shapes and binding sites that currently consume patterns.
 \<close>
 
-new_urust_rejects divergent
+urust_expr_rejects
   \<open> let (x, x) = \<llangle>(1 :: nat, (2 :: nat, TNil))\<rrangle>; x \<close>
   \<open> duplicate pattern binder "x" \<close>
   \<comment> \<open> [DIVERGENT] the custom parser rejects the duplicate before allocating either binder. \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open> const x @ x = \<llangle>1 :: nat\<rrangle>; x \<close>
   \<open> duplicate pattern binder "x" \<close>
   \<comment> \<open> [AUDIT] aliases participate in the same atomic duplicate-binder validation. \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open> for (x, x) in \<llangle>[(1 :: nat, (2 :: nat, TNil))]\<rrangle> { () } \<close>
   \<open> duplicate pattern binder "x" \<close>
   \<comment> \<open> [AUDIT] loop binders validate recursively before allocating locals. \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open> let mut (x, x) = \<llangle>(1 :: nat, (2 :: nat, TNil))\<rrangle>; x \<close>
   \<open> duplicate pattern binder "x" \<close>
   \<comment> \<open> [AUDIT] mutable tuple binders retain the atomic validation boundary. \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open>
     #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let Some((x, x)) =
       \<llangle>Some (1 :: nat, (2 :: nat, TNil))\<rrangle> { () }
@@ -324,12 +321,12 @@ new_urust_rejects audit
   \<open> duplicate pattern binder "x" \<close>
   \<comment> \<open> [AUDIT] while-let validates nested constructor payloads atomically. \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open> match_case \<llangle>[1 :: nat, 2]\<rrangle> { [x, x] \<Rightarrow> x, _ \<Rightarrow> 0 } \<close>
   \<open> duplicate pattern binder "x" \<close>
   \<comment> \<open> [AUDIT] slice children share the source arm's single validation pass. \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open>
     match_case \<llangle>NegativeStruct 1 2\<rrangle> {
       NegativeStruct(x, x) \<Rightarrow> x
@@ -338,7 +335,7 @@ new_urust_rejects audit
   \<open> duplicate pattern binder "x" \<close>
   \<comment> \<open> [AUDIT] positional constructor children share the atomic binder set. \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open>
     match_case \<llangle>NegativeStruct 1 2\<rrangle> {
       NegativeStruct { negative_left: x, negative_right: x } \<Rightarrow> x
@@ -353,17 +350,17 @@ checks run before cross-alternative comparison; missing names are selected deter
 extra names, and no rejected arm reaches guard or body lowering.
 \<close>
 
-new_urust_rejects frontend_accepts
+urust_expr_rejects
   \<open> match_case \<llangle>Some (1 :: nat)\<rrangle> { Some(x) | None \<Rightarrow> x } \<close>
   \<open> or-pattern alternative is missing binder "x" \<close>
   \<comment> \<open> [DIVERGENT] Rust requires every alternative to bind the same names. \<close>
 
-new_urust_rejects frontend_accepts
+urust_expr_rejects
   \<open> match_case \<llangle>Some (1 :: nat)\<rrangle> { None | Some(x) \<Rightarrow> 0 } \<close>
   \<open> or-pattern alternative has extra binder "x" \<close>
   \<comment> \<open> [DIVERGENT] reversing the alternatives makes the empty first binder set canonical. \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open>
     match_case \<llangle>NegativeStruct 1 2\<rrangle> {
       NegativeStruct(z, x) | NegativeStruct(_, _) \<Rightarrow> 0
@@ -372,7 +369,7 @@ new_urust_rejects audit
   \<open> or-pattern alternative is missing binder "x" \<close>
   \<comment> \<open> [AUDIT] multiple missing names are diagnosed in deterministic name order. \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open>
     match_case \<llangle>Some (1 :: nat)\<rrangle> {
       Some(x) | Some(x) | None \<Rightarrow> x
@@ -381,7 +378,7 @@ new_urust_rejects audit
   \<open> or-pattern alternative is missing binder "x" \<close>
   \<comment> \<open> [AUDIT] a third alternative is compared with the first alternative's binder set. \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open>
     match_case \<llangle>Some (Ok (1 :: nat))\<rrangle> {
       Some(Ok(x) | Err(y)) \<Rightarrow> 0, _ \<Rightarrow> 0
@@ -390,7 +387,7 @@ new_urust_rejects audit
   \<open> or-pattern alternative is missing binder "x" \<close>
   \<comment> \<open> [AUDIT] nested alternatives report a missing canonical binder before an extra binder. \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open>
     match_case \<llangle>Some (Some (1 :: nat))\<rrangle> {
       Some(None | Some(x)) \<Rightarrow> 0, _ \<Rightarrow> 0
@@ -399,7 +396,7 @@ new_urust_rejects audit
   \<open> or-pattern alternative has extra binder "x" \<close>
   \<comment> \<open> [AUDIT] nested constructor alternatives retain the same extra-binder rule. \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open>
     match_case \<llangle>Some (1 :: nat)\<rrangle> {
       Some(x) | None if unknown_binder_guard!() \<Rightarrow>
@@ -410,7 +407,7 @@ new_urust_rejects audit
   \<open> or-pattern alternative is missing binder "x" \<close>
   \<comment> \<open> [AUDIT] binder validation wins before guard and body macro resolution. \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open>
     match_case \<llangle>[1 :: nat, 2]\<rrangle> {
       [] | [x, ..] \<Rightarrow> 0, _ \<Rightarrow> 0
@@ -419,7 +416,7 @@ new_urust_rejects audit
   \<open> or-pattern alternative has extra binder "x" \<close>
   \<comment> \<open> [AUDIT] reversing nested slice alternatives exposes the extra-binder diagnostic. \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open>
     match_case \<llangle>NegativeStruct 1 2\<rrangle> {
       NegativeStruct(x, x) | NegativeStruct(y, _) \<Rightarrow> 0
@@ -428,7 +425,7 @@ new_urust_rejects audit
   \<open> duplicate pattern binder "x" \<close>
   \<comment> \<open> [AUDIT] a duplicate in the canonical alternative wins before binder-set comparison. \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open>
     match_case \<llangle>NegativeStruct 1 2\<rrangle> {
       NegativeStruct(x, _) | NegativeStruct(y, y) \<Rightarrow> 0
@@ -437,182 +434,182 @@ new_urust_rejects audit
   \<open> duplicate pattern binder "y" \<close>
   \<comment> \<open> [AUDIT] a duplicate in a later alternative wins before missing/extra comparison. \<close>
 
-urust_expr_rejects fidelity \<open> let Some(x) = \<llangle>Some (0 :: nat)\<rrangle>; () \<close>
+urust_expr_rejects \<open> let Some(x) = \<llangle>Some (0 :: nat)\<rrangle>; () \<close>
   \<open> unsupported or refutable pattern in an irrefutable (let/const) binder position \<close>
   \<comment> \<open> [FIDELITY] the site gate on the ONE pattern language (D28). The frontend rejects it as well,
        though less cleanly -- an uncaught \<open>TERM\<close> exception out of \<open>abs_tr _shallow_let_pattern\<close>. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> let (Some(x), y) = \<llangle>(Some (0 :: nat), (True, TNil))\<rrangle>; () \<close>
   \<open> unsupported or refutable pattern in an irrefutable (let/const) binder position \<close>
   \<comment> \<open> [FIDELITY] tuple binders recurse through the irrefutability gate, so the constructor component
        is rejected at its own source position. \<close>
 
-urust_expr_rejects fidelity \<open> let true = true; () \<close>
+urust_expr_rejects \<open> let true = true; () \<close>
   \<open> unsupported or refutable pattern in an irrefutable (let/const) binder position \<close>
   \<comment> \<open> [FIDELITY] boolean value patterns are refutable. \<close>
 
-urust_expr_rejects fidelity \<open> const "ok" = "ok"; () \<close>
+urust_expr_rejects \<open> const "ok" = "ok"; () \<close>
   \<open> unsupported or refutable pattern in an irrefutable (let/const) binder position \<close>
   \<comment> \<open> [FIDELITY] string value patterns are refutable. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> let \<llangle>2 :: nat\<rrangle> = \<llangle>2 :: nat\<rrangle>; () \<close>
   \<open> unsupported or refutable pattern in an irrefutable (let/const) binder position \<close>
   \<comment> \<open> [FIDELITY] value-antiquotation patterns are refutable. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> let mut (x) = \<llangle>1 :: nat\<rrangle>; x \<close>
   \<open> invalid mutable binding pattern \<close>
   \<comment> \<open> [FIDELITY] the frontend accepts a scalar mutable identifier or an actual top-level tuple,
        not a grouped scalar. The diagnostic is positioned at the grouped pattern. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> let mut Some(x) = \<llangle>Some (1 :: nat)\<rrangle>; x \<close>
   \<open> invalid mutable binding pattern \<close>
   \<comment> \<open> [FIDELITY] constructor patterns are not mutable binding heads. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> let mut &x = \<llangle>1 :: nat\<rrangle>; x \<close>
   \<open> reference patterns are not implemented \<close>
   \<comment> \<open> [FIDELITY] reference-pattern syntax has no current binding semantics. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> let mut whole @ x = \<llangle>1 :: nat\<rrangle>; x \<close>
   \<open> invalid mutable binding pattern \<close>
   \<comment> \<open> [FIDELITY] aliases are rejected by the mutable-site gate. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> let mut [x, ..] = \<llangle>[1 :: nat]\<rrangle>; x \<close>
   \<open> invalid mutable binding pattern \<close>
   \<comment> \<open> [FIDELITY] slice patterns are rejected by the mutable-site gate. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> let mut (Some(x), y) = \<llangle>(Some (1 :: nat), (2 :: nat, TNil))\<rrangle>; x \<close>
   \<open> unsupported or refutable pattern in an irrefutable (let/const) binder position \<close>
   \<comment> \<open> [FIDELITY] top-level tuple \<open>mut\<close> is erased, after which the ordinary recursive
        irrefutability gate rejects a constructor component at its own position. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> let &x = \<llangle>1 :: nat\<rrangle>; x \<close>
   \<open> reference patterns are not implemented \<close>
   \<comment> \<open> [FIDELITY] reference-pattern syntax has no current binding semantics. \<close>
 
-new_urust_rejects divergent
+urust_expr_rejects
   \<open> const &x = \<llangle>1 :: nat\<rrangle>; x \<close>
   \<open> reference patterns are not implemented \<close>
   \<comment> \<open> [DIVERGENT] const bindings share the same non-erasing reference-pattern gate. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> match \<llangle>1 :: nat\<rrangle> { &1 \<Rightarrow> \<llangle>True\<rrangle>, _ \<Rightarrow> \<llangle>False\<rrangle> } \<close>
   \<open> numeric patterns are not supported in case patterns \<close>
   \<comment> \<open> [FIDELITY] wrapper erasure exposes the underlying unsupported case numeral. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> match_case \<llangle>1 :: nat\<rrangle> { (&1)..2 \<Rightarrow> True, _ \<Rightarrow> False } \<close>
   \<open> invalid range-pattern endpoint \<close>
   \<comment> \<open> [FIDELITY] range endpoints remain value-only; wrapper erasure applies to the complete
        case pattern, not inside an endpoint. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> match_case \<llangle>1 :: nat\<rrangle> { 0..=(&2) \<Rightarrow> True, _ \<Rightarrow> False } \<close>
   \<open> invalid range-pattern endpoint \<close>
   \<comment> \<open> [FIDELITY] the upper range endpoint has the same value-only boundary. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> match_switch \<llangle>(0 :: nat, (True, TNil))\<rrangle> { (x, y) \<Rightarrow> () } \<close>
   \<open> unsupported match_switch pattern \<close>
   \<comment> \<open> [FIDELITY] tuple patterns require case lowering; explicit \<open>match_switch\<close> remains
        first-order and rejects them with its stable positioned diagnostic. \<close>
 
-urust_expr_rejects fidelity \<open> match_switch true { true \<Rightarrow> () } \<close>
+urust_expr_rejects \<open> match_switch true { true \<Rightarrow> () } \<close>
   \<open> unsupported match_switch pattern \<close>
   \<comment> \<open> [FIDELITY] boolean patterns require equality-guard case lowering. \<close>
 
-urust_expr_rejects fidelity \<open> match_switch "ok" { "ok" \<Rightarrow> () } \<close>
+urust_expr_rejects \<open> match_switch "ok" { "ok" \<Rightarrow> () } \<close>
   \<open> unsupported match_switch pattern \<close>
   \<comment> \<open> [FIDELITY] string patterns require equality-guard case lowering. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> match_switch \<llangle>2 :: nat\<rrangle> { \<llangle>2 :: nat\<rrangle> \<Rightarrow> () } \<close>
   \<open> unsupported match_switch pattern \<close>
   \<comment> \<open> [FIDELITY] value-antiquotation patterns require equality-guard case lowering. \<close>
 
-urust_expr_rejects fidelity \<open> (\<llangle>1 :: nat\<rrangle>,) \<close> \<open> syntax error found at ) \<close>
+urust_expr_rejects \<open> (\<llangle>1 :: nat\<rrangle>,) \<close> \<open> syntax error found at ) \<close>
   \<comment> \<open> [FIDELITY] singleton tuples are outside the current frontend tuple grammar. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> let (x,) = \<llangle>(1 :: nat, TNil)\<rrangle>; x \<close>
   \<open> syntax error: deleting  ) = \<close>
   \<comment> \<open> [FIDELITY] a terminal comma does not turn a grouped singleton pattern into a tuple. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> (\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>,,) \<close>
   \<open> syntax error found at , \<close>
   \<comment> \<open> [FIDELITY] a trailing comma is one separator, not an empty tuple element. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> let (x, y,,) = \<llangle>(1 :: nat, (2 :: nat, TNil))\<rrangle>; x \<close>
   \<open> syntax error: deleting  , ) = \<close>
   \<comment> \<open> [FIDELITY] tuple-pattern lists likewise reject an empty element after the terminal comma. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> match_case \<llangle>Some (1 :: nat)\<rrangle> { Some(x,,) \<Rightarrow> x, None \<Rightarrow> 0 } \<close>
   \<open> syntax error: deleting  , ) => \<close>
   \<comment> \<open> [FIDELITY] constructor argument lists reject doubled terminal commas. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> match \<llangle>Some (1 :: nat)\<rrangle> { Some(x) \<Rightarrow> x, None \<Rightarrow> 0,, } \<close>
   \<open> syntax error found at , \<close>
   \<comment> \<open> [FIDELITY] match-arm lists reject an empty arm after the terminal comma. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> match \<llangle>[1 :: nat, 2]\<rrangle> { [x, y,,] \<Rightarrow> x, _ \<Rightarrow> 0 } \<close>
   \<open> syntax error: deleting  , ] => \<close>
   \<comment> \<open> [FIDELITY] slice-pattern lists reject doubled terminal commas. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> match \<llangle>NegativeStruct 1 2\<rrangle> { NegativeStruct { negative_left: x, negative_right: y,, } \<Rightarrow> x } \<close>
   \<open> syntax error: deleting  , } => \<close>
   \<comment> \<open> [FIDELITY] struct-field lists reject an empty field after the terminal comma. \<close>
 
-urust_expr_rejects fidelity \<open> let () = (); () \<close> \<open> syntax error \<close>
+urust_expr_rejects \<open> let () = (); () \<close> \<open> syntax error \<close>
   \<comment> \<open> [FIDELITY] unit is an expression but not a pattern in the current frontend. \<close>
 
-urust_expr_rejects fidelity \<open> match_case \<llangle>0 :: nat\<rrangle> { 0 \<Rightarrow> (), _ \<Rightarrow> () } \<close>
+urust_expr_rejects \<open> match_case \<llangle>0 :: nat\<rrangle> { 0 \<Rightarrow> (), _ \<Rightarrow> () } \<close>
   \<open> numeric patterns are not supported in case patterns \<close>
   \<comment> \<open> [FIDELITY] a numeral belongs to \<open>match_switch\<close>; source validation rejects it before
        generated case clauses are constructed. \<close>
 
-urust_expr_rejects fidelity \<open> match_case \<llangle>1 :: nat\<rrangle> { 1 \<Rightarrow> (), _ \<Rightarrow> () } \<close>
+urust_expr_rejects \<open> match_case \<llangle>1 :: nat\<rrangle> { 1 \<Rightarrow> (), _ \<Rightarrow> () } \<close>
   \<open> numeric patterns are not supported in case patterns \<close>
   \<comment> \<open> [FIDELITY] literal \<open>1\<close> has the same dedicated case-pattern node and rejection boundary as
        literal \<open>0\<close>. \<close>
 
-urust_expr_rejects fidelity \<open> match_case \<llangle>2 :: nat\<rrangle> { 2 \<Rightarrow> (), _ \<Rightarrow> () } \<close>
+urust_expr_rejects \<open> match_case \<llangle>2 :: nat\<rrangle> { 2 \<Rightarrow> (), _ \<Rightarrow> () } \<close>
   \<open> numeric patterns are not supported in case patterns \<close>
   \<comment> \<open> [FIDELITY] the frontend's attempted guarded lowering retains the raw token and rejects with
        \<open>Undefined constant: "2"\<close>; the parser gives the same accept-set boundary a positioned diagnostic. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> match_case \<llangle>Some (2 :: nat)\<rrangle> { Some(2) \<Rightarrow> (), _ \<Rightarrow> () } \<close>
   \<open> numeric patterns are not supported in case patterns \<close>
   \<comment> \<open> [FIDELITY] constructor-nested numerals hit the same frontend raw-token rejection. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> match_switch \<llangle>2 :: nat\<rrangle> { 2 if True \<Rightarrow> (), _ \<Rightarrow> () } \<close>
   \<open> guards are not supported in explicit `match_switch` \<close>
   \<comment> \<open> [FIDELITY] guards force bare \<open>match\<close> to case lowering, but the explicit switch form rejects
        them rather than changing lowering. \<close>
 
-urust_expr_rejects fidelity \<open> match_case \<llangle>Some (0 :: nat)\<rrangle> { NoSuchCtor(x) \<Rightarrow> (), _ \<Rightarrow> () } \<close>
+urust_expr_rejects \<open> match_case \<llangle>Some (0 :: nat)\<rrangle> { NoSuchCtor(x) \<Rightarrow> (), _ \<Rightarrow> () } \<close>
   \<open> `NoSuchCtor` is not a known constructor \<close>
   \<comment> \<open> [FIDELITY] ordinary unregistered constructor lookup retains the \<open>Code.is_constr\<close>
        boundary; the frontend agrees ("Error in case expression: Not a datatype constructor"). \<close>
 
 subsection\<open> Registered constructor diagnostics \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open>
     match_case \<llangle>NegativeRegisteredUnary 0\<rrangle> {
       NegativeRegistered::Unary \<Rightarrow> 0,
@@ -622,7 +619,7 @@ new_urust_rejects audit
   \<open> constructor "Unary" expects 1 pattern argument(s), but got 0 \<close>
   \<comment> \<open> [AUDIT] an exact constructor registration retains its authentic arity for a nullary use. \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open>
     match_case \<llangle>NegativeRegisteredUnary 0\<rrangle> {
       NegativeRegistered::Unary(left, right) \<Rightarrow> left,
@@ -632,7 +629,7 @@ new_urust_rejects audit
   \<open> constructor "NegativeRegistered::Unary" expects 1 pattern argument(s), but got 2 \<close>
   \<comment> \<open> [AUDIT] the same arity check covers excess arguments at the terminal constructor token. \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open>
     match_case \<llangle>negative_registered_nonconstructor\<rrangle> {
       NegativeRegistered::Value(value) \<Rightarrow> value,
@@ -643,7 +640,7 @@ new_urust_rejects audit
   \<comment> \<open> [AUDIT] a definition equal to a constructor is still a value registration; resolution does
        not unfold it to manufacture constructor identity. \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open>
     match_case \<llangle>NegativeRegisteredNullary\<rrangle> {
       NegativeRegistered::Ambiguous \<Rightarrow> 0,
@@ -653,7 +650,7 @@ new_urust_rejects audit
   \<open> constructor pattern "NegativeRegistered::Ambiguous" is ambiguous; candidates: \<close>
   \<comment> \<open> [AUDIT] two distinct authentic registered backends retain a deterministic ambiguity. \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open>
     match_case \<llangle>NegativeRegisteredUnary 0\<rrangle> {
       NegativeRegistered::Applied(value) \<Rightarrow> value,
@@ -663,19 +660,19 @@ new_urust_rejects audit
   \<open> `NegativeRegistered::Applied` is not a known constructor \<close>
   \<comment> \<open> [AUDIT] an application headed by a constructor is not the whole constructor term. \<close>
 
-new_urust_rejects divergent \<open> match_switch \<llangle>0 :: nat\<rrangle> { x \<Rightarrow> () } \<close>
+urust_expr_rejects \<open> match_switch \<llangle>0 :: nat\<rrangle> { x \<Rightarrow> () } \<close>
   \<open> unsupported match_switch key "x" \<close>
   \<comment> \<open> [DIVERGENT] the frontend accepts a binding key under \<open>match_switch\<close>. The dedicated
        parser accepts numerals, \<open>_\<close>, and exact registered identifiers/paths as keys, but an
        unregistered identifier remains a binding pattern and needs \<open>match_case\<close>. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> match \<llangle>Some (0 :: nat)\<rrangle> { 0 \<Rightarrow> (), Some(x) \<Rightarrow> () } \<close>
   \<open> mixed numeral and constructor patterns in bare `match` \<close>
   \<comment> \<open> [FIDELITY] bare-match routing cannot select one lowering for numeral and constructor heads;
        the frontend reports the same mixed-match category. \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open>
     match \<llangle>NegativeRegisteredNullary\<rrangle> {
       0 \<Rightarrow> (),
@@ -686,7 +683,7 @@ new_urust_rejects audit
   \<comment> \<open> [AUDIT] an exact authentic constructor registration remains case-only during automatic
        routing. \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open>
     match
       \<llangle>
@@ -700,7 +697,7 @@ new_urust_rejects audit
   \<open> mixed numeral and constructor patterns in bare `match` \<close>
   \<comment> \<open> [AUDIT] phantom instantiation does not disguise registered constructor identity. \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open>
     match \<llangle>NegativeRegisteredNullary\<rrangle> {
       0 \<Rightarrow> (),
@@ -711,7 +708,7 @@ new_urust_rejects audit
   \<comment> \<open> [AUDIT] when one exact key has both a constructor and a nonconstructor backend, the
        authentic constructor makes automatic routing case-only. \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open>
     match \<llangle>NegativeRegisteredNullary\<rrangle> {
       0 \<Rightarrow> (),
@@ -722,7 +719,7 @@ new_urust_rejects audit
   \<comment> \<open> [AUDIT] two distinct constructor registrations classify as constructor-shaped before
        later case-resolution ambiguity can run. \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open>
     match 42 {
       0 if True \<Rightarrow> (),
@@ -733,7 +730,7 @@ new_urust_rejects audit
   \<open> numeric patterns are not supported in case patterns \<close>
   \<comment> \<open> [AUDIT] any source guard forces case lowering before the first numeral is validated. \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open>
     match_case 42 {
       0 \<Rightarrow> (),
@@ -744,7 +741,7 @@ new_urust_rejects audit
   \<open> numeric patterns are not supported in case patterns \<close>
   \<comment> \<open> [AUDIT] explicit case flavour remains authoritative. \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open>
     match_switch 42 {
       NegativeRegistered::Number if True \<Rightarrow> (),
@@ -754,7 +751,7 @@ new_urust_rejects audit
   \<open> guards are not supported in explicit `match_switch` \<close>
   \<comment> \<open> [AUDIT] contextual registered-value support does not relax explicit switch guards. \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open>
     match 0 {
       0 \<Rightarrow> (),
@@ -764,7 +761,7 @@ new_urust_rejects audit
   \<open> qualified path "Unregistered::Value" requires an exact micro_rust_notation (literal) declaration \<close>
   \<comment> \<open> [AUDIT] an unregistered qualified pattern fails before automatic match routing. \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open>
     match 0 {
       0 \<Rightarrow> (),
@@ -774,7 +771,7 @@ new_urust_rejects audit
   \<open> mixed numeral and constructor patterns in bare `match` \<close>
   \<comment> \<open> [AUDIT] an unregistered bare identifier remains a case-only binding pattern. \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open>
     match_switch \<llangle>NegativeRegisteredNullary\<rrangle> {
       NegativeRegistered::Nullary \<Rightarrow> (),
@@ -784,106 +781,106 @@ new_urust_rejects audit
   \<open> requires case-pattern lowering \<close>
   \<comment> \<open> [AUDIT] authentic registered constructors remain case-only under an explicit switch. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> match_case \<llangle>Some (2 :: nat)\<rrangle> { Some(1..2..3) \<Rightarrow> (), _ \<Rightarrow> () } \<close>
   \<open> range patterns are non-associative \<close>
   \<comment> \<open> [FIDELITY] range patterns are non-associative. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> match_case \<llangle>[1 :: nat]\<rrangle> { [.., ..] \<Rightarrow> (), _ \<Rightarrow> () } \<close>
   \<open> slice pattern has multiple `..` rest entries \<close>
   \<comment> \<open> [FIDELITY] a slice has at most one rest marker. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> match_case \<llangle>NegativeStruct 1 2\<rrangle> { NegativeStruct { negative_left: x, negative_left: y, .. } \<Rightarrow> x } \<close>
   \<open> has duplicate field "negative_left" \<close>
   \<comment> \<open> [FIDELITY] duplicate struct fields reject at the repeated field. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> match_case \<llangle>NegativeStruct 1 2\<rrangle> { NegativeStruct { negative_left: x } \<Rightarrow> x } \<close>
   \<open> is missing field(s): negative_right \<close>
   \<comment> \<open> [FIDELITY] omitted fields require a struct rest marker. \<close>
 
-new_urust_rejects divergent
+urust_expr_rejects
   \<open> match_case \<llangle>NegativeMoreSelector 1 2\<rrangle> { NegativeMoreSelector { negative_more_required: x } \<Rightarrow> x } \<close>
   \<open> is missing field(s): more \<close>
   \<comment> \<open> [DIVERGENT] an ordinary datatype selector named \<open>more\<close> is required. The frontend
        mistakes its basename for HOL record-extension metadata and accepts the omission. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> match_case \<llangle>\<lparr>negative_record_left = 1, negative_record_right = 2\<rparr>\<rrangle> { negative_record_fixture { negative_record_left: x, negative_record_right: _ } \<Rightarrow> x } \<close>
   \<open> HOL record pattern "negative_record_fixture" requires selector-based lowering \<close>
-  \<comment> \<open> [FIDELITY] both frontends reject HOL record extension constructors. The custom parser
-       exposes the explicit boundary for future selector-based lowering. \<close>
+  \<comment> \<open> [FIDELITY] HOL record extension constructors remain unsupported pending
+       selector-based lowering. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> match_case \<llangle>NegativeStruct 1 2\<rrangle> { NegativeStruct { unknown: x, .. } \<Rightarrow> x } \<close>
   \<open> has unknown field "unknown" \<close>
   \<comment> \<open> [FIDELITY] selector metadata validates struct field names. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> match_case \<llangle>NegativeStruct 1 2\<rrangle> { NoSuchStruct { field: x, .. } \<Rightarrow> x } \<close>
   \<open> no matching constructor or single-constructor record/datatype found \<close>
   \<comment> \<open> [FIDELITY] struct heads must resolve through constructor/type metadata. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> match_case \<llangle>NegativeStruct 1 2\<rrangle> { NegativeStruct { .., .. } \<Rightarrow> () } \<close>
   \<open> struct pattern has multiple `..` rest entries \<close>
   \<comment> \<open> [FIDELITY] a struct has at most one rest entry. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> let whole @ x = \<llangle>1 :: nat\<rrangle>; x \<close>
   \<open> unsupported or refutable pattern in an irrefutable (let/const) binder position \<close>
   \<comment> \<open> [FIDELITY] aliases remain outside irrefutable let binders. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> const (1..=2) = \<llangle>1 :: nat\<rrangle>; () \<close>
   \<open> unsupported or refutable pattern in an irrefutable (let/const) binder position \<close>
   \<comment> \<open> [FIDELITY] ranges remain outside irrefutable const binders. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> let [x, ..] = \<llangle>[1 :: nat]\<rrangle>; x \<close>
   \<open> unsupported or refutable pattern in an irrefutable (let/const) binder position \<close>
   \<comment> \<open> [FIDELITY] slices remain outside irrefutable let binders. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> const NegativeStruct { negative_left: x, .. } = \<llangle>NegativeStruct 1 2\<rrangle>; () \<close>
   \<open> unsupported or refutable pattern in an irrefutable (let/const) binder position \<close>
   \<comment> \<open> [FIDELITY] structs remain outside irrefutable const binders. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> match_switch \<llangle>Some (1 :: nat)\<rrangle> { whole @ Some(x) \<Rightarrow> () } \<close>
   \<open> unsupported match_switch pattern \<close>
   \<comment> \<open> [FIDELITY] aliases require case lowering. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> match_switch \<llangle>1 :: nat\<rrangle> { 1..=2 \<Rightarrow> () } \<close>
   \<open> unsupported match_switch pattern \<close>
   \<comment> \<open> [FIDELITY] ranges require case lowering. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> match_switch \<llangle>[1 :: nat]\<rrangle> { [x, ..] \<Rightarrow> () } \<close>
   \<open> unsupported match_switch pattern \<close>
   \<comment> \<open> [FIDELITY] slices require case lowering. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> match_switch \<llangle>NegativeStruct 1 2\<rrangle> { NegativeStruct { negative_left: x, .. } \<Rightarrow> () } \<close>
   \<open> unsupported match_switch pattern \<close>
   \<comment> \<open> [FIDELITY] struct patterns require case lowering. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> match_switch \<llangle>1 :: nat\<rrangle> { &1 \<Rightarrow> \<llangle>True\<rrangle>, _ \<Rightarrow> \<llangle>False\<rrangle> } \<close>
   \<open> reference patterns are not implemented \<close>
   \<comment> \<open> [FIDELITY] explicit switch conversion rejects reference syntax before key lowering. \<close>
 
-new_urust_rejects divergent
+urust_expr_rejects
   \<open> match_case \<llangle>undefined\<rrangle> { AmbiguousStruct { ambiguous_field: x } \<Rightarrow> x } \<close>
   \<open> Missing exact micro_rust_notation (literal) declaration for "AmbiguousStruct" \<close>
-  \<comment> \<open> [DIVERGENT] the existing frontend silently picks one of two same-basename constructors.
-       The new parser rejects, reports their qualified identities, and identifies the missing exact
+  \<comment> \<open> [INTENTIONAL] The parser rejects two same-basename constructors, reports their
+       qualified identities, and identifies the missing exact
        literal registration or source qualification needed to disambiguate them. \<close>
 
-new_urust_rejects divergent
+urust_expr_rejects
   \<open> match_case \<llangle>undefined\<rrangle> { SharedWordState \<Rightarrow> \<llangle>True\<rrangle> } \<close>
   \<open> constructor pattern "SharedWordState" is ambiguous; candidates: \<close>
   \<comment> \<open> [DIVERGENT] typedef-backed case constructors participate in the same deterministic
@@ -1078,37 +1075,36 @@ definition ncf1 :: \<open> 64 word \<Rightarrow> (unit, 64 word, unit, unit, uni
 micro_rust_notation (call) ncf1 ("NegativeArity::Registered")
 micro_rust_notation (call) ncf1 ("negative_arity_registered_method")
 
-new_urust_rejects frontend_accepts
+urust_expr_rejects
   \<open> assert!(!o.is_none()) \<close>
   \<open> Type unification failed \<close>
-  \<comment> \<open> [INTENTIONAL] The legacy frontend infers the bare method head as a
-       free, but the dedicated parser rejects an unresolved method spelling.
+  \<comment> \<open> [INTENTIONAL] The parser rejects an unresolved method spelling.
        An explicit call registration, lexical method binder, fixed shallow
        function, or shallow HOL constant must provide the backend. \<close>
 
-urust_expr_rejects fidelity \<open> ncf1(\<llangle>1 :: 64 word\<rrangle>,,) \<close>
+urust_expr_rejects \<open> ncf1(\<llangle>1 :: 64 word\<rrangle>,,) \<close>
   \<open> syntax error found at , \<close>
   \<comment> \<open> [FIDELITY] call argument lists reject an empty argument after the terminal comma. \<close>
 
-urust_expr_rejects fidelity \<open> zz(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0) \<close>
+urust_expr_rejects \<open> zz(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0) \<close>
   \<open> unsupported call arity 15 \<close>
   \<comment> \<open> [FIDELITY] the arity cap is ONE policy number derived from the frontend's surface lowering (D29);
        the frontend rejects 15 args too ("Undefined constant: _urust_shallow_fun_with_args"). \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open> NegativeArity::Registered(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14) \<close>
   \<open> unsupported call arity 15 \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open> ncf1(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14) \<close>
   \<open> unsupported call arity 15 \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open> unknown.zip(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14) \<close>
   \<open> unsupported call arity 15 \<close>
   \<comment> \<open> Iterator methods use the shared receiver-prepending arity preflight. \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open> Suc(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14) \<close>
   \<open> unsupported call arity 15 \<close>
 
@@ -1117,62 +1113,62 @@ context
   fixes negative_arity_fixed_method :: unit
 begin
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open> negative_arity_fixed(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14) \<close>
   \<open> unsupported call arity 15 \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open> 0.negative_arity_fixed_method(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14) \<close>
   \<open> unsupported call arity 15 \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open> 0.negative_arity_fixed_method(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15) \<close>
   \<open> unsupported call arity 16 \<close>
 
 end
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> \<epsilon>\<open>ncf1\<close>(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14) \<close>
   \<open> unsupported call arity 15 \<close>
   \<comment> \<open> [FIDELITY] expression-antiquotation callees share the inclusive
        \<open>funcall14\<close> policy. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> 0.zz(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14) \<close>
   \<open> unsupported call arity 15 \<close>
   \<comment> \<open> [FIDELITY] 14 explicit method arguments plus the prepended receiver exceed
        the inclusive \<open>funcall14\<close> limit by one. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> 0.zz(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15) \<close>
   \<open> unsupported call arity 16 \<close>
   \<comment> \<open> [FIDELITY] the 15-explicit-argument boundary lowers to 16 total arguments. \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open> 0.negative_arity_registered_method(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14) \<close>
   \<open> unsupported call arity 15 \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open> 0.negative_arity_registered_method(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15) \<close>
   \<open> unsupported call arity 16 \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open> 0.ncf1(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14) \<close>
   \<open> unsupported call arity 15 \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open> 0.ncf1(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15) \<close>
   \<open> unsupported call arity 16 \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open> 0.Suc(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14) \<close>
   \<open> unsupported call arity 15 \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open> 0.Suc(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15) \<close>
   \<open> unsupported call arity 16 \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open>
     Suc(
       unknown_arity_argument!(),
@@ -1182,7 +1178,7 @@ new_urust_rejects audit
   \<open> unsupported call arity 15 \<close>
   \<comment> \<open> Structural arity wins before the incompatible pure-HOL head and argument lowering. \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open>
     unknown_arity_receiver!().zz(
       unknown_arity_argument!(),
@@ -1192,103 +1188,103 @@ new_urust_rejects audit
   \<open> unsupported call arity 15 \<close>
   \<comment> \<open> The receiver plus fourteen explicit arguments are counted before receiver, head, or argument lowering. \<close>
 
-urust_expr_rejects fidelity \<open> ncf1(\<llangle>1 :: 64 word\<rrangle>)(\<llangle>2 :: 64 word\<rrangle>) \<close>
+urust_expr_rejects \<open> ncf1(\<llangle>1 :: 64 word\<rrangle>)(\<llangle>2 :: 64 word\<rrangle>) \<close>
   \<open> syntax error found at ( \<close>
   \<comment> \<open> [FIDELITY] curried application \<open>f(a)(b)\<close>: rejected by both (a call result is not a callee). \<close>
 
-urust_expr_rejects fidelity \<open> (ncf1)(\<llangle>1 :: 64 word\<rrangle>) \<close> \<open> syntax error found at ( \<close>
+urust_expr_rejects \<open> (ncf1)(\<llangle>1 :: 64 word\<rrangle>) \<close> \<open> syntax error found at ( \<close>
   \<comment> \<open> [FIDELITY] parenthesised callee \<open>(g)(x)\<close>: rejected by both (\<open>urust_callable\<close> has no paren form). \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> \<llangle>ncf1\<rrangle>(\<llangle>1 :: 64 word\<rrangle>) \<close>
   \<open> syntax error found at ( \<close>
   \<comment> \<open> [FIDELITY] a value antiquotation is a value, not a callable antiquotation. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> (\<epsilon>\<open>ncf1\<close>)(\<llangle>1 :: 64 word\<rrangle>) \<close>
   \<open> syntax error found at ( \<close>
   \<comment> \<open> [FIDELITY] grouping does not turn an expression into a callee. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> \<epsilon>\<open>ncf1\<close>(\<llangle>1 :: 64 word\<rrangle>)(\<llangle>2 :: 64 word\<rrangle>) \<close>
   \<open> syntax error found at ( \<close>
   \<comment> \<open> [FIDELITY] a call result is not a callee. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> \<epsilon>\<open>ncf1\<close>(,\<llangle>1 :: 64 word\<rrangle>) \<close>
   \<open> syntax error \<close>
   \<comment> \<open> [FIDELITY] an antiquotation-headed call cannot start with an empty argument. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> \<epsilon>\<open>ncf1\<close>(\<llangle>1 :: 64 word\<rrangle> \<close>
   \<open> syntax error found at end of input \<close>
   \<comment> \<open> [FIDELITY] an antiquotation-headed call requires its closing parenthesis. \<close>
 
 subsection\<open> Arity-indexed function-literal callees \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> \<llangle>id\<rrangle>\<^sub>0() \<close>
   \<open> unexpected input \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> \<llangle>id\<rrangle>\<^sub>1\<^sub>5() \<close>
   \<open> syntax error \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> \<llangle>id\<rrangle>_1() \<close>
   \<open> syntax error \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> \<llangle>id\<rrangle>\<^sub>1\<^sub>1\<^sub>1() \<close>
   \<open> syntax error \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> \<llangle>id\<rrangle>\<^sub>2\<^sub>2() \<close>
   \<open> syntax error \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> \<llangle>id\<rrangle> \<^sub>1() \<close>
   \<open> function-literal arity suffix must immediately follow the value antiquotation \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> \<epsilon>\<open>id\<close>\<^sub>1() \<close>
   \<open> syntax error \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> \<llangle>id\<rrangle>\<^sub>1 \<close>
   \<open> syntax error found at end of input \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> (\<llangle>id\<rrangle>\<^sub>1)(0) \<close>
   \<open> syntax error \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> \<llangle>id\<rrangle>\<^sub>1(0)(1) \<close>
   \<open> syntax error found at ( \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> \<llangle>id\<rrangle>\<^sub>1(,0) \<close>
   \<open> syntax error \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> \<llangle>id\<rrangle>\<^sub>1(0,,1) \<close>
   \<open> syntax error \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> \<llangle>id\<rrangle>\<^sub>1(0 \<close>
   \<open> syntax error found at end of input \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> \<llangle>\<lambda>x. x\<rrangle>\<^sub>1() \<close>
   \<open> Type unification failed \<close>
   \<comment> \<open> [FIDELITY] lift arity is not compared with runtime arity; HOL checking rejects the mismatch. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> \<llangle>\<lambda>x. x\<rrangle>\<^sub>1(0, 1) \<close>
   \<open> Type unification failed \<close>
   \<comment> \<open> [FIDELITY] the opposite lift/runtime mismatch also remains a HOL type error. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open>
     \<llangle>\<lambda>x. x\<rrangle>\<^sub>1(
       0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14
@@ -1296,37 +1292,37 @@ urust_expr_rejects fidelity
   \<close>
   \<open> unsupported call arity 15 \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> \<llangle>id\<rrangle>\<^sub>1::<>(0) \<close>
   \<open> syntax error \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> \<llangle>id\<rrangle>\<^sub>1::<,1>(0) \<close>
   \<open> syntax error \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> \<llangle>id\<rrangle>\<^sub>1::<1,,2>(0) \<close>
   \<open> syntax error \<close>
 
-new_urust_rejects divergent
+urust_expr_rejects
   \<open> \<llangle>\<lambda>x. x\<rrangle>\<^sub>1::<-1>() \<close>
   \<open> unexpected input \<close>
   \<comment> \<open> [DIVERGENT] function literals use the same restricted turbofish grammar. \<close>
 
-new_urust_rejects divergent
+urust_expr_rejects
   \<open> \<llangle>\<lambda>x. x\<rrangle>\<^sub>1::<1 * 2>() \<close>
   \<open> unexpected input \<close>
   \<comment> \<open> [DIVERGENT] unsupported generic operators do not regain arbitrary HOL syntax here. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> \<llangle>id\<rrangle>\<^sub>1::<1(0) \<close>
   \<open> unterminated turbofish \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> \<llangle>id\<rrangle>\<^sub>1::<1> \<close>
   \<open> syntax error found at end of input \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> \<llangle>id \<^sub>1(0) \<close>
   \<open> unterminated value antiquotation \<close>
 
@@ -1344,158 +1340,158 @@ consts
 
 subsection\<open> Arity and raw-message policy \<close>
 
-urust_expr_rejects fidelity \<open> assert!() \<close>
+urust_expr_rejects \<open> assert!() \<close>
   \<open> macro "assert!" expects at least 1 argument(s), but got 0 \<close>
 
-urust_expr_rejects fidelity \<open> assert_eq!(true) \<close>
+urust_expr_rejects \<open> assert_eq!(true) \<close>
   \<open> macro "assert_eq!" expects at least 2 argument(s), but got 1 \<close>
 
-urust_expr_rejects fidelity \<open> assert_ne![true] \<close>
+urust_expr_rejects \<open> assert_ne![true] \<close>
   \<open> macro "assert_ne!" expects at least 2 argument(s), but got 1 \<close>
 
-urust_expr_rejects fidelity \<open> addr_of!() \<close>
+urust_expr_rejects \<open> addr_of!() \<close>
   \<open> macro "addr_of!" expects exactly 1 argument(s), but got 0 \<close>
 
-urust_expr_rejects fidelity \<open> addr_of_mut!(r, other) \<close>
+urust_expr_rejects \<open> addr_of_mut!(r, other) \<close>
   \<open> macro "addr_of_mut!" expects exactly 1 argument(s), but got 2 \<close>
 
-urust_expr_rejects fidelity \<open> addr_of!(negative_macro_raw_ref) \<close>
+urust_expr_rejects \<open> addr_of!(negative_macro_raw_ref) \<close>
   \<open> Type unification failed \<close>
 
-urust_expr_rejects fidelity \<open> addr_of_mut!(negative_macro_raw_ref) \<close>
+urust_expr_rejects \<open> addr_of_mut!(negative_macro_raw_ref) \<close>
   \<open> Type unification failed \<close>
 
-urust_expr_rejects fidelity \<open> addr_of!(negative_macro_read_only_ref) \<close>
+urust_expr_rejects \<open> addr_of!(negative_macro_read_only_ref) \<close>
   \<open> Type unification failed \<close>
 
-urust_expr_rejects fidelity \<open> addr_of_mut!(negative_macro_read_only_ref) \<close>
+urust_expr_rejects \<open> addr_of_mut!(negative_macro_read_only_ref) \<close>
   \<open> Type unification failed \<close>
 
-urust_expr_rejects fidelity \<open> panic!((message)) \<close>
+urust_expr_rejects \<open> panic!((message)) \<close>
   \<open> macro message must be an identifier, quoted string, or value antiquotation \<close>
 
-urust_expr_rejects fidelity \<open> unreachable!(if true { "left" } else { "right" }) \<close>
+urust_expr_rejects \<open> unreachable!(if true { "left" } else { "right" }) \<close>
   \<open> macro message must be an identifier, quoted string, or value antiquotation \<close>
 
-urust_expr_rejects fidelity \<open> unimplemented!(1_u32) \<close>
+urust_expr_rejects \<open> unimplemented!(1_u32) \<close>
   \<open> macro message must be an identifier, quoted string, or value antiquotation \<close>
 
-urust_expr_rejects fidelity \<open> todo!(true) \<close>
+urust_expr_rejects \<open> todo!(true) \<close>
   \<open> macro message must be an identifier, quoted string, or value antiquotation \<close>
 
 subsection\<open> Names, registration precedence, and delimiters \<close>
 
-urust_expr_rejects fidelity \<open> unknown_macro!(true) \<close>
+urust_expr_rejects \<open> unknown_macro!(true) \<close>
   \<open> unknown macro "unknown_macro!" \<close>
 
-urust_expr_rejects fidelity \<open> negativeshout ! (true) \<close>
+urust_expr_rejects \<open> negativeshout ! (true) \<close>
   \<open> unknown macro "negativeshout!" \<close>
 
-urust_expr_rejects fidelity \<open> negativeshout!() \<close>
+urust_expr_rejects \<open> negativeshout!() \<close>
   \<open> no backend matches the use-site type \<close>
 
-urust_expr_rejects fidelity \<open> negativeshout!(1_u32) \<close>
+urust_expr_rejects \<open> negativeshout!(1_u32) \<close>
   \<open> no backend matches the use-site type \<close>
 
-urust_expr_rejects fidelity \<open> assert!(true,) \<close>
+urust_expr_rejects \<open> assert!(true,) \<close>
   \<open> syntax error found at ) \<close>
 
-urust_expr_rejects fidelity \<open> vec![1_u32,] \<close>
+urust_expr_rejects \<open> vec![1_u32,] \<close>
   \<open> syntax error found at ] \<close>
 
-urust_expr_rejects fidelity \<open> panic!("message",) \<close>
+urust_expr_rejects \<open> panic!("message",) \<close>
   \<open> syntax error found at ) \<close>
 
-urust_expr_rejects fidelity \<open> assert!(true] \<close>
+urust_expr_rejects \<open> assert!(true] \<close>
   \<open> syntax error found at ] \<close>
 
-urust_expr_rejects fidelity \<open> vec![1_u32) \<close>
+urust_expr_rejects \<open> vec![1_u32) \<close>
   \<open> syntax error found at ) \<close>
 
-urust_expr_rejects fidelity \<open> assert!(true \<close>
+urust_expr_rejects \<open> assert!(true \<close>
   \<open> syntax error found at end of input \<close>
 
 subsection\<open> Complete-body argument failures \<close>
 
-urust_expr_rejects fidelity \<open> assert!(let flag = true;) \<close>
+urust_expr_rejects \<open> assert!(let flag = true;) \<close>
   \<open> syntax error found at ) \<close>
 
-urust_expr_rejects fidelity \<open> assert!(let flag = true; flag,) \<close>
+urust_expr_rejects \<open> assert!(let flag = true; flag,) \<close>
   \<open> syntax error found at ) \<close>
 
-urust_expr_rejects fidelity \<open> vec![let value = 1_u32; value,] \<close>
+urust_expr_rejects \<open> vec![let value = 1_u32; value,] \<close>
   \<open> syntax error found at ] \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> assert_eq!(let left = true; left,, false) \<close>
   \<open> syntax error: deleting  , false ) \<close>
 
-urust_expr_rejects fidelity \<open> assert!(let flag true; flag) \<close>
+urust_expr_rejects \<open> assert!(let flag true; flag) \<close>
   \<open> syntax error: deleting  <identifier> true ; \<close>
 
-urust_expr_rejects fidelity \<open> assert![let flag = ; flag] \<close>
+urust_expr_rejects \<open> assert![let flag = ; flag] \<close>
   \<open> syntax error: deleting  ; <identifier> ] \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> assert!(let flag = true; if flag { true } else { false) \<close>
   \<open> syntax error found at ) \<close>
 
-urust_expr_rejects fidelity \<open> assert!(let flag = true; flag] \<close>
+urust_expr_rejects \<open> assert!(let flag = true; flag] \<close>
   \<open> syntax error found at ] \<close>
 
-urust_expr_rejects fidelity \<open> assert![let flag = true; flag) \<close>
+urust_expr_rejects \<open> assert![let flag = true; flag) \<close>
   \<open> syntax error found at ) \<close>
 
 subsection\<open> Matches shape and case-compiler boundaries \<close>
 
-urust_expr_rejects fidelity \<open> matches!() \<close>
+urust_expr_rejects \<open> matches!() \<close>
   \<open> syntax error found at ) \<close>
 
-urust_expr_rejects fidelity \<open> matches!(Some(1_u32)) \<close>
+urust_expr_rejects \<open> matches!(Some(1_u32)) \<close>
   \<open> syntax error found at ) \<close>
 
-urust_expr_rejects fidelity \<open> matches!(Some(1_u32), Some(_), ignored) \<close>
+urust_expr_rejects \<open> matches!(Some(1_u32), Some(_), ignored) \<close>
   \<open> syntax error: deleting \<close>
 
-urust_expr_rejects fidelity \<open> matches!(true, true && false) \<close>
+urust_expr_rejects \<open> matches!(true, true && false) \<close>
   \<open> syntax error: deleting \<close>
 
-urust_expr_rejects fidelity \<open> matches!(Some(1_u32), Some(,)) \<close>
+urust_expr_rejects \<open> matches!(Some(1_u32), Some(,)) \<close>
   \<open> syntax error \<close>
 
-urust_expr_rejects fidelity \<open> matches![Some(1_u32), Some(_)] \<close>
+urust_expr_rejects \<open> matches![Some(1_u32), Some(_)] \<close>
   \<open> syntax error: deleting \<close>
 
-urust_expr_rejects fidelity \<open> matches !(Some(1_u32), Some(_)) \<close>
+urust_expr_rejects \<open> matches !(Some(1_u32), Some(_)) \<close>
   \<open> unknown macro "matches!" \<close>
 
-urust_expr_rejects fidelity \<open> matches!(Some(1_u32), Some(_),) \<close>
+urust_expr_rejects \<open> matches!(Some(1_u32), Some(_),) \<close>
   \<open> syntax error \<close>
 
-urust_expr_rejects fidelity \<open> matches!(Some(1_u32), _) \<close>
+urust_expr_rejects \<open> matches!(Some(1_u32), _) \<close>
   \<open> clauses are redundant \<close>
 
-urust_expr_rejects fidelity \<open> matches!(Some(1_u32), binder) \<close>
+urust_expr_rejects \<open> matches!(Some(1_u32), binder) \<close>
   \<open> clauses are redundant \<close>
 
-urust_expr_rejects fidelity \<open> matches!(Some(1_u32), Some(1..=3)) \<close>
+urust_expr_rejects \<open> matches!(Some(1_u32), Some(1..=3)) \<close>
   \<open> range patterns are not supported by legacy matches! \<close>
 
 subsection\<open> Borrow and assignment-result boundaries \<close>
 
-urust_expr_rejects fidelity \<open> &vec![r] \<close>
+urust_expr_rejects \<open> &vec![r] \<close>
   \<open> Type unification failed \<close>
 
-urust_expr_rejects fidelity \<open> & mut vec![r] \<close>
+urust_expr_rejects \<open> & mut vec![r] \<close>
   \<open> Type unification failed \<close>
 
-urust_expr_rejects fidelity \<open> vec![] = rhs \<close>
+urust_expr_rejects \<open> vec![] = rhs \<close>
   \<open> invalid assignment target \<close>
 
-urust_expr_rejects fidelity \<open> assert!(true) = rhs \<close>
+urust_expr_rejects \<open> assert!(true) = rhs \<close>
   \<open> invalid assignment target \<close>
 
-urust_expr_rejects fidelity \<open> matches!(Some(1_u32), Some(_)) = rhs \<close>
+urust_expr_rejects \<open> matches!(Some(1_u32), Some(_)) = rhs \<close>
   \<open> invalid assignment target \<close>
 
 section\<open> Assignment right-hand control-flow precedence \<close>
@@ -1506,7 +1502,7 @@ Direct conditionals and matches on assignment and compound-assignment right-hand
 Rust-aligned coverage in \<open>Parser_Syntax_Tests.thy\<close>.
 \<close>
 
-urust_expr_rejects fidelity \<open> r /= rhs \<close> \<open> = \<close>
+urust_expr_rejects \<open> r /= rhs \<close> \<open> = \<close>
   \<comment> \<open> [FIDELITY] the current frontend has no \<open>/=\<close> production; this remains a post-parity
        Rust-facing extension. \<close>
 
@@ -1517,100 +1513,100 @@ Assignment parses below pure operators, then one \<open>expr_to_place\<close> co
 every non-place expression with the same positioned diagnostic.
 \<close>
 
-urust_expr_rejects fidelity \<open> 0 = rhs \<close> \<open> invalid assignment target \<close>
+urust_expr_rejects \<open> 0 = rhs \<close> \<open> invalid assignment target \<close>
   \<comment> \<open> [FIDELITY] numeric literals are values, not places. \<close>
 
-urust_expr_rejects fidelity \<open> true = rhs \<close> \<open> invalid assignment target \<close>
+urust_expr_rejects \<open> true = rhs \<close> \<open> invalid assignment target \<close>
   \<comment> \<open> [FIDELITY] boolean literals are not places. \<close>
 
-urust_expr_rejects fidelity \<open> \<llangle>r\<rrangle> = rhs \<close> \<open> invalid assignment target \<close>
+urust_expr_rejects \<open> \<llangle>r\<rrangle> = rhs \<close> \<open> invalid assignment target \<close>
   \<comment> \<open> [FIDELITY] value antiquotations are values; only expression antiquotations can be places. \<close>
 
-urust_expr_rejects fidelity \<open> ncf1(\<llangle>1 :: 64 word\<rrangle>) = rhs \<close>
+urust_expr_rejects \<open> ncf1(\<llangle>1 :: 64 word\<rrangle>) = rhs \<close>
   \<open> invalid assignment target \<close>
   \<comment> \<open> [FIDELITY] call results are not assignment targets. \<close>
 
-urust_expr_rejects fidelity \<open> receiver.ncf1() = rhs \<close> \<open> invalid assignment target \<close>
+urust_expr_rejects \<open> receiver.ncf1() = rhs \<close> \<open> invalid assignment target \<close>
   \<comment> \<open> [FIDELITY] method-call results are not assignment targets. \<close>
 
-urust_expr_rejects fidelity \<open> opt? = rhs \<close> \<open> invalid assignment target \<close>
+urust_expr_rejects \<open> opt? = rhs \<close> \<open> invalid assignment target \<close>
   \<comment> \<open> [FIDELITY] propagation is value-only. \<close>
 
-urust_expr_rejects fidelity \<open> &r = rhs \<close> \<open> invalid assignment target \<close>
+urust_expr_rejects \<open> &r = rhs \<close> \<open> invalid assignment target \<close>
   \<comment> \<open> [FIDELITY] borrowing produces a value and cannot head a place. \<close>
 
-urust_expr_rejects fidelity \<open> !r = rhs \<close> \<open> invalid assignment target \<close>
+urust_expr_rejects \<open> !r = rhs \<close> \<open> invalid assignment target \<close>
   \<comment> \<open> [FIDELITY] unary negation is not a place. \<close>
 
-urust_expr_rejects fidelity \<open> r + other = rhs \<close> \<open> invalid assignment target \<close>
+urust_expr_rejects \<open> r + other = rhs \<close> \<open> invalid assignment target \<close>
   \<comment> \<open> [FIDELITY] assignment is below pure operators, so the full binary expression is rejected. \<close>
 
-urust_expr_rejects fidelity \<open> (r, other) = rhs \<close> \<open> invalid assignment target \<close>
+urust_expr_rejects \<open> (r, other) = rhs \<close> \<open> invalid assignment target \<close>
   \<comment> \<open> [FIDELITY] tuple values are not destructuring assignment targets. \<close>
 
-urust_expr_rejects fidelity \<open> { r } = rhs \<close> \<open> invalid assignment target \<close>
+urust_expr_rejects \<open> { r } = rhs \<close> \<open> invalid assignment target \<close>
   \<comment> \<open> [FIDELITY] blocks remain value expressions, not places. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> (if true { r } else { other }) = rhs \<close>
   \<open> invalid assignment target \<close>
   \<comment> \<open> [FIDELITY] grouping admits the control-flow expression to operand position but does not
        make it a place. \<close>
 
-urust_expr_rejects fidelity \<open> (r = rhs) = other \<close> \<open> invalid assignment target \<close>
+urust_expr_rejects \<open> (r = rhs) = other \<close> \<open> invalid assignment target \<close>
   \<comment> \<open> [FIDELITY] an assignment result cannot itself be assigned through. \<close>
 
-urust_expr_rejects fidelity \<open> ncf1(\<llangle>1 :: 64 word\<rrangle>).field = rhs \<close>
+urust_expr_rejects \<open> ncf1(\<llangle>1 :: 64 word\<rrangle>).field = rhs \<close>
   \<open> invalid assignment target \<close>
   \<comment> \<open> [FIDELITY] field-place validation recursively rejects an invalid call-result base. \<close>
 
-urust_expr_rejects fidelity \<open> 0 += rhs \<close> \<open> invalid assignment target \<close>
+urust_expr_rejects \<open> 0 += rhs \<close> \<open> invalid assignment target \<close>
   \<comment> \<open> [FIDELITY] compound assignment uses the same literal-target rejection path. \<close>
 
-urust_expr_rejects fidelity \<open> r + other *= rhs \<close> \<open> invalid assignment target \<close>
+urust_expr_rejects \<open> r + other *= rhs \<close> \<open> invalid assignment target \<close>
   \<comment> \<open> [FIDELITY] pure operators bind above every assignment operator, so the complete binary LHS
        reaches the shared place validator. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> ncf1(\<llangle>1 :: 64 word\<rrangle>)[0] = rhs \<close>
   \<open> invalid assignment target \<close>
   \<comment> \<open> [FIDELITY] indexed places recursively require a valid place base. \<close>
 
 section\<open> Bounded ranges, arrays, and indexing \<close>
 
-urust_expr_rejects fidelity \<open> 1..2..3 \<close>
+urust_expr_rejects \<open> 1..2..3 \<close>
   \<open> syntax error found at .. \<close>
   \<comment> \<open> [FIDELITY] expression ranges are non-associative. \<close>
 
-urust_expr_rejects fidelity \<open> 1.. \<close>
+urust_expr_rejects \<open> 1.. \<close>
   \<open> syntax error found at end of input \<close>
   \<comment> \<open> [FIDELITY] open-ended ranges are outside the frontend syntax and parser scope. \<close>
 
-urust_expr_rejects fidelity \<open> ..2 \<close>
+urust_expr_rejects \<open> ..2 \<close>
   \<open> syntax error found at .. \<close>
   \<comment> \<open> [FIDELITY] a bounded range requires its lower endpoint. \<close>
 
-urust_expr_rejects fidelity \<open> [1,,2] \<close>
+urust_expr_rejects \<open> [1,,2] \<close>
   \<open> syntax error: deleting  , <integer> ] \<close>
   \<comment> \<open> [FIDELITY] array literals reject empty elements. \<close>
 
-urust_expr_rejects fidelity \<open> [1 2] \<close>
+urust_expr_rejects \<open> [1 2] \<close>
   \<open> syntax error found at <integer> \<close>
   \<comment> \<open> [FIDELITY] array elements require commas. \<close>
 
-urust_expr_rejects fidelity \<open> [1, 2 \<close>
+urust_expr_rejects \<open> [1, 2 \<close>
   \<open> syntax error found at end of input \<close>
   \<comment> \<open> [FIDELITY] array literals require a closing bracket. \<close>
 
-urust_expr_rejects fidelity \<open> xs[] \<close>
+urust_expr_rejects \<open> xs[] \<close>
   \<open> syntax error found at ] \<close>
   \<comment> \<open> [FIDELITY] indexing requires a subscript expression. \<close>
 
-urust_expr_rejects fidelity \<open> xs[0 \<close>
+urust_expr_rejects \<open> xs[0 \<close>
   \<open> syntax error found at end of input \<close>
   \<comment> \<open> [FIDELITY] indexing requires a closing bracket. \<close>
 
-urust_expr_rejects fidelity \<open> xs[0, 1] \<close>
+urust_expr_rejects \<open> xs[0, 1] \<close>
   \<open> syntax error: deleting  , <integer> ] \<close>
   \<comment> \<open> [FIDELITY] one indexing postfix contains exactly one expression. \<close>
 
@@ -1622,89 +1618,89 @@ Numeric tuple labels are canonical unsuffixed decimal tokens from \<open>0\<clos
 assignment places.
 \<close>
 
-urust_expr_rejects fidelity \<open> pair.16 \<close>
+urust_expr_rejects \<open> pair.16 \<close>
   \<open> invalid tuple projection index "16" (expected an unsuffixed decimal integer from 0 through 15) \<close>
 
-urust_expr_rejects fidelity \<open> pair.00 \<close>
+urust_expr_rejects \<open> pair.00 \<close>
   \<open> invalid tuple projection index "00" (expected an unsuffixed decimal integer from 0 through 15) \<close>
 
-urust_expr_rejects fidelity \<open> pair.01 \<close>
+urust_expr_rejects \<open> pair.01 \<close>
   \<open> invalid tuple projection index "01" (expected an unsuffixed decimal integer from 0 through 15) \<close>
 
-urust_expr_rejects fidelity \<open> pair.0x1 \<close>
+urust_expr_rejects \<open> pair.0x1 \<close>
   \<open> invalid tuple projection index "0x1" (expected an unsuffixed decimal integer from 0 through 15) \<close>
 
-urust_expr_rejects fidelity \<open> pair.1u8 \<close>
+urust_expr_rejects \<open> pair.1u8 \<close>
   \<open> invalid tuple projection index "1u8" (expected an unsuffixed decimal integer from 0 through 15) \<close>
 
-urust_expr_rejects fidelity \<open> pair.1_u8 \<close>
+urust_expr_rejects \<open> pair.1_u8 \<close>
   \<open> invalid tuple projection index "1_u8" (expected an unsuffixed decimal integer from 0 through 15) \<close>
 
-urust_expr_rejects fidelity \<open> pair. \<close>
+urust_expr_rejects \<open> pair. \<close>
   \<open> syntax error found at end of input \<close>
 
-urust_expr_rejects fidelity \<open> pair.-1 \<close>
+urust_expr_rejects \<open> pair.-1 \<close>
   \<open> syntax error found at - \<close>
 
-urust_expr_rejects fidelity \<open> pair.0() \<close>
+urust_expr_rejects \<open> pair.0() \<close>
   \<open> syntax error found at ( \<close>
 
-urust_expr_rejects fidelity \<open> pair.0 = rhs \<close>
+urust_expr_rejects \<open> pair.0 = rhs \<close>
   \<open> invalid assignment target \<close>
 
-urust_expr_rejects fidelity \<open> pair.0 += rhs \<close>
+urust_expr_rejects \<open> pair.0 += rhs \<close>
   \<open> invalid assignment target \<close>
 
 section\<open> If-let and let-else \<close>
 
 subsection\<open> Required delimiters and whole input \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> if let Some(value) Some(1) { value } \<close>
   \<open> syntax error \<close>
   \<comment> \<open> [FIDELITY] the pattern and scrutinee require an equals delimiter. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> if let Some(value) = Some(1) value \<close>
   \<open> syntax error found at <identifier> \<close>
   \<comment> \<open> [FIDELITY] the success branch requires braces. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> if let Some(value) = Some(1) { value \<close>
   \<open> syntax error found at end of input \<close>
   \<comment> \<open> [FIDELITY] an unterminated success branch cannot consume EOF. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> if let Some(value) = Some(1) { value } else 0 \<close>
   \<open> syntax error found at <integer> \<close>
   \<comment> \<open> [FIDELITY] the fallback branch also requires braces. \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open> if true { () } else if let Some(value) Some(()) { () } \<close>
   \<open> syntax error \<close>
   \<comment> \<open> [AUDIT] a chained conditional binding still requires an equals delimiter. \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open> if true { () } else if false () \<close>
   \<open> syntax error \<close>
   \<comment> \<open> [AUDIT] an ordinary chained arm requires a block. \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open> if true { () } else if let Some(value) = Some(()) value \<close>
   \<open> syntax error \<close>
   \<comment> \<open> [AUDIT] a chained conditional-binding arm requires a success block. \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open> if true { () } else if \<close>
   \<open> syntax error \<close>
   \<comment> \<open> [AUDIT] a dangling ordinary chained arm cannot consume EOF. \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open> if true { () } else if let \<close>
   \<open> syntax error \<close>
   \<comment> \<open> [AUDIT] a dangling conditional-binding arm cannot consume EOF. \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open>
     if true { () }
     else if let Some(value) = Some(()) { let _ = value; () }
@@ -1714,44 +1710,44 @@ new_urust_rejects audit
   \<open> syntax error \<close>
   \<comment> \<open> [AUDIT] a complete mixed chain does not hide trailing input. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> let Some(value) = Some(1) { 0 }; value \<close>
   \<open> syntax error found at { \<close>
   \<comment> \<open> [FIDELITY] a refutable conditional binding requires \<open>else\<close>. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> let Some(value) = Some(1) else 0; value \<close>
   \<open> syntax error \<close>
   \<comment> \<open> [FIDELITY] the \<open>else\<close> body requires braces. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> let Some(value) = Some(1) else { 0 } value \<close>
   \<open> syntax error found at <identifier> \<close>
   \<comment> \<open> [FIDELITY] \<open>let ... else\<close> requires a semicolon before its continuation. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> let Some(value) = Some(1) else { 0 }; \<close>
   \<open> syntax error found at end of input \<close>
   \<comment> \<open> [FIDELITY] the frontend form requires a continuation after that semicolon. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> if let Some(value) = Some(1) { value } trailing trailing \<close>
   \<open> syntax error found at <identifier> \<close>
   \<comment> \<open> [FIDELITY] semicolon-free sequencing still consumes exactly one following statement. \<close>
 
-new_urust_rejects divergent
+urust_expr_rejects
   \<open> if let Some(value) = Some(1) { value } = rhs \<close>
   \<open> invalid assignment target \<close>
   \<comment> \<open> [DIVERGENT] the direct conditional is an expression, then place validation rejects it. \<close>
 
 subsection\<open> Pattern validation and fallback diagnostics \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> if let 0 = \<llangle>0 :: nat\<rrangle> { () } else { () } \<close>
   \<open> numeric patterns are not supported in case patterns \<close>
   \<comment> \<open> [FIDELITY] case numerals retain the frontend rejection. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open>
     if let (&left, right) =
       (\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>) {
@@ -1764,7 +1760,7 @@ urust_expr_rejects fidelity
   \<comment> \<open> [FIDELITY] the frontend's syntactic top-level tuple exception remains an irrefutable
        binding path, where reference-pattern wrappers are unsupported. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open>
     let (left, &right) =
       (\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>) else { 0 };
@@ -1773,7 +1769,7 @@ urust_expr_rejects fidelity
   \<open> reference patterns are not implemented \<close>
   \<comment> \<open> [FIDELITY] top-level tuple \<open>let ... else\<close> uses the same non-case binding path. \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open>
     if let Some((value, value)) =
       \<llangle>Some (1 :: nat, (2 :: nat, TNil))\<rrangle> {
@@ -1785,7 +1781,7 @@ new_urust_rejects audit
   \<open> duplicate pattern binder "value" \<close>
   \<comment> \<open> [AUDIT] conditional-let patterns share atomic duplicate-binder validation. \<close>
 
-new_urust_rejects divergent
+urust_expr_rejects
   \<open>
     let Some(value) | None = \<llangle>Some (1 :: nat)\<rrangle> else { 0 };
     value
@@ -1793,7 +1789,7 @@ new_urust_rejects divergent
   \<open> or-pattern alternative is missing binder "value" \<close>
   \<comment> \<open> [DIVERGENT] all alternatives must bind the continuation's same names. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open>
     if let _ = \<llangle>1 :: nat\<rrangle> {
       1
@@ -1804,7 +1800,7 @@ urust_expr_rejects fidelity
   \<open> unknown macro "unknown_total_fallback!" \<close>
   \<comment> \<open> [AUDIT] a discarded total-pattern fallback is still lowered and diagnosed. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open>
     if let Some(_) = \<llangle>Some (1 :: nat)\<rrangle> {
       1
@@ -1815,7 +1811,7 @@ urust_expr_rejects fidelity
   \<open> unknown macro "unknown_partial_fallback!" \<close>
   \<comment> \<open> [FIDELITY] partial-pattern fallback diagnostics remain active. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open>
     if let (Some(value), other) =
       (\<llangle>Some (1 :: nat)\<rrangle>, \<llangle>2 :: nat\<rrangle>) {
@@ -1829,62 +1825,62 @@ urust_expr_rejects fidelity
 
 section\<open> Fueled loops \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> for Some(value) in \<llangle>[Some (1 :: nat)]\<rrangle> { () } \<close>
   \<open> unsupported or refutable pattern in a `for` binder position \<close>
   \<comment> \<open> [FIDELITY] \<open>for\<close> uses the frontend's irrefutable binder shape. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> for true in \<llangle>[True]\<rrangle> { () } \<close>
   \<open> unsupported or refutable pattern in a `for` binder position \<close>
   \<comment> \<open> [FIDELITY] literal loop binders are rejected at the pattern site. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> for whole @ value in \<llangle>[1 :: nat]\<rrangle> { () } \<close>
   \<open> unsupported or refutable pattern in a `for` binder position \<close>
   \<comment> \<open> [FIDELITY] aliases remain unsupported in \<open>for\<close> binders. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> for &value in \<llangle>[1 :: nat]\<rrangle> { () } \<close>
   \<open> reference patterns are not implemented \<close>
   \<comment> \<open> [FIDELITY] reference-pattern syntax has no current loop-binding semantics. \<close>
 
-new_urust_rejects divergent
+urust_expr_rejects
   \<open> for None in \<llangle>[None :: nat option]\<rrangle> { () } \<close>
   \<open> unsupported or refutable pattern in a `for` binder position \<close>
   \<comment> \<open> [DIVERGENT] a known nullary constructor is resolved before binder classification. \<close>
 
-new_urust_rejects divergent
+urust_expr_rejects
   \<open> match_case \<llangle>Some (1 :: nat)\<rrangle> { Some(x) | None \<Rightarrow> x } \<close>
   \<open> or-pattern alternative is missing binder "x" \<close>
   \<comment> \<open> [DIVERGENT] all alternatives of one source arm must bind the same names and modes. \<close>
 
-new_urust_rejects divergent
+urust_expr_rejects
   \<open> match \<llangle>[1 :: nat, 2]\<rrangle> { [x, ..] | [] if True \<Rightarrow> True, _ \<Rightarrow> False } \<close>
   \<open> or-pattern alternative is missing binder "x" \<close>
   \<comment> \<open> [DIVERGENT] nested slice alternatives obey the same exact binder-set rule. \<close>
 
-urust_expr_rejects fidelity \<open> while (true) { () } \<close>
+urust_expr_rejects \<open> while (true) { () } \<close>
   \<open> while \<close>
-  \<comment> \<open> [FIDELITY] \<open>while\<close> requires the existing frontend's fuel annotation. \<close>
+  \<comment> \<open> [FIDELITY] \<open>while\<close> requires a fuel annotation. \<close>
 
-urust_expr_rejects fidelity \<open> while let Some(value) = Some(1) { () } \<close>
+urust_expr_rejects \<open> while let Some(value) = Some(1) { () } \<close>
   \<open> while \<close>
   \<comment> \<open> [FIDELITY] \<open>while let\<close> also requires a fuel annotation. \<close>
 
-urust_expr_rejects fidelity \<open> loop { () } \<close>
+urust_expr_rejects \<open> loop { () } \<close>
   \<open> loop \<close>
   \<comment> \<open> [FIDELITY] unconditional \<open>loop\<close> also requires fuel. \<close>
 
-urust_expr_rejects fidelity \<open> #[fuel(1)] loop { () } \<close>
+urust_expr_rejects \<open> #[fuel(1)] loop { () } \<close>
   \<open> <integer> \<close>
   \<comment> \<open> [FIDELITY] fuel must use an expression antiquotation, not a numeral. \<close>
 
-urust_expr_rejects fidelity \<open> #[fuel(\<llangle>1 :: nat\<rrangle>)] loop { () } \<close>
+urust_expr_rejects \<open> #[fuel(\<llangle>1 :: nat\<rrangle>)] loop { () } \<close>
   \<open> <value antiquotation> \<close>
   \<comment> \<open> [FIDELITY] a value antiquotation is not a fuel payload. \<close>
 
-new_urust_rejects divergent
+urust_expr_rejects
   \<open> #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while true { () } \<close>
   \<open> true \<close>
   \<comment> \<open> [DIVERGENT] the dedicated parser requires Rust's condition parentheses; Isabelle's
@@ -1895,26 +1891,26 @@ Direct fueled loops, \<open>for\<close>, and \<open>while let\<close> are primar
 coverage is in \<open>Parser_Syntax_Tests.thy\<close>.
 \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let Some(value)
     \<llangle>Some (1 :: nat)\<rrangle> { () } \<close>
   \<open> <value antiquotation> \<close>
   \<comment> \<open> [FIDELITY] the pattern and scrutinee require an equals delimiter. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let 0 =
     \<llangle>0 :: nat\<rrangle> { () } \<close>
   \<open> numeric patterns are not supported in case patterns \<close>
-  \<comment> \<open> [FIDELITY] case numerals retain the existing frontend rejection. \<close>
+  \<comment> \<open> [FIDELITY] case numerals remain unsupported. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> for value in \<llangle>[1 :: nat]\<rrangle> { () } 1 2 \<close>
   \<open> syntax error found at <integer> \<close>
   \<comment> \<open> [FIDELITY] semicolon-free sequencing does not admit value juxtaposition. \<close>
 
 section\<open> Full guard bodies \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open>
     match_case Some(()) {
       Some(_) if let flag = \<Rightarrow> (),
@@ -1924,7 +1920,7 @@ new_urust_rejects audit
   \<open> syntax error \<close>
   \<comment> \<open> [AUDIT] a guard binding requires an initializer before its arrow. \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open>
     match_case Some(()) {
       Some(_) if let mut flag = ; true \<Rightarrow> (),
@@ -1934,7 +1930,7 @@ new_urust_rejects audit
   \<open> syntax error \<close>
   \<comment> \<open> [AUDIT] a mutable guard binding cannot omit its initializer. \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open>
     match_case Some(()) {
       Some(_) if const FLAG = ; FLAG \<Rightarrow> (),
@@ -1944,7 +1940,7 @@ new_urust_rejects audit
   \<open> syntax error \<close>
   \<comment> \<open> [AUDIT] a const guard binding cannot omit its initializer. \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open>
     match_case Some(()) {
       Some(_) if let Some(flag) = Some(true) else { false }; \<Rightarrow> (),
@@ -1954,7 +1950,7 @@ new_urust_rejects audit
   \<open> syntax error \<close>
   \<comment> \<open> [AUDIT] a let-else guard requires a continuation after its semicolon. \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open>
     match_case Some(()) {
       Some(_) if let flag = true \<Rightarrow> (),
@@ -1964,7 +1960,7 @@ new_urust_rejects audit
   \<open> syntax error \<close>
   \<comment> \<open> [AUDIT] an ordinary guard binding requires both semicolon and continuation. \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open>
     match_case Some(()) {
       Some(_) if if true { true } else \<Rightarrow> (),
@@ -1974,7 +1970,7 @@ new_urust_rejects audit
   \<open> syntax error \<close>
   \<comment> \<open> [AUDIT] a dangling guard fallback cannot terminate at the arm arrow. \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open>
     match_case Some(()) {
       Some(_) if
@@ -1987,7 +1983,7 @@ new_urust_rejects audit
   \<open> syntax error \<close>
   \<comment> \<open> [AUDIT] a fueled while guard requires a complete parenthesized head. \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open>
     match_case Some(()) {
       Some(_) if
@@ -2000,7 +1996,7 @@ new_urust_rejects audit
   \<open> syntax error \<close>
   \<comment> \<open> [AUDIT] a while-let guard head requires its equals delimiter. \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open>
     match_case Some(()) {
       Some(_) if true,
@@ -2010,7 +2006,7 @@ new_urust_rejects audit
   \<open> syntax error \<close>
   \<comment> \<open> [AUDIT] a complete guard must be terminated by an arm arrow. \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open>
     match_case Some(()) {
       Some(_) if true \<Rightarrow> (),
@@ -2021,7 +2017,7 @@ new_urust_rejects audit
   \<open> syntax error \<close>
   \<comment> \<open> [AUDIT] a guarded match cannot hide trailing whole-input tokens. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open>
     match_case Some(()) {
       Some(_) if (); \<Rightarrow> (),
@@ -2036,73 +2032,73 @@ section\<open> Second-class closure boundaries \<close>
 
 subsection\<open> Formal syntax and closure bodies \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> |x x \<close>
   \<open> syntax error \<close>
   \<comment> \<open> [FIDELITY] the closing formal bar is mandatory. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> || \<close>
   \<open> syntax error \<close>
   \<comment> \<open> [FIDELITY] a zero-formal closure still requires a body. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> |x| \<close>
   \<open> syntax error \<close>
   \<comment> \<open> [FIDELITY] a nonempty formal list cannot terminate at its closing bar. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> |x,| x \<close>
   \<open> syntax error \<close>
   \<comment> \<open> [FIDELITY] closure formals do not accept a trailing comma. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> |x,, y| y \<close>
   \<open> syntax error \<close>
   \<comment> \<open> [FIDELITY] an empty formal between commas is malformed. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> |x \<close>
   \<open> syntax error \<close>
   \<comment> \<open> [FIDELITY] premature EOF cannot complete the formal delimiter pair. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> |if| true \<close>
   \<open> syntax error \<close>
   \<comment> \<open> [FIDELITY] reserved words are not closure formals. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> |match| true \<close>
   \<open> syntax error \<close>
   \<comment> \<open> [FIDELITY] a second reserved-word boundary exercises a control keyword. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> |_| true \<close>
   \<open> closure formal must be an identifier \<close>
   \<comment> \<open> [FIDELITY] `_` is normalized to the shared wildcard node and rejected by the
        closure-formal gate. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> |(x)| x \<close>
   \<open> syntax error \<close>
   \<comment> \<open> [FIDELITY] grouped patterns are not closure formals. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> |Some(x)| x \<close>
   \<open> syntax error \<close>
   \<comment> \<open> [FIDELITY] constructor patterns are not closure formals. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> |mut x| x \<close>
   \<open> syntax error \<close>
   \<comment> \<open> [FIDELITY] Rust mutable-formal syntax is outside the closure subset. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> |x: nat| x \<close>
   \<open> syntax error \<close>
   \<comment> \<open> [FIDELITY] closure formal type annotations are not implemented. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> || let x = 1; x \<close>
   \<open> syntax error \<close>
   \<comment> \<open> [FIDELITY] a bare binding is below the closure-body priority; a block admits it. \<close>
@@ -2131,17 +2127,17 @@ Bare closures are valid binding initializers and assignment right-hand sides. Po
 in \<open>Parser_Syntax_Tests.thy\<close>.
 \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> \<llangle>1 :: nat\<rrangle> + || \<llangle>2 :: nat\<rrangle> \<close>
   \<open> syntax error \<close>
   \<comment> \<open> [FIDELITY] a bare closure is not a binary operand. \<close>
 
-new_urust_rejects divergent
+urust_expr_rejects
   \<open> if || true { () } \<close>
   \<open> Type unification failed \<close>
   \<comment> \<open> [DIVERGENT] the closure parses as the condition, then its function-body type is rejected. \<close>
 
-new_urust_rejects divergent
+urust_expr_rejects
   \<open> for item in || [] { () } \<close>
   \<open> Unresolved adhoc overloading of constant \<close>
   \<comment> \<open> [DIVERGENT] the closure parses as the iterable, then iterator typing rejects it. \<close>
@@ -2151,12 +2147,12 @@ Closures are valid match scrutinees, match-arm bodies, and expression statements
 semicolon. Focused positive and AST coverage is in \<open>Parser_Syntax_Tests.thy\<close>.
 \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> (|| \<llangle>1 :: nat\<rrangle>)() \<close>
   \<open> syntax error \<close>
   \<comment> \<open> [FIDELITY] grouping does not enable general expression invocation. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open>
     match_case Some(()) {
       Some(_) if || true \<Rightarrow> (),
@@ -2172,155 +2168,155 @@ section\<open> Cast targets, placement, and recovery boundaries \<close>
 
 subsection\<open> Unsupported targets \<close>
 
-urust_expr_rejects fidelity \<open> value as u128 \<close>
+urust_expr_rejects \<open> value as u128 \<close>
   \<open> unknown cast-target alias "u128" \<close>
 
-urust_expr_rejects fidelity \<open> value as i8 \<close>
+urust_expr_rejects \<open> value as i8 \<close>
   \<open> unknown cast-target alias "i8" \<close>
 
-urust_expr_rejects fidelity \<open> value as i16 \<close>
+urust_expr_rejects \<open> value as i16 \<close>
   \<open> unknown cast-target alias "i16" \<close>
 
-urust_expr_rejects fidelity \<open> value as i128 \<close>
+urust_expr_rejects \<open> value as i128 \<close>
   \<open> unknown cast-target alias "i128" \<close>
 
-urust_expr_rejects fidelity \<open> value as isize \<close>
+urust_expr_rejects \<open> value as isize \<close>
   \<open> unknown cast-target alias "isize" \<close>
 
-urust_expr_rejects fidelity \<open> value as f32 \<close>
+urust_expr_rejects \<open> value as f32 \<close>
   \<open> unknown cast-target alias "f32" \<close>
 
-urust_expr_rejects fidelity \<open> value as f64 \<close>
+urust_expr_rejects \<open> value as f64 \<close>
   \<open> unknown cast-target alias "f64" \<close>
 
-urust_expr_rejects fidelity \<open> value as char \<close>
+urust_expr_rejects \<open> value as char \<close>
   \<open> unknown cast-target alias "char" \<close>
 
-urust_expr_rejects fidelity \<open> value as bool \<close>
+urust_expr_rejects \<open> value as bool \<close>
   \<open> unknown cast-target alias "bool" \<close>
 
-urust_expr_rejects fidelity \<open> value as Target \<close>
+urust_expr_rejects \<open> value as Target \<close>
   \<open> unknown cast-target alias "Target" \<close>
 
-urust_expr_rejects fidelity \<open> value as Target::Word \<close>
+urust_expr_rejects \<open> value as Target::Word \<close>
   \<open> unknown cast-target alias "Target::Word" \<close>
 
-urust_expr_rejects fidelity \<open> value as Vec::<u8> \<close>
+urust_expr_rejects \<open> value as Vec::<u8> \<close>
   \<open> generic arguments are not allowed in cast-target aliases \<close>
 
-urust_expr_rejects fidelity \<open> value as *const i32 \<close>
+urust_expr_rejects \<open> value as *const i32 \<close>
   \<open> syntax error found at <signed cast type> \<close>
 
-urust_expr_rejects fidelity \<open> value as *mut i64 \<close>
+urust_expr_rejects \<open> value as *mut i64 \<close>
   \<open> syntax error found at <signed cast type> \<close>
 
-urust_expr_rejects fidelity \<open> value as *const bool \<close>
+urust_expr_rejects \<open> value as *const bool \<close>
   \<open> syntax error found at <identifier> \<close>
 
-urust_expr_rejects fidelity \<open> value as *mut Target \<close>
+urust_expr_rejects \<open> value as *mut Target \<close>
   \<open> syntax error found at <identifier> \<close>
 
-urust_expr_rejects fidelity \<open> value as *mut u128 \<close>
+urust_expr_rejects \<open> value as *mut u128 \<close>
   \<open> syntax error found at <identifier> \<close>
 
-urust_expr_rejects fidelity \<open> value as *const *const u8 \<close>
+urust_expr_rejects \<open> value as *const *const u8 \<close>
   \<open> syntax error \<close>
 
-urust_expr_rejects fidelity \<open> value as &u8 \<close>
+urust_expr_rejects \<open> value as &u8 \<close>
   \<open> syntax error found at & \<close>
 
 subsection\<open> Missing and malformed cast components \<close>
 
-urust_expr_rejects fidelity \<open> as u8 \<close>
+urust_expr_rejects \<open> as u8 \<close>
   \<open> syntax error found at as \<close>
 
-urust_expr_rejects fidelity \<open> value as \<close>
+urust_expr_rejects \<open> value as \<close>
   \<open> syntax error found at end of input \<close>
 
-urust_expr_rejects fidelity \<open> value as * \<close>
+urust_expr_rejects \<open> value as * \<close>
   \<open> syntax error found at end of input \<close>
 
-urust_expr_rejects fidelity \<open> value as *const \<close>
+urust_expr_rejects \<open> value as *const \<close>
   \<open> syntax error found at end of input \<close>
 
-urust_expr_rejects fidelity \<open> value as *mut \<close>
+urust_expr_rejects \<open> value as *mut \<close>
   \<open> syntax error found at end of input \<close>
 
-urust_expr_rejects fidelity \<open> value as const u8 \<close>
+urust_expr_rejects \<open> value as const u8 \<close>
   \<open> syntax error found at const \<close>
 
-urust_expr_rejects fidelity \<open> value as mut u8 \<close>
+urust_expr_rejects \<open> value as mut u8 \<close>
   \<open> syntax error found at mut \<close>
 
-urust_expr_rejects fidelity \<open> value as **const u8 \<close>
+urust_expr_rejects \<open> value as **const u8 \<close>
   \<open> syntax error \<close>
 
-urust_expr_rejects fidelity \<open> value as *const const u8 \<close>
+urust_expr_rejects \<open> value as *const const u8 \<close>
   \<open> syntax error found at const \<close>
 
-urust_expr_rejects fidelity \<open> value as *mut mut u8 \<close>
+urust_expr_rejects \<open> value as *mut mut u8 \<close>
   \<open> syntax error found at mut \<close>
 
-urust_expr_rejects fidelity \<open> value as as u8 \<close>
+urust_expr_rejects \<open> value as as u8 \<close>
   \<open> syntax error found at as \<close>
 
-urust_expr_rejects fidelity \<open> value as u8 as \<close>
+urust_expr_rejects \<open> value as u8 as \<close>
   \<open> syntax error found at end of input \<close>
 
-urust_expr_rejects fidelity \<open> value as u8 as *const \<close>
+urust_expr_rejects \<open> value as u8 as *const \<close>
   \<open> syntax error found at end of input \<close>
 
-urust_expr_rejects fidelity \<open> value as () \<close>
+urust_expr_rejects \<open> value as () \<close>
   \<open> syntax error found at ( \<close>
 
-urust_expr_rejects fidelity \<open> value as [u8] \<close>
+urust_expr_rejects \<open> value as [u8] \<close>
   \<open> syntax error \<close>
 
-urust_expr_rejects fidelity \<open> value as u8, \<close>
+urust_expr_rejects \<open> value as u8, \<close>
   \<open> syntax error found at , \<close>
 
-urust_expr_rejects fidelity \<open> value as u8 trailing \<close>
+urust_expr_rejects \<open> value as u8 trailing \<close>
   \<open> syntax error found at <identifier> \<close>
 
-urust_expr_rejects fidelity \<open> value asu8 \<close>
+urust_expr_rejects \<open> value asu8 \<close>
   \<open> syntax error found at <identifier> \<close>
 
-urust_expr_rejects fidelity \<open> value as U8 \<close>
+urust_expr_rejects \<open> value as U8 \<close>
   \<open> unknown cast-target alias "U8" \<close>
 
-urust_expr_rejects fidelity \<open> value as u8_u16 \<close>
+urust_expr_rejects \<open> value as u8_u16 \<close>
   \<open> unknown cast-target alias "u8_u16" \<close>
 
 subsection\<open> Invalid source types and cast chains \<close>
 
-urust_expr_rejects fidelity \<open> true as u8 \<close>
+urust_expr_rejects \<open> true as u8 \<close>
   \<open> Type unification failed \<close>
 
-urust_expr_rejects fidelity \<open> 1_u32 as *const u8 \<close>
+urust_expr_rejects \<open> 1_u32 as *const u8 \<close>
   \<open> Type unification failed \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> \<llangle>undefined :: ('addr, 'gv) gref\<rrangle> as u8 \<close>
   \<open> Type unification failed \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open>
     \<llangle>undefined :: ('addr, 'gv, 32 word) Global_Store.ref\<rrangle>
       as *mut u8
   \<close>
   \<open> Type unification failed \<close>
 
-urust_expr_rejects fidelity \<open> 1_u32 as u8 as *const u16 \<close>
+urust_expr_rejects \<open> 1_u32 as u8 as *const u16 \<close>
   \<open> Type unification failed \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open>
     \<llangle>undefined :: ('addr, 'gv) gref\<rrangle>
       as *const u8 as u16
   \<close>
   \<open> Type unification failed \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open>
     \<llangle>undefined :: ('addr, 'gv) gref\<rrangle>
       as *const u8 as *const u16
@@ -2329,59 +2325,59 @@ urust_expr_rejects fidelity
 
 subsection\<open> Cast results require grouping before postfix operations \<close>
 
-urust_expr_rejects fidelity \<open> value as u32.field \<close>
+urust_expr_rejects \<open> value as u32.field \<close>
   \<open> syntax error \<close>
 
-urust_expr_rejects fidelity \<open> value as u32.method() \<close>
+urust_expr_rejects \<open> value as u32.method() \<close>
   \<open> syntax error \<close>
 
-urust_expr_rejects fidelity \<open> value as u32[0] \<close>
+urust_expr_rejects \<open> value as u32[0] \<close>
   \<open> syntax error \<close>
 
-urust_expr_rejects fidelity \<open> value as u32? \<close>
+urust_expr_rejects \<open> value as u32? \<close>
   \<open> syntax error \<close>
 
-urust_expr_rejects fidelity \<open> value as u32() \<close>
+urust_expr_rejects \<open> value as u32() \<close>
   \<open> syntax error \<close>
 
-urust_expr_rejects fidelity \<open> value as u8 as u32.field \<close>
+urust_expr_rejects \<open> value as u8 as u32.field \<close>
   \<open> syntax error \<close>
 
 subsection\<open> Cast results are values, not assignment places \<close>
 
-urust_expr_rejects fidelity \<open> value as u32 = rhs \<close>
+urust_expr_rejects \<open> value as u32 = rhs \<close>
   \<open> invalid assignment target \<close>
 
-urust_expr_rejects fidelity \<open> (value as u32) = rhs \<close>
+urust_expr_rejects \<open> (value as u32) = rhs \<close>
   \<open> invalid assignment target \<close>
 
-urust_expr_rejects fidelity \<open> (value as u32) += rhs \<close>
+urust_expr_rejects \<open> (value as u32) += rhs \<close>
   \<open> invalid assignment target \<close>
 
 subsection\<open> Reserved cast words are not identifiers \<close>
 
-urust_expr_rejects fidelity \<open> let as = 1; as \<close>
+urust_expr_rejects \<open> let as = 1; as \<close>
   \<open> syntax error \<close>
 
-urust_expr_rejects fidelity \<open> let u8 = 1; u8 \<close>
+urust_expr_rejects \<open> let u8 = 1; u8 \<close>
   \<open> syntax error \<close>
 
-urust_expr_rejects fidelity \<open> let u16 = 1; u16 \<close>
+urust_expr_rejects \<open> let u16 = 1; u16 \<close>
   \<open> syntax error \<close>
 
-urust_expr_rejects fidelity \<open> let u32 = 1; u32 \<close>
+urust_expr_rejects \<open> let u32 = 1; u32 \<close>
   \<open> syntax error \<close>
 
-urust_expr_rejects fidelity \<open> let u64 = 1; u64 \<close>
+urust_expr_rejects \<open> let u64 = 1; u64 \<close>
   \<open> syntax error \<close>
 
-urust_expr_rejects fidelity \<open> let usize = 1; usize \<close>
+urust_expr_rejects \<open> let usize = 1; usize \<close>
   \<open> syntax error \<close>
 
-urust_expr_rejects fidelity \<open> let i32 = 1; i32 \<close>
+urust_expr_rejects \<open> let i32 = 1; i32 \<close>
   \<open> syntax error \<close>
 
-urust_expr_rejects fidelity \<open> let i64 = 1; i64 \<close>
+urust_expr_rejects \<open> let i64 = 1; i64 \<close>
   \<open> syntax error \<close>
 
 section\<open> Struct-expression failures \<close>
@@ -2412,75 +2408,75 @@ Empty struct expressions and one trailing field comma are accepted Rust-aligned 
 positive, lowering, and field-order coverage is in \<open>Parser_Syntax_Tests.thy\<close>.
 \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> NegativeD21Pair {, left: 1_u64 } \<close>
   \<open> syntax error \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> NegativeD21Pair { left: 1_u64,, right: 2_u64 } \<close>
   \<open> syntax error \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> NegativeD21Pair { left: 1_u64; right: 2_u64 } \<close>
   \<open> syntax error \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> NegativeD21Pair { : 1_u64 } \<close>
   \<open> syntax error \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> NegativeD21Pair { left 1_u64 } \<close>
   \<open> syntax error \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> NegativeD21Pair { left: } \<close>
   \<open> syntax error \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> NegativeD21Pair { left: 1_u64 right: 2_u64 } \<close>
   \<open> syntax error \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> NegativeD21Pair { left: 1_u64 \<close>
   \<open> syntax error found at end of input \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> NegativeD21Pair { left: 1_u64 } } \<close>
   \<open> syntax error \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> NegativeD21Pair { 0: 1_u64 } \<close>
   \<open> syntax error \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> NegativeD21Pair { left::nested: 1_u64 } \<close>
   \<open> syntax error \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> NegativeD21Pair { if: 1_u64 } \<close>
   \<open> syntax error \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> NegativeD21Pair { left } \<close>
   \<open> syntax error \<close>
   \<comment> \<open> [FIDELITY] Rust field shorthand is not supported. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> NegativeD21Pair { left: 1_u64, ..base } \<close>
   \<open> syntax error \<close>
   \<comment> \<open> [FIDELITY] Rust rest update is not supported. \<close>
 
 subsection\<open> Head generics and nested failures \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> NegativeD21Pair::<T> { left: 1_u64, right: 2_u64 } \<close>
   \<open> generic arguments are not supported in struct-expression heads \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> Negative::<T>::D21Pair { left: 1_u64, right: 2_u64 } \<close>
   \<open> generic arguments are not supported in struct-expression heads \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open>
     NegativeD21Pair {
       left: NegativeD21Pair { inner: },
@@ -2491,12 +2487,12 @@ urust_expr_rejects fidelity
 
 subsection\<open> Shared call arity and type boundary \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> NegativeD21Pair { only: 1_u64 } \<close>
   \<open> no backend matches the use-site type \<close>
   \<comment> \<open> [FIDELITY] too few initializers reach the ordinary call type check. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open>
     NegativeD21Pair {
       first: 1_u64, second: 2_u64, third: 3_u64
@@ -2505,7 +2501,7 @@ urust_expr_rejects fidelity
   \<open> no backend matches the use-site type \<close>
   \<comment> \<open> [FIDELITY] too many supported-arity initializers fail at the same final type check. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open>
     NegativeD21Pair {
       f00: 0, f01: 1, f02: 2, f03: 3, f04: 4,
@@ -2516,7 +2512,7 @@ urust_expr_rejects fidelity
   \<open> unsupported call arity 15 \<close>
   \<comment> \<open> [FIDELITY] struct expressions share the frontend's inclusive arity-14 cap. \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open>
     UnknownArityStruct {
       f00: unknown_arity_initializer!(),
@@ -2532,21 +2528,20 @@ section\<open> Unparenthesized struct expressions in control heads \<close>
 
 text\<open>
 Rust excludes an unparenthesized struct expression throughout the outer precedence depth of a
-control head. Each row proves that the legacy frontend accepts the former spelling while the
-dedicated parser requires an explicit delimiter.
+control head. The parser requires an explicit delimiter.
 \<close>
 
 subsection\<open> Direct control heads \<close>
 
-new_urust_rejects frontend_accepts
+urust_expr_rejects
   \<open> if NegativeD21One { value: true } { () } else { () } \<close>
   \<open> syntax error \<close>
 
-new_urust_rejects frontend_accepts
+urust_expr_rejects
   \<open> || if NegativeD21One { value: true } { () } else { () } \<close>
   \<open> syntax error \<close>
 
-new_urust_rejects frontend_accepts
+urust_expr_rejects
   \<open>
     if let Some(value) = NegativeD21One { value: Some(()) } {
       value
@@ -2556,18 +2551,18 @@ new_urust_rejects frontend_accepts
   \<close>
   \<open> syntax error \<close>
 
-new_urust_rejects frontend_accepts
+urust_expr_rejects
   \<open> for _ in NegativeD21One { value: [()] } { () } \<close>
   \<open> syntax error \<close>
 
-new_urust_rejects frontend_accepts
+urust_expr_rejects
   \<open>
     #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let Some(_) =
       NegativeD21One { value: Some(()) } { () }
   \<close>
   \<open> syntax error \<close>
 
-new_urust_rejects frontend_accepts
+urust_expr_rejects
   \<open>
     match NegativeD21One { value: Some(()) } {
       Some(_) \<Rightarrow> (),
@@ -2576,7 +2571,7 @@ new_urust_rejects frontend_accepts
   \<close>
   \<open> syntax error \<close>
 
-new_urust_rejects frontend_accepts
+urust_expr_rejects
   \<open>
     match_case NegativeD21One { value: Some(()) } {
       Some(_) \<Rightarrow> (),
@@ -2585,7 +2580,7 @@ new_urust_rejects frontend_accepts
   \<close>
   \<open> syntax error \<close>
 
-new_urust_rejects frontend_accepts
+urust_expr_rejects
   \<open>
     match_switch NegativeD21One { value: \<llangle>0 :: nat\<rrangle> } {
       0 \<Rightarrow> (),
@@ -2596,7 +2591,7 @@ new_urust_rejects frontend_accepts
 
 subsection\<open> Restricted precedence tiers \<close>
 
-new_urust_rejects frontend_accepts
+urust_expr_rejects
   \<open>
     match_case NegativeD21One { value: [()] }[0_usize] {
       _ \<Rightarrow> ()
@@ -2604,11 +2599,11 @@ new_urust_rejects frontend_accepts
   \<close>
   \<open> syntax error \<close>
 
-new_urust_rejects frontend_accepts
+urust_expr_rejects
   \<open> if !NegativeD21One { value: false } { () } \<close>
   \<open> syntax error \<close>
 
-new_urust_rejects frontend_accepts
+urust_expr_rejects
   \<open>
     match_case &NegativeD21Any { value: () } {
       _ \<Rightarrow> ()
@@ -2616,7 +2611,7 @@ new_urust_rejects frontend_accepts
   \<close>
   \<open> syntax error \<close>
 
-new_urust_rejects frontend_accepts
+urust_expr_rejects
   \<open>
     match_case NegativeD21One { value: 1_u32 } as u64 {
       _ \<Rightarrow> ()
@@ -2624,7 +2619,7 @@ new_urust_rejects frontend_accepts
   \<close>
   \<open> syntax error \<close>
 
-new_urust_rejects frontend_accepts
+urust_expr_rejects
   \<open>
     match_case NegativeD21One { value: 1_u64 } + 2_u64 {
       _ \<Rightarrow> ()
@@ -2632,7 +2627,7 @@ new_urust_rejects frontend_accepts
   \<close>
   \<open> syntax error \<close>
 
-new_urust_rejects frontend_accepts
+urust_expr_rejects
   \<open>
     match_case 1_u64 + NegativeD21One { value: 2_u64 } {
       _ \<Rightarrow> ()
@@ -2640,7 +2635,7 @@ new_urust_rejects frontend_accepts
   \<close>
   \<open> syntax error \<close>
 
-new_urust_rejects frontend_accepts
+urust_expr_rejects
   \<open>
     match_case 0_usize..NegativeD21One { value: 2_usize } {
       _ \<Rightarrow> ()
@@ -2648,7 +2643,7 @@ new_urust_rejects frontend_accepts
   \<close>
   \<open> syntax error \<close>
 
-new_urust_rejects frontend_accepts
+urust_expr_rejects
   \<open>
     let mut slot = 1_u64;
     match_case slot = NegativeD21One { value: 2_u64 } {
@@ -2661,15 +2656,15 @@ section\<open> Lexer and whole-input failures \<close>
 
 subsection\<open> Primitive logging \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> \<l>\<o>\<g> \<close>
   \<open> syntax error found at end of input \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> \<l>\<o>\<g> \<llangle>Error\<rrangle> \<close>
   \<open> syntax error found at end of input \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open>
     \<l>\<o>\<g>
       \<epsilon>\<open>literal Error\<close>
@@ -2677,7 +2672,7 @@ urust_expr_rejects fidelity
   \<close>
   \<open> syntax error found at <expression antiquotation> \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open>
     \<l>\<o>\<g>
       \<llangle>Error\<rrangle>
@@ -2686,93 +2681,93 @@ urust_expr_rejects fidelity
   \<close>
   \<open> syntax error found at <value antiquotation> \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> \<l>\<o>\<g> \<llangle>Error\<rrangle> \<llangle>[] \<close>
   \<open> unterminated value antiquotation \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open> Foo::<T>::bar() \<close>
   \<open> generic arguments on an intermediate path segment require an exact registration \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open> value::<T> \<close>
   \<open> generic arguments on a bare value require an exact literal registration \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open> f::<> \<close>
   \<open> syntax error \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open> f::<1,>() \<close>
   \<open> syntax error \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open> f::<(1]() \<close>
   \<open> unexpected input "]" \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open> f::<1() \<close>
   \<open> unterminated turbofish \<close>
 
 subsection\<open> Restricted turbofish grammar \<close>
 
 text\<open>
-The legacy frontend admits arbitrary unquoted HOL in generic position. The dedicated parser
-intentionally accepts only unsuffixed integers, paths, grouping, and left-associative addition.
+The parser intentionally accepts only unsuffixed integers, paths, grouping, and
+left-associative addition in generic position.
 \<close>
 
-new_urust_rejects divergent \<open> f::<Suc 4>() \<close> \<open> syntax error \<close>
-new_urust_rejects divergent \<open> f::<(1, 2)>() \<close> \<open> syntax error \<close>
-new_urust_rejects divergent \<open> f::<[1, 2]>() \<close> \<open> unexpected input "[" \<close>
-new_urust_rejects divergent \<open> f::<"text">() \<close> \<open> unexpected input \<close>
-new_urust_rejects divergent \<open> f::<STR ''text''>() \<close> \<open> unexpected input \<close>
-new_urust_rejects divergent \<open> f::<1 :: nat>() \<close> \<open> syntax error \<close>
-new_urust_rejects divergent \<open> f::<a < b>() \<close> \<open> unexpected input "<" \<close>
-new_urust_rejects divergent \<open> f::<a << b>() \<close> \<open> unexpected input "<" \<close>
-new_urust_rejects divergent \<open> f::<a & b>() \<close> \<open> unexpected input "&" \<close>
-new_urust_rejects divergent \<open> f::<a && b>() \<close> \<open> unexpected input "&" \<close>
-new_urust_rejects divergent \<open> f::<a % b>() \<close> \<open> unexpected input "%" \<close>
-new_urust_rejects divergent \<open> f::<a ^ b>() \<close> \<open> unexpected input "^" \<close>
-new_urust_rejects divergent \<open> f::<-a>() \<close> \<open> unexpected input "-" \<close>
-new_urust_rejects divergent \<open> f::<a - b>() \<close> \<open> unexpected input "-" \<close>
-new_urust_rejects divergent \<open> f::<a * b>() \<close> \<open> unexpected input "*" \<close>
-new_urust_rejects divergent \<open> f::<a / b>() \<close> \<open> unexpected input "/" \<close>
-new_urust_rejects divergent \<open> f::<a div b>() \<close> \<open> syntax error \<close>
-new_urust_rejects divergent \<open> f::<a mod b>() \<close> \<open> syntax error \<close>
-new_urust_rejects divergent \<open> f::<\<clubsuit>>() \<close> \<open> unexpected input \<close>
-new_urust_rejects divergent
+urust_expr_rejects \<open> f::<Suc 4>() \<close> \<open> syntax error \<close>
+urust_expr_rejects \<open> f::<(1, 2)>() \<close> \<open> syntax error \<close>
+urust_expr_rejects \<open> f::<[1, 2]>() \<close> \<open> unexpected input "[" \<close>
+urust_expr_rejects \<open> f::<"text">() \<close> \<open> unexpected input \<close>
+urust_expr_rejects \<open> f::<STR ''text''>() \<close> \<open> unexpected input \<close>
+urust_expr_rejects \<open> f::<1 :: nat>() \<close> \<open> syntax error \<close>
+urust_expr_rejects \<open> f::<a < b>() \<close> \<open> unexpected input "<" \<close>
+urust_expr_rejects \<open> f::<a << b>() \<close> \<open> unexpected input "<" \<close>
+urust_expr_rejects \<open> f::<a & b>() \<close> \<open> unexpected input "&" \<close>
+urust_expr_rejects \<open> f::<a && b>() \<close> \<open> unexpected input "&" \<close>
+urust_expr_rejects \<open> f::<a % b>() \<close> \<open> unexpected input "%" \<close>
+urust_expr_rejects \<open> f::<a ^ b>() \<close> \<open> unexpected input "^" \<close>
+urust_expr_rejects \<open> f::<-a>() \<close> \<open> unexpected input "-" \<close>
+urust_expr_rejects \<open> f::<a - b>() \<close> \<open> unexpected input "-" \<close>
+urust_expr_rejects \<open> f::<a * b>() \<close> \<open> unexpected input "*" \<close>
+urust_expr_rejects \<open> f::<a / b>() \<close> \<open> unexpected input "/" \<close>
+urust_expr_rejects \<open> f::<a div b>() \<close> \<open> syntax error \<close>
+urust_expr_rejects \<open> f::<a mod b>() \<close> \<open> syntax error \<close>
+urust_expr_rejects \<open> f::<\<clubsuit>>() \<close> \<open> unexpected input \<close>
+urust_expr_rejects
   \<open> f::<\<open>opaque\<close>>() \<close>
   \<open> unexpected input \<close>
-new_urust_rejects divergent
+urust_expr_rejects
   \<open> f::<\<epsilon>\<open>1\<close>>() \<close>
   \<open> unexpected input \<close>
-new_urust_rejects divergent
+urust_expr_rejects
   \<open> f::<1 // comments are not generic trivia
        + 2>() \<close>
   \<open> unexpected input "/" \<close>
 
-new_urust_rejects audit \<open> f::<,1>() \<close> \<open> syntax error \<close>
-new_urust_rejects audit \<open> f::<1,,2>() \<close> \<open> syntax error \<close>
-new_urust_rejects audit \<open> f::<1,>() \<close> \<open> syntax error \<close>
-new_urust_rejects audit \<open> f::<1 a>() \<close> \<open> syntax error \<close>
-new_urust_rejects audit \<open> f::<1 +>() \<close> \<open> syntax error \<close>
-new_urust_rejects audit \<open> f::<* 1>() \<close> \<open> unexpected input "*" \<close>
-new_urust_rejects audit \<open> f::<->() \<close> \<open> unexpected input "-" \<close>
-new_urust_rejects audit \<open> f::<((1)>() \<close> \<open> syntax error \<close>
-new_urust_rejects audit \<open> f::<1)>() \<close> \<open> syntax error \<close>
-new_urust_rejects audit
+urust_expr_rejects \<open> f::<,1>() \<close> \<open> syntax error \<close>
+urust_expr_rejects \<open> f::<1,,2>() \<close> \<open> syntax error \<close>
+urust_expr_rejects \<open> f::<1,>() \<close> \<open> syntax error \<close>
+urust_expr_rejects \<open> f::<1 a>() \<close> \<open> syntax error \<close>
+urust_expr_rejects \<open> f::<1 +>() \<close> \<open> syntax error \<close>
+urust_expr_rejects \<open> f::<* 1>() \<close> \<open> unexpected input "*" \<close>
+urust_expr_rejects \<open> f::<->() \<close> \<open> unexpected input "-" \<close>
+urust_expr_rejects \<open> f::<((1)>() \<close> \<open> syntax error \<close>
+urust_expr_rejects \<open> f::<1)>() \<close> \<open> syntax error \<close>
+urust_expr_rejects
   \<open> f::<1>>() \<close>
   \<open> generic arguments on a bare value require an exact literal registration \<close>
-new_urust_rejects divergent \<open> f::<1u8>() \<close> \<open> syntax error \<close>
-new_urust_rejects divergent \<open> f::<0xff_u8>() \<close> \<open> syntax error \<close>
+urust_expr_rejects \<open> f::<1u8>() \<close> \<open> syntax error \<close>
+urust_expr_rejects \<open> f::<0xff_u8>() \<close> \<open> syntax error \<close>
 
-urust_expr_rejects fidelity \<open> "bad\q" \<close> \<open> bad escape character in string \<close>
+urust_expr_rejects \<open> "bad\q" \<close> \<open> bad escape character in string \<close>
   \<comment> \<open> [FIDELITY] malformed escapes are rejected by the same Isabelle string decoder. \<close>
 
-urust_expr_rejects fidelity \<open> "unterminated \<close> \<open> malformed or unterminated string literal \<close>
+urust_expr_rejects \<open> "unterminated \<close> \<open> malformed or unterminated string literal \<close>
   \<comment> \<open> [FIDELITY] the opening quote receives a positioned lexer diagnostic. \<close>
 
-urust_expr_rejects fidelity \<open> \<llangle>1 :: nat \<close> \<open> unterminated value antiquotation \<close>
+urust_expr_rejects \<open> \<llangle>1 :: nat \<close> \<open> unterminated value antiquotation \<close>
   \<comment> \<open> [FIDELITY] EOF in a value antiquotation is diagnosed at its opening delimiter. \<close>
 
 ML\<open>
@@ -2802,26 +2797,26 @@ local
 in end
 \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> match_case true { \<epsilon>\<open>Bool_Type.true\<close> \<Rightarrow> () } \<close>
   \<open> <expression antiquotation> => \<close>
   \<comment> \<open> [FIDELITY] expression antiquotation remains expression-only. \<close>
 
-urust_expr_rejects fidelity \<open> 1 @ 2 \<close> \<open> syntax error found at @ \<close>
+urust_expr_rejects \<open> 1 @ 2 \<close> \<open> syntax error found at @ \<close>
   \<comment> \<open> [FIDELITY] \<open>@\<close> is pattern-only; expression position rejects it after lexing. \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> match true { true => => () } \<close>
   \<open> syntax error: deleting  => ( ) \<close>
   \<comment> \<open> [FIDELITY] generated ML-Yacc arrow names are rendered as their source spelling. \<close>
 
-urust_expr_rejects fidelity \<open> { () \<close> \<open> syntax error found at end of input \<close>
+urust_expr_rejects \<open> { () \<close> \<open> syntax error found at end of input \<close>
   \<comment> \<open> [FIDELITY] unbalanced brace -- input must be consumed to EOF by a complete derivation. \<close>
 
-urust_expr_rejects fidelity \<open> { ; } \<close> \<open> syntax error found at ; \<close>
+urust_expr_rejects \<open> { ; } \<close> \<open> syntax error found at ; \<close>
   \<comment> \<open> [FIDELITY] a block cannot begin with a standalone semicolon. \<close>
 
-urust_expr_rejects fidelity \<open> \<close> \<open> empty expression \<close>
+urust_expr_rejects \<open> \<close> \<open> empty expression \<close>
   \<comment> \<open> [FIDELITY] \<open>parse_source\<close> returns NONE on blank input; the frontend's empty bracket is an
        inner-syntax error. \<close>
 
@@ -2830,63 +2825,63 @@ chapter\<open>Negative logging\<close>
 
 section\<open> Malformed logging-data expressions \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> l\<llangle>\<rrangle> \<close>
   \<open> syntax error \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> l\<llangle>, True\<rrangle> \<close>
   \<open> syntax error \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> l\<llangle>True,\<rrangle> \<close>
   \<open> syntax error \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> l\<llangle>True,, False\<rrangle> \<close>
   \<open> syntax error \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> l\<llangle>True False\<rrangle> \<close>
   \<open> syntax error \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> l\<llangle>1\<rrangle> \<close>
   \<open> unexpected input "1" \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> l\<llangle>\<llangle>True\<rrangle>\<rrangle> \<close>
   \<open> unexpected input \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> l\<llangle>Foo::Bar\<rrangle> \<close>
   \<open> unexpected input ":" \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> l\<llangle>True()\<rrangle> \<close>
   \<open> unexpected input "(" \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> l\<llangle>True + False\<rrangle> \<close>
   \<open> unexpected input "+" \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> l\<llangle>l\<llangle>True\<rrangle>\<rrangle> \<close>
   \<open> unexpected input \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> l \<llangle>True\<rrangle> \<close>
   \<open> syntax error \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> \<rrangle> \<close>
   \<open> unexpected input \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> l\<llangle>"unterminated \<close>
   \<open> malformed or unterminated string literal \<close>
 
-urust_expr_rejects fidelity
+urust_expr_rejects
   \<open> l\<llangle>"text", True \<close>
   \<open> unterminated log data \<close>
 

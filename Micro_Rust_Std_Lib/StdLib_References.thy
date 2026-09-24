@@ -5,7 +5,6 @@
 theory StdLib_References
   imports Crush.Crush
 begin
-declare [[urust_conformance = true]]
 (*>*)
 
 context reference
@@ -213,7 +212,7 @@ urust_fn transpose :: \<open>('a, 'b, 't option) ro_ref \<Rightarrow>
   \<open>
      match *self {
        None    \<Rightarrow> None,
-       Some(_) \<Rightarrow> Some(\<epsilon>\<open>\<up>focus_focused option_focus self\<close>)
+       Some(_) \<Rightarrow> Some(\<epsilon>\<open>literal (focus_focused option_focus self)\<close>)
      }
   \<close>
 

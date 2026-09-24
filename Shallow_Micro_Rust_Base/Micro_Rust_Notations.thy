@@ -79,7 +79,8 @@ fun infer_kind_of_type (Type ("Core_Expression.function_body", _)) = NFunction
   the parameter substitution.\<close>
 type entry =
   {hol_term: term, source_const: term option,
-   reg_pos: Position.T, serial: serial};
+   reg_pos: Position.T, serial: serial,
+   backend_const: string option};
 
 \<comment>\<open>MULTIPLE BACKENDS PER NAME (adhoc-overloading-style dispatch). A single
   uRust name may have several HOL backends differing only by type, just as
@@ -246,12 +247,14 @@ fun set_shadow_bit kind names bit =
   emits a \<open>def\<close>-side entity markup at \<open>reg_pos\<close>. Use sites later emit
   matching \<open>ref\<close>-side markup pointing back here, so jEdit's
   jump-to-definition lands on the registering command.\<close>
-fun register_with_source kind name hol_term source_const reg_pos context =
+fun register_with_source kind name hol_term source_const
+    reg_pos backend_const context =
   let
     val s = serial ();
     val entry =
       {hol_term = hol_term, source_const = source_const,
-       reg_pos = reg_pos, serial = s};
+       reg_pos = reg_pos, serial = s,
+       backend_const = backend_const};
     val ctxt = Context.proof_of context;
     val _ = Context_Position.report ctxt reg_pos
       (Position.make_entity_markup {def = true} s notationN (name, reg_pos));
@@ -259,8 +262,8 @@ fun register_with_source kind name hol_term source_const reg_pos context =
     context |> Data.map (Symtab.insert_list reg_eq (mk_key kind name, entry))
   end;
 
-fun register kind name hol_term reg_pos =
-  register_with_source kind name hol_term NONE reg_pos;
+fun register kind name hol_term reg_pos backend_const =
+  register_with_source kind name hol_term NONE reg_pos backend_const;
 
 \<comment>\<open>All backends registered for a \<open>(kind, name)\<close>, or \<open>[]\<close> if none.\<close>
 fun lookups ctxt kind name =
@@ -277,6 +280,36 @@ fun dump ctxt =
           [k, n] => map (fn e => (string_to_kind k, n, e)) es
         | _ => error "malformed micro_rust_notation key"));
 
+end
+\<close>
+
+ML\<open>
+structure Micro_Rust_Notation_Observers =
+struct
+  type registration =
+    { kind : Micro_Rust_Names.ctxt_kind,
+      hol_src : string,
+      rust_name : string,
+      rust_pos : Position.T,
+      hol_term : term,
+      backend_const : string option }
+
+  type observer = registration -> local_theory -> local_theory
+
+  structure Data = Theory_Data
+  (
+    type T = observer Symtab.table
+    val empty = Symtab.empty
+    val merge = Symtab.merge (K true)
+  )
+
+  fun register (name, observer) =
+    Data.map (Symtab.update (name, observer))
+
+  fun notify registration lthy =
+    Symtab.fold
+      (fn (_, observer) => observer registration)
+      (Data.get (Proof_Context.theory_of lthy)) lthy
 end
 \<close>
 
@@ -1120,108 +1153,27 @@ fun check_forced_kind kind ctxt t =
          Pretty.block [Pretty.str "Type: ", Syntax.pretty_typ ctxt T]]))
   end;
 
-\<comment>\<open>A rust name is \<^emph>\<open>grammatical\<close> if the µRust frontend's grammar can
-  already parse it as a \<^verbatim>\<open>urust_identifier\<close>: either a plain identifier
-  (\<open>foo_bar\<close>) or a \<^verbatim>\<open>::\<close>-style path (\<open>Foo::bar::baz\<close>, which the path-AST
-  translation flattens). Anything else --- turbofish forms like
-  \<open>Address::<IPA>::new\<close>, or macro names like \<open>fatal!\<close> --- contains
-  characters such as \<open><\<close>, \<open>>\<close>, and \<open>!\<close> that no grammar production covers, so
-  the token cannot be parsed at all. For those we must additionally emit
-  a bespoke grammar production + AST translation (see
-  \<open>emit_bespoke_syntax\<close>): the dispatch-table entry alone is useless if the
-  use site never parses.\<close>
-fun is_grammatical_name name =
-  let val remove_colons = String.translate (fn #":" => "" | c => String.str c)
-  in Symbol_Pos.is_identifier name
-       orelse Symbol_Pos.is_identifier (remove_colons name)
+\<comment>\<open>A Rust notation name is an identifier path when it consists of one or
+  more identifier segments separated by exactly \<open>::\<close>. Parser-aware commands
+  may use this shared predicate when validating names before registration.\<close>
+fun is_identifier_path name =
+  let
+    val segments = String.tokens (fn c => c = #":") name
+  in
+    not (null segments)
+      andalso space_implode "::" segments = name
+      andalso forall Symbol_Pos.is_identifier segments
   end;
 
-\<comment>\<open>For a non-grammatical rust name (turbofish/macro), emit a bespoke
-  grammar production so the surface token parses, then funnel it back into
-  the \<^emph>\<open>ordinary\<close> identifier pipeline --- exactly as the path frontend does
-  for \<open>Foo::bar\<close>. We declare a fresh nullary \<^verbatim>\<open>urust_identifier\<close> constant
-  whose mixfix template IS the rust name (so the exact token sequence
-  becomes one grammar atom), plus a \<^verbatim>\<open>parse_ast_translation\<close> hook
-  rewriting it to \<open>_urust_identifier_id (Ast.Variable <rust_name>)\<close> --- the
-  SAME AST node a plain/path identifier yields. From there it flows through
-  \<open>lookup_id_tr\<close> and the dispatch table uniformly; the turbofish-ness is
-  confined to the AST frontend. The syntax-constant name is a sanitised
-  (alphanumeric-only) form of the rust name.
-
-  \<^bold>\<open>Clickability + no overloading.\<close> A \<^verbatim>\<open>syntax_consts\<close> dependency binds
-  the bespoke constant to its backend constant, which (a) makes the use
-  site ctrl-clickable --- \<^verbatim>\<open>parsetree_to_ast\<close> reports the binding before
-  the parse translation fires --- and (b) forces \<^emph>\<open>at most one\<close> backend per
-  name (the single production has one \<^verbatim>\<open>syntax_consts\<close> target), so we reject
-  a second registration in any kind.
-
-  We therefore need a single backend constant \<open>c\<close>. \<open>Term.head_of t0\<close> gives
-  it for a definition/raw constant; for an \<^theory_text>\<open>abbreviation\<close>
-  \<^verbatim>\<open>read_term\<close> returns the \<^emph>\<open>expansion\<close> (head \<^verbatim>\<open>Abs\<close>), so we recover \<open>c\<close>
-  from the source string via \<^ML>\<open>Proof_Context.read_const\<close> (no unfolding).
-  Error only if neither yields a constant.\<close>
-fun emit_bespoke_syntax hol_src rust_name source_const t0 lthy =
-  if is_grammatical_name rust_name then lthy
-  else
-    let
-      val c =
-        (case Term.head_of t0 of
-           Const (c, _) => c
-         | _ =>
-           (case source_const of
-              SOME (Const (c, _)) => c
-            | _ =>
-             error (Pretty.string_of (Pretty.chunks
-               [Pretty.str ("micro_rust_notation: the rust name " ^ quote rust_name ^
-                  " is not a plain identifier or ::-path, so it needs a bespoke"),
-                Pretty.str "grammar production whose markup binds to a single backend\
-                  \ constant --- but the registered term is not a constant or abbreviation:",
-                Pretty.block [Pretty.str "  ", Syntax.pretty_term lthy t0]]))))
-      \<comment>\<open>Reject overloading: at most one backend per non-grammatical name,
-        across all kinds (the single grammar production has a single
-        \<^verbatim>\<open>syntax_consts\<close> target).\<close>
-      val existing =
-        maps (fn k => Micro_Rust_Names.lookups lthy k rust_name)
-          [Micro_Rust_Names.NLiteral, Micro_Rust_Names.NFunction,
-           Micro_Rust_Names.NField]
-      val _ =
-        if null existing then ()
-        else error (Pretty.string_of (Pretty.chunks
-          [Pretty.str ("micro_rust_notation: the non-grammatical name " ^
-             quote rust_name ^ " is already registered and cannot be"),
-           Pretty.str "overloaded --- its bespoke grammar production binds to a single\
-             \ backend. Pick a distinct name, or use a plain/::-path name",
-           Pretty.str "(those support type-directed multi-backend dispatch)."]))
-      val sanitise =
-        String.translate (fn ch =>
-          if Char.isAlphaNum ch then String.str ch else "")
-      val syntax_constant = "_urust_identifier_bespoke_" ^ sanitise rust_name
-      \<comment>\<open>The nullary template parses to \<open>Ast.Constant syntax_constant\<close> with
-        no arguments, so the hook recovers the name from its closure (not
-        from the AST args). We name \<open>_urust_identifier_id\<close> by string rather
-        than \<^verbatim>\<open>\<^syntax_const>\<close>: this theory imports only \<open>Main\<close>, so that
-        frontend syntax constant is not in scope at ML-compile time --- but
-        it always is at the downstream use sites where the command runs.
-        (The existing \<open>urust_const_ast_tr\<close> in \<open>Micro_Rust_Shallow_Embedding\<close>
-        names it the same way, for the same reason.)\<close>
-      fun hook _ _ =
-        Ast.Appl [Ast.Constant "_urust_identifier_id",
-                  Ast.Variable rust_name]
-    in
-      lthy
-      |> Local_Theory.syntax_cmd true Syntax.mode_default
-           [(syntax_constant, "urust_identifier", Mixfix.mixfix rust_name)]
-      |> Local_Theory.background_theory
-           (Sign.parse_ast_translation [(syntax_constant, hook)])
-      \<comment>\<open>Bind the bespoke syntax constant to its backend so use sites are
-        ctrl-clickable to the backend's definition (see above). The RHS
-        must be the \<^emph>\<open>marked\<close> constant name (\<^ML>\<open>Lexicon.mark_const\<close>):
-        \<^ML>\<open>Syntax.get_consts\<close> feeds it to \<^ML>\<open>Lexicon.unmark_entity\<close>,
-        which only recognises marked names --- an unmarked name falls
-        through to the default case, yielding no markup. (The
-        \<^theory_text>\<open>syntax_consts\<close> command applies the same marking.)\<close>
-      |> Local_Theory.syntax_deps [(syntax_constant, [Lexicon.mark_const c])]
-    end;
+fun backend_const_of hol_src t0 lthy =
+  (case Term.head_of t0 of
+     Const (name, _) => SOME name
+   | _ =>
+       (case try
+           (Proof_Context.read_const {proper = true, strict = false} lthy)
+           hol_src of
+          SOME (Const (name, _)) => SOME name
+        | _ => NONE))
 
 fun do_register kind_opt (hol_src, (rust_name, rust_pos)) lthy =
   let
@@ -1238,15 +1190,23 @@ fun do_register kind_opt (hol_src, (rust_name, rust_pos)) lthy =
       case kind_opt of
         SOME k => (check_forced_kind k lthy t0; k)
       | NONE => Micro_Rust_Names.infer_kind_of_type (fastype_of t0)
+    val backend_const = backend_const_of hol_src t0 lthy
+    val registration =
+      {kind = kind,
+       hol_src = hol_src,
+       rust_name = rust_name,
+       rust_pos = rust_pos,
+       hol_term = t0,
+       backend_const = backend_const}
   in
     lthy
-    |> emit_bespoke_syntax hol_src rust_name source_const t0
     |> Local_Theory.declaration {pervasive=false, syntax=true, pos=Position.none}
       (fn phi =>
         Micro_Rust_Names.register_with_source kind rust_name
           (Morphism.term phi t0)
           (Option.map (Morphism.term phi) source_const)
-          rust_pos)
+          rust_pos backend_const)
+    |> Micro_Rust_Notation_Observers.notify registration
   end;
 
 \<comment>\<open>Config sub-command: parse \<open>[mode] "name"+\<close> and update the
@@ -1364,7 +1324,7 @@ micro_rust_notation test_my_some_b ("MySome")
   \<open>literal\<close>-shaped \<open>test_my_some_a\<close> under a field name with no kind
   modifier (auto-infer falls back to \<open>literal\<close>). For a real
   field-typed backend, see \<^verbatim>\<open>register_lens_with_micro_rust\<close> in
-  \<^file>\<open>Micro_Rust_Shallow_Embedding.thy\<close>.\<close>
+  \<^file>\<open>Micro_Rust_Parser_Target.thy\<close>.\<close>
 micro_rust_notation test_my_some_a ("a_field")
 
 print_micro_rust_notations

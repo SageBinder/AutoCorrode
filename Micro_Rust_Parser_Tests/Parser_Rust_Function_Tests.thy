@@ -68,9 +68,8 @@ urust_fn [application_def, attrs = [micro_rust_simps]]
   \<close>
 
 urust_fn
-  [conformance, pp_test, pretty, verbosity = 2,
-   timing_info, timing_verbosity = 0]
-  conformance_function ::
+  [pp_test, pretty, verbosity = 2]
+  configured_function ::
   \<open>64 word \<Rightarrow>
     (unit, 64 word, unit, unit, unit) function_body\<close>
   \<open>
@@ -131,7 +130,7 @@ lemma inferred_hol_name_shape:
 
 thm rust_hol_disagreement_def
 thm attributed_application_function_def
-thm conformance_function_conformance
+thm configured_function_def
 
 urust_datatype shared_item \<open> struct SharedItem; \<close>
 

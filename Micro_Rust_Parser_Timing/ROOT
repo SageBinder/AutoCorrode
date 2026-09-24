@@ -1,9 +1,0 @@
-session Micro_Rust_Parser_Timing_Fixture = HOL +
-  options [document = false]
-  sessions
-    Micro_Rust_Parser_Impl
-  directories
-    test
-  theories [document = false]
-    Timing_Fixture_A
-    Timing_Fixture_B

@@ -1,10 +1,8 @@
 theory Parser_Iterator_Fixtures
   imports
-    Micro_Rust_Parser_Impl.Parser_Impl_Command
+    Parser_Test_Utils
     Shallow_Micro_Rust.Eval
 begin
-
-declare [[urust_conformance = true]]
 
 section\<open>Shared iterator fixtures\<close>
 

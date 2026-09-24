@@ -1054,15 +1054,13 @@ fun define
       the_default (infer_datatype_binding rust_name rust_pos)
         explicit_binding
     val (generated, lthy'') =
-      Unsynchronized.setmp Private_Output.writeln_fn (K ())
-        (fn () =>
-          let
-            val (generated, lthy') =
-              generate_urust_datatype type_binding item
-                (Config.put Proof_Display.show_results false lthy)
-            val lthy'' =
-              register_generated_datatype generated lthy'
-          in (generated, lthy'') end) ()
+      let
+        val (generated, lthy') =
+          generate_urust_datatype type_binding item
+            (Config.put Proof_Display.show_results false lthy)
+        val lthy'' =
+          register_generated_datatype generated lthy'
+      in (generated, lthy'') end
     val final_lthy =
       Config.put Proof_Display.show_results
         (Config.get lthy Proof_Display.show_results) lthy''

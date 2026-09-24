@@ -1,9 +1,8 @@
 # Shallow µRust base
 
-This directory contains the production-parser-independent shallow semantics and embedding for
-µRust. The session defines the expression and continuation types, core operations, iterator and
-value semantics, notations, core syntax, and the legacy shallow embedding used as the parser's
-semantic target and conformance oracle.
+This directory contains the parser-independent shallow semantics for µRust. The session defines
+the expression and continuation types, core operations, iterator and value semantics, and the
+syntax-neutral notation registry and parser target.
 
 `Micro_Rust_Parser_Impl` depends on this session. Parser-backed lemmas, evaluation, pullback, SSA,
 and the integrated roll-up theories live in the downstream `Shallow_Micro_Rust` session.

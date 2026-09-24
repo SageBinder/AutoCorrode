@@ -1,11 +1,10 @@
-(* Positive function conformance for the supported urust_fn declaration surface. *)
+(* Positive function tests for the supported urust_fn declaration surface. *)
 
-theory Parser_Fn_Conformance_Tests
-  imports Parser_Test_Utils Parser_Iterator_Fixtures
+theory Parser_Function_Tests
+  imports
+    Parser_Test_Utils
+    Parser_Iterator_Fixtures
 begin
-
-declare [[urust_conformance = true]]
-declare [[urust_pp_test = true]]
 
 section\<open>Iterator semantics and call syntax\<close>
 
@@ -72,11 +71,6 @@ urust_fn iterator_zip_chained ::
    (nat list, zip_pair_iterator, unit, unit, unit) function_body\<close>
   (left, right)
   \<open> left.into_iter().zip(right.into_iter()) \<close>
-
-thm iterator_zip_direct_conformance
-thm iterator_zip_method_conformance
-thm iterator_zip_chained_conformance
-
 lemma hol_list_zip_is_unchanged:
   shows \<open>List.zip [1 :: nat, 2] [True] = [(1, True)]\<close>
   by simp
@@ -87,9 +81,6 @@ urust_fn answer ::
   \<open>('s, 32 word, 'abort, 'i, 'o) function_body\<close>
   ()
   \<open> \<llangle>42 :: 32 word\<rrangle> \<close>
-
-thm answer_conformance
-
 urust_fn inc ::
   \<open>32 word \<Rightarrow> ('s, 32 word, 'abort, 'i, 'o) function_body\<close>
   (x)
@@ -342,7 +333,7 @@ micro_rust_record fun_field_record
 micro_rust_notation (literal) fun_registered_literal ("funCollision")
 micro_rust_notation (call) fun_registered_call ("funCollision")
 
-urust_fn [conformance = false] fun_parameter_call_wins ::
+urust_fn  fun_parameter_call_wins ::
   \<open>
     (nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body) \<Rightarrow>
     nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body

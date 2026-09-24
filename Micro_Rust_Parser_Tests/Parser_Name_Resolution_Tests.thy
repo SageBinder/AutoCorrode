@@ -2,7 +2,6 @@ theory Parser_Name_Resolution_Tests
   imports Parser_Pattern_Matching_Tests
 begin
 
-declare [[urust_conformance = false]]
 declare [[urust_verbosity = 0]]
 
 section\<open> Antiquotation markup under HOL shadowing \<close>
@@ -29,11 +28,6 @@ ML_val\<open>
         "antiquotation-shadowing-markup-audit"
     val source =
       Parser_Lex_Util.positioned_content_source source_text source_start
-    val expected =
-      Syntax.parse_term ctxt
-        ("\<lbrakk> let x = \<llangle>1 :: nat\<rrangle>; " ^
-         "\<llangle>(\<lambda>x :: nat. x) x\<rrangle> \<rbrakk>")
-      |> Syntax.check_term ctxt
 
     val captured_reports =
       Synchronized.var "antiquotation_shadowing_markup_audit"
@@ -124,9 +118,6 @@ ML_val\<open>
     val hol_use_id =
       entity_id Markup.boundN Markup.refN hol_bound_use
 
-    val _ =
-      audit_assert "checked term differs from the legacy frontend"
-        (Term.aconv (actual, expected))
     val _ =
       audit_assert "native HOL binder navigation changed"
         (hol_binder_id = hol_use_id)
@@ -452,7 +443,7 @@ ML_val\<open>
 section\<open> Arity-indexed function-literal callee audit \<close>
 
 text\<open>
-These checks pin the function-literal boundary independently of same-source conformance: exact HOL and
+These checks pin the function-literal boundary directly: exact HOL and
 suffix ranges, complete call spans, lift-before-parameter-before-call lowering, argument order,
 dispatch/literal bypass, failure recovery, suffix token markup, and captured-binder navigation.
 \<close>
@@ -1695,7 +1686,7 @@ ML_val\<open>
 
     val ctxt = \<^context>
     val color_ctxt =
-      Proof_Context.init_global \<^theory>\<open>Parser_Expr_Conformance_Tests\<close>
+      Proof_Context.init_global \<^theory>\<open>Parser_Expression_Tests\<close>
 
     fun audit_assert message condition =
       if condition then ()
@@ -3440,14 +3431,18 @@ ML_val\<open>
        reg_pos =
          Position.make0 390 93000 0 "" ""
            "synthetic-notation-low-declaration",
-       serial = low_serial}
+       serial = low_serial,
+       backend_const =
+         SOME \<^const_name>\<open>ConstructorQualifierVariant\<close>}
     val high_entry : Micro_Rust_Names.entry =
       {hol_term = synthetic_constructor,
        source_const = SOME synthetic_constructor,
        reg_pos =
          Position.make0 391 93100 0 "" ""
            "synthetic-notation-high-declaration",
-       serial = high_serial}
+       serial = high_serial,
+       backend_const =
+         SOME \<^const_name>\<open>ConstructorQualifierVariant\<close>}
     val synthetic_ctxt =
       Context.Proof ctxt
       |> Micro_Rust_Names.Data.map
@@ -3667,7 +3662,6 @@ ML_val\<open>
 
 chapter\<open>Turbofish\<close>
 
-declare [[urust_conformance = false]]
 declare [[urust_verbosity = 0]]
 declare [[urust_abbrev = false]]
 
@@ -4295,7 +4289,6 @@ end
 
 chapter\<open>Scoped cast-target aliases\<close>
 
-declare [[urust_conformance = false]]
 declare [[urust_pp_test = true]]
 declare [[urust_verbosity = 0]]
 
@@ -4344,39 +4337,30 @@ begin
 
 urust_expr cast_alias_u8
   \<open> cast_alias_word as U8Alias \<close>
-  against \<open> \<lbrakk> cast_alias_word as u8 \<rbrakk> \<close>
 
 urust_expr cast_alias_u16
   \<open> cast_alias_word as types::U16Alias \<close>
-  against \<open> \<lbrakk> cast_alias_word as u16 \<rbrakk> \<close>
 
 urust_expr cast_alias_u32
   \<open> cast_alias_word as U32Alias \<close>
-  against \<open> \<lbrakk> cast_alias_word as u32 \<rbrakk> \<close>
 
 urust_expr cast_alias_u64
   \<open> cast_alias_word as U64Alias \<close>
-  against \<open> \<lbrakk> cast_alias_word as u64 \<rbrakk> \<close>
 
 urust_expr cast_alias_usize
   \<open> cast_alias_word as UsizeAlias \<close>
-  against \<open> \<lbrakk> cast_alias_word as usize \<rbrakk> \<close>
 
 urust_expr cast_alias_i32
   \<open> cast_alias_word as I32Alias \<close>
-  against \<open> \<lbrakk> cast_alias_word as i32 \<rbrakk> \<close>
 
 urust_expr cast_alias_i64
   \<open> cast_alias_word as I64Alias \<close>
-  against \<open> \<lbrakk> cast_alias_word as i64 \<rbrakk> \<close>
 
 urust_expr cast_alias_chain
   \<open> cast_alias_word as U64Alias as U8Alias as I32Alias \<close>
-  against \<open> \<lbrakk> cast_alias_word as u64 as u8 as i32 \<rbrakk> \<close>
 
 urust_expr cast_alias_precedence
   \<open> cast_alias_word as U32Alias + 1_u32 \<close>
-  against \<open> \<lbrakk> cast_alias_word as u32 + 1_u32 \<rbrakk> \<close>
 
 urust_expr cast_alias_no_struct
   \<open>
@@ -4387,16 +4371,6 @@ urust_expr cast_alias_no_struct
       cast_alias_word as types::U16Alias
     }
   \<close>
-  against \<open>
-    \<lbrakk>
-      if cast_alias_word as u32 ==
-          cast_alias_word as u32 {
-        cast_alias_word as u16
-      } else {
-        cast_alias_word as u16
-      }
-    \<rbrakk>
-  \<close>
 
 end
 
@@ -4406,43 +4380,33 @@ begin
 
 urust_expr cast_alias_const_u8_pointer
   \<open> cast_alias_raw as ConstU8Pointer \<close>
-  against \<open> \<lbrakk> cast_alias_raw as *const u8 \<rbrakk> \<close>
 
 urust_expr cast_alias_const_u16_pointer
   \<open> cast_alias_raw as ConstU16Pointer \<close>
-  against \<open> \<lbrakk> cast_alias_raw as *const u16 \<rbrakk> \<close>
 
 urust_expr cast_alias_const_u32_pointer
   \<open> cast_alias_raw as ConstU32Pointer \<close>
-  against \<open> \<lbrakk> cast_alias_raw as *const u32 \<rbrakk> \<close>
 
 urust_expr cast_alias_const_u64_pointer
   \<open> cast_alias_raw as ConstU64Pointer \<close>
-  against \<open> \<lbrakk> cast_alias_raw as *const u64 \<rbrakk> \<close>
 
 urust_expr cast_alias_const_usize_pointer
   \<open> cast_alias_raw as ConstUsizePointer \<close>
-  against \<open> \<lbrakk> cast_alias_raw as *const usize \<rbrakk> \<close>
 
 urust_expr cast_alias_mut_u8_pointer
   \<open> cast_alias_raw as MutU8Pointer \<close>
-  against \<open> \<lbrakk> cast_alias_raw as *mut u8 \<rbrakk> \<close>
 
 urust_expr cast_alias_mut_u16_pointer
   \<open> cast_alias_raw as MutU16Pointer \<close>
-  against \<open> \<lbrakk> cast_alias_raw as *mut u16 \<rbrakk> \<close>
 
 urust_expr cast_alias_mut_u32_pointer
   \<open> cast_alias_raw as MutU32Pointer \<close>
-  against \<open> \<lbrakk> cast_alias_raw as *mut u32 \<rbrakk> \<close>
 
 urust_expr cast_alias_mut_u64_pointer
   \<open> cast_alias_raw as MutU64Pointer \<close>
-  against \<open> \<lbrakk> cast_alias_raw as *mut u64 \<rbrakk> \<close>
 
 urust_expr cast_alias_mut_usize_pointer
   \<open> cast_alias_raw as MutUsizePointer \<close>
-  against \<open> \<lbrakk> cast_alias_raw as *mut usize \<rbrakk> \<close>
 
 end
 
@@ -4545,7 +4509,6 @@ urust_cast_alias "ExperimentWidth" = "u32"
 
 urust_expr cast_alias_direct_activation
   \<open> 0_u64 as ExperimentWidth \<close>
-  against \<open> \<lbrakk> 0_u64 as u32 \<rbrakk> \<close>
 
 end
 
@@ -4554,7 +4517,6 @@ begin
 
 urust_expr cast_alias_locale_use
   \<open> scope_word as types::U16Alias \<close>
-  against \<open> \<lbrakk> scope_word as u16 \<rbrakk> \<close>
 
 end
 
@@ -4618,7 +4580,6 @@ begin
 
 urust_expr cast_alias_conflict_left_alone
   \<open> 0_u64 as SharedWidth \<close>
-  against \<open> \<lbrakk> 0_u64 as u8 \<rbrakk> \<close>
 
 end
 
@@ -4627,7 +4588,6 @@ begin
 
 urust_expr cast_alias_conflict_right_alone
   \<open> 0_u64 as SharedWidth \<close>
-  against \<open> \<lbrakk> 0_u64 as u16 \<rbrakk> \<close>
 
 end
 
@@ -4636,7 +4596,6 @@ begin
 
 urust_expr cast_alias_idempotent_registration
   \<open> 0_u64 as StableWidth \<close>
-  against \<open> \<lbrakk> 0_u64 as u16 \<rbrakk> \<close>
 
 end
 
@@ -4869,7 +4828,6 @@ ML_val\<open>
 
 section\<open>Primitive-type path heads\<close>
 
-declare [[urust_conformance = false]]
 declare [[urust_pp_test = true]]
 declare [[urust_verbosity = 0]]
 declare [[urust_abbrev = false]]
@@ -5028,54 +4986,36 @@ end
 subsection\<open>Exact literal and call resolution\<close>
 
 urust_expr primitive_path_u8 \<open> u8::MAX \<close>
-  against \<open> \<lbrakk> PrimitiveCompat::U8Max \<rbrakk> \<close>
 
 urust_expr primitive_path_u16 \<open> u16::MAX \<close>
-  against \<open> \<lbrakk> PrimitiveCompat::U16Max \<rbrakk> \<close>
 
 urust_expr primitive_path_u32 \<open> u32::MAX \<close>
-  against \<open> \<lbrakk> PrimitiveCompat::U32Max \<rbrakk> \<close>
 
 urust_expr primitive_path_u64 \<open> u64::MAX \<close>
-  against \<open> \<lbrakk> PrimitiveCompat::U64Max \<rbrakk> \<close>
 
 urust_expr primitive_path_usize \<open> usize::MAX \<close>
-  against \<open> \<lbrakk> PrimitiveCompat::UsizeMax \<rbrakk> \<close>
 
 urust_expr primitive_path_i32 \<open> i32::MAX \<close>
-  against \<open> \<lbrakk> PrimitiveCompat::I32Max \<rbrakk> \<close>
 
 urust_expr primitive_path_i64 \<open> i64::MAX \<close>
-  against \<open> \<lbrakk> PrimitiveCompat::I64Max \<rbrakk> \<close>
 
 urust_expr primitive_path_call_zero \<open> u64::zero() \<close>
-  against \<open> \<lbrakk> PrimitiveCompat::zero() \<rbrakk> \<close>
 
 urust_expr primitive_path_call_one \<open> u64::from(5u64) \<close>
-  against \<open> \<lbrakk> PrimitiveCompat::convert(5_u64) \<rbrakk> \<close>
 
 urust_expr primitive_path_call_multiple
   \<open> u64::combine(5u64, 7u64) \<close>
-  against \<open> \<lbrakk> PrimitiveCompat::combine(5_u64, 7_u64) \<rbrakk> \<close>
 
 urust_expr primitive_path_call_turbofish
   \<open> u64::from::<PrimitiveParam>(5u64) \<close>
-  against
-    \<open> \<lbrakk> PrimitiveCompat::convert::<PrimitiveParam>(5_u64) \<rbrakk> \<close>
 
 urust_expr primitive_path_dual_literal \<open> u64::DUAL \<close>
-  against \<open> \<lbrakk> PrimitiveCompat::DUAL \<rbrakk> \<close>
 
 urust_expr primitive_path_dual_call \<open> u64::DUAL() \<close>
-  against \<open> \<lbrakk> PrimitiveCompat::DUAL() \<rbrakk> \<close>
-
-old_urust_rejects \<open> u64::MAX \<close>
-old_urust_rejects \<open> u64::from(5u64) \<close>
 
 subsection\<open>Layout and lexical boundaries\<close>
 
 urust_expr primitive_path_spaces \<open> u64 :: MAX \<close>
-  against \<open> \<lbrakk> PrimitiveCompat::U64Max \<rbrakk> \<close>
 
 urust_expr primitive_path_newlines
   \<open>
@@ -5083,7 +5023,6 @@ urust_expr primitive_path_newlines
       ::
     MAX
   \<close>
-  against \<open> \<lbrakk> PrimitiveCompat::U64Max \<rbrakk> \<close>
 
 urust_expr primitive_path_line_comment
   \<open>
@@ -5091,11 +5030,9 @@ urust_expr primitive_path_line_comment
       :: // before item
     MAX
   \<close>
-  against \<open> \<lbrakk> PrimitiveCompat::U64Max \<rbrakk> \<close>
 
 urust_expr primitive_path_block_comment
   \<open> u64 /* outer /* nested */ comment */ :: MAX \<close>
-  against \<open> \<lbrakk> PrimitiveCompat::U64Max \<rbrakk> \<close>
 
 urust_expr primitive_path_formal_comment
   \<open>
@@ -5104,31 +5041,26 @@ urust_expr primitive_path_formal_comment
       ::
       MAX
   \<close>
-  against \<open> \<lbrakk> PrimitiveCompat::U64Max \<rbrakk> \<close>
 
 urust_expr primitive_path_identifier_boundary \<open> u64_MAX \<close>
-  against \<open> \<lbrakk> PrimitiveCompat::U64Max \<rbrakk> \<close>
 
 urust_expr primitive_path_identifier_prefix \<open> u64x::MAX \<close>
-  against \<open> \<lbrakk> PrimitiveCompat::U64Max \<rbrakk> \<close>
 
 urust_expr primitive_path_apostrophe \<open> u64x'::MAX \<close>
-  against \<open> \<lbrakk> PrimitiveCompat::U64Max \<rbrakk> \<close>
 
 urust_expr primitive_path_unsupported_width \<open> u128::MAX \<close>
-  against \<open> \<lbrakk> PrimitiveCompat::U64Max \<rbrakk> \<close>
 
-new_urust_rejects audit \<open> u64 \<close> \<open> syntax error \<close>
-new_urust_rejects audit \<open> u64:: \<close> \<open> syntax error \<close>
-new_urust_rejects audit \<open> u64::::MAX \<close> \<open> syntax error \<close>
-new_urust_rejects audit \<open> u64:::::MAX \<close> \<open> syntax error \<close>
-new_urust_rejects audit \<open> u64::u8 \<close> \<open> syntax error \<close>
-new_urust_rejects audit \<open> Module::u64::MAX \<close> \<open> syntax error \<close>
-new_urust_rejects audit
+urust_expr_rejects \<open> u64 \<close> \<open> syntax error \<close>
+urust_expr_rejects \<open> u64:: \<close> \<open> syntax error \<close>
+urust_expr_rejects \<open> u64::::MAX \<close> \<open> syntax error \<close>
+urust_expr_rejects \<open> u64:::::MAX \<close> \<open> syntax error \<close>
+urust_expr_rejects \<open> u64::u8 \<close> \<open> syntax error \<close>
+urust_expr_rejects \<open> Module::u64::MAX \<close> \<open> syntax error \<close>
+urust_expr_rejects
   \<open> u64::<PrimitiveParam>::MAX \<close> \<open> syntax error \<close>
-new_urust_rejects audit
+urust_expr_rejects
   \<open> u64::from::<>() \<close> \<open> syntax error \<close>
-new_urust_rejects audit
+urust_expr_rejects
   \<open> u64::from::<PrimitiveParam,>() \<close> \<open> syntax error \<close>
 
 subsection\<open>Expression composition\<close>
@@ -5148,7 +5080,6 @@ begin
 
 urust_expr primitive_path_named_cast_alias
   \<open> u8::MAX as PrimitivePathAlias \<close>
-  against \<open> \<lbrakk> PrimitiveCompat::U8Max as u64 \<rbrakk> \<close>
 
 end
 
@@ -5325,65 +5256,65 @@ urust_expr primitive_path_guarded_pattern
 urust_expr primitive_path_matches_pattern
   \<open> matches!(u64::MAX, u64::MAX) \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open> let u64::MAX = u64::MAX; () \<close>
   \<open> unsupported or refutable pattern in an irrefutable (let/const) binder position \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open> for u64::MAX in u64::VALUES { () } \<close>
   \<open> unsupported or refutable pattern in a `for` binder position \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open> |u64::MAX| () \<close> \<open> syntax error \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open> u64::MAX = u64::MIN \<close>
   \<open> primitive associated-item path is not an assignment target \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open> u64::MAX { field: u64::MIN } \<close>
   \<open> syntax error \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open> match_case u64::MAX { u64::MAX { field: _ } \<Rightarrow> true } \<close>
   \<open> syntax error \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open> PrimitiveRecord { u64: u64::MAX } \<close>
   \<open> syntax error \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open> u64::MAX.u64() \<close> \<open> syntax error \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open> &u64::MAX \<close> \<open> no backend matches the use-site type \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open> *u64::MAX + true \<close> \<open> Unresolved adhoc overloading \<close>
 
 subsection\<open>Exact-registration failures\<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open> u64::MISSING \<close>
   \<open> requires an exact micro_rust_notation (literal) declaration \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open> u64::MISSING() \<close>
   \<open> requires an exact micro_rust_notation (call) declaration \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open> u64::zero \<close>
   \<open> requires an exact micro_rust_notation (literal) declaration \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open> u64::MAX() \<close>
   \<open> requires an exact micro_rust_notation (call) declaration \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open> u64::AMBIGUOUS \<close>
   \<open> Ambiguous uRust notation \<close>
 
-new_urust_rejects audit
+urust_expr_rejects
   \<open> u64::MAX as u64::MAX \<close> \<open> syntax error \<close>
 
 ML_val\<open>

@@ -3,13 +3,12 @@ session Shallow_Micro_Rust_Base = HOL +
   sessions
     "HOL-Eisbach"
     "HOL-Library"
-    Micro_Rust_Parsing_Legacy_Frontend
     Autogen
     Misc
     Lenses_And_Other_Optics
   theories [document = false]
     Semantic_Navigation
-    Basic_Case_Expression
+    Case_Term_Backend
     Core_Expression
     Bool_Type
     Option_Type
@@ -21,5 +20,4 @@ session Shallow_Micro_Rust_Base = HOL +
     Global_Store
     Prompts_And_Responses
     Tuple
-    Core_Syntax
-    Micro_Rust_Shallow_Embedding
+    Micro_Rust_Parser_Target

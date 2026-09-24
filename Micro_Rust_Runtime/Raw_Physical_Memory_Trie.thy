@@ -6,9 +6,9 @@ theory Raw_Physical_Memory_Trie
   imports 
     Raw_Physical_Memory_Trie_Core
     Micro_Rust_Interfaces_Core.Raw_Physical_Memory
+    Micro_Rust_Parser_Impl.Parser_Impl_Command
 begin
 
-declare [[urust_conformance = true]]
 (*>*)
 
 section\<open>Derived material around trie-based physical memory\<close>
