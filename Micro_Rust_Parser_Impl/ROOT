@@ -1,7 +1,7 @@
 session Micro_Rust_Parser_Impl = HOL +
   options [document = false]
   sessions
-    Shallow_Micro_Rust_Base
+    Shallow_Micro_Rust
     "Isabelle_Lex-Yacc"
   theories [document = false]
     Parser_Utils
