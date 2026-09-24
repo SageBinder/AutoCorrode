@@ -4,7 +4,7 @@
 (*<*)
 theory Core_Expression_Lemmas
   imports
-    Shallow_Micro_Rust_Base.Micro_Rust_Parser_Target
+    Micro_Rust_Parser_Target
 begin
 (*>*)
 

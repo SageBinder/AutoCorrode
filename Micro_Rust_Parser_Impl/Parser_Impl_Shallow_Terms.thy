@@ -1,7 +1,7 @@
 theory Parser_Impl_Shallow_Terms
   imports
     Parser_Impl_Cast_Aliases
-    Shallow_Micro_Rust_Base.Micro_Rust_Parser_Target
+    Shallow_Micro_Rust.Micro_Rust_Parser_Target
 begin
 
 section\<open> Shallow term vocabulary \<close>

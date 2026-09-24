@@ -7,7 +7,6 @@ theory Weak_Triple
     Assertion_Triple
     Precision
     Locality
-    Micro_Rust_Parser_Impl.Parser_Impl_Command
     Shallow_Micro_Rust.Shallow_Micro_Rust
 begin
 
@@ -275,12 +274,16 @@ end
 text\<open>The following "program" changes the low value based on the presence of the high value,
 but leaves the low-value unchanged. Despite clearly not being low-local, it does satisfy the
 above triple definition:\<close>
-urust_expr leak_high ::
-  \<open>(high_low_sa, unit, unit, 'abort, 'i, 'o) expression\<close>
+definition leak_high ::
+  \<open>(high_low_sa, unit, unit, 'abort, 'i, 'o) expression\<close> where
   \<open>
-     if let Some(high) = \<epsilon>\<open>get get_high\<close> {
-        \<epsilon>\<open>put (put_low high)\<close>
-     }
+    leak_high \<equiv>
+      do {
+        case_value \<leftarrow> get get_high;
+        case case_value of
+          None \<Rightarrow> literal ()
+        | Some high \<Rightarrow> put (put_low high)
+      }
   \<close>
 
 text\<open>The program \<^term>\<open>leak_high\<close> is 'pathological' in that it inspects the partiality of the

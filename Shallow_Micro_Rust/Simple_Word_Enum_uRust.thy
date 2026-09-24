@@ -20,7 +20,7 @@ theory Simple_Word_Enum_uRust
     (* Micro_Rust_Notations for the neutral registry itself, and Core_Expression_Lemmas for the
        micro_rust_simps rules (call_literal2 in particular) that reduce a lifted call in these
        tests. *)
-    Shallow_Micro_Rust_Base.Micro_Rust_Parser_Target
+    Micro_Rust_Parser_Target
     Core_Expression_Lemmas
 begin
 (*>*)
@@ -147,7 +147,7 @@ under a \<^verbatim>\<open>Name::\<close> path:
   \<^item> \<^verbatim>\<open>T_try_from_uN :: N word \<Rightarrow> (_, (T, unit) result, _, _, _) function_body\<close>
     \<open>\<equiv> lift_fun1 T_try_from_uN_pure\<close>, as \<^verbatim>\<open>Name::try_from\<close>.
 
-This mirrors \<^const>\<open>word_try_from_fun\<close> in \<^theory>\<open>Shallow_Micro_Rust_Base.Numeric_Types\<close>, which lifts
+This mirrors \<^const>\<open>word_try_from_fun\<close> in \<^theory>\<open>Shallow_Micro_Rust.Numeric_Types\<close>, which lifts
 \<^const>\<open>word_try_from_pure\<close> exactly this way.
 
 The \<^verbatim>\<open>_def\<close> facts are \<^emph>\<open>not\<close> tagged \<^verbatim>\<open>[micro_rust_simps]\<close>: whether a call unfolds to its pure

@@ -4,10 +4,10 @@
 (*<*)
 theory Rust_Iterator_Lemmas
   imports
-    Shallow_Micro_Rust_Base.Rust_Iterator
-    Shallow_Micro_Rust_Base.Core_Expression
+    Rust_Iterator
+    Core_Expression
     Core_Expression_Lemmas
-    Shallow_Micro_Rust_Base.Range_Type
+    Range_Type
 begin
 (*>*)
 

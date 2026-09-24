@@ -2,6 +2,7 @@ session Micro_Rust_Interfaces_Core = HOL +
   options [document = pdf, document_output = "output"]
   sessions
     "HOL-Library"
+    Micro_Rust_Parser_Impl
     Shallow_Separation_Logic
     Shallow_Micro_Rust
   theories

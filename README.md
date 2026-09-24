@@ -68,9 +68,9 @@ If you want to cite AutoCorrode, consider using the following BibTeX entry:
 
 The following gives a brief overview over the Isabelle sessions contained in AutoCorrode.
 
-### [Shallow_Micro_Rust_Base and Shallow_Micro_Rust](https://awslabs.github.io/AutoCorrode/Unsorted/AutoCorrode/Shallow_Micro_Rust.Shallow_Micro_Rust.html)
+### [Shallow_Micro_Rust](https://awslabs.github.io/AutoCorrode/Unsorted/AutoCorrode/Shallow_Micro_Rust.Shallow_Micro_Rust.html)
 
-The base session defines the ["µRust monad"](https://awslabs.github.io/AutoCorrode/Unsorted/AutoCorrode/Shallow_Micro_Rust_Base.Core_Expression.html#Core_Expression.expression|type), its core semantics, and the shallow embedding required by the parser. The full session adds parser-backed theories, lemmas, and automation. Despite its name and primary purpose as the target of the shallow embedding of µRust into Isabelle/HOL, the monad is quite generic and likely suitable for the modelling of other imperative languages as well. Concretely, the µRust monad is an inductive monad with support for exceptions, functions, and yields/prompts (similar to interaction trees).
+This session defines the ["µRust monad"](https://awslabs.github.io/AutoCorrode/Unsorted/AutoCorrode/Shallow_Micro_Rust.Core_Expression.html#Core_Expression.expression|type), its core semantics, parser target, lemmas, and automation. The session is parser-independent; parser-backed sessions import the production parser separately. Despite its name and primary purpose as the target of the shallow embedding of µRust into Isabelle/HOL, the monad is quite generic and likely suitable for the modelling of other imperative languages as well. Concretely, the µRust monad is an inductive monad with support for exceptions, functions, and yields/prompts (similar to interaction trees).
 
 The shallow iterator model includes a shared `zip` method. It combines thunk
 lists with HOL `List.zip`, truncates to the shorter iterator, and evaluates each
@@ -93,7 +93,7 @@ This session defines and elaborates the concepts of [lenses](https://awslabs.git
 
 In a nutshell, a lens is a quotient type (e.g. a record projection), a prism is a subtype (e.g. a branch of an inductive type), and a focus is a subquotient --- the concept emerging from lenses and prisms when requiring compositionality.
 
-Foci are mainly used in AutoCorrode's model of [references](https://awslabs.github.io/AutoCorrode/Unsorted/AutoCorrode/Shallow_Micro_Rust_Base.Global_Store.html#Global_Store.ref|type): The value behind a raw/untyped reference is a 'raw' value in some fixed monomorphic store, and typing a reference amounts to providing a focus from that raw 'global value type' to the desired 'local' type. This generality allows for representation-agnostic reasoning about references: References can either be implemented as being backed by an abstract heap, where the global value type is the disjoint union of all local value types; or as being backed by a byte-level memory, where the global value type is the type of byte lists, and foci capture pairs of decoding/encoding functions between byte sequences and concrete types. See [Micro_Rust_Examples](https://awslabs.github.io/AutoCorrode/Unsorted/AutoCorrode/Micro_Rust_Examples.Micro_Rust_Examples.html) for examples.
+Foci are mainly used in AutoCorrode's model of [references](https://awslabs.github.io/AutoCorrode/Unsorted/AutoCorrode/Shallow_Micro_Rust.Global_Store.html#Global_Store.ref|type): The value behind a raw/untyped reference is a 'raw' value in some fixed monomorphic store, and typing a reference amounts to providing a focus from that raw 'global value type' to the desired 'local' type. This generality allows for representation-agnostic reasoning about references: References can either be implemented as being backed by an abstract heap, where the global value type is the disjoint union of all local value types; or as being backed by a byte-level memory, where the global value type is the type of byte lists, and foci capture pairs of decoding/encoding functions between byte sequences and concrete types. See [Micro_Rust_Examples](https://awslabs.github.io/AutoCorrode/Unsorted/AutoCorrode/Micro_Rust_Examples.Micro_Rust_Examples.html) for examples.
 
 ### [Crush](https://awslabs.github.io/AutoCorrode/Unsorted/AutoCorrode/Crush.Crush.html)
 
@@ -286,8 +286,8 @@ deferred Rust surface includes general postfix calls, one-element tuples, open r
 negation, `/=`, leading `::`, full Rust generics, universal macro trailing commas, and additional
 numeric families.
 
-The parser implementation depends only on `Shallow_Micro_Rust_Base` and `Isabelle_Lex-Yacc`.
-The `Shallow_Micro_Rust` theories remain parser-independent; parser-backed production sessions
+The parser implementation depends only on `Shallow_Micro_Rust` and `Isabelle_Lex-Yacc`.
+The shallow theories remain parser-independent; parser-backed production sessions
 import the dedicated parser where needed. The main `AutoCorrode` session includes the production
 parser implementation. The `Micro_Rust_Parser_Tests` session contains the larger parser regression
 suite.
