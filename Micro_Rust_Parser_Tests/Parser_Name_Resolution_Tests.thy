@@ -3367,17 +3367,13 @@ ML_val\<open>
        reg_pos =
          Position.make0 390 93000 0 "" ""
            "synthetic-notation-low-declaration",
-       serial = low_serial,
-       backend_const =
-         SOME \<^const_name>\<open>ConstructorQualifierVariant\<close>}
+       serial = low_serial}
     val high_entry : Micro_Rust_Names.entry =
       {hol_term = synthetic_constructor,
        reg_pos =
          Position.make0 391 93100 0 "" ""
            "synthetic-notation-high-declaration",
-       serial = high_serial,
-       backend_const =
-         SOME \<^const_name>\<open>ConstructorQualifierVariant\<close>}
+       serial = high_serial}
     val synthetic_ctxt =
       Context.Proof ctxt
       |> Micro_Rust_Names.Data.map

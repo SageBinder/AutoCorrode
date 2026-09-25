@@ -84,16 +84,7 @@ fun urust_name_of (info: Simple_Word_Enum.enum_info) =
    declared in. *)
 fun register_notation kind rust_name t =
   Local_Theory.declaration {pervasive = false, syntax = true, pos = \<^here>}
-    (fn phi =>
-      let
-        val t' = Morphism.term phi t
-        val backend_const =
-          (case Term.head_of t' of
-             Const (name, _) => SOME name
-           | _ => NONE)
-      in
-        Micro_Rust_Names.register kind rust_name t' \<^here> backend_const
-      end)
+    (fn phi => Micro_Rust_Names.register kind rust_name (Morphism.term phi t) \<^here>)
 
 end
 \<close>

@@ -79,8 +79,7 @@ fun infer_kind_of_type (Type ("Core_Expression.function_body", _)) = NFunction
 type entry =
   { hol_term : term,
     reg_pos : Position.T,
-    serial : serial,
-    backend_const : string option };
+    serial : serial };
 
 \<comment>\<open>MULTIPLE BACKENDS PER NAME (adhoc-overloading-style dispatch). A single
   uRust name may have several HOL backends differing only by type, just as
@@ -247,14 +246,13 @@ fun set_shadow_bit kind names bit =
   emits a \<open>def\<close>-side entity markup at \<open>reg_pos\<close>. Use sites later emit
   matching \<open>ref\<close>-side markup pointing back here, so jEdit's
   jump-to-definition lands on the registering command.\<close>
-fun register kind name hol_term reg_pos backend_const context =
+fun register kind name hol_term reg_pos context =
   let
     val s = serial ();
     val entry =
       { hol_term = hol_term,
         reg_pos = reg_pos,
-        serial = s,
-        backend_const = backend_const };
+        serial = s };
     val ctxt = Context.proof_of context;
     val _ = Context_Position.report ctxt reg_pos
       (Position.make_entity_markup {def = true} s notationN (name, reg_pos));
@@ -277,36 +275,6 @@ fun dump ctxt =
           [k, n] => map (fn e => (string_to_kind k, n, e)) es
         | _ => error "malformed micro_rust_notation key"));
 
-end
-\<close>
-
-ML\<open>
-structure Micro_Rust_Notation_Observers =
-struct
-  type registration =
-    { kind : Micro_Rust_Names.ctxt_kind,
-      hol_src : string,
-      rust_name : string,
-      rust_pos : Position.T,
-      hol_term : term,
-      backend_const : string option }
-
-  type observer = registration -> local_theory -> local_theory
-
-  structure Data = Theory_Data
-  (
-    type T = observer Symtab.table
-    val empty = Symtab.empty
-    val merge = Symtab.merge (K true)
-  )
-
-  fun register (name, observer) =
-    Data.map (Symtab.update (name, observer))
-
-  fun notify registration lthy =
-    Symtab.fold
-      (fn (_, observer) => observer registration)
-      (Data.get (Proof_Context.theory_of lthy)) lthy
 end
 \<close>
 
@@ -1074,16 +1042,6 @@ fun is_identifier_path name =
       andalso forall Symbol_Pos.is_identifier segments
   end;
 
-fun backend_const_of hol_src t0 lthy =
-  (case Term.head_of t0 of
-     Const (name, _) => SOME name
-   | _ =>
-       (case try
-           (Proof_Context.read_const {proper = true, strict = false} lthy)
-           hol_src of
-          SOME (Const (name, _)) => SOME name
-        | _ => NONE))
-
 fun do_register kind_opt (hol_src, (rust_name, rust_pos)) lthy =
   let
     val t0 = Syntax.read_term lthy hol_src
@@ -1091,21 +1049,12 @@ fun do_register kind_opt (hol_src, (rust_name, rust_pos)) lthy =
       case kind_opt of
         SOME k => (check_forced_kind k lthy t0; k)
       | NONE => Micro_Rust_Names.infer_kind_of_type (fastype_of t0)
-    val backend_const = backend_const_of hol_src t0 lthy
-    val registration =
-      {kind = kind,
-       hol_src = hol_src,
-       rust_name = rust_name,
-       rust_pos = rust_pos,
-       hol_term = t0,
-       backend_const = backend_const}
   in
     lthy
     |> Local_Theory.declaration {pervasive=false, syntax=true, pos=Position.none}
       (fn phi =>
         Micro_Rust_Names.register
-          kind rust_name (Morphism.term phi t0) rust_pos backend_const)
-    |> Micro_Rust_Notation_Observers.notify registration
+          kind rust_name (Morphism.term phi t0) rust_pos)
   end;
 
 \<comment>\<open>Config sub-command: parse \<open>[mode] "name"+\<close> and update the
