@@ -814,7 +814,7 @@ struct
         R.allocate_locals
           (case (site, rhs_mode) of
              (Mutable_Let_Binder _, Allocate_Rhs) =>
-               R.Storage_Place
+               R.Auto_Deref_Eligible
            | _ => R.Reference_Value)
           ctxt environment signatures
       val abstraction =

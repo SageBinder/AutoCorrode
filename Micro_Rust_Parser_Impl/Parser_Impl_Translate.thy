@@ -43,14 +43,14 @@ ML\<open>
    shape. Resolution and pattern-validation failures are propagated with their source positions. The
    signature exposes no public types or constructors.
 
-   Value boundaries wrap only storage-place results in an internal read adjustment. Mutable scalar
-   bindings are allocated places; field and index results are provisional projected places whose
-   checked receiver type decides whether they really project through a core reference. Declaration
-   parameters, immutable bindings, borrows, and other reference-valued expressions remain values and
-   are never candidates. Assignment targets plus borrow and explicit-dereference operands bypass the
-   adjustment. All lower_* functions, categories, the recursive traversal order, module aliases, and
-   the division of work among helper functions are implementation details hidden by
-   URUST_TRANSLATE. *)
+   Value boundaries wrap only auto-dereference-eligible results in an internal read adjustment.
+   Mutable scalar bindings are allocated places; field and index results are provisional projected
+   places whose checked receiver type decides whether they really project through a core reference.
+   Declaration parameters, immutable bindings, borrows, and other reference-valued expressions
+   remain values and are never candidates. Assignment targets plus borrow and explicit-dereference
+   operands bypass the adjustment. All lower_* functions, categories, the recursive traversal order,
+   module aliases, and the division of work among helper functions are implementation details hidden
+   by URUST_TRANSLATE. *)
 structure URust_Translate :> URUST_TRANSLATE =
 struct
   open URust_AST
@@ -65,7 +65,7 @@ struct
   datatype expression_category =
       Ordinary_Value
     | Reference_Value
-    | Storage_Place of T.read_origin
+    | Auto_Deref_Eligible of T.read_origin
 
   datatype lowered_expression =
     Lowered_Expression of expression_category * term
@@ -76,14 +76,14 @@ struct
   fun lowered_term (Lowered_Expression (_, term)) = term
 
   fun adjusted_term pos
-      (Lowered_Expression (Storage_Place origin, term)) =
+      (Lowered_Expression (Auto_Deref_Eligible origin, term)) =
         T.read_adjustment origin pos term
     | adjusted_term _ (Lowered_Expression (_, term)) = term
 
   fun local_category R.Ordinary_Value = Ordinary_Value
     | local_category R.Reference_Value = Reference_Value
-    | local_category R.Storage_Place =
-        Storage_Place T.Allocated_Place
+    | local_category R.Auto_Deref_Eligible =
+        Auto_Deref_Eligible T.Allocated_Place
 
   fun with_token layout token action =
     Navigation.with_source
@@ -727,7 +727,7 @@ struct
              lowered_term
                (lower_expression ctxt environment receiver)
          in
-           lowered (Storage_Place T.Projected_Place)
+           lowered (Auto_Deref_Eligible T.Projected_Place)
              (with_delimiter layout "." (fn () =>
                R.field_expression ctxt environment
                  lowered_receiver name
@@ -741,7 +741,7 @@ struct
            val lowered_index =
              lower_value ctxt environment index
          in
-           lowered (Storage_Place T.Projected_Place)
+           lowered (Auto_Deref_Eligible T.Projected_Place)
              (Navigation.with_source (index_positions layout) (fn () =>
                T.index lowered_receiver lowered_index))
          end

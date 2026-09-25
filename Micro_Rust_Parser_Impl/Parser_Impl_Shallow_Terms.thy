@@ -163,10 +163,10 @@ ML\<open>
      selected overloaded operation requires one. assignment_binary maps the non-additive
      URust_AST.assign_binop cases to the pure operation used to compute a compound-assignment RHS;
      addition remains the separate assign_add operation.
-   * read_adjustment marks a parser-classified storage place at a value boundary. The term-check
-     phase below either preserves the place when its expected expression value is a compatible core
-     reference or replaces it with the existing dereference term. The marker and its payload are
-     parser-internal and must not survive checking.
+   * read_adjustment marks a parser-classified auto-dereference-eligible expression at a value
+     boundary. The term-check phase below either preserves the place when its expected expression
+     value is a compatible core reference or replaces it with the existing dereference term. The
+     marker and its payload are parser-internal and must not survive checking.
    * option_some, option_none, pair, list_cons, list_nil, numeral_case_selector, and reverse_list
      provide the value vocabulary used by switch and pattern lowering. true_value, false_value, and
      undefined_value are raw HOL values. list_cons_constructor, list_nil_constructor,

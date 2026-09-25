@@ -15,7 +15,7 @@ sig
   datatype value_category =
       Ordinary_Value
     | Reference_Value
-    | Storage_Place
+    | Auto_Deref_Eligible
 
   val empty_environment: environment
   val allocate_locals:
@@ -269,7 +269,7 @@ struct
   datatype value_category =
       Ordinary_Value
     | Reference_Value
-    | Storage_Place
+    | Auto_Deref_Eligible
 
   type field_reference = I.field_entry
   type local_table = Parser_Utils.var_info Symtab.table
