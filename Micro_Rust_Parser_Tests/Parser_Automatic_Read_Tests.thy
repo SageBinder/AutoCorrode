@@ -605,6 +605,16 @@ ML_val\<open>
          "let selected = match_case Some(*value) { " ^
            "Some(value) \<Rightarrow> value, None \<Rightarrow> *value }; *value",
        reads = 3, allocations = 1},
+      {label = "same-spelled sibling match arm binders",
+       implicit_source =
+         "let mut value = \<llangle>1 :: 32 word\<rrangle>; " ^
+         "let selected = match Ok(value) { " ^
+           "Ok(value) \<Rightarrow> value, Err(value) \<Rightarrow> value }; value",
+       explicit_source =
+         "let mut value = \<llangle>1 :: 32 word\<rrangle>; " ^
+         "let selected = match Ok(*value) { " ^
+           "Ok(value) \<Rightarrow> value, Err(value) \<Rightarrow> value }; *value",
+       reads = 2, allocations = 1},
       {label = "alias binder shadows storage",
        implicit_source =
          "let mut value = \<llangle>1 :: 32 word\<rrangle>; " ^
