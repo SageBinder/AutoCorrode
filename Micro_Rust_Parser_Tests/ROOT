@@ -23,6 +23,7 @@ session Micro_Rust_Parser_Tests = HOL +
     Parser_Struct_Ambiguity_Left_Fixtures
     Parser_Struct_Ambiguity_Right_Fixtures
     Parser_Expression_Tests
+    Parser_Automatic_Read_Tests
     Parser_Function_Tests
     Parser_Improvements_Tests
     Parser_Command_Tests

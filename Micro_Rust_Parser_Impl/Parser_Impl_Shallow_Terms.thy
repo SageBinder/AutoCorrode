@@ -6,9 +6,16 @@ begin
 
 section\<open> Shallow term vocabulary \<close>
 
+consts
+  urust_internal_read_adjustment :: \<open>'payload \<Rightarrow> 'place \<Rightarrow> 'result\<close>
+
 ML\<open>
 signature URUST_SHALLOW_TERMS =
 sig
+  datatype read_origin =
+      Allocated_Place
+    | Projected_Place
+
   val literal: term -> term
   val boolean_expression: bool -> term
   val string_value: string -> Position.T -> term
@@ -62,6 +69,9 @@ sig
   val binary: URust_AST.binop -> term -> term -> term
   val unary: URust_AST.unaryop -> Position.T -> term -> term
   val assignment_binary: URust_AST.assign_binop -> term -> term -> term
+  val read_adjustment: read_origin -> Position.T -> term -> term
+  val deferred_read_adjustment: read_origin -> Position.T -> term -> term
+  val automatic_dereference: term -> term
 
   val option_some: term -> term
   val option_none: term
@@ -153,6 +163,10 @@ ML\<open>
      selected overloaded operation requires one. assignment_binary maps the non-additive
      URust_AST.assign_binop cases to the pure operation used to compute a compound-assignment RHS;
      addition remains the separate assign_add operation.
+   * read_adjustment marks a parser-classified storage place at a value boundary. The term-check
+     phase below either preserves the place when its expected expression value is a compatible core
+     reference or replaces it with the existing dereference term. The marker and its payload are
+     parser-internal and must not survive checking.
    * option_some, option_none, pair, list_cons, list_nil, numeral_case_selector, and reverse_list
      provide the value vocabulary used by switch and pattern lowering. true_value, false_value, and
      undefined_value are raw HOL values. list_cons_constructor, list_nil_constructor,
@@ -174,6 +188,10 @@ struct
   open URust_AST
   structure Navigation = Micro_Rust_Semantic_Navigation
 
+  datatype read_origin =
+      Allocated_Place
+    | Projected_Place
+
   fun constant name args = Term.list_comb (Const (name, dummyT), args)
 
   fun selected_constant kind name args =
@@ -194,6 +212,43 @@ struct
   fun source_position pos term =
     let val posT = TFree (Term_Position.encode_syntax [pos], dummyS)
     in Type.constraint posT term end
+
+  val read_payload_prefix = "_urust_read_adjustment_payload___"
+  val read_payload_sep = String.str (Char.chr 0)
+
+  datatype read_state =
+      Fresh_Read
+    | Deferred_Read
+
+  fun read_state_tag Fresh_Read = "fresh"
+    | read_state_tag Deferred_Read = "deferred"
+
+  fun read_origin_tag Allocated_Place = "allocated"
+    | read_origin_tag Projected_Place = "projected"
+
+  fun strip_file pos =
+    let
+      val {line, offset, end_offset, props = {label, id, ...}} =
+        Position.dest pos
+    in
+      Position.make
+        {line = line, offset = offset, end_offset = end_offset,
+         props = {label = label, file = "", id = id}}
+    end
+
+  fun read_payload state origin pos =
+    Free
+      (read_payload_prefix ^ read_state_tag state ^ read_payload_sep ^
+        read_origin_tag origin ^ read_payload_sep ^
+        Term_Position.encode_no_syntax [strip_file pos],
+       dummyT)
+
+  fun make_read_adjustment state origin pos place =
+    Const (\<^const_name>\<open>urust_internal_read_adjustment\<close>, dummyT) $
+      read_payload state origin pos $ place
+
+  val read_adjustment = make_read_adjustment Fresh_Read
+  val deferred_read_adjustment = make_read_adjustment Deferred_Read
 
   fun positioned_constant name pos args =
     Term.list_comb (source_position pos (Const (name, dummyT)), args)
@@ -536,6 +591,13 @@ struct
          [Const (\<^const_name>\<open>call\<close>, dummyT),
           selected_positioned_constant Navigation.Primary
             \<^const_name>\<open>store_dereference_const\<close> pos []]]
+
+  fun automatic_dereference expression =
+    constant \<^const_name>\<open>Core_Expression.bind\<close>
+      [expression,
+       constant \<^const_name>\<open>deep_compose1\<close>
+         [Const (\<^const_name>\<open>call\<close>, dummyT),
+          Const (\<^const_name>\<open>store_dereference_const\<close>, dummyT)]]
 
   fun update pos place rhs =
     constant \<^const_name>\<open>bind2\<close>
@@ -958,6 +1020,176 @@ struct
   val case_nil = Case_Term_Backend.case_nil
   val case_element = Case_Term_Backend.case_element
   val case_abstraction = Case_Term_Backend.case_abstraction
+end
+
+structure URust_Read_Adjustment =
+struct
+  open URust_AST
+  open URust_Shallow_Terms
+
+  datatype read_state =
+      Fresh_Read
+    | Deferred_Read
+
+  val payload_prefix = "_urust_read_adjustment_payload___"
+
+  val expression_type_name =
+    (case \<^typ>\<open>('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> of
+       Type (name, _) => name
+     | _ =>
+         error
+           "urust read adjustment: expression is not a type constructor")
+
+  val reference_type_name =
+    (case \<^typ>\<open>('a, 'b, 'v) Global_Store.ref\<close> of
+       Type (name, _) => name
+     | _ =>
+         error
+           "urust read adjustment: reference is not a type constructor")
+
+  fun decode_origin "allocated" = Allocated_Place
+    | decode_origin "projected" = Projected_Place
+    | decode_origin tag =
+        error
+          ("urust read adjustment: malformed place origin " ^ quote tag)
+
+  fun decode_state "fresh" = Fresh_Read
+    | decode_state "deferred" = Deferred_Read
+    | decode_state tag =
+        error
+          ("urust read adjustment: malformed read state " ^ quote tag)
+
+  fun decode_payload text =
+    (case String.fields (fn character => character = Char.chr 0) text of
+       [state, origin, encoded_position] =>
+         let
+           val positions =
+             map #pos (Term_Position.decode encoded_position)
+         in
+           (decode_state state, decode_origin origin,
+            (case positions of
+               [pos] => pos
+             | _ =>
+                 error
+                   "urust read adjustment: malformed source position"))
+         end
+     | _ => error "urust read adjustment: malformed payload")
+
+  fun dest_payload (Free (name, _)) =
+        if String.isPrefix payload_prefix name
+        then
+          SOME
+            (decode_payload
+              (String.extract (name, size payload_prefix, NONE)))
+        else NONE
+    | dest_payload _ = NONE
+
+  fun dest_marker
+      (Const (\<^const_name>\<open>urust_internal_read_adjustment\<close>, typ) $
+          payload $ place) =
+        ((case dest_payload payload of
+            SOME place_info =>
+              SOME
+                (place_info, place,
+                 Term.range_type (Term.range_type typ))
+          | NONE => NONE)
+         handle TYPE _ => NONE)
+    | dest_marker _ = NONE
+
+  fun expression_value_type
+      (Type (name, [_, value_type, _, _, _, _])) =
+        if name = expression_type_name then SOME value_type else NONE
+    | expression_value_type _ = NONE
+
+  fun is_reference_type (Type (name, _)) =
+        name = reference_type_name
+    | is_reference_type _ = false
+
+  fun projected_receiver place =
+    let
+      val stripped = Term_Position.strip_positions place
+    in
+      (case Term.strip_comb stripped of
+         (Const (\<^const_name>\<open>bindlift1\<close>, _),
+            [_, receiver]) =>
+           SOME receiver
+       | (Const (\<^const_name>\<open>funcall2\<close>, _),
+            [_, receiver, _]) =>
+           SOME receiver
+       | _ => NONE)
+    end
+
+  fun is_core_reference_expression term =
+    (case expression_value_type (fastype_of term) of
+       SOME value_type => is_reference_type value_type
+     | NONE => false)
+
+  fun is_storage_place Allocated_Place _ = true
+    | is_storage_place Projected_Place place =
+        (case projected_receiver place of
+           SOME receiver => is_core_reference_expression receiver
+         | NONE => false)
+
+  fun preserve_reference place_type expected_type =
+    (case
+        (expression_value_type place_type,
+         expression_value_type expected_type) of
+       (SOME place_value_type, SOME expected_value_type) =>
+         is_reference_type expected_value_type andalso
+           Type.could_unify
+             (place_value_type, expected_value_type)
+     | _ => false)
+
+  (* Stage 0 can run more than once while Isabelle's other check phases refine inference variables.
+     Preserve a fresh marker for one additional pass before defaulting an unconstrained place to a
+     read. This lets later reference expectations flow back into aggregates and calls without making
+     ordinary reference values candidates for automatic dereference. *)
+  fun resolve ctxt terms =
+    let
+      fun go term =
+        (case dest_marker term of
+           SOME ((state, origin, pos), place, expected_type) =>
+             let
+               val place_type = fastype_of place
+               val replacement =
+                 if not (is_storage_place origin place) orelse
+                    preserve_reference place_type expected_type
+                 then place
+                 else
+                   (case state of
+                      Fresh_Read =>
+                        deferred_read_adjustment origin pos place
+                    | Deferred_Read =>
+                        automatic_dereference place)
+        in replacement end
+         | NONE =>
+             (case term of
+                function $ argument => go function $ go argument
+              | Abs (name, typ, body) =>
+                  Abs (name, typ, go body)
+              | atom => atom))
+    in map go terms end
+
+  fun reject_unresolved _ terms =
+    let
+      fun check term =
+        if Term.exists_subterm
+            (fn Const (name, _) =>
+                  name =
+                    \<^const_name>\<open>urust_internal_read_adjustment\<close>
+              | _ => false)
+            term
+        then
+          error
+            "urust read adjustment: internal marker survived type checking"
+        else ()
+    in List.app check terms; terms end
+
+  val _ =
+    Context.>>
+      (Syntax_Phases.term_check 0 "urust_read_adjustment" resolve
+       #> Syntax_Phases.term_check 1
+            "urust_read_adjustment_unresolved" reject_unresolved)
 end
 \<close>
 

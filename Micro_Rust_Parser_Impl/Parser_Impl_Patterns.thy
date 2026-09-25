@@ -811,7 +811,12 @@ struct
                  (fn () => T.allocate_reference mutable_pos rhs))
          | _ => I)
       val environment' =
-        R.allocate_locals ctxt environment signatures
+        R.allocate_locals
+          (case (site, rhs_mode) of
+             (Mutable_Let_Binder _, Allocate_Rhs) =>
+               R.Storage_Place
+           | _ => R.Reference_Value)
+          ctxt environment signatures
       val abstraction =
         (case direct_abstraction ctxt true false environment' resolved of
            SOME abstraction => abstraction
@@ -1080,7 +1085,8 @@ struct
         resolve_pattern resolver ctxt Resolve_Constructor_Case pattern
       val signatures = collect_bindings resolved
       val arm_environment =
-        R.allocate_locals ctxt environment signatures
+        R.allocate_locals R.Reference_Value
+          ctxt environment signatures
       val patterns =
         map (prepare_case_pattern ctxt arm_environment)
           (expand_resolved_pattern resolved)

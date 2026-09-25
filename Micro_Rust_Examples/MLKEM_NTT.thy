@@ -170,8 +170,8 @@ urust_fn ntt ::
 
       for block in 0..num_blocks {
         let start = block * (2_u64 * len);
-        let zeta = zetas_table[*k];
-        k = *k + 1_u64;
+        let zeta = zetas_table[k];
+        k = k + 1_u64;
 
         for j_off in 0..len {
           let j = start + j_off;

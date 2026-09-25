@@ -617,7 +617,7 @@ urust_expr showoff_nested_loops
     let mut phase = 0_u32;
     let mut active = \<llangle>True\<rrangle>;
     let registers = [phase];
-    #[fuel(\<epsilon>\<open>outer_fuel\<close>)] while (*active) {
+    #[fuel(\<epsilon>\<open>outer_fuel\<close>)] while (active) {
       match_switch *registers[0_usize] {
         0 \<Rightarrow> {
           *registers[0_usize] = *registers[0_usize] + 1_u32;
@@ -626,14 +626,14 @@ urust_expr showoff_nested_loops
           #[fuel(\<epsilon>\<open>inner_fuel\<close>)] loop {
             *registers[0_usize] = *registers[0_usize] + 1_u32;
           }
-          *active = false;
+          active = false;
         },
         _ \<Rightarrow> {
-          *active = false;
+          active = false;
         }
       };
     }
-    (*registers[0_usize], *active)
+    (*registers[0_usize], active)
   \<close>
 
 urust_expr showoff_for_and_while_let
@@ -641,17 +641,17 @@ urust_expr showoff_for_and_while_let
     let values = [1_u32, 2_u32, 3_u32];
     let mut total = 0_u32;
     for value in values {
-      *total += value;
+      total += value;
     }
     let pending_values = [Some(4_u32), None];
     let steps = \<llangle>2 :: nat\<rrangle>;
     let mut pending = pending_values[0_usize];
-    #[fuel(\<epsilon>\<open>steps\<close>)] while let Some(extra) = *pending {
-      *total += extra;
-      *pending = None;
+    #[fuel(\<epsilon>\<open>steps\<close>)] while let Some(extra) = pending {
+      total += extra;
+      pending = None;
     }
-    assert_eq!(*total, 10_u32);
-    *total
+    assert_eq!(total, 10_u32);
+    total
   \<close>
 
 subsection\<open> Iterator combinators \<close>
@@ -682,21 +682,21 @@ urust_expr showoff_loop_pipeline
     let burst_fuel = \<llangle>2 :: nat\<rrangle>;
     let mut cursor = 0_u64;
     #[fuel(\<epsilon>\<open>scan_fuel\<close>)] while (
-      match_switch *cursor {
+      match_switch cursor {
         0 | 1 | 2 \<Rightarrow> true,
         _ \<Rightarrow> false
       }
     ) {
-      let next = showoff_bump(*cursor);
+      let next = showoff_bump(cursor);
       if next == 2_u64 {
         #[fuel(\<epsilon>\<open>burst_fuel\<close>)] loop {
-          *cursor = showoff_bump(*cursor);
+          cursor = showoff_bump(cursor);
         }
       } else {
-        *cursor = next;
+        cursor = next;
       }
     }
-    *cursor
+    cursor
   \<close>
 
 subsection\<open> Macro composition pipeline \<close>

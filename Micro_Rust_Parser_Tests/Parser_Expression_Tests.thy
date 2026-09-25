@@ -294,13 +294,21 @@ adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereferenc
 
 subsection\<open>Mutable allocation and binders\<close>
 
-urust_expr mut_scalar
+urust_expr mut_scalar ::
+  \<open>
+    (unit, (unit, unit, 32 word) Global_Store.ref,
+     unit, unit, unit, unit) expression
+  \<close>
   \<open> let mut x = \<llangle>0 :: 32 word\<rrangle>; x \<close>
 
 urust_expr mut_capture
   \<open> let mut x = \<llangle>0 :: 32 word\<rrangle>; \<llangle>x\<rrangle> \<close>
 
-urust_expr mut_shadow
+urust_expr mut_shadow ::
+  \<open>
+    (unit, (unit, unit, 32 word) Global_Store.ref,
+     unit, unit, unit, unit) expression
+  \<close>
   \<open> let x = \<llangle>1 :: 32 word\<rrangle>; let mut x = \<llangle>2 :: 32 word\<rrangle>; x \<close>
 
 urust_expr mut_tuple

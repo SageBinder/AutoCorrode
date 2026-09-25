@@ -1810,6 +1810,12 @@ ML_val\<open>
            actual = target andalso length arguments = 2
        | _ => false)
 
+    fun dest_read_adjustment
+        (Const (\<^const_name>\<open>urust_internal_read_adjustment\<close>, _) $
+          _ $ place) =
+          SOME place
+      | dest_read_adjustment _ = NONE
+
     val _ =
       audit_assert "exclusive range term shape changed"
         (function_call2 \<^const_name>\<open>range_new\<close>
@@ -1843,10 +1849,14 @@ ML_val\<open>
       audit_assert "nonempty array term shape changed"
         (array_shape [(), (), ()] (unchecked "[1, 2, 3]"))
 
+    val unchecked_index = unchecked "[1][0]"
+    val _ =
+      audit_assert "index term lost its internal value adjustment"
+        (is_some (dest_read_adjustment unchecked_index))
     val _ =
       audit_assert "index term shape changed"
         (function_call2 \<^const_name>\<open>index_const\<close>
-          (unchecked "[1][0]"))
+          (the (dest_read_adjustment unchecked_index)))
 
     val _ =
       audit_assert "direct array borrow stopped erasing"

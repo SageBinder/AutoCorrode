@@ -306,12 +306,12 @@ urust_fn [pretty, verbosity = 1]
   \<open>
     let mut total = seed;
     for value in [1_u32, 2_u32, 3_u32] {
-      *total += value;
+      total += value;
     }
-    if *total > limit {
-      *total
+    if total > limit {
+      total
     } else {
-      *total * 2_u32
+      total * 2_u32
     }
   \<close>
 

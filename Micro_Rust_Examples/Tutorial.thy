@@ -139,7 +139,7 @@ lemma max_of_spec_manual:
 section\<open>Exercise 3: Mutable State\<close>
 
 text\<open>This function computes the absolute difference of two natural numbers
-using a local mutable variable. Note the use of \<^verbatim>\<open>let mut\<close> and dereferencing with \<^verbatim>\<open>*\<close>.
+using a local mutable variable. A mutable local is read automatically in value contexts.
 
 Because we allocate a mutable reference, the precondition must include
 \<^term>\<open>can_alloc_reference\<close> (the capability to allocate). The postcondition
@@ -156,7 +156,7 @@ urust_fn abs_diff ::
     } else {
       result = \<llangle>b - a\<rrangle>;
     };
-    *result
+    result
   \<close>
 
 text\<open>TODO: Write the contract\<close>
@@ -310,7 +310,7 @@ urust_fn bvec_contains ::
         found = True;
       }
     };
-    *found
+    found
   \<close>
 
 definition bvec_contains_contract :: \<open>(nat, 'l::len) bounded_vec \<Rightarrow> nat \<Rightarrow> ('s::sepalg, bool, 'b) function_contract\<close> where
@@ -397,9 +397,9 @@ urust_fn bvec_push ::
   \<open>('addr, 'gv, (nat, 'l::len) bounded_vec) ref \<Rightarrow> nat \<Rightarrow> ('s, (unit, nat) result, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (self, elem)
   \<open>
-    if *self.bvec_len < \<llangle>of_nat LENGTH('l) :: 64 word\<rrangle> {
-      self.bvec_values[*self.bvec_len] = Some(elem);
-      self.bvec_len = *self.bvec_len + 1;
+    if self.bvec_len < \<llangle>of_nat LENGTH('l) :: 64 word\<rrangle> {
+      self.bvec_values[self.bvec_len] = Some(elem);
+      self.bvec_len = self.bvec_len + 1;
       Ok(())
     } else {
       Err(elem)

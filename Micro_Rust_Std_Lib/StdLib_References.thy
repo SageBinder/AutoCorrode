@@ -309,12 +309,12 @@ urust_fn ref_test ::
   \<open>
       let mut nat_ref = \<llangle>0 :: nat\<rrangle>;
       let mut bool_ref = \<llangle>False :: bool\<rrangle>;
-      if *bool_ref {
+      if bool_ref {
         nat_ref = 42;
       } else {
         nat_ref = 12;
       };
-      *nat_ref
+      nat_ref
   \<close>
 
 definition ref_test_contract where

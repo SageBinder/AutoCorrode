@@ -12,8 +12,14 @@ signature URUST_RESOLUTION =
 sig
   type environment
 
+  datatype value_category =
+      Ordinary_Value
+    | Reference_Value
+    | Storage_Place
+
   val empty_environment: environment
   val allocate_locals:
+    value_category ->
     Proof.context ->
       environment ->
       (string * Position.T) list ->
@@ -35,6 +41,9 @@ sig
       (term -> term) list * environment
   val use_local:
     Proof.context -> environment -> string * Position.T -> term option
+  val use_local_with_category:
+    Proof.context -> environment -> string * Position.T ->
+      (term * value_category) option
   val lookup_local: environment -> string -> term option
   val parse_antiquotation: Proof.context -> environment -> Input.source -> term
   val anonymous_abstraction: term -> term
@@ -59,6 +68,9 @@ sig
     Proof.context -> environment -> URust_AST.ur_path -> term
   val literal_path:
     Proof.context -> environment -> URust_AST.ur_path -> term
+  val literal_path_with_category:
+    Proof.context -> environment -> URust_AST.ur_path ->
+      term * value_category
   val global_constant_path_value:
     Proof.context -> environment -> URust_AST.ur_path -> term
   val function_identifier:
@@ -254,19 +266,32 @@ struct
   structure T = URust_Shallow_Terms
   structure I = URust_Item_Scope
 
+  datatype value_category =
+      Ordinary_Value
+    | Reference_Value
+    | Storage_Place
+
   type field_reference = I.field_entry
   type local_table = Parser_Utils.var_info Symtab.table
   type environment =
     {locals: local_table,
+     local_categories: value_category Symtab.table,
      declaration_arguments: unit Symtab.table}
 
   val variable_entity_kind = "urust_var"
   val report_reference = Parser_Utils.report_ref variable_entity_kind
   val bind_local = Parser_Utils.bind_var variable_entity_kind
   val bind_typed_local = Parser_Utils.bind_typed_var variable_entity_kind
+  val reference_type_name =
+    (case \<^typ>\<open>('a, 'b, 'v) Global_Store.ref\<close> of
+       Type (type_name, _) => type_name
+     | _ =>
+         error
+           "urust_expr: internal reference type is not a constructor")
 
   val empty_environment =
     {locals = Symtab.empty,
+     local_categories = Symtab.empty,
      declaration_arguments = Symtab.empty}
   val anonymous_abstraction = Parser_Utils.anon_abs
 
@@ -274,31 +299,42 @@ struct
       ({locals, ...} : environment) source =
     Parser_Utils.parse_antiq variable_entity_kind ctxt locals source
 
-  fun bind_ordinary_local ctxt
-      ({locals, declaration_arguments} : environment)
+  fun bind_ordinary_local category ctxt
+      ({locals, local_categories, declaration_arguments} : environment)
       (binding as (name, _)) =
     let
       val (free, locals') = bind_local ctxt locals binding
     in
       (free,
        {locals = locals',
+        local_categories =
+          Symtab.update (name, category) local_categories,
         declaration_arguments =
           Symtab.delete_safe name declaration_arguments})
     end
 
   fun bind_declaration_argument ctxt
-      ({locals, declaration_arguments} : environment)
+      ({locals, local_categories, declaration_arguments} : environment)
       (parameter as ((name, _), _)) =
     let
       val (free, locals') = bind_typed_local ctxt locals parameter
+      val category =
+        (case #2 parameter of
+           Type (type_name, _) =>
+             if type_name = reference_type_name
+             then Reference_Value
+             else Ordinary_Value
+         | _ => Reference_Value)
     in
       (free,
        {locals = locals',
+        local_categories =
+          Symtab.update (name, category) local_categories,
         declaration_arguments =
           Symtab.update (name, ()) declaration_arguments})
     end
 
-  fun allocate_locals ctxt environment signatures =
+  fun allocate_locals category ctxt environment signatures =
     let
       fun validate (name, pos) seen =
         (case Symtab.lookup seen name of
@@ -309,7 +345,7 @@ struct
                Position.here original_pos))
       val _ = fold validate signatures Symtab.empty
       fun allocate binding env =
-        #2 (bind_ordinary_local ctxt env binding)
+        #2 (bind_ordinary_local category ctxt env binding)
     in fold allocate signatures environment end
 
   fun allocate_closure_formals ctxt environment signatures =
@@ -317,7 +353,8 @@ struct
       fun allocate [] env frees = (rev frees, env)
         | allocate (formal :: rest) env frees =
             let
-              val (free, env') = bind_ordinary_local ctxt env formal
+              val (free, env') =
+                bind_ordinary_local Reference_Value ctxt env formal
             in allocate rest env' (free :: frees) end
     in allocate signatures environment [] end
 
@@ -361,6 +398,17 @@ struct
     (case Symtab.lookup (#locals environment) name of
        SOME {free, def_pos, id} =>
          (report_reference ctxt id (name, def_pos) pos; SOME free)
+     | NONE => NONE)
+
+  fun use_local_with_category ctxt
+      (environment as {local_categories, ...} : environment)
+      (identifier as (name, _)) =
+    (case use_local ctxt environment identifier of
+       SOME local_term =>
+         SOME
+           (local_term,
+            the_default Reference_Value
+              (Symtab.lookup local_categories name))
      | NONE => NONE)
 
   fun lookup_local environment name =
@@ -1038,6 +1086,24 @@ struct
   fun literal_path ctxt environment path =
     T.literal (literal_path_value ctxt environment path)
 
+  fun literal_path_with_category ctxt environment path =
+    if is_primitive_path path then
+      (T.literal (literal_path_value ctxt environment path),
+       Reference_Value)
+    else
+      (case path_segments path of
+         [Path_Segment (name, pos, NONE)] =>
+           (case use_local_with_category ctxt environment (name, pos) of
+              SOME (local_term, category) =>
+                (T.literal local_term, category)
+            | NONE =>
+                (T.literal
+                  (literal_path_value ctxt environment path),
+                 Reference_Value))
+       | _ =>
+           (T.literal (literal_path_value ctxt environment path),
+            Reference_Value))
+
   fun function_identifier ctxt environment (identifier as (name, pos)) =
     (case use_declaration_argument ctxt environment identifier of
        SOME local_term => local_term
@@ -1289,7 +1355,7 @@ struct
     function_body_arity T = SOME 0
 
   fun is_nullary_function_path ctxt
-      ({locals, declaration_arguments} : environment) path =
+      ({locals, declaration_arguments, ...} : environment) path =
     let
       fun registered () =
         Micro_Rust_Names.lookups ctxt Micro_Rust_Names.NFunction
