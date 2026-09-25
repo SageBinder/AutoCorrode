@@ -18,7 +18,9 @@ fun report_ref kind ctxt id (x, def_pos) use_pos =
    Context_Position.report ctxt use_pos
      (Position.make_entity_markup {def = false} id kind (x, def_pos)))
 
-fun bind_typed_var kind ctxt (env : var_info Symtab.table) ((x, def_pos), T) =
+(* Allocate one fresh identity and emit its definition markup without choosing an environment or any
+   language-specific binding policy. *)
+fun fresh_typed_var kind ctxt ((x, def_pos), T) =
   let
     val id   = serial ()
     val _    = report_def kind ctxt id (x, def_pos)
@@ -27,10 +29,22 @@ fun bind_typed_var kind ctxt (env : var_info Symtab.table) ((x, def_pos), T) =
        same-spelled local that has been placed in a shared continuation. *)
     val free =
       Free ("_urust_local_" ^ string_of_int id ^ "_" ^ x, T)
-  in (free, Symtab.update (x, {free = free, def_pos = def_pos, id = id}) env) end
+    val info = {free = free, def_pos = def_pos, id = id}
+  in (free, info) end
+
+fun fresh_var kind ctxt binding =
+  fresh_typed_var kind ctxt (binding, dummyT)
+
+fun bind_typed_var kind ctxt (env : var_info Symtab.table)
+    (parameter as ((x, _), _)) =
+  let val (free, info) = fresh_typed_var kind ctxt parameter
+  in (free, Symtab.update (x, info) env) end
 
 fun bind_var kind ctxt env binding =
-  bind_typed_var kind ctxt env (binding, dummyT)
+  let
+    val (free, info) = fresh_var kind ctxt binding
+    val name = #1 binding
+  in (free, Symtab.update (name, info) env) end
 
 (* Do not represent anonymous binders with invented Frees: such a name can capture a source binder held
    only in the elaboration environment. *)

@@ -62,6 +62,38 @@ urust_expr automatic_read_reference_parameter ::
   (reference)
   \<open> reference \<close>
 
+urust_expr automatic_read_expression_parameter_shadow ::
+  \<open>
+    (unit, unit, 32 word) Global_Store.ref \<Rightarrow>
+    (unit, (unit, unit, 32 word) Global_Store.ref, unit, unit, unit, unit) expression
+  \<close>
+  ("value")
+  \<open> let mut value = value; value \<close>
+
+urust_expr automatic_read_expression_parameter_shadow_explicit ::
+  \<open>
+    (unit, unit, 32 word) Global_Store.ref \<Rightarrow>
+    (unit, (unit, unit, 32 word) Global_Store.ref, unit, unit, unit, unit) expression
+  \<close>
+  ("value")
+  \<open> let mut value = value; *value \<close>
+
+urust_fn automatic_read_function_parameter_shadow ::
+  \<open>
+    32 word \<Rightarrow>
+    (unit, 32 word, unit, unit, unit) function_body
+  \<close>
+  ("value")
+  \<open> let mut value = value; value \<close>
+
+urust_fn automatic_read_function_parameter_shadow_explicit ::
+  \<open>
+    32 word \<Rightarrow>
+    (unit, 32 word, unit, unit, unit) function_body
+  \<close>
+  ("value")
+  \<open> let mut value = value; *value \<close>
+
 ML_val\<open>
   local
     val ctxt = \<^context>
@@ -288,6 +320,463 @@ ML_val\<open>
     val _ = ()
   end
 \<close>
+
+section\<open>Shadowing and environment integrity\<close>
+
+text\<open>
+Every row below elaborates both an implicit-read source and an explicit control source. The checked
+terms must be alpha-equivalent, contain exactly the expected selected dereferences and mutable
+allocations, and contain no unresolved internal read-adjustment marker.
+\<close>
+
+ML\<open>
+structure Automatic_Read_Shadowing_Audit =
+struct
+  val dereference_name =
+    \<^const_name>\<open>parser_dereference_fixture\<close>
+  val reference_name =
+    \<^const_name>\<open>parser_reference_fixture\<close>
+  val adjustment_name =
+    \<^const_name>\<open>urust_internal_read_adjustment\<close>
+
+  fun checked ctxt source =
+    Parser_Test_Report_Lock.run (fn () =>
+      Parser_Test_Elaboration.expression ctxt
+        (Parser_Lex_Util.text_source source))
+    |> Term_Position.strip_positions
+
+  fun count_constant name term =
+    Term.fold_aterms
+      (fn Const (candidate, _) =>
+            if candidate = name then Integer.add 1 else I
+        | _ => I)
+      term 0
+
+  fun render ctxt term = Syntax.string_of_term ctxt term
+
+  fun fail ctxt label reason
+      expected_reads actual_implicit_reads actual_explicit_reads
+      expected_allocations actual_implicit_allocations
+      actual_explicit_allocations implicit explicit =
+    error
+      ("automatic read shadowing audit " ^ quote label ^ ": " ^ reason ^ "\n" ^
+       "expected dereferences: " ^ string_of_int expected_reads ^ "\n" ^
+       "actual implicit dereferences: " ^
+         string_of_int actual_implicit_reads ^ "\n" ^
+       "actual explicit dereferences: " ^
+         string_of_int actual_explicit_reads ^ "\n" ^
+       "expected allocations: " ^ string_of_int expected_allocations ^ "\n" ^
+       "actual implicit allocations: " ^
+         string_of_int actual_implicit_allocations ^ "\n" ^
+       "actual explicit allocations: " ^
+         string_of_int actual_explicit_allocations ^ "\n" ^
+       "implicit term: " ^ render ctxt implicit ^ "\n" ^
+       "explicit term: " ^ render ctxt explicit)
+
+  fun check_row ctxt
+      {label, implicit_source, explicit_source, reads, allocations} =
+    let
+      val implicit = checked ctxt implicit_source
+      val explicit = checked ctxt explicit_source
+      val implicit_reads = count_constant dereference_name implicit
+      val explicit_reads = count_constant dereference_name explicit
+      val implicit_allocations = count_constant reference_name implicit
+      val explicit_allocations = count_constant reference_name explicit
+      val implicit_adjustments = count_constant adjustment_name implicit
+      val explicit_adjustments = count_constant adjustment_name explicit
+      fun reject reason =
+        fail ctxt label reason
+          reads implicit_reads explicit_reads
+          allocations implicit_allocations explicit_allocations
+          implicit explicit
+    in
+      if not (Term.aconv (implicit, explicit)) then
+        reject "implicit and explicit controls are not alpha-equivalent"
+      else if implicit_reads <> reads orelse explicit_reads <> reads then
+        reject "dereference count changed"
+      else if implicit_allocations <> allocations orelse
+          explicit_allocations <> allocations then
+        reject "reference-allocation count changed"
+      else if implicit_adjustments <> 0 orelse explicit_adjustments <> 0 then
+        reject
+          ("an internal read marker survived checking (implicit " ^
+           string_of_int implicit_adjustments ^ ", explicit " ^
+           string_of_int explicit_adjustments ^ ")")
+      else ()
+    end
+
+  fun check_rows ctxt rows = List.app (check_row ctxt) rows
+
+  fun definition_rhs ctxt name =
+    Proof_Context.get_thm ctxt (name ^ "_def")
+    |> Thm.prop_of
+    |> Logic.dest_equals
+    |> snd
+    |> Term_Position.strip_positions
+
+  fun check_definition_pair ctxt
+      {label, implicit_name, explicit_name, reads, allocations} =
+    let
+      val implicit = definition_rhs ctxt implicit_name
+      val explicit = definition_rhs ctxt explicit_name
+      val implicit_reads = count_constant dereference_name implicit
+      val explicit_reads = count_constant dereference_name explicit
+      val implicit_allocations = count_constant reference_name implicit
+      val explicit_allocations = count_constant reference_name explicit
+      val implicit_adjustments = count_constant adjustment_name implicit
+      val explicit_adjustments = count_constant adjustment_name explicit
+      fun reject reason =
+        fail ctxt label reason
+          reads implicit_reads explicit_reads
+          allocations implicit_allocations explicit_allocations
+          implicit explicit
+    in
+      if not (Term.aconv (implicit, explicit)) then
+        reject "implicit and explicit declaration bodies are not alpha-equivalent"
+      else if implicit_reads <> reads orelse explicit_reads <> reads then
+        reject "declaration dereference count changed"
+      else if implicit_allocations <> allocations orelse
+          explicit_allocations <> allocations then
+        reject "declaration reference-allocation count changed"
+      else if implicit_adjustments <> 0 orelse explicit_adjustments <> 0 then
+        reject
+          ("an internal read marker survived declaration checking (implicit " ^
+           string_of_int implicit_adjustments ^ ", explicit " ^
+           string_of_int explicit_adjustments ^ ")")
+      else ()
+    end
+end
+\<close>
+
+ML_val\<open>
+  Automatic_Read_Shadowing_Audit.check_rows \<^context>
+    [
+      {label = "ordinary value to mutable scalar",
+       implicit_source =
+         "let value = \<llangle>1 :: 32 word\<rrangle>; " ^
+         "let mut value = value; value",
+       explicit_source =
+         "let value = \<llangle>1 :: 32 word\<rrangle>; " ^
+         "let mut value = value; *value",
+       reads = 1, allocations = 1},
+      {label = "immutable reference value to mutable scalar",
+       implicit_source =
+         "let value = \<llangle>automatic_read_reference_value\<rrangle>; " ^
+         "let mut value = value; value",
+       explicit_source =
+         "let value = \<llangle>automatic_read_reference_value\<rrangle>; " ^
+         "let mut value = value; *value",
+       reads = 1, allocations = 1},
+      {label = "mutable scalar to ordinary immutable value",
+       implicit_source =
+         "let mut value = \<llangle>1 :: 32 word\<rrangle>; " ^
+         "let value = value; value",
+       explicit_source =
+         "let mut value = \<llangle>1 :: 32 word\<rrangle>; " ^
+         "let value = *value; value",
+       reads = 1, allocations = 1},
+      {label = "mutable scalar to immutable reference value",
+       implicit_source =
+         "let mut value = \<llangle>1 :: 32 word\<rrangle>; " ^
+         "let value = &value; value",
+       explicit_source =
+         "let mut value = \<llangle>1 :: 32 word\<rrangle>; " ^
+         "let value = &value; value",
+       reads = 0, allocations = 1},
+      {label = "mutable scalar to mutable scalar",
+       implicit_source =
+         "let mut value = \<llangle>1 :: 32 word\<rrangle>; " ^
+         "let mut value = value; value",
+       explicit_source =
+         "let mut value = \<llangle>1 :: 32 word\<rrangle>; " ^
+         "let mut value = *value; *value",
+       reads = 2, allocations = 2},
+      {label = "mutable reference payload reads one level",
+       implicit_source =
+         "let mut value = \<llangle>automatic_read_reference_value\<rrangle>; value",
+       explicit_source =
+         "let mut value = \<llangle>automatic_read_reference_value\<rrangle>; *value",
+       reads = 1, allocations = 1},
+      {label = "storage reference storage alternation",
+       implicit_source =
+         "let mut value = \<llangle>1 :: 32 word\<rrangle>; " ^
+         "let outer = { " ^
+           "let value = value; " ^
+           "let inner = { let mut value = value; value }; " ^
+           "value " ^
+         "}; value",
+       explicit_source =
+         "let mut value = \<llangle>1 :: 32 word\<rrangle>; " ^
+         "let outer = { " ^
+           "let value = *value; " ^
+           "let inner = { let mut value = value; *value }; " ^
+           "value " ^
+         "}; *value",
+       reads = 3, allocations = 2},
+      {label = "successive initializer and body ownership",
+       implicit_source =
+         "let mut value = \<llangle>1 :: 32 word\<rrangle>; " ^
+         "let value = value; let mut value = value; value",
+       explicit_source =
+         "let mut value = \<llangle>1 :: 32 word\<rrangle>; " ^
+         "let value = *value; let mut value = value; *value",
+       reads = 2, allocations = 2},
+      {label = "const shadows storage",
+       implicit_source =
+         "let mut value = \<llangle>1 :: 32 word\<rrangle>; " ^
+         "const value = value; value",
+       explicit_source =
+         "let mut value = \<llangle>1 :: 32 word\<rrangle>; " ^
+         "const value = *value; value",
+       reads = 1, allocations = 1},
+      {label = "block restores outer storage",
+       implicit_source =
+         "let mut value = \<llangle>1 :: 32 word\<rrangle>; " ^
+         "let inner = { let value = value; value }; value",
+       explicit_source =
+         "let mut value = \<llangle>1 :: 32 word\<rrangle>; " ^
+         "let inner = { let value = *value; value }; *value",
+       reads = 2, allocations = 1},
+      {label = "block restores outer reference value",
+       implicit_source =
+         "let value = \<llangle>automatic_read_reference_value\<rrangle>; " ^
+         "let inner = { let mut value = value; value }; value",
+       explicit_source =
+         "let value = \<llangle>automatic_read_reference_value\<rrangle>; " ^
+         "let inner = { let mut value = value; *value }; value",
+       reads = 1, allocations = 1},
+      {label = "if branches isolate categories",
+       implicit_source =
+         "let mut value = \<llangle>1 :: 32 word\<rrangle>; " ^
+         "let branch = if true { let value = value; value } " ^
+         "else { let mut value = value; value }; value",
+       explicit_source =
+         "let mut value = \<llangle>1 :: 32 word\<rrangle>; " ^
+         "let branch = if true { let value = *value; value } " ^
+         "else { let mut value = *value; *value }; *value",
+       reads = 4, allocations = 2},
+      {label = "ordinary tuple destructuring",
+       implicit_source =
+         "let mut value = \<llangle>1 :: 32 word\<rrangle>; " ^
+         "let (value, other) = (value, \<llangle>2 :: 32 word\<rrangle>); value",
+       explicit_source =
+         "let mut value = \<llangle>1 :: 32 word\<rrangle>; " ^
+         "let (value, other) = (*value, \<llangle>2 :: 32 word\<rrangle>); value",
+       reads = 1, allocations = 1},
+      {label = "nested tuple destructuring",
+       implicit_source =
+         "let mut value = \<llangle>1 :: 32 word\<rrangle>; " ^
+         "let (other, (value, retained)) = " ^
+           "(\<llangle>2 :: 32 word\<rrangle>, " ^
+            "(value, \<llangle>3 :: 32 word\<rrangle>)); value",
+       explicit_source =
+         "let mut value = \<llangle>1 :: 32 word\<rrangle>; " ^
+         "let (other, (value, retained)) = " ^
+           "(\<llangle>2 :: 32 word\<rrangle>, " ^
+            "(*value, \<llangle>3 :: 32 word\<rrangle>)); value",
+       reads = 1, allocations = 1},
+      {label = "mutable tuple preserves plain rhs behavior",
+       implicit_source =
+         "let mut value = \<llangle>1 :: 32 word\<rrangle>; " ^
+         "let mut (value, other) = " ^
+           "(value, \<llangle>2 :: 32 word\<rrangle>); value",
+       explicit_source =
+         "let mut value = \<llangle>1 :: 32 word\<rrangle>; " ^
+         "let mut (value, other) = " ^
+           "(*value, \<llangle>2 :: 32 word\<rrangle>); value",
+       reads = 1, allocations = 1},
+      {label = "direct match arm restoration",
+       implicit_source =
+         "let mut value = \<llangle>1 :: 32 word\<rrangle>; " ^
+         "let selected = match Some(value) { " ^
+           "Some(value) \<Rightarrow> value, None \<Rightarrow> value }; value",
+       explicit_source =
+         "let mut value = \<llangle>1 :: 32 word\<rrangle>; " ^
+         "let selected = match Some(*value) { " ^
+           "Some(value) \<Rightarrow> value, None \<Rightarrow> *value }; *value",
+       reads = 3, allocations = 1},
+      {label = "explicit match case arm restoration",
+       implicit_source =
+         "let mut value = \<llangle>1 :: 32 word\<rrangle>; " ^
+         "let selected = match_case Some(value) { " ^
+           "Some(value) \<Rightarrow> value, None \<Rightarrow> value }; value",
+       explicit_source =
+         "let mut value = \<llangle>1 :: 32 word\<rrangle>; " ^
+         "let selected = match_case Some(*value) { " ^
+           "Some(value) \<Rightarrow> value, None \<Rightarrow> *value }; *value",
+       reads = 3, allocations = 1},
+      {label = "same-spelled sibling match arm binders",
+       implicit_source =
+         "let mut value = \<llangle>1 :: 32 word\<rrangle>; " ^
+         "let selected = match Ok(value) { " ^
+           "Ok(value) \<Rightarrow> value, Err(value) \<Rightarrow> value }; value",
+       explicit_source =
+         "let mut value = \<llangle>1 :: 32 word\<rrangle>; " ^
+         "let selected = match Ok(*value) { " ^
+           "Ok(value) \<Rightarrow> value, Err(value) \<Rightarrow> value }; *value",
+       reads = 2, allocations = 1},
+      {label = "alias binder shadows storage",
+       implicit_source =
+         "let mut value = \<llangle>1 :: 32 word\<rrangle>; " ^
+         "match Some(value) { " ^
+           "whole @ Some(value) \<Rightarrow> value, _ \<Rightarrow> value }",
+       explicit_source =
+         "let mut value = \<llangle>1 :: 32 word\<rrangle>; " ^
+         "match Some(*value) { " ^
+           "whole @ Some(value) \<Rightarrow> value, _ \<Rightarrow> *value }",
+       reads = 2, allocations = 1},
+      {label = "or pattern shares one non-storage binder",
+       implicit_source =
+         "let mut value = \<llangle>1 :: 32 word\<rrangle>; " ^
+         "match Ok(value) { " ^
+           "Ok(value) | Err(value) " ^
+             "\<Rightarrow> value }",
+       explicit_source =
+         "let mut value = \<llangle>1 :: 32 word\<rrangle>; " ^
+         "match Ok(*value) { " ^
+           "Ok(value) | Err(value) " ^
+             "\<Rightarrow> value }",
+       reads = 1, allocations = 1},
+      {label = "if let success and fallback isolation",
+       implicit_source =
+         "let mut value = \<llangle>1 :: 32 word\<rrangle>; " ^
+         "if let Some(value) = Some(value) { value } else { value }",
+       explicit_source =
+         "let mut value = \<llangle>1 :: 32 word\<rrangle>; " ^
+         "if let Some(value) = Some(*value) { value } else { *value }",
+       reads = 2, allocations = 1},
+      {label = "while let body and outer restoration",
+       implicit_source =
+         "let mut value = \<llangle>1 :: 32 word\<rrangle>; " ^
+         "#[fuel(\<epsilon>\<open>1 :: nat\<close>)] " ^
+           "while let Some(value) = Some(value) { " ^
+             "let observed = value; () }; value",
+       explicit_source =
+         "let mut value = \<llangle>1 :: 32 word\<rrangle>; " ^
+         "#[fuel(\<epsilon>\<open>1 :: nat\<close>)] " ^
+           "while let Some(value) = Some(*value) { " ^
+             "let observed = value; () }; *value",
+       reads = 2, allocations = 1},
+      {label = "let else continuation and fallback isolation",
+       implicit_source =
+         "let mut value = \<llangle>1 :: 32 word\<rrangle>; " ^
+         "let Some(value) = Some(value) else { return value; }; value",
+       explicit_source =
+         "let mut value = \<llangle>1 :: 32 word\<rrangle>; " ^
+         "let Some(value) = Some(*value) else { return *value; }; value",
+       reads = 2, allocations = 1},
+      {label = "for binder restores outer storage",
+       implicit_source =
+         "let mut value = \<llangle>1 :: 32 word\<rrangle>; " ^
+         "for value in \<llangle>[2 :: 32 word]\<rrangle> { " ^
+           "let observed = value; () }; value",
+       explicit_source =
+         "let mut value = \<llangle>1 :: 32 word\<rrangle>; " ^
+         "for value in \<llangle>[2 :: 32 word]\<rrangle> { " ^
+           "let observed = value; () }; *value",
+       reads = 1, allocations = 1},
+      {label = "closure duplicate formal last wins",
+       implicit_source =
+         "let mut value = \<llangle>1 :: 32 word\<rrangle>; " ^
+         "let closure = |value, value| \<llangle>value :: 32 word\<rrangle>; value",
+       explicit_source =
+         "let mut value = \<llangle>1 :: 32 word\<rrangle>; " ^
+         "let closure = |value, value| \<llangle>value :: 32 word\<rrangle>; *value",
+       reads = 1, allocations = 1},
+      {label = "ordinary wildcard preserves outer storage",
+       implicit_source =
+         "let mut value = \<llangle>1 :: 32 word\<rrangle>; " ^
+         "let _ = value; value",
+       explicit_source =
+         "let mut value = \<llangle>1 :: 32 word\<rrangle>; " ^
+         "let _ = *value; *value",
+       reads = 2, allocations = 1},
+      {label = "mutable wildcard preserves outer storage",
+       implicit_source =
+         "let mut value = \<llangle>1 :: 32 word\<rrangle>; " ^
+         "let mut _ = value; value",
+       explicit_source =
+         "let mut value = \<llangle>1 :: 32 word\<rrangle>; " ^
+         "let mut _ = *value; *value",
+       reads = 2, allocations = 2},
+      {label = "tuple wildcard preserves neighboring storage",
+       implicit_source =
+         "let mut value = \<llangle>1 :: 32 word\<rrangle>; " ^
+         "let (_, other) = (value, \<llangle>2 :: 32 word\<rrangle>); value",
+       explicit_source =
+         "let mut value = \<llangle>1 :: 32 word\<rrangle>; " ^
+         "let (_, other) = (*value, \<llangle>2 :: 32 word\<rrangle>); *value",
+       reads = 2, allocations = 1},
+      {label = "assignment target is not read",
+       implicit_source =
+         "let mut value = \<llangle>1 :: 32 word\<rrangle>; " ^
+         "let inner = { " ^
+           "let mut value = \<llangle>2 :: 32 word\<rrangle>; " ^
+           "value = value; () }; value",
+       explicit_source =
+         "let mut value = \<llangle>1 :: 32 word\<rrangle>; " ^
+         "let inner = { " ^
+           "let mut value = \<llangle>2 :: 32 word\<rrangle>; " ^
+           "value = *value; () }; *value",
+       reads = 2, allocations = 2},
+      {label = "borrow preserves selected inner place",
+       implicit_source =
+         "let mut value = \<llangle>1 :: 32 word\<rrangle>; " ^
+         "let reference = { let mut value = value; &value }; value",
+       explicit_source =
+         "let mut value = \<llangle>1 :: 32 word\<rrangle>; " ^
+         "let reference = { let mut value = *value; &value }; *value",
+       reads = 2, allocations = 2},
+      {label = "reference call expectation suppresses inner read",
+       implicit_source =
+         "let mut value = \<llangle>1 :: 32 word\<rrangle>; " ^
+         "let result = { " ^
+           "let mut value = \<llangle>2 :: 32 word\<rrangle>; " ^
+           "automatic_read_reference_call(value) }; value",
+       explicit_source =
+         "let mut value = \<llangle>1 :: 32 word\<rrangle>; " ^
+         "let result = { " ^
+           "let mut value = \<llangle>2 :: 32 word\<rrangle>; " ^
+           "automatic_read_reference_call(value) }; *value",
+       reads = 1, allocations = 2},
+      {label = "registered notation shadowed by mutable local",
+       implicit_source =
+         "let mut myReg = myReg; myReg",
+       explicit_source =
+         "let mut myReg = myReg; *myReg",
+       reads = 1, allocations = 1}
+    ]
+\<close>
+
+ML_val\<open>
+  Automatic_Read_Shadowing_Audit.check_definition_pair \<^context>
+    {label = "typed urust_expr parameter shadow",
+     implicit_name = "automatic_read_expression_parameter_shadow",
+     explicit_name = "automatic_read_expression_parameter_shadow_explicit",
+     reads = 1, allocations = 1};
+  Automatic_Read_Shadowing_Audit.check_definition_pair \<^context>
+    {label = "typed urust_fn parameter shadow",
+     implicit_name = "automatic_read_function_parameter_shadow",
+     explicit_name = "automatic_read_function_parameter_shadow_explicit",
+     reads = 1, allocations = 1}
+\<close>
+
+context fixes automatic_read_fix :: \<open>32 word\<close>
+begin
+
+ML_val\<open>
+  Automatic_Read_Shadowing_Audit.check_rows \<^context>
+    [
+      {label = "HOL context fix shadowed by mutable local",
+       implicit_source =
+         "let mut automatic_read_fix = automatic_read_fix; automatic_read_fix",
+       explicit_source =
+         "let mut automatic_read_fix = automatic_read_fix; *automatic_read_fix",
+       reads = 1, allocations = 1}
+    ]
+\<close>
+
+end
 
 no_adhoc_overloading index_const \<rightleftharpoons> parser_reference_array_index_fixture
 no_adhoc_overloading store_update_const \<rightleftharpoons> parser_update_fixture
