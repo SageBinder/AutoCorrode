@@ -594,23 +594,11 @@ fun dest_marker_untyped (Const (\<^const_name>\<open>urust_dispatch\<close>, _) 
        handle Match => NONE)
   | dest_marker_untyped _ = NONE;
 
-\<comment>\<open>Can backend type \<open>T'\<close> serve an occurrence of type \<open>T\<close>?
-  (Mirrors \<open>adhoc_overloading.ML\<close>: rename the backend's tvars away
-  from the occurrence and try \<open>typ_unify\<close>.)\<close>
-fun unifiable_types ctxt (T, T') =
-  let
-    val thy = Proof_Context.theory_of ctxt;
-    val maxidx1 = Term.maxidx_of_typ T;
-    val T'' = Logic.incr_tvar (maxidx1 + 1) T';
-    val maxidx2 = Term.maxidx_typ T'' maxidx1;
-  in can (Sign.typ_unify thy (T, T'')) (Vartab.empty, maxidx2) end;
-
 \<comment>\<open>Try to unify a backend term against an occurrence type \<open>T\<close>; on
   success, return the backend term with its schematic TVars
-  instantiated by the unifier. Mirrors the shift-and-unify dance of
-  \<open>unifiable_types\<close> but also \<^emph>\<open>applies the substitution\<close> so the
-  resulting term has no orphan schematics --- otherwise \<open>check_term\<close>'s
-  later "Illegal schematic type variable" guard fires.\<close>
+  instantiated by the unifier. The shift keeps the backend's variables
+  disjoint from the occurrence, and applying the substitution keeps the
+  resulting type free of orphan schematics.\<close>
 fun unify_and_instantiate ctxt T t =
   let
     val thy = Proof_Context.theory_of ctxt;
@@ -651,7 +639,7 @@ fun varify_tfrees_in_term t =
     (fn TFree (a, S) => TVar ((a, 0), S) | T => T)) t;
 
 type dispatch_candidate =
-  {entry: Micro_Rust_Names.entry, term: term};
+  {entry: Micro_Rust_Names.entry, term: term, backend_type: typ};
 
 fun notation_candidates ctxt kind name T =
   Micro_Rust_Names.lookups ctxt kind name
@@ -665,18 +653,22 @@ fun notation_candidates ctxt kind name T =
          context can still pin.\<close>
        let val varified = varify_tfrees_in_term hol_term
        in
-         if unifiable_types ctxt (T, fastype_of varified)
-         then
-           SOME
-             {entry = entry,
-              term =
-                Type.constraint T
-                  (Term.map_types (K dummyT) varified)}
-         else NONE
+         (case unify_and_instantiate ctxt T varified of
+            SOME instantiated =>
+              SOME
+                {entry = entry,
+                 term =
+                   Type.constraint T
+                     (Term.map_types (K dummyT) varified),
+                 backend_type = fastype_of instantiated}
+          | NONE => NONE)
        end);
 
 fun notation_candidate_term
     ({term, ...} : dispatch_candidate) = term;
+
+fun notation_candidate_type
+    ({backend_type, ...} : dispatch_candidate) = backend_type;
 
 \<comment>\<open>Look up a HOL constant by user-visible name. Returns
   \<open>SOME (full_name, declared_type)\<close> if the name resolves to a proper
@@ -981,7 +973,7 @@ fun emit_selected_use_markup_at_positions ctxt kind name selected
      backend_only_positions);
 
 fun select_notation_candidate ctxt kind name positions
-    ({entry, term} : dispatch_candidate) =
+    ({entry, term, ...} : dispatch_candidate) =
   (emit_selected_use_markup_at_positions
      ctxt kind name entry positions;
    term);

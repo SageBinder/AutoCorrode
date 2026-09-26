@@ -384,39 +384,250 @@ struct
                       SOME Ordinary_Projection)))
      | NONE => No_Projection_Progress)
 
+  fun function_call_arity name =
+    let
+      val base = Long_Name.base_name name
+      val prefix = "funcall"
+    in
+      if String.isPrefix prefix base
+      then
+        (case Int.fromString
+            (String.extract (base, size prefix, NONE)) of
+           SOME arity =>
+             if 0 <= arity andalso arity <= 14
+             then SOME arity
+             else NONE
+         | NONE => NONE)
+      else NONE
+    end
+
+  fun rebuild_function_call name function arguments =
+    Term.list_comb
+      (Const (name, dummyT),
+       Term.map_types (K dummyT) function :: arguments)
+
+  fun advance_argument_projection argument =
+    (case dest_read_marker argument of
+       SOME ((state, origin, pos), place, _) =>
+         (case advance_projection place of
+            Projection_Progress (place', resolved_origin) =>
+              SOME
+                (make_read_adjustment state
+                  (the_default origin resolved_origin) pos place')
+          | No_Projection_Progress => NONE)
+     | NONE => NONE)
+
+  fun advance_argument_projections arguments =
+    let
+      fun advance [] = ([], false)
+        | advance (argument :: rest) =
+            let
+              val (rest', changed_rest) = advance rest
+            in
+              (case advance_argument_projection argument of
+                 SOME argument' =>
+                   (argument' :: rest', true)
+               | NONE =>
+                   (argument :: rest', changed_rest))
+            end
+    in advance arguments end
+
+  fun can_unify_types (left, right) =
+    Type.could_unify (left, right) orelse
+      Type.could_unify (right, left)
+
+  fun read_marker_accepts parameter_type argument =
+    (case dest_read_marker argument of
+       SOME ((_, origin, _), place, _) =>
+         (case expression_value_type (fastype_of place) of
+            SOME place_value_type =>
+              can_unify_types (place_value_type, parameter_type) orelse
+                (is_storage_place origin andalso
+                  (case reference_value_type place_value_type of
+                     SOME stored_value_type =>
+                       can_unify_types
+                         (stored_value_type, parameter_type)
+                   | NONE => false))
+          | NONE => true)
+     | NONE => true)
+    handle TYPE _ => true
+
+  fun candidate_accepts arguments candidate =
+    let
+      val parameters =
+        binder_types
+          (Micro_Rust_Dispatch.notation_candidate_type candidate)
+
+      fun accepts ([], []) = true
+        | accepts
+            (argument :: remaining_arguments,
+             parameter :: remaining_parameters) =
+            read_marker_accepts parameter argument andalso
+              accepts
+                (remaining_arguments, remaining_parameters)
+        | accepts _ = false
+    in accepts (arguments, parameters) end
+
+  datatype dispatch_progress =
+      Not_A_Dispatch_Call
+    | Dispatch_Call of term
+
+  fun preserve_reference_arguments function arguments =
+    let
+      val parameters = binder_types (fastype_of function)
+
+      fun preserve ([], []) = ([], false)
+        | preserve
+            (argument :: remaining_arguments,
+             parameter :: remaining_parameters) =
+            let
+              val (remaining', changed_rest) =
+                preserve
+                  (remaining_arguments, remaining_parameters)
+            in
+              (case dest_read_marker argument of
+                 SOME ((_, origin, _), place, _) =>
+                   if is_storage_place origin andalso
+                      is_reference_type parameter
+                   then (place :: remaining', true)
+                   else
+                     (argument :: remaining', changed_rest)
+               | NONE =>
+                   (argument :: remaining', changed_rest))
+            end
+        | preserve _ = (arguments, false)
+    in preserve (arguments, parameters) end
+    handle TYPE _ => (arguments, false)
+         | TERM _ => (arguments, false)
+
+  fun resolve_selected_reference_call term =
+    (case Term.strip_comb term of
+       (Const (call_name, _), function :: arguments) =>
+         (case function_call_arity call_name of
+            SOME arity =>
+              if arity <> length arguments orelse
+                 is_some (Micro_Rust_Dispatch.dest_marker function)
+              then Not_A_Dispatch_Call
+              else
+                let
+                  val (arguments', changed) =
+                    preserve_reference_arguments
+                      function arguments
+                in
+                  if changed
+                  then
+                    Dispatch_Call
+                      (rebuild_function_call
+                        call_name function arguments')
+                  else Not_A_Dispatch_Call
+                end
+          | NONE => Not_A_Dispatch_Call)
+     | _ => Not_A_Dispatch_Call)
+
+  fun resolve_dispatch_call ctxt term =
+    (case Term.strip_comb term of
+       (Const (call_name, _), function :: arguments) =>
+         (case
+             (function_call_arity call_name,
+              Micro_Rust_Dispatch.dest_marker function) of
+            (SOME arity,
+             SOME
+               ((kind, name, positions), _, occurrence_type)) =>
+              if arity <> length arguments orelse
+                 kind <> Micro_Rust_Names.NFunction
+              then Not_A_Dispatch_Call
+              else
+                let
+                  val (arguments', advanced) =
+                    advance_argument_projections arguments
+                in
+                  if advanced
+                  then
+                    Dispatch_Call
+                      (rebuild_function_call
+                        call_name function arguments')
+                  else
+                    let
+                      val candidates =
+                        Micro_Rust_Dispatch.notation_candidates
+                          ctxt kind name occurrence_type
+                      val compatible =
+                        filter (candidate_accepts arguments)
+                          candidates
+                      fun select candidate =
+                        Micro_Rust_Dispatch.select_notation_candidate
+                          ctxt kind name positions candidate
+                    in
+                      (case compatible of
+                         [candidate] =>
+                           Dispatch_Call
+                             (rebuild_function_call call_name
+                               (select candidate) arguments)
+                       | [] =>
+                           Micro_Rust_Dispatch.no_match_error ctxt
+                             kind name (#terminal_pos positions)
+                             occurrence_type
+                       | _ => Dispatch_Call term)
+                    end
+                end
+          | _ => Not_A_Dispatch_Call)
+     | _ => Not_A_Dispatch_Call)
+
   fun resolve ctxt terms =
     let
       fun go term =
-        (case dest_read_marker term of
-           SOME ((state, origin, pos), place, expected_type) =>
-             (case advance_projection place of
-                Projection_Progress (place', resolved_origin) =>
-                  make_read_adjustment state
-                    (the_default origin resolved_origin) pos place'
-              | No_Projection_Progress =>
-                  let
-                    val place_type = fastype_of place
-                  in
-                    if not (is_storage_place origin) orelse
-                       preserve_reference place_type expected_type
-                    then place
-                    else
-                      (case state of
-                         Fresh_Read =>
-                           make_read_adjustment Deferred_Read
-                             origin pos place
-                       | Deferred_Read =>
-                           T.automatic_dereference place)
-                  end)
-         | NONE =>
-             (case advance_projection term of
-                Projection_Progress (term', _) => term'
-              | No_Projection_Progress =>
-                  (case term of
-                     function $ argument => go function $ go argument
-                   | Abs (name, typ, body) =>
-                       Abs (name, typ, go body)
-                   | atom => atom)))
+        (case resolve_selected_reference_call term of
+           Dispatch_Call replacement => replacement
+         | Not_A_Dispatch_Call =>
+             (case resolve_dispatch_call ctxt term of
+                Dispatch_Call replacement => replacement
+              | Not_A_Dispatch_Call =>
+                  (case dest_read_marker term of
+                     SOME
+                       ((state, origin, pos), place,
+                        expected_type) =>
+                       (case advance_projection place of
+                          Projection_Progress
+                            (place',
+                             SOME Ordinary_Projection) =>
+                            place'
+                        | Projection_Progress
+                            (place', resolved_origin) =>
+                            make_read_adjustment state
+                              (the_default origin
+                                resolved_origin)
+                              pos place'
+                        | No_Projection_Progress =>
+                            let
+                              val place_type =
+                                fastype_of place
+                            in
+                              if not
+                                  (is_storage_place origin) orelse
+                                 preserve_reference
+                                   place_type expected_type
+                              then place
+                              else
+                                (case state of
+                                   Fresh_Read =>
+                                     make_read_adjustment
+                                       Deferred_Read origin
+                                       pos place
+                                 | Deferred_Read =>
+                                     T.automatic_dereference
+                                       place)
+                            end)
+                   | NONE =>
+                       (case advance_projection term of
+                          Projection_Progress (term', _) =>
+                            term'
+                        | No_Projection_Progress =>
+                            (case term of
+                               function $ argument =>
+                                 go function $ go argument
+                             | Abs (name, typ, body) =>
+                                 Abs (name, typ, go body)
+                             | atom => atom)))))
     in map go terms end
 
   fun reject_unresolved _ terms =
