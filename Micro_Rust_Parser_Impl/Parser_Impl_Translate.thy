@@ -711,26 +711,21 @@ struct
      | UE_Field (receiver, name, layout) =>
          let
            val lowered_receiver =
-             D.raw_term
-               (lower_expression ctxt environment receiver)
+             lower_expression ctxt environment receiver
+           val field =
+             R.field_witness ctxt environment name
+               (the_source_token_position layout Name_Token)
          in
-           D.eligible expression
-             (with_delimiter layout "." (fn () =>
-               R.field_expression ctxt environment
-                 lowered_receiver name
-                 (the_source_token_position layout Name_Token)))
+           D.project_field expression lowered_receiver field
          end
      | UE_Index (receiver, index, layout) =>
          let
            val lowered_receiver =
-             D.raw_term
-               (lower_expression ctxt environment receiver)
+             lower_expression ctxt environment receiver
            val lowered_index =
              lower_value ctxt environment index
          in
-           D.eligible expression
-             (Navigation.with_source (index_positions layout) (fn () =>
-               T.index lowered_receiver lowered_index))
+           D.project_index expression lowered_receiver lowered_index
          end
      | UE_TupleProjection (receiver, index, layout) =>
          let

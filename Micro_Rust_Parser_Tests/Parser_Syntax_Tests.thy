@@ -1854,8 +1854,9 @@ ML_val\<open>
       audit_assert "index term lost its internal value adjustment"
         (is_some (dest_read_adjustment unchecked_index))
     val _ =
-      audit_assert "index term shape changed"
-        (function_call2 \<^const_name>\<open>index_const\<close>
+      audit_assert "index term lost its private projection recipe"
+        (has_head
+          \<^const_name>\<open>urust_internal_index_projection\<close> 3
           (the (dest_read_adjustment unchecked_index)))
 
     val _ =
@@ -6885,8 +6886,9 @@ ML_val\<open>
           (Term_Position.strip_positions array,
            Term_Position.strip_positions borrowed_array))
     val _ =
-      audit_assert "ordinary indexing lost index_const"
-        (count_constant \<^const_name>\<open>index_const\<close>
+      audit_assert "ordinary indexing lost its private projection recipe"
+        (count_constant
+          \<^const_name>\<open>urust_internal_index_projection\<close>
           indexed_array = 1)
     val _ =
       audit_assert "vec! lowering acquired repeat machinery"
