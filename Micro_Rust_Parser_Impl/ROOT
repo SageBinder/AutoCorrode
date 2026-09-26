@@ -12,6 +12,7 @@ session Micro_Rust_Parser_Impl = HOL +
     Parser_Impl_Cast_Aliases
     Parser_Impl_Grammar
     Parser_Impl_Shallow_Terms
+    Parser_Impl_Auto_Deref
     Parser_Impl_Item_Scope
     Parser_Impl_Resolution
     Parser_Impl_Patterns
