@@ -1816,6 +1816,26 @@ ML_val\<open>
           SOME place
       | dest_read_adjustment _ = NONE
 
+    fun dest_index_projection
+        (Const
+          (\<^const_name>\<open>urust_internal_index_projection\<close>, _) $
+          _ $ operation $ receiver $ index) =
+          SOME (operation, receiver, index)
+      | dest_index_projection _ = NONE
+
+    fun count_bound target term =
+      Term.fold_aterms
+        (fn Bound index =>
+              if index = target then Integer.add 1 else I
+          | _ => I)
+        term 0
+
+    fun projection_operation_uses_each_argument_once
+        (Abs (_, _, Abs (_, _, body))) =
+          count_bound 1 body = 1 andalso
+          count_bound 0 body = 1
+      | projection_operation_uses_each_argument_once _ = false
+
     val _ =
       audit_assert "exclusive range term shape changed"
         (function_call2 \<^const_name>\<open>range_new\<close>
@@ -1855,9 +1875,17 @@ ML_val\<open>
         (is_some (dest_read_adjustment unchecked_index))
     val _ =
       audit_assert "index term lost its private projection recipe"
-        (has_head
-          \<^const_name>\<open>urust_internal_index_projection\<close> 3
-          (the (dest_read_adjustment unchecked_index)))
+        (is_some
+          (dest_index_projection
+            (the (dest_read_adjustment unchecked_index))))
+    val _ =
+      audit_assert
+        "index projection operation duplicated or dropped an argument"
+        (projection_operation_uses_each_argument_once
+          (#1
+            (the
+              (dest_index_projection
+                (the (dest_read_adjustment unchecked_index))))))
 
     val _ =
       audit_assert "direct array borrow stopped erasing"

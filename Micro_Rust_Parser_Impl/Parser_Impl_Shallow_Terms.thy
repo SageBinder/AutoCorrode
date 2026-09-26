@@ -9,9 +9,17 @@ section\<open> Shallow term vocabulary \<close>
 consts
   urust_internal_read_adjustment :: \<open>'payload \<Rightarrow> 'place \<Rightarrow> 'result\<close>
   urust_internal_field_projection ::
-    \<open>'payload \<Rightarrow> 'receiver \<Rightarrow> 'field \<Rightarrow> 'result\<close>
+    \<open>
+      'payload \<Rightarrow>
+      ('receiver \<Rightarrow> 'field \<Rightarrow> 'result) \<Rightarrow>
+      'receiver \<Rightarrow> 'field \<Rightarrow> 'result
+    \<close>
   urust_internal_index_projection ::
-    \<open>'payload \<Rightarrow> 'receiver \<Rightarrow> 'index \<Rightarrow> 'result\<close>
+    \<open>
+      'payload \<Rightarrow>
+      ('receiver \<Rightarrow> 'index \<Rightarrow> 'result) \<Rightarrow>
+      'receiver \<Rightarrow> 'index \<Rightarrow> 'result
+    \<close>
 
 ML\<open>
 signature URUST_SHALLOW_TERMS =

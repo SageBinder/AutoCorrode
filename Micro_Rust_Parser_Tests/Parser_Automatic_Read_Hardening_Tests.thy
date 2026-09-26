@@ -1072,6 +1072,127 @@ ML_val\<open>
   end
 \<close>
 
+section\<open>Untyped ordinary receiver constraints\<close>
+
+text\<open>
+Projection recipes expose enough type information for an untyped declaration argument to be
+classified without assuming that it is a core reference. The explicit controls below constrain the
+same source argument through an antiquotation; both forms must elaborate identically and without an
+automatic read.
+\<close>
+
+ML_val\<open>
+  local
+    val ctxt = \<^context>
+    val argument_pos =
+      Position.make0 1 0 0 "" "" "automatic-read-untyped-argument"
+    val dereference_name =
+      \<^const_name>\<open>parser_dereference_fixture\<close>
+    val reference_index_name =
+      \<^const_name>\<open>parser_reference_array_index_fixture\<close>
+    val marker_names =
+      [\<^const_name>\<open>urust_internal_read_adjustment\<close>,
+       \<^const_name>\<open>urust_internal_field_projection\<close>,
+       \<^const_name>\<open>urust_internal_index_projection\<close>]
+
+    fun checked source =
+      Parser_Test_Report_Lock.run (fn () =>
+        Parser_Test_Elaboration.expression_with_arguments ctxt
+          [("record", argument_pos)]
+          (Parser_Lex_Util.text_source source))
+      |> Term_Position.strip_positions
+
+    fun count_constant target term =
+      Term.fold_aterms
+        (fn Const (name, _) =>
+              if name = target then Integer.add 1 else I
+          | _ => I)
+        term 0
+
+    fun marker_count term =
+      fold (fn name => Integer.add (count_constant name term))
+        marker_names 0
+
+    fun check
+        {label, implicit_source, control_source, constants} =
+      let
+        val implicit = checked implicit_source
+        val control = checked control_source
+        fun constants_match term =
+          List.all
+            (fn (name, expected) =>
+              count_constant name term = expected)
+            constants
+        fun reject reason =
+          error
+            ("automatic read untyped receiver audit " ^ quote label ^
+             ": " ^ reason ^
+             "\nimplicit: " ^ Syntax.string_of_term ctxt implicit ^
+             "\ncontrol: " ^ Syntax.string_of_term ctxt control)
+      in
+        if not (Term.aconv (implicit, control)) then
+          reject "implicit and explicitly typed controls differ"
+        else if count_constant dereference_name implicit <> 0 orelse
+            count_constant dereference_name control <> 0 then
+          reject "ordinary receiver acquired an automatic read"
+        else if count_constant reference_index_name implicit <> 0 orelse
+            count_constant reference_index_name control <> 0 then
+          reject "ordinary receiver selected reference indexing"
+        else if not (constants_match implicit) orelse
+            not (constants_match control) then
+          reject "field or index backend identity changed"
+        else if marker_count implicit <> 0 orelse
+            marker_count control <> 0 then
+          reject "an internal marker survived checking"
+        else ()
+      end
+
+    val _ =
+      check
+        {label = "untyped direct ordinary field",
+         implicit_source =
+           "record.automatic_read_pair_left + 0_u32",
+         control_source =
+           "\<llangle>record :: automatic_read_pair_record\<rrangle>." ^
+           "automatic_read_pair_left + 0_u32",
+         constants =
+           [(\<^const_name>\<open>automatic_read_pair_record_automatic_read_pair_left_lens\<close>,
+             1)]}
+
+    val _ =
+      check
+        {label = "untyped ordinary field followed by index",
+         implicit_source =
+           "record.automatic_read_leaf_values[0_usize] + 0_u32",
+         control_source =
+           "\<llangle>record :: automatic_read_array_leaf\<rrangle>." ^
+           "automatic_read_leaf_values[0_usize] + 0_u32",
+         constants =
+           [(\<^const_name>\<open>automatic_read_array_leaf_automatic_read_leaf_values_lens\<close>,
+             1),
+            (\<^const_name>\<open>array_index\<close>, 1)]}
+
+    val _ =
+      check
+        {label = "untyped chained ordinary projection",
+         implicit_source =
+           "record.automatic_read_branch_leaf." ^
+           "automatic_read_leaf_values[0_usize] + 0_u32",
+         control_source =
+           "\<llangle>record :: automatic_read_array_branch\<rrangle>." ^
+           "automatic_read_branch_leaf." ^
+           "automatic_read_leaf_values[0_usize] + 0_u32",
+         constants =
+           [(\<^const_name>\<open>automatic_read_array_branch_automatic_read_branch_leaf_lens\<close>,
+             1),
+            (\<^const_name>\<open>automatic_read_array_leaf_automatic_read_leaf_values_lens\<close>,
+             1),
+            (\<^const_name>\<open>array_index\<close>, 1)]}
+  in
+    val _ = ()
+  end
+\<close>
+
 section\<open>Intentional negative boundaries\<close>
 
 ML_val\<open>

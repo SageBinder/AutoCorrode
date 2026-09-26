@@ -107,6 +107,20 @@ struct
         Term_Position.encode_no_syntax (map strip_file positions),
        dummyT)
 
+  fun projection_operation segment =
+    let
+      val receiver =
+        Free ("_urust_projection_receiver", dummyT)
+      val operand =
+        Free ("_urust_projection_operand", dummyT)
+      val body =
+        (case segment of
+           Field_Segment _ => T.focus_field operand receiver
+         | Index_Segment _ => T.index receiver operand)
+    in
+      Term.lambda receiver (Term.lambda operand body)
+    end
+
   fun make_read_adjustment state origin pos place =
     Const (\<^const_name>\<open>urust_internal_read_adjustment\<close>, dummyT) $
       read_payload state origin pos $ place
@@ -115,12 +129,18 @@ struct
         Const
           (\<^const_name>\<open>urust_internal_field_projection\<close>,
            dummyT) $
-          projection_payload positions $ receiver $ field
+          projection_payload positions $
+          projection_operation
+            (Field_Segment (positions, field)) $
+          receiver $ field
     | make_projection (Index_Segment (positions, index)) receiver =
         Const
           (\<^const_name>\<open>urust_internal_index_projection\<close>,
            dummyT) $
-          projection_payload positions $ receiver $ index
+          projection_payload positions $
+          projection_operation
+            (Index_Segment (positions, index)) $
+          receiver $ index
 
   fun materialize_projection segment receiver =
     (case segment of
@@ -168,10 +188,10 @@ struct
        Projected_Candidate =>
          (case lowered of
             Plain base =>
-              Eligible (Projected_Place, base, [segment])
-          | Eligible (_, base, segments) =>
+              Eligible (Ordinary_Projection, base, [segment])
+          | Eligible (origin, base, segments) =>
               Eligible
-                (Projected_Place, base, segments @ [segment]))
+                (origin, base, segments @ [segment]))
      | _ =>
          error
            "urust read adjustment: projection operation requires a field or index")
@@ -224,6 +244,13 @@ struct
      | _ =>
          error
            "urust read adjustment: reference is not a type constructor")
+
+  val lens_type_name =
+    (case \<^typ>\<open>('a, 'b) lens\<close> of
+       Type (name, _) => name
+     | _ =>
+         error
+           "urust read adjustment: lens is not a type constructor")
 
   fun decode_origin "allocated" = Allocated_Place
     | decode_origin "projected" = Projected_Place
@@ -288,20 +315,22 @@ struct
 
   fun dest_projection_marker
       (Const (\<^const_name>\<open>urust_internal_field_projection\<close>, typ) $
-          payload $ receiver $ field) =
+          payload $ operation $ receiver $ field) =
         ((case dest_projection_payload payload of
             SOME positions =>
               SOME
-                (Field_Segment (positions, field), receiver)
+                (Field_Segment (positions, field),
+                 operation, receiver)
           | NONE => NONE)
          handle TYPE _ => NONE)
     | dest_projection_marker
         (Const (\<^const_name>\<open>urust_internal_index_projection\<close>, typ) $
-          payload $ receiver $ index) =
+          payload $ operation $ receiver $ index) =
         ((case dest_projection_payload payload of
             SOME positions =>
               SOME
-                (Index_Segment (positions, index), receiver)
+                (Index_Segment (positions, index),
+                 operation, receiver)
           | NONE => NONE)
          handle TYPE _ => NONE)
     | dest_projection_marker _ = NONE
@@ -324,20 +353,217 @@ struct
     | Ordinary_Value
     | Unknown_Receiver
 
+  fun value_kind value_type =
+    (case reference_value_type value_type of
+       SOME stored_value_type =>
+         Core_Reference stored_value_type
+     | NONE =>
+         if value_type = dummyT then Unknown_Receiver
+         else
+           (case value_type of
+              TVar _ => Unknown_Receiver
+            | TFree _ => Unknown_Receiver
+            | _ => Ordinary_Value))
+
   fun receiver_kind receiver =
     (case expression_value_type (fastype_of receiver) of
-       SOME value_type =>
-         (case reference_value_type value_type of
-            SOME stored_value_type =>
-              Core_Reference stored_value_type
-          | NONE =>
-              if value_type = dummyT then Unknown_Receiver
-              else
-                (case value_type of
-                   TVar _ => Unknown_Receiver
-                 | _ => Ordinary_Value))
+       SOME value_type => value_kind value_type
      | NONE => Unknown_Receiver)
     handle TYPE _ => Unknown_Receiver
+         | TERM _ => Unknown_Receiver
+
+  fun expression_kind expression_type =
+    (case expression_value_type expression_type of
+       SOME value_type => value_kind value_type
+     | NONE => Unknown_Receiver)
+
+  fun projection_operation_kinds operation =
+    let
+      val operation_type = fastype_of operation
+      val receiver =
+        (case binder_types operation_type of
+           receiver_type :: _ =>
+             expression_kind receiver_type
+         | [] => Unknown_Receiver)
+      val result =
+        expression_kind (body_type operation_type)
+    in (receiver, result) end
+    handle TYPE _ =>
+      (Unknown_Receiver, Unknown_Receiver)
+         | TERM _ =>
+      (Unknown_Receiver, Unknown_Receiver)
+
+  fun prefer_receiver_kind Unknown_Receiver fallback = fallback
+    | prefer_receiver_kind kind _ = kind
+
+  fun lens_types
+      (Type (name, [receiver_type, value_type])) =
+        if name = lens_type_name
+        then SOME (receiver_type, value_type)
+        else NONE
+    | lens_types _ = NONE
+
+  val lens_receiver_type =
+    Option.map #1 o lens_types
+
+  val lens_value_type =
+    Option.map #2 o lens_types
+
+  fun field_candidate_type ctxt field =
+    let
+      val generic_lens_type =
+        Type
+          (lens_type_name,
+           [TVar (("_urust_projection_whole", 0), []),
+            TVar (("_urust_projection_value", 1), [])])
+
+      fun candidate_type kind name occurrence_type =
+        if kind = Micro_Rust_Names.NField
+        then
+          (case
+              Micro_Rust_Dispatch.notation_candidates
+                ctxt kind name occurrence_type
+              |> map
+                   Micro_Rust_Dispatch.notation_candidate_type
+              |> distinct (op =) of
+             [candidate_type] => SOME candidate_type
+           | _ => NONE)
+        else NONE
+    in
+      (case Micro_Rust_Dispatch.dest_marker field of
+         SOME ((kind, name, _), _, occurrence_type) =>
+           candidate_type kind name occurrence_type
+       | NONE =>
+           (case Micro_Rust_Dispatch.dest_marker_untyped field of
+              SOME ((kind, name, _), _) =>
+                candidate_type kind name generic_lens_type
+            | NONE => NONE))
+    end
+
+  fun field_candidate_value_type ctxt field =
+    field_candidate_type ctxt field
+    |> Option.mapPartial lens_value_type
+
+  fun strip_type_constraints
+      (Const (\<^syntax_const>\<open>_type_constraint_\<close>, _) $ term) =
+        strip_type_constraints term
+    | strip_type_constraints term = term
+
+  fun declared_field_type ctxt field =
+    (case Term.head_of
+        (strip_type_constraints
+          (Term_Position.strip_positions field)) of
+       Const (name, _) =>
+         try
+           (Consts.the_constraint
+             (Proof_Context.consts_of ctxt)) name
+     | _ => NONE)
+
+  fun declared_field_value_type ctxt field =
+    declared_field_type ctxt field
+    |> Option.mapPartial lens_value_type
+
+  fun concrete_type (TVar _) = NONE
+    | concrete_type (TFree _) = NONE
+    | concrete_type typ =
+        if typ = dummyT then NONE else SOME typ
+
+  fun field_receiver_type ctxt field =
+    let
+      fun declared () =
+        declared_field_type ctxt field
+        |> Option.mapPartial lens_receiver_type
+      fun fallback () =
+        (case field_candidate_type ctxt field
+             |> Option.mapPartial lens_receiver_type
+             |> Option.mapPartial concrete_type of
+           SOME receiver_type => SOME receiver_type
+         | NONE => declared ())
+    in
+      (case lens_receiver_type (fastype_of field)
+           |> Option.mapPartial concrete_type of
+         SOME receiver_type => SOME receiver_type
+       | NONE => fallback ())
+    end
+    handle TYPE _ => NONE
+         | TERM _ => NONE
+
+  fun constrain_ordinary_receiver ctxt
+      (Field_Segment (_, field)) receiver =
+        (case field_receiver_type ctxt field of
+           SOME receiver_value_type =>
+             let
+               val receiver_type =
+                 (case fastype_of receiver of
+                    Type
+                      (name,
+                       [state_type, _, control_type,
+                        abort_type, input_type, output_type]) =>
+                      if name = expression_type_name
+                      then
+                        Type
+                          (name,
+                           [state_type, receiver_value_type,
+                            control_type, abort_type,
+                            input_type, output_type])
+                      else
+                        Type
+                          (expression_type_name,
+                           [dummyT, receiver_value_type,
+                            dummyT, dummyT, dummyT, dummyT])
+                  | _ =>
+                      Type
+                        (expression_type_name,
+                         [dummyT, receiver_value_type,
+                          dummyT, dummyT, dummyT, dummyT]))
+             in Type.constraint receiver_type receiver end
+         | NONE => receiver)
+    | constrain_ordinary_receiver _ (Index_Segment _) receiver =
+        receiver
+
+  fun segment_value_type ctxt
+      (Field_Segment (_, field)) =
+        let
+          fun declared () =
+            declared_field_value_type ctxt field
+          fun fallback () =
+            (case field_candidate_value_type ctxt field of
+               SOME value_type =>
+                 (case value_kind value_type of
+                    Unknown_Receiver => declared ()
+                  | _ => SOME value_type)
+             | NONE => declared ())
+          val direct =
+            (lens_value_type (fastype_of field)
+             handle TYPE _ => NONE
+                  | TERM _ => NONE)
+        in
+          ((case direct of
+              SOME value_type =>
+                (case value_kind value_type of
+                   Unknown_Receiver => fallback ()
+                 | _ => SOME value_type)
+            | NONE => fallback ())
+           handle TYPE _ => fallback ()
+                | TERM _ => fallback ())
+        end
+    | segment_value_type _ (Index_Segment _) = NONE
+
+  datatype projection_mode =
+      Value_Projection
+    | Reference_Projection
+
+  fun projection_result_kind ctxt mode segment result_hint projected =
+    (case prefer_receiver_kind
+        (receiver_kind projected) result_hint of
+       Unknown_Receiver =>
+         (case (mode, segment_value_type ctxt segment) of
+            (Value_Projection, SOME value_type) =>
+              value_kind value_type
+          | (Reference_Projection, SOME value_type) =>
+              Core_Reference value_type
+          | _ => Unknown_Receiver)
+     | kind => kind)
 
   fun is_storage_place Allocated_Place = true
     | is_storage_place Projected_Place = true
@@ -355,33 +581,81 @@ struct
 
   datatype projection_progress =
       No_Projection_Progress
-    | Projection_Progress of term * read_origin option
+    | Projection_Progress of
+        term * read_origin option * receiver_kind
 
-  fun advance_projection term =
+  fun advance_segment ctxt assume_ordinary origin segment
+      result_hint receiver kind =
+    (case kind of
+       Unknown_Receiver =>
+         if is_storage_place origin orelse
+            not assume_ordinary
+         then No_Projection_Progress
+         else
+           let
+             val receiver' =
+               constrain_ordinary_receiver ctxt segment receiver
+             val projected =
+               materialize_projection segment receiver'
+           in
+             Projection_Progress
+                (projected, SOME Ordinary_Projection,
+                projection_result_kind
+                  ctxt Value_Projection segment
+                  result_hint projected)
+           end
+     | Core_Reference stored_value_type =>
+         if is_reference_type stored_value_type
+         then
+           advance_segment ctxt assume_ordinary Projected_Place
+             segment result_hint
+             (T.automatic_dereference receiver)
+             (value_kind stored_value_type)
+         else
+           let
+             val projected =
+               materialize_projection segment receiver
+           in
+             Projection_Progress
+                (projected, SOME Projected_Place,
+                projection_result_kind
+                  ctxt Reference_Projection segment
+                  result_hint projected)
+           end
+     | Ordinary_Value =>
+         let
+           val projected =
+             materialize_projection segment receiver
+         in
+           Projection_Progress
+             (projected, SOME Ordinary_Projection,
+              projection_result_kind
+                ctxt Value_Projection segment
+                result_hint projected)
+         end)
+
+  fun advance_projection ctxt assume_ordinary origin term =
     (case dest_projection_marker term of
-       SOME (segment, receiver) =>
-         (case advance_projection receiver of
-            Projection_Progress (receiver', _) =>
+       SOME (segment, operation, receiver) =>
+         let
+           val (receiver_hint, result_hint) =
+             projection_operation_kinds operation
+         in
+           (case advance_projection ctxt assume_ordinary
+               origin receiver of
               Projection_Progress
-                (make_projection segment receiver', NONE)
-          | No_Projection_Progress =>
-              (case receiver_kind receiver of
-                 Unknown_Receiver => No_Projection_Progress
-               | Core_Reference stored_value_type =>
-                   if is_reference_type stored_value_type
-                   then
-                     Projection_Progress
-                       (make_projection segment
-                         (T.automatic_dereference receiver),
-                        NONE)
-                   else
-                     Projection_Progress
-                       (materialize_projection segment receiver,
-                        SOME Projected_Place)
-               | Ordinary_Value =>
-                   Projection_Progress
-                     (materialize_projection segment receiver,
-                      SOME Ordinary_Projection)))
+                (receiver', resolved_origin, kind) =>
+                  advance_segment
+                    ctxt assume_ordinary
+                    (the_default origin resolved_origin)
+                    segment result_hint receiver'
+                    (prefer_receiver_kind kind receiver_hint)
+            | No_Projection_Progress =>
+                advance_segment ctxt assume_ordinary origin
+                  segment result_hint receiver
+                  (prefer_receiver_kind
+                    (receiver_kind receiver) receiver_hint))
+         end
      | NONE => No_Projection_Progress)
 
   fun function_call_arity name =
@@ -406,25 +680,27 @@ struct
       (Const (name, dummyT),
        Term.map_types (K dummyT) function :: arguments)
 
-  fun advance_argument_projection argument =
+  fun advance_argument_projection ctxt argument =
     (case dest_read_marker argument of
        SOME ((state, origin, pos), place, _) =>
-         (case advance_projection place of
-            Projection_Progress (place', resolved_origin) =>
+         (case advance_projection ctxt
+             (state = Deferred_Read) origin place of
+            Projection_Progress
+              (place', resolved_origin, _) =>
               SOME
                 (make_read_adjustment state
                   (the_default origin resolved_origin) pos place')
           | No_Projection_Progress => NONE)
      | NONE => NONE)
 
-  fun advance_argument_projections arguments =
+  fun advance_argument_projections ctxt arguments =
     let
       fun advance [] = ([], false)
         | advance (argument :: rest) =
             let
               val (rest', changed_rest) = advance rest
             in
-              (case advance_argument_projection argument of
+              (case advance_argument_projection ctxt argument of
                  SOME argument' =>
                    (argument' :: rest', true)
                | NONE =>
@@ -539,7 +815,7 @@ struct
               else
                 let
                   val (arguments', advanced) =
-                    advance_argument_projections arguments
+                    advance_argument_projections ctxt arguments
                 in
                   if advanced
                   then
@@ -586,13 +862,15 @@ struct
                      SOME
                        ((state, origin, pos), place,
                         expected_type) =>
-                       (case advance_projection place of
+                       (case advance_projection ctxt
+                           (state = Deferred_Read)
+                           origin place of
                           Projection_Progress
                             (place',
-                             SOME Ordinary_Projection) =>
+                             SOME Ordinary_Projection, _) =>
                             place'
                         | Projection_Progress
-                            (place', resolved_origin) =>
+                            (place', resolved_origin, _) =>
                             make_read_adjustment state
                               (the_default origin
                                 resolved_origin)
@@ -602,7 +880,14 @@ struct
                               val place_type =
                                 fastype_of place
                             in
-                              if not
+                              if state = Fresh_Read andalso
+                                 origin = Ordinary_Projection andalso
+                                 is_some
+                                   (dest_projection_marker place)
+                              then
+                                make_read_adjustment
+                                  Deferred_Read origin pos place
+                              else if not
                                   (is_storage_place origin) orelse
                                  preserve_reference
                                    place_type expected_type
@@ -618,8 +903,9 @@ struct
                                        place)
                             end)
                    | NONE =>
-                       (case advance_projection term of
-                          Projection_Progress (term', _) =>
+                       (case advance_projection ctxt true
+                           Ordinary_Projection term of
+                          Projection_Progress (term', _, _) =>
                             term'
                         | No_Projection_Progress =>
                             (case term of
