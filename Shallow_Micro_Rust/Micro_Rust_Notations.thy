@@ -653,7 +653,7 @@ fun varify_tfrees_in_term t =
 type dispatch_candidate =
   {entry: Micro_Rust_Names.entry, term: term};
 
-fun candidates ctxt kind name T =
+fun notation_candidates ctxt kind name T =
   Micro_Rust_Names.lookups ctxt kind name
   |> map_filter (fn entry as { hol_term, ... } =>
        \<comment>\<open>Mirror \<open>adhoc_overloading.ML\<close>: keep the backend's type for
@@ -674,6 +674,9 @@ fun candidates ctxt kind name T =
                   (Term.map_types (K dummyT) varified)}
          else NONE
        end);
+
+fun notation_candidate_term
+    ({term, ...} : dispatch_candidate) = term;
 
 \<comment>\<open>Look up a HOL constant by user-visible name. Returns
   \<open>SOME (full_name, declared_type)\<close> if the name resolves to a proper
@@ -977,6 +980,12 @@ fun emit_selected_use_markup_at_positions ctxt kind name selected
      (emit_selected_backend_target_at_pos ctxt selected)
      backend_only_positions);
 
+fun select_notation_candidate ctxt kind name positions
+    ({entry, term} : dispatch_candidate) =
+  (emit_selected_use_markup_at_positions
+     ctxt kind name entry positions;
+   term);
+
 \<comment>\<open>A marker only exists because \<open>lookup_id_tr\<close> found a registration for
   \<open>(kind, name)\<close> (it emits nothing otherwise). So by the time \<open>resolve\<close>
   runs --- with lambda binders already consumed by \<open>resolve_bound\<close> at stage
@@ -1005,12 +1014,11 @@ fun resolve ctxt =
          SOME ((kind, name, positions), opt_witness, T) =>
            let
              val pos = #terminal_pos positions
-             val cands = candidates ctxt kind name T
+             val cands = notation_candidates ctxt kind name T
              val _ = shadow_check ctxt kind name T pos (not (null cands))
-             fun select ({entry, term} : dispatch_candidate) =
-               (emit_selected_use_markup_at_positions
-                  ctxt kind name entry positions;
-                term)
+             fun select candidate =
+               select_notation_candidate
+                 ctxt kind name positions candidate
            in
              (case (opt_witness, cands) of
                 (SOME w, _) =>

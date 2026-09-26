@@ -96,6 +96,8 @@ sig
     Proof.context -> URust_AST.ur_path -> term option
   val is_nullary_function_path:
     Proof.context -> environment -> URust_AST.ur_path -> bool
+  val field_witness:
+    Proof.context -> environment -> string -> Position.T -> term
   val field_expression:
     Proof.context -> environment -> term -> string -> Position.T -> term
 
@@ -210,7 +212,9 @@ ML\<open>
     validation: declaration arguments retain direct-call precedence, ordinary lexical values and
     fixed variables remain value paths, and otherwise an exact registered backend or proper HOL
     constant counts only when its declared type takes zero arguments before function_body.
-    field_expression applies the same role policy and focuses the supplied receiver.
+    field_witness applies the field-role resolution policy and returns the selected or deferred
+    lens witness without constructing a projection. field_expression is the compatibility wrapper
+    that focuses the supplied receiver with that witness.
     Registered notation is represented by the existing dispatch marker; unregistered names retain
     Syntax.parse_term behavior. Every module-like qualifier of an exact registered path receives one
     role tooltip without pretending to be a HOL Free or backend constant, while its notation
@@ -1387,16 +1391,17 @@ struct
            registered ())
     end
 
+  fun field_witness ctxt environment name pos =
+    (case registered_identifier ctxt Micro_Rust_Names.NField (name, pos) of
+       SOME registered => registered
+     | NONE =>
+         (case use_local ctxt environment (name, pos) of
+            SOME local_term => local_term
+          | NONE =>
+              resolve_identifier ctxt Micro_Rust_Names.NField name pos))
+
   fun field_expression ctxt environment receiver name pos =
-    T.focus_field
-      (case registered_identifier ctxt Micro_Rust_Names.NField (name, pos) of
-         SOME registered => registered
-       | NONE =>
-           (case use_local ctxt environment (name, pos) of
-              SOME local_term => local_term
-            | NONE =>
-                resolve_identifier ctxt Micro_Rust_Names.NField name pos))
-      receiver
+    T.focus_field (field_witness ctxt environment name pos) receiver
 
   fun term_name_of (Const (name, _)) = SOME name
     | term_name_of (Free (name, _)) = SOME name
