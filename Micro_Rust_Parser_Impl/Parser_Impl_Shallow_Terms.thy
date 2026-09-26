@@ -12,10 +12,6 @@ consts
 ML\<open>
 signature URUST_SHALLOW_TERMS =
 sig
-  datatype read_origin =
-      Allocated_Place
-    | Projected_Place
-
   val literal: term -> term
   val boolean_expression: bool -> term
   val string_value: string -> Position.T -> term
@@ -69,8 +65,6 @@ sig
   val binary: URust_AST.binop -> term -> term -> term
   val unary: URust_AST.unaryop -> Position.T -> term -> term
   val assignment_binary: URust_AST.assign_binop -> term -> term -> term
-  val read_adjustment: read_origin -> Position.T -> term -> term
-  val deferred_read_adjustment: read_origin -> Position.T -> term -> term
   val automatic_dereference: term -> term
 
   val option_some: term -> term
@@ -163,10 +157,6 @@ ML\<open>
      selected overloaded operation requires one. assignment_binary maps the non-additive
      URust_AST.assign_binop cases to the pure operation used to compute a compound-assignment RHS;
      addition remains the separate assign_add operation.
-   * read_adjustment marks a parser-classified auto-dereference-eligible expression at a value
-     boundary. The term-check phase below either preserves the place when its expected expression
-     value is a compatible core reference or replaces it with the existing dereference term. The
-     marker and its payload are parser-internal and must not survive checking.
    * option_some, option_none, pair, list_cons, list_nil, numeral_case_selector, and reverse_list
      provide the value vocabulary used by switch and pattern lowering. true_value, false_value, and
      undefined_value are raw HOL values. list_cons_constructor, list_nil_constructor,
@@ -188,10 +178,6 @@ struct
   open URust_AST
   structure Navigation = Micro_Rust_Semantic_Navigation
 
-  datatype read_origin =
-      Allocated_Place
-    | Projected_Place
-
   fun constant name args = Term.list_comb (Const (name, dummyT), args)
 
   fun selected_constant kind name args =
@@ -212,43 +198,6 @@ struct
   fun source_position pos term =
     let val posT = TFree (Term_Position.encode_syntax [pos], dummyS)
     in Type.constraint posT term end
-
-  val read_payload_prefix = "_urust_read_adjustment_payload___"
-  val read_payload_sep = String.str (Char.chr 0)
-
-  datatype read_state =
-      Fresh_Read
-    | Deferred_Read
-
-  fun read_state_tag Fresh_Read = "fresh"
-    | read_state_tag Deferred_Read = "deferred"
-
-  fun read_origin_tag Allocated_Place = "allocated"
-    | read_origin_tag Projected_Place = "projected"
-
-  fun strip_file pos =
-    let
-      val {line, offset, end_offset, props = {label, id, ...}} =
-        Position.dest pos
-    in
-      Position.make
-        {line = line, offset = offset, end_offset = end_offset,
-         props = {label = label, file = "", id = id}}
-    end
-
-  fun read_payload state origin pos =
-    Free
-      (read_payload_prefix ^ read_state_tag state ^ read_payload_sep ^
-        read_origin_tag origin ^ read_payload_sep ^
-        Term_Position.encode_no_syntax [strip_file pos],
-       dummyT)
-
-  fun make_read_adjustment state origin pos place =
-    Const (\<^const_name>\<open>urust_internal_read_adjustment\<close>, dummyT) $
-      read_payload state origin pos $ place
-
-  val read_adjustment = make_read_adjustment Fresh_Read
-  val deferred_read_adjustment = make_read_adjustment Deferred_Read
 
   fun positioned_constant name pos args =
     Term.list_comb (source_position pos (Const (name, dummyT)), args)

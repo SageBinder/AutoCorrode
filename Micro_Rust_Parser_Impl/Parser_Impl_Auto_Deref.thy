@@ -5,15 +5,121 @@ begin
 section\<open>Automatic reads of parser-classified places\<close>
 
 ML\<open>
-structure URust_Auto_Deref =
+signature URUST_AUTO_DEREF =
+sig
+  type lowered_expression
+
+  val plain: term -> lowered_expression
+  val eligible:
+    URust_AST.ur_expr -> term -> lowered_expression
+  val transparent:
+    URust_AST.ur_expr ->
+      lowered_expression -> lowered_expression
+  val raw_term: lowered_expression -> term
+  val value_term:
+    URust_AST.ur_expr -> lowered_expression -> term
+end
+\<close>
+
+text\<open>
+This module is the only owner of automatic-read eligibility, marker metadata, and type-directed
+resolution. Paths are conditional candidates, fields and indices are projected candidates, and
+groups and blocks are transparent. Every other result is plain. Translation may consume a lowered
+result only as its raw place form or as its value form.
+\<close>
+
+ML\<open>
+structure URust_Auto_Deref :> URUST_AUTO_DEREF =
 struct
-  open URust_Shallow_Terms
+  open URust_AST
+  structure T = URust_Shallow_Terms
+
+  datatype read_origin =
+      Allocated_Place
+    | Projected_Place
 
   datatype read_state =
       Fresh_Read
     | Deferred_Read
 
+  datatype result_policy =
+      Conditional_Path_Candidate
+    | Projected_Candidate
+    | Transparent_Carrier
+    | Never_Candidate
+
+  datatype lowered_expression =
+      Plain of term
+    | Eligible of read_origin * term
+
+  fun result_policy expression =
+    (case expression of
+       UE_Path _ => Conditional_Path_Candidate
+     | UE_Field _ => Projected_Candidate
+     | UE_Index _ => Projected_Candidate
+     | UE_Group _ => Transparent_Carrier
+     | UE_Block _ => Transparent_Carrier
+     | _ => Never_Candidate)
+
   val payload_prefix = "_urust_read_adjustment_payload___"
+  val payload_sep = String.str (Char.chr 0)
+
+  fun read_state_tag Fresh_Read = "fresh"
+    | read_state_tag Deferred_Read = "deferred"
+
+  fun read_origin_tag Allocated_Place = "allocated"
+    | read_origin_tag Projected_Place = "projected"
+
+  fun strip_file pos =
+    let
+      val {line, offset, end_offset, props = {label, id, ...}} =
+        Position.dest pos
+    in
+      Position.make
+        {line = line, offset = offset, end_offset = end_offset,
+         props = {label = label, file = "", id = id}}
+    end
+
+  fun read_payload state origin pos =
+    Free
+      (payload_prefix ^ read_state_tag state ^ payload_sep ^
+        read_origin_tag origin ^ payload_sep ^
+        Term_Position.encode_no_syntax [strip_file pos],
+       dummyT)
+
+  fun make_read_adjustment state origin pos place =
+    Const (\<^const_name>\<open>urust_internal_read_adjustment\<close>, dummyT) $
+      read_payload state origin pos $ place
+
+  fun plain term = Plain term
+
+  fun eligible expression term =
+    (case result_policy expression of
+       Conditional_Path_Candidate =>
+         Eligible (Allocated_Place, term)
+     | Projected_Candidate =>
+         Eligible (Projected_Place, term)
+     | Transparent_Carrier =>
+         error
+           "urust read adjustment: transparent expression cannot create a candidate"
+     | Never_Candidate =>
+         error
+           "urust read adjustment: ineligible expression cannot create a candidate")
+
+  fun transparent expression lowered =
+    (case result_policy expression of
+       Transparent_Carrier => lowered
+     | _ =>
+         error
+           "urust read adjustment: non-transparent expression cannot carry a candidate")
+
+  fun raw_term (Plain term) = term
+    | raw_term (Eligible (_, term)) = term
+
+  fun value_term expression (Plain term) = term
+    | value_term expression (Eligible (origin, term)) =
+        make_read_adjustment Fresh_Read origin
+          (expression_position expression) term
 
   val expression_type_name =
     (case \<^typ>\<open>('s, 'v, 'c, 'abort, 'i, 'o) expression\<close> of
@@ -136,9 +242,9 @@ struct
                  else
                    (case state of
                       Fresh_Read =>
-                        deferred_read_adjustment origin pos place
+                        make_read_adjustment Deferred_Read origin pos place
                     | Deferred_Read =>
-                        automatic_dereference place)
+                        T.automatic_dereference place)
              in replacement end
          | NONE =>
              (case term of
