@@ -40,13 +40,18 @@ caller: `URust_Auto_Deref`.
 An eligible projection carries a private place recipe: its base term, its base source position, and
 an ordered sequence of field or index segments. A field segment stores the witness already resolved
 by `URust_Resolution`; an index segment stores the lowered index term once. Both retain their
-operator source positions for semantic navigation.
+operator source positions for semantic navigation. Each internal projection marker also carries a
+bound projection operation that couples receiver, operand, and result types without duplicating the
+actual receiver or index term.
 
 Projection recipes are resolved inside-out. Ordinary-value receivers use value projection and do
 not acquire an automatic read. Core-reference receivers use reference-preserving projection.
 Crossing a nested core-reference boundary inserts one intermediate read before continuing with the
 remaining segment. The final read is decided only after the complete place and its expected type
-are known.
+are known. A still-unknown ordinary projection is retained for one term-check cycle so delayed
+iterator and overload constraints can classify its receiver. If the receiver remains unconstrained,
+the deferred cycle selects the ordinary interpretation and constrains a field receiver through the
+field lens's declared whole type.
 
 `Micro_Rust_Dispatch` exposes notation candidates, each candidate's instantiated type, and
 single-candidate selection. `URust_Auto_Deref` checks the receiver and argument recipes against
@@ -69,5 +74,6 @@ boundaries, ordinary receivers, negative eligibility boundaries, internal-marker
 mutation-guard sensitivity.
 
 The work is based on `52abf4e6e47f47ef17bcc3d10cae3a6ce1fec0f4`. The completed Phase 1 checkpoint
-is `080b8f25c49caf96c081f8ac60660213e52f45a4`; the Phase 2 implementation-and-regression checkpoint
-before this documentation commit is `f7c442ab607babb5184d0a9ea26010f208264ab0`.
+is `080b8f25c49caf96c081f8ac60660213e52f45a4`. The initial Phase 2
+implementation-and-regression checkpoint is `f7c442ab607babb5184d0a9ea26010f208264ab0`, and the
+full-gate compatibility fix is `246781e2eb7b64dac40ce7bc0c48e84da48c1eef`.
