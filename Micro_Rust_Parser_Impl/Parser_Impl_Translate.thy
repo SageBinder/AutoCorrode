@@ -50,9 +50,9 @@ ML\<open>
    places whose checked receiver type decides whether they really project through a core reference.
    Declaration parameters, immutable bindings, borrows, and other reference-valued expressions
    remain values and are never candidates. Assignment targets plus borrow and explicit-dereference
-   operands bypass the adjustment. All lower_* functions, categories, the recursive traversal order,
-   module aliases, and the division of work among helper functions are implementation details hidden
-   by URUST_TRANSLATE. *)
+   operands bypass the adjustment. All lower_* functions, the recursive traversal order, module
+   aliases, and the division of work among helper functions are implementation details hidden by
+   URUST_TRANSLATE. *)
 structure URust_Translate :> URUST_TRANSLATE =
 struct
   open URust_AST
