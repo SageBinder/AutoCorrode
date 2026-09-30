@@ -62,11 +62,12 @@ mismatch aborts before declaration installation and reports the generated source
 differing token index.
 
 \<open>urust_pretty\<close> defaults to false. Its common Boolean inline alias is \<open>pretty\<close>. At verbosity
-levels 1 and 2, false retains the ordinary HOL rendering of generated definitions, abbreviations,
-and anonymous results; true instead prints the same declaration heading and left-hand side with the
-right-hand side rendered as human-readable uRust inside a symbolic \<open>\<mu>\<open>...\<close>\<close> wrapper.
-The wrapper is presentation only and is unrelated to source quotation syntax. At verbosity 0 no
-result is printed; an effective \<open>pretty = true\<close> receives a warning because it has no effect.
+level 1, both settings print only a compact declaration heading followed by \<open>...\<close>. At level 2,
+false retains the ordinary HOL rendering of generated definitions, abbreviations, and anonymous
+results; true instead prints the same declaration heading and left-hand side with the right-hand side
+rendered as human-readable uRust inside a symbolic \<open>\<mu>\<open>...\<close>\<close> wrapper. The wrapper is
+presentation only and is unrelated to source quotation syntax. At verbosity 0 no result is printed;
+an effective \<open>pretty = true\<close> receives a warning because it has no effect.
 Named \<open>urust_fn\<close> parameters appear on the left of \<open>\<equiv>\<close>; Rust-shaped function items print
 only their body on the right, omitting its outer braces and the documentary Rust name and signature.
 Printed function bodies are prefixed by \<open>FunctionBody\<close> before the symbolic uRust wrapper,
@@ -88,9 +89,9 @@ attribute parser checks the list, including the empty list, and applies it only 
 \<open>attrs\<close>.
 
 Successful interactive command output is controlled by the scoped \<open>urust_verbosity\<close> configuration,
-an integer from 0 to 2 that defaults to 0. Level 0 is quiet; levels 1 and 2 print complete definition
-statements or abbreviation equations. The standard interactive and \<open>show_results\<close> gates still
-control enabled output.
+an integer from 0 to 2 that defaults to 0. Level 0 is quiet; level 1 prints only compact declaration
+headings; level 2 prints complete definition statements, abbreviation equations, or anonymous
+results. The standard interactive and \<open>show_results\<close> gates still control enabled output.
 
 \<open>urust_datatype\<close> accepts the common scoped/inline \<open>pp_test\<close>, \<open>pretty\<close>, and
 \<open>verbosity\<close> options. It accepts an optional HOL binding followed by one required source
@@ -182,8 +183,9 @@ val attributes_option = "attrs"
      inline alias is pp_test.
    - urust_pretty selects human uRust in a symbolic \<mu>\<open>...\<close> wrapper for
      verbosity-controlled declaration right-hand sides; its inline alias is pretty.
-   - urust_verbosity is cumulative: 0 prints nothing, while 1 and 2 print the generated definition
-     or abbreviation; its inline alias is verbosity.
+   - urust_verbosity is cumulative: 0 prints nothing, 1 prints compact declaration headings, and 2
+     prints complete generated definitions, abbreviations, or anonymous results; its inline alias is
+     verbosity.
    - urust_abbrev controls input-only abbreviations for both declaration commands; its inline alias
      is abbrev.
    - urust_application_def puts explicit source arguments on the generated definition theorem's
@@ -1058,57 +1060,6 @@ fun declare_urust_function_result pp_test render_pretty
 fun verbosity_output_enabled interactive lthy =
   interactive orelse Config.get lthy Proof_Display.show_results
 
-fun pretty_generated_result kind name lthy thms =
-  Pretty.block1
-    [Pretty.block
-       [Pretty.mark_position (Position.thread_data ())
-          (Pretty.keyword1 kind),
-        Pretty.brk 1,
-        Pretty.str (Long_Name.base_name name),
-        Pretty.str ":"],
-     Pretty.fbrk,
-     Proof_Context.pretty_fact lthy ("", thms)]
-
-fun print_generated_result interactive verbosity minimum kind lthy (name, thms) =
-  if verbosity >= minimum andalso
-      verbosity_output_enabled interactive lthy
-  then Pretty.writeln (pretty_generated_result kind name lthy thms)
-  else ()
-
-fun print_abbreviation interactive verbosity lthy name lhs rhs =
-  if verbosity >= 1 andalso
-     verbosity_output_enabled interactive lthy
-  then
-    Pretty.writeln
-      (Pretty.block1
-        [Pretty.block
-           [Pretty.mark_position (Position.thread_data ())
-              (Pretty.keyword1 "abbreviation"),
-            Pretty.brk 1,
-            Pretty.str (Long_Name.base_name name),
-            Pretty.str ":"],
-         Pretty.fbrk,
-         Syntax.pretty_term
-           (Config.put Proof_Context.show_abbrevs false lthy)
-           (Logic.mk_equals (lhs, rhs))])
-  else ()
-
-fun print_anonymous interactive verbosity lthy kind name term =
-  if verbosity >= 1 andalso
-     verbosity_output_enabled interactive lthy
-  then
-    Pretty.writeln
-      (Pretty.block1
-        [Pretty.block
-           [Pretty.mark_position (Position.thread_data ())
-              (Pretty.keyword1 (command_label kind)),
-            Pretty.brk 1,
-            Pretty.str (Long_Name.base_name name),
-            Pretty.str ":"],
-         Pretty.fbrk,
-         Syntax.pretty_term lthy term])
-  else ()
-
 fun pretty_declaration_heading kind name =
   Pretty.block
     [Pretty.mark_position (Position.thread_data ())
@@ -1116,6 +1067,50 @@ fun pretty_declaration_heading kind name =
      Pretty.brk 1,
      Pretty.str (Long_Name.base_name name),
      Pretty.str ":"]
+
+fun pretty_compact_result kind name =
+  Pretty.block1
+    [pretty_declaration_heading kind name,
+     Pretty.fbrk,
+     Pretty.str "..."]
+
+fun pretty_generated_result kind name lthy thms =
+  Pretty.block1
+    [pretty_declaration_heading kind name,
+     Pretty.fbrk,
+     Proof_Context.pretty_fact lthy ("", thms)]
+
+fun print_declaration_result interactive verbosity kind name lthy full =
+  if verbosity_output_enabled interactive lthy
+  then
+    if verbosity = 1
+    then Pretty.writeln (pretty_compact_result kind name)
+    else if verbosity >= 2
+    then Pretty.writeln (full ())
+    else ()
+  else ()
+
+fun print_generated_result interactive verbosity kind lthy (name, thms) =
+  print_declaration_result interactive verbosity kind name lthy
+    (fn () => pretty_generated_result kind name lthy thms)
+
+fun print_abbreviation interactive verbosity lthy name lhs rhs =
+  print_declaration_result interactive verbosity "abbreviation" name lthy
+    (fn () =>
+      Pretty.block1
+        [pretty_declaration_heading "abbreviation" name,
+         Pretty.fbrk,
+         Syntax.pretty_term
+           (Config.put Proof_Context.show_abbrevs false lthy)
+           (Logic.mk_equals (lhs, rhs))])
+
+fun print_anonymous interactive verbosity lthy kind name term =
+  print_declaration_result interactive verbosity (command_label kind) name lthy
+    (fn () =>
+      Pretty.block1
+        [pretty_declaration_heading (command_label kind) name,
+         Pretty.fbrk,
+         Syntax.pretty_term lthy term])
 
 fun the_pretty_body (SOME pretty) = pretty
   | the_pretty_body NONE =
@@ -1215,10 +1210,19 @@ fun pretty_urust_declaration lthy declaration =
           pretty_arguments pretty_body])
 
 fun print_pretty_declaration interactive verbosity lthy declaration =
-  if verbosity >= 1 andalso
-     verbosity_output_enabled interactive lthy
-  then Pretty.writeln (pretty_urust_declaration lthy declaration)
-  else ()
+  let
+    val (kind, name) =
+      (case declaration of
+         Definition_Result {fact_name, ...} =>
+           ("definition", fact_name)
+       | Abbreviation_Result {name, ...} =>
+           ("abbreviation", name)
+       | Anonymous_Result {name, kind, ...} =>
+           (command_label kind, name))
+  in
+    print_declaration_result interactive verbosity kind name lthy
+      (fn () => pretty_urust_declaration lthy declaration)
+  end
 
 fun print_declaration interactive verbosity pretty lthy declaration =
   if pretty then
@@ -1226,7 +1230,7 @@ fun print_declaration interactive verbosity pretty lthy declaration =
   else
   (case declaration of
      Definition_Result {fact_name, theorem, ...} =>
-       print_generated_result interactive verbosity 1 "definition" lthy
+       print_generated_result interactive verbosity "definition" lthy
          (fact_name, [theorem])
    | Abbreviation_Result {lhs, rhs, name, ...} =>
        print_abbreviation interactive verbosity lthy name lhs rhs
