@@ -2,7 +2,9 @@ theory Parser_Name_Resolution_Tests
   imports Parser_Pattern_Matching_Tests
 begin
 
-declare [[urust_verbosity = 0]]
+declare [[urust_pp_test = true]]
+declare [[urust_pretty = true]]
+declare [[urust_verbosity = 2]]
 
 section\<open> Antiquotation markup under HOL shadowing \<close>
 
@@ -3431,18 +3433,14 @@ ML_val\<open>
        reg_pos =
          Position.make0 390 93000 0 "" ""
            "synthetic-notation-low-declaration",
-       serial = low_serial,
-       backend_const =
-         SOME \<^const_name>\<open>ConstructorQualifierVariant\<close>}
+       serial = low_serial}
     val high_entry : Micro_Rust_Names.entry =
       {hol_term = synthetic_constructor,
        source_const = SOME synthetic_constructor,
        reg_pos =
          Position.make0 391 93100 0 "" ""
            "synthetic-notation-high-declaration",
-       serial = high_serial,
-       backend_const =
-         SOME \<^const_name>\<open>ConstructorQualifierVariant\<close>}
+       serial = high_serial}
     val synthetic_ctxt =
       Context.Proof ctxt
       |> Micro_Rust_Names.Data.map
@@ -3662,7 +3660,7 @@ ML_val\<open>
 
 chapter\<open>Turbofish\<close>
 
-declare [[urust_verbosity = 0]]
+declare [[urust_verbosity = 2]]
 declare [[urust_abbrev = false]]
 
 section\<open> Additive payload fixtures \<close>
@@ -4290,7 +4288,8 @@ end
 chapter\<open>Scoped cast-target aliases\<close>
 
 declare [[urust_pp_test = true]]
-declare [[urust_verbosity = 0]]
+declare [[urust_pretty = true]]
+declare [[urust_verbosity = 2]]
 
 section\<open>Imported bundles remain inactive\<close>
 
@@ -4829,7 +4828,8 @@ ML_val\<open>
 section\<open>Primitive-type path heads\<close>
 
 declare [[urust_pp_test = true]]
-declare [[urust_verbosity = 0]]
+declare [[urust_pretty = true]]
+declare [[urust_verbosity = 2]]
 declare [[urust_abbrev = false]]
 
 definition primitive_head_u8_max :: \<open>8 word\<close>

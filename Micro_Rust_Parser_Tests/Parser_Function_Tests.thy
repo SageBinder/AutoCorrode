@@ -6,6 +6,10 @@ theory Parser_Function_Tests
     Parser_Iterator_Fixtures
 begin
 
+declare [[urust_pp_test = true]]
+declare [[urust_pretty = true]]
+declare [[urust_verbosity = 2]]
+
 section\<open>Iterator semantics and call syntax\<close>
 
 lemma iterator_zip_empty:

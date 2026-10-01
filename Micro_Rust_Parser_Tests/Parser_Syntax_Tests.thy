@@ -3,7 +3,8 @@ theory Parser_Syntax_Tests
 begin
 
 declare [[urust_pp_test = true]]
-declare [[urust_verbosity = 0]]
+declare [[urust_pretty = true]]
+declare [[urust_verbosity = 2]]
 
 section\<open>AST source layouts\<close>
 
@@ -1809,6 +1810,12 @@ ML_val\<open>
            actual = target andalso length arguments = 2
        | _ => false)
 
+    fun dest_read_adjustment
+        (Const (\<^const_name>\<open>urust_internal_read_adjustment\<close>, _) $
+          _ $ place) =
+          SOME place
+      | dest_read_adjustment _ = NONE
+
     val _ =
       audit_assert "exclusive range term shape changed"
         (function_call2 \<^const_name>\<open>range_new\<close>
@@ -1842,10 +1849,14 @@ ML_val\<open>
       audit_assert "nonempty array term shape changed"
         (array_shape [(), (), ()] (unchecked "[1, 2, 3]"))
 
+    val unchecked_index = unchecked "[1][0]"
+    val _ =
+      audit_assert "index term lost its internal value adjustment"
+        (is_some (dest_read_adjustment unchecked_index))
     val _ =
       audit_assert "index term shape changed"
         (function_call2 \<^const_name>\<open>index_const\<close>
-          (unchecked "[1][0]"))
+          (the (dest_read_adjustment unchecked_index)))
 
     val _ =
       audit_assert "direct array borrow stopped erasing"
@@ -5061,7 +5072,7 @@ ML_val\<open>
 
 chapter\<open>Logging\<close>
 
-declare [[urust_verbosity = 0]]
+declare [[urust_verbosity = 2]]
 declare [[urust_abbrev = false]]
 
 
@@ -5195,7 +5206,7 @@ built-in message macro in this import context. The expression suite does not imp
 
 chapter\<open>Yield and logging audits\<close>
 
-declare [[urust_verbosity = 0]]
+declare [[urust_verbosity = 2]]
 declare [[urust_abbrev = false]]
 
 section\<open> Yield and logging structural audit \<close>
@@ -5743,7 +5754,7 @@ ML_val\<open>
 
 chapter\<open>Comments\<close>
 
-declare [[urust_verbosity = 0]]
+declare [[urust_verbosity = 2]]
 declare [[urust_abbrev = false]]
 
 section\<open> Nested Rust block comments \<close>
@@ -6109,7 +6120,7 @@ urust_expr isabelle_comment_document_antiquotations
     ()
   \<close>
 
-declare [[urust_verbosity = 1]]
+declare [[urust_verbosity = 2]]
 
 urust_fn isabelle_comment_function ::
   \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
@@ -6119,7 +6130,7 @@ urust_fn isabelle_comment_function ::
     item \<comment> \<open>Inline function-body comment.\<close>
   \<close>
 
-declare [[urust_verbosity = 0]]
+declare [[urust_verbosity = 2]]
 
 
 subsection\<open> Specialized lexer contexts \<close>
@@ -6525,7 +6536,8 @@ ML_val\<open>
 section\<open>Array repeats\<close>
 
 declare [[urust_pp_test = true]]
-declare [[urust_verbosity = 0]]
+declare [[urust_pretty = true]]
+declare [[urust_verbosity = 2]]
 declare [[urust_abbrev = false]]
 
 definition repeat_global_length :: \<open>64 word\<close>

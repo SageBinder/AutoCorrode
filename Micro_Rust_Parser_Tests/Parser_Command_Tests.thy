@@ -9,12 +9,13 @@ theory Parser_Command_Tests
     Parser_Logging_Fixtures
 begin
 
-chapter\<open>Parser facade\<close>
-
 declare [[urust_pp_test = true]]
-declare [[urust_verbosity = 0]]
+declare [[urust_pretty = true]]
+declare [[urust_verbosity = 2]]
 declare [[urust_abbrev = false]]
 declare [[urust_application_def = false]]
+
+chapter\<open>Parser facade\<close>
 
 section\<open> Parser facade smoke test \<close>
 
@@ -28,7 +29,8 @@ thm smoke_num_def smoke_sfx_def smoke_unit_def
 chapter\<open>Typed expression and shared command API\<close>
 
 declare [[urust_pp_test = true]]
-declare [[urust_verbosity = 0]]
+declare [[urust_pretty = true]]
+declare [[urust_verbosity = 2]]
 declare [[urust_abbrev = false]]
 declare [[urust_application_def = false]]
 
@@ -1026,6 +1028,141 @@ ML_val\<open>
       assert_rejected "old-function-command"
         ("urust_fun old_function :: " ^ body_type ^ " () " ^ unit_source)
         "command expected"
+  in
+    val _ = ()
+  end
+\<close>
+
+
+section\<open> Declaration verbosity output \<close>
+
+ML_val\<open>
+  local
+    fun run_command source_name command_text () =
+      let
+        val thy = \<^theory>
+        val transitions =
+          Outer_Syntax.parse_text thy (K thy)
+            (Position.line_file 1 source_name) command_text
+        val _ =
+          if length transitions = 1 then ()
+          else error "declaration verbosity audit: expected one transition"
+      in
+        fold (Toplevel.command_exception true) transitions
+          (Toplevel.make_state (SOME thy))
+      end
+
+    fun plain_content chunks =
+      YXML.parse_body (implode chunks)
+      |> XML.content_of
+      |> Symbol.explode
+      |> filter_out Symbol.is_control
+      |> implode
+
+    fun capture_command source_name command_text =
+      let
+        val ordinary =
+          Synchronized.var
+            ("urust_verbosity_ordinary_" ^ source_name)
+            ([]: string list)
+        val urgent =
+          Synchronized.var
+            ("urust_verbosity_urgent_" ^ source_name)
+            ([]: string list)
+        fun capture target chunks =
+          Synchronized.change target (append chunks)
+        val _ =
+          Parser_Test_Report_Lock.run (fn () =>
+            Unsynchronized.setmp Private_Output.writeln_fn
+              (capture ordinary)
+              (Unsynchronized.setmp Private_Output.writeln_urgent_fn
+                (capture urgent)
+                (run_command source_name command_text)) ())
+      in
+        (plain_content (Synchronized.value ordinary),
+         plain_content (Synchronized.value urgent))
+      end
+
+    fun source value =
+      Symbol.open_ ^ " " ^ string_of_int value ^ " " ^ Symbol.close
+
+    fun assert_contains label expected output =
+      if String.isSubstring expected output then ()
+      else
+        error
+          ("declaration verbosity audit: " ^ label ^
+            " is missing " ^ quote expected ^ ":\n" ^ output)
+
+    fun assert_absent label unexpected output =
+      if String.isSubstring unexpected output
+      then
+        error
+          ("declaration verbosity audit: " ^ label ^
+            " unexpectedly contains " ^ quote unexpected ^ ":\n" ^ output)
+      else ()
+
+    val (compact_definition, compact_definition_urgent) =
+      capture_command "verbosity-compact-definition"
+        ("urust_expr [verbosity = 1, pretty = false] " ^
+          "verbosity_compact_definition " ^ source 137)
+    val (compact_abbreviation, compact_abbreviation_urgent) =
+      capture_command "verbosity-compact-abbreviation"
+        ("urust_expr [verbosity = 1, pretty = false, abbrev] " ^
+          "verbosity_compact_abbreviation " ^ source 139)
+    val (compact_anonymous, compact_anonymous_urgent) =
+      capture_command "verbosity-compact-anonymous"
+        ("urust_expr [verbosity = 1, pretty = false] _ " ^ source 149)
+    val (compact_pretty, compact_pretty_urgent) =
+      capture_command "verbosity-compact-pretty"
+        ("urust_expr [verbosity = 1, pretty] " ^
+          "verbosity_compact_pretty " ^ source 151)
+    val (full_definition, full_definition_urgent) =
+      capture_command "verbosity-full-definition"
+        ("urust_expr [verbosity = 2, pretty = false] " ^
+          "verbosity_full_definition " ^ source 157)
+    val (full_pretty, full_pretty_urgent) =
+      capture_command "verbosity-full-pretty"
+        ("urust_expr [verbosity = 2, pretty] " ^
+          "verbosity_full_pretty " ^ source 163)
+    val (silent, silent_urgent) =
+      capture_command "verbosity-silent"
+        ("urust_expr [verbosity = 0, pretty = false] " ^
+          "verbosity_silent " ^ source 167)
+
+    val _ =
+      List.app
+        (fn (label, heading, body, output, urgent) =>
+          (assert_contains label heading output;
+           assert_contains label "..." output;
+           assert_absent (label ^ " body") body output;
+           assert_absent (label ^ " urgent") heading urgent))
+        [("compact definition",
+          "definition verbosity_compact_definition_def:", "137",
+          compact_definition, compact_definition_urgent),
+         ("compact abbreviation",
+          "abbreviation verbosity_compact_abbreviation:", "139",
+          compact_abbreviation, compact_abbreviation_urgent),
+         ("compact anonymous",
+          "urust_expr urust_expr_anonymous_", "149",
+          compact_anonymous, compact_anonymous_urgent),
+         ("compact pretty",
+          "definition verbosity_compact_pretty_def:", "151",
+          compact_pretty, compact_pretty_urgent)]
+    val _ =
+      List.app
+        (fn (label, heading, body, output, urgent) =>
+          (assert_contains label heading output;
+           assert_contains label body output;
+           assert_absent (label ^ " placeholder") "..." output;
+           assert_absent (label ^ " urgent") heading urgent))
+        [("full definition",
+          "definition verbosity_full_definition_def:", "157",
+          full_definition, full_definition_urgent),
+         ("full pretty",
+          "definition verbosity_full_pretty_def:", "163",
+          full_pretty, full_pretty_urgent)]
+    val _ = assert_absent "silent output" "verbosity_silent" silent
+    val _ = assert_absent "silent urgent output" "verbosity_silent" silent_urgent
   in
     val _ = ()
   end

@@ -4,7 +4,9 @@ theory Parser_Semantic_Navigation_Tests
     Micro_Rust_Std_Lib.StdLib_Logging
 begin
 
-declare [[urust_verbosity = 0]]
+declare [[urust_pp_test = true]]
+declare [[urust_pretty = true]]
+declare [[urust_verbosity = 2]]
 
 section\<open>Resolved navigation fixtures\<close>
 

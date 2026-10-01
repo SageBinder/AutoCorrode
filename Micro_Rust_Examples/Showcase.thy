@@ -44,12 +44,12 @@ urust_fn ref_test ::
   \<open>
     let mut nat_ref = \<llangle>0 :: nat\<rrangle>;
     let mut bool_ref = \<llangle>False :: bool\<rrangle>;
-    if *bool_ref {
+    if bool_ref {
       nat_ref = 42;
     } else {
       nat_ref = 12;
     };
-    *nat_ref
+    nat_ref
   \<close>
 
 text\<open>For more in-depth details on uRust (including ways to symbolically evaluate it),
@@ -124,7 +124,7 @@ urust_fn swap_client ::
     let mut left = \<llangle>42 :: nat\<rrangle>;
     let mut right = 72;
     swap_ref(left, right);
-    *left
+    left
   \<close>
 
 text\<open>After swapping, the variable left should now contain the value \<^term>\<open>72 :: nat\<close>\<close>
@@ -170,9 +170,9 @@ urust_fn sum_array ::
     let mut sum = \<llangle>0 :: nat\<rrangle>;
     for i in 0..l {
       let num = nums[i];
-      sum = *sum + num;
+      sum = sum + num;
     };
-    *sum
+    sum
   \<close>
 
 text\<open>The contract for \<^term>\<open>sum_array\<close>: the stateful implementations returns the same value

@@ -320,7 +320,10 @@ as part of the underlying state rather than a mutable local variable.
 
 Let's try to use a mutable \<^verbatim>\<open>let\<close> binding in a Micro Rust expression:\<close>
 
-urust_expr _
+urust_expr _ ::
+  \<open>
+    ('s, ('addr, 'gv, 64 word) Global_Store.ref, 'r, 'abort, 'i, 'o) expression
+  \<close>
   \<open>
      let mut acc = \<llangle>1 :: 64 word\<rrangle>;
      acc
@@ -328,7 +331,10 @@ urust_expr _
 (* "bind (Ref::new \<langle>\<up>1\<rangle>) literal"
   :: "('a, (('b, 'c) gref, 'c, 64 word) focused, 'd, 'e, 'f) expression" *)
 
-urust_expr [abbrev] evaluate_acc_expr
+urust_expr [abbrev] evaluate_acc_expr ::
+  \<open>
+    ('s, ('addr, 'gv, 64 word) Global_Store.ref, 'r, 'abort, 'i, 'o) expression
+  \<close>
   \<open>
      let mut acc = \<llangle>1 :: 64 word\<rrangle>;
      acc
@@ -342,22 +348,21 @@ value [simp] \<open>evaluate evaluate_acc_expr
  | Yield \<pi> \<sigma>' e' \<Rightarrow> Yield \<pi> \<sigma>' (\<lambda>\<rho>. bind (e' \<rho>) literal)"
   :: "(s, (('a, 'b) gref, 'b, 64 word) focused, 'c, 'abort, 'd, 'e) continuation" *)
 
-text\<open>This may not be what we expected: The \<^verbatim>\<open>let mut ...\<close> binding is transformed into
-a call to \<^verbatim>\<open>Ref::new\<close>, which however is not evaluated further. The reason is the following:
+text\<open>The declarations above deliberately constrain their result to a core reference. The
+\<^verbatim>\<open>let mut ...\<close> binding is transformed into a call to \<^verbatim>\<open>Ref::new\<close>, and the
+reference is retained because the expected result type requires it.
 
 In Micro Rust, mutable let bindings are implemented via references: When you establish
 a mutable variable, a reference is allocated, and when you read/write it subsequently,
 that reference is dereferenced / updated accordingly.
 
-Importantly, dereferencing of references associated with mutable let bindings is
-\<^emph>\<open>explicit\<close>, which is the biggest syntactic difference between Rust and Micro Rust.
-That is, in the above example, we should really have written \<^verbatim>\<open>*acc\<close> if our intent 
-was to return the value of \<^verbatim>\<open>acc\<close>. Indeed, if you look at the return type of the
-expression above, you will find \<^verbatim>\<open>('b, 'c) gref, 'c, 64 word) focused\<close> rather than
-the expected \<^verbatim>\<open>64 word\<close> -- without going into details, what is being returned here
-is the reference associated with \<^verbatim>\<open>acc\<close>, rather than the value.
+In ordinary value contexts, references associated with mutable let bindings are read
+automatically. Thus an unconstrained final \<^verbatim>\<open>acc\<close> returns the \<^verbatim>\<open>64 word\<close>
+stored in the local. An expected reference type, as above, suppresses that automatic read.
+Ordinary reference values such as function parameters are not automatically dereferenced.
 
-So, let's try to return the value instead -- comment out the following:
+An explicit dereference remains available and also requests the stored value. Comment out the
+following to observe that its backend still needs to be supplied:
 \<close>
 
 \<comment>\<open>
@@ -441,17 +446,17 @@ urust_expr multiply_it_up
   \<open>
      let mut acc = \<llangle>1 :: 64 word\<rrangle>;
      for i in 0..data.len() {
-        acc = *acc * data[i];
+        acc = acc * data[i];
      };
-     *acc
+     acc
   \<close>
 
 urust_expr add_local
   \<open>
     let len = \<llangle>5 :: 64 word\<rrangle>;
     let mut acc = \<llangle>1 :: 64 word\<rrangle>;
-    acc = *acc + len; \<comment> \<open>Need to explicitly dereference the mutable local, but not the local.\<close>
-    *acc
+    acc = acc + len;
+    acc
   \<close>
 
 (*<*)

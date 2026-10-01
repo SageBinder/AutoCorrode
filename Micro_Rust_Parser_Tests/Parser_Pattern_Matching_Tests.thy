@@ -8,6 +8,8 @@ theory Parser_Pattern_Matching_Tests
 begin
 
 declare [[urust_pp_test = true]]
+declare [[urust_pretty = true]]
+declare [[urust_verbosity = 2]]
 
 section\<open>Native constructor metadata\<close>
 

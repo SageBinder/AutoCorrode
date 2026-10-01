@@ -76,7 +76,7 @@ urust_fn poly_add ::
       elem_ref = zq_add(ai, bi)
     };
 
-    *result
+    result
   \<close>
 
 definition poly_add_contract :: \<open>mlkem_poly \<Rightarrow> mlkem_poly \<Rightarrow>
@@ -131,7 +131,7 @@ urust_fn poly_sub ::
       elem_ref = zq_sub(ai, bi)
     };
 
-    *result
+    result
   \<close>
 
 definition poly_sub_contract :: \<open>mlkem_poly \<Rightarrow> mlkem_poly \<Rightarrow>

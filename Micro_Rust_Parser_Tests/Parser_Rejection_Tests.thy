@@ -11,16 +11,17 @@ theory Parser_Rejection_Tests
     Parser_Logging_Fixtures
 begin
 
-chapter\<open>Negative parser tests\<close>
-
-declare [[urust_pp_test = false]]
-declare [[urust_verbosity = 0]]
+declare [[urust_pp_test = true]]
+declare [[urust_pretty = true]]
+declare [[urust_verbosity = 2]]
 declare [[urust_abbrev = false]]
 
+chapter\<open>Negative parser tests\<close>
+
 text\<open>
-The custom rejection commands keep roundtrip checking disabled because they assert the parser or
-lowering diagnostic that follows a successful parse. Actual recovery declarations enable
-\<open>urust_pp_test\<close> explicitly.
+The custom rejection command calls the common elaboration API directly, so declaration-level
+roundtrip and output settings do not obscure the parser or lowering diagnostic under test.
+Successful recovery declarations inherit the enabled test settings above.
 \<close>
 
 
@@ -239,11 +240,7 @@ urust_expr_rejects
   \<open> WrongRole::StructExpression { value: () } \<close>
   \<open> qualified path "WrongRole::StructExpression" requires an exact micro_rust_notation (call) declaration \<close>
 
-declare [[urust_pp_test = true]]
-
 urust_expr qualified_path_policy_recovery \<open> () \<close>
-
-declare [[urust_pp_test = false]]
 
 ML_val\<open>
   local
