@@ -19,26 +19,18 @@ a contract, and watch which proofs still go through.
   separation logic, etc.). Loaded in order from `document/root.tex`.
 - `document/root.tex` -- Beamer document skeleton; chooses which
   `Tutorial_*.tex` are included and in what order.
-- `Makefile` -- thin wrapper around `isabelle build`. Common targets:
-  `make heaps` (parent image), `make build`, `make view`, `make jedit`,
-  `make clean`.
+- `Makefile` -- thin wrapper around `isabelle build`.
 - `output/` -- Isabelle's session output directory; `output/document.pdf`
   is copied to `autocorrode_tutorial.pdf`.
 
 ## Build
 
-```
-make heaps    # one-off: build the AutoCorrode parent heap
-make          # build the tutorial PDF -> autocorrode_tutorial.pdf
-make view     # build then open the PDF (macOS)
-make jedit    # open the tutorial theories in jEdit
+Set `AFP_COMPONENT_BASE` to the installed AFP snapshot's `thys` directory, then run:
+
+```sh
+make AFP_COMPONENT_BASE=/path/to/afp/thys heaps
+make AFP_COMPONENT_BASE=/path/to/afp/thys build
 ```
 
-Override `ISABELLE_HOME` if the Isabelle binary lives somewhere other than
-`/Applications/Isabelle2025-2.app/bin`:
-
-```
-make ISABELLE_HOME=/path/to/Isabelle/bin build
-```
-
-The same target is available from the repository root as `make tutorial`.
+The same target is available from the repository root as
+`make AFP_COMPONENT_BASE=/path/to/afp/thys tutorial`.

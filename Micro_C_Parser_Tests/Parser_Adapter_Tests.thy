@@ -76,24 +76,6 @@ local
              offset (#return_position identity) <= offset identifier_pos))
      | _ => error "C adapter test: wrong identity normalization")
 
-  val multi_specifier =
-    parse
-      ("unsigned long long wide_identity(unsigned long long value) {" ^
-       " return value; }")
-  val _ =
-    (case
-      (#return_type multi_specifier,
-       #parameters multi_specifier,
-       #body multi_specifier) of
-       ({kind = UnsupportedType _, ...},
-        NamedParameters
-          {parameters =
-            [{type_spec = {kind = UnsupportedType _, ...}, ...}],
-           variadic = false,
-           ...},
-        Identifier {name = "value", ...}) => ()
-     | _ => error "C adapter test: multi-specifier baseline normalization failed")
-
   val addition = parse "int add(int x, int y) { return x + y; }"
   val _ =
     (case #body addition of

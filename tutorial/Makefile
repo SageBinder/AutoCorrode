@@ -8,15 +8,15 @@ PDF_NAME         ?= autocorrode_tutorial.pdf
 
 ISABELLE_FLAGS ?= -b
 USER_HOME ?= $(HOME)
-AFP_COMPONENT_BASE ?= $(realpath ../dependencies/afp)
+AFP_COMPONENT_BASE ?=
 ISABELLE_LEX_YACC_DIR ?= $(AFP_COMPONENT_BASE)/Isabelle_Lex-Yacc
-ISABELLE_C_COMPONENT_BASE ?= $(realpath ../dependencies/afp)
+ISABELLE_C_COMPONENT_BASE ?= $(AFP_COMPONENT_BASE)
 ISABELLE_DOC_DIR ?= $(realpath $(ISABELLE_HOME)/../src/Doc)
 
 # Parent session image to inherit. Built once via `make heaps`.
 PARENT_IMAGE     := AutoCorrode
 
-# All -d directories so isabelle can resolve sessions.
+# All -d directories so Isabelle can resolve sessions.
 DIRS             := -d "$(ISABELLE_DOC_DIR)" \
                     -d "$(AFP_COMPONENT_BASE)/Word_Lib" \
                     -d "$(ISABELLE_LEX_YACC_DIR)" \
@@ -33,16 +33,12 @@ endef
 
 .PHONY: all heaps build clean jedit
 
-# Default: build heaps if missing, then build the tutorial.
 all: build
 
-# Build (or refresh) the upstream AutoCorrode parent heap. Slow the first
-# time, fast afterwards. Re-run if upstream theories change.
 heaps:
 	$(CHECK_ISABELLE)
 	USER_HOME="$(USER_HOME)" $(ISABELLE) build $(DIRS) -b $(PARENT_IMAGE)
 
-# Build the tutorial session, inheriting the AutoCorrode parent image.
 build:
 	$(CHECK_ISABELLE)
 	USER_HOME="$(USER_HOME)" $(ISABELLE) build $(ISABELLE_FLAGS) $(DIRS) \
@@ -58,7 +54,6 @@ clean:
 	USER_HOME="$(USER_HOME)" $(ISABELLE) build $(DIRS) -c AutoCorrodeTutorial
 	rm -f $(PDF_NAME)
 
-# Open the tutorial in jEdit for interactive editing.
 jedit:
 	$(CHECK_ISABELLE)
 	USER_HOME="$(USER_HOME)" $(ISABELLE) jedit $(DIRS) -l $(PARENT_IMAGE) *.thy

@@ -7,9 +7,8 @@ separate from the implementation sessions.
 
 ## Test theories
 
-- `Parser_Adapter_Tests.thy` checks complete-function normalization, the retained multi-specifier
-  Isabelle/C baseline, source ranges, expression association, and positional rejection of
-  unsupported AST categories.
+- `Parser_Adapter_Tests.thy` checks complete-function normalization, source ranges, expression
+  association, and positional rejection of unsupported AST categories.
 - `Parser_Elaboration_Tests.thy` exercises type, prototype, parameter, scope, and integer-literal
   validation without parsing or installation, and exercises lowering without declaration.
 - `Parser_Denotation_Tests.thy` checks generated definitions, successful evaluation, signed

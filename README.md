@@ -43,24 +43,27 @@ An HTML rendering of the AutoCorrode source code is available [here](https://aws
 
 AutoCorrode requires Isabelle2025-2, which can be downloaded [here](https://isabelle.in.tum.de/website-Isabelle2025-2/). Set `ISABELLE_HOME` to the directory containing the `isabelle` binary.
 
-AutoCorrode also requires the [WordLib](https://www.isa-afp.org/entries/Word_Lib.html) AFP entry. Set `AFP_COMPONENT_BASE` to the directory containing the `Word_Lib` directory. By default, AutoCorrode expects it to be located in [dependencies/afp](dependencies/afp).
+AutoCorrode also requires the [WordLib](https://www.isa-afp.org/entries/Word_Lib.html) AFP entry.
+Set `AFP_COMPONENT_BASE` to the installed AFP snapshot's `thys` directory.
 
-The C frontend uses the pinned AFP
-[Isabelle/C](https://www.isa-afp.org/entries/Isabelle_C.html) entry. Set `AFP_SOURCE_BASE` to the
-`thys` directory of the pinned AFP checkout, then run `make prepare-isabelle-c` followed by
-`make build-isabelle-c`, `make build-micro-c-isabelle-c-adapter`, or
-`make build-micro-c-parsing-frontend`. Preparation copies and patches Isabelle/C under the ignored
-worktree-local `dependencies/afp`; it never modifies the AFP source checkout. Top-level builds use
-an ignored worktree-local Isabelle user directory and explicit dependency directories to avoid
-conflicts with globally registered AFP snapshots. The C sessions are registered in `ROOT` and
-`ROOTS`, so `make build` includes them. `make c-prototype` additionally runs preparation,
-architecture, parser-test, re-entrancy, and regression checks.
+The C frontend uses [Isabelle/C](https://www.isa-afp.org/entries/Isabelle_C.html) from the same AFP
+snapshot. AutoCorrode does not vendor or copy AFP entries into the repository.
 
 ## Usage
 
-You can interactively explore AutoCorrode using `make jedit`, which opens the AutoCorrode source in the Isabelle/jEdit GUI.
+Build the complete repository, including the C sessions:
 
-To non-interactively check all material in AutoCorrode, run `make build`, which starts a batch-build in Isabelle.
+```sh
+make AFP_COMPONENT_BASE=/path/to/afp/thys build
+```
+
+Run the complete C prototype regression gate:
+
+```sh
+make AFP_COMPONENT_BASE=/path/to/afp/thys c-prototype
+```
+
+Use `make AFP_COMPONENT_BASE=/path/to/afp/thys jedit` for interactive exploration.
 
 ## Citing AutoCorrode
 
