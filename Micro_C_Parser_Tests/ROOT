@@ -1,0 +1,10 @@
+session Micro_C_Parser_Tests = HOL +
+  options [document = false]
+  sessions
+    Micro_C_Parsing_Frontend
+  theories [document = false]
+    Parser_Adapter_Tests
+    Parser_Elaboration_Tests
+    Parser_Denotation_Tests
+    Parser_Concurrent_A
+    Parser_Concurrent_B

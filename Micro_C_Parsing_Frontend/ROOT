@@ -1,0 +1,10 @@
+session Micro_C_Parsing_Frontend = HOL +
+  options [document = false]
+  sessions
+    Micro_C_Isabelle_C_Adapter
+    Shallow_Micro_C
+  theories [document = false]
+    C_Elaboration
+    C_Lowering
+    C_Translation
+    Micro_C_Parsing_Frontend

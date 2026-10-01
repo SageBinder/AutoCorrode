@@ -45,14 +45,16 @@ AutoCorrode requires Isabelle2025-2, which can be downloaded [here](https://isab
 
 AutoCorrode also requires the [WordLib](https://www.isa-afp.org/entries/Word_Lib.html) AFP entry. Set `AFP_COMPONENT_BASE` to the directory containing the `Word_Lib` directory. By default, AutoCorrode expects it to be located in [dependencies/afp](dependencies/afp).
 
-The isolated C parser baseline additionally uses the pinned AFP
+The C frontend uses the pinned AFP
 [Isabelle/C](https://www.isa-afp.org/entries/Isabelle_C.html) entry. Set `AFP_SOURCE_BASE` to the
 `thys` directory of the pinned AFP checkout, then run `make prepare-isabelle-c` followed by
-`make build-isabelle-c` or `make build-micro-c-isabelle-c-adapter`. Preparation copies and patches
-Isabelle/C under the ignored worktree-local `dependencies/afp`; it never modifies the AFP source
-checkout. The C build targets also use an ignored worktree-local Isabelle user directory to avoid
-conflicts with globally registered AFP snapshots. Ordinary AutoCorrode and µRust targets continue
-to require only `Word_Lib`.
+`make build-isabelle-c`, `make build-micro-c-isabelle-c-adapter`, or
+`make build-micro-c-parsing-frontend`. Preparation copies and patches Isabelle/C under the ignored
+worktree-local `dependencies/afp`; it never modifies the AFP source checkout. Top-level builds use
+an ignored worktree-local Isabelle user directory and explicit dependency directories to avoid
+conflicts with globally registered AFP snapshots. The C sessions are registered in `ROOT` and
+`ROOTS`, so `make build` includes them. `make c-prototype` additionally runs preparation,
+architecture, parser-test, re-entrancy, and regression checks.
 
 ## Usage
 
@@ -150,11 +152,31 @@ policy remains in each frontend. See the session [README](Parser_Common/README.m
 
 ### Micro_C_Isabelle_C_Adapter
 
-This separately built session is the sole Isabelle/C import boundary. Its current baseline checks
-only that the pinned, compatibility-patched frontend parses two complete C translation units,
-including a function with `unsigned long long` parameters. It intentionally provides no C AST
-traversal, scalar semantics, or lowering yet and is omitted from top-level `ROOTS` so ordinary
-AutoCorrode and µRust builds do not acquire an Isabelle/C dependency.
+This separately built session is the sole Isabelle/C import and `C_Ast` boundary. It parses one
+complete translation unit and immediately normalizes the supported function, parameter, type, and
+expression subset into project-owned positioned ML datatypes. Raw Isabelle/C constructors,
+environments, and temporary parser theories do not escape the adapter.
+
+### Shallow_Micro_C, Micro_C_Parsing_Frontend, and Micro_C_Parser_Tests
+
+`Shallow_Micro_C` provides the prototype fixed scalar profile: plain C `int` is a signed 32-bit
+word, and `c_signed_add` aborts with `SignedOverflow` when a mathematical sum is outside that
+range. `Micro_C_Parsing_Frontend` keeps elaboration, lowering, and installation separate and
+provides the provisional command:
+
+```isabelle
+c_translate ‹
+int add(int x, int y) {
+  return x + y;
+}
+›
+```
+
+The command installs `c_add` as a checked neutral `FunctionBody`. The prototype supports named
+plain-`int` parameters, unsuffixed decimal literals, identifiers, recursive addition, and one
+return statement. `Micro_C_Parser_Tests` keeps adapter, elaboration, denotation, failure-atomicity,
+and concurrent-translation tests separate from the implementation sessions. All four C sessions
+are part of the top-level `ROOT` and `ROOTS` catalogs.
 
 ### Micro_Rust_Parser_Impl and Micro_Rust_Parser_Tests
 

@@ -7,9 +7,13 @@ Enum_Theory
 iq
 Lenses_And_Other_Optics
 Language_Isolation_Tests
+Micro_C_Isabelle_C_Adapter
+Micro_C_Parser_Tests
+Micro_C_Parsing_Frontend
 Misc
 Separation_Lenses
 Shallow_Computation
+Shallow_Micro_C
 Shallow_Micro_Rust
 Shallow_Separation_Logic
 Micro_Rust_Examples

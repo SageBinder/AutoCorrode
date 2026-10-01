@@ -1,0 +1,8 @@
+session Shallow_Micro_C = HOL +
+  options [document = false]
+  sessions
+    Shallow_Computation
+    Word_Lib
+  theories [document = false]
+    C_Scalar_Profile
+    Shallow_Micro_C

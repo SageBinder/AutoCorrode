@@ -6,22 +6,14 @@ theory Micro_C_Isabelle_C_Adapter
     "Isabelle_C.C_Main"
 begin
 
-section \<open>Isabelle/C adapter baseline\<close>
+section \<open>Isabelle/C adapter\<close>
 
 text \<open>
-This session is the sole boundary for importing Isabelle/C. The baseline checks only that the
-pinned and compatibility-patched frontend parses representative complete C translation units.
-It deliberately exposes no C AST traversal, scalar semantics, or lowering API yet.
+This theory is the sole Isabelle/C import and AST boundary. Parsing is followed immediately by
+normalization into project-owned datatypes. No Isabelle/C parser environment, context, or AST
+constructor crosses the public ML signature.
 \<close>
 
-C \<open>
-int main(void) { return 0; }
-\<close>
-
-C \<open>
-unsigned long long baseline_identity(unsigned long long value) {
-  return value;
-}
-\<close>
+ML_file \<open>adapter.ML\<close>
 
 end

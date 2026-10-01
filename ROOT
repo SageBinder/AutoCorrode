@@ -12,6 +12,9 @@ session AutoCorrode = HOL +
     "Enum_Theory"
     "iq"
     "Language_Isolation_Tests"
+    "Micro_C_Isabelle_C_Adapter"
+    "Micro_C_Parser_Tests"
+    "Micro_C_Parsing_Frontend"
     "Micro_Rust_Examples"
     "Micro_Rust_Interfaces"
     "Micro_Rust_Interfaces_Core"
@@ -22,6 +25,7 @@ session AutoCorrode = HOL +
     "Lenses_And_Other_Optics"
     "Separation_Lenses"
     "Shallow_Computation"
+    "Shallow_Micro_C"
     "Shallow_Micro_Rust"
     "Shallow_Separation_Logic"
   theories [document = false]

@@ -38,4 +38,48 @@ root_matches=$(
   fail "Isabelle_C session dependencies escaped the adapter boundary:
 $root_matches"
 
-echo "Isabelle/C imports are confined to Micro_C_Isabelle_C_Adapter"
+for required_session in \
+  Micro_C_Isabelle_C_Adapter \
+  Micro_C_Parser_Tests \
+  Micro_C_Parsing_Frontend \
+  Shallow_Micro_C
+do
+  grep -F -x "$required_session" ROOTS >/dev/null ||
+    fail "$required_session is missing from default ROOTS"
+  grep -E "^[[:space:]]+\"$required_session\"[[:space:]]*$" ROOT >/dev/null ||
+    fail "$required_session is missing from the AutoCorrode umbrella"
+done
+
+expected_provider=Micro_C_Isabelle_C_Adapter/adapter.ML
+provider_matches=$(
+  find . -type f \( -name '*.thy' -o -name '*.ML' \) \
+    -not -path './.git/*' \
+    -not -path './dependencies/*' \
+    -exec grep -l -E 'C_Ast|C11_Ast_Lib|C_Module|get_CTranslUnit' {} + |
+    sed 's|^\./||' |
+    sort
+)
+[ "$provider_matches" = "$expected_provider" ] ||
+  fail "Isabelle/C parser or AST APIs escaped the adapter implementation:
+$provider_matches"
+
+mutable_state_matches=$(
+  find Micro_C_Isabelle_C_Adapter Micro_C_Parser_Tests \
+    Micro_C_Parsing_Frontend Shallow_Micro_C \
+    -type f \( -name '*.thy' -o -name '*.ML' \) \
+    -exec grep -l -E 'Unsynchronized\.ref|Synchronized\.(var|value)|Mutex\.' {} + ||
+    true
+)
+[ -z "$mutable_state_matches" ] ||
+  fail "C prototype introduced process-global mutable translation state:
+$mutable_state_matches"
+
+check_term_count=$(
+  grep -R -h -o 'Syntax\.check_term' Micro_C_Parsing_Frontend |
+    wc -l |
+    tr -d '[:space:]'
+)
+[ "$check_term_count" = 1 ] ||
+  fail "expected exactly one final Syntax.check_term, found $check_term_count"
+
+echo "Isabelle/C APIs and mutable translation state are confined to the adapter boundary"
