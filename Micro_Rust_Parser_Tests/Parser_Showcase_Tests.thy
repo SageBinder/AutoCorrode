@@ -17,9 +17,20 @@ declaration features.
 
 subsection\<open> Rust datatype items \<close>
 
+text\<open>
+Named Rust field types are context-local declarations. Primitive spellings use the same registry,
+and generated datatypes register their Rust names automatically for later declarations.
+\<close>
+
+urust_type "PacketId" = \<open>64 word\<close>
+urust_type "Maybe<'value>" = \<open>'value option\<close>
+
 urust_datatype [pretty, verbosity = 1] datatype_packet \<open>
   struct DatatypePacket {
+    identifier: PacketId,
     tag: u32,
+    state: Maybe<bool>,
+    pair: (u8, bool),
     bytes: \<tau>\<open>8 word list\<close>,
   }
 \<close>
@@ -60,7 +71,10 @@ urust_expr showoff_datatype_items
   \<open>
     match DatatypeEvent::Packet(
       DatatypePacket {
+        identifier: 3u64,
         tag: 7u32,
+        state: Some(true),
+        pair: (1u8, true),
         bytes: \<llangle>[] :: 8 word list\<rrangle>,
       }
     ) {

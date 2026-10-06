@@ -2353,31 +2353,31 @@ ML_val \<open>
             ("value: \<tau> " ^ cartouche "nat option" ^ ","))
     val _ =
       assert_rejected "unsupported-bare-type"
-        "unsupported bare field type \"CustomType\""
+        "unknown Rust type \"CustomType\""
         ("urust_datatype unsupported_bare_type " ^
           datatype_source "UnsupportedBareType"
             "value: CustomType,")
     val _ =
       assert_rejected "unsupported-u128"
-        "unsupported bare field type \"u128\""
+        "unknown Rust type \"u128\""
         ("urust_datatype unsupported_u128 " ^
           datatype_source "UnsupportedU128"
             "value: u128,")
     val _ =
       assert_rejected "unsupported-rust-tuple-type"
-        "syntax error"
+        "singleton tuple types is not supported"
         ("urust_datatype unsupported_rust_tuple " ^
           datatype_source "UnsupportedRustTuple"
-            "value: (u32, bool),")
+            "value: (u32,),")
     val _ =
       assert_rejected "unsupported-rust-array-type"
-        "syntax error"
+        "Rust array types is not supported"
         ("urust_datatype unsupported_rust_array " ^
           datatype_source "UnsupportedRustArray"
             "value: [u8; 4],")
     val _ =
       assert_rejected "unsupported-rust-reference-type"
-        "syntax error"
+        "Rust reference types is not supported"
         ("urust_datatype unsupported_rust_reference " ^
           datatype_source "UnsupportedRustReference"
             "value: &u32,")
@@ -2596,7 +2596,8 @@ ML_val \<open>
          "urust_datatype " ^
            cartouche " struct HttpServer; ")
     val _ =
-      assert_rejected "item-conflict" "already mapped"
+      assert_rejected "item-conflict"
+        "conflicting active mappings for \"ConflictItem\""
         ("urust_datatype conflict_first " ^
            cartouche " struct ConflictItem; " ^ "\n" ^
          "urust_datatype conflict_second " ^
