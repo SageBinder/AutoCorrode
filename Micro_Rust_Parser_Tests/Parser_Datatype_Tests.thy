@@ -8,6 +8,127 @@ declare [[urust_verbosity = 2]]
 
 section\<open> Rust datatype declarations \<close>
 
+urust_datatype [register_notation = false] notation_packet \<open>
+  struct NotationPacket { sampleValue: u32, HTTP2Code: bool }
+\<close>
+
+urust_datatype [register_notation = false] \<open>
+  struct NotationEnvelope(NotationPacket);
+\<close>
+
+urust_expr notation_packet_construction \<open>
+  NotationPacket { sampleValue: 7u32, HTTP2Code: true }
+\<close>
+
+urust_expr notation_packet_pattern \<open>
+  match (NotationPacket { sampleValue: 7u32, HTTP2Code: true }) {
+    NotationPacket { sampleValue, HTTP2Code: _ } \<Rightarrow> sampleValue,
+  }
+\<close>
+
+ML_val \<open>
+  val _ =
+    List.app
+      (fn field =>
+        if null (Micro_Rust_Names.lookups \<^context> Micro_Rust_Names.NField field)
+        then () else error ("disabled declaration registered " ^ quote field))
+      ["sampleValue", "HTTP2Code"]
+  val SOME entry = URust_Item_Scope.lookup_constructor \<^context> "NotationPacket"
+  val _ =
+    if map fst (URust_Item_Scope.constructor_fields entry) = ["sampleValue", "HTTP2Code"]
+    then () else error "disabled declaration lost source field metadata"
+\<close>
+
+thm notation_packet_notation_packet_sample_value_lens_valid
+    notation_packet_notation_packet_sample_value_lens_view_update_modify
+    notation_packet_notation_packet_sample_value_update_explicit
+    notation_packet_notation_packet_http2_code_lens_valid
+
+urust_notation (field) notation_packet_notation_packet_sample_value_lens ("sampleValue")
+
+urust_expr notation_packet_manual_field \<open>
+  (NotationPacket { sampleValue: 7u32, HTTP2Code: true }).sampleValue
+\<close>
+
+lemma notation_packet_manual_field_eq:
+  \<open>notation_packet_manual_field =
+    bind notation_packet_construction
+      (\<lambda>packet. literal (lens_view notation_packet_notation_packet_sample_value_lens packet))\<close>
+  unfolding notation_packet_manual_field_def notation_packet_construction_def
+  by (simp add: bindlift1_def bind1_def lift_exp1_def deep_compose1_def)
+
+context notes [[urust_register_notation = false]]
+begin
+
+urust_datatype \<open> struct NotationScopedOff { scopedAlias: u32 } \<close>
+urust_datatype [register_notation] \<open> struct NotationScopedOn { scopedAlias: bool } \<close>
+urust_datatype \<open> struct NotationStillOff { scopedAlias: u64 } \<close>
+
+context notes [[urust_register_notation = true]]
+begin
+
+urust_datatype [register_notation = false] \<open> struct NotationNestedOff { scopedAlias: u16 } \<close>
+urust_datatype \<open> struct NotationNestedOn { scopedAlias: u8 } \<close>
+
+ML_val \<open>
+  val backends =
+    Micro_Rust_Names.lookups \<^context> Micro_Rust_Names.NField "scopedAlias"
+    |> map (dest_Const_name o #hol_term)
+  val _ =
+    if sort_strings backends =
+      sort_strings
+        [\<^const_name>\<open>notation_scoped_on_notation_scoped_on_scoped_alias_lens\<close>,
+         \<^const_name>\<open>notation_nested_on_notation_nested_on_scoped_alias_lens\<close>]
+    then () else error "nested registration configuration or inline precedence changed"
+\<close>
+
+end
+
+urust_datatype \<open> struct NotationRestoredOff { scopedAlias: i32 } \<close>
+
+ML_val \<open>
+  val backends =
+    Micro_Rust_Names.lookups \<^context> Micro_Rust_Names.NField "scopedAlias"
+    |> map (dest_Const_name o #hol_term)
+  val _ =
+    if sort_strings backends =
+      sort_strings
+        [\<^const_name>\<open>notation_scoped_on_notation_scoped_on_scoped_alias_lens\<close>,
+         \<^const_name>\<open>notation_nested_on_notation_nested_on_scoped_alias_lens\<close>]
+    then () else error "nested registration configuration or inline precedence changed"
+\<close>
+
+end
+
+locale notation_disabled_locale
+begin
+
+declare [[urust_register_notation = false]]
+urust_datatype \<open> struct NotationLocaleOff { localeAlias: u32 } \<close>
+urust_datatype [register_notation = true] \<open> struct NotationLocaleOn { localeAlias: bool } \<close>
+urust_datatype \<open> struct NotationLocaleStillOff { localeAlias: u64 } \<close>
+
+ML_val \<open>
+  val [entry] = Micro_Rust_Names.lookups \<^context> Micro_Rust_Names.NField "localeAlias"
+  val _ =
+    if dest_Const_name (#hol_term entry) =
+      \<^const_name>\<open>notation_locale_on_notation_locale_on_locale_alias_lens\<close>
+    then () else error "locale registration configuration changed"
+\<close>
+
+end
+
+urust_datatype \<open> struct NotationRestoredOn { restoredAlias: u32 } \<close>
+
+ML_val \<open>
+  val [] = Micro_Rust_Names.lookups \<^context> Micro_Rust_Names.NField "localeAlias"
+  val [entry] = Micro_Rust_Names.lookups \<^context> Micro_Rust_Names.NField "restoredAlias"
+  val _ =
+    if dest_Const_name (#hol_term entry) =
+      \<^const_name>\<open>notation_restored_on_notation_restored_on_restored_alias_lens\<close>
+    then () else error "registration configuration escaped its context"
+\<close>
+
 urust_datatype parser_point \<open>
   struct ParserPoint {
     x: u32,
@@ -1823,6 +1944,279 @@ ML_val \<open>
           then SOME index
           else search (index + 1)
       in search 0 end
+
+    fun result_context (Exn.Res state) = Toplevel.context_of state
+      | result_context (Exn.Exn exn) = Exn.reraise exn
+
+    fun registry_snapshot ctxt =
+      Micro_Rust_Names.dump ctxt
+      |> map (fn (kind, name, entry) =>
+          (kind, name, #hol_term entry, #source_const entry, #serial entry,
+           Position.properties_of (#reg_pos entry)))
+
+    fun assert_registry_unchanged label earlier_ctxt later_ctxt =
+      if registry_snapshot earlier_ctxt = registry_snapshot later_ctxt then ()
+      else error (label ^ " changed the notation registry")
+
+    fun assert_new_fields label ctxt expected =
+      let
+        val old_serials = Micro_Rust_Names.dump \<^context> |> map (#serial o #3)
+        val added =
+          Micro_Rust_Names.dump ctxt
+          |> filter_out (fn (_, _, entry) => member (op =) old_serials (#serial entry))
+        val actual =
+          map (fn (kind, name, entry) =>
+            (kind, name, dest_Const_name (#hol_term entry))) added
+        val expected =
+          map (fn (name, lens) =>
+            (Micro_Rust_Names.NField, name,
+             dest_Const_name
+               (Proof_Context.read_const {proper = true, strict = false} ctxt lens)))
+            expected
+      in
+        if length actual = length expected andalso
+            forall (member (op =) actual) expected
+        then () else error (label ^ " installed unexpected field backends")
+      end
+
+    val _ =
+      List.app
+        (fn (label, options, binding, enabled) =>
+          let
+            val (result, _, _) =
+              capture_result true ("registration-" ^ label)
+                ("urust_datatype " ^ options ^ binding ^ " " ^
+                  datatype_source "OptionFixture" "freshAlias: u32,")
+            val ctxt = result_context result
+            val hol_name = if binding = "" then "option_fixture" else binding
+            val lens = hol_name ^ "_" ^ hol_name ^ "_fresh_alias_lens"
+            val _ =
+              ignore (Proof_Context.get_thm ctxt (lens ^ "_valid"))
+          in
+            if enabled then assert_new_fields label ctxt [("freshAlias", lens)]
+            else assert_registry_unchanged label \<^context> ctxt
+          end)
+        [("default-inferred", "", "", true),
+         ("default-explicit", "", "explicit_option_fixture", true),
+         ("bare-inferred", "[register_notation] ", "", true),
+         ("bare-explicit", "[register_notation] ", "explicit_option_fixture", true),
+         ("true-inferred", "[register_notation = true] ", "", true),
+         ("true-explicit", "[register_notation = true] ", "explicit_option_fixture", true),
+         ("false-inferred", "[register_notation = false] ", "", false),
+         ("false-explicit", "[register_notation = false] ", "explicit_option_fixture", false),
+         ("mixed-first", "[register_notation = false, pp_test, pretty, verbosity = 1] ", "", false),
+         ("mixed-last", "[verbosity = 2, pretty, pp_test, register_notation] ", "", true)]
+
+    val _ =
+      List.app
+        (fn enabled =>
+          List.app
+            (fn (label, source, fields) =>
+              let
+                val (result, _, _) =
+                  capture_result true ("shape-" ^ label)
+                    ("urust_datatype [pp_test, register_notation = " ^
+                      Bool.toString enabled ^ "] option_shape " ^ cartouche source)
+                val ctxt = result_context result
+              in
+                if enabled
+                then assert_new_fields label ctxt
+                  (map (fn field =>
+                    (field, "option_shape_option_shape_" ^
+                      URust_AST.rust_snake_case field ^ "_lens")) fields)
+                else assert_registry_unchanged label \<^context> ctxt
+              end)
+            [("unit", "struct OptionShape;", []),
+             ("tuple", "struct OptionShape(u32, bool);", []),
+             ("enum", "enum OptionShape { Idle, Data(u32), Named { freshAlias: bool } }", []),
+             ("named-one", "struct OptionShape { freshAlias: u32 }", ["freshAlias"]),
+             ("named-fourteen",
+              "struct OptionShape { " ^
+                commas (map (fn n => "field" ^ string_of_int n ^ ": u32") (1 upto 14)) ^ " }",
+              map (fn n => "field" ^ string_of_int n) (1 upto 14)),
+             ("name-boundaries", "struct OptionShape { camelCase: u32, HTTP2Status: bool }",
+              ["camelCase", "HTTP2Status"])])
+        [false, true]
+
+    val (inherited_result, _, _) =
+      capture_result true "inherited-registration"
+        ("urust_datatype [register_notation = false] inherited_aliases " ^
+          datatype_source "InheritedAliases" "value: bool, sampleValue: u32," ^ "\n" ^
+         "urust_expr _ " ^ cartouche " (ParserNumberBox { value: 1u32 }).value " ^ "\n" ^
+         "urust_expr _ " ^
+          cartouche " (NotationPacket { sampleValue: 1u32, HTTP2Code: true }).sampleValue ")
+    val _ =
+      assert_registry_unchanged "inherited and overloaded aliases"
+        \<^context> (result_context inherited_result)
+
+    val (fallback_result, _, _) =
+      capture_result true "unregistered-field-fallback"
+        ("urust_datatype [register_notation = false] fallback_packet " ^
+          datatype_source "FallbackPacket" "fallbackAlias: u32,")
+    val fallback_ctxt = result_context fallback_result
+    val fallback_term =
+      Parser_Test_Elaboration.expression fallback_ctxt
+        (Parser_Lex_Util.text_source
+          "(FallbackPacket { fallbackAlias: 1u32 }).fallbackAlias")
+    val _ =
+      if exists (fn (name, _) => name = "fallbackAlias") (Term.add_frees fallback_term []) andalso
+          not (Term.exists_subterm
+            (fn Const (name, _) => String.isSuffix "_fallback_alias_lens" name | _ => false)
+            fallback_term)
+      then () else error "unregistered-name fallback was mistaken for an installed lens"
+    val (manual_result, _, _) =
+      capture_result true "manual-registration"
+        ("urust_datatype [register_notation = false] manual_packet " ^
+          datatype_source "ManualPacket" "manualAlias: u32," ^ "\n" ^
+         "urust_notation (field) manual_packet_manual_packet_manual_alias_lens (\"manualAlias\")")
+    val manual_ctxt = result_context manual_result
+    val _ =
+      assert_new_fields "manual registration" manual_ctxt
+        [("manualAlias", "manual_packet_manual_packet_manual_alias_lens")]
+    val manual_term =
+      Parser_Test_Elaboration.expression manual_ctxt
+        (Parser_Lex_Util.text_source
+          "(ManualPacket { manualAlias: 1u32 }).manualAlias")
+    val manual_lens =
+      dest_Const_name
+        (Proof_Context.read_const {proper = true, strict = false} manual_ctxt
+          "manual_packet_manual_packet_manual_alias_lens")
+    val _ =
+      if Term.exists_subterm
+          (fn Const (name, _) => name = manual_lens | _ => false) manual_term
+      then () else error "manual field registration did not resolve to the generated lens"
+
+    val _ =
+      List.app
+        (fn level =>
+          let
+            val captured =
+              capture_full_result true ("suppressed-output-" ^ string_of_int level)
+                ("urust_datatype [register_notation = false, pp_test, pretty, verbosity = " ^
+                  string_of_int level ^ "] suppressed_output " ^
+                  datatype_source "SuppressedOutput" "outputAlias: u32,")
+            val ctxt = result_context (#result captured)
+            val _ = assert_registry_unchanged "pretty replay" \<^context> ctxt
+          in
+            if level = 0
+            then assert_absent "quiet suppressed output"
+              "urust_datatype generated artifacts" (#plain captured)
+            else
+              let
+                val output = #plain captured
+                val mapping_start =
+                  the (substring_index "installed Rust mappings:" output)
+                val after_mappings =
+                  String.extract (output, mapping_start, NONE)
+                val mapping_length =
+                  the (substring_index "normalized uRust declaration" after_mappings)
+                val mappings = String.substring (after_mappings, 0, mapping_length)
+                val field_kinds = entity_kinds "outputAlias" (#body captured)
+                val _ =
+                  List.app (fn text => assert_contains "suppressed manifest" text output)
+                    ["lenses:", "suppressed_output_suppressed_output_output_alias_lens",
+                     "normalized uRust declaration"]
+                val _ = assert_absent "suppressed mappings" "outputAlias" mappings
+                val _ = assert_contains "retained constructor mapping" "SuppressedOutput" mappings
+                val _ =
+                  if member (op =) field_kinds Markup.constantN andalso
+                      last_element "suppressed source field" field_kinds = "urust_field"
+                  then () else error "suppressed registration lost source-field navigation"
+              in
+                if level = 2
+                then assert_contains "suppressed lens definitions" "definition" output
+                else assert_absent "compact suppressed output" "normalized generated declaration" output
+              end
+          end)
+        [0, 1, 2]
+
+    val _ =
+      List.app
+        (fn (label, options, diagnostic) =>
+          assert_rejected_all ("registration-error-" ^ label)
+            [diagnostic, "registration-error-" ^ label]
+            ("urust_datatype [" ^ options ^ "] option_error " ^
+              datatype_source "OptionError" "errorAlias: u32,"))
+        [("duplicate", "register_notation, register_notation = false",
+          "duplicate uRust command option \"register_notation\""),
+         ("integer", "register_notation = 1", "expects true or false"),
+         ("attributes", "register_notation = []", "expects true or false"),
+         ("invalid", "register_notation = perhaps", "Outer syntax error"),
+         ("missing-value", "register_notation =", "Outer syntax error"),
+         ("missing-comma", "register_notation pretty", "Outer syntax error"),
+         ("prefixed", "urust_register_notation = false",
+          "unknown uRust command option \"urust_register_notation\"")]
+    val _ =
+      List.app
+        (fn command =>
+          assert_rejected ("registration-on-" ^ command)
+            "unknown uRust command option \"register_notation\""
+            (command ^ " [register_notation] option_wrong_command " ^ cartouche " () "))
+        ["urust_expr", "urust_fn"]
+
+    fun assert_registration_atomic label prefix source diagnostic =
+      let
+        val (prefix_result, _, _) = capture_result true label prefix
+        val before_state =
+          (case prefix_result of Exn.Res state => state | Exn.Exn exn => Exn.reraise exn)
+        val earlier_ctxt = Toplevel.context_of before_state
+        val thy = Toplevel.theory_of before_state
+        val [transition] =
+          Outer_Syntax.parse_text thy (K thy) (Position.line_file 1 label)
+            ("urust_datatype [register_notation = false, verbosity = 2] atomic_packet " ^
+              cartouche source)
+        val _ =
+          (case Exn.result (Toplevel.command_exception true transition) before_state of
+             Exn.Res _ => error (label ^ " unexpectedly succeeded")
+           | Exn.Exn exn =>
+               assert_contains label diagnostic (Runtime.exn_message exn))
+        val later_ctxt = Toplevel.context_of before_state
+        val _ = assert_registry_unchanged label earlier_ctxt later_ctxt
+        val NONE = URust_Item_Scope.lookup_type later_ctxt "AtomicPacket"
+        val NONE = URust_Item_Scope.lookup_constructor later_ctxt "AtomicPacket"
+        val NONE = URust_Type_Mappings.lookup later_ctxt "AtomicPacket"
+        val NONE =
+          Ctr_Sugar.ctr_sugar_of later_ctxt
+            (Long_Name.qualify (Context.theory_name {long = false} thy) "atomic_packet")
+        val [recovery] =
+          Outer_Syntax.parse_text thy (K thy) (Position.line_file 1 label)
+            ("urust_datatype [register_notation = false] atomic_packet " ^
+              datatype_source "AtomicRecovery" "atomicAlias: u32,")
+        val recovered = Toplevel.command_exception true recovery before_state |> Toplevel.context_of
+      in assert_registry_unchanged (label ^ " recovery") earlier_ctxt recovered end
+
+    val _ =
+      List.app
+        (fn (label, source, diagnostic) =>
+          assert_registration_atomic label "" source diagnostic)
+        [("suppressed-duplicate", "struct AtomicPacket { atomicAlias: u32, atomicAlias: bool }",
+          "duplicate field"),
+         ("suppressed-collision", "struct AtomicPacket { fooBar: u32, foo_bar: bool }",
+          "duplicate generated HOL field"),
+         ("suppressed-arity", "struct AtomicPacket { " ^
+          commas (map (fn n => "f" ^ string_of_int n ^ ": u32") (1 upto 15)) ^ " }",
+          "at most 14"),
+         ("suppressed-tuple-arity", "struct AtomicPacket(" ^
+          commas (replicate 15 "u32") ^ ");", "at most 14"),
+         ("suppressed-duplicate-variant", "enum AtomicPacket { Repeated, Repeated }",
+          "duplicate variant"),
+         ("suppressed-variant-collision",
+          "enum AtomicPacket { FooBar { value: u32 }, Foo_Bar { value: bool } }",
+          "duplicate generated HOL selector"),
+         ("suppressed-named-variant-arity", "enum AtomicPacket { Named { " ^
+          commas (map (fn n => "f" ^ string_of_int n ^ ": u32") (1 upto 15)) ^ " } }",
+          "at most 14"),
+         ("suppressed-tuple-variant-arity", "enum AtomicPacket { Tuple(" ^
+          commas (replicate 15 "u32") ^ ") }", "at most 14")]
+    val _ =
+      assert_registration_atomic "suppressed-late-conflict"
+        "urust_notation (literal) True (\"AtomicPacket\")"
+        "struct AtomicPacket { atomicAlias: u32 }"
+        "conflicts with an existing micro_rust_notation"
+    val _ =
+      assert_succeeded "registration-diagnostic-recovery"
+        ("urust_datatype [register_notation] " ^
+          datatype_source "RegistrationRecovery" "recoveryAlias: u32,")
 
     val (_, _, quiet) =
       capture_result true "quiet"
