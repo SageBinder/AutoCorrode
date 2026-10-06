@@ -26,7 +26,6 @@ sig
   val struct_head_generics_error: Position.T -> 'a
   val hol_type_error: Position.T -> 'a
   val hol_type_prefix_error: Position.T -> 'a
-  val datatype_type_error: string -> Position.T -> 'a
   val item_in_expression_error:
     string -> string -> Position.T -> 'a
 end
@@ -117,12 +116,6 @@ struct
       ("uRust HOL type cartouches must use the \<tau> prefix" ^
         Position.here pos)
 
-  fun datatype_type_error name pos =
-    error
-      ("urust_datatype: unsupported bare field type " ^ quote name ^
-        "; use a \<tau>-prefixed HOL type cartouche" ^
-        Position.here pos)
-
   fun item_in_expression_error kind command pos =
     error
       ("uRust " ^ kind ^
@@ -201,6 +194,17 @@ val hol_type_start = ref 0
 val hol_type_depth = ref 0
 val pending_signature_tokens = ref ([] : lexresult list)
 val signature_paren_depth = ref 0
+val signature_brace_depth = ref 0
+
+datatype signature_context =
+    Function_Signature
+  | Datatype_Signature
+val signature_context = ref Function_Signature
+
+datatype hol_type_context =
+    Initial_HOL_Type
+  | Signature_HOL_Type
+val hol_type_context = ref Initial_HOL_Type
 
 datatype comment_context =
     Initial_Comment
@@ -226,13 +230,16 @@ fun reset_block_comment () =
   (block_comment_open := NONE; block_comment_depth := 0;
    block_comment_context := NONE)
 fun reset_hol_type () =
-  (hol_type_open := NONE; hol_type_start := 0; hol_type_depth := 0)
+  (hol_type_open := NONE; hol_type_start := 0; hol_type_depth := 0;
+   hol_type_context := Initial_HOL_Type)
 fun reset_comment () =
   (comment_context := NONE; comment_open := 0; comment_depth := ~1)
 fun reset_state () =
   (reset_aq (); reset_generic (); reset_log_data ();
    reset_block_comment (); reset_hol_type (); reset_comment ();
-   pending_signature_tokens := []; signature_paren_depth := 0)
+   pending_signature_tokens := []; signature_paren_depth := 0;
+   signature_brace_depth := 0;
+   signature_context := Function_Signature)
 fun start_aq kind open_pos open_text body_pos =
   (aq_kind := kind; aq_buf := []; aq_start := body_pos; aq_open := open_pos;
    aq_open_text := open_text; aq_depth := 0)
@@ -249,6 +256,10 @@ fun start_hol_type open_pos open_text =
   (hol_type_open := SOME open_pos;
    hol_type_start := open_pos + size open_text;
    hol_type_depth := 1)
+fun start_signature context =
+  (signature_context := context;
+   signature_paren_depth := 0;
+   signature_brace_depth := 0)
 
 (* A suffixed integer literal is deliberately NOT interpreted here: the lexer captures the raw lexeme and
    the elaboration term layer reads it against the single suffix table, so an unknown suffix is a
@@ -375,7 +386,7 @@ fun tok_integer typ cons (yypos, yytext) =
         (range, Markup.numeral, typ)
   in cons (literal, start, stop) end
 
-fun start_hol_type_token (yypos, yytext) =
+fun start_hol_type_token context (yypos, yytext) =
   let
     val symbols = Symbol.explode yytext
     val prefix = hd symbols
@@ -385,6 +396,7 @@ fun start_hol_type_token (yypos, yytext) =
     val _ =
       report_text
         (opener_pos, opener, Markup.delimiter, "HOLTYPE")
+    val _ = hol_type_context := context
   in start_hol_type yypos yytext end
 fun finish_block_comment (close_pos, close_text) =
   (case !block_comment_open of
@@ -622,10 +634,15 @@ lex_rules\<open>
     (tok_integer "NUMSFX" Tokens.NUMSFX (yypos, yytext));
 <INITIAL>"true"   => (tokF (yypos, yytext, Markup.keyword1, "TTRUE", Tokens.TTRUE));
 <INITIAL>"false"  => (tokF (yypos, yytext, Markup.keyword1, "TFALSE", Tokens.TFALSE));
-<INITIAL>"fn"     => (YYBEGIN FNSIG;
+<INITIAL>"fn"     => (start_signature Function_Signature;
+                      YYBEGIN FNSIG;
                       tokF (yypos, yytext, Markup.keyword1, "TFN", Tokens.TFN));
-<INITIAL>"struct" => (tokF (yypos, yytext, Markup.keyword1, "TSTRUCT", Tokens.TSTRUCT));
-<INITIAL>"enum"   => (tokF (yypos, yytext, Markup.keyword1, "TENUM", Tokens.TENUM));
+<INITIAL>"struct" => (start_signature Datatype_Signature;
+                      YYBEGIN FNSIG;
+                      tokF (yypos, yytext, Markup.keyword1, "TSTRUCT", Tokens.TSTRUCT));
+<INITIAL>"enum"   => (start_signature Datatype_Signature;
+                      YYBEGIN FNSIG;
+                      tokF (yypos, yytext, Markup.keyword1, "TENUM", Tokens.TENUM));
 <INITIAL>"as"     => (tokF (yypos, yytext, Markup.keyword1, "TAS", Tokens.TAS));
 <INITIAL>"u8"     => (tok_valF (yypos, yytext, Markup.keyword1, "TUINT", Tokens.TUINT, UT_U8));
 <INITIAL>"u16"    => (tok_valF (yypos, yytext, Markup.keyword1, "TUINT", Tokens.TUINT, UT_U16));
@@ -697,7 +714,7 @@ lex_rules\<open>
 <INITIAL>"l"\\"<llangle>" =>
     (YYBEGIN LOGDATA; tok_log_data_open (yypos, yytext));
 <INITIAL>\\"<tau>"\\"<open>" =>
-    (start_hol_type_token (yypos, yytext);
+    (start_hol_type_token Initial_HOL_Type (yypos, yytext);
      YYBEGIN HOLTYPE;
      lex());
 <INITIAL>\\"<open>" =>
@@ -838,17 +855,39 @@ lex_rules\<open>
 <FNSIG>"\""([^\"\\\n]|\\.)*"\"" =>
     (tok_valF (yypos, yytext, Markup.inner_string, "STRING", Tokens.STRING, yytext));
 <FNSIG>"\""     => (URust_Grammar.string_error (fixed_pos yypos));
+<FNSIG>\\"<tau>"\\"<open>" =>
+    (start_hol_type_token Signature_HOL_Type (yypos, yytext);
+     YYBEGIN HOLTYPE;
+     lex());
+<FNSIG>\\"<open>" =>
+    (URust_Grammar.hol_type_prefix_error (fixed_pos yypos));
 <FNSIG>"("      => (signature_left_paren (yypos, yytext));
 <FNSIG>")"      => (signature_right_paren (yypos, yytext));
 <FNSIG>"["      => (tokF (yypos, yytext, Markup.delimiter, "TLBRACK", Tokens.TLBRACK));
 <FNSIG>"]"      => (tokF (yypos, yytext, Markup.delimiter, "TRBRACK", Tokens.TRBRACK));
 <FNSIG>","      => (tokF (yypos, yytext, Markup.delimiter, "COMMA", Tokens.COMMA));
-<FNSIG>";"      => (tokF (yypos, yytext, Markup.delimiter, "TSEMI", Tokens.TSEMI));
+<FNSIG>";"      =>
+    (if !signature_context = Datatype_Signature andalso
+        !signature_paren_depth = 0 andalso
+        !signature_brace_depth = 0
+     then YYBEGIN INITIAL
+     else ();
+     tokF (yypos, yytext, Markup.delimiter, "TSEMI", Tokens.TSEMI));
 <FNSIG>":"      => (tokF (yypos, yytext, Markup.delimiter, "TCOLON", Tokens.TCOLON));
 <FNSIG>"{"      =>
-    (if !signature_paren_depth = 0 then YYBEGIN INITIAL else ();
+    (if !signature_context = Datatype_Signature
+     then signature_brace_depth := !signature_brace_depth + 1
+     else if !signature_paren_depth = 0 then YYBEGIN INITIAL
+     else ();
      signature_left_brace (yypos, yytext));
-<FNSIG>"}"      => (tokF (yypos, yytext, Markup.delimiter, "TRBRACE", Tokens.TRBRACE));
+<FNSIG>"}"      =>
+    (if !signature_context = Datatype_Signature
+     then
+       (signature_brace_depth :=
+          Int.max (0, !signature_brace_depth - 1);
+        if !signature_brace_depth = 0 then YYBEGIN INITIAL else ())
+     else ();
+     tokF (yypos, yytext, Markup.delimiter, "TRBRACE", Tokens.TRBRACE));
 <FNSIG>{idstart}{identchar}* => (tok_ident (yypos, yytext));
 <FNSIG>.        => (URust_Grammar.lex_error yytext (fixed_pos yypos));
 <LOGDATA>\n       => (lex());
@@ -888,8 +927,14 @@ lex_rules\<open>
     (if !hol_type_depth > 1 then
        (hol_type_depth := !hol_type_depth - 1; lex())
      else
-       (YYBEGIN INITIAL;
-        finish_hol_type (yypos, yytext)));
+       let
+         val context = !hol_type_context
+         val token = finish_hol_type (yypos, yytext)
+         val _ =
+           (case context of
+              Initial_HOL_Type => YYBEGIN INITIAL
+            | Signature_HOL_Type => YYBEGIN FNSIG)
+       in token end);
 <HOLTYPE>\n => (lex());
 <HOLTYPE>.  => (lex());
 <COMMENT_OPEN>\n       => (lex());
@@ -1136,26 +1181,6 @@ fun make_function_literal
        arguments)
   else
     URust_Grammar.function_literal_suffix_error suffix_left
-
-fun datatype_unsigned_type UT_U8 = DPT_U8
-  | datatype_unsigned_type UT_U16 = DPT_U16
-  | datatype_unsigned_type UT_U32 = DPT_U32
-  | datatype_unsigned_type UT_U64 = DPT_U64
-  | datatype_unsigned_type UT_Usize = DPT_Usize
-
-fun datatype_signed_type ST_I32 = DPT_I32
-  | datatype_signed_type ST_I64 = DPT_I64
-
-fun report_datatype_keyword pos typ =
-  (Position.report pos Markup.keyword1;
-   Position.report_text pos Markup.typing typ)
-
-fun datatype_identifier_type (name, pos) =
-  if name = "bool"
-  then
-    (report_datatype_keyword pos "TBOOL";
-     Primitive_Type (DPT_Bool, pos))
-  else URust_Grammar.datatype_type_error name pos
 
 fun datatype_variant (name, pos, shape) =
   Datatype_Variant (name, pos, shape)
@@ -1499,6 +1524,8 @@ yacc_rules\<open>
              [(Delimiter_Token "[", TLBRACKleft),
               (Delimiter_Token ";", TSEMIleft),
               (Delimiter_Token "]", TRBRACKleft)]))
+    | HOLTYPE
+        (HOL_Type_Source HOLTYPE)
   urust_type_path :
       urust_type_segment
         (rust_type_path urust_type_segment)
@@ -1543,20 +1570,8 @@ yacc_rules\<open>
             | uvariant COMMA ([uvariant])
             | uvariant COMMA uvariants (uvariant :: uvariants)
   udatatype_type :
-      TUINT
-        (Primitive_Type
-          (datatype_unsigned_type TUINT, TUINTleft))
-    | TSINT
-        (Primitive_Type
-          (datatype_signed_type TSINT, TSINTleft))
-    | IDENT
-        (datatype_identifier_type (IDENT, IDENTleft))
-    | LPAR RPAR
-        (Primitive_Type
-          (DPT_Unit,
-           Position.range_position (LPARleft, RPARright)))
-    | HOLTYPE
-        (HOL_Type_Source HOLTYPE)
+      urust_type
+        (urust_type)
   udatatype_types : udatatype_type ([udatatype_type])
                   | udatatype_type COMMA ([udatatype_type])
                   | udatatype_type COMMA udatatype_types

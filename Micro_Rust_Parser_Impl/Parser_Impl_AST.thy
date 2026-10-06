@@ -105,6 +105,7 @@ sig
     | DPT_Str
     | DPT_Never
     | DPT_Unit
+  val rust_primitive_name: rust_primitive_type -> string
   datatype rust_type =
       Primitive_Type of rust_primitive_type * Position.T
     | Path_Type of rust_type_path_segment list * source_layout
@@ -576,6 +577,25 @@ struct
     | DPT_Str
     | DPT_Never
     | DPT_Unit
+
+  fun rust_primitive_name DPT_U8 = "u8"
+    | rust_primitive_name DPT_U16 = "u16"
+    | rust_primitive_name DPT_U32 = "u32"
+    | rust_primitive_name DPT_U64 = "u64"
+    | rust_primitive_name DPT_U128 = "u128"
+    | rust_primitive_name DPT_Usize = "usize"
+    | rust_primitive_name DPT_I8 = "i8"
+    | rust_primitive_name DPT_I16 = "i16"
+    | rust_primitive_name DPT_I32 = "i32"
+    | rust_primitive_name DPT_I64 = "i64"
+    | rust_primitive_name DPT_I128 = "i128"
+    | rust_primitive_name DPT_Isize = "isize"
+    | rust_primitive_name DPT_Bool = "bool"
+    | rust_primitive_name DPT_Char = "char"
+    | rust_primitive_name DPT_Str = "str"
+    | rust_primitive_name DPT_Never = "!"
+    | rust_primitive_name DPT_Unit = "()"
+
   datatype rust_type =
       Primitive_Type of rust_primitive_type * Position.T
     | Path_Type of rust_type_path_segment list * source_layout

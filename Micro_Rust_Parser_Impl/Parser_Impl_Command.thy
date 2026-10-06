@@ -95,9 +95,13 @@ results. The standard interactive and \<open>show_results\<close> gates still co
 
 \<open>urust_datatype\<close> accepts the common scoped/inline \<open>pp_test\<close>, \<open>pretty\<close>, and
 \<open>verbosity\<close> options. It accepts an optional HOL binding followed by one required source
-cartouche containing a complete Rust-shaped struct or enum item. Composite and user-defined HOL
-field types use \<open>\<tau>\<open>TYPE\<close>\<close>, mirroring the \<open>\<epsilon>\<open>TERM\<close>\<close> expression
-antiquotation. An omitted binding is inferred with acronym-aware ASCII snake case. Level 0 is quiet;
+cartouche containing a complete Rust-shaped struct or enum item. Nominal and primitive field types
+resolve only through context-local \<open>urust_type\<close> declarations; qualified and generic mappings use
+ordered placeholders that exactly match the HOL template's free type variables. Rust tuples are
+encoded structurally as right-nested products ending in \<open>tnil\<close>. The explicit
+\<open>\<tau>\<open>TYPE\<close>\<close> form is the only registry bypass. An omitted binding is inferred with
+acronym-aware ASCII snake case. Successful structs and enums register their Rust names for later
+datatype fields. Level 0 is quiet;
 level 1 reports the completed public type, constructors, selectors, lenses, and exact Rust mappings;
 level 2 adds the normalized generated HOL declaration and complete public selector/lens definitions.
 With \<open>pretty = true\<close>, levels 1 and 2 additionally show the normalized human-readable uRust
