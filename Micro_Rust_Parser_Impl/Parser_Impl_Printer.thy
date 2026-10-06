@@ -439,23 +439,7 @@ fun repeat_length_document options required repeat_length =
               space @ keyword "as" @ space @ keyword "usize")
        in wrap_document required cast_precedence document end)
 
-fun datatype_primitive_name DPT_U8 = "u8"
-  | datatype_primitive_name DPT_U16 = "u16"
-  | datatype_primitive_name DPT_U32 = "u32"
-  | datatype_primitive_name DPT_U64 = "u64"
-  | datatype_primitive_name DPT_U128 = "u128"
-  | datatype_primitive_name DPT_Usize = "usize"
-  | datatype_primitive_name DPT_I8 = "i8"
-  | datatype_primitive_name DPT_I16 = "i16"
-  | datatype_primitive_name DPT_I32 = "i32"
-  | datatype_primitive_name DPT_I64 = "i64"
-  | datatype_primitive_name DPT_I128 = "i128"
-  | datatype_primitive_name DPT_Isize = "isize"
-  | datatype_primitive_name DPT_Bool = "bool"
-  | datatype_primitive_name DPT_Char = "char"
-  | datatype_primitive_name DPT_Str = "str"
-  | datatype_primitive_name DPT_Never = "!"
-  | datatype_primitive_name DPT_Unit = "()"
+val datatype_primitive_name = rust_primitive_name
 
 fun rust_type_document rust_type =
   let

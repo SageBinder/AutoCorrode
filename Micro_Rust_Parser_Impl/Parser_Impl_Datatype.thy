@@ -3,6 +3,7 @@ theory Parser_Impl_Datatype
     Parser_Impl_Grammar
     Parser_Impl_Printer_Output
     Parser_Impl_Translate
+    Parser_Impl_Type_Mappings_Builtins
 begin
 
 section\<open> Rust datatype declarations \<close>
@@ -33,6 +34,7 @@ structure URust_Datatype :> URUST_DATATYPE =
 struct
 
 structure I = URust_Item_Scope
+structure Navigation = Micro_Rust_Semantic_Navigation
 
 fun verbosity_output_enabled interactive lthy =
   interactive orelse Config.get lthy Proof_Display.show_results
@@ -134,51 +136,7 @@ fun check_constructor_arity name pos arity =
         string_of_int arity ^
         " fields; at most 14 are supported") pos
 
-fun primitive_type_source URust_AST.DPT_U8 = "8 word"
-  | primitive_type_source URust_AST.DPT_U16 = "16 word"
-  | primitive_type_source URust_AST.DPT_U32 = "32 word"
-  | primitive_type_source URust_AST.DPT_U64 = "64 word"
-  | primitive_type_source URust_AST.DPT_U128 = "128 word"
-  | primitive_type_source URust_AST.DPT_Usize = "64 word"
-  | primitive_type_source URust_AST.DPT_I8 = "8 word"
-  | primitive_type_source URust_AST.DPT_I16 = "16 word"
-  | primitive_type_source URust_AST.DPT_I32 = "32 word"
-  | primitive_type_source URust_AST.DPT_I64 = "64 word"
-  | primitive_type_source URust_AST.DPT_I128 = "128 word"
-  | primitive_type_source URust_AST.DPT_Isize = "64 word"
-  | primitive_type_source URust_AST.DPT_Bool = "bool"
-  | primitive_type_source URust_AST.DPT_Char = "char"
-  | primitive_type_source URust_AST.DPT_Str =
-      error "urust_datatype: Rust str is not a supported datatype field type"
-  | primitive_type_source URust_AST.DPT_Never =
-      error "urust_datatype: Rust ! is not a supported datatype field type"
-  | primitive_type_source URust_AST.DPT_Unit = "unit"
-
-fun read_datatype_type lthy datatype_type =
-  let
-    val (source, pos) =
-      (case datatype_type of
-         URust_AST.Primitive_Type (primitive, pos) =>
-           (primitive_type_source primitive, pos)
-       | URust_AST.HOL_Type_Source input =>
-           (Syntax.implode_input input, Input.pos_of input))
-  in
-    (case Exn.result (fn () => Syntax.read_typ lthy source) () of
-       Exn.Res typ =>
-         if null (Term.add_tfreesT typ []) andalso
-             null (Term.add_tvarsT typ [])
-         then typ
-         else
-           positioned_datatype_error
-             "type variables are not supported in datatype fields"
-             pos
-     | Exn.Exn exn =>
-         if Exn.is_interrupt exn then Exn.reraise exn
-         else
-           error
-             (Runtime.exn_message exn ^
-               Position.here pos))
-  end
+val read_datatype_type = URust_Type_Mappings.resolve
 
 fun datatype_field_name
     (URust_AST.Datatype_Field (name, _, _)) = name
@@ -189,6 +147,69 @@ fun datatype_field_position
 fun datatype_field_type
     (URust_AST.Datatype_Field (_, _, datatype_type)) =
       datatype_type
+
+fun recursive_type_position rust_name datatype_type =
+  let
+    fun argument
+        (URust_AST.Rust_Type_Argument typ) = typ_position typ
+      | argument (URust_AST.Rust_Numeric_Argument _) = NONE
+    and typ_position
+        (URust_AST.Primitive_Type _) = NONE
+      | typ_position (URust_AST.Path_Type (segments, layout)) =
+          let
+            fun segment
+                (URust_AST.Rust_Type_Path_Segment
+                  (name, _, arguments, _)) =
+              (name, the_default [] arguments)
+            val rows = map segment segments
+            val path = space_implode "::" (map fst rows)
+          in
+            if path = rust_name
+            then SOME (URust_AST.source_span layout)
+            else get_first argument (maps snd rows)
+          end
+      | typ_position (URust_AST.Tuple_Type (types, _)) =
+          get_first typ_position types
+      | typ_position (URust_AST.Group_Type (typ, _)) =
+          typ_position typ
+      | typ_position (URust_AST.Reference_Type (_, typ, _)) =
+          typ_position typ
+      | typ_position (URust_AST.Raw_Pointer_Type (_, typ, _)) =
+          typ_position typ
+      | typ_position (URust_AST.Slice_Type (typ, _)) =
+          typ_position typ
+      | typ_position (URust_AST.Array_Type (typ, _, _)) =
+          typ_position typ
+      | typ_position (URust_AST.HOL_Type_Source _) = NONE
+  in typ_position datatype_type end
+
+fun reject_recursive_shape rust_name shape =
+  let
+    val types =
+      (case shape of
+         URust_AST.Unit_Shape => []
+       | URust_AST.Tuple_Shape types => types
+       | URust_AST.Named_Shape fields =>
+           map datatype_field_type fields)
+  in
+    (case get_first (recursive_type_position rust_name) types of
+       NONE => ()
+     | SOME pos =>
+         positioned_datatype_error
+           ("recursive Rust datatype reference " ^
+             quote rust_name ^ " is not supported")
+           pos)
+  end
+
+fun reject_recursive_item rust_name item =
+  (case item of
+     URust_AST.Struct_Item (_, _, shape, _) =>
+       reject_recursive_shape rust_name shape
+   | URust_AST.Enum_Item (_, _, variants, _) =>
+       List.app
+         (fn URust_AST.Datatype_Variant (_, _, shape) =>
+           reject_recursive_shape rust_name shape)
+         variants)
 
 fun shape_fields URust_AST.Unit_Shape = []
   | shape_fields (URust_AST.Tuple_Shape types) =
@@ -1046,6 +1067,7 @@ fun define
       (case item of
          URust_AST.Struct_Item (name, pos, _, _) => (name, pos)
        | URust_AST.Enum_Item (name, pos, _, _) => (name, pos))
+    val _ = reject_recursive_item rust_name item
     val _ =
       if pp_test
       then datatype_roundtrip lthy source item
@@ -1053,31 +1075,50 @@ fun define
     val type_binding =
       the_default (infer_datatype_binding rust_name rust_pos)
         explicit_binding
-    val (generated, lthy'') =
-      let
-        val (generated, lthy') =
-          generate_urust_datatype type_binding item
-            (Config.put Proof_Display.show_results false lthy)
-        val lthy'' =
-          register_generated_datatype generated lthy'
-      in (generated, lthy'') end
-    val final_lthy =
-      Config.put Proof_Display.show_results
-        (Config.get lthy Proof_Display.show_results) lthy''
-    val artifacts =
-      completed_generated_artifacts generated final_lthy
+    val expected_hol_type_name =
+      Local_Theory.full_name lthy type_binding
     val _ =
-      report_generated_field_declarations final_lthy artifacts
-    val pretty_declaration =
-      if pretty andalso verbosity > 0 andalso
-          verbosity_output_enabled interactive final_lthy
-      then
-        SOME
-          (URust_Printer_Output.pretty_human_datatype_with_reparse
-            (report_generated_datatype_replay
-              final_lthy artifacts)
-            item)
-      else NONE
+      URust_Type_Mappings.preflight_generated
+        {rust_name = rust_name,
+         rust_pos = rust_pos,
+         hol_type_name = expected_hol_type_name}
+        lthy
+    val ((generated, final_lthy, artifacts, pretty_declaration),
+         type_reports) =
+      Navigation.capture (fn () =>
+        let
+          val (generated, lthy') =
+            generate_urust_datatype type_binding item
+              (Config.put Proof_Display.show_results false lthy)
+          val lthy'' =
+            register_generated_datatype generated lthy'
+          val lthy''' =
+            URust_Type_Mappings.register_generated
+              {rust_name = rust_name,
+               rust_pos = rust_pos,
+               hol_type_name = #hol_type_name generated}
+              lthy''
+          val final_lthy =
+            Config.put Proof_Display.show_results
+              (Config.get lthy Proof_Display.show_results) lthy'''
+          val artifacts =
+            completed_generated_artifacts generated final_lthy
+          val _ =
+            report_generated_field_declarations final_lthy artifacts
+          val pretty_declaration =
+            if pretty andalso verbosity > 0 andalso
+                verbosity_output_enabled interactive final_lthy
+            then
+              SOME
+                (URust_Printer_Output.pretty_human_datatype_with_reparse
+                  (report_generated_datatype_replay
+                    final_lthy artifacts)
+                  item)
+            else NONE
+        in
+          (generated, final_lthy, artifacts, pretty_declaration)
+        end)
+    val _ = Navigation.replay final_lthy type_reports
     val _ =
       print_generated_datatype interactive verbosity
         pretty_declaration
