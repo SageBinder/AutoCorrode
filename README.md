@@ -159,6 +159,27 @@ names for later datatype fields. Unit and tuple structs generate
 constructors use those exact Rust identities in values, calls, patterns, and struct expressions;
 they are not rediscovered through HOL basenames.
 
+Automatic field-lens aliases are controlled by Boolean `register_notation`, defaulting to `true`.
+`[register_notation]` enables it; `[register_notation = true]` and
+`[register_notation = false]` override the scoped `urust_register_notation` setting for one
+declaration. The option is accepted for every datatype shape and affects only named-struct field
+aliases. Disabling it preserves datatype and lens generation, lens proofs, constructor paths,
+source-field metadata, and type mappings. It adds no aliases and leaves earlier registrations
+usable. Scoped changes affect subsequent declarations without removing existing aliases.
+
+```isabelle
+urust_datatype [register_notation = false] ‹
+  struct Packet { sampleValue: u32 }
+›
+urust_notation (field) packet_packet_sample_value_lens ("sampleValue")
+
+declare [[urust_register_notation = false]]
+```
+
+The manual declaration installs the generated lens under the chosen Rust field name. Artifact
+manifests always list generated lenses, and list their aliases under “installed Rust mappings”
+only when automatic registration occurred.
+
 Datatype verbosity is cumulative. Level 0 is quiet, level 1 reports the completed public type,
 constructors, selectors, lenses, and installed Rust mappings, and level 2 additionally prints the
 normalized generated HOL declaration and public selector/lens definitions. With `pretty = true`,

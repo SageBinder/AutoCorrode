@@ -42,6 +42,25 @@ urust_datatype \<open>
   }
 \<close>
 
+text\<open>
+Field-lens aliases are enabled by default. Disabling \<open>register_notation\<close> retains the
+generated lenses, proofs, constructor paths, and type mapping. A manual declaration can install
+selected aliases later. The scoped setting is \<open>urust_register_notation\<close>; inline options
+override it for one declaration only.
+\<close>
+
+urust_datatype [register_notation = false, pp_test, pretty, verbosity = 1] \<open>
+  struct DatatypeSample { sampleValue: u32 }
+\<close>
+
+thm datatype_sample_datatype_sample_sample_value_lens_valid
+
+urust_notation (field) datatype_sample_datatype_sample_sample_value_lens ("sampleValue")
+
+urust_expr showoff_manual_datatype_field \<open>
+  (DatatypeSample { sampleValue: 9u32 }).sampleValue
+\<close>
+
 subsection\<open> Rust-shaped function items \<close>
 
 text\<open>

@@ -151,6 +151,7 @@ negative rows preserve these boundaries.
   audit.
 - `Parser_Rejection_Tests.thy`: parser diagnostics and iterator arity failures.
 - `Parser_Datatype_Tests.thy`: datatype declarations, generated registrations and navigation,
+  scoped/inline field-lens registration control, registry integrity, manual aliases, transactional
   diagnostics, and command output.
 - `Parser_Printer_Tests.thy`: serialized and human-readable expression and datatype printing,
   canonicalization, layout, positions, and malformed-AST diagnostics.

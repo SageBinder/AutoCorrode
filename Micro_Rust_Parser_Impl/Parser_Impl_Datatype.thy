@@ -26,7 +26,8 @@ sig
      interactive: bool,
      verbosity: int,
      pp_test: bool,
-     pretty: bool} ->
+     pretty: bool,
+     register_notation: bool} ->
     local_theory -> local_theory
 end
 
@@ -408,7 +409,7 @@ fun register_generated_datatype
       (descriptors ~~ (constructors ~~ selector_rows)) lthy'
   end
 
-fun make_named_struct rust_name rust_pos type_binding fields item lthy =
+fun make_named_struct register_notation rust_name rust_pos type_binding fields item lthy =
   let
     val hol_base = Binding.name_of type_binding
     val _ = validate_shape rust_name rust_pos (URust_AST.Named_Shape fields)
@@ -430,14 +431,18 @@ fun make_named_struct rust_name rust_pos type_binding fields item lthy =
       Datatype_Records.record type_binding
         Datatype_Records.default_ctr_options [] record_fields lthy
     val overrides =
-      map2
-        (fn (selector, _) => fn field =>
-          (Binding.name_of selector,
-           (datatype_field_name field, datatype_field_position field)))
-        record_fields fields
+      if register_notation
+      then
+        map2
+          (fn (selector, _) => fn field =>
+            (Binding.name_of selector,
+             (datatype_field_name field, datatype_field_position field)))
+          record_fields fields
+      (* The record generator rejects source-name overrides when field registration is disabled. *)
+      else []
     val lthy'' =
       Micro_Rust_Record.make
-        {with_fields = true,
+        {with_fields = register_notation,
          record_name = hol_base,
          overrides = overrides,
          report = false}
@@ -519,14 +524,14 @@ fun make_enum rust_name variants type_binding item lthy =
 fun infer_datatype_binding rust_name pos =
   Binding.make (snake_case rust_name, pos)
 
-fun generate_urust_datatype type_binding item lthy =
+fun generate_urust_datatype register_notation type_binding item lthy =
   (case item of
      URust_AST.Struct_Item
        (rust_name, rust_pos, shape, _) =>
        (validate_rust_item_name "item" (rust_name, rust_pos);
         case shape of
           URust_AST.Named_Shape fields =>
-            make_named_struct rust_name rust_pos type_binding fields item lthy
+            make_named_struct register_notation rust_name rust_pos type_binding fields item lthy
         | _ =>
             make_positional_struct rust_name rust_pos type_binding shape item lthy)
    | URust_AST.Enum_Item
@@ -541,6 +546,7 @@ type generated_artifacts =
      (string * URust_Item_Scope.constructor_entry) list,
    selectors: (string * string) list,
    lenses: (string * string) list,
+   register_notation: bool,
    selector_definitions: thm list,
    lens_definitions: (string * thm) list,
    item: URust_AST.urust_datatype}
@@ -589,7 +595,7 @@ fun theorem_for_definition lthy constant_name =
     (try (Proof_Context.get_thm lthy)
       (Thm.def_name constant_name))
 
-fun completed_generated_artifacts
+fun completed_generated_artifacts register_notation
     ({rust_name, hol_type_name, item, ...}: generated_datatype) lthy =
   let
     val descriptors = item_constructor_descriptors item
@@ -633,6 +639,7 @@ fun completed_generated_artifacts
      constructors = constructors,
      selectors = selectors,
      lenses = lenses,
+     register_notation = register_notation,
      selector_definitions = #sel_defs sugar,
      lens_definitions = lens_definitions,
      item = item}: generated_artifacts
@@ -891,7 +898,7 @@ fun pretty_manifest_section _ [] = []
       Pretty.str ("  " ^ title ^ ":") :: rows
 
 fun pretty_datatype_manifest lthy
-    ({rust_name, hol_type_name, constructors, selectors, lenses, ...}:
+    ({rust_name, hol_type_name, constructors, selectors, lenses, register_notation, ...}:
       generated_artifacts) =
   let
     val constructor_rows =
@@ -912,7 +919,7 @@ fun pretty_datatype_manifest lthy
          Pretty.str rust_name,
          Pretty.str " -> ",
          pretty_type_identity lthy hol_type_name] ::
-      constructor_rows @ lens_rows
+      constructor_rows @ (if register_notation then lens_rows else [])
     val item_row =
       Pretty.block
         [Pretty.str "  item: ",
@@ -1055,7 +1062,7 @@ fun print_generated_datatype
 
 fun define
     {source, explicit_binding, interactive, verbosity,
-     pp_test, pretty} lthy =
+     pp_test, pretty, register_notation} lthy =
   let
     val item =
       (case URust_Parser.parse_datatype_source lthy source of
@@ -1088,7 +1095,7 @@ fun define
       Navigation.capture (fn () =>
         let
           val (generated, lthy') =
-            generate_urust_datatype type_binding item
+            generate_urust_datatype register_notation type_binding item
               (Config.put Proof_Display.show_results false lthy)
           val lthy'' =
             register_generated_datatype generated lthy'
@@ -1102,7 +1109,7 @@ fun define
             Config.put Proof_Display.show_results
               (Config.get lthy Proof_Display.show_results) lthy'''
           val artifacts =
-            completed_generated_artifacts generated final_lthy
+            completed_generated_artifacts register_notation generated final_lthy
           val _ =
             report_generated_field_declarations final_lthy artifacts
           val pretty_declaration =

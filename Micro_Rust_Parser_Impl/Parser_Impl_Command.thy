@@ -94,7 +94,15 @@ headings; level 2 prints complete definition statements, abbreviation equations,
 results. The standard interactive and \<open>show_results\<close> gates still control enabled output.
 
 \<open>urust_datatype\<close> accepts the common scoped/inline \<open>pp_test\<close>, \<open>pretty\<close>, and
-\<open>verbosity\<close> options. It accepts an optional HOL binding followed by one required source
+\<open>verbosity\<close> options, plus Boolean \<open>register_notation\<close> (default true, scoped
+configuration \<open>urust_register_notation\<close>). A bare \<open>[register_notation]\<close> enables it;
+explicit true and false values override the scoped setting for that declaration only. False
+suppresses automatic field-lens aliases for named structs while retaining the datatype, lenses and
+their proofs, constructor paths, source-field metadata, and type mappings. Existing aliases remain
+installed; the setting affects subsequent declarations only. Unit/tuple structs and enums accept
+the option but do not generate field-lens aliases. A generated lens can be registered later with,
+for example, \<open>urust_notation (field) packet_packet_sample_value_lens ("sampleValue")\<close>.
+It accepts an optional HOL binding followed by one required source
 cartouche containing a complete Rust-shaped struct or enum item. Nominal and primitive field types
 resolve only through context-local \<open>urust_type\<close> declarations; qualified and generic mappings use
 ordered placeholders that exactly match the HOL template's free type variables. Rust tuples are
@@ -175,12 +183,16 @@ val urust_abbrev =
 val urust_application_def =
   Attrib.setup_config_bool \<^binding>\<open>urust_application_def\<close> (K false)
 
+val urust_register_notation =
+  Attrib.setup_config_bool \<^binding>\<open>urust_register_notation\<close> (K true)
+
 val pp_test_option = "pp_test"
 val pretty_option = "pretty"
 val verbosity_option = "verbosity"
 val abbrev_option = "abbrev"
 val application_def_option = "application_def"
 val attributes_option = "attrs"
+val register_notation_option = "register_notation"
 
 (* Command configurations:
    - urust_pp_test performs a serialized parse-print-parse token comparison for both commands; its
@@ -196,6 +208,8 @@ val attributes_option = "attrs"
      left-hand side; its inline alias is application_def.
    - attrs is inline-only and carries Isabelle theorem attributes for the generated _def theorem of
      a named definition.
+   - urust_register_notation controls automatic field-lens aliases for datatypes only; its inline
+     alias is register_notation.
    Verbosity values outside 0..2 are rejected. *)
 datatype command_option_value =
     Boolean_Value of bool
@@ -226,7 +240,8 @@ val datatype_option_configs =
   Symtab.make
     [(pp_test_option, Boolean_Config urust_pp_test),
      (pretty_option, Boolean_Config urust_pretty),
-     (verbosity_option, Integer_Config urust_verbosity)]
+     (verbosity_option, Integer_Config urust_verbosity),
+     (register_notation_option, Boolean_Config urust_register_notation)]
 
 type command_options = (command_option_value * Position.T) Symtab.table
 
@@ -1432,6 +1447,8 @@ fun define_urust_datatype
       configured_flag lthy options pp_test_option urust_pp_test
     val pretty =
       configured_flag lthy options pretty_option urust_pretty
+    val register_notation =
+      configured_flag lthy options register_notation_option urust_register_notation
     val _ =
       warn_ineffective_pretty options source pretty verbosity
   in
@@ -1441,7 +1458,8 @@ fun define_urust_datatype
        interactive = interactive,
        verbosity = verbosity,
        pp_test = pp_test,
-       pretty = pretty}
+       pretty = pretty,
+       register_notation = register_notation}
       lthy
   end
 
