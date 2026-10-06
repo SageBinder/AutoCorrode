@@ -52,7 +52,8 @@ struct
   type key =
     {base: string,
      segment_arities: int list,
-     parameters: string list}
+     parameters: string list,
+     parameter_positions: Position.T list}
 
   type entry =
     {segment_arities: int list,
@@ -151,10 +152,11 @@ struct
     identifier_start character orelse Char.isDigit character orelse
     character = #"'"
 
-  fun parse_mapping_key (raw, pos) =
+  fun parse_mapping_key (raw, pos) source_symbols =
     let
-      val input = Symbol.trim_blanks raw
+      val input = raw
       val input_size = size input
+      val symbols = Vector.fromList source_symbols
       val offset = Unsynchronized.ref 0
 
       fun fail detail =
@@ -184,6 +186,19 @@ struct
       fun require character expected =
         if accept character then ()
         else fail ("expected " ^ expected)
+      fun source_position start stop =
+        if start < stop andalso stop <= Vector.length symbols
+        then
+          let
+            val (_, start_pos) = Vector.sub (symbols, start)
+            val (last_symbol, last_pos) =
+              Vector.sub (symbols, stop - 1)
+          in
+            Position.range_position
+              (Position.range
+                (start_pos, Position.symbol last_symbol last_pos))
+          end
+        else Position.none
       fun accept_double_colon () =
         let
           val _ = skip_blanks ()
@@ -217,8 +232,11 @@ struct
         in String.substring (input, start, !offset - start) end
 
       fun placeholder () =
-        (require #"'" "a mapping placeholder such as 'a";
-         "'" ^ identifier "a placeholder name")
+        let
+          val start = !offset
+          val _ = require #"'" "a mapping placeholder such as 'a"
+          val parameter = "'" ^ identifier "a placeholder name"
+        in (parameter, source_position start (!offset)) end
 
       fun placeholders () =
         let
@@ -253,8 +271,10 @@ struct
         end
 
       val special =
-        if input = "()" then SOME ("()", [0], [])
-        else if input = "!" then SOME ("!", [0], [])
+        if Symbol.trim_blanks input = "()"
+        then SOME ("()", [0], [])
+        else if Symbol.trim_blanks input = "!"
+        then SOME ("!", [0], [])
         else NONE
       val (base, arities, parameters) =
         (case special of
@@ -274,14 +294,24 @@ struct
                 flat parameter_rows)
              end)
       val _ =
-        if length parameters = length (distinct (op =) parameters)
+        if length parameters =
+            length (distinct (op =) (map fst parameters))
         then ()
         else fail "mapping placeholders must be distinct"
     in
       {base = base,
        segment_arities = arities,
-       parameters = parameters}: key
+       parameters = map fst parameters,
+       parameter_positions = map snd parameters}: key
     end
+
+  fun parse_mapping_key_source source =
+    parse_mapping_key
+      (Input.source_content source)
+      (Input.source_explode source)
+
+  fun parse_mapping_key_text raw_position =
+    parse_mapping_key raw_position []
 
   fun canonical_parameter index sort =
     TVar (("_urust_type", index), sort)
@@ -385,13 +415,22 @@ struct
        Existing _ => lthy
      | Fresh entry => install_new base entry lthy)
 
-  fun declare_mapping origin ((raw_key, key_pos), source)
+  fun report_parameters ctxt
+      ({parameters, parameter_positions, ...}: key) =
+    List.app
+      (fn (parameter, pos) =>
+        Navigation.defer_report ctxt pos Markup.tfree)
+      (parameters ~~ parameter_positions)
+
+  fun declare_mapping origin (key_source, source)
       lthy =
     let
       val key as {base, segment_arities, ...} =
-        parse_mapping_key (raw_key, key_pos)
+        parse_mapping_key_source key_source
+      val key_pos = Input.pos_of key_source
       val (template, parameter_sorts) =
         checked_template lthy key source
+      val _ = report_parameters lthy key
       val candidate =
         make_entry origin key_pos segment_arities template
           parameter_sorts
@@ -400,8 +439,8 @@ struct
   fun generated_candidate
       {rust_name, rust_pos, hol_type_name} =
     let
-      val {base, segment_arities, parameters} =
-        parse_mapping_key (rust_name, rust_pos)
+      val {base, segment_arities, parameters, ...} =
+        parse_mapping_key_text (rust_name, rust_pos)
       val _ =
         if null parameters then ()
         else
@@ -609,8 +648,10 @@ struct
   val _ =
     Outer_Syntax.local_theory \<^command_keyword>\<open>urust_type\<close>
       "declare a context-local Rust-to-HOL type mapping"
-      ((Parse.string_position --| \<^keyword>\<open>=\<close>) --
-        Parse.embedded_input >> declare_manual)
+      ((Parse.token Parse.string --| \<^keyword>\<open>=\<close>) --
+        Parse.embedded_input >>
+          (fn (token, source) =>
+            declare_manual (Token.input_of token, source)))
 end
 \<close>
 

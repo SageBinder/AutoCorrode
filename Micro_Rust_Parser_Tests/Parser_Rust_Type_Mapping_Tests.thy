@@ -8,81 +8,6 @@ declare [[urust_verbosity = 0]]
 
 section\<open> Extensible Rust-to-HOL type mappings \<close>
 
-ML_val \<open>
-  local
-    val expected =
-      [("u8", \<^typ>\<open>8 word\<close>),
-       ("u16", \<^typ>\<open>16 word\<close>),
-       ("u32", \<^typ>\<open>32 word\<close>),
-       ("u64", \<^typ>\<open>64 word\<close>),
-       ("usize", \<^typ>\<open>64 word\<close>),
-       ("i32", \<^typ>\<open>32 word\<close>),
-       ("i64", \<^typ>\<open>64 word\<close>),
-       ("bool", \<^typ>\<open>bool\<close>),
-       ("()", \<^typ>\<open>unit\<close>)]
-
-    fun check (name, typ) =
-      (case URust_Type_Mappings.lookup \<^context> name of
-         SOME entry =>
-           if URust_Type_Mappings.entry_template entry = typ andalso
-               URust_Type_Mappings.entry_arities entry = [0] andalso
-               null
-                 (URust_Type_Mappings.entry_parameter_sorts entry) andalso
-               URust_Type_Mappings.entry_origin entry =
-                 "urust_type declaration"
-           then ()
-           else
-             error
-               ("unexpected built-in uRust type mapping for " ^
-                 quote name)
-       | NONE =>
-           error
-             ("missing built-in uRust type mapping for " ^
-               quote name))
-
-    val _ = List.app check expected
-  in
-    val _ = ()
-  end
-\<close>
-
-ML_val \<open>
-  local
-    fun cartouche body =
-      Symbol.open_ ^ body ^ Symbol.close
-
-    fun run source_name command_text () =
-      let
-        val thy = \<^theory>
-        val transitions =
-          Outer_Syntax.parse_text thy (K thy)
-            (Position.line_file 1 source_name) command_text
-      in
-        fold (Toplevel.command_exception false) transitions
-          (Toplevel.make_state (SOME thy))
-      end
-
-    val command_text =
-      "urust_datatype before_u128 " ^
-        cartouche " struct BeforeU128(u128); "
-    val _ =
-      (case Exn.result (run "before-u128" command_text) () of
-         Exn.Res _ =>
-           error "u128 unexpectedly resolved before registration"
-       | Exn.Exn exn =>
-           if Exn.is_interrupt exn then Exn.reraise exn
-           else if String.isSubstring
-               "unknown Rust type \"u128\"" (Runtime.exn_message exn)
-           then ()
-           else
-             error
-               ("unexpected pre-registration u128 diagnostic: " ^
-                 Runtime.exn_message exn))
-  in
-    val _ = ()
-  end
-\<close>
-
 urust_type "PacketId" = \<open>64 word\<close>
 urust_type "transport::PacketFlag" = \<open>bool\<close>
 urust_type "ResultMap<'ok, 'err>" = \<open>('ok, 'err) result\<close>
@@ -98,17 +23,6 @@ urust_type "AlphaMap<'left, 'right>" =
 
 urust_type "AlphaMap<'x, 'y>" =
   \<open>('x, 'y) result\<close>
-
-ML_val \<open>
-  val SOME alpha =
-    URust_Type_Mappings.lookup \<^context> "AlphaMap"
-  val _ =
-    if URust_Type_Mappings.entry_arities alpha = [2] andalso
-        length
-          (URust_Type_Mappings.entry_parameter_sorts alpha) = 2
-    then ()
-    else error "alpha-normalized mapping metadata changed"
-\<close>
 
 urust_datatype \<open>
   struct MappedTypes {
@@ -163,6 +77,149 @@ urust_datatype explicit_mapped_hol \<open>
 
 urust_datatype \<open>
   struct UsesGenerated(MappedTypes, MappedTupleTypes, MappedChoice);
+\<close>
+
+datatype ordinary_type_registry_control =
+  Ordinary_Type_Registry_Control
+
+bundle scoped_type_mapping
+begin
+
+urust_type "ScopedType" = \<open>nat\<close>
+
+end
+
+bundle conflicting_type_mapping_left
+begin
+
+urust_type "BundleConflict" = \<open>nat\<close>
+
+end
+
+bundle conflicting_type_mapping_right
+begin
+
+urust_type "BundleConflict" = \<open>bool\<close>
+
+end
+
+context includes scoped_type_mapping
+begin
+
+urust_datatype \<open>
+  struct ScopedTypeHolder(ScopedType);
+\<close>
+
+end
+
+locale type_mapping_left
+begin
+
+urust_type "LocaleType" = \<open>nat\<close>
+
+urust_datatype \<open>
+  struct LocaleTypeHolder(LocaleType);
+\<close>
+
+end
+
+locale type_mapping_right
+begin
+
+urust_type "LocaleType" = \<open>bool\<close>
+
+urust_datatype \<open>
+  struct LocaleTypeHolder(LocaleType);
+\<close>
+
+end
+
+section\<open> Registry and generated-type audits \<close>
+
+ML_val \<open>
+  local
+    val expected =
+      [("u8", \<^typ>\<open>8 word\<close>),
+       ("u16", \<^typ>\<open>16 word\<close>),
+       ("u32", \<^typ>\<open>32 word\<close>),
+       ("u64", \<^typ>\<open>64 word\<close>),
+       ("usize", \<^typ>\<open>64 word\<close>),
+       ("i32", \<^typ>\<open>32 word\<close>),
+       ("i64", \<^typ>\<open>64 word\<close>),
+       ("bool", \<^typ>\<open>bool\<close>),
+       ("()", \<^typ>\<open>unit\<close>)]
+
+    fun check (name, typ) =
+      (case URust_Type_Mappings.lookup \<^context> name of
+         SOME entry =>
+           if URust_Type_Mappings.entry_template entry = typ andalso
+               URust_Type_Mappings.entry_arities entry = [0] andalso
+               null
+                 (URust_Type_Mappings.entry_parameter_sorts entry) andalso
+               URust_Type_Mappings.entry_origin entry =
+                 "urust_type declaration"
+           then ()
+           else
+             error
+               ("unexpected built-in uRust type mapping for " ^
+                 quote name)
+       | NONE =>
+           error
+             ("missing built-in uRust type mapping for " ^
+               quote name))
+
+    val _ = List.app check expected
+  in
+    val _ = ()
+  end
+\<close>
+
+ML_val \<open>
+  local
+    fun cartouche body =
+      Symbol.open_ ^ body ^ Symbol.close
+
+    fun run source_name command_text () =
+      let
+        val thy = \<^theory>\<open>Parser_Test_Utils\<close>
+        val transitions =
+          Outer_Syntax.parse_text thy (K thy)
+            (Position.line_file 1 source_name) command_text
+      in
+        fold (Toplevel.command_exception false) transitions
+          (Toplevel.make_state (SOME thy))
+      end
+
+    val command_text =
+      "urust_datatype before_u128 " ^
+        cartouche " struct BeforeU128(u128); "
+    val _ =
+      (case Exn.result (run "before-u128" command_text) () of
+         Exn.Res _ =>
+           error "u128 unexpectedly resolved before registration"
+       | Exn.Exn exn =>
+           if Exn.is_interrupt exn then Exn.reraise exn
+           else if String.isSubstring
+               "unknown Rust type \"u128\"" (Runtime.exn_message exn)
+           then ()
+           else
+             error
+               ("unexpected pre-registration u128 diagnostic: " ^
+                 Runtime.exn_message exn))
+  in
+    val _ = ()
+  end
+\<close>
+
+ML_val \<open>
+  val SOME alpha =
+    URust_Type_Mappings.lookup \<^context> "AlphaMap"
+  val _ =
+    if URust_Type_Mappings.entry_arities alpha = [2] andalso
+        length
+          (URust_Type_Mappings.entry_parameter_sorts alpha) = 2
+    then ()
+    else error "alpha-normalized mapping metadata changed"
 \<close>
 
 ML_val \<open>
@@ -262,85 +319,18 @@ ML_val \<open>
   end
 \<close>
 
-datatype ordinary_type_registry_control =
-  Ordinary_Type_Registry_Control
-
 ML_val \<open>
   val NONE =
     URust_Type_Mappings.lookup
       \<^context> "ordinary_type_registry_control"
 \<close>
 
-bundle scoped_type_mapping
-begin
-
-urust_type "ScopedType" = \<open>nat\<close>
-
-end
-
-bundle conflicting_type_mapping_left
-begin
-
-urust_type "BundleConflict" = \<open>nat\<close>
-
-end
-
-bundle conflicting_type_mapping_right
-begin
-
-urust_type "BundleConflict" = \<open>bool\<close>
-
-end
-
-ML_val \<open>
-  val NONE =
-    URust_Type_Mappings.lookup \<^context> "ScopedType"
-\<close>
-
-context includes scoped_type_mapping
-begin
-
-urust_datatype \<open>
-  struct ScopedTypeHolder(ScopedType);
-\<close>
-
-ML_val \<open>
-  val SOME _ =
-    URust_Type_Mappings.lookup \<^context> "ScopedType"
-  val SOME _ =
-    URust_Type_Mappings.lookup \<^context> "ScopedTypeHolder"
-\<close>
-
-end
-
 ML_val \<open>
   val NONE =
     URust_Type_Mappings.lookup \<^context> "ScopedType"
   val SOME _ =
     URust_Type_Mappings.lookup \<^context> "ScopedTypeHolder"
 \<close>
-
-locale type_mapping_left
-begin
-
-urust_type "LocaleType" = \<open>nat\<close>
-
-urust_datatype \<open>
-  struct LocaleTypeHolder(LocaleType);
-\<close>
-
-end
-
-locale type_mapping_right
-begin
-
-urust_type "LocaleType" = \<open>bool\<close>
-
-urust_datatype \<open>
-  struct LocaleTypeHolder(LocaleType);
-\<close>
-
-end
 
 ML_val \<open>
   val NONE =
@@ -363,12 +353,15 @@ ML_val \<open>
     fun cartouche body =
       Symbol.open_ ^ body ^ Symbol.close
 
+    fun command_start source_name =
+      Position.make0 1 1 0 "" source_name source_name
+
     fun run source_name command_text () =
       let
         val thy = \<^theory>
         val transitions =
           Outer_Syntax.parse_text thy (K thy)
-            (Position.make0 1 1 0 "" source_name source_name)
+            (command_start source_name)
             command_text
       in
         fold (Toplevel.command_exception true) transitions
@@ -490,6 +483,27 @@ ML_val \<open>
                     properties))
               (mapping_entities declaration_markup)))
         (declaration_ids = [identity])
+
+    val parameter_file = "urust-type-mapping-parameters"
+    val parameter_text =
+      "urust_type \"MarkupPair<'left, 'right>\" = " ^
+        cartouche "('left, 'right) result"
+    val (_, parameter_markup) =
+      Parser_Test_Reports.markup
+        (run parameter_file parameter_text)
+    val parameter_start = command_start parameter_file
+    val left_position =
+      token_position parameter_text parameter_start "'left" 0
+    val right_position =
+      token_position parameter_text parameter_start "'right" 0
+    val _ =
+      audit "first mapping placeholder lost native type-variable markup"
+        (count_markup Markup.tfreeN
+          left_position parameter_markup = 1)
+    val _ =
+      audit "second mapping placeholder lost native type-variable markup"
+        (count_markup Markup.tfreeN
+          right_position parameter_markup = 1)
 
     val use_text = " struct MarkupHolder(MarkupId); "
     val use_start =
