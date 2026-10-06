@@ -130,6 +130,7 @@ The implementation session provides the production `urust_expr`, `urust_fn`, and
 urust_expr [OPTIONS] NAME [:: TYPE] [(ARG|_, ...)] \<open> body \<close>
 urust_fn [OPTIONS] [HOL_NAME|_] :: TYPE \<open> fn RustName(PATTERN: RUST_TYPE, ...) [-> RUST_TYPE] { body } \<close>
 urust_fn [OPTIONS] HOL_NAME|_ :: TYPE (PARAMETER|_, ...) \<open> legacy-body \<close>
+urust_type "RUST_TYPE['PARAMETER, ...]" = \<open>HOL_TYPE\<close>
 urust_datatype [OPTIONS] [HOL_NAME] \<open> struct-or-enum \<close>
 ```
 
@@ -142,12 +143,18 @@ elaboration. Supported signature types include integer primitives, `bool`, `char
 unit, paths with nested type or numeric generic arguments, tuples, references, raw pointers, slices,
 and arrays. Parameters currently lower only identifiers, `_`, and `mut identifier`.
 
+`urust_type` is the sole nominal Rust-to-HOL type translation mechanism. Its context-local keys may
+be qualified and generic; ordered mapping placeholders must correspond exactly to the free type
+variables of the checked HOL template. The initial `u8`, `u16`, `u32`, `u64`, `usize`, `i32`,
+`i64`, `bool`, and `()` spellings are ordinary registry declarations, not resolver cases.
+
 `urust_datatype` accepts one complete Rust-shaped struct or enum item. The HOL type name is
 optional and otherwise inferred with acronym-aware ASCII snake case (`HTTPServer` becomes
-`http_server`). Primitive field types `u8`, `u16`, `u32`, `u64`, `usize`, `i32`, `i64`, `bool`,
-and `()` are built in; arbitrary checked HOL types use `τ‹TYPE›`, with `τ` carrying the same literal
-markup as the `ε` expression-antiquotation prefix. Named structs generate a `datatype_record`,
-field lenses, and exact Rust field aliases. Unit and tuple structs generate
+`http_server`). Nominal and primitive field types resolve through the active registry; tuples use
+the structural `A × B × ... × tnil` encoding. Arbitrary checked HOL types use `τ‹TYPE›`, which is
+the only explicit bypass of registry resolution. Named structs generate a `datatype_record`,
+field lenses, and exact Rust field aliases. Successful structs and enums also register their Rust
+names for later datatype fields. Unit and tuple structs generate
 `make_NAME`; enum variants are registered under exact paths such as `Message::Data`. Generated
 constructors use those exact Rust identities in values, calls, patterns, and struct expressions;
 they are not rediscovered through HOL basenames.
