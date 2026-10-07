@@ -197,7 +197,6 @@ definition ntt_contract ::
                 \<langle>poly_wf (MLKEM_Specification.ntt p)\<rangle> \<star>
                 can_alloc_reference
       in make_function_contract pre post\<close>
-ucincl_auto ntt_contract
 
 text\<open>The NTT proof is the most involved verification in this development.
 It requires three nested loop invariants, each using the ``backwards'' approach:
@@ -437,7 +436,6 @@ proof -
 qed
 
 lemma ntt_spec:
-  notes points_to_aentails_crule_focusedL[crush_aentails_cond_crules]
   shows \<open>\<Gamma>; ntt f_ref \<Turnstile>\<^sub>F ntt_contract f_ref g p\<close>
 proof (crush_boot f: ntt_def contract: ntt_contract_def, goal_cases)
   case 1
@@ -463,6 +461,9 @@ proof (crush_boot f: ntt_def contract: ntt_contract_def, goal_cases)
       in wp_raw_for_loop_framedI'\<close>)
        subgoal \<comment> \<open>Init/frame: establish INV[0] and frame INV[7] to postcondition\<close>
          apply (crush_base simp add: MLKEM_Specification.ntt_def)
+         \<comment>\<open>The functional equality determines the schematic \<^term>\<open>k_val\<close> witness before
+         automation handles the remaining goals.\<close>
+         apply (all \<open>(rule refl)?\<close>)
          apply auto
          done
        subgoal for layer \<comment> \<open>Outer loop step: one NTT layer\<close>

@@ -78,7 +78,6 @@ definition clamp_contract where
     let pre  = \<langle>lo \<le> hi\<rangle> in
     let post = \<lambda>r. \<langle>r \<ge> lo \<and> r \<le> hi\<rangle> in
     make_function_contract pre post\<close>
-ucincl_auto clamp_contract
 
 text\<open>TODO: Replace \<^verbatim>\<open>oops\<close> with a proof.
 Hint: \<^verbatim>\<open>apply (crush_boot f:clamp_def contract: clamp_contract_def)\<close> sets up the goal
@@ -113,7 +112,6 @@ definition max_of_contract where
     let pre  = \<langle>True\<rangle> in
     let post = \<lambda>r. \<langle>True\<rangle> in
     make_function_contract pre post\<close>
-ucincl_auto max_of_contract
 
 text\<open>TODO: Prove the specification once your contract is correct.\<close>
 lemma max_of_spec:
@@ -127,8 +125,8 @@ Hints:
 thm wp_two_armed_conditionalI
 thm wp_literalI
 text \<open>After that, the following separation logic simplifications may be helpful\<close>
-thm asepconj_pure_UNIV
-thm asepconj_False_True
+thm apure_precise_True
+thm apure_precise_False
 thm aentails_refl
 thm asepconj_UNIV_idempotent
 
@@ -165,7 +163,6 @@ definition abs_diff_contract where
     let pre  = \<langle>True\<rangle> in
     let post = \<lambda>r. \<langle>True\<rangle> in
     make_function_contract pre post\<close>
-ucincl_auto abs_diff_contract
 
 text\<open>TODO: Prove the specification.\<close>
 lemma abs_diff_spec:
@@ -193,7 +190,6 @@ definition double_contract where
     let pre  = \<langle>True\<rangle> in
     let post = \<lambda>r. \<langle>r = 2 * n\<rangle> in
     make_function_contract pre post\<close>
-ucincl_auto double_contract
 
 lemma double_spec:
   shows \<open>\<Gamma>; double n \<Turnstile>\<^sub>F double_contract n\<close>
@@ -215,7 +211,6 @@ definition quadruple_contract where
     let pre  = \<langle>True\<rangle> in
     let post = \<lambda>r. \<langle>True\<rangle> in
     make_function_contract pre post\<close>
-ucincl_auto quadruple_contract
 
 text\<open>TODO: Prove the specification using \<^term>\<open>double_spec\<close>.
 Hint: use \<^verbatim>\<open>specs add: double_spec\<close> and \<^verbatim>\<open>contracts add: double_contract_def\<close>
@@ -248,7 +243,6 @@ definition bvec_is_empty_contract :: \<open>('a, 'l::len) bounded_vec \<Rightarr
     let pre  = \<langle>True\<rangle> in
     let post = \<lambda>r. \<langle>True\<rangle> in
     make_function_contract pre post\<close>
-ucincl_auto bvec_is_empty_contract
 
 text\<open>This lemma may be useful. TODO: Complete the proof\<close>
 lemma bvec_is_empty:
@@ -285,7 +279,6 @@ definition bvec_get_contract :: \<open>('a, 'l::len) bounded_vec \<Rightarrow> 6
     let pre  = \<langle>True\<rangle> in
     let post = \<lambda>r. \<langle>True\<rangle> in
     make_function_contract pre post\<close>
-ucincl_auto bvec_get_contract
 
 text\<open>TODO: Prove the specification.\<close>
 thm WordAdditional.lt_word_to_natI
@@ -318,7 +311,6 @@ definition bvec_contains_contract :: \<open>(nat, 'l::len) bounded_vec \<Rightar
     let pre  = can_alloc_reference \<star> \<langle>bvec_well_formed v\<rangle> \<star> \<langle>unat (bvec_len v) = LENGTH('l)\<rangle> in
     let post = \<lambda>r. can_alloc_reference \<star> \<langle>bvec_well_formed v\<rangle> \<star> \<langle>r \<longleftrightarrow> needle \<in> set (bvec_abs v)\<rangle> in
     make_function_contract pre post\<close>
-ucincl_auto bvec_contains_contract
 
 text\<open>TODO: Write the loop invariant
 Hints:
@@ -374,7 +366,6 @@ definition bvec_clear_contract :: \<open>(('addr, 'gv) gref, 'gv, (nat, 'l::len)
     let pre  = \<langle>True\<rangle> in
     let post = \<lambda>_. \<langle>True\<rangle> in
     make_function_contract pre post\<close>
-ucincl_auto bvec_clear_contract
 
 lemma bvec_clear_spec:
   shows \<open>\<Gamma>; bvec_clear ptr \<Turnstile>\<^sub>F bvec_clear_contract ptr g v\<close>
@@ -422,7 +413,6 @@ definition bvec_push_contract :: \<open>(('addr, 'gv) gref, 'gv, (nat, 'l::len) 
     let pre  = \<langle>True\<rangle> in
     let post = \<lambda>_. \<langle>True\<rangle> in
     make_function_contract pre post\<close>
-ucincl_auto bvec_push_contract
 
 lemma bvec_push_spec:
   shows \<open>\<Gamma>; bvec_push ptr elem \<Turnstile>\<^sub>F bvec_push_contract ptr g v elem\<close>
@@ -453,7 +443,6 @@ definition max_of_contract_solution where
     let pre  = \<langle>True\<rangle> in
     let post = \<lambda>r. \<langle>r = max a b\<rangle> in
     make_function_contract pre post\<close>
-ucincl_auto max_of_contract_solution
 
 lemma max_of_spec_solution:
   shows \<open>\<Gamma>; max_of a b \<Turnstile>\<^sub>F max_of_contract_solution a b\<close>
@@ -466,9 +455,9 @@ lemma max_of_spec_manual_solution:
   apply (crush_boot f: max_of_def contract: max_of_contract_solution_def)
   apply (intro wp_two_armed_conditionalI)
   apply (intro wp_literalI)
-  apply (simp add: asepconj_False_True asepconj_UNIV_idempotent aentails_refl)
+  apply (simp add: apure_precise_True apure_precise_False asepconj_UNIV_idempotent aentails_refl)
   apply (intro wp_literalI)
-  apply (simp add: asepconj_False_True asepconj_UNIV_idempotent aentails_refl)
+  apply (simp add: apure_precise_True apure_precise_False asepconj_UNIV_idempotent aentails_refl)
   done
 
 paragraph\<open>Exercise 3\<close>
@@ -477,7 +466,6 @@ definition abs_diff_contract_solution where
     let pre  = can_alloc_reference in
     let post = \<lambda>r. can_alloc_reference \<star> \<langle>r = (max a b) - (min a b)\<rangle> in
     make_function_contract pre post\<close>
-ucincl_auto abs_diff_contract_solution
 
 lemma abs_diff_spec_solution:
   shows \<open>\<Gamma>; abs_diff a b \<Turnstile>\<^sub>F abs_diff_contract_solution a b\<close>
@@ -498,7 +486,6 @@ definition quadruple_contract_solution where
     let pre  = \<langle>True\<rangle> in
     let post = \<lambda>r. \<langle>r = 4 * n\<rangle> in
     make_function_contract pre post\<close>
-ucincl_auto quadruple_contract_solution
 
 lemma quadruple_spec_solution:
   shows \<open>\<Gamma>; quadruple_solution n \<Turnstile>\<^sub>F quadruple_contract_solution n\<close>
@@ -512,7 +499,6 @@ definition bvec_is_empty_contract_solution :: \<open>('a, 'l::len) bounded_vec \
     let pre  = \<langle>bvec_well_formed v\<rangle> in
     let post = \<lambda>r. \<langle>bvec_well_formed v \<and> (r \<longleftrightarrow> bvec_abs v = [])\<rangle> in
     make_function_contract pre post\<close>
-ucincl_auto bvec_is_empty_contract_solution
 
 lemma bvec_is_empty_solution:
   assumes \<open>bvec_well_formed v\<close>
@@ -531,7 +517,6 @@ definition bvec_get_contract_solution :: \<open>('a, 'l::len) bounded_vec \<Righ
     let pre  = \<langle>bvec_well_formed v\<rangle> \<star> \<langle>unat idx < unat (bvec_len v)\<rangle> in
     let post = \<lambda>r. \<langle>bvec_well_formed v\<rangle> \<star> \<langle>r = Some (bvec_abs v ! unat idx)\<rangle> in
     make_function_contract pre post\<close>
-ucincl_auto bvec_get_contract_solution
 
 lemma bvec_get_spec_solution:
   shows \<open>\<Gamma>; bvec_get v idx \<Turnstile>\<^sub>F bvec_get_contract_solution v idx\<close>
@@ -569,7 +554,6 @@ definition bvec_clear_contract_solution :: \<open>(('addr, 'gv) gref, 'gv, (nat,
     let pre  = ptr \<mapsto>\<langle>\<top>\<rangle> g\<down>v \<star> \<langle>bvec_well_formed v\<rangle> in
     let post = \<lambda>_. \<Squnion>g' v'. ptr \<mapsto>\<langle>\<top>\<rangle> g'\<down>v' \<star> \<langle>bvec_well_formed v' \<and> bvec_abs v' = []\<rangle> in
     make_function_contract pre post\<close>
-ucincl_auto bvec_clear_contract_solution
 
 lemma bvec_clear_spec_solution:
   shows \<open>\<Gamma>; bvec_clear ptr \<Turnstile>\<^sub>F bvec_clear_contract_solution ptr g v\<close>
@@ -589,8 +573,6 @@ definition bvec_push_contract_solution :: \<open>(('addr, 'gv) gref, 'gv, (nat, 
     | Err e \<Rightarrow> \<langle>unat (bvec_len v) = LENGTH('l)\<rangle> \<star> \<langle>e = elem\<rangle> \<star>
                ptr \<mapsto>\<langle>\<top>\<rangle> g\<down>v in
     make_function_contract pre post\<close>
-ucincl_proof bvec_push_contract_solution
-  by (auto split!: result.splits intro: ucincl_intros)
 
 lemma bvec_push_spec_solution:
   shows \<open>\<Gamma>; bvec_push ptr elem \<Turnstile>\<^sub>F bvec_push_contract_solution ptr g v elem\<close>

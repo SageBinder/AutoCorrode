@@ -456,6 +456,7 @@ urust_expr add_local
 
 (*<*)
 end
+(*>*)
 
 text\<open>You may have noted that we didn't run any experimental evaluations. To be able to conduct
 such, we would first need to exhibit a concrete \<^emph>\<open>implementation\<close> of the interfaces exposed

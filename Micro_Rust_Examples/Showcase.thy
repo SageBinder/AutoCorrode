@@ -66,8 +66,6 @@ definition ref_test_contract where
      let pre  = can_alloc_reference in
      let post = \<lambda>r. can_alloc_reference \<star> \<langle>r = 12\<rangle> in
      make_function_contract pre post\<close>
-text\<open>The \<^verbatim>\<open>ucincl_auto\<close> command is necessary boilerplate for every contract, ignore for now.\<close>
-ucincl_auto ref_test_contract
 
 text\<open>Now we prove that the function satisfies the contract!\<close>
 lemma ref_test_spec:
@@ -107,7 +105,6 @@ definition swap_ref_contract :: \<open>('addr, 'gv, 'v) Global_Store.ref \<Right
                lref \<mapsto>\<langle>\<top>\<rangle> (\<lambda>_. rval) \<sqdot> (lg\<down>lval) \<star>
                rref \<mapsto>\<langle>\<top>\<rangle> (\<lambda>_. lval) \<sqdot> (rg\<down>rval) in
     make_function_contract pre post\<close>
-ucincl_auto swap_ref_contract
 
 text\<open>Proving this specification is as straightforward as before\<close>
 lemma swap_ref_spec:
@@ -133,7 +130,6 @@ definition swap_client_contract where
     let pre  = can_alloc_reference in
     let post = \<lambda> r. \<langle>r = (72 :: nat)\<rangle> \<star> can_alloc_reference in
     make_function_contract pre post\<close>
-ucincl_auto swap_client_contract
 
 text\<open>We can verify this in two ways. Firstly, we can tell the automation to use the verified
 specification of \<^term>\<open>swap_ref\<close>, using the \<^verbatim>\<open>specs add:\<close> and \<^verbatim>\<open>contracts add:\<close> modifiers\<close>
@@ -183,7 +179,6 @@ definition sum_array_contract :: \<open>(nat, 'a::len) array \<Rightarrow> 64 wo
     let post = \<lambda> r.
                \<langle>r = sum_list (array_to_list nums)\<rangle> \<star> can_alloc_reference in
     make_function_contract pre post\<close>
-ucincl_auto sum_array_contract
 
 text\<open>The proof of the specification is a bit more involved, since we need to deal with the loop\<close>
 lemma sum_spec:

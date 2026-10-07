@@ -1171,7 +1171,7 @@ micro_rust_notation test_my_some_b ("MySome")
   lens fixture in this experiment, so we register the same
   \<open>literal\<close>-shaped \<open>test_my_some_a\<close> under a field name with no kind
   modifier (auto-infer falls back to \<open>literal\<close>). For a real
-  field-typed backend, see \<^verbatim>\<open>register_lens_with_micro_rust\<close> in
+  field-typed backend, see \<^verbatim>\<open>register_lens_with_micro_rust_from\<close> in
   \<^file>\<open>Micro_Rust_Parser_Target.thy\<close>.\<close>
 micro_rust_notation test_my_some_a ("a_field")
 

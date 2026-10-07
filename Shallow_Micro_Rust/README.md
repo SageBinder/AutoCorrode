@@ -9,6 +9,9 @@ The theories use direct HOL expressions and HOL monadic notation.
 `Micro_Rust_Parser_Impl` depends on this session; parser-backed clients import
 the production parser separately where needed.
 
+`Micro_Rust_Record_Tests.thy` checks the types, generated facts, field registration,
+and `localizable` instances produced by `micro_rust_record`.
+
 To perform a batch build:
 
 ```shell

@@ -3,6 +3,7 @@ session Crush = HOL +
   sessions
     "HOL-Eisbach"
     "HOL-Library"
+    Fine_Grained_Timing
     Misc
     Micro_Rust_Interfaces_Core
     Shallow_Micro_Rust

@@ -77,6 +77,7 @@ sig
   val crush_branch_aentails_cancel_tac : Proof.context -> int -> tactic
   val crush_branch_unfold_prems_tac : Proof.context -> int -> tactic
   val crush_branch_aentails_core_tac : Proof.context -> int -> tactic
+  val crush_branch_aentails_aforall_assms_tac : Proof.context -> int -> tactic
   val crush_branch_determine_branch : Proof.context -> int -> tactic
   val crush_branch_aentails_drule_tac : Proof.context -> int -> tactic
   val crush_branch_aentails_crule_tac : Proof.context -> int -> tactic
@@ -93,6 +94,7 @@ sig
   val crush_branch_urust_simps_tac : Proof.context -> int -> tactic
   val crush_branch_misc_tac : Proof.context -> int -> tactic
   val crush_branch_ucincl_tac : Proof.context -> int -> tactic
+  val crush_branch_order_tac : Proof.context -> int -> tactic
   val crush_branch_additional_tactic : Proof.context -> int -> tactic
   val crush_branch_additional_method : Proof.context -> int -> tactic
   val crush_branch_safe_tac : Proof.context -> int -> tactic
@@ -355,8 +357,15 @@ struct
       Separation_Logic_Tactics.aentails_simp_core_tac ctxt
     ) )
 
+  val crush_branch_aentails_aforall_assms_tac : Proof.context -> int -> tactic = fn ctxt =>
+    IF' Separation_Logic_Tactics.is_entailment (
+      Separation_Logic_Tactics.aentails_simp_core_intro_aforall_assms_tac ctxt
+    )
+
   val crush_branch_aentails_cancel_tac : Proof.context -> int -> tactic = fn ctxt =>
-    IF' Separation_Logic_Tactics.is_entailment (Separation_Logic_Tactics.aentails_cancel_tac ctxt)
+    IF' Separation_Logic_Tactics.is_entailment (
+      Separation_Logic_Tactics.aentails_cancel_tac ctxt
+    )
 
   fun crush_branch_schematics_tac (ctxt: Proof.context) (unfold_contract_tac: int -> tactic) : int -> tactic =
     let val ex_intros = intro_tac (Named_Theorems.get ctxt @{named_theorems micro_rust_wp_ex_intros}) ctxt
@@ -379,7 +388,102 @@ struct
       else
         K no_tac
 
+  fun is_order_relation (Const (@{const_name less}, _) $ _ $ _) = true
+    | is_order_relation (Const (@{const_name less_eq}, _) $ _ $ _) = true
+    | is_order_relation _ = false
+
+  fun is_order_literal (Const (@{const_name Not}, _) $ t) = is_order_relation t
+    | is_order_literal t = is_order_relation t
+
+  fun is_order_prem (Const (@{const_name Trueprop}, _) $ t) = is_order_literal t
+    | is_order_prem _ = false
+
+  fun is_disequality (Const (@{const_name Not}, _) $
+        (Const (@{const_name HOL.eq}, Type (_, [T, _])) $ _ $ _)) = T <> @{typ bool}
+    | is_disequality _ = false
+
+  fun is_order_fact (Const (@{const_name Trueprop}, _) $ t) =
+        is_order_literal t orelse is_disequality t
+    | is_order_fact _ = false
+
+  fun is_order_concl
+        (Const (@{const_name Trueprop}, _) $ Const (@{const_name False}, _)) = true
+    | is_order_concl t = is_order_prem t
+
+  fun is_unat (Const (@{const_name unsigned}, _)) = true
+    | is_unat _ = false
+
+  val has_unat = Term.exists_subterm is_unat
+
+  (* Close order and linear-arithmetic side conditions such as
+     `n \<le> 6 \<Longrightarrow> 0 < n \<Longrightarrow> n - Suc 0 < 6`, or refute contradictory
+     bounds such as `a < b \<Longrightarrow> b \<le> a \<Longrightarrow> P`. The goal qualifies if its
+     conclusion or some top-level premise is a possibly negated `<` or
+     `\<le>`. The order and arithmetic tactics then see only such
+     premises and disequalities `a \<noteq> b`, as needed for
+     `a \<noteq> b \<Longrightarrow> \<not> a < b \<Longrightarrow> b < a`. Crush goals carry many
+     unrelated premises, and searching all of them made most failed
+     attempts expensive. Unlike HOL's simpset solvers, this never
+     instantiates schematics by `refl`.
+
+     Natural-number goals containing unat first derive only unat_mono or
+     unat_ucast_lt consequences from the filtered facts. Each consequence is
+     simplified once before matching it against the goal. The enclosing
+     SOLVED' guard makes all branches transactional. *)
+  val crush_branch_order_tac: Proof.context -> int -> tactic = fn ctxt =>
+    let
+      fun order_core ctxt' prems =
+        HOL_Order_Tac.tac prems ctxt' 1
+        ORELSE (Method.insert_tac ctxt' prems 1 THEN Lin_Arith.simple_tac ctxt' 1)
+
+      fun derive_word_bound rule prem =
+        SOME (rule OF [prem])
+        handle THM _ => NONE
+
+      fun word_bound_core ctxt' prems =
+        let
+          val rules = @{thms unat_mono unat_ucast_lt}
+          val bounds =
+            maps (fn prem =>
+              map_filter (fn rule => derive_word_bound rule prem) rules) prems
+            |> map (Simplifier.simplify ctxt')
+        in
+          resolve_tac ctxt' bounds 1
+        end
+
+      fun focused concl_is_order concl_has_unat
+          {context = ctxt', prems, ...} =
+        let
+          val prems' = filter (is_order_fact o Thm.prop_of) prems
+          val close =
+            (if concl_has_unat then word_bound_core ctxt' prems' else no_tac)
+            ORELSE order_core ctxt' prems'
+        in
+          (if concl_is_order then all_tac else resolve_tac ctxt' @{thms FalseE} 1)
+          THEN close
+        end
+    in
+      SUBGOAL (fn (t, i) =>
+        let
+          val concl = Logic.strip_assums_concl t
+          val concl_is_order = is_order_concl concl
+        in
+          if concl_is_order orelse exists is_order_prem (Logic.strip_assums_hyp t)
+          then
+            SOLVED'
+              (Subgoal.FOCUS
+                (focused concl_is_order (has_unat concl)) ctxt) i
+          else no_tac
+        end)
+    end
+
   val update_guards_tac = Crush_Guards.update_guards_shallow_tac
+
+  (* Rule resolution can leave unused sort hypotheses in the proof state.
+     Strip them before expensive simplifier branches, but inside their
+     progress checks, so stripping alone cannot count as a successful step. *)
+  fun strip_shyps_tac' tac i st =
+    tac i (Thm.strip_shyps st)
 
   val crush_branch_reduced_clarsimp_tac : Proof.context -> int -> tactic =
     fn ctxt => let fun NOTE msg =  TIME' ctxt (Config.get ctxt Crush_Config.time_clarsimp) msg
@@ -392,14 +496,30 @@ struct
         K no_tac
     end
 
+  (* The premises that `clarsimp_filtered` hides. If the conclusion has no
+     constant, such as `False`, MePo would hide every premise, since none
+     can be related to it; hide none then instead. *)
+  fun filtered_clarsimp_hidden ctxt max_facts i st =
+    if MePo_Core.conclusion_has_constants ctxt i st then
+      snd (MePo_Core.irrelevant_prems_in_goal ctxt max_facts NONE i st)
+    else []
+
   val crush_branch_filtered_clarsimp_tac : Proof.context -> int -> tactic =
     fn ctxt => let fun NOTE msg =  TIME' ctxt (Config.get ctxt Crush_Config.time_clarsimp) msg
                                 #> LOG' ctxt  (Config.get ctxt Crush_Config.log_clarsimp) msg
     in
       if Config.get ctxt Crush_Config.enable_branch_filtered_clarsimp then
-          NOTE "lazy_clarsimp_relevance_filter_ignore" (MePo_Prem.ignore_irrelevant_prems_tac ctxt (Config.get ctxt Crush_Config.relevance_filter_max_facts))
-          THEN' NOTE "lazy_clarsimp_filtered_clarsimp" (CHANGED_PROP o clarsimp_tac ctxt)
-          THEN_ALL_NEW (MePo_Prem.unignore_tac ctxt)
+        let val max_facts = Config.get ctxt Crush_Config.relevance_filter_max_facts
+          val hidden = filtered_clarsimp_hidden ctxt max_facts
+          fun ignore i st =
+            MePo_Prem.ignore_tac_idxs ctxt (hidden i st) i st
+            handle THM _ => all_tac st
+        in
+          strip_shyps_tac' (
+              NOTE "lazy_clarsimp_relevance_filter_ignore" ignore
+              THEN' NOTE "lazy_clarsimp_filtered_clarsimp" (CHANGED_PROP o clarsimp_tac ctxt)
+              THEN_ALL_NEW (MePo_Prem.unignore_tac ctxt))
+        end
       else
         K no_tac
     end
@@ -412,14 +532,15 @@ struct
           |> put_simpset crush_base_simpset
           |> fold Raw_Simplifier.add_cong congs
       in
-              NOTE "lazy_clarsimp_reduced"            (crush_branch_reduced_clarsimp_tac ctxt)
-      ORELSE' NOTE "lazy_clarsimp_simp"               (CHANGED_PROP o safe_full_simp_tac ctxt)
-      ORELSE' NOTE "lazy_clarsimp_clarsimp_hol_ss"    (CHANGED_PROP o safe_asm_full_simp_tac ctxt_hol_ss)
-      ORELSE'
-      (if Config.get ctxt Crush_Config.enable_branch_clarsimp then
-         NOTE "lazy_clarsimp_clarify" (CHANGED_PROP o clarify_tac ctxt)
-       else
-         K no_tac)
+        strip_shyps_tac' (
+                NOTE "lazy_clarsimp_reduced"            (crush_branch_reduced_clarsimp_tac ctxt)
+        ORELSE' NOTE "lazy_clarsimp_simp"               (CHANGED_PROP o safe_full_simp_tac ctxt)
+        ORELSE' NOTE "lazy_clarsimp_clarsimp_hol_ss"    (CHANGED_PROP o safe_asm_full_simp_tac ctxt_hol_ss)
+        ORELSE'
+        (if Config.get ctxt Crush_Config.enable_branch_clarsimp then
+           NOTE "lazy_clarsimp_clarify" (CHANGED_PROP o clarify_tac ctxt)
+         else
+           K no_tac))
     end
 
   val crush_branch_focus_core_tac : Proof.context -> int -> tactic = fn ctxt =>
@@ -464,9 +585,18 @@ struct
            |> Pretty.block |> Pretty.string_of |> Output.warning
          end
       else () end)
+     val max_facts = Config.get ctxt Crush_Config.relevance_filter_max_facts
+     (* `clarsimp_filtered` is the branch before this one. If it hid no
+        premise of the goal, it has already run this clarsimp call on this goal,
+        and failed. *)
+     val after_filtered = Config.get ctxt Crush_Config.enable_branch_filtered_clarsimp
+     fun repeats_filtered i st =
+       after_filtered andalso null (filtered_clarsimp_hidden ctxt max_facts i st)
    in
      if Config.get ctxt Crush_Config.enable_branch_clarsimp then
-       DEBUG_BEFORE_AFTER' log_before_after (CHANGED_PROP o clarsimp_tac ctxt)
+       let val clarsimp = DEBUG_BEFORE_AFTER' log_before_after (CHANGED_PROP o clarsimp_tac ctxt) in
+         strip_shyps_tac' (fn i => fn st => if repeats_filtered i st then Seq.empty else clarsimp i st)
+       end
      else K no_tac
    end
 
@@ -494,7 +624,7 @@ struct
     end
 
   val crush_branch_intro_pure_aentails_tac : Proof.context -> int -> tactic = fn ctxt =>
-    Separation_Logic_Tactics.ucincl_discharge_tac ctxt (intro_tac @{thms apure_entailsR0} ctxt)
+    intro_tac @{thms apure_precise_entailsR0 apure_crush_obligation_entailsR0} ctxt
 
   val crush_branch_aentails_cond_crule_tac =
      fn ctxt => Separation_Logic_Tactics.aentails_cond_crule_tac (Named_Theorems.get ctxt @{named_theorems crush_aentails_cond_crules}) ctxt
@@ -518,6 +648,8 @@ struct
     val init = K {additional_tac = NONE, additional_method = NONE, abort_before_condition = NONE,
       post_step_tac = NONE }
   );
+
+  val crush_branch_discardable_in_tac = Separation_Logic_Tactics.discardable_in_tac
 
   val crush_branch_ucincl_tac = Separation_Logic_Tactics.ucincl_solve_tac
 
@@ -568,23 +700,27 @@ struct
             ("urust_determine_branch"  , \<^here>, (fn _ => crush_branch_determine_branch ctxt)),
             ("call_tac (no schematics)", \<^here>, (fn _ => crush_branch_call_tac ctxt false unfold_contract_tac)),
             ("aentails_cancel_tac"     , \<^here>, (fn _ => crush_branch_aentails_cancel_tac ctxt)),
+            ("aentails_cond_crule_tac" , \<^here>, (fn _ => crush_branch_aentails_cond_crule_tac ctxt)),
+            ("aentails_crule_tac"      , \<^here>, (fn _ => crush_branch_aentails_crule_tac ctxt)),
             ("unfold_prems_tac"        , \<^here>, (fn _ => crush_branch_unfold_prems_tac ctxt)),
             ("aentails_core_tac"       , \<^here>, (fn _ => crush_branch_aentails_core_tac ctxt)),
             ("aentails_drule_tac"      , \<^here>, (fn _ => crush_branch_aentails_drule_tac ctxt)),
-            ("aentails_cond_crule_tac" , \<^here>, (fn _ => crush_branch_aentails_cond_crule_tac ctxt)),
-            ("aentails_crule_tac"      , \<^here>, (fn _ => crush_branch_aentails_crule_tac ctxt)),
             ("aentails_rule_tac"       , \<^here>, (fn _ => crush_branch_aentails_rule_tac ctxt)),
             ("unfold_concls_tac"       , \<^here>, (fn _ => crush_branch_unfold_concls_tac ctxt)),
             ("schematics_tac"          , \<^here>, (fn _ => crush_branch_schematics_tac ctxt unfold_contract_tac)),
             ("intro_pure_aentails_tac" , \<^here>, (fn _ => crush_branch_intro_pure_aentails_tac ctxt)),
             ("urust_simps_tac"         , \<^here>, (fn _ => crush_branch_urust_simps_tac ctxt)),
             ("clarsimp_tac"            , \<^here>, (fn _ => crush_branch_clarsimp_tac ctxt)),
+            ("aentails_aforall_assms_tac", \<^here>,
+              (fn _ => crush_branch_aentails_aforall_assms_tac ctxt)),
             ("misc_tac"                , \<^here>, (fn _ => crush_branch_misc_tac ctxt)),
+            ("discardable_in_tac"      , \<^here>, (fn _ => crush_branch_discardable_in_tac ctxt)),
             ("ucincl_tac"              , \<^here>, (fn _ => crush_branch_ucincl_tac ctxt)),
             ("additional_tac"          , \<^here>, (fn _ => crush_branch_additional_tactic ctxt)),
             ("additional_method"       , \<^here>, (fn _ => crush_branch_additional_method ctxt)),
             ("wp_case_split_tac"       , \<^here>, (fn _ => crush_branch_wp_case_split_tac ctxt)),
             ("safe_tac"                , \<^here>, (fn _ => crush_branch_safe_tac ctxt)),
+            ("order"                   , \<^here>, (fn _ => crush_branch_order_tac ctxt)),
             ("clarsimp_filtered"       , \<^here>, (fn _ => crush_branch_filtered_clarsimp_tac ctxt)),
             ("clarsimp_fallback"       , \<^here>, (fn _ => crush_branch_clarsimp_fallback_tac ctxt))
            ] |>
@@ -661,7 +797,12 @@ struct
         IF_ANY_GOAL' crush_abort_condition (K (fn _ => raise SMART "abort condition hit"))
         ORELSE' (NOTE_CHECK' check_schematic_equality_tac'
            THEN' NOTE_GUARD' guards_tac'
-           THEN' ucincl_tac' (NOTE_STEP' step_tac')
+           (* A goal whose conclusion is still guarded cannot be closed until another goal fixes
+              the guarded schematic. Fail the step at once instead of running every branch on
+              it; the worklist moves on to goals sharing the schematic and re-queues this goal
+              once it changes. *)
+           THEN' IF' (not o Crush_Guards.has_pending_guard_conclusion)
+                   (ucincl_tac' (NOTE_STEP' step_tac'))
         )
       end
     end
@@ -799,13 +940,16 @@ struct
                      post_step_tac_parser,
                      additional_tac_parser, additional_method_parser,
                      abort_at_filter_parser, abort_at_pattern_parser]
-  val time_parsers = [make_time_parser "steps"    Crush_Config.time_steps,
+  val time_parsers = [make_arg_parser' (Args.$$$ "pide" |-- Args.$$$ "timing")
+                        Parser.parse_bool (Config.put Fine_Grained_Timing.enabled) \<^here>,
+                      make_time_parser "steps"    Crush_Config.time_steps,
                       make_time_parser "clarsimp" Crush_Config.time_clarsimp,
                       make_time_parser "toplevel" Crush_Config.time_toplevel]
   val log_parsers = [make_log_parser "toplevel" Crush_Config.log_toplevel,
                      make_log_parser "clarsimp" Crush_Config.log_clarsimp,
                      make_log_parser "calls"    Crush_Config.log_calls,
                      make_log_parser "ucincl"   Crush_Config.log_ucincl,
+                     make_log_parser "discardable_in" Crush_Config.log_discardable_in,
                      make_log_parser "schematics" Crush_Config.log_schematics,
                      make_arg_parser' (Args.$$$ "ask" -- Args.$$$ "schematics")
                        Parser.parse_bool (Config.put Crush_Config.ask_schematics) \<^here>]
@@ -863,13 +1007,25 @@ end;
 
 local
   val _ = Theory.setup (Method.setup @{binding "crush_base"}
-          (Method.sections Crush.crush_modifiers |-- Scan.succeed (SIMPLE_METHOD o Crush.crush_base_tac)) "")
+          (Method.sections Crush.crush_modifiers |--
+            Scan.succeed (fn ctxt =>
+              SIMPLE_METHOD
+                (Fine_Grained_Timing.profile_tactic
+                  "crush_base" ctxt Crush.crush_base_tac))) "")
 
   val _ = Theory.setup (Method.setup @{binding "fastcrush_base"}
-          (Method.sections Crush.crush_modifiers |-- Scan.succeed (SIMPLE_METHOD o Crush.fastcrush_base_tac)) "")
+          (Method.sections Crush.crush_modifiers |--
+            Scan.succeed (fn ctxt =>
+              SIMPLE_METHOD
+                (Fine_Grained_Timing.profile_tactic
+                  "fastcrush_base" ctxt Crush.fastcrush_base_tac))) "")
 
   val _ = Theory.setup (Method.setup @{binding "crush_base_step"}
           (Method.sections Crush.crush_modifiers |--
-            Scan.succeed (SIMPLE_METHOD o HEADGOAL o (fn ctxt => Crush.crush_base_step_tac ctxt default_logger))) "")
+            Scan.succeed (fn ctxt =>
+              SIMPLE_METHOD
+                (Fine_Grained_Timing.profile_tactic
+                  "crush_base_step" ctxt
+                  (fn ctxt' => HEADGOAL (Crush.crush_base_step_tac ctxt' default_logger))))) "")
 
 in end

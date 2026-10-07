@@ -322,6 +322,20 @@ begin
     by (crush_base simp prems add: Some_Ex_def seplog drule add: PQ)
 end
 
+text\<open>A destruction rule may produce a precise-pure factor. The entailment
+core leaves its content as a spatial obligation, so the spatial drule branch
+remains applicable.\<close>
+
+experiment
+  fixes P Q :: \<open>'s::sepalg assert\<close>
+    and R :: bool
+  assumes PQ: \<open>P \<longlongrightarrow> Q \<star> \<langle>R\<rangle>\<close>
+begin
+  lemma
+    shows \<open>P \<longlongrightarrow> \<langle>R\<rangle> \<star> Q\<close>
+    using PQ by (crush_base seplog drule add: PQ)
+end
+
 subsubsection\<open>Generic simplifications\<close>
 
 text\<open>We have already seen that \<^verbatim>\<open>crush\<close> applies simplification rules for separation logic
@@ -401,6 +415,42 @@ begin
     apply (crush_base simp add: Some_Ex_def no_schematics)
     apply (crush_base seplog rule add: PQ)
     done
+end
+
+subsection\<open>Support for separation logic constructs\<close>
+subsubsection\<open>Support for precise pure embeddings, explicitly and via \<^term>\<open>\<langle>P\<rangle>\<close>\<close>
+experiment
+  fixes P Q :: bool
+    and R :: \<open>'s::sepalg assert\<close>
+begin
+text\<open>Precise pure conclusions require \<^term>\<open>R\<close> to own no resource.\<close>
+lemma
+  assumes P and \<open>R \<longlongrightarrow> emp\<close>
+  shows \<open>\<langle>Q\<rangle> \<star> R \<longlongrightarrow> \<langle>P\<rangle> \<star> \<langle>Q\<rangle>\<close>
+  using assms by crush_base
+
+text\<open>The notation has the same resource-precise behaviour.\<close>
+lemma
+  assumes \<open>R \<longlongrightarrow> emp\<close>
+  shows \<open>\<langle>Q \<and> P\<rangle> \<star> R \<longlongrightarrow> \<langle>P\<rangle> \<star> \<langle>Q\<rangle>\<close>
+  by crush_base (rule assms)
+end
+
+subsubsection\<open>Support for discardability \<^term>\<open>discardable_in \<delta> \<rho>\<close>\<close>
+experiment
+  fixes \<alpha> \<beta> :: \<open>'s::sepalg assert\<close>
+begin
+text\<open>An upwards-closed retained assertion absorbs the resource of unmatched assumptions:\<close>
+lemma
+  assumes \<open>ucincl \<alpha>\<close>
+  shows \<open>\<alpha> \<star> \<beta> \<longlongrightarrow> \<alpha>\<close>
+  using assms by crush_base
+
+text\<open>An unmatched assertion entailing \<^term>\<open>emp\<close> supplies a zero-ownership licence:\<close>
+lemma
+  assumes \<open>\<beta> \<longlongrightarrow> emp\<close>
+  shows \<open>\<alpha> \<star> \<beta> \<longlongrightarrow> \<alpha>\<close>
+  using assms by crush_base
 end
 
 subsection\<open>Disabling case splits\<close>
@@ -808,11 +858,10 @@ end
 subsubsection\<open>Profiling \<^verbatim>\<open>crush\<close>\<close>
 
 text\<open>Despite all efforts to keep \<^verbatim>\<open>crush\<close> fast, some \<^verbatim>\<open>crush\<close> invocations can take a long time.
-In this case, the general profiling variant \<^verbatim>\<open>apply\<tau>\<close> can be used in conjunction with some or all
-of the configuration options \<^verbatim>\<open>crush_time_...\<close> to get a timing profile for \<^verbatim>\<open>crush\<close>.
-
-NB: Unfortunately, timing profiles are proof local, so you cannot currently aggregate performance
-statistics along multiple proofs.\<close>
+The \<^verbatim>\<open>pide timing: true\<close> modifier emits one bounded PIDE report for the complete
+invocation. The report retains successful and failing branch statistics and can be aggregated
+by the \<^verbatim>\<open>Fine-Grained Timing\<close> jEdit panel at command, proof, theory, and global scope.
+Global scope combines all timing reports in the current PIDE document session.\<close>
 
 experiment
   fixes P Q :: \<open>'a \<Rightarrow> 's::sepalg assert\<close>
@@ -826,100 +875,9 @@ begin
   lemma \<open>\<delta> \<star> Some_Ex \<star> (\<alpha> \<star> \<beta>) \<star> \<langle>R\<rangle> \<longlongrightarrow> \<alpha> \<star> (\<Squnion>x. Q x) \<star> (\<gamma> \<star> \<delta>)\<close>
     \<comment>\<open>By default, the timing mechanism ignores runtimes < 2ms, which is too high to observe
     the runtime of the tactics in this trivial example. We reduce the threshold to 5ns.\<close>
-    using [[crush_time_toplevel, crush_timing_threshold=5]]
-    apply\<tau> (crush_base simp prems add: Some_Ex_def seplog rule add: PQ)
-    show_timelogs
-(* Top ten time sinks
-- crush_branch_aentails_core_tac: 0.000374s (0.000073s failing, 0.000301s succeeding)
-- crush_branch_aentails_cancel_tac: 0.000301s (0.000118s failing, 0.000183s succeeding)
-- crush_branch_base_simps_tac: 0.000261s (0.000250s failing, 0.000011s succeeding)
-- crush_branch_aentails_rule_tac: 0.000079s (0.000000s failing, 0.000079s succeeding)
-- crush_branch_unfold_prems_tac: 0.000041s (0.000028s failing, 0.000013s succeeding)
-- crush_branch_focus_tac: 0.000026s (0.000026s failing, 0.000000s succeeding)
-- crush_branch_schematics_tac: 0.000022s (0.000000s failing, 0.000022s succeeding)
-- crush_branch_unfold_concls_tac: 0.000017s (0.000017s failing, 0.000000s succeeding)
-Timing statistics for: crush_branch_aentails_core_tac
-- Total time: 0.000374s
-- SUCCESSES
-  * Number of time reports: 1
-  * total 0.000301s, average 0.000301s, median 0.000301s
-  * Percentiles:  0.000301s 0.000301s 0.000301s 0.000301s 0.000301s 0.000301s ...
-- FAILURES
-  * Number of time reports: 2
-  * total 0.000073s, average 0.000036s, median 0.000039s
-  * Percentiles:  0.000034s 0.000034s 0.000034s 0.000034s 0.000034s 0.000039s ...
-Timing statistics for: crush_branch_aentails_cancel_tac
-- Total time: 0.000301s
-- SUCCESSES
-  * Number of time reports: 3
-  * total 0.000183s, average 0.000061s, median 0.000064s
-  * Percentiles:  0.000044s 0.000044s 0.000044s 0.000044s 0.000064s 0.000064s ...
-- FAILURES
-  * Number of time reports: 4
-  * total 0.000118s, average 0.000029s, median 0.000047s
-  * Percentiles:  0.000006s 0.000006s 0.000006s 0.000007s 0.000007s 0.000047s ...
-Timing statistics for: crush_branch_base_simps_tac
-- Total time: 0.000261s
-- SUCCESSES
-  * Number of time reports: 1
-  * total 0.000011s, average 0.000011s, median 0.000011s
-  * Percentiles:  0.000011s 0.000011s 0.000011s 0.000011s 0.000011s 0.000011s ...
-- FAILURES
-  * Number of time reports: 7
-  * total 0.000250s, average 0.000035s, median 0.000038s
-  * Percentiles:  0.000026s 0.000026s 0.000027s 0.000031s 0.000031s 0.000038s ...
-Timing statistics for: crush_branch_aentails_rule_tac
-- Total time: 0.000079s
-- SUCCESSES
-  * Number of time reports: 1
-  * total 0.000079s, average 0.000079s, median 0.000079s
-  * Percentiles:  0.000079s 0.000079s 0.000079s 0.000079s 0.000079s 0.000079s ...
-- FAILURES
-  * Number of time reports: 0
-  * total 0.000000s, average 0.000000s, median 0.000000s
-  * Percentiles:
-Timing statistics for: crush_branch_unfold_prems_tac
-- Total time: 0.000041s
-- SUCCESSES
-  * Number of time reports: 1
-  * total 0.000013s, average 0.000013s, median 0.000013s
-  * Percentiles:  0.000013s 0.000013s 0.000013s 0.000013s 0.000013s 0.000013s ...
-- FAILURES
-  * Number of time reports: 3
-  * total 0.000028s, average 0.000009s, median 0.000010s
-  * Percentiles:  0.000006s 0.000006s 0.000006s 0.000006s 0.000010s 0.000010s ...
-Timing statistics for: crush_branch_focus_tac
-- Total time: 0.000026s
-- SUCCESSES
-  * Number of time reports: 0
-  * total 0.000000s, average 0.000000s, median 0.000000s
-  * Percentiles:
-- FAILURES
-  * Number of time reports: 1
-  * total 0.000026s, average 0.000026s, median 0.000026s
-  * Percentiles:  0.000026s 0.000026s 0.000026s 0.000026s 0.000026s 0.000026s ...
-Timing statistics for: crush_branch_schematics_tac
-- Total time: 0.000022s
-- SUCCESSES
-  * Number of time reports: 1
-  * total 0.000022s, average 0.000022s, median 0.000022s
-  * Percentiles:  0.000022s 0.000022s 0.000022s 0.000022s 0.000022s 0.000022s ...
-- FAILURES
-  * Number of time reports: 0
-  * total 0.000000s, average 0.000000s, median 0.000000s
-  * Percentiles:
-Timing statistics for: crush_branch_unfold_concls_tac
-- Total time: 0.000017s
-- SUCCESSES
-  * Number of time reports: 0
-  * total 0.000000s, average 0.000000s, median 0.000000s
-  * Percentiles:
-- FAILURES
-  * Number of time reports: 1
-  * total 0.000017s, average 0.000017s, median 0.000017s
-  * Percentiles:  0.000017s 0.000017s 0.000017s 0.000017s 0.000017s 0.000017s ...
-Top ten time sinks *)
-  done
+    using [[crush_time_toplevel, fine_grained_timing_threshold=5]]
+    apply (crush_base pide timing: true simp prems add: Some_Ex_def seplog rule add: PQ)
+    done
 end
 
 text\<open>If you suspect that poor performance of \<^verbatim>\<open>crush\<close> is due to a particular branch running slowly,
@@ -1082,10 +1040,6 @@ lemma
   step
   step
   step
-  step
-  step
-  step
-  step
   done
 
 subsubsection\<open>Function contracts and specifications\<close>
@@ -1117,13 +1071,6 @@ definition swap_ref_fun_contract ::
 text\<open>Note how we are force to make all contextual parameters of the function specification arguments
 to the function contract definition.\<close>
 
-text\<open>As with all assertions, we need to prove that pre and post conditions are upwards closed.
-Luckily, there is custom automation to do this:\<close>
-ucincl_auto swap_ref_fun_contract
-
-text\<open>If the proof isn't trivial, you can use \<^verbatim>\<open>ucincl_proof\<close> instead to open up a proof context
-for the required \<^verbatim>\<open>ucincl\<close> assertions.\<close>
-
 text\<open>Next, we state and prove the function specification:\<close>
 
 lemma swap_ref_fun_spec:
@@ -1151,7 +1098,6 @@ definition rotate_ref3_contract ::
      let pre = rA \<mapsto> \<langle>\<top>\<rangle> gA\<down>vA \<star> rB \<mapsto>\<langle>\<top>\<rangle> gB\<down>vB \<star> rC \<mapsto>\<langle>\<top>\<rangle> gC\<down>vC in
      let post = \<lambda>_. (\<Squnion>gA' gB' gC'. rA \<mapsto> \<langle>\<top>\<rangle> gA'\<down>vB \<star> rB \<mapsto>\<langle>\<top>\<rangle> gB'\<down>vC \<star> rC \<mapsto>\<langle>\<top>\<rangle> gC'\<down>vA) in
       make_function_contract pre post\<close>
-ucincl_auto rotate_ref3_contract
 
 text\<open>To prove the specification for \<^verbatim>\<open>rotate_ref3\<close>, we could just unfold/inline the definition of
 \<^verbatim>\<open>swap_ref_fun\<close>:\<close>
@@ -1208,6 +1154,28 @@ no_adhoc_overloading store_update_const \<rightleftharpoons>
   update_fun
 
 end
+
+text\<open>\<^verbatim>\<open>crush_boot\<close> hoists precise-pure preconditions into HOL premises, which
+\<^verbatim>\<open>goal_cases\<close> exposes for Isar reasoning.\<close>
+
+definition bounded_id :: \<open>nat \<Rightarrow> ('s, nat, 'abort, 'i prompt, 'o prompt_output) function_body\<close> where
+  \<open>bounded_id n \<equiv> FunctionBody (literal n)\<close>
+
+definition bounded_id_contract :: \<open>nat \<Rightarrow> ('s::sepalg, nat, 'abort) function_contract\<close> where
+  \<open>bounded_id_contract n \<equiv>
+     let pre = \<langle>n < 20\<rangle> in
+     let post = \<lambda>r. \<langle>r = n\<rangle> \<star> \<langle>n + 1 \<le> 20\<rangle> in
+      make_function_contract pre post\<close>
+
+lemma bounded_id_spec:
+  shows \<open>\<Gamma>; bounded_id n \<Turnstile>\<^sub>F bounded_id_contract n\<close>
+proof (crush_boot f: bounded_id_def contract: bounded_id_contract_def, goal_cases)
+  case 1
+  from 1 have \<open>n + 1 \<le> 20\<close>
+    by simp
+  then show ?case
+    by crush_base
+qed
 
 subsubsection\<open>Reasoning about references and structures\<close>
 
@@ -1271,7 +1239,6 @@ definition write_foo_read_bar_contract ::
      let pre = r \<mapsto> \<langle>\<top>\<rangle> g\<down>v in
      let post = \<lambda>t. \<langle>t = test_record.bar v\<rangle> \<star> (\<Squnion>g'. r \<mapsto> \<langle>\<top>\<rangle> g'\<down>(test_record.update_foo (\<lambda>_. 42) v)) in
       make_function_contract pre post\<close>
-ucincl_auto write_foo_read_bar_contract
 
 lemma write_foo_read_bar_spec:
   shows \<open>\<Gamma>; write_foo_read_bar ptr \<Turnstile>\<^sub>F write_foo_read_bar_contract ptr g v\<close>
@@ -1286,7 +1253,6 @@ lemma write_foo_read_bar_spec':
   apply (crush_boot f: write_foo_read_bar_def contract: write_foo_read_bar_contract_def)
   using [[crush_log_toplevel]]
   apply (crush_base stepwise)
-  step
   step
   step
   step
@@ -1453,15 +1419,13 @@ definition test_record2_zeroize_contract ::
             v
           )))))))))))))))))))))) in
       make_function_contract pre post\<close>
-ucincl_auto test_record2_zeroize_contract
 
 lemma test_record2_zeroize_contract_spec:
   shows \<open>\<Gamma>; test_record2_zeroize ptr \<Turnstile>\<^sub>F test_record2_zeroize_contract ptr g v\<close>
   apply (crush_boot f: test_record2_zeroize_def contract: test_record2_zeroize_contract_def)
   using [[crush_time_steps, crush_time_base_simps]]
-  apply\<tau> (crush_base stepwise)
+  apply (crush_base stepwise)
   step *
-  show_timelogs
   done
 
 text\<open>Another similar stress test, but this time using array accesses behind a function wrapper.\<close>
@@ -1480,7 +1444,6 @@ definition test_record3_zero_field_contract ::
      let zero_ith_pure :: test_record3 \<Rightarrow> test_record3 = (\<lambda>t. t \<lparr> data := array_update (data t) (unat i) 0 \<rparr> ) in
      let post = \<lambda>_. r \<mapsto> \<langle>\<top>\<rangle> zero_ith_pure\<sqdot>(g\<down>v) in
       make_function_contract pre post\<close>
-ucincl_auto test_record3_zero_field_contract
 
 text\<open>For many non-trivial examples it is useful to conduct some Isar-style reasoning prior to
 starting the \<^verbatim>\<open>apply\<close>-style \<^verbatim>\<open>crush\<close> proof. The following proof demonstrates this pattern:\<close>
@@ -1569,7 +1532,6 @@ definition test_record3_zeroize_contract ::
      let zero_data_pure :: test_record3 \<Rightarrow> test_record3 = (\<lambda>t. t \<lparr> data := array_constant 0 \<rparr> ) in
      let post = \<lambda>ret. \<langle>ret = rest v\<rangle> \<star> (\<Squnion>g'. r \<mapsto> \<langle>\<top>\<rangle> g'\<down>(zero_data_pure v)) in
       make_function_contract pre post\<close>
-ucincl_auto test_record3_zeroize_contract
 
 lemma test_record3_zeroize_spec:
   \<comment>\<open>TODO: This can go away once specs are eager by default\<close>
@@ -1608,17 +1570,8 @@ proof (crush_boot f: test_record3_zeroize_def contract: test_record3_zeroize_con
   note eq = this[simplified]
   show ?case
   \<comment>\<open>TODO: This proof gets slower over time. Investigate\<close>
-  apply\<tau> (crush_base stepwise)
-  step 100
-  step 100
-  step 100
-  step 100
-  step 100
-  step 100
-  step 100
-  step 100
+  apply (crush_base stepwise)
   step *
-  show_timelogs
   apply (simp add: eq)
   done
 qed

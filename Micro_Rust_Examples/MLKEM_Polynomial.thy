@@ -89,7 +89,6 @@ definition poly_add_contract :: \<open>mlkem_poly \<Rightarrow> mlkem_poly \<Rig
                 \<langle>r = MLKEM_Specification.poly_add a b\<rangle> \<star>
                 \<langle>poly_wf r\<rangle>
       in make_function_contract pre post\<close>
-ucincl_auto poly_add_contract
 
 lemma poly_add_spec [crush_specs]:
   shows \<open>\<Gamma>; poly_add a b \<Turnstile>\<^sub>F poly_add_contract a b\<close>
@@ -144,7 +143,6 @@ definition poly_sub_contract :: \<open>mlkem_poly \<Rightarrow> mlkem_poly \<Rig
                 \<langle>r = MLKEM_Specification.poly_sub a b\<rangle> \<star>
                 \<langle>poly_wf r\<rangle>
       in make_function_contract pre post\<close>
-ucincl_auto poly_sub_contract
 
 lemma poly_sub_spec [crush_specs]:
   shows \<open>\<Gamma>; poly_sub a b \<Turnstile>\<^sub>F poly_sub_contract a b\<close>

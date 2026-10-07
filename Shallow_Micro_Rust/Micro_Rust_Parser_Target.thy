@@ -108,14 +108,16 @@ fun instantiate_localizable_class rec_name (ctxt : Proof.context) =
 \<close>
 
 ML\<open>
-fun register_lens_with_micro_rust rec_name overrides field lthy =
+fun register_lens_with_micro_rust_from overrides
+    (field : autolens_field_descriptor) lthy =
   let
-    val name = lens_name rec_name field
+    val name = #lens_name field
+    val field_name = #base_name field
     val full_name = Local_Theory.full_name lthy (Binding.name name)
     val (rust_name, rust_pos) =
-      case AList.lookup (op =) overrides field of
+      case AList.lookup (op =) overrides field_name of
         SOME name_and_pos => name_and_pos
-      | NONE => (field, Position.thread_data ())
+      | NONE => (field_name, Position.thread_data ())
   in
     Micro_Rust_Notation_Cmd.do_register (SOME Micro_Rust_Names.NField)
       (full_name, (rust_name, rust_pos)) lthy
@@ -132,9 +134,13 @@ fun check_override_fields rec_name fields overrides =
         ^ " has fields: " ^ commas_quote fields)
   end
 
-fun register_lenses_with_micro_rust rec_name overrides thy =
-  let val fields = get_fields rec_name thy
-  in fold (register_lens_with_micro_rust rec_name overrides) fields thy end
+fun register_lenses_with_micro_rust_from
+    (descriptor : autolens_record_descriptor) overrides lthy =
+  fold (register_lens_with_micro_rust_from overrides) (#fields descriptor) lthy
+
+fun register_lenses_with_micro_rust rec_name overrides lthy =
+  let val descriptor = prepare_record_descriptor rec_name lthy
+  in register_lenses_with_micro_rust_from descriptor overrides lthy end
 
 fun summarise_micro_rust_record rec_name fields overrides with_fields =
   let
@@ -167,23 +173,35 @@ fun make_lenses ((with_fields, rec_name), overrides) _ lthy =
       else
         error "micro_rust_record: a uRust-name mapping cannot be combined \
           \with [no_fields], which suppresses field registration"
-    val fields = get_fields rec_name lthy
+    val descriptor = prepare_record_descriptor rec_name lthy
+    val fields = map #base_name (#fields descriptor)
     val _ = check_override_fields rec_name fields overrides
     val _ = summarise_micro_rust_record rec_name fields overrides with_fields
+    val (lens_definitions, lthy1) = lens_autogen_defs_from descriptor lthy
+    val (lens_components, lthy2) =
+      lens_autogen_defining_equations_from
+        @{attributes [micro_rust_record_simps, focus_simps]}
+        descriptor lens_definitions lthy1
+    val (lens_artifacts, lthy3) =
+      lens_autogen_prove_lens_validity_from
+        @{attributes [micro_rust_record_intros, focus_intros,
+                      micro_rust_record_simps, focus_simps]}
+        descriptor lens_components lthy2
+    val (_, lthy4) =
+      lens_autogen_prove_update_equations_from
+        @{attributes [micro_rust_record_simps, focus_simps]}
+        @{attributes [micro_rust_record_intros, focus_intros]}
+        descriptor lthy3
+    val lthy5 =
+      focus_autogen_make_field_foci_from
+        @{attributes [focus_components]} descriptor lens_artifacts lthy4
+      |> snd
+    val lthy6 =
+      if with_fields then
+        register_lenses_with_micro_rust_from descriptor overrides lthy5
+      else lthy5
   in
-    lthy
-    |> lens_autogen_defs rec_name
-    |> lens_autogen_defining_equations
-         @{attributes [micro_rust_record_simps, focus_simps]} rec_name
-    |> lens_autogen_prove_lens_validity
-         @{attributes [micro_rust_record_intros, focus_intros,
-                       micro_rust_record_simps, focus_simps]} rec_name
-    |> lens_autogen_prove_update_equations
-         @{attributes [micro_rust_record_simps, focus_simps]}
-         @{attributes [micro_rust_record_intros, focus_intros]} rec_name
-    |> focus_autogen_make_field_foci @{attributes [focus_components]} rec_name
-    |> (if with_fields then register_lenses_with_micro_rust rec_name overrides else I)
-    |> instantiate_localizable_class rec_name
+    instantiate_localizable_class rec_name lthy6
   end
 
 val parse_field_overrides =

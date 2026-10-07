@@ -8,15 +8,58 @@
 ######################################################################
 
 .DEFAULT_GOAL: jedit
-.PHONY: register-afp-components build parser-tests jedit tutorial \
+.PHONY: register-components register-afp-components \
+        register-fine-grained-timing-panel-component \
+        build parser-tests autolocality-tests autolocality-stress jedit tutorial \
         build-ic2 ic2 ic2-status ic2-stop
 
 # Set this to the directory containing the Isabelle2025-2 binary
 ISABELLE_HOME?=/Applications/Isabelle2025-2.app/bin
+ISABELLE_VERSION?=Isabelle2025-2
+ISABELLE?=$(ISABELLE_HOME)/isabelle
 # Set this to your home directory
 USER_HOME?=$(HOME)
 # Set this to where you maintain, or want to maintain, AFP dependencies
 AFP_COMPONENT_BASE?=./dependencies/afp
+
+ISABELLE_SYSTEM_COMPONENTS?=$(abspath $(ISABELLE_HOME)/../etc/components)
+ISABELLE_USER_COMPONENTS?=$(USER_HOME)/.isabelle/$(ISABELLE_VERSION)/etc/components
+
+# $(call ensure_registered,<friendly name>,<candidate dir>)
+#
+# Accept a component registered from any checkout. Register the candidate
+# directory only when no existing entry has the requested basename.
+define ensure_registered
+	@name='$(1)'; cand='$(2)'; \
+	 system_comp='$(ISABELLE_SYSTEM_COMPONENTS)'; \
+	 user_comp='$(ISABELLE_USER_COMPONENTS)'; \
+	 component_entries() { \
+		   for comp in "$$system_comp" "$$user_comp"; do \
+		     [ ! -f "$$comp" ] || while IFS= read -r entry; do \
+		       [ -d "$$entry" ] && printf '%s\n' "$$entry"; \
+		     done < "$$comp"; \
+		   done; \
+	 }; \
+	 dir=""; \
+	 if [ -n "$$cand" ]; then dir=$$(cd "$$cand" 2>/dev/null && pwd || true); fi; \
+	 echo "Checking Isabelle component: $$name ..."; \
+	 if [ -n "$$dir" ] && component_entries | grep -Fxq "$$dir"; then \
+	   echo "  $$name already registered -- skipping"; \
+	 elif component_entries | awk -F/ -v n="$$name" '$$NF==n{found=1} END{exit !found}'; then \
+	   echo "  $$name already registered -- skipping"; \
+	 elif [ -n "$$dir" ]; then \
+	   echo "  registering: $$dir"; \
+	   $(ISABELLE) components -u "$$dir"; \
+	 else \
+	   echo ""; \
+	   echo "ERROR: Isabelle component '$$name' is not registered and no path was provided."; \
+	   echo "  Set the corresponding component path or register it manually via:"; \
+	   echo "      isabelle components -u <path-to-$$name>"; \
+	   echo ""; \
+	   exit 1; \
+	 fi
+endef
+
 # Set this option to accept `sorry`'ed proofs
 ifdef QUICK_AND_DIRTY
 	ISABELLE_FLAGS += -o quick_and_dirty
@@ -40,22 +83,37 @@ ISABELLE_JEDIT_FLAGS?=
 ISABELLE_FLAGS += $(ISABELLE_REMOTE)
 ISABELLE_JEDIT_FLAGS += $(ISABELLE_REMOTE)
 
-jedit: register-afp-components
+jedit: register-components
 	$(ISABELLE_HOME)/isabelle jedit $(ISABELLE_JEDIT_FLAGS) -l HOL -d . ./AutoCorrode.thy  &
 
+register-components: register-afp-components \
+	register-fine-grained-timing-panel-component
+
 register-afp-components:
-	$(ISABELLE_HOME)/isabelle components -u $(AFP_COMPONENT_BASE)/Word_Lib
+	$(call ensure_registered,Word_Lib,$(AFP_COMPONENT_BASE)/Word_Lib)
 
-build: register-afp-components
-	$(ISABELLE_HOME)/isabelle build $(ISABELLE_FLAGS) -d . AutoCorrode
+register-fine-grained-timing-panel-component:
+	$(call ensure_registered,Fine_Grained_Timing_Panel,./Fine_Grained_Timing_Panel)
 
-parser-tests: register-afp-components
+build: register-components
+	$(ISABELLE_HOME)/isabelle build $(ISABELLE_FLAGS) -d . \
+	  AutoCorrode AutoLocality_Tests
+
+autolocality-tests: register-components
+	$(ISABELLE_HOME)/isabelle build $(ISABELLE_FLAGS) -d . AutoLocality_Tests
+
+# Kept as a compatibility entry point. The unified test session includes
+# the former locale-retention stress theory.
+autolocality-stress: register-components
+	$(ISABELLE_HOME)/isabelle build $(ISABELLE_FLAGS) -d . AutoLocality_Tests
+
+parser-tests: register-components
 	$(ISABELLE_HOME)/isabelle build $(ISABELLE_FLAGS) -o document=false -d . \
 		Micro_Rust_Parser_Tests
 
 # Build the slide-deck tutorial in tutorial/. Inherits the AutoCorrode
 # parent heap, so run `make build` first if it isn't built yet.
-tutorial: register-afp-components
+tutorial: register-components
 	$(MAKE) -C tutorial ISABELLE_HOME=$(ISABELLE_HOME) build
 
 #######################################
@@ -88,7 +146,7 @@ build-ic2:
 # Start a daemonised ic2 server for the full AutoCorrode session, on the HOL
 # heap. Run `make build` first to have the AutoCorrode heap ready; otherwise the
 # cold build runs in the background (see ic2/README.md).
-ic2: register-afp-components build-ic2
+ic2: register-components build-ic2
 	$(ISABELLE_HOME)/isabelle ic2 server start $(IC2_FLAGS) -n $(IC2_NAME) -d . -l HOL
 	@echo ''
 	@echo '  ic2 server "$(IC2_NAME)" launched. Follow its console (build progress + logs) with:'

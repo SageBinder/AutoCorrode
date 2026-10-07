@@ -20,6 +20,7 @@ session Shallow_Micro_Rust = HOL +
     Prompts_And_Responses
     Tuple
     Micro_Rust_Parser_Target
+    Micro_Rust_Record_Tests
   theories
     Core_Expression_Lemmas
     Bool_Type_Lemmas
