@@ -1352,6 +1352,8 @@ yacc_rules\<open>
         (mk_bare_path_pat upath)
     | NUM
         (P_Literal (LP_Integer (NUM, NUMleft)))
+    | NUMSFX
+        (P_Literal (LP_Integer (NUMSFX, NUMSFXleft)))
     | TTRUE
         (P_Literal (LP_Bool (true, TTRUEleft)))
     | TFALSE
@@ -1374,9 +1376,13 @@ yacc_rules\<open>
   upats : upat %prec TPATCONTEXT ([upat])
         | upat COMMA              ([upat])
         | upat COMMA upats        (upat :: upats)
+  (* Share the alias identifier reduction before `@` to avoid a competing IDENT shift. A bound rest
+     is a slice item, not a general pattern, so grouping and chained aliases cannot wrap `..`. *)
   uslice_item : upat %prec TPATCONTEXT
                                       (SI_Pat upat)
                | TDOTDOT          (SI_Rest TDOTDOTleft)
+               | upat_ident TAT TDOTDOT
+                   (mk_bound_rest (upat_ident, TATleft, TDOTDOTleft))
   uslice_items : uslice_item      ([uslice_item])
                 | uslice_item COMMA
                     ([uslice_item])

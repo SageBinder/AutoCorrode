@@ -61,6 +61,29 @@ urust_expr  showoff_grammar_literals
     (mask, permissions, narrowed, adjusted)
   \<close>
 
+subsection\<open> List captures and structural integer patterns \<close>
+
+text\<open>
+An ordinary binding can alias an irrefutable rest-only list pattern. Matching then combines integer
+elements with a middle capture, whose elements retain their source order.
+\<close>
+
+urust_expr showoff_list_captures
+  \<open>
+    let whole @ [rest @ ..] = \<llangle>[0, 11, 23, 42] :: nat list\<rrangle>;
+    match whole {
+      [0, middle @ .., 42] => (rest, middle),
+      _ => (rest, [])
+    }
+  \<close>
+
+lemma showoff_list_captures_result:
+  \<open>
+    showoff_list_captures =
+      literal ([0, 11, 23, 42] :: nat list, [11, 23] :: nat list, TNil)
+  \<close>
+  by (simp add: showoff_list_captures_def micro_rust_simps)
+
 subsection\<open> Logging and yield \<close>
 
 text\<open>

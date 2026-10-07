@@ -64,6 +64,7 @@ sig
   and slice_item =
       SI_Pat of ur_pat
     | SI_Rest of Position.T
+    | SI_BoundRest of string * Position.T * Position.T * Position.T
   and struct_field =
       SF_Field of string * Position.T * ur_pat
     | SF_Shorthand of string * Position.T
@@ -165,6 +166,8 @@ sig
   val mk_ctor_pat: ur_path * ur_pat list -> ur_pat
   val mk_alias_pat:
     (string * Position.T) * ur_pat * Position.T -> ur_pat
+  val mk_bound_rest:
+    (string * Position.T) * Position.T * Position.T -> slice_item
   val mk_struct_pat: ur_path * struct_field list -> ur_pat
   val mk_closure:
     ur_pat list * ur_expr * Position.T * Position.T -> ur_expr
@@ -204,10 +207,11 @@ end
       though the current shallow frontend lowers const and mut targets identically. log_data_entry
       retains each quoted string or identifier in source order with its token position.
     * ur_pat and P_Wild, P_Ident, P_Literal, P_Constr, P_Tuple, P_Group, P_Borrow, P_Alias, P_Range,
-      P_Slice, P_Struct, P_Or, together with slice_item (SI_Pat, SI_Rest) and struct_field (SF_Field,
-      SF_Shorthand, SF_Rest). Lists retain source order; grammar-produced tuple lists contain at least
-      two elements and P_Or alternatives are flattened. P_Ident deliberately does not decide binder
-      versus constructor.
+      P_Slice, P_Struct, P_Or, together with slice_item (SI_Pat, SI_Rest, SI_BoundRest) and struct_field
+      (SF_Field, SF_Shorthand, SF_Rest). Lists retain source order; grammar-produced tuple lists contain
+      at least two elements and P_Or alternatives are flattened. P_Ident deliberately does not decide
+      binder versus constructor. SI_BoundRest retains the binder spelling and separate identifier,
+      @, and .. token positions; it always names a binder.
     * match_flavour and MF_Switch, MF_Case, MF_Auto.  MF_Auto requests downstream classification; it
       is not a fourth lowering.
     * the mutually recursive expression interface ur_expr (UE_Unit, UE_Tuple, UE_Array, UE_Struct,
@@ -250,7 +254,9 @@ end
   finish_statement leaves a terminal UE_Return unchanged and otherwise sequences the expression with
   UE_Unit at the semicolon. mk_bare_ident_pat normalises "_"
   to P_Wild; the other pattern smart constructors consume ordinary (name, position) pairs without a
-  parser-only wrapper datatype. mk_closure converts a final ranged body token to its exclusive endpoint
+  parser-only wrapper datatype. mk_bound_rest rejects "_" at its identifier position and otherwise
+  constructs SI_BoundRest with separate identifier, @, and .. token positions.
+  mk_closure converts a final ranged body token to its exclusive endpoint
   before constructing the full source span. mk_call combines any callee with its arguments and supplied
   source endpoints into the call span. mk_let_else applies the same
   exclusive-end correction to its final ranged token. mk_or_pat preserves source order while
@@ -352,6 +358,8 @@ struct
   and slice_item =
       SI_Pat of ur_pat
     | SI_Rest of Position.T
+    | SI_BoundRest of string * Position.T * Position.T * Position.T
+                                                        (* name @ ..: name, name-pos, @-pos, ..-pos *)
   and struct_field =
       SF_Field of string * Position.T * ur_pat
     | SF_Shorthand of string * Position.T
@@ -600,6 +608,11 @@ struct
   fun mk_ctor_pat (path, args) = P_Constr (path, args)
   fun mk_alias_pat ((name, pos), inner, at_pos) =
     P_Alias (name, pos, inner, at_pos)
+  fun mk_bound_rest (("_", pos), _, _) =
+        error ("urust_expr: slice rest binder cannot be `_`" ^
+          Position.here pos)
+    | mk_bound_rest ((name, pos), at_pos, rest_pos) =
+        SI_BoundRest (name, pos, at_pos, rest_pos)
   fun mk_struct_pat (path, fields) = P_Struct (path, fields)
 
   fun mk_closure (formals, body, left, right) =

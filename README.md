@@ -157,6 +157,23 @@ while explicit delimiters restore unrestricted parsing. Integer literals support
 decimal, and hexadecimal bases, internal or trailing underscores, and the `u8`, `u16`, `u32`,
 `u64`, and `usize` suffixes.
 
+List patterns accept one unnamed `..` or named `rest @ ..` at any position, including
+`[first, rest @ .., last]`. A capture contains the unmatched middle in its original order.
+Closed list patterns require an exact length; patterns with a rest require enough elements for their
+prefix and suffix. Integer patterns use the same literal syntax and type inference as expressions
+and compose inside lists, constructors, tuples, and struct fields.
+
+Ordinary `let` and `for` bindings support aliases of irrefutable patterns, including chained
+aliases, tuples, and rest-only lists such as `let whole @ [rest @ ..] = values;`.
+List patterns requiring elements remain refutable and are rejected at these binding sites.
+Mutable bindings, closure formals, local `const`, and reference binding modes retain their existing
+restrictions. Rest binders must be direct names; `_ @ ..`, grouped rest aliases, and chained rest
+aliases are rejected.
+
+Direct top-level tuples in `if let` and `let … else` retain the existing restricted binding path.
+Their children must satisfy the local `const` pattern policy. Constructor-wrapped tuples use the
+structural case compiler, as do ordinary matches and `while let`.
+
 Constructor resolution uses Isabelle's datatype/codatatype metadata first and native case metadata
 for exact registered literal backends that are not represented by `Ctr_Sugar`. Registered literals
 without native case metadata remain values. Automatic matching selects equality/switch lowering

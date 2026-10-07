@@ -286,7 +286,7 @@ struct
          end
      | UE_Let binding =>
          lower_binding (lower_expression ctxt) ctxt
-           P.Let_Const_Binder environment binding
+           P.Let_Binder environment binding
      | UE_LetMut (pattern, rhs, body, mutable_pos) =>
          lower_binding (lower_expression ctxt) ctxt
            (P.Mutable_Let_Binder mutable_pos) environment

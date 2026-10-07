@@ -104,14 +104,14 @@ urust_expr_rejects \<open> 0x_f \<close>
   \<open> cannot read integer literal "0x_f" \<close>
 
 urust_expr_rejects
-  \<open> match_switch \<llangle>1 :: nat\<rrangle> { 1u8 \<Rightarrow> (), _ \<Rightarrow> () } \<close>
-  \<open> <integer> => \<close>
-  \<comment> \<open> [FIDELITY] suffixed decimal literals remain outside the pattern grammar. \<close>
+  \<open> match_switch \<llangle>1 :: nat\<rrangle> { 1u128 \<Rightarrow> (), _ \<Rightarrow> () } \<close>
+  \<open> unsupported integer-literal suffix "u128" \<close>
+  \<comment> \<open> [AUDIT] pattern literals share the expression suffix policy. \<close>
 
 urust_expr_rejects
-  \<open> match_switch \<llangle>1 :: nat\<rrangle> { 0xffu8 \<Rightarrow> (), _ \<Rightarrow> () } \<close>
-  \<open> <integer> => \<close>
-  \<comment> \<open> [FIDELITY] suffixed hexadecimal literals preserve the same pattern boundary. \<close>
+  \<open> match_switch \<llangle>1 :: nat\<rrangle> { 0xffi32 \<Rightarrow> (), _ \<Rightarrow> () } \<close>
+  \<open> unsupported integer-literal suffix "i32" \<close>
+  \<comment> \<open> [AUDIT] hexadecimal pattern literals retain unsupported signed-suffix diagnostics. \<close>
 
 section\<open> Patterns \<close>
 
@@ -470,9 +470,9 @@ urust_expr_rejects
   \<comment> \<open> [DIVERGENT] const bindings share the same non-erasing reference-pattern gate. \<close>
 
 urust_expr_rejects
-  \<open> match \<llangle>1 :: nat\<rrangle> { &1 \<Rightarrow> \<llangle>True\<rrangle>, _ \<Rightarrow> \<llangle>False\<rrangle> } \<close>
-  \<open> numeric patterns are not supported in case patterns \<close>
-  \<comment> \<open> [FIDELITY] wrapper erasure exposes the underlying unsupported case numeral. \<close>
+  \<open> for whole @ &value in \<llangle>[1 :: nat]\<rrangle> { () } \<close>
+  \<open> reference patterns are not implemented \<close>
+  \<comment> \<open> [AUDIT] ordinary aliases retain the loop binding site's reference-pattern gate. \<close>
 
 urust_expr_rejects
   \<open> match_case \<llangle>1 :: nat\<rrangle> { (&1)..2 \<Rightarrow> True, _ \<Rightarrow> False } \<close>
@@ -545,25 +545,22 @@ urust_expr_rejects
 urust_expr_rejects \<open> let () = (); () \<close> \<open> syntax error \<close>
   \<comment> \<open> [FIDELITY] unit is an expression but not a pattern in the current frontend. \<close>
 
-urust_expr_rejects \<open> match_case \<llangle>0 :: nat\<rrangle> { 0 \<Rightarrow> (), _ \<Rightarrow> () } \<close>
-  \<open> numeric patterns are not supported in case patterns \<close>
-  \<comment> \<open> [FIDELITY] a numeral belongs to \<open>match_switch\<close>; source validation rejects it before
-       generated case clauses are constructed. \<close>
+urust_expr_rejects \<open> match_case true { 0u8 \<Rightarrow> (), _ \<Rightarrow> () } \<close>
+  \<open> Type unification failed \<close>
+  \<comment> \<open> [AUDIT] case numerals are accepted syntax and retain ordinary checked typing. \<close>
 
-urust_expr_rejects \<open> match_case \<llangle>1 :: nat\<rrangle> { 1 \<Rightarrow> (), _ \<Rightarrow> () } \<close>
-  \<open> numeric patterns are not supported in case patterns \<close>
-  \<comment> \<open> [FIDELITY] literal \<open>1\<close> has the same dedicated case-pattern node and rejection boundary as
-       literal \<open>0\<close>. \<close>
+urust_expr_rejects \<open> match_case \<llangle>[True]\<rrangle> { [1u8, ..] \<Rightarrow> (), _ \<Rightarrow> () } \<close>
+  \<open> Type unification failed \<close>
+  \<comment> \<open> [AUDIT] structural list-element numerals use the same checked value-pattern equality. \<close>
 
-urust_expr_rejects \<open> match_case \<llangle>2 :: nat\<rrangle> { 2 \<Rightarrow> (), _ \<Rightarrow> () } \<close>
-  \<open> numeric patterns are not supported in case patterns \<close>
-  \<comment> \<open> [FIDELITY] the frontend's attempted guarded lowering retains the raw token and rejects with
-       \<open>Undefined constant: "2"\<close>; the parser gives the same accept-set boundary a positioned diagnostic. \<close>
+urust_expr_rejects \<open> let 2 = \<llangle>2 :: nat\<rrangle>; () \<close>
+  \<open> unsupported or refutable pattern in an irrefutable (let/const) binder position \<close>
+  \<comment> \<open> [AUDIT] accepting case numerals does not make literal ordinary bindings irrefutable. \<close>
 
 urust_expr_rejects
-  \<open> match_case \<llangle>Some (2 :: nat)\<rrangle> { Some(2) \<Rightarrow> (), _ \<Rightarrow> () } \<close>
-  \<open> numeric patterns are not supported in case patterns \<close>
-  \<comment> \<open> [FIDELITY] constructor-nested numerals hit the same frontend raw-token rejection. \<close>
+  \<open> match_case \<llangle>Some True\<rrangle> { Some(2u8) \<Rightarrow> (), _ \<Rightarrow> () } \<close>
+  \<open> Type unification failed \<close>
+  \<comment> \<open> [AUDIT] constructor-nested literals fail through checked elaboration when their types differ. \<close>
 
 urust_expr_rejects
   \<open> match_switch \<llangle>2 :: nat\<rrangle> { 2 if True \<Rightarrow> (), _ \<Rightarrow> () } \<close>
@@ -636,25 +633,23 @@ urust_expr_rejects \<open> match_switch \<llangle>0 :: nat\<rrangle> { x \<Right
        unregistered identifier remains a binding pattern and needs \<open>match_case\<close>. \<close>
 
 urust_expr_rejects
-  \<open> match \<llangle>Some (0 :: nat)\<rrangle> { 0 \<Rightarrow> (), Some(x) \<Rightarrow> () } \<close>
-  \<open> mixed numeral and constructor patterns in bare `match` \<close>
-  \<comment> \<open> [FIDELITY] bare-match routing cannot select one lowering for numeral and constructor heads;
-       the frontend reports the same mixed-match category. \<close>
+  \<open> match_switch \<llangle>Some (0 :: nat)\<rrangle> { 0 \<Rightarrow> (), Some(x) \<Rightarrow> () } \<close>
+  \<open> unsupported match_switch pattern \<close>
+  \<comment> \<open> [AUDIT] explicit switch lowering retains its constructor-pattern restriction. \<close>
 
 urust_expr_rejects
   \<open>
-    match \<llangle>NegativeRegisteredNullary\<rrangle> {
+    match_switch \<llangle>NegativeRegisteredNullary\<rrangle> {
       0 \<Rightarrow> (),
       NegativeRegistered::Nullary \<Rightarrow> ()
     }
   \<close>
-  \<open> mixed numeral and constructor patterns in bare `match` \<close>
-  \<comment> \<open> [AUDIT] an exact authentic constructor registration remains case-only during automatic
-       routing. \<close>
+  \<open> requires case-pattern lowering \<close>
+  \<comment> \<open> [AUDIT] an exact authentic constructor registration remains case-only under an explicit switch. \<close>
 
 urust_expr_rejects
   \<open>
-    match
+    match_switch
       \<llangle>
         NegativeRegisteredPhantom ::
           nat negative_registered_phantom
@@ -663,52 +658,50 @@ urust_expr_rejects
       NegativeRegistered::Phantom \<Rightarrow> ()
     }
   \<close>
-  \<open> mixed numeral and constructor patterns in bare `match` \<close>
+  \<open> requires case-pattern lowering \<close>
   \<comment> \<open> [AUDIT] phantom instantiation does not disguise registered constructor identity. \<close>
 
 urust_expr_rejects
   \<open>
-    match \<llangle>NegativeRegisteredNullary\<rrangle> {
+    match_switch \<llangle>NegativeRegisteredNullary\<rrangle> {
       0 \<Rightarrow> (),
       NegativeRegistered::ConstructorWins \<Rightarrow> ()
     }
   \<close>
-  \<open> mixed numeral and constructor patterns in bare `match` \<close>
+  \<open> requires case-pattern lowering \<close>
   \<comment> \<open> [AUDIT] when one exact key has both a constructor and a nonconstructor backend, the
-       authentic constructor makes automatic routing case-only. \<close>
+       authentic constructor still excludes explicit switch lowering. \<close>
 
 urust_expr_rejects
   \<open>
-    match \<llangle>NegativeRegisteredNullary\<rrangle> {
-      0 \<Rightarrow> (),
+    match_case \<llangle>NegativeRegisteredNullary\<rrangle> {
       NegativeRegistered::Ambiguous \<Rightarrow> ()
     }
   \<close>
-  \<open> mixed numeral and constructor patterns in bare `match` \<close>
-  \<comment> \<open> [AUDIT] two distinct constructor registrations classify as constructor-shaped before
-       later case-resolution ambiguity can run. \<close>
+  \<open> constructor pattern "NegativeRegistered::Ambiguous" is ambiguous; candidates: \<close>
+  \<comment> \<open> [AUDIT] case preparation preserves ambiguity between distinct registered constructors. \<close>
 
 urust_expr_rejects
   \<open>
-    match 42 {
+    match_switch 42 {
       0 if True \<Rightarrow> (),
       NegativeRegistered::Number \<Rightarrow> (),
       _ \<Rightarrow> ()
     }
   \<close>
-  \<open> numeric patterns are not supported in case patterns \<close>
-  \<comment> \<open> [AUDIT] any source guard forces case lowering before the first numeral is validated. \<close>
+  \<open> guards are not supported in explicit `match_switch` \<close>
+  \<comment> \<open> [AUDIT] numeric and registered-value keys do not relax the explicit switch guard restriction. \<close>
 
 urust_expr_rejects
   \<open>
     match_case 42 {
-      0 \<Rightarrow> (),
+      0u128 \<Rightarrow> (),
       NegativeRegistered::Number \<Rightarrow> (),
       _ \<Rightarrow> ()
     }
   \<close>
-  \<open> numeric patterns are not supported in case patterns \<close>
-  \<comment> \<open> [AUDIT] explicit case flavour remains authoritative. \<close>
+  \<open> unsupported integer-literal suffix "u128" \<close>
+  \<comment> \<open> [AUDIT] explicit case lowering uses the ordinary integer suffix table. \<close>
 
 urust_expr_rejects
   \<open>
@@ -732,13 +725,13 @@ urust_expr_rejects
 
 urust_expr_rejects
   \<open>
-    match 0 {
+    match_switch 0 {
       0 \<Rightarrow> (),
       unregistered_key \<Rightarrow> ()
     }
   \<close>
-  \<open> mixed numeral and constructor patterns in bare `match` \<close>
-  \<comment> \<open> [AUDIT] an unregistered bare identifier remains a case-only binding pattern. \<close>
+  \<open> unsupported match_switch key "unregistered_key" \<close>
+  \<comment> \<open> [AUDIT] an unregistered bare identifier remains a binding pattern outside explicit switch keys. \<close>
 
 urust_expr_rejects
   \<open>
@@ -798,9 +791,9 @@ urust_expr_rejects
   \<comment> \<open> [FIDELITY] a struct has at most one rest entry. \<close>
 
 urust_expr_rejects
-  \<open> let whole @ x = \<llangle>1 :: nat\<rrangle>; x \<close>
+  \<open> const whole @ x = \<llangle>1 :: nat\<rrangle>; x \<close>
   \<open> unsupported or refutable pattern in an irrefutable (let/const) binder position \<close>
-  \<comment> \<open> [FIDELITY] aliases remain outside irrefutable let binders. \<close>
+  \<comment> \<open> [AUDIT] local const retains its existing alias restriction. \<close>
 
 urust_expr_rejects
   \<open> const (1..=2) = \<llangle>1 :: nat\<rrangle>; () \<close>
@@ -810,7 +803,7 @@ urust_expr_rejects
 urust_expr_rejects
   \<open> let [x, ..] = \<llangle>[1 :: nat]\<rrangle>; x \<close>
   \<open> unsupported or refutable pattern in an irrefutable (let/const) binder position \<close>
-  \<comment> \<open> [FIDELITY] slices remain outside irrefutable let binders. \<close>
+  \<comment> \<open> [FIDELITY] a slice requiring an element remains refutable in an ordinary let binding. \<close>
 
 urust_expr_rejects
   \<open> const NegativeStruct { negative_left: x, .. } = \<llangle>NegativeStruct 1 2\<rrangle>; () \<close>
@@ -1023,12 +1016,12 @@ local
       ["or-pattern alternative is missing binder \"x\""]
   val _ =
     expect_clean_rejection
-      "match_case \<llangle>0 :: nat\<rrangle> { Some(&0) \<Rightarrow> True, _ \<Rightarrow> False }"
-      ["numeric patterns are not supported in case patterns"]
+      "for whole @ Some(value) in \<llangle>[Some (0 :: nat)]\<rrangle> { () }"
+      ["unsupported or refutable pattern in a `for` binder position"]
   val _ =
     expect_clean_rejection
-      "match_case \<llangle>0 :: nat\<rrangle> { 0 \<Rightarrow> True, _ \<Rightarrow> False }"
-      ["numeric patterns are not supported in case patterns"]
+      "const whole @ value = \<llangle>0 :: nat\<rrangle>; value"
+      ["unsupported or refutable pattern in an irrefutable (let/const) binder position"]
   val _ =
     expect_clean_rejection
       "for None in \<llangle>[None :: nat option]\<rrangle> { () }"
@@ -1712,9 +1705,9 @@ urust_expr_rejects
 subsection\<open> Pattern validation and fallback diagnostics \<close>
 
 urust_expr_rejects
-  \<open> if let 0 = \<llangle>0 :: nat\<rrangle> { () } else { () } \<close>
-  \<open> numeric patterns are not supported in case patterns \<close>
-  \<comment> \<open> [FIDELITY] case numerals retain the frontend rejection. \<close>
+  \<open> if let 0u8 = true { () } else { () } \<close>
+  \<open> Type unification failed \<close>
+  \<comment> \<open> [AUDIT] conditional numeric patterns retain ordinary checked type compatibility. \<close>
 
 urust_expr_rejects
   \<open>
@@ -1805,9 +1798,9 @@ urust_expr_rejects
   \<comment> \<open> [FIDELITY] literal loop binders are rejected at the pattern site. \<close>
 
 urust_expr_rejects
-  \<open> for whole @ value in \<llangle>[1 :: nat]\<rrangle> { () } \<close>
+  \<open> for whole @ [value, rest @ ..] in \<llangle>[[1 :: nat]]\<rrangle> { () } \<close>
   \<open> unsupported or refutable pattern in a `for` binder position \<close>
-  \<comment> \<open> [FIDELITY] aliases remain unsupported in \<open>for\<close> binders. \<close>
+  \<comment> \<open> [AUDIT] a whole-list alias cannot make a required-element slice irrefutable. \<close>
 
 urust_expr_rejects
   \<open> for &value in \<llangle>[1 :: nat]\<rrangle> { () } \<close>
@@ -1867,10 +1860,11 @@ urust_expr_rejects
   \<comment> \<open> [FIDELITY] the pattern and scrutinee require an equals delimiter. \<close>
 
 urust_expr_rejects
-  \<open> #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let 0 =
-    \<llangle>0 :: nat\<rrangle> { () } \<close>
-  \<open> numeric patterns are not supported in case patterns \<close>
-  \<comment> \<open> [FIDELITY] case numerals remain unsupported. \<close>
+  \<open>
+    #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let 0u8 = true { () }
+  \<close>
+  \<open> Type unification failed \<close>
+  \<comment> \<open> [AUDIT] while-let numeric patterns retain ordinary checked type compatibility. \<close>
 
 urust_expr_rejects
   \<open> for value in \<llangle>[1 :: nat]\<rrangle> { () } 1 2 \<close>

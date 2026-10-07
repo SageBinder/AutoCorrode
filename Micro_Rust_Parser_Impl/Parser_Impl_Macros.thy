@@ -113,7 +113,8 @@ struct
          | P_Slice (items, _) =>
              List.app
                (fn SI_Pat inner => reject inner
-                 | SI_Rest _ => ())
+                 | SI_Rest _ => ()
+                 | SI_BoundRest _ => ())
                items
          | P_Struct (_, fields) =>
              List.app

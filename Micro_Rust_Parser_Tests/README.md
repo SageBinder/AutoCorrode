@@ -109,6 +109,20 @@ method uses ordinary receiver-prepending call resolution and returns the establi
 
 ## Rust-fidelity boundaries
 
+List matching supports closed lists and a single bare or bound rest at any position:
+`[..]`, `[rest @ ..]`, `[first, rest @ ..]`, `[rest @ .., last]`, and
+`[first, rest @ .., last]`. Captures preserve order, including when suffix selection reverses the
+remaining list internally. Integer literals compose at every structural depth through the existing
+value-pattern equality lowering; unguarded numeral/wildcard matches retain switch selection.
+Ordinary `let` and `for` accept recursively irrefutable aliases, tuples, and rest-only lists.
+Requiring even one list element makes a binding refutable. Direct rest names always bind, even
+when they spell a HOL constant or constructor. Duplicate names, multiple rests, and unequal
+alternative binder sets reject before arm bodies or guards are lowered.
+
+Direct top-level tuples in `if let` and `let … else` retain their restricted binding policy and
+special fallback handling. Constructor-wrapped tuples use case lowering; direct refutable
+conditional tuples remain separate work. Existing rejection rows preserve this boundary.
+
 Retained compatibility extensions include complete µRust bodies in guards and statement bodies in
 groups, macros, and struct fields. The underscore-before-integer-suffix spelling also remains
 accepted. During production migration the parser additionally accepts apostrophised identifiers,
@@ -141,6 +155,10 @@ negative rows preserve these boundaries.
   recovery.
 - `Parser_Name_Resolution_Tests.thy`: notation dispatch, navigation, qualifier markup, turbofish,
   and the shared iterator `zip` registration audit.
+- `Parser_Slice_Pattern_Syntax_Tests.thy`: positioned bound-rest ASTs, binder markup, malformed
+  syntax, binding-site restrictions, and recovery.
+- `Parser_Slice_Pattern_Tests.thy`: ordered extraction and fallback equations, bare suffix
+  regressions, structural integer matching, irrefutable aliases, scoping, and evaluation effects.
 - `Parser_Rejection_Tests.thy`: parser diagnostics and iterator arity failures.
 - `Parser_Showcase_Tests.thy`: combined command, grammar, matching, and iterator examples.
 

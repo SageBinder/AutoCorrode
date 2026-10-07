@@ -4822,9 +4822,9 @@ ML_val\<open>
 
     fun check_total label pattern scrutinee =
       let
-        val actual = unchecked (conditional_source pattern scrutinee)
+        val actual = checked (conditional_source pattern scrutinee)
         val explicit =
-          unchecked (explicit_case_source pattern scrutinee false)
+          checked (explicit_case_source pattern scrutinee false)
       in
         audit_assert (label ^ " did not use the complete case shape")
           (Term.aconv (actual, explicit));
@@ -4858,9 +4858,9 @@ ML_val\<open>
 
     fun check_partial label pattern scrutinee =
       let
-        val actual = unchecked (conditional_source pattern scrutinee)
+        val actual = checked (conditional_source pattern scrutinee)
         val explicit =
-          unchecked (explicit_case_source pattern scrutinee true)
+          checked (explicit_case_source pattern scrutinee true)
       in
         audit_assert (label ^ " lost the explicit wildcard-case shape")
           (Term.aconv (actual, explicit));
@@ -4894,10 +4894,27 @@ ML_val\<open>
           "\<llangle>AdvStruct 1 2\<rrangle>"),
          ("nonconstructor path pattern", "Color::Red", "Color::Red"),
          ("constructor with a partial argument", "Some(true)",
-          "\<llangle>Some True\<rrangle>"),
-         ("or-pattern from different constructor families",
-          "Some(_) | ConditionalLetA(_)",
-          "\<llangle>Some (1 :: nat)\<rrangle>")]
+          "\<llangle>Some True\<rrangle>")]
+
+    (* This matrix is deliberately ill-typed. Coverage remains conservative before checking,
+       while the valid shape comparisons above run after pattern typing witnesses are erased. *)
+    val incompatible_family_source =
+      conditional_source "Some(_) | ConditionalLetA(_)" "\<llangle>Some (1 :: nat)\<rrangle>"
+    val incompatible_family_term = unchecked incompatible_family_source
+    val _ =
+      audit_assert "different constructor families incorrectly certified total coverage"
+        (count_constant
+           \<^const_name>\<open>conditional_let_fallback_marker\<close>
+           incompatible_family_term > 0)
+    val _ =
+      (case Exn.result checked incompatible_family_source of
+         Exn.Res _ =>
+           error "conditional-binding regression audit: incompatible constructor families accepted"
+       | Exn.Exn exn =>
+           if Exn.is_interrupt exn then Exn.reraise exn
+           else
+             audit_assert "incompatible constructor families did not reach type checking"
+               (String.isSubstring "type" (String.map Char.toLower (Runtime.exn_message exn))))
 
     val callback_ast =
       parse_text
@@ -5618,43 +5635,23 @@ ML_val\<open>
         (count_constant \<^const_name>\<open>undefined\<close>
           unregistered_match > 0)
 
-    fun diagnostic_ranges body =
-      let
-        fun collect (XML.Text _) ranges = ranges
-          | collect (XML.Elem ((_, properties), children)) ranges =
-              let
-                val ranges' =
-                  (case
-                    (Properties.get properties Markup.offsetN,
-                     Properties.get properties Markup.end_offsetN) of
-                     (SOME offset, SOME end_offset) =>
-                       (offset, end_offset) :: ranges
-                   | _ => ranges)
-              in fold collect children ranges' end
-      in distinct (op =) (fold collect body []) end
-
     val concealed_mixed_text =
       "match \<llangle>ConcealedRegistered\<rrangle> { " ^
       "0 \<Rightarrow> (), ConcealedAudit::Registered \<Rightarrow> () }"
     val concealed_mixed_start =
       Position.make0 64 900 0 "" ""
         "concealed-constructor-mixed-match-audit"
-    val concealed_mixed_position =
-      Position.range_position
-        (concealed_mixed_start,
-         Position.symbol_explode concealed_mixed_text concealed_mixed_start)
     val concealed_mixed_source =
       Parser_Lex_Util.positioned_content_source
         concealed_mixed_text concealed_mixed_start
-    val concealed_mixed_expected =
-      "urust_expr: mixed numeral and constructor patterns in bare `match`" ^
-      Position.here concealed_mixed_position
-    val concealed_mixed_range =
-      (Value.print_int
-        (the (Position.offset_of concealed_mixed_position)),
-       Value.print_int
-        (the (Position.end_offset_of concealed_mixed_position)))
-    val concealed_mixed_body =
+    val _ =
+      (case parse concealed_mixed_text of
+         UE_Match (flavour, _, arms, position) =>
+           (case URust_Patterns.select_match_flavour ctxt flavour arms position of
+              MF_Case => ()
+            | _ => error "concealed constructor lookup audit: numeral mixture lost case lowering")
+       | _ => error "concealed constructor lookup audit: numeral mixture lost match AST")
+    val _ =
       (case Exn.result (fn () => checked_source concealed_mixed_source) () of
          Exn.Res term =>
            error
@@ -5664,18 +5661,14 @@ ML_val\<open>
        | Exn.Exn exn =>
            if Exn.is_interrupt exn then Exn.reraise exn
            else
-             let val actual = Runtime.exn_message exn
+             let val actual = String.map Char.toLower (Runtime.exn_message exn)
              in
                audit_assert
-                 "concealed constructor mixed-match diagnostic changed"
-                 (actual = concealed_mixed_expected);
-               YXML.parse_body actual
+                 "concealed constructor numeral mixture did not reach ordinary type checking"
+                 (String.isSubstring "type" actual orelse String.isSubstring "sort" actual);
+               audit_assert "concealed constructor numeral mixture retained the obsolete pattern gate"
+                 (not (String.isSubstring "mixed numeral and constructor patterns" actual))
              end)
-    val _ =
-      audit_assert
-        "concealed constructor mixed-match range changed"
-        (diagnostic_ranges concealed_mixed_body =
-          [concealed_mixed_range])
 
     val recovered_switch =
       checked
@@ -5701,7 +5694,7 @@ ML_val\<open>
   in
     val _ =
       writeln
-        "Concealed registered identity, native basename lookup, mixed-match rejection, and recovery regressions passed"
+        "Concealed registered identity, native basename lookup, checked numeral incompatibility, and recovery regressions passed"
   end
 \<close>
 
@@ -6375,6 +6368,40 @@ ML_val\<open>
 
 section\<open> Contextual bare-match classification audit \<close>
 
+urust_expr parser_guarded_integer_case ::
+  \<open>nat \<Rightarrow> bool \<Rightarrow> (unit, nat, unit, unit, unit, unit) expression\<close>
+  (subject, enabled)
+  \<open>
+    match subject {
+      0 if enabled \<Rightarrow> 11,
+      0 \<Rightarrow> 23,
+      number \<Rightarrow> number
+    }
+  \<close>
+
+urust_expr parser_integer_binder_case ::
+  \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit, unit) expression\<close>
+  (subject)
+  \<open> match subject { 0 \<Rightarrow> 11, number \<Rightarrow> number } \<close>
+
+urust_expr parser_integer_constructor_child ::
+  \<open>nat option \<Rightarrow> (unit, nat, unit, unit, unit, unit) expression\<close>
+  (subject)
+  \<open> match subject { Some(0) \<Rightarrow> 11, Some(number) \<Rightarrow> number, None \<Rightarrow> 23 } \<close>
+
+lemma parser_integer_case_results:
+  \<open>parser_guarded_integer_case 0 True = literal 11\<close>
+  \<open>parser_guarded_integer_case 0 False = literal 23\<close>
+  \<open>parser_guarded_integer_case 7 True = literal 7\<close>
+  \<open>parser_guarded_integer_case 7 False = literal 7\<close>
+  \<open>parser_integer_binder_case 0 = literal 11\<close>
+  \<open>parser_integer_binder_case 7 = literal 7\<close>
+  \<open>parser_integer_constructor_child (Some 0) = literal 11\<close>
+  \<open>parser_integer_constructor_child (Some 7) = literal 7\<close>
+  \<open>parser_integer_constructor_child None = literal 23\<close>
+  by (simp_all add: parser_guarded_integer_case_def parser_integer_binder_case_def
+      parser_integer_constructor_child_def two_armed_conditional_def urust_eq_def micro_rust_simps)
+
 consts
   mixed_match_scrutinee_marker :: nat
   mixed_match_first_body_marker :: nat
@@ -6974,23 +7001,66 @@ ML_val\<open>
     fun token_range needle offset text start =
       #2 (token_position text start needle offset)
 
-    val constructor_mixed_text =
-      "match \<llangle>RegisteredNullary\<rrangle> { " ^
-      "0 \<Rightarrow> (), Registered::Nullary \<Rightarrow> () }"
-    val _ =
-      expect_exact_rejection 0 "registered-constructor-mix"
-        constructor_mixed_text complete_range
-        "urust_expr: mixed numeral and constructor patterns in bare `match`"
-
     val guarded_text =
       "match 42 { 0 if True \<Rightarrow> (), IntegrationAudit::Value \<Rightarrow> (), " ^
       "_ \<Rightarrow> () }"
-    val guarded_numeral_offset =
-      find_from guarded_text "0" (size "match 42 { ")
+    val guarded = checked guarded_text
     val _ =
-      expect_exact_rejection 1 "guard-forced-case"
-        guarded_text (token_range "0" guarded_numeral_offset)
-        "urust_expr: numeric patterns are not supported in case patterns"
+      audit_assert "guarded numeral match selected switch lowering"
+        (count_constant \<^const_name>\<open>ncase_selector\<close> guarded = 0)
+    val _ =
+      audit_assert "guarded numeral match lost equality lowering"
+        (count_constant \<^const_name>\<open>urust_eq\<close> guarded > 0)
+
+    val binder_text =
+      "match \<llangle>7 :: nat\<rrangle> { 0 \<Rightarrow> 11, number \<Rightarrow> number }"
+    val binder = checked binder_text
+    val _ =
+      audit_assert "numeral and binder match selected switch lowering"
+        (count_constant \<^const_name>\<open>ncase_selector\<close> binder = 0)
+    val _ =
+      audit_assert "numeral and binder match lost equality lowering"
+        (count_constant \<^const_name>\<open>urust_eq\<close> binder = 1)
+    val _ =
+      audit_assert "numeral and binder match leaked a local identity"
+        (null (Term.add_frees binder []) andalso null (Term.add_vars binder []))
+
+    fun expect_checked_type_failure label text =
+      let
+        val _ =
+          (case parse text of
+             UE_Match (flavour, _, arms, position) =>
+               (case URust_Patterns.select_match_flavour ctxt flavour arms position of
+                  MF_Case => ()
+                | _ => error ("contextual bare-match classification audit: " ^ label ^
+                    " did not select case lowering"))
+           | _ => error "contextual bare-match classification audit: expected match")
+      in
+        (case Exn.result checked text of
+           Exn.Res _ =>
+             error ("contextual bare-match classification audit: " ^ label ^
+               " accepted an incompatible integer pattern")
+         | Exn.Exn exn =>
+             if Exn.is_interrupt exn then Exn.reraise exn
+             else
+               let val message = String.map Char.toLower (Runtime.exn_message exn)
+               in
+                 audit_assert (label ^ " did not reach checked elaboration")
+                   (String.isSubstring "type" message orelse String.isSubstring "sort" message);
+                 audit_assert (label ^ " retained the obsolete numeral-mix diagnostic")
+                   (not (String.isSubstring "mixed numeral and constructor patterns" message))
+               end);
+        recovery_checks ()
+      end
+
+    val _ =
+      expect_checked_type_failure "registered constructor and numeral"
+        ("match \<llangle>RegisteredNullary\<rrangle> { " ^
+         "0 \<Rightarrow> (), Registered::Nullary \<Rightarrow> (), _ \<Rightarrow> () }")
+    val _ =
+      expect_checked_type_failure "constructor wins registration and numeral"
+        ("match \<llangle>NegativeRegisteredNullary\<rrangle> { " ^
+         "0 \<Rightarrow> (), NegativeRegistered::ConstructorWins \<Rightarrow> (), _ \<Rightarrow> () }")
 
     val switch_guard_text =
       "match_switch 42 { IntegrationAudit::Value if True \<Rightarrow> (), _ \<Rightarrow> () }"
@@ -7001,28 +7071,18 @@ ML_val\<open>
         switch_guard_text (token_range "if" switch_guard_offset)
         "urust_expr: guards are not supported in explicit `match_switch`"
 
-    val identifier_failure_text =
-      "match 0 { 0 \<Rightarrow> (), unregistered_key \<Rightarrow> () }"
-    val _ =
-      expect_exact_rejection 3 "unregistered-identifier"
-        identifier_failure_text complete_range
-        "urust_expr: mixed numeral and constructor patterns in bare `match`"
-
-    val constructor_wins_mixed_text =
-      "match \<llangle>NegativeRegisteredNullary\<rrangle> { " ^
-      "0 \<Rightarrow> (), NegativeRegistered::ConstructorWins \<Rightarrow> () }"
-    val _ =
-      expect_exact_rejection 4 "constructor-wins-mix"
-        constructor_wins_mixed_text complete_range
-        "urust_expr: mixed numeral and constructor patterns in bare `match`"
-
     val ambiguous_mixed_text =
       "match \<llangle>NegativeRegisteredNullary\<rrangle> { " ^
       "0 \<Rightarrow> (), NegativeRegistered::Ambiguous \<Rightarrow> () }"
     val _ =
-      expect_exact_rejection 5 "two-constructor-mix"
-        ambiguous_mixed_text complete_range
-        "urust_expr: mixed numeral and constructor patterns in bare `match`"
+      (case Exn.result checked ambiguous_mixed_text of
+         Exn.Res _ => error "contextual bare-match classification audit: ambiguous constructor accepted"
+       | Exn.Exn exn =>
+           if Exn.is_interrupt exn then Exn.reraise exn
+           else
+             audit_assert "numeral mixture masked constructor ambiguity"
+               (String.isSubstring "ambiguous" (Runtime.exn_message exn)))
+    val _ = recovery_checks ()
   in
     val _ =
       writeln

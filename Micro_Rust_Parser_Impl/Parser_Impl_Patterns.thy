@@ -11,7 +11,8 @@ sig
   type prepared_case_arm
 
   datatype binder_site =
-      Let_Const_Binder
+      Let_Binder
+    | Let_Const_Binder
     | Mutable_Let_Binder of Position.T
     | For_Binder
 
@@ -81,9 +82,11 @@ ML\<open>
   recursive lowering of expressions, guards, and bodies.
 
   The public binder_site constructors select the contract enforced by prepare_binding:
-  Let_Const_Binder admits only directly irrefutable let/const patterns; Mutable_Let_Binder additionally
+  Let_Binder admits directly irrefutable patterns, including recursive aliases and rest-only slices;
+  Let_Const_Binder retains the narrower local-const pattern policy. Mutable_Let_Binder additionally
   restricts the source head to an identifier, wildcard, or top-level tuple and carries the mutable
-  keyword position; and For_Binder resolves known constructors before enforcing irrefutability.
+  keyword position; and For_Binder resolves known constructors before enforcing irrefutability while
+  admitting the same aliases and rest-only slices as Let_Binder.
   prepare_binding recursively rejects reference patterns, validates all binders before allocating any
   of them, and returns an abstract prepared_binding. Case preparation instead treats reference
   patterns as syntax-only wrappers, matching the current frontend. binding_environment is the exact
@@ -137,7 +140,8 @@ struct
   type binding_signature = string * Position.T
 
   datatype binder_site =
-      Let_Const_Binder
+      Let_Binder
+    | Let_Const_Binder
     | Mutable_Let_Binder of Position.T
     | For_Binder
 
@@ -172,7 +176,9 @@ struct
             (reject lower; reject upper)
         | reject (P_Slice (items, _)) =
             List.app
-              (fn SI_Pat nested => reject nested | SI_Rest _ => ()) items
+              (fn SI_Pat nested => reject nested
+                | SI_Rest _ => ()
+                | SI_BoundRest _ => ()) items
         | reject (P_Struct (_, fields)) =
             List.app
               (fn SF_Field (_, _, nested) => reject nested
@@ -207,12 +213,26 @@ struct
       fun capability pattern =
         (case strip_groups pattern of
            P_Literal (LP_Integer _) =>
-             Match_Capability {case_ok = false, switch_ok = true}
+             Match_Capability {case_ok = true, switch_ok = true}
          | P_Ident identifier =>
              registered_capability (make_single_path identifier)
          | P_Path path => registered_capability path
          | P_Wild _ =>
              Match_Capability {case_ok = true, switch_ok = true}
+         | P_Or (alternatives, _) =>
+             let
+               val alternatives' = map capability alternatives
+             in
+               Match_Capability
+                 {case_ok =
+                    List.all
+                      (fn Match_Capability {case_ok, ...} => case_ok)
+                      alternatives',
+                  switch_ok =
+                    List.all
+                      (fn Match_Capability {switch_ok, ...} => switch_ok)
+                      alternatives'}
+             end
          | _ =>
              Match_Capability {case_ok = true, switch_ok = false})
       val capabilities = map (capability o arm_pattern) arms
@@ -274,6 +294,8 @@ struct
   and resolved_slice_item =
       Resolved_Slice_Pattern of resolved_pattern
     | Resolved_Slice_Rest of Position.T
+    | Resolved_Slice_Bound_Rest of
+        binding_signature * Position.T * Position.T
 
   datatype resolved_coverage =
       Coverage_Total
@@ -342,6 +364,10 @@ struct
         | coverage (Resolved_Value _) = Coverage_Partial
         | coverage (Resolved_Path _) = Coverage_Partial
         | coverage (Resolved_Range _) = Coverage_Partial
+        | coverage (Resolved_Slice ([Resolved_Slice_Rest _], _)) =
+            Coverage_Total
+        | coverage (Resolved_Slice ([Resolved_Slice_Bound_Rest _], _)) =
+            Coverage_Total
         | coverage (Resolved_Slice _) = Coverage_Partial
         | coverage (Resolved_Or (alternatives, _)) =
             let
@@ -416,12 +442,6 @@ struct
                         R.report_constructor ctxt
                           (make_single_path (name, pos)) info;
                         Resolved_Constructor (info, pos, []))))
-         | P_Literal (payload as LP_Integer (_, pos)) =>
-             (case policy of
-                Resolve_Constructor_Case =>
-                  error ("urust_expr: numeric patterns are not supported in case patterns" ^
-                    Position.here pos)
-              | _ => Resolved_Value payload)
          | P_Literal payload => Resolved_Value payload
          | P_Path path =>
              (case R.resolve_constructor ctxt resolver path of
@@ -472,14 +492,26 @@ struct
                (kind, resolve_value lower, resolve_value upper, pos)
          | P_Slice (items, pos) =>
              let
+               fun check_rest seen_rest rest_pos =
+                 if seen_rest then
+                   error ("urust_expr: slice pattern has multiple `..` rest entries" ^
+                     Position.here rest_pos)
+                 else ()
                fun resolve_items _ [] = []
                  | resolve_items seen_rest (SI_Rest rest_pos :: rest) =
-                     if seen_rest then
-                       error ("urust_expr: slice pattern has multiple `..` rest entries" ^
-                         Position.here rest_pos)
-                     else
-                       Resolved_Slice_Rest rest_pos ::
-                         resolve_items true rest
+                     (check_rest seen_rest rest_pos;
+                      Resolved_Slice_Rest rest_pos :: resolve_items true rest)
+                 | resolve_items seen_rest
+                     (SI_BoundRest (name, name_pos, alias_pos, rest_pos) :: rest) =
+                     (* A rest name is always a binder, even if a constructor has that spelling. *)
+                     (check_rest seen_rest rest_pos;
+                      if name = "_" then
+                        error ("urust_expr: alias pattern binder cannot be `_`" ^
+                          Position.here name_pos)
+                      else ();
+                      Resolved_Slice_Bound_Rest
+                        (binding name name_pos, alias_pos, rest_pos) ::
+                      resolve_items true rest)
                  | resolve_items seen_rest (SI_Pat nested :: rest) =
                      Resolved_Slice_Pattern (resolve nested) ::
                        resolve_items seen_rest rest
@@ -586,7 +618,9 @@ struct
             validate_unique
               (maps
                 (fn Resolved_Slice_Pattern nested => collect nested
-                  | Resolved_Slice_Rest _ => []) items)
+                  | Resolved_Slice_Rest _ => []
+                  | Resolved_Slice_Bound_Rest (binder_sig, _, _) =>
+                      [binder_sig]) items)
         | collect (Resolved_Or ([], pos)) =
             error ("urust_expr: internal empty or-pattern" ^ Position.here pos)
         | collect (Resolved_Or (first :: rest, pos)) =
@@ -612,8 +646,34 @@ struct
              quote name ^ Position.here pos))
     end
 
-  fun direct_abstraction ctxt report_wildcards allow_alias environment pattern =
+  fun directly_irrefutable allow_extended pattern =
     let
+      fun direct (Resolved_Bind _) = true
+        | direct (Resolved_Wild _) = true
+        | direct (Resolved_Tuple (patterns, _)) =
+            not (null patterns) andalso List.all direct patterns
+        | direct (Resolved_Alias (_, inner, _)) =
+            allow_extended andalso direct inner
+        | direct (Resolved_Slice ([Resolved_Slice_Rest _], _)) =
+            allow_extended
+        | direct (Resolved_Slice ([Resolved_Slice_Bound_Rest _], _)) =
+            allow_extended
+        | direct _ = false
+    in direct pattern end
+
+  fun constrain_pattern_abstraction typ pos abstraction =
+    Type.constraint (typ --> dummyT) (T.source_position pos abstraction)
+
+  fun direct_abstraction ctxt report_wildcards allow_extended environment pattern =
+    let
+      fun has_alias (Resolved_Alias _) = true
+        | has_alias (Resolved_Tuple (patterns, _)) = exists has_alias patterns
+        | has_alias _ = false
+      fun list_abstraction pos abstraction =
+        Option.map
+          (fn bind => fn body =>
+            constrain_pattern_abstraction (HOLogic.listT dummyT) pos (bind body))
+          abstraction
       fun direct (Resolved_Bind binder_sig) =
             let val free = lookup_signature environment binder_sig
             in SOME (fn body => Term.lambda free body) end
@@ -635,11 +695,30 @@ struct
                           (abstraction (tuple_abstraction rest body))
                     | tuple_abstraction [] _ =
                         error "urust_expr: internal empty tuple pattern"
-                in SOME (fn body => tuple_abstraction concrete body) end
+                  (* Alias continuations bind expressions, not the curried functions used while
+                     opening a tuple. Open all tuple slots before applying those continuations. *)
+                  fun scoped_tuple body =
+                    let
+                      val slots =
+                        map (fn _ =>
+                          Free ("_urust_tuple_slot_" ^ string_of_int (serial ()), dummyT))
+                          concrete
+                      val scoped_body =
+                        fold_rev
+                          (fn (abstraction, slot) => fn continuation =>
+                            Term.betapply (abstraction continuation, slot))
+                          (concrete ~~ slots) body
+                    in
+                      tuple_abstraction (map Term.lambda slots) scoped_body
+                    end
+                in
+                  SOME (if exists has_alias patterns then scoped_tuple
+                    else fn body => tuple_abstraction concrete body)
+                end
               else NONE
             end
         | direct (Resolved_Alias (binder_sig, inner, _)) =
-            if allow_alias then
+            if allow_extended then
               (case direct inner of
                  NONE => NONE
                | SOME inner_abstraction =>
@@ -657,10 +736,21 @@ struct
                                (inner_abstraction body, matched))))
                    in SOME abstraction end)
             else NONE
+        | direct (Resolved_Slice ([Resolved_Slice_Rest rest_pos], pos)) =
+            if allow_extended
+            then list_abstraction pos (direct (Resolved_Wild rest_pos))
+            else NONE
+        | direct
+            (Resolved_Slice ([Resolved_Slice_Bound_Rest (binder_sig, _, _)], pos)) =
+            if allow_extended
+            then list_abstraction pos (direct (Resolved_Bind binder_sig))
+            else NONE
         | direct _ = NONE
     in direct pattern end
 
-  fun binder_site_description Let_Const_Binder =
+  fun binder_site_description Let_Binder =
+        "an irrefutable (let/const) binder position"
+    | binder_site_description Let_Const_Binder =
         "an irrefutable (let/const) binder position"
     | binder_site_description (Mutable_Let_Binder _) =
         "a mutable binding position"
@@ -703,23 +793,29 @@ struct
            (Mutable_Let_Binder mutable_pos, Allocate_Rhs) =>
              T.allocate_reference mutable_pos
          | _ => I)
+      val allow_extended =
+        (case site of
+           Let_Binder => true
+         | For_Binder => true
+         | _ => false)
+      val diagnostic_site =
+        (case (site, rhs_mode) of
+           (Mutable_Let_Binder _, Plain_Rhs) => Let_Const_Binder
+         | _ => site)
+      (* Reject refutable binding shapes before allocating or reporting their local identities. *)
+      val _ =
+        if directly_irrefutable allow_extended resolved then ()
+        else
+          error ("urust_expr: unsupported or refutable pattern in " ^
+            binder_site_description diagnostic_site ^
+            Position.here (resolved_position resolved))
       val environment' =
         R.allocate_locals ctxt environment signatures
       val abstraction =
-        (case direct_abstraction ctxt true false environment' resolved of
+        (case direct_abstraction ctxt true allow_extended environment' resolved of
            SOME abstraction => abstraction
          | NONE =>
-             let
-               val diagnostic_site =
-                 (case (site, rhs_mode) of
-                    (Mutable_Let_Binder _, Plain_Rhs) =>
-                      Let_Const_Binder
-                  | _ => site)
-             in
-               error ("urust_expr: unsupported or refutable pattern in " ^
-                 binder_site_description diagnostic_site ^
-                 Position.here (resolved_position resolved))
-             end)
+             error "urust_expr: internal unsupported irrefutable abstraction")
     in
       Prepared_Binding
         {environment = environment',
@@ -807,7 +903,8 @@ struct
         R.constructor_info * Position.T * case_pattern list
     | Case_Resolved of term * case_pattern list
     | Case_Tuple of case_pattern list
-    | Case_Alias of binding_signature * case_pattern
+    | Case_Alias of binding_signature * (term -> term) * case_pattern
+    | Case_Constraint of typ * Position.T * case_pattern
     | Case_Range of range_kind * term * term * Position.T
     | Case_Slice_Suffix of case_pattern
 
@@ -828,19 +925,26 @@ struct
 
   fun split_resolved_slice_items items =
     let
-      fun split prefix rest_pos suffix [] =
-            (rev prefix, rest_pos, rev suffix)
+      fun split prefix rest_binding suffix [] =
+            (rev prefix, rest_binding, rev suffix)
         | split prefix NONE suffix
             (Resolved_Slice_Rest pos :: rest) =
-            split prefix (SOME pos) suffix rest
+            split prefix (SOME (NONE, pos)) suffix rest
         | split _ (SOME _) _ (Resolved_Slice_Rest pos :: _) =
             error ("urust_expr: internal duplicate slice rest" ^
               Position.here pos)
-        | split prefix rest_pos suffix
+        | split prefix NONE suffix
+            (Resolved_Slice_Bound_Rest (binder_sig, _, pos) :: rest) =
+            split prefix (SOME (SOME binder_sig, pos)) suffix rest
+        | split _ (SOME _) _
+            (Resolved_Slice_Bound_Rest (_, _, pos) :: _) =
+            error ("urust_expr: internal duplicate slice rest" ^
+              Position.here pos)
+        | split prefix rest_binding suffix
             (Resolved_Slice_Pattern pattern :: rest) =
-            if is_some rest_pos
-            then split prefix rest_pos (pattern :: suffix) rest
-            else split (pattern :: prefix) rest_pos suffix rest
+            if is_some rest_binding
+            then split prefix rest_binding (pattern :: suffix) rest
+            else split (pattern :: prefix) rest_binding suffix rest
     in split [] NONE [] items end
 
   fun expand_resolved_pattern pattern =
@@ -873,6 +977,8 @@ struct
                 | item_alternatives
                     (Resolved_Slice_Rest rest_pos) =
                     [Resolved_Slice_Rest rest_pos]
+                | item_alternatives
+                    (rest as Resolved_Slice_Bound_Rest _) = [rest]
             in
               map (fn expanded => Resolved_Slice (expanded, pos))
                 (products (map item_alternatives items))
@@ -920,16 +1026,16 @@ struct
            (map (prepare_case_pattern ctxt environment) arguments)
      | Resolved_Alias (binder_sig, inner, _) =>
          Case_Alias
-           (binder_sig, prepare_case_pattern ctxt environment inner)
+           (binder_sig, I, prepare_case_pattern ctxt environment inner)
      | Resolved_Range (kind, lower, upper, pos) =>
          Case_Range
            (kind,
             resolved_value_term ctxt environment lower,
             resolved_value_term ctxt environment upper,
             pos)
-     | Resolved_Slice (items, _) =>
+     | Resolved_Slice (items, pos) =>
          let
-           val (prefix, rest_pos, suffix) =
+           val (prefix, rest_binding, suffix) =
              split_resolved_slice_items items
            fun cons_chain patterns tail =
              fold_rev (fn nested => fn rest =>
@@ -939,16 +1045,37 @@ struct
                patterns tail
            val nil_pattern =
              Case_Resolved (T.list_nil_constructor, [])
+           (* Open slices count only explicit elements. Suffix matching reverses the remainder;
+              reverse its residual middle back before exposing a named capture. *)
+           fun rest_tail _ NONE = Case_Wild Position.none
+             | rest_tail reversed (SOME binder_sig) =
+                 let
+                   val capture =
+                     prepare_case_pattern ctxt environment
+                       (Resolved_Bind binder_sig)
+                 in
+                   if reversed
+                   then
+                     Case_Alias
+                       (binder_sig, T.reverse_list, Case_Wild Position.none)
+                   else capture
+                 end
          in
-           (case rest_pos of
+           (case rest_binding of
               NONE => cons_chain prefix nil_pattern
-            | SOME _ =>
+            | SOME (binder_sig, _) =>
                 if null suffix
-                then cons_chain prefix (Case_Wild Position.none)
+                then
+                  let val capture = rest_tail false binder_sig
+                  in
+                    if null prefix
+                    then Case_Constraint (HOLogic.listT dummyT, pos, capture)
+                    else cons_chain prefix capture
+                  end
                 else
                   cons_chain prefix
                     (Case_Slice_Suffix
-                      (cons_chain (rev suffix) nil_pattern)))
+                      (cons_chain (rev suffix) (rest_tail true binder_sig))))
          end
      | Resolved_Or (_, pos) =>
          error ("urust_expr: internal unexpanded resolved or-pattern" ^
@@ -1013,9 +1140,12 @@ struct
            (constructor, map normalize_basic_pattern arguments)
      | Case_Tuple arguments =>
          Basic_Tuple (map normalize_basic_pattern arguments)
-     | Case_Alias (binder_sig, _) =>
+     | Case_Alias (binder_sig, _, _) =>
          error ("urust_expr: internal unnormalized alias pattern" ^
            Position.here (signature_position binder_sig))
+     | Case_Constraint (_, pos, _) =>
+         error ("urust_expr: internal unnormalized pattern type constraint" ^
+           Position.here pos)
      | Case_Range (_, _, _, pos) =>
          error ("urust_expr: internal unnormalized range pattern" ^
            Position.here pos)
@@ -1112,6 +1242,7 @@ struct
     (case pattern of
        Case_Value _ => true
      | Case_Alias _ => true
+     | Case_Constraint _ => true
      | Case_Range _ => true
      | Case_Slice_Suffix _ => true
      | Case_Constructor (_, _, arguments) =>
@@ -1542,7 +1673,8 @@ struct
                   (convert_all arguments)
             | convert (Case_Tuple arguments) =
                 Option.map Basic_Tuple (convert_all arguments)
-            | convert (Case_Alias (_, inner)) = convert inner
+            | convert (Case_Alias (_, _, inner)) = convert inner
+            | convert (Case_Constraint (_, _, inner)) = convert inner
             | convert (Case_Range _) = NONE
             | convert (Case_Slice_Suffix _) = NONE
         in
@@ -1847,13 +1979,13 @@ struct
     | extend_generated_test generated (SOME prior) =
         SOME (T.binary And prior generated)
 
-  fun alias_wrapper environment expression binder_sig rhs =
+  fun alias_wrapper transform environment expression binder_sig rhs =
     let
       val name = signature_name binder_sig
       val pos = signature_position binder_sig
     in
       (case R.lookup_local environment name of
-         SOME free => T.bind expression (Term.lambda free rhs)
+         SOME free => T.bind (transform expression) (Term.lambda free rhs)
        | NONE =>
            error ("urust_expr: internal unregistered alias binder " ^
              quote name ^ Position.here pos))
@@ -1951,16 +2083,30 @@ struct
 
   fun normalize_extended_pattern compiler ctxt environment expression pattern =
     (case pattern of
-       Case_Alias (binder_sig, inner) =>
+       Case_Alias (binder_sig, transform, inner) =>
          let
            val (basic, guards, wrappers) =
              normalize_extended_pattern
                compiler ctxt environment expression inner
            fun wrap rhs =
-             alias_wrapper environment expression binder_sig rhs
+             alias_wrapper transform environment expression binder_sig rhs
          in
            (basic, guards,
             wrappers @ [Alias_Scope_Wrapper wrap])
+         end
+     | Case_Constraint (typ, pos, inner) =>
+         let
+           val (basic, guards, wrappers) =
+             normalize_extended_pattern
+               compiler ctxt environment expression inner
+           (* A total rest-only slice has no constructor to impose its list type. Keep that
+              obligation in its scope, including nested patterns and binder-free wildcards. *)
+           fun wrap rhs =
+             T.bind expression
+               (constrain_pattern_abstraction typ pos
+                 (R.anonymous_abstraction rhs))
+         in
+           (basic, guards, wrappers @ [Nested_Scope_Wrapper wrap])
          end
      | Case_Value (literal, _) =>
          (Basic_Wild NONE,
@@ -2057,7 +2203,7 @@ struct
     end
 
   fun compile_pattern_case ctxt scrutinee arms =
-        compile_decision_case ctxt NONE scrutinee
+        compile_decision_case [] ctxt NONE scrutinee
           (map
             (fn (pattern, environment, source_guard, body) =>
               {patterns = [pattern],
@@ -2066,7 +2212,7 @@ struct
                body = body})
             arms)
 
-  and compile_decision_case ctxt explicit_fallback scrutinee source_arms =
+  and compile_decision_case typing_arms ctxt explicit_fallback scrutinee source_arms =
     let
       val value =
         Free
@@ -3154,8 +3300,34 @@ struct
                    {semantic = semantic_selector,
                     historical = historical_selector})
              end)
+      (* Reachability can discard an arm or alternative before the completed term is checked.
+         Retain independent pattern-only typing witnesses for every source pattern.
+         They use the selected value, never the source scrutinee, guard, or body. A late native
+         term-check phase removes these unused beta redexes after all witnesses are inferred.
+         Canonical captures share one result type per source arm, including unused binders.
+         Internal matcher calls receive no typing arms, preventing recursive witness generation. *)
+      fun typing_witnesses (patterns, environment, binders) =
+        let
+          val capture_type = Type_Infer.mk_param (serial ()) []
+          val expression_type =
+            Type (\<^type_name>\<open>expression\<close>,
+              [dummyT, capture_type, dummyT, dummyT, dummyT, dummyT])
+          val captures = fold_rev T.pair binders T.tuple_nil_constructor
+          val success = T.literal captures
+        in
+          map (fn pattern =>
+            Type.constraint expression_type
+              (compile_nested_case compile_pattern_case ctxt environment
+                (T.literal value) pattern success T.undefined_value))
+            patterns
+        end
+      fun retain_witness witness body =
+        Abs ("_urust_pattern_type_probe_" ^ string_of_int (serial ()),
+          dummyT, Term.incr_boundvars 1 body) $ witness
+      val checked_selector =
+        fold_rev retain_witness (maps typing_witnesses typing_arms) selector
     in
-      T.bind scrutinee (Term.lambda value selector)
+      T.bind scrutinee (Term.lambda value checked_selector)
     end
 
   fun compile_case_internal ctxt explicit_fallback scrutinee arms =
@@ -3168,13 +3340,44 @@ struct
          environment = environment,
          source_guard = source_guard,
          body = body}
+      fun typing_arm
+          (Prepared_Case_Arm {patterns, environment, binders, ...}, _, _) =
+        (patterns, environment, binders)
     in
-      compile_decision_case ctxt explicit_fallback scrutinee
+      compile_decision_case (map typing_arm arms) ctxt explicit_fallback scrutinee
         (map source_arm arms)
     end
 
+  fun is_typing_witness
+      (Abs (name, _, body) $
+        (Const (bind_name, _) $ _ $ Abs (value_name, _, _))) =
+        String.isPrefix "_urust_pattern_type_probe_" name andalso
+        String.isPrefix "_urust_case_value_" value_name andalso
+        bind_name = \<^const_name>\<open>Core_Expression.bind\<close> andalso
+        not (Term.loose_bvar1 (body, 0))
+    | is_typing_witness _ = false
+
   fun compile_case ctxt fallback scrutinee arms =
     compile_case_internal ctxt fallback scrutinee arms
+
+  fun erase_typing_witnesses
+      (term as Abs (name, typ, body) $ witness) =
+        if is_typing_witness term
+        then erase_typing_witnesses (Term.betapply (Abs (name, typ, body), witness))
+        else erase_typing_witnesses (Abs (name, typ, body)) $
+          erase_typing_witnesses witness
+    | erase_typing_witnesses (function $ argument) =
+        erase_typing_witnesses function $ erase_typing_witnesses argument
+    | erase_typing_witnesses (Abs (name, typ, body)) =
+        Abs (name, typ, erase_typing_witnesses body)
+    | erase_typing_witnesses atomic = atomic
+
+  val _ = Context.>>
+    (Syntax_Phases.term_check 99 "urust_pattern_typing"
+      (fn _ => map (fn term =>
+        if Term.exists_subterm
+          is_typing_witness term
+        then erase_typing_witnesses term else term)))
 end
 \<close>
 
