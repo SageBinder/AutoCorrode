@@ -297,12 +297,9 @@ definition ll_head :: \<open>(NonNullRaw, gv) gref option\<close> where
   \<open>ll_head \<equiv> Some (make_gref test_page_ptr)\<close>
 
 \<comment>\<open>\<^verbatim>\<open>
-urust_fn reverse_unlink :: \<open>64 word \<Rightarrow> ('caddr, 'gv) gref option
-  \<Rightarrow> ('addr, 'gv, ('caddr, 'gv) gref option) Global_Store.ref
-  \<Rightarrow> ('addr, 'gv, ('caddr, 'gv) gref option) Global_Store.ref
-  \<Rightarrow> ('s, ('caddr, 'gv) gref option \<times> ('caddr, 'gv) gref option) function_body\<close>
-  (n, orig, cur_raw, last_raw)
+urust_fn [register_notation = false] reverse_unlink
   \<open>
+  fn reverse_unlink(n: u64, orig: \<tau>\<open>('caddr, 'gv) gref option\<close>, cur_raw: \<tau>\<open>('addr, 'gv, ('caddr, 'gv) gref option) Global_Store.ref\<close>, last_raw: \<tau>\<open>('addr, 'gv, ('caddr, 'gv) gref option) Global_Store.ref\<close>) -> \<tau>\<open>('caddr, 'gv) gref option \<times> ('caddr, 'gv) gref option\<close> {
       last_raw = None;
       cur_raw = orig;
       for i in 0..n {
@@ -319,6 +316,7 @@ urust_fn reverse_unlink :: \<open>64 word \<Rightarrow> ('caddr, 'gv) gref optio
       let last = *last_raw;
       let cur = *cur_raw;
       \<llangle>(last, cur)\<rrangle> \<comment>\<open>Unfortunately, we don't yet have tuple notation in uRust\<close>
+  }
   \<close>
 \<close>\<close>
 value[code] \<open>run_it \<sigma>\<^sub>1 (reverse_unlink' 4 ll_head)\<close>

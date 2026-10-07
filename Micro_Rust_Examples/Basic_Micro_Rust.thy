@@ -41,11 +41,11 @@ urust_expr _
 
 text\<open>A function definition, then used in a Micro Rust expression:\<close>
 
-urust_fn some_function ::
-  \<open>64 word \<Rightarrow> 64 word \<Rightarrow> (_, 64 word, _, _, _) function_body\<close>
-  (a, b)
+urust_fn [register_notation = false] some_function
   \<open>
+  fn some_function(a: u64, b: u64) -> u64 {
      return a + b;
+  }
   \<close>
 
 urust_expr _
@@ -75,7 +75,8 @@ subsection\<open>Parser output and shallow embedding\<close>
 
 text\<open>The \<^verbatim>\<open>urust_expr\<close> command parses a Micro Rust expression and immediately
 declares its shallow HOL denotation, producing a value of type \<^verbatim>\<open>expression\<close>.
-\<^verbatim>\<open>urust_fn\<close> does the same for a complete, explicitly typed
+\<^verbatim>\<open>urust_fn\<close> parses a complete Rust-shaped function item whose signature
+supplies the parameter and result value types. Its denotation has type
 \<^verbatim>\<open>function_body\<close>. The parser first produces a positioned Micro Rust AST in Isabelle/ML,
 then elaborates that AST directly into the denotational semantics; it does not expose a persistent
 object-level AST in HOL. Production theories use only this parser path; the isolated legacy
@@ -386,13 +387,13 @@ of \<^verbatim>\<open>Reference\<close>, we can indeed write functions operating
 context reference
 begin
 
-urust_fn add_one_to_ref ::
-  \<open>(_, _, 64 word) Global_Store.ref \<Rightarrow> ('s, unit, _, _, _) function_body\<close>
-  (ptr)
+urust_fn [register_notation = false] add_one_to_ref
   \<open>
+  fn add_one_to_ref(ptr: \<tau>\<open>(_, _, 64 word) Global_Store.ref\<close>) -> () {
      let val = *ptr; \<comment>\<open>Reading requires explicit dereferencing\<close>
      let new_val = val + 1;
      ptr = new_val; \<comment>\<open>Updating does not require explicit dereferencing\<close>
+  }
   \<close>
 thm add_one_to_ref_def
 (* add_one_to_ref ?ptr \<equiv>

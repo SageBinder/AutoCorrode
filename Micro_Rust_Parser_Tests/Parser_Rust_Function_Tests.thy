@@ -8,26 +8,21 @@ declare [[urust_verbosity = 2]]
 
 section\<open> Rust-shaped function items \<close>
 
-urust_fn explicit_hol_name ::
-  \<open>64 word \<Rightarrow> bool \<Rightarrow>
-    (unit, 64 word, unit, unit, unit) function_body\<close>
+urust_fn explicit_hol_name
   \<open>
     fn RustAlias(x: u64, _: bool) -> u64 {
       x
     }
   \<close>
 
-urust_fn ::
-  \<open>(unit, unit, unit, unit, unit) function_body\<close>
+urust_fn
   \<open>
     fn HTTPServer() {
       ()
     }
   \<close>
 
-urust_fn _ ::
-  \<open>64 word \<Rightarrow>
-    (unit, bool, unit, unit, unit) function_body\<close>
+urust_fn _
   \<open>
     fn probe(x: u64) -> bool {
       x == 0
@@ -40,31 +35,24 @@ ML_val\<open>
   else error "anonymous Rust function item was registered"
 \<close>
 
-urust_fn registered_probe ::
-  \<open>64 word \<Rightarrow>
-    (unit, bool, unit, unit, unit) function_body\<close>
+urust_fn registered_probe
   \<open>
     fn probe(x: u64) -> bool {
       x == 0
     }
   \<close>
 
-urust_fn call_registered_probe ::
-  \<open>64 word \<Rightarrow>
-    (unit, bool, unit, unit, unit) function_body\<close>
-  (x)
-  \<open> probe(x) \<close>
+urust_fn [register_notation = false] call_registered_probe
+  \<open> fn call_registered_probe(x: u64) -> bool { probe(x) } \<close>
 
-urust_fn ::
-  \<open>(unit, unit, unit, unit, unit) function_body\<close>
+urust_fn
   \<open>
     fn HTTP2XMLParser() {
       ()
     }
   \<close>
 
-urust_fn already_snake ::
-  \<open>(unit, unit, unit, unit, unit) function_body\<close>
+urust_fn already_snake
   \<open>
     fn already_snake() {
       ()
@@ -90,47 +78,38 @@ ML_val\<open>
      ("parse2DValue", "parse2_d_value")]
 \<close>
 
-urust_fn rust_hol_disagreement ::
-  \<open>64 word \<Rightarrow>
-    (unit, 64 word, unit, unit, unit) function_body\<close>
+urust_fn rust_hol_disagreement
   \<open>
-    fn type_labels_are_documentary(x: bool) -> char {
+    fn type_labels_are_documentary(x: u64) -> u64 {
       x + 1
     }
   \<close>
 
-urust_fn mutable_parameter ::
-  \<open>64 word \<Rightarrow>
-    (unit, 64 word, unit, unit, unit) function_body\<close>
+urust_fn mutable_parameter
   \<open>
-    fn MutableParameter(mut x: str) -> ! {
+    fn MutableParameter(mut x: u64) -> u64 {
       x
     }
   \<close>
 
-urust_fn mixed_parameter_slots ::
-  \<open>nat \<Rightarrow> bool \<Rightarrow> nat \<Rightarrow> unit \<Rightarrow>
-    (unit, nat, unit, unit, unit) function_body\<close>
+urust_fn mixed_parameter_slots
   \<open>
     fn MixedParameterSlots(
-      first: u8,
+      first: \<tau>\<open>nat\<close>,
       _: bool,
-      mut retained: str,
-      _: Outer::Ignored<u64>,
-    ) -> u128 {
+      mut retained: \<tau>\<open>nat\<close>,
+      _: (),
+    ) -> \<tau>\<open>nat\<close> {
       retained
     }
   \<close>
 
-urust_fn empty_block ::
-  \<open>(unit, unit, unit, unit, unit) function_body\<close>
+urust_fn empty_block
   \<open>
     fn EmptyBlock() {}
   \<close>
 
-urust_fn commented_signature ::
-  \<open>64 word \<Rightarrow>
-    (unit, 64 word, unit, unit, unit) function_body\<close>
+urust_fn commented_signature
   \<open>
     fn
     \<comment> \<open>A formal comment may occur while scanning the signature.\<close>
@@ -144,54 +123,39 @@ urust_fn commented_signature ::
     }
   \<close>
 
-urust_fn [abbrev] abbreviated_hol_name ::
-  \<open>64 word \<Rightarrow>
-    (unit, 64 word, unit, unit, unit) function_body\<close>
+urust_fn [abbrev] abbreviated_hol_name
   \<open>
-    fn AbbreviatedRustName(x: u128) -> i8 {
+    fn AbbreviatedRustName(x: u64) -> u64 {
       x
     }
   \<close>
 
-urust_fn call_abbreviated_rust_name ::
-  \<open>64 word \<Rightarrow>
-    (unit, 64 word, unit, unit, unit) function_body\<close>
-  (x)
-  \<open> AbbreviatedRustName(x) \<close>
+urust_fn [register_notation = false] call_abbreviated_rust_name
+  \<open> fn call_abbreviated_rust_name(x: u64) -> u64 { AbbreviatedRustName(x) } \<close>
 
 urust_fn [application_def, attrs = [micro_rust_simps]]
-  attributed_application_function ::
-  \<open>64 word \<Rightarrow>
-    (unit, 64 word, unit, unit, unit) function_body\<close>
+  attributed_application_function
   \<open>
     fn AttributedApplication(x: u64) -> u64 {
       x
     }
   \<close>
 
-urust_fn rust_maximum_call_arity ::
-  \<open>
-    nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow>
-    nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow>
-    nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow> nat \<Rightarrow>
-    nat \<Rightarrow> nat \<Rightarrow>
-    (unit, nat, unit, unit, unit) function_body
-  \<close>
+urust_fn rust_maximum_call_arity
   \<open>
     fn RustMaximumCallArity(
-      p01: u8, p02: u8, p03: u8, p04: u8,
-      p05: u8, p06: u8, p07: u8, p08: u8,
-      p09: u8, p10: u8, p11: u8, p12: u8,
-      p13: u8, p14: u8,
-    ) -> u8 {
+      p01: \<tau>\<open>nat\<close>, p02: \<tau>\<open>nat\<close>, p03: \<tau>\<open>nat\<close>, p04: \<tau>\<open>nat\<close>,
+      p05: \<tau>\<open>nat\<close>, p06: \<tau>\<open>nat\<close>, p07: \<tau>\<open>nat\<close>, p08: \<tau>\<open>nat\<close>,
+      p09: \<tau>\<open>nat\<close>, p10: \<tau>\<open>nat\<close>, p11: \<tau>\<open>nat\<close>, p12: \<tau>\<open>nat\<close>,
+      p13: \<tau>\<open>nat\<close>, p14: \<tau>\<open>nat\<close>,
+    ) -> \<tau>\<open>nat\<close> {
       p14
     }
   \<close>
 
-urust_fn invoke_rust_maximum_call_arity ::
-  \<open>(unit, nat, unit, unit, unit) function_body\<close>
+urust_fn invoke_rust_maximum_call_arity
   \<open>
-    fn InvokeRustMaximumCallArity() -> u8 {
+    fn InvokeRustMaximumCallArity() -> \<tau>\<open>nat\<close> {
       RustMaximumCallArity(
         1, 2, 3, 4, 5, 6, 7,
         8, 9, 10, 11, 12, 13, 14,
@@ -201,54 +165,38 @@ urust_fn invoke_rust_maximum_call_arity ::
 
 urust_fn
   [pp_test, pretty, verbosity = 2]
-  configured_function ::
-  \<open>64 word \<Rightarrow>
-    (unit, 64 word, unit, unit, unit) function_body\<close>
+  configured_function
   \<open>
     fn ConformanceFunction(x: u64) -> u64 {
       x
     }
   \<close>
 
-urust_fn completed_result_type ::
-  \<open>64 word \<Rightarrow> _\<close>
+urust_fn completed_result_type
   \<open>
-    fn CompletedResultType(x: u64,) -> u8 {
+    fn CompletedResultType(x: u64,)  {
       x
     }
   \<close>
 
-urust_fn omitted_rust_return_type ::
-  \<open>64 word \<Rightarrow>
-    (unit, 64 word, unit, unit, unit) function_body\<close>
+urust_fn omitted_rust_return_type
   \<open>
     fn DocumentaryUnit(x: u64) {
       x
     }
   \<close>
 
-urust_fn lexical_function_shadow ::
+urust_fn lexical_function_shadow
   \<open>
-    (64 word \<Rightarrow>
-      (unit, 64 word, unit, unit, unit) function_body) \<Rightarrow>
-    64 word \<Rightarrow>
-    (unit, 64 word, unit, unit, unit) function_body
-  \<close>
-  \<open>
-    fn LexicalFunctionShadow(RustAlias: Handler, x: u64) -> u64 {
+    fn LexicalFunctionShadow(RustAlias: \<tau>\<open>(64 word \<Rightarrow> (unit, 64 word, unit, unit, unit) function_body)\<close>, x: u64) -> u64 {
       RustAlias(x)
     }
   \<close>
 
-urust_fn call_registered_function ::
-  \<open>64 word \<Rightarrow>
-    (unit, 64 word, unit, unit, unit) function_body\<close>
-  (x)
-  \<open> RustAlias(x, true) \<close>
+urust_fn [register_notation = false] call_registered_function
+  \<open> fn call_registered_function(x: u64) -> u64 { RustAlias(x, true) } \<close>
 
-urust_fn _ ::
-  \<open>64 word \<Rightarrow> bool \<Rightarrow>
-    (unit, 64 word, unit, unit, unit) function_body\<close>
+urust_fn _
   \<open>
     fn RustAlias(x: u64, _: bool) -> u64 {
       x
@@ -266,29 +214,23 @@ ML_val\<open>
    | NONE => error "anonymous duplicate Rust item removed the registered function")
 \<close>
 
-urust_fn call_inferred_function ::
-  \<open>(unit, unit, unit, unit, unit) function_body\<close>
-  ()
-  \<open> HTTPServer() \<close>
+urust_fn [register_notation = false] call_inferred_function
+  \<open> fn call_inferred_function() -> () { HTTPServer() } \<close>
 
 locale rust_function_item_locale =
   fixes offset :: nat
 begin
 
-urust_fn locale_scoped_function ::
-  \<open>nat \<Rightarrow>
-    (unit, nat, unit, unit, unit) function_body\<close>
+urust_fn locale_scoped_function
   \<open>
-    fn LocaleScopedFunction(value: u64) -> u64 {
+    fn LocaleScopedFunction(value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
       \<llangle>value + offset\<rrangle>
     }
   \<close>
 
-urust_fn locale_scoped_client ::
-  \<open>nat \<Rightarrow>
-    (unit, nat, unit, unit, unit) function_body\<close>
+urust_fn locale_scoped_client
   \<open>
-    fn LocaleScopedClient(value: u64) -> u64 {
+    fn LocaleScopedClient(value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
       LocaleScopedFunction(value)
     }
   \<close>
@@ -303,11 +245,9 @@ ML_val\<open>
   else error "locale-scoped Rust function registration leaked globally"
 \<close>
 
-urust_fn global_after_locale_scope ::
-  \<open>nat \<Rightarrow>
-    (unit, nat, unit, unit, unit) function_body\<close>
+urust_fn global_after_locale_scope
   \<open>
-    fn LocaleScopedFunction(value: u64) -> u64 {
+    fn LocaleScopedFunction(value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
       value
     }
   \<close>
@@ -757,36 +697,14 @@ end
 
 ML_val\<open>
 local
-  val nullary_type =
-    Symbol.open_ ^
-      "(unit, unit, unit, unit, unit) function_body" ^
-    Symbol.close
-  val unary_type =
-    Symbol.open_ ^
-      "64 word \<Rightarrow> " ^
-      "(unit, 64 word, unit, unit, unit) function_body" ^
-    Symbol.close
-  val binary_type =
-    Symbol.open_ ^
-      "64 word \<Rightarrow> 64 word \<Rightarrow> " ^
-      "(unit, 64 word, unit, unit, unit) function_body" ^
-    Symbol.close
-  val ternary_type =
-    Symbol.open_ ^
-      "64 word \<Rightarrow> 64 word \<Rightarrow> 64 word \<Rightarrow> " ^
-      "(unit, 64 word, unit, unit, unit) function_body" ^
-    Symbol.close
-  val pure_unary_type =
-    Symbol.open_ ^ "64 word \<Rightarrow> 64 word" ^ Symbol.close
   val source_open = Symbol.open_
   val source_close = Symbol.close
   val serial = Unsynchronized.ref 0
 
   fun cartouche text = source_open ^ text ^ source_close
 
-  fun command name typ item =
-    "urust_fn " ^ name ^ " :: " ^ typ ^ " " ^
-      cartouche item
+  fun command name item =
+    "urust_fn " ^ name ^ " " ^ cartouche item
 
   fun run source_name text () =
     let
@@ -808,7 +726,6 @@ local
         (run ("rust-function-recovery-" ^ string_of_int index)
           (command
             ("rust_function_recovery_" ^ string_of_int index)
-            unary_type
             ("fn Recovery" ^ string_of_int index ^
               "(x: u64) -> u64 { x }")) ())
     end
@@ -835,9 +752,9 @@ local
     List.app
       (fn (label, pattern, body) =>
         reject label "unsupported function parameter pattern"
-          (command "unsupported_parameter_pattern" unary_type
+          (command "unsupported_parameter_pattern"
             ("fn UnsupportedParameterPattern(" ^ pattern ^
-              ": PatternType) -> u64 { " ^ body ^ " }")))
+              ": u64) -> u64 { " ^ body ^ " }")))
       [("rust-function-group-pattern", "(x)", "x"),
        ("rust-function-tuple-pattern", "(x, y)", "x"),
        ("rust-function-constructor-pattern", "Some(x)", "x"),
@@ -852,121 +769,116 @@ local
   val _ =
     reject "rust-function-mut-wildcard"
       "unsupported function parameter pattern"
-      (command "mut_wildcard" unary_type
+      (command "mut_wildcard"
         "fn MutWildcard(mut _: u64) -> u64 { 0 }")
   val _ =
     reject "rust-function-mut-destructuring"
       "unsupported function parameter pattern"
-      (command "mut_destructuring" unary_type
-        "fn MutDestructuring(mut (x, y): Pair) -> u64 { x }")
+      (command "mut_destructuring"
+        "fn MutDestructuring(mut (x, y): u64) -> u64 { x }")
   val _ =
     reject "rust-function-duplicate-parameter"
       "duplicate parameter \"x\""
-      (command "duplicate_parameter" binary_type
+      (command "duplicate_parameter"
         "fn DuplicateParameter(x: u64, x: u64) -> u64 { x }")
   val _ =
     reject "rust-function-duplicate-parameter-around-wildcard"
       "duplicate parameter \"x\""
-      (command "duplicate_parameter_around_wildcard" ternary_type
+      (command "duplicate_parameter_around_wildcard"
         "fn DuplicateAroundWildcard(x: u64, _: u64, x: u64) -> u64 { x }")
   val _ =
-    reject "rust-function-too-many-parameters"
-      "declared type expects 1 parameter"
-      (command "too_many_parameters" unary_type
-        "fn ParameterCount(x: u64, y: u64) -> u64 { x }")
+    ignore
+      (run "rust-function-signature-controls-two-parameters"
+        (command "signature_two_parameters"
+          "fn ParameterCount(x: u64, y: u64) -> u64 { x }") ())
   val _ =
-    reject "rust-function-too-few-parameters"
-      "declared type expects 2 parameters"
-      (command "too_few_parameters" binary_type
-        "fn TooFewParameters(x: u64) -> u64 { x }")
+    ignore
+      (run "rust-function-signature-controls-one-parameter"
+        (command "signature_one_parameter"
+          "fn OneParameter(x: u64) -> u64 { x }") ())
   val _ =
-    reject "rust-function-parameter-for-nullary-type"
-      "declared type expects 0 parameters"
-      (command "parameter_for_nullary_type" nullary_type
-        "fn ParameterForNullaryType(x: u64) -> u64 { x }")
+    ignore
+      (run "rust-function-signature-controls-zero-parameters"
+        (command "signature_zero_parameters"
+          "fn ZeroParameters() -> u64 { 0 }") ())
   val _ =
     reject "rust-function-receiver"
       "receiver parameters are not supported"
-      (command "receiver_parameter" unary_type
+      (command "receiver_parameter"
         "fn Receiver(self: u64) -> u64 { self }")
   val _ =
     reject "rust-function-mutable-receiver"
       "receiver parameters are not supported"
-      (command "mutable_receiver_parameter" unary_type
+      (command "mutable_receiver_parameter"
         "fn MutableReceiver(mut self: u64) -> u64 { self }")
   val _ =
     reject "rust-function-borrowed-receiver"
       "unsupported function parameter pattern"
-      (command "borrowed_receiver_parameter" unary_type
+      (command "borrowed_receiver_parameter"
         "fn BorrowedReceiver(&self: &u64) -> u64 { self }")
   val _ =
-    reject "rust-function-missing-hol-type"
-      "function elaboration requires a declared type"
-      ("urust_fn missing_hol_type " ^
-        cartouche "fn MissingHOLType() {}")
+    ignore
+      (run "rust-function-no-outer-hol-type"
+        ("urust_fn inferred_hol_type " ^
+          cartouche "fn InferredHOLType() {}") ())
   val _ =
-    reject "rust-function-wrong-hol-terminal"
-      "declared result type must be function_body"
-      (command "wrong_hol_terminal" pure_unary_type
-        "fn WrongHOLTerminal(x: u64) -> u64 { x }")
+    ignore
+      (run "rust-function-signature-supplies-result-type"
+        (command "signature_result_type"
+          "fn SignatureResultType(x: u64) -> u64 { x }") ())
   val _ =
-    reject "rust-function-inferred-legacy-target"
-      "legacy body syntax requires an explicit HOL declaration target"
-      ("urust_fn :: " ^ nullary_type ^ " () " ^ cartouche "()")
+    reject "rust-function-forbidden-outer-hol-type"
+      "Outer syntax error"
+      ("urust_fn :: " ^ cartouche "unit" ^ " () " ^ cartouche "()")
   val _ =
-    reject "rust-function-explicit-empty-clause-selects-legacy"
-      "function declarations are not expressions"
-      ("urust_fn legacy_mode_item :: " ^ nullary_type ^ " () " ^
+    reject "rust-function-forbidden-outer-parameter-clause"
+      "Outer syntax error"
+      ("urust_fn legacy_mode_item () " ^
         cartouche "fn LegacyModeItem() {}")
   val _ =
     reject "rust-function-item-mode-requires-item"
       "syntax error"
-      (command "item_mode_expression" unary_type "x")
+      (command "item_mode_expression" "x")
   val _ =
     reject "rust-function-anonymous-attributes"
       "attrs is not supported for anonymous declarations"
-      ("urust_fn [attrs = []] _ :: " ^ unary_type ^ " " ^
+      ("urust_fn [attrs = []] _ " ^
         cartouche "fn AnonymousAttributes(x: u64) -> u64 { x }")
   val _ =
     reject "rust-function-abbreviation-attributes"
       "attrs is not supported in abbreviation mode"
-      ("urust_fn [abbrev, attrs = []] abbreviation_attributes :: " ^
-        unary_type ^ " " ^
+      ("urust_fn [abbrev, attrs = []] abbreviation_attributes " ^
         cartouche "fn AbbreviationAttributes(x: u64) -> u64 { x }")
   val _ =
     reject "rust-function-abbreviation-application"
       "abbreviation mode cannot be combined with `application_def`"
-      ("urust_fn [abbrev, application_def] abbreviation_application :: " ^
-        unary_type ^ " " ^
+      ("urust_fn [abbrev, application_def] abbreviation_application " ^
         cartouche "fn AbbreviationApplication(x: u64) -> u64 { x }")
   val _ =
     reject "rust-function-unknown-option"
       "unknown uRust command option"
-      ("urust_fn [future_option] unknown_option :: " ^ unary_type ^ " " ^
+      ("urust_fn [future_option] unknown_option " ^
         cartouche "fn UnknownOption(x: u64) -> u64 { x }")
   val _ =
     reject "rust-function-duplicate-option"
       "duplicate uRust command option"
-      ("urust_fn [pp_test, pp_test = false] duplicate_option :: " ^
-        unary_type ^ " " ^
+      ("urust_fn [pp_test, pp_test = false] duplicate_option " ^
         cartouche "fn DuplicateOption(x: u64) -> u64 { x }")
   val _ =
     reject "rust-function-invalid-boolean-option"
       "expects true or false"
-      ("urust_fn [abbrev = 1] invalid_boolean_option :: " ^
-        unary_type ^ " " ^
+      ("urust_fn [abbrev = 1] invalid_boolean_option " ^
         cartouche "fn InvalidBooleanOption(x: u64) -> u64 { x }")
   val _ =
     reject "rust-function-invalid-verbosity"
       "must be 0, 1, or 2"
-      ("urust_fn [verbosity = 3] invalid_verbosity :: " ^
-        unary_type ^ " " ^
+      ("urust_fn [verbosity = 3] invalid_verbosity " ^
         cartouche "fn InvalidVerbosity(x: u64) -> u64 { x }")
   val _ =
     List.app
       (fn (label, expected, item) =>
         reject label expected
-          (command "invalid_function_item" unary_type item))
+          (command "invalid_function_item" item))
       [("rust-function-visibility", "syntax error",
          "pub fn Visible(x: u64) -> u64 { x }"),
        ("rust-function-qualifier", "syntax error",
@@ -992,12 +904,12 @@ local
   val _ =
     reject "rust-function-trailing-input"
       "syntax error"
-      (command "trailing_input" unary_type
+      (command "trailing_input"
         "fn TrailingInput(x: u64) -> u64 { x } ignored")
   val _ =
     reject "rust-function-call-over-maximum-arity"
       "unsupported call arity 15 (max 14"
-      (command "call_over_maximum_arity" nullary_type
+      (command "call_over_maximum_arity"
         ("fn CallOverMaximumArity() -> u8 { " ^
           "RustMaximumCallArity(" ^
           "1, 2, 3, 4, 5, 6, 7, 8, " ^
@@ -1005,42 +917,41 @@ local
   val _ =
     reject "rust-function-forward-reference"
       "unresolved body name \"LaterFunction\""
-      (command "forward_reference" unary_type
+      (command "forward_reference"
         "fn ForwardReference(x: u64) -> u64 { LaterFunction(x) }")
   val _ =
     reject "rust-function-item-as-value"
       "unresolved body name \"RustMaximumCallArity\""
-      (command "function_item_as_value" nullary_type
+      (command "function_item_as_value"
         "fn FunctionItemAsValue() -> u8 { RustMaximumCallArity }")
   val _ =
     reject "rust-function-existing-function"
       "already owned by a Rust function item"
-      (command "duplicate_rust_function" unary_type
+      (command "duplicate_rust_function"
         "fn RustAlias(x: u64) -> u64 { x }")
   val _ =
     reject "rust-function-existing-constructor"
       "already owned by a Rust constructor item"
-      (command "constructor_conflict" unary_type
+      (command "constructor_conflict"
         "fn SharedItem(x: u64) -> u64 { x }")
   val _ =
     reject "rust-function-existing-notation"
       "conflicts with an existing micro_rust_notation"
-      (command "notation_conflict" unary_type
+      (command "notation_conflict"
         "fn NotationClash(x: u64) -> u64 { x }")
   val _ =
     reject "rust-function-recursive-definition"
       "RecursiveFunction"
-      (command "recursive_function" unary_type
+      (command "recursive_function"
         "fn RecursiveFunction(x: u64) -> u64 { RecursiveFunction(x) }")
   val _ =
     reject "rust-function-inferred-hol-name-collision"
       "Duplicate constant"
-      ("urust_fn :: " ^ nullary_type ^ " " ^
-        cartouche "fn Http2XMLParser() {}")
+      ("urust_fn " ^ cartouche "fn Http2XMLParser() {}")
   val _ =
     reject "rust-function-explicit-hol-name-collision"
       "Duplicate constant"
-      (command "empty_block" nullary_type
+      (command "empty_block"
         "fn DistinctRustName() {}")
 in
 end

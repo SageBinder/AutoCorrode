@@ -79,13 +79,12 @@ qed
 
 section\<open>Modular addition\<close>
 
-urust_fn zq_add ::
-  \<open>16 word \<Rightarrow> 16 word \<Rightarrow>
-   ('s, 16 word, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
-  (a, b)
+urust_fn [register_notation = false] zq_add
   \<open>
+  fn zq_add(a: u16, b: u16) -> u16 {
     let sum = a + b;
     sum % mlkem_q_word
+  }
   \<close>
 
 definition zq_add_contract :: \<open>16 word \<Rightarrow> 16 word \<Rightarrow>
@@ -107,14 +106,13 @@ lemma zq_add_spec [crush_specs]:
 
 section\<open>Modular subtraction\<close>
 
-urust_fn zq_sub ::
-  \<open>16 word \<Rightarrow> 16 word \<Rightarrow>
-   ('s, 16 word, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
-  (a, b)
+urust_fn [register_notation = false] zq_sub
   \<open>
+  fn zq_sub(a: u16, b: u16) -> u16 {
     let sum = a + mlkem_q_word - b;
 
     sum % mlkem_q_word
+  }
   \<close>
 
 definition zq_sub_contract :: \<open>16 word \<Rightarrow> 16 word \<Rightarrow>
@@ -140,11 +138,9 @@ qed
 
 section\<open>Modular multiplication\<close>
 
-urust_fn zq_mul ::
-  \<open>16 word \<Rightarrow> 16 word \<Rightarrow>
-   ('s, 16 word, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
-  (a, b)
+urust_fn [register_notation = false] zq_mul
   \<open>
+  fn zq_mul(a: u16, b: u16) -> u16 {
     let a32 = a as u32;
     let b32 = b as u32;
 
@@ -153,6 +149,7 @@ urust_fn zq_mul ::
     let reduced = product % q32;
 
     reduced as u16
+  }
   \<close>
 
 definition zq_mul_contract :: \<open>16 word \<Rightarrow> 16 word \<Rightarrow>

@@ -103,12 +103,57 @@ fun reg_eq (e1 : entry, e2 : entry) =
 \<comment>\<open>Table keyed by \<open>(context, rust_name)\<close> with a list of entries. The key is
   the pair of strings (\<open>Position.T\<close> is not an ordered type); entries (term and
   registration position) ride in the value.\<close>
+(* Function items reserve an exclusive callable path alongside the overloadable notation table.
+   Keeping both in this datum also checks independently populated import branches on merge. *)
+type function_item = {function: term, pos: Position.T};
+
+fun same_function_item (left: function_item, right: function_item) =
+  Term.aconv
+    (apply2 Term_Subst.zero_var_indexes (#function left, #function right));
+
+fun function_item_conflict name (left: function_item, right: function_item) =
+  error ("urust_fn: conflicting Rust function path " ^ quote name ^
+    Position.here (#pos left) ^ Position.here (#pos right));
+
+fun check_callable_paths (notations, function_items) =
+  Symtab.fold (fn (name, item: function_item) => fn () =>
+    if Symtab.defined notations ("function" ^ "\000" ^ name) then
+      error ("urust_fn: Rust function path " ^ quote name ^
+        " conflicts with an existing micro_rust_notation (call) declaration" ^
+        Position.here (#pos item))
+    else ()) function_items ();
+
 structure Data = Generic_Data
 (
-  type T = entry list Symtab.table;
-  val empty = Symtab.empty;
-  val merge = Symtab.merge_list reg_eq;
+  type T =
+    entry list Symtab.table * function_item Symtab.table;
+  val empty = (Symtab.empty, Symtab.empty);
+  fun merge ((left_notations, left_items), (right_notations, right_items)) =
+    let
+      val notations = Symtab.merge_list reg_eq (left_notations, right_notations);
+      val items = Symtab.join
+        (fn name => fn (left, right) =>
+          if same_function_item (left, right) then left
+          else function_item_conflict name (left, right))
+        (left_items, right_items);
+      val result = (notations, items);
+      val _ = check_callable_paths result;
+    in result end;
 );
+
+fun reserve_function_item name function pos =
+  Data.map (fn (notations, items) =>
+    let
+      val candidate = {function = function, pos = pos};
+      val items' =
+        (case Symtab.lookup items name of
+           NONE => Symtab.update (name, candidate) items
+         | SOME existing =>
+             if same_function_item (existing, candidate) then items
+             else function_item_conflict name (existing, candidate));
+      val result = (notations, items');
+      val _ = check_callable_paths result;
+    in result end);
 
 fun mk_key kind name = kind_to_string kind ^ "\000" ^ name;
 
@@ -254,24 +299,28 @@ fun register_with_source kind name hol_term source_const
       {hol_term = hol_term, source_const = source_const,
        reg_pos = reg_pos, serial = s};
     val ctxt = Context.proof_of context;
-    val _ = Context_Position.report ctxt reg_pos
+    val completed =
+      context |> Data.map (fn (notations, items) =>
+        let
+          val result = (Symtab.insert_list reg_eq (mk_key kind name, entry) notations, items);
+          val _ = check_callable_paths result;
+        in result end);
+    val _ = Micro_Rust_Semantic_Navigation.defer_report ctxt reg_pos
       (Position.make_entity_markup {def = true} s notationN (name, reg_pos));
-  in
-    context |> Data.map (Symtab.insert_list reg_eq (mk_key kind name, entry))
-  end;
+  in completed end;
 
 fun register kind name hol_term reg_pos =
   register_with_source kind name hol_term NONE reg_pos;
 
 \<comment>\<open>All backends registered for a \<open>(kind, name)\<close>, or \<open>[]\<close> if none.\<close>
 fun lookups ctxt kind name =
-  the_default [] (Symtab.lookup (Data.get (Context.Proof ctxt)) (mk_key kind name));
+  the_default [] (Symtab.lookup (#1 (Data.get (Context.Proof ctxt))) (mk_key kind name));
 
 \<comment>\<open>All registered entries, as \<open>(kind, rust_name, entry)\<close> triples (for the
   query command). Splits the composite key back into kind and name; one row
   per backend.\<close>
 fun dump ctxt =
-  Data.get (Context.Proof ctxt)
+  #1 (Data.get (Context.Proof ctxt))
   |> Symtab.dest
   |> maps (fn (key, es) =>
        (case String.fields (fn ch => ch = #"\000") key of

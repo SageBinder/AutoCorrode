@@ -46,15 +46,15 @@ lemma array_index_spec [crush_specs]:
 
 context reference begin
 
-urust_fn slice_index :: \<open>('a, 'b, 'v list) Global_Store.ref \<Rightarrow> 'w::{len} word \<Rightarrow>
-        ('s, ('a, 'b, 'v) Global_Store.ref, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
-  (r, i)
+urust_fn [register_notation = false] slice_index
   \<open>
+  fn slice_index(r: \<tau>\<open>('a, 'b, 'v list) Global_Store.ref\<close>, i: \<tau>\<open>'w::{len} word\<close>) -> \<tau>\<open>('a, 'b, 'v) Global_Store.ref\<close> {
      let ls = *r;
      if \<llangle>unat i\<rrangle> < \<llangle>length\<rrangle>\<^sub>1(ls) {
         return \<llangle>focus_nth (unat i) r\<rrangle>;
      };
      \<epsilon>\<open>abort DanglingPointer\<close>
+  }
   \<close>
 
 definition slice_index_contract :: \<open>(('a, 'b) gref, 'b, 'c list) focused \<Rightarrow> 'b \<Rightarrow> 'c list \<Rightarrow>
@@ -95,15 +95,15 @@ lemma slice_index_array_spec [crush_specs]:
   apply crush_base
   done
 
-urust_fn slice_index_vector :: \<open>('a, 'b, ('v, 'l::{len}) vector) Global_Store.ref \<Rightarrow> 'w::{len} word \<Rightarrow>
-      ('s, ('a, 'b, 'v) Global_Store.ref, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
-  (r, idx)
+urust_fn [register_notation = false] slice_index_vector
   \<open>
+  fn slice_index_vector(r: \<tau>\<open>('a, 'b, ('v, 'l::{len}) vector) Global_Store.ref\<close>, idx: \<tau>\<open>'w::{len} word\<close>) -> \<tau>\<open>('a, 'b, 'v) Global_Store.ref\<close> {
      let v = *r;
      if \<llangle>unat idx\<rrangle> < \<llangle>vector_len v\<rrangle> {
         return \<llangle>focus_nth_vector (unat idx) r\<rrangle>;
      };
      \<epsilon>\<open>abort DanglingPointer\<close>
+  }
   \<close>
 
 definition slice_index_vector_contract :: \<open>(('a, 'b) gref, 'b, ('t, 'l::{len}) vector) focused \<Rightarrow> 'b \<Rightarrow>

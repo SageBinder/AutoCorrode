@@ -10,26 +10,22 @@ begin
 \<comment>\<open>Force one-by-one unrolling of loops\<close>
 declare raw_for_loop_unroll_once_cong[crush_cong]
 
-urust_fn find ::
-  \<open>('s, 'v, 'abort, 'i prompt, 'o prompt_output) iterator \<Rightarrow>
-   ('v \<Rightarrow> ('s, bool, 'abort, 'i prompt, 'o prompt_output) function_body) \<Rightarrow>
-   ('s, 'v option, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
-  (self, predicate)
+urust_fn [register_notation = false] find
   \<open>
-    for x in self {
+  fn find(self_value: \<tau>\<open>('s, 'v, 'abort, 'i prompt, 'o prompt_output) iterator\<close>, predicate: \<tau>\<open>('v \<Rightarrow> ('s, bool, 'abort, 'i prompt, 'o prompt_output) function_body)\<close>) -> \<tau>\<open>'v option\<close> {
+    for x in self_value {
       if predicate(x) { return Some(x); }
     };
     None
+  }
   \<close>
 
-urust_fn [abbrev] enumerate_fn1 ::
-  \<open>nat \<Rightarrow>
-   ('s, 'v, 'abort, 'i prompt, 'o prompt_output) function_body \<Rightarrow>
-   ('s, 64 word \<times> 'v \<times> tnil, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
-  (i, f)
+urust_fn [abbrev, register_notation = false] enumerate_fn1
   \<open>
+  fn enumerate_fn1(i: \<tau>\<open>nat\<close>, f: \<tau>\<open>('s, 'v, 'abort, 'i prompt, 'o prompt_output) function_body\<close>) -> \<tau>\<open>64 word \<times> 'v \<times> tnil\<close> {
     let feval = f();
     (\<llangle>word_of_nat i\<rrangle>, feval)
+  }
   \<close>
 
 definition enumerate :: \<open>('s, 'v, 'abort, 'i prompt, 'o prompt_output) iterator \<Rightarrow>
@@ -37,33 +33,32 @@ definition enumerate :: \<open>('s, 'v, 'abort, 'i prompt, 'o prompt_output) ite
   \<open>enumerate self \<equiv> FunctionBody (literal (make_iterator
     (mapi enumerate_fn1 (iterator_thunks self))))\<close>
 
-urust_fn any :: \<open>('s, 'v, 'abort, 'i prompt, 'o prompt_output) iterator \<Rightarrow>
-    ('v \<Rightarrow> ('s, bool, 'abort, 'i prompt, 'o prompt_output) function_body) \<Rightarrow>
-    ('s, bool, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
-  (self, predicate)
+urust_fn [register_notation = false] any
   \<open>
-     match self.find(predicate) {
+  fn any(self_value: \<tau>\<open>('s, 'v, 'abort, 'i prompt, 'o prompt_output) iterator\<close>, predicate: \<tau>\<open>('v \<Rightarrow> ('s, bool, 'abort, 'i prompt, 'o prompt_output) function_body)\<close>) -> bool {
+     match self_value.find(predicate) {
        Some(_) \<Rightarrow> True,
        None    \<Rightarrow> False
      }
+  }
   \<close>
 
-urust_fn count :: \<open>('s, 'v, 'abort, 'i prompt, 'o prompt_output) iterator \<Rightarrow>
-      ('s, 64 word, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
-  (self)
+urust_fn [register_notation = false] count
   \<open>
-    \<llangle>of_nat \<circ> length \<circ> iterator_thunks\<rrangle>\<^sub>1(self)
+  fn count(self_value: \<tau>\<open>('s, 'v, 'abort, 'i prompt, 'o prompt_output) iterator\<close>) -> u64 {
+    \<llangle>of_nat \<circ> length \<circ> iterator_thunks\<rrangle>\<^sub>1(self_value)
+  }
   \<close>
 
 context reference
 begin
 
-urust_fn iter_mut ::
-  \<open>('a, 'b, 'v list) Global_Store.ref \<Rightarrow> ('s, ('s, ('a, 'b, 'v) Global_Store.ref, 'abort, 'i prompt, 'o prompt_output) iterator, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
-  (ref)
+urust_fn [register_notation = false] iter_mut
   \<open>
-    let xs = *ref;
-    \<llangle>make_iterator_from_list (List.map (\<lambda>i. (focus_nth i ref)) [0 ..< length xs])\<rrangle>
+  fn iter_mut(ref_value: \<tau>\<open>('a, 'b, 'v list) Global_Store.ref\<close>) -> \<tau>\<open>('s, ('a, 'b, 'v) Global_Store.ref, 'abort, 'i prompt, 'o prompt_output) iterator\<close> {
+    let xs = *ref_value;
+    \<llangle>make_iterator_from_list (List.map (\<lambda>i. (focus_nth i ref_value)) [0 ..< length xs])\<rrangle>
+  }
   \<close>
 
 (*<*)

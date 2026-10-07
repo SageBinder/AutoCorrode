@@ -14,19 +14,33 @@ begin
 section\<open> The command \<close>
 
 text\<open>
-The expression and legacy function-body forms share one declaration-body parser:
-\<open>COMMAND [OPTIONS] NAME|_ [:: TYPE] [(ARG|_, ...)] src\<close>.
-\<open>urust_expr\<close> infers an untyped expression or accepts a complete declaration type. A terminal
+The expression surface is
+\<open>urust_expr [OPTIONS] NAME|_ [:: TYPE] [(ARG|_, ...)] src\<close>.
+It infers an untyped expression or accepts a complete declaration type. A terminal
 \<open>expression\<close> type produces an ordinary expression abstraction, while a terminal
-\<open>function_body\<close> type wraps the body once in \<open>FunctionBody\<close>. \<open>urust_fn\<close> selects function
-elaboration explicitly and therefore requires a complete curried type ending in
-\<open>function_body\<close>. An exact terminal type placeholder \<open>_\<close> is completed to a fresh
-five-parameter \<open>function_body\<close> before the existing checked elaboration infers its channels.
-Internal placeholders and declared argument types are preserved. The common parser accepts an omitted
-type so that this requirement is reported as a positioned semantic diagnostic rather than encoded in
-a second grammar.
+\<open>function_body\<close> type wraps the body once in \<open>FunctionBody\<close>.
 
-The optional parenthesized, comma-separated argument list occurs immediately before the source
+The function surface is
+\<open>urust_fn [OPTIONS] [HOL_NAME|_] src\<close>, where the cartouche contains one complete
+\<open>fn RustName(parameter: RustType, ...) [-> RustType] { body }\<close> item.
+Its Rust signature is authoritative: parameter and explicit result types resolve through
+\<open>urust_type\<close>, including qualified and generic mappings and structural tuples.
+The shared type grammar permits \<open>\<tau>\<open>HOL type\<close>\<close> anywhere a type occurs.
+Function escapes support polymorphic variables, shared sort constraints, higher-order types and
+independent inference holes; datatype fields remain monomorphic. An omitted result infers from the
+body. State, abort and yield channels also infer, and unused channels generalize.
+Parameters lower identifiers, \<open>_\<close>, and \<open>mut identifier\<close>.
+An explicit outer name chooses the HOL binding; otherwise acronym-aware snake case derives it from
+the Rust name. An anonymous \<open>_\<close> checks without installing artifacts.
+Named functions register their Rust name by default for later direct calls. The Boolean
+\<open>register_notation\<close> option, using the shared scoped
+\<open>urust_register_notation\<close> configuration, can suppress this entry while retaining the HOL
+definition or abbreviation and its native declaration navigation. Inline values override the scoped
+setting. Enabled registration rejects occupied function, constructor and call-notation paths,
+including incompatible locale interpretations and context merges. Mapping references are reported
+only after successful declaration completion.
+
+The optional parenthesized, comma-separated expression argument list occurs immediately before the source
 cartouche and accepts an empty list or trailing comma. Omitting it is equivalent to \<open>()\<close>.
 \<open>Parse.liberal_name\<close> admits ordinary identifiers, symbolic names, quoted names, and minor
 keywords such as \<open>for\<close>. Isabelle major command keywords delimit command spans before this parser
@@ -69,7 +83,7 @@ rendered as human-readable uRust inside a symbolic \<open>\<mu>\<open>...\<close
 presentation only and is unrelated to source quotation syntax. At verbosity 0 no result is printed;
 an effective \<open>pretty = true\<close> receives a warning because it has no effect.
 Named \<open>urust_fn\<close> parameters appear on the left of \<open>\<equiv>\<close>; Rust-shaped function items print
-only their body on the right, omitting its outer braces and the documentary Rust name and signature.
+only their body on the right, omitting its outer braces and the Rust name and signature.
 Printed function bodies are prefixed by \<open>FunctionBody\<close> before the symbolic uRust wrapper,
 distinguishing them from expression declarations.
 Other source arguments appear as closure formals on the right unless
@@ -124,7 +138,8 @@ inline-only aliases for the globally prefixed configurations. Options may appear
 Boolean options, omitting \<open>= true\<close> enables the option, so both commands accept
 \<open>[pp_test]\<close>, \<open>[pretty]\<close>, \<open>[application_def]\<close>, and \<open>[abbrev]\<close>. Explicit
 \<open>= true\<close> and \<open>= false\<close> remain available; integer and attribute-list options always require a
-value.
+value. Function declarations additionally accept Boolean \<open>register_notation\<close>,
+including its bare enabling spelling.
 
 An argument-taking abbreviation declaration exposes a parser expression or function body as a HOL
 helper. At HOL use sites, write \<open>(helper args)\<close> when surrounding syntax would otherwise group the
@@ -208,8 +223,8 @@ val register_notation_option = "register_notation"
      left-hand side; its inline alias is application_def.
    - attrs is inline-only and carries Isabelle theorem attributes for the generated _def theorem of
      a named definition.
-   - urust_register_notation controls automatic field-lens aliases for datatypes only; its inline
-     alias is register_notation.
+   - urust_register_notation controls function callable entries and datatype field-lens aliases;
+     its inline alias is register_notation.
    Verbosity values outside 0..2 are rejected. *)
 datatype command_option_value =
     Boolean_Value of bool
@@ -234,7 +249,10 @@ val declaration_option_configs =
       [(abbrev_option, Boolean_Config urust_abbrev)])
 
 val expression_option_configs = declaration_option_configs
-val function_option_configs = declaration_option_configs
+val function_option_configs =
+  Symtab.update
+    (register_notation_option, Boolean_Config urust_register_notation)
+    declaration_option_configs
 
 val datatype_option_configs =
   Symtab.make
@@ -956,35 +974,58 @@ fun function_pretty_body function =
        error
          "urust_fn: internal Rust-shaped function body is not a block")
 
-fun function_arguments_position function =
-  (case
-      URust_AST.source_token_positions
-        (URust_AST.function_source_layout function)
-        (URust_AST.Delimiter_Token ")") of
-     pos :: _ => pos
-   | [] => URust_AST.function_item_position function)
+(* Resolve every signature type together: HOL escapes share their type-variable sorts while
+   independent inference holes remain distinct. The prepared types flow directly into lowering. *)
+fun prepare_function_signature lthy function =
+  let
+    val arguments = function_arguments function
+    val parameter_types =
+      map (fn URust_AST.Function_Parameter (_, _, typ, _) => typ)
+        (URust_AST.function_parameters function)
+    val return_type = URust_AST.function_return_type function
+    val resolved =
+      URust_Type_Mappings.resolve_signature lthy
+        (parameter_types @ the_list return_type)
+    val (resolved_parameters, resolved_result) =
+      chop (length parameter_types) resolved
+    val result_type =
+      (case resolved_result of [typ] => typ | [] => dummyT
+       | _ => error "urust_fn: internal signature type count mismatch")
+    val complete_type =
+      resolved_parameters --->
+        Type (\<^type_name>\<open>function_body\<close>,
+          [dummyT, result_type, dummyT, dummyT, dummyT])
+    val type_pos =
+      (case return_type of
+         SOME typ => URust_AST.rust_type_position typ
+       | NONE => URust_AST.function_item_position function)
+  in
+    (SOME (complete_type, type_pos),
+     typed_arguments arguments resolved_parameters)
+  end
 
-fun elaborate_function_item pp_test lthy
-    source raw_type function =
+fun elaborate_function_item pp_test lthy source function =
   let
     val arguments = function_arguments function
     val body_source = function_body_source source function
+    val (declared_type, arguments_with_types) =
+      prepare_function_signature lthy function
     val _ =
       if pp_test
       then function_pretty_roundtrip lthy source function
       else ()
     val {term, ...} =
-      elaborate_ast lthy
+      elaborate_prepared_ast lthy
         {kind = Function,
          source = body_source,
-         arguments = arguments,
-         arguments_pos = function_arguments_position function,
-         declared_type = SOME raw_type,
+         declared_type = declared_type,
+         arguments_with_types = arguments_with_types,
          ast = URust_AST.function_body function}
   in
     {term = term,
      arguments = arguments,
-     body_source = body_source}
+     declared_type = declared_type,
+     arguments_with_types = arguments_with_types}
   end
 
 fun declaration_registered_term
@@ -1032,25 +1073,29 @@ fun register_function_result target (rust_name, rust_pos)
 
 fun declare_urust_function_result pp_test render_pretty
     abbreviation application_definition attributes binding
-    target raw_type source function lthy =
+    target register_notation source function lthy =
   let
-    val {term, arguments, ...} =
-      elaborate_function_item pp_test lthy
-        source raw_type function
+    val {term, arguments, declared_type, arguments_with_types} =
+      elaborate_function_item pp_test lthy source function
     val pretty_body =
       if render_pretty then
         let
           val body = function_pretty_body function
-          val arguments_pos =
-            function_arguments_position function
           fun reparse pretty_source =
-            ignore
-              (elaborate_result false lthy
-                {kind = Function,
-                 source = pretty_source,
-                 arguments = arguments,
-                 arguments_pos = arguments_pos,
-                 declared_type = SOME raw_type})
+            let
+              val ast =
+                (case URust_Parser.parse_source lthy pretty_source of
+                   SOME ast => ast
+                 | NONE => error "urust_fn: empty pretty replay")
+            in
+              ignore
+                (elaborate_prepared_ast lthy
+                  {kind = Function,
+                   source = pretty_source,
+                   declared_type = declared_type,
+                   arguments_with_types = arguments_with_types,
+                   ast = ast})
+            end
         in
           SOME
             (URust_Printer_Output.pretty_human_expr_with_reparse
@@ -1070,9 +1115,24 @@ fun declare_urust_function_result pp_test render_pretty
                pretty_arguments = map #1 arguments,
                pretty_body = pretty_body},
             lthy))
+    (* Disabling the callable entry does not disable native HOL declaration navigation. *)
+    val _ =
+      if register_notation then ()
+      else
+        (case target of
+           Named_Target _ =>
+             Navigation.defer_report lthy'
+               (#2 (URust_AST.function_name function))
+               (Name_Space.markup
+                 (Consts.space_of (Proof_Context.consts_of lthy'))
+                 (Proof_Context.intern_const lthy'
+                   (Local_Theory.full_name lthy binding)))
+         | Anonymous_Target _ => ())
     val lthy'' =
-      register_function_result target
-        (URust_AST.function_name function) declaration lthy'
+      if register_notation then
+        register_function_result target
+          (URust_AST.function_name function) declaration lthy'
+      else lthy'
   in
     (declaration, lthy'')
   end
@@ -1327,41 +1387,8 @@ fun define_urust_expr
     declare_and_print declaration interactive verbosity pretty lthy
   end
 
-fun define_legacy_urust_fn
-    (options,
-     (target, declared_type, body, parameters_pos, parameters)) interactive lthy =
-  let
-    val pp_test =
-      configured_flag lthy options pp_test_option urust_pp_test
-    val verbosity = configured_verbosity lthy options
-    val pretty =
-      configured_flag lthy options pretty_option urust_pretty
-    val _ = warn_ineffective_pretty options body pretty verbosity
-    val render_pretty =
-      pretty andalso verbosity >= 1 andalso
-        verbosity_output_enabled interactive lthy
-    val abbreviation =
-      configured_flag lthy options abbrev_option urust_abbrev
-    val application_definition =
-      configured_flag lthy options application_def_option
-        urust_application_def
-    val _ =
-      reject_abbreviation_application_definition
-        "urust_fn" abbreviation application_definition
-    val attributes =
-      declaration_attributes lthy "urust_fn" target abbreviation options
-    val raw_type = require_function_type body declared_type
-    val binding = target_binding Function target
-    fun declaration lthy' =
-      declare_urust_result pp_test render_pretty
-        abbreviation application_definition attributes binding Function
-        (target, SOME raw_type, body, parameters_pos, parameters) lthy'
-  in
-    declare_and_print declaration interactive verbosity pretty lthy
-  end
-
-fun define_rust_item_urust_fn
-    (options, (target_option, declared_type, source))
+fun define_urust_fn
+    (options, (target_option, source))
     interactive lthy =
   let
     val function =
@@ -1380,12 +1407,15 @@ fun define_rust_item_urust_fn
            Named_Target
              (Binding.make
                (URust_AST.rust_snake_case rust_name, rust_pos)))
+    val register_notation =
+      configured_flag lthy options register_notation_option urust_register_notation
     val _ =
-      (case target of
-         Named_Target _ =>
-           reject_function_item_conflict lthy (rust_name, rust_pos)
-       | Anonymous_Target _ => ())
-    val raw_type = require_function_type source declared_type
+      if register_notation then
+        (case target of
+           Named_Target _ =>
+             reject_function_item_conflict lthy (rust_name, rust_pos)
+         | Anonymous_Target _ => ())
+      else ()
     val pp_test =
       configured_flag lthy options pp_test_option urust_pp_test
     val verbosity = configured_verbosity lthy options
@@ -1407,37 +1437,17 @@ fun define_rust_item_urust_fn
       declaration_attributes lthy "urust_fn" target abbreviation options
     val binding = target_binding Function target
     fun declaration lthy' =
-      declare_urust_function_result pp_test render_pretty
-        abbreviation application_definition attributes binding
-        target raw_type source function lthy'
+      let
+        val ((result, completed), reports) =
+          Navigation.capture (fn () =>
+            declare_urust_function_result pp_test render_pretty
+              abbreviation application_definition attributes binding
+              target register_notation source function lthy')
+        val _ = Navigation.replay completed reports
+      in (result, completed) end
   in
     declare_and_print declaration interactive verbosity pretty lthy
   end
-
-fun define_urust_fn
-    (options,
-     (target_option, declared_type, source, parameter_clause)) interactive lthy =
-  (case parameter_clause of
-     SOME (parameters_pos, parameters) =>
-       let
-         val target =
-           (case target_option of
-              SOME target => target
-            | NONE =>
-                error
-                  ("urust_fn: legacy body syntax requires an explicit HOL declaration target" ^
-                    Position.here (Input.pos_of source)))
-       in
-         define_legacy_urust_fn
-           (options,
-            (target, declared_type, source,
-             parameters_pos, parameters))
-           interactive lthy
-       end
-   | NONE =>
-       define_rust_item_urust_fn
-         (options, (target_option, declared_type, source))
-         interactive lthy)
 
 fun define_urust_datatype
     ((options, explicit_binding), source) interactive lthy =
@@ -1529,14 +1539,8 @@ fun parse_urust_declaration option_configs =
 fun parse_urust_fn_declaration option_configs =
   parse_command_options option_configs --
     (Scan.option parse_declaration_target --
-      parse_declared_type --
-      Scan.option parse_parameters --
       (Parse.token Parse.cartouche >>
-        Parser_Lex_Util.cartouche_source) >>
-      (fn (((target, declared_type), parameters), source) =>
-        (target, declared_type, source, parameters))) >>
-  (fn (options, payload) =>
-    (options, payload))
+        Parser_Lex_Util.cartouche_source))
 
 val _ =
   Outer_Syntax.local_theory' \<^command_keyword>\<open>urust_expr\<close>
@@ -1546,7 +1550,7 @@ val _ =
 
 val _ =
   Outer_Syntax.local_theory' \<^command_keyword>\<open>urust_fn\<close>
-    "Declare a typed uRust function body or Rust-shaped function item"
+    "Declare a uRust function with an authoritative Rust signature"
     (parse_urust_fn_declaration function_option_configs >>
       define_urust_fn)
 

@@ -64,14 +64,12 @@ urust_expr showoff_manual_datatype_field \<open>
 subsection\<open> Rust-shaped function items \<close>
 
 text\<open>
-Without an outer parameter clause, \<open>urust_fn\<close> parses a complete Rust-shaped function item.
-The source signature is retained for tooling, while the declared HOL type controls elaboration.
+\<open>urust_fn\<close> parses a complete Rust-shaped function item. Its parameter and explicit
+result types resolve through the shared Rust-to-HOL registry and control elaboration.
 Omitting the HOL binding infers it from the Rust name.
 \<close>
 
-urust_fn [application_def] ::
-  \<open>64 word \<Rightarrow>
-    (unit, 64 word, unit, unit, unit) function_body\<close>
+urust_fn [application_def]
   \<open>
     fn PacketLength(packet: u64) -> u64 {
       packet + 1_u64
@@ -289,33 +287,25 @@ urust_expr showoff_logging_yield
 subsection\<open> Calls, methods, and propagation \<close>
 
 urust_fn
-  [attrs = [micro_rust_simps]]
-  showoff_inline_disabled ::
-  \<open>_\<close>
-  ()
-  \<open> 3u64 \<close>
+  [attrs = [micro_rust_simps], register_notation = false]
+  showoff_inline_disabled
+  \<open> fn showoff_inline_disabled() { 3u64 } \<close>
 
 text\<open>
 The optional \<open>application_def\<close> shape keeps the explicit source parameters on the generated
 definition theorem's left-hand side without changing the curried function value.
 \<close>
 
-urust_fn [application_def, verbosity = 2] showoff_declared_mix ::
-  \<open>64 word \<Rightarrow> 64 word \<Rightarrow>
-    (unit, 64 word, unit, unit, unit) function_body\<close>
-  (left, right)
-  \<open> left * 3u64 + right \<close>
+urust_fn [application_def, verbosity = 2, register_notation = false] showoff_declared_mix
+  \<open> fn showoff_declared_mix(left: u64, right: u64) -> u64 { left * 3u64 + right } \<close>
 
 text\<open>
 Bare declaration wildcards keep their typed argument slots and source order but introduce no
 lexical name. They may be repeated or mixed with named parameters in either command.
 \<close>
 
-urust_fn [application_def] showoff_wildcard_function ::
-  \<open>unit \<Rightarrow> 64 word \<Rightarrow> bool \<Rightarrow>
-    (unit, 64 word, unit, unit, unit) function_body\<close>
-  (_, kept, _)
-  \<open> kept + 1_u64 \<close>
+urust_fn [application_def, register_notation = false] showoff_wildcard_function
+  \<open> fn showoff_wildcard_function(_: (), kept: u64, _: bool) -> u64 { kept + 1_u64 } \<close>
 
 urust_expr [abbrev] showoff_wildcard_expression ::
   \<open>unit \<Rightarrow> 64 word \<Rightarrow>
@@ -323,11 +313,8 @@ urust_expr [abbrev] showoff_wildcard_expression ::
   (_, kept)
   \<open> kept \<close>
 
-urust_fn [abbrev, verbosity = 2] showoff_abbreviated_function ::
-  \<open>64 word \<Rightarrow>
-    (unit, 64 word, unit, unit, unit) function_body\<close>
-  (item)
-  \<open> item + 1_u64 \<close>
+urust_fn [abbrev, verbosity = 2, register_notation = false] showoff_abbreviated_function
+  \<open> fn showoff_abbreviated_function(item: u64) -> u64 { item + 1_u64 } \<close>
 
 urust_expr [verbosity = 2] showoff_typed_common ::
   \<open>64 word \<Rightarrow> 64 word \<Rightarrow>
@@ -694,13 +681,11 @@ Features: receiver-prepended iterator methods, chained \<open>into_iter\<close>
 conversion, shortest-input truncation, and pair-valued iterator elements.
 \<close>
 
-urust_fn showoff_iterator_zip ::
-  \<open>(unit,
-    (unit, 32 word \<times> bool \<times> tnil, unit, unit, unit) iterator,
-    unit, unit, unit) function_body\<close>
-  ()
+urust_fn [register_notation = false] showoff_iterator_zip
   \<open>
+  fn showoff_iterator_zip() -> \<tau>\<open>(unit, 32 word \<times> bool \<times> tnil, unit, unit, unit) iterator\<close> {
     [1_u32, 2_u32].into_iter().zip([True, False].into_iter())
+  }
   \<close>
 
 text\<open>

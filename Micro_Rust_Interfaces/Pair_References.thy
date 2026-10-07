@@ -89,14 +89,14 @@ text\<open>Allocations are currently only possible with \<^emph>\<open>one\<clos
 The axioms need suitable generalization if we ever need to combine two reference
 interpretations which can both allocate.\<close>
 
-urust_fn reference_raw_fun ::
-  \<open>'b0 + 'b1 \<Rightarrow> ('s, ('a0 + 'a1, 'b0 + 'b1) gref, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
-  (b)
+urust_fn [register_notation = false] reference_raw_fun
   \<open>
+  fn reference_raw_fun(b: \<tau>\<open>'b0 + 'b1\<close>) -> \<tau>\<open>('a0 + 'a1, 'b0 + 'b1) gref\<close> {
      match b {
        Inl(b0) \<Rightarrow> \<llangle>Inl_gref\<rrangle>\<^sub>1 (reference_raw_funA (b0)),
        Inr(b1) \<Rightarrow> panic!("Invalid allocation") 
      }
+  }
   \<close>
 
 definition points_to_raw' :: \<open>('a0 + 'a1, 'b0 + 'b1) gref \<Rightarrow> share \<Rightarrow> 'b0 + 'b1 \<Rightarrow> 's set\<close>

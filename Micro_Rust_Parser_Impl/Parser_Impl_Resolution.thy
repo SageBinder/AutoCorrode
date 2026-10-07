@@ -1060,8 +1060,15 @@ struct
       val _ = reject_item_generics path
       val pos = #2 (path_terminal path)
       val _ = I.defer_function_reference ctxt pos entry
+      (* A registered definition exports schematic signature and effect types. Each call must
+         instantiate them independently, while ambient fixed types remain rigid. *)
+      val function =
+        I.function_term entry
+        |> Term_Subst.zero_var_indexes
+        |> Term.map_types
+            (Logic.incr_tvar (serial ()) #> Type_Infer.paramify_vars)
     in
-      T.source_position pos (I.function_term entry)
+      T.source_position pos function
     end
 
   fun item_function_path role ctxt path actual_arity entry =

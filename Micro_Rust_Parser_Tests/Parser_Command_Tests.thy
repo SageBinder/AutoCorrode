@@ -166,11 +166,9 @@ urust_expr [application_def, attrs = [micro_rust_simps]]
   (number, flag)
   \<open> \<llangle>(number, flag)\<rrangle> \<close>
 
-urust_fn [application_def]
-  typed_application_function ::
-  \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
-  (item)
-  \<open> item \<close>
+urust_fn [application_def, register_notation = false]
+  typed_application_function
+  \<open> fn typed_application_function(item: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { item } \<close>
 
 urust_expr [application_def]
   typed_application_implicit_parameter
@@ -185,26 +183,23 @@ urust_expr [application_def] typed_zero_expression_application ::
   \<open>(unit, nat, unit, unit, unit, unit) expression\<close>
   \<open> \<llangle>7 :: nat\<rrangle> \<close>
 
-urust_fn typed_zero_function_default ::
-  \<open>(unit, nat, unit, unit, unit) function_body\<close>
-  ()
-  \<open> \<llangle>7 :: nat\<rrangle> \<close>
+urust_fn [register_notation = false] typed_zero_function_default
+  \<open> fn typed_zero_function_default() -> \<tau>\<open>nat\<close> { \<llangle>7 :: nat\<rrangle> } \<close>
 
-urust_fn [application_def] typed_zero_function_application ::
-  \<open>(unit, nat, unit, unit, unit) function_body\<close>
-  ()
-  \<open> \<llangle>7 :: nat\<rrangle> \<close>
+urust_fn [application_def, register_notation = false] typed_zero_function_application
+  \<open> fn typed_zero_function_application() -> \<tau>\<open>nat\<close> { \<llangle>7 :: nat\<rrangle> } \<close>
 
 text\<open>
-Parenthesized parameters use Isabelle liberal names. Minor keywords such as \<open>for\<close> are
-available unquoted, while major command keywords must be string-quoted because command-span parsing
-happens before the declaration parser. The collision example also checks that source parameters win
+Parenthesized expression parameters use Isabelle liberal names. Minor keywords such as
+\<open>for\<close> are available unquoted, while major command keywords must be string-quoted because
+command-span parsing happens before the declaration parser. Function parameters occur in the
+complete Rust item signature, where their names are Rust identifiers. The collision example also checks that source parameters win
 the literal role over an identically named HOL constant and parser registration; it is intentionally
 parser-only because the lexical parameter deliberately takes precedence over the registered constant. The
 parameter named \<open>zip\<close> shadows the real HOL \<open>List.zip\<close> constant. The callable case additionally checks that an unqualified direct call head uses the
 parameter before an exact NFunction registration; the method case pins the retained
-registration-first method policy. The internal-placeholder example checks that typed fixes use the
-completed declaration type.
+registration-first method policy. The internal-placeholder example checks that the signature
+hole flows into typed lexical fixes and is inferred from the body.
 \<close>
 
 definition command_parameter_collision :: nat
@@ -228,22 +223,16 @@ urust_expr parenthesized_minor_keyword_expression ::
   (for)
   \<open> () \<close>
 
-urust_fn [attrs = []]
-  partial_collision_function ::
-  \<open>nat \<Rightarrow> _\<close>
-  (command_parameter_collision)
-  \<open> command_parameter_collision \<close>
+urust_fn [attrs = [], register_notation = false]
+  partial_collision_function
+  \<open> fn partial_collision_function(command_parameter_collision: \<tau>\<open>nat\<close>) { command_parameter_collision } \<close>
 
-urust_fn [attrs = [micro_rust_simps]]
-  partial_internal_placeholder ::
-  \<open>_ \<Rightarrow> _\<close>
-  (item)
-  \<open> \<llangle>item :: nat\<rrangle> \<close>
+urust_fn [attrs = [micro_rust_simps], register_notation = false]
+  partial_internal_placeholder
+  \<open> fn partial_internal_placeholder(item: \<tau>\<open>_\<close>) { \<llangle>item :: nat\<rrangle> } \<close>
 
-urust_fn zip_parameter_value ::
-  \<open>nat \<Rightarrow> _\<close>
-  (zip)
-  \<open> zip \<close>
+urust_fn [register_notation = false] zip_parameter_value
+  \<open> fn zip_parameter_value(zip: \<tau>\<open>nat\<close>) { zip } \<close>
 
 definition command_registered_zip ::
     \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
@@ -251,26 +240,14 @@ definition command_registered_zip ::
 
 urust_notation (call) command_registered_zip ("zip")
 
-urust_fn  zip_callable_parameter ::
-  \<open>
-    (nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body) \<Rightarrow>
-    nat \<Rightarrow> _
-  \<close>
-  (zip, item)
-  \<open> zip(item) \<close>
+urust_fn [register_notation = false]  zip_callable_parameter
+  \<open> fn zip_callable_parameter(zip: \<tau>\<open>(nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body)\<close>, item: \<tau>\<open>nat\<close>) { zip(item) } \<close>
 
-urust_fn  zip_method_registration ::
-  \<open>
-    (nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body) \<Rightarrow>
-    nat \<Rightarrow> _
-  \<close>
-  (zip, item)
-  \<open> item.zip() \<close>
+urust_fn [register_notation = false]  zip_method_registration
+  \<open> fn zip_method_registration(zip: \<tau>\<open>(nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body)\<close>, item: \<tau>\<open>nat\<close>) { item.zip() } \<close>
 
-urust_fn quoted_major_parameter ::
-  \<open>nat \<Rightarrow> _\<close>
-  ("lemma")
-  \<open> lemma \<close>
+urust_fn [register_notation = false] quoted_major_parameter
+  \<open> fn quoted_major_parameter(lemma: \<tau>\<open>nat\<close>) { lemma } \<close>
 
 text\<open>
 A declaration wildcard consumes one argument type and contributes one anonymous abstraction without
@@ -289,35 +266,26 @@ urust_expr wildcard_expression_mixed ::
   (_, kept, _)
   \<open> kept \<close>
 
-urust_fn wildcard_function_single ::
-  \<open>nat \<Rightarrow> (unit, unit, unit, unit, unit) function_body\<close>
-  (_)
-  \<open> () \<close>
+urust_fn [register_notation = false] wildcard_function_single
+  \<open> fn wildcard_function_single(_: \<tau>\<open>nat\<close>) -> () { () } \<close>
 
-urust_fn wildcard_function_mixed ::
-  \<open>nat \<Rightarrow> bool \<Rightarrow> 32 word \<Rightarrow>
-    (unit, bool, unit, unit, unit) function_body\<close>
-  (_, kept, _)
-  \<open> kept \<close>
+urust_fn [register_notation = false] wildcard_function_mixed
+  \<open> fn wildcard_function_mixed(_: \<tau>\<open>nat\<close>, kept: bool, _: u32) -> bool { kept } \<close>
 
 urust_expr  wildcard_expression_inferred
   (_)
   \<open> () \<close>
 
-urust_fn  wildcard_function_inferred ::
-  \<open>_ \<Rightarrow> _\<close>
-  (_)
-  \<open> \<llangle>0 :: nat\<rrangle> \<close>
+urust_fn [register_notation = false]  wildcard_function_inferred
+  \<open> fn wildcard_function_inferred(_: \<tau>\<open>_\<close>) { \<llangle>0 :: nat\<rrangle> } \<close>
 
 urust_expr [application_def] wildcard_expression_application ::
   \<open>nat \<Rightarrow> (unit, unit, unit, unit, unit, unit) expression\<close>
   (_)
   \<open> () \<close>
 
-urust_fn [application_def] wildcard_function_application ::
-  \<open>nat \<Rightarrow> (unit, unit, unit, unit, unit) function_body\<close>
-  (_)
-  \<open> () \<close>
+urust_fn [application_def, register_notation = false] wildcard_function_application
+  \<open> fn wildcard_function_application(_: \<tau>\<open>nat\<close>) -> () { () } \<close>
 
 urust_expr [abbrev] wildcard_expression_abbreviation ::
   \<open>nat \<Rightarrow> bool \<Rightarrow>
@@ -325,11 +293,8 @@ urust_expr [abbrev] wildcard_expression_abbreviation ::
   (_, kept)
   \<open> kept \<close>
 
-urust_fn [abbrev] wildcard_function_abbreviation ::
-  \<open>nat \<Rightarrow> bool \<Rightarrow>
-    (unit, bool, unit, unit, unit) function_body\<close>
-  (_, kept)
-  \<open> kept \<close>
+urust_fn [abbrev, register_notation = false] wildcard_function_abbreviation
+  \<open> fn wildcard_function_abbreviation(_: \<tau>\<open>nat\<close>, kept: bool) -> bool { kept } \<close>
 ML_val\<open>
   local
     val ctxt = \<^context>
@@ -447,7 +412,7 @@ ML_val\<open>
     val _ =
       (case result_type of
          Type (name, [stateT, valueT, returnT, abortT, inputT]) =>
-           (assert "terminal placeholder did not become function_body"
+           (assert "inferred function result did not become function_body"
               (name = \<^type_name>\<open>function_body\<close>);
             assert "function result value channel did not infer nat"
               (valueT = HOLogic.natT);
@@ -455,7 +420,7 @@ ML_val\<open>
               (length (distinct (op =) [stateT, returnT, abortT, inputT]) = 4))
        | _ =>
            error
-             "command surface audit: terminal placeholder has malformed completed type")
+             "command surface audit: inferred function result has malformed type")
   in
     val _ = ()
   end
@@ -611,10 +576,8 @@ urust_expr [application_def] _ ::
   (item)
   \<open> item \<close>
 
-urust_fn [application_def] _ ::
-  \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
-  (item)
-  \<open> item \<close>
+urust_fn [application_def, register_notation = false] _
+  \<open> fn AnonymousFunction(item: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { item } \<close>
 
 urust_expr [abbrev = true] _
   \<open> () \<close>
@@ -701,11 +664,9 @@ urust_expr
   \<open> item \<close>
 
 urust_fn
-  [abbrev, verbosity = 2]
-  typed_function_abbrev_command ::
-  \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
-  (item)
-  \<open> item \<close>
+  [abbrev, verbosity = 2, register_notation = false]
+  typed_function_abbrev_command
+  \<open> fn typed_function_abbrev_command(item: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { item } \<close>
 
 urust_expr typed_parser_only ::
   \<open>32 word \<Rightarrow>
@@ -939,15 +900,11 @@ lemma pp_expr_enabled_same:
   unfolding pp_expr_enabled_def pp_expr_disabled_def
   by (rule refl)
 
-urust_fn [pp_test = false] pp_fun_disabled ::
-  \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
-  (item)
-  \<open> item \<close>
+urust_fn [pp_test = false, register_notation = false] pp_fun_disabled
+  \<open> fn pp_fun_disabled(item: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { item } \<close>
 
-urust_fn [pp_test] pp_fun_enabled ::
-  \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
-  (item)
-  \<open> item \<close>
+urust_fn [pp_test, register_notation = false] pp_fun_enabled
+  \<open> fn pp_fun_enabled(item: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { item } \<close>
 
 lemma pp_fun_enabled_same:
   \<open>pp_fun_enabled = pp_fun_disabled\<close>
@@ -1017,9 +974,9 @@ ML_val\<open>
         ("urust_expr [abbrev, attrs = []] attributed_abbreviation " ^ unit_source)
         "attrs is not supported in abbreviation mode"
     val _ =
-      assert_rejected "missing-function-type"
-        ("urust_fn missing_fun_type () " ^ unit_source)
-        "function elaboration requires a declared type"
+      assert_rejected "legacy-function-body-clause"
+        ("urust_fn rejected_legacy_body () " ^ unit_source)
+        "Outer syntax error"
     val _ =
       assert_rejected "duplicate-expression-parameters"
         ("urust_expr duplicate_args (item, item) " ^ unit_source)

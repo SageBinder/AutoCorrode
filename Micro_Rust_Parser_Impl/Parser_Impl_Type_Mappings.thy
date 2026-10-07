@@ -20,6 +20,8 @@ sig
   type entry
 
   val resolve: Proof.context -> URust_AST.rust_type -> typ
+  val resolve_signature:
+    Proof.context -> URust_AST.rust_type list -> typ list
   val lookup: Proof.context -> string -> entry option
   val dump: Proof.context -> (string * entry) list
 
@@ -483,6 +485,26 @@ struct
           (base, #declaration_pos entry))
     end
 
+  datatype resolution_kind =
+      Datatype_Fields
+    | Function_Signature
+
+  fun command_label Datatype_Fields = "urust_datatype"
+    | command_label Function_Signature = "urust_fn"
+
+  fun type_context Datatype_Fields = "datatype fields"
+    | type_context Function_Signature = "function signatures"
+
+  fun positioned_result kind positions action =
+    (case Exn.result action () of
+       Exn.Res result => result
+     | Exn.Exn exn =>
+         if Exn.is_interrupt exn then Exn.reraise exn
+         else
+           error
+             (command_label kind ^ ": " ^ Runtime.exn_message exn ^
+               Position.here_list positions))
+
   fun no_type_variables what pos typ =
     if null (Term.add_tfreesT typ []) andalso
         null (Term.add_tvarsT typ [])
@@ -496,38 +518,44 @@ struct
     let
       val pos = Input.pos_of source
       val typ =
-        (case Exn.result
-            (fn () =>
-              Syntax.read_typ ctxt (Syntax.implode_input source)) () of
-           Exn.Res typ => typ
-         | Exn.Exn exn =>
-             if Exn.is_interrupt exn then Exn.reraise exn
-             else error (Runtime.exn_message exn ^ Position.here pos))
+        positioned_result Datatype_Fields [pos]
+          (fn () =>
+            Syntax.read_typ ctxt (Syntax.implode_input source))
     in no_type_variables "datatype fields" pos typ end
 
-  fun unknown_type base pos =
+  fun unknown_type kind base pos =
     error
-      ("urust_datatype: unknown Rust type " ^ quote base ^
+      (command_label kind ^ ": unknown Rust type " ^ quote base ^
         "; declare it with urust_type or use \<tau>\<open>...\<close>" ^
         Position.here pos)
 
-  fun arity_error ctxt base expected actual pos =
+  fun arity_error kind base expected actual pos =
     let
       fun arities values =
         values |> map string_of_int |> commas |> enclose "[" "]"
     in
       error
-        ("urust_datatype: Rust type " ^ quote base ^
+        (command_label kind ^ ": Rust type " ^ quote base ^
           " has generic arities " ^ arities actual ^
           ", but the active urust_type mapping expects " ^
           arities expected ^ Position.here pos)
     end
 
-  fun unsupported description pos =
+  fun unsupported kind description pos =
     error
-      ("urust_datatype: " ^ description ^
-        " is not supported in datatype fields; use \<tau>\<open>...\<close>" ^
+      (command_label kind ^ ": " ^ description ^
+        " is not supported in " ^ type_context kind ^
+        "; use \<tau>\<open>...\<close>" ^
         Position.here pos)
+
+  fun sort_error kind ctxt base argument sort pos =
+    error
+      (command_label kind ^ ": generic argument type " ^
+        quote (Syntax.string_of_typ ctxt argument) ^
+        " does not satisfy sort " ^
+        quote (Syntax.string_of_sort ctxt sort) ^
+        " required by the urust_type mapping for " ^
+        quote base ^ Position.here pos)
 
   fun path_information segments =
     let
@@ -547,46 +575,36 @@ struct
       (Integer_Literal (_, layout, _)) =
     source_span layout
 
-  fun resolve ctxt rust_type =
+  fun resolve_types kind ctxt read_escape check_sort normalize rust_types =
     let
       fun resolve_nominal base positions arities arguments pos primitive =
         let
           val entry =
             (case lookup ctxt base of
                SOME entry => entry
-             | NONE => unknown_type base pos)
+             | NONE => unknown_type kind base pos)
           val expected_arities = #segment_arities entry
           val _ =
             if expected_arities = arities then ()
-            else arity_error ctxt base expected_arities arities pos
+            else arity_error kind base expected_arities arities pos
           fun resolve_argument (Rust_Type_Argument argument) =
                 (resolve_type argument, rust_type_position argument)
             | resolve_argument (Rust_Numeric_Argument integer) =
-                unsupported "numeric generic arguments"
+                unsupported kind "numeric generic arguments"
                   (numeric_argument_position integer)
           val resolved_arguments = map resolve_argument arguments
-          val argument_types = map fst resolved_arguments
           val parameter_sorts = #parameter_sorts entry
           val _ =
-            if length argument_types = length parameter_sorts then ()
+            if length resolved_arguments = length parameter_sorts then ()
             else
               raise Fail
                 "uRust type registry: generic arity metadata is inconsistent"
-          fun check_sort ((argument, argument_pos), sort) =
-            if Sign.of_sort (Proof_Context.theory_of ctxt)
-                (argument, sort)
-            then ()
-            else
-              error
-                ("urust_datatype: generic argument type " ^
-                  quote (Syntax.string_of_typ ctxt argument) ^
-                  " does not satisfy sort " ^
-                  quote (Syntax.string_of_sort ctxt sort) ^
-                  " required by the urust_type mapping for " ^
-                  quote base ^ Position.here argument_pos)
           val _ =
-            List.app check_sort
+            List.app
+              (fn ((argument, argument_pos), sort) =>
+                check_sort base argument sort argument_pos)
               (resolved_arguments ~~ parameter_sorts)
+          val argument_types = map (normalize o fst) resolved_arguments
           val substitutions =
             map_index
               (fn (index, (sort, argument)) =>
@@ -622,25 +640,155 @@ struct
             end
         | resolve_type (Tuple_Type (types, layout)) =
             if length types < 2
-            then unsupported "singleton tuple types" (source_span layout)
+            then unsupported kind "singleton tuple types" (source_span layout)
             else
               fold_rev
                 (fn typ => fn rest =>
-                  HOLogic.mk_prodT (resolve_type typ, rest))
-                types \<^typ>\<open>tnil\<close>
+                  HOLogic.mk_prodT (typ, rest))
+                (map resolve_type types) \<^typ>\<open>tnil\<close>
         | resolve_type (Group_Type (typ, _)) =
             resolve_type typ
         | resolve_type (Reference_Type (_, _, layout)) =
-            unsupported "Rust reference types" (source_span layout)
+            unsupported kind "Rust reference types" (source_span layout)
         | resolve_type (Raw_Pointer_Type (_, _, layout)) =
-            unsupported "Rust raw pointer types" (source_span layout)
+            unsupported kind "Rust raw pointer types" (source_span layout)
         | resolve_type (Slice_Type (_, layout)) =
-            unsupported "Rust slice types" (source_span layout)
+            unsupported kind "Rust slice types" (source_span layout)
         | resolve_type (Array_Type (_, _, layout)) =
-            unsupported "Rust array types" (source_span layout)
+            unsupported kind "Rust array types" (source_span layout)
         | resolve_type (HOL_Type_Source source) =
-            read_hol_escape ctxt source
-    in resolve_type rust_type end
+            read_escape source
+    in map resolve_type rust_types end
+
+  fun resolve ctxt rust_type =
+    let
+      fun check_sort base argument sort pos =
+        if Sign.of_sort (Proof_Context.theory_of ctxt) (argument, sort)
+        then ()
+        else sort_error Datatype_Fields ctxt base argument sort pos
+    in
+      singleton
+        (resolve_types Datatype_Fields ctxt
+          (read_hol_escape ctxt) check_sort I) rust_type
+    end
+
+  fun hol_sources (HOL_Type_Source source) = [source]
+    | hol_sources (Path_Type (segments, _)) =
+        let
+          fun argument (Rust_Type_Argument typ) = hol_sources typ
+            | argument (Rust_Numeric_Argument _) = []
+          fun segment (Rust_Type_Path_Segment (_, _, arguments, _)) =
+            maps argument (the_default [] arguments)
+        in maps segment segments end
+    | hol_sources (Tuple_Type (types, _)) = maps hol_sources types
+    | hol_sources (Group_Type (typ, _)) = hol_sources typ
+    | hol_sources (Reference_Type (_, typ, _)) = hol_sources typ
+    | hol_sources (Raw_Pointer_Type (_, typ, _)) = hol_sources typ
+    | hol_sources (Slice_Type (typ, _)) = hol_sources typ
+    | hol_sources (Array_Type (typ, _, _)) = hol_sources typ
+    | hol_sources (Primitive_Type _) = []
+
+  fun resolve_signature ctxt rust_types =
+    let
+      val sources = maps hol_sources rust_types
+      fun parse source =
+        positioned_result Function_Signature [Input.pos_of source]
+          (fn () =>
+            Syntax.parse_typ ctxt (Syntax.implode_input source))
+      val parsed = map parse sources
+      val checked =
+        positioned_result Function_Signature (map Input.pos_of sources)
+          (fn () => Syntax.check_typs ctxt parsed)
+
+      (* Keep sort inference shared across the whole signature. Only fresh
+         signature variables are flexible; ambient variables remain rigid. *)
+      val unification: (Type.tyenv * int) Unsynchronized.ref =
+        Unsynchronized.ref
+          (Vartab.empty,
+           fold Term.maxidx_typ checked (Variable.maxidx_of ctxt))
+      val named_parameters: typ Symtab.table Unsynchronized.ref =
+        Unsynchronized.ref Symtab.empty
+
+      fun fresh sort =
+        let
+          val (environment, index) = !unification
+          val next = index + 1
+          val _ = unification := (environment, next)
+        in Type_Infer.mk_param next sort end
+
+      fun import_typ (typ as Type (name, types)) =
+            if typ = dummyT then fresh []
+            else Type (name, map import_typ types)
+        | import_typ (TFree ("'_dummy_", sort)) = fresh sort
+        | import_typ (typ as TFree (name, sort)) =
+            if is_some (Variable.def_sort ctxt (name, ~1)) then typ
+            else
+              (case Symtab.lookup (!named_parameters) name of
+                 SOME parameter => parameter
+               | NONE =>
+                   let
+                     val parameter = fresh sort
+                     val _ =
+                       named_parameters :=
+                         Symtab.update (name, parameter) (!named_parameters)
+                   in parameter end)
+        | import_typ (typ as TVar _) = typ
+
+      val pending = Unsynchronized.ref (map import_typ checked)
+
+      fun read_escape _ =
+        (case !pending of
+           typ :: rest => (pending := rest; typ)
+         | [] =>
+             raise Fail
+               "uRust type registry: signature HOL escape is absent")
+
+      fun normalize typ =
+        Envir.norm_type (#1 (!unification)) typ
+
+      fun finish types =
+        let
+          fun named (name, parameter) =
+            (case normalize parameter of
+               TVar (variable, sort) =>
+                 ((variable, sort), TFree (name, sort))
+             | _ =>
+                 raise Fail
+                   "uRust type registry: signature parameter is not a variable")
+          val names = TVars.make (map named (Symtab.dest (!named_parameters)))
+          fun inference_parameter (typ as TVar ((name, index), sort)) =
+                if Type_Infer.is_param (name, index) then typ
+                else Type_Infer.param index (name, sort)
+            | inference_parameter typ = typ
+        in
+          map
+            (normalize #>
+              Term_Subst.instantiateT names #>
+              Term.map_atyps inference_parameter #>
+              Proof_Context.cert_typ ctxt)
+            types
+        end
+
+      fun check_sort base argument sort pos =
+        let
+          val constraint = fresh sort
+          val environment =
+            Type.unify (Proof_Context.tsig_of ctxt)
+              (argument, constraint) (!unification)
+            handle Type.TUNIFY =>
+              sort_error Function_Signature ctxt base
+                (singleton finish argument) sort pos
+        in unification := environment end
+
+      val resolved =
+        resolve_types Function_Signature ctxt read_escape check_sort normalize
+          rust_types
+      val _ =
+        if null (!pending) then ()
+        else
+          raise Fail
+            "uRust type registry: unconsumed signature HOL escape"
+    in finish resolved end
 
   fun declare_manual payload =
     declare_mapping Manual payload

@@ -6112,12 +6112,12 @@ urust_expr isabelle_comment_document_antiquotations
 
 declare [[urust_verbosity = 2]]
 
-urust_fn isabelle_comment_function ::
-  \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
-  (item)
+urust_fn [register_notation = false] isabelle_comment_function
   \<open>
+  fn isabelle_comment_function(item: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
     \<comment> \<open>Function-body comment with \<^term>\<open>item\<close> treated as document text.\<close>
     item \<comment> \<open>Inline function-body comment.\<close>
+  }
   \<close>
 
 declare [[urust_verbosity = 2]]

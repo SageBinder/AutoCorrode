@@ -1094,14 +1094,14 @@ text\<open>Normally, we would not reason about individual \<mu>Rust expressions,
 specifications and contracts to do so. We illustrate this in the example of the above
 reference-swapping code wrapped into a function:\<close>
 
-urust_fn swap_ref_fun ::
-  \<open>('a, 'b, 'v) Global_Store.ref \<Rightarrow> ('a, 'b, 'v) Global_Store.ref \<Rightarrow> ('s, unit, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
-  (rA, rB)
+urust_fn [register_notation = false] swap_ref_fun
   \<open>
+  fn swap_ref_fun(rA: \<tau>\<open>('a, 'b, 'v) Global_Store.ref\<close>, rB: \<tau>\<open>('a, 'b, 'v) Global_Store.ref\<close>) -> () {
      let oldA = *rA;
      let oldB = *rB;
      rA = oldB;
      rB = oldA;
+  }
   \<close>
 
 text\<open>The contract for a uRust function is usually captured in a separate definition of type
@@ -1135,12 +1135,12 @@ lemma swap_ref_fun_spec:
 
 text\<open>Next, imagine we write a higher-level function which relies on \<^verbatim>\<open>swap_ref_fun\<close>.\<close>
 
-urust_fn rotate_ref3 ::
-  \<open>('a, 'b, 'v) Global_Store.ref \<Rightarrow> ('a, 'b, 'v) Global_Store.ref \<Rightarrow> ('a, 'b, 'v) Global_Store.ref \<Rightarrow> ('s, unit, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
-  (rA, rB, rC)
+urust_fn [register_notation = false] rotate_ref3
   \<open>
+  fn rotate_ref3(rA: \<tau>\<open>('a, 'b, 'v) Global_Store.ref\<close>, rB: \<tau>\<open>('a, 'b, 'v) Global_Store.ref\<close>, rC: \<tau>\<open>('a, 'b, 'v) Global_Store.ref\<close>) -> () {
      swap_ref_fun (rA, rB);
      swap_ref_fun (rB, rC);
+  }
   \<close>
 
 text\<open>Next, we write the contract for \<^verbatim>\<open>rotate_ref3\<close>:\<close>
@@ -1257,12 +1257,12 @@ adhoc_overloading store_update_const \<rightleftharpoons>
 
 text\<open>Overwrite one structure field, return the other:\<close>
 
-urust_fn write_foo_read_bar ::
-  \<open>('a, 'b, test_record) Global_Store.ref \<Rightarrow> ('s, int, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
-  (ptr)
+urust_fn [register_notation = false] write_foo_read_bar
   \<open>
+  fn write_foo_read_bar(ptr: \<tau>\<open>('a, 'b, test_record) Global_Store.ref\<close>) -> \<tau>\<open>int\<close> {
      ptr.foo = 42;
      *(ptr.bar)
+  }
   \<close>
 
 definition write_foo_read_bar_contract ::
@@ -1338,10 +1338,9 @@ lemma write_foo_read_bar_spec':
 
 text\<open>Clear many structure fields, return another:\<close>
 
-urust_fn test_record2_zeroize ::
-  \<open>('a, 'b, test_record2) Global_Store.ref \<Rightarrow> ('s, int, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
-  (ptr)
-  \<open>(
+urust_fn [register_notation = false] test_record2_zeroize
+  \<open>
+  fn test_record2_zeroize(ptr: \<tau>\<open>('a, 'b, test_record2) Global_Store.ref\<close>) -> \<tau>\<open>int\<close> {(
      ptr.f0 = 3;
      ptr.f1 = 3;
      ptr.f2 = 3;
@@ -1423,7 +1422,9 @@ urust_fn test_record2_zeroize ::
      ptr.f18 = 0;
      ptr.f19 = 0;
      *(ptr.f20)
-  )\<close>
+  )
+  }
+  \<close>
 
 definition test_record2_zeroize_contract ::
    \<open>('a, 'b, test_record2) Global_Store.ref \<Rightarrow> 'b \<Rightarrow> test_record2 \<Rightarrow> ('s, int, 'abort) function_contract\<close>
@@ -1466,11 +1467,11 @@ lemma test_record2_zeroize_contract_spec:
 
 text\<open>Another similar stress test, but this time using array accesses behind a function wrapper.\<close>
 
-urust_fn test_record3_zero_field ::
-  \<open>('a, 'b, test_record3) Global_Store.ref \<Rightarrow> 64 word \<Rightarrow> ('s, unit, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
-  (r, i)
+urust_fn [register_notation = false] test_record3_zero_field
   \<open>
+  fn test_record3_zero_field(r: \<tau>\<open>('a, 'b, test_record3) Global_Store.ref\<close>, i: u64) -> () {
      r.data[i] = 0
+  }
   \<close>
 
 definition test_record3_zero_field_contract ::
@@ -1495,10 +1496,9 @@ proof (crush_boot f: test_record3_zero_field_def contract: test_record3_zero_fie
     by crush_base
 qed
 
-urust_fn test_record3_zeroize ::
-  \<open>('a, 'b, test_record3) Global_Store.ref \<Rightarrow> ('s, int, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
-  (ptr)
-  \<open>(
+urust_fn [register_notation = false] test_record3_zeroize
+  \<open>
+  fn test_record3_zeroize(ptr: \<tau>\<open>('a, 'b, test_record3) Global_Store.ref\<close>) -> \<tau>\<open>int\<close> {(
      ptr.test_record3_zero_field(0);
      ptr.test_record3_zero_field(1);
      ptr.test_record3_zero_field(2);
@@ -1560,7 +1560,9 @@ urust_fn test_record3_zeroize ::
      ptr.test_record3_zero_field(18);
      ptr.test_record3_zero_field(19);
      *(ptr.rest)
-  )\<close>
+  )
+  }
+  \<close>
 
 definition test_record3_zeroize_contract ::
    \<open>('a, 'b, test_record3) Global_Store.ref \<Rightarrow> 'b \<Rightarrow> test_record3 \<Rightarrow> ('s, int, 'abort) function_contract\<close>

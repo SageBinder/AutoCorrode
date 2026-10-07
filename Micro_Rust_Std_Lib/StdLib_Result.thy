@@ -11,13 +11,14 @@ section\<open>Core material related to the \<^emph>\<open>Result\<close> type\<c
 
 text\<open>Returns \<^verbatim>\<open>x\<close> if the element of \<^verbatim>\<open>Result\<close> type is of the form \<^verbatim>\<open>Ok x\<close>.  Panics otherwise with
 the defined error message.\<close>
-urust_fn result_expect :: \<open>('v,'e) result \<Rightarrow> String.literal \<Rightarrow> ('s, 'v, 'abort, 'i, 'o) function_body\<close>
-  (self, msg)
+urust_fn [register_notation = false] result_expect
   \<open>
-      match self {
+  fn result_expect(self_value: \<tau>\<open>('v,'e) result\<close>, msg: \<tau>\<open>String.literal\<close>) -> \<tau>\<open>'v\<close> {
+      match self_value {
         Ok(v) \<Rightarrow> v,
         Err(_) \<Rightarrow> panic!(msg) 
       }
+  }
   \<close>
 adhoc_overloading expect \<rightleftharpoons> result_expect
 
@@ -34,10 +35,11 @@ lemma result_expect_spec [crush_specs]:
      (crush_base split!: result.splits)
 
 text\<open>Returns \<^verbatim>\<open>x\<close> if the element of \<^verbatim>\<open>Result\<close> type is of the form \<^verbatim>\<open>Ok x\<close>.  Panics otherwise.\<close>
-urust_fn result_unwrap :: \<open>('v,'e) result \<Rightarrow> ('s, 'v, 'abort, 'i, 'o) function_body\<close>
-  (self)
+urust_fn [register_notation = false] result_unwrap
   \<open>
-      self.expect("result_unwrap")
+  fn result_unwrap(self_value: \<tau>\<open>('v,'e) result\<close>) -> \<tau>\<open>'v\<close> {
+      self_value.expect("result_unwrap")
+  }
   \<close>
 adhoc_overloading unwrap \<rightleftharpoons> result_unwrap
 
@@ -54,13 +56,14 @@ lemma result_unwrap_spec [crush_specs]:
      (crush_base split!: result.splits)
 
 text\<open>Tests whether an element of \<^verbatim>\<open>Result\<close> type is the \<^verbatim>\<open>Err\<close> constructor:\<close>
-urust_fn urust_func_result_is_err :: \<open>('v,'e) result \<Rightarrow> ('s, bool, 'abort, 'i, 'o) function_body\<close>
-  (self)
+urust_fn [register_notation = false] urust_func_result_is_err
   \<open>
-     match self {
+  fn urust_func_result_is_err(self_value: \<tau>\<open>('v,'e) result\<close>) -> bool {
+     match self_value {
        Ok(_) \<Rightarrow> False,
        Err(_) \<Rightarrow> True
      }
+  }
   \<close>
 micro_rust_notation (call) urust_func_result_is_err ("is_err")
 
@@ -77,13 +80,14 @@ lemma result_is_err_spec [crush_specs]:
      (crush_base simp add: result_is_err_def split!: result.splits)
 
 text\<open>Tests whether an element of \<^verbatim>\<open>Result\<close> type is the \<^verbatim>\<open>Ok\<close> constructor:\<close>
-urust_fn urust_func_result_is_ok :: \<open>('v,'e) result \<Rightarrow> ('s, bool, 'abort, 'i, 'o) function_body\<close>
-  (self)
+urust_fn [register_notation = false] urust_func_result_is_ok
   \<open>
-     match self {
+  fn urust_func_result_is_ok(self_value: \<tau>\<open>('v,'e) result\<close>) -> bool {
+     match self_value {
        Ok(_) \<Rightarrow> True,
        Err(_) \<Rightarrow> False
      }
+  }
   \<close>
 micro_rust_notation (call) urust_func_result_is_ok ("is_ok")
 
@@ -99,13 +103,14 @@ lemma result_is_ok_spec [crush_specs]:
   by (crush_boot f: urust_func_result_is_ok_def contract: result_is_ok_contract_def)
      (crush_base simp add: result_is_ok_def split!: result.splits)
 
-urust_fn result_or :: \<open>('a, 'f) result \<Rightarrow> ('a, 'e) result \<Rightarrow> ('s, ('a, 'e) result, 'abort, 'i, 'o) function_body\<close>
-  (self, e)
+urust_fn [register_notation = false] result_or
   \<open>
-     match self {
+  fn result_or(self_value: \<tau>\<open>('a, 'f) result\<close>, e: \<tau>\<open>('a, 'e) result\<close>) -> \<tau>\<open>('a, 'e) result\<close> {
+     match self_value {
         Ok(v) \<Rightarrow> Ok(v),
         Err(_) \<Rightarrow> e
      } 
+  }
   \<close>
 micro_rust_notation (call) result_or ("or")
 
@@ -129,23 +134,24 @@ lemma result_or_spec [crush_specs]:
   by (crush_boot f: result_or_def contract: result_or_contract_def)
      (crush_base simp add: result_or_pure_def split!: result.splits)
 
-urust_fn map_err :: \<open>('a, 'e) result \<Rightarrow> ('e \<Rightarrow> ('machine, 'f, 'abort, 'i, 'o) function_body) \<Rightarrow>
-    ('machine, ('a, 'f) result, 'abort, 'i, 'o) function_body\<close>
-  (x, f)
+urust_fn [register_notation = false] map_err
   \<open>
+  fn map_err(x: \<tau>\<open>('a, 'e) result\<close>, f: \<tau>\<open>('e \<Rightarrow> ('machine, 'f, 'abort, 'i, 'o) function_body)\<close>) -> \<tau>\<open>('a, 'f) result\<close> {
      match x {
        Ok(a)  \<Rightarrow> Ok(a),
        Err(e) \<Rightarrow> Err(f(e))
      }
+  }
   \<close>
 
-urust_fn ok :: \<open>('v, 'e) result \<Rightarrow> ('s, 'v option, 'abort, 'i, 'o) function_body\<close>
-  (self)
+urust_fn [register_notation = false] ok
   \<open>
-     match self {
+  fn ok(self_value: \<tau>\<open>('v, 'e) result\<close>) -> \<tau>\<open>'v option\<close> {
+     match self_value {
        Ok(r) \<Rightarrow> Some(r),
        Err(e) \<Rightarrow> None
      }
+  }
   \<close>
 
 definition ok_contract ::  \<open>('v, 'e) result \<Rightarrow> ('s::{sepalg}, 'v option, 'abort) function_contract\<close> where
@@ -162,28 +168,29 @@ lemma ok_spec [crush_specs]:
   apply crush_base
   done
 
-urust_fn result_unwrap_or :: \<open>('a, 'b) result \<Rightarrow> 'a \<Rightarrow> ('machine, 'a, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
-  (res, e)
+urust_fn [register_notation = false] result_unwrap_or
   \<open>
+  fn result_unwrap_or(res: \<tau>\<open>('a, 'b) result\<close>, e: \<tau>\<open>'a\<close>) -> \<tau>\<open>'a\<close> {
      if let Ok(r) = res {
        r
      } else {
        e
      }
+  }
   \<close>
 
 context reference
 begin       
 adhoc_overloading store_update_const \<rightleftharpoons> update_fun
 
-urust_fn result_as_mut :: \<open>('a, 'b, ('v, 'e) result) Global_Store.ref \<Rightarrow>
-    ('s, (('a, 'b, 'v) Global_Store.ref, ('a, 'b, 'e) Global_Store.ref) result, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
-  (self)
+urust_fn [register_notation = false] result_as_mut
   \<open>
-     match *self {
-       Ok(_)  \<Rightarrow> Ok (\<llangle>focus_result_ok self\<rrangle>),
-       Err(_) \<Rightarrow> Err (\<llangle>focus_result_err self\<rrangle>)
+  fn result_as_mut(self_value: \<tau>\<open>('a, 'b, ('v, 'e) result) Global_Store.ref\<close>) -> \<tau>\<open>(('a, 'b, 'v) Global_Store.ref, ('a, 'b, 'e) Global_Store.ref) result\<close> {
+     match *self_value {
+       Ok(_)  \<Rightarrow> Ok (\<llangle>focus_result_ok self_value\<rrangle>),
+       Err(_) \<Rightarrow> Err (\<llangle>focus_result_err self_value\<rrangle>)
      }
+  }
   \<close>
 
 definition result_as_mut_contract :: \<open>'b \<Rightarrow> ('a, 'b, ('v, 'e) result) Global_Store.ref

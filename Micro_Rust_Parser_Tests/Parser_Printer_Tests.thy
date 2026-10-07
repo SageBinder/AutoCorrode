@@ -272,13 +272,13 @@ urust_expr [pretty, verbosity = 1]
     (((let value = 1 + 2 * 3; value)))
   \<close>
 
-urust_fn [pretty, verbosity = 1]
-  printer_human_function ::
-  \<open>64 word \<Rightarrow> (unit, 64 word, unit, unit, unit) function_body\<close>
-  (item)
+urust_fn [pretty, verbosity = 1, register_notation = false]
+  printer_human_function
   \<open>
+  fn printer_human_function(item: u64) -> u64 {
     let value = (((item)));
     (value + 1u64) * 2u64
+  }
   \<close>
 
 subsection\<open> Complex human-readable printer examples \<close>
@@ -298,12 +298,10 @@ side. The printer keeps the source-level function body while laying out each blo
 independently.
 \<close>
 
-urust_fn [pretty, verbosity = 1]
-  printer_human_accumulate ::
-  \<open>32 word \<Rightarrow> 32 word \<Rightarrow>
-    (unit, 32 word, unit, unit, unit) function_body\<close>
-  (seed, limit)
+urust_fn [pretty, verbosity = 1, register_notation = false]
+  printer_human_accumulate
   \<open>
+  fn printer_human_accumulate(seed: u32, limit: u32) -> u32 {
     let mut total = seed;
     for value in [1_u32, 2_u32, 3_u32] {
       *total += value;
@@ -313,6 +311,7 @@ urust_fn [pretty, verbosity = 1]
     } else {
       *total * 2_u32
     }
+  }
   \<close>
 
 text\<open>
@@ -321,11 +320,10 @@ result, so the InfoView output must put code after an opening brace on a new lin
 blocks by two spaces, and retain \<open>} else {\<close> on one line.
 \<close>
 
-urust_fn [pretty, verbosity = 1]
-  printer_human_line_breaks ::
-  \<open>32 word \<Rightarrow> (unit, 32 word, unit, unit, unit) function_body\<close>
-  (number)
+urust_fn [pretty, verbosity = 1, register_notation = false]
+  printer_human_line_breaks
   \<open>
+  fn printer_human_line_breaks(number: u32) -> u32 {
     if number > 10_u32 {
       let reduced = number / 2_u32;
       if reduced > 3_u32 {
@@ -339,6 +337,7 @@ urust_fn [pretty, verbosity = 1]
       let raised = number + 10_u32;
       raised * 2_u32
     }
+  }
   \<close>
 
 text\<open>
@@ -964,22 +963,14 @@ ML_val\<open>
       Symbol.open_ ^
       " (((let value = 1; value + 2))) " ^
       Symbol.close
-    val function_type =
-      Symbol.open_ ^
-      "64 word \<Rightarrow> (unit, 64 word, unit, unit, unit) function_body" ^
-      Symbol.close
     val function_source =
       Symbol.open_ ^
-      " let value = (((item))); (value + 1u64) * 2u64 " ^
-      Symbol.close
-    val rust_function_type =
-      Symbol.open_ ^
-      "64 word \<Rightarrow> bool \<Rightarrow> " ^
-      "(unit, 64 word, unit, unit, unit) function_body" ^
+      " fn PrettyBody(item: u64) -> u64 { " ^
+      "let value = (((item))); (value + 1u64) * 2u64 } " ^
       Symbol.close
     val rust_function_source =
       Symbol.open_ ^
-      " fn PrettyRust(item: u64, flag: bool) -> Ignored::Result { " ^
+      " fn PrettyRust(item: u64, flag: bool) -> u64 { " ^
       "if flag { item } else { 0u64 } } " ^
       Symbol.close
     val antiquotation_source =
@@ -1064,9 +1055,8 @@ ML_val\<open>
     val pretty_function =
       capture "pretty-function"
         ("urust_fn " ^
-          "[pretty = true, verbosity = 2] " ^
-          "pretty_function :: " ^ function_type ^
-          " (item) " ^ function_source)
+          "[pretty = true, verbosity = 2, register_notation = false] " ^
+          "pretty_function " ^ function_source)
     val _ =
       List.app
         (fn expected =>
@@ -1100,8 +1090,7 @@ ML_val\<open>
       capture "pretty-rust-function"
         ("urust_fn " ^
           "[pretty = true, verbosity = 2] " ^
-          "pretty_rust_function :: " ^ rust_function_type ^
-          " " ^ rust_function_source)
+          "pretty_rust_function " ^ rust_function_source)
     val _ =
       List.app
         (fn expected =>
@@ -1184,9 +1173,8 @@ ML_val\<open>
     val pretty_application_function =
       capture "pretty-application-function"
         ("urust_fn " ^
-          "[application_def, pretty, verbosity = 2] " ^
-          "pretty_application_function :: " ^ function_type ^
-          " (item) " ^ function_source)
+          "[application_def, pretty, verbosity = 2, register_notation = false] " ^
+          "pretty_application_function " ^ function_source)
     val _ =
       List.app
         (fn expected =>
@@ -1230,8 +1218,8 @@ ML_val\<open>
     val pretty_anonymous_function =
       capture "pretty-anonymous-function"
         ("urust_fn " ^
-          "[pretty, verbosity = 2] _ :: " ^ function_type ^
-          " (item) " ^ function_source)
+          "[pretty, verbosity = 2, register_notation = false] _ " ^
+          function_source)
     val _ =
       assert_contains "pretty anonymous function"
         ("FunctionBody \<mu>" ^ Symbol.open_)

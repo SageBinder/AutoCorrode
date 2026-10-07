@@ -70,16 +70,15 @@ definition memset_tagged_phys_block :: \<open>64 word \<Rightarrow> nat \<Righta
     ('tag tagged_physical_memory, unit, 'abort, 'i, 'o) function_body\<close> where
   \<open>memset_tagged_phys_block pa n b \<equiv> FunctionBody (memset_tagged_phys_block_core pa n b)\<close>
 
-urust_fn memset_tagged_phys ::
-  \<open>64 word \<Rightarrow> 64 word \<Rightarrow> 8 word \<Rightarrow>
-    ('tag tagged_physical_memory, unit, 'abort, 'i, 'o) function_body\<close>
-  (pa, l, b)
+urust_fn [register_notation = false] memset_tagged_phys
   \<open>
+  fn memset_tagged_phys(pa: u64, l: u64, b: u8) -> () {
     for blk in \<llangle>range_to_aligned_blocks pa l\<rrangle> {
       let addr = \<llangle>fst blk\<rrangle>;
       let n = \<llangle>snd blk\<rrangle>;
       memset_tagged_phys_block(addr, n, b)
     }
+  }
   \<close>
 
 definition tag_physical_page_core :: \<open>64 word \<Rightarrow> nat \<Rightarrow> 'tag \<Rightarrow> ('tag tagged_physical_memory, unit, unit, 'abort, 'i, 'o) expression\<close> where

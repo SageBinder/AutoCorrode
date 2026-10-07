@@ -60,11 +60,9 @@ by (intro array_extI) (simp add: mlkem_n_def)
 
 section\<open>Polynomial addition\<close>
 
-urust_fn poly_add ::
-  \<open>mlkem_poly \<Rightarrow> mlkem_poly \<Rightarrow>
-   ('s, mlkem_poly, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
-  (a, b)
+urust_fn [register_notation = false] poly_add
   \<open>
+  fn poly_add(a: \<tau>\<open>mlkem_poly\<close>, b: \<tau>\<open>mlkem_poly\<close>) -> \<tau>\<open>mlkem_poly\<close> {
     let mut result = a;
 
     for i in 0..256_u64 {
@@ -77,6 +75,7 @@ urust_fn poly_add ::
     };
 
     *result
+  }
   \<close>
 
 definition poly_add_contract :: \<open>mlkem_poly \<Rightarrow> mlkem_poly \<Rightarrow>
@@ -116,11 +115,9 @@ done
 
 section\<open>Polynomial subtraction\<close>
 
-urust_fn poly_sub ::
-  \<open>mlkem_poly \<Rightarrow> mlkem_poly \<Rightarrow>
-   ('s, mlkem_poly, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
-  (a, b)
+urust_fn [register_notation = false] poly_sub
   \<open>
+  fn poly_sub(a: \<tau>\<open>mlkem_poly\<close>, b: \<tau>\<open>mlkem_poly\<close>) -> \<tau>\<open>mlkem_poly\<close> {
     let mut result = a;
 
     for i in 0..256_u64 {
@@ -132,6 +129,7 @@ urust_fn poly_sub ::
     };
 
     *result
+  }
   \<close>
 
 definition poly_sub_contract :: \<open>mlkem_poly \<Rightarrow> mlkem_poly \<Rightarrow>

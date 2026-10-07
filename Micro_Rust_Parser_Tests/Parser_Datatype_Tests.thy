@@ -2152,7 +2152,24 @@ ML_val \<open>
           assert_rejected ("registration-on-" ^ command)
             "unknown uRust command option \"register_notation\""
             (command ^ " [register_notation] option_wrong_command " ^ cartouche " () "))
-        ["urust_expr", "urust_fn"]
+        ["urust_expr"]
+
+    val (function_option_result, _, _) =
+      capture_result true "registration-on-urust-fn"
+        ("urust_fn [register_notation = false] option_function " ^
+          cartouche "fn OptionFunction() -> () { () }")
+    val function_option_ctxt =
+      (case function_option_result of
+         Exn.Res state => Toplevel.context_of state
+       | Exn.Exn exn => Exn.reraise exn)
+    val _ =
+      if can (Proof_Context.get_thm function_option_ctxt) "option_function_def"
+      then ()
+      else error "function registration option lost the definition"
+    val _ =
+      if is_none (URust_Item_Scope.lookup_function function_option_ctxt "OptionFunction")
+      then ()
+      else error "disabled function registration installed a callable entry"
 
     fun assert_registration_atomic label prefix source diagnostic =
       let
@@ -2653,9 +2670,6 @@ ML_val \<open>
         "urust_datatype generated artifacts"
         late_failed_output
 
-    val function_type =
-      cartouche
-        "(unit, unit, unit, unit, unit) function_body"
     val _ =
       assert_rejected "struct-inside-urust-expr"
         "uRust struct declarations are not expressions; use urust_datatype"
@@ -2669,13 +2683,13 @@ ML_val \<open>
     val _ =
       assert_rejected "struct-inside-urust-fn"
         "uRust struct declarations are not expressions; use urust_datatype"
-        ("urust_fn struct_inside_fn :: " ^ function_type ^ " " ^
-          "() " ^ cartouche " struct LocalStruct; ")
+        ("urust_fn struct_inside_fn " ^
+          cartouche "fn struct_inside_fn() -> () { struct LocalStruct; }")
     val _ =
       assert_rejected "enum-inside-urust-fn"
         "uRust enum declarations are not expressions; use urust_datatype"
-        ("urust_fn enum_inside_fn :: " ^ function_type ^ " " ^
-          "() " ^ cartouche " enum LocalEnum { Empty, } ")
+        ("urust_fn enum_inside_fn " ^
+          cartouche "fn enum_inside_fn() -> () { enum LocalEnum { Empty, } }")
     val _ =
       assert_rejected "nested-struct-inside-urust-expr"
         "uRust struct declarations are not expressions; use urust_datatype"
@@ -2685,9 +2699,8 @@ ML_val \<open>
     val _ =
       assert_rejected "nested-enum-inside-urust-fn"
         "uRust enum declarations are not expressions; use urust_datatype"
-        ("urust_fn nested_enum_inside_fn :: " ^ function_type ^ " " ^
-          "() " ^ cartouche
-            " { enum NestedEnum { Ready, } } ")
+        ("urust_fn nested_enum_inside_fn " ^ cartouche
+          "fn NestedEnumInsideFn() -> () { { enum NestedEnum { Ready, } } }")
 
     val _ =
       assert_rejected "underscore-binding"

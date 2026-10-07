@@ -127,21 +127,34 @@ The implementation session provides the production `urust_expr`, `urust_fn`, and
 `urust_datatype` commands:
 
 ```isabelle
-urust_expr [OPTIONS] NAME [:: TYPE] [(ARG|_, ...)] \<open> body \<close>
-urust_fn [OPTIONS] [HOL_NAME|_] :: TYPE \<open> fn RustName(PATTERN: RUST_TYPE, ...) [-> RUST_TYPE] { body } \<close>
-urust_fn [OPTIONS] HOL_NAME|_ :: TYPE (PARAMETER|_, ...) \<open> legacy-body \<close>
-urust_type "RUST_TYPE['PARAMETER, ...]" = \<open>HOL_TYPE\<close>
-urust_datatype [OPTIONS] [HOL_NAME] \<open> struct-or-enum \<close>
+urust_expr [OPTIONS] NAME [:: TYPE] [(ARG|_, ...)] ‹ body ›
+urust_fn [OPTIONS] [HOL_NAME|_] ‹ fn RustName(PARAMETER: RUST_TYPE, ...) [-> RUST_TYPE] { body } ›
+urust_type "RUST_TYPE['PARAMETER, ...]" = ‹HOL_TYPE›
+urust_datatype [OPTIONS] [HOL_NAME] ‹ struct-or-enum ›
 ```
 
-With no outer parameter clause, `urust_fn` requires one complete Rust-shaped free-function item.
+`urust_fn` requires one complete Rust-shaped free-function item.
 The HOL name may be explicit, `_` for anonymous check-only use, or omitted and inferred with the
 same acronym-aware snake-case conversion as `urust_datatype` (`HTTPServer` becomes `http_server`).
-An outer parameter clause, including `()`, selects the compatibility body syntax. Rust signature
-types are retained for printing and markup, while the required HOL type remains authoritative for
-elaboration. Supported signature types include integer primitives, `bool`, `char`, `str`, `!`,
-unit, paths with nested type or numeric generic arguments, tuples, references, raw pointers, slices,
-and arrays. Parameters currently lower only identifiers, `_`, and `mut identifier`.
+Rust signature types are authoritative: parameters and explicit results resolve through
+`urust_type`. An omitted result infers from the body, as do state, abort and yield channels.
+Unused channels generalize. Qualified and generic mappings, unit and structural tuples are
+supported. Use `τ‹HOL type›` wherever a type is expected for polymorphism, shared sort constraints,
+higher-order types or independent `_` inference holes. Parameters lower identifiers, `_`, and
+`mut identifier`. References, raw pointers, slices, arrays and numeric generic arguments parse
+but require an explicit HOL escape to supply semantics.
+
+Named functions register their Rust name by default. The Boolean `register_notation` option uses
+the shared `urust_register_notation` scoped setting, with inline values taking precedence.
+Disabled registration preserves existing entries and installs the ordinary HOL definition or
+abbreviation. Enabled registration rejects occupied function, constructor and call-notation
+paths, including conflicts during locale interpretation and context merging.
+
+```isabelle
+urust_fn [register_notation = false] identity_helper ‹
+  fn Identity(value: τ‹'a›) -> τ‹'a› { value }
+›
+```
 
 `urust_type` is the sole nominal Rust-to-HOL type translation mechanism. Its context-local keys may
 be qualified and generic; ordered mapping placeholders must correspond exactly to the free type
@@ -237,9 +250,8 @@ context ends. Isabelle named contexts and locales use the native `opening` form,
 contain generic arguments, and aliases always resolve directly to one primitive cast target rather
 than to another alias.
 
-The compatibility parenthesized argument list accepts a trailing comma and uses Isabelle liberal
-names. Its presence selects legacy `urust_fn` body mode; write `()` for a zero-parameter legacy
-declaration. Minor keywords such as `for` may be unquoted; major command keywords delimit outer
+The `urust_expr` parenthesized argument list accepts a trailing comma and uses Isabelle liberal
+names. Minor keywords such as `for` may be unquoted; major command keywords delimit outer
 command spans and therefore need string quoting, for example `("lemma")`. A chosen argument name denotes
 that lexical argument in value positions and as an unqualified direct-call head, even if a HOL
 constant or call registration has the same spelling. A bare `_` consumes one argument type and
@@ -247,11 +259,11 @@ creates a typed anonymous abstraction without entering lexical name resolution; 
 or mixed with named arguments. Duplicate named arguments remain errors. Every multi-segment path
 requires an exact role-appropriate `micro_rust_notation`: values and places use `(literal)`, while
 calls, struct expressions, and registered macros use `(call)` (with `!` included in a macro key).
-Method names remain single-segment and retain their normal registration lookup. `urust_fn` also
-accepts an exact terminal `_` in its declared type and
-infers a fresh five-parameter `function_body`; internal placeholders and declared argument types
-remain checked normally. Named Rust-shaped function items register their Rust name for subsequent
-direct calls; lexical parameters shadow those entries. Anonymous items do not register a name.
+Method names remain single-segment and retain their normal registration lookup. Function signature
+types constrain a curried HOL type ending in `function_body`; the body is wrapped exactly once.
+Lexical parameters shadow callable entries. Anonymous items do not register a name. The
+programmatic `URust_Command.elaborate` interface retains its explicit HOL declaration type and
+parameter slots.
 
 Named definition-mode declarations accept `attrs = [ATTRIBUTE, ...]`, including `attrs = []`.
 These standard Isabelle attributes apply only to the generated `NAME_def` theorem; anonymous

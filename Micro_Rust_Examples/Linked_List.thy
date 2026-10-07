@@ -51,12 +51,9 @@ abbreviation ll_ptr_as_ref' ::
 abbreviation \<open>ll_ptr_as_ref \<equiv> Option.map_option ll_ptr_as_ref'\<close>
 
 \<comment>\<open>Bounded reversal of linked lists of uRust references\<close>
-urust_fn reverse_unlink :: \<open>64 word \<Rightarrow> ('caddr, 'gv) gref option \<Rightarrow>
-      ('addr, 'gv, ('caddr, 'gv) gref option) Global_Store.ref \<Rightarrow>
-      ('addr, 'gv, ('caddr, 'gv) gref option) Global_Store.ref \<Rightarrow>
-      ('s, ('caddr, 'gv) gref option \<times> ('caddr, 'gv) gref option \<times> tnil, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
-  (n, orig, cur_raw, last_raw)
+urust_fn [register_notation = false] reverse_unlink
   \<open>
+  fn reverse_unlink(n: u64, orig: \<tau>\<open>('caddr, 'gv) gref option\<close>, cur_raw: \<tau>\<open>('addr, 'gv, ('caddr, 'gv) gref option) Global_Store.ref\<close>, last_raw: \<tau>\<open>('addr, 'gv, ('caddr, 'gv) gref option) Global_Store.ref\<close>) -> \<tau>\<open>('caddr, 'gv) gref option \<times> ('caddr, 'gv) gref option \<times> tnil\<close> {
       last_raw = None;
       cur_raw = orig;
       for i in 0..n {
@@ -73,6 +70,7 @@ urust_fn reverse_unlink :: \<open>64 word \<Rightarrow> ('caddr, 'gv) gref optio
       let last = *last_raw;
       let cur = *cur_raw;
       (last, cur)
+  }
   \<close>
 
 \<comment>\<open>Recursive predicate capturing the abstract content of a linked list of uRust references\<close>
@@ -156,13 +154,13 @@ so we always need to repeat overloading for new references.\<close>
 adhoc_overloading store_reference_const \<rightleftharpoons> ref_gref_opt.new
 
 \<comment>\<open>Bounded reversal of linked lists of uRust references\<close>
-urust_fn reverse_unlink' :: \<open>64 word \<Rightarrow> ('caddr, 'gv) gref option
-  \<Rightarrow> ('s, ('caddr, 'gv) gref option \<times> ('caddr, 'gv) gref option \<times> tnil, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
-  (n, ll)
+urust_fn [register_notation = false] reverse_unlink'
   \<open>
+  fn reverse_unlink'(n: u64, ll: \<tau>\<open>('caddr, 'gv) gref option\<close>) -> \<tau>\<open>('caddr, 'gv) gref option \<times> ('caddr, 'gv) gref option \<times> tnil\<close> {
       let mut last_raw = None;
       let mut cur_raw = None;
       reverse_unlink(n, ll, last_raw, cur_raw)
+  }
   \<close>
 
 definition reverse_unlink'_contract ::

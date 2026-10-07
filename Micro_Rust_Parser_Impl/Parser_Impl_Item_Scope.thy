@@ -1,5 +1,7 @@
 theory Parser_Impl_Item_Scope
-  imports Parser_Impl_AST
+  imports
+    Parser_Impl_AST
+    Shallow_Micro_Rust.Micro_Rust_Notations
 begin
 
 section\<open> Generated Rust item scope \<close>
@@ -194,7 +196,8 @@ struct
   fun same_function_entry
       (left: function_entry, right: function_entry) =
     #rust_name left = #rust_name right andalso
-      Term.aconv_untyped (#function left, #function right)
+      Term.aconv
+        (apply2 Term_Subst.zero_var_indexes (#function left, #function right))
 
   fun merge_entry kind same (left, right) =
     if same (left, right) then left
@@ -208,18 +211,32 @@ struct
         functions = left_functions},
        {types = right_types, constructors = right_constructors,
         functions = right_functions}) =
-    {types =
-       Symtab.join
-         (K (merge_entry "item" same_type_entry))
-         (left_types, right_types),
-     constructors =
-       Symtab.join
-         (K (merge_entry "constructor" same_constructor_entry))
-         (left_constructors, right_constructors),
-     functions =
-       Symtab.join
-         (K (merge_entry "function" same_function_entry))
-         (left_functions, right_functions)}
+    let
+      val merged =
+        {types =
+           Symtab.join
+             (K (merge_entry "item" same_type_entry))
+             (left_types, right_types),
+         constructors =
+           Symtab.join
+             (K (merge_entry "constructor" same_constructor_entry))
+             (left_constructors, right_constructors),
+         functions =
+           Symtab.join
+             (fn name => fn (left, right) =>
+               if same_function_entry (left, right) then left
+               else
+                 error ("urust_fn: conflicting Rust function path " ^ quote name ^
+                   Position.here (#rust_pos left) ^ Position.here (#rust_pos right)))
+             (left_functions, right_functions)}
+      val _ =
+        Symtab.fold (fn (name, entry: function_entry) => fn () =>
+          if Symtab.defined (#constructors merged) name then
+            error ("urust_fn: Rust function path " ^ quote name ^
+              " is already owned by a Rust constructor item" ^
+              Position.here (#rust_pos entry))
+          else ()) (#functions merged) ()
+    in merged end
 
   structure Data = Generic_Data
   (
@@ -591,28 +608,35 @@ struct
                    quote rust_name ^
                    " is already mapped to a different HOL function" ^
                    Position.here rust_pos))
+      val completed =
+        lthy
+        |> Local_Theory.declaration
+            {pervasive = false, syntax = false, pos = rust_pos}
+            (fn phi =>
+              let
+                val mapped_function = Morphism.term phi function
+              in
+                Micro_Rust_Names.reserve_function_item rust_name mapped_function rust_pos #>
+                Data.map
+                  (insert_function
+                    {rust_name = rust_name,
+                     rust_pos = rust_pos,
+                     function = mapped_function,
+                     serial = #serial entry})
+              end)
       val _ =
         (case function of
            Const (name, _) =>
-             Position.report rust_pos
+             Micro_Rust_Semantic_Navigation.defer_report completed rust_pos
                (Name_Space.markup
                  (Consts.space_of
                    (Proof_Context.consts_of lthy)) name)
          | _ => ())
-      val _ = Position.report rust_pos Markup.keyword3
-      val _ = report_function_definition entry
-    in
-      lthy
-      |> Local_Theory.declaration
-          {pervasive = false, syntax = false, pos = rust_pos}
-          (fn phi =>
-            Data.map
-              (insert_function
-                {rust_name = rust_name,
-                 rust_pos = rust_pos,
-                 function = Morphism.term phi function,
-                 serial = #serial entry}))
-    end
+      val _ = Micro_Rust_Semantic_Navigation.defer_report completed rust_pos Markup.keyword3
+      val _ = Micro_Rust_Semantic_Navigation.defer_report completed rust_pos
+        (Position.make_entity_markup {def = true} (#serial entry) function_entity
+          (rust_name, rust_pos))
+    in completed end
 
   fun dump_types ctxt =
     #types (Data.get (Context.Proof ctxt))

@@ -206,14 +206,14 @@ declare update_spec[crush_specs, crush_specs_eager]
 declare dereference_spec[crush_specs, crush_specs_eager]
 declare ro_dereference_spec[crush_specs, crush_specs_eager]
 
-urust_fn transpose :: \<open>('a, 'b, 't option) ro_ref \<Rightarrow>
-      ('s, ('a, 'b, 't) ro_ref option, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
-  (self)
+urust_fn [register_notation = false] transpose
   \<open>
-     match *self {
+  fn transpose(self_value: \<tau>\<open>('a, 'b, 't option) ro_ref\<close>) -> \<tau>\<open>('a, 'b, 't) ro_ref option\<close> {
+     match *self_value {
        None    \<Rightarrow> None,
-       Some(_) \<Rightarrow> Some(\<epsilon>\<open>literal (focus_focused option_focus self)\<close>)
+       Some(_) \<Rightarrow> Some(\<epsilon>\<open>literal (focus_focused option_focus self_value)\<close>)
      }
+  }
   \<close>
 
 definition transpose_contract :: \<open>(('a, 'b) ro_gref, 'b, 't option) focused \<Rightarrow> 'b \<Rightarrow> _ \<Rightarrow> ('s, (('a, 'b) ro_gref, 'b, 't) focused option, 'abort) function_contract\<close> where
@@ -303,10 +303,9 @@ adhoc_overloading store_update_const \<rightleftharpoons>
 adhoc_overloading store_reference_const \<rightleftharpoons> ref_bool.new
 adhoc_overloading store_reference_const \<rightleftharpoons> ref_nat.new
 
-urust_fn ref_test ::
-  \<open>('s, nat, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
-  ()
+urust_fn [register_notation = false] ref_test
   \<open>
+  fn ref_test() -> \<tau>\<open>nat\<close> {
       let mut nat_ref = \<llangle>0 :: nat\<rrangle>;
       let mut bool_ref = \<llangle>False :: bool\<rrangle>;
       if *bool_ref {
@@ -315,6 +314,7 @@ urust_fn ref_test ::
         nat_ref = 12;
       };
       *nat_ref
+  }
   \<close>
 
 definition ref_test_contract where

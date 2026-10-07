@@ -6,14 +6,15 @@ and combined showcase examples in one registered session.
 
 ## Command surface
 
-`urust_expr` and `urust_fn` retain the parenthesized declaration-argument syntax:
+Expression declarations retain an optional HOL type and parenthesized declaration arguments.
+Function declarations take one complete Rust item:
 
 ```isabelle
-urust_expr [OPTIONS] NAME [:: TYPE] [(ARG, ...)] \<open> body \<close>
-urust_fn [OPTIONS] NAME :: TYPE [(PARAMETER, ...)] \<open> body \<close>
+urust_expr [OPTIONS] NAME [:: TYPE] [(ARG, ...)] ‹ body ›
+urust_fn [OPTIONS] [HOL_NAME|_] ‹ fn RustName(PARAMETER: RUST_TYPE, ...) [-> RUST_TYPE] { body } ›
 ```
 
-The list is optional, may be empty, and accepts one trailing comma. Declaration arguments are
+The expression argument list is optional, may be empty, and accepts one trailing comma. Arguments are
 allocated as typed lexical locals before body elaboration. They therefore shadow existing
 unqualified HOL constants and direct-call registrations in value and direct-call positions.
 Every multi-segment path instead requires an exact role-appropriate registration: `(literal)` for
@@ -25,8 +26,20 @@ contains the exact `zip` collision: a parameter named `zip` shadows HOL `List.zi
 definition is structurally checked not to contain `List.zip`.
 
 Named definition-mode declarations accept standard Isabelle attributes through `attrs = [...]`;
-the attributes apply only to the generated `_def` theorem. An exact terminal `_` in an `urust_fn`
-type is completed to a fresh five-parameter `function_body` before ordinary checked elaboration.
+the attributes apply only to the generated `_def` theorem. Rust function parameter and explicit
+result types resolve through the same `urust_type` registry as datatype fields. Function
+`τ‹HOL type›` escapes support polymorphism, sorts, higher-order types and independent inference
+holes; datatype fields remain monomorphic. Omitted results and effect channels infer from the
+body, and unused channels generalize.
+
+Named functions register their Rust declaration name by default. Bare, explicit and scoped
+`register_notation` controls use `urust_register_notation`, shared with datatypes. Formerly
+body-only helpers use `[register_notation = false]` to preserve their registration behavior,
+including helpers interpreted repeatedly in locales.
+
+`Parser_Function_Type_Mapping_Tests.thy` covers authoritative signatures, inference, artifacts,
+registration controls, conflicts, locale replay, editor navigation and recovery.
+`Parser_Rust_Function_Tests.thy` retains complete-item grammar and lowering coverage.
 
 ## Markup correction
 
