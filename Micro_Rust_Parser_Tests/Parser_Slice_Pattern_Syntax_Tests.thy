@@ -255,6 +255,17 @@ ML_val\<open>
 
 section\<open> Token markup and binder navigation \<close>
 
+datatype 'a binder_markup_point = BinderMarkupPoint (x: 'a)
+datatype 'a binder_markup_option_point = BinderMarkupOptionPoint (None: "'a option")
+datatype binder_markup_fields =
+  BinderMarkupFields (field_x: nat) (field_tag: nat) (field_ignored: bool)
+
+text\<open>
+Parser-owned declarations have no entity destination properties. A reference ID at a pattern
+declaration still connects shared highlighting to the canonical definition; it is not a hyperlink.
+Explicit struct labels and constructor/value patterns retain their own declaration navigation.
+\<close>
+
 ML_val\<open>
   local
     val ctxt = \<^context>
@@ -296,6 +307,37 @@ ML_val\<open>
       #2 (Parser_Test_Reports.markup (fn () =>
         Parser_Test_Elaboration.expression ctxt
           (Parser_Lex_Util.positioned_content_source text start)))
+      handle ERROR message => error ("markup audit source " ^ quote text ^ ": " ^ message)
+    fun entity_properties reports position =
+      map_filter (fn (name, properties) =>
+        if name = Markup.entityN andalso has_position properties position
+        then SOME properties else NONE) reports
+    fun assert_declaration reports position =
+      (assert "binder lost its exact bound span"
+         (has_markup reports Markup.boundN position);
+       assert "binder lost its entity tooltip"
+         (exists (fn properties =>
+            Properties.get properties Markup.kindN = SOME "urust_var" andalso
+            is_some (Properties.get properties Markup.nameN))
+           (entity_properties reports position));
+       assert "binder declaration acquired a hyperlink destination"
+         (List.all (fn properties =>
+            not (exists (String.isPrefix "def_" o fst) properties))
+           (entity_properties reports position)))
+    fun assert_reference reports definition reference =
+      let
+        val id = entity_id reports Markup.defN definition
+      in
+        assert "use lost its canonical binder identity"
+          (entity_id reports Markup.refN reference = id);
+        assert "use lost its canonical hyperlink destination"
+          (exists (fn properties =>
+             Properties.get properties Markup.refN = SOME id andalso
+             List.all (fn (key, value) =>
+               Properties.get properties key = SOME value)
+               (Position.def_properties_of definition))
+            (entity_properties reports reference))
+      end
 
     val text =
       "match_case \<llangle>[1 :: nat, 4, 9]\<rrangle> { " ^
@@ -348,6 +390,9 @@ ML_val\<open>
           name = Markup.entityN andalso
           Properties.get properties Markup.kindN = SOME Markup.constantN andalso
           has_position properties definition) reports))
+    val _ = assert_declaration reports definition
+    val _ = List.app (assert_reference reports definition)
+      [reference, antiquotation_reference]
 
     val (_, left_bracket) = token_position text start "[" (find_from text " { " 0)
     val (_, right_bracket) = token_position text start "]" alias_raw
@@ -426,13 +471,50 @@ ML_val\<open>
           in
             assert (pattern ^ " lost its prepared binder occurrence")
               (entity_id reports Markup.refN definition = id);
+            assert_declaration reports definition;
             List.app
               (fn position =>
-                assert (pattern ^ " lost rest binder navigation")
-                  (entity_id reports Markup.refN position = id))
+                assert_reference reports definition position)
               [reference, antiquotation_reference]
           end)
         ["rest @ ..", "_, rest @ ..", "rest @ .., _", "_, rest @ .., _"]
+
+    val _ =
+      List.app
+        (fn (binding, names) =>
+          let
+            val text =
+              "// \<alpha> before the binding\n" ^ binding ^
+              String.concat (map (fn name =>
+                "let _ = " ^ name ^ "; let _ = \<llangle>" ^ name ^ "\<rrangle>; ") names) ^
+              "()"
+            val start = Position.make0 40 1300 0 "" "" "slice-pattern-direct-binding"
+            val reports = capture text start
+            fun audit name =
+              let
+                val (raw, definition) = token_position text start name 0
+                val (body_raw, reference) =
+                  token_position text start name (raw + size name)
+                val (_, antiquotation_reference) =
+                  token_position text start name (body_raw + size name)
+                val id = entity_id reports Markup.defN definition
+              in
+                assert_declaration reports definition;
+                assert "direct binding lost its definition identity" (id <> "");
+                List.app (assert_reference reports definition)
+                  [reference, antiquotation_reference]
+              end
+          in List.app audit names end)
+        [("let [tail @ ..] = \<llangle>[11 :: nat, 23]\<rrangle>; ", ["tail"]),
+         ("let [tail' @ ..] = \<llangle>[] :: nat list\<rrangle>; ", ["tail'"]),
+         ("let whole @ [tail @ ..] = \<llangle>[11 :: nat, 23]\<rrangle>; ", ["whole", "tail"]),
+         ("let ([tail @ ..], other) = (\<llangle>[11 :: nat, 23]\<rrangle>, 37); ",
+           ["tail", "other"]),
+         ("let item = 11; ", ["item"]),
+         ("const item = 11; ", ["item"]),
+         ("let whole @ outer @ (item, (other, [tail @ ..])) = " ^
+            "(11, (23, \<llangle>[37 :: nat]\<rrangle>)); ",
+           ["whole", "outer", "item", "other", "tail"])]
 
     val alternatives_text =
       "match_case \<llangle>[1 :: nat, 4, 9]\<rrangle> { " ^
@@ -456,6 +538,218 @@ ML_val\<open>
             (entity_id alternatives_reports Markup.defN definition =
               entity_id alternatives_reports Markup.refN reference))
         [(tail_def, tail_alt), (head_def, head_alt), (tail_def, tail_body), (head_def, head_body)]
+    val _ = List.app (assert_declaration alternatives_reports)
+      [head_def, tail_def, tail_alt, head_alt]
+    val _ = assert_reference alternatives_reports tail_def tail_body
+    val _ = assert_reference alternatives_reports head_def head_body
+
+    (* The same policy applies to every consumer of prepared case/binding patterns. *)
+    val _ =
+      List.app
+        (fn text =>
+          let
+            val text = "// \<alpha> before the binding\n" ^ text
+            val start = Position.make0 43 1500 0 "" "" "binder-consumer-markup"
+            val reports = capture text start
+            val (raw, definition) = token_position text start "item" 0
+            val (_, reference) = token_position text start "item" (raw + size "item")
+          in
+            assert_declaration reports definition;
+            assert_reference reports definition reference
+          end)
+        ["let mut item = 11; let _ = item; ()",
+         "for item in \<llangle>[11 :: nat]\<rrangle> { let _ = item; () }",
+         "for whole @ (item, _) in \<llangle>[(11 :: nat, (23 :: nat, TNil))]\<rrangle> " ^
+           "{ let _ = item; () }",
+         "|item| { let _ = item; () }",
+         "match Some(11) { Some(item) => { let _ = item; () }, _ => () }",
+         "if let Some(item) = Some(11) { let _ = item; () } else { () }",
+         "let Some(item) = Some(11) else { return 0; }; let _ = item; ()",
+         "#[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let Some(item) = Some(11) " ^
+           "{ let _ = item; () }"]
+
+    val macro_text = "matches!(Some(11), Some(item))"
+    val macro_start = Position.make0 45 1600 0 "" "" "matches-binder-markup"
+    val macro_reports = capture macro_text macro_start
+    val (_, macro_binder) = token_position macro_text macro_start "item" 0
+    val _ = assert_declaration macro_reports macro_binder
+    val _ = assert "matches binder lost its allocated entity"
+      (entity_id macro_reports Markup.defN macro_binder <> "")
+
+    (* Alias heads in later alternatives have the same identity without a destination. *)
+    val alias_text =
+      "// \<alpha> before aliases\nmatch_case \<llangle>[11 :: nat]\<rrangle> { " ^
+      "whole @ [item] | whole @ [item, _] if item == 11 => " ^
+      "{ let _ = whole; let _ = \<llangle>whole\<rrangle>; let _ = item; () }, _ => () }"
+    val alias_start = Position.make0 47 1700 0 "" "" "alias-alternative-markup"
+    val alias_reports = capture alias_text alias_start
+    val _ =
+      List.app (fn name =>
+        let
+          val (raw, definition) = token_position alias_text alias_start name 0
+          val (alt_raw, alternative) =
+            token_position alias_text alias_start name (raw + size name)
+          val (use_raw, reference) =
+            token_position alias_text alias_start name (alt_raw + size name)
+        in
+          assert_declaration alias_reports definition;
+          assert_declaration alias_reports alternative;
+          assert "later alias alternative lost shared highlighting"
+            (entity_id alias_reports Markup.refN alternative =
+              entity_id alias_reports Markup.defN definition);
+          assert_reference alias_reports definition reference;
+          if name = "whole" then
+            assert_reference alias_reports definition
+              (#2 (token_position alias_text alias_start name (use_raw + size name)))
+          else ()
+        end) ["whole", "item"]
+
+    (* A shorthand binder has no selector entity at the same token. Explicit labels do. *)
+    val _ =
+      List.app (fn (pattern, name, shorthand) =>
+        let
+          val text = "match_case \<llangle>BinderMarkupPoint (11 :: nat)\<rrangle> { " ^
+            pattern ^ " => { let _ = " ^ name ^ "; () } }"
+          val start = Position.make0 49 1800 0 "" "" "struct-binder-markup"
+          val reports = capture text start
+          val pattern_raw = find_from text " { " 0
+          val (label_raw, label) = token_position text start "x" pattern_raw
+          val (raw, definition) =
+            token_position text start name
+              (if shorthand then label_raw else label_raw + size "x:")
+          val _ = assert_declaration reports definition
+          val _ =
+            assert "struct label navigation policy changed"
+              (exists (fn properties =>
+                 Properties.get properties Markup.kindN = SOME Markup.constantN andalso
+                 Properties.get properties Markup.nameN = SOME \<^const_name>\<open>x\<close> andalso
+                 is_some (Properties.get properties "def_offset"))
+                (entity_properties reports label) = not shorthand)
+        in
+          assert_reference reports definition
+            (#2 (token_position text start name
+              (find_from text " => " raw + size " => ")))
+        end)
+        [("BinderMarkupPoint { x: value }", "value", false),
+         ("BinderMarkupPoint { x }", "x", true),
+         ("BinderMarkupPoint { x: x }", "x", false)]
+
+    val shorthand_text =
+      "// \<alpha> before mixed fields\nmatch_case \<llangle>BinderMarkupFields 11 0 True\<rrangle> { " ^
+      "BinderMarkupFields { field_tag: 0, field_x, .. } | " ^
+      "BinderMarkupFields { field_x, field_tag: 1, .. } => " ^
+      "{ let _ = field_x; let _ = \<llangle>field_x\<rrangle>; () }, _ => () }"
+    val shorthand_start = Position.make0 50 1900 0 "" "" "shorthand-alternative-markup"
+    val shorthand_reports = capture shorthand_text shorthand_start
+    val (shorthand_raw, shorthand_def) =
+      token_position shorthand_text shorthand_start "field_x" 0
+    val (shorthand_alt_raw, shorthand_alt) =
+      token_position shorthand_text shorthand_start "field_x" (shorthand_raw + size "field_x")
+    val (shorthand_body_raw, shorthand_body) =
+      token_position shorthand_text shorthand_start "field_x" (shorthand_alt_raw + size "field_x")
+    val (_, shorthand_antiq) =
+      token_position shorthand_text shorthand_start "field_x" (shorthand_body_raw + size "field_x")
+    val _ = List.app (assert_declaration shorthand_reports)
+      [shorthand_def, shorthand_alt]
+    val _ = assert "shorthand alternative lost its canonical entity"
+      (entity_id shorthand_reports Markup.refN shorthand_alt =
+        entity_id shorthand_reports Markup.defN shorthand_def)
+    val _ = List.app (assert_reference shorthand_reports shorthand_def)
+      [shorthand_body, shorthand_antiq]
+    val (first_label_raw, first_label) =
+      token_position shorthand_text shorthand_start "field_tag" 0
+    val (_, second_label) =
+      token_position shorthand_text shorthand_start "field_tag"
+        (first_label_raw + size "field_tag")
+    val _ =
+      List.app (fn position =>
+        assert "mixed explicit field lost its selector destination"
+          (exists (fn properties =>
+             Properties.get properties Markup.kindN = SOME Markup.constantN andalso
+             Properties.get properties Markup.nameN = SOME \<^const_name>\<open>field_tag\<close> andalso
+             is_some (Properties.get properties "def_offset"))
+            (entity_properties shorthand_reports position)))
+        [first_label, second_label]
+    val mixed_ast =
+      the (URust_Parser.parse_source ctxt
+        (Parser_Lex_Util.positioned_content_source shorthand_text shorthand_start))
+    val mixed_patterns =
+      (case mixed_ast of
+         URust_AST.UE_Match (_, _, URust_AST.UR_Arm (URust_AST.P_Or (patterns, _), _, _) :: _, _) =>
+           patterns
+       | _ => error "mixed field markup audit: alternative AST changed")
+    val mixed_resolver = URust_Resolution.make_constructor_resolver ctxt shorthand_start
+    val _ = List.app (fn pattern =>
+      (case pattern of
+         URust_AST.P_Struct (path, fields) =>
+           (case URust_Resolution.resolve_struct_pattern ctxt mixed_resolver (path, fields) of
+              URust_Resolution.Resolved_Constructor_Struct (_, ordered) =>
+                assert "resolved field order, shorthand flag, or omitted field changed"
+                  (map (fn {selector, source_position, shorthand, ...} =>
+                     (#1 (dest_Const selector), is_some source_position, shorthand)) ordered =
+                   [(\<^const_name>\<open>field_x\<close>, true, true),
+                    (\<^const_name>\<open>field_tag\<close>, true, false),
+                    (\<^const_name>\<open>field_ignored\<close>, false, false)])
+            | _ => error "mixed field markup audit: constructor metadata changed")
+       | _ => error "mixed field markup audit: struct AST changed")) mixed_patterns
+
+    val constructor_text =
+      "match_case \<llangle>undefined :: nat binder_markup_option_point\<rrangle> { " ^
+      "BinderMarkupOptionPoint { None } => (), _ => () }"
+    val constructor_start = Position.make0 51 1950 0 "" "" "shorthand-constructor-markup"
+    val constructor_reports = capture constructor_text constructor_start
+    val (_, constructor_pos) = token_position constructor_text constructor_start "None" 0
+    val _ = assert "shorthand constructor lost its own navigation"
+      (exists (fn properties =>
+         Properties.get properties Markup.kindN = SOME Markup.constantN andalso
+         Properties.get properties Markup.nameN = SOME "Option.option.None" andalso
+         is_some (Properties.get properties "def_offset"))
+        (entity_properties constructor_reports constructor_pos))
+    val _ = assert "shorthand constructor acquired a competing selector entity"
+      ((map_filter (fn properties =>
+         if Properties.get properties Markup.kindN = SOME Markup.constantN
+         then Properties.get properties Markup.nameN else NONE)
+        (entity_properties constructor_reports constructor_pos)
+        |> distinct (op =)) = ["Option.option.None"])
+
+    (* Shadowing and sibling arms retain distinct canonical declarations. *)
+    val _ =
+      List.app (fn text =>
+        let
+          val start = Position.make0 52 1970 0 "" "" "binder-scope-markup"
+          val reports = capture text start
+          val (first_raw, first) = token_position text start "item" 0
+          val (first_use_raw, first_use) =
+            token_position text start "item" (first_raw + size "item")
+          val (second_raw, second) =
+            token_position text start "item" (first_use_raw + size "item")
+          val (_, second_use) =
+            token_position text start "item" (second_raw + size "item")
+        in
+          List.app (assert_declaration reports) [first, second];
+          assert "independent declarations reused a binder ID"
+            (entity_id reports Markup.defN first <> entity_id reports Markup.defN second);
+          assert_reference reports first first_use;
+          assert_reference reports second second_use
+        end)
+        ["let item = 11; let _ = item; let item = 23; let _ = item; ()",
+         "match_case Some(11) { Some(item) if item == 0 => (), " ^
+           "Some(item) => { let _ = item; () }, _ => () }"]
+
+    val closure_text = "|item, item| { let _ = item; () }"
+    val closure_start = Position.make0 52 1990 0 "" "" "repeated-closure-formals-markup"
+    val closure_reports = capture closure_text closure_start
+    val (closure_first_raw, closure_first) =
+      token_position closure_text closure_start "item" 0
+    val (closure_second_raw, closure_second) =
+      token_position closure_text closure_start "item" (closure_first_raw + size "item")
+    val (_, closure_use) =
+      token_position closure_text closure_start "item" (closure_second_raw + size "item")
+    val _ = List.app (assert_declaration closure_reports) [closure_first, closure_second]
+    val _ = assert "repeated formals reused their entity"
+      (entity_id closure_reports Markup.defN closure_first <>
+        entity_id closure_reports Markup.defN closure_second)
+    val _ = assert_reference closure_reports closure_second closure_use
 
     val _ =
       List.app

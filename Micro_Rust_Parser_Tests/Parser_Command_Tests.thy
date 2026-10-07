@@ -1097,6 +1097,55 @@ ML_val\<open>
     val _ =
       if entity_id Markup.refN second_reference = second_id then ()
       else error "expression parameter markup audit: second reference lost navigation"
+
+    val (_, function_markup) =
+      Parser_Test_Reports.markup (fn () =>
+        Parser_Test_Elaboration.function ctxt
+          {raw_type =
+             ("nat \<Rightarrow> bool \<Rightarrow> " ^
+              "(unit, nat \<times> bool \<times> nat, unit, unit, unit) function_body",
+              body_start),
+           parameters = [("first", first_definition), ("second", second_definition)],
+           parameters_pos = first_definition,
+           body = body_source})
+    fun assert label condition =
+      if condition then () else error ("declaration binder markup audit: " ^ label)
+    fun entities reports position =
+      map_filter (fn (name, properties) =>
+        if name = Markup.entityN andalso has_position properties position
+        then SOME properties else NONE) reports
+    val _ =
+      List.app (fn reports =>
+        (List.app (fn position =>
+           (assert "parameter lost bound coloring"
+              (exists (fn (name, properties) =>
+                 name = Markup.boundN andalso has_position properties position) reports);
+            assert "parameter lost its type tooltip"
+              (exists (fn (name, properties) =>
+                 name = Markup.typingN andalso has_position properties position) reports);
+            assert "parameter declaration became clickable"
+              (List.all (fn properties =>
+                 not (exists (String.isPrefix "def_" o fst) properties))
+                (entities reports position))))
+           [first_definition, second_definition];
+         List.app (fn (definition, reference) =>
+           let
+             val ids = entities reports definition
+               |> map_filter (fn properties => Properties.get properties Markup.defN)
+               |> distinct (op =)
+           in
+             assert "parameter use lost its canonical hyperlink destination"
+               (length ids = 1 andalso exists (fn properties =>
+                  Properties.get properties Markup.refN = SOME (hd ids) andalso
+                  List.all (fn (key, value) =>
+                    Properties.get properties key = SOME value)
+                    (Position.def_properties_of definition))
+                 (entities reports reference))
+           end)
+           [(first_definition, first_reference_one),
+            (first_definition, first_reference_two),
+            (second_definition, second_reference)]))
+        [markup, function_markup]
   in
     val _ = ()
   end

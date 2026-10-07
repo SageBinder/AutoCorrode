@@ -408,7 +408,8 @@ datatype showoff_packet =
 text\<open>
 Features: struct, slice-rest, constructor, reference-pattern wrappers, and
 or-patterns in one match, followed by a guard and antiquotation capture of
-bindings from deep inside the pattern.
+bindings from deep inside the pattern. Binder declarations retain coloring and shared
+highlighting without hyperlinks; uses navigate to the canonical declaration.
 \<close>
 
 urust_expr  showoff_patterns

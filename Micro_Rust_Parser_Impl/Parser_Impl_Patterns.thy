@@ -525,12 +525,18 @@ struct
                 R.Resolved_Constructor_Struct (info, ordered) =>
                   let
                     val _ = R.report_constructor ctxt path info
-                    fun resolve_field (selector, field_pos, nested) =
-                      (case field_pos of
-                         SOME source_pos =>
-                           R.report_selector ctxt source_pos selector
-                       | NONE => ();
-                       resolve nested)
+                    fun resolve_field
+                        {selector, source_position, pattern, shorthand} =
+                      let
+                        val nested = resolve pattern
+                        (* Shorthand denotes its nested pattern, not a separate field label. *)
+                        val _ =
+                          if shorthand then ()
+                          else
+                            (case source_position of
+                               SOME pos => R.report_selector ctxt pos selector
+                             | NONE => ())
+                      in nested end
                   in
                     Resolved_Constructor
                       (info, pos, map resolve_field ordered)
@@ -996,7 +1002,7 @@ struct
          R.literal_path ctxt environment path)
 
   fun report_case_binder ctxt environment binder_sig =
-    (case R.use_local ctxt environment binder_sig of
+    (case R.use_pattern_binder ctxt environment binder_sig of
        SOME _ => ()
      | NONE =>
          error ("urust_expr: internal unallocated case binder " ^
@@ -1025,8 +1031,9 @@ struct
          Case_Tuple
            (map (prepare_case_pattern ctxt environment) arguments)
      | Resolved_Alias (binder_sig, inner, _) =>
-         Case_Alias
-           (binder_sig, I, prepare_case_pattern ctxt environment inner)
+         (report_case_binder ctxt environment binder_sig;
+          Case_Alias
+            (binder_sig, I, prepare_case_pattern ctxt environment inner))
      | Resolved_Range (kind, lower, upper, pos) =>
          Case_Range
            (kind,
@@ -1188,7 +1195,7 @@ struct
               val name = signature_name binder_sig
               val pos = signature_position binder_sig
             in
-              (case R.use_local ctxt environment (name, pos) of
+              (case R.use_pattern_binder ctxt environment (name, pos) of
                  SOME free => add_slot (SOME free) state
                | NONE =>
                    error ("urust_expr: internal unregistered case binder " ^

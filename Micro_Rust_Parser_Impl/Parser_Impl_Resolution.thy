@@ -34,6 +34,8 @@ sig
       (term -> term) list * environment
   val use_local:
     Proof.context -> environment -> string * Position.T -> term option
+  val use_pattern_binder:
+    Proof.context -> environment -> string * Position.T -> term option
   val lookup_local: environment -> string -> term option
   val parse_antiquotation: Proof.context -> environment -> Input.source -> term
   val anonymous_abstraction: term -> term
@@ -96,11 +98,15 @@ sig
     Proof.context -> URust_AST.ur_path -> constructor_info -> unit
   val report_selector: Proof.context -> Position.T -> term -> unit
 
+  type resolved_struct_field =
+    {selector: term, source_position: Position.T option,
+     pattern: URust_AST.ur_pat, shorthand: bool}
+
   datatype resolved_struct_pattern =
       Resolved_Constructor_Struct of
-        constructor_info * (term * Position.T option * URust_AST.ur_pat) list
+        constructor_info * resolved_struct_field list
     | Resolved_Record_Struct of
-        string * (term * Position.T option * URust_AST.ur_pat) list
+        string * resolved_struct_field list
 
   val resolve_struct_pattern:
     Proof.context -> constructor_resolver ->
@@ -141,9 +147,11 @@ ML\<open>
     clients supply argument or parameter types from the complete declaration type. A nested ordinary
     binder with the same name removes the declaration-argument precedence marker while shadowing the
     outer argument. use_local performs a positioned lookup, reports a bound reference on success, and
-    returns NONE without fallback resolution; lookup_local performs the same lexical lookup without
-    reporting. Single-local allocation and the generic binder records are private implementation
-    details.
+    returns NONE without fallback resolution. use_pattern_binder returns the same local but reports
+    its entity identity with Position.none as the destination: pattern declarations, including later
+    alternative occurrences, retain shared highlighting without becoming hyperlinks. lookup_local
+    performs the same lexical lookup without reporting. Single-local allocation and the generic
+    binder records are private implementation details.
 
   - parse_antiquotation parses an Input.source as a HOL term with every environment entry in lexical
     scope. Lexical names shadow context fixes and constants, and occurrences are restored to the exact
@@ -209,8 +217,9 @@ ML\<open>
   - resolve_struct_pattern resolves a struct head as a constructor, a single-constructor datatype
     type name, or a HOL record type. It validates duplicate, unknown, missing, and repeated-rest
     fields, expands shorthand fields, and returns fields in metadata declaration order. Each ordered
-    field is (selector, SOME source_position, pattern) when written or
-    (selector, NONE, P_Wild Position.none) when supplied by `..`.
+    field retains its selector, optional source_position, pattern, and shorthand flag. Fields supplied
+    by `..` carry NONE, P_Wild Position.none, and shorthand = false. The nested pattern determines
+    a shorthand token's semantic role; only explicit labels receive selector reports.
     Resolved_Constructor_Struct carries constructor_info plus those fields;
     Resolved_Record_Struct carries the qualified record type name plus those fields. Policy for
     rejecting the currently unsupported HOL-record lowering belongs to URust_Patterns.
@@ -331,6 +340,12 @@ struct
     (case Symtab.lookup (#locals environment) name of
        SOME {free, def_pos, id} =>
          (report_reference ctxt id (name, def_pos) pos; SOME free)
+     | NONE => NONE)
+
+  fun use_pattern_binder ctxt environment (name, pos) =
+    (case Symtab.lookup (#locals environment) name of
+       SOME {free, id, ...} =>
+         (report_reference ctxt id (name, Position.none) pos; SOME free)
      | NONE => NONE)
 
   fun lookup_local environment name =
@@ -1386,11 +1401,15 @@ struct
       Constructor_Candidate of {info: constructor_info, selectors: term list}
     | Record_Candidate of {record_name: string, fields: term list}
 
+  type resolved_struct_field =
+    {selector: term, source_position: Position.T option,
+     pattern: ur_pat, shorthand: bool}
+
   datatype resolved_struct_pattern =
       Resolved_Constructor_Struct of
-        constructor_info * (term * Position.T option * ur_pat) list
+        constructor_info * resolved_struct_field list
     | Resolved_Record_Struct of
-        string * (term * Position.T option * ur_pat) list
+        string * resolved_struct_field list
 
   (* Struct heads accept either a constructor name or the type name of a single-constructor datatype.
      Records come only from Record.get_info; Ctr_Sugar's record entry belongs to a different lowering
@@ -1585,19 +1604,19 @@ struct
       val selector_entries = map selector_entry selectors
       val selector_names = map fst selector_entries
 
-      fun add_field (name, pos, pattern) (entries, rest_pos) =
+      fun add_field (name, pos, pattern, shorthand) (entries, rest_pos) =
         let val field = canonical_name name in
           (case AList.lookup (op =) entries field of
              SOME _ =>
                error ("urust_expr: struct pattern for " ^ quote display_name ^
                  " has duplicate field " ^ quote field ^ Position.here pos)
-           | NONE => ((field, (pos, pattern)) :: entries, rest_pos))
+           | NONE => ((field, (pos, pattern, shorthand)) :: entries, rest_pos))
         end
 
       fun collect (SF_Field (name, pos, pattern)) state =
-            add_field (name, pos, pattern) state
+            add_field (name, pos, pattern, false) state
         | collect (SF_Shorthand (name, pos)) state =
-            add_field (name, pos, P_Ident (name, pos)) state
+            add_field (name, pos, P_Ident (name, pos), true) state
         | collect (SF_Rest pos) (entries, NONE) =
             (entries, SOME pos)
         | collect (SF_Rest pos) (_, SOME _) =
@@ -1607,7 +1626,7 @@ struct
       val (entries_rev, rest_pos) = fold collect fields ([], NONE)
       val entries = rev entries_rev
       val unknown =
-        get_first (fn (name, (pos, _)) =>
+        get_first (fn (name, (pos, _, _)) =>
           if member (op =) selector_names name
           then NONE
           else SOME (name, pos)) entries
@@ -1629,8 +1648,12 @@ struct
       val ordered =
         map (fn (name, selector) =>
           (case AList.lookup (op =) entries name of
-             SOME (pos, pattern) => (selector, SOME pos, pattern)
-           | NONE => (selector, NONE, P_Wild Position.none)))
+             SOME (pos, pattern, shorthand) =>
+               {selector = selector, source_position = SOME pos,
+                pattern = pattern, shorthand = shorthand}
+           | NONE =>
+               {selector = selector, source_position = NONE,
+                pattern = P_Wild Position.none, shorthand = false}))
           selector_entries
     in
       (case candidate of
