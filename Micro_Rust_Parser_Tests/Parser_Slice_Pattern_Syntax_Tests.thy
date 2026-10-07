@@ -405,6 +405,35 @@ ML_val\<open>
         [("tail", "tail@.."), ("tail", "tail @ .."),
          ("tail'", "tail'@.."), ("tail'", "tail'\n @\n ..")]
 
+    (* Preparation must report the pattern occurrence as well as allocate its definition.
+       Reversed captures use an alias over a wildcard, so later basic binding cannot report it. *)
+    val _ =
+      List.app
+        (fn pattern =>
+          let
+            val text =
+              "// \<alpha> before the pattern\n" ^
+              "match_case \<llangle>[11 :: nat, 23, 37]\<rrangle> { [" ^ pattern ^
+              "] => { let _ = rest; let _ = \<llangle>rest\<rrangle>; () } }"
+            val start = Position.make0 40 1300 0 "" "" "slice-pattern-rest-preparation"
+            val reports = capture text start
+            val (raw, definition) = token_position text start "rest" 0
+            val (body_raw, reference) =
+              token_position text start "rest" (raw + size "rest")
+            val (_, antiquotation_reference) =
+              token_position text start "rest" (body_raw + size "rest")
+            val id = entity_id reports Markup.defN definition
+          in
+            assert (pattern ^ " lost its prepared binder occurrence")
+              (entity_id reports Markup.refN definition = id);
+            List.app
+              (fn position =>
+                assert (pattern ^ " lost rest binder navigation")
+                  (entity_id reports Markup.refN position = id))
+              [reference, antiquotation_reference]
+          end)
+        ["rest @ ..", "_, rest @ ..", "rest @ .., _", "_, rest @ .., _"]
+
     val alternatives_text =
       "match_case \<llangle>[1 :: nat, 4, 9]\<rrangle> { " ^
       "[head, tail @ ..] | [tail @ .., head] => { let _ = tail; let _ = head; () }, _ => () }"

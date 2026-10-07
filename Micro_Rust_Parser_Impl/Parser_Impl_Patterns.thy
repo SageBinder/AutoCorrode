@@ -995,21 +995,21 @@ struct
      | Resolved_Path_Value path =>
          R.literal_path ctxt environment path)
 
+  fun report_case_binder ctxt environment binder_sig =
+    (case R.use_local ctxt environment binder_sig of
+       SOME _ => ()
+     | NONE =>
+         error ("urust_expr: internal unallocated case binder " ^
+           quote (signature_name binder_sig) ^
+           Position.here (signature_position binder_sig)))
+
   fun prepare_case_pattern ctxt environment pattern =
     (case pattern of
        Resolved_Wild pos =>
          (R.report_wildcard ctxt pos; Case_Wild pos)
      | Resolved_Bind binder_sig =>
-         let
-           val name = signature_name binder_sig
-           val pos = signature_position binder_sig
-           val _ =
-             (case R.use_local ctxt environment (name, pos) of
-                SOME _ => ()
-              | NONE =>
-                  error ("urust_expr: internal unallocated case binder " ^
-                    quote name ^ Position.here pos))
-         in Case_Bind binder_sig end
+         (report_case_binder ctxt environment binder_sig;
+          Case_Bind binder_sig)
      | Resolved_Value payload =>
          Case_Value
            (R.literal_value ctxt environment payload,
@@ -1048,18 +1048,14 @@ struct
            (* Open slices count only explicit elements. Suffix matching reverses the remainder;
               reverse its residual middle back before exposing a named capture. *)
            fun rest_tail _ NONE = Case_Wild Position.none
-             | rest_tail reversed (SOME binder_sig) =
-                 let
-                   val capture =
-                     prepare_case_pattern ctxt environment
-                       (Resolved_Bind binder_sig)
-                 in
-                   if reversed
-                   then
-                     Case_Alias
-                       (binder_sig, T.reverse_list, Case_Wild Position.none)
-                   else capture
-                 end
+             | rest_tail true (SOME binder_sig) =
+                 (* The alias captures the restored middle; its inner pattern stays a wildcard.
+                    Report the source binder explicitly instead of preparing a discarded binding. *)
+                 (report_case_binder ctxt environment binder_sig;
+                  Case_Alias
+                    (binder_sig, T.reverse_list, Case_Wild Position.none))
+             | rest_tail false (SOME binder_sig) =
+                 prepare_case_pattern ctxt environment (Resolved_Bind binder_sig)
          in
            (case rest_binding of
               NONE => cons_chain prefix nil_pattern
