@@ -83,6 +83,14 @@ typed recursive decision compiler for binding, structural selection, guards, sou
 coverage, and compatibility term shape. The compiler does not maintain parser-private constructor
 families or separate guarded/unguarded pattern engines.
 
+Array repeats evaluate the length first. Ordinary `[value; length]` evaluates the value once,
+including at length zero; `[const { value }; length]` uses
+`list_sequence (List.replicate (unat length) value)` and executes the body once per element.
+Lengths admit integer literals, parentheses, `+ - * / %`, and `as usize`. Symbolic lengths may
+be direct Isabelle fixed parameters, exact literal registrations whose backends depend on the
+proof context, or genuine unqualified HOL constants. Qualified paths require exact literal
+registration; µRust lexical locals and unresolved names are rejected.
+
 Constructor resolution follows one chain:
 
 1. ordinary datatype/codatatype metadata from `Ctr_Sugar`;

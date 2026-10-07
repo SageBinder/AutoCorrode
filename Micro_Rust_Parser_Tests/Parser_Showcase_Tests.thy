@@ -89,15 +89,24 @@ subsection\<open> Array repeats \<close>
 
 text\<open>
 Features: ordinary repeat operands evaluated once, inline-const bodies evaluated once per element,
-and arithmetic repeat lengths converted from \<mu>Rust \<open>usize\<close> values.
+and arithmetic or contextual repeat lengths converted from \<mu>Rust \<open>usize\<close> values.
 \<close>
 
-urust_expr [conformance = false] showoff_array_repeats
+urust_expr showoff_array_repeats
   \<open>
     let ordinary = [0u64; (1 + 1) * 2];
     let generated = [const { Some(0u64) }; 3usize];
     (ordinary, generated)
   \<close>
+
+context
+  fixes repeat_length :: \<open>64 word\<close>
+begin
+
+urust_expr showoff_contextual_array_repeat
+  \<open> [const { Some(0u64) }; repeat_length] \<close>
+
+end
 
 subsection\<open> Logging and yield \<close>
 

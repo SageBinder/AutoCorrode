@@ -186,6 +186,9 @@ exact registered literal paths, genuine global constants, parentheses, `+ - * / 
 `usize` literals are accepted directly, while other word widths require the cast. Ordinary operands
 run exactly once, including at length zero. Inline-const bodies run once per element and not at all
 at length zero.
+Qualified length paths require exact literal registration. Unqualified lengths may resolve to
+genuine HOL constants or Isabelle fixed parameters; µRust lexical locals and unresolved names
+are rejected.
 
 Constructor resolution uses Isabelle's datatype/codatatype metadata first and native case metadata
 for exact registered literal backends that are not represented by `Ctr_Sugar`. Registered literals

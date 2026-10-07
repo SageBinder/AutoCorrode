@@ -1,12 +1,12 @@
 theory Parser_Array_Repeats_Tests
   imports
     Parser_Test_Utils
+    Parser_Expression_Tests
     Shallow_Micro_Rust.Eval
 begin
 
 section\<open>Array repeats\<close>
 
-declare [[urust_conformance = false]]
 declare [[urust_verbosity = 0]]
 declare [[urust_abbrev = false]]
 
@@ -25,9 +25,17 @@ definition repeat_registered_length :: \<open>64 word\<close>
 micro_rust_notation (literal)
   repeat_registered_length ("RepeatFixture::Length")
 
+micro_rust_notation (literal)
+  repeat_small_length ("RepeatFixture::SmallLength")
+
+micro_rust_notation (literal)
+  repeat_wrong_length ("RepeatFixture::WrongLength")
+
 locale repeat_contextual_lengths =
   fixes direct_context_length :: \<open>64 word\<close>
     and registered_context_length :: \<open>64 word\<close>
+    and small_context_length :: \<open>8 word\<close>
+    and wrong_context_length :: bool
 begin
 
 micro_rust_notation (literal)
@@ -38,6 +46,57 @@ urust_expr repeat_direct_context_length
 
 urust_expr repeat_registered_context_length
   \<open> [1; RepeatFixture::ContextLength] \<close>
+
+urust_expr repeat_inline_context_length
+  \<open> [const { 1 }; direct_context_length + 1usize] \<close>
+
+urust_expr repeat_cast_context_length
+  \<open> [1; small_context_length as usize] \<close>
+
+urust_expr_rejects \<open> [1; small_context_length] \<close>
+  \<open> Type unification failed \<close>
+urust_expr_rejects \<open> [1; wrong_context_length] \<close>
+  \<open> Type unification failed \<close>
+urust_expr_rejects
+  \<open> let direct_context_length = 2; [1; direct_context_length] \<close>
+  \<open> cannot use lexical local \<close>
+urust_expr_rejects
+  \<open> const direct_context_length = 2; [1; direct_context_length] \<close>
+  \<open> cannot use lexical local \<close>
+
+lemma repeat_context_length_symbolic:
+  \<open>
+    repeat_direct_context_length =
+      bind (literal direct_context_length) (\<lambda>count.
+        bind (literal 1) (\<lambda>value. literal (replicate (unat count) value))) \<and>
+    repeat_registered_context_length =
+      bind (literal registered_context_length) (\<lambda>count.
+        bind (literal 1) (\<lambda>value. literal (replicate (unat count) value)))
+  \<close>
+  by (simp only: repeat_direct_context_length_def repeat_registered_context_length_def)
+
+end
+
+context
+  fixes count :: \<open>64 word\<close>
+begin
+
+urust_expr repeat_fixed_count_operand \<open> [count; 2] \<close>
+urust_expr repeat_fixed_count_inline_operand \<open> [const { count }; 2] \<close>
+urust_expr repeat_fixed_count_antiquotation \<open> [\<llangle>count\<rrangle>; 2] \<close>
+urust_expr repeat_fixed_count_inline_antiquotation
+  \<open> [const { \<llangle>count\<rrangle> }; 2] \<close>
+
+lemma repeat_fixed_count_not_captured:
+  \<open>
+    repeat_fixed_count_operand = literal (replicate 2 count) \<and>
+    repeat_fixed_count_inline_operand = literal (replicate 2 count) \<and>
+    repeat_fixed_count_antiquotation = literal (replicate 2 count) \<and>
+    repeat_fixed_count_inline_antiquotation = literal (replicate 2 count)
+  \<close>
+  by (simp add: repeat_fixed_count_operand_def repeat_fixed_count_inline_operand_def
+      repeat_fixed_count_antiquotation_def repeat_fixed_count_inline_antiquotation_def
+      micro_rust_simps list_sequence.simps)
 
 end
 
@@ -58,6 +117,8 @@ urust_expr repeat_cast_u32 \<open> [1; 3u32 as usize] \<close>
 urust_expr repeat_cast_u64 \<open> [1; 3u64 as usize] \<close>
 urust_expr repeat_cast_small_global
   \<open> [1; repeat_small_length as usize] \<close>
+urust_expr repeat_cast_small_registered
+  \<open> [1; RepeatFixture::SmallLength as usize] \<close>
 urust_expr repeat_global \<open> [1; repeat_global_length] \<close>
 urust_expr repeat_registered \<open> [1; RepeatFixture::Length] \<close>
 urust_expr repeat_add \<open> [1; 1 + 2] \<close>
@@ -87,6 +148,44 @@ urust_expr repeat_inline_nested
   \<open> [const { [const { 1 }; 2] }; 3] \<close>
 urust_expr repeat_inline_multistatement
   \<open> [const { let value = Some(1); value }; 2] \<close>
+
+subsection\<open>Dereference precedence in repeat operands\<close>
+
+adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
+
+context
+  fixes references :: \<open>(unit, unit, 64 word) Global_Store.ref list\<close>
+    and direct_length :: \<open>64 word\<close>
+begin
+
+urust_expr repeat_deref_index_operand \<open> [*references[0usize]; direct_length] \<close>
+urust_expr repeat_grouped_deref_index_operand \<open> [*(references[0usize]); direct_length] \<close>
+
+lemma repeat_deref_index_grouping:
+  \<open>repeat_deref_index_operand = repeat_grouped_deref_index_operand\<close>
+  unfolding repeat_deref_index_operand_def repeat_grouped_deref_index_operand_def by (rule refl)
+
+text\<open>
+  The following inline-const dereferences are \<mu>Rust semantic regression fixtures.
+  Their runtime reference reads would not be allowed in Rust const blocks.
+\<close>
+
+urust_expr repeat_inline_deref_index_operand
+  \<open> [const { *references[0usize] }; direct_length] \<close>
+urust_expr repeat_inline_grouped_deref_index_operand
+  \<open> [const { *(references[0usize]) }; direct_length] \<close>
+
+lemma repeat_inline_deref_index_grouping:
+  \<open>repeat_inline_deref_index_operand = repeat_inline_grouped_deref_index_operand\<close>
+  unfolding repeat_inline_deref_index_operand_def
+    repeat_inline_grouped_deref_index_operand_def by (rule refl)
+
+urust_expr_rejects \<open> [1; *references[0usize]] \<close>
+  \<open> array repeat length supports only \<close>
+
+end
+
+no_adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
 
 subsection\<open>Type behavior\<close>
 
@@ -173,6 +272,21 @@ ML_val\<open>
       (case parse "[1; 2][0]" of
          UE_Index (UE_ArrayRepeat _, _, _) => ()
        | _ => error "array repeat AST audit: repeat/index boundary changed")
+    val _ =
+      (case parse "[*base[index]; 2]" of
+         UE_ArrayRepeat
+           (AR_Ordinary, UE_Unary (U_Deref, UE_Index _, _), _, _) => ()
+       | _ => error "array repeat AST audit: ordinary dereference operand grouping changed")
+    val _ =
+      (case parse "[const { *base[index] }; 2]" of
+         UE_ArrayRepeat
+           (AR_InlineConst,
+            UE_Block (UE_Unary (U_Deref, UE_Index _, _), _), _, _) => ()
+       | _ => error "array repeat AST audit: inline-const dereference operand grouping changed")
+    val _ =
+      (case parse "*[reference; 2][index]" of
+         UE_Unary (U_Deref, UE_Index (UE_ArrayRepeat _, _, _), _) => ()
+       | _ => error "array repeat AST audit: dereference of indexed repeat changed")
   in
     val _ = writeln "Array repeat grammar and AST boundaries passed"
   end
@@ -207,8 +321,22 @@ urust_expr_rejects \<open> [1; 2i32] \<close>
   \<open> unsupported integer-literal suffix "i32" \<close>
 urust_expr_rejects \<open> [1; unresolved_repeat_length] \<close>
   \<open> does not resolve to a global constant \<close>
+urust_expr_rejects
+  \<open> [1; Parser_Array_Repeats_Tests::repeat_global_length] \<close>
+  \<open> requires an exact micro_rust_notation (literal) declaration \<close>
+urust_expr_rejects \<open> [1; RepeatFixture::MissingLength] \<close>
+  \<open> requires an exact micro_rust_notation (literal) declaration \<close>
+urust_expr_rejects \<open> [1; RepeatFixture::Length::<2>] \<close>
+  \<open> generic arguments are not allowed \<close>
+urust_expr_rejects \<open> [1; RepeatFixture::SmallLength] \<close>
+  \<open> no backend matches the use-site type \<close>
+urust_expr_rejects \<open> [1; RepeatFixture::WrongLength] \<close>
+  \<open> no backend matches the use-site type \<close>
 urust_expr_rejects \<open> [1; repeat_wrong_length] \<close>
   \<open> Type unification failed \<close>
+urust_expr_rejects
+  \<open> let repeat_global_length = 2; [1; repeat_global_length] \<close>
+  \<open> cannot use lexical local \<close>
 urust_expr_rejects \<open> let count = 2; [1; count] \<close>
   \<open> cannot use lexical local \<close>
 urust_expr_rejects \<open> [1; Some(2)] \<close>
@@ -286,6 +414,16 @@ ML_val\<open>
     val indexed_array =
       URust_Translate.mk_expression ctxt [] (parse "[1, 2][0]")
     val vector_macro = checked "vec![1, 2]"
+    val _ =
+      (case Exn.result
+          (fn () => Parser_Test_Elaboration.expression_with_arguments ctxt
+            [("count", Position.none)]
+            (Parser_Lex_Util.text_source "[1; count]")) () of
+         Exn.Exn exn =>
+           audit_assert "declaration argument bypassed lexical-local rejection"
+             (String.isSubstring "cannot use lexical local" (Runtime.exn_message exn))
+       | Exn.Res _ =>
+           error "array repeat lowering audit: declaration argument accepted as a length")
 
     val _ =
       audit_assert "ordinary repeat lost its single List.replicate"
@@ -589,6 +727,14 @@ ML_val\<open>
         "[\<y>\<i>\<e>\<l>\<d>; missing_length]"
         "missing_length"
         "does not resolve to a global constant"
+    val _ =
+      expect_positioned_failure 3 "qualified-length"
+        "[1; RepeatFixture::MissingLength]" "MissingLength"
+        "requires an exact micro_rust_notation (literal) declaration"
+    val _ =
+      expect_positioned_failure 4 "length-before-operand"
+        "[missing_operand; missing_length]" "missing_length"
+        "does not resolve to a global constant"
   in
     val _ =
       writeln
@@ -597,6 +743,12 @@ ML_val\<open>
 \<close>
 
 subsection\<open>Evaluation count, order, and control propagation\<close>
+
+text\<open>
+  The effectful inline-const examples in this subsection are \<mu>Rust semantic regression
+  fixtures. Their runtime state changes, nonlocal returns, aborts, and yields would not be
+  allowed in Rust const blocks. These checks preserve the \<mu>Rust runtime denotation.
+\<close>
 
 definition repeat_tick ::
     \<open>(nat, nat, nat, unit, unit, unit) expression\<close>
@@ -608,23 +760,23 @@ definition repeat_tick ::
           literal current))
     \<close>
 
-lemma repeat_unat_word64_2 [simp]:
+lemma repeat_unat_word64_2:
   \<open>unat (2 :: 64 word) = 2\<close>
   by eval
 
-lemma repeat_unat_word64_3 [simp]:
+lemma repeat_unat_word64_3:
   \<open>unat (3 :: 64 word) = 3\<close>
   by eval
 
-lemma repeat_take_bit_word64_2 [simp]:
+lemma repeat_take_bit_word64_2:
   \<open>take_bit LENGTH(64) (2 :: nat) = 2\<close>
   by (rule take_bit_nat_eq_self; simp)
 
-lemma repeat_take_bit_word64_3 [simp]:
+lemma repeat_take_bit_word64_3:
   \<open>take_bit LENGTH(64) (3 :: nat) = 3\<close>
   by (rule take_bit_nat_eq_self; simp)
 
-lemma repeat_tick_evaluate [simp]:
+lemma repeat_tick_evaluate:
   \<open>evaluate repeat_tick state = Success state (Suc state)\<close>
   by
     (simp add:
@@ -632,7 +784,7 @@ lemma repeat_tick_evaluate [simp]:
       get_def put_def literal_def evaluate_def
       Core_Expression.bind.simps Let_def)
 
-lemma repeat_tick_sequence_two [simp]:
+lemma repeat_tick_sequence_two:
   \<open>
     evaluate (list_sequence (replicate 2 repeat_tick)) state =
       Success [state, Suc state] (Suc (Suc state))
@@ -643,7 +795,7 @@ lemma repeat_tick_sequence_two [simp]:
       get_def put_def literal_def evaluate_def
       Core_Expression.bind.simps Let_def eval_nat_numeral)
 
-lemma repeat_tick_sequence_three [simp]:
+lemma repeat_tick_sequence_three:
   \<open>
     evaluate (list_sequence (replicate 3 repeat_tick)) state =
       Success
@@ -656,7 +808,7 @@ lemma repeat_tick_sequence_three [simp]:
       get_def put_def literal_def evaluate_def
       Core_Expression.bind.simps Let_def eval_nat_numeral)
 
-lemma repeat_nested_tick_sequence [simp]:
+lemma repeat_nested_tick_sequence:
   \<open>
     evaluate
       (list_sequence
@@ -713,6 +865,7 @@ lemma repeat_ordinary_effect_counts:
       repeat_ordinary_effect_zero_def
       repeat_ordinary_effect_one_def
       repeat_ordinary_effect_many_def
+      repeat_unat_word64_3
       repeat_tick_def
       evaluate_def get_def put_def literal_def
       Core_Expression.bind.simps;
@@ -731,7 +884,9 @@ lemma repeat_inline_effect_counts_and_order:
       repeat_inline_effect_zero_def
       repeat_inline_effect_one_def
       repeat_inline_effect_many_def
-      repeat_nested_inline_effects_def)
+      repeat_nested_inline_effects_def
+      repeat_unat_word64_2 repeat_unat_word64_3
+      repeat_take_bit_word64_2 repeat_take_bit_word64_3)
   apply (simp add: eval_nat_numeral)
   apply (simp add: bind_evaluate literal_def)
   apply (simp add: evaluate_def Core_Expression.bind.simps)

@@ -331,6 +331,16 @@ proof (induction e rule: wf_induct_rule)
     using expression_eqI2 by blast
 qed
 
+lemma list_sequence_map_literal [micro_rust_simps]:
+  shows \<open> list_sequence (List.map literal xs) = literal xs \<close>
+  by (induction xs) (simp_all add: bind_literal_unit)
+
+lemma list_sequence_replicate_literal [micro_rust_simps]:
+  shows \<open>
+    list_sequence (replicate n (literal x)) = literal (replicate n x)
+  \<close>
+  using list_sequence_map_literal[of \<open>replicate n x\<close>] by simp
+
 subsection\<open>State extraction and modification\<close>
 
 lemma evaluate_getE [micro_rust_elims]:
