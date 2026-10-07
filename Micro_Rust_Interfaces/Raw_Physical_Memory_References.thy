@@ -100,7 +100,7 @@ definition points_to_tagged_phys_bytes :: \<open>64 word \<Rightarrow> share \<R
 ucincl_auto points_to_tagged_phys_bytes
 
 definition points_to_raw' :: \<open>(raw_pref,8 word list) gref \<Rightarrow> share \<Rightarrow> 8 word list \<Rightarrow> 's assert\<close>
-  where \<open>points_to_raw' r sh bs \<equiv> (let pr = Global_Store.address r in
+  where \<open>points_to_raw' r sh bs \<equiv> (let pr = State_References.address r in
     \<langle>is_valid_raw_pmem_region pr\<rangle> \<star>
     \<langle>length bs = raw_pmem_region_size pr\<rangle> \<star>
     (\<Squnion>tag. points_to_tagged_phys_bytes (raw_pmem_region_base pr) sh tag bs))\<close>
@@ -127,7 +127,7 @@ urust_fn [abbrev]
 
 definition update_raw_fun :: \<open>(raw_pref, 8 word list) gref \<Rightarrow> 8 word list \<Rightarrow> ('s, unit, 'abort, 'i prompt, 'o prompt_output) function_body\<close> where
   \<open>update_raw_fun r bs \<equiv>
-     let pr = Global_Store.address r in
+     let pr = State_References.address r in
        update_raw_fun_fn1 bs pr\<close>
 
 urust_fn [abbrev]
@@ -145,7 +145,7 @@ urust_fn [abbrev]
 
 definition dereference_raw_fun :: \<open>(raw_pref, 8 word list) gref \<Rightarrow> ('s, 8 word list, 'abort, 'i prompt, 'o prompt_output) function_body\<close> where
   \<open>dereference_raw_fun r \<equiv>
-     let pr = Global_Store.address r in
+     let pr = State_References.address r in
        dereference_raw_fun_fn1 pr\<close>
 
 urust_fn reference_raw_fun ::
@@ -158,7 +158,7 @@ urust_fn reference_raw_fun ::
   \<close>
 
 definition gref_can_store :: \<open>(raw_pref, 8 word list) gref \<Rightarrow> 8 word list set\<close>
-  where \<open>gref_can_store r \<equiv> { bs. (length bs = raw_pmem_region_size (Global_Store.address r)) }\<close>
+  where \<open>gref_can_store r \<equiv> { bs. (length bs = raw_pmem_region_size (State_References.address r)) }\<close>
 
 definition new_gref_can_store :: \<open>8 word list set\<close> where \<open>new_gref_can_store \<equiv> {}\<close>
 
@@ -194,7 +194,7 @@ lemma update_raw_fun_spec:
     wp_cong'[crush_cong del]
   shows \<open>\<Gamma> ; update_raw_fun r g \<Turnstile>\<^sub>F reference_defs.update_raw_contract points_to_raw' gref_can_store r g0 g\<close>
 proof -
-  let ?pr = \<open>Global_Store.address r\<close>
+  let ?pr = \<open>State_References.address r\<close>
   let ?base = \<open>raw_pmem_region_base ?pr\<close>
   let ?n = \<open>raw_pmem_region_size ?pr\<close>
   show ?thesis
@@ -220,7 +220,7 @@ lemma dereference_raw_fun_spec:
     and wp_cong'[crush_cong del]
   shows \<open>\<Gamma> ; dereference_raw_fun r \<Turnstile>\<^sub>F reference_defs.dereference_raw_contract points_to_raw' r sh g\<close>
 proof -
-  let ?pr = \<open>Global_Store.address r\<close>
+  let ?pr = \<open>State_References.address r\<close>
   let ?base = \<open>raw_pmem_region_base ?pr\<close>
   let ?n = \<open>raw_pmem_region_size ?pr\<close>
   show ?thesis

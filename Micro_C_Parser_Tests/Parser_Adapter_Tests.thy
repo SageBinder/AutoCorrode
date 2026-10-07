@@ -7,7 +7,7 @@ begin
 
 ML_val\<open>
 local
-  open Micro_C_Isabelle_C_Adapter
+  structure A = Micro_C_Isabelle_C_Adapter
 
   fun assert message condition =
     if condition then ()
@@ -21,130 +21,73 @@ local
       Input.source true text (Position.range (start, stop))
     end
 
-  fun parse text =
-    parse_function (source text) \<^theory>
+  fun identifier_name (C_Ast.Ident0 (name, _, _)) =
+    C11_Ast_Lib.toString_abr_string name
 
-  fun offset pos =
-    the (Position.offset_of pos)
+  fun identifier_node (C_Ast.Ident0 (_, _, node)) = node
 
-  fun reported_range message pos =
-    assert message (Position.is_reported_range pos)
+  val text =
+    "struct pair { int left; int right; };\n" ^
+    "int global = 3;\n" ^
+    "int sum(int x) { while (x) { x--; } return x; }\n"
+  val parsed = A.parse_translation_unit (source text) \<^theory>
 
-  fun rejects label fragment text =
-    ((parse text;
-      error ("C adapter test: accepted " ^ label))
-     handle ERROR message =>
-       assert
-         ("wrong rejection for " ^ label ^ ": " ^ message)
-         (String.isSubstring fragment message))
-
-  val constant = parse "int constant(void) { return 42; }"
-  val _ =
-    (case (#parameters constant, #body constant) of
-       (VoidParameters parameter_pos,
-        IntLiteral
-          {value, spelling, representation = Decimal,
-           has_suffix = false, position}) =>
-         (assert "constant value" (value = 42);
-          assert "constant spelling" (spelling = "42");
-          reported_range "void parameter range" parameter_pos;
-          reported_range "literal range" position)
-     | _ => error "C adapter test: wrong constant normalization")
-
-  val identity = parse "int identity(int x) { return x; }"
-  val _ =
-    (case (#name identity, #parameters identity, #body identity) of
-       (SOME ("identity", name_pos),
-        NamedParameters
-          {parameters =
-            [{type_spec = {kind = PlainInt, position = type_pos},
-              name = SOME ("x", parameter_name_pos),
-              position = parameter_pos,
-              plain_declarator = true}],
-           variadic = false,
-           position = clause_pos},
-        Identifier {name = "x", position = identifier_pos}) =>
-         (List.app
-            (reported_range "identity positioned node")
-            [#position identity, name_pos, type_pos, parameter_name_pos,
-             parameter_pos, clause_pos, #return_position identity,
-             identifier_pos];
-          assert "identity source order"
-            (offset (#position identity) <= offset name_pos andalso
-             offset name_pos < offset parameter_name_pos andalso
-             offset parameter_name_pos < offset (#return_position identity) andalso
-             offset (#return_position identity) <= offset identifier_pos))
-     | _ => error "C adapter test: wrong identity normalization")
-
-  val addition = parse "int add(int x, int y) { return x + y; }"
-  val _ =
-    (case #body addition of
-       Add
-         {left = Identifier {name = "x", position = left_pos},
-          right = Identifier {name = "y", position = right_pos},
-          position,
-          operator_position} =>
-         (List.app
-            (reported_range "addition positioned node")
-            [left_pos, right_pos, position, operator_position];
-          assert "addition span"
-            (offset position = offset left_pos andalso
-             the (Position.end_offset_of position) =
-               the (Position.end_offset_of right_pos));
-          assert "operator lies within expression"
-            (offset position <= offset operator_position andalso
-             offset operator_position <
-               the (Position.end_offset_of position)))
-     | _ => error "C adapter test: wrong addition normalization")
-
-  val nested = parse "int nested(int x, int y) { return x + 1 + y; }"
-  val _ =
-    (case #body nested of
-       Add
-         {left =
-            Add
-              {left = Identifier {name = "x", ...},
-               right = IntLiteral {value = 1, ...},
-               ...},
-          right = Identifier {name = "y", ...},
-          ...} => ()
-     | _ => error "C adapter test: addition association was not preserved")
-
-  val parenthesized =
-    parse "int grouped(int x, int y) { return x + (1 + y); }"
-  val _ =
-    (case #body parenthesized of
-       Add
-         {left = Identifier {name = "x", ...},
-          right =
-            Add
-              {left = IntLiteral {value = 1, ...},
-               right = Identifier {name = "y", ...},
-               ...},
-          ...} => ()
-     | _ => error "C adapter test: parenthesized association was not preserved")
+  val (external_declarations, unit_node) =
+    (case A.ast parsed of
+       C_Ast.CTranslUnit0 data => data)
 
   val _ =
-    rejects "multiple functions" "multiple external declarations"
-      "int first(void) { return 0; } int second(void) { return 1; }"
+    assert "adapter rejected or discarded external declarations"
+      (length external_declarations = 3)
+
+  val (function_name, function_node) =
+    (case List.last external_declarations of
+       C_Ast.CFDefExt0
+         (C_Ast.CFunDef0
+           (_, C_Ast.CDeclr0 (C_Ast.Some name, _, _, _, _),
+            _, _, node)) =>
+         (name, node)
+     | _ => error "C adapter test: expected a raw function definition")
+
+  val name_position = A.node_position (identifier_node function_name)
+  val function_position = A.node_position function_node
+  val unit_position = A.node_position unit_node
+
   val _ =
-    rejects "global declaration" "expected one function definition"
-      "int global;"
+    assert "wrong raw function name"
+      (identifier_name function_name = "sum")
   val _ =
-    rejects "local declaration" "locals and additional statements"
-      "int local(void) { int x = 0; return x; }"
+    assert "identifier position is not a reported range"
+      (Position.is_reported_range name_position)
   val _ =
-    rejects "function call" "function calls are not supported"
-      "int caller(void) { return callee(); }"
+    assert "function position is not a reported range"
+      (Position.is_reported_range function_position)
   val _ =
-    rejects "other operator" "only the + operator is supported"
-      "int subtract(int x, int y) { return x - y; }"
+    assert "translation-unit position is not a reported range"
+      (Position.is_reported_range unit_position)
   val _ =
-    rejects "unary operator" "unary operators are not supported"
-      "int negate(int x) { return -x; }"
+    assert "source extraction did not recover the identifier"
+      (A.source_text parsed name_position = SOME "sum")
   val _ =
-    rejects "return without value" "return without a value"
-      "int empty_return(void) { return; }"
+    assert "source extraction accepted an absent position"
+      (A.source_text parsed Position.none = NONE)
+
+  val _ =
+    (case hd external_declarations of
+       C_Ast.CDeclExt0 _ => ()
+     | _ => error "C adapter test: declaration AST was normalized away")
+
+  val malformed =
+    Exn.capture
+      (fn () =>
+        A.parse_translation_unit
+          (source "int broken( { return 0; }") \<^theory>)
+      ()
+  val _ =
+    (case malformed of
+       Exn.Exn (ERROR _) => ()
+     | Exn.Exn exn => Exn.reraise exn
+     | Exn.Res _ => error "C adapter test: malformed C was accepted")
 in
   val _ = ()
 end

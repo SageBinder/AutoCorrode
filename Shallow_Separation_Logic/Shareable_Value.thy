@@ -5,10 +5,10 @@
 theory Shareable_Value
   imports
     "HOL-Library.Datatype_Records"
-    Apartness
-    Assertion_Language
-    Separation_Algebra
-    Tree_Shares
+    Shallow_State_Logic.Apartness
+    Shallow_State_Logic.Assertion_Language
+    Shallow_State_Logic.Separation_Algebra
+    Shallow_State_Logic.Tree_Shares
     Data_Structures.RedBlackTree_Extensional
 begin
 (*>*)

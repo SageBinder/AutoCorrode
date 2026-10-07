@@ -1,7 +1,7 @@
 theory Tutorial_SepalgIntro
   imports
     Slides
-    Shallow_Separation_Logic.Separation_Algebra
+    Shallow_State_Logic.Separation_Algebra
 begin
 
 text \<open>The class @{class sepalg} extends @{class plus}, @{class zero},

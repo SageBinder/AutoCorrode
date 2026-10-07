@@ -9,6 +9,11 @@ begin
 
 term Core_Expression.Expression
 term Core_Expression.bind
+term nondet_choice
+term bind2_unseq
+term two_armed_conditional
+term raw_for_loop
+term bounded_while
 thm Core_Expression.bind.simps
 thm Core_Expression.function_body_simp
 

@@ -60,7 +60,7 @@ struct
   structure P = URust_Patterns
   structure M = URust_Matching
   structure X = URust_Macros
-  structure Navigation = Micro_Rust_Semantic_Navigation
+  structure Navigation = Shallow_Computation_Semantic_Navigation
 
   datatype expression_category =
       Ordinary_Value

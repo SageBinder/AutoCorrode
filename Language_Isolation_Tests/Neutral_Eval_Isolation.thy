@@ -12,9 +12,9 @@ term Eval.evaluates_to_value
 term Eval.evaluates_to_abort
 
 thm Eval.evaluates_to_return_eq
-thm Eval.urust_eval_action_bind
-thm Eval.urust_eval_predicate_literal
-thm Eval.urust_eval_action_get
+thm Eval.eval_action_bind
+thm Eval.eval_predicate_literal
+thm Eval.eval_action_get
 
 lemma isolation_neutral_eval_predicate_rule [shallow_computation_eval_predicate_simps]:
   shows True
@@ -46,14 +46,20 @@ ML_val\<open>
          "Isabelle_C",
          "C"]
         ctxt
-    val _ = assert "neutral predicate registry is not writable"
+    val _ = assert "neutral predicate registry is writable"
       (member \<^named_theorems>\<open>shallow_computation_eval_predicate_simps\<close>
         (theorem "isolation_neutral_eval_predicate_rule"))
-    val _ = assert "neutral action registry is not writable"
+    val _ = assert "neutral action registry is writable"
       (member \<^named_theorems>\<open>shallow_computation_eval_action_simps\<close>
         (theorem "isolation_neutral_eval_action_rule"))
-    val _ = assert "legacy evaluation registry leaked"
+    val _ = assert "legacy predicate registry leaked"
       (not (can (Proof_Context.get_thms ctxt) "urust_eval_predicate_simps"))
+    val _ = assert "legacy action registry leaked"
+      (not (can (Proof_Context.get_thms ctxt) "urust_eval_action_simps"))
+    val _ = assert "legacy generic action theorem leaked"
+      (not (can (Proof_Context.get_thm ctxt) "Eval.urust_eval_action_bind"))
+    val _ = assert "legacy generic predicate theorem leaked"
+      (not (can (Proof_Context.get_thm ctxt) "Eval.urust_eval_predicate_literal"))
     val _ = assert "profile assertion rule leaked"
       (not (can (Proof_Context.get_thm ctxt) "Eval.urust_eval_action_assert"))
     val _ = assert "profile numeric rule leaked"

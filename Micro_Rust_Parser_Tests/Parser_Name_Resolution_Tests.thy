@@ -3017,7 +3017,9 @@ ML_val\<open>
         val final_event =
           if null events then NONE else SOME (List.last events)
       in
-        audit_assert (label ^ " notation references changed")
+        audit_assert
+          (label ^ " notation references changed: expected [" ^
+            commas expected ^ "], found [" ^ commas actual ^ "]")
           (actual = expected);
         audit_assert (label ^ " selected declaration was not final")
           (final_event =
@@ -3490,7 +3492,7 @@ section\<open> Deferred semantic target navigation audit \<close>
 
 ML_val\<open>
   local
-    structure Navigation = Micro_Rust_Semantic_Navigation
+    structure Navigation = Shallow_Computation_Semantic_Navigation
 
     val ctxt = \<^context>
 

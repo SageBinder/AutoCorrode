@@ -3,7 +3,7 @@
 
 (*<*)
 theory Global_Perm_Store
-  imports Micro_Rust_Interfaces_Core.References Shallow_Micro_Rust.Global_Store
+  imports Micro_Rust_Interfaces_Core.References Shallow_Micro_Rust.Rust_State_Profile
 begin
 (*>*)
 
@@ -26,9 +26,9 @@ locale global_perm_store = store: global_store store_read_reference store_write_
             store_perm_map (s1+s2) a = store_perm_map s1 a \<squnion> store_perm_map s2 a\<close>
       and store_add_pool: \<open>\<And>s1 s2. s1 \<sharp> s2 \<Longrightarrow>
             store_alloc_pool (s1 + s2) = store_alloc_pool s1 \<union> store_alloc_pool s2\<close>
-      and store_add_read: \<open>\<And>s1 s2 a v. store_read_reference s1 a = Some v \<Longrightarrow> s1 \<sharp> s2 \<Longrightarrow> 
+      and store_add_read: \<open>\<And>s1 s2 a v. store_read_reference s1 a = Some v \<Longrightarrow> s1 \<sharp> s2 \<Longrightarrow>
             store_read_reference (s1+s2) a = Some v\<close>
-      and store_add_write: \<open>\<And>s1 s1' s2 a v. store_write_reference s1 a v = Some s1' \<Longrightarrow> s1 \<sharp> s2 \<Longrightarrow> 
+      and store_add_write: \<open>\<And>s1 s1' s2 a v. store_write_reference s1 a v = Some s1' \<Longrightarrow> s1 \<sharp> s2 \<Longrightarrow>
             store_write_reference (s1+s2) a v = Some (s1'+s2) \<and> s1'\<sharp>s2\<close>
       and store_add_alloc: \<open>\<And>s1 s1' s2 a. s1 \<sharp> s2 \<Longrightarrow> store_allocate_reference s1 = Some (a, s1') \<Longrightarrow>
             store_allocate_reference (s1 + s2) = Some (a, s1' + s2) \<and> s1' \<sharp> s2\<close>
@@ -202,7 +202,7 @@ qed
 
 subsection\<open>Reference allocation\<close>
 
-lemma urust_eval_predicate_reference_raw:
+lemma eval_predicate_reference_raw:
   shows \<open>(\<sigma> \<leadsto>\<^sub>a\<langle>\<Gamma>, store.reference_raw g\<rangle> (a, \<sigma>')) \<longleftrightarrow> (
              (store_allocate_reference \<sigma> = None \<and> AssertionFailed = a \<and> \<sigma> = \<sigma>') \<or>
              (\<exists>\<sigma>'' addr. store_allocate_reference \<sigma> = Some (addr, \<sigma>'') \<and>
@@ -218,7 +218,7 @@ proof
   from this show \<open>store_allocate_reference \<sigma> = None \<and> AssertionFailed = a \<and> \<sigma> = \<sigma>' \<or>
         (\<exists>\<sigma>'' addr. store_allocate_reference \<sigma> = Some (addr, \<sigma>'') \<and>
           store_write_reference \<sigma>'' addr g = None \<and> a = AssertionFailed \<and> \<sigma>' = \<sigma>'')\<close>
-    by (clarsimp simp add: urust_eval_predicate_defs deep_evaluates_nondet_basic.simps
+    by (clarsimp simp add: shallow_computation_eval_predicate_defs deep_evaluates_nondet_basic.simps
       store.reference_raw_def evaluate_def call_def call_function_body.simps
       split!: option.splits expression.splits continuation.splits)
 next
@@ -226,30 +226,30 @@ next
             store_allocate_reference \<sigma> = Some (addr, \<sigma>'') \<and>
             store_write_reference \<sigma>'' addr g = None \<and> a = AssertionFailed \<and> \<sigma>' = \<sigma>'')\<close>
   from this show \<open>\<sigma> \<leadsto>\<^sub>a \<langle>\<Gamma>,store.reference_raw g\<rangle> (a, \<sigma>')\<close>
-    by (clarsimp simp add: urust_eval_predicate_defs deep_evaluates_nondet_basic.simps
+    by (clarsimp simp add: shallow_computation_eval_predicate_defs deep_evaluates_nondet_basic.simps
       store.reference_raw_def evaluate_def call_def call_function_body.simps
       split!: option.splits expression.splits continuation.splits)
 next
   show \<open>\<sigma> \<leadsto>\<^sub>v \<langle>\<Gamma>, store.reference_raw g\<rangle> (v,\<sigma>'') = (\<exists>\<sigma>' addr.
           store_allocate_reference \<sigma> = Some (addr, \<sigma>') \<and>
             store_write_reference \<sigma>' addr g = Some \<sigma>'' \<and> make_untyped_ref addr = v)\<close>
-    by (clarsimp simp add: urust_eval_predicate_defs deep_evaluates_nondet_basic.simps make_untyped_ref_def
+    by (clarsimp simp add: shallow_computation_eval_predicate_defs deep_evaluates_nondet_basic.simps make_untyped_ref_def
       store.reference_raw_def evaluate_def call_def call_function_body.simps
       split!: option.splits expression.splits continuation.splits)
 next
   show \<open>\<sigma> \<leadsto>\<^sub>r \<langle>\<Gamma>,store.reference_raw g\<rangle> (r,\<sigma>') = False\<close>
-    by (clarsimp simp add: urust_eval_predicate_defs deep_evaluates_nondet_basic.simps
+    by (clarsimp simp add: shallow_computation_eval_predicate_defs deep_evaluates_nondet_basic.simps
       store.reference_raw_def evaluate_def split!: option.splits)
 qed
 
-corollary urust_eval_predicate_reference_raw_local:
-  shows \<open>urust_is_local \<Gamma> (store.reference_raw g) can_alloc_reference\<close>
+corollary eval_predicate_reference_raw_local:
+  shows \<open>expression_is_local \<Gamma> (store.reference_raw g) can_alloc_reference\<close>
 proof (intro conjI)
   show \<open>is_local (\<lambda>\<sigma> (v, \<sigma>'). \<sigma> \<leadsto>\<^sub>v \<langle>\<Gamma>,store.reference_raw g\<rangle> (v,\<sigma>')) can_alloc_reference\<close>
-  proof (clarsimp simp add: urust_eval_predicate_reference_raw is_local_def
+  proof (clarsimp simp add: eval_predicate_reference_raw is_local_def
     can_alloc_reference_def asat_def, safe, goal_cases)
     case (1 \<sigma>_0 \<sigma>_1 x \<sigma>_0' \<sigma>' addr)
-    then show ?case 
+    then show ?case
       by (meson disjoint_sym global_perm_store.store_add_alloc global_perm_store_axioms store_add_write)
   next
     case (2 \<sigma>_0 \<sigma>_1 x \<sigma>' v \<sigma>'' addr) note assms = this
@@ -265,10 +265,10 @@ proof (intro conjI)
   qed
 next
   show \<open>is_local (\<lambda>\<sigma> (v, \<sigma>'). \<sigma> \<leadsto>\<^sub>r \<langle>\<Gamma>,store.reference_raw g\<rangle> (v,\<sigma>')) can_alloc_reference\<close>
-    by (clarsimp simp add: is_local_def asat_def urust_eval_predicate_reference_raw)
+    by (clarsimp simp add: is_local_def asat_def eval_predicate_reference_raw)
 next
   show \<open>is_local (\<lambda>\<sigma> (v, \<sigma>'). \<sigma> \<leadsto>\<^sub>a \<langle>\<Gamma>,store.reference_raw g\<rangle> (v,\<sigma>')) can_alloc_reference\<close>
-    apply (clarsimp simp add: urust_eval_predicate_reference_raw is_local_def allocate_succeeds 
+    apply (clarsimp simp add: eval_predicate_reference_raw is_local_def allocate_succeeds
       can_alloc_reference_def asat_def )
     by (metis option.distinct(1) store.allocate_write_succeeds store_add_alloc)
 qed
@@ -287,7 +287,7 @@ lemma is_local_store_reference_raw:
     shows \<open>is_local (\<lambda>\<sigma> (va, \<sigma>'). \<sigma> \<leadsto>\<^sub>v \<langle>\<Gamma>,store.reference_raw g\<rangle> (va,\<sigma>')) can_alloc_reference\<close>
       and \<open>is_local (\<lambda>\<sigma> (va, \<sigma>'). \<sigma> \<leadsto>\<^sub>r \<langle>\<Gamma>,store.reference_raw g\<rangle> (va,\<sigma>')) can_alloc_reference\<close>
       and \<open>is_local (\<lambda>\<sigma> (va, \<sigma>'). \<sigma> \<leadsto>\<^sub>a \<langle>\<Gamma>,store.reference_raw g\<rangle> (va,\<sigma>')) can_alloc_reference\<close>
-  using urust_eval_predicate_reference_raw_local 
+  using eval_predicate_reference_raw_local
   by fastforce+
 
 lemma striple_ref_raw:
@@ -298,30 +298,30 @@ proof (intro striple_localI)
   fix \<sigma> \<sigma>' v
   assume \<sigma>: \<open>\<sigma> \<leadsto>\<^sub>v \<langle>yh \<Gamma>,store.reference_raw g\<rangle> (v,\<sigma>')\<close> \<open>\<sigma> \<Turnstile> can_alloc_reference\<close>
   then obtain \<sigma>'' addr where \<sigma>'': \<open>store_allocate_reference \<sigma> = Some (addr, \<sigma>'')\<close>
-    using urust_eval_predicate_reference_raw(2) by blast
+    using eval_predicate_reference_raw(2) by blast
   then have \<open>store_alloc_pool \<sigma>'' \<noteq> {}\<close>
     by (metis allocate_full_share empty_iff finite.emptyI infinite_remove store_pool_inf)
   with \<sigma> \<sigma>'' have \<open>\<sigma>'' \<Turnstile> can_alloc_reference\<close>
     by (force simp: asat_def can_alloc_reference_def store_alloc_valid_allocator)
   with \<sigma> \<sigma>'' show \<open>\<sigma>' \<Turnstile> v \<mapsto> \<langle>\<top>\<rangle> g \<star> can_alloc_reference\<close>
     by (metis alloc_and_write_spec_raw option.inject prod.inject
-        urust_eval_predicate_reference_raw(2))
+        eval_predicate_reference_raw(2))
 next
   fix \<sigma> \<sigma>' :: 's and r :: 'f
   assume \<open>\<sigma> \<leadsto>\<^sub>r \<langle>yh \<Gamma>,store.reference_raw g\<rangle> (r,\<sigma>')\<close>
     and \<open>\<sigma> \<Turnstile> can_alloc_reference\<close>
   then show \<open>\<sigma>' \<Turnstile> \<rho> r\<close>
-        by (auto simp add: urust_eval_predicate_reference_raw)
+        by (auto simp add: eval_predicate_reference_raw)
     next
       fix \<sigma> \<sigma>' :: 's
         and a :: \<open>'c abort\<close>
       assume \<sigma>: \<open>\<sigma> \<leadsto>\<^sub>a \<langle>yh \<Gamma>,store.reference_raw g\<rangle> (a,\<sigma>')\<close> \<open>\<sigma> \<Turnstile> can_alloc_reference\<close>
       have \<open>store_write_reference \<sigma>' addr g \<noteq> None\<close>
         if \<open>store_allocate_reference \<sigma> = Some (addr, \<sigma>')\<close> for addr
-        by (metis that option.discI store.allocate_write_succeeds) 
+        by (metis that option.discI store.allocate_write_succeeds)
       with \<sigma> show \<open>\<sigma>' \<Turnstile> \<theta> a\<close>
-        by (auto simp: urust_eval_predicate_reference_raw allocate_succeeds asat_def can_alloc_reference_def)
-qed (use urust_eval_predicate_reference_raw_local in fastforce)+
+        by (auto simp: eval_predicate_reference_raw allocate_succeeds asat_def can_alloc_reference_def)
+qed (use eval_predicate_reference_raw_local in fastforce)+
 
 lemma sstriple_ref_raw:
     shows \<open>\<Gamma>; can_alloc_reference \<turnstile> store.reference_raw g \<stileturn>
@@ -343,26 +343,26 @@ corollary ref_raw_spec':
 
 subsection\<open>Dereferencing\<close>
 
-lemma urust_eval_predicate_dereference_raw:
+lemma eval_predicate_dereference_raw:
   shows \<open>\<sigma> \<leadsto>\<^sub>v\<langle>\<Gamma>,store.dereference_by_value_raw r\<rangle> (v,\<sigma>') \<longleftrightarrow>
           (\<sigma>' = \<sigma> \<and> store_read_reference \<sigma> (address r) = Some v)\<close> (is ?value)
     and \<open>\<sigma> \<leadsto>\<^sub>r\<langle>\<Gamma>,store.dereference_by_value_raw r\<rangle> (r',\<sigma>') \<longleftrightarrow> False\<close>  (is ?return)
     and \<open>\<sigma> \<leadsto>\<^sub>a\<langle>\<Gamma>,store.dereference_by_value_raw r\<rangle> (a, \<sigma>') \<longleftrightarrow>
           (a = DanglingPointer \<and> \<sigma> = \<sigma>' \<and> store_read_reference \<sigma> (address r) = None)\<close> (is ?abort)
 by (cases \<open>store_read_reference \<sigma> (address r)\<close>, auto simp add: store.dereference_by_value_raw_def
-  urust_eval_predicate_bind urust_eval_predicate_get urust_eval_predicate_abort
-  urust_eval_predicate_literal)+
+  eval_predicate_bind eval_predicate_get eval_predicate_abort
+  eval_predicate_literal)+
 
-lemma urust_eval_predicate_dereference_raw_local:
-  shows \<open>urust_is_local \<Gamma> (store.dereference_by_value_raw r) (r \<mapsto>\<langle>sh\<rangle> v)\<close>
-by (auto simp add: is_local_def urust_eval_predicate_dereference_raw points_to_raw'_def
+lemma eval_predicate_dereference_raw_local:
+  shows \<open>expression_is_local \<Gamma> (store.dereference_by_value_raw r) (r \<mapsto>\<langle>sh\<rangle> v)\<close>
+by (auto simp add: is_local_def eval_predicate_dereference_raw points_to_raw'_def
   asat_def store_add_read)
 
 lemma striple_dereference_raw:
   shows \<open>\<Gamma>; r \<mapsto>\<langle>sh\<rangle> v \<turnstile> store.dereference_by_value_raw r \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k (\<lambda>v'. r\<mapsto>\<langle>sh\<rangle> v \<star> \<langle>v = v'\<rangle>) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
   apply (intro striple_localI)
-  using urust_eval_predicate_dereference_raw_local
-  apply (auto simp: urust_eval_predicate_dereference_raw asat_hoist_pure ucincl_intros
+  using eval_predicate_dereference_raw_local
+  apply (auto simp: eval_predicate_dereference_raw asat_hoist_pure ucincl_intros
      simp add: asepconj_simp)
   done
 
@@ -370,7 +370,7 @@ lemma sstriple_dereference_raw:
   notes asepconj_simp [simp]
   shows \<open>\<Gamma>; r \<mapsto>\<langle>sh\<rangle> v \<turnstile> store.dereference_by_value_raw r \<stileturn> (\<lambda>v'. r\<mapsto>\<langle>sh\<rangle> v \<star> \<langle>v = v'\<rangle>) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
 by (intro sstriple_from_stripleI, intro striple_dereference_raw) (auto simp add: eval_value_def
-  eval_abort_def eval_return_def urust_eval_predicate_dereference_raw_local)
+  eval_abort_def eval_return_def eval_predicate_dereference_raw_local)
 
 lemma wp_dereference_raw:
     notes asat_simp [simp]
@@ -414,7 +414,7 @@ qed
 
 subsection\<open>Modifications behind a reference\<close>
 
-lemma urust_eval_predicate_modify_raw:
+lemma eval_predicate_modify_raw:
   shows \<open>\<sigma> \<leadsto>\<^sub>v\<langle>\<Gamma>,store.modify_raw r f\<rangle> (v,\<sigma>') \<longleftrightarrow>
           (\<exists>g. store_read_reference \<sigma> (address r) = Some g \<and>
                store_write_reference \<sigma> (address r) (f g) = Some \<sigma>')\<close> (is ?value)
@@ -424,12 +424,12 @@ lemma urust_eval_predicate_modify_raw:
               (store_read_reference \<sigma> (address r) = None)
             \<or> (\<exists>g. store_read_reference \<sigma> (address r) = Some g \<and>
                    store_write_reference \<sigma> (address r) (f g) = None)))\<close> (is ?abort)
-by (auto simp add: store.modify_raw_def urust_eval_predicate_bind urust_eval_predicate_get
-  urust_eval_predicate_abort urust_eval_predicate_literal urust_eval_predicate_put_assert split:
+by (auto simp add: store.modify_raw_def eval_predicate_bind eval_predicate_get
+  eval_predicate_abort eval_predicate_literal eval_predicate_put_assert split:
   option.splits)
 
-lemma urust_eval_predicate_modify_raw_local:
-  shows \<open>urust_is_local \<Gamma> (store.modify_raw r f) (r \<mapsto>\<langle>\<top>\<rangle> v)\<close>
+lemma eval_predicate_modify_raw_local:
+  shows \<open>expression_is_local \<Gamma> (store.modify_raw r f) (r \<mapsto>\<langle>\<top>\<rangle> v)\<close>
 proof (intro conjI)
   show \<open>is_local (\<lambda>\<sigma> (v, \<sigma>'). \<sigma> \<leadsto>\<^sub>v \<langle>\<Gamma>,store.modify_raw r f\<rangle> (v,\<sigma>')) (r \<mapsto> \<langle>\<top>\<rangle> v)\<close>
   proof -
@@ -441,15 +441,15 @@ proof (intro conjI)
       using that
       by (metis option.inject store_add_write top.extremum_uniqueI write_perm_succeeds)
     then show ?thesis
-      by (auto simp add: is_local_def urust_eval_predicate_modify_raw points_to_raw'_def asat_def
+      by (auto simp add: is_local_def eval_predicate_modify_raw points_to_raw'_def asat_def
           dest: store_add_read store_add_write)
   qed
 next
   show \<open>is_local (\<lambda>\<sigma> (v, \<sigma>'). \<sigma> \<leadsto>\<^sub>r \<langle>\<Gamma>,store.modify_raw r f\<rangle> (v,\<sigma>')) (r \<mapsto> \<langle>\<top>\<rangle> v)\<close>
-    by (clarsimp simp add: is_local_def urust_eval_predicate_modify_raw)
+    by (clarsimp simp add: is_local_def eval_predicate_modify_raw)
 next
   show \<open>is_local (\<lambda>\<sigma> (v, \<sigma>'). \<sigma> \<leadsto>\<^sub>a \<langle>\<Gamma>,store.modify_raw r f\<rangle> (v,\<sigma>')) (r \<mapsto> \<langle>\<top>\<rangle> v)\<close>
-    apply (clarsimp simp add: is_local_def urust_eval_predicate_modify_raw
+    apply (clarsimp simp add: is_local_def eval_predicate_modify_raw
       points_to_raw'_def asat_def store_add_read top.extremum_unique)
     apply (metis option.distinct(1) store_add_write write_perm_succeeds)
     done
@@ -462,31 +462,31 @@ proof (intro striple_localI)
   fix \<sigma> \<sigma>' :: 's and va
   assume \<sigma>: \<open>\<sigma> \<leadsto>\<^sub>v \<langle>yh \<Gamma>,store.modify_raw r f\<rangle> (va,\<sigma>')\<close> \<open>\<sigma> \<Turnstile> r \<mapsto> \<langle>\<top>\<rangle> v\<close>
   then have \<open>store_read_reference \<sigma>' (address r) = Some (f v)\<close>
-    by (metis option.inject points_to_raw'E store.write_store_read_store urust_eval_predicate_modify_raw(1))
+    by (metis option.inject points_to_raw'E store.write_store_read_store eval_predicate_modify_raw(1))
   moreover have \<open>\<top> \<le> store_perm_map \<sigma>' (address r)\<close>
-    by (metis \<sigma> points_to_raw'E urust_eval_predicate_modify_raw(1) store.write_store_write_store write_perm_succeeds)
-  ultimately show \<open>\<sigma>' \<Turnstile> r \<mapsto> \<langle>\<top>\<rangle> f v\<close>       
+    by (metis \<sigma> points_to_raw'E eval_predicate_modify_raw(1) store.write_store_write_store write_perm_succeeds)
+  ultimately show \<open>\<sigma>' \<Turnstile> r \<mapsto> \<langle>\<top>\<rangle> f v\<close>
     using \<sigma> by (simp add: points_to_raw'_def asat_def)
 next
   fix \<sigma> \<sigma>' :: 's and ra :: 'f
   assume \<open>\<sigma> \<leadsto>\<^sub>r \<langle>yh \<Gamma>,store.modify_raw r f\<rangle> (ra,\<sigma>')\<close>
     and \<open>\<sigma> \<Turnstile> r \<mapsto> \<langle>\<top>\<rangle> v\<close>
   then show \<open>\<sigma>' \<Turnstile> \<rho> ra\<close>
-    by (simp add: urust_eval_predicate_modify_raw(2))
+    by (simp add: eval_predicate_modify_raw(2))
 next
   fix \<sigma> \<sigma>' :: 's and a :: \<open>'c abort\<close>
   assume \<sigma>: \<open>\<sigma> \<leadsto>\<^sub>a \<langle>yh \<Gamma>,store.modify_raw r f\<rangle> (a,\<sigma>')\<close> \<open>\<sigma> \<Turnstile> r \<mapsto> \<langle>\<top>\<rangle> v\<close>
   then have \<open>\<sigma> \<in> \<theta> DanglingPointer\<close>
-    by (metis option.distinct(1) points_to_raw'E top.extremum_unique urust_eval_predicate_modify_raw(3)
+    by (metis option.distinct(1) points_to_raw'E top.extremum_unique eval_predicate_modify_raw(3)
         write_perm_succeeds)
   with \<sigma> show \<open>\<sigma>' \<Turnstile> \<theta> a\<close>
-    by (simp add: urust_eval_predicate_modify_raw asat_hoist_pure ucincl_intros points_to_raw'_def asat_def)
-qed (use urust_eval_predicate_modify_raw_local in fastforce)+
+    by (simp add: eval_predicate_modify_raw asat_hoist_pure ucincl_intros points_to_raw'_def asat_def)
+qed (use eval_predicate_modify_raw_local in fastforce)+
 
 lemma sstriple_modify_raw:
   shows \<open>\<Gamma>; r \<mapsto>\<langle>\<top>\<rangle> v \<turnstile> store.modify_raw r f \<stileturn> (\<lambda>_. r \<mapsto>\<langle>\<top>\<rangle> (f v)) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
 by (intro sstriple_from_stripleI, intro striple_modify_raw) (auto simp add: eval_value_def
-  eval_return_def eval_abort_def urust_eval_predicate_modify_raw_local)
+  eval_return_def eval_abort_def eval_predicate_modify_raw_local)
 
 lemma wp_modify_raw:
     notes asat_simp [simp]
@@ -579,7 +579,7 @@ begin
 lemma reference_sublocale: \<open>reference
    store.update_raw_fun store.dereference_by_value_raw_fun store.reference_raw_fun
    points_to_raw' (\<lambda>_. UNIV) UNIV can_alloc_reference\<close>
-proof 
+proof
   show \<open>\<And>\<Gamma> r g g0. \<Gamma> ; store.update_raw_fun  r g \<Turnstile>\<^sub>F
      reference_defs.update_raw_contract points_to_raw' (\<lambda>_. UNIV) r g0 g\<close>
     using update_raw_spec' by (simp add: update_raw_contract'_def

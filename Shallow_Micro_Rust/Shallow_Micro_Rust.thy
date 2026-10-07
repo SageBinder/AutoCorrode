@@ -9,7 +9,7 @@ theory Shallow_Micro_Rust
     Core_Expression_Lemmas_Profile
     Micro_Rust_Parser_Target
     Eval_Profile
-    Global_Store
+    Rust_State_Profile
     Micro_Rust     
     Numeric_Types
     Numeric_Types_Lemmas

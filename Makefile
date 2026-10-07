@@ -10,8 +10,11 @@
 .DEFAULT_GOAL: jedit
 .PHONY: check-afp-components register-afp-components \
         build-isabelle-c build-micro-c-isabelle-c-adapter \
-        build-shallow-micro-c build-micro-c-parsing-frontend \
-        build-micro-c-parser-tests language-isolation-tests \
+        build-shallow-state build-shallow-state-logic \
+        build-shallow-micro-rust build-shallow-micro-c \
+        build-micro-c-parsing-frontend \
+        build-micro-c-parser-tests build-micro-c-examples \
+        language-isolation-tests \
         c-baseline c-prototype build parser-tests jedit tutorial \
         build-ic2 ic2 ic2-status ic2-stop
 
@@ -98,35 +101,47 @@ build-micro-c-isabelle-c-adapter: build-isabelle-c
 		-d Micro_C_Isabelle_C_Adapter \
 		Micro_C_Isabelle_C_Adapter
 
+build-shallow-state: check-afp-components
+	USER_HOME="$(USER_HOME)" \
+		$(ISABELLE_HOME)/isabelle build $(ISABELLE_FLAGS) -o document=false \
+		$(AUTOCORRODE_SESSION_DIRS) \
+		Shallow_State
+
+build-shallow-state-logic: build-shallow-state
+	USER_HOME="$(USER_HOME)" \
+		$(ISABELLE_HOME)/isabelle build $(ISABELLE_FLAGS) -o document=false \
+		$(AUTOCORRODE_SESSION_DIRS) \
+		Shallow_State_Logic
+
+build-shallow-micro-rust: build-shallow-state
+	USER_HOME="$(USER_HOME)" \
+		$(ISABELLE_HOME)/isabelle build $(ISABELLE_FLAGS) -o document=false \
+		$(AUTOCORRODE_SESSION_DIRS) \
+		Shallow_Micro_Rust
+
 build-shallow-micro-c: check-afp-components
 	USER_HOME="$(USER_HOME)" \
 		$(ISABELLE_HOME)/isabelle build $(ISABELLE_FLAGS) -o document=false \
-		$(MICRO_C_NEUTRAL_SESSION_DIRS) \
-		-d Shallow_Micro_C \
+		$(AUTOCORRODE_SESSION_DIRS) \
 		Shallow_Micro_C
 
 build-micro-c-parsing-frontend: build-micro-c-isabelle-c-adapter
 	USER_HOME="$(USER_HOME)" \
 		$(ISABELLE_HOME)/isabelle build $(ISABELLE_FLAGS) -o document=false \
-		-d "$(ISABELLE_DOC_DIR)" \
-		-d "$(ISABELLE_C_COMPONENT_BASE)/Isabelle_C" \
-		$(MICRO_C_NEUTRAL_SESSION_DIRS) \
-		-d Shallow_Micro_C \
-		-d Micro_C_Isabelle_C_Adapter \
-		-d Micro_C_Parsing_Frontend \
+		$(AUTOCORRODE_SESSION_DIRS) \
 		Micro_C_Parsing_Frontend
 
 build-micro-c-parser-tests: build-micro-c-parsing-frontend
 	USER_HOME="$(USER_HOME)" \
 		$(ISABELLE_HOME)/isabelle build $(ISABELLE_FLAGS) -o document=false \
-		-d "$(ISABELLE_DOC_DIR)" \
-		-d "$(ISABELLE_C_COMPONENT_BASE)/Isabelle_C" \
-		$(MICRO_C_NEUTRAL_SESSION_DIRS) \
-		-d Shallow_Micro_C \
-		-d Micro_C_Isabelle_C_Adapter \
-		-d Micro_C_Parsing_Frontend \
-		-d Micro_C_Parser_Tests \
+		$(AUTOCORRODE_SESSION_DIRS) \
 		Micro_C_Parser_Tests
+
+build-micro-c-examples: build-micro-c-parsing-frontend
+	USER_HOME="$(USER_HOME)" \
+		$(ISABELLE_HOME)/isabelle build $(ISABELLE_FLAGS) -o document=false \
+		$(AUTOCORRODE_SESSION_DIRS) \
+		Micro_C_Examples
 
 language-isolation-tests: check-afp-components
 	USER_HOME="$(USER_HOME)" \
@@ -136,7 +151,9 @@ language-isolation-tests: check-afp-components
 
 c-baseline: build-micro-c-isabelle-c-adapter language-isolation-tests build
 
-c-prototype: build-micro-c-parser-tests language-isolation-tests build
+c-prototype: build-shallow-state build-shallow-state-logic build-shallow-micro-rust \
+	build-shallow-micro-c build-micro-c-parsing-frontend build-micro-c-parser-tests \
+	build-micro-c-examples parser-tests language-isolation-tests build
 
 build: check-afp-components
 	USER_HOME="$(USER_HOME)" \

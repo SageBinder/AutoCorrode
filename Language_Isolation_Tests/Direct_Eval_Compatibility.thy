@@ -12,15 +12,15 @@ term Eval.evaluates_to_value
 term Eval.evaluates_to_abort
 
 thm Eval.evaluates_to_return_eq
-thm Eval.urust_eval_action_bind
-thm Eval.urust_eval_predicate_literal
-thm Eval.urust_eval_action_get
+thm Eval.eval_action_bind
+thm Eval.eval_predicate_literal
+thm Eval.eval_action_get
 
-lemma isolation_eval_predicate_rule [urust_eval_predicate_simps]:
+lemma isolation_eval_predicate_rule [shallow_computation_eval_predicate_simps]:
   shows True
   by simp
 
-lemma isolation_eval_action_rule [urust_eval_action_simps]:
+lemma isolation_eval_action_rule [shallow_computation_eval_action_simps]:
   shows \<open>id x = x\<close>
   by simp
 
@@ -36,11 +36,15 @@ ML_val\<open>
       if condition then () else error ("direct evaluation compatibility: " ^ message)
   in
     val _ = assert "predicate registry remains writable"
-      (member \<^named_theorems>\<open>urust_eval_predicate_simps\<close>
+      (member \<^named_theorems>\<open>shallow_computation_eval_predicate_simps\<close>
         (theorem "isolation_eval_predicate_rule"))
     val _ = assert "action registry remains writable"
-      (member \<^named_theorems>\<open>urust_eval_action_simps\<close>
+      (member \<^named_theorems>\<open>shallow_computation_eval_action_simps\<close>
         (theorem "isolation_eval_action_rule"))
+    val _ = assert "legacy generic action theorem was removed"
+      (not (can (Proof_Context.get_thm ctxt) "Eval.urust_eval_action_bind"))
+    val _ = assert "legacy generic predicate theorem was removed"
+      (not (can (Proof_Context.get_thm ctxt) "Eval.urust_eval_predicate_literal"))
   end
 \<close>
 

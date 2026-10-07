@@ -4,7 +4,7 @@
 theory SLens
   imports 
     Lenses_And_Other_Optics.Lens
-    Shallow_Separation_Logic.Separation_Algebra 
+    Shallow_State_Logic.Separation_Algebra
 begin
 
 section \<open>Separation lenses\<close>

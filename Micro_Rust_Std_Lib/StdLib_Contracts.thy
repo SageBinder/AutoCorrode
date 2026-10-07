@@ -18,21 +18,21 @@ lemma satisfies_function_contract_via_call:
   assumes U0: \<open>ucincl (function_contract_pre \<C>)\<close>
       and U1: \<open>\<And>r. ucincl (function_contract_post \<C> r)\<close>
       and U2: \<open>\<And>r. ucincl (function_contract_abort \<C> r)\<close>
-      and LOC: \<open>urust_is_local (yh \<Gamma>) (function_body f) (function_contract_pre \<C>)\<close>
+      and LOC: \<open>expression_is_local (yh \<Gamma>) (function_body f) (function_contract_pre \<C>)\<close>
     and W: \<open>function_contract_pre \<C> \<longlongrightarrow> \<W>\<P> \<Gamma> (call f) (function_contract_post \<C>)
-                                                     (function_contract_post \<C>) 
+                                                     (function_contract_post \<C>)
                                                      (function_contract_abort \<C>)\<close>
   shows \<open>\<Gamma>; f \<Turnstile>\<^sub>F \<C>\<close>
 proof -
-  from W have 
+  from W have
     \<open>\<Gamma> ; function_contract_pre \<C> \<turnstile> call f \<stileturn> function_contract_post \<C> \<bowtie> function_contract_post \<C> \<bowtie> function_contract_abort \<C>\<close>
     by (simp add: wp_to_sstriple[OF W])
-  from this have 
+  from this have
     \<open>\<Gamma> ; function_contract_pre \<C> \<turnstile> call f \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k function_contract_post \<C> \<bowtie> function_contract_post \<C> \<bowtie> function_contract_abort \<C>\<close>
     by (clarsimp simp add: sstriple_striple)
   from this have \<open>\<Gamma> ; function_contract_pre \<C> \<turnstile> (function_body f) \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k function_contract_post \<C> \<bowtie> function_contract_post \<C> \<bowtie> function_contract_abort \<C>\<close>
     by (simp add: striple_call_inv)
-  from this and LOC have  
+  from this and LOC have
     \<open>\<Gamma> ; function_contract_pre \<C> \<turnstile> (function_body f) \<stileturn> function_contract_post \<C> \<bowtie> function_contract_post \<C> \<bowtie> function_contract_abort \<C>\<close>
       by (simp add: sstriple_striple eval_abort_def eval_return_def eval_value_def)
   from this and U0 U1 U2 show ?thesis
@@ -50,7 +50,7 @@ lemma satisfies_function_contract_weaken:
     shows \<open>\<Gamma> ; f \<Turnstile>\<^sub>F \<C>'\<close>
   using assms
   apply (elim satisfies_function_contractE', intro satisfies_function_contract_via_call;
-    simp add: sstriple_implies_is_local urust_is_local_weaken[OF PRE])
+    simp add: sstriple_implies_is_local expression_is_local_weaken[OF PRE])
   apply (crush_base specs add: C seplog drule add: PRE)
   done
 
@@ -64,12 +64,12 @@ lemma satisfies_function_contract_weaken_wp:
                \<sqinter> ((\<Sqinter>r. function_contract_abort \<C> r \<Zsurj> function_contract_abort \<C>' r)))\<close>
     shows \<open>\<Gamma> ; f \<Turnstile>\<^sub>F \<C>'\<close>
 proof -
-  from PRE and C have 
+  from PRE and C have
     PRE': \<open>function_contract_pre \<C>' \<longlongrightarrow> function_contract_pre \<C>\<close>
     using aentails_cancel_r aentails_trans' satisfies_function_contractE' by blast
   from C PRE' U0 U1 U2 show ?thesis
     apply (elim satisfies_function_contractE', intro satisfies_function_contract_via_call;
-    simp add: sstriple_implies_is_local urust_is_local_weaken[OF PRE'])
+    simp add: sstriple_implies_is_local expression_is_local_weaken[OF PRE'])
     apply (crush_base specs add: C seplog drule add: PRE)
     done
 qed
@@ -87,12 +87,12 @@ proof -
   from PRE and C have PRE': \<open>function_contract_pre \<C>' \<longlongrightarrow> (\<Squnion>x. function_contract_pre (\<C> x))\<close>
     by (meson aentails_cancel_r aentails_trans aexists_entailsL aexists_entailsR
       satisfies_function_contractE')
-  have \<open>urust_is_local (yh \<Gamma>) (function_body f) (function_contract_pre \<C>')\<close>
-    using urust_is_local_weaken[OF PRE'] urust_is_local_Union function_contract_implies_is_local[OF C]
+  have \<open>expression_is_local (yh \<Gamma>) (function_body f) (function_contract_pre \<C>')\<close>
+    using expression_is_local_weaken[OF PRE'] expression_is_local_Union function_contract_implies_is_local[OF C]
     by metis
   from this and U0 U1 U2 show ?thesis
     apply (intro satisfies_function_contract_via_call; simp add: function_contract_implies_is_local
-      urust_is_local_weaken urust_is_local_Union)
+      expression_is_local_weaken expression_is_local_Union)
     apply (crush_base specs add: C seplog drule add: PRE)
     done
 qed
@@ -122,23 +122,23 @@ lemmas satisfies_function_contract_weaken_wp_lambda22 = satisfies_function_contr
 
 lemmas satisfies_function_contract_weaken_wp_lambda_many =
   satisfies_function_contract_weaken_wp_lambda
-  satisfies_function_contract_weaken_wp_lambda2 
-  satisfies_function_contract_weaken_wp_lambda3  
-  satisfies_function_contract_weaken_wp_lambda4  
-  satisfies_function_contract_weaken_wp_lambda5  
-  satisfies_function_contract_weaken_wp_lambda6  
-  satisfies_function_contract_weaken_wp_lambda7  
-  satisfies_function_contract_weaken_wp_lambda8  
-  satisfies_function_contract_weaken_wp_lambda9  
-  satisfies_function_contract_weaken_wp_lambda10 
-  satisfies_function_contract_weaken_wp_lambda11 
-  satisfies_function_contract_weaken_wp_lambda12 
-  satisfies_function_contract_weaken_wp_lambda13 
-  satisfies_function_contract_weaken_wp_lambda14 
-  satisfies_function_contract_weaken_wp_lambda15 
-  satisfies_function_contract_weaken_wp_lambda16 
-  satisfies_function_contract_weaken_wp_lambda17 
-  satisfies_function_contract_weaken_wp_lambda18 
+  satisfies_function_contract_weaken_wp_lambda2
+  satisfies_function_contract_weaken_wp_lambda3
+  satisfies_function_contract_weaken_wp_lambda4
+  satisfies_function_contract_weaken_wp_lambda5
+  satisfies_function_contract_weaken_wp_lambda6
+  satisfies_function_contract_weaken_wp_lambda7
+  satisfies_function_contract_weaken_wp_lambda8
+  satisfies_function_contract_weaken_wp_lambda9
+  satisfies_function_contract_weaken_wp_lambda10
+  satisfies_function_contract_weaken_wp_lambda11
+  satisfies_function_contract_weaken_wp_lambda12
+  satisfies_function_contract_weaken_wp_lambda13
+  satisfies_function_contract_weaken_wp_lambda14
+  satisfies_function_contract_weaken_wp_lambda15
+  satisfies_function_contract_weaken_wp_lambda16
+  satisfies_function_contract_weaken_wp_lambda17
+  satisfies_function_contract_weaken_wp_lambda18
   satisfies_function_contract_weaken_wp_lambda19
   satisfies_function_contract_weaken_wp_lambda20
   satisfies_function_contract_weaken_wp_lambda21
@@ -165,7 +165,7 @@ lemma satisfies_function_contract_weaken':
     shows \<open>\<Gamma> ; f \<Turnstile>\<^sub>F \<C>'\<close>
 using assms
   apply (clarsimp simp add: satisfies_function_contract_def split!: function_body.splits)
-  using sstriple_consequence apply (meson sstriple_assume_is_sat satisfies_function_contract_def 
+  using sstriple_consequence apply (meson sstriple_assume_is_sat satisfies_function_contract_def
     satisfies_function_contract_weaken)
   done
 

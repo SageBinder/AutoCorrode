@@ -1,8 +1,23 @@
 session Shallow_Micro_C = HOL +
   options [document = false]
   sessions
+    "HOL-Eisbach"
+    "HOL-Library"
+    Byte_Level_Encoding
+    Lenses_And_Other_Optics
     Shallow_Computation
+    Shallow_Separation_Logic
+    Shallow_State
     Word_Lib
   theories [document = false]
-    C_Scalar_Profile
+    C_Abort
+    C_Abort_Rules
+    C_Numeric_Types
+    C_Sizeof
+    C_Pointer_Types
+    C_Memory_Operations
+    C_Arithmetic_Rules
+    C_Byte_Encoding
+    C_Void_Pointer
+    C_Translation_Model
     Shallow_Micro_C

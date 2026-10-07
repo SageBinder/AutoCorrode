@@ -972,7 +972,7 @@ urust_expr improvement_hygienic_alias
 section\<open>Hygienic mutable wildcard\<close>
 
 definition improvement_reference_fixture ::
-  \<open>'v \<Rightarrow> (unit, (unit, unit, 'v) Global_Store.ref, unit, unit, unit) function_body\<close>
+  \<open>'v \<Rightarrow> (unit, (unit, unit, 'v) State_References.ref, unit, unit, unit) function_body\<close>
   where \<open> improvement_reference_fixture \<equiv> undefined \<close>
 
 adhoc_overloading store_reference_const \<rightleftharpoons> improvement_reference_fixture
@@ -1003,12 +1003,12 @@ adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereferenc
 
 context
   fixes rr ::
-    \<open>(unit, unit, (unit, unit, 32 word) Global_Store.ref) Global_Store.ref\<close>
+    \<open>(unit, unit, (unit, unit, 32 word) State_References.ref) State_References.ref\<close>
     and rrr ::
       \<open>(unit, unit,
-          (unit, unit, (unit, unit, 32 word) Global_Store.ref) Global_Store.ref)
-        Global_Store.ref\<close>
-    and r :: \<open>(unit, unit, 32 word) Global_Store.ref\<close>
+          (unit, unit, (unit, unit, 32 word) State_References.ref) State_References.ref)
+        State_References.ref\<close>
+    and r :: \<open>(unit, unit, 32 word) State_References.ref\<close>
 begin
 
 urust_expr improvement_recursive_borrow_deref
@@ -1035,7 +1035,7 @@ itself retains the \<open>(*base)[index]\<close> meaning.
 
 datatype_record deref_postfix_fixture =
   deref_postfix_fixture_field ::
-    \<open>(unit, unit, 64 word) Global_Store.ref\<close>
+    \<open>(unit, unit, 64 word) State_References.ref\<close>
 micro_rust_record deref_postfix_fixture
   (deref_postfix_fixture_field = "field")
 
@@ -1049,10 +1049,10 @@ definition deref_postfix_identity ::
 adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
 
 context
-  fixes references :: \<open>(unit, unit, 64 word) Global_Store.ref list\<close>
+  fixes references :: \<open>(unit, unit, 64 word) State_References.ref list\<close>
     and base :: deref_postfix_fixture
     and array_ref ::
-      \<open>(unit, unit, (64 word, 4) array) Global_Store.ref\<close>
+      \<open>(unit, unit, (64 word, 4) array) State_References.ref\<close>
 begin
 
 urust_expr improvement_deref_index_operand
@@ -1087,7 +1087,7 @@ adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereferenc
 adhoc_overloading store_update_const \<rightleftharpoons> parser_update_fixture
 
 context
-  fixes r :: \<open>(unit, unit, 32 word) Global_Store.ref\<close>
+  fixes r :: \<open>(unit, unit, 32 word) State_References.ref\<close>
     and lhs rhs :: \<open>32 word\<close>
 begin
 
@@ -1114,7 +1114,7 @@ dereference and lowers it to the focused reference before update.
 adhoc_overloading store_update_const \<rightleftharpoons> parser_update_fixture
 
 context
-  fixes rp :: \<open>(unit, unit, postfix_outer) Global_Store.ref\<close>
+  fixes rp :: \<open>(unit, unit, postfix_outer) State_References.ref\<close>
     and field_value :: \<open>64 word\<close>
 begin
 
@@ -1368,7 +1368,7 @@ adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereferenc
 
 context
   fixes cast_prefix_raw :: \<open>(unit, unit) gref\<close>
-    and cast_prefix_ref :: \<open>(unit, unit, 32 word) Global_Store.ref\<close>
+    and cast_prefix_ref :: \<open>(unit, unit, 32 word) State_References.ref\<close>
 begin
 
 urust_expr improvement_cast_multiline_pointer_target

@@ -60,7 +60,7 @@ struct
   type reports = deferred_event list
 
   val active_reports:
-    deferred_event list Unsynchronized.ref Thread_Data.var =
+    deferred_event list Synchronized.var Thread_Data.var =
       Thread_Data.var ()
 
   val active_source:
@@ -69,7 +69,8 @@ struct
 
   fun enqueue event =
     (case Thread_Data.get active_reports of
-       SOME reports => reports := event :: !reports
+       SOME reports =>
+         Synchronized.change reports (fn events => event :: events)
      | NONE =>
          error
            "Semantic_Navigation: no active report capture")
@@ -80,18 +81,21 @@ struct
      | NONE =>
          let
            val reports =
-             Unsynchronized.ref ([]: deferred_event list)
+             Synchronized.var
+               "semantic_navigation_reports"
+               ([]: deferred_event list)
            val result =
              Thread_Data.setmp active_reports (SOME reports)
                action ()
-         in (result, rev (!reports)) end)
+         in (result, rev (Synchronized.value reports)) end)
 
   fun defer_report ctxt pos markup =
     if not (Position.is_reported pos) then ()
     else
       (case Thread_Data.get active_reports of
          SOME reports =>
-           reports := Deferred_Markup (pos, markup) :: !reports
+           Synchronized.change reports
+             (fn events => Deferred_Markup (pos, markup) :: events)
        | NONE =>
            Context_Position.report ctxt pos markup)
 
@@ -240,11 +244,12 @@ struct
   fun resolve_markers _ terms =
     let
       val grouped =
-        Unsynchronized.ref
+        Synchronized.var
+          "semantic_navigation_targets"
           ([]: (Position.T list * selected_target list) list)
 
       fun record positions target =
-        Unsynchronized.change grouped
+        Synchronized.change grouped
           (fn groups =>
             (case AList.lookup same_positions groups positions of
                SOME targets =>
@@ -344,7 +349,7 @@ struct
           (fn (positions, targets) =>
             if null targets then ()
             else enqueue (Deferred_Targets (positions, targets)))
-          (!grouped)
+          (Synchronized.value grouped)
     in resolved end
 
   fun report_constant ctxt pos name =
@@ -374,7 +379,8 @@ struct
         resolve_markers)
 end
 
-structure Micro_Rust_Semantic_Navigation = Semantic_Navigation
+structure Shallow_Computation_Semantic_Navigation =
+  Semantic_Navigation
 \<close>
 
 end

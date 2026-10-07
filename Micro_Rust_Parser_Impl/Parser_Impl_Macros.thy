@@ -74,7 +74,7 @@ struct
   structure T = URust_Shallow_Terms
   structure R = URust_Resolution
   structure M = URust_Matching
-  structure Navigation = Micro_Rust_Semantic_Navigation
+  structure Navigation = Shallow_Computation_Semantic_Navigation
 
   fun with_literal_positions positions action =
     Navigation.with_source positions (fn () =>

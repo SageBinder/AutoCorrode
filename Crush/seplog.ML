@@ -2306,7 +2306,9 @@ struct
 
   fun aentails_wp_ssa_normalize_tac (ctxt : Proof.context) : int -> tactic =
     let
-      val micro_rust_simps = Named_Theorems.get ctxt @{named_theorems "micro_rust_simps"}
+      val micro_rust_simps =
+        Named_Theorems.get ctxt @{named_theorems "shallow_computation_simps"} @
+        Named_Theorems.get ctxt @{named_theorems "micro_rust_simps"}
       val micro_rust_ssa = Named_Theorems.get ctxt @{named_theorems "micro_rust_ssa"}
     in
       CONVERSION (

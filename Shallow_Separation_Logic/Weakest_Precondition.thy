@@ -4,10 +4,10 @@
 (*<*)
 theory Weakest_Precondition
   imports
-    Assertion_Language
+    Shallow_State_Logic.Assertion_Language
     Triple
     Function_Contract
-    "Shallow_Micro_Rust.Micro_Rust"
+    Shallow_Computation.Shallow_Computation
     Representability
 begin
 (*>*)
@@ -40,8 +40,9 @@ precondition for \<^verbatim>\<open>\<Gamma>,e,\<psi>,\<rho>\<close>.\<close>
 
 text\<open>First, the definition of the sstriple as a functor on assertions:\<close>
 
-definition sstriple_functor :: \<open>('a, 'abort, 'i, 'o) striple_context \<Rightarrow>
-                  ('a, 'v, 'r, 'abort, 'i prompt, 'o prompt_output) expression \<Rightarrow> \<comment> \<open>The expression to compute the WP for\<close>
+definition sstriple_functor ::
+  \<open>('a, 'abort, 'i::nondeterministic_prompt, 'o::nondeterministic_response) striple_context \<Rightarrow>
+                  ('a, 'v, 'r, 'abort, 'i, 'o) expression \<Rightarrow> \<comment> \<open>The expression to compute the WP for\<close>
                   ('v \<Rightarrow> 'a assert) \<Rightarrow> \<comment> \<open>The success postcondition to compute the WP relative to\<close>
                   ('r \<Rightarrow> 'a assert) \<Rightarrow> \<comment> \<open>The return postcondition to compute the WP relative to\<close>
                   ('abort abort \<Rightarrow> 'a assert) \<Rightarrow>
@@ -55,8 +56,9 @@ Note: It should not be necessary to unfold this definition! Instead, work purely
 universal property \<^verbatim>\<open>wp_sstriple_iff\<close> established below to reduce properties of \<^verbatim>\<open>\<W>\<P>\<close>
 to properties of sstriples. There are plenty of examples below.\<close>
 
-definition wp :: \<open>('a, 'abort, 'i, 'o) striple_context \<Rightarrow>
-                  ('a, 'v, 'r, 'abort, 'i prompt, 'o prompt_output) expression \<Rightarrow> \<comment> \<open>The expression to compute the WP for\<close>
+definition wp ::
+  \<open>('a, 'abort, 'i::nondeterministic_prompt, 'o::nondeterministic_response) striple_context \<Rightarrow>
+                  ('a, 'v, 'r, 'abort, 'i, 'o) expression \<Rightarrow> \<comment> \<open>The expression to compute the WP for\<close>
                   ('v \<Rightarrow> 'a assert) \<Rightarrow> \<comment> \<open>The success postcondition to compute the WP relative to\<close>
                   ('r \<Rightarrow> 'a assert) \<Rightarrow> \<comment> \<open>The return postcondition to compute the WP relative to\<close>
                   ('abort abort \<Rightarrow> 'a assert) \<Rightarrow>
@@ -280,51 +282,17 @@ First, we introduce some named collections of theorem that will be useful later,
 automation tactics.  We have theorem collections relating to simplification and introduction rules
 for the Weakest Precondition calculus:\<close>
 
-named_theorems micro_rust_wp_simps
-named_theorems micro_rust_wp_elims
-named_theorems micro_rust_wp_intros
-named_theorems micro_rust_wp_case_splits
+named_theorems separation_logic_wp_simps
+named_theorems separation_logic_wp_elims
+named_theorems separation_logic_wp_intros
+named_theorems separation_logic_wp_case_splits
 
 text\<open>Introduction rules introducing schematic variables. Those should be attempted after
 destructing quantified assumptions, as only then the schematic may depend on the quantifiers
 in the assumptions:\<close>
-named_theorems micro_rust_wp_ex_intros
+named_theorems separation_logic_wp_ex_intros
 
-lemma wp_pause:
-    notes asepconj_simp [simp]
-  assumes \<open>\<And>r. ucincl (\<psi> r)\<close>
-    shows \<open>\<W>\<P> \<Gamma> pause \<psi> \<rho> \<theta> = \<psi> ()\<close>
-  using assms by (auto intro!: aentails_yonedaI simp add: sstriple_wp_iff sstriple_pause')
-
-text\<open>The following is deliberately not marked as \<^verbatim>\<open>micro_rust_wp_intros\<close> so automation does not
-silently go over it.\<close>
-\<comment>\<open>NOTE: This lemma is not used at present, but seems worth keeping.\<close>
-lemma wp_pauseI:
-  assumes \<open>\<And>r. ucincl (\<psi> r)\<close>
-      and \<open>\<phi> \<longlongrightarrow> \<psi> ()\<close>
-    shows \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> pause \<psi> \<rho> \<theta>\<close>
-using assms by (simp add: wp_pause)
-
-lemma wp_log:
-    notes asepconj_simp [simp]
-  assumes \<open>\<And>r. ucincl (\<psi> r)\<close>
-    shows \<open>\<W>\<P> \<Gamma> (log p l) \<psi> \<rho> \<theta> = \<psi> ()\<close>
-using assms by (auto intro!: aentails_yonedaI simp add: sstriple_wp_iff sstriple_log')
-
-lemma wp_logI [micro_rust_wp_intros]:
-  assumes \<open>\<And>r. ucincl (\<psi> r)\<close>
-      and \<open>\<phi> \<longlongrightarrow> \<psi> ()\<close>
-    shows \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> (log p l) \<psi> \<rho> \<theta>\<close>
-using assms by (simp add: wp_log)
-
-lemma wp_fatalI [micro_rust_wp_intros]:
-    notes asepconj_simp [simp]
-  assumes \<open>is_aborting_striple_context \<Gamma>\<close>
-      and \<open>\<And>r. ucincl (\<psi> r)\<close>
-    shows \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> (fatal msg) \<psi> \<rho> \<theta>\<close>
-  using assms by (auto intro!: aentails_yonedaI simp add: sstriple_wp_iff sstriple_fatal)
-
-lemma wp_literal [micro_rust_wp_simps]:
+lemma wp_literal [separation_logic_wp_simps]:
     notes asepconj_simp [simp]
   assumes \<open>\<And>r. ucincl (\<psi> r)\<close>
     shows \<open>\<W>\<P> \<Gamma> (literal v) \<psi> \<rho>  \<theta> = \<psi> v\<close>
@@ -336,92 +304,30 @@ lemma wp_literal_coreI:
     shows \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> (literal v) \<psi> \<rho> \<theta>\<close>
 using assms by (subst wp_literal)
 
-lemma wp_literalI[micro_rust_wp_intros]:
+lemma wp_literalI[separation_logic_wp_intros]:
   assumes \<open>\<phi> \<longlongrightarrow> \<psi> v \<star> \<top>\<close>
     shows \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> (literal v) \<psi> \<rho> \<theta>\<close>
   by (simp add: assms local.sstriple_literal local.sstriple_wp_iff)
 
 text\<open>As immediate corollaries of the result above we have analogous results for all of our literal
 values for Core Micro Rust:\<close>
-corollary wp_core_rust_literals [micro_rust_wp_simps]:
-  shows \<open>\<And>\<psi>. (\<And>r. ucincl (\<rho> r)) \<Longrightarrow> (\<And>s. ucincl (\<psi> s)) \<Longrightarrow> \<W>\<P> \<Gamma> true \<psi> \<rho>  \<theta>= \<psi> True\<close>
-    and \<open>\<And>\<psi>. (\<And>r. ucincl (\<rho> r)) \<Longrightarrow> (\<And>s. ucincl (\<psi> s)) \<Longrightarrow> \<W>\<P> \<Gamma> false \<psi> \<rho>  \<theta>= \<psi> False\<close>
-    and \<open>\<And>\<psi>. (\<And>r. ucincl (\<rho> r)) \<Longrightarrow> (\<And>s. ucincl (\<psi> s)) \<Longrightarrow> \<W>\<P> \<Gamma> none \<psi> \<rho>  \<theta>= \<psi> None\<close>
-    and \<open>\<And>x \<psi>. (\<And>r. ucincl (\<rho> r)) \<Longrightarrow> (\<And>s. ucincl (\<psi> s)) \<Longrightarrow> \<W>\<P> \<Gamma> (some (literal x)) \<psi> \<rho>  \<theta>= \<psi> (Some x)\<close>
-by (auto simp add: true_def false_def none_def some_def wp_literal micro_rust_simps)
-
-lemma wp_abort [micro_rust_wp_simps]:
+lemma wp_abort [separation_logic_wp_simps]:
   shows \<open>\<W>\<P> \<Gamma> (abort a) \<psi> \<rho> \<theta> = \<theta> a \<star> UNIV\<close>
   by (clarsimp intro!: aentails_yonedaI simp add: sstriple_wp_iff sstriple_abort)
 
-corollary wp_panic [micro_rust_wp_simps]:
-  shows \<open>\<W>\<P> \<Gamma> (panic m) \<psi> \<rho> \<theta> = \<theta> (Panic m) \<star> UNIV\<close>
-  by (intro wp_abort)
-
-lemma wp_abortI [micro_rust_wp_intros]:
+lemma wp_abortI [separation_logic_wp_intros]:
   assumes \<open>\<phi> \<longlongrightarrow> \<theta> a \<star> UNIV\<close>
     shows \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> (abort a) \<psi> \<rho> \<theta>\<close>
 using assms by (subst wp_abort)
 
-lemma wp_panicI [micro_rust_wp_intros]:
-  assumes \<open>\<phi> \<longlongrightarrow> \<theta> (Panic m) \<star> UNIV\<close>
-    shows \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> (panic m) \<psi> \<rho> \<theta>\<close>
-using assms by (subst wp_panic)
-
-lemma wp_return [micro_rust_wp_simps]:
+lemma wp_return [separation_logic_wp_simps]:
     shows \<open>\<W>\<P> \<Gamma> (return_func (literal v)) \<psi> \<rho> \<theta> = \<rho> v \<star> \<top>\<close>
 by (auto intro!: aentails_yonedaI simp add: sstriple_wp_iff sstriple_return)
 
-lemma wp_returnI [micro_rust_wp_intros]:
+lemma wp_returnI [separation_logic_wp_intros]:
   assumes \<open>\<phi> \<longlongrightarrow> \<rho> v \<star> \<top>\<close>
   shows \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> (return_func (literal v)) \<psi> \<rho> \<theta>\<close>
 using assms by (simp add: wp_return)
-
-lemma wp_assert [micro_rust_wp_simps]:
-  shows \<open>\<W>\<P> \<Gamma> (assert (literal x)) \<psi> \<rho> \<theta> = (\<langle>x\<rangle> \<Zsurj> (UNIV \<star> \<psi> ())) \<sqinter> (\<langle>\<not>x\<rangle> \<Zsurj> (UNIV \<star> \<theta> AssertionFailed))\<close>
-  apply (intro aentails_yonedaI)
-  apply (clarsimp simp add: sstriple_wp_iff aentails_simp sstriple_assert apure_def asepconj_simp
-    bot_aentails_all)
-  apply (meson aentails_refl_eq aentails_trans aentails_top_R' aentails_uc'
-    ucincl_UNIV ucincl_asepconjL)
-  done
-
-lemma wp_assert_eq [micro_rust_wp_simps]:
-  shows \<open>\<W>\<P> \<Gamma> (assert_eq (literal x) (literal y)) \<psi> \<rho> \<theta> =
-     (\<langle>x=y\<rangle> \<Zsurj> (UNIV \<star> \<psi> ())) \<sqinter> (\<langle>x\<noteq>y\<rangle> \<Zsurj> (UNIV \<star> \<theta> AssertionFailed))\<close>
-  by (clarsimp simp add: wp_assert[simplified assert_def micro_rust_simps]
-    assert_eq_def assert_eq_val_def micro_rust_simps)
-
-thm aentails_frulify_pure
-
-lemma wp_assertI[micro_rust_wp_intros]:
-    notes aentails_intro [intro]
-  assumes \<open>\<phi> \<longlongrightarrow> (\<langle>x\<rangle> \<star> \<psi> ())\<close>
-  shows \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> (assert (literal x)) \<psi> \<rho> \<theta>\<close>
-proof -
-  have \<open>\<langle>x\<rangle> \<star> \<psi> () \<star> \<langle>x\<rangle> \<longlongrightarrow> UNIV \<star> \<psi> ()\<close>
-    by (simp add: aentails_refl apure_entailsL' asepconj_comm asepconj_pure2)
-  moreover
-  have \<open>\<langle>x\<rangle> \<star> \<psi> () \<star> \<langle>\<not> x\<rangle> \<longlongrightarrow> UNIV \<star> \<theta> AssertionFailed\<close>
-    by (metis local.aentails_is_sat local.is_sat_pure local.is_sat_splitE)
-  ultimately show ?thesis
-    using aentails_trans[OF assms]
-    by (simp add: wp_assert aentails_intI asepconj_assoc awand_adjoint)
-qed
-
-lemma wp_assert_eqI[micro_rust_wp_intros]:
-    notes aentails_intro[intro]
-  assumes \<open>\<phi> \<longlongrightarrow> (\<langle>x=y\<rangle> \<star> \<psi> ())\<close>
-  shows \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> (assert_eq (literal x) (literal y)) \<psi> \<rho> \<theta>\<close>
-  using assms by (clarsimp intro!: wp_assertI[simplified assert_def micro_rust_simps]
-     simp add: assert_eq_def assert_eq_val_def micro_rust_simps)
-
-lemma wp_assert_neI[micro_rust_wp_intros]:
-    notes aentails_intro[intro]
-  assumes \<open>\<phi> \<longlongrightarrow> (\<langle>x\<noteq>y\<rangle> \<star> \<psi> ())\<close>
-  shows \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> (assert_ne (literal x) (literal y)) \<psi> \<rho> \<theta>\<close>
-  using assms by (clarsimp intro!: wp_assertI[simplified assert_def micro_rust_simps]
-     simp add: assert_ne_def assert_ne_val_def micro_rust_simps)
 
 lemma wp_bind_core:
   shows \<open>\<W>\<P> \<Gamma> e (\<lambda>r. \<W>\<P> \<Gamma> (f r) \<xi> \<rho> \<theta>) \<rho> \<theta> \<longlongrightarrow>
@@ -433,9 +339,10 @@ lemma aentails_cong_only_rhs:
     shows \<open>(\<phi> \<longlongrightarrow> \<psi>) \<longleftrightarrow> (\<phi> \<longlongrightarrow> \<psi>')\<close>
 using assms by auto
 
-lemma wp_bindI [micro_rust_wp_intros]:
+lemma wp_bindI [separation_logic_wp_intros]:
     notes aentails_intro [intro]
-    fixes e :: \<open>('a, 'b, 'c, 'abort, 'i prompt, 'o prompt_output) expression\<close>
+    fixes e :: \<open>('a, 'b, 'c, 'abort,
+      'i::nondeterministic_prompt, 'o::nondeterministic_response) expression\<close>
   assumes \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> e (\<lambda>r. \<W>\<P> \<Gamma> (f r) \<xi> \<rho> \<theta>) \<rho> \<theta>\<close>
     shows \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> (do { v \<leftarrow> e; f v }) \<xi> \<rho> \<theta>\<close>
 using assms by (blast intro: wp_bind_core)
@@ -444,56 +351,63 @@ corollary wp_sequence_core:
   shows \<open>\<W>\<P> \<Gamma> e (\<lambda>x. \<W>\<P> \<Gamma> f \<xi> \<rho> \<theta>) \<rho> \<theta> \<longlongrightarrow> \<W>\<P> \<Gamma> (sequence e f) \<xi> \<rho> \<theta>\<close>
 by (auto simp add: sequence_def intro!: wp_bind_core)
 
-lemma wp_sequenceI [micro_rust_wp_intros]:
+lemma wp_sequenceI [separation_logic_wp_intros]:
     notes aentails_intro[intro]
   assumes \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> e (\<lambda>x. \<W>\<P> \<Gamma> f \<xi> \<rho> \<theta>) \<rho> \<theta>\<close>
     shows \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> (sequence e f) \<xi> \<rho> \<theta>\<close>
 using assms wp_sequence_core by blast
 
-lemma wp_nondet_choiceI [micro_rust_wp_intros]:
+lemma wp_nondet_choiceI [separation_logic_wp_intros]:
     notes aentails_intro[intro]
-  assumes \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> l \<psi> \<rho> \<theta>\<close>
+  assumes \<open>is_nondet_order_yield_handler (yh \<Gamma>)\<close>
+      and \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> l \<psi> \<rho> \<theta>\<close>
       and \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> r \<psi> \<rho> \<theta>\<close>
     shows \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> (nondet_choice l r) \<psi> \<rho> \<theta>\<close>
 proof (intro wp_is_weakest_precondition)
-  from assms(1) have l:
+  from assms(2) have l:
       \<open>\<Gamma> ; \<phi> \<turnstile> l \<stileturn> \<psi> \<bowtie> \<rho> \<bowtie> \<theta>\<close>
     by (rule wp_to_sstriple)
-  from assms(2) have r:
+  from assms(3) have r:
       \<open>\<Gamma> ; \<phi> \<turnstile> r \<stileturn> \<psi> \<bowtie> \<rho> \<bowtie> \<theta>\<close>
     by (rule wp_to_sstriple)
-  have yh_eq: \<open>\<And>\<sigma>. yh \<Gamma> NondetOrder \<sigma> =
-      {YieldContinue (NondetLeft, \<sigma>), YieldContinue (NondetRight, \<sigma>)}\<close>
-    using striple_context_yh_is_nondet_order[of \<Gamma>]
+  have yh_eq: \<open>\<And>\<sigma>. yh \<Gamma> nondeterministic_choice_prompt \<sigma> =
+      {YieldContinue (nondeterministic_left_response, \<sigma>),
+       YieldContinue (nondeterministic_right_response, \<sigma>)}\<close>
+    using assms(1)
     by (simp add: is_nondet_order_yield_handler_def)
   have y:
-      \<open>\<Gamma> ; \<phi> \<turnstile> yield NondetOrder \<stileturn> (\<lambda>_. \<phi>) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
+      \<open>\<Gamma> ; \<phi> \<turnstile> yield nondeterministic_choice_prompt
+        \<stileturn> (\<lambda>_. \<phi>) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
     by (simp add: sstriple_yield, intro conjI allI impI;
         auto simp add: is_local_def yh_eq
              dest: aentails_top_R'[OF aentails_refl,
                      unfolded aentails_def, rule_format])
-  have k: \<open>\<And>resp. \<Gamma> ; (\<lambda>_. \<phi>) resp \<turnstile> (if resp = NondetLeft then l else r) \<stileturn> \<psi> \<bowtie> \<rho> \<bowtie> \<theta>\<close>
+  have k: \<open>\<And>resp. \<Gamma> ; (\<lambda>_. \<phi>) resp \<turnstile>
+      (if resp = nondeterministic_left_response then l else r)
+      \<stileturn> \<psi> \<bowtie> \<rho> \<bowtie> \<theta>\<close>
     using l r by (simp split: if_splits)
   from sstriple_bindI[OF y k] show \<open>\<Gamma> ; \<phi> \<turnstile> nondet_choice l r \<stileturn> \<psi> \<bowtie> \<rho> \<bowtie> \<theta>\<close>
     by (simp add: nondet_choice_def)
 qed
 
-lemma wp_bind2_unseqI [micro_rust_wp_intros]:
+lemma wp_bind2_unseqI [separation_logic_wp_intros]:
     notes aentails_intro[intro]
-  assumes \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> e0 (\<lambda>v0. \<W>\<P> \<Gamma> e1 (\<lambda>v1. \<W>\<P> \<Gamma> (f v0 v1) \<xi> \<rho> \<theta>) \<rho> \<theta>) \<rho> \<theta>\<close>
+  assumes \<open>is_nondet_order_yield_handler (yh \<Gamma>)\<close>
+      and \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> e0 (\<lambda>v0. \<W>\<P> \<Gamma> e1 (\<lambda>v1. \<W>\<P> \<Gamma> (f v0 v1) \<xi> \<rho> \<theta>) \<rho> \<theta>) \<rho> \<theta>\<close>
       and \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> e1 (\<lambda>v1. \<W>\<P> \<Gamma> e0 (\<lambda>v0. \<W>\<P> \<Gamma> (f v0 v1) \<xi> \<rho> \<theta>) \<rho> \<theta>) \<rho> \<theta>\<close>
     shows \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> (bind2_unseq f e0 e1) \<xi> \<rho> \<theta>\<close>
   apply (simp add: bind2_unseq_def)
   apply (intro wp_nondet_choiceI wp_is_weakest_precondition sstriple_bindI)
-  apply (rule wp_to_sstriple[OF assms(1)] wp_to_sstriple[OF assms(2)] wp_is_precondition)+
+  apply (rule assms(1))
+  apply (rule wp_to_sstriple[OF assms(2)] wp_to_sstriple[OF assms(3)] wp_is_precondition)+
   done
 
 lemma wp_two_armed_conditional:
   shows \<open>\<W>\<P> \<Gamma> (two_armed_conditional (literal x) t f) \<psi> \<rho> \<theta>
      = (if x then \<W>\<P> \<Gamma> t \<psi> \<rho> \<theta> else \<W>\<P> \<Gamma> f \<psi> \<rho> \<theta>)\<close>
-by (cases x) (auto simp add: micro_rust_simps)
+by (cases x) (simp_all add: two_armed_conditional_def bind_literal_unit)
 
-lemma wp_two_armed_conditionalI[micro_rust_wp_case_splits]:
+lemma wp_two_armed_conditionalI[separation_logic_wp_case_splits]:
   assumes \<open>x \<Longrightarrow> \<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> t \<psi> \<rho> \<theta>\<close>
       and \<open>\<not>x \<Longrightarrow> \<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> f \<psi> \<rho> \<theta>\<close>
     shows \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> (two_armed_conditional (literal x) t f) \<psi> \<rho> \<theta>\<close>
@@ -503,9 +417,9 @@ corollary wp_one_armed_conditional:
   assumes \<open>\<And>s. ucincl (\<psi> s)\<close>
   shows \<open>\<W>\<P> \<Gamma> (one_armed_conditional (literal x) t) \<psi> \<rho> \<theta> =
     (if x then \<W>\<P> \<Gamma> t \<psi> \<rho> \<theta> else \<psi> ())\<close>
-using assms by (simp add: micro_rust_wp_simps wp_two_armed_conditional)
+using assms by (simp add: separation_logic_wp_simps wp_two_armed_conditional)
 
-lemma wp_one_armed_conditionalI[micro_rust_wp_case_splits]:
+lemma wp_one_armed_conditionalI[separation_logic_wp_case_splits]:
   assumes \<open>x \<Longrightarrow> \<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> t \<psi> \<rho> \<theta>\<close>
       and \<open>\<not>x \<Longrightarrow> \<phi> \<longlongrightarrow> \<psi> () \<star> \<top>\<close>
     shows \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> (one_armed_conditional (literal x) t) \<psi> \<rho> \<theta>\<close>
@@ -524,122 +438,8 @@ lemma wp_two_armed_conditional_elseI:
   by (simp add: assms wp_two_armed_conditional)
 
 \<comment>\<open>TODO: This is not uniform with the treatment of conditionals
-which are discharged using \<^verbatim>\<open>micro_rust_wp_intros\<close> rather than
-\<^verbatim>\<open>micro_rust_wp_simps\<close>.\<close>
-lemma wp_option_cases: (* [micro_rust_wp_simps]: *)
-  shows
-    \<open>
-      \<W>\<P> \<Gamma>
-        (do {
-          case_value \<leftarrow> literal x;
-          case case_value of None \<Rightarrow> nn | Some s \<Rightarrow> sm s
-        })
-        \<psi> \<rho> \<theta> =
-      (case x of
-         None   \<Rightarrow> \<W>\<P> \<Gamma> nn \<psi> \<rho> \<theta>
-       | Some s \<Rightarrow> \<W>\<P> \<Gamma> (sm s) \<psi> \<rho> \<theta>)
-    \<close>
-by (rule asat_semequivI; cases \<open>x\<close>) (auto simp add: micro_rust_simps)
-
-lemma wp_option_cases_none[micro_rust_wp_simps]:
-  shows
-    \<open>
-      \<W>\<P> \<Gamma>
-        (do {
-          case_value \<leftarrow> literal None;
-          case case_value of None \<Rightarrow> nn | Some s \<Rightarrow> sm s
-        })
-        \<psi> \<rho> \<theta> =
-      \<W>\<P> \<Gamma> nn \<psi> \<rho> \<theta>
-    \<close>
-  by (simp add: wp_option_cases)
-
-lemma wp_option_cases_some[micro_rust_wp_simps]:
-  shows
-    \<open>
-      \<W>\<P> \<Gamma>
-        (do {
-          case_value \<leftarrow> literal (Some s);
-          case case_value of None \<Rightarrow> nn | Some s \<Rightarrow> sm s
-        })
-        \<psi> \<rho> \<theta> =
-      \<W>\<P> \<Gamma> (sm s) \<psi> \<rho> \<theta>
-    \<close>
-  by (simp add: wp_option_cases)
-
-\<comment>\<open>NOTE: This lemma is not used at present, but seems worth keeping.\<close>
-lemma wp_option_casesI:
-  assumes \<open>x = None \<Longrightarrow> \<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> nn \<psi> \<rho> \<theta>\<close>
-     and \<open>\<And>s. x = Some s \<Longrightarrow> \<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> (sm s) \<psi> \<rho> \<theta>\<close>
-   shows
-     \<open>
-       \<phi> \<longlongrightarrow>
-       \<W>\<P> \<Gamma>
-         (do {
-           case_value \<leftarrow> literal x;
-           case case_value of None \<Rightarrow> nn | Some s \<Rightarrow> sm s
-         })
-         \<psi> \<rho> \<theta>
-     \<close>
-  using assms by (clarsimp simp add: wp_option_cases split!: option.splits)
-
-lemma wp_result_cases: (* [micro_rust_wp_simps]: *)
-  shows
-    \<open>
-      \<W>\<P> \<Gamma>
-        (do {
-          case_value \<leftarrow> literal x;
-          case case_value of Ok k \<Rightarrow> ok k | Err e \<Rightarrow> err e
-        })
-        \<psi> \<rho> \<theta> =
-      (case x of
-         Ok k  \<Rightarrow> \<W>\<P> \<Gamma> (ok k) \<psi> \<rho> \<theta>
-       | Err e \<Rightarrow> \<W>\<P> \<Gamma> (err e) \<psi> \<rho> \<theta>)
-    \<close>
-by (rule asat_semequivI; cases \<open>x\<close>) (auto simp add:micro_rust_simps)
-
-lemma wp_result_cases_ok[micro_rust_wp_simps]:
-  shows
-    \<open>
-      \<W>\<P> \<Gamma>
-        (do {
-          case_value \<leftarrow> literal (Ok k);
-          case case_value of Ok k \<Rightarrow> ok k | Err e \<Rightarrow> err e
-        })
-        \<psi> \<rho> \<theta> =
-      \<W>\<P> \<Gamma> (ok k) \<psi> \<rho> \<theta>
-    \<close>
-  by (simp add: wp_result_cases)
-
-lemma wp_result_cases_err[micro_rust_wp_simps]:
-  shows
-    \<open>
-      \<W>\<P> \<Gamma>
-        (do {
-          case_value \<leftarrow> literal (Err e);
-          case case_value of Ok k \<Rightarrow> ok k | Err e \<Rightarrow> err e
-        })
-        \<psi> \<rho> \<theta> =
-      \<W>\<P> \<Gamma> (err e) \<psi> \<rho> \<theta>
-    \<close>
-  by (simp add: wp_result_cases)
-
-\<comment>\<open>NOTE: This lemma is not used at present, but seems worth keeping.\<close>
-lemma wp_result_casesI:
-  assumes \<open>\<And>k. x = Ok k \<Longrightarrow> \<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> (ok k) \<psi> \<rho> \<theta>\<close>
-     and \<open>\<And>e. x = Err e \<Longrightarrow> \<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> (err e) \<psi> \<rho> \<theta>\<close>
-   shows
-     \<open>
-       \<phi> \<longlongrightarrow>
-       \<W>\<P> \<Gamma>
-         (do {
-           case_value \<leftarrow> literal x;
-           case case_value of Ok k \<Rightarrow> ok k | Err e \<Rightarrow> err e
-         })
-         \<psi> \<rho> \<theta>
-     \<close>
-  using assms by (clarsimp simp add: wp_result_cases split!: result.splits)
-
+which are discharged using \<^verbatim>\<open>separation_logic_wp_intros\<close> rather than
+\<^verbatim>\<open>separation_logic_wp_simps\<close>.\<close>
 lemma wp_get:
     notes asat_simp [simp]
   assumes \<open>ucincl (has f v)\<close>
@@ -669,7 +469,7 @@ proof -
     using aentails_trans by force
 qed
 
-lemma wp_getI [micro_rust_wp_intros]:
+lemma wp_getI [separation_logic_wp_intros]:
   assumes \<open>ucincl (has f v)\<close>
       and \<open>\<And>x. ucincl (\<psi> x)\<close>
       and  \<open>\<phi> \<longlongrightarrow> has f v \<star> (has f v \<Zsurj> \<psi> v)\<close>
@@ -685,7 +485,7 @@ lemma wp_putI:
     shows \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> (put g) \<psi> \<rho> \<theta>\<close>
 using assms by - (rule aentails_trans', rule wp_put, auto)
 
-lemma wp_fun [micro_rust_wp_simps]:
+lemma wp_fun [separation_logic_wp_simps]:
   shows \<open>\<W>\<P> \<Gamma> (funcall0 f) \<phi> \<rho> \<theta> = \<W>\<P> \<Gamma> (call f) \<phi> \<rho> \<theta>\<close>
     and \<open>\<W>\<P> \<Gamma> (funcall1 f1 (literal a0)) \<phi> \<rho> \<theta> = \<W>\<P> \<Gamma> (funcall0 (f1 a0)) \<phi> \<rho> \<theta>\<close>
     and \<open>\<W>\<P> \<Gamma> (funcall2 f2 (literal a0) (literal a1)) \<phi> \<rho> \<theta> = \<W>\<P> \<Gamma> (funcall0 (f2 a0 a1)) \<phi> \<rho> \<theta>\<close>
@@ -699,7 +499,7 @@ lemma wp_fun [micro_rust_wp_simps]:
            \<W>\<P> \<Gamma> (funcall0 (f9 a0 a1 a2 a3 a4 a5 a6 a7 a8)) \<phi> \<rho> \<theta>\<close>
     and \<open>\<W>\<P> \<Gamma> (funcall10 f10 (literal a0) (literal a1) (literal a2) (literal a3) (literal a4) (literal a5) (literal a6) (literal a7) (literal a8) (literal a9)) \<phi> \<rho> \<theta> =
            \<W>\<P> \<Gamma> (funcall0 (f10 a0 a1 a2 a3 a4 a5 a6 a7 a8 a9)) \<phi> \<rho> \<theta>\<close>
-by (simp only:micro_rust_simps)+
+by (simp only: shallow_computation_simps)+
 
 text\<open>This rule is useful for unfolding the definition of a called function and reasoning about it
 directly.\<close>
@@ -730,7 +530,7 @@ corollary wp_call_inline'I:
     shows \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> (call f) \<psi> \<rho> \<theta>\<close>
   using assms by clarsimp
 
-corollary wp_call_function_bodyI2 [micro_rust_wp_intros]:
+corollary wp_call_function_bodyI2 [separation_logic_wp_intros]:
     notes aentails_intro [intro]
   assumes \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> f \<psi> \<psi> \<theta>\<close>
     shows \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> (call (FunctionBody f)) \<psi> \<rho> \<theta>\<close>
@@ -790,320 +590,16 @@ lemma wp_funliteral:
   using assms by (clarsimp intro!: aentails_yonedaI simp add: sstriple_wp_iff
     sstriple_call_funliteral asepconj_simp)+
 
-lemma wp_range_new [micro_rust_wp_simps]:
-  assumes \<open>\<And>r. ucincl (\<phi> r)\<close>
-    shows \<open>\<W>\<P> \<Gamma> (funcall2 range_new (literal b) (literal e)) \<phi> \<rho> \<theta> =
-      \<phi> (make_range b e False)\<close>
-using assms by (clarsimp simp add: range_new_def wp_funliteral)
-
-lemma wp_op_eq [micro_rust_wp_simps]:
+lemma wp_op_eq [separation_logic_wp_simps]:
   assumes \<open>\<And>r. ucincl (\<psi> r)\<close>
       and \<open>\<And>r. ucincl (\<rho> r)\<close>
     shows \<open>\<W>\<P> \<Gamma> (funcall2 (lift_fun2 (\<lambda>a b. a = b)) (literal e) (literal f))
       \<psi> \<rho> \<theta> = \<psi> (e = f)\<close>
 using assms by (clarsimp simp add: wp_funliteral)
 
-lemma wp_op_eqs [micro_rust_wp_simps]:
-  assumes \<open>\<And>r. ucincl (\<psi> r)\<close>
-      and \<open>\<And>r. ucincl (\<rho> r)\<close>
-    shows \<open>\<W>\<P> \<Gamma> (urust_eq (literal e) (literal f)) \<psi> \<rho> \<theta> = \<psi> (e = f)\<close>
-using assms by (clarsimp simp add: urust_eq_def micro_rust_wp_simps micro_rust_simps)
-
-lemma wp_word_add_no_wrap [micro_rust_wp_intros]:
-    notes aentails_intro [intro]
-      and aentails_simp [simp]
-      and asepconj_simp [simp]
-    fixes x y :: \<open>'l::{len} word\<close>
-  assumes \<open>ucincl (\<psi> (x+y))\<close>
-    shows \<open>\<langle>unat x + unat y < 2^LENGTH('l)\<rangle> \<star> \<psi> (x + y) \<longlongrightarrow>
-      \<W>\<P> \<Gamma> (word_add_no_wrap (literal x) (literal y)) \<psi> \<rho> \<theta>\<close>
-      (is \<open>?asm \<longlongrightarrow> ?GOAL\<close>)
-proof -
-  have \<open>ucincl (\<langle>(unat x) + (unat y) < 2^(LENGTH('l))\<rangle>)\<close>
-    by (simp add: ucincl_apure)
-  moreover from this have \<open>ucincl ?asm\<close>
-    by (simp add: assms ucincl_apure ucincl_asepconj)
-  moreover from calculation and assms have I: \<open>\<Gamma> ; ?asm \<turnstile>
-      word_add_no_wrap (literal x) (literal y) \<stileturn>
-      (\<lambda>r. \<langle>r = x + y\<rangle> \<star> \<psi> (x+y)) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
-    by (intro sstriple_frame_rule_no_return; simp add: sstriple_word_add_no_wrapI)
-  moreover from assms have \<open>\<Gamma> ; ?asm \<turnstile>
-      word_add_no_wrap (literal x) (literal y) \<stileturn> \<psi> \<bowtie> \<rho> \<bowtie> \<theta>\<close>
-    by (intro sstriple_consequence[OF I]) auto
-  ultimately show \<open>?asm \<longlongrightarrow> ?GOAL\<close>
-    by (intro wp_is_weakest_precondition)
-qed
-
-lemma wp_word_add_no_wrapI [micro_rust_wp_intros]:
-    fixes x y :: \<open>'l::{len} word\<close>
-  assumes \<open>ucincl (\<psi> (x + y))\<close>
-      and \<open>\<phi> \<longlongrightarrow> \<langle>unat x + unat y < 2^LENGTH('l)\<rangle> \<star> \<psi> (x + y)\<close>
-    shows \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma>
-      (word_add_no_wrap (literal x) (literal y)) \<psi> \<rho> \<theta>\<close>
-using assms by - (rule aentails_trans', rule wp_word_add_no_wrap, auto)
-
-lemma wp_word_mul_no_wrap [micro_rust_wp_intros]:
-    notes aentails_intro [intro]
-      and aentails_simp [simp]
-      and asepconj_simp [simp]
-    fixes x y :: \<open>'l::{len} word\<close>
-  assumes \<open>ucincl (\<psi> (x*y))\<close>
-    shows \<open>\<langle>unat x * unat y < 2^LENGTH('l)\<rangle> \<star> \<psi> (x * y) \<longlongrightarrow>
-      \<W>\<P> \<Gamma> (word_mul_no_wrap (literal x) (literal y)) \<psi> \<rho> \<theta>\<close>
-      (is \<open>?asm \<longlongrightarrow> ?GOAL\<close>)
-proof -
-  have \<open>ucincl (\<langle>(unat x) * (unat y) < 2^(LENGTH('l))\<rangle>)\<close>
-    by (simp add: ucincl_apure)
-  moreover from this have \<open>ucincl ?asm\<close>
-    by (simp add: assms ucincl_apure ucincl_asepconj)
-  moreover from calculation and assms have I: \<open>\<Gamma> ; ?asm \<turnstile>
-      word_mul_no_wrap (literal x) (literal y) \<stileturn>
-      (\<lambda>r. \<langle>r = x * y\<rangle> \<star> \<psi> (x*y)) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
-    by (intro sstriple_frame_rule_no_return) (auto simp add: sstriple_word_mul_no_wrapI)
-  moreover from assms have \<open>\<Gamma> ; ?asm \<turnstile>
-      word_mul_no_wrap (literal x) (literal y) \<stileturn> \<psi> \<bowtie> \<rho> \<bowtie> \<theta>\<close>
-    by (intro sstriple_consequence[OF I]; auto)
-  ultimately show \<open>?asm \<longlongrightarrow> ?GOAL\<close>
-    by (intro wp_is_weakest_precondition)
-qed
-
-lemma wp_word_mul_no_wrapI [micro_rust_wp_intros]:
-    fixes x y :: \<open>'l::{len} word\<close>
-  assumes \<open>ucincl (\<psi> (x * y))\<close>
-      and \<open>\<phi> \<longlongrightarrow> \<langle>unat x * unat y < 2^LENGTH('l)\<rangle> \<star> \<psi> (x * y)\<close>
-    shows \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma>
-      (word_mul_no_wrap (literal x) (literal y)) \<psi> \<rho> \<theta>\<close>
-using assms by - (rule aentails_trans', rule wp_word_mul_no_wrap, auto)
-
-lemma wp_word_sub_no_wrap:
-    notes aentails_intro [intro]
-      and aentails_simp [simp]
-      and asepconj_simp [simp]
-    fixes x y :: \<open>'l::{len} word\<close>
-  assumes \<open>ucincl (\<psi> (x - y))\<close>
-    shows \<open>\<langle>y \<le> x\<rangle> \<star> \<psi> (x - y) \<longlongrightarrow>
-      \<W>\<P> \<Gamma> (word_minus_no_wrap (literal x) (literal y)) \<psi> \<rho> \<theta>\<close>
-      (is \<open>?asm \<longlongrightarrow> ?GOAL\<close>)
-proof -
-  have \<open>ucincl (\<langle>y \<le> x\<rangle>)\<close>
-    by (simp add: ucincl_apure)
-  moreover from this have \<open>ucincl ?asm\<close>
-    by (simp add: assms ucincl_apure ucincl_asepconj)
-  moreover from calculation and assms have I: \<open>\<Gamma> ; ?asm \<turnstile>
-      word_minus_no_wrap (literal x) (literal y) \<stileturn>
-      (\<lambda>r. \<langle>r = x - y\<rangle> \<star> \<psi> (x - y)) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
-    by (intro sstriple_frame_rule_no_return) (auto simp add: sstriple_word_sub_no_wrapI)
-  moreover from assms have \<open>\<Gamma> ; ?asm \<turnstile>
-      word_minus_no_wrap (literal x) (literal y) \<stileturn> \<psi> \<bowtie> \<rho> \<bowtie> \<theta>\<close>
-    by (intro sstriple_consequence[OF I]) auto
-  ultimately show \<open>?asm \<longlongrightarrow> ?GOAL\<close>
-    by (intro wp_is_weakest_precondition)
-qed
-
-lemma wp_word_sub_no_wrapI [micro_rust_wp_intros]:
-    fixes x y :: \<open>'l::{len} word\<close>
-  assumes \<open>ucincl (\<psi> (x - y))\<close>
-      and \<open>\<phi> \<longlongrightarrow> \<langle>y \<le> x\<rangle> \<star> \<psi> (x - y)\<close>
-    shows \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma>
-      (word_minus_no_wrap (literal x) (literal y)) \<psi> \<rho> \<theta>\<close>
-using assms by - (rule aentails_trans', rule wp_word_sub_no_wrap, auto)
-
-lemma wp_word_udiv:
-    notes aentails_intro [intro]
-      and aentails_simp [simp]
-      and asepconj_simp [simp]
-    fixes x y :: \<open>'l::{len} word\<close>
-  assumes \<open>ucincl (\<psi> (x div y))\<close>
-  shows \<open>\<langle>y \<noteq> 0\<rangle> \<star> \<psi> (x div y) \<longlongrightarrow>
-    \<W>\<P> \<Gamma> (word_udiv (literal x) (literal y)) \<psi> \<rho> \<theta>\<close>
-    (is \<open>?asm \<longlongrightarrow> ?GOAL\<close>)
-proof -
-  have \<open>ucincl (\<langle>y \<noteq> 0\<rangle>)\<close>
-    by (simp add: ucincl_apure)
-  moreover from this have \<open>ucincl ?asm\<close>
-    by (simp add: assms ucincl_apure ucincl_asepconj)
-  moreover from calculation and assms have I: \<open>\<Gamma> ; ?asm \<turnstile>
-      word_udiv (literal x) (literal y) \<stileturn>
-      (\<lambda>r. \<langle>r = x div y\<rangle> \<star> \<psi> (x div y)) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
-    by (intro sstriple_frame_rule_no_return) (auto simp add: sstriple_word_udivI)
-  moreover from assms have \<open>\<Gamma> ; ?asm \<turnstile>
-      word_udiv (literal x) (literal y) \<stileturn> \<psi> \<bowtie> \<rho> \<bowtie> \<theta>\<close>
-    by (intro sstriple_consequence[OF I]) auto
-  ultimately show \<open>?asm \<longlongrightarrow> ?GOAL\<close>
-    by (intro wp_is_weakest_precondition)
-qed
-
-lemma wp_word_udivI [micro_rust_wp_intros]:
-    fixes x y :: \<open>'l::{len} word\<close>
-  assumes \<open>ucincl (\<psi> (x div y))\<close>
-      and \<open>\<phi> \<longlongrightarrow> \<langle>y \<noteq> 0\<rangle> \<star> \<psi> (x div y)\<close>
-    shows \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma>
-      (word_udiv (literal x) (literal y)) \<psi> \<rho> \<theta>\<close>
-using assms by - (rule aentails_trans', rule wp_word_udiv, auto)
-
-lemma wp_word_umod:
-    notes aentails_intro [intro]
-      and aentails_simp [simp]
-      and asepconj_simp [simp]
-    fixes x y :: \<open>'l::{len} word\<close>
-  assumes \<open>ucincl (\<psi> (x mod y))\<close>
-    shows \<open>\<langle>y \<noteq> 0\<rangle> \<star> \<psi> (x mod y) \<longlongrightarrow>
-      \<W>\<P> \<Gamma> (word_umod (literal x) (literal y)) \<psi> \<rho> \<theta>\<close>
-      (is \<open>?asm \<longlongrightarrow> ?GOAL\<close>)
-proof -
-  have \<open>ucincl (\<langle>y \<noteq> 0\<rangle>)\<close>
-    by (simp add: ucincl_apure)
-  moreover from this have \<open>ucincl ?asm\<close>
-    by (simp add: assms ucincl_apure ucincl_asepconj)
-  moreover from calculation and assms have I: \<open>\<Gamma> ; ?asm \<turnstile>
-      word_umod (literal x) (literal y) \<stileturn>
-      (\<lambda>r. \<langle>r = x mod y\<rangle> \<star> \<psi> (x mod y)) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
-    by (intro sstriple_frame_rule_no_return) (auto simp add: sstriple_word_umodI)
-  moreover from assms have \<open>\<Gamma> ; ?asm \<turnstile>
-      word_umod (literal x) (literal y) \<stileturn> \<psi> \<bowtie> \<rho> \<bowtie> \<theta>\<close>
-    by (intro sstriple_consequence[OF I]) auto
-  ultimately show \<open>?asm \<longlongrightarrow> ?GOAL\<close>
-    by (intro wp_is_weakest_precondition)
-qed
-
-lemma wp_word_umodI [micro_rust_wp_intros]:
-    fixes x y :: \<open>'l::{len} word\<close>
-  assumes \<open>ucincl (\<psi> (x mod y))\<close>
-      and \<open>\<phi> \<longlongrightarrow> \<langle>y \<noteq> 0\<rangle> \<star> \<psi> (x mod y)\<close>
-    shows \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma>
-      (word_umod (literal x) (literal y)) \<psi> \<rho> \<theta>\<close>
-using assms by - (rule aentails_trans', rule wp_word_umod, auto)
-
-lemma wp_bitwise_or:
-  assumes \<open>\<And>v. ucincl (\<psi> v)\<close>
-    shows \<open>\<psi> (x OR y) \<longlongrightarrow> \<W>\<P> \<Gamma>
-      (Numeric_Types.word_bitwise_or (literal x) (literal y)) \<psi> \<rho> \<theta>\<close>
-using assms by (intro sstriple_pure_to_wp') (auto intro: sstriple_bitwise_orI)
-
-lemma wp_bitwise_and:
-  assumes \<open>\<And>v. ucincl (\<psi> v)\<close>
-    shows \<open>\<psi> (x AND y) \<longlongrightarrow> \<W>\<P> \<Gamma>
-      (Numeric_Types.word_bitwise_and (literal x) (literal y)) \<psi> \<rho> \<theta>\<close>
-using assms by (intro sstriple_pure_to_wp') (auto intro: sstriple_bitwise_andI)
-
-lemma wp_bitwise_xor:
-  assumes \<open>\<And>v. ucincl (\<psi> v)\<close>
-    shows \<open>\<psi> (x XOR y) \<longlongrightarrow> \<W>\<P> \<Gamma>
-      (Numeric_Types.word_bitwise_xor (literal x) (literal y)) \<psi> \<rho> \<theta>\<close>
-using assms by (intro sstriple_pure_to_wp') (auto intro: sstriple_bitwise_xorI)
-
-lemma wp_bitwise_not:
-  assumes \<open>\<And>v. ucincl (\<psi> v)\<close>
-    shows \<open>\<psi> (NOT x) \<longlongrightarrow> \<W>\<P> \<Gamma>
-      (Numeric_Types.word_bitwise_not (literal x)) \<psi> \<rho> \<theta>\<close>
-using assms by (intro sstriple_pure_to_wp') (auto intro: sstriple_bitwise_notI)
-
-lemma wp_bitwise_orI [micro_rust_wp_intros]:
-  assumes \<open>\<And>v. ucincl (\<psi> v)\<close>
-      and \<open>\<phi> \<longlongrightarrow> \<psi> (x OR y)\<close>
-    shows \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma>
-      (Numeric_Types.word_bitwise_or (literal x) (literal y)) \<psi> \<rho> \<theta>\<close>
-using assms wp_bitwise_or aentails_trans' by blast
-
-lemma wp_bitwise_andI [micro_rust_wp_intros]:
-  assumes \<open>\<And>v. ucincl (\<psi> v)\<close>
-      and \<open>\<phi> \<longlongrightarrow> \<psi> (x AND y)\<close>
-    shows \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma>
-      (Numeric_Types.word_bitwise_and (literal x) (literal y)) \<psi> \<rho> \<theta>\<close>
-using assms wp_bitwise_and aentails_trans' by blast
-
-lemma wp_bitwise_xorI [micro_rust_wp_intros]:
-  assumes \<open>\<And>v. ucincl (\<psi> v)\<close>
-      and \<open>\<phi> \<longlongrightarrow> \<psi> (x XOR y)\<close>
-    shows \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma>
-      (Numeric_Types.word_bitwise_xor (literal x) (literal y)) \<psi> \<rho> \<theta>\<close>
-using assms wp_bitwise_xor aentails_trans' by blast
-
-lemma wp_bitwise_notI [micro_rust_wp_intros]:
-  assumes \<open>\<And>v. ucincl (\<psi> v)\<close>
-      and \<open>\<phi> \<longlongrightarrow> \<psi> (NOT x)\<close>
-    shows \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma>
-      (Numeric_Types.word_bitwise_not (literal x)) \<psi> \<rho> \<theta>\<close>
-using assms wp_bitwise_not aentails_trans' by blast
-
-lemma wp_word_shift_left:
-    notes aentails_intro [intro]
-      and aentails_simp [simp]
-      and asepconj_simp[simp]
-    fixes x :: \<open>'l0::{len} word\<close>
-      and y :: \<open>64 word\<close>
-  assumes \<open>ucincl (\<psi> (push_bit (unat y) x))\<close>
-    shows \<open>\<langle>unat y < LENGTH('l0)\<rangle> \<star> \<psi> (push_bit (unat y) x) \<longlongrightarrow>
-      \<W>\<P> \<Gamma> (word_shift_left_shift64 (literal x) (literal y)) \<psi> \<rho> \<theta>\<close>
-      (is \<open>?asm \<longlongrightarrow> ?GOAL\<close>)
-proof -
-  have \<open>ucincl (\<langle>unat y < LENGTH('l0)\<rangle>)\<close>
-    by (simp add: ucincl_apure)
-  moreover from this have \<open>ucincl ?asm\<close>
-    by (simp add: assms ucincl_apure ucincl_asepconj)
-  moreover from calculation and assms have
-         I: \<open>\<Gamma> ; ?asm \<turnstile> word_shift_left_shift64 (literal x) (literal y) \<stileturn>
-           (\<lambda>r. \<langle>r = push_bit (unat y) x\<rangle> \<star> \<psi> (push_bit (unat y) x))
-           \<bowtie> \<rho> \<bowtie> \<theta>\<close>
-    by (intro sstriple_frame_rule_no_return) (auto simp add: sstriple_word_shift_leftI)
-  moreover from assms have \<open>\<Gamma> ; ?asm \<turnstile>
-      word_shift_left_shift64 (literal x) (literal y) \<stileturn> \<psi> \<bowtie> \<rho> \<bowtie> \<theta>\<close>
-    by (intro sstriple_consequence[OF I]) auto
-  ultimately show \<open>?asm \<longlongrightarrow> ?GOAL\<close>
-    by (intro wp_is_weakest_precondition)
-qed
-
-lemma wp_word_shift_leftI [micro_rust_wp_intros]:
-    fixes x :: \<open>'l0::{len} word\<close>
-      and y :: \<open>64 word\<close>
-  assumes \<open>ucincl (\<psi> (push_bit (unat y) x))\<close>
-      and \<open>\<phi> \<longlongrightarrow> \<langle>unat y < LENGTH('l0)\<rangle> \<star> \<psi> (push_bit (unat y) x)\<close>
-    shows \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma>
-      (word_shift_left_shift64 (literal x) (literal y)) \<psi> \<rho> \<theta>\<close>
-using assms wp_word_shift_left aentails_trans' by blast
-
-lemma wp_word_shift_right:
-    notes aentails_intro [intro]
-      and aentails_simp [simp]
-      and asepconj_simp [simp]
-    fixes x :: \<open>'l0::{len} word\<close>
-      and y :: \<open>64 word\<close>
-  assumes \<open>ucincl (\<psi> (drop_bit (unat y) x))\<close>
-    shows \<open>\<langle>unat y < LENGTH('l0)\<rangle> \<star> \<psi> (drop_bit (unat y) x) \<longlongrightarrow>
-      \<W>\<P> \<Gamma> (word_shift_right_shift64 (literal x) (literal y)) \<psi> \<rho> \<theta>\<close>
-      (is \<open>?asm \<longlongrightarrow> ?GOAL\<close>)
-proof -
-  have \<open>ucincl (\<langle>unat y < LENGTH('l0)\<rangle>)\<close>
-    by (simp add: ucincl_apure)
-  moreover from this have \<open>ucincl ?asm\<close>
-    by (simp add: assms ucincl_apure ucincl_asepconj)
-  moreover from calculation and assms have
-         I: \<open>\<Gamma> ; ?asm \<turnstile> word_shift_right_shift64 (literal x) (literal y) \<stileturn>
-           (\<lambda>r. \<langle>r = drop_bit (unat y) x\<rangle> \<star> \<psi> (drop_bit (unat y) x))
-           \<bowtie> \<rho> \<bowtie> \<theta>\<close>
-    by (intro sstriple_frame_rule_no_return) (auto simp add: sstriple_word_shift_rightI)
-  moreover from assms have \<open>\<Gamma> ; ?asm \<turnstile>
-      word_shift_right_shift64 (literal x) (literal y) \<stileturn> \<psi> \<bowtie> \<rho> \<bowtie> \<theta>\<close>
-    by (intro sstriple_consequence[OF I]) auto
-  ultimately show \<open>?asm \<longlongrightarrow> ?GOAL\<close>
-    by (intro wp_is_weakest_precondition)
-qed
-
-lemma wp_word_shift_rightI [micro_rust_wp_intros]:
-    fixes x :: \<open>'l0::{len} word\<close>
-      and y :: \<open>64 word\<close>
-  assumes \<open>ucincl (\<psi> (drop_bit (unat y) x))\<close>
-      and \<open>\<phi> \<longlongrightarrow> \<langle>unat y < LENGTH('l0)\<rangle> \<star> \<psi> (drop_bit (unat y) x)\<close>
-    shows \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma>
-      (word_shift_right_shift64 (literal x) (literal y)) \<psi> \<rho> \<theta>\<close>
-using assms wp_word_shift_right aentails_trans' by blast
-
-declare aexists_entailsL aexists_entailsR aforall_entailsL aforall_entailsR apure_entails_iff
-  apure_entailsR [micro_rust_wp_intros]
-
 subsection\<open>Loops\<close>
 
-text\<open>Note that this is not added to \<^verbatim>\<open>micro_rust_wp_intros\<close>. The invariant pretty much always needs
+text\<open>Note that this is not added to \<^verbatim>\<open>separation_logic_wp_intros\<close>. The invariant pretty much always needs
 to be provided, so there is not much point.\<close>
 lemma wp_raw_for_loopI:
     notes aentails_intro [intro]
@@ -1198,45 +694,6 @@ proof -
   from this and assms show ?thesis
     by (meson assms ucincl_asepconj ucincl_awand aentails_trans')
 qed
-
-subsection\<open>Gather\<close>
-
-lemma wp_gather_framedI:
-    fixes INV :: \<open>nat \<Rightarrow> 'v list \<Rightarrow> 'a assert\<close>
-      and \<xi> :: \<open>nat \<Rightarrow> 'v \<Rightarrow> bool\<close>
-      and thunks :: \<open>('a, 'v, 'r, 'abort, 'i prompt, 'o prompt_output) expression list\<close>
-  assumes \<open>\<And>r. ucincl (\<rho> r)\<close>
-      and \<open>\<And>r. ucincl (\<psi> r)\<close>
-      and \<open>\<And>r. ucincl (\<tau> r)\<close>
-      and \<open>\<And>ls i. ucincl (INV i ls)\<close>
-      and \<open>\<phi> \<longlongrightarrow> INV 0 [] \<star> ((\<Sqinter>r. (INV (length thunks) r \<Zsurj> \<psi> r)) \<sqinter> (\<Sqinter>r. \<tau> r \<Zsurj> \<rho> r) \<sqinter> (\<Sqinter>r. \<theta> r \<Zsurj> \<chi> r))\<close>
-      and \<open>\<And>i res. i < length thunks \<Longrightarrow> length res = i \<Longrightarrow>
-              \<Gamma> ; INV i res \<turnstile> thunks ! i \<stileturn> (\<lambda>v. INV (i+1) (res @ [v])) \<bowtie> \<tau> \<bowtie> \<theta>\<close>
-    shows \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> (gather thunks) \<psi> \<rho> \<chi>\<close>
-proof -
-  let ?pc = \<open>((\<Sqinter>r. (INV (length thunks) r \<Zsurj> \<psi> r)) \<sqinter> (\<Sqinter>r. \<tau> r \<Zsurj> \<rho> r) \<sqinter> (\<Sqinter>r. \<theta> r \<Zsurj> \<chi> r))\<close>
-  from assms have \<open>\<Gamma> ; INV 0 [] \<star> ?pc \<turnstile> gather thunks \<stileturn> \<psi> \<bowtie> \<rho> \<bowtie> \<chi>\<close>
-    by (intro sstriple_gather_framed; simp add: local.wp_to_sstriple ucincl_intros)
-  from this and assms have \<open>INV 0 [] \<star> ?pc \<longlongrightarrow> \<W>\<P> \<Gamma> (gather thunks) \<psi> \<rho> \<chi>\<close>
-    by (intro wp_is_weakest_precondition) (auto intro!: ucincl_asepconj ucincl_inter ucincl_Int
-      ucincl_awand)
-  from this and assms show ?thesis
-    by (meson assms ucincl_asepconj ucincl_awand aentails_trans')
-qed
-
-lemma wp_gather_framedI':
-    fixes INV :: \<open>nat \<Rightarrow> 'v list \<Rightarrow> 'a assert\<close>
-      and \<xi> :: \<open>nat \<Rightarrow> 'v \<Rightarrow> bool\<close>
-      and thunks :: \<open>('a, 'v, 'r, 'abort, 'i prompt, 'o prompt_output) expression list\<close>
-  assumes \<open>\<And>r. ucincl (\<rho> r)\<close>
-      and \<open>\<And>r. ucincl (\<psi> r)\<close>
-      and \<open>\<And>r. ucincl (\<tau> r)\<close>
-      and \<open>\<And>ls i. ucincl (INV i ls)\<close>
-      and \<open>\<phi> \<longlongrightarrow> INV 0 [] \<star> ((\<Sqinter>r. (INV (length thunks) r \<Zsurj> \<psi> r)) \<sqinter> (\<Sqinter>r. \<tau> r \<Zsurj> \<rho> r) \<sqinter> (\<Sqinter>r. \<theta> r \<Zsurj> \<chi> r))\<close>
-      and \<open>\<And>i res. i < length thunks \<Longrightarrow> length res = i \<Longrightarrow>
-              INV i res \<longlongrightarrow> \<W>\<P> \<Gamma> (thunks ! i) (\<lambda>v. INV (i+1) (res @ [v])) \<tau> \<theta>\<close>
-    shows \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> (gather thunks) \<psi> \<rho> \<chi>\<close>
-  using assms by (blast intro: wp_gather_framedI wp_to_sstriple)
 
 (*<*)
 end

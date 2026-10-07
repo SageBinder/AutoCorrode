@@ -343,24 +343,27 @@ struct
         (rust_name, rust_pos))
 
   val function_reports:
-    function_report list Unsynchronized.ref Thread_Data.var =
+    function_report list Synchronized.var Thread_Data.var =
       Thread_Data.var ()
 
   fun defer_function_reference ctxt use_pos entry =
     (case Thread_Data.get function_reports of
        SOME reports =>
-         reports := (use_pos, entry) :: !reports
+         Synchronized.change reports
+           (fn events => (use_pos, entry) :: events)
      | NONE =>
          report_function_reference ctxt use_pos entry)
 
   fun capture_function_reports action =
     let
       val reports =
-        Unsynchronized.ref ([]: function_report list)
+        Synchronized.var
+          "urust_function_reports"
+          ([]: function_report list)
       val result =
         Thread_Data.setmp function_reports (SOME reports)
           action ()
-    in (result, rev (!reports)) end
+    in (result, rev (Synchronized.value reports)) end
 
   fun replay_function_reports ctxt reports =
     List.app
@@ -369,24 +372,27 @@ struct
       reports
 
   val field_reports:
-    field_report list Unsynchronized.ref Thread_Data.var =
+    field_report list Synchronized.var Thread_Data.var =
       Thread_Data.var ()
 
   fun defer_field_reference ctxt use_pos entry =
     (case Thread_Data.get field_reports of
        SOME reports =>
-         reports := (use_pos, entry) :: !reports
+         Synchronized.change reports
+           (fn events => (use_pos, entry) :: events)
      | NONE =>
          report_field_reference ctxt use_pos entry)
 
   fun capture_field_reports action =
     let
       val reports =
-        Unsynchronized.ref ([]: field_report list)
+        Synchronized.var
+          "urust_field_reports"
+          ([]: field_report list)
       val result =
         Thread_Data.setmp field_reports (SOME reports)
           action ()
-    in (result, rev (!reports)) end
+    in (result, rev (Synchronized.value reports)) end
 
   fun replay_field_reports ctxt reports =
     List.app

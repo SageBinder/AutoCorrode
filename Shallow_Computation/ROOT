@@ -10,6 +10,8 @@ session Shallow_Computation = HOL +
     Case_Term_Backend
     Core_Expression
     Core_Expression_Lemmas
+    Nondeterministic_Choice
+    Control_Flow
     Eval
     Pullback
     Shallow_Computation

@@ -2,116 +2,129 @@
    SPDX-License-Identifier: MIT *)
 
 theory Parser_Denotation_Tests
-  imports
-    Micro_C_Parsing_Frontend.C_Translation
-    Shallow_Computation.Core_Expression_Lemmas
+  imports Frontend_Common.Frontend_Common
 begin
-
-c_translate \<open>
-int constant(void) {
-  return 42;
-}
-\<close>
-
-c_translate \<open>
-int identity(int x) {
-  return x;
-}
-\<close>
-
-c_translate \<open>
-int add(int x, int y) {
-  return x + y;
-}
-\<close>
-
-lemma c_constant_shape:
-  shows \<open>c_constant =
-    FunctionBody (return_func (literal (42 :: c_int)))\<close>
-  by (simp add: c_constant_def)
-
-lemma c_identity_shape:
-  shows \<open>c_identity x =
-    FunctionBody (return_func (literal x))\<close>
-  by (simp add: c_identity_def)
-
-lemma c_add_shape:
-  shows \<open>c_add x y =
-    FunctionBody
-      (return_func
-        (bind2 c_signed_add (literal x) (literal y)))\<close>
-  by (simp add: c_add_def)
-
-lemma c_add_evaluates:
-  shows \<open>evaluate
-    (function_body (c_add (20 :: c_int) (22 :: c_int))) () =
-      Return (42 :: c_int) ()\<close>
-  by (simp add:
-    c_add_def c_signed_add_def return_func_def return_val_def
-    bind2_def Core_Expression.bind.simps literal_def evaluate_def)
-
-lemma c_add_overflow_aborts:
-  shows \<open>evaluate
-    (function_body (c_add (2147483647 :: c_int) (1 :: c_int))) () =
-      Abort (CustomAbort SignedOverflow) ()\<close>
-  by (simp add:
-    c_add_def c_signed_add_def return_func_def return_val_def abort_def
-    bind2_def Core_Expression.bind.simps literal_def evaluate_def)
 
 ML_val\<open>
 local
+  structure P = Frontend_Declaration_Plan
+  structure X = Frontend_Transaction
+  structure T = Frontend_HOL_Term
+
+  val pos = \<^here>
+
   fun assert message condition =
     if condition then ()
-    else error ("C denotation test: " ^ message)
+    else error ("frontend plan test: " ^ message)
 
-  fun source text =
+  fun rejects label fragment thunk =
+    ((thunk ();
+      error ("frontend plan test: accepted " ^ label))
+     handle ERROR message =>
+       assert
+         ("wrong rejection for " ^ label ^ ": " ^ message)
+         (String.isSubstring fragment message))
+
+  val fresh_binding =
+    T.qualified_binding "Planned_Unit" "fresh_constant" pos
+  val plan =
+    P.empty
+    |> P.declare P.Constant fresh_binding
+    |> P.require_term "planned right-hand side" pos (T.mk_nat 7)
+  val lthy =
+    Named_Target.theory_init (Proof_Context.theory_of \<^context>)
+  val checked = P.preflight lthy plan
+  val checked_declarations = P.checked_declarations checked
+  val _ =
+    assert "preflight lost a declaration"
+      (length checked_declarations = 1)
+  val _ =
+    assert "preflight lost a checked term"
+      (length (P.checked_terms checked) = 1)
+
+  val _ =
+    rejects "duplicate plan claim" "duplicate constant"
+      (fn () =>
+        P.empty
+        |> P.declare P.Constant fresh_binding
+        |> P.declare P.Constant fresh_binding
+        |> K ())
+
+  fun define_constant binding rhs lthy0 =
     let
-      val start = \<^here>
-      val stop = Position.symbol_explode text start
+      val (_, lthy1) =
+        Local_Theory.define
+          ((binding, NoSyn),
+           ((Thm.def_binding binding, []), rhs)) lthy0
     in
-      Input.source true text (Position.range (start, stop))
+      ((), lthy1)
     end
 
-  val thy = Proof_Context.theory_of \<^context>
-  val _ = assert "failed-name precondition"
-    (not (Sign.declared_const thy "c_failed"))
+  val existing_binding =
+    T.qualified_binding "Planned_Unit" "existing_constant" pos
+  val (_, lthy_with_existing) =
+    define_constant existing_binding (T.mk_nat 0) lthy
+  val _ =
+    rejects "existing constant" "already exists"
+      (fn () =>
+        P.empty
+        |> P.declare P.Constant existing_binding
+        |> P.preflight lthy_with_existing
+        |> K ())
+
+  val _ =
+    rejects "bad term obligation" "ill-formed HOL term"
+      (fn () =>
+        P.empty
+        |> P.require_term "bad obligation" pos
+             (Const ("Frontend_Common.not_declared", dummyT))
+        |> P.preflight lthy
+        |> K ())
+
+  val transaction_binding =
+    T.qualified_binding "Transaction_Unit" "committed" pos
+  val transaction_name =
+    Local_Theory.full_name lthy transaction_binding
+  val transaction =
+    define_constant transaction_binding (T.mk_nat 11)
+  val (_, committed_lthy) =
+    X.preflight_then_commit transaction lthy
+  val _ =
+    assert "transaction changed its input theory"
+      (not (Sign.declared_const
+        (Proof_Context.theory_of lthy) transaction_name))
+  val _ =
+    assert "transaction did not commit after preflight"
+      (Sign.declared_const
+        (Proof_Context.theory_of committed_lthy) transaction_name)
+
+  val rollback_binding =
+    T.qualified_binding "Transaction_Unit" "rolled_back" pos
+  val rollback_name =
+    Local_Theory.full_name lthy rollback_binding
+  fun failing_transaction lthy0 =
+    let
+      val (_, lthy1) =
+        define_constant rollback_binding (T.mk_nat 0) lthy0
+      val _ = Frontend_Diagnostics.error_at pos "planned failure"
+    in
+      ((), lthy1)
+    end
   val failure =
     Exn.capture
-      (C_Translation.translate
-        (source "int failed(void) { return missing; }"))
-      \<^context>
+      (X.preflight_then_commit failing_transaction) lthy
   val _ =
     (case failure of
        Exn.Exn (ERROR message) =>
-         assert "wrong failed translation diagnostic"
-           (String.isSubstring "unknown identifier" message)
+         assert "wrong transaction failure"
+           (String.isSubstring "planned failure" message)
      | Exn.Exn exn => Exn.reraise exn
-     | Exn.Res _ => error "C denotation test: failed translation succeeded")
+     | Exn.Res _ =>
+         error "frontend plan test: failing transaction succeeded")
   val _ =
-    assert "failed translation installed a declaration"
+    assert "failed transaction changed its input theory"
       (not (Sign.declared_const
-        (Proof_Context.theory_of \<^context>) "c_failed"))
-
-  val duplicate =
-    Exn.capture
-      (C_Translation.translate
-        (source "int add(void) { return 0; }"))
-      (Named_Target.theory_init thy)
-  val _ =
-    (case duplicate of
-       Exn.Exn (ERROR message) =>
-         assert ("wrong duplicate binding diagnostic: " ^ message)
-           (String.isSubstring "already exists" message)
-     | Exn.Exn exn => Exn.reraise exn
-     | Exn.Res _ => error "C denotation test: duplicate binding succeeded")
-
-  val simps =
-    Named_Theorems.get \<^context>
-      \<^named_theorems>\<open>shallow_computation_simps\<close>
-  val add_definition = Proof_Context.get_thm \<^context> "c_add_def"
-  val _ =
-    assert "generated theorem not registered"
-      (exists (fn theorem => Thm.eq_thm_prop (theorem, add_definition)) simps)
+        (Proof_Context.theory_of lthy) rollback_name))
 in
   val _ = ()
 end

@@ -1,0 +1,198 @@
+{
+  "schema_version": 1,
+  "baseline_commit": "1f1e5e84938ef8fc3e4e7849104e38c5c26d0ff0",
+  "oracle_commit": "f8e08ba809a5f4fb2bae7ffa5e0862140ccb009f",
+  "toolchain": {
+    "isabelle": "Isabelle2025-2",
+    "oracle": "dominic/main"
+  },
+  "public_commands": {
+    "inline": "c_source UNIT [options] <embedded C translation unit>",
+    "file": "c_file UNIT [options] \"source.c\"",
+    "legacy_commands_removed": [
+      "micro_c_translate",
+      "micro_c_file"
+    ],
+    "generated_names": {
+      "functions_and_globals": "UNIT.<c-name>",
+      "types": "UNIT.<type-name>",
+      "abi_metadata": "UNIT.abi_*"
+    }
+  },
+  "abi_profiles": [
+    "lp64-le",
+    "ilp32-le",
+    "lp64-be",
+    "llp64-le",
+    "ilp32-be"
+  ],
+  "compiler_profiles": [
+    "default",
+    "gcc-x86_64",
+    "clang-x86_64",
+    "gcc-aarch64",
+    "clang-aarch64",
+    "conservative"
+  ],
+  "frontend_smoke_theories": [
+    "C_Parser_Smoke",
+    "C_Translation_Smoke_Core",
+    "C_Translation_Smoke_Control",
+    "C_Translation_Smoke_Memory",
+    "C_Translation_Smoke_Types",
+    "C_Translation_Smoke_ILP32",
+    "C_Translation_Smoke_Compiler",
+    "C_Translation_Smoke_Options",
+    "C_Translation_Smoke_Advanced",
+    "C_File_Load_Smoke",
+    "C_Command_Contract_Smoke"
+  ],
+  "proof_corpus": [
+    "C_ABI_Examples",
+    "C_Array_Examples",
+    "C_Bitwise_Examples",
+    "C_Byte_Refinement",
+    "C_Misc_Examples",
+    "C_Struct_Examples",
+    "C_Union_Examples",
+    "C_Void_Pointer_Examples",
+    "C_While_Examples",
+    "Simple_C_Functions"
+  ],
+  "features": [
+    {
+      "area": "declarations",
+      "forms": [
+        "function definitions and forward declarations",
+        "globals",
+        "locals and parameters",
+        "typedefs",
+        "enums",
+        "structs",
+        "unions",
+        "arrays",
+        "scopes and shadowing"
+      ],
+      "tests": [
+        "C_Translation_Smoke_Core",
+        "C_Translation_Smoke_Types",
+        "C_Translation_Smoke_Advanced"
+      ]
+    },
+    {
+      "area": "expressions",
+      "forms": [
+        "integer and character literals",
+        "arithmetic",
+        "comparisons",
+        "logical and bitwise operators",
+        "calls",
+        "casts",
+        "sizeof",
+        "_Alignof",
+        "_Generic",
+        "comma",
+        "conditional",
+        "assignment",
+        "compound assignment",
+        "increment and decrement"
+      ],
+      "tests": [
+        "C_Translation_Smoke_Core",
+        "C_Translation_Smoke_Compiler",
+        "C_Bitwise_Examples",
+        "C_Misc_Examples"
+      ]
+    },
+    {
+      "area": "memory",
+      "forms": [
+        "lvalues",
+        "address-of",
+        "dereference",
+        "pointer arithmetic",
+        "array indexing",
+        "aggregate fields",
+        "strings",
+        "compound literals",
+        "aggregate initializers",
+        "void pointers",
+        "byte encodings"
+      ],
+      "tests": [
+        "C_Translation_Smoke_Memory",
+        "C_Array_Examples",
+        "C_Struct_Examples",
+        "C_Union_Examples",
+        "C_Void_Pointer_Examples",
+        "C_Byte_Refinement"
+      ]
+    },
+    {
+      "area": "control",
+      "forms": [
+        "blocks",
+        "return",
+        "if",
+        "while",
+        "for",
+        "fuel",
+        "switch fall-through",
+        "break",
+        "continue",
+        "labels",
+        "forward and bounded backward goto"
+      ],
+      "tests": [
+        "C_Translation_Smoke_Control",
+        "C_While_Examples"
+      ]
+    },
+    {
+      "area": "implementation_defined_behavior",
+      "forms": [
+        "plain-char signedness",
+        "signed right shift",
+        "signed narrowing",
+        "endianness",
+        "pointer width",
+        "long width"
+      ],
+      "tests": [
+        "C_Translation_Smoke_ILP32",
+        "C_Translation_Smoke_Compiler",
+        "C_ABI_Examples",
+        "C_Command_Contract_Smoke"
+      ]
+    },
+    {
+      "area": "commands",
+      "forms": [
+        "inline and file translation",
+        "type and function selection",
+        "selection manifests",
+        "two-phase extraction",
+        "same-unit extension",
+        "configuration mismatch rejection",
+        "namespace collision preflight",
+        "source dependency registration",
+        "locale invocation"
+      ],
+      "tests": [
+        "C_Translation_Smoke_Options",
+        "C_File_Load_Smoke",
+        "C_Command_Contract_Smoke",
+        "Parser_Denotation_Tests"
+      ]
+    }
+  ],
+  "positioned_rejections": [
+    "floating-point and complex types",
+    "_Atomic semantics",
+    "variadic functions",
+    "negative array bounds",
+    "unsupported declarators and initializer designators",
+    "unsupported address-taking cases",
+    "unsupported aggregate member access"
+  ]
+}

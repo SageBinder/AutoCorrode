@@ -5,10 +5,10 @@
 theory Share_Map
   imports
     "HOL-Library.Datatype_Records"
-    Apartness
-    Separation_Algebra
+    Shallow_State_Logic.Apartness
+    Shallow_State_Logic.Separation_Algebra
     Shareable_Value
-    Tree_Shares
+    Shallow_State_Logic.Tree_Shares
     Data_Structures.RedBlackTree_Extensional
     Lenses_And_Other_Optics.Lenses_And_Other_Optics
 begin

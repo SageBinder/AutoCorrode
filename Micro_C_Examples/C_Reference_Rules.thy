@@ -1,0 +1,302 @@
+theory C_Reference_Rules
+  imports
+    "Crush.Crush"
+begin
+
+section \<open>Reference rules for C verification\<close>
+
+text \<open>
+  This theory exposes the language-neutral reference contracts through Crush
+  without importing a language standard library into the C examples.
+\<close>
+
+locale c_reference =
+  reference_defs reference_types update_raw_fun dereference_raw_fun
+    reference_raw_fun points_to_raw' gref_can_store new_gref_can_store
+    can_alloc_reference
+  for reference_types ::
+      \<open>'s::{sepalg} \<Rightarrow> 'a \<Rightarrow> 'b \<Rightarrow> 'abort \<Rightarrow>
+        'prompt \<Rightarrow> 'output \<Rightarrow> unit\<close>
+    and update_raw_fun dereference_raw_fun reference_raw_fun points_to_raw'
+      gref_can_store new_gref_can_store can_alloc_reference +
+  assumes update_raw_spec [all_reference_specs]:
+      \<open>\<Gamma> ; update_raw_fun r g \<Turnstile>\<^sub>F update_raw_contract r g0 g\<close>
+    and dereference_raw_spec [all_reference_specs]:
+      \<open>\<Gamma> ; dereference_raw_fun r \<Turnstile>\<^sub>F dereference_raw_contract r sh g\<close>
+    and reference_raw_spec [all_reference_specs]:
+      \<open>\<Gamma> ; reference_raw_fun g \<Turnstile>\<^sub>F reference_raw_contract g\<close>
+    and ucincl_points_to_raw [ucincl_intros, all_reference_specs]:
+      \<open>\<And>r sh g. ucincl (points_to_raw r sh g)\<close>
+    and ucincl_can_alloc_reference [ucincl_intros, all_reference_specs]:
+      \<open>ucincl can_alloc_reference\<close>
+    and points_to_raw_combine [all_reference_specs]:
+      \<open>\<And>r sh1 sh2 v1 v2.
+        r \<mapsto>\<langle>sh1\<rangle> v1 \<star> r \<mapsto>\<langle>sh2\<rangle> v2
+          \<longlongrightarrow> r \<mapsto>\<langle>sh1 + sh2\<rangle> v1 \<star> \<langle>v1 = v2\<rangle>\<close>
+    and points_to_raw_split [all_reference_specs]:
+      \<open>\<And>sh shA shB r v.
+        sh = shA + shB \<Longrightarrow> shA \<sharp> shB \<Longrightarrow>
+        0 < shA \<Longrightarrow> 0 < shB \<Longrightarrow>
+        r \<mapsto>\<langle>sh\<rangle> v
+          \<longlongrightarrow> r \<mapsto>\<langle>shA\<rangle> v \<star> r \<mapsto>\<langle>shB\<rangle> v\<close>
+begin
+
+lemma c_points_to_raw'_ucincl [ucincl_intros]:
+  shows \<open>\<And>r sh g. ucincl (points_to_raw' r sh g)\<close>
+  using ucincl_points_to_raw unfolding points_to_raw_def by simp
+
+lemma c_points_to_raw_aentails [intro]:
+  assumes \<open>g0 = g1\<close>
+  shows \<open>r \<mapsto>\<langle>sh\<rangle> g0 \<longlongrightarrow> r \<mapsto>\<langle>sh\<rangle> g1\<close>
+  using assms by (auto intro!: aentails_refl)
+
+lemma c_points_to_aentails [intro]:
+  assumes \<open>g0 = g1\<close> and \<open>v0 = v1\<close>
+  shows \<open>r \<mapsto>\<langle>sh\<rangle> g0\<down>v0
+    \<longlongrightarrow> r \<mapsto>\<langle>sh\<rangle> g1\<down>v1\<close>
+  using assms by (auto intro!: aentails_refl)
+
+end
+
+context c_reference
+begin
+
+adhoc_overloading store_dereference_const \<rightleftharpoons>
+  dereference_fun
+  ro_dereference_fun
+
+named_theorems c_crush_points_to_crules
+named_theorems c_crush_points_to_cond_crules
+
+declare c_points_to_aentails [c_crush_points_to_crules]
+
+lemma c_points_to_aentails_crule [crush_aentails_cond_crules]:
+  shows \<open>r \<mapsto>\<langle>sh\<rangle> g0\<down>v0
+         [
+           \<langle>g0 = g1\<rangle> \<star> \<langle>v0 = v1\<rangle> \<star> \<langle>points_to_localizes r g1 v1\<rangle>
+         ]\<longlongrightarrow>\<^sub>s[
+           \<langle>points_to_localizes r g0 v0\<rangle>
+         ]
+         r \<mapsto>\<langle>sh\<rangle> g1\<down>v1\<close>
+  unfolding aentails_conditional_crule_strong_def
+  by (simp add: points_to_def ucincl_points_to_raw)
+
+lemma c_points_to_aentails_crule_focusedL [c_crush_points_to_cond_crules]:
+  shows \<open>focus_reference f r \<mapsto>\<langle>sh\<rangle> g1\<down>v1
+         [
+            \<langle>g0 = g1\<rangle>
+            \<star> \<langle>focus_view f v0 = Some v1\<rangle>
+            \<star> \<langle>points_to_localizes r g0 v0\<rangle>
+         ]\<longlongrightarrow>\<^sub>s[
+            \<langle>points_to_localizes (focus_reference f r) g1 v1\<rangle>
+         ]
+         r \<mapsto>\<langle>sh\<rangle> g0\<down>v0\<close>
+  unfolding aentails_conditional_crule_strong_def
+  by (crush_base simp add: points_to_def)
+
+lemma c_points_to_aentails_crule_focusedR [crush_aentails_cond_crules]:
+  shows \<open>r \<mapsto>\<langle>sh\<rangle> g0\<down>v0
+         [
+           \<langle>g0 = g1\<rangle>
+            \<star> \<langle>focus_view f v0 = Some v1\<rangle>
+            \<star> \<langle>points_to_localizes (focus_reference f r) g1 v1\<rangle>
+         ]\<longlongrightarrow>\<^sub>s[
+           \<langle>points_to_localizes r g0 v0\<rangle>
+         ]
+         focus_reference f r \<mapsto>\<langle>sh\<rangle> g1\<down>v1\<close>
+  unfolding aentails_conditional_crule_strong_def
+  by (crush_base simp add: points_to_def)
+
+lemma c_points_to_split:
+  assumes \<open>sh = sh1 + sh2\<close>
+      and \<open>sh1 \<sharp> sh2\<close>
+      and \<open>0 < sh1\<close>
+      and \<open>0 < sh2\<close>
+    shows \<open>r \<mapsto>\<langle>sh\<rangle> g\<down>v \<longlongrightarrow>
+      r \<mapsto>\<langle>sh1\<rangle> g\<down>v \<star> r \<mapsto>\<langle>sh2\<rangle> g\<down>v\<close>
+using assms
+  apply (clarsimp simp add: points_to_def asepconj_simp)
+  apply (aentails_drule points_to_raw_split[where shA=sh1 and shB=sh2]; simp?)
+  apply crush_base
+  done
+
+lemma c_points_to_combine:
+  shows \<open>r \<mapsto>\<langle>sh1\<rangle> g1\<down>v1 \<star> r \<mapsto>\<langle>sh2\<rangle> g2\<down>v2
+    \<longlongrightarrow> r \<mapsto>\<langle>sh1 + sh2\<rangle> g1\<down>v1
+      \<star> \<langle>g1 = g2\<rangle> \<star> \<langle>v1 = v2\<rangle>\<close>
+  apply (crush_base simp [prems, concls] add: points_to_def seplog
+    drule add: points_to_raw_combine)
+  apply (simp add: aentails_def plus_share_def sup_aci(1))
+  done
+
+lemma c_focus_compose_valid_dropE [focus_elims]:
+  assumes \<open>is_valid_ref_for (focus_reference r l) P\<close>
+      and \<open>R\<close>
+    shows \<open>R\<close>
+  using assms by simp
+
+lemma c_focus_focused_view_dropE [focus_elims]:
+  assumes \<open>focus_is_view (\<integral>(focus_focused f r)) x y\<close>
+      and R
+    shows R
+  using assms by simp
+
+lemma c_focus_is_view_modified_dropE [focus_elims]:
+  assumes \<open>focus_is_view l (focus_modify l op x) y\<close>
+      and \<open>R\<close>
+    shows R
+using assms by (metis focus_laws_update(2) focus_modify_def'
+  focus_raw_view_modify'I option.collapse option.simps(1))
+
+lemma c_points_to_localizesE [focus_elims]:
+  assumes \<open>points_to_localizes r b v\<close>
+     and \<open>is_valid_ref_for r (gref_can_store (unwrap_focused r)) \<Longrightarrow>
+       focus_view (get_focus r) b = Some v \<Longrightarrow> R\<close>
+   shows R
+  using assms by simp
+
+lemma c_focus_compose_is_view_guardedI:
+  assumes \<open>focus_is_view f0 x y\<close>
+      and \<open>GUARD y (focus_is_view f1 y z)\<close>
+    shows \<open>focus_is_view (f0 \<diamondop> f1) x z\<close>
+using assms unfolding GUARD_def by (simp add: focus_compose_is_viewI)
+
+lemma c_focus_is_view_modify_partial_guarded:
+  assumes \<open>focus_is_view f0 x y'\<close>
+      and \<open>f0 = f0'\<close>
+      and \<open>y = GUARD y' (focus_modify f1 op y')\<close>
+    shows \<open>focus_is_view f0 (focus_modify (f0' \<diamondop> f1) op x) y\<close>
+  using assms unfolding GUARD_def by (simp add: focus_is_view_modify_partial)
+
+ucincl_auto points_to update_raw_contract dereference_raw_contract
+  reference_raw_contract update_contract modify_raw_contract modify_contract
+  dereference_contract ro_dereference_contract reference_contract
+
+declare update_raw_spec [crush_specs]
+declare dereference_raw_spec [crush_specs]
+declare reference_raw_spec [crush_specs]
+
+declare update_raw_contract_def [crush_contracts]
+declare modify_raw_contract_def [crush_contracts]
+declare reference_raw_contract_def [crush_contracts]
+declare dereference_raw_contract_def [crush_contracts]
+
+declare update_contract_def [crush_contracts]
+declare modify_contract_def [crush_contracts]
+declare reference_contract_def [crush_contracts]
+declare dereference_contract_def [crush_contracts]
+declare ro_dereference_contract_def [crush_contracts]
+
+corollary c_modify_raw_spec [crush_specs]:
+  shows \<open>\<Gamma> ; modify_raw_fun r f \<Turnstile>\<^sub>F modify_raw_contract r g f\<close>
+  by (crush_boot f: modify_raw_fun_def contract: modify_raw_contract_def) crush_base
+
+lemma c_focus_factors_preservesI
+    [where P=\<open>gref_can_store _\<close>, focus_intros]:
+  assumes \<open>focus_factors P f\<close>
+      and \<open>x \<in> P\<close>
+    shows \<open>focus_modify f g x \<in> P\<close>
+  by (simp add: assms focus_factors_modify)
+
+lemma c_gref_points_to_implies_can_store_general:
+  assumes \<open>\<down>{\<integral> r} g \<doteq> v\<close>
+      and \<open>is_valid_ref_for r P\<close>
+    shows \<open>g \<in> P\<close>
+  using assms by (clarsimp simp add: is_valid_ref_for_def focus_dom.rep_eq
+    focus_raw_domI focus_view.rep_eq subsetD)
+
+lemma c_gref_points_to_implies_can_store_specific [focus_elims]:
+  assumes \<open>\<down>{\<integral> r} g \<doteq> v\<close>
+      and \<open>is_valid_ref_for r (gref_can_store (\<flat> r))\<close>
+    shows \<open>g \<in> gref_can_store (\<flat> r)\<close>
+  using assms by (intro c_gref_points_to_implies_can_store_general; simp)
+
+corollary c_modify_spec [crush_specs]:
+  shows \<open>\<Gamma> ; modify_fun r f \<Turnstile>\<^sub>F modify_contract r g0 v0 f\<close>
+  apply (crush_boot f: modify_fun_def contract: modify_contract_def simp: points_to_def)
+  apply (crush_base simp add: is_valid_ref_for_def)
+  done
+
+lemma c_update_spec [crush_specs, crush_specs_eager]:
+  notes wp_cong [crush_cong del]
+    and wp_cong' [crush_cong del]
+  shows \<open>\<Gamma> ; update_fun r v \<Turnstile>\<^sub>F update_contract r g0 v0 v\<close>
+  by (crush_boot f: update_fun_def contract: update_contract_def) crush_base
+
+lemma c_dereference_spec [crush_specs, crush_specs_eager]:
+  shows \<open>\<Gamma> ; dereference_fun r \<Turnstile>\<^sub>F dereference_contract r sh g v\<close>
+  by (crush_boot f: dereference_fun_def contract: dereference_contract_def simp: points_to_def)
+    crush_base
+
+definition c_can_create_gref_for_prism :: \<open>('b, 'v) prism \<Rightarrow> bool\<close>
+  where \<open>c_can_create_gref_for_prism p \<equiv> prism_dom p \<subseteq> new_gref_can_store\<close>
+
+lemma c_ref_spec:
+  assumes \<open>is_valid_prism p\<close>
+      and \<open>c_can_create_gref_for_prism p\<close>
+    shows \<open>\<Gamma> ; reference_fun p v \<Turnstile>\<^sub>F reference_contract p v\<close>
+using assms
+  apply (crush_boot f: reference_fun_def contract: reference_contract_def)
+  apply (crush_base simp add: points_to_def c_can_create_gref_for_prism_def
+    is_valid_ref_for_def focus_components)
+  apply (auto simp add: prism_dom_alt)
+  done
+
+lemma c_prism_compose_allocatable:
+  assumes \<open>c_can_create_gref_for_prism p\<^sub>1\<close>
+    shows \<open>c_can_create_gref_for_prism (p\<^sub>1 \<diamondop>\<^sub>p p\<^sub>2)\<close>
+using assms subset_iff
+unfolding c_can_create_gref_for_prism_def prism_dom_def prism_compose_def
+by fastforce
+
+end
+
+named_theorems c_ref_prisms_validity
+
+locale c_reference_allocatable =
+  c_reference reference_types update_raw_fun dereference_raw_fun
+    reference_raw_fun points_to_raw' gref_can_store new_gref_can_store
+    can_alloc_reference
+  for reference_types ::
+      \<open>'s::{sepalg} \<Rightarrow> 'a \<Rightarrow> 'b \<Rightarrow> 'abort \<Rightarrow>
+        'prompt \<Rightarrow> 'output \<Rightarrow> unit\<close>
+    and update_raw_fun and dereference_raw_fun and reference_raw_fun
+    and points_to_raw' and gref_can_store new_gref_can_store
+    and can_alloc_reference +
+  fixes prism :: \<open>('b, 'v) prism\<close>
+  assumes prism_valid [c_ref_prisms_validity, focus_intros]:
+      \<open>is_valid_prism prism\<close>
+    and prism_allocatable: \<open>c_can_create_gref_for_prism prism\<close>
+begin
+
+abbreviation project :: \<open>'b \<Rightarrow> 'v option\<close> where
+  \<open>project b \<equiv> prism_project prism b\<close>
+
+abbreviation embed :: \<open>'v \<Rightarrow> 'b\<close> where
+  \<open>embed b \<equiv> prism_embed prism b\<close>
+
+definition cast :: \<open>('a, 'b) gref \<Rightarrow> ('a, 'b, 'v) State_References.ref\<close>
+  where \<open>cast gref \<equiv> make_ref_typed_from_untyped gref (prism_to_focus prism)\<close>
+
+definition new ::
+    \<open>'v \<Rightarrow>
+      ('s, ('a, 'b, 'v) State_References.ref, 'abort, 'prompt, 'output)
+        function_body\<close>
+  where \<open>new x \<equiv> reference_fun prism x\<close>
+
+definition \<open>focus = prism_to_focus prism\<close>
+declare focus_def [symmetric, code_unfold]
+declare prism_valid [THEN prism_to_focus.rep_eq, folded focus_def, code]
+
+lemma [focus_simps]:
+  shows \<open>\<And>x. project (embed x) = Some x\<close>
+    and \<open>\<And>x y. project x = Some y \<Longrightarrow> embed y = x\<close>
+  using is_valid_prism_def prism_valid by fastforce+
+
+declare c_ref_spec [OF prism_valid prism_allocatable, folded new_def, crush_specs]
+
+adhoc_overloading store_reference_const \<rightleftharpoons> new
+
+end
+
+end

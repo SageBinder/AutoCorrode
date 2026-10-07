@@ -266,13 +266,13 @@ the wrapper, distinguishing them from expressions. Human mode removes redundant 
 retaining groups required by precedence and grammar.
 \<close>
 
-urust_expr [pretty, verbosity = 1]
+urust_expr [pretty, verbosity = 2]
   printer_human_expression
   \<open>
     (((let value = 1 + 2 * 3; value)))
   \<close>
 
-urust_fn [pretty, verbosity = 1]
+urust_fn [pretty, verbosity = 2]
   printer_human_function ::
   \<open>64 word \<Rightarrow> (unit, 64 word, unit, unit, unit) function_body\<close>
   (item)
@@ -298,7 +298,7 @@ side. The printer keeps the source-level function body while laying out each blo
 independently.
 \<close>
 
-urust_fn [pretty, verbosity = 1]
+urust_fn [pretty, verbosity = 2]
   printer_human_accumulate ::
   \<open>32 word \<Rightarrow> 32 word \<Rightarrow>
     (unit, 32 word, unit, unit, unit) function_body\<close>
@@ -321,7 +321,7 @@ result, so the InfoView output must put code after an opening brace on a new lin
 blocks by two spaces, and retain \<open>} else {\<close> on one line.
 \<close>
 
-urust_fn [pretty, verbosity = 1]
+urust_fn [pretty, verbosity = 2]
   printer_human_line_breaks ::
   \<open>32 word \<Rightarrow> (unit, 32 word, unit, unit, unit) function_body\<close>
   (number)
@@ -346,7 +346,7 @@ The second example combines nested bindings with an option match, guarded arms, 
 arm. It makes the printer's match-arm alignment and nested indentation visible.
 \<close>
 
-urust_expr [pretty, verbosity = 1]
+urust_expr [pretty, verbosity = 2]
   printer_human_decision_tree
   \<open>
     let floor = \<llangle>0 :: 32 word\<rrangle>;
@@ -367,7 +367,7 @@ and conditional, showing that closure bars, captured binders, and nested blocks 
 source-level presentation.
 \<close>
 
-urust_expr [pretty, verbosity = 1]
+urust_expr [pretty, verbosity = 2]
   printer_human_closure_pipeline
   \<open>
     let offset = \<llangle>1 :: 32 word\<rrangle>;
@@ -988,7 +988,7 @@ ML_val\<open>
     val pretty_expression =
       capture "pretty-expression"
         ("urust_expr " ^
-          "[pretty, verbosity = 1] " ^
+          "[pretty, verbosity = 2] " ^
           "pretty_expression " ^ grouped_source)
     val _ =
       List.app
@@ -1064,7 +1064,7 @@ ML_val\<open>
     val pretty_function =
       capture "pretty-function"
         ("urust_fn " ^
-          "[pretty = true, verbosity = 1] " ^
+          "[pretty = true, verbosity = 2] " ^
           "pretty_function :: " ^ function_type ^
           " (item) " ^ function_source)
     val _ =
@@ -1137,7 +1137,7 @@ ML_val\<open>
     val pretty_abbreviation =
       capture "pretty-abbreviation"
         ("urust_expr " ^
-          "[abbrev, pretty, verbosity = 1] " ^
+          "[abbrev, pretty, verbosity = 2] " ^
           "pretty_abbreviation (item) " ^ antiquotation_source)
     val _ =
       List.app
@@ -1164,7 +1164,7 @@ ML_val\<open>
     val pretty_application =
       capture "pretty-application"
         ("urust_expr " ^
-          "[application_def, pretty, verbosity = 1] " ^
+          "[application_def, pretty, verbosity = 2] " ^
           "pretty_application (item) " ^ antiquotation_source)
     val _ =
       List.app
@@ -1184,7 +1184,7 @@ ML_val\<open>
     val pretty_application_function =
       capture "pretty-application-function"
         ("urust_fn " ^
-          "[application_def, pretty, verbosity = 1] " ^
+          "[application_def, pretty, verbosity = 2] " ^
           "pretty_application_function :: " ^ function_type ^
           " (item) " ^ function_source)
     val _ =
@@ -1212,7 +1212,7 @@ ML_val\<open>
     val pretty_anonymous =
       capture "pretty-anonymous"
         ("urust_expr " ^
-          "[pretty, verbosity = 1] _ " ^
+          "[pretty, verbosity = 2] _ " ^
           grouped_source)
     val _ =
       assert_contains "pretty anonymous result"
@@ -1230,7 +1230,7 @@ ML_val\<open>
     val pretty_anonymous_function =
       capture "pretty-anonymous-function"
         ("urust_fn " ^
-          "[pretty, verbosity = 1] _ :: " ^ function_type ^
+          "[pretty, verbosity = 2] _ :: " ^ function_type ^
           " (item) " ^ function_source)
     val _ =
       assert_contains "pretty anonymous function"
@@ -1244,7 +1244,7 @@ ML_val\<open>
     val scoped_pretty =
       capture "pretty-scoped"
         ("declare [[urust_pretty = true]]\n" ^
-          "declare [[urust_verbosity = 1]]\n" ^
+          "declare [[urust_verbosity = 2]]\n" ^
           "urust_expr " ^
           "scoped_pretty " ^ grouped_source)
     val _ =
@@ -1257,7 +1257,7 @@ ML_val\<open>
     val false_override =
       capture "pretty-false-override"
         ("declare [[urust_pretty = true]]\n" ^
-          "declare [[urust_verbosity = 1]]\n" ^
+          "declare [[urust_verbosity = 2]]\n" ^
           "urust_expr [pretty = false] " ^
           "pretty_false_override " ^ grouped_source)
     val _ =

@@ -7,6 +7,8 @@ theory Language_Isolation_Tests
     Neutral_Lemmas_Isolation
     Neutral_Eval_Isolation
     Neutral_Pullback_Isolation
+    Neutral_State_Logic_Isolation
+    Neutral_Separation_Logic_Isolation
     Direct_Core_Compatibility
     Direct_Lemmas_Compatibility
     Direct_Eval_Compatibility

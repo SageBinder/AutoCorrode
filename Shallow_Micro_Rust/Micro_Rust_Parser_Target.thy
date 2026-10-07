@@ -9,7 +9,8 @@ theory Micro_Rust_Parser_Target
     Option_Type
     Range_Type
     Bool_Type
-    Global_Store
+    Rust_State_Profile
+    Shallow_State.Reference_Interface
     Prompts_And_Responses
     Tuple
     Micro_Rust_Notations
@@ -32,13 +33,10 @@ parse translation.
 consts
   unwrap :: \<open>'a \<Rightarrow> ('s, 'b, 'abort, 'i, 'o) function_body\<close>
   expect :: \<open>'a \<Rightarrow> String.literal \<Rightarrow> ('s, 'b, 'abort, 'i, 'o) function_body\<close>
-  store_update_const :: \<open>('a, 'b, 'v) Global_Store.ref \<Rightarrow> 'v \<Rightarrow> ('s, unit, 'abort, 'i, 'o) function_body\<close>
-  store_reference_const :: \<open>'v \<Rightarrow> ('s, ('a, 'b, 'v) Global_Store.ref, 'abort, 'i, 'o) function_body\<close>
-  store_dereference_const :: \<open>'a \<Rightarrow> ('s, 'v, 'abort, 'i, 'o) function_body\<close>
   index_const :: \<open>'a \<Rightarrow> 'idx \<Rightarrow> ('s, 'b, 'abort, 'i, 'o) function_body\<close>
   negation_const :: \<open>('s, 'v, 'c, 'abort, 'i, 'o) expression \<Rightarrow> ('s, 'v, 'c, 'abort, 'i, 'o) expression\<close>
   propagate_const :: \<open>('s, 'v, 'c, 'abort, 'i, 'o) expression \<Rightarrow> ('s, 'w, 'c, 'abort, 'i, 'o) expression\<close>
-  assign_add_const :: \<open>('a, 'b, 'v) Global_Store.ref \<Rightarrow> 'w \<Rightarrow> ('s, unit, 'abort, 'i, 'o) function_body\<close>
+  assign_add_const :: \<open>('a, 'b, 'v) State_References.ref \<Rightarrow> 'w \<Rightarrow> ('s, unit, 'abort, 'i, 'o) function_body\<close>
 
 adhoc_overloading propagate_const \<rightleftharpoons> propagate_option propagate_result
 adhoc_overloading negation_const \<rightleftharpoons> negation Numeric_Types.word_bitwise_not

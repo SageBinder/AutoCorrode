@@ -20,7 +20,7 @@ definition automatic_read_record_value :: automatic_read_record where
   \<open> automatic_read_record_value \<equiv> make_automatic_read_record 7 \<close>
 
 definition automatic_read_reference_value ::
-  \<open>(unit, unit, 32 word) Global_Store.ref\<close>
+  \<open>(unit, unit, 32 word) State_References.ref\<close>
   where \<open> automatic_read_reference_value \<equiv> undefined \<close>
 
 definition automatic_read_array_value :: \<open>(32 word, 4) array\<close> where
@@ -35,8 +35,8 @@ definition automatic_read_value_call ::
 
 definition automatic_read_reference_call ::
   \<open>
-    (unit, unit, 32 word) Global_Store.ref \<Rightarrow>
-    (unit, (unit, unit, 32 word) Global_Store.ref, unit, unit, unit) function_body
+    (unit, unit, 32 word) State_References.ref \<Rightarrow>
+    (unit, (unit, unit, 32 word) State_References.ref, unit, unit, unit) function_body
   \<close>
   where \<open> automatic_read_reference_call \<equiv> lift_fun1 id \<close>
 
@@ -47,7 +47,7 @@ adhoc_overloading index_const \<rightleftharpoons> parser_reference_array_index_
 
 urust_expr automatic_read_expected_reference ::
   \<open>
-    (unit, (unit, unit, 32 word) Global_Store.ref, unit, unit, unit) function_body
+    (unit, (unit, unit, 32 word) State_References.ref, unit, unit, unit) function_body
   \<close>
   \<open>
     let mut value = \<llangle>0 :: 32 word\<rrangle>;
@@ -56,24 +56,24 @@ urust_expr automatic_read_expected_reference ::
 
 urust_expr automatic_read_reference_parameter ::
   \<open>
-    (unit, unit, 32 word) Global_Store.ref \<Rightarrow>
-    (unit, (unit, unit, 32 word) Global_Store.ref, unit, unit, unit) function_body
+    (unit, unit, 32 word) State_References.ref \<Rightarrow>
+    (unit, (unit, unit, 32 word) State_References.ref, unit, unit, unit) function_body
   \<close>
   (reference)
   \<open> reference \<close>
 
 urust_expr automatic_read_expression_parameter_shadow ::
   \<open>
-    (unit, unit, 32 word) Global_Store.ref \<Rightarrow>
-    (unit, (unit, unit, 32 word) Global_Store.ref, unit, unit, unit, unit) expression
+    (unit, unit, 32 word) State_References.ref \<Rightarrow>
+    (unit, (unit, unit, 32 word) State_References.ref, unit, unit, unit, unit) expression
   \<close>
   ("value")
   \<open> let mut value = value; value \<close>
 
 urust_expr automatic_read_expression_parameter_shadow_explicit ::
   \<open>
-    (unit, unit, 32 word) Global_Store.ref \<Rightarrow>
-    (unit, (unit, unit, 32 word) Global_Store.ref, unit, unit, unit, unit) expression
+    (unit, unit, 32 word) State_References.ref \<Rightarrow>
+    (unit, (unit, unit, 32 word) State_References.ref, unit, unit, unit, unit) expression
   \<close>
   ("value")
   \<open> let mut value = value; *value \<close>

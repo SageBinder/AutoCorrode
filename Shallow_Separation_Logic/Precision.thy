@@ -2,7 +2,7 @@
    SPDX-License-Identifier: MIT *)
 
 theory Precision
-  imports Assertion_Language
+  imports Shallow_State_Logic.Assertion_Language
 begin
 
 (*<*)

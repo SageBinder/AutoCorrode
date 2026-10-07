@@ -1,5 +1,5 @@
 session Micro_Rust_Parser_Tests = HOL +
-  options [document = pdf, document_output = "output"]
+  options [document = pdf, document_output = "output", threads = 1]
   sessions
     "HOL-Library"
     Micro_Rust_Parser_Impl

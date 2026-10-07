@@ -10,7 +10,7 @@ begin
 term Core_Expression.bind
 thm Core_Expression.bind.simps
 thm Core_Expression_Lemmas.bind_assoc
-thm Eval.urust_eval_action_bind
+thm Eval.eval_action_bind
 thm Pullback.expression_pull_back_bind
 
 end

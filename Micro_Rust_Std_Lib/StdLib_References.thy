@@ -258,10 +258,10 @@ abbreviation project :: \<open>'b \<Rightarrow> 'v option\<close> where
 abbreviation embed :: \<open>'v \<Rightarrow> 'b\<close> where
   \<open>embed b \<equiv> prism_embed prism b\<close>
 
-definition cast :: \<open>('a, 'b) gref \<Rightarrow> ('a, 'b, 'v) Global_Store.ref\<close>
+definition cast :: \<open>('a, 'b) gref \<Rightarrow> ('a, 'b, 'v) State_References.ref\<close>
   where \<open>cast gref \<equiv> make_ref_typed_from_untyped gref (prism_to_focus prism)\<close>
 
-definition new :: \<open>'v \<Rightarrow> ('s, ('a, 'b, 'v) Global_Store.ref, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
+definition new :: \<open>'v \<Rightarrow> ('s, ('a, 'b, 'v) State_References.ref, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   where \<open>new x \<equiv> reference_fun prism x\<close>
 
 definition \<open>focus = prism_to_focus prism\<close>
@@ -339,7 +339,7 @@ end
 
 subsection\<open>Reference kind casts\<close>
 
-definition ref_cast_to_ro :: \<open>('a, 'b, 'v) Global_Store.ref \<Rightarrow>
+definition ref_cast_to_ro :: \<open>('a, 'b, 'v) State_References.ref \<Rightarrow>
   ('s, ('a, 'b, 'v) ro_ref, 'abort, 'i, 'o) function_body\<close> where
   \<open>ref_cast_to_ro r \<equiv> fun_literal (ro_ref_from_ref r)\<close>
 
@@ -348,7 +348,7 @@ definition ref_cast_to_ro :: \<open>('a, 'b, 'v) Global_Store.ref \<Rightarrow>
     separation logic sense). Downstream proofs must discharge the corresponding points-to
     obligation with unshared permission.\<close>
 definition ref_cast_to_mut :: \<open>('a, 'b, 'v) ro_ref \<Rightarrow>
-  ('s, ('a, 'b, 'v) Global_Store.ref, 'abort, 'i, 'o) function_body\<close> where
+  ('s, ('a, 'b, 'v) State_References.ref, 'abort, 'i, 'o) function_body\<close> where
   \<open>ref_cast_to_mut r \<equiv> fun_literal (unsafe_ref_from_ro_ref r)\<close>
 
 micro_rust_notation (call) ref_cast_to_ro ("as_ro_ref")

@@ -176,8 +176,8 @@ context reference
 begin       
 adhoc_overloading store_update_const \<rightleftharpoons> update_fun
 
-urust_fn result_as_mut :: \<open>('a, 'b, ('v, 'e) result) Global_Store.ref \<Rightarrow>
-    ('s, (('a, 'b, 'v) Global_Store.ref, ('a, 'b, 'e) Global_Store.ref) result, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
+urust_fn result_as_mut :: \<open>('a, 'b, ('v, 'e) result) State_References.ref \<Rightarrow>
+    ('s, (('a, 'b, 'v) State_References.ref, ('a, 'b, 'e) State_References.ref) result, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (self)
   \<open>
      match *self {
@@ -186,8 +186,8 @@ urust_fn result_as_mut :: \<open>('a, 'b, ('v, 'e) result) Global_Store.ref \<Ri
      }
   \<close>
 
-definition result_as_mut_contract :: \<open>'b \<Rightarrow> ('a, 'b, ('v, 'e) result) Global_Store.ref
-     \<Rightarrow> ('v, 'e) result \<Rightarrow> ('s::{sepalg}, (('a, 'b, 'v) Global_Store.ref, ('a, 'b, 'e) Global_Store.ref) result, 'abort) function_contract\<close> where
+definition result_as_mut_contract :: \<open>'b \<Rightarrow> ('a, 'b, ('v, 'e) result) State_References.ref
+     \<Rightarrow> ('v, 'e) result \<Rightarrow> ('s::{sepalg}, (('a, 'b, 'v) State_References.ref, ('a, 'b, 'e) State_References.ref) result, 'abort) function_contract\<close> where
   [crush_contracts]: \<open>result_as_mut_contract g ref opt \<equiv>
     let pre  = ref \<mapsto>\<langle>\<top>\<rangle> g\<down>opt;
         post = \<lambda>res. ref \<mapsto>\<langle>\<top>\<rangle> g\<down>opt \<star> 

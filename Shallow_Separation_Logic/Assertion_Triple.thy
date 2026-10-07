@@ -3,7 +3,7 @@
 
 (*<*)
 theory Assertion_Triple
-  imports Shallow_Micro_Rust.Eval_Profile Assertion_Language Precision Locality "HOL-Library.Rewrite"
+  imports Shallow_Computation.Eval Shallow_State_Logic.Assertion_Language Precision Locality "HOL-Library.Rewrite"
 begin
 
 context sepalg begin

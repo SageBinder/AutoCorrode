@@ -1,0 +1,4 @@
+session Frontend_Common = HOL +
+  options [document = false]
+  theories [document = false]
+    Frontend_Common

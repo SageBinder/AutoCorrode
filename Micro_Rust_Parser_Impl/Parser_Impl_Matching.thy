@@ -108,7 +108,7 @@ struct
   open URust_AST
   structure T = URust_Shallow_Terms
   structure P = URust_Patterns
-  structure Navigation = Micro_Rust_Semantic_Navigation
+  structure Navigation = Shallow_Computation_Semantic_Navigation
 
   fun keyword_positions names layout =
     source_tokens layout

@@ -6,10 +6,10 @@ theory Raw_Physical_Memory_Trie_Core
   imports Main
     Crush.Crush
     "HOL-Library.Datatype_Records"
-    Shallow_Separation_Logic.Apartness
-    Shallow_Separation_Logic.Separation_Algebra
-    Shallow_Separation_Logic.Assertion_Language
-    Shallow_Separation_Logic.Tree_Shares
+    Shallow_State_Logic.Apartness
+    Shallow_State_Logic.Separation_Algebra
+    Shallow_State_Logic.Assertion_Language
+    Shallow_State_Logic.Tree_Shares
     Shallow_Separation_Logic.Shareable_Value
     Word_Lib.Word_Lib_Sumo
     Misc.WordAdditional

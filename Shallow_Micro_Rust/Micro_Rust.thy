@@ -16,7 +16,7 @@ theory Micro_Rust
     Rust_Iterator_Lemmas
     Numeric_Types
     Numeric_Types_Lemmas
-    Global_Store
+    Rust_State_Profile
     SSA
 begin
 (*>*)

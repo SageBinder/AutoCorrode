@@ -3,7 +3,7 @@
 
 (*<*)
 theory Triple
-  imports Assertion_Language Shallow_Micro_Rust.Shallow_Micro_Rust Precision Weak_Triple
+  imports Shallow_State_Logic.Assertion_Language Shallow_Computation.Shallow_Computation Precision Weak_Triple
 begin
 (*>*)
 
@@ -15,27 +15,28 @@ subsection\<open>Evaluation predicates\<close>
 context sepalg begin
 (*>*)
 
-abbreviation urust_is_local where
-  \<open>urust_is_local \<Gamma> e \<phi> \<equiv>
+abbreviation expression_is_local where
+  \<open>expression_is_local \<Gamma> e \<phi> \<equiv>
      is_local (\<lambda>\<sigma> (v, \<sigma>'). \<sigma> \<leadsto>\<^sub>v\<langle>\<Gamma>,e\<rangle> (v,\<sigma>')) \<phi> \<and>
      is_local (\<lambda>\<sigma> (r, \<sigma>'). \<sigma> \<leadsto>\<^sub>r\<langle>\<Gamma>,e\<rangle> (r,\<sigma>')) \<phi> \<and>
      is_local (\<lambda>\<sigma> (a, \<sigma>'). \<sigma> \<leadsto>\<^sub>a\<langle>\<Gamma>,e\<rangle> (a,\<sigma>')) \<phi>\<close>
 
-lemma urust_is_local_weaken:
+lemma expression_is_local_weaken:
   assumes \<open>\<phi>' \<longlongrightarrow> \<phi>\<close>
-      and \<open>urust_is_local \<Gamma> e \<phi>\<close>
-    shows \<open>urust_is_local \<Gamma> e \<phi>'\<close>
+      and \<open>expression_is_local \<Gamma> e \<phi>\<close>
+    shows \<open>expression_is_local \<Gamma> e \<phi>'\<close>
   using assms by (clarsimp simp add: is_local_weaken)
 
-lemma urust_is_local_Union:
-  assumes \<open>\<And>x. urust_is_local \<Gamma> e (\<phi> x)\<close>
-    shows \<open>urust_is_local \<Gamma> e (\<Union>x. \<phi> x)\<close>
+lemma expression_is_local_Union:
+  assumes \<open>\<And>x. expression_is_local \<Gamma> e (\<phi> x)\<close>
+    shows \<open>expression_is_local \<Gamma> e (\<Union>x. \<phi> x)\<close>
   using assms by (simp add: is_local_Union)
 
 definition sstriple ::
-     \<open>('a, 'abort, 'i, 'o) striple_context \<Rightarrow> \<comment> \<open>Fixed context for this verification\<close>
+     \<open>('a, 'abort, 'i::nondeterministic_prompt, 'o::nondeterministic_response)
+        striple_context \<Rightarrow> \<comment> \<open>Fixed context for this verification\<close>
       'a assert \<Rightarrow> \<comment> \<open>The property of the pre-state\<close>
-      ('a, 'v, 'r, 'abort, 'i prompt, 'o prompt_output) expression \<Rightarrow> \<comment> \<open>Expanded out our expression type\<close>
+      ('a, 'v, 'r, 'abort, 'i, 'o) expression \<Rightarrow> \<comment> \<open>Expanded out our expression type\<close>
       ('v \<Rightarrow> 'a assert) \<Rightarrow> \<comment> \<open>The property of the post-state after successful execution\<close>
       ('r \<Rightarrow> 'a assert) \<Rightarrow> \<comment> \<open>The property of the post-state after successful early return\<close>
       ('abort abort \<Rightarrow> 'a assert) \<Rightarrow>
@@ -61,9 +62,10 @@ lemma sstriple_upwards_closure:
   by (auto simp add: sstriple_def atriple_rel_upwards_closure' asepconj_simp)
 
 lemma sstriple_striple:
-  fixes \<Gamma> :: \<open>('a, 'abort, 'i, 'o) striple_context\<close>
+  fixes \<Gamma> :: \<open>('a, 'abort, 'i::nondeterministic_prompt, 'o::nondeterministic_response)
+    striple_context\<close>
     and \<phi> :: \<open>'a assert\<close>
-    and e :: \<open>('a, 'v, 'r, 'abort, 'i prompt, 'o prompt_output) expression\<close>
+    and e :: \<open>('a, 'v, 'r, 'abort, 'i, 'o) expression\<close>
     and \<psi> :: \<open>'v \<Rightarrow> 'a assert\<close>
     and \<xi> :: \<open>'r \<Rightarrow> 'a assert\<close>
     and \<theta> :: \<open>'abort abort \<Rightarrow> 'a assert\<close>
@@ -92,7 +94,7 @@ proof -
       and \<open>is_local (eval_abort (yh \<Gamma>) e) \<phi>\<close>
     then have \<open>\<Gamma> ; \<phi> \<turnstile> e \<stileturn> \<psi> \<bowtie> \<xi> \<bowtie> \<theta>\<close>
       by (intro sstripleI; clarsimp simp add: atriple_rel_def eval_value_def eval_return_def
-        eval_abort_def striple_def atriple_def urust_eval_action_via_predicate ucincl_UNIV
+        eval_abort_def striple_def atriple_def shallow_computation_eval_action_via_predicate ucincl_UNIV
         asepconj_weakenI)
   }
   ultimately show ?thesis
@@ -101,18 +103,19 @@ qed
 
 lemma sstriple_implies_is_local:
   assumes \<open>\<Gamma>; \<phi> \<turnstile> e \<stileturn> \<alpha> \<bowtie> \<beta> \<bowtie> \<gamma>\<close>
-  shows \<open>urust_is_local (yh \<Gamma>) e \<phi>\<close>
+  shows \<open>expression_is_local (yh \<Gamma>) e \<phi>\<close>
   using assms by (simp add: sstriple_striple eval_abort_def eval_return_def eval_value_def)
 
 lemma sstriple_striple':
-  fixes \<Gamma> :: \<open>('a, 'abort, 'i, 'o) striple_context\<close>
+  fixes \<Gamma> :: \<open>('a, 'abort, 'i::nondeterministic_prompt, 'o::nondeterministic_response)
+    striple_context\<close>
     and \<phi> :: \<open>'a assert\<close>
-    and e :: \<open>('a, 'v, 'r, 'abort, 'i prompt, 'o prompt_output) expression\<close>
+    and e :: \<open>('a, 'v, 'r, 'abort, 'i, 'o) expression\<close>
     and \<psi> :: \<open>'v \<Rightarrow> 'a assert\<close>
     and \<xi> :: \<open>'r \<Rightarrow> 'a assert\<close>
     and \<theta> :: \<open>'abort abort \<Rightarrow> 'a assert\<close>
   shows \<open>(\<Gamma> ; \<phi> \<turnstile> e \<stileturn> \<psi> \<bowtie> \<xi> \<bowtie> \<theta>) \<longleftrightarrow>
-           (\<Gamma> ; \<phi> \<turnstile> e \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k \<psi> \<bowtie> \<xi> \<bowtie> \<theta> \<and> urust_is_local (yh \<Gamma>) e \<phi>)\<close>
+           (\<Gamma> ; \<phi> \<turnstile> e \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k \<psi> \<bowtie> \<xi> \<bowtie> \<theta> \<and> expression_is_local (yh \<Gamma>) e \<phi>)\<close>
   by (clarsimp simp add: sstriple_striple eval_value_def eval_abort_def eval_return_def)
 
 lemma sstriple_from_stripleI:
@@ -235,7 +238,7 @@ lemma sstriple_bindI:
   assumes \<open>\<Gamma> ; \<phi> \<turnstile> e \<stileturn> \<psi> \<bowtie> \<rho> \<bowtie> \<theta>\<close>
       and \<open>\<And>x. \<Gamma> ; \<psi> x \<turnstile> f x \<stileturn> \<xi> \<bowtie> \<rho> \<bowtie> \<theta>\<close>   \<comment> \<open>Case of continuation into \<^term>\<open>f\<close>\<close>
     shows \<open>\<Gamma> ; \<phi> \<turnstile> Core_Expression.bind e f \<stileturn> \<xi> \<bowtie> \<rho> \<bowtie> \<theta>\<close>
-  using assms by (clarsimp simp add: sstriple_def urust_eval_predicate_simps
+  using assms by (clarsimp simp add: sstriple_def shallow_computation_eval_predicate_simps
     atriple_rel_bind atriple_rel_disj)
 
 text\<open>This is basically the \<^verbatim>\<open>sstriple_bindI\<close> theorem in a (thin) disguise:\<close>
@@ -251,14 +254,14 @@ text\<open>The \<^verbatim>\<open>skip\<close> command does not modify the state
 lemma sstriple_skipI:
   shows \<open>\<Gamma> ; \<psi> \<turnstile> skip \<stileturn> (\<lambda>_. \<psi>) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
   by (auto intro!: sstriple_from_stripleI striple_skipI
-      simp add: eval_value_def eval_return_def eval_abort_def urust_eval_predicate_skip is_local_def)
+      simp add: eval_value_def eval_return_def eval_abort_def eval_predicate_skip is_local_def)
 
 text\<open>Executing a literal does not modify the state in anyway way, but does return the literal value.
 It also always succeeds:\<close>
 lemma sstriple_literalI:
   shows \<open>\<Gamma> ; \<top> \<turnstile> literal v \<stileturn> (\<lambda>rv. \<langle>rv = v\<rangle>) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
-  by (auto intro: sstriple_from_stripleI striple_literalI 
-      simp add: urust_eval_predicate_literal is_local_def eval_value_def eval_return_def eval_abort_def)
+  by (auto intro: sstriple_from_stripleI striple_literalI
+      simp add: eval_predicate_literal is_local_def eval_value_def eval_return_def eval_abort_def)
 
 lemma sstriple_literal:
   shows \<open>(\<Gamma> ; \<phi> \<turnstile> literal v \<stileturn> \<psi> \<bowtie> \<rho> \<bowtie> \<theta>) \<longleftrightarrow> (\<phi> \<longlongrightarrow> \<psi> v \<star> \<top>)\<close>
@@ -269,29 +272,11 @@ proof (intro iffI)
   by (meson aentails_true is_local_weaken striple_literal sstriple_literalI sstriple_striple)
 qed
 
-lemma sstriple_assert_val:
-  shows \<open>(\<Gamma> ; \<phi> \<turnstile> assert_val v \<stileturn> \<psi> \<bowtie> \<rho> \<bowtie> \<theta>) \<longleftrightarrow>
-     ((v \<longrightarrow> \<phi> \<longlongrightarrow> \<top> \<star> \<psi> ()) \<and> (\<not>v \<longrightarrow> \<phi> \<longlongrightarrow> \<top> \<star> \<theta> AssertionFailed))\<close>
-  by (auto simp add: sstriple_striple striple_assert_val eval_value_def
-    eval_abort_def eval_return_def urust_eval_predicate_simps is_local_def)
-
-lemma sstriple_assert:
-  shows \<open>(\<Gamma> ; \<phi> \<turnstile> assert (literal v) \<stileturn> \<psi> \<bowtie> \<rho> \<bowtie> \<theta>) \<longleftrightarrow>
-            (v \<longrightarrow> \<phi> \<longlongrightarrow> \<top> \<star> \<psi> ()) \<and> (\<not>v \<longrightarrow> \<phi> \<longlongrightarrow> \<top> \<star> \<theta> AssertionFailed)\<close>
-  by (simp add: assert_def micro_rust_simps sstriple_assert_val)
-
-\<comment>\<open>NOTE: This lemma is not used at present, but seems worth keeping.\<close>
-lemma sstriple_assert_eq:
-  shows \<open>(\<Gamma> ; \<phi> \<turnstile> assert_eq (literal v) (literal w) \<stileturn> \<psi> \<bowtie> \<rho> \<bowtie> \<theta>) \<longleftrightarrow>
-      (v=w \<longrightarrow> \<phi> \<longlongrightarrow> \<top> \<star> \<psi> ()) \<and> (v \<noteq> w \<longrightarrow> \<phi> \<longlongrightarrow> \<top> \<star> \<theta> AssertionFailed)\<close>
-  by (simp add: assert_eq_def assert_eq_val_def sstriple_assert_val micro_rust_simps)
-
-text\<open>The \<^verbatim>\<open>return_func\<close> command always succeeds and returns the given value:\<close>
 \<comment>\<open>NOTE: This lemma is not used at present, but seems worth keeping.\<close>
 lemma sstriple_return_valI:
   shows \<open>\<Gamma> ; \<top> \<turnstile> return_val v \<stileturn> \<psi> \<bowtie> (\<lambda>rv. \<langle>rv = v\<rangle>) \<bowtie> \<theta>\<close>
   by (auto intro!: sstriple_from_stripleI striple_return_valI
-      simp add: urust_eval_predicate_return is_local_def eval_value_def eval_return_def eval_abort_def)
+      simp add: eval_predicate_return is_local_def eval_value_def eval_return_def eval_abort_def)
 
 lemma sstriple_return_val:
   shows \<open>(\<Gamma> ; \<phi> \<turnstile> return_val v \<stileturn> \<psi> \<bowtie> \<rho> \<bowtie> \<theta>) \<longleftrightarrow> (\<phi> \<longlongrightarrow> \<rho> v \<star> \<top>)\<close>
@@ -312,90 +297,14 @@ lemma sstriple_return:
   shows \<open>(\<Gamma> ; \<phi> \<turnstile> return_func (literal v) \<stileturn> \<psi> \<bowtie> \<rho> \<bowtie> \<theta>) \<longleftrightarrow> (\<phi> \<longlongrightarrow> \<rho> v \<star> \<top>)\<close>
   by (simp add: bind_literal_unit return_func_def sstriple_return_val)
 
-corollary sstriple_noneI:
-  shows \<open>\<Gamma> ; \<top> \<turnstile> none \<stileturn> (\<lambda>rv. \<langle>rv = None\<rangle>) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
-  unfolding none_def by (rule sstriple_literalI)
-
-corollary sstriple_trueI:
-  shows \<open>\<Gamma> ; \<top> \<turnstile> true \<stileturn> (\<lambda>rv. \<langle>rv = True\<rangle>) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
-  unfolding true_def by (rule sstriple_literalI)
-
-corollary sstriple_falseI:
-  shows \<open>\<Gamma> ; \<top> \<turnstile> false \<stileturn> (\<lambda>rv. \<langle>rv = False\<rangle>) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
-  unfolding false_def by (rule sstriple_literalI)
-
-corollary sstriple_someI:
-  notes asepconj_simp [simp]
-  shows \<open>\<Gamma> ; \<top> \<turnstile> some (literal x) \<stileturn> (\<lambda>rv. \<langle>rv = Some x\<rangle>) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
-  apply (intro sstriple_from_stripleI striple_someI)
-  apply (auto simp add: return_func_def urust_eval_predicate_literal urust_eval_predicate_return
-    micro_rust_simps some_def is_local_def eval_value_def eval_return_def eval_abort_def)
-  done
-
 text\<open>Abort and panic terminate execution of the program:\<close>
 lemma sstriple_abort:
   shows \<open>(\<Gamma> ; \<phi> \<turnstile> abort m \<stileturn> \<psi> \<bowtie> \<rho> \<bowtie> \<theta>) \<longleftrightarrow> (\<phi> \<longlongrightarrow> \<theta> m \<star> \<top>)\<close>
   by (fastforce simp add: sstriple_striple striple_abort is_local_def eval_value_def
-    eval_return_def eval_abort_def urust_eval_predicate_simps)
+    eval_return_def eval_abort_def shallow_computation_eval_predicate_simps)
 
 text\<open>Panic terminates execution of the program:\<close>
 \<comment>\<open>NOTE: This lemma is not used at present, but seems worth keeping.\<close>
-lemma sstriple_panic:
-  shows \<open>(\<Gamma> ; \<phi> \<turnstile> panic m \<stileturn> \<psi> \<bowtie> \<rho> \<bowtie> \<theta>) \<longleftrightarrow> (\<phi> \<longlongrightarrow> \<theta> (Panic m) \<star> \<top>)\<close>
-  by (simp add: sstriple_abort)
-
-text\<open>Pause / Breakpoint\<close>
-
-lemma sstriple_pause:
-  assumes \<open>\<And>r. ucincl (\<psi> r)\<close>
-    shows \<open>(\<Gamma> ; \<top> \<turnstile> pause \<stileturn> \<top> \<bowtie> \<rho> \<bowtie> \<theta>)\<close>
-  using assms
-  by (auto intro!: sstriple_from_stripleI striple_pause
-      simp add: is_local_def eval_return_def eval_value_def eval_abort_def urust_eval_predicate_simps
-      is_valid_striple_context_def)
-
-lemma sstriple_pause':
-  assumes \<open>\<And>r. ucincl (\<psi> r)\<close>
-  shows \<open>(\<Gamma> ; \<phi> \<turnstile> pause \<stileturn> \<psi> \<bowtie> \<rho> \<bowtie> \<theta>) \<longleftrightarrow> (\<phi> \<longlongrightarrow> \<psi> ())\<close>
-proof
-  show \<open>\<Gamma> ; \<phi> \<turnstile> pause \<stileturn> \<psi> \<bowtie> \<rho> \<bowtie> \<theta> \<Longrightarrow> \<phi> \<longlongrightarrow> \<psi> ()\<close>
-    using assms by (simp add: striple_pause' sstriple_striple')
-  show \<open>\<phi> \<longlongrightarrow> \<psi> () \<Longrightarrow> \<Gamma> ; \<phi> \<turnstile> pause \<stileturn> \<psi> \<bowtie> \<rho> \<bowtie> \<theta>\<close>
-    using assms 
-    by (auto simp: sstriple_striple striple_pause' is_local_def 
-        eval_return_def eval_value_def eval_abort_def urust_eval_predicate_simps)
-qed
-
-text\<open>Log\<close>
-
-lemma sstriple_log:
-  shows \<open>\<Gamma> ; \<top> \<turnstile> log p l \<stileturn> \<top> \<bowtie> \<rho> \<bowtie> \<theta>\<close>
-  by (auto intro!: sstriple_from_stripleI striple_log simp add: is_local_def eval_return_def eval_value_def urust_eval_predicate_simps
-    is_valid_striple_context_def eval_abort_def)
-
-lemma sstriple_log':
-  assumes  \<open>\<And>r. ucincl (\<psi> r)\<close>
-  shows \<open>(\<Gamma> ; \<phi> \<turnstile> log p l \<stileturn> \<psi> \<bowtie> \<rho> \<bowtie> \<theta>) \<longleftrightarrow> (\<phi> \<longlongrightarrow> \<psi> ())\<close>
-proof
-  show \<open>\<Gamma> ; \<phi> \<turnstile> log p l \<stileturn> \<psi> \<bowtie> \<rho> \<bowtie> \<theta> \<Longrightarrow> \<phi> \<longlongrightarrow> \<psi> ()\<close>
-    using assms by (simp add: local.striple_log' sstriple_striple')
-  show \<open>\<phi> \<longlongrightarrow> \<psi> () \<Longrightarrow> \<Gamma> ; \<phi> \<turnstile> log p l \<stileturn> \<psi> \<bowtie> \<rho> \<bowtie> \<theta>\<close>
-    using assms by (meson aentails_true is_local_weaken striple_log' sstriple_log sstriple_striple)
-qed
-
-text\<open>Fatal errors\<close>
-
-lemma sstriple_fatal:
-  assumes \<open>is_aborting_striple_context \<Gamma>\<close>
-      and \<open>\<And>r. ucincl (\<psi> r)\<close>
-    shows \<open>(\<Gamma> ; \<phi> \<turnstile> fatal msg \<stileturn> \<psi> \<bowtie> \<rho> \<bowtie> \<theta>)\<close>
-  using assms
-  by (auto intro!: sstriple_from_stripleI 
-      simp add: is_local_def eval_return_def eval_value_def urust_eval_predicate_simps
-      is_aborting_striple_context_def eval_abort_def striple_fatal)
-
-text\<open>Generic yield\<close>
-
 lemma sstriple_yield:
   shows \<open>(\<Gamma>; \<phi> \<turnstile> yield \<omega> \<stileturn> \<psi> \<bowtie> \<rho> \<bowtie> \<theta>) \<longleftrightarrow> (
                is_local (\<lambda>\<sigma> (v, \<sigma>'). YieldContinue (v, \<sigma>') \<in> yh \<Gamma> \<omega> \<sigma>) \<phi> \<and>
@@ -403,7 +312,7 @@ lemma sstriple_yield:
                (\<forall>\<sigma> \<sigma>' v. YieldContinue (v, \<sigma>') \<in> yh \<Gamma> \<omega> \<sigma> \<longrightarrow> \<sigma> \<Turnstile> \<phi> \<longrightarrow> \<sigma>' \<Turnstile> \<psi> v \<star> UNIV) \<and>
                (\<forall>\<sigma> \<sigma>' a. YieldAbort a \<sigma>' \<in> yh \<Gamma> \<omega> \<sigma> \<longrightarrow> \<sigma> \<Turnstile> \<phi> \<longrightarrow> \<sigma>' \<Turnstile> \<theta> a \<star> UNIV))\<close>
   by (auto simp add: sstriple_def eval_abort_def eval_value_def eval_return_def is_local_False
-    urust_eval_predicate_simps urust_eval_action_via_predicate striple_yield atriple_rel_def)
+    shallow_computation_eval_predicate_simps shallow_computation_eval_action_via_predicate striple_yield atriple_rel_def)
 
 text\<open>Conditionals\<close>
 
@@ -412,15 +321,16 @@ lemma sstriple_two_armed_conditionalI:
   assumes \<open>x \<Longrightarrow> \<Gamma> ; \<phi> \<turnstile> e \<stileturn> \<xi> \<bowtie> \<rho> \<bowtie> \<theta>\<close>
       and \<open>\<not> x \<Longrightarrow> \<Gamma> ; \<phi> \<turnstile> f \<stileturn> \<xi> \<bowtie> \<rho> \<bowtie> \<theta>\<close>
     shows \<open>\<Gamma> ; \<phi> \<turnstile> two_armed_conditional (literal x) e f \<stileturn> \<xi> \<bowtie> \<rho> \<bowtie> \<theta>\<close>
-  by (metis (full_types) assms two_armed_conditional_true_false_collapse)
+  using assms
+  by (cases x) (simp_all add: two_armed_conditional_def shallow_computation_simps)
 
 text\<open>Note that, in contrast to the weak striple, this lemma cannot be strengthened into
 an equivalence, as \<^verbatim>\<open>call f\<close> can be local without \<^verbatim>\<open>f\<close> being local.\<close>
 lemma sstriple_callI:
   assumes \<open>\<Gamma> ; \<phi> \<turnstile> f \<stileturn> \<psi> \<bowtie> \<psi> \<bowtie> \<theta>\<close>
     shows \<open>\<Gamma> ; \<phi> \<turnstile> call (FunctionBody f) \<stileturn> \<psi> \<bowtie> \<rho> \<bowtie> \<theta>\<close>
-using assms by (auto simp: sstriple_def atriple_rel_def urust_eval_predicate_call
-  urust_eval_predicate_call_rel is_local_disj) (subst is_local_def; clarsimp)
+using assms by (auto simp: sstriple_def atriple_rel_def eval_predicate_call
+  eval_predicate_call_rel is_local_disj) (subst is_local_def; clarsimp)
 
 lemma sstriple_call_funliteral:
   shows \<open>(\<Gamma> ; \<phi> \<turnstile> funcall1 (lift_fun1 f1) (literal v0) \<stileturn> \<psi> \<bowtie> \<rho> \<bowtie> \<theta>) \<longleftrightarrow> (\<phi> \<longlongrightarrow> \<psi> (f1 v0) \<star> \<top>)\<close>
@@ -431,8 +341,8 @@ lemma sstriple_call_funliteral:
     and \<open>(\<Gamma> ; \<phi> \<turnstile> funcall6 (lift_fun6 f6) (literal v0) (literal v1) (literal v2) (literal v3) (literal v4) (literal v5) \<stileturn> \<psi> \<bowtie> \<rho> \<bowtie> \<theta>) \<longleftrightarrow> (\<phi> \<longlongrightarrow> \<psi> (f6 v0 v1 v2 v3 v4 v5) \<star> \<top>)\<close>
     and \<open>(\<Gamma> ; \<phi> \<turnstile> funcall7 (lift_fun7 f7) (literal v0) (literal v1) (literal v2) (literal v3) (literal v4) (literal v5) (literal v6) \<stileturn> \<psi> \<bowtie> \<rho> \<bowtie> \<theta>) \<longleftrightarrow> (\<phi> \<longlongrightarrow> \<psi> (f7 v0 v1 v2 v3 v4 v5 v6) \<star> \<top>)\<close>
     and \<open>(\<Gamma> ; \<phi> \<turnstile> funcall8 (lift_fun8 f8) (literal v0) (literal v1) (literal v2) (literal v3) (literal v4) (literal v5) (literal v6) (literal v7) \<stileturn> \<psi> \<bowtie> \<rho> \<bowtie> \<theta>) \<longleftrightarrow> (\<phi> \<longlongrightarrow> \<psi> (f8 v0 v1 v2 v3 v4 v5 v6 v7) \<star> \<top>)\<close>
-  by (fastforce simp: sstriple_striple striple_call_funliteral micro_rust_simps striple_literal
-    eval_value_def eval_return_def eval_abort_def is_local_def urust_eval_predicate_simps)+
+  by (fastforce simp: sstriple_striple striple_call_funliteral shallow_computation_simps striple_literal
+    eval_value_def eval_return_def eval_abort_def is_local_def shallow_computation_eval_predicate_simps)+
 
 lemma sstriple_getI:
   assumes \<open>ucincl (has f v)\<close>
@@ -442,7 +352,7 @@ proof -
     by (simp add: local.asat_weaken)
   with assms show ?thesis
     apply (intro sstriple_from_stripleI striple_getI)
-    apply (auto simp: is_local_def urust_eval_predicate_simps eval_value_def
+    apply (auto simp: is_local_def shallow_computation_eval_predicate_simps eval_value_def
         eval_return_def eval_abort_def asat_def has_def)
     done
 qed
@@ -452,79 +362,9 @@ lemma sstriple_putI:
       and \<open>\<And>x y. x\<sharp>y \<Longrightarrow> x \<Turnstile> has f v \<Longrightarrow> g (x+y) = g x + y \<and> g x \<sharp> y\<close>
     shows \<open>\<Gamma>; has f v \<turnstile> put g \<stileturn> (\<lambda>_. has f v') \<bowtie> \<rho> \<bowtie> \<theta>\<close>
   using assms
-  by (auto intro!: sstriple_from_stripleI striple_putI simp add: is_local_def urust_eval_predicate_simps eval_value_def
+  by (auto intro!: sstriple_from_stripleI striple_putI simp add: is_local_def shallow_computation_eval_predicate_simps eval_value_def
       eval_return_def eval_abort_def)
 
-
-subsection\<open>Defining triples for numeric and bitwise operators\<close>
-
-lemma sstriple_word_add_no_wrapI:
-  fixes x y :: \<open>'l::{len} word\<close>
-  shows \<open>\<Gamma> ; \<langle>unat x + unat y < 2^(LENGTH('l))\<rangle> \<turnstile> word_add_no_wrap (literal x) (literal y) \<stileturn> (\<lambda>r. \<langle>r = x + y\<rangle>) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
-by (auto intro!: sstriple_from_stripleI striple_word_add_no_wrapI simp add: eval_value_def
-  eval_return_def urust_eval_predicate_simps is_local_def eval_abort_def)
-
-lemma sstriple_word_mul_no_wrapI:
-  fixes x y :: \<open>'l::{len} word\<close>
-  shows \<open>\<Gamma> ; \<langle>unat x * unat y < 2^(LENGTH('l))\<rangle> \<turnstile> word_mul_no_wrap (literal x) (literal y) \<stileturn> (\<lambda>r. \<langle>r = x * y\<rangle>) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
-by (auto intro!: sstriple_from_stripleI striple_word_mul_no_wrapI simp add: eval_value_def
-  eval_return_def urust_eval_predicate_simps is_local_def eval_abort_def)
-
-lemma sstriple_word_sub_no_wrapI:
-  fixes x y :: \<open>'l::{len} word\<close>
-  shows \<open>\<Gamma> ; \<langle>y \<le> x\<rangle> \<turnstile> word_minus_no_wrap (literal x) (literal y) \<stileturn> (\<lambda>r. \<langle>r = x - y\<rangle>) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
-  by (auto intro!: sstriple_from_stripleI striple_word_sub_no_wrapI simp add: eval_value_def
-    eval_return_def urust_eval_predicate_simps is_local_def eval_abort_def)
-
-lemma sstriple_word_udivI:
-  fixes x y :: \<open>'l::{len} word\<close>
-  shows \<open>\<Gamma> ; \<langle>y \<noteq> 0\<rangle> \<turnstile> word_udiv (literal x) (literal y) \<stileturn> (\<lambda>r. \<langle>r = x div y\<rangle>) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
-by (auto intro!: sstriple_from_stripleI striple_word_udivI simp add: eval_value_def eval_return_def
-  urust_eval_predicate_simps is_local_def eval_abort_def)
-
-lemma sstriple_word_umodI:
-  fixes x y :: \<open>'l::{len} word\<close>
-  shows \<open>\<Gamma> ; \<langle>y \<noteq> 0\<rangle> \<turnstile> word_umod (literal x) (literal y) \<stileturn> (\<lambda>r. \<langle>r = x mod y\<rangle>) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
-by (auto intro!: sstriple_from_stripleI striple_word_umodI simp add: eval_value_def eval_return_def
-  urust_eval_predicate_simps is_local_def eval_abort_def)
-
-lemma sstriple_word_shift_leftI:
-  fixes x :: \<open>'l0::{len} word\<close>
-    and y :: \<open>64 word\<close>
-  shows \<open>\<Gamma> ; \<langle>unat y < LENGTH('l0)\<rangle> \<turnstile> word_shift_left_shift64 (literal x) (literal y) \<stileturn> (\<lambda>r. \<langle>r = push_bit (unat y) x\<rangle>) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
-by (auto intro!: sstriple_from_stripleI striple_word_shift_leftI simp add: eval_value_def
-  eval_return_def urust_eval_predicate_simps is_local_def eval_abort_def)
-
-lemma sstriple_word_shift_rightI:
-  fixes x :: \<open>'l0::{len} word\<close>
-    and y :: \<open>64 word\<close>
-  shows \<open>\<Gamma> ; \<langle>unat y < LENGTH('l0)\<rangle> \<turnstile> word_shift_right_shift64 (literal x) (literal y) \<stileturn> (\<lambda>r. \<langle>r = drop_bit (unat y) x\<rangle>) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
-by (auto intro!: sstriple_from_stripleI striple_word_shift_rightI simp add: eval_value_def
-  eval_return_def urust_eval_predicate_simps is_local_def eval_abort_def)
-
-lemma sstriple_bitwise_orI:
-  fixes x y :: \<open>'l::{len} word\<close>
-  shows \<open>\<Gamma> ; \<top> \<turnstile> Numeric_Types.word_bitwise_or (literal x) (literal y) \<stileturn> (\<lambda>r. \<langle>r = x OR y\<rangle>) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
-by (auto intro!: sstriple_from_stripleI striple_bitwise_orI simp add: eval_value_def eval_return_def
-  urust_eval_predicate_simps is_local_def eval_abort_def)
-
-lemma sstriple_bitwise_andI:
-  fixes x y :: \<open>'l::{len} word\<close>
-  shows \<open>\<Gamma> ; \<top> \<turnstile> Numeric_Types.word_bitwise_and (literal x) (literal y) \<stileturn> (\<lambda>r. \<langle>r = x AND y\<rangle>) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
-by (auto intro!: sstriple_from_stripleI striple_bitwise_andI simp add: eval_value_def
-  eval_return_def urust_eval_predicate_simps is_local_def eval_abort_def)
-
-lemma sstriple_bitwise_xorI:
-  fixes x y :: \<open>'l::{len} word\<close>
-  shows \<open>\<Gamma> ; \<top> \<turnstile> Numeric_Types.word_bitwise_xor (literal x) (literal y) \<stileturn> (\<lambda>r. \<langle>r = x XOR y\<rangle>) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
-by (auto intro!: sstriple_from_stripleI striple_bitwise_xorI simp add: eval_value_def
-  eval_return_def urust_eval_predicate_simps is_local_def eval_abort_def)
-
-lemma sstriple_bitwise_notI:
-  fixes x :: \<open>'l::{len} word\<close>
-  shows \<open>\<Gamma> ; \<top> \<turnstile> Numeric_Types.word_bitwise_not (literal x) \<stileturn> (\<lambda>r. \<langle>r = NOT x\<rangle>) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
-by (auto intro!: sstriple_from_stripleI striple_bitwise_notI simp add: eval_value_def
-  eval_return_def urust_eval_predicate_simps is_local_def eval_abort_def)
 
 subsection\<open>Loops\<close>
 
@@ -532,11 +372,11 @@ lemma sstriple_raw_for_loop:
     fixes I :: \<open>'t list \<Rightarrow> 't list \<Rightarrow> 'a assert\<close>
   assumes \<open>\<And>past cur todo. \<Gamma> ; I past (cur # todo) \<turnstile> f cur \<stileturn> (\<lambda>_. I (past @ [cur]) todo) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
     shows \<open>\<Gamma> ; I [] xs \<turnstile> raw_for_loop xs f \<stileturn> (\<lambda>_. I xs []) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
-  using assms 
+  using assms
 proof (induction xs arbitrary: I)
   case Nil
   then show ?case
-    by (simp add: raw_for_loop_nil sstriple_skipI)
+    by (simp add: raw_for_loop_def sstriple_skipI)
 next
   case (Cons x xs)
   then have \<open>\<Gamma> ; I [] (x # xs) \<turnstile> f x \<stileturn> (\<lambda>_. I [x] xs) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
@@ -546,7 +386,7 @@ next
   ultimately have \<open>\<Gamma> ; I [] (x # xs) \<turnstile> (bind (f x) (\<lambda>_. raw_for_loop xs f)) \<stileturn> (\<lambda>_. I (x # xs) []) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
     using sstriple_bindI by fastforce
   then show \<open>\<Gamma> ; I [] (x # xs) \<turnstile> raw_for_loop (x # xs) f \<stileturn> (\<lambda>_. I (x # xs) []) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
-    by (clarsimp simp add: micro_rust_simps sequence_def)
+    by (clarsimp simp add: raw_for_loop_def sequence_def)
 qed
 
 lemma sstriple_raw_for_loop_framed:
@@ -593,11 +433,11 @@ lemma sstriple_raw_for_loop':
     fixes I :: \<open>'t list \<Rightarrow> nat \<Rightarrow> 'a assert\<close>
   assumes \<open>\<And>i. i < length xs \<Longrightarrow> (\<Gamma> ; I xs i \<turnstile> f (xs ! i) \<stileturn> (\<lambda>_. I xs (i+1)) \<bowtie> \<rho> \<bowtie> \<theta>)\<close>
     shows \<open>\<Gamma> ; I xs 0 \<turnstile> raw_for_loop xs f \<stileturn> (\<lambda>_. I xs (length xs)) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
-  using assms 
+  using assms
 proof (induction xs arbitrary: I)
   case Nil
   then show ?case
-    by (simp add: raw_for_loop_nil sstriple_skipI)
+    by (simp add: raw_for_loop_def sstriple_skipI)
 next
   case (Cons x xs)
   then have \<open>\<Gamma> ; I (x # xs) 0 \<turnstile> f x \<stileturn> (\<lambda>_. I (x # xs) 1) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
@@ -609,7 +449,7 @@ next
   ultimately have \<open>\<Gamma> ; I (x # xs) 0 \<turnstile> (bind (f x) (\<lambda>_. raw_for_loop xs f)) \<stileturn> (\<lambda>_. I (x # xs) (Suc (length xs))) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
     by (auto intro: sstriple_bindI[where \<psi>=\<open>\<lambda> _. I (x # xs) 1\<close>])
   then show ?case
-    by (auto simp add: micro_rust_simps sequence_def)
+    by (auto simp add: raw_for_loop_def sequence_def)
 qed
 
 lemma sstriple_raw_for_loop_framed':
@@ -674,7 +514,7 @@ proof (induction n)
     by (rule sstriple_skipI)
   then have \<open>\<Gamma> ; INV 0 \<turnstile> skip \<stileturn> \<psi> \<bowtie> \<rho> \<bowtie> \<theta>\<close>
     using base by (auto intro: sstriple_consequence aentails_refl)
-  then show ?case by (simp add: bounded_while_zero)
+  then show ?case by simp
 next
   case (Suc n)
   have cond_triple:
@@ -701,7 +541,7 @@ next
               (if c then sequence body (bounded_while n cond body) else skip) \<stileturn> \<psi> \<bowtie> \<rho> \<bowtie> \<theta>\<close>
       using true_branch false_branch by (cases c) simp_all
   qed
-  then show ?case by (simp add: bounded_while_Suc)
+  then show ?case by simp
 qed
 
 text\<open>Framed version: carries a frame through all iterations.\<close>
@@ -765,113 +605,6 @@ proof -
   then show ?thesis by simp
 qed
 
-lemma sstriple_gather_spec':
-    notes asepconj_simp [simp]
-      and aentails_intro [intro]
-    fixes INV :: \<open>nat \<Rightarrow> 'v list \<Rightarrow> 'a assert\<close>
-      and thunks :: \<open>('a, 'v, 'r, 'abort, 'i prompt, 'o prompt_output) expression list\<close>
-  assumes \<open>\<And>i ls. i < length thunks \<Longrightarrow> length ls = i \<Longrightarrow> (\<Gamma> ; INV i ls \<turnstile> thunks ! i \<stileturn> (\<lambda>v. INV (i+1) (ls @ [v])) \<bowtie> \<rho> \<bowtie> \<theta>)\<close>
-    shows \<open>\<Gamma> ; INV 0 [] \<turnstile> gather' thunks acc \<stileturn> (\<lambda>rs. \<Squnion>rs'. \<langle>rs = acc @ rs'\<rangle> \<star> INV (length thunks) rs') \<bowtie> \<rho> \<bowtie> \<theta>\<close>
-  using assms 
-proof (induction thunks arbitrary: INV acc)
-  case Nil
-  then show ?case
-    by (auto simp: gather'_nil apure_def urust_eval_predicate_literal
-       eval_value_def eval_abort_def eval_return_def sstriple_def atriple_rel_def is_local_def
-      local.asepconj_comm local.asepconj_weaken2I)
-next
-  case (Cons t thunks)
-  then have  first: \<open>\<Gamma> ; INV 0 [] \<turnstile> t \<stileturn> (\<lambda>v. INV 1 [v]) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
-    by fastforce
-  have \<open>\<Gamma> ; INV 1 [r0] \<turnstile> gather' thunks (acc @ [r0]) \<stileturn>
-        (\<lambda>rs. \<Squnion>rs'. \<langle>rs = (acc @ rs')\<rangle> \<star> INV (length (t # thunks)) rs') \<bowtie> \<rho> \<bowtie> \<theta>\<close> for r0
-  proof -
-    have \<open>\<Gamma> ; INV (i+1) (r0 # ls) \<turnstile> thunks ! i \<stileturn> (\<lambda>v. INV ((i+1)+1) ((r0 # ls) @ [v])) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
-      if  \<open>i < length thunks\<close> and \<open>length ls = i\<close> for i and ls :: \<open>'v list\<close>
-      using that Cons.prems[where i=\<open>i+1\<close> and ls=\<open>r0 # ls\<close>] by fastforce
-    with Cons.IH[where INV=\<open>\<lambda>i ls. INV (i+1) (r0 # ls)\<close> and acc=\<open>acc @ [r0]\<close>] 
-    have \<open>\<Gamma> ; INV 1 [r0] \<turnstile> gather' thunks (acc @ [r0]) \<stileturn>
-          (\<lambda>rs. \<Squnion>rs'. \<langle>rs = (acc @ (r0 # rs'))\<rangle> \<star> INV (length (t # thunks)) (r0 # rs')) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
-      by simp
-    moreover 
-    have \<open>\<And>rs. (\<Squnion>rs'. \<langle>rs = (acc @ (r0 # rs'))\<rangle> \<star> INV (Suc (length thunks)) (r0 # rs')) \<longlongrightarrow>
-          (\<Squnion>rs'. \<langle>rs = (acc @ rs')\<rangle> \<star> INV (Suc (length thunks)) rs')\<close>
-      by blast
-    ultimately show ?thesis
-      by (meson aentails_refl local.aexists_entailsL local.aexists_entailsR local.sstriple_consequence)
-  qed
-  then show ?case
-    by (metis (no_types, lifting) first gather'_cons sstriple_bindI)
-qed
-
-lemma sstriple_gather_spec:
-    notes aentails_intro [intro]
-    fixes INV :: \<open>nat \<Rightarrow> 'v list \<Rightarrow> 'a assert\<close>
-      and thunks :: \<open>('a, 'v, 'r, 'abort, 'i prompt, 'o prompt_output) expression list\<close>
-  assumes \<open>\<And>i ls. ucincl (INV i ls)\<close>
-      and \<open>\<And>i ls. i < length thunks \<Longrightarrow> length ls = i \<Longrightarrow>
-            \<Gamma> ; INV i ls \<turnstile> thunks ! i \<stileturn> (\<lambda>v. INV (i+1) (ls @ [v])) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
-    shows \<open>\<Gamma> ; INV 0 [] \<turnstile> gather thunks \<stileturn> (\<lambda>rs. INV (length thunks) rs) \<bowtie> \<rho> \<bowtie> \<theta>\<close>
-proof -
-  from assms and gather_spec'[where INV=INV and thunks=thunks] have
-        \<open>\<Gamma> ; INV 0 [] \<turnstile> gather thunks \<stileturn> (\<lambda>rs. \<Squnion>rs'. \<langle>rs = [] @ rs'\<rangle> \<star> INV (length thunks) rs') \<bowtie> \<rho> \<bowtie> \<theta>\<close>
-    unfolding gather_def using sstriple_gather_spec' by blast
-  from this have \<open>\<Gamma> ; INV 0 [] \<turnstile> gather thunks \<stileturn> (\<lambda>rs. \<Squnion>rs'. \<langle>rs = rs'\<rangle> \<star> INV (length thunks) rs') \<bowtie> \<rho> \<bowtie> \<theta>\<close>
-    by fastforce
-  moreover have \<open>\<And>rs. (\<Squnion>rs'. \<langle>rs = rs'\<rangle> \<star> INV (length thunks) rs') \<longlongrightarrow> INV (length thunks) rs\<close>
-    using assms by (simp add: asat_simp aentails_def)
-  ultimately show ?thesis
-    using sstriple_consequence by blast
-qed
-
-lemma sstriple_gather_framed:
-    notes aentails_intro [intro]
-    fixes thunks :: \<open>('a, 'v, 'r, 'abort, 'i prompt, 'o prompt_output) expression list\<close>
-  assumes \<open>\<And>p r. ucincl (INV p r)\<close>
-      and \<open>\<And>i res. i < length thunks \<Longrightarrow> length res = i \<Longrightarrow> \<Gamma> ; INV i res \<turnstile> thunks ! i \<stileturn> (\<lambda>v. INV (i+1) (res @ [v])) \<bowtie> \<tau> \<bowtie> \<theta>\<close>
-  shows \<open>\<Gamma> ; INV 0 [] \<star> ((\<Sqinter>r. (INV (length thunks) r \<Zsurj> \<psi> r)) \<sqinter> (\<Sqinter>r. \<tau> r \<Zsurj> \<rho> r) \<sqinter> (\<Sqinter>r. \<theta> r \<Zsurj> \<chi> r)) \<turnstile> gather thunks \<stileturn> \<psi> \<bowtie> \<rho> \<bowtie> \<chi>\<close>
-proof -
-  let ?pc = \<open>((\<Sqinter>r. (INV (length thunks) r \<Zsurj> \<psi> r)) \<sqinter> (\<Sqinter>r. \<tau> r \<Zsurj> \<rho> r) \<sqinter> (\<Sqinter>r. \<theta> r \<Zsurj> \<chi> r))\<close>
-  {
-    fix i and res :: \<open>'v list\<close>
-    assume \<open>i < length thunks\<close>
-       and \<open>length res = i\<close>
-    from this have \<open>\<Gamma> ; INV i res \<turnstile> thunks ! i \<stileturn> (\<lambda>r. INV (i+1) (res @ [r])) \<bowtie> \<tau> \<bowtie> \<theta>\<close>
-      using assms \<open>i < length thunks\<close> by auto
-    moreover have \<open>\<Gamma> ; INV i res \<star> ?pc \<turnstile>
-          (thunks ! i) \<stileturn> (\<lambda>r. INV (i+1) (res @ [r]) \<star> ?pc) \<bowtie> (\<lambda>r. \<tau> r \<star> ?pc) \<bowtie> (\<lambda>r. \<theta> r \<star> ?pc)\<close>
-      using assms calculation by (intro sstriple_frame_rule, force)
-    moreover have \<open>\<And>r. \<tau> r \<star> ?pc \<longlongrightarrow> \<rho> r\<close>
-    proof -
-      have \<open>\<And>r. \<tau> r \<star> (\<Sqinter>r. \<tau> r \<Zsurj> \<rho> r) \<longlongrightarrow> \<rho> r\<close>
-        by (meson aentails_refl aentails_trans aforall_entailsL asepconj_mono3 awand_counit)
-      from this show \<open>\<And>r. \<tau> r \<star> ?pc \<longlongrightarrow> \<rho> r\<close>
-        by (meson aentails_fold_def aentails_inter_weaken aentails_inter_weaken2 asepconj_mono awand_adjointI)
-    qed
-    moreover have \<open>\<And>a. \<theta> a \<star> ?pc \<longlongrightarrow> \<chi> a\<close>
-    proof -
-      have \<open>\<And>a. \<theta> a \<star> (\<Sqinter>a. \<theta> a \<Zsurj> \<chi> a) \<longlongrightarrow> \<chi> a\<close>
-        by (meson aentails_refl aentails_trans aforall_entailsL asepconj_mono3 awand_counit)
-      from this show \<open>\<And>a. \<theta> a \<star> ?pc \<longlongrightarrow> \<chi> a\<close>
-        by (meson aentails_fold_def aentails_inter_weaken aentails_inter_weaken2 asepconj_mono awand_adjointI)
-    qed
-    ultimately have \<open>\<Gamma> ; INV i res \<star> ?pc \<turnstile> thunks ! i \<stileturn> (\<lambda>r. INV (i+1) (res @ [r]) \<star> ?pc) \<bowtie> \<rho> \<bowtie> \<chi>\<close>
-      by - (rule sstriple_consequence, assumption, rule aentails_refl, rule aentails_refl, force)
-  }
-  from this have \<open>\<Gamma> ; INV 0 [] \<star> ?pc \<turnstile>
-        gather thunks \<stileturn> (\<lambda>r. INV (length thunks) r \<star> ?pc) \<bowtie> \<rho> \<bowtie> \<chi>\<close>
-    using assms by (auto intro!: ucincl_intros sstriple_gather_spec[where INV=\<open>\<lambda>i' res'. INV i' res' \<star> ?pc\<close> and thunks=thunks])
-  moreover have \<open>\<And>r. INV (length thunks) r \<star>?pc
-                 \<longlongrightarrow> INV (length thunks) r \<star> (\<Sqinter>r. (INV (length thunks) r \<Zsurj> \<psi> r))\<close>
-    by (meson aentails_refl local.aentails_int local.asepconj_mono)
-  moreover have \<open>\<And>r. INV (length thunks) r \<star> (\<Sqinter>r. (INV (length thunks) r \<Zsurj> \<psi> r))  \<longlongrightarrow> \<psi> r\<close>
-    by (metis (no_types, lifting) aentails_refl local.aforall_entailsL local.asepconj_AC(1) local.awand_adjoint)
-  ultimately have \<open>\<Gamma> ; INV 0 [] \<star> ?pc \<turnstile> gather thunks \<stileturn> \<psi> \<bowtie> \<rho> \<bowtie> \<chi>\<close>
-    by (meson aentails_refl aentails_trans sstriple_consequence)
-  then show ?thesis
-    using aentails_refl local.asepconj_comm local.awand_mp local.sstriple_consequence by fastforce
-qed
-
 lemma is_local_eqI:
   assumes \<open>\<And>\<sigma> \<sigma>'. \<sigma> \<Turnstile> \<phi> \<star> \<top> \<Longrightarrow> R \<sigma> \<sigma>' = S \<sigma> \<sigma>'\<close>
   shows \<open>is_local R \<phi> = is_local S \<phi>\<close>
@@ -895,7 +628,7 @@ proof -
         atripleE stripleE_abort ucincl_UNIV ucincl_empty striple_from_sstripleI)
     from this have no_abort: \<open>(yh \<Gamma>, e) \<diamondop>\<^sub>a \<sigma> = {}\<close>
       by (simp add: abort_evaluations_def)
-    from \<open>\<And>a \<sigma>'. \<sigma> \<leadsto>\<^sub>a\<langle>yh \<Gamma>, e\<rangle> (a, \<sigma>') \<longleftrightarrow> False\<close> urust_eval_predicate_refine[OF ref no_abort] have
+    from \<open>\<And>a \<sigma>'. \<sigma> \<leadsto>\<^sub>a\<langle>yh \<Gamma>, e\<rangle> (a, \<sigma>') \<longleftrightarrow> False\<close> eval_predicate_refine[OF ref no_abort] have
           eq_abort: \<open>\<And>a \<sigma>'. \<sigma> \<leadsto>\<^sub>a\<langle>yh \<Theta>, e\<rangle> (a, \<sigma>') \<longleftrightarrow> \<sigma> \<leadsto>\<^sub>a\<langle>yh \<Gamma>, e\<rangle> (a, \<sigma>')\<close> and
           eq_val: \<open>\<And>v \<sigma>'. \<sigma> \<leadsto>\<^sub>v\<langle>yh \<Theta>, e\<rangle> (v, \<sigma>') \<longleftrightarrow> \<sigma> \<leadsto>\<^sub>v\<langle>yh \<Gamma>, e\<rangle> (v, \<sigma>')\<close> and
           eq_res: \<open>\<And>r \<sigma>'. \<sigma> \<leadsto>\<^sub>r\<langle>yh \<Theta>, e\<rangle> (r, \<sigma>') \<longleftrightarrow> \<sigma> \<leadsto>\<^sub>r\<langle>yh \<Gamma>, e\<rangle> (r, \<sigma>')\<close> by simp+

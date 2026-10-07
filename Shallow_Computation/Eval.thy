@@ -87,7 +87,7 @@ named_theorems shallow_computation_eval_action_simps
 
 text\<open>The following lemmas capture the relation between evaluation and binding.\<close>
 
-lemma urust_eval_predicate_bind_success:
+lemma eval_predicate_bind_success:
   shows \<open>((\<sigma> \<leadsto>\<^sub>v\<langle>\<Gamma>,Core_Expression.bind e f\<rangle> (v'',\<sigma>'')) \<longleftrightarrow>
      (\<exists>v' \<sigma>'. (\<sigma> \<leadsto>\<^sub>v\<langle>\<Gamma>,e\<rangle> (v',\<sigma>')) \<and> (\<sigma>' \<leadsto>\<^sub>v\<langle>\<Gamma>,f v'\<rangle> (v'',\<sigma>''))))\<close>
   using expression_wf_base_is_wf
@@ -106,7 +106,7 @@ proof (induct e arbitrary: \<sigma> rule: wf_induct_rule)
   qed (auto simp add: Core_Expression.bind.simps deep_evaluates_nondet_basic.simps evaluate_def evaluates_to_value_def)
 qed
 
-lemma urust_eval_predicate_bind_return:
+lemma eval_predicate_bind_return:
   shows \<open>(\<sigma> \<leadsto>\<^sub>r\<langle>\<Gamma>,Core_Expression.bind e f\<rangle> (r,\<sigma>'')) \<longleftrightarrow>
      (\<sigma> \<leadsto>\<^sub>r\<langle>\<Gamma>,e\<rangle> (r,\<sigma>'')) \<or> (\<exists>v \<sigma>'. (\<sigma> \<leadsto>\<^sub>v\<langle>\<Gamma>,e\<rangle> (v,\<sigma>')) \<and> (\<sigma>' \<leadsto>\<^sub>r\<langle>\<Gamma>,f v\<rangle> (r,\<sigma>'')))\<close>
   using expression_wf_base_is_wf
@@ -125,7 +125,7 @@ proof (induct e arbitrary: \<sigma> rule: wf_induct_rule)
   qed (auto simp add: Core_Expression.bind.simps deep_evaluates_nondet_basic.simps evaluate_def evaluates_to_return_def evaluates_to_value_def)
 qed
 
-lemma urust_eval_predicate_bind_abort:
+lemma eval_predicate_bind_abort:
   shows \<open>(\<sigma> \<leadsto>\<^sub>a\<langle>\<Gamma>,Core_Expression.bind e f\<rangle> (a, \<sigma>'')) \<longleftrightarrow>
      (\<sigma> \<leadsto>\<^sub>a\<langle>\<Gamma>,e\<rangle> (a, \<sigma>'')) \<or> (\<exists>v \<sigma>'. (\<sigma> \<leadsto>\<^sub>v\<langle>\<Gamma>,e\<rangle> (v,\<sigma>')) \<and> (\<sigma>' \<leadsto>\<^sub>a\<langle>\<Gamma>,f v\<rangle> (a, \<sigma>'')))\<close>
   using expression_wf_base_is_wf
@@ -153,46 +153,46 @@ definition rel_compose :: \<open>('a \<Rightarrow> ('t \<times> 'a) \<Rightarrow
       ('a \<Rightarrow> 'v \<Rightarrow> bool)\<close> (infix "\<lozenge>" 60) where
   \<open>(R \<lozenge> S) \<sigma> r \<equiv> \<exists>v' \<sigma>'. R \<sigma> (v', \<sigma>') \<and> S v' \<sigma>' r\<close>
 
-corollary urust_eval_predicate_bind_value_rel [shallow_computation_eval_predicate_simps]:
+corollary eval_predicate_bind_value_rel [shallow_computation_eval_predicate_simps]:
   shows \<open>eval_value \<Gamma> (Core_Expression.bind e f) = (eval_value \<Gamma> e) \<lozenge> (eval_value \<Gamma> \<circ> f)\<close>
-using urust_eval_predicate_bind_success by (fastforce simp add: eval_value_def rel_compose_def)
+using eval_predicate_bind_success by (fastforce simp add: eval_value_def rel_compose_def)
 
-lemma urust_eval_predicate_bind_return_rel[shallow_computation_eval_predicate_simps]:
+lemma eval_predicate_bind_return_rel[shallow_computation_eval_predicate_simps]:
   shows \<open>eval_return \<Gamma> (Core_Expression.bind e f) = (\<lambda>\<sigma> res.
            eval_return \<Gamma> e \<sigma> res \<or> ((eval_value \<Gamma> e) \<lozenge> (eval_return \<Gamma> \<circ> f)) \<sigma> res)\<close>
-using urust_eval_predicate_bind_return by (fastforce simp add: eval_return_def eval_value_def
+using eval_predicate_bind_return by (fastforce simp add: eval_return_def eval_value_def
   rel_compose_def)
 
-lemma urust_eval_predicate_bind_abort_rel[shallow_computation_eval_predicate_simps]:
+lemma eval_predicate_bind_abort_rel[shallow_computation_eval_predicate_simps]:
   shows \<open>eval_abort \<Gamma> (Core_Expression.bind e f) = (\<lambda>\<sigma> a.
            eval_abort \<Gamma> e \<sigma> a \<or> ((eval_value \<Gamma> e) \<lozenge> (eval_abort \<Gamma> \<circ> f)) \<sigma> a)\<close>
-using urust_eval_predicate_bind_abort by (fastforce simp add: eval_abort_def eval_value_def
+using eval_predicate_bind_abort by (fastforce simp add: eval_abort_def eval_value_def
   rel_compose_def)
 
-corollary urust_eval_predicate_bind [shallow_computation_eval_predicate_simps]:
+corollary eval_predicate_bind [shallow_computation_eval_predicate_simps]:
   shows \<open>(\<sigma> \<leadsto>\<^sub>v\<langle>\<Gamma>,Core_Expression.bind e f\<rangle> (v'',\<sigma>'')) \<longleftrightarrow>
      (\<exists>v' \<sigma>'. (\<sigma> \<leadsto>\<^sub>v\<langle>\<Gamma>,e\<rangle> (v',\<sigma>')) \<and> (\<sigma>' \<leadsto>\<^sub>v\<langle>\<Gamma>,f v'\<rangle> (v'',\<sigma>'')))\<close>
     and \<open>(\<sigma> \<leadsto>\<^sub>r\<langle>\<Gamma>,Core_Expression.bind e f\<rangle> (r,\<sigma>'')) \<longleftrightarrow>
      (\<sigma> \<leadsto>\<^sub>r\<langle>\<Gamma>,e\<rangle> (r,\<sigma>'')) \<or> (\<exists>v \<sigma>'. (\<sigma> \<leadsto>\<^sub>v\<langle>\<Gamma>,e\<rangle> (v,\<sigma>')) \<and> (\<sigma>' \<leadsto>\<^sub>r\<langle>\<Gamma>,f v\<rangle> (r,\<sigma>'')))\<close>
     and \<open>(\<sigma> \<leadsto>\<^sub>a\<langle>\<Gamma>,Core_Expression.bind e f\<rangle> (a, \<sigma>'')) \<longleftrightarrow>
      (\<sigma> \<leadsto>\<^sub>a\<langle>\<Gamma>,e\<rangle> (a, \<sigma>'')) \<or> (\<exists>v \<sigma>'. (\<sigma> \<leadsto>\<^sub>v\<langle>\<Gamma>,e\<rangle> (v,\<sigma>')) \<and> (\<sigma>' \<leadsto>\<^sub>a\<langle>\<Gamma>,f v\<rangle> (a, \<sigma>'')))\<close>
-by (auto simp add: urust_eval_predicate_bind_success urust_eval_predicate_bind_return
-  urust_eval_predicate_bind_abort)
+by (auto simp add: eval_predicate_bind_success eval_predicate_bind_return
+  eval_predicate_bind_abort)
 
-lemma urust_eval_action_bind [shallow_computation_eval_action_simps]:
+lemma eval_action_bind [shallow_computation_eval_action_simps]:
   shows \<open>(\<Gamma>,Core_Expression.bind e f) \<diamondop>\<^sub>v \<sigma> = (\<Union>(v,\<sigma>') \<in> (\<Gamma>,e) \<diamondop>\<^sub>v \<sigma>. (\<Gamma>,f v) \<diamondop>\<^sub>v \<sigma>')\<close>
     and \<open>(\<Gamma>,Core_Expression.bind e f) \<diamondop>\<^sub>r \<sigma> = ((\<Gamma>,e) \<diamondop>\<^sub>r \<sigma>) \<union> (\<Union>(v,\<sigma>') \<in> (\<Gamma>,e) \<diamondop>\<^sub>v \<sigma>. (\<Gamma>,f v) \<diamondop>\<^sub>r \<sigma>')\<close>
     and \<open>(\<Gamma>,Core_Expression.bind e f) \<diamondop>\<^sub>a \<sigma> = ((\<Gamma>,e) \<diamondop>\<^sub>a \<sigma>) \<union> (\<Union>(v,\<sigma>') \<in> (\<Gamma>,e) \<diamondop>\<^sub>v \<sigma>. (\<Gamma>,f v) \<diamondop>\<^sub>a \<sigma>')\<close>
 by (auto simp add: value_evaluations_def abort_evaluations_def return_evaluations_def
-  urust_eval_predicate_bind)
+  eval_predicate_bind)
 
-lemma urust_eval_action_sequence [shallow_computation_eval_action_simps]:
+lemma eval_action_sequence [shallow_computation_eval_action_simps]:
   shows \<open>(\<Gamma>,Core_Expression.sequence e f) \<diamondop>\<^sub>v \<sigma> = (\<Union>(v,\<sigma>') \<in> (\<Gamma>,e) \<diamondop>\<^sub>v \<sigma>. (\<Gamma>,f) \<diamondop>\<^sub>v \<sigma>')\<close>
     and \<open>(\<Gamma>,Core_Expression.sequence e f) \<diamondop>\<^sub>r \<sigma> = ((\<Gamma>,e) \<diamondop>\<^sub>r \<sigma>) \<union> (\<Union>(_,\<sigma>') \<in> (\<Gamma>,e) \<diamondop>\<^sub>v \<sigma>. (\<Gamma>,f) \<diamondop>\<^sub>r \<sigma>')\<close>
     and \<open>(\<Gamma>,Core_Expression.sequence e f) \<diamondop>\<^sub>a \<sigma> = ((\<Gamma>,e) \<diamondop>\<^sub>a \<sigma>) \<union> (\<Union>(_,\<sigma>') \<in> (\<Gamma>,e) \<diamondop>\<^sub>v \<sigma>. (\<Gamma>,f) \<diamondop>\<^sub>a \<sigma>')\<close>
 by (auto simp add: sequence_def shallow_computation_eval_action_simps)
 
-corollary urust_eval_predicate_sequence [shallow_computation_eval_predicate_simps]:
+corollary eval_predicate_sequence [shallow_computation_eval_predicate_simps]:
   shows \<open>(\<sigma> \<leadsto>\<^sub>v\<langle>\<Gamma>,Core_Expression.sequence e f\<rangle> (v'',\<sigma>'')) \<longleftrightarrow>
      (\<exists>v' \<sigma>'. (\<sigma> \<leadsto>\<^sub>v\<langle>\<Gamma>,e\<rangle> (v',\<sigma>')) \<and> (\<sigma>' \<leadsto>\<^sub>v\<langle>\<Gamma>,f\<rangle> (v'',\<sigma>'')))\<close>
     and \<open>(\<sigma> \<leadsto>\<^sub>r\<langle>\<Gamma>,Core_Expression.sequence e f\<rangle> (r,\<sigma>'')) \<longleftrightarrow>
@@ -201,7 +201,7 @@ corollary urust_eval_predicate_sequence [shallow_computation_eval_predicate_simp
      (\<sigma> \<leadsto>\<^sub>a\<langle>\<Gamma>,e\<rangle> (a, \<sigma>'')) \<or> (\<exists>v \<sigma>'. (\<sigma> \<leadsto>\<^sub>v\<langle>\<Gamma>,e\<rangle> (v,\<sigma>')) \<and> (\<sigma>' \<leadsto>\<^sub>a\<langle>\<Gamma>,f\<rangle> (a, \<sigma>'')))\<close>
 by (auto simp add: sequence_def shallow_computation_eval_predicate_simps)
 
-lemma urust_eval_action_refine:
+lemma eval_action_refine:
   assumes \<open>yield_handler_nondet_basic_refines \<Theta> \<Gamma>\<close>
       and \<open>(\<Gamma>, e) \<diamondop>\<^sub>a \<sigma> = {}\<close>
     shows \<open>(\<Theta>, e) \<diamondop>\<^sub>a \<sigma> = {}\<close>
@@ -211,75 +211,75 @@ lemma urust_eval_action_refine:
   by (auto simp add: shallow_computation_eval_action_via_predicate shallow_computation_eval_predicate_defs
     deep_evaluate_basic_nondet_refine)
 
-lemma urust_eval_predicate_refine:
+lemma eval_predicate_refine:
   assumes \<open>yield_handler_nondet_basic_refines \<Theta> \<Gamma>\<close>
       and \<open>(\<Gamma>, e) \<diamondop>\<^sub>a \<sigma> = {}\<close>
     shows \<open>\<sigma> \<leadsto>\<^sub>a\<langle>\<Theta>, e\<rangle> (a, \<sigma>') \<longleftrightarrow> False\<close>
       and \<open>\<sigma> \<leadsto>\<^sub>v\<langle>\<Theta>, e\<rangle> (v, \<sigma>') \<longleftrightarrow> \<sigma> \<leadsto>\<^sub>v\<langle>\<Gamma>, e\<rangle> (v, \<sigma>')\<close>
       and \<open>\<sigma> \<leadsto>\<^sub>r\<langle>\<Theta>, e\<rangle> (r, \<sigma>') \<longleftrightarrow> \<sigma> \<leadsto>\<^sub>r\<langle>\<Gamma>, e\<rangle> (r, \<sigma>')\<close>
   using assms
-  by (auto simp add: shallow_computation_eval_predicate_via_action urust_eval_action_refine)
+  by (auto simp add: shallow_computation_eval_predicate_via_action eval_action_refine)
 
 text\<open>The skip/literal operator\<close>
 
-lemma urust_eval_action_literal [shallow_computation_eval_action_simps]:
+lemma eval_action_literal [shallow_computation_eval_action_simps]:
   shows \<open>(\<Gamma>, literal v) \<diamondop>\<^sub>a \<sigma> = {}\<close>
     and \<open>(\<Gamma>, literal v) \<diamondop>\<^sub>v \<sigma> = {(v, \<sigma>)}\<close>
     and \<open>(\<Gamma>, literal v) \<diamondop>\<^sub>r \<sigma> = {}\<close>
 by (auto simp add: evaluate_def literal_def shallow_computation_eval_action_via_predicate
   shallow_computation_eval_predicate_defs deep_evaluates_nondet_basic.simps)
 
-corollary urust_eval_predicate_literal [shallow_computation_eval_predicate_simps]:
+corollary eval_predicate_literal [shallow_computation_eval_predicate_simps]:
   shows \<open>\<sigma> \<leadsto>\<^sub>v\<langle>\<Gamma>,literal v\<rangle> (v',\<sigma>') \<longleftrightarrow> v = v' \<and> \<sigma> = \<sigma>'\<close>
     and \<open>\<sigma> \<leadsto>\<^sub>r\<langle>\<Gamma>,literal v\<rangle> (r,\<sigma>') \<longleftrightarrow> False\<close>
     and \<open>\<sigma> \<leadsto>\<^sub>a\<langle>\<Gamma>,literal v\<rangle> (a, \<sigma>') \<longleftrightarrow> False\<close>
-by (auto simp add: urust_eval_action_literal shallow_computation_eval_predicate_via_action)
+by (auto simp add: eval_action_literal shallow_computation_eval_predicate_via_action)
 
-corollary urust_eval_action_skip [shallow_computation_eval_action_simps]:
+corollary eval_action_skip [shallow_computation_eval_action_simps]:
   shows \<open>(\<Gamma>, skip) \<diamondop>\<^sub>a \<sigma> = {}\<close>
     and \<open>(\<Gamma>, skip) \<diamondop>\<^sub>v \<sigma> = {((), \<sigma>)}\<close>
     and \<open>(\<Gamma>, skip) \<diamondop>\<^sub>r \<sigma> = {}\<close>
-by (auto simp add: urust_eval_action_literal)
+by (auto simp add: eval_action_literal)
 
-corollary urust_eval_predicate_skip [shallow_computation_eval_predicate_simps]:
+corollary eval_predicate_skip [shallow_computation_eval_predicate_simps]:
   shows \<open>\<sigma> \<leadsto>\<^sub>v\<langle>\<Gamma>,skip\<rangle> (v,\<sigma>') \<longleftrightarrow> v = () \<and> \<sigma> = \<sigma>'\<close>
     and \<open>\<sigma> \<leadsto>\<^sub>r\<langle>\<Gamma>,skip\<rangle> (r,\<sigma>') \<longleftrightarrow> False\<close>
     and \<open>\<sigma> \<leadsto>\<^sub>a\<langle>\<Gamma>,skip\<rangle> (a, \<sigma>') \<longleftrightarrow> False\<close>
-by (auto simp add: urust_eval_predicate_literal)
+by (auto simp add: eval_predicate_literal)
 
 text\<open>The return operator\<close>
 
-lemma urust_eval_action_return [shallow_computation_eval_action_simps]:
+lemma eval_action_return [shallow_computation_eval_action_simps]:
   shows \<open>(\<Gamma>, return_val r) \<diamondop>\<^sub>a \<sigma> = {}\<close>
     and \<open>(\<Gamma>, return_val r) \<diamondop>\<^sub>v \<sigma> = {}\<close>
     and \<open>(\<Gamma>, return_val r) \<diamondop>\<^sub>r \<sigma> = {(r, \<sigma>)}\<close>
 by (auto simp add: evaluate_def return_val_def shallow_computation_eval_action_via_predicate
   shallow_computation_eval_predicate_defs deep_evaluates_nondet_basic.simps)
 
-corollary urust_eval_predicate_return [shallow_computation_eval_predicate_simps]:
+corollary eval_predicate_return [shallow_computation_eval_predicate_simps]:
   shows \<open>\<sigma> \<leadsto>\<^sub>v\<langle>\<Gamma>,return_val r\<rangle> (v,\<sigma>') \<longleftrightarrow> False\<close>
     and \<open>\<sigma> \<leadsto>\<^sub>r\<langle>\<Gamma>,return_val r\<rangle> (r',\<sigma>') \<longleftrightarrow> r = r' \<and> \<sigma> = \<sigma>'\<close>
     and \<open>\<sigma> \<leadsto>\<^sub>a\<langle>\<Gamma>,return_val r\<rangle> (a, \<sigma>') \<longleftrightarrow> False\<close>
-by (auto simp add: urust_eval_action_return shallow_computation_eval_predicate_via_action)
+by (auto simp add: eval_action_return shallow_computation_eval_predicate_via_action)
 
 text\<open>The abort operator\<close>
 
-lemma urust_eval_action_abort [shallow_computation_eval_action_simps]:
+lemma eval_action_abort [shallow_computation_eval_action_simps]:
   shows \<open>(\<Gamma>, abort a) \<diamondop>\<^sub>a \<sigma> = {(a, \<sigma>)}\<close>
     and \<open>(\<Gamma>, abort a) \<diamondop>\<^sub>v \<sigma> = {}\<close>
     and \<open>(\<Gamma>, abort a) \<diamondop>\<^sub>r \<sigma> = {}\<close>
 by (auto simp add: evaluate_def abort_def shallow_computation_eval_action_via_predicate
   shallow_computation_eval_predicate_defs deep_evaluates_nondet_basic.simps)
 
-corollary urust_eval_predicate_abort [shallow_computation_eval_predicate_simps]:
+corollary eval_predicate_abort [shallow_computation_eval_predicate_simps]:
   shows \<open>\<sigma> \<leadsto>\<^sub>v\<langle>\<Gamma>,abort a\<rangle> (v,\<sigma>') \<longleftrightarrow> False\<close>
     and \<open>\<sigma> \<leadsto>\<^sub>r\<langle>\<Gamma>,abort a\<rangle> (r',\<sigma>') \<longleftrightarrow> False\<close>
     and \<open>\<sigma> \<leadsto>\<^sub>a\<langle>\<Gamma>,abort a\<rangle> (a', \<sigma>') \<longleftrightarrow> a = a' \<and> \<sigma>=\<sigma>'\<close>
-by (auto simp add: urust_eval_action_abort shallow_computation_eval_predicate_via_action)
+by (auto simp add: eval_action_abort shallow_computation_eval_predicate_via_action)
 
 text\<open>The generic yield\<close>
 
-lemma urust_eval_predicate_yield [shallow_computation_eval_predicate_simps]:
+lemma eval_predicate_yield [shallow_computation_eval_predicate_simps]:
   shows \<open>\<sigma> \<leadsto>\<^sub>v \<langle>\<Gamma>, yield \<omega>\<rangle> (v, \<sigma>') \<longleftrightarrow> YieldContinue (v, \<sigma>') \<in> \<Gamma> \<omega> \<sigma>\<close>
     and \<open>\<sigma> \<leadsto>\<^sub>r \<langle>\<Gamma>, yield \<omega>\<rangle> (r, \<sigma>') \<longleftrightarrow> False\<close>
     and \<open>\<sigma> \<leadsto>\<^sub>a \<langle>\<Gamma>, yield \<omega>\<rangle> (a, \<sigma>') \<longleftrightarrow> YieldAbort a \<sigma>' \<in> \<Gamma> \<omega> \<sigma>\<close>
@@ -291,7 +291,7 @@ lemma urust_eval_predicate_yield [shallow_computation_eval_predicate_simps]:
   apply (metis surj_pair yield_handler_nondet_basic_result.exhaust)
   done
 
-lemma urust_eval_action_yield
+lemma eval_action_yield
   [shallow_computation_eval_action_simps, shallow_computation_eval_predicate_simps]:
   shows \<open>(\<Gamma>, yield \<pi>) \<diamondop>\<^sub>v \<sigma> = { (\<omega>, \<sigma>') . YieldContinue (\<omega>, \<sigma>') \<in> \<Gamma> \<pi> \<sigma> }\<close>
     and \<open>(\<Gamma>, yield \<pi>) \<diamondop>\<^sub>a \<sigma> = { (a, \<sigma>') . YieldAbort a \<sigma>' \<in> \<Gamma> \<pi> \<sigma> }\<close>
@@ -313,7 +313,7 @@ lemma evaluate_call_function_body_value:
     shows \<open>evaluate e \<sigma> = Success v \<sigma>' \<or> evaluate e \<sigma> = Return v \<sigma>'\<close>
 using assms by (auto elim!: evaluate_call_function_bodyE)
 
-lemma urust_eval_predicate_call_function_body_value:
+lemma eval_predicate_call_function_body_value:
   fixes e :: \<open>('s, 'v, 'v, 'abort, 'i, 'o) expression\<close>
   shows \<open>(\<sigma> \<leadsto>\<^sub>v\<langle>\<Gamma>,call_function_body e :: ('s, 'v, 'r, 'abort, 'i, 'o) expression\<rangle> (v,\<sigma>') \<longleftrightarrow>
            ((\<sigma> \<leadsto>\<^sub>v\<langle>\<Gamma>,e\<rangle> (v,\<sigma>')) \<or> (\<sigma> \<leadsto>\<^sub>r\<langle>\<Gamma>,e\<rangle> (v,\<sigma>'))))\<close>
@@ -333,7 +333,7 @@ proof (induct e arbitrary: \<sigma> rule: wf_induct_rule)
   qed (auto simp add: call_function_body.simps deep_evaluates_nondet_basic.simps evaluate_def evaluates_to_return_def evaluates_to_value_def)
 qed
 
-lemma urust_eval_predicate_call_function_body_return:
+lemma eval_predicate_call_function_body_return:
   fixes e :: \<open>('s, 'v, 'v, 'abort, 'i, 'o) expression\<close>
   shows \<open>(\<sigma> \<leadsto>\<^sub>r\<langle>\<Gamma>,call_function_body e :: ('s, 'v, 'r, 'abort, 'i, 'o) expression\<rangle> (r,\<sigma>'))
            \<longleftrightarrow> False\<close>
@@ -350,7 +350,7 @@ proof (induct e arbitrary: \<sigma> rule: wf_induct_rule)
   qed (auto simp: evaluates_to_return_def call_function_body.simps deep_evaluates_nondet_basic.simps evaluate_def)
 qed
 
-lemma urust_eval_predicate_call_function_body_abort:
+lemma eval_predicate_call_function_body_abort:
   fixes e :: \<open>('s, 'v, 'v, 'abort, 'i, 'o) expression\<close>
   shows \<open>(\<sigma> \<leadsto>\<^sub>a\<langle>\<Gamma>,call_function_body e :: ('s, 'v, 'r, 'abort, 'i, 'o) expression\<rangle> (a, \<sigma>''))
            \<longleftrightarrow> (\<sigma> \<leadsto>\<^sub>a\<langle>\<Gamma>, e\<rangle> (a, \<sigma>''))\<close>
@@ -369,100 +369,100 @@ proof (induct e arbitrary: \<sigma> rule: wf_induct_rule)
 qed
 
 
-lemmas urust_eval_predicate_call_function_body [shallow_computation_eval_predicate_simps] =
-  urust_eval_predicate_call_function_body_value
-  urust_eval_predicate_call_function_body_return
-  urust_eval_predicate_call_function_body_abort
+lemmas eval_predicate_call_function_body [shallow_computation_eval_predicate_simps] =
+  eval_predicate_call_function_body_value
+  eval_predicate_call_function_body_return
+  eval_predicate_call_function_body_abort
 
 
-lemma urust_eval_action_call_function_body [shallow_computation_eval_action_simps]:
+lemma eval_action_call_function_body [shallow_computation_eval_action_simps]:
   shows \<open>(\<Gamma>, call_function_body e) \<diamondop>\<^sub>a \<sigma> = (\<Gamma>, e) \<diamondop>\<^sub>a \<sigma>\<close>
     and \<open>(\<Gamma>, call_function_body e) \<diamondop>\<^sub>v \<sigma> = ((\<Gamma>, e) \<diamondop>\<^sub>v \<sigma>)
                           \<union> ((\<Gamma>, e) \<diamondop>\<^sub>r \<sigma>)\<close>
     and \<open>(\<Gamma>, call_function_body e) \<diamondop>\<^sub>r \<sigma> = {}\<close>
-by (auto simp add: shallow_computation_eval_action_via_predicate urust_eval_predicate_call_function_body)
+by (auto simp add: shallow_computation_eval_action_via_predicate eval_predicate_call_function_body)
 
-lemma urust_eval_predicate_call_value:
+lemma eval_predicate_call_value:
   fixes e :: \<open>('s, 'v, 'v, 'abort, 'i, 'o) expression\<close>
   shows \<open>\<And>v \<sigma> \<sigma>'. (\<sigma> \<leadsto>\<^sub>v\<langle>\<Gamma>,call (FunctionBody e) :: ('s, 'v, 'r, 'abort, 'i, 'o) expression\<rangle> (v,\<sigma>') \<longleftrightarrow>
            ((\<sigma> \<leadsto>\<^sub>v\<langle>\<Gamma>,e\<rangle> (v,\<sigma>')) \<or> (\<sigma> \<leadsto>\<^sub>r\<langle>\<Gamma>,e\<rangle> (v,\<sigma>'))))\<close>
-by (simp add: call_def urust_eval_predicate_call_function_body_value)
+by (simp add: call_def eval_predicate_call_function_body_value)
 
-lemma urust_eval_predicate_call_return:
+lemma eval_predicate_call_return:
   fixes e :: \<open>('s, 'v, 'v, 'abort, 'i, 'o) expression\<close>
   shows \<open>\<And>r \<sigma> \<sigma>'. (\<sigma> \<leadsto>\<^sub>r\<langle>\<Gamma>,call (FunctionBody e) :: ('s, 'v, 'r, 'abort, 'i, 'o) expression\<rangle> (r,\<sigma>'))
            \<longleftrightarrow> False\<close>
-by (simp add: call_def urust_eval_predicate_call_function_body_return)
+by (simp add: call_def eval_predicate_call_function_body_return)
 
-lemma urust_eval_predicate_call_abort:
+lemma eval_predicate_call_abort:
   fixes e :: \<open>('s, 'v, 'v, 'abort, 'i, 'o) expression\<close>
   shows \<open>\<And>a \<sigma> \<sigma>'. (\<sigma> \<leadsto>\<^sub>a\<langle>\<Gamma>,call (FunctionBody e) :: ('s, 'v, 'r, 'abort, 'i, 'o) expression\<rangle> (a, \<sigma>'))
            \<longleftrightarrow> (\<sigma> \<leadsto>\<^sub>a\<langle>\<Gamma>, e\<rangle> (a, \<sigma>'))\<close>
-by (simp add: call_def urust_eval_predicate_call_function_body_abort)
+by (simp add: call_def eval_predicate_call_function_body_abort)
 
-lemma urust_eval_predicate_call [shallow_computation_eval_predicate_simps]:
+lemma eval_predicate_call [shallow_computation_eval_predicate_simps]:
   shows \<open>\<sigma> \<leadsto>\<^sub>v\<langle>\<Gamma>,call f\<rangle> (v,\<sigma>') \<longleftrightarrow> (\<sigma> \<leadsto>\<^sub>v\<langle>\<Gamma>,function_body f\<rangle> (v,\<sigma>'))
                                 \<or>  (\<sigma> \<leadsto>\<^sub>r\<langle>\<Gamma>,function_body f\<rangle> (v,\<sigma>'))\<close>
     and \<open>\<sigma> \<leadsto>\<^sub>r\<langle>\<Gamma>,call f\<rangle> (r,\<sigma>') \<longleftrightarrow> False\<close>
     and \<open>\<sigma> \<leadsto>\<^sub>a\<langle>\<Gamma>,call f\<rangle> (a, \<sigma>') \<longleftrightarrow> (\<sigma> \<leadsto>\<^sub>a\<langle>\<Gamma>,(function_body f)\<rangle> (a, \<sigma>'))\<close>
-  apply (metis function_body.collapse urust_eval_predicate_call_value)
-  apply (metis function_body.exhaust_sel urust_eval_predicate_call_return)
-  apply (metis function_body.exhaust_sel urust_eval_predicate_call_abort)
+  apply (metis function_body.collapse eval_predicate_call_value)
+  apply (metis function_body.exhaust_sel eval_predicate_call_return)
+  apply (metis function_body.exhaust_sel eval_predicate_call_abort)
   done
 
-lemma urust_eval_predicate_call_rel [shallow_computation_eval_predicate_simps]:
+lemma eval_predicate_call_rel [shallow_computation_eval_predicate_simps]:
   shows \<open>eval_value \<Gamma> (call f) = (\<lambda>a b. eval_value \<Gamma> (function_body f) a b
                                       \<or> eval_return \<Gamma> (function_body f) a b)\<close>
     and \<open>eval_return \<Gamma> (call f) = (\<lambda>_ _. False)\<close>
     and \<open>eval_abort \<Gamma> (call f) = eval_abort \<Gamma> (function_body f)\<close>
 by (auto simp add: eval_value_def eval_abort_def eval_return_def shallow_computation_eval_predicate_simps)
 
-lemma urust_eval_action_call [shallow_computation_eval_action_simps]:
+lemma eval_action_call [shallow_computation_eval_action_simps]:
   shows \<open>(\<Gamma>, call f) \<diamondop>\<^sub>a \<sigma> = (\<Gamma>, (function_body f)) \<diamondop>\<^sub>a \<sigma>\<close>
     and \<open>(\<Gamma>, call f) \<diamondop>\<^sub>v \<sigma> = ((\<Gamma>, (function_body f)) \<diamondop>\<^sub>v \<sigma>)
                           \<union> ((\<Gamma>, (function_body f)) \<diamondop>\<^sub>r \<sigma>)\<close>
     and \<open>(\<Gamma>, call f) \<diamondop>\<^sub>r \<sigma> = {}\<close>
-by (auto simp add: shallow_computation_eval_action_via_predicate urust_eval_predicate_call)
+by (auto simp add: shallow_computation_eval_action_via_predicate eval_predicate_call)
 
 text\<open>Get and put operators\<close>
 
-lemma urust_eval_action_get [shallow_computation_eval_action_simps]:
+lemma eval_action_get [shallow_computation_eval_action_simps]:
   shows \<open>(\<Gamma>, get f) \<diamondop>\<^sub>a \<sigma> = {}\<close>
     and \<open>(\<Gamma>, get f) \<diamondop>\<^sub>v \<sigma> = {(f \<sigma>, \<sigma>)}\<close>
     and \<open>(\<Gamma>, get f) \<diamondop>\<^sub>r \<sigma> = {}\<close>
 by (auto simp add: evaluate_def get_def shallow_computation_eval_action_via_predicate shallow_computation_eval_predicate_defs
   deep_evaluates_nondet_basic.simps)
 
-corollary urust_eval_predicate_get [shallow_computation_eval_predicate_simps]:
+corollary eval_predicate_get [shallow_computation_eval_predicate_simps]:
   shows \<open>\<sigma> \<leadsto>\<^sub>v\<langle>\<Gamma>,get f\<rangle> (v,\<sigma>') \<longleftrightarrow> (v = f \<sigma> \<and> \<sigma>' = \<sigma>)\<close>
     and \<open>\<sigma> \<leadsto>\<^sub>r\<langle>\<Gamma>,get f\<rangle> (r',\<sigma>') \<longleftrightarrow> False\<close>
     and \<open>\<sigma> \<leadsto>\<^sub>a\<langle>\<Gamma>,get f\<rangle> (a, \<sigma>') \<longleftrightarrow> False\<close>
-by (auto simp add: urust_eval_action_get shallow_computation_eval_predicate_via_action)
+by (auto simp add: eval_action_get shallow_computation_eval_predicate_via_action)
 
-lemma urust_eval_action_put [shallow_computation_eval_action_simps]:
+lemma eval_action_put [shallow_computation_eval_action_simps]:
   shows \<open>(\<Gamma>, put \<tau>) \<diamondop>\<^sub>a \<sigma> = {}\<close>
     and \<open>(\<Gamma>, put \<tau>) \<diamondop>\<^sub>v \<sigma> = {((), \<tau> \<sigma>)}\<close>
     and \<open>(\<Gamma>, put \<tau>) \<diamondop>\<^sub>r \<sigma> = {}\<close>
 by (auto simp add: evaluate_def put_def shallow_computation_eval_action_via_predicate shallow_computation_eval_predicate_defs
   deep_evaluates_nondet_basic.simps)
 
-corollary urust_eval_predicate_put [shallow_computation_eval_predicate_simps]:
+corollary eval_predicate_put [shallow_computation_eval_predicate_simps]:
   shows \<open>\<sigma> \<leadsto>\<^sub>v\<langle>\<Gamma>,put \<tau>\<rangle> (v,\<sigma>') \<longleftrightarrow> \<sigma>' = \<tau> \<sigma>\<close>
     and \<open>\<sigma> \<leadsto>\<^sub>r\<langle>\<Gamma>,put \<tau>\<rangle> (r,\<sigma>') \<longleftrightarrow> False\<close>
     and \<open>\<sigma> \<leadsto>\<^sub>a\<langle>\<Gamma>,put \<tau>\<rangle> (a, \<sigma>') \<longleftrightarrow> False\<close>
-by (auto simp add: urust_eval_action_put shallow_computation_eval_predicate_via_action)
+by (auto simp add: eval_action_put shallow_computation_eval_predicate_via_action)
 
-lemma urust_eval_action_put_assert [shallow_computation_eval_action_simps]:
+lemma eval_action_put_assert [shallow_computation_eval_action_simps]:
   shows \<open>(\<Gamma>, put_assert \<tau> a) \<diamondop>\<^sub>a \<sigma> = (case \<tau> \<sigma> of None \<Rightarrow> {(a, \<sigma>)} | Some _ \<Rightarrow> {})\<close>
     and \<open>(\<Gamma>, put_assert \<tau> a) \<diamondop>\<^sub>v \<sigma> = (case \<tau> \<sigma> of None \<Rightarrow> {} | Some \<sigma>' \<Rightarrow> {((), \<sigma>')})\<close>
     and \<open>(\<Gamma>, put_assert \<tau> a) \<diamondop>\<^sub>r \<sigma> = {}\<close>
 by (auto simp add: evaluate_def put_assert_def shallow_computation_eval_action_via_predicate
 shallow_computation_eval_predicate_defs deep_evaluates_nondet_basic.simps split: option.splits)
 
-corollary urust_eval_predicate_put_assert [shallow_computation_eval_predicate_simps]:
+corollary eval_predicate_put_assert [shallow_computation_eval_predicate_simps]:
   shows \<open>\<sigma> \<leadsto>\<^sub>v\<langle>\<Gamma>,put_assert \<tau> a\<rangle> (v,\<sigma>') \<longleftrightarrow> \<tau> \<sigma> = Some \<sigma>'\<close>
     and \<open>\<sigma> \<leadsto>\<^sub>r\<langle>\<Gamma>,put_assert \<tau> a\<rangle> (r,\<sigma>') \<longleftrightarrow> False\<close>
     and \<open>\<sigma> \<leadsto>\<^sub>a\<langle>\<Gamma>,put_assert \<tau> a\<rangle> (a', \<sigma>') \<longleftrightarrow> a' = a \<and> \<sigma> = \<sigma>' \<and> \<tau> \<sigma> = None\<close>
-by (auto simp add: urust_eval_action_put_assert shallow_computation_eval_predicate_via_action split: option.splits)
+by (auto simp add: eval_action_put_assert shallow_computation_eval_predicate_via_action split: option.splits)
 
 end

@@ -9,9 +9,9 @@ begin
 section \<open>Isabelle/C adapter\<close>
 
 text \<open>
-This theory is the sole Isabelle/C import and AST boundary. Parsing is followed immediately by
-normalization into project-owned datatypes. No Isabelle/C parser environment, context, or AST
-constructor crosses the public ML signature.
+This theory is the sole Isabelle/C import and parser boundary.  The adapter deliberately exposes
+Isabelle/C's translation-unit AST without normalizing, elaborating, or rejecting C constructs.
+It additionally retains the original source for positioned diagnostics in later frontend passes.
 \<close>
 
 ML_file \<open>adapter.ML\<close>

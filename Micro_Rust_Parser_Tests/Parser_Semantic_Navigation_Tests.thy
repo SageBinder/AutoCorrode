@@ -12,14 +12,14 @@ section\<open>Resolved navigation fixtures\<close>
 
 consts
   semantic_navigation_ref ::
-    \<open>(unit, unit, 32 word) Global_Store.ref\<close>
+    \<open>(unit, unit, 32 word) State_References.ref\<close>
   semantic_navigation_word :: \<open>32 word\<close>
   semantic_navigation_shift :: \<open>64 word\<close>
   semantic_navigation_gref :: \<open>(unit, unit) gref\<close>
 
 definition semantic_navigation_allocate ::
     \<open>32 word \<Rightarrow>
-      (unit, (unit, unit, 32 word) Global_Store.ref,
+      (unit, (unit, unit, 32 word) State_References.ref,
        unit, unit, unit) function_body\<close>
   where
     \<open>
@@ -28,7 +28,7 @@ definition semantic_navigation_allocate ::
     \<close>
 
 definition semantic_navigation_dereference ::
-    \<open>(unit, unit, 32 word) Global_Store.ref \<Rightarrow>
+    \<open>(unit, unit, 32 word) State_References.ref \<Rightarrow>
       (unit, 32 word, unit, unit, unit) function_body\<close>
   where
     \<open>
@@ -37,7 +37,7 @@ definition semantic_navigation_dereference ::
     \<close>
 
 definition semantic_navigation_update ::
-    \<open>(unit, unit, 32 word) Global_Store.ref \<Rightarrow> 32 word \<Rightarrow>
+    \<open>(unit, unit, 32 word) State_References.ref \<Rightarrow> 32 word \<Rightarrow>
       (unit, unit, unit, unit, unit) function_body\<close>
   where
     \<open>
@@ -46,7 +46,7 @@ definition semantic_navigation_update ::
     \<close>
 
 definition semantic_navigation_assign_add ::
-    \<open>(unit, unit, 32 word) Global_Store.ref \<Rightarrow> 32 word \<Rightarrow>
+    \<open>(unit, unit, 32 word) State_References.ref \<Rightarrow> 32 word \<Rightarrow>
       (unit, unit, unit, unit, unit) function_body\<close>
   where
     \<open>
@@ -113,7 +113,7 @@ section\<open>Checked resolved denotations\<close>
 
 ML_val\<open>
   local
-    structure Navigation = Micro_Rust_Semantic_Navigation
+    structure Navigation = Shallow_Computation_Semantic_Navigation
 
     val ctxt = \<^context>
 

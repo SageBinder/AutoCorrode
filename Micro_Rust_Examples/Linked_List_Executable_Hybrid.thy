@@ -141,7 +141,7 @@ lemma ll_node_raw_unit_isoprism_valid:
   by (auto simp add: ll_node_raw.exhaust) (metis ll_node_raw.exhaust_sel unit.exhaust)
 
 definition gref_iso_prism :: \<open>(NonNullRaw option, (NonNullRaw, gv) gref option) prism\<close> where
-  \<open>gref_iso_prism \<equiv> iso_prism (map_option Global_Store.make_gref) (map_option Global_Store.gref_address)\<close>
+  \<open>gref_iso_prism \<equiv> iso_prism (map_option State_References.make_gref) (map_option State_References.gref_address)\<close>
 
 lemma gref_iso_prism_is_valid: \<open>is_valid_prism gref_iso_prism\<close>
   by (auto simp add: gref_iso_prism_def iso_prism_valid is_valid_prism_def iso_prism_def
@@ -298,8 +298,8 @@ definition ll_head :: \<open>(NonNullRaw, gv) gref option\<close> where
 
 \<comment>\<open>\<^verbatim>\<open>
 urust_fn reverse_unlink :: \<open>64 word \<Rightarrow> ('caddr, 'gv) gref option
-  \<Rightarrow> ('addr, 'gv, ('caddr, 'gv) gref option) Global_Store.ref
-  \<Rightarrow> ('addr, 'gv, ('caddr, 'gv) gref option) Global_Store.ref
+  \<Rightarrow> ('addr, 'gv, ('caddr, 'gv) gref option) State_References.ref
+  \<Rightarrow> ('addr, 'gv, ('caddr, 'gv) gref option) State_References.ref
   \<Rightarrow> ('s, ('caddr, 'gv) gref option \<times> ('caddr, 'gv) gref option) function_body\<close>
   (n, orig, cur_raw, last_raw)
   \<open>

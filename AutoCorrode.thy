@@ -10,6 +10,9 @@ theory AutoCorrode
     "Data_Structures.Data_Structures"
     "iq.iq"
     "Enum_Theory.Enum_Theory"
+    "Frontend_Common.Frontend_Common"
+    "Micro_C_Parsing_Frontend.C_To_Core_Translation"
+    "Micro_C_Examples.Micro_C_Examples"
     "Micro_Rust_Examples.Micro_Rust_Examples"
     "Micro_Rust_Interfaces.Micro_Rust_Interfaces"
     "Micro_Rust_Interfaces_Core.Micro_Rust_Interfaces_Core"
@@ -19,7 +22,10 @@ theory AutoCorrode
     "Lenses_And_Other_Optics.Lenses_And_Other_Optics"
     "Separation_Lenses.Separation_Lenses"
     "Shallow_Computation.Shallow_Computation"
+    "Shallow_Micro_C.Shallow_Micro_C"
     "Shallow_Micro_Rust.Shallow_Micro_Rust"
+    "Shallow_State.Shallow_State"
+    "Shallow_State_Logic.Shallow_State_Logic"
     "Shallow_Separation_Logic.Shallow_Separation_Logic"
 begin
 

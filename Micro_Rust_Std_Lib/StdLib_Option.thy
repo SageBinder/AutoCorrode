@@ -130,7 +130,7 @@ begin
 adhoc_overloading store_update_const \<rightleftharpoons> update_fun
 
 urust_fn option_as_mut ::
-  \<open>('a, 'b, 'v option) Global_Store.ref \<Rightarrow> ('s, ('a, 'b, 'v) Global_Store.ref option, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
+  \<open>('a, 'b, 'v option) State_References.ref \<Rightarrow> ('s, ('a, 'b, 'v) State_References.ref option, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (self)
   \<open>
     if (*self).is_some() {
@@ -140,8 +140,8 @@ urust_fn option_as_mut ::
     }
   \<close>
 
-definition option_as_mut_contract :: \<open>'b \<Rightarrow> ('a, 'b, 'v option) Global_Store.ref \<Rightarrow> 'v option \<Rightarrow>
-    ('s::{sepalg}, ('a, 'b, 'v) Global_Store.ref option, 'abort) function_contract\<close> where
+definition option_as_mut_contract :: \<open>'b \<Rightarrow> ('a, 'b, 'v option) State_References.ref \<Rightarrow> 'v option \<Rightarrow>
+    ('s::{sepalg}, ('a, 'b, 'v) State_References.ref option, 'abort) function_contract\<close> where
   [crush_contracts]: \<open>option_as_mut_contract g ref opt \<equiv>
     let pre  = ref \<mapsto>\<langle>\<top>\<rangle> g\<down>opt;
         post = \<lambda>res. ref \<mapsto>\<langle>\<top>\<rangle> g\<down>opt \<star> \<langle>res = 
@@ -155,7 +155,7 @@ lemma option_as_mut_spec [crush_specs]:
   apply (crush_base simp add: option_focus_def split: option.splits)
   done
 
-urust_fn take_mut_ref_option :: \<open>('a, 'b, 'v option) Global_Store.ref \<Rightarrow>
+urust_fn take_mut_ref_option :: \<open>('a, 'b, 'v option) State_References.ref \<Rightarrow>
       ('s, 'v option, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (ptr)
   \<open>
@@ -165,7 +165,7 @@ urust_fn take_mut_ref_option :: \<open>('a, 'b, 'v option) Global_Store.ref \<Ri
   \<close>
 micro_rust_notation (call) take_mut_ref_option ("take")
 
-definition take_mut_ref_option_contract :: \<open>('a, 'b, 'v option) Global_Store.ref \<Rightarrow> 'b \<Rightarrow> 'v option \<Rightarrow>
+definition take_mut_ref_option_contract :: \<open>('a, 'b, 'v option) State_References.ref \<Rightarrow> 'b \<Rightarrow> 'v option \<Rightarrow>
     ('s::{sepalg}, 'v option, 'abort) function_contract\<close> where
   [crush_contracts]: \<open>take_mut_ref_option_contract ptr g v \<equiv>
     let pre = ptr \<mapsto>\<langle>\<top>\<rangle> g\<down>v;

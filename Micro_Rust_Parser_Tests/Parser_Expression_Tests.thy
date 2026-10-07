@@ -274,18 +274,18 @@ urust_expr tuple_let_antiquotation
 section\<open>References and mutable bindings\<close>
 
 definition parser_reference_fixture ::
-  \<open>'v \<Rightarrow> (unit, (unit, unit, 'v) Global_Store.ref, unit, unit, unit) function_body\<close>
+  \<open>'v \<Rightarrow> (unit, (unit, unit, 'v) State_References.ref, unit, unit, unit) function_body\<close>
   where \<open> parser_reference_fixture \<equiv> undefined \<close>
 
 definition parser_dereference_fixture ::
-  \<open>(unit, unit, 'v) Global_Store.ref \<Rightarrow> (unit, 'v, unit, unit, unit) function_body\<close>
+  \<open>(unit, unit, 'v) State_References.ref \<Rightarrow> (unit, 'v, unit, unit, unit) function_body\<close>
   where \<open> parser_dereference_fixture \<equiv> undefined \<close>
 
 definition parser_reference_array_index_fixture ::
   \<open>
-    (unit, unit, ('v, 'l::{len}) array) Global_Store.ref \<Rightarrow>
+    (unit, unit, ('v, 'l::{len}) array) State_References.ref \<Rightarrow>
     'w::{len} word \<Rightarrow>
-    (unit, (unit, unit, 'v) Global_Store.ref, unit, unit, unit) function_body
+    (unit, (unit, unit, 'v) State_References.ref, unit, unit, unit) function_body
   \<close>
   where \<open> parser_reference_array_index_fixture \<equiv> undefined \<close>
 
@@ -296,7 +296,7 @@ subsection\<open>Mutable allocation and binders\<close>
 
 urust_expr mut_scalar ::
   \<open>
-    (unit, (unit, unit, 32 word) Global_Store.ref,
+    (unit, (unit, unit, 32 word) State_References.ref,
      unit, unit, unit, unit) expression
   \<close>
   \<open> let mut x = \<llangle>0 :: 32 word\<rrangle>; x \<close>
@@ -306,7 +306,7 @@ urust_expr mut_capture
 
 urust_expr mut_shadow ::
   \<open>
-    (unit, (unit, unit, 32 word) Global_Store.ref,
+    (unit, (unit, unit, 32 word) State_References.ref,
      unit, unit, unit, unit) expression
   \<close>
   \<open> let x = \<llangle>1 :: 32 word\<rrangle>; let mut x = \<llangle>2 :: 32 word\<rrangle>; x \<close>
@@ -328,10 +328,10 @@ urust_expr mut_borrow_chain
 subsection\<open>Borrow, dereference, and precedence\<close>
 
 context
-  fixes r :: \<open>(unit, unit, 32 word) Global_Store.ref\<close>
-    and rr :: \<open>(unit, unit, (unit, unit, 32 word) Global_Store.ref) Global_Store.ref\<close>
-    and rb :: \<open>(unit, unit, bool) Global_Store.ref\<close>
-    and ropt :: \<open>(unit, unit, 32 word) Global_Store.ref option\<close>
+  fixes r :: \<open>(unit, unit, 32 word) State_References.ref\<close>
+    and rr :: \<open>(unit, unit, (unit, unit, 32 word) State_References.ref) State_References.ref\<close>
+    and rb :: \<open>(unit, unit, bool) State_References.ref\<close>
+    and ropt :: \<open>(unit, unit, 32 word) State_References.ref option\<close>
     and rhs :: \<open>32 word\<close>
 begin
 
@@ -1700,8 +1700,8 @@ micro_rust_notation (call) postfix_to_value ("to_value")
 
 definition postfix_ref_identity ::
     \<open>
-      (unit, unit, postfix_outer) Global_Store.ref \<Rightarrow>
-      (unit, (unit, unit, postfix_outer) Global_Store.ref,
+      (unit, unit, postfix_outer) State_References.ref \<Rightarrow>
+      (unit, (unit, unit, postfix_outer) State_References.ref,
        unit, unit, unit) function_body
     \<close>
   where \<open>postfix_ref_identity \<equiv> lift_fun1 (\<lambda>reference. reference)\<close>
@@ -1729,12 +1729,12 @@ end
 
 adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
 
-context fixes rp :: \<open>(unit, unit, postfix_inner) Global_Store.ref\<close>
+context fixes rp :: \<open>(unit, unit, postfix_inner) State_References.ref\<close>
 begin
 urust_expr ref_deref_field_postfix \<open> *rp.value \<close>
 end
 
-context fixes rp :: \<open>(unit, unit, postfix_outer) Global_Store.ref\<close>
+context fixes rp :: \<open>(unit, unit, postfix_outer) State_References.ref\<close>
 begin
 
 urust_expr deref_grouped_receiver_field_compatibility
@@ -1873,9 +1873,9 @@ adhoc_overloading index_const \<rightleftharpoons> parser_reference_array_index_
 
 context
   fixes array_ref ::
-    \<open>(unit, unit, (32 word, 4) array) Global_Store.ref\<close>
+    \<open>(unit, unit, (32 word, 4) array) State_References.ref\<close>
     and reference_array ::
-      \<open>((unit, unit, 32 word) Global_Store.ref, 4) array\<close>
+      \<open>((unit, unit, 32 word) State_References.ref, 4) array\<close>
 begin
 
 text\<open>
@@ -2077,12 +2077,12 @@ exercises notation lookup and lexical shadowing at assignment targets.
 \<close>
 
 definition parser_update_fixture ::
-  \<open>(unit, unit, 'v) Global_Store.ref \<Rightarrow> 'v \<Rightarrow>
+  \<open>(unit, unit, 'v) State_References.ref \<Rightarrow> 'v \<Rightarrow>
     (unit, unit, unit, unit, unit) function_body\<close>
   where \<open> parser_update_fixture \<equiv> undefined \<close>
 
 definition parser_assign_add_fixture ::
-  \<open>(unit, unit, 'v) Global_Store.ref \<Rightarrow> 'w \<Rightarrow>
+  \<open>(unit, unit, 'v) State_References.ref \<Rightarrow> 'w \<Rightarrow>
     (unit, unit, unit, unit, unit) function_body\<close>
   where \<open> parser_assign_add_fixture \<equiv> undefined \<close>
 
@@ -2091,7 +2091,7 @@ definition assignment_sink ::
   where \<open> assignment_sink \<equiv> lift_fun1 (\<lambda>_. ()) \<close>
 
 definition assignment_shadow_backend ::
-  \<open>(unit, unit, 32 word) Global_Store.ref\<close>
+  \<open>(unit, unit, 32 word) State_References.ref\<close>
   where \<open> assignment_shadow_backend \<equiv> undefined \<close>
 
 micro_rust_notation (literal) assignment_shadow_backend ("assignmentPlace")
@@ -2104,7 +2104,7 @@ adhoc_overloading assign_add_const \<rightleftharpoons> parser_assign_add_fixtur
 subsection\<open>Identifier, grouping, and dereference places\<close>
 
 context
-  fixes r :: \<open>(unit, unit, 32 word) Global_Store.ref\<close>
+  fixes r :: \<open>(unit, unit, 32 word) State_References.ref\<close>
     and rhs other :: \<open>32 word\<close>
 begin
 
@@ -2140,8 +2140,8 @@ urust_expr assign_notation_target \<open> assignmentPlace = \<llangle>7 :: 32 wo
 subsection\<open>Indexed places\<close>
 
 context
-  fixes references :: \<open>(unit, unit, 32 word) Global_Store.ref list\<close>
-    and reference_rows :: \<open>(unit, unit, 32 word) Global_Store.ref list list\<close>
+  fixes references :: \<open>(unit, unit, 32 word) State_References.ref list\<close>
+    and reference_rows :: \<open>(unit, unit, 32 word) State_References.ref list list\<close>
     and offset :: \<open>64 word\<close>
     and row :: \<open>64 word\<close>
     and rhs :: \<open>32 word\<close>
@@ -2166,8 +2166,8 @@ end
 subsection\<open>Associativity and composition\<close>
 
 context
-  fixes outer :: \<open>(unit, unit, unit) Global_Store.ref\<close>
-    and inner :: \<open>(unit, unit, 32 word) Global_Store.ref\<close>
+  fixes outer :: \<open>(unit, unit, unit) State_References.ref\<close>
+    and inner :: \<open>(unit, unit, 32 word) State_References.ref\<close>
     and rhs :: \<open>32 word\<close>
 begin
 
@@ -2176,7 +2176,7 @@ urust_expr assign_right_associative \<open> outer = inner = rhs \<close>
 end
 
 context
-  fixes r :: \<open>(unit, unit, 32 word) Global_Store.ref\<close>
+  fixes r :: \<open>(unit, unit, 32 word) State_References.ref\<close>
     and lhs rhs :: \<open>32 word\<close>
     and flag :: bool
 begin
@@ -2198,7 +2198,7 @@ end
 subsection\<open>Field places\<close>
 
 context
-  fixes rp :: \<open>(unit, unit, postfix_outer) Global_Store.ref\<close>
+  fixes rp :: \<open>(unit, unit, postfix_outer) State_References.ref\<close>
     and field_value :: \<open>64 word\<close>
 begin
 
@@ -2217,7 +2217,7 @@ section\<open>Compound assignment\<close>
 subsection\<open>Supported operators and places\<close>
 
 context
-  fixes r :: \<open>(unit, unit, 32 word) Global_Store.ref\<close>
+  fixes r :: \<open>(unit, unit, 32 word) State_References.ref\<close>
     and rhs other :: \<open>32 word\<close>
 begin
 
@@ -2242,8 +2242,8 @@ urust_expr compound_block_rhs \<open> r ^= { rhs } \<close>
 end
 
 context
-  fixes references :: \<open>(unit, unit, 32 word) Global_Store.ref list\<close>
-    and reference_rows :: \<open>(unit, unit, 32 word) Global_Store.ref list list\<close>
+  fixes references :: \<open>(unit, unit, 32 word) State_References.ref list\<close>
+    and reference_rows :: \<open>(unit, unit, 32 word) State_References.ref list list\<close>
     and offset :: \<open>64 word\<close>
     and row :: \<open>64 word\<close>
     and rhs :: \<open>32 word\<close>
@@ -2269,7 +2269,7 @@ urust_expr compound_nested_index_add
 end
 
 context
-  fixes r :: \<open>(unit, unit, 32 word) Global_Store.ref\<close>
+  fixes r :: \<open>(unit, unit, 32 word) State_References.ref\<close>
     and shift :: \<open>64 word\<close>
 begin
 
@@ -2280,7 +2280,7 @@ urust_expr compound_shift_right \<open> r >>= shift \<close>
 end
 
 context
-  fixes references :: \<open>(unit, unit, 32 word) Global_Store.ref list\<close>
+  fixes references :: \<open>(unit, unit, 32 word) State_References.ref list\<close>
     and offset shift :: \<open>64 word\<close>
 begin
 
@@ -2293,7 +2293,7 @@ urust_expr compound_index_shift_right
 end
 
 context
-  fixes rp :: \<open>(unit, unit, postfix_outer) Global_Store.ref\<close>
+  fixes rp :: \<open>(unit, unit, postfix_outer) State_References.ref\<close>
     and field_value :: \<open>64 word\<close>
 begin
 
@@ -2313,8 +2313,8 @@ urust_expr compound_mutable_local
 end
 
 context
-  fixes outer :: \<open>(unit, unit, unit) Global_Store.ref\<close>
-    and inner :: \<open>(unit, unit, 32 word) Global_Store.ref\<close>
+  fixes outer :: \<open>(unit, unit, unit) State_References.ref\<close>
+    and inner :: \<open>(unit, unit, 32 word) State_References.ref\<close>
     and rhs :: \<open>32 word\<close>
 begin
 
@@ -2327,7 +2327,7 @@ urust_expr compound_right_associative \<open> outer += inner += rhs \<close>
 end
 
 context
-  fixes r :: \<open>(unit, unit, 32 word) Global_Store.ref\<close>
+  fixes r :: \<open>(unit, unit, 32 word) State_References.ref\<close>
     and lhs rhs :: \<open>32 word\<close>
     and flag :: bool
 begin
@@ -2704,7 +2704,7 @@ urust_expr guard_body_let
   \<close>
 
 definition guard_body_reference_fixture ::
-  \<open>'v \<Rightarrow> (unit, (unit, unit, 'v) Global_Store.ref, unit, unit, unit) function_body\<close>
+  \<open>'v \<Rightarrow> (unit, (unit, unit, 'v) State_References.ref, unit, unit, unit) function_body\<close>
   where \<open> guard_body_reference_fixture \<equiv> undefined \<close>
 
 adhoc_overloading store_reference_const \<rightleftharpoons> guard_body_reference_fixture
@@ -4355,7 +4355,7 @@ urust_expr macro_vec_index_chain
   \<open> vec![vec![10_u32, 20_u32]][0_usize][1_usize] \<close>
 
 context
-  fixes macro_ref :: \<open>('a, 'b, 'v) Global_Store.ref\<close>
+  fixes macro_ref :: \<open>('a, 'b, 'v) State_References.ref\<close>
 begin
 
 urust_expr macro_addr_of
@@ -4647,7 +4647,7 @@ adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereferenc
 
 context
   fixes cast_word :: \<open>32 word\<close>
-    and cast_ref :: \<open>(unit, unit, 32 word) Global_Store.ref\<close>
+    and cast_ref :: \<open>(unit, unit, 32 word) State_References.ref\<close>
 begin
 
 urust_expr cast_chain_two
@@ -5234,7 +5234,7 @@ urust_expr d21_initializer_range
   \<open> D21One { value: 0_usize..=2_usize } \<close>
 
 context
-  fixes d21_slot :: \<open>(unit, unit, 64 word) Global_Store.ref\<close>
+  fixes d21_slot :: \<open>(unit, unit, 64 word) State_References.ref\<close>
 begin
 
 adhoc_overloading store_update_const \<rightleftharpoons> parser_update_fixture
@@ -5393,7 +5393,7 @@ urust_expr d21_placement_cast_operand
   \<open> D21One { value: 1_u32 } as u64 \<close>
 
 context
-  fixes d21_slot :: \<open>(unit, unit, 64 word) Global_Store.ref\<close>
+  fixes d21_slot :: \<open>(unit, unit, 64 word) State_References.ref\<close>
 begin
 
 adhoc_overloading store_update_const \<rightleftharpoons> parser_update_fixture
@@ -5691,7 +5691,7 @@ urust_expr yield_control_head
   \<close>
 
 context
-  fixes yield_slot :: \<open>(unit, unit, unit) Global_Store.ref\<close>
+  fixes yield_slot :: \<open>(unit, unit, unit) State_References.ref\<close>
 begin
 
 urust_expr yield_assignment_rhs
@@ -5804,7 +5804,7 @@ urust_expr primitive_log_control_head
   \<close>
 
 context
-  fixes primitive_log_slot :: \<open>(unit, unit, unit) Global_Store.ref\<close>
+  fixes primitive_log_slot :: \<open>(unit, unit, unit) State_References.ref\<close>
 begin
 
 urust_expr primitive_log_assignment_rhs

@@ -64,8 +64,9 @@ differing token index.
 \<open>urust_pretty\<close> defaults to false. Its common Boolean inline alias is \<open>pretty\<close>. At verbosity
 level 1, both settings print only a compact declaration heading followed by \<open>...\<close>. At level 2,
 false retains the ordinary HOL rendering of generated definitions, abbreviations, and anonymous
-results; true instead prints the same declaration heading and left-hand side with the right-hand side
-rendered as human-readable uRust inside a symbolic \<open>\<mu>\<open>...\<close>\<close> wrapper. The wrapper is
+results; true instead prints the complete declaration with the right-hand side rendered as
+human-readable uRust inside a symbolic
+\<open>\<mu>\<open>...\<close>\<close> wrapper. The wrapper is
 presentation only and is unrelated to source quotation syntax. At verbosity 0 no result is printed;
 an effective \<open>pretty = true\<close> receives a warning because it has no effect.
 Named \<open>urust_fn\<close> parameters appear on the left of \<open>\<equiv>\<close>; Rust-shaped function items print
@@ -154,7 +155,7 @@ end
 structure URust_Command :> URUST_COMMAND =
 struct
 datatype elaboration_kind = Expression | Function
-structure Navigation = Micro_Rust_Semantic_Navigation
+structure Navigation = Shallow_Computation_Semantic_Navigation
 
 val urust_pp_test =
   Attrib.setup_config_bool \<^binding>\<open>urust_pp_test\<close> (K false)

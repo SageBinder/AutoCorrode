@@ -1,0 +1,7 @@
+functions:
+  keep_add
+  poly_get0
+
+# Keep type selection non-matching: poly_t was installed by phase 1.
+types:
+  __smoke_no_types__

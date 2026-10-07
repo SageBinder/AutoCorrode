@@ -1,0 +1,16 @@
+session Shallow_State = HOL +
+  options [document = false]
+  sessions
+    "HOL-Library"
+    Lenses_And_Other_Optics
+    Misc
+    Shallow_Computation
+    "Word_Lib"
+  theories [document = false]
+    State_References
+    Reference_Interface
+    Global_Store
+    Aligned_Blocks
+    Byte_Trie
+    Raw_Memory
+    Shallow_State

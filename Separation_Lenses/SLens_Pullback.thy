@@ -3,7 +3,7 @@
 
 theory SLens_Pullback
   imports
-    Shallow_Separation_Logic.Assertion_Language 
+    Shallow_State_Logic.Assertion_Language
     Shallow_Separation_Logic.Weak_Triple
     Shallow_Micro_Rust.Shallow_Micro_Rust
     Shallow_Separation_Logic.Triple
@@ -60,8 +60,14 @@ lemma pull_back_striple_context_yield_handler:
   by (transfer, simp)
 
 lemma pull_back_striple_context_no_yield[simp]:
-  shows \<open>pull_back_striple_context striple_context_no_yield = striple_context_no_yield\<close>
-  by (transfer, simp add: lens_valid striple_context_raw_no_yield_def)
+  shows \<open>pull_back_striple_context
+      (striple_context_no_yield ::
+        ('t, 'abort, 'i prompt, 'o prompt_output) striple_context) =
+      (striple_context_no_yield ::
+        ('s, 'abort, 'i prompt, 'o prompt_output) striple_context)\<close>
+  by (transfer, simp add: lens_valid striple_context_raw_no_yield_def
+      canonical_pull_back_yield_handler_def striple_yield_handler_no_yield_def
+      lift_yield_result_def fun_eq_iff lens_laws_update(2))
 
 end
 
@@ -348,8 +354,8 @@ next
 qed
 
 lemma pull_back_local_urust:
-  assumes \<open>urust_is_local y e \<phi>\<close>
-    shows \<open>urust_is_local (l\<inverse> y) (l\<inverse> e) (l\<inverse> \<phi>)\<close>
+  assumes \<open>expression_is_local y e \<phi>\<close>
+    shows \<open>expression_is_local (l\<inverse> y) (l\<inverse> e) (l\<inverse> \<phi>)\<close>
   using assms
   by (clarsimp simp add: pull_back_relation_def
     expression_pull_back_eval_value_canonical[OF lens_valid]
@@ -379,6 +385,7 @@ proof -
 qed
 
 lemma pull_back_sstriple_universal_bot[slens_pull_back_intros]:
+  fixes e :: \<open>('t, 'v, 'r, 'abort, 'i prompt, 'o prompt_output) expression\<close>
   assumes \<open>\<And>\<Gamma>. \<Gamma>; \<phi> \<turnstile> e \<stileturn> \<psi> \<bowtie> \<xi> \<bowtie> \<bottom>\<close>
   shows \<open>\<And>\<Gamma>. \<Gamma>; l\<inverse> \<phi> \<turnstile> l\<inverse> e \<stileturn> (\<lambda>v. l\<inverse> (\<psi> v)) \<bowtie> (\<lambda>r. l\<inverse> (\<xi> r)) \<bowtie> \<bottom>\<close>
 proof -
@@ -396,7 +403,8 @@ lemma pull_back_spec[slens_pull_back_intros]:
   assumes \<open>\<Gamma> ; f \<Turnstile>\<^sub>F \<CC>\<close>
   shows \<open>l\<inverse> \<Gamma>; l\<inverse> f \<Turnstile>\<^sub>F l\<inverse> \<CC>\<close>
   using assms unfolding satisfies_function_contract_def pull_back_contract_def
-  by (clarsimp simp add: pull_back_ucincl function_pull_back_def pull_back_sstriple)
+  by (clarsimp simp add: pull_back_ucincl function_pull_back_def
+      intro!: pull_back_sstriple)
 
 lemma pull_back_spec_universal:
   assumes \<open>\<And>\<Gamma>. \<Gamma>; f \<Turnstile>\<^sub>F \<CC>\<close>

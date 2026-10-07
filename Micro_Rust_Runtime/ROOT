@@ -5,6 +5,7 @@ session Micro_Rust_Runtime = HOL +
     "HOL-Library"
     Micro_Rust_Parser_Impl
     Shallow_Micro_Rust
+    Shallow_Micro_Rust_Logic
     Separation_Lenses
     Shallow_Separation_Logic
     Micro_Rust_Interfaces

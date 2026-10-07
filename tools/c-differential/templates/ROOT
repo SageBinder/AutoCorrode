@@ -1,0 +1,5 @@
+session AutoCorrode_C_Differential_Positive = Micro_C_Parsing_Frontend +
+  options [document = false]
+  theories
+    Differential_Observations
+    Differential_Failures

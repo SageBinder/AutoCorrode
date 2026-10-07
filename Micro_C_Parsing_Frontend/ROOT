@@ -1,10 +1,27 @@
 session Micro_C_Parsing_Frontend = HOL +
-  options [document = false]
+  options [document = pdf, document_output = "output"]
   sessions
+    "HOL-Eisbach"
+    "HOL-Library"
+    Frontend_Common
     Micro_C_Isabelle_C_Adapter
+    Shallow_Computation
     Shallow_Micro_C
-  theories [document = false]
-    C_Elaboration
-    C_Lowering
-    C_Translation
-    Micro_C_Parsing_Frontend
+  theories
+    C_ABI_And_Compiler
+    C_Ast_Utilities
+    C_Translation_Engine
+    C_Definition_Generation
+    C_To_Core_Translation
+  theories [document=false]
+    C_Parser_Smoke
+    C_Translation_Smoke_Core
+    C_Translation_Smoke_Control
+    C_Translation_Smoke_Memory
+    C_Translation_Smoke_Types
+    C_Translation_Smoke_ILP32
+    C_Translation_Smoke_Compiler
+    C_Translation_Smoke_Options
+    C_Translation_Smoke_Advanced
+    C_File_Load_Smoke
+    C_Command_Contract_Smoke

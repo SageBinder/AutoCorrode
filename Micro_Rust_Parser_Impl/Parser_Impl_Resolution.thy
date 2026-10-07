@@ -288,7 +288,7 @@ struct
   val fresh_typed_local =
     Parser_Utils.fresh_typed_var variable_entity_kind
   val reference_type_name =
-    (case \<^typ>\<open>('a, 'b, 'v) Global_Store.ref\<close> of
+    (case \<^typ>\<open>('a, 'b, 'v) State_References.ref\<close> of
        Type (type_name, _) => type_name
      | _ =>
          error

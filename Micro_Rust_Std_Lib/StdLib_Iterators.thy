@@ -59,7 +59,7 @@ context reference
 begin
 
 urust_fn iter_mut ::
-  \<open>('a, 'b, 'v list) Global_Store.ref \<Rightarrow> ('s, ('s, ('a, 'b, 'v) Global_Store.ref, 'abort, 'i prompt, 'o prompt_output) iterator, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
+  \<open>('a, 'b, 'v list) State_References.ref \<Rightarrow> ('s, ('s, ('a, 'b, 'v) State_References.ref, 'abort, 'i prompt, 'o prompt_output) iterator, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
   (ref)
   \<open>
     let xs = *ref;
@@ -84,7 +84,7 @@ end
 
 
 definition iterator_find_contract :: \<open>'a list \<Rightarrow> ('a \<Rightarrow> bool) \<Rightarrow>
-  ('machine::sepalg, 'abort, 'i, 'o) striple_context \<Rightarrow>
+  ('machine::sepalg, 'abort, 'i prompt, 'o prompt_output) striple_context \<Rightarrow>
   ('a \<Rightarrow> ('machine, bool, 'abort, 'i prompt, 'o prompt_output) function_body) \<Rightarrow>
   ('machine, 'a option, 'abort) function_contract\<close> where
   \<open>iterator_find_contract vs pred_pure \<Gamma> pred_rust \<equiv>

@@ -2,7 +2,11 @@
    SPDX-License-Identifier: MIT *)
 
 theory Shallow_Micro_C
-  imports C_Scalar_Profile
+  imports
+    C_Abort_Rules
+    C_Arithmetic_Rules
+    C_Byte_Encoding
+    C_Translation_Model
 begin
 
 end

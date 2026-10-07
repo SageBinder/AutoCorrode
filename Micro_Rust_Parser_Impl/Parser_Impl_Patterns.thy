@@ -142,7 +142,7 @@ struct
   open URust_AST
   structure T = URust_Shallow_Terms
   structure R = URust_Resolution
-  structure Navigation = Micro_Rust_Semantic_Navigation
+  structure Navigation = Shallow_Computation_Semantic_Navigation
 
   datatype case_compilation_mode =
       Ordinary_Case_Compilation

@@ -3,7 +3,9 @@
 
 (*<*)
 theory Prompts_And_Responses
-  imports Core_Expression_Profile
+  imports
+    Core_Expression_Profile
+    Shallow_Computation.Nondeterministic_Choice
 begin
 (*>*)
 
@@ -52,6 +54,41 @@ datatype 'a prompt_output
     \<comment> \<open>Something entirely domain specific specified later\<close>
   | DomainSpecificResponse \<open>'a\<close>
 
+subsection\<open>Nondeterministic-choice profile\<close>
+
+text\<open>
+The Micro Rust prompt and response families instantiate the language-neutral choice
+interfaces.  Thus unspecified evaluation order uses the shared computation combinators
+while retaining the existing Micro Rust prompt protocol.
+\<close>
+
+instantiation prompt :: (type) nondeterministic_prompt
+begin
+
+definition nondeterministic_choice_prompt_prompt :: \<open>'a prompt\<close> where [simp]:
+  \<open>nondeterministic_choice_prompt_prompt = NondetOrder\<close>
+
+instance ..
+
+end
+
+instantiation prompt_output :: (type) nondeterministic_response
+begin
+
+definition nondeterministic_left_response_prompt_output :: \<open>'a prompt_output\<close> where [simp]:
+  \<open>nondeterministic_left_response_prompt_output = NondetLeft\<close>
+
+definition nondeterministic_right_response_prompt_output :: \<open>'a prompt_output\<close> where [simp]:
+  \<open>nondeterministic_right_response_prompt_output = NondetRight\<close>
+
+instance
+  by standard simp
+
+end
+
+declare nondet_choice_def[micro_rust_simps]
+declare bind2_unseq_def[micro_rust_simps]
+
 subsection\<open>Calling primitive prompts from Micro Rust\<close>
 
 text\<open>The following is a yield to the external environment for informational purposes. The value
@@ -72,26 +109,6 @@ text\<open>The \<^verbatim>\<open>log\<close> construct grants us access to the 
 definition log :: \<open>log_priority \<Rightarrow> log_data \<Rightarrow> ('s, unit, 'r, 'abort, 'i prompt, 'o prompt_output) expression\<close> where
   \<open>log p d \<equiv> Expression (\<lambda>\<sigma>. Yield (Log p d) \<sigma> (\<lambda>_. skip))\<close>
 
-text\<open>Internal nondeterministic branch choice. The branch is selected by the yield handler via
-\<^term>\<open>NondetLeft\<close> or \<^term>\<open>NondetRight\<close>.\<close>
-definition nondet_choice ::
-  \<open>('s, 'v, 'r, 'abort, 'i prompt, 'o prompt_output) expression \<Rightarrow>
-   ('s, 'v, 'r, 'abort, 'i prompt, 'o prompt_output) expression \<Rightarrow>
-   ('s, 'v, 'r, 'abort, 'i prompt, 'o prompt_output) expression\<close> where [micro_rust_simps]:
-  \<open>nondet_choice l r \<equiv>
-     bind (yield NondetOrder) (\<lambda>resp.
-       if resp = NondetLeft then l else r)\<close>
-
-definition bind2_unseq
-   :: \<open>('arg0 \<Rightarrow> 'arg1 \<Rightarrow> ('s, 'v, 'c, 'abort, 'i prompt, 'o prompt_output) expression) \<Rightarrow>
-      ('s, 'arg0, 'c, 'abort, 'i prompt, 'o prompt_output) expression \<Rightarrow>
-      ('s, 'arg1, 'c, 'abort, 'i prompt, 'o prompt_output) expression \<Rightarrow>
-      ('s, 'v, 'c, 'abort, 'i prompt, 'o prompt_output) expression\<close> where [micro_rust_simps]:
-   \<open>bind2_unseq f e0 e1 \<equiv>
-      nondet_choice
-        (bind e0 (\<lambda>v0. bind e1 (\<lambda>v1. f v0 v1)))
-        (bind e1 (\<lambda>v1. bind e0 (\<lambda>v0. f v0 v1)))\<close>
-
 subsection\<open>Some properties of specialized yield-handlers\<close>
 
 text\<open>A \<^emph>\<open>log-transparent\<close> yield handler ignores \<^term>\<open>Pause\<close> and \<^term>\<open>Log\<close> prompts.\<close>
@@ -110,11 +127,6 @@ by (auto simp add: is_log_prompt_def)
 
 definition is_log_transparent_yield_handler :: \<open>('s, 'abort, 'i prompt, 'o prompt_output) yield_handler_nondet_basic \<Rightarrow> bool\<close> where
   \<open>is_log_transparent_yield_handler y \<equiv> \<forall>\<sigma> \<pi>. is_log_prompt \<pi> \<longrightarrow> y \<pi> \<sigma> = { YieldContinue (Ack, \<sigma>) }\<close>
-
-definition is_nondet_order_yield_handler ::
-  \<open>('s, 'abort, 'i prompt, 'o prompt_output) yield_handler_nondet_basic \<Rightarrow> bool\<close> where
-  \<open>is_nondet_order_yield_handler y \<equiv>
-     \<forall>\<sigma>. y NondetOrder \<sigma> = {YieldContinue (NondetLeft, \<sigma>), YieldContinue (NondetRight, \<sigma>)}\<close>
 
 text\<open>Once we encounter functions throwing \<^verbatim>\<open>FatalError\<close> that we don't control, we will need to further
 impose the condition that a yield handler does not continue afterwards:\<close>

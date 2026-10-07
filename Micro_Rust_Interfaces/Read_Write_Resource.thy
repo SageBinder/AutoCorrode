@@ -3,7 +3,7 @@
 
 theory Read_Write_Resource
   imports Crush.Crush
-    Shallow_Separation_Logic.Assertion_Language
+    Shallow_State_Logic.Assertion_Language
 begin
 
 section\<open>Random-access resources\<close>

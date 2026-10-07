@@ -7,7 +7,7 @@
 theory Tutorial_SLWorked
   imports
     Tutorial_HoareSetup
-    Shallow_Separation_Logic.Assertion_Language
+    Shallow_State_Logic.Assertion_Language
 begin
 
 slide \<open>The frame problem, recap\<close>
@@ -38,7 +38,7 @@ text \<open>The notion of ``state with disjointness'' is captured by a
   a \<^bold>\<open>disjointness predicate\<close> \<open>\<sharp>\<close>, and the ability to \<^bold>\<open>join disjoint
   pieces\<close> \<open>+\<close>. AutoCorrode encodes this as a typeclass and provides
   several models. Verbatim, from
-  \<open>Shallow_Separation_Logic.Separation_Algebra\<close>:\<close>
+  \<open>Shallow_State_Logic.Separation_Algebra\<close>:\<close>
 
 text_raw \<open>%
 \begingroup

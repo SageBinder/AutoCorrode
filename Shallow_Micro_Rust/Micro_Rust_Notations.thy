@@ -829,7 +829,7 @@ fun emit_notation_entries_at_pos
   else
     app
         (fn ({serial, reg_pos, ...} : Micro_Rust_Names.entry) =>
-          Micro_Rust_Semantic_Navigation.defer_report ctxt pos
+          Shallow_Computation_Semantic_Navigation.defer_report ctxt pos
             (Position.make_entity_markup {def = false} serial
               Micro_Rust_Names.notationN (name, reg_pos)))
         entries;
@@ -928,7 +928,7 @@ fun emit_backend_markup_at_pos ctxt kind name pos =
             if had_named_head then [Markup.keyword3] else []
         in
           app
-            (Micro_Rust_Semantic_Navigation.defer_report ctxt pos)
+            (Shallow_Computation_Semantic_Navigation.defer_report ctxt pos)
             (constant_markup @ style_markup)
         end
     in
@@ -946,7 +946,7 @@ fun emit_selected_backend_target_at_pos ctxt
     (case backend_identity_constant ctxt entry of
        SOME c =>
          List.app
-           (Micro_Rust_Semantic_Navigation.defer_report ctxt pos)
+           (Shallow_Computation_Semantic_Navigation.defer_report ctxt pos)
            [Name_Space.markup
               (Consts.space_of (Proof_Context.consts_of ctxt)) c,
             Markup.const]

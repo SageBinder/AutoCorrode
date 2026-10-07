@@ -8,7 +8,7 @@ begin
 
 section\<open>Adequacy\<close>
 text\<open>This session shows that we can derive properties on programs from proofs in our program logic.
-In other words: 
+In other words:
 \begin{itemize*}
 \item
 from a Hoare triple/weakest precondition entailment/function contract on a program \<^term>\<open>e\<close>
@@ -34,21 +34,21 @@ lemma atriple_rel_eval_value_adequacy:
       and \<open>\<sigma> \<Turnstile> \<xi>\<close>
       and \<open>continuation.Success v \<sigma>' \<in> deep_evaluates_nondet_basic Y e \<sigma>\<close>
     shows \<open>\<sigma>' \<Turnstile> \<phi> v \<star> \<top>\<close>
-  using assms by (auto simp add: atriple_rel_def eval_value_def urust_eval_predicate_defs)
+  using assms by (auto simp add: atriple_rel_def eval_value_def shallow_computation_eval_predicate_defs)
 
 lemma atriple_rel_eval_return_adequacy:
   assumes \<open>\<xi> \<turnstile> eval_return Y e \<stileturn>\<^sub>R \<phi>\<close>
       and \<open>\<sigma> \<Turnstile> \<xi>\<close>
       and \<open>continuation.Return v \<sigma>' \<in> deep_evaluates_nondet_basic Y e \<sigma>\<close>
     shows \<open>\<sigma>' \<Turnstile> \<phi> v \<star> \<top>\<close>
-  using assms by (auto simp add: atriple_rel_def eval_return_def urust_eval_predicate_defs)
+  using assms by (auto simp add: atriple_rel_def eval_return_def shallow_computation_eval_predicate_defs)
 
 lemma atriple_rel_eval_abort_adequacy:
   assumes \<open>\<xi> \<turnstile> eval_abort Y e \<stileturn>\<^sub>R \<phi>\<close>
       and \<open>\<sigma> \<Turnstile> \<xi>\<close>
       and \<open>continuation.Abort a \<sigma>' \<in> deep_evaluates_nondet_basic Y e \<sigma>\<close>
     shows \<open>\<sigma>' \<Turnstile> \<phi> a \<star> \<top>\<close>
-  using assms by (auto simp add: atriple_rel_def eval_abort_def urust_eval_predicate_defs)
+  using assms by (auto simp add: atriple_rel_def eval_abort_def shallow_computation_eval_predicate_defs)
 
 subsection\<open>Main adequacy results\<close>
 lemma sstriple_adequacy:
@@ -123,7 +123,7 @@ derive the contract from the program.
 Finally, these results show that results in our program logic are not vacuously true.\<close>
 
 subsection\<open>Program logic connectives from evaluation\<close>
-text\<open>Note that all these results require \<^term>\<open>urust_is_local\<close>, which essentially states that
+text\<open>Note that all these results require \<^term>\<open>expression_is_local\<close>, which essentially states that
 program evaluation on (part of) a machine cannot change that machine outside of its footprint,
 nor can elements outside of the footprint influence the behavior of the program. We include ways
 to derive this property for simple programs later.\<close>
@@ -135,10 +135,10 @@ lemma sstriple_from_evaluation:
           | continuation.Return v \<sigma>' \<Rightarrow> \<sigma>' \<Turnstile> \<rho> v \<star> \<top>
           | continuation.Abort a \<sigma>' \<Rightarrow> \<sigma>' \<Turnstile> \<theta> a \<star> \<top>
           | continuation.Yield _ _ _ \<Rightarrow> False\<close>
-      and \<open>urust_is_local (yh \<Gamma>) e \<xi>\<close>
+      and \<open>expression_is_local (yh \<Gamma>) e \<xi>\<close>
     shows \<open>\<Gamma> ; \<xi> \<turnstile> e \<stileturn> \<phi> \<bowtie> \<rho> \<bowtie> \<theta>\<close>
   using assms
-  by (force simp add: deep_evaluates_nondet_basic.simps urust_eval_predicate_defs
+  by (force simp add: deep_evaluates_nondet_basic.simps shallow_computation_eval_predicate_defs
                       eval_value_def eval_return_def eval_abort_def sstriple_def atriple_rel_def
                split: continuation.splits)
 
@@ -148,7 +148,7 @@ lemma wp_from_evaluation:
           | continuation.Return v \<sigma>' \<Rightarrow> \<sigma>' \<Turnstile> \<rho> v \<star> \<top>
           | continuation.Abort a \<sigma>' \<Rightarrow> \<sigma>' \<Turnstile> \<theta> a \<star> \<top>
           | continuation.Yield _ _ _ \<Rightarrow> False\<close>
-      and \<open>urust_is_local (yh \<Gamma>) e \<xi>\<close>
+      and \<open>expression_is_local (yh \<Gamma>) e \<xi>\<close>
     shows \<open>\<xi> \<longlongrightarrow> \<W>\<P> \<Gamma> e \<phi> \<rho> \<theta>\<close>
   using assms by (auto intro: wp_is_weakest_precondition sstriple_from_evaluation)
 
@@ -158,7 +158,7 @@ lemma contract_from_evaluation:
           | continuation.Return v \<sigma>' \<Rightarrow> \<sigma>' \<Turnstile> function_contract_post contract v
           | continuation.Abort a \<sigma>' \<Rightarrow> \<sigma>' \<Turnstile> function_contract_abort contract a
           | continuation.Yield _ _ _ \<Rightarrow> False\<close>
-      and \<open>urust_is_local (yh \<Gamma>) (function_body func) (function_contract_pre contract)\<close>
+      and \<open>expression_is_local (yh \<Gamma>) (function_body func) (function_contract_pre contract)\<close>
       and \<open>ucincl (function_contract_pre contract)\<close>
       and \<open>\<forall> v. ucincl (function_contract_post contract v)\<close>
       and \<open>\<forall> v. ucincl (function_contract_abort contract v)\<close>
@@ -168,19 +168,19 @@ lemma contract_from_evaluation:
       dest!: assms(1) split: continuation.splits)
 
 subsection\<open>Evaluating pure functions\<close>
-text\<open>To start off, some technical results showing that \<^term>\<open>urust_is_local\<close> holds if evaluating
+text\<open>To start off, some technical results showing that \<^term>\<open>expression_is_local\<close> holds if evaluating
 an expression always results in Success/Return with the same machine, independent of the machine.\<close>
 lemma success_independent_of_machine_then_local:
   assumes \<open>\<And> m. evaluate e m = continuation.Success v m\<close>
-    shows \<open>urust_is_local \<Gamma> e \<phi>\<close>
+    shows \<open>expression_is_local \<Gamma> e \<phi>\<close>
   using assms
-  by (simp add: is_local_def urust_eval_predicate_defs deep_evaluates_nondet_basic.simps)
+  by (simp add: is_local_def shallow_computation_eval_predicate_defs deep_evaluates_nondet_basic.simps)
 
 lemma return_independent_of_machine_then_local:
   assumes \<open>\<And> m. evaluate e m = continuation.Return v m\<close>
-    shows \<open>urust_is_local \<Gamma> e \<phi>\<close>
+    shows \<open>expression_is_local \<Gamma> e \<phi>\<close>
   using assms
-  by (simp add: is_local_def urust_eval_predicate_defs deep_evaluates_nondet_basic.simps)
+  by (simp add: is_local_def shallow_computation_eval_predicate_defs deep_evaluates_nondet_basic.simps)
 
 text\<open>Now, we can derive quite simple lemmas to derive \<^term>\<open>\<W>\<P>\<close> of pure expressions, or function
 contracts for such expressions\<close>

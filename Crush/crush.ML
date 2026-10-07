@@ -90,7 +90,7 @@ sig
   val crush_branch_clarsimp_tac : Proof.context -> int -> tactic
   val crush_branch_clarsimp_fallback_tac : Proof.context -> int -> tactic
   val crush_branch_filtered_clarsimp_tac : Proof.context -> int -> tactic
-  val crush_branch_urust_simps_tac : Proof.context -> int -> tactic
+  val crush_branch_expression_simps_tac : Proof.context -> int -> tactic
   val crush_branch_misc_tac : Proof.context -> int -> tactic
   val crush_branch_ucincl_tac : Proof.context -> int -> tactic
   val crush_branch_additional_tactic : Proof.context -> int -> tactic
@@ -117,7 +117,7 @@ struct
                            |> Splitter.del_split @{thm if_split}
                            |> simpset_of
 
-  structure URustContractSimps = Generic_Data
+  structure ContractSimps = Generic_Data
   (
     type T = simpset;
     val empty = crush_base_simpset
@@ -128,13 +128,13 @@ struct
     fn ctxt => ctxt |> (
        curry ((op addsimps) o swap) cs
     |> simpset_map (Context.proof_of ctxt)
-    |> URustContractSimps.map)
+    |> ContractSimps.map)
 
   fun unregister_contracts (cs : thm list) : Context.generic -> Context.generic =
     fn ctxt => ctxt |> (
        curry ((op delsimps) o swap) cs
     |> simpset_map (Context.proof_of ctxt)
-    |> URustContractSimps.map)
+    |> ContractSimps.map)
 
   fun crush_register_contract_attrib (del : bool) = Thm.declaration_attribute (fn t => fn ctxt =>
     let val t' = rewrite_rule (Context.proof_of ctxt) [@{thm Let_def}] t in ctxt |> (
@@ -150,19 +150,19 @@ struct
     end
   )
 
-  val get_urust_contract_simpset = Context.Proof #> URustContractSimps.get
+  val get_contract_simpset = Context.Proof #> ContractSimps.get
 
   val crush_register_wp_split_attrib = Thm.declaration_attribute (fn t => fn ctxt =>
     let val t' = Separation_Logic_Tactics.specialize_split_rule_to_wp_single
                    (Context.proof_of ctxt) t
     in ctxt |> Named_Theorems.add_thm @{named_theorems "crush_wp_split_simps"} t'
     end
-  )  
+  )
 
   val crush_base_unfold_contract_tac : Proof.context -> int -> tactic = fn ctxt =>
     let
       val congs = Named_Theorems.get ctxt @{named_theorems "crush_cong"}
-      val  contract_ctxt = ctxt |> put_simpset (get_urust_contract_simpset ctxt)
+      val contract_ctxt = ctxt |> put_simpset (get_contract_simpset ctxt)
         |> fold Simplifier.add_cong congs
     in
       CHANGED_PROP o safe_simp_tac contract_ctxt
@@ -170,7 +170,7 @@ struct
 
   val crush_branch_base_simps_early_unfold : Proof.context -> int -> tactic = fn ctxt =>
     let val early_simps = Named_Theorems.get ctxt @{named_theorems crush_early_simps}
-      val congs = Named_Theorems.get ctxt @{named_theorems "crush_cong"}      
+      val congs = Named_Theorems.get ctxt @{named_theorems "crush_cong"}
     in
       if Config.get ctxt Crush_Config.enable_base_simps_early_unfold then
         safe_unfold_tac' ctxt congs early_simps
@@ -204,7 +204,7 @@ struct
     end
 
   val crush_branch_wp_intros_tac_core : Proof.context -> int -> tactic = fn ctxt =>
-    let val wp_intros = Named_Theorems.get ctxt @{named_theorems micro_rust_wp_intros}
+    let val wp_intros = Named_Theorems.get ctxt @{named_theorems separation_logic_wp_intros}
     in
       intro_tac wp_intros ctxt
     end
@@ -214,7 +214,7 @@ struct
       (crush_branch_wp_intros_tac_core ctxt)
 
   val crush_branch_determine_branch : Proof.context -> int -> tactic = fn ctxt =>
-    if Config.get ctxt Crush_Config.enable_urust_determine_branch then
+    if Config.get ctxt Crush_Config.enable_wp_determine_branch then
       let val max_facts = Config.get ctxt Crush_Config.relevance_filter_max_facts in
         (* Use back-tracking to pick the right branch *)
         resolve_tac ctxt @{thms wp_two_armed_conditional_thenI wp_two_armed_conditional_elseI}
@@ -224,12 +224,12 @@ struct
       K no_tac
 
   val crush_branch_wp_case_split_tac_core : Proof.context -> int -> tactic = fn ctxt =>
-    if not (Config.get ctxt Crush_Config.enable_urust_split_branch) then K no_tac else
-    let val wp_split_intros = Named_Theorems.get ctxt @{named_theorems micro_rust_wp_case_splits}
+    if not (Config.get ctxt Crush_Config.enable_wp_split_branch) then K no_tac else
+    let val wp_split_intros = Named_Theorems.get ctxt @{named_theorems separation_logic_wp_case_splits}
       val wp_split_simps = Named_Theorems.get ctxt @{named_theorems crush_wp_split_simps}
         |> force_meta_eqs
     in
-      intro_tac wp_split_intros ctxt ORELSE' 
+      intro_tac wp_split_intros ctxt ORELSE'
       CONVERSION (Conv.params_conv ~1 (fn _ => (Conv.concl_conv ~1 (prop_conv (Conv.rewrs_conv wp_split_simps)))) ctxt)
     end
 
@@ -237,9 +237,11 @@ struct
     IF' Separation_Logic_Tactics.is_wp_entailment
       (crush_branch_wp_case_split_tac_core ctxt)
 
-  val crush_branch_urust_simps_tac : Proof.context -> int -> tactic = fn ctxt =>
+  val crush_branch_expression_simps_tac : Proof.context -> int -> tactic = fn ctxt =>
     let val congs = Named_Theorems.get ctxt @{named_theorems "crush_cong"}
-      val urust_simps = Named_Theorems.get ctxt @{named_theorems "micro_rust_simps"}
+      val urust_simps =
+        Named_Theorems.get ctxt @{named_theorems "shallow_computation_simps"} @
+        Named_Theorems.get ctxt @{named_theorems "micro_rust_simps"}
     in
       safe_simp_no_asm_only_tac' ctxt congs urust_simps
     end
@@ -359,7 +361,7 @@ struct
     IF' Separation_Logic_Tactics.is_entailment (Separation_Logic_Tactics.aentails_cancel_tac ctxt)
 
   fun crush_branch_schematics_tac (ctxt: Proof.context) (unfold_contract_tac: int -> tactic) : int -> tactic =
-    let val ex_intros = intro_tac (Named_Theorems.get ctxt @{named_theorems micro_rust_wp_ex_intros}) ctxt
+    let val ex_intros = intro_tac (Named_Theorems.get ctxt @{named_theorems separation_logic_wp_ex_intros}) ctxt
     val ex_specs = crush_branch_call_tac ctxt true unfold_contract_tac
     val aexists_entailsR = intro_tac @{thms aexists_entailsR} ctxt
     in
@@ -429,11 +431,11 @@ struct
     val focus_rules = Named_Theorems.get ctxt @{named_theorems focus_rules}
     val focus_elims  = Named_Theorems.get ctxt @{named_theorems focus_elims}
     val focus_elims2  = Named_Theorems.get ctxt @{named_theorems focus_elims2}
-    in 
+    in
          ((REPEAT_ALL_NEW (intro_tac (focus_rules @ focus_intros) ctxt))
              THEN_ALL_NEW (TRY o REPEAT_ALL_NEW (update_guards_tac ctxt THEN' (
-                 assm_tac ctxt ORELSE' 
-                 crush_branch_base_simps_tac ctxt ORELSE' 
+                 assm_tac ctxt ORELSE'
+                 crush_branch_base_simps_tac ctxt ORELSE'
                  crush_branch_clarsimp_tac ctxt))))
          ORELSE' elim_tac  focus_elims  ctxt
          ORELSE' (eresolve_tac ctxt focus_elims2 THEN' assm_tac ctxt)
@@ -443,7 +445,7 @@ struct
 
   val crush_branch_clarsimp_fallback_tac = fn ctxt =>
    let fun log_before_after old_goal new_goal_opt =
-      (let val old_txt = 
+      (let val old_txt =
              [Pretty.str "Needed to apply full-blown clarsimp to progress the following pure goal:", Pretty.brk 1,
               Syntax.pretty_term ctxt old_goal, Pretty.fbrk] in
        if Config.get ctxt Crush_Config.enable_branch_clarsimp_stop_at_success then
@@ -451,14 +453,14 @@ struct
           |> Pretty.block |> Pretty.string_of |> Output.warning);
           raise SMART "Stopping after successful clarsimp -- consider debugging why MePo-filtered clarsimp didn't work!")
        else if old_goal |> Separation_Logic_Tactics.is_entailment |> not
-         andalso Config.get ctxt Crush_Config.enable_branch_clarsimp_warn_at_success then 
-         let 
-           val new_txt = case new_goal_opt of 
+         andalso Config.get ctxt Crush_Config.enable_branch_clarsimp_warn_at_success then
+         let
+           val new_txt = case new_goal_opt of
               NONE => [Pretty.str "Goal was solved"]
             | SOME new_goal => [Pretty.str "New goal: ", Pretty.fbrk,
                                 Syntax.pretty_term ctxt new_goal]
          in
-           old_txt @ new_txt @ 
+           old_txt @ new_txt @
             [Pretty.fbrk, Pretty.str "Consider debugging why MePo-filtered clarsimp is not successful here.", Pretty.fbrk,
              Pretty.str "If you want to stop `crush` at this point, set `crush_stop_at_full_blown_clarsimp=true` and `crush_do_big_steps=false`"]
            |> Pretty.block |> Pretty.string_of |> Output.warning
@@ -577,7 +579,7 @@ struct
             ("unfold_concls_tac"       , \<^here>, (fn _ => crush_branch_unfold_concls_tac ctxt)),
             ("schematics_tac"          , \<^here>, (fn _ => crush_branch_schematics_tac ctxt unfold_contract_tac)),
             ("intro_pure_aentails_tac" , \<^here>, (fn _ => crush_branch_intro_pure_aentails_tac ctxt)),
-            ("urust_simps_tac"         , \<^here>, (fn _ => crush_branch_urust_simps_tac ctxt)),
+            ("expression_simps_tac"    , \<^here>, (fn _ => crush_branch_expression_simps_tac ctxt)),
             ("clarsimp_tac"            , \<^here>, (fn _ => crush_branch_clarsimp_tac ctxt)),
             ("misc_tac"                , \<^here>, (fn _ => crush_branch_misc_tac ctxt)),
             ("ucincl_tac"              , \<^here>, (fn _ => crush_branch_ucincl_tac ctxt)),
@@ -795,7 +797,7 @@ struct
                      make_modifier_parser "no_clarsimp"    (Config.put Crush_Config.enable_branch_clarsimp false) \<^here>,
                      make_modifier_parser "no_schematics"  (Config.put Crush_Config.enable_schematics false) \<^here>,
                      make_modifier_parser "do_split"       (Config.put Crush_Config.enable_branch_split true) \<^here>,
-                     make_modifier_parser "no_urust_case_split" (Config.put Crush_Config.enable_urust_split_branch false) \<^here>,
+                     make_modifier_parser "no_wp_case_split" (Config.put Crush_Config.enable_wp_split_branch false) \<^here>,
                      post_step_tac_parser,
                      additional_tac_parser, additional_method_parser,
                      abort_at_filter_parser, abort_at_pattern_parser]
@@ -826,8 +828,8 @@ struct
      make_del_parser' (Args.$$$ "simp" -- Args.$$$ "concls")  @{named_theorems crush_concls_simps} \<^here>,
      make_add_parser' (Args.$$$ "simp" -- Args.$$$ "early")   @{named_theorems crush_early_simps} \<^here>,
      make_del_parser' (Args.$$$ "simp" -- Args.$$$ "early")   @{named_theorems crush_early_simps} \<^here>,
-     make_add_parser' (Args.$$$ "wp" -- Args.$$$ "intro") @{named_theorems micro_rust_wp_intros} \<^here>,
-     make_del_parser' (Args.$$$ "wp" -- Args.$$$ "intro") @{named_theorems micro_rust_wp_intros} \<^here>,
+     make_add_parser' (Args.$$$ "wp" -- Args.$$$ "intro") @{named_theorems separation_logic_wp_intros} \<^here>,
+     make_del_parser' (Args.$$$ "wp" -- Args.$$$ "intro") @{named_theorems separation_logic_wp_intros} \<^here>,
      make_add_parser_core (Args.$$$ "inline") @{named_theorems crush_inline} \<^here>,
      make_add_parser_core (Args.$$$ "cong" -- Args.$$$ "default" -- Args.del) @{named_theorems crush_cong_default_del} \<^here>,
      make_add_parser "guards"    @{named_theorems add_guards} \<^here>,

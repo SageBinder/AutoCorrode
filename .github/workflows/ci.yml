@@ -35,12 +35,55 @@ jobs:
       - name: Setup Isabelle
         uses: ./.github/actions/setup-isabelle-action
 
+      - name: Audit language boundaries and proof hygiene
+        shell: bash
+        run: |
+          python3 -m json.tool design-documents/c-parity-manifest.json >/dev/null
+          python3 -m json.tool design-documents/language-ownership-manifest.json >/dev/null
+
+          if grep -R -n -E 'Shallow_Micro_(Rust|C)|Micro_[CR]ust_Parser|Isabelle_C' \
+              Shallow_Computation Shallow_State Shallow_State_Logic Frontend_Common; then
+            echo "language-specific dependency leaked into a generic session" >&2
+            exit 1
+          fi
+
+          if grep -R -n 'Shallow_Micro_Rust' \
+              Micro_C_Parsing_Frontend/ROOT \
+              Micro_C_Parsing_Frontend/C_Translation_Engine.thy; then
+            echo "C frontend depends on the Rust profile" >&2
+            exit 1
+          fi
+
+          if grep -R -n -E '\b(sorry|oops|quick_and_dirty|Skip_Proof|skip_proofs)\b' \
+              Shallow_Micro_C Micro_C_Parsing_Frontend \
+              Micro_C_Parser_Tests Micro_C_Examples; then
+            echo "unfinished C proof or proof-skipping configuration found" >&2
+            exit 1
+          fi
+
+          if grep -R -n -E 'micro_c_translate|micro_c_file' \
+              Shallow_Micro_C Micro_C_Parsing_Frontend \
+              Micro_C_Parser_Tests Micro_C_Examples; then
+            echo "removed legacy C command remains in active code" >&2
+            exit 1
+          fi
+
       # Build with HTML documentation, to make sure we can deploy to pages on merge
       - name: Build AutoCorrode
         run: |
           $ISABELLE_HOME/bin/isabelle build -v -b -d . -o browser_info \
+            -d $ISABELLE_HOME/src/Doc \
             -d $AFP_COMPONENT_BASE/Word_Lib \
+            -d $AFP_COMPONENT_BASE/Isabelle_Lex-Yacc \
+            -d $AFP_COMPONENT_BASE/Isabelle_C \
             AutoCorrode
+
+      - name: Build language frontends and isolation tests
+        run: |
+          make ISABELLE_HOME=$ISABELLE_HOME/bin \
+            AFP_COMPONENT_BASE=$AFP_COMPONENT_BASE \
+            build-micro-c-parser-tests build-micro-c-examples \
+            parser-tests language-isolation-tests
 
   tutorial-build:
     runs-on: ubuntu-latest

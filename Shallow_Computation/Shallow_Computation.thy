@@ -2,7 +2,10 @@
    SPDX-License-Identifier: MIT *)
 
 theory Shallow_Computation
-  imports Pullback
+  imports
+    Control_Flow
+    Nondeterministic_Choice
+    Pullback
 begin
 
 end

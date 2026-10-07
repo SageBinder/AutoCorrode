@@ -76,8 +76,8 @@ sig
      expressed in terms of suitable rules/drules/crules. *)
   val enable_legacy_points_to_tactics: bool Config.T
 
-  val enable_urust_split_branch : bool Config.T
-  val enable_urust_determine_branch : bool Config.T
+  val enable_wp_split_branch : bool Config.T
+  val enable_wp_determine_branch : bool Config.T
 
   val debug_level : int Config.T
   val do_big_steps : bool Config.T
@@ -144,8 +144,8 @@ struct
   (* TODO: Consider enabling this by default *)
   val enable_branch_reduced_clarsimp = Attrib.setup_config_bool @{binding "crush_use_reduced_clarsimp"} (K false)
   val enable_schematics = Attrib.setup_config_bool @{binding "crush_allow_schematics"} (K true)
-  val enable_urust_split_branch = Attrib.setup_config_bool @{binding "crush_urust_split_branch"} (K true)
-  val enable_urust_determine_branch = Attrib.setup_config_bool @{binding "crush_urust_determine_branch"} (K true)
+  val enable_wp_split_branch = Attrib.setup_config_bool @{binding "crush_wp_split_branch"} (K true)
+  val enable_wp_determine_branch = Attrib.setup_config_bool @{binding "crush_wp_determine_branch"} (K true)
   val enable_branch_split = Attrib.setup_config_bool @{binding "crush_do_split"}  (K false)
 
   val time_transactions = Attrib.setup_config_bool @{binding "crush_time_transactions"} (K false)

@@ -7,6 +7,7 @@ session Shallow_Micro_Rust = HOL +
     Misc
     Lenses_And_Other_Optics
     Shallow_Computation
+    Shallow_State
   theories [document = false]
     Core_Expression_Profile
     Bool_Type
@@ -16,7 +17,7 @@ session Shallow_Micro_Rust = HOL +
     Rust_Iterator
     Range_Type
     Numeric_Types
-    Global_Store
+    Rust_State_Profile
     Prompts_And_Responses
     Tuple
     Micro_Rust_Parser_Target
@@ -34,3 +35,14 @@ session Shallow_Micro_Rust = HOL +
     Shallow_Micro_Rust
   document_files
     "root.tex"
+
+session Shallow_Micro_Rust_Logic in "Logic" = HOL +
+  options [document = false]
+  sessions
+    Shallow_Micro_Rust
+    Shallow_Separation_Logic
+  theories
+    Rust_Weak_Triple
+    Rust_Triple
+    Rust_Weakest_Precondition
+    Shallow_Micro_Rust_Logic

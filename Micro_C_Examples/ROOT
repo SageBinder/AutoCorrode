@@ -1,0 +1,23 @@
+session Micro_C_Examples = HOL +
+  options [document = pdf, document_output = "output"]
+  sessions
+    "HOL-Library"
+    Micro_C_Parsing_Frontend
+    Shallow_Micro_C
+    Shallow_State
+    Shallow_State_Logic
+    Shallow_Separation_Logic
+    Crush
+  theories
+    C_Reference_Rules
+    Simple_C_Functions
+    C_Struct_Examples
+    C_Array_Examples
+    C_Bitwise_Examples
+    C_While_Examples
+    C_ABI_Examples
+    C_Void_Pointer_Examples
+    C_Union_Examples
+    C_Byte_Refinement
+    C_Misc_Examples
+    Micro_C_Examples

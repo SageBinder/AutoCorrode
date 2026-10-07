@@ -2,7 +2,7 @@
    SPDX-License-Identifier: MIT *)
 
 theory Representability
-  imports Assertion_Language Triple
+  imports Shallow_State_Logic.Assertion_Language Triple
 begin
 
 subsection\<open>A representability criterion for predicates on assertions\<close>

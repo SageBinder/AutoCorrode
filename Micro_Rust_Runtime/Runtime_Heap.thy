@@ -7,10 +7,10 @@ theory Runtime_Heap
     Micro_Rust_Std_Lib.StdLib_All
     Micro_Rust_Interfaces.Transfer_References
     Micro_Rust_Interfaces.Global_Perm_Store
-    Shallow_Separation_Logic.Apartness
-    Shallow_Separation_Logic.Separation_Algebra
-    Shallow_Separation_Logic.Tree_Shares
-    Shallow_Separation_Logic.Weakest_Precondition
+    Shallow_State_Logic.Apartness
+    Shallow_State_Logic.Separation_Algebra
+    Shallow_State_Logic.Tree_Shares
+    Shallow_Micro_Rust_Logic.Rust_Weakest_Precondition
     Shallow_Separation_Logic.Share_Map
     Shallow_Separation_Logic.Permissioned_Heap
 begin

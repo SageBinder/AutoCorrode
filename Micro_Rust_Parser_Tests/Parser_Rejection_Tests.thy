@@ -1332,8 +1332,8 @@ definition negative_macro_shout ::
 micro_rust_notation (call) negative_macro_shout ("negativeshout!")
 
 consts
-  negative_macro_raw_ref :: \<open>('a, 'b) Global_Store.gref\<close>
-  negative_macro_read_only_ref :: \<open>('a, 'b, 'v) Global_Store.ro_ref\<close>
+  negative_macro_raw_ref :: \<open>('a, 'b) State_References.gref\<close>
+  negative_macro_read_only_ref :: \<open>('a, 'b, 'v) State_References.ro_ref\<close>
 
 subsection\<open> Arity and raw-message policy \<close>
 
@@ -2298,7 +2298,7 @@ urust_expr_rejects
 
 urust_expr_rejects
   \<open>
-    \<llangle>undefined :: ('addr, 'gv, 32 word) Global_Store.ref\<rrangle>
+    \<llangle>undefined :: ('addr, 'gv, 32 word) State_References.ref\<rrangle>
       as *mut u8
   \<close>
   \<open> Type unification failed \<close>

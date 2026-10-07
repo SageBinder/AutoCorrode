@@ -24,8 +24,9 @@ abbreviation make_function_contract where
 context sepalg begin
 (*>*)
 
-definition satisfies_function_contract :: \<open>('a, 'abort, 'i, 'o) striple_context \<Rightarrow>
-      ('a, 'r, 'abort, 'i prompt, 'o prompt_output) function_body \<Rightarrow>
+definition satisfies_function_contract ::
+  \<open>('a, 'abort, 'i::nondeterministic_prompt, 'o::nondeterministic_response) striple_context \<Rightarrow>
+      ('a, 'r, 'abort, 'i, 'o) function_body \<Rightarrow>
       ('a, 'r, 'abort) function_contract \<Rightarrow> bool\<close> (\<open>(_)/ ; (_) \<Turnstile>\<^sub>F (_)\<close> [50,50,50]50) where
   \<open>\<Gamma> ; f \<Turnstile>\<^sub>F \<C> \<longleftrightarrow>
      ucincl (function_contract_pre \<C>) \<and>
@@ -81,7 +82,7 @@ lemma satisfies_function_contract_tripleD':
 
 lemma function_contract_implies_is_local:
   assumes \<open>\<Gamma>; f \<Turnstile>\<^sub>F \<C>\<close>
-  shows \<open>urust_is_local (yh \<Gamma>) (function_body f) (function_contract_pre \<C>)\<close>
+  shows \<open>expression_is_local (yh \<Gamma>) (function_body f) (function_contract_pre \<C>)\<close>
   using assms by (elim satisfies_function_contractE', simp add: sstriple_implies_is_local)
 
 text\<open>Weakening rules for contracts are proved in the standard library,

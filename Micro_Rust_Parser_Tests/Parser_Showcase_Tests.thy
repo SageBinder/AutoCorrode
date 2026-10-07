@@ -587,15 +587,15 @@ urust_expr  showoff_patterns
 subsection\<open> Fueled loops and mutable state \<close>
 
 definition showoff_reference ::
-    \<open>'v \<Rightarrow> (unit, (unit, unit, 'v) Global_Store.ref, unit, unit, unit) function_body\<close>
+    \<open>'v \<Rightarrow> (unit, (unit, unit, 'v) State_References.ref, unit, unit, unit) function_body\<close>
   where \<open> showoff_reference \<equiv> undefined \<close>
 
 definition showoff_dereference ::
-    \<open>(unit, unit, 'v) Global_Store.ref \<Rightarrow> (unit, 'v, unit, unit, unit) function_body\<close>
+    \<open>(unit, unit, 'v) State_References.ref \<Rightarrow> (unit, 'v, unit, unit, unit) function_body\<close>
   where \<open> showoff_dereference \<equiv> undefined \<close>
 
 definition showoff_update ::
-    \<open>(unit, unit, 'v) Global_Store.ref \<Rightarrow> 'v \<Rightarrow>
+    \<open>(unit, unit, 'v) State_References.ref \<Rightarrow> 'v \<Rightarrow>
       (unit, unit, unit, unit, unit) function_body\<close>
   where \<open> showoff_update \<equiv> undefined \<close>
 

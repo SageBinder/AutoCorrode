@@ -65,8 +65,8 @@ declare prism_to_focus.rep_eq[OF ll_example_gv_prism_ll_node_valid,
                               folded ll_example_gv_focus_ll_node_def, code]
 
 definition gref_opt_prism :: "(addr_ty option, (addr_ty, ll_example_gv) gref option) prism" where
-  \<open>gref_opt_prism \<equiv> iso_prism (Option.map_option Global_Store.make_gref)
-                                       (Option.map_option Global_Store.gref_address)\<close>
+  \<open>gref_opt_prism \<equiv> iso_prism (Option.map_option State_References.make_gref)
+                                       (Option.map_option State_References.gref_address)\<close>
 
 lemma gref_opt_prism_valid: \<open>is_valid_prism gref_opt_prism\<close>
   by (simp add: iso_prism_valid gref_opt_prism_def option.expand option.map_sel)

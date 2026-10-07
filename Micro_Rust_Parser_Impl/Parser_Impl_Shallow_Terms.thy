@@ -186,7 +186,7 @@ ML\<open>
 structure URust_Shallow_Terms :> URUST_SHALLOW_TERMS =
 struct
   open URust_AST
-  structure Navigation = Micro_Rust_Semantic_Navigation
+  structure Navigation = Shallow_Computation_Semantic_Navigation
 
   datatype read_origin =
       Allocated_Place
@@ -816,70 +816,70 @@ struct
       (\<^term>\<open>raw_ptr_cast_u8\<close>,
        cast_result_type
          \<^typ>\<open>
-           ('s, ('addr, 'gv, 8 word) Global_Store.ref,
+           ('s, ('addr, 'gv, 8 word) State_References.ref,
             'c, 'abort, 'i, 'o) expression
          \<close>)),
      (CT_RawPointer (RPM_Const, UT_U16),
       (\<^term>\<open>raw_ptr_cast_u16\<close>,
        cast_result_type
          \<^typ>\<open>
-           ('s, ('addr, 'gv, 16 word) Global_Store.ref,
+           ('s, ('addr, 'gv, 16 word) State_References.ref,
             'c, 'abort, 'i, 'o) expression
          \<close>)),
      (CT_RawPointer (RPM_Const, UT_U32),
       (\<^term>\<open>raw_ptr_cast_u32\<close>,
        cast_result_type
          \<^typ>\<open>
-           ('s, ('addr, 'gv, 32 word) Global_Store.ref,
+           ('s, ('addr, 'gv, 32 word) State_References.ref,
             'c, 'abort, 'i, 'o) expression
          \<close>)),
      (CT_RawPointer (RPM_Const, UT_U64),
       (\<^term>\<open>raw_ptr_cast_u64\<close>,
        cast_result_type
          \<^typ>\<open>
-           ('s, ('addr, 'gv, 64 word) Global_Store.ref,
+           ('s, ('addr, 'gv, 64 word) State_References.ref,
             'c, 'abort, 'i, 'o) expression
          \<close>)),
      (CT_RawPointer (RPM_Const, UT_Usize),
       (\<^term>\<open>raw_ptr_cast_u64\<close>,
        cast_result_type
          \<^typ>\<open>
-           ('s, ('addr, 'gv, 64 word) Global_Store.ref,
+           ('s, ('addr, 'gv, 64 word) State_References.ref,
             'c, 'abort, 'i, 'o) expression
          \<close>)),
      (CT_RawPointer (RPM_Mut, UT_U8),
       (\<^term>\<open>raw_ptr_cast_u8\<close>,
        cast_result_type
          \<^typ>\<open>
-           ('s, ('addr, 'gv, 8 word) Global_Store.ref,
+           ('s, ('addr, 'gv, 8 word) State_References.ref,
             'c, 'abort, 'i, 'o) expression
          \<close>)),
      (CT_RawPointer (RPM_Mut, UT_U16),
       (\<^term>\<open>raw_ptr_cast_u16\<close>,
        cast_result_type
          \<^typ>\<open>
-           ('s, ('addr, 'gv, 16 word) Global_Store.ref,
+           ('s, ('addr, 'gv, 16 word) State_References.ref,
             'c, 'abort, 'i, 'o) expression
          \<close>)),
      (CT_RawPointer (RPM_Mut, UT_U32),
       (\<^term>\<open>raw_ptr_cast_u32\<close>,
        cast_result_type
          \<^typ>\<open>
-           ('s, ('addr, 'gv, 32 word) Global_Store.ref,
+           ('s, ('addr, 'gv, 32 word) State_References.ref,
             'c, 'abort, 'i, 'o) expression
          \<close>)),
      (CT_RawPointer (RPM_Mut, UT_U64),
       (\<^term>\<open>raw_ptr_cast_u64\<close>,
        cast_result_type
          \<^typ>\<open>
-           ('s, ('addr, 'gv, 64 word) Global_Store.ref,
+           ('s, ('addr, 'gv, 64 word) State_References.ref,
             'c, 'abort, 'i, 'o) expression
          \<close>)),
      (CT_RawPointer (RPM_Mut, UT_Usize),
       (\<^term>\<open>raw_ptr_cast_u64\<close>,
        cast_result_type
          \<^typ>\<open>
-           ('s, ('addr, 'gv, 64 word) Global_Store.ref,
+           ('s, ('addr, 'gv, 64 word) State_References.ref,
             'c, 'abort, 'i, 'o) expression
          \<close>))]
 
@@ -1041,7 +1041,7 @@ struct
            "urust read adjustment: expression is not a type constructor")
 
   val reference_type_name =
-    (case \<^typ>\<open>('a, 'b, 'v) Global_Store.ref\<close> of
+    (case \<^typ>\<open>('a, 'b, 'v) State_References.ref\<close> of
        Type (name, _) => name
      | _ =>
          error

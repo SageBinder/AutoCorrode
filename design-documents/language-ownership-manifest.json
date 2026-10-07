@@ -1,0 +1,100 @@
+{
+  "schema_version": 1,
+  "naming_policy": {
+    "generic_declarations": "language-neutral names only",
+    "compatibility_aliases": false,
+    "c_generated_names": "UNIT-qualified"
+  },
+  "sessions": [
+    {
+      "name": "Shallow_Computation",
+      "owns": [
+        "expressions",
+        "continuations",
+        "function bodies",
+        "evaluation",
+        "pullback",
+        "language-neutral conditionals and loops",
+        "generic theorem registries"
+      ],
+      "language_profile_dependencies": []
+    },
+    {
+      "name": "Shallow_State",
+      "owns": [
+        "raw and focused references",
+        "parser-facing reference operation constants",
+        "global stores",
+        "allocation",
+        "raw memory"
+      ],
+      "language_profile_dependencies": []
+    },
+    {
+      "name": "Shallow_State_Logic",
+      "owns": [
+        "apartness",
+        "separation algebras",
+        "shares",
+        "assertions",
+        "reference contracts",
+        "reference separation rules"
+      ],
+      "language_profile_dependencies": []
+    },
+    {
+      "name": "Shallow_Micro_Rust",
+      "owns": [
+        "Rust abort policy",
+        "prompts and responses",
+        "Rust notation",
+        "Rust iterators",
+        "Rust parser targets",
+        "Rust arithmetic"
+      ]
+    },
+    {
+      "name": "Shallow_Micro_C",
+      "owns": [
+        "C aborts",
+        "C numeric and pointer semantics",
+        "C layout and sizeof",
+        "C byte encodings",
+        "C translation-model locales",
+        "C proof rules"
+      ]
+    },
+    {
+      "name": "Frontend_Common",
+      "owns": [
+        "source diagnostics",
+        "checked HOL term builders",
+        "declaration plans",
+        "transactional installation"
+      ],
+      "language_profile_dependencies": []
+    },
+    {
+      "name": "Micro_C_Isabelle_C_Adapter",
+      "owns": [
+        "Isabelle/C parser isolation",
+        "raw translation-unit access",
+        "node position decoding",
+        "source extraction"
+      ]
+    },
+    {
+      "name": "Micro_C_Parsing_Frontend",
+      "owns": [
+        "C feature analysis",
+        "immutable translation side tables",
+        "direct raw-AST lowering",
+        "c_source and c_file"
+      ]
+    }
+  ],
+  "protected_paths": [
+    "NIE",
+    "../AwsArgLlcrtNice"
+  ]
+}

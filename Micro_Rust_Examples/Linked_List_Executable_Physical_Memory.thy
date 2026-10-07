@@ -19,7 +19,7 @@ type_synonym phys = \<open>unit tagged_physical_memory\<close>
 text\<open>First, we instantiate the linked list reversal with data-free linked list nodes.\<close>
 
 definition gref_iso_prism :: \<open>(NonNullRaw option, (NonNullRaw, byte list) gref option) prism\<close> where
-  \<open>gref_iso_prism \<equiv> iso_prism (map_option Global_Store.make_gref) (map_option Global_Store.gref_address)\<close>
+  \<open>gref_iso_prism \<equiv> iso_prism (map_option State_References.make_gref) (map_option State_References.gref_address)\<close>
 
 lemma gref_iso_prism_is_valid: \<open>is_valid_prism gref_iso_prism\<close>
   by (auto simp add: gref_iso_prism_def iso_prism_valid is_valid_prism_def iso_prism_def
@@ -173,15 +173,15 @@ text\<open>Pointer to head of linked list\<close>
 definition ll_head :: \<open>(NonNullRaw, byte list) gref option\<close> where
   \<open>ll_head \<equiv> Some (make_gref test_page_ptr)\<close>
 text\<open>Pointer to scratch memory needed by linked list reversal\<close>
-private definition tmp0_ref :: \<open>(raw_pmem_region, byte list, (NonNullRaw, byte list) gref option) Global_Store.ref\<close> where
+private definition tmp0_ref :: \<open>(raw_pmem_region, byte list, (NonNullRaw, byte list) gref option) State_References.ref\<close> where
   \<open>tmp0_ref \<equiv> make_focused (make_gref (make_raw_pmem_region (test_page + 0x38) 8)) ref_gref_opt_focus\<close>
-private definition tmp1_ref :: \<open>(raw_pmem_region, byte list, (NonNullRaw, byte list) gref option) Global_Store.ref\<close> where
+private definition tmp1_ref :: \<open>(raw_pmem_region, byte list, (NonNullRaw, byte list) gref option) State_References.ref\<close> where
   \<open>tmp1_ref \<equiv> make_focused (make_gref (make_raw_pmem_region (test_page + 0x40) 8)) ref_gref_opt_focus\<close>
 
 \<comment>\<open>\<^verbatim>\<open>
 urust_fn reverse_unlink :: \<open>64 word \<Rightarrow> ('caddr, 'gv) gref option
-  \<Rightarrow> ('addr, 'gv, ('caddr, 'gv) gref option) Global_Store.ref
-  \<Rightarrow> ('addr, 'gv, ('caddr, 'gv) gref option) Global_Store.ref
+  \<Rightarrow> ('addr, 'gv, ('caddr, 'gv) gref option) State_References.ref
+  \<Rightarrow> ('addr, 'gv, ('caddr, 'gv) gref option) State_References.ref
   \<Rightarrow> ('s, ('caddr, 'gv) gref option \<times> ('caddr, 'gv) gref option) function_body\<close>
   (n, orig, cur_raw, last_raw)
   \<open>

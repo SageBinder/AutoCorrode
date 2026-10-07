@@ -3,7 +3,11 @@
 
 (*<*)
 theory Bool_Type
-  imports Core_Expression_Profile "HOL-Library.Word" Word_Lib.Bit_Shifts_Infix_Syntax
+  imports
+    Core_Expression_Profile
+    Shallow_Computation.Control_Flow
+    "HOL-Library.Word"
+    Word_Lib.Bit_Shifts_Infix_Syntax
 begin
 (*>*)
 
@@ -21,30 +25,6 @@ definition true :: \<open>('s, bool, 'r, 'abort, 'i, 'o) expression\<close> wher
 text\<open>And now falsity:\<close>
 definition false :: \<open>('s, bool, 'r, 'abort, 'i, 'o) expression\<close> where
   \<open>false \<equiv> literal False\<close>
-
-subsection\<open>Conditionals\<close>
-
-text\<open>The two-armed conditional is the standard \<^verbatim>\<open>if-then-else\<close> construct from programming languages.
-Note that the construct is typed: the \<^emph>\<open>test\<close> expression must evaluate to a Boolean value, and both
-the branches must also evaluate to a value of the same type (\<^typ>\<open>'a\<close>):\<close>
-definition two_armed_conditional :: \<open>('s, bool, 'r, 'abort, 'i, 'o) expression \<Rightarrow> \<comment> \<open>Test expression\<close>
-                                     ('s, 'a, 'r, 'abort, 'i, 'o) expression \<Rightarrow>   \<comment> \<open>True-case expression\<close>
-                                     ('s, 'a, 'r, 'abort, 'i, 'o) expression \<Rightarrow>   \<comment> \<open>False-case expression\<close>
-                                     ('s, 'a, 'r, 'abort, 'i, 'o) expression\<close> where
-  \<open>two_armed_conditional test this that \<equiv> bind test (\<lambda>test. 
-        if test then this else that)\<close>
-
-text\<open>The one-armed conditional is the standard "if-then" \<^emph>\<open>statement\<close> from most programming
-languages.  Note, again, that we use HOL's type system to ensure that the expressions are correctly
-typed: whilst the \<^emph>\<open>test\<close> expression must evaluate to a Boolean value, the single arm of the
-conditional must instead evaluate to \<^typ>\<open>unit\<close> type.  Here \<^term>\<open>skip\<close> is useful, and is used in the
-false branch of the conditional to signal nothing changes if the test fails.  We merely add this
-as an \<^emph>\<open>abbreviation\<close> for the two-armed conditional, here, meaning that all of the properties that
-we established for the two-armed variant, above, automatically apply to this, too:\<close>
-abbreviation one_armed_conditional :: \<open>('s, bool, 'r, 'abort, 'i, 'o) expression \<Rightarrow> \<comment> \<open>Test expression\<close>
-                                     ('s, unit, 'r, 'abort, 'i, 'o) expression \<Rightarrow> \<comment> \<open>True-case expression\<close>
-                                     ('s, unit, 'r, 'abort, 'i, 'o) expression\<close> where
-  \<open>one_armed_conditional test this \<equiv> two_armed_conditional test this skip\<close>
 
 definition assert_val :: \<open>bool \<Rightarrow> ('s, unit, 'r, 'abort, 'i, 'o) expression\<close> where
   \<open>assert_val v \<equiv> if v then literal () else abort AssertionFailed\<close>

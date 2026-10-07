@@ -3,7 +3,7 @@
 
 (*<*)
 theory Locality
-  imports Assertion_Language
+  imports Shallow_State_Logic.Assertion_Language
 begin
 
 context sepalg begin

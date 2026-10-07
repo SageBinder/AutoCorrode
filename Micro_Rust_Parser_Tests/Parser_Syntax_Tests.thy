@@ -523,8 +523,8 @@ adhoc_overloading store_reference_const \<rightleftharpoons> parser_reference_fi
 adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
 
 context
-  fixes prefix_ref :: \<open>(unit, unit, 32 word) Global_Store.ref\<close>
-  fixes prefix_bool_ref :: \<open>(unit, unit, bool) Global_Store.ref\<close>
+  fixes prefix_ref :: \<open>(unit, unit, 32 word) State_References.ref\<close>
+  fixes prefix_bool_ref :: \<open>(unit, unit, bool) State_References.ref\<close>
 begin
 
 urust_expr grammar_deref_before_cast
@@ -2313,7 +2313,7 @@ section\<open> Legacy macro structure, spans, and markup \<close>
 
 consts
   macro_audit_scrutinee :: \<open>nat option\<close>
-  macro_audit_ref :: \<open>('a, 'b, 'v) Global_Store.ref\<close>
+  macro_audit_ref :: \<open>('a, 'b, 'v) State_References.ref\<close>
   macro_audit_marker :: bool
   macro_audit_ignored_marker :: bool
   macro_audit_vec_first :: nat
@@ -3814,7 +3814,7 @@ ML_val\<open>
       Syntax.check_term ctxt (unchecked text)
 
     val reference_type_name =
-      (case \<^typ>\<open>('address, 'global, 'value) Global_Store.ref\<close> of
+      (case \<^typ>\<open>('address, 'global, 'value) State_References.ref\<close> of
          Type (name, _) => name
        | _ => error "cast regression audit: reference type abbreviation changed")
 

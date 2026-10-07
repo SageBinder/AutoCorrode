@@ -1,0 +1,15 @@
+session Shallow_State_Logic = HOL +
+  options [document = false]
+  sessions
+    "HOL-Eisbach"
+    "HOL-Library"
+    Misc
+    Shallow_State
+  theories [document = false]
+    Apartness
+    Separation_Algebra
+    Tree_Shares
+    Assertion_Language
+    Reference_Contracts
+    Reference_Separation_Rules
+    Shallow_State_Logic

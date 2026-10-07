@@ -16,7 +16,7 @@ or parse translations.
 ML\<open>
 structure Case_Term_Backend =
 struct
-  structure Navigation = Semantic_Navigation
+  structure Navigation = Shallow_Computation_Semantic_Navigation
 
   fun case_constant name arguments =
     Term.list_comb (Const (name, dummyT), arguments)

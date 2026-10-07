@@ -322,7 +322,7 @@ Let's try to use a mutable \<^verbatim>\<open>let\<close> binding in a Micro Rus
 
 urust_expr _ ::
   \<open>
-    ('s, ('addr, 'gv, 64 word) Global_Store.ref, 'r, 'abort, 'i, 'o) expression
+    ('s, ('addr, 'gv, 64 word) State_References.ref, 'r, 'abort, 'i, 'o) expression
   \<close>
   \<open>
      let mut acc = \<llangle>1 :: 64 word\<rrangle>;
@@ -333,7 +333,7 @@ urust_expr _ ::
 
 urust_expr [abbrev] evaluate_acc_expr ::
   \<open>
-    ('s, ('addr, 'gv, 64 word) Global_Store.ref, 'r, 'abort, 'i, 'o) expression
+    ('s, ('addr, 'gv, 64 word) State_References.ref, 'r, 'abort, 'i, 'o) expression
   \<close>
   \<open>
      let mut acc = \<llangle>1 :: 64 word\<rrangle>;
@@ -392,7 +392,7 @@ context reference
 begin
 
 urust_fn add_one_to_ref ::
-  \<open>(_, _, 64 word) Global_Store.ref \<Rightarrow> ('s, unit, _, _, _) function_body\<close>
+  \<open>(_, _, 64 word) State_References.ref \<Rightarrow> ('s, unit, _, _, _) function_body\<close>
   (ptr)
   \<open>
      let val = *ptr; \<comment>\<open>Reading requires explicit dereferencing\<close>

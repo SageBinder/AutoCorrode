@@ -6,8 +6,8 @@ theory Separation_Logic_Tactics
   imports
     Base
     Misc.WordAdditional
-    Shallow_Separation_Logic.Assertion_Language
-    Shallow_Separation_Logic.Weakest_Precondition
+    Shallow_State_Logic.Assertion_Language
+    Shallow_Micro_Rust_Logic.Rust_Weakest_Precondition
     Micro_Rust_Interfaces_Core.References
   keywords
     "ucincl_proof" "ucincl_auto" :: thy_goal

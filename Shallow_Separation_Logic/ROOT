@@ -3,11 +3,10 @@ session Shallow_Separation_Logic = HOL +
   sessions
     "HOL-Eisbach"
     "HOL-Library"
-    Shallow_Micro_Rust
+    Shallow_Computation
+    Shallow_State_Logic
   theories
     Adequacy
-    Apartness
-    Assertion_Language
     Assertion_Triple
     Function_Contract
     Locality
@@ -15,10 +14,8 @@ session Shallow_Separation_Logic = HOL +
     Precision
     Representability
     Restriction
-    Separation_Algebra
     Shareable_Value
     Share_Map
-    Tree_Shares
     Triple
     Weak_Triple
     Weakest_Precondition 
