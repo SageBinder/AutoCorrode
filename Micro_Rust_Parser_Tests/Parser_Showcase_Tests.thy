@@ -146,21 +146,21 @@ end
 
 subsection\<open> Primitive associated items \<close>
 
-definition showoff_primitive_u8_max :: \<open>8 word\<close>
-  where \<open>showoff_primitive_u8_max = 7\<close>
+definition showoff_primitive_u8_max :: \<open> 8 word \<close>
+  where \<open> showoff_primitive_u8_max = 7 \<close>
 
-definition showoff_primitive_u64_max :: \<open>64 word\<close>
-  where \<open>showoff_primitive_u64_max = 63\<close>
+definition showoff_primitive_u64_max :: \<open> 64 word \<close>
+  where \<open> showoff_primitive_u64_max = 63 \<close>
 
-definition showoff_primitive_count :: \<open>64 word\<close>
-  where \<open>showoff_primitive_count = 3\<close>
+definition showoff_primitive_count :: \<open> 64 word \<close>
+  where \<open> showoff_primitive_count = 3 \<close>
 
-definition showoff_primitive_values :: \<open>64 word option list\<close>
-  where \<open>showoff_primitive_values = [Some 5, None]\<close>
+definition showoff_primitive_values :: \<open> 64 word option list \<close>
+  where \<open> showoff_primitive_values = [Some 5, None] \<close>
 
 definition showoff_primitive_from ::
-    \<open>64 word \<Rightarrow> (unit, 64 word, unit, unit, unit) function_body\<close>
-  where \<open>showoff_primitive_from = lift_fun1 id\<close>
+    \<open> 64 word \<Rightarrow> (unit, 64 word, unit, unit, unit) function_body \<close>
+  where \<open> showoff_primitive_from = lift_fun1 id \<close>
 
 micro_rust_notation (literal) showoff_primitive_u8_max ("u8::MAX")
 micro_rust_notation (literal) showoff_primitive_u64_max ("u64::MAX")

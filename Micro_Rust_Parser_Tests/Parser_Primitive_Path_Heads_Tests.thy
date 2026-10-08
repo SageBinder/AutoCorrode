@@ -1011,5 +1011,126 @@ ML_val\<open>
       writeln "Primitive path markup and recovery audits passed"
   end
 \<close>
+subsection\<open> Exact generic paths and role boundaries \<close>
+
+micro_rust_notation (call) primitive_head_zero ("u8::zero")
+micro_rust_notation (call) primitive_head_zero ("u16::zero")
+micro_rust_notation (call) primitive_head_zero ("u32::zero")
+micro_rust_notation (call) primitive_head_zero ("usize::zero")
+micro_rust_notation (call) primitive_head_zero ("i32::zero")
+micro_rust_notation (call) primitive_head_zero ("i64::zero")
+
+urust_expr primitive_path_all_call_heads
+  \<open>
+    (u8::zero(), u16::zero(), u32::zero(), u64::zero(),
+     usize::zero(), i32::zero(), i64::zero())
+  \<close>
+
+urust_expr primitive_path_all_call_heads_compat
+  \<open>
+    (PrimitiveCompat::zero(), PrimitiveCompat::zero(), PrimitiveCompat::zero(),
+     PrimitiveCompat::zero(), PrimitiveCompat::zero(), PrimitiveCompat::zero(),
+     PrimitiveCompat::zero())
+  \<close>
+
+lemma primitive_path_all_call_heads_equal:
+  \<open> primitive_path_all_call_heads = primitive_path_all_call_heads_compat \<close>
+  unfolding primitive_path_all_call_heads_def primitive_path_all_call_heads_compat_def
+  by (rule refl)
+
+micro_rust_notation (literal)
+  primitive_head_u64_max ("u64::Nested::<PrimitiveParam>::MAX")
+micro_rust_notation (call)
+  primitive_head_from ("u64::Nested::<PrimitiveParam>::from::<PrimitiveParam>")
+
+urust_expr primitive_path_exact_generic_literal
+  \<open> u64::Nested::<PrimitiveParam>::MAX \<close>
+
+lemma primitive_path_exact_generic_literal_equal:
+  \<open> primitive_path_exact_generic_literal = primitive_path_u64 \<close>
+  unfolding primitive_path_exact_generic_literal_def primitive_path_u64_def
+  by (rule refl)
+
+urust_expr primitive_path_exact_generic_call
+  \<open> u64::Nested::<PrimitiveParam>::from::<PrimitiveParam>(5u64) \<close>
+
+lemma primitive_path_exact_generic_call_equal:
+  \<open> primitive_path_exact_generic_call = primitive_path_call_one \<close>
+  unfolding primitive_path_exact_generic_call_def primitive_path_call_one_def
+  by (rule refl)
+
+urust_expr_rejects
+  \<open> u64::from::<UnregisteredParam>(5u64) \<close>
+  \<open> requires an exact micro_rust_notation (call) declaration \<close>
+urust_expr_rejects
+  \<open> u64::MAX::<PrimitiveParam> \<close>
+  \<open> requires an exact micro_rust_notation (literal) declaration \<close>
+urust_expr_rejects
+  \<open> u64::Nested::<UnregisteredParam>::MAX \<close>
+  \<open> requires an exact micro_rust_notation (literal) declaration \<close>
+
+context
+begin
+
+micro_rust_notation (field) lens_id ("u64::FIELD_ONLY")
+
+urust_expr_rejects
+  \<open> u64::FIELD_ONLY \<close>
+  \<open> requires an exact micro_rust_notation (literal) declaration \<close>
+urust_expr_rejects
+  \<open> u64::FIELD_ONLY() \<close>
+  \<open> requires an exact micro_rust_notation (call) declaration \<close>
+
+end
+
+urust_expr_rejects
+  \<open> u64::MAX!() \<close> \<open> syntax error \<close>
+urust_expr_rejects
+  \<open> match u64::MAX { u64::MAX() => true, _ => false } \<close>
+  \<open> syntax error \<close>
+urust_expr_rejects
+  \<open> match u64::MAX { u64::MISSING => true, _ => false } \<close>
+  \<open> requires an exact micro_rust_notation (literal) declaration \<close>
+urust_expr_rejects
+  \<open> [u64::MAX; usize::MISSING] \<close>
+  \<open> requires an exact micro_rust_notation (literal) declaration \<close>
+
+subsection\<open> Contextual repeat lengths with primitive operands \<close>
+
+context
+  includes primitive_path_cast_aliases
+  fixes count :: \<open> 64 word \<close>
+begin
+
+micro_rust_notation (literal) count ("usize::CONTEXT_COUNT")
+
+urust_expr primitive_path_context_repeat
+  \<open> [u64::MAX; count] \<close>
+
+urust_expr primitive_path_context_repeat_registered
+  \<open> [u64::MAX; usize::CONTEXT_COUNT] \<close>
+
+lemma primitive_path_context_repeat_equal:
+  \<open> primitive_path_context_repeat = primitive_path_context_repeat_registered \<close>
+  unfolding primitive_path_context_repeat_def primitive_path_context_repeat_registered_def
+  by (rule refl)
+
+urust_expr primitive_path_context_inline_alias
+  \<open> [const { u8::MAX as PrimitivePathAlias }; usize::CONTEXT_COUNT] \<close>
+
+urust_expr primitive_path_context_inline_compat
+  \<open> [const { PrimitiveCompat::U8Max as u64 }; count] \<close>
+
+lemma primitive_path_context_inline_alias_equal:
+  \<open> primitive_path_context_inline_alias = primitive_path_context_inline_compat \<close>
+  unfolding primitive_path_context_inline_alias_def primitive_path_context_inline_compat_def
+  by (rule refl)
+
+urust_expr_rejects
+  \<open> let count = 2usize; [u64::MAX; count] \<close>
+  \<open> cannot use lexical local \<close>
+
+end
+
 
 end
