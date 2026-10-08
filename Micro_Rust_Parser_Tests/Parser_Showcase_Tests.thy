@@ -63,6 +63,23 @@ urust_expr  showoff_grammar_literals
     (mask, permissions, narrowed, adjusted)
   \<close>
 
+subsection\<open> Return match arms \<close>
+
+text\<open>
+Direct returns use expression-arm commas, including guarded arms. Braced return statements retain
+semicolons, and the final arm may omit its comma.
+\<close>
+
+urust_expr showoff_return_match_arms ::
+  \<open>(unit, nat, nat, unit, unit, unit) expression\<close>
+  \<open>
+    match Some(\<llangle>7 :: nat\<rrangle>) {
+      Some(value) if value > 0 \<Rightarrow> return value,
+      Some(_) \<Rightarrow> { return \<llangle>0 :: nat\<rrangle>; },
+      None \<Rightarrow> return \<llangle>1 :: nat\<rrangle>
+    }
+  \<close>
+
 subsection\<open> List captures and structural integer patterns \<close>
 
 text\<open>

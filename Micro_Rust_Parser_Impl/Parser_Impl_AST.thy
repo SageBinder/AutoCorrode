@@ -685,7 +685,7 @@ struct
          Position.range_position (left, right))
     end
 
-  (* A return's legacy semicolon belongs to its surface production, not to sequencing. *)
+  (* A terminal return statement keeps the return expression instead of sequencing it with unit. *)
   fun finish_statement (return as UE_Return _, _) = return
     | finish_statement (expression, semi_pos) =
         UE_Seq (expression, UE_Unit semi_pos)

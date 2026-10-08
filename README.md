@@ -232,9 +232,12 @@ constructor basenames remain unchanged.
 
 The grammar retains compatibility extensions used by existing µRust sources, including complete
 guard bodies and statement bodies in groups, macros, and struct fields. During production migration
-it also accepts apostrophised identifiers and return-arm semicolons.
+it also accepts apostrophised identifiers.
 Dereference follows Rust's uniform postfix-before-prefix precedence: `*base[index]` means
 `*(base[index])`, while dereference-before-index requires `(*base)[index]`.
+Direct return match arms use commas between arms and an optional final comma. Direct
+`return value;,` and `return;` arms are rejected; braced arm bodies such as `{ return value; }`
+retain ordinary statement semicolons. Complete guard bodies also retain return statements.
 Deliberately deferred Rust surface includes general
 postfix calls, one-element tuples, open ranges, unary numeric negation, `/=`, leading
 `::`, full Rust generics, universal macro trailing commas, and additional numeric families.

@@ -88,21 +88,172 @@ urust_expr_rejects
   \<close>
   \<open> syntax error \<close>
 
-urust_expr grammar_return_arm_semicolons
+urust_expr_rejects
   \<open>
     match true {
       true \<Rightarrow> return \<llangle>1 :: nat\<rrangle>;,
       false \<Rightarrow> return \<llangle>2 :: nat\<rrangle>;
     }
   \<close>
+  \<open> syntax error \<close>
 
-urust_expr grammar_operandless_return_arm_semicolons
+urust_expr_rejects
   \<open>
     match true {
       true \<Rightarrow> return;,
       false \<Rightarrow> return;
     }
   \<close>
+  \<open> syntax error \<close>
+
+urust_expr_rejects
+  \<open>
+    match true {
+      true \<Rightarrow> if true { () } else { () }
+      false \<Rightarrow> return;
+    }
+  \<close>
+  \<open> syntax error \<close>
+
+text\<open>
+Direct return arms are expressions: commas separate them, the final comma is optional, and
+statement semicolons belong inside braces. Complete guard bodies retain ordinary return statements.
+\<close>
+
+urust_expr grammar_valued_return_arm_commas ::
+  \<open>(unit, nat, nat, unit, unit, unit) expression\<close>
+  \<open>
+    match true {
+      true \<Rightarrow> return \<llangle>1 :: nat\<rrangle>,
+      false \<Rightarrow> return \<llangle>2 :: nat\<rrangle>,
+    }
+  \<close>
+
+urust_expr grammar_operandless_return_arm_commas ::
+  \<open>(unit, unit, unit, unit, unit, unit) expression\<close>
+  \<open>
+    match true {
+      true \<Rightarrow> return,
+      false \<Rightarrow> return,
+    }
+  \<close>
+
+urust_expr grammar_valued_return_arm_blocks ::
+  \<open>(unit, nat, nat, unit, unit, unit) expression\<close>
+  \<open>
+    match true {
+      true \<Rightarrow> { return \<llangle>1 :: nat\<rrangle>; },
+      false \<Rightarrow> { return \<llangle>2 :: nat\<rrangle>; }
+    }
+  \<close>
+
+urust_expr grammar_operandless_return_arm_blocks ::
+  \<open>(unit, unit, unit, unit, unit, unit) expression\<close>
+  \<open>
+    match true {
+      true \<Rightarrow> { return; },
+      false \<Rightarrow> { return; }
+    }
+  \<close>
+
+lemma grammar_valued_return_arm_equality:
+  \<open>grammar_valued_return_arm_commas = grammar_valued_return_arm_blocks\<close>
+  unfolding grammar_valued_return_arm_commas_def grammar_valued_return_arm_blocks_def
+  by (rule refl)
+
+lemma grammar_operandless_return_arm_equality:
+  \<open>grammar_operandless_return_arm_commas = grammar_operandless_return_arm_blocks\<close>
+  unfolding grammar_operandless_return_arm_commas_def grammar_operandless_return_arm_blocks_def
+  by (rule refl)
+
+urust_expr grammar_case_return_arm_commas ::
+  \<open>(unit, nat, nat, unit, unit, unit) expression\<close>
+  \<open>
+    match_case Some(\<llangle>1 :: nat\<rrangle>) {
+      Some(value) if true \<Rightarrow> return value,
+      _ \<Rightarrow> return \<llangle>0 :: nat\<rrangle>
+    }
+  \<close>
+
+urust_expr grammar_case_return_arm_blocks ::
+  \<open>(unit, nat, nat, unit, unit, unit) expression\<close>
+  \<open>
+    match_case Some(\<llangle>1 :: nat\<rrangle>) {
+      Some(value) if true \<Rightarrow> { return value; },
+      _ \<Rightarrow> { return \<llangle>0 :: nat\<rrangle>; },
+    }
+  \<close>
+
+lemma grammar_case_return_arm_equality:
+  \<open>grammar_case_return_arm_commas = grammar_case_return_arm_blocks\<close>
+  unfolding grammar_case_return_arm_commas_def grammar_case_return_arm_blocks_def
+  by (rule refl)
+
+urust_expr grammar_switch_return_arm_commas ::
+  \<open>(unit, unit, unit, unit, unit, unit) expression\<close>
+  \<open> match_switch \<llangle>0 :: nat\<rrangle> { 0 \<Rightarrow> return, _ \<Rightarrow> return } \<close>
+
+urust_expr grammar_switch_return_arm_blocks ::
+  \<open>(unit, unit, unit, unit, unit, unit) expression\<close>
+  \<open> match_switch \<llangle>0 :: nat\<rrangle> { 0 \<Rightarrow> { return; }, _ \<Rightarrow> { return; }, } \<close>
+
+lemma grammar_switch_return_arm_equality:
+  \<open>grammar_switch_return_arm_commas = grammar_switch_return_arm_blocks\<close>
+  unfolding grammar_switch_return_arm_commas_def grammar_switch_return_arm_blocks_def
+  by (rule refl)
+
+urust_expr grammar_case_operandless_return_arm_commas ::
+  \<open>(unit, unit, unit, unit, unit, unit) expression\<close>
+  \<open>
+    match_case Some(()) {
+      Some(_) \<Rightarrow> { () }
+      None if true \<Rightarrow> return,
+      _ \<Rightarrow> return
+    }
+  \<close>
+
+urust_expr grammar_case_operandless_return_arm_blocks ::
+  \<open>(unit, unit, unit, unit, unit, unit) expression\<close>
+  \<open>
+    match_case Some(()) {
+      Some(_) \<Rightarrow> { () }
+      None if true \<Rightarrow> { return; },
+      _ \<Rightarrow> { return; },
+    }
+  \<close>
+
+lemma grammar_case_operandless_return_arm_equality:
+  \<open>grammar_case_operandless_return_arm_commas = grammar_case_operandless_return_arm_blocks\<close>
+  unfolding grammar_case_operandless_return_arm_commas_def grammar_case_operandless_return_arm_blocks_def
+  by (rule refl)
+
+urust_expr grammar_switch_valued_return_arm_commas ::
+  \<open>(unit, nat, nat, unit, unit, unit) expression\<close>
+  \<open>
+    match_switch \<llangle>0 :: nat\<rrangle> {
+      0 \<Rightarrow> { \<llangle>0 :: nat\<rrangle> }
+      1 \<Rightarrow> return \<llangle>1 :: nat\<rrangle>,
+      _ \<Rightarrow> return \<llangle>2 :: nat\<rrangle>
+    }
+  \<close>
+
+urust_expr grammar_switch_valued_return_arm_blocks ::
+  \<open>(unit, nat, nat, unit, unit, unit) expression\<close>
+  \<open>
+    match_switch \<llangle>0 :: nat\<rrangle> {
+      0 \<Rightarrow> { \<llangle>0 :: nat\<rrangle> }
+      1 \<Rightarrow> { return \<llangle>1 :: nat\<rrangle>; },
+      _ \<Rightarrow> { return \<llangle>2 :: nat\<rrangle>; },
+    }
+  \<close>
+
+lemma grammar_switch_valued_return_arm_equality:
+  \<open>grammar_switch_valued_return_arm_commas = grammar_switch_valued_return_arm_blocks\<close>
+  unfolding grammar_switch_valued_return_arm_commas_def grammar_switch_valued_return_arm_blocks_def
+  by (rule refl)
+
+urust_expr grammar_return_arm_recovery
+  \<open> match true { true \<Rightarrow> return (), false \<Rightarrow> return (), } \<close>
 
 urust_expr_rejects
   \<open>
@@ -112,7 +263,171 @@ urust_expr_rejects
     }
   \<close>
   \<open> syntax error \<close>
-  \<comment> \<open> Only a return arm owns this compatibility semicolon; arbitrary arm bodies do not. \<close>
+  \<comment> \<open> Direct expression arms use commas; arbitrary semicolon arms remain invalid. \<close>
+
+ML_val\<open>
+  local
+    open URust_AST
+    val ctxt = \<^context>
+    fun audit_assert label condition =
+      if condition then () else error ("return-arm audit: " ^ label)
+    fun parse source =
+      (case URust_Parser.parse_source ctxt source of
+         SOME expression => expression
+       | NONE => error "return-arm audit: expected nonempty source")
+    fun parse_text text = parse (Parser_Lex_Util.text_source text)
+    fun is_return valued (UE_Return (operand, _)) =
+          is_some operand = valued
+      | is_return _ _ = false
+    fun check_arms kind valued braced after_block guarded text =
+      (case parse_text text of
+         UE_Match (actual_kind, _, arms, _) =>
+           let
+             val returns =
+               if after_block then
+                 (case arms of
+                    UR_Arm (_, NONE, UE_Block _) :: rest => rest
+                  | _ => error "return-arm audit: comma-free block prefix changed")
+               else arms
+             fun check (UR_Arm (_, guard, body)) =
+               audit_assert ("return or guard AST changed in " ^ quote text)
+                 (is_some guard = guarded andalso
+                  (if braced then
+                     (case body of
+                        UE_Block (inner, _) => is_return valued inner
+                      | _ => false)
+                   else is_return valued body))
+           in
+             audit_assert "match kind changed" (actual_kind = kind);
+             audit_assert "return arm count changed" (length returns = 2);
+             List.app check returns
+           end
+       | _ => error "return-arm audit: expected match AST")
+    fun collect_positions (XML.Text _) result = result
+      | collect_positions (XML.Elem ((name, properties), body)) result =
+          fold collect_positions body
+            (if name = Markup.positionN then properties :: result else result)
+    fun expect_rejection text position_prefix =
+      let
+        val start = Position.make0 19 300 0 "" "" "return-arm-rejection-audit"
+        val stop = Position.symbol_explode text start
+        val source = Parser_Lex_Util.positioned_content_source text start
+      in
+        (case Exn.result parse source of
+           Exn.Res _ => error ("return-arm audit: accepted " ^ quote text)
+         | Exn.Exn exn =>
+             if Exn.is_interrupt exn then Exn.reraise exn
+             else
+               let
+                 val body = YXML.parse_body (Runtime.exn_message exn)
+                 val positions = fold collect_positions body []
+               in
+                 audit_assert "syntax diagnostic changed"
+                   (String.isSubstring "syntax error" (XML.content_of body));
+                 audit_assert "syntax diagnostic lost its source position"
+                   (exists
+                     (fn properties =>
+                       (case Properties.get properties Markup.offsetN of
+                          SOME offset =>
+                            let val n = Value.parse_int offset
+                            in the (Position.offset_of start) <= n andalso
+                               n < the (Position.offset_of stop)
+                            end
+                        | NONE => false))
+                     positions);
+                 (case position_prefix of
+                    NONE => ()
+                  | SOME prefix =>
+                      let val offending = Position.symbol_explode prefix start
+                      in
+                        audit_assert ("diagnostic offset changed in " ^ quote text)
+                          (exists
+                            (fn properties =>
+                              Properties.get properties Markup.offsetN =
+                                Option.map Value.print_int (Position.offset_of offending))
+                            positions)
+                      end)
+               end);
+        audit_assert "parser did not recover"
+          (case parse_text "match true { true => return (), false => { return; } }" of
+             UE_Match (_, _, [UR_Arm (_, _, UE_Return _),
+               UR_Arm (_, _, UE_Block (UE_Return _, _))], _) => true
+           | _ => false)
+      end
+    fun check_variant (keyword, kind) valued after_block guarded =
+      let
+        val head = keyword ^ " subject { "
+        val block = if after_block then "First => { () } " else ""
+        val guard = if guarded then " if true" else ""
+        val first = head ^ block ^ "Second" ^ guard ^ " => "
+        val second = "Third" ^ guard ^ " => "
+        val returned = if valued then "return value" else "return"
+        fun source braced comma =
+          let val body = if braced then "{ " ^ returned ^ "; }" else returned
+          in first ^ body ^ ", " ^ second ^ body ^ comma ^ " }" end
+        val _ = List.app
+          (fn (braced, comma) =>
+            check_arms kind valued braced after_block guarded (source braced comma))
+          [(false, ""), (false, ","), (true, ""), (true, ",")]
+        val _ = List.app
+          (fn comma =>
+            expect_rejection
+              (first ^ returned ^ ";" ^ comma ^ " " ^ second ^ returned ^ " }")
+              NONE)
+          ["", ","]
+        val _ = expect_rejection
+          (first ^ returned ^ ", " ^ second ^ returned ^ "; }")
+          NONE
+        val _ = expect_rejection
+          (first ^ returned ^ " " ^ second ^ returned ^ " }")
+          NONE
+      in () end
+    val _ = List.app
+      (fn variant => List.app
+        (fn valued => List.app
+          (fn after_block => List.app
+            (check_variant variant valued after_block) [false, true])
+          [false, true])
+        [false, true])
+      [("match", MF_Auto), ("match_case", MF_Case), ("match_switch", MF_Switch)]
+    val _ =
+      (case parse_text "return value;" of
+         UE_Return (SOME (UE_Path _), _) => ()
+       | _ => error "return-arm audit: ordinary valued return statement changed")
+    val _ =
+      (case parse_text "return;" of
+         UE_Return (NONE, _) => ()
+       | _ => error "return-arm audit: ordinary operandless return statement changed")
+    val _ =
+      (case parse_text "return value; ()" of
+         UE_Seq (UE_Return _, UE_Unit _) => ()
+       | _ => error "return-arm audit: return statement sequencing changed")
+    val _ =
+      expect_rejection
+        "match true { true => return \<llangle>1 :: nat\<rrangle>;, false => return 2 }"
+        (SOME "match true { true => return ")
+    (* ML-Yacc recovery can report the start of a deleted operand, rather than the semicolon.
+       Pin representative recovery positions independently of the separator matrix. *)
+    val _ =
+      expect_rejection
+        "match subject { Second => return;, Third => return }"
+        (SOME "match subject { Second => return")
+    val _ =
+      expect_rejection
+        "match subject { Second => return, Third => return value; }"
+        (SOME "match subject { Second => return, Third => return value")
+    val _ =
+      expect_rejection
+        "match subject { First => { () } Second => return; }"
+        (SOME "match subject { First => { () } Second => return")
+    val _ =
+      expect_rejection
+        "match subject { Second => return Third => return }"
+        (SOME "match subject { Second => return Third ")
+  in
+    val _ = writeln "Return-arm separator, AST, position, statement, and recovery audits passed"
+  end
+\<close>
 
 section\<open>Closures and binding RHSs\<close>
 
@@ -614,14 +929,14 @@ ML_val\<open>
        | _ => error "chained comma-free block arms changed shape")
     val _ =
       (case parse
-          "match value { First => if flag { left } else { right } Second => return result; }" of
+          "match value { First => if flag { left } else { right } Second => return result, }" of
          UE_Match
            (_, _,
             [UR_Arm (_, _, UE_If _),
              UR_Arm
                (P_Ident ("Second", _), _, UE_Return _)],
             _) => ()
-       | _ => error "return arm after comma-free block changed shape")
+       | _ => error "comma-delimited return arm after comma-free block changed shape")
     val _ =
       (case parse
           "match value { First => if flag { left } else { right } Second => middle, &third => tail }" of
@@ -782,10 +1097,13 @@ ML_val\<open>
        | _ => error "closure left-sequencing shape changed")
     val _ =
       (case parse
-          "match true { true => return 1;, false => return 2; }" of
+          "match true { true => return 1, false => { return 2; } }" of
          UE_Match
-           (_, _, [UR_Arm (_, _, UE_Return _), UR_Arm (_, _, UE_Return _)], _) => ()
-       | _ => error "return-arm semicolon changed the arm-body AST")
+           (_, _,
+            [UR_Arm (_, _, UE_Return _),
+             UR_Arm (_, _, UE_Block (UE_Return _, _))],
+            _) => ()
+       | _ => error "comma and braced return-arm AST shapes changed")
     val literal_text = "0b10_01u8"
     val literal_start =
       Position.make0 23 400 0 "" "" "grammar-literal-markup-audit"
@@ -1021,11 +1339,11 @@ ML_val\<open>
               render_path path = "Some" andalso is_path "flag" body
           | _ => false)
     val _ =
-      check_guard "legacy return with operand" "return true;"
+      check_guard "return statement with operand" "return true;"
         (fn UE_Return (SOME value, _) => is_true value
           | _ => false)
     val _ =
-      check_guard "legacy operandless return" "return;"
+      check_guard "operandless return statement" "return;"
         (fn UE_Return (NONE, _) => true
           | _ => false)
     val _ =

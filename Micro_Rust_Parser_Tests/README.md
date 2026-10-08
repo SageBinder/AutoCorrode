@@ -157,8 +157,13 @@ conditional tuples remain separate work. Existing rejection rows preserve this b
 
 Retained compatibility extensions include complete µRust bodies in guards and statement bodies in
 groups, macros, and struct fields. The underscore-before-integer-suffix spelling also remains
-accepted. During production migration the parser additionally accepts apostrophised identifiers
-and return-arm semicolons. Dereference follows Rust's uniform postfix-before-prefix precedence:
+accepted. During production migration the parser additionally accepts apostrophised identifiers.
+Direct return match arms use commas between arms and an optional final comma. Direct
+`return value;,` and `return;` arms are rejected; `{ return value; }` and `{ return; }` retain
+ordinary statement semicolons. Complete guard bodies retain return statements.
+`Parser_Syntax_Tests.thy` checks all three match forms, guarded and restricted post-block arms,
+AST shapes, positioned rejection and recovery, and typed kernel equalities with braced spellings.
+Dereference follows Rust's uniform postfix-before-prefix precedence:
 `*base[index]` dereferences the indexed value, while `(*base)[index]` explicitly selects
 dereference-before-index. `Parser_Precedence_Tests.thy` covers indexed, grouped, call, and field
 operands, explicit grouping, and the restricted control-head grammar.
