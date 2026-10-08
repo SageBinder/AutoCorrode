@@ -5,7 +5,6 @@ begin
 
 chapter\<open> Scoped cast-target aliases \<close>
 
-declare [[urust_conformance = false]]
 declare [[urust_verbosity = 0]]
 
 section\<open> Imported bundles remain inactive \<close>
@@ -53,39 +52,102 @@ begin
 
 urust_expr cast_alias_u8
   \<open> cast_alias_word as U8Alias \<close>
-  against \<open> \<lbrakk> cast_alias_word as u8 \<rbrakk> \<close>
+
+urust_expr cast_alias_u8_primitive
+  \<open> cast_alias_word as u8 \<close>
+
+lemma cast_alias_u8_equal:
+  \<open> cast_alias_u8 = cast_alias_u8_primitive \<close>
+  unfolding cast_alias_u8_def cast_alias_u8_primitive_def
+  by (rule refl)
 
 urust_expr cast_alias_u16
   \<open> cast_alias_word as types::U16Alias \<close>
-  against \<open> \<lbrakk> cast_alias_word as u16 \<rbrakk> \<close>
+
+urust_expr cast_alias_u16_primitive
+  \<open> cast_alias_word as u16 \<close>
+
+lemma cast_alias_u16_equal:
+  \<open> cast_alias_u16 = cast_alias_u16_primitive \<close>
+  unfolding cast_alias_u16_def cast_alias_u16_primitive_def
+  by (rule refl)
 
 urust_expr cast_alias_u32
   \<open> cast_alias_word as U32Alias \<close>
-  against \<open> \<lbrakk> cast_alias_word as u32 \<rbrakk> \<close>
+
+urust_expr cast_alias_u32_primitive
+  \<open> cast_alias_word as u32 \<close>
+
+lemma cast_alias_u32_equal:
+  \<open> cast_alias_u32 = cast_alias_u32_primitive \<close>
+  unfolding cast_alias_u32_def cast_alias_u32_primitive_def
+  by (rule refl)
 
 urust_expr cast_alias_u64
   \<open> cast_alias_word as U64Alias \<close>
-  against \<open> \<lbrakk> cast_alias_word as u64 \<rbrakk> \<close>
+
+urust_expr cast_alias_u64_primitive
+  \<open> cast_alias_word as u64 \<close>
+
+lemma cast_alias_u64_equal:
+  \<open> cast_alias_u64 = cast_alias_u64_primitive \<close>
+  unfolding cast_alias_u64_def cast_alias_u64_primitive_def
+  by (rule refl)
 
 urust_expr cast_alias_usize
   \<open> cast_alias_word as UsizeAlias \<close>
-  against \<open> \<lbrakk> cast_alias_word as usize \<rbrakk> \<close>
+
+urust_expr cast_alias_usize_primitive
+  \<open> cast_alias_word as usize \<close>
+
+lemma cast_alias_usize_equal:
+  \<open> cast_alias_usize = cast_alias_usize_primitive \<close>
+  unfolding cast_alias_usize_def cast_alias_usize_primitive_def
+  by (rule refl)
 
 urust_expr cast_alias_i32
   \<open> cast_alias_word as I32Alias \<close>
-  against \<open> \<lbrakk> cast_alias_word as i32 \<rbrakk> \<close>
+
+urust_expr cast_alias_i32_primitive
+  \<open> cast_alias_word as i32 \<close>
+
+lemma cast_alias_i32_equal:
+  \<open> cast_alias_i32 = cast_alias_i32_primitive \<close>
+  unfolding cast_alias_i32_def cast_alias_i32_primitive_def
+  by (rule refl)
 
 urust_expr cast_alias_i64
   \<open> cast_alias_word as I64Alias \<close>
-  against \<open> \<lbrakk> cast_alias_word as i64 \<rbrakk> \<close>
+
+urust_expr cast_alias_i64_primitive
+  \<open> cast_alias_word as i64 \<close>
+
+lemma cast_alias_i64_equal:
+  \<open> cast_alias_i64 = cast_alias_i64_primitive \<close>
+  unfolding cast_alias_i64_def cast_alias_i64_primitive_def
+  by (rule refl)
 
 urust_expr cast_alias_chain
   \<open> cast_alias_word as U64Alias as U8Alias as I32Alias \<close>
-  against \<open> \<lbrakk> cast_alias_word as u64 as u8 as i32 \<rbrakk> \<close>
+
+urust_expr cast_alias_chain_primitive
+  \<open> cast_alias_word as u64 as u8 as i32 \<close>
+
+lemma cast_alias_chain_equal:
+  \<open> cast_alias_chain = cast_alias_chain_primitive \<close>
+  unfolding cast_alias_chain_def cast_alias_chain_primitive_def
+  by (rule refl)
 
 urust_expr cast_alias_precedence
   \<open> cast_alias_word as U32Alias + 1_u32 \<close>
-  against \<open> \<lbrakk> cast_alias_word as u32 + 1_u32 \<rbrakk> \<close>
+
+urust_expr cast_alias_precedence_primitive
+  \<open> cast_alias_word as u32 + 1_u32 \<close>
+
+lemma cast_alias_precedence_equal:
+  \<open> cast_alias_precedence = cast_alias_precedence_primitive \<close>
+  unfolding cast_alias_precedence_def cast_alias_precedence_primitive_def
+  by (rule refl)
 
 urust_expr cast_alias_no_struct
   \<open>
@@ -96,18 +158,58 @@ urust_expr cast_alias_no_struct
       cast_alias_word as types::U16Alias
     }
   \<close>
-  against \<open>
-    \<lbrakk>
+
+urust_expr cast_alias_no_struct_primitive
+  \<open>
       if cast_alias_word as u32 ==
           cast_alias_word as u32 {
         cast_alias_word as u16
       } else {
         cast_alias_word as u16
       }
-    \<rbrakk>
+
   \<close>
 
+lemma cast_alias_no_struct_equal:
+  \<open> cast_alias_no_struct = cast_alias_no_struct_primitive \<close>
+  unfolding cast_alias_no_struct_def cast_alias_no_struct_primitive_def
+  by (rule refl)
+
 end
+
+context
+  fixes cast_alias_word :: "64 word"
+    and cast_alias_length :: "64 word"
+begin
+
+urust_expr cast_alias_repeats
+  \<open>
+    ([cast_alias_word as types::U16Alias; (1 + 1) as usize],
+     [const { cast_alias_word as U8Alias }; 3 as usize],
+     [cast_alias_word as U32Alias; cast_alias_length],
+     [const { cast_alias_word as types::U16Alias }; cast_alias_length as usize])
+  \<close>
+
+urust_expr cast_alias_repeats_primitive
+  \<open>
+    ([cast_alias_word as u16; (1 + 1) as usize],
+     [const { cast_alias_word as u8 }; 3 as usize],
+     [cast_alias_word as u32; cast_alias_length],
+     [const { cast_alias_word as u16 }; cast_alias_length as usize])
+  \<close>
+
+lemma cast_alias_repeats_equal:
+  \<open> cast_alias_repeats = cast_alias_repeats_primitive \<close>
+  unfolding cast_alias_repeats_def cast_alias_repeats_primitive_def
+  by (rule refl)
+
+end
+
+urust_expr_rejects \<open> [0u64 as U8Alias; 2 as UsizeAlias] \<close>
+  \<open> array repeat length supports only \<close>
+
+urust_expr_rejects \<open> [const { 0u64 as U8Alias }; 2 as UsizeAlias] \<close>
+  \<open> array repeat length supports only \<close>
 
 context
   fixes cast_alias_raw :: "('address, 'global) gref"
@@ -115,43 +217,113 @@ begin
 
 urust_expr cast_alias_const_u8_pointer
   \<open> cast_alias_raw as ConstU8Pointer \<close>
-  against \<open> \<lbrakk> cast_alias_raw as *const u8 \<rbrakk> \<close>
+
+urust_expr cast_alias_const_u8_pointer_primitive
+  \<open> cast_alias_raw as *const u8 \<close>
+
+lemma cast_alias_const_u8_pointer_equal:
+  \<open> cast_alias_const_u8_pointer = cast_alias_const_u8_pointer_primitive \<close>
+  unfolding cast_alias_const_u8_pointer_def cast_alias_const_u8_pointer_primitive_def
+  by (rule refl)
 
 urust_expr cast_alias_const_u16_pointer
   \<open> cast_alias_raw as ConstU16Pointer \<close>
-  against \<open> \<lbrakk> cast_alias_raw as *const u16 \<rbrakk> \<close>
+
+urust_expr cast_alias_const_u16_pointer_primitive
+  \<open> cast_alias_raw as *const u16 \<close>
+
+lemma cast_alias_const_u16_pointer_equal:
+  \<open> cast_alias_const_u16_pointer = cast_alias_const_u16_pointer_primitive \<close>
+  unfolding cast_alias_const_u16_pointer_def cast_alias_const_u16_pointer_primitive_def
+  by (rule refl)
 
 urust_expr cast_alias_const_u32_pointer
   \<open> cast_alias_raw as ConstU32Pointer \<close>
-  against \<open> \<lbrakk> cast_alias_raw as *const u32 \<rbrakk> \<close>
+
+urust_expr cast_alias_const_u32_pointer_primitive
+  \<open> cast_alias_raw as *const u32 \<close>
+
+lemma cast_alias_const_u32_pointer_equal:
+  \<open> cast_alias_const_u32_pointer = cast_alias_const_u32_pointer_primitive \<close>
+  unfolding cast_alias_const_u32_pointer_def cast_alias_const_u32_pointer_primitive_def
+  by (rule refl)
 
 urust_expr cast_alias_const_u64_pointer
   \<open> cast_alias_raw as ConstU64Pointer \<close>
-  against \<open> \<lbrakk> cast_alias_raw as *const u64 \<rbrakk> \<close>
+
+urust_expr cast_alias_const_u64_pointer_primitive
+  \<open> cast_alias_raw as *const u64 \<close>
+
+lemma cast_alias_const_u64_pointer_equal:
+  \<open> cast_alias_const_u64_pointer = cast_alias_const_u64_pointer_primitive \<close>
+  unfolding cast_alias_const_u64_pointer_def cast_alias_const_u64_pointer_primitive_def
+  by (rule refl)
 
 urust_expr cast_alias_const_usize_pointer
   \<open> cast_alias_raw as ConstUsizePointer \<close>
-  against \<open> \<lbrakk> cast_alias_raw as *const usize \<rbrakk> \<close>
+
+urust_expr cast_alias_const_usize_pointer_primitive
+  \<open> cast_alias_raw as *const usize \<close>
+
+lemma cast_alias_const_usize_pointer_equal:
+  \<open> cast_alias_const_usize_pointer = cast_alias_const_usize_pointer_primitive \<close>
+  unfolding cast_alias_const_usize_pointer_def cast_alias_const_usize_pointer_primitive_def
+  by (rule refl)
 
 urust_expr cast_alias_mut_u8_pointer
   \<open> cast_alias_raw as MutU8Pointer \<close>
-  against \<open> \<lbrakk> cast_alias_raw as *mut u8 \<rbrakk> \<close>
+
+urust_expr cast_alias_mut_u8_pointer_primitive
+  \<open> cast_alias_raw as *mut u8 \<close>
+
+lemma cast_alias_mut_u8_pointer_equal:
+  \<open> cast_alias_mut_u8_pointer = cast_alias_mut_u8_pointer_primitive \<close>
+  unfolding cast_alias_mut_u8_pointer_def cast_alias_mut_u8_pointer_primitive_def
+  by (rule refl)
 
 urust_expr cast_alias_mut_u16_pointer
   \<open> cast_alias_raw as MutU16Pointer \<close>
-  against \<open> \<lbrakk> cast_alias_raw as *mut u16 \<rbrakk> \<close>
+
+urust_expr cast_alias_mut_u16_pointer_primitive
+  \<open> cast_alias_raw as *mut u16 \<close>
+
+lemma cast_alias_mut_u16_pointer_equal:
+  \<open> cast_alias_mut_u16_pointer = cast_alias_mut_u16_pointer_primitive \<close>
+  unfolding cast_alias_mut_u16_pointer_def cast_alias_mut_u16_pointer_primitive_def
+  by (rule refl)
 
 urust_expr cast_alias_mut_u32_pointer
   \<open> cast_alias_raw as MutU32Pointer \<close>
-  against \<open> \<lbrakk> cast_alias_raw as *mut u32 \<rbrakk> \<close>
+
+urust_expr cast_alias_mut_u32_pointer_primitive
+  \<open> cast_alias_raw as *mut u32 \<close>
+
+lemma cast_alias_mut_u32_pointer_equal:
+  \<open> cast_alias_mut_u32_pointer = cast_alias_mut_u32_pointer_primitive \<close>
+  unfolding cast_alias_mut_u32_pointer_def cast_alias_mut_u32_pointer_primitive_def
+  by (rule refl)
 
 urust_expr cast_alias_mut_u64_pointer
   \<open> cast_alias_raw as MutU64Pointer \<close>
-  against \<open> \<lbrakk> cast_alias_raw as *mut u64 \<rbrakk> \<close>
+
+urust_expr cast_alias_mut_u64_pointer_primitive
+  \<open> cast_alias_raw as *mut u64 \<close>
+
+lemma cast_alias_mut_u64_pointer_equal:
+  \<open> cast_alias_mut_u64_pointer = cast_alias_mut_u64_pointer_primitive \<close>
+  unfolding cast_alias_mut_u64_pointer_def cast_alias_mut_u64_pointer_primitive_def
+  by (rule refl)
 
 urust_expr cast_alias_mut_usize_pointer
   \<open> cast_alias_raw as MutUsizePointer \<close>
-  against \<open> \<lbrakk> cast_alias_raw as *mut usize \<rbrakk> \<close>
+
+urust_expr cast_alias_mut_usize_pointer_primitive
+  \<open> cast_alias_raw as *mut usize \<close>
+
+lemma cast_alias_mut_usize_pointer_equal:
+  \<open> cast_alias_mut_usize_pointer = cast_alias_mut_usize_pointer_primitive \<close>
+  unfolding cast_alias_mut_usize_pointer_def cast_alias_mut_usize_pointer_primitive_def
+  by (rule refl)
 
 end
 
@@ -239,6 +411,20 @@ ML_val\<open>
               "0_u64 as U8Alias::<Width>"))
         "generic arguments are not allowed in cast-target aliases"
 
+    val _ =
+      expect_failure "inexact qualified use"
+        (fn () =>
+          Parser_Test_Elaboration.expression \<^context>
+            (Parser_Lex_Util.text_source "0u64 as U16Alias"))
+        "unknown cast-target alias"
+
+    val _ =
+      expect_failure "wrong qualifier"
+        (fn () =>
+          Parser_Test_Elaboration.expression \<^context>
+            (Parser_Lex_Util.text_source "0u64 as other::U16Alias"))
+        "unknown cast-target alias"
+
   in
     val _ = ()
   end
@@ -255,7 +441,14 @@ urust_cast_alias "ExperimentWidth" = "u32"
 
 urust_expr cast_alias_direct_activation
   \<open> 0_u64 as ExperimentWidth \<close>
-  against \<open> \<lbrakk> 0_u64 as u32 \<rbrakk> \<close>
+
+urust_expr cast_alias_direct_activation_primitive
+  \<open> 0_u64 as u32 \<close>
+
+lemma cast_alias_direct_activation_equal:
+  \<open> cast_alias_direct_activation = cast_alias_direct_activation_primitive \<close>
+  unfolding cast_alias_direct_activation_def cast_alias_direct_activation_primitive_def
+  by (rule refl)
 
 end
 
@@ -264,7 +457,14 @@ begin
 
 urust_expr cast_alias_locale_use
   \<open> scope_word as types::U16Alias \<close>
-  against \<open> \<lbrakk> scope_word as u16 \<rbrakk> \<close>
+
+urust_expr cast_alias_locale_use_primitive
+  \<open> scope_word as u16 \<close>
+
+lemma cast_alias_locale_use_equal:
+  \<open> cast_alias_locale_use = cast_alias_locale_use_primitive \<close>
+  unfolding cast_alias_locale_use_def cast_alias_locale_use_primitive_def
+  by (rule refl)
 
 end
 
@@ -299,6 +499,69 @@ end
 
 ML_val\<open>
   local
+    val base_ctxt = \<^context>
+    val ctxt =
+      Bundle.includes
+        [(true, Bundle.check base_ctxt ("module_cast_aliases", Position.none))]
+        base_ctxt
+
+    fun assert message condition =
+      if condition then () else error ("cast-target alias diagnostics: " ^ message)
+
+    fun reject_then_recover (text, prefix, expected) =
+      let
+        val start = Position.make0 23 7 0 "" "" "cast-alias-positioned-use"
+        val expected_pos = Position.symbol_explode prefix start
+        val source = Parser_Lex_Util.positioned_content_source text start
+        val _ =
+          (case Exn.result (Parser_Test_Elaboration.expression ctxt) source of
+             Exn.Res _ => error ("invalid cast-target alias accepted: " ^ quote text)
+           | Exn.Exn exn =>
+               if Exn.is_interrupt exn then Exn.reraise exn
+               else
+                 let
+                   val raw_message = Runtime.exn_message exn
+                   val message = XML.content_of (YXML.parse_body raw_message)
+                   val markup =
+                     fold Parser_Test_Reports.collect_markup
+                       (YXML.parse_body raw_message) []
+                   val positions =
+                     map_filter
+                       (fn (name, props) =>
+                         if name = Markup.positionN
+                         then SOME (Position.of_properties props)
+                         else NONE)
+                       markup
+                 in
+                   assert "wrong rejection reason" (String.isSubstring expected message);
+                   assert "error lost its smallest source position"
+                     (exists
+                       (fn pos =>
+                         Position.file_of pos = Position.file_of expected_pos andalso
+                         Position.offset_of pos = Position.offset_of expected_pos)
+                       positions)
+                 end)
+        val alias =
+          Parser_Test_Elaboration.expression ctxt
+            (Parser_Lex_Util.text_source "0u64 as types::U16Alias")
+        val primitive =
+          Parser_Test_Elaboration.expression ctxt
+            (Parser_Lex_Util.text_source "0u64 as u16")
+      in
+        assert "failed declaration/use poisoned subsequent elaboration"
+          (Term.aconv (alias, primitive))
+      end
+  in
+    val _ = List.app reject_then_recover
+      [("0u64 as UnknownWidth", "0u64 as ", "unknown cast-target alias"),
+       ("0u64 as types::UnknownWidth", "0u64 as ", "unknown cast-target alias"),
+       ("0u64 as U8Alias::<Width>", "0u64 as U8Alias",
+        "generic arguments are not allowed in cast-target aliases")]
+  end
+\<close>
+
+ML_val\<open>
+  local
     fun rejected text =
       (case
           Exn.result
@@ -328,7 +591,14 @@ begin
 
 urust_expr cast_alias_conflict_left_alone
   \<open> 0_u64 as SharedWidth \<close>
-  against \<open> \<lbrakk> 0_u64 as u8 \<rbrakk> \<close>
+
+urust_expr cast_alias_conflict_left_alone_primitive
+  \<open> 0_u64 as u8 \<close>
+
+lemma cast_alias_conflict_left_alone_equal:
+  \<open> cast_alias_conflict_left_alone = cast_alias_conflict_left_alone_primitive \<close>
+  unfolding cast_alias_conflict_left_alone_def cast_alias_conflict_left_alone_primitive_def
+  by (rule refl)
 
 end
 
@@ -337,7 +607,14 @@ begin
 
 urust_expr cast_alias_conflict_right_alone
   \<open> 0_u64 as SharedWidth \<close>
-  against \<open> \<lbrakk> 0_u64 as u16 \<rbrakk> \<close>
+
+urust_expr cast_alias_conflict_right_alone_primitive
+  \<open> 0_u64 as u16 \<close>
+
+lemma cast_alias_conflict_right_alone_equal:
+  \<open> cast_alias_conflict_right_alone = cast_alias_conflict_right_alone_primitive \<close>
+  unfolding cast_alias_conflict_right_alone_def cast_alias_conflict_right_alone_primitive_def
+  by (rule refl)
 
 end
 
@@ -346,7 +623,14 @@ begin
 
 urust_expr cast_alias_idempotent_registration
   \<open> 0_u64 as StableWidth \<close>
-  against \<open> \<lbrakk> 0_u64 as u16 \<rbrakk> \<close>
+
+urust_expr cast_alias_idempotent_registration_primitive
+  \<open> 0_u64 as u16 \<close>
+
+lemma cast_alias_idempotent_registration_equal:
+  \<open> cast_alias_idempotent_registration = cast_alias_idempotent_registration_primitive \<close>
+  unfolding cast_alias_idempotent_registration_def cast_alias_idempotent_registration_primitive_def
+  by (rule refl)
 
 end
 

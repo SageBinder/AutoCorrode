@@ -504,7 +504,7 @@ ML_val\<open>
       (case parse_text "if * /* prefix */base/* postfix */[index] as/* cast */u64 { () }" of
          UE_If
            (UE_Cast (UE_Unary (U_Deref, UE_Index (UE_Path _, UE_Path _, _), _),
-             CT_Unsigned UT_U64, _), _, _, _) => ()
+             SCT_Primitive (CT_Unsigned UT_U64), _), _, _, _) => ()
        | _ => error "block-comment regression audit: control-head precedence or primitive cast")
     val _ =
       List.app (fn text =>

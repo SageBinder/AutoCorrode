@@ -118,15 +118,29 @@ The alias changes only source spelling: its checked term is identical to the pri
 \<close>
 
 bundle showoff_cast_aliases begin
-  urust_cast_alias "RegisterWidth" = "u16"
+  urust_cast_alias "SmallId" = "u16"
 end
 
 context includes showoff_cast_aliases
 begin
 
 urust_expr showoff_scoped_cast_alias
-  \<open> 0_u64 as RegisterWidth \<close>
-  against \<open> \<lbrakk> 0_u64 as u16 \<rbrakk> \<close>
+  \<open> 0u64 as SmallId \<close>
+
+urust_expr showoff_scoped_cast_alias_primitive
+  \<open> 0u64 as u16 \<close>
+
+lemma showoff_scoped_cast_alias_equal:
+  \<open> showoff_scoped_cast_alias = showoff_scoped_cast_alias_primitive \<close>
+  unfolding showoff_scoped_cast_alias_def showoff_scoped_cast_alias_primitive_def
+  by (rule refl)
+
+urust_expr showoff_cast_alias_repeats
+  \<open>
+    let ordinary = [0u64 as SmallId; 2 as usize];
+    let generated = [const { /* outer /* nested */ */ 1u64 as SmallId }; 3usize];
+    (ordinary, generated)
+  \<close>
 
 end
 
