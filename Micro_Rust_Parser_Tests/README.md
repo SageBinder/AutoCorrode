@@ -37,9 +37,15 @@ Named functions register their Rust declaration name by default. Bare, explicit 
 body-only helpers use `[register_notation = false]` to preserve their registration behavior,
 including helpers interpreted repeatedly in locales.
 
-`Parser_Function_Type_Mapping_Tests.thy` covers authoritative signatures, inference, artifacts,
-registration controls, conflicts, locale replay, editor navigation and recovery.
-`Parser_Rust_Function_Tests.thy` retains complete-item grammar and lowering coverage.
+Start with `Parser_Function_Tests.thy` to learn `urust_fn`: it opens with explicit, inferred and
+anonymous names, then demonstrates parameter forms, calls, options, HOL escapes, mapped signatures,
+inferred effects and locales through ordinary checked declarations. The former Rust-function and
+function-type-mapping suites are consolidated here.
+
+`Parser_Function_Regression_Tests.thy` imports those examples and checks their equations, types,
+registration, ASTs, diagnostics, parser/printer recovery, locale conflicts and editor navigation.
+Its ML harnesses stay in this separate regression theory. `Parser_Command_Tests.thy` retains
+shared command/API and expression tests, including comparisons with the imported function artifacts.
 
 ## Markup correction
 
@@ -143,8 +149,12 @@ negative rows preserve these boundaries.
 
 ## Focused regression theories
 
-- `Parser_Expression_Tests.thy` and `Parser_Function_Tests.thy`: independent
-  positive suites, including direct, method, and chained iterator syntax.
+- `Parser_Expression_Tests.thy`: positive expression syntax, including direct, method and chained
+  iterator calls.
+- `Parser_Function_Tests.thy`: the declaration-first `urust_fn` reading entry point, consolidating
+  complete-item syntax, signatures, mappings, options, lexical binding and locale examples.
+- `Parser_Function_Regression_Tests.thy`: the internal audits and negative probes for those
+  function examples, including inference, registration, generated artifacts, navigation and recovery.
 - `Parser_Improvements_Tests.thy`: accepted language improvements and intentional semantic
   corrections.
 - `Parser_Command_Tests.thy`: declaration behavior, named and wildcard parameter slots, options,

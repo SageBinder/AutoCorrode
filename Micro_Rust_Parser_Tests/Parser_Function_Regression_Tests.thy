@@ -1,9 +1,7 @@
-(* Regression coverage for authoritative Rust signatures and optional function registration. *)
+(* Internal urust_fn regression audits. Read Parser_Function_Tests for command syntax. *)
 
-theory Parser_Function_Type_Mapping_Tests
-  imports
-    Parser_Test_Utils
-    Parser_Logging_Fixtures
+theory Parser_Function_Regression_Tests
+  imports Parser_Function_Tests
 begin
 
 declare [[urust_pp_test = true]]
@@ -12,37 +10,1120 @@ declare [[urust_verbosity = 0]]
 declare [[urust_abbrev = false]]
 declare [[urust_application_def = false]]
 declare [[urust_register_notation = true]]
-
-section\<open> Signature fixtures \<close>
-
-urust_type "SignatureCount" = \<open> nat \<close>
-urust_type "signature::Flag" = \<open> bool \<close>
-urust_type "SignatureOption<'value>" = \<open> 'value option \<close>
-urust_type "SignatureResult<'ok, 'err>" = \<open> ('ok, 'err) result \<close>
-urust_type "SignatureOrdered<'value>" = \<open> 'value::linorder list \<close>
-urust_type "SignatureFinite<'value>" = \<open> 'value::finite list \<close>
-urust_type "SignatureFunction" = \<open> nat \<Rightarrow> nat \<close>
-urust_type "signature::Header<'first>::Body<'second>" =
-  \<open> ('first, 'second) result \<close>
-
-urust_datatype \<open>
-  struct SignaturePacket {
-    count: SignatureCount,
-    flag: signature::Flag,
-  }
+text\<open>
+This theory checks the declarations in Parser_Function_Tests and runs isolated negative
+commands. Its ML fixtures are test infrastructure; the imported function theory presents
+the public syntax through ordinary declarations.
 \<close>
 
-urust_datatype signature_choice_hol \<open>
-  enum SignatureChoice {
-    Empty,
-    Payload(SignatureCount),
-  }
+
+chapter\<open> Function items, artifacts and parser recovery \<close>
+
+
+section\<open> Name conversion and registration scope \<close>
+
+ML_val\<open>
+  let
+    val ctxt = \<^context>
+    fun require label condition =
+      if condition then ()
+      else error ("function registration example: " ^ label)
+
+    fun registered (rust_name, hol_name) =
+      (case URust_Item_Scope.lookup_function ctxt rust_name of
+         SOME entry =>
+           require (rust_name ^ " selected the wrong HOL artifact")
+             (Term.aconv_untyped
+               (URust_Item_Scope.function_term entry, Const (hol_name, dummyT)))
+       | NONE => error ("function example did not register " ^ quote rust_name))
+
+    val _ =
+      List.app registered
+        [("BareRegistered", \<^const_name>\<open>bare_registered\<close>),
+         ("ExplicitlyRegistered", \<^const_name>\<open>explicitly_registered\<close>),
+         ("ScopedRegisteredOverride", \<^const_name>\<open>scoped_registered_override\<close>),
+         ("SignaturePrimitive", \<^const_name>\<open>signature_primitive\<close>)]
+    val _ =
+      List.app
+        (fn name => require (name ^ " unexpectedly registered")
+          (is_none (URust_Item_Scope.lookup_function ctxt name)))
+        ["UnregisteredHelper", "ScopedUnregisteredHelper"]
+  in
+    ()
+  end
 \<close>
 
-datatype signature_unregistered_hol = Signature_Unregistered_HOL
+ML_val\<open>
+  if is_none (URust_Item_Scope.lookup_function \<^context> "AnonymousProbe")
+  then ()
+  else error "anonymous Rust function item was registered"
+\<close>
+
+ML_val\<open>
+  List.app
+    (fn (source, expected) =>
+      let val actual = URust_AST.rust_snake_case source in
+        if actual = expected then ()
+        else
+          error
+            ("Rust function inferred-name conversion changed for " ^
+              quote source ^ ": expected " ^ quote expected ^
+              ", found " ^ quote actual)
+      end)
+    [("HTTPServer", "http_server"),
+     ("HTTP2XMLParser", "http2_xml_parser"),
+     ("XMLHttpRequest", "xml_http_request"),
+     ("Already_snake", "already_snake"),
+     ("_LeadingHTTP", "_leading_http"),
+     ("parse2DValue", "parse2_d_value")]
+\<close>
+
+ML_val\<open>
+  (case URust_Item_Scope.lookup_function \<^context> "RustAlias" of
+     SOME entry =>
+       if Term.aconv_untyped
+           (URust_Item_Scope.function_term entry,
+            Const (\<^const_name>\<open>explicit_hol_name\<close>, dummyT))
+       then ()
+       else error "anonymous duplicate Rust item replaced the registered function"
+   | NONE => error "anonymous duplicate Rust item removed the registered function")
+\<close>
+
+ML_val\<open>
+  (case URust_Item_Scope.lookup_function \<^context> "LocaleScopedFunction" of
+     SOME entry =>
+       if Term.aconv_untyped
+           (URust_Item_Scope.function_term entry,
+            Const (\<^const_name>\<open>global_after_locale_scope\<close>, dummyT))
+       then ()
+       else error "locale-scoped Rust function registration leaked globally"
+   | NONE => error "global declaration after locale scope was not registered");
+  if is_none (URust_Item_Scope.lookup_function \<^context> "LocaleScopedClient")
+  then ()
+  else error "locale-scoped Rust client registration leaked globally"
+\<close>
+
+section\<open> Generated equations and declaration artifacts \<close>
+
+lemma explicit_hol_name_shape:
+  \<open>explicit_hol_name =
+    (\<lambda>x _. FunctionBody (literal x))\<close>
+  by (simp add: explicit_hol_name_def)
+
+lemma inferred_hol_name_shape:
+  \<open>http_server = FunctionBody (literal ())\<close>
+  by (simp add: http_server_def)
+
+lemma mixed_parameter_slots_shape:
+  \<open>mixed_parameter_slots =
+    (\<lambda>_ _ retained _. FunctionBody (literal retained))\<close>
+  by (simp add: mixed_parameter_slots_def)
+
+lemma empty_block_shape:
+  \<open>empty_block = FunctionBody (literal ())\<close>
+  by (simp add: empty_block_def)
+
+lemma commented_signature_shape:
+  \<open>commented_signature =
+    (\<lambda>value. FunctionBody (literal value))\<close>
+  by (simp add: commented_signature_def)
+
+ML_val\<open>
+  let
+    val ctxt = \<^context>
+    val proposition =
+      Thm.prop_of
+        (Proof_Context.get_thm ctxt
+          "invoke_rust_maximum_call_arity_def")
+  in
+    if Term.exists_subterm
+        (fn Const (name, _) =>
+              name = \<^const_name>\<open>funcall14\<close>
+          | _ => false)
+        proposition
+    then ()
+    else error "maximum-arity Rust function call did not lower through funcall14"
+  end
+\<close>
+
+ML_val\<open>
+  let
+    val ctxt = \<^context>
+    val thy = Proof_Context.theory_of ctxt
+    val attributes =
+      Named_Theorems.get ctxt
+        \<^named_theorems>\<open>micro_rust_simps\<close>
+
+    fun assert label condition =
+      if condition then ()
+      else error ("Rust function artifact audit: " ^ label)
+
+    fun theorem name = Proof_Context.get_thm ctxt name
+
+    fun has_theorem name =
+      can (Proof_Context.get_thm ctxt) name
+
+    fun equation name =
+      theorem name |> Thm.prop_of |> Logic.dest_equals
+
+    val (default_lhs, default_rhs) =
+      equation "explicit_hol_name_def"
+    val (application_lhs, _) =
+      equation "attributed_application_function_def"
+
+    val default_arguments = #2 (Term.strip_comb default_lhs)
+    val application_arguments = #2 (Term.strip_comb application_lhs)
+
+    val _ =
+      assert "ordinary item definition no longer has a lambda-shaped rhs"
+        (null default_arguments andalso
+          length (binder_types (fastype_of default_rhs)) = 2)
+    val _ =
+      assert "application_def item did not move its argument to the lhs"
+        (length application_arguments = 1)
+    val _ =
+      assert "abbreviation unexpectedly generated a definition theorem"
+        (not (has_theorem "abbreviated_hol_name_def"))
+    val _ =
+      assert "attrs did not reach the Rust-item definition theorem"
+        (exists
+          (Thm.equiv_thm thy o
+            pair (theorem "attributed_application_function_def"))
+          attributes)
+  in
+    ()
+  end
+\<close>
+
+thm authoritative_signature_def
+thm attributed_application_function_def
+thm configured_function_def
+thm http2_xml_parser_def
+thm already_snake_def
+
+section\<open> AST structure and signature printer roundtrips \<close>
+
+urust_datatype shared_item \<open> struct SharedItem; \<close>
+
+definition notation_function_target ::
+    \<open>64 word \<Rightarrow>
+      (unit, 64 word, unit, unit, unit) function_body\<close>
+  where
+    \<open>notation_function_target =
+      (\<lambda>x. FunctionBody (literal x))\<close>
+
+urust_notation (call)
+  notation_function_target ("NotationClash")
+
+ML\<open>
+local
+  open URust_AST
+
+  fun source label text =
+    Parser_Lex_Util.positioned_content_source text
+      (Position.line_file 1 label)
+
+  fun parse label text =
+    (case URust_Parser.parse_function_source \<^context>
+        (source label text) of
+       SOME function => function
+     | NONE =>
+         error
+           ("Rust function source parsed as empty" ^
+             Position.here (Position.file label)))
+
+  fun assert label condition =
+    if condition then ()
+    else error ("Rust function AST audit: " ^ label)
+
+  fun parameter_type
+      (Function_Parameter (_, _, typ, _)) = typ
+
+  fun serialized function =
+    URust_Printer.string_of_function
+      URust_Printer.serialized_options function
+
+  fun assert_roundtrip label function =
+    let
+      val text = serialized function
+      val reparsed = parse (label ^ "-reparsed") text
+      val original_tokens =
+        URust_Printer.tokens_of_function
+          URust_Printer.serialized_options function
+      val reparsed_tokens =
+        URust_Printer.tokens_of_function
+          URust_Printer.serialized_options reparsed
+    in
+      assert (label ^ " parse-print-parse tokens changed")
+        (original_tokens = reparsed_tokens);
+      text
+    end
+
+  val type_forms =
+    parse "rust-function-type-forms"
+      "fn Types(\
+      \a: u8, b: i128, c: bool, d: char, e: &str, \
+      \f: &mut [u64], g: *const Foo::Bar<Baz<u8>, 4>, \
+      \h: *mut u16, i: [u8; 32], j: (u8, bool), \
+      \k: (), l: !, m: u16, n: u32, o: u128, p: usize, \
+      \q: i8, r: i16, s: i32, t: i64, u: isize) \
+      \-> Outer::Result<Inner<u64>, 8> { a >> 1 }"
+
+  val _ =
+    (case map parameter_type (function_parameters type_forms) of
+       [Primitive_Type (DPT_U8, _),
+        Primitive_Type (DPT_I128, _),
+        Primitive_Type (DPT_Bool, _),
+        Primitive_Type (DPT_Char, _),
+        Reference_Type
+          (BM_Imm, Primitive_Type (DPT_Str, _), _),
+        Reference_Type
+          (BM_Mut,
+           Slice_Type (Primitive_Type (DPT_U64, _), _), _),
+        Raw_Pointer_Type
+          (RPM_Const, Path_Type (_, _), _),
+        Raw_Pointer_Type
+          (RPM_Mut, Primitive_Type (DPT_U16, _), _),
+        Array_Type
+          (Primitive_Type (DPT_U8, _), array_length, _),
+        Tuple_Type
+          ([Primitive_Type (DPT_U8, _),
+            Primitive_Type (DPT_Bool, _)], _),
+        Primitive_Type (DPT_Unit, _),
+        Primitive_Type (DPT_Never, _),
+        Primitive_Type (DPT_U16, _),
+        Primitive_Type (DPT_U32, _),
+        Primitive_Type (DPT_U128, _),
+        Primitive_Type (DPT_Usize, _),
+        Primitive_Type (DPT_I8, _),
+        Primitive_Type (DPT_I16, _),
+        Primitive_Type (DPT_I32, _),
+        Primitive_Type (DPT_I64, _),
+        Primitive_Type (DPT_Isize, _)] =>
+          assert "array length token changed"
+            (integer_literal_lexeme array_length = "32")
+     | _ => error "Rust function primitive/type-form AST changed")
+
+  val type_forms_text =
+    assert_roundtrip "rust-function-type-forms" type_forms
+
+  val _ =
+    assert "nested Rust generic types were not preserved"
+      (String.isSubstring
+        "Outer::Result<Inner<u64>, 8>" type_forms_text)
+  val _ =
+    assert "function-body shift tokenization changed"
+      (String.isSubstring "a >> 1" type_forms_text)
+
+  val edge_forms =
+    parse "rust-function-edge-type-forms"
+      "fn TypeEdges(\
+      \group: (u8), singleton: (u8,), tuple: (u32, bool,), \
+      \nested: &&mut [*const Foo::Bar<Baz<u8>, 4>], \
+      \array: [u16; 0x20usize], \
+      \path: Result<Outer<Inner<u64>>, 1_024usize,>,\
+      \) -> (Result<u8, Error>,) { group }"
+
+  val _ =
+    (case map parameter_type (function_parameters edge_forms) of
+       [Group_Type (Primitive_Type (DPT_U8, _), _),
+        Tuple_Type ([Primitive_Type (DPT_U8, _)], _),
+        Tuple_Type
+          ([Primitive_Type (DPT_U32, _),
+            Primitive_Type (DPT_Bool, _)], _),
+        Reference_Type
+          (BM_Imm,
+           Reference_Type
+             (BM_Mut,
+              Slice_Type
+                (Raw_Pointer_Type
+                  (RPM_Const, Path_Type (_, _), _), _), _), _),
+        Array_Type
+          (Primitive_Type (DPT_U16, _), array_length, _),
+        Path_Type (_, _)] =>
+          assert "suffixed hexadecimal array length changed"
+            (integer_literal_lexeme array_length = "0x20usize")
+     | _ => error "Rust function edge type-form AST changed")
+
+  val _ =
+    (case function_return_type edge_forms of
+       SOME (Tuple_Type ([Path_Type (_, _)], _)) => ()
+     | _ => error "Rust function singleton-tuple return type changed")
+
+  val edge_forms_text =
+    assert_roundtrip "rust-function-edge-type-forms" edge_forms
+
+  val _ =
+    List.app
+      (fn expected =>
+        assert ("serialized edge type lost " ^ quote expected)
+          (String.isSubstring expected edge_forms_text))
+      ["(u8)", "(u8,)", "(u32, bool)",
+       "Foo::Bar<Baz<u8>, 4>",
+       "[u16; 0x20usize]",
+       "Result<Outer<Inner<u64>>, 1_024usize>",
+       "-> (Result<u8, Error>,)"]
+
+  val layout_wrapped =
+    parse "rust-function-leading-trailing-layout"
+      ("/* leading /* nested */ layout */\n" ^
+       "fn LayoutWrapped() {} // trailing layout\n")
+
+  val _ =
+    assert "leading/trailing layout changed the function name"
+      (#1 (function_name layout_wrapped) = "LayoutWrapped")
+
+  val layout_tokens =
+    source_tokens (function_source_layout layout_wrapped)
+
+  val _ =
+    assert "function source layout lost structural delimiters"
+      (length
+        (filter
+          (fn (Delimiter_Token _, _) => true
+            | _ => false)
+          layout_tokens) = 4)
+in
+end
+\<close>
+
+section\<open> Invalid item grammar and parser recovery \<close>
+
+ML_val\<open>
+local
+  val ctxt = \<^context>
+  val serial = Unsynchronized.ref 0
+
+  fun source label text =
+    Parser_Lex_Util.positioned_content_source text
+      (Position.line_file 1 label)
+
+  fun parse label text =
+    URust_Parser.parse_function_source ctxt (source label text)
+
+  fun recover () =
+    let
+      val index = !serial
+      val _ = serial := index + 1
+      val label =
+        "rust-function-parser-recovery-" ^ string_of_int index
+      val text =
+        "fn ParserRecovery" ^ string_of_int index ^
+          "(value: u64) -> u64 { value >> 1 }"
+    in
+      (case parse label text of
+         SOME _ => ()
+       | NONE =>
+           error
+             ("Rust function parser did not recover" ^
+               Position.here (Position.file label)))
+    end
+
+  fun reject label expected text =
+    (case Exn.result (parse label) text of
+       Exn.Res _ =>
+         error
+           ("invalid Rust function item was accepted" ^
+             Position.here (Position.file label))
+     | Exn.Exn exn =>
+         if Exn.is_interrupt exn then Exn.reraise exn
+         else
+           let val message = Runtime.exn_message exn in
+             if String.isSubstring expected message andalso
+                String.isSubstring label message
+             then recover ()
+             else
+               error
+                 ("unexpected Rust function parser diagnostic:\n" ^
+                   message ^ "\nexpected: " ^ quote expected)
+           end)
+
+  val syntax_cases =
+    [("rust-function-parser-empty", "syntax error", ""),
+     ("rust-function-parser-expression", "syntax error", "value + 1"),
+     ("rust-function-parser-missing-name", "syntax error",
+       "fn (value: u64) -> u64 { value }"),
+     ("rust-function-parser-qualified-name", "syntax error",
+       "fn Module::qualified(value: u64) -> u64 { value }"),
+     ("rust-function-parser-missing-left-paren", "syntax error",
+       "fn MissingLeft value: u64) -> u64 { value }"),
+     ("rust-function-parser-missing-right-paren", "syntax error",
+       "fn MissingRight(value: u64 -> u64 { value }"),
+     ("rust-function-parser-leading-comma", "syntax error",
+       "fn LeadingComma(, value: u64) -> u64 { value }"),
+     ("rust-function-parser-double-comma", "syntax error",
+       "fn DoubleComma(value: u64,, other: u64) -> u64 { value }"),
+     ("rust-function-parser-missing-colon", "syntax error",
+       "fn MissingColon(value u64) -> u64 { value }"),
+     ("rust-function-parser-missing-parameter-type", "syntax error",
+       "fn MissingParameterType(value:) -> u64 { value }"),
+     ("rust-function-parser-missing-return-type", "syntax error",
+       "fn MissingReturnType(value: u64) -> { value }"),
+     ("rust-function-parser-missing-body", "syntax error",
+       "fn MissingBody(value: u64) -> u64"),
+     ("rust-function-parser-bodyless", "syntax error",
+       "fn Bodyless(value: u64) -> u64;"),
+     ("rust-function-parser-unclosed-body", "syntax error",
+       "fn UnclosedBody(value: u64) -> u64 { value"),
+     ("rust-function-parser-extra-close", "syntax error",
+       "fn ExtraClose(value: u64) -> u64 { value }}"),
+     ("rust-function-parser-trailing-semicolon", "syntax error",
+       "fn TrailingSemicolon(value: u64) -> u64 { value };"),
+     ("rust-function-parser-two-items", "syntax error",
+       "fn First() {} fn Second() {}"),
+     ("rust-function-parser-visibility", "syntax error",
+       "pub fn Visible(value: u64) -> u64 { value }"),
+     ("rust-function-parser-scoped-visibility", "syntax error",
+       "pub(crate) fn Scoped(value: u64) -> u64 { value }"),
+     ("rust-function-parser-async", "syntax error",
+       "async fn Async(value: u64) -> u64 { value }"),
+     ("rust-function-parser-const", "syntax error",
+       "const fn Constant(value: u64) -> u64 { value }"),
+     ("rust-function-parser-unsafe", "syntax error",
+       "unsafe fn Unsafe(value: u64) -> u64 { value }"),
+     ("rust-function-parser-extern", "syntax error",
+       "extern \"C\" fn External(value: u64) -> u64 { value }"),
+     ("rust-function-parser-generics", "syntax error",
+       "fn Generic<T>(value: T) -> T { value }"),
+     ("rust-function-parser-where", "syntax error",
+       "fn Where(value: u64) -> u64 where u64: Copy { value }"),
+     ("rust-function-parser-variadic", "unexpected input",
+       "fn Variadic(value: u64, ...) -> u64 { value }"),
+     ("rust-function-parser-empty-generic", "syntax error",
+       "fn EmptyGeneric(value: Vec<>) -> u64 { value }"),
+     ("rust-function-parser-leading-generic-comma", "syntax error",
+       "fn LeadingGenericComma(value: Vec<, u8>) -> u64 { value }"),
+     ("rust-function-parser-double-generic-comma", "syntax error",
+       "fn DoubleGenericComma(value: Vec<u8,, u16>) -> u64 { value }"),
+     ("rust-function-parser-generic-expression", "unexpected input",
+       "fn GenericExpression(value: Array<1 + 2>) -> u64 { value }"),
+     ("rust-function-parser-excess-generic-close", "syntax error",
+       "fn ExcessClose(value: Outer<Inner<u8>>>) -> u64 { value }"),
+     ("rust-function-parser-leading-type-path", "syntax error",
+       "fn LeadingTypePath(value: ::Module::Type) -> u64 { value }"),
+     ("rust-function-parser-empty-slice", "syntax error",
+       "fn EmptySlice(value: []) -> u64 { value }"),
+     ("rust-function-parser-symbolic-array-length", "syntax error",
+       "fn SymbolicArray(value: [u8; LENGTH]) -> u64 { value }"),
+     ("rust-function-parser-array-length-expression", "unexpected input",
+       "fn ArrayExpression(value: [u8; 1 + 2]) -> u64 { value }"),
+     ("rust-function-parser-missing-array-length", "syntax error",
+       "fn MissingArrayLength(value: [u8;]) -> u64 { value }"),
+     ("rust-function-parser-negative-array-length", "unexpected input",
+       "fn NegativeArrayLength(value: [u8; -1]) -> u64 { value }"),
+     ("rust-function-parser-unqualified-raw-pointer", "syntax error",
+       "fn RawPointer(value: *u8) -> u64 { value }"),
+     ("rust-function-parser-bare-reference", "syntax error",
+       "fn BareReference(value: &) -> u64 { value }"),
+     ("rust-function-parser-reference-const", "syntax error",
+       "fn ReferenceConst(value: &const u8) -> u64 { value }"),
+     ("rust-function-parser-leading-tuple-comma", "syntax error",
+       "fn LeadingTupleComma(value: (, u8)) -> u64 { value }"),
+     ("rust-function-parser-missing-tuple-comma", "syntax error",
+       "fn MissingTupleComma(value: (u8 bool)) -> u64 { value }")]
+
+  val _ =
+    List.app
+      (fn (label, expected, text) =>
+        reject label expected text)
+      syntax_cases
+
+  val _ =
+    reject "rust-function-parser-datatype"
+      "expected a complete function item"
+      "struct NotAFunction;"
+  val _ =
+    reject "rust-function-parser-lifetime"
+      "unexpected input"
+      "fn Lifetime(value: &'a u64) -> u64 { value }"
+  val _ =
+    reject "rust-function-parser-unterminated-string"
+      "malformed or unterminated string literal"
+      "fn UnterminatedString(value: \"missing) -> u64 { value }"
+  val _ =
+    reject "rust-function-parser-unterminated-comment"
+      "unterminated block comment"
+      "fn UnterminatedComment(/* outer /* inner */ value: u64"
+  val _ =
+    reject "rust-function-parser-malformed-formal-comment"
+      "opening cartouche expected after formal comment"
+      "fn FormalComment(\<comment> value: u64) -> u64 { value }"
+in
+end
+\<close>
+
+section\<open> Invalid declarations, callable conflicts and recovery \<close>
+
+ML_val\<open>
+local
+  val source_open = Symbol.open_
+  val source_close = Symbol.close
+  val serial = Unsynchronized.ref 0
+
+  fun cartouche text = source_open ^ text ^ source_close
+
+  fun command name item =
+    "urust_fn " ^ name ^ " " ^ cartouche item
+
+  (* Imported constants may be shadowed by a new theory. Create the occupied
+     binding in this probe's namespace before testing same-owner rejection. *)
+  fun occupied_hol_name name =
+    "definition " ^ name ^ " where " ^
+      cartouche (name ^ " = ()") ^ "\n"
+
+  fun run source_name text () =
+    let
+      val thy = \<^theory>
+      val transitions =
+        Outer_Syntax.parse_text thy (K thy)
+          (Position.line_file 1 source_name) text
+    in
+      fold (Toplevel.command_exception true) transitions
+        (Toplevel.make_state (SOME thy))
+    end
+
+  fun recover () =
+    let
+      val index = !serial
+      val _ = serial := index + 1
+    in
+      ignore
+        (run ("rust-function-recovery-" ^ string_of_int index)
+          (command
+            ("rust_function_recovery_" ^ string_of_int index)
+            ("fn Recovery" ^ string_of_int index ^
+              "(x: u64) -> u64 { x }")) ())
+    end
+
+  fun reject label expected text =
+    (case Exn.result (run label text) () of
+       Exn.Res _ =>
+         error ("invalid Rust function command was accepted" ^
+           Position.here (Position.file label))
+     | Exn.Exn exn =>
+         if Exn.is_interrupt exn then Exn.reraise exn
+         else
+           let val message = Runtime.exn_message exn in
+             if String.isSubstring expected message andalso
+                String.isSubstring label message
+             then recover ()
+             else
+               error
+                 ("unexpected Rust function diagnostic:\n" ^ message ^
+                   "\nexpected: " ^ quote expected)
+           end)
+
+  val _ =
+    List.app
+      (fn (label, pattern, body) =>
+        reject label "unsupported function parameter pattern"
+          (command "unsupported_parameter_pattern"
+            ("fn UnsupportedParameterPattern(" ^ pattern ^
+              ": u64) -> u64 { " ^ body ^ " }")))
+      [("rust-function-group-pattern", "(x)", "x"),
+       ("rust-function-tuple-pattern", "(x, y)", "x"),
+       ("rust-function-constructor-pattern", "Some(x)", "x"),
+       ("rust-function-borrow-pattern", "&x", "x"),
+       ("rust-function-alias-pattern", "x @ _", "x"),
+       ("rust-function-literal-pattern", "0", "0"),
+       ("rust-function-range-pattern", "0..=1", "0"),
+       ("rust-function-slice-pattern", "[x]", "x"),
+       ("rust-function-struct-pattern", "Pair { left: x }", "x"),
+       ("rust-function-or-pattern", "x | y", "x"),
+       ("rust-function-qualified-pattern", "Module::VALUE", "0")]
+  val _ =
+    reject "rust-function-mut-wildcard"
+      "unsupported function parameter pattern"
+      (command "mut_wildcard"
+        "fn MutWildcard(mut _: u64) -> u64 { 0 }")
+  val _ =
+    reject "rust-function-mut-destructuring"
+      "unsupported function parameter pattern"
+      (command "mut_destructuring"
+        "fn MutDestructuring(mut (x, y): u64) -> u64 { x }")
+  val _ =
+    reject "rust-function-duplicate-parameter"
+      "duplicate parameter \"x\""
+      (command "duplicate_parameter"
+        "fn DuplicateParameter(x: u64, x: u64) -> u64 { x }")
+  val _ =
+    reject "rust-function-duplicate-parameter-around-wildcard"
+      "duplicate parameter \"x\""
+      (command "duplicate_parameter_around_wildcard"
+        "fn DuplicateAroundWildcard(x: u64, _: u64, x: u64) -> u64 { x }")
+  val _ =
+    ignore
+      (run "rust-function-signature-controls-two-parameters"
+        (command "signature_two_parameters"
+          "fn ParameterCount(x: u64, y: u64) -> u64 { x }") ())
+  val _ =
+    ignore
+      (run "rust-function-signature-controls-one-parameter"
+        (command "signature_one_parameter"
+          "fn OneParameter(x: u64) -> u64 { x }") ())
+  val _ =
+    ignore
+      (run "rust-function-signature-controls-zero-parameters"
+        (command "signature_zero_parameters"
+          "fn ZeroParameters() -> u64 { 0 }") ())
+  val _ =
+    reject "rust-function-receiver"
+      "receiver parameters are not supported"
+      (command "receiver_parameter"
+        "fn Receiver(self: u64) -> u64 { self }")
+  val _ =
+    reject "rust-function-mutable-receiver"
+      "receiver parameters are not supported"
+      (command "mutable_receiver_parameter"
+        "fn MutableReceiver(mut self: u64) -> u64 { self }")
+  val _ =
+    reject "rust-function-borrowed-receiver"
+      "unsupported function parameter pattern"
+      (command "borrowed_receiver_parameter"
+        "fn BorrowedReceiver(&self: &u64) -> u64 { self }")
+  val _ =
+    ignore
+      (run "rust-function-no-outer-hol-type"
+        ("urust_fn inferred_hol_type " ^
+          cartouche "fn InferredHOLType() {}") ())
+  val _ =
+    ignore
+      (run "rust-function-signature-supplies-result-type"
+        (command "signature_result_type"
+          "fn SignatureResultType(x: u64) -> u64 { x }") ())
+  val _ =
+    reject "rust-function-forbidden-outer-hol-type"
+      "Outer syntax error"
+      ("urust_fn :: " ^ cartouche "unit" ^ " () " ^ cartouche "()")
+  val _ =
+    reject "rust-function-forbidden-outer-parameter-clause"
+      "Outer syntax error"
+      ("urust_fn legacy_mode_item () " ^
+        cartouche "fn LegacyModeItem() {}")
+  val _ =
+    reject "rust-function-item-mode-requires-item"
+      "syntax error"
+      (command "item_mode_expression" "x")
+  val _ =
+    reject "rust-function-anonymous-attributes"
+      "attrs is not supported for anonymous declarations"
+      ("urust_fn [attrs = []] _ " ^
+        cartouche "fn AnonymousAttributes(x: u64) -> u64 { x }")
+  val _ =
+    reject "rust-function-abbreviation-attributes"
+      "attrs is not supported in abbreviation mode"
+      ("urust_fn [abbrev, attrs = []] abbreviation_attributes " ^
+        cartouche "fn AbbreviationAttributes(x: u64) -> u64 { x }")
+  val _ =
+    reject "rust-function-abbreviation-application"
+      "abbreviation mode cannot be combined with `application_def`"
+      ("urust_fn [abbrev, application_def] abbreviation_application " ^
+        cartouche "fn AbbreviationApplication(x: u64) -> u64 { x }")
+  val _ =
+    reject "rust-function-unknown-option"
+      "unknown uRust command option"
+      ("urust_fn [future_option] unknown_option " ^
+        cartouche "fn UnknownOption(x: u64) -> u64 { x }")
+  val _ =
+    reject "rust-function-duplicate-option"
+      "duplicate uRust command option"
+      ("urust_fn [pp_test, pp_test = false] duplicate_option " ^
+        cartouche "fn DuplicateOption(x: u64) -> u64 { x }")
+  val _ =
+    reject "rust-function-invalid-boolean-option"
+      "expects true or false"
+      ("urust_fn [abbrev = 1] invalid_boolean_option " ^
+        cartouche "fn InvalidBooleanOption(x: u64) -> u64 { x }")
+  val _ =
+    reject "rust-function-invalid-verbosity"
+      "must be 0, 1, or 2"
+      ("urust_fn [verbosity = 3] invalid_verbosity " ^
+        cartouche "fn InvalidVerbosity(x: u64) -> u64 { x }")
+  val _ =
+    List.app
+      (fn (label, expected, item) =>
+        reject label expected
+          (command "invalid_function_item" item))
+      [("rust-function-visibility", "syntax error",
+         "pub fn Visible(x: u64) -> u64 { x }"),
+       ("rust-function-qualifier", "syntax error",
+         "unsafe fn Qualified(x: u64) -> u64 { x }"),
+       ("rust-function-generics", "syntax error",
+         "fn Generic<T>(x: T) -> T { x }"),
+       ("rust-function-where", "syntax error",
+         "fn WhereClause(x: u64) -> u64 where X: Y { x }"),
+       ("rust-function-bodyless", "syntax error",
+         "fn Bodyless(x: u64) -> u64;"),
+       ("rust-function-malformed-type", "syntax error",
+         "fn Malformed(x: &mut) -> u64 { x }"),
+       ("rust-function-lifetime", "unexpected input",
+         "fn Lifetime(x: &'a u64) -> u64 { x }"),
+       ("rust-function-function-pointer", "syntax error",
+         "fn Pointer(x: fn(u64) -> u64) -> u64 { x }"),
+       ("rust-function-associated-binding", "unexpected input",
+         "fn Associated(x: Iterator<Item = u8>) -> u64 { 0 }"),
+       ("rust-function-impl-type", "syntax error",
+         "fn ImplType(x: impl Iterator) -> u64 { 0 }"),
+       ("rust-function-dyn-type", "syntax error",
+         "fn DynType(x: dyn Iterator) -> u64 { 0 }")]
+  val _ =
+    reject "rust-function-trailing-input"
+      "syntax error"
+      (command "trailing_input"
+        "fn TrailingInput(x: u64) -> u64 { x } ignored")
+  val _ =
+    reject "rust-function-call-over-maximum-arity"
+      "unsupported call arity 15 (max 14"
+      (command "call_over_maximum_arity"
+        ("fn CallOverMaximumArity() -> u8 { " ^
+          "RustMaximumCallArity(" ^
+          "1, 2, 3, 4, 5, 6, 7, 8, " ^
+          "9, 10, 11, 12, 13, 14, 15) }"))
+  val _ =
+    reject "rust-function-forward-reference"
+      "unresolved body name \"LaterFunction\""
+      (command "forward_reference"
+        "fn ForwardReference(x: u64) -> u64 { LaterFunction(x) }")
+  val _ =
+    reject "rust-function-item-as-value"
+      "unresolved body name \"RustMaximumCallArity\""
+      (command "function_item_as_value"
+        "fn FunctionItemAsValue() -> u8 { RustMaximumCallArity }")
+  val _ =
+    reject "rust-function-existing-function"
+      "already owned by a Rust function item"
+      (command "duplicate_rust_function"
+        "fn RustAlias(x: u64) -> u64 { x }")
+  val _ =
+    reject "rust-function-existing-constructor"
+      "already owned by a Rust constructor item"
+      (command "constructor_conflict"
+        "fn SharedItem(x: u64) -> u64 { x }")
+  val _ =
+    reject "rust-function-existing-notation"
+      "conflicts with an existing micro_rust_notation"
+      (command "notation_conflict"
+        "fn NotationClash(x: u64) -> u64 { x }")
+  val _ =
+    reject "rust-function-recursive-definition"
+      "RecursiveFunction"
+      (command "recursive_function"
+        "fn RecursiveFunction(x: u64) -> u64 { RecursiveFunction(x) }")
+  val _ =
+    reject "rust-function-inferred-hol-name-collision"
+      "Duplicate constant"
+      (occupied_hol_name "http2_xml_parser" ^
+        "urust_fn " ^ cartouche "fn Http2XMLParser() {}")
+  val _ =
+    reject "rust-function-explicit-hol-name-collision"
+      "Duplicate constant"
+      (occupied_hol_name "empty_block" ^ command "empty_block"
+        "fn DistinctRustName() {}")
+in
+end
+\<close>
+
+section\<open> Function declaration and reference navigation \<close>
+
+ML_val\<open>
+local
+  structure I = URust_Item_Scope
+  val ctxt = Context_Position.set_visible true \<^context>
+
+  fun capture label action =
+    let
+      val reports =
+        Synchronized.var
+          ("rust_function_reports_" ^ label) ([]: string list)
+      val result =
+        Parser_Test_Report_Lock.run (fn () =>
+          Unsynchronized.setmp Private_Output.report_fn
+            (fn chunks =>
+              Synchronized.change reports (append chunks))
+            (fn () =>
+              Print_Mode.with_modes [Print_Mode.PIDE]
+                (fn () => Exn.result action ()) ())
+            ())
+    in (result, Synchronized.value reports) end
+
+  fun collect (XML.Text _) result = result
+    | collect (XML.Elem (markup, body)) result =
+        fold collect body (markup :: result)
+
+  fun markups chunks =
+    fold collect (maps YXML.parse_body chunks) []
+
+  fun find_from text needle offset =
+    if offset + size needle > size text then
+      error ("function markup audit: missing " ^ quote needle)
+    else if String.substring (text, offset, size needle) = needle then
+      offset
+    else find_from text needle (offset + 1)
+
+  fun position_at source_start text needle offset =
+    let
+      val raw = find_from text needle offset
+      val start =
+        Position.symbol_explode
+          (String.substring (text, 0, raw)) source_start
+    in
+      (raw,
+       Position.range_position
+         (Position.range
+           (start, Position.symbol_explode needle start)))
+    end
+
+  fun has_position properties position =
+    Properties.get properties Markup.offsetN =
+      Option.map Value.print_int (Position.offset_of position) andalso
+    Properties.get properties Markup.end_offsetN =
+      Option.map Value.print_int (Position.end_offset_of position) andalso
+    Properties.get properties Markup.idN =
+      Position.id_of position
+
+  fun has_markup markup_name position markup =
+    exists
+      (fn (name, properties) =>
+        name = markup_name andalso
+          has_position properties position)
+      markup
+
+  fun has_function_entity property position markup =
+    exists
+      (fn (name, properties) =>
+        name = Markup.entityN andalso
+          Properties.get properties Markup.kindN =
+            SOME "urust_function" andalso
+          is_some (Properties.get properties property) andalso
+          has_position properties position)
+      markup
+
+  val SOME entry = I.lookup_function ctxt "RustAlias"
+  val (definition_result, definition_chunks) =
+    capture "definition"
+      (fn () => I.report_function_definition entry)
+  val _ =
+    (case definition_result of
+       Exn.Res _ => ()
+     | Exn.Exn exn => Exn.reraise exn)
+  val _ =
+    if has_function_entity Markup.defN
+         (I.function_position entry) (markups definition_chunks)
+    then ()
+    else error "function item definition navigation changed"
+
+  val success_start =
+    Position.make0 1 1 0 "" "" "rust-function-navigation"
+  val success_text = "RustAlias(1u64, true)"
+  val success_source =
+    Parser_Lex_Util.positioned_content_source
+      success_text success_start
+  val (_, success_reference_pos) =
+    position_at success_start success_text "RustAlias" 0
+  val (successful, success_chunks) =
+    capture "reference"
+      (fn () =>
+        URust_Command.elaborate ctxt
+          {kind = URust_Command.Function,
+           source = success_source,
+           arguments = [],
+           arguments_pos = success_start,
+           declared_type =
+             SOME
+               ("(unit, 64 word, unit, unit, unit) function_body",
+                Position.none)})
+  val _ =
+    (case successful of
+       Exn.Res _ => ()
+     | Exn.Exn exn => Exn.reraise exn)
+  val _ =
+    if has_function_entity Markup.refN
+         success_reference_pos (markups success_chunks)
+    then ()
+    else error "function item reference navigation changed"
+
+  val signature_start =
+    Position.make0 1 1 0 "" ""
+      "rust-function-signature-markup"
+  val signature_text =
+    "fn SignatureMarkup(mut x: &mut [Outer::Inner<u8, 4>], \
+    \_: *const str,) -> (bool,) { x }"
+  val signature_source =
+    Parser_Lex_Util.positioned_content_source
+      signature_text signature_start
+  val (fn_offset, fn_pos) =
+    position_at signature_start signature_text "fn" 0
+  val (first_mut_offset, first_mut_pos) =
+    position_at signature_start signature_text "mut"
+      (fn_offset + size "fn")
+  val (first_colon_offset, first_colon_pos) =
+    position_at signature_start signature_text ":"
+      (first_mut_offset + size "mut")
+  val (amp_offset, amp_pos) =
+    position_at signature_start signature_text "&"
+      (first_colon_offset + 1)
+  val (second_mut_offset, second_mut_pos) =
+    position_at signature_start signature_text "mut"
+      (amp_offset + 1)
+  val (left_bracket_offset, left_bracket_pos) =
+    position_at signature_start signature_text "["
+      (second_mut_offset + size "mut")
+  val (path_separator_offset, path_separator_pos) =
+    position_at signature_start signature_text "::"
+      (left_bracket_offset + 1)
+  val (generic_open_offset, generic_open_pos) =
+    position_at signature_start signature_text "<"
+      (path_separator_offset + size "::")
+  val (u8_offset, u8_pos) =
+    position_at signature_start signature_text "u8"
+      (generic_open_offset + 1)
+  val (numeric_offset, numeric_pos) =
+    position_at signature_start signature_text "4"
+      (u8_offset + size "u8")
+  val (generic_close_offset, generic_close_pos) =
+    position_at signature_start signature_text ">"
+      (numeric_offset + 1)
+  val (right_bracket_offset, right_bracket_pos) =
+    position_at signature_start signature_text "]"
+      (generic_close_offset + 1)
+  val (star_offset, star_pos) =
+    position_at signature_start signature_text "*"
+      (right_bracket_offset + 1)
+  val (const_offset, const_pos) =
+    position_at signature_start signature_text "const"
+      (star_offset + 1)
+  val (str_offset, str_pos) =
+    position_at signature_start signature_text "str"
+      (const_offset + size "const")
+  val (arrow_offset, arrow_pos) =
+    position_at signature_start signature_text "->"
+      (str_offset + size "str")
+  val (bool_offset, bool_pos) =
+    position_at signature_start signature_text "bool"
+      (arrow_offset + size "->")
+  val (_, body_open_pos) =
+    position_at signature_start signature_text "{"
+      (bool_offset + size "bool")
+  val (signature_result, signature_chunks) =
+    capture "signature"
+      (fn () =>
+        ignore
+          (URust_Parser.parse_function_source
+            ctxt signature_source))
+  val _ =
+    (case signature_result of
+       Exn.Res _ => ()
+     | Exn.Exn exn => Exn.reraise exn)
+  val signature_markup = markups signature_chunks
+  val _ =
+    if List.all
+         (fn pos => has_markup Markup.keyword1N pos signature_markup)
+         [fn_pos, first_mut_pos, second_mut_pos,
+          u8_pos, const_pos, str_pos, bool_pos] andalso
+       List.all
+         (fn pos => has_markup Markup.operatorN pos signature_markup)
+         [amp_pos, star_pos] andalso
+       List.all
+         (fn pos => has_markup Markup.delimiterN pos signature_markup)
+         [first_colon_pos, left_bracket_pos, path_separator_pos,
+          generic_open_pos, generic_close_pos, right_bracket_pos,
+          arrow_pos, body_open_pos] andalso
+       has_markup Markup.numeralN numeric_pos signature_markup
+    then ()
+    else error "function signature lexical markup changed"
+
+  val failed_start =
+    Position.make0 1 1 0 "" ""
+      "rust-function-failed-navigation"
+  val failed_text = "RustAlias(true, true)"
+  val failed_source =
+    Parser_Lex_Util.positioned_content_source
+      failed_text failed_start
+  val (_, failed_reference_pos) =
+    position_at failed_start failed_text "RustAlias" 0
+  val (failed, failed_chunks) =
+    capture "failed-reference"
+      (fn () =>
+        URust_Command.elaborate ctxt
+          {kind = URust_Command.Function,
+           source = failed_source,
+           arguments = [],
+           arguments_pos = failed_start,
+           declared_type =
+             SOME
+               ("(unit, 64 word, unit, unit, unit) function_body",
+                Position.none)})
+  val _ =
+    (case failed of
+       Exn.Res _ =>
+         error "ill-typed function-item call unexpectedly succeeded"
+     | Exn.Exn exn =>
+         if Exn.is_interrupt exn then Exn.reraise exn else ())
+  val _ =
+    if has_function_entity Markup.refN failed_reference_pos
+         (markups failed_chunks)
+    then
+      error "failed function declaration leaked an item reference"
+    else ()
+in
+end
+\<close>
+
+chapter\<open> Iterator semantic regressions \<close>
+
+lemma iterator_zip_empty:
+  shows \<open>iterator_zip zip_left_empty zip_right_two =
+    fun_literal (make_iterator [])\<close>
+  by (simp add: iterator_zip_def zip_left_empty_def zip_right_two_def)
+
+lemma iterator_zip_empty_right:
+  shows \<open>iterator_zip zip_left_two
+    (make_iterator [] :: zip_right_iterator) =
+    fun_literal (make_iterator [])\<close>
+  by (simp add: iterator_zip_def zip_left_two_def)
+
+lemma iterator_zip_equal_length:
+  shows \<open>iterator_zip zip_left_two zip_right_two =
+    fun_literal (make_iterator
+      [iterator_zip_thunk (fun_literal 1) (fun_literal True),
+       iterator_zip_thunk (fun_literal 2) (fun_literal False)])\<close>
+  by (simp add: iterator_zip_def zip_left_two_def zip_right_two_def)
+
+lemma iterator_zip_truncates_to_shorter:
+  shows \<open>iterator_zip zip_left_two zip_right_one =
+    fun_literal (make_iterator
+      [iterator_zip_thunk (fun_literal 1) (fun_literal True)])\<close>
+  by (simp add: iterator_zip_def zip_left_two_def zip_right_one_def)
+
+lemma iterator_zip_truncates_when_left_is_shorter:
+  shows \<open>iterator_zip zip_left_one zip_right_two =
+    fun_literal (make_iterator
+      [iterator_zip_thunk (fun_literal 1) (fun_literal True)])\<close>
+  by (simp add: iterator_zip_def zip_left_one_def zip_right_two_def)
+
+lemma iterator_zip_effect_order_and_single_evaluation:
+  shows \<open>evaluate
+    (call (iterator_zip_thunk
+      (zip_effect_thunk 1 (10 :: nat))
+      (zip_effect_thunk 2 True))) [] =
+    Success (10, True, TNil) [1, 2]\<close>
+  by (simp add: iterator_zip_thunk_def zip_effect_thunk_def call_def
+      evaluate_call_function_body bind_evaluate put_def literal_def
+      Core_Expression.bind.simps Core_Expression.call_function_body.simps
+      evaluate_def)
+
+lemma hol_list_zip_is_unchanged:
+  shows \<open>List.zip [1 :: nat, 2] [True] = [(1, True)]\<close>
+  by simp
+
+
+chapter\<open> Signature inference and registration regressions \<close>
+
+
+section\<open> Audit helpers \<close>
 
 ML \<open>
-structure Parser_Function_Type_Mapping_Test =
+structure Parser_Function_Regression_Test =
 struct
   structure Navigation = Micro_Rust_Semantic_Navigation
 
@@ -263,164 +1344,8 @@ struct
 end
 \<close>
 
-section\<open> Authoritative parameter and result types \<close>
 
-urust_fn signature_primitive \<open>
-  fn SignaturePrimitive(value: u8) -> u8 { value }
-\<close>
-
-urust_fn signature_custom \<open>
-  fn SignatureCustom(value: SignatureCount) -> SignatureCount { value }
-\<close>
-
-urust_fn signature_qualified \<open>
-  fn SignatureQualified(value: signature::Flag) -> signature::Flag { value }
-\<close>
-
-urust_fn signature_generic \<open>
-  fn SignatureGeneric(
-    value: SignatureResult<SignatureOption<u8>, signature::Flag>,
-  ) -> SignatureResult<SignatureOption<u8>, signature::Flag> { value }
-\<close>
-
-urust_fn signature_segmented \<open>
-  fn SignatureSegmented(
-    value: signature::Header<u16>::Body<SignatureOption<bool>>,
-  ) -> signature::Header<u16>::Body<SignatureOption<bool>> { value }
-\<close>
-
-urust_fn signature_generated_struct \<open>
-  fn SignatureGeneratedStruct(value: SignaturePacket) -> SignaturePacket { value }
-\<close>
-
-urust_fn signature_generated_enum \<open>
-  fn SignatureGeneratedEnum(value: SignatureChoice) -> SignatureChoice { value }
-\<close>
-
-urust_fn signature_grouped \<open>
-  fn SignatureGrouped(value: (u8)) -> (u8) { value }
-\<close>
-
-urust_fn signature_tuple \<open>
-  fn SignatureTuple(
-    value: (u8, (bool, SignatureCount), SignatureOption<u16>),
-  ) -> (u8, (bool, SignatureCount), SignatureOption<u16>) { value }
-\<close>
-
-urust_fn signature_constructed_tuple \<open>
-  fn SignatureConstructedTuple(value: u8, flag: bool) -> (u8, bool) {
-    (value, flag)
-  }
-\<close>
-
-urust_fn signature_hol_escape \<open>
-  fn SignatureHOLEscape(
-    value: \<tau>\<open>nat option\<close>,
-  ) -> \<tau>\<open>nat option\<close> { value }
-\<close>
-
-urust_fn signature_shared_variables \<open>
-  fn SignatureSharedVariables(
-    left: \<tau>\<open>'a\<close>,
-    right: \<tau>\<open>'a\<close>,
-  ) -> \<tau>\<open>'a\<close> { left }
-\<close>
-
-urust_fn signature_plain_identity \<open>
-  fn SignaturePlainIdentity(value: \<tau>\<open>'a\<close>) -> \<tau>\<open>'a\<close> {
-    value
-  }
-\<close>
-
-urust_fn signature_identity_two_instantiations \<open>
-  fn SignatureIdentityTwoInstantiations(value: u8, flag: bool) -> (u8, bool) {
-    (SignaturePlainIdentity(value), SignaturePlainIdentity(flag))
-  }
-\<close>
-
-urust_fn signature_shared_sorts \<open>
-  fn SignatureSharedSorts(
-    values: SignatureOrdered<\<tau>\<open>'a\<close>>,
-    value: \<tau>\<open>'a\<close>,
-  ) -> SignatureOrdered<\<tau>\<open>'a::linorder\<close>> { values }
-\<close>
-
-urust_fn signature_higher_order \<open>
-  fn SignatureHigherOrder(
-    operation: \<tau>\<open>'a \<Rightarrow> 'b\<close>,
-    value: \<tau>\<open>'a\<close>,
-  ) -> \<tau>\<open>'b\<close> { \<llangle>operation value\<rrangle> }
-\<close>
-
-urust_fn signature_function_result \<open>
-  fn SignatureFunctionResult(
-    operation: SignatureFunction,
-  ) -> SignatureFunction { operation }
-\<close>
-
-urust_fn signature_holes \<open>
-  fn SignatureHoles(
-    value: \<tau>\<open>_\<close>,
-    flag: \<tau>\<open>_\<close>,
-  ) -> (u8, bool) { (value, flag) }
-\<close>
-
-urust_fn signature_nested_hole \<open>
-  fn SignatureNestedHole(
-    value: SignatureOption<\<tau>\<open>_\<close>>,
-  ) -> SignatureOption<u16> { value }
-\<close>
-
-urust_fn signature_result_hole \<open>
-  fn SignatureResultHole(value: u32) -> \<tau>\<open>_\<close> { value }
-\<close>
-
-urust_fn signature_omitted_return \<open>
-  fn SignatureOmittedReturn(value: u8) {}
-\<close>
-
-urust_fn signature_inferred_result \<open>
-  fn SignatureInferredResult(value: u64) { value }
-\<close>
-
-urust_fn signature_inferred_polymorphic_result \<open>
-  fn SignatureInferredPolymorphicResult(value: \<tau>\<open>'a\<close>) { value }
-\<close>
-
-urust_fn signature_explicit_unit \<open>
-  fn SignatureExplicitUnit() -> () { () }
-\<close>
-
-urust_fn signature_inferred_state \<open>
-  fn SignatureInferredState() -> SignatureCount {
-    \<epsilon>\<open>get (\<lambda>state::nat. state)\<close>
-  }
-\<close>
-
-urust_fn signature_inferred_write \<open>
-  fn SignatureInferredWrite() {
-    \<epsilon>\<open>put (\<lambda>state::nat. Suc state)\<close>
-  }
-\<close>
-
-urust_fn signature_inferred_abort \<open>
-  fn SignatureInferredAbort() -> bool {
-    \<epsilon>\<open>abort (CustomAbort (0 :: nat))\<close>
-  }
-\<close>
-
-urust_fn signature_inferred_prompt \<open>
-  fn SignatureInferredPrompt(value: u8) -> u8 {
-    \<y>\<i>\<e>\<l>\<d>;
-    value
-  }
-\<close>
-
-urust_fn signature_mixed_slots \<open>
-  fn SignatureMixedSlots(first: u8, _: bool, mut retained: u16, _: ()) -> u16 {
-    retained
-  }
-\<close>
+section\<open> Types, effect channels and wrapper shape \<close>
 
 lemma signature_custom_shape:
   \<open> signature_custom = (\<lambda>value. FunctionBody (literal value)) \<close>
@@ -432,7 +1357,7 @@ lemma signature_mixed_slots_shape:
 
 ML_val \<open>
   local
-    open Parser_Function_Type_Mapping_Test
+    open Parser_Function_Regression_Test
     val ctxt = \<^context>
 
     fun identity (name, expected) =
@@ -603,7 +1528,7 @@ ML_val \<open>
 
 ML_val \<open>
   local
-    open Parser_Function_Type_Mapping_Test
+    open Parser_Function_Regression_Test
     val base = initial \<^theory>
     val _ =
       List.app
@@ -641,7 +1566,7 @@ section\<open> Exported resolver and elaborator interfaces \<close>
 
 ML_val \<open>
   local
-    open Parser_Function_Type_Mapping_Test
+    open Parser_Function_Regression_Test
     val ctxt = Context_Position.set_visible true \<^context>
     val original_functions = function_snapshot ctxt
     val original_mappings = mapping_snapshot ctxt
@@ -734,7 +1659,7 @@ section\<open> Shared signature sorts and independent holes \<close>
 
 ML_val \<open>
   local
-    open Parser_Function_Type_Mapping_Test
+    open Parser_Function_Regression_Test
     open URust_AST
     val ctxt = \<^context>
     val thy = Proof_Context.theory_of ctxt
@@ -863,7 +1788,7 @@ section\<open> Function registration options and artifacts \<close>
 
 ML_val \<open>
   local
-    open Parser_Function_Type_Mapping_Test
+    open Parser_Function_Regression_Test
     val base = initial \<^theory>
     val base_ctxt = Toplevel.context_of base
 
@@ -1001,7 +1926,7 @@ urust_notation (call) signature_existing_call ("SignatureExistingCall")
 
 ML_val \<open>
   local
-    open Parser_Function_Type_Mapping_Test
+    open Parser_Function_Regression_Test
     val base = initial \<^theory>
     val earlier_ctxt = Toplevel.context_of base
 
@@ -1039,7 +1964,10 @@ ML_val \<open>
         val (result, markup) =
           Parser_Test_Reports.markup
             (fn () => Exn.result (fn () => run_from base label text) ())
-        val diagnostic = message result
+        val diagnostic =
+          (case result of
+             Exn.Res _ => error (label ^ ": expected command rejection")
+           | _ => message result)
         val _ =
           require (label ^ ": unexpected diagnostic: " ^ diagnostic)
             (String.isSubstring expected diagnostic)
@@ -1184,7 +2112,9 @@ ML_val \<open>
         (item "" "value")
     val _ =
       reject "signature-hol-target-collision" "Duplicate constant"
-        (command "[register_notation = false]" "signature_primitive"
+        ("definition signature_primitive where " ^
+          cartouche "signature_primitive = ()" ^ "\n" ^
+          command "[register_notation = false]" "signature_primitive"
           "fn SignatureFreshFailedRegistration(value: u8) -> u8 { value }")
   in
     val _ = ()
@@ -1195,7 +2125,7 @@ section\<open> Positioned resolver errors and native navigation \<close>
 
 ML_val \<open>
   local
-    open Parser_Function_Type_Mapping_Test
+    open Parser_Function_Regression_Test
     val ctxt = Context_Position.set_visible true \<^context>
     val mapping_kind = "micro_rust_type_mapping"
 
@@ -1422,7 +2352,7 @@ section\<open> Signature printer roundtrips \<close>
 
 ML_val \<open>
   local
-    open Parser_Function_Type_Mapping_Test
+    open Parser_Function_Regression_Test
     val ctxt = \<^context>
 
     fun audit (label, text) =
@@ -1484,7 +2414,7 @@ section\<open> Registered call arity boundary \<close>
 
 ML_val \<open>
   local
-    open Parser_Function_Type_Mapping_Test
+    open Parser_Function_Regression_Test
     val base = initial \<^theory>
     val parameters = map (fn n => "p" ^ string_of_int n ^ ": u8") (1 upto 14)
     val function_text =
@@ -1531,7 +2461,7 @@ section\<open> Registration context merges \<close>
 
 ML_val \<open>
   local
-    open Parser_Function_Type_Mapping_Test
+    open Parser_Function_Regression_Test
     val parent = \<^theory>
 
     (* Independent synthetic theories exercise the real Generic_Data merge without
@@ -1676,7 +2606,7 @@ section\<open> Registration failure reports \<close>
 
 ML_val \<open>
   local
-    open Parser_Function_Type_Mapping_Test
+    open Parser_Function_Regression_Test
     val base = initial \<^theory>
     val function_state =
       run_from base "signature-report-function-prefix"
@@ -1769,54 +2699,20 @@ ML_val \<open>
 
 section\<open> Repeated locale interpretations \<close>
 
-locale signature_registration_disabled =
-  fixes offset :: nat
+context signature_registration_disabled
 begin
-
-urust_fn [register_notation = false] signature_locale_function \<open>
-  fn SignatureRepeatedLocale(value: SignatureCount) -> SignatureCount {
-    \<llangle>value + offset\<rrangle>
-  }
-\<close>
 
 ML_val \<open>
   val _ =
-    Parser_Function_Type_Mapping_Test.require "disabled locale registered a Rust path"
+    Parser_Function_Regression_Test.require "disabled locale registered a Rust path"
       (is_none (URust_Item_Scope.lookup_function \<^context> "SignatureRepeatedLocale"))
-\<close>
-
-end
-
-interpretation signature_disabled_first: signature_registration_disabled 1
-  by unfold_locales
-
-interpretation signature_disabled_second: signature_registration_disabled 2
-  by unfold_locales
-
-lemma signature_disabled_interpretations:
-  \<open>signature_disabled_first.signature_locale_function value =
-      FunctionBody (literal (value + 1))\<close>
-  \<open>signature_disabled_second.signature_locale_function value =
-      FunctionBody (literal (value + 2))\<close>
-  by (simp_all only:
-      signature_disabled_first.signature_locale_function_def
-      signature_disabled_second.signature_locale_function_def)
-
-locale signature_registration_enabled =
-  fixes offset :: nat
-begin
-
-urust_fn [register_notation] signature_locale_function_enabled \<open>
-  fn SignatureRepeatedEnabled(value: SignatureCount) -> SignatureCount {
-    \<llangle>value + offset\<rrangle>
-  }
 \<close>
 
 end
 
 ML_val \<open>
   local
-    open Parser_Function_Type_Mapping_Test
+    open Parser_Function_Regression_Test
     val base = initial \<^theory>
     val first =
       run_from base "signature-enabled-first-interpretation"
@@ -1856,24 +2752,9 @@ ML_val \<open>
   end
 \<close>
 
-locale signature_type_only_registration =
-  fixes witness :: \<open> 'a itself \<close>
-begin
-
-urust_fn [register_notation] signature_type_only_function \<open>
-  fn SignatureTypeOnlyFunction(value: \<tau>\<open>'a\<close>) -> \<tau>\<open>'a\<close> {
-    value
-  }
-\<close>
-
-end
-
-locale signature_ordered_ambient =
-  fixes witness :: \<open> 'a::linorder itself \<close>
-
 ML_val \<open>
   local
-    open Parser_Function_Type_Mapping_Test
+    open Parser_Function_Regression_Test
     val base = initial \<^theory>
     val first =
       run_from base "signature-type-only-first-interpretation"
@@ -1986,7 +2867,7 @@ section\<open> Schematic index replay and call freshness \<close>
 
 ML_val \<open>
   local
-    open Parser_Function_Type_Mapping_Test
+    open Parser_Function_Regression_Test
     val base = Named_Target.theory_init \<^theory>
     val identity_name = \<^const_name>\<open>signature_plain_identity\<close>
     val polymorphic =
