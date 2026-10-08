@@ -96,6 +96,7 @@ urust_expr_rejects \<open> /* unterminated outer comment \<close> \<open> unterm
 urust_expr_rejects \<open> /* outer /* nested comment */ still open \<close> \<open> unterminated block comment \<close>
 urust_expr_rejects \<open> /*/ \<close> \<open> unterminated block comment \<close>
 urust_expr_rejects \<open> 1u64 */ 2u64 \<close> \<open> syntax error found at / \<close>
+urust_expr_rejects \<open> 1u64 /* closed */ */ 2u64 \<close> \<open> syntax error found at / \<close>
 urust_expr_rejects \<open> f::<1 /* layout */ + 2>() \<close> \<open> unexpected input "/" \<close>
 urust_expr_rejects \<open> l\<llangle>"value", /* layout */ True\<rrangle> \<close> \<open> unexpected input "/" \<close>
 urust_expr_rejects \<open> va/* gap */lue \<close> \<open> syntax error \<close>
@@ -142,7 +143,8 @@ ML_val\<open>
 
     fun same_range left right =
       Position.offset_of left = Position.offset_of right andalso
-      Position.end_offset_of left = Position.end_offset_of right
+      Position.end_offset_of left = Position.end_offset_of right andalso
+      Position.line_of left = Position.line_of right
 
     fun find_from text needle offset =
       if offset + size needle > size text then
@@ -234,7 +236,7 @@ ML_val\<open>
       token_position structural_text structural_start "1_u64" 0
     val (comment_raw, comment_pos) =
       token_position structural_text structural_start block_comment left_raw
-    val (inner_plus_raw, inner_plus_pos) =
+    val (_, inner_plus_pos) =
       token_position structural_text structural_start "+" comment_raw
     val (_, inner_keyword_pos) =
       token_position structural_text structural_start "let" comment_raw
@@ -335,7 +337,7 @@ ML_val\<open>
        | _ =>
            error "block-comment regression audit: comment ending at EOF changed the AST")
 
-    fun failure_message text start =
+    fun failure_details text start =
       (case Exn.result
           (fn () =>
             parse_source
@@ -346,7 +348,21 @@ ML_val\<open>
                quote text)
        | Exn.Exn exn =>
            if Exn.is_interrupt exn then Exn.reraise exn
-           else XML.content_of (YXML.parse_body (Runtime.exn_message exn)))
+           else
+             let val body = YXML.parse_body (Runtime.exn_message exn)
+             in (XML.content_of body, fold collect_markup body []) end)
+
+    fun failure_message text start = #1 (failure_details text start)
+
+    fun diagnostic_at markup pos =
+      exists
+        (fn ((name, properties), _) =>
+          name = Markup.positionN andalso
+          Properties.get properties Markup.offsetN =
+            Option.map Value.print_int (Position.offset_of pos) andalso
+          Properties.get properties Markup.lineN =
+            Option.map Value.print_int (Position.line_of pos))
+        markup
 
     fun recover () =
       (case parse_text "/* fresh /* nested */ */ ()" of
@@ -357,7 +373,12 @@ ML_val\<open>
     fun expect_unterminated
         label text start expected_line =
       let
-        val message = failure_message text start
+        val (message, markup) = failure_details text start
+        val raw = find_from text "/*" 0
+        val opener = Position.symbol_explode (String.substring (text, 0, raw)) start
+        val _ =
+          audit_assert (label ^ " diagnostic lost its symbol offset")
+            (diagnostic_at markup opener)
         val _ =
           audit_assert (label ^ " diagnostic changed")
             (String.isSubstring "unterminated block comment" message)
@@ -387,15 +408,109 @@ ML_val\<open>
         (Position.make0 300 3000 0 "" "" "block-comment-short")
         300
 
-    val unmatched_message =
-      failure_message
-        "1_u64 */ 2_u64"
-        (Position.make0 400 4000 0 "" "" "block-comment-unmatched")
+    val _ =
+      expect_unterminated
+        "still-nested"
+        "/* outer\n /* nested"
+        (Position.make0 350 3500 0 "" "" "block-comment-still-nested")
+        350
+    val _ =
+      expect_unterminated
+        "after-symbols"
+        ("// escaped \<alpha>\n  /* outer\n /* nested */")
+        (Position.make0 360 3600 0 "" "" "block-comment-symbol-opener")
+        361
+
+    val unmatched_text = "1_u64 /* closed */ */ 2_u64"
+    val unmatched_start = Position.make0 400 4000 0 "" "" "block-comment-unmatched"
+    val (_, unmatched_slash) = token_position unmatched_text unmatched_start "/" (size "1_u64 /* closed */ *")
+    val (unmatched_message, unmatched_markup) =
+      failure_details unmatched_text unmatched_start
     val _ =
       (audit_assert "unmatched closer became a lexer error"
          (String.isSubstring "syntax error found at /" unmatched_message andalso
           not (String.isSubstring "unexpected input" unmatched_message));
+       audit_assert "unmatched closer diagnostic moved from slash"
+         (diagnostic_at unmatched_markup unmatched_slash);
        recover ())
+
+
+    fun expect_state_rejection (label, text) =
+      let
+        val start = Position.make0 500 5000 0 "" "" label
+        val (_, slash) = token_position text start "/" 0
+        val (message, markup) = failure_details text start
+        val _ =
+          audit_assert (label ^ " admitted block layout")
+            (String.isSubstring "unexpected input \"/\"" message)
+        val _ =
+          audit_assert (label ^ " rejection lost its slash position")
+            (diagnostic_at markup slash)
+      in recover () end
+    val _ = List.app expect_state_rejection
+      [("block-comment-generic", "f::<1 /* layout */ + 2>()"),
+       ("block-comment-logdata", "l\<llangle>\"value\", /* layout */ True\<rrangle>")]
+
+    fun expect_enclosing_comment (label, text) =
+      let
+        val (expression, markup) = capture_reports (fn () => parse_text text)
+        val _ = (case expression of UE_Unit _ => ()
+          | _ => error ("block-comment regression audit: " ^ label ^ " changed AST"))
+        val _ =
+          audit_assert (label ^ " leaked into block-comment state")
+            (not (exists (fn ((name, _), body) =>
+              name = Markup.typingN andalso body = "block comment") markup))
+      in recover () end
+    val _ = List.app expect_enclosing_comment
+      [("Rust line comment", "// /* unclosed opener and extra closer */ */ /*\n()"),
+       ("Isabelle formal comment",
+        Symbol.comment ^ " " ^ Symbol.open_ ^ "/* unclosed */ */ /*" ^ Symbol.close ^ " ()")]
+
+    val _ =
+      (case parse_text "\"*/ /* unclosed\"" of
+         UE_Literal (LP_String (text, _)) =>
+           audit_assert "unbalanced markers in string were consumed"
+             (text = "\"*/ /* unclosed\"")
+       | _ => error "block-comment regression audit: opaque string AST")
+    val _ =
+      (case parse_text "\<llangle>''*/ /* unclosed''\<rrangle>" of
+         UE_Literal (LP_ValAntiq source) =>
+           audit_assert "unbalanced value-antiquotation markers were consumed"
+             (Input.string_of source = "''*/ /* unclosed''")
+       | _ => error "block-comment regression audit: opaque value antiquotation AST")
+    val _ =
+      (case parse_text "\<epsilon>\<open>literal (''*/ /* unclosed'')\<close>" of
+         UE_ExprAntiq source =>
+           audit_assert "unbalanced expression-antiquotation markers were consumed"
+             (Input.string_of source = "literal (''*/ /* unclosed'')")
+       | _ => error "block-comment regression audit: opaque expression antiquotation AST")
+
+    val adjacent_left = "/* first \<alpha> */"
+    val adjacent_right = "/*! second\n /* inner */ */"
+    val adjacent_text = adjacent_left ^ adjacent_right ^ "()"
+    val adjacent_start = Position.make0 600 6000 0 "" "" "block-comment-adjacent"
+    val (_, adjacent_left_pos) = token_position adjacent_text adjacent_start adjacent_left 0
+    val (_, adjacent_right_pos) = token_position adjacent_text adjacent_start adjacent_right 0
+    val (_, adjacent_markup) = capture_reports (fn () =>
+      parse_source (Parser_Lex_Util.positioned_content_source adjacent_text adjacent_start))
+    val _ =
+      List.app (fn pos =>
+        audit_assert "adjacent comment lost its separate full range"
+          (count_markup adjacent_markup Markup.comment1N pos = 1 andalso
+           has_typing adjacent_markup "block comment" pos))
+        [adjacent_left_pos, adjacent_right_pos]
+
+    val _ =
+      (case parse_text "if * /* prefix */base/* postfix */[index] as/* cast */u64 { () }" of
+         UE_If
+           (UE_Cast (UE_Unary (U_Deref, UE_Index (UE_Path _, UE_Path _, _), _),
+             CT_Unsigned UT_U64, _), _, _, _) => ()
+       | _ => error "block-comment regression audit: control-head precedence or primitive cast")
+    val _ =
+      List.app (fn text =>
+        (ignore (failure_message text (Position.make0 700 7000 0 "" "" "block-comment-split"));
+         recover ()))
+        ["va/* gap */lue", "1/* gap */u64", "1u64 </* gap */= 2u64"]
   in
     val _ =
       writeln
