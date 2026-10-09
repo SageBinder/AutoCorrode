@@ -3,7 +3,7 @@
 
 (*<*)
 theory StdLib_Result
-  imports Crush.Crush Misc.Result StdLib_References
+  imports Micro_Rust_Crush.Rust_Crush Misc.Result StdLib_References
 begin
 (*>*)
 
@@ -172,7 +172,7 @@ urust_fn result_unwrap_or :: \<open>('a, 'b) result \<Rightarrow> 'a \<Rightarro
      }
   \<close>
 
-context reference
+context rust_reference
 begin       
 adhoc_overloading store_update_const \<rightleftharpoons> update_fun
 

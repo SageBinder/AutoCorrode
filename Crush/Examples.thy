@@ -885,11 +885,13 @@ subsubsection\<open>Conversions\<close>
 text\<open>\<^file>\<open>seplog.ML\<close> contains various combinators for building conversions acting on specific
 parts of the goal. This section describes some of them.\<close>
 
-text\<open>To apply a conversion to the uRust expression in a weakest precondition goal, use
+text\<open>To apply a conversion to the shallow-computation expression in a weakest-precondition goal, use
 \<^verbatim>\<open>aentails_wp_conv'\<close>:\<close>
 
 experiment
-  fixes e0 e1 e2 :: \<open>('s :: sepalg, 'v, 'r, 'abort, 'i prompt, 'o prompt_output) expression\<close>
+  fixes e0 e1 e2 ::
+    \<open>('s::sepalg, 'v, 'r, 'abort,
+      'i::nondeterministic_prompt, 'o::nondeterministic_response) expression\<close>
   assumes def0: \<open>e0 \<equiv> e1\<close>
   assumes def1: \<open>e1 = e2\<close>
 begin
@@ -936,9 +938,12 @@ locale "examples_experiment0" =
   reference reference_typesC update_raw_funC dereference_raw_funC
      reference_raw_funC points_to_raw'C gref_can_storeC new_gref_can_storeC
      can_alloc_referenceC for
-   reference_typesA :: \<open>'s0::sepalg \<Rightarrow> 'a0 \<Rightarrow> 'b0 \<Rightarrow> 'abort \<Rightarrow> 'i0 prompt \<Rightarrow> 'o0 prompt_output \<Rightarrow> unit\<close> and
-   reference_typesB :: \<open>'s1::sepalg \<Rightarrow> 'a1 \<Rightarrow> 'b1 \<Rightarrow> 'abort \<Rightarrow> 'i1 prompt \<Rightarrow> 'o1 prompt_output \<Rightarrow> unit\<close> and
-   reference_typesC :: \<open>'s2::sepalg \<Rightarrow> 'a2 \<Rightarrow> 'b2 \<Rightarrow> 'abort \<Rightarrow> 'i2 prompt \<Rightarrow> 'o2 prompt_output \<Rightarrow> unit\<close> and
+   reference_typesA :: \<open>'s0::sepalg \<Rightarrow> 'a0 \<Rightarrow> 'b0 \<Rightarrow> 'abort \<Rightarrow>
+     'i0::nondeterministic_prompt \<Rightarrow> 'o0::nondeterministic_response \<Rightarrow> unit\<close> and
+   reference_typesB :: \<open>'s1::sepalg \<Rightarrow> 'a1 \<Rightarrow> 'b1 \<Rightarrow> 'abort \<Rightarrow>
+     'i1::nondeterministic_prompt \<Rightarrow> 'o1::nondeterministic_response \<Rightarrow> unit\<close> and
+   reference_typesC :: \<open>'s2::sepalg \<Rightarrow> 'a2 \<Rightarrow> 'b2 \<Rightarrow> 'abort \<Rightarrow>
+     'i2::nondeterministic_prompt \<Rightarrow> 'o2::nondeterministic_response \<Rightarrow> unit\<close> and
     update_raw_funA dereference_raw_funA reference_raw_funA 
     points_to_raw'A gref_can_storeA new_gref_can_storeA can_alloc_referenceA and
     update_raw_funB dereference_raw_funB reference_raw_funB 

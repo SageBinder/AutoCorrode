@@ -332,14 +332,17 @@ definition state_bind ::
     \<comment> \<open>run \<open>f\<close> on \<open>s\<close>; thread the resulting \<open>s'\<close> into \<open>g\<close>\<close>
 
 lemma %internal state_left_unit: \<open>state_bind (state_return x) g = g x\<close>
-  by (simp add: state_return_def state_bind_def fun_eq_iff)
+  unfolding state_return_def state_bind_def fun_eq_iff
+  by simp
 
 lemma %internal state_right_unit: \<open>state_bind f state_return = f\<close>
-  by (auto simp: state_return_def state_bind_def split: prod.splits)
+  unfolding state_return_def state_bind_def fun_eq_iff
+  by (auto split: prod.splits)
 
 lemma %internal state_assoc:
   \<open>state_bind (state_bind f g) h = state_bind f (\<lambda>x. state_bind (g x) h)\<close>
-  by (auto simp: state_bind_def split: prod.splits)
+  unfolding state_bind_def fun_eq_iff
+  by (auto split: prod.splits) (metis prod.inject)
 
 end_slide
 
@@ -358,14 +361,17 @@ definition list_bind :: \<open>'a list \<Rightarrow> ('a \<Rightarrow> 'b list) 
     \<comment> \<open>for every outcome of \<open>f\<close>, run \<open>g\<close>; flatten the lists\<close>
 
 lemma %internal list_left_unit: \<open>list_bind (list_return x) g = g x\<close>
-  by (simp add: list_return_def list_bind_def)
+  unfolding list_return_def list_bind_def
+  by simp
 
 lemma %internal list_right_unit: \<open>list_bind f list_return = f\<close>
-  by (induction f) (auto simp: list_return_def list_bind_def)
+  unfolding list_return_def list_bind_def
+  by (induction f) auto
 
 lemma %internal list_assoc:
   \<open>list_bind (list_bind f g) h = list_bind f (\<lambda>x. list_bind (g x) h)\<close>
-  by (induction f) (auto simp: list_bind_def)
+  unfolding list_bind_def
+  by (induction f) auto
 
 end_slide
 
@@ -388,14 +394,17 @@ definition reader_bind ::
     \<comment> \<open>read \<open>r\<close>, run \<open>f\<close> on it, hand the result \<^emph>\<open>and the same \<open>r\<close>\<close> to \<open>g\<close>\<close>
 
 lemma %internal reader_left_unit: \<open>reader_bind (reader_return x) g = g x\<close>
-  by (simp add: reader_return_def reader_bind_def fun_eq_iff)
+  unfolding reader_return_def reader_bind_def fun_eq_iff
+  by simp
 
 lemma %internal reader_right_unit: \<open>reader_bind f reader_return = f\<close>
-  by (simp add: reader_return_def reader_bind_def fun_eq_iff)
+  unfolding reader_return_def reader_bind_def fun_eq_iff
+  by simp
 
 lemma %internal reader_assoc:
   \<open>reader_bind (reader_bind f g) h = reader_bind f (\<lambda>x. reader_bind (g x) h)\<close>
-  by (simp add: reader_bind_def fun_eq_iff)
+  unfolding reader_bind_def fun_eq_iff
+  by simp
 
 end_slide
 
@@ -421,14 +430,17 @@ text \<open>Specialising \<open>'e = unit\<close> recovers the familiar \<open>'
   distinguish multiple error reasons.\<close>
 
 lemma %internal error_left_unit: \<open>error_bind (error_return x) g = g x\<close>
-  by (simp add: error_return_def error_bind_def)
+  unfolding error_return_def error_bind_def
+  by simp
 
 lemma %internal error_right_unit: \<open>error_bind f error_return = f\<close>
-  by (auto simp: error_return_def error_bind_def split: sum.splits)
+  unfolding error_return_def error_bind_def
+  by (auto split: sum.splits)
 
 lemma %internal error_assoc:
   \<open>error_bind (error_bind f g) h = error_bind f (\<lambda>x. error_bind (g x) h)\<close>
-  by (auto simp: error_bind_def split: sum.splits)
+  unfolding error_bind_def
+  by (auto split: sum.splits) (metis sum.inject sum.distinct)+
 
 end_slide
 
@@ -453,15 +465,18 @@ definition nondet_bind ::
     \<comment>\<open>keep all such \<open>(y, s'')\<close>\<close>
 
 lemma %internal nondet_left_unit: \<open>nondet_bind (nondet_return x) g = g x\<close>
-  by (simp add: nondet_return_def nondet_bind_def fun_eq_iff)
+  unfolding nondet_return_def nondet_bind_def fun_eq_iff
+  by simp
 
 lemma %internal nondet_right_unit: \<open>nondet_bind f nondet_return = f\<close>
-  by (auto simp: nondet_return_def nondet_bind_def fun_eq_iff)
+  unfolding nondet_return_def nondet_bind_def fun_eq_iff
+  by auto
 
 lemma %internal nondet_assoc:
   \<open>nondet_bind (nondet_bind f g) h
      = nondet_bind f (\<lambda>x. nondet_bind (g x) h)\<close>
-  by (auto simp: nondet_bind_def fun_eq_iff)
+  unfolding nondet_bind_def fun_eq_iff
+  by auto
 
 end_slide
 
@@ -491,17 +506,20 @@ text \<open>\<^bold>\<open>Foreshadow:\<close> this is the shape AutoCorrode's
 
 lemma %internal state_err_left_unit:
     \<open>state_err_bind (state_err_return x) g = g x\<close>
-  by (simp add: state_err_return_def state_err_bind_def fun_eq_iff)
+  unfolding state_err_return_def state_err_bind_def fun_eq_iff
+  by simp
 
 lemma %internal state_err_right_unit:
     \<open>state_err_bind f state_err_return = f\<close>
-  by (auto simp: state_err_return_def state_err_bind_def
-           fun_eq_iff split: sum.splits)
+  unfolding state_err_return_def state_err_bind_def fun_eq_iff
+  by (auto split: sum.splits) metis+
 
 lemma %internal state_err_assoc:
     \<open>state_err_bind (state_err_bind f g) h
        = state_err_bind f (\<lambda>x. state_err_bind (g x) h)\<close>
-  by (auto simp: state_err_bind_def fun_eq_iff split: sum.splits)
+  unfolding state_err_bind_def fun_eq_iff
+  by (auto split: sum.splits)
+    (metis prod.inject sum.inject sum.distinct)+
 
 end_slide
 
@@ -534,14 +552,17 @@ text \<open>CPS is normally introduced for compilers (passing
   becomes a weakest-precondition transformer.\<close>
 
 lemma %internal cps_left_unit: \<open>cps_bind (cps_return x) g = g x\<close>
-  by (simp add: cps_return_def cps_bind_def fun_eq_iff)
+  unfolding cps_return_def cps_bind_def fun_eq_iff
+  by simp
 
 lemma %internal cps_right_unit: \<open>cps_bind f cps_return = f\<close>
-  by (simp add: cps_return_def cps_bind_def fun_eq_iff)
+  unfolding cps_return_def cps_bind_def fun_eq_iff
+  by simp
 
 lemma %internal cps_assoc:
   \<open>cps_bind (cps_bind f g) h = cps_bind f (\<lambda>x. cps_bind (g x) h)\<close>
-  by (simp add: cps_bind_def fun_eq_iff)
+  unfolding cps_bind_def fun_eq_iff
+  by simp
 
 end_slide
 

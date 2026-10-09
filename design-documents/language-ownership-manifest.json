@@ -15,6 +15,7 @@
         "evaluation",
         "pullback",
         "language-neutral conditionals and loops",
+        "language-neutral SSA normalization",
         "generic theorem registries"
       ],
       "language_profile_dependencies": []
@@ -39,6 +40,15 @@
         "assertions",
         "reference contracts",
         "reference separation rules"
+      ],
+      "language_profile_dependencies": []
+    },
+    {
+      "name": "Shallow_Reference_Logic",
+      "owns": [
+        "expression-level reference contracts",
+        "focused-reference proof rules",
+        "generic reference function bodies"
       ],
       "language_profile_dependencies": []
     },
@@ -73,6 +83,23 @@
         "transactional installation"
       ],
       "language_profile_dependencies": []
+    },
+    {
+      "name": "Crush",
+      "owns": [
+        "language-neutral proof automation",
+        "generic separation-logic tactics",
+        "generic tactic theorem registries"
+      ],
+      "language_profile_dependencies": []
+    },
+    {
+      "name": "Micro_Rust_Crush",
+      "owns": [
+        "Rust proof-automation profile",
+        "Rust theorem-registry attachment",
+        "Rust-specific SSA normalization extensions"
+      ]
     },
     {
       "name": "Micro_C_Isabelle_C_Adapter",

@@ -3,7 +3,7 @@
 
 (*<*)
 theory StdLib_Tuple
-  imports Crush.Crush
+  imports Micro_Rust_Crush.Rust_Crush
 begin
 (*>*)
 

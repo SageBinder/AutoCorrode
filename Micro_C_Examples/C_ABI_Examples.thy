@@ -28,8 +28,9 @@ locale c_char_uint_verification_ctx =
   and c_ptr_ge :: \<open>('addr, 'gv) gref \<Rightarrow> ('addr, 'gv) gref \<Rightarrow> bool\<close>
   and c_ptr_to_uintptr :: \<open>('addr, 'gv) gref \<Rightarrow> int\<close>
   and c_uintptr_to_ptr :: \<open>int \<Rightarrow> ('addr, 'gv) gref\<close>
-  and reference_types :: \<open>'s::{sepalg} \<Rightarrow> 'addr \<Rightarrow> 'gv \<Rightarrow> c_abort \<Rightarrow> 'prompt \<Rightarrow>
-        'output \<Rightarrow> unit\<close>
+  and reference_types :: \<open>'s::{sepalg} \<Rightarrow> 'addr \<Rightarrow> 'gv \<Rightarrow> c_abort \<Rightarrow>
+        'prompt::nondeterministic_prompt \<Rightarrow>
+        'output::nondeterministic_response \<Rightarrow> unit\<close>
   and c_char_prism :: \<open>('gv, c_char) prism\<close>
   and c_uint_prism :: \<open>('gv, c_uint) prism\<close>
 begin
@@ -121,7 +122,8 @@ ucincl_auto wire_le_load_be32_portable_contract
 lemma wire_le_load_be32_portable_spec [crush_specs]:
   shows \<open>\<Gamma>; wire_le.load_be32_portable buf \<Turnstile>\<^sub>F wire_le_load_be32_portable_contract buf b0 b1 b2 b3\<close>
   apply (crush_boot f: wire_le.load_be32_portable_def contract: wire_le_load_be32_portable_contract_def)
-  apply (crush_base simp add: c_char_ref_at_def be32_from_bytes4_def c_unsigned_or_def c_unsigned_shl_def c_ucast_def)
+  apply (crush_base simp add: c_char_ref_at_def be32_from_bytes4_def c_unsigned_or_def
+    c_unsigned_shl_with_abort_def c_ucast_def)
   apply (simp add: ac_simps)
   done
 
@@ -136,7 +138,8 @@ ucincl_auto wire_le_bswap32_contract
 lemma wire_le_bswap32_spec [crush_specs]:
   shows \<open>\<Gamma>; wire_le.bswap32 x \<Turnstile>\<^sub>F wire_le_bswap32_contract x\<close>
   apply (crush_boot f: wire_le.bswap32_def contract: wire_le_bswap32_contract_def)
-  apply (crush_base simp add: bswap32_math_def c_unsigned_and_def c_unsigned_or_def c_unsigned_shl_def c_unsigned_shr_def)
+  apply (crush_base simp add: bswap32_math_def c_unsigned_and_def c_unsigned_or_def
+    c_unsigned_shl_with_abort_def c_unsigned_shr_with_abort_def)
   apply (simp add: ac_simps)
   done
 
@@ -194,7 +197,8 @@ ucincl_auto wire_be_load_be32_portable_contract
 lemma wire_be_load_be32_portable_spec [crush_specs]:
   shows \<open>\<Gamma>; wire_be.load_be32_portable buf \<Turnstile>\<^sub>F wire_be_load_be32_portable_contract buf b0 b1 b2 b3\<close>
   apply (crush_boot f: wire_be.load_be32_portable_def contract: wire_be_load_be32_portable_contract_def)
-  apply (crush_base simp add: c_char_ref_at_def be32_from_bytes4_def c_unsigned_or_def c_unsigned_shl_def c_ucast_def)
+  apply (crush_base simp add: c_char_ref_at_def be32_from_bytes4_def c_unsigned_or_def
+    c_unsigned_shl_with_abort_def c_ucast_def)
   apply (simp add: ac_simps)
   done
 

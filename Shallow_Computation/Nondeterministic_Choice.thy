@@ -16,10 +16,14 @@ depend on any language profile.
 
 class nondeterministic_prompt =
   fixes nondeterministic_choice_prompt :: \<open>'a\<close>
+    and transparent_prompt :: \<open>'a \<Rightarrow> bool\<close>
+  assumes nondeterministic_choice_prompt_not_transparent [simp]:
+    \<open>\<not> transparent_prompt nondeterministic_choice_prompt\<close>
 
 class nondeterministic_response =
   fixes nondeterministic_left_response :: \<open>'a\<close>
     and nondeterministic_right_response :: \<open>'a\<close>
+    and transparent_response :: \<open>'a\<close>
   assumes nondeterministic_responses_distinct:
     \<open>nondeterministic_left_response \<noteq> nondeterministic_right_response\<close>
 
@@ -52,5 +56,13 @@ definition is_nondet_order_yield_handler ::
      \<forall>\<sigma>. handler nondeterministic_choice_prompt \<sigma> =
        {YieldContinue (nondeterministic_left_response, \<sigma>),
         YieldContinue (nondeterministic_right_response, \<sigma>)}\<close>
+
+definition is_transparent_yield_handler ::
+  \<open>('s, 'abort, 'i::nondeterministic_prompt, 'o::nondeterministic_response)
+      yield_handler_nondet_basic \<Rightarrow> bool\<close>
+  where
+  \<open>is_transparent_yield_handler handler \<equiv>
+     \<forall>\<sigma> prompt. transparent_prompt prompt \<longrightarrow>
+       handler prompt \<sigma> = {YieldContinue (transparent_response, \<sigma>)}\<close>
 
 end

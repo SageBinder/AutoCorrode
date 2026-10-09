@@ -6,7 +6,7 @@ theory Raw_Physical_Memory_References
     Micro_Rust_Std_Lib.StdLib_All
     Micro_Rust_Interfaces_Core.References
     Micro_Rust_Interfaces_Core.Raw_Physical_Memory
-    Crush.Crush
+    Micro_Rust_Crush.Rust_Crush
 begin
 
 section\<open>References backed in physical memory\<close>
@@ -286,7 +286,7 @@ lemma points_to_tagged_bytes_split:
     simp flip: asepconj_multi_split_body intro add: aentails_multi_list_pointwise)
 
 lemma reference_sublocale:
-  shows \<open>reference update_raw_fun dereference_raw_fun
+  shows \<open>rust_reference update_raw_fun dereference_raw_fun
             reference_raw_fun points_to_raw' gref_can_store new_gref_can_store can_alloc_reference\<close>
 proof standard
   show \<open>\<And>\<Gamma> r g g0.

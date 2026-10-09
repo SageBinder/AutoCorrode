@@ -524,9 +524,6 @@ lemma wp_word_shift_rightI [separation_logic_wp_intros]:
       (word_shift_right_shift64 (literal x) (literal y)) \<psi> \<rho> \<theta>\<close>
 using assms wp_word_shift_right aentails_trans' by blast
 
-declare aexists_entailsL aexists_entailsR aforall_entailsL aforall_entailsR apure_entails_iff
-  apure_entailsR [separation_logic_wp_intros]
-
 subsection\<open>Gather\<close>
 
 lemma wp_gather_framedI:

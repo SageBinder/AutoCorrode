@@ -17,13 +17,15 @@ datatype_record ('st, 'abort, 'i, 'o) striple_context_raw =
   yield_handler_raw :: \<open>('st, 'abort, 'i, 'o) yield_handler_nondet_basic\<close>
 
 text\<open>A valid generic context implements the distinguished nondeterministic-choice
-prompt. Language profiles provide concrete prompt and response instances.\<close>
+prompt and preserves state for prompts marked transparent by the language profile.
+Language profiles provide the concrete prompt and response instances.\<close>
 definition is_valid_striple_context ::
   \<open>('st, 'abort, 'i::nondeterministic_prompt, 'o::nondeterministic_response)
     striple_context_raw \<Rightarrow> bool\<close>
 where
   \<open>is_valid_striple_context \<Gamma> \<equiv>
-      is_nondet_order_yield_handler (yield_handler_raw \<Gamma>)\<close>
+      is_nondet_order_yield_handler (yield_handler_raw \<Gamma>) \<and>
+      is_transparent_yield_handler (yield_handler_raw \<Gamma>)\<close>
 
 text\<open>Until the context is properly integrated, offer a dummy context\<close>
 definition striple_yield_handler_no_yield ::
@@ -31,7 +33,9 @@ definition striple_yield_handler_no_yield ::
     yield_handler_nondet_basic\<close>
 where
   \<open>striple_yield_handler_no_yield \<equiv> \<lambda>p \<sigma>.
-     if p = nondeterministic_choice_prompt then
+     if transparent_prompt p then
+       {YieldContinue (transparent_response, \<sigma>)}
+     else if p = nondeterministic_choice_prompt then
        {YieldContinue (nondeterministic_left_response, \<sigma>),
         YieldContinue (nondeterministic_right_response, \<sigma>)}
      else {YieldAbort UnexpectedYield \<sigma>}\<close>
@@ -51,7 +55,8 @@ lemma striple_yield_handler_no_yield_is_nonempty [simp]:
 lemma striple_context_raw_no_yield_is_valid:
   shows \<open>is_valid_striple_context striple_context_raw_no_yield\<close>
 by (auto simp add: is_valid_striple_context_def striple_context_raw_no_yield_def
-  is_nondet_order_yield_handler_def striple_yield_handler_no_yield_def)
+  is_nondet_order_yield_handler_def is_transparent_yield_handler_def
+  striple_yield_handler_no_yield_def)
 
 typedef (overloaded)
     ('st, 'abort, 'i::nondeterministic_prompt, 'o::nondeterministic_response)
@@ -78,6 +83,10 @@ lemma striple_context_yh_is_nondet_order[simp]:
   shows \<open>is_nondet_order_yield_handler (yh \<Gamma>)\<close>
   by (transfer, simp add: is_valid_striple_context_def)
 
+lemma striple_context_yh_is_transparent[simp]:
+  shows \<open>is_transparent_yield_handler (yh \<Gamma>)\<close>
+  by (transfer, simp add: is_valid_striple_context_def)
+
 lemma striple_context_no_yield_yh[simp]:
   shows \<open>yh striple_context_no_yield = striple_yield_handler_no_yield\<close>
   by (transfer, simp add: striple_context_raw_no_yield_def)
@@ -98,6 +107,7 @@ lemma striple_context_refines_top[simp]:
   by (transfer, clarsimp simp add: is_valid_striple_context_def
     striple_context_raw_no_yield_def yield_handler_nondet_basic_refines_def
     yield_handler_no_abort_at_def is_nondet_order_yield_handler_def
+    is_transparent_yield_handler_def
     striple_yield_handler_no_yield_def)
 
 (*<*)
@@ -710,9 +720,9 @@ lemmas striple_frame_rule_no_return =
   triple_frame_rule_no_return
   [OF striple_consequence_wrap, OF striple_frame_rule_wrap]
 
-subsection\<open>Local axioms for Micro Rust expressions in SSA form:\<close>
+subsection\<open>Local axioms for core expressions in SSA form:\<close>
 
-text\<open>This is the ``fundamental result'' here, as most other Micro Rust constructs are defined in
+text\<open>This is the ``fundamental result'' here, as most other shallow-language constructs are defined in
 terms of the monadic bind.  Note that this is the rule for \<^verbatim>\<open>let\<close> in disguise.\<close>
 lemma striple_bindI:
   assumes \<open>\<Gamma> ; \<phi> \<turnstile> e \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k \<psi> \<bowtie> \<rho> \<bowtie> \<theta>\<close>

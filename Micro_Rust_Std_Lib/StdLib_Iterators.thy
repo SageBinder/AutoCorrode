@@ -3,7 +3,7 @@
 
 (*<*)
 theory StdLib_Iterators
-  imports Crush.Crush StdLib_References
+  imports Micro_Rust_Crush.Rust_Crush StdLib_References
 begin
 (*>*)
 
@@ -55,7 +55,7 @@ urust_fn count :: \<open>('s, 'v, 'abort, 'i prompt, 'o prompt_output) iterator 
     \<llangle>of_nat \<circ> length \<circ> iterator_thunks\<rrangle>\<^sub>1(self)
   \<close>
 
-context reference
+context rust_reference
 begin
 
 urust_fn iter_mut ::

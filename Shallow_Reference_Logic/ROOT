@@ -1,0 +1,12 @@
+session Shallow_Reference_Logic = HOL +
+  options [document = false]
+  sessions
+    "HOL-Eisbach"
+    "HOL-Library"
+    Shallow_Computation
+    Shallow_State
+    Shallow_State_Logic
+    Shallow_Separation_Logic
+  theories [document = false]
+    Expression_References
+    Shallow_Reference_Logic

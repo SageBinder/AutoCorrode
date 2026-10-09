@@ -71,7 +71,9 @@ locale byte_backed_reference =
   c_reference reference_types update_raw_fun dereference_raw_fun
     reference_raw_fun points_to_raw' gref_can_store new_gref_can_store can_alloc_reference
   for reference_types ::
-    \<open>'s::{sepalg} \<Rightarrow> 'addr \<Rightarrow> byte list \<Rightarrow> c_abort \<Rightarrow> 'prompt \<Rightarrow> 'output \<Rightarrow> unit\<close>
+    \<open>'s::{sepalg} \<Rightarrow> 'addr \<Rightarrow> byte list \<Rightarrow> c_abort \<Rightarrow>
+      'prompt::nondeterministic_prompt \<Rightarrow>
+      'output::nondeterministic_response \<Rightarrow> unit\<close>
   and update_raw_fun and dereference_raw_fun and reference_raw_fun
   and points_to_raw' and gref_can_store and new_gref_can_store and can_alloc_reference
 begin

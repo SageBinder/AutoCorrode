@@ -534,7 +534,10 @@ struct
   (* Extract the full parameter declarations (not just names) from a function declarator *)
   fun extract_param_decls (CDeclr0 (_, derived, _, _, _)) =
     (case List.find (fn CFunDeclr0 _ => true | _ => false) derived of
-       SOME (CFunDeclr0 (Right (params, _), _, _)) => params
+       SOME (CFunDeclr0
+         (Right ([CDecl0 ([CTypeSpec0 (CVoidType0 _)], [], _)], false), _, _)) =>
+         []
+     | SOME (CFunDeclr0 (Right (params, _), _, _)) => params
      | _ => [])
 
   fun declr_is_variadic (CDeclr0 (_, derived, _, _, _)) =

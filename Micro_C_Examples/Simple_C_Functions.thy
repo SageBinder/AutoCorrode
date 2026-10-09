@@ -49,8 +49,9 @@ locale c_base_verification_ctx =
   and c_ptr_ge :: \<open>('addr, 'gv) gref \<Rightarrow> ('addr, 'gv) gref \<Rightarrow> bool\<close>
   and c_ptr_to_uintptr :: \<open>('addr, 'gv) gref \<Rightarrow> int\<close>
   and c_uintptr_to_ptr :: \<open>int \<Rightarrow> ('addr, 'gv) gref\<close>
-  and reference_types :: \<open>'s::{sepalg} \<Rightarrow> 'addr \<Rightarrow> 'gv \<Rightarrow> c_abort \<Rightarrow> 'prompt \<Rightarrow>
-      'output \<Rightarrow> unit\<close>
+  and reference_types :: \<open>'s::{sepalg} \<Rightarrow> 'addr \<Rightarrow> 'gv \<Rightarrow> c_abort \<Rightarrow>
+      'prompt::nondeterministic_prompt \<Rightarrow>
+      'output::nondeterministic_response \<Rightarrow> unit\<close>
 
 locale c_verification_ctx =
     c_pointer_model c_ptr_add c_ptr_shift_signed c_ptr_diff c_ptr_less c_ptr_le c_ptr_greater c_ptr_ge
@@ -66,8 +67,9 @@ locale c_verification_ctx =
   and c_ptr_ge :: \<open>('addr, 'gv) gref \<Rightarrow> ('addr, 'gv) gref \<Rightarrow> bool\<close>
   and c_ptr_to_uintptr :: \<open>('addr, 'gv) gref \<Rightarrow> int\<close>
   and c_uintptr_to_ptr :: \<open>int \<Rightarrow> ('addr, 'gv) gref\<close>
-  and reference_types :: \<open>'s::{sepalg} \<Rightarrow> 'addr \<Rightarrow> 'gv \<Rightarrow> c_abort \<Rightarrow> 'prompt \<Rightarrow>
-      'output \<Rightarrow> unit\<close>
+  and reference_types :: \<open>'s::{sepalg} \<Rightarrow> 'addr \<Rightarrow> 'gv \<Rightarrow> c_abort \<Rightarrow>
+      'prompt::nondeterministic_prompt \<Rightarrow>
+      'output::nondeterministic_response \<Rightarrow> unit\<close>
   and c_int_prism :: \<open>('gv, c_int) prism\<close>
 begin
 
@@ -169,7 +171,7 @@ ucincl_auto c_abs_val_contract
 lemma c_abs_val_spec [crush_specs]:
   shows \<open>\<Gamma>; CSimple.abs_val x \<Turnstile>\<^sub>F c_abs_val_contract x\<close>
 by (crush_boot f: CSimple.abs_val_def contract: c_abs_val_contract_def) (crush_base simp add:
-  c_signed_less_def c_signed_sub_def c_signed_overflow_def Let_def)
+  c_signed_less_def c_signed_sub_with_abort_def c_signed_overflow_def Let_def)
 
 subsection \<open>Signed Addition (with Overflow Precondition)\<close>
 
@@ -195,7 +197,8 @@ ucincl_auto c_signed_add_contract
 lemma c_signed_add_spec [crush_specs]:
   shows \<open>\<Gamma>; CSimple.signed_add a b \<Turnstile>\<^sub>F c_signed_add_contract a b\<close>
 by (crush_boot f: CSimple.signed_add_def contract: c_signed_add_contract_def)
-   (crush_base simp add: CSimple.signed_add_def c_signed_overflow_def Let_def)
+   (crush_base simp add: CSimple.signed_add_def c_signed_add_with_abort_def
+      c_signed_overflow_def Let_def)
 
 subsection \<open>Signed Overflow UB Detection\<close>
 
@@ -217,7 +220,7 @@ ucincl_auto c_signed_add_overflow_contract
 lemma c_signed_add_overflow_spec:
   shows \<open>\<Gamma>; CSimple.signed_add a b \<Turnstile>\<^sub>F c_signed_add_overflow_contract a b\<close>
   apply (crush_boot f: CSimple.signed_add_def contract: c_signed_add_overflow_contract_def)
-  apply (simp only: C_Numeric_Types.c_signed_add_def Let_def)
+  apply (simp only: C_Numeric_Types.c_signed_add_with_abort_def Let_def)
   apply (crush_base simp add: c_signed_overflow_def c_abort_def)
   done
 
@@ -246,8 +249,9 @@ locale c_uint_verification_ctx =
   and c_ptr_ge :: \<open>('addr, 'gv) gref \<Rightarrow> ('addr, 'gv) gref \<Rightarrow> bool\<close>
   and c_ptr_to_uintptr :: \<open>('addr, 'gv) gref \<Rightarrow> int\<close>
   and c_uintptr_to_ptr :: \<open>int \<Rightarrow> ('addr, 'gv) gref\<close>
-  and reference_types :: \<open>'s::{sepalg} \<Rightarrow> 'addr \<Rightarrow> 'gv \<Rightarrow> c_abort \<Rightarrow> 'prompt \<Rightarrow>
-      'output \<Rightarrow> unit\<close>
+  and reference_types :: \<open>'s::{sepalg} \<Rightarrow> 'addr \<Rightarrow> 'gv \<Rightarrow> c_abort \<Rightarrow>
+      'prompt::nondeterministic_prompt \<Rightarrow>
+      'output::nondeterministic_response \<Rightarrow> unit\<close>
   and c_uint_prism :: \<open>('gv, c_uint) prism\<close>
   and c_uint_ptr_prism :: \<open>('gv, ('addr, 'gv, c_uint) State_References.ref) prism\<close>
 begin
@@ -871,7 +875,7 @@ ucincl_auto c_u_div_contract
 lemma c_u_div_spec [crush_specs]:
   shows \<open>\<Gamma>; CSimple.u_div a b \<Turnstile>\<^sub>F c_u_div_contract a b\<close>
 by (crush_boot f: CSimple.u_div_def contract: c_u_div_contract_def)
-   (crush_base simp add: c_unsigned_div_def c_division_by_zero_def c_abort_def)
+   (crush_base simp add: c_unsigned_div_with_abort_def c_division_by_zero_def c_abort_def)
 
 subsection \<open>Division by Zero UB Detection\<close>
 
@@ -892,7 +896,7 @@ ucincl_auto c_u_div_zero_contract
 lemma c_u_div_zero_spec:
   shows \<open>\<Gamma>; CSimple.u_div a b \<Turnstile>\<^sub>F c_u_div_zero_contract a b\<close>
 by (crush_boot f: CSimple.u_div_def contract: c_u_div_zero_contract_def)
-   (crush_base simp add: c_unsigned_div_def c_division_by_zero_def c_abort_def)
+   (crush_base simp add: c_unsigned_div_with_abort_def c_division_by_zero_def c_abort_def)
 
 subsection \<open>NULL pointer literal\<close>
 
@@ -997,6 +1001,21 @@ definition c_count_down_contract :: \<open>c_uint \<Rightarrow> ('s::{sepalg}, c
      in make_function_contract pre post\<close>
 ucincl_auto c_count_down_contract
 
+lemma c_uint_loop_index_not_modulus:
+  fixes n :: c_uint
+    and k :: nat
+  assumes \<open>k < Suc (unat n)\<close>
+      and \<open>0 < k\<close>
+  shows \<open>\<not> 4294967296 dvd k\<close>
+proof
+  assume \<open>4294967296 dvd k\<close>
+  have \<open>k < 4294967296\<close>
+    using assms(1) less_Suc_unat_less_bound[where x=n] by simp
+  moreover have \<open>4294967296 \<le> k\<close>
+    using \<open>4294967296 dvd k\<close> assms(2) by (rule dvd_imp_le)
+  ultimately show False by simp
+qed
+
 lemma c_count_down_spec:
   assumes \<open>while_fuel = Suc (unat n)\<close>
     shows \<open>\<Gamma>; CSimple.count_down while_fuel n \<Turnstile>\<^sub>F c_count_down_contract n\<close>
@@ -1016,10 +1035,7 @@ lemma c_count_down_spec:
   apply (crush_base simp add: c_unsigned_eq_def c_unsigned_sub_def
       unat_of_nat_eq word_of_nat_eq_0_iff of_nat_diff linorder_not_less
       unat_gt_0 word_of_nat_less)+
-  subgoal apply (simp add: assms) using dvd_imp_le unat_lt2p[where x=n] by fastforce
-  subgoal apply (simp add: assms) using dvd_imp_le unat_lt2p[where x=n] by fastforce
-  subgoal apply (simp add: assms) using dvd_imp_le unat_lt2p[where x=n] by fastforce
-  apply (simp add: assms)+
+  apply (simp add: assms c_uint_loop_index_not_modulus)+
   done
 
 end
@@ -1040,8 +1056,9 @@ locale c_ushort_verification_ctx =
   and c_ptr_ge :: \<open>('addr, 'gv) gref \<Rightarrow> ('addr, 'gv) gref \<Rightarrow> bool\<close>
   and c_ptr_to_uintptr :: \<open>('addr, 'gv) gref \<Rightarrow> int\<close>
   and c_uintptr_to_ptr :: \<open>int \<Rightarrow> ('addr, 'gv) gref\<close>
-  and reference_types :: \<open>'s::{sepalg} \<Rightarrow> 'addr \<Rightarrow> 'gv \<Rightarrow> c_abort \<Rightarrow> 'prompt \<Rightarrow>
-      'output \<Rightarrow> unit\<close>
+  and reference_types :: \<open>'s::{sepalg} \<Rightarrow> 'addr \<Rightarrow> 'gv \<Rightarrow> c_abort \<Rightarrow>
+      'prompt::nondeterministic_prompt \<Rightarrow>
+      'output::nondeterministic_response \<Rightarrow> unit\<close>
   and c_ushort_prism :: \<open>('gv, c_ushort) prism\<close>
 begin
 
@@ -1068,8 +1085,28 @@ ucincl_auto c_u16_add_contract
 
 lemma c_u16_add_spec [crush_specs]:
   shows \<open>\<Gamma>; CSimple.u16_add a b \<Turnstile>\<^sub>F c_u16_add_contract a b\<close>
-by (crush_boot f: CSimple.u16_add_def contract: c_u16_add_contract_def)
-  (crush_base simp add: c_unsigned_add_def)
+proof -
+  have upper:
+    \<open>sint (UCAST(16 \<rightarrow> 32 signed) a) + sint (UCAST(16 \<rightarrow> 32 signed) b)
+      < 2147483648\<close>
+    by (rule sint_ucast_16_32_add_upper)
+  have lower:
+    \<open>- 2147483648 \<le>
+      sint (UCAST(16 \<rightarrow> 32 signed) a) + sint (UCAST(16 \<rightarrow> 32 signed) b)\<close>
+    by (rule sint_ucast_16_32_add_lower)
+  have no_upper:
+    \<open>\<not> 2147483648 \<le>
+      sint (UCAST(16 \<rightarrow> 32 signed) a) + sint (UCAST(16 \<rightarrow> 32 signed) b)\<close>
+    using upper by linarith
+  have no_lower:
+    \<open>\<not> sint (UCAST(16 \<rightarrow> 32 signed) a) + sint (UCAST(16 \<rightarrow> 32 signed) b)
+      < - 2147483648\<close>
+    using lower by linarith
+  show ?thesis
+    by (crush_boot f: CSimple.u16_add_def contract: c_u16_add_contract_def)
+      (crush_base simp add: c_signed_add_with_abort_def c_scast_def Let_def
+        no_upper no_lower scast_ucast_add_roundtrip_16_32)
+qed
 
 c_source CSimple \<open>
   typedef unsigned long size_t;
@@ -1133,8 +1170,9 @@ locale c_poly_verification_ctx =
   and c_ptr_ge :: \<open>('addr, 'gv) gref \<Rightarrow> ('addr, 'gv) gref \<Rightarrow> bool\<close>
   and c_ptr_to_uintptr :: \<open>('addr, 'gv) gref \<Rightarrow> int\<close>
   and c_uintptr_to_ptr :: \<open>int \<Rightarrow> ('addr, 'gv) gref\<close>
-  and reference_types :: \<open>'s::{sepalg} \<Rightarrow> 'addr \<Rightarrow> 'gv \<Rightarrow> c_abort \<Rightarrow> 'prompt \<Rightarrow>
-      'output \<Rightarrow> unit\<close>
+  and reference_types :: \<open>'s::{sepalg} \<Rightarrow> 'addr \<Rightarrow> 'gv \<Rightarrow> c_abort \<Rightarrow>
+      'prompt::nondeterministic_prompt \<Rightarrow>
+      'output::nondeterministic_response \<Rightarrow> unit\<close>
   and c_poly_prism :: \<open>('gv, CSimple.poly) prism\<close>
 begin
 
@@ -1170,7 +1208,7 @@ lemma c_read_coeff_spec [crush_specs]:
   shows \<open>\<Gamma>; CSimple.read_coeff p i \<Turnstile>\<^sub>F c_read_coeff_contract p pg pval i\<close>
 by (crush_boot f: CSimple.read_coeff_def contract: c_read_coeff_contract_def) crush_base
 
-c_source CSimple \<open>
+c_source CSimple [types = []] \<open>
   struct poly {
     int coeffs[256];
   };
@@ -1198,7 +1236,7 @@ lemma c_write_coeff_spec [crush_specs]:
   shows \<open>\<Gamma>; CSimple.write_coeff p i v \<Turnstile>\<^sub>F c_write_coeff_contract p pg pval i v\<close>
 by (crush_boot f: CSimple.write_coeff_def contract: c_write_coeff_contract_def) crush_base
 
-c_source CSimple \<open>
+c_source CSimple [types = []] \<open>
   struct poly {
     int coeffs[256];
   };
@@ -1250,8 +1288,9 @@ locale c_uint_arr_verification_ctx =
   and c_ptr_ge :: \<open>('addr, 'gv) gref \<Rightarrow> ('addr, 'gv) gref \<Rightarrow> bool\<close>
   and c_ptr_to_uintptr :: \<open>('addr, 'gv) gref \<Rightarrow> int\<close>
   and c_uintptr_to_ptr :: \<open>int \<Rightarrow> ('addr, 'gv) gref\<close>
-  and reference_types :: \<open>'s::{sepalg} \<Rightarrow> 'addr \<Rightarrow> 'gv \<Rightarrow> c_abort \<Rightarrow> 'prompt \<Rightarrow>
-      'output \<Rightarrow> unit\<close>
+  and reference_types :: \<open>'s::{sepalg} \<Rightarrow> 'addr \<Rightarrow> 'gv \<Rightarrow> c_abort \<Rightarrow>
+      'prompt::nondeterministic_prompt \<Rightarrow>
+      'output::nondeterministic_response \<Rightarrow> unit\<close>
   and c_uint_prism :: \<open>('gv, c_uint) prism\<close>
   and c_uint_list_prism :: \<open>('gv, c_uint list) prism\<close>
   and c_uint_list_list_prism :: \<open>('gv, c_uint list list) prism\<close>
@@ -1315,8 +1354,9 @@ locale c_char_verification_ctx =
   and c_ptr_ge :: \<open>('addr, 'gv) gref \<Rightarrow> ('addr, 'gv) gref \<Rightarrow> bool\<close>
   and c_ptr_to_uintptr :: \<open>('addr, 'gv) gref \<Rightarrow> int\<close>
   and c_uintptr_to_ptr :: \<open>int \<Rightarrow> ('addr, 'gv) gref\<close>
-  and reference_types :: \<open>'s::{sepalg} \<Rightarrow> 'addr \<Rightarrow> 'gv \<Rightarrow> c_abort \<Rightarrow> 'prompt \<Rightarrow>
-      'output \<Rightarrow> unit\<close>
+  and reference_types :: \<open>'s::{sepalg} \<Rightarrow> 'addr \<Rightarrow> 'gv \<Rightarrow> c_abort \<Rightarrow>
+      'prompt::nondeterministic_prompt \<Rightarrow>
+      'output::nondeterministic_response \<Rightarrow> unit\<close>
   and c_char_prism :: \<open>('gv, c_char) prism\<close>
 begin
 
@@ -1366,8 +1406,9 @@ locale c_ulong_verification_ctx =
   and c_ptr_ge :: \<open>('addr, 'gv) gref \<Rightarrow> ('addr, 'gv) gref \<Rightarrow> bool\<close>
   and c_ptr_to_uintptr :: \<open>('addr, 'gv) gref \<Rightarrow> int\<close>
   and c_uintptr_to_ptr :: \<open>int \<Rightarrow> ('addr, 'gv) gref\<close>
-  and reference_types :: \<open>'s::{sepalg} \<Rightarrow> 'addr \<Rightarrow> 'gv \<Rightarrow> c_abort \<Rightarrow> 'prompt \<Rightarrow>
-      'output \<Rightarrow> unit\<close>
+  and reference_types :: \<open>'s::{sepalg} \<Rightarrow> 'addr \<Rightarrow> 'gv \<Rightarrow> c_abort \<Rightarrow>
+      'prompt::nondeterministic_prompt \<Rightarrow>
+      'output::nondeterministic_response \<Rightarrow> unit\<close>
   and c_ulong_prism :: \<open>('gv, c_ulong) prism\<close>
 begin
 
@@ -1415,8 +1456,9 @@ locale c_uint128_verification_ctx =
   and c_ptr_ge :: \<open>('addr, 'gv) gref \<Rightarrow> ('addr, 'gv) gref \<Rightarrow> bool\<close>
   and c_ptr_to_uintptr :: \<open>('addr, 'gv) gref \<Rightarrow> int\<close>
   and c_uintptr_to_ptr :: \<open>int \<Rightarrow> ('addr, 'gv) gref\<close>
-  and reference_types :: \<open>'s::{sepalg} \<Rightarrow> 'addr \<Rightarrow> 'gv \<Rightarrow> c_abort \<Rightarrow> 'prompt \<Rightarrow>
-      'output \<Rightarrow> unit\<close>
+  and reference_types :: \<open>'s::{sepalg} \<Rightarrow> 'addr \<Rightarrow> 'gv \<Rightarrow> c_abort \<Rightarrow>
+      'prompt::nondeterministic_prompt \<Rightarrow>
+      'output::nondeterministic_response \<Rightarrow> unit\<close>
   and c_uint128_prism :: \<open>('gv, c_uint128) prism\<close>
 begin
 
@@ -1468,15 +1510,16 @@ locale c_point_verification_ctx =
   and c_ptr_ge :: \<open>('addr, 'gv) gref \<Rightarrow> ('addr, 'gv) gref \<Rightarrow> bool\<close>
   and c_ptr_to_uintptr :: \<open>('addr, 'gv) gref \<Rightarrow> int\<close>
   and c_uintptr_to_ptr :: \<open>int \<Rightarrow> ('addr, 'gv) gref\<close>
-  and reference_types :: \<open>'s::{sepalg} \<Rightarrow> 'addr \<Rightarrow> 'gv \<Rightarrow> c_abort \<Rightarrow> 'prompt \<Rightarrow>
-      'output \<Rightarrow> unit\<close>
+  and reference_types :: \<open>'s::{sepalg} \<Rightarrow> 'addr \<Rightarrow> 'gv \<Rightarrow> c_abort \<Rightarrow>
+      'prompt::nondeterministic_prompt \<Rightarrow>
+      'output::nondeterministic_response \<Rightarrow> unit\<close>
   and c_point_prism :: \<open>('gv, CSimple.point) prism\<close>
 begin
 
 adhoc_overloading store_reference_const \<rightleftharpoons> ref_c_point.new
 adhoc_overloading store_update_const \<rightleftharpoons> update_fun
 
-c_source CSimple \<open>
+c_source CSimple [types = []] \<open>
   typedef struct { unsigned int x; unsigned int y; } point;
 
   unsigned int point_sum_init(void) {
@@ -1580,7 +1623,7 @@ section \<open>sizeof(struct)\<close>
 context c_point_verification_ctx
 begin
 
-c_source CSimple \<open>
+c_source CSimple [types = []] \<open>
   typedef struct { unsigned int x; unsigned int y; } point;
 
   unsigned int point_size(void) {
@@ -1728,8 +1771,9 @@ locale c_char_arr_verification_ctx =
   and c_ptr_ge :: \<open>('addr, 'gv) gref \<Rightarrow> ('addr, 'gv) gref \<Rightarrow> bool\<close>
   and c_ptr_to_uintptr :: \<open>('addr, 'gv) gref \<Rightarrow> int\<close>
   and c_uintptr_to_ptr :: \<open>int \<Rightarrow> ('addr, 'gv) gref\<close>
-  and reference_types :: \<open>'s::{sepalg} \<Rightarrow> 'addr \<Rightarrow> 'gv \<Rightarrow> c_abort \<Rightarrow> 'prompt \<Rightarrow>
-      'output \<Rightarrow> unit\<close>
+  and reference_types :: \<open>'s::{sepalg} \<Rightarrow> 'addr \<Rightarrow> 'gv \<Rightarrow> c_abort \<Rightarrow>
+      'prompt::nondeterministic_prompt \<Rightarrow>
+      'output::nondeterministic_response \<Rightarrow> unit\<close>
   and c_char_prism :: \<open>('gv, c_char) prism\<close>
   and c_char_list_prism :: \<open>('gv, c_char list) prism\<close>
 begin

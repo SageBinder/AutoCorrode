@@ -271,10 +271,10 @@ proof -
     using assms by (auto intro!: wp_is_weakest_precondition ucincl_asepconj ucincl_Int ucincl_awand)
 qed
 
-subsection\<open>Local axioms for Micro Rust expressions\<close>
+subsection\<open>Local axioms for core expressions\<close>
 
 text\<open>In this section, we reason on a case-by-case basis, computing the Weakest Precondition for the
-expressions of Core Micro Rust.  Note that, as many expressions are defined as abbreviations,
+expressions of the core computation language.  Note that, as many expressions are defined as abbreviations,
 written in terms of a small set of core expressions that others elaborate into, we need only
 consider this core set here.
 
@@ -291,6 +291,14 @@ text\<open>Introduction rules introducing schematic variables. Those should be a
 destructing quantified assumptions, as only then the schematic may depend on the quantifiers
 in the assumptions:\<close>
 named_theorems separation_logic_wp_ex_intros
+
+text\<open>Structural entailment rules used while decomposing weakest-precondition goals
+belong to the generic separation-logic calculus.  Language profiles may add rules for
+their own expressions, but must not be required to make these logical forms visible
+to automation.\<close>
+
+declare aexists_entailsL aexists_entailsR aforall_entailsL aforall_entailsR
+  apure_entails_iff apure_entailsR [separation_logic_wp_intros]
 
 lemma wp_literal [separation_logic_wp_simps]:
     notes asepconj_simp [simp]
@@ -309,8 +317,8 @@ lemma wp_literalI[separation_logic_wp_intros]:
     shows \<open>\<phi> \<longlongrightarrow> \<W>\<P> \<Gamma> (literal v) \<psi> \<rho> \<theta>\<close>
   by (simp add: assms local.sstriple_literal local.sstriple_wp_iff)
 
-text\<open>As immediate corollaries of the result above we have analogous results for all of our literal
-values for Core Micro Rust:\<close>
+text\<open>As immediate corollaries of the result above we have analogous results for all of our core
+literal values:\<close>
 lemma wp_abort [separation_logic_wp_simps]:
   shows \<open>\<W>\<P> \<Gamma> (abort a) \<psi> \<rho> \<theta> = \<theta> a \<star> UNIV\<close>
   by (clarsimp intro!: aentails_yonedaI simp add: sstriple_wp_iff sstriple_abort)

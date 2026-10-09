@@ -12,6 +12,13 @@ context sepalg begin
 definition is_aborting_striple_context where
   \<open>is_aborting_striple_context \<Gamma> \<equiv> is_aborting_yield_handler (yh \<Gamma>)\<close>
 
+lemma striple_context_yh_is_log_transparaent[simp]:
+  shows \<open>is_log_transparent_yield_handler (yh \<Gamma>)\<close>
+  using striple_context_yh_is_transparent[where \<Gamma>=\<Gamma>]
+  by (auto simp add: is_log_transparent_yield_handler_def
+    is_transparent_yield_handler_def is_log_prompt_def
+    split: prompt.splits)
+
 lemma striple_assert_val:
   shows \<open>(\<Gamma> ; \<phi> \<turnstile> assert_val v \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k \<psi> \<bowtie> \<rho> \<bowtie> \<theta>) \<longleftrightarrow>
      (v \<longrightarrow> \<phi> \<longlongrightarrow> \<top> \<star> \<psi> ()) \<and> (\<not>v \<longrightarrow> \<phi> \<longlongrightarrow> \<top> \<star> \<theta> AssertionFailed)\<close>

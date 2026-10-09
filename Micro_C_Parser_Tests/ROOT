@@ -1,10 +1,23 @@
-session Micro_C_Parser_Tests = HOL +
+session Micro_C_Parser_Tests = Micro_C_Parsing_Frontend +
   options [document = false]
   sessions
     Frontend_Common
     Micro_C_Isabelle_C_Adapter
-    Micro_C_Parsing_Frontend
   theories [document = false]
+    C_Parser_Test_Utils
+    C_Parser_Expression_Tests
+    C_Parser_Syntax_Tests
+    C_Parser_Function_Tests
+    C_Parser_Control_Flow_Tests
+    C_Parser_Type_Tests
+    C_Parser_Name_Resolution_Tests
+    C_Parser_Memory_Tests
+    C_Parser_Rejection_Tests
+    C_Parser_Profile_Tests
+    C_Parser_Semantics_Tests
+    C_Parser_Command_Tests
+    C_Parser_Runtime_Tests
+    C_Parser_Position_Tests
     Parser_Adapter_Tests
     Parser_Elaboration_Tests
     Parser_Denotation_Tests

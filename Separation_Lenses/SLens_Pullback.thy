@@ -5,7 +5,6 @@ theory SLens_Pullback
   imports
     Shallow_State_Logic.Assertion_Language
     Shallow_Separation_Logic.Weak_Triple
-    Shallow_Micro_Rust.Shallow_Micro_Rust
     Shallow_Separation_Logic.Triple
     Shallow_Separation_Logic.Function_Contract 
     SLens
@@ -49,10 +48,14 @@ definition is_canonical_lifted_striple_context where
 context slens
 begin
 
-lift_definition pull_back_striple_context :: \<open>('t, 'abort, 'i, 'o) striple_context \<Rightarrow> ('s, 'abort, 'i, 'o) striple_context\<close>
+lift_definition pull_back_striple_context ::
+  \<open>('t, 'abort, 'i::nondeterministic_prompt, 'o::nondeterministic_response)
+      striple_context \<Rightarrow>
+    ('s, 'abort, 'i, 'o) striple_context\<close>
   is \<open>\<lambda>\<Gamma>. make_striple_context_raw (canonical_pull_back_yield_handler l (yield_handler_raw \<Gamma>))\<close>
-   by (simp add: lens_valid canonical_pull_back_yield_handler_log_preserving
+   by (simp add: lens_valid
      canonical_pull_back_yield_handler_nondet_order_preserving
+     canonical_pull_back_yield_handler_transparent_preserving
      is_valid_striple_context_def)
 
 lemma pull_back_striple_context_yield_handler:
@@ -62,9 +65,10 @@ lemma pull_back_striple_context_yield_handler:
 lemma pull_back_striple_context_no_yield[simp]:
   shows \<open>pull_back_striple_context
       (striple_context_no_yield ::
-        ('t, 'abort, 'i prompt, 'o prompt_output) striple_context) =
+        ('t, 'abort, 'i::nondeterministic_prompt,
+          'o::nondeterministic_response) striple_context) =
       (striple_context_no_yield ::
-        ('s, 'abort, 'i prompt, 'o prompt_output) striple_context)\<close>
+        ('s, 'abort, 'i, 'o) striple_context)\<close>
   by (transfer, simp add: lens_valid striple_context_raw_no_yield_def
       canonical_pull_back_yield_handler_def striple_yield_handler_no_yield_def
       lift_yield_result_def fun_eq_iff lens_laws_update(2))
@@ -218,7 +222,9 @@ proof -
 qed
 
 lemma pull_back_striple[slens_pull_back_intros]:
-  fixes e :: \<open>('t, 'v, 'r, 'abort, 'i prompt, 'o prompt_output) expression\<close>
+  fixes e ::
+    \<open>('t, 'v, 'r, 'abort, 'i::nondeterministic_prompt,
+      'o::nondeterministic_response) expression\<close>
   assumes T: \<open>\<Gamma>; \<phi> \<turnstile> e  \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k \<psi> \<bowtie> \<xi> \<bowtie> \<theta>\<close>
       and \<open>is_canonical_lifted_striple_context l \<Gamma> \<Theta>\<close>
     shows \<open>\<Theta>; l\<inverse> \<phi> \<turnstile> l\<inverse> e \<stileturn>\<^sub>w\<^sub>e\<^sub>a\<^sub>k (\<lambda>v. l\<inverse> (\<psi> v)) \<bowtie> (\<lambda>r. l\<inverse> (\<xi> r)) \<bowtie> (\<lambda>r. l\<inverse> (\<theta> r))\<close>
@@ -353,7 +359,7 @@ next
     unfolding pull_back_relation_def by auto
 qed
 
-lemma pull_back_local_urust:
+lemma pull_back_local_expression:
   assumes \<open>expression_is_local y e \<phi>\<close>
     shows \<open>expression_is_local (l\<inverse> y) (l\<inverse> e) (l\<inverse> \<phi>)\<close>
   using assms
@@ -364,16 +370,21 @@ lemma pull_back_local_urust:
     elim!: pull_back_local_relation[elim_format])
 
 lemma pull_back_sstriple[slens_pull_back_intros]:
-  fixes e :: \<open>('t, 'v, 'r, 'abort, 'i prompt, 'o prompt_output) expression\<close>
+  fixes e ::
+    \<open>('t, 'v, 'r, 'abort, 'i::nondeterministic_prompt,
+      'o::nondeterministic_response) expression\<close>
   assumes T: \<open>\<Gamma>; \<phi> \<turnstile> e \<stileturn> \<psi> \<bowtie> \<xi> \<bowtie> \<theta>\<close>
     shows \<open>l\<inverse> \<Gamma>; l\<inverse> \<phi> \<turnstile> l\<inverse> e \<stileturn> (\<lambda>v. l\<inverse> (\<psi> v)) \<bowtie> (\<lambda>r. l\<inverse> (\<xi> r)) \<bowtie> (\<lambda>r. l\<inverse> (\<theta> r))\<close>
   using assms by (clarsimp simp add: sstriple_striple' is_canonical_lifted_striple_context_def
-     pull_back_local_urust pull_back_striple pull_back_striple_context_yield_handler)
+     pull_back_local_expression pull_back_striple
+     pull_back_striple_context_yield_handler)
 
 \<comment>\<open>This is an artifact of the current use of \<^verbatim>\<open>\<bottom>\<close> as the abort-postcondition in function contracts.
  Once we generalize, this should no longer be necessary.\<close>
 lemma pull_back_sstriple_bot[slens_pull_back_intros]:
-  fixes e :: \<open>('t, 'v, 'r, 'abort, 'i prompt, 'o prompt_output) expression\<close>
+  fixes e ::
+    \<open>('t, 'v, 'r, 'abort, 'i::nondeterministic_prompt,
+      'o::nondeterministic_response) expression\<close>
   assumes T: \<open>\<Gamma>; \<phi> \<turnstile> e \<stileturn> \<psi> \<bowtie> \<xi> \<bowtie> \<bottom>\<close>
   shows \<open>l\<inverse> \<Gamma>; l\<inverse> \<phi> \<turnstile> l\<inverse> e \<stileturn> (\<lambda>v. l\<inverse> (\<psi> v)) \<bowtie> (\<lambda>r. l\<inverse> (\<xi> r)) \<bowtie> \<bottom>\<close>
 proof -
@@ -385,7 +396,9 @@ proof -
 qed
 
 lemma pull_back_sstriple_universal_bot[slens_pull_back_intros]:
-  fixes e :: \<open>('t, 'v, 'r, 'abort, 'i prompt, 'o prompt_output) expression\<close>
+  fixes e ::
+    \<open>('t, 'v, 'r, 'abort, 'i::nondeterministic_prompt,
+      'o::nondeterministic_response) expression\<close>
   assumes \<open>\<And>\<Gamma>. \<Gamma>; \<phi> \<turnstile> e \<stileturn> \<psi> \<bowtie> \<xi> \<bowtie> \<bottom>\<close>
   shows \<open>\<And>\<Gamma>. \<Gamma>; l\<inverse> \<phi> \<turnstile> l\<inverse> e \<stileturn> (\<lambda>v. l\<inverse> (\<psi> v)) \<bowtie> (\<lambda>r. l\<inverse> (\<xi> r)) \<bowtie> \<bottom>\<close>
 proof -

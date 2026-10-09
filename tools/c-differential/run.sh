@@ -213,14 +213,17 @@ run_build() {
   local session=$4
   local log=$5
   local side_root="$RUN_ROOT/$side-isabelle"
+  local observations="$OUTPUT_DIR/$side-all-observations.txt"
   local -a dirs
 
   mkdir -p "$side_root/user-home" "$side_root/isabelle-home"
+  : >"$observations"
   mapfile -t dirs < <(session_dirs "$tree" "$suite")
 
   env \
     USER_HOME="$side_root/user-home" \
     ISABELLE_HOME_USER="$side_root/isabelle-home" \
+    ACDIFF_OUTPUT="$observations" \
     "$ISABELLE_BIN" build \
       -b -j "$JOBS" -o "threads=$THREADS" -o document=false -v \
       "${dirs[@]}" "$session" >"$log" 2>&1
@@ -235,11 +238,20 @@ run_positive() {
   printf 'Building %s positive observations...\n' "$side"
   if run_build "$side" "$tree" "$suite" \
       AutoCorrode_C_Differential_Positive "$log"; then
-    grep -o 'ACDIFF|.*' "$log" >"$OUTPUT_DIR/$side-all-observations.txt" || true
     grep '^ACDIFF|failure|' "$OUTPUT_DIR/$side-all-observations.txt" \
       >"$OUTPUT_DIR/$side-failures.txt" || true
     grep -v '^ACDIFF|failure|' "$OUTPUT_DIR/$side-all-observations.txt" \
       >"$OUTPUT_DIR/$side-observations.txt" || true
+    if [[ ! -s "$OUTPUT_DIR/$side-observations.txt" ]]; then
+      printf 'No semantic observations captured for %s; see %s\n' \
+        "$side" "$log" >&2
+      return 1
+    fi
+    if [[ ! -s "$OUTPUT_DIR/$side-failures.txt" ]]; then
+      printf 'No expected-failure observations captured for %s; see %s\n' \
+        "$side" "$log" >&2
+      return 1
+    fi
     return 0
   fi
 

@@ -3,11 +3,13 @@
 
 (*<*)
 theory StdLib_References
-  imports Crush.Crush
+  imports
+    Micro_Rust_Crush.Rust_Crush
+    Micro_Rust_Parser_Impl.Parser_Impl_Command
 begin
 (*>*)
 
-context reference
+context rust_reference
 begin
 
 adhoc_overloading store_dereference_const \<rightleftharpoons>
@@ -242,7 +244,7 @@ end
 
 named_theorems ref_prisms_validity
 
-locale reference_allocatable = reference reference_types update_raw_fun dereference_raw_fun
+locale reference_allocatable = rust_reference reference_types update_raw_fun dereference_raw_fun
     reference_raw_fun points_to_raw' gref_can_store new_gref_can_store can_alloc_reference
   for reference_types :: \<open>'s::{sepalg} \<Rightarrow> 'a \<Rightarrow> 'b \<Rightarrow> 'abort \<Rightarrow> 'i prompt \<Rightarrow> 'o prompt_output \<Rightarrow> unit\<close> and update_raw_fun and
     dereference_raw_fun and reference_raw_fun and points_to_raw' and
@@ -285,7 +287,7 @@ end
 of the theory?\<close>
 locale "experiment" =
   \<comment> \<open>Reference interface\<close>
-    reference reference_types +
+    rust_reference reference_types +
     \<comment> \<open>Some assumptions on storability of values... annoying that we have to repeat
     the reference parameters everywhere\<close>
     ref_bool: reference_allocatable reference_types _ _ _ _ _ _ _ bool_prism +

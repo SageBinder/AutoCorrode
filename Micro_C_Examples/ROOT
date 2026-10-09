@@ -1,8 +1,7 @@
-session Micro_C_Examples = HOL +
+session Micro_C_Examples = Micro_C_Parsing_Frontend +
   options [document = pdf, document_output = "output"]
   sessions
     "HOL-Library"
-    Micro_C_Parsing_Frontend
     Shallow_Micro_C
     Shallow_State
     Shallow_State_Logic

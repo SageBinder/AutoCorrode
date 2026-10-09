@@ -11,11 +11,13 @@
 .PHONY: check-afp-components register-afp-components \
         build-isabelle-c build-micro-c-isabelle-c-adapter \
         build-shallow-state build-shallow-state-logic \
+        build-shallow-reference-logic \
+        build-crush build-micro-rust-crush \
         build-shallow-micro-rust build-shallow-micro-c \
         build-micro-c-parsing-frontend \
         build-micro-c-parser-tests build-micro-c-examples \
         language-isolation-tests \
-        c-baseline c-prototype build parser-tests jedit tutorial \
+        c-baseline c-prototype c-tests c-test-audit build parser-tests jedit tutorial \
         build-ic2 ic2 ic2-status ic2-stop
 
 # Set this to the directory containing the Isabelle2025-2 binary.
@@ -113,11 +115,29 @@ build-shallow-state-logic: build-shallow-state
 		$(AUTOCORRODE_SESSION_DIRS) \
 		Shallow_State_Logic
 
+build-shallow-reference-logic: build-shallow-state-logic
+	USER_HOME="$(USER_HOME)" \
+		$(ISABELLE_HOME)/isabelle build $(ISABELLE_FLAGS) -o document=false \
+		$(AUTOCORRODE_SESSION_DIRS) \
+		Shallow_Reference_Logic
+
+build-crush: build-shallow-reference-logic
+	USER_HOME="$(USER_HOME)" \
+		$(ISABELLE_HOME)/isabelle build $(ISABELLE_FLAGS) -o document=false \
+		$(AUTOCORRODE_SESSION_DIRS) \
+		Crush
+
 build-shallow-micro-rust: build-shallow-state
 	USER_HOME="$(USER_HOME)" \
 		$(ISABELLE_HOME)/isabelle build $(ISABELLE_FLAGS) -o document=false \
 		$(AUTOCORRODE_SESSION_DIRS) \
 		Shallow_Micro_Rust
+
+build-micro-rust-crush: build-crush build-shallow-micro-rust
+	USER_HOME="$(USER_HOME)" \
+		$(ISABELLE_HOME)/isabelle build $(ISABELLE_FLAGS) -o document=false \
+		$(AUTOCORRODE_SESSION_DIRS) \
+		Micro_Rust_Crush
 
 build-shallow-micro-c: check-afp-components
 	USER_HOME="$(USER_HOME)" \
@@ -149,9 +169,20 @@ language-isolation-tests: check-afp-components
 		$(AUTOCORRODE_SESSION_DIRS) \
 		Language_Isolation_Tests
 
+c-test-audit:
+	python3 tools/check-c-test-suite.py
+
+c-tests: check-afp-components c-test-audit
+	USER_HOME="$(USER_HOME)" \
+		$(ISABELLE_HOME)/isabelle build $(ISABELLE_FLAGS) -o document=false \
+		$(AUTOCORRODE_SESSION_DIRS) \
+		Micro_C_Parser_Tests Micro_C_Examples Language_Isolation_Tests
+
 c-baseline: build-micro-c-isabelle-c-adapter language-isolation-tests build
 
-c-prototype: build-shallow-state build-shallow-state-logic build-shallow-micro-rust \
+c-prototype: build-shallow-state build-shallow-state-logic \
+	build-shallow-reference-logic build-crush \
+	build-shallow-micro-rust build-micro-rust-crush \
 	build-shallow-micro-c build-micro-c-parsing-frontend build-micro-c-parser-tests \
 	build-micro-c-examples parser-tests language-isolation-tests build
 

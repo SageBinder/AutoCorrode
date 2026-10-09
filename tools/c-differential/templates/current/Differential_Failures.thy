@@ -4,6 +4,15 @@ begin
 
 ML \<open>
 local
+  val output_path =
+    (case OS.Process.getEnv "ACDIFF_OUTPUT" of
+       SOME output => Path.explode output
+     | NONE => error "ACDIFF_OUTPUT is not set")
+
+  fun emit key =
+    File.append output_path
+      ("ACDIFF|failure|" ^ key ^ "|rejected\n")
+
   fun cartouche text = Symbol.open_ ^ text ^ Symbol.close
 
   fun run command_text =
@@ -30,7 +39,7 @@ local
            let val message = Runtime.exn_message exn
            in
              if contains_any needles message then
-               writeln ("ACDIFF|failure|" ^ key ^ "|rejected")
+               emit key
              else
                error ("wrong differential diagnostic for " ^ key ^
                  ":\n" ^ message)
@@ -47,7 +56,8 @@ in
         cartouche
           "int differential_undeclared(void) { return missing_callee(); }")
   val _ =
-    expect "parse" ["syntax error", "parse", "unexpected"]
+    expect "parse"
+      ["syntax error", "parse", "unexpected", "No matching grammar rule"]
       ("c_source DifferentialParse " ^
         cartouche "int differential_malformed( { return 0; }")
 end

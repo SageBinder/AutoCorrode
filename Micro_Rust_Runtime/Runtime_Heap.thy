@@ -165,7 +165,7 @@ next
     by (simp add: mem_split_perm)
 qed
 
-global_interpretation References: reference \<open>\<lambda>_ _ _ _ _ _. ()\<close> 
+global_interpretation References: rust_reference \<open>\<lambda>_ _ _ _ _ _. ()\<close>
   urust_heap_update_raw_fun 
   urust_heap_dereference_raw_fun 
   urust_heap_reference_raw_fun 

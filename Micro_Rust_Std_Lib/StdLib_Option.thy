@@ -3,7 +3,7 @@
 
 (*<*)
 theory StdLib_Option    
-  imports Crush.Crush StdLib_References Misc.Result
+  imports Micro_Rust_Crush.Rust_Crush StdLib_References Misc.Result
 begin
 (*>*)
 
@@ -124,7 +124,7 @@ lemma option_ok_or_spec [crush_specs]:
   apply (crush_base simp add: ok_or_pure_def split!: option.splits)
   done
 
-context reference
+context rust_reference
 begin
        
 adhoc_overloading store_update_const \<rightleftharpoons> update_fun

@@ -66,18 +66,27 @@ lemma differential_abi_values:
 ML \<open>
 local
   val ctxt = @{context}
+  val output_path =
+    (case OS.Process.getEnv "ACDIFF_OUTPUT" of
+       SOME output => Path.explode output
+     | NONE => error "ACDIFF_OUTPUT is not set")
 
   fun emit kind key value =
-    writeln ("ACDIFF|" ^ kind ^ "|" ^ key ^ "|" ^ value)
+    File.append output_path
+      ("ACDIFF|" ^ kind ^ "|" ^ key ^ "|" ^ value ^ "\n")
+
+  fun canonical_type (Type (name, arguments)) =
+        Long_Name.base_name name ^
+          (if null arguments then ""
+           else "(" ^ commas (map canonical_type arguments) ^ ")")
+    | canonical_type (TFree _) = "_"
+    | canonical_type (TVar _) = "_"
 
   fun emit_type key name =
     let
       val term =
         Proof_Context.read_const {proper = true, strict = true} ctxt name
-      val text =
-        Pretty.string_of_margin 100000
-          (Syntax.pretty_typ ctxt (fastype_of term))
-    in emit "signature" key text end
+    in emit "signature" key (canonical_type (fastype_of term)) end
 
   fun emit_contract key name =
     let

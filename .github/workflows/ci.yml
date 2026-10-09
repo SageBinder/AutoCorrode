@@ -40,17 +40,46 @@ jobs:
         run: |
           python3 -m json.tool design-documents/c-parity-manifest.json >/dev/null
           python3 -m json.tool design-documents/language-ownership-manifest.json >/dev/null
+          python3 tools/check-c-test-suite.py
 
-          if grep -R -n -E 'Shallow_Micro_(Rust|C)|Micro_[CR]ust_Parser|Isabelle_C' \
-              Shallow_Computation Shallow_State Shallow_State_Logic Frontend_Common; then
+          if grep -R -n -i -E 'rust|micro[_ -]?c|isabelle_c' \
+              --include='*.thy' --include='*.ML' --include='ROOT' \
+              Shallow_Computation Shallow_State Shallow_State_Logic \
+              Shallow_Separation_Logic Shallow_Reference_Logic \
+              Frontend_Common Separation_Lenses Crush; then
             echo "language-specific dependency leaked into a generic session" >&2
             exit 1
           fi
 
-          if grep -R -n 'Shallow_Micro_Rust' \
-              Micro_C_Parsing_Frontend/ROOT \
-              Micro_C_Parsing_Frontend/C_Translation_Engine.thy; then
-            echo "C frontend depends on the Rust profile" >&2
+          if grep -R -n -E 'Shallow_Micro_Rust|Micro_Rust|urust|uRust' \
+              --include='*.thy' --include='*.ML' --include='ROOT' \
+              Shallow_Micro_C Micro_C_Parsing_Frontend \
+              Micro_C_Parser_Tests Micro_C_Examples; then
+            echo "C implementation or proof corpus depends on the Rust profile" >&2
+            exit 1
+          fi
+
+          if grep -R -n -E 'rust_reference|prompt_output|[[:space:]]prompt([[:space:],)]|$)' \
+              --include='*.thy' --include='*.ML' --include='ROOT' \
+              Shallow_Micro_C Micro_C_Parsing_Frontend \
+              Micro_C_Parser_Tests Micro_C_Examples; then
+            echo "Rust prompt or reference profile leaked into the C implementation" >&2
+            exit 1
+          fi
+
+          if grep -n -E 'Thread_Data|Unsynchronized\.ref|Synchronized\.var' \
+              Micro_C_Isabelle_C_Adapter/Micro_C_Isabelle_C_Adapter.thy \
+              Micro_C_Parsing_Frontend/C_Ast_Utilities.thy \
+              Micro_C_Parsing_Frontend/C_Translation_Engine.thy \
+              Micro_C_Parsing_Frontend/C_Definition_Generation.thy; then
+            echo "shared mutable state leaked into C parsing or translation" >&2
+            exit 1
+          fi
+
+          if grep -R -n 'Isabelle_C.C_Main' --include='*.thy' \
+              Shallow_Micro_C Micro_C_Parsing_Frontend \
+              Micro_C_Parser_Tests Micro_C_Examples; then
+            echo "Isabelle/C parser internals escaped the adapter boundary" >&2
             exit 1
           fi
 
@@ -82,8 +111,8 @@ jobs:
         run: |
           make ISABELLE_HOME=$ISABELLE_HOME/bin \
             AFP_COMPONENT_BASE=$AFP_COMPONENT_BASE \
-            build-micro-c-parser-tests build-micro-c-examples \
-            parser-tests language-isolation-tests
+            build-crush build-micro-rust-crush \
+            c-tests parser-tests
 
   tutorial-build:
     runs-on: ubuntu-latest

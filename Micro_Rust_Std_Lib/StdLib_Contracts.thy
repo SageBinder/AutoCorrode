@@ -3,7 +3,7 @@
 
 (*<*)
 theory StdLib_Contracts
-  imports Crush.Crush StdLib_References Misc.Result
+  imports Micro_Rust_Crush.Rust_Crush StdLib_References Misc.Result
 begin
 (*>*)
 

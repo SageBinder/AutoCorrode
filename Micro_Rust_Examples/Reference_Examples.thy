@@ -26,7 +26,7 @@ text\<open>Let's look at a simple example, a function taking two references and 
 We define this function in a dedicated context capturing what is needed to make sense of it -- in this
 case, merely the \<^verbatim>\<open>Reference\<close> locale:\<close>
 
-locale SwapRefContext = reference reference_types
+locale SwapRefContext = rust_reference reference_types
   for
     \<comment>\<open>The \<^verbatim>\<open>reference\<close> locale has multiple parameters which in particular determine the types
     it operates on. Here, we merely specify the dummy parameter \<^verbatim>\<open>reference_types\<close> whose purpose

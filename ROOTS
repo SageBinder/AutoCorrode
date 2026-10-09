@@ -2,6 +2,7 @@ Autogen
 Parser_Common
 Byte_Level_Encoding
 Crush
+Micro_Rust_Crush
 Data_Structures
 Enum_Theory
 Frontend_Common
@@ -17,6 +18,7 @@ Separation_Lenses
 Shallow_Computation
 Shallow_Micro_C
 Shallow_Micro_Rust
+Shallow_Reference_Logic
 Shallow_State
 Shallow_State_Logic
 Shallow_Separation_Logic

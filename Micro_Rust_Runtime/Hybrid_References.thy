@@ -58,7 +58,7 @@ export_code
   pb_urust_heap_reference_raw_fun
   in OCaml
 
-global_interpretation PB_Heap: reference \<open>\<lambda> _ _ _ _ _ _. ()\<close>
+global_interpretation PB_Heap: rust_reference \<open>\<lambda> _ _ _ _ _ _. ()\<close>
   pb_urust_heap_update_raw_fun
   pb_urust_heap_dereference_raw_fun
   pb_urust_heap_reference_raw_fun
@@ -120,7 +120,7 @@ export_code
   raw_pmem_trie_reference_raw_fun
   in OCaml
 
-global_interpretation PB_PMemRefs: reference \<open>\<lambda> _ _ _ _ _ _. ()\<close>
+global_interpretation PB_PMemRefs: rust_reference \<open>\<lambda> _ _ _ _ _ _. ()\<close>
   raw_pmem_trie_update_raw_fun
   raw_pmem_trie_dereference_raw_fun
   raw_pmem_trie_reference_raw_fun
@@ -187,7 +187,7 @@ export_code
   hybrid_reference_raw_fun
   in OCaml
 
-global_interpretation Hybrid_Refs: reference \<open>\<lambda>_ _ _ _ _ _. ()\<close>
+global_interpretation Hybrid_Refs: rust_reference \<open>\<lambda>_ _ _ _ _ _. ()\<close>
    hybrid_update_raw_fun
    hybrid_dereference_raw_fun
    hybrid_reference_raw_fun
@@ -234,7 +234,7 @@ hybrid reference implementation:\<close>
 experiment
 begin
 
-interpretation Hybrid_Refs: reference \<open>\<lambda>_ _ (_ :: unit + byte list) _ _ _. ()\<close>
+interpretation Hybrid_Refs: rust_reference \<open>\<lambda>_ _ (_ :: unit + byte list) _ _ _. ()\<close>
    hybrid_update_raw_fun
    hybrid_dereference_raw_fun
    hybrid_reference_raw_fun

@@ -239,11 +239,9 @@ struct
 
   val crush_branch_expression_simps_tac : Proof.context -> int -> tactic = fn ctxt =>
     let val congs = Named_Theorems.get ctxt @{named_theorems "crush_cong"}
-      val urust_simps =
-        Named_Theorems.get ctxt @{named_theorems "shallow_computation_simps"} @
-        Named_Theorems.get ctxt @{named_theorems "micro_rust_simps"}
+      val expression_simps = Crush_Expression_Simps.get ctxt
     in
-      safe_simp_no_asm_only_tac' ctxt congs urust_simps
+      safe_simp_no_asm_only_tac' ctxt congs expression_simps
     end
 
   fun crush_get_specs (ctxt : Proof.context) (with_schematics : bool) (eager : bool) : thm list =
@@ -324,12 +322,13 @@ struct
       val inlined_fun_defs = Named_Theorems.get ctxt @{named_theorems crush_inline}
       val inlined_call_rules = inlined_fun_defs |> List.map (pure_eta_expand #> make_wp_call_rule)
       val intro_inlined = intro_tac inlined_call_rules ctxt
-      val ssa_normalize = Separation_Logic_Tactics.aentails_wp_ssa_normalize_tac ctxt
+      val normalize_expression =
+        Separation_Logic_Tactics.aentails_wp_expression_normalize_tac ctxt
       val timed = TIME "crush_branch_inline_call"
     in
       fn (func_name : string) =>
         timed (intro_inlined
-               THEN' ssa_normalize
+               THEN' normalize_expression
                THEN' LOG ("Call function: " ^ func_name ^ " (inlined)"))
     end
 
@@ -425,9 +424,7 @@ struct
     end
 
   val crush_branch_focus_core_tac : Proof.context -> int -> tactic = fn ctxt =>
-    let val focus_intros =
-      Named_Theorems.get ctxt @{named_theorems focus_intros} @
-      Named_Theorems.get ctxt @{named_theorems micro_rust_record_intros}
+    let val focus_intros = Crush_Focus_Intros.get ctxt
     val focus_rules = Named_Theorems.get ctxt @{named_theorems focus_rules}
     val focus_elims  = Named_Theorems.get ctxt @{named_theorems focus_elims}
     val focus_elims2  = Named_Theorems.get ctxt @{named_theorems focus_elims2}
@@ -567,7 +564,7 @@ struct
             ("destruct_tac"            , \<^here>, (fn _ => crush_branch_destruct_tac ctxt)),
             ("focus_tac"               , \<^here>, (fn _ => crush_branch_focus_tac ctxt)),
             ("wp_intros_tac"           , \<^here>, (fn _ => crush_branch_wp_intros_tac ctxt)),
-            ("urust_determine_branch"  , \<^here>, (fn _ => crush_branch_determine_branch ctxt)),
+            ("determine_branch"        , \<^here>, (fn _ => crush_branch_determine_branch ctxt)),
             ("call_tac (no schematics)", \<^here>, (fn _ => crush_branch_call_tac ctxt false unfold_contract_tac)),
             ("aentails_cancel_tac"     , \<^here>, (fn _ => crush_branch_aentails_cancel_tac ctxt)),
             ("unfold_prems_tac"        , \<^here>, (fn _ => crush_branch_unfold_prems_tac ctxt)),
@@ -625,14 +622,14 @@ struct
         val _ = if not (Config.get ctxt Crush_Config.crush_force_inline) then () else
           let
             (* Check that function specifications are not passed via `simp add: ...` but via `inline: ...` *)
-            fun is_urust_function_def thms =
+            fun is_function_body_def thms =
               (case (thms |> Thm.prop_of |> Logic.dest_equals |> fst |> strip_comb |> fst) of
                  Const (_, T) =>
                     (case Term.body_type T of Type (@{type_name function_body}, _) => true | _ => false)
                  | _ => false)
               handle TERM _ => false
             val function_defs = Named_Theorems.get ctxt @{named_theorems crush_late_simps}
-              |> List.filter is_urust_function_def
+              |> List.filter is_function_body_def
           in
             if List.length function_defs = 0 then () else (
               [Pretty.text "The following definitions of to-be-inlined functions should not be passed via `simp add: ...` but via `inline: ...`" |> Pretty.block]

@@ -9,6 +9,7 @@ session Micro_Rust_Runtime = HOL +
     Separation_Lenses
     Shallow_Separation_Logic
     Micro_Rust_Interfaces
+    Micro_Rust_Crush
     Byte_Level_Encoding
   theories
     Atomic_Resource

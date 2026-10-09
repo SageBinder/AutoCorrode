@@ -7,7 +7,7 @@ session Micro_Rust_Std_Lib = HOL +
     Separation_Lenses
     Shallow_Micro_Rust
     Shallow_Separation_Logic
-    Crush
+    Micro_Rust_Crush
     Micro_Rust_Interfaces_Core
   theories
     StdLib_All

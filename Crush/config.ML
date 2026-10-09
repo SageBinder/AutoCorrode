@@ -23,7 +23,7 @@ sig
   val time_unfold_prems : bool Config.T
   (* profile time of transaction tactic *)
   val time_transactions : bool Config.T
-  (* profile time spent in uRust function invocations *)
+  (* profile time spent in shallow-computation function invocations *)
   val time_calls : bool Config.T
   val time_base_simps : bool Config.T
   (* profile time spent on initialization crush step tactic *)

@@ -565,10 +565,11 @@ sig
 
   val aentails_conv'' : (Proof.context -> conv) -> (Proof.context -> conv) -> Proof.context -> conv
 
-  \<comment>\<open>Apply conversion to uRust argument in weakest precondition goal. Strip pure universal
+  \<comment>\<open>Apply a conversion to the expression in a weakest-precondition goal. Strip pure universal
      quantification and premises first, if present.\<close>
   val aentails_wp_conv' : conv -> Proof.context -> conv
-  \<comment>\<open>Rewrite uRust expression in a WP goal according to a (pure or meta) equality\<close>
+  \<comment>\<open>Rewrite the expression in a weakest-precondition goal according to a
+     pure or meta equality.\<close>
   val aentails_wp_rewrite_tac : thm -> Proof.context -> int -> tactic
 
   \<comment>\<open>Given a separating conjunction, return the generic rotation theorem
@@ -691,8 +692,9 @@ sig
 
   val is_asepconj: term -> bool
 
-  \<comment>\<open>SSA normalization for uRust expressions in WP goal\<close>
-  val aentails_wp_ssa_normalize_tac : Proof.context -> int -> tactic
+  \<comment>\<open>Normalize expressions in weakest-precondition goals using the
+     profile-independent Crush registries.\<close>
+  val aentails_wp_expression_normalize_tac : Proof.context -> int -> tactic
 end
 
 structure Separation_Logic_Tactics : SEPARATION_LOGIC_TACTICS =
@@ -810,8 +812,8 @@ struct
   fun dest_wp ((Const (@{const_name Weakest_Precondition.sepalg_class.wp}, _)) $ A0 $ A1 $ A2 $ A3 $ A4 ) = (A0, A1, A2, A3, A4)
     | dest_wp _ = raise SeparationLogic("not a WP' separation logic entailment")
 
-  fun dest_urust_call ((Const (@{const_name Core_Expression.call}, _)) $ body ) = body
-    | dest_urust_call _ = raise SeparationLogic("not a uRUst function call expression")
+  fun dest_call ((Const (@{const_name Core_Expression.call}, _)) $ body ) = body
+    | dest_call _ = raise SeparationLogic("not a shallow-computation function call expression")
 
   fun dest_ucincl ((Const (@{const_name ucincl}, _)) $ P) = P
     | dest_ucincl _ = raise SeparationLogic("not ucincl proposition")
@@ -840,7 +842,7 @@ struct
 
   val unwrap_aentails    = find_metaimp_conclusion #> dest_aentails
   val unwrap_wp_aentails = unwrap_aentails #> snd #> dest_wp
-  val unwrap_wp_call     = unwrap_wp_aentails #> #2 #> dest_urust_call
+  val unwrap_wp_call     = unwrap_wp_aentails #> #2 #> dest_call
   val unwrap_ucincl      = find_metaimp_conclusion #> dest_ucincl
 
   fun dest_Const_or_Free (Const x) = x
@@ -1272,14 +1274,14 @@ struct
   fun aentails_conv'' (conv_lhs : Proof.context -> conv) (conv_rhs: Proof.context -> conv) : Proof.context -> conv =
      (Conv.params_conv ~1 (fn ctxt => (Conv.concl_conv ~1 (aentails_conv (conv_lhs ctxt) (conv_rhs ctxt)))))
 
-  fun wp_conv (urust_conv : conv) : conv = (fn t =>
+  fun wp_conv (expression_conv : conv) : conv = (fn t =>
     case (Thm.term_of t) of
       (Const (@{const_name Weakest_Precondition.wp}, _)) $ _ $ _ $ _ $ _ $ _ =>
-         Conv.fun_conv (Conv.fun_conv (Conv.fun_conv (Conv.arg_conv urust_conv))) t
+         Conv.fun_conv (Conv.fun_conv (Conv.fun_conv (Conv.arg_conv expression_conv))) t
      | _ => Conv.no_conv t)
 
-  fun aentails_wp_conv' (conv_urust : conv) : Proof.context -> conv =
-    aentails_conv' Conv.all_conv (wp_conv conv_urust)
+  fun aentails_wp_conv' (expression_conv : conv) : Proof.context -> conv =
+    aentails_conv' Conv.all_conv (wp_conv expression_conv)
 
   fun aentails_wp_rewrite_tac (thm_eq : thm) (ctxt : Proof.context) : int -> tactic =
       CONVERSION (aentails_wp_conv' (Conv.rewr_conv (force_meta_eq thm_eq)) ctxt)
@@ -2304,21 +2306,22 @@ struct
   val aentails_hoist_is_sat_tac: Proof.context -> int -> tactic = fn ctxt =>
     eresolve_tac ctxt @{thms apure_entailsR0_revE}
 
-  fun aentails_wp_ssa_normalize_tac (ctxt : Proof.context) : int -> tactic =
+  fun aentails_wp_expression_normalize_tac (ctxt : Proof.context) : int -> tactic =
     let
-      val micro_rust_simps =
-        Named_Theorems.get ctxt @{named_theorems "shallow_computation_simps"} @
-        Named_Theorems.get ctxt @{named_theorems "micro_rust_simps"}
-      val micro_rust_ssa = Named_Theorems.get ctxt @{named_theorems "micro_rust_ssa"}
+      val expression_simps = Crush_Expression_Simps.get ctxt
+      val expression_normalization =
+        Named_Theorems.get ctxt @{named_theorems "crush_expression_normalization"}
     in
       CONVERSION (
      Conv.bottom_conv (K (Conv.try_conv (
-                  (Conv.rewr_conv @{thm MICRO_RUST_SSA_CONTROL_def[symmetric]})
-        then_conv (Conv.try_conv (Conv.rewrs_conv (micro_rust_ssa |> force_meta_eqs)))
+                  (Conv.rewr_conv @{thm crush_expression_normalization_control_def[symmetric]})
+        then_conv (Conv.try_conv
+          (Conv.rewrs_conv (expression_normalization |> force_meta_eqs)))
      ))) ctxt
      then_conv Conv.bottom_conv (K (
-         Conv.try_conv (Conv.rewr_conv @{thm MICRO_RUST_SSA_CONTROL_def}))) ctxt)
-      THEN' (TRY o safe_simp_only_tac ctxt micro_rust_simps)
+         Conv.try_conv
+           (Conv.rewr_conv @{thm crush_expression_normalization_control_def}))) ctxt)
+      THEN' (TRY o safe_simp_only_tac ctxt expression_simps)
     end
 
 end;
@@ -2407,8 +2410,9 @@ local
   val _ = Theory.setup (Method.setup @{binding "aentails_hoist_is_sat"}
           (Scan.succeed (SIMPLE_METHOD' o Separation_Logic_Tactics.aentails_hoist_is_sat_tac)) "")
 
-  val _ = Theory.setup (Method.setup @{binding "micro_rust_ssa_wp_normalize"}
-          (Scan.succeed (SIMPLE_METHOD' o Separation_Logic_Tactics.aentails_wp_ssa_normalize_tac)) "")
+  val _ = Theory.setup (Method.setup @{binding "crush_expression_wp_normalize"}
+          (Scan.succeed
+            (SIMPLE_METHOD' o Separation_Logic_Tactics.aentails_wp_expression_normalize_tac)) "")
 
   val _ = Theory.setup (Attrib.setup @{binding "wp_split"}
                        (Separation_Logic_Tactics.specialize_split_rule_to_wp_attribute |> Scan.succeed) "")

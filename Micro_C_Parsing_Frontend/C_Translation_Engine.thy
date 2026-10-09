@@ -1674,6 +1674,29 @@ struct
   fun use_raw_pointer_indexing tctx arr_expr =
     uses_raw_pointer_model () andalso not (expr_is_list_backed_array tctx arr_expr)
 
+  (* A list-backed array field's location carries a pointer to the whole list.
+     Its element type comes from the field declaration, not that extra location
+     pointer. Keep the location representation for array-to-pointer decay. *)
+  fun indexed_element_cty tctx arr_expr arr_cty =
+    let
+      fun from_pointer (C_Ast_Utils.CPtr inner) = inner
+        | from_pointer _ = unsupported "indexing non-array expression"
+    in
+      case arr_expr of
+        CMember0 (base, field_ident, _, _) =>
+          let
+            val struct_name = determine_struct_type tctx base
+            val field_name = C_Ast_Utils.ident_name field_ident
+          in
+            if struct_field_is_array_backed tctx struct_name field_name then
+              (case C_Trans_Ctxt.lookup_struct_field_type tctx struct_name field_name of
+                 SOME field_cty => from_pointer field_cty
+               | NONE => unsupported "indexing unknown struct field")
+            else from_pointer arr_cty
+          end
+      | _ => from_pointer arr_cty
+    end
+
   fun is_nonnegative_int_const (CConst0 (CIntConst0 (CInteger0 (n, _, _), _))) = (n >= 0)
     | is_nonnegative_int_const _ = false
 
@@ -1970,9 +1993,7 @@ struct
             val (idx_term_raw, idx_cty) = expr_fn tctx idx_expr
             val idx_p_cty = C_Ast_Utils.integer_promote idx_cty
             val idx_term = mk_implicit_cast tctx (idx_term_raw, idx_cty, idx_p_cty)
-            val elem_cty = (case arr_cty of
-                              C_Ast_Utils.CPtr inner => inner
-                            | _ => unsupported "increment/decrement on non-array indexing")
+            val elem_cty = indexed_element_cty tctx arr_expr arr_cty
             val arith_cty = C_Ast_Utils.integer_promote elem_cty
             val one = mk_literal_num tctx arith_cty 1
             val arith_const =
@@ -3127,9 +3148,7 @@ struct
                    else ()
                  val focused = C_Term_Build.mk_focus_nth
                                  (C_Term_Build.mk_unat i_var) a_var
-                 val elem_cty = (case arr_cty of
-                                   C_Ast_Utils.CPtr inner => inner
-                                 | _ => unsupported "indexing non-array expression")
+                 val elem_cty = indexed_element_cty tctx arr_expr arr_cty
                  val op_cty = compound_op_cty tctx elem_cty rhs_cty binop
                  val loc_expr =
                    if use_raw_pointer_indexing tctx arr_expr then
@@ -4294,10 +4313,7 @@ struct
               $ (Isa_Const (\<^const_name>\<open>deep_compose1\<close>, isa_dummyT --> isa_dummyT --> isa_dummyT)
                    $ Isa_Const (\<^const_name>\<open>call\<close>, isa_dummyT --> isa_dummyT)
                    $ deref_const)
-          val elem_cty =
-            (case arr_cty of
-               C_Ast_Utils.CPtr inner => inner
-             | _ => unsupported "indexing non-array expression")
+          val elem_cty = indexed_element_cty tctx arr_expr arr_cty
           val loc_expr =
             if use_raw_pointer_indexing tctx arr_expr then
               mk_raw_ptr_loc_expr tctx unseq_index arr_term idx_term_raw idx_cty elem_cty (is_nonnegative_int_const idx_expr)
@@ -5979,6 +5995,33 @@ struct
             (Term.lambda ref_var b))
         body_term goto_refs
       (* Constrain body side types from locale *)
+      (* Statements can complete with unit even in a value-returning function
+         (notably an exhaustive switch whose arms return). Discard that normal
+         statement result before packaging the body. Early Return and Abort
+         continuations propagate through sequence unchanged. Falling off a
+         non-void function has no specified return value, represented by the
+         same uninitialized value used for an uninitialized local. C main is
+         the exception: reaching its closing brace returns zero. *)
+      val body_term =
+        (case ret_cty of
+           C_Ast_Utils.CVoid => body_term
+         | _ =>
+             C_Term_Build.mk_sequence
+               (Type.constraint
+                 (Isa_Type (\<^type_name>\<open>expression\<close>,
+                   [isa_dummyT, @{typ unit}, isa_dummyT,
+                    isa_dummyT, isa_dummyT, isa_dummyT])) body_term)
+               (if name = "main" andalso ret_cty = C_Ast_Utils.CInt then
+                  mk_literal_num tctx C_Ast_Utils.CInt 0
+                else
+                  C_Term_Build.mk_literal
+                    (Isa_Const (\<^const_name>\<open>c_uninitialized\<close>,
+                      (* Preserve inference-driven pointer representations,
+                         including list-backed string literals. FunctionBody
+                         ties this value to the actual Return continuation. *)
+                      (case ret_cty of
+                         C_Ast_Utils.CPtr _ => isa_dummyT
+                       | _ => expr_value_ty_of_cty tctx ret_cty)))))
       val body_term =
         (case #ref_expr_constraint (frontend_config tctx) of
            NONE => body_term

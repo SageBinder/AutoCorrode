@@ -3,7 +3,7 @@
 
 (*<*)
 theory StdLib_Slice
-  imports Crush.Crush StdLib_References StdLib_Logging
+  imports Micro_Rust_Crush.Rust_Crush StdLib_References StdLib_Logging
 begin
 (*>*)
 
@@ -44,7 +44,7 @@ lemma array_index_spec [crush_specs]:
   shows \<open>\<Gamma> ; array_index lst idx \<Turnstile>\<^sub>F array_index_contract lst idx\<close>
   by (crush_boot f: array_index_def contract: array_index_contract_def) crush_base
 
-context reference begin
+context rust_reference begin
 
 urust_fn slice_index :: \<open>('a, 'b, 'v list) State_References.ref \<Rightarrow> 'w::{len} word \<Rightarrow>
         ('s, ('a, 'b, 'v) State_References.ref, 'abort, 'i prompt, 'o prompt_output) function_body\<close>

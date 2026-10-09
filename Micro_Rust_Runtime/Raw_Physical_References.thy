@@ -10,7 +10,7 @@ theory Raw_Physical_References
     Raw_Physical_Memory_Trie
 begin
 
-context reference
+context rust_reference
 begin
 no_adhoc_overloading index_const \<rightleftharpoons>
   slice_index
@@ -37,7 +37,7 @@ export_code
   raw_pmem_trie_dereference_raw_fun
   in OCaml
 
-global_interpretation raw_pmem_trie_refs: reference \<open>\<lambda>_ _ _ _ _ _. ()\<close>
+global_interpretation raw_pmem_trie_refs: rust_reference \<open>\<lambda>_ _ _ _ _ _. ()\<close>
   raw_pmem_trie_update_raw_fun
   raw_pmem_trie_dereference_raw_fun
   raw_pmem_trie_reference_raw_fun

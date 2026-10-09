@@ -230,9 +230,9 @@ lemmas sstriple_frame_rule_no_return =
   triple_frame_rule_no_return
   [OF sstriple_consequence_wrap, OF sstriple_frame_rule_wrap]
 
-subsection\<open>Local axioms for Micro Rust expressions in SSA form:\<close>
+subsection\<open>Local axioms for core expressions in SSA form:\<close>
 
-text\<open>This is the ``fundamental result'' here, as most other Micro Rust constructs are defined in
+text\<open>This is the ``fundamental result'' here, as most other shallow-language constructs are defined in
 terms of the monadic bind.  Note that this is the rule for \<^verbatim>\<open>let\<close> in disguise.\<close>
 lemma sstriple_bindI:
   assumes \<open>\<Gamma> ; \<phi> \<turnstile> e \<stileturn> \<psi> \<bowtie> \<rho> \<bowtie> \<theta>\<close>

@@ -196,9 +196,9 @@ global_interpretation ll_example_hybrid: ll_example
     and ref_gref_opt_focus = \<open>ll_example_hybrid.ref_gref_opt.focus\<close>
   apply (clarsimp simp add: ll_example_def ll_example_basic_def reference_allocatable_def
     reference_allocatable_axioms_def; safe)
-  using Hybrid_Refs.reference_axioms apply blast
+  using Hybrid_Refs.reference_axioms apply (simp add: rust_reference_def)
   using caddr_prism_valid ll_example_basic_axioms.intro apply blast
-  using Hybrid_Refs.reference_axioms apply blast
+  using Hybrid_Refs.reference_axioms apply (simp add: rust_reference_def)
       apply (rule gv_addr_opt_prism_valid)
 
   apply (clarsimp simp add: Hybrid_Refs.can_create_gref_for_prism_def)

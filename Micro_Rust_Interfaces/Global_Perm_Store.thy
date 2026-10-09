@@ -576,7 +576,7 @@ instantiating \<^verbatim>\<open>reference\<close> when we interpret \<^verbatim
 
 context global_perm_store
 begin
-lemma reference_sublocale: \<open>reference
+lemma reference_sublocale: \<open>rust_reference
    store.update_raw_fun store.dereference_by_value_raw_fun store.reference_raw_fun
    points_to_raw' (\<lambda>_. UNIV) UNIV can_alloc_reference\<close>
 proof

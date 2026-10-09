@@ -337,7 +337,7 @@ lemma aexists_entailsR:
     shows \<open>\<phi> \<longlongrightarrow> (\<Squnion>x. \<psi> x)\<close>
 \<close>
 
-from \<^file>\<open>../Shallow_Separation_Logic/Assertion_Language.thy\<close>, to destruct the existential premise
+from \<^file>\<open>../Shallow_State_Logic/Assertion_Language.thy\<close>, to destruct the existential premise
 and to introduce a schematic for the existentially quantified variable in the goal.\<close>
 
 text\<open>There are many more separation logic simplification and introduction steps that are routinely
@@ -953,7 +953,7 @@ program constructs and discharges them automatically, thereby effectively steppi
 
 text\<open>We consider a simple example of a \<mu>Rust expression swapping the values of two references:\<close>
 
-context reference
+context rust_reference
 begin
 adhoc_overloading store_update_const \<rightleftharpoons>
   update_fun
@@ -1250,7 +1250,7 @@ datatype_record test_record3 =
   rest :: int
 micro_rust_record test_record3
 
-context reference
+context rust_reference
 begin
 adhoc_overloading store_update_const \<rightleftharpoons>
   update_fun

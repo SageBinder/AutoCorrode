@@ -6,9 +6,9 @@ theory Separation_Logic_Tactics
   imports
     Base
     Misc.WordAdditional
-    Shallow_State_Logic.Assertion_Language
-    Shallow_Micro_Rust_Logic.Rust_Weakest_Precondition
-    Micro_Rust_Interfaces_Core.References
+    Shallow_Computation.Expression_Normalization
+    Shallow_Reference_Logic.Expression_References
+    Shallow_Separation_Logic.Weakest_Precondition
   keywords
     "ucincl_proof" "ucincl_auto" :: thy_goal
 begin
@@ -35,6 +35,102 @@ ML\<open>
    val _ =  Theory.setup (Named_Theorems.declare @{binding "crush_asepconj_simp"}     "" #> snd |> Named_Target.theory_map)
    val _ =  Theory.setup (Named_Theorems.declare @{binding "crush_specs_eager"}       "" #> snd |> Named_Target.theory_map)
    val _ =  Theory.setup (Named_Theorems.declare @{binding "crush_specs_eager_unfold"}"" #> snd |> Named_Target.theory_map)
+\<close>
+
+text\<open>Language profiles extend these collections with expression-level simplification,
+normalization, and focus rules.  The normalization rules are applied under a control
+wrapper so that a rule can select the outer expression without recursively rewriting
+its freshly produced subexpressions in the same pass.\<close>
+
+named_theorems crush_expression_simps
+named_theorems crush_expression_normalization
+named_theorems crush_focus_intros
+
+text \<open>
+Profile theorem collections are registered by name and queried when a tactic runs.  This keeps
+rules added by downstream parser targets and libraries visible without making neutral Crush
+depend on a particular language profile.
+\<close>
+
+ML \<open>
+structure Crush_Expression_Simps =
+struct
+  structure Providers = Generic_Data
+  (
+    type T = string list
+    val empty = []
+    val merge = Library.merge (op =)
+  )
+
+  fun register name =
+    Context.theory_map (Providers.map (insert (op =) name))
+
+  fun get ctxt =
+    let
+      val builtins =
+        [\<^named_theorems>\<open>shallow_computation_simps\<close>,
+         \<^named_theorems>\<open>crush_expression_simps\<close>]
+      val providers = Providers.get (Context.Proof ctxt)
+    in
+      maps (Named_Theorems.get ctxt) (builtins @ providers)
+    end
+end
+
+structure Crush_Focus_Intros =
+struct
+  structure Providers = Generic_Data
+  (
+    type T = string list
+    val empty = []
+    val merge = Library.merge (op =)
+  )
+
+  fun register name =
+    Context.theory_map (Providers.map (insert (op =) name))
+
+  fun get ctxt =
+    let
+      val builtins =
+        [\<^named_theorems>\<open>focus_intros\<close>,
+         \<^named_theorems>\<open>crush_focus_intros\<close>]
+      val providers = Providers.get (Context.Proof ctxt)
+    in
+      maps (Named_Theorems.get ctxt) (builtins @ providers)
+    end
+end
+\<close>
+
+definition crush_expression_normalization_control ::
+  \<open>('s, 'v, 'r, 'abort, 'i, 'o) expression \<Rightarrow>
+    ('s, 'v, 'r, 'abort, 'i, 'o) expression\<close>
+  where \<open>crush_expression_normalization_control e \<equiv> e\<close>
+
+lemma shallow_computation_crush_normalization_control:
+  \<open>SHALLOW_COMPUTATION_SSA_CONTROL e \<equiv>
+    crush_expression_normalization_control e\<close>
+  by (simp add: SHALLOW_COMPUTATION_SSA_CONTROL_def
+      crush_expression_normalization_control_def)
+
+setup \<open>
+  fn thy =>
+    let
+      val ctxt = Proof_Context.init_global thy
+      val replace_control =
+        Conv.bottom_conv
+          (K (Conv.try_conv
+            (Conv.rewr_conv
+              @{thm shallow_computation_crush_normalization_control}))) ctxt
+      val rules =
+        Named_Theorems.get ctxt
+          \<^named_theorems>\<open>shallow_computation_ssa\<close>
+        |> map (Conv.fconv_rule replace_control)
+      fun register rule =
+        Context.theory_map
+          (Named_Theorems.add_thm
+            \<^named_theorems>\<open>crush_expression_normalization\<close> rule)
+    in
+      fold register rules thy
+    end
 \<close>
 
 declare function_contract.sel[crush_specs_eager_unfold]
@@ -469,7 +565,7 @@ method contract uses f contract =
 
 method crush_boot uses f contract simp =
   (contract f:f contract:contract,
-   micro_rust_ssa_wp_normalize,
+   crush_expression_wp_normalize,
    (clarsimp simp add: Let_def simp)?,
    aentails_hoist_pure_assms?)
 

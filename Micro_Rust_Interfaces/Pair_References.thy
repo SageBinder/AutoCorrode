@@ -2,7 +2,10 @@
    SPDX-License-Identifier: MIT *)
 
 theory Pair_References
-  imports Micro_Rust_Interfaces_Core.References Crush.Crush
+  imports
+    Micro_Rust_Interfaces_Core.References
+    Micro_Rust_Crush.Rust_Crush
+    Micro_Rust_Parser_Impl.Parser_Impl_Command
 begin
 
 section\<open>Combining two reference implementations\<close>
@@ -48,10 +51,10 @@ In practice, it is more likely that interpretations will live on separate separa
 initially, but in that case they can both be lifted to the product separation algebra first,
 by means of reference transfer.\<close>
 
-locale Reference_Pair = refA: reference reference_typesA update_raw_funA dereference_raw_funA
+locale Reference_Pair = refA: rust_reference reference_typesA update_raw_funA dereference_raw_funA
      reference_raw_funA points_to_raw'A gref_can_storeA new_gref_can_storeA 
      can_alloc_referenceA +
-  refB: reference reference_typesB update_raw_funB dereference_raw_funB
+  refB: rust_reference reference_typesB update_raw_funB dereference_raw_funB
      reference_raw_funB points_to_raw'B gref_can_storeB new_gref_can_storeB 
      can_alloc_referenceB for
    reference_typesA :: \<open>'s::sepalg \<Rightarrow> 'a0 \<Rightarrow> 'b0 \<Rightarrow> 'abort \<Rightarrow> 'i prompt \<Rightarrow> 'o prompt_output \<Rightarrow> unit\<close> and
@@ -209,7 +212,7 @@ lemma points_to_split:
     clarsimp simp add: reference_defs.points_to_raw_def points_to_raw'_def asepconj_simp
       aentails_simp bot_aentails_all) 
 
-lemma pair_reference_sublocale: \<open>reference update_raw_fun dereference_raw_fun 
+lemma pair_reference_sublocale: \<open>rust_reference update_raw_fun dereference_raw_fun
   reference_raw_fun points_to_raw' gref_can_store new_gref_can_store can_alloc_reference\<close>
 proof standard
   show \<open>\<And>\<Gamma> r g g0.

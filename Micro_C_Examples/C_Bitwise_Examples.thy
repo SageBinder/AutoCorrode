@@ -71,7 +71,7 @@ ucincl_auto c_u_shl_contract
 lemma c_u_shl_spec [crush_specs]:
   shows \<open>\<Gamma>; CBitwise.u_shl x n \<Turnstile>\<^sub>F c_u_shl_contract x n\<close>
 by (crush_boot f: CBitwise.u_shl_def contract: c_u_shl_contract_def)
-    (crush_base simp add: c_unsigned_shl_def)
+    (crush_base simp add: c_unsigned_shl_with_abort_def)
 
 text \<open>Shift out of range: when the shift amount exceeds the bit width,
   the operation correctly aborts with @{const ShiftOutOfRange}.\<close>
@@ -88,7 +88,7 @@ ucincl_auto c_u_shl_oor_contract
 lemma c_u_shl_oor_spec:
   shows \<open>\<Gamma>; CBitwise.u_shl x n \<Turnstile>\<^sub>F c_u_shl_oor_contract x n\<close>
   apply (crush_boot f: CBitwise.u_shl_def contract: c_u_shl_oor_contract_def)
-  apply (simp only: c_unsigned_shl_def)
+  apply (simp only: c_unsigned_shl_with_abort_def)
   apply (crush_base simp add: c_shift_out_of_range_def c_abort_def)
   done
 
@@ -132,7 +132,7 @@ ucincl_auto c_set_bit_contract
 lemma c_set_bit_spec [crush_specs]:
   shows \<open>\<Gamma>; CBitwise.set_bit x n \<Turnstile>\<^sub>F c_set_bit_contract x n\<close>
   apply (crush_boot f: CBitwise.set_bit_def contract: c_set_bit_contract_def)
-  apply (crush_base simp add: c_unsigned_or_def c_unsigned_shl_def bit_or_iff bit_push_bit_iff
+  apply (crush_base simp add: c_unsigned_or_def c_unsigned_shl_with_abort_def bit_or_iff bit_push_bit_iff
     nth_w2p_same)
   done
 
@@ -154,7 +154,7 @@ ucincl_auto c_clear_bit_contract
 lemma c_clear_bit_spec [crush_specs]:
   shows \<open>\<Gamma>; CBitwise.clear_bit x n \<Turnstile>\<^sub>F c_clear_bit_contract x n\<close>
   apply (crush_boot f: CBitwise.clear_bit_def contract: c_clear_bit_contract_def)
-  apply (crush_base simp add: c_unsigned_and_def c_unsigned_not_def c_unsigned_shl_def
+  apply (crush_base simp add: c_unsigned_and_def c_unsigned_not_def c_unsigned_shl_with_abort_def
       bit_and_iff bit_not_iff bit_push_bit_iff nth_w2p_same)
   done
 

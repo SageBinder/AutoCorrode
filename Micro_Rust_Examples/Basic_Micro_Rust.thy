@@ -5,7 +5,7 @@
 theory Basic_Micro_Rust
   imports
     Word_Lib.Many_More 
-    Crush.Crush 
+    Micro_Rust_Crush.Rust_Crush
     Micro_Rust_Runtime.Runtime_Heap  
     Micro_Rust_Std_Lib.StdLib_References  
     Micro_Rust_Std_Lib.StdLib_Slice
@@ -388,7 +388,7 @@ text\<open>Ignoring the details for now, the \<^verbatim>\<open>Reference\<close
 Micro Rust uses to read and write references. If we assume that we work in the context 
 of \<^verbatim>\<open>Reference\<close>, we can indeed write functions operating on references:\<close>
 
-context reference
+context rust_reference
 begin
 
 urust_fn add_one_to_ref ::
@@ -420,7 +420,7 @@ Here is an example -- ignore the prism stuff for now.\<close>
 
 locale "experiment" =
   \<comment> \<open>Reference interface\<close>
-    reference reference_types +
+    rust_reference reference_types +
     \<comment> \<open>Import \<^verbatim>\<open>reference_allocatable\<close> so we can allocate references for \<^verbatim>\<open>64 word\<close>.\<close>
     ref_word64: reference_allocatable reference_types _ _ _ _ _ _ _ word64_prism
   for reference_types :: \<open>'s::sepalg \<Rightarrow> 'a \<Rightarrow> 'b \<Rightarrow> 'abort \<Rightarrow> 'i prompt \<Rightarrow> 'o prompt_output \<Rightarrow> unit\<close>

@@ -1,7 +1,7 @@
 theory Tutorial_UrustPeek_WP
   imports
     Slides
-    Shallow_Separation_Logic.Weakest_Precondition
+    Shallow_Micro_Rust_Logic.Rust_Weakest_Precondition
 begin
 
 (*<*)
@@ -32,7 +32,8 @@ text \<open>\<^bold>\<open>Early return\<close> delivers to the \<^emph>\<open>e
 
 text \<open>@{thm [display, show_question_marks=false] (drop_ucincl) wp_returnI}\<close>
 
-text \<open>\<^bold>\<open>Panic\<close> delivers to the \<^emph>\<open>abort\<close> post \<open>\<theta>\<close>: @{thm [source] Weakest_Precondition.wp_panicI}\<close>
+text \<open>\<^bold>\<open>Panic\<close> delivers to the \<^emph>\<open>abort\<close> post \<open>\<theta>\<close>:
+  @{thm [source] Rust_Weakest_Precondition.wp_panicI}\<close>
 
 text \<open>@{thm [display, show_question_marks=false] (drop_ucincl) wp_panicI}\<close>
 
@@ -42,7 +43,7 @@ text \<open>\<^bold>\<open>Word addition\<close> -- arithmetic operators get WP 
 
 text \<open>@{thm [display, show_question_marks=false] (drop_ucincl) wp_word_add_no_wrap}\<close>
 
-text \<open>The full set lives in \<open>Weakest_Precondition.thy\<close> (literals,
+text \<open>The full Rust set lives in \<open>Rust_Weakest_Precondition.thy\<close> (literals,
   conditionals, calls, assert, yield, ...).\<close>
 
 (*<*) end (*>*)

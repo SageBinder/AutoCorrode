@@ -4,7 +4,7 @@
 (*<*)
 theory Raw_Physical_Memory_Trie_Core
   imports Main
-    Crush.Crush
+    Micro_Rust_Crush.Rust_Crush
     "HOL-Library.Datatype_Records"
     Shallow_State_Logic.Apartness
     Shallow_State_Logic.Separation_Algebra

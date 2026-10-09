@@ -14,6 +14,8 @@ term Pullback.canonical_pull_back_yield_handler
 thm Pullback.expression_pull_back_bind
 thm Pullback.expression_pull_back_eval_value
 thm Pullback.canonical_pull_back_yield_handler_is_lift
+thm Pullback.canonical_pull_back_yield_handler_nondet_order_preserving
+thm Pullback.canonical_pull_back_yield_handler_transparent_preserving
 
 ML_val\<open>
   local
@@ -36,9 +38,6 @@ ML_val\<open>
     val _ = assert "log-policy pullback lemma leaked"
       (not (can (Proof_Context.get_thm ctxt)
         "Pullback.canonical_pull_back_yield_handler_log_preserving"))
-    val _ = assert "nondeterministic-order pullback lemma leaked"
-      (not (can (Proof_Context.get_thm ctxt)
-        "Pullback.canonical_pull_back_yield_handler_nondet_order_preserving"))
   end
 \<close>
 

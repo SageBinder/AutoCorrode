@@ -2,7 +2,7 @@
    SPDX-License-Identifier: MIT *)
 
 theory Pullback
-  imports Eval Lenses_And_Other_Optics.Lens
+  imports Eval Nondeterministic_Choice Lenses_And_Other_Optics.Lens
 begin
 
 section\<open>Pulling back shallow computations along lenses\<close>
@@ -144,6 +144,28 @@ lemma canonical_pull_back_yield_handler_is_lift:
   by (force simp add: canonical_pull_back_yield_handler_def is_lifted_yield_handler_def
     lift_yield_result_def lower_yield_result_def lens_laws[OF LV]
     image_comp case_prod_unfold split!: prod.splits yield_handler_nondet_basic_result.splits)
+
+lemma canonical_pull_back_yield_handler_nondet_order_preserving:
+  assumes \<open>is_nondet_order_yield_handler y\<close>
+  shows \<open>is_nondet_order_yield_handler (canonical_pull_back_yield_handler y)\<close>
+proof -
+  have update_view: \<open>\<And>\<sigma>. lens_update l (lens_view l \<sigma>) \<sigma> = \<sigma>\<close>
+    using LV by (rule lens_laws_update(2))
+  from assms show ?thesis
+    by (clarsimp simp add: is_nondet_order_yield_handler_def
+      canonical_pull_back_yield_handler_def lift_yield_result_def LV update_view)
+qed
+
+lemma canonical_pull_back_yield_handler_transparent_preserving:
+  assumes \<open>is_transparent_yield_handler y\<close>
+  shows \<open>is_transparent_yield_handler (canonical_pull_back_yield_handler y)\<close>
+proof -
+  have update_view: \<open>\<And>\<sigma>. lens_update l (lens_view l \<sigma>) \<sigma> = \<sigma>\<close>
+    using LV by (rule lens_laws_update(2))
+  from assms show ?thesis
+    by (clarsimp simp add: is_transparent_yield_handler_def
+      canonical_pull_back_yield_handler_def lift_yield_result_def LV update_view)
+qed
 
 text\<open>At the level of the evaluation relation, pullback of expressions is pullback of relations:\<close>
 

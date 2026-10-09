@@ -68,7 +68,12 @@ begin
 definition nondeterministic_choice_prompt_prompt :: \<open>'a prompt\<close> where [simp]:
   \<open>nondeterministic_choice_prompt_prompt = NondetOrder\<close>
 
-instance ..
+definition transparent_prompt_prompt :: \<open>'a prompt \<Rightarrow> bool\<close> where [simp]:
+  \<open>transparent_prompt_prompt p =
+     (case p of Pause \<Rightarrow> True | Log _ _ \<Rightarrow> True | _ \<Rightarrow> False)\<close>
+
+instance
+  by standard simp
 
 end
 
@@ -80,6 +85,9 @@ definition nondeterministic_left_response_prompt_output :: \<open>'a prompt_outp
 
 definition nondeterministic_right_response_prompt_output :: \<open>'a prompt_output\<close> where [simp]:
   \<open>nondeterministic_right_response_prompt_output = NondetRight\<close>
+
+definition transparent_response_prompt_output :: \<open>'a prompt_output\<close> where [simp]:
+  \<open>transparent_response_prompt_output = Ack\<close>
 
 instance
   by standard simp
@@ -124,6 +132,10 @@ lemma is_log_prompt_simps [simp]:
     and \<open>is_log_prompt (Log p l) = True\<close>
     and \<open>is_log_prompt NondetOrder = False\<close>
 by (auto simp add: is_log_prompt_def)
+
+lemma transparent_prompt_iff_log_prompt [simp]:
+  shows \<open>transparent_prompt p \<longleftrightarrow> is_log_prompt p\<close>
+  by (cases p; simp add: is_log_prompt_def)
 
 definition is_log_transparent_yield_handler :: \<open>('s, 'abort, 'i prompt, 'o prompt_output) yield_handler_nondet_basic \<Rightarrow> bool\<close> where
   \<open>is_log_transparent_yield_handler y \<equiv> \<forall>\<sigma> \<pi>. is_log_prompt \<pi> \<longrightarrow> y \<pi> \<sigma> = { YieldContinue (Ack, \<sigma>) }\<close>

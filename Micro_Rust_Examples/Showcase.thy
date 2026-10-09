@@ -15,7 +15,7 @@ text\<open>This file contains a concise showcase of some of AutoCorrode's verifi
 We start with below '\<^verbatim>\<open>locale\<close>'. This is some boilerplate that you can ignore for now:
 it is responsible for making various types available as being mutable and allocatable.\<close>
 locale showcase_ctx =
-    reference reference_types +
+    rust_reference reference_types +
     \<comment> \<open>Import \<^verbatim>\<open>reference_allocatable\<close> so we can allocate references for \<^verbatim>\<open>64 word\<close>.\<close>
     ref_word64: reference_allocatable reference_types _ _ _ _ _ _ _ word64_prism +
     ref_nat: reference_allocatable reference_types _ _ _ _ _ _ _ nat_prism +

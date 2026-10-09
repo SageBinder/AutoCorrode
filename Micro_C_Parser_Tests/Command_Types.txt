@@ -1,0 +1,4 @@
+types:
+  kept_record
+functions:
+  __type_pass_only__

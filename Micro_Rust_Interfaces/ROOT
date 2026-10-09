@@ -4,9 +4,10 @@ session Micro_Rust_Interfaces = HOL +
     "HOL-Library"
     Shallow_Separation_Logic
     Shallow_Micro_Rust
+    Micro_Rust_Parser_Impl
     Micro_Rust_Std_Lib
     Separation_Lenses
-    Crush
+    Micro_Rust_Crush
   theories
     Global_Perm_Store
     Pair_References

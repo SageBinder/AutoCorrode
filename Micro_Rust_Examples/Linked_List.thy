@@ -5,7 +5,7 @@
 theory Linked_List
   imports
     Word_Lib.Many_More
-    Crush.Crush
+    Micro_Rust_Crush.Rust_Crush
     Micro_Rust_Std_Lib.StdLib_All
 begin
 declare [[urust_verbosity = 2]]
@@ -23,7 +23,7 @@ datatype_record ('addr, 'fv, 't) ll_node_raw =
   "next" :: \<open>('addr, 'fv) gref option\<close>
 micro_rust_record ll_node_raw
 
-locale ll_example_basic = reference reference_types
+locale ll_example_basic = rust_reference reference_types
       for \<comment> \<open>We need reference support\<close>
          reference_types :: \<open>'s::{sepalg} \<Rightarrow> 'addr \<Rightarrow> 'gv \<Rightarrow> 'abort \<Rightarrow> 'i prompt \<Rightarrow> 'o prompt_output \<Rightarrow> unit\<close> +
 

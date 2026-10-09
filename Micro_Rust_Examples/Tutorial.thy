@@ -39,7 +39,7 @@ definition bvec_well_formed :: \<open>('a, 'l::len) bounded_vec \<Rightarrow> bo
 text\<open>The following locale is boilerplate that makes types like \<^typ>\<open>nat\<close> and \<^typ>\<open>bool\<close>
 available as mutable references. You can ignore its details.\<close>
 locale tutorial_ctx =
-    reference reference_types +
+    rust_reference reference_types +
     ref_nat: reference_allocatable reference_types _ _ _ _ _ _ _ nat_prism +
     ref_bool: reference_allocatable reference_types _ _ _ _ _ _ _ bool_prism
   for

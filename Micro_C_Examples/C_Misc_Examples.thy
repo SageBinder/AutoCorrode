@@ -29,8 +29,9 @@ locale c_misc_verification_ctx =
   and c_ptr_ge :: \<open>('addr, 'gv) gref \<Rightarrow> ('addr, 'gv) gref \<Rightarrow> bool\<close>
   and c_ptr_to_uintptr :: \<open>('addr, 'gv) gref \<Rightarrow> int\<close>
   and c_uintptr_to_ptr :: \<open>int \<Rightarrow> ('addr, 'gv) gref\<close>
-  and reference_types :: \<open>'s::{sepalg} \<Rightarrow> 'addr \<Rightarrow> 'gv \<Rightarrow> c_abort \<Rightarrow> 'prompt \<Rightarrow>
-      'output \<Rightarrow> unit\<close>
+  and reference_types :: \<open>'s::{sepalg} \<Rightarrow> 'addr \<Rightarrow> 'gv \<Rightarrow> c_abort \<Rightarrow>
+      'prompt::nondeterministic_prompt \<Rightarrow>
+      'output::nondeterministic_response \<Rightarrow> unit\<close>
   and c_uint_prism :: \<open>('gv, c_uint) prism\<close>
   and c_uint_ptr_prism :: \<open>('gv, ('addr, 'gv, c_uint) State_References.ref) prism\<close>
   and c_int_prism :: \<open>('gv, c_int) prism\<close>

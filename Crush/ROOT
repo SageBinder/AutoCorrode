@@ -4,9 +4,8 @@ session Crush = HOL +
     "HOL-Eisbach"
     "HOL-Library"
     Misc
-    Micro_Rust_Interfaces_Core
-    Shallow_Micro_Rust
-    Shallow_Micro_Rust_Logic
+    Shallow_Computation
+    Shallow_Reference_Logic
     Shallow_Separation_Logic
   theories [document=false]
     Examples

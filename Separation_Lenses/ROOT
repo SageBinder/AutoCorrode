@@ -3,7 +3,6 @@ session Separation_Lenses = HOL +
   sessions
     "HOL-Eisbach"
     "HOL-Library"
-    Shallow_Micro_Rust
     Shallow_Separation_Logic
   theories
     SLens

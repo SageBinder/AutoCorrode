@@ -49,7 +49,7 @@ The real work has been done in \<^verbatim>\<open>reference_transfer\<close>, wh
 transferred parameters already. However, because of an issue with code generation and sublocales,
 we do not register \<^verbatim>\<open>reference\<close> as a sublocale of \<^verbatim>\<open>reference_transfer\<close>, but globally interpret
 here explicitly:\<close>
-global_interpretation Heap_Example: reference \<open>\<lambda> _ _ _ _ _ _. ()\<close>
+global_interpretation Heap_Example: rust_reference \<open>\<lambda> _ _ _ _ _ _. ()\<close>
   update_raw_fun
   dereference_raw_fun
   reference_raw_fun

@@ -5,7 +5,7 @@ theory MLKEM_Zq
   imports
     MLKEM_Specification
     Micro_Rust_Std_Lib.StdLib_All
-    Crush.Crush
+    Micro_Rust_Crush.Rust_Crush
 begin
 
 declare [[urust_verbosity = 2]]
@@ -18,7 +18,7 @@ text\<open>
 section\<open>Locale\<close>
 
 locale mlkem_zq_context =
-    reference reference_types +
+    rust_reference reference_types +
     ref_word16: reference_allocatable reference_types _ _ _ _ _ _ _ word16_prism +
     ref_word32: reference_allocatable reference_types _ _ _ _ _ _ _ word32_prism
   for

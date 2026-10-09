@@ -29,6 +29,18 @@ abbreviation c_signed_in_range :: \<open>int \<Rightarrow> nat \<Rightarrow> boo
 
 subsection \<open>Addition\<close>
 
+lemma wp_c_signed_add_with_abort [separation_logic_wp_simps]:
+    fixes a b :: \<open>'l::{len} sword\<close>
+  assumes \<open>\<And>r. ucincl (\<psi> r)\<close>
+    shows \<open>\<W>\<P> \<Gamma> (c_signed_add_with_abort abort_handler a b) \<psi> \<rho> \<theta> =
+      (let result_int = sint a + sint b
+       in if result_int < -(2^(LENGTH('l) - 1)) \<or>
+             result_int \<ge> 2^(LENGTH('l) - 1)
+          then \<W>\<P> \<Gamma> (abort_handler SignedOverflow) \<psi> \<rho> \<theta>
+          else \<psi> (word_of_int result_int))\<close>
+using assms by (simp add: c_signed_add_with_abort_def Let_def
+  separation_logic_wp_simps asepconj_simp)
+
 lemma wp_c_signed_add [separation_logic_wp_simps]:
     fixes a b :: \<open>'l::{len} sword\<close>
   assumes \<open>\<And>r. ucincl (\<psi> r)\<close>
@@ -55,6 +67,18 @@ proof -
 qed
 
 subsection \<open>Subtraction\<close>
+
+lemma wp_c_signed_sub_with_abort [separation_logic_wp_simps]:
+    fixes a b :: \<open>'l::{len} sword\<close>
+  assumes \<open>\<And>r. ucincl (\<psi> r)\<close>
+    shows \<open>\<W>\<P> \<Gamma> (c_signed_sub_with_abort abort_handler a b) \<psi> \<rho> \<theta> =
+      (let result_int = sint a - sint b
+       in if result_int < -(2^(LENGTH('l) - 1)) \<or>
+             result_int \<ge> 2^(LENGTH('l) - 1)
+          then \<W>\<P> \<Gamma> (abort_handler SignedOverflow) \<psi> \<rho> \<theta>
+          else \<psi> (word_of_int result_int))\<close>
+using assms by (simp add: c_signed_sub_with_abort_def Let_def
+  separation_logic_wp_simps asepconj_simp)
 
 lemma wp_c_signed_sub [separation_logic_wp_simps]:
     fixes a b :: \<open>'l::{len} sword\<close>
@@ -83,6 +107,18 @@ qed
 
 subsection \<open>Multiplication\<close>
 
+lemma wp_c_signed_mul_with_abort [separation_logic_wp_simps]:
+    fixes a b :: \<open>'l::{len} sword\<close>
+  assumes \<open>\<And>r. ucincl (\<psi> r)\<close>
+    shows \<open>\<W>\<P> \<Gamma> (c_signed_mul_with_abort abort_handler a b) \<psi> \<rho> \<theta> =
+      (let result_int = sint a * sint b
+       in if result_int < -(2^(LENGTH('l) - 1)) \<or>
+             result_int \<ge> 2^(LENGTH('l) - 1)
+          then \<W>\<P> \<Gamma> (abort_handler SignedOverflow) \<psi> \<rho> \<theta>
+          else \<psi> (word_of_int result_int))\<close>
+using assms by (simp add: c_signed_mul_with_abort_def Let_def
+  separation_logic_wp_simps asepconj_simp)
+
 lemma wp_c_signed_mul [separation_logic_wp_simps]:
     fixes a b :: \<open>'l::{len} sword\<close>
   assumes \<open>\<And>r. ucincl (\<psi> r)\<close>
@@ -109,6 +145,21 @@ proof -
 qed
 
 subsection \<open>Division\<close>
+
+lemma wp_c_signed_div_with_abort [separation_logic_wp_simps]:
+    fixes a b :: \<open>'l::{len} sword\<close>
+  assumes \<open>\<And>r. ucincl (\<psi> r)\<close>
+    shows \<open>\<W>\<P> \<Gamma> (c_signed_div_with_abort abort_handler a b) \<psi> \<rho> \<theta> =
+      (if b = 0 then
+         \<W>\<P> \<Gamma> (abort_handler DivisionByZero) \<psi> \<rho> \<theta>
+       else
+         let result_int = c_trunc_div_int (sint a) (sint b)
+         in if result_int < -(2^(LENGTH('l) - 1)) \<or>
+               result_int \<ge> 2^(LENGTH('l) - 1)
+            then \<W>\<P> \<Gamma> (abort_handler SignedOverflow) \<psi> \<rho> \<theta>
+            else \<psi> (word_of_int result_int))\<close>
+using assms by (simp add: c_signed_div_with_abort_def Let_def
+  separation_logic_wp_simps asepconj_simp)
 
 lemma wp_c_signed_div [separation_logic_wp_simps]:
     fixes a b :: \<open>'l::{len} sword\<close>
@@ -139,6 +190,22 @@ proof -
 qed
 
 subsection \<open>Modulo\<close>
+
+lemma wp_c_signed_mod_with_abort [separation_logic_wp_simps]:
+    fixes a b :: \<open>'l::{len} sword\<close>
+  assumes \<open>\<And>r. ucincl (\<psi> r)\<close>
+    shows \<open>\<W>\<P> \<Gamma> (c_signed_mod_with_abort abort_handler a b) \<psi> \<rho> \<theta> =
+      (if b = 0 then
+         \<W>\<P> \<Gamma> (abort_handler DivisionByZero) \<psi> \<rho> \<theta>
+       else
+         let q_int = c_trunc_div_int (sint a) (sint b);
+             result_int = c_trunc_mod_int (sint a) (sint b)
+         in if q_int < -(2^(LENGTH('l) - 1)) \<or>
+               q_int \<ge> 2^(LENGTH('l) - 1)
+            then \<W>\<P> \<Gamma> (abort_handler SignedOverflow) \<psi> \<rho> \<theta>
+            else \<psi> (word_of_int result_int))\<close>
+using assms by (simp add: c_signed_mod_with_abort_def Let_def
+  separation_logic_wp_simps asepconj_simp)
 
 lemma wp_c_signed_mod [separation_logic_wp_simps]:
     fixes a b :: \<open>'l::{len} sword\<close>
@@ -461,6 +528,16 @@ using assms by (simp add: c_unsigned_not_def wp_literalI asepconj_simp)
 
 subsection \<open>Unsigned Shift Operations\<close>
 
+lemma wp_c_unsigned_shl_with_abort [separation_logic_wp_simps]:
+    fixes a b :: \<open>'l::{len} word\<close>
+  assumes \<open>\<And>r. ucincl (\<psi> r)\<close>
+    shows \<open>\<W>\<P> \<Gamma> (c_unsigned_shl_with_abort abort_handler a b) \<psi> \<rho> \<theta> =
+      (if unat b \<ge> LENGTH('l) then
+         \<W>\<P> \<Gamma> (abort_handler ShiftOutOfRange) \<psi> \<rho> \<theta>
+       else \<psi> (push_bit (unat b) a))\<close>
+using assms by (simp add: c_unsigned_shl_with_abort_def
+  separation_logic_wp_simps asepconj_simp)
+
 lemma wp_c_unsigned_shl [separation_logic_wp_simps]:
     fixes a b :: \<open>'l::{len} word\<close>
   assumes \<open>\<And>r. ucincl (\<psi> r)\<close>
@@ -497,6 +574,16 @@ lemma wp_c_unsigned_shr [separation_logic_wp_simps]:
 using assms by (simp add: c_unsigned_shr_def c_shift_out_of_range_def c_abort_def
   separation_logic_wp_simps asepconj_simp)
 
+lemma wp_c_unsigned_shr_with_abort [separation_logic_wp_simps]:
+    fixes a b :: \<open>'l::{len} word\<close>
+  assumes \<open>\<And>r. ucincl (\<psi> r)\<close>
+    shows \<open>\<W>\<P> \<Gamma> (c_unsigned_shr_with_abort abort_handler a b) \<psi> \<rho> \<theta> =
+      (if unat b \<ge> LENGTH('l) then
+         \<W>\<P> \<Gamma> (abort_handler ShiftOutOfRange) \<psi> \<rho> \<theta>
+       else \<psi> (drop_bit (unat b) a))\<close>
+using assms by (simp add: c_unsigned_shr_with_abort_def
+  separation_logic_wp_simps asepconj_simp)
+
 lemma wp_c_unsigned_shrI [separation_logic_wp_intros]:
   fixes a b :: \<open>'l::{len} word\<close>
   assumes \<open>\<And>r. ucincl (\<psi> r)\<close>
@@ -511,6 +598,22 @@ proof -
 qed
 
 subsection \<open>Signed shift operations\<close>
+
+lemma wp_c_signed_shl_with_abort [separation_logic_wp_simps]:
+    fixes a b :: \<open>'l::{len} sword\<close>
+  assumes \<open>\<And>r. ucincl (\<psi> r)\<close>
+    shows \<open>\<W>\<P> \<Gamma> (c_signed_shl_with_abort abort_handler a b) \<psi> \<rho> \<theta> =
+      (if unat b \<ge> LENGTH('l) then
+         \<W>\<P> \<Gamma> (abort_handler ShiftOutOfRange) \<psi> \<rho> \<theta>
+       else
+         let result_int = sint a * 2 ^ unat b
+         in if sint a < 0 \<or>
+               result_int < -(2^(LENGTH('l) - 1)) \<or>
+               result_int \<ge> 2^(LENGTH('l) - 1)
+            then \<W>\<P> \<Gamma> (abort_handler SignedOverflow) \<psi> \<rho> \<theta>
+            else \<psi> (word_of_int result_int))\<close>
+using assms by (simp add: c_signed_shl_with_abort_def Let_def
+  separation_logic_wp_simps asepconj_simp)
 
 lemma wp_c_signed_shl [separation_logic_wp_simps]:
     fixes a b :: \<open>'l::{len} sword\<close>
@@ -555,6 +658,16 @@ lemma wp_c_signed_shr [separation_logic_wp_simps]:
 using assms by (simp add: c_signed_shr_def c_shift_out_of_range_def c_abort_def separation_logic_wp_simps
   asepconj_simp)
 
+lemma wp_c_signed_shr_with_abort [separation_logic_wp_simps]:
+    fixes a b :: \<open>'l::{len} sword\<close>
+  assumes \<open>\<And>r. ucincl (\<psi> r)\<close>
+    shows \<open>\<W>\<P> \<Gamma> (c_signed_shr_with_abort abort_handler a b) \<psi> \<rho> \<theta> =
+      (if unat b \<ge> LENGTH('l) then
+         \<W>\<P> \<Gamma> (abort_handler ShiftOutOfRange) \<psi> \<rho> \<theta>
+       else \<psi> (word_of_int (sint a div 2 ^ unat b)))\<close>
+using assms by (simp add: c_signed_shr_with_abort_def
+  separation_logic_wp_simps asepconj_simp)
+
 lemma wp_c_signed_shrI [separation_logic_wp_intros]:
     fixes a b :: \<open>'l::{len} sword\<close>
   assumes \<open>\<And>r. ucincl (\<psi> r)\<close>
@@ -581,6 +694,19 @@ lemma wp_c_signed_shr_conservative [separation_logic_wp_simps]:
                 \<psi> (word_of_int (sint a div 2 ^ unat b)))\<close>
 using assms by (simp add: c_signed_shr_conservative_def c_shift_out_of_range_def
   c_signed_overflow_def c_abort_def separation_logic_wp_simps asepconj_simp)
+
+lemma wp_c_signed_shr_conservative_with_abort [separation_logic_wp_simps]:
+    fixes a b :: \<open>'l::{len} sword\<close>
+  assumes \<open>\<And>r. ucincl (\<psi> r)\<close>
+    shows \<open>\<W>\<P> \<Gamma>
+        (c_signed_shr_conservative_with_abort abort_handler a b) \<psi> \<rho> \<theta> =
+      (if unat b \<ge> LENGTH('l) then
+         \<W>\<P> \<Gamma> (abort_handler ShiftOutOfRange) \<psi> \<rho> \<theta>
+       else if sint a < 0 then
+         \<W>\<P> \<Gamma> (abort_handler SignedOverflow) \<psi> \<rho> \<theta>
+       else \<psi> (word_of_int (sint a div 2 ^ unat b)))\<close>
+using assms by (simp add: c_signed_shr_conservative_with_abort_def
+  separation_logic_wp_simps asepconj_simp)
 
 lemma wp_c_signed_shr_conservativeI [separation_logic_wp_intros]:
     fixes a b :: \<open>'l::{len} sword\<close>
@@ -634,6 +760,18 @@ lemma wp_c_scast_checked [separation_logic_wp_simps]:
 using assms by (simp add: c_scast_checked_def c_signed_overflow_def c_abort_def
   separation_logic_wp_simps asepconj_simp Let_def)
 
+lemma wp_c_scast_checked_with_abort [separation_logic_wp_simps]:
+    fixes w :: \<open>'l::{len} word\<close>
+      and \<psi> :: \<open>'b::{len} word \<Rightarrow> 's::{sepalg} set\<close>
+  assumes \<open>\<And>r. ucincl (\<psi> r)\<close>
+    shows \<open>\<W>\<P> \<Gamma> (c_scast_checked_with_abort abort_handler w) \<psi> \<rho> \<theta> =
+      (let v = sint w
+       in if v < -(2^(LENGTH('b) - 1)) \<or> v \<ge> 2^(LENGTH('b) - 1)
+          then \<W>\<P> \<Gamma> (abort_handler SignedOverflow) \<psi> \<rho> \<theta>
+          else \<psi> (word_of_int v))\<close>
+using assms by (simp add: c_scast_checked_with_abort_def Let_def
+  separation_logic_wp_simps asepconj_simp)
+
 lemma wp_c_scast_checkedI [separation_logic_wp_intros]:
     fixes w :: \<open>'l::{len} word\<close>
       and \<psi> :: \<open>'b::{len} word \<Rightarrow> 's::{sepalg} set\<close>
@@ -647,6 +785,16 @@ using assms by (simp add: wp_c_scast_checked)
 
 subsection \<open>Unsigned Division and Modulo\<close>
 
+lemma wp_c_unsigned_div_with_abort [separation_logic_wp_simps]:
+    fixes a b :: \<open>'l::{len} word\<close>
+  assumes \<open>\<And>r. ucincl (\<psi> r)\<close>
+    shows \<open>\<W>\<P> \<Gamma> (c_unsigned_div_with_abort abort_handler a b) \<psi> \<rho> \<theta> =
+      (if b = 0 then
+         \<W>\<P> \<Gamma> (abort_handler DivisionByZero) \<psi> \<rho> \<theta>
+       else \<psi> (a div b))\<close>
+using assms by (simp add: c_unsigned_div_with_abort_def
+  separation_logic_wp_simps asepconj_simp)
+
 lemma wp_c_unsigned_div [separation_logic_wp_simps]:
     fixes a b :: \<open>'l::{len} word\<close>
   assumes \<open>\<And>r. ucincl (\<psi> r)\<close>
@@ -658,6 +806,16 @@ lemma wp_c_unsigned_div [separation_logic_wp_simps]:
                 \<psi> (a div b))\<close>
 using assms by (simp add: c_unsigned_div_def c_abort_def c_division_by_zero_def separation_logic_wp_simps
   asepconj_simp)
+
+lemma wp_c_unsigned_mod_with_abort [separation_logic_wp_simps]:
+    fixes a b :: \<open>'l::{len} word\<close>
+  assumes \<open>\<And>r. ucincl (\<psi> r)\<close>
+    shows \<open>\<W>\<P> \<Gamma> (c_unsigned_mod_with_abort abort_handler a b) \<psi> \<rho> \<theta> =
+      (if b = 0 then
+         \<W>\<P> \<Gamma> (abort_handler DivisionByZero) \<psi> \<rho> \<theta>
+       else \<psi> (a mod b))\<close>
+using assms by (simp add: c_unsigned_mod_with_abort_def
+  separation_logic_wp_simps asepconj_simp)
 
 lemma wp_c_unsigned_mod [separation_logic_wp_simps]:
     fixes a b :: \<open>'l::{len} word\<close>

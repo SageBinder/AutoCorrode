@@ -3,7 +3,7 @@
 
 theory Shallow_Computation
   imports
-    Control_Flow
+    Expression_Normalization
     Nondeterministic_Choice
     Pullback
 begin

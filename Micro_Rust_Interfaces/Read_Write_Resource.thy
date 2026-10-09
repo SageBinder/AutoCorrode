@@ -2,7 +2,7 @@
    SPDX-License-Identifier: MIT *)
 
 theory Read_Write_Resource
-  imports Crush.Crush
+  imports Micro_Rust_Crush.Rust_Crush
     Shallow_State_Logic.Assertion_Language
 begin
 

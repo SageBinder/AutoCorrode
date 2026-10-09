@@ -1,6 +1,7 @@
 theory C_Reference_Rules
   imports
     "Crush.Crush"
+    "Shallow_State.Reference_Interface"
 begin
 
 section \<open>Reference rules for C verification\<close>
@@ -11,34 +12,15 @@ text \<open>
 \<close>
 
 locale c_reference =
-  reference_defs reference_types update_raw_fun dereference_raw_fun
+  reference reference_types update_raw_fun dereference_raw_fun
     reference_raw_fun points_to_raw' gref_can_store new_gref_can_store
     can_alloc_reference
   for reference_types ::
       \<open>'s::{sepalg} \<Rightarrow> 'a \<Rightarrow> 'b \<Rightarrow> 'abort \<Rightarrow>
-        'prompt \<Rightarrow> 'output \<Rightarrow> unit\<close>
+        'prompt::nondeterministic_prompt \<Rightarrow>
+        'output::nondeterministic_response \<Rightarrow> unit\<close>
     and update_raw_fun dereference_raw_fun reference_raw_fun points_to_raw'
-      gref_can_store new_gref_can_store can_alloc_reference +
-  assumes update_raw_spec [all_reference_specs]:
-      \<open>\<Gamma> ; update_raw_fun r g \<Turnstile>\<^sub>F update_raw_contract r g0 g\<close>
-    and dereference_raw_spec [all_reference_specs]:
-      \<open>\<Gamma> ; dereference_raw_fun r \<Turnstile>\<^sub>F dereference_raw_contract r sh g\<close>
-    and reference_raw_spec [all_reference_specs]:
-      \<open>\<Gamma> ; reference_raw_fun g \<Turnstile>\<^sub>F reference_raw_contract g\<close>
-    and ucincl_points_to_raw [ucincl_intros, all_reference_specs]:
-      \<open>\<And>r sh g. ucincl (points_to_raw r sh g)\<close>
-    and ucincl_can_alloc_reference [ucincl_intros, all_reference_specs]:
-      \<open>ucincl can_alloc_reference\<close>
-    and points_to_raw_combine [all_reference_specs]:
-      \<open>\<And>r sh1 sh2 v1 v2.
-        r \<mapsto>\<langle>sh1\<rangle> v1 \<star> r \<mapsto>\<langle>sh2\<rangle> v2
-          \<longlongrightarrow> r \<mapsto>\<langle>sh1 + sh2\<rangle> v1 \<star> \<langle>v1 = v2\<rangle>\<close>
-    and points_to_raw_split [all_reference_specs]:
-      \<open>\<And>sh shA shB r v.
-        sh = shA + shB \<Longrightarrow> shA \<sharp> shB \<Longrightarrow>
-        0 < shA \<Longrightarrow> 0 < shB \<Longrightarrow>
-        r \<mapsto>\<langle>sh\<rangle> v
-          \<longlongrightarrow> r \<mapsto>\<langle>shA\<rangle> v \<star> r \<mapsto>\<langle>shB\<rangle> v\<close>
+      gref_can_store new_gref_can_store can_alloc_reference
 begin
 
 lemma c_points_to_raw'_ucincl [ucincl_intros]:
@@ -79,7 +61,7 @@ lemma c_points_to_aentails_crule [crush_aentails_cond_crules]:
          ]
          r \<mapsto>\<langle>sh\<rangle> g1\<down>v1\<close>
   unfolding aentails_conditional_crule_strong_def
-  by (simp add: points_to_def ucincl_points_to_raw)
+  by (crush_base simp add: points_to_def)
 
 lemma c_points_to_aentails_crule_focusedL [c_crush_points_to_cond_crules]:
   shows \<open>focus_reference f r \<mapsto>\<langle>sh\<rangle> g1\<down>v1
@@ -124,10 +106,9 @@ lemma c_points_to_combine:
   shows \<open>r \<mapsto>\<langle>sh1\<rangle> g1\<down>v1 \<star> r \<mapsto>\<langle>sh2\<rangle> g2\<down>v2
     \<longlongrightarrow> r \<mapsto>\<langle>sh1 + sh2\<rangle> g1\<down>v1
       \<star> \<langle>g1 = g2\<rangle> \<star> \<langle>v1 = v2\<rangle>\<close>
-  apply (crush_base simp [prems, concls] add: points_to_def seplog
-    drule add: points_to_raw_combine)
-  apply (simp add: aentails_def plus_share_def sup_aci(1))
-  done
+  by (crush_base simp [prems, concls] add: points_to_def seplog
+      drule add: points_to_raw_combine;
+    simp add: aentails_def plus_share_def sup_aci(1))
 
 lemma c_focus_compose_valid_dropE [focus_elims]:
   assumes \<open>is_valid_ref_for (focus_reference r l) P\<close>
@@ -259,7 +240,8 @@ locale c_reference_allocatable =
     can_alloc_reference
   for reference_types ::
       \<open>'s::{sepalg} \<Rightarrow> 'a \<Rightarrow> 'b \<Rightarrow> 'abort \<Rightarrow>
-        'prompt \<Rightarrow> 'output \<Rightarrow> unit\<close>
+        'prompt::nondeterministic_prompt \<Rightarrow>
+        'output::nondeterministic_response \<Rightarrow> unit\<close>
     and update_raw_fun and dereference_raw_fun and reference_raw_fun
     and points_to_raw' and gref_can_store new_gref_can_store
     and can_alloc_reference +

@@ -3,7 +3,7 @@
 
 (*<*)
 theory StdLib_Arithmetic
-  imports Crush.Crush StdLib_References
+  imports Micro_Rust_Crush.Rust_Crush StdLib_References
 begin
 (*>*)
 

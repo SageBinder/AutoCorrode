@@ -20,7 +20,7 @@ a separation lens.
 The goal is to formally derive an implementation of the refrence locale on the large
 separation algebra.\<close>
 locale reference_transfer =
-   R: reference reference_types_lo update_raw_fun_lo dereference_raw_fun_lo
+   R: rust_reference reference_types_lo update_raw_fun_lo dereference_raw_fun_lo
      reference_raw_fun_lo points_to_raw'_lo gref_can_store_lo new_gref_can_store_lo
      can_alloc_reference_lo + slens l
   for
@@ -66,7 +66,7 @@ lemma reference_contracts_no_abort:
     and \<open>\<And>a b c. function_contract_abort (R.reference_raw_contract a) = \<bottom>\<close>
   by (auto simp add: reference_defs.all_reference_defs)
 
-lemma reference_lifted: \<open>reference
+lemma reference_lifted: \<open>rust_reference
    update_raw_fun dereference_raw_fun reference_raw_fun points_to_raw'
    gref_can_store_lo new_gref_can_store_lo can_alloc_reference\<close>
   using R.all_reference_specs apply -

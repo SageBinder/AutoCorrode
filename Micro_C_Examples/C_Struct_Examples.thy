@@ -26,8 +26,9 @@ locale c_struct_verification_ctx =
     c_reference reference_types _ _ _ _ _ _ _ +
     ref_c_int: c_reference_allocatable reference_types _ _ _ _ _ _ _ c_int_prism +
     ref_c_point: c_reference_allocatable reference_types _ _ _ _ _ _ _ c_point_prism
-  for reference_types :: \<open>'s::{sepalg} \<Rightarrow> 'addr \<Rightarrow> 'gv \<Rightarrow> c_abort \<Rightarrow> 'prompt \<Rightarrow>
-        'output \<Rightarrow> unit\<close>
+  for reference_types :: \<open>'s::{sepalg} \<Rightarrow> 'addr \<Rightarrow> 'gv \<Rightarrow> c_abort \<Rightarrow>
+        'prompt::nondeterministic_prompt \<Rightarrow>
+        'output::nondeterministic_response \<Rightarrow> unit\<close>
   and c_int_prism :: \<open>('gv, c_int) prism\<close>
   and c_point_prism :: \<open>('gv, CStruct.point) prism\<close>
 begin

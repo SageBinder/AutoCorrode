@@ -1,0 +1,9 @@
+session Micro_Rust_Crush = HOL +
+  options [document = false]
+  sessions
+    Crush
+    Shallow_Micro_Rust_Logic
+    Micro_Rust_Interfaces_Core
+  theories [document = false]
+    Rust_Crush
+    Micro_Rust_Crush

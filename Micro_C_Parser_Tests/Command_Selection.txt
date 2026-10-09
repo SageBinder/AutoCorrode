@@ -1,0 +1,5 @@
+# Both sections accept comments, whitespace, and optional list markers.
+functions:
+  - kept # inline comment
+types:
+  kept_record

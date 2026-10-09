@@ -2,7 +2,9 @@
    SPDX-License-Identifier: MIT *)
 
 theory Raw_Physical_Memory
-  imports Shallow_Separation_Logic.Shallow_Separation_Logic
+  imports
+    Shallow_Separation_Logic.Shallow_Separation_Logic
+    Shallow_Micro_Rust.Prompts_And_Responses
 begin
 
 section\<open>Physical memory abstraction\<close>

@@ -6,6 +6,29 @@
     "isabelle": "Isabelle2025-2",
     "oracle": "dominic/main"
   },
+  "regression_suite": {
+    "session": "Micro_C_Parser_Tests",
+    "directory": "Micro_C_Parser_Tests",
+    "layers": {
+      "support": ["C_Parser_Test_Utils"],
+      "expressions_and_syntax": ["C_Parser_Expression_Tests", "C_Parser_Syntax_Tests"],
+      "functions_and_control": ["C_Parser_Function_Tests", "C_Parser_Control_Flow_Tests"],
+      "types_and_resolution": ["C_Parser_Type_Tests", "C_Parser_Name_Resolution_Tests"],
+      "memory": ["C_Parser_Memory_Tests"],
+      "semantics": ["C_Parser_Semantics_Tests", "C_Parser_Runtime_Tests"],
+      "abi_and_compiler": ["C_Parser_Profile_Tests"],
+      "commands": ["C_Parser_Command_Tests", "Parser_Denotation_Tests"],
+      "diagnostics_and_recovery": ["C_Parser_Rejection_Tests", "Parser_Expected_Failures"],
+      "positions": ["C_Parser_Position_Tests", "Parser_Adapter_Tests"],
+      "frontend_support": ["Parser_Elaboration_Tests"],
+      "concurrency": [
+        "Parser_Concurrent_A",
+        "Parser_Concurrent_B",
+        "Parser_Parallel_Adapter_Tests",
+        "Parser_Parallel_Translation_Tests"
+      ]
+    }
+  },
   "public_commands": {
     "inline": "c_source UNIT [options] <embedded C translation unit>",
     "file": "c_file UNIT [options] \"source.c\"",

@@ -36,17 +36,6 @@ proof -
       canonical_pull_back_yield_handler_def lift_yield_result_def LV update_view)
 qed
 
-lemma canonical_pull_back_yield_handler_nondet_order_preserving:
-  assumes \<open>is_nondet_order_yield_handler y\<close>
-  shows \<open>is_nondet_order_yield_handler (canonical_pull_back_yield_handler l y)\<close>
-proof -
-  have update_view: \<open>\<And>\<sigma>. lens_update l (lens_view l \<sigma>) \<sigma> = \<sigma>\<close>
-    using LV by (rule lens_laws_update(2))
-  from assms show ?thesis
-    by (clarsimp simp add: is_nondet_order_yield_handler_def
-      canonical_pull_back_yield_handler_def lift_yield_result_def LV update_view)
-qed
-
 end
 
 setup \<open>Sign.local_path\<close>
