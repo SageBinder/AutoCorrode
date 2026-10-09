@@ -33,6 +33,12 @@ holes; datatype fields allow implicit pointer backend parameters, while unrelate
 variables remain rejected. Omitted results and effect channels infer from the
 body, and unused channels generalize.
 
+Function declarations also accept `[type = ‹complete HOL type›]`. This constrains the actual
+curried HOL constant, including the `function_body` state sort and abort/input/output channels.
+Its named variables and sorts are shared with the Rust signature's escapes, while `_` holes
+remain independent. Rust parameter and explicit result types must agree with the annotation.
+Without it, inference and generalization retain their existing behavior.
+
 Named functions register their Rust declaration name by default. Bare, explicit and scoped
 `register_notation` controls use `urust_register_notation`, shared with datatypes. Formerly
 body-only helpers use `[register_notation = false]` to preserve their registration behavior,
@@ -47,6 +53,11 @@ function-type-mapping suites are consolidated here.
 registration, ASTs, diagnostics, parser/printer recovery, locale conflicts and editor navigation.
 Its ML harnesses stay in this separate regression theory. `Parser_Command_Tests.thy` retains
 shared command/API and expression tests, including comparisons with the imported function artifacts.
+
+`Parser_Function_Semantic_Type_Tests.thy` checks complete annotated type schemes, unused callback
+relationships through direct and registered method calls, fixed-channel contracts and local proof
+expressions, independent holes and call instances, type synonyms, pointer backends, locales,
+declaration artifacts and positioned transactional failures.
 
 ## Markup correction
 

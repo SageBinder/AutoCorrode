@@ -2,6 +2,7 @@ theory Parser_Showcase_Tests
   imports
     Parser_Logging_Fixtures
     Misc.Simple_Word_Enums
+    Shallow_Separation_Logic.Separation_Algebra
 begin
 
 declare [[urust_pp_test = true]]
@@ -96,6 +97,18 @@ urust_fn [application_def]
   \<open>
     fn PacketLength(packet: u64) -> u64 {
       packet + 1_u64
+    }
+  \<close>
+
+text\<open>A semantic annotation supplements the Rust value types with the full computation type.\<close>
+
+urust_fn
+  [type = \<open>64 word \<Rightarrow>
+    ('s::cancellative_sepalg, 64 word, bool, nat prompt, unit prompt_output) function_body\<close>,
+   application_def]
+  \<open>
+    fn StablePacketLength(packet: u64) -> u64 {
+      PacketLength(packet)
     }
   \<close>
 

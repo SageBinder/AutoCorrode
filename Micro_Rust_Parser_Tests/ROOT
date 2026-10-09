@@ -28,6 +28,7 @@ session Micro_Rust_Parser_Tests = HOL +
     Parser_Semantic_Navigation_Tests
     Parser_Function_Tests
     Parser_Function_Regression_Tests
+    Parser_Function_Semantic_Type_Tests
     Parser_Improvements_Tests
     Parser_Command_Tests
     Parser_Rejection_Tests

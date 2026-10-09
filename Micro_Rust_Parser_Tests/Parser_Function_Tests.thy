@@ -4,6 +4,7 @@ theory Parser_Function_Tests
   imports
     Parser_Iterator_Fixtures
     Parser_Logging_Fixtures
+    Shallow_Separation_Logic.Separation_Algebra
 begin
 
 declare [[urust_pp_test = true]]
@@ -120,6 +121,72 @@ urust_fn commented_signature
     }
   \<close>
 
+
+section\<open> Semantic declaration types \<close>
+
+text\<open>
+Rust signatures describe values. The optional complete HOL type also retains the
+computation's state and effects, including relationships with an unused callback.
+Its named variables and sorts are shared with the signature's HOL escapes.
+\<close>
+
+urust_fn
+  [type = \<open>nat \<Rightarrow>
+    ('s::cancellative_sepalg, nat, bool, nat prompt, unit prompt_output) function_body\<close>]
+  semantic_identity
+  \<open> fn SemanticIdentity(value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { value } \<close>
+
+urust_fn
+  [type = \<open>nat \<Rightarrow>
+    (nat \<Rightarrow> ('s, unit, 'abort, 'i, 'o) function_body) \<Rightarrow>
+    ('s::cancellative_sepalg, nat, 'abort, 'i, 'o) function_body\<close>]
+  semantic_unused_callback
+  \<open>
+    fn SemanticUnusedCallback(
+      value: \<tau>\<open>nat\<close>,
+      callback: \<tau>\<open>nat \<Rightarrow> ('s, unit, 'abort, 'i, 'o) function_body\<close>,
+    ) -> \<tau>\<open>nat\<close> {
+      value
+    }
+  \<close>
+
+urust_fn
+  [type = \<open>nat \<Rightarrow>
+    (nat \<Rightarrow> ('s::cancellative_sepalg, unit, bool, nat prompt, unit prompt_output) function_body) \<Rightarrow>
+    ('s, nat, bool, nat prompt, unit prompt_output) function_body\<close>]
+  semantic_callback_client
+  \<open>
+    fn SemanticCallbackClient(
+      value: \<tau>\<open>nat\<close>,
+      callback: \<tau>\<open>nat \<Rightarrow> ('s, unit, bool, nat prompt, unit prompt_output) function_body\<close>,
+    ) -> \<tau>\<open>nat\<close> {
+      SemanticUnusedCallback(value, callback)
+    }
+  \<close>
+
+urust_notation (call) semantic_unused_callback ("semantic_unused")
+
+urust_fn
+  [type = \<open>nat \<Rightarrow>
+    (nat \<Rightarrow> ('s::cancellative_sepalg, unit, bool, nat prompt, unit prompt_output) function_body) \<Rightarrow>
+    ('s, nat, bool, nat prompt, unit prompt_output) function_body\<close>]
+  semantic_callback_method_client
+  \<open>
+    fn SemanticCallbackMethodClient(
+      value: \<tau>\<open>nat\<close>,
+      callback: \<tau>\<open>nat \<Rightarrow> ('s, unit, bool, nat prompt, unit prompt_output) function_body\<close>,
+    ) -> \<tau>\<open>nat\<close> {
+      value.semantic_unused(callback)
+    }
+  \<close>
+
+urust_fn
+  [type = \<open>nat \<Rightarrow> (unit, nat, bool, nat prompt, unit prompt_output) function_body\<close>]
+  semantic_fixed_caller
+  \<open> fn SemanticFixedCaller(value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { SemanticIdentity(value) } \<close>
+
+urust_fn semantic_polymorphic_identity
+  \<open> fn SemanticPolymorphicIdentity(value: \<tau>\<open>'a\<close>) -> \<tau>\<open>'a\<close> { value } \<close>
 
 section\<open> Abbreviations and application definitions \<close>
 

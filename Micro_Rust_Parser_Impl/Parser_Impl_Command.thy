@@ -33,6 +33,12 @@ independent inference holes. Raw pointers share implicit address/global backend 
 the complete signature, constrained by its body and expected types. Datatype fields introduce those
 backend parameters while continuing to reject unrelated free type variables. An omitted result infers from the
 body. State, abort and yield channels also infer, and unused channels generalize.
+The optional inline \<open>type = \<open>complete HOL type\<close>\<close> supplies the full curried
+declaration type ending in \<open>function_body\<close>, including state sorts and effect channels.
+It shares named variables and sorts with every Rust type escape and constrains the actual HOL
+constant. Rust parameter and result types must agree with it; they are never overridden.
+Ambient locale variables remain rigid, and separate \<open>_\<close> holes infer independently.
+An omitted Rust return type still infers, subject to the outer annotation.
 Parameters lower identifiers, \<open>_\<close>, and \<open>mut identifier\<close>.
 An explicit outer name chooses the HOL binding; otherwise acronym-aware snake case derives it from
 the Rust name. An anonymous \<open>_\<close> checks without installing artifacts.
@@ -159,7 +165,7 @@ Boolean options, omitting \<open>= true\<close> enables the option, so both comm
 \<open>[pp_test]\<close>, \<open>[pretty]\<close>, \<open>[application_def]\<close>, and \<open>[abbrev]\<close>. Explicit
 \<open>= true\<close> and \<open>= false\<close> remain available; integer and attribute-list options always require a
 value. Function declarations additionally accept Boolean \<open>register_notation\<close>,
-including its bare enabling spelling.
+including its bare enabling spelling, and the inline-only HOL type option \<open>type\<close>.
 
 An argument-taking abbreviation declaration exposes a parser expression or function body as a HOL
 helper. At HOL use sites, write \<open>(helper args)\<close> when surrounding syntax would otherwise group the
@@ -229,6 +235,7 @@ val application_def_option = "application_def"
 val attributes_option = "attrs"
 val register_notation_option = "register_notation"
 val renames_option = "renames"
+val type_option = "type"
 
 (* Command configurations:
    - urust_pp_test performs a serialized parse-print-parse token comparison for both commands; its
@@ -247,18 +254,21 @@ val renames_option = "renames"
    - urust_register_notation controls function callable entries and datatype field-lens aliases;
      its inline alias is register_notation.
    - renames is inline-only and carries positioned source-to-HOL pairs for datatype generation.
+   - type is inline-only and carries a positioned complete HOL declaration type for functions.
    Verbosity values outside 0..2 are rejected. *)
 datatype command_option_value =
     Boolean_Value of bool
   | Integer_Value of int
   | Attributes_Value of Token.src list
   | Renames_Value of URust_Datatype.rename list
+  | Type_Value of Input.source
 
 datatype command_option_config =
     Boolean_Config of bool Config.T
   | Integer_Config of int Config.T
   | Attributes_Config
   | Renames_Config
+  | Type_Config
 
 val common_option_configs =
   [(pp_test_option, Boolean_Config urust_pp_test),
@@ -274,8 +284,9 @@ val declaration_option_configs =
 
 val expression_option_configs = declaration_option_configs
 val function_option_configs =
-  Symtab.update
-    (register_notation_option, Boolean_Config urust_register_notation)
+  fold Symtab.update
+    [(register_notation_option, Boolean_Config urust_register_notation),
+     (type_option, Type_Config)]
     declaration_option_configs
 
 val datatype_option_configs =
@@ -329,6 +340,8 @@ fun add_inline_option option_configs
                   option_type_error name "an Isabelle attribute list" name_pos
               | (Renames_Config, NONE) =>
                   option_type_error name "a quoted rename list" name_pos
+              | (Type_Config, NONE) =>
+                  option_type_error name "a HOL type" name_pos
               | (Boolean_Config _, SOME (Boolean_Value enabled, _)) =>
                   Boolean_Value enabled
               | (Integer_Config _, SOME (Integer_Value level, value_pos)) =>
@@ -337,6 +350,8 @@ fun add_inline_option option_configs
                   Attributes_Value attributes
               | (Renames_Config, SOME (Renames_Value renames, _)) =>
                   Renames_Value renames
+              | (Type_Config, SOME (Type_Value source, _)) =>
+                  Type_Value source
               | (Boolean_Config _, SOME (_, value_pos)) =>
                   option_type_error name "true or false" value_pos
               | (Integer_Config _, SOME (_, value_pos)) =>
@@ -344,25 +359,22 @@ fun add_inline_option option_configs
               | (Attributes_Config, SOME (_, value_pos)) =>
                   option_type_error name "an Isabelle attribute list" value_pos
               | (Renames_Config, SOME (_, value_pos)) =>
-                  option_type_error name "a quoted rename list" value_pos)
+                  option_type_error name "a quoted rename list" value_pos
+              | (Type_Config, SOME (_, value_pos)) =>
+                  option_type_error name "a HOL type" value_pos)
          in Symtab.update (name, (checked_value, name_pos)) options end)
 
 fun configured_flag lthy options name config =
   (case Symtab.lookup options name of
      SOME (Boolean_Value enabled, _) => enabled
-   | SOME (Integer_Value _, _) =>
-       error ("internal non-Boolean uRust command option " ^ quote name)
-   | SOME (Attributes_Value _, _) =>
+   | SOME _ =>
        error ("internal non-Boolean uRust command option " ^ quote name)
    | NONE => Config.get lthy config)
 
 fun configured_integer lthy options name config =
   (case Symtab.lookup options name of
      SOME (Integer_Value level, _) => level
-   | SOME (Boolean_Value _, _) =>
-       error
-         ("internal non-integer uRust command option " ^ quote name)
-   | SOME (Attributes_Value _, _) =>
+   | SOME _ =>
        error
          ("internal non-integer uRust command option " ^ quote name)
    | NONE => validate_verbosity name Position.none (Config.get lthy config))
@@ -563,7 +575,7 @@ fun close_typed_term kind lthy type_pos checked =
            error
              (command_label kind ^
                ": inferred internal type variable " ^
-               quote (Syntax.string_of_typ lthy variable_type) ^
+               quote (Syntax.string_of_typ (Config.put show_sorts true lthy) variable_type) ^
                " is incompatible with the declared result value type" ^
                Position.here type_pos)
        | [] => ())
@@ -1001,42 +1013,37 @@ fun function_pretty_body function =
        error
          "urust_fn: internal Rust-shaped function body is not a block")
 
-(* Resolve every signature type together: HOL escapes share their type-variable sorts while
-   independent inference holes remain distinct. The prepared types flow directly into lowering. *)
-fun prepare_function_signature lthy function =
+(* Resolve the optional semantic type and every Rust signature type together. Shared names retain
+   their sorts and relationships; independent inference holes stay distinct. The unified complete
+   type supplies the lexical parameter slots and the sole body-checking pipeline. *)
+fun prepare_function_signature lthy semantic_type function =
   let
     val arguments = function_arguments function
     val parameter_types =
       map (fn URust_AST.Function_Parameter (_, _, typ, _) => typ)
         (URust_AST.function_parameters function)
     val return_type = URust_AST.function_return_type function
-    val resolved =
-      URust_Type_Mappings.resolve_signature lthy
-        (parameter_types @ the_list return_type)
-    val (resolved_parameters, resolved_result) =
-      chop (length parameter_types) resolved
-    val result_type =
-      (case resolved_result of [typ] => typ | [] => dummyT
-       | _ => error "urust_fn: internal signature type count mismatch")
     val complete_type =
-      resolved_parameters --->
-        Type (\<^type_name>\<open>function_body\<close>,
-          [dummyT, result_type, dummyT, dummyT, dummyT])
+      URust_Type_Mappings.resolve_function_signature lthy semantic_type
+        parameter_types return_type
     val type_pos =
-      (case return_type of
-         SOME typ => URust_AST.rust_type_position typ
-       | NONE => URust_AST.function_item_position function)
+      (case semantic_type of
+         SOME source => Input.pos_of source
+       | NONE =>
+           (case return_type of
+              SOME typ => URust_AST.rust_type_position typ
+            | NONE => URust_AST.function_item_position function))
   in
     (SOME (complete_type, type_pos),
-     typed_arguments arguments resolved_parameters)
+     typed_arguments arguments (binder_types complete_type))
   end
 
-fun elaborate_function_item pp_test lthy source function =
+fun elaborate_function_item pp_test lthy semantic_type source function =
   let
     val arguments = function_arguments function
     val body_source = function_body_source source function
     val (declared_type, arguments_with_types) =
-      prepare_function_signature lthy function
+      prepare_function_signature lthy semantic_type function
     val _ =
       if pp_test
       then function_pretty_roundtrip lthy source function
@@ -1100,10 +1107,10 @@ fun register_function_result target (rust_name, rust_pos)
 
 fun declare_urust_function_result pp_test render_pretty
     abbreviation application_definition attributes binding
-    target register_notation source function lthy =
+    target register_notation semantic_type source function lthy =
   let
     val {term, arguments, declared_type, arguments_with_types} =
-      elaborate_function_item pp_test lthy source function
+      elaborate_function_item pp_test lthy semantic_type source function
     val pretty_body =
       if render_pretty then
         let
@@ -1463,13 +1470,18 @@ fun define_urust_fn
     val attributes =
       declaration_attributes lthy "urust_fn" target abbreviation options
     val binding = target_binding Function target
+    val semantic_type =
+      (case Symtab.lookup options type_option of
+         SOME (Type_Value source, _) => SOME source
+       | NONE => NONE
+       | SOME (_, pos) => option_type_error type_option "a HOL type" pos)
     fun declaration lthy' =
       let
         val ((result, completed), reports) =
           Navigation.capture (fn () =>
             declare_urust_function_result pp_test render_pretty
               abbreviation application_definition attributes binding
-              target register_notation source function lthy')
+              target register_notation semantic_type source function lthy')
         val _ = Navigation.replay completed reports
       in (result, completed) end
   in
@@ -1514,7 +1526,10 @@ val parse_renames =
 
 fun parse_option_value config =
   (case config of
-     SOME Renames_Config =>
+     SOME Type_Config =>
+       Parse.embedded_input >>
+         (fn source => (Type_Value source, Input.pos_of source))
+   | SOME Renames_Config =>
        Parse.position parse_renames >>
          (fn (renames, pos) => (Renames_Value renames, pos))
    | _ =>
