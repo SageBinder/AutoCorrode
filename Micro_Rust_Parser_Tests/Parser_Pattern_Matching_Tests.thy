@@ -5666,8 +5666,8 @@ ML_val\<open>
         concealed_mixed_text concealed_mixed_start
     val _ =
       (case parse concealed_mixed_text of
-         UE_Match (flavour, _, arms, position) =>
-           (case URust_Patterns.select_match_flavour ctxt flavour arms position of
+         UE_Match (flavour, _, arms, layout) =>
+           (case URust_Patterns.select_match_flavour ctxt flavour arms (source_span layout) of
               MF_Case => ()
             | _ => error "concealed constructor lookup audit: numeral mixture lost case lowering")
        | _ => error "concealed constructor lookup audit: numeral mixture lost match AST")
@@ -7056,8 +7056,8 @@ ML_val\<open>
       let
         val _ =
           (case parse text of
-             UE_Match (flavour, _, arms, position) =>
-               (case URust_Patterns.select_match_flavour ctxt flavour arms position of
+             UE_Match (flavour, _, arms, layout) =>
+               (case URust_Patterns.select_match_flavour ctxt flavour arms (source_span layout) of
                   MF_Case => ()
                 | _ => error ("contextual bare-match classification audit: " ^ label ^
                     " did not select case lowering"))
