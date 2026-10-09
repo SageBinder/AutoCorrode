@@ -7388,6 +7388,12 @@ ML_val\<open>
 
 subsection\<open>Evaluation count, order, and control propagation\<close>
 
+text\<open>
+  The effectful inline-const examples in this subsection are \<mu>Rust semantic regression
+  fixtures. Their runtime state changes, nonlocal returns, aborts, and yields would not be
+  allowed in Rust const blocks. These checks preserve the \<mu>Rust runtime denotation.
+\<close>
+
 definition repeat_tick ::
     \<open>(nat, nat, nat, unit, unit, unit) expression\<close>
   where
@@ -7398,23 +7404,23 @@ definition repeat_tick ::
           literal current))
     \<close>
 
-lemma repeat_unat_word64_2 [simp]:
+lemma repeat_unat_word64_2:
   \<open>unat (2 :: 64 word) = 2\<close>
   by eval
 
-lemma repeat_unat_word64_3 [simp]:
+lemma repeat_unat_word64_3:
   \<open>unat (3 :: 64 word) = 3\<close>
   by eval
 
-lemma repeat_take_bit_word64_2 [simp]:
+lemma repeat_take_bit_word64_2:
   \<open>take_bit LENGTH(64) (2 :: nat) = 2\<close>
   by (rule take_bit_nat_eq_self; simp)
 
-lemma repeat_take_bit_word64_3 [simp]:
+lemma repeat_take_bit_word64_3:
   \<open>take_bit LENGTH(64) (3 :: nat) = 3\<close>
   by (rule take_bit_nat_eq_self; simp)
 
-lemma repeat_tick_evaluate [simp]:
+lemma repeat_tick_evaluate:
   \<open>evaluate repeat_tick state = Success state (Suc state)\<close>
   by
     (simp add:
@@ -7422,7 +7428,7 @@ lemma repeat_tick_evaluate [simp]:
       get_def put_def literal_def evaluate_def
       Core_Expression.bind.simps Let_def)
 
-lemma repeat_tick_sequence_two [simp]:
+lemma repeat_tick_sequence_two:
   \<open>
     evaluate (list_sequence (replicate 2 repeat_tick)) state =
       Success [state, Suc state] (Suc (Suc state))
@@ -7433,7 +7439,7 @@ lemma repeat_tick_sequence_two [simp]:
       get_def put_def literal_def evaluate_def
       Core_Expression.bind.simps Let_def eval_nat_numeral)
 
-lemma repeat_tick_sequence_three [simp]:
+lemma repeat_tick_sequence_three:
   \<open>
     evaluate (list_sequence (replicate 3 repeat_tick)) state =
       Success
@@ -7446,7 +7452,7 @@ lemma repeat_tick_sequence_three [simp]:
       get_def put_def literal_def evaluate_def
       Core_Expression.bind.simps Let_def eval_nat_numeral)
 
-lemma repeat_nested_tick_sequence [simp]:
+lemma repeat_nested_tick_sequence:
   \<open>
     evaluate
       (list_sequence
@@ -7503,6 +7509,7 @@ lemma repeat_ordinary_effect_counts:
       repeat_ordinary_effect_zero_def
       repeat_ordinary_effect_one_def
       repeat_ordinary_effect_many_def
+      repeat_unat_word64_3
       repeat_tick_def
       evaluate_def get_def put_def literal_def
       Core_Expression.bind.simps;
@@ -7521,7 +7528,9 @@ lemma repeat_inline_effect_counts_and_order:
       repeat_inline_effect_zero_def
       repeat_inline_effect_one_def
       repeat_inline_effect_many_def
-      repeat_nested_inline_effects_def)
+      repeat_nested_inline_effects_def
+      repeat_unat_word64_2 repeat_unat_word64_3
+      repeat_take_bit_word64_2 repeat_take_bit_word64_3)
   apply (simp add: eval_nat_numeral)
   apply (simp add: bind_evaluate literal_def)
   apply (simp add: evaluate_def Core_Expression.bind.simps)
