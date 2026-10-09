@@ -29,17 +29,23 @@ sig
     options -> URust_AST.urust_datatype -> token list
   val tokens_of_function:
     options -> URust_AST.urust_function -> token list
+  val tokens_of_type_alias:
+    options -> URust_AST.urust_type_alias -> token list
   val pretty_tokens: token list -> Pretty.T
   val pretty_expr: options -> URust_AST.ur_expr -> Pretty.T
   val pretty_datatype:
     options -> URust_AST.urust_datatype -> Pretty.T
   val pretty_function:
     options -> URust_AST.urust_function -> Pretty.T
+  val pretty_type_alias:
+    options -> URust_AST.urust_type_alias -> Pretty.T
   val string_of_expr: options -> URust_AST.ur_expr -> string
   val string_of_datatype:
     options -> URust_AST.urust_datatype -> string
   val string_of_function:
     options -> URust_AST.urust_function -> string
+  val string_of_type_alias:
+    options -> URust_AST.urust_type_alias -> string
 end
 
 signature URUST_PRINTER_DOCUMENT =
@@ -53,6 +59,7 @@ sig
   val human_expr: URust_AST.ur_expr -> document
   val human_datatype: URust_AST.urust_datatype -> document
   val human_function: URust_AST.urust_function -> document
+  val human_type_alias: URust_AST.urust_type_alias -> document
   val probe_text: document -> string
   val pretty: (lexeme -> Pretty.T) -> document -> Pretty.T
 end
@@ -784,6 +791,45 @@ fun source_cast_target_document (SCT_Primitive (target, _)) =
       cast_target_document target
   | source_cast_target_document (SCT_Named path) =
       identifier_head_path "named cast target" path
+  | source_cast_target_document (SCT_Type typ) =
+      rust_type_document typ
+
+fun rust_type_ambiguous_cast_tail
+      (Primitive_Type (DPT_Unit, _)) = false
+  | rust_type_ambiguous_cast_tail
+      (Primitive_Type (DPT_Never, _)) = false
+  | rust_type_ambiguous_cast_tail (Primitive_Type _) = true
+  | rust_type_ambiguous_cast_tail (Path_Type (segments, _)) =
+      (case rev segments of
+         Rust_Type_Path_Segment (_, _, NONE, _) :: _ => true
+       | _ => false)
+  | rust_type_ambiguous_cast_tail (Reference_Type (_, typ, _)) =
+      rust_type_ambiguous_cast_tail typ
+  | rust_type_ambiguous_cast_tail (Raw_Pointer_Type (_, typ, _)) =
+      rust_type_ambiguous_cast_tail typ
+  | rust_type_ambiguous_cast_tail _ = false
+
+fun expression_ambiguous_cast_tail _ required
+      (UE_Cast (_, target, _)) =
+      required <= cast_precedence andalso
+        rust_type_ambiguous_cast_tail
+          (source_cast_target_rust_type target)
+  | expression_ambiguous_cast_tail options required
+      (UE_Group (inner, _)) =
+      not (mode_is_serialized options) andalso
+        expression_ambiguous_cast_tail options required inner
+  | expression_ambiguous_cast_tail options required
+      (UE_Bin (operator_tag, _, right, _)) =
+      let val precedence = binop_precedence operator_tag in
+        required <= precedence andalso
+          expression_ambiguous_cast_tail options (precedence + 1) right
+      end
+  | expression_ambiguous_cast_tail _ _ (UE_Unary (U_Propagate, _, _)) =
+      false
+  | expression_ambiguous_cast_tail options required (UE_Unary (_, operand, _)) =
+      required <= prefix_precedence andalso
+        expression_ambiguous_cast_tail options prefix_precedence operand
+  | expression_ambiguous_cast_tail _ _ _ = false
 
 fun no_struct_requires_group options expression =
   let
@@ -1212,10 +1258,16 @@ fun expression_document options required expression =
                then precedence + 1
                else precedence
              val right_precedence = precedence + 1
+             val left_document =
+               expression_document options child_precedence left
+             val left_document =
+               if (operator_tag = Lt orelse operator_tag = Shl) andalso
+                   expression_ambiguous_cast_tail options child_precedence left
+               then parenthesized left_document
+               else left_document
              val document =
                block 2 false
-                 (expression_document options
-                    child_precedence left @
+                 (left_document @
                   space @ operator (binop_text operator_tag) @ space @
                   expression_document options
                     right_precedence right)
@@ -1457,6 +1509,26 @@ fun function_document options
 fun events_of_function options function =
   function_document options function
 
+fun events_of_type_alias _
+    (Type_Alias_Item (name, _, parameters, rhs, _)) =
+  let
+    val name = require_identifier "type alias item" name
+    val parameter_names =
+      map (require_identifier "type alias parameter" o #1) parameters
+    val _ = reject_duplicate_names "type alias parameters" parameter_names
+    val parameter_document =
+      if null parameters then []
+      else
+        delimiter "<" @
+        block 2 false
+          (comma_documents (map identifier parameter_names)) @
+        delimiter ">"
+  in
+    block 2 false
+      (keyword "type" @ space @ identifier name @ parameter_document @
+       space @ delimiter "=" @ space @ rust_type_document rhs @ delimiter ";")
+  end
+
 fun lexical_pretty Keyword_Role text =
       Pretty.mark_str (Markup.keyword1, text)
   | lexical_pretty Operator_Role text =
@@ -1542,6 +1614,9 @@ fun document_of_datatype options item =
 fun document_of_function options function =
   finalize_document (events_of_function options function)
 
+fun document_of_type_alias options item =
+  finalize_document (events_of_type_alias options item)
+
 fun document_tokens (Document {tokens, ...}) = tokens
 fun probe_text (Document {probe_text, ...}) = probe_text
 
@@ -1610,6 +1685,9 @@ fun tokens_of_datatype options item =
 fun tokens_of_function options function =
   document_tokens (document_of_function options function)
 
+fun tokens_of_type_alias options item =
+  document_tokens (document_of_type_alias options item)
+
 fun pretty_tokens tokens =
   render_document default_lexeme (finalize_document tokens)
 
@@ -1625,6 +1703,10 @@ fun pretty_function options function =
   render_document default_lexeme
     (document_of_function options function)
 
+fun pretty_type_alias options item =
+  render_document default_lexeme
+    (document_of_type_alias options item)
+
 fun string_of_expr options =
   pretty_expr options #>
   Pretty.string_of_ops (Pretty.pure_output_ops (SOME 80))
@@ -1635,6 +1717,10 @@ fun string_of_datatype options =
 
 fun string_of_function options =
   pretty_function options #>
+  Pretty.string_of_ops (Pretty.pure_output_ops (SOME 80))
+
+fun string_of_type_alias options =
+  pretty_type_alias options #>
   Pretty.string_of_ops (Pretty.pure_output_ops (SOME 80))
 end
 
@@ -1656,6 +1742,9 @@ struct
       URust_Printer_Implementation.human_options
   val human_function =
     URust_Printer_Implementation.document_of_function
+      URust_Printer_Implementation.human_options
+  val human_type_alias =
+    URust_Printer_Implementation.document_of_type_alias
       URust_Printer_Implementation.human_options
   val probe_text = URust_Printer_Implementation.probe_text
   val pretty = URust_Printer_Implementation.render_document

@@ -26,6 +26,7 @@ sig
   val struct_head_generics_error: Position.T -> 'a
   val hol_type_error: Position.T -> 'a
   val hol_type_prefix_error: Position.T -> 'a
+  val cast_comparison_error: string -> Position.T -> 'a
   val item_in_expression_error:
     string -> string -> Position.T -> 'a
 end
@@ -116,6 +117,12 @@ struct
       ("uRust HOL type cartouches must use the \<tau> prefix" ^
         Position.here pos)
 
+  fun cast_comparison_error operator pos =
+    error
+      ("uRust cast: " ^ quote operator ^
+        " is ambiguous with generic arguments; parenthesize the cast expression" ^
+        Position.here pos)
+
   fun item_in_expression_error kind command pos =
     error
       ("uRust " ^ kind ^
@@ -195,10 +202,12 @@ val hol_type_depth = ref 0
 val pending_signature_tokens = ref ([] : lexresult list)
 val signature_paren_depth = ref 0
 val signature_brace_depth = ref 0
+val signature_bracket_depth = ref 0
 
 datatype signature_context =
     Function_Signature
   | Datatype_Signature
+  | Alias_Signature
 val signature_context = ref Function_Signature
 
 datatype hol_type_context =
@@ -221,6 +230,90 @@ datatype block_comment_context =
 val block_comment_context =
   ref (NONE : block_comment_context option)
 
+(* The shared Yacc type grammar owns recognition. Lexical type delimiter context splits compound
+   punctuation (>>, >>=, >= and a prefix &&) only where a type requires individual delimiters or
+   reference prefixes. Ordinary expression operators retain their tokens. A plain path after as
+   retains Rust's < / << generic-argument ambiguity until grouping or explicit arguments close it. *)
+val cast_type_active = ref false
+val cast_type_delimiters = ref ([] : string list)
+val cast_type_atom = ref false
+val cast_type_path_tail = ref false
+val cast_type_generic_tail = ref false
+
+fun reset_cast_type () =
+  (cast_type_active := false; cast_type_delimiters := [];
+   cast_type_atom := false; cast_type_path_tail := false;
+   cast_type_generic_tail := false)
+
+fun start_cast_type () =
+  (reset_cast_type (); cast_type_active := true)
+
+fun cast_type_open delimiter =
+  (cast_type_delimiters := delimiter :: !cast_type_delimiters;
+   cast_type_atom := false; cast_type_path_tail := false)
+
+fun cast_type_close delimiter =
+  (case !cast_type_delimiters of
+     expected :: rest =>
+       if expected = delimiter
+       then
+         (cast_type_delimiters := rest;
+          cast_type_atom := true; cast_type_path_tail := false)
+       else reset_cast_type ()
+   | [] => reset_cast_type ())
+
+fun cast_type_token typ =
+  if typ = "TAS" then start_cast_type ()
+  else if not (!cast_type_active) then ()
+  else
+    (case typ of
+       "IDENT" =>
+         (cast_type_atom := true; cast_type_path_tail := true;
+          cast_type_generic_tail := true)
+     | "TUINT" =>
+         (cast_type_atom := true; cast_type_path_tail := true;
+          cast_type_generic_tail := false)
+     | "TSINT" =>
+         (cast_type_atom := true; cast_type_path_tail := true;
+          cast_type_generic_tail := false)
+     | "TRUSTTYPE" =>
+         (cast_type_atom := true; cast_type_path_tail := true;
+          cast_type_generic_tail := false)
+     | "HOLTYPE" =>
+         (cast_type_atom := true; cast_type_path_tail := false)
+     | "TCOLONCOLON" =>
+         (cast_type_atom := false; cast_type_path_tail := false)
+     | "TLT" =>
+         if !cast_type_path_tail then cast_type_open "<"
+         else reset_cast_type ()
+     | "TGT" => cast_type_close "<"
+     | "LPAR" =>
+         if !cast_type_atom then reset_cast_type ()
+         else cast_type_open "("
+     | "RPAR" => cast_type_close "("
+     | "TLBRACK" =>
+         if !cast_type_atom then reset_cast_type ()
+         else cast_type_open "["
+     | "TRBRACK" => cast_type_close "["
+     | "COMMA" =>
+         if null (!cast_type_delimiters) then reset_cast_type ()
+         else (cast_type_atom := false; cast_type_path_tail := false)
+     | "TSEMI" =>
+         if null (!cast_type_delimiters) then reset_cast_type ()
+         else (cast_type_atom := false; cast_type_path_tail := false)
+     | "TSTAR" =>
+         if !cast_type_atom then reset_cast_type ()
+         else cast_type_path_tail := false
+     | "TAMP" =>
+         if !cast_type_atom then reset_cast_type ()
+         else cast_type_path_tail := false
+     | "TMUT" => ()
+     | "TCONST" => ()
+     | "TBANG" =>
+         if !cast_type_atom then reset_cast_type ()
+         else (cast_type_atom := true; cast_type_path_tail := false)
+     | _ => reset_cast_type ())
+
 fun reset_aq () =
   (aq_kind := No_AQ; aq_buf := []; aq_start := 0; aq_open := 0;
    aq_open_text := ""; aq_depth := 0)
@@ -237,8 +330,9 @@ fun reset_comment () =
 fun reset_state () =
   (reset_aq (); reset_generic (); reset_log_data ();
    reset_block_comment (); reset_hol_type (); reset_comment ();
+   reset_cast_type ();
    pending_signature_tokens := []; signature_paren_depth := 0;
-   signature_brace_depth := 0;
+   signature_brace_depth := 0; signature_bracket_depth := 0;
    signature_context := Function_Signature)
 fun start_aq kind open_pos open_text body_pos =
   (aq_kind := kind; aq_buf := []; aq_start := body_pos; aq_open := open_pos;
@@ -259,7 +353,8 @@ fun start_hol_type open_pos open_text =
 fun start_signature context =
   (signature_context := context;
    signature_paren_depth := 0;
-   signature_brace_depth := 0)
+   signature_brace_depth := 0;
+   signature_bracket_depth := 0)
 
 (* A suffixed integer literal is deliberately NOT interpreted here: the lexer captures the raw lexeme and
    the elaboration term layer reads it against the single suffix table, so an unknown suffix is a
@@ -282,8 +377,10 @@ fun set source ctxt =
   set_layout (Parser_Lex_Util.make_source_layout source) ctxt
 
 fun fixed_pos yypos = Parser_Lex_Util.fixed_pos (!source_layout) yypos
-fun tokF args       = Parser_Lex_Util.tokF (!source_layout) args
-fun tok_valF args   = Parser_Lex_Util.tok_valF (!source_layout) args
+fun tokF (args as (_, _, _, typ, _)) =
+  (cast_type_token typ; Parser_Lex_Util.tokF (!source_layout) args)
+fun tok_valF (args as (_, _, _, typ, _, _)) =
+  (cast_type_token typ; Parser_Lex_Util.tok_valF (!source_layout) args)
 fun report_text args = Parser_Lex_Util.report_text (!source_layout) args
 fun source_position (yypos, text) =
   Position.range_position
@@ -437,7 +534,9 @@ fun finish_formal_comment (close_pos, close_text) =
        in context end
    | NONE => raise Fail "uRust lexer: missing formal-comment return context")
 fun tok_ident (yypos, yytext) =
-  let val p = Parser_Lex_Util.ident_pos (!source_layout) (yypos, yytext)
+  let
+    val _ = cast_type_token "IDENT"
+    val p = Parser_Lex_Util.ident_pos (!source_layout) (yypos, yytext)
   in Tokens.IDENT (yytext, p, p) end
 
 fun tok_rust_type primitive (yypos, yytext) =
@@ -445,16 +544,94 @@ fun tok_rust_type primitive (yypos, yytext) =
     (yypos, yytext, Markup.keyword1, "TRUSTTYPE",
      Tokens.TRUSTTYPE, primitive)
 
-fun split_signature_right (yypos, yytext) =
+fun tok_initial_type primitive args =
+  if !cast_type_active then tok_rust_type primitive args
+  else tok_ident args
+
+fun tok_cast_left (yypos, yytext) =
+  if !cast_type_active andalso !cast_type_path_tail then
+    if !cast_type_generic_tail
+    then tokF (yypos, yytext, Markup.delimiter, "TLT", Tokens.TLT)
+    else URust_Grammar.cast_comparison_error yytext (fixed_pos yypos)
+  else tokF (yypos, yytext, Markup.operator, "TLT", Tokens.TLT)
+
+fun cast_ambiguous_path () =
+  !cast_type_active andalso !cast_type_path_tail
+
+fun tok_cast_shift_left (yypos, yytext) =
+  if cast_ambiguous_path ()
+  then URust_Grammar.cast_comparison_error yytext (fixed_pos yypos)
+  else tokF (yypos, yytext, Markup.operator, "TSHL", Tokens.TSHL)
+
+fun split_type_right second_role (yypos, yytext) =
   let
     val first =
       tokF
         (yypos, ">", Markup.delimiter, "TGT", Tokens.TGT)
     val second =
       tokF
-        (yypos + 1, ">", Markup.delimiter, "TGT", Tokens.TGT)
+        (yypos + 1, ">", second_role (), "TGT", Tokens.TGT)
     val _ = pending_signature_tokens := [second]
   in first end
+
+fun split_signature_right args =
+  split_type_right (fn () => Markup.delimiter) args
+
+fun cast_has_type_arguments () =
+  !cast_type_active andalso
+    List.exists (fn delimiter => delimiter = "<") (!cast_type_delimiters)
+
+fun tok_cast_shift_right (yypos, yytext) =
+  if cast_has_type_arguments ()
+  then
+    split_type_right
+      (fn () =>
+        if cast_has_type_arguments () then Markup.delimiter else Markup.operator)
+      (yypos, yytext)
+  else tokF (yypos, yytext, Markup.operator, "TSHR", Tokens.TSHR)
+
+fun tok_cast_right (yypos, yytext) =
+  tokF (yypos, yytext,
+    if cast_has_type_arguments () then Markup.delimiter else Markup.operator,
+    "TGT", Tokens.TGT)
+
+fun tok_cast_greater_equal (yypos, yytext) =
+  if cast_has_type_arguments ()
+  then
+    let
+      val first = tokF (yypos, ">", Markup.delimiter, "TGT", Tokens.TGT)
+      val equals = tokF (yypos + 1, "=", Markup.delimiter, "TEQ", Tokens.TEQ)
+      val _ = pending_signature_tokens := [equals]
+    in first end
+  else tokF (yypos, yytext, Markup.operator, "TGE", Tokens.TGE)
+
+fun tok_cast_shift_assign_right (yypos, yytext) =
+  if cast_has_type_arguments ()
+  then
+    let
+      val first = tokF (yypos, ">", Markup.delimiter, "TGT", Tokens.TGT)
+      val rest =
+        if cast_has_type_arguments ()
+        then
+          let
+            val second = tokF (yypos + 1, ">", Markup.delimiter, "TGT", Tokens.TGT)
+            val equals = tokF (yypos + 2, "=", Markup.delimiter, "TEQ", Tokens.TEQ)
+          in [second, equals] end
+        else
+          [tokF (yypos + 1, ">=", Markup.operator, "TGE", Tokens.TGE)]
+      val _ = pending_signature_tokens := rest
+    in first end
+  else tokF (yypos, yytext, Markup.operator, "TSHREQ", Tokens.TSHREQ)
+
+fun tok_cast_double_reference (yypos, yytext) =
+  if !cast_type_active andalso not (!cast_type_atom)
+  then
+    let
+      val first = tokF (yypos, "&", Markup.operator, "TAMP", Tokens.TAMP)
+      val second = tokF (yypos + 1, "&", Markup.operator, "TAMP", Tokens.TAMP)
+      val _ = pending_signature_tokens := [second]
+    in first end
+  else tokF (yypos, yytext, Markup.operator, "TAMPAMP", Tokens.TAMPAMP)
 
 fun take_pending_signature_token () =
   (case !pending_signature_tokens of
@@ -572,6 +749,7 @@ fun finish_hol_type (close_pos, close_text) =
            report_text
              (close_pos, close_text, Markup.delimiter, "HOLTYPE")
          val _ = reset_hol_type ()
+         val _ = cast_type_token "HOLTYPE"
        in Tokens.HOLTYPE (body, token_start, token_stop) end
    | NONE => raise Fail "uRust lexer: missing HOL type opener")
 
@@ -644,6 +822,9 @@ lex_rules\<open>
 <INITIAL>"enum"   => (start_signature Datatype_Signature;
                       YYBEGIN FNSIG;
                       tokF (yypos, yytext, Markup.keyword1, "TENUM", Tokens.TENUM));
+<INITIAL>"type"   => (start_signature Alias_Signature;
+                      YYBEGIN FNSIG;
+                      tokF (yypos, yytext, Markup.keyword1, "TTYPE", Tokens.TTYPE));
 <INITIAL>"as"     => (tokF (yypos, yytext, Markup.keyword1, "TAS", Tokens.TAS));
 <INITIAL>"u8"     => (tok_valF (yypos, yytext, Markup.keyword1, "TUINT", Tokens.TUINT, UT_U8));
 <INITIAL>"u16"    => (tok_valF (yypos, yytext, Markup.keyword1, "TUINT", Tokens.TUINT, UT_U16));
@@ -652,6 +833,14 @@ lex_rules\<open>
 <INITIAL>"usize"  => (tok_valF (yypos, yytext, Markup.keyword1, "TUINT", Tokens.TUINT, UT_Usize));
 <INITIAL>"i32"    => (tok_valF (yypos, yytext, Markup.keyword1, "TSINT", Tokens.TSINT, ST_I32));
 <INITIAL>"i64"    => (tok_valF (yypos, yytext, Markup.keyword1, "TSINT", Tokens.TSINT, ST_I64));
+<INITIAL>"u128"   => (tok_initial_type DPT_U128 (yypos, yytext));
+<INITIAL>"i8"     => (tok_initial_type DPT_I8 (yypos, yytext));
+<INITIAL>"i16"    => (tok_initial_type DPT_I16 (yypos, yytext));
+<INITIAL>"i128"   => (tok_initial_type DPT_I128 (yypos, yytext));
+<INITIAL>"isize"  => (tok_initial_type DPT_Isize (yypos, yytext));
+<INITIAL>"bool"   => (tok_initial_type DPT_Bool (yypos, yytext));
+<INITIAL>"char"   => (tok_initial_type DPT_Char (yypos, yytext));
+<INITIAL>"str"    => (tok_initial_type DPT_Str (yypos, yytext));
 <INITIAL>"let"    => (tokF (yypos, yytext, Markup.keyword1, "TLET", Tokens.TLET));
 <INITIAL>"const"  => (tokF (yypos, yytext, Markup.keyword1, "TCONST", Tokens.TCONST));
 <INITIAL>"return" => (tokF (yypos, yytext, Markup.keyword1, "TRETURN", Tokens.TRETURN));
@@ -676,7 +865,7 @@ lex_rules\<open>
     (YYBEGIN GENERIC; tok_generic_open (yypos, yytext));
 <INITIAL>"::"     => (tokF (yypos, yytext, Markup.delimiter, "TCOLONCOLON", Tokens.TCOLONCOLON));
 <INITIAL>"<<="    => (tokF (yypos, yytext, Markup.operator, "TSHLEQ", Tokens.TSHLEQ));
-<INITIAL>">>="    => (tokF (yypos, yytext, Markup.operator, "TSHREQ", Tokens.TSHREQ));
+<INITIAL>">>="    => (tok_cast_shift_assign_right (yypos, yytext));
 <INITIAL>"+="     => (tokF (yypos, yytext, Markup.operator, "TPLUSEQ", Tokens.TPLUSEQ));
 <INITIAL>"-="     => (tokF (yypos, yytext, Markup.operator, "TMINUSEQ", Tokens.TMINUSEQ));
 <INITIAL>"*="     => (tokF (yypos, yytext, Markup.operator, "TSTAREQ", Tokens.TSTAREQ));
@@ -689,21 +878,21 @@ lex_rules\<open>
 <INITIAL>";"      => (tokF (yypos, yytext, Markup.delimiter, "TSEMI", Tokens.TSEMI));
 <INITIAL>"..="    => (tokF (yypos, yytext, Markup.operator, "TDOTDOTEQ", Tokens.TDOTDOTEQ));
 <INITIAL>".."     => (tokF (yypos, yytext, Markup.operator, "TDOTDOT", Tokens.TDOTDOT));
-<INITIAL>"<<"     => (tokF (yypos, yytext, Markup.operator, "TSHL", Tokens.TSHL));
-<INITIAL>">>"     => (tokF (yypos, yytext, Markup.operator, "TSHR", Tokens.TSHR));
+<INITIAL>"<<"     => (tok_cast_shift_left (yypos, yytext));
+<INITIAL>">>"     => (tok_cast_shift_right (yypos, yytext));
 <INITIAL>"<="     => (tokF (yypos, yytext, Markup.operator, "TLE", Tokens.TLE));
-<INITIAL>">="     => (tokF (yypos, yytext, Markup.operator, "TGE", Tokens.TGE));
+<INITIAL>">="     => (tok_cast_greater_equal (yypos, yytext));
 <INITIAL>"=="     => (tokF (yypos, yytext, Markup.operator, "TEQEQ", Tokens.TEQEQ));
 <INITIAL>"!="     => (tokF (yypos, yytext, Markup.operator, "TNE", Tokens.TNE));
-<INITIAL>"&&"     => (tokF (yypos, yytext, Markup.operator, "TAMPAMP", Tokens.TAMPAMP));
+<INITIAL>"&&"     => (tok_cast_double_reference (yypos, yytext));
 <INITIAL>"||"     => (tokF (yypos, yytext, Markup.operator, "TBARBAR", Tokens.TBARBAR));
 <INITIAL>"+"      => (tokF (yypos, yytext, Markup.operator, "TPLUS", Tokens.TPLUS));
 <INITIAL>"-"      => (tokF (yypos, yytext, Markup.operator, "TMINUS", Tokens.TMINUS));
 <INITIAL>"*"      => (tokF (yypos, yytext, Markup.operator, "TSTAR", Tokens.TSTAR));
 <INITIAL>"/"      => (tokF (yypos, yytext, Markup.operator, "TSLASH", Tokens.TSLASH));
 <INITIAL>"%"      => (tokF (yypos, yytext, Markup.operator, "TPERCENT", Tokens.TPERCENT));
-<INITIAL>"<"      => (tokF (yypos, yytext, Markup.operator, "TLT", Tokens.TLT));
-<INITIAL>">"      => (tokF (yypos, yytext, Markup.operator, "TGT", Tokens.TGT));
+<INITIAL>"<"      => (tok_cast_left (yypos, yytext));
+<INITIAL>">"      => (tok_cast_right (yypos, yytext));
 <INITIAL>"&"      => (tokF (yypos, yytext, Markup.operator, "TAMP", Tokens.TAMP));
 <INITIAL>"|"      => (tokF (yypos, yytext, Markup.operator, "TBAR", Tokens.TBAR));
 <INITIAL>"^"      => (tokF (yypos, yytext, Markup.operator, "TCARET", Tokens.TCARET));
@@ -842,6 +1031,7 @@ lex_rules\<open>
 <FNSIG>"mut"    => (tokF (yypos, yytext, Markup.keyword1, "TMUT", Tokens.TMUT));
 <FNSIG>"const"  => (tokF (yypos, yytext, Markup.keyword1, "TCONST", Tokens.TCONST));
 <FNSIG>"->"     => (tokF (yypos, yytext, Markup.delimiter, "TTHINARROW", Tokens.TTHINARROW));
+<FNSIG>"="      => (tokF (yypos, yytext, Markup.delimiter, "TEQ", Tokens.TEQ));
 <FNSIG>"::"     => (tokF (yypos, yytext, Markup.delimiter, "TCOLONCOLON", Tokens.TCOLONCOLON));
 <FNSIG>"..="    => (tokF (yypos, yytext, Markup.operator, "TDOTDOTEQ", Tokens.TDOTDOTEQ));
 <FNSIG>".."     => (tokF (yypos, yytext, Markup.operator, "TDOTDOT", Tokens.TDOTDOT));
@@ -864,13 +1054,18 @@ lex_rules\<open>
     (URust_Grammar.hol_type_prefix_error (fixed_pos yypos));
 <FNSIG>"("      => (signature_left_paren (yypos, yytext));
 <FNSIG>")"      => (signature_right_paren (yypos, yytext));
-<FNSIG>"["      => (tokF (yypos, yytext, Markup.delimiter, "TLBRACK", Tokens.TLBRACK));
-<FNSIG>"]"      => (tokF (yypos, yytext, Markup.delimiter, "TRBRACK", Tokens.TRBRACK));
+<FNSIG>"["      =>
+    (signature_bracket_depth := !signature_bracket_depth + 1;
+     tokF (yypos, yytext, Markup.delimiter, "TLBRACK", Tokens.TLBRACK));
+<FNSIG>"]"      =>
+    (signature_bracket_depth := Int.max (0, !signature_bracket_depth - 1);
+     tokF (yypos, yytext, Markup.delimiter, "TRBRACK", Tokens.TRBRACK));
 <FNSIG>","      => (tokF (yypos, yytext, Markup.delimiter, "COMMA", Tokens.COMMA));
 <FNSIG>";"      =>
-    (if !signature_context = Datatype_Signature andalso
+    (if !signature_context <> Function_Signature andalso
         !signature_paren_depth = 0 andalso
-        !signature_brace_depth = 0
+        !signature_brace_depth = 0 andalso
+        !signature_bracket_depth = 0
      then YYBEGIN INITIAL
      else ();
      tokF (yypos, yytext, Markup.delimiter, "TSEMI", Tokens.TSEMI));
@@ -1247,6 +1442,17 @@ fun rust_function_item
          (signature_tokens @ source_tokens body_layout))
   end
 
+fun rust_type_alias_item
+    (name, name_pos, (parameters, parameter_tokens), rhs,
+     type_pos, equals_pos, semicolon_pos, right_pos) =
+  Type_Alias_Item
+    (name, name_pos, parameters, rhs,
+     syntax_layout type_pos right_pos
+       ([(Keyword_Token "type", type_pos),
+         (Name_Token, name_pos)] @ parameter_tokens @
+        [(Delimiter_Token "=", equals_pos),
+         (Delimiter_Token ";", semicolon_pos)]))
+
 fun reject_datatype_item_in_expression
       (Struct_Item (_, _, _, pos)) =
       URust_Grammar.item_in_expression_error
@@ -1264,6 +1470,9 @@ fun reject_item_in_expression (Datatype_Item item) =
       reject_datatype_item_in_expression item
   | reject_item_in_expression (Function_Item_Node function) =
       reject_function_item_in_expression function
+  | reject_item_in_expression (Type_Alias_Item_Node item) =
+      URust_Grammar.item_in_expression_error
+        "type alias" "urust_type_alias" (type_alias_item_position item)
 \<close>
 yacc_definitions\<open>
 %name URust
@@ -1319,10 +1528,16 @@ yacc_definitions\<open>
     | TRUSTTYPE of URust_AST.rust_primitive_type
     | HOLTYPE of Input.source
     | TEXPRSTART | TITEMSTART
+    | TTYPE
 %nonterm ustart of URust_AST.parse_result option
        | uitem of URust_AST.urust_item
        | udatatype of URust_AST.urust_datatype
        | ufunction of URust_AST.urust_function
+       | utype_alias of URust_AST.urust_type_alias
+       | ualias_parameters of
+           (string * Position.T) list *
+           (URust_AST.source_token * Position.T) list
+       | ualias_parameter_names of (string * Position.T) list
        | ufn_parameters of URust_AST.function_parameter list
        | ufn_parameter of URust_AST.function_parameter
        | ufn_return of URust_AST.rust_type option * Position.T option
@@ -1424,6 +1639,24 @@ yacc_rules\<open>
          | TITEMSTART uitem (SOME (Parsed_Item uitem))
   uitem : udatatype (Datatype_Item udatatype)
         | ufunction (Function_Item_Node ufunction)
+        | utype_alias (Type_Alias_Item_Node utype_alias)
+  utype_alias :
+      TTYPE IDENT ualias_parameters TEQ urust_type TSEMI
+        (rust_type_alias_item
+          (IDENT, IDENTleft, ualias_parameters, urust_type,
+           TTYPEleft, TEQleft, TSEMIleft, TSEMIright))
+  ualias_parameters :
+      ([], [])
+    | TLT ualias_parameter_names TGT
+        (ualias_parameter_names,
+         (Delimiter_Token "<", TLTleft) ::
+         map (fn (_, pos) => (Name_Token, pos)) ualias_parameter_names @
+         [(Delimiter_Token ">", TGTleft)])
+  ualias_parameter_names :
+      IDENT ([(IDENT, IDENTleft)])
+    | IDENT COMMA ([(IDENT, IDENTleft)])
+    | IDENT COMMA ualias_parameter_names
+        ((IDENT, IDENTleft) :: ualias_parameter_names)
   udatatype :
       TSTRUCT IDENT TSEMI
         (Struct_Item
@@ -1465,6 +1698,12 @@ yacc_rules\<open>
   urust_type :
       TRUSTTYPE
         (Primitive_Type (TRUSTTYPE, TRUSTTYPEleft))
+    | TUINT
+        (source_cast_target_rust_type
+          (SCT_Primitive (CT_Unsigned TUINT, TUINTleft)))
+    | TSINT
+        (source_cast_target_rust_type
+          (SCT_Primitive (CT_Signed TSINT, TSINTleft)))
     | TBANG
         (Primitive_Type (DPT_Never, TBANGleft))
     | urust_type_path
@@ -1537,7 +1776,7 @@ yacc_rules\<open>
         (append_rust_type_path
           (urust_type_path, urust_type_segment))
   urust_type_segment :
-      IDENT
+      IDENT %prec TRETURN
         (rust_type_segment
           (IDENT, IDENTleft, NONE, IDENTright))
     | IDENT TLT urust_generic_arguments TGT
@@ -1962,18 +2201,8 @@ yacc_rules\<open>
                           Parsed_Fragment
                             (canonical ^ "::" ^ name,
                              layout, start, stop))
-  ucast_target : TUINT
-                   (SCT_Primitive (CT_Unsigned TUINT, TUINTleft))
-               | TSINT
-                   (SCT_Primitive (CT_Signed TSINT, TSINTleft))
-               | TSTAR TCONST TUINT
-                   (SCT_Primitive
-                     (CT_RawPointer (RPM_Const, TUINT), TUINTleft))
-               | TSTAR TMUT TUINT
-                   (SCT_Primitive
-                     (CT_RawPointer (RPM_Mut, TUINT), TUINTleft))
-               | uidentifier_path
-                   (SCT_Named uidentifier_path)
+  ucast_target : urust_type
+                   (source_cast_target_from_rust_type urust_type)
   (* The no-struct family mirrors the structural expression boundaries and binary operator rule.
      Only its primary excludes direct struct expressions; explicit delimiters in the shared non-head
      primary restore unrestricted parsing. A bare operandless return is intentionally absent here:
@@ -2573,6 +2802,8 @@ sig
     Proof.context -> Input.source -> URust_AST.urust_datatype option
   val parse_function_source:
     Proof.context -> Input.source -> URust_AST.urust_function option
+  val parse_type_alias_source:
+    Proof.context -> Input.source -> URust_AST.urust_type_alias option
 end
 
 (*
@@ -2712,7 +2943,8 @@ struct
      (91, "TRUSTTYPE", "<Rust type>"),
      (92, "HOLTYPE", "<HOL type>"),
      (93, "TEXPRSTART", "<expression input>"),
-     (94, "TITEMSTART", "<item input>")]
+     (94, "TITEMSTART", "<item input>"),
+     (95, "TTYPE", "type")]
 
   val terminal_count = length terminal_specs
 
@@ -2876,6 +3108,12 @@ struct
                ("urust_expr: expected a complete expression" ^
                  Position.here
                    (URust_AST.function_item_position function))
+         | SOME (URust_AST.Parsed_Item
+             (URust_AST.Type_Alias_Item_Node item)) =>
+             error
+               ("urust_expr: expected a complete expression" ^
+                 Position.here
+                   (URust_AST.type_alias_item_position item))
          | NONE => NONE)
       end)
 
@@ -2904,6 +3142,10 @@ struct
            ("urust_datatype: expected a struct or enum item" ^
              Position.here
                (URust_AST.function_item_position function))
+     | SOME (URust_AST.Type_Alias_Item_Node item) =>
+         error
+           ("urust_datatype: expected a struct or enum item" ^
+             Position.here (URust_AST.type_alias_item_position item))
      | NONE => NONE)
 
   fun parse_function_source ctxt source =
@@ -2914,6 +3156,23 @@ struct
            ("urust_fn: expected a complete function item" ^
              Position.here
                (URust_AST.datatype_item_position item))
+     | SOME (URust_AST.Type_Alias_Item_Node item) =>
+         error
+           ("urust_fn: expected a complete function item" ^
+             Position.here (URust_AST.type_alias_item_position item))
+     | NONE => NONE)
+
+  fun parse_type_alias_source ctxt source =
+    (case parse_item_source ctxt source of
+       SOME (URust_AST.Type_Alias_Item_Node item) => SOME item
+     | SOME (URust_AST.Datatype_Item item) =>
+         error
+           ("urust_type_alias: expected a complete type alias item" ^
+             Position.here (URust_AST.datatype_item_position item))
+     | SOME (URust_AST.Function_Item_Node function) =>
+         error
+           ("urust_type_alias: expected a complete type alias item" ^
+             Position.here (URust_AST.function_item_position function))
      | NONE => NONE)
 end
 \<close>

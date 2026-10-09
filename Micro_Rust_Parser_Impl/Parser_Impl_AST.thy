@@ -80,13 +80,6 @@ sig
   datatype ur_path =
     UR_Path of path_head * path_segment list * Position.T
 
-  datatype source_cast_target =
-      SCT_Primitive of cast_target * Position.T
-    | SCT_Named of ur_path
-
-  val source_cast_target_type_position:
-    source_cast_target -> Position.T option
-
   datatype rust_primitive_type =
       DPT_U8
     | DPT_U16
@@ -123,6 +116,16 @@ sig
   and rust_type_path_segment =
     Rust_Type_Path_Segment of
       string * Position.T * rust_generic_argument list option * source_layout
+
+  datatype source_cast_target =
+      SCT_Primitive of cast_target * Position.T
+    | SCT_Named of ur_path
+    | SCT_Type of rust_type
+
+  val source_cast_target_type_position:
+    source_cast_target -> Position.T option
+  val source_cast_target_rust_type: source_cast_target -> rust_type
+  val source_cast_target_from_rust_type: rust_type -> source_cast_target
 
   type datatype_type = rust_type
   datatype datatype_field =
@@ -290,10 +293,20 @@ sig
     Function_Item of
       string * Position.T * function_parameter list *
       rust_type option * ur_expr * source_layout
+  datatype urust_type_alias =
+    Type_Alias_Item of
+      string * Position.T * (string * Position.T) list *
+      rust_type * source_layout
   datatype urust_item =
       Datatype_Item of urust_datatype
     | Function_Item_Node of urust_function
+    | Type_Alias_Item_Node of urust_type_alias
 
+  val type_alias_item_position: urust_type_alias -> Position.T
+  val type_alias_source_layout: urust_type_alias -> source_layout
+  val type_alias_name: urust_type_alias -> string * Position.T
+  val type_alias_parameters: urust_type_alias -> (string * Position.T) list
+  val type_alias_rhs: urust_type_alias -> rust_type
   val function_item_position: urust_function -> Position.T
   val function_source_layout: urust_function -> source_layout
   val function_body: urust_function -> ur_expr
@@ -365,13 +378,15 @@ end
     * borrow_mode (BM_Imm, BM_Mut), range_kind (RK_Exclusive, RK_Inclusive), unsigned_type
       (UT_U8, UT_U16, UT_U32, UT_U64, UT_Usize), signed_type (ST_I32, ST_I64),
       raw_pointer_mutability (RPM_Const, RPM_Mut), primitive cast_target (CT_Unsigned, CT_Signed,
-      CT_RawPointer), source_cast_target (SCT_Primitive, SCT_Named), binop (Add, Sub, Mul, Div, Mod,
+      CT_RawPointer), source_cast_target (SCT_Primitive, SCT_Named, SCT_Type), binop (Add, Sub, Mul, Div, Mod,
       Shl, Shr, BAnd, BOr, BXor, Eq, Ne, Lt, Le, Gt, Ge, And, Or), unaryop (U_Not, U_Borrow,
       U_Deref, U_Propagate), assign_binop (AssignSub, AssignMul, AssignMod, AssignBAnd, AssignBOr,
       AssignBXor, AssignShl, AssignShr), and assignop (Assign, AssignAdd, AssignBin). These tags
       describe surface operations only; their HOL constants and semantics belong to later modules.
       SCT_Primitive retains the exact primitive type-token position; SCT_Named retains an exact
-      unresolved path for context-local cast-alias resolution.
+      unresolved nongeneric path for context-local type resolution. SCT_Type retains the shared
+      positioned Rust type tree for generic and structural targets. The public conversions preserve
+      the legacy direct-primitive shapes without deciding registered alias meaning.
       CT_RawPointer retains source mutability even though the current shallow frontend lowers const
       and mut targets identically. log_data_entry retains each quoted string or identifier in source
       order with its token position.
@@ -417,6 +432,9 @@ end
       UE_TupleProjection retains its canonical numeric index and numeric-token position; it is a
       value postfix and deliberately has no ur_place counterpart. ur_place contains only validated
       assignment-target shapes.
+    * urust_type_alias and Type_Alias_Item retain the declared item name, ordered positioned type
+      parameters, positioned Rust RHS and complete layout. Type_Alias_Item_Node joins datatype and
+      function items in the complete-item parser, before registry validation or installation.
 
   Position.T fields identify the single token documented at each constructor. Composite expressions,
   patterns, places, repeat lengths, and arms instead carry source_layout values; integer and
@@ -555,14 +573,6 @@ struct
   datatype ur_path =
     UR_Path of path_head * path_segment list * Position.T
 
-  datatype source_cast_target =
-      SCT_Primitive of cast_target * Position.T
-    | SCT_Named of ur_path
-
-  fun source_cast_target_type_position
-      (SCT_Primitive (_, pos)) = SOME pos
-    | source_cast_target_type_position (SCT_Named _) = NONE
-
   datatype rust_primitive_type =
       DPT_U8
     | DPT_U16
@@ -617,6 +627,85 @@ struct
   and rust_type_path_segment =
     Rust_Type_Path_Segment of
       string * Position.T * rust_generic_argument list option * source_layout
+
+  datatype source_cast_target =
+      SCT_Primitive of cast_target * Position.T
+    | SCT_Named of ur_path
+    | SCT_Type of rust_type
+
+  fun source_cast_target_type_position
+      (SCT_Primitive (_, pos)) = SOME pos
+    | source_cast_target_type_position (SCT_Named _) = NONE
+    | source_cast_target_type_position (SCT_Type _) = NONE
+
+  fun unsigned_rust_type UT_U8 = DPT_U8
+    | unsigned_rust_type UT_U16 = DPT_U16
+    | unsigned_rust_type UT_U32 = DPT_U32
+    | unsigned_rust_type UT_U64 = DPT_U64
+    | unsigned_rust_type UT_Usize = DPT_Usize
+  fun signed_rust_type ST_I32 = DPT_I32
+    | signed_rust_type ST_I64 = DPT_I64
+
+  fun source_cast_target_rust_type (SCT_Type typ) = typ
+    | source_cast_target_rust_type
+        (SCT_Primitive (CT_Unsigned primitive, pos)) =
+        Primitive_Type (unsigned_rust_type primitive, pos)
+    | source_cast_target_rust_type
+        (SCT_Primitive (CT_Signed primitive, pos)) =
+        Primitive_Type (signed_rust_type primitive, pos)
+    | source_cast_target_rust_type
+        (SCT_Primitive (CT_RawPointer (mutability, primitive), pos)) =
+        Raw_Pointer_Type
+          (mutability, Primitive_Type (unsigned_rust_type primitive, pos),
+           make_source_layout pos [])
+    | source_cast_target_rust_type
+        (SCT_Named (UR_Path (_, segments, pos))) =
+        let
+          fun segment (Path_Segment (name, name_pos, NONE)) =
+                Rust_Type_Path_Segment
+                  (name, name_pos, NONE,
+                   make_source_layout name_pos [(Name_Token, name_pos)])
+            | segment (Path_Segment (_, name_pos, SOME _)) =
+                error
+                  ("uRust AST: generic cast targets require shared Rust type syntax" ^
+                    Position.here name_pos)
+        in Path_Type (map segment segments, make_source_layout pos []) end
+
+  fun source_cast_target_from_rust_type typ =
+    let
+      fun primitive DPT_U8 = SOME (CT_Unsigned UT_U8)
+        | primitive DPT_U16 = SOME (CT_Unsigned UT_U16)
+        | primitive DPT_U32 = SOME (CT_Unsigned UT_U32)
+        | primitive DPT_U64 = SOME (CT_Unsigned UT_U64)
+        | primitive DPT_Usize = SOME (CT_Unsigned UT_Usize)
+        | primitive DPT_I32 = SOME (CT_Signed ST_I32)
+        | primitive DPT_I64 = SOME (CT_Signed ST_I64)
+        | primitive _ = NONE
+      fun plain_segment
+          (Rust_Type_Path_Segment (_, _, NONE, _)) = true
+        | plain_segment _ = false
+      fun segment
+          (Rust_Type_Path_Segment (name, pos, _, _)) =
+        Path_Segment (name, pos, NONE)
+    in
+      (case typ of
+         Primitive_Type (kind, pos) =>
+           (case primitive kind of
+              SOME target => SCT_Primitive (target, pos)
+            | NONE => SCT_Type typ)
+       | Raw_Pointer_Type (mutability, Primitive_Type (kind, pos), _) =>
+           (case primitive kind of
+              SOME (CT_Unsigned unsigned) =>
+                SCT_Primitive (CT_RawPointer (mutability, unsigned), pos)
+            | _ => SCT_Type typ)
+       | Path_Type (segments, layout) =>
+           if not (null segments) andalso forall plain_segment segments
+           then SCT_Named
+             (UR_Path
+               (Identifier_Head, map segment segments, source_span layout))
+           else SCT_Type typ
+       | _ => SCT_Type typ)
+    end
 
   type datatype_type = rust_type
   datatype datatype_field =
@@ -907,9 +996,25 @@ struct
     Function_Item of
       string * Position.T * function_parameter list *
       rust_type option * ur_expr * source_layout
+  datatype urust_type_alias =
+    Type_Alias_Item of
+      string * Position.T * (string * Position.T) list *
+      rust_type * source_layout
   datatype urust_item =
       Datatype_Item of urust_datatype
     | Function_Item_Node of urust_function
+    | Type_Alias_Item_Node of urust_type_alias
+
+  fun type_alias_source_layout
+      (Type_Alias_Item (_, _, _, _, layout)) = layout
+  fun type_alias_item_position item =
+    source_span (type_alias_source_layout item)
+  fun type_alias_name
+      (Type_Alias_Item (name, pos, _, _, _)) = (name, pos)
+  fun type_alias_parameters
+      (Type_Alias_Item (_, _, parameters, _, _)) = parameters
+  fun type_alias_rhs
+      (Type_Alias_Item (_, _, _, rhs, _)) = rhs
 
   fun function_item_position
       (Function_Item (_, _, _, _, _, layout)) = source_span layout
