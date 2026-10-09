@@ -289,7 +289,7 @@ The alias changes only source spelling: its checked term is identical to the pri
 \<close>
 
 bundle showoff_cast_aliases begin
-  urust_cast_alias "SmallId" = "u16"
+  urust_type_alias \<open> type SmallId = u16; \<close>
 end
 
 context includes showoff_cast_aliases

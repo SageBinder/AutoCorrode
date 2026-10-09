@@ -4327,7 +4327,7 @@ ML_val\<open>
   in
     val _ =
       expect_rejection \<^context> "0_u64 as U8Alias"
-        "unknown cast-target alias"
+        "unknown Rust type"
   end
 \<close>
 
@@ -4497,7 +4497,7 @@ ML_val\<open>
           Parser_Test_Elaboration.expression \<^context>
             (Parser_Lex_Util.text_source
               "0_u64 as U8Alias::<Width>"))
-        "generic arguments are not allowed in cast-target aliases"
+        "syntax error"
   in
     val _ = ()
   end
@@ -4510,7 +4510,7 @@ section\<open>Confined direct and locale activation\<close>
 experiment
 begin
 
-urust_cast_alias "ExperimentWidth" = "u32"
+urust_type_alias \<open> type ExperimentWidth = u32; \<close>
 
 urust_expr cast_alias_direct_activation
   \<open> 0_u64 as ExperimentWidth \<close>
@@ -4545,7 +4545,7 @@ ML_val\<open>
        | Exn.Exn exn =>
            if Exn.is_interrupt exn then Exn.reraise exn
            else
-             if String.isSubstring "unknown cast-target alias"
+             if String.isSubstring "unknown Rust type"
                  (Runtime.exn_message exn)
              then ()
              else Exn.reraise exn)
@@ -4565,7 +4565,7 @@ ML_val\<open>
        | Exn.Exn exn =>
            if Exn.is_interrupt exn then Exn.reraise exn
            else
-             String.isSubstring "unknown cast-target alias"
+             String.isSubstring "unknown Rust type"
                (Runtime.exn_message exn))
   in
     val _ =
@@ -4647,10 +4647,10 @@ ML_val\<open>
                  |> distinct (op =)
              in
                if String.isSubstring
-                    "conflicting active definitions for \"SharedWidth\""
+                    "conflicting active mappings for \"SharedWidth\""
                     message andalso
-                  String.isSubstring "\"u8\"" message andalso
-                  String.isSubstring "\"u16\"" message andalso
+                  String.isSubstring "different Rust meanings" message andalso
+                  String.isSubstring "urust_type_alias declaration" message andalso
                   length positions = 2
                then ()
                else
@@ -4711,23 +4711,23 @@ ML_val\<open>
 
     val _ =
       assert_rejected "cast-alias-chain"
-        "urust_cast_alias \"AliasChain\" = \"U8Alias\""
-        "malformed primitive cast target"
+        ("urust_type_alias " ^ Symbol.open_ ^ " type AliasChain = U8Alias; " ^ Symbol.close)
+        "unknown Rust type"
     val _ =
       assert_rejected "cast-alias-malformed-target"
-        "urust_cast_alias \"BrokenPointer\" = \"*const\""
-        "malformed primitive cast target"
+        ("urust_type_alias " ^ Symbol.open_ ^ " type BrokenPointer = *const; " ^ Symbol.close)
+        "syntax error"
     val _ =
       assert_rejected "cast-alias-generic-name"
-        "urust_cast_alias \"Types::Alias::<Width>\" = \"u16\""
+        ("urust_type_alias \"Types::Alias::<Width>\" " ^ Symbol.open_ ^ " type Alias = u16; " ^ Symbol.close)
         "invalid alias path"
     val _ =
       assert_rejected "cast-alias-empty-segment"
-        "urust_cast_alias \"Types::\" = \"u16\""
+        ("urust_type_alias \"Types::\" " ^ Symbol.open_ ^ " type Alias = u16; " ^ Symbol.close)
         "invalid alias path"
     val _ =
       assert_rejected "cast-alias-reserved-segment"
-        "urust_cast_alias \"Types::u16\" = \"u16\""
+        ("urust_type_alias \"Types::u16\" " ^ Symbol.open_ ^ " type Alias = u16; " ^ Symbol.close)
         "reserved segment"
   in
     val _ = ()
@@ -4791,7 +4791,7 @@ ML_val\<open>
         (fn (name, properties) =>
           if name = Markup.entityN andalso
              Properties.get properties Markup.kindN =
-               SOME "micro_rust_cast_alias" andalso
+               SOME "micro_rust_type_mapping" andalso
              Properties.get properties Markup.nameN = SOME alias
           then Properties.get properties Markup.refN
           else NONE)
@@ -4986,7 +4986,7 @@ micro_rust_notation (literal) primitive_head_u64_max ("u64x'::MAX")
 micro_rust_notation (literal) primitive_head_u64_max ("u128::MAX")
 
 bundle primitive_path_cast_aliases begin
-  urust_cast_alias "PrimitivePathAlias" = "u64"
+  urust_type_alias \<open> type PrimitivePathAlias = u64; \<close>
 end
 
 subsection\<open>Exact literal and call resolution\<close>
@@ -5340,7 +5340,7 @@ ML_val\<open>
     val result =
       Exn.result
         (run_command source_name
-          "urust_cast_alias \"u64::PrimitiveAlias\" = \"u64\"") ()
+          ("urust_type_alias \"u64::PrimitiveAlias\" " ^ Symbol.open_ ^ " type PrimitiveAlias = u64; " ^ Symbol.close)) ()
     val _ =
       (case result of
          Exn.Res _ =>

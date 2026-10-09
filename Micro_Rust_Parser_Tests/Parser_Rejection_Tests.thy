@@ -2160,61 +2160,61 @@ section\<open> Cast targets, placement, and recovery boundaries \<close>
 subsection\<open> Unsupported targets \<close>
 
 urust_expr_rejects \<open> value as u128 \<close>
-  \<open> unknown cast-target alias "u128" \<close>
+  \<open> unknown Rust type "u128" \<close>
 
 urust_expr_rejects \<open> value as i8 \<close>
-  \<open> unknown cast-target alias "i8" \<close>
+  \<open> unknown Rust type "i8" \<close>
 
 urust_expr_rejects \<open> value as i16 \<close>
-  \<open> unknown cast-target alias "i16" \<close>
+  \<open> unknown Rust type "i16" \<close>
 
 urust_expr_rejects \<open> value as i128 \<close>
-  \<open> unknown cast-target alias "i128" \<close>
+  \<open> unknown Rust type "i128" \<close>
 
 urust_expr_rejects \<open> value as isize \<close>
-  \<open> unknown cast-target alias "isize" \<close>
+  \<open> unknown Rust type "isize" \<close>
 
 urust_expr_rejects \<open> value as f32 \<close>
-  \<open> unknown cast-target alias "f32" \<close>
+  \<open> unknown Rust type "f32" \<close>
 
 urust_expr_rejects \<open> value as f64 \<close>
-  \<open> unknown cast-target alias "f64" \<close>
+  \<open> unknown Rust type "f64" \<close>
 
 urust_expr_rejects \<open> value as char \<close>
-  \<open> unknown cast-target alias "char" \<close>
+  \<open> unknown Rust type "char" \<close>
 
 urust_expr_rejects \<open> value as bool \<close>
-  \<open> unknown cast-target alias "bool" \<close>
+  \<open> expanded Rust type has no supported cast operation \<close>
 
 urust_expr_rejects \<open> value as Target \<close>
-  \<open> unknown cast-target alias "Target" \<close>
+  \<open> unknown Rust type "Target" \<close>
 
 urust_expr_rejects \<open> value as Target::Word \<close>
-  \<open> unknown cast-target alias "Target::Word" \<close>
+  \<open> unknown Rust type "Target::Word" \<close>
 
 urust_expr_rejects \<open> value as Vec::<u8> \<close>
-  \<open> generic arguments are not allowed in cast-target aliases \<close>
-
-urust_expr_rejects \<open> value as *const i32 \<close>
-  \<open> syntax error found at <signed cast type> \<close>
-
-urust_expr_rejects \<open> value as *mut i64 \<close>
-  \<open> syntax error found at <signed cast type> \<close>
-
-urust_expr_rejects \<open> value as *const bool \<close>
-  \<open> syntax error found at <identifier> \<close>
-
-urust_expr_rejects \<open> value as *mut Target \<close>
-  \<open> syntax error found at <identifier> \<close>
-
-urust_expr_rejects \<open> value as *mut u128 \<close>
-  \<open> syntax error found at <identifier> \<close>
-
-urust_expr_rejects \<open> value as *const *const u8 \<close>
   \<open> syntax error \<close>
 
+urust_expr_rejects \<open> value as *const i32 \<close>
+  \<open> expanded Rust type has no supported cast operation \<close>
+
+urust_expr_rejects \<open> value as *mut i64 \<close>
+  \<open> expanded Rust type has no supported cast operation \<close>
+
+urust_expr_rejects \<open> value as *const bool \<close>
+  \<open> expanded Rust type has no supported cast operation \<close>
+
+urust_expr_rejects \<open> value as *mut Target \<close>
+  \<open> unknown Rust type "Target" \<close>
+
+urust_expr_rejects \<open> value as *mut u128 \<close>
+  \<open> unknown Rust type "u128" \<close>
+
+urust_expr_rejects \<open> value as *const *const u8 \<close>
+  \<open> expanded Rust type has no supported cast operation \<close>
+
 urust_expr_rejects \<open> value as &u8 \<close>
-  \<open> syntax error found at & \<close>
+  \<open> Rust reference types is not supported in cast targets \<close>
 
 subsection\<open> Missing and malformed cast components \<close>
 
@@ -2273,10 +2273,10 @@ urust_expr_rejects \<open> value asu8 \<close>
   \<open> syntax error found at <identifier> \<close>
 
 urust_expr_rejects \<open> value as U8 \<close>
-  \<open> unknown cast-target alias "U8" \<close>
+  \<open> unknown Rust type "U8" \<close>
 
 urust_expr_rejects \<open> value as u8_u16 \<close>
-  \<open> unknown cast-target alias "u8_u16" \<close>
+  \<open> unknown Rust type "u8_u16" \<close>
 
 subsection\<open> Invalid source types and cast chains \<close>
 

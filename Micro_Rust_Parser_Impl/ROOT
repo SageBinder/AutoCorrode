@@ -11,7 +11,6 @@ session Micro_Rust_Parser_Impl = HOL +
     Parser_Impl_Type_Mappings_Builtins
     Parser_Impl_Printer
     Parser_Impl_Printer_Output
-    Parser_Impl_Cast_Aliases
     Parser_Impl_Grammar
     Parser_Impl_Shallow_Terms
     Parser_Impl_Item_Scope

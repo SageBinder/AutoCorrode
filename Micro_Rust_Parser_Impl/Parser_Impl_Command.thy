@@ -8,6 +8,7 @@ theory Parser_Impl_Command
     "urust_expr" :: thy_decl
     and "urust_fn" :: thy_decl
     and "urust_datatype" :: thy_decl
+    and "urust_type_alias" :: thy_decl
     and "urust_notation" :: thy_decl
     and "\<rightarrow>"
 begin
@@ -28,7 +29,9 @@ Its Rust signature is authoritative: parameter and explicit result types resolve
 \<open>urust_type\<close>, including qualified and generic mappings and structural tuples.
 The shared type grammar permits \<open>\<tau>\<open>HOL type\<close>\<close> anywhere a type occurs.
 Function escapes support polymorphic variables, shared sort constraints, higher-order types and
-independent inference holes; datatype fields remain monomorphic. An omitted result infers from the
+independent inference holes. Raw pointers share implicit address/global backend parameters across
+the complete signature, constrained by its body and expected types. Datatype fields introduce those
+backend parameters while continuing to reject unrelated free type variables. An omitted result infers from the
 body. State, abort and yield channels also infer, and unused channels generalize.
 Parameters lower identifiers, \<open>_\<close>, and \<open>mut identifier\<close>.
 An explicit outer name chooses the HOL binding; otherwise acronym-aware snake case derives it from
@@ -139,6 +142,13 @@ With \<open>pretty = true\<close>, levels 1 and 2 additionally show the normaliz
 declaration after the manifest. Its markup is replayed against the completed generated artifacts
 without generating or registering anything again. Generation and item-scope registration run
 silently and atomically before any result report. Datatype \<open>pp_test\<close> runs before generation.
+
+The command \<open>urust_type_alias ["QUALIFIED_PATH"] src\<close> accepts one complete Rust type
+item such as \<open>type Width = u16;\<close>, \<open>type Pair<T> = (T, T);\<close>, or
+\<open>type Ptr<T> = *const T;\<close>. Its optional quoted path must end with the item name.
+Aliases share the type-mapping namespace, capture dependencies at declaration time and retain
+inferred generic sorts. Signatures, datatype fields and cast targets all expand them.
+Semantic declaration and dependency navigation reports wait until successful installation.
 
 The option parser is parameterized by a command-specific schema. Both commands accept Boolean
 \<open>pp_test\<close>, \<open>pretty\<close>, \<open>application_def\<close>, and \<open>abbrev\<close>, integer
@@ -1607,6 +1617,36 @@ val _ =
   Outer_Syntax.local_theory' \<^command_keyword>\<open>urust_datatype\<close>
     "Declare a Rust-shaped struct or enum as an Isabelle datatype"
     (parse_urust_datatype >> define_urust_datatype)
+
+fun define_urust_type_alias (registration, source) lthy =
+  let
+    val (completed, reports) =
+      Navigation.capture (fn () =>
+        let
+          val item =
+            (case URust_Parser.parse_type_alias_source lthy source of
+               SOME item => item
+             | NONE =>
+                 error
+                   ("urust_type_alias: empty type alias item" ^
+                     Position.here (Input.pos_of source)))
+        in
+          URust_Type_Mappings.declare_alias
+            {registration = registration,
+             item_name = URust_AST.type_alias_name item,
+             parameters = URust_AST.type_alias_parameters item,
+             rhs = URust_AST.type_alias_rhs item}
+            lthy
+        end)
+    val _ = Navigation.replay completed reports
+  in completed end
+
+val _ =
+  Outer_Syntax.local_theory \<^command_keyword>\<open>urust_type_alias\<close>
+    "Declare a context-local Rust type synonym"
+    (Scan.option Parse.string_position --
+      (Parse.token Parse.cartouche >> Parser_Lex_Util.cartouche_source) >>
+        define_urust_type_alias)
 end
 \<close>
 

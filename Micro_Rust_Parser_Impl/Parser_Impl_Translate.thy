@@ -49,7 +49,7 @@ structure URust_Translate :> URUST_TRANSLATE =
 struct
   open URust_AST
   structure T = URust_Shallow_Terms
-  structure A = URust_Cast_Aliases
+  structure A = URust_Type_Mappings
   structure R = URust_Resolution
   structure P = URust_Patterns
   structure M = URust_Matching
@@ -453,7 +453,7 @@ struct
          end
      | UE_Cast (operand, target, layout) =>
          let
-           val primitive_target = A.resolve ctxt target
+           val primitive_target = A.resolve_cast ctxt target
            val _ =
              Option.app
                (fn type_pos =>

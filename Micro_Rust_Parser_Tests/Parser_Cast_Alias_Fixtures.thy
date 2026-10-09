@@ -7,37 +7,37 @@ declare [[urust_pretty = true]]
 declare [[urust_verbosity = 2]]
 
 bundle module_cast_aliases begin
-  urust_cast_alias "U8Alias" = "u8"
-  urust_cast_alias "types::U16Alias" = "u16"
-  urust_cast_alias "U32Alias" = "u32"
-  urust_cast_alias "U64Alias" = "u64"
-  urust_cast_alias "UsizeAlias" = "usize"
-  urust_cast_alias "I32Alias" = "i32"
-  urust_cast_alias "I64Alias" = "i64"
+  urust_type_alias \<open> type U8Alias = u8; \<close>
+  urust_type_alias "types::U16Alias" \<open> type U16Alias = u16; \<close>
+  urust_type_alias \<open> type U32Alias = u32; \<close>
+  urust_type_alias \<open> type U64Alias = u64; \<close>
+  urust_type_alias \<open> type UsizeAlias = usize; \<close>
+  urust_type_alias \<open> type I32Alias = i32; \<close>
+  urust_type_alias \<open> type I64Alias = i64; \<close>
 
-  urust_cast_alias "ConstU8Pointer" = "*const u8"
-  urust_cast_alias "ConstU16Pointer" = "*const u16"
-  urust_cast_alias "ConstU32Pointer" = "*const u32"
-  urust_cast_alias "ConstU64Pointer" = "*const u64"
-  urust_cast_alias "ConstUsizePointer" = "*const usize"
-  urust_cast_alias "MutU8Pointer" = "*mut u8"
-  urust_cast_alias "MutU16Pointer" = "*mut u16"
-  urust_cast_alias "MutU32Pointer" = "*mut u32"
-  urust_cast_alias "MutU64Pointer" = "*mut u64"
-  urust_cast_alias "MutUsizePointer" = "*mut usize"
+  urust_type_alias \<open> type ConstU8Pointer = *const u8; \<close>
+  urust_type_alias \<open> type ConstU16Pointer = *const u16; \<close>
+  urust_type_alias \<open> type ConstU32Pointer = *const u32; \<close>
+  urust_type_alias \<open> type ConstU64Pointer = *const u64; \<close>
+  urust_type_alias \<open> type ConstUsizePointer = *const usize; \<close>
+  urust_type_alias \<open> type MutU8Pointer = *mut u8; \<close>
+  urust_type_alias \<open> type MutU16Pointer = *mut u16; \<close>
+  urust_type_alias \<open> type MutU32Pointer = *mut u32; \<close>
+  urust_type_alias \<open> type MutU64Pointer = *mut u64; \<close>
+  urust_type_alias \<open> type MutUsizePointer = *mut usize; \<close>
 end
 
 bundle conflict_u8_aliases begin
-  urust_cast_alias "SharedWidth" = "u8"
+  urust_type_alias \<open> type SharedWidth = u8; \<close>
 end
 
 bundle conflict_u16_aliases begin
-  urust_cast_alias "SharedWidth" = "u16"
+  urust_type_alias \<open> type SharedWidth = u16; \<close>
 end
 
 bundle idempotent_cast_aliases begin
-  urust_cast_alias "StableWidth" = "u16"
-  urust_cast_alias "StableWidth" = "u16"
+  urust_type_alias \<open> type StableWidth = u16; \<close>
+  urust_type_alias \<open> type StableWidth = u16; \<close>
 end
 
 locale cast_alias_scope =

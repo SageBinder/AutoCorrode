@@ -157,7 +157,7 @@ micro_rust_notation (literal) primitive_head_u64_max ("u64x'::MAX")
 micro_rust_notation (literal) primitive_head_u64_max ("u128::MAX")
 
 bundle primitive_path_cast_aliases begin
-  urust_cast_alias "PrimitivePathAlias" = "u64"
+  urust_type_alias \<open> type PrimitivePathAlias = u64; \<close>
 end
 
 subsection\<open> Exact literal and call resolution \<close>
@@ -696,7 +696,7 @@ ML_val\<open>
     val result =
       Exn.result
         (run_command source_name
-          "urust_cast_alias \"u64::PrimitiveAlias\" = \"u64\"") ()
+          ("urust_type_alias \"u64::PrimitiveAlias\" " ^ Symbol.open_ ^ " type PrimitiveAlias = u64; " ^ Symbol.close)) ()
     val _ =
       (case result of
          Exn.Res _ =>

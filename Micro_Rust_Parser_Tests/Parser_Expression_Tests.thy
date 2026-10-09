@@ -4647,7 +4647,7 @@ urust_expr cast_on_right_of_subtraction
   \<open> cast_word - cast_word as u32 \<close>
 
 urust_expr cast_before_shift
-  \<open> cast_word as u32 << 1_u64 \<close>
+  \<open> (cast_word as u32) << 1_u64 \<close>
 
 urust_expr cast_before_right_shift
   \<open> cast_word as u32 >> 1_u64 \<close>
@@ -4662,7 +4662,7 @@ urust_expr cast_before_inequality
   \<open> cast_word as u32 != cast_word \<close>
 
 urust_expr cast_before_less_than
-  \<open> cast_word as u32 < cast_word \<close>
+  \<open> (cast_word as u32) < cast_word \<close>
 
 urust_expr cast_before_less_or_equal
   \<open> cast_word as u32 <= cast_word \<close>
