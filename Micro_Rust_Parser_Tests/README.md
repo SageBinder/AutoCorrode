@@ -6,14 +6,15 @@ and combined showcase examples in one registered session.
 
 ## Command surface
 
-`urust_expr` and `urust_fn` retain the parenthesized declaration-argument syntax:
+Expression declarations retain an optional HOL type and parenthesized declaration arguments.
+Function declarations take one complete Rust item:
 
 ```isabelle
-urust_expr [OPTIONS] NAME [:: TYPE] [(ARG, ...)] \<open> body \<close>
-urust_fn [OPTIONS] NAME :: TYPE [(PARAMETER, ...)] \<open> body \<close>
+urust_expr [OPTIONS] NAME [:: TYPE] [(ARG, ...)] ‹ body ›
+urust_fn [OPTIONS] [HOL_NAME|_] ‹ fn RustName(PARAMETER: RUST_TYPE, ...) [-> RUST_TYPE] { body } ›
 ```
 
-The list is optional, may be empty, and accepts one trailing comma. Declaration arguments are
+The expression argument list is optional, may be empty, and accepts one trailing comma. Arguments are
 allocated as typed lexical locals before body elaboration. They therefore shadow existing
 unqualified HOL constants and direct-call registrations in value and direct-call positions.
 Every multi-segment path instead requires an exact role-appropriate registration: `(literal)` for
@@ -25,8 +26,26 @@ contains the exact `zip` collision: a parameter named `zip` shadows HOL `List.zi
 definition is structurally checked not to contain `List.zip`.
 
 Named definition-mode declarations accept standard Isabelle attributes through `attrs = [...]`;
-the attributes apply only to the generated `_def` theorem. An exact terminal `_` in an `urust_fn`
-type is completed to a fresh five-parameter `function_body` before ordinary checked elaboration.
+the attributes apply only to the generated `_def` theorem. Rust function parameter and explicit
+result types resolve through the same `urust_type` registry as datatype fields. Function
+`τ‹HOL type›` escapes support polymorphism, sorts, higher-order types and independent inference
+holes; datatype fields remain monomorphic. Omitted results and effect channels infer from the
+body, and unused channels generalize.
+
+Named functions register their Rust declaration name by default. Bare, explicit and scoped
+`register_notation` controls use `urust_register_notation`, shared with datatypes. Formerly
+body-only helpers use `[register_notation = false]` to preserve their registration behavior,
+including helpers interpreted repeatedly in locales.
+
+Start with `Parser_Function_Tests.thy` to learn `urust_fn`: it opens with explicit, inferred and
+anonymous names, then demonstrates parameter forms, calls, options, HOL escapes, mapped signatures,
+inferred effects and locales through ordinary checked declarations. The former Rust-function and
+function-type-mapping suites are consolidated here.
+
+`Parser_Function_Regression_Tests.thy` imports those examples and checks their equations, types,
+registration, ASTs, diagnostics, parser/printer recovery, locale conflicts and editor navigation.
+Its ML harnesses stay in this separate regression theory. `Parser_Command_Tests.thy` retains
+shared command/API and expression tests, including comparisons with the imported function artifacts.
 
 ## Markup correction
 
@@ -51,6 +70,12 @@ The consolidated markup audits cover both selections of overloaded literals and 
 values and patterns, struct heads, both turbofish lookup routes, complete macro keys including `!`,
 lifted functions and lambdas, registration multiplicity and idempotence, constructor families,
 delayed failures, recovery, and lexical/fixed controls.
+
+Generic macro heads that fall through registered-call lookup now pair their semantic keyword styling
+with one exact identifier-range typing tooltip. This prevents the enclosing uRust language report
+from becoming the hover range for built-ins such as `assert!`; the same shared path covers assertion
+aliases, message macros, `vec!`, and address macros. The dedicated `matches!` token retains its
+existing lexer-owned typing report without duplication.
 
 Terminal dispatch now treats the registered `lift_fun0` through `lift_fun14` backend wrappers as
 transparent for constant navigation without changing the stored backend or generated term. Applied
@@ -180,12 +205,16 @@ negative rows preserve these boundaries.
 
 ## Focused regression theories
 
-- `Parser_Expression_Tests.thy` and `Parser_Function_Tests.thy`: independent
-  positive suites, including direct, method, and chained iterator syntax.
+- `Parser_Expression_Tests.thy`: positive expression syntax, including direct, method and chained
+  iterator calls.
+- `Parser_Function_Tests.thy`: the declaration-first `urust_fn` reading entry point, consolidating
+  complete-item syntax, signatures, mappings, options, lexical binding and locale examples.
+- `Parser_Function_Regression_Tests.thy`: the internal audits and negative probes for those
+  function examples, including inference, registration, generated artifacts, navigation and recovery.
 - `Parser_Improvements_Tests.thy`: accepted language improvements and intentional semantic
   corrections.
 - `Parser_Command_Tests.thy`: declaration behavior, named and wildcard parameter slots, options,
-  artifacts, timing, markup, and facade audits.
+  artifacts, markup, and facade audits.
 - `Parser_Syntax_Tests.thy`: precedence adjacency, unary/cast/postfix behavior, direct and
   wrapped block-like operands, statement/arm separators, recursive no-struct heads, closures,
   structs, integer lexing, generated grammar, markup, and recovery.
@@ -215,9 +244,16 @@ negative rows preserve these boundaries.
 - `Parser_Slice_Pattern_Tests.thy`: ordered extraction and fallback equations, bare suffix
   regressions, structural integer matching, irrefutable aliases, scoping, and evaluation effects.
 - `Parser_Rejection_Tests.thy`: parser diagnostics and iterator arity failures.
+- `Parser_Datatype_Tests.thy`: datatype declarations, generated registrations and navigation,
+  scoped/inline field-lens registration control, registry integrity, manual aliases, transactional
+  diagnostics, and command output. Declaration-local `renames` coverage checks selector and
+  constructor identities, short-name binder hygiene, source aliases and metadata, effective-name
+  collisions, quoted-list syntax, positioned recovery, and read-only pretty replay.
+- `Parser_Printer_Tests.thy`: serialized and human-readable expression and datatype printing,
+  canonicalization, layout, positions, and malformed-AST diagnostics.
 - `Parser_Showcase_Tests.thy`: combined command, grammar, matching, array-repeat, and iterator examples.
 
 Shared declaration-only setup lives in `Parser_Iterator_Fixtures.thy`,
-`Parser_Registered_Constructor_Fixtures.thy`, and the four ambiguity fixture theories. Shared ML
-support and test-only rejection commands live in `Parser_Test_Utils.thy`. Every tracked `.thy` file
-in this directory is registered in `ROOT`.
+`Parser_Registered_Constructor_Fixtures.thy`, `Parser_Cast_Alias_Fixtures.thy`, and the four
+ambiguity fixture theories. Shared ML support and test-only rejection commands live in
+`Parser_Test_Utils.thy`. Every tracked `.thy` file in this directory is registered in `ROOT`.

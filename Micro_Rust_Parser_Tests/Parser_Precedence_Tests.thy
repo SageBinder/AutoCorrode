@@ -124,7 +124,7 @@ ML_val\<open>
        | _ => error "precedence audit: repeated dereference shape")
     val _ =
       (case parse "*base[index] as u64 + tail" of
-         UE_Bin (Add, UE_Cast (operand, SCT_Primitive (CT_Unsigned UT_U64), _), UE_Path _, _) =>
+         UE_Bin (Add, UE_Cast (operand, SCT_Primitive (CT_Unsigned UT_U64, _), _), UE_Path _, _) =>
            assert "cast and binary boundary" (indexed_operand operand)
        | _ => error "precedence audit: cast and binary shape")
     val _ =

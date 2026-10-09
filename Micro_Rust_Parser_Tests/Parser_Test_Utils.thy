@@ -3,6 +3,10 @@ theory Parser_Test_Utils
   keywords "urust_expr_rejects" :: thy_decl
 begin
 
+declare [[urust_pp_test = true]]
+declare [[urust_pretty = true]]
+declare [[urust_verbosity = 2]]
+
 ML\<open>
 structure Parser_Test_Report_Lock =
 struct
@@ -68,14 +72,18 @@ fun parser_test_rejects (source, expected) lthy =
   let
     val pos = Input.pos_of source
     val expected = Symbol.trim_blanks (Input.string_of expected)
+    val rejection_lthy =
+      Config.put URust_Command.urust_pp_test false lthy
     fun fail msg =
       error ("urust_expr_rejects: " ^ msg ^ Position.here pos)
   in
-    (case Exn.result (fn () => Parser_Test_Elaboration.expression lthy source) () of
+    (case Exn.result
+        (fn () =>
+          Parser_Test_Elaboration.expression rejection_lthy source) () of
        Exn.Res term =>
          fail
            ("expected the parser to reject, but it accepted and elaborated to: " ^
-             Syntax.string_of_term lthy term)
+             Syntax.string_of_term rejection_lthy term)
      | Exn.Exn exn =>
          if Exn.is_interrupt exn then Exn.reraise exn
          else

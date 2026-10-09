@@ -120,14 +120,147 @@ This session contains documentation and examples illustrating how to use AutoCor
 
 This session define locales for modelling the verification context. For example, [References.thy](https://awslabs.github.io/AutoCorrode/Unsorted/AutoCorrode/Micro_Rust_Interfaces_Core.References.html) defines the `Reference` locale which provides axioms for reasoning about references and mutable local variables in µRust. It also defines "transfer locales" which use separation lenses (see Optics, above) to extend interpretations of the interface locales to larger separation algebras.
 
+### Parser_Common
+
+This session provides language-neutral source-position, reporting, parser-driver, and runtime-lock
+support for Isabelle_Lex-Yacc frontends. Language-specific grammar, AST, binder, and elaboration
+policy remains in each frontend. See the session [README](Parser_Common/README.md).
+
 ### Micro_Rust_Parser_Impl and Micro_Rust_Parser_Tests
 
-The implementation session provides the production `urust_expr` and `urust_fn` commands:
+The implementation session provides the production `urust_expr`, `urust_fn`, and
+`urust_datatype` commands:
 
 ```isabelle
-urust_expr [OPTIONS] NAME [:: TYPE] [(ARG|_, ...)] \<open> body \<close>
-urust_fn [OPTIONS] NAME :: TYPE [(PARAMETER|_, ...)] \<open> body \<close>
+urust_expr [OPTIONS] NAME [:: TYPE] [(ARG|_, ...)] ‹ body ›
+urust_fn [OPTIONS] [HOL_NAME|_] ‹ fn RustName(PARAMETER: RUST_TYPE, ...) [-> RUST_TYPE] { body } ›
+urust_type "RUST_TYPE['PARAMETER, ...]" = ‹HOL_TYPE›
+urust_datatype [OPTIONS] [HOL_NAME] ‹ struct-or-enum ›
 ```
+
+`urust_fn` requires one complete Rust-shaped free-function item.
+The HOL name may be explicit, `_` for anonymous check-only use, or omitted and inferred with the
+same acronym-aware snake-case conversion as `urust_datatype` (`HTTPServer` becomes `http_server`).
+Rust signature types are authoritative: parameters and explicit results resolve through
+`urust_type`. An omitted result infers from the body, as do state, abort and yield channels.
+Unused channels generalize. Qualified and generic mappings, unit and structural tuples are
+supported. Use `τ‹HOL type›` wherever a type is expected for polymorphism, shared sort constraints,
+higher-order types or independent `_` inference holes. Parameters lower identifiers, `_`, and
+`mut identifier`. References, raw pointers, slices, arrays and numeric generic arguments parse
+but require an explicit HOL escape to supply semantics.
+
+Named functions register their Rust name by default. The Boolean `register_notation` option uses
+the shared `urust_register_notation` scoped setting, with inline values taking precedence.
+Disabled registration preserves existing entries and installs the ordinary HOL definition or
+abbreviation. Enabled registration rejects occupied function, constructor and call-notation
+paths, including conflicts during locale interpretation and context merging.
+
+```isabelle
+urust_fn [register_notation = false] identity_helper ‹
+  fn Identity(value: τ‹'a›) -> τ‹'a› { value }
+›
+```
+
+`urust_type` is the sole nominal Rust-to-HOL type translation mechanism. Its context-local keys may
+be qualified and generic; ordered mapping placeholders must correspond exactly to the free type
+variables of the checked HOL template. The initial `u8`, `u16`, `u32`, `u64`, `usize`, `i32`,
+`i64`, `bool`, and `()` spellings are ordinary registry declarations, not resolver cases.
+
+`urust_datatype` accepts one complete Rust-shaped struct or enum item. The HOL type name is
+optional and otherwise inferred with acronym-aware ASCII snake case (`HTTPServer` becomes
+`http_server`). Nominal and primitive field types resolve through the active registry; tuples use
+the structural `A × B × ... × tnil` encoding. Arbitrary checked HOL types use `τ‹TYPE›`, which is
+the only explicit bypass of registry resolution. Named structs generate a `datatype_record`,
+field lenses, and exact Rust field aliases. Successful structs and enums also register their Rust
+names for later datatype fields. Unit and tuple structs generate
+`make_NAME`; enum variants are registered under exact paths such as `Message::Data`. Generated
+constructors use those exact Rust identities in values, calls, patterns, and struct expressions;
+they are not rediscovered through HOL basenames.
+
+Declaration-local `renames` chooses named-struct HOL selectors or enum HOL constructors:
+
+```isabelle
+urust_datatype [renames = ["sampleValue" → "sample"]] ‹
+  struct Packet { sampleValue: u32 }
+›
+
+urust_datatype [renames = ["Ready" → "ModelReady"]] ‹
+  enum Choice { Ready { value: u32 }, Empty }
+›
+```
+
+Both sides require quoted strings; theory files use Isabelle's ASCII escape for →.
+Keys are unqualified source field names for structs and variant names for enums. Targets are
+HOL basenames used as written, with normal binding validation. The first example generates
+selector `sample` and lens `packet_sample_lens`; Rust still uses `sampleValue`. The second generates
+constructor `ModelReady`; Rust still uses `Choice::Ready`. Missing entries retain automatic names,
+and `renames = []` preserves all defaults. Duplicate or unknown keys and duplicate effective
+targets, including collisions with untouched defaults, are positioned errors.
+An explicit selector override can resolve a snake-case field collision. The outer HOL type binding
+remains independent; struct constructors and enum payload selectors retain automatic naming.
+Renames are inline-only and compose with the other datatype options.
+
+Automatic field-lens aliases are controlled by Boolean `register_notation`, defaulting to `true`.
+`[register_notation]` enables it; `[register_notation = true]` and
+`[register_notation = false]` override the scoped `urust_register_notation` setting for one
+declaration. The option is accepted for every datatype shape and affects only named-struct field
+aliases. Disabling it preserves datatype and lens generation, lens proofs, constructor paths,
+source-field metadata, and type mappings. It adds no aliases and leaves earlier registrations
+usable. Scoped changes affect subsequent declarations without removing existing aliases.
+
+```isabelle
+urust_datatype [register_notation = false] ‹
+  struct Packet { sampleValue: u32 }
+›
+urust_notation (field) packet_packet_sample_value_lens ("sampleValue")
+
+declare [[urust_register_notation = false]]
+```
+
+The manual declaration installs the generated lens under the chosen Rust field name. Artifact
+manifests always list generated lenses, and list their aliases under “installed Rust mappings”
+only when automatic registration occurred.
+
+Datatype verbosity is cumulative. Level 0 is quiet, level 1 reports the completed public type,
+constructors, selectors, lenses, and installed Rust mappings, and level 2 additionally prints the
+normalized generated HOL declaration and public selector/lens definitions. With `pretty = true`,
+levels 1 and 2 insert the normalized uRust declaration immediately after the artifact manifest.
+Output is emitted only after the whole declaration and item-scope registration succeed.
+
+Resolved use navigation is released after term checking succeeds. Generated datatype definitions
+use Isabelle's normal datatype and record reporting: those native definition reports are outside
+the semantic-use transaction. Artifact manifests and normalized declaration replay wait until
+item completion.
+
+It also exposes the position-independent `URust_Printer` ML API. Serialized mode preserves explicit
+AST groups and is used by the common Boolean `pp_test` declaration option (or scoped
+`urust_pp_test`) for a silent parse-print-parse token comparison before lowering or item
+generation. The sealed API provides parallel token, pretty, and string operations for expression,
+datatype, and function ASTs. Human mode removes redundant expression grouping and is available in
+verbosity-controlled command output through the common Boolean `pretty` option (or scoped
+`urust_pretty`). At verbosity 0, `pretty` has no output to affect and produces a warning.
+For expression output, the formatted body appears inside a symbolic `µ‹…›` wrapper that is
+unrelated to source quotation syntax, and comes from a pure source-mapped document whose public
+token projection remains position-free.
+Command arguments appear as uRust closure formals on the pretty right-hand side by default;
+`application_def` instead displays them as applications on the left-hand side.
+The symbolic opening follows the equation marker on the same line; right-hand closure formals and
+the body occupy successively indented lines.
+In human mode, nonempty code blocks for control flow, matches, closures, bindings, and assignments
+always place their code on indented lines, independently of the PIDE margin; opening braces remain
+on the construct line and `} else {` remains together. Serialized mode retains compact canonical
+blocks where possible. Multiline brace bodies use two-space nesting from the construct's line
+indentation rather than aligning beneath the opening brace.
+`Parser_Impl_Printer_Output` reparses that canonical generated source only through the new frontend
+and transfers every resulting lexical, semantic, entity, typing, and embedded-HOL PIDE report to the
+document's matching lexeme span before final line layout. The InfoView therefore inherits parser
+markup without the printer reconstructing binder or identifier roles. Datatype replay validates
+the synthetic declaration against the already generated item-scope identities and reports generated
+HOL entities before final links to the original uRust type, constructor, and field declarations. It
+does not regenerate declarations, mutate item scope, or forward probe reports to the live document.
+The parser test session enables the
+scoped roundtrip check across its command-bearing theories; `Parser_Printer_Tests.thy` separately
+demonstrates and audits human-readable formatting.
 
 Existing integral and raw-pointer cast targets may also receive context-local source aliases:
 
@@ -150,19 +283,20 @@ context ends. Isabelle named contexts and locales use the native `opening` form,
 contain generic arguments, and aliases always resolve directly to one primitive cast target rather
 than to another alias.
 
-The parenthesized argument list is optional, accepts a trailing comma, and uses Isabelle liberal
-names. Minor keywords such as `for` may be unquoted; major command keywords delimit outer command
-spans and therefore need string quoting, for example `("lemma")`. A chosen argument name denotes
+The `urust_expr` parenthesized argument list accepts a trailing comma and uses Isabelle liberal
+names. Minor keywords such as `for` may be unquoted; major command keywords delimit outer
+command spans and therefore need string quoting, for example `("lemma")`. A chosen argument name denotes
 that lexical argument in value positions and as an unqualified direct-call head, even if a HOL
 constant or call registration has the same spelling. A bare `_` consumes one argument type and
 creates a typed anonymous abstraction without entering lexical name resolution; it may be repeated
 or mixed with named arguments. Duplicate named arguments remain errors. Every multi-segment path
 requires an exact role-appropriate `micro_rust_notation`: values and places use `(literal)`, while
 calls, struct expressions, and registered macros use `(call)` (with `!` included in a macro key).
-Method names remain single-segment and retain their normal registration lookup. `urust_fn` also
-accepts an exact terminal `_` in its declared type and
-infers a fresh five-parameter `function_body`; internal placeholders and declared argument types
-remain checked normally.
+Method names remain single-segment and retain their normal registration lookup. Function signature
+types constrain a curried HOL type ending in `function_body`; the body is wrapped exactly once.
+Lexical parameters shadow callable entries. Anonymous items do not register a name. The
+programmatic `URust_Command.elaborate` interface retains its explicit HOL declaration type and
+parameter slots.
 
 Named definition-mode declarations accept `attrs = [ATTRIBUTE, ...]`, including `attrs = []`.
 These standard Isabelle attributes apply only to the generated `NAME_def` theorem; anonymous

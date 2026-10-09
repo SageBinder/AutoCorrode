@@ -1,6 +1,7 @@
 theory Parser_Impl_Resolution
   imports
     Parser_Impl_Shallow_Terms
+    Parser_Impl_Item_Scope
     Parser_Utils
 begin
 
@@ -43,6 +44,9 @@ sig
   val report_wildcard: Proof.context -> Position.T -> unit
   val report_struct_label:
     Proof.context -> string * Position.T -> unit
+  val report_struct_labels:
+    Proof.context -> URust_AST.ur_path ->
+      URust_AST.struct_expr_field list -> unit
   val literal_value:
     Proof.context -> environment -> URust_AST.literal_payload -> term
   val literal_expression:
@@ -62,7 +66,9 @@ sig
   val function_identifier:
     Proof.context -> environment -> string * Position.T -> term
   val function_path:
-    Proof.context -> environment -> URust_AST.ur_path -> term
+    Proof.context -> environment -> URust_AST.ur_path -> int -> term
+  val struct_function_path:
+    Proof.context -> environment -> URust_AST.ur_path -> int -> term
   val method_path:
     Proof.context -> environment -> URust_AST.ur_path -> term
   val apply_generic_arguments:
@@ -71,7 +77,11 @@ sig
   val registered_function:
     Proof.context -> string * Position.T -> term option
   val registered_macro_path:
-    Proof.context -> URust_AST.ur_path -> string * Position.T -> term option
+    Proof.context -> URust_AST.ur_path ->
+      {complete_name: string,
+       complete_pos: Position.T,
+       bang_pos: Position.T} ->
+      term option
   val registered_function_path:
     Proof.context -> URust_AST.ur_path -> term option
   val is_nullary_function_path:
@@ -98,17 +108,22 @@ sig
   val constructor_family: constructor_info -> (string * term list) option
   val report_constructor:
     Proof.context -> URust_AST.ur_path -> constructor_info -> unit
-  val report_selector: Proof.context -> Position.T -> term -> unit
+  type field_reference
+  val report_field:
+    Proof.context -> Position.T -> term -> field_reference option -> unit
 
   type resolved_struct_field =
-    {selector: term, source_position: Position.T option,
+    {selector: term, field_reference: field_reference option,
+     source_position: Position.T option,
      pattern: URust_AST.ur_pat, shorthand: bool}
 
   datatype resolved_struct_pattern =
       Resolved_Constructor_Struct of
-        constructor_info * resolved_struct_field list
+        constructor_info *
+          resolved_struct_field list
     | Resolved_Record_Struct of
-        string * resolved_struct_field list
+        string *
+          resolved_struct_field list
 
   val resolve_struct_pattern:
     Proof.context -> constructor_resolver ->
@@ -160,8 +175,10 @@ ML\<open>
     local terms held by the environment while retaining ordinary HOL parsing and markup.
     anonymous_abstraction introduces one anonymous dummy-typed Abs without manufacturing a Free.
     report_wildcard emits the parser's wildcard typing report. report_struct_label marks one
-    struct-expression label with a syntax tooltip but deliberately does not report a HOL Free:
-    labels are erased by source-order lowering and do not denote terms.
+    metadata-free struct-expression label with a syntax tooltip but deliberately does not report a
+    HOL Free: labels are erased by source-order lowering and do not denote terms.
+    report_struct_labels resolves field aliases for generated datatype constructors and reports
+    their selector constants, falling back to report_struct_label when no alias is available.
 
   - literal_value lowers a literal payload to its unlifted HOL value, including binder-aware value
     antiquotations. literal_expression preserves the frontend's special boolean-expression shape and
@@ -178,7 +195,7 @@ ML\<open>
     global_constant_path_value is the stricter array-repeat-length route: it rejects lexical locals,
     accepts exact literal registrations whose selected backend may depend on the proof context,
     direct fixed parameters, or genuine unqualified HOL constants. Qualified paths require exact
-    literal registration, and it never creates an unresolved Free.
+    literal registration, and the route never creates an unresolved Free.
     registered_function performs an exact registered NFunction lookup without imposing a caller
     naming policy. registered_macro_path performs the same lookup for the complete spelling including
     `!`, but rejects an unregistered qualified source path through the common call-role diagnostic.
@@ -217,15 +234,18 @@ ML\<open>
     constructor. Exact registered literals report backend/datatype information first, retain every
     registration reference, and make the lowest-serial declaration authenticating the selected
     constructor the final target on every source segment. Unregistered HOL constructors retain free
-    qualifiers and constant terminal markup. report_selector emits constant markup at the supplied
-    source position.
+    qualifiers and constant terminal markup. Generated item references likewise retain HOL type and
+    constructor navigation before making the source datatype declaration the final target.
+    report_field buffers selector-constant markup and queues an authenticated generated source-field
+    reference for replay after complete command checking, with the source field reported last;
+    native fields have no source reference.
 
   - resolve_struct_pattern resolves a struct head as a constructor, a single-constructor datatype
     type name, or a HOL record type. It validates duplicate, unknown, missing, and repeated-rest
     fields, expands shorthand fields, and returns fields in metadata declaration order. Each ordered
-    field retains its selector, optional source_position, pattern, and shorthand flag. Fields supplied
-    by `..` carry NONE, P_Wild Position.none, and shorthand = false. The nested pattern determines
-    a shorthand token's semantic role; only explicit labels receive selector reports.
+    field carries its selector, an optional authenticated generated source-field identity, and
+    (SOME source_position, pattern) when written or
+    (NONE, P_Wild Position.none) when supplied by `..`.
     Resolved_Constructor_Struct carries constructor_info plus those fields;
     Resolved_Record_Struct carries the qualified record type name plus those fields. Policy for
     rejecting the currently unsupported HOL-record lowering belongs to URust_Patterns.
@@ -239,7 +259,9 @@ structure URust_Resolution :> URUST_RESOLUTION =
 struct
   open URust_AST
   structure T = URust_Shallow_Terms
+  structure I = URust_Item_Scope
 
+  type field_reference = I.field_entry
   type local_table = Parser_Utils.var_info Symtab.table
   type environment =
     {locals: local_table,
@@ -608,8 +630,11 @@ struct
       (identifier_qualifiers path)
 
   fun report_registered_path_qualifiers ctxt kind name path =
-    List.app (report_registered_path_segment ctxt kind name)
-      (identifier_qualifiers path)
+    let val qualifiers = identifier_qualifiers path in
+      List.app
+        (report_registered_path_segment ctxt kind name)
+        qualifiers
+    end
 
   fun path_qualifier_positions path =
     map (#2 o segment_identifier) (identifier_qualifiers path)
@@ -650,6 +675,158 @@ struct
     end
 
   fun path_terminal path = segment_identifier (final_segment path)
+
+  fun item_lookup_path
+      (UR_Path (head, segments, pos)) =
+    UR_Path
+      (head,
+       map
+         (fn Path_Segment (name, name_pos, _) =>
+           Path_Segment (name, name_pos, NONE))
+         segments,
+       pos)
+
+  fun exact_item_constructor ctxt path =
+    I.lookup_constructor ctxt
+      (render_path (item_lookup_path path))
+
+  fun item_constructor_identities ctxt =
+    I.dump_constructors ctxt
+    |> map_filter
+      (fn entry =>
+        (case I.constructor_term entry of
+           Const (name, _) => SOME name
+         | _ => NONE))
+
+  fun generated_basename_entries ctxt name =
+    I.dump_constructors ctxt
+    |> filter
+      (fn entry =>
+        (case I.constructor_term entry of
+           Const (identity, _) =>
+             Long_Name.base_name identity = name
+         | _ => false))
+
+  fun generated_basename_error ctxt role path =
+    let
+      val name = render_path path
+      val pos = #2 (path_terminal path)
+      val exact_paths =
+        generated_basename_entries ctxt name
+        |> map I.constructor_rust_path
+        |> sort_strings
+    in
+      if null exact_paths then ()
+      else
+        error
+          ("urust_expr: generated Rust " ^ role ^ " " ^
+            quote name ^
+            " requires an exact item path; available paths: " ^
+            commas_quote exact_paths ^
+            Position.here pos)
+    end
+
+  fun report_item_qualifiers ctxt path entry =
+    let
+      val qualifiers = identifier_qualifiers path
+      fun report_type segment =
+        let
+          val pos = #2 (segment_identifier segment)
+          val type_name = I.constructor_hol_type entry
+          val type_entry =
+            (case I.lookup_type ctxt
+                (I.constructor_rust_type entry) of
+               SOME registered => registered
+             | NONE =>
+                 error
+                   ("urust_expr: generated Rust constructor " ^
+                     quote (I.constructor_rust_path entry) ^
+                     " has no source type identity"))
+        in
+          List.app (Micro_Rust_Semantic_Navigation.defer_report ctxt pos)
+            [Name_Space.markup
+               (Proof_Context.type_space ctxt) type_name,
+             Markup.keyword3];
+          I.report_type_reference ctxt pos type_entry
+        end
+    in
+      (case rev qualifiers of
+         [] => ()
+       | nearest :: earlier =>
+           (List.app (report_free_path_segment ctxt) (rev earlier);
+            report_type nearest))
+    end
+
+  fun report_item_constructor ctxt path entry =
+    let
+      val (_, pos) = path_terminal path
+      val constructor = I.constructor_term entry
+      val _ = report_item_qualifiers ctxt path entry
+      val _ = Micro_Rust_Semantic_Navigation.defer_report ctxt pos Markup.keyword3
+      val _ =
+        (case constructor of
+           Const (name, _) =>
+             Micro_Rust_Semantic_Navigation.defer_report ctxt pos
+               (Name_Space.markup
+                 (Consts.space_of (Proof_Context.consts_of ctxt))
+                 name)
+         | _ => ())
+      val _ = I.report_constructor_reference ctxt pos entry
+    in () end
+
+  fun item_constructor_arity ctxt entry =
+    (case I.constructor_term entry of
+       Const (name, _) =>
+         length
+           (binder_types
+             (Consts.the_constraint
+               (Proof_Context.consts_of ctxt) name))
+     | _ =>
+         error
+           ("urust_expr: generated Rust item " ^
+             quote (I.constructor_rust_path entry) ^
+             " has no constant constructor identity"))
+
+  fun reject_item_generics path =
+    if exists (is_some o segment_generic_args) (path_segments path)
+    then
+      let
+        val offending =
+          the
+            (find_first (is_some o segment_generic_args)
+              (path_segments path))
+        val Generic_Args (_, pos) =
+          the (segment_generic_args offending)
+      in
+        error
+          ("urust_expr: generic arguments are not supported on generated Rust item paths" ^
+            Position.here pos)
+      end
+    else ()
+
+  fun item_value_path ctxt path entry =
+    let
+      val _ = reject_item_generics path
+      val _ =
+        (case I.constructor_shape entry of
+           I.Unit_Constructor => ()
+         | I.Tuple_Constructor =>
+             error
+               ("urust_expr: generated Rust constructor " ^
+                 quote (render_path path) ^
+                 " requires positional call syntax" ^
+                 Position.here (path_position path))
+         | I.Named_Constructor =>
+             error
+               ("urust_expr: generated Rust constructor " ^
+                 quote (render_path path) ^
+                 " requires struct construction syntax" ^
+                 Position.here (path_position path)))
+      val _ = report_item_constructor ctxt path entry
+    in
+      T.source_position (#2 (path_terminal path))
+        (I.constructor_term entry)
+    end
 
   fun generic_sources (Generic_Args (arguments, _)) =
     map generic_argument_source arguments
@@ -784,10 +961,10 @@ struct
          | _ => ())
 
       fun resolve_global_constant () =
-          (case try
-              (Proof_Context.read_const
-                {proper = true, strict = false} ctxt)
-              name of
+        (case try
+            (Proof_Context.read_const
+              {proper = true, strict = false} ctxt)
+            name of
              SOME (Const (constant_name, _)) =>
                let
                  val consts = Proof_Context.consts_of ctxt
@@ -825,9 +1002,11 @@ struct
          SOME registered => registered
        | NONE =>
            if is_primitive_path path then
-             primitive_registration_error Micro_Rust_Names.NLiteral path
+             primitive_registration_error
+               Micro_Rust_Names.NLiteral path
            else if is_qualified_path path then
-             qualified_registration_error Micro_Rust_Names.NLiteral path name pos
+             qualified_registration_error
+               Micro_Rust_Names.NLiteral path name (path_position path)
            else resolve_contextual_or_global ())
     end
 
@@ -842,24 +1021,37 @@ struct
     else
     (case path_segments path of
        [Path_Segment (name, pos, NONE)] =>
-         literal_identifier_value ctxt environment (name, pos)
+         (case use_local ctxt environment (name, pos) of
+            SOME local_term => local_term
+          | NONE =>
+              (case exact_item_constructor ctxt path of
+                 SOME entry => item_value_path ctxt path entry
+               | NONE =>
+                   (generated_basename_error ctxt "value" path;
+                    resolve_identifier ctxt
+                      Micro_Rust_Names.NLiteral name pos)))
      | _ =>
-    (case exact_registered_path ctxt Micro_Rust_Names.NLiteral path of
-       SOME registered => registered
-     | NONE =>
-         let
-           val _ = reject_intermediate_generics path
-           val _ =
-             (case segment_generic_args (final_segment path) of
-                NONE => ()
-              | SOME (Generic_Args (_, pos)) =>
-                  error
-                    ("urust_expr: generic arguments on a bare value require an exact literal registration" ^
-                      Position.here pos))
-         in
-           resolve_generic_free_path ctxt environment
-             Micro_Rust_Names.NLiteral true path
-         end))
+         (case exact_item_constructor ctxt path of
+            SOME entry => item_value_path ctxt path entry
+          | NONE =>
+              (case exact_registered_path ctxt
+                  Micro_Rust_Names.NLiteral path of
+                 SOME registered => registered
+               | NONE =>
+                   let
+                     val _ = reject_intermediate_generics path
+                     val _ =
+                       (case segment_generic_args
+                           (final_segment path) of
+                          NONE => ()
+                        | SOME (Generic_Args (_, pos)) =>
+                            error
+                              ("urust_expr: generic arguments on a bare value require an exact literal registration" ^
+                                Position.here pos))
+                   in
+                     resolve_generic_free_path ctxt environment
+                       Micro_Rust_Names.NLiteral true path
+                   end)))
 
   fun literal_path ctxt environment path =
     T.literal (literal_path_value ctxt environment path)
@@ -876,7 +1068,90 @@ struct
                | NONE =>
                    resolve_identifier ctxt Micro_Rust_Names.NFunction name pos)))
 
-  fun resolve_function_path local_first ctxt environment path =
+  datatype item_call_role =
+      Ordinary_Item_Call
+    | Struct_Item_Call
+    | No_Item_Call
+
+  fun item_function_entry ctxt path entry =
+    let
+      val _ = reject_item_generics path
+      val pos = #2 (path_terminal path)
+      val _ = I.defer_function_reference ctxt pos entry
+      (* A registered definition exports schematic signature and effect types. Each call must
+         instantiate them independently, while ambient fixed types remain rigid. *)
+      val function =
+        I.function_term entry
+        |> Term_Subst.zero_var_indexes
+        |> Term.map_types
+            (Logic.incr_tvar (serial ()) #> Type_Infer.paramify_vars)
+    in
+      T.source_position pos function
+    end
+
+  fun item_function_path role ctxt path actual_arity entry =
+    let
+      val _ = reject_item_generics path
+      val name = render_path path
+      val pos = #2 (path_terminal path)
+      val origin = I.constructor_origin entry
+      val shape = I.constructor_shape entry
+      val _ =
+        (case (role, origin, shape) of
+           (Ordinary_Item_Call, _, I.Tuple_Constructor) => ()
+         | (Ordinary_Item_Call, _, I.Unit_Constructor) =>
+             error
+               ("urust_expr: generated unit constructor " ^
+                 quote name ^ " is a bare value, not a call" ^
+                 Position.here pos)
+         | (Ordinary_Item_Call, I.Struct_Constructor,
+              I.Named_Constructor) =>
+             error
+               ("urust_expr: generated named struct " ^
+                 quote name ^
+                 " must use struct construction syntax" ^
+                 Position.here pos)
+         | (Ordinary_Item_Call, I.Enum_Variant,
+              I.Named_Constructor) =>
+             error
+               ("urust_expr: construction of named enum variant " ^
+                 quote name ^ " requires metadata-aware struct construction" ^
+                 Position.here pos)
+         | (Struct_Item_Call, I.Struct_Constructor,
+              I.Named_Constructor) => ()
+         | (Struct_Item_Call, I.Enum_Variant,
+              I.Named_Constructor) =>
+             error
+               ("urust_expr: construction of named enum variant " ^
+                 quote name ^ " requires metadata-aware struct construction" ^
+                 Position.here pos)
+         | (Struct_Item_Call, _, _) =>
+             error
+               ("urust_expr: generated constructor " ^
+                 quote name ^
+                 " does not support struct construction syntax" ^
+                 Position.here pos)
+         | (No_Item_Call, _, _) =>
+             error "urust_expr: internal generated item method resolution")
+      val arity = item_constructor_arity ctxt entry
+      val _ =
+        if arity = actual_arity then ()
+        else
+          error
+            ("Type unification failed: generated Rust constructor " ^
+              quote name ^ " expects " ^ string_of_int arity ^
+              " argument(s), but got " ^
+              string_of_int actual_arity ^
+              Position.here pos)
+      val _ = report_item_constructor ctxt path entry
+    in
+      T.source_position pos
+        (T.lift_function pos arity
+          (I.constructor_term entry))
+    end
+
+  fun resolve_function_path item_role local_first actual_arity
+      ctxt environment path =
     let
       val head_pos = #2 (path_terminal path)
       fun lexical_function () =
@@ -894,23 +1169,48 @@ struct
         (case lexical_function () of
            SOME local_term => local_term
          | NONE =>
-             (case exact_registered_path ctxt Micro_Rust_Names.NFunction path of
-                SOME registered => registered
+             (case
+                if item_role = No_Item_Call
+                then NONE
+                else I.lookup_function ctxt (render_path path)
+              of
+                SOME entry =>
+                  item_function_entry ctxt path entry
               | NONE =>
-                  if is_primitive_path path then
-                    primitive_registration_error
-                      Micro_Rust_Names.NFunction path
-                  else
-                  let
-                    val _ = reject_intermediate_generics path
-                    val base = remove_final_generic_args path
-                    val function =
-                      resolve_generic_free_path ctxt environment
-                        Micro_Rust_Names.NFunction false base
-                  in
-                    apply_generic_arguments ctxt environment function
-                      (segment_generic_args (final_segment path))
-                  end))
+             (case
+                if item_role = No_Item_Call
+                then NONE
+                else exact_item_constructor ctxt path
+              of
+                SOME entry =>
+                  item_function_path item_role ctxt path
+                    actual_arity entry
+              | NONE =>
+                  (case exact_registered_path ctxt
+                      Micro_Rust_Names.NFunction path of
+                     SOME registered => registered
+                   | NONE =>
+                       if is_primitive_path path then
+                         primitive_registration_error
+                           Micro_Rust_Names.NFunction path
+                       else
+                       let
+                         val _ =
+                           if is_qualified_path path then ()
+                           else
+                             generated_basename_error
+                               ctxt "call" path
+                         val _ = reject_intermediate_generics path
+                         val base = remove_final_generic_args path
+                         val function =
+                           resolve_generic_free_path ctxt environment
+                             Micro_Rust_Names.NFunction false base
+                       in
+                         apply_generic_arguments ctxt environment
+                           function
+                           (segment_generic_args
+                             (final_segment path))
+                       end))))
       fun same_range position =
         Position.offset_of position = Position.offset_of head_pos andalso
         Position.end_offset_of position = Position.end_offset_of head_pos
@@ -926,13 +1226,19 @@ struct
       else T.source_position head_pos function
     end
 
-  fun function_path ctxt environment path =
-    resolve_function_path true ctxt environment path
+  fun function_path ctxt environment path actual_arity =
+    resolve_function_path Ordinary_Item_Call true actual_arity
+      ctxt environment path
+
+  fun struct_function_path ctxt environment path actual_arity =
+    resolve_function_path Struct_Item_Call false actual_arity
+      ctxt environment path
 
   fun method_path ctxt environment path =
     let
       val function =
-        resolve_function_path false ctxt environment path
+        resolve_function_path No_Item_Call false 0
+          ctxt environment path
       val (name, pos) = path_terminal path
       val lexical =
         (case path_segments path of
@@ -969,21 +1275,30 @@ struct
   fun registered_function ctxt identifier =
     registered_identifier ctxt Micro_Rust_Names.NFunction identifier
 
-  fun registered_macro_path ctxt path (complete_name, complete_pos) =
-    (case registered_identifier_at_positions ctxt
-        Micro_Rust_Names.NFunction
-        (complete_name, complete_pos)
-        (path_qualifier_positions path) of
-       SOME registered =>
-         (report_registered_path_qualifiers ctxt
-            Micro_Rust_Names.NFunction complete_name path;
-          SOME registered)
-     | NONE =>
-         if is_qualified_path path
-         then
-           qualified_registration_error Micro_Rust_Names.NFunction path
-             complete_name complete_pos
-         else NONE)
+  fun registered_macro_path ctxt path
+      {complete_name, complete_pos, bang_pos} =
+    if null
+        (Micro_Rust_Names.lookups
+          ctxt Micro_Rust_Names.NFunction complete_name)
+    then
+      if is_qualified_path path
+      then
+        qualified_registration_error Micro_Rust_Names.NFunction path
+          complete_name complete_pos
+      else NONE
+    else
+      let
+        val terminal_pos =
+          #2 (segment_identifier (final_segment path))
+        val registered =
+          Micro_Rust_Dispatch.mk_marker_positions_with_backend_targets
+            Micro_Rust_Names.NFunction complete_name terminal_pos
+            (path_qualifier_positions path) [bang_pos]
+            (Free (complete_name, dummyT))
+        val _ =
+          report_registered_path_qualifiers ctxt
+            Micro_Rust_Names.NFunction complete_name path
+      in SOME registered end
 
   fun registered_function_path ctxt path =
     exact_registered_path ctxt Micro_Rust_Names.NFunction path
@@ -1157,7 +1472,7 @@ struct
          selectors = []})
       (native_case_metadata ctxt backend)
 
-  (* Keep bare native lookup aligned with Basic_Case_Expression: typedef-backed constructors may be
+  (* Keep bare native lookup aligned with Case_Term_Backend: typedef-backed constructors may be
      known through case translation even when the code generator does not classify them. Candidate
      metadata is still recovered and validated by native_case_constructor_info below. *)
   fun known_native_constructor ctxt (identity, typ) =
@@ -1184,6 +1499,7 @@ struct
     let
       val theory = Proof_Context.theory_of ctxt
       val sugars = Ctr_Sugar.ctr_sugars_of ctxt
+      val item_identities = item_constructor_identities ctxt
 
       fun selector_rows type_name ctrs selss =
         if null selss
@@ -1273,7 +1589,8 @@ struct
       val by_identity =
         Symtab.fold
           (fn (identity, info) =>
-            if Code.is_constr theory identity
+            if Code.is_constr theory identity andalso
+                not (member (op =) item_identities identity)
             then Symtab.update (identity, info)
             else I)
           sugar_by_identity Symtab.empty
@@ -1338,6 +1655,9 @@ struct
           (fn (identity, (typ, _)) =>
             if requested_identity identity andalso
                 not (Symtab.defined by_identity identity) andalso
+                not (member (op =)
+                  (item_constructor_identities ctxt)
+                  identity) andalso
                 known_native_constructor ctxt (identity, typ)
             then
               native_case_constructor_info ctxt
@@ -1381,9 +1701,8 @@ struct
       val constructors =
         map #2 (Symtab.dest registered_by_identity)
 
-      fun registered_matches entry =
+      fun backend_matches backend =
         let
-          val backend = identifier_leaf (#hol_term entry)
           val sugar_matches =
             filter
               (fn info =>
@@ -1395,27 +1714,52 @@ struct
           then the_list (native_case_constructor_info ctxt backend)
           else sugar_matches
         end
+
+      fun registered_matches entry =
+        backend_matches
+          (identifier_leaf (#hol_term entry))
     in
       registrations
       |> maps registered_matches
       |> distinct_constructor_infos
     end
 
+  fun item_constructor_candidates ctxt
+      (Constructor_Resolver {registered_by_identity, ...}) entry =
+    let
+      val backend = identifier_leaf (I.constructor_term entry)
+      val sugar_matches =
+        map #2 (Symtab.dest registered_by_identity)
+        |> filter
+          (fn info =>
+            Term.aconv_untyped
+              (backend, constructor_term info))
+      val candidates =
+        if null sugar_matches
+        then the_list (native_case_constructor_info ctxt backend)
+        else sugar_matches
+    in distinct_constructor_infos candidates end
+
   fun classify_registered_literal ctxt resolver path =
-    (case exact_literal_registrations ctxt path of
-       [] =>
-         if is_primitive_path path then
-           primitive_registration_error Micro_Rust_Names.NLiteral path
-         else if is_qualified_path path then
-           qualified_registration_error Micro_Rust_Names.NLiteral path
-             (render_path path) (path_position path)
-         else Unregistered_Literal
-     | registrations =>
-         if is_primitive_path path then Registered_Value_Literal
-         else if null
-             (registered_constructor_candidates ctxt resolver registrations)
-         then Registered_Value_Literal
-         else Registered_Constructor_Literal)
+    (case exact_item_constructor ctxt path of
+       SOME _ => Registered_Constructor_Literal
+     | NONE =>
+         (case exact_literal_registrations ctxt path of
+            [] =>
+              if is_qualified_path path
+              then
+                qualified_registration_error
+                  Micro_Rust_Names.NLiteral path
+                  (render_path path) (path_position path)
+              else Unregistered_Literal
+          | registrations =>
+              if is_primitive_path path
+              then Registered_Value_Literal
+              else if null
+                  (registered_constructor_candidates ctxt resolver
+                    registrations)
+              then Registered_Value_Literal
+              else Registered_Constructor_Literal))
 
   fun resolve_constructor ctxt resolver path =
     if is_primitive_path path then NONE
@@ -1423,36 +1767,56 @@ struct
     let
       val name = render_path path
       val pos = #2 (path_terminal path)
+      val item = exact_item_constructor ctxt path
       val registrations = exact_literal_registrations ctxt path
       val registered =
         registered_constructor_candidates ctxt resolver registrations
       val candidates =
-        if null registrations
-        then
-          if is_qualified_path path
-          then
-            qualified_registration_error Micro_Rust_Names.NLiteral path
-              name (path_position path)
-          else
-            (reject_intermediate_generics path;
-             case segment_generic_args (final_segment path) of
-               NONE => constructor_candidates ctxt resolver name
-             | SOME (Generic_Args (_, generic_pos)) =>
-                 error
-                   ("urust_expr: generic constructor paths require an exact literal registration" ^
-                     Position.here generic_pos))
-        else registered
+        (case item of
+           SOME entry =>
+             (reject_item_generics path;
+              item_constructor_candidates ctxt resolver entry)
+         | NONE =>
+             if null registrations
+             then
+               if is_qualified_path path
+               then
+                 qualified_registration_error
+                   Micro_Rust_Names.NLiteral path
+                   name (path_position path)
+               else
+                 (generated_basename_error
+                    ctxt "constructor pattern" path;
+                  reject_intermediate_generics path;
+                  case segment_generic_args
+                      (final_segment path) of
+                    NONE =>
+                      constructor_candidates ctxt resolver name
+                  | SOME (Generic_Args (_, generic_pos)) =>
+                      error
+                        ("urust_expr: generic constructor paths require an exact literal registration" ^
+                          Position.here generic_pos))
+             else registered)
     in
       (case candidates of
-         [] => NONE
+         [] =>
+           (case item of
+              SOME _ =>
+                error
+                  ("urust_expr: generated Rust item " ^
+                    quote name ^
+                    " is not authenticated by native constructor metadata" ^
+                    Position.here pos)
+            | NONE => NONE)
        | [info] => SOME info
        | ambiguous =>
            ambiguity_error "constructor pattern" name pos
-             (not (null registrations)) ambiguous)
+             (is_some item orelse not (null registrations))
+             ambiguous)
     end
 
   fun report_named_term ctxt pos (Const (name, _)) =
-        Context_Position.report ctxt pos
+        Micro_Rust_Semantic_Navigation.defer_report ctxt pos
           (Name_Space.markup (Consts.space_of (Proof_Context.consts_of ctxt)) name)
     | report_named_term _ _ _ = ()
 
@@ -1460,7 +1824,15 @@ struct
     let
       val name = render_path path
       val pos = #2 (path_terminal path)
+      val item = exact_item_constructor ctxt path
       val registrations = exact_literal_registrations ctxt path
+      val item_registered =
+        (case item of
+           SOME entry =>
+             Term.aconv_untyped
+               (identifier_leaf (I.constructor_term entry),
+                constructor_term info)
+         | NONE => false)
       val authenticating =
         registrations
         |> filter
@@ -1472,20 +1844,27 @@ struct
               int_ord (#serial left, #serial right))
       val selected = try hd authenticating
       val _ =
-        if is_some selected
+        if item_registered then
+          report_item_constructor ctxt path (the item)
+        else if is_some selected
         then report_literal_path_qualifiers ctxt registrations path
         else report_path_qualifiers ctxt path
     in
-      (case selected of
-         SOME entry =>
-           Micro_Rust_Dispatch.emit_selected_use_markup_at_positions
-             ctxt Micro_Rust_Names.NLiteral name entry
-             {terminal_pos = pos,
-              qualifier_positions = path_qualifier_positions path}
-       | NONE => report_named_term ctxt pos (constructor_term info))
+      if item_registered then ()
+      else
+        (case selected of
+           SOME entry =>
+             Micro_Rust_Dispatch.emit_selected_use_markup_at_positions
+               ctxt Micro_Rust_Names.NLiteral name entry
+               {terminal_pos = pos,
+                qualifier_positions = path_qualifier_positions path,
+                backend_only_positions = []}
+         | NONE => report_named_term ctxt pos (constructor_term info))
     end
 
-  val report_selector = report_named_term
+  fun report_field ctxt pos selector field =
+    (report_named_term ctxt pos selector;
+     Option.app (I.defer_field_reference ctxt pos) field)
 
   fun report_wildcard ctxt pos =
     Context_Position.report_text ctxt pos Markup.typing "wildcard pattern"
@@ -1494,12 +1873,48 @@ struct
     Context_Position.report_text ctxt pos Markup.typing
       "struct expression label"
 
+  fun report_struct_labels ctxt path fields =
+    let
+      fun label (SE_Field (name, pos, _)) = (name, pos)
+      fun report_alias aliases field =
+        let val (name, pos) = label field in
+          (case AList.lookup (op =) aliases name of
+             SOME source_field =>
+               (Context_Position.report_text ctxt pos Markup.typing
+                  "generated Rust field";
+                report_field ctxt pos
+                  (I.field_selector source_field)
+                  (SOME source_field))
+           | NONE => report_struct_label ctxt (name, pos))
+        end
+    in
+      (case exact_item_constructor ctxt path of
+         SOME entry =>
+           let
+             val aliases =
+               map
+                 (fn source_field =>
+                   (I.field_rust_name source_field,
+                    source_field))
+                 (I.constructor_field_entries entry)
+           in
+           List.app
+             (report_alias aliases) fields
+           end
+       | NONE => List.app (report_struct_label ctxt o label) fields)
+    end
+
   fun literal_value ctxt environment payload =
     (case payload of
-       LP_Integer (lexeme, pos) => T.integer_value pos lexeme
+       LP_Integer integer =>
+         T.integer_value
+           (integer_literal_position integer)
+           (integer_literal_lexeme integer)
      | LP_Bool (value, _) => if value then T.true_value else T.false_value
      | LP_String (raw, pos) => T.string_value raw pos
-     | LP_ValAntiq source => parse_antiquotation ctxt environment source)
+     | LP_ValAntiq antiquotation =>
+         parse_antiquotation ctxt environment
+           (value_antiquotation_source antiquotation))
 
   fun literal_expression _ _ (LP_Bool (value, _)) =
         T.boolean_expression value
@@ -1511,14 +1926,17 @@ struct
     | Record_Candidate of {record_name: string, fields: term list}
 
   type resolved_struct_field =
-    {selector: term, source_position: Position.T option,
+    {selector: term, field_reference: field_reference option,
+     source_position: Position.T option,
      pattern: ur_pat, shorthand: bool}
 
   datatype resolved_struct_pattern =
       Resolved_Constructor_Struct of
-        constructor_info * resolved_struct_field list
+        constructor_info *
+          resolved_struct_field list
     | Resolved_Record_Struct of
-        string * resolved_struct_field list
+        string *
+          resolved_struct_field list
 
   (* Struct heads accept either a constructor name or the type name of a single-constructor datatype.
      Records come only from Record.get_info; Ctr_Sugar's record entry belongs to a different lowering
@@ -1532,9 +1950,11 @@ struct
       val theory = Proof_Context.theory_of ctxt
       val identifier_name = render_path head_path
       val pos = #2 (path_terminal head_path)
+      val item = exact_item_constructor ctxt head_path
       val registrations = exact_literal_registrations ctxt head_path
       val qualified = is_qualified_path head_path
-      val has_exact_registration = not (null registrations)
+      val has_exact_registration =
+        is_some item orelse not (null registrations)
       val _ =
         if qualified andalso not has_exact_registration
         then
@@ -1548,10 +1968,18 @@ struct
         else canonical_name identity = identifier_name
 
       val direct_candidates =
-        (if qualified
-         then
-           registered_constructor_candidates ctxt resolver registrations
-         else constructor_candidates ctxt resolver identifier_name)
+        (case item of
+           SOME entry =>
+             item_constructor_candidates ctxt resolver entry
+         | NONE =>
+             if qualified
+             then
+               registered_constructor_candidates ctxt resolver
+                 registrations
+             else
+               (generated_basename_error
+                  ctxt "struct pattern" head_path;
+                constructor_candidates ctxt resolver identifier_name))
         |> map
             (fn info =>
               (constructor_identity info,
@@ -1560,7 +1988,7 @@ struct
                   selectors = constructor_selectors info}))
 
       val fallback_candidates =
-        if qualified then []
+        if qualified orelse is_some item then []
         else
           type_fallbacks
           |> map_filter
@@ -1590,7 +2018,7 @@ struct
                      (#fields record_info)}))
 
       val record_candidates =
-        if qualified then []
+        if qualified orelse is_some item then []
         else
           record_types
           |> filter name_matches
@@ -1680,12 +2108,13 @@ struct
       val head = render_path head_path
       val head_pos = #2 (path_terminal head_path)
       val registrations = exact_literal_registrations ctxt head_path
+      val item = exact_item_constructor ctxt head_path
       val _ = reject_intermediate_generics head_path
       val _ =
         (case segment_generic_args (final_segment head_path) of
            NONE => ()
          | SOME (Generic_Args (_, pos)) =>
-             if null registrations
+             if null registrations andalso is_none item
              then
                error
                  ("urust_expr: generic struct-pattern paths require an exact literal registration" ^
@@ -1703,15 +2132,37 @@ struct
          | Record_Candidate {record_name, fields} =>
              (canonical_name record_name, fields))
 
-      fun selector_entry selector =
+      fun native_selector_entry selector =
         (case term_name_of selector of
-           SOME name => (canonical_name name, selector)
+           SOME name => (canonical_name name, selector, NONE)
          | NONE =>
-             error ("urust_expr: unnamed selector in struct metadata for " ^
-               quote display_name ^ Position.here head_pos))
+             error
+               ("urust_expr: unnamed selector in struct metadata for " ^
+                 quote display_name ^ Position.here head_pos))
 
-      val selector_entries = map selector_entry selectors
-      val selector_names = map fst selector_entries
+      val selector_entries =
+        (case item of
+           SOME entry =>
+             let
+               val aliases = I.constructor_field_entries entry
+               val alias_terms = map I.field_selector aliases
+             in
+               if eq_list (op aconv) (alias_terms, selectors)
+               then
+                 map
+                   (fn source_field =>
+                     (I.field_rust_name source_field,
+                      I.field_selector source_field,
+                      SOME source_field))
+                   aliases
+               else
+                 error
+                   ("urust_expr: generated Rust field aliases disagree with native selector metadata for " ^
+                     quote head ^
+                     Position.here head_pos)
+             end
+         | NONE => map native_selector_entry selectors)
+      val selector_names = map #1 selector_entries
 
       fun add_field (name, pos, pattern, shorthand) (entries, rest_pos) =
         let val field = canonical_name name in
@@ -1755,14 +2206,14 @@ struct
             " is missing field(s): " ^ space_implode ", " missing ^
             Position.here head_pos)
       val ordered =
-        map (fn (name, selector) =>
+        map (fn (name, selector, field_reference) =>
           (case AList.lookup (op =) entries name of
              SOME (pos, pattern, shorthand) =>
-               {selector = selector, source_position = SOME pos,
-                pattern = pattern, shorthand = shorthand}
+               {selector = selector, field_reference = field_reference,
+                source_position = SOME pos, pattern = pattern, shorthand = shorthand}
            | NONE =>
-               {selector = selector, source_position = NONE,
-                pattern = P_Wild Position.none, shorthand = false}))
+               {selector = selector, field_reference = field_reference,
+                source_position = NONE, pattern = P_Wild Position.none, shorthand = false}))
           selector_entries
     in
       (case candidate of

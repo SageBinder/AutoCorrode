@@ -225,14 +225,14 @@ ML_val\<open>
       if condition then ()
       else error ("array repeat AST audit: " ^ message)
 
-    fun integer expected (RL_Integer (actual, _)) =
+    fun integer expected (RL_Integer (Integer_Literal (actual, Source_Layout ( _, _), _))) =
           expected = actual
       | integer _ _ = false
 
     val _ =
       (case parse "[1; 2 + 3 * 4]" of
          UE_ArrayRepeat
-           (AR_Ordinary, UE_Literal (LP_Integer ("1", _)),
+           (AR_Ordinary, UE_Literal (LP_Integer (Integer_Literal ("1", Source_Layout ( _, _), _))),
             RL_Bin
               (Add, left,
                RL_Bin (Mul, middle, right, _), _), _) =>

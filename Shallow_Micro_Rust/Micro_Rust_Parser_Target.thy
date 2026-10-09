@@ -76,6 +76,16 @@ named_theorems micro_rust_record_simps
 named_theorems micro_rust_record_intros
 
 ML\<open>
+signature MICRO_RUST_RECORD =
+sig
+  val make:
+    {with_fields: bool,
+     record_name: string,
+     overrides: (string * (string * Position.T)) list,
+     report: bool} ->
+    local_theory -> local_theory
+end
+
 fun number_of_type_arguments ctxt (tyname : string) =
     tyname
  |> Proof_Context.read_type_name {proper = true, strict = false} ctxt
@@ -166,7 +176,7 @@ fun summarise_micro_rust_record rec_name fields overrides with_fields =
     Pretty.writeln (Pretty.chunks (map (fn text => Pretty.str ("* " ^ text)) bullets))
   end
 
-fun make_lenses ((with_fields, rec_name), overrides) _ lthy =
+fun make_lenses_core report with_fields rec_name overrides lthy =
   let
     val _ =
       if with_fields orelse null overrides then ()
@@ -176,7 +186,9 @@ fun make_lenses ((with_fields, rec_name), overrides) _ lthy =
     val descriptor = prepare_record_descriptor rec_name lthy
     val fields = map #base_name (#fields descriptor)
     val _ = check_override_fields rec_name fields overrides
-    val _ = summarise_micro_rust_record rec_name fields overrides with_fields
+    val _ =
+      if report then summarise_micro_rust_record rec_name fields overrides with_fields
+      else ()
     val (lens_definitions, lthy1) = lens_autogen_defs_from descriptor lthy
     val (lens_components, lthy2) =
       lens_autogen_defining_equations_from
@@ -203,6 +215,19 @@ fun make_lenses ((with_fields, rec_name), overrides) _ lthy =
   in
     instantiate_localizable_class rec_name lthy6
   end
+
+structure Micro_Rust_Record :> MICRO_RUST_RECORD =
+struct
+  fun make {with_fields, record_name, overrides, report} =
+    make_lenses_core report with_fields record_name overrides
+end
+
+fun make_lenses ((with_fields, rec_name), overrides) _ =
+  Micro_Rust_Record.make
+    {with_fields = with_fields,
+     record_name = rec_name,
+     overrides = overrides,
+     report = true}
 
 val parse_field_overrides =
   Scan.optional

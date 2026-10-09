@@ -24,6 +24,10 @@ sig
   val turbofish_error: Position.T -> 'a
   val function_literal_suffix_error: Position.T -> 'a
   val struct_head_generics_error: Position.T -> 'a
+  val hol_type_error: Position.T -> 'a
+  val hol_type_prefix_error: Position.T -> 'a
+  val item_in_expression_error:
+    string -> string -> Position.T -> 'a
 end
 
 (*
@@ -54,11 +58,15 @@ end
       antiquotation and reports at that suffix.
     * struct_head_generics_error pos rejects generic arguments on any struct-expression head
       segment and reports at that argument group.
+    * hol_type_prefix_error pos rejects an unprefixed HOL type cartouche and directs the user to the
+      required \<tau> prefix.
+    * item_in_expression_error kind command pos rejects an item declaration selected through the
+      expression parser and directs the user to the corresponding item command.
 
-  All ten functions have result type 'a because they always raise via error.  Their exact string
-  assembly and use of quote are implementation details, subject to the message and position contracts
-  above.  The SML_import below only makes this Isabelle/ML-owned interface available to generated lexer
-  code; it does not create a second owner.
+  All exported failure functions have result type 'a because they always raise via error. Their
+  exact string assembly and use of quote are implementation details, subject to the message and
+  position contracts above. The SML_import below only makes this Isabelle/ML-owned interface
+  available to generated lexer code; it does not create a second owner.
 *)
 structure URust_Grammar :> URUST_GRAMMAR =
 struct
@@ -97,6 +105,22 @@ struct
     error
       ("urust_expr: generic arguments are not supported in struct-expression heads" ^
         Position.here pos)
+
+  fun hol_type_error pos =
+    error
+      ("urust_datatype: unterminated \<tau>-prefixed HOL type cartouche" ^
+        Position.here pos)
+
+  fun hol_type_prefix_error pos =
+    error
+      ("uRust HOL type cartouches must use the \<tau> prefix" ^
+        Position.here pos)
+
+  fun item_in_expression_error kind command pos =
+    error
+      ("uRust " ^ kind ^
+        " declarations are not expressions; use " ^ command ^
+        Position.here pos)
 end
 \<close>
 SML_import \<open> structure URust_Grammar = URust_Grammar \<close>
@@ -133,9 +157,10 @@ and no-struct expression families. Only token shims remain lexer-local; position
       token. Other generated token constructors are lexer implementation details; terminal additions
       or reordering must still be reflected in URust_Parser's exhaustive terminal identity
       table.
-    * The start result is URust_AST.ur_expr option.  NONE represents empty input; SOME ast preserves
-      source order and the token/span positions recorded by URust_AST.  Syntax rejection raises a
-      positioned ERROR rather than returning NONE.
+    * The adapter injects exactly one private start-mode token before the source. TEXPRSTART selects
+      the expression grammar, where NONE represents empty input; TITEMSTART selects the complete item
+      grammar, where an item is required. SOME ast preserves source order and the token/span positions
+      recorded by URust_AST. Syntax rejection raises a positioned ERROR rather than returning NONE.
 
   Expert mode deliberately generates no unsealed URust structure or default parse_source operation.
   Parser clients use the sealed URust_Parser.parse_source boundary. Lexer refs, start states,
@@ -158,45 +183,83 @@ val aq_kind = ref No_AQ
 val aq_buf = ref ([] : string list)
 val aq_start = ref 0   (* char offset of the antiquotation BODY start (just after the opener) *)
 val aq_open = ref 0
+val aq_open_text = ref ""
 val aq_depth = ref 0
 val generic_open = ref (NONE : Position.T option)
 val log_data_open = ref (NONE : Position.T option)
 val block_comment_open = ref (NONE : int option)
 val block_comment_depth = ref 0
+val hol_type_open = ref (NONE : int option)
+val hol_type_start = ref 0
+val hol_type_depth = ref 0
+val pending_signature_tokens = ref ([] : lexresult list)
+val signature_paren_depth = ref 0
+val signature_brace_depth = ref 0
+
+datatype signature_context =
+    Function_Signature
+  | Datatype_Signature
+val signature_context = ref Function_Signature
+
+datatype hol_type_context =
+    Initial_HOL_Type
+  | Signature_HOL_Type
+val hol_type_context = ref Initial_HOL_Type
 
 datatype comment_context =
     Initial_Comment
+  | Signature_Comment
   | Generic_Comment
   | Log_Data_Comment
 val comment_context = ref (NONE : comment_context option)
 val comment_open = ref 0
 val comment_depth = ref ~1
 
+datatype block_comment_context =
+    Initial_Block_Comment
+  | Signature_Block_Comment
+val block_comment_context =
+  ref (NONE : block_comment_context option)
+
 fun reset_aq () =
-  (aq_kind := No_AQ; aq_buf := []; aq_start := 0; aq_open := 0; aq_depth := 0)
+  (aq_kind := No_AQ; aq_buf := []; aq_start := 0; aq_open := 0;
+   aq_open_text := ""; aq_depth := 0)
 fun reset_generic () = generic_open := NONE
 fun reset_log_data () = log_data_open := NONE
 fun reset_block_comment () =
-  (block_comment_open := NONE; block_comment_depth := 0)
+  (block_comment_open := NONE; block_comment_depth := 0;
+   block_comment_context := NONE)
+fun reset_hol_type () =
+  (hol_type_open := NONE; hol_type_start := 0; hol_type_depth := 0;
+   hol_type_context := Initial_HOL_Type)
 fun reset_comment () =
   (comment_context := NONE; comment_open := 0; comment_depth := ~1)
 fun reset_state () =
   (reset_aq (); reset_generic (); reset_log_data ();
-   reset_block_comment (); reset_comment ())
-fun start_aq kind open_pos body_pos =
-  (aq_kind := kind; aq_buf := []; aq_start := body_pos; aq_open := open_pos; aq_depth := 0)
+   reset_block_comment (); reset_hol_type (); reset_comment ();
+   pending_signature_tokens := []; signature_paren_depth := 0;
+   signature_brace_depth := 0;
+   signature_context := Function_Signature)
+fun start_aq kind open_pos open_text body_pos =
+  (aq_kind := kind; aq_buf := []; aq_start := body_pos; aq_open := open_pos;
+   aq_open_text := open_text; aq_depth := 0)
 fun push_aq fragment = aq_buf := fragment :: !aq_buf
 fun take_aq () =
   let val body = String.concat (rev (!aq_buf))
   in reset_aq (); body end
 fun start_comment context open_pos =
   (comment_context := SOME context; comment_open := open_pos; comment_depth := ~1)
-fun start_block_comment open_pos =
-  (block_comment_open := SOME open_pos; block_comment_depth := 1)
-fun take_comment_context () =
-  (case !comment_context of
-     SOME context => (reset_comment (); context)
-   | NONE => raise Fail "uRust lexer: missing formal-comment return context")
+fun start_block_comment context open_pos =
+  (block_comment_open := SOME open_pos; block_comment_depth := 1;
+   block_comment_context := SOME context)
+fun start_hol_type open_pos open_text =
+  (hol_type_open := SOME open_pos;
+   hol_type_start := open_pos + size open_text;
+   hol_type_depth := 1)
+fun start_signature context =
+  (signature_context := context;
+   signature_paren_depth := 0;
+   signature_brace_depth := 0)
 
 (* A suffixed integer literal is deliberately NOT interpreted here: the lexer captures the raw lexeme and
    the elaboration term layer reads it against the single suffix table, so an unknown suffix is a
@@ -222,6 +285,119 @@ fun fixed_pos yypos = Parser_Lex_Util.fixed_pos (!source_layout) yypos
 fun tokF args       = Parser_Lex_Util.tokF (!source_layout) args
 fun tok_valF args   = Parser_Lex_Util.tok_valF (!source_layout) args
 fun report_text args = Parser_Lex_Util.report_text (!source_layout) args
+fun source_position (yypos, text) =
+  Position.range_position
+    (Parser_Lex_Util.text_range (!source_layout) (yypos, text))
+
+val source_integer_suffixes = ["u8", "u16", "u32", "u64", "usize"]
+
+fun source_digit_value c =
+  if #"0" <= c andalso c <= #"9" then SOME (Char.ord c - Char.ord #"0")
+  else if #"a" <= c andalso c <= #"f" then SOME (10 + Char.ord c - Char.ord #"a")
+  else if #"A" <= c andalso c <= #"F" then SOME (10 + Char.ord c - Char.ord #"A")
+  else NONE
+
+fun source_valid_digit radix c =
+  (case source_digit_value c of
+     SOME value => value < radix
+   | NONE => false)
+
+fun source_integer_base lexeme =
+  if String.isPrefix "0b" lexeme then (2, 2)
+  else if String.isPrefix "0o" lexeme then (8, 2)
+  else if String.isPrefix "0x" lexeme then (16, 2)
+  else (10, 0)
+
+fun source_scan_integer radix lexeme offset =
+  if offset < size lexeme andalso
+      (String.sub (lexeme, offset) = #"_" orelse
+       source_valid_digit radix (String.sub (lexeme, offset)))
+  then source_scan_integer radix lexeme (offset + 1)
+  else offset
+
+fun source_known_suffix lexeme =
+  let
+    fun split suffix =
+      if String.isSuffix suffix lexeme andalso size lexeme > size suffix
+      then
+        let
+          val suffix_start = size lexeme - size suffix
+          val compatibility =
+            suffix_start > 0 andalso
+            String.sub (lexeme, suffix_start - 1) = #"_"
+        in
+          SOME (if compatibility then suffix_start - 1 else suffix_start)
+        end
+      else NONE
+    fun find [] = NONE
+      | find (suffix :: suffixes) =
+          (case split suffix of
+             NONE => find suffixes
+           | result => result)
+  in find source_integer_suffixes end
+
+fun source_integer_parts lexeme =
+  let
+    val (radix, digits_start) = source_integer_base lexeme
+    val scanned_end =
+      source_scan_integer radix lexeme digits_start
+    val suffix_start =
+      (case source_known_suffix lexeme of
+         SOME offset => SOME offset
+       | NONE =>
+           if scanned_end = size lexeme orelse
+               (#"0" <= String.sub (lexeme, scanned_end) andalso
+                String.sub (lexeme, scanned_end) <= #"9")
+           then NONE
+           else
+             SOME
+               (if scanned_end > digits_start andalso
+                   String.sub (lexeme, scanned_end - 1) = #"_"
+                then scanned_end - 1
+                else scanned_end))
+  in
+    (case suffix_start of
+       NONE => (lexeme, NONE)
+     | SOME offset =>
+         (String.substring (lexeme, 0, offset),
+          SOME (offset, String.extract (lexeme, offset, NONE))))
+  end
+
+fun tok_integer typ cons (yypos, yytext) =
+  let
+    val range as (start, stop) =
+      Parser_Lex_Util.text_range (!source_layout) (yypos, yytext)
+    val whole_pos = Position.range_position range
+    val (numeric_text, suffix) = source_integer_parts yytext
+    val numeric_pos = source_position (yypos, numeric_text)
+    val suffix_pos =
+      Option.map
+        (fn (offset, text) =>
+          source_position (yypos + offset, text))
+        suffix
+    val literal =
+      Integer_Literal
+        (yytext,
+         make_source_layout whole_pos
+           [(Literal_Token, numeric_pos)],
+         suffix_pos)
+    val _ =
+      Parser_Lex_Util.report_range
+        (range, Markup.numeral, typ)
+  in cons (literal, start, stop) end
+
+fun start_hol_type_token context (yypos, yytext) =
+  let
+    val symbols = Symbol.explode yytext
+    val prefix = hd symbols
+    val opener = hd (tl symbols)
+    val opener_pos = yypos + size prefix
+    val _ = report_text (yypos, prefix, Markup.literal, "HOLTYPE")
+    val _ =
+      report_text
+        (opener_pos, opener, Markup.delimiter, "HOLTYPE")
+    val _ = hol_type_context := context
+  in start_hol_type yypos yytext end
 fun finish_block_comment (close_pos, close_text) =
   (case !block_comment_open of
      SOME open_pos =>
@@ -235,11 +411,67 @@ fun finish_block_comment (close_pos, close_text) =
          val _ =
            report_text
              (open_pos, text, Markup.comment1, "block comment")
-       in reset_block_comment () end
+         val context = !block_comment_context
+         val _ = reset_block_comment ()
+       in
+         (case context of
+            SOME result => result
+          | NONE =>
+              raise Fail "uRust lexer: missing block-comment context")
+       end
    | NONE => raise Fail "uRust lexer: missing block-comment opener")
+fun finish_formal_comment (close_pos, close_text) =
+  (case !comment_context of
+     SOME context =>
+       let
+         val open_pos = !comment_open
+         val stop = close_pos + size close_text
+         val text =
+           String.substring
+             (Parser_Lex_Util.text_of (!source_layout),
+              open_pos, stop - open_pos)
+         val _ =
+           report_text
+             (open_pos, text, Markup.comment1, "formal comment")
+         val _ = reset_comment ()
+       in context end
+   | NONE => raise Fail "uRust lexer: missing formal-comment return context")
 fun tok_ident (yypos, yytext) =
   let val p = Parser_Lex_Util.ident_pos (!source_layout) (yypos, yytext)
   in Tokens.IDENT (yytext, p, p) end
+
+fun tok_rust_type primitive (yypos, yytext) =
+  tok_valF
+    (yypos, yytext, Markup.keyword1, "TRUSTTYPE",
+     Tokens.TRUSTTYPE, primitive)
+
+fun split_signature_right (yypos, yytext) =
+  let
+    val first =
+      tokF
+        (yypos, ">", Markup.delimiter, "TGT", Tokens.TGT)
+    val second =
+      tokF
+        (yypos + 1, ">", Markup.delimiter, "TGT", Tokens.TGT)
+    val _ = pending_signature_tokens := [second]
+  in first end
+
+fun take_pending_signature_token () =
+  (case !pending_signature_tokens of
+     token :: rest =>
+       (pending_signature_tokens := rest; SOME token)
+   | [] => NONE)
+
+fun signature_left_paren (yypos, yytext) =
+  (signature_paren_depth := !signature_paren_depth + 1;
+   tokF (yypos, yytext, Markup.delimiter, "LPAR", Tokens.LPAR))
+
+fun signature_right_paren (yypos, yytext) =
+  (signature_paren_depth := Int.max (0, !signature_paren_depth - 1);
+   tokF (yypos, yytext, Markup.delimiter, "RPAR", Tokens.RPAR))
+
+fun signature_left_brace (yypos, yytext) =
+  tokF (yypos, yytext, Markup.delimiter, "TLBRACE", Tokens.TLBRACE)
 
 fun tok_generic_open (yypos, yytext) =
   let
@@ -281,27 +513,67 @@ fun tok_matches_bang (yypos, yytext) =
     val range as (start, stop) =
       Parser_Lex_Util.text_range (!source_layout) (yypos, yytext)
     val bang_raw = yypos + size yytext - 1
-    val bang_pos = fixed_pos bang_raw
+    val name_pos =
+      Position.range_position
+        (Parser_Lex_Util.text_range
+          (!source_layout) (yypos, "matches"))
+    val bang_pos =
+      Position.range_position
+        (Parser_Lex_Util.text_range
+          (!source_layout) (bang_raw, "!"))
     val _ = report_text (yypos, "matches", Markup.keyword1, "TMATCHESBANG")
     val _ = report_text (bang_raw, "!", Markup.operator, "TMATCHESBANG")
-  in Tokens.TMATCHESBANG (bang_pos, start, stop) end
+  in Tokens.TMATCHESBANG ((name_pos, bang_pos), start, stop) end
 
 fun tok_log_data_open (yypos, yytext) =
   let
     val range as (start, stop) =
       Parser_Lex_Util.text_range (!source_layout) (yypos, yytext)
     val delimiter_raw = yypos + 1
+    val name_pos =
+      Position.range_position
+        (Parser_Lex_Util.text_range
+          (!source_layout) (yypos, "l"))
+    val delimiter_pos =
+      Position.range_position
+        (Parser_Lex_Util.text_range
+          (!source_layout)
+          (delimiter_raw, String.extract (yytext, 1, NONE)))
     val _ = report_text (yypos, "l", Markup.keyword1, "TLOGDATAOPEN")
     val _ =
       report_text
         (delimiter_raw, String.extract (yytext, 1, NONE),
          Markup.delimiter, "TLOGDATAOPEN")
     val _ = log_data_open := SOME start
-  in Tokens.TLOGDATAOPEN range end
+  in Tokens.TLOGDATAOPEN ((name_pos, delimiter_pos), start, stop) end
 
 fun tok_log_identifier (yypos, yytext) =
   let val p = Parser_Lex_Util.ident_pos (!source_layout) (yypos, yytext)
   in Tokens.LOGIDENT (yytext, p, p) end
+
+fun finish_hol_type (close_pos, close_text) =
+  (case !hol_type_open of
+     SOME open_pos =>
+       let
+         val body =
+           if !hol_type_start = close_pos
+           then
+             Input.source true ""
+               (Position.range
+                 (fixed_pos (!hol_type_start),
+                  fixed_pos close_pos))
+           else
+             Parser_Lex_Util.source_slice
+               (!source_layout) (!hol_type_start) close_pos
+         val token_start = fixed_pos open_pos
+         val close_start = fixed_pos close_pos
+         val token_stop = Position.symbol_explode close_text close_start
+         val _ =
+           report_text
+             (close_pos, close_text, Markup.delimiter, "HOLTYPE")
+         val _ = reset_hol_type ()
+       in Tokens.HOLTYPE (body, token_start, token_stop) end
+   | NONE => raise Fail "uRust lexer: missing HOL type opener")
 
 fun eof () =
   (case !comment_context of
@@ -310,25 +582,29 @@ fun eof () =
        then URust_Grammar.formal_comment_open_error (fixed_pos (!comment_open))
        else URust_Grammar.formal_comment_close_error (fixed_pos (!comment_open))
    | NONE =>
-       (case !block_comment_open of
+       (case !hol_type_open of
           SOME open_pos =>
-            URust_Grammar.block_comment_error (fixed_pos open_pos)
+            URust_Grammar.hol_type_error (fixed_pos open_pos)
         | NONE =>
-            (case !aq_kind of
-               No_AQ =>
-                 (case !log_data_open of
-                    SOME pos => URust_Grammar.log_data_error pos
-                  | NONE =>
-                      (case !generic_open of
-                         NONE => Tokens.EOF (Position.none, Position.none)
-                       | SOME pos =>
-                           URust_Grammar.turbofish_error pos))
-             | Value_AQ => URust_Grammar.antiquotation_error "value" (fixed_pos (!aq_open))
-             | Expr_AQ => URust_Grammar.antiquotation_error "expression" (fixed_pos (!aq_open)))))
+            (case !block_comment_open of
+               SOME open_pos =>
+                 URust_Grammar.block_comment_error (fixed_pos open_pos)
+             | NONE =>
+                 (case !aq_kind of
+                    No_AQ =>
+                      (case !log_data_open of
+                         SOME pos => URust_Grammar.log_data_error pos
+                       | NONE =>
+                           (case !generic_open of
+                              NONE => Tokens.EOF (Position.none, Position.none)
+                            | SOME pos =>
+                                URust_Grammar.turbofish_error pos))
+                  | Value_AQ => URust_Grammar.antiquotation_error "value" (fixed_pos (!aq_open))
+                  | Expr_AQ => URust_Grammar.antiquotation_error "expression" (fixed_pos (!aq_open))))))
 \<close>
 lex_definitions\<open>
 %header (functor URustLexFun(structure Tokens: URust_TOKENS));
-%s VAQ EAQ GENERIC LOGDATA BLOCK_COMMENT COMMENT_OPEN COMMENT;
+%s VAQ EAQ GENERIC LOGDATA FNSIG BLOCK_COMMENT HOLTYPE COMMENT_OPEN COMMENT;
 digit=[0-9];
 hexdigit=[0-9a-fA-F];
 idstart=[A-Za-z_];
@@ -343,21 +619,31 @@ lex_rules\<open>
 <INITIAL>"//"[^\n]* =>
     (report_text (yypos, yytext, Markup.comment1, "line comment"); lex());
 <INITIAL>"/*" =>
-    (start_block_comment yypos; YYBEGIN BLOCK_COMMENT; lex());
+    (start_block_comment Initial_Block_Comment yypos;
+     YYBEGIN BLOCK_COMMENT; lex());
 <INITIAL>\\"<comment>" =>
     (start_comment Initial_Comment yypos; YYBEGIN COMMENT_OPEN; lex());
 <INITIAL>"0b"[0-1_]+ =>
-    (tok_valF (yypos, yytext, Markup.numeral, "NUM", Tokens.NUM, yytext));
+    (tok_integer "NUM" Tokens.NUM (yypos, yytext));
 <INITIAL>"0o"[0-7_]+ =>
-    (tok_valF (yypos, yytext, Markup.numeral, "NUM", Tokens.NUM, yytext));
+    (tok_integer "NUM" Tokens.NUM (yypos, yytext));
 <INITIAL>"0x"[0-9a-fA-F_]+ =>
-    (tok_valF (yypos, yytext, Markup.numeral, "NUM", Tokens.NUM, yytext));
+    (tok_integer "NUM" Tokens.NUM (yypos, yytext));
 <INITIAL>{digit}[0-9_]* =>
-    (tok_valF (yypos, yytext, Markup.numeral, "NUM", Tokens.NUM, yytext));
+    (tok_integer "NUM" Tokens.NUM (yypos, yytext));
 <INITIAL>{digit}{idchar}* =>
-    (tok_valF (yypos, yytext, Markup.numeral, "NUMSFX", Tokens.NUMSFX, yytext));
+    (tok_integer "NUMSFX" Tokens.NUMSFX (yypos, yytext));
 <INITIAL>"true"   => (tokF (yypos, yytext, Markup.keyword1, "TTRUE", Tokens.TTRUE));
 <INITIAL>"false"  => (tokF (yypos, yytext, Markup.keyword1, "TFALSE", Tokens.TFALSE));
+<INITIAL>"fn"     => (start_signature Function_Signature;
+                      YYBEGIN FNSIG;
+                      tokF (yypos, yytext, Markup.keyword1, "TFN", Tokens.TFN));
+<INITIAL>"struct" => (start_signature Datatype_Signature;
+                      YYBEGIN FNSIG;
+                      tokF (yypos, yytext, Markup.keyword1, "TSTRUCT", Tokens.TSTRUCT));
+<INITIAL>"enum"   => (start_signature Datatype_Signature;
+                      YYBEGIN FNSIG;
+                      tokF (yypos, yytext, Markup.keyword1, "TENUM", Tokens.TENUM));
 <INITIAL>"as"     => (tokF (yypos, yytext, Markup.keyword1, "TAS", Tokens.TAS));
 <INITIAL>"u8"     => (tok_valF (yypos, yytext, Markup.keyword1, "TUINT", Tokens.TUINT, UT_U8));
 <INITIAL>"u16"    => (tok_valF (yypos, yytext, Markup.keyword1, "TUINT", Tokens.TUINT, UT_U16));
@@ -428,6 +714,12 @@ lex_rules\<open>
 <INITIAL>"\""     => (URust_Grammar.string_error (fixed_pos yypos));
 <INITIAL>"l"\\"<llangle>" =>
     (YYBEGIN LOGDATA; tok_log_data_open (yypos, yytext));
+<INITIAL>\\"<tau>"\\"<open>" =>
+    (start_hol_type_token Initial_HOL_Type (yypos, yytext);
+     YYBEGIN HOLTYPE;
+     lex());
+<INITIAL>\\"<open>" =>
+    (URust_Grammar.hol_type_prefix_error (fixed_pos yypos));
 <INITIAL>{idstart}{identchar}* => (tok_ident (yypos, yytext));
 <INITIAL>"("      => (tokF (yypos, yytext, Markup.delimiter, "LPAR", Tokens.LPAR));
 <INITIAL>")"      => (tokF (yypos, yytext, Markup.delimiter, "RPAR", Tokens.RPAR));
@@ -440,8 +732,8 @@ lex_rules\<open>
 <INITIAL>"]"      => (tokF (yypos, yytext, Markup.delimiter, "TRBRACK", Tokens.TRBRACK));
 <INITIAL>"{"      => (tokF (yypos, yytext, Markup.delimiter, "TLBRACE", Tokens.TLBRACE));
 <INITIAL>"}"      => (tokF (yypos, yytext, Markup.delimiter, "TRBRACE", Tokens.TRBRACE));
-<INITIAL>\\"<llangle>"          => (report_text (yypos, yytext, Markup.delimiter, "VALAQ"); start_aq Value_AQ yypos (yypos + size yytext); YYBEGIN VAQ; lex());
-<INITIAL>\\"<epsilon>"\\"<open>" => (report_text (yypos, hd (Symbol.explode yytext), Markup.literal, "EXPRAQ"); start_aq Expr_AQ yypos (yypos + size yytext); YYBEGIN EAQ; lex());
+<INITIAL>\\"<llangle>"          => (report_text (yypos, yytext, Markup.delimiter, "VALAQ"); start_aq Value_AQ yypos yytext (yypos + size yytext); YYBEGIN VAQ; lex());
+<INITIAL>\\"<epsilon>"\\"<open>" => (report_text (yypos, hd (Symbol.explode yytext), Markup.literal, "EXPRAQ"); start_aq Expr_AQ yypos yytext (yypos + size yytext); YYBEGIN EAQ; lex());
 <INITIAL>\\"<Rightarrow>" => (tokF (yypos, yytext, Markup.delimiter, "TARROW", Tokens.TARROW));
 <INITIAL>\\"<^sub>""1"\\"<^sub>""0" => (tok_valF (yypos, yytext, Markup.delimiter, "FUNARITY", Tokens.FUNARITY, 10));
 <INITIAL>\\"<^sub>""1"\\"<^sub>""1" => (tok_valF (yypos, yytext, Markup.delimiter, "FUNARITY", Tokens.FUNARITY, 11));
@@ -465,13 +757,25 @@ lex_rules\<open>
        let
          val p = fixed_pos (!aq_start)
          val q = fixed_pos yypos
-         val open_pos = fixed_pos (!aq_open)
-         val token_stop = Position.symbol_explode yytext q
+         val open_range as (token_start, _) =
+           Parser_Lex_Util.text_range
+             (!source_layout) (!aq_open, !aq_open_text)
+         val close_range as (_, token_stop) =
+           Parser_Lex_Util.text_range
+             (!source_layout) (yypos, yytext)
+         val open_pos = Position.range_position open_range
+         val close_pos = Position.range_position close_range
+         val layout =
+           make_source_layout
+             (Position.range_position (token_start, token_stop))
+             [(Literal_Token, open_pos),
+              (Literal_Token, close_pos)]
          val body = take_aq ()
        in
          Tokens.VALAQ
-           (Input.source true body (Position.range (p, q)),
-            open_pos, token_stop)
+           (Value_Antiquotation
+              (Input.source true body (Position.range (p, q)), layout),
+            token_start, token_stop)
        end));
 <VAQ>\n           => (push_aq "\n"; lex());
 <VAQ>.            => (push_aq yytext; lex());
@@ -505,6 +809,88 @@ lex_rules\<open>
     (generic_open := NONE; YYBEGIN INITIAL;
      tokF (yypos, yytext, Markup.delimiter, "TGT", Tokens.TGT));
 <GENERIC>.        => (URust_Grammar.lex_error yytext (fixed_pos yypos));
+<FNSIG>\n       => (lex());
+<FNSIG>{ws}+    => (lex());
+<FNSIG>"//"[^\n]* =>
+    (report_text (yypos, yytext, Markup.comment1, "line comment"); lex());
+<FNSIG>"/*" =>
+    (start_block_comment Signature_Block_Comment yypos;
+     YYBEGIN BLOCK_COMMENT; lex());
+<FNSIG>\\"<comment>" =>
+    (start_comment Signature_Comment yypos; YYBEGIN COMMENT_OPEN; lex());
+<FNSIG>{digit}[0-9_]* =>
+    (tok_integer "NUM" Tokens.NUM (yypos, yytext));
+<FNSIG>{digit}{idchar}* =>
+    (tok_integer "NUMSFX" Tokens.NUMSFX (yypos, yytext));
+<FNSIG>"true"   => (tokF (yypos, yytext, Markup.keyword1, "TTRUE", Tokens.TTRUE));
+<FNSIG>"false"  => (tokF (yypos, yytext, Markup.keyword1, "TFALSE", Tokens.TFALSE));
+<FNSIG>"u8"     => (tok_rust_type DPT_U8 (yypos, yytext));
+<FNSIG>"u16"    => (tok_rust_type DPT_U16 (yypos, yytext));
+<FNSIG>"u32"    => (tok_rust_type DPT_U32 (yypos, yytext));
+<FNSIG>"u64"    => (tok_rust_type DPT_U64 (yypos, yytext));
+<FNSIG>"u128"   => (tok_rust_type DPT_U128 (yypos, yytext));
+<FNSIG>"usize"  => (tok_rust_type DPT_Usize (yypos, yytext));
+<FNSIG>"i8"     => (tok_rust_type DPT_I8 (yypos, yytext));
+<FNSIG>"i16"    => (tok_rust_type DPT_I16 (yypos, yytext));
+<FNSIG>"i32"    => (tok_rust_type DPT_I32 (yypos, yytext));
+<FNSIG>"i64"    => (tok_rust_type DPT_I64 (yypos, yytext));
+<FNSIG>"i128"   => (tok_rust_type DPT_I128 (yypos, yytext));
+<FNSIG>"isize"  => (tok_rust_type DPT_Isize (yypos, yytext));
+<FNSIG>"bool"   => (tok_rust_type DPT_Bool (yypos, yytext));
+<FNSIG>"char"   => (tok_rust_type DPT_Char (yypos, yytext));
+<FNSIG>"str"    => (tok_rust_type DPT_Str (yypos, yytext));
+<FNSIG>"mut"    => (tokF (yypos, yytext, Markup.keyword1, "TMUT", Tokens.TMUT));
+<FNSIG>"const"  => (tokF (yypos, yytext, Markup.keyword1, "TCONST", Tokens.TCONST));
+<FNSIG>"->"     => (tokF (yypos, yytext, Markup.delimiter, "TTHINARROW", Tokens.TTHINARROW));
+<FNSIG>"::"     => (tokF (yypos, yytext, Markup.delimiter, "TCOLONCOLON", Tokens.TCOLONCOLON));
+<FNSIG>"..="    => (tokF (yypos, yytext, Markup.operator, "TDOTDOTEQ", Tokens.TDOTDOTEQ));
+<FNSIG>".."     => (tokF (yypos, yytext, Markup.operator, "TDOTDOT", Tokens.TDOTDOT));
+<FNSIG>">>"     => (split_signature_right (yypos, yytext));
+<FNSIG>"<"      => (tokF (yypos, yytext, Markup.delimiter, "TLT", Tokens.TLT));
+<FNSIG>">"      => (tokF (yypos, yytext, Markup.delimiter, "TGT", Tokens.TGT));
+<FNSIG>"&"      => (tokF (yypos, yytext, Markup.operator, "TAMP", Tokens.TAMP));
+<FNSIG>"*"      => (tokF (yypos, yytext, Markup.operator, "TSTAR", Tokens.TSTAR));
+<FNSIG>"|"      => (tokF (yypos, yytext, Markup.operator, "TBAR", Tokens.TBAR));
+<FNSIG>"@"      => (tokF (yypos, yytext, Markup.operator, "TAT", Tokens.TAT));
+<FNSIG>"!"      => (tokF (yypos, yytext, Markup.delimiter, "TBANG", Tokens.TBANG));
+<FNSIG>"\""([^\"\\\n]|\\.)*"\"" =>
+    (tok_valF (yypos, yytext, Markup.inner_string, "STRING", Tokens.STRING, yytext));
+<FNSIG>"\""     => (URust_Grammar.string_error (fixed_pos yypos));
+<FNSIG>\\"<tau>"\\"<open>" =>
+    (start_hol_type_token Signature_HOL_Type (yypos, yytext);
+     YYBEGIN HOLTYPE;
+     lex());
+<FNSIG>\\"<open>" =>
+    (URust_Grammar.hol_type_prefix_error (fixed_pos yypos));
+<FNSIG>"("      => (signature_left_paren (yypos, yytext));
+<FNSIG>")"      => (signature_right_paren (yypos, yytext));
+<FNSIG>"["      => (tokF (yypos, yytext, Markup.delimiter, "TLBRACK", Tokens.TLBRACK));
+<FNSIG>"]"      => (tokF (yypos, yytext, Markup.delimiter, "TRBRACK", Tokens.TRBRACK));
+<FNSIG>","      => (tokF (yypos, yytext, Markup.delimiter, "COMMA", Tokens.COMMA));
+<FNSIG>";"      =>
+    (if !signature_context = Datatype_Signature andalso
+        !signature_paren_depth = 0 andalso
+        !signature_brace_depth = 0
+     then YYBEGIN INITIAL
+     else ();
+     tokF (yypos, yytext, Markup.delimiter, "TSEMI", Tokens.TSEMI));
+<FNSIG>":"      => (tokF (yypos, yytext, Markup.delimiter, "TCOLON", Tokens.TCOLON));
+<FNSIG>"{"      =>
+    (if !signature_context = Datatype_Signature
+     then signature_brace_depth := !signature_brace_depth + 1
+     else if !signature_paren_depth = 0 then YYBEGIN INITIAL
+     else ();
+     signature_left_brace (yypos, yytext));
+<FNSIG>"}"      =>
+    (if !signature_context = Datatype_Signature
+     then
+       (signature_brace_depth :=
+          Int.max (0, !signature_brace_depth - 1);
+        if !signature_brace_depth = 0 then YYBEGIN INITIAL else ())
+     else ();
+     tokF (yypos, yytext, Markup.delimiter, "TRBRACE", Tokens.TRBRACE));
+<FNSIG>{idstart}{identchar}* => (tok_ident (yypos, yytext));
+<FNSIG>.        => (URust_Grammar.lex_error yytext (fixed_pos yypos));
 <LOGDATA>\n       => (lex());
 <LOGDATA>{ws}+    => (lex());
 <LOGDATA>\\"<comment>" =>
@@ -530,11 +916,28 @@ lex_rules\<open>
     (if !block_comment_depth > 1 then
        (block_comment_depth := !block_comment_depth - 1; lex())
      else
-       (finish_block_comment (yypos, yytext);
-        YYBEGIN INITIAL;
+       ((case finish_block_comment (yypos, yytext) of
+           Initial_Block_Comment => YYBEGIN INITIAL
+         | Signature_Block_Comment => YYBEGIN FNSIG);
         lex()));
 <BLOCK_COMMENT>\n => (lex());
 <BLOCK_COMMENT>.  => (lex());
+<HOLTYPE>\\"<open>" =>
+    (hol_type_depth := !hol_type_depth + 1; lex());
+<HOLTYPE>\\"<close>" =>
+    (if !hol_type_depth > 1 then
+       (hol_type_depth := !hol_type_depth - 1; lex())
+     else
+       let
+         val context = !hol_type_context
+         val token = finish_hol_type (yypos, yytext)
+         val _ =
+           (case context of
+              Initial_HOL_Type => YYBEGIN INITIAL
+            | Signature_HOL_Type => YYBEGIN FNSIG)
+       in token end);
+<HOLTYPE>\n => (lex());
+<HOLTYPE>.  => (lex());
 <COMMENT_OPEN>\n       => (lex());
 <COMMENT_OPEN>{ws}+    => (lex());
 <COMMENT_OPEN>\\"<open>" =>
@@ -547,8 +950,9 @@ lex_rules\<open>
     (if !comment_depth > 0 then
        (comment_depth := !comment_depth - 1; lex())
      else
-       ((case take_comment_context () of
+       ((case finish_formal_comment (yypos, yytext) of
            Initial_Comment => YYBEGIN INITIAL
+         | Signature_Comment => YYBEGIN FNSIG
          | Generic_Comment => YYBEGIN GENERIC
          | Log_Data_Comment => YYBEGIN LOGDATA);
         lex()));
@@ -573,42 +977,146 @@ fun generic_argument
   Generic_Arg
     (canonical, Parser_Lex_Util.source_slice layout start stop)
 
-datatype binding_head =
-    BH_Let of ur_pat * ur_expr
-  | BH_LetMut of ur_pat * ur_expr * Position.T
-  | BH_Const of ur_pat * ur_expr
-  | BH_LetElse of ur_pat * ur_expr * ur_expr * Position.T
+fun spanning_position left right =
+  Position.range_position
+    (left, Parser_Lex_Util.exclusive_end right)
 
-fun finish_binding (BH_Let (pattern, value), body, _) =
-      UE_Let (pattern, value, body)
-  | finish_binding (BH_LetMut (pattern, value, pos), body, _) =
-      UE_LetMut (pattern, value, body, pos)
-  | finish_binding (BH_Const (pattern, value), body, _) =
-      UE_Const (pattern, value, body)
+fun syntax_layout left right tokens =
+  make_source_layout (spanning_position left right) tokens
+
+fun single_token_layout token pos =
+  make_source_layout pos [(token, pos)]
+
+datatype binding_head =
+    BH_Let of ur_pat * ur_expr * Position.T * Position.T
+  | BH_LetMut of
+      ur_pat * ur_expr * Position.T * Position.T * Position.T
+  | BH_Const of ur_pat * ur_expr * Position.T * Position.T
+  | BH_LetElse of
+      ur_pat * ur_expr * ur_expr *
+      Position.T * Position.T * Position.T
+
+fun finish_binding
+      (BH_Let (pattern, value, keyword_pos, equals_pos),
+       body, semi_pos, body_right) =
+      UE_Let
+        (pattern, value, body,
+         syntax_layout keyword_pos body_right
+           [(Keyword_Token "let", keyword_pos),
+            (Delimiter_Token "=", equals_pos),
+            (Delimiter_Token ";", semi_pos)])
   | finish_binding
-      (BH_LetElse (pattern, value, fallback, pos), body, body_right) =
+      (BH_LetMut
+        (pattern, value, keyword_pos, mutable_pos, equals_pos),
+       body, semi_pos, body_right) =
+      UE_LetMut
+        (pattern, value, body,
+         syntax_layout keyword_pos body_right
+           [(Keyword_Token "let", keyword_pos),
+            (Keyword_Token "mut", mutable_pos),
+            (Delimiter_Token "=", equals_pos),
+            (Delimiter_Token ";", semi_pos)])
+  | finish_binding
+      (BH_Const (pattern, value, keyword_pos, equals_pos),
+       body, semi_pos, body_right) =
+      UE_Const
+        (pattern, value, body,
+         syntax_layout keyword_pos body_right
+           [(Keyword_Token "const", keyword_pos),
+            (Delimiter_Token "=", equals_pos),
+            (Delimiter_Token ";", semi_pos)])
+  | finish_binding
+      (BH_LetElse
+        (pattern, value, fallback, keyword_pos, equals_pos, else_pos),
+       body, semi_pos, body_right) =
       mk_let_else
-        (pattern, value, fallback, body, pos, body_right)
+        (pattern, value, fallback, body,
+         syntax_layout keyword_pos body_right
+           [(Keyword_Token "let", keyword_pos),
+            (Delimiter_Token "=", equals_pos),
+            (Keyword_Token "else", else_pos),
+            (Delimiter_Token ";", semi_pos)])
 
 datatype if_head =
     IH_If of ur_expr * Position.T
   | IH_IfLet of
-      ur_pat * ur_expr * Position.T
+      ur_pat * ur_expr * Position.T * Position.T * Position.T
 
 fun finish_conditional
-      (IH_If (condition, pos), success, fallback, _) =
-      UE_If (condition, success, fallback, pos)
+      (IH_If (condition, if_pos), success, fallback, else_pos, stop) =
+      UE_If
+        (condition, success, fallback,
+         syntax_layout if_pos stop
+           ((Keyword_Token "if", if_pos) ::
+             (case else_pos of
+                SOME pos => [(Keyword_Token "else", pos)]
+              | NONE => [])))
   | finish_conditional
-      (IH_IfLet (pattern, value, pos), success, fallback, stop) =
+      (IH_IfLet
+        (pattern, value, if_pos, let_pos, equals_pos),
+       success, fallback, else_pos, stop) =
       UE_IfLet
         (pattern, value, success, fallback,
-         Position.range_position (pos, stop))
+         syntax_layout if_pos stop
+           ([(Keyword_Token "if", if_pos),
+             (Keyword_Token "let", let_pos),
+             (Delimiter_Token "=", equals_pos)] @
+            (case else_pos of
+               SOME pos => [(Keyword_Token "else", pos)]
+             | NONE => [])))
 
 datatype arm_head =
-  AH_Arm of ur_pat * (ur_expr * Position.T) option
+  AH_Arm of
+    ur_pat * (ur_expr * Position.T) option *
+    (source_token * Position.T) list
 
-fun finish_arm (AH_Arm (pattern, guard), body) =
-  UR_Arm (pattern, guard, body)
+fun finish_arm (AH_Arm (pattern, guard, tokens), body) =
+  UR_Arm
+    (pattern, guard, body,
+     syntax_layout
+       (pattern_position pattern) (expression_position body) tokens)
+
+datatype fuel_head =
+  Fuel_Head of
+    Input.source * Position.T * (source_token * Position.T) list
+
+fun fuel_source (Fuel_Head (source, _, _)) = source
+fun fuel_start (Fuel_Head (_, start, _)) = start
+fun fuel_tokens (Fuel_Head (_, _, tokens)) = tokens
+
+fun binary_expression operator left right operator_pos =
+  UE_Bin
+    (operator, left, right,
+     syntax_layout
+       (expression_position left) (expression_position right)
+       [(Operator_Token, operator_pos)])
+
+fun range_expression kind left right operator_pos =
+  UE_Range
+    (kind, left, right,
+     syntax_layout
+       (expression_position left) (expression_position right)
+       [(Operator_Token, operator_pos)])
+
+fun cast_expression operand target as_pos target_right =
+  UE_Cast
+    (operand, target,
+     syntax_layout
+       (expression_position operand) target_right
+       [(Keyword_Token "as", as_pos)])
+
+fun prefix_expression operator operator_pos operand tokens =
+  UE_Unary
+    (operator, operand,
+     syntax_layout operator_pos (expression_position operand)
+       tokens)
+
+fun postfix_expression operator operand operator_pos =
+  UE_Unary
+    (operator, operand,
+     syntax_layout
+       (expression_position operand) operator_pos
+       [(Operator_Token, operator_pos)])
 
 fun segment_position (Path_Segment (_, pos, NONE)) = pos
   | segment_position (Path_Segment (_, _, SOME (Generic_Args (_, pos)))) = pos
@@ -632,13 +1140,34 @@ fun reject_struct_head_generics path =
            URust_Grammar.struct_head_generics_error pos)
   in List.app reject (path_segments path) end
 
-fun make_struct_expression (path, fields, right) =
+fun make_struct_expression
+    (path, fields, left_brace, right_brace, right_stop) =
   let
     val _ = reject_struct_head_generics path
   in
     UE_Struct
       (path, fields,
-       Position.range_position (path_position path, right))
+       syntax_layout (path_position path) right_stop
+         [(Delimiter_Token "{", left_brace),
+          (Delimiter_Token "}", right_brace)])
+  end
+
+fun make_slice_pattern (items, left_bracket, right_bracket, right_stop) =
+  let
+    fun rest_tokens [] = []
+      | rest_tokens (SI_Rest pos :: rest) =
+          (Delimiter_Token "..", pos) :: rest_tokens rest
+      | rest_tokens (SI_BoundRest (_, _, at_pos, rest_pos) :: rest) =
+          (Operator_Token, at_pos) ::
+          (Delimiter_Token "..", rest_pos) :: rest_tokens rest
+      | rest_tokens (SI_Pat _ :: rest) = rest_tokens rest
+  in
+    P_Slice
+      (items,
+       syntax_layout left_bracket right_stop
+         ((Delimiter_Token "[", left_bracket) ::
+          rest_tokens items @
+          [(Delimiter_Token "]", right_bracket)]))
   end
 
 fun same_offset left right =
@@ -648,14 +1177,93 @@ fun same_offset left right =
    | _ => left = right)
 
 fun make_function_literal
-    (source, arity, value_right, suffix_left, suffix_right, arguments) =
+    (antiquotation, arity, value_right, suffix_left, suffix_right, arguments) =
   if same_offset value_right suffix_left then
     UC_FunLiteral
-      (source, arity,
+      (antiquotation, arity,
        Position.range_position (suffix_left, suffix_right),
        arguments)
   else
     URust_Grammar.function_literal_suffix_error suffix_left
+
+fun datatype_variant (name, pos, shape) =
+  Datatype_Variant (name, pos, shape)
+
+fun rust_type_segment (name, name_pos, arguments, right_pos) =
+  Rust_Type_Path_Segment
+    (name, name_pos, arguments,
+     syntax_layout name_pos right_pos
+       [(Name_Token, name_pos)])
+
+fun rust_type_segment_position
+    (Rust_Type_Path_Segment (_, _, _, layout)) =
+  source_span layout
+
+fun rust_type_path segment =
+  Path_Type
+    ([segment],
+     make_source_layout (rust_type_segment_position segment) [])
+
+fun append_rust_type_path
+    (Path_Type (segments, layout), segment) =
+      Path_Type
+        (segments @ [segment],
+         syntax_layout
+           (source_span layout)
+           (rust_type_segment_position segment) [])
+  | append_rust_type_path _ =
+      raise Fail "uRust parser: internal non-path Rust type"
+
+fun rust_type_parameter mutable_pos pattern typ colon_pos =
+  Function_Parameter
+    (mutable_pos, pattern, typ,
+     syntax_layout
+       (case mutable_pos of
+          SOME pos => pos
+        | NONE => pattern_position pattern)
+       (rust_type_position typ)
+       ((case mutable_pos of
+           SOME pos => [(Keyword_Token "mut", pos)]
+         | NONE => []) @
+        [(Delimiter_Token ":", colon_pos)]))
+
+fun rust_function_item
+    (name, name_pos, parameters, return_type, body,
+     fn_pos, left_paren, right_paren, arrow_pos) =
+  let
+    val body_layout = expression_source_layout body
+    val signature_tokens =
+      [(Keyword_Token "fn", fn_pos),
+       (Name_Token, name_pos),
+       (Delimiter_Token "(", left_paren),
+       (Delimiter_Token ")", right_paren)] @
+      (case arrow_pos of
+         SOME pos => [(Delimiter_Token "->", pos)]
+       | NONE => [])
+  in
+    Function_Item
+      (name, name_pos, parameters, return_type, body,
+       syntax_layout fn_pos (source_span body_layout)
+         (signature_tokens @ source_tokens body_layout))
+  end
+
+fun reject_datatype_item_in_expression
+      (Struct_Item (_, _, _, pos)) =
+      URust_Grammar.item_in_expression_error
+        "struct" "urust_datatype" pos
+  | reject_datatype_item_in_expression
+      (Enum_Item (_, _, _, pos)) =
+      URust_Grammar.item_in_expression_error
+        "enum" "urust_datatype" pos
+
+fun reject_function_item_in_expression function =
+  URust_Grammar.item_in_expression_error
+    "function" "urust_fn" (function_item_position function)
+
+fun reject_item_in_expression (Datatype_Item item) =
+      reject_datatype_item_in_expression item
+  | reject_item_in_expression (Function_Item_Node function) =
+      reject_function_item_in_expression function
 \<close>
 yacc_definitions\<open>
 %name URust
@@ -680,8 +1288,11 @@ yacc_definitions\<open>
 %left TPLUS TMINUS
 %left TSTAR TSLASH TPERCENT
 
-%term NUM of string | NUMSFX of string | STRING of string | IDENT of string | LPAR | RPAR
-    | VALAQ of Input.source | EXPRAQ of Input.source * Position.T
+%term NUM of URust_AST.integer_literal
+    | NUMSFX of URust_AST.integer_literal
+    | STRING of string | IDENT of string | LPAR | RPAR
+    | VALAQ of URust_AST.value_antiquotation
+    | EXPRAQ of Input.source * Position.T
     | TGOPEN
     | GNUM of string * Parser_Lex_Util.source_layout * int * int
     | GIDENT of string * Parser_Lex_Util.source_layout * int * int
@@ -698,12 +1309,36 @@ yacc_definitions\<open>
     | TUNSAFE | TFUEL | TWHILE | TLOOP | TFOR | TIN | THASH
     | TMATCH | TMATCHSWITCH | TMATCHCASE | TARROW
     | TDOTDOT | TDOTDOTEQ | TMUT | TPATCONTEXT
-    | TMATCHESBANG of Position.T
+    | TMATCHESBANG of Position.T * Position.T
     | TAS | TUINT of URust_AST.unsigned_type | TSINT of URust_AST.signed_type
     | FUNARITY of int
-    | TYIELD | TLOG | TLOGDATAOPEN | LOGSTRING of string | LOGIDENT of string
+    | TYIELD | TLOG | TLOGDATAOPEN of Position.T * Position.T
+    | LOGSTRING of string | LOGIDENT of string
     | TLOGDATACLOSE
-%nonterm ustart of URust_AST.ur_expr option
+    | TSTRUCT | TENUM | TFN | TTHINARROW
+    | TRUSTTYPE of URust_AST.rust_primitive_type
+    | HOLTYPE of Input.source
+    | TEXPRSTART | TITEMSTART
+%nonterm ustart of URust_AST.parse_result option
+       | uitem of URust_AST.urust_item
+       | udatatype of URust_AST.urust_datatype
+       | ufunction of URust_AST.urust_function
+       | ufn_parameters of URust_AST.function_parameter list
+       | ufn_parameter of URust_AST.function_parameter
+       | ufn_return of URust_AST.rust_type option * Position.T option
+       | uvariant of URust_AST.datatype_variant
+       | uvariants of URust_AST.datatype_variant list
+       | udatatype_type of URust_AST.datatype_type
+       | udatatype_types of URust_AST.datatype_type list
+       | udatatype_field of URust_AST.datatype_field
+       | udatatype_fields of URust_AST.datatype_field list
+       | urust_type of URust_AST.rust_type
+       | urust_type_path of URust_AST.rust_type
+       | urust_type_segment of URust_AST.rust_type_path_segment
+       | urust_generic_argument of URust_AST.rust_generic_argument
+       | urust_generic_arguments of URust_AST.rust_generic_argument list
+       | urust_types of URust_AST.rust_type list
+       | urust_tuple_types of URust_AST.rust_type list
        | ubody of URust_AST.ur_expr
        | ubinding_head of binding_head
        | uexpr of URust_AST.ur_expr
@@ -748,7 +1383,7 @@ yacc_definitions\<open>
        | usemi_free_stmt of URust_AST.ur_expr
        | uconditional of URust_AST.ur_expr
        | uif_head of if_head
-       | ufuel of Input.source * Position.T
+       | ufuel of fuel_head
        | uloop_expr of URust_AST.ur_expr
        | umatch_kind of URust_AST.match_flavour * Position.T
        | umatch of URust_AST.ur_expr
@@ -784,39 +1419,228 @@ yacc_definitions\<open>
        | ulog_data_entries of URust_AST.log_data_entry list
 \<close>
 yacc_rules\<open>
-  ustart : ubody (SOME ubody)
-         | (NONE)
+  ustart : TEXPRSTART ubody (SOME (Parsed_Expression ubody))
+         | TEXPRSTART (NONE)
+         | TITEMSTART uitem (SOME (Parsed_Item uitem))
+  uitem : udatatype (Datatype_Item udatatype)
+        | ufunction (Function_Item_Node ufunction)
+  udatatype :
+      TSTRUCT IDENT TSEMI
+        (Struct_Item
+          (IDENT, IDENTleft, Unit_Shape,
+           Position.range_position (TSTRUCTleft, TSEMIright)))
+    | TSTRUCT IDENT LPAR udatatype_types RPAR TSEMI
+        (Struct_Item
+          (IDENT, IDENTleft, Tuple_Shape udatatype_types,
+           Position.range_position (TSTRUCTleft, TSEMIright)))
+    | TSTRUCT IDENT TLBRACE udatatype_fields TRBRACE
+        (Struct_Item
+          (IDENT, IDENTleft, Named_Shape udatatype_fields,
+           Position.range_position (TSTRUCTleft, TRBRACEright)))
+    | TENUM IDENT TLBRACE uvariants TRBRACE
+        (Enum_Item
+          (IDENT, IDENTleft, uvariants,
+           Position.range_position (TENUMleft, TRBRACEright)))
+  ufunction :
+      TFN IDENT LPAR ufn_parameters RPAR ufn_return ublock
+        (rust_function_item
+          (IDENT, IDENTleft, ufn_parameters,
+           #1 ufn_return, ublock, TFNleft,
+           LPARleft, RPARleft, #2 ufn_return))
+  ufn_return :
+      (NONE, NONE)
+    | TTHINARROW urust_type
+        (SOME urust_type, SOME TTHINARROWleft)
+  ufn_parameters :
+      ([])
+    | ufn_parameter ([ufn_parameter])
+    | ufn_parameter COMMA ufn_parameters
+        (ufn_parameter :: ufn_parameters)
+  ufn_parameter :
+      upat TCOLON urust_type
+        (rust_type_parameter NONE upat urust_type TCOLONleft)
+    | TMUT upat TCOLON urust_type
+        (rust_type_parameter
+          (SOME TMUTleft) upat urust_type TCOLONleft)
+  urust_type :
+      TRUSTTYPE
+        (Primitive_Type (TRUSTTYPE, TRUSTTYPEleft))
+    | TBANG
+        (Primitive_Type (DPT_Never, TBANGleft))
+    | urust_type_path
+        (urust_type_path)
+    | LPAR RPAR
+        (Primitive_Type
+          (DPT_Unit,
+           Position.range_position (LPARleft, RPARright)))
+    | LPAR urust_type RPAR
+        (Group_Type
+          (urust_type,
+           syntax_layout LPARleft RPARright
+             [(Delimiter_Token "(", LPARleft),
+              (Delimiter_Token ")", RPARleft)]))
+    | LPAR urust_tuple_types RPAR
+        (Tuple_Type
+          (urust_tuple_types,
+           syntax_layout LPARleft RPARright
+             [(Delimiter_Token "(", LPARleft),
+              (Delimiter_Token ")", RPARleft)]))
+    | TAMP urust_type
+        (Reference_Type
+          (BM_Imm, urust_type,
+           syntax_layout TAMPleft (rust_type_position urust_type)
+             [(Operator_Token, TAMPleft)]))
+    | TAMP TMUT urust_type
+        (Reference_Type
+          (BM_Mut, urust_type,
+           syntax_layout TAMPleft (rust_type_position urust_type)
+             [(Operator_Token, TAMPleft),
+              (Keyword_Token "mut", TMUTleft)]))
+    | TSTAR TCONST urust_type
+        (Raw_Pointer_Type
+          (RPM_Const, urust_type,
+           syntax_layout TSTARleft (rust_type_position urust_type)
+             [(Operator_Token, TSTARleft),
+              (Keyword_Token "const", TCONSTleft)]))
+    | TSTAR TMUT urust_type
+        (Raw_Pointer_Type
+          (RPM_Mut, urust_type,
+           syntax_layout TSTARleft (rust_type_position urust_type)
+             [(Operator_Token, TSTARleft),
+              (Keyword_Token "mut", TMUTleft)]))
+    | TLBRACK urust_type TRBRACK
+        (Slice_Type
+          (urust_type,
+           syntax_layout TLBRACKleft TRBRACKright
+             [(Delimiter_Token "[", TLBRACKleft),
+              (Delimiter_Token "]", TRBRACKleft)]))
+    | TLBRACK urust_type TSEMI NUM TRBRACK
+        (Array_Type
+          (urust_type, NUM,
+           syntax_layout TLBRACKleft TRBRACKright
+             [(Delimiter_Token "[", TLBRACKleft),
+              (Delimiter_Token ";", TSEMIleft),
+              (Delimiter_Token "]", TRBRACKleft)]))
+    | TLBRACK urust_type TSEMI NUMSFX TRBRACK
+        (Array_Type
+          (urust_type, NUMSFX,
+           syntax_layout TLBRACKleft TRBRACKright
+             [(Delimiter_Token "[", TLBRACKleft),
+              (Delimiter_Token ";", TSEMIleft),
+              (Delimiter_Token "]", TRBRACKleft)]))
+    | HOLTYPE
+        (HOL_Type_Source HOLTYPE)
+  urust_type_path :
+      urust_type_segment
+        (rust_type_path urust_type_segment)
+    | urust_type_path TCOLONCOLON urust_type_segment
+        (append_rust_type_path
+          (urust_type_path, urust_type_segment))
+  urust_type_segment :
+      IDENT
+        (rust_type_segment
+          (IDENT, IDENTleft, NONE, IDENTright))
+    | IDENT TLT urust_generic_arguments TGT
+        (rust_type_segment
+          (IDENT, IDENTleft, SOME urust_generic_arguments, TGTright))
+  urust_generic_argument :
+      urust_type (Rust_Type_Argument urust_type)
+    | NUM (Rust_Numeric_Argument NUM)
+    | NUMSFX (Rust_Numeric_Argument NUMSFX)
+  urust_generic_arguments :
+      urust_generic_argument ([urust_generic_argument])
+    | urust_generic_argument COMMA ([urust_generic_argument])
+    | urust_generic_argument COMMA urust_generic_arguments
+        (urust_generic_argument :: urust_generic_arguments)
+  urust_types :
+      urust_type ([urust_type])
+    | urust_type COMMA ([urust_type])
+    | urust_type COMMA urust_types
+        (urust_type :: urust_types)
+  urust_tuple_types :
+      urust_type COMMA ([urust_type])
+    | urust_type COMMA urust_types
+        (urust_type :: urust_types)
+  uvariant :
+      IDENT
+        (datatype_variant (IDENT, IDENTleft, Unit_Shape))
+    | IDENT LPAR udatatype_types RPAR
+        (datatype_variant
+          (IDENT, IDENTleft, Tuple_Shape udatatype_types))
+    | IDENT TLBRACE udatatype_fields TRBRACE
+        (datatype_variant
+          (IDENT, IDENTleft, Named_Shape udatatype_fields))
+  uvariants : uvariant ([uvariant])
+            | uvariant COMMA ([uvariant])
+            | uvariant COMMA uvariants (uvariant :: uvariants)
+  udatatype_type :
+      urust_type
+        (urust_type)
+  udatatype_types : udatatype_type ([udatatype_type])
+                  | udatatype_type COMMA ([udatatype_type])
+                  | udatatype_type COMMA udatatype_types
+                      (udatatype_type :: udatatype_types)
+  udatatype_field :
+      IDENT TCOLON udatatype_type
+        (Datatype_Field
+          (IDENT, IDENTleft, udatatype_type))
+  udatatype_fields : udatatype_field ([udatatype_field])
+                   | udatatype_field COMMA ([udatatype_field])
+                   | udatatype_field COMMA udatatype_fields
+                       (udatatype_field :: udatatype_fields)
   (* With-block classification controls only separator elision. Every with-block form also enters the
      primary-expression tier below, so operators can consume it without a second precedence ladder. *)
   ubody : uexpr                             (uexpr)
-        | uexpr TSEMI ubody                 (UE_Seq (uexpr, ubody))
+        | uexpr TSEMI ubody
+            (UE_Seq
+              (uexpr, ubody,
+               syntax_layout uexprleft ubodyright
+                 [(Delimiter_Token ";", TSEMIleft)]))
         | uexpr TSEMI                       (finish_statement (uexpr, TSEMIleft))
         | usemi_free_stmt                   (usemi_free_stmt)
         | ubinding_head TSEMI ubody
-            (finish_binding (ubinding_head, ubody, ubodyright))
+            (finish_binding
+              (ubinding_head, ubody, TSEMIleft, ubodyright))
   ubinding_head : TLET upat TEQ uexpr
-                    (BH_Let (upat, uexpr))
+                    (BH_Let
+                      (upat, uexpr, TLETleft, TEQleft))
                 | TLET TMUT upat TEQ uexpr
-                    (BH_LetMut (upat, uexpr, TMUTleft))
+                    (BH_LetMut
+                      (upat, uexpr, TLETleft, TMUTleft, TEQleft))
                 | TCONST upat TEQ uexpr
-                    (BH_Const (upat, uexpr))
+                    (BH_Const
+                      (upat, uexpr, TCONSTleft, TEQleft))
                 | TLET upat TEQ uexpr TELSE ublock
-                    (BH_LetElse (upat, uexpr, ublock, TLETleft))
+                    (BH_LetElse
+                      (upat, uexpr, ublock,
+                       TLETleft, TEQleft, TELSEleft))
   (* Return and closures are low-precedence expressions outside the operator ladder. Their operands
      and bodies are complete expressions, while assignment enters this layer only on its right. *)
   uexpr : uassign                           (uassign)
-        | TRETURN                           (UE_Return (NONE, TRETURNleft))
+        | TRETURN
+            (UE_Return
+              (NONE,
+               single_token_layout
+                 (Keyword_Token "return") TRETURNleft))
         | TRETURN uexpr
-            (UE_Return (SOME uexpr, TRETURNleft))
+            (UE_Return
+              (SOME uexpr,
+               syntax_layout TRETURNleft uexprright
+                 [(Keyword_Token "return", TRETURNleft)]))
         | uclosure                          (uclosure)
+        | uitem
+            (reject_item_in_expression uitem)
   uclosure : TBARBAR uexpr
                 (mk_closure
                   ([], uexpr,
-                   TBARBARleft, uexprright))
+                   syntax_layout TBARBARleft uexprright
+                     [(Operator_Token, TBARBARleft)]))
            | TBAR uclosure_formals TBAR uexpr
                 (mk_closure
                   (uclosure_formals, uexpr,
-                   TBAR1left, uexprright))
+                   syntax_layout TBAR1left uexprright
+                     [(Operator_Token, TBAR1left),
+                      (Operator_Token, TBAR2left)]))
   (* Closure formals share the pattern representation, but this grammar accepts identifier spellings
      only. mk_bare_ident_pat normalizes `_` to P_Wild so the closure-formal elaboration gate can issue
      the positioned semantic rejection. Repeated identifiers and arbitrarily long lists are retained. *)
@@ -843,158 +1667,236 @@ yacc_rules\<open>
             | TSHREQ     ((AssignBin AssignShr, TSHREQleft))
   urange : ubinary (ubinary)
          | ubinary TDOTDOT ubinary
-             (UE_Range (RK_Exclusive, ubinary1, ubinary2, TDOTDOTleft))
+             (range_expression
+               RK_Exclusive ubinary1 ubinary2 TDOTDOTleft)
          | ubinary TDOTDOTEQ ubinary
-             (UE_Range (RK_Inclusive, ubinary1, ubinary2, TDOTDOTEQleft))
+             (range_expression
+               RK_Inclusive ubinary1 ubinary2 TDOTDOTEQleft)
   ubinary : ucast (ucast)
           | ubinary TBARBAR ubinary
-              (UE_Bin (Or, ubinary1, ubinary2, TBARBARleft))
+              (binary_expression Or ubinary1 ubinary2 TBARBARleft)
           | ubinary TAMPAMP ubinary
-              (UE_Bin (And, ubinary1, ubinary2, TAMPAMPleft))
+              (binary_expression And ubinary1 ubinary2 TAMPAMPleft)
           | ubinary TEQEQ ubinary
-              (UE_Bin (Eq, ubinary1, ubinary2, TEQEQleft))
+              (binary_expression Eq ubinary1 ubinary2 TEQEQleft)
           | ubinary TNE ubinary
-              (UE_Bin (Ne, ubinary1, ubinary2, TNEleft))
+              (binary_expression Ne ubinary1 ubinary2 TNEleft)
           | ubinary TLT ubinary
-              (UE_Bin (Lt, ubinary1, ubinary2, TLTleft))
+              (binary_expression Lt ubinary1 ubinary2 TLTleft)
           | ubinary TLE ubinary
-              (UE_Bin (Le, ubinary1, ubinary2, TLEleft))
+              (binary_expression Le ubinary1 ubinary2 TLEleft)
           | ubinary TGT ubinary
-              (UE_Bin (Gt, ubinary1, ubinary2, TGTleft))
+              (binary_expression Gt ubinary1 ubinary2 TGTleft)
           | ubinary TGE ubinary
-              (UE_Bin (Ge, ubinary1, ubinary2, TGEleft))
+              (binary_expression Ge ubinary1 ubinary2 TGEleft)
           | ubinary TBAR ubinary
-              (UE_Bin (BOr, ubinary1, ubinary2, TBARleft))
+              (binary_expression BOr ubinary1 ubinary2 TBARleft)
           | ubinary TCARET ubinary
-              (UE_Bin (BXor, ubinary1, ubinary2, TCARETleft))
+              (binary_expression BXor ubinary1 ubinary2 TCARETleft)
           | ubinary TAMP ubinary
-              (UE_Bin (BAnd, ubinary1, ubinary2, TAMPleft))
+              (binary_expression BAnd ubinary1 ubinary2 TAMPleft)
           | ubinary TSHL ubinary
-              (UE_Bin (Shl, ubinary1, ubinary2, TSHLleft))
+              (binary_expression Shl ubinary1 ubinary2 TSHLleft)
           | ubinary TSHR ubinary
-              (UE_Bin (Shr, ubinary1, ubinary2, TSHRleft))
+              (binary_expression Shr ubinary1 ubinary2 TSHRleft)
           | ubinary TPLUS ubinary
-              (UE_Bin (Add, ubinary1, ubinary2, TPLUSleft))
+              (binary_expression Add ubinary1 ubinary2 TPLUSleft)
           | ubinary TMINUS ubinary
-              (UE_Bin (Sub, ubinary1, ubinary2, TMINUSleft))
+              (binary_expression Sub ubinary1 ubinary2 TMINUSleft)
           | ubinary TSTAR ubinary
-              (UE_Bin (Mul, ubinary1, ubinary2, TSTARleft))
+              (binary_expression Mul ubinary1 ubinary2 TSTARleft)
           | ubinary TSLASH ubinary
-              (UE_Bin (Div, ubinary1, ubinary2, TSLASHleft))
+              (binary_expression Div ubinary1 ubinary2 TSLASHleft)
           | ubinary TPERCENT ubinary
-              (UE_Bin (Mod, ubinary1, ubinary2, TPERCENTleft))
+              (binary_expression Mod ubinary1 ubinary2 TPERCENTleft)
   (* Casts consume a complete prefix expression. Thus dereference binds before `as`, while postfix
      operations remain tighter than every prefix and no general postfix invocation is introduced. *)
   ucast : uprefix (uprefix)
         | ucast TAS ucast_target
-            (UE_Cast (ucast, ucast_target, TASleft))
+            (cast_expression
+              ucast ucast_target TASleft ucast_targetright)
   uprefix : upostfix (upostfix)
           | TBANG uprefix
-              (UE_Unary (U_Not, uprefix, TBANGleft))
+              (prefix_expression U_Not TBANGleft uprefix
+                [(Operator_Token, TBANGleft)])
           | TAMP uprefix
-              (UE_Unary (U_Borrow BM_Imm, uprefix, TAMPleft))
+              (prefix_expression (U_Borrow BM_Imm)
+                TAMPleft uprefix
+                [(Operator_Token, TAMPleft)])
           | TAMP TMUT uprefix
-              (UE_Unary (U_Borrow BM_Mut, uprefix, TAMPleft))
+              (prefix_expression (U_Borrow BM_Mut)
+                TAMPleft uprefix
+                [(Operator_Token, TAMPleft),
+                 (Keyword_Token "mut", TMUTleft)])
           | TSTAR uprefix
-              (UE_Unary (U_Deref, uprefix, TSTARleft))
+              (prefix_expression U_Deref TSTARleft uprefix
+                [(Operator_Token, TSTARleft)])
   (* Postfixes form a structural tier above primaries, so `?`, field access, tuple projections, and
      methods compose left-to-right and bind tighter than prefix/binary operators. Indexing shares this
      tier. A dotted identifier followed by parentheses is a method; without parentheses it is an
      NField lens access. A dotted numeric token is validated as a canonical projection index 0..15. *)
   upostfix : uprimary (uprimary)
            | upostfix TQUESTION
-               (UE_Unary (U_Propagate, upostfix, TQUESTIONleft))
+               (postfix_expression
+                 U_Propagate upostfix TQUESTIONleft)
            | upostfix TDOT IDENT
-               (UE_Field (upostfix, IDENT, IDENTleft))
+               (UE_Field
+                 (upostfix, IDENT,
+                  syntax_layout upostfixleft IDENTright
+                    [(Delimiter_Token ".", TDOTleft),
+                     (Name_Token, IDENTleft)]))
            | upostfix TDOT NUM
-               (mk_tuple_projection (upostfix, NUM, NUMleft))
+               (mk_tuple_projection
+                 (upostfix, integer_literal_lexeme NUM,
+                  syntax_layout upostfixleft NUMright
+                    [(Delimiter_Token ".", TDOTleft),
+                     (Name_Token, NUMleft)]))
            | upostfix TDOT NUMSFX
-               (mk_tuple_projection (upostfix, NUMSFX, NUMSFXleft))
+               (mk_tuple_projection
+                 (upostfix, integer_literal_lexeme NUMSFX,
+                  syntax_layout upostfixleft NUMSFXright
+                    [(Delimiter_Token ".", TDOTleft),
+                     (Name_Token, NUMSFXleft)]))
            | upostfix TDOT upath_segment LPAR ucallargs RPAR
                (mk_call
                   (UC_Method (upostfix, upath_segment),
-                   ucallargs, upostfixleft, RPARright))
+                   ucallargs,
+                   syntax_layout upostfixleft RPARright
+                     [(Delimiter_Token ".", TDOTleft),
+                      (Delimiter_Token "(", LPARleft),
+                      (Delimiter_Token ")", RPARleft)]))
            | upostfix TLBRACK uexpr TRBRACK
                (UE_Index
                  (upostfix, uexpr,
-                  Position.range_position (upostfixleft, TRBRACKright)))
+                  syntax_layout upostfixleft TRBRACKright
+                    [(Delimiter_Token "[", TLBRACKleft),
+                     (Delimiter_Token "]", TRBRACKleft)]))
   uprimary : upath           (UE_Path upath)
            | ustruct_expr    (ustruct_expr)
            | uprimary_nonhead (uprimary_nonhead)
-  uprimary_nonhead : NUM     (UE_Literal (LP_Integer (NUM, NUMleft)))
-        | NUMSFX     (UE_Literal (LP_Integer (NUMSFX, NUMSFXleft)))
+  uprimary_nonhead : NUM     (UE_Literal (LP_Integer NUM))
+        | NUMSFX     (UE_Literal (LP_Integer NUMSFX))
         | TTRUE      (UE_Literal (LP_Bool (true, TTRUEleft)))
         | TFALSE     (UE_Literal (LP_Bool (false, TFALSEleft)))
         | STRING     (UE_Literal (LP_String (STRING, STRINGleft)))
         | TYIELD
             (UE_Yield
-              (Position.range_position (TYIELDleft, TYIELDright)))
+              (single_token_layout
+                (Keyword_Token "yield") TYIELDleft))
         | TLOG VALAQ VALAQ
             (UE_Log
               (VALAQ1, VALAQ2,
-               Position.range_position (TLOGleft, VALAQ2right)))
+               syntax_layout TLOGleft VALAQ2right
+                 [(Keyword_Token "log", TLOGleft)]))
         | TLOGDATAOPEN ulog_data_entries TLOGDATACLOSE
             (UE_LogData
               (ulog_data_entries,
-               Position.range_position
-                 (TLOGDATAOPENleft, TLOGDATACLOSEright)))
+               syntax_layout TLOGDATAOPENleft TLOGDATACLOSEright
+                 [(Keyword_Token "l", #1 TLOGDATAOPEN),
+                  (Delimiter_Token "log-data-open",
+                   #2 TLOGDATAOPEN),
+                  (Delimiter_Token "log-data-close",
+                   TLOGDATACLOSEleft)]))
         | upath LPAR ucallargs RPAR
-            (mk_call (UC_Path upath, ucallargs, upathleft, RPARright))
+            (mk_call
+              (UC_Path upath, ucallargs,
+               syntax_layout upathleft RPARright
+                 [(Delimiter_Token "(", LPARleft),
+                  (Delimiter_Token ")", RPARleft)]))
         | EXPRAQ LPAR ucallargs RPAR
             (mk_call
-              (UC_Antiq (#1 EXPRAQ), ucallargs, #2 EXPRAQ, RPARright))
+              (UC_Antiq (#1 EXPRAQ), ucallargs,
+               syntax_layout (#2 EXPRAQ) RPARright
+                 [(Delimiter_Token "(", LPARleft),
+                  (Delimiter_Token ")", RPARleft)]))
         | VALAQ FUNARITY LPAR ucallargs RPAR
             (mk_call
               (make_function_literal
                 (VALAQ, FUNARITY, VALAQright,
                  FUNARITYleft, FUNARITYright, NONE),
-               ucallargs, VALAQleft, RPARright))
+               ucallargs,
+               syntax_layout VALAQleft RPARright
+                 [(Delimiter_Token "(", LPARleft),
+                  (Delimiter_Token ")", RPARleft)]))
         | VALAQ FUNARITY ugeneric_args LPAR ucallargs RPAR
             (mk_call
               (make_function_literal
                 (VALAQ, FUNARITY, VALAQright,
                  FUNARITYleft, FUNARITYright,
                  SOME ugeneric_args),
-               ucallargs, VALAQleft, RPARright))
+               ucallargs,
+               syntax_layout VALAQleft RPARright
+                 [(Delimiter_Token "(", LPARleft),
+                  (Delimiter_Token ")", RPARleft)]))
         | uidentifier_path TBANG LPAR umacrocallargs RPAR
             (UE_Macro
-              (uidentifier_path, TBANGleft,
-               MP_Arguments umacrocallargs,
-               Position.range_position (uidentifier_pathleft, RPARright)))
+              (uidentifier_path, MP_Arguments umacrocallargs,
+               syntax_layout uidentifier_pathleft RPARright
+                 [(Bang_Token, TBANGleft),
+                  (Delimiter_Token "(", LPARleft),
+                  (Delimiter_Token ")", RPARleft)]))
         | uidentifier_path TBANG TLBRACK umacrocallargs TRBRACK
             (UE_Macro
-              (uidentifier_path, TBANGleft,
-               MP_Arguments umacrocallargs,
-               Position.range_position (uidentifier_pathleft, TRBRACKright)))
+              (uidentifier_path, MP_Arguments umacrocallargs,
+               syntax_layout uidentifier_pathleft TRBRACKright
+                 [(Bang_Token, TBANGleft),
+                  (Delimiter_Token "[", TLBRACKleft),
+                  (Delimiter_Token "]", TRBRACKleft)]))
         | TMATCHESBANG LPAR uexpr COMMA upat RPAR
             (UE_Macro
               (make_single_path
-                 ("matches",
-                  Position.range_position (TMATCHESBANGleft, TMATCHESBANG)),
-               TMATCHESBANG,
+                 ("matches", #1 TMATCHESBANG),
                MP_Matches (uexpr, upat),
-               Position.range_position (TMATCHESBANGleft, RPARright)))
-        | LPAR RPAR  (UE_Unit LPARleft)
+               syntax_layout TMATCHESBANGleft RPARright
+                 [(Keyword_Token "matches", #1 TMATCHESBANG),
+                  (Bang_Token, #2 TMATCHESBANG),
+                  (Delimiter_Token "(", LPARleft),
+                  (Delimiter_Token ",", COMMAleft),
+                  (Delimiter_Token ")", RPARleft)]))
+        | LPAR RPAR
+            (UE_Unit
+              (syntax_layout LPARleft RPARright
+                [(Delimiter_Token "(", LPARleft),
+                 (Delimiter_Token ")", RPARleft)]))
         | LPAR uexpr COMMA arglist RPAR
             (UE_Tuple
               (uexpr :: arglist,
-               Position.range_position (LPARleft, RPARright)))
+               syntax_layout LPARleft RPARright
+                 [(Delimiter_Token "(", LPARleft),
+                  (Delimiter_Token ")", RPARleft)]))
         | LPAR ubody RPAR
             (UE_Group
               (ubody,
-               Position.range_position (LPARleft, RPARright)))
+               syntax_layout LPARleft RPARright
+                 [(Delimiter_Token "(", LPARleft),
+                  (Delimiter_Token ")", RPARleft)]))
         | TLBRACK TRBRACK
-            (UE_Array ([], Position.range_position (TLBRACKleft, TRBRACKright)))
+            (UE_Array
+              ([],
+               syntax_layout TLBRACKleft TRBRACKright
+                 [(Delimiter_Token "[", TLBRACKleft),
+                  (Delimiter_Token "]", TRBRACKleft)]))
         | TLBRACK uexpr TSEMI uexpr TRBRACK
             (mk_array_repeat
               (AR_Ordinary, uexpr1, uexpr2,
-               TLBRACKleft, TRBRACKright))
+               syntax_layout TLBRACKleft TRBRACKright
+                 [(Delimiter_Token "[", TLBRACKleft),
+                  (Delimiter_Token ";", TSEMIleft),
+                  (Delimiter_Token "]", TRBRACKleft)]))
         | TLBRACK TCONST ublock TSEMI uexpr TRBRACK
             (mk_array_repeat
               (AR_InlineConst, ublock, uexpr,
-               TLBRACKleft, TRBRACKright))
+               syntax_layout TLBRACKleft TRBRACKright
+                 [(Delimiter_Token "[", TLBRACKleft),
+                  (Keyword_Token "const", TCONSTleft),
+                  (Delimiter_Token ";", TSEMIleft),
+                  (Delimiter_Token "]", TRBRACKleft)]))
         | TLBRACK arglist TRBRACK
-            (UE_Array (arglist, Position.range_position (TLBRACKleft, TRBRACKright)))
+            (UE_Array
+              (arglist,
+               syntax_layout TLBRACKleft TRBRACKright
+                 [(Delimiter_Token "[", TLBRACKleft),
+                  (Delimiter_Token "]", TRBRACKleft)]))
         | VALAQ      (UE_Literal (LP_ValAntiq VALAQ))
         | EXPRAQ     (UE_ExprAntiq (#1 EXPRAQ))
         | uwith_block_expr %prec TIF (uwith_block_expr)
@@ -1061,15 +1963,15 @@ yacc_rules\<open>
                             (canonical ^ "::" ^ name,
                              layout, start, stop))
   ucast_target : TUINT
-                   (SCT_Primitive (CT_Unsigned TUINT))
+                   (SCT_Primitive (CT_Unsigned TUINT, TUINTleft))
                | TSINT
-                   (SCT_Primitive (CT_Signed TSINT))
+                   (SCT_Primitive (CT_Signed TSINT, TSINTleft))
                | TSTAR TCONST TUINT
                    (SCT_Primitive
-                     (CT_RawPointer (RPM_Const, TUINT)))
+                     (CT_RawPointer (RPM_Const, TUINT), TUINTleft))
                | TSTAR TMUT TUINT
                    (SCT_Primitive
-                     (CT_RawPointer (RPM_Mut, TUINT)))
+                     (CT_RawPointer (RPM_Mut, TUINT), TUINTleft))
                | uidentifier_path
                    (SCT_Named uidentifier_path)
   (* The no-struct family mirrors the structural expression boundaries and binary operator rule.
@@ -1079,16 +1981,26 @@ yacc_rules\<open>
      was unreachable. Ordinary expression and guard contexts still support operandless return. *)
   uexpr_no_struct : uassign_no_struct       (uassign_no_struct)
                   | TRETURN uexpr_no_struct
-                      (UE_Return (SOME uexpr_no_struct, TRETURNleft))
+                      (UE_Return
+                        (SOME uexpr_no_struct,
+                         syntax_layout TRETURNleft
+                           uexpr_no_structright
+                           [(Keyword_Token "return",
+                             TRETURNleft)]))
                   | uclosure_no_struct      (uclosure_no_struct)
   uclosure_no_struct : TBARBAR uexpr_no_struct
                          (mk_closure
                            ([], uexpr_no_struct,
-                            TBARBARleft, uexpr_no_structright))
+                            syntax_layout TBARBARleft
+                              uexpr_no_structright
+                              [(Operator_Token, TBARBARleft)]))
                      | TBAR uclosure_formals TBAR uexpr_no_struct
                          (mk_closure
                            (uclosure_formals, uexpr_no_struct,
-                            TBAR1left, uexpr_no_structright))
+                            syntax_layout TBAR1left
+                              uexpr_no_structright
+                              [(Operator_Token, TBAR1left),
+                               (Operator_Token, TBAR2left)]))
   uassign_no_struct : urange_no_struct
                         (urange_no_struct)
                     | urange_no_struct uassignop uexpr_no_struct
@@ -1097,135 +2009,159 @@ yacc_rules\<open>
   urange_no_struct : ubinary_no_struct
                        (ubinary_no_struct)
                    | ubinary_no_struct TDOTDOT ubinary_no_struct
-                       (UE_Range
-                         (RK_Exclusive, ubinary_no_struct1,
-                          ubinary_no_struct2, TDOTDOTleft))
+                       (range_expression
+                         RK_Exclusive ubinary_no_struct1
+                           ubinary_no_struct2 TDOTDOTleft)
                    | ubinary_no_struct TDOTDOTEQ ubinary_no_struct
-                       (UE_Range
-                         (RK_Inclusive, ubinary_no_struct1,
-                          ubinary_no_struct2, TDOTDOTEQleft))
+                       (range_expression
+                         RK_Inclusive ubinary_no_struct1
+                           ubinary_no_struct2 TDOTDOTEQleft)
   ubinary_no_struct : ucast_no_struct
                         (ucast_no_struct)
                     | ubinary_no_struct TBARBAR ubinary_no_struct
-                        (UE_Bin
-                          (Or, ubinary_no_struct1,
-                           ubinary_no_struct2, TBARBARleft))
+                        (binary_expression Or
+                          ubinary_no_struct1
+                          ubinary_no_struct2 TBARBARleft)
                     | ubinary_no_struct TAMPAMP ubinary_no_struct
-                        (UE_Bin
-                          (And, ubinary_no_struct1,
-                           ubinary_no_struct2, TAMPAMPleft))
+                        (binary_expression And
+                          ubinary_no_struct1
+                          ubinary_no_struct2 TAMPAMPleft)
                     | ubinary_no_struct TEQEQ ubinary_no_struct
-                        (UE_Bin
-                          (Eq, ubinary_no_struct1,
-                           ubinary_no_struct2, TEQEQleft))
+                        (binary_expression Eq
+                          ubinary_no_struct1
+                          ubinary_no_struct2 TEQEQleft)
                     | ubinary_no_struct TNE ubinary_no_struct
-                        (UE_Bin
-                          (Ne, ubinary_no_struct1,
-                           ubinary_no_struct2, TNEleft))
+                        (binary_expression Ne
+                          ubinary_no_struct1
+                          ubinary_no_struct2 TNEleft)
                     | ubinary_no_struct TLT ubinary_no_struct
-                        (UE_Bin
-                          (Lt, ubinary_no_struct1,
-                           ubinary_no_struct2, TLTleft))
+                        (binary_expression Lt
+                          ubinary_no_struct1
+                          ubinary_no_struct2 TLTleft)
                     | ubinary_no_struct TLE ubinary_no_struct
-                        (UE_Bin
-                          (Le, ubinary_no_struct1,
-                           ubinary_no_struct2, TLEleft))
+                        (binary_expression Le
+                          ubinary_no_struct1
+                          ubinary_no_struct2 TLEleft)
                     | ubinary_no_struct TGT ubinary_no_struct
-                        (UE_Bin
-                          (Gt, ubinary_no_struct1,
-                           ubinary_no_struct2, TGTleft))
+                        (binary_expression Gt
+                          ubinary_no_struct1
+                          ubinary_no_struct2 TGTleft)
                     | ubinary_no_struct TGE ubinary_no_struct
-                        (UE_Bin
-                          (Ge, ubinary_no_struct1,
-                           ubinary_no_struct2, TGEleft))
+                        (binary_expression Ge
+                          ubinary_no_struct1
+                          ubinary_no_struct2 TGEleft)
                     | ubinary_no_struct TBAR ubinary_no_struct
-                        (UE_Bin
-                          (BOr, ubinary_no_struct1,
-                           ubinary_no_struct2, TBARleft))
+                        (binary_expression BOr
+                          ubinary_no_struct1
+                          ubinary_no_struct2 TBARleft)
                     | ubinary_no_struct TCARET ubinary_no_struct
-                        (UE_Bin
-                          (BXor, ubinary_no_struct1,
-                           ubinary_no_struct2, TCARETleft))
+                        (binary_expression BXor
+                          ubinary_no_struct1
+                          ubinary_no_struct2 TCARETleft)
                     | ubinary_no_struct TAMP ubinary_no_struct
-                        (UE_Bin
-                          (BAnd, ubinary_no_struct1,
-                           ubinary_no_struct2, TAMPleft))
+                        (binary_expression BAnd
+                          ubinary_no_struct1
+                          ubinary_no_struct2 TAMPleft)
                     | ubinary_no_struct TSHL ubinary_no_struct
-                        (UE_Bin
-                          (Shl, ubinary_no_struct1,
-                           ubinary_no_struct2, TSHLleft))
+                        (binary_expression Shl
+                          ubinary_no_struct1
+                          ubinary_no_struct2 TSHLleft)
                     | ubinary_no_struct TSHR ubinary_no_struct
-                        (UE_Bin
-                          (Shr, ubinary_no_struct1,
-                           ubinary_no_struct2, TSHRleft))
+                        (binary_expression Shr
+                          ubinary_no_struct1
+                          ubinary_no_struct2 TSHRleft)
                     | ubinary_no_struct TPLUS ubinary_no_struct
-                        (UE_Bin
-                          (Add, ubinary_no_struct1,
-                           ubinary_no_struct2, TPLUSleft))
+                        (binary_expression Add
+                          ubinary_no_struct1
+                          ubinary_no_struct2 TPLUSleft)
                     | ubinary_no_struct TMINUS ubinary_no_struct
-                        (UE_Bin
-                          (Sub, ubinary_no_struct1,
-                           ubinary_no_struct2, TMINUSleft))
+                        (binary_expression Sub
+                          ubinary_no_struct1
+                          ubinary_no_struct2 TMINUSleft)
                     | ubinary_no_struct TSTAR ubinary_no_struct
-                        (UE_Bin
-                          (Mul, ubinary_no_struct1,
-                           ubinary_no_struct2, TSTARleft))
+                        (binary_expression Mul
+                          ubinary_no_struct1
+                          ubinary_no_struct2 TSTARleft)
                     | ubinary_no_struct TSLASH ubinary_no_struct
-                        (UE_Bin
-                          (Div, ubinary_no_struct1,
-                           ubinary_no_struct2, TSLASHleft))
+                        (binary_expression Div
+                          ubinary_no_struct1
+                          ubinary_no_struct2 TSLASHleft)
                     | ubinary_no_struct TPERCENT ubinary_no_struct
-                        (UE_Bin
-                          (Mod, ubinary_no_struct1,
-                           ubinary_no_struct2, TPERCENTleft))
+                        (binary_expression Mod
+                          ubinary_no_struct1
+                          ubinary_no_struct2 TPERCENTleft)
   ucast_no_struct : uprefix_no_struct
                       (uprefix_no_struct)
                   | ucast_no_struct TAS ucast_target
-                      (UE_Cast
-                        (ucast_no_struct, ucast_target, TASleft))
+                      (cast_expression
+                        ucast_no_struct ucast_target
+                          TASleft ucast_targetright)
   uprefix_no_struct : upostfix_no_struct
                         (upostfix_no_struct)
                     | TBANG uprefix_no_struct
-                        (UE_Unary
-                          (U_Not, uprefix_no_struct, TBANGleft))
+                        (prefix_expression U_Not
+                          TBANGleft uprefix_no_struct
+                          [(Operator_Token, TBANGleft)])
                     | TAMP uprefix_no_struct
-                        (UE_Unary
-                          (U_Borrow BM_Imm, uprefix_no_struct, TAMPleft))
+                        (prefix_expression (U_Borrow BM_Imm)
+                          TAMPleft uprefix_no_struct
+                          [(Operator_Token, TAMPleft)])
                     | TAMP TMUT uprefix_no_struct
-                        (UE_Unary
-                          (U_Borrow BM_Mut, uprefix_no_struct, TAMPleft))
+                        (prefix_expression (U_Borrow BM_Mut)
+                          TAMPleft uprefix_no_struct
+                          [(Operator_Token, TAMPleft),
+                           (Keyword_Token "mut", TMUTleft)])
                     | TSTAR uprefix_no_struct
-                        (UE_Unary
-                          (U_Deref, uprefix_no_struct, TSTARleft))
+                        (prefix_expression U_Deref
+                          TSTARleft uprefix_no_struct
+                          [(Operator_Token, TSTARleft)])
   upostfix_no_struct : uprimary_no_struct
                          (uprimary_no_struct)
                      | upostfix_no_struct TQUESTION
-                         (UE_Unary
-                           (U_Propagate, upostfix_no_struct,
-                            TQUESTIONleft))
+                         (postfix_expression U_Propagate
+                           upostfix_no_struct TQUESTIONleft)
                      | upostfix_no_struct TDOT IDENT
                          (UE_Field
-                           (upostfix_no_struct, IDENT, IDENTleft))
+                           (upostfix_no_struct, IDENT,
+                            syntax_layout upostfix_no_structleft
+                              IDENTright
+                              [(Delimiter_Token ".", TDOTleft),
+                               (Name_Token, IDENTleft)]))
                      | upostfix_no_struct TDOT NUM
                          (mk_tuple_projection
-                           (upostfix_no_struct, NUM, NUMleft))
+                           (upostfix_no_struct,
+                            integer_literal_lexeme NUM,
+                            syntax_layout upostfix_no_structleft
+                              NUMright
+                              [(Delimiter_Token ".", TDOTleft),
+                               (Name_Token, NUMleft)]))
                      | upostfix_no_struct TDOT NUMSFX
                          (mk_tuple_projection
-                           (upostfix_no_struct, NUMSFX, NUMSFXleft))
+                           (upostfix_no_struct,
+                            integer_literal_lexeme NUMSFX,
+                            syntax_layout upostfix_no_structleft
+                              NUMSFXright
+                              [(Delimiter_Token ".", TDOTleft),
+                               (Name_Token, NUMSFXleft)]))
                      | upostfix_no_struct TDOT upath_segment
                          LPAR ucallargs RPAR
                          (mk_call
                            (UC_Method
                              (upostfix_no_struct, upath_segment),
-                            ucallargs, upostfix_no_structleft,
-                            RPARright))
+                            ucallargs,
+                            syntax_layout upostfix_no_structleft
+                              RPARright
+                              [(Delimiter_Token ".", TDOTleft),
+                               (Delimiter_Token "(", LPARleft),
+                               (Delimiter_Token ")", RPARleft)]))
                      | upostfix_no_struct TLBRACK
                          uexpr TRBRACK
                          (UE_Index
                            (upostfix_no_struct, uexpr,
-                            Position.range_position
-                              (upostfix_no_structleft,
-                               TRBRACKright)))
+                            syntax_layout upostfix_no_structleft
+                              TRBRACKright
+                              [(Delimiter_Token "[", TLBRACKleft),
+                               (Delimiter_Token "]", TRBRACKleft)]))
   uprimary_no_struct : upath
                          (UE_Path upath)
                      | uprimary_nonhead
@@ -1235,8 +2171,23 @@ yacc_rules\<open>
      changes. Match-arm recursion below encodes the comma requirement for an `&`- or `[`-headed arm
      after a direct with-block body, keeping those tokens available for binary-and or indexing
      without a generated-parser conflict. *)
-  ublock : TLBRACE ubody TRBRACE            (UE_Block (ubody, TLBRACEleft))
-         | TLBRACE TRBRACE                  (UE_Block (UE_Unit TLBRACEleft, TLBRACEleft))
+  ublock : TLBRACE ubody TRBRACE
+             (UE_Block
+               (ubody,
+                syntax_layout TLBRACEleft TRBRACEright
+                  [(Delimiter_Token "{", TLBRACEleft),
+                   (Delimiter_Token "}", TRBRACEleft)]))
+         | TLBRACE TRBRACE
+             (let
+                val unit_layout =
+                  make_source_layout TLBRACEleft []
+              in
+                UE_Block
+                  (UE_Unit unit_layout,
+                   syntax_layout TLBRACEleft TRBRACEright
+                     [(Delimiter_Token "{", TLBRACEleft),
+                      (Delimiter_Token "}", TRBRACEleft)])
+              end)
   (* Unsafe is block-like in operand and statement positions, but deliberately remains distinct from
      `ublock`: branch delimiters still require ordinary braces. Its frontend semantics are block erasure. *)
   uunsafe : TUNSAFE ublock                  (ublock)
@@ -1248,42 +2199,67 @@ yacc_rules\<open>
                    | uloop_expr             (uloop_expr)
                    | umatch                 (umatch)
   usemi_free_stmt : uwith_block_expr ubody
-                      (UE_Seq (uwith_block_expr, ubody))
+                      (UE_Seq
+                        (uwith_block_expr, ubody,
+                         syntax_layout uwith_block_exprleft
+                           ubodyright []))
   (* Conditional heads retain only the condition or pattern/scrutinee. The conditional consumes the
      success block once and preserves nearest-else association plus the existing AST/span shape. *)
   uif_head : TIF uexpr_no_struct
                 (IH_If (uexpr_no_struct, TIFleft))
            | TIF TLET upat TEQ uexpr_no_struct
-                (IH_IfLet (upat, uexpr_no_struct, TIFleft))
+                (IH_IfLet
+                  (upat, uexpr_no_struct,
+                   TIFleft, TLETleft, TEQleft))
   uconditional : uif_head ublock %prec TIF
                     (finish_conditional
-                      (uif_head, ublock, NONE, ublockright))
+                      (uif_head, ublock, NONE, NONE,
+                       ublockright))
                | uif_head ublock TELSE ublock
                     (finish_conditional
                       (uif_head, ublock1, SOME ublock2,
+                       SOME TELSEleft,
                        ublock2right))
                | uif_head ublock TELSE uconditional
                     (finish_conditional
                       (uif_head, ublock, SOME uconditional,
+                       SOME TELSEleft,
                        uconditionalright))
   ufuel : THASH TLBRACK TFUEL LPAR EXPRAQ RPAR TRBRACK
-              ((#1 EXPRAQ, THASHleft))
+              (Fuel_Head
+                (#1 EXPRAQ, THASHleft,
+                 [(Delimiter_Token "#[",
+                    spanning_position THASHleft TLBRACKleft),
+                  (Keyword_Token "fuel", TFUELleft),
+                  (Delimiter_Token "]", TRBRACKleft)]))
   uloop_expr : ufuel TWHILE LPAR uexpr RPAR ublock
-              (UE_While (#1 ufuel, uexpr, ublock,
-                Position.range_position (#2 ufuel, ublockright)))
+              (UE_While
+                (fuel_source ufuel, uexpr, ublock,
+                 syntax_layout (fuel_start ufuel) ublockright
+                   (fuel_tokens ufuel @
+                    [(Keyword_Token "while", TWHILEleft),
+                     (Delimiter_Token "(", LPARleft),
+                     (Delimiter_Token ")", RPARleft)])))
              | ufuel TLOOP ublock
-              (UE_Loop (#1 ufuel, ublock,
-                Position.range_position (#2 ufuel, ublockright)))
+              (UE_Loop
+                (fuel_source ufuel, ublock,
+                 syntax_layout (fuel_start ufuel) ublockright
+                   (fuel_tokens ufuel @
+                    [(Keyword_Token "loop", TLOOPleft)])))
              | TFOR upat TIN uexpr_no_struct ublock
               (UE_For
                 (upat, uexpr_no_struct, ublock,
-                 Position.range_position
-                   (TFORleft, ublockright)))
+                 syntax_layout TFORleft ublockright
+                   [(Keyword_Token "for", TFORleft),
+                    (Keyword_Token "in", TINleft)]))
              | ufuel TWHILE TLET upat TEQ uexpr_no_struct ublock
               (UE_WhileLet
-                (#1 ufuel, upat, uexpr_no_struct, ublock,
-                 Position.range_position
-                   (#2 ufuel, ublockright)))
+                (fuel_source ufuel, upat, uexpr_no_struct, ublock,
+                 syntax_layout (fuel_start ufuel) ublockright
+                   (fuel_tokens ufuel @
+                    [(Keyword_Token "while", TWHILEleft),
+                     (Keyword_Token "let", TLETleft),
+                     (Delimiter_Token "=", TEQleft)])))
   (* Comma lists stay nonempty and right-nested (source order preserved). Each list has an explicit terminal
      comma production, so a trailing separator cannot create an empty element. Calls are dedicated
      atom/method productions, so LPAR is never in FOLLOW(uexpr) as a general postfix operator -- no
@@ -1315,23 +2291,41 @@ yacc_rules\<open>
   umatch : umatch_kind uexpr_no_struct TLBRACE uarms TRBRACE
               (UE_Match
                 (#1 umatch_kind, uexpr_no_struct, uarms,
-                 Position.range_position
-                   (#2 umatch_kind, TRBRACEright)))
+                 syntax_layout (#2 umatch_kind) TRBRACEright
+                   [(Keyword_Token
+                       (case #1 umatch_kind of
+                          MF_Auto => "match"
+                        | MF_Switch => "match_switch"
+                        | MF_Case => "match_case"),
+                     #2 umatch_kind),
+                    (Delimiter_Token "{", TLBRACEleft),
+                    (Delimiter_Token "}", TRBRACEleft)]))
   uguard : ubody (ubody)
   uarm_head : upat TARROW
-                (AH_Arm (upat, NONE))
+                (AH_Arm
+                  (upat, NONE,
+                   [(Delimiter_Token "=>", TARROWleft)]))
             | upat TIF uguard TARROW
-                (AH_Arm (upat, SOME (uguard, TIFleft)))
+                (AH_Arm
+                  (upat, SOME (uguard, TIFleft),
+                   [(Keyword_Token "if", TIFleft),
+                    (Delimiter_Token "=>", TARROWleft)]))
   (* After a comma-free direct with-block arm, the next pattern may start with any ordinary pattern
      token except `&` or `[`. Those two tokens can continue the preceding body as binary-and or
      indexing and therefore require an explicit comma. The restricted family changes only the first
      token: aliases, ranges, or-pattern tails, and explicitly delimited nested patterns remain full. *)
   uarm_head_after_block : upat_after_block TARROW
-                            (AH_Arm (upat_after_block, NONE))
+                            (AH_Arm
+                              (upat_after_block, NONE,
+                               [(Delimiter_Token "=>",
+                                 TARROWleft)]))
                         | upat_after_block TIF uguard TARROW
                             (AH_Arm
                               (upat_after_block,
-                               SOME (uguard, TIFleft)))
+                               SOME (uguard, TIFleft),
+                               [(Keyword_Token "if", TIFleft),
+                                (Delimiter_Token "=>",
+                                 TARROWleft)]))
   uarm : uarm_head uexpr
            (finish_arm (uarm_head, uexpr))
   uarm_with_block : uarm_head uwith_block_expr
@@ -1366,59 +2360,108 @@ yacc_rules\<open>
      for a positioned non-associativity diagnostic; disjunctions flatten in source order. *)
   upat : upat_alias               (upat_alias)
         | upat_alias TBAR upat
-            (mk_or_pat (upat_alias, upat, TBARleft))
+            (mk_or_pat
+              (upat_alias, upat,
+               syntax_layout
+                 (pattern_position upat_alias)
+                 (pattern_position upat)
+                 [(Operator_Token, TBARleft)]))
   upat_after_block : upat_alias_after_block
                        (upat_alias_after_block)
                    | upat_alias_after_block TBAR upat
                        (mk_or_pat
                          (upat_alias_after_block, upat,
-                          TBARleft))
+                          syntax_layout
+                            (pattern_position
+                              upat_alias_after_block)
+                            (pattern_position upat)
+                            [(Operator_Token, TBARleft)]))
   upat_alias : upat_range         (upat_range)
               | upat_ident TAT upat_alias
-                  (mk_alias_pat (upat_ident, upat_alias, TATleft))
+                  (mk_alias_pat
+                    (upat_ident, upat_alias,
+                     syntax_layout (#2 upat_ident)
+                       (pattern_position upat_alias)
+                       [(Operator_Token, TATleft)]))
   upat_alias_after_block : upat_range_after_block
                              (upat_range_after_block)
                          | upat_ident TAT upat_alias
                              (mk_alias_pat
                                (upat_ident, upat_alias,
-                                TATleft))
+                                syntax_layout (#2 upat_ident)
+                                  (pattern_position upat_alias)
+                                  [(Operator_Token, TATleft)]))
   upat_range : upat_prefix        (upat_prefix)
               | upat_range TDOTDOT upat_prefix
-                  (P_Range (RK_Exclusive, upat_range, upat_prefix, TDOTDOTleft))
+                  (P_Range
+                    (RK_Exclusive, upat_range, upat_prefix,
+                     syntax_layout
+                       (pattern_position upat_range)
+                       (pattern_position upat_prefix)
+                       [(Operator_Token, TDOTDOTleft)]))
               | upat_range TDOTDOTEQ upat_prefix
-                  (P_Range (RK_Inclusive, upat_range, upat_prefix, TDOTDOTEQleft))
+                  (P_Range
+                    (RK_Inclusive, upat_range, upat_prefix,
+                     syntax_layout
+                       (pattern_position upat_range)
+                       (pattern_position upat_prefix)
+                       [(Operator_Token, TDOTDOTEQleft)]))
   upat_range_after_block : upat_atom_after_block
                              (upat_atom_after_block)
                          | upat_range_after_block TDOTDOT upat_prefix
                              (P_Range
                                (RK_Exclusive,
                                 upat_range_after_block,
-                                upat_prefix, TDOTDOTleft))
+                                upat_prefix,
+                                syntax_layout
+                                  (pattern_position
+                                    upat_range_after_block)
+                                  (pattern_position upat_prefix)
+                                  [(Operator_Token,
+                                    TDOTDOTleft)]))
                          | upat_range_after_block TDOTDOTEQ upat_prefix
                              (P_Range
                                (RK_Inclusive,
                                 upat_range_after_block,
-                                upat_prefix, TDOTDOTEQleft))
+                                upat_prefix,
+                                syntax_layout
+                                  (pattern_position
+                                    upat_range_after_block)
+                                  (pattern_position upat_prefix)
+                                  [(Operator_Token,
+                                    TDOTDOTEQleft)]))
   upat_prefix : upat_atom         (upat_atom)
                | TAMP upat_prefix
-                   (P_Borrow (BM_Imm, upat_prefix, TAMPleft))
+                   (P_Borrow
+                     (BM_Imm, upat_prefix,
+                      syntax_layout TAMPleft
+                        (pattern_position upat_prefix)
+                        [(Operator_Token, TAMPleft)]))
                | TAMP TMUT upat_prefix
-                   (P_Borrow (BM_Mut, upat_prefix, TAMPleft))
+                   (P_Borrow
+                     (BM_Mut, upat_prefix,
+                      syntax_layout TAMPleft
+                        (pattern_position upat_prefix)
+                        [(Operator_Token, TAMPleft),
+                         (Keyword_Token "mut", TMUTleft)]))
   upat_atom : upat_atom_non_slice
                  (upat_atom_non_slice)
              | TLBRACK TRBRACK
-                 (P_Slice ([], Position.range_position (TLBRACKleft, TRBRACKright)))
+                 (make_slice_pattern
+                   ([], TLBRACKleft, TRBRACKleft, TRBRACKright))
              | TLBRACK uslice_items TRBRACK
-                 (P_Slice (uslice_items, Position.range_position (TLBRACKleft, TRBRACKright)))
+                 (make_slice_pattern
+                   (uslice_items, TLBRACKleft,
+                    TRBRACKleft, TRBRACKright))
   upat_atom_after_block : upat_atom_non_slice
                              (upat_atom_non_slice)
   upat_atom_non_slice :
       upath
         (mk_bare_path_pat upath)
     | NUM
-        (P_Literal (LP_Integer (NUM, NUMleft)))
+        (P_Literal (LP_Integer NUM))
     | NUMSFX
-        (P_Literal (LP_Integer (NUMSFX, NUMSFXleft)))
+        (P_Literal (LP_Integer NUMSFX))
     | TTRUE
         (P_Literal (LP_Bool (true, TTRUEleft)))
     | TFALSE
@@ -1428,15 +2471,29 @@ yacc_rules\<open>
     | VALAQ
         (P_Literal (LP_ValAntiq VALAQ))
     | uidentifier_path LPAR upats RPAR
-        (mk_ctor_pat (uidentifier_path, upats))
+        (mk_ctor_pat
+          (uidentifier_path, upats,
+           syntax_layout uidentifier_pathleft RPARright
+             [(Delimiter_Token "(", LPARleft),
+              (Delimiter_Token ")", RPARleft)]))
     | LPAR upat RPAR
-        (P_Group upat)
+        (P_Group
+          (upat,
+           syntax_layout LPARleft RPARright
+             [(Delimiter_Token "(", LPARleft),
+              (Delimiter_Token ")", RPARleft)]))
     | LPAR upat COMMA upats RPAR
         (P_Tuple
           (upat :: upats,
-           Position.range_position (LPARleft, RPARright)))
+           syntax_layout LPARleft RPARright
+             [(Delimiter_Token "(", LPARleft),
+              (Delimiter_Token ")", RPARleft)]))
     | uidentifier_path TLBRACE ustruct_fields TRBRACE
-        (mk_struct_pat (uidentifier_path, ustruct_fields))
+        (mk_struct_pat
+          (uidentifier_path, ustruct_fields,
+           syntax_layout uidentifier_pathleft TRBRACEright
+             [(Delimiter_Token "{", TLBRACEleft),
+              (Delimiter_Token "}", TRBRACEleft)]))
   upat_ident : IDENT              ((IDENT, IDENTleft))
   upats : upat %prec TPATCONTEXT ([upat])
         | upat COMMA              ([upat])
@@ -1468,10 +2525,12 @@ yacc_rules\<open>
      accepted without adding shorthand or rest syntax. *)
   ustruct_expr : uidentifier_path TLBRACE TRBRACE
                    (make_struct_expression
-                     (uidentifier_path, [], TRBRACEright))
+                     (uidentifier_path, [],
+                      TLBRACEleft, TRBRACEleft, TRBRACEright))
                | uidentifier_path TLBRACE ustruct_expr_fields TRBRACE
                    (make_struct_expression
-                     (uidentifier_path, ustruct_expr_fields, TRBRACEright))
+                     (uidentifier_path, ustruct_expr_fields,
+                      TLBRACEleft, TRBRACEleft, TRBRACEright))
   ustruct_expr_field : IDENT TCOLON ubody
                          (SE_Field (IDENT, IDENTleft, ubody))
   ustruct_expr_fields : ustruct_expr_field
@@ -1508,6 +2567,12 @@ signature URUST_PARSER =
 sig
   val parse_source:
     Proof.context -> Input.source -> URust_AST.ur_expr option
+  val parse_item_source:
+    Proof.context -> Input.source -> URust_AST.urust_item option
+  val parse_datatype_source:
+    Proof.context -> Input.source -> URust_AST.urust_datatype option
+  val parse_function_source:
+    Proof.context -> Input.source -> URust_AST.urust_function option
 end
 
 (*
@@ -1519,10 +2584,11 @@ end
 
   The intended stable parser-module interface is:
 
-    * parse_source ctxt source initializes the generated lexer for the position-carrying Input.source
-      and parses it with ctxt.  It returns NONE for empty input and SOME unresolved
-      URust_AST.ur_expr for a recognized expression, preserving the AST positions and lexer markup
-      produced by URust.  Lexical and syntax failures raise positioned ERROR exceptions; syntax
+    * parse_source ctxt source reports the complete input as embedded uRust, initializes the
+      generated lexer for the position-carrying Input.source, and parses it with ctxt.  It returns
+      NONE for empty input and SOME unresolved URust_AST.ur_expr for a recognized expression,
+      preserving the AST positions and lexer markup produced by URust.  Lexical and syntax failures
+      raise positioned ERROR exceptions; syntax
       errors name the encountered terminal by its uRust source spelling (or a descriptive placeholder
       for value-bearing terminals), never by the generated ML-Yacc terminal name. The operation owns
       the shared parser lock for its complete lexer initialization and parser consumption, so callers
@@ -1638,7 +2704,15 @@ struct
      (83, "TLOGDATAOPEN", "l\<llangle>"),
      (84, "LOGSTRING", "<log string>"),
      (85, "LOGIDENT", "<log identifier>"),
-     (86, "TLOGDATACLOSE", "\<rrangle>")]
+     (86, "TLOGDATACLOSE", "\<rrangle>"),
+     (87, "TSTRUCT", "struct"),
+     (88, "TENUM", "enum"),
+     (89, "TFN", "fn"),
+     (90, "TTHINARROW", "->"),
+     (91, "TRUSTTYPE", "<Rust type>"),
+     (92, "HOLTYPE", "<HOL type>"),
+     (93, "TEXPRSTART", "<expression input>"),
+     (94, "TITEMSTART", "<item input>")]
 
   val terminal_count = length terminal_specs
 
@@ -1699,7 +2773,7 @@ struct
       Original.EC.terms
 
   val value_bearing_terminal_ids =
-    [0, 1, 2, 3, 6, 7, 9, 10, 11, 12, 76, 78, 79, 80, 84, 85]
+    [0, 1, 2, 3, 6, 7, 9, 10, 11, 12, 76, 78, 79, 80, 84, 85, 91, 92]
 
   val _ =
     List.app
@@ -1735,18 +2809,112 @@ struct
       structure ParserData = ParserData
       structure Lex = URustLex)
 
+  fun make_mode_lexer start_token input_string =
+    let
+      val raw_lexer = URustLex.makeLexer input_string
+      val pending = Unsynchronized.ref true
+      fun next_token () =
+        if !pending
+        then (pending := false; start_token (Position.none, Position.none))
+        else
+          (case URustLex.UserDeclarations.take_pending_signature_token () of
+             SOME token => token
+           | NONE => raw_lexer ())
+    in Source_Parser.Stream.streamify next_token end
+
   fun parse_layout ctxt layout =
     let val _ = URustLex.UserDeclarations.set_layout layout ctxt in
       Parser_Lex_Util.parse_source_with_layout
-          Source_Parser.parse Source_Parser.makeLexer
+          Source_Parser.parse
+          (make_mode_lexer URustLrVals.Tokens.TEXPRSTART)
           Source_Parser.Stream.get Source_Parser.sameToken
           URustLrVals.Tokens.EOF layout
     end
 
+  fun token_range
+      (Source_Parser.Token.TOKEN (_, (_, start, stop))) =
+    (start, stop)
+
+  fun parse_item_layout ctxt layout =
+    let val _ = URustLex.UserDeclarations.set_layout layout ctxt in
+      Parser_Lex_Util.parse_source_complete_with_layout
+          Source_Parser.parse
+          (make_mode_lexer URustLrVals.Tokens.TITEMSTART)
+          Source_Parser.Stream.get Source_Parser.sameToken
+          token_range URustLrVals.Tokens.EOF
+          "uRust item parser: trailing input after complete item"
+          layout
+    end
+
+  fun report_source_language ctxt source =
+    Context_Position.report ctxt
+      (Position.range_position (Input.range_of source))
+      (Markup.language
+        {name = "uRust",
+         symbols = true,
+         antiquotes = true,
+         delimited = Input.is_delimited source})
+
   fun parse_source ctxt source =
-    Parser_Utils.with_parser_lock (fn () =>
-      parse_layout ctxt
-        (Parser_Lex_Util.make_source_layout source))
+    Parser_Lex_Util.with_parser_lock (fn () =>
+      let
+        val _ = report_source_language ctxt source
+      in
+        (case parse_layout ctxt
+            (Parser_Lex_Util.make_source_layout source) of
+           SOME (URust_AST.Parsed_Expression expression) =>
+             SOME expression
+         | SOME (URust_AST.Parsed_Item
+             (URust_AST.Datatype_Item item)) =>
+             error
+               ("urust_expr: expected a complete expression" ^
+                 Position.here
+                   (URust_AST.datatype_item_position item))
+         | SOME (URust_AST.Parsed_Item
+             (URust_AST.Function_Item_Node function)) =>
+             error
+               ("urust_expr: expected a complete expression" ^
+                 Position.here
+                   (URust_AST.function_item_position function))
+         | NONE => NONE)
+      end)
+
+  fun parse_item_source ctxt source =
+    Parser_Lex_Util.with_parser_lock (fn () =>
+      let
+        val _ = report_source_language ctxt source
+      in
+        (case parse_item_layout ctxt
+            (Parser_Lex_Util.make_source_layout source) of
+           SOME (URust_AST.Parsed_Item item) =>
+             SOME item
+         | SOME (URust_AST.Parsed_Expression expression) =>
+             error
+               ("uRust item parser: expected a complete item" ^
+                 Position.here
+                   (URust_AST.expression_position expression))
+         | NONE => NONE)
+      end)
+
+  fun parse_datatype_source ctxt source =
+    (case parse_item_source ctxt source of
+       SOME (URust_AST.Datatype_Item item) => SOME item
+     | SOME (URust_AST.Function_Item_Node function) =>
+         error
+           ("urust_datatype: expected a struct or enum item" ^
+             Position.here
+               (URust_AST.function_item_position function))
+     | NONE => NONE)
+
+  fun parse_function_source ctxt source =
+    (case parse_item_source ctxt source of
+       SOME (URust_AST.Function_Item_Node function) => SOME function
+     | SOME (URust_AST.Datatype_Item item) =>
+         error
+           ("urust_fn: expected a complete function item" ^
+             Position.here
+               (URust_AST.datatype_item_position item))
+     | NONE => NONE)
 end
 \<close>
 

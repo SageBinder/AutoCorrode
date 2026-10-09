@@ -179,12 +179,9 @@ private definition tmp1_ref :: \<open>(raw_pmem_region, byte list, (NonNullRaw, 
   \<open>tmp1_ref \<equiv> make_focused (make_gref (make_raw_pmem_region (test_page + 0x40) 8)) ref_gref_opt_focus\<close>
 
 \<comment>\<open>\<^verbatim>\<open>
-urust_fn reverse_unlink :: \<open>64 word \<Rightarrow> ('caddr, 'gv) gref option
-  \<Rightarrow> ('addr, 'gv, ('caddr, 'gv) gref option) Global_Store.ref
-  \<Rightarrow> ('addr, 'gv, ('caddr, 'gv) gref option) Global_Store.ref
-  \<Rightarrow> ('s, ('caddr, 'gv) gref option \<times> ('caddr, 'gv) gref option) function_body\<close>
-  (n, orig, cur_raw, last_raw)
+urust_fn [register_notation = false] reverse_unlink
   \<open>
+  fn reverse_unlink(n: u64, orig: \<tau>\<open>('caddr, 'gv) gref option\<close>, cur_raw: \<tau>\<open>('addr, 'gv, ('caddr, 'gv) gref option) Global_Store.ref\<close>, last_raw: \<tau>\<open>('addr, 'gv, ('caddr, 'gv) gref option) Global_Store.ref\<close>) -> \<tau>\<open>('caddr, 'gv) gref option \<times> ('caddr, 'gv) gref option\<close> {
       last_raw = None;
       cur_raw = orig;
       for i in 0..n {
@@ -201,6 +198,7 @@ urust_fn reverse_unlink :: \<open>64 word \<Rightarrow> ('caddr, 'gv) gref optio
       let last = *last_raw;
       let cur = *cur_raw;
       \<llangle>(last, cur)\<rrangle> \<comment>\<open>Unfortunately, we don't yet have tuple notation in uRust\<close>
+  }
   \<close>
 \<close>\<close>
 value[code] \<open>run_it \<sigma>\<^sub>1 (reverse_unlink 4 ll_head tmp0_ref tmp1_ref)\<close>

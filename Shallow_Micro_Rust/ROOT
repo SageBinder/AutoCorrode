@@ -12,6 +12,7 @@ session Shallow_Micro_Rust = HOL +
     Bool_Type
     Option_Type
     Result_Type
+    Semantic_Navigation
     Micro_Rust_Notations
     Rust_Iterator
     Range_Type

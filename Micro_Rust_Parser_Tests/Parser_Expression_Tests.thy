@@ -4,6 +4,10 @@ theory Parser_Expression_Tests
   imports Parser_Iterator_Fixtures "HOL.Real"
 begin
 
+declare [[urust_pp_test = true]]
+declare [[urust_pretty = true]]
+declare [[urust_verbosity = 2]]
+
 section\<open>Iterator call syntax\<close>
 
 text\<open>
@@ -284,6 +288,14 @@ definition parser_reference_fixture ::
 definition parser_dereference_fixture ::
   \<open>(unit, unit, 'v) Global_Store.ref \<Rightarrow> (unit, 'v, unit, unit, unit) function_body\<close>
   where \<open> parser_dereference_fixture \<equiv> undefined \<close>
+
+definition parser_reference_array_index_fixture ::
+  \<open>
+    (unit, unit, ('v, 'l::{len}) array) Global_Store.ref \<Rightarrow>
+    'w::{len} word \<Rightarrow>
+    (unit, (unit, unit, 'v) Global_Store.ref, unit, unit, unit) function_body
+  \<close>
+  where \<open> parser_reference_array_index_fixture \<equiv> undefined \<close>
 
 adhoc_overloading store_reference_const \<rightleftharpoons> parser_reference_fixture
 adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
@@ -1838,6 +1850,7 @@ priorities, so the corresponding rows retain those parentheses.
 \<close>
 
 adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
+adhoc_overloading index_const \<rightleftharpoons> parser_reference_array_index_fixture
 
 context
   fixes reference_array ::
@@ -1854,6 +1867,7 @@ urust_expr grouped_index_before_deref
 end
 
 no_adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
+no_adhoc_overloading index_const \<rightleftharpoons> parser_reference_array_index_fixture
 
 datatype_record parser_index_packet =
   parser_index_packet_values :: \<open>32 word list\<close>

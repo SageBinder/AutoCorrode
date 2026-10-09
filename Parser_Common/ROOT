@@ -1,0 +1,4 @@
+session Parser_Common = HOL +
+  options [document = false]
+  theories [document = false]
+    Parser_Common

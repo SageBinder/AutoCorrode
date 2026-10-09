@@ -2,6 +2,10 @@ theory Parser_Cast_Alias_Fixtures
   imports Parser_Test_Utils
 begin
 
+declare [[urust_pp_test = true]]
+declare [[urust_pretty = true]]
+declare [[urust_verbosity = 2]]
+
 bundle module_cast_aliases begin
   urust_cast_alias "U8Alias" = "u8"
   urust_cast_alias "types::U16Alias" = "u16"

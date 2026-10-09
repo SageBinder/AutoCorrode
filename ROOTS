@@ -11,6 +11,7 @@ Separation_Lenses
 Shallow_Micro_Rust
 Shallow_Separation_Logic
 Micro_Rust_Examples
+Parser_Common
 Micro_Rust_Parser_Impl
 Micro_Rust_Parser_Tests
 Micro_Rust_Interfaces_Core

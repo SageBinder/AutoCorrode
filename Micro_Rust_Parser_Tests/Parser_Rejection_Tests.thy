@@ -11,16 +11,19 @@ theory Parser_Rejection_Tests
     Parser_Logging_Fixtures
 begin
 
-chapter\<open>Negative parser tests\<close>
-
-declare [[urust_verbosity = 0]]
+declare [[urust_pp_test = true]]
+declare [[urust_pretty = true]]
+declare [[urust_verbosity = 2]]
 declare [[urust_abbrev = false]]
 
+chapter\<open>Negative parser tests\<close>
+
 text\<open>
-\<open>urust_expr_rejects source expected\<close> requires parser elaboration to reject
-and checks that the diagnostic contains the stable expected substring. Bracketed
-comment labels remain explanatory only.
+The custom rejection command calls the common elaboration API directly, so declaration-level
+roundtrip and output settings do not obscure the parser or lowering diagnostic under test.
+Successful recovery declarations inherit the enabled test settings above.
 \<close>
+
 
 section\<open> Non-associative operators \<close>
 
@@ -47,6 +50,38 @@ section\<open> Integer literals \<close>
 urust_expr_rejects \<open> 1_u7 \<close> \<open> unsupported integer-literal suffix "_u7" \<close>
   \<comment> \<open> [FIDELITY] unknown width suffix, from the single term-layer suffix table (D29); the frontend's
        numeral-ascription syntax rejects it too. Adding \<open>u7\<close> would break this row -- deliberately. \<close>
+
+section\<open> Comments \<close>
+
+urust_expr_rejects \<open> /* comment-only input */ \<close>
+  \<open> empty expression \<close>
+  \<comment> \<open> [FIDELITY] removing all block-comment layout leaves the ordinary empty-input result. \<close>
+
+urust_expr_rejects \<open> /* unterminated outer comment \<close>
+  \<open> unterminated block comment \<close>
+  \<comment> \<open> [FIDELITY] the dedicated diagnostic is anchored at the outer opener. \<close>
+
+urust_expr_rejects
+  \<open> /* outer /* nested comment */ still open \<close>
+  \<open> unterminated block comment \<close>
+  \<comment> \<open> [FIDELITY] closing a nested level does not close the outer comment. \<close>
+
+urust_expr_rejects \<open> /*/ \<close>
+  \<open> unterminated block comment \<close>
+  \<comment> \<open> [FIDELITY] the final slash is body text, not a reversed closer. \<close>
+
+urust_expr_rejects \<open> 1_u64 */ 2_u64 \<close>
+  \<open> syntax error found at / \<close>
+  \<comment> \<open> [FIDELITY] an unmatched closer remains the ordinary \<open>*\<close> and \<open>/\<close> operator tokens. \<close>
+
+urust_expr_rejects \<open> f::<1 /* layout */ + 2>() \<close>
+  \<open> unexpected input "/" \<close>
+  \<comment> \<open> [FIDELITY] restricted turbofish syntax does not admit Rust block-comment layout. \<close>
+
+urust_expr_rejects
+  \<open> l\<llangle>"value", /* layout */ True\<rrangle> \<close>
+  \<open> unexpected input "/" \<close>
+  \<comment> \<open> [FIDELITY] structured log-data syntax retains its deliberately restricted lexer state. \<close>
 
 section\<open> Unsupported Rust-compatible integer suffixes \<close>
 

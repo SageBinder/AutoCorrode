@@ -157,11 +157,9 @@ begin
 
 adhoc_overloading store_reference_const \<rightleftharpoons> ref_word64.new
 
-urust_fn ntt ::
-  \<open>('addr, 'gv, mlkem_poly) Global_Store.ref \<Rightarrow>
-   ('s::{sepalg}, unit, 'abort, 'i prompt, 'o prompt_output) function_body\<close>
-  (f_ref)
+urust_fn [register_notation = false] ntt
   \<open>
+  fn ntt(f_ref: \<tau>\<open>('addr, 'gv, mlkem_poly) Global_Store.ref\<close>) -> () {
     let mut k = 1;
 
     for layer in 0..7 {
@@ -184,6 +182,7 @@ urust_fn ntt ::
         }
       }
     }
+  }
   \<close>
 
 definition ntt_contract ::

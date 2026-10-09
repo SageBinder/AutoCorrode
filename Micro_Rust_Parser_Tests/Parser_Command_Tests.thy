@@ -1,4 +1,5 @@
-(* Parser command, declaration, option, and generated-artifact tests. *)
+(* Shared command/API, expression declaration and cross-command artifact tests.
+   Read Parser_Function_Tests for urust_fn syntax examples. *)
 
 theory Parser_Command_Tests
   imports
@@ -9,11 +10,13 @@ theory Parser_Command_Tests
     Parser_Logging_Fixtures
 begin
 
-chapter\<open>Parser facade\<close>
-
-declare [[urust_verbosity = 0]]
+declare [[urust_pp_test = true]]
+declare [[urust_pretty = true]]
+declare [[urust_verbosity = 2]]
 declare [[urust_abbrev = false]]
 declare [[urust_application_def = false]]
+
+chapter\<open>Parser facade\<close>
 
 section\<open> Parser facade smoke test \<close>
 
@@ -23,10 +26,11 @@ urust_expr smoke_unit \<open> () \<close>
 thm smoke_num_def smoke_sfx_def smoke_unit_def
 
 
-
 chapter\<open>Typed expression and shared command API\<close>
 
-declare [[urust_verbosity = 0]]
+declare [[urust_pp_test = true]]
+declare [[urust_pretty = true]]
+declare [[urust_verbosity = 2]]
 declare [[urust_abbrev = false]]
 declare [[urust_application_def = false]]
 
@@ -162,11 +166,6 @@ urust_expr [application_def, attrs = [micro_rust_simps]]
   (number, flag)
   \<open> \<llangle>(number, flag)\<rrangle> \<close>
 
-urust_fn [application_def]
-  typed_application_function ::
-  \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
-  (item)
-  \<open> item \<close>
 
 urust_expr [application_def]
   typed_application_implicit_parameter
@@ -181,31 +180,18 @@ urust_expr [application_def] typed_zero_expression_application ::
   \<open>(unit, nat, unit, unit, unit, unit) expression\<close>
   \<open> \<llangle>7 :: nat\<rrangle> \<close>
 
-urust_fn typed_zero_function_default ::
-  \<open>(unit, nat, unit, unit, unit) function_body\<close>
-  \<open> \<llangle>7 :: nat\<rrangle> \<close>
-
-urust_fn [application_def] typed_zero_function_application ::
-  \<open>(unit, nat, unit, unit, unit) function_body\<close>
-  \<open> \<llangle>7 :: nat\<rrangle> \<close>
 
 text\<open>
-Parenthesized parameters use Isabelle liberal names. Minor keywords such as \<open>for\<close> are
-available unquoted, while major command keywords must be string-quoted because command-span parsing
-happens before the declaration parser. The collision example also checks that source parameters win
-the literal role over an identically named HOL constant and parser registration; it is intentionally
-parser-only because the lexical parameter deliberately takes precedence over the registered constant. The
-parameter named \<open>zip\<close> shadows the real HOL \<open>List.zip\<close> constant. The callable case additionally checks that an unqualified direct call head uses the
-parameter before an exact NFunction registration; the method case pins the retained
-registration-first method policy. The internal-placeholder example checks that typed fixes use the
-completed declaration type.
+Parenthesized expression parameters use Isabelle liberal names. Minor keywords such as
+\<open>for\<close> are available unquoted, while major command keywords must be string-quoted because
+command-span parsing happens before the declaration parser.
+
+The function counterparts live in \<open>Parser_Function_Tests\<close>. The artifact checks below
+also inspect those imported declarations: lexical parameters shadow registered values and direct
+call heads, methods retain registration-first resolution, and independent signature holes infer
+through typed lexical fixes. In particular, the parameter named \<open>zip\<close> shadows HOL
+\<open>List.zip\<close>.
 \<close>
-
-definition command_parameter_collision :: nat
-  where \<open> command_parameter_collision = 17 \<close>
-
-urust_notation (literal)
-  command_parameter_collision ("command_parameter_collision")
 
 urust_expr [attrs = [micro_rust_simps]]
   attributed_expression ::
@@ -222,49 +208,6 @@ urust_expr parenthesized_minor_keyword_expression ::
   (for)
   \<open> () \<close>
 
-urust_fn [attrs = []]
-  partial_collision_function ::
-  \<open>nat \<Rightarrow> _\<close>
-  (command_parameter_collision)
-  \<open> command_parameter_collision \<close>
-
-urust_fn [attrs = [micro_rust_simps]]
-  partial_internal_placeholder ::
-  \<open>_ \<Rightarrow> _\<close>
-  (item)
-  \<open> \<llangle>item :: nat\<rrangle> \<close>
-
-urust_fn zip_parameter_value ::
-  \<open>nat \<Rightarrow> _\<close>
-  (zip)
-  \<open> zip \<close>
-
-definition command_registered_zip ::
-    \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
-  where \<open> command_registered_zip \<equiv> lift_fun1 (\<lambda>item. item + 1) \<close>
-
-urust_notation (call) command_registered_zip ("zip")
-
-urust_fn  zip_callable_parameter ::
-  \<open>
-    (nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body) \<Rightarrow>
-    nat \<Rightarrow> _
-  \<close>
-  (zip, item)
-  \<open> zip(item) \<close>
-
-urust_fn  zip_method_registration ::
-  \<open>
-    (nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body) \<Rightarrow>
-    nat \<Rightarrow> _
-  \<close>
-  (zip, item)
-  \<open> item.zip() \<close>
-
-urust_fn quoted_major_parameter ::
-  \<open>nat \<Rightarrow> _\<close>
-  ("lemma")
-  \<open> lemma \<close>
 
 text\<open>
 A declaration wildcard consumes one argument type and contributes one anonymous abstraction without
@@ -283,35 +226,17 @@ urust_expr wildcard_expression_mixed ::
   (_, kept, _)
   \<open> kept \<close>
 
-urust_fn wildcard_function_single ::
-  \<open>nat \<Rightarrow> (unit, unit, unit, unit, unit) function_body\<close>
-  (_)
-  \<open> () \<close>
-
-urust_fn wildcard_function_mixed ::
-  \<open>nat \<Rightarrow> bool \<Rightarrow> 32 word \<Rightarrow>
-    (unit, bool, unit, unit, unit) function_body\<close>
-  (_, kept, _)
-  \<open> kept \<close>
 
 urust_expr  wildcard_expression_inferred
   (_)
   \<open> () \<close>
 
-urust_fn  wildcard_function_inferred ::
-  \<open>_ \<Rightarrow> _\<close>
-  (_)
-  \<open> \<llangle>0 :: nat\<rrangle> \<close>
 
 urust_expr [application_def] wildcard_expression_application ::
   \<open>nat \<Rightarrow> (unit, unit, unit, unit, unit, unit) expression\<close>
   (_)
   \<open> () \<close>
 
-urust_fn [application_def] wildcard_function_application ::
-  \<open>nat \<Rightarrow> (unit, unit, unit, unit, unit) function_body\<close>
-  (_)
-  \<open> () \<close>
 
 urust_expr [abbrev] wildcard_expression_abbreviation ::
   \<open>nat \<Rightarrow> bool \<Rightarrow>
@@ -319,11 +244,6 @@ urust_expr [abbrev] wildcard_expression_abbreviation ::
   (_, kept)
   \<open> kept \<close>
 
-urust_fn [abbrev] wildcard_function_abbreviation ::
-  \<open>nat \<Rightarrow> bool \<Rightarrow>
-    (unit, bool, unit, unit, unit) function_body\<close>
-  (_, kept)
-  \<open> kept \<close>
 ML_val\<open>
   local
     val ctxt = \<^context>
@@ -441,7 +361,7 @@ ML_val\<open>
     val _ =
       (case result_type of
          Type (name, [stateT, valueT, returnT, abortT, inputT]) =>
-           (assert "terminal placeholder did not become function_body"
+           (assert "inferred function result did not become function_body"
               (name = \<^type_name>\<open>function_body\<close>);
             assert "function result value channel did not infer nat"
               (valueT = HOLogic.natT);
@@ -449,7 +369,7 @@ ML_val\<open>
               (length (distinct (op =) [stateT, returnT, abortT, inputT]) = 4))
        | _ =>
            error
-             "command surface audit: terminal placeholder has malformed completed type")
+             "command surface audit: inferred function result has malformed type")
   in
     val _ = ()
   end
@@ -605,10 +525,6 @@ urust_expr [application_def] _ ::
   (item)
   \<open> item \<close>
 
-urust_fn [application_def] _ ::
-  \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
-  (item)
-  \<open> item \<close>
 
 urust_expr [abbrev = true] _
   \<open> () \<close>
@@ -694,12 +610,6 @@ urust_expr
   (item)
   \<open> item \<close>
 
-urust_fn
-  [abbrev, verbosity = 2]
-  typed_function_abbrev_command ::
-  \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
-  (item)
-  \<open> item \<close>
 
 urust_expr typed_parser_only ::
   \<open>32 word \<Rightarrow>
@@ -918,6 +828,21 @@ ML_val\<open>
   end
 \<close>
 
+section\<open> Pretty-printer roundtrip checking \<close>
+
+urust_expr [pp_test = false] pp_expr_disabled
+  (item)
+  \<open> let value = \<llangle>item :: nat\<rrangle>; (value) \<close>
+
+urust_expr [pp_test] pp_expr_enabled
+  (item)
+  \<open> let value = \<llangle>item :: nat\<rrangle>; (value) \<close>
+
+lemma pp_expr_enabled_same:
+  \<open>pp_expr_enabled = pp_expr_disabled\<close>
+  unfolding pp_expr_enabled_def pp_expr_disabled_def
+  by (rule refl)
+
 
 section\<open> Invalid flags and argument lists \<close>
 
@@ -969,13 +894,21 @@ ML_val\<open>
         ("urust_expr [verbosity = 3] invalid_verbosity " ^ unit_source)
         "must be 0, 1, or 2"
     val _ =
+      assert_rejected "invalid-pp-test"
+        ("urust_expr [pp_test = 1] invalid_pp_test " ^ unit_source)
+        "expects true or false"
+    val _ =
+      assert_rejected "invalid-pretty"
+        ("urust_expr [pretty = 1] invalid_pretty " ^ unit_source)
+        "expects true or false"
+    val _ =
       assert_rejected "attributes-on-abbreviation"
         ("urust_expr [abbrev, attrs = []] attributed_abbreviation " ^ unit_source)
         "attrs is not supported in abbreviation mode"
     val _ =
-      assert_rejected "missing-function-type"
-        ("urust_fn missing_fun_type () " ^ unit_source)
-        "function elaboration requires a declared type"
+      assert_rejected "legacy-function-body-clause"
+        ("urust_fn rejected_legacy_body () " ^ unit_source)
+        "Outer syntax error"
     val _ =
       assert_rejected "duplicate-expression-parameters"
         ("urust_expr duplicate_args (item, item) " ^ unit_source)
@@ -984,6 +917,141 @@ ML_val\<open>
       assert_rejected "old-function-command"
         ("urust_fun old_function :: " ^ body_type ^ " () " ^ unit_source)
         "command expected"
+  in
+    val _ = ()
+  end
+\<close>
+
+
+section\<open> Declaration verbosity output \<close>
+
+ML_val\<open>
+  local
+    fun run_command source_name command_text () =
+      let
+        val thy = \<^theory>
+        val transitions =
+          Outer_Syntax.parse_text thy (K thy)
+            (Position.line_file 1 source_name) command_text
+        val _ =
+          if length transitions = 1 then ()
+          else error "declaration verbosity audit: expected one transition"
+      in
+        fold (Toplevel.command_exception true) transitions
+          (Toplevel.make_state (SOME thy))
+      end
+
+    fun plain_content chunks =
+      YXML.parse_body (implode chunks)
+      |> XML.content_of
+      |> Symbol.explode
+      |> filter_out Symbol.is_control
+      |> implode
+
+    fun capture_command source_name command_text =
+      let
+        val ordinary =
+          Synchronized.var
+            ("urust_verbosity_ordinary_" ^ source_name)
+            ([]: string list)
+        val urgent =
+          Synchronized.var
+            ("urust_verbosity_urgent_" ^ source_name)
+            ([]: string list)
+        fun capture target chunks =
+          Synchronized.change target (append chunks)
+        val _ =
+          Parser_Test_Report_Lock.run (fn () =>
+            Unsynchronized.setmp Private_Output.writeln_fn
+              (capture ordinary)
+              (Unsynchronized.setmp Private_Output.writeln_urgent_fn
+                (capture urgent)
+                (run_command source_name command_text)) ())
+      in
+        (plain_content (Synchronized.value ordinary),
+         plain_content (Synchronized.value urgent))
+      end
+
+    fun source value =
+      Symbol.open_ ^ " " ^ string_of_int value ^ " " ^ Symbol.close
+
+    fun assert_contains label expected output =
+      if String.isSubstring expected output then ()
+      else
+        error
+          ("declaration verbosity audit: " ^ label ^
+            " is missing " ^ quote expected ^ ":\n" ^ output)
+
+    fun assert_absent label unexpected output =
+      if String.isSubstring unexpected output
+      then
+        error
+          ("declaration verbosity audit: " ^ label ^
+            " unexpectedly contains " ^ quote unexpected ^ ":\n" ^ output)
+      else ()
+
+    val (compact_definition, compact_definition_urgent) =
+      capture_command "verbosity-compact-definition"
+        ("urust_expr [verbosity = 1, pretty = false] " ^
+          "verbosity_compact_definition " ^ source 137)
+    val (compact_abbreviation, compact_abbreviation_urgent) =
+      capture_command "verbosity-compact-abbreviation"
+        ("urust_expr [verbosity = 1, pretty = false, abbrev] " ^
+          "verbosity_compact_abbreviation " ^ source 139)
+    val (compact_anonymous, compact_anonymous_urgent) =
+      capture_command "verbosity-compact-anonymous"
+        ("urust_expr [verbosity = 1, pretty = false] _ " ^ source 149)
+    val (compact_pretty, compact_pretty_urgent) =
+      capture_command "verbosity-compact-pretty"
+        ("urust_expr [verbosity = 1, pretty] " ^
+          "verbosity_compact_pretty " ^ source 151)
+    val (full_definition, full_definition_urgent) =
+      capture_command "verbosity-full-definition"
+        ("urust_expr [verbosity = 2, pretty = false] " ^
+          "verbosity_full_definition " ^ source 157)
+    val (full_pretty, full_pretty_urgent) =
+      capture_command "verbosity-full-pretty"
+        ("urust_expr [verbosity = 2, pretty] " ^
+          "verbosity_full_pretty " ^ source 163)
+    val (silent, silent_urgent) =
+      capture_command "verbosity-silent"
+        ("urust_expr [verbosity = 0, pretty = false] " ^
+          "verbosity_silent " ^ source 167)
+
+    val _ =
+      List.app
+        (fn (label, heading, body, output, urgent) =>
+          (assert_contains label heading output;
+           assert_contains label "..." output;
+           assert_absent (label ^ " body") body output;
+           assert_absent (label ^ " urgent") heading urgent))
+        [("compact definition",
+          "definition verbosity_compact_definition_def:", "137",
+          compact_definition, compact_definition_urgent),
+         ("compact abbreviation",
+          "abbreviation verbosity_compact_abbreviation:", "139",
+          compact_abbreviation, compact_abbreviation_urgent),
+         ("compact anonymous",
+          "urust_expr urust_expr_anonymous_", "149",
+          compact_anonymous, compact_anonymous_urgent),
+         ("compact pretty",
+          "definition verbosity_compact_pretty_def:", "151",
+          compact_pretty, compact_pretty_urgent)]
+    val _ =
+      List.app
+        (fn (label, heading, body, output, urgent) =>
+          (assert_contains label heading output;
+           assert_contains label body output;
+           assert_absent (label ^ " placeholder") "..." output;
+           assert_absent (label ^ " urgent") heading urgent))
+        [("full definition",
+          "definition verbosity_full_definition_def:", "157",
+          full_definition, full_definition_urgent),
+         ("full pretty",
+          "definition verbosity_full_pretty_def:", "163",
+          full_pretty, full_pretty_urgent)]
+    val _ = assert_absent "silent output" "verbosity_silent" silent
+    val _ = assert_absent "silent urgent output" "verbosity_silent" silent_urgent
   in
     val _ = ()
   end
@@ -1222,7 +1290,6 @@ ML_val\<open>
     val _ = writeln "Parser-generated default code equations passed"
   end
 \<close>
-
 
 
 end

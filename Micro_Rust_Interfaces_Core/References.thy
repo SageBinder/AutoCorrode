@@ -60,14 +60,12 @@ definition dereference_raw_contract
 
 text\<open>Lifting the raw reference operations to typed ones using foci:\<close>
 
-urust_fn [attrs = [all_reference_defs']] reference_fun ::
-  \<open>('b, 'v) prism \<Rightarrow>
-   'v \<Rightarrow>
-   ('s, ('a, 'b, 'v) Global_Store.ref, 'abort, 'i, 'o) function_body\<close>
-  (p, e)
+urust_fn [attrs = [all_reference_defs'], register_notation = false] reference_fun
   \<open>
+  fn reference_fun(p: \<tau>\<open>('b, 'v) prism\<close>, e: \<tau>\<open>'v\<close>) -> \<tau>\<open>('a, 'b, 'v) Global_Store.ref\<close> {
     let r = reference_raw_fun (\<llangle>prism_embed p e\<rrangle>);
     \<llangle>make_ref_typed_from_untyped\<rrangle>\<^sub>2(r, \<llangle>prism_to_focus p\<rrangle>)
+  }
   \<close>
 
 \<comment>\<open>\<^verbatim>\<open>prism_to_focus p\<close> has no (unconditional) code equations. Instead, specific instances of
@@ -76,41 +74,37 @@ for valid \<^verbatim>\<open>p\<close> have to be wrapped as definitions and giv
 during code generation if \<^verbatim>\<open>reference_fun\<close> is inlined -- thus the need for \<^verbatim>\<open>code_unfold\<close>.\<close>
 declare reference_fun_def[code_unfold]
 
-urust_fn [attrs = [all_reference_defs']] modify_raw_fun ::
-  \<open>('a, 'b) gref \<Rightarrow> ('b \<Rightarrow> 'b) \<Rightarrow> ('s, unit, 'abort, 'i, 'o) function_body\<close>
-  (r, f)
+urust_fn [attrs = [all_reference_defs'], register_notation = false] modify_raw_fun
   \<open>
+  fn modify_raw_fun(r: \<tau>\<open>('a, 'b) gref\<close>, f: \<tau>\<open>('b \<Rightarrow> 'b)\<close>) -> () {
     let g = dereference_raw_fun(r);
     update_raw_fun(r, \<llangle>f\<rrangle>\<^sub>1(g))
+  }
   \<close>
 
-urust_fn [attrs = [all_reference_defs']] modify_fun ::
-  \<open>('a, 'b, 'v) Global_Store.ref \<Rightarrow> ('v \<Rightarrow> 'v) \<Rightarrow> ('s, unit, 'abort, 'i, 'o) function_body\<close>
-  (ref, f)
+urust_fn [attrs = [all_reference_defs'], register_notation = false] modify_fun
   \<open>
-    modify_raw_fun (\<llangle>untype_ref\<rrangle>\<^sub>1(ref), \<llangle>focus_modify (get_focus ref) f\<rrangle>)
+  fn modify_fun(ref_value: \<tau>\<open>('a, 'b, 'v) Global_Store.ref\<close>, f: \<tau>\<open>('v \<Rightarrow> 'v)\<close>) -> () {
+    modify_raw_fun (\<llangle>untype_ref\<rrangle>\<^sub>1(ref_value), \<llangle>focus_modify (get_focus ref_value) f\<rrangle>)
+  }
   \<close>
 
-urust_fn [attrs = [all_reference_defs']] update_fun ::
-  \<open>('a, 'b, 'v) Global_Store.ref \<Rightarrow> 'v \<Rightarrow> ('s, unit, 'abort, 'i, 'o) function_body\<close>
-  (ref, v)
-  \<open> modify_fun(ref, \<llangle>\<lambda>_. v\<rrangle>) \<close>
+urust_fn [attrs = [all_reference_defs'], register_notation = false] update_fun
+  \<open> fn update_fun(ref_value: \<tau>\<open>('a, 'b, 'v) Global_Store.ref\<close>, v: \<tau>\<open>'v\<close>) -> () { modify_fun(ref_value, \<llangle>\<lambda>_. v\<rrangle>) } \<close>
 
-urust_fn [attrs = [all_reference_defs']] dereference_fun ::
-  \<open>('a, 'b, 'v) Global_Store.ref \<Rightarrow> ('s, 'v, 'abort, 'i, 'o) function_body\<close>
-  (ref)
+urust_fn [attrs = [all_reference_defs'], register_notation = false] dereference_fun
   \<open>
-    let b = dereference_raw_fun(\<llangle>untype_ref\<rrangle>\<^sub>1(ref));
-    match (\<llangle>focus_view (\<integral> ref) b\<rrangle>) {
+  fn dereference_fun(ref_value: \<tau>\<open>('a, 'b, 'v) Global_Store.ref\<close>) -> \<tau>\<open>'v\<close> {
+    let b = dereference_raw_fun(\<llangle>untype_ref\<rrangle>\<^sub>1(ref_value));
+    match (\<llangle>focus_view (\<integral> ref_value) b\<rrangle>) {
       None \<Rightarrow> \<epsilon>\<open>abort TypeError\<close>,
       Some(v) \<Rightarrow> v
     }
+  }
   \<close>
 
-urust_fn [attrs = [all_reference_defs']] ro_dereference_fun ::
-  \<open>('a, 'b, 'v) ro_ref \<Rightarrow> ('s, 'v, 'abort, 'i, 'o) function_body\<close>
-  (r)
-  \<open> dereference_fun(\<llangle>unsafe_ref_from_ro_ref\<rrangle>\<^sub>1(r)) \<close>
+urust_fn [attrs = [all_reference_defs'], register_notation = false] ro_dereference_fun
+  \<open> fn ro_dereference_fun(r: \<tau>\<open>('a, 'b, 'v) ro_ref\<close>) -> \<tau>\<open>'v\<close> { dereference_fun(\<llangle>unsafe_ref_from_ro_ref\<rrangle>\<^sub>1(r)) } \<close>
 
 definition is_valid_ref_for :: \<open>('a, 'b, 'v) Global_Store.ref \<Rightarrow> 'b set \<Rightarrow> bool\<close>
   where \<open>is_valid_ref_for r P \<equiv> focus_dom (get_focus r) \<subseteq> P\<close>

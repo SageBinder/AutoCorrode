@@ -4,6 +4,9 @@ theory Parser_Showcase_Tests
     Misc.Simple_Word_Enums
 begin
 
+declare [[urust_pp_test = true]]
+declare [[urust_pretty = true]]
+declare [[urust_verbosity = 2]]
 
 section\<open> Showcase \<close>
 
@@ -11,6 +14,131 @@ text\<open>
 These examples intentionally combine parser, lowering, matching, iterator, and
 declaration features.
 \<close>
+
+subsection\<open> Rust datatype items \<close>
+
+text\<open>
+Named Rust field types are context-local declarations. Primitive spellings use the same registry,
+and generated datatypes register their Rust names automatically for later declarations.
+\<close>
+
+urust_type "PacketId" = \<open>64 word\<close>
+urust_type "Maybe<'value>" = \<open>'value option\<close>
+
+urust_datatype [pretty, verbosity = 1] datatype_packet \<open>
+  struct DatatypePacket {
+    identifier: PacketId,
+    tag: u32,
+    state: Maybe<bool>,
+    pair: (u8, bool),
+    bytes: \<tau>\<open>8 word list\<close>,
+  }
+\<close>
+
+urust_datatype \<open>
+  enum DatatypeEvent {
+    Idle,
+    Packet(\<tau>\<open>datatype_packet\<close>),
+  }
+\<close>
+
+text\<open>
+Field-lens aliases are enabled by default. Disabling \<open>register_notation\<close> retains the
+generated lenses, proofs, constructor paths, and type mapping. A manual declaration can install
+selected aliases later. The scoped setting is \<open>urust_register_notation\<close>; inline options
+override it for one declaration only.
+\<close>
+
+urust_datatype [register_notation = false, pp_test, pretty, verbosity = 1] \<open>
+  struct DatatypeSample { sampleValue: u32 }
+\<close>
+
+thm datatype_sample_datatype_sample_sample_value_lens_valid
+
+urust_notation (field) datatype_sample_datatype_sample_sample_value_lens ("sampleValue")
+
+urust_expr showoff_manual_datatype_field \<open>
+  (DatatypeSample { sampleValue: 9u32 }).sampleValue
+\<close>
+
+text\<open>
+Declaration-local \<open>renames\<close> chooses HOL selector or enum constructor basenames.
+Both sides are quoted; Rust paths and field spellings continue to come from the source.
+The lens name follows the chosen selector.
+\<close>
+
+urust_datatype [renames = ["sampleValue" \<rightarrow> "sample"], pp_test, pretty] \<open>
+  struct RenamedSample { sampleValue: u32 }
+\<close>
+
+thm renamed_sample_sample_lens_valid
+
+urust_datatype [renames = ["Ready" \<rightarrow> "ModelReady"]] \<open>
+  enum RenamedState { Ready(u32), Empty }
+\<close>
+
+urust_expr showoff_renamed_datatype \<open>
+  match RenamedState::Ready((RenamedSample { sampleValue: 9u32 }).sampleValue) {
+    RenamedState::Ready(value) \<Rightarrow> value,
+    RenamedState::Empty \<Rightarrow> 0u32,
+  }
+\<close>
+
+subsection\<open> Rust-shaped function items \<close>
+
+text\<open>
+\<open>urust_fn\<close> parses a complete Rust-shaped function item. Its parameter and explicit
+result types resolve through the shared Rust-to-HOL registry and control elaboration.
+Omitting the HOL binding infers it from the Rust name.
+\<close>
+
+urust_fn [application_def]
+  \<open>
+    fn PacketLength(packet: u64) -> u64 {
+      packet + 1_u64
+    }
+  \<close>
+
+thm packet_length_def
+
+text\<open>
+The item command generates the HOL datatype, field lenses, and exact Rust constructor paths in one
+local-theory transaction. The parser then uses those identities consistently for construction,
+field access, and patterns.
+\<close>
+
+urust_expr showoff_datatype_items
+  \<open>
+    match DatatypeEvent::Packet(
+      DatatypePacket {
+        identifier: 3u64,
+        tag: 7u32,
+        state: Some(true),
+        pair: (1u8, true),
+        bytes: \<llangle>[] :: 8 word list\<rrangle>,
+      }
+    ) {
+      DatatypeEvent::Packet(packet) \<Rightarrow> packet.tag,
+      DatatypeEvent::Idle \<Rightarrow> 0u32,
+    }
+  \<close>
+
+subsection\<open> Pretty declaration output \<close>
+
+text\<open>
+The common \<open>pretty\<close> option changes verbosity-controlled declaration output to include
+human-readable uRust. For expressions it removes redundant groups while preserving required
+precedence; for datatypes it prints the normalized declaration after the artifact manifest. The
+formatted source is reparsed by the new frontend so the InfoView inherits the parser's lexical,
+semantic, entity, typing, and embedded-language markup.
+\<close>
+
+urust_expr [pretty, verbosity = 1]
+  showoff_pretty_expression
+  \<open>
+    let grouped = (((1 + 1)));
+    if grouped > 2 { grouped } else { 0 }
+  \<close>
 
 subsection\<open> Expressions, bindings, and control flow \<close>
 
@@ -40,6 +168,32 @@ urust_expr showoff_expression
       (restored, "large")
     } else {
       (restored + 1_u32, "small")
+    }
+  \<close>
+
+subsection\<open> Denotation navigation \<close>
+
+text\<open>
+Surface tokens now retain their exact denotational source ranges. In jEdit, control-flow keywords,
+operators, casts, collection delimiters, calls, projections, and built-in macro heads jump to the
+HOL constant selected by lowering. For example, the two \<open>match\<close> expressions below deliberately
+select different roots: the numeral form targets \<^const>\<open>ncase_selector\<close>, while the constructor
+form targets the native case encoding.
+\<close>
+
+urust_expr showoff_denotation_navigation
+  \<open>
+    let values = [1u64, 2u64];
+    let selected =
+      match values[0usize] {
+        0 \<Rightarrow> 0u64,
+        _ \<Rightarrow> values[1usize] as u64,
+      };
+    let wrapped = Some(selected);
+    assert!(selected > 0u64);
+    match wrapped {
+      Some(value) \<Rightarrow> value + 1u64,
+      None \<Rightarrow> 0u64,
     }
   \<close>
 
@@ -221,33 +375,25 @@ urust_expr showoff_logging_yield
 subsection\<open> Calls, methods, and propagation \<close>
 
 urust_fn
-  [attrs = [micro_rust_simps]]
-  showoff_inline_disabled ::
-  \<open>_\<close>
-  ()
-  \<open> 3u64 \<close>
+  [attrs = [micro_rust_simps], register_notation = false]
+  showoff_inline_disabled
+  \<open> fn showoff_inline_disabled() { 3u64 } \<close>
 
 text\<open>
 The optional \<open>application_def\<close> shape keeps the explicit source parameters on the generated
 definition theorem's left-hand side without changing the curried function value.
 \<close>
 
-urust_fn [application_def, verbosity = 2] showoff_declared_mix ::
-  \<open>64 word \<Rightarrow> 64 word \<Rightarrow>
-    (unit, 64 word, unit, unit, unit) function_body\<close>
-  (left, right)
-  \<open> left * 3u64 + right \<close>
+urust_fn [application_def, verbosity = 2, register_notation = false] showoff_declared_mix
+  \<open> fn showoff_declared_mix(left: u64, right: u64) -> u64 { left * 3u64 + right } \<close>
 
 text\<open>
 Bare declaration wildcards keep their typed argument slots and source order but introduce no
 lexical name. They may be repeated or mixed with named parameters in either command.
 \<close>
 
-urust_fn [application_def] showoff_wildcard_function ::
-  \<open>unit \<Rightarrow> 64 word \<Rightarrow> bool \<Rightarrow>
-    (unit, 64 word, unit, unit, unit) function_body\<close>
-  (_, kept, _)
-  \<open> kept + 1_u64 \<close>
+urust_fn [application_def, register_notation = false] showoff_wildcard_function
+  \<open> fn showoff_wildcard_function(_: (), kept: u64, _: bool) -> u64 { kept + 1_u64 } \<close>
 
 urust_expr [abbrev] showoff_wildcard_expression ::
   \<open>unit \<Rightarrow> 64 word \<Rightarrow>
@@ -255,11 +401,8 @@ urust_expr [abbrev] showoff_wildcard_expression ::
   (_, kept)
   \<open> kept \<close>
 
-urust_fn [abbrev, verbosity = 2] showoff_abbreviated_function ::
-  \<open>64 word \<Rightarrow>
-    (unit, 64 word, unit, unit, unit) function_body\<close>
-  (item)
-  \<open> item + 1_u64 \<close>
+urust_fn [abbrev, verbosity = 2, register_notation = false] showoff_abbreviated_function
+  \<open> fn showoff_abbreviated_function(item: u64) -> u64 { item + 1_u64 } \<close>
 
 urust_expr [verbosity = 2] showoff_typed_common ::
   \<open>64 word \<Rightarrow> 64 word \<Rightarrow>
@@ -627,13 +770,11 @@ Features: receiver-prepended iterator methods, chained \<open>into_iter\<close>
 conversion, shortest-input truncation, and pair-valued iterator elements.
 \<close>
 
-urust_fn showoff_iterator_zip ::
-  \<open>(unit,
-    (unit, 32 word \<times> bool \<times> tnil, unit, unit, unit) iterator,
-    unit, unit, unit) function_body\<close>
-  ()
+urust_fn [register_notation = false] showoff_iterator_zip
   \<open>
+  fn showoff_iterator_zip() -> \<tau>\<open>(unit, 32 word \<times> bool \<times> tnil, unit, unit, unit) iterator\<close> {
     [1_u32, 2_u32].into_iter().zip([True, False].into_iter())
+  }
   \<close>
 
 text\<open>

@@ -13,7 +13,7 @@
 
 theory Micro_Rust_Notations
   imports
-    Main
+    Semantic_Navigation
   keywords
     "micro_rust_notation" :: thy_decl and
     "print_micro_rust_notations" :: diag
@@ -65,21 +65,21 @@ fun infer_kind_of_type (Type ("Core_Expression.function_body", _)) = NFunction
   | infer_kind_of_type _ = NLiteral;
 
 \<comment>\<open>A registered entry: the resolved HOL \<^emph>\<open>term\<close> the notation stands for,
-  the position of the registering command (so leaf markup can hyperlink to
-  the declaration site), and a unique \<open>serial\<close> that pairs the def-side
+  an optional source constant retained before abbreviation expansion, the
+  position of the registering command (so leaf markup can hyperlink to the
+  declaration site), and a unique \<open>serial\<close> that pairs the def-side
   markup at the registration site with ref-side markup at every use site
   (mirrors the \<open>def\<close>/\<open>ref\<close> protocol of \<^ML>\<open>Position.make_entity_markup\<close>;
   see e.g. \<open>Pure/Isar/calculation.ML\<close> for a textbook use). Storing a TERM
   (not just a constant name) is what lets a notation target an arbitrary
   expression --- in particular a locale-fixed parameter (a \<open>Free\<close>) or a
   local definition --- not only a global constant. The declaration
-  morphism is applied to this term at registration (see \<open>do_register\<close>),
-  so under locale interpretation / derivation the stored term tracks the
-  parameter substitution.\<close>
+  morphism is applied to both stored terms at registration (see
+  \<open>do_register\<close>), so under locale interpretation / derivation they track
+  the parameter substitution.\<close>
 type entry =
-  { hol_term : term,
-    reg_pos : Position.T,
-    serial : serial };
+  {hol_term: term, source_const: term option,
+   reg_pos: Position.T, serial: serial};
 
 \<comment>\<open>MULTIPLE BACKENDS PER NAME (adhoc-overloading-style dispatch). A single
   uRust name may have several HOL backends differing only by type, just as
@@ -103,12 +103,57 @@ fun reg_eq (e1 : entry, e2 : entry) =
 \<comment>\<open>Table keyed by \<open>(context, rust_name)\<close> with a list of entries. The key is
   the pair of strings (\<open>Position.T\<close> is not an ordered type); entries (term and
   registration position) ride in the value.\<close>
+(* Function items reserve an exclusive callable path alongside the overloadable notation table.
+   Keeping both in this datum also checks independently populated import branches on merge. *)
+type function_item = {function: term, pos: Position.T};
+
+fun same_function_item (left: function_item, right: function_item) =
+  Term.aconv
+    (apply2 Term_Subst.zero_var_indexes (#function left, #function right));
+
+fun function_item_conflict name (left: function_item, right: function_item) =
+  error ("urust_fn: conflicting Rust function path " ^ quote name ^
+    Position.here (#pos left) ^ Position.here (#pos right));
+
+fun check_callable_paths (notations, function_items) =
+  Symtab.fold (fn (name, item: function_item) => fn () =>
+    if Symtab.defined notations ("function" ^ "\000" ^ name) then
+      error ("urust_fn: Rust function path " ^ quote name ^
+        " conflicts with an existing micro_rust_notation (call) declaration" ^
+        Position.here (#pos item))
+    else ()) function_items ();
+
 structure Data = Generic_Data
 (
-  type T = entry list Symtab.table;
-  val empty = Symtab.empty;
-  val merge = Symtab.merge_list reg_eq;
+  type T =
+    entry list Symtab.table * function_item Symtab.table;
+  val empty = (Symtab.empty, Symtab.empty);
+  fun merge ((left_notations, left_items), (right_notations, right_items)) =
+    let
+      val notations = Symtab.merge_list reg_eq (left_notations, right_notations);
+      val items = Symtab.join
+        (fn name => fn (left, right) =>
+          if same_function_item (left, right) then left
+          else function_item_conflict name (left, right))
+        (left_items, right_items);
+      val result = (notations, items);
+      val _ = check_callable_paths result;
+    in result end;
 );
+
+fun reserve_function_item name function pos =
+  Data.map (fn (notations, items) =>
+    let
+      val candidate = {function = function, pos = pos};
+      val items' =
+        (case Symtab.lookup items name of
+           NONE => Symtab.update (name, candidate) items
+         | SOME existing =>
+             if same_function_item (existing, candidate) then items
+             else function_item_conflict name (existing, candidate));
+      val result = (notations, items');
+      val _ = check_callable_paths result;
+    in result end);
 
 fun mk_key kind name = kind_to_string kind ^ "\000" ^ name;
 
@@ -246,29 +291,36 @@ fun set_shadow_bit kind names bit =
   emits a \<open>def\<close>-side entity markup at \<open>reg_pos\<close>. Use sites later emit
   matching \<open>ref\<close>-side markup pointing back here, so jEdit's
   jump-to-definition lands on the registering command.\<close>
-fun register kind name hol_term reg_pos context =
+fun register_with_source kind name hol_term source_const
+    reg_pos context =
   let
     val s = serial ();
     val entry =
-      { hol_term = hol_term,
-        reg_pos = reg_pos,
-        serial = s };
+      {hol_term = hol_term, source_const = source_const,
+       reg_pos = reg_pos, serial = s};
     val ctxt = Context.proof_of context;
-    val _ = Context_Position.report ctxt reg_pos
+    val completed =
+      context |> Data.map (fn (notations, items) =>
+        let
+          val result = (Symtab.insert_list reg_eq (mk_key kind name, entry) notations, items);
+          val _ = check_callable_paths result;
+        in result end);
+    val _ = Micro_Rust_Semantic_Navigation.defer_report ctxt reg_pos
       (Position.make_entity_markup {def = true} s notationN (name, reg_pos));
-  in
-    context |> Data.map (Symtab.insert_list reg_eq (mk_key kind name, entry))
-  end;
+  in completed end;
+
+fun register kind name hol_term reg_pos =
+  register_with_source kind name hol_term NONE reg_pos;
 
 \<comment>\<open>All backends registered for a \<open>(kind, name)\<close>, or \<open>[]\<close> if none.\<close>
 fun lookups ctxt kind name =
-  the_default [] (Symtab.lookup (Data.get (Context.Proof ctxt)) (mk_key kind name));
+  the_default [] (Symtab.lookup (#1 (Data.get (Context.Proof ctxt))) (mk_key kind name));
 
 \<comment>\<open>All registered entries, as \<open>(kind, rust_name, entry)\<close> triples (for the
   query command). Splits the composite key back into kind and name; one row
   per backend.\<close>
 fun dump ctxt =
-  Data.get (Context.Proof ctxt)
+  #1 (Data.get (Context.Proof ctxt))
   |> Symtab.dest
   |> maps (fn (key, es) =>
        (case String.fields (fn ch => ch = #"\000") key of
@@ -364,7 +416,9 @@ val payload_prefix = "_urust_dispatch_payload___";
 val payload_sep = String.str (Char.chr 0);
 
 type marker_positions =
-  {terminal_pos: Position.T, qualifier_positions: Position.T list};
+  {terminal_pos: Position.T,
+   qualifier_positions: Position.T list,
+   backend_only_positions: Position.T list};
 
 \<comment>\<open>Drop the \<^verbatim>\<open>file\<close> property of a position. CRITICAL: the encoded
   position is spliced into the payload \<^verbatim>\<open>Free\<close>'s \<^emph>\<open>name\<close> (see
@@ -384,14 +438,17 @@ fun strip_file pos =
        props = {label = label, file = "", id = id}} end;
 
 fun encode_payload_positions kind name
-    ({terminal_pos, qualifier_positions} : marker_positions) =
+    ({terminal_pos, qualifier_positions,
+      backend_only_positions} : marker_positions) =
   let
     val tag = Micro_Rust_Names.kind_to_string kind ^ payload_sep ^ name
-    val positions = terminal_pos :: qualifier_positions
+    val positions =
+      terminal_pos :: qualifier_positions @ backend_only_positions
   in
     if exists Position.is_reported positions
     then
       tag ^ payload_sep ^
+        string_of_int (length qualifier_positions) ^ payload_sep ^
         Term_Position.encode_no_syntax (map strip_file positions)
     else tag
   end;
@@ -399,12 +456,34 @@ fun encode_payload_positions kind name
 fun decode_payload s =
   let
     val parts = String.fields (fn ch => ch = Char.chr 0) s
+    fun decoded_positions qualifier_count enc =
+      let
+        val decoded = map #pos (Term_Position.decode enc)
+      in
+        (case decoded of
+           terminal_pos :: rest =>
+             let
+               val qualifier_positions =
+                 take qualifier_count rest
+               val backend_only_positions =
+                 drop qualifier_count rest
+             in
+               {terminal_pos = terminal_pos,
+                qualifier_positions = qualifier_positions,
+                backend_only_positions = backend_only_positions}
+             end
+         | [] =>
+             {terminal_pos = Position.none,
+              qualifier_positions = [],
+              backend_only_positions = []})
+      end
     val (kind_str, name, positions) =
       (case parts of
          [k, n] =>
            (k, n,
             {terminal_pos = Position.none,
-             qualifier_positions = []})
+             qualifier_positions = [],
+             backend_only_positions = []})
        | [k, n, enc] =>
            let
              val decoded = map #pos (Term_Position.decode enc)
@@ -413,12 +492,18 @@ fun decode_payload s =
                 terminal_pos :: qualifier_positions =>
                   (k, n,
                    {terminal_pos = terminal_pos,
-                    qualifier_positions = qualifier_positions})
+                    qualifier_positions = qualifier_positions,
+                    backend_only_positions = []})
               | [] =>
                   (k, n,
                    {terminal_pos = Position.none,
-                    qualifier_positions = []}))
+                    qualifier_positions = [],
+                    backend_only_positions = []}))
            end
+       | [k, n, qualifier_count, enc] =>
+           (k, n,
+            decoded_positions
+              (Value.parse_int qualifier_count) enc)
        | _ => error "malformed urust_dispatch payload")
   in (Micro_Rust_Names.string_to_kind kind_str, name, positions) end;
 
@@ -440,7 +525,9 @@ fun mk_payload_positions kind name positions =
   \<open>mk_marker_positions\<close> below to retain every identifier segment.\<close>
 fun mk_payload kind name pos =
   mk_payload_positions kind name
-    {terminal_pos = pos, qualifier_positions = []};
+    {terminal_pos = pos,
+     qualifier_positions = [],
+     backend_only_positions = []};
 
 \<comment>\<open>Recognise the payload \<^verbatim>\<open>Free\<close> and recover
   \<open>(kind, name, marker_positions)\<close>.\<close>
@@ -494,7 +581,21 @@ fun mk_marker_positions kind name terminal_pos qualifier_positions witness =
   mk_marker_term (SOME witness)
     (mk_payload_positions kind name
       {terminal_pos = terminal_pos,
-       qualifier_positions = qualifier_positions});
+       qualifier_positions = qualifier_positions,
+       backend_only_positions = []});
+
+\<comment>\<open>Registered macro markers keep source identifiers on notation
+  declaration navigation while retaining a distinct punctuation position for
+  the selected backend constant. Backends without a named constant identity
+  leave those backend-only positions unlinked.\<close>
+fun mk_marker_positions_with_backend_targets
+    kind name terminal_pos qualifier_positions
+    backend_only_positions witness =
+  mk_marker_term (SOME witness)
+    (mk_payload_positions kind name
+      {terminal_pos = terminal_pos,
+       qualifier_positions = qualifier_positions,
+       backend_only_positions = backend_only_positions});
 
 fun mk_marker kind name pos witness =
   mk_marker_positions kind name pos [] witness;
@@ -777,7 +878,7 @@ fun emit_notation_entries_at_pos
   else
     app
         (fn ({serial, reg_pos, ...} : Micro_Rust_Names.entry) =>
-          Context_Position.report ctxt pos
+          Micro_Rust_Semantic_Navigation.defer_report ctxt pos
             (Position.make_entity_markup {def = false} serial
               Micro_Rust_Names.notationN (name, reg_pos)))
         entries;
@@ -827,30 +928,47 @@ fun emit_selected_notation_entities_at_pos ctxt kind name selected pos =
   succeeded. It is never called when the witness wins. This stops markup from
   leaking onto an identifier whose witness ends up being a lambda binder
   (e.g. \<open>let x = \<dots>; x\<close> where \<open>x\<close> is also a registered notation).\<close>
+fun backend_identity_constant ctxt
+    ({hol_term, source_const, ...} : Micro_Rust_Names.entry) =
+  let
+    fun head_const t =
+      (case Term.strip_comb t of
+         (Const (c, _), wrapped :: _) =>
+           if is_backend_identity_wrapper ctxt c
+           then head_const wrapped
+           else SOME c
+       | (Const (c, _), []) => SOME c
+       | _ => NONE)
+  in
+    (case source_const of
+       SOME source =>
+         (case Term_Position.strip_positions source of
+            Const (c, _) => SOME c
+          | _ => NONE)
+     | NONE =>
+         head_const (Term_Position.strip_positions hol_term))
+  end;
+
 fun emit_backend_markup_at_pos ctxt kind name pos =
   if not (Position.is_reported pos) then ()
   else
     let
       val entries = Micro_Rust_Names.lookups ctxt kind name
-      fun report_one ({hol_term, ...} : Micro_Rust_Names.entry) =
+      fun report_one
+          (entry as {hol_term, source_const, ...} :
+            Micro_Rust_Names.entry) =
         let
-          val stripped = Term_Position.strip_positions hol_term
-
-          fun head_const t =
-            (case Term.strip_comb t of
-               (Const (c, _), wrapped :: _) =>
-                 if is_backend_identity_wrapper ctxt c
-                 then head_const wrapped
-                 else SOME c
-             | (Const (c, _), []) => SOME c
-             | _ => NONE)
-
           val had_named_head =
-            (case Term.strip_comb stripped of
-               (Const _, _) => true
-             | _ => false)
+            (case source_const of
+               SOME (Const _) => true
+             | _ =>
+                 (case
+                     Term.strip_comb
+                       (Term_Position.strip_positions hol_term) of
+                    (Const _, _) => true
+                  | _ => false))
           val constant_markup =
-            (case head_const stripped of
+            (case backend_identity_constant ctxt entry of
                SOME c =>
                  [Name_Space.markup
                     (Consts.space_of (Proof_Context.consts_of ctxt)) c]
@@ -858,12 +976,30 @@ fun emit_backend_markup_at_pos ctxt kind name pos =
           val style_markup =
             if had_named_head then [Markup.keyword3] else []
         in
-          app (Context_Position.report ctxt pos)
+          app
+            (Micro_Rust_Semantic_Navigation.defer_report ctxt pos)
             (constant_markup @ style_markup)
         end
     in
       app report_one entries
     end;
+
+\<comment>\<open>Backend-only source positions, currently the separate \<open>!\<close>
+  of a registered macro, receive native navigation to only the backend chosen
+  by typed dispatch. The ordinary lexical role markup remains in place, and an
+  arbitrary or lambda backend deliberately adds no constant target.\<close>
+fun emit_selected_backend_target_at_pos ctxt
+    (entry : Micro_Rust_Names.entry) pos =
+  if not (Position.is_reported pos) then ()
+  else
+    (case backend_identity_constant ctxt entry of
+       SOME c =>
+         List.app
+           (Micro_Rust_Semantic_Navigation.defer_report ctxt pos)
+           [Name_Space.markup
+              (Consts.space_of (Proof_Context.consts_of ctxt)) c,
+            Markup.const]
+     | NONE => ());
 
 \<comment>\<open>Compatibility single-position reporter. Backend identities and
   styling precede notation references, but no typed declaration is
@@ -877,14 +1013,18 @@ fun emit_use_markup_at_pos ctxt kind name pos =
   Every terminal and qualifier token then receives all declaration
   references exactly once with the selected declaration last.\<close>
 fun emit_selected_use_markup_at_positions ctxt kind name selected
-    ({terminal_pos, qualifier_positions} : marker_positions) =
+    ({terminal_pos, qualifier_positions,
+      backend_only_positions} : marker_positions) =
   (emit_backend_markup_at_pos ctxt kind name terminal_pos;
    emit_selected_notation_entities_at_pos
      ctxt kind name selected terminal_pos;
    List.app
      (emit_selected_notation_entities_at_pos
        ctxt kind name selected)
-     qualifier_positions);
+     qualifier_positions;
+   List.app
+     (emit_selected_backend_target_at_pos ctxt selected)
+     backend_only_positions);
 
 \<comment>\<open>A marker only exists because \<open>lookup_id_tr\<close> found a registration for
   \<open>(kind, name)\<close> (it emits nothing otherwise). So by the time \<open>resolve\<close>
@@ -1045,6 +1185,14 @@ fun is_identifier_path name =
 fun do_register kind_opt (hol_src, (rust_name, rust_pos)) lthy =
   let
     val t0 = Syntax.read_term lthy hol_src
+    val source_const =
+      (case
+          try
+            (Proof_Context.read_const
+              {proper = true, strict = false} lthy)
+            hol_src of
+         SOME (constant as Const _) => SOME constant
+       | _ => NONE)
     val kind =
       case kind_opt of
         SOME k => (check_forced_kind k lthy t0; k)
@@ -1053,8 +1201,10 @@ fun do_register kind_opt (hol_src, (rust_name, rust_pos)) lthy =
     lthy
     |> Local_Theory.declaration {pervasive=false, syntax=true, pos=Position.none}
       (fn phi =>
-        Micro_Rust_Names.register
-          kind rust_name (Morphism.term phi t0) rust_pos)
+        Micro_Rust_Names.register_with_source kind rust_name
+          (Morphism.term phi t0)
+          (Option.map (Morphism.term phi) source_const)
+          rust_pos)
   end;
 
 \<comment>\<open>Config sub-command: parse \<open>[mode] "name"+\<close> and update the

@@ -27,7 +27,7 @@ ML_val\<open>
        | NONE => error "slice pattern syntax audit: empty parse")
     fun match_pattern text =
       (case parse text of
-         UE_Match (_, _, [UR_Arm (pattern, NONE, _)], _) => pattern
+         UE_Match (_, _, [UR_Arm (pattern, NONE, _, _)], _) => pattern
        | _ => error "slice pattern syntax audit: unexpected match AST")
     val prefix = "// \<alpha> before the pattern\nmatch_case \<llangle>undefined\<rrangle> { "
     fun pattern_source pattern = prefix ^ pattern ^ " => () }"
@@ -53,13 +53,13 @@ ML_val\<open>
     fun bound_rests pattern =
       (case pattern of
          P_Slice (items, _) => maps slice_item_rests items
-       | P_Constr (_, children) => maps bound_rests children
+       | P_Constr (_, children, _) => maps bound_rests children
        | P_Tuple (children, _) => maps bound_rests children
-       | P_Group inner => bound_rests inner
+       | P_Group (inner, _) => bound_rests inner
        | P_Borrow (_, inner, _) => bound_rests inner
        | P_Alias (_, _, inner, _) => bound_rests inner
        | P_Range (_, lower, upper, _) => bound_rests lower @ bound_rests upper
-       | P_Struct (_, fields) =>
+       | P_Struct (_, fields, _) =>
            maps (fn SF_Field (_, _, child) => bound_rests child | _ => []) fields
        | P_Or (alternatives, _) => maps bound_rests alternatives
        | _ => [])
@@ -83,7 +83,7 @@ ML_val\<open>
     fun item_shape (SI_BoundRest (name, _, _, _)) = "rest:" ^ name
       | item_shape (SI_Rest _) = "bare"
       | item_shape (SI_Pat (P_Ident (name, _))) = "element:" ^ name
-      | item_shape (SI_Pat (P_Literal (LP_Integer (lexeme, _)))) = "integer:" ^ lexeme
+      | item_shape (SI_Pat (P_Literal (LP_Integer (Integer_Literal (lexeme, Source_Layout ( _, _), _))))) = "integer:" ^ lexeme
       | item_shape _ = "other"
     fun audit_slice spelling expected =
       let
@@ -94,7 +94,7 @@ ML_val\<open>
           Position.range_position (slice_start, Position.symbol_explode spelling slice_start)
       in
         (case pattern of
-           P_Slice (items, position) =>
+           P_Slice (items, Source_Layout (position, _)) =>
              (assert (spelling ^ " item order changed") (map item_shape items = expected);
               assert (spelling ^ " complete slice span changed")
                 (same_position position slice_position);
@@ -111,7 +111,7 @@ ML_val\<open>
                       SI_BoundRest rest => audit_bound_positions text raw [rest]
                     | SI_Rest position => token "bare rest" ".." position
                     | SI_Pat (P_Ident (name, position)) => token name name position
-                    | SI_Pat (P_Literal (LP_Integer (lexeme, position))) =>
+                    | SI_Pat (P_Literal (LP_Integer (Integer_Literal (lexeme, Source_Layout ( position, _), _)))) =>
                         token "integer" lexeme position
                     | _ => raw
                   end)
@@ -159,7 +159,7 @@ ML_val\<open>
            [P_Tuple
              ([P_Slice ([SI_BoundRest ("inside", _, _, _)], _),
                P_Struct (_, [SF_Field ("field", _,
-                 P_Slice ([SI_BoundRest ("outside", _, _, _)], _)), SF_Rest _])], _)]) =>
+                 P_Slice ([SI_BoundRest ("outside", _, _, _)], _)), SF_Rest _], _)], _)], _) =>
            assert "constructor nesting changed" (render_path path = "Some")
        | _ => error "slice pattern syntax audit: tuple or struct nesting changed")
     val _ =
@@ -190,7 +190,7 @@ ML_val\<open>
           (audit_slice ("[" ^ lexeme ^ ", tail @ .., " ^ lexeme ^ ",]")
              ["integer:" ^ lexeme, "rest:tail", "integer:" ^ lexeme];
            case parse_pattern ("Some(" ^ lexeme ^ ")") of
-             P_Constr (path, [P_Literal (LP_Integer (actual, _))]) =>
+             P_Constr (path, [P_Literal (LP_Integer (Integer_Literal (actual, Source_Layout ( _, _), _)))], _) =>
                assert ("nested integer lexeme changed: " ^ lexeme)
                  (render_path path = "Some" andalso actual = lexeme)
            | _ => error "slice pattern syntax audit: nested integer AST changed"))
@@ -199,15 +199,15 @@ ML_val\<open>
 
     fun consumer_pattern text =
       (case parse text of
-         UE_Match (_, _, [UR_Arm (pattern, NONE, _)], _) => pattern
+         UE_Match (_, _, [UR_Arm (pattern, NONE, _, _)], _) => pattern
        | UE_IfLet (pattern, _, _, _, _) => pattern
        | UE_LetElse (pattern, _, _, _, _) => pattern
        | UE_WhileLet (_, pattern, _, _, _) => pattern
        | UE_For (pattern, _, _, _) => pattern
-       | UE_Let (pattern, _, _) => pattern
-       | UE_Const (pattern, _, _) => pattern
+       | UE_Let (pattern, _, _, _) => pattern
+       | UE_Const (pattern, _, _, _) => pattern
        | UE_LetMut (pattern, _, _, _) => pattern
-       | UE_Macro (_, _, MP_Matches (_, pattern), _) => pattern
+       | UE_Macro (_, MP_Matches (_, pattern), _) => pattern
        | _ => error "slice pattern syntax audit: unexpected consumer AST")
     val _ =
       List.app
@@ -236,7 +236,7 @@ ML_val\<open>
              P_Alias ("outer", _,
                P_Tuple
                  ([P_Slice ([SI_BoundRest ("tail", _, _, _)], _),
-                   P_Ident ("other", _)], _), _), _), _, _) => ()
+                   P_Ident ("other", _)], _), _), _), _, _, _) => ()
        | _ => error "slice pattern syntax audit: recursive ordinary alias AST changed")
 
     fun audit_arm_count text expected =
@@ -675,13 +675,13 @@ ML_val\<open>
         (Parser_Lex_Util.positioned_content_source shorthand_text shorthand_start))
     val mixed_patterns =
       (case mixed_ast of
-         URust_AST.UE_Match (_, _, URust_AST.UR_Arm (URust_AST.P_Or (patterns, _), _, _) :: _, _) =>
+         URust_AST.UE_Match (_, _, URust_AST.UR_Arm (URust_AST.P_Or (patterns, _), _, _, _) :: _, _) =>
            patterns
        | _ => error "mixed field markup audit: alternative AST changed")
     val mixed_resolver = URust_Resolution.make_constructor_resolver ctxt shorthand_start
     val _ = List.app (fn pattern =>
       (case pattern of
-         URust_AST.P_Struct (path, fields) =>
+         URust_AST.P_Struct (path, fields, _) =>
            (case URust_Resolution.resolve_struct_pattern ctxt mixed_resolver (path, fields) of
               URust_Resolution.Resolved_Constructor_Struct (_, ordered) =>
                 assert "resolved field order, shorthand flag, or omitted field changed"
@@ -949,7 +949,7 @@ ML_val\<open>
                     SOME (URust_AST.UE_Match
                       (_, _, [URust_AST.UR_Arm
                         (URust_AST.P_Slice
-                          ([URust_AST.SI_BoundRest ("tail", _, _, _)], _), NONE, _)], _)) => ()
+                          ([URust_AST.SI_BoundRest ("tail", _, _, _)], _), NONE, _, _)], _)) => ()
                   | _ => error "slice pattern malformed audit: parser did not recover")
              in () end)
     fun reject_pattern pattern =

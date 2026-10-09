@@ -255,14 +255,16 @@ ML_val\<open>
       (case parse_source structural_source of
          UE_Bin
            (Add,
-            UE_Literal (LP_Integer ("1_u64", actual_left)),
-            UE_Literal (LP_Integer ("2_u64", actual_right)),
+            UE_Literal (LP_Integer (Integer_Literal ("1_u64", Source_Layout ( actual_left, _), _))),
+            UE_Literal (LP_Integer (Integer_Literal ("2_u64", Source_Layout ( actual_right, _), _))),
             actual_operator) =>
            (audit_assert "comment changed a neighboring literal range"
               (same_range actual_left left_pos andalso
                same_range actual_right right_pos);
             audit_assert "operator range moved across the comment"
-              (same_range actual_operator outer_plus_pos))
+              (same_range
+                (the_source_token_position actual_operator Operator_Token)
+                outer_plus_pos))
        | _ =>
            error "block-comment regression audit: expression AST changed")
 
@@ -309,7 +311,7 @@ ML_val\<open>
        | _ => error "block-comment regression audit: string AST changed")
     val _ =
       (case parse_text value_aq_text of
-         UE_Literal (LP_ValAntiq source) =>
+         UE_Literal (LP_ValAntiq (Value_Antiquotation (source, _))) =>
            audit_assert "value antiquotation block markers were consumed"
              (Input.string_of source = "''/* value */''")
        | _ =>
@@ -474,7 +476,7 @@ ML_val\<open>
        | _ => error "block-comment regression audit: opaque string AST")
     val _ =
       (case parse_text "\<llangle>''*/ /* unclosed''\<rrangle>" of
-         UE_Literal (LP_ValAntiq source) =>
+         UE_Literal (LP_ValAntiq (Value_Antiquotation (source, _))) =>
            audit_assert "unbalanced value-antiquotation markers were consumed"
              (Input.string_of source = "''*/ /* unclosed''")
        | _ => error "block-comment regression audit: opaque value antiquotation AST")
@@ -504,7 +506,7 @@ ML_val\<open>
       (case parse_text "if * /* prefix */base/* postfix */[index] as/* cast */u64 { () }" of
          UE_If
            (UE_Cast (UE_Unary (U_Deref, UE_Index (UE_Path _, UE_Path _, _), _),
-             SCT_Primitive (CT_Unsigned UT_U64), _), _, _, _) => ()
+             SCT_Primitive (CT_Unsigned UT_U64, _), _), _, _, _) => ()
        | _ => error "block-comment regression audit: control-head precedence or primitive cast")
     val _ =
       List.app (fn text =>
