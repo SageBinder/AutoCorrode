@@ -1006,7 +1006,7 @@ struct
                Micro_Rust_Names.NLiteral path
            else if is_qualified_path path then
              qualified_registration_error
-               Micro_Rust_Names.NLiteral path name (path_position path)
+               Micro_Rust_Names.NLiteral path name pos
            else resolve_contextual_or_global ())
     end
 
