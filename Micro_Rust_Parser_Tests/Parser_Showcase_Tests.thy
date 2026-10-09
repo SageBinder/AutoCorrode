@@ -100,11 +100,11 @@ urust_fn [application_def]
     }
   \<close>
 
-text\<open>A semantic annotation supplements the Rust value types with the full computation type.\<close>
+text\<open>HOL channel options supplement the Rust value types with the computation's state and effects.\<close>
 
 urust_fn
-  [type = \<open>64 word \<Rightarrow>
-    ('s::cancellative_sepalg, 64 word, bool, nat prompt, unit prompt_output) function_body\<close>,
+  [state = \<open>'s::cancellative_sepalg\<close>, abort = \<open>bool\<close>,
+   input = \<open>nat prompt\<close>, output = \<open>unit prompt_output\<close>,
    application_def]
   \<open>
     fn StablePacketLength(packet: u64) -> u64 {
@@ -405,7 +405,7 @@ subsection\<open> Calls, methods, and propagation \<close>
 urust_fn
   [attrs = [micro_rust_simps], register_notation = false]
   showoff_inline_disabled
-  \<open> fn showoff_inline_disabled() { 3u64 } \<close>
+  \<open> fn showoff_inline_disabled() -> u64 { 3u64 } \<close>
 
 text\<open>
 The optional \<open>application_def\<close> shape keeps the explicit source parameters on the generated

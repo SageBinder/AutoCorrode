@@ -1435,10 +1435,10 @@ ML_val \<open>
     val (inferred_state, inferred_result, inferred_abort, inferred_input, inferred_output) =
       channels inferred
     val _ =
-      require "omitted return lost its inferred signature type variable"
+      require "explicit polymorphic return lost its signature type variable"
         (inferred_result = inferred_parameter)
     val _ =
-      independent "omitted return specialized an unused type variable"
+      independent "explicit polymorphic return specialized an unused type variable"
         [inferred_parameter, inferred_state, inferred_abort, inferred_input, inferred_output]
 
     val sorted = declared_type ctxt "signature_shared_sorts"

@@ -24,9 +24,12 @@ sig
   val resolve: Proof.context -> URust_AST.rust_type -> typ
   val resolve_signature:
     Proof.context -> URust_AST.rust_type list -> typ list
+  type function_channels =
+    {state: Input.source option, abort: Input.source option,
+     input: Input.source option, output: Input.source option}
   val resolve_function_signature:
-    Proof.context -> Input.source option ->
-      URust_AST.rust_type list -> URust_AST.rust_type option -> typ
+    Proof.context -> function_channels ->
+      URust_AST.rust_type list -> URust_AST.rust_type -> typ
   val resolve_fields:
     Proof.context -> URust_AST.rust_type list ->
       {types: typ list, backend_parameters: (string * sort) list}
@@ -787,20 +790,6 @@ struct
               sort_error kind ctxt base (normalize argument) sort pos
         in unification := environment end
 
-      fun unify label pos (expected, actual) =
-        let
-          val environment =
-            Type.unify (Proof_Context.tsig_of ctxt)
-              (expected, actual) (!unification)
-            handle Type.TUNIFY =>
-              error
-                (command_label kind ^ ": " ^ label ^
-                  " conflicts with the semantic type annotation\n" ^
-                  "annotation: " ^ Syntax.string_of_typ ctxt (normalize expected) ^
-                  "\nRust signature: " ^ Syntax.string_of_typ ctxt (normalize actual) ^
-                  Position.here pos)
-        in unification := environment end
-
       fun backend sorts =
         if null sorts then []
         else
@@ -824,7 +813,7 @@ struct
                 (slots ~~ sorts)
           in map normalize slots end
     in
-      {fresh = fresh, normalize = normalize, check_sort = check_sort, unify = unify,
+      {fresh = fresh, normalize = normalize, check_sort = check_sort,
        backend = backend,
        backend_slots = fn () => the_default [] (!backend_slots)}
     end
@@ -1006,7 +995,7 @@ struct
     | hol_sources (Array_Type (typ, _, _)) = hol_sources typ
     | hol_sources (Primitive_Type _) = []
 
-  fun resolve_signature_with ctxt rust_types constrain =
+  fun resolve_signature_with ctxt rust_types assemble =
     let
       val sources = maps hol_sources rust_types
       fun parse source =
@@ -1020,7 +1009,7 @@ struct
 
       (* Keep sort inference shared across the whole signature. Only fresh
          signature variables are flexible; ambient variables remain rigid. *)
-      val {fresh, normalize, check_sort, unify, backend, ...} =
+      val {fresh, normalize, check_sort, backend, ...} =
         inference_state Function_Signature ctxt checked
       val named_parameters: typ Symtab.table Unsynchronized.ref =
         Unsynchronized.ref Symtab.empty
@@ -1084,70 +1073,42 @@ struct
         else
           raise Fail
             "uRust type registry: unconsumed signature HOL escape"
-    in finish (constrain normalize unify (map #typ resolved)) end
+    in finish (assemble (map #typ resolved)) end
 
   fun resolve_signature ctxt rust_types =
-    resolve_signature_with ctxt rust_types (fn _ => fn _ => I)
+    resolve_signature_with ctxt rust_types I
 
-  (* The outer HOL declaration and Rust escapes are parsed/checked/imported in the same
-     batch. Unify before restoring named variables: ambient locale variables stay rigid,
-     fresh signature variables can acquire sorts or concrete types, and every _ is fresh. *)
-  fun resolve_function_signature ctxt declared_type parameters result =
+  type function_channels =
+    {state: Input.source option, abort: Input.source option,
+     input: Input.source option, output: Input.source option}
+
+  (* Channel options and Rust escapes share native type/sort checking and import.
+     Rust alone supplies parameter/result types, including the default unit result. *)
+  fun resolve_function_signature ctxt
+      ({state, abort, input, output}: function_channels) parameters result =
     let
+      val channels = [state, abort, input, output]
       val types =
-        map HOL_Type_Source (the_list declared_type) @ parameters @ the_list result
-      fun constrain normalize unify resolved =
+        map HOL_Type_Source (map_filter I channels) @ parameters @ [result]
+      fun assemble resolved =
         let
-          val (outer, rust_signature) = chop (length (the_list declared_type)) resolved
+          val (supplied, rust_signature) = chop (length (map_filter I channels)) resolved
           val (parameter_types, result_types) = chop (length parameters) rust_signature
-          val result_type =
-            (case result_types of
-               [typ] => typ
-             | [] => dummyT
-             | _ => raise Fail "uRust type registry: signature result count mismatch")
-          val inferred =
-            parameter_types --->
-              Type (\<^type_name>\<open>function_body\<close>,
-                [dummyT, result_type, dummyT, dummyT, dummyT])
+          fun channel NONE types = (dummyT, types)
+            | channel (SOME _) (typ :: types) = (typ, types)
+            | channel (SOME _) [] =
+                raise Fail "uRust type registry: missing function channel"
+          val (channel_types, unused) = fold_map channel channels supplied
+          val _ =
+            if null unused then ()
+            else raise Fail "uRust type registry: unconsumed function channel"
+          val [state_type, abort_type, input_type, output_type] = channel_types
         in
-          (case (declared_type, outer) of
-             (NONE, []) => [inferred]
-           | (SOME source, [complete_type]) =>
-               let
-                 val (outer_parameters, terminal) = Term.strip_type (normalize complete_type)
-                 val value_type =
-                   (case terminal of
-                      Type (name, [_, value, _, _, _]) =>
-                        if name = \<^type_name>\<open>function_body\<close> then value
-                        else error
-                          ("urust_fn: semantic type must end in function_body" ^
-                            Position.here (Input.pos_of source))
-                    | _ => error
-                        ("urust_fn: semantic type must end in function_body" ^
-                          Position.here (Input.pos_of source)))
-                 val _ =
-                   if length outer_parameters = length parameters then ()
-                   else error
-                     ("urust_fn: semantic type expects " ^
-                       string_of_int (length outer_parameters) ^
-                       " parameters, but the Rust signature has " ^
-                       string_of_int (length parameters) ^
-                       Position.here (Input.pos_of source))
-                 val _ =
-                   List.app
-                     (fn ((expected, actual), parameter) =>
-                       unify "parameter type" (rust_type_position parameter)
-                         (expected, actual))
-                     ((outer_parameters ~~ parameter_types) ~~ parameters)
-                 val _ =
-                   (case result of
-                      SOME typ =>
-                        unify "return type" (rust_type_position typ) (value_type, result_type)
-                    | NONE => ())
-               in [normalize complete_type] end
-           | _ => raise Fail "uRust type registry: outer signature count mismatch")
+          [parameter_types --->
+            Type (\<^type_name>\<open>function_body\<close>,
+              [state_type, the_single result_types, abort_type, input_type, output_type])]
         end
-    in the_single (resolve_signature_with ctxt types constrain) end
+    in the_single (resolve_signature_with ctxt types assemble) end
 
   fun alias_error message pos =
     error ("urust_type_alias: " ^ message ^ Position.here pos)

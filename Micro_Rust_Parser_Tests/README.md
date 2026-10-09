@@ -30,14 +30,18 @@ the attributes apply only to the generated `_def` theorem. Rust function paramet
 result types resolve through the same `urust_type` registry as datatype fields. Function
 `τ‹HOL type›` escapes support polymorphism, sorts, higher-order types and independent inference
 holes; datatype fields allow implicit pointer backend parameters, while unrelated HOL free type
-variables remain rejected. Omitted results and effect channels infer from the
-body, and unused channels generalize.
+variables remain rejected. Omitted returns mean `()`, just like explicit `-> ()`.
+Non-unit results require an explicit Rust or `τ‹…›` return type. Effect channels infer from
+the signature/body, and unused channels generalize.
 
-Function declarations also accept `[type = ‹complete HOL type›]`. This constrains the actual
-curried HOL constant, including the `function_body` state sort and abort/input/output channels.
-Its named variables and sorts are shared with the Rust signature's escapes, while `_` holes
-remain independent. Rust parameter and explicit result types must agree with the annotation.
-Without it, inference and generalization retain their existing behavior.
+Function declarations accept independently optional `[state = ‹HOL type›, abort = ‹HOL type›,
+input = ‹HOL type›, output = ‹HOL type›]`. These constrain the actual curried HOL constant's
+computation channels; input and output include any prompt wrappers. Named variables and sorts
+are shared with all Rust signature escapes, locale variables remain rigid, and `_` holes
+remain independent. Rust signatures alone supply parameter and returned-value types.
+`Parser_Function_Semantic_Type_Tests` checks every channel combination, full declared schemes,
+default unit equivalence, callback sharing, contracts, local folding, holes, synonyms,
+pointers, locales, positioned rejection and recovery. The former overall `type` option is rejected.
 
 Named functions register their Rust declaration name by default. Bare, explicit and scoped
 `register_notation` controls use `urust_register_notation`, shared with datatypes. Formerly

@@ -75,37 +75,76 @@ lemma semantic_polymorphic_identity_contract:
 
 section\<open> Holes, shared names and independent call instances \<close>
 
-type_synonym ('s, 'v) semantic_identity_type =
-  \<open>'v \<Rightarrow> ('s, 'v, bool, nat prompt, unit prompt_output) function_body\<close>
+urust_fn
+  [state = \<open>'s::cancellative_sepalg\<close>, abort = \<open>'value::linorder\<close>,
+   input = \<open>'channel\<close>, output = \<open>'channel\<close>]
+  semantic_channel_sharing
+  \<open>
+    fn SemanticChannelSharing(value: \<tau>\<open>'value\<close>) -> \<tau>\<open>'value\<close> { value }
+  \<close>
 
-urust_fn [type = \<open>('s::cancellative_sepalg, nat) semantic_identity_type\<close>]
+urust_fn
+  [state = \<open>_::cancellative_sepalg\<close>, abort = \<open>_::linorder\<close>,
+   input = \<open>_::finite\<close>, output = \<open>_::order\<close>]
+  semantic_sorted_holes
+  \<open> fn SemanticSortedHoles(left: \<tau>\<open>_\<close>, right: \<tau>\<open>_\<close>) {} \<close>
+
+ML_val\<open>
+  local
+    open Parser_Function_Regression_Test
+    val ctxt = \<^context>
+    val typ = declared_type ctxt "semantic_channel_sharing"
+    val (state, result, abort, input, output) = channels typ
+    val _ = require "channel and signature names did not share" (result = abort andalso
+      binder_types typ = [result] andalso input = output)
+    val _ = require "shared channel sort was lost"
+      (Sign.subsort (Proof_Context.theory_of ctxt) (sort_of result, \<^sort>\<open>linorder\<close>))
+    val _ = independent "unrelated shared names were captured" [state, result, input]
+    val holes = declared_type ctxt "semantic_sorted_holes"
+    val (s, r, a, i, o') = channels holes
+    val _ = require "omitted result is not unit" (r = \<^typ>\<open>unit\<close>)
+    val _ = independent "sorted holes became identified" (binder_types holes @ [s, a, i, o'])
+    val _ =
+      List.app (fn (typ, expected) =>
+        require "channel hole lost its sort"
+          (Sign.subsort (Proof_Context.theory_of ctxt) (sort_of typ, expected)))
+        [(s, \<^sort>\<open>cancellative_sepalg\<close>), (a, \<^sort>\<open>linorder\<close>),
+         (i, \<^sort>\<open>finite\<close>), (o', \<^sort>\<open>order\<close>)]
+  in val _ = () end
+\<close>
+
+type_synonym 'v semantic_input_type = \<open>'v prompt\<close>
+type_synonym 'v semantic_output_type = \<open>'v prompt_output\<close>
+
+urust_fn
+  [state = \<open>'s::cancellative_sepalg\<close>, abort = \<open>bool\<close>,
+   input = \<open>nat semantic_input_type\<close>, output = \<open>unit semantic_output_type\<close>]
   semantic_synonym_identity
   \<open> fn SemanticSynonymIdentity(value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { value } \<close>
 
 urust_fn
-  [type = \<open>('addr, 'global, 8 word) Global_Store.ref \<Rightarrow>
-    ('s::cancellative_sepalg, ('addr, 'global, 8 word) Global_Store.ref,
-      bool, nat prompt, unit prompt_output) function_body\<close>]
+  [state = \<open>'s::cancellative_sepalg\<close>, abort = \<open>bool\<close>,
+   input = \<open>nat prompt\<close>, output = \<open>unit prompt_output\<close>]
   semantic_pointer_identity
   \<open> fn SemanticPointerIdentity(value: *const u8) -> *const u8 { value } \<close>
 
 urust_fn
-  [type = \<open>'outer \<Rightarrow> ('s::cancellative_sepalg, 'outer, _, _, _) function_body\<close>]
+  [state = \<open>'s::cancellative_sepalg\<close>]
   semantic_shared_names
   \<open> fn SemanticSharedNames(value: \<tau>\<open>'inner\<close>) -> \<tau>\<open>'inner\<close> { value } \<close>
 
 urust_fn
-  [type = \<open>_ \<Rightarrow> _ \<Rightarrow> (_, _, bool, _, _) function_body\<close>]
+  [state = \<open>_\<close>, abort = \<open>bool\<close>, input = \<open>_\<close>, output = \<open>_\<close>]
   semantic_independent_holes
-  \<open> fn SemanticIndependentHoles(left: \<tau>\<open>_\<close>, right: \<tau>\<open>_\<close>) { left } \<close>
+  \<open> fn SemanticIndependentHoles(left: \<tau>\<open>_\<close>, right: \<tau>\<open>_\<close>) -> \<tau>\<open>_\<close> { left } \<close>
 
 urust_fn
-  [type = \<open>nat \<Rightarrow> (unit, nat, bool, _, _) function_body\<close>]
+  [state = \<open>unit\<close>, abort = \<open>bool\<close>]
   semantic_specialized_name
-  \<open> fn SemanticSpecializedName(value: \<tau>\<open>'value\<close>) -> \<tau>\<open>'value\<close> { value } \<close>
+  \<open> fn SemanticSpecializedName(value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { value } \<close>
 
 urust_fn
-  [type = \<open>nat \<Rightarrow> (unit, nat, bool, _, _) function_body\<close>]
+  [state = \<open>unit\<close>, abort = \<open>bool\<close>]
   semantic_two_instances
   \<open>
     fn SemanticTwoInstances(value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
@@ -115,12 +154,13 @@ urust_fn
   \<close>
 
 urust_fn
-  [type = \<open>('s, nat, bool, nat prompt, unit prompt_output) function_body\<close>]
+  [state = \<open>'s\<close>, abort = \<open>bool\<close>,
+   input = \<open>nat prompt\<close>, output = \<open>unit prompt_output\<close>]
   semantic_omitted_result
-  \<open> fn SemanticOmittedResult() { 7 } \<close>
+  \<open> fn SemanticOmittedResult() -> \<tau>\<open>nat\<close> { 7 } \<close>
 
 urust_fn
-  [type = \<open>(unit, (unit, nat, bool, unit, unit) function_body, bool, unit, unit) function_body\<close>]
+  [state = \<open>unit\<close>, abort = \<open>bool\<close>, input = \<open>unit\<close>, output = \<open>unit\<close>]
   semantic_returned_computation
   \<open>
     fn SemanticReturnedComputation() -> \<tau>\<open>(unit, nat, bool, unit, unit) function_body\<close> {
@@ -138,7 +178,7 @@ ML_val\<open>
     val _ = require "result is not connected to the used parameter" (left = result)
     val _ = require "concrete abort was lost" (abort = \<^typ>\<open>bool\<close>)
     val _ = independent "independent annotation holes became identified" [left, right, state, input, output]
-    val _ = require "outer and inner variable names failed to unify"
+    val _ = require "signature variable names failed to share"
       (hd (binder_types (declared_type ctxt "semantic_shared_names")) =
         #2 (channels (declared_type ctxt "semantic_shared_names")))
     val _ = require "semantic type synonym changed the full declaration scheme"
@@ -161,7 +201,8 @@ locale semantic_type_locale =
 begin
 
 urust_fn
-  [type = \<open>('s, unit, bool, nat prompt, unit prompt_output) function_body\<close>,
+  [state = \<open>'s\<close>, abort = \<open>bool\<close>,
+   input = \<open>nat prompt\<close>, output = \<open>unit prompt_output\<close>,
    register_notation = false]
   semantic_locale_callback
   \<open>
@@ -172,8 +213,8 @@ urust_fn
   \<close>
 
 urust_fn
-  [type = \<open>('s \<Rightarrow> ('s, unit, bool, 'i, 'o) function_body) \<Rightarrow>
-    ('s, unit, bool, 'i, 'o) function_body\<close>, register_notation = false]
+  [state = \<open>'s\<close>, abort = \<open>bool\<close>, input = \<open>'i\<close>, output = \<open>'o\<close>,
+   register_notation = false]
   semantic_locale_unused
   \<open>
     fn SemanticLocaleUnused(callback: \<tau>\<open>'s \<Rightarrow> ('s, unit, bool, 'i, 'o) function_body\<close>) {}
@@ -209,6 +250,62 @@ ML_val\<open>
 
 end
 
+section\<open> Every channel combination and default unit results \<close>
+
+urust_fn [abort = \<open>bool\<close>] semantic_default_unit
+  \<open> fn SemanticDefaultUnit(value: \<tau>\<open>nat\<close>) { () } \<close>
+
+urust_fn [abort = \<open>bool\<close>] semantic_explicit_unit
+  \<open> fn SemanticExplicitUnit(value: \<tau>\<open>nat\<close>) -> () { () } \<close>
+
+lemma semantic_default_unit_equivalent:
+  \<open>semantic_default_unit = semantic_explicit_unit\<close>
+  unfolding semantic_default_unit_def semantic_explicit_unit_def by (rule refl)
+
+ML_val\<open>
+  local
+    open Parser_Function_Regression_Test
+    val base = initial \<^theory>
+    val ctxt = Toplevel.context_of base
+    val entries =
+      [("state", "'s::cancellative_sepalg"),
+       ("abort", "bool"), ("input", "nat prompt"), ("output", "unit prompt_output")]
+    fun subsets [] = [[]]
+      | subsets (entry :: rest) =
+          let val smaller = subsets rest in smaller @ map (cons entry) smaller end
+    fun check selected =
+      let
+        val options =
+          if null selected then ""
+          else "[" ^ commas (map (fn (name, typ) => name ^ " = " ^ cartouche typ) selected) ^ "]"
+        fun channel name fallback =
+          the_default fallback (AList.lookup (op =) selected name)
+        val expected =
+          "nat \<Rightarrow> (" ^ commas
+            [channel "state" "'s", "unit", channel "abort" "'abort",
+             channel "input" "'input", channel "output" "'output"] ^ ") function_body"
+        fun run annotation =
+          run_from base ("semantic-combination-" ^ space_implode "-" (map fst selected))
+            (command options "semantic_combination"
+              ("fn SemanticCombination(value: \<tau>" ^ cartouche "nat" ^ ")" ^
+                annotation ^ " { () }"))
+          |> Toplevel.context_of
+        val omitted = run ""
+        val explicit = run " -> ()"
+        val _ =
+          List.app (fn context =>
+            require ("channel combination changed its complete type: " ^ options)
+              (Sign.typ_equiv (Proof_Context.theory_of context)
+                (declared_type context "semantic_combination",
+                 Logic.varifyT_global (Syntax.read_typ ctxt expected))))
+            [omitted, explicit]
+        val _ = require "default unit changed the definition"
+          (Term.aconv (rhs omitted "semantic_combination", rhs explicit "semantic_combination"))
+      in () end
+    val _ = List.app check (subsets entries)
+  in val _ = () end
+\<close>
+
 section\<open> Artifacts, options, positioned failures and rollback \<close>
 
 ML_val\<open>
@@ -218,18 +315,22 @@ ML_val\<open>
     val ctxt = Toplevel.context_of base
     val semantic_type =
       "nat \<Rightarrow> (unit, nat, bool, nat prompt, unit prompt_output) function_body"
-    val option = "[type = " ^ cartouche semantic_type ^ "]"
-    val item = "fn SemanticArtifact(value: \<tau>" ^ cartouche "nat" ^ ") { value }"
+    val channel_options =
+      "state = " ^ cartouche "unit" ^ ", abort = " ^ cartouche "bool" ^
+      ", input = " ^ cartouche "nat prompt" ^ ", output = " ^ cartouche "unit prompt_output"
+    val option = "[" ^ channel_options ^ "]"
+    val item = "fn SemanticArtifact(value: \<tau>" ^ cartouche "nat" ^
+      ") -> \<tau>" ^ cartouche "nat" ^ " { value }"
     fun run options target = run_from base "semantic-artifact" (command options target item)
     val normal = run option "semantic_artifact" |> Toplevel.context_of
     val application =
-      run ("[type = " ^ cartouche semantic_type ^ ", application_def]") "semantic_application"
+      run ("[" ^ channel_options ^ ", application_def]") "semantic_application"
       |> Toplevel.context_of
     val abbreviated =
-      run ("[type = " ^ cartouche semantic_type ^ ", abbrev]") "semantic_abbreviated"
+      run ("[" ^ channel_options ^ ", abbrev]") "semantic_abbreviated"
       |> Toplevel.context_of
     val suppressed =
-      run ("[register_notation = false, type = " ^ cartouche semantic_type ^ "]") "semantic_suppressed"
+      run ("[register_notation = false, " ^ channel_options ^ "]") "semantic_suppressed"
       |> Toplevel.context_of
     val _ = require "application definition lost source argument"
       (is_Const (fst (Logic.dest_equals (Thm.prop_of (theorem normal "semantic_artifact")))) andalso
@@ -264,33 +365,57 @@ ML_val\<open>
       in () end
     fun reject label expected options body =
       reject_text label expected (command options "semantic_failure" body)
-    fun typed typ = "[type = " ^ cartouche typ ^ "]"
-    val _ = reject "semantic-parameter-mismatch" "parameter type" option
-      "fn SemanticMismatch(value: bool) { 0 }"
-    val _ = reject "semantic-return-mismatch" "return type" option
-      "fn SemanticMismatch(value: \<tau>\<open>nat\<close>) -> bool { true }"
-    val _ = reject "semantic-arity" "semantic type expects 1 parameters" option
-      "fn SemanticMismatch() { 0 }"
-    val _ = reject "semantic-excess-arity" "semantic type expects 1 parameters" option
-      "fn SemanticMismatch(left: \<tau>\<open>nat\<close>, right: \<tau>\<open>nat\<close>) { left }"
-    val _ = reject "semantic-terminal" "semantic type must end in function_body"
-      (typed "nat \<Rightarrow> nat") item
-    val _ = reject "semantic-terminal-hole" "semantic type must end in function_body"
-      (typed "nat \<Rightarrow> _") item
-    val _ = reject "semantic-incompatible-sort" "parameter type"
-      (typed "'a::cancellative_sepalg \<Rightarrow> (unit, unit, bool, unit, unit) function_body")
-      "fn SemanticMismatch(value: \<tau>\<open>nat\<close>) {}"
+    fun typed name typ = "[" ^ name ^ " = " ^ cartouche typ ^ "]"
+    val _ = reject "semantic-removed-type" "unknown uRust command option \"type\""
+      (typed "type" semantic_type) item
+    val _ = reject "semantic-removed-type-malformed" "unknown uRust command option \"type\""
+      "[type = [broken]]" item
+    val _ = reject "semantic-omitted-nonunit" "Type unification failed"
+      "" "fn SemanticMismatch(value: u64) { value }"
+    val _ = reject "semantic-omitted-nonunit-channels" "Type unification failed"
+      option "fn SemanticMismatch(value: \<tau>\<open>nat\<close>) { value }"
+    val _ = reject "semantic-explicit-unit-mismatch" "Type unification failed"
+      "" "fn SemanticMismatch(value: u64) -> () { value }"
+    val _ = reject "semantic-return-mismatch" "Type unification failed"
+      option "fn SemanticMismatch(value: \<tau>\<open>nat\<close>) -> bool { value }"
+    val _ = reject "semantic-parameter-mismatch" "Type unification failed"
+      option "fn SemanticMismatch(value: bool) -> \<tau>\<open>nat\<close> { value }"
+    val _ = reject "semantic-incompatible-sort" "Type unification failed"
+      (typed "state" "'a::cancellative_sepalg")
+      "fn SemanticMismatch(value: \<tau>\<open>'a\<close>) -> \<tau>\<open>nat\<close> { value }"
     val _ = reject "semantic-body-mismatch" "Type unification failed"
-      option "fn SemanticMismatch(value: \<tau>\<open>nat\<close>) { true }"
-    val _ = reject "semantic-duplicate-option" "duplicate uRust command option"
-      ("[type = " ^ cartouche semantic_type ^ ", type = " ^ cartouche semantic_type ^ "]") item
-    val _ = reject "semantic-missing-value" "expects a HOL type" "[type]" item
-    val _ = reject_text "semantic-rigid-locale" "parameter type"
+      option "fn SemanticMismatch(value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { true }"
+    val _ = reject "semantic-state-mismatch" "Type unification failed"
+      (typed "state" "bool")
+      "fn SemanticMismatch() -> \<tau>\<open>nat\<close> { \<epsilon>\<open>get (\<lambda>s::nat. s)\<close> }"
+    val _ = reject "semantic-abort-mismatch" "Type unification failed"
+      (typed "abort" "unit")
+      "fn SemanticMismatch() { \<epsilon>\<open>abort (CustomAbort True)\<close> }"
+    val fixed_body =
+      "fn SemanticMismatch() { \<epsilon>\<open>literal () :: " ^
+      "(unit, unit, unit, bool, nat prompt, unit prompt_output) expression\<close> }"
+    val _ = reject "semantic-input-mismatch" "Type unification failed"
+      (typed "input" "bool") fixed_body
+    val _ = reject "semantic-output-mismatch" "Type unification failed"
+      (typed "output" "bool") fixed_body
+    val _ = reject "semantic-shared-sort-concrete" "Type unification failed"
+      (typed "abort" "'a::cancellative_sepalg")
+      "fn SemanticMismatch(value: \<tau>\<open>'a\<close>) -> \<tau>\<open>'a\<close> { \<llangle>0::nat\<rrangle> }"
+    val _ =
+      List.app (fn name =>
+        (reject ("semantic-duplicate-" ^ name) "duplicate uRust command option"
+          ("[" ^ name ^ " = " ^ cartouche "unit" ^ ", " ^ name ^ " = " ^ cartouche "unit" ^ "]") item;
+         reject ("semantic-missing-" ^ name) "expects a HOL type" ("[" ^ name ^ "]") item;
+         reject ("semantic-wrong-" ^ name) "expects a HOL type" ("[" ^ name ^ " = true]") item;
+         reject ("semantic-integer-" ^ name) "expects a HOL type" ("[" ^ name ^ " = 1]") item;
+         reject ("semantic-malformed-" ^ name) "Failed to parse type"
+           (typed name "unit \<Rightarrow>") item))
+        ["state", "abort", "input", "output"]
+    val _ = reject_text "semantic-rigid-locale" "Type unification failed"
       ("context semantic_type_locale begin\n" ^
-        command
-          (typed "'s \<Rightarrow> ('s, unit, bool, nat prompt, unit prompt_output) function_body")
+        command (typed "state" "'s")
           "semantic_failure"
-          "fn SemanticMismatch(value: ()) {}")
+          "fn SemanticMismatch() { \<epsilon>\<open>put (\<lambda>_::unit. ())\<close> }")
   in val _ = () end
 \<close>
 

@@ -143,8 +143,15 @@ urust_datatype [OPTIONS] [HOL_NAME] ‹ struct-or-enum ›
 The HOL name may be explicit, `_` for anonymous check-only use, or omitted and inferred with the
 same acronym-aware snake-case conversion as `urust_datatype` (`HTTPServer` becomes `http_server`).
 Rust signature types are authoritative: parameters and explicit results resolve through
-`urust_type`. An omitted result infers from the body, as do state, abort and yield channels.
-Unused channels generalize. Qualified and generic mappings, unit and structural tuples are
+`urust_type`. An omitted return means `()`, as does explicit `-> ()`; non-unit bodies require
+`-> RUST_TYPE`. Optional `state`, `abort`, `input` and `output` options take positioned HOL
+types and constrain the corresponding computation channels. Input/output values include any
+`prompt`/`prompt_output` wrappers. Omitted channels infer from the body and signature;
+unconstrained channels generalize. Named variables and sorts are shared across these options
+and all signature `τ‹…›` escapes; locale type variables remain rigid and `_` holes independent.
+For example, `[state = ‹'s::cancellative_sepalg›, abort = ‹bool›]` retains a state sort and abort
+type while the Rust signature supplies all parameter and returned-value types.
+Qualified and generic mappings, unit and structural tuples are
 supported. Use `τ‹HOL type›` wherever a type is expected for polymorphism, shared sort constraints,
 higher-order types or independent `_` inference holes. Parameters lower identifiers, `_`, and
 `mut identifier`. Raw pointers use the existing `('address, 'global, T) Global_Store.ref` model.

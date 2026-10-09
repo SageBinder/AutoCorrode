@@ -31,14 +31,14 @@ The shared type grammar permits \<open>\<tau>\<open>HOL type\<close>\<close> any
 Function escapes support polymorphic variables, shared sort constraints, higher-order types and
 independent inference holes. Raw pointers share implicit address/global backend parameters across
 the complete signature, constrained by its body and expected types. Datatype fields introduce those
-backend parameters while continuing to reject unrelated free type variables. An omitted result infers from the
-body. State, abort and yield channels also infer, and unused channels generalize.
-The optional inline \<open>type = \<open>complete HOL type\<close>\<close> supplies the full curried
-declaration type ending in \<open>function_body\<close>, including state sorts and effect channels.
-It shares named variables and sorts with every Rust type escape and constrains the actual HOL
-constant. Rust parameter and result types must agree with it; they are never overridden.
+backend parameters while continuing to reject unrelated free type variables. An omitted return
+means Rust unit, just like explicit \<open>-> ()\<close>. Non-unit results require a return annotation.
+The independently optional inline \<open>state\<close>, \<open>abort\<close>, \<open>input\<close> and
+\<open>output\<close> options take positioned HOL types and constrain the actual constant's channels.
+Input and output are the actual types, including any \<open>prompt\<close> or \<open>prompt_output\<close>
+wrappers. Omitted channels infer from the body/signature and generalize when unconstrained.
+Named variables and sorts are shared across all channel options and Rust type escapes.
 Ambient locale variables remain rigid, and separate \<open>_\<close> holes infer independently.
-An omitted Rust return type still infers, subject to the outer annotation.
 Parameters lower identifiers, \<open>_\<close>, and \<open>mut identifier\<close>.
 An explicit outer name chooses the HOL binding; otherwise acronym-aware snake case derives it from
 the Rust name. An anonymous \<open>_\<close> checks without installing artifacts.
@@ -165,7 +165,8 @@ Boolean options, omitting \<open>= true\<close> enables the option, so both comm
 \<open>[pp_test]\<close>, \<open>[pretty]\<close>, \<open>[application_def]\<close>, and \<open>[abbrev]\<close>. Explicit
 \<open>= true\<close> and \<open>= false\<close> remain available; integer and attribute-list options always require a
 value. Function declarations additionally accept Boolean \<open>register_notation\<close>,
-including its bare enabling spelling, and the inline-only HOL type option \<open>type\<close>.
+including its bare enabling spelling, and the inline-only HOL type options \<open>state\<close>,
+\<open>abort\<close>, \<open>input\<close> and \<open>output\<close>.
 
 An argument-taking abbreviation declaration exposes a parser expression or function body as a HOL
 helper. At HOL use sites, write \<open>(helper args)\<close> when surrounding syntax would otherwise group the
@@ -235,7 +236,10 @@ val application_def_option = "application_def"
 val attributes_option = "attrs"
 val register_notation_option = "register_notation"
 val renames_option = "renames"
-val type_option = "type"
+val state_option = "state"
+val abort_option = "abort"
+val input_option = "input"
+val output_option = "output"
 
 (* Command configurations:
    - urust_pp_test performs a serialized parse-print-parse token comparison for both commands; its
@@ -254,7 +258,7 @@ val type_option = "type"
    - urust_register_notation controls function callable entries and datatype field-lens aliases;
      its inline alias is register_notation.
    - renames is inline-only and carries positioned source-to-HOL pairs for datatype generation.
-   - type is inline-only and carries a positioned complete HOL declaration type for functions.
+   - state, abort, input and output are inline-only positioned HOL channel types for functions.
    Verbosity values outside 0..2 are rejected. *)
 datatype command_option_value =
     Boolean_Value of bool
@@ -286,7 +290,8 @@ val expression_option_configs = declaration_option_configs
 val function_option_configs =
   fold Symtab.update
     [(register_notation_option, Boolean_Config urust_register_notation),
-     (type_option, Type_Config)]
+     (state_option, Type_Config), (abort_option, Type_Config),
+     (input_option, Type_Config), (output_option, Type_Config)]
     declaration_option_configs
 
 val datatype_option_configs =
@@ -1013,37 +1018,38 @@ fun function_pretty_body function =
        error
          "urust_fn: internal Rust-shaped function body is not a block")
 
-(* Resolve the optional semantic type and every Rust signature type together. Shared names retain
-   their sorts and relationships; independent inference holes stay distinct. The unified complete
+(* Resolve the optional channels and every Rust signature type together. Shared names retain
+   their sorts and relationships; independent inference holes stay distinct. The constructed complete
    type supplies the lexical parameter slots and the sole body-checking pipeline. *)
-fun prepare_function_signature lthy semantic_type function =
+fun prepare_function_signature lthy channels function =
   let
     val arguments = function_arguments function
     val parameter_types =
       map (fn URust_AST.Function_Parameter (_, _, typ, _) => typ)
         (URust_AST.function_parameters function)
-    val return_type = URust_AST.function_return_type function
+    val return_type =
+      the_default
+        (URust_AST.Primitive_Type
+          (URust_AST.DPT_Unit, URust_AST.function_item_position function))
+        (URust_AST.function_return_type function)
     val complete_type =
-      URust_Type_Mappings.resolve_function_signature lthy semantic_type
+      URust_Type_Mappings.resolve_function_signature lthy channels
         parameter_types return_type
     val type_pos =
-      (case semantic_type of
-         SOME source => Input.pos_of source
-       | NONE =>
-           (case return_type of
-              SOME typ => URust_AST.rust_type_position typ
-            | NONE => URust_AST.function_item_position function))
+      (case map_filter I [#state channels, #abort channels, #input channels, #output channels] of
+         source :: _ => Input.pos_of source
+       | [] => URust_AST.rust_type_position return_type)
   in
     (SOME (complete_type, type_pos),
      typed_arguments arguments (binder_types complete_type))
   end
 
-fun elaborate_function_item pp_test lthy semantic_type source function =
+fun elaborate_function_item pp_test lthy channels source function =
   let
     val arguments = function_arguments function
     val body_source = function_body_source source function
     val (declared_type, arguments_with_types) =
-      prepare_function_signature lthy semantic_type function
+      prepare_function_signature lthy channels function
     val _ =
       if pp_test
       then function_pretty_roundtrip lthy source function
@@ -1107,10 +1113,10 @@ fun register_function_result target (rust_name, rust_pos)
 
 fun declare_urust_function_result pp_test render_pretty
     abbreviation application_definition attributes binding
-    target register_notation semantic_type source function lthy =
+    target register_notation channels source function lthy =
   let
     val {term, arguments, declared_type, arguments_with_types} =
-      elaborate_function_item pp_test lthy semantic_type source function
+      elaborate_function_item pp_test lthy channels source function
     val pretty_body =
       if render_pretty then
         let
@@ -1470,18 +1476,21 @@ fun define_urust_fn
     val attributes =
       declaration_attributes lthy "urust_fn" target abbreviation options
     val binding = target_binding Function target
-    val semantic_type =
-      (case Symtab.lookup options type_option of
+    fun channel name =
+      (case Symtab.lookup options name of
          SOME (Type_Value source, _) => SOME source
        | NONE => NONE
-       | SOME (_, pos) => option_type_error type_option "a HOL type" pos)
+       | SOME (_, pos) => option_type_error name "a HOL type" pos)
+    val channels =
+      {state = channel state_option, abort = channel abort_option,
+       input = channel input_option, output = channel output_option}
     fun declaration lthy' =
       let
         val ((result, completed), reports) =
           Navigation.capture (fn () =>
             declare_urust_function_result pp_test render_pretty
               abbreviation application_definition attributes binding
-              target register_notation semantic_type source function lthy')
+              target register_notation channels source function lthy')
         val _ = Navigation.replay completed reports
       in (result, completed) end
   in
@@ -1525,6 +1534,12 @@ val parse_renames =
       --| Parse.$$$ "]")
 
 fun parse_option_value config =
+  Parse.position (Parse.reserved "true") >>
+    (fn (_, pos) => (Boolean_Value true, pos)) ||
+  Parse.position (Parse.reserved "false") >>
+    (fn (_, pos) => (Boolean_Value false, pos)) ||
+  Parse.position Parse.int >>
+    (fn (level, pos) => (Integer_Value level, pos)) ||
   (case config of
      SOME Type_Config =>
        Parse.embedded_input >>
@@ -1534,19 +1549,18 @@ fun parse_option_value config =
          (fn (renames, pos) => (Renames_Value renames, pos))
    | _ =>
        Parse.position Parse.attribs >>
-         (fn (attributes, pos) => (Attributes_Value attributes, pos))) ||
-  Parse.position (Parse.reserved "true") >>
-    (fn (_, pos) => (Boolean_Value true, pos)) ||
-  Parse.position (Parse.reserved "false") >>
-    (fn (_, pos) => (Boolean_Value false, pos)) ||
-  Parse.position Parse.int >>
-    (fn (level, pos) => (Integer_Value level, pos))
+         (fn (attributes, pos) => (Attributes_Value attributes, pos)))
 
 fun parse_inline_option option_configs =
-  Parse.name_position :|-- (fn name =>
-    Scan.option (Parse.$$$ "=" |--
-      parse_option_value (Symtab.lookup option_configs (fst name))) >>
-      pair name)
+  Parse.position Parse.liberal_name :|-- (fn name =>
+    (case Symtab.lookup option_configs (fst name) of
+       NONE =>
+         error
+           ("unknown uRust command option " ^ quote (fst name) ^
+             Position.here (snd name))
+     | SOME config =>
+         Scan.option (Parse.$$$ "=" |-- parse_option_value (SOME config)) >>
+           pair name))
 
 fun parse_command_options option_configs =
   Scan.optional

@@ -125,21 +125,21 @@ urust_fn commented_signature
 section\<open> Semantic declaration types \<close>
 
 text\<open>
-Rust signatures describe values. The optional complete HOL type also retains the
-computation's state and effects, including relationships with an unused callback.
-Its named variables and sorts are shared with the signature's HOL escapes.
+Rust signatures describe parameter and returned values; an omitted return means unit.
+Optional HOL channel types retain the computation's state and effects, including
+relationships with an unused callback. Named variables and sorts are shared across
+the channel options and the signature's HOL escapes.
 \<close>
 
 urust_fn
-  [type = \<open>nat \<Rightarrow>
-    ('s::cancellative_sepalg, nat, bool, nat prompt, unit prompt_output) function_body\<close>]
+  [state = \<open>'s::cancellative_sepalg\<close>, abort = \<open>bool\<close>,
+   input = \<open>nat prompt\<close>, output = \<open>unit prompt_output\<close>]
   semantic_identity
   \<open> fn SemanticIdentity(value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { value } \<close>
 
 urust_fn
-  [type = \<open>nat \<Rightarrow>
-    (nat \<Rightarrow> ('s, unit, 'abort, 'i, 'o) function_body) \<Rightarrow>
-    ('s::cancellative_sepalg, nat, 'abort, 'i, 'o) function_body\<close>]
+  [state = \<open>'s::cancellative_sepalg\<close>, abort = \<open>'abort\<close>,
+   input = \<open>'i\<close>, output = \<open>'o\<close>]
   semantic_unused_callback
   \<open>
     fn SemanticUnusedCallback(
@@ -151,9 +151,8 @@ urust_fn
   \<close>
 
 urust_fn
-  [type = \<open>nat \<Rightarrow>
-    (nat \<Rightarrow> ('s::cancellative_sepalg, unit, bool, nat prompt, unit prompt_output) function_body) \<Rightarrow>
-    ('s, nat, bool, nat prompt, unit prompt_output) function_body\<close>]
+  [state = \<open>'s::cancellative_sepalg\<close>, abort = \<open>bool\<close>,
+   input = \<open>nat prompt\<close>, output = \<open>unit prompt_output\<close>]
   semantic_callback_client
   \<open>
     fn SemanticCallbackClient(
@@ -167,9 +166,8 @@ urust_fn
 urust_notation (call) semantic_unused_callback ("semantic_unused")
 
 urust_fn
-  [type = \<open>nat \<Rightarrow>
-    (nat \<Rightarrow> ('s::cancellative_sepalg, unit, bool, nat prompt, unit prompt_output) function_body) \<Rightarrow>
-    ('s, nat, bool, nat prompt, unit prompt_output) function_body\<close>]
+  [state = \<open>'s::cancellative_sepalg\<close>, abort = \<open>bool\<close>,
+   input = \<open>nat prompt\<close>, output = \<open>unit prompt_output\<close>]
   semantic_callback_method_client
   \<open>
     fn SemanticCallbackMethodClient(
@@ -181,7 +179,8 @@ urust_fn
   \<close>
 
 urust_fn
-  [type = \<open>nat \<Rightarrow> (unit, nat, bool, nat prompt, unit prompt_output) function_body\<close>]
+  [state = \<open>unit\<close>, abort = \<open>bool\<close>,
+   input = \<open>nat prompt\<close>, output = \<open>unit prompt_output\<close>]
   semantic_fixed_caller
   \<open> fn SemanticFixedCaller(value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { SemanticIdentity(value) } \<close>
 
@@ -244,14 +243,14 @@ urust_fn
 
 urust_fn completed_result_type
   \<open>
-    fn CompletedResultType(x: u64,) {
+    fn CompletedResultType(x: u64,) -> u64 {
       x
     }
   \<close>
 
 urust_fn omitted_rust_return_type
   \<open>
-    fn InferredReturn(x: u64) {
+    fn InferredReturn(x: u64) -> u64 {
       x
     }
   \<close>
@@ -398,7 +397,7 @@ urust_fn [register_notation = false] fun_sort_constrained
   \<close>
 
 urust_fn [register_notation = false] fun_type_placeholders
-  \<open> fn fun_type_placeholders(item: \<tau>\<open>_\<close>) { item } \<close>
+  \<open> fn fun_type_placeholders(item: \<tau>\<open>_\<close>) -> \<tau>\<open>_\<close> { item } \<close>
 
 urust_fn [register_notation = false] fun_higher_order
   \<open>
@@ -717,7 +716,7 @@ urust_notation (call) command_registered_zip ("zip")
 urust_fn [attrs = [], register_notation = false]
   partial_collision_function
   \<open>
-    fn partial_collision_function(command_parameter_collision: \<tau>\<open>nat\<close>) {
+    fn partial_collision_function(command_parameter_collision: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
       command_parameter_collision
     }
   \<close>
@@ -725,30 +724,30 @@ urust_fn [attrs = [], register_notation = false]
 urust_fn [attrs = [micro_rust_simps], register_notation = false]
   partial_internal_placeholder
   \<open>
-    fn partial_internal_placeholder(item: \<tau>\<open>_\<close>) {
+    fn partial_internal_placeholder(item: \<tau>\<open>_\<close>) -> \<tau>\<open>_\<close> {
       \<llangle>item :: nat\<rrangle>
     }
   \<close>
 
 urust_fn [register_notation = false] zip_parameter_value
-  \<open> fn zip_parameter_value(zip: \<tau>\<open>nat\<close>) { zip } \<close>
+  \<open> fn zip_parameter_value(zip: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { zip } \<close>
 
 urust_fn [register_notation = false] zip_callable_parameter
   \<open>
-    fn zip_callable_parameter(zip: \<tau>\<open>(nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body)\<close>, item: \<tau>\<open>nat\<close>) {
+    fn zip_callable_parameter(zip: \<tau>\<open>(nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body)\<close>, item: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
       zip(item)
     }
   \<close>
 
 urust_fn [register_notation = false] zip_method_registration
   \<open>
-    fn zip_method_registration(zip: \<tau>\<open>(nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body)\<close>, item: \<tau>\<open>nat\<close>) {
+    fn zip_method_registration(zip: \<tau>\<open>(nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body)\<close>, item: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
       item.zip()
     }
   \<close>
 
 urust_fn [register_notation = false] quoted_major_parameter
-  \<open> fn quoted_major_parameter(lemma: \<tau>\<open>nat\<close>) { lemma } \<close>
+  \<open> fn quoted_major_parameter(lemma: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { lemma } \<close>
 
 section\<open> Wildcard parameter slots \<close>
 
@@ -764,7 +763,7 @@ urust_fn [register_notation = false] wildcard_function_mixed
 
 urust_fn [register_notation = false] wildcard_function_inferred
   \<open>
-    fn wildcard_function_inferred(_: \<tau>\<open>_\<close>) {
+    fn wildcard_function_inferred(_: \<tau>\<open>_\<close>) -> \<tau>\<open>nat\<close> {
       \<llangle>0 :: nat\<rrangle>
     }
   \<close>
@@ -963,11 +962,11 @@ urust_fn signature_omitted_return \<open>
 \<close>
 
 urust_fn signature_inferred_result \<open>
-  fn SignatureInferredResult(value: u64) { value }
+  fn SignatureInferredResult(value: u64) -> u64 { value }
 \<close>
 
 urust_fn signature_inferred_polymorphic_result \<open>
-  fn SignatureInferredPolymorphicResult(value: \<tau>\<open>'a\<close>) { value }
+  fn SignatureInferredPolymorphicResult(value: \<tau>\<open>'a\<close>) -> \<tau>\<open>'a\<close> { value }
 \<close>
 
 urust_fn signature_explicit_unit \<open>
