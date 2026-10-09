@@ -7386,7 +7386,7 @@ ML_val\<open>
     val _ =
       expect_positioned_failure 3 "qualified-global"
         "[1; Parser_Syntax_Tests::repeat_global_length]"
-        "Parser_Syntax_Tests::repeat_global_length"
+        "repeat_global_length"
         "requires an exact micro_rust_notation (literal) declaration"
   in
     val _ =
