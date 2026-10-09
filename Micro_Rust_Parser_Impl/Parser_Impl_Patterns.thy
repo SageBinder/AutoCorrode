@@ -2422,8 +2422,24 @@ struct
             string_of_int (serial ()), dummyT)
 
       fun case_term_on subject branches =
-        Case_Term_Backend.make_case
-          T.true_value subject branches
+        let
+          val raw = Case_Term_Backend.make_case
+            T.true_value subject branches
+          (* Keep clause heads raw for native case translation. The complete
+             selector resolves to its datatype case constant before navigation
+             erasure; auxiliary case constructors remain secondary targets. *)
+        in
+          fold_rev
+            (fn name => fn body =>
+              Navigation.annotate Navigation.Secondary
+                (Const (name, dummyT)) body)
+            [\<^const_name>\<open>case_nil\<close>,
+             \<^const_name>\<open>case_cons\<close>,
+             \<^const_name>\<open>case_elem\<close>,
+             \<^const_name>\<open>case_abs\<close>,
+             \<^const_name>\<open>case_guard\<close>]
+            (Navigation.mark Navigation.Primary raw)
+        end
 
       fun plain_fragment semantic =
         Compiled_Decision_Fragment
