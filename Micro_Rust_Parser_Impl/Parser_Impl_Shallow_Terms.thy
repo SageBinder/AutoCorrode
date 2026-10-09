@@ -625,32 +625,6 @@ struct
           [replicated count element]
     in bind_term length (Term.lambda count result) end
 
-  fun repeat_count count =
-    constant \<^const_name>\<open>unsigned\<close> [count]
-
-  fun replicated count value =
-    constant \<^const_name>\<open>List.replicate\<close>
-      [repeat_count count, value]
-
-  fun array_repeat length element =
-    let
-      val count = Free ("count", \<^typ>\<open>64 word\<close>)
-      val value = Free ("value", dummyT)
-      val result = literal (replicated count value)
-    in
-      bind length
-        (Term.lambda count
-          (bind element (Term.lambda value result)))
-    end
-
-  fun array_repeat_inline_const length element =
-    let
-      val count = Free ("count", \<^typ>\<open>64 word\<close>)
-      val result =
-        constant \<^const_name>\<open>list_sequence\<close>
-          [replicated count element]
-    in bind length (Term.lambda count result) end
-
   fun bounded_range kind lower upper =
     let
       val name =
