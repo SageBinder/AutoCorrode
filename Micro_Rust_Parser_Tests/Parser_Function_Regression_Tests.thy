@@ -1134,7 +1134,8 @@ struct
   fun cartouche body = Symbol.open_ ^ body ^ Symbol.close
 
   fun start label =
-    Position.make0 7 101 0 "" label label
+    Position.make0 7 101 0 "" label ""
+    |> Position.copy_id (Position.thread_data ())
 
   fun source label body =
     Parser_Lex_Util.positioned_content_source body (start label)
