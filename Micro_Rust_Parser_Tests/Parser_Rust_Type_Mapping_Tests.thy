@@ -802,7 +802,7 @@ ML_val \<open>
           ("\<tau>" ^ cartouche "nat \<Rightarrow>"))
     val _ =
       rejected "polymorphic-hol-escape"
-        "type variables are not supported"
+        "unrelated HOL variable in datatype field"
         (datatype_command "PolymorphicEscape"
           ("\<tau>" ^ cartouche "'a"))
     val _ =

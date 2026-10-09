@@ -84,7 +84,7 @@ urust_expr showoff_renamed_datatype \<open>
   }
 \<close>
 
-subsection\<open> Rust-shaped function items \<close>
+subsection\<open> Generic datatype declarations \<close>
 
 text\<open>
 Type and const parameters are inferred together, including unused parameters.
@@ -117,7 +117,7 @@ urust_expr showoff_unused_parameter_construction \<open>
 \<close>
 
 urust_expr showoff_generic_match \<open>
-  match GenericEvent::<u32, u8>::Arrived { value: 9u32 } {
+  match (GenericEvent::<u32, u8>::Arrived { value: 9u32 }) {
     GenericEvent::Waiting => 0u32,
     GenericEvent::Arrived { value } => value,
   }
@@ -130,6 +130,8 @@ urust_fn showoff_const_signature \<open>
 urust_expr showoff_word_conversion \<open>
   WireState::to_u8(WireState::<u8>::WireBusy)
 \<close>
+
+subsection\<open> Rust-shaped function items \<close>
 
 text\<open>
 \<open>urust_fn\<close> parses a complete Rust-shaped function item. Its parameter and explicit

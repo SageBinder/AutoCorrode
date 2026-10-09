@@ -1263,7 +1263,8 @@ struct
       let
         val pos = path_position path
         val _ = if I.constructor_shape entry = I.Named_Constructor then () else
-          error ("urust_expr: struct syntax requires a named constructor" ^ Position.here pos)
+          error ("urust_expr: generated constructor " ^ quote (render_path path) ^
+            " does not support struct construction syntax" ^ Position.here pos)
         val source_fields = I.constructor_field_entries entry
         val names = map (fn SE_Field (name, _, _) => name) fields
         val _ = if null (duplicates (op =) names) then () else
@@ -1292,8 +1293,17 @@ struct
       (exact_item_constructor ctxt path)
 
   fun struct_function_path ctxt environment path actual_arity =
-    resolve_function_path Struct_Item_Call false actual_arity
-      ctxt environment path
+    let
+      val _ = List.app (fn segment =>
+        case segment_generic_args segment of
+          NONE => ()
+        | SOME (Generic_Args (_, pos)) =>
+            error ("urust_expr: generic arguments are not supported in struct-expression heads" ^
+              Position.here pos)) (path_segments path)
+    in
+      resolve_function_path Struct_Item_Call false actual_arity
+        ctxt environment path
+    end
 
   fun method_path ctxt environment path =
     let

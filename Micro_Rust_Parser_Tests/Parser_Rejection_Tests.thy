@@ -2703,8 +2703,9 @@ urust_expr_rejects
 subsection\<open> Restricted turbofish grammar \<close>
 
 text\<open>
-The parser intentionally accepts only unsuffixed integers, paths, grouping, and
-left-associative addition in generic position.
+Ordinary calls retain the restricted value arguments: unsuffixed integers, paths, grouping,
+and left-associative addition. The shared grammar also accepts nested Rust type arguments
+for generated constructors; comparison and shift expressions remain unsupported.
 \<close>
 
 urust_expr_rejects \<open> f::<Suc 4>() \<close> \<open> syntax error \<close>
@@ -2713,8 +2714,8 @@ urust_expr_rejects \<open> f::<[1, 2]>() \<close> \<open> unexpected input "[" \
 urust_expr_rejects \<open> f::<"text">() \<close> \<open> unexpected input \<close>
 urust_expr_rejects \<open> f::<STR ''text''>() \<close> \<open> unexpected input \<close>
 urust_expr_rejects \<open> f::<1 :: nat>() \<close> \<open> syntax error \<close>
-urust_expr_rejects \<open> f::<a < b>() \<close> \<open> unexpected input "<" \<close>
-urust_expr_rejects \<open> f::<a << b>() \<close> \<open> unexpected input "<" \<close>
+urust_expr_rejects \<open> f::<a < b>() \<close> \<open> unterminated turbofish \<close>
+urust_expr_rejects \<open> f::<a << b>() \<close> \<open> syntax error \<close>
 urust_expr_rejects \<open> f::<a & b>() \<close> \<open> unexpected input "&" \<close>
 urust_expr_rejects \<open> f::<a && b>() \<close> \<open> unexpected input "&" \<close>
 urust_expr_rejects \<open> f::<a % b>() \<close> \<open> unexpected input "%" \<close>

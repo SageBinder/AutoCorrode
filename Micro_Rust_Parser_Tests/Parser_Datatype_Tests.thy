@@ -1765,15 +1765,36 @@ ML_val \<open>
     val named_expression_terminal =
       find_from named_expression_text "Named"
         (named_expression_qualifier + size "ParserMessage::")
+    val (named_expression_start, named_expression_result, named_expression_markup) =
+      capture 12 "generated-named-construction" named_expression_text NONE
+    val _ = ignore (require_success "generated named enum construction" named_expression_result)
+    val (_, named_expression_type_pos) =
+      token_position named_expression_text named_expression_start "ParserMessage" 0
+    val (_, named_expression_constructor_pos) =
+      token_position named_expression_text named_expression_start "Named" named_expression_terminal
     val _ =
-      failure_case 12 "wrong-generated-struct-role"
-        named_expression_text
-        [("ParserMessage", named_expression_qualifier),
-         ("Named", named_expression_terminal),
-         ("code",
-          named_expression_terminal + size "Named"),
-         ("payload",
-          named_expression_terminal + size "Named")]
+      assert_source_final "named construction qualifier" item_kind "ParserMessage"
+        message_type_id Markup.type_nameN (I.type_hol_name message_type)
+        named_expression_type_pos named_expression_markup
+    val _ =
+      assert_source_final "named construction terminal" constructor_kind "ParserMessage::Named"
+        named_constructor_id Markup.constantN (constructor_name named_constructor)
+        named_expression_constructor_pos named_expression_markup
+    val _ = List.app (fn (name, field, id) =>
+      let
+        val (_, position) = token_position named_expression_text named_expression_start name
+          (named_expression_terminal + size "Named")
+      in
+        assert_source_final ("named construction field " ^ name) field_kind
+          ("ParserMessage::Named." ^ name) id Markup.constantN (selector_name field)
+          position named_expression_markup
+      end) [("code", named_code, named_code_id), ("payload", named_payload, named_payload_id)]
+
+    val _ = failure_case 18 "unknown-generated-initializer-field"
+      ("ParserMessage::Named { unknown_code: 1u32, payload: " ^
+        "\<llangle>[] :: 8 word list\<rrangle>, }")
+      [("ParserMessage", 0), ("Named", size "ParserMessage::"),
+       ("unknown_code", size "ParserMessage::Named { ")]
 
     val missing_field_text =
       "match \<llangle>undefined :: parser_point\<rrangle> { " ^
@@ -3215,7 +3236,7 @@ ML_val \<open>
             "fooBar: u32, foo_bar: bool,")
     val _ =
       assert_rejected "generated-selector-name-collision"
-        "duplicate generated HOL selector \"foo_bar_value\""
+        "duplicate generated HOL selector \"generated_selector_collision_foo_bar_value\""
         ("urust_datatype generated_selector_collision " ^
           cartouche
             (" enum GeneratedSelectorCollision { " ^
@@ -3506,7 +3527,7 @@ ML_val \<open>
             " ParserTuple { first: 1u32, second: true, third: None, } ")
     val _ =
       assert_rejected "generated-item-generics"
-        "generic arities"
+        "constructor generic arity does not match its declaration"
         ("urust_expr _ " ^
           cartouche
             " ParserTuple::<1>(1u32, true, None) ")

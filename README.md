@@ -190,6 +190,8 @@ Type aliases support const forwarding and retain unused const parameters; unused
 aliases remain rejected, as in Rust.
 Manual mappings distinguish const placeholders, for example
 `urust_type "Sized<'a, const 'n>" = ‹('a, 'n::len) array›`.
+Fixed array values use the existing HOL array operations and value escapes. Array expression forms
+retain their existing list model; this increment adds declaration/type support without changing it.
 `parameters = ["T" → "'element", "N" → "'length::len"]` chooses declaration-local HOL names and
 sorts; explicit sorts must satisfy the inferred requirements.
 

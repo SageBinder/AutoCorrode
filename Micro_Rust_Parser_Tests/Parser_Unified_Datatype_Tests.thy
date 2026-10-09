@@ -71,6 +71,9 @@ lemma word_gaps: \<open>explicit_word_to_u16_pure Gap = 255\<close>
   by (simp_all add: explicit_word_to_u16_pure_alt explicit_word_rep_defs)
 
 urust_expr constructed_tag \<open> TaggedAddress::<u8> { address: 5u64 } \<close>
+urust_expr constructed_fixed_array \<open>
+  Buffer::<u8, 4> { values: \<llangle>array_constant (0 :: 8 word)\<rrangle> }
+\<close>
 urust_expr constructed_tuple \<open> GenericTuple::<u8, u16, 0>(3u32) \<close>
 urust_expr unused_unit \<open> GenericUnit::<u8, u16, 0> \<close>
 urust_expr empty_named_value \<open> EmptyNamed::<u8> {} \<close>
@@ -124,6 +127,7 @@ urust_expr word_shape_match \<open>
 \<close>
 urust_fn tagged_field \<open> fn tagged_field(x: TaggedAddress<u8>) -> u64 { x.address } \<close>
 urust_fn buffer_identity \<open> fn buffer_identity(x: Buffer<u8, 4>) -> Buffer<u8, 4> { x } \<close>
+urust_fn buffer_field \<open> fn buffer_field(x: Buffer<u8, 4>) -> [u8; 4] { x.values } \<close>
 urust_fn forwarded_signature \<open>
   fn forwarded_signature(x: ForwardBuffer<u8, 0x10>) -> Buffer<u8, 16> { x }
 \<close>

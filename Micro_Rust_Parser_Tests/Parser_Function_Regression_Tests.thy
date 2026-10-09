@@ -383,6 +383,16 @@ local
           (fn (Delimiter_Token _, _) => true
             | _ => false)
           layout_tokens) = 4)
+
+  val symbolic_array =
+    parse "rust-function-parser-symbolic-array-length"
+      "fn SymbolicArray(value: [u8; LENGTH]) -> u64 { value }"
+  val _ =
+    (case map parameter_type (function_parameters symbolic_array) of
+       [Const_Array_Type (Primitive_Type (DPT_U8, _),
+          Path_Type ([Rust_Type_Path_Segment ("LENGTH", _, NONE, _)], _), _)] => ()
+     | _ => error "symbolic array type AST changed")
+  val _ = ignore (assert_roundtrip "rust-function-symbolic-array" symbolic_array)
 in
 end
 \<close>
@@ -503,8 +513,6 @@ local
        "fn LeadingTypePath(value: ::Module::Type) -> u64 { value }"),
      ("rust-function-parser-empty-slice", "syntax error",
        "fn EmptySlice(value: []) -> u64 { value }"),
-     ("rust-function-parser-symbolic-array-length", "syntax error",
-       "fn SymbolicArray(value: [u8; LENGTH]) -> u64 { value }"),
      ("rust-function-parser-array-length-expression", "unexpected input",
        "fn ArrayExpression(value: [u8; 1 + 2]) -> u64 { value }"),
      ("rust-function-parser-missing-array-length", "syntax error",
@@ -2047,6 +2055,8 @@ ML_val \<open>
           "fn SignatureFailure(value: [u8]) { () }"),
          ("signature-zero-array", "does not satisfy sort",
           "fn SignatureFailure(value: [u8; 0]) { () }"),
+         ("signature-undeclared-array-length", "unknown Rust type \"LENGTH\"",
+          "fn SignatureFailure(value: [u8; LENGTH]) { () }"),
          ("signature-singleton-tuple", "singleton tuple types",
           "fn SignatureFailure(value: (u8,)) { () }"),
          ("signature-numeric-generic", "numeric generic arguments",
