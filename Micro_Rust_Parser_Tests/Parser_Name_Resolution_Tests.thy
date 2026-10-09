@@ -1,5 +1,7 @@
 theory Parser_Name_Resolution_Tests
-  imports Parser_Pattern_Matching_Tests
+  imports
+    Parser_Pattern_Matching_Tests
+    Parser_Cast_Alias_Fixtures
 begin
 
 declare [[urust_pp_test = true]]
