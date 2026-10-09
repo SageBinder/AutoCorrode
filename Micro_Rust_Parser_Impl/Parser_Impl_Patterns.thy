@@ -1510,14 +1510,6 @@ struct
        nested_failure: selected_failure_continuation,
        arm_failure: arm_failure_continuation}
 
-  datatype compiled_decision_fragment =
-    Compiled_Decision_Fragment of
-      {semantic: term, historical: term}
-
-  datatype compiled_outer_branch =
-    Compiled_Outer_Branch of
-      {semantic: term, historical: term}
-
   datatype compatibility_failure =
       Alternative_Compatibility_Failure
     | Arm_Compatibility_Failure
@@ -1596,15 +1588,11 @@ struct
       witness: a singleton constructor or tuple over Structural_Any is opened to obtain its children.
       Decision_Exclusion suppresses only its exact source position. No binder or source-guard result
       is shared between alternatives.
-    - compiled_decision_fragment is the boundary between semantics and retained term shape. The
-      semantic term always uses the selected subject directly. The historical term is rendered from
-      the same typed decision, after semantic continuations are fixed, and retains the old redundant
-      root cases for direct guards, nested/transformed generated-test misses, and outer catchalls.
-      root_suffix_plan is the single typed grouping and coverage result for both normal roots and
-      compatibility suffixes. Compatibility caches that plan by failure context and source positions,
-      then renders only its historical view; it never restarts the compiler outside root planning or
-      changes semantic decision states, selections, exclusions, or failure continuations. No
-      compatibility choice feeds back into decision-state selection.
+    - root_suffix_plan separates typed grouping and coverage from term emission. The emitted term
+      retains the established redundant root cases for direct guards, nested/transformed generated-test
+      misses, and outer catchalls. Compatibility caches only the plan, by failure context and source
+      positions; it never changes selections, exclusions, or failure continuations. Each clause and
+      root selector constructs one term.
 
     One compiler below handles ordinary, guarded, overlapping, and recursive nested cases. It never
     packs compiler metadata into HOL terms, never decodes generated terms, and never has separate
@@ -2441,19 +2429,6 @@ struct
             (Navigation.mark Navigation.Primary raw)
         end
 
-      fun plain_fragment semantic =
-        Compiled_Decision_Fragment
-          {semantic = semantic, historical = semantic}
-
-      fun fragment_semantic
-          (Compiled_Decision_Fragment {semantic, ...}) =
-        semantic
-
-      fun compatibility_term
-          (Compiled_Decision_Fragment
-            {historical, ...}) =
-        historical
-
       fun generated_wild rhs =
         bind_basic_pattern ctxt R.empty_environment
           (Basic_Wild NONE) rhs
@@ -3185,73 +3160,33 @@ struct
           historical_alternative_failure
           historical_arm_failure =
         let
-          val bindings =
-            structural_bindings selection
-          val specialize = specialize_term bindings
-          val semantic_alternative =
-            fragment_semantic alternative_failure
-          val historical_alternative =
-            (case historical_alternative_failure of
-               SOME historical =>
-                 compatibility_term historical
-             | NONE =>
-                 compatibility_term alternative_failure)
-          val semantic_arm =
-            fragment_semantic arm_failure
-          val historical_arm =
-            (case historical_arm_failure of
-               SOME historical =>
-                 compatibility_term historical
-             | NONE =>
-                 compatibility_term arm_failure)
+          val specialize =
+            specialize_term (structural_bindings selection)
+          val alternative =
+            the_default alternative_failure historical_alternative_failure
+          val arm =
+            the_default arm_failure historical_arm_failure
           val navigated_body =
             apply_navigation navigation body
-          val semantic_guarded_body =
+          val guarded_body =
             (case source_guard of
                NONE => navigated_body
              | SOME (guard, guard_pos) =>
                  Navigation.with_source_position guard_pos
                    (fn () =>
-                     T.conditional
-                       guard navigated_body semantic_arm))
-          val historical_guarded_body =
-            (case source_guard of
-               NONE => navigated_body
-             | SOME (guard, guard_pos) =>
-                 Navigation.with_source_position guard_pos
-                   (fn () =>
-                     T.conditional
-                       guard navigated_body historical_arm))
-          val semantic_scoped_body =
-            specialize
-              (close_clause_scope scope semantic_guarded_body)
-          val historical_scoped_body =
-            specialize
-              (close_clause_scope scope historical_guarded_body)
-          val semantic =
-            (case generated_test of
-               NONE => semantic_scoped_body
-             | SOME test =>
-                 T.conditional
-                   (specialize test)
-                   semantic_scoped_body semantic_alternative)
-          val historical =
-            (case generated_test of
-               NONE => historical_scoped_body
-             | SOME test =>
-                 T.conditional
-                   (specialize test)
-                   historical_scoped_body
-                   historical_alternative)
+                     T.conditional guard navigated_body arm))
+          val scoped_body =
+            specialize (close_clause_scope scope guarded_body)
         in
-          Compiled_Decision_Fragment
-            {semantic = semantic,
-             historical = historical}
+          (case generated_test of
+             NONE => scoped_body
+           | SOME test =>
+               T.conditional (specialize test) scoped_body alternative)
         end
 
       fun compile_rows state remaining =
         (case first_applicable state remaining of
-           NONE => plain_fragment terminal_fallback
+           NONE => terminal_fallback
          | SOME
              (Applicable_Row
                {row =
@@ -3336,15 +3271,7 @@ struct
                          Decision_State {subject, ...} =>
                            subject_value subject)
                   in
-                    Compiled_Decision_Fragment
-                      {semantic =
-                         case_term_on subject
-                           [abstraction
-                             (fragment_semantic success)],
-                       historical =
-                         case_term_on subject
-                           [abstraction
-                             (compatibility_term success)]}
+                    case_term_on subject [abstraction success]
                   end
                 | Opened_Partial_Clause_Selection
                     {region, abstraction, witness} =>
@@ -3363,19 +3290,8 @@ struct
                         Decision_State {subject, ...} =>
                           subject_value subject)
                  in
-                   Compiled_Decision_Fragment
-                     {semantic =
-                        case_term_on subject
-                          [abstraction
-                             (fragment_semantic success),
-                           generated_wild
-                             (fragment_semantic failure)],
-                      historical =
-                        case_term_on subject
-                          [abstraction
-                             (compatibility_term success),
-                           generated_wild
-                             (compatibility_term failure)]}
+                   case_term_on subject
+                     [abstraction success, generated_wild failure]
                   end)
              end)
 
@@ -3391,19 +3307,14 @@ struct
           val compiled =
             compile_rows state planned_rows
         in
-          Compiled_Outer_Branch
-            {semantic =
-               abstraction (fragment_semantic compiled),
-             historical =
-               abstraction (compatibility_term compiled)}
+          abstraction compiled
         end
 
       and compile_outer_group planned_rows exclusions
           (Structural_Group {pattern, ...}) =
         compile_outer_pattern planned_rows exclusions pattern
 
-      and compile_outer_catchall planned_rows
-          render_fragment render_branch exclusions
+      and compile_outer_catchall planned_rows exclusions
           (Structural_Group {pattern, ...}) =
         (case pattern of
            Structural_Any NONE =>
@@ -3415,42 +3326,13 @@ struct
                     subject = subject,
                     exclusions = exclusions}
              in
-               generated_wild
-                 (render_fragment
-                   (compile_rows state planned_rows))
+               generated_wild (compile_rows state planned_rows)
              end
          | Structural_Any (SOME _) =>
-             render_branch
-               (compile_outer_pattern
-                 planned_rows exclusions pattern)
+             compile_outer_pattern planned_rows exclusions pattern
          | Structural_Node _ =>
              error
                "urust_expr: internal non-wild outer catchall")
-
-      and render_semantic_root_suffix_plan
-          (Root_Suffix_Plan
-            {rows = planned_rows, groups,
-             outer_catchall, catchall_exclusions, ...}) =
-        let
-          val branches =
-            map
-              (fn group =>
-                let
-                  val Compiled_Outer_Branch
-                    {semantic, ...} =
-                    compile_outer_group planned_rows [] group
-                in semantic end)
-              groups @
-            (case outer_catchall of
-               NONE => []
-             | SOME group =>
-                 [compile_outer_catchall planned_rows
-                   fragment_semantic
-                   (fn Compiled_Outer_Branch
-                         {semantic, ...} =>
-                     semantic)
-                   catchall_exclusions group])
-        in selector_of branches end
 
       and compile_historical_root_branch
           (Structural_Group {pattern, ...}) remaining =
@@ -3459,11 +3341,10 @@ struct
             fresh_pattern_subject ctxt pattern
         in
           abstraction
-            (compatibility_term
-              (compile_compatibility_root
-                (Compatibility_Root_Plan
-                  Alternative_Compatibility_Failure)
-                remaining))
+            (compile_compatibility_root
+              (Compatibility_Root_Plan
+                Alternative_Compatibility_Failure)
+              remaining)
         end
 
       and compile_historical_structural_groups
@@ -3479,12 +3360,7 @@ struct
                      compile_historical_root_branch
                        group remaining
                  | NONE =>
-                     let
-                       val Compiled_Outer_Branch
-                         {historical, ...} =
-                         compile_outer_group planned_rows
-                           exclusions group
-                     in historical end)
+                     compile_outer_group planned_rows exclusions group)
               val exclusions' =
                 (case root_suffix of
                    SOME _ => exclusions
@@ -3529,12 +3405,7 @@ struct
                            group remaining
                      | NONE =>
                          compile_outer_catchall planned_rows
-                           compatibility_term
-                           (fn Compiled_Outer_Branch
-                                 {historical, ...} =>
-                             historical)
-                           historical_catchall_exclusions
-                           group)])
+                           historical_catchall_exclusions group)])
         in selector_of branches end
 
       and compile_compatibility_root context remaining =
@@ -3557,29 +3428,16 @@ struct
                           plan = planned} ::
                        !compatibility_root_cache
                  in planned end)
-          val historical =
-            render_historical_root_suffix_plan plan
         in
-          plain_fragment historical
+          render_historical_root_suffix_plan plan
         end
 
       val selector =
         (case direct_structural_matrix () of
            SOME branches => selector_of branches
          | NONE =>
-             let
-               val root_plan =
-                 plan_root_suffix Normal_Root_Plan rows
-               val semantic_selector =
-                 render_semantic_root_suffix_plan root_plan
-               val historical_selector =
-                 render_historical_root_suffix_plan root_plan
-             in
-               compatibility_term
-                 (Compiled_Decision_Fragment
-                   {semantic = semantic_selector,
-                    historical = historical_selector})
-             end)
+             render_historical_root_suffix_plan
+               (plan_root_suffix Normal_Root_Plan rows))
       val navigated_selector =
         (case match_root_decision of
            SOME Conditional_Match_Root =>
