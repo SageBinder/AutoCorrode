@@ -172,6 +172,16 @@ Exact registered associated items may use the existing integer primitive tokens 
 `u8`, `u16`, `u32`, `u64`, `usize`, `i32`, and `i64`. Literal-role registration is mandatory for
 values, patterns, and repeat lengths; call-role registration is mandatory for calls. The primitive
 head does not participate in lexical, HOL-name, unresolved-free, or native-constructor fallback.
+
+`Parser_Unified_Datatype_Tests.thy` covers generic type/const schemes, fixed arrays, const forwarding,
+explicit parameter sorts, unused parameters, and source construction/patterns.
+`urust_datatype` selects the custom enum by default and the word backend only with an explicit width
+and no payload. Explicit word/custom backend names are quoted Isabelle command keywords.
+The suite checks boundary discriminants, incompatible backend requests, inferred constraints,
+constructor substitutions, conversion registration, and failure recovery. Automatic `PhantomData`
+handling is deferred: unmapped fields receive a diagnostic, and explicit singleton mappings retain
+ordinary stored fields and constructor/pattern slots. Tests relying on BNF
+artifacts select `backend = hol`.
 Identifier-headed paths retain their previous behavior, including unsupported widths such as
 `u128`.
 

@@ -109,6 +109,7 @@ sig
         raw_pointer_mutability * rust_type * source_layout
     | Slice_Type of rust_type * source_layout
     | Array_Type of rust_type * integer_literal * source_layout
+    | Const_Array_Type of rust_type * rust_type * source_layout
     | HOL_Type_Source of Input.source
   and rust_generic_argument =
       Rust_Type_Argument of rust_type
@@ -136,11 +137,17 @@ sig
     | Named_Shape of datatype_field list
   datatype datatype_variant =
     Datatype_Variant of string * Position.T * datatype_shape
+  datatype generic_parameter_kind = Type_Parameter | Const_Parameter
+  datatype generic_parameter =
+    Generic_Parameter of string * Position.T * generic_parameter_kind
   datatype urust_datatype =
       Struct_Item of
         string * Position.T * datatype_shape * Position.T
     | Enum_Item of
         string * Position.T * datatype_variant list * Position.T
+    | Datatype_Header of
+        generic_parameter list * (string * Position.T) option *
+        (string * integer_literal) list * urust_datatype
 
   val rust_type_position: rust_type -> Position.T
   val datatype_type_position: datatype_type -> Position.T
@@ -297,6 +304,7 @@ sig
     Type_Alias_Item of
       string * Position.T * (string * Position.T) list *
       rust_type * source_layout
+    | Generic_Type_Alias of generic_parameter list * urust_type_alias
   datatype urust_item =
       Datatype_Item of urust_datatype
     | Function_Item_Node of urust_function
@@ -306,6 +314,7 @@ sig
   val type_alias_source_layout: urust_type_alias -> source_layout
   val type_alias_name: urust_type_alias -> string * Position.T
   val type_alias_parameters: urust_type_alias -> (string * Position.T) list
+  val type_alias_parameter_descriptors: urust_type_alias -> generic_parameter list
   val type_alias_rhs: urust_type_alias -> rust_type
   val function_item_position: urust_function -> Position.T
   val function_source_layout: urust_function -> source_layout
@@ -620,6 +629,7 @@ struct
         raw_pointer_mutability * rust_type * source_layout
     | Slice_Type of rust_type * source_layout
     | Array_Type of rust_type * integer_literal * source_layout
+    | Const_Array_Type of rust_type * rust_type * source_layout
     | HOL_Type_Source of Input.source
   and rust_generic_argument =
       Rust_Type_Argument of rust_type
@@ -716,11 +726,17 @@ struct
     | Named_Shape of datatype_field list
   datatype datatype_variant =
     Datatype_Variant of string * Position.T * datatype_shape
+  datatype generic_parameter_kind = Type_Parameter | Const_Parameter
+  datatype generic_parameter =
+    Generic_Parameter of string * Position.T * generic_parameter_kind
   datatype urust_datatype =
       Struct_Item of
         string * Position.T * datatype_shape * Position.T
     | Enum_Item of
         string * Position.T * datatype_variant list * Position.T
+    | Datatype_Header of
+        generic_parameter list * (string * Position.T) option *
+        (string * integer_literal) list * urust_datatype
 
   fun rust_type_position (Primitive_Type (_, pos)) = pos
     | rust_type_position (Path_Type (_, layout)) = source_span layout
@@ -730,6 +746,7 @@ struct
     | rust_type_position (Raw_Pointer_Type (_, _, layout)) = source_span layout
     | rust_type_position (Slice_Type (_, layout)) = source_span layout
     | rust_type_position (Array_Type (_, _, layout)) = source_span layout
+    | rust_type_position (Const_Array_Type (_, _, layout)) = source_span layout
     | rust_type_position (HOL_Type_Source source) = Input.pos_of source
 
   val datatype_type_position = rust_type_position
@@ -738,6 +755,8 @@ struct
       (Struct_Item (_, _, _, pos)) = pos
     | datatype_item_position
       (Enum_Item (_, _, _, pos)) = pos
+    | datatype_item_position (Datatype_Header (_, _, _, item)) =
+        datatype_item_position item
 
   fun generic_argument_canonical (Generic_Arg (canonical, _)) = canonical
   fun generic_argument_source (Generic_Arg (_, source)) = source
@@ -1000,6 +1019,7 @@ struct
     Type_Alias_Item of
       string * Position.T * (string * Position.T) list *
       rust_type * source_layout
+    | Generic_Type_Alias of generic_parameter list * urust_type_alias
   datatype urust_item =
       Datatype_Item of urust_datatype
     | Function_Item_Node of urust_function
@@ -1007,14 +1027,22 @@ struct
 
   fun type_alias_source_layout
       (Type_Alias_Item (_, _, _, _, layout)) = layout
+    | type_alias_source_layout (Generic_Type_Alias (_, item)) = type_alias_source_layout item
   fun type_alias_item_position item =
     source_span (type_alias_source_layout item)
   fun type_alias_name
       (Type_Alias_Item (name, pos, _, _, _)) = (name, pos)
+    | type_alias_name (Generic_Type_Alias (_, item)) = type_alias_name item
   fun type_alias_parameters
       (Type_Alias_Item (_, _, parameters, _, _)) = parameters
+    | type_alias_parameters (Generic_Type_Alias (_, item)) = type_alias_parameters item
+  fun type_alias_parameter_descriptors (Generic_Type_Alias (parameters, _)) = parameters
+    | type_alias_parameter_descriptors item =
+        map (fn (name, pos) => Generic_Parameter (name, pos, Type_Parameter))
+          (type_alias_parameters item)
   fun type_alias_rhs
       (Type_Alias_Item (_, _, _, rhs, _)) = rhs
+    | type_alias_rhs (Generic_Type_Alias (_, item)) = type_alias_rhs item
 
   fun function_item_position
       (Function_Item (_, _, _, _, _, layout)) = source_span layout

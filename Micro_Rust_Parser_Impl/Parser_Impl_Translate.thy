@@ -374,9 +374,9 @@ struct
            fun initializer (SE_Field (_, _, expression)) = expression
            val _ =
              T.check_function_call_arity struct_pos (length fields)
-           val function =
-             R.struct_function_path ctxt environment
-               head (length fields)
+           val generated = R.generated_struct_function ctxt head fields
+           val function = case generated of SOME function => function
+             | NONE => R.struct_function_path ctxt environment head (length fields)
            val _ = R.report_struct_labels ctxt head fields
            val lowered_initializers =
              map
@@ -384,8 +384,8 @@ struct
                fields
          in
            with_delimiters struct_layout ["{", "}"] (fn () =>
-             T.function_call struct_pos function
-               lowered_initializers)
+             if null lowered_initializers andalso is_some generated then function
+             else T.function_call struct_pos function lowered_initializers)
          end
      | UE_Path path =>
          R.literal_path ctxt environment path

@@ -8,11 +8,16 @@ sig
   val enum_trace_config: bool Config.T
   val enum_sync_prove_config: bool Config.T
   val enum_eq_simproc: simproc
+  type result = {T: typ, constructors: term list, case_const: term, case_thms: thm list}
+  val enum_core: (string * sort) list -> binding -> (binding * typ list) list ->
+    local_theory -> result * local_theory
   val enum_cmd: (binding * (binding * string list) list) -> local_theory -> local_theory
 end
 
 structure Enum_Cmd : ENUM_CMD =
 struct
+
+type result = {T: typ, constructors: term list, case_const: term, case_thms: thm list}
 
 open Ctr_Sugar_Util
 
@@ -226,6 +231,32 @@ fun mk_equal_eqns typ constr_terms constr_arg_typs inject_simps thy =
 fun add_equal_instance typ constr_terms constr_arg_typs case_eq_thms inject_simps thy =
   let
     val tyco = dest_Type_name typ
+    val parameters = map dest_TFree (snd (dest_Type typ))
+    fun require sort (TFree (name, declared)) requirements =
+          Symtab.map_default (name, declared)
+            (fn old => Sign.minimize_sort thy (old @ sort)) requirements
+      | require sort (Type (name, arguments)) requirements =
+          fold2 require (Sign.arity_sorts thy name sort) arguments requirements
+      | require _ (TVar _) _ = error "enum: schematic payload type"
+    val requirements = fold (require @{sort equal}) (flat constr_arg_typs) Symtab.empty
+    val instance_parameters = map (fn (name, sort) =>
+      (name, the_default sort (Symtab.lookup requirements name))) parameters
+    val substitutions = map2 (fn old => fn new => (TFree old, TFree new))
+      parameters instance_parameters
+    val instance_type = Term.typ_subst_atomic substitutions
+    val typ = instance_type typ
+    val constr_terms = map (Term.map_types instance_type) constr_terms
+    val constr_arg_typs = map (map instance_type) constr_arg_typs
+    fun instantiate thm =
+      let
+        val thm = Thm.varifyT_global thm
+        val variables = Term.add_tvars (Thm.prop_of thm) []
+        val instantiations = map_filter (fn (variable as ((name, _), _)) =>
+          Option.map (fn parameter => (variable, Thm.ctyp_of (Proof_Context.init_global thy) (TFree parameter)))
+            (AList.lookup (op =) instance_parameters name |> Option.map (pair name))) variables
+      in Thm.instantiate (TVars.make instantiations, Vars.empty) thm end
+    val case_eq_thms = map instantiate case_eq_thms
+    val inject_simps = map instantiate inject_simps
     fun add_eq_def lthy_inst =
       let
         fun mk_side const_name =
@@ -244,7 +275,7 @@ fun add_equal_instance typ constr_terms constr_arg_typs case_eq_thms inject_simp
       Class.intro_classes_tac ctxt [] THEN ALLGOALS (Proof_Context.fact_tac ctxt thms)
   in
     thy
-    |> Class.instantiation ([tyco], [], @{sort equal})
+    |> Class.instantiation ([tyco], instance_parameters, @{sort equal})
     |> add_eq_def
     |-> Class.prove_instantiation_exit_result (map o Morphism.thm) eq_tac o single
     |> snd
@@ -347,16 +378,12 @@ fun solve_split_tac context x_varc case_eq_thms exhaust_thm =
 fun solve_split_asm_tac context split_thm =
   simp_tac (only_simpset context (split_thm :: @{thms de_Morgan_disj de_Morgan_conj disj_not1 not_ex simp_thms})) 1 |> time_tactic "split asm" context
 
-fun enum_cmd_complex (typ_binding, constrs) lthy =
+fun enum_core parameters typ_binding constrs_with_typs lthy =
   let
-    val _ = if null constrs then error "Empty enum not allowed" else ()
+    val _ = if null constrs_with_typs then error "Empty enum not allowed" else ()
     val time = timer lthy
     val timer = time (Timing.start ())
     val typ_name = Binding.name_of typ_binding
-
-    (* Parse constructor argument types *)
-    val constrs_with_typs : (binding * typ list) list =
-      map (fn (c, typ_strs) => (c, Syntax.read_typs lthy typ_strs)) constrs
 
     (* Build representation type as sum of products *)
     val prod_typs = map (HOLogic.mk_tupleT o snd) constrs_with_typs
@@ -374,8 +401,8 @@ fun enum_cmd_complex (typ_binding, constrs) lthy =
     }
 
     val ((_, (typ_info, typedef_info)), lthy1) = lthy
-      |> Typedef.add_typedef {overloaded = false}
-           (typ_binding, [], NoSyn) typedef_set typedef_bindings
+      |> Typedef.add_typedef {overloaded = true}
+           (typ_binding, parameters, NoSyn) typedef_set typedef_bindings
            (fn ctxt => resolve_tac ctxt @{thms UNIV_witness} 1)
       ||> add_and_prove_is_enum typ_name
 
@@ -457,7 +484,9 @@ fun enum_cmd_complex (typ_binding, constrs) lthy =
 
     (* Step 4: Define case combinator *)
     (* case_<typ> : (arg_typs1 -> 'a) -> ... -> (arg_typsN -> 'a) -> <typ> -> 'a *)
-    val (Ta, lthy4) = map_prod the_single I (mk_TFrees 1 lthy3)
+    val (Ta, _) = map_prod the_single I
+      (mk_TFrees 1 (fold (Variable.declare_typ o TFree) parameters lthy3))
+    val lthy4 = Variable.declare_typ Ta lthy3
 
     (* Create function types for each case *)
     fun mk_case_arg_type arg_typs = arg_typs ---> Ta
@@ -513,7 +542,8 @@ fun enum_cmd_complex (typ_binding, constrs) lthy =
     (* Register with Case_Translation for pattern matching *)
     val lthy7 = lthy6
       |> Local_Theory.declaration {syntax = false, pervasive = true, pos = Position.none}
-           (fn _ => Case_Translation.register case_const constr_terms)
+           (fn phi => Case_Translation.register
+             (Morphism.term phi case_const) (map (Morphism.term phi) constr_terms))
     val timer = time (timer "Case expression")
 
     (* Step 5: Prove case equality theorems *)
@@ -646,7 +676,8 @@ fun enum_cmd_complex (typ_binding, constrs) lthy =
               (Abs_inject :: constr_defs))
 
   in
-    lthy11
+    ({T = typ, constructors = constr_terms, case_const = case_const,
+      case_thms = map Thm.varifyT_global case_eq_thms}: result, lthy11)
   end
 
 (* Simplified enum command using natural number representation *)
@@ -902,7 +933,8 @@ fun enum_cmd (typ_binding, constrs) lthy =
     
     val lthy' = if List.all (null o snd) constrs
       then enum_cmd_simpl (typ_binding, map fst constrs) lthy
-      else enum_cmd_complex (typ_binding, constrs) lthy
+      else snd (enum_core [] typ_binding
+        (map (fn (binding, types) => (binding, Syntax.read_typs lthy types)) constrs) lthy)
 
     val _ = timer "Enum Complete"
   in

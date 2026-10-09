@@ -87,6 +87,51 @@ urust_expr showoff_renamed_datatype \<open>
 subsection\<open> Rust-shaped function items \<close>
 
 text\<open>
+Type and const parameters are inferred together, including unused parameters.
+An explicit unsigned representation with no payload selects
+the word backend; omitted discriminants increment the preceding value.
+\<close>
+
+urust_datatype \<open>
+  struct FixedBuffer<T, const N: usize> { values: [T; N] }
+\<close>
+
+\<comment>\<open>RUST-CHANGE: this proof-source mirror explicitly omits a PhantomData field and its
+pure initializer and pattern slot, while retaining the original generic parameter. Automatic
+marker handling is deferred; nontrivial initializer effects need explicit source adaptation.\<close>
+urust_datatype \<open>
+  struct TypedAddress<T> { address: u64 }
+\<close>
+
+urust_datatype \<open>
+  enum GenericEvent<T, P> { Waiting, Arrived { value: T } }
+\<close>
+
+urust_datatype \<open>
+  #[repr(u8)]
+  enum WireState<T> { WireIdle, WireReady = 7, WireBusy }
+\<close>
+
+urust_expr showoff_unused_parameter_construction \<open>
+  TypedAddress::<u8> { address: 11u64 }
+\<close>
+
+urust_expr showoff_generic_match \<open>
+  match GenericEvent::<u32, u8>::Arrived { value: 9u32 } {
+    GenericEvent::Waiting => 0u32,
+    GenericEvent::Arrived { value } => value,
+  }
+\<close>
+
+urust_fn showoff_const_signature \<open>
+  fn showoff_const_signature(buffer: FixedBuffer<u8, 4>) -> FixedBuffer<u8, 4> { buffer }
+\<close>
+
+urust_expr showoff_word_conversion \<open>
+  WireState::to_u8(WireState::<u8>::WireBusy)
+\<close>
+
+text\<open>
 \<open>urust_fn\<close> parses a complete Rust-shaped function item. Its parameter and explicit
 result types resolve through the shared Rust-to-HOL registry and control elaboration.
 Omitting the HOL binding infers it from the Rust name.

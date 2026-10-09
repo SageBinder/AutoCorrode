@@ -38,7 +38,7 @@ urust_datatype \<open>
   struct PointerTuple(DatatypePtr<u8>, *mut u16, PointerPacket);
 \<close>
 
-urust_datatype \<open>
+urust_datatype [backend = hol] \<open>
   enum PointerChoice {
     Empty,
     Packet(PointerPacket),
@@ -191,7 +191,8 @@ ML_val\<open>
         URust_Datatype.define
           {source = Input.string "struct PointerBad { pointer: *const u8, unrelated: \<tau>\<open>'unrelated\<close> }",
            explicit_binding = NONE, interactive = false, verbosity = 0,
-           pp_test = true, pretty = false, register_notation = true, renames = []}
+           pp_test = true, pretty = false, register_notation = true, renames = [],
+           backend = "hol", word_width = NONE, parameters = [], plugins = K Plugin_Name.default_filter}
           lthy) ()
     val _ =
       (case rejected of
@@ -199,7 +200,7 @@ ML_val\<open>
        | Exn.Exn exn =>
            if Exn.is_interrupt exn then Exn.reraise exn
            else require "wrong unrelated-variable diagnostic"
-             (String.isSubstring "type variables are not supported"
+             (String.isSubstring "unrelated HOL variable"
                (Runtime.exn_message exn)))
     val _ = require "failed datatype installed its mapping"
       (is_none (URust_Type_Mappings.lookup lthy "PointerBad"))

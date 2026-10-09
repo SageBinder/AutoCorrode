@@ -511,6 +511,8 @@ fun rust_type_document rust_type =
        bracketed
          (rust_type_document typ @ delimiter ";" @ space @
           numeral (integer_literal_lexeme integer))
+   | Const_Array_Type (typ, length, _) =>
+       bracketed (rust_type_document typ @ delimiter ";" @ space @ rust_type_document length)
    | HOL_Type_Source source =>
        let
          val body = Input.string_of source
@@ -536,11 +538,7 @@ fun validate_datatype_shape what shape =
     val _ =
       (case shape of
          Unit_Shape => ()
-       | Tuple_Shape [] =>
-           malformed (what ^ " has an empty tuple shape")
        | Tuple_Shape _ => ()
-       | Named_Shape [] =>
-           malformed (what ^ " has an empty named shape")
        | Named_Shape fields =>
            let
              val names =
@@ -600,6 +598,33 @@ fun datatype_variant_document options
 
 fun datatype_document options item =
   (case item of
+     Datatype_Header (parameters, repr, discriminants, body) =>
+       let
+         fun parameter (Generic_Parameter (name, _, kind)) =
+           (case kind of Type_Parameter => identifier name
+            | Const_Parameter => keyword "const" @ space @ identifier name @
+                delimiter ":" @ space @ keyword "usize")
+         val header = if null parameters then [] else
+           delimiter "<" @ comma_documents (map parameter parameters) @ delimiter ">"
+         val prefix = case repr of NONE => [] | SOME (name, _) =>
+           delimiter "#[" @ identifier "repr" @ parenthesized (identifier name) @
+           delimiter "]" @ space
+         fun variant (v as Datatype_Variant (name, _, _)) =
+           datatype_variant_document options v @
+           (case AList.lookup (op =) discriminants name of NONE => []
+            | SOME value => space @ delimiter "=" @ space @ numeral (integer_literal_lexeme value))
+       in prefix @
+         (case body of
+            Struct_Item (name, _, shape, _) =>
+              datatype_shape_after options ("struct " ^ name)
+                (keyword "struct" @ space @ identifier name @ header) shape @
+              (case shape of Named_Shape _ => [] | _ => delimiter ";")
+          | Enum_Item (name, _, variants, _) =>
+              braced_after (keyword "enum" @ space @ identifier name @ header @ space)
+                (comma_documents (map variant variants))
+          | Datatype_Header _ => malformed "nested datatype header")
+       end
+   |
      Struct_Item (name, _, shape, _) =>
        let
          val name =
@@ -696,8 +721,6 @@ fun pattern_document options required pattern =
            (literal_document payload)
      | P_Constr (path, arguments, _) =>
          let
-           val arguments =
-             require_nonempty "constructor pattern" arguments
            val document =
              identifier_head_path "constructor pattern" path @
              parenthesized
@@ -766,7 +789,6 @@ fun pattern_document options required pattern =
              (comma_documents (map slice_document items)))
      | P_Struct (path, fields, _) =>
          let
-           val fields = require_nonempty "struct pattern" fields
            val document =
              braced_after
                (identifier_head_path "struct pattern" path @ space)
@@ -1509,7 +1531,16 @@ fun function_document options
 fun events_of_function options function =
   function_document options function
 
-fun events_of_type_alias _
+fun events_of_type_alias options (Generic_Type_Alias (parameters, item)) =
+  let
+    val (name, _) = type_alias_name item
+    fun parameter (Generic_Parameter (name, _, kind)) =
+      (case kind of Type_Parameter => identifier name
+       | Const_Parameter => keyword "const" @ space @ identifier name @ delimiter ":" @ space @ keyword "usize")
+  in keyword "type" @ space @ identifier name @ delimiter "<" @
+    comma_documents (map parameter parameters) @ delimiter ">" @ space @ delimiter "=" @ space @
+    rust_type_document (type_alias_rhs item) @ delimiter ";" end
+  | events_of_type_alias _
     (Type_Alias_Item (name, _, parameters, rhs, _)) =
   let
     val name = require_identifier "type alias item" name

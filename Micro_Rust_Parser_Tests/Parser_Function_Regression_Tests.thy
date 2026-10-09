@@ -2045,8 +2045,8 @@ ML_val \<open>
           "fn SignatureFailure(value: *mut MissingPointee) { () }"),
          ("signature-slice", "Rust slice types",
           "fn SignatureFailure(value: [u8]) { () }"),
-         ("signature-array", "Rust array types",
-          "fn SignatureFailure(value: [u8; 4]) { () }"),
+         ("signature-zero-array", "does not satisfy sort",
+          "fn SignatureFailure(value: [u8; 0]) { () }"),
          ("signature-singleton-tuple", "singleton tuple types",
           "fn SignatureFailure(value: (u8,)) { () }"),
          ("signature-numeric-generic", "numeric generic arguments",
@@ -2234,7 +2234,7 @@ ML_val \<open>
          ("signature-position-sort", "SignatureOrdered<SignatureFunction>", "SignatureFunction",
           "does not satisfy sort"),
          ("signature-position-reference", "&u8", "&u8", "Rust reference types"),
-         ("signature-position-array", "[u8; 4]", "[u8; 4]", "Rust array types"),
+         ("signature-position-zero-array", "[u8; 0]", "[u8; 0]", "does not satisfy sort"),
          ("signature-position-singleton", "(u8,)", "(u8,)", "singleton tuple types"),
          ("signature-position-numeric", "SignatureOption<4>", "4", "numeric generic arguments")]
 

@@ -749,7 +749,7 @@ ML_val \<open>
         (datatype_command "WrongArity" "ResultMap<u8>")
     val _ =
       rejected "numeric-generic"
-        "numeric generic arguments is not supported"
+        "numeric generic arguments for type parameters is not supported"
         (datatype_command "NumericGeneric" "Wrap<4>")
     val _ =
       rejected "wrong-sort"
@@ -776,9 +776,9 @@ ML_val \<open>
         "Rust slice types is not supported"
         (datatype_command "SliceField" "[u8]")
     val _ =
-      rejected "array"
-        "Rust array types is not supported"
-        (datatype_command "ArrayField" "[u8; 4]")
+      rejected "zero-array"
+        "does not satisfy sort"
+        (datatype_command "ArrayField" "[u8; 0]")
     val _ =
       rejected "recursive"
         "recursive Rust datatype reference \"RecursiveMapped\""

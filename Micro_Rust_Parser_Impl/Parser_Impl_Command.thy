@@ -128,6 +128,17 @@ unknown keys, invalid bindings, and duplicate effective names (including untouch
 are positioned errors. Field lenses follow the actual selector names; Rust aliases and paths
 always retain their source spellings. The outer HOL type binding is independent, and struct
 constructors and enum payload selectors remain automatic.
+Type/const parameters retain source order, including unused parameters. Const parameters use
+HOL length types, initially \<open>len0\<close> and strengthened where fields require \<open>len\<close>.
+The option \<open>parameters = ["T" \<rightarrow> "'a::address_type"]\<close> supplies local HOL names/sorts.
+Unused type parameters are retained independently of fields. Automatic \<open>PhantomData\<close> field
+handling is deferred; ordinary explicit HOL definitions and manual type/notation mappings remain
+available, with all mapped fields stored and required.
+The default \<open>backend = auto\<close> chooses the custom enum for ordinary enums and the word backend
+for explicit unsigned representations without payload. Use \<open>backend = hol\<close> for native
+BNF artifacts, or quoted \<open>backend = "enum"\<close> / \<open>backend = "simple_word_enum"\<close> to protect
+Isabelle command keywords. \<open>word_width = N\<close> must agree with an explicit Rust repr width.
+Native plugin filtering uses \<open>plugins = (plugins only: word_conversion)\<close>.
 It accepts an optional HOL binding followed by one required source
 cartouche containing a complete Rust-shaped struct or enum item. Nominal and primitive field types
 resolve only through context-local \<open>urust_type\<close> declarations; qualified and generic mappings use
@@ -253,12 +264,17 @@ datatype command_option_value =
   | Integer_Value of int
   | Attributes_Value of Token.src list
   | Renames_Value of URust_Datatype.rename list
+  | Backend_Value of string
+  | Plugins_Value of (Proof.context -> Plugin_Name.filter)
 
 datatype command_option_config =
     Boolean_Config of bool Config.T
   | Integer_Config of int Config.T
   | Attributes_Config
   | Renames_Config
+  | Backend_Config
+  | Width_Config
+  | Plugins_Config
 
 val common_option_configs =
   [(pp_test_option, Boolean_Config urust_pp_test),
@@ -284,7 +300,11 @@ val datatype_option_configs =
      (pretty_option, Boolean_Config urust_pretty),
      (verbosity_option, Integer_Config urust_verbosity),
      (register_notation_option, Boolean_Config urust_register_notation),
-     (renames_option, Renames_Config)]
+     (renames_option, Renames_Config),
+     ("parameters", Renames_Config),
+     ("backend", Backend_Config),
+     ("word_width", Width_Config),
+     ("plugins", Plugins_Config)]
 
 type command_options = (command_option_value * Position.T) Symtab.table
 
@@ -329,6 +349,18 @@ fun add_inline_option option_configs
                   option_type_error name "an Isabelle attribute list" name_pos
               | (Renames_Config, NONE) =>
                   option_type_error name "a quoted rename list" name_pos
+              | (Backend_Config, SOME (Backend_Value value, pos)) =>
+                  if member (op =) ["auto", "enum", "hol", "simple_word_enum"] value
+                  then Backend_Value value
+                  else error ("urust_datatype: backend expects auto, enum, hol, or simple_word_enum" ^
+                    Position.here pos)
+              | (Width_Config, SOME (Integer_Value width, pos)) =>
+                  if width > 0 then Integer_Value width
+                  else option_type_error name "a positive word width" pos
+              | (Plugins_Config, SOME (Plugins_Value value, _)) => Plugins_Value value
+              | (Backend_Config, _) => option_type_error name "auto, enum, hol, or simple_word_enum" name_pos
+              | (Width_Config, _) => option_type_error name "a positive word width" name_pos
+              | (Plugins_Config, _) => option_type_error name "a native plugin filter" name_pos
               | (Boolean_Config _, SOME (Boolean_Value enabled, _)) =>
                   Boolean_Value enabled
               | (Integer_Config _, SOME (Integer_Value level, value_pos)) =>
@@ -1497,6 +1529,14 @@ fun define_urust_datatype
        pp_test = pp_test,
        pretty = pretty,
        register_notation = register_notation,
+       backend = (case Symtab.lookup options "backend" of
+         SOME (Backend_Value value, _) => value | _ => "auto"),
+       word_width = (case Symtab.lookup options "word_width" of
+         SOME (Integer_Value value, _) => SOME value | _ => NONE),
+       parameters = (case Symtab.lookup options "parameters" of
+         SOME (Renames_Value value, _) => value | _ => []),
+       plugins = (case Symtab.lookup options "plugins" of
+         SOME (Plugins_Value value, _) => value | _ => K Plugin_Name.default_filter),
        renames =
          (case Symtab.lookup options renames_option of
             SOME (Renames_Value renames, _) => renames
@@ -1517,6 +1557,12 @@ fun parse_option_value config =
      SOME Renames_Config =>
        Parse.position parse_renames >>
          (fn (renames, pos) => (Renames_Value renames, pos))
+   | SOME Backend_Config =>
+       Parse.position Parse.name >>
+         (fn (backend, pos) => (Backend_Value backend, pos))
+   | SOME Plugins_Config =>
+       Parse.position (Parse.$$$ "(" |-- Plugin_Name.parse_filter --| Parse.$$$ ")") >>
+         (fn (filter, pos) => (Plugins_Value filter, pos))
    | _ =>
        Parse.position Parse.attribs >>
          (fn (attributes, pos) => (Attributes_Value attributes, pos))) ||
@@ -1632,10 +1678,10 @@ fun define_urust_type_alias (registration, source) lthy =
                    ("urust_type_alias: empty type alias item" ^
                      Position.here (Input.pos_of source)))
         in
-          URust_Type_Mappings.declare_alias
+          URust_Type_Mappings.declare_generic_alias
             {registration = registration,
              item_name = URust_AST.type_alias_name item,
-             parameters = URust_AST.type_alias_parameters item,
+             parameters = URust_AST.type_alias_parameter_descriptors item,
              rhs = URust_AST.type_alias_rhs item}
             lthy
         end)
