@@ -64,6 +64,7 @@ sig
   val constructor_position: constructor_entry -> Position.T
   val constructor_hol_type: constructor_entry -> string
   val constructor_term: constructor_entry -> term
+  val constructor_scheme: constructor_entry -> term
   val constructor_origin: constructor_entry -> constructor_origin
   val constructor_shape: constructor_entry -> constructor_shape
   val constructor_fields: constructor_entry -> (string * term) list
@@ -72,6 +73,7 @@ sig
   val field_rust_name: field_entry -> string
   val field_position: field_entry -> Position.T
   val field_selector: field_entry -> term
+  val field_scheme: field_entry -> term
   val function_rust_name: function_entry -> string
   val function_position: function_entry -> Position.T
   val function_term: function_entry -> term
@@ -272,7 +274,12 @@ struct
       ({rust_pos, ...}: constructor_entry) = rust_pos
   fun constructor_hol_type
       ({hol_type_name, ...}: constructor_entry) = hol_type_name
+  (* Native schemes survive morphism replay; expression builders instantiate
+     the unchecked constant independently at every source occurrence. *)
   fun constructor_term
+      ({constructor, ...}: constructor_entry) =
+    Term.map_types (K dummyT) constructor
+  fun constructor_scheme
       ({constructor, ...}: constructor_entry) = constructor
   fun constructor_origin
       ({origin, ...}: constructor_entry) = origin
@@ -282,7 +289,7 @@ struct
       ({fields, ...}: constructor_entry) =
     map
       (fn ({rust_name, selector, ...}: field_entry) =>
-        (rust_name, selector))
+        (rust_name, Term.map_types (K dummyT) selector))
       fields
   fun constructor_field_entries
       ({fields, ...}: constructor_entry) = fields
@@ -293,6 +300,9 @@ struct
   fun field_position
       ({rust_pos, ...}: field_entry) = rust_pos
   fun field_selector
+      ({selector, ...}: field_entry) =
+    Term.map_types (K dummyT) selector
+  fun field_scheme
       ({selector, ...}: field_entry) = selector
   fun function_rust_name
       ({rust_name, ...}: function_entry) = rust_name

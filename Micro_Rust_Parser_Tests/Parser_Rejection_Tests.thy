@@ -2258,10 +2258,10 @@ urust_expr_rejects \<open> value as u8 as *const \<close>
   \<open> syntax error found at end of input \<close>
 
 urust_expr_rejects \<open> value as () \<close>
-  \<open> syntax error found at ( \<close>
+  \<open> expanded Rust type has no supported cast operation \<close>
 
 urust_expr_rejects \<open> value as [u8] \<close>
-  \<open> syntax error \<close>
+  \<open> Rust slice types is not supported in cast targets \<close>
 
 urust_expr_rejects \<open> value as u8, \<close>
   \<open> syntax error found at , \<close>

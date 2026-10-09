@@ -58,6 +58,8 @@ fun pretty_generated_result kind name lthy thms =
 type generated_datatype =
   {rust_name: string,
    hol_type_name: string,
+   hol_type: typ,
+   backend_parameters: (string * sort) list,
    constructors: (string * string) list,
    selectors: (string * string) list,
    lenses: (string * string) list,
@@ -169,8 +171,6 @@ fun check_constructor_arity name pos arity =
         string_of_int arity ^
         " fields; at most 14 are supported") pos
 
-val read_datatype_type = URust_Type_Mappings.resolve
-
 fun datatype_field_name
     (URust_AST.Datatype_Field (name, _, _)) = name
 
@@ -254,6 +254,20 @@ fun shape_fields URust_AST.Unit_Shape = []
            datatype_field_type field))
         fields
 
+fun item_field_types item =
+  (case item of
+     URust_AST.Struct_Item (_, _, shape, _) =>
+       map snd (shape_fields shape)
+   | URust_AST.Enum_Item (_, _, variants, _) =>
+       maps
+         (fn URust_AST.Datatype_Variant (_, _, shape) =>
+           map snd (shape_fields shape))
+         variants)
+
+fun datatype_parameters parameters =
+  map (fn parameter as (_, sort) => (NONE, (TFree parameter, sort)))
+    parameters
+
 fun validate_shape constructor_name constructor_pos shape =
   let
     val arity =
@@ -279,13 +293,13 @@ fun validate_shape constructor_name constructor_pos shape =
            in length fields end)
   in check_constructor_arity constructor_name constructor_pos arity end
 
-fun bnf_constructor lthy binding fields =
-  (((Binding.empty, binding),
-    map (apsnd (read_datatype_type lthy)) fields), NoSyn)
+fun bnf_constructor binding fields =
+  (((Binding.empty, binding), fields), NoSyn)
 
-fun define_bnf_datatype binding constructors lthy =
+fun define_bnf_datatype backend_parameters binding constructors lthy =
   let
-    val datatype_spec = (([], binding), NoSyn)
+    val datatype_spec =
+      ((datatype_parameters backend_parameters, binding), NoSyn)
     val dtspec =
       (Ctr_Sugar.default_ctr_options,
        [(((datatype_spec, constructors),
@@ -295,7 +309,7 @@ fun define_bnf_datatype binding constructors lthy =
       BNF_Util.Least_FP BNF_LFP.construct_lfp dtspec lthy
   end
 
-fun completed_datatype_info item rust_name type_binding lthy =
+fun completed_datatype_info backend_parameters item rust_name type_binding lthy =
   let
     val expected_name = Local_Theory.full_name lthy type_binding
     val sugar =
@@ -306,6 +320,16 @@ fun completed_datatype_info item rust_name type_binding lthy =
              ("urust_datatype: generated datatype metadata is unavailable for " ^
                quote expected_name))
     val hol_type_name = dest_Type_name (#T sugar)
+    (* Ctr_Sugar exports native schemes with index-zero schematic variables.
+       Registry schemes name their implicit parameters with free variables. *)
+    val hol_type = Logic.unvarifyT_global (#T sugar)
+    val generated_parameters =
+      map dest_TFree (snd (dest_Type hol_type))
+    val _ =
+      if length generated_parameters = length backend_parameters then ()
+      else
+        error
+          "urust_datatype: generated implicit backend parameters changed"
     val constructor_names =
       map (dest_Const_name o Term.head_of) (#ctrs sugar)
     val selector_names =
@@ -313,6 +337,8 @@ fun completed_datatype_info item rust_name type_binding lthy =
   in
     {rust_name = rust_name,
      hol_type_name = hol_type_name,
+     hol_type = hol_type,
+     backend_parameters = generated_parameters,
      constructors = map (pair "") constructor_names,
      selectors = map (pair "") selector_names,
      lenses = [],
@@ -347,8 +373,7 @@ fun source_field_entries shape selectors =
            (fn field => fn selector =>
              {rust_name = datatype_field_name field,
               rust_pos = datatype_field_position field,
-              selector =
-                Const (dest_Const_name selector, dummyT)})
+              selector = selector})
            fields selectors
        else
          error
@@ -431,8 +456,7 @@ fun register_generated_datatype
          rust_path = rust_path,
          rust_pos = position,
          hol_type_name = hol_type_name,
-         constructor =
-           Const (dest_Const_name constructor, dummyT),
+         constructor = constructor,
          origin = origin,
          shape = scope_constructor_shape shape,
          fields = source_field_entries shape selectors}
@@ -441,22 +465,24 @@ fun register_generated_datatype
       (descriptors ~~ (constructors ~~ selector_rows)) lthy'
   end
 
-fun make_named_struct register_notation renames rust_name rust_pos type_binding fields item lthy =
+fun make_named_struct register_notation renames backend_parameters resolved_types
+    rust_name rust_pos type_binding fields item lthy =
   let
     val hol_base = Binding.name_of type_binding
     val _ = validate_shape rust_name rust_pos (URust_AST.Named_Shape fields)
     val record_fields =
-      map
-        (fn field =>
+      map2
+        (fn field => fn typ =>
           (chosen_binding renames (datatype_field_name field)
              (hol_base ^ "_" ^ snake_case (datatype_field_name field))
              (datatype_field_position field),
-           read_datatype_type lthy (datatype_field_type field)))
-        fields
+           typ))
+        fields resolved_types
     val _ = check_effective_names "generated HOL field" (map fst record_fields)
     val lthy' =
       Datatype_Records.record type_binding
-        Datatype_Records.default_ctr_options [] record_fields lthy
+        Datatype_Records.default_ctr_options
+        (datatype_parameters backend_parameters) record_fields lthy
     val overrides =
       if register_notation
       then
@@ -475,23 +501,25 @@ fun make_named_struct register_notation renames rust_name rust_pos type_binding 
          report = false}
         lthy'
   in
-    (completed_datatype_info item rust_name type_binding lthy'', lthy'')
+    (completed_datatype_info backend_parameters item rust_name type_binding lthy'', lthy'')
   end
 
-fun make_positional_struct rust_name rust_pos type_binding shape item lthy =
+fun make_positional_struct backend_parameters resolved_types
+    rust_name rust_pos type_binding shape item lthy =
   let
     val _ = validate_shape rust_name rust_pos shape
     val constructor_binding =
       Binding.name ("make_" ^ Binding.name_of type_binding)
-    val fields = shape_fields shape
-    val constructor = bnf_constructor lthy constructor_binding fields
-    val lthy' = define_bnf_datatype type_binding [constructor] lthy
+    val fields = map fst (shape_fields shape) ~~ resolved_types
+    val constructor = bnf_constructor constructor_binding fields
+    val lthy' =
+      define_bnf_datatype backend_parameters type_binding [constructor] lthy
   in
-    (completed_datatype_info item rust_name type_binding lthy', lthy')
+    (completed_datatype_info backend_parameters item rust_name type_binding lthy', lthy')
   end
 
-fun enum_variant_spec lthy renames hol_base
-    (URust_AST.Datatype_Variant (name, pos, shape)) =
+fun enum_variant_spec renames hol_base
+    (URust_AST.Datatype_Variant (name, pos, shape)) resolved_types =
   let
     val _ = validate_rust_item_name "variant" (name, pos)
     val _ = validate_shape name pos shape
@@ -507,10 +535,12 @@ fun enum_variant_spec lthy renames hol_base
              named_fields
        | _ => shape_fields shape)
   in
-    bnf_constructor lthy (chosen_binding renames name name pos) fields
+    bnf_constructor (chosen_binding renames name name pos)
+      (map fst fields ~~ resolved_types)
   end
 
-fun make_enum renames rust_name variants type_binding item lthy =
+fun make_enum renames backend_parameters resolved_types
+    rust_name variants type_binding item lthy =
   let
     val _ =
       duplicate_names "variant"
@@ -545,34 +575,50 @@ fun make_enum renames rust_name variants type_binding item lthy =
                    fields
              | _ => []))
           variants)
-    val constructors =
-      map (enum_variant_spec lthy renames hol_base) variants
-    val lthy' = define_bnf_datatype type_binding constructors lthy
+    fun variant_types (variant as URust_AST.Datatype_Variant (_, _, shape))
+        remaining =
+      let
+        val count = length (shape_fields shape)
+        val (types, rest) = chop count remaining
+      in (enum_variant_spec renames hol_base variant types, rest) end
+    val (constructors, remaining_types) =
+      fold_map variant_types variants resolved_types
+    val _ =
+      if null remaining_types then ()
+      else error "urust_datatype: field batch does not match the enum variants"
+    val lthy' =
+      define_bnf_datatype backend_parameters type_binding constructors lthy
   in
-    (completed_datatype_info item rust_name type_binding lthy', lthy')
+    (completed_datatype_info backend_parameters item rust_name type_binding lthy', lthy')
   end
 
 fun infer_datatype_binding rust_name pos =
   Binding.make (snake_case rust_name, pos)
 
-fun generate_urust_datatype register_notation renames type_binding item lthy =
+fun generate_urust_datatype register_notation renames backend_parameters
+    resolved_types type_binding item lthy =
   (case item of
      URust_AST.Struct_Item
        (rust_name, rust_pos, shape, _) =>
        (validate_rust_item_name "item" (rust_name, rust_pos);
         case shape of
           URust_AST.Named_Shape fields =>
-            make_named_struct register_notation renames rust_name rust_pos type_binding fields item lthy
+            make_named_struct register_notation renames backend_parameters
+              resolved_types rust_name rust_pos type_binding fields item lthy
         | _ =>
-            make_positional_struct rust_name rust_pos type_binding shape item lthy)
+            make_positional_struct backend_parameters resolved_types
+              rust_name rust_pos type_binding shape item lthy)
    | URust_AST.Enum_Item
        (rust_name, rust_pos, variants, _) =>
        (validate_rust_item_name "item" (rust_name, rust_pos);
-        make_enum renames rust_name variants type_binding item lthy))
+        make_enum renames backend_parameters resolved_types
+          rust_name variants type_binding item lthy))
 
 type generated_artifacts =
   {rust_name: string,
    hol_type_name: string,
+   hol_type: typ,
+   backend_parameters: (string * sort) list,
    constructors:
      (string * URust_Item_Scope.constructor_entry) list,
    selectors: (string * string) list,
@@ -627,7 +673,8 @@ fun theorem_for_definition lthy constant_name =
       (Thm.def_name constant_name))
 
 fun completed_generated_artifacts register_notation
-    ({rust_name, hol_type_name, item, ...}: generated_datatype) lthy =
+    ({rust_name, hol_type_name, hol_type, backend_parameters, item, ...}:
+      generated_datatype) lthy =
   let
     val descriptors = item_constructor_descriptors item
     val constructors =
@@ -667,6 +714,8 @@ fun completed_generated_artifacts register_notation
   in
     {rust_name = rust_name,
      hol_type_name = hol_type_name,
+     hol_type = hol_type,
+     backend_parameters = backend_parameters,
      constructors = constructors,
      selectors = selectors,
      lenses = lenses,
@@ -733,7 +782,8 @@ fun report_generated_field_declarations lthy
   end
 
 fun report_generated_datatype_replay lthy
-    ({rust_name, hol_type_name, constructors, item = original_item, ...}:
+    ({rust_name, hol_type_name, backend_parameters,
+      constructors, item = original_item, ...}:
       generated_artifacts)
     source =
   let
@@ -756,6 +806,33 @@ fun report_generated_datatype_replay lthy
         positioned_datatype_error
           "pretty output changed the generated datatype AST"
           (Input.pos_of source)
+    (* Resolve every replayed field together, exactly as for generation.  The
+       batch's fresh names may differ from the native datatype parameters. *)
+    val replayed_fields =
+      URust_Type_Mappings.resolve_fields lthy (item_field_types replayed_item)
+    val replayed_parameters = #backend_parameters replayed_fields
+    val _ =
+      if map snd replayed_parameters = map snd backend_parameters then ()
+      else
+        error
+          "urust_datatype: pretty replay changed implicit backend parameters"
+    val replayed_substitutions =
+      map2
+        (fn source => fn target => (TFree source, TFree target))
+        replayed_parameters backend_parameters
+    val replayed_types =
+      map (Term.typ_subst_atomic replayed_substitutions)
+        (#types replayed_fields)
+    val stored_types =
+      maps
+        (binder_types o Logic.unvarifyT_global o fastype_of o
+          I.constructor_scheme o snd)
+        constructors
+    val _ =
+      if replayed_types = stored_types then ()
+      else
+        error
+          "urust_datatype: pretty replay changed generated field type schemes"
 
     val type_entry =
       (case I.lookup_type lthy rust_name of
@@ -818,9 +895,6 @@ fun report_generated_datatype_replay lthy
            error
              "urust_datatype: pretty replay field has no selector identity")
 
-    fun validate_type datatype_type =
-      ignore (read_datatype_type lthy datatype_type)
-
     fun report_shape shape entry =
       (case shape of
          URust_AST.Unit_Shape =>
@@ -829,13 +903,12 @@ fun report_generated_datatype_replay lthy
            else
              error
                "urust_datatype: pretty replay changed a unit constructor shape"
-       | URust_AST.Tuple_Shape types =>
-           (if I.constructor_shape entry = I.Tuple_Constructor
-            then ()
-            else
-              error
-                "urust_datatype: pretty replay changed a tuple constructor shape";
-            List.app validate_type types)
+       | URust_AST.Tuple_Shape _ =>
+           if I.constructor_shape entry = I.Tuple_Constructor
+           then ()
+           else
+             error
+               "urust_datatype: pretty replay changed a tuple constructor shape"
        | URust_AST.Named_Shape fields =>
            let
              val field_entries =
@@ -857,8 +930,6 @@ fun report_generated_datatype_replay lthy
                    (fn field => fn field_entry =>
                      let
                        val field_pos = datatype_field_position field
-                       val _ =
-                         validate_type (datatype_field_type field)
                        val _ =
                          report_field_backend field_pos field_entry
                        val _ =
@@ -968,12 +1039,9 @@ fun pretty_datatype_manifest lthy
          mapping_rows)
   end
 
-fun constructor_argument_types lthy entry =
-  (case URust_Item_Scope.constructor_term entry of
-     Const (name, _) =>
-       binder_types
-         (Consts.the_constraint
-           (Proof_Context.consts_of lthy) name)
+fun constructor_argument_types entry =
+  (case URust_Item_Scope.constructor_scheme entry of
+     Const (_, typ) => binder_types (Logic.unvarifyT_global typ)
    | _ => [])
 
 fun pretty_constructor_declaration lthy
@@ -982,7 +1050,7 @@ fun pretty_constructor_declaration lthy
     val constructor_name =
       const_name_of
         (URust_Item_Scope.constructor_term entry)
-    val arguments = constructor_argument_types lthy entry
+    val arguments = constructor_argument_types entry
     val fields = URust_Item_Scope.constructor_fields entry
     val argument_pretties =
       if null fields
@@ -1007,11 +1075,21 @@ fun pretty_constructor_declaration lthy
        [Pretty.str ("    (* " ^ rust_path ^ " *)")])
   end
 
-fun pretty_record_declaration lthy hol_type_name constructors =
+fun pretty_parameterized_type_identity lthy hol_type_name backend_parameters =
+  if null backend_parameters then pretty_type_identity lthy hol_type_name
+  else
+    Pretty.block
+      [Pretty.enclose "(" ")"
+         (Pretty.commas
+           (map (Syntax.pretty_typ lthy o TFree) backend_parameters)),
+       Pretty.brk 1,
+       pretty_type_identity lthy hol_type_name]
+
+fun pretty_record_declaration lthy hol_type_name backend_parameters constructors =
   let
     val (_, entry) = the_single constructors
     val fields = URust_Item_Scope.constructor_fields entry
-    val arguments = constructor_argument_types lthy entry
+    val arguments = constructor_argument_types entry
     val field_rows =
       map2
         (fn (_, selector) => fn typ =>
@@ -1027,29 +1105,30 @@ fun pretty_record_declaration lthy hol_type_name constructors =
       (Pretty.block
          [Pretty.keyword1 "datatype_record",
           Pretty.brk 1,
-          pretty_type_identity lthy hol_type_name,
+          pretty_parameterized_type_identity lthy hol_type_name backend_parameters,
           Pretty.str " ="] ::
        field_rows)
   end
 
-fun pretty_standard_datatype_declaration lthy hol_type_name constructors =
+fun pretty_standard_datatype_declaration lthy hol_type_name backend_parameters constructors =
   Pretty.chunks
     (Pretty.block
        [Pretty.keyword1 "datatype",
         Pretty.brk 1,
-        pretty_type_identity lthy hol_type_name,
+        pretty_parameterized_type_identity lthy hol_type_name backend_parameters,
         Pretty.str " ="] ::
      map (pretty_constructor_declaration lthy) constructors)
 
 fun pretty_normalized_declaration lthy
-    ({hol_type_name, constructors, item, ...}: generated_artifacts) =
+    ({hol_type_name, backend_parameters, constructors, item, ...}:
+      generated_artifacts) =
   (case item of
      URust_AST.Struct_Item
        (_, _, URust_AST.Named_Shape _, _) =>
-       pretty_record_declaration lthy hol_type_name constructors
+       pretty_record_declaration lthy hol_type_name backend_parameters constructors
    | _ =>
        pretty_standard_datatype_declaration
-         lthy hol_type_name constructors)
+         lthy hol_type_name backend_parameters constructors)
 
 fun pretty_public_definition lthy (name, theorem) =
   pretty_generated_result "definition" name lthy
@@ -1123,26 +1202,34 @@ fun define
     val resolved_renames = resolve_renames lthy source_names renames
     val expected_hol_type_name =
       Local_Theory.full_name lthy type_binding
-    val _ =
-      URust_Type_Mappings.preflight_generated
-        {rust_name = rust_name,
-         rust_pos = rust_pos,
-         hol_type_name = expected_hol_type_name}
-        lthy
     val ((generated, final_lthy, artifacts, pretty_declaration),
          type_reports) =
       Navigation.capture (fn () =>
         let
+          val {types, backend_parameters} =
+            URust_Type_Mappings.resolve_fields lthy (item_field_types item)
+          val _ =
+            URust_Type_Mappings.preflight_generated_scheme
+              {rust_name = rust_name,
+               rust_pos = rust_pos,
+               hol_type_name = expected_hol_type_name,
+               hol_type =
+                 Type (expected_hol_type_name, map TFree backend_parameters),
+               backend_parameters = backend_parameters}
+              lthy
           val (generated, lthy') =
-            generate_urust_datatype register_notation resolved_renames type_binding item
+            generate_urust_datatype register_notation resolved_renames
+              backend_parameters types type_binding item
               (Config.put Proof_Display.show_results false lthy)
           val lthy'' =
             register_generated_datatype generated lthy'
           val lthy''' =
-            URust_Type_Mappings.register_generated
+            URust_Type_Mappings.register_generated_scheme
               {rust_name = rust_name,
                rust_pos = rust_pos,
-               hol_type_name = #hol_type_name generated}
+               hol_type_name = #hol_type_name generated,
+               hol_type = #hol_type generated,
+               backend_parameters = #backend_parameters generated}
               lthy''
           val final_lthy =
             Config.put Proof_Display.show_results

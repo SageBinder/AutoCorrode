@@ -156,9 +156,7 @@ micro_rust_notation (literal) primitive_head_u64_max ("u64x::MAX")
 micro_rust_notation (literal) primitive_head_u64_max ("u64x'::MAX")
 micro_rust_notation (literal) primitive_head_u64_max ("u128::MAX")
 
-bundle primitive_path_cast_aliases begin
-  urust_type_alias \<open> type PrimitivePathAlias = u64; \<close>
-end
+urust_type_alias \<open> type PrimitivePathAlias = u64; \<close>
 
 subsection\<open> Exact literal and call resolution \<close>
 
@@ -429,9 +427,6 @@ urust_expr primitive_path_cast_usize \<open> u64::MIN as usize \<close>
 urust_expr primitive_path_cast_i32 \<open> u64::MIN as i32 \<close>
 urust_expr primitive_path_cast_i64 \<open> u64::MIN as i64 \<close>
 
-context includes primitive_path_cast_aliases
-begin
-
 urust_expr primitive_path_named_cast_alias
   \<open> u8::MAX as PrimitivePathAlias \<close>
 
@@ -442,8 +437,6 @@ lemma primitive_path_named_cast_alias_equal:
   \<open> primitive_path_named_cast_alias = primitive_path_named_cast_alias_compat \<close>
   unfolding primitive_path_named_cast_alias_def primitive_path_named_cast_alias_compat_def
   by (rule refl)
-
-end
 
 urust_expr primitive_path_binary \<open> u64::MAX + 1u64 \<close>
 urust_expr primitive_path_comparison \<open> u64::MIN < u64::MAX \<close>
@@ -1098,7 +1091,6 @@ urust_expr_rejects
 subsection\<open> Contextual repeat lengths with primitive operands \<close>
 
 context
-  includes primitive_path_cast_aliases
   fixes count :: \<open> 64 word \<close>
 begin
 

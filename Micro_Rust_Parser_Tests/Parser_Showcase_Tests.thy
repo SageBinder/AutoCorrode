@@ -281,19 +281,36 @@ urust_expr showoff_contextual_array_repeat
 
 end
 
-subsection\<open> Scoped cast-target aliases \<close>
+subsection\<open> Rust type aliases \<close>
 
 text\<open>
-A bundle corresponds explicitly to the Rust file or module scope selected by its inclusion site.
-The alias changes only source spelling: its checked term is identical to the primitive target.
+Type aliases are ordinary declarations available to subsequent commands and importing theories.
+Using an alias as a cast target produces the same checked term as the expanded primitive.
 \<close>
 
-bundle showoff_cast_aliases begin
-  urust_type_alias \<open> type SmallId = u16; \<close>
-end
+urust_type_alias \<open> type SmallId = u16; \<close>
+urust_type_alias \<open> type IdPair<T> = (T, T); \<close>
+urust_type_alias \<open> type BytePointer<T> = *const T; \<close>
+urust_type_alias "types::BufferSize" \<open> type BufferSize = SmallId; \<close>
 
-context includes showoff_cast_aliases
-begin
+urust_datatype \<open>
+  struct AliasBuffer {
+    pointer: BytePointer<u8>,
+    length: types::BufferSize,
+  }
+\<close>
+
+urust_fn \<open>
+  fn AliasBufferPointer(buffer: AliasBuffer) -> BytePointer<u8> {
+    buffer.pointer
+  }
+\<close>
+
+urust_fn \<open>
+  fn KeepIdPair(pair: IdPair<SmallId>) -> (u16, u16) {
+    pair
+  }
+\<close>
 
 urust_expr showoff_scoped_cast_alias
   \<open> 0u64 as SmallId \<close>
@@ -312,8 +329,6 @@ urust_expr showoff_cast_alias_repeats
     let generated = [const { /* outer /* nested */ */ 1u64 as SmallId }; 3usize];
     (ordinary, generated)
   \<close>
-
-end
 
 subsection\<open> Primitive associated items \<close>
 

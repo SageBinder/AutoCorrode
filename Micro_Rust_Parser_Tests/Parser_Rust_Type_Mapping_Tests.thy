@@ -768,9 +768,9 @@ ML_val \<open>
         "Rust reference types is not supported"
         (datatype_command "MutableReferenceField" "&mut u32")
     val _ =
-      rejected "raw-pointer"
-        "Rust raw pointer types is not supported"
-        (datatype_command "RawPointerField" "*const u8")
+      rejected "raw-pointer-unknown-pointee"
+        "unknown Rust type \"missing::Pointee\""
+        (datatype_command "RawPointerField" "*const missing::Pointee")
     val _ =
       rejected "slice"
         "Rust slice types is not supported"

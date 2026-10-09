@@ -128,13 +128,14 @@ policy remains in each frontend. See the session [README](Parser_Common/README.m
 
 ### Micro_Rust_Parser_Impl and Micro_Rust_Parser_Tests
 
-The implementation session provides the production `urust_expr`, `urust_fn`, and
-`urust_datatype` commands:
+The implementation session provides the production `urust_expr`, `urust_fn`, `urust_type`,
+`urust_type_alias`, and `urust_datatype` commands:
 
 ```isabelle
 urust_expr [OPTIONS] NAME [:: TYPE] [(ARG|_, ...)] ‹ body ›
 urust_fn [OPTIONS] [HOL_NAME|_] ‹ fn RustName(PARAMETER: RUST_TYPE, ...) [-> RUST_TYPE] { body } ›
 urust_type "RUST_TYPE['PARAMETER, ...]" = ‹HOL_TYPE›
+urust_type_alias ["QUALIFIED_PATH"] ‹ type RustName<T, ...> = RUST_TYPE; ›
 urust_datatype [OPTIONS] [HOL_NAME] ‹ struct-or-enum ›
 ```
 
@@ -146,8 +147,10 @@ Rust signature types are authoritative: parameters and explicit results resolve 
 Unused channels generalize. Qualified and generic mappings, unit and structural tuples are
 supported. Use `τ‹HOL type›` wherever a type is expected for polymorphism, shared sort constraints,
 higher-order types or independent `_` inference holes. Parameters lower identifiers, `_`, and
-`mut identifier`. References, raw pointers, slices, arrays and numeric generic arguments parse
-but require an explicit HOL escape to supply semantics.
+`mut identifier`. Raw pointers use the existing `('address, 'global, T) Global_Store.ref` model.
+One address/global pair is shared across a complete signature; the body and expected types constrain
+it, and unconstrained parameters generalize. References, slices, arrays and numeric generic arguments
+still require an explicit HOL escape to supply semantics.
 
 Named functions register their Rust name by default. The Boolean `register_notation` option uses
 the shared `urust_register_notation` scoped setting, with inline values taking precedence.
@@ -176,6 +179,10 @@ names for later datatype fields. Unit and tuple structs generate
 `make_NAME`; enum variants are registered under exact paths such as `Message::Data`. Generated
 constructors use those exact Rust identities in values, calls, patterns, and struct expressions;
 they are not rediscovered through HOL basenames.
+Pointer-containing fields introduce implicit address/global HOL parameters shared across the entire
+item, including nested generated types and all enum variants. Their registered Rust types still take
+zero additional Rust generic arguments. Unrelated free type variables in field HOL escapes remain
+unsupported.
 
 Declaration-local `renames` chooses named-struct HOL selectors or enum HOL constructors:
 
@@ -236,7 +243,7 @@ It also exposes the position-independent `URust_Printer` ML API. Serialized mode
 AST groups and is used by the common Boolean `pp_test` declaration option (or scoped
 `urust_pp_test`) for a silent parse-print-parse token comparison before lowering or item
 generation. The sealed API provides parallel token, pretty, and string operations for expression,
-datatype, and function ASTs. Human mode removes redundant expression grouping and is available in
+datatype, function, and type-alias ASTs. Human mode removes redundant expression grouping and is available in
 verbosity-controlled command output through the common Boolean `pretty` option (or scoped
 `urust_pretty`). At verbosity 0, `pretty` has no output to affect and produces a warning.
 For expression output, the formatted body appears inside a symbolic `µ‹…›` wrapper that is
@@ -262,26 +269,34 @@ The parser test session enables the
 scoped roundtrip check across its command-bearing theories; `Parser_Printer_Tests.thy` separately
 demonstrates and audits human-readable formatting.
 
-Existing integral and raw-pointer cast targets may also receive context-local source aliases:
+`urust_type_alias` declares Rust-to-Rust synonyms in the shared type registry:
 
 ```isabelle
-bundle module_cast_aliases begin
-  urust_cast_alias "WordId" = "u16"
-  urust_cast_alias "ConstBytePtr" = "*const u8"
-end
+urust_type_alias ‹ type WordId = u16; ›
+urust_type_alias ‹ type OtherWordId = WordId; ›
+urust_type_alias ‹ type Pair<T> = (T, T); ›
+urust_type_alias ‹ type Ptr<T> = *const T; ›
+urust_type_alias "types::Width" ‹ type Width = u16; ›
 
-context includes module_cast_aliases
-begin
-  urust_expr example ‹ value as WordId ›
-end
+urust_expr example ‹ 5u32 as WordId ›
+urust_fn ‹ fn Narrow(value: u32) -> types::Width { value as OtherWordId } ›
+urust_datatype ‹ struct Buffer { pointer: Ptr<u8>, length: WordId } ›
 ```
 
-Defining or importing a bundle does not activate its aliases. Bundle inclusion is the explicit
-correspondence to the intended Rust file or module scope; aliases disappear when the confined
-context ends. Isabelle named contexts and locales use the native `opening` form, for example
-`context some_locale opening module_cast_aliases begin`. Alias paths may be qualified but may not
-contain generic arguments, and aliases always resolve directly to one primitive cast target rather
-than to another alias.
+Aliases are ordinary local-theory declarations, available immediately and inherited by importing
+the declaring theory. They follow the same context and locale scoping as other declarations.
+The optional quoted path must end with the Rust item name; RHS paths use exact registry lookup.
+Dependencies are validated and captured when
+the alias is declared. Ordinary generic parameters infer their required HOL sorts; duplicate, unused,
+recursive, unknown, and wrong-arity declarations fail before installation. Aliases also support
+tuples and mapped/generated types in signatures and fields.
+
+Cast targets share the ordinary type grammar, including `value as Identity<u16>` for a suitable
+alias. Expansion preserves Rust primitive identity, signedness and pointer mutability, and selects
+the existing supported cast operations. An alias to another mapped type can still be used in
+signatures and fields when it has no cast operation. Rust requires grouping before ambiguous `<`
+and `<<` expressions, for example `(value as WordId) < limit`. Repeat lengths retain their literal
+`as usize` restriction. The retired `urust_cast_alias` command is rejected.
 
 The `urust_expr` parenthesized argument list accepts a trailing comma and uses Isabelle liberal
 names. Minor keywords such as `for` may be unquoted; major command keywords delimit outer

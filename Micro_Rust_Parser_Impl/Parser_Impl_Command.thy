@@ -146,7 +146,8 @@ silently and atomically before any result report. Datatype \<open>pp_test\<close
 The command \<open>urust_type_alias ["QUALIFIED_PATH"] src\<close> accepts one complete Rust type
 item such as \<open>type Width = u16;\<close>, \<open>type Pair<T> = (T, T);\<close>, or
 \<open>type Ptr<T> = *const T;\<close>. Its optional quoted path must end with the item name.
-Aliases share the type-mapping namespace, capture dependencies at declaration time and retain
+Aliases are ordinary local-theory declarations, available immediately and inherited through theory
+imports. They share the type-mapping namespace, capture dependencies at declaration time and retain
 inferred generic sorts. Signatures, datatype fields and cast targets all expand them.
 Semantic declaration and dependency navigation reports wait until successful installation.
 

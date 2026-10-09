@@ -29,7 +29,8 @@ Named definition-mode declarations accept standard Isabelle attributes through `
 the attributes apply only to the generated `_def` theorem. Rust function parameter and explicit
 result types resolve through the same `urust_type` registry as datatype fields. Function
 `τ‹HOL type›` escapes support polymorphism, sorts, higher-order types and independent inference
-holes; datatype fields remain monomorphic. Omitted results and effect channels infer from the
+holes; datatype fields allow implicit pointer backend parameters, while unrelated HOL free type
+variables remain rejected. Omitted results and effect channels infer from the
 body, and unused channels generalize.
 
 Named functions register their Rust declaration name by default. Bare, explicit and scoped
@@ -151,11 +152,21 @@ literal whose backend can depend on the surrounding proof context, or a genuine 
 `[value; length]` as a one-element array containing a sequence, so array repeats require
 conformance-disabled declarations.
 
-Scoped cast-target aliases are declared with `urust_cast_alias "SmallId" = "u16"` and may be
-captured in bundles. Importing a fixture does not activate its aliases; inclusion activates exact,
-qualified, generic-free paths only in that context. Aliases lower to the identical existing primitive
-cast term. Identical registrations are idempotent; conflicts report both declaration positions.
-Alias chains, general Rust types, and named aliases in repeat lengths remain unsupported.
+Rust synonyms are ordinary declarations such as `urust_type_alias ‹ type SmallId = u16; ›`.
+They are available immediately and inherited by importing the declaring theory; native context and
+locale scoping follows the other declaration commands.
+Qualified registration uses an optional quoted path whose terminal matches the
+item name. Chains and ordinary generic parameters capture their dependencies and inferred sorts.
+The same registry resolves aliases in casts, function signatures, and datatype fields. Primitive
+cast aliases lower to the identical existing checked term, retaining signedness and mutability.
+Identical registrations are idempotent; conflicts report both declaration positions.
+
+Raw pointers share one implicit address/global pair across a complete signature or datatype field
+batch. Bodies constrain signature backend variables; pointer datatypes expose implicit HOL
+parameters while retaining zero additional Rust generic arguments. Cast syntax uses the shared
+positioned type grammar, splits nested generic closers in type contexts, and preserves expression
+shifts. Ambiguous cast comparisons require Rust grouping. Repeat lengths accept only literal
+`as usize`; aliases do not bypass that policy. Explicit rejection covers the retired command.
 
 Exact registered associated items may use the existing integer primitive tokens as path heads:
 `u8`, `u16`, `u32`, `u64`, `usize`, `i32`, and `i64`. Literal-role registration is mandatory for
@@ -218,10 +229,19 @@ negative rows preserve these boundaries.
 - `Parser_Syntax_Tests.thy`: precedence adjacency, unary/cast/postfix behavior, direct and
   wrapped block-like operands, statement/arm separators, recursive no-struct heads, closures,
   structs, integer lexing, generated grammar, markup, and recovery.
-- `Parser_Cast_Target_Aliases_Tests.thy`: bundle and locale scoping, every integral and raw-pointer
+- `Parser_Cast_Target_Aliases_Tests.thy`: import and locale scoping, every integral and raw-pointer
   target, exact qualified paths, primitive term equality, repeat integration, conflicts, idempotence,
   positioned diagnostics, navigation markup, and recovery. Its declaration-only fixture is
   `Parser_Cast_Alias_Fixtures.thy`.
+- `Parser_Type_Alias_Registry_Tests.thy`: captured templates, normalized generic sorts,
+  independent instantiations, pointer backends, collisions and exact registration ranges.
+- `Parser_Type_Alias_Syntax_Tests.thy`: shared type/cast grammar, generic closers, source ranges,
+  malformed items, recovery and serialized/human printer roundtrips.
+- `Parser_Type_Alias_Tests.thy`: ordinary commands, qualified and chained aliases, generic casts,
+  signature consumers, namespace conflicts, declaration/dependency navigation and atomic reports.
+- `Parser_Pointer_Type_Tests.thy`: record/tuple/enum pointer fields, nested generated types,
+  constructors/selectors/lenses, type-changing native updates, signature constraints,
+  independent calls and rigid/merged locale contexts.
 - `Parser_Block_Comments_Tests.thy`: nested and adjacent layout, token boundaries, full symbol-aware
   markup, positioned diagnostics, literal and lexer-state boundaries, recovery, repeats, and
   dereference/postfix precedence.

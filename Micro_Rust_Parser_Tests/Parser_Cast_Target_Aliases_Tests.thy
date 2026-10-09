@@ -3,48 +3,29 @@ theory Parser_Cast_Target_Aliases_Tests
     Parser_Cast_Alias_Fixtures
 begin
 
-chapter\<open> Scoped cast-target aliases \<close>
+chapter\<open> Rust type aliases in cast targets \<close>
 
 declare [[urust_verbosity = 0]]
 
-section\<open> Imported bundles remain inactive \<close>
+section\<open> Imported aliases are available \<close>
 
 ML_val\<open>
   local
-    fun plain_message exn =
-      XML.content_of (YXML.parse_body (Runtime.exn_message exn))
-        handle Fail _ => Runtime.exn_message exn
-
-    fun expect_rejection ctxt text expected =
-      (case
-          Exn.result
-            (Parser_Test_Elaboration.expression ctxt)
-            (Parser_Lex_Util.text_source text) of
-         Exn.Res term =>
-           error
-             ("cast-target alias unexpectedly active for " ^ quote text ^
-               ": " ^ Syntax.string_of_term ctxt term)
-       | Exn.Exn exn =>
-           if Exn.is_interrupt exn then Exn.reraise exn
-           else
-             let val message = plain_message exn in
-               if String.isSubstring expected message then ()
-               else
-                 error
-                   ("wrong cast-target alias diagnostic:\n" ^ message ^
-                     "\nexpected: " ^ quote expected)
-             end)
+    val ctxt = \<^context>
+    val alias =
+      Parser_Test_Elaboration.expression ctxt
+        (Parser_Lex_Util.text_source "0_u64 as U8Alias")
+    val primitive =
+      Parser_Test_Elaboration.expression ctxt
+        (Parser_Lex_Util.text_source "0_u64 as u8")
   in
     val _ =
-      expect_rejection \<^context> "0_u64 as U8Alias"
-        "unknown Rust type"
+      if Term.aconv (alias, primitive) then ()
+      else error "imported Rust alias did not retain its declared meaning"
   end
 \<close>
 
 section\<open> Primitive equivalence and grammar composition \<close>
-
-context includes module_cast_aliases
-begin
 
 context
   fixes cast_alias_word :: "64 word"
@@ -430,9 +411,7 @@ ML_val\<open>
   end
 \<close>
 
-end
-
-section\<open> Confined direct and locale activation \<close>
+section\<open> Direct declarations and locale scope \<close>
 
 experiment
 begin
@@ -452,11 +431,11 @@ lemma cast_alias_direct_activation_equal:
 
 end
 
-context cast_alias_scope opening module_cast_aliases
+context cast_alias_scope
 begin
 
 urust_expr cast_alias_locale_use
-  \<open> scope_word as types::U16Alias \<close>
+  \<open> scope_word as LocaleWidth \<close>
 
 urust_expr cast_alias_locale_use_primitive
   \<open> scope_word as u16 \<close>
@@ -473,25 +452,17 @@ begin
 
 ML_val\<open>
   local
-    val result =
-      Exn.result
-        (Parser_Test_Elaboration.expression \<^context>)
-        (Parser_Lex_Util.text_source
-          "scope_word as types::U16Alias")
+    val ctxt = \<^context>
+    val alias =
+      Parser_Test_Elaboration.expression ctxt
+        (Parser_Lex_Util.text_source "scope_word as LocaleWidth")
+    val primitive =
+      Parser_Test_Elaboration.expression ctxt
+        (Parser_Lex_Util.text_source "scope_word as u16")
   in
     val _ =
-      (case result of
-         Exn.Res term =>
-           error
-             ("cast-target alias permanently modified its locale: " ^
-               Syntax.string_of_term \<^context> term)
-       | Exn.Exn exn =>
-           if Exn.is_interrupt exn then Exn.reraise exn
-           else
-             if String.isSubstring "unknown Rust type"
-                 (Runtime.exn_message exn)
-             then ()
-             else Exn.reraise exn)
+      if Term.aconv (alias, primitive) then ()
+      else error "locale alias did not persist in its declaration context"
   end
 \<close>
 
@@ -499,11 +470,7 @@ end
 
 ML_val\<open>
   local
-    val base_ctxt = \<^context>
-    val ctxt =
-      Bundle.includes
-        [(true, Bundle.check base_ctxt ("module_cast_aliases", Position.none))]
-        base_ctxt
+    val ctxt = \<^context>
 
     fun assert message condition =
       if condition then () else error ("cast-target alias diagnostics: " ^ message)
@@ -573,10 +540,17 @@ ML_val\<open>
            else
              String.isSubstring "unknown Rust type"
                (Runtime.exn_message exn))
+    val imported_alias =
+      Parser_Test_Elaboration.expression \<^context>
+        (Parser_Lex_Util.text_source "0_u64 as U8Alias")
+    val primitive =
+      Parser_Test_Elaboration.expression \<^context>
+        (Parser_Lex_Util.text_source "0_u64 as u8")
   in
     val _ =
-      if rejected "0_u64 as U8Alias" andalso
-         rejected "0_u64 as ExperimentWidth"
+      if rejected "0_u64 as ExperimentWidth" andalso
+         rejected "0_u64 as LocaleWidth" andalso
+         Term.aconv (imported_alias, primitive)
       then ()
       else
         error
@@ -586,8 +560,10 @@ ML_val\<open>
 
 section\<open> Conflicts and idempotence \<close>
 
-context includes conflict_u8_aliases
+experiment
 begin
+
+urust_type_alias \<open> type SharedWidth = u8; \<close>
 
 urust_expr cast_alias_conflict_left_alone
   \<open> 0_u64 as SharedWidth \<close>
@@ -602,8 +578,10 @@ lemma cast_alias_conflict_left_alone_equal:
 
 end
 
-context includes conflict_u16_aliases
+experiment
 begin
+
+urust_type_alias \<open> type SharedWidth = u16; \<close>
 
 urust_expr cast_alias_conflict_right_alone
   \<open> 0_u64 as SharedWidth \<close>
@@ -618,9 +596,6 @@ lemma cast_alias_conflict_right_alone_equal:
 
 end
 
-context includes idempotent_cast_aliases
-begin
-
 urust_expr cast_alias_idempotent_registration
   \<open> 0_u64 as StableWidth \<close>
 
@@ -632,32 +607,46 @@ lemma cast_alias_idempotent_registration_equal:
   unfolding cast_alias_idempotent_registration_def cast_alias_idempotent_registration_primitive_def
   by (rule refl)
 
-end
-
 ML_val\<open>
   local
-    fun include_bundle ctxt name =
-      Bundle.includes
-        [(true, Bundle.check ctxt (name, Position.none))]
-        ctxt
+    fun declare source_name text lthy =
+      #1 (Micro_Rust_Semantic_Navigation.capture (fn () =>
+        let
+          val source =
+            Parser_Lex_Util.positioned_content_source text
+              (Position.line_file 1 source_name)
+          val item =
+            (case URust_Parser.parse_type_alias_source lthy source of
+               SOME item => item
+             | NONE => error "direct alias audit: empty declaration")
+        in
+          URust_Type_Mappings.declare_alias
+            {registration = NONE,
+             item_name = URust_AST.type_alias_name item,
+             parameters = URust_AST.type_alias_parameters item,
+             rhs = URust_AST.type_alias_rhs item}
+            lthy
+        end))
 
     fun collect_markup (XML.Text _) result = result
       | collect_markup
           (XML.Elem (markup, body)) result =
           fold collect_markup body (markup :: result)
 
+    val base_lthy = Named_Target.theory_init \<^theory>
+    val left_context =
+      declare "cast-alias-conflict-left" "type SharedWidth = u8;" base_lthy
     val conflict =
       Exn.result
         (fn () =>
-          include_bundle
-            (include_bundle \<^context> "conflict_u8_aliases")
-            "conflict_u16_aliases")
+          declare "cast-alias-conflict-right" "type SharedWidth = u16;"
+            left_context)
         ()
 
     val _ =
       (case conflict of
          Exn.Res _ =>
-           error "conflicting cast-target alias bundles were accepted"
+           error "conflicting direct Rust alias declarations were accepted"
        | Exn.Exn exn =>
            if Exn.is_interrupt exn then Exn.reraise exn
            else
@@ -681,18 +670,31 @@ ML_val\<open>
                     message andalso
                   String.isSubstring "different Rust meanings" message andalso
                   String.isSubstring "urust_type_alias declaration" message andalso
-                  length positions = 2
+                  length positions = 2 andalso
+                  member (op =)
+                    (map (Position.file_of o Position.of_properties) positions)
+                    (SOME "cast-alias-conflict-left") andalso
+                  member (op =)
+                    (map (Position.file_of o Position.of_properties) positions)
+                    (SOME "cast-alias-conflict-right")
                then ()
                else
                  error
-                   ("conflicting cast-target alias diagnostic did not " ^
+                   ("conflicting direct Rust alias diagnostic did not " ^
                      "report both declarations:\n" ^ message)
              end)
 
+    val SOME original = URust_Type_Mappings.lookup base_lthy "StableWidth"
     val repeated_context =
-      include_bundle
-        (include_bundle \<^context> "idempotent_cast_aliases")
-        "idempotent_cast_aliases"
+      base_lthy
+      |> declare "cast-alias-idempotent-first" "type StableWidth = u16;"
+      |> declare "cast-alias-idempotent-second" "type StableWidth = u16;"
+    val SOME repeated = URust_Type_Mappings.lookup repeated_context "StableWidth"
+    val _ =
+      if URust_Type_Mappings.entry_identity original =
+          URust_Type_Mappings.entry_identity repeated
+      then ()
+      else error "idempotent direct alias registration changed navigation identity"
     val _ =
       ignore
         (Parser_Test_Elaboration.expression repeated_context
@@ -740,8 +742,8 @@ ML_val\<open>
              end)
 
     val _ =
-      assert_rejected "cast-alias-chain"
-        ("urust_type_alias " ^ Symbol.open_ ^ " type AliasChain = U8Alias; " ^ Symbol.close)
+      assert_rejected "cast-alias-unknown-dependency"
+        ("urust_type_alias " ^ Symbol.open_ ^ " type AliasChain = MissingAliasDependency; " ^ Symbol.close)
         "unknown Rust type"
     val _ =
       assert_rejected "cast-alias-malformed-target"
@@ -766,13 +768,7 @@ ML_val\<open>
 
 ML_val\<open>
   local
-    val base_ctxt = \<^context>
-    val ctxt =
-      Bundle.includes
-        [(true,
-          Bundle.check base_ctxt
-            ("module_cast_aliases", Position.none))]
-        base_ctxt
+    val ctxt = \<^context>
     val text =
       "value as U8Alias; value as U8Alias; " ^
       "value as types::U16Alias"
@@ -855,7 +851,7 @@ ML_val\<open>
   in
     val _ =
       writeln
-        "Scoped cast-target alias term, scope, diagnostic, and markup regressions passed"
+        "Direct Rust alias term, scope, diagnostic, and markup regressions passed"
   end
 \<close>
 
