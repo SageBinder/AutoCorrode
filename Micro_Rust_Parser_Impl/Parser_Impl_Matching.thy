@@ -76,7 +76,7 @@ ML\<open>
     that prepared arm's exact environment. The resulting term evaluates the lowered scrutinee once.
     Fully structural normalized matrices lower directly through one native case expression; guards,
     generated tests, aliases, and transformed patterns retain recursive decision compilation and its
-    historical term-shape compatibility rendering.
+    root-suffix reconstruction of the established term shape.
 
   - lower_while_let lower ctxt environment (fuel, pattern, scrutinee, body, position) lowers fuel and
     scrutinee in the outer environment, in that order, before preparing the pattern. Only the loop body

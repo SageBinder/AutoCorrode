@@ -1492,36 +1492,18 @@ struct
          abstraction: term -> term,
          witness: structural_selection_witness}
 
-  datatype selected_failure_continuation =
-    Selected_Failure_Continuation of
-      {region: structural_pattern,
-       selection: structural_selection_witness,
-       exclusions: structural_exclusion list}
-
-  datatype arm_failure_continuation =
-    Enclosing_Branch_Continuation of
-      {region: structural_pattern,
-       subject: structural_subject,
-       exclusions: structural_exclusion list}
-
   datatype selected_row_state =
     Selected_Row_State of
       {selection: structural_selection_witness,
-       nested_failure: selected_failure_continuation,
-       arm_failure: arm_failure_continuation}
+       failure_state: decision_state}
 
-  datatype compatibility_failure =
-      Alternative_Compatibility_Failure
-    | Arm_Compatibility_Failure
-
-  datatype compatibility_reconstruction =
-    Compatibility_Reconstruction of
-      {failure: compatibility_failure,
-       rows: decision_row list}
+  datatype failure_destination =
+      Next_Alternative
+    | Next_Source_Arm
 
   datatype root_plan_context =
-      Normal_Root_Plan
-    | Compatibility_Root_Plan of compatibility_failure
+      Match_Root_Plan
+    | Failure_Root_Plan of failure_destination
 
   datatype applicable_row =
     Applicable_Row of
@@ -1537,8 +1519,7 @@ struct
   datatype structural_group =
     Structural_Group of
       {pattern: structural_pattern,
-       members: decision_row list,
-       catchall_exclusions: structural_exclusion list}
+       members: decision_row list}
 
   datatype outer_group_plan =
     Outer_Group_Plan of
@@ -1550,11 +1531,7 @@ struct
       {rows: decision_row list,
        groups: structural_group list,
        outer_catchall: structural_group option,
-       catchall_exclusions: structural_exclusion list,
-       historical_groups: structural_group list,
-       historical_outer_catchall: structural_group option,
-       historical_catchall_exclusions:
-         structural_exclusion list}
+       catchall_exclusions: structural_exclusion list}
 
   type decision_source_arm =
     {patterns: case_pattern list,
@@ -1579,20 +1556,19 @@ struct
       between alternative failure and source-guard failure: a generated-test miss advances to the next
       alternative, while a false source guard advances to the next arm.
     - decision_state describes the structural region already selected by enclosing cases. exclusions
-      record preceding case clauses that failed in that region. selected_failure_continuation ties
-      nested failure to that selected region, its certified witness, and its already-bound subject.
-      Enclosing_Branch_Continuation advances after a false source guard from the same already-bound
-      branch root without sharing the selected alternative's binders. The
-      structural_selection_witness certifies recursively that the selected region and subject
-      decomposition conform before binders are extracted. Semantic totality never creates this
-      witness: a singleton constructor or tuple over Structural_Any is opened to obtain its children.
-      Decision_Exclusion suppresses only its exact source position. No binder or source-guard result
-      is shared between alternatives.
-    - root_suffix_plan separates typed grouping and coverage from term emission. The emitted term
-      retains the established redundant root cases for direct guards, nested/transformed generated-test
-      misses, and outer catchalls. Compatibility caches only the plan, by failure context and source
-      positions; it never changes selections, exclusions, or failure continuations. Each clause and
-      root selector constructs one term.
+      record preceding case clauses that failed in that region. A structural_selection_witness
+      certifies recursively that the selected region and subject decomposition conform before binders
+      are extracted. Semantic totality never creates this witness: a singleton constructor or tuple
+      over Structural_Any is opened to obtain its children. Selected_Row_State retains that witness
+      and the already-bound subject for failure. Generated-test failure tries the next alternative;
+      source-guard failure skips the source arm without sharing the selected alternative's binders.
+      Decision_Exclusion suppresses only its exact source position.
+    - root_suffix_plan contains only emission rows, groups, catchall and exclusions. Structural
+      grouping and coverage still determine when a total group is opened directly. Root-suffix
+      reconstruction preserves the established term shape for direct guards, nested/transformed
+      generated-test misses and outer catchalls. The invocation-local cache stores only plans,
+      keyed by failure destination and source positions, and starts empty for every compilation.
+      Each clause and selector constructs one term; planning never changes decision-state selection.
 
     One compiler below handles ordinary, guarded, overlapping, and recursive nested cases. It never
     packs compiler metadata into HOL terms, never decodes generated terms, and never has separate
@@ -2643,45 +2619,22 @@ struct
           (structural_is_total left andalso
            structural_is_total right)
 
-      fun add_structural_group
-          row group_pattern exclusion_pattern [] =
-            let
-              val exclusion =
-                row_exclusion row exclusion_pattern
-            in
-              [Structural_Group
-                {pattern = group_pattern,
-                 members = [row],
-                 catchall_exclusions = [exclusion]}]
-            end
-        | add_structural_group
-            row group_pattern exclusion_pattern
-            (Structural_Group
-              {pattern, members,
-               catchall_exclusions} :: rest) =
+      fun add_group_row row group_pattern [] =
+            [Structural_Group {pattern = group_pattern, members = [row]}]
+        | add_group_row row group_pattern
+            (Structural_Group {pattern, members} :: rest) =
             if same_outer_group (pattern, group_pattern)
             then
-              Structural_Group
-                {pattern = pattern,
-                 members = members @ [row],
-                 catchall_exclusions =
-                   row_exclusion row exclusion_pattern ::
-                     catchall_exclusions} ::
-                rest
+              Structural_Group {pattern = pattern, members = members @ [row]} :: rest
             else
-              Structural_Group
-                {pattern = pattern,
-                 members = members,
-                 catchall_exclusions = catchall_exclusions} ::
-                add_structural_group
-                  row group_pattern exclusion_pattern rest
+              Structural_Group {pattern = pattern, members = members} ::
+                add_group_row row group_pattern rest
 
       fun install_source_catchall row NONE =
             SOME
               (Structural_Group
                 {pattern = row_pattern row,
-                 members = [row],
-                 catchall_exclusions = []})
+                 members = [row]})
         | install_source_catchall row
             (SOME
               (group as
@@ -2692,8 +2645,7 @@ struct
                  SOME
                    (Structural_Group
                      {pattern = bound,
-                      members = [row],
-                      catchall_exclusions = []})
+                      members = [row]})
              | _ => SOME group)
 
       fun add_root_group row
@@ -2708,8 +2660,8 @@ struct
               (groups,
                install_source_catchall row catchall)
             else
-              (add_structural_group
-                 row group_pattern shape groups,
+              (add_group_row
+                 row group_pattern groups,
                catchall)
         in
           Outer_Group_Plan
@@ -2717,59 +2669,30 @@ struct
              catchall = catchall'}
         end
 
-      fun add_historical_group row shape [] =
-            [Structural_Group
-              {pattern = shape,
-               members = [row],
-               catchall_exclusions =
-                 [row_exclusion row shape]}]
-        | add_historical_group row shape
-            (Structural_Group
-              {pattern, members,
-               catchall_exclusions} :: rest) =
-            if same_outer_group (pattern, shape)
-            then
-              Structural_Group
-                {pattern = pattern,
-                 members = members @ [row],
-                 catchall_exclusions =
-                   if row_has_generated_test row
-                   then
-                     row_exclusion row shape ::
-                       catchall_exclusions
-                   else catchall_exclusions} ::
-                rest
-            else
-              Structural_Group
-                {pattern = pattern,
-                 members = members,
-                 catchall_exclusions = catchall_exclusions} ::
-                add_historical_group row shape rest
-
-      fun transformed_compatibility_tail
+      fun transformed_root_tail
           (Decision_Row
             {clause =
                Case_Clause
                  {scope = Transformed_Clause_Scope _, ...},
              ...}) = true
-        | transformed_compatibility_tail _ = false
+        | transformed_root_tail _ = false
 
       fun prefix_has_structural_group prefix =
         List.exists
           (not o structural_is_any o row_shape) prefix
 
-      fun compatibility_outer_prefix _ prefix [] =
+      fun emission_root_prefix _ prefix [] =
             (rev prefix, false)
-        | compatibility_outer_prefix guarded_arm prefix
+        | emission_root_prefix guarded_arm prefix
             (row :: rest) =
-            if transformed_compatibility_tail row
+            if transformed_root_tail row
             then (rev prefix, true)
             else
               (case guarded_arm of
                  SOME active_arm =>
                    if row_arm row = active_arm
                    then
-                     compatibility_outer_prefix guarded_arm
+                     emission_root_prefix guarded_arm
                        (row :: prefix) rest
                    else (rev prefix, true)
                | NONE =>
@@ -2782,19 +2705,19 @@ struct
                        then SOME (row_arm row)
                        else NONE
                    in
-                     compatibility_outer_prefix guarded_arm'
+                     emission_root_prefix guarded_arm'
                        (row :: prefix) rest
                    end)
 
-      fun historical_groups_of
+      fun emission_groups_of
           (Structural_Group {members, ...}) =
         fold
           (fn row => fn groups =>
-            add_historical_group
+            add_group_row
               row (row_shape row) groups)
           members []
 
-      fun historical_group_exclusions
+      fun emission_group_exclusions
           (Structural_Group {members, ...}) =
         (case members of
            [] =>
@@ -2807,26 +2730,26 @@ struct
                    row_exclusion row (row_shape row))
                  (filter row_has_generated_test rest))
 
-      fun historical_group_is_generated_test
+      fun group_starts_with_generated_test
           (Structural_Group {members, ...}) =
         (case members of
            first :: _ => row_has_generated_test first
          | [] =>
              error
-               "urust_expr: internal empty historical structural group")
+               "urust_expr: internal empty structural group")
 
-      fun historical_group_pattern
+      fun group_pattern
           (Structural_Group {pattern, ...}) = pattern
 
-      fun remove_subsumed_historical_groups groups =
+      fun remove_subsumed_emission_groups groups =
         let
           fun covered prior candidate =
             List.exists
               (fn group =>
-                historical_group_is_generated_test group andalso
+                group_starts_with_generated_test group andalso
                   structural_subsumes
-                    (historical_group_pattern group,
-                     historical_group_pattern candidate))
+                    (group_pattern group,
+                     group_pattern candidate))
               prior
           fun retain _ [] = []
             | retain prior (group :: rest) =
@@ -2846,12 +2769,6 @@ struct
             map
               (fn Structural_Group {pattern, ...} =>
                 pattern)
-              groups
-          val catchall_exclusions =
-            maps
-              (fn Structural_Group
-                    {catchall_exclusions, ...} =>
-                catchall_exclusions)
               groups
           val outer_catchall =
             (case source_catchall of
@@ -2875,86 +2792,80 @@ struct
              | _ => NONE)
           (*
             A single structurally total group containing a total source row is coverage-complete.
-            Both normal and compatibility historical rendering must open that planned group directly
-            instead of reconstructing a redundant root tail. This rule depends only on typed
+            Root emission must open that planned group directly instead of reconstructing
+            a redundant root tail. This rule depends only on typed
             structural coverage, not on any particular constructor or tuple shape.
           *)
-          val (historical_prefix_rows,
-               reconstruct_historical_root_tail) =
+          val (prefix_rows,
+               reconstruct_root_tail) =
             (case coverage_complete_group of
                SOME _ => (planned_rows, false)
              | NONE =>
                  (case context of
-                    Normal_Root_Plan =>
-                      compatibility_outer_prefix
+                    Match_Root_Plan =>
+                      emission_root_prefix
                         NONE [] planned_rows
-                  | Compatibility_Root_Plan _ =>
+                  | Failure_Root_Plan _ =>
                       ([], not (null planned_rows))))
-          val historical_groups =
-            remove_subsumed_historical_groups
+          val emission_groups =
+            remove_subsumed_emission_groups
               (case coverage_complete_group of
                  SOME group =>
                    [group]
                | NONE =>
-                   if reconstruct_historical_root_tail
+                   if reconstruct_root_tail
                    then
                      fold
                        (fn row => fn planned_groups =>
                          if structural_is_any (row_shape row)
                          then planned_groups
                          else
-                           add_historical_group
+                           add_group_row
                              row (row_shape row)
                              planned_groups)
-                       historical_prefix_rows []
-                   else maps historical_groups_of groups)
-          val historical_patterns =
+                       prefix_rows []
+                   else maps emission_groups_of groups)
+          val emission_patterns =
             map
               (fn Structural_Group {pattern, ...} =>
                 pattern)
-              historical_groups
-          val historical_catchall_exclusions =
-            maps historical_group_exclusions
-              historical_groups
-          val historical_outer_catchall =
-            if reconstruct_historical_root_tail
+              emission_groups
+          val emission_exclusions =
+            maps emission_group_exclusions
+              emission_groups
+          val emission_catchall =
+            if reconstruct_root_tail
             then
-              if patterns_cover_all historical_patterns
+              if patterns_cover_all emission_patterns
               then NONE
               else
                 SOME
                   (the_default
                     (Structural_Group
                       {pattern = Structural_Any NONE,
-                       members = [],
-                       catchall_exclusions = []})
+                       members = []})
                     source_catchall)
             else
               (case source_catchall of
                  NONE => NONE
                | SOME group =>
-                   if patterns_cover_all historical_patterns
+                   if patterns_cover_all emission_patterns
                    then NONE
                    else SOME group)
         in
           Root_Suffix_Plan
             {rows = planned_rows,
-             groups = groups,
-             outer_catchall = outer_catchall,
-             catchall_exclusions = catchall_exclusions,
-             historical_groups = historical_groups,
-             historical_outer_catchall =
-               historical_outer_catchall,
-             historical_catchall_exclusions =
-               historical_catchall_exclusions}
+             groups = emission_groups,
+             outer_catchall = emission_catchall,
+             catchall_exclusions = emission_exclusions}
         end
 
-      fun historical_following_exclusion
+      fun following_group_exclusion
           (Structural_Group {members, ...}) =
         (case members of
            [] =>
              error
-               "urust_expr: internal empty historical structural group"
+               "urust_expr: internal empty structural group"
          | first :: _ =>
              if row_has_generated_test first
              then NONE
@@ -2962,29 +2873,29 @@ struct
                SOME
                  (row_exclusion first (row_shape first)))
 
-      fun nested_compatibility_scope
+      fun nested_failure_scope
           (Decision_Row
             {clause =
                Case_Clause
                  {scope = Nested_Clause_Scope _,
                   generated_test = SOME _, ...},
              ...}) = true
-        | nested_compatibility_scope _ = false
+        | nested_failure_scope _ = false
 
       fun rows_after_position _ [] =
             error
-              "urust_expr: internal missing compatibility row"
+              "urust_expr: internal missing suffix row"
         | rows_after_position position (row :: rest) =
             if same_source_position
                 (position, row_position row)
             then rest
             else rows_after_position position rest
 
-      fun nested_compatibility_suffix planned_rows
+      fun nested_failure_suffix planned_rows
           (Structural_Group {members, ...}) =
         (case members of
            first :: _ =>
-             if nested_compatibility_scope first
+             if nested_failure_scope first
              then
                SOME
                  (rows_after_position
@@ -2992,17 +2903,17 @@ struct
              else NONE
          | [] =>
              error
-               "urust_expr: internal empty historical structural group")
+               "urust_expr: internal empty structural group")
 
-      datatype compatibility_root_cache_entry =
-        Compatibility_Root_Cache_Entry of
+      datatype root_plan_cache_entry =
+        Root_Plan_Cache_Entry of
           {context: root_plan_context,
            positions: source_position list,
            plan: root_suffix_plan}
 
-      val compatibility_root_cache =
+      val root_plan_cache =
         Unsynchronized.ref
-          ([] : compatibility_root_cache_entry list)
+          ([] : root_plan_cache_entry list)
 
       fun same_position_list ([], []) = true
         | same_position_list
@@ -3012,16 +2923,16 @@ struct
         | same_position_list _ = false
 
       fun same_root_plan_context
-          (Normal_Root_Plan, Normal_Root_Plan) = true
+          (Match_Root_Plan, Match_Root_Plan) = true
         | same_root_plan_context
-            (Compatibility_Root_Plan left,
-             Compatibility_Root_Plan right) =
+            (Failure_Root_Plan left,
+             Failure_Root_Plan right) =
             left = right
         | same_root_plan_context _ = false
 
-      fun cached_compatibility_root _ _ [] = NONE
-        | cached_compatibility_root context positions
-            (Compatibility_Root_Cache_Entry
+      fun cached_root_plan _ _ [] = NONE
+        | cached_root_plan context positions
+            (Root_Plan_Cache_Entry
               {context = cached_context,
                positions = cached_positions,
                plan} :: rest) =
@@ -3031,7 +2942,7 @@ struct
                 (positions, cached_positions)
             then SOME plan
             else
-              cached_compatibility_root
+              cached_root_plan
                 context positions rest
 
       fun exclusion_position
@@ -3085,87 +2996,22 @@ struct
       fun selected_states
           (Decision_State {exclusions, ...})
           region selection =
-        let val selected_subject = selection_subject selection
-        in
         Selected_Row_State
           {selection = selection,
-           nested_failure =
-             Selected_Failure_Continuation
+           failure_state =
+             Decision_State
                {region = region,
-                selection = selection,
-                exclusions = exclusions},
-           arm_failure =
-             Enclosing_Branch_Continuation
-               {region = region,
-                subject = selected_subject,
+                subject = selection_subject selection,
                 exclusions = exclusions}}
-        end
-
-      fun selected_failure_state
-          (Selected_Failure_Continuation
-            {region, selection, exclusions}) =
-        Decision_State
-          {region = region,
-           subject = selection_subject selection,
-           exclusions = exclusions}
-
-      fun arm_failure_state
-          (Enclosing_Branch_Continuation
-            {region, subject, exclusions}) =
-        Decision_State
-          {region = region,
-           subject = subject,
-           exclusions = exclusions}
-
-      fun compatibility_reconstructions
-          scope shape generated_test source_guard
-          alternative_rows arm_rows =
-        let
-          val alternative =
-            if is_some generated_test andalso
-               (case scope of
-                  Nested_Clause_Scope _ => true
-                | Transformed_Clause_Scope _ => true
-                | _ => false)
-            then
-              [Compatibility_Reconstruction
-                {failure = Alternative_Compatibility_Failure,
-                 rows = alternative_rows}]
-            else []
-          val arm =
-            if is_some source_guard andalso
-               (case (scope, shape) of
-                  (Direct_Clause_Scope, Structural_Node _) => true
-                | _ => false)
-            then
-              [Compatibility_Reconstruction
-                {failure = Arm_Compatibility_Failure,
-                 rows = arm_rows}]
-            else []
-        in alternative @ arm end
-
-      fun compatibility_rows _ [] = NONE
-        | compatibility_rows target
-            (Compatibility_Reconstruction
-              {failure, rows} :: rest) =
-            if failure = target
-            then SOME rows
-            else compatibility_rows target rest
 
       fun close_selected_clause
           (Case_Clause
             {generated_test, scope, navigation, ...})
           selection source_guard body
-          alternative_failure arm_failure
-          historical_alternative_failure
-          historical_arm_failure =
+          alternative_failure arm_failure =
         let
           val specialize =
             specialize_term (structural_bindings selection)
-          val alternative =
-            the_default alternative_failure historical_alternative_failure
-          val arm =
-            the_default arm_failure historical_arm_failure
           val navigated_body =
             apply_navigation navigation body
           val guarded_body =
@@ -3174,14 +3020,14 @@ struct
              | SOME (guard, guard_pos) =>
                  Navigation.with_source_position guard_pos
                    (fn () =>
-                     T.conditional guard navigated_body arm))
+                     T.conditional guard navigated_body (the arm_failure)))
           val scoped_body =
             specialize (close_clause_scope scope guarded_body)
         in
           (case generated_test of
              NONE => scoped_body
            | SOME test =>
-               T.conditional (specialize test) scoped_body alternative)
+               T.conditional (specialize test) scoped_body (the alternative_failure))
         end
 
       fun compile_rows state remaining =
@@ -3207,47 +3053,42 @@ struct
                  erase_structural_bindings structural_pattern
 
                fun compile_matched
-                   (Selected_Row_State
-                     {selection,
-                      nested_failure,
-                      arm_failure}) =
+                   (Selected_Row_State {selection, failure_state}) =
                  let
-                   val next_alternative =
-                     compile_rows
-                       (selected_failure_state nested_failure)
-                       rest
-                   val next_arm =
-                     compile_rows
-                       (arm_failure_state arm_failure)
-                       (drop_source_arm arm_index rest)
-                   val arm_rows =
-                     drop_source_arm arm_index rest
-                   val reconstructions =
-                     compatibility_reconstructions
-                       scope shape generated_test source_guard
-                       rest arm_rows
-                   val historical_alternative_failure =
+                   (* A generated-test miss tries the next alternative. A false
+                      source guard skips the entire source arm. Choose the one
+                      emitted destination before closing the clause; an absent
+                      test or guard constructs no failure term. *)
+                   val alternative_failure =
                      Option.map
-                       (compile_compatibility_root
-                         (Compatibility_Root_Plan
-                           Alternative_Compatibility_Failure))
-                       (compatibility_rows
-                         Alternative_Compatibility_Failure
-                         reconstructions)
-                   val historical_arm_failure =
+                       (fn _ =>
+                         (case scope of
+                            Nested_Clause_Scope _ =>
+                              compile_root_suffix
+                                (Failure_Root_Plan
+                                  Next_Alternative) rest
+                          | Transformed_Clause_Scope _ =>
+                              compile_root_suffix
+                                (Failure_Root_Plan
+                                  Next_Alternative) rest
+                          | _ => compile_rows failure_state rest))
+                       generated_test
+                   val arm_failure =
                      Option.map
-                       (compile_compatibility_root
-                         (Compatibility_Root_Plan
-                           Arm_Compatibility_Failure))
-                       (compatibility_rows
-                         Arm_Compatibility_Failure
-                         reconstructions)
+                       (fn _ =>
+                         let val following = drop_source_arm arm_index rest in
+                           (case (scope, shape) of
+                              (Direct_Clause_Scope, Structural_Node _) =>
+                                compile_root_suffix
+                                  (Failure_Root_Plan
+                                    Next_Source_Arm) following
+                            | _ => compile_rows failure_state following)
+                         end)
+                       source_guard
                  in
                    close_selected_clause clause
                      selection source_guard body
-                     next_alternative next_arm
-                     historical_alternative_failure
-                     historical_arm_failure
+                     alternative_failure arm_failure
                  end
                val selection =
                  select_structural_clause ctxt
@@ -3334,30 +3175,30 @@ struct
              error
                "urust_expr: internal non-wild outer catchall")
 
-      and compile_historical_root_branch
+      and compile_reconstructed_branch
           (Structural_Group {pattern, ...}) remaining =
         let
           val Opened_Pattern {abstraction, ...} =
             fresh_pattern_subject ctxt pattern
         in
           abstraction
-            (compile_compatibility_root
-              (Compatibility_Root_Plan
-                Alternative_Compatibility_Failure)
+            (compile_root_suffix
+              (Failure_Root_Plan
+                Next_Alternative)
               remaining)
         end
 
-      and compile_historical_structural_groups
+      and compile_emission_groups
           _ [] _ root_suffix =
             ([], root_suffix)
-        | compile_historical_structural_groups
+        | compile_emission_groups
             planned_rows (group :: rest)
             exclusions root_suffix =
             let
-              val historical =
+              val branch =
                 (case root_suffix of
                    SOME remaining =>
-                     compile_historical_root_branch
+                     compile_reconstructed_branch
                        group remaining
                  | NONE =>
                      compile_outer_group planned_rows exclusions group)
@@ -3365,7 +3206,7 @@ struct
                 (case root_suffix of
                    SOME _ => exclusions
                  | NONE =>
-                     (case historical_following_exclusion group of
+                     (case following_group_exclusion group of
                         NONE => exclusions
                       | SOME exclusion =>
                           exclusion :: exclusions))
@@ -3373,71 +3214,69 @@ struct
                 (case root_suffix of
                    SOME _ => root_suffix
                  | NONE =>
-                     nested_compatibility_suffix
+                     nested_failure_suffix
                        planned_rows group)
               val (following, final_root_suffix) =
-                compile_historical_structural_groups
+                compile_emission_groups
                   planned_rows rest exclusions'
                   root_suffix'
             in
-              (historical :: following,
+              (branch :: following,
                final_root_suffix)
             end
 
-      and render_historical_root_suffix_plan
+      and emit_root_suffix
           (Root_Suffix_Plan
-            {rows = planned_rows,
-             historical_groups,
-             historical_outer_catchall,
-             historical_catchall_exclusions, ...}) =
+            {rows = planned_rows, groups,
+             outer_catchall, catchall_exclusions}) =
         let
           val (group_branches, root_suffix) =
-            compile_historical_structural_groups
-              planned_rows historical_groups [] NONE
+            compile_emission_groups
+              planned_rows groups [] NONE
           val branches =
             group_branches @
-              (case historical_outer_catchall of
+              (case outer_catchall of
                  NONE => []
                | SOME group =>
                    [(case root_suffix of
                        SOME remaining =>
-                         compile_historical_root_branch
+                         compile_reconstructed_branch
                            group remaining
                      | NONE =>
                          compile_outer_catchall planned_rows
-                           historical_catchall_exclusions group)])
+                           catchall_exclusions group)])
         in selector_of branches end
 
-      and compile_compatibility_root context remaining =
+      and compile_root_suffix context remaining =
         let
           val positions = map row_position remaining
           val plan =
-            (case cached_compatibility_root
+            (case cached_root_plan
                 context positions
-                (!compatibility_root_cache) of
+                (!root_plan_cache) of
                SOME cached => cached
              | NONE =>
                  let
                    val planned =
                      plan_root_suffix context remaining
                    val _ =
-                     compatibility_root_cache :=
-                       Compatibility_Root_Cache_Entry
+                     root_plan_cache :=
+                       Root_Plan_Cache_Entry
                          {context = context,
                           positions = positions,
                           plan = planned} ::
-                       !compatibility_root_cache
+                       !root_plan_cache
                  in planned end)
         in
-          render_historical_root_suffix_plan plan
+          emit_root_suffix plan
         end
 
       val selector =
         (case direct_structural_matrix () of
            SOME branches => selector_of branches
          | NONE =>
-             render_historical_root_suffix_plan
-               (plan_root_suffix Normal_Root_Plan rows))
+             emit_root_suffix
+               (plan_root_suffix Match_Root_Plan rows))
       val navigated_selector =
         (case match_root_decision of
            SOME Conditional_Match_Root =>

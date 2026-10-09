@@ -279,6 +279,12 @@ negative rows preserve these boundaries.
   basename ambiguity, binder fallback, deep registered nullary
   structural matching, guards, coverage, source order, single evaluation, term shape, markup, and
   recovery.
+- `Parser_Matcher_Stability_Tests.thy`: fully typed HOL expectations frozen at `39c334c`, with
+  kernel `refl` checks for guarded overlaps, differing captures, aliases, nested constructors,
+  generated value/range/slice tests, root-suffix reconstruction and all five match consumers.
+  Function, abbreviation, anonymous declaration and repeated programmatic clients retain coverage.
+  The compiler emits one term and constructs only the needed generated-test or source-guard
+  failure destination; structural coverage, typing witnesses and the direct matrix path remain.
 - `Parser_Primitive_Path_Heads_Tests.thy`: all seven primitive heads, exact literal/call roles,
   comments and token boundaries, expressions, patterns, repeats, cast aliases, positions,
   current notation navigation, fallback rejection, and recovery.
