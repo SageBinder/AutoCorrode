@@ -154,7 +154,11 @@ type while the Rust signature supplies all parameter and returned-value types.
 Qualified and generic mappings, unit and structural tuples are
 supported. Use `τ‹HOL type›` wherever a type is expected for polymorphism, shared sort constraints,
 higher-order types or independent `_` inference holes. Parameters lower identifiers, `_`, and
-`mut identifier`. Raw pointers use the existing `('address, 'global, T) Global_Store.ref` model.
+`mut identifier`, including explicitly typed `self: T` and `mut self: T`. The signature supplies
+the receiver type; body references, fields, methods and HOL escapes use the ordinary lexical
+parameter binding. This free-function command does not provide `impl` blocks, implicit `Self`
+resolution or shorthand receivers such as `&self`. Raw pointers use the existing
+`('address, 'global, T) Global_Store.ref` model.
 One address/global pair is shared across a complete signature; the body and expected types constrain
 it, and unconstrained parameters generalize. References, slices, arrays and numeric generic arguments
 still require an explicit HOL escape to supply semantics.

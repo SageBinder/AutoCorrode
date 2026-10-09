@@ -40,6 +40,9 @@ wrappers. Omitted channels infer from the body/signature and generalize when unc
 Named variables and sorts are shared across all channel options and Rust type escapes.
 Ambient locale variables remain rigid, and separate \<open>_\<close> holes infer independently.
 Parameters lower identifiers, \<open>_\<close>, and \<open>mut identifier\<close>.
+Explicitly typed \<open>self: T\<close> and \<open>mut self: T\<close> use the same signature typing
+and lexical binding as other identifiers, including field/method receivers and HOL escapes.
+Shorthand receivers and implicit \<open>Self\<close> resolution are not supplied by this free-function command.
 An explicit outer name chooses the HOL binding; otherwise acronym-aware snake case derives it from
 the Rust name. An anonymous \<open>_\<close> checks without installing artifacts.
 Named functions register their Rust name by default for later direct calls. The Boolean
@@ -968,10 +971,6 @@ fun function_parameter_argument parameter =
     (case (mutable_pos, pattern) of
        (NONE, URust_AST.P_Wild pos) => ("_", pos)
      | (SOME pos, URust_AST.P_Wild _) => unsupported pos
-     | (_, URust_AST.P_Ident ("self", pos)) =>
-         error
-           ("urust_fn: receiver parameters are not supported" ^
-             Position.here pos)
      | (_, URust_AST.P_Ident (name, pos)) => (name, pos)
      | (SOME pos, _) => unsupported pos
      | (NONE, _) =>

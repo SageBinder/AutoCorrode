@@ -667,15 +667,15 @@ local
         (command "signature_zero_parameters"
           "fn ZeroParameters() -> u64 { 0 }") ())
   val _ =
-    reject "rust-function-receiver"
-      "receiver parameters are not supported"
-      (command "receiver_parameter"
-        "fn Receiver(self: u64) -> u64 { self }")
+    ignore
+      (run "rust-function-typed-receiver"
+        (command "receiver_parameter"
+          "fn Receiver(self: u64) -> u64 { self }") ())
   val _ =
-    reject "rust-function-mutable-receiver"
-      "receiver parameters are not supported"
-      (command "mutable_receiver_parameter"
-        "fn MutableReceiver(mut self: u64) -> u64 { self }")
+    ignore
+      (run "rust-function-mutable-typed-receiver"
+        (command "mutable_receiver_parameter"
+          "fn MutableReceiver(mut self: u64) -> u64 { self }") ())
   val _ =
     reject "rust-function-borrowed-receiver"
       "unsupported function parameter pattern"
@@ -2057,8 +2057,8 @@ ML_val \<open>
           "fn SignatureFailure((left, right): (u8, bool)) -> u8 { left }"),
          ("signature-duplicate-parameter", "duplicate parameter",
           "fn SignatureFailure(value: u8, value: bool) -> u8 { value }"),
-         ("signature-receiver", "receiver parameters are not supported",
-          "fn SignatureFailure(self: u8) -> u8 { self }"),
+         ("signature-untyped-receiver", "syntax error",
+          "fn SignatureFailure(self) -> u8 { self }"),
          ("signature-body-unresolved", "unresolved body name",
           "fn SignatureFailure(value: u8) -> u8 { MissingSignatureBody(value) }"),
          ("signature-trailing-input", "syntax error",

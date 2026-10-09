@@ -115,6 +115,18 @@ urust_fn
 thm packet_length_def
 
 text\<open>
+An explicitly typed \<open>self\<close> uses the signature's receiver type and the ordinary
+parameter binding, including inside HOL escapes.
+\<close>
+
+urust_fn [register_notation = false] self_packet_length
+  \<open> fn SelfPacketLength(self: u64) -> u64 { self + 1_u64 } \<close>
+
+lemma self_packet_length_equivalent:
+  \<open>self_packet_length packet = packet_length packet\<close>
+  unfolding self_packet_length_def packet_length_def by (rule refl)
+
+text\<open>
 The item command generates the HOL datatype, field lenses, and exact Rust constructor paths in one
 local-theory transaction. The parser then uses those identities consistently for construction,
 field access, and patterns.

@@ -43,6 +43,14 @@ remain independent. Rust signatures alone supply parameter and returned-value ty
 default unit equivalence, callback sharing, contracts, local folding, holes, synonyms,
 pointers, locales, positioned rejection and recovery. The former overall `type` option is rejected.
 
+Explicitly typed `self: T` and `mut self: T` use ordinary signature typing and parameter binding.
+`Parser_Function_Receiver_Tests` checks complete declaration schemes and kernel equivalence
+with `self_value` versions for primitive/mapped types, a HOL reference escape, fields,
+direct/method calls, HOL value/expression escapes, closures and name collisions. Boundary
+and recovery probes retain rejection of shorthand/untyped receivers, borrowed patterns,
+implicit `Self`, unsupported Rust reference types, duplicate names and incompatible bodies.
+No `impl` support or receiver-specific lowering is introduced.
+
 Named functions register their Rust declaration name by default. Bare, explicit and scoped
 `register_notation` controls use `urust_register_notation`, shared with datatypes. Formerly
 body-only helpers use `[register_notation = false]` to preserve their registration behavior,
