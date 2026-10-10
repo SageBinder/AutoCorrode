@@ -38,7 +38,7 @@ text\<open>This first example relies on local mutable variables. The syntax is e
 to Rust: this is a dialect of Rust we call uRust. uRust is shallowly embedded in
 Isabelle/HOL, so we can 'escape' the uRust syntax if needed or convenient.
 This is done here with \<^verbatim>\<open>\<llangle>_\<rrangle>\<close>, used in this example for providing type annotations.\<close>
-urust_fn [register_notation = false] ref_test
+urust_fn ref_test
   \<open>
   fn ref_test() -> \<tau>\<open>nat\<close> {
     let mut nat_ref = \<llangle>0 :: nat\<rrangle>;
@@ -78,7 +78,7 @@ into a symbolic execution goal \<^verbatim>\<open>\<Delta> \<turnstile> WP e _\<
   done
 
 text\<open>Let's make this a bit more interesting, and verify the classic \<^verbatim>\<open>swap\<close> function\<close>
-urust_fn [register_notation = false] swap_ref
+urust_fn swap_ref
   \<open>
   fn swap_ref(rA: \<tau>\<open>('addr, 'gv, 'v) Global_Store.ref\<close>, rB: \<tau>\<open>('addr, 'gv, 'v) Global_Store.ref\<close>) -> () {
      let oldA = *rA;
@@ -114,7 +114,7 @@ lemma swap_ref_spec:
   done
 
 text\<open>Now, let's use this function in some client program\<close>
-urust_fn [register_notation = false] swap_client
+urust_fn swap_client
   \<open>
   fn swap_client() -> \<tau>\<open>nat\<close> {
     let mut left = \<llangle>42 :: nat\<rrangle>;
@@ -159,7 +159,7 @@ adhoc_overloading urust_add \<rightleftharpoons> \<open>bind2 (lift_exp2 (plus :
 
 text\<open>We can now define this summing operation of an array in uRust.
 Note also the availability of indexing notation \<^verbatim>\<open>nums[i]\<close> for arrays.\<close>
-urust_fn [register_notation = false] sum_array
+urust_fn sum_array
   \<open>
   fn sum_array(nums: \<tau>\<open>(nat, 'a::len) array\<close>, l: u64) -> \<tau>\<open>nat\<close> {
     let mut sum = \<llangle>0 :: nat\<rrangle>;

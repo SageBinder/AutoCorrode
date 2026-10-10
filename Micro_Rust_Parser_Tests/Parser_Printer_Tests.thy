@@ -272,7 +272,7 @@ urust_expr [pretty, verbosity = 1]
     (((let value = 1 + 2 * 3; value)))
   \<close>
 
-urust_fn [pretty, verbosity = 1, register_notation = false]
+urust_fn [pretty, verbosity = 1]
   printer_human_function
   \<open>
   fn printer_human_function(item: u64) -> u64 {
@@ -298,7 +298,7 @@ side. The printer keeps the source-level function body while laying out each blo
 independently.
 \<close>
 
-urust_fn [pretty, verbosity = 1, register_notation = false]
+urust_fn [pretty, verbosity = 1]
   printer_human_accumulate
   \<open>
   fn printer_human_accumulate(seed: u32, limit: u32) -> u32 {
@@ -320,7 +320,7 @@ result, so the InfoView output must put code after an opening brace on a new lin
 blocks by two spaces, and retain \<open>} else {\<close> on one line.
 \<close>
 
-urust_fn [pretty, verbosity = 1, register_notation = false]
+urust_fn [pretty, verbosity = 1]
   printer_human_line_breaks
   \<open>
   fn printer_human_line_breaks(number: u32) -> u32 {
@@ -1061,7 +1061,7 @@ ML_val\<open>
     val pretty_function =
       capture "pretty-function"
         ("urust_fn " ^
-          "[pretty = true, verbosity = 2, register_notation = false] " ^
+          "[pretty = true, verbosity = 2] " ^
           "pretty_function " ^ function_source)
     val _ =
       List.app
@@ -1179,7 +1179,7 @@ ML_val\<open>
     val pretty_application_function =
       capture "pretty-application-function"
         ("urust_fn " ^
-          "[application_def, pretty, verbosity = 2, register_notation = false] " ^
+          "[application_def, pretty, verbosity = 2] " ^
           "pretty_application_function " ^ function_source)
     val _ =
       List.app
@@ -1224,7 +1224,7 @@ ML_val\<open>
     val pretty_anonymous_function =
       capture "pretty-anonymous-function"
         ("urust_fn " ^
-          "[pretty, verbosity = 2, register_notation = false] _ " ^
+          "[pretty, verbosity = 2] _ " ^
           function_source)
     val _ =
       assert_contains "pretty anonymous function"

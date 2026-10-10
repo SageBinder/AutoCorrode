@@ -119,7 +119,7 @@ An explicitly typed \<open>self\<close> uses the signature's receiver type and t
 parameter binding, including inside HOL escapes.
 \<close>
 
-urust_fn [register_notation = false] self_packet_length
+urust_fn self_packet_length
   \<open> fn SelfPacketLength(self: u64) -> u64 { self + 1_u64 } \<close>
 
 lemma self_packet_length_equivalent:
@@ -415,7 +415,7 @@ urust_expr showoff_logging_yield
 subsection\<open> Calls, methods, and propagation \<close>
 
 urust_fn
-  [attrs = [micro_rust_simps], register_notation = false]
+  [attrs = [micro_rust_simps]]
   showoff_inline_disabled
   \<open> fn showoff_inline_disabled() -> u64 { 3u64 } \<close>
 
@@ -424,7 +424,7 @@ The optional \<open>application_def\<close> shape keeps the explicit source para
 definition theorem's left-hand side without changing the curried function value.
 \<close>
 
-urust_fn [application_def, verbosity = 2, register_notation = false] showoff_declared_mix
+urust_fn [application_def, verbosity = 2] showoff_declared_mix
   \<open> fn showoff_declared_mix(left: u64, right: u64) -> u64 { left * 3u64 + right } \<close>
 
 text\<open>
@@ -432,7 +432,7 @@ Bare declaration wildcards keep their typed argument slots and source order but 
 lexical name. They may be repeated or mixed with named parameters in either command.
 \<close>
 
-urust_fn [application_def, register_notation = false] showoff_wildcard_function
+urust_fn [application_def] showoff_wildcard_function
   \<open> fn showoff_wildcard_function(_: (), kept: u64, _: bool) -> u64 { kept + 1_u64 } \<close>
 
 urust_expr [abbrev] showoff_wildcard_expression ::
@@ -441,7 +441,7 @@ urust_expr [abbrev] showoff_wildcard_expression ::
   (_, kept)
   \<open> kept \<close>
 
-urust_fn [abbrev, verbosity = 2, register_notation = false] showoff_abbreviated_function
+urust_fn [abbrev, verbosity = 2] showoff_abbreviated_function
   \<open> fn showoff_abbreviated_function(item: u64) -> u64 { item + 1_u64 } \<close>
 
 urust_expr [verbosity = 2] showoff_typed_common ::
@@ -810,7 +810,7 @@ Features: receiver-prepended iterator methods, chained \<open>into_iter\<close>
 conversion, shortest-input truncation, and pair-valued iterator elements.
 \<close>
 
-urust_fn [register_notation = false] showoff_iterator_zip
+urust_fn showoff_iterator_zip
   \<open>
   fn showoff_iterator_zip() -> \<tau>\<open>(unit, 32 word \<times> bool \<times> tnil, unit, unit, unit) iterator\<close> {
     [1_u32, 2_u32].into_iter().zip([True, False].into_iter())

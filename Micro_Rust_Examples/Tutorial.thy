@@ -58,7 +58,7 @@ section\<open>Exercise 1: Hello Crush (warm-up)\<close>
 text\<open>This function clamps a value \<^term>\<open>x\<close> to the range \<^term>\<open>[lo, hi]\<close>.
 The contract and function are given. Your task: write the proof.\<close>
 
-urust_fn [register_notation = false] clamp
+urust_fn clamp
   \<open>
   fn clamp(lo: \<tau>\<open>nat\<close>, hi: \<tau>\<open>nat\<close>, x: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
     if (x < lo) {
@@ -92,7 +92,7 @@ section\<open>Exercise 2: Write the Contract\<close>
 text\<open>This function returns the maximum of two natural numbers.
 The function is given. Your task: strengthen the postcondition and prove the spec.\<close>
 
-urust_fn [register_notation = false] max_of
+urust_fn max_of
   \<open>
   fn max_of(a: \<tau>\<open>nat\<close>, b: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
     if (b > a) {
@@ -144,7 +144,7 @@ Because we allocate a mutable reference, the precondition must include
 should return this capability (we are done with the reference) along with
 a pure fact about the result.\<close>
 
-urust_fn [register_notation = false] abs_diff
+urust_fn abs_diff
   \<open>
   fn abs_diff(a: \<tau>\<open>nat\<close>, b: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
     let mut result = \<llangle>0 :: nat\<rrangle>;
@@ -178,7 +178,7 @@ Your task: write and verify a \<^term>\<open>quadruple\<close> function that cal
 This demonstrates modular verification: you reuse the specification of a
 callee rather than inlining its implementation.\<close>
 
-urust_fn [register_notation = false] double
+urust_fn double
   \<open>
   fn double(n: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
     \<llangle>n + n\<rrangle>
@@ -198,7 +198,7 @@ lemma double_spec:
   done
 
 text\<open>TODO: Define \<^term>\<open>quadruple\<close> using \<^term>\<open>double\<close>\<close>
-urust_fn [register_notation = false] quadruple
+urust_fn quadruple
   \<open>
   fn quadruple(n: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
     undefined
@@ -232,7 +232,7 @@ and \<^term>\<open>bvec_well_formed\<close> asserts the invariant that all slots
 The following functions use Rust-like field access syntax: \<^verbatim>\<open>v.bvec_len\<close>, \<^verbatim>\<open>v.bvec_values[idx]\<close>.\<close>
 
 text\<open>This function checks whether the bounded vector is empty.\<close>
-urust_fn [register_notation = false] bvec_is_empty
+urust_fn bvec_is_empty
   \<open> fn bvec_is_empty(v: \<tau>\<open>('a, 'l::len) bounded_vec\<close>) -> bool { v.bvec_len == 0 } \<close>
 
 text\<open>TODO: Write the contract\<close>
@@ -257,7 +257,7 @@ section\<open>Exercise 6: Indexing a Data Structure (stretch)\<close>
 
 text\<open>This function looks up an element in the bounded vector by index.\<close>
 
-urust_fn [register_notation = false] bvec_get
+urust_fn bvec_get
   \<open>
   fn bvec_get(v: \<tau>\<open>('a, 'l::len) bounded_vec\<close>, idx: u64) -> \<tau>\<open>'a option\<close> {
     if idx < v.bvec_len {
@@ -291,7 +291,7 @@ with a mutable boolean accumulator. It combines mutable state, loops, and the
 abstraction function. The implementation does not return early to make the loop
 invariant simpler.\<close>
 
-urust_fn [register_notation = false] bvec_contains
+urust_fn bvec_contains
   \<open>
   fn bvec_contains(v: \<tau>\<open>(nat, 'l::len) bounded_vec\<close>, needle: \<tau>\<open>nat\<close>) -> bool {
     let mut found = \<llangle>False\<rrangle>;
@@ -346,7 +346,7 @@ new state: \<^verbatim>\<open>\<Squnion>g' v'. ptr \<mapsto>\<langle>\<top>\<ran
 
 This function clears the vector by setting its length to zero.\<close>
 
-urust_fn [register_notation = false] bvec_clear
+urust_fn bvec_clear
   \<open>
   fn bvec_clear(self_value: \<tau>\<open>('addr, 'gv, (nat, 'l::len) bounded_vec) ref\<close>) -> () {
     self_value.bvec_len = 0;
@@ -382,7 +382,7 @@ The key design pattern here is \<^emph>\<open>two-layer specification\<close>:
 
 This avoids mixing abstraction-function reasoning with separation-logic automation.\<close>
 
-urust_fn [register_notation = false] bvec_push
+urust_fn bvec_push
   \<open>
   fn bvec_push(self_value: \<tau>\<open>('addr, 'gv, (nat, 'l::len) bounded_vec) ref\<close>, elem: \<tau>\<open>nat\<close>) -> \<tau>\<open>(unit, nat) result\<close> {
     if *self_value.bvec_len < \<llangle>of_nat LENGTH('l) :: 64 word\<rrangle> {
@@ -472,7 +472,7 @@ lemma abs_diff_spec_solution:
   done
 
 paragraph\<open>Exercise 4\<close>
-urust_fn [register_notation = false] quadruple_solution
+urust_fn quadruple_solution
   \<open>
   fn quadruple_solution(n: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
     double(double(n))

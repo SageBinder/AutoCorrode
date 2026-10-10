@@ -52,9 +52,11 @@ implicit `Self`, unsupported Rust reference types, duplicate names and incompati
 No `impl` support or receiver-specific lowering is introduced.
 
 Named functions register their Rust declaration name by default. Bare, explicit and scoped
-`register_notation` controls use `urust_register_notation`, shared with datatypes. Formerly
-body-only helpers use `[register_notation = false]` to preserve their registration behavior,
-including helpers interpreted repeatedly in locales.
+`register_notation` controls use `urust_register_notation`, shared with datatypes. Examples
+and ordinary fixtures keep the enabled default. Use `[register_notation = false]` only for
+an actual name or registration conflict, such as different locale interpretations sharing
+one Rust path. Tests of disabled registration and option precedence deliberately exercise
+the opt-out.
 
 Start with `Parser_Function_Tests.thy` to learn `urust_fn`: it opens with explicit, inferred and
 anonymous names, then demonstrates parameter forms, calls, options, HOL escapes, mapped signatures,

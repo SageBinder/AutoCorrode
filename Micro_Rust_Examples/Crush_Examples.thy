@@ -1048,7 +1048,7 @@ text\<open>Normally, we would not reason about individual \<mu>Rust expressions,
 specifications and contracts to do so. We illustrate this in the example of the above
 reference-swapping code wrapped into a function:\<close>
 
-urust_fn [register_notation = false] swap_ref_fun
+urust_fn swap_ref_fun
   \<open>
   fn swap_ref_fun(rA: \<tau>\<open>('a, 'b, 'v) Global_Store.ref\<close>, rB: \<tau>\<open>('a, 'b, 'v) Global_Store.ref\<close>) -> () {
      let oldA = *rA;
@@ -1082,7 +1082,7 @@ lemma swap_ref_fun_spec:
 
 text\<open>Next, imagine we write a higher-level function which relies on \<^verbatim>\<open>swap_ref_fun\<close>.\<close>
 
-urust_fn [register_notation = false] rotate_ref3
+urust_fn rotate_ref3
   \<open>
   fn rotate_ref3(rA: \<tau>\<open>('a, 'b, 'v) Global_Store.ref\<close>, rB: \<tau>\<open>('a, 'b, 'v) Global_Store.ref\<close>, rC: \<tau>\<open>('a, 'b, 'v) Global_Store.ref\<close>) -> () {
      swap_ref_fun (rA, rB);
@@ -1225,7 +1225,7 @@ adhoc_overloading store_update_const \<rightleftharpoons>
 
 text\<open>Overwrite one structure field, return the other:\<close>
 
-urust_fn [register_notation = false] write_foo_read_bar
+urust_fn write_foo_read_bar
   \<open>
   fn write_foo_read_bar(ptr: \<tau>\<open>('a, 'b, test_record) Global_Store.ref\<close>) -> \<tau>\<open>int\<close> {
      ptr.foo = 42;
@@ -1304,7 +1304,7 @@ lemma write_foo_read_bar_spec':
 
 text\<open>Clear many structure fields, return another:\<close>
 
-urust_fn [register_notation = false] test_record2_zeroize
+urust_fn test_record2_zeroize
   \<open>
   fn test_record2_zeroize(ptr: \<tau>\<open>('a, 'b, test_record2) Global_Store.ref\<close>) -> \<tau>\<open>int\<close> {(
      ptr.f0 = 3;
@@ -1431,7 +1431,7 @@ lemma test_record2_zeroize_contract_spec:
 
 text\<open>Another similar stress test, but this time using array accesses behind a function wrapper.\<close>
 
-urust_fn [register_notation = false] test_record3_zero_field
+urust_fn test_record3_zero_field
   \<open>
   fn test_record3_zero_field(r: \<tau>\<open>('a, 'b, test_record3) Global_Store.ref\<close>, i: u64) -> () {
      r.data[i] = 0
@@ -1459,7 +1459,7 @@ proof (crush_boot f: test_record3_zero_field_def contract: test_record3_zero_fie
     by crush_base
 qed
 
-urust_fn [register_notation = false] test_record3_zeroize
+urust_fn test_record3_zeroize
   \<open>
   fn test_record3_zeroize(ptr: \<tau>\<open>('a, 'b, test_record3) Global_Store.ref\<close>) -> \<tau>\<open>int\<close> {(
      ptr.test_record3_zero_field(0);

@@ -60,7 +60,7 @@ by (intro array_extI) (simp add: mlkem_n_def)
 
 section\<open>Polynomial addition\<close>
 
-urust_fn [register_notation = false] poly_add
+urust_fn poly_add
   \<open>
   fn poly_add(a: \<tau>\<open>mlkem_poly\<close>, b: \<tau>\<open>mlkem_poly\<close>) -> \<tau>\<open>mlkem_poly\<close> {
     let mut result = a;
@@ -114,7 +114,7 @@ done
 
 section\<open>Polynomial subtraction\<close>
 
-urust_fn [register_notation = false] poly_sub
+urust_fn poly_sub
   \<open>
   fn poly_sub(a: \<tau>\<open>mlkem_poly\<close>, b: \<tau>\<open>mlkem_poly\<close>) -> \<tau>\<open>mlkem_poly\<close> {
     let mut result = a;

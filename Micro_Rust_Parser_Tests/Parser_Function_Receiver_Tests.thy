@@ -8,13 +8,13 @@ declare [[urust_verbosity = 2]]
 
 section\<open> Explicit receiver types and ordinary parameter bindings \<close>
 
-urust_fn [register_notation = false] typed_self_primitive
+urust_fn typed_self_primitive
   \<open> fn TypedSelfPrimitive(self: u64) -> u64 { self } \<close>
 
-urust_fn [register_notation = false] typed_self_value_primitive
+urust_fn typed_self_value_primitive
   \<open> fn TypedSelfValuePrimitive(self_value: u64) -> u64 { self_value } \<close>
 
-urust_fn [register_notation = false] typed_mut_self
+urust_fn typed_mut_self
   \<open> fn TypedMutSelf(mut self: u64) -> u64 { self } \<close>
 
 lemma typed_self_primitive_equivalent:
@@ -27,10 +27,10 @@ lemma typed_mut_self_equivalent:
 
 type_synonym widget_ref = \<open>(nat, unit, 8 word) Global_Store.ref\<close>
 
-urust_fn [register_notation = false] typed_self_hol_ref
+urust_fn typed_self_hol_ref
   \<open> fn TypedSelfHOLRef(self: \<tau>\<open>widget_ref\<close>) -> \<tau>\<open>widget_ref\<close> { self } \<close>
 
-urust_fn [register_notation = false] typed_self_value_hol_ref
+urust_fn typed_self_value_hol_ref
   \<open> fn TypedSelfValueHOLRef(self_value: \<tau>\<open>widget_ref\<close>) -> \<tau>\<open>widget_ref\<close> { self_value } \<close>
 
 lemma typed_self_hol_ref_equivalent:
@@ -39,10 +39,10 @@ lemma typed_self_hol_ref_equivalent:
 
 urust_type "ReceiverWidget" = \<open> fun_field_record \<close>
 
-urust_fn [register_notation = false] typed_self_field
+urust_fn typed_self_field
   \<open> fn TypedSelfField(self: ReceiverWidget) -> \<tau>\<open>nat\<close> { self.funFieldCollision } \<close>
 
-urust_fn [register_notation = false] typed_self_value_field
+urust_fn typed_self_value_field
   \<open> fn TypedSelfValueField(self_value: ReceiverWidget) -> \<tau>\<open>nat\<close> { self_value.funFieldCollision } \<close>
 
 lemma typed_self_field_equivalent:
@@ -51,16 +51,16 @@ lemma typed_self_field_equivalent:
 
 section\<open> HOL value and expression escapes \<close>
 
-urust_fn [register_notation = false] typed_self_hol_value
+urust_fn typed_self_hol_value
   \<open> fn TypedSelfHOLValue(self: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { \<llangle>self + 1\<rrangle> } \<close>
 
-urust_fn [register_notation = false] typed_self_value_hol_value
+urust_fn typed_self_value_hol_value
   \<open> fn TypedSelfValueHOLValue(self_value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { \<llangle>self_value + 1\<rrangle> } \<close>
 
-urust_fn [register_notation = false] typed_self_hol_expression
+urust_fn typed_self_hol_expression
   \<open> fn TypedSelfHOLExpression(self: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { \<epsilon>\<open>literal (self + 1)\<close> } \<close>
 
-urust_fn [register_notation = false] typed_self_value_hol_expression
+urust_fn typed_self_value_hol_expression
   \<open> fn TypedSelfValueHOLExpression(self_value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { \<epsilon>\<open>literal (self_value + 1)\<close> } \<close>
 
 lemma typed_self_hol_value_equivalent:
@@ -82,9 +82,7 @@ urust_fn
     }
   \<close>
 
-urust_fn
-  [state = \<open>unit\<close>, abort = \<open>unit\<close>, input = \<open>unit\<close>, output = \<open>unit\<close>,
-   register_notation = false]
+urust_fn [state = \<open>unit\<close>, abort = \<open>unit\<close>, input = \<open>unit\<close>, output = \<open>unit\<close>]
   typed_self_value_add
   \<open>
     fn ReceiverAddValue(self_value: \<tau>\<open>nat\<close>, delta: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
@@ -94,35 +92,35 @@ urust_fn
 
 urust_notation (call) typed_self_add ("receiver_add")
 
-urust_fn [register_notation = false] typed_self_method
+urust_fn typed_self_method
   \<open>
     fn TypedSelfMethod(self: \<tau>\<open>nat\<close>, delta: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
       self.receiver_add(delta)
     }
   \<close>
 
-urust_fn [register_notation = false] typed_self_value_method
+urust_fn typed_self_value_method
   \<open>
     fn TypedSelfValueMethod(self_value: \<tau>\<open>nat\<close>, delta: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
       self_value.receiver_add(delta)
     }
   \<close>
 
-urust_fn [register_notation = false] typed_self_direct
+urust_fn typed_self_direct
   \<open>
     fn TypedSelfDirect(self: \<tau>\<open>nat\<close>, delta: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
       ReceiverAdd(self, delta)
     }
   \<close>
 
-urust_fn [register_notation = false] typed_self_field_method
+urust_fn typed_self_field_method
   \<open>
     fn TypedSelfFieldMethod(self: ReceiverWidget, delta: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
       self.funFieldCollision.receiver_add(delta)
     }
   \<close>
 
-urust_fn [register_notation = false] typed_self_value_field_method
+urust_fn typed_self_value_field_method
   \<open>
     fn TypedSelfValueFieldMethod(self_value: ReceiverWidget, delta: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
       self_value.funFieldCollision.receiver_add(delta)
@@ -149,13 +147,13 @@ section\<open> Name collisions and nested lexical scope \<close>
 
 micro_rust_notation (literal) \<open>True\<close> ("self")
 
-urust_fn [register_notation = false] typed_self_literal_shadow
+urust_fn typed_self_literal_shadow
   \<open> fn TypedSelfLiteralShadow(self: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { self } \<close>
 
-urust_fn [register_notation = false] typed_self_value_literal_shadow
+urust_fn typed_self_value_literal_shadow
   \<open> fn TypedSelfValueLiteralShadow(self_value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { self_value } \<close>
 
-urust_fn [register_notation = false] typed_self_name_collision
+urust_fn typed_self_name_collision
   \<open>
     fn TypedSelfNameCollision(self: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
       let self_value = true;
@@ -163,7 +161,7 @@ urust_fn [register_notation = false] typed_self_name_collision
     }
   \<close>
 
-urust_fn [register_notation = false] typed_self_value_name_collision
+urust_fn typed_self_value_name_collision
   \<open>
     fn TypedSelfValueNameCollision(self_value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
       let other_value = true;
@@ -171,14 +169,14 @@ urust_fn [register_notation = false] typed_self_value_name_collision
     }
   \<close>
 
-urust_fn [register_notation = false] typed_self_closure
+urust_fn typed_self_closure
   \<open>
     fn TypedSelfClosure(self: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close> {
       |self_value| \<llangle>self + self_value\<rrangle>
     }
   \<close>
 
-urust_fn [register_notation = false] typed_self_value_closure
+urust_fn typed_self_value_closure
   \<open>
     fn TypedSelfValueClosure(self_value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close> {
       |other_value| \<llangle>self_value + other_value\<rrangle>
@@ -189,10 +187,10 @@ context
   fixes self :: bool
 begin
 
-urust_fn [register_notation = false] typed_self_context_shadow
+urust_fn typed_self_context_shadow
   \<open> fn TypedSelfContextShadow(self: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { \<llangle>self + 1\<rrangle> } \<close>
 
-urust_fn [register_notation = false] typed_self_value_context_shadow
+urust_fn typed_self_value_context_shadow
   \<open> fn TypedSelfValueContextShadow(self_value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { \<llangle>self_value + 1\<rrangle> } \<close>
 
 end

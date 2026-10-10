@@ -19,7 +19,7 @@ underlying primitive logger, provided as a yield handler.  Note that strictly sp
 also \<^emph>\<open>macros\<close> in Rust; we use \<^verbatim>\<open>\<mu>Rust\<close> functions to model logging instead.
 
 First, the \<^verbatim>\<open>fatal\<close> logger:\<close>
-urust_fn [abbrev, register_notation = false] fatal
+urust_fn [abbrev] fatal
   \<open>
   fn fatal(m: \<tau>\<open>log_data\<close>) -> () {
      \<l>\<o>\<g> \<llangle>Fatal\<rrangle> \<llangle>m\<rrangle>
@@ -28,7 +28,7 @@ urust_fn [abbrev, register_notation = false] fatal
 micro_rust_notation (call) fatal ("fatal!")
 
 text\<open>The \<^verbatim>\<open>info\<close> logger:\<close>
-urust_fn [abbrev, register_notation = false] info
+urust_fn [abbrev] info
   \<open>
   fn info(m: \<tau>\<open>log_data\<close>) -> () {
      \<l>\<o>\<g> \<llangle>Info\<rrangle> \<llangle>m\<rrangle>
@@ -37,7 +37,7 @@ urust_fn [abbrev, register_notation = false] info
 micro_rust_notation (call) info ("info!")
 
 text\<open>The \<^verbatim>\<open>error\<close> logger:\<close>
-urust_fn [abbrev, register_notation = false] error
+urust_fn [abbrev] error
   \<open>
   fn error(m: \<tau>\<open>log_data\<close>) -> () {
      \<l>\<o>\<g> \<llangle>Error\<rrangle> \<llangle>m\<rrangle>
@@ -46,7 +46,7 @@ urust_fn [abbrev, register_notation = false] error
 micro_rust_notation (call) error ("error!")
 
 text\<open>The \<^verbatim>\<open>debug\<close> logger:\<close>
-urust_fn [abbrev, register_notation = false] debug
+urust_fn [abbrev] debug
   \<open>
   fn debug(m: \<tau>\<open>log_data\<close>) -> () {
      \<l>\<o>\<g> \<llangle>Debug\<rrangle> \<llangle>m\<rrangle>
@@ -55,7 +55,7 @@ urust_fn [abbrev, register_notation = false] debug
 micro_rust_notation (call) debug ("debug!")
 
 text\<open>The \<^verbatim>\<open>trace\<close> logger:\<close>
-urust_fn [abbrev, register_notation = false] trace
+urust_fn [abbrev] trace
   \<open>
   fn trace(m: \<tau>\<open>log_data\<close>) -> () {
      \<l>\<o>\<g> \<llangle>Trace\<rrangle> \<llangle>m\<rrangle>

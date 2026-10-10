@@ -10,7 +10,7 @@ begin
 \<comment>\<open>Force one-by-one unrolling of loops\<close>
 declare raw_for_loop_unroll_once_cong[crush_cong]
 
-urust_fn [register_notation = false] find
+urust_fn find
   \<open>
   fn find(self_value: \<tau>\<open>('s, 'v, 'abort, 'i prompt, 'o prompt_output) iterator\<close>, predicate: \<tau>\<open>('v \<Rightarrow> ('s, bool, 'abort, 'i prompt, 'o prompt_output) function_body)\<close>) -> \<tau>\<open>'v option\<close> {
     for x in self_value {
@@ -20,7 +20,7 @@ urust_fn [register_notation = false] find
   }
   \<close>
 
-urust_fn [abbrev, register_notation = false] enumerate_fn1
+urust_fn [abbrev] enumerate_fn1
   \<open>
   fn enumerate_fn1(i: \<tau>\<open>nat\<close>, f: \<tau>\<open>('s, 'v, 'abort, 'i prompt, 'o prompt_output) function_body\<close>) -> \<tau>\<open>64 word \<times> 'v \<times> tnil\<close> {
     let feval = f();
@@ -33,7 +33,7 @@ definition enumerate :: \<open>('s, 'v, 'abort, 'i prompt, 'o prompt_output) ite
   \<open>enumerate self \<equiv> FunctionBody (literal (make_iterator
     (mapi enumerate_fn1 (iterator_thunks self))))\<close>
 
-urust_fn [register_notation = false] any
+urust_fn any
   \<open>
   fn any(self_value: \<tau>\<open>('s, 'v, 'abort, 'i prompt, 'o prompt_output) iterator\<close>, predicate: \<tau>\<open>('v \<Rightarrow> ('s, bool, 'abort, 'i prompt, 'o prompt_output) function_body)\<close>) -> bool {
      match self_value.find(predicate) {
@@ -43,7 +43,7 @@ urust_fn [register_notation = false] any
   }
   \<close>
 
-urust_fn [register_notation = false] count
+urust_fn count
   \<open>
   fn count(self_value: \<tau>\<open>('s, 'v, 'abort, 'i prompt, 'o prompt_output) iterator\<close>) -> u64 {
     \<llangle>of_nat \<circ> length \<circ> iterator_thunks\<rrangle>\<^sub>1(self_value)

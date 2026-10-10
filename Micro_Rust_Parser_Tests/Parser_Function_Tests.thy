@@ -56,7 +56,7 @@ urust_fn registered_probe
     }
   \<close>
 
-urust_fn [register_notation = false] call_registered_probe
+urust_fn call_registered_probe
   \<open> fn call_registered_probe(x: u64) -> bool { probe(x) } \<close>
 
 urust_fn
@@ -196,7 +196,7 @@ urust_fn [abbrev] abbreviated_hol_name
     }
   \<close>
 
-urust_fn [register_notation = false] call_abbreviated_rust_name
+urust_fn call_abbreviated_rust_name
   \<open> fn call_abbreviated_rust_name(x: u64) -> u64 { AbbreviatedRustName(x) } \<close>
 
 urust_fn [application_def, attrs = [micro_rust_simps]]
@@ -265,7 +265,7 @@ urust_fn lexical_function_shadow
     }
   \<close>
 
-urust_fn [register_notation = false] call_registered_function
+urust_fn call_registered_function
   \<open> fn call_registered_function(x: u64) -> u64 { RustAlias(x, true) } \<close>
 
 urust_fn _
@@ -276,7 +276,7 @@ urust_fn _
   \<close>
 
 
-urust_fn [register_notation = false] call_inferred_function
+urust_fn call_inferred_function
   \<open> fn call_inferred_function() -> () { HTTPServer() } \<close>
 
 
@@ -347,28 +347,28 @@ chapter\<open> Function bodies and lexical binding \<close>
 
 section\<open> Function bodies \<close>
 
-urust_fn [register_notation = false] answer
+urust_fn answer
   \<open> fn answer() -> u32 { \<llangle>42 :: 32 word\<rrangle> } \<close>
-urust_fn [register_notation = false] inc
+urust_fn inc
   \<open> fn inc(x: u32) -> u32 { x + \<llangle>1 :: 32 word\<rrangle> } \<close>
 
-urust_fn [register_notation = false] add3
+urust_fn add3
   \<open> fn add3(a: u32, b: u32, c: u32) -> u32 { a + b + c } \<close>
 
-urust_fn [register_notation = false] is_zero
+urust_fn is_zero
   \<open> fn is_zero(x: u32) -> bool { x == \<llangle>0 :: 32 word\<rrangle> } \<close>
 
-urust_fn [register_notation = false] safe_div
+urust_fn safe_div
   \<open>
     fn safe_div(a: u32, b: u32) -> \<tau>\<open>(32 word, unit) result\<close> {
       if b == \<llangle>0 :: 32 word\<rrangle> { Err(()) } else { Ok(a / b) }
     }
   \<close>
 
-urust_fn [register_notation = false] discard
+urust_fn discard
   \<open> fn discard(x: u32) -> () { () } \<close>
 
-urust_fn [register_notation = false] test
+urust_fn test
   \<open>
     fn test() -> () {
       let x = \<llangle>Some (0 :: nat)\<rrangle>; let Some(foo) = x else { return; }; return;
@@ -379,41 +379,41 @@ hide_const test
 
 section\<open> Signature surface \<close>
 
-urust_fn [register_notation = false] fun_heterogeneous
+urust_fn fun_heterogeneous
   \<open>
     fn fun_heterogeneous(number: \<tau>\<open>nat\<close>, flag: bool, word: u32) -> \<tau>\<open>nat * bool * 32 word\<close> {
       \<llangle>(number, flag, word)\<rrangle>
     }
   \<close>
 
-urust_fn [register_notation = false] fun_polymorphic
+urust_fn fun_polymorphic
   \<open> fn fun_polymorphic(item: \<tau>\<open>'a\<close>) -> \<tau>\<open>'a\<close> { item } \<close>
 
-urust_fn [register_notation = false] fun_sort_constrained
+urust_fn fun_sort_constrained
   \<open>
     fn fun_sort_constrained(item: \<tau>\<open>'a::len word\<close>) -> \<tau>\<open>'a word\<close> {
       item
     }
   \<close>
 
-urust_fn [register_notation = false] fun_type_placeholders
+urust_fn fun_type_placeholders
   \<open> fn fun_type_placeholders(item: \<tau>\<open>_\<close>) -> \<tau>\<open>_\<close> { item } \<close>
 
-urust_fn [register_notation = false] fun_higher_order
+urust_fn fun_higher_order
   \<open>
     fn fun_higher_order(f: \<tau>\<open>(nat \<Rightarrow> nat)\<close>, item: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
       \<llangle>f item\<rrangle>
     }
   \<close>
 
-urust_fn [register_notation = false] fun_nested_result
+urust_fn fun_nested_result
   \<open>
     fn fun_nested_result() -> \<tau>\<open>(nat option, (bool, unit) result) result\<close> {
       Ok(Some(\<llangle>1 :: nat\<rrangle>))
     }
   \<close>
 
-urust_fn [register_notation = false] fun_generalized_effects
+urust_fn fun_generalized_effects
   \<open>
     fn fun_generalized_effects(item: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
       item
@@ -423,24 +423,24 @@ urust_fn [register_notation = false] fun_generalized_effects
 
 section\<open> Argument-list boundaries \<close>
 
-urust_fn [register_notation = false] fun_zero_arguments
+urust_fn fun_zero_arguments
   \<open> fn fun_zero_arguments() -> () { () } \<close>
 
-urust_fn [register_notation = false] fun_one_argument
+urust_fn fun_one_argument
   \<open>
     fn fun_one_argument(item: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
       item
     }
   \<close>
 
-urust_fn [register_notation = false] fun_trailing_comma
+urust_fn fun_trailing_comma
   \<open>
     fn fun_trailing_comma(item: \<tau>\<open>nat\<close>, flag: bool,) -> \<tau>\<open>nat * bool\<close> {
       \<llangle>(item, flag)\<rrangle>
     }
   \<close>
 
-urust_fn [register_notation = false] fun_multiline_arguments
+urust_fn fun_multiline_arguments
   \<open>
     fn fun_multiline_arguments(
       number: \<tau>\<open>nat\<close>,
@@ -451,7 +451,7 @@ urust_fn [register_notation = false] fun_multiline_arguments
     }
   \<close>
 
-urust_fn [register_notation = false] fun_sixteen_arguments
+urust_fn fun_sixteen_arguments
   \<open>
   fn fun_sixteen_arguments(p01: \<tau>\<open>nat\<close>, p02: \<tau>\<open>nat\<close>, p03: \<tau>\<open>nat\<close>, p04: \<tau>\<open>nat\<close>, p05: \<tau>\<open>nat\<close>, p06: \<tau>\<open>nat\<close>, p07: \<tau>\<open>nat\<close>, p08: \<tau>\<open>nat\<close>, p09: \<tau>\<open>nat\<close>, p10: \<tau>\<open>nat\<close>, p11: \<tau>\<open>nat\<close>, p12: \<tau>\<open>nat\<close>, p13: \<tau>\<open>nat\<close>, p14: \<tau>\<open>nat\<close>, p15: \<tau>\<open>nat\<close>, p16: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
     \<llangle>
@@ -464,42 +464,42 @@ urust_fn [register_notation = false] fun_sixteen_arguments
 
 section\<open> Ambient binding and scope \<close>
 
-urust_fn [register_notation = false] fun_plain_parameter
+urust_fn fun_plain_parameter
   \<open>
     fn fun_plain_parameter(item: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
       item
     }
   \<close>
 
-urust_fn [register_notation = false] fun_prime_parameter
+urust_fn fun_prime_parameter
   \<open>
     fn fun_prime_parameter(item': \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
       item'
     }
   \<close>
 
-urust_fn [register_notation = false] fun_value_antiquotation
+urust_fn fun_value_antiquotation
   \<open>
     fn fun_value_antiquotation(item: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
       \<llangle>item + 1\<rrangle>
     }
   \<close>
 
-urust_fn [register_notation = false] fun_expression_antiquotation
+urust_fn fun_expression_antiquotation
   \<open>
     fn fun_expression_antiquotation(item: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
       \<epsilon>\<open>literal (item + 1)\<close>
     }
   \<close>
 
-urust_fn [register_notation = false] fun_parameter_call
+urust_fn fun_parameter_call
   \<open>
     fn fun_parameter_call(callee: \<tau>\<open>(nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body)\<close>, item: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
       callee(item)
     }
   \<close>
 
-urust_fn [register_notation = false] fun_parameter_in_match_guard
+urust_fn fun_parameter_in_match_guard
   \<open>
   fn fun_parameter_in_match_guard(item: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
     match Some(item) {
@@ -509,7 +509,7 @@ urust_fn [register_notation = false] fun_parameter_in_match_guard
   }
   \<close>
 
-urust_fn [register_notation = false] fun_parameter_in_loop
+urust_fn fun_parameter_in_loop
   \<open>
   fn fun_parameter_in_loop(item: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
     #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while (false) {
@@ -520,7 +520,7 @@ urust_fn [register_notation = false] fun_parameter_in_loop
   }
   \<close>
 
-urust_fn [register_notation = false] fun_parameter_in_closure
+urust_fn fun_parameter_in_closure
   \<open>
     fn fun_parameter_in_closure(outer: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close> {
       |inner| \<llangle>outer + inner\<rrangle>
@@ -536,21 +536,21 @@ definition fun_struct_fixture_lift ::
 
 micro_rust_notation (call) fun_struct_fixture_lift ("FunStructFixture")
 
-urust_fn [register_notation = false] fun_parameter_in_struct
+urust_fn fun_parameter_in_struct
   \<open>
     fn fun_parameter_in_struct(item: \<tau>\<open>nat\<close>, flag: bool) -> \<tau>\<open>fun_struct_fixture\<close> {
       FunStructFixture { item: item, flag: flag }
     }
   \<close>
 
-urust_fn [register_notation = false] fun_nested_let_shadow
+urust_fn fun_nested_let_shadow
   \<open>
     fn fun_nested_let_shadow(item: \<tau>\<open>nat\<close>) -> bool {
       let item = true; item
     }
   \<close>
 
-urust_fn [register_notation = false] fun_nested_pattern_shadow
+urust_fn fun_nested_pattern_shadow
   \<open>
   fn fun_nested_pattern_shadow(item: \<tau>\<open>nat\<close>) -> bool {
     let (item, retained) = (true, \<llangle>item\<rrangle>);
@@ -558,7 +558,7 @@ urust_fn [register_notation = false] fun_nested_pattern_shadow
   }
   \<close>
 
-urust_fn [register_notation = false] fun_closure_shadow
+urust_fn fun_closure_shadow
   \<open>
     fn fun_closure_shadow(item: bool) -> \<tau>\<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close> {
       |item| \<llangle>item :: nat\<rrangle>
@@ -569,7 +569,7 @@ context
   fixes item :: bool
 begin
 
-urust_fn [register_notation = false] fun_parameter_shadows_context
+urust_fn fun_parameter_shadows_context
   \<open>
     fn fun_parameter_shadows_context(item: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
       \<llangle>item :: nat\<rrangle>
@@ -578,7 +578,7 @@ urust_fn [register_notation = false] fun_parameter_shadows_context
 
 end
 
-urust_fn [register_notation = false] fun_distinct_heterogeneous
+urust_fn fun_distinct_heterogeneous
   \<open>
     fn fun_distinct_heterogeneous(number: \<tau>\<open>nat\<close>, flag: bool, message: \<tau>\<open>String.literal\<close>) -> \<tau>\<open>nat * bool * String.literal\<close> {
       \<llangle>(number, flag, message)\<rrangle>
@@ -603,14 +603,14 @@ micro_rust_record fun_field_record
 micro_rust_notation (literal) fun_registered_literal ("funCollision")
 micro_rust_notation (call) fun_registered_call ("funCollision")
 
-urust_fn [register_notation = false] fun_parameter_call_wins
+urust_fn fun_parameter_call_wins
   \<open>
     fn fun_parameter_call_wins(funCollision: \<tau>\<open>(nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body)\<close>, item: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
       funCollision(item)
     }
   \<close>
 
-urust_fn [register_notation = false] fun_registered_field_wins
+urust_fn fun_registered_field_wins
   \<open>
     fn fun_registered_field_wins(item: \<tau>\<open>fun_field_record\<close>, funFieldCollision: \<tau>\<open>(fun_field_record, nat) lens\<close>) -> \<tau>\<open>nat\<close> {
       item.funFieldCollision
@@ -622,7 +622,7 @@ section\<open> Isabelle declaration integration \<close>
 context
 begin
 
-qualified urust_fn [register_notation = false] qualified_identity
+qualified urust_fn qualified_identity
   \<open>
     fn qualified_identity(item: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
       item
@@ -635,7 +635,7 @@ locale fun_command_locale =
   fixes offset :: nat
 begin
 
-urust_fn [register_notation = false] local_add
+urust_fn local_add
   \<open>
     fn local_add(item: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
       \<llangle>item + offset\<rrangle>
@@ -651,21 +651,21 @@ The direct, method, and chained forms all use the normal call pipeline. The meth
 exactly one receiver and one explicit argument.
 \<close>
 
-urust_fn [register_notation = false] iterator_zip_direct
+urust_fn iterator_zip_direct
   \<open>
     fn iterator_zip_direct(left: \<tau>\<open>zip_left_iterator\<close>, right: \<tau>\<open>zip_right_iterator\<close>) -> \<tau>\<open>zip_pair_iterator\<close> {
       zip(left, right)
     }
   \<close>
 
-urust_fn [register_notation = false] iterator_zip_method
+urust_fn iterator_zip_method
   \<open>
     fn iterator_zip_method(left: \<tau>\<open>zip_left_iterator\<close>, right: \<tau>\<open>zip_right_iterator\<close>) -> \<tau>\<open>zip_pair_iterator\<close> {
       left.zip(right)
     }
   \<close>
 
-urust_fn [register_notation = false] iterator_zip_chained
+urust_fn iterator_zip_chained
   \<open>
     fn iterator_zip_chained(left: \<tau>\<open>zip_left_iterator\<close>, right: \<tau>\<open>zip_right_iterator\<close>) -> \<tau>\<open>zip_pair_iterator\<close> {
       left.into_iter().zip(right.into_iter())
@@ -677,7 +677,7 @@ chapter\<open> Declaration options and parameter slots \<close>
 
 section\<open> Application equations and attributes \<close>
 
-urust_fn [application_def, register_notation = false]
+urust_fn [application_def]
   typed_application_function
   \<open>
     fn typed_application_function(item: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
@@ -685,14 +685,14 @@ urust_fn [application_def, register_notation = false]
     }
   \<close>
 
-urust_fn [register_notation = false] typed_zero_function_default
+urust_fn typed_zero_function_default
   \<open>
     fn typed_zero_function_default() -> \<tau>\<open>nat\<close> {
       \<llangle>7 :: nat\<rrangle>
     }
   \<close>
 
-urust_fn [application_def, register_notation = false] typed_zero_function_application
+urust_fn [application_def] typed_zero_function_application
   \<open>
     fn typed_zero_function_application() -> \<tau>\<open>nat\<close> {
       \<llangle>7 :: nat\<rrangle>
@@ -713,7 +713,7 @@ definition command_registered_zip ::
 
 urust_notation (call) command_registered_zip ("zip")
 
-urust_fn [attrs = [], register_notation = false]
+urust_fn [attrs = []]
   partial_collision_function
   \<open>
     fn partial_collision_function(command_parameter_collision: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
@@ -721,7 +721,7 @@ urust_fn [attrs = [], register_notation = false]
     }
   \<close>
 
-urust_fn [attrs = [micro_rust_simps], register_notation = false]
+urust_fn [attrs = [micro_rust_simps]]
   partial_internal_placeholder
   \<open>
     fn partial_internal_placeholder(item: \<tau>\<open>_\<close>) -> \<tau>\<open>_\<close> {
@@ -729,49 +729,49 @@ urust_fn [attrs = [micro_rust_simps], register_notation = false]
     }
   \<close>
 
-urust_fn [register_notation = false] zip_parameter_value
+urust_fn zip_parameter_value
   \<open> fn zip_parameter_value(zip: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { zip } \<close>
 
-urust_fn [register_notation = false] zip_callable_parameter
+urust_fn zip_callable_parameter
   \<open>
     fn zip_callable_parameter(zip: \<tau>\<open>(nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body)\<close>, item: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
       zip(item)
     }
   \<close>
 
-urust_fn [register_notation = false] zip_method_registration
+urust_fn zip_method_registration
   \<open>
     fn zip_method_registration(zip: \<tau>\<open>(nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body)\<close>, item: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
       item.zip()
     }
   \<close>
 
-urust_fn [register_notation = false] quoted_major_parameter
+urust_fn quoted_major_parameter
   \<open> fn quoted_major_parameter(lemma: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { lemma } \<close>
 
 section\<open> Wildcard parameter slots \<close>
 
-urust_fn [register_notation = false] wildcard_function_single
+urust_fn wildcard_function_single
   \<open> fn wildcard_function_single(_: \<tau>\<open>nat\<close>) -> () { () } \<close>
 
-urust_fn [register_notation = false] wildcard_function_mixed
+urust_fn wildcard_function_mixed
   \<open>
     fn wildcard_function_mixed(_: \<tau>\<open>nat\<close>, kept: bool, _: u32) -> bool {
       kept
     }
   \<close>
 
-urust_fn [register_notation = false] wildcard_function_inferred
+urust_fn wildcard_function_inferred
   \<open>
     fn wildcard_function_inferred(_: \<tau>\<open>_\<close>) -> \<tau>\<open>nat\<close> {
       \<llangle>0 :: nat\<rrangle>
     }
   \<close>
 
-urust_fn [application_def, register_notation = false] wildcard_function_application
+urust_fn [application_def] wildcard_function_application
   \<open> fn wildcard_function_application(_: \<tau>\<open>nat\<close>) -> () { () } \<close>
 
-urust_fn [abbrev, register_notation = false] wildcard_function_abbreviation
+urust_fn [abbrev] wildcard_function_abbreviation
   \<open>
     fn wildcard_function_abbreviation(_: \<tau>\<open>nat\<close>, kept: bool) -> bool {
       kept
@@ -780,15 +780,14 @@ urust_fn [abbrev, register_notation = false] wildcard_function_abbreviation
 
 section\<open> Anonymous checks and abbreviations \<close>
 
-urust_fn [application_def, register_notation = false] _
+urust_fn [application_def] _
   \<open>
     fn AnonymousFunction(item: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
       item
     }
   \<close>
 
-urust_fn
-  [abbrev, verbosity = 2, register_notation = false]
+urust_fn [abbrev, verbosity = 2]
   typed_function_abbrev_command
   \<open>
     fn typed_function_abbrev_command(item: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
@@ -798,14 +797,14 @@ urust_fn
 
 section\<open> Pretty-printer options \<close>
 
-urust_fn [pp_test = false, register_notation = false] pp_fun_disabled
+urust_fn [pp_test = false] pp_fun_disabled
   \<open>
     fn pp_fun_disabled(item: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
       item
     }
   \<close>
 
-urust_fn [pp_test, register_notation = false] pp_fun_enabled
+urust_fn [pp_test] pp_fun_enabled
   \<open> fn pp_fun_enabled(item: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { item } \<close>
 
 lemma pp_fun_enabled_same:
@@ -1071,10 +1070,10 @@ locale signature_ordered_ambient =
 
 section\<open> Delivery-line declaration compatibility \<close>
 
-urust_fn [application_def, register_notation = false] _
+urust_fn [application_def] _
   \<open> fn AnonymousFunction(item: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { item } \<close>
 
-urust_fn [register_notation = false] fun_explicit_prompt_output
+urust_fn fun_explicit_prompt_output
   \<open> fn fun_explicit_prompt_output(item: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { item } \<close>
 
 end

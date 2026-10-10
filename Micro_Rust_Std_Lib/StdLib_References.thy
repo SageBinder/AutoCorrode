@@ -308,7 +308,7 @@ adhoc_overloading store_update_const \<rightleftharpoons>
 adhoc_overloading store_reference_const \<rightleftharpoons> ref_bool.new
 adhoc_overloading store_reference_const \<rightleftharpoons> ref_nat.new
 
-urust_fn [register_notation = false] ref_test
+urust_fn ref_test
   \<open>
   fn ref_test() -> \<tau>\<open>nat\<close> {
       let mut nat_ref = \<llangle>0 :: nat\<rrangle>;

@@ -79,7 +79,7 @@ qed
 
 section\<open>Modular addition\<close>
 
-urust_fn [register_notation = false] zq_add
+urust_fn zq_add
   \<open>
   fn zq_add(a: u16, b: u16) -> u16 {
     let sum = a + b;
@@ -105,7 +105,7 @@ lemma zq_add_spec [crush_specs]:
 
 section\<open>Modular subtraction\<close>
 
-urust_fn [register_notation = false] zq_sub
+urust_fn zq_sub
   \<open>
   fn zq_sub(a: u16, b: u16) -> u16 {
     let sum = a + mlkem_q_word - b;
@@ -136,7 +136,7 @@ qed
 
 section\<open>Modular multiplication\<close>
 
-urust_fn [register_notation = false] zq_mul
+urust_fn zq_mul
   \<open>
   fn zq_mul(a: u16, b: u16) -> u16 {
     let a32 = a as u32;

@@ -168,9 +168,10 @@ the shared `urust_register_notation` scoped setting, with inline values taking p
 Disabled registration preserves existing entries and installs the ordinary HOL definition or
 abbreviation. Enabled registration rejects occupied function, constructor and call-notation
 paths, including conflicts during locale interpretation and context merging.
+Keep registration enabled unless a concrete conflict requires the opt-out.
 
 ```isabelle
-urust_fn [register_notation = false] identity_helper ‹
+urust_fn identity_helper ‹
   fn Identity(value: τ‹'a›) -> τ‹'a› { value }
 ›
 ```

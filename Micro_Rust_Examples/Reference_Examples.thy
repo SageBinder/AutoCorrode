@@ -69,6 +69,7 @@ and typing would consist of encoding/decoding byte strings as as concrete types.
 
 text\<open>Before going into further details, here is the example of the \<^verbatim>\<open>swap\<close> function:\<close>
 
+(* The heap and physical-memory interpretations cannot share one Rust call path. *)
 urust_fn [register_notation = false] swap_ref
   \<open>
   fn swap_ref(rA: \<tau>\<open>('addr, 'gv, 'v) Global_Store.ref\<close>, rB: \<tau>\<open>('addr, 'gv, 'v) Global_Store.ref\<close>) -> () {
@@ -294,7 +295,7 @@ adhoc_overloading store_dereference_const \<rightleftharpoons> raw_pmem_trie_der
 
 text\<open>With this, we can make sense of the \<^verbatim>\<open>swap_ref\<close> function outside of any locale:\<close>
 
-urust_fn [register_notation = false] swap_ref
+urust_fn swap_ref
   \<open>
   fn swap_ref(rA: \<tau>\<open>(raw_pmem_region, byte list, 'v) Global_Store.ref\<close>, rB: \<tau>\<open>(raw_pmem_region, byte list, 'v) Global_Store.ref\<close>) -> () {
      let oldA = *rA;

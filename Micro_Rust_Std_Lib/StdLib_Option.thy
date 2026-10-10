@@ -7,7 +7,7 @@ theory StdLib_Option
 begin
 (*>*)
 
-urust_fn [register_notation = false] option_expect
+urust_fn option_expect
   \<open>
   fn option_expect(self_value: \<tau>\<open>'v option\<close>, msg: \<tau>\<open>String.literal\<close>) -> \<tau>\<open>'v\<close> {
       match self_value {
@@ -30,7 +30,7 @@ lemma option_expect_spec [crush_specs]:
   by (crush_boot f: option_expect_def contract: option_expect_contract_def)
      (crush_base split!: option.splits)
 
-urust_fn [register_notation = false] option_unwrap
+urust_fn option_unwrap
   \<open>
   fn option_unwrap(self_value: \<tau>\<open>'v option\<close>) -> \<tau>\<open>'v\<close> {
      self_value.expect("unwrap")
@@ -49,7 +49,7 @@ lemma option_unwrap_spec [crush_specs]:
   by (crush_boot f: option_unwrap_def contract: option_unwrap_contract_def)
      (crush_base split!: option.splits)
 
-urust_fn [register_notation = false] urust_func_option_is_none
+urust_fn urust_func_option_is_none
   \<open>
   fn urust_func_option_is_none(self_value: \<tau>\<open>'v option\<close>) -> bool {
      match self_value {
@@ -71,7 +71,7 @@ lemma option_is_none_spec [crush_specs]:
   by (crush_boot f: urust_func_option_is_none_def contract: option_is_none_contract_def)
      (crush_base simp add: Option.is_none_def split!: option.splits)
 
-urust_fn [register_notation = false] urust_func_option_is_some
+urust_fn urust_func_option_is_some
   \<open>
   fn urust_func_option_is_some(self_value: \<tau>\<open>'v option\<close>) -> bool {
      match self_value {
@@ -94,7 +94,7 @@ lemma option_is_some_spec [crush_specs]:
   by (crush_boot f: urust_func_option_is_some_def contract: option_is_some_contract_def)
      (crush_base simp add: Option.is_none_def split!: option.splits)
 
-urust_fn [register_notation = false] ok_or
+urust_fn ok_or
   \<open>
   fn ok_or(self_value: \<tau>\<open>'v option\<close>, e: \<tau>\<open>'e\<close>) -> \<tau>\<open>('v, 'e) result\<close> {
      match self_value {

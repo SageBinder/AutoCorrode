@@ -179,7 +179,7 @@ private definition tmp1_ref :: \<open>(raw_pmem_region, byte list, (NonNullRaw, 
   \<open>tmp1_ref \<equiv> make_focused (make_gref (make_raw_pmem_region (test_page + 0x40) 8)) ref_gref_opt_focus\<close>
 
 \<comment>\<open>\<^verbatim>\<open>
-urust_fn [register_notation = false] reverse_unlink
+urust_fn reverse_unlink
   \<open>
   fn reverse_unlink(n: u64, orig: \<tau>\<open>('caddr, 'gv) gref option\<close>, cur_raw: \<tau>\<open>('addr, 'gv, ('caddr, 'gv) gref option) Global_Store.ref\<close>, last_raw: \<tau>\<open>('addr, 'gv, ('caddr, 'gv) gref option) Global_Store.ref\<close>) -> \<tau>\<open>('caddr, 'gv) gref option \<times> ('caddr, 'gv) gref option\<close> {
       last_raw = None;

@@ -41,7 +41,7 @@ urust_expr _
 
 text\<open>A function definition, then used in a Micro Rust expression:\<close>
 
-urust_fn [register_notation = false] some_function
+urust_fn some_function
   \<open>
   fn some_function(a: u64, b: u64) -> u64 {
      return a + b;
@@ -387,6 +387,7 @@ of \<^verbatim>\<open>Reference\<close>, we can indeed write functions operating
 context reference
 begin
 
+(* The experiment below combines reference instances with different fixed operations. *)
 urust_fn [register_notation = false] add_one_to_ref
   \<open>
   fn add_one_to_ref(ptr: \<tau>\<open>(_, _, 64 word) Global_Store.ref\<close>) -> () {

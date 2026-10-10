@@ -11,7 +11,7 @@ section\<open>Core material related to the \<^emph>\<open>Result\<close> type\<c
 
 text\<open>Returns \<^verbatim>\<open>x\<close> if the element of \<^verbatim>\<open>Result\<close> type is of the form \<^verbatim>\<open>Ok x\<close>.  Panics otherwise with
 the defined error message.\<close>
-urust_fn [register_notation = false] result_expect
+urust_fn result_expect
   \<open>
   fn result_expect(self_value: \<tau>\<open>('v,'e) result\<close>, msg: \<tau>\<open>String.literal\<close>) -> \<tau>\<open>'v\<close> {
       match self_value {
@@ -34,7 +34,7 @@ lemma result_expect_spec [crush_specs]:
      (crush_base split!: result.splits)
 
 text\<open>Returns \<^verbatim>\<open>x\<close> if the element of \<^verbatim>\<open>Result\<close> type is of the form \<^verbatim>\<open>Ok x\<close>.  Panics otherwise.\<close>
-urust_fn [register_notation = false] result_unwrap
+urust_fn result_unwrap
   \<open>
   fn result_unwrap(self_value: \<tau>\<open>('v,'e) result\<close>) -> \<tau>\<open>'v\<close> {
       self_value.expect("result_unwrap")
@@ -54,7 +54,7 @@ lemma result_unwrap_spec [crush_specs]:
      (crush_base split!: result.splits)
 
 text\<open>Tests whether an element of \<^verbatim>\<open>Result\<close> type is the \<^verbatim>\<open>Err\<close> constructor:\<close>
-urust_fn [register_notation = false] urust_func_result_is_err
+urust_fn urust_func_result_is_err
   \<open>
   fn urust_func_result_is_err(self_value: \<tau>\<open>('v,'e) result\<close>) -> bool {
      match self_value {
@@ -77,7 +77,7 @@ lemma result_is_err_spec [crush_specs]:
      (crush_base simp add: result_is_err_def split!: result.splits)
 
 text\<open>Tests whether an element of \<^verbatim>\<open>Result\<close> type is the \<^verbatim>\<open>Ok\<close> constructor:\<close>
-urust_fn [register_notation = false] urust_func_result_is_ok
+urust_fn urust_func_result_is_ok
   \<open>
   fn urust_func_result_is_ok(self_value: \<tau>\<open>('v,'e) result\<close>) -> bool {
      match self_value {
@@ -99,7 +99,7 @@ lemma result_is_ok_spec [crush_specs]:
   by (crush_boot f: urust_func_result_is_ok_def contract: result_is_ok_contract_def)
      (crush_base simp add: result_is_ok_def split!: result.splits)
 
-urust_fn [register_notation = false] result_or
+urust_fn result_or
   \<open>
   fn result_or(self_value: \<tau>\<open>('a, 'f) result\<close>, e: \<tau>\<open>('a, 'e) result\<close>) -> \<tau>\<open>('a, 'e) result\<close> {
      match self_value {
@@ -129,7 +129,7 @@ lemma result_or_spec [crush_specs]:
   by (crush_boot f: result_or_def contract: result_or_contract_def)
      (crush_base simp add: result_or_pure_def split!: result.splits)
 
-urust_fn [register_notation = false] map_err
+urust_fn map_err
   \<open>
   fn map_err(x: \<tau>\<open>('a, 'e) result\<close>, f: \<tau>\<open>('e \<Rightarrow> ('machine, 'f, 'abort, 'i, 'o) function_body)\<close>) -> \<tau>\<open>('a, 'f) result\<close> {
      match x {
@@ -139,7 +139,7 @@ urust_fn [register_notation = false] map_err
   }
   \<close>
 
-urust_fn [register_notation = false] ok
+urust_fn ok
   \<open>
   fn ok(self_value: \<tau>\<open>('v, 'e) result\<close>) -> \<tau>\<open>'v option\<close> {
      match self_value {
@@ -162,7 +162,7 @@ lemma ok_spec [crush_specs]:
   apply crush_base
   done
 
-urust_fn [register_notation = false] result_unwrap_or
+urust_fn result_unwrap_or
   \<open>
   fn result_unwrap_or(res: \<tau>\<open>('a, 'b) result\<close>, e: \<tau>\<open>'a\<close>) -> \<tau>\<open>'a\<close> {
      if let Ok(r) = res {

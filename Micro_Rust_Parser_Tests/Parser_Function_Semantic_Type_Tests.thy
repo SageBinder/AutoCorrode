@@ -200,6 +200,7 @@ locale semantic_type_locale =
   fixes seed :: \<open>'s::cancellative_sepalg\<close>
 begin
 
+(* Interpreting the locale changes the registered terms or their fixed state type. *)
 urust_fn
   [state = \<open>'s\<close>, abort = \<open>bool\<close>,
    input = \<open>nat prompt\<close>, output = \<open>unit prompt_output\<close>,

@@ -6371,7 +6371,7 @@ urust_expr isabelle_comment_document_antiquotations
 
 declare [[urust_verbosity = 2]]
 
-urust_fn [register_notation = false] isabelle_comment_function
+urust_fn isabelle_comment_function
   \<open>
   fn isabelle_comment_function(item: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
     \<comment> \<open>Function-body comment with \<^term>\<open>item\<close> treated as document text.\<close>

@@ -297,7 +297,7 @@ definition ll_head :: \<open>(NonNullRaw, gv) gref option\<close> where
   \<open>ll_head \<equiv> Some (make_gref test_page_ptr)\<close>
 
 \<comment>\<open>\<^verbatim>\<open>
-urust_fn [register_notation = false] reverse_unlink
+urust_fn reverse_unlink
   \<open>
   fn reverse_unlink(n: u64, orig: \<tau>\<open>('caddr, 'gv) gref option\<close>, cur_raw: \<tau>\<open>('addr, 'gv, ('caddr, 'gv) gref option) Global_Store.ref\<close>, last_raw: \<tau>\<open>('addr, 'gv, ('caddr, 'gv) gref option) Global_Store.ref\<close>) -> \<tau>\<open>('caddr, 'gv) gref option \<times> ('caddr, 'gv) gref option\<close> {
       last_raw = None;
