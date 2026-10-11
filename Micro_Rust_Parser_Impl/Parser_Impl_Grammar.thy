@@ -193,8 +193,13 @@ and no-struct expression families. Only token shims remain lexer-local; position
 
     * URustLexFun produces the lexer structure accepted by the ML-Yacc Join functor. Its
       UserDeclarations.set_layout layout ctxt operation initializes the Isabelle-Lex-Yacc runtime from
-      the shared source layout and resets all antiquotation/generic state. The
-      source-taking set wrapper remains for generated-driver compatibility.
+      the shared source layout and resets all antiquotation/generic state, including the annotation
+      mode and capture. The source-taking set wrapper remains for generated-driver compatibility.
+      UserDeclarations.enable_annotations, called only for chunk input after set_layout, lets the
+      lexer return TANNOTATION, whose value is the positioned omega payload with the marker and
+      cartouche delimiter layout; elsewhere an omega annotation is a positioned lexer rejection.
+      The keywords `use` and `pub` lex as the valueless TUSE and TPUB in the initial lexer state;
+      `pub` is parsed only to reject visibility at its token.
     * URustLrValsFun supplies the generated semantic value/result types, actions, LR table, tokens, and
       recovery data. URust_Parser instantiates it once and rejoins that exact data with the
       generated lexer while replacing only terminal rendering.
@@ -205,8 +210,11 @@ and no-struct expression families. Only token shims remain lexer-local; position
       table.
     * The adapter injects exactly one private start-mode token before the source. TEXPRSTART selects
       the expression grammar, where NONE represents empty input; TITEMSTART selects the complete item
-      grammar, where an item is required. SOME ast preserves source order and the token/span positions
-      recorded by URust_AST. Syntax rejection raises a positioned ERROR rather than returning NONE.
+      grammar (declarations and use items), where an item is required; TCHUNKSTART selects the
+      chunk grammar, a nonempty source-ordered list of items each optionally preceded by one
+      TANNOTATION, where NONE represents layout-only input. SOME ast preserves source order and the
+      token/span positions recorded by URust_AST. Syntax rejection raises a positioned ERROR rather
+      than returning NONE.
 
   Expert mode deliberately generates no unsealed URust structure or default parse_source operation.
   Parser clients use the sealed URust_Parser.parse_source boundary. Lexer refs, start states,
@@ -3286,12 +3294,20 @@ end
       without symbol offsets is first given unreported synthetic offsets so the slices remain
       defined. Only chunk input enables annotations in the lexer; the item kinds a chunk command
       accepts and the meaning of annotation payloads are decided by the command layer.
+    * parse_item_source ctxt source consumes exactly one complete item: a datatype, function, type
+      alias or use item. parse_datatype_source, parse_function_source, parse_type_alias_source and
+      parse_use_source select one item kind and reject any other complete item at that item's
+      position with a diagnostic naming their command. parse_use_source returns the use item with
+      its positioned use tree; unsupported import forms are rejected at their own token by the
+      grammar and the AST constructors. parse_type_source and parse_generic_argument_source parse
+      one Rust type or generic argument through the type alias grammar.
 
-  URUST_PARSER seals that one-operation interface. The generated URustLrVals and URustLex
+  URUST_PARSER seals that interface. The generated URustLrVals and URustLex
   instantiations, Original and LrTable aliases,
   terminal_specs, terminal_count, terminal_id, terminal_spec, generated_terminal_name,
-  source_terminal_name, assert_distinct, and value_bearing_terminal_ids implement and load-time-check
-  the exhaustive terminal mapping; ParserData changes only EC.showTerminal; and Source_Parser is the
+  source_terminal_name, assert_distinct, and the typed token table (value_bearing_tokens,
+  valueless_tokens, value_bearing_terminal_ids) implement and load-time-check the exhaustive terminal
+  mapping; ParserData changes only EC.showTerminal; and Source_Parser is the
   resulting Join instantiation.  Refactors may replace or reorganize all of that machinery provided
   parse_source retains the behavior above and grammar/token drift still fails while this theory is
   loaded.  In particular, callers must not depend on terminal numeric identities, table layout,
@@ -3473,15 +3489,62 @@ struct
         end)
       Original.EC.terms
 
-  val value_bearing_terminal_ids =
-    [0, 1, 2, 3, 6, 7, 9, 10, 11, 12, 76, 78, 79, 80, 84, 85, 91, 92, 100]
+  (* Every generated token constructor, applied as its declared terminal requires: value-bearing
+     terminals take a value and positions, the others positions only. A terminal whose value is
+     added, removed or retyped fails to type-check here; a missing, duplicated or renumbered
+     terminal fails the coverage check below. Value-bearing terminals render with the descriptive
+     source spelling of terminal_specs, never with their value. *)
+  local
+    structure T = URustLrVals.Tokens
+    val pos = Position.none
+    val source = Input.string ""
+    val layout = URust_AST.make_source_layout Position.none []
+    val lexer_layout = Parser_Lex_Util.make_source_layout source
+    val integer = URust_AST.Integer_Literal ("0", layout, NONE)
+  in
+    val value_bearing_tokens =
+      [T.NUM (integer, pos, pos), T.NUMSFX (integer, pos, pos), T.STRING ("", pos, pos),
+       T.IDENT ("", pos, pos), T.VALAQ (URust_AST.Value_Antiquotation (source, layout), pos, pos),
+       T.EXPRAQ ((source, pos), pos, pos), T.GNUM (("", lexer_layout, 0, 0), pos, pos),
+       T.GIDENT (("", lexer_layout, 0, 0), pos, pos), T.GLPAR (0, pos, pos), T.GRPAR (0, pos, pos),
+       T.TMATCHESBANG ((pos, pos), pos, pos), T.TUINT (URust_AST.UT_U8, pos, pos),
+       T.TSINT (URust_AST.ST_I32, pos, pos), T.FUNARITY (0, pos, pos),
+       T.TLOGDATAOPEN ((pos, pos), pos, pos), T.LOGSTRING ("", pos, pos), T.LOGIDENT ("", pos, pos),
+       T.TRUSTTYPE (URust_AST.DPT_U8, pos, pos), T.HOLTYPE (source, pos, pos), T.GLT (0, pos, pos),
+       T.GGT (0, pos, pos), T.GHOLTYPE (("", lexer_layout, 0, 0), pos, pos),
+       T.TANNOTATION (URust_AST.Item_Annotation (source, layout), pos, pos)]
+    val valueless_tokens =
+      [T.LPAR (pos, pos), T.RPAR (pos, pos), T.TGOPEN (pos, pos), T.TTRUE (pos, pos),
+       T.TFALSE (pos, pos), T.TLET (pos, pos), T.TCONST (pos, pos), T.TRETURN (pos, pos),
+       T.TEQ (pos, pos), T.TSEMI (pos, pos), T.EOF (pos, pos), T.TIF (pos, pos), T.TELSE (pos, pos),
+       T.TLBRACE (pos, pos), T.TRBRACE (pos, pos), T.TLBRACK (pos, pos), T.TRBRACK (pos, pos),
+       T.COMMA (pos, pos), T.TDOT (pos, pos), T.TCOLON (pos, pos), T.TCOLONCOLON (pos, pos),
+       T.TAT (pos, pos), T.TPLUS (pos, pos), T.TMINUS (pos, pos), T.TSTAR (pos, pos),
+       T.TSLASH (pos, pos), T.TPERCENT (pos, pos), T.TSHL (pos, pos), T.TSHR (pos, pos),
+       T.TAMP (pos, pos), T.TBAR (pos, pos), T.TCARET (pos, pos), T.TPLUSEQ (pos, pos),
+       T.TMINUSEQ (pos, pos), T.TSTAREQ (pos, pos), T.TPERCENTEQ (pos, pos), T.TAMPEQ (pos, pos),
+       T.TBAREQ (pos, pos), T.TCARETEQ (pos, pos), T.TSHLEQ (pos, pos), T.TSHREQ (pos, pos),
+       T.TEQEQ (pos, pos), T.TNE (pos, pos), T.TLT (pos, pos), T.TLE (pos, pos), T.TGT (pos, pos),
+       T.TGE (pos, pos), T.TAMPAMP (pos, pos), T.TBARBAR (pos, pos), T.TBANG (pos, pos),
+       T.TQUESTION (pos, pos), T.TUNSAFE (pos, pos), T.TFUEL (pos, pos), T.TWHILE (pos, pos),
+       T.TLOOP (pos, pos), T.TFOR (pos, pos), T.TIN (pos, pos), T.THASH (pos, pos),
+       T.TMATCH (pos, pos), T.TMATCHSWITCH (pos, pos), T.TMATCHCASE (pos, pos), T.TARROW (pos, pos),
+       T.TDOTDOT (pos, pos), T.TDOTDOTEQ (pos, pos), T.TMUT (pos, pos), T.TPATCONTEXT (pos, pos),
+       T.TAS (pos, pos), T.TYIELD (pos, pos), T.TLOG (pos, pos), T.TLOGDATACLOSE (pos, pos),
+       T.TSTRUCT (pos, pos), T.TENUM (pos, pos), T.TFN (pos, pos), T.TTHINARROW (pos, pos),
+       T.TEXPRSTART (pos, pos), T.TITEMSTART (pos, pos), T.TTYPE (pos, pos),
+       T.TCHUNKSTART (pos, pos), T.TUSE (pos, pos), T.TPUB (pos, pos)]
+  end
+
+  fun token_terminal_id (LrParser.Token.TOKEN (term, _)) = terminal_id term
+
+  val value_bearing_terminal_ids = map token_terminal_id value_bearing_tokens
 
   val _ =
-    List.app
-      (fn id =>
-        if #1 (terminal_spec id) = id then ()
-        else error "uRust parser: missing value-bearing terminal")
-      value_bearing_terminal_ids
+    if sort int_ord (value_bearing_terminal_ids @ map token_terminal_id valueless_tokens) =
+        (0 upto (terminal_count - 1))
+    then ()
+    else error "uRust parser: the typed token table does not cover every terminal exactly once"
 
   structure ParserData : PARSER_DATA =
   struct
