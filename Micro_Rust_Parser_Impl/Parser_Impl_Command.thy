@@ -1981,14 +1981,17 @@ fun define_urust_chunk (outer, source) interactive lthy =
           then chunk_member_roundtrip lthy envelope
           else ())
         (envelopes ~~ members)
-    (* Each member is declared in a nested target that is closed before the next member, so
-       later members see earlier constants through the target context, polymorphically, exactly
-       as the next command of an equivalent single-item sequence would. *)
+    (* Within one command, earlier definitions remain fixed-type terms of a growing auxiliary
+       context. Each next member instead receives the context that the next command of an
+       equivalent single-item sequence would: a fresh theory target at theory level, as the
+       toplevel creates between commands, and otherwise the target context recovered by closing
+       an empty nested target. No declaration is applied at an extra level. *)
+    fun next_command_context lthy' =
+      if Named_Target.is_theory lthy'
+      then Named_Target.theory_init (Local_Theory.exit_global lthy')
+      else Local_Theory.end_nested (#2 (Local_Theory.begin_nested lthy'))
     fun declare member lthy' =
-      let
-        val (_, nested) = Local_Theory.begin_nested lthy'
-        val (output, nested') = declare_chunk_member interactive member nested
-      in (output, Local_Theory.end_nested nested') end
+      declare_chunk_member interactive member lthy' ||> next_command_context
     val ((outputs, completed), reports) =
       Navigation.capture (fn () => fold_map declare members lthy)
     val _ = Navigation.replay completed reports

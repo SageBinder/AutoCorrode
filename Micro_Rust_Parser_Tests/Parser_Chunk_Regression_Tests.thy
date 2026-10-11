@@ -172,16 +172,24 @@ struct
     |> map_filter (fn (name, properties) =>
         if name = Markup.entityN then Properties.get properties Markup.kindN else NONE)
 
-  val semantic_kinds =
+  (* Semantic reports authored by uRust: item, constructor, field, function, notation and type
+     mapping entities, and resolved references to HOL constants and types. Isabelle's own
+     name-space definition markup at binding positions is emitted natively while a declaration
+     runs and is not part of the uRust report transaction. *)
+  val authored_kinds =
     ["urust_item", "urust_constructor", "urust_field", "urust_function",
-     Micro_Rust_Names.notationN, Markup.constantN, Markup.type_nameN]
+     Micro_Rust_Names.notationN, "micro_rust_type_mapping"]
 
   fun semantic_entities reports =
     report_events reports
     |> filter (fn (name, properties) =>
         name = Markup.entityN andalso
+          is_some (Position.offset_of (Position.of_properties properties)) andalso
           (case Properties.get properties Markup.kindN of
-             SOME kind => member (op =) semantic_kinds kind
+             SOME kind =>
+               member (op =) authored_kinds kind orelse
+                 (member (op =) [Markup.constantN, Markup.type_nameN] kind andalso
+                   is_some (Properties.get properties Markup.refN))
            | NONE => false))
 
   (* Output authored by the uRust commands; native backend constant listings are excluded. *)
@@ -200,17 +208,14 @@ struct
        map URust_Item_Scope.function_rust_name (URust_Item_Scope.dump_functions ctxt),
      mappings = map #1 (URust_Type_Mappings.dump ctxt)}
 
+  (* Name-space lookups, independent of the theory that declared the entity. *)
   fun const_declared ctxt name =
-    Sign.declared_const (Proof_Context.theory_of ctxt)
-      (Sign.full_bname (Proof_Context.theory_of ctxt) name)
+    can (Proof_Context.read_const {proper = true, strict = true} ctxt) name
 
   fun type_declared ctxt name =
-    Sign.declared_tyname (Proof_Context.theory_of ctxt)
-      (Sign.full_bname (Proof_Context.theory_of ctxt) name)
+    can (Proof_Context.read_type_name {proper = true, strict = true} ctxt) name
 
-  fun fact_declared ctxt name =
-    Global_Theory.defined_fact (Proof_Context.theory_of ctxt)
-      (Sign.full_bname (Proof_Context.theory_of ctxt) name)
+  fun fact_declared ctxt name = can (Proof_Context.get_thm ctxt) name
 end
 \<close>
 
@@ -615,6 +620,472 @@ local
         not (member (op =) functions "ChunkOrderAfter"))
 in
   val _ = writeln "three-level precedence, isolation and source-order output passed"
+end
+\<close>
+
+
+section\<open> Equivalence with single-item declarations \<close>
+
+ML\<open>
+local
+  open Chunk_Test
+  val ctxt = \<^context>
+  val thy = \<^theory>
+  val consts = Proof_Context.consts_of ctxt
+  fun full name = Consts.intern consts name
+  fun const_type name = Sign.the_const_type thy (full name)
+  fun definition name = Proof_Context.get_thm ctxt (name ^ "_def")
+  fun equation name = Logic.dest_equals (Thm.prop_of (definition name))
+  fun executable_equations name =
+    let
+      val (_, equations) = Code.equations_of_cert thy (Code.get_cert ctxt [] (full name))
+    in map_filter (fn (_, (SOME theorem, _)) => SOME theorem | _ => NONE) (the equations) end
+  (* Application definitions name their arguments with fresh lexical variables; compare the
+     right-hand side abstracted over the left-hand-side arguments. *)
+  fun closed_definition name =
+    let val (lhs, rhs) = equation name
+    in fold_rev Term.lambda (snd (strip_comb lhs)) rhs end
+  fun same_definition chunk control =
+    let
+      val (chunk_lhs, _) = equation chunk
+      val (control_lhs, _) = equation control
+    in
+      require (chunk ^ " and " ^ control ^ " have different types")
+        (const_type chunk = const_type control);
+      require (chunk ^ " and " ^ control ^ " have different definitions")
+        (closed_definition chunk aconv closed_definition control);
+      require (chunk ^ " and " ^ control ^ " have different definition shapes")
+        (length (snd (strip_comb chunk_lhs)) = length (snd (strip_comb control_lhs)));
+      require (chunk ^ " and " ^ control ^ " have different code equations")
+        (length (executable_equations chunk) = 1 andalso
+          length (executable_equations control) = 1)
+    end
+  val _ = same_definition "chunk_packet_value" "control_packet_value"
+  val _ = same_definition "chunk_with_attributes" "control_with_attributes"
+  val _ = same_definition "chunk_channels" "control_channels"
+  val (identity_type, identity_rhs) = Consts.the_abbreviation consts (full "chunk_identity")
+  val (control_identity_type, control_identity_rhs) =
+    Consts.the_abbreviation consts (full "control_identity")
+  val _ =
+    require "chunk and single-item abbreviations differ"
+      (identity_type = control_identity_type andalso identity_rhs aconv control_identity_rhs)
+  val _ =
+    require "an abbreviation item installed a definition or code equation"
+      (not (fact_declared ctxt "chunk_identity_def") andalso
+        (case try executable_equations "chunk_identity" of
+           NONE => true
+         | SOME equations => null equations))
+  val simps = Proof_Context.get_fact ctxt (Facts.named "micro_rust_simps")
+  fun in_simps name = exists (fn theorem => Thm.eq_thm_prop (theorem, definition name)) simps
+  val _ =
+    require "annotation attrs did not decorate the definition like the outer list"
+      (in_simps "chunk_with_attributes" andalso in_simps "control_with_attributes" andalso
+        not (in_simps "chunk_packet_value"))
+  val functions = map URust_Item_Scope.function_rust_name (URust_Item_Scope.dump_functions ctxt)
+  val _ =
+    require "callable registration differs from the single-item commands"
+      (member (op =) functions "ChunkPacketValue" andalso
+        member (op =) functions "ControlPacketValue" andalso
+        not (member (op =) functions "ChunkIdentity") andalso
+        not (member (op =) functions "ControlIdentity") andalso
+        not (member (op =) functions "ChunkCheckedOnly"))
+  val _ =
+    require "an anonymous chunk function installed a constant"
+      (not (const_declared ctxt "chunk_checked_only"))
+
+  fun rename_type from to (Type (name, arguments)) =
+        Type (if name = from then to else name, map (rename_type from to) arguments)
+    | rename_type _ _ T = T
+  fun strip_prefix prefix name =
+    if String.isPrefix prefix name then String.extract (name, size prefix, NONE) else name
+  fun term_name (Const (name, _)) = name
+    | term_name term = Syntax.string_of_term ctxt term
+  fun datatype_profile rust_name =
+    let
+      val type_entry = the (URust_Item_Scope.lookup_type ctxt rust_name)
+      val hol_name = URust_Item_Scope.type_hol_name type_entry
+      val local_name = strip_prefix (Long_Name.base_name hol_name ^ "_") o Long_Name.base_name
+      val normalize = rename_type hol_name "datatype"
+      val constructors =
+        URust_Item_Scope.dump_constructors ctxt
+        |> filter (fn entry => URust_Item_Scope.constructor_rust_type entry = rust_name)
+        |> map (fn entry =>
+            (strip_prefix (rust_name ^ "::") (URust_Item_Scope.constructor_rust_path entry)
+             |> (fn path => if path = rust_name then "" else path),
+             normalize (fastype_of (URust_Item_Scope.constructor_scheme entry)),
+             map (fn (field, selector) =>
+                 (field, local_name (term_name selector), normalize (fastype_of selector)))
+               (URust_Item_Scope.constructor_fields entry)))
+        |> sort (string_ord o apply2 #1)
+      val mapping = the (URust_Type_Mappings.lookup ctxt rust_name)
+    in
+      (constructors, normalize (URust_Type_Mappings.entry_template mapping),
+       URust_Type_Mappings.entry_arities mapping)
+    end
+  fun same_datatype chunk control =
+    require (chunk ^ " and " ^ control ^ " have different generated artifacts:\n" ^
+        @{make_string} (datatype_profile chunk) ^ "\n" ^ @{make_string} (datatype_profile control))
+      (datatype_profile chunk = datatype_profile control)
+  val _ = same_datatype "ChunkPacket" "ControlPacket"
+  val _ = same_datatype "ChunkChoice" "ControlChoice"
+  val _ = same_datatype "ChunkHolder" "ControlHolder"
+  val _ =
+    require "renamed field lenses and aliases differ"
+      (const_declared ctxt "chunk_packet_sample_lens" andalso
+        const_declared ctxt "control_packet_sample_lens" andalso
+        let
+          val lenses =
+            map (term_name o #hol_term)
+              (Micro_Rust_Names.lookups ctxt Micro_Rust_Names.NField "sampleValue")
+        in
+          exists (String.isSuffix "chunk_packet_sample_lens") lenses andalso
+            exists (String.isSuffix "control_packet_sample_lens") lenses
+        end)
+  fun full_type name =
+    dest_Type_name (Proof_Context.read_type_name {proper = true, strict = true} ctxt name)
+  val _ =
+    require "word enum conversions differ"
+      (rename_type (full_type "chunk_word") "word" (const_type "chunk_word_to_u16_pure") =
+        rename_type (full_type "control_word") "word" (const_type "control_word_to_u16_pure"))
+in
+  val _ = writeln "chunk declarations match the equivalent single-item declarations"
+end
+\<close>
+
+
+section\<open> Whole-command atomicity \<close>
+
+text\<open>
+A failure in the last member of a chunk whose earlier functions and datatypes would succeed
+leaves no declaration, registry entry, semantic report or successful output. The same names are
+then available to a successful chunk.
+\<close>
+
+ML\<open>
+local
+  open Chunk_Test
+  val loud = "declare [[urust_pp_test = true, urust_pretty = true, urust_verbosity = 2]]\n"
+  val earlier =
+    "  fn AtomicFirst(value: u32) -> u32 { value }\n" ^
+    "  " ^ annotation "renames = [\"atomicValue\" \<rightarrow> \"atomic_value\"]" ^ "\n" ^
+    "  struct AtomicRecord { atomicValue: u32 }\n" ^
+    "  enum AtomicChoice { AtomicYes, AtomicNo(u32) }\n" ^
+    "  #[repr(u8)]\n" ^
+    "  enum AtomicLevel { AtomicLow = 1, AtomicHigh = 2 }\n" ^
+    "  fn AtomicUse(record: AtomicRecord) -> u32 { AtomicFirst(record.atomicValue) }\n"
+  val names =
+    {constants =
+       ["atomic_first", "atomic_use", "atomic_record.atomic_value",
+        "atomic_record_atomic_value_lens"],
+     types = ["atomic_record", "atomic_choice", "atomic_level"],
+     facts = ["atomic_first_def", "atomic_use_def"],
+     rust_types = ["AtomicRecord", "AtomicChoice", "AtomicLevel"],
+     functions = ["AtomicFirst", "AtomicUse"]}
+  fun declared ctxt =
+    {constants = filter (const_declared ctxt) (#constants names),
+     types = filter (type_declared ctxt) (#types names),
+     facts = filter (fact_declared ctxt) (#facts names),
+     rust_types = filter (is_some o URust_Item_Scope.lookup_type ctxt) (#rust_types names),
+     mappings = filter (is_some o URust_Type_Mappings.lookup ctxt) (#rust_types names),
+     functions = filter (is_some o URust_Item_Scope.lookup_function ctxt) (#functions names),
+     notations =
+       filter (fn (_, name, _) => String.isPrefix "Atomic" name orelse name = "atomicValue")
+         (Micro_Rust_Names.dump ctxt)
+       |> map #2}
+  val base_ctxt = Proof_Context.init_global \<^theory>
+  val _ =
+    require "atomicity fixtures already exist"
+      (declared base_ctxt =
+        {constants = [], types = [], facts = [], rust_types = [], mappings = [],
+         functions = [], notations = []})
+  val failures =
+    [("typing", "  fn AtomicBroken() -> bool { 1u32 }\n", ["Type unification failed"]),
+     ("registration", "  fn AtomicRecord() {}\n",
+       ["Rust function path \"AtomicRecord\" is already owned by a Rust constructor item"]),
+     ("late-attribute",
+       "  " ^ annotation "attrs = [OF refl]" ^ "\n  fn AtomicLate() -> u32 { 0 }\n",
+       ["OF: no unifiers"]),
+     ("binding",
+       "  " ^ annotation "name = \"atomic_first\"" ^ "\n  fn AtomicDuplicate() -> u32 { 0 }\n",
+       ["atomic_first"]),
+     ("datatype", "  struct AtomicBad { value: AtomicMissing }\n",
+       ["unknown Rust type \"AtomicMissing\""]),
+     ("validation", "  " ^ annotation "abbrev, application_def" ^ "\n  fn AtomicMode() {}\n",
+       ["abbreviation mode cannot be combined"]),
+     ("rename", "  " ^ annotation "renames = [\"value\" \<rightarrow> \"a\", \"value\" \<rightarrow> \"b\"]" ^
+        "\n  struct AtomicRenamed { value: u32 }\n", ["duplicate rename key"]),
+     ("forward",
+       "  fn AtomicForward() -> u32 { AtomicLater() }\n  fn AtomicLater() -> u32 { 1 }\n",
+       ["unresolved body name \"AtomicLater\""]),
+     ("self-call", "  fn AtomicSelf(value: u32) -> u32 { AtomicSelf(value) }\n",
+       ["unresolved body name \"AtomicSelf\""]),
+     ("recursive-datatype", "  struct AtomicNode { next: AtomicNode }\n",
+       ["recursive Rust datatype reference \"AtomicNode\" is not supported"])]
+  fun failing_case (label, failing, expected) =
+    let
+      val text = loud ^ "urust " ^ command_source (earlier ^ failing)
+      val {result, output, reports, ...} = capture true ("atomic-" ^ label) \<^theory> text
+      val _ = failure_message ("atomic " ^ label) expected result
+      val _ =
+        require ("failed " ^ label ^ " chunk printed successful output:\n" ^
+            cat_lines (authored_output output))
+          (null (authored_output output))
+      val _ =
+        require ("failed " ^ label ^ " chunk replayed semantic reports: " ^
+            @{make_string} (map (fn event as (_, properties) =>
+              (Properties.get properties Markup.kindN, Properties.get properties Markup.nameN,
+               report_range event)) (semantic_entities reports)))
+          (null (semantic_entities reports))
+    in () end
+  val _ = List.app failing_case failures
+  val success_text = loud ^ "urust " ^ command_source earlier
+  val {result, output, reports, ...} = capture true "atomic-success" \<^theory> success_text
+  val success_ctxt = result_context result
+  val _ =
+    require "the successful chunk did not declare every artifact"
+      (declared success_ctxt =
+        {constants = #constants names, types = #types names, facts = #facts names,
+         rust_types = #rust_types names, mappings = #rust_types names,
+         functions = #functions names,
+         notations = #notations (declared success_ctxt)} andalso
+        not (null (#notations (declared success_ctxt))))
+  val _ =
+    require "the successful chunk did not print every item in source order"
+      (case authored_output output of
+         [first, record, choice, level, use] =>
+           String.isPrefix "definition atomic_first_def:" first andalso
+           String.isSubstring "AtomicRecord" record andalso
+           String.isSubstring "AtomicChoice" choice andalso
+           String.isSubstring "AtomicLevel" level andalso
+           String.isPrefix "definition atomic_use_def:" use
+       | _ => false)
+  val _ =
+    require "the successful chunk did not replay its semantic reports"
+      (member (op =) (entity_kinds_at (range_of success_text "AtomicRecord" 0) reports)
+          "urust_item" andalso
+        member (op =) (entity_kinds_at (range_of success_text "AtomicFirst" 0) reports)
+          "urust_function")
+  (* A failed chunk followed by the corrected chunk in one document sequence. *)
+  val sequence =
+    loud ^ "urust " ^ command_source (earlier ^ "  fn AtomicBroken() -> bool { 1u32 }\n") ^
+      "\nurust " ^ command_source earlier
+  val transitions =
+    Outer_Syntax.parse_text \<^theory> (K \<^theory>) (start_position "atomic-sequence") sequence
+  fun step transition (state, failures) =
+    (case Exn.result (Toplevel.command_exception true transition) state of
+       Exn.Res state' => (state', failures)
+     | Exn.Exn exn => if Exn.is_interrupt exn then Exn.reraise exn else (state, failures + 1))
+  val (final_state, failed) =
+    Parser_Test_Report_Lock.run (fn () =>
+      Unsynchronized.setmp Private_Output.writeln_fn (K ()) (fn () =>
+        Unsynchronized.setmp Private_Output.warning_fn (K ()) (fn () =>
+          Unsynchronized.setmp Private_Output.report_fn (K ()) (fn () =>
+            fold step transitions (Toplevel.make_state (SOME \<^theory>), 0)) ()) ()) ())
+  val _ =
+    require "the corrected chunk did not reuse the names of the failed chunk"
+      (failed = 1 andalso
+        #functions (declared (Toplevel.context_of final_state)) = #functions names)
+in
+  val _ = writeln "last-item failures leave no declarations, registrations, reports or output"
+end
+\<close>
+
+
+section\<open> Markup equivalence and escaped source positions \<close>
+
+ML\<open>
+local
+  open Chunk_Test
+  (* Report multisets at corresponding source tokens, without serials or positions. *)
+  fun events label text needles =
+    let
+      val {result, reports, ...} = capture true label \<^theory> text
+      val _ = result_context result
+      fun summary (name, properties) =
+        name ^ "/" ^ the_default "" (Properties.get properties Markup.kindN) ^ "/" ^
+          Bool.toString (is_some (Properties.get properties Markup.defN)) ^ "/" ^
+          Bool.toString (is_some (Properties.get properties Markup.refN))
+    in
+      map (fn (needle, occurrence) =>
+          sort string_ord (map summary (reports_at (range_of text needle occurrence) reports)))
+        needles
+    end
+  val body =
+    "  struct MarkupPacket { sampleValue: u32 }\n" ^
+    "  fn MarkupRead(packet: MarkupPacket) -> u32 { packet.sampleValue }\n"
+  val chunk_text = quiet_prefix "" ^ "urust " ^ command_source body
+  val single_text =
+    quiet_prefix "" ^
+      "urust_datatype " ^ command_source "  struct MarkupPacket { sampleValue: u32 }" ^ "\n" ^
+      "urust_fn " ^ command_source "  fn MarkupRead(packet: MarkupPacket) -> u32 { packet.sampleValue }"
+  val needles =
+    [("MarkupPacket", 0), ("sampleValue", 0), ("MarkupRead", 0), ("packet", 0),
+     ("MarkupPacket", 1), ("packet", 1), ("sampleValue", 1), ("u32", 1)]
+  val _ =
+    require "chunk markup differs from the equivalent single-item commands"
+      (events "markup-chunk" chunk_text needles = events "markup-single" single_text needles)
+  val annotated =
+    quiet_prefix "" ^ "urust " ^
+      command_source
+        ("  " ^ annotation "renames = [\"sampleValue\" \<rightarrow> \"sample\"], name = \"markup_packet\"" ^ "\n" ^
+         "  struct MarkupPacket { sampleValue: u32 }\n" ^
+         "  " ^ annotation "state = \<open>'s::linorder\<close>, attrs = [micro_rust_simps]" ^ "\n" ^
+         "  fn MarkupRead(packet: MarkupPacket) -> u32 { packet.sampleValue }")
+  val {result, reports, ...} = capture true "markup-annotated" \<^theory> annotated
+  val _ = result_context result
+  fun names_at needle occurrence =
+    map #1 (reports_at (range_of annotated needle occurrence) reports)
+  val _ =
+    require "annotation marker, delimiter or payload markup changed"
+      (member (op =) (names_at omega 0) Markup.literalN andalso
+        member (op =) (names_at Symbol.open_ 1) Markup.delimiterN andalso
+        member (op =) (names_at Symbol.close 0) Markup.delimiterN andalso
+        member (op =) (names_at "\"sampleValue\"" 0) Markup.stringN andalso
+        member (op =) (names_at "\<rightarrow>" 0) Markup.delimiterN andalso
+        member (op =) (names_at "\"markup_packet\"" 0) Markup.stringN andalso
+        member (op =) (names_at omega 1) Markup.literalN)
+  val _ =
+    require "nested payload sources lost their native markup"
+      (member (op =) (names_at "linorder" 0) Markup.entityN andalso
+        member (op =) (names_at "micro_rust_simps" 0) Markup.entityN)
+  val _ =
+    require "declaration navigation after escaped payload symbols is misplaced"
+      (member (op =) (entity_kinds_at (range_of annotated "MarkupPacket" 0) reports) "urust_item" andalso
+        member (op =) (entity_kinds_at (range_of annotated "sampleValue" 1) reports) "urust_field" andalso
+        member (op =) (entity_kinds_at (range_of annotated "MarkupRead" 0) reports) "urust_function")
+in
+  val _ = writeln "chunk markup matches single-item commands and annotation sources"
+end
+\<close>
+
+
+section\<open> Independent type environments \<close>
+
+ML\<open>
+local
+  open Chunk_Test
+  val text =
+    quiet_prefix "" ^ "urust " ^
+      command_source
+        ("  " ^ annotation "state = \<open>'s\<close>" ^ "\n" ^
+         "  fn ChunkFreeState(value: \<tau>\<open>'a\<close>) -> \<tau>\<open>'a\<close> { value }\n" ^
+         "  " ^ annotation "state = \<open>'s::linorder\<close>" ^ "\n" ^
+         "  fn ChunkOrderedState(value: \<tau>\<open>'a::order\<close>) -> \<tau>\<open>'a\<close> { value }\n" ^
+         "  fn ChunkUsesBoth(value: u32) -> u32 { ChunkFreeState(ChunkOrderedState(value)) }\n")
+  val ctxt = result_context (#result (capture true "type-variables" \<^theory> text))
+  fun const_type name =
+    Sign.the_const_type (Proof_Context.theory_of ctxt)
+      (Consts.intern (Proof_Context.consts_of ctxt) name)
+  fun sorts name = map #2 (Term.add_tvarsT (const_type name) []) |> sort_distinct (list_ord string_ord)
+  val _ =
+    require "annotation or escape type variables leaked between chunk members"
+      (sorts "chunk_free_state" = [["HOL.type"]] andalso
+        member (op =) (sorts "chunk_ordered_state") ["Orderings.linorder"] andalso
+        member (op =) (sorts "chunk_ordered_state") ["Orderings.order"])
+  val _ =
+    require "a later member could not instantiate earlier polymorphic constants"
+      (fact_declared ctxt "chunk_uses_both_def")
+in
+  val _ = writeln "chunk members keep independent type and sort environments"
+end
+\<close>
+
+
+section\<open> Serialized roundtrip of every payload kind and read-only pretty replay \<close>
+
+ML\<open>
+local
+  open Chunk_Test
+  val body =
+    "  " ^ annotation "pp_test, pretty = false, verbosity = 2, register_notation = true" ^ "\n" ^
+    "  fn ReplayFirst(value: u32) -> u32 { value }\n" ^
+    "  " ^ annotation "renames = [\"replayValue\" \<rightarrow> \"replay_value\"], name = replay_cell" ^ "\n" ^
+    "  struct ReplayCell { replayValue: u32 }\n" ^
+    "  " ^ annotation "parameters = [\"T\" \<rightarrow> \"'element::ord\"], backend = hol, plugins = (plugins only: code)" ^ "\n" ^
+    "  struct ReplayHolder<T> { element: T }\n" ^
+    "  " ^ annotation "backend = \"simple_word_enum\", word_width = 8" ^ "\n" ^
+    "  enum ReplayWord { ReplayLow = 1, ReplayHigh = 2 }\n" ^
+    "  " ^ annotation "state = \<open>'s\<close>, abort = \<open>bool\<close>, input = \<open>unit\<close>, output = \<open>unit\<close>, attrs = [micro_rust_simps, code]" ^ "\n" ^
+    "  fn ReplayChannels(cell: ReplayCell) -> u32 { cell.replayValue }\n" ^
+    "  " ^ annotation "name = _, abbrev = false, application_def" ^ "\n" ^
+    "  fn ReplayAnonymous(value: u32) -> u32 { ReplayFirst(value) }\n" ^
+    "  " ^ annotation "abbrev" ^ "\n" ^
+    "  fn ReplayAbbreviation() -> u32 { 1 }\n"
+  val chunk = the_chunk \<^context> "replay-ast" body
+  val serialized = URust_Printer.string_of_chunk URust_Printer.serialized_options chunk
+  val reparsed = the_chunk \<^context> "replay-reparsed" serialized
+  val _ =
+    require "serialized chunk with every payload kind changed after reparsing"
+      (URust_Printer.tokens_of_chunk URust_Printer.serialized_options chunk =
+        URust_Printer.tokens_of_chunk URust_Printer.serialized_options reparsed andalso
+        map (Option.map (Input.string_of o URust_AST.annotation_payload) o
+            URust_AST.annotated_item_annotation) (URust_AST.chunk_items chunk) =
+          map (Option.map (Input.string_of o URust_AST.annotation_payload) o
+            URust_AST.annotated_item_annotation) (URust_AST.chunk_items reparsed))
+  fun run pretty label =
+    let
+      val text =
+        "declare [[urust_pp_test = true, urust_verbosity = 2, urust_pretty = " ^
+          (if pretty then "true" else "false") ^ "]]\n" ^ "urust " ^ command_source body
+      val {result, output, ...} = capture true label \<^theory> text
+    in (registry_snapshot (result_context result), authored_output output) end
+  val (pretty_registry, pretty_output) = run true "replay-pretty"
+  val (plain_registry, _) = run false "replay-plain"
+  val _ =
+    require "pretty replay registered additional entries"
+      (pretty_registry = plain_registry)
+  val _ =
+    require "pretty output was not produced per effective option"
+      (exists (String.isSubstring "normalized uRust declaration") pretty_output andalso
+        exists (String.isSubstring "FunctionBody \<mu>") pretty_output andalso
+        exists (String.isPrefix "definition replay_first_def:") pretty_output andalso
+        not (exists (fn message =>
+            String.isPrefix "definition replay_first_def:" message andalso
+            String.isSubstring "\<mu>" message) pretty_output))
+in
+  val _ = writeln "serialized roundtrip and read-only pretty replay passed"
+end
+\<close>
+
+
+section\<open> A moderately sized chunk \<close>
+
+ML\<open>
+local
+  open Chunk_Test
+  val count = 24
+  fun item index =
+    let val n = string_of_int index in
+      "  struct BulkCell" ^ n ^ " { bulkValue" ^ n ^ ": u32 }\n" ^
+      "  " ^ annotation ("name = bulk_read_" ^ n) ^ "\n" ^
+      "  fn BulkRead" ^ n ^ "(cell: BulkCell" ^ n ^ ") -> u32 { cell.bulkValue" ^ n ^ " }\n"
+    end
+  val text = quiet_prefix "" ^ "urust " ^ command_source (implode (map item (1 upto count)))
+  val start = Timing.start ()
+  val {result, reports, ...} = capture true "bulk" \<^theory> text
+  val timing = Timing.result start
+  val ctxt = result_context result
+  val _ =
+    require "the moderately sized chunk lost declarations"
+      (forall (fn index => fact_declared ctxt ("bulk_read_" ^ string_of_int index ^ "_def"))
+        (1 upto count))
+  fun definitions kind context needle =
+    length (filter (fn (name, properties) =>
+        name = Markup.entityN andalso Properties.get properties Markup.kindN = SOME kind andalso
+          is_some (Properties.get properties Markup.defN))
+      (reports_at (range_within text context needle) reports))
+  val _ =
+    require "chunk semantic reports were not replayed exactly once"
+      (forall (fn index =>
+          let val n = string_of_int index in
+            definitions "urust_item" ("struct BulkCell" ^ n ^ " ") ("BulkCell" ^ n) = 1 andalso
+            definitions "urust_function" ("fn BulkRead" ^ n ^ "(") ("BulkRead" ^ n) = 1
+          end)
+        (1 upto count))
+in
+  val _ =
+    writeln ("moderately sized chunk with " ^ string_of_int (2 * count) ^
+      " declarations: " ^ Timing.message timing)
 end
 \<close>
 
