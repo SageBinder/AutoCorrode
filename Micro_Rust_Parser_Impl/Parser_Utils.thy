@@ -35,7 +35,8 @@ sig
   val capture_members: (unit -> 'a) -> 'a * reports
   val check_term: Proof.context -> term -> term
   val invisible_declarations:
-    (local_theory -> 'a * local_theory) -> local_theory -> 'a * local_theory
+    (morphism -> 'a -> 'a) -> (local_theory -> 'a * local_theory) -> local_theory ->
+      'a * local_theory
   val defer_definitions: Proof.context -> (Name_Space.T * string) list -> unit
 end
 
@@ -152,30 +153,51 @@ struct
      | _ => Syntax.check_term ctxt term)
 
   (* At theory level the target is re-initialised from an invisible background theory, as the
-     toplevel re-initialises it between commands; elsewhere an invisible nested target keeps every
-     backend context invisible. The constant-default visibility flags are restored exactly. *)
-  fun invisible_declarations declare lthy =
+     toplevel re-initialises it between commands; elsewhere an invisible nested target over an
+     invisible background theory keeps every backend context invisible. The constant-default
+     visibility flags are restored exactly. The result leaves the backend context through the
+     native export morphism of that context. *)
+  fun invisible_declarations transfer declare lthy =
     if Named_Target.is_theory lthy then
       let
         val thy = Local_Theory.exit_global lthy
-        val (result, lthy') =
-          declare (Named_Target.theory_init (Context_Position.set_visible_global false thy))
-        val thy' =
-          Context_Position.restore_visible_global thy (Local_Theory.exit_global lthy')
-      in (result, Named_Target.theory_init thy') end
+        val (result, thy') =
+          Local_Theory.exit_result_global transfer
+            (declare (Named_Target.theory_init (Context_Position.set_visible_global false thy)))
+      in
+        (result, Named_Target.theory_init (Context_Position.restore_visible_global thy thy'))
+      end
     else
       let
-        val (_, nested) = Local_Theory.begin_nested (Context_Position.set_visible false lthy)
-        val (result, nested') = declare nested
-      in (result, Context_Position.restore_visible lthy (Local_Theory.end_nested nested')) end
+        val thy = Proof_Context.theory_of lthy
+        val (_, nested) =
+          lthy
+          |> Context_Position.set_visible false
+          |> Local_Theory.background_theory (Context_Position.set_visible_global false)
+          |> Local_Theory.begin_nested
+        val (result, outer) = Local_Theory.end_nested_result transfer (declare nested)
+      in
+        (result,
+         outer
+         |> Local_Theory.background_theory (Context_Position.restore_visible_global thy)
+         |> Context_Position.restore_visible lthy)
+      end
 
+  (* Native declarations report definitions only at proper binding positions; an entry without
+     one carries the position of the declaring command. *)
   fun defer_definitions ctxt entries =
-    List.app
-      (fn (space, name) =>
-        (case try (Name_Space.the_entry space) name of
-           SOME {pos, ...} => report ctxt pos (Name_Space.markup_def space name)
-         | NONE => ()))
-      entries
+    let
+      val command_position = Position.properties_of (Position.thread_data ())
+    in
+      List.app
+        (fn (space, name) =>
+          (case try (Name_Space.the_entry space) name of
+             SOME {pos, ...} =>
+               if Position.properties_of pos = command_position then ()
+               else report ctxt pos (Name_Space.markup_def space name)
+           | NONE => ()))
+        entries
+    end
 end
 \<close>
 

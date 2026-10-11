@@ -1526,7 +1526,7 @@ fun declare_prepared
                       (the (AList.lookup (op =) (!overloaded_settings) depth)))
             in (generated, restored_lthy) end
           val (generated, final_lthy) =
-            URust_Report_Transaction.invisible_declarations generate lthy
+            URust_Report_Transaction.invisible_declarations (K I) generate lthy
           val artifacts =
             completed_generated_artifacts source_item descriptors parameters register_notation
               generated final_lthy

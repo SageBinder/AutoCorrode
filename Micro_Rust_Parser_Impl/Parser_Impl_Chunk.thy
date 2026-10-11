@@ -162,8 +162,12 @@ fun define (outer, source) interactive lthy =
             List.app
               (fn (envelope, (pp_test, _)) => if pp_test then roundtrip lthy envelope else ())
               (envelopes ~~ members)
+          (* A failing member releases its own queued markup with its error; markup of earlier
+             members stays queued and is discarded with the transaction. *)
           fun declare (_, member) lthy' =
-            declare_member member lthy' ||> next_command_context
+            URust_Report_Transaction.release_on_failure lthy'
+              (fn () => declare_member member lthy')
+            ||> next_command_context
         in fold_map declare members lthy end)
     val _ = URust_Report_Transaction.replay completed reports
     val _ = List.app (fn output => output ()) outputs

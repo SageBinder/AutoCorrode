@@ -37,9 +37,13 @@ resolved. Type alias items are rejected as chunk members.
 Every declaration command is one report transaction. uRust-owned elaboration markup, the native
 markup of embedded HOL sources (re-read for markup at release), regenerated
 definition entities of the installed artifacts, warnings and successful output are released only
-after the command succeeds; native declaration backends run in invisible contexts. A failing
-elaboration releases its own diagnostic markup. A chunk additionally buffers the check-time markup
-of embedded HOL sources, so a failing chunk leaves only lexical markup for its earlier members.
+after the command succeeds; native declaration backends run in invisible contexts (target and
+background theory) and their results are restated in the returned context, so printed definitions
+carry no local hypothesis and function names keep their constant definition entity. A failing
+single-item declaration, or the failing member of a chunk, releases its own queued markup with its
+error. A chunk additionally buffers the check-time markup of embedded HOL sources, so a failing
+chunk leaves only lexical markup for its earlier members at theory level, in locales and in
+nested contexts.
 Background code-generator `consts` listings of earlier datatype members are the accepted
 exception: they are printed through `show_results` of the background theory, which has no
 faithful non-persistent control.

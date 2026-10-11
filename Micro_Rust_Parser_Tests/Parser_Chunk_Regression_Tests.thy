@@ -198,9 +198,14 @@ struct
     let
       val ctxt = Proof_Context.init_global thy
       val keywords = Thy_Header.get_keywords' ctxt
+      val tokens = Token.explode keywords (start_position label) text
+      val after_command =
+        (case find_index (fn token => Token.is_command token andalso Token.content_of token = "urust")
+            tokens of
+           ~1 => error ("chunk audit: no urust command in " ^ label)
+         | index => drop index tokens)
       val cartouche =
-        (case List.find (fn token => Token.kind_of token = Token.Cartouche)
-            (Token.explode keywords (start_position label) text) of
+        (case List.find (fn token => Token.kind_of token = Token.Cartouche) after_command of
            SOME token => token
          | NONE => error ("chunk audit: no cartouche in " ^ label))
       val source = Parser_Lex_Util.cartouche_source cartouche
@@ -822,7 +827,8 @@ then available to a successful chunk.
 \<close>
 
 ML\<open>
-local
+structure Chunk_Atomicity =
+struct
   open Chunk_Test
   val loud = "declare [[urust_pp_test = true, urust_pretty = true, urust_verbosity = 2]]\n"
   val earlier =
@@ -869,7 +875,8 @@ local
      ("registration", "  fn AtomicRecord() {}\n",
        ["Rust function path \"AtomicRecord\" is already owned by a Rust constructor item"]),
      ("late-attribute",
-       "  " ^ annotation "attrs = [OF refl]" ^ "\n  fn AtomicLate() -> u32 { 0 }\n",
+       "  " ^ annotation "attrs = [OF refl]" ^
+         "\n  fn AtomicLate(late: u32) -> u32 { late }\n",
        ["OF: no unifiers"]),
      ("binding",
        "  " ^ annotation "name = \"atomic_first\"" ^ "\n  fn AtomicDuplicate() -> u32 { 0 }\n",
@@ -895,37 +902,60 @@ local
        "  " ^ annotation "renames = [\"first\" \<rightarrow> \"atomic_pair_second\"]" ^
          "\n  struct AtomicPair { first: u32, second: u32 }\n",
        ["duplicate generated HOL field \"atomic_pair_second\""])]
-  fun failing_case (label, failing, expected) =
+  fun failing_case target wrap (label, failing, expected) =
     let
-      val text = loud ^ "urust " ^ command_source (earlier ^ failing)
-      val {result, output, warnings, reports} = capture true ("atomic-" ^ label) \<^theory> text
+      val label = "atomic-" ^ target ^ "-" ^ label
+      val text = loud ^ wrap ("urust " ^ command_source (earlier ^ failing))
+      val {result, output, warnings, reports} = capture true label \<^theory> text
       val _ = failure_message ("atomic " ^ label) expected result
+      (* The locale command of a wrapped scenario prints its own specification. *)
+      val chunk_output =
+        filter_out (String.isPrefix "locale atomic_loc") (authored_output output)
       val _ =
         require ("failed " ^ label ^ " chunk printed successful output:\n" ^
-            cat_lines (authored_output output))
-          (null (authored_output output))
+            cat_lines chunk_output)
+          (null chunk_output)
+      val command_start = #1 (range_of text "urust " 0)
       val _ =
         require ("failed " ^ label ^ " chunk replayed semantic reports")
-          (null (semantic_entities reports))
+          (null (filter (fn event => #1 (report_range event) >= command_start)
+            (semantic_entities reports)))
       val _ =
         require ("failed " ^ label ^ " chunk emitted warnings:\n" ^ cat_lines warnings)
           (null warnings)
       (* Every report positioned in the earlier members, which would have succeeded, is one that
          a parse-only pass over the same command also produces. *)
-      val command_start = #1 (range_of text "urust " 0)
       val failing_start = #1 (range_of text failing 0)
-      val leaked =
-        non_lexical_reports ("atomic-" ^ label) \<^theory> text command_start reports
-        |> filter (fn key =>
-            (case space_explode "|" key of
-               _ :: _ :: start :: _ => the_default 0 (Int.fromString start) < failing_start
-             | _ => true))
+      fun key_start key =
+        (case space_explode "|" key of
+           _ :: _ :: start :: _ => the_default 0 (Int.fromString start)
+         | _ => 0)
+      val non_lexical = non_lexical_reports label \<^theory> text command_start reports
+      val leaked = filter (fn key => key_start key < failing_start) non_lexical
       val _ =
         require ("failed " ^ label ^ " chunk left non-lexical reports of earlier members:\n" ^
             cat_lines leaked)
           (null leaked)
+      (* The failing member releases its own elaboration markup with its error. *)
+      val _ =
+        if String.isSuffix "late-attribute" label then
+          require ("failed " ^ label ^ " chunk did not release the failing member's markup")
+            (exists (fn key => key_start key >= failing_start andalso
+                String.isPrefix "entity|urust_var|" key) non_lexical)
+        else ()
     in () end
-  val _ = List.app failing_case failures
+
+  fun in_locale body =
+    "locale atomic_loc =\n  fixes atomic_param :: nat\nbegin\n" ^ body ^ "\nend\n"
+  fun in_context body =
+    "context\n  fixes atomic_fixed :: nat\nbegin\n" ^ body ^ "\nend\n"
+end
+\<close>
+
+ML\<open>
+local
+  open Chunk_Atomicity
+  val _ = List.app (failing_case "theory" I) failures
   val success_text = loud ^ "urust " ^ command_source earlier
   val {result, output, reports, ...} = capture true "atomic-success" \<^theory> success_text
   val success_ctxt = result_context result
@@ -976,6 +1006,48 @@ local
         #functions (declared (Toplevel.context_of final_state)) = #functions names)
 in
   val _ = writeln "last-item failures leave no declarations, registrations, reports or output"
+end
+\<close>
+
+text\<open> The same failures inside a locale target and inside a nested context with fixes. \<close>
+
+ML\<open>
+  List.app (Chunk_Atomicity.failing_case "locale" Chunk_Atomicity.in_locale)
+    Chunk_Atomicity.failures
+\<close>
+
+ML\<open>
+  List.app (Chunk_Atomicity.failing_case "context" Chunk_Atomicity.in_context)
+    Chunk_Atomicity.failures
+\<close>
+
+section\<open> Failure markup of a single-item declaration \<close>
+
+text\<open>
+A failing single-item declaration releases its own queued uRust markup with its error, as a
+failing chunk member does.
+\<close>
+
+ML\<open>
+local
+  open Chunk_Test
+  fun released label command =
+    let
+      val text = quiet_prefix "" ^ command
+      val {result, reports, ...} = capture true label \<^theory> text
+      val _ = failure_message label ["OF: no unifiers"] result
+    in
+      require (label ^ " did not release its elaboration markup")
+        (exists
+          (fn (markup, properties) =>
+            markup = Markup.entityN andalso Properties.get properties Markup.kindN = SOME "urust_var")
+          (reports_at (range_of text "late" 1) reports))
+    end
+  val _ =
+    released "single-late-function"
+      ("urust_fn [attrs = [OF refl]] " ^ command_source "  fn SingleLate(late: u32) -> u32 { late }")
+in
+  val _ = writeln "failing single-item declarations release their own markup"
 end
 \<close>
 
@@ -1405,6 +1477,112 @@ local
   val _ = result_context (#result (capture true "plain-payload" \<^theory> plain_payload))
 in
   val _ = writeln "backend, plugin and simple_word_enum annotations are applied"
+end
+\<close>
+
+
+section\<open> Printed results and function definition entities \<close>
+
+text\<open>
+Installed results are restated in the returned context: verbosity-2 output carries no local
+definition hypothesis, and each function name carries the definition entity of its HOL constant,
+for single-item and chunk declarations in theory, locale and context targets.
+\<close>
+
+ML\<open>
+local
+  open Chunk_Test
+  val prefix = "declare [[urust_pp_test = false, urust_pretty = false, urust_verbosity = 2]]\n"
+  val zero = "  fn PrintedZero() -> u32 { 1 }"
+  val argument = "  fn PrintedArgument(value: u32) -> u32 { value }"
+  val chunk = "urust " ^ command_source (zero ^ "\n" ^ argument)
+  val single =
+    "urust_fn " ^ command_source zero ^ "\nurust_fn " ^ command_source argument
+  fun in_locale body =
+    "locale printed_loc =\n  fixes printed_param :: nat\nbegin\n" ^ body ^ "\nend\n"
+  fun in_context body = "context\n  fixes printed_fixed :: nat\nbegin\n" ^ body ^ "\nend\n"
+  (* Bound names of lexical locals carry fresh serials. *)
+  fun normalize message =
+    let
+      fun strip (#"_" :: #"u" :: #"r" :: #"u" :: #"s" :: #"t" :: #"_" :: #"l" :: #"o" :: #"c" ::
+            #"a" :: #"l" :: #"_" :: rest) =
+            #"#" :: strip (drop_prefix Char.isDigit rest)
+        | strip (c :: rest) = c :: strip rest
+        | strip [] = []
+    in String.implode (strip (String.explode message)) end
+  fun definitions output =
+    map normalize (filter (String.isPrefix "definition ") (authored_output output))
+  val expected =
+    ["definition printed_zero_def:\nprinted_zero \<equiv> FunctionBody (ascribeu32 1)",
+     "definition printed_argument_def:\nprinted_argument \<equiv> \<lambda>#_value. " ^
+       "FunctionBody (ascribeu32 #_value)"]
+  fun constant_definitions text reports name occurrence =
+    filter
+      (fn (markup, properties) =>
+        markup = Markup.entityN andalso
+          Properties.get properties Markup.kindN = SOME Markup.constantN andalso
+          is_some (Properties.get properties Markup.defN))
+      (reports_at (range_of text name occurrence) reports)
+  fun scenario label wrap body =
+    let
+      val text = prefix ^ wrap body
+      val {result, output, reports, ...} = capture true label \<^theory> text
+      val _ = result_context result
+      val _ =
+        require (label ^ " printed results changed:\n" ^ cat_lines (definitions output))
+          (definitions output = (if String.isSubstring "PrintedArgument" body
+                                 then expected else [hd expected]))
+      val _ =
+        require (label ^ " lost the constant definition entity at a function name")
+          (length (constant_definitions text reports "PrintedZero" 0) = 1 andalso
+            (not (String.isSubstring "PrintedArgument" body) orelse
+              length (constant_definitions text reports "PrintedArgument" 0) = 1))
+    in () end
+  val _ = scenario "printed-theory-chunk" I chunk
+  val _ = scenario "printed-theory-single" I single
+  val _ = scenario "printed-locale-chunk" in_locale chunk
+  val _ = scenario "printed-locale-single" in_locale single
+  val _ = scenario "printed-context-chunk" in_context chunk
+  val _ = scenario "printed-context-single" in_context single
+  (* Expression definitions share the installation path. *)
+  val expression = prefix ^ "urust_expr printed_expression " ^ cartouche " 1 "
+  val {result, output, ...} = capture true "printed-expression" \<^theory> expression
+  val _ = result_context result
+  val _ =
+    require ("expression definition output changed:\n" ^ cat_lines (definitions output))
+      (definitions output = ["definition printed_expression_def:\nprinted_expression \<equiv> literal 1"])
+in
+  val _ = writeln "printed results and function definition entities match native definitions"
+end
+\<close>
+
+
+section\<open> Definitions without a source binding position \<close>
+
+ML\<open>
+local
+  open Chunk_Test
+  fun definition_entities reports range =
+    filter
+      (fn (markup, properties) =>
+        markup = Markup.entityN andalso is_some (Properties.get properties Markup.defN))
+      (reports_at range reports)
+  fun check label command =
+    let
+      val text = quiet_prefix "" ^ command ^ command_source "  struct UnboundCell { unboundValue: u32 }"
+      val {result, reports, ...} = capture true label \<^theory> text
+      val ctxt = result_context result
+      val keyword_start = #1 (range_of text command 0)
+      val keyword = (keyword_start, keyword_start + size (Symbol.trim_blanks command))
+      val _ =
+        require (label ^ " reported a regenerated definition at the command keyword")
+          (null (definition_entities reports keyword))
+      val _ = require (label ^ " lost its lens") (const_declared ctxt "unbound_cell_unbound_cell_unbound_value_lens")
+    in () end
+  val _ = check "unbound-chunk" "urust "
+  val _ = check "unbound-single" "urust_datatype "
+in
+  val _ = writeln "regenerated definitions are reported only at proper binding positions"
 end
 \<close>
 

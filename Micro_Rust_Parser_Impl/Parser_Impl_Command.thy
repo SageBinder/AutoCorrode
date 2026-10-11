@@ -1027,10 +1027,24 @@ fun result_definitions lthy binding declaration =
      | Anonymous_Result _ => [])
   end
 
+(* An installed definition is stated in its backend's auxiliary context; the export morphism
+   restates it in the returned context, with the installed constant and no local definition.
+   Input abbreviations carry no hypothesis and keep their syntactic left-hand side. *)
+fun transfer_declaration phi
+      (Definition_Result
+        {lhs, display_lhs, fact_name, theorem, kind, pretty_lhs_arguments,
+         pretty_arguments, pretty_body}) =
+      Definition_Result
+        {lhs = Morphism.term phi lhs, display_lhs = Morphism.term phi display_lhs,
+         fact_name = fact_name, theorem = Morphism.thm phi theorem, kind = kind,
+         pretty_lhs_arguments = pretty_lhs_arguments, pretty_arguments = pretty_arguments,
+         pretty_body = pretty_body}
+  | transfer_declaration _ result = result
+
 fun install_invisibly install binding lthy =
   let
     val (declaration, lthy') =
-      URust_Report_Transaction.invisible_declarations install lthy
+      URust_Report_Transaction.invisible_declarations transfer_declaration install lthy
     val _ =
       URust_Report_Transaction.defer_definitions lthy'
         (result_definitions lthy' binding declaration)
@@ -1644,11 +1658,13 @@ fun declare_prepared_function
     (fn () => (warnings (); print_declaration interactive verbosity pretty lthy' result), lthy')
   end
 
-(* A complete single-declaration transaction: replay deferred reports, then print. *)
+(* A complete single-declaration transaction: replay deferred reports, then print. A failing
+   declaration releases its own queued markup with its error. *)
 fun run_declaration declaration lthy =
   let
     val ((output, completed), reports) =
-      URust_Report_Transaction.capture (fn () => declaration lthy)
+      URust_Report_Transaction.capture (fn () =>
+        URust_Report_Transaction.release_on_failure lthy (fn () => declaration lthy))
     val _ = URust_Report_Transaction.replay completed reports
     val _ = output ()
   in completed end
