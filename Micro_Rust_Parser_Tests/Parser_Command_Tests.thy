@@ -990,6 +990,43 @@ ML_val\<open>
             " unexpectedly contains " ^ quote unexpected ^ ":\n" ^ output)
       else ()
 
+    (* Anonymous headings include an unconstrained serial. Require the output to start with the
+       expected heading, then inspect everything after its colon, including same-line output. *)
+    fun compact_body heading output =
+      let
+        val (prefix, rest) = Substring.position ":" (Substring.full output)
+        val stem = perhaps (try (unsuffix ":")) heading
+        val name = Substring.string prefix
+        val anchored =
+          String.isPrefix stem name andalso
+            forall Symbol.is_ascii_digit (Symbol.explode (unprefix stem name))
+      in
+        if Substring.isEmpty rest orelse not anchored
+        then
+          error
+            ("declaration verbosity audit: output does not start with " ^
+              quote heading ^ ":\n" ^ output)
+        else Substring.string (Substring.triml 1 rest)
+      end
+
+    val anonymous_heading = "urust_expr urust_expr_anonymous_"
+    val _ =
+      assert_absent "serial collision body" "149"
+        (compact_body anonymous_heading "urust_expr urust_expr_anonymous_14985738:\n...\n")
+    val _ =
+      List.app
+        (fn output =>
+          (case Exn.capture (fn () =>
+              assert_absent "synthetic leaked body" "149"
+                (compact_body anonymous_heading output)) () of
+             Exn.Exn (ERROR _) => ()
+           | Exn.Exn exn => Exn.reraise exn
+           | Exn.Res _ =>
+               error "declaration verbosity audit: leaked body escaped detection"))
+        ["urust_expr urust_expr_anonymous_14985738:\n149\n",
+         "urust_expr urust_expr_anonymous_14985738:149\n...\n",
+         "149\nurust_expr urust_expr_anonymous_14985738:\n...\n"]
+
     val (compact_definition, compact_definition_urgent) =
       capture_command "verbosity-compact-definition"
         ("urust_expr [verbosity = 1, pretty = false] " ^
@@ -1023,7 +1060,7 @@ ML_val\<open>
         (fn (label, heading, body, output, urgent) =>
           (assert_contains label heading output;
            assert_contains label "..." output;
-           assert_absent (label ^ " body") body output;
+           assert_absent (label ^ " body") body (compact_body heading output);
            assert_absent (label ^ " urgent") heading urgent))
         [("compact definition",
           "definition verbosity_compact_definition_def:", "137",
