@@ -9,6 +9,7 @@ session Micro_Rust_Parser_Impl = HOL +
   theories [document = false]
     Parser_Utils
     Parser_Impl_AST
+    Parser_Impl_Import_Scope
     Parser_Impl_Type_Mappings
     Parser_Impl_Type_Mappings_Builtins
     Parser_Impl_Printer
@@ -16,6 +17,7 @@ session Micro_Rust_Parser_Impl = HOL +
     Parser_Impl_Grammar
     Parser_Impl_Shallow_Terms
     Parser_Impl_Item_Scope
+    Parser_Impl_Imports
     Parser_Impl_Resolution
     Parser_Impl_Patterns
     Parser_Impl_Matching

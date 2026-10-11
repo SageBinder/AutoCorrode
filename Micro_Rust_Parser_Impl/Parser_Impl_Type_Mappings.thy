@@ -1,6 +1,7 @@
 theory Parser_Impl_Type_Mappings
   imports
     Parser_Impl_AST
+    Parser_Impl_Import_Scope
     Shallow_Micro_Rust.Semantic_Navigation
     Shallow_Micro_Rust.Tuple
     Shallow_Micro_Rust.Global_Store
@@ -75,6 +76,7 @@ sig
   val entry_declaration_position: entry -> Position.T
   val entry_origin: entry -> string
   val entry_identity: entry -> serial
+  val report_reference: Proof.context -> Position.T -> string -> entry -> unit
 
   val preflight_generated:
     {rust_name: string, rust_pos: Position.T, hol_type_name: string} ->
@@ -565,6 +567,10 @@ struct
   fun install_new base (entry: entry) lthy =
     let
       val _ =
+        URust_Import_Scope.check_item_collision lthy
+          {item = "Rust type", name = base, pos = #declaration_pos entry}
+          URust_Import_Scope.Type_Namespace
+      val _ =
         report_declaration lthy base
           (#declaration_pos entry) (#identity entry)
     in
@@ -704,6 +710,11 @@ struct
           (base, #declaration_pos entry))
     end
 
+  fun report_reference ctxt pos base (entry: entry) =
+    Navigation.defer_report ctxt pos
+      (Position.make_entity_markup {def = false}
+        (#identity entry) mappingN (base, #declaration_pos entry))
+
   datatype resolution_kind =
       Datatype_Fields
     | Function_Signature
@@ -719,6 +730,41 @@ struct
     | type_context Function_Signature = "function signatures"
     | type_context Alias_Declaration = "type aliases"
     | type_context Cast_Target = "cast targets"
+
+  (* A type-namespace import binds the first segment of a source type path. It is consulted after
+     generic parameters and before exact registry keys; the canonical prefix segments carry no
+     source position, so they receive no reports, while the alias occurrence keeps its generic
+     arguments on the canonical terminal segment. *)
+  fun imported_type_path ctxt kind rows =
+    (case rows of
+       [] => NONE
+     | (name, pos, arguments) :: rest =>
+         (case URust_Import_Scope.lookup ctxt URust_Import_Scope.Type_Namespace name of
+            NONE => NONE
+          | SOME binding =>
+              let
+                val _ =
+                  if null rest then ()
+                  else
+                    error
+                      (command_label kind ^ ": imported " ^ quote name ^ " (" ^
+                        quote (#key binding) ^ ") cannot qualify a Rust type path" ^
+                        Position.here pos)
+                val _ =
+                  if URust_Import_Scope.has_role binding URust_Import_Scope.Mapped_Type then ()
+                  else if URust_Import_Scope.has_role binding URust_Import_Scope.Enum_Variant then
+                    error
+                      (command_label kind ^ ": imported " ^ quote name ^
+                        " names the enum variant " ^ quote (#key binding) ^ ", not a type" ^
+                        Position.here pos)
+                  else
+                    error
+                      (command_label kind ^ ": imported " ^ quote name ^ " (" ^
+                        quote (#key binding) ^ ") is not a usable Rust type" ^
+                        Position.here pos)
+                val canonical = URust_Import_Scope.key_segments (#key binding)
+                val prefix = map (fn segment => (segment, Position.none, [])) (#1 (split_last canonical))
+              in SOME (prefix @ [(List.last canonical, pos, arguments)], (pos, binding)) end))
 
   fun positioned_result kind positions action =
     (case Exn.result action () of
@@ -787,19 +833,17 @@ struct
         " required by the urust_type mapping for " ^
         quote base ^ Position.here pos)
 
-  fun path_information segments =
-    let
-      fun one
-          (Rust_Type_Path_Segment
-            (name, pos, arguments, _)) =
-        (name, pos, the_default [] arguments)
-      val rows = map one segments
-    in
-      {base = space_implode "::" (map #1 rows),
-       positions = map #2 rows,
-       arities = map (length o #3) rows,
-       arguments = maps #3 rows}
-    end
+  fun path_rows segments =
+    map
+      (fn Rust_Type_Path_Segment (name, pos, arguments, _) =>
+        (name, pos, the_default [] arguments))
+      segments
+
+  fun row_information rows =
+    {base = space_implode "::" (map #1 rows),
+     positions = map #2 rows,
+     arities = map (length o #3) rows,
+     arguments = maps #3 rows}
 
   fun numeric_argument_position
       (Integer_Literal (_, layout, _)) =
@@ -886,7 +930,9 @@ struct
       fun resolve_nominal base positions arities arguments pos primitive =
         (case parameter base arities pos of
            SOME value => value
-         | NONE =>
+         | NONE => registry_nominal base positions arities arguments pos primitive)
+
+      and registry_nominal base positions arities arguments pos primitive =
              let
                val active = lookup ctxt base
                val _ = dependency base active pos
@@ -964,7 +1010,7 @@ struct
                {typ = result,
                 meaning = instantiate_meaning
                   (map (#meaning o fst) resolved_arguments) (#meaning entry)}
-             end)
+             end
 
       and resolve_type
           (Primitive_Type (primitive, pos)) =
@@ -972,11 +1018,24 @@ struct
               (rust_primitive_name primitive) [pos] [0] [] pos true
         | resolve_type (Path_Type (segments, layout)) =
             let
-              val {base, positions, arities, arguments} =
-                path_information segments
+              val rows = path_rows segments
+              val {base, positions, arities, arguments} = row_information rows
+              val pos = source_span layout
             in
-              resolve_nominal base positions arities arguments
-                (source_span layout) false
+              (case parameter base arities pos of
+                 SOME value => value
+               | NONE =>
+                   (case imported_type_path ctxt kind rows of
+                      SOME (canonical_rows, (alias_pos, binding)) =>
+                        let
+                          val {base, positions, arities, arguments} =
+                            row_information canonical_rows
+                          val value =
+                            registry_nominal base positions arities arguments pos false
+                          val _ = URust_Import_Scope.defer_use_reference ctxt alias_pos binding
+                        in value end
+                    | NONE =>
+                        registry_nominal base positions arities arguments pos false))
             end
         | resolve_type (Tuple_Type (types, layout)) =
             if length types < 2

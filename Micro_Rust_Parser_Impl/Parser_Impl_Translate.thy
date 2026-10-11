@@ -1,5 +1,7 @@
 theory Parser_Impl_Translate
-  imports Parser_Impl_Macros
+  imports
+    Parser_Impl_Macros
+    Parser_Impl_Imports
 begin
 
 section\<open> Expression elaboration \<close>
