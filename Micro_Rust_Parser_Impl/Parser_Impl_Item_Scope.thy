@@ -85,6 +85,7 @@ sig
   val report_type_definition: type_entry -> unit
   val report_constructor_definition: constructor_entry -> unit
   val report_field_definition: field_entry -> unit
+  val defer_field_definition: Proof.context -> field_entry -> unit
   val report_field_reference:
     Proof.context -> Position.T -> field_entry -> unit
   val report_function_reference:
@@ -328,25 +329,35 @@ struct
         {def = false} serial constructor_entity
         (rust_path, rust_pos))
 
-  fun report_type_definition
+  fun type_definition_markup
       ({rust_name, rust_pos, serial, ...}: type_entry) =
-    Position.report rust_pos
-      (Position.make_entity_markup
-        {def = true} serial type_entity (rust_name, rust_pos))
+    Position.make_entity_markup
+      {def = true} serial type_entity (rust_name, rust_pos)
 
-  fun report_constructor_definition
+  fun constructor_definition_markup
       ({rust_path, rust_pos, serial, ...}: constructor_entry) =
-    Position.report rust_pos
-      (Position.make_entity_markup
-        {def = true} serial constructor_entity
-        (rust_path, rust_pos))
+    Position.make_entity_markup
+      {def = true} serial constructor_entity
+      (rust_path, rust_pos)
 
-  fun report_field_definition
+  fun field_definition_markup
       (entry as {rust_pos, serial, ...}: field_entry) =
-    Position.report rust_pos
-      (Position.make_entity_markup
-        {def = true} serial field_entity
-        (field_entity_name entry, rust_pos))
+    Position.make_entity_markup
+      {def = true} serial field_entity
+      (field_entity_name entry, rust_pos)
+
+  fun report_type_definition (entry as {rust_pos, ...}: type_entry) =
+    Position.report rust_pos (type_definition_markup entry)
+
+  fun report_constructor_definition (entry as {rust_pos, ...}: constructor_entry) =
+    Position.report rust_pos (constructor_definition_markup entry)
+
+  fun report_field_definition (entry as {rust_pos, ...}: field_entry) =
+    Position.report rust_pos (field_definition_markup entry)
+
+  (* Registration reports join the enclosing declaration transaction, like reference reports. *)
+  fun defer_field_definition ctxt (entry as {rust_pos, ...}: field_entry) =
+    Micro_Rust_Semantic_Navigation.defer_report ctxt rust_pos (field_definition_markup entry)
 
   fun report_field_reference ctxt use_pos
       (entry as {rust_pos, serial, ...}: field_entry) =
@@ -509,12 +520,13 @@ struct
                    quote (#hol_type_name existing) ^
                    Position.here rust_pos))
       val _ =
-        Position.report rust_pos
+        Micro_Rust_Semantic_Navigation.defer_report lthy rust_pos
           (Name_Space.markup
             (Proof_Context.type_space lthy) hol_type_name)
-      val _ = Position.report rust_pos Markup.keyword3
+      val _ = Micro_Rust_Semantic_Navigation.defer_report lthy rust_pos Markup.keyword3
       val _ =
-        report_type_definition entry
+        Micro_Rust_Semantic_Navigation.defer_report lthy rust_pos
+          (type_definition_markup entry)
     in
       lthy
       |> Local_Theory.declaration
@@ -559,17 +571,18 @@ struct
                    quote rust_path ^
                    " is already mapped to a different HOL constructor" ^
                    Position.here rust_pos))
-      val _ = Position.report rust_pos Markup.keyword3
+      val _ = Micro_Rust_Semantic_Navigation.defer_report lthy rust_pos Markup.keyword3
       val _ =
         (case constructor of
            Const (name, _) =>
-             Position.report rust_pos
+             Micro_Rust_Semantic_Navigation.defer_report lthy rust_pos
                (Name_Space.markup
                  (Consts.space_of
                    (Proof_Context.consts_of lthy)) name)
          | _ => ())
       val _ =
-        report_constructor_definition entry
+        Micro_Rust_Semantic_Navigation.defer_report lthy rust_pos
+          (constructor_definition_markup entry)
     in
       lthy
       |> Local_Theory.declaration

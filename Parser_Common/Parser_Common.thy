@@ -154,6 +154,39 @@ struct
         ("invalid parser source slice [" ^ string_of_int left ^ ", " ^
           string_of_int right ^ ")")
 
+  (* The layout symbols covered by a symbol-counted source range. Offsets are matched against the
+     layout's own symbol positions, so escaped Isabelle symbols keep their raw slice boundaries. *)
+  fun range_source (layout : source_layout) range =
+    let
+      val count = symbol_count layout
+      fun symbol_offset index =
+        if index < count
+        then Position.offset_of (#2 (source_symbol layout index))
+        else Position.offset_of (eof_position layout)
+      fun locate offset =
+        let
+          fun search lo hi =
+            if lo >= hi then lo
+            else
+              let val mid = (lo + hi) div 2 in
+                (case symbol_offset mid of
+                   SOME actual =>
+                     if actual < offset then search (mid + 1) hi
+                     else search lo mid
+                 | NONE => error "parser source range: symbol without offset")
+              end
+          val index = search 0 count
+        in
+          if symbol_offset index = SOME offset then raw_start layout index
+          else error ("parser source range does not align with source symbols" ^
+            Position.here range)
+        end
+    in
+      (case (Position.offset_of range, Position.end_offset_of range) of
+         (SOME start, SOME stop) => source_slice layout (locate start) (locate stop)
+       | _ => error ("parser source range has no symbol offsets" ^ Position.here range))
+    end
+
   fun text_range pos_map (yypos, text) =
     let val start = fixed_pos pos_map yypos
     in Position.range (start, Position.symbol_explode text start) end

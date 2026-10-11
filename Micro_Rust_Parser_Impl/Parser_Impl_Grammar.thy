@@ -34,6 +34,10 @@ sig
   val cast_comparison_error: string -> Position.T -> 'a
   val item_in_expression_error:
     string -> string -> Position.T -> 'a
+  val annotation_unsupported_error: Position.T -> 'a
+  val annotation_member_error: Position.T -> 'a
+  val annotation_unterminated_error: Position.T -> 'a
+  val annotation_layout_error: string -> Position.T -> 'a
 end
 
 (*
@@ -68,6 +72,11 @@ end
       required \<tau> prefix.
     * item_in_expression_error kind command pos rejects an item declaration selected through the
       expression parser and directs the user to the corresponding item command.
+    * annotation_unsupported_error pos rejects an omega annotation outside chunk input, and
+      annotation_member_error pos rejects one inside a signature, field, variant or type list.
+      annotation_unterminated_error pos reports an unclosed annotation at its marker, and
+      annotation_layout_error detail pos reports a line-placement violation at the smallest
+      offending source span; detail completes the sentence that names the annotation.
 
   All exported failure functions have result type 'a because they always raise via error. Their
   exact string assembly and use of quote are implementation details, subject to the message and
@@ -136,6 +145,22 @@ struct
       ("uRust " ^ kind ^
         " declarations are not expressions; use " ^ command ^
         Position.here pos)
+
+  fun annotation_unsupported_error pos =
+    error
+      ("urust: \<omega> annotations are only supported before declarations of a urust chunk" ^
+        Position.here pos)
+
+  fun annotation_member_error pos =
+    error
+      ("urust: an \<omega> annotation must precede a complete fn, struct, or enum declaration; " ^
+        "fields, variants, parameters and types cannot be annotated" ^ Position.here pos)
+
+  fun annotation_unterminated_error pos =
+    error ("urust: unterminated \<omega> annotation" ^ Position.here pos)
+
+  fun annotation_layout_error detail pos =
+    error ("urust: an \<omega> annotation " ^ detail ^ Position.here pos)
 end
 \<close>
 SML_import \<open> structure URust_Grammar = URust_Grammar \<close>
@@ -209,6 +234,13 @@ val hol_type_open = ref (NONE : int option)
 val hol_type_start = ref 0
 val hol_type_depth = ref 0
 val pending_signature_tokens = ref ([] : lexresult list)
+
+(* Chunk input enables omega annotations. The lexer captures the balanced payload as positioned
+   source; the raw text around the cartouche decides line placement. *)
+val annotations_enabled = ref false
+val annotation_open = ref (NONE : int option)
+val annotation_opener = ref ""
+val annotation_depth = ref 0
 val signature_paren_depth = ref 0
 val signature_brace_depth = ref 0
 val signature_bracket_depth = ref 0
@@ -337,10 +369,13 @@ fun reset_hol_type () =
    hol_type_context := Initial_HOL_Type)
 fun reset_comment () =
   (comment_context := NONE; comment_open := 0; comment_depth := ~1)
+fun reset_annotation () =
+  (annotation_open := NONE; annotation_opener := ""; annotation_depth := 0)
+fun enable_annotations () = annotations_enabled := true
 fun reset_state () =
   (reset_aq (); reset_generic (); reset_log_data ();
    reset_block_comment (); reset_hol_type (); reset_comment ();
-   reset_cast_type ();
+   reset_cast_type (); reset_annotation (); annotations_enabled := false;
    pending_signature_tokens := []; signature_paren_depth := 0;
    signature_brace_depth := 0; signature_bracket_depth := 0;
    signature_context := Function_Signature)
@@ -768,7 +803,135 @@ fun finish_hol_type (close_pos, close_text) =
        in Tokens.HOLTYPE (body, token_start, token_stop) end
    | NONE => raise Fail "uRust lexer: missing HOL type opener")
 
-fun eof () =
+fun annotation_marker_position (yypos, yytext) =
+  source_position (yypos, hd (Symbol.explode yytext))
+
+fun start_annotation (args as (yypos, yytext)) =
+  if not (!annotations_enabled)
+  then URust_Grammar.annotation_unsupported_error (annotation_marker_position args)
+  else
+    let
+      val marker = hd (Symbol.explode yytext)
+      val _ = report_text (yypos, marker, Markup.literal, "ANNOTATION")
+      val _ =
+        report_text
+          (yypos + size marker, String.extract (yytext, size marker, NONE),
+           Markup.delimiter, "ANNOTATION")
+    in
+      annotation_open := SOME yypos; annotation_opener := yytext; annotation_depth := 1
+    end
+
+fun misplaced_annotation args =
+  if !annotations_enabled
+  then URust_Grammar.annotation_member_error (annotation_marker_position args)
+  else URust_Grammar.annotation_unsupported_error (annotation_marker_position args)
+
+(* The marker starts its own line and the closing delimiter ends it. The following line, without
+   intervening blank or comment lines, starts the declaration. All offsets index the raw source;
+   reported ranges come from the shared symbol-aware layout. *)
+fun check_annotation_placement opener open_pos stop =
+  let
+    val text = Parser_Lex_Util.text_of (!source_layout)
+    val length = size text
+    fun char_at index = String.sub (text, index)
+    fun is_space character =
+      character = #" " orelse character = #"\t" orelse character = #"\r"
+    fun skip_spaces index =
+      if index < length andalso is_space (char_at index)
+      then skip_spaces (index + 1) else index
+    fun starts_with index prefix =
+      index + size prefix <= length andalso
+        String.substring (text, index, size prefix) = prefix
+    fun starts_word index word =
+      starts_with index word andalso
+        (index + size word >= length orelse
+          not (Char.isAlphaNum (char_at (index + size word)) orelse
+            char_at (index + size word) = #"_" orelse
+            char_at (index + size word) = #"'"))
+    fun line_end index =
+      if index < length andalso char_at index <> #"\n"
+      then line_end (index + 1) else index
+    fun span index stop = source_position (index, String.substring (text, index, stop - index))
+    val annotation_span = span open_pos (open_pos + size opener)
+    fun reject detail pos = URust_Grammar.annotation_layout_error detail pos
+    fun preceding_space index =
+      index < 0 orelse char_at index = #"\n" orelse
+        (is_space (char_at index) andalso preceding_space (index - 1))
+    fun comment_opener index =
+      List.find (starts_with index) ["//", "/*", Symbol.comment]
+    fun check_declaration_line index =
+      if index >= length
+      then reject "must be followed by its declaration, not the end of input" annotation_span
+      else if char_at index = #"\n"
+      then reject "must immediately precede its declaration line; remove the blank line"
+        (span index (index + 1))
+      else if starts_with index opener
+      then reject "must be the only annotation of its declaration"
+        (span index (index + size opener))
+      else
+        (case comment_opener index of
+           SOME comment =>
+             reject
+               "must immediately precede its declaration line; put declaration comments before it"
+               (span index (index + size comment))
+         | NONE => ())
+    val after = skip_spaces stop
+    val _ =
+      if preceding_space (open_pos - 1) then ()
+      else reject "must start its own line" annotation_span
+  in
+    if after >= length
+    then reject "must be followed by its declaration, not the end of input" annotation_span
+    else if char_at after = #"\n"
+    then check_declaration_line (skip_spaces (after + 1))
+    else if starts_with after opener
+    then reject "must be the only annotation of its declaration"
+      (span after (after + size opener))
+    else if List.exists (starts_word after) ["fn", "struct", "enum", "type"] orelse
+        starts_with after "#"
+    then reject "must be on the line before its declaration, not on the same line"
+      (span after (line_end after))
+    else reject "must end its line; found trailing source" (span after (line_end after))
+  end
+
+fun finish_annotation (close_pos, close_text) =
+  (case !annotation_open of
+     SOME open_pos =>
+       let
+         val opener = !annotation_opener
+         val marker = hd (Symbol.explode opener)
+         val body_start = open_pos + size opener
+         val stop = close_pos + size close_text
+         val _ = check_annotation_placement opener open_pos stop
+         val payload =
+           if body_start = close_pos
+           then
+             Input.source true ""
+               (Position.range (fixed_pos body_start, fixed_pos close_pos))
+           else Parser_Lex_Util.source_slice (!source_layout) body_start close_pos
+         val marker_range as (token_start, _) =
+           Parser_Lex_Util.text_range (!source_layout) (open_pos, marker)
+         val open_range =
+           Parser_Lex_Util.text_range (!source_layout)
+             (open_pos + size marker, String.extract (opener, size marker, NONE))
+         val close_range as (_, token_stop) =
+           Parser_Lex_Util.text_range (!source_layout) (close_pos, close_text)
+         val _ =
+           report_text (close_pos, close_text, Markup.delimiter, "ANNOTATION")
+         val layout =
+           make_source_layout
+             (Position.range_position (token_start, token_stop))
+             [(Literal_Token, Position.range_position marker_range),
+              (Delimiter_Token Symbol.open_, Position.range_position open_range),
+              (Delimiter_Token Symbol.close, Position.range_position close_range)]
+         val _ = reset_annotation ()
+       in
+         Tokens.TANNOTATION
+           (Item_Annotation (payload, layout), token_start, token_stop)
+       end
+   | NONE => raise Fail "uRust lexer: missing annotation opener")
+
+fun source_eof () =
   (case !comment_context of
      SOME _ =>
        if !comment_depth < 0
@@ -794,10 +957,17 @@ fun eof () =
                                 URust_Grammar.turbofish_error pos))
                   | Value_AQ => URust_Grammar.antiquotation_error "value" (fixed_pos (!aq_open))
                   | Expr_AQ => URust_Grammar.antiquotation_error "expression" (fixed_pos (!aq_open))))))
+
+fun eof () =
+  (case !annotation_open of
+     SOME open_pos =>
+       URust_Grammar.annotation_unterminated_error
+         (annotation_marker_position (open_pos, !annotation_opener))
+   | NONE => source_eof ())
 \<close>
 lex_definitions\<open>
 %header (functor URustLexFun(structure Tokens: URust_TOKENS));
-%s VAQ EAQ GENERIC LOGDATA FNSIG BLOCK_COMMENT HOLTYPE COMMENT_OPEN COMMENT;
+%s VAQ EAQ GENERIC LOGDATA FNSIG BLOCK_COMMENT HOLTYPE COMMENT_OPEN COMMENT ANNOTATION;
 digit=[0-9];
 hexdigit=[0-9a-fA-F];
 idstart=[A-Za-z_];
@@ -922,6 +1092,8 @@ lex_rules\<open>
     (start_hol_type_token Initial_HOL_Type (yypos, yytext);
      YYBEGIN HOLTYPE;
      lex());
+<INITIAL>\\"<omega>"\\"<open>" =>
+    (start_annotation (yypos, yytext); YYBEGIN ANNOTATION; lex());
 <INITIAL>\\"<open>" =>
     (URust_Grammar.hol_type_prefix_error (fixed_pos yypos));
 <INITIAL>{idstart}{identchar}* => (tok_ident (yypos, yytext));
@@ -1082,6 +1254,8 @@ lex_rules\<open>
     (start_hol_type_token Signature_HOL_Type (yypos, yytext);
      YYBEGIN HOLTYPE;
      lex());
+<FNSIG>\\"<omega>"\\"<open>" =>
+    (misplaced_annotation (yypos, yytext));
 <FNSIG>\\"<open>" =>
     (URust_Grammar.hol_type_prefix_error (fixed_pos yypos));
 <FNSIG>"("      => (signature_left_paren (yypos, yytext));
@@ -1177,6 +1351,14 @@ lex_rules\<open>
        end);
 <HOLTYPE>\n => (lex());
 <HOLTYPE>.  => (lex());
+<ANNOTATION>\\"<open>" =>
+    (annotation_depth := !annotation_depth + 1; lex());
+<ANNOTATION>\\"<close>" =>
+    (if !annotation_depth > 1 then
+       (annotation_depth := !annotation_depth - 1; lex())
+     else (YYBEGIN INITIAL; finish_annotation (yypos, yytext)));
+<ANNOTATION>\n => (lex());
+<ANNOTATION>.  => (lex());
 <COMMENT_OPEN>\n       => (lex());
 <COMMENT_OPEN>{ws}+    => (lex());
 <COMMENT_OPEN>\\"<open>" =>
@@ -1569,8 +1751,14 @@ yacc_definitions\<open>
     | TTYPE
     | GLT of int | GGT of int
     | GHOLTYPE of string * Parser_Lex_Util.source_layout * int * int
+    | TCHUNKSTART
+    | TANNOTATION of URust_AST.item_annotation
 %nonterm ustart of URust_AST.parse_result option
        | uitem of URust_AST.urust_item
+       | uchunk_items of
+           (URust_AST.item_annotation option * URust_AST.urust_item * Position.T) list
+       | uchunk_item of
+           URust_AST.item_annotation option * URust_AST.urust_item * Position.T
        | udatatype of URust_AST.urust_datatype
        | ufunction of URust_AST.urust_function
        | utype_alias of URust_AST.urust_type_alias
@@ -1684,9 +1872,16 @@ yacc_rules\<open>
   ustart : TEXPRSTART ubody (SOME (Parsed_Expression ubody))
          | TEXPRSTART (NONE)
          | TITEMSTART uitem (SOME (Parsed_Item uitem))
+         | TCHUNKSTART uchunk_items (SOME (Parsed_Chunk (rev uchunk_items)))
+         | TCHUNKSTART (NONE)
   uitem : udatatype (Datatype_Item udatatype)
         | ufunction (Function_Item_Node ufunction)
         | utype_alias (Type_Alias_Item_Node utype_alias)
+  uchunk_items : uchunk_item ([uchunk_item])
+               | uchunk_items uchunk_item (uchunk_item :: uchunk_items)
+  uchunk_item : uitem ((NONE, uitem, spanning_position uitemleft uitemright))
+              | TANNOTATION uitem
+                  ((SOME TANNOTATION, uitem, spanning_position uitemleft uitemright))
   utype_alias :
       TTYPE IDENT ualias_parameters TEQ urust_type TSEMI
         (let
@@ -2936,6 +3131,8 @@ sig
     Proof.context -> Input.source -> URust_AST.rust_generic_argument
   val parse_type_alias_source:
     Proof.context -> Input.source -> URust_AST.urust_type_alias option
+  val parse_chunk_source:
+    Proof.context -> Input.source -> URust_AST.urust_chunk option
 end
 
 (*
@@ -2956,6 +3153,12 @@ end
       for value-bearing terminals), never by the generated ML-Yacc terminal name. The operation owns
       the shared parser lock for its complete lexer initialization and parser consumption, so callers
       cannot accidentally use the mutable generated runtime concurrently.
+    * parse_chunk_source ctxt source consumes the complete input as a source-ordered list of
+      items, each optionally preceded by an omega annotation on its own line. It returns NONE for
+      layout-only input. Every envelope receives the item's positioned source slice; a source
+      without symbol offsets is first given unreported synthetic offsets so the slices remain
+      defined. Only chunk input enables annotations in the lexer; the item kinds a chunk command
+      accepts and the meaning of annotation payloads are decided by the command layer.
 
   URUST_PARSER seals that one-operation interface. The generated URustLrVals and URustLex
   instantiations, Original and LrTable aliases,
@@ -3079,7 +3282,9 @@ struct
      (95, "TTYPE", "type"),
      (96, "GLT", "<"),
      (97, "GGT", ">"),
-     (98, "GHOLTYPE", "<HOL type>")]
+     (98, "GHOLTYPE", "<HOL type>"),
+     (99, "TCHUNKSTART", "<chunk input>"),
+     (100, "TANNOTATION", "<\<omega> annotation>")]
 
   val terminal_count = length terminal_specs
 
@@ -3140,7 +3345,7 @@ struct
       Original.EC.terms
 
   val value_bearing_terminal_ids =
-    [0, 1, 2, 3, 6, 7, 9, 10, 11, 12, 76, 78, 79, 80, 84, 85, 91, 92]
+    [0, 1, 2, 3, 6, 7, 9, 10, 11, 12, 76, 78, 79, 80, 84, 85, 91, 92, 100]
 
   val _ =
     List.app
@@ -3249,6 +3454,8 @@ struct
                ("urust_expr: expected a complete expression" ^
                  Position.here
                    (URust_AST.type_alias_item_position item))
+         | SOME (URust_AST.Parsed_Chunk _) =>
+             error "uRust parser: internal chunk result for expression input"
          | NONE => NONE)
       end)
 
@@ -3266,6 +3473,45 @@ struct
                ("uRust item parser: expected a complete item" ^
                  Position.here
                    (URust_AST.expression_position expression))
+         | SOME (URust_AST.Parsed_Chunk _) =>
+             error "uRust parser: internal chunk result for item input"
+         | NONE => NONE)
+      end)
+
+  fun parse_chunk_layout ctxt layout =
+    let
+      val _ = URustLex.UserDeclarations.set_layout layout ctxt
+      val _ = URustLex.UserDeclarations.enable_annotations ()
+    in
+      Parser_Lex_Util.parse_source_complete_with_layout
+          Source_Parser.parse
+          (make_mode_lexer URustLrVals.Tokens.TCHUNKSTART)
+          Source_Parser.Stream.get Source_Parser.sameToken
+          token_range URustLrVals.Tokens.EOF
+          "uRust chunk parser: trailing input after complete chunk"
+          layout
+    end
+
+  fun offset_source source =
+    if is_some (Position.offset_of (Input.pos_of source)) then source
+    else
+      Parser_Lex_Util.positioned_content_source (Input.text_of source)
+        (Position.make0 1 1 0 "" "" "")
+
+  fun parse_chunk_source ctxt original_source =
+    Parser_Lex_Util.with_parser_lock (fn () =>
+      let
+        val _ = report_source_language ctxt original_source
+        val source = offset_source original_source
+        val layout = Parser_Lex_Util.make_source_layout source
+        fun envelope (annotation, item, span) =
+          URust_AST.Annotated_Item
+            (annotation, item, Parser_Lex_Util.range_source layout span)
+      in
+        (case parse_chunk_layout ctxt layout of
+           SOME (URust_AST.Parsed_Chunk items) =>
+             SOME (URust_AST.URust_Chunk (map envelope items, source))
+         | SOME _ => error "uRust parser: internal non-chunk result for chunk input"
          | NONE => NONE)
       end)
 

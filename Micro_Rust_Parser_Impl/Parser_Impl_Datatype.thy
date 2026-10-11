@@ -23,7 +23,7 @@ ML\<open>
 signature URUST_DATATYPE =
 sig
   type rename = (string * Position.T) * (string * Position.T)
-  val define:
+  type declaration =
     {source: Input.source,
      explicit_binding: binding option,
      interactive: bool,
@@ -35,8 +35,10 @@ sig
      backend: string,
      word_width: int option,
      parameters: rename list,
-     plugins: Proof.context -> Plugin_Name.filter} ->
-    local_theory -> local_theory
+     plugins: Proof.context -> Plugin_Name.filter}
+  val declare:
+    declaration -> URust_AST.urust_datatype -> local_theory -> (unit -> unit) * local_theory
+  val define: declaration -> local_theory -> local_theory
 end
 
 structure URust_Datatype :> URUST_DATATYPE =
@@ -46,6 +48,19 @@ structure I = URust_Item_Scope
 structure Navigation = Micro_Rust_Semantic_Navigation
 
 type rename = (string * Position.T) * (string * Position.T)
+type declaration =
+  {source: Input.source,
+   explicit_binding: binding option,
+   interactive: bool,
+   verbosity: int,
+   pp_test: bool,
+   pretty: bool,
+   register_notation: bool,
+   renames: rename list,
+   backend: string,
+   word_width: int option,
+   parameters: rename list,
+   plugins: Proof.context -> Plugin_Name.filter}
 
 fun verbosity_output_enabled interactive lthy =
   interactive orelse Config.get lthy Proof_Display.show_results
@@ -860,16 +875,16 @@ fun report_generated_field_declarations lthy
                  (fn field => fn source_field =>
                    (case URust_Item_Scope.field_selector source_field of
                       Const (name, _) =>
-                        (Position.report
+                        (Navigation.defer_report lthy
                            (datatype_field_position field)
                            (Name_Space.markup
                              (Consts.space_of
                                (Proof_Context.consts_of lthy))
                              name);
-                         URust_Item_Scope.report_field_definition
+                         URust_Item_Scope.defer_field_definition lthy
                            source_field)
                     | _ =>
-                        URust_Item_Scope.report_field_definition
+                        URust_Item_Scope.defer_field_definition lthy
                           source_field))
                  fields aliases)
            end
@@ -1362,16 +1377,14 @@ fun finish_metadata selected source_parameters backend_parameters
    selector_definitions = selector_definitions,
    constructors = constructors, selectors = selectors, lenses = lenses, item = item}: generated_datatype
 
-fun define
-    {source, explicit_binding, interactive, verbosity,
-     pp_test, pretty, register_notation, renames, backend, word_width, parameters, plugins} lthy =
+(* The shared declaration operation for an already parsed item. Generation, registration and
+   semantic reports complete inside one navigation capture, which joins an enclosing command
+   capture. Successful result output is returned for the caller to emit after its transaction. *)
+fun declare
+    ({source, explicit_binding, interactive, verbosity,
+      pp_test, pretty, register_notation, renames, backend, word_width, parameters, plugins}
+      : declaration) source_item lthy =
   let
-    val source_item =
-      (case URust_Parser.parse_datatype_source lthy source of
-         SOME item => item
-       | NONE =>
-           positioned_datatype_error
-             "empty datatype item" (Input.pos_of source))
     val (descriptors, repr, discriminants, item) = case source_item of
       URust_AST.Datatype_Header (descriptors, repr, values, item) => (descriptors, repr, values, item)
     | item => ([], NONE, [], item)
@@ -1472,13 +1485,25 @@ fun define
           (generated, final_lthy, artifacts, pretty_declaration)
         end)
     val _ = Navigation.replay final_lthy type_reports
-    val _ =
+  in
+    (fn () =>
       print_generated_datatype interactive verbosity
         pretty_declaration
-        final_lthy artifacts
-  in
-    final_lthy
+        final_lthy artifacts,
+     final_lthy)
   end
+
+fun define (declaration as {source, ...}: declaration) lthy =
+  let
+    val source_item =
+      (case URust_Parser.parse_datatype_source lthy source of
+         SOME item => item
+       | NONE =>
+           positioned_datatype_error
+             "empty datatype item" (Input.pos_of source))
+    val (output, lthy') = declare declaration source_item lthy
+    val _ = output ()
+  in lthy' end
 
 end
 \<close>

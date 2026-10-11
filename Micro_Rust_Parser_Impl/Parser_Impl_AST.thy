@@ -325,9 +325,27 @@ sig
   val function_parameter_position: function_parameter -> Position.T
   val rust_snake_case: string -> string
 
+  datatype item_annotation =
+    Item_Annotation of Input.source * source_layout
+  datatype annotated_item =
+    Annotated_Item of item_annotation option * urust_item * Input.source
+  datatype urust_chunk =
+    URust_Chunk of annotated_item list * Input.source
+
+  val item_position: urust_item -> Position.T
+  val annotation_payload: item_annotation -> Input.source
+  val annotation_source_layout: item_annotation -> source_layout
+  val annotation_position: item_annotation -> Position.T
+  val annotated_item_annotation: annotated_item -> item_annotation option
+  val annotated_item_item: annotated_item -> urust_item
+  val annotated_item_source: annotated_item -> Input.source
+  val chunk_items: urust_chunk -> annotated_item list
+  val chunk_source: urust_chunk -> Input.source
+
   datatype parse_result =
       Parsed_Expression of ur_expr
     | Parsed_Item of urust_item
+    | Parsed_Chunk of (item_annotation option * urust_item * Position.T) list
 
   val expression_position: ur_expr -> Position.T
   val expression_source_layout: ur_expr -> source_layout
@@ -444,6 +462,15 @@ end
     * urust_type_alias and Type_Alias_Item retain the declared item name, ordered positioned type
       parameters, positioned Rust RHS and complete layout. Type_Alias_Item_Node joins datatype and
       function items in the complete-item parser, before registry validation or installation.
+    * item_annotation, annotated_item and urust_chunk represent a complete source-ordered item
+      chunk. Item_Annotation retains the unresolved positioned option payload of one omega
+      annotation together with a layout whose Literal_Token and two Delimiter_Token entries locate
+      the marker and cartouche delimiters. Annotated_Item retains an optional annotation, the
+      unchanged item and that item's positioned source slice; URust_Chunk retains every envelope
+      in source order and the complete chunk source. Option values, bindings and attributes are
+      not part of the syntax. Parsed_Chunk is the grammar result, pairing each item with its
+      complete span (including a leading repr attribute) before the parser adapter attaches item
+      source slices; the grammar does not decide which item kinds a chunk command supports.
 
   Position.T fields identify the single token documented at each constructor. Composite expressions,
   patterns, places, repeat lengths, and arms instead carry source_layout values; integer and
@@ -1102,9 +1129,31 @@ struct
           String.str (ascii_lower character)
     in String.concat (map_index convert characters) end
 
+  datatype item_annotation =
+    Item_Annotation of Input.source * source_layout
+  datatype annotated_item =
+    Annotated_Item of item_annotation option * urust_item * Input.source
+  datatype urust_chunk =
+    URust_Chunk of annotated_item list * Input.source
+
+  fun item_position (Datatype_Item item) = datatype_item_position item
+    | item_position (Function_Item_Node function) = function_item_position function
+    | item_position (Type_Alias_Item_Node item) = type_alias_item_position item
+
+  fun annotation_payload (Item_Annotation (payload, _)) = payload
+  fun annotation_source_layout (Item_Annotation (_, layout)) = layout
+  fun annotation_position annotation =
+    source_span (annotation_source_layout annotation)
+  fun annotated_item_annotation (Annotated_Item (annotation, _, _)) = annotation
+  fun annotated_item_item (Annotated_Item (_, item, _)) = item
+  fun annotated_item_source (Annotated_Item (_, _, source)) = source
+  fun chunk_items (URust_Chunk (items, _)) = items
+  fun chunk_source (URust_Chunk (_, source)) = source
+
   datatype parse_result =
       Parsed_Expression of ur_expr
     | Parsed_Item of urust_item
+    | Parsed_Chunk of (item_annotation option * urust_item * Position.T) list
 
   fun expression_source_layout (UE_Unit layout) = layout
     | expression_source_layout (UE_Tuple (_, layout)) = layout

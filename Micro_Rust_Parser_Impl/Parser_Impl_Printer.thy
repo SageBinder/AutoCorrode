@@ -46,6 +46,13 @@ sig
     options -> URust_AST.urust_function -> string
   val string_of_type_alias:
     options -> URust_AST.urust_type_alias -> string
+  val tokens_of_annotated_item:
+    options -> URust_AST.annotated_item -> token list
+  val tokens_of_chunk: options -> URust_AST.urust_chunk -> token list
+  val pretty_chunk: options -> URust_AST.urust_chunk -> Pretty.T
+  val string_of_annotated_item:
+    options -> URust_AST.annotated_item -> string
+  val string_of_chunk: options -> URust_AST.urust_chunk -> string
 end
 
 signature URUST_PRINTER_DOCUMENT =
@@ -1560,6 +1567,36 @@ fun events_of_type_alias options (Generic_Type_Alias (parameters, item)) =
        space @ delimiter "=" @ space @ rust_type_document rhs @ delimiter ";")
   end
 
+(* A chunk prints each annotation verbatim on the line before its item, so serialized output and
+   its reparse retain every declaration choice. Items are separated by one blank line. *)
+fun annotation_document annotation =
+  let
+    val payload = Input.string_of (annotation_payload annotation)
+    val _ =
+      if forall Symbol.is_blank (Symbol.explode payload)
+      then malformed "empty \<omega> annotation payload"
+      else ()
+  in
+    lexeme Embedded_Role "\<omega>" @ delimiter "\<open>" @ embedded payload @
+    delimiter "\<close>" @ line
+  end
+
+fun item_document options (Datatype_Item item) = events_of_datatype options item
+  | item_document options (Function_Item_Node function) = events_of_function options function
+  | item_document options (Type_Alias_Item_Node item) = events_of_type_alias options item
+
+fun events_of_annotated_item options item =
+  (case annotated_item_annotation item of
+     NONE => []
+   | SOME annotation => annotation_document annotation) @
+  item_document options (annotated_item_item item)
+
+fun events_of_chunk options chunk =
+  (case chunk_items chunk of
+     [] => malformed "empty chunk"
+   | items =>
+       flat (separate (line @ line) (map (events_of_annotated_item options) items)))
+
 fun lexical_pretty Keyword_Role text =
       Pretty.mark_str (Markup.keyword1, text)
   | lexical_pretty Operator_Role text =
@@ -1647,6 +1684,12 @@ fun document_of_function options function =
 
 fun document_of_type_alias options item =
   finalize_document (events_of_type_alias options item)
+
+fun document_of_annotated_item options item =
+  finalize_document (events_of_annotated_item options item)
+
+fun document_of_chunk options chunk =
+  finalize_document (events_of_chunk options chunk)
 
 fun document_tokens (Document {tokens, ...}) = tokens
 fun probe_text (Document {probe_text, ...}) = probe_text
@@ -1752,6 +1795,24 @@ fun string_of_function options =
 
 fun string_of_type_alias options =
   pretty_type_alias options #>
+  Pretty.string_of_ops (Pretty.pure_output_ops (SOME 80))
+
+fun tokens_of_annotated_item options item =
+  document_tokens (document_of_annotated_item options item)
+
+fun tokens_of_chunk options chunk =
+  document_tokens (document_of_chunk options chunk)
+
+fun pretty_chunk options chunk =
+  render_document default_lexeme (document_of_chunk options chunk)
+
+fun string_of_annotated_item options =
+  document_of_annotated_item options #>
+  render_document default_lexeme #>
+  Pretty.string_of_ops (Pretty.pure_output_ops (SOME 80))
+
+fun string_of_chunk options =
+  pretty_chunk options #>
   Pretty.string_of_ops (Pretty.pure_output_ops (SOME 80))
 end
 
