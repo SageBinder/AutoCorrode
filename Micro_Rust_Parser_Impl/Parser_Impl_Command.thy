@@ -172,6 +172,23 @@ imports. They share the type-mapping namespace, capture dependencies at declarat
 inferred generic sorts. Signatures, datatype fields and cast targets all expand them.
 Semantic declaration and dependency navigation reports wait until successful installation.
 
+The chunk surface is \<open>urust [OPTIONS] src\<close>, whose cartouche contains a nonempty source-ordered
+list of complete \<open>fn\<close>, \<open>struct\<close> and \<open>enum\<close> items. An optional annotation
+\<open>\<omega>\<open>OPTION, OPTION = VALUE, ...\<close>\<close> occupies its own line or lines immediately before the line
+on which its item starts. Its payload uses the entry syntax of the bracketed lists with the
+function or datatype schema of the single-item commands, plus the positioned HOL binding
+\<open>name\<close>; functions also accept \<open>name = _\<close> to check without installing anything. The outer
+list accepts only \<open>pp_test\<close>, \<open>pretty\<close>, \<open>verbosity\<close> and \<open>register_notation\<close>.
+Annotation entries replace outer defaults, which replace scoped configurations; configurations
+are never changed. The whole chunk parses, and every member and annotation is validated, before
+the first declaration. Members then use the same parsed-item operations as \<open>urust_fn\<close> and
+\<open>urust_datatype\<close>, each in the context that the next command of the equivalent single-item
+sequence would receive, so earlier items are available to later ones and forward references are
+not resolved. uRust semantic reports and successful output are buffered for the whole command and
+released in source order only after every member succeeds; any failure rejects the command.
+Type alias items are rejected as chunk members. With \<open>pp_test\<close>, each member's annotation and
+item roundtrip through the serialized chunk printer before any declaration.
+
 The option parser is parameterized by a command-specific schema. Both commands accept Boolean
 \<open>pp_test\<close>, \<open>pretty\<close>, \<open>application_def\<close>, and \<open>abbrev\<close>, integer
 \<open>verbosity\<close>, and attribute-list \<open>attrs\<close>. The configuration-backed short names are

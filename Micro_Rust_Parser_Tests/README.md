@@ -12,7 +12,23 @@ Function declarations take one complete Rust item:
 ```isabelle
 urust_expr [OPTIONS] NAME [:: TYPE] [(ARG, ...)] ‹ body ›
 urust_fn [OPTIONS] [HOL_NAME|_] ‹ fn RustName(PARAMETER: RUST_TYPE, ...) [-> RUST_TYPE] { body } ›
+urust [OPTIONS] ‹ [ω‹OPTIONS›] ITEM ... ›
 ```
+
+The plain `urust` command declares a nonempty source-ordered chunk of complete `fn`, `struct` and
+`enum` items. An optional `ω‹OPTION, OPTION = VALUE, …›` annotation occupies its own line or lines
+immediately before the line on which its item starts. Its payload uses the bracketed-list entry
+syntax with the item's single-item schema plus the HOL binding `name` (`name = _` checks a function
+without installing anything; datatypes reject `_`). The outer list accepts only `pp_test`,
+`pretty`, `verbosity` and `register_notation`; annotation entries replace outer defaults, which
+replace scoped configurations. The whole chunk parses and every annotation is validated before
+the first declaration. Members use the same parsed-item operations as `urust_fn` and
+`urust_datatype`, each in the context the next single-item command would receive, so earlier
+items are available to later ones and forward references are not resolved. uRust semantic reports
+and successful output are released in source order only after every member succeeds; any failure
+rejects the whole command. Type alias items are rejected as chunk members. Isabelle's own
+name-space definition markup and native backend output (such as code-generator constant listings)
+are emitted while declarations run, as for the single-item commands.
 
 The expression argument list is optional, may be empty, and accepts one trailing comma. Arguments are
 allocated as typed lexical locals before body elaboration. They therefore shadow existing
@@ -310,6 +326,15 @@ negative rows preserve these boundaries.
   diagnostics, and command output. Declaration-local `renames` coverage checks selector and
   constructor identities, short-name binder hygiene, source aliases and metadata, effective-name
   collisions, quoted-list syntax, positioned recovery, and read-only pretty replay.
+- `Parser_Chunk_Tests.thy`: the declaration-first `urust` reading entry point: mixed and
+  one-item chunks, every item shape and layout transition, outer defaults and annotation overrides,
+  every option kind, earlier declarations in later items, locale interpretation and experiment
+  confinement, with single-item controls and kernel equalities.
+- `Parser_Chunk_Regression_Tests.thy`: chunk ASTs, envelope slices and serialized roundtrips,
+  annotation placement and lexer-state recovery, outer/annotation option diagnostics, three-level
+  precedence and source-order output, equivalence with single-item artifacts and markup, atomic
+  last-item failures with absence audits, escaped-symbol positions, independent type environments,
+  read-only pretty replay and a moderately sized chunk.
 - `Parser_Datatype_Composition_Tests.thy`: complete generic and const mappings through aliases,
   typed receivers and function channels, default direct/method calls, constructor and field
   renames, native backend artifacts and plugins, locale confinement, and read-only combined replay.
@@ -317,7 +342,8 @@ negative rows preserve these boundaries.
   ASTs, and generated-function turbofish boundaries prevent silent argument truncation.
 - `Parser_Printer_Tests.thy`: serialized and human-readable expression and datatype printing,
   canonicalization, layout, positions, and malformed-AST diagnostics.
-- `Parser_Showcase_Tests.thy`: combined command, grammar, matching, array-repeat, and iterator examples.
+- `Parser_Showcase_Tests.thy`: combined command, chunk, grammar, matching, array-repeat, and iterator
+  examples.
 
 Shared declaration-only setup lives in `Parser_Iterator_Fixtures.thy`,
 `Parser_Registered_Constructor_Fixtures.thy`, `Parser_Cast_Alias_Fixtures.thy`, and the four

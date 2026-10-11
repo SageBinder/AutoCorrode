@@ -211,6 +211,42 @@ urust_expr showoff_datatype_items
     }
   \<close>
 
+subsection\<open> Source-ordered chunks \<close>
+
+text\<open>
+A plain \<open>urust\<close> chunk declares several complete items in source order through the same
+operations as the single-item commands, so later items use earlier types, constructors, fields
+and functions. An \<open>\<omega>\<close> annotation on the line before an item supplies that item's options,
+including its HOL name; the outer list supplies defaults shared by every item.
+\<close>
+
+urust [verbosity = 1] \<open>
+  \<omega>\<open>renames = ["sampleCount" \<rightarrow> "sample_count"]\<close>
+  struct ShowcaseReading { sampleCount: u32, ready: bool }
+
+  \<omega>\<open>name = "showcase_signal", verbosity = 2\<close>
+  enum ShowcaseSignal { Quiet, Loud(u32) }
+
+  \<omega>\<open>application_def, verbosity = 2\<close>
+  fn ShowcaseLevel(reading: ShowcaseReading, signal: ShowcaseSignal) -> u32 {
+    match signal {
+      ShowcaseSignal::Quiet => 0,
+      ShowcaseSignal::Loud(gain) => if reading.ready { reading.sampleCount * gain } else { gain },
+    }
+  }
+
+  \<omega>\<open>abbrev, register_notation = false\<close>
+  fn ShowcaseDouble(value: u32) -> u32 { value + value }
+
+  fn ShowcaseDoubledLevel(reading: ShowcaseReading) -> u32 {
+    ShowcaseLevel(reading, ShowcaseSignal::Loud(2))
+  }
+\<close>
+
+thm showcase_level_def showcase_doubled_level_def
+term \<open>showcase_reading.sample_count\<close>
+term \<open>showcase_double\<close>
+
 subsection\<open> Pretty declaration output \<close>
 
 text\<open>

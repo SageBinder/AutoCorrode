@@ -820,7 +820,15 @@ local
      ("self-call", "  fn AtomicSelf(value: u32) -> u32 { AtomicSelf(value) }\n",
        ["unresolved body name \"AtomicSelf\""]),
      ("recursive-datatype", "  struct AtomicNode { next: AtomicNode }\n",
-       ["recursive Rust datatype reference \"AtomicNode\" is not supported"])]
+       ["recursive Rust datatype reference \"AtomicNode\" is not supported"]),
+     ("existing-function", "  fn ChunkRegistered() {}\n",
+       ["Rust function path \"ChunkRegistered\" is already owned by a Rust function item"]),
+     ("existing-datatype", "  struct ChunkPacket { other: u32 }\n",
+       ["conflicting active mappings for \"ChunkPacket\""]),
+     ("rename-collision",
+       "  " ^ annotation "renames = [\"first\" \<rightarrow> \"atomic_pair_second\"]" ^
+         "\n  struct AtomicPair { first: u32, second: u32 }\n",
+       ["duplicate generated HOL field \"atomic_pair_second\""])]
   fun failing_case (label, failing, expected) =
     let
       val text = loud ^ "urust " ^ command_source (earlier ^ failing)

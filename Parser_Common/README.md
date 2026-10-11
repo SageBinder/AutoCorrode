@@ -3,7 +3,7 @@
 This session owns language-neutral support shared by Isabelle_Lex-Yacc frontends:
 
 - positioned source layouts and raw-offset-to-Isabelle-symbol mapping;
-- source ranges, slices, and positioned parser errors;
+- source ranges, raw-offset and range-addressed slices, and positioned parser errors;
 - token and PIDE reporting helpers;
 - serialized access to the mutable Isabelle_Lex-Yacc runtime;
 - parser drivers for repeated entry-point parsing and strict whole-input parsing.
