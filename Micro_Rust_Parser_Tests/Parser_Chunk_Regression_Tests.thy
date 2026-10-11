@@ -1538,6 +1538,35 @@ local
             (not (String.isSubstring "PrintedArgument" body) orelse
               length (constant_definitions text reports "PrintedArgument" 0) = 1))
     in () end
+  (* Input abbreviations print without a local hypothesis and carry the definition entity of
+     their installed constant at the Rust name. *)
+  val abbreviation = "  fn PrintedAbbrev(value: u32) -> u32 { value }"
+  val abbreviation_chunk =
+    "urust " ^ command_source ("  " ^ annotation "abbrev" ^ "\n" ^ abbreviation)
+  val abbreviation_single = "urust_fn [abbrev] " ^ command_source abbreviation
+  fun abbreviation_scenario label wrap body =
+    let
+      val text = prefix ^ wrap body
+      val {result, output, reports, ...} = capture true label \<^theory> text
+      val _ = result_context result
+      val printed = filter (String.isPrefix "abbreviation ") (authored_output output)
+      val _ =
+        require (label ^ " printed abbreviation changed:\n" ^ cat_lines printed)
+          (case printed of
+             [message] =>
+               String.isPrefix "abbreviation printed_abbrev:\nprinted_abbrev \<equiv> " message andalso
+                 not (String.isSubstring "[" message)
+           | _ => false)
+      val _ =
+        require (label ^ " lost the constant definition entity at the abbreviation name")
+          (length (constant_definitions text reports "PrintedAbbrev" 0) = 1)
+    in () end
+  val _ = abbreviation_scenario "abbreviation-theory-chunk" I abbreviation_chunk
+  val _ = abbreviation_scenario "abbreviation-theory-single" I abbreviation_single
+  val _ = abbreviation_scenario "abbreviation-locale-chunk" in_locale abbreviation_chunk
+  val _ = abbreviation_scenario "abbreviation-locale-single" in_locale abbreviation_single
+  val _ = abbreviation_scenario "abbreviation-context-chunk" in_context abbreviation_chunk
+  val _ = abbreviation_scenario "abbreviation-context-single" in_context abbreviation_single
   val _ = scenario "printed-theory-chunk" I chunk
   val _ = scenario "printed-theory-single" I single
   val _ = scenario "printed-locale-chunk" in_locale chunk

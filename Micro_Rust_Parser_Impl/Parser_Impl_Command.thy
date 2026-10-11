@@ -1023,7 +1023,10 @@ fun result_definitions lthy binding declaration =
     (case declaration of
        Definition_Result {lhs, ...} =>
          [(consts, declaration_name (Local_Theory.full_name lthy binding) lhs)]
-     | Abbreviation_Result {name, ...} => [(consts, name)]
+     | Abbreviation_Result {name, ...} =>
+         (* The backend-local head need not name the installed constant; the binding's full
+            name in the returned context does. *)
+         map (pair consts) (distinct (op =) [Local_Theory.full_name lthy binding, name])
      | Anonymous_Result _ => [])
   end
 
