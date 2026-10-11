@@ -38,6 +38,7 @@ sig
      plugins: Proof.context -> Plugin_Name.filter}
   type prepared
   val prepare: declaration -> URust_AST.urust_datatype -> local_theory -> prepared
+  val prepared_registrations: Proof.context -> prepared -> URust_Imports.registrations
   val declare_prepared: prepared -> local_theory -> (unit -> unit) * local_theory
   val declare:
     declaration -> URust_AST.urust_datatype -> local_theory -> (unit -> unit) * local_theory
@@ -678,6 +679,12 @@ fun custom_enum_selectors type_binding constructors case_const case_thms specifi
     val (rows, lthy') = fold_map variant (map_index I specifications) lthy
   in ((map (map_filter fst) rows, maps (map_filter snd) rows), lthy') end
 
+(* The plugins of the native simple_word_enum backend. The common registry owns source constructor
+   names, so the urust_notation plugin never runs; conversion plugins use the original Rust type
+   name, independently of HOL constructor renames. *)
+fun native_plugins plugins ctxt name =
+  plugins ctxt name andalso name <> \<^plugin>\<open>urust_notation\<close>
+
 fun make_native_enum backend plugins width values renames backend_parameters resolved_types
     rust_name variants type_binding item lthy =
   let
@@ -705,13 +712,9 @@ fun make_native_enum backend plugins width values renames backend_parameters res
       let
         val variant_specs = map2 (fn (((_, binding), _), _) => fn value =>
           (binding, string_of_int value)) specifications values
-        (* The common registry owns source constructor names; conversion plugins still use
-           the original Rust type name, independently of HOL constructor renames. *)
-        fun native_plugins ctxt name =
-          plugins ctxt name andalso name <> \<^plugin>\<open>urust_notation\<close>
         val (info, lthy') = Simple_Word_Enum.simple_word_enum_core_parameters backend_parameters
           {timer = Simple_Word_Enum.new_timer false, report = false}
-          (native_plugins, the width, type_binding, SOME rust_name, variant_specs) lthy
+          (native_plugins plugins, the width, type_binding, SOME rust_name, variant_specs) lthy
       in (native_datatype_info backend backend_parameters rust_name type_binding item
         (#absT info) (#variant_consts info) (replicate (length variants) []) [] lthy', lthy') end
   end
@@ -1457,6 +1460,34 @@ fun artifact_definitions lthy
    run in invisible backend contexts within one report transaction, which joins an enclosing
    command transaction; authored definition entities are regenerated afterwards. Successful
    result output is returned for the caller to emit after its transaction. *)
+(* The registrations that declaring a prepared item makes, from the same constructor descriptors,
+   backend selection and plugin filter as declaration: the item type and its declaration mapping,
+   every constructor, and, for the native simple_word_enum backend with the urust_conversion plugin,
+   the conversion call notations that plugin registers. A backend selection that the declaration
+   will reject contributes no conversions; the declaration reports the error in its own order. *)
+fun prepared_registrations ctxt
+    ({declaration = {backend, word_width, plugins, ...}, item, rust_name, repr, discriminants,
+      ...}: prepared) : URust_Imports.registrations =
+  let
+    val conversions =
+      (case try (select_backend backend word_width repr discriminants) item of
+         SOME ("simple_word_enum", SOME width, _) =>
+           if native_plugins plugins ctxt \<^plugin>\<open>urust_conversion\<close>
+           then Simple_Word_Enum_uRust.conversion_rust_names rust_name width
+           else []
+       | _ => [])
+    val generated_struct = (case item of URust_AST.Struct_Item _ => true | _ => false)
+  in
+    {item_types = [(rust_name, generated_struct)],
+     type_mappings = [rust_name],
+     constructors =
+       map (fn (rust_path, _, origin, shape) => (rust_path, origin, scope_constructor_shape shape))
+         (item_constructor_descriptors item),
+     functions = [],
+     literal_notations = [],
+     call_notations = conversions}
+  end
+
 fun declare_prepared
     ({declaration =
         {interactive, verbosity, pretty, register_notation, parameters, plugins, backend,

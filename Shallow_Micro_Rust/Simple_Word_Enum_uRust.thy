@@ -86,6 +86,12 @@ fun register_notation kind rust_name t =
   Local_Theory.declaration {pervasive = false, syntax = true, pos = \<^here>}
     (fn phi => Micro_Rust_Names.register kind rust_name (Morphism.term phi t) \<^here>)
 
+(* The call paths under which the urust_conversion plugin registers the conversion functions of
+   an enum with the given uRust name and word width, in this order: `Name::to_uN`, then
+   `Name::try_from`. Callers that predict the plugin's registrations use the same paths. *)
+fun conversion_rust_names enum_name width =
+  [enum_name ^ "::to_u" ^ string_of_int width, enum_name ^ "::try_from"]
+
 end
 \<close>
 
@@ -233,8 +239,9 @@ fun generate_urust_conversion (info: Simple_Word_Enum.enum_info) lthy =
         (* Registered as `call`: these are function_body-valued, which is what the function
            kind is for. Rust spells them `T::to_uN()` / `T::try_from()`. *)
         val registrations =
-          [(enum_name ^ "::to_" ^ uN, to_const, to_name),
-           (enum_name ^ "::try_from", from_const, from_name)]
+          map2 (fn rust_name => fn (c, hol_name) => (rust_name, c, hol_name))
+            (Simple_Word_Enum_uRust.conversion_rust_names enum_name width)
+            [(to_const, to_name), (from_const, from_name)]
         val lthy = phase "urust_conversion_notation" (fn () =>
           fold (fn (rust_name, c, _) =>
             Simple_Word_Enum_uRust.register_notation Micro_Rust_Names.NFunction rust_name c)

@@ -45,6 +45,7 @@ sig
   val has_role: binding -> role -> bool
   val describe: binding -> string
   val require_available: Position.T -> binding -> unit
+  val unavailable_use_error: Position.T -> binding -> string -> 'a
 
   val lookup: Proof.context -> namespace -> string -> binding option
   val lookup_persistent: Proof.context -> namespace -> string -> binding option
@@ -54,6 +55,8 @@ sig
 
   val check_batch: binding list -> unit
   val push_frame: binding list -> Proof.context -> Proof.context
+  val add_pending_roles: (binding * role list) list -> Proof.context -> Proof.context
+  val pending_roles: Proof.context -> binding -> role list
   val check_persistent_duplicates: Proof.context -> binding list -> unit
   val declare_persistent: binding list -> local_theory -> local_theory
   val merge_persistent: binding list * binding list -> binding list
@@ -100,6 +103,10 @@ end
     bindings are not compared, because their namespaces are not known yet. push_frame returns a
     derived context with one immutable block frame, in which an available binding takes its
     namespace from an unavailable one; frames are proof data and never enter theory data.
+    add_pending_roles records, beside a frame, the roles that a declaration still to be made adds
+    to the target of an available binding in its namespace; pending_roles returns them (none for
+    persistent bindings). unavailable_use_error rejects a use that needs such a role, naming the
+    use, without fallback.
   - check_persistent_duplicates applies the same rule against the active persistent bindings.
     declare_persistent installs bindings through a non-pervasive local-theory declaration, so theory
     imports inherit them and locales, experiments and interpretations use native confinement and
@@ -189,6 +196,11 @@ struct
         ("uRust import: import target " ^ quote key ^ " of " ^ quote alias ^
           " is not yet available" ^ Position.here pos)
 
+  fun unavailable_use_error pos ({alias, key, ...}: binding) use =
+    error
+      ("uRust import: import target " ^ quote key ^ " of " ^ quote alias ^
+        " is not yet available as " ^ use ^ Position.here pos)
+
   fun table_key namespace alias = namespace_name namespace ^ "\000" ^ alias
 
   fun same_target (left: binding, right: binding) =
@@ -266,6 +278,22 @@ struct
              | SOME earlier => duplicate_error earlier binding)
           end)
         (filter #available bindings) Symtab.empty)
+
+  (* Keyed by import identity and namespace; derived like frames and never stored in theories. *)
+  structure Pending = Proof_Data
+  (
+    type T = role list Symtab.table
+    fun init _ = Symtab.empty
+  )
+
+  fun pending_key ({identity, namespace, ...}: binding) =
+    string_of_int identity ^ "\000" ^ namespace_name namespace
+
+  fun add_pending_roles entries =
+    Pending.map (fold (fn (binding, roles) => Symtab.update (pending_key binding, roles)) entries)
+
+  fun pending_roles ctxt binding =
+    the_default [] (Symtab.lookup (Pending.get ctxt) (pending_key binding))
 
   fun push_frame bindings ctxt =
     let

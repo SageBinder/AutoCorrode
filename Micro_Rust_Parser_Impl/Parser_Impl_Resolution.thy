@@ -981,11 +981,20 @@ struct
   fun report_import_use ctxt ({binding, occurrence, ...}: import_route) =
     S.defer_use_reference ctxt occurrence binding
 
-  fun unusable_import role ({binding, canonical, occurrence}: import_route) =
-    error
-      ("urust_expr: imported name " ^ quote (#alias binding) ^ " resolves to " ^
-        quote (render_path (item_lookup_path canonical)) ^ ", which cannot be used as " ^ role ^
-        Position.here occurrence)
+  (* The roles that make a target usable in each import use. A use that its target supports only
+     once a later declaration adds one of them reports that declaration as unavailable. *)
+  val call_import_roles = [S.Generated_Function, S.Generated_Constructor, S.Call_Notation]
+  val value_import_roles = [S.Generated_Constructor, S.Literal_Notation]
+  val repeat_length_import_roles = [S.Literal_Notation]
+
+  fun unusable_import ctxt usable role ({binding, canonical, occurrence}: import_route) =
+    if exists (member (op =) usable) (S.pending_roles ctxt binding) then
+      S.unavailable_use_error occurrence binding role
+    else
+      error
+        ("urust_expr: imported name " ^ quote (#alias binding) ^ " resolves to " ^
+          quote (render_path (item_lookup_path canonical)) ^ ", which cannot be used as " ^ role ^
+          Position.here occurrence)
 
   fun qualified_registration_error kind path displayed_name pos =
     error
@@ -1122,7 +1131,8 @@ struct
          SOME (route as {canonical, ...}) =>
            (case exact_registered_path ctxt Micro_Rust_Names.NLiteral canonical of
               SOME registered => (report_import_use ctxt route; registered)
-            | NONE => unusable_import "an array repeat length" route)
+            | NONE =>
+                unusable_import ctxt repeat_length_import_roles "an array repeat length" route)
        | NONE =>
       (case exact_registered_path ctxt Micro_Rust_Names.NLiteral path of
          SOME registered => registered
@@ -1144,7 +1154,7 @@ struct
          | NONE =>
              (case exact_registered_path ctxt Micro_Rust_Names.NLiteral canonical of
                 SOME registered => registered
-              | NONE => unusable_import "a value" route))
+              | NONE => unusable_import ctxt value_import_roles "a value" route))
       val _ = report_import_use ctxt route
     in value end
 
@@ -1332,13 +1342,13 @@ struct
                      SOME registered => registered
                    | NONE =>
                        (case segment_generic_args (final_segment canonical) of
-                          NONE => unusable_import role route
+                          NONE => unusable_import ctxt call_import_roles role route
                         | SOME arguments =>
                             (case exact_registered_path ctxt Micro_Rust_Names.NFunction
                                 (remove_final_generic_args canonical) of
                                SOME registered =>
                                  apply_generic_arguments ctxt environment registered (SOME arguments)
-                             | NONE => unusable_import role route)))))
+                             | NONE => unusable_import ctxt call_import_roles role route)))))
       val _ = report_import_use ctxt route
     in function end
 

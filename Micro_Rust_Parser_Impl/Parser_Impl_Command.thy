@@ -237,7 +237,7 @@ sig
       prepared_function
   val declare_prepared_function:
     prepared_function -> local_theory -> (unit -> unit) * local_theory
-  val prepared_function_registered: prepared_function -> bool
+  val prepared_function_registrations: prepared_function -> URust_Imports.registrations
   type prepared_datatype
   val prepare_datatype_item:
     local_theory ->
@@ -246,6 +246,8 @@ sig
       prepared_datatype
   val declare_prepared_datatype:
     prepared_datatype -> local_theory -> (unit -> unit) * local_theory
+  val prepared_datatype_registrations:
+    Proof.context -> prepared_datatype -> URust_Imports.registrations
 end
 
 (* THE expression pipeline, exported: every declaration command and programmatic client supplies an
@@ -1687,14 +1689,20 @@ fun declare_prepared_function
     (fn () => (warnings (); print_declaration interactive verbosity pretty lthy' result), lthy')
   end
 
+(* The registrations that declaring a prepared function makes, by the same decision as
+   declare_prepared_function: a named target with callable registration enabled installs its
+   Rust callable entry. *)
+fun prepared_function_registrations
+    (Prepared_Function {register_notation, target, function, ...}) : URust_Imports.registrations =
+  {item_types = [], type_mappings = [], constructors = [], literal_notations = [],
+   call_notations = [],
+   functions =
+     (case (register_notation, target) of
+        (true, Named_Target _) => [#1 (URust_AST.function_name function)]
+      | _ => [])}
+
 (* A complete single-declaration transaction: replay deferred reports, then print. A failing
    declaration releases its own queued markup with its error. *)
-(* Whether the declaration installs a Rust callable entry: a named target with callable
-   registration enabled. *)
-fun prepared_function_registered (Prepared_Function {register_notation, target, ...}) =
-  register_notation andalso
-    (case target of Named_Target _ => true | Anonymous_Target _ => false)
-
 fun run_declaration declaration lthy =
   let
     val ((output, completed), reports) =
@@ -1764,6 +1772,9 @@ fun datatype_declaration
 
 datatype prepared_datatype =
   Prepared_Datatype of URust_Datatype.prepared * (unit -> unit)
+
+fun prepared_datatype_registrations ctxt (Prepared_Datatype (prepared, _)) =
+  URust_Datatype.prepared_registrations ctxt prepared
 
 fun prepare_datatype lthy {interactive, roundtrip, options, explicit_binding, source, item} =
   let

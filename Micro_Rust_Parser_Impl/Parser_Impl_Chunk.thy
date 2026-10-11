@@ -114,14 +114,14 @@ fun declare_member (Function_Member prepared) = URust_Command.declare_prepared_f
 fun use_member (_, Use_Member item) = SOME item
   | use_member _ = NONE
 
-(* The registry entities a member contributes once declared. *)
-fun member_entities envelope member =
-  URust_Imports.item_entities
-    {registered_function =
-      (case member of
-         Function_Member prepared => URust_Command.prepared_function_registered prepared
-       | _ => false)}
-    (URust_AST.annotated_item_item envelope)
+(* The registry entities a member contributes once declared, as its declaration backend
+   decides them. *)
+fun member_entities ctxt member =
+  URust_Imports.registration_entities
+    (case member of
+       Function_Member prepared => URust_Command.prepared_function_registrations prepared
+     | Datatype_Member prepared => URust_Command.prepared_datatype_registrations ctxt prepared
+     | Use_Member _ => URust_Imports.no_registrations)
 
 fun first_differing_token_index left right =
   let
@@ -204,8 +204,8 @@ fun define (outer, source) interactive lthy =
              first declaration. *)
           val later_entities =
             fold_rev
-              (fn (envelope, (_, member)) => fn later =>
-                (member_entities envelope member @ (case later of [] => [] | next :: _ => next)) ::
+              (fn (_, (_, member)) => fn later =>
+                (member_entities lthy member @ (case later of [] => [] | next :: _ => next)) ::
                   later)
               declarations []
           (* Each declaration elaborates and declares in its member context extended with the

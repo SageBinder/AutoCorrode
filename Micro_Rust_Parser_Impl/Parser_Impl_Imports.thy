@@ -23,7 +23,17 @@ sig
   type batch
   type entity =
     {key: string, namespace: URust_Import_Scope.namespace, roles: URust_Import_Scope.role list}
-  val item_entities: {registered_function: bool} -> URust_AST.urust_item -> entity list
+  type registrations =
+    {item_types: (string * bool) list,
+     type_mappings: string list,
+     constructors:
+       (string * URust_Item_Scope.constructor_origin * URust_Item_Scope.constructor_shape) list,
+     functions: string list,
+     literal_notations: string list,
+     call_notations: string list}
+  val no_registrations: registrations
+  val registration_entities: registrations -> entity list
+  val installed_registrations: Proof.context -> string -> registrations
   datatype target_policy =
       Require_Targets
     | Allow_Unavailable_Targets
@@ -78,14 +88,19 @@ end
     reject without fallback; a target that exists but cannot be imported still rejects.
     Declared_Later entities is namespace precise: a target entity that is absent from the context
     but listed among the entities that will be declared binds an unavailable binding in that
-    namespace only, entities that exist keep resolving, and a target that neither exists nor is
-    listed is unknown, as under Require_Targets. Duplicates among available bindings are rejected
-    in every policy.
+    namespace only; an entity that exists keeps resolving, and the roles that a listed entity adds
+    to it are recorded as pending, so that a use requiring them reports the later declaration; a
+    target that neither exists nor is listed is unknown, as under Require_Targets. Under
+    Require_Targets and Declared_Later, a single-segment target that an enclosing import binds as
+    unavailable in one namespace is unavailable in that namespace only, and a target without any
+    available namespace is rejected as not yet available. Duplicates are rejected among the
+    bindings whose namespaces are known: available bindings in every policy and unavailable ones
+    except the both-namespace placeholders of Allow_Unavailable_Targets.
   - prepare_batch is the batch preparation operation shared by real blocks, implicit command bodies
     and composition: it returns the supplied context extended with one immutable frame, or the
     context itself for an empty batch. Blocks, bodies and persistent imports require targets; a
-    composer that re-prepares one validated batch for each declaration passes the item_entities
-    of the items still to be declared as Declared_Later (or, without that knowledge, allows
+    composer that re-prepares one validated batch for each declaration passes the entities of the
+    registrations still to be made as Declared_Later (or, without that knowledge, allows
     unavailable targets) and requires every target at the end. prepare_batch_unreported prepares
     the same frame without semantic reports; such a composer uses it for every preparation of the
     batch except the one that reports it. conclude_batch is that composer's final step: it
@@ -96,10 +111,13 @@ end
     capturing the canonical keys at installation.
   - same_scope_item finds the generated function or unit/tuple constructor (value namespace) or the
     Rust type (type namespace) whose single-segment key is a given name.
-  - item_entities lists the keys, namespaces and roles that one item will contribute to the
-    registries once declared, as registry_member derives them from the installed registrations:
-    a datatype its type, unit/tuple constructors and enum variants; a function its call key when
-    it is registered. Other items contribute none.
+  - registrations describes the entries one key has, or one declaration will make, in each source
+    registry: generated item types (and whether they are structs), type mappings, generated
+    constructors with their origin and shape, generated functions, and literal and call
+    notations. registration_entities is the single derivation of namespace memberships from them;
+    resolution applies it to installed_registrations, the entries a context holds for a key, and
+    a composer applies it to the registrations that its declaration backends report before
+    declaring.
 *)
 structure URust_Imports :> URUST_IMPORTS =
 struct
@@ -144,8 +162,9 @@ struct
 
   fun flatten item = flatten_tree [] (use_item_tree item)
 
-  (* An unavailable member stands for an entity that is declared later. *)
-  type member = {key: string, roles: S.role list, available: bool}
+  (* An unavailable member stands for an entity that is declared later; pending lists the roles
+     that later declarations add to an available member. *)
+  type member = {key: string, roles: S.role list, available: bool, pending: S.role list}
   type resolved = {type_member: member option, value_member: member option}
 
   fun member_of S.Type_Namespace ({type_member, ...}: resolved) = type_member
@@ -162,79 +181,115 @@ struct
          if I.constructor_origin entry = I.Enum_Variant then SOME entry else NONE
      | NONE => NONE)
 
-  fun registry_member ctxt key : resolved =
-    let
-      val type_roles =
-        (case I.lookup_type ctxt key of
-           SOME _ => [if generated_struct ctxt key then S.Generated_Struct else S.Generated_Enum]
-         | NONE => []) @
-        (if is_some (URust_Type_Mappings.lookup ctxt key) then [S.Mapped_Type] else []) @
-        (if is_some (variant_entry ctxt key) then [S.Enum_Variant] else [])
-      val value_roles =
-        (if is_some (I.lookup_function ctxt key) then [S.Generated_Function] else []) @
-        (case I.lookup_constructor ctxt key of
-           SOME entry =>
-             if I.constructor_shape entry = I.Named_Constructor then []
-             else [S.Generated_Constructor]
-         | NONE => []) @
-        (if null (Micro_Rust_Names.lookups ctxt Micro_Rust_Names.NLiteral key) then []
-         else [S.Literal_Notation]) @
-        (if null (Micro_Rust_Names.lookups ctxt Micro_Rust_Names.NFunction key) then []
-         else [S.Call_Notation])
-      fun member [] = NONE
-        | member roles = SOME {key = key, roles = roles, available = true}
-    in {type_member = member type_roles, value_member = member value_roles} end
+  type registrations =
+    {item_types: (string * bool) list,
+     type_mappings: string list,
+     constructors: (string * I.constructor_origin * I.constructor_shape) list,
+     functions: string list,
+     literal_notations: string list,
+     call_notations: string list}
+
+  val no_registrations: registrations =
+    {item_types = [], type_mappings = [], constructors = [], functions = [],
+     literal_notations = [], call_notations = []}
 
   type entity = {key: string, namespace: S.namespace, roles: S.role list}
 
-  fun item_entities {registered_function} item =
+  (* The single derivation of namespace memberships from registrations, for installed registry
+     entries and for the registrations a declaration will make alike. *)
+  fun registration_entities
+      ({item_types, type_mappings, constructors, functions, literal_notations, call_notations}:
+        registrations) =
     let
-      fun entity namespace roles key = {key = key, namespace = namespace, roles = roles}: entity
-      fun constructor_value _ (Named_Shape _) = []
-        | constructor_value key _ = [entity S.Value_Namespace [S.Generated_Constructor] key]
-      fun datatype_entities (Struct_Item (name, _, shape, _)) =
-            entity S.Type_Namespace [S.Generated_Struct, S.Mapped_Type] name ::
-              constructor_value name shape
-        | datatype_entities (Enum_Item (name, _, variants, _)) =
-            entity S.Type_Namespace [S.Generated_Enum, S.Mapped_Type] name ::
-              maps
-                (fn Datatype_Variant (variant, _, shape) =>
-                  let val key = name ^ "::" ^ variant
-                  in
-                    entity S.Type_Namespace [S.Enum_Variant] key :: constructor_value key shape
-                  end)
-                variants
-        | datatype_entities (Datatype_Header (_, _, _, item)) = datatype_entities item
+      fun type_roles key =
+        map_filter
+          (fn (other, generated_struct) =>
+            if other <> key then NONE
+            else if generated_struct then SOME S.Generated_Struct
+            else SOME S.Generated_Enum)
+          item_types @
+        (if member (op =) type_mappings key then [S.Mapped_Type] else []) @
+        (if exists (fn (other, origin, _) => other = key andalso origin = I.Enum_Variant)
+            constructors
+         then [S.Enum_Variant] else [])
+      fun value_roles key =
+        (if member (op =) functions key then [S.Generated_Function] else []) @
+        (if exists (fn (other, _, shape) => other = key andalso shape <> I.Named_Constructor)
+            constructors
+         then [S.Generated_Constructor] else []) @
+        (if member (op =) literal_notations key then [S.Literal_Notation] else []) @
+        (if member (op =) call_notations key then [S.Call_Notation] else [])
+      val keys =
+        distinct (op =)
+          (map #1 item_types @ type_mappings @ map #1 constructors @ functions @
+            literal_notations @ call_notations)
+      fun entities key =
+        map_filter
+          (fn (namespace, roles) =>
+            if null roles then NONE
+            else SOME ({key = key, namespace = namespace, roles = roles}: entity))
+          [(S.Type_Namespace, type_roles key), (S.Value_Namespace, value_roles key)]
+    in maps entities keys end
+
+  fun installed_registrations ctxt key : registrations =
+    let
+      fun when present = if present then [key] else []
     in
-      (case item of
-         Datatype_Item item => datatype_entities item
-       | Function_Item_Node function =>
-           if registered_function
-           then [entity S.Value_Namespace [S.Generated_Function] (#1 (function_name function))]
-           else []
-       | _ => [])
+      {item_types =
+         (case I.lookup_type ctxt key of
+            SOME _ => [(key, generated_struct ctxt key)]
+          | NONE => []),
+       type_mappings = when (is_some (URust_Type_Mappings.lookup ctxt key)),
+       constructors =
+         (case I.lookup_constructor ctxt key of
+            SOME entry => [(key, I.constructor_origin entry, I.constructor_shape entry)]
+          | NONE => []),
+       functions = when (is_some (I.lookup_function ctxt key)),
+       literal_notations =
+         when (not (null (Micro_Rust_Names.lookups ctxt Micro_Rust_Names.NLiteral key))),
+       call_notations =
+         when (not (null (Micro_Rust_Names.lookups ctxt Micro_Rust_Names.NFunction key)))}
     end
+
+  fun registry_member ctxt key : resolved =
+    let
+      val entities = registration_entities (installed_registrations ctxt key)
+      fun member namespace =
+        Option.map
+          (fn ({roles, ...}: entity) =>
+            {key = key, roles = roles, available = true, pending = []})
+          (find_first (fn entity => #namespace entity = namespace) entities)
+    in {type_member = member S.Type_Namespace, value_member = member S.Value_Namespace} end
 
   datatype target_policy =
       Require_Targets
     | Allow_Unavailable_Targets
     | Declared_Later of entity list
 
-  (* The registry members of a key, completed under Declared_Later by an unavailable member for
-     each namespace whose entity a later declaration introduces. *)
+  (* The registry members of a key, completed under Declared_Later from the entities that later
+     declarations introduce: an absent member becomes unavailable, and an available member records
+     the roles that a later declaration adds to it as pending. *)
   fun known_member policy ctxt key : resolved =
     let
       val registered = registry_member ctxt key
       fun declared namespace =
         (case policy of
            Declared_Later entities =>
-             Option.map
-               (fn ({roles, ...}: entity) => {key = key, roles = roles, available = false})
+             Option.map #roles
                (find_first
                  (fn entity => #key entity = key andalso #namespace entity = namespace) entities)
          | _ => NONE)
-      fun slot _ (SOME member) = SOME member
-        | slot namespace NONE = declared namespace
+      fun slot namespace (SOME (existing: member)) =
+            (case declared namespace of
+               SOME roles =>
+                 SOME
+                   {key = key, roles = #roles existing, available = true,
+                    pending = subtract (op =) (#roles existing) roles}
+             | NONE => SOME existing)
+        | slot namespace NONE =
+            Option.map
+              (fn roles => {key = key, roles = roles, available = false, pending = []})
+              (declared namespace)
     in
       {type_member = slot S.Type_Namespace (#type_member registered),
        value_member = slot S.Value_Namespace (#value_member registered)}
@@ -338,8 +393,12 @@ struct
   datatype outcome = Available of resolved | Unavailable
   datatype state = Unresolved | Active | Done of outcome
 
-  fun binding_member (binding: S.binding) =
-    {key = #key binding, roles = #roles binding, available = #available binding}
+  fun binding_member ctxt (binding: S.binding) =
+    {key = #key binding, roles = #roles binding, available = #available binding,
+     pending = S.pending_roles ctxt binding}
+
+  fun has_available ({type_member, value_member}: resolved) =
+    exists (fn member: member => #available member) (map_filter I [type_member, value_member])
 
   fun resolve_leaves policy ctxt (leaves: leaf list) =
     let
@@ -351,6 +410,11 @@ struct
         (case policy of
            Allow_Unavailable_Targets => raise Unavailable_Target
          | _ => S.require_available pos binding)
+
+      (* A precise lookup keeps an unavailable enclosing binding as an unavailable member of its
+         namespace; the target is rejected only when no namespace of it is available. *)
+      val precise_outer =
+        (case policy of Allow_Unavailable_Targets => false | _ => true)
 
       fun resolve index =
         (case Array.sub (states, index) of
@@ -365,7 +429,7 @@ struct
                val _ = Array.update (states, index, Done outcome)
              in outcome end)
 
-      and scope_lookup exclude pos namespace name =
+      and scope_lookup precise exclude pos namespace name =
         let
           val candidates =
             indexed
@@ -380,9 +444,11 @@ struct
                (case S.lookup ctxt namespace name of
                   NONE => NONE
                 | SOME binding =>
-                    (if #available binding then () else unavailable_or_error pos binding;
-                     S.check_merged_collision ctxt binding (same_scope_item ctxt namespace name);
-                     SOME (binding_member binding)))
+                    (if #available binding then
+                       S.check_merged_collision ctxt binding (same_scope_item ctxt namespace name)
+                     else if precise andalso precise_outer then ()
+                     else unavailable_or_error pos binding;
+                     SOME (binding_member ctxt binding)))
            | [(_, member)] => SOME member
            | (earlier, _) :: (later, _) :: _ =>
                error
@@ -396,8 +462,8 @@ struct
            [] => import_error "internal empty import path" (#span leaf)
          | [(name, pos)] =>
              let
-               val imported_type = scope_lookup index pos S.Type_Namespace name
-               val imported_value = scope_lookup index pos S.Value_Namespace name
+               val imported_type = scope_lookup true index pos S.Type_Namespace name
+               val imported_value = scope_lookup true index pos S.Value_Namespace name
                val registered = known_member policy ctxt name
                val resolved =
                  {type_member =
@@ -408,10 +474,24 @@ struct
                     (case imported_value of
                        SOME member => SOME member
                      | NONE => #value_member registered)}
+               fun unavailable_outer namespace =
+                 (case S.lookup ctxt namespace name of
+                    SOME binding => if #available binding then NONE else SOME binding
+                  | NONE => NONE)
+               (* Without a declaration list, a target that no namespace makes available yet has
+                  no meaning in this scope. *)
+               val _ =
+                 (case policy of
+                    Require_Targets =>
+                      if has_available resolved then ()
+                      else
+                        Option.app (S.require_available pos)
+                          (get_first unavailable_outer [S.Type_Namespace, S.Value_Namespace])
+                  | _ => ())
              in require_target policy ctxt name pos resolved end
          | (head, head_pos) :: rest =>
-             (case scope_lookup index head_pos S.Type_Namespace head of
-                SOME {key = owner, roles, available} =>
+             (case scope_lookup false index head_pos S.Type_Namespace head of
+                SOME {key = owner, roles, available, ...} =>
                   if not (member (op =) roles S.Generated_Enum) then
                     import_error
                       ("imported " ^ quote head ^ " (" ^ quote owner ^
@@ -470,6 +550,8 @@ struct
         end
     in map resolve (0 upto count - 1) end
 
+  (* Each binding of a leaf, its pending roles and whether its namespace is known: every binding
+     of a resolved leaf, but not the both-namespace placeholders of an unavailable one. *)
   fun leaf_bindings ((leaf: leaf, identity), outcome) =
     let
       val (alias, alias_pos) = #alias leaf
@@ -482,14 +564,23 @@ struct
            map_filter
              (fn namespace =>
                Option.map
-                 (fn {key, roles, available} =>
-                   make namespace key (if available then roles else []) available)
+                 (fn {key, roles, available, pending} =>
+                   (make namespace key (if available then roles else []) available,
+                    if available then pending else [], true))
                  (member_of namespace resolved))
              [S.Type_Namespace, S.Value_Namespace]
        | Unavailable =>
-           map (fn namespace => make namespace (space_implode "::" (leaf_path leaf)) [] false)
+           map
+             (fn namespace =>
+               (make namespace (space_implode "::" (leaf_path leaf)) [] false, [], false))
              [S.Type_Namespace, S.Value_Namespace])
     end
+
+  (* Duplicate detection compares every binding whose namespace is known, available or not. *)
+  fun compared
+      ({alias, alias_pos, namespace, key, roles, identity, declaration_pos, ...}: S.binding) =
+    {alias = alias, alias_pos = alias_pos, namespace = namespace, key = key, roles = roles,
+     available = true, identity = identity, declaration_pos = declaration_pos}: S.binding
 
   fun check_scope_items lookup_item (binding: S.binding) =
     (case lookup_item (#namespace binding) (#alias binding) of
@@ -624,8 +715,13 @@ struct
     let
       val leaves = batch_leaves batch
       val outcomes = resolve_leaves targets ctxt leaves
-      val bindings = maps leaf_bindings (batch ~~ outcomes)
-      val _ = S.check_batch bindings
+      val described = maps leaf_bindings (batch ~~ outcomes)
+      val bindings = map #1 described
+      val pending =
+        map_filter (fn (binding, roles, _) => if null roles then NONE else SOME (binding, roles))
+          described
+      val _ = S.check_batch (map_filter (fn (binding, _, known) =>
+        if known then SOME (compared binding) else NONE) described)
       val _ =
         if persistent then
           (S.check_persistent_duplicates ctxt bindings;
@@ -644,13 +740,16 @@ struct
               (leaves ~~ outcomes)
           end
         else ()
-    in bindings end
+    in (bindings, pending) end
 
-  val resolve_batch = resolve true
+  fun resolve_batch policy ctxt batch = #1 (resolve true policy ctxt batch)
 
   fun gen_prepare_batch _ _ ctxt [] = ctxt
     | gen_prepare_batch report targets ctxt batch =
-        S.push_frame (resolve report {persistent = false, targets = targets} ctxt batch) ctxt
+        let
+          val (bindings, pending) =
+            resolve report {persistent = false, targets = targets} ctxt batch
+        in ctxt |> S.push_frame bindings |> S.add_pending_roles pending end
 
   val prepare_batch = gen_prepare_batch true
   val prepare_batch_unreported = gen_prepare_batch false
