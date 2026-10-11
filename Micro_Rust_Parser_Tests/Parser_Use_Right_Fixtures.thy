@@ -7,11 +7,7 @@ One branch of the import merge diamond. It adds a branch-local import and an ind
 whose alias and canonical target agree with the other branch.
 \<close>
 
-local_setup \<open>
-  URust_Imports.install
-    (Parser_Use_Test.item (Parser_Use_Test.leaf ["demo", "value"] (SOME "right_value")))
-  #> URust_Imports.install
-    (Parser_Use_Test.item (Parser_Use_Test.leaf ["demo", "WIDTH"] (SOME "merged_width")))
-\<close>
+urust_use \<open> use demo::value as right_value; \<close>
+urust_use \<open> use demo::WIDTH as merged_width; \<close>
 
 end

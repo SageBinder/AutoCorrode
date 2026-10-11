@@ -9,6 +9,7 @@ theory Parser_Impl_Command
     and "urust_fn" :: thy_decl
     and "urust_datatype" :: thy_decl
     and "urust_type_alias" :: thy_decl
+    and "urust_use" :: thy_decl
     and "urust_notation" :: thy_decl
     and "\<rightarrow>"
 begin
@@ -728,11 +729,12 @@ fun prepare_declaration lthy
 fun elaborate_prepared_ast lthy
     {kind, source, declared_type, arguments_with_types, ast} : elaborated =
   let
-    val (((closed, field_reports), function_reports),
+    val ((((closed, import_reports), field_reports), function_reports),
           navigation_reports) =
       Navigation.capture (fn () =>
         URust_Item_Scope.capture_function_reports (fn () =>
           URust_Item_Scope.capture_field_reports (fn () =>
+          URust_Import_Scope.capture_reports (fn () =>
             let
               val unchecked =
                 lower kind lthy arguments_with_types ast
@@ -755,9 +757,12 @@ fun elaborate_prepared_ast lthy
                 reject_unresolved kind lthy source closed
             in
               closed
-            end)))
+            end))))
     (* Native resolved targets precede the authored Rust field/function reference, which remains
-       the final navigation destination. Release every queue only after complete checking. *)
+       the final navigation destination; an import declaration follows every target reached
+       through it. Release every queue only after complete checking. *)
+    val _ =
+      URust_Import_Scope.replay_declaration_reports lthy import_reports
     val _ =
       Navigation.replay lthy navigation_reports
     val _ =
@@ -766,6 +771,8 @@ fun elaborate_prepared_ast lthy
     val _ =
       URust_Item_Scope.replay_function_reports
         lthy function_reports
+    val _ =
+      URust_Import_Scope.replay_use_reports lthy import_reports
   in
     {ast = ast, term = closed}
   end
@@ -1722,6 +1729,32 @@ val _ =
     (Scan.option Parse.string_position --
       (Parse.token Parse.cartouche >> Parser_Lex_Util.cartouche_source) >>
         define_urust_type_alias)
+
+(* The complete item validates and installs atomically; its declaration, target and dependency
+   reports are released only after installation succeeds. *)
+fun define_urust_use source lthy =
+  let
+    val ((((completed, import_reports), field_reports), function_reports),
+          navigation_reports) =
+      Navigation.capture (fn () =>
+        URust_Item_Scope.capture_function_reports (fn () =>
+          URust_Item_Scope.capture_field_reports (fn () =>
+            URust_Import_Scope.capture_reports (fn () =>
+              (case URust_Parser.parse_use_source lthy source of
+                 SOME item => URust_Imports.install item lthy
+               | NONE =>
+                   error ("urust_use: empty use item" ^ Position.here (Input.pos_of source)))))))
+    val _ = URust_Import_Scope.replay_declaration_reports completed import_reports
+    val _ = Navigation.replay completed navigation_reports
+    val _ = URust_Item_Scope.replay_field_reports completed field_reports
+    val _ = URust_Item_Scope.replay_function_reports completed function_reports
+    val _ = URust_Import_Scope.replay_use_reports completed import_reports
+  in completed end
+
+val _ =
+  Outer_Syntax.local_theory \<^command_keyword>\<open>urust_use\<close>
+    "Import Rust items under shorter source names"
+    (Parse.token Parse.cartouche >> Parser_Lex_Util.cartouche_source >> define_urust_use)
 end
 \<close>
 

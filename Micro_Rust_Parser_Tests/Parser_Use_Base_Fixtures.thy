@@ -7,9 +7,6 @@ The shared root of the import merge diamond. Its persistent import is inherited 
 and must merge idempotently, retaining its declaration identity.
 \<close>
 
-local_setup \<open>
-  URust_Imports.install
-    (Parser_Use_Test.item (Parser_Use_Test.leaf ["demo", "increment"] (SOME "shared_increment")))
-\<close>
+urust_use \<open> use demo::increment as shared_increment; \<close>
 
 end
