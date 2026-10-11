@@ -852,7 +852,7 @@ fun check_annotation_placement opener open_pos stop =
       if index < length andalso char_at index <> #"\n"
       then line_end (index + 1) else index
     fun span index stop = source_position (index, String.substring (text, index, stop - index))
-    val annotation_span = span open_pos (open_pos + size opener)
+    val annotation_span = span open_pos stop
     fun reject detail pos = URust_Grammar.annotation_layout_error detail pos
     fun preceding_space index =
       index < 0 orelse char_at index = #"\n" orelse
