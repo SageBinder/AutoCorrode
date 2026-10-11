@@ -390,6 +390,197 @@ in
 end
 \<close>
 
+subsection\<open> Namespace-precise forward targets \<close>
+
+text\<open>
+Each declaration's preparation knows the registry entities that it and the later members will
+declare: datatype types, unit and tuple constructors and enum variants, and the call keys of
+registered functions. An entity among them is unavailable in its own namespace only; an entity
+that already exists keeps resolving, and a target that neither exists nor is declared with a Rust
+registration is unknown at its path before the first declaration.
+\<close>
+
+ML_val\<open>
+local
+  open Parser_Use_Test
+  val ctxt = \<^context>
+  val type_ns = S.Type_Namespace
+  val value_ns = S.Value_Namespace
+  fun parse_item text =
+    the (URust_Parser.parse_item_source ctxt (Parser_Lex_Util.text_source text))
+  fun entities registered text =
+    URust_Imports.item_entities {registered_function = registered} (parse_item text)
+  fun triple ({key, namespace, roles}: URust_Imports.entity) = (key, namespace, roles)
+  (* The predicted entities of a declared fixture item equal the bindings that importing each of
+     its keys produces from the installed registrations. *)
+  fun matches_registry text =
+    let
+      val predicted = map triple (entities true text)
+      val keys = distinct (op =) (map #1 predicted)
+      val batch =
+        URust_Imports.validate_batch
+          (map_index (fn (index, key) =>
+              item (leaf (S.key_segments key) (SOME ("entity_probe_" ^ string_of_int index))))
+            keys)
+      val observed =
+        URust_Imports.resolve_batch
+          {persistent = false, targets = URust_Imports.Require_Targets} ctxt batch
+        |> map (fn binding => (#key binding, #namespace binding, #roles binding))
+    in
+      require ("item entities of " ^ quote text ^ " match the registry")
+        (eq_set (op =) (predicted, observed))
+    end
+  val _ = List.app matches_registry
+    ["enum UseChoice { Empty, Value(u32), Named { sample: u32 } }",
+     "struct UsePacket { sample: u32 }", "struct UseTuple(u32);", "struct UseUnit;",
+     "struct UseWrapper<T> { inner: T }", "fn use_increment(x: u32) -> u32 { x + 1 }"]
+  val _ = require "an unregistered function declares no entity"
+    (null (entities false "fn use_increment(x: u32) -> u32 { x + 1 }"))
+
+  val later =
+    URust_Imports.Declared_Later
+      [{key = "LaterItem", namespace = value_ns, roles = [S.Generated_Function]},
+       {key = "UseChoice", namespace = value_ns, roles = [S.Generated_Function]},
+       {key = "LaterEnum", namespace = type_ns, roles = [S.Generated_Enum, S.Mapped_Type]},
+       {key = "LaterEnum::Ready", namespace = type_ns, roles = [S.Enum_Variant]},
+       {key = "LaterEnum::Ready", namespace = value_ns, roles = [S.Generated_Constructor]}]
+  val partial =
+    prepare_with later ctxt
+      [leaf ["LaterItem"] (SOME "later"), leaf ["UseChoice"] (SOME "both"),
+       leaf ["later"] (SOME "dependent"), leaf ["LaterEnum"] (SOME "Enum"),
+       leaf ["Enum", "Ready"] (SOME "ready"), group ["LaterEnum"] [self_member (SOME "Grouped")]]
+  fun availability alias namespace = Option.map #available (S.lookup partial namespace alias)
+  val _ = require "a later value entity is unavailable in the value namespace only"
+    (availability "later" value_ns = SOME false andalso availability "later" type_ns = NONE andalso
+      availability "dependent" value_ns = SOME false andalso
+      availability "dependent" type_ns = NONE)
+  val _ = require "an existing entity keeps resolving beside a later one"
+    (lookup_roles partial type_ns "both" = SOME [S.Generated_Enum, S.Mapped_Type] andalso
+      availability "both" value_ns = SOME false)
+  val _ = require "a later enum qualifies exactly its declared variants"
+    (availability "Enum" type_ns = SOME false andalso
+      availability "Grouped" type_ns = SOME false andalso
+      availability "ready" type_ns = SOME false andalso availability "ready" value_ns = SOME false)
+  val _ = rejects "a variant the later enum does not declare" "\"Missing\" is not a variant of enum"
+    (fn () => prepare_with later ctxt
+      [leaf ["LaterEnum"] (SOME "Enum"), leaf ["Enum", "Missing"] (SOME "missing")])
+  val _ = rejects "a target neither existing nor declared" "unknown import target \"NeverItem\""
+    (fn () => prepare_with later ctxt [leaf ["NeverItem"] (SOME "never")])
+in
+  val _ = ()
+end
+\<close>
+
+urust_datatype \<open> enum ChunkImportFE { A } \<close>
+urust_use \<open> use demo::value as ChunkImportFBoth; \<close>
+urust_type "ChunkImportFT" = \<open> nat \<close>
+urust_use \<open> use demo::value as ChunkImportFT2; \<close>
+urust_datatype \<open> enum ChunkImportFG { A } \<close>
+urust_fn \<open> fn ChunkImportFG2() -> u32 { 3 } \<close>
+urust_datatype \<open> enum ChunkImportFN { A } \<close>
+
+ML_val\<open>
+local
+  open Chunk_Use_Audit
+  fun later_value label target alias =
+    rejects_at label
+      ["import target " ^ quote target ^ " of " ^ quote alias ^ " is not yet available"]
+      ("  fn " ^ target ^ "Early() -> u32 { " ^ alias ^ "() }\n" ^
+       "  use " ^ target ^ " as " ^ alias ^ ";\n" ^
+       "  fn " ^ target ^ "() -> u32 { 7 }\n" ^
+       "  fn " ^ target ^ "Late() -> u32 { " ^ alias ^ "() }\n")
+      alias 0
+  val broken = "  fn ChunkImportBroken() -> bool { 1u32 }\n"
+in
+  (* The target's type entity exists; its value entity is declared later. The earlier value use
+     neither falls back to a persistent alias or an outer item of the alias spelling nor reads an
+     unresolved name. *)
+  val _ = later_value "enum with a later function, persistent fallback"
+    "ChunkImportFE" "ChunkImportFBoth"
+  val _ = later_value "type mapping with a later function, persistent fallback"
+    "ChunkImportFT" "ChunkImportFT2"
+  val _ = later_value "enum with a later function, outer item fallback"
+    "ChunkImportFG" "ChunkImportFG2"
+  val _ = later_value "enum with a later function, no fallback" "ChunkImportFN" "ChunkImportFNAlias"
+  (* Targets without a Rust registration are unknown at their path, before the first declaration. *)
+  val _ = rejects_at "unregistered function target" ["unknown import target \"ChunkImportHidden\""]
+    (broken ^ "  " ^ annotation "register_notation = false" ^ "\n" ^
+     "  fn ChunkImportHidden(x: u32) -> u32 { x }\n" ^
+     "  use ChunkImportHidden as hidden;\n" ^
+     "  fn ChunkImportHiddenUser() -> u32 { hidden(1) }\n")
+    "ChunkImportHidden" 1
+  val _ = rejects_at "anonymous function target" ["unknown import target \"ChunkImportAnonymous\""]
+    (broken ^ "  " ^ annotation "name = _" ^ "\n" ^
+     "  fn ChunkImportAnonymous(x: u32) -> u32 { x }\n" ^
+     "  use ChunkImportAnonymous as anonymous;\n" ^
+     "  fn ChunkImportAnonymousUser() -> u32 { anonymous(1) }\n")
+    "ChunkImportAnonymous" 1
+  val _ = rejects_at "never-declared target used by an earlier member"
+    ["unknown import target \"ChunkImportNeverDeclared\""]
+    (broken ^ "  fn ChunkImportNeverUser() -> u32 { never_declared(1) }\n" ^
+     "  use ChunkImportNeverDeclared as never_declared;\n")
+    "ChunkImportNeverDeclared" 0
+  val _ = rejects_at "missing variant of a later enum"
+    ["unknown import target \"ChunkImportLaterEnum::Missing\""]
+    (broken ^ "  use ChunkImportLaterEnum::Missing as missing_variant;\n" ^
+     "  enum ChunkImportLaterEnum { Ready }\n")
+    "ChunkImportLaterEnum::Missing" 0
+  val _ = rejects_at "missing variant through an imported later enum"
+    ["\"Missing\" is not a variant of enum \"ChunkImportLaterEnum\""]
+    (broken ^ "  use ChunkImportLaterEnum as LaterEnumAlias;\n" ^
+     "  use LaterEnumAlias::Missing as missing_variant;\n" ^
+     "  enum ChunkImportLaterEnum { Ready }\n")
+    "Missing" 0
+  val _ = rejects_at "later enum variant"
+    ["import target \"ChunkImportLaterChoice::Ready\" of \"later_ready\" is not yet available"]
+    ("  fn ChunkImportLaterUse(x: u32) -> u32 { match x { later_ready => 1 } }\n" ^
+     "  use ChunkImportLaterChoice::{self as LaterChoice, Ready as later_ready};\n" ^
+     "  enum ChunkImportLaterChoice { Ready }\n")
+    "later_ready" 0
+end
+\<close>
+
+text\<open>
+Entities that exist before the chunk keep resolving through an alias whose other namespace a later
+member declares, and a later value-only target leaves the type namespace of its spelling to the
+persistent alias.
+\<close>
+
+urust_datatype \<open> enum ChunkImportBoth { Only } \<close>
+urust_use \<open> use demo::Width as ChunkImportSpell; \<close>
+
+urust \<open>
+  fn ChunkImportBothType(choice: ChunkImportBothAlias) -> u32 {
+    match choice { ChunkImportBothAlias::Only => 1 }
+  }
+
+  fn ChunkImportSpellUser(width: ChunkImportSpell) -> ChunkImportSpell { width }
+
+  use ChunkImportBoth as ChunkImportBothAlias;
+  use ChunkImportSpellLater as ChunkImportSpell;
+
+  fn ChunkImportBoth() -> u32 { 2 }
+
+  fn ChunkImportSpellLater() -> u32 { 1 }
+
+  fn ChunkImportBothValue() -> u32 { ChunkImportBothAlias() + ChunkImportSpell() }
+\<close>
+
+urust_fn \<open>
+  fn ChunkImportBothTypeControl(choice: ChunkImportBoth) -> u32 {
+    match choice { ChunkImportBoth::Only => 1 }
+  }
+\<close>
+urust_fn \<open> fn ChunkImportSpellUserControl(width: demo::Width) -> demo::Width { width } \<close>
+urust_fn \<open> fn ChunkImportBothValueControl() -> u32 { ChunkImportBoth() + ChunkImportSpellLater() } \<close>
+
+lemma \<open> chunk_import_both_type = chunk_import_both_type_control \<close>
+  unfolding chunk_import_both_type_def chunk_import_both_type_control_def by (rule refl)
+lemma \<open> chunk_import_spell_user = chunk_import_spell_user_control \<close>
+  unfolding chunk_import_spell_user_def chunk_import_spell_user_control_def by (rule refl)
+lemma \<open> chunk_import_both_value = chunk_import_both_value_control \<close>
+  unfolding chunk_import_both_value_def chunk_import_both_value_control_def by (rule refl)
+
 subsection\<open> Imports and items of one chunk \<close>
 
 text\<open>

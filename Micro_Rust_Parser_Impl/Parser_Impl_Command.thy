@@ -237,6 +237,7 @@ sig
       prepared_function
   val declare_prepared_function:
     prepared_function -> local_theory -> (unit -> unit) * local_theory
+  val prepared_function_registered: prepared_function -> bool
   type prepared_datatype
   val prepare_datatype_item:
     local_theory ->
@@ -1688,6 +1689,12 @@ fun declare_prepared_function
 
 (* A complete single-declaration transaction: replay deferred reports, then print. A failing
    declaration releases its own queued markup with its error. *)
+(* Whether the declaration installs a Rust callable entry: a named target with callable
+   registration enabled. *)
+fun prepared_function_registered (Prepared_Function {register_notation, target, ...}) =
+  register_notation andalso
+    (case target of Named_Target _ => true | Anonymous_Target _ => false)
+
 fun run_declaration declaration lthy =
   let
     val ((output, completed), reports) =

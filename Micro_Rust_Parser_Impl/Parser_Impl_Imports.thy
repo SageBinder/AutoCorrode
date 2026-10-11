@@ -21,7 +21,13 @@ sig
   val leaf_path: leaf -> string list
   val leaf_alias: leaf -> string * Position.T
   type batch
-  datatype target_policy = Require_Targets | Allow_Unavailable_Targets
+  type entity =
+    {key: string, namespace: URust_Import_Scope.namespace, roles: URust_Import_Scope.role list}
+  val item_entities: {registered_function: bool} -> URust_AST.urust_item -> entity list
+  datatype target_policy =
+      Require_Targets
+    | Allow_Unavailable_Targets
+    | Declared_Later of entity list
   val validate_batch: URust_AST.use_item list -> batch
   val batch_leaves: batch -> leaf list
   val resolve_batch:
@@ -69,22 +75,31 @@ end
     of their validated leaf. Semantic reports are deferred only after the complete batch validates.
     Require_Targets rejects a target that is absent from the context. Allow_Unavailable_Targets
     instead binds such a leaf, and every leaf depending on it, as an unavailable binding whose uses
-    reject without fallback; a target that exists but cannot be imported still rejects. Duplicates
-    among available bindings are rejected in both policies.
+    reject without fallback; a target that exists but cannot be imported still rejects.
+    Declared_Later entities is namespace precise: a target entity that is absent from the context
+    but listed among the entities that will be declared binds an unavailable binding in that
+    namespace only, entities that exist keep resolving, and a target that neither exists nor is
+    listed is unknown, as under Require_Targets. Duplicates among available bindings are rejected
+    in every policy.
   - prepare_batch is the batch preparation operation shared by real blocks, implicit command bodies
     and composition: it returns the supplied context extended with one immutable frame, or the
     context itself for an empty batch. Blocks, bodies and persistent imports require targets; a
-    composer that re-prepares one validated batch for each declaration may allow unavailable
-    targets and requires them at the end. prepare_batch_unreported prepares the same frame
-    without semantic reports; such a composer uses it for every preparation of the batch except
-    the one that reports it. conclude_batch is that composer's final step: it resolves the batch
-    with Require_Targets and reports it, and rejects an import whose alias shares a namespace with
-    an item declared alongside the batch, that is, present in the final context but not in the
-    initial one, as Rust rejects an import and an item of one name in one scope. install
-    validates and installs one use item as persistent local-theory declarations, capturing the
-    canonical keys at installation.
+    composer that re-prepares one validated batch for each declaration passes the item_entities
+    of the items still to be declared as Declared_Later (or, without that knowledge, allows
+    unavailable targets) and requires every target at the end. prepare_batch_unreported prepares
+    the same frame without semantic reports; such a composer uses it for every preparation of the
+    batch except the one that reports it. conclude_batch is that composer's final step: it
+    resolves the batch with Require_Targets and reports it, and rejects an import whose alias
+    shares a namespace with an item declared alongside the batch, that is, present in the final
+    context but not in the initial one, as Rust rejects an import and an item of one name in one
+    scope. install validates and installs one use item as persistent local-theory declarations,
+    capturing the canonical keys at installation.
   - same_scope_item finds the generated function or unit/tuple constructor (value namespace) or the
     Rust type (type namespace) whose single-segment key is a given name.
+  - item_entities lists the keys, namespaces and roles that one item will contribute to the
+    registries once declared, as registry_member derives them from the installed registrations:
+    a datatype its type, unit/tuple constructors and enum variants; a function its call key when
+    it is registered. Other items contribute none.
 *)
 structure URust_Imports :> URUST_IMPORTS =
 struct
@@ -129,7 +144,8 @@ struct
 
   fun flatten item = flatten_tree [] (use_item_tree item)
 
-  type member = {key: string, roles: S.role list}
+  (* An unavailable member stands for an entity that is declared later. *)
+  type member = {key: string, roles: S.role list, available: bool}
   type resolved = {type_member: member option, value_member: member option}
 
   fun member_of S.Type_Namespace ({type_member, ...}: resolved) = type_member
@@ -166,10 +182,63 @@ struct
         (if null (Micro_Rust_Names.lookups ctxt Micro_Rust_Names.NFunction key) then []
          else [S.Call_Notation])
       fun member [] = NONE
-        | member roles = SOME {key = key, roles = roles}
+        | member roles = SOME {key = key, roles = roles, available = true}
     in {type_member = member type_roles, value_member = member value_roles} end
 
-  datatype target_policy = Require_Targets | Allow_Unavailable_Targets
+  type entity = {key: string, namespace: S.namespace, roles: S.role list}
+
+  fun item_entities {registered_function} item =
+    let
+      fun entity namespace roles key = {key = key, namespace = namespace, roles = roles}: entity
+      fun constructor_value _ (Named_Shape _) = []
+        | constructor_value key _ = [entity S.Value_Namespace [S.Generated_Constructor] key]
+      fun datatype_entities (Struct_Item (name, _, shape, _)) =
+            entity S.Type_Namespace [S.Generated_Struct, S.Mapped_Type] name ::
+              constructor_value name shape
+        | datatype_entities (Enum_Item (name, _, variants, _)) =
+            entity S.Type_Namespace [S.Generated_Enum, S.Mapped_Type] name ::
+              maps
+                (fn Datatype_Variant (variant, _, shape) =>
+                  let val key = name ^ "::" ^ variant
+                  in
+                    entity S.Type_Namespace [S.Enum_Variant] key :: constructor_value key shape
+                  end)
+                variants
+        | datatype_entities (Datatype_Header (_, _, _, item)) = datatype_entities item
+    in
+      (case item of
+         Datatype_Item item => datatype_entities item
+       | Function_Item_Node function =>
+           if registered_function
+           then [entity S.Value_Namespace [S.Generated_Function] (#1 (function_name function))]
+           else []
+       | _ => [])
+    end
+
+  datatype target_policy =
+      Require_Targets
+    | Allow_Unavailable_Targets
+    | Declared_Later of entity list
+
+  (* The registry members of a key, completed under Declared_Later by an unavailable member for
+     each namespace whose entity a later declaration introduces. *)
+  fun known_member policy ctxt key : resolved =
+    let
+      val registered = registry_member ctxt key
+      fun declared namespace =
+        (case policy of
+           Declared_Later entities =>
+             Option.map
+               (fn ({roles, ...}: entity) => {key = key, roles = roles, available = false})
+               (find_first
+                 (fn entity => #key entity = key andalso #namespace entity = namespace) entities)
+         | _ => NONE)
+      fun slot _ (SOME member) = SOME member
+        | slot namespace NONE = declared namespace
+    in
+      {type_member = slot S.Type_Namespace (#type_member registered),
+       value_member = slot S.Value_Namespace (#value_member registered)}
+    end
 
   (* Raised while resolving under Allow_Unavailable_Targets for a target that may still appear. *)
   exception Unavailable_Target
@@ -180,12 +249,15 @@ struct
       import_error
         ("field notation " ^ quote key ^
           " is outside the import surface; field-only lens aliases are not importable") pos
-    else if policy = Allow_Unavailable_Targets then raise Unavailable_Target
     else
-      import_error
-        ("unknown import target " ^ quote key ^
-          "; imports name exact generated items, Rust type mappings and literal or call notations")
-        pos
+      (case policy of
+         Allow_Unavailable_Targets => raise Unavailable_Target
+       | _ =>
+          import_error
+            ("unknown import target " ^ quote key ^
+              "; imports name exact generated items, Rust type mappings and literal or call " ^
+              "notations")
+            pos)
 
   fun same_scope_item ctxt S.Value_Namespace name =
         (case I.lookup_function ctxt name of
@@ -267,7 +339,7 @@ struct
   datatype state = Unresolved | Active | Done of outcome
 
   fun binding_member (binding: S.binding) =
-    {key = #key binding, roles = #roles binding}
+    {key = #key binding, roles = #roles binding, available = #available binding}
 
   fun resolve_leaves policy ctxt (leaves: leaf list) =
     let
@@ -276,8 +348,9 @@ struct
       val indexed = map_index I leaves
 
       fun unavailable_or_error pos (binding: S.binding) =
-        if policy = Allow_Unavailable_Targets then raise Unavailable_Target
-        else S.require_available pos binding
+        (case policy of
+           Allow_Unavailable_Targets => raise Unavailable_Target
+         | _ => S.require_available pos binding)
 
       fun resolve index =
         (case Array.sub (states, index) of
@@ -325,7 +398,7 @@ struct
              let
                val imported_type = scope_lookup index pos S.Type_Namespace name
                val imported_value = scope_lookup index pos S.Value_Namespace name
-               val registered = registry_member ctxt name
+               val registered = known_member policy ctxt name
                val resolved =
                  {type_member =
                     (case imported_type of
@@ -338,7 +411,7 @@ struct
              in require_target policy ctxt name pos resolved end
          | (head, head_pos) :: rest =>
              (case scope_lookup index head_pos S.Type_Namespace head of
-                SOME {key = owner, roles} =>
+                SOME {key = owner, roles, available} =>
                   if not (member (op =) roles S.Generated_Enum) then
                     import_error
                       ("imported " ^ quote head ^ " (" ^ quote owner ^
@@ -346,26 +419,32 @@ struct
                   else
                     (case rest of
                        [(variant, variant_pos)] =>
-                         let val key = owner ^ "::" ^ variant in
-                           (case variant_entry ctxt key of
-                              SOME entry =>
-                                if I.constructor_rust_type entry = owner
-                                then registry_member ctxt key
-                                else
-                                  import_error
-                                    (quote variant ^ " is not a variant of enum " ^ quote owner)
-                                    variant_pos
-                            | NONE =>
-                                import_error
-                                  (quote variant ^ " is not a variant of enum " ^ quote owner)
-                                  variant_pos)
+                         let
+                           val key = owner ^ "::" ^ variant
+                           fun not_a_variant () =
+                             import_error
+                               (quote variant ^ " is not a variant of enum " ^ quote owner)
+                               variant_pos
+                         in
+                           if available then
+                             (case variant_entry ctxt key of
+                                SOME entry =>
+                                  if I.constructor_rust_type entry = owner
+                                  then registry_member ctxt key
+                                  else not_a_variant ()
+                              | NONE => not_a_variant ())
+                           else
+                             (* An enum declared later qualifies exactly its declared variants. *)
+                             (case known_member policy ctxt key of
+                                {type_member = NONE, value_member = NONE} => not_a_variant ()
+                              | declared => declared)
                          end
                      | _ :: (_, nested_pos) :: _ =>
                          import_error "enum variants have no nested importable items" nested_pos
                      | [] => import_error "internal empty variant path" head_pos)
               | NONE =>
                   let val key = space_implode "::" (map #1 path) in
-                    require_target policy ctxt key (#span leaf) (registry_member ctxt key)
+                    require_target policy ctxt key (#span leaf) (known_member policy ctxt key)
                   end))
 
       and resolve_leaf index =
@@ -402,7 +481,9 @@ struct
          Available resolved =>
            map_filter
              (fn namespace =>
-               Option.map (fn {key, roles} => make namespace key roles true)
+               Option.map
+                 (fn {key, roles, available} =>
+                   make namespace key (if available then roles else []) available)
                  (member_of namespace resolved))
              [S.Type_Namespace, S.Value_Namespace]
        | Unavailable =>
@@ -536,7 +617,7 @@ struct
             (SOME ("use target " ^ quote (space_implode "::" (leaf_path leaf))))
     in
       List.app (report_target ctxt target_pos)
-        (map_filter I [#type_member resolved, #value_member resolved])
+        (filter #available (map_filter I [#type_member resolved, #value_member resolved]))
     end
 
   fun resolve report {persistent, targets} ctxt (batch: batch) =

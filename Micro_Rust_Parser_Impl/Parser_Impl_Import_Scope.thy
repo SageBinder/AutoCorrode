@@ -86,8 +86,10 @@ end
     key captured at installation, the key's roles in that namespace, the import identity shared by
     all namespace bindings of one imported leaf, and the leaf's declaration span. An unavailable
     binding (available = false) stands for a leaf whose target does not exist yet in the supplied
-    context; it occupies both namespaces with its written path as key and no roles, and every
-    consumer that finds it rejects the occurrence through require_available, without fallback.
+    context. It has no roles, and every consumer that finds it rejects the occurrence through
+    require_available, without fallback. A leaf whose namespaces are not known yet occupies both
+    namespaces with its written path as key; one whose later declaration is known occupies exactly
+    the namespaces of that declaration, with its canonical key.
   - lookup returns the nearest binding in the requested namespace: block frames from innermost to
     outermost, then the persistent bindings of the context. lookup_persistent consults only the
     latter. frame_depth counts the active block frames. transfer_frames source target gives target

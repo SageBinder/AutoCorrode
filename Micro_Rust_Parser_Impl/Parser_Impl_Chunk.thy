@@ -29,11 +29,14 @@ A use member is one complete use item with the grammar of \<open>urust_use\<clos
 an annotation before it is rejected. The chunk's imports form one batch, validated as a whole
 (duplicates and cycles) before the first declaration. Its aliases are visible to every declaration
 of the chunk, including those written before the use item, and to nothing else: each declaration
-elaborates in its member context extended with the batch, prepared afresh for that context, so a
-target that a later member declares is unavailable to earlier members and its use is rejected
-without fallback. After the last declaration every target must resolve, and no chunk import may
-share a namespace and name with an item that the chunk declares. Chunk aliases shadow persistent
-\<open>urust_use\<close> aliases, body imports shadow chunk aliases, and no alias survives the command.
+elaborates in its member context extended with the batch, prepared afresh for that context. An
+entity that the declaration itself or a later member declares is unavailable in its namespace,
+and its use is rejected without fallback, while entities that already exist keep resolving. A
+target that neither exists nor is declared, with a Rust registration, by a member is rejected as
+unknown before the first declaration. After the last declaration every target must resolve, and
+no chunk import may share a namespace and name with an item that the chunk declares. Chunk aliases
+shadow persistent \<open>urust_use\<close> aliases, body imports shadow chunk aliases, and no alias survives
+the command.
 
 The command is one report transaction. uRust semantic reports, the markup of embedded HOL
 sources read during elaboration, regenerated declaration definition entities, warnings and
@@ -111,6 +114,15 @@ fun declare_member (Function_Member prepared) = URust_Command.declare_prepared_f
 fun use_member (_, Use_Member item) = SOME item
   | use_member _ = NONE
 
+(* The registry entities a member contributes once declared. *)
+fun member_entities envelope member =
+  URust_Imports.item_entities
+    {registered_function =
+      (case member of
+         Function_Member prepared => URust_Command.prepared_function_registered prepared
+       | _ => false)}
+    (URust_AST.annotated_item_item envelope)
+
 fun first_differing_token_index left right =
   let
     fun first index (left_token :: left_tokens) (right_token :: right_tokens) =
@@ -185,23 +197,33 @@ fun define (outer, source) interactive lthy =
             List.app
               (fn (envelope, (pp_test, _)) => if pp_test then roundtrip lthy envelope else ())
               (envelopes ~~ members)
+          val declarations = filter_out (is_some o use_member o #2) (envelopes ~~ members)
+          (* For each declaration, the entities that it and every later declaration introduce. A
+             target entity among them is unavailable to that declaration in its own namespace;
+             any other absent target is unknown, so the first preparation rejects it before the
+             first declaration. *)
+          val later_entities =
+            fold_rev
+              (fn (envelope, (_, member)) => fn later =>
+                (member_entities envelope member @ (case later of [] => [] | next :: _ => next)) ::
+                  later)
+              declarations []
           (* Each declaration elaborates and declares in its member context extended with the
              batch frame. The frame is proof data of the auxiliary context, which the next-command
              context replaces by a target context, so it never outlives its declaration. A failing
              member releases its own queued markup with its error; markup of earlier members stays
              queued and is discarded with the transaction. *)
-          fun declare (_, member) lthy' =
+          fun declare ((_, (_, member)), later) lthy' =
             let
               val member_lthy =
-                URust_Imports.prepare_batch_unreported URust_Imports.Allow_Unavailable_Targets
+                URust_Imports.prepare_batch_unreported (URust_Imports.Declared_Later later)
                   lthy' batch
             in
               URust_Report_Transaction.release_on_failure member_lthy
                 (fn () => declare_member member member_lthy)
               ||> next_command_context
             end
-          val (outputs, completed) =
-            fold_map declare (filter_out (is_some o use_member) members) lthy
+          val (outputs, completed) = fold_map declare (declarations ~~ later_entities) lthy
           val _ = URust_Imports.conclude_batch {initial = lthy} completed batch
         in (outputs, completed) end)
     val _ = URust_Report_Transaction.replay completed reports
