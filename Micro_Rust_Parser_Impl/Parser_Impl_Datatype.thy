@@ -1551,7 +1551,7 @@ fun declare_prepared
               SOME
                 (URust_Printer_Output.pretty_human_datatype_with_reparse
                   (report_generated_datatype_replay
-                    final_lthy artifacts)
+                    (URust_Import_Scope.transfer_frames lthy final_lthy) artifacts)
                   source_item)
             else NONE
         in

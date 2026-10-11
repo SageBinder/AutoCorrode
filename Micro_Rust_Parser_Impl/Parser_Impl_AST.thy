@@ -1265,6 +1265,7 @@ struct
   fun item_position (Datatype_Item item) = datatype_item_position item
     | item_position (Function_Item_Node function) = function_item_position function
     | item_position (Type_Alias_Item_Node item) = type_alias_item_position item
+    | item_position (Use_Item_Node item) = use_item_position item
 
   fun annotation_payload (Item_Annotation (payload, _)) = payload
   fun annotation_source_layout (Item_Annotation (_, layout)) = layout

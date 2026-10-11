@@ -50,6 +50,7 @@ sig
   val lookup_persistent: Proof.context -> namespace -> string -> binding option
   val dump_persistent: Proof.context -> binding list
   val frame_depth: Proof.context -> int
+  val transfer_frames: Proof.context -> Proof.context -> Proof.context
 
   val check_batch: binding list -> unit
   val push_frame: binding list -> Proof.context -> Proof.context
@@ -89,7 +90,9 @@ end
     consumer that finds it rejects the occurrence through require_available, without fallback.
   - lookup returns the nearest binding in the requested namespace: block frames from innermost to
     outermost, then the persistent bindings of the context. lookup_persistent consults only the
-    latter. frame_depth counts the active block frames.
+    latter. frame_depth counts the active block frames. transfer_frames source target gives target
+    the block frames of source: a read-only replay that runs in a context produced by a
+    declaration backend resolves source names with the import scope of the declaration context.
   - check_batch rejects two available bindings with the same alias and namespace, even with
     identical targets; the later binding is reported with the earlier position. Unavailable
     bindings are not compared, because their namespaces are not known yet. push_frame returns a
@@ -242,6 +245,8 @@ struct
     Persistent.get (Context.Proof ctxt) |> Symtab.dest |> map snd
 
   fun frame_depth ctxt = length (Frames.get ctxt)
+
+  fun transfer_frames source = Frames.put (Frames.get source)
 
   fun duplicate_error (earlier: binding) (later: binding) =
     error

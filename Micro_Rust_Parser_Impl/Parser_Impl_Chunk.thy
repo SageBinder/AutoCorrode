@@ -7,7 +7,7 @@ section\<open> Source-ordered item chunks \<close>
 
 text\<open>
 The chunk surface is \<open>urust [OPTIONS] src\<close>, whose cartouche contains a nonempty source-ordered
-list of complete \<open>fn\<close>, \<open>struct\<close> and \<open>enum\<close> items. An optional annotation
+list of complete \<open>fn\<close>, \<open>struct\<close>, \<open>enum\<close> and \<open>use\<close> items. An optional annotation
 \<open>\<omega>\<open>OPTION, OPTION = VALUE, ...\<close>\<close> occupies its own line or lines immediately before the line
 on which its item starts; a leading \<open>#[repr(...)]\<close> line belongs to its enum. Its payload uses
 the entry syntax of the bracketed lists with the function or datatype schema of the single-item
@@ -22,8 +22,18 @@ member is validated, before the first declaration. Checks that depend on earlier
 declared. Members use the parsed-item operations of \<open>urust_fn\<close> and \<open>urust_datatype\<close>, each
 in the context that the next command of the equivalent single-item sequence would receive, so
 earlier items are available to later ones and forward references are not resolved. Type alias
-and use items are rejected as chunk members. With \<open>pp_test\<close>, each member's annotation and item
+items are rejected as chunk members. With \<open>pp_test\<close>, each member's annotation and item
 roundtrip through the serialized chunk printer before any declaration.
+
+A use member is one complete use item with the grammar of \<open>urust_use\<close>; it takes no options, so
+an annotation before it is rejected. The chunk's imports form one batch, validated as a whole
+(duplicates and cycles) before the first declaration. Its aliases are visible to every declaration
+of the chunk, including those written before the use item, and to nothing else: each declaration
+elaborates in its member context extended with the batch, prepared afresh for that context, so a
+target that a later member declares is unavailable to earlier members and its use is rejected
+without fallback. After the last declaration every target must resolve, and no chunk import may
+share a namespace and name with an item that the chunk declares. Chunk aliases shadow persistent
+\<open>urust_use\<close> aliases, body imports shadow chunk aliases, and no alias survives the command.
 
 The command is one report transaction. uRust semantic reports, the markup of embedded HOL
 sources read during elaboration, regenerated declaration definition entities, warnings and
@@ -51,6 +61,7 @@ struct
 datatype member =
     Function_Member of URust_Command.prepared_function
   | Datatype_Member of URust_Command.prepared_datatype
+  | Use_Member of URust_AST.use_item
 
 fun prepare_member lthy interactive outer envelope =
   let
@@ -85,13 +96,20 @@ fun prepare_member lthy interactive outer envelope =
            ("urust: type alias items are not chunk members; declare them with urust_type_alias" ^
              Position.here (#2 (URust_AST.type_alias_name item)))
      | URust_AST.Use_Item_Node item =>
-         error
-           ("urust: use items are not chunk members; declare them with urust_use" ^
-             Position.here (URust_AST.use_item_position item)))
+         (case annotation of
+            SOME annotation =>
+              error
+                ("urust: an \<omega> annotation cannot precede a use item; use items take no options" ^
+                  Position.here (URust_AST.annotation_position annotation))
+          | NONE => (URust_Command.configured_pp_test lthy outer, Use_Member item)))
   end
 
 fun declare_member (Function_Member prepared) = URust_Command.declare_prepared_function prepared
   | declare_member (Datatype_Member prepared) = URust_Command.declare_prepared_datatype prepared
+  | declare_member (Use_Member _) = raise Fail "urust: use members are not declarations"
+
+fun use_member (_, Use_Member item) = SOME item
+  | use_member _ = NONE
 
 fun first_differing_token_index left right =
   let
@@ -158,28 +176,41 @@ fun define (outer, source) interactive lthy =
                SOME chunk => chunk
              | NONE =>
                  error
-                   ("urust: empty chunk; expected at least one fn, struct, or enum declaration" ^
+                   ("urust: empty chunk; expected at least one fn, struct, enum, or use item" ^
                      Position.here (Input.pos_of source)))
           val envelopes = URust_AST.chunk_items chunk
           val members = map (prepare_member lthy interactive outer) envelopes
+          val batch = URust_Imports.validate_batch (map_filter use_member members)
           val _ =
             List.app
               (fn (envelope, (pp_test, _)) => if pp_test then roundtrip lthy envelope else ())
               (envelopes ~~ members)
-          (* A failing member releases its own queued markup with its error; markup of earlier
-             members stays queued and is discarded with the transaction. *)
+          (* Each declaration elaborates and declares in its member context extended with the
+             batch frame. The frame is proof data of the auxiliary context, which the next-command
+             context replaces by a target context, so it never outlives its declaration. A failing
+             member releases its own queued markup with its error; markup of earlier members stays
+             queued and is discarded with the transaction. *)
           fun declare (_, member) lthy' =
-            URust_Report_Transaction.release_on_failure lthy'
-              (fn () => declare_member member lthy')
-            ||> next_command_context
-        in fold_map declare members lthy end)
+            let
+              val member_lthy =
+                URust_Imports.prepare_batch_unreported URust_Imports.Allow_Unavailable_Targets
+                  lthy' batch
+            in
+              URust_Report_Transaction.release_on_failure member_lthy
+                (fn () => declare_member member member_lthy)
+              ||> next_command_context
+            end
+          val (outputs, completed) =
+            fold_map declare (filter_out (is_some o use_member) members) lthy
+          val _ = URust_Imports.conclude_batch {initial = lthy} completed batch
+        in (outputs, completed) end)
     val _ = URust_Report_Transaction.replay completed reports
     val _ = List.app (fn output => output ()) outputs
   in completed end
 
 val _ =
   Outer_Syntax.local_theory' \<^command_keyword>\<open>urust\<close>
-    "Declare a source-ordered chunk of uRust functions and datatypes"
+    "Declare a source-ordered chunk of uRust functions, datatypes and imports"
     (URust_Command.parse_options URust_Command.Chunk_Defaults --
       (Parse.token Parse.cartouche >> Parser_Lex_Util.cartouche_source) >>
       define)

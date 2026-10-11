@@ -28,6 +28,8 @@ sig
     {persistent: bool, targets: target_policy} -> Proof.context -> batch ->
       URust_Import_Scope.binding list
   val prepare_batch: target_policy -> Proof.context -> batch -> Proof.context
+  val prepare_batch_unreported: target_policy -> Proof.context -> batch -> Proof.context
+  val conclude_batch: {initial: Proof.context} -> Proof.context -> batch -> unit
   val install: URust_AST.use_item -> local_theory -> local_theory
   val same_scope_item:
     Proof.context -> URust_Import_Scope.namespace -> string ->
@@ -47,6 +49,8 @@ end
     one alias, one path and the same grouped-self form) and every cycle of the alias dependency
     graph, whose edges lead from a leaf's head segment to the other leaves with that alias.
     Unsupported forms never reach a batch: the parser and the AST constructors reject them.
+    Every leaf of a validated batch receives its import identity here, so all preparations of one
+    batch bind the same identities.
   - resolve_batch resolves every leaf of a validated batch, used or not, against the batch and the
     supplied context.
     A single-segment target is looked up per namespace: the nearest batch import with that alias
@@ -61,8 +65,8 @@ end
     generated enum. Exact keys obtain their namespace memberships from item origin and shape,
     type mappings and literal/call notation registrations; field-only notations and keys without
     any supported item are positioned rejections. Persistent batches additionally reject an alias
-    that collides with a same-scope generated item or registered type. Every import receives a
-    fresh identity. Semantic reports are deferred only after the complete batch validates.
+    that collides with a same-scope generated item or registered type. Bindings carry the identity
+    of their validated leaf. Semantic reports are deferred only after the complete batch validates.
     Require_Targets rejects a target that is absent from the context. Allow_Unavailable_Targets
     instead binds such a leaf, and every leaf depending on it, as an unavailable binding whose uses
     reject without fallback; a target that exists but cannot be imported still rejects. Duplicates
@@ -71,8 +75,14 @@ end
     and composition: it returns the supplied context extended with one immutable frame, or the
     context itself for an empty batch. Blocks, bodies and persistent imports require targets; a
     composer that re-prepares one validated batch for each declaration may allow unavailable
-    targets and requires them at the end. install validates and installs one use item as
-    persistent local-theory declarations, capturing the canonical keys at installation.
+    targets and requires them at the end. prepare_batch_unreported prepares the same frame
+    without semantic reports; such a composer uses it for every preparation of the batch except
+    the one that reports it. conclude_batch is that composer's final step: it resolves the batch
+    with Require_Targets and reports it, and rejects an import whose alias shares a namespace with
+    an item declared alongside the batch, that is, present in the final context but not in the
+    initial one, as Rust rejects an import and an item of one name in one scope. install
+    validates and installs one use item as persistent local-theory declarations, capturing the
+    canonical keys at installation.
   - same_scope_item finds the generated function or unit/tuple constructor (value namespace) or the
     Rust type (type namespace) whose single-segment key is a given name.
 *)
@@ -195,9 +205,9 @@ struct
                  {item = "Rust type", pos = URust_Type_Mappings.entry_declaration_position entry})
                (URust_Type_Mappings.lookup ctxt name))
 
-  type batch = leaf list
+  type batch = (leaf * serial) list
 
-  fun batch_leaves (batch: batch) = batch
+  fun batch_leaves (batch: batch) = map #1 batch
 
   fun head_name ({path, ...}: leaf) = (case path of (name, _) :: _ => SOME name | [] => NONE)
 
@@ -251,7 +261,7 @@ struct
               List.app (visit (index :: stack)) (nth graph index);
               Array.update (states, index, 2)))
       val _ = List.app (visit []) (0 upto length leaves - 1)
-    in leaves end
+    in map (fn leaf => (leaf, serial ())) leaves end
 
   datatype outcome = Available of resolved | Unavailable
   datatype state = Unresolved | Active | Done of outcome
@@ -381,9 +391,8 @@ struct
         end
     in map resolve (0 upto count - 1) end
 
-  fun leaf_bindings (leaf: leaf, outcome) =
+  fun leaf_bindings ((leaf: leaf, identity), outcome) =
     let
-      val identity = serial ()
       val (alias, alias_pos) = #alias leaf
       fun make namespace key roles available =
         {alias = alias, alias_pos = alias_pos, namespace = namespace, key = key, roles = roles,
@@ -401,8 +410,8 @@ struct
              [S.Type_Namespace, S.Value_Namespace])
     end
 
-  fun check_same_scope_items ctxt (binding: S.binding) =
-    (case same_scope_item ctxt (#namespace binding) (#alias binding) of
+  fun check_scope_items lookup_item (binding: S.binding) =
+    (case lookup_item (#namespace binding) (#alias binding) of
        SOME {item, pos} =>
          error
            ("uRust import: " ^ S.namespace_name (#namespace binding) ^ " import " ^
@@ -530,30 +539,50 @@ struct
         (map_filter I [#type_member resolved, #value_member resolved])
     end
 
-  fun resolve_batch {persistent, targets} ctxt (batch: batch) =
+  fun resolve report {persistent, targets} ctxt (batch: batch) =
     let
       val leaves = batch_leaves batch
       val outcomes = resolve_leaves targets ctxt leaves
-      val bindings = maps leaf_bindings (leaves ~~ outcomes)
+      val bindings = maps leaf_bindings (batch ~~ outcomes)
       val _ = S.check_batch bindings
       val _ =
         if persistent then
           (S.check_persistent_duplicates ctxt bindings;
-           List.app (check_same_scope_items ctxt) bindings)
+           List.app (check_scope_items (same_scope_item ctxt)) bindings)
         else ()
-      val batch_ctxt = S.push_frame bindings ctxt
-      val seen = Unsynchronized.ref ([]: Properties.T list)
-      val _ = S.report_alias_definitions ctxt bindings
       val _ =
-        List.app
-          (fn (leaf, Available resolved) => report_leaf ctxt batch_ctxt seen (leaf, resolved)
-            | (_, Unavailable) => ())
-          (leaves ~~ outcomes)
+        if report then
+          let
+            val batch_ctxt = S.push_frame bindings ctxt
+            val seen = Unsynchronized.ref ([]: Properties.T list)
+            val _ = S.report_alias_definitions ctxt bindings
+          in
+            List.app
+              (fn (leaf, Available resolved) => report_leaf ctxt batch_ctxt seen (leaf, resolved)
+                | (_, Unavailable) => ())
+              (leaves ~~ outcomes)
+          end
+        else ()
     in bindings end
 
-  fun prepare_batch _ ctxt [] = ctxt
-    | prepare_batch targets ctxt batch =
-        S.push_frame (resolve_batch {persistent = false, targets = targets} ctxt batch) ctxt
+  val resolve_batch = resolve true
+
+  fun gen_prepare_batch _ _ ctxt [] = ctxt
+    | gen_prepare_batch report targets ctxt batch =
+        S.push_frame (resolve report {persistent = false, targets = targets} ctxt batch) ctxt
+
+  val prepare_batch = gen_prepare_batch true
+  val prepare_batch_unreported = gen_prepare_batch false
+
+  fun conclude_batch {initial} ctxt batch =
+    let
+      val bindings = resolve_batch {persistent = false, targets = Require_Targets} ctxt batch
+      fun declared_alongside namespace name =
+        (case same_scope_item ctxt namespace name of
+           SOME found =>
+             if is_none (same_scope_item initial namespace name) then SOME found else NONE
+         | NONE => NONE)
+    in List.app (check_scope_items declared_alongside) bindings end
 
   fun install item lthy =
     S.declare_persistent
