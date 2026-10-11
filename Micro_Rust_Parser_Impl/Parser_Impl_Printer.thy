@@ -31,6 +31,8 @@ sig
     options -> URust_AST.urust_function -> token list
   val tokens_of_type_alias:
     options -> URust_AST.urust_type_alias -> token list
+  val tokens_of_use_item:
+    options -> URust_AST.use_item -> token list
   val pretty_tokens: token list -> Pretty.T
   val pretty_expr: options -> URust_AST.ur_expr -> Pretty.T
   val pretty_datatype:
@@ -39,6 +41,7 @@ sig
     options -> URust_AST.urust_function -> Pretty.T
   val pretty_type_alias:
     options -> URust_AST.urust_type_alias -> Pretty.T
+  val pretty_use_item: options -> URust_AST.use_item -> Pretty.T
   val string_of_expr: options -> URust_AST.ur_expr -> string
   val string_of_datatype:
     options -> URust_AST.urust_datatype -> string
@@ -46,6 +49,7 @@ sig
     options -> URust_AST.urust_function -> string
   val string_of_type_alias:
     options -> URust_AST.urust_type_alias -> string
+  val string_of_use_item: options -> URust_AST.use_item -> string
 end
 
 signature URUST_PRINTER_DOCUMENT =
@@ -60,6 +64,7 @@ sig
   val human_datatype: URust_AST.urust_datatype -> document
   val human_function: URust_AST.urust_function -> document
   val human_type_alias: URust_AST.urust_type_alias -> document
+  val human_use_item: URust_AST.use_item -> document
   val probe_text: document -> string
   val pretty: (lexeme -> Pretty.T) -> document -> Pretty.T
 end
@@ -891,8 +896,35 @@ fun no_struct_requires_group options expression =
        | UE_LetMut _ => true
        | UE_Const _ => true
        | UE_Seq _ => true
+       | UE_Use _ => true
        | _ => false)
   in expression_violation expression end
+
+fun use_path_document what segments =
+  flat
+    (Library.separate (delimiter "::")
+      (map (identifier o require_identifier what o #1)
+        (require_nonempty what segments)))
+
+fun use_alias_document NONE = []
+  | use_alias_document (SOME (alias, _)) =
+      space @ keyword "as" @ space @ identifier (require_identifier "use alias" alias)
+
+fun use_tree_document (Use_Path (segments, alias, _)) =
+      use_path_document "use path" segments @ use_alias_document alias
+  | use_tree_document (Use_Self (_, alias, _)) =
+      keyword "self" @ use_alias_document alias
+  | use_tree_document (Use_Group (prefix, members, _)) =
+      (if null prefix then []
+       else use_path_document "use group prefix" prefix @ delimiter "::") @
+      delimiter "{" @
+      block 2 false
+        (comma_documents
+          (map use_tree_document (require_nonempty "use group" members))) @
+      delimiter "}"
+
+fun use_item_document (Use_Item (tree, _)) =
+  block 2 false (keyword "use" @ space @ use_tree_document tree @ delimiter ";")
 
 fun expression_document options required expression =
   let
@@ -1136,6 +1168,13 @@ fun expression_document options required expression =
            delimiter ";" @ line @
            expression_document options
              expression_body_precedence continuation
+       | UE_Use (item, continuation, _) =>
+           use_item_document item @
+           (if is_unit continuation then []
+            else
+              line @
+              expression_document options
+                expression_body_precedence continuation)
        | UE_Seq (first, second, _) =>
            if is_unit second then
              (case first of
@@ -1257,6 +1296,9 @@ fun expression_document options required expression =
            wrap_document required expression_body_precedence
              (body_document expression)
        | UE_Seq _ =>
+           wrap_document required expression_body_precedence
+             (body_document expression)
+       | UE_Use _ =>
            wrap_document required expression_body_precedence
              (body_document expression)
        | UE_Return (value, _) =>
@@ -1487,6 +1529,7 @@ fun expression_document options required expression =
       | body_constructor (UE_Const _) = true
       | body_constructor (UE_LetElse _) = true
       | body_constructor (UE_Seq _) = true
+      | body_constructor (UE_Use _) = true
       | body_constructor _ = false
   in
     if body_constructor expression andalso
@@ -1648,6 +1691,9 @@ fun document_of_function options function =
 fun document_of_type_alias options item =
   finalize_document (events_of_type_alias options item)
 
+fun document_of_use_item (_: options) item =
+  finalize_document (use_item_document item)
+
 fun document_tokens (Document {tokens, ...}) = tokens
 fun probe_text (Document {probe_text, ...}) = probe_text
 
@@ -1719,6 +1765,9 @@ fun tokens_of_function options function =
 fun tokens_of_type_alias options item =
   document_tokens (document_of_type_alias options item)
 
+fun tokens_of_use_item options item =
+  document_tokens (document_of_use_item options item)
+
 fun pretty_tokens tokens =
   render_document default_lexeme (finalize_document tokens)
 
@@ -1738,6 +1787,10 @@ fun pretty_type_alias options item =
   render_document default_lexeme
     (document_of_type_alias options item)
 
+fun pretty_use_item options item =
+  render_document default_lexeme
+    (document_of_use_item options item)
+
 fun string_of_expr options =
   pretty_expr options #>
   Pretty.string_of_ops (Pretty.pure_output_ops (SOME 80))
@@ -1752,6 +1805,10 @@ fun string_of_function options =
 
 fun string_of_type_alias options =
   pretty_type_alias options #>
+  Pretty.string_of_ops (Pretty.pure_output_ops (SOME 80))
+
+fun string_of_use_item options =
+  pretty_use_item options #>
   Pretty.string_of_ops (Pretty.pure_output_ops (SOME 80))
 end
 
@@ -1776,6 +1833,9 @@ struct
       URust_Printer_Implementation.human_options
   val human_type_alias =
     URust_Printer_Implementation.document_of_type_alias
+      URust_Printer_Implementation.human_options
+  val human_use_item =
+    URust_Printer_Implementation.document_of_use_item
       URust_Printer_Implementation.human_options
   val probe_text = URust_Printer_Implementation.probe_text
   val pretty = URust_Printer_Implementation.render_document

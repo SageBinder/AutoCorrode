@@ -226,4 +226,213 @@ ML_val\<open>
 
 end
 
+
+section\<open> Syntax and printing \<close>
+
+text\<open>
+Parser-only tests of the shared use-tree grammar for complete items and body statements, their
+positioned rejections, exact symbol-counted ranges, recovery and printer roundtrips.
+\<close>
+
+ML_val\<open>
+local
+  open Parser_Use_Test
+  open URust_AST
+  val ctxt = \<^context>
+  fun parse text =
+    (case URust_Parser.parse_use_source ctxt (Parser_Lex_Util.text_source text) of
+       SOME item => item
+     | NONE => error ("empty use item " ^ quote text))
+  fun body text =
+    (case URust_Parser.parse_source ctxt (Parser_Lex_Util.text_source text) of
+       SOME expression => expression
+     | NONE => error ("empty body " ^ quote text))
+  fun leaves text =
+    URust_Imports.flatten (parse text)
+    |> map (fn leaf => (URust_Imports.leaf_path leaf, #1 (URust_Imports.leaf_alias leaf)))
+
+  val _ = require "plain import" (leaves "use demo::increment;" = [(["demo", "increment"], "increment")])
+  val _ = require "renamed import" (leaves "use demo::increment as inc;" = [(["demo", "increment"], "inc")])
+  val _ = require "group import"
+    (leaves "use demo::{increment as inc, Width};" =
+      [(["demo", "increment"], "inc"), (["demo", "Width"], "Width")])
+  val _ = require "enum self and renamed variants"
+    (leaves "use UseChoice::{self as Selection, Empty, Value as Present};" =
+      [(["UseChoice"], "Selection"), (["UseChoice", "Empty"], "Empty"),
+       (["UseChoice", "Value"], "Present")])
+  val _ = require "nested root group with trailing commas"
+    (leaves "use {demo::{WIDTH, value,}, UseChoice::{self, Value as Present,},};" =
+      [(["demo", "WIDTH"], "WIDTH"), (["demo", "value"], "value"),
+       (["UseChoice"], "UseChoice"), (["UseChoice", "Value"], "Present")])
+  val _ =
+    (case use_item_tree (parse "use UseChoice::{self};") of
+       Use_Group ([("UseChoice", _)], [Use_Self (_, NONE, _)], _) => ()
+     | _ => error "grouped self is not represented explicitly")
+  val _ =
+    (case use_item_tree (parse "use demo::{ // comment\n increment /* block */ as inc };") of
+       Use_Group (_, [Use_Path ([("increment", _)], SOME ("inc", _), _)], _) => ()
+     | _ => error "comments inside a use tree changed its AST")
+
+  fun reject_use (expected, text) =
+    rejects ("use syntax " ^ quote text) expected (fn () => parse text)
+  val _ =
+    List.app reject_use
+      [("glob imports (`*`) are not supported", "use demo::*;"),
+       ("glob imports (`*`) are not supported", "use *;"),
+       ("glob imports (`*`) are not supported", "use demo::{value, *};"),
+       ("empty use groups are not supported", "use demo::{};"),
+       ("empty use groups are not supported", "use {};"),
+       ("rooted at `::`", "use ::demo::value;"),
+       ("rooted at `crate`", "use crate::demo;"),
+       ("rooted at `super`", "use super::demo;"),
+       ("rooted at `self`", "use self::demo;"),
+       ("rooted at `Self`", "use Self::Value;"),
+       ("supported only as a grouped `{self}` import", "use demo::self;"),
+       ("supported only as a grouped `{self}` import", "use self;"),
+       ("supported only as a grouped `{self}` import", "use demo::{Choice::self};"),
+       ("grouped `self` requires a group prefix", "use {self};"),
+       ("underscore imports (`as _`) are not supported", "use demo::value as _;"),
+       ("`_` is not a use path segment", "use demo::_;"),
+       ("cannot be an import alias", "use demo::value as self;"),
+       ("cannot be an import alias", "use demo::value as crate;"),
+       ("cannot be a use path segment", "use demo::impl;"),
+       ("generic arguments are not allowed in use paths", "use demo::Cell::<u8>;"),
+       ("generic arguments are not allowed in use paths", "use demo::<u8>::Cell;"),
+       ("visibility qualifiers (`pub use`) are not supported", "pub use demo::value;"),
+       ("visibility qualifiers (`pub use`) are not supported", "pub(crate) use demo::value;"),
+       ("unexpected `extern` before a use item", "extern use demo::value;"),
+       ("syntax error", "use demo::value"),
+       ("syntax error", "use demo::value as fn;"),
+       ("syntax error", "use demo::{value as};"),
+       ("syntax error", "use u8::MAX;"),
+       ("syntax error", "use demo::{value,,};"),
+       ("syntax error", "use demo::value; use demo::WIDTH;"),
+       ("expected one complete use item", "type Width = u16;"),
+       ("expected one complete use item", "fn probe() {}")]
+  val _ =
+    rejects "use item as a function" "urust_fn: expected a complete function item"
+      (fn () => URust_Parser.parse_function_source ctxt (Parser_Lex_Util.text_source "use demo::value;"))
+  val _ =
+    rejects "use item as a datatype" "urust_datatype: expected a struct or enum item"
+      (fn () => URust_Parser.parse_datatype_source ctxt (Parser_Lex_Util.text_source "use demo::value;"))
+  val _ =
+    rejects "use item as a type alias" "urust_type_alias: expected a complete type alias item"
+      (fn () => URust_Parser.parse_type_alias_source ctxt (Parser_Lex_Util.text_source "use demo::value;"))
+  val _ = require "recovery after a failed use item" (leaves "use demo::value;" = [(["demo", "value"], "value")])
+
+  val _ =
+    (case body "use demo::value; value()" of
+       UE_Use (_, UE_Call _, _) => ()
+     | _ => error "leading body import")
+  val _ =
+    (case body "{ use demo::value; }" of
+       UE_Block (UE_Use (_, UE_Unit unit_layout, _), _) =>
+         require "terminal import has a token-free unit continuation"
+           (null (source_tokens unit_layout))
+     | _ => error "import-only block")
+  val _ =
+    (case body "let x = 1; use demo::value; x" of
+       UE_Let (_, _, UE_Use (_, UE_Path _, _), _) => ()
+     | _ => error "import after a let")
+  val _ =
+    (case body "x; use demo::value; use demo::WIDTH;" of
+       UE_Seq (_, UE_Use (_, UE_Use (_, UE_Unit _, _), _), _) => ()
+     | _ => error "terminal imports after a statement")
+  val _ =
+    (case body "if c { use demo::value; value() } else { 0 }" of
+       UE_If (_, UE_Block (UE_Use _, _), _, _) => ()
+     | _ => error "branch block import")
+  val _ = rejects "import as an operand" "syntax error" (fn () => body "1 + use demo::value;")
+  val _ = rejects "import as a let initializer" "syntax error" (fn () => body "let x = use demo::value; x")
+  val _ = rejects "body visibility" "visibility qualifiers (`pub use`) are not supported"
+    (fn () => body "pub use demo::value; value()")
+  val _ =
+    (case body "x + 1" of
+       UE_Bin _ => ()
+     | _ => error "expression recovery after a failed body import")
+
+  val positioned =
+    Parser_Lex_Util.positioned_content_source
+      "/* \<alpha>\<beta> */ use demo::{value as picked, UseChoice::{self}};"
+      (Position.make0 1 7000 0 "" "" "use-syntax-positions")
+  val text = Input.string_of positioned
+  fun offset_of_text needle =
+    let
+      val (prefix, rest) = Substring.position needle (Substring.full text)
+      val _ = if Substring.isEmpty rest then error ("missing " ^ needle) else ()
+    in 7000 + length (Symbol.explode (Substring.string prefix)) end
+  fun range_of needle =
+    let val start = offset_of_text needle
+    in (SOME start, SOME (start + length (Symbol.explode needle))) end
+  fun offsets pos = (Position.offset_of pos, Position.end_offset_of pos)
+  val positioned_item = the (URust_Parser.parse_use_source ctxt positioned)
+  val positioned_leaves = URust_Imports.flatten positioned_item
+  val _ = require "alias range after escaped symbols"
+    (offsets (#2 (URust_Imports.leaf_alias (hd positioned_leaves))) = range_of "picked")
+  val _ = require "grouped self alias range"
+    (offsets (#2 (URust_Imports.leaf_alias (nth positioned_leaves 1))) = range_of "self")
+  val _ = require "complete use item span"
+    (offsets (use_item_position positioned_item) =
+      (SOME (offset_of_text "use"), SOME (offset_of_text ";" + 1)))
+  val _ =
+    (case use_item_tree positioned_item of
+       Use_Group ([("demo", demo_pos)], [Use_Path ([("value", value_pos)], _, path_layout), _], layout) =>
+         (require "prefix segment range" (offsets demo_pos = range_of "demo");
+          require "member segment range" (offsets value_pos = range_of "value");
+          require "as keyword range"
+            (map offsets (source_token_positions path_layout (Keyword_Token "as")) = [range_of "as"]);
+          require "group delimiters"
+            (length (source_token_positions layout (Delimiter_Token "{")) = 1 andalso
+              length (source_token_positions layout (Delimiter_Token ",")) = 1))
+     | _ => error "positioned use tree shape")
+
+  fun roundtrip options text =
+    let
+      val original = parse text
+      val rendered = URust_Printer.string_of_use_item options original
+      val reparsed = parse rendered
+    in
+      require ("use item tokens changed for " ^ quote text ^ " rendered as " ^ quote rendered)
+        (URust_Printer.tokens_of_use_item options original =
+          URust_Printer.tokens_of_use_item options reparsed)
+    end
+  val roundtrip_items =
+    ["use demo::increment;", "use demo::increment as inc;",
+     "use demo::{increment as inc, Width};",
+     "use UseChoice::{self as Selection, Empty, Value as Present};",
+     "use {demo::{WIDTH, value,}, UseChoice::{self,},};"]
+  val _ = List.app (roundtrip URust_Printer.serialized_options) roundtrip_items
+  val _ = List.app (roundtrip URust_Printer.human_options) roundtrip_items
+  val _ =
+    require "canonical rendering"
+      (URust_Printer.string_of_use_item URust_Printer.serialized_options
+         (parse "use {demo::{WIDTH, value,}, UseChoice::{self as S,},};") =
+        "use {demo::{WIDTH, value}, UseChoice::{self as S}};")
+  fun body_roundtrip options text =
+    let
+      val original = body text
+      val rendered = URust_Printer.string_of_expr options original
+      val reparsed = body rendered
+    in
+      require ("body tokens changed for " ^ quote text ^ " rendered as " ^ quote rendered)
+        (URust_Printer.tokens_of_expr options original =
+          URust_Printer.tokens_of_expr options reparsed)
+    end
+  val roundtrip_bodies =
+    ["use demo::value; value()", "{ use demo::value; }", "let x = 1; use demo::value; x",
+     "x; use demo::value; use demo::WIDTH;",
+     "match c { Present(n) => { use demo::value; n } _ => 0 }",
+     "(use demo::value; 1)", "|x| { use demo::value as v; v() }"]
+  val _ = List.app (body_roundtrip URust_Printer.serialized_options) roundtrip_bodies
+  val _ = List.app (body_roundtrip URust_Printer.human_options) roundtrip_bodies
+  val _ =
+    URust_Printer_Output.pretty_human_use_item_with_reparse
+      (fn input => ignore (URust_Parser.parse_use_source ctxt input))
+      (parse "use UseChoice::{self as Selection, Value as Present};")
+    |> ignore
+in
+  val _ = ()
+end
+\<close>
+
 end

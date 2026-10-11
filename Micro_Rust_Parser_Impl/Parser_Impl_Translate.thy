@@ -723,7 +723,13 @@ struct
            (path, payload, layout)
      | UE_Match (flavour, scrutinee, arms, layout) =>
          M.lower_match (lower_expression ctxt) ctxt environment
-           (flavour, scrutinee, arms, layout))
+           (flavour, scrutinee, arms, layout)
+     | UE_Use (item, _, _) =>
+         error
+           ("uRust import: use declarations require an enclosing block" ^
+             Position.here
+               (the_source_token_position (use_item_source_layout item)
+                 (Keyword_Token "use"))))
 
   fun mk_with_wrapper allocate wrapper ctxt arguments expression =
     let

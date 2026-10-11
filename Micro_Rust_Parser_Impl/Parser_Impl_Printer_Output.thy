@@ -31,6 +31,8 @@ sig
   val pretty_human_type_alias_with_reparse:
     (Input.source -> unit) ->
       URust_AST.urust_type_alias -> Pretty.T
+  val pretty_human_use_item_with_reparse:
+    (Input.source -> unit) -> URust_AST.use_item -> Pretty.T
 end
 
 local
@@ -251,6 +253,10 @@ fun pretty_human_type_alias_with_reparse reparse item =
   pretty_human_document_with_reparse false reparse
     (URust_Printer_Document.human_type_alias item)
 
+fun pretty_human_use_item_with_reparse reparse item =
+  pretty_human_document_with_reparse false reparse
+    (URust_Printer_Document.human_use_item item)
+
 in
 
 structure URust_Printer_Output :> URUST_PRINTER_OUTPUT =
@@ -263,6 +269,8 @@ struct
     pretty_human_function_with_reparse
   val pretty_human_type_alias_with_reparse =
     pretty_human_type_alias_with_reparse
+  val pretty_human_use_item_with_reparse =
+    pretty_human_use_item_with_reparse
 end
 
 end

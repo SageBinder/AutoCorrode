@@ -34,6 +34,7 @@ sig
   val cast_comparison_error: string -> Position.T -> 'a
   val item_in_expression_error:
     string -> string -> Position.T -> 'a
+  val use_error: string -> Position.T -> 'a
 end
 
 (*
@@ -68,6 +69,8 @@ end
       required \<tau> prefix.
     * item_in_expression_error kind command pos rejects an item declaration selected through the
       expression parser and directs the user to the corresponding item command.
+    * use_error message pos rejects use syntax outside the supported import surface at the
+      offending token.
 
   All exported failure functions have result type 'a because they always raise via error. Their
   exact string assembly and use of quote are implementation details, subject to the message and
@@ -136,6 +139,9 @@ struct
       ("uRust " ^ kind ^
         " declarations are not expressions; use " ^ command ^
         Position.here pos)
+
+  fun use_error message pos =
+    error ("uRust import: " ^ message ^ Position.here pos)
 end
 \<close>
 SML_import \<open> structure URust_Grammar = URust_Grammar \<close>
@@ -867,6 +873,7 @@ lex_rules\<open>
 <INITIAL>"for"    => (tokF (yypos, yytext, Markup.keyword1, "TFOR", Tokens.TFOR));
 <INITIAL>"in"     => (tokF (yypos, yytext, Markup.keyword1, "TIN", Tokens.TIN));
 <INITIAL>"unsafe" => (tokF (yypos, yytext, Markup.keyword1, "TUNSAFE", Tokens.TUNSAFE));
+<INITIAL>"use"    => (tokF (yypos, yytext, Markup.keyword1, "TUSE", Tokens.TUSE));
 <INITIAL>\\"<y>"\\"<i>"\\"<e>"\\"<l>"\\"<d>" =>
     (tokF (yypos, yytext, Markup.keyword1, "TYIELD", Tokens.TYIELD));
 <INITIAL>\\"<l>"\\"<o>"\\"<g>" =>
@@ -1504,6 +1511,19 @@ fun reject_function_item_in_expression function =
   URust_Grammar.item_in_expression_error
     "function" "urust_fn" (function_item_position function)
 
+fun use_path_tokens separators =
+  map (fn pos => (Delimiter_Token "::", pos)) separators
+
+fun use_group_tokens open_pos commas close_pos =
+  (Delimiter_Token "{", open_pos) ::
+    map (fn pos => (Delimiter_Token ",", pos)) commas @
+    [(Delimiter_Token "}", close_pos)]
+
+fun reject_use_visibility (name, pos) =
+  if name = "pub" then
+    URust_Grammar.use_error "visibility qualifiers (`pub use`) are not supported" pos
+  else URust_Grammar.use_error ("unexpected `" ^ name ^ "` before a use item") pos
+
 fun reject_item_in_expression (Datatype_Item item) =
       reject_datatype_item_in_expression item
   | reject_item_in_expression (Function_Item_Node function) =
@@ -1511,6 +1531,9 @@ fun reject_item_in_expression (Datatype_Item item) =
   | reject_item_in_expression (Type_Alias_Item_Node item) =
       URust_Grammar.item_in_expression_error
         "type alias" "urust_type_alias" (type_alias_item_position item)
+  | reject_item_in_expression (Use_Item_Node item) =
+      URust_Grammar.item_in_expression_error
+        "use" "a block statement or urust_use" (use_item_position item)
 \<close>
 yacc_definitions\<open>
 %name URust
@@ -1569,6 +1592,7 @@ yacc_definitions\<open>
     | TTYPE
     | GLT of int | GGT of int
     | GHOLTYPE of string * Parser_Lex_Util.source_layout * int * int
+    | TUSE
 %nonterm ustart of URust_AST.parse_result option
        | uitem of URust_AST.urust_item
        | udatatype of URust_AST.urust_datatype
@@ -1679,14 +1703,80 @@ yacc_definitions\<open>
        | ustruct_expr_fields of URust_AST.struct_expr_field list
        | ulog_data_entry of URust_AST.log_data_entry
        | ulog_data_entries of URust_AST.log_data_entry list
+       | uitem_decl of URust_AST.urust_item
+       | uuse_item of URust_AST.use_item
+       | uuse_tree of URust_AST.use_tree
+       | uuse_trees of URust_AST.use_tree list * Position.T list
+       | uuse_path of (string * Position.T) list * Position.T list
 \<close>
 yacc_rules\<open>
   ustart : TEXPRSTART ubody (SOME (Parsed_Expression ubody))
          | TEXPRSTART (NONE)
          | TITEMSTART uitem (SOME (Parsed_Item uitem))
-  uitem : udatatype (Datatype_Item udatatype)
-        | ufunction (Function_Item_Node ufunction)
-        | utype_alias (Type_Alias_Item_Node utype_alias)
+  uitem : uitem_decl (uitem_decl)
+        | uuse_item (Use_Item_Node uuse_item)
+        | IDENT uuse_item (reject_use_visibility (IDENT, IDENTleft))
+        | IDENT LPAR IDENT RPAR uuse_item
+            (reject_use_visibility (IDENT1, IDENT1left))
+  uitem_decl : udatatype (Datatype_Item udatatype)
+             | ufunction (Function_Item_Node ufunction)
+             | utype_alias (Type_Alias_Item_Node utype_alias)
+  (* One use-tree grammar serves complete items and body statements. Its paths are plain
+     identifier segments: generic arguments, globs, empty groups and a leading `::` are parsed only
+     to reject them at their own tokens. *)
+  uuse_item : TUSE uuse_tree TSEMI
+                (mk_use_item
+                  (uuse_tree,
+                   syntax_layout TUSEleft TSEMIright
+                     [(Keyword_Token "use", TUSEleft),
+                      (Delimiter_Token ";", TSEMIleft)]))
+  uuse_tree : uuse_path
+                (mk_use_path
+                  (#1 uuse_path, NONE,
+                   syntax_layout uuse_pathleft uuse_pathright
+                     (use_path_tokens (#2 uuse_path))))
+            | uuse_path TAS IDENT
+                (mk_use_path
+                  (#1 uuse_path, SOME (IDENT, IDENTleft),
+                   syntax_layout uuse_pathleft IDENTright
+                     (use_path_tokens (#2 uuse_path) @
+                       [(Keyword_Token "as", TASleft)])))
+            | uuse_path TCOLONCOLON TLBRACE uuse_trees TRBRACE
+                (mk_use_group
+                  (#1 uuse_path, #1 uuse_trees,
+                   syntax_layout uuse_pathleft TRBRACEright
+                     (use_path_tokens (#2 uuse_path @ [TCOLONCOLONleft]) @
+                       use_group_tokens TLBRACEleft (#2 uuse_trees) TRBRACEleft)))
+            | TLBRACE uuse_trees TRBRACE
+                (mk_use_group
+                  ([], #1 uuse_trees,
+                   syntax_layout TLBRACEleft TRBRACEright
+                     (use_group_tokens TLBRACEleft (#2 uuse_trees) TRBRACEleft)))
+            | uuse_path TCOLONCOLON TLBRACE TRBRACE
+                (URust_Grammar.use_error "empty use groups are not supported"
+                  (spanning_position TLBRACEleft TRBRACEright))
+            | TLBRACE TRBRACE
+                (URust_Grammar.use_error "empty use groups are not supported"
+                  (spanning_position TLBRACEleft TRBRACEright))
+            | uuse_path TCOLONCOLON TSTAR
+                (URust_Grammar.use_error "glob imports (`*`) are not supported" TSTARleft)
+            | TSTAR
+                (URust_Grammar.use_error "glob imports (`*`) are not supported" TSTARleft)
+            | TCOLONCOLON uuse_tree
+                (URust_Grammar.use_error
+                  "use paths rooted at `::` require a crate context and are not supported"
+                  TCOLONCOLONleft)
+  uuse_trees : uuse_tree ([uuse_tree], [])
+             | uuse_tree COMMA ([uuse_tree], [COMMAleft])
+             | uuse_tree COMMA uuse_trees
+                 (uuse_tree :: #1 uuse_trees, COMMAleft :: #2 uuse_trees)
+  uuse_path : IDENT ([(IDENT, IDENTleft)], [])
+            | uuse_path TCOLONCOLON IDENT
+                (#1 uuse_path @ [(IDENT, IDENTleft)], #2 uuse_path @ [TCOLONCOLONleft])
+            | uuse_path ugeneric_args
+                (case ugeneric_args of
+                   Generic_Args (_, pos) =>
+                     URust_Grammar.use_error "generic arguments are not allowed in use paths" pos)
   utype_alias :
       TTYPE IDENT ualias_parameters TEQ urust_type TSEMI
         (let
@@ -1944,6 +2034,15 @@ yacc_rules\<open>
         | ubinding_head TSEMI ubody
             (finish_binding
               (ubinding_head, ubody, TSEMIleft, ubodyright))
+        | uuse_item ubody
+            (UE_Use
+              (uuse_item, ubody, syntax_layout uuse_itemleft ubodyright []))
+        | uuse_item
+            (UE_Use
+              (uuse_item, UE_Unit (make_source_layout uuse_itemright []),
+               syntax_layout uuse_itemleft uuse_itemright []))
+        | IDENT uuse_item ubody (reject_use_visibility (IDENT, IDENTleft))
+        | IDENT uuse_item (reject_use_visibility (IDENT, IDENTleft))
   ubinding_head : TLET upat TEQ uexpr
                     (BH_Let
                       (upat, uexpr, TLETleft, TEQleft))
@@ -1971,8 +2070,8 @@ yacc_rules\<open>
                syntax_layout TRETURNleft uexprright
                  [(Keyword_Token "return", TRETURNleft)]))
         | uclosure                          (uclosure)
-        | uitem
-            (reject_item_in_expression uitem)
+        | uitem_decl
+            (reject_item_in_expression uitem_decl)
   uclosure : TBARBAR uexpr
                 (mk_closure
                   ([], uexpr,
@@ -2936,6 +3035,8 @@ sig
     Proof.context -> Input.source -> URust_AST.rust_generic_argument
   val parse_type_alias_source:
     Proof.context -> Input.source -> URust_AST.urust_type_alias option
+  val parse_use_source:
+    Proof.context -> Input.source -> URust_AST.use_item option
 end
 
 (*
@@ -3079,7 +3180,8 @@ struct
      (95, "TTYPE", "type"),
      (96, "GLT", "<"),
      (97, "GGT", ">"),
-     (98, "GHOLTYPE", "<HOL type>")]
+     (98, "GHOLTYPE", "<HOL type>"),
+     (99, "TUSE", "use")]
 
   val terminal_count = length terminal_specs
 
@@ -3249,6 +3351,11 @@ struct
                ("urust_expr: expected a complete expression" ^
                  Position.here
                    (URust_AST.type_alias_item_position item))
+         | SOME (URust_AST.Parsed_Item
+             (URust_AST.Use_Item_Node item)) =>
+             error
+               ("urust_expr: expected a complete expression" ^
+                 Position.here (URust_AST.use_item_position item))
          | NONE => NONE)
       end)
 
@@ -3281,6 +3388,10 @@ struct
          error
            ("urust_datatype: expected a struct or enum item" ^
              Position.here (URust_AST.type_alias_item_position item))
+     | SOME (URust_AST.Use_Item_Node item) =>
+         error
+           ("urust_datatype: expected a struct or enum item" ^
+             Position.here (URust_AST.use_item_position item))
      | NONE => NONE)
 
   fun parse_function_source ctxt source =
@@ -3295,6 +3406,10 @@ struct
          error
            ("urust_fn: expected a complete function item" ^
              Position.here (URust_AST.type_alias_item_position item))
+     | SOME (URust_AST.Use_Item_Node item) =>
+         error
+           ("urust_fn: expected a complete function item" ^
+             Position.here (URust_AST.use_item_position item))
      | NONE => NONE)
 
   fun parse_type_alias_source ctxt source =
@@ -3308,6 +3423,27 @@ struct
          error
            ("urust_type_alias: expected a complete type alias item" ^
              Position.here (URust_AST.function_item_position function))
+     | SOME (URust_AST.Use_Item_Node item) =>
+         error
+           ("urust_type_alias: expected a complete type alias item" ^
+             Position.here (URust_AST.use_item_position item))
+     | NONE => NONE)
+
+  fun parse_use_source ctxt source =
+    (case parse_item_source ctxt source of
+       SOME (URust_AST.Use_Item_Node item) => SOME item
+     | SOME (URust_AST.Datatype_Item item) =>
+         error
+           ("urust_use: expected one complete use item" ^
+             Position.here (URust_AST.datatype_item_position item))
+     | SOME (URust_AST.Function_Item_Node function) =>
+         error
+           ("urust_use: expected one complete use item" ^
+             Position.here (URust_AST.function_item_position function))
+     | SOME (URust_AST.Type_Alias_Item_Node item) =>
+         error
+           ("urust_use: expected one complete use item" ^
+             Position.here (URust_AST.type_alias_item_position item))
      | NONE => NONE)
   fun parse_type_source ctxt source =
     Parser_Lex_Util.with_parser_lock (fn () =>
