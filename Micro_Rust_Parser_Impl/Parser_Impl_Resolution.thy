@@ -348,7 +348,7 @@ struct
         | allocate ((parameter as ((name, pos), T)) :: rest) env abstractions =
             let
               val _ =
-                Context_Position.report_text ctxt pos Markup.typing
+                URust_Report_Transaction.report_text ctxt pos Markup.typing
                   ("uRust " ^ role ^ " :: " ^ Syntax.string_of_typ ctxt T)
               val (abstraction, env') =
                 if name = "_" then
@@ -402,7 +402,7 @@ struct
       let
         val fixed = the (Proof_Context.lookup_free ctxt name)
         val _ =
-          List.app (Context_Position.report ctxt pos)
+          List.app (URust_Report_Transaction.report ctxt pos)
             (Syntax_Phases.markup_free ctxt fixed)
       in T.source_position pos (Free (fixed, dummyT)) end
     else
@@ -410,7 +410,9 @@ struct
         val source =
           Parser_Lex_Util.positioned_content_source name
             (Position.no_range_position pos)
-        val term = Syntax.parse_term ctxt (Syntax.implode_input source)
+        val term =
+          URust_Report_Transaction.native ctxt
+            (fn read_ctxt => Syntax.parse_term read_ctxt (Syntax.implode_input source))
       in
         (case identifier_leaf term of
            Const (constant_name, _) =>
@@ -418,11 +420,11 @@ struct
                val consts = Proof_Context.consts_of ctxt
                val constant_type = Consts.the_constraint consts constant_name
                val _ =
-                 List.app (Context_Position.report ctxt pos)
+                 List.app (URust_Report_Transaction.report ctxt pos)
                    [Name_Space.markup (Consts.space_of consts) constant_name,
                     Markup.const]
              in
-               Context_Position.report_text ctxt pos Markup.typing
+               URust_Report_Transaction.report_text ctxt pos Markup.typing
                  (Syntax.string_of_typ ctxt constant_type)
              end
          | _ => ());
@@ -486,7 +488,7 @@ struct
       (identifier as (name, pos)) =
     let
       val _ =
-        Context_Position.report_text ctxt pos Markup.typing
+        URust_Report_Transaction.report_text ctxt pos Markup.typing
           "log data identifier"
     in
       (case use_local ctxt environment identifier of
@@ -605,7 +607,7 @@ struct
     end
 
   fun report_free_path_segment ctxt segment =
-    Context_Position.report ctxt
+    URust_Report_Transaction.report ctxt
       (#2 (segment_identifier segment)) Markup.free
 
   fun notation_role Micro_Rust_Names.NLiteral = "literal"
@@ -616,7 +618,7 @@ struct
     let
       val pos = #2 (segment_identifier segment)
     in
-      Context_Position.report_text ctxt pos Markup.typing
+      URust_Report_Transaction.report_text ctxt pos Markup.typing
         ("registered " ^ notation_role kind ^
           " path qualifier for " ^ quote name)
     end
@@ -658,7 +660,7 @@ struct
           val pos = #2 (segment_identifier segment)
           val type_space = Proof_Context.type_space ctxt
         in
-          List.app (Context_Position.report ctxt pos)
+          List.app (URust_Report_Transaction.report ctxt pos)
             [Name_Space.markup type_space family, Markup.keyword3]
         end
     in
@@ -882,7 +884,7 @@ struct
     let
       val _ = report_path_qualifiers ctxt path
       val (name, pos) = path_terminal path
-      val _ = Context_Position.report ctxt pos Markup.free
+      val _ = URust_Report_Transaction.report ctxt pos Markup.free
     in Free (render_path path, dummyT) end
 
   fun qualified_registration_error kind path displayed_name pos =
@@ -990,12 +992,12 @@ struct
                    Consts.the_constraint consts constant_name
                  val _ = report_path_qualifiers ctxt path
                  val _ =
-                   List.app (Context_Position.report ctxt pos)
+                   List.app (URust_Report_Transaction.report ctxt pos)
                      [Name_Space.markup
                         (Consts.space_of consts) constant_name,
                       Markup.const]
                  val _ =
-                   Context_Position.report_text ctxt pos Markup.typing
+                   URust_Report_Transaction.report_text ctxt pos Markup.typing
                      (Syntax.string_of_typ ctxt constant_type)
                in
                  T.source_position pos
@@ -1328,7 +1330,7 @@ struct
       if unresolved then
         let
           val _ =
-            Context_Position.report_text ctxt pos Markup.typing
+            URust_Report_Transaction.report_text ctxt pos Markup.typing
               "unregistered uRust method call head"
         in
           error
@@ -1944,10 +1946,10 @@ struct
      Option.app (I.defer_field_reference ctxt pos) field)
 
   fun report_wildcard ctxt pos =
-    Context_Position.report_text ctxt pos Markup.typing "wildcard pattern"
+    URust_Report_Transaction.report_text ctxt pos Markup.typing "wildcard pattern"
 
   fun report_struct_label ctxt (_, pos) =
-    Context_Position.report_text ctxt pos Markup.typing
+    URust_Report_Transaction.report_text ctxt pos Markup.typing
       "struct expression label"
 
   fun report_struct_labels ctxt path fields =
@@ -1957,7 +1959,7 @@ struct
         let val (name, pos) = label field in
           (case AList.lookup (op =) aliases name of
              SOME source_field =>
-               (Context_Position.report_text ctxt pos Markup.typing
+               (URust_Report_Transaction.report_text ctxt pos Markup.typing
                   "generated Rust field";
                 report_field ctxt pos
                   (I.field_selector source_field)

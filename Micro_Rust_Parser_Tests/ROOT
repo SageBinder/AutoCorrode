@@ -16,6 +16,7 @@ session Micro_Rust_Parser_Tests = HOL +
     Parser_Logging_Fixtures
     Parser_Iterator_Fixtures
     Parser_Simple_Word_Enum_Tests
+    Parser_Simple_Word_Enum_Clause_Tests
     Parser_Registered_Constructor_Fixtures
     Parser_Constructor_Ambiguity_Left_Fixtures
     Parser_Constructor_Ambiguity_Right_Fixtures

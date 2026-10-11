@@ -6,7 +6,6 @@ theory Parser_Impl_Command
     Parser_Impl_Datatype
   keywords
     "urust_expr" :: thy_decl
-    and "urust" :: thy_decl
     and "urust_fn" :: thy_decl
     and "urust_datatype" :: thy_decl
     and "urust_type_alias" :: thy_decl
@@ -172,22 +171,12 @@ imports. They share the type-mapping namespace, capture dependencies at declarat
 inferred generic sorts. Signatures, datatype fields and cast targets all expand them.
 Semantic declaration and dependency navigation reports wait until successful installation.
 
-The chunk surface is \<open>urust [OPTIONS] src\<close>, whose cartouche contains a nonempty source-ordered
-list of complete \<open>fn\<close>, \<open>struct\<close> and \<open>enum\<close> items. An optional annotation
-\<open>\<omega>\<open>OPTION, OPTION = VALUE, ...\<close>\<close> occupies its own line or lines immediately before the line
-on which its item starts. Its payload uses the entry syntax of the bracketed lists with the
-function or datatype schema of the single-item commands, plus the positioned HOL binding
-\<open>name\<close>; functions also accept \<open>name = _\<close> to check without installing anything. The outer
-list accepts only \<open>pp_test\<close>, \<open>pretty\<close>, \<open>verbosity\<close> and \<open>register_notation\<close>.
-Annotation entries replace outer defaults, which replace scoped configurations; configurations
-are never changed. The whole chunk parses, and every member and annotation is validated, before
-the first declaration. Members then use the same parsed-item operations as \<open>urust_fn\<close> and
-\<open>urust_datatype\<close>, each in the context that the next command of the equivalent single-item
-sequence would receive, so earlier items are available to later ones and forward references are
-not resolved. uRust semantic reports and successful output are buffered for the whole command and
-released in source order only after every member succeeds; any failure rejects the command.
-Type alias items are rejected as chunk members. With \<open>pp_test\<close>, each member's annotation and
-item roundtrip through the serialized chunk printer before any declaration.
+The source-ordered chunk command \<open>urust\<close> is registered by the opt-in theory
+\<open>Parser_Impl_Chunk\<close>, so importing this theory keeps \<open>urust\<close> an ordinary name. It uses
+the option schemas, annotation reader and prepare/declare operations exported here, which the
+single-item commands share. Preparation is pure; declaration runs native backends in invisible
+contexts inside the caller's report transaction and regenerates the authored definition entities
+afterwards.
 
 The option parser is parameterized by a command-specific schema. Both commands accept Boolean
 \<open>pp_test\<close>, \<open>pretty\<close>, \<open>application_def\<close>, and \<open>abbrev\<close>, integer
@@ -220,6 +209,31 @@ sig
        arguments_pos: Position.T,
        declared_type: (string * Position.T) option} ->
       term
+
+  (* Shared option entries and parsed-item declaration operations for item-list commands. *)
+  type command_options
+  datatype option_schema = Chunk_Defaults | Function_Annotation | Datatype_Annotation
+  val parse_options: option_schema -> command_options parser
+  val read_annotation_options:
+    Proof.context -> option_schema -> URust_AST.item_annotation -> command_options
+  val override_options: command_options -> command_options -> command_options
+  val configured_pp_test: Proof.context -> command_options -> bool
+  type prepared_function
+  val prepare_function_item:
+    local_theory ->
+      {interactive: bool, roundtrip: bool, options: command_options,
+       source: Input.source, function: URust_AST.urust_function} ->
+      prepared_function
+  val declare_prepared_function:
+    prepared_function -> local_theory -> (unit -> unit) * local_theory
+  type prepared_datatype
+  val prepare_datatype_item:
+    local_theory ->
+      {interactive: bool, roundtrip: bool, options: command_options,
+       source: Input.source, item: URust_AST.urust_datatype} ->
+      prepared_datatype
+  val declare_prepared_datatype:
+    prepared_datatype -> local_theory -> (unit -> unit) * local_theory
 end
 
 (* THE expression pipeline, exported: every declaration command and programmatic client supplies an
@@ -236,7 +250,9 @@ end
 
    Declaration installation, command-kind inference, the shared declaration-body parser,
    command-specific option schemas, both outer-command facades, and command registration are private
-   implementation details. *)
+   implementation details. Item-list commands use the exported option schemas, annotation reader
+   and the prepare/declare operations that the single-item commands also use; preparation is
+   pure, and declaration runs inside the caller's report transaction. *)
 structure URust_Command :> URUST_COMMAND =
 struct
 datatype elaboration_kind = Expression | Function
@@ -777,7 +793,8 @@ fun elaborate_prepared_ast lthy
   let
     val (((closed, field_reports), function_reports),
           navigation_reports) =
-      Navigation.capture (fn () =>
+      URust_Report_Transaction.capture (fn () =>
+      URust_Report_Transaction.release_on_failure lthy (fn () =>
         URust_Item_Scope.capture_function_reports (fn () =>
           URust_Item_Scope.capture_field_reports (fn () =>
             let
@@ -791,7 +808,7 @@ fun elaborate_prepared_ast lthy
                          Type.constraint complete_type unchecked
                      | NONE => unchecked)
                 in
-                  Syntax.check_term lthy constrained
+                  URust_Report_Transaction.check_term lthy constrained
                 end
               val closed =
                 (case declared_type of
@@ -802,11 +819,11 @@ fun elaborate_prepared_ast lthy
                 reject_unresolved kind lthy source closed
             in
               closed
-            end)))
+            end))))
     (* Native resolved targets precede the authored Rust field/function reference, which remains
        the final navigation destination. Release every queue only after complete checking. *)
     val _ =
-      Navigation.replay lthy navigation_reports
+      URust_Report_Transaction.replay lthy navigation_reports
     val _ =
       URust_Item_Scope.replay_field_reports
         lthy field_reports
@@ -899,7 +916,11 @@ fun declaration_attributes lthy command target abbreviation options =
                 (command ^
                   ": attrs is not supported in abbreviation mode" ^
                   Position.here option_pos)
-            else map (Attrib.check_src lthy) attributes)
+            else
+              map (fn source =>
+                  URust_Report_Transaction.native lthy
+                    (fn ctxt => Attrib.check_src ctxt source))
+                attributes)
    | SOME (_, option_pos) =>
        error
          ("internal non-attribute uRust command option " ^
@@ -995,6 +1016,26 @@ fun install_urust_result abbreviation application_definition kind
       end
   end
 
+(* Authored definition entities of an installed result, regenerated after its invisible
+   backend run. *)
+fun result_definitions lthy binding declaration =
+  let val consts = Consts.space_of (Proof_Context.consts_of lthy) in
+    (case declaration of
+       Definition_Result {lhs, ...} =>
+         [(consts, declaration_name (Local_Theory.full_name lthy binding) lhs)]
+     | Abbreviation_Result {name, ...} => [(consts, name)]
+     | Anonymous_Result _ => [])
+  end
+
+fun install_invisibly install binding lthy =
+  let
+    val (declaration, lthy') =
+      URust_Report_Transaction.invisible_declarations install lthy
+    val _ =
+      URust_Report_Transaction.defer_definitions lthy'
+        (result_definitions lthy' binding declaration)
+  in (declaration, lthy') end
+
 fun declare_urust_result pp_test render_pretty
     abbreviation application_definition attributes binding kind
     (target, declared_type, source, arguments_pos, arguments) lthy =
@@ -1026,8 +1067,10 @@ fun declare_urust_result pp_test render_pretty
   in
     (case target of
        Named_Target _ =>
-         install_urust_result abbreviation application_definition
-           kind attributes binding arguments pretty_body term lthy
+         install_invisibly
+           (install_urust_result abbreviation application_definition
+             kind attributes binding arguments pretty_body term)
+           binding lthy
      | Anonymous_Target _ =>
          (Anonymous_Result
             {term = term,
@@ -1220,11 +1263,22 @@ fun declare_urust_function_result pp_test render_pretty
               reparse body)
         end
       else NONE
+    (* The callable entry is registered in the same backend context as the definition. *)
+    fun install backend_lthy =
+      let
+        val (declaration, installed) =
+          install_urust_result abbreviation application_definition
+            Function attributes binding arguments pretty_body term backend_lthy
+      in
+        (declaration,
+         if register_notation then
+           register_function_result target
+             (URust_AST.function_name function) declaration installed
+         else installed)
+      end
     val (declaration, lthy') =
       (case target of
-         Named_Target _ =>
-           install_urust_result abbreviation application_definition
-             Function attributes binding arguments pretty_body term lthy
+         Named_Target _ => install_invisibly install binding lthy
        | Anonymous_Target _ =>
            (Anonymous_Result
               {term = term,
@@ -1246,13 +1300,8 @@ fun declare_urust_function_result pp_test render_pretty
                  (Proof_Context.intern_const lthy'
                    (Local_Theory.full_name lthy binding)))
          | Anonymous_Target _ => ())
-    val lthy'' =
-      if register_notation then
-        register_function_result target
-          (URust_AST.function_name function) declaration lthy'
-      else lthy'
   in
-    (declaration, lthy'')
+    (declaration, lthy')
   end
 fun verbosity_output_enabled interactive lthy =
   interactive orelse Config.get lthy Proof_Display.show_results
@@ -1440,7 +1489,7 @@ fun declare_and_print declaration interactive verbosity pretty lthy =
     val _ = print_declaration interactive verbosity pretty lthy' result
   in lthy' end
 
-fun warn_ineffective_pretty options source pretty verbosity =
+fun pretty_warning options source pretty verbosity =
   if pretty andalso verbosity = 0 then
     let
       val pos =
@@ -1448,12 +1497,16 @@ fun warn_ineffective_pretty options source pretty verbosity =
            SOME (_, option_pos) => option_pos
          | NONE => Input.pos_of source)
     in
-      warning
-        ("uRust command option " ^ quote pretty_option ^
-          " has no effect when verbosity = 0" ^
-          Position.here pos)
+      fn () =>
+        warning
+          ("uRust command option " ^ quote pretty_option ^
+            " has no effect when verbosity = 0" ^
+            Position.here pos)
     end
-  else ()
+  else K ()
+
+fun warn_ineffective_pretty options source pretty verbosity =
+  pretty_warning options source pretty verbosity ()
 fun command_elaboration_kind lthy declared_type =
   (case declared_type of
      NONE => Expression
@@ -1510,29 +1563,29 @@ fun default_function_target function =
     Named_Target (Binding.make (URust_AST.rust_snake_case rust_name, rust_pos))
   end
 
-(* The shared function declaration operation for an already parsed item, its source, effective
-   options and HOL target. Semantic reports join the enclosing navigation capture; the successful
-   result output is returned for the caller to emit after its whole transaction. *)
-fun declare_function_item
-    {interactive, roundtrip, options, target, source, function} lthy =
+(* The pure part of a function declaration: effective options, their compatibility, attribute
+   checks and the HOL target. A multi-item command prepares every member before its first
+   declaration; the ineffective-pretty warning is released with the successful output. *)
+datatype prepared_function =
+  Prepared_Function of
+    {interactive: bool, pp_test: bool, verbosity: int, pretty: bool, render_pretty: bool,
+     abbreviation: bool, application_definition: bool, attributes: Token.src list,
+     binding: binding, target: declaration_target, register_notation: bool,
+     channels:
+       {state: Input.source option, abort: Input.source option,
+        input: Input.source option, output: Input.source option},
+     source: Input.source, function: URust_AST.urust_function, warnings: unit -> unit}
+
+fun prepare_function lthy {interactive, roundtrip, options, target, source, function} =
   let
-    val (rust_name, rust_pos) =
-      URust_AST.function_name function
     val register_notation =
       configured_flag lthy options register_notation_option urust_register_notation
-    val _ =
-      if register_notation then
-        (case target of
-           Named_Target _ =>
-             reject_function_item_conflict lthy (rust_name, rust_pos)
-         | Anonymous_Target _ => ())
-      else ()
     val pp_test =
       roundtrip andalso configured_flag lthy options pp_test_option urust_pp_test
     val verbosity = configured_verbosity lthy options
     val pretty =
       configured_flag lthy options pretty_option urust_pretty
-    val _ = warn_ineffective_pretty options source pretty verbosity
+    val warnings = pretty_warning options source pretty verbosity
     val render_pretty =
       pretty andalso verbosity >= 1 andalso
         verbosity_output_enabled interactive lthy
@@ -1546,29 +1599,57 @@ fun declare_function_item
         "urust_fn" abbreviation application_definition
     val attributes =
       declaration_attributes lthy "urust_fn" target abbreviation options
-    val binding = target_binding Function target
     fun channel name =
       (case Symtab.lookup options name of
          SOME (Type_Value source, _) => SOME source
        | NONE => NONE
        | SOME (_, pos) => option_type_error name "a HOL type" pos)
-    val channels =
-      {state = channel state_option, abort = channel abort_option,
-       input = channel input_option, output = channel output_option}
+  in
+    Prepared_Function
+      {interactive = interactive, pp_test = pp_test, verbosity = verbosity, pretty = pretty,
+       render_pretty = render_pretty, abbreviation = abbreviation,
+       application_definition = application_definition, attributes = attributes,
+       binding = target_binding Function target, target = target,
+       register_notation = register_notation,
+       channels =
+         {state = channel state_option, abort = channel abort_option,
+          input = channel input_option, output = channel output_option},
+       source = source, function = function, warnings = warnings}
+  end
+
+(* The shared function declaration operation for an already prepared item. Registration
+   conflicts and signature types depend on earlier declarations and are checked here. uRust
+   reports join the enclosing report transaction; the successful result output is returned for
+   the caller to emit after its whole transaction. *)
+fun declare_prepared_function
+    (Prepared_Function
+      {interactive, pp_test, verbosity, pretty, render_pretty, abbreviation,
+       application_definition, attributes, binding, target, register_notation, channels,
+       source, function, warnings}) lthy =
+  let
+    val (rust_name, rust_pos) =
+      URust_AST.function_name function
+    val _ =
+      if register_notation then
+        (case target of
+           Named_Target _ =>
+             reject_function_item_conflict lthy (rust_name, rust_pos)
+         | Anonymous_Target _ => ())
+      else ()
     val (result, lthy') =
       declare_urust_function_result pp_test render_pretty
         abbreviation application_definition attributes binding
         target register_notation channels source function lthy
   in
-    (fn () => print_declaration interactive verbosity pretty lthy' result, lthy')
+    (fn () => (warnings (); print_declaration interactive verbosity pretty lthy' result), lthy')
   end
 
 (* A complete single-declaration transaction: replay deferred reports, then print. *)
 fun run_declaration declaration lthy =
   let
     val ((output, completed), reports) =
-      Navigation.capture (fn () => declaration lthy)
-    val _ = Navigation.replay completed reports
+      URust_Report_Transaction.capture (fn () => declaration lthy)
+    val _ = URust_Report_Transaction.replay completed reports
     val _ = output ()
   in completed end
 
@@ -1585,16 +1666,18 @@ fun define_urust_fn
                Position.here (Input.pos_of source)))
   in
     run_declaration
-      (declare_function_item
-        {interactive = interactive, roundtrip = true, options = options,
-         target = the_default (default_function_target function) target_option,
-         source = source, function = function})
+      (declare_prepared_function
+        (prepare_function lthy
+          {interactive = interactive, roundtrip = true, options = options,
+           target = the_default (default_function_target function) target_option,
+           source = source, function = function}))
       lthy
   end
 
-(* Effective datatype options for the shared declaration operation. *)
+(* Effective datatype options for the shared declaration operation, with the
+   ineffective-pretty warning that accompanies successful output. *)
 fun datatype_declaration
-    {interactive, roundtrip, options, explicit_binding, source} lthy : URust_Datatype.declaration =
+    {interactive, roundtrip, options, explicit_binding, source} lthy =
   let
     val verbosity = configured_verbosity lthy options
     val pp_test =
@@ -1603,39 +1686,90 @@ fun datatype_declaration
       configured_flag lthy options pretty_option urust_pretty
     val register_notation =
       configured_flag lthy options register_notation_option urust_register_notation
-    val _ =
-      warn_ineffective_pretty options source pretty verbosity
-  in
-    {source = source,
-     explicit_binding = explicit_binding,
-     interactive = interactive,
-     verbosity = verbosity,
-     pp_test = pp_test,
-     pretty = pretty,
-     register_notation = register_notation,
-     backend = (case Symtab.lookup options "backend" of
-       SOME (Backend_Value value, _) => value | _ => "auto"),
-     word_width = (case Symtab.lookup options "word_width" of
-       SOME (Integer_Value value, _) => SOME value | _ => NONE),
-     parameters = (case Symtab.lookup options "parameters" of
-       SOME (Renames_Value value, _) => value | _ => []),
-     plugins = (case Symtab.lookup options "plugins" of
-       SOME (Plugins_Value value, _) => value | _ => K Plugin_Name.default_filter),
-     renames =
-       (case Symtab.lookup options renames_option of
-          SOME (Renames_Value renames, _) => renames
-        | NONE => []
-        | SOME (_, pos) =>
-            option_type_error renames_option "a quoted rename list" pos)}
-  end
+    val warnings = pretty_warning options source pretty verbosity
+    val declaration : URust_Datatype.declaration =
+      {source = source,
+       explicit_binding = explicit_binding,
+       interactive = interactive,
+       verbosity = verbosity,
+       pp_test = pp_test,
+       pretty = pretty,
+       register_notation = register_notation,
+       backend = (case Symtab.lookup options "backend" of
+         SOME (Backend_Value value, _) => value | _ => "auto"),
+       word_width = (case Symtab.lookup options "word_width" of
+         SOME (Integer_Value value, _) => SOME value | _ => NONE),
+       parameters = (case Symtab.lookup options "parameters" of
+         SOME (Renames_Value value, _) => value | _ => []),
+       plugins = (case Symtab.lookup options "plugins" of
+         SOME (Plugins_Value value, _) => value | _ => K Plugin_Name.default_filter),
+       renames =
+         (case Symtab.lookup options renames_option of
+            SOME (Renames_Value renames, _) => renames
+          | NONE => []
+          | SOME (_, pos) =>
+              option_type_error renames_option "a quoted rename list" pos)}
+  in (declaration, warnings) end
+
+datatype prepared_datatype =
+  Prepared_Datatype of URust_Datatype.prepared * (unit -> unit)
+
+fun prepare_datatype lthy {interactive, roundtrip, options, explicit_binding, source, item} =
+  let
+    val (declaration, warnings) =
+      datatype_declaration
+        {interactive = interactive, roundtrip = roundtrip, options = options,
+         explicit_binding = explicit_binding, source = source} lthy
+  in Prepared_Datatype (URust_Datatype.prepare declaration item lthy, warnings) end
+
+fun declare_prepared_datatype (Prepared_Datatype (prepared, warnings)) lthy =
+  URust_Datatype.declare_prepared prepared lthy
+  |>> (fn output => fn () => (warnings (); output ()))
 
 fun define_urust_datatype
     ((options, explicit_binding), source) interactive lthy =
-  URust_Datatype.define
-    (datatype_declaration
-      {interactive = interactive, roundtrip = true, options = options,
-       explicit_binding = explicit_binding, source = source} lthy)
-    lthy
+  let
+    val item =
+      (case URust_Parser.parse_datatype_source lthy source of
+         SOME item => item
+       | NONE =>
+           error
+             ("urust_datatype: empty datatype item" ^
+               Position.here (Input.pos_of source)))
+  in
+    run_declaration
+      (declare_prepared_datatype
+        (prepare_datatype lthy
+          {interactive = interactive, roundtrip = true, options = options,
+           explicit_binding = explicit_binding, source = source, item = item}))
+      lthy
+  end
+
+(* Naming choices carried by an annotation's command-layer name option. *)
+fun option_function_target options function =
+  (case Symtab.lookup options name_option of
+     NONE => default_function_target function
+   | SOME (Name_Value (SOME binding), _) => Named_Target binding
+   | SOME (Name_Value NONE, pos) => Anonymous_Target pos
+   | SOME (_, pos) => option_type_error name_option (name_expectation true) pos)
+
+fun option_datatype_binding options =
+  (case Symtab.lookup options name_option of
+     NONE => NONE
+   | SOME (Name_Value (SOME binding), _) => SOME binding
+   | SOME (_, pos) => option_type_error name_option (name_expectation false) pos)
+
+fun prepare_function_item lthy {interactive, roundtrip, options, source, function} =
+  prepare_function lthy
+    {interactive = interactive, roundtrip = roundtrip,
+     options = Symtab.delete_safe name_option options,
+     target = option_function_target options function, source = source, function = function}
+
+fun prepare_datatype_item lthy {interactive, roundtrip, options, source, item} =
+  prepare_datatype lthy
+    {interactive = interactive, roundtrip = roundtrip,
+     options = Symtab.delete_safe name_option options,
+     explicit_binding = option_datatype_binding options, source = source, item = item}
 
 val parse_renames =
   Parse.$$$ "[" |--
@@ -1703,10 +1837,44 @@ fun parse_command_options_with reject option_configs =
 fun parse_command_options option_configs =
   parse_command_options_with unknown_option option_configs
 
+fun reject_chunk_option (name, pos) =
+  if Symtab.defined function_annotation_configs name orelse
+      Symtab.defined datatype_annotation_configs name
+  then
+    error
+      ("urust: option " ^ quote name ^
+        " is declaration-specific; supply it in an \<omega> annotation" ^
+        Position.here pos)
+  else unknown_option (name, pos)
+
+fun reject_annotation_option kind other_configs (name, pos) =
+  if Symtab.defined other_configs name
+  then
+    error
+      ("urust: option " ^ quote name ^ " does not apply to " ^ kind ^ " declarations" ^
+        Position.here pos)
+  else unknown_option (name, pos)
+
+(* Item-list commands: the shared defaults of an outer list and the per-declaration schemas of
+   annotations, each with the client-specific rejection of names outside it. *)
+datatype option_schema = Chunk_Defaults | Function_Annotation | Datatype_Annotation
+
+fun schema_configs Chunk_Defaults = (reject_chunk_option, chunk_option_configs)
+  | schema_configs Function_Annotation =
+      (reject_annotation_option "fn" datatype_annotation_configs, function_annotation_configs)
+  | schema_configs Datatype_Annotation =
+      (reject_annotation_option "struct or enum" function_annotation_configs,
+       datatype_annotation_configs)
+
+fun parse_options schema =
+  let val (reject, option_configs) = schema_configs schema
+  in parse_command_options_with reject option_configs end
+
 (* Annotation payloads are positioned Isabelle source in the theory's outer-syntax keyword
    context. The complete payload must be one nonempty entry list. *)
-fun read_annotation_options lthy reject option_configs annotation =
+fun read_annotation_options lthy schema annotation =
   let
+    val (reject, option_configs) = schema_configs schema
     val keywords = Thy_Header.get_keywords' lthy
     val tokens =
       Token.tokenize keywords {strict = true}
@@ -1734,23 +1902,11 @@ fun read_annotation_options lthy reject option_configs annotation =
              Position.here (URust_AST.annotation_position annotation)))
   end
 
-fun reject_chunk_option (name, pos) =
-  if Symtab.defined function_annotation_configs name orelse
-      Symtab.defined datatype_annotation_configs name
-  then
-    error
-      ("urust: option " ^ quote name ^
-        " is declaration-specific; supply it in an \<omega> annotation" ^
-        Position.here pos)
-  else unknown_option (name, pos)
+(* Entries of the first table replace those of the second; neither list is concatenated. *)
+fun override_options overrides defaults = Symtab.fold Symtab.update overrides defaults
 
-fun reject_annotation_option kind other_configs (name, pos) =
-  if Symtab.defined other_configs name
-  then
-    error
-      ("urust: option " ^ quote name ^ " does not apply to " ^ kind ^ " declarations" ^
-        Position.here pos)
-  else unknown_option (name, pos)
+fun configured_pp_test lthy options =
+  configured_flag lthy options pp_test_option urust_pp_test
 
 val parse_parameter =
   Parse.position Parse.liberal_name || Parse.position Parse.underscore
@@ -1833,7 +1989,7 @@ val _ =
 fun define_urust_type_alias (registration, source) lthy =
   let
     val (completed, reports) =
-      Navigation.capture (fn () =>
+      URust_Report_Transaction.capture (fn () =>
         let
           val item =
             (case URust_Parser.parse_type_alias_source lthy source of
@@ -1850,7 +2006,7 @@ fun define_urust_type_alias (registration, source) lthy =
              rhs = URust_AST.type_alias_rhs item}
             lthy
         end)
-    val _ = Navigation.replay completed reports
+    val _ = URust_Report_Transaction.replay completed reports
   in completed end
 
 val _ =
@@ -1860,167 +2016,6 @@ val _ =
       (Parse.token Parse.cartouche >> Parser_Lex_Util.cartouche_source) >>
         define_urust_type_alias)
 
-(* Chunk members carry their effective options: an annotation entry replaces the outer default,
-   and absent entries fall back to the scoped configuration through the shared accessors. *)
-datatype chunk_member =
-    Function_Member of
-      {options: command_options, target: declaration_target,
-       source: Input.source, function: URust_AST.urust_function}
-  | Datatype_Member of
-      {options: command_options, explicit_binding: binding option,
-       source: Input.source, item: URust_AST.urust_datatype}
-
-fun chunk_member_options (Function_Member {options, ...}) = options
-  | chunk_member_options (Datatype_Member {options, ...}) = options
-
-fun annotated_options lthy reject option_configs outer annotation =
-  (case annotation of
-     NONE => outer
-   | SOME annotation =>
-       Symtab.fold Symtab.update
-         (read_annotation_options lthy reject option_configs annotation) outer)
-
-fun prepare_chunk_member lthy outer envelope =
-  let
-    val annotation = URust_AST.annotated_item_annotation envelope
-    val source = URust_AST.annotated_item_source envelope
-  in
-    (case URust_AST.annotated_item_item envelope of
-       URust_AST.Function_Item_Node function =>
-         let
-           val options =
-             annotated_options lthy
-               (reject_annotation_option "fn" datatype_annotation_configs)
-               function_annotation_configs outer annotation
-           val target =
-             (case Symtab.lookup options name_option of
-                NONE => default_function_target function
-              | SOME (Name_Value (SOME binding), _) => Named_Target binding
-              | SOME (Name_Value NONE, pos) => Anonymous_Target pos
-              | SOME (_, pos) => option_type_error name_option (name_expectation true) pos)
-         in
-           Function_Member
-             {options = Symtab.delete_safe name_option options, target = target,
-              source = source, function = function}
-         end
-     | URust_AST.Datatype_Item item =>
-         let
-           val options =
-             annotated_options lthy
-               (reject_annotation_option "struct or enum" function_annotation_configs)
-               datatype_annotation_configs outer annotation
-           val explicit_binding =
-             (case Symtab.lookup options name_option of
-                NONE => NONE
-              | SOME (Name_Value (SOME binding), _) => SOME binding
-              | SOME (_, pos) => option_type_error name_option (name_expectation false) pos)
-         in
-           Datatype_Member
-             {options = Symtab.delete_safe name_option options,
-              explicit_binding = explicit_binding, source = source, item = item}
-         end
-     | URust_AST.Type_Alias_Item_Node item =>
-         error
-           ("urust: type alias items are not chunk members; declare them with urust_type_alias" ^
-             Position.here (#2 (URust_AST.type_alias_name item))))
-  end
-
-(* The serialized envelope roundtrip covers the item and its annotation payload. *)
-fun chunk_member_roundtrip ctxt envelope =
-  let
-    val original_tokens =
-      URust_Printer.tokens_of_annotated_item URust_Printer.serialized_options envelope
-    val generated =
-      URust_Printer.string_of_annotated_item URust_Printer.serialized_options envelope
-    fun mismatch index detail =
-      error
-        ("uRust chunk pretty-printer roundtrip mismatch" ^
-          Position.here (Input.pos_of (URust_AST.annotated_item_source envelope)) ^ "\n" ^
-          "generated source:\n" ^ generated ^ "\n" ^
-          "first differing token index: " ^ string_of_int index ^
-          (if detail = "" then "" else "\n" ^ detail))
-    val reparsed =
-      (case Exn.capture
-          (URust_Parser.parse_chunk_source ctxt)
-          (Parser_Lex_Util.text_source generated) of
-         Exn.Res (SOME chunk) =>
-           (case URust_AST.chunk_items chunk of
-              [reparsed] => reparsed
-            | _ => mismatch 0 "generated source did not reparse as one chunk member")
-       | Exn.Res NONE =>
-           mismatch 0 "generated source reparsed as empty input"
-       | Exn.Exn exn =>
-           mismatch 0
-             ("generated source failed to parse: " ^
-               Runtime.exn_message exn))
-    val reparsed_tokens =
-      URust_Printer.tokens_of_annotated_item URust_Printer.serialized_options reparsed
-  in
-    if original_tokens = reparsed_tokens then ()
-    else
-      mismatch
-        (first_differing_token_index original_tokens reparsed_tokens) ""
-  end
-
-fun declare_chunk_member interactive
-      (Function_Member {options, target, source, function}) =
-      declare_function_item
-        {interactive = interactive, roundtrip = false, options = options,
-         target = target, source = source, function = function}
-  | declare_chunk_member interactive
-      (Datatype_Member {options, explicit_binding, source, item}) =
-      (fn lthy =>
-        URust_Datatype.declare
-          (datatype_declaration
-            {interactive = interactive, roundtrip = false, options = options,
-             explicit_binding = explicit_binding, source = source} lthy)
-          item lthy)
-
-(* The whole chunk parses, and every member and annotation is validated, before the first
-   declaration. Members then fold the shared declaration operations in source order within one
-   navigation capture. Reports replay and buffered output prints in source order only after the
-   complete fold succeeds; any failure aborts the single command transaction. *)
-fun define_urust_chunk (outer, source) interactive lthy =
-  let
-    val chunk =
-      (case URust_Parser.parse_chunk_source lthy source of
-         SOME chunk => chunk
-       | NONE =>
-           error
-             ("urust: empty chunk; expected at least one fn, struct, or enum declaration" ^
-               Position.here (Input.pos_of source)))
-    val envelopes = URust_AST.chunk_items chunk
-    val members = map (prepare_chunk_member lthy outer) envelopes
-    val _ =
-      List.app
-        (fn (envelope, member) =>
-          if configured_flag lthy (chunk_member_options member) pp_test_option urust_pp_test
-          then chunk_member_roundtrip lthy envelope
-          else ())
-        (envelopes ~~ members)
-    (* Within one command, earlier definitions remain fixed-type terms of a growing auxiliary
-       context. Each next member instead receives the context that the next command of an
-       equivalent single-item sequence would: a fresh theory target at theory level, as the
-       toplevel creates between commands, and otherwise the target context recovered by closing
-       an empty nested target. No declaration is applied at an extra level. *)
-    fun next_command_context lthy' =
-      if Named_Target.is_theory lthy'
-      then Named_Target.theory_init (Local_Theory.exit_global lthy')
-      else Local_Theory.end_nested (#2 (Local_Theory.begin_nested lthy'))
-    fun declare member lthy' =
-      declare_chunk_member interactive member lthy' ||> next_command_context
-    val ((outputs, completed), reports) =
-      Navigation.capture (fn () => fold_map declare members lthy)
-    val _ = Navigation.replay completed reports
-    val _ = List.app (fn output => output ()) outputs
-  in completed end
-
-val _ =
-  Outer_Syntax.local_theory' \<^command_keyword>\<open>urust\<close>
-    "Declare a source-ordered chunk of uRust functions and datatypes"
-    (parse_command_options_with reject_chunk_option chunk_option_configs --
-      (Parse.token Parse.cartouche >> Parser_Lex_Util.cartouche_source) >>
-      define_urust_chunk)
 end
 \<close>
 

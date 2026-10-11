@@ -172,10 +172,9 @@ struct
     |> map_filter (fn (name, properties) =>
         if name = Markup.entityN then Properties.get properties Markup.kindN else NONE)
 
-  (* Semantic reports authored by uRust: item, constructor, field, function, notation and type
-     mapping entities, and resolved references to HOL constants and types. Isabelle's own
-     name-space definition markup at binding positions is emitted natively while a declaration
-     runs and is not part of the uRust report transaction. *)
+  (* Semantic entities authored by uRust (item, constructor, field, function, notation and type
+     mapping) and resolved references to HOL constants and types. The parse-only baseline below
+     is the stricter audit; this coarse filter keeps diagnostics short. *)
   val authored_kinds =
     ["urust_item", "urust_constructor", "urust_field", "urust_function",
      Micro_Rust_Names.notationN, "micro_rust_type_mapping"]
@@ -191,6 +190,67 @@ struct
                  (member (op =) [Markup.constantN, Markup.type_nameN] kind andalso
                    is_some (Properties.get properties Markup.refN))
            | NONE => false))
+
+  (* Reports of a parse-only pass over the first cartouche of the text, tokenized at the same
+     positions as the command run: the chunk lexer and the annotation payload tokens. These are
+     the lexical reports a rejected chunk may leave behind. *)
+  fun lexical_reports label thy text =
+    let
+      val ctxt = Proof_Context.init_global thy
+      val keywords = Thy_Header.get_keywords' ctxt
+      val cartouche =
+        (case List.find (fn token => Token.kind_of token = Token.Cartouche)
+            (Token.explode keywords (start_position label) text) of
+           SOME token => token
+         | NONE => error ("chunk audit: no cartouche in " ^ label))
+      val source = Parser_Lex_Util.cartouche_source cartouche
+      val captured = Synchronized.var ("lexical reports " ^ label) ([]: string list)
+      fun collect chunks = Synchronized.change captured (fn messages => messages @ [implode chunks])
+      fun schema (URust_AST.Function_Item_Node _) = URust_Command.Function_Annotation
+        | schema _ = URust_Command.Datatype_Annotation
+      fun read envelope =
+        (case URust_AST.annotated_item_annotation envelope of
+           SOME annotation =>
+             ignore
+               (URust_Command.read_annotation_options ctxt
+                 (schema (URust_AST.annotated_item_item envelope)) annotation)
+         | NONE => ())
+      val _ =
+        Parser_Test_Report_Lock.run (fn () =>
+          Print_Mode.with_modes [Print_Mode.PIDE] (fn () =>
+            Unsynchronized.setmp Private_Output.report_fn collect (fn () =>
+              (case URust_Parser.parse_chunk_source ctxt source of
+                 SOME chunk => List.app read (URust_AST.chunk_items chunk)
+               | NONE => ())) ()) ())
+    in maps YXML.parse_body (Synchronized.value captured) end
+
+  (* One key per positioned report: markup, entity kind, symbol range and report text. *)
+  fun report_keys reports =
+    reports
+    |> map_filter
+        (fn XML.Elem ((name, properties), body) =>
+              let val (start, stop) = position_range (Position.of_properties properties) in
+                if start < 0 then NONE
+                else
+                  SOME
+                    (start,
+                     name ^ "|" ^ the_default "" (Properties.get properties Markup.kindN) ^ "|" ^
+                       string_of_int start ^ "|" ^ string_of_int stop ^ "|" ^
+                       XML.content_of body)
+              end
+          | XML.Text _ => NONE)
+
+  (* Positioned reports of the command span that a parse-only pass does not produce. *)
+  fun non_lexical_reports label thy text command_start reports =
+    let
+      val lexical = map #2 (report_keys (lexical_reports label thy text))
+    in
+      report_keys reports
+      |> filter (fn (start, _) => start >= command_start)
+      |> map #2
+      |> filter_out (member (op =) lexical)
+      |> sort_distinct string_ord
+    end
 
   (* Output authored by the uRust commands; native backend constant listings are excluded. *)
   fun authored_output output =
@@ -766,7 +826,13 @@ local
   open Chunk_Test
   val loud = "declare [[urust_pp_test = true, urust_pretty = true, urust_verbosity = 2]]\n"
   val earlier =
-    "  fn AtomicFirst(value: u32) -> u32 { value }\n" ^
+    "  " ^ annotation "pretty, verbosity = 0" ^ "\n" ^
+    "  fn AtomicFirst(value: u32) -> u32 { let doubled = value; doubled }\n" ^
+    "  fn AtomicEscapes(value: \<tau>\<open>nat\<close>) -> u32 {\n" ^
+    "    let x = \<epsilon>\<open>literal (of_nat (Suc 0))\<close>; x\n" ^
+    "  }\n" ^
+    "  " ^ annotation "attrs = [micro_rust_simps]" ^ "\n" ^
+    "  fn AtomicAttributed(value: u32) -> u32 { value }\n" ^
     "  " ^ annotation "renames = [\"atomicValue\" \<rightarrow> \"atomic_value\"]" ^ "\n" ^
     "  struct AtomicRecord { atomicValue: u32 }\n" ^
     "  enum AtomicChoice { AtomicYes, AtomicNo(u32) }\n" ^
@@ -775,12 +841,12 @@ local
     "  fn AtomicUse(record: AtomicRecord) -> u32 { AtomicFirst(record.atomicValue) }\n"
   val names =
     {constants =
-       ["atomic_first", "atomic_use", "atomic_record.atomic_value",
-        "atomic_record_atomic_value_lens"],
+       ["atomic_first", "atomic_escapes", "atomic_attributed", "atomic_use",
+        "atomic_record.atomic_value", "atomic_record_atomic_value_lens"],
      types = ["atomic_record", "atomic_choice", "atomic_level"],
-     facts = ["atomic_first_def", "atomic_use_def"],
+     facts = ["atomic_first_def", "atomic_escapes_def", "atomic_attributed_def", "atomic_use_def"],
      rust_types = ["AtomicRecord", "AtomicChoice", "AtomicLevel"],
-     functions = ["AtomicFirst", "AtomicUse"]}
+     functions = ["AtomicFirst", "AtomicEscapes", "AtomicAttributed", "AtomicUse"]}
   fun declared ctxt =
     {constants = filter (const_declared ctxt) (#constants names),
      types = filter (type_declared ctxt) (#types names),
@@ -832,18 +898,32 @@ local
   fun failing_case (label, failing, expected) =
     let
       val text = loud ^ "urust " ^ command_source (earlier ^ failing)
-      val {result, output, reports, ...} = capture true ("atomic-" ^ label) \<^theory> text
+      val {result, output, warnings, reports} = capture true ("atomic-" ^ label) \<^theory> text
       val _ = failure_message ("atomic " ^ label) expected result
       val _ =
         require ("failed " ^ label ^ " chunk printed successful output:\n" ^
             cat_lines (authored_output output))
           (null (authored_output output))
       val _ =
-        require ("failed " ^ label ^ " chunk replayed semantic reports: " ^
-            @{make_string} (map (fn event as (_, properties) =>
-              (Properties.get properties Markup.kindN, Properties.get properties Markup.nameN,
-               report_range event)) (semantic_entities reports)))
+        require ("failed " ^ label ^ " chunk replayed semantic reports")
           (null (semantic_entities reports))
+      val _ =
+        require ("failed " ^ label ^ " chunk emitted warnings:\n" ^ cat_lines warnings)
+          (null warnings)
+      (* Every report positioned in the earlier members, which would have succeeded, is one that
+         a parse-only pass over the same command also produces. *)
+      val command_start = #1 (range_of text "urust " 0)
+      val failing_start = #1 (range_of text failing 0)
+      val leaked =
+        non_lexical_reports ("atomic-" ^ label) \<^theory> text command_start reports
+        |> filter (fn key =>
+            (case space_explode "|" key of
+               _ :: _ :: start :: _ => the_default 0 (Int.fromString start) < failing_start
+             | _ => true))
+      val _ =
+        require ("failed " ^ label ^ " chunk left non-lexical reports of earlier members:\n" ^
+            cat_lines leaked)
+          (null leaked)
     in () end
   val _ = List.app failing_case failures
   val success_text = loud ^ "urust " ^ command_source earlier
@@ -860,8 +940,9 @@ local
   val _ =
     require "the successful chunk did not print every item in source order"
       (case authored_output output of
-         [first, record, choice, level, use] =>
-           String.isPrefix "definition atomic_first_def:" first andalso
+         [escapes, attributed, record, choice, level, use] =>
+           String.isPrefix "definition atomic_escapes_def:" escapes andalso
+           String.isPrefix "definition atomic_attributed_def:" attributed andalso
            String.isSubstring "AtomicRecord" record andalso
            String.isSubstring "AtomicChoice" choice andalso
            String.isSubstring "AtomicLevel" level andalso
@@ -932,6 +1013,32 @@ local
   val _ =
     require "chunk markup differs from the equivalent single-item commands"
       (events "markup-chunk" chunk_text needles = events "markup-single" single_text needles)
+  (* Embedded HOL sources, signature escapes and annotation attributes: their native markup is
+     released with the chunk transaction and equals the single-item command's. *)
+  val escape_function =
+    "  fn MarkupEscape(value: \<tau>\<open>nat\<close>) -> u32 {\n" ^
+    "    let x = \<epsilon>\<open>literal (of_nat (Suc 0))\<close>; x\n  }"
+  val escape_chunk =
+    quiet_prefix "" ^ "urust " ^
+      command_source
+        ("  " ^ annotation "attrs = [micro_rust_simps]" ^ "\n" ^ escape_function ^ "\n" ^
+         "  fn MarkupEscapeUse() -> u32 { MarkupEscape(\<llangle>2\<rrangle>) }")
+  val escape_single =
+    quiet_prefix "" ^
+      "urust_fn [attrs = [micro_rust_simps]] " ^ command_source escape_function ^ "\n" ^
+      "urust_fn " ^ command_source "  fn MarkupEscapeUse() -> u32 { MarkupEscape(\<llangle>2\<rrangle>) }"
+  val escape_needles =
+    [("micro_rust_simps", 0), ("MarkupEscape", 0), ("value", 0), ("nat", 0), ("literal", 0),
+     ("of_nat", 0), ("Suc", 0), ("0", 1), ("x", 1), ("MarkupEscape", 2), ("2", 0)]
+  val escape_chunk_events = events "markup-escape-chunk" escape_chunk escape_needles
+  val _ =
+    require "embedded-source markup differs from the equivalent single-item commands"
+      (escape_chunk_events =
+        events "markup-escape-single" escape_single escape_needles)
+  val _ =
+    require "embedded-source markup was not released after the successful chunk"
+      (exists (exists (String.isPrefix "typing")) escape_chunk_events andalso
+        exists (exists (String.isPrefix "entity/attribute")) escape_chunk_events)
   val annotated =
     quiet_prefix "" ^ "urust " ^
       command_source
@@ -1094,6 +1201,210 @@ in
   val _ =
     writeln ("moderately sized chunk with " ^ string_of_int (2 * count) ^
       " declarations: " ^ Timing.message timing)
+end
+\<close>
+
+
+section\<open> Attribute lines, command lines and line endings \<close>
+
+ML\<open>
+local
+  open Chunk_Test
+  val a = annotation "abbrev"
+  fun rejects label expected text needle occurrence =
+    let
+      val message =
+        expect_failure label expected (fn () => parse \<^context> label text)
+    in
+      require (label ^ " diagnostic is not at the explanatory span")
+        (message_range message = range_of text needle occurrence)
+    end
+  val _ =
+    rejects "repr-between" ["must precede the attributes of its declaration"]
+      ("#[repr(u8)]\n" ^ a ^ "\nenum ChunkReprPlaced { Low = 1 }") a 0
+  val _ =
+    rejects "repr-between-indented" ["must precede the attributes of its declaration"]
+      ("  #[repr(u8)]\n  " ^ a ^ "\n  enum ChunkReprPlaced { Low = 1 }") a 0
+  (* A delimited source, like a command cartouche, starts on the command line. *)
+  val first_line = a ^ "\nfn ChunkFirstLine() {}"
+  fun delimited label text =
+    let val start = start_position label in
+      Parser_Lex_Util.delimited_content_source text
+        (Position.range (start, Position.symbol_explode text start))
+    end
+  val message =
+    expect_failure "first-line" ["must start its own line"]
+      (fn () => URust_Parser.parse_chunk_source \<^context> (delimited "first-line" first_line))
+  val _ =
+    require "first-line diagnostic is not at the annotation"
+      (message_range message = range_of first_line a 0)
+  val _ =
+    require "an annotation after the opening line of a delimited source was rejected"
+      (is_some (URust_Parser.parse_chunk_source \<^context>
+        (delimited "second-line" ("\n" ^ first_line))))
+  val _ = the_chunk \<^context> "content-first-line" first_line
+  val crlf =
+    the_chunk \<^context> "crlf"
+      ("fn ChunkCrlfA() {}\r\n" ^ a ^ "\r\nfn ChunkCrlfB() {}\r\n")
+  val _ =
+    require "CR LF chunk members or annotations changed"
+      (map (Input.string_of o URust_AST.annotated_item_source) (URust_AST.chunk_items crlf) =
+          ["fn ChunkCrlfA() {}", "fn ChunkCrlfB() {}"] andalso
+        map (Option.map (Input.string_of o URust_AST.annotation_payload) o
+            URust_AST.annotated_item_annotation) (URust_AST.chunk_items crlf) =
+          [NONE, SOME "abbrev"])
+  val command_first_line =
+    quiet_prefix "" ^ "urust " ^ cartouche (a ^ "\n  fn ChunkCommandFirstLine() {}\n")
+  val {result, ...} = capture true "command-first-line" \<^theory> command_first_line
+  val message = failure_message "command-first-line" ["must start its own line"] result
+  val _ =
+    require "command first-line diagnostic is not at the annotation"
+      (message_range message = range_of command_first_line a 0)
+in
+  val _ = writeln "attribute-line, command-line and CR LF placement audits passed"
+end
+\<close>
+
+
+section\<open> Clause boundary of the chunk theory \<close>
+
+text\<open>
+Importing the chunk theory makes \<open>urust\<close> a command keyword. Here a \<open>simple_word_enum\<close>
+declaration with a \<open>urust: "Name"\<close> clause splits at the keyword and is rejected; theories that
+import only \<open>Parser_Impl_Command\<close> keep the clause (\<open>Parser_Simple_Word_Enum_Clause_Tests\<close>).
+\<close>
+
+ML\<open>
+local
+  open Chunk_Test
+  val _ =
+    require "urust is not a command keyword in a theory importing the chunk theory"
+      (Keyword.is_command (Thy_Header.get_keywords' \<^context>) "urust")
+  val clause =
+    "simple_word_enum (8) chunk_clause_kind urust: \"ChunkClauseKind\" =\n" ^
+    "  CCK_First = 1 | CCK_Second = 2\n"
+  val {result, ...} = capture true "clause-limitation" \<^theory> clause
+  val _ = failure_message "clause-limitation" ["Outer syntax error"] result
+in
+  val _ = writeln "the recorded clause limitation of the chunk theory is reproduced"
+end
+\<close>
+
+
+section\<open> Validation before the first declaration \<close>
+
+text\<open>
+Every annotation payload, schema and option combination is validated before any member is
+declared, so such a diagnostic of a later member wins over an elaboration failure of an earlier
+member.
+\<close>
+
+ML\<open>
+local
+  open Chunk_Test
+  val earlier_failure = "  fn ChunkValidatedBroken() -> bool { 1u32 }\n"
+  fun case_ label later expected =
+    let
+      val text = quiet_prefix "" ^ "urust " ^ command_source (earlier_failure ^ later)
+      val {result, ...} = capture true ("validated-" ^ label) \<^theory> text
+    in ignore (failure_message ("validated " ^ label) expected result) end
+  val _ =
+    case_ "unknown" ("  " ^ annotation "colour" ^ "\n  fn ChunkValidatedLater() {}\n")
+      ["unknown uRust command option \"colour\""]
+  val _ =
+    case_ "combination"
+      ("  " ^ annotation "abbrev, application_def" ^ "\n  fn ChunkValidatedLater() {}\n")
+      ["abbreviation mode cannot be combined"]
+  val _ =
+    case_ "anonymous-attrs"
+      ("  " ^ annotation "name = _, attrs = [micro_rust_simps]" ^
+        "\n  fn ChunkValidatedLater() {}\n")
+      ["attrs is not supported for anonymous declarations"]
+  val _ =
+    case_ "unknown-attribute"
+      ("  " ^ annotation "attrs = [chunk_no_such_attribute]" ^
+        "\n  fn ChunkValidatedLater() {}\n")
+      ["chunk_no_such_attribute"]
+  val _ =
+    case_ "rename-key"
+      ("  " ^ annotation "renames = [\"missing\" \<rightarrow> \"a\"]" ^
+        "\n  struct ChunkValidatedCell { value: u32 }\n")
+      ["unknown rename key \"missing\""]
+  val _ =
+    case_ "type-alias" "  type ChunkValidatedAlias = u16;\n"
+      ["type alias items are not chunk members"]
+in
+  val _ = writeln "annotation and option validation precede every declaration"
+end
+\<close>
+
+
+section\<open> Later calls to unavailable members \<close>
+
+ML\<open>
+local
+  open Chunk_Test
+  fun rejects label body callee =
+    let
+      val text = quiet_prefix "" ^ "urust " ^ command_source body
+      val {result, ...} = capture true label \<^theory> text
+      val message =
+        failure_message label ["unresolved body name " ^ quote callee] result
+    in
+      require (label ^ " diagnostic is not at the later body")
+        (message_range message = range_of text ("{ " ^ callee ^ "() }") 0)
+    end
+  val _ =
+    rejects "anonymous-call"
+      ("  " ^ annotation "name = _" ^ "\n  fn ChunkHidden() -> u32 { 1 }\n" ^
+        "  fn ChunkCallsHidden() -> u32 { ChunkHidden() }\n")
+      "ChunkHidden"
+  val _ =
+    rejects "unregistered-call"
+      ("  " ^ annotation "register_notation = false" ^ "\n  fn ChunkUnlisted() -> u32 { 1 }\n" ^
+        "  fn ChunkCallsUnlisted() -> u32 { ChunkUnlisted() }\n")
+      "ChunkUnlisted"
+in
+  val _ = writeln "later members cannot call anonymous or unregistered members"
+end
+\<close>
+
+
+section\<open> Backend and plugin annotations take effect \<close>
+
+ML\<open>
+local
+  open Chunk_Test
+  val ctxt = \<^context>
+  fun full_type name =
+    dest_Type_name (Proof_Context.read_type_name {proper = true, strict = true} ctxt name)
+  val _ =
+    require "the backend = hol annotation was not applied"
+      (is_some (BNF_FP_Def_Sugar.fp_sugar_of ctxt (full_type "chunk_native")) andalso
+        is_none (BNF_FP_Def_Sugar.fp_sugar_of ctxt (full_type "chunk_choice")))
+  val _ =
+    require "the plugin filter annotation was not applied"
+      (const_declared ctxt "chunk_word_to_u16_pure" andalso
+        not (const_declared ctxt "chunk_word_to_u16") andalso
+        const_declared ctxt "chunk_word_plugins_to_u16_pure" andalso
+        const_declared ctxt "chunk_word_plugins_to_u16")
+  val _ =
+    require "the backend = enum annotation was not applied to a repr enum"
+      (not (const_declared ctxt "chunk_repr_custom_to_u8_pure") andalso
+        const_declared ctxt "chunk_repr_default_to_u8_pure")
+  val payload_word =
+    "#[repr(u8)]\n  enum ChunkPayloadWord { PayloadWord(u32) }\n"
+  val annotated_payload =
+    quiet_prefix "" ^ "urust " ^
+      command_source ("  " ^ annotation "backend = \"simple_word_enum\"" ^ "\n  " ^ payload_word)
+  val {result, ...} = capture true "simple-word-payload" \<^theory> annotated_payload
+  val _ =
+    failure_message "simple-word-payload"
+      ["simple_word_enum requires an explicit width and no payload"] result
+  val plain_payload = quiet_prefix "" ^ "urust " ^ command_source ("  " ^ payload_word)
+  val _ = result_context (#result (capture true "plain-payload" \<^theory> plain_payload))
+in
+  val _ = writeln "backend, plugin and simple_word_enum annotations are applied"
 end
 \<close>
 

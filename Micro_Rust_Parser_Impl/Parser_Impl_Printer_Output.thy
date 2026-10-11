@@ -60,7 +60,7 @@ fun capture_reports forward_other probe_id action =
         Synchronized.var
           "uRust pretty-printer captured reports"
           ([]: string list)
-      val previous = ! Private_Output.report_fn
+      val previous = URust_Report_Transaction.output_reporter (! Private_Output.report_fn)
       fun capture chunks =
         let
           val trees = maps YXML.parse_body chunks
@@ -82,7 +82,7 @@ fun capture_reports forward_other probe_id action =
       val result =
         Unsynchronized.setmp Private_Output.report_fn capture
           (fn () =>
-            Micro_Rust_Semantic_Navigation.with_private_reports action) ()
+            URust_Report_Transaction.with_private_reports action) ()
     in
       ((result, rev (Synchronized.value captured)), ())
     end)

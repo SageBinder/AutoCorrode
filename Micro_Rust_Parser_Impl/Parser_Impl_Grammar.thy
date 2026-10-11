@@ -238,6 +238,8 @@ val pending_signature_tokens = ref ([] : lexresult list)
 (* Chunk input enables omega annotations. The lexer captures the balanced payload as positioned
    source; the raw text around the cartouche decides line placement. *)
 val annotations_enabled = ref false
+(* A delimited source starts after its opening cartouche, on the command line. *)
+val annotation_source_starts_line = ref true
 val annotation_open = ref (NONE : int option)
 val annotation_opener = ref ""
 val annotation_depth = ref 0
@@ -371,11 +373,13 @@ fun reset_comment () =
   (comment_context := NONE; comment_open := 0; comment_depth := ~1)
 fun reset_annotation () =
   (annotation_open := NONE; annotation_opener := ""; annotation_depth := 0)
-fun enable_annotations () = annotations_enabled := true
+fun enable_annotations {source_starts_line} =
+  (annotations_enabled := true; annotation_source_starts_line := source_starts_line)
 fun reset_state () =
   (reset_aq (); reset_generic (); reset_log_data ();
    reset_block_comment (); reset_hol_type (); reset_comment ();
    reset_cast_type (); reset_annotation (); annotations_enabled := false;
+   annotation_source_starts_line := true;
    pending_signature_tokens := []; signature_paren_depth := 0;
    signature_brace_depth := 0; signature_bracket_depth := 0;
    signature_context := Function_Signature)
@@ -855,8 +859,17 @@ fun check_annotation_placement opener open_pos stop =
     val annotation_span = span open_pos stop
     fun reject detail pos = URust_Grammar.annotation_layout_error detail pos
     fun preceding_space index =
-      index < 0 orelse char_at index = #"\n" orelse
-        (is_space (char_at index) andalso preceding_space (index - 1))
+      (index < 0 andalso !annotation_source_starts_line) orelse
+        (index >= 0 andalso
+          (char_at index = #"\n" orelse
+            (is_space (char_at index) andalso preceding_space (index - 1))))
+    fun line_start index =
+      if index > 0 andalso char_at (index - 1) <> #"\n" then line_start (index - 1) else index
+    (* The line before the annotation holds an attribute of the declaration that follows. *)
+    fun after_attribute_line () =
+      let val start = line_start open_pos in
+        start > 0 andalso starts_with (skip_spaces (line_start (start - 1))) "#["
+      end
     fun comment_opener index =
       List.find (starts_with index) ["//", "/*", Symbol.comment]
     fun check_declaration_line index =
@@ -879,6 +892,10 @@ fun check_annotation_placement opener open_pos stop =
     val _ =
       if preceding_space (open_pos - 1) then ()
       else reject "must start its own line" annotation_span
+    val _ =
+      if after_attribute_line ()
+      then reject "must precede the attributes of its declaration" annotation_span
+      else ()
   in
     if after >= length
     then reject "must be followed by its declaration, not the end of input" annotation_span
@@ -3481,7 +3498,10 @@ struct
   fun parse_chunk_layout ctxt layout =
     let
       val _ = URustLex.UserDeclarations.set_layout layout ctxt
-      val _ = URustLex.UserDeclarations.enable_annotations ()
+      val _ =
+        URustLex.UserDeclarations.enable_annotations
+          {source_starts_line =
+            not (Input.is_delimited (Parser_Lex_Util.source_of layout))}
     in
       Parser_Lex_Util.parse_source_complete_with_layout
           Source_Parser.parse

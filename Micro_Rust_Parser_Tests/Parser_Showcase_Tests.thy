@@ -1,6 +1,7 @@
 theory Parser_Showcase_Tests
   imports
     Parser_Logging_Fixtures
+    Micro_Rust_Parser_Impl.Parser_Impl_Chunk
     Misc.Simple_Word_Enums
     Shallow_Separation_Logic.Separation_Algebra
 begin

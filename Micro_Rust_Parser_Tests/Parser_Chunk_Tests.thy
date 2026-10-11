@@ -3,6 +3,7 @@
 theory Parser_Chunk_Tests
   imports
     Parser_Test_Utils
+    Micro_Rust_Parser_Impl.Parser_Impl_Chunk
     Shallow_Separation_Logic.Separation_Algebra
 begin
 
@@ -163,6 +164,16 @@ urust \<open>
 
   \<omega>\<open>pp_test = false, abbrev = false, application_def = false, register_notation\<close>
   fn ChunkExplicitBooleans() -> u32 { 0 }
+
+  \<omega>\<open>backend = "simple_word_enum", word_width = 16\<close>
+  enum ChunkWordPlugins { PluginLow = 1, PluginHigh = 2 }
+
+  \<omega>\<open>backend = "enum"\<close>
+  #[repr(u8)]
+  enum ChunkReprCustom { ReprCustomLow = 1, ReprCustomHigh = 2 }
+
+  #[repr(u8)]
+  enum ChunkReprDefault { ReprDefaultLow = 1, ReprDefaultHigh = 2 }
 \<close>
 
 thm chunk_with_attributes_def

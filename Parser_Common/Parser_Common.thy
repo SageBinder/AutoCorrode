@@ -64,6 +64,8 @@ struct
         (Position.range (content_start, content_stop))
     end
 
+  (* The lexed text is the concatenation of the exploded symbols, so raw offsets agree with the
+     symbol starts even where symbol explosion normalizes line endings (CR LF becomes LF). *)
   fun make_source_layout source =
     let
       val symbols =
@@ -79,7 +81,7 @@ struct
       val (raw_starts, raw_length) = build 0 0 []
     in
       {source = source,
-       text = Input.text_of source,
+       text = String.concat (Vector.foldr (fn ((symbol, _), text) => symbol :: text) [] symbols),
        symbols = symbols,
        raw_starts = raw_starts,
        fallback = Input.pos_of source,
@@ -91,7 +93,7 @@ struct
      its original symbol positions, including Isabelle symbol escapes. *)
   fun wrapped_source_layout prefix source suffix =
     let
-      val text = prefix ^ Input.text_of source ^ suffix
+      val text = prefix ^ implode (map #1 (Input.source_explode source)) ^ suffix
       val base = make_source_layout (text_source text)
       val symbols = Vector.fromList
         (map (rpair Position.none) (Symbol.explode prefix) @ Input.source_explode source @
@@ -155,9 +157,17 @@ struct
           string_of_int right ^ ")")
 
   (* The layout symbols covered by a symbol-counted source range. Offsets are matched against the
-     layout's own symbol positions, so escaped Isabelle symbols keep their raw slice boundaries. *)
+     layout's own symbol positions, so escaped Isabelle symbols keep their raw slice boundaries.
+     The range must name the layout's source identity, so equal offsets of another source never
+     select a slice. *)
   fun range_source (layout : source_layout) range =
     let
+      val source_pos = fallback_position layout
+      val _ =
+        if Position.id_of range = Position.id_of source_pos andalso
+            Position.file_of range = Position.file_of source_pos
+        then ()
+        else error ("parser source range belongs to a different source" ^ Position.here range)
       val count = symbol_count layout
       fun symbol_offset index =
         if index < count
@@ -586,6 +596,68 @@ ML_val\<open>
         (Parser_Lex_Util.raw_length
            (Parser_Lex_Util.make_position_map source) =
          Parser_Lex_Util.raw_length layout)
+  in
+    val _ = ()
+  end
+\<close>
+
+
+ML_val\<open>
+  local
+    fun assert message condition =
+      if condition then ()
+      else error ("range source audit: " ^ message)
+
+    val start = Position.make0 1 1 0 "" "range-file" "range-id"
+    val text = "ab\<tau>\<open>nat\<close>cd"
+    val source = Parser_Lex_Util.positioned_content_source text start
+    val layout = Parser_Lex_Util.make_source_layout source
+    fun range first stop =
+      Position.range_position
+        (Position.make0 1 first 0 "" "range-file" "range-id",
+         Position.make0 1 stop 0 "" "range-file" "range-id")
+    fun slice first stop =
+      Parser_Lex_Util.range_source layout (range first stop)
+    fun fails f =
+      (case Exn.result f () of
+         Exn.Res _ => false
+       | Exn.Exn exn => if Exn.is_interrupt exn then Exn.reraise exn else true)
+    val escaped = slice 3 9
+    val _ =
+      assert "escaped symbols did not keep their raw boundaries"
+        (Input.text_of escaped = "\<tau>\<open>nat\<close>" andalso
+          Position.offset_of (Input.pos_of escaped) = SOME 3)
+    val _ =
+      assert "a range ending at end of input was not sliced"
+        (Input.text_of (slice 9 11) = "cd" andalso Input.text_of (slice 1 11) = text)
+    val _ =
+      assert "a range without offsets was accepted"
+        (fails (fn () =>
+          Parser_Lex_Util.range_source layout
+            (Position.make0 1 0 0 "" "range-file" "range-id")))
+    val _ =
+      assert "a range of another source with equal offsets was sliced"
+        (fails (fn () =>
+          Parser_Lex_Util.range_source layout
+            (Position.range_position
+              (Position.make0 1 3 0 "" "range-file" "other-id",
+               Position.make0 1 9 0 "" "range-file" "other-id"))))
+    val _ =
+      assert "a range between symbol boundaries was accepted"
+        (fails (fn () =>
+          Parser_Lex_Util.range_source layout (range 3 12)))
+    val crlf =
+      Parser_Lex_Util.make_source_layout
+        (Parser_Lex_Util.positioned_content_source "a\r\nb" start)
+    val _ =
+      assert "CR LF line endings displaced raw offsets from symbol starts"
+        (Parser_Lex_Util.text_of crlf = "a\nb" andalso
+          Position.offset_of (Parser_Lex_Util.fixed_pos crlf 2) = SOME 3 andalso
+          Input.text_of
+            (Parser_Lex_Util.range_source crlf
+              (Position.range_position
+                (Position.make0 2 3 0 "" "range-file" "range-id",
+                 Position.make0 2 4 0 "" "range-file" "range-id"))) = "b")
   in
     val _ = ()
   end

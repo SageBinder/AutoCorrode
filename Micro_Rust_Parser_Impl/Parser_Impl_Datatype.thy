@@ -36,6 +36,9 @@ sig
      word_width: int option,
      parameters: rename list,
      plugins: Proof.context -> Plugin_Name.filter}
+  type prepared
+  val prepare: declaration -> URust_AST.urust_datatype -> local_theory -> prepared
+  val declare_prepared: prepared -> local_theory -> (unit -> unit) * local_theory
   val declare:
     declaration -> URust_AST.urust_datatype -> local_theory -> (unit -> unit) * local_theory
   val define: declaration -> local_theory -> local_theory
@@ -1377,13 +1380,24 @@ fun finish_metadata selected source_parameters backend_parameters
    selector_definitions = selector_definitions,
    constructors = constructors, selectors = selectors, lenses = lenses, item = item}: generated_datatype
 
-(* The shared declaration operation for an already parsed item. Generation, registration and
-   semantic reports complete inside one navigation capture, which joins an enclosing command
-   capture. Successful result output is returned for the caller to emit after its transaction. *)
-fun declare
-    ({source, explicit_binding, interactive, verbosity,
-      pp_test, pretty, register_notation, renames, backend, word_width, parameters, plugins}
-      : declaration) source_item lthy =
+(* Validation that depends only on the parsed item, its options and the enclosing naming. A
+   multi-item command prepares every member before its first declaration. Field types and the
+   backend chosen for them depend on earlier declarations and are resolved when declaring. *)
+type prepared =
+  {declaration: declaration,
+   source_item: URust_AST.urust_datatype,
+   descriptors: URust_AST.generic_parameter list,
+   item: URust_AST.urust_datatype,
+   rust_name: string,
+   rust_pos: Position.T,
+   type_binding: binding,
+   resolved_renames: binding Symtab.table,
+   repr: (string * Position.T) option,
+   discriminants: (string * URust_AST.integer_literal) list}
+
+fun prepare
+    (declaration as {source, explicit_binding, pp_test, renames, ...}
+      : declaration) source_item lthy : prepared =
   let
     val (descriptors, repr, discriminants, item) = case source_item of
       URust_AST.Datatype_Header (descriptors, repr, values, item) => (descriptors, repr, values, item)
@@ -1410,15 +1424,55 @@ fun declare
        | URust_AST.Enum_Item (_, _, variants, _) =>
            map (fn URust_AST.Datatype_Variant (name, _, _) => name) variants)
     val resolved_renames = resolve_renames lthy source_names renames
+  in
+    {declaration = declaration, source_item = source_item, descriptors = descriptors,
+     item = item, rust_name = rust_name, rust_pos = rust_pos, type_binding = type_binding,
+     resolved_renames = resolved_renames, repr = repr, discriminants = discriminants}
+  end
+
+(* Authored definition entities of the completed artifacts, regenerated after the invisible
+   backend run. *)
+fun artifact_definitions lthy
+    ({hol_type_name, constructors, selectors, lenses, selector_definitions,
+      lens_definitions, ...}: generated_artifacts) =
+  let
+    val consts = Consts.space_of (Proof_Context.consts_of lthy)
+    val facts = Facts.space_of (Proof_Context.facts_of lthy)
+    val constructor_names =
+      map_filter
+        (fn (_, entry) =>
+          (case URust_Item_Scope.constructor_term entry of
+             Const (name, _) => SOME name
+           | _ => NONE))
+        constructors
+  in
+    [(Proof_Context.type_space lthy, hol_type_name)] @
+    map (pair consts) (constructor_names @ map #2 selectors @ map #2 lenses) @
+    map (pair facts)
+      (map (Thm_Name.short o Thm.get_name_hint) selector_definitions @
+        map #1 lens_definitions)
+  end
+
+(* The shared declaration operation for an already prepared item. Generation and registration
+   run in invisible backend contexts within one report transaction, which joins an enclosing
+   command transaction; authored definition entities are regenerated afterwards. Successful
+   result output is returned for the caller to emit after its transaction. *)
+fun declare_prepared
+    ({declaration =
+        {interactive, verbosity, pretty, register_notation, parameters, plugins, backend,
+         word_width, ...},
+      source_item, descriptors, item, rust_name, rust_pos, type_binding, resolved_renames,
+      repr, discriminants}: prepared) lthy =
+  let
     val expected_hol_type_name =
       Local_Theory.full_name lthy type_binding
-    val ((generated, final_lthy, artifacts, pretty_declaration),
-         type_reports) =
-      Navigation.capture (fn () =>
+    val ((final_lthy, artifacts, pretty_declaration), type_reports) =
+      URust_Report_Transaction.capture (fn () =>
         let
           val {types, source_parameters, backend_parameters} =
             URust_Type_Mappings.resolve_declaration lthy descriptors parameters (item_field_types item)
           val all_parameters = source_parameters @ backend_parameters
+          (* Backend selection follows field resolution, so item diagnostics keep their order. *)
           val (selected, width, values) = select_backend backend word_width repr discriminants item
           val _ =
             URust_Type_Mappings.preflight_declaration_scheme
@@ -1431,44 +1485,54 @@ fun declare
                parameter_kinds = map (fn URust_AST.Generic_Parameter (_, _, kind) => kind) descriptors,
                backend_parameters = backend_parameters}
               lthy
-          (* Datatype generation opens nested targets from the enclosing target contexts.
-             Configure every existing target and restore its own setting after generation. *)
-          val overloaded_settings = Unsynchronized.ref ([]: (int * bool) list)
-          val generation_lthy = lthy
-            |> Local_Theory.map_contexts (fn depth => fn ctxt =>
-                (overloaded_settings := (depth, Config.get ctxt Typedef.overloaded) ::
-                    !overloaded_settings;
-                 Config.put Typedef.overloaded true ctxt))
-            |> Local_Theory.background_theory (Config.put_global Typedef.overloaded true)
-            |> Config.put Proof_Display.show_results false
-          val (generated, lthy') =
-            generate_urust_datatype selected plugins width values register_notation resolved_renames
-              all_parameters types type_binding item generation_lthy
-          val native_parameters = #backend_parameters generated
-          val (native_source, native_backend) = chop (length source_parameters) native_parameters
-          val generated = finish_metadata selected native_source native_backend generated
-          val lthy'' =
-            register_generated_datatype generated lthy'
-          val lthy''' =
-            URust_Type_Mappings.register_declaration_scheme
-              {rust_name = rust_name,
-               rust_pos = rust_pos,
-               hol_type_name = #hol_type_name generated,
-               hol_type = #hol_type generated,
-               source_parameters = #source_parameters generated,
-               parameter_kinds = map (fn URust_AST.Generic_Parameter (_, _, kind) => kind) descriptors,
-               backend_parameters = #backend_parameters generated}
-              lthy''
-          val final_lthy =
-            lthy'''
-            |> Config.put Proof_Display.show_results (Config.get lthy Proof_Display.show_results)
-            |> Local_Theory.background_theory (Config.put_global Typedef.overloaded
-                (Config.get_global (Proof_Context.theory_of lthy) Typedef.overloaded))
-            |> Local_Theory.map_contexts (fn depth =>
-                Config.put Typedef.overloaded
-                  (the (AList.lookup (op =) (!overloaded_settings) depth)))
+          fun generate backend_lthy =
+            let
+              (* Datatype generation opens nested targets from the enclosing target contexts.
+                 Configure every existing target and restore its own setting after generation. *)
+              val overloaded_settings = Unsynchronized.ref ([]: (int * bool) list)
+              val generation_lthy = backend_lthy
+                |> Local_Theory.map_contexts (fn depth => fn ctxt =>
+                    (overloaded_settings := (depth, Config.get ctxt Typedef.overloaded) ::
+                        !overloaded_settings;
+                     Config.put Typedef.overloaded true ctxt))
+                |> Local_Theory.background_theory (Config.put_global Typedef.overloaded true)
+                |> Config.put Proof_Display.show_results false
+              val (generated, generated_lthy) =
+                generate_urust_datatype selected plugins width values register_notation
+                  resolved_renames all_parameters types type_binding item generation_lthy
+              val native_parameters = #backend_parameters generated
+              val (native_source, native_backend) = chop (length source_parameters) native_parameters
+              val generated = finish_metadata selected native_source native_backend generated
+              val registered_lthy =
+                generated_lthy
+                |> register_generated_datatype generated
+                |> URust_Type_Mappings.register_declaration_scheme
+                    {rust_name = rust_name,
+                     rust_pos = rust_pos,
+                     hol_type_name = #hol_type_name generated,
+                     hol_type = #hol_type generated,
+                     source_parameters = #source_parameters generated,
+                     parameter_kinds =
+                       map (fn URust_AST.Generic_Parameter (_, _, kind) => kind) descriptors,
+                     backend_parameters = #backend_parameters generated}
+              val restored_lthy =
+                registered_lthy
+                |> Config.put Proof_Display.show_results
+                    (Config.get backend_lthy Proof_Display.show_results)
+                |> Local_Theory.background_theory (Config.put_global Typedef.overloaded
+                    (Config.get_global (Proof_Context.theory_of backend_lthy) Typedef.overloaded))
+                |> Local_Theory.map_contexts (fn depth =>
+                    Config.put Typedef.overloaded
+                      (the (AList.lookup (op =) (!overloaded_settings) depth)))
+            in (generated, restored_lthy) end
+          val (generated, final_lthy) =
+            URust_Report_Transaction.invisible_declarations generate lthy
           val artifacts =
-            completed_generated_artifacts source_item descriptors parameters register_notation generated final_lthy
+            completed_generated_artifacts source_item descriptors parameters register_notation
+              generated final_lthy
+          val _ =
+            URust_Report_Transaction.defer_definitions final_lthy
+              (artifact_definitions final_lthy artifacts)
           val _ =
             report_generated_field_declarations final_lthy artifacts
           val pretty_declaration =
@@ -1482,9 +1546,9 @@ fun declare
                   source_item)
             else NONE
         in
-          (generated, final_lthy, artifacts, pretty_declaration)
+          (final_lthy, artifacts, pretty_declaration)
         end)
-    val _ = Navigation.replay final_lthy type_reports
+    val _ = URust_Report_Transaction.replay final_lthy type_reports
   in
     (fn () =>
       print_generated_datatype interactive verbosity
@@ -1492,6 +1556,9 @@ fun declare
         final_lthy artifacts,
      final_lthy)
   end
+
+fun declare declaration source_item lthy =
+  declare_prepared (prepare declaration source_item lthy) lthy
 
 fun define (declaration as {source, ...}: declaration) lthy =
   let

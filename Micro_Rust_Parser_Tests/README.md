@@ -16,19 +16,33 @@ urust [OPTIONS] ‹ [ω‹OPTIONS›] ITEM ... ›
 ```
 
 The plain `urust` command declares a nonempty source-ordered chunk of complete `fn`, `struct` and
-`enum` items. An optional `ω‹OPTION, OPTION = VALUE, …›` annotation occupies its own line or lines
-immediately before the line on which its item starts. Its payload uses the bracketed-list entry
+`enum` items. It is registered by the opt-in theory `Micro_Rust_Parser_Impl.Parser_Impl_Chunk`;
+`Parser_Impl_Command` alone keeps `urust` an ordinary name, so the `simple_word_enum … urust:
+"Name"` clause remains usable there (`Parser_Simple_Word_Enum_Clause_Tests.thy`). A theory that
+imports the chunk theory cannot use that clause: the command keyword starts a new command span.
+An optional `ω‹OPTION, OPTION = VALUE, …›` annotation occupies its own line or lines immediately
+before the line on which its item starts; a leading `#[repr(…)]` line belongs to its enum, and an
+annotation may not share the opening `urust ‹` line. Its payload uses the bracketed-list entry
 syntax with the item's single-item schema plus the HOL binding `name` (`name = _` checks a function
 without installing anything; datatypes reject `_`). The outer list accepts only `pp_test`,
 `pretty`, `verbosity` and `register_notation`; annotation entries replace outer defaults, which
-replace scoped configurations. The whole chunk parses and every annotation is validated before
-the first declaration. Members use the same parsed-item operations as `urust_fn` and
-`urust_datatype`, each in the context the next single-item command would receive, so earlier
-items are available to later ones and forward references are not resolved. uRust semantic reports
-and successful output are released in source order only after every member succeeds; any failure
-rejects the whole command. Type alias items are rejected as chunk members. Isabelle's own
-name-space definition markup and native backend output (such as code-generator constant listings)
-are emitted while declarations run, as for the single-item commands.
+replace scoped configurations. The whole chunk parses, and every annotation payload, schema and
+option combination is validated, before the first declaration; checks that depend on earlier
+members (registration conflicts, field and signature types, backend selection for resolved
+fields, unresolved names) run when the member is declared. Members use the same prepared-item
+operations as `urust_fn` and `urust_datatype`, each in the context the next single-item command
+would receive, so earlier items are available to later ones and forward references are not
+resolved. Type alias items are rejected as chunk members.
+
+Every declaration command is one report transaction. uRust-owned elaboration markup, the native
+markup of embedded HOL sources (re-read for markup at release), regenerated
+definition entities of the installed artifacts, warnings and successful output are released only
+after the command succeeds; native declaration backends run in invisible contexts. A failing
+elaboration releases its own diagnostic markup. A chunk additionally buffers the check-time markup
+of embedded HOL sources, so a failing chunk leaves only lexical markup for its earlier members.
+Background code-generator `consts` listings of earlier datatype members are the accepted
+exception: they are printed through `show_results` of the background theory, which has no
+faithful non-persistent control.
 
 The expression argument list is optional, may be empty, and accepts one trailing comma. Arguments are
 allocated as typed lexical locals before body elaboration. They therefore shadow existing
@@ -331,10 +345,15 @@ negative rows preserve these boundaries.
   every option kind, earlier declarations in later items, locale interpretation and experiment
   confinement, with single-item controls and kernel equalities.
 - `Parser_Chunk_Regression_Tests.thy`: chunk ASTs, envelope slices and serialized roundtrips,
-  annotation placement and lexer-state recovery, outer/annotation option diagnostics, three-level
-  precedence and source-order output, equivalence with single-item artifacts and markup, atomic
-  last-item failures with absence audits, escaped-symbol positions, independent type environments,
-  read-only pretty replay and a moderately sized chunk.
+  annotation placement (including attribute and command lines, CR LF) and lexer-state recovery,
+  outer/annotation option diagnostics, validation before the first declaration, three-level
+  precedence and source-order output, equivalence with single-item artifacts and markup (including
+  embedded HOL sources and attributes), atomic last-item failures whose earlier members leave only
+  parse-only markup, backend/plugin/`simple_word_enum` annotation effects, calls to anonymous and
+  unregistered members, the clause boundary of the chunk theory, escaped-symbol positions,
+  independent type environments, read-only pretty replay and a moderately sized chunk.
+- `Parser_Simple_Word_Enum_Clause_Tests.thy`: `simple_word_enum … urust:` declarations next to the
+  single-item parser commands without the chunk theory.
 - `Parser_Datatype_Composition_Tests.thy`: complete generic and const mappings through aliases,
   typed receivers and function channels, default direct/method calls, constructor and field
   renames, native backend artifacts and plugins, locale confinement, and read-only combined replay.

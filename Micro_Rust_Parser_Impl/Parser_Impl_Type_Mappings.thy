@@ -1,6 +1,7 @@
 theory Parser_Impl_Type_Mappings
   imports
     Parser_Impl_AST
+    Parser_Utils
     Shallow_Micro_Rust.Semantic_Navigation
     Shallow_Micro_Rust.Tuple
     Shallow_Micro_Rust.Global_Store
@@ -745,7 +746,8 @@ struct
       val typ =
         positioned_result Datatype_Fields [pos]
           (fn () =>
-            Syntax.read_typ ctxt (Syntax.implode_input source))
+            URust_Report_Transaction.native ctxt
+              (fn read_ctxt => Syntax.read_typ read_ctxt (Syntax.implode_input source)))
     in no_type_variables "datatype fields" pos typ end
 
   fun unknown_type kind base pos =
@@ -1103,7 +1105,9 @@ struct
           (AList.lookup (op =) slots name)
       fun escape source =
         let
-          val typ = Syntax.read_typ ctxt (Syntax.implode_input source)
+          val typ =
+            URust_Report_Transaction.native ctxt
+              (fn read_ctxt => Syntax.read_typ read_ctxt (Syntax.implode_input source))
           val variables = Term.add_tfreesT typ []
           val _ = if null (Term.add_tvarsT typ []) then () else
             mapping_error "schematic variables are not declaration parameters" (Input.pos_of source)
@@ -1164,14 +1168,18 @@ struct
   fun resolve_signature_with ctxt rust_types assemble =
     let
       val sources = maps hol_sources rust_types
-      fun parse source =
+      fun parse read_ctxt source =
         positioned_result Function_Signature [Input.pos_of source]
           (fn () =>
-            Syntax.parse_typ ctxt (Syntax.implode_input source))
-      val parsed = map parse sources
+            Syntax.parse_typ read_ctxt (Syntax.implode_input source))
+      (* One deterministic parse-and-check of every signature escape keeps sort inference shared
+         and lets the report transaction repeat the read for its markup. *)
       val checked =
-        positioned_result Function_Signature (map Input.pos_of sources)
-          (fn () => Syntax.check_typs ctxt parsed)
+        URust_Report_Transaction.native ctxt (fn read_ctxt =>
+          let val parsed = map (parse read_ctxt) sources in
+            positioned_result Function_Signature (map Input.pos_of sources)
+              (fn () => Syntax.check_typs read_ctxt parsed)
+          end)
 
       (* Keep sort inference shared across the whole signature. Only fresh
          signature variables are flexible; ambient variables remain rigid. *)
