@@ -22,7 +22,7 @@ member is validated, before the first declaration. Checks that depend on earlier
 declared. Members use the parsed-item operations of \<open>urust_fn\<close> and \<open>urust_datatype\<close>, each
 in the context that the next command of the equivalent single-item sequence would receive, so
 earlier items are available to later ones and forward references are not resolved. Type alias
-items are rejected as chunk members. With \<open>pp_test\<close>, each member's annotation and item
+and use items are rejected as chunk members. With \<open>pp_test\<close>, each member's annotation and item
 roundtrip through the serialized chunk printer before any declaration.
 
 The command is one report transaction. uRust semantic reports, the markup of embedded HOL
@@ -83,7 +83,11 @@ fun prepare_member lthy interactive outer envelope =
      | URust_AST.Type_Alias_Item_Node item =>
          error
            ("urust: type alias items are not chunk members; declare them with urust_type_alias" ^
-             Position.here (#2 (URust_AST.type_alias_name item))))
+             Position.here (#2 (URust_AST.type_alias_name item)))
+     | URust_AST.Use_Item_Node item =>
+         error
+           ("urust: use items are not chunk members; declare them with urust_use" ^
+             Position.here (URust_AST.use_item_position item)))
   end
 
 fun declare_member (Function_Member prepared) = URust_Command.declare_prepared_function prepared

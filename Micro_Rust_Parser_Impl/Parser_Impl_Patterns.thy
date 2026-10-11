@@ -615,7 +615,7 @@ struct
                     val _ =
                       defer
                         (fn () =>
-                          R.report_constructor ctxt path info)
+                          R.report_struct_constructor ctxt path info)
                     fun resolve_field
                         {selector, field_reference, source_position,
                          pattern, shorthand} =

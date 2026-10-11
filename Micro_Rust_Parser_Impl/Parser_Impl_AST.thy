@@ -226,6 +226,30 @@ sig
   val repeat_length_position: repeat_length -> Position.T
   val repeat_length_source_layout: repeat_length -> source_layout
 
+  datatype use_tree =
+      Use_Path of
+        (string * Position.T) list * (string * Position.T) option *
+          source_layout
+    | Use_Self of
+        Position.T * (string * Position.T) option * source_layout
+    | Use_Group of
+        (string * Position.T) list * use_tree list * source_layout
+  datatype use_item =
+    Use_Item of use_tree * source_layout
+
+  val use_tree_source_layout: use_tree -> source_layout
+  val use_tree_position: use_tree -> Position.T
+  val use_item_tree: use_item -> use_tree
+  val use_item_source_layout: use_item -> source_layout
+  val use_item_position: use_item -> Position.T
+  val mk_use_path:
+    (string * Position.T) list * (string * Position.T) option *
+      source_layout -> use_tree
+  val mk_use_group:
+    (string * Position.T) list * use_tree list * source_layout ->
+      use_tree
+  val mk_use_item: use_tree * source_layout -> use_item
+
   datatype log_data_entry =
       LDE_String of string * Position.T
     | LDE_Identifier of string * Position.T
@@ -279,6 +303,7 @@ sig
     | UE_Macro of
         ur_path * macro_payload * source_layout
     | UE_Match of match_flavour * ur_expr * ur_arm list * source_layout
+    | UE_Use of use_item * ur_expr * source_layout
   and struct_expr_field =
       SE_Field of string * Position.T * ur_expr
   and macro_payload =
@@ -309,6 +334,7 @@ sig
       Datatype_Item of urust_datatype
     | Function_Item_Node of urust_function
     | Type_Alias_Item_Node of urust_type_alias
+    | Use_Item_Node of use_item
 
   val type_alias_item_position: urust_type_alias -> Position.T
   val type_alias_source_layout: urust_type_alias -> source_layout
@@ -434,7 +460,7 @@ end
       UE_Closure, UE_Let,
       UE_LetMut, UE_Const, UE_Seq, UE_Return, UE_Bin, UE_Cast, UE_Unary, UE_Group, UE_Block, UE_If,
       UE_IfLet, UE_LetElse, UE_While, UE_Loop, UE_For, UE_WhileLet, UE_Call, UE_Field, UE_Index,
-      UE_TupleProjection, UE_Range, UE_Assign, UE_Macro, UE_Match),
+      UE_TupleProjection, UE_Range, UE_Assign, UE_Macro, UE_Match, UE_Use),
       struct_expr_field (SE_Field),
       macro_payload
       (MP_Arguments, MP_Matches), ur_place (UP_Path, UP_Deref, UP_Field, UP_Index, UP_Antiq), and
@@ -471,6 +497,17 @@ end
       not part of the syntax. Parsed_Chunk is the grammar result, pairing each item with its
       complete span (including a leading repr attribute) before the parser adapter attaches item
       source slices; the grammar does not decide which item kinds a chunk command supports.
+    * use_tree (Use_Path, Use_Self, Use_Group) and use_item (Use_Item) retain one recursive Rust
+      use tree. Use_Path keeps its positioned segments, optional positioned `as` alias and a layout
+      with its `::` delimiters and `as` keyword; Use_Self is a grouped `self` (keyword position and
+      optional alias); Use_Group keeps an optional positioned prefix (empty for a root group), its
+      members in source order and a layout with `::`, braces and commas. Use_Item adds the `use`
+      keyword and terminating semicolon. mk_use_path, mk_use_group and mk_use_item reject at the
+      offending token the forms outside the first delivery: rooted paths (`crate`, `super`,
+      leading `self`, `Self`), misplaced `self`, `_` segments, `as _`, keyword aliases and empty
+      groups. A use item is either Use_Item_Node in the complete-item parser or the continuation
+      node UE_Use (item, continuation, layout) in a body; UE_Use contributes no value, and a
+      terminal import has a UE_Unit continuation with an empty token list.
 
   Position.T fields identify the single token documented at each constructor. Composite expressions,
   patterns, places, repeat lengths, and arms instead carry source_layout values; integer and
@@ -930,6 +967,92 @@ struct
     | repeat_length_source_layout (RL_Group (_, layout)) = layout
     | repeat_length_source_layout (RL_CastUsize (_, layout)) = layout
 
+  datatype use_tree =
+      Use_Path of
+        (string * Position.T) list * (string * Position.T) option *
+          source_layout
+    | Use_Self of
+        Position.T * (string * Position.T) option * source_layout
+    | Use_Group of
+        (string * Position.T) list * use_tree list * source_layout
+  datatype use_item =
+    Use_Item of use_tree * source_layout
+
+  fun use_tree_source_layout (Use_Path (_, _, layout)) = layout
+    | use_tree_source_layout (Use_Self (_, _, layout)) = layout
+    | use_tree_source_layout (Use_Group (_, _, layout)) = layout
+  fun use_tree_position tree = source_span (use_tree_source_layout tree)
+  fun use_item_tree (Use_Item (tree, _)) = tree
+  fun use_item_source_layout (Use_Item (_, layout)) = layout
+  fun use_item_position item = source_span (use_item_source_layout item)
+
+  (* Rust 2024 strict and reserved keywords that this lexer reads as identifiers. Path roots are
+     deferred until a module context exists; the remaining keywords are never item names or
+     aliases. *)
+  val use_root_keywords = ["crate", "super", "self", "Self"]
+  val use_reserved_keywords =
+    use_root_keywords @
+    ["async", "await", "break", "continue", "dyn", "extern", "impl",
+     "mod", "move", "ref", "static", "trait", "where",
+     "abstract", "become", "box", "do", "final", "gen", "macro", "override",
+     "priv", "try", "typeof", "unsized", "virtual", "yield"]
+
+  fun use_error message pos =
+    error ("uRust import: " ^ message ^ Position.here pos)
+
+  fun check_use_segment index (name, pos) =
+    if name = "_" then
+      use_error "`_` is not a use path segment" pos
+    else if name = "self" andalso index > 0 then
+      use_error "`self` is supported only as a grouped `{self}` import" pos
+    else if member (op =) use_root_keywords name then
+      use_error ("use paths rooted at `" ^ name ^
+        "` require a module context and are not supported") pos
+    else if member (op =) use_reserved_keywords name then
+      use_error ("Rust keyword `" ^ name ^ "` cannot be a use path segment") pos
+    else ()
+
+  fun check_use_alias (name, pos) =
+    if name = "_" then
+      use_error "underscore imports (`as _`) are not supported" pos
+    else if member (op =) use_reserved_keywords name then
+      use_error ("Rust keyword `" ^ name ^ "` cannot be an import alias") pos
+    else ()
+
+  (* A single `self` segment is kept until its enclosing group converts it to Use_Self; every other
+     `self` use, including a top-level `use self;`, is rejected by mk_use_group or mk_use_item. *)
+  fun mk_use_path (segments, alias, layout) =
+    let
+      val _ = if null segments then error "uRust import: internal empty use path" else ()
+      val _ =
+        (case segments of
+           [("self", _)] => ()
+         | ("self", pos) :: _ =>
+             use_error "use paths rooted at `self` require a module context and are not supported" pos
+         | _ => map_index (uncurry check_use_segment) segments |> K ())
+      val _ = Option.app check_use_alias alias
+    in Use_Path (segments, alias, layout) end
+
+  fun mk_use_group (prefix, members, layout) =
+    let
+      val _ = map_index (uncurry check_use_segment) prefix
+      val _ =
+        if null members then
+          use_error "empty use groups are not supported" (source_span layout)
+        else ()
+      fun member_tree (Use_Path ([("self", self_pos)], alias, member_layout)) =
+            if null prefix then
+              use_error "grouped `self` requires a group prefix" self_pos
+            else Use_Self (self_pos, alias, member_layout)
+        | member_tree tree = tree
+    in Use_Group (prefix, map member_tree members, layout) end
+
+  fun mk_use_item (tree, layout) =
+    (case tree of
+       Use_Path ([("self", self_pos)], _, _) =>
+         use_error "`self` is supported only as a grouped `{self}` import" self_pos
+     | _ => Use_Item (tree, layout))
+
   datatype log_data_entry =
       LDE_String of string * Position.T
     | LDE_Identifier of string * Position.T
@@ -1021,6 +1144,8 @@ struct
                                                          MF_Case -> the Ctr_Sugar case skeleton (D27). Each
                                                          flavour's elaborator gates the patterns it cannot
                                                          lower with a positioned error. *)
+    | UE_Use       of use_item * ur_expr * source_layout
+                                                      (* body-scope item statement and its continuation *)
   and struct_expr_field =
       SE_Field of string * Position.T * ur_expr
   and macro_payload =
@@ -1051,6 +1176,7 @@ struct
       Datatype_Item of urust_datatype
     | Function_Item_Node of urust_function
     | Type_Alias_Item_Node of urust_type_alias
+    | Use_Item_Node of use_item
 
   fun type_alias_source_layout
       (Type_Alias_Item (_, _, _, _, layout)) = layout
@@ -1195,6 +1321,7 @@ struct
     | expression_source_layout (UE_Assign (_, _, _, layout)) = layout
     | expression_source_layout (UE_Macro (_, _, layout)) = layout
     | expression_source_layout (UE_Match (_, _, _, layout)) = layout
+    | expression_source_layout (UE_Use (_, _, layout)) = layout
 
   fun expression_position expression =
     source_span (expression_source_layout expression)

@@ -455,6 +455,48 @@ urust_expr showoff_cast_alias_repeats
     (ordinary, generated)
   \<close>
 
+subsection\<open> Rust use imports \<close>
+
+text\<open>
+\<open>urust_use\<close> imports one complete Rust use item under shorter names. Imports are ordinary
+declarations: later commands and importing theories see them. A grouped \<open>self\<close> imports the
+enum type, while its variants are imported separately. Inside a body, a use statement is visible
+throughout its block, including before the statement, and it is erased from the checked term.
+\<close>
+
+urust_use \<open> use DatatypeEvent::{self as Event, Idle, Packet as Carried}; \<close>
+urust_use \<open> use types::BufferSize as Length; \<close>
+
+urust_fn \<open>
+  fn EventLength(event: Event, fallback: Length) -> Length {
+    match event {
+      Idle => fallback,
+      Carried(_) => {
+        let empty = 0u64 as Inner;
+        use types::BufferSize as Inner;
+        empty
+      }
+    }
+  }
+\<close>
+
+urust_expr showoff_imported_events
+  \<open>
+    {
+      let quiet = Quiet;
+      use Event::Idle as Quiet;
+      (quiet, Event::Idle)
+    }
+  \<close>
+
+urust_expr showoff_qualified_events
+  \<open> { let quiet = DatatypeEvent::Idle; (quiet, DatatypeEvent::Idle) } \<close>
+
+lemma showoff_imported_events_equal:
+  \<open> showoff_imported_events = showoff_qualified_events \<close>
+  unfolding showoff_imported_events_def showoff_qualified_events_def
+  by (rule refl)
+
 subsection\<open> Primitive associated items \<close>
 
 definition showoff_primitive_u8_max :: \<open> 8 word \<close>

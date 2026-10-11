@@ -13,6 +13,7 @@ Function declarations take one complete Rust item:
 urust_expr [OPTIONS] NAME [:: TYPE] [(ARG, ...)] ‹ body ›
 urust_fn [OPTIONS] [HOL_NAME|_] ‹ fn RustName(PARAMETER: RUST_TYPE, ...) [-> RUST_TYPE] { body } ›
 urust [OPTIONS] ‹ [ω‹OPTIONS›] ITEM ... ›
+urust_use ‹ use PATH [as ALIAS]; ›
 ```
 
 The plain `urust` command declares a nonempty source-ordered chunk of complete `fn`, `struct` and
@@ -106,6 +107,38 @@ shared command/API and expression tests, including comparisons with the imported
 relationships through direct and registered method calls, fixed-channel contracts and local proof
 expressions, independent holes and call instances, type synonyms, pointer backends, locales,
 declaration artifacts and positioned transactional failures.
+
+## Rust use imports
+
+`urust_use` installs exactly one complete use item: plain, renamed, grouped, root-grouped and
+nested imports with trailing commas, and a grouped `self` of a generated enum. Bindings are
+ordinary local-theory declarations; theory imports inherit them, locales and experiments confine
+them, and interpretation replays them with their declaration identity. Each alias captures the
+canonical exact key of an existing generated item, `urust_type` mapping or alias, or literal/call
+notation, in Rust's separate type and value namespaces. Generated structs, enums and variants
+contribute memberships by origin and shape: unit and tuple constructors are values, named
+variants are braced constructors, enum variants are not usable types, and an imported generated
+enum may qualify its exact variants. A body `use` statement is visible throughout its block,
+including before its declaration, and in nested scopes, but never escapes; imports in one block
+may depend on each other in any order, cycles and missing targets (also unused) reject, and import
+targets never capture lexical locals, arguments, fixes or free names. Lexical locals precede
+imports for values and calls; otherwise the nearest import in the requested namespace resolves
+through its owning registry, and a binding unusable in that role rejects without fallback.
+Imports add no runtime term. Struct-expression and struct-pattern heads resolve in the type
+namespace; an imported call or literal notation serves as a single-segment struct head only where
+no Rust type resolves that head, so a value import never changes a Rust struct. Import reports
+join the declaration's navigation transaction: a failed declaration replays none, and every alias
+occurrence ends at its import declaration in expressions, function bodies, types and fields.
+`URust_Imports.validate_batch` checks a batch independently of targets (certain duplicates and
+alias cycles), and `prepare_batch` resolves it under `Require_Targets` (blocks, bodies and
+`urust_use`) or `Allow_Unavailable_Targets`, whose unavailable bindings reject every use without
+fallback. Same-scope item collisions are checked before elaboration or datatype generation.
+`pub` is a keyword, so visibility before `use` rejects at `pub`; globs, `as _`, module roots,
+empty groups, generic arguments, misplaced `self` and Rust 2024 strict or reserved keywords as
+segments or aliases are positioned rejections. `Parser_Use_Tests.thy` covers
+the scope model directly, syntax and printing, persistent and block imports through kernel `refl`
+comparisons with qualified or import-free source, effect order, rejections, editor navigation and
+replay; `Parser_Use_Fixtures.thy` and its base/left/right diamond fixtures supply the items.
 
 ## Markup correction
 
@@ -332,6 +365,9 @@ negative rows preserve these boundaries.
 - `Parser_Primitive_Path_Heads_Tests.thy`: all seven primitive heads, exact literal/call roles,
   comments and token boundaries, expressions, patterns, repeats, cast aliases, positions,
   current notation navigation, fallback rejection, and recovery.
+- `Parser_Use_Tests.thy`: Rust use imports: scope foundation, grammar and printer, persistent and
+  block imports, rejections, locale/experiment/interpretation scope, diamond merging, editor
+  navigation and pretty replay.
 - `Parser_Name_Resolution_Tests.thy`: notation dispatch, navigation, qualifier markup, turbofish,
   and the shared iterator `zip` registration audit.
 - `Parser_Slice_Pattern_Syntax_Tests.thy`: positioned bound-rest ASTs, binder markup, malformed
@@ -365,10 +401,11 @@ negative rows preserve these boundaries.
   ASTs, and generated-function turbofish boundaries prevent silent argument truncation.
 - `Parser_Printer_Tests.thy`: serialized and human-readable expression and datatype printing,
   canonicalization, layout, positions, and malformed-AST diagnostics.
-- `Parser_Showcase_Tests.thy`: combined command, chunk, grammar, matching, array-repeat, and iterator
-  examples.
+- `Parser_Showcase_Tests.thy`: combined command, chunk, grammar, matching, array-repeat, import,
+  and iterator examples.
 
 Shared declaration-only setup lives in `Parser_Iterator_Fixtures.thy`,
-`Parser_Registered_Constructor_Fixtures.thy`, `Parser_Cast_Alias_Fixtures.thy`, and the four
-ambiguity fixture theories. Shared ML support and test-only rejection commands live in
+`Parser_Registered_Constructor_Fixtures.thy`, `Parser_Cast_Alias_Fixtures.thy`, the four
+ambiguity fixture theories, and the import fixtures `Parser_Use_Fixtures.thy`,
+`Parser_Use_Base_Fixtures.thy`, `Parser_Use_Left_Fixtures.thy` and `Parser_Use_Right_Fixtures.thy`. Shared ML support and test-only rejection commands live in
 `Parser_Test_Utils.thy`. Every tracked `.thy` file in this directory is registered in `ROOT`.

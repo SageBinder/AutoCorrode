@@ -2,6 +2,7 @@ theory Parser_Impl_Resolution
   imports
     Parser_Impl_Shallow_Terms
     Parser_Impl_Item_Scope
+    Parser_Impl_Imports
     Parser_Impl_Grammar
     Parser_Utils
 begin
@@ -110,6 +111,8 @@ sig
   val constructor_arity: constructor_info -> int
   val constructor_family: constructor_info -> (string * term list) option
   val report_constructor:
+    Proof.context -> URust_AST.ur_path -> constructor_info -> unit
+  val report_struct_constructor:
     Proof.context -> URust_AST.ur_path -> constructor_info -> unit
   type field_reference
   val report_field:
@@ -253,6 +256,22 @@ ML\<open>
     Resolved_Record_Struct carries the qualified record type name plus those fields. Policy for
     rejecting the currently unsupported HOL-record lowering belongs to URust_Patterns.
 
+  - Rust imports. Before its ordinary route, every value, call, struct-expression, pattern,
+    struct-pattern, repeat-length and report-free classification consumer consults
+    URust_Import_Scope. A single-segment name bound in the requested namespace (value and call
+    occurrences only after lexical locals and declaration arguments miss), or a multi-segment path
+    whose head is a type-namespace import of a generated enum, is rewritten to its canonical
+    exact key: the bound segment becomes the key segments, with the occurrence position and
+    generic arguments on the final key segment and no position on synthetic prefix segments. The
+    canonical path then follows only the exact branch of the owning resolver; a binding unusable
+    in the requested role is rejected without any lexical, HOL, basename or unqualified fallback.
+    Struct heads use the type namespace, extended to single-segment value bindings of the notation
+    role the existing struct syntax uses. report_struct_constructor is report_constructor for
+    struct-pattern heads. Method names, fields, macros and log-data identifiers are not imported.
+    After the canonical reports, each alias occurrence queues a reference to its import
+    declaration. A persistent binding that a theory merge or interpretation placed beside a
+    same-named item is rejected when found.
+
   Callers may rely on those results and diagnostics, but not on the environment table or binder
   record, generated local names/entity IDs, identifier-leaf inspection, catalog and metadata merge
   strategy, candidate ordering, private selector storage, or the internal Constructor_Candidate /
@@ -263,6 +282,7 @@ struct
   open URust_AST
   structure T = URust_Shallow_Terms
   structure I = URust_Item_Scope
+  structure S = URust_Import_Scope
 
   type field_reference = I.field_entry
   type local_table = Parser_Utils.var_info Symtab.table
@@ -474,15 +494,6 @@ struct
 
   fun resolve_identifier ctxt kind name pos =
     resolve_identifier_at_positions ctxt kind name pos []
-
-  fun literal_identifier_value ctxt environment (identifier as (name, pos)) =
-    (case use_local ctxt environment identifier of
-       SOME local_term => local_term
-     | NONE =>
-         resolve_identifier ctxt Micro_Rust_Names.NLiteral name pos)
-
-  fun literal_identifier ctxt environment identifier =
-    T.literal (literal_identifier_value ctxt environment identifier)
 
   fun ordinary_identifier_value ctxt environment
       (identifier as (name, pos)) =
@@ -887,6 +898,95 @@ struct
       val _ = URust_Report_Transaction.report ctxt pos Markup.free
     in Free (render_path path, dummyT) end
 
+  (* An import binding routes a source path to its canonical exact key. The bound segment becomes
+     the canonical key segments: its occurrence position and generic arguments move to the final
+     key segment, while synthetic prefix segments have no source position and therefore produce no
+     reports. A multi-segment path is routed through its head only in the type namespace, and only
+     a generated enum may own the remaining variant segment. *)
+  type import_route =
+    {binding: S.binding, canonical: ur_path, occurrence: Position.T}
+
+  fun import_route binding (UR_Path (head, Path_Segment (_, pos, arguments) :: rest, span)) =
+        let
+          val (prefix, final) = split_last (S.key_segments (#key binding))
+          val segments =
+            map (fn name => Path_Segment (name, Position.none, NONE)) prefix @
+            [Path_Segment (final, pos, arguments)] @ rest
+        in {binding = binding, canonical = UR_Path (head, segments, span), occurrence = pos} end
+    | import_route _ (UR_Path (_, [], pos)) =
+        error ("urust_expr: internal empty imported path" ^ Position.here pos)
+
+  val same_scope_item = URust_Imports.same_scope_item
+
+  fun head_import_route ctxt path =
+    (case path_segments path of
+       Path_Segment (name, pos, _) :: _ :: _ =>
+         (case S.lookup ctxt S.Type_Namespace name of
+            NONE => NONE
+          | SOME binding =>
+              if (S.require_available pos binding; S.has_role binding S.Generated_Enum) then
+                (S.check_merged_collision ctxt binding
+                   (same_scope_item ctxt S.Type_Namespace name);
+                 SOME (import_route binding path))
+              else
+                error
+                  ("urust_expr: imported " ^ quote name ^ " (" ^ quote (#key binding) ^
+                    ") is not a generated enum and cannot qualify a path" ^ Position.here pos))
+     | _ => NONE)
+
+  fun namespace_import_route ctxt namespace path =
+    if is_primitive_path path then NONE
+    else
+      (case path_segments path of
+         [Path_Segment (name, pos, _)] =>
+           Option.map
+             (fn binding =>
+               (S.require_available pos binding;
+                S.check_merged_collision ctxt binding (same_scope_item ctxt namespace name);
+                import_route binding path))
+             (S.lookup ctxt namespace name)
+       | _ => head_import_route ctxt path)
+
+  (* Value and call occurrences consult lexical locals, including declaration arguments, first. *)
+  fun value_import_route ctxt environment path =
+    (case path_segments path of
+       [Path_Segment (name, _, _)] =>
+         if is_some (lookup_local environment name) then NONE
+         else namespace_import_route ctxt S.Value_Namespace path
+     | _ => namespace_import_route ctxt S.Value_Namespace path)
+
+  val pattern_import_route = fn ctxt => namespace_import_route ctxt S.Value_Namespace
+
+  (* Struct heads resolve in the type namespace, as in Rust. The uRust struct-call and literal-struct
+     registrations are exact notation keys, which imports place in the value namespace. Such a
+     value binding may supply a single-segment head only when its key has the notation role the
+     existing struct syntax accepts and neither a type-namespace import nor an unimported Rust type
+     resolves the head; a value import therefore never changes a Rust struct head. *)
+  fun struct_import_route ctxt extension_role path =
+    (case namespace_import_route ctxt S.Type_Namespace path of
+       SOME route => SOME route
+     | NONE =>
+         (case path_segments path of
+            [Path_Segment (name, _, _)] =>
+              if is_some (same_scope_item ctxt S.Type_Namespace name) then NONE
+              else
+                (case S.lookup ctxt S.Value_Namespace name of
+                   SOME binding =>
+                     if #available binding andalso S.has_role binding extension_role
+                     then namespace_import_route ctxt S.Value_Namespace path
+                     else NONE
+                 | NONE => NONE)
+          | _ => NONE))
+
+  fun report_import_use ctxt ({binding, occurrence, ...}: import_route) =
+    S.defer_use_reference ctxt occurrence binding
+
+  fun unusable_import role ({binding, canonical, occurrence}: import_route) =
+    error
+      ("urust_expr: imported name " ^ quote (#alias binding) ^ " resolves to " ^
+        quote (render_path (item_lookup_path canonical)) ^ ", which cannot be used as " ^ role ^
+        Position.here occurrence)
+
   fun qualified_registration_error kind path displayed_name pos =
     error
       ("urust_expr: qualified path " ^ quote displayed_name ^
@@ -1018,6 +1118,12 @@ struct
              else resolve_global_constant ()
          | _ => resolve_global_constant ())
     in
+      (case value_import_route ctxt environment path of
+         SOME (route as {canonical, ...}) =>
+           (case exact_registered_path ctxt Micro_Rust_Names.NLiteral canonical of
+              SOME registered => (report_import_use ctxt route; registered)
+            | NONE => unusable_import "an array repeat length" route)
+       | NONE =>
       (case exact_registered_path ctxt Micro_Rust_Names.NLiteral path of
          SOME registered => registered
        | NONE =>
@@ -1027,10 +1133,27 @@ struct
            else if is_qualified_path path then
              qualified_registration_error
                Micro_Rust_Names.NLiteral path name pos
-           else resolve_contextual_or_global ())
+           else resolve_contextual_or_global ()))
     end
 
+  fun imported_literal_value ctxt (route as {canonical, ...}: import_route) =
+    let
+      val value =
+        (case exact_item_constructor ctxt canonical of
+           SOME entry => item_value_path ctxt canonical entry
+         | NONE =>
+             (case exact_registered_path ctxt Micro_Rust_Names.NLiteral canonical of
+                SOME registered => registered
+              | NONE => unusable_import "a value" route))
+      val _ = report_import_use ctxt route
+    in value end
+
   fun literal_path_value ctxt environment path =
+    (case value_import_route ctxt environment path of
+       SOME route => imported_literal_value ctxt route
+     | NONE => source_literal_path_value ctxt environment path)
+
+  and source_literal_path_value ctxt environment path =
     if is_primitive_path path then
       (case exact_registered_path ctxt
           Micro_Rust_Names.NLiteral path of
@@ -1075,6 +1198,17 @@ struct
 
   fun literal_path ctxt environment path =
     T.literal (literal_path_value ctxt environment path)
+
+  fun literal_identifier_value ctxt environment (identifier as (name, pos)) =
+    (case use_local ctxt environment identifier of
+       SOME local_term => local_term
+     | NONE =>
+         (case value_import_route ctxt environment (make_single_path identifier) of
+            SOME route => imported_literal_value ctxt route
+          | NONE => resolve_identifier ctxt Micro_Rust_Names.NLiteral name pos))
+
+  fun literal_identifier ctxt environment identifier =
+    T.literal (literal_identifier_value ctxt environment identifier)
 
   fun function_identifier ctxt environment (identifier as (name, pos)) =
     (case use_declaration_argument ctxt environment identifier of
@@ -1180,8 +1314,36 @@ struct
          else T.lift_function pos arity constructor)
     end
 
+  fun imported_function item_role actual_arity ctxt environment
+      (route as {canonical, ...}: import_route) =
+    let
+      val role =
+        (case item_role of
+           Struct_Item_Call => "a struct expression head"
+         | _ => "a call")
+      val function =
+        (case I.lookup_function ctxt (render_path (item_lookup_path canonical)) of
+           SOME entry => item_function_entry ctxt canonical entry
+         | NONE =>
+             (case exact_item_constructor ctxt canonical of
+                SOME entry => item_function_path item_role ctxt canonical actual_arity entry
+              | NONE =>
+                  (case exact_registered_path ctxt Micro_Rust_Names.NFunction canonical of
+                     SOME registered => registered
+                   | NONE =>
+                       (case segment_generic_args (final_segment canonical) of
+                          NONE => unusable_import role route
+                        | SOME arguments =>
+                            (case exact_registered_path ctxt Micro_Rust_Names.NFunction
+                                (remove_final_generic_args canonical) of
+                               SOME registered =>
+                                 apply_generic_arguments ctxt environment registered (SOME arguments)
+                             | NONE => unusable_import role route)))))
+      val _ = report_import_use ctxt route
+    in function end
+
   fun resolve_function_path item_role local_first actual_arity
-      ctxt environment path =
+      ctxt environment route path =
     let
       val head_pos = #2 (path_terminal path)
       fun lexical_function () =
@@ -1196,6 +1358,10 @@ struct
            | _ => NONE)
         else NONE
       val function =
+        (case route of
+           SOME imported =>
+             imported_function item_role actual_arity ctxt environment imported
+         | NONE =>
         (case lexical_function () of
            SOME local_term => local_term
          | NONE =>
@@ -1237,7 +1403,7 @@ struct
                            function
                            (segment_generic_args
                              (final_segment path))
-                       end))))
+                       end)))))
       fun same_range position =
         Position.offset_of position = Position.offset_of head_pos andalso
         Position.end_offset_of position = Position.end_offset_of head_pos
@@ -1255,11 +1421,16 @@ struct
 
   fun function_path ctxt environment path actual_arity =
     resolve_function_path Ordinary_Item_Call true actual_arity
-      ctxt environment path
+      ctxt environment (value_import_route ctxt environment path) path
 
-  fun generated_struct_function ctxt path fields =
+  fun generated_struct_function ctxt source_path fields =
+    let
+      val route = struct_import_route ctxt S.Call_Notation source_path
+      val path = (case route of SOME {canonical, ...} => canonical | NONE => source_path)
+    in
     Option.map (fn entry =>
       let
+        val _ = Option.app (report_import_use ctxt) route
         val pos = path_position path
         val _ = if I.constructor_shape entry = I.Named_Constructor then () else
           error ("urust_expr: generated constructor " ^ quote (render_path path) ^
@@ -1290,6 +1461,7 @@ struct
           in fresh_item_instance path wrapper end
       in if arity = 0 then T.literal function else T.lift_function pos arity function end)
       (exact_item_constructor ctxt path)
+    end
 
   fun struct_function_path ctxt environment path actual_arity =
     let
@@ -1301,14 +1473,14 @@ struct
               Position.here pos)) (path_segments path)
     in
       resolve_function_path Struct_Item_Call false actual_arity
-        ctxt environment path
+        ctxt environment (struct_import_route ctxt S.Call_Notation path) path
     end
 
   fun method_path ctxt environment path =
     let
       val function =
         resolve_function_path No_Item_Call false 0
-          ctxt environment path
+          ctxt environment NONE path
       val (name, pos) = path_terminal path
       val lexical =
         (case path_segments path of
@@ -1384,8 +1556,19 @@ struct
     function_body_arity T = SOME 0
 
   fun is_nullary_function_path ctxt
-      ({locals, declaration_arguments} : environment) path =
+      (environment as {locals, declaration_arguments} : environment) source_path =
+    (case value_import_route ctxt environment source_path of
+       SOME {canonical, ...} =>
+         exists
+           (fn ({hol_term, ...} : Micro_Rust_Names.entry) =>
+             is_nullary_function_type (fastype_of hol_term))
+           (Micro_Rust_Names.lookups ctxt Micro_Rust_Names.NFunction (render_path canonical)) orelse
+         (case I.lookup_function ctxt (render_path (item_lookup_path canonical)) of
+            SOME entry => is_nullary_function_type (fastype_of (I.function_term entry))
+          | NONE => false)
+     | NONE =>
     let
+      val path = source_path
       fun registered () =
         Micro_Rust_Names.lookups ctxt Micro_Rust_Names.NFunction
           (render_path path)
@@ -1414,7 +1597,7 @@ struct
                 else if registered () then true else hol_constant ())
        | _ =>
            registered ())
-    end
+    end)
 
   fun field_expression ctxt environment receiver name pos =
     T.focus_field
@@ -1820,7 +2003,21 @@ struct
          family = family, selectors = selectors}: constructor_info
     in distinct_constructor_infos (map source_selectors candidates) end
 
+  fun classify_imported_literal ctxt resolver ({canonical, ...}: import_route) =
+    (case exact_item_constructor ctxt canonical of
+       SOME _ => Registered_Constructor_Literal
+     | NONE =>
+         (case exact_literal_registrations ctxt canonical of
+            [] => Unregistered_Literal
+          | registrations =>
+              if null (registered_constructor_candidates ctxt resolver registrations)
+              then Registered_Value_Literal
+              else Registered_Constructor_Literal))
+
   fun classify_registered_literal ctxt resolver path =
+    (case pattern_import_route ctxt path of
+       SOME route => classify_imported_literal ctxt resolver route
+     | NONE =>
     (case exact_item_constructor ctxt path of
        SOME _ => Registered_Constructor_Literal
      | NONE =>
@@ -1839,9 +2036,39 @@ struct
                   (registered_constructor_candidates ctxt resolver
                     registrations)
               then Registered_Value_Literal
-              else Registered_Constructor_Literal))
+              else Registered_Constructor_Literal)))
+
+  (* An imported pattern path is exact: only the canonical generated item or exact literal
+     registration can supply a constructor, and absence is not a basename fallback. *)
+  fun resolve_imported_constructor ctxt resolver ({canonical, ...}: import_route) =
+    let
+      val name = render_path canonical
+      val pos = #2 (path_terminal canonical)
+      val item = exact_item_constructor ctxt canonical
+      val registrations = exact_literal_registrations ctxt canonical
+      val candidates =
+        (case item of
+           SOME entry => item_constructor_candidates ctxt resolver canonical entry
+         | NONE => registered_constructor_candidates ctxt resolver registrations)
+    in
+      (case candidates of
+         [] =>
+           (case item of
+              SOME _ =>
+                error
+                  ("urust_expr: generated Rust item " ^ quote name ^
+                    " is not authenticated by native constructor metadata" ^ Position.here pos)
+            | NONE => NONE)
+       | [info] => SOME info
+       | ambiguous => ambiguity_error "constructor pattern" name pos true ambiguous)
+    end
 
   fun resolve_constructor ctxt resolver path =
+    (case pattern_import_route ctxt path of
+       SOME route => resolve_imported_constructor ctxt resolver route
+     | NONE => resolve_source_constructor ctxt resolver path)
+
+  and resolve_source_constructor ctxt resolver path =
     if is_primitive_path path then NONE
     else
     let
@@ -1899,7 +2126,7 @@ struct
           (Name_Space.markup (Consts.space_of (Proof_Context.consts_of ctxt)) name)
     | report_named_term _ _ _ = ()
 
-  fun report_constructor ctxt path info =
+  fun report_constructor_at ctxt path info =
     let
       val name = render_path path
       val pos = #2 (path_terminal path)
@@ -1941,6 +2168,18 @@ struct
          | NONE => report_named_term ctxt pos (constructor_term info))
     end
 
+  fun report_routed_constructor ctxt route path info =
+    (case route of
+       SOME (imported as {canonical, ...}) =>
+         (report_constructor_at ctxt canonical info; report_import_use ctxt imported)
+     | NONE => report_constructor_at ctxt path info)
+
+  fun report_constructor ctxt path info =
+    report_routed_constructor ctxt (pattern_import_route ctxt path) path info
+
+  fun report_struct_constructor ctxt path info =
+    report_routed_constructor ctxt (struct_import_route ctxt S.Literal_Notation path) path info
+
   fun report_field ctxt pos selector field =
     (report_named_term ctxt pos selector;
      Option.app (I.defer_field_reference ctxt pos) field)
@@ -1952,8 +2191,12 @@ struct
     URust_Report_Transaction.report_text ctxt pos Markup.typing
       "struct expression label"
 
-  fun report_struct_labels ctxt path fields =
+  fun report_struct_labels ctxt source_path fields =
     let
+      val path =
+        (case struct_import_route ctxt S.Call_Notation source_path of
+           SOME {canonical, ...} => canonical
+         | NONE => source_path)
       fun label (SE_Field (name, pos, _)) = (name, pos)
       fun report_alias aliases field =
         let val (name, pos) = label field in
@@ -2024,14 +2267,14 @@ struct
       (resolver as
         Constructor_Resolver
           {type_fallbacks, record_types, ...})
-      head_path =
+      exact head_path =
     let
       val theory = Proof_Context.theory_of ctxt
       val identifier_name = render_path head_path
       val pos = #2 (path_terminal head_path)
       val item = exact_item_constructor ctxt head_path
       val registrations = exact_literal_registrations ctxt head_path
-      val qualified = is_qualified_path head_path
+      val qualified = exact orelse is_qualified_path head_path
       val has_exact_registration =
         is_some item orelse not (null registrations)
       val _ =
@@ -2182,8 +2425,13 @@ struct
     end
 
   fun resolve_struct_pattern ctxt resolver
-      (head_path, fields) =
+      (source_head_path, fields) =
     let
+      val route = struct_import_route ctxt S.Literal_Notation source_head_path
+      val head_path =
+        (case route of
+           SOME {canonical, ...} => canonical
+         | NONE => source_head_path)
       val head = render_path head_path
       val head_pos = #2 (path_terminal head_path)
       val registrations = exact_literal_registrations ctxt head_path
@@ -2200,7 +2448,7 @@ struct
                    Position.here pos)
              else ())
       val candidate =
-        resolve_struct_constructor ctxt resolver head_path
+        resolve_struct_constructor ctxt resolver (is_some route) head_path
       val (display_name, selectors) =
         (case candidate of
            Constructor_Candidate {info, selectors} =>
