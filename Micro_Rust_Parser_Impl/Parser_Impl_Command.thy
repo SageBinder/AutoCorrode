@@ -172,6 +172,16 @@ imports. They share the type-mapping namespace, capture dependencies at declarat
 inferred generic sorts. Signatures, datatype fields and cast targets all expand them.
 Semantic declaration and dependency navigation reports wait until successful installation.
 
+The command \<open>urust_use src\<close> accepts exactly one complete Rust use item, such as
+\<open>use demo::{increment as inc, Width};\<close> or \<open>use Choice::{self as Selection, Empty};\<close>.
+Its aliases are ordinary local-theory declarations, inherited through theory imports and confined
+by locales and experiments. Each alias captures the canonical exact key of an existing generated
+item, Rust type mapping or literal/call notation when the command runs. Later value, call,
+constructor, pattern, type and cast occurrences resolve an alias to that key and its owning
+registry; a binding that is unusable in the requested role is rejected without falling back.
+Use statements in bodies follow Rust block scope and are prepared by expression translation.
+The whole item validates before any binding is installed, and its reports wait until success.
+
 The option parser is parameterized by a command-specific schema. Both commands accept Boolean
 \<open>pp_test\<close>, \<open>pretty\<close>, \<open>application_def\<close>, and \<open>abbrev\<close>, integer
 \<open>verbosity\<close>, and attribute-list \<open>attrs\<close>. The configuration-backed short names are

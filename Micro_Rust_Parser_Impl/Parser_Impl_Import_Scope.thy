@@ -56,6 +56,8 @@ sig
   val merge_persistent: binding list * binding list -> binding list
   val check_item_collision:
     Proof.context -> {item: string, name: string, pos: Position.T} -> namespace -> unit
+  val check_merged_collision:
+    Proof.context -> binding -> {item: string, pos: Position.T} option -> unit
 
   type reports
   val defer_declaration_report: Position.T -> Markup.T -> string option -> unit
@@ -94,7 +96,8 @@ end
     targets for one alias and namespace are a positioned conflict.
   - check_item_collision rejects a same-scope Rust item whose single-segment name equals an active
     persistent alias in the given namespace. Registries call it so that both declaration orders
-    are diagnosed.
+    are diagnosed. check_merged_collision lets a resolver reject a persistent binding that a
+    theory merge or interpretation placed beside a same-named item it has found.
   - Semantic reports are queued in two classes while capture_reports is active. Declaration reports
     (alias definitions and use-item tooltips) are replayed by replay_declaration_reports before the
     ordinary navigation reports; use references at alias occurrences are replayed last by
@@ -270,15 +273,28 @@ struct
       (fold insert_binding left Symtab.empty, fold insert_binding right Symtab.empty)
     |> Symtab.dest |> map snd
 
+  fun collision_error {item, name, pos} (binding: binding) =
+    error
+      ("uRust import: " ^ item ^ " " ^ quote name ^ " collides with the " ^
+        namespace_name (#namespace binding) ^ " import of " ^ quote (#key binding) ^
+        " in the same scope" ^ Position.here pos ^
+        "\nThe import is here" ^ Position.here (#alias_pos binding))
+
   fun check_item_collision ctxt {item, name, pos} namespace =
     (case lookup_persistent ctxt namespace name of
        NONE => ()
-     | SOME binding =>
-         error
-           ("uRust import: " ^ item ^ " " ^ quote name ^ " collides with the " ^
-             namespace_name namespace ^ " import of " ^ quote (#key binding) ^
-             " in the same scope" ^ Position.here pos ^
-             "\nThe import is here" ^ Position.here (#alias_pos binding)))
+     | SOME binding => collision_error {item = item, name = name, pos = pos} binding)
+
+  (* Declaration commands reject same-scope collisions in both orders, but independent theories
+     or a locale interpretation may still merge a persistent alias with a same-named item. The
+     resolver reports such a pair instead of letting the import shadow the item. *)
+  fun check_merged_collision ctxt (binding: binding) item =
+    (case (item, lookup_persistent ctxt (#namespace binding) (#alias binding)) of
+       (SOME {item, pos}, SOME persistent) =>
+         if #identity persistent = #identity binding
+         then collision_error {item = item, name = #alias binding, pos = pos} binding
+         else ()
+     | _ => ())
 
   datatype report =
       Declaration_Report of Position.T * Markup.T * string option

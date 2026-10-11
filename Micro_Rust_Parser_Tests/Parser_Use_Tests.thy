@@ -89,6 +89,12 @@ local
     (fn () => prepare ctxt [leaf ["demo", "Short"] (SOME "Alias"), leaf ["Alias", "Empty"] NONE])
   val _ = rejects "unknown variant of an imported enum" "is not a variant of enum \"UseChoice\""
     (fn () => prepare ctxt [leaf ["UseChoice"] (SOME "C"), leaf ["C", "Missing"] NONE])
+  val _ = rejects "field-only lens aliases" "field notation \"sample\" is outside the import surface"
+    (fn () => prepare ctxt [leaf ["sample"] NONE])
+  val _ = rejects "associated items" "unknown import target \"UsePacket::new\""
+    (fn () => prepare ctxt [leaf ["UsePacket", "new"] NONE])
+  val _ = rejects "variants own no nested items" "enum variants have no nested importable items"
+    (fn () => prepare ctxt [leaf ["UseChoice"] (SOME "C"), leaf ["C", "Value", "inner"] NONE])
 
   val reverse =
     prepare ctxt
@@ -136,7 +142,7 @@ local
 
   val aliases = S.dump_persistent ctxt |> map #alias |> sort_strings
   val _ = require "diamond inventory"
-    (aliases = ["left_value", "merged_width", "right_value", "shared_increment"])
+    (aliases = ["MergedCollision", "left_value", "merged_width", "right_value", "shared_increment"])
   val _ = require "diamond import retains its declaration identity"
     (identity ctxt "shared_increment" =
       identity (theory_context "Parser_Use_Base_Fixtures") "shared_increment")
@@ -305,6 +311,7 @@ local
        ("syntax error", "use demo::value as fn;"),
        ("syntax error", "use demo::{value as};"),
        ("syntax error", "use u8::MAX;"),
+       ("syntax error", "use demo::shout!;"),
        ("syntax error", "use demo::{value,,};"),
        ("syntax error", "use demo::value; use demo::WIDTH;"),
        ("expected one complete use item", "type Width = u16;"),
@@ -610,6 +617,9 @@ end
 \<close>
 
 subsection\<open> Rejections without fallback \<close>
+
+urust_expr_rejects \<open> MergedCollision() \<close>
+  \<open> generated Rust function "MergedCollision" collides with the value import of "demo::value" \<close>
 
 urust_expr_rejects \<open> Width_Value(3) \<close> \<open> resolves to "demo::WIDTH", which cannot be used as a call \<close>
 urust_expr_rejects \<open> inc \<close> \<open> resolves to "demo::increment", which cannot be used as a value \<close>
@@ -933,6 +943,182 @@ in
   val _ = require "block imports leave no persistent binding"
     (is_none (S.lookup ctxt S.Value_Namespace "local_inc") andalso
       is_none (S.lookup ctxt S.Value_Namespace "body_inc"))
+end
+\<close>
+
+
+section\<open> Editor integration and replay \<close>
+
+text\<open>
+An import declaration reports keyword and delimiter markup, a definition and tooltip for each
+alias, and references to its exact target registrations without selecting an overload. Each later
+alias occurrence keeps its backend and type navigation and makes the import declaration its final
+navigation target. Failed declarations replay no semantic reports, and replaying pretty output
+or importing changes no registry inventory.
+\<close>
+
+ML_val\<open>
+local
+  open Parser_Use_Test
+  val thy = \<^theory>
+
+  fun markup_reports text =
+    let
+      val (result, chunks) =
+        Parser_Test_Reports.chunks (fn () =>
+          Exn.result (fn () => run_from (initial thy) "use-editor" text) ())
+      (* The capture prepends each output chunk; restore emission order. *)
+      val markups =
+        maps YXML.parse_body (rev chunks)
+        |> map_filter (fn XML.Elem (markup, _) => SOME markup | XML.Text _ => NONE)
+    in (result, markups) end
+
+  fun property name ((_, props): Markup.T) = AList.lookup (op =) props name
+  fun occurrence text needle index =
+    let
+      fun find start remaining =
+        let
+          val (prefix, rest) = Substring.position needle (Substring.extract (text, start, NONE))
+          val _ = if Substring.isEmpty rest then error ("missing " ^ needle) else ()
+          val position = start + size (Substring.string prefix)
+        in if remaining = 0 then position else find (position + size needle) (remaining - 1) end
+    in 1 + length (Symbol.explode (String.substring (text, 0, find 0 index))) end
+  fun at offset markup = property "offset" markup = SOME (Value.print_int offset)
+  fun entity_kind (markup as (name, _): Markup.T) =
+    if name = Markup.entityN then property Markup.kindN markup else NONE
+  fun entities markups offset = filter (fn markup => at offset markup andalso is_some (entity_kind markup)) markups
+  fun kinds markups offset = map (the o entity_kind) (entities markups offset)
+  fun last_kind markups offset = try List.last (kinds markups offset)
+  fun has markups offset name = exists (fn markup as (markup_name, _) => markup_name = name andalso at offset markup) markups
+  fun definition markups offset =
+    exists (fn markup => entity_kind markup = SOME "urust_import" andalso is_some (property "def" markup))
+      (entities markups offset)
+  fun import_reference_target markups offset =
+    entities markups offset
+    |> filter (fn markup => entity_kind markup = SOME "urust_import" andalso is_some (property "ref" markup))
+    |> map (property "def_offset")
+
+  val call_text =
+    "urust_use " ^ cartouche " use demo::increment as nav_inc; " ^ "\n" ^
+    "urust_expr nav_call " ^ cartouche " nav_inc(3) "
+  val (call_result, call_markups) = markup_reports call_text
+  val _ = require "navigation fixture succeeded" (is_some (Exn.get_res call_result))
+  val alias = occurrence call_text "nav_inc" 0
+  val use_site = occurrence call_text "nav_inc" 1
+  val _ = require "alias definition" (definition call_markups alias)
+  val _ = require "alias tooltip" (has call_markups alias Markup.typingN)
+  val _ = require "use and as keywords"
+    (has call_markups (occurrence call_text "use demo" 0) Markup.keyword1N andalso
+      has call_markups (occurrence call_text "as nav_inc" 0) Markup.keyword1N)
+  val _ = require "path and item delimiters"
+    (has call_markups (occurrence call_text "::" 0) Markup.delimiterN andalso
+      has call_markups (occurrence call_text ";" 0) Markup.delimiterN)
+  val _ = require "target registration reference"
+    (member (op =) (kinds call_markups (occurrence call_text "increment" 0)) Micro_Rust_Names.notationN)
+  val _ = require "use site retains backend navigation"
+    (member (op =) (kinds call_markups use_site) Micro_Rust_Names.notationN)
+  val _ = require ("import declaration is the final use-site target: " ^
+      commas (kinds call_markups use_site))
+    (last_kind call_markups use_site = SOME "urust_import" andalso
+      import_reference_target call_markups use_site = [SOME (Value.print_int alias)])
+
+  val block_text = "urust_expr nav_block " ^ cartouche " { use demo::increment as blk; blk(1) } "
+  val (_, block_markups) = markup_reports block_text
+  val _ = require "block alias definition" (definition block_markups (occurrence block_text "blk" 0))
+  val _ = require "block alias final target"
+    (last_kind block_markups (occurrence block_text "blk" 1) = SOME "urust_import")
+
+  val type_text =
+    "urust_use " ^ cartouche " use demo::Width as NavWord; " ^ "\n" ^
+    "urust_fn _ " ^ cartouche " fn nav_sig(x: NavWord) {} "
+  val (_, type_markups) = markup_reports type_text
+  val type_site = occurrence type_text "NavWord" 1
+  val _ = require "type alias occurrence keeps its mapping and ends at the import"
+    (member (op =) (kinds type_markups type_site) "micro_rust_type_mapping" andalso
+      last_kind type_markups type_site = SOME "urust_import")
+
+  val self_text = "urust_use " ^ cartouche " use UseChoice::{self as NavSelection}; "
+  val (_, self_markups) = markup_reports self_text
+  val self_pos = occurrence self_text "self" 0
+  val _ = require "grouped self keyword and enum reference"
+    (has self_markups self_pos Markup.keyword1N andalso
+      member (op =) (kinds self_markups self_pos) "urust_item")
+
+  val overload_text =
+    "urust_use " ^ cartouche " use demo::ZERO as NavZero; " ^ "\n" ^
+    "urust_expr nav_zero " ^ cartouche " NavZero + 1u64 "
+  val (overload_result, overload_markups) = markup_reports overload_text
+  val overload_ctxt = Toplevel.context_of (Exn.release overload_result)
+  val wide_serial =
+    Micro_Rust_Names.lookups overload_ctxt Micro_Rust_Names.NLiteral "demo::ZERO"
+    |> filter (fn {hol_term, ...} : Micro_Rust_Names.entry =>
+         Term.aconv_untyped (hol_term, \<^term>\<open>use_demo_zero_wide\<close>))
+    |> map #serial
+  val target = occurrence overload_text "ZERO" 0
+  val _ = require "import declaration reports every candidate registration"
+    (length (filter (fn kind => kind = Micro_Rust_Names.notationN) (kinds overload_markups target)) = 2)
+  val overload_site = occurrence overload_text "NavZero" 1
+  val selected =
+    entities overload_markups overload_site
+    |> filter (fn markup => entity_kind markup = SOME Micro_Rust_Names.notationN)
+    |> map (property "ref")
+  val _ = require "typed dispatch still selects the overload before the import target"
+    (try List.last selected = SOME (Option.map Value.print_int (try hd wide_serial)) andalso
+      last_kind overload_markups overload_site = SOME "urust_import")
+
+  val rejected_text = "urust_use " ^ cartouche " use demo::{value as nav_rejected, Missing}; "
+  val (rejected_result, rejected_markups) = markup_reports rejected_text
+  val _ = require "rejected declaration fails" (is_none (Exn.get_res rejected_result))
+  val _ = require "rejected declaration replays no semantic reports"
+    (not (exists (is_some o entity_kind) rejected_markups))
+  val rejected_block_text =
+    "urust_expr nav_rejected_block " ^
+      cartouche " { use demo::value as nav_dup; use demo::WIDTH as nav_dup; 1 } "
+  val (rejected_block_result, rejected_block_markups) = markup_reports rejected_block_text
+  val _ = require "rejected block import replays no import reports"
+    (is_none (Exn.get_res rejected_block_result) andalso
+      not (exists (fn markup => entity_kind markup = SOME "urust_import") rejected_block_markups))
+in
+  val _ = ()
+end
+\<close>
+
+ML_val\<open>
+local
+  open Parser_Use_Test
+  val thy = \<^theory>
+  fun inventory ctxt =
+    (length (URust_Item_Scope.dump_types ctxt), length (URust_Item_Scope.dump_constructors ctxt),
+     length (URust_Item_Scope.dump_functions ctxt), length (URust_Type_Mappings.dump ctxt),
+     length (Micro_Rust_Names.dump ctxt))
+  fun output_of action =
+    let
+      val captured = Synchronized.var "use_pretty_output" ([]: string list)
+      fun capture chunks = Synchronized.change captured (append chunks)
+      val result =
+        Parser_Test_Report_Lock.run (fn () =>
+          Unsynchronized.setmp Private_Output.writeln_fn capture
+            (Unsynchronized.setmp Private_Output.writeln_urgent_fn capture action) ())
+    in (result, Synchronized.value captured |> map (XML.content_of o YXML.parse_body) |> cat_lines) end
+  val start_state = initial thy
+  val imported = run_from start_state "use-inventory" ("urust_use " ^ cartouche " use demo::value as inventory_value; ")
+  val _ = require "imports leave item, type and notation registries unchanged"
+    (inventory (Toplevel.context_of start_state) = inventory (Toplevel.context_of imported) andalso
+      length (S.dump_persistent (Toplevel.context_of imported)) =
+        length (S.dump_persistent (Toplevel.context_of start_state)) + 1)
+  val (replayed, output) =
+    output_of (fn () =>
+      run_from imported "use-pretty"
+        ("urust_fn [pretty, verbosity = 2] _ " ^
+          cartouche " fn pretty_imports(x: u32) -> u32 { use demo::increment as step; step(inventory_value()) } "))
+  val _ = require "pretty replay prints the body import"
+    (String.isSubstring "use demo::increment as step;" output)
+  val _ = require "pretty replay leaves every inventory unchanged"
+    (inventory (Toplevel.context_of replayed) = inventory (Toplevel.context_of imported) andalso
+      length (S.dump_persistent (Toplevel.context_of replayed)) =
+        length (S.dump_persistent (Toplevel.context_of imported)))
+in
+  val _ = ()
 end
 \<close>
 

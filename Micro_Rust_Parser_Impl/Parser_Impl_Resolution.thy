@@ -255,6 +255,22 @@ ML\<open>
     Resolved_Record_Struct carries the qualified record type name plus those fields. Policy for
     rejecting the currently unsupported HOL-record lowering belongs to URust_Patterns.
 
+  - Rust imports. Before its ordinary route, every value, call, struct-expression, pattern,
+    struct-pattern, repeat-length and report-free classification consumer consults
+    URust_Import_Scope. A single-segment name bound in the requested namespace (value and call
+    occurrences only after lexical locals and declaration arguments miss), or a multi-segment path
+    whose head is a type-namespace import of a generated enum, is rewritten to its canonical
+    exact key: the bound segment becomes the key segments, with the occurrence position and
+    generic arguments on the final key segment and no position on synthetic prefix segments. The
+    canonical path then follows only the exact branch of the owning resolver; a binding unusable
+    in the requested role is rejected without any lexical, HOL, basename or unqualified fallback.
+    Struct heads use the type namespace, extended to single-segment value bindings of the notation
+    role the existing struct syntax uses. report_struct_constructor is report_constructor for
+    struct-pattern heads. Method names, fields, macros and log-data identifiers are not imported.
+    After the canonical reports, each alias occurrence queues a reference to its import
+    declaration. A persistent binding that a theory merge or interpretation placed beside a
+    same-named item is rejected when found.
+
   Callers may rely on those results and diagnostics, but not on the environment table or binder
   record, generated local names/entity IDs, identifier-leaf inspection, catalog and metadata merge
   strategy, candidate ordering, private selector storage, or the internal Constructor_Candidate /
@@ -897,13 +913,30 @@ struct
     | import_route _ (UR_Path (_, [], pos)) =
         error ("urust_expr: internal empty imported path" ^ Position.here pos)
 
+  fun same_scope_item ctxt S.Value_Namespace name =
+        (case I.lookup_function ctxt name of
+           SOME entry => SOME {item = "generated Rust function", pos = I.function_position entry}
+         | NONE =>
+             (case I.lookup_constructor ctxt name of
+                SOME entry =>
+                  if I.constructor_shape entry = I.Named_Constructor then NONE
+                  else SOME {item = "generated Rust constructor", pos = I.constructor_position entry}
+              | NONE => NONE))
+    | same_scope_item ctxt S.Type_Namespace name =
+        Option.map
+          (fn entry => {item = "Rust type", pos = URust_Type_Mappings.entry_declaration_position entry})
+          (URust_Type_Mappings.lookup ctxt name)
+
   fun head_import_route ctxt path =
     (case path_segments path of
        Path_Segment (name, pos, _) :: _ :: _ =>
          (case S.lookup ctxt S.Type_Namespace name of
             NONE => NONE
           | SOME binding =>
-              if S.has_role binding S.Generated_Enum then SOME (import_route binding path)
+              if S.has_role binding S.Generated_Enum then
+                (S.check_merged_collision ctxt binding
+                   (same_scope_item ctxt S.Type_Namespace name);
+                 SOME (import_route binding path))
               else
                 error
                   ("urust_expr: imported " ^ quote name ^ " (" ^ quote (#key binding) ^
@@ -915,7 +948,11 @@ struct
     else
       (case path_segments path of
          [Path_Segment (name, _, _)] =>
-           Option.map (fn binding => import_route binding path) (S.lookup ctxt namespace name)
+           Option.map
+             (fn binding =>
+               (S.check_merged_collision ctxt binding (same_scope_item ctxt namespace name);
+                import_route binding path))
+             (S.lookup ctxt namespace name)
        | _ => head_import_route ctxt path)
 
   (* Value and call occurrences consult lexical locals, including declaration arguments, first. *)

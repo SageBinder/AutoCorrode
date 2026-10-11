@@ -744,6 +744,11 @@ struct
           | SOME binding =>
               let
                 val _ =
+                  URust_Import_Scope.check_merged_collision ctxt binding
+                    (Option.map
+                      (fn entry => {item = "Rust type", pos = #declaration_pos entry})
+                      (lookup ctxt name))
+                val _ =
                   if null rest then ()
                   else
                     error
