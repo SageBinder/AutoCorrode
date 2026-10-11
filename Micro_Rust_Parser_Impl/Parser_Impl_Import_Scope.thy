@@ -34,6 +34,7 @@ sig
      namespace: namespace,
      key: string,
      roles: role list,
+     available: bool,
      identity: serial,
      declaration_pos: Position.T}
 
@@ -43,6 +44,7 @@ sig
   val role_namespace: role -> namespace
   val has_role: binding -> role -> bool
   val describe: binding -> string
+  val require_available: Position.T -> binding -> unit
 
   val lookup: Proof.context -> namespace -> string -> binding option
   val lookup_persistent: Proof.context -> namespace -> string -> binding option
@@ -60,11 +62,11 @@ sig
     Proof.context -> binding -> {item: string, pos: Position.T} option -> unit
 
   type reports
-  val defer_declaration_report: Position.T -> Markup.T -> string option -> unit
+  val defer_declaration_report:
+    Proof.context -> Position.T -> Markup.T -> string option -> unit
   val defer_use_reference: Proof.context -> Position.T -> binding -> unit
-  val report_alias_definitions: binding list -> unit
+  val report_alias_definitions: Proof.context -> binding list -> unit
   val capture_reports: (unit -> 'a) -> 'a * reports
-  val replay_declaration_reports: Proof.context -> reports -> unit
   val replay_use_reports: Proof.context -> reports -> unit
 end
 
@@ -81,13 +83,18 @@ end
     capability of the canonical key; role_namespace gives the namespace it belongs to.
   - binding records one alias in one namespace: its declaration position, the canonical exact source
     key captured at installation, the key's roles in that namespace, the import identity shared by
-    all namespace bindings of one imported leaf, and the leaf's declaration span.
+    all namespace bindings of one imported leaf, and the leaf's declaration span. An unavailable
+    binding (available = false) stands for a leaf whose target does not exist yet in the supplied
+    context; it occupies both namespaces with its written path as key and no roles, and every
+    consumer that finds it rejects the occurrence through require_available, without fallback.
   - lookup returns the nearest binding in the requested namespace: block frames from innermost to
     outermost, then the persistent bindings of the context. lookup_persistent consults only the
     latter. frame_depth counts the active block frames.
-  - check_batch rejects two bindings with the same alias and namespace, even with identical targets;
-    the later binding is reported with the earlier position. push_frame returns a derived context
-    with one immutable block frame; frames are proof data and never enter theory data.
+  - check_batch rejects two available bindings with the same alias and namespace, even with
+    identical targets; the later binding is reported with the earlier position. Unavailable
+    bindings are not compared, because their namespaces are not known yet. push_frame returns a
+    derived context with one immutable block frame, in which an available binding takes its
+    namespace from an unavailable one; frames are proof data and never enter theory data.
   - check_persistent_duplicates applies the same rule against the active persistent bindings.
     declare_persistent installs bindings through a non-pervasive local-theory declaration, so theory
     imports inherit them and locales, experiments and interpretations use native confinement and
@@ -98,12 +105,14 @@ end
     persistent alias in the given namespace. Registries call it so that both declaration orders
     are diagnosed. check_merged_collision lets a resolver reject a persistent binding that a
     theory merge or interpretation placed beside a same-named item it has found.
-  - Semantic reports are queued in two classes while capture_reports is active. Declaration reports
-    (alias definitions and use-item tooltips) are replayed by replay_declaration_reports before the
-    ordinary navigation reports; use references at alias occurrences are replayed last by
-    replay_use_reports, making the import declaration the final source navigation target. Without an
-    active capture, use references fall back to deferred semantic navigation and declaration reports
-    are emitted immediately.
+  - Declaration reports (alias definitions and use-item tooltips) are deferred semantic navigation
+    events, so they join the enclosing navigation transaction in emission order and are dropped
+    with it. Use references at alias occurrences are queued while capture_reports is active, because
+    typed dispatch adds the backend references of the same occurrence later. replay_use_reports
+    hands them to deferred semantic navigation after the elaboration's other queues, so they follow
+    every target reached through the alias, also inside an enclosing transaction, and the import
+    declaration is the final source navigation target. Without an active capture, a use reference
+    is deferred to semantic navigation at once.
 *)
 structure URust_Import_Scope :> URUST_IMPORT_SCOPE =
 struct
@@ -126,6 +135,7 @@ struct
      namespace: namespace,
      key: string,
      roles: role list,
+     available: bool,
      identity: serial,
      declaration_pos: Position.T}
 
@@ -160,15 +170,26 @@ struct
 
   fun has_role ({roles, ...}: binding) role = member (op =) roles role
 
-  fun describe ({alias, key, namespace, roles, ...}: binding) =
-    "Rust import " ^ quote alias ^ " of " ^ quote key ^ " (" ^
-      namespace_name namespace ^ " namespace: " ^ commas (map role_name roles) ^ ")"
+  fun describe ({alias, key, namespace, roles, available, ...}: binding) =
+    if available then
+      "Rust import " ^ quote alias ^ " of " ^ quote key ^ " (" ^
+        namespace_name namespace ^ " namespace: " ^ commas (map role_name roles) ^ ")"
+    else
+      "Rust import " ^ quote alias ^ " of " ^ quote key ^ " (target not yet available)"
+
+  fun require_available pos ({alias, key, available, ...}: binding) =
+    if available then ()
+    else
+      error
+        ("uRust import: import target " ^ quote key ^ " of " ^ quote alias ^
+          " is not yet available" ^ Position.here pos)
 
   fun table_key namespace alias = namespace_name namespace ^ "\000" ^ alias
 
   fun same_target (left: binding, right: binding) =
     #namespace left = #namespace right andalso #alias left = #alias right andalso
-      #key left = #key right andalso #roles left = #roles right
+      #key left = #key right andalso #roles left = #roles right andalso
+      #available left = #available right
 
   fun conflict_error (left: binding, right: binding) =
     let
@@ -237,15 +258,20 @@ struct
                NONE => Symtab.update (key, binding) seen
              | SOME earlier => duplicate_error earlier binding)
           end)
-        bindings Symtab.empty)
+        (filter #available bindings) Symtab.empty)
 
   fun push_frame bindings ctxt =
     let
       val _ = check_batch bindings
-      val frame =
-        fold (fn binding => Symtab.update (table_key (#namespace binding) (#alias binding), binding))
-          bindings Symtab.empty
-    in Frames.map (cons frame) ctxt end
+      fun add (binding: binding) frame =
+        let val key = table_key (#namespace binding) (#alias binding) in
+          (case Symtab.lookup frame key of
+             SOME (existing: binding) =>
+               if #available existing orelse not (#available binding) then frame
+               else Symtab.update (key, binding) frame
+           | NONE => Symtab.update (key, binding) frame)
+        end
+    in Frames.map (cons (fold add bindings Symtab.empty)) ctxt end
 
   fun check_persistent_duplicates ctxt bindings =
     List.app
@@ -257,6 +283,9 @@ struct
 
   fun declare_persistent bindings lthy =
     let
+      val _ =
+        if forall #available bindings then ()
+        else error "uRust import: internal unavailable persistent import"
       val _ = check_batch bindings
       val _ = check_persistent_duplicates lthy bindings
       val pos =
@@ -296,26 +325,15 @@ struct
          else ()
      | _ => ())
 
-  datatype report =
-      Declaration_Report of Position.T * Markup.T * string option
-    | Use_Report of Position.T * Markup.T
+  datatype report = Use_Report of Position.T * Markup.T
 
   type reports = report list
 
   val active_reports: report list Unsynchronized.ref Thread_Data.var = Thread_Data.var ()
 
-  fun emit_now ctxt (pos, markup, NONE) = Context_Position.report ctxt pos markup
-    | emit_now ctxt (pos, markup, SOME text) = Context_Position.report_text ctxt pos markup text
-
-  fun defer_declaration_report pos markup text =
-    if not (Position.is_reported pos) then ()
-    else
-      (case Thread_Data.get active_reports of
-         SOME reports => reports := Declaration_Report (pos, markup, text) :: !reports
-       | NONE =>
-           (case text of
-              NONE => Position.report pos markup
-            | SOME body => Position.report_text pos markup body))
+  fun defer_declaration_report ctxt pos markup NONE = Navigation.defer_report ctxt pos markup
+    | defer_declaration_report ctxt pos markup (SOME text) =
+        Navigation.defer_report_text ctxt pos markup text
 
   fun use_markup ({alias, alias_pos, identity, ...}: binding) =
     Position.make_entity_markup {def = false} identity importN (alias, alias_pos)
@@ -327,7 +345,7 @@ struct
          SOME reports => reports := Use_Report (pos, use_markup binding) :: !reports
        | NONE => Navigation.defer_report ctxt pos (use_markup binding))
 
-  fun report_alias_definitions bindings =
+  fun report_alias_definitions ctxt bindings =
     let
       val leaves =
         distinct (fn (left: binding, right: binding) => #identity left = #identity right) bindings
@@ -335,11 +353,12 @@ struct
         bindings
         |> filter (fn other: binding => #identity other = #identity binding)
         |> map describe
+        |> distinct (op =)
         |> cat_lines
       fun report (binding as {alias, alias_pos, identity, ...}: binding) =
-        (defer_declaration_report alias_pos
+        (defer_declaration_report ctxt alias_pos
            (Position.make_entity_markup {def = true} identity importN (alias, alias_pos)) NONE;
-         defer_declaration_report alias_pos Markup.typing (SOME (leaf_description binding)))
+         defer_declaration_report ctxt alias_pos Markup.typing (SOME (leaf_description binding)))
     in List.app report leaves end
 
   fun capture_reports action =
@@ -351,16 +370,8 @@ struct
            val result = Thread_Data.setmp active_reports (SOME reports) action ()
          in (result, rev (!reports)) end)
 
-  fun replay_declaration_reports ctxt reports =
-    List.app
-      (fn Declaration_Report event => emit_now ctxt event | Use_Report _ => ())
-      reports
-
   fun replay_use_reports ctxt reports =
-    List.app
-      (fn Use_Report (pos, markup) => Context_Position.report ctxt pos markup
-        | Declaration_Report _ => ())
-      reports
+    List.app (fn Use_Report (pos, markup) => Navigation.defer_report ctxt pos markup) reports
 end
 \<close>
 

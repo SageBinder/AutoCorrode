@@ -31,6 +31,8 @@ sig
 
   val defer_report:
     Proof.context -> Position.T -> Markup.T -> unit
+  val defer_report_text:
+    Proof.context -> Position.T -> Markup.T -> string -> unit
   val defer_type:
     Proof.context -> Position.T -> string -> unit
 
@@ -56,6 +58,7 @@ struct
 
   datatype deferred_event =
       Deferred_Markup of Position.T * Markup.T
+    | Deferred_Text of Position.T * Markup.T * string
     | Deferred_Targets of Position.T list * selected_target list
 
   type reports = deferred_event list
@@ -101,6 +104,16 @@ struct
            reports := Deferred_Markup (pos, markup) :: !reports
        | NONE =>
            Context_Position.report ctxt pos markup)
+
+  (* Text-bearing reports, such as typing tooltips of declarations, join the same transaction. *)
+  fun defer_report_text ctxt pos markup text =
+    if not (Position.is_reported pos) then ()
+    else
+      (case Thread_Data.get active_reports of
+         SOME reports =>
+           reports := Deferred_Text (pos, markup, text) :: !reports
+       | NONE =>
+           Context_Position.report_text ctxt pos markup text)
 
   fun defer_type ctxt pos name =
     List.app (defer_report ctxt pos)
@@ -365,6 +378,8 @@ struct
     (case event of
        Deferred_Markup (pos, markup) =>
          Context_Position.report ctxt pos markup
+     | Deferred_Text (pos, markup, text) =>
+         Context_Position.report_text ctxt pos markup text
      | Deferred_Targets (positions, targets) =>
          List.app
            (fn pos =>

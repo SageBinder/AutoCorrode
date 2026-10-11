@@ -20,11 +20,18 @@ sig
   val flatten: URust_AST.use_item -> leaf list
   val leaf_path: leaf -> string list
   val leaf_alias: leaf -> string * Position.T
+  type batch
+  datatype target_policy = Require_Targets | Allow_Unavailable_Targets
+  val validate_batch: URust_AST.use_item list -> batch
+  val batch_leaves: batch -> leaf list
   val resolve_batch:
-    {persistent: bool} -> Proof.context -> URust_AST.use_item list ->
+    {persistent: bool, targets: target_policy} -> Proof.context -> batch ->
       URust_Import_Scope.binding list
-  val prepare_batch: Proof.context -> URust_AST.use_item list -> Proof.context
+  val prepare_batch: target_policy -> Proof.context -> batch -> Proof.context
   val install: URust_AST.use_item -> local_theory -> local_theory
+  val same_scope_item:
+    Proof.context -> URust_Import_Scope.namespace -> string ->
+      {item: string, pos: Position.T} option
 end
 
 (*
@@ -35,7 +42,13 @@ end
     position, the segments written by the leaf itself, its effective alias (the final path segment
     unless renamed; for a grouped `self`, the group's final prefix segment at the `self` token) and
     the smallest meaningful span of its own path.
-  - resolve_batch resolves every leaf, used or not, against the batch and the supplied context.
+  - validate_batch is the target-independent phase. It flattens a complete import list and rejects,
+    before any registry is consulted, the duplicates that hold for every target (two leaves with
+    one alias, one path and the same grouped-self form) and every cycle of the alias dependency
+    graph, whose edges lead from a leaf's head segment to the other leaves with that alias.
+    Unsupported forms never reach a batch: the parser and the AST constructors reject them.
+  - resolve_batch resolves every leaf of a validated batch, used or not, against the batch and the
+    supplied context.
     A single-segment target is looked up per namespace: the nearest batch import with that alias
     (never the leaf itself), then the enclosing import scope, and otherwise the exact registry key.
     A multi-segment target resolves its head in the type namespace through the same scopes; an
@@ -49,11 +62,19 @@ end
     type mappings and literal/call notation registrations; field-only notations and keys without
     any supported item are positioned rejections. Persistent batches additionally reject an alias
     that collides with a same-scope generated item or registered type. Every import receives a
-    fresh identity. Semantic reports are queued only after the complete batch validates.
+    fresh identity. Semantic reports are deferred only after the complete batch validates.
+    Require_Targets rejects a target that is absent from the context. Allow_Unavailable_Targets
+    instead binds such a leaf, and every leaf depending on it, as an unavailable binding whose uses
+    reject without fallback; a target that exists but cannot be imported still rejects. Duplicates
+    among available bindings are rejected in both policies.
   - prepare_batch is the batch preparation operation shared by real blocks, implicit command bodies
     and composition: it returns the supplied context extended with one immutable frame, or the
-    context itself for an empty batch. install installs one use item as persistent local-theory
-    declarations, capturing the canonical keys at installation.
+    context itself for an empty batch. Blocks, bodies and persistent imports require targets; a
+    composer that re-prepares one validated batch for each declaration may allow unavailable
+    targets and requires them at the end. install validates and installs one use item as
+    persistent local-theory declarations, capturing the canonical keys at installation.
+  - same_scope_item finds the generated function or unit/tuple constructor (value namespace) or the
+    Rust type (type namespace) whose single-segment key is a given name.
 *)
 structure URust_Imports :> URUST_IMPORTS =
 struct
@@ -138,66 +159,147 @@ struct
         | member roles = SOME {key = key, roles = roles}
     in {type_member = member type_roles, value_member = member value_roles} end
 
-  fun require_target ctxt key pos (resolved as {type_member, value_member}: resolved) =
+  datatype target_policy = Require_Targets | Allow_Unavailable_Targets
+
+  (* Raised while resolving under Allow_Unavailable_Targets for a target that may still appear. *)
+  exception Unavailable_Target
+
+  fun require_target policy ctxt key pos (resolved as {type_member, value_member}: resolved) =
     if is_some type_member orelse is_some value_member then resolved
     else if not (null (Micro_Rust_Names.lookups ctxt Micro_Rust_Names.NField key)) then
       import_error
         ("field notation " ^ quote key ^
           " is outside the import surface; field-only lens aliases are not importable") pos
+    else if policy = Allow_Unavailable_Targets then raise Unavailable_Target
     else
       import_error
         ("unknown import target " ^ quote key ^
           "; imports name exact generated items, Rust type mappings and literal or call notations")
         pos
 
-  datatype state = Unresolved | Active | Done of resolved
+  fun same_scope_item ctxt S.Value_Namespace name =
+        (case I.lookup_function ctxt name of
+           SOME entry => SOME {item = "generated Rust function", pos = I.function_position entry}
+         | NONE =>
+             (case I.lookup_constructor ctxt name of
+                SOME entry =>
+                  if I.constructor_shape entry = I.Named_Constructor then NONE
+                  else SOME {item = "generated Rust constructor", pos = I.constructor_position entry}
+              | NONE => NONE))
+    | same_scope_item ctxt S.Type_Namespace name =
+        (case I.lookup_type ctxt name of
+           SOME entry => SOME {item = "generated Rust item", pos = I.type_position entry}
+         | NONE =>
+             Option.map
+               (fn entry =>
+                 {item = "Rust type", pos = URust_Type_Mappings.entry_declaration_position entry})
+               (URust_Type_Mappings.lookup ctxt name))
+
+  type batch = leaf list
+
+  fun batch_leaves (batch: batch) = batch
+
+  fun head_name ({path, ...}: leaf) = (case path of (name, _) :: _ => SOME name | [] => NONE)
+
+  fun cycle_error (leaves: leaf list) participants =
+    let
+      val ordered = sort int_ord participants
+      val described =
+        map (fn index =>
+          space_implode "::" (leaf_path (nth leaves index)) ^ " as " ^
+            #1 (#alias (nth leaves index))) ordered
+    in
+      error
+        ("uRust import: cyclic imports: " ^ commas_quote described ^
+          Position.here_list (map (fn index => #span (nth leaves index)) ordered))
+    end
+
+  fun validate_batch items =
+    let
+      val leaves = maps flatten items
+      val indexed = map_index I leaves
+      fun same_form (left: leaf, right: leaf) =
+        #1 (#alias left) = #1 (#alias right) andalso leaf_path left = leaf_path right andalso
+          is_some (#self_pos left) = is_some (#self_pos right)
+      val _ =
+        fold
+          (fn (index, leaf) => fn () =>
+            (case find_first (fn (earlier, other) => earlier < index andalso same_form (other, leaf))
+                indexed of
+               SOME (_, earlier) =>
+                 error
+                   ("uRust import: duplicate import " ^ quote (#1 (#alias leaf)) ^
+                     Position.here (#2 (#alias leaf)) ^
+                     "\nThe earlier import is here" ^ Position.here (#2 (#alias earlier)))
+             | NONE => ()))
+          indexed ()
+      fun dependencies (index, leaf) =
+        (case head_name leaf of
+           SOME name =>
+             indexed
+             |> filter (fn (other, candidate) => other <> index andalso #1 (#alias candidate) = name)
+             |> map #1
+         | NONE => [])
+      val graph = map dependencies indexed
+      val states = Array.array (length leaves, 0)
+      fun visit stack index =
+        (case Array.sub (states, index) of
+           2 => ()
+         | 1 => cycle_error leaves (index :: take_prefix (fn other => other <> index) stack)
+         | _ =>
+             (Array.update (states, index, 1);
+              List.app (visit (index :: stack)) (nth graph index);
+              Array.update (states, index, 2)))
+      val _ = List.app (visit []) (0 upto length leaves - 1)
+    in leaves end
+
+  datatype outcome = Available of resolved | Unavailable
+  datatype state = Unresolved | Active | Done of outcome
 
   fun binding_member (binding: S.binding) =
     {key = #key binding, roles = #roles binding}
 
-  fun resolve_leaves ctxt (leaves: leaf list) =
+  fun resolve_leaves policy ctxt (leaves: leaf list) =
     let
       val count = length leaves
       val states = Array.array (count, Unresolved)
       val indexed = map_index I leaves
 
-      fun alias_name index = #1 (#alias (nth leaves index))
+      fun unavailable_or_error pos (binding: S.binding) =
+        if policy = Allow_Unavailable_Targets then raise Unavailable_Target
+        else S.require_available pos binding
 
-      fun cycle_error stack index =
-        let
-          val participants =
-            index :: take_prefix (fn other => other <> index) stack |> sort int_ord
-          val described =
-            map (fn participant => space_implode "::" (leaf_path (nth leaves participant)) ^
-              " as " ^ alias_name participant) participants
-        in
-          error
-            ("uRust import: cyclic imports: " ^ commas_quote described ^
-              Position.here_list (map (fn participant => #span (nth leaves participant))
-                participants))
-        end
-
-      fun resolve stack index =
+      fun resolve index =
         (case Array.sub (states, index) of
-           Done resolved => resolved
-         | Active => cycle_error stack index
+           Done outcome => outcome
+         | Active => import_error "internal import dependency cycle" (#span (nth leaves index))
          | Unresolved =>
              let
                val _ = Array.update (states, index, Active)
-               val resolved = resolve_leaf (index :: stack) index
-               val _ = Array.update (states, index, Done resolved)
-             in resolved end)
+               val outcome =
+                 Available (resolve_leaf index)
+                   handle Unavailable_Target => Unavailable
+               val _ = Array.update (states, index, Done outcome)
+             in outcome end)
 
-      and scope_lookup stack exclude namespace name =
+      and scope_lookup exclude pos namespace name =
         let
           val candidates =
             indexed
             |> filter (fn (index, leaf) => index <> exclude andalso #1 (#alias leaf) = name)
             |> map_filter (fn (index, _) =>
-                 Option.map (pair index) (member_of namespace (resolve stack index)))
+                 (case resolve index of
+                    Unavailable => raise Unavailable_Target
+                  | Available resolved => Option.map (pair index) (member_of namespace resolved)))
         in
           (case candidates of
-             [] => Option.map binding_member (S.lookup ctxt namespace name)
+             [] =>
+               (case S.lookup ctxt namespace name of
+                  NONE => NONE
+                | SOME binding =>
+                    (if #available binding then () else unavailable_or_error pos binding;
+                     S.check_merged_collision ctxt binding (same_scope_item ctxt namespace name);
+                     SOME (binding_member binding)))
            | [(_, member)] => SOME member
            | (earlier, _) :: (later, _) :: _ =>
                error
@@ -206,13 +308,13 @@ struct
                    "\nThe earlier import is here" ^ Position.here (#2 (#alias (nth leaves earlier)))))
         end
 
-      and resolve_path stack index (leaf: leaf) path =
+      and resolve_path index (leaf: leaf) path =
         (case path of
            [] => import_error "internal empty import path" (#span leaf)
          | [(name, pos)] =>
              let
-               val imported_type = scope_lookup stack index S.Type_Namespace name
-               val imported_value = scope_lookup stack index S.Value_Namespace name
+               val imported_type = scope_lookup index pos S.Type_Namespace name
+               val imported_value = scope_lookup index pos S.Value_Namespace name
                val registered = registry_member ctxt name
                val resolved =
                  {type_member =
@@ -223,9 +325,9 @@ struct
                     (case imported_value of
                        SOME member => SOME member
                      | NONE => #value_member registered)}
-             in require_target ctxt name pos resolved end
+             in require_target policy ctxt name pos resolved end
          | (head, head_pos) :: rest =>
-             (case scope_lookup stack index S.Type_Namespace head of
+             (case scope_lookup index head_pos S.Type_Namespace head of
                 SOME {key = owner, roles} =>
                   if not (member (op =) roles S.Generated_Enum) then
                     import_error
@@ -253,17 +355,17 @@ struct
                      | [] => import_error "internal empty variant path" head_pos)
               | NONE =>
                   let val key = space_implode "::" (map #1 path) in
-                    require_target ctxt key (#span leaf) (registry_member ctxt key)
+                    require_target policy ctxt key (#span leaf) (registry_member ctxt key)
                   end))
 
-      and resolve_leaf stack index =
+      and resolve_leaf index =
         let
           val leaf = nth leaves index
         in
           (case #self_pos leaf of
-             NONE => resolve_path stack index leaf (#path leaf)
+             NONE => resolve_path index leaf (#path leaf)
            | SOME self_pos =>
-               (case #type_member (resolve_path stack index leaf (#path leaf)) of
+               (case #type_member (resolve_path index leaf (#path leaf)) of
                   SOME (found as {roles, ...}) =>
                     if member (op =) roles S.Generated_Enum
                     then {type_member = SOME found, value_member = NONE}
@@ -277,48 +379,37 @@ struct
                         quote (space_implode "::" (leaf_path leaf)) ^ " has no type identity")
                       self_pos))
         end
-    in map (resolve []) (0 upto count - 1) end
+    in map resolve (0 upto count - 1) end
 
-  fun leaf_bindings (leaf: leaf, resolved: resolved) =
+  fun leaf_bindings (leaf: leaf, outcome) =
     let
       val identity = serial ()
       val (alias, alias_pos) = #alias leaf
-      fun binding namespace =
-        Option.map
-          (fn {key, roles} =>
-            {alias = alias, alias_pos = alias_pos, namespace = namespace, key = key,
-             roles = roles, identity = identity, declaration_pos = #span leaf}: S.binding)
-          (member_of namespace resolved)
-    in map_filter binding [S.Type_Namespace, S.Value_Namespace] end
+      fun make namespace key roles available =
+        {alias = alias, alias_pos = alias_pos, namespace = namespace, key = key, roles = roles,
+         available = available, identity = identity, declaration_pos = #span leaf}: S.binding
+    in
+      (case outcome of
+         Available resolved =>
+           map_filter
+             (fn namespace =>
+               Option.map (fn {key, roles} => make namespace key roles true)
+                 (member_of namespace resolved))
+             [S.Type_Namespace, S.Value_Namespace]
+       | Unavailable =>
+           map (fn namespace => make namespace (space_implode "::" (leaf_path leaf)) [] false)
+             [S.Type_Namespace, S.Value_Namespace])
+    end
 
   fun check_same_scope_items ctxt (binding: S.binding) =
-    let
-      val alias = #alias binding
-      fun collision item pos =
-        error
-          ("uRust import: " ^ S.namespace_name (#namespace binding) ^ " import " ^
-            quote alias ^ " collides with the same-scope " ^ item ^ " " ^ quote alias ^
-            Position.here (#alias_pos binding) ^ "\nThe item is here" ^ Position.here pos)
-    in
-      (case #namespace binding of
-         S.Type_Namespace =>
-           (case I.lookup_type ctxt alias of
-              SOME entry => collision "generated Rust item" (I.type_position entry)
-            | NONE =>
-                (case URust_Type_Mappings.lookup ctxt alias of
-                   SOME entry =>
-                     collision "Rust type" (URust_Type_Mappings.entry_declaration_position entry)
-                 | NONE => ()))
-       | S.Value_Namespace =>
-           (case I.lookup_function ctxt alias of
-              SOME entry => collision "generated Rust function" (I.function_position entry)
-            | NONE =>
-                (case I.lookup_constructor ctxt alias of
-                   SOME entry =>
-                     if I.constructor_shape entry = I.Named_Constructor then ()
-                     else collision "generated Rust constructor" (I.constructor_position entry)
-                 | NONE => ())))
-    end
+    (case same_scope_item ctxt (#namespace binding) (#alias binding) of
+       SOME {item, pos} =>
+         error
+           ("uRust import: " ^ S.namespace_name (#namespace binding) ^ " import " ^
+             quote (#alias binding) ^ " collides with the same-scope " ^ item ^ " " ^
+             quote (#alias binding) ^ Position.here (#alias_pos binding) ^
+             "\nThe item is here" ^ Position.here pos)
+     | NONE => ())
 
   (* Reports are issued once per source position, because group prefixes are shared by leaves. *)
   fun report_once seen pos action =
@@ -407,7 +498,7 @@ struct
                (0, SOME binding) => S.defer_use_reference ctxt pos binding
              | _ =>
                  if index = last_index andalso is_some (I.lookup_type ctxt owner) then ()
-                 else S.defer_declaration_report pos Markup.typing (SOME "use path qualifier"))
+                 else S.defer_declaration_report ctxt pos Markup.typing (SOME "use path qualifier"))
           end)
     in List.app report (map_index I qualifiers) end
 
@@ -425,25 +516,25 @@ struct
       val _ =
         (case #self_pos leaf of
            SOME self_pos =>
-             (S.defer_declaration_report self_pos Markup.keyword1 NONE;
-              S.defer_declaration_report self_pos Markup.typing
+             (S.defer_declaration_report ctxt self_pos Markup.keyword1 NONE;
+              S.defer_declaration_report ctxt self_pos Markup.typing
                 (SOME "grouped self import of the enum type"))
          | NONE => ())
       val _ =
         if #2 (#alias leaf) = target_pos then ()
         else
-          S.defer_declaration_report target_pos Markup.typing
+          S.defer_declaration_report ctxt target_pos Markup.typing
             (SOME ("use target " ^ quote (space_implode "::" (leaf_path leaf))))
     in
       List.app (report_target ctxt target_pos)
         (map_filter I [#type_member resolved, #value_member resolved])
     end
 
-  fun resolve_batch {persistent} ctxt items =
+  fun resolve_batch {persistent, targets} ctxt (batch: batch) =
     let
-      val leaves = maps flatten items
-      val resolved = resolve_leaves ctxt leaves
-      val bindings = maps leaf_bindings (leaves ~~ resolved)
+      val leaves = batch_leaves batch
+      val outcomes = resolve_leaves targets ctxt leaves
+      val bindings = maps leaf_bindings (leaves ~~ outcomes)
       val _ = S.check_batch bindings
       val _ =
         if persistent then
@@ -452,16 +543,22 @@ struct
         else ()
       val batch_ctxt = S.push_frame bindings ctxt
       val seen = Unsynchronized.ref ([]: Properties.T list)
-      val _ = S.report_alias_definitions bindings
-      val _ = List.app (report_leaf ctxt batch_ctxt seen) (leaves ~~ resolved)
+      val _ = S.report_alias_definitions ctxt bindings
+      val _ =
+        List.app
+          (fn (leaf, Available resolved) => report_leaf ctxt batch_ctxt seen (leaf, resolved)
+            | (_, Unavailable) => ())
+          (leaves ~~ outcomes)
     in bindings end
 
-  fun prepare_batch ctxt [] = ctxt
-    | prepare_batch ctxt items =
-        S.push_frame (resolve_batch {persistent = false} ctxt items) ctxt
+  fun prepare_batch _ ctxt [] = ctxt
+    | prepare_batch targets ctxt batch =
+        S.push_frame (resolve_batch {persistent = false, targets = targets} ctxt batch) ctxt
 
   fun install item lthy =
-    S.declare_persistent (resolve_batch {persistent = true} lthy [item]) lthy
+    S.declare_persistent
+      (resolve_batch {persistent = true, targets = Require_Targets} lthy (validate_batch [item]))
+      lthy
 end
 \<close>
 

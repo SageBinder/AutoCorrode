@@ -1418,6 +1418,15 @@ fun define
                parameter_kinds = map (fn URust_AST.Generic_Parameter (_, _, kind) => kind) descriptors,
                backend_parameters = backend_parameters}
               lthy
+          (* A unit or tuple struct also occupies the value namespace with its constructor. *)
+          val _ =
+            (case item of
+               URust_AST.Struct_Item (_, _, URust_AST.Named_Shape _, _) => ()
+             | URust_AST.Struct_Item _ =>
+                 URust_Import_Scope.check_item_collision lthy
+                   {item = "generated Rust constructor", name = rust_name, pos = rust_pos}
+                   URust_Import_Scope.Value_Namespace
+             | _ => ())
           (* Datatype generation opens nested targets from the enclosing target contexts.
              Configure every existing target and restore its own setting after generation. *)
           val overloaded_settings = Unsynchronized.ref ([]: (int * bool) list)

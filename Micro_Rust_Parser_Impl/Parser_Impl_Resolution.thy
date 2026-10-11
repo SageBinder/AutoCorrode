@@ -2,6 +2,7 @@ theory Parser_Impl_Resolution
   imports
     Parser_Impl_Shallow_Terms
     Parser_Impl_Item_Scope
+    Parser_Impl_Imports
     Parser_Impl_Grammar
     Parser_Utils
 begin
@@ -913,19 +914,7 @@ struct
     | import_route _ (UR_Path (_, [], pos)) =
         error ("urust_expr: internal empty imported path" ^ Position.here pos)
 
-  fun same_scope_item ctxt S.Value_Namespace name =
-        (case I.lookup_function ctxt name of
-           SOME entry => SOME {item = "generated Rust function", pos = I.function_position entry}
-         | NONE =>
-             (case I.lookup_constructor ctxt name of
-                SOME entry =>
-                  if I.constructor_shape entry = I.Named_Constructor then NONE
-                  else SOME {item = "generated Rust constructor", pos = I.constructor_position entry}
-              | NONE => NONE))
-    | same_scope_item ctxt S.Type_Namespace name =
-        Option.map
-          (fn entry => {item = "Rust type", pos = URust_Type_Mappings.entry_declaration_position entry})
-          (URust_Type_Mappings.lookup ctxt name)
+  val same_scope_item = URust_Imports.same_scope_item
 
   fun head_import_route ctxt path =
     (case path_segments path of
@@ -933,7 +922,7 @@ struct
          (case S.lookup ctxt S.Type_Namespace name of
             NONE => NONE
           | SOME binding =>
-              if S.has_role binding S.Generated_Enum then
+              if (S.require_available pos binding; S.has_role binding S.Generated_Enum) then
                 (S.check_merged_collision ctxt binding
                    (same_scope_item ctxt S.Type_Namespace name);
                  SOME (import_route binding path))
@@ -947,10 +936,11 @@ struct
     if is_primitive_path path then NONE
     else
       (case path_segments path of
-         [Path_Segment (name, _, _)] =>
+         [Path_Segment (name, pos, _)] =>
            Option.map
              (fn binding =>
-               (S.check_merged_collision ctxt binding (same_scope_item ctxt namespace name);
+               (S.require_available pos binding;
+                S.check_merged_collision ctxt binding (same_scope_item ctxt namespace name);
                 import_route binding path))
              (S.lookup ctxt namespace name)
        | _ => head_import_route ctxt path)
@@ -965,18 +955,25 @@ struct
 
   val pattern_import_route = fn ctxt => namespace_import_route ctxt S.Value_Namespace
 
-  (* Struct heads resolve in the type namespace. A single-segment value binding whose key is an
-     exact notation of the role the existing struct syntax uses keeps that µRust extension. *)
+  (* Struct heads resolve in the type namespace, as in Rust. The uRust struct-call and literal-struct
+     registrations are exact notation keys, which imports place in the value namespace. Such a
+     value binding may supply a single-segment head only when its key has the notation role the
+     existing struct syntax accepts and neither a type-namespace import nor an unimported Rust type
+     resolves the head; a value import therefore never changes a Rust struct head. *)
   fun struct_import_route ctxt extension_role path =
     (case namespace_import_route ctxt S.Type_Namespace path of
        SOME route => SOME route
      | NONE =>
          (case path_segments path of
-            [Path_Segment _] =>
-              (case namespace_import_route ctxt S.Value_Namespace path of
-                 SOME (route as {binding, ...}) =>
-                   if S.has_role binding extension_role then SOME route else NONE
-               | NONE => NONE)
+            [Path_Segment (name, _, _)] =>
+              if is_some (same_scope_item ctxt S.Type_Namespace name) then NONE
+              else
+                (case S.lookup ctxt S.Value_Namespace name of
+                   SOME binding =>
+                     if #available binding andalso S.has_role binding extension_role
+                     then namespace_import_route ctxt S.Value_Namespace path
+                     else NONE
+                 | NONE => NONE)
           | _ => NONE))
 
   fun report_import_use ctxt ({binding, occurrence, ...}: import_route) =

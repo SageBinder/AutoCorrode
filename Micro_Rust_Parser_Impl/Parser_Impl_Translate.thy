@@ -328,7 +328,11 @@ struct
      expressions or patterns are lowered: imports are visible throughout their block. *)
   fun prepare_body_scope ctxt expression =
     let val (items, erased) = collect_body_scope expression
-    in (URust_Imports.prepare_batch ctxt items, erased) end
+    in
+      (URust_Imports.prepare_batch URust_Imports.Require_Targets ctxt
+         (URust_Imports.validate_batch items),
+       erased)
+    end
 
   fun empty_block (UE_Block (UE_Unit _, _)) = true
     | empty_block _ = false

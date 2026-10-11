@@ -770,9 +770,8 @@ fun elaborate_prepared_ast lthy
             end))))
     (* Native resolved targets precede the authored Rust field/function reference, which remains
        the final navigation destination; an import declaration follows every target reached
-       through it. Release every queue only after complete checking. *)
-    val _ =
-      URust_Import_Scope.replay_declaration_reports lthy import_reports
+       through it. Release every queue only after complete checking. All queues replay through
+       deferred navigation, so an enclosing declaration transaction keeps them until it commits. *)
     val _ =
       Navigation.replay lthy navigation_reports
     val _ =
@@ -1146,7 +1145,10 @@ fun reject_function_item_conflict lthy (rust_name, rust_pos) =
       ("urust_fn: Rust function path " ^ quote rust_name ^
         " conflicts with an existing micro_rust_notation (call) declaration" ^
         Position.here rust_pos)
-  else ()
+  else
+    URust_Import_Scope.check_item_collision lthy
+      {item = "generated Rust function", name = rust_name, pos = rust_pos}
+      URust_Import_Scope.Value_Namespace
 
 fun register_function_result target (rust_name, rust_pos)
     declaration lthy =
@@ -1467,10 +1469,16 @@ fun define_urust_expr
       declaration_attributes lthy "urust_expr" target abbreviation options
     val kind = command_elaboration_kind lthy declared_type
     val binding = target_binding kind target
+    (* As for function items, authored reports wait until the declaration is installed. *)
     fun declaration lthy' =
-      declare_urust_result pp_test render_pretty
-        abbreviation application_definition
-        attributes binding kind args lthy'
+      let
+        val ((result, completed), reports) =
+          Navigation.capture (fn () =>
+            declare_urust_result pp_test render_pretty
+              abbreviation application_definition
+              attributes binding kind args lthy')
+        val _ = Navigation.replay completed reports
+      in (result, completed) end
   in
     declare_and_print declaration interactive verbosity pretty lthy
   end
@@ -1754,7 +1762,6 @@ fun define_urust_use source lthy =
                  SOME item => URust_Imports.install item lthy
                | NONE =>
                    error ("urust_use: empty use item" ^ Position.here (Input.pos_of source)))))))
-    val _ = URust_Import_Scope.replay_declaration_reports completed import_reports
     val _ = Navigation.replay completed navigation_reports
     val _ = URust_Item_Scope.replay_field_reports completed field_reports
     val _ = URust_Item_Scope.replay_function_reports completed function_reports

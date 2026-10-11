@@ -959,13 +959,16 @@ struct
   fun use_item_source_layout (Use_Item (_, layout)) = layout
   fun use_item_position item = source_span (use_item_source_layout item)
 
-  (* Rust keywords that this lexer reads as identifiers. Path roots are deferred until a module
-     context exists; the remaining keywords are never item names or aliases. *)
+  (* Rust 2024 strict and reserved keywords that this lexer reads as identifiers. Path roots are
+     deferred until a module context exists; the remaining keywords are never item names or
+     aliases. *)
   val use_root_keywords = ["crate", "super", "self", "Self"]
   val use_reserved_keywords =
     use_root_keywords @
     ["async", "await", "break", "continue", "dyn", "extern", "impl",
-     "mod", "move", "pub", "ref", "static", "trait", "where"]
+     "mod", "move", "ref", "static", "trait", "where",
+     "abstract", "become", "box", "do", "final", "gen", "macro", "override",
+     "priv", "try", "typeof", "unsized", "virtual", "yield"]
 
   fun use_error message pos =
     error ("uRust import: " ^ message ^ Position.here pos)

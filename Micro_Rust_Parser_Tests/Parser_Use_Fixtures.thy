@@ -27,14 +27,14 @@ urust_fn [register_notation = false] use_demo_increment_impl
 urust_fn [register_notation = false] use_demo_value_impl
   \<open> fn demo_value() -> u32 { 9 } \<close>
 
-definition use_demo_width :: \<open>32 word\<close> where
-  \<open>use_demo_width = 4\<close>
-definition use_demo_zero_narrow :: \<open>32 word\<close> where
-  \<open>use_demo_zero_narrow = 0\<close>
-definition use_demo_zero_wide :: \<open>64 word\<close> where
-  \<open>use_demo_zero_wide = 0\<close>
-definition use_demo_count :: \<open>64 word\<close> where
-  \<open>use_demo_count = 2\<close>
+definition use_demo_width :: \<open> 32 word \<close> where
+  \<open> use_demo_width = 4 \<close>
+definition use_demo_zero_narrow :: \<open> 32 word \<close> where
+  \<open> use_demo_zero_narrow = 0 \<close>
+definition use_demo_zero_wide :: \<open> 64 word \<close> where
+  \<open> use_demo_zero_wide = 0 \<close>
+definition use_demo_count :: \<open> 64 word \<close> where
+  \<open> use_demo_count = 2 \<close>
 
 micro_rust_notation (call) use_demo_increment_impl ("demo::increment")
 micro_rust_notation (call) use_demo_value_impl ("demo::value")
@@ -84,7 +84,9 @@ struct
   fun lookup_roles ctxt namespace alias =
     Option.map #roles (S.lookup ctxt namespace alias)
 
-  fun prepare ctxt trees = URust_Imports.prepare_batch ctxt (map item trees)
+  fun batch trees = URust_Imports.validate_batch (map item trees)
+  fun prepare_with policy ctxt trees = URust_Imports.prepare_batch policy ctxt (batch trees)
+  fun prepare ctxt trees = prepare_with URust_Imports.Require_Targets ctxt trees
 
   fun cartouche body = Symbol.open_ ^ body ^ Symbol.close
   fun start label =

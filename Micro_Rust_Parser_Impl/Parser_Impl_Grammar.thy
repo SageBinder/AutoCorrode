@@ -874,6 +874,7 @@ lex_rules\<open>
 <INITIAL>"in"     => (tokF (yypos, yytext, Markup.keyword1, "TIN", Tokens.TIN));
 <INITIAL>"unsafe" => (tokF (yypos, yytext, Markup.keyword1, "TUNSAFE", Tokens.TUNSAFE));
 <INITIAL>"use"    => (tokF (yypos, yytext, Markup.keyword1, "TUSE", Tokens.TUSE));
+<INITIAL>"pub"    => (tokF (yypos, yytext, Markup.keyword1, "TPUB", Tokens.TPUB));
 <INITIAL>\\"<y>"\\"<i>"\\"<e>"\\"<l>"\\"<d>" =>
     (tokF (yypos, yytext, Markup.keyword1, "TYIELD", Tokens.TYIELD));
 <INITIAL>\\"<l>"\\"<o>"\\"<g>" =>
@@ -1519,10 +1520,11 @@ fun use_group_tokens open_pos commas close_pos =
     map (fn pos => (Delimiter_Token ",", pos)) commas @
     [(Delimiter_Token "}", close_pos)]
 
-fun reject_use_visibility (name, pos) =
-  if name = "pub" then
-    URust_Grammar.use_error "visibility qualifiers (`pub use`) are not supported" pos
-  else URust_Grammar.use_error ("unexpected `" ^ name ^ "` before a use item") pos
+fun reject_use_visibility pos =
+  URust_Grammar.use_error "visibility qualifiers (`pub use`) are not supported" pos
+
+fun reject_use_prefix (name, pos) =
+  URust_Grammar.use_error ("unexpected `" ^ name ^ "` before a use item") pos
 
 fun reject_item_in_expression (Datatype_Item item) =
       reject_datatype_item_in_expression item
@@ -1593,6 +1595,7 @@ yacc_definitions\<open>
     | GLT of int | GGT of int
     | GHOLTYPE of string * Parser_Lex_Util.source_layout * int * int
     | TUSE
+    | TPUB
 %nonterm ustart of URust_AST.parse_result option
        | uitem of URust_AST.urust_item
        | udatatype of URust_AST.urust_datatype
@@ -1708,6 +1711,7 @@ yacc_definitions\<open>
        | uuse_tree of URust_AST.use_tree
        | uuse_trees of URust_AST.use_tree list * Position.T list
        | uuse_path of (string * Position.T) list * Position.T list
+       | uvisibility of Position.T
 \<close>
 yacc_rules\<open>
   ustart : TEXPRSTART ubody (SOME (Parsed_Expression ubody))
@@ -1715,9 +1719,12 @@ yacc_rules\<open>
          | TITEMSTART uitem (SOME (Parsed_Item uitem))
   uitem : uitem_decl (uitem_decl)
         | uuse_item (Use_Item_Node uuse_item)
-        | IDENT uuse_item (reject_use_visibility (IDENT, IDENTleft))
-        | IDENT LPAR IDENT RPAR uuse_item
-            (reject_use_visibility (IDENT1, IDENT1left))
+        | uvisibility uuse_item (reject_use_visibility uvisibility)
+        | IDENT uuse_item (reject_use_prefix (IDENT, IDENTleft))
+  (* Visibility is parsed only to be rejected at `pub`, in items and body statements alike. *)
+  uvisibility : TPUB (TPUBleft)
+              | TPUB LPAR IDENT RPAR (TPUBleft)
+              | TPUB LPAR TIN uuse_path RPAR (TPUBleft)
   uitem_decl : udatatype (Datatype_Item udatatype)
              | ufunction (Function_Item_Node ufunction)
              | utype_alias (Type_Alias_Item_Node utype_alias)
@@ -2041,8 +2048,10 @@ yacc_rules\<open>
             (UE_Use
               (uuse_item, UE_Unit (make_source_layout uuse_itemright []),
                syntax_layout uuse_itemleft uuse_itemright []))
-        | IDENT uuse_item ubody (reject_use_visibility (IDENT, IDENTleft))
-        | IDENT uuse_item (reject_use_visibility (IDENT, IDENTleft))
+        | uvisibility uuse_item ubody (reject_use_visibility uvisibility)
+        | uvisibility uuse_item (reject_use_visibility uvisibility)
+        | IDENT uuse_item ubody (reject_use_prefix (IDENT, IDENTleft))
+        | IDENT uuse_item (reject_use_prefix (IDENT, IDENTleft))
   ubinding_head : TLET upat TEQ uexpr
                     (BH_Let
                       (upat, uexpr, TLETleft, TEQleft))
@@ -3181,7 +3190,8 @@ struct
      (96, "GLT", "<"),
      (97, "GGT", ">"),
      (98, "GHOLTYPE", "<HOL type>"),
-     (99, "TUSE", "use")]
+     (99, "TUSE", "use"),
+     (100, "TPUB", "pub")]
 
   val terminal_count = length terminal_specs
 

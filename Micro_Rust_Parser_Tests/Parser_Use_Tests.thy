@@ -72,7 +72,7 @@ local
 
   val _ = rejects "value imports with different notation roles" "duplicate value import"
     (fn () => prepare ctxt [leaf ["demo", "WIDTH"] (SOME "Pick"), leaf ["demo", "value"] (SOME "Pick")])
-  val _ = rejects "identical duplicate import" "duplicate value import"
+  val _ = rejects "identical duplicate import" "duplicate import \"increment\""
     (fn () => prepare ctxt [leaf ["demo", "increment"] NONE, leaf ["demo", "increment"] NONE])
   val _ = rejects "tuple struct and function value collision" "duplicate value import"
     (fn () => prepare ctxt [leaf ["UseTuple"] (SOME "Pick"), leaf ["demo", "value"] (SOME "Pick")])
@@ -153,7 +153,7 @@ local
 
   val left_binding = the (S.lookup ctxt value_ns "left_value")
   val conflicting = {alias = "left_value", alias_pos = Position.none, namespace = value_ns,
-    key = "demo::increment", roles = [S.Call_Notation], identity = serial (),
+    key = "demo::increment", roles = [S.Call_Notation], available = true, identity = serial (),
     declaration_pos = Position.none}: S.binding
   val _ = require "merging the same binding is idempotent"
     (map #identity (S.merge_persistent ([left_binding], [left_binding])) = [#identity left_binding])
@@ -729,8 +729,8 @@ of its expressions or patterns, and are erased: every definition below is kernel
 import-free counterpart.
 \<close>
 
-definition use_tick :: \<open>(nat, nat, 'r, 'abort, 'i, 'o) expression\<close> where
-  \<open>use_tick = bind (get id) (\<lambda>current. bind (put Suc) (\<lambda>_. literal current))\<close>
+definition use_tick :: \<open> (nat, nat, 'r, 'abort, 'i, 'o) expression \<close> where
+  \<open> use_tick = bind (get id) (\<lambda>current. bind (put Suc) (\<lambda>_. literal current)) \<close>
 
 urust_expr use_block_before_declaration
   \<open> { let answer = local_inc(41); let retained = answer; use demo::increment as local_inc; retained } \<close>
@@ -907,7 +907,7 @@ urust_expr_rejects \<open> { use MissingTarget as Unused; 1 } \<close> \<open> u
 urust_expr_rejects \<open> { let ExistingName = 7u32; { use ExistingName as Captured; 1 } } \<close>
   \<open> unknown import target "ExistingName" \<close>
 urust_expr_rejects \<open> |param| { use param as captured; 1 } \<close> \<open> unknown import target "param" \<close>
-urust_expr_rejects \<open> { use demo::value; use demo::value; 1 } \<close> \<open> duplicate value import "value" \<close>
+urust_expr_rejects \<open> { use demo::value; use demo::value; 1 } \<close> \<open> duplicate import "value" \<close>
 urust_expr_rejects \<open> { use demo::WIDTH as w; w() } \<close> \<open> which cannot be used as a call \<close>
 urust_expr_rejects \<open> (use demo::value; 1) \<close> \<open> use declarations require an enclosing block \<close>
 urust_expr_rejects \<open> assert!(use demo::value; true) \<close> \<open> use declarations require an enclosing block \<close>
@@ -1119,6 +1119,328 @@ local
         length (S.dump_persistent (Toplevel.context_of imported)))
 in
   val _ = ()
+end
+\<close>
+
+
+section\<open> Review regressions \<close>
+
+text\<open>
+Regressions for the first independent review: struct heads, report transactions, the two-phase
+batch operation, merged collisions through use paths, body visibility, early collision checks,
+reserved keywords, scope collection and source conventions.
+\<close>
+
+subsection\<open> Struct heads stay in the type namespace \<close>
+
+urust_expr use_struct_head_value_import \<open> { use demo::increment as UsePacket; UsePacket { sample: 2 } } \<close>
+urust_expr use_struct_head_value_import_plain \<open> { UsePacket { sample: 2 } } \<close>
+lemma \<open> use_struct_head_value_import = use_struct_head_value_import_plain \<close>
+  unfolding use_struct_head_value_import_def use_struct_head_value_import_plain_def by (rule refl)
+
+urust_expr use_struct_pattern_value_import (p)
+  \<open> { use demo::WIDTH as UsePacket; match p { UsePacket { sample } => sample } } \<close>
+urust_expr use_struct_pattern_value_import_plain (p) \<open> { match p { UsePacket { sample } => sample } } \<close>
+lemma \<open> use_struct_pattern_value_import = use_struct_pattern_value_import_plain \<close>
+  unfolding use_struct_pattern_value_import_def use_struct_pattern_value_import_plain_def
+  by (rule refl)
+
+text\<open>
+Exact call-notation keys remain usable as struct-call heads when imported, as the existing struct
+syntax accepts them, provided no Rust type resolves the head.
+\<close>
+
+urust_expr use_struct_call_notation \<open> ({ use demo::increment as IncrementHead; IncrementHead { x: 1 } }, inc { y: 2 }) \<close>
+urust_expr use_struct_call_notation_plain \<open> (demo::increment { x: 1 }, demo::increment { y: 2 }) \<close>
+lemma \<open> use_struct_call_notation = use_struct_call_notation_plain \<close>
+  unfolding use_struct_call_notation_def use_struct_call_notation_plain_def by (rule refl)
+
+experiment
+begin
+
+urust_expr use_persistent_struct_head_plain \<open> UsePacket { sample: 3 } \<close>
+urust_expr use_persistent_struct_pattern_plain (p) \<open> match p { UsePacket { sample } => sample } \<close>
+
+urust_use \<open> use demo::increment as UsePacket; \<close>
+
+urust_expr use_persistent_struct_head \<open> UsePacket { sample: 3 } \<close>
+urust_expr use_persistent_struct_pattern (p) \<open> match p { UsePacket { sample } => sample } \<close>
+urust_expr use_persistent_value_beside_struct \<open> UsePacket(4) \<close>
+urust_expr use_persistent_value_beside_struct_plain \<open> demo::increment(4) \<close>
+
+lemma \<open> use_persistent_struct_head = use_persistent_struct_head_plain \<close>
+  unfolding use_persistent_struct_head_def use_persistent_struct_head_plain_def by (rule refl)
+lemma \<open> use_persistent_struct_pattern = use_persistent_struct_pattern_plain \<close>
+  unfolding use_persistent_struct_pattern_def use_persistent_struct_pattern_plain_def by (rule refl)
+lemma \<open> use_persistent_value_beside_struct = use_persistent_value_beside_struct_plain \<close>
+  unfolding use_persistent_value_beside_struct_def use_persistent_value_beside_struct_plain_def
+  by (rule refl)
+
+end
+
+subsection\<open> Import reports join the declaration transaction \<close>
+
+ML_val\<open>
+local
+  open Parser_Use_Test
+  val thy = \<^theory>
+  fun markup_reports text =
+    let
+      val (result, chunks) =
+        Parser_Test_Reports.chunks (fn () =>
+          Exn.result (fn () => run_from (initial thy) "use-review-reports" text) ())
+      val markups =
+        maps YXML.parse_body (rev chunks)
+        |> map_filter (fn XML.Elem (markup, _) => SOME markup | XML.Text _ => NONE)
+    in (result, markups) end
+  fun property name ((_, props): Markup.T) = AList.lookup (op =) props name
+  fun occurrence text needle index =
+    let
+      fun find start remaining =
+        let
+          val (prefix, rest) = Substring.position needle (Substring.extract (text, start, NONE))
+          val _ = if Substring.isEmpty rest then error ("missing " ^ needle) else ()
+          val position = start + size (Substring.string prefix)
+        in if remaining = 0 then position else find (position + size needle) (remaining - 1) end
+    in 1 + length (Symbol.explode (String.substring (text, 0, find 0 index))) end
+  fun entity_kind (markup as (name, _): Markup.T) =
+    if name = Markup.entityN then property Markup.kindN markup else NONE
+  fun kinds markups offset =
+    markups
+    |> filter (fn markup => property "offset" markup = SOME (Value.print_int offset))
+    |> map_filter entity_kind
+  fun final_import label text needle index =
+    let
+      val (result, markups) = markup_reports text
+      val found = kinds markups (occurrence text needle index)
+    in
+      require (label ^ " succeeded") (is_some (Exn.get_res result));
+      require (label ^ " ends at the import: " ^ commas found)
+        (length found >= 2 andalso try List.last found = SOME "urust_import")
+    end
+  fun no_import_reports label text =
+    let val (result, markups) = markup_reports text in
+      require (label ^ " fails") (is_none (Exn.get_res result));
+      require (label ^ " replays no import reports")
+        (not (exists (fn markup => entity_kind markup = SOME "urust_import") markups))
+    end
+in
+  val _ = final_import "function body with a persistent alias"
+    ("urust_fn nav_fn_persistent " ^ cartouche " fn nav_fn_persistent() -> u32 { inc(fetch()) } ")
+    "inc" 0
+  val _ = final_import "function body with a block alias"
+    ("urust_fn nav_fn_block " ^
+      cartouche " fn nav_fn_block() -> u32 { use demo::increment as fn_step; fn_step(1) } ")
+    "fn_step" 1
+  val _ = final_import "function body with a generated-function alias"
+    ("urust_fn nav_fn_generated " ^
+      cartouche " fn nav_fn_generated() -> u32 { use use_increment as fn_bump; fn_bump(1) } ")
+    "fn_bump" 1
+  val _ = no_import_reports "function failing at its HOL definition"
+    ("urust_fn use_signature " ^
+      cartouche " fn LateFunctionFailure() -> u32 { use demo::increment as late_step; late_step(1) } ")
+  val _ = no_import_reports "expression failing at its HOL definition"
+    ("urust_expr use_call " ^ cartouche " { use demo::increment as late_expr; late_expr(1) } ")
+  val _ = no_import_reports "expression failing at its persistent alias definition"
+    ("urust_expr use_literal " ^ cartouche " inc(1) ")
+end
+\<close>
+
+subsection\<open> Two-phase batch preparation \<close>
+
+ML_val\<open>
+local
+  open Parser_Use_Test
+  val ctxt = \<^context>
+  val type_ns = S.Type_Namespace
+  val value_ns = S.Value_Namespace
+  val allow = URust_Imports.Allow_Unavailable_Targets
+  val require_targets = URust_Imports.Require_Targets
+  fun elaborate context text = Parser_Test_Elaboration.expression context (Parser_Lex_Util.text_source text)
+
+  val _ = rejects "validation rejects cycles without a context" "cyclic imports"
+    (fn () => batch [leaf ["Left"] (SOME "Right"), leaf ["Right"] (SOME "Left")])
+  val _ = rejects "validation rejects certain duplicates without a context" "duplicate import \"value\""
+    (fn () => batch [leaf ["demo", "value"] NONE, leaf ["demo", "value"] NONE])
+  val _ = require "validation keeps target-dependent spellings"
+    (length (URust_Imports.batch_leaves
+      (batch [leaf ["UsePacket"] (SOME "Pick"), leaf ["demo", "value"] (SOME "Pick")])) = 2)
+
+  val trees =
+    [leaf ["demo", "value"] (SOME "ready"), leaf ["LaterItem"] (SOME "later"),
+     leaf ["later"] (SOME "dependent"), leaf ["LaterItem", "Variant"] (SOME "later_variant")]
+  val partial = prepare_with allow ctxt trees
+  fun available alias namespace = Option.map #available (S.lookup partial namespace alias)
+  val _ = require "available leaves resolve under the permissive policy"
+    (lookup_key partial value_ns "ready" = SOME "demo::value" andalso available "ready" value_ns = SOME true)
+  val _ = require "missing and dependent leaves are unavailable in both namespaces"
+    (forall (fn alias => available alias type_ns = SOME false andalso available alias value_ns = SOME false)
+      ["later", "dependent", "later_variant"])
+  val _ = require "available uses are unaffected" (can (elaborate partial) "ready()")
+  val _ = rejects "an unavailable call rejects without fallback"
+    "import target \"LaterItem\" of \"later\" is not yet available" (fn () => elaborate partial "later()")
+  val _ = rejects "an unavailable type rejects without fallback"
+    "import target \"LaterItem\" of \"later\" is not yet available" (fn () => elaborate partial "1u8 as later")
+  val _ = rejects "an unavailable pattern rejects without fallback" "is not yet available"
+    (fn () => elaborate partial "match 1u32 { later => 1, _ => 0 }")
+  val _ = rejects "an unavailable enum head rejects without fallback" "is not yet available"
+    (fn () => elaborate partial "later::Value(1)")
+  val _ = rejects "nested blocks require their outer targets" "is not yet available"
+    (fn () => prepare partial [leaf ["later"] (SOME "inner")])
+  val _ = rejects "the strict policy requires every target" "unknown import target \"LaterItem\""
+    (fn () => prepare_with require_targets ctxt trees)
+  val _ = rejects "existing unusable targets still reject" "field notation \"sample\""
+    (fn () => prepare_with allow ctxt [leaf ["sample"] NONE])
+  val _ = rejects "existing non-enum heads still reject" "is not a generated enum"
+    (fn () => prepare_with allow ctxt [leaf ["demo", "Short"] (SOME "A"), leaf ["A", "X"] NONE])
+  val _ = rejects "available duplicates still reject" "duplicate value import"
+    (fn () => prepare_with allow ctxt [leaf ["UseTuple"] (SOME "Pick"), leaf ["demo", "value"] (SOME "Pick")])
+
+  val declared =
+    URust_Item_Scope.register_function
+      {rust_name = "LaterItem", rust_pos = Position.none, function = \<^term>\<open>use_increment\<close>}
+      (Named_Target.theory_init \<^theory>)
+  val completed = prepare_with require_targets declared (take 3 trees)
+  val _ = require "re-preparing the validated batch after the target appears"
+    (lookup_roles completed value_ns "later" = SOME [S.Generated_Function] andalso
+      lookup_key completed value_ns "dependent" = SOME "LaterItem")
+in
+  val _ = ()
+end
+\<close>
+
+subsection\<open> Merged collisions through use paths \<close>
+
+urust_expr_rejects \<open> { use MergedCollision as merged_alias; merged_alias() } \<close>
+  \<open> generated Rust function "MergedCollision" collides with the value import of "demo::value" \<close>
+
+ML_val\<open>
+  Parser_Use_Test.command_rejects \<^theory> "persistent import of a merged collision"
+    "generated Rust function \"MergedCollision\" collides with the value import of \"demo::value\""
+    ("urust_use " ^ Parser_Use_Test.cartouche " use MergedCollision as merged_persistent; ")
+\<close>
+
+subsection\<open> Body visibility and reserved keywords \<close>
+
+urust_expr_rejects \<open> { pub(crate) use demo::value; 1 } \<close> \<open> visibility qualifiers (`pub use`) are not supported \<close>
+urust_expr_rejects \<open> { pub(in demo) use demo::value; 1 } \<close> \<open> visibility qualifiers (`pub use`) are not supported \<close>
+urust_expr_rejects \<open> { pub use demo::value; 1 } \<close> \<open> visibility qualifiers (`pub use`) are not supported \<close>
+
+ML_val\<open>
+local
+  open Parser_Use_Test
+  val ctxt = \<^context>
+  fun parse text = URust_Parser.parse_use_source ctxt (Parser_Lex_Util.text_source text)
+  val positioned =
+    Parser_Lex_Util.positioned_content_source "{ pub(self) use demo::value; 1 }"
+      (Position.make0 1 9000 0 "" "" "use-review-visibility")
+  val message =
+    the_default "" (failure (fn () => URust_Parser.parse_source ctxt positioned))
+in
+  val _ = rejects "item visibility with a path" "visibility qualifiers (`pub use`) are not supported"
+    (fn () => parse "pub(in demo) use demo::value;")
+  val _ = require ("body visibility is positioned at pub: " ^ message)
+    (String.isSubstring "visibility qualifiers" message andalso
+      String.isSubstring (Value.print_int 9002) message)
+  val _ =
+    List.app
+      (fn keyword =>
+        (rejects ("reserved alias " ^ keyword) "cannot be an import alias"
+           (fn () => parse ("use demo::value as " ^ keyword ^ ";"));
+         rejects ("reserved segment " ^ keyword) "cannot be a use path segment"
+           (fn () => parse ("use demo::" ^ keyword ^ ";"))))
+      ["abstract", "become", "box", "do", "final", "gen", "macro", "override", "priv", "try",
+       "typeof", "unsized", "virtual", "yield"]
+end
+\<close>
+
+subsection\<open> Item collisions before elaboration and generation \<close>
+
+ML_val\<open>
+local
+  open Parser_Use_Test
+  val thy = \<^theory>
+  fun failing_reports setup text =
+    let val state = run_from (initial thy) "use-review-preflight-setup" setup in
+      Parser_Test_Reports.chunks (fn () =>
+        Exn.result (fn () => run_from state "use-review-preflight" text) ())
+    end
+  fun no_entities label (result, chunks) =
+    let
+      val entities =
+        maps YXML.parse_body chunks
+        |> map_filter (fn XML.Elem ((name, _), _) => SOME name | XML.Text _ => NONE)
+        |> filter (fn name => name = Markup.entityN)
+    in
+      require (label ^ " fails") (is_none (Exn.get_res result));
+      require (label ^ " reports no entity") (null entities)
+    end
+in
+  val _ = command_rejects thy "function collision before its body" "collides with the value import"
+    ("urust_use " ^ cartouche " use demo::value as EarlyFunction; " ^
+      "\nurust_fn " ^ cartouche " fn EarlyFunction() -> u32 { 1u64 } ")
+  val _ = no_entities "function collision"
+    (failing_reports ("urust_use " ^ cartouche " use demo::value as EarlyFunction; ")
+      ("urust_fn " ^ cartouche " fn EarlyFunction() -> u32 { 1u32 } "))
+  val _ = command_rejects thy "type collision before generation" "collides with the type import"
+    ("urust_use " ^ cartouche " use demo::Width as EarlyType; " ^
+      "\nurust_datatype " ^ cartouche " struct EarlyType { sample: u32 } ")
+  val _ = command_rejects thy "constructor collision before generation" "collides with the value import"
+    ("urust_use " ^ cartouche " use demo::value as EarlyUnit; " ^
+      "\nurust_datatype " ^ cartouche " struct EarlyUnit; ")
+  val _ = no_entities "constructor collision"
+    (failing_reports ("urust_use " ^ cartouche " use demo::value as EarlyUnit; ")
+      ("urust_datatype " ^ cartouche " struct EarlyUnit; "))
+end
+\<close>
+
+subsection\<open> Scopes outside the continuation spine \<close>
+
+ML_val\<open>
+local
+  open Parser_Use_Test
+  val ctxt = \<^context>
+  fun elaborate text =
+    Parser_Test_Elaboration.expression_with_arguments ctxt [("choice", Position.none)]
+      (Parser_Lex_Util.text_source text)
+  fun confined label alias text =
+    let val term = elaborate text in
+      require (label ^ " keeps its import confined")
+        (exists_subterm (fn Free (name, _) => name = alias | _ => false) term)
+    end
+in
+  val _ = confined "let-else fallback" "fallback_only"
+    "{ let UseChoice::Value(n) = choice else { use demo::value as fallback_only; return fallback_only(); }; fallback_only() }"
+  val _ = confined "loop body" "loop_only"
+    "{ for i in 0u32..3 { use demo::increment as loop_only; loop_only(i); } loop_only(1) }"
+  val _ = confined "match arm" "arm_only"
+    "{ let m = match choice { UseChoice::Empty => { use demo::value as arm_only; arm_only() }, _ => 0 }; arm_only() }"
+  val _ = confined "closure body" "closure_only"
+    "{ let f = || { use demo::value as closure_only; closure_only() }; closure_only() }"
+end
+\<close>
+
+subsection\<open> Source conventions \<close>
+
+ML_val\<open>
+local
+  val master = Resources.master_directory \<^theory>
+  fun ascii_only relative =
+    let val text = File.read (master + Path.explode relative) in
+      Parser_Use_Test.require ("raw non-ASCII text in " ^ relative)
+        (forall (fn character => Char.ord character < 128) (String.explode text))
+    end
+in
+  val _ =
+    List.app ascii_only
+      (map (fn name => "../Micro_Rust_Parser_Impl/" ^ name ^ ".thy")
+        ["Parser_Impl_AST", "Parser_Impl_Import_Scope", "Parser_Impl_Imports",
+         "Parser_Impl_Item_Scope", "Parser_Impl_Type_Mappings", "Parser_Impl_Grammar",
+         "Parser_Impl_Resolution", "Parser_Impl_Patterns", "Parser_Impl_Translate",
+         "Parser_Impl_Command", "Parser_Impl_Printer", "Parser_Impl_Printer_Output"] @
+       map (fn name => name ^ ".thy")
+        ["Parser_Use_Fixtures", "Parser_Use_Base_Fixtures", "Parser_Use_Left_Fixtures",
+         "Parser_Use_Right_Fixtures", "Parser_Use_Tests"])
 end
 \<close>
 

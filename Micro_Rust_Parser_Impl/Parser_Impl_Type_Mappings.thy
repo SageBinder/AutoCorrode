@@ -547,8 +547,11 @@ struct
       Existing of entry
     | Fresh of entry
 
-  fun preflight ctxt base candidate =
-    (case lookup ctxt base of
+  fun preflight ctxt base (candidate: entry) =
+    (URust_Import_Scope.check_item_collision ctxt
+       {item = "Rust type", name = base, pos = #declaration_pos candidate}
+       URust_Import_Scope.Type_Namespace;
+     case lookup ctxt base of
        NONE => Fresh candidate
      | SOME active =>
          if same_entry (active, candidate)
@@ -743,6 +746,7 @@ struct
             NONE => NONE
           | SOME binding =>
               let
+                val _ = URust_Import_Scope.require_available pos binding
                 val _ =
                   URust_Import_Scope.check_merged_collision ctxt binding
                     (Option.map
