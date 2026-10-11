@@ -42,8 +42,11 @@ ML\<open>
    inferred slot types with dummyT. Both operations return one unchecked HOL term: the command layer
    optionally constrains the complete term and passes it to Syntax.check_term exactly once in the same
    context. Successful lowering preserves lexical scope and the established shallow-embedding term
-   shape. Resolution and pattern-validation failures are propagated with their source positions. The
-   signature exposes no public types or constructors.
+   shape. Every real block and the implicit body is one Rust item scope: its use statements are
+   prepared as one import batch, in a derived context, before its expressions and patterns are
+   lowered, and they are erased from the lowered body. Resolution and pattern-validation failures
+   are propagated with their source positions. The signature exposes no public types or
+   constructors.
 
    All lower_* functions, the recursive traversal order, module aliases, and the division of work among
    helper functions are implementation details hidden by URUST_TRANSLATE. *)
@@ -291,6 +294,42 @@ struct
              T.cast (CT_Unsigned UT_Usize) lowered_inner)
          end)
 
+  (* A body scope's imports are its use statements on the continuation spine: sequencing, let,
+     let mut, const and let-else continuations. Initializers, operands, branches, nested blocks,
+     closures, match arms, let-else fallbacks and macro arguments are other scopes. The spine is
+     returned with its imports erased, so they contribute no runtime term; any use statement left in
+     the erased body is outside a block and is rejected when lowered. *)
+  fun collect_body_scope expression =
+    let
+      fun continue rebuild continuation =
+        let val (items, erased) = collect_body_scope continuation
+        in (items, rebuild erased) end
+    in
+      (case expression of
+         UE_Use (item, continuation, _) =>
+           let val (items, erased) = collect_body_scope continuation
+           in (item :: items, erased) end
+       | UE_Seq (first, second, layout) =>
+           continue (fn erased => UE_Seq (first, erased, layout)) second
+       | UE_Let (pattern, rhs, body, layout) =>
+           continue (fn erased => UE_Let (pattern, rhs, erased, layout)) body
+       | UE_LetMut (pattern, rhs, body, layout) =>
+           continue (fn erased => UE_LetMut (pattern, rhs, erased, layout)) body
+       | UE_Const (pattern, rhs, body, layout) =>
+           continue (fn erased => UE_Const (pattern, rhs, erased, layout)) body
+       | UE_LetElse (pattern, scrutinee, fallback, continuation, layout) =>
+           continue
+             (fn erased => UE_LetElse (pattern, scrutinee, fallback, erased, layout))
+             continuation
+       | _ => ([], expression))
+    end
+
+  (* Every real block and the implicit command body is prepared exactly once, before any of its
+     expressions or patterns are lowered: imports are visible throughout their block. *)
+  fun prepare_body_scope ctxt expression =
+    let val (items, erased) = collect_body_scope expression
+    in (URust_Imports.prepare_batch ctxt items, erased) end
+
   fun empty_block (UE_Block (UE_Unit _, _)) = true
     | empty_block _ = false
 
@@ -506,7 +545,8 @@ struct
      | UE_Group (inner, _) =>
          lower_expression ctxt environment inner
      | UE_Block (inner, _) =>
-         lower_expression ctxt environment inner
+         let val (block_ctxt, erased) = prepare_body_scope ctxt inner
+         in lower_expression block_ctxt environment erased end
      | UE_If (condition, then_branch, else_branch, layout) =>
          let
            val _ =
@@ -735,7 +775,8 @@ struct
     let
       val (abstractions, environment) =
         allocate ctxt R.empty_environment arguments
-      val body = lower_expression ctxt environment expression
+      val (body_ctxt, erased) = prepare_body_scope ctxt expression
+      val body = lower_expression body_ctxt environment erased
     in
       fold_rev (fn abstraction => fn term => abstraction term)
         abstractions (wrapper body)

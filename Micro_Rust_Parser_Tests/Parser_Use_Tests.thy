@@ -709,4 +709,231 @@ in
 end
 \<close>
 
+
+section\<open> Block imports \<close>
+
+text\<open>
+A use statement is visible throughout its block, including before its declaration, and in every
+nested expression scope; it never escapes the block. Each block's imports are resolved before any
+of its expressions or patterns, and are erased: every definition below is kernel-equal to its
+import-free counterpart.
+\<close>
+
+definition use_tick :: \<open>(nat, nat, 'r, 'abort, 'i, 'o) expression\<close> where
+  \<open>use_tick = bind (get id) (\<lambda>current. bind (put Suc) (\<lambda>_. literal current))\<close>
+
+urust_expr use_block_before_declaration
+  \<open> { let answer = local_inc(41); let retained = answer; use demo::increment as local_inc; retained } \<close>
+urust_expr use_block_before_declaration_plain
+  \<open> { let answer = demo::increment(41); let retained = answer; retained } \<close>
+lemma \<open> use_block_before_declaration = use_block_before_declaration_plain \<close>
+  unfolding use_block_before_declaration_def use_block_before_declaration_plain_def by (rule refl)
+
+urust_expr use_block_reverse_dependencies
+  \<open> { assert!(LocalPresent(7) == LocalSelection::Value(7)); use LocalSelection::Value as LocalPresent; use UseChoice as LocalSelection; LocalPresent(8) } \<close>
+urust_expr use_block_reverse_dependencies_plain
+  \<open> { assert!(UseChoice::Value(7) == UseChoice::Value(7)); UseChoice::Value(8) } \<close>
+lemma \<open> use_block_reverse_dependencies = use_block_reverse_dependencies_plain \<close>
+  unfolding use_block_reverse_dependencies_def use_block_reverse_dependencies_plain_def by (rule refl)
+
+urust_expr use_block_nested
+  \<open>
+    {
+      use demo::increment as pick;
+      let first = pick(1);
+      let second = { let early = pick(2); use use_increment as pick; (early, pick(3)) };
+      let third = pick(4);
+      let sibling = { use use_increment as pick; pick(5) };
+      (first, second, third, sibling, pick(6))
+    }
+  \<close>
+urust_expr use_block_nested_plain
+  \<open>
+    {
+      let first = demo::increment(1);
+      let second = { let early = use_increment(2); (early, use_increment(3)) };
+      let third = demo::increment(4);
+      let sibling = { use_increment(5) };
+      (first, second, third, sibling, demo::increment(6))
+    }
+  \<close>
+lemma \<open> use_block_nested = use_block_nested_plain \<close>
+  unfolding use_block_nested_def use_block_nested_plain_def by (rule refl)
+
+urust_expr use_block_captured_identity
+  \<open>
+    {
+      use UseChoice as Selected;
+      use Selected::Value as Captured;
+      { use UseOtherChoice as Selected; (Captured(7), Selected::Value(true)) }
+    }
+  \<close>
+urust_expr use_block_captured_identity_plain
+  \<open> { { (UseChoice::Value(7), UseOtherChoice::Value(true)) } } \<close>
+lemma \<open> use_block_captured_identity = use_block_captured_identity_plain \<close>
+  unfolding use_block_captured_identity_def use_block_captured_identity_plain_def by (rule refl)
+
+urust_expr use_block_closures
+  \<open>
+    {
+      let callback = || selected_value();
+      use demo::value as selected_value;
+      let inner = |x| { use demo::increment as step; step(x) };
+      use use_increment as shadowed;
+      let first = shadowed(1);
+      let shadowed = |x| x;
+      (callback(), inner(2), first, shadowed(3))
+    }
+  \<close>
+urust_expr use_block_closures_plain
+  \<open>
+    {
+      let callback = || demo::value();
+      let inner = |x| { demo::increment(x) };
+      let first = use_increment(1);
+      let shadowed = |x| x;
+      (callback(), inner(2), first, shadowed(3))
+    }
+  \<close>
+lemma \<open> use_block_closures = use_block_closures_plain \<close>
+  unfolding use_block_closures_def use_block_closures_plain_def by (rule refl)
+
+urust_expr use_block_control (c, choice)
+  \<open>
+    {
+      let branch = if c { use demo::increment as step; step(1) } else { use use_increment as step; step(2) };
+      for i in 0u32..3 { use demo::increment as each; each(i); }
+      let UseChoice::Value(n) = choice else { use demo::value as fallback; return fallback(); };
+      let matched = match choice { UseChoice::Empty => { use demo::value as arm; arm() }, _ => n };
+      (branch, matched)
+    }
+  \<close>
+urust_expr use_block_control_plain (c, choice)
+  \<open>
+    {
+      let branch = if c { demo::increment(1) } else { use_increment(2) };
+      for i in 0u32..3 { demo::increment(i); }
+      let UseChoice::Value(n) = choice else { return demo::value(); };
+      let matched = match choice { UseChoice::Empty => { demo::value() }, _ => n };
+      (branch, matched)
+    }
+  \<close>
+lemma \<open> use_block_control = use_block_control_plain \<close>
+  unfolding use_block_control_def use_block_control_plain_def by (rule refl)
+
+urust_expr use_block_patterns (choice)
+  \<open>
+    {
+      use UseChoice::{Value as V, Empty as E, Named as N};
+      match choice { V(n) => n, E => 0, N { sample } => sample }
+    }
+  \<close>
+urust_expr use_block_patterns_plain (choice)
+  \<open>
+    {
+      match choice { UseChoice::Value(n) => n, UseChoice::Empty => 0, UseChoice::Named { sample } => sample }
+    }
+  \<close>
+lemma \<open> use_block_patterns = use_block_patterns_plain \<close>
+  unfolding use_block_patterns_def use_block_patterns_plain_def by (rule refl)
+
+urust_expr use_block_binder (choice) \<open> { use UseChoice::Value as V; match choice { V(n) => n, other => 0 } } \<close>
+urust_expr use_block_binder_plain (choice) \<open> { match choice { UseChoice::Value(n) => n, other => 0 } } \<close>
+lemma \<open> use_block_binder = use_block_binder_plain \<close>
+  unfolding use_block_binder_def use_block_binder_plain_def by (rule refl)
+
+urust_expr use_block_namespaces
+  \<open> { use UsePacket as Pick; use demo::value as Pick; let packet = Pick { sample: Pick() }; packet } \<close>
+urust_expr use_block_namespaces_plain
+  \<open> { let packet = UsePacket { sample: demo::value() }; packet } \<close>
+lemma \<open> use_block_namespaces = use_block_namespaces_plain \<close>
+  unfolding use_block_namespaces_def use_block_namespaces_plain_def by (rule refl)
+
+urust_expr use_block_cast (x) \<open> { use demo::Short as LocalShort; x as LocalShort } \<close>
+urust_expr use_block_cast_plain (x) \<open> { x as u16 } \<close>
+lemma \<open> use_block_cast = use_block_cast_plain \<close>
+  unfolding use_block_cast_def use_block_cast_plain_def by (rule refl)
+
+urust_expr use_block_terminal (x)
+  \<open> { let only = { use demo::value; }; let after = { x; use demo::value; }; (only, after) } \<close>
+urust_expr use_block_terminal_plain (x) \<open> { let only = {}; let after = { x; }; (only, after) } \<close>
+lemma \<open> use_block_terminal = use_block_terminal_plain \<close>
+  unfolding use_block_terminal_def use_block_terminal_plain_def by (rule refl)
+
+urust_expr use_implicit_body \<open> let first = body_inc(1); use demo::increment as body_inc; body_inc(first) \<close>
+urust_expr use_implicit_body_plain \<open> let first = demo::increment(1); demo::increment(first) \<close>
+lemma \<open> use_implicit_body = use_implicit_body_plain \<close>
+  unfolding use_implicit_body_def use_implicit_body_plain_def by (rule refl)
+
+urust_fn use_function_body \<open> fn use_function_body(x: u32) -> u32 { use demo::increment as step; step(x) } \<close>
+urust_fn use_function_body_plain \<open> fn use_function_body_plain(x: u32) -> u32 { demo::increment(x) } \<close>
+lemma \<open> use_function_body = use_function_body_plain \<close>
+  unfolding use_function_body_def use_function_body_plain_def by (rule refl)
+
+urust_expr use_effect_order
+  \<open>
+    {
+      use demo::value as unused_value;
+      let first = \<epsilon>\<open> use_tick \<close>;
+      use UseChoice::Value as UnusedPresent;
+      let second = \<epsilon>\<open> use_tick \<close>;
+      (first, second)
+    }
+  \<close>
+urust_expr use_effect_order_plain
+  \<open> { let first = \<epsilon>\<open> use_tick \<close>; let second = \<epsilon>\<open> use_tick \<close>; (first, second) } \<close>
+lemma use_effect_order_plain: \<open> use_effect_order = use_effect_order_plain \<close>
+  unfolding use_effect_order_def use_effect_order_plain_def by (rule refl)
+
+lemma use_effect_order_evaluation:
+  \<open> evaluate use_effect_order 0 = Success (0, 1, TNil) 2 \<close>
+  by (simp add: use_effect_order_def use_tick_def micro_rust_simps evaluate_def get_def put_def
+    literal_def Core_Expression.bind.simps bind_evaluate Let_def)
+
+subsection\<open> Block rejections \<close>
+
+urust_expr_rejects \<open> { use Left as Right; use Right as Left; 1 } \<close> \<open> cyclic imports \<close>
+urust_expr_rejects \<open> { use MissingTarget as Unused; 1 } \<close> \<open> unknown import target "MissingTarget" \<close>
+urust_expr_rejects \<open> { let ExistingName = 7u32; { use ExistingName as Captured; 1 } } \<close>
+  \<open> unknown import target "ExistingName" \<close>
+urust_expr_rejects \<open> |param| { use param as captured; 1 } \<close> \<open> unknown import target "param" \<close>
+urust_expr_rejects \<open> { use demo::value; use demo::value; 1 } \<close> \<open> duplicate value import "value" \<close>
+urust_expr_rejects \<open> { use demo::WIDTH as w; w() } \<close> \<open> which cannot be used as a call \<close>
+urust_expr_rejects \<open> (use demo::value; 1) \<close> \<open> use declarations require an enclosing block \<close>
+urust_expr_rejects \<open> assert!(use demo::value; true) \<close> \<open> use declarations require an enclosing block \<close>
+urust_expr_rejects \<open> UsePacket { sample: use demo::value; 1 } \<close> \<open> use declarations require an enclosing block \<close>
+urust_expr_rejects \<open> match 1u32 { _ if use demo::value; true => 1, _ => 0 } \<close>
+  \<open> use declarations require an enclosing block \<close>
+
+context use_command_locale
+begin
+
+urust_expr_rejects \<open> { use use_command_parameter as fixed_alias; 1 } \<close>
+  \<open> unknown import target "use_command_parameter" \<close>
+
+end
+
+ML_val\<open>
+local
+  open Parser_Use_Test
+  val thy = \<^theory>
+  val ctxt = \<^context>
+in
+  val _ = command_rejects thy "body imports do not type the signature" "unknown Rust type \"LocalShortSig\""
+    ("urust_fn _ " ^ cartouche " fn bad(x: LocalShortSig) { use demo::Short as LocalShortSig; } ")
+  val escaped =
+    Parser_Test_Elaboration.expression ctxt
+      (Parser_Lex_Util.text_source "{ { use demo::value as inner_only; } inner_only() }")
+  val _ = require "inner imports do not escape their block"
+    (exists_subterm (fn Free ("inner_only", _) => true | _ => false) escaped andalso
+      not (exists_Const (fn (name, _) => name = \<^const_name>\<open>use_demo_value_impl\<close>) escaped))
+  val _ = rejects "declaration arguments are not import targets" "unknown import target \"argument\""
+    (fn () => Parser_Test_Elaboration.expression_with_arguments ctxt [("argument", Position.none)]
+      (Parser_Lex_Util.text_source "{ use argument as captured; 1 }"))
+  val _ = require "block imports leave no persistent binding"
+    (is_none (S.lookup ctxt S.Value_Namespace "local_inc") andalso
+      is_none (S.lookup ctxt S.Value_Namespace "body_inc"))
+end
+\<close>
+
 end
