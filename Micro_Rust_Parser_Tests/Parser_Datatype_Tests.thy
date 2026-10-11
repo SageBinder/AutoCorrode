@@ -12,7 +12,7 @@ urust_datatype [renames = ["renameSampleValue" \<rightarrow> "sample"]] \<open>
   struct RenamedPacket { renameSampleValue: u32, valid: bool }
 \<close>
 
-urust_datatype [renames = [
+urust_datatype [backend = hol, renames = [
   "Ready" \<rightarrow> "ModelReady",
   "Data" \<rightarrow> "ModelData",
   "Empty" \<rightarrow> "ModelEmpty"
@@ -267,7 +267,7 @@ urust_datatype \<open>
   );
 \<close>
 
-urust_datatype \<open>
+urust_datatype [backend = hol] \<open>
   enum ParserMessage {
     Empty,
     Data(u32, \<tau>\<open>nat option\<close>,),
@@ -297,7 +297,7 @@ urust_datatype \<open>
   }
 \<close>
 
-urust_datatype \<open>
+urust_datatype [backend = hol] \<open>
   enum FirstSharedChoice {
     SharedIdle,
     SharedPayload(u32),
@@ -307,7 +307,7 @@ urust_datatype \<open>
   }
 \<close>
 
-urust_datatype \<open>
+urust_datatype [backend = hol] \<open>
   enum SecondSharedChoice {
     SharedIdle,
     SharedPayload(bool),
@@ -506,16 +506,12 @@ urust_expr parser_empty_pattern \<open>
   }
 \<close>
 
-urust_expr parser_point_legacy_labels \<open>
+urust_expr_rejects \<open>
   ParserPoint {
     ignored_first: 7u32,
     ignored_second: \<llangle>[] :: 32 word list\<rrangle>,
   }
-\<close>
-
-lemma parser_point_legacy_labels_eq:
-  \<open>parser_point_legacy_labels = parser_point_value\<close>
-  by (simp add: parser_point_legacy_labels_def parser_point_value_def)
+\<close> \<open>unknown field "ignored_first"\<close>
 
 locale datatype_scope_left =
   fixes marker_left :: nat
@@ -1769,15 +1765,36 @@ ML_val \<open>
     val named_expression_terminal =
       find_from named_expression_text "Named"
         (named_expression_qualifier + size "ParserMessage::")
+    val (named_expression_start, named_expression_result, named_expression_markup) =
+      capture 12 "generated-named-construction" named_expression_text NONE
+    val _ = ignore (require_success "generated named enum construction" named_expression_result)
+    val (_, named_expression_type_pos) =
+      token_position named_expression_text named_expression_start "ParserMessage" 0
+    val (_, named_expression_constructor_pos) =
+      token_position named_expression_text named_expression_start "Named" named_expression_terminal
     val _ =
-      failure_case 12 "wrong-generated-struct-role"
-        named_expression_text
-        [("ParserMessage", named_expression_qualifier),
-         ("Named", named_expression_terminal),
-         ("code",
-          named_expression_terminal + size "Named"),
-         ("payload",
-          named_expression_terminal + size "Named")]
+      assert_source_final "named construction qualifier" item_kind "ParserMessage"
+        message_type_id Markup.type_nameN (I.type_hol_name message_type)
+        named_expression_type_pos named_expression_markup
+    val _ =
+      assert_source_final "named construction terminal" constructor_kind "ParserMessage::Named"
+        named_constructor_id Markup.constantN (constructor_name named_constructor)
+        named_expression_constructor_pos named_expression_markup
+    val _ = List.app (fn (name, field, id) =>
+      let
+        val (_, position) = token_position named_expression_text named_expression_start name
+          (named_expression_terminal + size "Named")
+      in
+        assert_source_final ("named construction field " ^ name) field_kind
+          ("ParserMessage::Named." ^ name) id Markup.constantN (selector_name field)
+          position named_expression_markup
+      end) [("code", named_code, named_code_id), ("payload", named_payload, named_payload_id)]
+
+    val _ = failure_case 18 "unknown-generated-initializer-field"
+      ("ParserMessage::Named { unknown_code: 1u32, payload: " ^
+        "\<llangle>[] :: 8 word list\<rrangle>, }")
+      [("ParserMessage", 0), ("Named", size "ParserMessage::"),
+       ("unknown_code", size "ParserMessage::Named { ")]
 
     val missing_field_text =
       "match \<llangle>undefined :: parser_point\<rrangle> { " ^
@@ -2324,8 +2341,7 @@ ML_val \<open>
         ("urust_datatype [renames = [\"value\" \<rightarrow>\n\"bad.name\"]] " ^
           datatype_source "PositionRename" "value: u32")
     val _ =
-      assert_rejected "renamed-named-construction"
-        "requires metadata-aware struct construction"
+      assert_succeeded "renamed-named-construction"
         ("urust_expr _ " ^ cartouche "RenamedChoice::Ready { value: 7u32, active: true }")
 
     val _ =
@@ -2716,7 +2732,7 @@ ML_val \<open>
          "Third { left: u32, right: bool, }, } ")
     val (_, _, enum_manifest) =
       capture_result true "enum-manifest"
-        ("urust_datatype [verbosity = 1] output_enum " ^
+        ("urust_datatype [backend = hol, verbosity = 1] output_enum " ^
           enum_source)
     val _ =
       List.app
@@ -2754,7 +2770,7 @@ ML_val \<open>
 
     val (_, _, enum_detailed) =
       capture_result true "enum-detailed"
-        ("urust_datatype [verbosity = 2] output_enum_detailed " ^
+        ("urust_datatype [backend = hol, verbosity = 2] output_enum_detailed " ^
           cartouche
             (" enum OutputEnumDetailed { " ^
              "Empty, Named { value: u32, }, } "))
@@ -3153,7 +3169,7 @@ ML_val \<open>
             ("value: " ^ type_cartouche "" ^ ","))
     val _ =
       assert_rejected "polymorphic-field-type"
-        "type variables are not supported in datatype fields"
+        "unrelated HOL variable in datatype field"
         ("urust_datatype polymorphic_field_type " ^
           cartouche
             (" struct PolymorphicFieldType(" ^
@@ -3189,11 +3205,11 @@ ML_val \<open>
           datatype_source "UnsupportedRustTuple"
             "value: (u32,),")
     val _ =
-      assert_rejected "unsupported-rust-array-type"
-        "Rust array types is not supported"
+      assert_rejected "zero-length-rust-array-type"
+        "does not satisfy sort"
         ("urust_datatype unsupported_rust_array " ^
           datatype_source "UnsupportedRustArray"
-            "value: [u8; 4],")
+            "value: [u8; 0],")
     val _ =
       assert_rejected "unsupported-rust-reference-type"
         "Rust reference types is not supported"
@@ -3220,7 +3236,7 @@ ML_val \<open>
             "fooBar: u32, foo_bar: bool,")
     val _ =
       assert_rejected "generated-selector-name-collision"
-        "duplicate generated HOL selector \"foo_bar_value\""
+        "duplicate generated HOL selector \"generated_selector_collision_foo_bar_value\""
         ("urust_datatype generated_selector_collision " ^
           cartouche
             (" enum GeneratedSelectorCollision { " ^
@@ -3232,11 +3248,11 @@ ML_val \<open>
           cartouche
             " enum DuplicateVariant { Same, Same, } ")
     val _ =
-      assert_rejected "empty-struct" "syntax error"
+      assert_succeeded "empty-struct"
         ("urust_datatype empty_struct " ^
           cartouche " struct EmptyStruct {} ")
     val _ =
-      assert_rejected "empty-tuple-struct" "syntax error"
+      assert_succeeded "empty-tuple-struct"
         ("urust_datatype empty_tuple " ^
           cartouche " struct EmptyTuple(); ")
     val _ =
@@ -3473,8 +3489,7 @@ ML_val \<open>
            " (\"CallItemOwned\")")
 
     val _ =
-      assert_rejected "named-variant-construction"
-        "requires metadata-aware struct construction"
+      assert_succeeded "named-variant-construction"
         ("urust_expr _ " ^
           cartouche
             " ParserMessage::Named { code: 1u32, payload: \<llangle>[] :: 8 word list\<rrangle>, } ")
@@ -3512,7 +3527,7 @@ ML_val \<open>
             " ParserTuple { first: 1u32, second: true, third: None, } ")
     val _ =
       assert_rejected "generated-item-generics"
-        "generic arguments are not supported on generated Rust item paths"
+        "constructor generic arity does not match its declaration"
         ("urust_expr _ " ^
           cartouche
             " ParserTuple::<1>(1u32, true, None) ")

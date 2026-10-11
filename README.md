@@ -160,8 +160,8 @@ parameter binding. This free-function command does not provide `impl` blocks, im
 resolution or shorthand receivers such as `&self`. Raw pointers use the existing
 `('address, 'global, T) Global_Store.ref` model.
 One address/global pair is shared across a complete signature; the body and expected types constrain
-it, and unconstrained parameters generalize. References, slices, arrays and numeric generic arguments
-still require an explicit HOL escape to supply semantics.
+it, and unconstrained parameters generalize. Fixed arrays and declared const arguments use the shared
+type registry; references and slices still require an explicit HOL escape to supply semantics.
 
 Named functions register their Rust name by default. The Boolean `register_notation` option uses
 the shared `urust_register_notation` scoped setting, with inline values taking precedence.
@@ -181,20 +181,79 @@ be qualified and generic; ordered mapping placeholders must correspond exactly t
 variables of the checked HOL template. The initial `u8`, `u16`, `u32`, `u64`, `usize`, `i32`,
 `i64`, `bool`, and `()` spellings are ordinary registry declarations, not resolver cases.
 
-`urust_datatype` accepts one complete Rust-shaped struct or enum item. The HOL type name is
+`urust_datatype` is the recommended command for non-recursive Rust structs and enums. The HOL type name is
 optional and otherwise inferred with acronym-aware ASCII snake case (`HTTPServer` becomes
 `http_server`). Nominal and primitive field types resolve through the active registry; tuples use
 the structural `A × B × ... × tnil` encoding. Arbitrary checked HOL types use `τ‹TYPE›`, which is
 the only explicit bypass of registry resolution. Named structs generate a `datatype_record`,
 field lenses, and exact Rust field aliases. Successful structs and enums also register their Rust
-names for later datatype fields. Unit and tuple structs generate
+names for later fields, aliases, and function signatures. Unit and tuple structs generate
 `make_NAME`; enum variants are registered under exact paths such as `Message::Data`. Generated
 constructors use those exact Rust identities in values, calls, patterns, and struct expressions;
 they are not rediscovered through HOL basenames.
 Pointer-containing fields introduce implicit address/global HOL parameters shared across the entire
-item, including nested generated types and all enum variants. Their registered Rust types still take
-zero additional Rust generic arguments. Unrelated free type variables in field HOL escapes remain
-unsupported.
+item, including nested generated types and all enum variants. These implicit parameters are separate
+from declared Rust arguments. Unrelated free type variables in field HOL escapes remain unsupported.
+
+Type parameters retain declaration order, including unused parameters. `const N: usize` maps to a
+HOL length type with sort `len0`, strengthened to `len` by fixed arrays or registered mappings.
+Arguments accept decimal/hexadecimal literals, forwarded const parameters, and `τ‹LENGTH_TYPE›`.
+Type aliases support const forwarding and retain unused const parameters; unused type parameters in
+aliases remain rejected, as in Rust.
+Manual mappings distinguish const placeholders, for example
+`urust_type "Sized<'a, const 'n>" = ‹('a, 'n::len) array›`.
+Fixed array values use the existing HOL array operations and value escapes. Array expression forms
+retain their existing list model; this increment adds declaration/type support without changing it.
+`parameters = ["T" → "'element", "N" → "'length::len"]` chooses declaration-local HOL names and
+sorts; explicit sorts must satisfy the inferred requirements.
+
+```isabelle
+urust_datatype ‹ struct Buffer<T, const N: usize> { values: [T; N] } ›
+urust_datatype ‹
+  struct TaggedAddress<T> { address: u64 }
+›
+urust_datatype ‹ #[repr(u8)] enum Status { Idle, Ready = 7, Busy } ›
+```
+
+The default `backend = auto` selects:
+
+| Source declaration | Generated representation |
+| --- | --- |
+| Named struct with fields | Datatype record and record automation |
+| Unit, tuple, or empty named struct | HOL datatype |
+| Enum with explicit unsigned `repr`, concrete discriminants, and no payload | Simple word enum |
+| Other enum | AutoCorrode custom enum |
+
+Use `backend = hol` when proofs need BNF datatype artifacts. Explicit custom/word choices use
+`backend = "enum"` and `backend = "simple_word_enum"`: quotes protect Isabelle command keywords.
+`word_width = N` supplies an explicit word representation without `repr`; both widths must agree
+when supplied together. Nullary variants alone never determine a width. Word discriminants start at
+zero or increment the previous value; duplicates and out-of-range values are rejected before
+constructing words. Native plugin filters use `plugins = (plugins only: word_conversion)`, for example.
+Native declaration commands remain available.
+
+Constructor turbofish arguments instantiate type/const parameters. Named construction requires
+every declared field and evaluates initializers in source order, assembling constructor arguments
+in declaration order. Matching reuses Isabelle's native constructor and case infrastructure.
+Const lengths accept complete unsuffixed decimal, binary, octal and hexadecimal literals, including
+digit separators, or explicit HOL length types. Additive const expressions are rejected. Generated
+Rust functions reject turbofish arguments in both direct and method calls.
+
+Unused (phantom) type parameters are retained. Automatic `PhantomData` field handling is deferred;
+no field, initializer, or pattern slot is discarded automatically. An unmapped `PhantomData` field
+receives a diagnostic. Ordinary HOL definitions and manual `urust_type`/notation mappings remain
+available, including singleton models whose fields are stored normally. A payload remains a payload
+for word-backend selection, even when its manually mapped HOL type is a singleton.
+
+Proof-source mirrors of an existing manually erased model may explicitly omit `PhantomData` fields,
+their pure initializers, and corresponding pattern slots while keeping the original generic
+parameters. Document each source/model difference with an Isabelle `RUST-CHANGE` comment and preserve
+effects from nontrivial initializers explicitly. This is a proof-source adaptation; production Rust
+source and existing HOL constructor signatures need not change. Choosing singleton fields or erased
+representations with source adapters belongs to a separate increment.
+
+Recursive and mutually recursive declarations, general const evaluation, zero-length fixed arrays,
+lifetimes, and Rust trait-bound/default translation remain unsupported.
 
 Declaration-local `renames` chooses named-struct HOL selectors or enum HOL constructors:
 

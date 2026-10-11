@@ -383,6 +383,10 @@ sig
      (plugin filter, word width, type binding, optional uRust name,
       (variant binding, value term string) list), where the filter is the still-unevaluated
      form Plugin_Name.parse_filter yields. *)
+  val simple_word_enum_core_parameters:
+    (string * sort) list -> {timer: timer, report: bool} ->
+    (Proof.context -> Plugin_Name.filter) * int * binding * string option *
+      (binding * string) list -> local_theory -> enum_info * local_theory
   val simple_word_enum_core:
     { timer: timer, report: bool } ->
     (Proof.context -> Plugin_Name.filter) * int * binding * string option *
@@ -624,11 +628,11 @@ fun define_variants type_name wordT words lthy =
   in ((const, def_thm, distinct_thm, mapped), lthy) end
 
 (* Step 2: typedef T = set (map unat T_variants), then setup_lifting. *)
-fun define_typedef type_binding mapped_variants variants_def lthy =
+fun define_typedef parameters type_binding mapped_variants variants_def lthy =
   let
     val typedef_set = \<^Const>\<open>set HOLogic.natT\<close> $ mapped_variants
     val ((_, (typ_info, typedef_info)), lthy) = lthy
-      |> Typedef.add_typedef { overloaded = false } (type_binding, [], NoSyn) typedef_set NONE
+      |> Typedef.add_typedef { overloaded = false } (type_binding, parameters, NoSyn) typedef_set NONE
            (* Nonemptiness: the first variant inhabits the set. Kept to a fixed number of
               rule applications so that the cost does not grow with the variant list. *)
            (fn ctxt =>
@@ -638,7 +642,7 @@ fun define_typedef type_binding mapped_variants variants_def lthy =
               resolve_tac ctxt @{thms insertI1} 1)
     val (_, lthy) =
       Lifting_Setup.setup_by_typedef_thm Lifting_Setup.default_config
-        (#type_definition typedef_info) lthy
+        (Thm.varifyT_global (#type_definition typedef_info)) lthy
   in ((typ_info, typedef_info), lthy) end
 
 type prepared_variant = {
@@ -912,7 +916,7 @@ fun define_all type_name wordT absT Abs_name Rep_name defs variants_const varian
    benchmark command can reuse it. Each generation step is wrapped in `phase`; `report`
    controls whether the human-readable summary of what was generated is printed (the
    benchmark prints its own tables instead). *)
-fun simple_word_enum_core_with_path { timer, report, variant_const_path }
+fun core parameters { timer, report, variant_const_path }
       (raw_filter, width, type_binding, urust_name, variant_specs) lthy =
   let
     val type_name = Binding.name_of type_binding
@@ -956,7 +960,7 @@ fun simple_word_enum_core_with_path { timer, report, variant_const_path }
 
     val ((typ_info, typedef_info), lthy) =
       phase timer "typedef+lifting" (fn () =>
-        define_typedef type_binding mapped_variants variants_def lthy)
+        define_typedef parameters type_binding mapped_variants variants_def lthy)
     val { abs_type = absT, Abs_name, Rep_name, ... } = typ_info
     val type_definition_thm = #type_definition typedef_info
 
@@ -1003,7 +1007,12 @@ fun simple_word_enum_core_with_path { timer, report, variant_const_path }
           "lemmas      " ^ commas [all_concrete_name type_name ^ " [code]",
               all_distinct_name type_name, all_total_name type_name]]
          @ Case_For_Typedef.generated_summary type_name n)))
-  in lthy end
+  in (info, lthy) end
+
+fun simple_word_enum_core_with_path options args lthy = snd (core [] options args lthy)
+
+fun simple_word_enum_core_parameters parameters {timer, report} args lthy =
+  core parameters {timer = timer, report = report, variant_const_path = Lifting_Path} args lthy
 
 fun simple_word_enum_core { timer, report } args lthy =
   simple_word_enum_core_with_path
@@ -1639,7 +1648,7 @@ fun generate_generate_debug (info: Simple_Word_Enum.enum_info) lthy =
            note theirs. *)
         val (def_thm, lthy) = Local_Theory.background_theory_result (fn thy =>
           thy
-          |> Class.instantiation ([tyco], [], \<^sort>\<open>generate_debug\<close>)
+          |> Class.instantiation ([tyco], map dest_TFree (snd (dest_Type absT)), \<^sort>\<open>generate_debug\<close>)
           |> (fn ilthy =>
                 Specification.definition NONE [] []
                   ((Binding.concealed (Binding.name (def_name ^ "_raw_def")), []),
@@ -1932,7 +1941,7 @@ fun generate_equal_instance (info: Simple_Word_Enum.enum_info) lthy =
            generate_debug plugin --- see the comment there. *)
         val (def_thm, lthy) = Local_Theory.background_theory_result (fn thy =>
           thy
-          |> Class.instantiation ([tyco], [], \<^sort>\<open>equal\<close>)
+          |> Class.instantiation ([tyco], map dest_TFree (snd (dest_Type absT)), \<^sort>\<open>equal\<close>)
           |> (fn ilthy =>
                 Specification.definition NONE [] []
                   ((Binding.concealed (Binding.name (def_name ^ "_raw_def")), []),
@@ -1945,7 +1954,8 @@ fun generate_equal_instance (info: Simple_Word_Enum.enum_info) lthy =
                   (fn ctxt => fn def_thm =>
                      Class.intro_classes_tac ctxt []
                      THEN ALLGOALS (simp_tac (clear_simpset ctxt addsimps
-                       [def_thm, type_definition RS @{thm type_definition.Rep_inject}])))
+                       [def_thm, Thm.varifyT_global type_definition RS
+                         @{thm type_definition.Rep_inject}])))
                   def_thm)) lthy
       in
         snd (Local_Theory.note ((Binding.name (def_name ^ "_def"), []), [def_thm]) lthy)

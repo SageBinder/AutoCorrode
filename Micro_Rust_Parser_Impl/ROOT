@@ -3,6 +3,8 @@ session Micro_Rust_Parser_Impl = HOL +
   sessions
     Parser_Common
     Shallow_Micro_Rust
+    Enum_Theory
+    Misc
     "Isabelle_Lex-Yacc"
   theories [document = false]
     Parser_Utils

@@ -2,6 +2,7 @@ theory Parser_Impl_Resolution
   imports
     Parser_Impl_Shallow_Terms
     Parser_Impl_Item_Scope
+    Parser_Impl_Grammar
     Parser_Utils
 begin
 
@@ -67,6 +68,8 @@ sig
     Proof.context -> environment -> string * Position.T -> term
   val function_path:
     Proof.context -> environment -> URust_AST.ur_path -> int -> term
+  val generated_struct_function:
+    Proof.context -> URust_AST.ur_path -> URust_AST.struct_expr_field list -> term option
   val struct_function_path:
     Proof.context -> environment -> URust_AST.ur_path -> int -> term
   val method_path:
@@ -515,7 +518,11 @@ struct
   fun native_case_metadata ctxt backend =
     (case identifier_leaf backend of
        Const (identity, typ) =>
-         (case Case_Translation.lookup_by_constr_permissive ctxt
+          let
+            val typ = if typ = dummyT then
+                Sign.the_const_type (Proof_Context.theory_of ctxt) identity
+              else typ
+          in (case Case_Translation.lookup_by_constr_permissive ctxt
              (identity, typ) of
             NONE => NONE
           | SOME (_, members) =>
@@ -555,7 +562,7 @@ struct
                      family_name = the family_name,
                      family_members = map fst normalized}
                 else NONE
-              end)
+               end) end
      | _ => NONE)
 
   fun registered_constructor_family_names ctxt registrations =
@@ -787,26 +794,37 @@ struct
              quote (I.constructor_rust_path entry) ^
              " has no constant constructor identity"))
 
-  fun reject_item_generics path =
-    if exists (is_some o segment_generic_args) (path_segments path)
-    then
-      let
-        val offending =
-          the
-            (find_first (is_some o segment_generic_args)
-              (path_segments path))
-        val Generic_Args (_, pos) =
-          the (segment_generic_args offending)
-      in
-        error
-          ("urust_expr: generic arguments are not supported on generated Rust item paths" ^
-            Position.here pos)
-      end
-    else ()
+  fun item_constructor_instance ctxt path entry constructor =
+    let
+      val groups = map_filter segment_generic_args (path_segments path)
+      val _ = if length groups <= 1 then () else
+        error ("urust_expr: generated constructor accepts one generic argument group" ^ Position.here (path_position path))
+      fun argument (Generic_Arg (_, source)) =
+        URust_Parser.parse_generic_argument_source ctxt source
+    in case groups of [] => constructor | [Generic_Args (arguments, _)] =>
+      URust_Type_Mappings.instantiate_constructor ctxt (I.constructor_rust_type entry)
+        (map argument arguments) constructor
+    | _ => raise Match end
+
+  fun item_has_generics path =
+    not (null (map_filter segment_generic_args (path_segments path)))
+
+  fun fresh_item_instance path term =
+    term
+    |> (if item_has_generics path then I else Term.map_types Logic.varifyT_global)
+    |> Term.map_types (Logic.incr_tvar (serial ()) #> Type_Infer.paramify_vars)
+
+  fun source_constructor_scheme ctxt path entry =
+    item_constructor_instance ctxt path entry
+      (I.constructor_scheme entry |> Term.map_types Type.legacy_freeze_type)
+
+  fun source_constructor ctxt path entry =
+    if not (item_has_generics path) then I.constructor_term entry
+    else fresh_item_instance path (source_constructor_scheme ctxt path entry)
 
   fun item_value_path ctxt path entry =
     let
-      val _ = reject_item_generics path
+
       val _ =
         (case I.constructor_shape entry of
            I.Unit_Constructor => ()
@@ -825,7 +843,7 @@ struct
       val _ = report_item_constructor ctxt path entry
     in
       T.source_position (#2 (path_terminal path))
-        (I.constructor_term entry)
+        (source_constructor ctxt path entry)
     end
 
   fun generic_sources (Generic_Args (arguments, _)) =
@@ -1075,7 +1093,16 @@ struct
 
   fun item_function_entry ctxt path entry =
     let
-      val _ = reject_item_generics path
+      val _ =
+        (case find_first (is_some o segment_generic_args) (path_segments path) of
+           NONE => ()
+         | SOME segment =>
+             let val Generic_Args (_, pos) = the (segment_generic_args segment)
+             in
+               error
+                 ("urust_expr: generic arguments are not supported on generated Rust function paths" ^
+                   Position.here pos)
+             end)
       val pos = #2 (path_terminal path)
       val _ = I.defer_function_reference ctxt pos entry
       (* A registered definition exports schematic signature and effect types. Each call must
@@ -1091,7 +1118,7 @@ struct
 
   fun item_function_path role ctxt path actual_arity entry =
     let
-      val _ = reject_item_generics path
+
       val name = render_path path
       val pos = #2 (path_terminal path)
       val origin = I.constructor_origin entry
@@ -1144,10 +1171,11 @@ struct
               string_of_int actual_arity ^
               Position.here pos)
       val _ = report_item_constructor ctxt path entry
+      val constructor = source_constructor ctxt path entry
     in
       T.source_position pos
-        (T.lift_function pos arity
-          (I.constructor_term entry))
+        (if arity = 0 then T.function_body (T.literal constructor)
+         else T.lift_function pos arity constructor)
     end
 
   fun resolve_function_path item_role local_first actual_arity
@@ -1169,10 +1197,7 @@ struct
         (case lexical_function () of
            SOME local_term => local_term
          | NONE =>
-             (case
-                if item_role = No_Item_Call
-                then NONE
-                else I.lookup_function ctxt (render_path path)
+             (case I.lookup_function ctxt (render_path (item_lookup_path path))
               of
                 SOME entry =>
                   item_function_entry ctxt path entry
@@ -1230,9 +1255,52 @@ struct
     resolve_function_path Ordinary_Item_Call true actual_arity
       ctxt environment path
 
+  fun generated_struct_function ctxt path fields =
+    Option.map (fn entry =>
+      let
+        val pos = path_position path
+        val _ = if I.constructor_shape entry = I.Named_Constructor then () else
+          error ("urust_expr: generated constructor " ^ quote (render_path path) ^
+            " does not support struct construction syntax" ^ Position.here pos)
+        val source_fields = I.constructor_field_entries entry
+        val names = map (fn SE_Field (name, _, _) => name) fields
+        val _ = if null (duplicates (op =) names) then () else
+          error ("urust_expr: duplicate struct initializer" ^ Position.here pos)
+        val _ = List.app (fn name =>
+          if exists (fn field => I.field_rust_name field = name) source_fields then ()
+          else error ("urust_expr: unknown field " ^ quote name ^ Position.here pos)) names
+        val _ = List.app (fn field => if member (op =) names (I.field_rust_name field) then ()
+          else error ("urust_expr: missing field " ^ quote (I.field_rust_name field) ^ Position.here pos)) source_fields
+        val _ = report_item_constructor ctxt path entry
+        val unchanged = names = map I.field_rust_name source_fields
+        val arity = length names
+        val function = if unchanged then source_constructor ctxt path entry else
+          let
+            val pure = source_constructor_scheme ctxt path entry
+            val field_types = map I.field_rust_name source_fields ~~ binder_types (fastype_of pure)
+            val variables = map_index (fn (index, name) =>
+              let
+                val typ = the (AList.lookup (op =) field_types name)
+              in (name, Free ("_field_arg" ^ string_of_int index, typ)) end) names
+            val arguments = map (fn field =>
+              the (AList.lookup (op =) variables (I.field_rust_name field))) source_fields
+            val wrapper = fold_rev (lambda o snd) variables (list_comb (pure, arguments))
+          in fresh_item_instance path wrapper end
+      in if arity = 0 then T.literal function else T.lift_function pos arity function end)
+      (exact_item_constructor ctxt path)
+
   fun struct_function_path ctxt environment path actual_arity =
-    resolve_function_path Struct_Item_Call false actual_arity
-      ctxt environment path
+    let
+      val _ = List.app (fn segment =>
+        case segment_generic_args segment of
+          NONE => ()
+        | SOME (Generic_Args (_, pos)) =>
+            error ("urust_expr: generic arguments are not supported in struct-expression heads" ^
+              Position.here pos)) (path_segments path)
+    in
+      resolve_function_path Struct_Item_Call false actual_arity
+        ctxt environment path
+    end
 
   fun method_path ctxt environment path =
     let
@@ -1725,7 +1793,7 @@ struct
     end
 
   fun item_constructor_candidates ctxt
-      (Constructor_Resolver {registered_by_identity, ...}) entry =
+      (Constructor_Resolver {registered_by_identity, ...}) path entry =
     let
       val backend = identifier_leaf (I.constructor_term entry)
       val sugar_matches =
@@ -1738,7 +1806,17 @@ struct
         if null sugar_matches
         then the_list (native_case_constructor_info ctxt backend)
         else sugar_matches
-    in distinct_constructor_infos candidates end
+      val selectors = map snd (I.constructor_fields entry)
+      fun source_selectors ({identity, constructor, arity, family, ...}: constructor_info) =
+        {identity = identity,
+         constructor = if null (map_filter segment_generic_args (path_segments path))
+           then constructor
+           else item_constructor_instance ctxt path entry
+             (I.constructor_scheme entry |> Term.map_types Type.legacy_freeze_type)
+             |> fresh_item_instance path,
+         arity = arity,
+         family = family, selectors = selectors}: constructor_info
+    in distinct_constructor_infos (map source_selectors candidates) end
 
   fun classify_registered_literal ctxt resolver path =
     (case exact_item_constructor ctxt path of
@@ -1774,8 +1852,7 @@ struct
       val candidates =
         (case item of
            SOME entry =>
-             (reject_item_generics path;
-              item_constructor_candidates ctxt resolver entry)
+             item_constructor_candidates ctxt resolver path entry
          | NONE =>
              if null registrations
              then
@@ -1970,7 +2047,7 @@ struct
       val direct_candidates =
         (case item of
            SOME entry =>
-             item_constructor_candidates ctxt resolver entry
+             item_constructor_candidates ctxt resolver head_path entry
          | NONE =>
              if qualified
              then
@@ -2109,7 +2186,7 @@ struct
       val head_pos = #2 (path_terminal head_path)
       val registrations = exact_literal_registrations ctxt head_path
       val item = exact_item_constructor ctxt head_path
-      val _ = reject_intermediate_generics head_path
+      val _ = if is_some item then () else reject_intermediate_generics head_path
       val _ =
         (case segment_generic_args (final_segment head_path) of
            NONE => ()

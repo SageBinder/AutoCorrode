@@ -4,6 +4,7 @@ theory Parser_Impl_Type_Mappings
     Shallow_Micro_Rust.Semantic_Navigation
     Shallow_Micro_Rust.Tuple
     Shallow_Micro_Rust.Global_Store
+    Misc.Array
   keywords "urust_type" :: thy_decl
 begin
 
@@ -33,6 +34,24 @@ sig
   val resolve_fields:
     Proof.context -> URust_AST.rust_type list ->
       {types: typ list, backend_parameters: (string * sort) list}
+  val resolve_declaration:
+    Proof.context -> URust_AST.generic_parameter list ->
+      ((string * Position.T) * (string * Position.T)) list ->
+      URust_AST.rust_type list ->
+      {types: typ list, source_parameters: (string * sort) list,
+       backend_parameters: (string * sort) list}
+  val instantiate_constructor:
+    Proof.context -> string -> URust_AST.rust_generic_argument list -> term -> term
+  val preflight_declaration_scheme:
+    {rust_name: string, rust_pos: Position.T, hol_type_name: string,
+     hol_type: typ, source_parameters: (string * sort) list,
+     parameter_kinds: URust_AST.generic_parameter_kind list,
+     backend_parameters: (string * sort) list} -> local_theory -> unit
+  val register_declaration_scheme:
+    {rust_name: string, rust_pos: Position.T, hol_type_name: string,
+     hol_type: typ, source_parameters: (string * sort) list,
+     parameter_kinds: URust_AST.generic_parameter_kind list,
+     backend_parameters: (string * sort) list} -> local_theory -> local_theory
   val resolve_cast:
     Proof.context -> URust_AST.source_cast_target -> URust_AST.cast_target
   val declare_alias:
@@ -41,6 +60,11 @@ sig
      parameters: (string * Position.T) list,
      rhs: URust_AST.rust_type} ->
     local_theory -> local_theory
+  val declare_generic_alias:
+    {registration: (string * Position.T) option,
+     item_name: string * Position.T,
+     parameters: URust_AST.generic_parameter list,
+     rhs: URust_AST.rust_type} -> local_theory -> local_theory
   val lookup: Proof.context -> string -> entry option
   val dump: Proof.context -> (string * entry) list
 
@@ -86,6 +110,7 @@ struct
      the dependency scheme so locale morphisms also reach captured meaning. *)
   datatype meaning =
       Meaning_Parameter of int
+    | Meaning_Const_Parameter of int
     | Meaning_Primitive of rust_primitive_type
     | Meaning_Mapped of typ * sort list * sort list * meaning list
     | Meaning_Tuple of meaning list
@@ -95,12 +120,14 @@ struct
   type key =
     {base: string,
      segment_arities: int list,
+     parameter_kinds: generic_parameter_kind list,
      parameters: string list,
      parameter_positions: Position.T list}
 
   type entry =
     {segment_arities: int list,
      template: typ,
+     parameter_kinds: generic_parameter_kind list,
      parameter_sorts: sort list,
      backend_parameter_sorts: sort list,
      meaning: meaning,
@@ -131,18 +158,19 @@ struct
   fun entry_origin ({origin, ...}: entry) = origin_text origin
 
   fun same_entry
-      ({segment_arities = left_arities,
+      (left as {segment_arities = left_arities,
         template = left_template,
         parameter_sorts = left_sorts,
         backend_parameter_sorts = left_backend,
         meaning = left_meaning, origin = left_origin, ...}: entry,
-       {segment_arities = right_arities,
+       right as {segment_arities = right_arities,
         template = right_template,
         parameter_sorts = right_sorts,
         backend_parameter_sorts = right_backend,
         meaning = right_meaning, origin = right_origin, ...}: entry) =
     left_arities = right_arities andalso
     left_template = right_template andalso
+    #parameter_kinds left = #parameter_kinds right andalso
     left_sorts = right_sorts andalso
     left_backend = right_backend andalso
     alias_origin left_origin = alias_origin right_origin andalso
@@ -295,10 +323,16 @@ struct
 
       fun placeholder () =
         let
+          val _ = skip_blanks ()
+          val kind =
+            if !offset + 5 <= input_size andalso
+               String.substring (input, !offset, 5) = "const" then
+              (offset := !offset + 5; skip_blanks (); Const_Parameter)
+            else Type_Parameter
           val start = !offset
           val _ = require #"'" "a mapping placeholder such as 'a"
           val parameter = "'" ^ identifier "a placeholder name"
-        in (parameter, source_position start (!offset)) end
+        in ((parameter, source_position start (!offset)), kind) end
 
       fun placeholders () =
         let
@@ -357,14 +391,15 @@ struct
              end)
       val _ =
         if length parameters =
-            length (distinct (op =) (map fst parameters))
+            length (distinct (op =) (map (fst o fst) parameters))
         then ()
         else fail "mapping placeholders must be distinct"
     in
       {base = base,
        segment_arities = arities,
-       parameters = map fst parameters,
-       parameter_positions = map snd parameters}: key
+       parameter_kinds = map snd parameters,
+       parameters = map (fst o fst) parameters,
+       parameter_positions = map (snd o fst) parameters}: key
     end
 
   fun parse_mapping_key_source source =
@@ -400,6 +435,7 @@ struct
   fun morph_meaning phi =
     let
       fun morph (Meaning_Parameter index) = Meaning_Parameter index
+        | morph (Meaning_Const_Parameter index) = Meaning_Const_Parameter index
         | morph (Meaning_Primitive primitive) = Meaning_Primitive primitive
         | morph (Meaning_Mapped (template, sorts, backend_sorts, arguments)) =
             Meaning_Mapped
@@ -414,6 +450,7 @@ struct
   fun instantiate_meaning arguments =
     let
       fun instantiate (Meaning_Parameter index) = nth arguments index
+        | instantiate (Meaning_Const_Parameter index) = nth arguments index
         | instantiate (Meaning_Primitive primitive) =
             Meaning_Primitive primitive
         | instantiate (Meaning_Mapped (template, sorts, backend_sorts, types)) =
@@ -478,9 +515,10 @@ struct
     end
 
   fun make_entry origin declaration_pos segment_arities template
-      parameter_sorts backend_parameter_sorts meaning dependencies =
+      parameter_kinds parameter_sorts backend_parameter_sorts meaning dependencies =
     {segment_arities = segment_arities,
      template = template,
+     parameter_kinds = parameter_kinds,
      parameter_sorts = parameter_sorts,
      backend_parameter_sorts = backend_parameter_sorts,
      meaning = meaning,
@@ -490,10 +528,11 @@ struct
      identity = serial ()}: entry
 
   fun morph_entry phi
-      ({segment_arities, template, parameter_sorts, backend_parameter_sorts,
+      ({segment_arities, template, parameter_kinds, parameter_sorts, backend_parameter_sorts,
         meaning, dependencies, declaration_pos, origin, identity}: entry) =
     {segment_arities = segment_arities,
      template = Morphism.typ phi template,
+     parameter_kinds = parameter_kinds,
      parameter_sorts = parameter_sorts,
      backend_parameter_sorts = backend_parameter_sorts,
      meaning = morph_meaning phi meaning,
@@ -551,7 +590,7 @@ struct
   fun declare_mapping origin (key_source, source)
       lthy =
     let
-      val key as {base, segment_arities, ...} =
+      val key as {base, segment_arities, parameter_kinds, ...} =
         parse_mapping_key_source key_source
       val key_pos = Input.pos_of key_source
       val (template, parameter_sorts) =
@@ -559,7 +598,7 @@ struct
       val _ = report_parameters lthy key
       val candidate =
         make_entry origin key_pos segment_arities template
-          parameter_sorts [] (mapped_meaning base template parameter_sorts []) []
+          parameter_kinds parameter_sorts [] (mapped_meaning base template parameter_sorts []) []
     in install_prepared base candidate lthy end
 
   fun generated_candidate
@@ -576,47 +615,54 @@ struct
     in
       (base,
        make_entry (Generated hol_type_name) rust_pos
-         segment_arities (Type (hol_type_name, [])) [] []
+         segment_arities (Type (hol_type_name, [])) [] [] []
          (mapped_meaning base (Type (hol_type_name, [])) [] []) [])
+    end
+
+  fun declaration_scheme_candidate
+      {rust_name, rust_pos, hol_type_name, hol_type,
+       source_parameters, parameter_kinds, backend_parameters} =
+    let
+      val {base, segment_arities, parameters, ...} =
+        parse_mapping_key_text (rust_name, rust_pos)
+      val _ = if null parameters then () else
+        mapping_error "generated type names cannot contain mapping placeholders" rust_pos
+      val all_parameters = source_parameters @ backend_parameters
+      val _ =
+        if null (Term.add_tvarsT hol_type []) andalso
+           length all_parameters = length (distinct (op =) (map fst all_parameters)) andalso
+           eq_set (op =) (Term.add_tfreesT hol_type [], all_parameters) andalso
+           length source_parameters = length parameter_kinds
+        then () else mapping_error "generated type scheme parameters are inconsistent" rust_pos
+      val source_sorts = map snd source_parameters
+      val backend_sorts = map snd backend_parameters
+      val substitutions =
+        map_index (fn (index, parameter as (_, sort)) =>
+          (TFree parameter, canonical_parameter index sort)) source_parameters @
+        map_index (fn (index, parameter as (_, sort)) =>
+          (TFree parameter, canonical_backend_parameter index sort)) backend_parameters
+      val template = Term.typ_subst_atomic substitutions hol_type
+      val arities = take (length segment_arities - 1) segment_arities @ [length source_parameters]
+    in
+      (base, make_entry (Generated hol_type_name) rust_pos arities template
+        parameter_kinds source_sorts backend_sorts
+        (mapped_meaning base template source_sorts backend_sorts) [])
     end
 
   fun generated_scheme_candidate
       {rust_name, rust_pos, hol_type_name, hol_type, backend_parameters} =
-    let
-      val {base, segment_arities, parameters, ...} =
-        parse_mapping_key_text (rust_name, rust_pos)
-      val _ =
-        if null parameters then ()
-        else mapping_error
-          "generated datatypes cannot declare generic mapping placeholders"
-          rust_pos
-      val _ =
-        if null backend_parameters orelse length backend_parameters = 2 then ()
-        else mapping_error
-          "generated pointer datatypes require one address/global parameter pair"
-          rust_pos
-      val _ =
-        if null (Term.add_tvarsT hol_type []) andalso
-            length backend_parameters =
-              length (distinct (op =) (map fst backend_parameters)) andalso
-            eq_set (op =) (Term.add_tfreesT hol_type [], backend_parameters)
-        then ()
-        else mapping_error
-          "generated type schemes must contain exactly their implicit backend parameters"
-          rust_pos
-      val backend_sorts = map snd backend_parameters
-      val substitutions =
-        map_index
-          (fn (index, parameter as (_, sort)) =>
-            (TFree parameter, canonical_backend_parameter index sort))
-          backend_parameters
-      val template = Term.typ_subst_atomic substitutions hol_type
-    in
-      (base,
-       make_entry (Generated hol_type_name) rust_pos segment_arities
-         template [] backend_sorts
-         (mapped_meaning base template [] backend_sorts) [])
-    end
+    declaration_scheme_candidate
+      {rust_name = rust_name, rust_pos = rust_pos, hol_type_name = hol_type_name,
+       hol_type = hol_type, source_parameters = [], parameter_kinds = [],
+       backend_parameters = backend_parameters}
+
+  fun preflight_declaration_scheme specification lthy =
+    let val (base, candidate) = declaration_scheme_candidate specification
+    in ignore (preflight lthy base candidate) end
+
+  fun register_declaration_scheme specification lthy =
+    let val (base, candidate) = declaration_scheme_candidate specification
+    in install_prepared base candidate lthy end
 
   fun preflight_generated specification lthy =
     let
@@ -703,7 +749,11 @@ struct
     in no_type_variables "datatype fields" pos typ end
 
   fun unknown_type kind base pos =
-    error
+    if member (op =) ["PhantomData", "core::marker::PhantomData", "std::marker::PhantomData"] base then
+      error (command_label kind ^ ": automatic PhantomData field handling is deferred; " ^
+        "provide an explicit HOL type and urust_type mapping to store the field, " ^
+        "or omit it explicitly from a documented proof-source mirror" ^ Position.here pos)
+    else error
       (command_label kind ^ ": unknown Rust type " ^ quote base ^
         "; declare it with urust_type or use \<tau>\<open>...\<close>" ^
         " (Rust synonyms may also be declared with urust_type_alias)" ^
@@ -754,6 +804,18 @@ struct
   fun numeric_argument_position
       (Integer_Literal (_, layout, _)) =
     source_span layout
+
+  fun length_literal ctxt integer =
+    let
+      val raw = integer_literal_lexeme integer
+      val pos = integer_literal_position integer
+      val _ = if is_none (integer_literal_suffix_position integer) then ()
+        else mapping_error "length arguments must be unsuffixed integer literals" pos
+      val value =
+        (case Parser_Utils.read_unsigned_integer raw of
+           SOME n => n
+         | NONE => mapping_error "invalid complete unsuffixed length literal" pos)
+    in Syntax.read_typ ctxt (string_of_int value) end
 
   type resolved = {typ: typ, meaning: meaning}
 
@@ -836,12 +898,30 @@ struct
                val _ =
                  if expected_arities = arities then ()
                  else arity_error kind base expected_arities arities pos
-               fun resolve_argument (Rust_Type_Argument argument) =
-                     (resolve_type argument, rust_type_position argument)
-                 | resolve_argument (Rust_Numeric_Argument integer) =
-                     unsupported kind "numeric generic arguments"
-                       (numeric_argument_position integer)
-               val resolved_arguments = map resolve_argument arguments
+               fun resolve_argument (argument, parameter_kind) =
+                 (case (argument, parameter_kind) of
+                    (Rust_Type_Argument argument, parameter_kind) =>
+                      let
+                        val value = resolve_type argument
+                        val pos = rust_type_position argument
+                        val _ = case (#meaning value, parameter_kind) of
+                            (Meaning_Parameter _, Const_Parameter) =>
+                              unsupported kind "type parameters used as const arguments" pos
+                          | (Meaning_Const_Parameter _, Type_Parameter) =>
+                              unsupported kind "const parameters used as type arguments" pos
+                          | _ => ()
+                        val _ = if parameter_kind = Const_Parameter then
+                          check_sort "const argument" (#typ value) \<^sort>\<open>len0\<close> pos
+                          else ()
+                      in (value, pos) end
+                  | (Rust_Numeric_Argument integer, Const_Parameter) =>
+                      let val typ = length_literal ctxt integer in
+                        ({typ = typ, meaning = Meaning_HOL typ}, numeric_argument_position integer)
+                      end
+                  | (Rust_Numeric_Argument integer, Type_Parameter) =>
+                      unsupported kind "numeric generic arguments for type parameters"
+                        (numeric_argument_position integer))
+               val resolved_arguments = map resolve_argument (arguments ~~ #parameter_kinds entry)
                val parameter_sorts = #parameter_sorts entry
                val backend_sorts = #backend_parameter_sorts entry
                val _ =
@@ -931,13 +1011,26 @@ struct
             end
         | resolve_type (Slice_Type (_, layout)) =
             unsupported kind "Rust slice types" (source_span layout)
-        | resolve_type (Array_Type (_, _, layout)) =
-            unsupported kind "Rust array types" (source_span layout)
+        | resolve_type (Array_Type (element, integer, layout)) =
+            resolve_array element (length_literal ctxt integer) (source_span layout)
+        | resolve_type (Const_Array_Type (element, length, layout)) =
+            resolve_array element (#typ (resolve_type length)) (source_span layout)
         | resolve_type (HOL_Type_Source source) =
             let val typ = read_escape source in
               {typ = typ, meaning = Meaning_HOL typ}
             end
-    in map resolve_type rust_types end
+      and resolve_array element length pos =
+        let
+          val resolved = resolve_type element
+          val _ = check_sort "fixed array length" length \<^sort>\<open>len\<close> pos
+          val typ = Type (\<^type_name>\<open>array\<close>, [#typ resolved, normalize length])
+        in {typ = typ, meaning = Meaning_HOL typ} end
+      fun resolve_field typ =
+        let val value = resolve_type typ
+        in case #meaning value of Meaning_Const_Parameter _ =>
+          unsupported kind "const parameters used as field types" (rust_type_position typ)
+        | _ => value end
+    in map resolve_field rust_types end
 
   fun no_parameter _ _ _ = NONE
   fun no_dependency _ _ _ = ()
@@ -967,6 +1060,78 @@ struct
       {types = result, backend_parameters = parameters}
     end
 
+  fun resolve_declaration ctxt parameters overrides rust_types =
+    let
+      fun descriptor (Generic_Parameter (name, pos, kind)) = (name, pos, kind)
+      val descriptors = map descriptor parameters
+      val _ = case duplicates (op =) (map #1 descriptors) of [] => ()
+        | name :: _ => mapping_error ("duplicate parameter " ^ quote name)
+            (#2 (the (find_first (fn (n, _, _) => n = name) descriptors)))
+      val _ = case duplicates (op =) (map (fst o fst) overrides) of [] => ()
+        | name :: _ => mapping_error ("duplicate parameter override " ^ quote name) Position.none
+      val _ = List.app (fn ((name, pos), _) =>
+        if exists (fn (n, _, _) => n = name) descriptors then ()
+        else mapping_error ("unknown parameter override " ^ quote name) pos) overrides
+      val {fresh, normalize, check_sort, backend, backend_slots} =
+        inference_state Datatype_Fields ctxt []
+      fun parameter_type (name, pos, kind) =
+        let
+          val minimum = case kind of Type_Parameter => \<^sort>\<open>type\<close>
+            | Const_Parameter => \<^sort>\<open>len0\<close>
+          val explicit = AList.lookup (op =) (map (apfst fst) overrides) name
+          val declared = case explicit of NONE => NONE | SOME (raw, override_pos) =>
+            SOME (Syntax.read_typ ctxt raw handle ERROR message => mapping_error message override_pos)
+          val (hol_name, sort) = case declared of NONE =>
+              ("'" ^ String.map Char.toLower name, minimum)
+            | SOME (TFree parameter) => parameter
+            | SOME _ => mapping_error "parameter overrides require a HOL type variable and sort" pos
+          val slot = fresh sort
+          val _ = check_sort name slot minimum pos
+        in ((name, slot), (hol_name, declared, pos)) end
+      val (slots, names) = split_list (map parameter_type descriptors)
+      val _ = if length names = length (distinct (op =) (map #1 names)) then ()
+        else mapping_error "HOL parameter names must be distinct" Position.none
+      fun parameter name arities pos =
+        Option.map (fn typ =>
+          (if arities = [0] then () else mapping_error "parameters cannot take generic arguments" pos;
+           Navigation.defer_report ctxt pos Markup.tfree;
+           let
+             val index = find_index (fn (n, _) => n = name) slots
+             val kind = #3 (nth descriptors index)
+           in {typ = typ, meaning = (case kind of Type_Parameter => Meaning_Parameter index
+             | Const_Parameter => Meaning_Const_Parameter index)} end))
+          (AList.lookup (op =) slots name)
+      fun escape source =
+        let
+          val typ = Syntax.read_typ ctxt (Syntax.implode_input source)
+          val variables = Term.add_tfreesT typ []
+          val _ = if null (Term.add_tvarsT typ []) then () else
+            mapping_error "schematic variables are not declaration parameters" (Input.pos_of source)
+          fun substitute (variable as (name, sort)) =
+            case find_index (fn (n, _, _) => n = name) names of
+              ~1 => mapping_error "unrelated HOL variable in datatype field" (Input.pos_of source)
+            | index => let val slot = snd (nth slots index)
+                  val _ = check_sort name slot sort (Input.pos_of source)
+                in (TFree variable, slot) end
+        in Term.typ_subst_atomic (map substitute variables) typ end
+      val resolved = resolve_values Datatype_Fields ctxt escape check_sort normalize backend
+        parameter no_dependency rust_types
+      fun finish_parameter ((_, slot), (name, declared, pos)) =
+        case normalize slot of TVar (_, sort) =>
+          let
+            val sort = Sign.minimize_sort (Proof_Context.theory_of ctxt) sort
+            val _ = case declared of NONE => () | SOME typ =>
+              if Sign.of_sort (Proof_Context.theory_of ctxt) (typ, sort) then ()
+              else mapping_error "parameter override does not satisfy inferred sort" pos
+          in (normalize slot, (name, sort)) end
+        | _ => mapping_error "parameter inference produced a concrete type" pos
+      val inferred = map finish_parameter (slots ~~ names)
+      val substitutions = map (fn (slot, parameter) => (slot, TFree parameter)) inferred
+      val normalized_types = map (Term.typ_subst_atomic substitutions o normalize o #typ) resolved
+      val backend_context = fold (Variable.declare_typ o TFree o snd) inferred ctxt
+      val {types, backend_parameters} = finish_backend backend_context normalize (backend_slots ()) normalized_types
+    in {types = types, source_parameters = map snd inferred, backend_parameters = backend_parameters} end
+
   fun resolve_fields ctxt rust_types =
     let
       val {normalize, check_sort, backend, backend_slots, ...} =
@@ -993,6 +1158,7 @@ struct
     | hol_sources (Raw_Pointer_Type (_, typ, _)) = hol_sources typ
     | hol_sources (Slice_Type (typ, _)) = hol_sources typ
     | hol_sources (Array_Type (typ, _, _)) = hol_sources typ
+    | hol_sources (Const_Array_Type (typ, length, _)) = hol_sources typ @ hol_sources length
     | hol_sources (Primitive_Type _) = []
 
   fun resolve_signature_with ctxt rust_types assemble =
@@ -1110,6 +1276,19 @@ struct
         end
     in the_single (resolve_signature_with ctxt types assemble) end
 
+  fun instantiate_constructor ctxt rust_name arguments constructor =
+    let
+      val entry = the (lookup ctxt rust_name)
+      val _ = if length arguments = length (#parameter_sorts entry) then () else
+        mapping_error "constructor generic arity does not match its declaration" Position.none
+      val segments = [Rust_Type_Path_Segment (rust_name, Position.none, SOME arguments,
+        make_source_layout Position.none [])]
+      val result = the_single (resolve_signature ctxt [Path_Type (segments, make_source_layout Position.none [])])
+      val native = constructor |> Term.map_types Type.legacy_freeze_type
+      val substitution = Sign.typ_match (Proof_Context.theory_of ctxt)
+        (fastype_of native |> body_type |> Logic.varifyT_global, result) Vartab.empty
+    in Term.map_types (Envir.subst_type substitution o Logic.varifyT_global) native end
+
   fun alias_error message pos =
     error ("urust_type_alias: " ^ message ^ Position.here pos)
 
@@ -1134,10 +1313,12 @@ struct
        DPT_I8, DPT_I16, DPT_I32, DPT_I64, DPT_I128, DPT_Isize,
        DPT_Bool, DPT_Char, DPT_Str, DPT_Never, DPT_Unit]
 
-  fun declare_alias
-      {registration, item_name = (item_name, declaration_pos), parameters, rhs}
+  fun declare_generic_alias
+      {registration, item_name = (item_name, declaration_pos), parameters = descriptors, rhs}
       lthy =
     let
+      val parameters = map (fn Generic_Parameter (name, pos, _) => (name, pos)) descriptors
+      val parameter_kinds = map (fn Generic_Parameter (_, _, kind) => kind) descriptors
       val (raw, registration_pos) =
         the_default (item_name, declaration_pos) registration
       val {base, segment_arities, parameters = key_parameters, ...} =
@@ -1184,12 +1365,15 @@ struct
       val {fresh, normalize, check_sort, backend, backend_slots, ...} =
         inference_state Alias_Declaration lthy []
       val base_sort = the_default [] (Object_Logic.get_base_sort lthy)
-      val parameter_types = map (fn _ => fresh base_sort) parameters
+      val parameter_types = map (fn kind => fresh
+        (case kind of Type_Parameter => base_sort | Const_Parameter => \<^sort>\<open>len0\<close>)) parameter_kinds
       val parameter_table =
         Symtab.make
           (map_index
             (fn (index, ((name, _), typ)) =>
-              (name, {typ = typ, meaning = Meaning_Parameter index}))
+              (name, {typ = typ, meaning = (case nth parameter_kinds index of
+                Type_Parameter => Meaning_Parameter index
+              | Const_Parameter => Meaning_Const_Parameter index)}))
             (parameters ~~ parameter_types))
       val used_parameters = Unsynchronized.ref ([]: string list)
       val dependencies = Unsynchronized.ref ([]: string list)
@@ -1241,7 +1425,13 @@ struct
         the_single
           (resolve_values Alias_Declaration lthy read_escape
             check_sort normalize backend parameter dependency [rhs])
-      val unused = filter_out (member (op =) (!used_parameters)) parameter_names
+      (* Rust rejects unused type alias parameters, but permits unused const
+         parameters. Keep their slots and sorts in the registered scheme. *)
+      val unused =
+        parameter_names ~~ parameter_kinds
+        |> filter (fn (name, kind) =>
+          kind = Type_Parameter andalso not (member (op =) (!used_parameters) name))
+        |> map fst
       val _ =
         if null unused then ()
         else alias_error
@@ -1290,7 +1480,7 @@ struct
           [length parameters]
       val candidate =
         make_entry Alias declaration_pos arities template
-          parameter_sorts backend_sorts (#meaning result) (!dependencies)
+          parameter_kinds parameter_sorts backend_sorts (#meaning result) (!dependencies)
       val prepared = preflight lthy base candidate
       val _ =
         List.app
@@ -1301,6 +1491,11 @@ struct
          Existing _ => lthy
        | Fresh entry => install_new base entry lthy)
     end
+
+  fun declare_alias {registration, item_name, parameters, rhs} lthy =
+    declare_generic_alias {registration = registration, item_name = item_name,
+      parameters = map (fn (name, pos) => Generic_Parameter (name, pos, Type_Parameter)) parameters,
+      rhs = rhs} lthy
 
   fun cast_target (Meaning_Primitive DPT_U8) = SOME (CT_Unsigned UT_U8)
     | cast_target (Meaning_Primitive DPT_U16) = SOME (CT_Unsigned UT_U16)

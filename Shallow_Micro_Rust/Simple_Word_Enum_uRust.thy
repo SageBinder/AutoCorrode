@@ -170,7 +170,7 @@ fun generate_urust_conversion (info: Simple_Word_Enum.enum_info) lthy =
            paper over --- the two plugins are independent, but this one genuinely depends on
            that one. *)
         fun pure_const base result_ty =
-          let val name = type_name ^ "_" ^ base
+          let val name = Local_Theory.full_name lthy (Binding.name (type_name ^ "_" ^ base))
           in
             case try (Proof_Context.read_const {proper = true, strict = false} lthy) name of
               SOME (Const (c, _)) => Const (c, result_ty)

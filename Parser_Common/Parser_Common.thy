@@ -87,6 +87,19 @@ struct
        eof = #2 (Input.range_of source)}
     end
 
+  (* Synthetic delimiters have no source position; the embedded source keeps
+     its original symbol positions, including Isabelle symbol escapes. *)
+  fun wrapped_source_layout prefix source suffix =
+    let
+      val text = prefix ^ Input.text_of source ^ suffix
+      val base = make_source_layout (text_source text)
+      val symbols = Vector.fromList
+        (map (rpair Position.none) (Symbol.explode prefix) @ Input.source_explode source @
+         map (rpair Position.none) (Symbol.explode suffix))
+    in {source = #source base, text = #text base, symbols = symbols,
+        raw_starts = #raw_starts base, raw_length = #raw_length base,
+        fallback = Input.pos_of source, eof = #2 (Input.range_of source)}: source_layout end
+
   fun make_position_map source =
     make_source_layout source
 

@@ -1334,24 +1334,8 @@ ML_val\<open>
              [UR_Arm
                (P_Tuple ([P_Wild pos], layout), NONE, unit, layout)],
              layout)))
-    val _ = expect_error "empty constructor pattern"
-      "constructor pattern requires at least one member"
-      (fn () =>
-        print
-          (UE_Match
-            (MF_Auto, unit,
-             [UR_Arm
-               (P_Constr (path, [], layout), NONE, unit, layout)],
-             layout)))
-    val _ = expect_error "empty struct pattern"
-      "struct pattern requires at least one member"
-      (fn () =>
-        print
-          (UE_Match
-            (MF_Auto, unit,
-             [UR_Arm
-               (P_Struct (path, [], layout), NONE, unit, layout)],
-             layout)))
+    val _ = serialized_roundtrip
+      "match value { EmptyTuple() => (), EmptyNamed {} => () }"
     val _ = expect_error "singleton or-pattern"
       "or-pattern requires at least 2 members"
       (fn () =>
@@ -1416,18 +1400,10 @@ ML_val\<open>
     fun variant name shape =
       Datatype_Variant (name, pos, shape)
 
-    val _ = expect_error "empty tuple struct"
-      "empty tuple shape"
-      (fn () =>
-        print_datatype
-          (Struct_Item ("EmptyTuple", pos,
-            Tuple_Shape [], pos)))
-    val _ = expect_error "empty named struct"
-      "empty named shape"
-      (fn () =>
-        print_datatype
-          (Struct_Item ("EmptyNamed", pos,
-            Named_Shape [], pos)))
+    val _ = if print_datatype (Struct_Item ("EmptyTuple", pos, Tuple_Shape [], pos)) =
+      "struct EmptyTuple();" then () else error "empty tuple struct did not roundtrip"
+    val _ = if print_datatype (Struct_Item ("EmptyNamed", pos, Named_Shape [], pos)) =
+      "struct EmptyNamed {}" then () else error "empty named struct did not roundtrip"
     val _ = expect_error "empty enum"
       "enum declaration requires at least one member"
       (fn () =>

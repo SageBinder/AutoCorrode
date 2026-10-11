@@ -10,6 +10,10 @@ SML_import \<open> structure Input = struct open Input end \<close>       \<comm
 SML_import \<open> structure Position = struct open Position end \<close> \<comment>\<open> report / range / T \<close>
 SML_import \<open> structure Markup = struct open Markup end \<close>     \<comment>\<open> token reports \<close>
 SML_import \<open> structure Symbol = struct open Symbol end \<close>     \<comment>\<open> partial lexeme reports \<close>
+SML_import \<open>
+  structure Parser_Unsigned_Integer =
+  struct val read = Parser_Utils.read_unsigned_integer end
+\<close>
 
 ML\<open>
 signature URUST_GRAMMAR =
@@ -22,8 +26,9 @@ sig
   val block_comment_error: Position.T -> 'a
   val log_data_error: Position.T -> 'a
   val turbofish_error: Position.T -> 'a
+  val generic_integer_error: Position.T -> 'a
   val function_literal_suffix_error: Position.T -> 'a
-  val struct_head_generics_error: Position.T -> 'a
+  val datatype_error: string -> Position.T -> 'a
   val hol_type_error: Position.T -> 'a
   val hol_type_prefix_error: Position.T -> 'a
   val cast_comparison_error: string -> Position.T -> 'a
@@ -55,10 +60,10 @@ end
       the outermost `/*` opener.
     * log_data_error pos raises the unterminated-log-data diagnostic at the adjacent `l` opener.
     * turbofish_error pos raises the unterminated-group diagnostic at the generic opener.
+    * generic_integer_error pos rejects a complete numeric generic token that is malformed or
+      suffixed, before retained source can be reinterpreted as a HOL application.
     * function_literal_suffix_error pos rejects an arity suffix separated from its value
       antiquotation and reports at that suffix.
-    * struct_head_generics_error pos rejects generic arguments on any struct-expression head
-      segment and reports at that argument group.
     * hol_type_prefix_error pos rejects an unprefixed HOL type cartouche and directs the user to the
       required \<tau> prefix.
     * item_in_expression_error kind command pos rejects an item declaration selected through the
@@ -97,15 +102,18 @@ struct
   fun turbofish_error pos =
     error ("urust_expr: unterminated turbofish" ^ Position.here pos)
 
+  fun generic_integer_error pos =
+    error
+      ("urust_expr: syntax error: generic integers require complete unsuffixed integer literals" ^
+        Position.here pos)
+
   fun function_literal_suffix_error pos =
     error
       ("urust_expr: function-literal arity suffix must immediately follow the value antiquotation" ^
         Position.here pos)
 
-  fun struct_head_generics_error pos =
-    error
-      ("urust_expr: generic arguments are not supported in struct-expression heads" ^
-        Position.here pos)
+  fun datatype_error message pos = error ("urust_datatype: " ^ message ^ Position.here pos)
+
 
   fun hol_type_error pos =
     error
@@ -193,6 +201,7 @@ val aq_open = ref 0
 val aq_open_text = ref ""
 val aq_depth = ref 0
 val generic_open = ref (NONE : Position.T option)
+val generic_depth = ref 0
 val log_data_open = ref (NONE : Position.T option)
 val block_comment_open = ref (NONE : int option)
 val block_comment_depth = ref 0
@@ -213,6 +222,7 @@ val signature_context = ref Function_Signature
 datatype hol_type_context =
     Initial_HOL_Type
   | Signature_HOL_Type
+  | Generic_HOL_Type
 val hol_type_context = ref Initial_HOL_Type
 
 datatype comment_context =
@@ -317,7 +327,7 @@ fun cast_type_token typ =
 fun reset_aq () =
   (aq_kind := No_AQ; aq_buf := []; aq_start := 0; aq_open := 0;
    aq_open_text := ""; aq_depth := 0)
-fun reset_generic () = generic_open := NONE
+fun reset_generic () = (generic_open := NONE; generic_depth := 0)
 fun reset_log_data () = log_data_open := NONE
 fun reset_block_comment () =
   (block_comment_open := NONE; block_comment_depth := 0;
@@ -660,12 +670,17 @@ fun tok_generic_open (yypos, yytext) =
     val _ = generic_open := SOME (fixed_pos open_offset)
   in Tokens.TGOPEN (start, stop) end
 
-fun tok_generic_value markup typ cons (yypos, yytext) =
+fun tok_generic_integer (yypos, yytext) =
   let
     val (value, start, stop) =
       Parser_Lex_Util.ranged_value
-        (!source_layout) true markup typ (yypos, yytext)
-  in cons (value, start, stop) end
+        (!source_layout) true Markup.numeral "GNUM" (yypos, yytext)
+    val _ =
+      (case Parser_Unsigned_Integer.read yytext of
+         SOME _ => ()
+       | NONE => URust_Grammar.generic_integer_error
+           (Position.range_position (start, stop)))
+  in Tokens.GNUM (value, start, stop) end
 
 fun tok_generic_ident (yypos, yytext) =
   let
@@ -984,19 +999,35 @@ lex_rules\<open>
 <GENERIC>{ws}+    => (lex());
 <GENERIC>\\"<comment>" =>
     (start_comment Generic_Comment yypos; YYBEGIN COMMENT_OPEN; lex());
-<GENERIC>"0x"{hexdigit}+ =>
-    (tok_generic_value Markup.numeral "GNUM" Tokens.GNUM (yypos, yytext));
-<GENERIC>{digit}+ =>
-    (tok_generic_value Markup.numeral "GNUM" Tokens.GNUM (yypos, yytext));
+<GENERIC>\\"<tau>"\\"<open>" =>
+    (start_hol_type_token Generic_HOL_Type (yypos, yytext);
+     YYBEGIN HOLTYPE; lex());
+<GENERIC>"0b"[0-1]([0-1]|"_")* =>
+    (tok_generic_integer (yypos, yytext));
+<GENERIC>"0o"[0-7]([0-7]|"_")* =>
+    (tok_generic_integer (yypos, yytext));
+<GENERIC>"0x"{hexdigit}({hexdigit}|"_")* =>
+    (tok_generic_integer (yypos, yytext));
+<GENERIC>{digit}({digit}|"_")* =>
+    (tok_generic_integer (yypos, yytext));
+<GENERIC>{digit}{idchar}* =>
+    (tok_generic_integer (yypos, yytext));
 <GENERIC>{idstart}{identchar}* => (tok_generic_ident (yypos, yytext));
 <GENERIC>"::"     => (tokF (yypos, yytext, Markup.delimiter, "TCOLONCOLON", Tokens.TCOLONCOLON));
 <GENERIC>"("      => (tok_generic_raw Markup.delimiter "GLPAR" Tokens.GLPAR (yypos, yytext));
 <GENERIC>")"      => (tok_generic_raw Markup.delimiter "GRPAR" Tokens.GRPAR (yypos, yytext));
 <GENERIC>","      => (tokF (yypos, yytext, Markup.delimiter, "COMMA", Tokens.COMMA));
 <GENERIC>"+"      => (tokF (yypos, yytext, Markup.operator, "TPLUS", Tokens.TPLUS));
+<GENERIC>"<"      =>
+    (generic_depth := !generic_depth + 1;
+     tok_generic_raw Markup.delimiter "GLT" Tokens.GLT (yypos, yytext));
 <GENERIC>">"      =>
-    (generic_open := NONE; YYBEGIN INITIAL;
-     tokF (yypos, yytext, Markup.delimiter, "TGT", Tokens.TGT));
+    (if !generic_depth > 0 then
+       (generic_depth := !generic_depth - 1;
+        tok_generic_raw Markup.delimiter "GGT" Tokens.GGT (yypos, yytext))
+     else
+       (reset_generic (); YYBEGIN INITIAL;
+        tokF (yypos, yytext, Markup.delimiter, "TGT", Tokens.TGT)));
 <GENERIC>.        => (URust_Grammar.lex_error yytext (fixed_pos yypos));
 <FNSIG>\n       => (lex());
 <FNSIG>{ws}+    => (lex());
@@ -1028,6 +1059,7 @@ lex_rules\<open>
 <FNSIG>"bool"   => (tok_rust_type DPT_Bool (yypos, yytext));
 <FNSIG>"char"   => (tok_rust_type DPT_Char (yypos, yytext));
 <FNSIG>"str"    => (tok_rust_type DPT_Str (yypos, yytext));
+<FNSIG>"fn"     => (tokF (yypos, yytext, Markup.keyword1, "TFN", Tokens.TFN));
 <FNSIG>"mut"    => (tokF (yypos, yytext, Markup.keyword1, "TMUT", Tokens.TMUT));
 <FNSIG>"const"  => (tokF (yypos, yytext, Markup.keyword1, "TCONST", Tokens.TCONST));
 <FNSIG>"->"     => (tokF (yypos, yytext, Markup.delimiter, "TTHINARROW", Tokens.TTHINARROW));
@@ -1125,12 +1157,24 @@ lex_rules\<open>
      else
        let
          val context = !hol_type_context
+         val open_pos = Option.valOf (!hol_type_open)
          val token = finish_hol_type (yypos, yytext)
          val _ =
            (case context of
               Initial_HOL_Type => YYBEGIN INITIAL
-            | Signature_HOL_Type => YYBEGIN FNSIG)
-       in token end);
+            | Signature_HOL_Type => YYBEGIN FNSIG
+            | Generic_HOL_Type => YYBEGIN GENERIC)
+       in
+         if context = Generic_HOL_Type then
+           let
+             val stop = yypos + size yytext
+             val text = String.substring
+               (Parser_Lex_Util.text_of (!source_layout), open_pos, stop - open_pos)
+             val (start_pos, stop_pos) = Parser_Lex_Util.text_range
+               (!source_layout) (open_pos, text)
+           in Tokens.GHOLTYPE ((text, !source_layout, open_pos, stop), start_pos, stop_pos) end
+         else token
+       end);
 <HOLTYPE>\n => (lex());
 <HOLTYPE>.  => (lex());
 <COMMENT_OPEN>\n       => (lex());
@@ -1326,26 +1370,13 @@ fun append_path (UR_Path (head, segments, pos), segment) =
      Position.range_position
        (pos, Parser_Lex_Util.exclusive_end (segment_position segment)))
 
-fun reject_struct_head_generics path =
-  let
-    fun reject segment =
-      (case segment_generic_args segment of
-         NONE => ()
-       | SOME (Generic_Args (_, pos)) =>
-           URust_Grammar.struct_head_generics_error pos)
-  in List.app reject (path_segments path) end
-
 fun make_struct_expression
     (path, fields, left_brace, right_brace, right_stop) =
-  let
-    val _ = reject_struct_head_generics path
-  in
     UE_Struct
       (path, fields,
        syntax_layout (path_position path) right_stop
          [(Delimiter_Token "{", left_brace),
           (Delimiter_Token "}", right_brace)])
-  end
 
 fun make_slice_pattern (items, left_bracket, right_bracket, right_stop) =
   let
@@ -1453,6 +1484,10 @@ fun rust_type_alias_item
         [(Delimiter_Token "=", equals_pos),
          (Delimiter_Token ";", semicolon_pos)]))
 
+fun datatype_header parameters repr discriminants item =
+  if null parameters andalso not (Option.isSome repr) andalso null discriminants then item
+  else Datatype_Header (parameters, repr, discriminants, item)
+
 fun reject_datatype_item_in_expression
       (Struct_Item (_, _, _, pos)) =
       URust_Grammar.item_in_expression_error
@@ -1461,6 +1496,9 @@ fun reject_datatype_item_in_expression
       (Enum_Item (_, _, _, pos)) =
       URust_Grammar.item_in_expression_error
         "enum" "urust_datatype" pos
+
+  | reject_datatype_item_in_expression (Datatype_Header (_, _, _, item)) =
+      reject_datatype_item_in_expression item
 
 fun reject_function_item_in_expression function =
   URust_Grammar.item_in_expression_error
@@ -1529,20 +1567,28 @@ yacc_definitions\<open>
     | HOLTYPE of Input.source
     | TEXPRSTART | TITEMSTART
     | TTYPE
+    | GLT of int | GGT of int
+    | GHOLTYPE of string * Parser_Lex_Util.source_layout * int * int
 %nonterm ustart of URust_AST.parse_result option
        | uitem of URust_AST.urust_item
        | udatatype of URust_AST.urust_datatype
        | ufunction of URust_AST.urust_function
        | utype_alias of URust_AST.urust_type_alias
        | ualias_parameters of
-           (string * Position.T) list *
+           URust_AST.generic_parameter list *
            (URust_AST.source_token * Position.T) list
-       | ualias_parameter_names of (string * Position.T) list
+       | ualias_parameter_names of URust_AST.generic_parameter list
        | ufn_parameters of URust_AST.function_parameter list
        | ufn_parameter of URust_AST.function_parameter
        | ufn_return of URust_AST.rust_type option * Position.T option
        | uvariant of URust_AST.datatype_variant
-       | uvariants of URust_AST.datatype_variant list
+       | uvariants of
+           URust_AST.datatype_variant list * (string * URust_AST.integer_literal) list
+       | uvariant_value of URust_AST.integer_literal option
+       | udatatype_parameters of URust_AST.generic_parameter list
+       | udatatype_parameter_names of URust_AST.generic_parameter list
+       | udatatype_parameter of URust_AST.generic_parameter
+       | urepr of (string * Position.T) option
        | udatatype_type of URust_AST.datatype_type
        | udatatype_types of URust_AST.datatype_type list
        | udatatype_field of URust_AST.datatype_field
@@ -1552,6 +1598,7 @@ yacc_definitions\<open>
        | urust_type_segment of URust_AST.rust_type_path_segment
        | urust_generic_argument of URust_AST.rust_generic_argument
        | urust_generic_arguments of URust_AST.rust_generic_argument list
+       | ugeneric_nested_arguments of parsed_fragment list
        | urust_types of URust_AST.rust_type list
        | urust_tuple_types of URust_AST.rust_type list
        | ubody of URust_AST.ur_expr
@@ -1642,38 +1689,72 @@ yacc_rules\<open>
         | utype_alias (Type_Alias_Item_Node utype_alias)
   utype_alias :
       TTYPE IDENT ualias_parameters TEQ urust_type TSEMI
-        (rust_type_alias_item
-          (IDENT, IDENTleft, ualias_parameters, urust_type,
-           TTYPEleft, TEQleft, TSEMIleft, TSEMIright))
+        (let
+           val parameters = map (fn Generic_Parameter (name, pos, _) => (name, pos)) (#1 ualias_parameters)
+           val item = rust_type_alias_item
+             (IDENT, IDENTleft, (parameters, #2 ualias_parameters), urust_type,
+              TTYPEleft, TEQleft, TSEMIleft, TSEMIright)
+         in if List.exists (fn Generic_Parameter (_, _, kind) => kind = Const_Parameter) (#1 ualias_parameters)
+            then Generic_Type_Alias (#1 ualias_parameters, item) else item end)
   ualias_parameters :
       ([], [])
     | TLT ualias_parameter_names TGT
         (ualias_parameter_names,
          (Delimiter_Token "<", TLTleft) ::
-         map (fn (_, pos) => (Name_Token, pos)) ualias_parameter_names @
+         map (fn Generic_Parameter (_, pos, _) => (Name_Token, pos)) ualias_parameter_names @
          [(Delimiter_Token ">", TGTleft)])
   ualias_parameter_names :
-      IDENT ([(IDENT, IDENTleft)])
-    | IDENT COMMA ([(IDENT, IDENTleft)])
-    | IDENT COMMA ualias_parameter_names
-        ((IDENT, IDENTleft) :: ualias_parameter_names)
+      udatatype_parameter ([udatatype_parameter])
+    | udatatype_parameter COMMA ([udatatype_parameter])
+    | udatatype_parameter COMMA ualias_parameter_names
+        (udatatype_parameter :: ualias_parameter_names)
+  udatatype_parameters :
+      ([])
+    | TLT udatatype_parameter_names TGT (udatatype_parameter_names)
+  udatatype_parameter_names :
+      udatatype_parameter ([udatatype_parameter])
+    | udatatype_parameter COMMA ([udatatype_parameter])
+    | udatatype_parameter COMMA udatatype_parameter_names
+        (udatatype_parameter :: udatatype_parameter_names)
+  udatatype_parameter :
+      IDENT (Generic_Parameter (IDENT, IDENTleft, Type_Parameter))
+    | TCONST IDENT TCOLON TRUSTTYPE
+        (if TRUSTTYPE = DPT_Usize then Generic_Parameter (IDENT, IDENTleft, Const_Parameter)
+         else URust_Grammar.datatype_error "const parameters require usize" TRUSTTYPEleft)
+  urepr :
+      (NONE)
+    | THASH TLBRACK IDENT LPAR urust_type RPAR TRBRACK
+        (if IDENT = "repr" then
+           SOME (case urust_type of
+             Primitive_Type (primitive, pos) => (rust_primitive_name primitive, pos)
+           | Path_Type ([Rust_Type_Path_Segment (name, pos, NONE, _)], _) => (name, pos)
+           | _ => URust_Grammar.datatype_error "unsupported repr" (rust_type_position urust_type))
+         else URust_Grammar.datatype_error ("unsupported attribute " ^ IDENT) IDENTleft)
   udatatype :
-      TSTRUCT IDENT TSEMI
-        (Struct_Item
-          (IDENT, IDENTleft, Unit_Shape,
-           Position.range_position (TSTRUCTleft, TSEMIright)))
-    | TSTRUCT IDENT LPAR udatatype_types RPAR TSEMI
-        (Struct_Item
-          (IDENT, IDENTleft, Tuple_Shape udatatype_types,
-           Position.range_position (TSTRUCTleft, TSEMIright)))
-    | TSTRUCT IDENT TLBRACE udatatype_fields TRBRACE
-        (Struct_Item
-          (IDENT, IDENTleft, Named_Shape udatatype_fields,
-           Position.range_position (TSTRUCTleft, TRBRACEright)))
-    | TENUM IDENT TLBRACE uvariants TRBRACE
-        (Enum_Item
-          (IDENT, IDENTleft, uvariants,
-           Position.range_position (TENUMleft, TRBRACEright)))
+      TSTRUCT IDENT udatatype_parameters TSEMI
+        (datatype_header udatatype_parameters NONE []
+          (Struct_Item (IDENT, IDENTleft, Unit_Shape,
+            Position.range_position (TSTRUCTleft, TSEMIright))))
+    | TSTRUCT IDENT udatatype_parameters LPAR udatatype_types RPAR TSEMI
+        (datatype_header udatatype_parameters NONE []
+          (Struct_Item (IDENT, IDENTleft, Tuple_Shape udatatype_types,
+            Position.range_position (TSTRUCTleft, TSEMIright))))
+    | TSTRUCT IDENT udatatype_parameters LPAR RPAR TSEMI
+        (datatype_header udatatype_parameters NONE []
+          (Struct_Item (IDENT, IDENTleft, Tuple_Shape [],
+            Position.range_position (TSTRUCTleft, TSEMIright))))
+    | TSTRUCT IDENT udatatype_parameters TLBRACE udatatype_fields TRBRACE
+        (datatype_header udatatype_parameters NONE []
+          (Struct_Item (IDENT, IDENTleft, Named_Shape udatatype_fields,
+            Position.range_position (TSTRUCTleft, TRBRACEright))))
+    | TSTRUCT IDENT udatatype_parameters TLBRACE TRBRACE
+        (datatype_header udatatype_parameters NONE []
+          (Struct_Item (IDENT, IDENTleft, Named_Shape [],
+            Position.range_position (TSTRUCTleft, TRBRACEright))))
+    | urepr TENUM IDENT udatatype_parameters TLBRACE uvariants TRBRACE
+        (datatype_header udatatype_parameters urepr (#2 uvariants)
+          (Enum_Item (IDENT, IDENTleft, #1 uvariants,
+            Position.range_position (TENUMleft, TRBRACEright))))
   ufunction :
       TFN IDENT LPAR ufn_parameters RPAR ufn_return ublock
         (rust_function_item
@@ -1767,6 +1848,13 @@ yacc_rules\<open>
              [(Delimiter_Token "[", TLBRACKleft),
               (Delimiter_Token ";", TSEMIleft),
               (Delimiter_Token "]", TRBRACKleft)]))
+    | TLBRACK urust_type TSEMI IDENT TRBRACK
+        (Const_Array_Type (urust_type,
+          rust_type_path (rust_type_segment (IDENT, IDENTleft, NONE, IDENTright)),
+          syntax_layout TLBRACKleft TRBRACKright []))
+    | TLBRACK urust_type TSEMI HOLTYPE TRBRACK
+        (Const_Array_Type (urust_type, HOL_Type_Source HOLTYPE,
+          syntax_layout TLBRACKleft TRBRACKright []))
     | HOLTYPE
         (HOL_Type_Source HOLTYPE)
   urust_type_path :
@@ -1809,9 +1897,25 @@ yacc_rules\<open>
     | IDENT TLBRACE udatatype_fields TRBRACE
         (datatype_variant
           (IDENT, IDENTleft, Named_Shape udatatype_fields))
-  uvariants : uvariant ([uvariant])
-            | uvariant COMMA ([uvariant])
-            | uvariant COMMA uvariants (uvariant :: uvariants)
+    | IDENT LPAR RPAR
+        (datatype_variant (IDENT, IDENTleft, Tuple_Shape []))
+    | IDENT TLBRACE TRBRACE
+        (datatype_variant (IDENT, IDENTleft, Named_Shape []))
+  uvariant_value :
+      (NONE)
+    | TEQ NUM (SOME NUM)
+    | TEQ NUMSFX (SOME NUMSFX)
+  uvariants :
+      uvariant uvariant_value
+        ([uvariant], case uvariant_value of NONE => [] | SOME value =>
+          [(case uvariant of Datatype_Variant (name, _, _) => name, value)])
+    | uvariant uvariant_value COMMA
+        ([uvariant], case uvariant_value of NONE => [] | SOME value =>
+          [(case uvariant of Datatype_Variant (name, _, _) => name, value)])
+    | uvariant uvariant_value COMMA uvariants
+        (uvariant :: #1 uvariants,
+         (case uvariant_value of NONE => [] | SOME value =>
+           [(case uvariant of Datatype_Variant (name, _, _) => name, value)]) @ #2 uvariants)
   udatatype_type :
       urust_type
         (urust_type)
@@ -2179,6 +2283,9 @@ yacc_rules\<open>
                        (lexeme, layout, start, stop) =>
                          Parsed_Fragment
                            (lexeme, layout, start, stop))
+                | GHOLTYPE
+                    (case GHOLTYPE of (text, layout, start, stop) =>
+                      Parsed_Fragment (text, layout, start, stop))
                 | ugeneric_path
                     (ugeneric_path)
                 | GLPAR ugeneric_additive GRPAR
@@ -2201,6 +2308,16 @@ yacc_rules\<open>
                           Parsed_Fragment
                             (canonical ^ "::" ^ name,
                              layout, start, stop))
+                | ugeneric_path GLT ugeneric_nested_arguments GGT
+                    (case ugeneric_path of Parsed_Fragment (name, layout, start, _) =>
+                      Parsed_Fragment
+                        (name ^ "<" ^ String.concatWith ","
+                          (map (fn Parsed_Fragment (text, _, _, _) => text)
+                            ugeneric_nested_arguments) ^ ">", layout, start, GGT + 1))
+  ugeneric_nested_arguments : ugeneric_additive
+                    ([ugeneric_additive])
+                | ugeneric_additive COMMA ugeneric_nested_arguments
+                    (ugeneric_additive :: ugeneric_nested_arguments)
   ucast_target : urust_type
                    (source_cast_target_from_rust_type urust_type)
   (* The no-struct family mirrors the structural expression boundaries and binary operator rule.
@@ -2705,6 +2822,12 @@ yacc_rules\<open>
            syntax_layout uidentifier_pathleft RPARright
              [(Delimiter_Token "(", LPARleft),
               (Delimiter_Token ")", RPARleft)]))
+    | uidentifier_path LPAR RPAR
+        (mk_ctor_pat
+          (uidentifier_path, [],
+           syntax_layout uidentifier_pathleft RPARright
+             [(Delimiter_Token "(", LPARleft),
+              (Delimiter_Token ")", RPARleft)]))
     | LPAR upat RPAR
         (P_Group
           (upat,
@@ -2720,6 +2843,12 @@ yacc_rules\<open>
     | uidentifier_path TLBRACE ustruct_fields TRBRACE
         (mk_struct_pat
           (uidentifier_path, ustruct_fields,
+           syntax_layout uidentifier_pathleft TRBRACEright
+             [(Delimiter_Token "{", TLBRACEleft),
+              (Delimiter_Token "}", TRBRACEleft)]))
+    | uidentifier_path TLBRACE TRBRACE
+        (mk_struct_pat
+          (uidentifier_path, [],
            syntax_layout uidentifier_pathleft TRBRACEright
              [(Delimiter_Token "{", TLBRACEleft),
               (Delimiter_Token "}", TRBRACEleft)]))
@@ -2802,6 +2931,9 @@ sig
     Proof.context -> Input.source -> URust_AST.urust_datatype option
   val parse_function_source:
     Proof.context -> Input.source -> URust_AST.urust_function option
+  val parse_type_source: Proof.context -> Input.source -> URust_AST.rust_type
+  val parse_generic_argument_source:
+    Proof.context -> Input.source -> URust_AST.rust_generic_argument
   val parse_type_alias_source:
     Proof.context -> Input.source -> URust_AST.urust_type_alias option
 end
@@ -2944,7 +3076,10 @@ struct
      (92, "HOLTYPE", "<HOL type>"),
      (93, "TEXPRSTART", "<expression input>"),
      (94, "TITEMSTART", "<item input>"),
-     (95, "TTYPE", "type")]
+     (95, "TTYPE", "type"),
+     (96, "GLT", "<"),
+     (97, "GGT", ">"),
+     (98, "GHOLTYPE", "<HOL type>")]
 
   val terminal_count = length terminal_specs
 
@@ -3174,6 +3309,28 @@ struct
            ("urust_type_alias: expected a complete type alias item" ^
              Position.here (URust_AST.function_item_position function))
      | NONE => NONE)
+  fun parse_type_source ctxt source =
+    Parser_Lex_Util.with_parser_lock (fn () =>
+      case parse_item_layout ctxt
+        (Parser_Lex_Util.wrapped_source_layout "type __TypeArgument = " source ";") of
+        SOME (URust_AST.Parsed_Item (URust_AST.Type_Alias_Item_Node item)) =>
+          URust_AST.type_alias_rhs item
+      | _ => error ("uRust parser: expected a Rust type" ^ Position.here (Input.pos_of source)))
+
+  fun parse_generic_argument_source ctxt source =
+    Parser_Lex_Util.with_parser_lock (fn () =>
+      case parse_item_layout ctxt
+        (Parser_Lex_Util.wrapped_source_layout
+          "type __GenericArgument = __Argument<" source ">;") of
+        SOME (URust_AST.Parsed_Item (URust_AST.Type_Alias_Item_Node item)) =>
+          (case URust_AST.type_alias_rhs item of
+             URust_AST.Path_Type
+               ([URust_AST.Rust_Type_Path_Segment (_, _, SOME [argument], _)], _) =>
+                 argument
+           | _ => error ("uRust parser: expected one complete generic argument" ^
+               Position.here (Input.pos_of source)))
+      | _ => error ("uRust parser: expected a generic argument" ^
+          Position.here (Input.pos_of source)))
 end
 \<close>
 

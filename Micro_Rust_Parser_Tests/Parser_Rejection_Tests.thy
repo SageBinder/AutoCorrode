@@ -2703,8 +2703,9 @@ urust_expr_rejects
 subsection\<open> Restricted turbofish grammar \<close>
 
 text\<open>
-The parser intentionally accepts only unsuffixed integers, paths, grouping, and
-left-associative addition in generic position.
+Ordinary calls retain the restricted value arguments: unsuffixed integers, paths, grouping,
+and left-associative addition. The shared grammar also accepts nested Rust type arguments
+for generated constructors; comparison and shift expressions remain unsupported.
 \<close>
 
 urust_expr_rejects \<open> f::<Suc 4>() \<close> \<open> syntax error \<close>
@@ -2713,8 +2714,8 @@ urust_expr_rejects \<open> f::<[1, 2]>() \<close> \<open> unexpected input "[" \
 urust_expr_rejects \<open> f::<"text">() \<close> \<open> unexpected input \<close>
 urust_expr_rejects \<open> f::<STR ''text''>() \<close> \<open> unexpected input \<close>
 urust_expr_rejects \<open> f::<1 :: nat>() \<close> \<open> syntax error \<close>
-urust_expr_rejects \<open> f::<a < b>() \<close> \<open> unexpected input "<" \<close>
-urust_expr_rejects \<open> f::<a << b>() \<close> \<open> unexpected input "<" \<close>
+urust_expr_rejects \<open> f::<a < b>() \<close> \<open> unterminated turbofish \<close>
+urust_expr_rejects \<open> f::<a << b>() \<close> \<open> syntax error \<close>
 urust_expr_rejects \<open> f::<a & b>() \<close> \<open> unexpected input "&" \<close>
 urust_expr_rejects \<open> f::<a && b>() \<close> \<open> unexpected input "&" \<close>
 urust_expr_rejects \<open> f::<a % b>() \<close> \<open> unexpected input "%" \<close>
@@ -2751,6 +2752,18 @@ urust_expr_rejects
   \<open> generic arguments on a bare value require an exact literal registration \<close>
 urust_expr_rejects \<open> f::<1u8>() \<close> \<open> syntax error \<close>
 urust_expr_rejects \<open> f::<0xff_u8>() \<close> \<open> syntax error \<close>
+urust_expr_rejects \<open> f::<1foo>() \<close> \<open> complete unsuffixed integer literals \<close>
+urust_expr_rejects \<open> f::<0b102>() \<close> \<open> complete unsuffixed integer literals \<close>
+urust_expr_rejects \<open> f::<0o8>() \<close> \<open> complete unsuffixed integer literals \<close>
+urust_expr_rejects \<open> f::<0x0x10>() \<close> \<open> complete unsuffixed integer literals \<close>
+urust_expr_rejects \<open> f::<0x_>() \<close> \<open> complete unsuffixed integer literals \<close>
+urust_expr_rejects \<open> receiver.f::<0b102>() \<close> \<open> complete unsuffixed integer literals \<close>
+urust_expr_rejects \<open> f::<(1u8)>() \<close> \<open> complete unsuffixed integer literals \<close>
+urust_expr_rejects \<open> f::<1 + 2u8>() \<close> \<open> complete unsuffixed integer literals \<close>
+urust_expr_rejects \<open> f::<Nested<1u8>>() \<close> \<open> complete unsuffixed integer literals \<close>
+urust_expr_rejects
+  \<open> \<llangle>\<lambda>x. x\<rrangle>\<^sub>1::<1u8>() \<close>
+  \<open> complete unsuffixed integer literals \<close>
 
 urust_expr_rejects \<open> "bad\q" \<close> \<open> bad escape character in string \<close>
   \<comment> \<open> [FIDELITY] malformed escapes are rejected by the same Isabelle string decoder. \<close>

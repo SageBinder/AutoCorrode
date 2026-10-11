@@ -197,6 +197,16 @@ Exact registered associated items may use the existing integer primitive tokens 
 `u8`, `u16`, `u32`, `u64`, `usize`, `i32`, and `i64`. Literal-role registration is mandatory for
 values, patterns, and repeat lengths; call-role registration is mandatory for calls. The primitive
 head does not participate in lexical, HOL-name, unresolved-free, or native-constructor fallback.
+
+`Parser_Unified_Datatype_Tests.thy` covers generic type/const schemes, fixed arrays, const forwarding,
+explicit parameter sorts, unused parameters, and source construction/patterns.
+`urust_datatype` selects the custom enum by default and the word backend only with an explicit width
+and no payload. Explicit word/custom backend names are quoted Isabelle command keywords.
+The suite checks boundary discriminants, incompatible backend requests, inferred constraints,
+constructor substitutions, conversion registration, and failure recovery. Automatic `PhantomData`
+handling is deferred: unmapped fields receive a diagnostic, and explicit singleton mappings retain
+ordinary stored fields and constructor/pattern slots. Tests relying on BNF
+artifacts select `backend = hol`.
 Identifier-headed paths retain their previous behavior, including unsupported widths such as
 `u128`.
 
@@ -300,6 +310,11 @@ negative rows preserve these boundaries.
   diagnostics, and command output. Declaration-local `renames` coverage checks selector and
   constructor identities, short-name binder hygiene, source aliases and metadata, effective-name
   collisions, quoted-list syntax, positioned recovery, and read-only pretty replay.
+- `Parser_Datatype_Composition_Tests.thy`: complete generic and const mappings through aliases,
+  typed receivers and function channels, default direct/method calls, constructor and field
+  renames, native backend artifacts and plugins, locale confinement, and read-only combined replay.
+  Complete radix literals and discriminants, additive/suffixed const rejection, malformed numeric
+  ASTs, and generated-function turbofish boundaries prevent silent argument truncation.
 - `Parser_Printer_Tests.thy`: serialized and human-readable expression and datatype printing,
   canonicalization, layout, positions, and malformed-AST diagnostics.
 - `Parser_Showcase_Tests.thy`: combined command, grammar, matching, array-repeat, and iterator examples.

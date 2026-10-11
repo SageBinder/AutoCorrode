@@ -6,6 +6,34 @@ ML\<open>
 structure Parser_Utils =
 struct
 
+(* Basis scanners accept prefixes. Source literals must consume every digit, including
+   after a radix prefix; otherwise a const argument can silently acquire the wrong type. *)
+fun read_unsigned_integer text =
+  let
+    val (radix, base, start) =
+      if String.isPrefix "0b" text then (StringCvt.BIN, 2, 2)
+      else if String.isPrefix "0o" text then (StringCvt.OCT, 8, 2)
+      else if String.isPrefix "0x" text then (StringCvt.HEX, 16, 2)
+      else (StringCvt.DEC, 10, 0)
+    val digits = String.extract (text, start, NONE)
+    val clean = String.translate (fn #"_" => "" | c => str c) digits
+    fun digit c =
+      if #"0" <= c andalso c <= #"9" then Char.ord c - Char.ord #"0"
+      else if #"a" <= c andalso c <= #"f" then 10 + Char.ord c - Char.ord #"a"
+      else if #"A" <= c andalso c <= #"F" then 10 + Char.ord c - Char.ord #"A"
+      else base
+  in
+    if clean = "" orelse
+      (start = 0 andalso digit (String.sub (digits, 0)) >= base) orelse
+      exists (fn c => c <> #"_" andalso digit c >= base) (String.explode digits)
+    then NONE
+    else
+      (case Int.scan radix Substring.getc (Substring.full clean) of
+         SOME (value, rest) =>
+           if Substring.isEmpty rest then SOME value else NONE
+       | NONE => NONE)
+  end
+
 type var_info = { free : term, def_pos : Position.T, id : int }
 
 fun report_def kind ctxt id (x, def_pos) =

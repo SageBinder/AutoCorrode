@@ -4,6 +4,8 @@ theory Parser_Impl_Datatype
     Parser_Impl_Printer_Output
     Parser_Impl_Translate
     Parser_Impl_Type_Mappings_Builtins
+    Enum_Theory.Enum_Theory
+    Shallow_Micro_Rust.Simple_Word_Enum_uRust
 begin
 
 section\<open> Rust datatype declarations \<close>
@@ -29,7 +31,11 @@ sig
      pp_test: bool,
      pretty: bool,
      register_notation: bool,
-     renames: rename list} ->
+     renames: rename list,
+     backend: string,
+     word_width: int option,
+     parameters: rename list,
+     plugins: Proof.context -> Plugin_Name.filter} ->
     local_theory -> local_theory
 end
 
@@ -60,6 +66,11 @@ type generated_datatype =
    hol_type_name: string,
    hol_type: typ,
    backend_parameters: (string * sort) list,
+   backend: string,
+   source_parameters: (string * sort) list,
+   native_constructors: term list,
+   native_selectors: term list list,
+   selector_definitions: thm list,
    constructors: (string * string) list,
    selectors: (string * string) list,
    lenses: (string * string) list,
@@ -213,6 +224,7 @@ fun recursive_type_position rust_name datatype_type =
           typ_position typ
       | typ_position (URust_AST.Array_Type (typ, _, _)) =
           typ_position typ
+      | typ_position (URust_AST.Const_Array_Type (typ, _, _)) = typ_position typ
       | typ_position (URust_AST.HOL_Type_Source _) = NONE
   in typ_position datatype_type end
 
@@ -296,12 +308,12 @@ fun validate_shape constructor_name constructor_pos shape =
 fun bnf_constructor binding fields =
   (((Binding.empty, binding), fields), NoSyn)
 
-fun define_bnf_datatype backend_parameters binding constructors lthy =
+fun define_bnf_datatype plugins backend_parameters binding constructors lthy =
   let
     val datatype_spec =
       ((datatype_parameters backend_parameters, binding), NoSyn)
     val dtspec =
-      (Ctr_Sugar.default_ctr_options,
+      ((Plugin_Name.make_filter lthy plugins, false),
        [(((datatype_spec, constructors),
           (Binding.empty, Binding.empty, Binding.empty)), [])])
   in
@@ -322,7 +334,7 @@ fun completed_datatype_info backend_parameters item rust_name type_binding lthy 
     val hol_type_name = dest_Type_name (#T sugar)
     (* Ctr_Sugar exports native schemes with index-zero schematic variables.
        Registry schemes name their implicit parameters with free variables. *)
-    val hol_type = Logic.unvarifyT_global (#T sugar)
+    val hol_type = Type.legacy_freeze_type (#T sugar)
     val generated_parameters =
       map dest_TFree (snd (dest_Type hol_type))
     val _ =
@@ -339,6 +351,11 @@ fun completed_datatype_info backend_parameters item rust_name type_binding lthy 
      hol_type_name = hol_type_name,
      hol_type = hol_type,
      backend_parameters = generated_parameters,
+     backend = "hol",
+     source_parameters = [],
+     native_constructors = #ctrs sugar,
+     native_selectors = #selss sugar,
+     selector_definitions = #sel_defs sugar,
      constructors = map (pair "") constructor_names,
      selectors = map (pair "") selector_names,
      lenses = [],
@@ -404,25 +421,17 @@ fun reject_item_notation_conflict lthy rust_path rust_pos =
   end
 
 fun register_generated_datatype
-    ({rust_name, hol_type_name, item, ...}: generated_datatype) lthy =
+    ({rust_name, hol_type_name, item, native_constructors, native_selectors, ...}: generated_datatype) lthy =
   let
     val rust_pos =
       (case item of
          URust_AST.Struct_Item (_, pos, _, _) => pos
        | URust_AST.Enum_Item (_, pos, _, _) => pos)
-    val sugar =
-      (case Ctr_Sugar.ctr_sugar_of lthy hol_type_name of
-         SOME sugar => sugar
-       | NONE =>
-           error
-             ("urust_datatype: generated datatype metadata is unavailable for " ^
-               quote hol_type_name))
     val descriptors = item_constructor_descriptors item
-    val constructors = #ctrs sugar
+    val constructors = native_constructors
     val selector_rows =
-      if null (#selss sugar)
-      then replicate (length constructors) []
-      else #selss sugar
+      if null native_selectors then replicate (length constructors) []
+      else native_selectors
     val _ =
       if length descriptors = length constructors andalso
           length constructors = length selector_rows
@@ -465,7 +474,7 @@ fun register_generated_datatype
       (descriptors ~~ (constructors ~~ selector_rows)) lthy'
   end
 
-fun make_named_struct register_notation renames backend_parameters resolved_types
+fun make_named_struct plugins register_notation renames backend_parameters resolved_types
     rust_name rust_pos type_binding fields item lthy =
   let
     val hol_base = Binding.name_of type_binding
@@ -481,7 +490,7 @@ fun make_named_struct register_notation renames backend_parameters resolved_type
     val _ = check_effective_names "generated HOL field" (map fst record_fields)
     val lthy' =
       Datatype_Records.record type_binding
-        Datatype_Records.default_ctr_options
+        (Plugin_Name.make_filter lthy plugins)
         (datatype_parameters backend_parameters) record_fields lthy
     val overrides =
       if register_notation
@@ -504,7 +513,7 @@ fun make_named_struct register_notation renames backend_parameters resolved_type
     (completed_datatype_info backend_parameters item rust_name type_binding lthy'', lthy'')
   end
 
-fun make_positional_struct backend_parameters resolved_types
+fun make_positional_struct plugins backend_parameters resolved_types
     rust_name rust_pos type_binding shape item lthy =
   let
     val _ = validate_shape rust_name rust_pos shape
@@ -513,7 +522,7 @@ fun make_positional_struct backend_parameters resolved_types
     val fields = map fst (shape_fields shape) ~~ resolved_types
     val constructor = bnf_constructor constructor_binding fields
     val lthy' =
-      define_bnf_datatype backend_parameters type_binding [constructor] lthy
+      define_bnf_datatype plugins backend_parameters type_binding [constructor] lthy
   in
     (completed_datatype_info backend_parameters item rust_name type_binding lthy', lthy')
   end
@@ -539,7 +548,7 @@ fun enum_variant_spec renames hol_base
       (map fst fields ~~ resolved_types)
   end
 
-fun make_enum renames backend_parameters resolved_types
+fun make_enum plugins renames backend_parameters resolved_types
     rust_name variants type_binding item lthy =
   let
     val _ =
@@ -587,31 +596,133 @@ fun make_enum renames backend_parameters resolved_types
       if null remaining_types then ()
       else error "urust_datatype: field batch does not match the enum variants"
     val lthy' =
-      define_bnf_datatype backend_parameters type_binding constructors lthy
+      define_bnf_datatype plugins backend_parameters type_binding constructors lthy
   in
     (completed_datatype_info backend_parameters item rust_name type_binding lthy', lthy')
+  end
+
+fun native_datatype_info backend backend_parameters rust_name type_binding item
+    hol_type constructors selectors selector_definitions ctxt : generated_datatype =
+  let
+    val hol_type = Type.legacy_freeze_type hol_type
+    fun specialize family term =
+      let
+        val scheme = term |> Term.map_types (Type.legacy_freeze_type #> Logic.varifyT_global)
+        val substitution = Sign.typ_match (Proof_Context.theory_of ctxt)
+          (family (fastype_of scheme), hol_type) Vartab.empty
+      in Term.map_types (Envir.subst_type substitution) scheme end
+    val constructors = map (specialize body_type) constructors
+    val selectors = map (map (specialize domain_type)) selectors
+  in
+  {rust_name = rust_name, hol_type_name = dest_Type_name hol_type,
+   hol_type = hol_type, backend_parameters = backend_parameters,
+   backend = backend, source_parameters = [], native_constructors = constructors,
+   native_selectors = selectors,
+   selector_definitions = selector_definitions,
+   constructors = map (pair "" o dest_Const_name) constructors,
+   selectors = map (pair "" o dest_Const_name) (flat selectors), lenses = [], item = item}
+  end
+
+fun custom_enum_selectors type_binding constructors case_const case_thms specifications lthy =
+  let
+    val argument_types = map (binder_types o fastype_of) constructors
+    val result_type = body_type (fastype_of (hd constructors))
+    fun selector variant_index field_index binding typ lthy =
+      let
+        fun branch (index, types) =
+          let val variables = map_index (fn (i, T) => Free ("x" ^ string_of_int i, T)) types
+              val result = if index = variant_index then nth variables field_index
+                else Const (\<^const_name>\<open>undefined\<close>, typ)
+          in fold_rev lambda variables result end
+        val case_type = map (fn Ts => Ts ---> typ) argument_types ---> result_type --> typ
+        val body = list_comb (Const (dest_Const_name case_const, case_type),
+          map_index branch argument_types)
+        val ((term, (_, definition)), lthy') = Local_Theory.define
+          ((binding, NoSyn), ((Thm.def_binding binding, []), body)) lthy
+        val phi = Local_Theory.target_morphism lthy'
+        val term = Morphism.term phi term |> Term.map_types Type.legacy_freeze_type
+        val definition = Morphism.thm phi definition
+        val variables = map_index (fn (i, T) => Free ("x" ^ string_of_int i, T))
+          (nth argument_types variant_index)
+        val goal = HOLogic.mk_Trueprop (HOLogic.mk_eq
+          (term $ list_comb (nth constructors variant_index, variables), nth variables field_index))
+        val theorem = Goal.prove lthy' (map (fst o dest_Free) variables) [] goal
+          (fn {context, ...} => simp_tac (context addsimps (definition :: case_thms)) 1)
+        val (_, lthy'') = Local_Theory.note
+          ((Binding.suffix_name "_simps" binding, @{attributes [simp]}), [theorem]) lthy'
+      in ((term, definition), lthy'') end
+    fun variant (index, (((_, _), fields), _)) lthy =
+      fold_map (fn (i, (binding, typ)) => fn ctxt =>
+        if Binding.is_empty binding then ((NONE, NONE), ctxt)
+        else let val ((term, definition), ctxt') = selector index i binding typ ctxt
+          in ((SOME term, SOME definition), ctxt') end)
+        (map_index I fields) lthy
+    val (rows, lthy') = fold_map variant (map_index I specifications) lthy
+  in ((map (map_filter fst) rows, maps (map_filter snd) rows), lthy') end
+
+fun make_native_enum backend plugins width values renames backend_parameters resolved_types
+    rust_name variants type_binding item lthy =
+  let
+    val _ = duplicate_names "variant"
+      (map (fn URust_AST.Datatype_Variant (name, pos, _) => (name, pos)) variants)
+    fun specification (variant as URust_AST.Datatype_Variant (name, pos, shape)) remaining =
+      let val (types, rest) = chop (length (shape_fields shape)) remaining
+      in (enum_variant_spec renames (Binding.name_of type_binding) variant types, rest) end
+    val (specifications, _) = fold_map specification variants resolved_types
+    val _ = check_effective_names "generated HOL constructor"
+      (map (fn (((_, binding), _), _) => binding) specifications)
+    val _ = check_effective_names "generated HOL selector"
+      (maps (fn (((_, _), fields), _) => map fst fields) specifications
+        |> filter_out Binding.is_empty)
+  in
+    if backend = "enum" then
+      let
+        val typed = map (fn (((_, binding), fields), _) => (binding, map snd fields)) specifications
+        val (result, lthy') = Enum_Cmd.enum_core backend_parameters type_binding typed lthy
+        val ((selectors, definitions), lthy'') = custom_enum_selectors type_binding
+          (#constructors result) (#case_const result) (#case_thms result) specifications lthy'
+      in (native_datatype_info backend backend_parameters rust_name type_binding item
+        (#T result) (#constructors result) selectors definitions lthy'', lthy'') end
+    else
+      let
+        val variant_specs = map2 (fn (((_, binding), _), _) => fn value =>
+          (binding, string_of_int value)) specifications values
+        (* The common registry owns source constructor names; conversion plugins still use
+           the original Rust type name, independently of HOL constructor renames. *)
+        fun native_plugins ctxt name =
+          plugins ctxt name andalso name <> \<^plugin>\<open>urust_notation\<close>
+        val (info, lthy') = Simple_Word_Enum.simple_word_enum_core_parameters backend_parameters
+          {timer = Simple_Word_Enum.new_timer false, report = false}
+          (native_plugins, the width, type_binding, SOME rust_name, variant_specs) lthy
+      in (native_datatype_info backend backend_parameters rust_name type_binding item
+        (#absT info) (#variant_consts info) (replicate (length variants) []) [] lthy', lthy') end
   end
 
 fun infer_datatype_binding rust_name pos =
   Binding.make (snake_case rust_name, pos)
 
-fun generate_urust_datatype register_notation renames backend_parameters
+fun generate_urust_datatype backend plugins width values register_notation renames backend_parameters
     resolved_types type_binding item lthy =
   (case item of
      URust_AST.Struct_Item
        (rust_name, rust_pos, shape, _) =>
        (validate_rust_item_name "item" (rust_name, rust_pos);
         case shape of
-          URust_AST.Named_Shape fields =>
-            make_named_struct register_notation renames backend_parameters
+          URust_AST.Named_Shape [] =>
+            make_positional_struct plugins backend_parameters []
+              rust_name rust_pos type_binding URust_AST.Unit_Shape item lthy
+        | URust_AST.Named_Shape fields =>
+            make_named_struct plugins register_notation renames backend_parameters
               resolved_types rust_name rust_pos type_binding fields item lthy
         | _ =>
-            make_positional_struct backend_parameters resolved_types
+            make_positional_struct plugins backend_parameters resolved_types
               rust_name rust_pos type_binding shape item lthy)
    | URust_AST.Enum_Item
        (rust_name, rust_pos, variants, _) =>
        (validate_rust_item_name "item" (rust_name, rust_pos);
-        make_enum renames backend_parameters resolved_types
+        if backend = "hol" then make_enum plugins renames backend_parameters resolved_types
+          rust_name variants type_binding item lthy
+        else make_native_enum backend plugins width values renames backend_parameters resolved_types
           rust_name variants type_binding item lthy))
 
 type generated_artifacts =
@@ -619,11 +730,16 @@ type generated_artifacts =
    hol_type_name: string,
    hol_type: typ,
    backend_parameters: (string * sort) list,
+   backend: string,
+   source_parameters: (string * sort) list,
    constructors:
      (string * URust_Item_Scope.constructor_entry) list,
    selectors: (string * string) list,
    lenses: (string * string) list,
    register_notation: bool,
+   source_item: URust_AST.urust_datatype,
+   source_descriptors: URust_AST.generic_parameter list,
+   parameter_overrides: rename list,
    selector_definitions: thm list,
    lens_definitions: (string * thm) list,
    item: URust_AST.urust_datatype}
@@ -672,9 +788,9 @@ fun theorem_for_definition lthy constant_name =
     (try (Proof_Context.get_thm lthy)
       (Thm.def_name constant_name))
 
-fun completed_generated_artifacts register_notation
-    ({rust_name, hol_type_name, hol_type, backend_parameters, item, ...}:
-      generated_datatype) lthy =
+fun completed_generated_artifacts source_item source_descriptors parameter_overrides register_notation
+    ({rust_name, hol_type_name, hol_type, backend_parameters, backend, source_parameters,
+      selector_definitions, item, ...}: generated_datatype) lthy =
   let
     val descriptors = item_constructor_descriptors item
     val constructors =
@@ -700,13 +816,6 @@ fun completed_generated_artifacts register_notation
                   error
                     "urust_datatype: named struct has unexpected constructor metadata")
        | _ => [])
-    val sugar =
-      (case Ctr_Sugar.ctr_sugar_of lthy hol_type_name of
-         SOME sugar => sugar
-       | NONE =>
-           error
-             ("urust_datatype: generated datatype metadata is unavailable for " ^
-               quote hol_type_name))
     val lens_definitions =
       map_filter
         (theorem_for_definition lthy o snd)
@@ -716,11 +825,15 @@ fun completed_generated_artifacts register_notation
      hol_type_name = hol_type_name,
      hol_type = hol_type,
      backend_parameters = backend_parameters,
+     backend = backend,
+     source_parameters = source_parameters,
      constructors = constructors,
      selectors = selectors,
      lenses = lenses,
      register_notation = register_notation,
-     selector_definitions = #sel_defs sugar,
+     source_item = source_item, source_descriptors = source_descriptors,
+     parameter_overrides = parameter_overrides,
+     selector_definitions = selector_definitions,
      lens_definitions = lens_definitions,
      item = item}: generated_artifacts
   end
@@ -782,12 +895,13 @@ fun report_generated_field_declarations lthy
   end
 
 fun report_generated_datatype_replay lthy
-    ({rust_name, hol_type_name, backend_parameters,
-      constructors, item = original_item, ...}:
+    ({rust_name, hol_type_name, source_parameters, backend_parameters,
+      source_descriptors, parameter_overrides,
+      constructors, source_item = original_item, ...}:
       generated_artifacts)
     source =
   let
-    val replayed_item =
+    val replayed_source =
       (case URust_Parser.parse_datatype_source lthy source of
          SOME item => item
        | NONE =>
@@ -799,7 +913,9 @@ fun report_generated_datatype_replay lthy
         URust_Printer.serialized_options original_item
     val replayed_tokens =
       URust_Printer.tokens_of_datatype
-        URust_Printer.serialized_options replayed_item
+        URust_Printer.serialized_options replayed_source
+    val replayed_item = case replayed_source of URust_AST.Datatype_Header (_, _, _, item) => item
+      | item => item
     val _ =
       if original_tokens = replayed_tokens then ()
       else
@@ -809,23 +925,23 @@ fun report_generated_datatype_replay lthy
     (* Resolve every replayed field together, exactly as for generation.  The
        batch's fresh names may differ from the native datatype parameters. *)
     val replayed_fields =
-      URust_Type_Mappings.resolve_fields lthy (item_field_types replayed_item)
-    val replayed_parameters = #backend_parameters replayed_fields
+      URust_Type_Mappings.resolve_declaration lthy source_descriptors parameter_overrides (item_field_types replayed_item)
+    val replayed_parameters = #source_parameters replayed_fields @ #backend_parameters replayed_fields
+    val complete_parameters = source_parameters @ backend_parameters
     val _ =
-      if map snd replayed_parameters = map snd backend_parameters then ()
+      if map snd replayed_parameters = map snd complete_parameters then ()
       else
         error
           "urust_datatype: pretty replay changed implicit backend parameters"
     val replayed_substitutions =
       map2
         (fn source => fn target => (TFree source, TFree target))
-        replayed_parameters backend_parameters
+        replayed_parameters complete_parameters
     val replayed_types =
-      map (Term.typ_subst_atomic replayed_substitutions)
-        (#types replayed_fields)
+      map (Term.typ_subst_atomic replayed_substitutions) (#types replayed_fields)
     val stored_types =
       maps
-        (binder_types o Logic.unvarifyT_global o fastype_of o
+        (binder_types o Type.legacy_freeze_type o fastype_of o
           I.constructor_scheme o snd)
         constructors
     val _ =
@@ -891,9 +1007,7 @@ fun report_generated_datatype_replay lthy
              (Name_Space.markup
                (Consts.space_of
                  (Proof_Context.consts_of lthy)) name)
-       | _ =>
-           error
-             "urust_datatype: pretty replay field has no selector identity")
+       | _ => error "urust_datatype: pretty replay field has no selector identity")
 
     fun report_shape shape entry =
       (case shape of
@@ -1000,7 +1114,8 @@ fun pretty_manifest_section _ [] = []
       Pretty.str ("  " ^ title ^ ":") :: rows
 
 fun pretty_datatype_manifest lthy
-    ({rust_name, hol_type_name, constructors, selectors, lenses, register_notation, ...}:
+    ({rust_name, hol_type_name, constructors, selectors, lenses, register_notation,
+      backend, source_descriptors, source_parameters, backend_parameters, ...}:
       generated_artifacts) =
   let
     val constructor_rows =
@@ -1028,10 +1143,24 @@ fun pretty_datatype_manifest lthy
          Pretty.str rust_name,
          Pretty.str " -> ",
          pretty_type_identity lthy hol_type_name]
+    val parameter_ctxt = Config.put show_sorts true lthy
+    val parameter_rows = map2
+      (fn URust_AST.Generic_Parameter (name, _, kind) => fn parameter =>
+        Pretty.block
+          [Pretty.str ((case kind of URust_AST.Type_Parameter => ""
+             | URust_AST.Const_Parameter => "const ") ^ name ^ " -> "),
+           Syntax.pretty_typ parameter_ctxt (TFree parameter)])
+      source_descriptors source_parameters
+    val implicit_rows = map (fn parameter => Pretty.block
+      [Pretty.str "implicit ", Syntax.pretty_typ parameter_ctxt (TFree parameter)])
+      backend_parameters
   in
     Pretty.chunks
       (Pretty.keyword1 "urust_datatype generated artifacts" ::
        item_row ::
+       Pretty.block [Pretty.str "  backend: ", Pretty.str backend] ::
+       Pretty.block [Pretty.str "  parameters: ", Pretty.enum ", " "(" ")"
+         (parameter_rows @ implicit_rows)] ::
        pretty_manifest_section "constructors" constructor_rows @
        pretty_manifest_section "selectors" selector_rows @
        pretty_manifest_section "lenses" lens_rows @
@@ -1041,7 +1170,7 @@ fun pretty_datatype_manifest lthy
 
 fun constructor_argument_types entry =
   (case URust_Item_Scope.constructor_scheme entry of
-     Const (_, typ) => binder_types (Logic.unvarifyT_global typ)
+     Const (_, typ) => binder_types (Type.legacy_freeze_type typ)
    | _ => [])
 
 fun pretty_constructor_declaration lthy
@@ -1110,25 +1239,28 @@ fun pretty_record_declaration lthy hol_type_name backend_parameters constructors
        field_rows)
   end
 
-fun pretty_standard_datatype_declaration lthy hol_type_name backend_parameters constructors =
+fun pretty_standard_datatype_declaration lthy backend hol_type_name parameters constructors =
   Pretty.chunks
     (Pretty.block
-       [Pretty.keyword1 "datatype",
+       [Pretty.keyword1 (if backend = "hol" then "datatype" else backend),
         Pretty.brk 1,
-        pretty_parameterized_type_identity lthy hol_type_name backend_parameters,
+        pretty_parameterized_type_identity lthy hol_type_name parameters,
         Pretty.str " ="] ::
      map (pretty_constructor_declaration lthy) constructors)
 
 fun pretty_normalized_declaration lthy
-    ({hol_type_name, backend_parameters, constructors, item, ...}:
+    ({hol_type_name, source_parameters, backend_parameters, backend, constructors, item, ...}:
       generated_artifacts) =
-  (case item of
-     URust_AST.Struct_Item
-       (_, _, URust_AST.Named_Shape _, _) =>
-       pretty_record_declaration lthy hol_type_name backend_parameters constructors
-   | _ =>
-       pretty_standard_datatype_declaration
-         lthy hol_type_name backend_parameters constructors)
+  let
+    val parameters = source_parameters @ backend_parameters
+  in
+    (case item of
+       URust_AST.Struct_Item (_, _, URust_AST.Named_Shape (_ :: _), _) =>
+         pretty_record_declaration lthy hol_type_name parameters constructors
+     | _ =>
+         pretty_standard_datatype_declaration
+           lthy backend hol_type_name parameters constructors)
+  end
 
 fun pretty_public_definition lthy (name, theorem) =
   pretty_generated_result "definition" name lthy
@@ -1170,24 +1302,89 @@ fun print_generated_datatype
         (Pretty.chunks (manifest :: human @ details))
     end
 
+fun literal_discriminant integer =
+  let
+    val raw = URust_AST.integer_literal_lexeme integer
+    val pos = URust_AST.integer_literal_position integer
+    val _ = if is_none (URust_AST.integer_literal_suffix_position integer) then ()
+      else positioned_datatype_error "discriminants must be unsuffixed literal integers" pos
+    val value = Parser_Utils.read_unsigned_integer raw
+  in case value of SOME value => value | NONE =>
+    positioned_datatype_error "unsupported literal discriminant" pos end
+
+fun select_backend requested explicit_width repr discriminants item =
+  let
+    val width = case repr of NONE => explicit_width | SOME (name, pos) =>
+      let
+        val repr_width = case AList.lookup (op =)
+          [("u8", 8), ("u16", 16), ("u32", 32), ("u64", 64), ("u128", 128)] name of
+            SOME width => width
+          | NONE => positioned_datatype_error ("unsupported repr " ^ quote name) pos
+        val _ = case explicit_width of NONE => () | SOME width =>
+          if width = repr_width then () else
+            positioned_datatype_error "word_width conflicts with Rust repr" pos
+      in SOME repr_width end
+    val (variants, is_enum) = case item of URust_AST.Enum_Item (_, _, variants, _) => (variants, true)
+      | _ => ([], false)
+    val nullary = forall (fn URust_AST.Datatype_Variant (_, _, shape) =>
+      null (shape_fields shape)) variants
+    val selected = if requested = "auto" then
+        if is_enum then if is_some width andalso nullary then "simple_word_enum" else "enum"
+        else "hol"
+      else requested
+    val pos = URust_AST.datatype_item_position item
+    val _ = if not is_enum andalso selected <> "hol" then
+      positioned_datatype_error "enum backends require an enum declaration" pos else ()
+    val _ = if selected = "simple_word_enum" andalso (is_none width orelse not nullary) then
+      positioned_datatype_error "simple_word_enum requires an explicit width and no payload" pos else ()
+    val _ = if is_some explicit_width andalso selected <> "simple_word_enum" then
+      positioned_datatype_error "word_width requires the simple_word_enum backend" pos else ()
+    fun value (URust_AST.Datatype_Variant (name, pos, _)) previous =
+      let val current = case AList.lookup (op =) discriminants name of
+            NONE => previous + 1 | SOME integer => literal_discriminant integer
+          val _ = if selected <> "simple_word_enum" then () else
+            if current >= 0 andalso current < Integer.pow (the width) 2 then ()
+            else positioned_datatype_error ("discriminant out of range for " ^
+              string_of_int (the width) ^ " bits") pos
+      in (current, current) end
+    val (values, _) = fold_map value variants (~1)
+    val _ = if selected = "simple_word_enum" andalso not (null (duplicates (op =) values)) then
+      positioned_datatype_error "duplicate discriminant" pos else ()
+  in (selected, width, values) end
+
+fun finish_metadata selected source_parameters backend_parameters
+    ({rust_name, hol_type_name, hol_type, native_constructors, native_selectors,
+      selector_definitions, constructors, selectors, lenses, item, ...}: generated_datatype) =
+  {rust_name = rust_name, hol_type_name = hol_type_name,
+   hol_type = hol_type, backend_parameters = backend_parameters,
+   source_parameters = source_parameters, backend = selected,
+   native_constructors = native_constructors, native_selectors = native_selectors,
+   selector_definitions = selector_definitions,
+   constructors = constructors, selectors = selectors, lenses = lenses, item = item}: generated_datatype
+
 fun define
     {source, explicit_binding, interactive, verbosity,
-     pp_test, pretty, register_notation, renames} lthy =
+     pp_test, pretty, register_notation, renames, backend, word_width, parameters, plugins} lthy =
   let
-    val item =
+    val source_item =
       (case URust_Parser.parse_datatype_source lthy source of
          SOME item => item
        | NONE =>
            positioned_datatype_error
              "empty datatype item" (Input.pos_of source))
+    val (descriptors, repr, discriminants, item) = case source_item of
+      URust_AST.Datatype_Header (descriptors, repr, values, item) => (descriptors, repr, values, item)
+    | item => ([], NONE, [], item)
     val (rust_name, rust_pos) =
       (case item of
          URust_AST.Struct_Item (name, pos, _, _) => (name, pos)
        | URust_AST.Enum_Item (name, pos, _, _) => (name, pos))
     val _ = reject_recursive_item rust_name item
+    val _ = List.app (fn (name, pos, _, shape) => validate_shape name pos shape)
+      (item_constructor_descriptors item)
     val _ =
       if pp_test
-      then datatype_roundtrip lthy source item
+      then datatype_roundtrip lthy source source_item
       else ()
     val type_binding =
       the_default (infer_datatype_binding rust_name rust_pos)
@@ -1206,36 +1403,59 @@ fun define
          type_reports) =
       Navigation.capture (fn () =>
         let
-          val {types, backend_parameters} =
-            URust_Type_Mappings.resolve_fields lthy (item_field_types item)
+          val {types, source_parameters, backend_parameters} =
+            URust_Type_Mappings.resolve_declaration lthy descriptors parameters (item_field_types item)
+          val all_parameters = source_parameters @ backend_parameters
+          val (selected, width, values) = select_backend backend word_width repr discriminants item
           val _ =
-            URust_Type_Mappings.preflight_generated_scheme
+            URust_Type_Mappings.preflight_declaration_scheme
               {rust_name = rust_name,
                rust_pos = rust_pos,
                hol_type_name = expected_hol_type_name,
                hol_type =
-                 Type (expected_hol_type_name, map TFree backend_parameters),
+                 Type (expected_hol_type_name, map TFree all_parameters),
+               source_parameters = source_parameters,
+               parameter_kinds = map (fn URust_AST.Generic_Parameter (_, _, kind) => kind) descriptors,
                backend_parameters = backend_parameters}
               lthy
+          (* Datatype generation opens nested targets from the enclosing target contexts.
+             Configure every existing target and restore its own setting after generation. *)
+          val overloaded_settings = Unsynchronized.ref ([]: (int * bool) list)
+          val generation_lthy = lthy
+            |> Local_Theory.map_contexts (fn depth => fn ctxt =>
+                (overloaded_settings := (depth, Config.get ctxt Typedef.overloaded) ::
+                    !overloaded_settings;
+                 Config.put Typedef.overloaded true ctxt))
+            |> Local_Theory.background_theory (Config.put_global Typedef.overloaded true)
+            |> Config.put Proof_Display.show_results false
           val (generated, lthy') =
-            generate_urust_datatype register_notation resolved_renames
-              backend_parameters types type_binding item
-              (Config.put Proof_Display.show_results false lthy)
+            generate_urust_datatype selected plugins width values register_notation resolved_renames
+              all_parameters types type_binding item generation_lthy
+          val native_parameters = #backend_parameters generated
+          val (native_source, native_backend) = chop (length source_parameters) native_parameters
+          val generated = finish_metadata selected native_source native_backend generated
           val lthy'' =
             register_generated_datatype generated lthy'
           val lthy''' =
-            URust_Type_Mappings.register_generated_scheme
+            URust_Type_Mappings.register_declaration_scheme
               {rust_name = rust_name,
                rust_pos = rust_pos,
                hol_type_name = #hol_type_name generated,
                hol_type = #hol_type generated,
+               source_parameters = #source_parameters generated,
+               parameter_kinds = map (fn URust_AST.Generic_Parameter (_, _, kind) => kind) descriptors,
                backend_parameters = #backend_parameters generated}
               lthy''
           val final_lthy =
-            Config.put Proof_Display.show_results
-              (Config.get lthy Proof_Display.show_results) lthy'''
+            lthy'''
+            |> Config.put Proof_Display.show_results (Config.get lthy Proof_Display.show_results)
+            |> Local_Theory.background_theory (Config.put_global Typedef.overloaded
+                (Config.get_global (Proof_Context.theory_of lthy) Typedef.overloaded))
+            |> Local_Theory.map_contexts (fn depth =>
+                Config.put Typedef.overloaded
+                  (the (AList.lookup (op =) (!overloaded_settings) depth)))
           val artifacts =
-            completed_generated_artifacts register_notation generated final_lthy
+            completed_generated_artifacts source_item descriptors parameters register_notation generated final_lthy
           val _ =
             report_generated_field_declarations final_lthy artifacts
           val pretty_declaration =
@@ -1246,7 +1466,7 @@ fun define
                 (URust_Printer_Output.pretty_human_datatype_with_reparse
                   (report_generated_datatype_replay
                     final_lthy artifacts)
-                  item)
+                  source_item)
             else NONE
         in
           (generated, final_lthy, artifacts, pretty_declaration)
