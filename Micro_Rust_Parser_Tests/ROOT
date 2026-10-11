@@ -58,4 +58,5 @@ session Micro_Rust_Parser_Tests = HOL +
     Parser_Use_Left_Fixtures
     Parser_Use_Right_Fixtures
     Parser_Use_Tests
+    Parser_Chunk_Use_Tests
     Parser_Showcase_Tests

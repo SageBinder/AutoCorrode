@@ -497,6 +497,46 @@ lemma showoff_imported_events_equal:
   unfolding showoff_imported_events_def showoff_qualified_events_def
   by (rule refl)
 
+subsection\<open> Imports in chunks \<close>
+
+text\<open>
+A chunk may contain use items. Their aliases are visible to every declaration of the chunk,
+including declarations written before the use item, and disappear when the command ends; the
+persistent aliases above remain visible. An item that the chunk declares can be imported by the
+members after it.
+\<close>
+
+urust [verbosity = 1] \<open>
+  fn ShowcaseArrivalTag(arrival: Arrival) -> u32 {
+    match arrival {
+      Waiting => 0,
+      Delivered(packet) => packet.tag,
+    }
+  }
+
+  use DatatypeEvent::{self as Arrival, Idle as Waiting, Packet as Delivered};
+
+  struct ShowcaseFrame { arrival: Arrival, size: Length }
+
+  use ShowcaseArrivalTag as tag_of;
+
+  fn ShowcaseFrameTag(frame: ShowcaseFrame) -> u32 { tag_of(frame.arrival) }
+\<close>
+
+urust_fn \<open>
+  fn ShowcaseQualifiedTag(arrival: DatatypeEvent) -> u32 {
+    match arrival {
+      DatatypeEvent::Idle => 0,
+      DatatypeEvent::Packet(packet) => packet.tag,
+    }
+  }
+\<close>
+
+lemma showcase_arrival_tag_equal:
+  \<open> showcase_arrival_tag = showcase_qualified_tag \<close>
+  unfolding showcase_arrival_tag_def showcase_qualified_tag_def
+  by (rule refl)
+
 subsection\<open> Primitive associated items \<close>
 
 definition showoff_primitive_u8_max :: \<open> 8 word \<close>
