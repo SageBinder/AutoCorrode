@@ -16,8 +16,8 @@ urust [OPTIONS] ‹ [ω‹OPTIONS›] ITEM ... ›
 urust_use ‹ use PATH [as ALIAS]; ›
 ```
 
-The plain `urust` command declares a nonempty source-ordered chunk of complete `fn`, `struct` and
-`enum` items. It is registered by the opt-in theory `Micro_Rust_Parser_Impl.Parser_Impl_Chunk`;
+The plain `urust` command declares a nonempty source-ordered chunk of complete `fn`, `struct`,
+`enum` and `use` items. It is registered by the opt-in theory `Micro_Rust_Parser_Impl.Parser_Impl_Chunk`;
 `Parser_Impl_Command` alone keeps `urust` an ordinary name, so the `simple_word_enum … urust:
 "Name"` clause remains usable there (`Parser_Simple_Word_Enum_Clause_Tests.thy`). A theory that
 imports the chunk theory cannot use that clause: the command keyword starts a new command span.
@@ -34,6 +34,18 @@ fields, unresolved names) run when the member is declared. Members use the same 
 operations as `urust_fn` and `urust_datatype`, each in the context the next single-item command
 would receive, so earlier items are available to later ones and forward references are not
 resolved. Type alias items are rejected as chunk members.
+
+A `use` member has the `urust_use` grammar and takes no options, so an annotation before it is
+rejected at the annotation. The imports of one chunk form one batch, validated (duplicates and
+cycles) before the first declaration. Its aliases are visible to every declaration of the chunk,
+including declarations written before the `use` item: each declaration elaborates in its member
+context extended with the batch, prepared for that context under `Allow_Unavailable_Targets`, so
+an alias whose target a later member declares is unavailable to earlier members and its use is
+rejected without fallback. After the last declaration `URust_Imports.conclude_batch` requires
+every target, reports the batch once inside the chunk transaction, and rejects an import that
+shares a namespace and name with an item that the chunk declares, as Rust does. Chunk aliases
+shadow persistent `urust_use` aliases, body imports shadow chunk aliases, and no alias survives
+the command.
 
 Every declaration command is one report transaction. uRust-owned elaboration markup, the native
 markup of embedded HOL sources (re-read for markup at release), regenerated
@@ -132,7 +144,9 @@ occurrence ends at its import declaration in expressions, function bodies, types
 `URust_Imports.validate_batch` checks a batch independently of targets (certain duplicates and
 alias cycles), and `prepare_batch` resolves it under `Require_Targets` (blocks, bodies and
 `urust_use`) or `Allow_Unavailable_Targets`, whose unavailable bindings reject every use without
-fallback. Same-scope item collisions are checked before elaboration or datatype generation.
+fallback. Every preparation of one validated batch binds the same import identities; a chunk
+re-prepares its batch for each declaration with `prepare_batch_unreported` and finishes with
+`conclude_batch`. Same-scope item collisions are checked before elaboration or datatype generation.
 `pub` is a keyword, so visibility before `use` rejects at `pub`; globs, `as _`, module roots,
 empty groups, generic arguments, misplaced `self` and Rust 2024 strict or reserved keywords as
 segments or aliases are positioned rejections. `Parser_Use_Tests.thy` covers
@@ -394,6 +408,12 @@ negative rows preserve these boundaries.
   independent type environments, read-only pretty replay and a moderately sized chunk.
 - `Parser_Simple_Word_Enum_Clause_Tests.thy`: `simple_word_enum … urust:` declarations next to the
   single-item parser commands without the chunk theory.
+- `Parser_Chunk_Use_Tests.thy`: `use` members of chunks: aliases used before and after their use
+  item, imports of earlier members, later and never-declared targets without fallback, validation
+  before the first declaration, import/item collisions, shadowing among persistent, chunk and body
+  imports, signatures, fields, calls, construction and patterns with kernel equalities against
+  qualified single-item controls, a locale target, atomic failures in theory, locale and context
+  targets, navigation, roundtrips, read-only pretty replay and complete input.
 - `Parser_Datatype_Composition_Tests.thy`: complete generic and const mappings through aliases,
   typed receivers and function channels, default direct/method calls, constructor and field
   renames, native backend artifacts and plugins, locale confinement, and read-only combined replay.
