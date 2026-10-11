@@ -90,8 +90,18 @@ may depend on each other in any order, cycles and missing targets (also unused) 
 targets never capture lexical locals, arguments, fixes or free names. Lexical locals precede
 imports for values and calls; otherwise the nearest import in the requested namespace resolves
 through its owning registry, and a binding unusable in that role rejects without fallback.
-Imports add no runtime term. Globs, `pub use`, visibility, `as _`, module roots, empty groups,
-generic arguments and misplaced `self` are positioned rejections. `Parser_Use_Tests.thy` covers
+Imports add no runtime term. Struct-expression and struct-pattern heads resolve in the type
+namespace; an imported call or literal notation serves as a single-segment struct head only where
+no Rust type resolves that head, so a value import never changes a Rust struct. Import reports
+join the declaration's navigation transaction: a failed declaration replays none, and every alias
+occurrence ends at its import declaration in expressions, function bodies, types and fields.
+`URust_Imports.validate_batch` checks a batch independently of targets (certain duplicates and
+alias cycles), and `prepare_batch` resolves it under `Require_Targets` (blocks, bodies and
+`urust_use`) or `Allow_Unavailable_Targets`, whose unavailable bindings reject every use without
+fallback. Same-scope item collisions are checked before elaboration or datatype generation.
+`pub` is a keyword, so visibility before `use` rejects at `pub`; globs, `as _`, module roots,
+empty groups, generic arguments, misplaced `self` and Rust 2024 strict or reserved keywords as
+segments or aliases are positioned rejections. `Parser_Use_Tests.thy` covers
 the scope model directly, syntax and printing, persistent and block imports through kernel `refl`
 comparisons with qualified or import-free source, effect order, rejections, editor navigation and
 replay; `Parser_Use_Fixtures.thy` and its base/left/right diamond fixtures supply the items.
