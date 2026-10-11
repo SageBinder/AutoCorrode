@@ -252,20 +252,21 @@ struct
   val loud = "declare [[urust_pp_test = true, urust_pretty = true, urust_verbosity = 2]]\n"
   fun chunk body = "urust " ^ command_source body
 
-  (* A rejected chunk: the diagnostic, its first range and the captured command effects. *)
-  fun rejected label expected text =
+  (* A rejected chunk run in the given theory: the diagnostic and the captured command effects.
+     Callers pass the theory of their own position, so later fixtures are visible. *)
+  fun rejected thy label expected text =
     let
-      val {result, output, warnings, reports} = capture true label \<^theory> text
+      val {result, output, warnings, reports} = capture true label thy text
       val message = failure_message label expected result
     in {message = message, output = output, warnings = warnings, reports = reports} end
 
-  fun rejects label expected body = #message (rejected label expected (quiet ^ chunk body))
+  fun rejects thy label expected body = #message (rejected thy label expected (quiet ^ chunk body))
 
   (* The diagnostic is positioned at the nth occurrence of needle in the command text. *)
-  fun rejects_at label expected body needle occurrence =
+  fun rejects_at thy label expected body needle occurrence =
     let
       val text = quiet ^ chunk body
-      val message = #message (rejected label expected text)
+      val message = #message (rejected thy label expected text)
     in
       require (label ^ " positioned at " ^ quote needle ^ ": " ^ plain message)
         (message_range message = range_of text needle occurrence)
@@ -276,8 +277,8 @@ struct
     |> filter (fn (name, properties) =>
         name = Markup.entityN andalso Properties.get properties Markup.kindN = SOME "urust_import")
 
-  fun run_success label text =
-    let val {result, output, warnings, reports} = capture true label \<^theory> text
+  fun run_success thy label text =
+    let val {result, output, warnings, reports} = capture true label thy text
     in {ctxt = result_context result, output = output, warnings = warnings, reports = reports} end
 end
 \<close>
@@ -290,42 +291,42 @@ local
 in
   (* The alias is unavailable before its target is declared and does not fall back to the
      persistent alias of the same name. *)
-  val _ = rejects_at "later target"
+  val _ = rejects_at \<^theory> "later target"
     ["import target \"ChunkImportSecond\" of \"chunk_import_fallback\" is not yet available"]
     ("  fn ChunkImportFirst() -> u32 { chunk_import_fallback() }\n" ^
      "  use ChunkImportSecond as chunk_import_fallback;\n" ^
      "  fn ChunkImportSecond() -> u32 { 2 }\n")
     "chunk_import_fallback" 0
-  val _ = rejects_at "member declared after its user"
+  val _ = rejects_at \<^theory> "member declared after its user"
     ["import target \"ChunkImportHelperTwo\" of \"helper_two\" is not yet available"]
     ("  fn ChunkImportTooEarly(x: u32) -> u32 { helper_two(x) }\n" ^
      "  fn ChunkImportHelperTwo(x: u32) -> u32 { x }\n" ^
      "  use ChunkImportHelperTwo as helper_two;\n")
     "helper_two" 0
-  val _ = rejects_at "member importing itself"
+  val _ = rejects_at \<^theory> "member importing itself"
     ["import target \"ChunkImportItself\" of \"itself\" is not yet available"]
     ("  fn ChunkImportItself(x: u32) -> u32 { itself(x) }\n" ^
      "  use ChunkImportItself as itself;\n")
     "itself" 0
-  val _ = rejects_at "later datatype field type"
+  val _ = rejects_at \<^theory> "later datatype field type"
     ["import target \"ChunkImportLaterStruct\" of \"LaterType\" is not yet available"]
     ("  struct ChunkImportEarlyField { field: LaterType }\n" ^
      "  use ChunkImportLaterStruct as LaterType;\n" ^
      "  struct ChunkImportLaterStruct { value: u32 }\n")
     "LaterType" 0
-  val _ = rejects_at "later signature type"
+  val _ = rejects_at \<^theory> "later signature type"
     ["import target \"ChunkImportLaterSignature\" of \"LaterSignature\" is not yet available"]
     ("  fn ChunkImportEarlySignature(value: LaterSignature) -> u32 { 1 }\n" ^
      "  use ChunkImportLaterSignature as LaterSignature;\n" ^
      "  struct ChunkImportLaterSignature { value: u32 }\n")
     "LaterSignature" 0
-  val _ = rejects_at "body import depending on a later target"
+  val _ = rejects_at \<^theory> "body import depending on a later target"
     ["import target \"ChunkImportLaterBody\" of \"later_body\" is not yet available"]
     ("  fn ChunkImportBodyEarly() -> u32 { use later_body as inner_body; inner_body() }\n" ^
      "  use ChunkImportLaterBody as later_body;\n" ^
      "  fn ChunkImportLaterBody() -> u32 { 3 }\n")
     "later_body" 0
-  val _ = rejects_at "never-declared target"
+  val _ = rejects_at \<^theory> "never-declared target"
     ["unknown import target \"ChunkImportNever\""]
     ("  fn ChunkImportOrphanUser() -> u32 { 1 }\n" ^
      "  use ChunkImportNever as never;\n")
@@ -361,26 +362,26 @@ local
   open Chunk_Use_Audit
   val broken = "  fn ChunkImportBroken() -> bool { 1u32 }\n"
 in
-  val _ = rejects_at "duplicate import" ["duplicate import \"value\""]
+  val _ = rejects_at \<^theory> "duplicate import" ["duplicate import \"value\""]
     (broken ^ "  use demo::value;\n  use demo::value;\n") "value" 1
-  val _ = rejects "cyclic imports" ["cyclic imports"]
+  val _ = rejects \<^theory> "cyclic imports" ["cyclic imports"]
     (broken ^ "  use chunk_left as chunk_right;\n  use chunk_right as chunk_left;\n")
-  val _ = rejects_at "duplicate value import" ["duplicate value import \"dup\""]
+  val _ = rejects_at \<^theory> "duplicate value import" ["duplicate value import \"dup\""]
     (broken ^ "  use demo::value as dup;\n  use UseTuple as dup;\n") "dup" 1
-  val _ = rejects "unusable target" ["field notation \"sample\""]
+  val _ = rejects \<^theory> "unusable target" ["field notation \"sample\""]
     (broken ^ "  use sample;\n")
-  val _ = rejects_at "glob import" ["glob imports (`*`) are not supported"]
+  val _ = rejects_at \<^theory> "glob import" ["glob imports (`*`) are not supported"]
     (broken ^ "  use demo::*;\n") "*" 0
-  val _ = rejects_at "visibility" ["visibility qualifiers (`pub use`) are not supported"]
+  val _ = rejects_at \<^theory> "visibility" ["visibility qualifiers (`pub use`) are not supported"]
     (broken ^ "  pub use demo::value;\n") "pub" 0
-  val _ = rejects_at "rooted path" ["`crate`"]
+  val _ = rejects_at \<^theory> "rooted path" ["`crate`"]
     (broken ^ "  use crate::value;\n") "crate" 0
   val _ =
     let
       val body = broken ^ "  " ^ annotation "pretty" ^ "\n  use demo::value;\n"
       val text = quiet ^ chunk body
       val message =
-        #message (rejected "annotated use" ["an \<omega> annotation cannot precede a use item"] text)
+        #message (rejected \<^theory> "annotated use" ["an \<omega> annotation cannot precede a use item"] text)
       val (start, _) = range_of text omega 0
       val (_, stop) = range_of text (Symbol.close ^ "\n  use") 0
     in
@@ -394,10 +395,116 @@ subsection\<open> Namespace-precise forward targets \<close>
 
 text\<open>
 Each declaration's preparation knows the registry entities that it and the later members will
-declare: datatype types, unit and tuple constructors and enum variants, and the call keys of
-registered functions. An entity among them is unavailable in its own namespace only; an entity
-that already exists keeps resolving, and a target that neither exists nor is declared with a Rust
-registration is unknown at its path before the first declaration.
+declare, as their declaration backends report them from the decisions they declare with:
+datatype types and mappings, constructors and enum variants, the conversion call notations of the
+native \<open>simple_word_enum\<close> backend under its plugin filter, and the call keys of registered
+functions. An entity among them is unavailable in its own namespace only; an entity that already
+exists keeps resolving, and a target that neither exists nor is declared with a Rust registration
+is unknown at its path before the first declaration.
+\<close>
+
+ML_val\<open>
+local
+  open Chunk_Use_Audit
+  val lthy = Named_Target.theory_init \<^theory>
+  (* Members with every backend and plugin choice that changes registrations. *)
+  val members =
+    [("ChunkPredReprEight", "verbosity = 0",
+       "#[repr(u8)]\n  enum ChunkPredReprEight { Low = 1, High = 4 }"),
+     ("ChunkPredReprSixteen", "verbosity = 0",
+       "#[repr(u16)]\n  enum ChunkPredReprSixteen { Low, High }"),
+     ("ChunkPredWord", "backend = \"simple_word_enum\", word_width = 16",
+       "enum ChunkPredWord { Low = 1, High = 2 }"),
+     ("ChunkPredWordOnly",
+       "backend = \"simple_word_enum\", word_width = 16, plugins = (plugins only: word_conversion)",
+       "enum ChunkPredWordOnly { Low = 1, High = 2 }"),
+     ("ChunkPredReprDel", "plugins = (plugins del: urust_conversion)",
+       "#[repr(u8)]\n  enum ChunkPredReprDel { Low = 1, High = 2 }"),
+     ("ChunkPredReprEnum", "backend = \"enum\"",
+       "#[repr(u8)]\n  enum ChunkPredReprEnum { Low = 1, High = 2 }"),
+     ("ChunkPredReprHidden", "register_notation = false",
+       "#[repr(u8)]\n  enum ChunkPredReprHidden { Low = 1, High = 2 }"),
+     ("ChunkPredHol", "backend = hol",
+       "enum ChunkPredHol { Empty, Value(u32), Named { sample: u32 } }"),
+     ("ChunkPredChoice", "verbosity = 0",
+       "enum ChunkPredChoice { Empty, Value(u32), Named { sample: u32 } }"),
+     ("ChunkPredPacket", "verbosity = 0", "struct ChunkPredPacket { sample: u32 }"),
+     ("ChunkPredTuple", "verbosity = 0", "struct ChunkPredTuple(u32);"),
+     ("ChunkPredUnit", "verbosity = 0", "struct ChunkPredUnit;"),
+     ("ChunkPredWrapper", "verbosity = 0", "struct ChunkPredWrapper<T> { inner: T }"),
+     ("ChunkPredEmpty", "verbosity = 0", "struct ChunkPredEmpty {}"),
+     ("ChunkPredFn", "verbosity = 0", "fn ChunkPredFn(x: u32) -> u32 { x + 1 }"),
+     ("ChunkPredHiddenFn", "register_notation = false",
+       "fn ChunkPredHiddenFn(x: u32) -> u32 { x }"),
+     ("ChunkPredAnonFn", "name = _", "fn ChunkPredAnonFn(x: u32) -> u32 { x }")]
+  fun member_text (_, payload, item) = annotation payload ^ "\n  " ^ item ^ "\n"
+  val declared =
+    #ctxt (run_success \<^theory> "chunk-prediction"
+      (quiet ^ chunk (implode (map (fn member => "  " ^ member_text member) members))))
+  (* The prediction a chunk makes before declaring the member, in the enclosing context. *)
+  fun prediction member =
+    let
+      val envelope =
+        hd (URust_AST.chunk_items (the_chunk lthy "chunk-prediction-member" (member_text member)))
+      val annotation = the (URust_AST.annotated_item_annotation envelope)
+      val source = URust_AST.annotated_item_source envelope
+      fun read schema = URust_Command.read_annotation_options lthy schema annotation
+      val registrations =
+        (case URust_AST.annotated_item_item envelope of
+           URust_AST.Function_Item_Node function =>
+             URust_Command.prepared_function_registrations
+               (URust_Command.prepare_function_item lthy
+                 {interactive = false, roundtrip = false,
+                  options = read URust_Command.Function_Annotation,
+                  source = source, function = function})
+         | URust_AST.Datatype_Item item =>
+             URust_Command.prepared_datatype_registrations lthy
+               (URust_Command.prepare_datatype_item lthy
+                 {interactive = false, roundtrip = false,
+                  options = read URust_Command.Datatype_Annotation, source = source, item = item})
+         | _ => error "chunk prediction audit: unexpected member")
+    in URust_Imports.registration_entities registrations end
+  (* Every registry entry that declaring the member added under its Rust name. *)
+  fun observed name =
+    let
+      val {notations, types, constructors, functions, mappings} = registry_snapshot declared
+      fun own key = key = name orelse String.isPrefix (name ^ "::") key
+      val keys =
+        distinct (op =)
+          (filter own (map #2 notations @ types @ constructors @ functions @ mappings))
+    in
+      maps (URust_Imports.registration_entities o URust_Imports.installed_registrations declared)
+        keys
+    end
+  fun triple ({key, namespace, roles}: URust_Imports.entity) = (key, namespace, roles)
+  fun render entities =
+    commas (map (fn (key, namespace, roles) =>
+      key ^ "/" ^ URust_Import_Scope.namespace_name namespace ^ "/" ^
+        space_implode "+" (map URust_Import_Scope.role_name roles)) entities)
+  fun check (member as (name, _, _)) =
+    let
+      val predicted = map triple (prediction member)
+      val actual = map triple (observed name)
+    in
+      require ("predicted registrations of " ^ name ^ ": " ^ render predicted ^
+          "\nactual registrations: " ^ render actual)
+        (eq_set (op =) (predicted, actual))
+    end
+  val _ = List.app check members
+  fun predicts member key = exists (fn entity => #key entity = key) (prediction member)
+  val _ = require "repr enums predict their conversion calls"
+    (predicts (nth members 0) "ChunkPredReprEight::to_u8" andalso
+      predicts (nth members 0) "ChunkPredReprEight::try_from" andalso
+      predicts (nth members 1) "ChunkPredReprSixteen::to_u16" andalso
+      predicts (nth members 2) "ChunkPredWord::to_u16" andalso
+      predicts (nth members 6) "ChunkPredReprHidden::to_u8")
+  val _ = require "plugin filters and other backends predict no conversion call"
+    (not (predicts (nth members 3) "ChunkPredWordOnly::to_u16") andalso
+      not (predicts (nth members 4) "ChunkPredReprDel::to_u8") andalso
+      not (predicts (nth members 5) "ChunkPredReprEnum::to_u8"))
+in
+  val _ = ()
+end
 \<close>
 
 ML_val\<open>
@@ -406,37 +513,6 @@ local
   val ctxt = \<^context>
   val type_ns = S.Type_Namespace
   val value_ns = S.Value_Namespace
-  fun parse_item text =
-    the (URust_Parser.parse_item_source ctxt (Parser_Lex_Util.text_source text))
-  fun entities registered text =
-    URust_Imports.item_entities {registered_function = registered} (parse_item text)
-  fun triple ({key, namespace, roles}: URust_Imports.entity) = (key, namespace, roles)
-  (* The predicted entities of a declared fixture item equal the bindings that importing each of
-     its keys produces from the installed registrations. *)
-  fun matches_registry text =
-    let
-      val predicted = map triple (entities true text)
-      val keys = distinct (op =) (map #1 predicted)
-      val batch =
-        URust_Imports.validate_batch
-          (map_index (fn (index, key) =>
-              item (leaf (S.key_segments key) (SOME ("entity_probe_" ^ string_of_int index))))
-            keys)
-      val observed =
-        URust_Imports.resolve_batch
-          {persistent = false, targets = URust_Imports.Require_Targets} ctxt batch
-        |> map (fn binding => (#key binding, #namespace binding, #roles binding))
-    in
-      require ("item entities of " ^ quote text ^ " match the registry")
-        (eq_set (op =) (predicted, observed))
-    end
-  val _ = List.app matches_registry
-    ["enum UseChoice { Empty, Value(u32), Named { sample: u32 } }",
-     "struct UsePacket { sample: u32 }", "struct UseTuple(u32);", "struct UseUnit;",
-     "struct UseWrapper<T> { inner: T }", "fn use_increment(x: u32) -> u32 { x + 1 }"]
-  val _ = require "an unregistered function declares no entity"
-    (null (entities false "fn use_increment(x: u32) -> u32 { x + 1 }"))
-
   val later =
     URust_Imports.Declared_Later
       [{key = "LaterItem", namespace = value_ns, roles = [S.Generated_Function]},
@@ -483,7 +559,7 @@ ML_val\<open>
 local
   open Chunk_Use_Audit
   fun later_value label target alias =
-    rejects_at label
+    rejects_at \<^theory> label
       ["import target " ^ quote target ^ " of " ^ quote alias ^ " is not yet available"]
       ("  fn " ^ target ^ "Early() -> u32 { " ^ alias ^ "() }\n" ^
        "  use " ^ target ^ " as " ^ alias ^ ";\n" ^
@@ -503,35 +579,35 @@ in
     "ChunkImportFG" "ChunkImportFG2"
   val _ = later_value "enum with a later function, no fallback" "ChunkImportFN" "ChunkImportFNAlias"
   (* Targets without a Rust registration are unknown at their path, before the first declaration. *)
-  val _ = rejects_at "unregistered function target" ["unknown import target \"ChunkImportHidden\""]
+  val _ = rejects_at \<^theory> "unregistered function target" ["unknown import target \"ChunkImportHidden\""]
     (broken ^ "  " ^ annotation "register_notation = false" ^ "\n" ^
      "  fn ChunkImportHidden(x: u32) -> u32 { x }\n" ^
      "  use ChunkImportHidden as hidden;\n" ^
      "  fn ChunkImportHiddenUser() -> u32 { hidden(1) }\n")
     "ChunkImportHidden" 1
-  val _ = rejects_at "anonymous function target" ["unknown import target \"ChunkImportAnonymous\""]
+  val _ = rejects_at \<^theory> "anonymous function target" ["unknown import target \"ChunkImportAnonymous\""]
     (broken ^ "  " ^ annotation "name = _" ^ "\n" ^
      "  fn ChunkImportAnonymous(x: u32) -> u32 { x }\n" ^
      "  use ChunkImportAnonymous as anonymous;\n" ^
      "  fn ChunkImportAnonymousUser() -> u32 { anonymous(1) }\n")
     "ChunkImportAnonymous" 1
-  val _ = rejects_at "never-declared target used by an earlier member"
+  val _ = rejects_at \<^theory> "never-declared target used by an earlier member"
     ["unknown import target \"ChunkImportNeverDeclared\""]
     (broken ^ "  fn ChunkImportNeverUser() -> u32 { never_declared(1) }\n" ^
      "  use ChunkImportNeverDeclared as never_declared;\n")
     "ChunkImportNeverDeclared" 0
-  val _ = rejects_at "missing variant of a later enum"
+  val _ = rejects_at \<^theory> "missing variant of a later enum"
     ["unknown import target \"ChunkImportLaterEnum::Missing\""]
     (broken ^ "  use ChunkImportLaterEnum::Missing as missing_variant;\n" ^
      "  enum ChunkImportLaterEnum { Ready }\n")
     "ChunkImportLaterEnum::Missing" 0
-  val _ = rejects_at "missing variant through an imported later enum"
+  val _ = rejects_at \<^theory> "missing variant through an imported later enum"
     ["\"Missing\" is not a variant of enum \"ChunkImportLaterEnum\""]
     (broken ^ "  use ChunkImportLaterEnum as LaterEnumAlias;\n" ^
      "  use LaterEnumAlias::Missing as missing_variant;\n" ^
      "  enum ChunkImportLaterEnum { Ready }\n")
     "Missing" 0
-  val _ = rejects_at "later enum variant"
+  val _ = rejects_at \<^theory> "later enum variant"
     ["import target \"ChunkImportLaterChoice::Ready\" of \"later_ready\" is not yet available"]
     ("  fn ChunkImportLaterUse(x: u32) -> u32 { match x { later_ready => 1 } }\n" ^
      "  use ChunkImportLaterChoice::{self as LaterChoice, Ready as later_ready};\n" ^
@@ -581,6 +657,136 @@ lemma \<open> chunk_import_spell_user = chunk_import_spell_user_control \<close>
 lemma \<open> chunk_import_both_value = chunk_import_both_value_control \<close>
   unfolding chunk_import_both_value_def chunk_import_both_value_control_def by (rule refl)
 
+text\<open>
+The conversion calls of a native \<open>simple_word_enum\<close> enum that the chunk declares are importable
+by the members after it, exactly as in a single-item sequence.
+\<close>
+
+urust \<open>
+  #[repr(u8)]
+  enum ChunkImportConv { Low = 1, High = 4 }
+
+  \<omega>\<open>backend = "simple_word_enum", word_width = 16\<close>
+  enum ChunkImportConvWide { Low = 1, High = 2 }
+
+  use ChunkImportConv::{to_u8 as conv_to_byte, try_from as conv_from};
+  use ChunkImportConvWide::to_u16 as wide_to_word;
+
+  fn ChunkImportConvUse(level: ChunkImportConv) -> u8 { conv_to_byte(level) }
+
+  fn ChunkImportConvWideUse(level: ChunkImportConvWide) -> u16 { wide_to_word(level) }
+\<close>
+
+urust_fn \<open>
+  fn ChunkImportConvUseControl(level: ChunkImportConv) -> u8 { ChunkImportConv::to_u8(level) }
+\<close>
+urust_fn \<open>
+  fn ChunkImportConvWideUseControl(level: ChunkImportConvWide) -> u16 {
+    ChunkImportConvWide::to_u16(level)
+  }
+\<close>
+
+lemma \<open> chunk_import_conv_use = chunk_import_conv_use_control \<close>
+  unfolding chunk_import_conv_use_def chunk_import_conv_use_control_def by (rule refl)
+lemma \<open> chunk_import_conv_wide_use = chunk_import_conv_wide_use_control \<close>
+  unfolding chunk_import_conv_wide_use_def chunk_import_conv_wide_use_control_def by (rule refl)
+
+text\<open>
+A body import of a chunk alias whose type exists and whose value a later member declares is
+available in the type namespace and unavailable in the value namespace.
+\<close>
+
+urust_datatype \<open> enum ChunkImportBodyType { Only } \<close>
+urust_datatype \<open> enum ChunkImportBodyValue { Only } \<close>
+
+urust \<open>
+  fn ChunkImportBodyTypeUse(choice: ChunkImportBodyType) -> u32 {
+    use BodyTypeAlias as BodyInner;
+    match choice { BodyInner::Only => 1 }
+  }
+
+  use ChunkImportBodyType as BodyTypeAlias;
+
+  fn ChunkImportBodyType() -> u32 { 2 }
+\<close>
+
+urust_fn \<open>
+  fn ChunkImportBodyTypeUseControl(choice: ChunkImportBodyType) -> u32 {
+    match choice { ChunkImportBodyType::Only => 1 }
+  }
+\<close>
+
+lemma \<open> chunk_import_body_type_use = chunk_import_body_type_use_control \<close>
+  unfolding chunk_import_body_type_use_def chunk_import_body_type_use_control_def by (rule refl)
+
+text\<open>
+A call through an alias of an existing literal whose function a later member declares names the
+unavailable call; value uses keep the literal, and calls after the function resolve to it.
+\<close>
+
+definition chunk_import_lit_value :: \<open> 32 word \<close> where
+  \<open> chunk_import_lit_value = 5 \<close>
+micro_rust_notation (literal) chunk_import_lit_value ("ChunkImportLit")
+
+urust_fn \<open> fn ChunkImportLitEarlyControl() -> u32 { ChunkImportLit } \<close>
+
+urust \<open>
+  fn ChunkImportLitEarly() -> u32 { lit_value }
+
+  use ChunkImportLit as lit_value;
+
+  fn ChunkImportLit() -> u32 { 6 }
+
+  fn ChunkImportLitLate() -> u32 { lit_value() }
+\<close>
+
+urust_fn \<open> fn ChunkImportLitLateControl() -> u32 { ChunkImportLit() } \<close>
+
+lemma \<open> chunk_import_lit_early = chunk_import_lit_early_control \<close>
+  unfolding chunk_import_lit_early_def chunk_import_lit_early_control_def by (rule refl)
+lemma \<open> chunk_import_lit_late = chunk_import_lit_late_control \<close>
+  unfolding chunk_import_lit_late_def chunk_import_lit_late_control_def by (rule refl)
+
+definition chunk_import_lit_two_value :: \<open> 32 word \<close> where
+  \<open> chunk_import_lit_two_value = 7 \<close>
+micro_rust_notation (literal) chunk_import_lit_two_value ("ChunkImportLitTwo")
+
+ML_val\<open>
+local
+  open Chunk_Use_Audit
+  val broken = "  fn ChunkImportBroken() -> bool { 1u32 }\n"
+in
+  val _ = rejects_at \<^theory> "conversion call before its enum"
+    ["import target \"ChunkImportConvLater::to_u8\" of \"later_to_byte\" is not yet available"]
+    ("  fn ChunkImportConvEarly(x: u8) -> u8 { later_to_byte(x) }\n" ^
+     "  use ChunkImportConvLater::to_u8 as later_to_byte;\n" ^
+     "  #[repr(u8)]\n  enum ChunkImportConvLater { Low = 1 }\n")
+    "later_to_byte" 0
+  val _ = rejects_at \<^theory> "conversion call filtered out" ["unknown import target \"ChunkImportConvNone::to_u8\""]
+    (broken ^ "  " ^ annotation "plugins = (plugins only: word_conversion)" ^ "\n" ^
+     "  #[repr(u8)]\n  enum ChunkImportConvNone { Low = 1 }\n" ^
+     "  use ChunkImportConvNone::to_u8 as none_to_byte;\n")
+    "ChunkImportConvNone::to_u8" 0
+  val _ = rejects_at \<^theory> "value use through a partially available body import"
+    ["import target \"ChunkImportBodyValue\" of \"body_inner\" is not yet available"]
+    ("  fn ChunkImportBodyValueUse() -> u32 { use BodyValueAlias as body_inner; body_inner() }\n" ^
+     "  use ChunkImportBodyValue as BodyValueAlias;\n" ^
+     "  fn ChunkImportBodyValue() -> u32 { 3 }\n")
+    "body_inner" 1
+  val _ = rejects_at \<^theory> "predicted duplicate before the first declaration"
+    ["duplicate value import \"dup_predicted\""]
+    (broken ^ "  use ChunkImportDupLater as dup_predicted;\n  use demo::value as dup_predicted;\n" ^
+     "  fn ChunkImportDupLater() -> u32 { 1 }\n")
+    "dup_predicted" 1
+  val _ = rejects_at \<^theory> "call through a literal whose function is declared later"
+    ["import target \"ChunkImportLitTwo\" of \"lit_two\" is not yet available as a call"]
+    ("  fn ChunkImportLitTwoEarly() -> u32 { lit_two() }\n" ^
+     "  use ChunkImportLitTwo as lit_two;\n" ^
+     "  fn ChunkImportLitTwo() -> u32 { 8 }\n")
+    "lit_two" 0
+end
+\<close>
+
 subsection\<open> Imports and items of one chunk \<close>
 
 text\<open>
@@ -595,17 +801,17 @@ local
   val value_clash =
     ["value import \"ChunkImportClash\" collides with the same-scope generated Rust function"]
 in
-  val _ = rejects_at "import before item" value_clash
+  val _ = rejects_at \<^theory> "import before item" value_clash
     ("  use demo::value as ChunkImportClash;\n  fn ChunkImportClash() -> u32 { 1 }\n")
     "ChunkImportClash" 0
-  val _ = rejects_at "import after item" value_clash
+  val _ = rejects_at \<^theory> "import after item" value_clash
     ("  fn ChunkImportClash() -> u32 { 1 }\n  use demo::value as ChunkImportClash;\n")
     "ChunkImportClash" 1
-  val _ = rejects_at "type import and struct"
+  val _ = rejects_at \<^theory> "type import and struct"
     ["type import \"ChunkImportClashType\" collides with the same-scope generated Rust item"]
     ("  use UsePacket as ChunkImportClashType;\n  struct ChunkImportClashType { value: u32 }\n")
     "ChunkImportClashType" 0
-  val _ = rejects_at "value import and unit struct"
+  val _ = rejects_at \<^theory> "value import and unit struct"
     ["value import \"ChunkImportClashUnit\" collides with the same-scope generated Rust constructor"]
     ("  struct ChunkImportClashUnit;\n  use demo::value as ChunkImportClashUnit;\n")
     "ChunkImportClashUnit" 1
@@ -687,7 +893,7 @@ struct
     let
       val label = "chunk-import-atomic-" ^ target ^ "-" ^ label
       val text = loud ^ wrap (chunk (earlier ^ failing))
-      val {output, warnings, reports, ...} = rejected label expected text
+      val {output, warnings, reports, ...} = rejected \<^theory> label expected text
       val chunk_output =
         filter_out (String.isPrefix "locale chunk_import_atomic_loc") (authored_output output)
       val _ =
@@ -805,7 +1011,7 @@ local
        "  fn ChunkImportNavLate(x: u32) -> u32 { nav_step(nav_step(x)) }\n") ^
     "\nurust_use " ^ cartouche " use demo::increment as nav_control; " ^
     "\nurust_fn " ^ cartouche " fn ChunkImportNavControl(x: u32) -> u32 { nav_control(x) } "
-  val {reports, warnings, ...} = run_success "chunk-import-navigation" text
+  val {reports, warnings, ...} = run_success \<^theory> "chunk-import-navigation" text
   val events = report_events reports
   fun at range = filter (fn event => report_range event = range) events
   fun import_at range =
@@ -877,9 +1083,9 @@ local
     "  struct ChunkImportPrettyHolder { choice: PrettyChoice }\n" ^
     "  use UseChoice as PrettyChoice;\n" ^
     "  fn ChunkImportPretty(x: u32) -> u32 { pretty_step(x) }\n"
-  val pretty = run_success "chunk-import-pretty" ("urust [pretty, verbosity = 2, pp_test] " ^
+  val pretty = run_success \<^theory> "chunk-import-pretty" ("urust [pretty, verbosity = 2, pp_test] " ^
     command_source body)
-  val plain_run = run_success "chunk-import-plain" ("urust [verbosity = 2] " ^ command_source body)
+  val plain_run = run_success \<^theory> "chunk-import-plain" ("urust [verbosity = 2] " ^ command_source body)
   val _ = require ("pretty output shows the aliases:\n" ^ cat_lines (authored_output (#output pretty)))
     (exists (String.isSubstring "pretty_step(x)") (authored_output (#output pretty)) andalso
       exists (String.isSubstring "choice: PrettyChoice") (authored_output (#output pretty)))

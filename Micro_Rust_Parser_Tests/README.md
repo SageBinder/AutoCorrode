@@ -40,15 +40,21 @@ rejected at the annotation. The imports of one chunk form one batch, validated (
 cycles) before the first declaration. Its aliases are visible to every declaration of the chunk,
 including declarations written before the `use` item: each declaration elaborates in its member
 context extended with the batch, prepared for that context under `Declared_Later` with the
-registry entities that it and the later members declare (`URust_Imports.item_entities`). Such an
-entity is unavailable to earlier members in its own namespace only, and its use is rejected
-without fallback; entities that already exist keep resolving, and a target that neither exists nor
-is declared with a Rust registration is rejected as unknown at its path before the first
-declaration. After the last declaration `URust_Imports.conclude_batch` requires
-every target, reports the batch once inside the chunk transaction, and rejects an import that
-shares a namespace and name with an item that the chunk declares, as Rust does. Chunk aliases
-shadow persistent `urust_use` aliases, body imports shadow chunk aliases, and no alias survives
-the command.
+registry entities that it and the later members declare. The entities come from the
+registrations each declaration backend reports from its own decisions
+(`URust_Command.prepared_function_registrations`, `prepared_datatype_registrations`: item types and
+mappings, constructors, and the conversion calls of the native `simple_word_enum` backend under its
+plugin filter), mapped to namespaces by the same `URust_Imports.registration_entities` that
+resolution applies to installed registry entries. Such an entity is unavailable to earlier
+members in its own namespace only, and its use is rejected without fallback, also through a body
+import; an entity that already exists keeps resolving, and a use that needs a role a later member
+adds (such as a call of an existing literal) names that unavailable use. A target that neither
+exists nor is declared with a Rust registration is rejected as unknown at its path, and duplicates
+against predicted bindings are rejected, before the first declaration. After the last
+declaration `URust_Imports.conclude_batch` requires every target, reports the batch once inside
+the chunk transaction, and rejects an import that shares a namespace and name with an item that
+the chunk declares, as Rust does. Chunk aliases shadow persistent `urust_use` aliases, body imports
+shadow chunk aliases, and no alias survives the command.
 
 Every declaration command is one report transaction. uRust-owned elaboration markup, the native
 markup of embedded HOL sources (re-read for markup at release), regenerated
@@ -413,8 +419,10 @@ negative rows preserve these boundaries.
   single-item parser commands without the chunk theory.
 - `Parser_Chunk_Use_Tests.thy`: `use` members of chunks: aliases used before and after their use
   item, imports of earlier members, later and never-declared targets without fallback,
-  namespace-precise forward entities (predicted entities against the registries, existing entities
-  beside later ones, unregistered and anonymous targets), validation
+  namespace-precise forward entities (backend predictions against every registry entry the
+  declaration adds, including `#[repr]` and `simple_word_enum` enums with and without plugin
+  filters; conversion-call imports; existing entities beside later ones; body imports; predicted
+  duplicates; unregistered and anonymous targets), validation
   before the first declaration, import/item collisions, shadowing among persistent, chunk and body
   imports, signatures, fields, calls, construction and patterns with kernel equalities against
   qualified single-item controls, a locale target, atomic failures in theory, locale and context
