@@ -2,7 +2,7 @@
    SPDX-License-Identifier: MIT *)
 
 (* Two uRust plugins for `simple_word_enum`, both keyed off the declaration's optional
-   `urust: "Name"` clause and independently selectable:
+   `urust_name: "Name"` clause and independently selectable:
 
      urust_notation   -- each variant Ci as the uRust notation `Name::Ci`
      urust_conversion -- the word_conversion plugin's to/try_from functions lifted into
@@ -27,14 +27,14 @@ begin
 
 section\<open>\<open>\<mu>Rust\<close> notation for simple word enums\<close>
 
-text\<open>A \<^verbatim>\<open>simple_word_enum\<close> declaration may carry an optional \<^verbatim>\<open>urust: "Name"\<close> clause. The command
-itself only records that name on the \<^verbatim>\<open>enum_info\<close> it hands to plugins; the two plugins defined
-here are what act on it, and they are selectable independently:
+text\<open>A \<^verbatim>\<open>simple_word_enum\<close> declaration may carry an optional \<^verbatim>\<open>urust_name: "Name"\<close>
+clause. The command itself only records that name on the \<^verbatim>\<open>enum_info\<close> it hands to plugins;
+the two plugins defined here are what act on it, and they are selectable independently:
 
   \<^item> \<^verbatim>\<open>urust_notation\<close> --- each variant as \<^verbatim>\<open>Name::Ci\<close>;
   \<^item> \<^verbatim>\<open>urust_conversion\<close> --- the conversion functions as \<^verbatim>\<open>Name::to_uN\<close> / \<^verbatim>\<open>Name::try_from\<close>.
 
-Both are no-ops without a \<^verbatim>\<open>urust:\<close> clause.\<close>
+Both are no-ops without a \<^verbatim>\<open>urust_name:\<close> clause.\<close>
 
 subsection\<open>\<open>\<mu>Rust\<close> names for the variants\<close>
 
@@ -51,18 +51,18 @@ Variants are registered as \<^emph>\<open>literals\<close>: a variant is a nulla
 is what \<^verbatim>\<open>infer_kind_of_type\<close> classifies as a literal anyway --- we force it so that a variant
 whose enum type somehow looked function- or lens-shaped could not be misfiled.
 
-With no \<^verbatim>\<open>urust:\<close> clause the plugin does nothing, so it is harmless on every enum that does not
-want \<open>\<mu>Rust\<close> notation. It can also be suppressed explicitly with
+With no \<^verbatim>\<open>urust_name:\<close> clause the plugin does nothing, so it is harmless on every enum that
+does not want \<open>\<mu>Rust\<close> notation. It can also be suppressed explicitly with
 \<^verbatim>\<open>simple_word_enum (plugins del: "urust_notation") ...\<close>. The plugin name is quoted
 because \<^verbatim>\<open>urust_notation\<close> is also an outer command keyword in this session.
 
 Note that \<^verbatim>\<open>Name::Ci\<close> is a \<^verbatim>\<open>::\<close>-path, which the \<open>\<mu>Rust\<close> frontend's grammar already parses, so
 no bespoke grammar production is needed --- the dispatch-table entry alone suffices. The
-\<^verbatim>\<open>urust:\<close> prefix may itself be a path, for example
+\<^verbatim>\<open>urust_name:\<close> prefix may itself be a path, for example
 \<^verbatim>\<open>Register::Field::Value\<close>; every path segment must be an identifier.\<close>
 
 ML \<open>
-(* Shared by both plugins below: the `urust:` name, validated, or NONE when the declaration
+(* Shared by both plugins below: the `urust_name:` name, validated, or NONE when the declaration
    gave none (in which case both plugins are no-ops). *)
 structure Simple_Word_Enum_uRust = struct
 
@@ -104,7 +104,7 @@ fun urust_variant_name enum_name binding = enum_name ^ "::" ^ Binding.name_of bi
 
 fun generate_urust_notation (info: Simple_Word_Enum.enum_info) lthy =
   case Simple_Word_Enum_uRust.urust_name_of info of
-    (* No `urust:` clause: nothing to do. This is the common case. *)
+    (* No `urust_name:` clause: nothing to do. This is the common case. *)
     NONE => lthy
   | SOME enum_name =>
       let
@@ -266,10 +266,10 @@ end
 
 subsection\<open>Tests\<close>
 
-text\<open>A declaration with a \<^verbatim>\<open>urust:\<close> clause. Kept global (not inside an \<^verbatim>\<open>experiment\<close>) because
-notation registration is a global effect.\<close>
+text\<open>A declaration with a \<^verbatim>\<open>urust_name:\<close> clause. Kept global (not inside an
+\<^verbatim>\<open>experiment\<close>) because notation registration is a global effect.\<close>
 
-simple_word_enum (32) message_kind urust: "MessageKind" =
+simple_word_enum (32) message_kind urust_name: "MessageKind" =
     MK_Ping = \<open>0x1\<close>
   | MK_Pong = \<open>0x2\<close>
   | MK_Data = \<open>0xff\<close>
@@ -300,10 +300,10 @@ text\<open>Parser-level checks that these registrations resolve the source paths
 \<^verbatim>\<open>MessageKind::MK_Data\<close> live in
 \<^file>\<open>../Micro_Rust_Parser_Tests/Parser_Simple_Word_Enum_Tests.thy\<close>.\<close>
 
-text\<open>The \<^verbatim>\<open>urust:\<close> prefix may itself be a path. The plugins append the variant and
+text\<open>The \<^verbatim>\<open>urust_name:\<close> prefix may itself be a path. The plugins append the variant and
 conversion names to the whole prefix.\<close>
 
-simple_word_enum (8) path_kind urust: "Outer::Inner::PathKind" =
+simple_word_enum (8) path_kind urust_name: "Outer::Inner::PathKind" =
     PK_First = 1
   | PK_Second = 2
 
@@ -316,7 +316,7 @@ ML \<open>
     @{assert} (length (lookup Micro_Rust_Names.NLiteral (prefix ^ "::PK_Second")) = 1);
     @{assert} (length (lookup Micro_Rust_Names.NFunction (prefix ^ "::to_u8")) = 1);
     @{assert} (length (lookup Micro_Rust_Names.NFunction (prefix ^ "::try_from")) = 1);
-    writeln "path-valued urust: prefix registered"
+    writeln "path-valued urust_name: prefix registered"
   end
 \<close>
 
@@ -382,8 +382,8 @@ text\<open>\<^verbatim>\<open>print_micro_rust_notations\<close> lists them alon
 
 print_micro_rust_notations
 
-text\<open>Without a \<^verbatim>\<open>urust:\<close> clause both plugins are no-ops --- nothing is registered under the type's
-own name, and no lifted functions appear.\<close>
+text\<open>Without a \<^verbatim>\<open>urust_name:\<close> clause both plugins are no-ops --- nothing is registered
+under the type's own name, and no lifted functions appear.\<close>
 
 simple_word_enum (8) unnamed_kind = UK_A = 1 | UK_B = 2
 
@@ -396,14 +396,14 @@ ML \<open>
       @{context}) "unnamed_kind_to_u8")
   in
     @{assert} (null bad); @{assert} no_const;
-    writeln "no urust: clause: no notations, no lifted functions"
+    writeln "no urust_name: clause: no notations, no lifted functions"
   end
 \<close>
 
 text\<open>The two plugins are independent. \<^verbatim>\<open>plugins del: urust_conversion\<close> keeps the variant names but
 drops the lifted functions.\<close>
 
-simple_word_enum (plugins del: urust_conversion) (8) names_only urust: "NamesOnly" =
+simple_word_enum (plugins del: urust_conversion) (8) names_only urust_name: "NamesOnly" =
     NO_A = 1 | NO_B = 2
 
 ML \<open>
@@ -421,7 +421,7 @@ ML \<open>
 text\<open>And the reverse: \<^verbatim>\<open>plugins del: "urust_notation"\<close> keeps the lifted conversion functions but
 drops the variant names.\<close>
 
-simple_word_enum (plugins del: "urust_notation") (8) convs_only urust: "ConvsOnly" =
+simple_word_enum (plugins del: "urust_notation") (8) convs_only urust_name: "ConvsOnly" =
     CO_A = 1 | CO_B = 2
 
 ML \<open>
@@ -446,7 +446,7 @@ lemma
 text\<open>Both suppressed at once.\<close>
 
 simple_word_enum (plugins del: "urust_notation" urust_conversion) (8) quiet_kind
-    urust: "QuietKind" =
+    urust_name: "QuietKind" =
     QK_A = 1 | QK_B = 2
 
 ML \<open>

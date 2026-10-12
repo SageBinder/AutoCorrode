@@ -1338,12 +1338,12 @@ end
 \<close>
 
 
-section\<open> Clause boundary of the chunk theory \<close>
+section\<open> The simple word enum clause next to the chunk command \<close>
 
 text\<open>
-Importing the chunk theory makes \<open>urust\<close> a command keyword. Here a \<open>simple_word_enum\<close>
-declaration with a \<open>urust: "Name"\<close> clause splits at the keyword and is rejected; theories that
-import only \<open>Parser_Impl_Command\<close> keep the clause (\<open>Parser_Simple_Word_Enum_Clause_Tests\<close>).
+Importing the chunk theory makes \<open>urust\<close> a command keyword. The \<open>simple_word_enum\<close> clause
+is spelled \<open>urust_name: "Name"\<close>, so it stays one command and registers its source paths here;
+the former \<open>urust: "Name"\<close> spelling splits at the keyword and is rejected.
 \<close>
 
 ML\<open>
@@ -1352,13 +1352,24 @@ local
   val _ =
     require "urust is not a command keyword in a theory importing the chunk theory"
       (Keyword.is_command (Thy_Header.get_keywords' \<^context>) "urust")
-  val clause =
-    "simple_word_enum (8) chunk_clause_kind urust: \"ChunkClauseKind\" =\n" ^
+  fun clause keyword =
+    "simple_word_enum (8) chunk_clause_kind " ^ keyword ^ " \"ChunkClauseKind\" =\n" ^
     "  CCK_First = 1 | CCK_Second = 2\n"
-  val {result, ...} = capture true "clause-limitation" \<^theory> clause
-  val _ = failure_message "clause-limitation" ["Outer syntax error"] result
+  val {result, ...} = capture true "clause-renamed" \<^theory> (clause "urust_name:")
+  val ctxt = result_context result
+  fun backend name =
+    Micro_Rust_Names.lookups ctxt Micro_Rust_Names.NLiteral ("ChunkClauseKind::" ^ name)
+    |> map #hol_term
+  val found =
+    map (map (Long_Name.base_name o fst o dest_Const)) [backend "CCK_First", backend "CCK_Second"]
+  val _ =
+    require ("the urust_name: clause did not register the variant paths: " ^
+        ML_Syntax.print_list (ML_Syntax.print_list ML_Syntax.print_string) found)
+      (found = [["CCK_First"], ["CCK_Second"]])
+  val {result, ...} = capture true "clause-former" \<^theory> (clause "urust:")
+  val _ = failure_message "clause-former" ["Outer syntax error"] result
 in
-  val _ = writeln "the recorded clause limitation of the chunk theory is reproduced"
+  val _ = writeln "the urust_name: clause works next to the chunk command; urust: is rejected"
 end
 \<close>
 

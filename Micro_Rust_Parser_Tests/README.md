@@ -17,10 +17,10 @@ urust_use ‹ use PATH [as ALIAS]; ›
 ```
 
 The plain `urust` command declares a nonempty source-ordered chunk of complete `fn`, `struct`,
-`enum` and `use` items. It is registered by the opt-in theory `Micro_Rust_Parser_Impl.Parser_Impl_Chunk`;
-`Parser_Impl_Command` alone keeps `urust` an ordinary name, so the `simple_word_enum … urust:
-"Name"` clause remains usable there (`Parser_Simple_Word_Enum_Clause_Tests.thy`). A theory that
-imports the chunk theory cannot use that clause: the command keyword starts a new command span.
+`enum` and `use` items. It is registered by the opt-in theory `Micro_Rust_Parser_Impl.Parser_Impl_Chunk`.
+The `simple_word_enum … urust_name: "Name"` clause does not collide with the `urust` command
+keyword, with or without the chunk theory (`Parser_Simple_Word_Enum_Clause_Tests.thy` and the chunk
+regression tests).
 An optional `ω‹OPTION, OPTION = VALUE, …›` annotation occupies its own line or lines immediately
 before the line on which its item starts; a leading `#[repr(…)]` line belongs to its enum, and an
 annotation may not share the opening `urust ‹` line. Its payload uses the bracketed-list entry
@@ -413,10 +413,10 @@ negative rows preserve these boundaries.
   precedence and source-order output, equivalence with single-item artifacts and markup (including
   embedded HOL sources and attributes), atomic last-item failures whose earlier members leave only
   parse-only markup, backend/plugin/`simple_word_enum` annotation effects, calls to anonymous and
-  unregistered members, the clause boundary of the chunk theory, escaped-symbol positions,
+  unregistered members, the `urust_name:` clause next to the chunk command, escaped-symbol positions,
   independent type environments, read-only pretty replay and a moderately sized chunk.
-- `Parser_Simple_Word_Enum_Clause_Tests.thy`: `simple_word_enum … urust:` declarations next to the
-  single-item parser commands without the chunk theory.
+- `Parser_Simple_Word_Enum_Clause_Tests.thy`: `simple_word_enum … urust_name:` declarations next
+  to the single-item parser commands without the chunk theory.
 - `Parser_Chunk_Use_Tests.thy`: `use` members of chunks: aliases used before and after their use
   item, imports of earlier members, later and never-declared targets without fallback,
   namespace-precise forward entities (backend predictions against every registry entry the

@@ -43,10 +43,8 @@ sources read during elaboration, regenerated declaration definition entities, wa
 successful output are released in source order only after every member succeeds; native
 declaration backends run in invisible contexts. Any failure rejects the whole command.
 
-This theory is opt-in: theories that import \<open>Parser_Impl_Command\<close> without it keep
-\<open>urust\<close> as an ordinary name, so the \<open>urust: "Name"\<close> clause of \<open>simple_word_enum\<close>
-remains available there. A theory importing this theory cannot use that clause, because the
-command keyword starts a new command span.
+This theory is opt-in above \<open>Parser_Impl_Command\<close>. The \<open>simple_word_enum\<close> clause is
+spelled \<open>urust_name: "Name"\<close>, so it does not collide with the \<open>urust\<close> command keyword.
 \<close>
 
 ML\<open>

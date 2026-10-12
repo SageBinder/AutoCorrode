@@ -1,4 +1,4 @@
-(* The urust: clause of simple_word_enum next to the parser commands, without the chunk theory. *)
+(* The urust_name: clause of simple_word_enum next to the single-item parser commands. *)
 
 theory Parser_Simple_Word_Enum_Clause_Tests
   imports
@@ -6,16 +6,15 @@ theory Parser_Simple_Word_Enum_Clause_Tests
     Shallow_Micro_Rust.Simple_Word_Enum_uRust
 begin
 
-section\<open> Clause compatibility without the chunk command \<close>
+section\<open> Clause registrations without the chunk command \<close>
 
 text\<open>
-The chunk command \<open>urust\<close> is registered by the opt-in theory \<open>Parser_Impl_Chunk\<close>. A theory
-that imports the single-item parser commands but not that theory keeps \<open>urust\<close> as an ordinary
-name, so generated \<open>simple_word_enum\<close> declarations with a \<open>urust: "Name"\<close> clause remain one
-command and register their source paths.
+This theory imports the single-item parser commands but not the opt-in chunk theory, as generated
+register theories do. A \<open>simple_word_enum\<close> declaration with a \<open>urust_name: "Name"\<close> clause
+registers its source paths for later parser commands.
 \<close>
 
-simple_word_enum (8) clause_kind urust: "ClauseKind" =
+simple_word_enum (8) clause_kind urust_name: "ClauseKind" =
     CLK_First = 1
   | CLK_Second = 2
 
