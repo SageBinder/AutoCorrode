@@ -186,7 +186,9 @@ by locales and experiments. Each alias captures the canonical exact key of an ex
 item, Rust type mapping or literal/call notation when the command runs. Later value, call,
 constructor, pattern, type and cast occurrences resolve an alias to that key and its owning
 registry; a binding that is unusable in the requested role is rejected without falling back.
-Use statements in bodies follow Rust block scope and are prepared by expression translation.
+Like Rust module-level imports, these aliases are shadowed by lexical locals and parameters.
+Use statements in bodies follow Rust block scope and are prepared by expression translation:
+they shadow same-named locals and parameters bound outside their block.
 The whole item validates before any binding is installed, and its reports wait until success.
 
 The option parser is parameterized by a command-specific schema. Both commands accept Boolean

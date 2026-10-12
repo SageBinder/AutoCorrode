@@ -104,6 +104,37 @@ lemma \<open> chunk_import_persistent_again = chunk_import_persistent_again_cont
   unfolding chunk_import_persistent_again_def chunk_import_persistent_again_control_def
   by (rule refl)
 
+text\<open>
+As for Rust module-level imports, member parameters shadow chunk and persistent aliases, while a
+body import shadows the parameters of its member. The controls use unimported parameter names.
+\<close>
+
+urust \<open>
+  use demo::increment as chunk_shadow_pick;
+  fn ChunkShadowParameter(chunk_shadow_pick: u32) -> u32 { chunk_shadow_pick }
+  fn ChunkShadowBody(chunk_shadow_pick: u32) -> u32 {
+    use use_increment as chunk_shadow_pick;
+    chunk_shadow_pick(1)
+  }
+  fn ChunkShadowPersistent(chunk_import_pick: u32) -> u32 { chunk_import_pick }
+  // A parameter also wins against a chunk alias whose target is declared later.
+  fn ChunkShadowUnavailable(chunk_shadow_later: u32) -> u32 { chunk_shadow_later }
+  use ChunkShadowLater as chunk_shadow_later;
+  fn ChunkShadowLater(value: u32) -> u32 { value }
+\<close>
+
+urust_fn \<open> fn ChunkShadowParameterControl(other: u32) -> u32 { other } \<close>
+urust_fn \<open> fn ChunkShadowBodyControl(other: u32) -> u32 { use_increment(1) } \<close>
+
+lemma \<open> chunk_shadow_parameter = chunk_shadow_parameter_control \<close>
+  unfolding chunk_shadow_parameter_def chunk_shadow_parameter_control_def by (rule refl)
+lemma \<open> chunk_shadow_body = chunk_shadow_body_control \<close>
+  unfolding chunk_shadow_body_def chunk_shadow_body_control_def by (rule refl)
+lemma \<open> chunk_shadow_persistent = chunk_shadow_parameter_control \<close>
+  unfolding chunk_shadow_persistent_def chunk_shadow_parameter_control_def by (rule refl)
+lemma \<open> chunk_shadow_unavailable = chunk_shadow_parameter_control \<close>
+  unfolding chunk_shadow_unavailable_def chunk_shadow_parameter_control_def by (rule refl)
+
 section\<open> Same-spelling type and value aliases \<close>
 
 urust \<open>
@@ -285,6 +316,8 @@ end
 
 subsection\<open> Targets declared later or never \<close>
 
+urust_type "ChunkShadowSplit" = \<open> nat \<close>
+
 ML_val\<open>
 local
   open Chunk_Use_Audit
@@ -320,6 +353,17 @@ in
      "  use ChunkImportLaterSignature as LaterSignature;\n" ^
      "  struct ChunkImportLaterSignature { value: u32 }\n")
     "LaterSignature" 0
+  (* A body import of a chunk alias whose value is declared later shadows a same-named parameter in
+     the value namespace and rejects without falling back to the parameter. *)
+  val _ = rejects_at \<^theory> "body import shadowing a parameter"
+    ["is not yet available"]
+    ("  use ChunkShadowSplit as chunk_shadow_split;\n" ^
+     "  fn ChunkShadowSplitUser(chunk_split_param: u32) -> u32 {\n" ^
+     "    use chunk_shadow_split as chunk_split_param;\n" ^
+     "    chunk_split_param(1)\n" ^
+     "  }\n" ^
+     "  fn ChunkShadowSplit(value: u32) -> u32 { value }\n")
+    "chunk_split_param" 2
   val _ = rejects_at \<^theory> "body import depending on a later target"
     ["import target \"ChunkImportLaterBody\" of \"later_body\" is not yet available"]
     ("  fn ChunkImportBodyEarly() -> u32 { use later_body as inner_body; inner_body() }\n" ^

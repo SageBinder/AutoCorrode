@@ -142,9 +142,11 @@ variants are braced constructors, enum variants are not usable types, and an imp
 enum may qualify its exact variants. A body `use` statement is visible throughout its block,
 including before its declaration, and in nested scopes, but never escapes; imports in one block
 may depend on each other in any order, cycles and missing targets (also unused) reject, and import
-targets never capture lexical locals, arguments, fixes or free names. Lexical locals precede
-imports for values and calls; otherwise the nearest import in the requested namespace resolves
-through its owning registry, and a binding unusable in that role rejects without fallback.
+targets never capture lexical locals, arguments, fixes or free names. For values and calls, Rust
+block scoping decides between an import and a same-named local: a block import shadows locals and
+parameters bound outside its block, locals bound inside the block shadow it, and every local
+shadows chunk and persistent aliases. The selected import resolves through its owning registry,
+and a binding unusable in that role rejects without fallback.
 Imports add no runtime term. Struct-expression and struct-pattern heads resolve in the type
 namespace; an imported call or literal notation serves as a single-segment struct head only where
 no Rust type resolves that head, so a value import never changes a Rust struct. Import reports

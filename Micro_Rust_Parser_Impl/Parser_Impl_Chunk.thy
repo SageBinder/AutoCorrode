@@ -36,7 +36,8 @@ target that neither exists nor is declared, with a Rust registration, by a membe
 unknown before the first declaration. After the last declaration every target must resolve, and
 no chunk import may share a namespace and name with an item that the chunk declares. Chunk aliases
 shadow persistent \<open>urust_use\<close> aliases, body imports shadow chunk aliases, and no alias survives
-the command.
+the command. As for Rust module-level imports, member parameters and other lexical locals shadow
+chunk and persistent aliases, while a body import shadows the parameters of its member.
 
 The command is one report transaction. uRust semantic reports, the markup of embedded HOL
 sources read during elaboration, regenerated declaration definition entities, warnings and

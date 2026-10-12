@@ -497,6 +497,34 @@ lemma showoff_imported_events_equal:
   unfolding showoff_imported_events_def showoff_qualified_events_def
   by (rule refl)
 
+text\<open>
+As in Rust, a block import shadows a same-named local bound outside its block, and the local is
+visible again after the block.
+\<close>
+
+urust_expr showoff_block_shadowing
+  \<open>
+    {
+      let marker = |event| event;
+      let inner = { use Event::Idle as marker; marker };
+      (inner, marker(Event::Idle))
+    }
+  \<close>
+
+urust_expr showoff_block_shadowing_qualified
+  \<open>
+    {
+      let marker = |event| event;
+      let inner = { DatatypeEvent::Idle };
+      (inner, marker(DatatypeEvent::Idle))
+    }
+  \<close>
+
+lemma showoff_block_shadowing_equal:
+  \<open> showoff_block_shadowing = showoff_block_shadowing_qualified \<close>
+  unfolding showoff_block_shadowing_def showoff_block_shadowing_qualified_def
+  by (rule refl)
+
 subsection\<open> Imports in chunks \<close>
 
 text\<open>

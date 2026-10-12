@@ -947,6 +947,111 @@ end
 \<close>
 
 
+section\<open> Rust block shadowing of lexical locals \<close>
+
+text\<open>
+As in Rust, the use items of a block take effect at its entry. A block import therefore shadows a
+same-named local bound outside the block (an enclosing let, a function, closure or declaration
+parameter, or a match, if-let, for or let-else binder) within that block, while a local bound
+inside the block, even before the use item, shadows the import. Each definition is kernel-equal to
+its import-free counterpart.
+\<close>
+
+urust_expr use_shadow_outer_let
+  \<open> { let pick = |x| x; let inside = { use demo::increment as pick; pick(1) }; let captured = { use demo::increment as pick; || pick(3) }; (inside, captured(), pick(2)) } \<close>
+urust_expr use_shadow_outer_let_plain
+  \<open> { let pick = |x| x; let inside = { demo::increment(1) }; let captured = { || demo::increment(3) }; (inside, captured(), pick(2)) } \<close>
+lemma \<open> use_shadow_outer_let = use_shadow_outer_let_plain \<close>
+  unfolding use_shadow_outer_let_def use_shadow_outer_let_plain_def by (rule refl)
+
+urust_expr use_shadow_arguments (step, w) \<open> use demo::increment as step; use demo::WIDTH as w; (step(1), w) \<close>
+urust_expr use_shadow_arguments_plain (step, w) \<open> (demo::increment(1), demo::WIDTH) \<close>
+lemma \<open> use_shadow_arguments = use_shadow_arguments_plain \<close>
+  unfolding use_shadow_arguments_def use_shadow_arguments_plain_def by (rule refl)
+
+urust_fn use_shadow_parameter
+  \<open> fn use_shadow_parameter(step: u32) -> u32 { use demo::increment as step; step(1) } \<close>
+urust_fn use_shadow_parameter_plain
+  \<open> fn use_shadow_parameter_plain(step: u32) -> u32 { demo::increment(1) } \<close>
+lemma \<open> use_shadow_parameter = use_shadow_parameter_plain \<close>
+  unfolding use_shadow_parameter_def use_shadow_parameter_plain_def by (rule refl)
+
+urust_expr use_shadow_binders (choice)
+  \<open>
+    {
+      let closure = |pick| { use demo::increment as pick; pick(1) };
+      let arm = match choice { UseChoice::Value(pick) => { use demo::increment as pick; pick(2) }, _ => 0 };
+      let branch = if let UseChoice::Value(pick) = choice { use demo::increment as pick; pick(3) } else { 0 };
+      for pick in 0u32..2 { use demo::increment as pick; pick(4); }
+      (closure(7u32), arm, branch)
+    }
+  \<close>
+urust_expr use_shadow_binders_plain (choice)
+  \<open>
+    {
+      let closure = |pick| { demo::increment(1) };
+      let arm = match choice { UseChoice::Value(pick) => { demo::increment(2) }, _ => 0 };
+      let branch = if let UseChoice::Value(pick) = choice { demo::increment(3) } else { 0 };
+      for pick in 0u32..2 { demo::increment(4); }
+      (closure(7u32), arm, branch)
+    }
+  \<close>
+lemma \<open> use_shadow_binders = use_shadow_binders_plain \<close>
+  unfolding use_shadow_binders_def use_shadow_binders_plain_def by (rule refl)
+
+urust_expr use_shadow_let_else (choice)
+  \<open> { let UseChoice::Value(pick) = choice else { return 0; }; { use demo::increment as pick; pick(5) } } \<close>
+urust_expr use_shadow_let_else_plain (choice)
+  \<open> { let UseChoice::Value(pick) = choice else { return 0; }; { demo::increment(5) } } \<close>
+lemma \<open> use_shadow_let_else = use_shadow_let_else_plain \<close>
+  unfolding use_shadow_let_else_def use_shadow_let_else_plain_def by (rule refl)
+
+urust_expr use_shadow_restored (pick) \<open> { let inside = { use demo::increment as pick; pick(1) }; (inside, pick) } \<close>
+urust_expr use_shadow_restored_plain (pick) \<open> { let inside = { demo::increment(1) }; (inside, pick) } \<close>
+lemma \<open> use_shadow_restored = use_shadow_restored_plain \<close>
+  unfolding use_shadow_restored_def use_shadow_restored_plain_def by (rule refl)
+
+urust_expr use_shadow_inner_locals
+  \<open>
+    {
+      let before = { let pick = |x| x; use demo::increment as pick; pick(1) };
+      let nested = { use demo::increment as pick; { let pick = |x| x; pick(2) } };
+      let through = { use demo::increment as pick; let pick = |x| x; { use demo::value as unrelated; pick(3) } };
+      let inner = { use demo::increment as pick; let pick = |x| x; ({ use use_increment as pick; pick(4) }, pick(6)) };
+      let formal = { use demo::increment as pick; let f = |pick| pick; f(5) };
+      (before, nested, through, inner, formal)
+    }
+  \<close>
+urust_expr use_shadow_inner_locals_plain
+  \<open>
+    {
+      let before = { let pick = |x| x; pick(1) };
+      let nested = { { let pick = |x| x; pick(2) } };
+      let through = { let pick = |x| x; { pick(3) } };
+      let inner = { let pick = |x| x; ({ use_increment(4) }, pick(6)) };
+      let formal = { let f = |pick| pick; f(5) };
+      (before, nested, through, inner, formal)
+    }
+  \<close>
+lemma \<open> use_shadow_inner_locals = use_shadow_inner_locals_plain \<close>
+  unfolding use_shadow_inner_locals_def use_shadow_inner_locals_plain_def by (rule refl)
+
+urust_expr use_shadow_endpoint_and_length (x)
+  \<open> { let w = 0u32; let n = 1u64; { use demo::WIDTH as w; use demo::COUNT as n; (match x { 0..=w => 1u32, _ => 0 }, [0u8; n]) } } \<close>
+urust_expr use_shadow_endpoint_and_length_plain (x)
+  \<open> { let w = 0u32; let n = 1u64; { use demo::WIDTH as width; use demo::COUNT as count; (match x { 0..=width => 1u32, _ => 0 }, [0u8; count]) } } \<close>
+lemma \<open> use_shadow_endpoint_and_length = use_shadow_endpoint_and_length_plain \<close>
+  unfolding use_shadow_endpoint_and_length_def use_shadow_endpoint_and_length_plain_def by (rule refl)
+
+urust_expr use_shadow_control_head_local \<open> { use demo::value as v; let v = true; if v {} } \<close>
+
+urust_expr_rejects \<open> |w| { use demo::WIDTH as w; w(1) } \<close> \<open> which cannot be used as a call \<close>
+urust_expr_rejects \<open> { use demo::COUNT as n; let n = 1u64; [0u8; n] } \<close>
+  \<open> array repeat length cannot use lexical local "n" \<close>
+urust_expr_rejects \<open> { let v = true; { use demo::value as v; if v {} } } \<close>
+  \<open> empty struct expression in a control head must be parenthesized \<close>
+
+
 section\<open> Editor integration and replay \<close>
 
 text\<open>
@@ -1027,6 +1132,14 @@ local
   val _ = require "block alias definition" (definition block_markups (occurrence block_text "blk" 0))
   val _ = require "block alias final target"
     (last_kind block_markups (occurrence block_text "blk" 1) = SOME "urust_import")
+  val shadow_text =
+    "urust_expr nav_shadow " ^
+      cartouche " { let nav_pick = |x| x; { use demo::increment as nav_pick; nav_pick(1) } } "
+  val (_, shadow_markups) = markup_reports shadow_text
+  val shadow_site = occurrence shadow_text "nav_pick" 2
+  val _ = require "a shadowing block import is the final target of its occurrence"
+    (last_kind shadow_markups shadow_site = SOME "urust_import" andalso
+      not (member (op =) (kinds shadow_markups shadow_site) "urust_var"))
 
   val type_text =
     "urust_use " ^ cartouche " use demo::Width as NavWord; " ^ "\n" ^

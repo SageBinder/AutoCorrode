@@ -325,7 +325,9 @@ struct
     end
 
   (* Every real block and the implicit command body is prepared exactly once, before any of its
-     expressions or patterns are lowered: imports are visible throughout their block. *)
+     expressions or patterns are lowered: imports are visible throughout their block. Binders are
+     allocated in the prepared context, so imports shadow same-named locals bound outside the block
+     and are shadowed by locals bound inside it, as in Rust. *)
   fun prepare_body_scope ctxt expression =
     let val (items, erased) = collect_body_scope expression
     in

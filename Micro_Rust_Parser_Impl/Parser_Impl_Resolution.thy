@@ -188,8 +188,9 @@ ML\<open>
 
   - literal_value lowers a literal payload to its unlifted HOL value, including binder-aware value
     antiquotations. literal_expression preserves the frontend's special boolean-expression shape and
-    otherwise lifts literal_value. literal_identifier_value resolves locals before NLiteral
-    notation/HOL fallback without lifting, and literal_identifier lifts that result. A single-segment
+    otherwise lifts literal_value. literal_identifier_value resolves a shadowing import, then
+    locals, before NLiteral notation/HOL fallback without lifting, and literal_identifier lifts
+    that result. A single-segment
     direct NFunction call head resolves a declaration argument before an exact registration or HOL
     fallback; qualified call paths and method names retain registration-first resolution. In the
     NField role an exact registered notation wins, otherwise a lexical local wins before HOL fallback.
@@ -198,7 +199,8 @@ ML\<open>
     returns the selected unlifted direct callee. apply_generic_arguments parses the retained
     restricted generic argument sources in the current lexical environment and applies them to an
     already-resolved term from left to right.
-    global_constant_path_value is the stricter array-repeat-length route: it rejects lexical locals,
+    global_constant_path_value is the stricter array-repeat-length route: it rejects lexical locals
+    that no block import shadows,
     accepts exact literal registrations whose selected backend may depend on the proof context,
     direct fixed parameters, or genuine unqualified HOL constants. Qualified paths require exact
     literal registration, and the route never creates an unresolved Free.
@@ -206,7 +208,8 @@ ML\<open>
     naming policy. registered_macro_path performs the same lookup for the complete spelling including
     `!`, but rejects an unregistered qualified source path through the common call-role diagnostic.
     is_nullary_function_path is a report-free ambiguity query used by control-head
-    validation: declaration arguments retain direct-call precedence, ordinary lexical values and
+    validation: after any shadowing block import, declaration arguments retain direct-call
+    precedence, ordinary lexical values and
     fixed variables remain value paths, and otherwise an exact registered backend or proper HOL
     constant counts only when its declared type takes zero arguments before function_body.
     field_expression applies the same role policy and focuses the supplied receiver.
@@ -258,13 +261,17 @@ ML\<open>
 
   - Rust imports. Before its ordinary route, every value, call, struct-expression, pattern,
     struct-pattern, repeat-length and report-free classification consumer consults
-    URust_Import_Scope. A single-segment name bound in the requested namespace (value and call
-    occurrences only after lexical locals and declaration arguments miss), or a multi-segment path
-    whose head is a type-namespace import of a generated enum, is rewritten to its canonical
+    URust_Import_Scope. A single-segment name bound in the requested namespace, or a multi-segment
+    path whose head is a type-namespace import of a generated enum, is rewritten to its canonical
     exact key: the bound segment becomes the key segments, with the occurrence position and
     generic arguments on the final key segment and no position on synthetic prefix segments. The
     canonical path then follows only the exact branch of the owning resolver; a binding unusable
     in the requested role is rejected without any lexical, HOL, basename or unqualified fallback.
+    For value and call occurrences, Rust block scoping decides between an import and a lexical
+    local or declaration argument of the same name: a block's use items take effect at its entry,
+    so the import wins exactly when its frame is deeper than the frames enclosing the local's
+    binding. Locals bound inside the importing block, and every local against chunk and persistent
+    aliases, win instead.
     Struct heads use the type namespace, extended to single-segment value bindings of the notation
     role the existing struct syntax uses. report_struct_constructor is report_constructor for
     struct-pattern heads. Method names, fields, macros and log-data identifiers are not imported.
@@ -286,9 +293,13 @@ struct
 
   type field_reference = I.field_entry
   type local_table = Parser_Utils.var_info Symtab.table
+  (* local_frames records, per lexical local, the number of import frames enclosing its binding.
+     Frames are pushed at block entry before any binder of the block, so every visible local was
+     bound in a prefix of the current frame list. *)
   type environment =
     {locals: local_table,
-     declaration_arguments: unit Symtab.table}
+     declaration_arguments: unit Symtab.table,
+     local_frames: int Symtab.table}
 
   val variable_entity_kind = "urust_var"
   val report_reference = Parser_Utils.report_ref variable_entity_kind
@@ -297,7 +308,8 @@ struct
 
   val empty_environment =
     {locals = Symtab.empty,
-     declaration_arguments = Symtab.empty}
+     declaration_arguments = Symtab.empty,
+     local_frames = Symtab.empty}
   val anonymous_abstraction = Parser_Utils.anon_abs
 
   fun parse_antiquotation ctxt
@@ -305,7 +317,7 @@ struct
     Parser_Utils.parse_antiq variable_entity_kind ctxt locals source
 
   fun bind_ordinary_local ctxt
-      ({locals, declaration_arguments} : environment)
+      ({locals, declaration_arguments, local_frames} : environment)
       (binding as (name, _)) =
     let
       val (free, locals') = bind_local ctxt locals binding
@@ -313,11 +325,12 @@ struct
       (free,
        {locals = locals',
         declaration_arguments =
-          Symtab.delete_safe name declaration_arguments})
+          Symtab.delete_safe name declaration_arguments,
+        local_frames = Symtab.update (name, S.frame_depth ctxt) local_frames})
     end
 
   fun bind_declaration_argument ctxt
-      ({locals, declaration_arguments} : environment)
+      ({locals, declaration_arguments, local_frames} : environment)
       (parameter as ((name, _), _)) =
     let
       val (free, locals') = bind_typed_local ctxt locals parameter
@@ -325,7 +338,8 @@ struct
       (free,
        {locals = locals',
         declaration_arguments =
-          Symtab.update (name, ()) declaration_arguments})
+          Symtab.update (name, ()) declaration_arguments,
+        local_frames = Symtab.update (name, S.frame_depth ctxt) local_frames})
     end
 
   fun allocate_locals ctxt environment signatures =
@@ -947,12 +961,28 @@ struct
              (S.lookup ctxt namespace name)
        | _ => head_import_route ctxt path)
 
-  (* Value and call occurrences consult lexical locals, including declaration arguments, first. *)
+  (* Rust block scoping for value and call occurrences: the use items of a block take effect at its
+     entry. An import therefore shadows a lexical local, including a declaration argument, exactly
+     when its frame is deeper than the frames enclosing the local's binding; locals bound inside the
+     importing block, and every local against chunk and persistent aliases, win. The comparison
+     precedes availability checks, so a shadowed unavailable binding never rejects. *)
+  fun import_shadows_local ctxt ({local_frames, ...} : environment) namespace name =
+    (case Symtab.lookup local_frames name of
+       NONE => true
+     | SOME local_depth =>
+         if local_depth > S.frame_depth ctxt then
+           raise Fail ("uRust local " ^ quote name ^ " was bound under an inactive import frame")
+         else
+           (case S.lookup_scoped ctxt namespace name of
+              SOME (_, import_depth) => import_depth > local_depth
+            | NONE => false))
+
   fun value_import_route ctxt environment path =
     (case path_segments path of
        [Path_Segment (name, _, _)] =>
-         if is_some (lookup_local environment name) then NONE
-         else namespace_import_route ctxt S.Value_Namespace path
+         if import_shadows_local ctxt environment S.Value_Namespace name
+         then namespace_import_route ctxt S.Value_Namespace path
+         else NONE
      | _ => namespace_import_route ctxt S.Value_Namespace path)
 
   val pattern_import_route = fn ctxt => namespace_import_route ctxt S.Value_Namespace
@@ -1079,7 +1109,7 @@ struct
              error
                ("urust_expr: generic arguments are not allowed in an array repeat length" ^
                  Position.here generic_pos))
-      val _ =
+      fun reject_lexical_local () =
         (case path_segments path of
            [Path_Segment (local_name, local_pos, NONE)] =>
              if is_some (lookup_local environment local_name) then
@@ -1134,7 +1164,8 @@ struct
             | NONE =>
                 unusable_import ctxt repeat_length_import_roles "an array repeat length" route)
        | NONE =>
-      (case exact_registered_path ctxt Micro_Rust_Names.NLiteral path of
+      (reject_lexical_local ();
+      case exact_registered_path ctxt Micro_Rust_Names.NLiteral path of
          SOME registered => registered
        | NONE =>
            if is_primitive_path path then
@@ -1210,11 +1241,11 @@ struct
     T.literal (literal_path_value ctxt environment path)
 
   fun literal_identifier_value ctxt environment (identifier as (name, pos)) =
-    (case use_local ctxt environment identifier of
-       SOME local_term => local_term
+    (case value_import_route ctxt environment (make_single_path identifier) of
+       SOME route => imported_literal_value ctxt route
      | NONE =>
-         (case value_import_route ctxt environment (make_single_path identifier) of
-            SOME route => imported_literal_value ctxt route
+         (case use_local ctxt environment identifier of
+            SOME local_term => local_term
           | NONE => resolve_identifier ctxt Micro_Rust_Names.NLiteral name pos))
 
   fun literal_identifier ctxt environment identifier =
@@ -1566,7 +1597,7 @@ struct
     function_body_arity T = SOME 0
 
   fun is_nullary_function_path ctxt
-      (environment as {locals, declaration_arguments} : environment) source_path =
+      (environment as {locals, declaration_arguments, ...} : environment) source_path =
     (case value_import_route ctxt environment source_path of
        SOME {canonical, ...} =>
          exists

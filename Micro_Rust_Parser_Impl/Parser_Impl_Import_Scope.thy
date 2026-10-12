@@ -48,6 +48,7 @@ sig
   val unavailable_use_error: Position.T -> binding -> string -> 'a
 
   val lookup: Proof.context -> namespace -> string -> binding option
+  val lookup_scoped: Proof.context -> namespace -> string -> (binding * int) option
   val lookup_persistent: Proof.context -> namespace -> string -> binding option
   val dump_persistent: Proof.context -> binding list
   val frame_depth: Proof.context -> int
@@ -94,8 +95,10 @@ end
     namespaces with its written path as key; one whose later declaration is known occupies exactly
     the namespaces of that declaration, with its canonical key.
   - lookup returns the nearest binding in the requested namespace: block frames from innermost to
-    outermost, then the persistent bindings of the context. lookup_persistent consults only the
-    latter. frame_depth counts the active block frames. transfer_frames source target gives target
+    outermost, then the persistent bindings of the context. lookup_scoped also returns the depth of
+    the frame that holds the binding: the outermost frame has depth 1, the innermost frame_depth,
+    and persistent bindings 0. lookup_persistent consults only the latter. frame_depth counts the
+    active block frames. transfer_frames source target gives target
     the block frames of source: a read-only replay that runs in a context produced by a
     declaration backend resolves source names with the import scope of the declaration context.
   - check_batch rejects two available bindings with the same alias and namespace, even with
@@ -249,11 +252,18 @@ struct
   fun lookup_persistent ctxt namespace alias =
     Symtab.lookup (Persistent.get (Context.Proof ctxt)) (table_key namespace alias)
 
-  fun lookup ctxt namespace alias =
-    (case get_first (fn frame => Symtab.lookup frame (table_key namespace alias))
-        (Frames.get ctxt) of
-       SOME binding => SOME binding
-     | NONE => lookup_persistent ctxt namespace alias)
+  fun lookup_scoped ctxt namespace alias =
+    let
+      val frames = Frames.get ctxt
+      fun find _ [] =
+            Option.map (rpair 0) (lookup_persistent ctxt namespace alias)
+        | find depth (frame :: outer) =
+            (case Symtab.lookup frame (table_key namespace alias) of
+               SOME binding => SOME (binding, depth)
+             | NONE => find (depth - 1) outer)
+    in find (length frames) frames end
+
+  fun lookup ctxt namespace alias = Option.map #1 (lookup_scoped ctxt namespace alias)
 
   fun dump_persistent ctxt =
     Persistent.get (Context.Proof ctxt) |> Symtab.dest |> map snd
