@@ -952,9 +952,9 @@ section\<open> Rust block shadowing of lexical locals \<close>
 text\<open>
 As in Rust, the use items of a block take effect at its entry. A block import therefore shadows a
 same-named local bound outside the block (an enclosing let, a function, closure or declaration
-parameter, or a match, if-let, for or let-else binder) within that block, while a local bound
-inside the block, even before the use item, shadows the import. Each definition is kernel-equal to
-its import-free counterpart.
+parameter, or a match, if-let, while-let, for or let-else binder) within that block, while a local
+bound inside the block, even before the use item, shadows the import. Every local shadows chunk and
+persistent aliases. Each definition is kernel-equal to its import-free or qualified counterpart.
 \<close>
 
 urust_expr use_shadow_outer_let
@@ -1039,17 +1039,86 @@ lemma \<open> use_shadow_inner_locals = use_shadow_inner_locals_plain \<close>
 urust_expr use_shadow_endpoint_and_length (x)
   \<open> { let w = 0u32; let n = 1u64; { use demo::WIDTH as w; use demo::COUNT as n; (match x { 0..=w => 1u32, _ => 0 }, [0u8; n]) } } \<close>
 urust_expr use_shadow_endpoint_and_length_plain (x)
-  \<open> { let w = 0u32; let n = 1u64; { use demo::WIDTH as width; use demo::COUNT as count; (match x { 0..=width => 1u32, _ => 0 }, [0u8; count]) } } \<close>
+  \<open> { let w = 0u32; let n = 1u64; { (match x { 0..=demo::WIDTH => 1u32, _ => 0 }, [0u8; demo::COUNT]) } } \<close>
 lemma \<open> use_shadow_endpoint_and_length = use_shadow_endpoint_and_length_plain \<close>
   unfolding use_shadow_endpoint_and_length_def use_shadow_endpoint_and_length_plain_def by (rule refl)
 
 urust_expr use_shadow_control_head_local \<open> { use demo::value as v; let v = true; if v {} } \<close>
+
+urust_expr use_shadow_contexts (choice)
+  \<open>
+    {
+      let pick = |x| x;
+      let early = { let r = pick(1); use demo::increment as pick; r };
+      #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let UseChoice::Value(bound) = choice { use demo::increment as bound; bound(2); }
+      let guarded = match choice { UseChoice::Value(bound) if bound > 0 => { use demo::increment as bound; bound(3) }, _ => 0 };
+      assert_eq!({ use demo::increment as pick; pick(4) }, pick(5));
+      let initialized = { use demo::increment as pick; let pick = pick(6); pick };
+      let packet = { let sample = 5u32; { use demo::WIDTH as sample; UsePacket { sample: sample } } };
+      let deeper = { use demo::increment as pick; let f = |pick| { use demo::WIDTH as pick; pick }; f(7u32) };
+      let UseChoice::Value(v) = choice else { use demo::increment as pick; return (pick(8), 0, 0, UsePacket { sample: 0 }, demo::WIDTH, 0); };
+      (early, guarded, initialized, packet, deeper, pick(v))
+    }
+  \<close>
+urust_expr use_shadow_contexts_plain (choice)
+  \<open>
+    {
+      let pick = |x| x;
+      let early = { let r = demo::increment(1); r };
+      #[fuel(\<epsilon>\<open>1 :: nat\<close>)] while let UseChoice::Value(bound) = choice { demo::increment(2); }
+      let guarded = match choice { UseChoice::Value(bound) if bound > 0 => { demo::increment(3) }, _ => 0 };
+      assert_eq!({ demo::increment(4) }, pick(5));
+      let initialized = { let pick = demo::increment(6); pick };
+      let packet = { let sample = 5u32; { UsePacket { sample: demo::WIDTH } } };
+      let deeper = { let f = |pick| { demo::WIDTH }; f(7u32) };
+      let UseChoice::Value(v) = choice else { return (demo::increment(8), 0, 0, UsePacket { sample: 0 }, demo::WIDTH, 0); };
+      (early, guarded, initialized, packet, deeper, pick(v))
+    }
+  \<close>
+lemma \<open> use_shadow_contexts = use_shadow_contexts_plain \<close>
+  unfolding use_shadow_contexts_def use_shadow_contexts_plain_def by (rule refl)
+
+urust_expr use_shadow_implicit_closure (pick) \<open> use demo::increment as pick; let f = || pick(1); f() \<close>
+urust_expr use_shadow_implicit_closure_plain (pick) \<open> let f = || demo::increment(1); f() \<close>
+lemma \<open> use_shadow_implicit_closure = use_shadow_implicit_closure_plain \<close>
+  unfolding use_shadow_implicit_closure_def use_shadow_implicit_closure_plain_def by (rule refl)
+
+urust_expr use_shadow_rebound_argument (pick) \<open> { use demo::increment as pick; let pick = |x| x; pick(1) } \<close>
+urust_expr use_shadow_rebound_argument_plain (pick) \<open> { let pick = |x| x; pick(1) } \<close>
+lemma \<open> use_shadow_rebound_argument = use_shadow_rebound_argument_plain \<close>
+  unfolding use_shadow_rebound_argument_def use_shadow_rebound_argument_plain_def by (rule refl)
+
+urust_use \<open> use demo::increment as use_shadow_persistent; \<close>
+urust_expr use_shadow_persistent_argument (use_shadow_persistent)
+  \<open> (use_shadow_persistent, { use demo::WIDTH as use_shadow_persistent; use_shadow_persistent }) \<close>
+urust_expr use_shadow_persistent_argument_plain (other) \<open> (other, { demo::WIDTH }) \<close>
+lemma \<open> use_shadow_persistent_argument = use_shadow_persistent_argument_plain \<close>
+  unfolding use_shadow_persistent_argument_def use_shadow_persistent_argument_plain_def by (rule refl)
+
+locale use_shadow_locale =
+  fixes use_shadow_fixed :: \<open> 32 word \<close>
+begin
+
+urust_fn use_shadow_locale_fn
+  \<open> fn use_shadow_locale_fn(x: u32) -> u32 { let y = x; { use demo::WIDTH as y; y } } \<close>
+urust_fn use_shadow_locale_fn_plain
+  \<open> fn use_shadow_locale_fn_plain(x: u32) -> u32 { let y = x; { demo::WIDTH } } \<close>
+lemma \<open> use_shadow_locale_fn = use_shadow_locale_fn_plain \<close>
+  unfolding use_shadow_locale_fn_def use_shadow_locale_fn_plain_def by (rule refl)
+
+end
 
 urust_expr_rejects \<open> |w| { use demo::WIDTH as w; w(1) } \<close> \<open> which cannot be used as a call \<close>
 urust_expr_rejects \<open> { use demo::COUNT as n; let n = 1u64; [0u8; n] } \<close>
   \<open> array repeat length cannot use lexical local "n" \<close>
 urust_expr_rejects \<open> { let v = true; { use demo::value as v; if v {} } } \<close>
   \<open> empty struct expression in a control head must be parenthesized \<close>
+urust_expr_rejects \<open> use demo::value as v; if v {} \<close>
+  \<open> empty struct expression in a control head must be parenthesized \<close>
+urust_expr_rejects \<open> { let pick = 1u32; { use demo::increment as pick; pick } } \<close>
+  \<open> which cannot be used as a value \<close>
+urust_expr_rejects \<open> { let n = 1u64; { use demo::increment as n; [0u8; n] } } \<close>
+  \<open> cannot be used as an array repeat length \<close>
 
 
 section\<open> Editor integration and replay \<close>
@@ -1140,6 +1209,39 @@ local
   val _ = require "a shadowing block import is the final target of its occurrence"
     (last_kind shadow_markups shadow_site = SOME "urust_import" andalso
       not (member (op =) (kinds shadow_markups shadow_site) "urust_var"))
+  (* Exactly one of the import and the local is reported at each occurrence. *)
+  fun winner label text needle index expect_import =
+    let
+      val (result, markups) = markup_reports text
+      val _ = require (label ^ " succeeded") (is_some (Exn.get_res result))
+      val site_kinds = kinds markups (occurrence text needle index)
+      val has_import = member (op =) site_kinds "urust_import"
+      val has_local = member (op =) site_kinds "urust_var"
+    in
+      require (label ^ " reports " ^ commas site_kinds)
+        (if expect_import then has_import andalso not has_local else has_local andalso not has_import)
+    end
+  val _ = winner "inner local"
+    ("urust_expr nav_inner_local " ^ cartouche " { use demo::increment as nav_q; let nav_q = |x| x; nav_q(1u32) } ")
+    "nav_q" 2 false
+  val _ = winner "range endpoint import"
+    ("urust_expr nav_endpoint (x) " ^
+      cartouche " { let nav_w = 0u32; { use demo::WIDTH as nav_w; match x { 0..=nav_w => 1u32, _ => 0 } } } ")
+    "nav_w" 2 true
+  val _ = winner "endpoint local inside the block"
+    ("urust_expr nav_local_endpoint (x) " ^
+      cartouche " { use demo::WIDTH as nav_e; let nav_e = 3u32; match x { 0..=nav_e => 1u32, _ => 0 } } ")
+    "nav_e" 2 false
+  val _ = winner "repeat length import"
+    ("urust_expr nav_length " ^ cartouche " { let nav_n = 1u64; { use demo::COUNT as nav_n; [0u8; nav_n] } } ")
+    "nav_n" 2 true
+  val _ = winner "call import over an argument"
+    ("urust_expr nav_argument (nav_s) " ^ cartouche " use demo::increment as nav_s; nav_s(1) ")
+    "nav_s" 2 true
+  val _ = winner "argument over a persistent alias"
+    ("urust_use " ^ cartouche " use demo::WIDTH as nav_p; " ^ "\n" ^
+      "urust_expr nav_alias_argument (nav_p) " ^ cartouche " nav_p ")
+    "nav_p" 2 false
 
   val type_text =
     "urust_use " ^ cartouche " use demo::Width as NavWord; " ^ "\n" ^

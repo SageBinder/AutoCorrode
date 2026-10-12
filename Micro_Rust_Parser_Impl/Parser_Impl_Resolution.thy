@@ -208,8 +208,8 @@ ML\<open>
     naming policy. registered_macro_path performs the same lookup for the complete spelling including
     `!`, but rejects an unregistered qualified source path through the common call-role diagnostic.
     is_nullary_function_path is a report-free ambiguity query used by control-head
-    validation: after any shadowing block import, declaration arguments retain direct-call
-    precedence, ordinary lexical values and
+    validation: after any import that the shadowing rule selects, declaration arguments retain
+    direct-call precedence, ordinary lexical values and
     fixed variables remain value paths, and otherwise an exact registered backend or proper HOL
     constant counts only when its declared type takes zero arguments before function_body.
     field_expression applies the same role policy and focuses the supplied receiver.

@@ -98,7 +98,7 @@ end
     outermost, then the persistent bindings of the context. lookup_scoped also returns the depth of
     the frame that holds the binding: the outermost frame has depth 1, the innermost frame_depth,
     and persistent bindings 0. lookup_persistent consults only the latter. frame_depth counts the
-    active block frames. transfer_frames source target gives target
+    active frames, including a chunk frame below the block frames of its members. transfer_frames source target gives target
     the block frames of source: a read-only replay that runs in a context produced by a
     declaration backend resolves source names with the import scope of the declaration context.
   - check_batch rejects two available bindings with the same alias and namespace, even with

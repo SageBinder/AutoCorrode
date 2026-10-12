@@ -135,6 +135,37 @@ lemma \<open> chunk_shadow_persistent = chunk_shadow_parameter_control \<close>
 lemma \<open> chunk_shadow_unavailable = chunk_shadow_parameter_control \<close>
   unfolding chunk_shadow_unavailable_def chunk_shadow_parameter_control_def by (rule refl)
 
+text\<open>
+A body binding that is unavailable in the value namespace, because its chunk alias names a value
+declared later, never rejects when a local bound inside its block shadows it; a local bound at the
+member level wins through an unrelated body import frame.
+\<close>
+
+urust_type "ChunkShadowPending" = \<open> nat \<close>
+
+urust \<open>
+  use ChunkShadowPending as chunk_shadow_pending;
+  use demo::increment as chunk_shadow_pick;
+  fn ChunkShadowPendingUser(x: u32) -> u32 {
+    use chunk_shadow_pending as chunk_shadow_inner;
+    let chunk_shadow_inner = x;
+    chunk_shadow_inner
+  }
+  fn ChunkShadowPending(value: u32) -> u32 { value }
+  fn ChunkShadowThrough(x: u32) -> u32 {
+    let chunk_shadow_pick = x;
+    { use demo::value as chunk_shadow_unrelated; chunk_shadow_pick }
+  }
+\<close>
+
+urust_fn \<open> fn ChunkShadowLocalControl(x: u32) -> u32 { let y = x; y } \<close>
+urust_fn \<open> fn ChunkShadowThroughControl(x: u32) -> u32 { let y = x; { y } } \<close>
+
+lemma \<open> chunk_shadow_pending_user = chunk_shadow_local_control \<close>
+  unfolding chunk_shadow_pending_user_def chunk_shadow_local_control_def by (rule refl)
+lemma \<open> chunk_shadow_through = chunk_shadow_through_control \<close>
+  unfolding chunk_shadow_through_def chunk_shadow_through_control_def by (rule refl)
+
 section\<open> Same-spelling type and value aliases \<close>
 
 urust \<open>
