@@ -269,7 +269,7 @@ struct
          abstraction: term -> term,
          witness: structural_selection_witness}
 
-  datatype root_plan_context =
+  datatype root_context =
       Match_Root
     | Failure_Root
 
@@ -279,11 +279,20 @@ struct
 
   type outer_group_plan = {groups: structural_group list, catchall: structural_group option}
 
-  type root_suffix_plan =
-    {rows: decision_row list,
-     groups: structural_group list,
-     outer_catchall: structural_group option,
-     catchall_exclusions: structural_exclusion list}
+  (* One clause of a root case over the bound scrutinee. Decide_Clause opens its pattern and
+     decides over all rows in that region. Catchall_Clause is the outer catchall: _ decides on the
+     scrutinee itself, and a binder opens a fresh leaf. Redispatch_Clause opens its pattern and
+     emits the failure-root case of its suffix rows there. *)
+  datatype root_clause =
+      Decide_Clause of {pattern: structural_pattern, exclusions: structural_exclusion list}
+    | Catchall_Clause of {pattern: structural_pattern, exclusions: structural_exclusion list}
+    | Redispatch_Clause of {pattern: structural_pattern, suffix: decision_row list}
+
+  (* Where a failed generated test or source guard continues: in the selected region, or in a
+     failure-root case over the remaining rows. *)
+  datatype failure_target =
+      Continue_In_Region
+    | Redispatch_From_Root
 
   type decision_source_arm =
     {patterns: case_pattern list,
@@ -319,13 +328,14 @@ struct
       Generated-test failure tries the next alternative; source-guard failure skips the source arm
       without sharing the selected alternative's binders. A structural_exclusion suppresses only
       its exact source position.
-    - root_suffix_plan contains only emission rows, groups, catchall and exclusions. Structural
-      grouping and coverage still determine when a total group is opened directly. Root-suffix
-      reconstruction preserves the established term shape for direct guards, nested/transformed
-      generated-test misses and outer catchalls. Planning is pure and runs afresh for every root
-      suffix; emitted terms are never reused, because binder reports and nested compiles fire once
-      per emission. Each clause and selector constructs one term; planning never changes
-      decision-state selection.
+    - plan_root lists the clauses of one root case as root_clause values: the decided groups, then
+      the redispatched groups and the outer catchall, each with its exclusions or suffix rows.
+      Structural grouping and coverage still determine when a total group is opened directly.
+      Root-suffix reconstruction preserves the established term shape for direct guards,
+      nested/transformed generated-test misses and outer catchalls. Planning is pure and runs
+      afresh for every root case; emitted terms are never reused, because binder reports and
+      nested compiles fire once per emission. Each clause and selector constructs one term;
+      planning never changes decision-state selection.
 
     One compiler below handles ordinary, guarded, overlapping, and recursive nested cases. It never
     packs compiler metadata into HOL terms, never decodes generated terms, and never has separate
@@ -972,8 +982,8 @@ struct
                  emission_root_prefix guarded_arm' (row :: prefix) rest
                end)
 
-  fun emission_groups_of ({members, ...} : structural_group) =
-    fold (fn row => fn groups => add_group_row row (row_shape row) groups) members []
+  fun exact_shape_groups rows =
+    fold (fn row => fn groups => add_group_row row (row_shape row) groups) rows []
 
   fun emission_group_exclusions ({members, ...} : structural_group) =
     (case members of
@@ -1002,61 +1012,12 @@ struct
             else group :: retain (prior @ [group]) rest
     in retain [] groups end
 
-  fun plan_root_suffix context planned_rows : root_suffix_plan =
-    let
-      val {groups, catchall = source_catchall} =
-        fold add_root_group planned_rows {groups = [], catchall = NONE}
-      fun group_is_coverage_complete ({pattern, members} : structural_group) =
-        structural_is_total pattern andalso List.exists (structural_is_total o row_shape) members
-      val coverage_complete_group =
-        (case groups of
-           [group] => if group_is_coverage_complete group then SOME group else NONE
-         | _ => NONE)
-      (*
-        A single structurally total group containing a total source row is coverage-complete. Root
-        emission must open that planned group directly instead of reconstructing a redundant root
-        tail. This rule depends only on typed structural coverage, not on any particular constructor
-        or tuple shape.
-      *)
-      val (prefix_rows, reconstruct_root_tail) =
-        (case coverage_complete_group of
-           SOME _ => (planned_rows, false)
-         | NONE =>
-             (case context of
-                Match_Root => emission_root_prefix NONE [] planned_rows
-              | Failure_Root => ([], not (null planned_rows))))
-      val emission_groups =
-        remove_subsumed_emission_groups
-          (case coverage_complete_group of
-             SOME group => [group]
-           | NONE =>
-               if reconstruct_root_tail
-               then
-                 fold
-                   (fn row => fn planned_groups =>
-                     if structural_is_any (row_shape row)
-                     then planned_groups
-                     else add_group_row row (row_shape row) planned_groups)
-                   prefix_rows []
-               else maps emission_groups_of groups)
-      val emission_patterns = map #pattern emission_groups
-      val emission_exclusions = maps emission_group_exclusions emission_groups
-      val emission_catchall =
-        if reconstruct_root_tail
-        then
-          if patterns_cover_all emission_patterns
-          then NONE
-          else SOME (the_default {pattern = Structural_Any NONE, members = []} source_catchall)
-        else
-          (case source_catchall of
-             NONE => NONE
-           | SOME group => if patterns_cover_all emission_patterns then NONE else SOME group)
-    in
-      {rows = planned_rows,
-       groups = emission_groups,
-       outer_catchall = emission_catchall,
-       catchall_exclusions = emission_exclusions}
-    end
+  (* A single structurally total group containing a total source row is coverage-complete. Root
+     emission opens that group directly instead of reconstructing a redundant root tail. This rule
+     depends only on typed structural coverage, not on any particular constructor or tuple
+     shape. *)
+  fun group_is_coverage_complete ({pattern, members} : structural_group) =
+    structural_is_total pattern andalso List.exists (structural_is_total o row_shape) members
 
   fun following_group_exclusion ({members, ...} : structural_group) =
     (case members of
@@ -1084,6 +1045,84 @@ struct
          then SOME (rows_after_position (#position first) planned_rows)
          else NONE
      | [] => error "urust_expr: internal empty structural group")
+
+  (* The groups up to and including the first one whose first row has a nested generated test,
+     and, if there is such a group, the groups after it together with the rows after that row. *)
+  fun split_at_nested_failure rows groups =
+    let
+      fun split decided [] = (rev decided, NONE)
+        | split decided (group :: rest) =
+            (case nested_failure_suffix rows group of
+               NONE => split (group :: decided) rest
+             | SOME suffix => (rev (group :: decided), SOME (rest, suffix)))
+    in split [] groups end
+
+  (*
+    The clauses of one root case over the rows, in emission order. A coverage-complete single
+    group gives its one clause. Otherwise Match_Root emits the exact shapes within each root
+    group, or those of the non-wild rows of a cut prefix. Failure_Root cuts before the first row,
+    which leaves only the catchall, and plans nothing for no rows. A shape covered by an earlier
+    shape whose first row has a generated test is dropped. The catchall is omitted when the
+    shapes cover the type; a cut without a source catchall uses a synthetic _. A decided group
+    excludes the first row of each earlier group whose first row has no generated test. The
+    catchall excludes the first row and the later generated-test rows of every emitted group.
+    After the first group whose first row has a nested generated test, the later groups and the
+    catchall redispatch into the failure-root case of the rows after that row.
+  *)
+  fun plan_root context rows =
+    let
+      val {groups, catchall = catchall_group} =
+        fold add_root_group rows {groups = [], catchall = NONE}
+      val complete =
+        (case groups of
+           [group] => group_is_coverage_complete group
+         | _ => false)
+      val (prefix, cut) =
+        if complete then (rows, false)
+        else
+          (case context of
+             Match_Root => emission_root_prefix NONE [] rows
+           | Failure_Root => ([], not (null rows)))
+      val emitted =
+        remove_subsumed_emission_groups
+          (if complete then groups
+           else if cut
+           then exact_shape_groups (filter_out (structural_is_any o row_shape) prefix)
+           else maps (exact_shape_groups o #members) groups)
+      fun uncovered pattern =
+        if patterns_cover_all (map #pattern emitted) then NONE else SOME pattern
+      val source_catchall = Option.map #pattern catchall_group
+      val catchall =
+        if cut then uncovered (the_default (Structural_Any NONE) source_catchall)
+        else Option.mapPartial uncovered source_catchall
+      val (decided, redispatched) = split_at_nested_failure rows emitted
+      val (decide_clauses, _) =
+        fold_map
+          (fn group => fn exclusions =>
+            (Decide_Clause {pattern = #pattern group, exclusions = exclusions},
+             the_list (following_group_exclusion group) @ exclusions))
+          decided []
+      val tail_clauses =
+        (case redispatched of
+           NONE =>
+             map
+               (fn pattern =>
+                 Catchall_Clause
+                   {pattern = pattern, exclusions = maps emission_group_exclusions emitted})
+               (the_list catchall)
+         | SOME (groups_after, suffix) =>
+             map (fn pattern => Redispatch_Clause {pattern = pattern, suffix = suffix})
+               (map #pattern groups_after @ the_list catchall))
+    in decide_clauses @ tail_clauses end
+
+  (* A generated-test miss in a nested or transformed scope redispatches from the root. *)
+  fun test_failure_target Nested_Scope = Redispatch_From_Root
+    | test_failure_target Transformed_Scope = Redispatch_From_Root
+    | test_failure_target _ = Continue_In_Region
+
+  (* A false source guard in a direct scope with a constructor shape redispatches from the root. *)
+  fun guard_failure_target (Direct_Scope, Structural_Node _) = Redispatch_From_Root
+    | guard_failure_target _ = Continue_In_Region
 
   fun excluded_region (exclusions : structural_exclusion list) position region =
     List.exists
@@ -1194,10 +1233,7 @@ struct
          for `_` and binder patterns instead of optimizing the unreachable row away. *)
       val _ = validate_row_reachability rows
 
-      val root_state : decision_state =
-        {region = Structural_Any NONE,
-         subject = Structural_Subject {value = value, children = []},
-         exclusions = []}
+      val root_subject = Structural_Subject {value = value, children = []}
 
       val match_root_decision =
         (case compilation_mode of
@@ -1226,23 +1262,19 @@ struct
                    (* A generated-test miss tries the next alternative. A false source guard skips
                       the entire source arm. Choose the one emitted destination before closing the
                       clause; an absent test or guard constructs no failure term. *)
+                   fun failure_term Redispatch_From_Root remaining =
+                         emit_root Failure_Root remaining
+                     | failure_term Continue_In_Region remaining =
+                         compile_rows failure_state remaining
                    val alternative_failure =
                      Option.map
-                       (fn _ =>
-                         (case #kind scope of
-                            Nested_Scope => compile_root_suffix Failure_Root rest
-                          | Transformed_Scope => compile_root_suffix Failure_Root rest
-                          | _ => compile_rows failure_state rest))
+                       (fn _ => failure_term (test_failure_target (#kind scope)) rest)
                        generated_test
                    val arm_failure =
                      Option.map
                        (fn _ =>
-                         let val following = drop_source_arm arm_index rest in
-                           (case (#kind scope, shape) of
-                              (Direct_Scope, Structural_Node _) =>
-                                compile_root_suffix Failure_Root following
-                            | _ => compile_rows failure_state following)
-                         end)
+                         failure_term (guard_failure_target (#kind scope, shape))
+                           (drop_source_arm arm_index rest))
                        source_guard
                  in
                    close_selected_clause clause selection source_guard body
@@ -1270,82 +1302,33 @@ struct
                     end)
              end)
 
-      and compile_outer_pattern planned_rows exclusions pattern =
+      (* Each clause opens its pattern before its body is compiled. *)
+      and emit_root context remaining =
         let
-          val {abstraction, subject} = fresh_pattern_subject ctxt pattern
-          val state = {region = pattern, subject = subject, exclusions = exclusions}
-          val compiled = compile_rows state planned_rows
-        in
-          abstraction compiled
-        end
-
-      and compile_outer_group planned_rows exclusions ({pattern, ...} : structural_group) =
-        compile_outer_pattern planned_rows exclusions pattern
-
-      and compile_outer_catchall planned_rows exclusions ({pattern, ...} : structural_group) =
-        (case pattern of
-           Structural_Any NONE =>
-             let
-               val {subject, ...} = root_state
-               val state = {region = pattern, subject = subject, exclusions = exclusions}
-             in
-               generated_wild ctxt (compile_rows state planned_rows)
-             end
-         | Structural_Any (SOME _) => compile_outer_pattern planned_rows exclusions pattern
-         | Structural_Node _ => error "urust_expr: internal non-wild outer catchall")
-
-      and compile_reconstructed_branch ({pattern, ...} : structural_group) remaining =
-        let
-          val {abstraction, ...} = fresh_pattern_subject ctxt pattern
-        in
-          abstraction (compile_root_suffix Failure_Root remaining)
-        end
-
-      and compile_emission_groups _ [] _ root_suffix = ([], root_suffix)
-        | compile_emission_groups planned_rows (group :: rest) exclusions root_suffix =
+          fun decide_in exclusions pattern =
             let
-              val branch =
-                (case root_suffix of
-                   SOME remaining => compile_reconstructed_branch group remaining
-                 | NONE => compile_outer_group planned_rows exclusions group)
-              val exclusions' =
-                (case root_suffix of
-                   SOME _ => exclusions
-                 | NONE =>
-                     (case following_group_exclusion group of
-                        NONE => exclusions
-                      | SOME exclusion => exclusion :: exclusions))
-              val root_suffix' =
-                (case root_suffix of
-                   SOME _ => root_suffix
-                 | NONE => nested_failure_suffix planned_rows group)
-              val (following, final_root_suffix) =
-                compile_emission_groups planned_rows rest exclusions' root_suffix'
+              val {abstraction, subject} = fresh_pattern_subject ctxt pattern
+              val state = {region = pattern, subject = subject, exclusions = exclusions}
             in
-              (branch :: following, final_root_suffix)
+              abstraction (compile_rows state remaining)
             end
-
-      and emit_root_suffix
-          ({rows = planned_rows, groups, outer_catchall, catchall_exclusions} : root_suffix_plan) =
-        let
-          val (group_branches, root_suffix) = compile_emission_groups planned_rows groups [] NONE
-          val branches =
-            group_branches @
-              (case outer_catchall of
-                 NONE => []
-               | SOME group =>
-                   [(case root_suffix of
-                       SOME remaining => compile_reconstructed_branch group remaining
-                     | NONE => compile_outer_catchall planned_rows catchall_exclusions group)])
-        in selector_of branches end
-
-      and compile_root_suffix context remaining =
-        emit_root_suffix (plan_root_suffix context remaining)
+          fun emit (Decide_Clause {pattern, exclusions}) = decide_in exclusions pattern
+            | emit (Catchall_Clause {pattern = pattern as Structural_Any NONE, exclusions}) =
+                let val state = {region = pattern, subject = root_subject, exclusions = exclusions}
+                in generated_wild ctxt (compile_rows state remaining) end
+            | emit (Catchall_Clause {pattern = pattern as Structural_Any (SOME _), exclusions}) =
+                decide_in exclusions pattern
+            | emit (Catchall_Clause {pattern = Structural_Node _, ...}) =
+                error "urust_expr: internal non-wild outer catchall"
+            | emit (Redispatch_Clause {pattern, suffix}) =
+                let val {abstraction, ...} = fresh_pattern_subject ctxt pattern
+                in abstraction (emit_root Failure_Root suffix) end
+        in selector_of (map emit (plan_root context remaining)) end
 
       val selector =
         (case direct_structural_matrix () of
            SOME branches => selector_of branches
-         | NONE => emit_root_suffix (plan_root_suffix Match_Root rows))
+         | NONE => emit_root Match_Root rows)
       val navigated_selector =
         (case match_root_decision of
            SOME Conditional_Match_Root =>
