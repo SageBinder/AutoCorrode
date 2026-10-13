@@ -95,7 +95,7 @@ struct
     | Case_Slice_Suffix of case_pattern
     | Case_Navigated of Position.T list * case_pattern
 
-  (* The head of one case clause. Tuples are expanded into Pair/TNil chains, and Clause_Generated
+  (* The pattern of one case clause. Tuples are expanded into Pair/TNil chains, and Clause_Generated
      names the temporary of a nested match or of an opened region leaf. *)
   datatype clause_pattern =
       Clause_Wild
@@ -126,7 +126,9 @@ struct
 
   (* The clause form of a case pattern: navigation is dropped and tuples become Pair/TNil chains.
      Values, ranges, slice suffixes, aliases and type constraints have no clause form; normalization
-     replaces them by generated tests and scopes first. *)
+     replaces them by generated tests and scopes first. case_pattern_structurally_total is the
+     other caller: it passes unnormalized values, ranges and slice suffixes, and its try turns the
+     resulting error into "not structurally total". *)
   fun clause_of_case_pattern pattern =
     (case pattern of
        Case_Wild => Clause_Wild
@@ -209,10 +211,9 @@ struct
      | Case_Tuple arguments => List.exists requires_nested_match arguments
      | _ => false)
 
-  datatype structural_constructor = Structural_Constructor of {term: term, arity: int}
+  type structural_constructor = {term: term, arity: int}
 
-  datatype structural_family =
-    Structural_Family of {name: string, members: structural_constructor list}
+  type structural_family = {name: string, members: structural_constructor list}
 
   datatype structural_pattern =
       Structural_Any of term option
@@ -234,29 +235,25 @@ struct
 
   type clause_scope = {kind: scope_kind, close: term -> term}
 
-  datatype case_clause =
-    Case_Clause of
-      {structural_pattern: structural_pattern,
-       generated_test: term option,
-       scope: clause_scope,
-       navigation: (term -> term) list,
-       direct_branch: (term -> term) option}
+  type case_clause =
+    {structural_pattern: structural_pattern,
+     generated_test: term option,
+     scope: clause_scope,
+     navigation: (term -> term) list,
+     direct_branch: (term -> term) option}
 
-  datatype decision_row =
-    Decision_Row of
-      {position: source_position,
-       clause: case_clause,
-       source_guard: (term * Position.T) option,
-       body: term}
+  type decision_row =
+    {position: source_position,
+     clause: case_clause,
+     source_guard: (term * Position.T) option,
+     body: term}
 
-  datatype structural_exclusion =
-    Decision_Exclusion of {position: source_position, pattern: structural_pattern}
+  type structural_exclusion = {position: source_position, pattern: structural_pattern}
 
-  datatype decision_state =
-    Decision_State of
-      {region: structural_pattern,
-       subject: structural_subject,
-       exclusions: structural_exclusion list}
+  type decision_state =
+    {region: structural_pattern,
+     subject: structural_subject,
+     exclusions: structural_exclusion list}
 
   datatype structural_selection_witness =
       Selected_Any of {binder: term option, subject: structural_subject}
@@ -276,21 +273,17 @@ struct
       Match_Root
     | Failure_Root
 
-  datatype opened_pattern =
-    Opened_Pattern of {abstraction: term -> term, subject: structural_subject}
+  type opened_pattern = {abstraction: term -> term, subject: structural_subject}
 
-  datatype structural_group =
-    Structural_Group of {pattern: structural_pattern, members: decision_row list}
+  type structural_group = {pattern: structural_pattern, members: decision_row list}
 
-  datatype outer_group_plan =
-    Outer_Group_Plan of {groups: structural_group list, catchall: structural_group option}
+  type outer_group_plan = {groups: structural_group list, catchall: structural_group option}
 
-  datatype root_suffix_plan =
-    Root_Suffix_Plan of
-      {rows: decision_row list,
-       groups: structural_group list,
-       outer_catchall: structural_group option,
-       catchall_exclusions: structural_exclusion list}
+  type root_suffix_plan =
+    {rows: decision_row list,
+     groups: structural_group list,
+     outer_catchall: structural_group option,
+     catchall_exclusions: structural_exclusion list}
 
   type decision_source_arm =
     {patterns: case_pattern list,
@@ -321,9 +314,11 @@ struct
       binders are extracted. Semantic totality never creates this witness: a singleton constructor
       or tuple over Structural_Any is opened to obtain its children. A selection that reuses the
       enclosing region fails back into its input decision state; an opened selection fails into the
-      opened region over the witness's subject. Generated-test failure tries the next alternative;
-      source-guard failure skips the source arm without sharing the selected alternative's binders.
-      Decision_Exclusion suppresses only its exact source position.
+      opened region over the witness's subject. When an opened selection does not cover the region,
+      a wildcard branch after it continues in the input state with the row's shape excluded.
+      Generated-test failure tries the next alternative; source-guard failure skips the source arm
+      without sharing the selected alternative's binders. A structural_exclusion suppresses only
+      its exact source position.
     - root_suffix_plan contains only emission rows, groups, catchall and exclusions. Structural
       grouping and coverage still determine when a total group is opened directly. Root-suffix
       reconstruction preserves the established term shape for direct guards, nested/transformed
@@ -337,24 +332,18 @@ struct
     guarded/unguarded compilation paths.
   *)
 
-  fun constructor_term (Structural_Constructor {term, ...}) = term
+  fun same_constructor (left : structural_constructor, right : structural_constructor) =
+    Term.aconv_untyped (#term left, #term right)
 
-  fun constructor_arity (Structural_Constructor {arity, ...}) = arity
-
-  fun same_constructor (left, right) =
-    Term.aconv_untyped (constructor_term left, constructor_term right)
-
-  fun declared_constructor ctxt term =
+  fun declared_constructor ctxt term : structural_constructor =
     (case term of
        Const (name, _) =>
-         Structural_Constructor
-           {term = Const (name, dummyT),
-            arity =
-              length (binder_types (Sign.the_const_type (Proof_Context.theory_of ctxt) name))}
+         {term = Const (name, dummyT),
+          arity = length (binder_types (Sign.the_const_type (Proof_Context.theory_of ctxt) name))}
      | _ => error "urust_expr: internal non-constant structural constructor")
 
-  fun constructor_family_from_terms ctxt name members =
-    Structural_Family {name = name, members = map (declared_constructor ctxt) members}
+  fun constructor_family_from_terms ctxt name members : structural_family =
+    {name = name, members = map (declared_constructor ctxt) members}
 
   fun constructor_head ctxt constructor family_hint =
     let
@@ -444,16 +433,12 @@ struct
                else NONE)
         else NONE
 
-  fun family_members (Structural_Family {members, ...}) = members
-
-  fun same_family
-      (Structural_Family {name = left_name, members = left_members},
-       Structural_Family {name = right_name, members = right_members}) =
-    left_name = right_name andalso eq_list same_constructor (left_members, right_members)
+  fun same_family (left : structural_family, right : structural_family) =
+    #name left = #name right andalso eq_list same_constructor (#members left, #members right)
 
   fun structural_is_total (Structural_Any _) = true
     | structural_is_total (Structural_Node {head, family = SOME family, arguments}) =
-        (case family_members family of
+        (case #members family of
            [only] => same_constructor (head, only) andalso List.all structural_is_total arguments
          | _ => false)
     | structural_is_total _ = false
@@ -481,7 +466,7 @@ struct
     | structural_root_region (Structural_Node {head, family, arguments}) =
         (case family of
            SOME known =>
-             (case family_members known of
+             (case #members known of
                 [only] =>
                   if same_constructor (head, only)
                   then
@@ -558,7 +543,7 @@ struct
                   Structural_Any _ =>
                     SOME
                       (replace_column column
-                        (replicate (constructor_arity member) (Structural_Any NONE)) row)
+                        (replicate (#arity member) (Structural_Any NONE)) row)
                 | Structural_Node {head, arguments, ...} =>
                     if same_constructor (head, member)
                     then SOME (replace_column column arguments row)
@@ -569,7 +554,7 @@ struct
               | SOME known =>
                   List.all
                     (fn member => matrix_covers_all (map_filter (specialize member) rows))
-                    (family_members known))
+                    (#members known))
            end)
 
   fun patterns_cover_all patterns =
@@ -579,7 +564,7 @@ struct
 
   fun subject_children (Structural_Subject {children, ...}) = children
 
-  fun fresh_pattern_subject ctxt pattern =
+  fun fresh_pattern_subject ctxt pattern : opened_pattern =
     let
       fun fresh_leaf () = Free ("_urust_region_" ^ string_of_int (serial ()), dummyT)
 
@@ -594,17 +579,14 @@ struct
               val opened = map open_pattern arguments
               val clauses = map fst opened
               val subjects = map snd opened
-              val value = Term.list_comb (constructor_term head, map subject_value subjects)
+              val value = Term.list_comb (#term head, map subject_value subjects)
             in
-              (Clause_Node {head = constructor_term head, family_hint = NONE, arguments = clauses},
+              (Clause_Node {head = #term head, family_hint = NONE, arguments = clauses},
                Structural_Subject {value = value, children = subjects})
             end
 
       val (clause, subject) = open_pattern pattern
-    in
-      Opened_Pattern
-        {abstraction = bind_clause_pattern ctxt R.empty_environment clause, subject = subject}
-    end
+    in {abstraction = bind_clause_pattern ctxt R.empty_environment clause, subject = subject} end
 
   fun selection_subject (Selected_Any {subject, ...}) = subject
     | selection_subject (Selected_Node {subject, ...}) = subject
@@ -635,14 +617,13 @@ struct
         | refine (Structural_Node _) (Structural_Any _) _ = NONE
     in refine pattern region subject end
 
-  fun select_structural_clause ctxt pattern (Decision_State {region, subject, ...}) =
+  fun select_structural_clause ctxt pattern ({region, subject, ...} : decision_state) =
     (case make_structural_selection_witness pattern region subject of
        SOME witness => Reused_Clause_Selection witness
      | NONE =>
          let
            val shape = erase_structural_bindings pattern
-           val Opened_Pattern {abstraction, subject = opened_subject} =
-             fresh_pattern_subject ctxt shape
+           val {abstraction, subject = opened_subject} = fresh_pattern_subject ctxt shape
            val witness =
              (case make_structural_selection_witness pattern shape opened_subject of
                 SOME selected => selected
@@ -671,7 +652,8 @@ struct
     if scope_kind_rank kind > scope_kind_rank other then kind else other
 
   (* The combined scope closes with the first wrapper outermost. Its kind is the strongest kind
-     among the wrappers: Transformed over Nested over Alias. *)
+     among the wrappers: Transformed over Nested over Alias. No wrapper has kind Direct_Scope, so
+     the scope is direct exactly when there are no wrappers. *)
   fun combine_scopes [] = direct_scope
     | combine_scopes (scopes : clause_scope list) =
         {kind = fold (fn {kind, ...} => stronger_scope_kind kind) scopes Direct_Scope,
@@ -837,7 +819,7 @@ struct
       (clause, guards, wrappers, navigation @ map slice_navigation_wrapper navigation_positions)
     end
 
-  fun normalize_case_alternative compiler ctxt value (pattern, environment) =
+  fun normalize_case_alternative compiler ctxt value (pattern, environment) : case_clause =
     let
       val (clause_pattern, generated_guards, wrappers, navigation) =
         normalize_extended_pattern compiler ctxt environment (T.literal value) pattern
@@ -845,12 +827,11 @@ struct
       val scope = combine_scopes wrappers
       val direct_branch = try (bind_clause_pattern ctxt environment) clause_pattern
     in
-      Case_Clause
-        {structural_pattern = structural_pattern_of_clause ctxt environment clause_pattern,
-         generated_test = generated_test,
-         scope = scope,
-         navigation = navigation,
-         direct_branch = direct_branch}
+      {structural_pattern = structural_pattern_of_clause ctxt environment clause_pattern,
+       generated_test = generated_test,
+       scope = scope,
+       navigation = navigation,
+       direct_branch = direct_branch}
     end
 
   fun case_term_on subject branches =
@@ -891,16 +872,14 @@ struct
      | NONE => false)
 
   fun direct_structural_branch
-      (Decision_Row
-        {clause = Case_Clause {generated_test, scope = {kind, ...}, navigation, direct_branch, ...},
-         source_guard, body, ...}) =
+      ({clause = {generated_test, scope = {kind, ...}, navigation, direct_branch, ...},
+        source_guard, body, ...} : decision_row) =
     (case (source_guard, generated_test, kind, direct_branch) of
        (NONE, NONE, Direct_Scope, SOME render) => SOME (render (apply_navigation navigation body))
      | _ => NONE)
 
   fun unconditional_total_row
-      (Decision_Row
-        {clause = Case_Clause {structural_pattern, generated_test, ...}, source_guard, ...}) =
+      ({clause = {structural_pattern, generated_test, ...}, source_guard, ...} : decision_row) =
     is_none generated_test andalso is_none source_guard andalso
       structural_is_total structural_pattern
 
@@ -911,17 +890,13 @@ struct
         then error "clauses are redundant"
         else validate_row_reachability rest
 
-  fun row_arm (Decision_Row {position = {arm_index, ...}, ...}) = arm_index
+  fun row_arm (row : decision_row) = #arm_index (#position row)
 
-  fun row_position (Decision_Row {position, ...}) = position
+  fun row_pattern (row : decision_row) = #structural_pattern (#clause row)
 
-  fun row_pattern (Decision_Row {clause = Case_Clause {structural_pattern, ...}, ...}) =
-    structural_pattern
+  fun row_has_generated_test (row : decision_row) = is_some (#generated_test (#clause row))
 
-  fun row_has_generated_test (Decision_Row {clause = Case_Clause {generated_test, ...}, ...}) =
-    is_some generated_test
-
-  fun row_has_source_guard (Decision_Row {source_guard, ...}) = is_some source_guard
+  fun row_has_source_guard (row : decision_row) = is_some (#source_guard row)
 
   fun row_shape row = erase_structural_bindings (row_pattern row)
 
@@ -933,31 +908,29 @@ struct
   fun drop_source_arm arm_index rows =
     drop_prefix (fn row => row_arm row = arm_index) rows
 
-  fun row_exclusion row pattern =
-    Decision_Exclusion {position = row_position row, pattern = pattern}
+  fun row_exclusion (row : decision_row) pattern : structural_exclusion =
+    {position = #position row, pattern = pattern}
 
   fun same_outer_group (left, right) =
     structural_same_shape (left, right) orelse
       (structural_is_total left andalso structural_is_total right)
 
-  fun add_group_row row group_pattern [] =
-        [Structural_Group {pattern = group_pattern, members = [row]}]
-    | add_group_row row group_pattern (Structural_Group {pattern, members} :: rest) =
+  fun add_group_row (row : decision_row) group_pattern [] : structural_group list =
+        [{pattern = group_pattern, members = [row]}]
+    | add_group_row row group_pattern ((group as {pattern, members}) :: rest) =
         if same_outer_group (pattern, group_pattern)
-        then Structural_Group {pattern = pattern, members = members @ [row]} :: rest
-        else
-          Structural_Group {pattern = pattern, members = members} ::
-            add_group_row row group_pattern rest
+        then {pattern = pattern, members = members @ [row]} :: rest
+        else group :: add_group_row row group_pattern rest
 
-  fun install_source_catchall row NONE =
-        SOME (Structural_Group {pattern = row_pattern row, members = [row]})
-    | install_source_catchall row (SOME (group as Structural_Group {pattern, ...})) =
+  fun install_source_catchall row NONE : structural_group option =
+        SOME {pattern = row_pattern row, members = [row]}
+    | install_source_catchall row (SOME (group as {pattern, ...} : structural_group)) =
         (case (pattern, row_pattern row) of
            (Structural_Any NONE, bound as Structural_Any (SOME _)) =>
-             SOME (Structural_Group {pattern = bound, members = [row]})
+             SOME {pattern = bound, members = [row]}
          | _ => SOME group)
 
-  fun add_root_group row (Outer_Group_Plan {groups, catchall}) =
+  fun add_root_group row ({groups, catchall} : outer_group_plan) : outer_group_plan =
     let
       val shape = row_shape row
       val group_pattern = structural_root_group_pattern shape
@@ -966,12 +939,11 @@ struct
         then (groups, install_source_catchall row catchall)
         else (add_group_row row group_pattern groups, catchall)
     in
-      Outer_Group_Plan {groups = groups', catchall = catchall'}
+      {groups = groups', catchall = catchall'}
     end
 
   fun transformed_root_tail
-      (Decision_Row {clause = Case_Clause {scope = {kind = Transformed_Scope, ...}, ...}, ...}) =
-        true
+      ({clause = {scope = {kind = Transformed_Scope, ...}, ...}, ...} : decision_row) = true
     | transformed_root_tail _ = false
 
   fun prefix_has_structural_group prefix =
@@ -1000,30 +972,28 @@ struct
                  emission_root_prefix guarded_arm' (row :: prefix) rest
                end)
 
-  fun emission_groups_of (Structural_Group {members, ...}) =
+  fun emission_groups_of ({members, ...} : structural_group) =
     fold (fn row => fn groups => add_group_row row (row_shape row) groups) members []
 
-  fun emission_group_exclusions (Structural_Group {members, ...}) =
+  fun emission_group_exclusions ({members, ...} : structural_group) =
     (case members of
        [] => error "urust_expr: internal empty structural group"
      | first :: rest =>
          row_exclusion first (row_shape first) ::
            map (fn row => row_exclusion row (row_shape row)) (filter row_has_generated_test rest))
 
-  fun group_starts_with_generated_test (Structural_Group {members, ...}) =
+  fun group_starts_with_generated_test ({members, ...} : structural_group) =
     (case members of
        first :: _ => row_has_generated_test first
      | [] => error "urust_expr: internal empty structural group")
 
-  fun group_pattern (Structural_Group {pattern, ...}) = pattern
-
   fun remove_subsumed_emission_groups groups =
     let
-      fun covered prior candidate =
+      fun covered prior (candidate : structural_group) =
         List.exists
           (fn group =>
             group_starts_with_generated_test group andalso
-              structural_subsumes (group_pattern group, group_pattern candidate))
+              structural_subsumes (#pattern group, #pattern candidate))
           prior
       fun retain _ [] = []
         | retain prior (group :: rest) =
@@ -1032,11 +1002,11 @@ struct
             else group :: retain (prior @ [group]) rest
     in retain [] groups end
 
-  fun plan_root_suffix context planned_rows =
+  fun plan_root_suffix context planned_rows : root_suffix_plan =
     let
-      val Outer_Group_Plan {groups, catchall = source_catchall} =
-        fold add_root_group planned_rows (Outer_Group_Plan {groups = [], catchall = NONE})
-      fun group_is_coverage_complete (Structural_Group {pattern, members, ...}) =
+      val {groups, catchall = source_catchall} =
+        fold add_root_group planned_rows {groups = [], catchall = NONE}
+      fun group_is_coverage_complete ({pattern, members} : structural_group) =
         structural_is_total pattern andalso List.exists (structural_is_total o row_shape) members
       val coverage_complete_group =
         (case groups of
@@ -1069,30 +1039,26 @@ struct
                      else add_group_row row (row_shape row) planned_groups)
                    prefix_rows []
                else maps emission_groups_of groups)
-      val emission_patterns = map (fn Structural_Group {pattern, ...} => pattern) emission_groups
+      val emission_patterns = map #pattern emission_groups
       val emission_exclusions = maps emission_group_exclusions emission_groups
       val emission_catchall =
         if reconstruct_root_tail
         then
           if patterns_cover_all emission_patterns
           then NONE
-          else
-            SOME
-              (the_default (Structural_Group {pattern = Structural_Any NONE, members = []})
-                source_catchall)
+          else SOME (the_default {pattern = Structural_Any NONE, members = []} source_catchall)
         else
           (case source_catchall of
              NONE => NONE
            | SOME group => if patterns_cover_all emission_patterns then NONE else SOME group)
     in
-      Root_Suffix_Plan
-        {rows = planned_rows,
-         groups = emission_groups,
-         outer_catchall = emission_catchall,
-         catchall_exclusions = emission_exclusions}
+      {rows = planned_rows,
+       groups = emission_groups,
+       outer_catchall = emission_catchall,
+       catchall_exclusions = emission_exclusions}
     end
 
-  fun following_group_exclusion (Structural_Group {members, ...}) =
+  fun following_group_exclusion ({members, ...} : structural_group) =
     (case members of
        [] => error "urust_expr: internal empty structural group"
      | first :: _ =>
@@ -1101,53 +1067,50 @@ struct
          else SOME (row_exclusion first (row_shape first)))
 
   fun nested_failure_scope
-      (Decision_Row
-        {clause = Case_Clause {scope = {kind = Nested_Scope, ...}, generated_test = SOME _, ...},
-         ...}) = true
+      ({clause = {scope = {kind = Nested_Scope, ...}, generated_test = SOME _, ...}, ...}
+        : decision_row) = true
     | nested_failure_scope _ = false
 
   fun rows_after_position _ [] = error "urust_expr: internal missing suffix row"
-    | rows_after_position position (row :: rest) =
-        if position = row_position row
+    | rows_after_position position ((row : decision_row) :: rest) =
+        if position = #position row
         then rest
         else rows_after_position position rest
 
-  fun nested_failure_suffix planned_rows (Structural_Group {members, ...}) =
+  fun nested_failure_suffix planned_rows ({members, ...} : structural_group) =
     (case members of
        first :: _ =>
          if nested_failure_scope first
-         then SOME (rows_after_position (row_position first) planned_rows)
+         then SOME (rows_after_position (#position first) planned_rows)
          else NONE
      | [] => error "urust_expr: internal empty structural group")
 
-  fun exclusion_position (Decision_Exclusion {position, ...}) = position
-
-  fun exclusion_pattern (Decision_Exclusion {pattern, ...}) = pattern
-
-  fun excluded_region exclusions position region =
+  fun excluded_region (exclusions : structural_exclusion list) position region =
     List.exists
       (fn exclusion =>
-        exclusion_position exclusion = position andalso
-          structural_semantically_subsumes (exclusion_pattern exclusion, region))
+        #position exclusion = position andalso
+          structural_semantically_subsumes (#pattern exclusion, region))
       exclusions
 
-  fun row_intersection (Decision_State {region, exclusions, ...}) row =
+  (* Whether the row can match inside the state's region: its shape intersects the region and no
+     exclusion for its position subsumes that intersection. *)
+  fun row_applicable ({region, exclusions, ...} : decision_state) row =
     (case structural_intersection (region, row_shape row) of
        NONE => false
-     | SOME matched => not (excluded_region exclusions (row_position row) matched))
+     | SOME matched => not (excluded_region exclusions (#position row) matched))
 
   fun first_applicable _ [] = NONE
     | first_applicable state (row :: rest) =
-        if row_intersection state row
+        if row_applicable state row
         then SOME (row, rest)
         else first_applicable state rest
 
-  fun add_exclusion (Decision_State {region, subject, exclusions}) position pattern =
-    Decision_State
-      {region = region, subject = subject,
-       exclusions = Decision_Exclusion {position = position, pattern = pattern} :: exclusions}
+  fun add_exclusion ({region, subject, exclusions} : decision_state) position pattern
+      : decision_state =
+    {region = region, subject = subject,
+     exclusions = {position = position, pattern = pattern} :: exclusions}
 
-  fun close_selected_clause (Case_Clause {generated_test, scope, navigation, ...}) selection
+  fun close_selected_clause ({generated_test, scope, navigation, ...} : case_clause) selection
       source_guard body alternative_failure arm_failure =
     let
       val specialize = specialize_term (structural_bindings selection)
@@ -1209,12 +1172,11 @@ struct
           (arm_index, {patterns, environment, source_guard, body} : decision_source_arm) =
         map_index
           (fn (alternative_index, pattern) =>
-            Decision_Row
-              {position = {arm_index = arm_index, alternative_index = alternative_index},
-               clause =
-                 normalize_case_alternative compile_pattern_case ctxt value (pattern, environment),
-               source_guard = source_guard,
-               body = body})
+            {position = {arm_index = arm_index, alternative_index = alternative_index},
+             clause =
+               normalize_case_alternative compile_pattern_case ctxt value (pattern, environment),
+             source_guard = source_guard,
+             body = body} : decision_row)
           patterns
 
       val rows = flat (map_index normalize_arm source_arms_with_fallback)
@@ -1232,11 +1194,10 @@ struct
          for `_` and binder patterns instead of optimizing the unreachable row away. *)
       val _ = validate_row_reachability rows
 
-      val root_state =
-        Decision_State
-          {region = Structural_Any NONE,
-           subject = Structural_Subject {value = value, children = []},
-           exclusions = []}
+      val root_state : decision_state =
+        {region = Structural_Any NONE,
+         subject = Structural_Subject {value = value, children = []},
+         exclusions = []}
 
       val match_root_decision =
         (case compilation_mode of
@@ -1254,9 +1215,8 @@ struct
         (case first_applicable state remaining of
            NONE => terminal_fallback
          | SOME
-             (Decision_Row
-                {clause = (clause as Case_Clause {structural_pattern, generated_test, scope, ...}),
-                 source_guard, body, position = (position as {arm_index, ...})},
+             ({clause = (clause as {structural_pattern, generated_test, scope, ...}),
+               source_guard, body, position = (position as {arm_index, ...})},
               rest) =>
              let
                val shape = erase_structural_bindings structural_pattern
@@ -1288,7 +1248,7 @@ struct
                    close_selected_clause clause selection source_guard body
                      alternative_failure arm_failure
                  end
-               val Decision_State {subject, exclusions, ...} = state
+               val {subject, exclusions, ...} : decision_state = state
              in
                (case select_structural_clause ctxt structural_pattern state of
                   Reused_Clause_Selection witness => compile_matched witness state
@@ -1296,46 +1256,47 @@ struct
                     let
                       val success =
                         compile_matched witness
-                          (Decision_State
-                            {region = region, subject = selection_subject witness,
-                             exclusions = exclusions})
-                      val failure =
-                        if covers_region then []
-                        else [compile_rows (add_exclusion state position shape) rest]
+                          {region = region, subject = selection_subject witness,
+                           exclusions = exclusions}
+                      (* A covering selection is the only branch. Otherwise a wildcard branch
+                         continues in the input state with this row's shape excluded. *)
+                      val branches =
+                        if covers_region then [abstraction success]
+                        else
+                          let val fallback = compile_rows (add_exclusion state position shape) rest
+                          in [abstraction success, generated_wild ctxt fallback] end
                     in
-                      case_term_on (subject_value subject)
-                        (abstraction success :: map (generated_wild ctxt) failure)
+                      case_term_on (subject_value subject) branches
                     end)
              end)
 
       and compile_outer_pattern planned_rows exclusions pattern =
         let
-          val Opened_Pattern {abstraction, subject} = fresh_pattern_subject ctxt pattern
-          val state = Decision_State {region = pattern, subject = subject, exclusions = exclusions}
+          val {abstraction, subject} = fresh_pattern_subject ctxt pattern
+          val state = {region = pattern, subject = subject, exclusions = exclusions}
           val compiled = compile_rows state planned_rows
         in
           abstraction compiled
         end
 
-      and compile_outer_group planned_rows exclusions (Structural_Group {pattern, ...}) =
+      and compile_outer_group planned_rows exclusions ({pattern, ...} : structural_group) =
         compile_outer_pattern planned_rows exclusions pattern
 
-      and compile_outer_catchall planned_rows exclusions (Structural_Group {pattern, ...}) =
+      and compile_outer_catchall planned_rows exclusions ({pattern, ...} : structural_group) =
         (case pattern of
            Structural_Any NONE =>
              let
-               val Decision_State {subject, ...} = root_state
-               val state =
-                 Decision_State {region = pattern, subject = subject, exclusions = exclusions}
+               val {subject, ...} = root_state
+               val state = {region = pattern, subject = subject, exclusions = exclusions}
              in
                generated_wild ctxt (compile_rows state planned_rows)
              end
          | Structural_Any (SOME _) => compile_outer_pattern planned_rows exclusions pattern
          | Structural_Node _ => error "urust_expr: internal non-wild outer catchall")
 
-      and compile_reconstructed_branch (Structural_Group {pattern, ...}) remaining =
+      and compile_reconstructed_branch ({pattern, ...} : structural_group) remaining =
         let
-          val Opened_Pattern {abstraction, ...} = fresh_pattern_subject ctxt pattern
+          val {abstraction, ...} = fresh_pattern_subject ctxt pattern
         in
           abstraction (compile_root_suffix Failure_Root remaining)
         end
@@ -1365,7 +1326,7 @@ struct
             end
 
       and emit_root_suffix
-          (Root_Suffix_Plan {rows = planned_rows, groups, outer_catchall, catchall_exclusions}) =
+          ({rows = planned_rows, groups, outer_catchall, catchall_exclusions} : root_suffix_plan) =
         let
           val (group_branches, root_suffix) = compile_emission_groups planned_rows groups [] NONE
           val branches =

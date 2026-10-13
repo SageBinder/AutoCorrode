@@ -247,10 +247,12 @@ struct
          | P_Ident identifier => registered_switch_capability (make_single_path identifier)
          | P_Path path => registered_switch_capability path
          | P_Wild _ => true
-         | P_Or (alternatives, _) => List.all I (map switch_capability alternatives)
+         | P_Or (alternatives, _) =>
+             (* Map before List.all, so every alternative is classified. *)
+             List.all I (map switch_capability alternatives)
          | _ => false)
-      (* Classify every arm and or-alternative before the guard test: constructor resolution and
-         literal classification can raise errors. *)
+      (* Classify every arm and every or-alternative (both maps run before any List.all) before the
+         guard test: constructor resolution and literal classification can raise errors. *)
       val capabilities = map (switch_capability o arm_pattern) arms
     in
       if List.exists (is_some o arm_guard) arms then MF_Case
