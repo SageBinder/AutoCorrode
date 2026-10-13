@@ -1384,16 +1384,13 @@ struct
   type source_position =
     {arm_index: int, alternative_index: int}
 
-  datatype scope_wrapper =
-      Alias_Scope_Wrapper of (term -> term)
-    | Nested_Scope_Wrapper of (term -> term)
-    | Transformed_Scope_Wrapper of (term -> term)
+  datatype scope_kind =
+      Direct_Scope
+    | Alias_Scope
+    | Nested_Scope
+    | Transformed_Scope
 
-  datatype clause_scope =
-      Direct_Clause_Scope
-    | Alias_Clause_Scope of (term -> term)
-    | Nested_Clause_Scope of (term -> term)
-    | Transformed_Clause_Scope of (term -> term)
+  type clause_scope = {kind: scope_kind, close: term -> term}
 
   datatype case_clause =
     Case_Clause of
@@ -1402,17 +1399,6 @@ struct
        scope: clause_scope,
        navigation: (term -> term) list,
        direct_branch: (term -> term) option}
-
-  datatype alternative_plan =
-    Alternative_Plan of
-      {position: source_position, clause: case_clause}
-
-  datatype arm_plan =
-    Arm_Plan of
-      {arm_index: int,
-       alternatives: alternative_plan list,
-       source_guard: (term * Position.T) option,
-       body: term}
 
   datatype decision_row =
     Decision_Row of
@@ -1488,16 +1474,17 @@ struct
     - structural_pattern is a typed algebraic pattern. Structural_Any optionally records the exact
       Free that the source alternative binds at that point; constructor identity, arity, and complete
       native family order remain explicit in Structural_Node.
-    - case_clause owns one structural pattern, its alternative-local generated test, one explicit
-      clause_scope operation, and an optional renderer for direct structural lowering. A closing scope
-      binds aliases and recursively extracted nested binders around the source guard and body together;
-      a direct scope is the identity operation. The direct renderer is derived from the normalized basic
-      pattern and is only selected when every row in the matrix has the same structural capability.
-      Both direct and recursive case emission use the backend constructors owned by
-      Case_Term_Backend.
-    - source_position is stable source order. alternative_plan and arm_plan preserve the distinction
-      between alternative failure and source-guard failure: a generated-test miss advances to the next
-      alternative, while a false source guard advances to the next arm.
+    - case_clause owns one structural pattern, its alternative-local generated test, one clause_scope,
+      and an optional renderer for direct structural lowering. A clause_scope pairs its scope_kind
+      with its closing operation, which binds aliases and recursively extracted nested binders around
+      the source guard and body together; a direct scope closes with the identity. The direct renderer
+      is derived from the normalized basic pattern and is only selected when every row in the matrix
+      has the same structural capability. Both direct and recursive case emission use the backend
+      constructors owned by Case_Term_Backend.
+    - source_position is stable source order. Each decision_row records its arm and alternative
+      index, which preserves the distinction between alternative failure and source-guard failure: a
+      generated-test miss advances to the next alternative, while a false source guard advances to
+      the next arm.
     - decision_state describes the structural region already selected by enclosing cases. exclusions
       record preceding case clauses that failed in that region. A structural_selection_witness
       certifies recursively that the selected region and subject decomposition conform before binders
@@ -2002,31 +1989,22 @@ struct
     if null bindings then I
     else Term.subst_free bindings
 
-  fun close_clause_scope Direct_Clause_Scope rhs = rhs
-    | close_clause_scope
-        (Alias_Clause_Scope close_scope) rhs =
-        close_scope rhs
-    | close_clause_scope
-        (Nested_Clause_Scope close_scope) rhs =
-        close_scope rhs
-    | close_clause_scope
-        (Transformed_Clause_Scope close_scope) rhs =
-        close_scope rhs
+  val direct_scope : clause_scope = {kind = Direct_Scope, close = I}
 
-  fun scope_wrapper_operation
-      (Alias_Scope_Wrapper operation) = operation
-    | scope_wrapper_operation
-        (Nested_Scope_Wrapper operation) = operation
-    | scope_wrapper_operation
-        (Transformed_Scope_Wrapper operation) = operation
+  fun scope_kind_rank Direct_Scope = 0
+    | scope_kind_rank Alias_Scope = 1
+    | scope_kind_rank Nested_Scope = 2
+    | scope_kind_rank Transformed_Scope = 3
 
-  fun scope_wrapper_is_nested
-      (Nested_Scope_Wrapper _) = true
-    | scope_wrapper_is_nested _ = false
+  fun stronger_scope_kind kind other =
+    if scope_kind_rank kind > scope_kind_rank other then kind else other
 
-  fun scope_wrapper_is_transformed
-      (Transformed_Scope_Wrapper _) = true
-    | scope_wrapper_is_transformed _ = false
+  (* The combined scope closes with the first wrapper outermost. Its kind is the strongest kind
+     among the wrappers: Transformed over Nested over Alias. *)
+  fun combine_scopes [] = direct_scope
+    | combine_scopes (scopes : clause_scope list) =
+        {kind = fold (fn {kind, ...} => stronger_scope_kind kind) scopes Direct_Scope,
+         close = fn rhs => fold_rev (fn {close, ...} => close) scopes rhs}
 
   fun extend_generated_test generated NONE = SOME generated
     | extend_generated_test generated (SOME prior) =
@@ -2117,10 +2095,11 @@ struct
                         rhs T.undefined_value
                   in
                     (Basic_Generated temporary, guards,
-                     [(case bare_argument of
-                         Case_Slice_Suffix _ =>
-                           Transformed_Scope_Wrapper wrapper
-                       | _ => Nested_Scope_Wrapper wrapper)],
+                     [{kind =
+                         (case bare_argument of
+                            Case_Slice_Suffix _ => Transformed_Scope
+                          | _ => Nested_Scope),
+                       close = wrapper}],
                      map slice_navigation_wrapper
                        navigation_positions)
                   end
@@ -2187,7 +2166,7 @@ struct
                     alias_wrapper transform environment expression binder_sig rhs)
              in
                (basic, guards,
-                wrappers @ [Alias_Scope_Wrapper wrap],
+                wrappers @ [{kind = Alias_Scope, close = wrap}],
                 navigation)
              end
          | Case_Constraint (typ, pos, inner) =>
@@ -2200,7 +2179,7 @@ struct
                    (constrain_pattern_abstraction typ pos
                      (R.anonymous_abstraction rhs))
              in
-               (basic, guards, wrappers @ [Nested_Scope_Wrapper wrap], navigation)
+               (basic, guards, wrappers @ [{kind = Nested_Scope, close = wrap}], navigation)
              end
          | Case_Value (literal, _) =>
              (Basic_Wild,
@@ -2235,7 +2214,7 @@ struct
                    rhs T.undefined_value
              in
                (Basic_Wild, [guard],
-                [Transformed_Scope_Wrapper wrap], [])
+                [{kind = Transformed_Scope, close = wrap}], [])
              end
          | _ =>
              normalize_pattern_for_nested
@@ -2255,26 +2234,7 @@ struct
           compiler ctxt environment (T.literal value) pattern
       val generated_test =
         fold extend_generated_test generated_guards NONE
-      val scope =
-        if null wrappers
-        then Direct_Clause_Scope
-        else
-          let
-            val close_scope =
-              fn rhs =>
-                fold_rev
-                  (fn wrapper => fn body =>
-                    scope_wrapper_operation wrapper body)
-                  wrappers rhs
-          in
-            if List.exists scope_wrapper_is_transformed
-                wrappers
-            then Transformed_Clause_Scope close_scope
-            else if List.exists scope_wrapper_is_nested
-                wrappers
-            then Nested_Clause_Scope close_scope
-            else Alias_Clause_Scope close_scope
-          end
+      val scope = combine_scopes wrappers
       val direct_branch =
         try (bind_basic_pattern ctxt environment) basic_pattern
     in
@@ -2380,57 +2340,38 @@ struct
                  source_guard = NONE,
                  body = body}])
 
+      (* One row per source alternative, arm-major and alternative-minor. Each alternative is
+         normalized exactly once, left to right. *)
       fun normalize_arm
           (arm_index,
            {patterns, environment, source_guard, body} :
              decision_source_arm) =
-        let
-          fun normalize_alternative
-              (alternative_index, pattern) =
-            Alternative_Plan
+        map_index
+          (fn (alternative_index, pattern) =>
+            Decision_Row
               {position =
                  {arm_index = arm_index,
                   alternative_index = alternative_index},
                clause =
                  normalize_case_alternative
                    compile_pattern_case ctxt value
-                   (pattern, environment)}
-        in
-          Arm_Plan
-            {arm_index = arm_index,
-             alternatives =
-               map_index normalize_alternative patterns,
-             source_guard = source_guard,
-             body = body}
-        end
-
-      val arm_plans =
-        map_index normalize_arm source_arms_with_fallback
-
-      fun rows_of_arm
-          (Arm_Plan
-            {alternatives, source_guard, body, ...}) =
-        map
-          (fn Alternative_Plan
-                {position, clause} =>
-            Decision_Row
-              {position = position,
-               clause = clause,
+                   (pattern, environment),
                source_guard = source_guard,
                body = body})
-          alternatives
+          patterns
 
-      val rows = maps rows_of_arm arm_plans
+      val rows =
+        flat (map_index normalize_arm source_arms_with_fallback)
 
       fun direct_structural_branch
           (Decision_Row
             {clause =
                Case_Clause
-                 {generated_test, scope, navigation,
+                 {generated_test, scope = {kind, ...}, navigation,
                   direct_branch, ...},
              source_guard, body, ...}) =
-        (case (source_guard, generated_test, scope, direct_branch) of
-           (NONE, NONE, Direct_Clause_Scope, SOME render) =>
+        (case (source_guard, generated_test, kind, direct_branch) of
+           (NONE, NONE, Direct_Scope, SOME render) =>
              SOME (render (apply_navigation navigation body))
          | _ => NONE)
 
@@ -2587,7 +2528,7 @@ struct
           (Decision_Row
             {clause =
                Case_Clause
-                 {scope = Transformed_Clause_Scope _, ...},
+                 {scope = {kind = Transformed_Scope, ...}, ...},
              ...}) = true
         | transformed_root_tail _ = false
 
@@ -2779,7 +2720,7 @@ struct
           (Decision_Row
             {clause =
                Case_Clause
-                 {scope = Nested_Clause_Scope _,
+                 {scope = {kind = Nested_Scope, ...},
                   generated_test = SOME _, ...},
              ...}) = true
         | nested_failure_scope _ = false
@@ -2864,7 +2805,7 @@ struct
                    (fn () =>
                      T.conditional guard navigated_body (the arm_failure)))
           val scoped_body =
-            specialize (close_clause_scope scope guarded_body)
+            specialize (#close scope guarded_body)
         in
           (case generated_test of
              NONE => scoped_body
@@ -2899,10 +2840,10 @@ struct
                    val alternative_failure =
                      Option.map
                        (fn _ =>
-                         (case scope of
-                            Nested_Clause_Scope _ =>
+                         (case #kind scope of
+                            Nested_Scope =>
                               compile_root_suffix Failure_Root rest
-                          | Transformed_Clause_Scope _ =>
+                          | Transformed_Scope =>
                               compile_root_suffix Failure_Root rest
                           | _ => compile_rows failure_state rest))
                        generated_test
@@ -2910,8 +2851,8 @@ struct
                      Option.map
                        (fn _ =>
                          let val following = drop_source_arm arm_index rest in
-                           (case (scope, shape) of
-                              (Direct_Clause_Scope, Structural_Node _) =>
+                           (case (#kind scope, shape) of
+                              (Direct_Scope, Structural_Node _) =>
                                 compile_root_suffix Failure_Root following
                             | _ => compile_rows failure_state following)
                          end)
