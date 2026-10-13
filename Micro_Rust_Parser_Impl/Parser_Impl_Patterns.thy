@@ -1440,33 +1440,19 @@ struct
         {subject: structural_subject,
          arguments: structural_selection_witness list}
 
+  (* covers_region: the opened shape subsumes the enclosing region, so no
+     fallback branch follows it. *)
   datatype clause_selection =
-      Reused_Clause_Selection of
-        {region: structural_pattern,
-         witness: structural_selection_witness}
-    | Opened_Covering_Clause_Selection of
-        {region: structural_pattern,
+      Reused_Clause_Selection of structural_selection_witness
+    | Opened_Clause_Selection of
+        {covers_region: bool,
+         region: structural_pattern,
          abstraction: term -> term,
          witness: structural_selection_witness}
-    | Opened_Partial_Clause_Selection of
-        {region: structural_pattern,
-         abstraction: term -> term,
-         witness: structural_selection_witness}
-
-  datatype selected_row_state =
-    Selected_Row_State of
-      {selection: structural_selection_witness,
-       failure_state: decision_state}
 
   datatype root_plan_context =
       Match_Root
     | Failure_Root
-
-  datatype applicable_row =
-    Applicable_Row of
-      {row: decision_row,
-       decision_state: decision_state,
-       remaining_rows: decision_row list}
 
   datatype opened_pattern =
     Opened_Pattern of
@@ -1516,8 +1502,9 @@ struct
       record preceding case clauses that failed in that region. A structural_selection_witness
       certifies recursively that the selected region and subject decomposition conform before binders
       are extracted. Semantic totality never creates this witness: a singleton constructor or tuple
-      over Structural_Any is opened to obtain its children. Selected_Row_State retains that witness
-      and the already-bound subject for failure. Generated-test failure tries the next alternative;
+      over Structural_Any is opened to obtain its children. A selection that reuses the enclosing
+      region fails back into its input decision state; an opened selection fails into the opened
+      region over the witness's subject. Generated-test failure tries the next alternative;
       source-guard failure skips the source arm without sharing the selected alternative's binders.
       Decision_Exclusion suppresses only its exact source position.
     - root_suffix_plan contains only emission rows, groups, catchall and exclusions. Structural
@@ -1977,9 +1964,7 @@ struct
       (Decision_State {region, subject, ...}) =
     (case make_structural_selection_witness
         pattern region subject of
-       SOME witness =>
-         Reused_Clause_Selection
-           {region = region, witness = witness}
+       SOME witness => Reused_Clause_Selection witness
      | NONE =>
          let
            val shape = erase_structural_bindings pattern
@@ -1994,18 +1979,13 @@ struct
                   error
                     "urust_expr: internal invalid opened structural selection")
          in
-           if structural_semantically_subsumes
-               (shape, region)
-           then
-             Opened_Covering_Clause_Selection
-               {region = shape,
-                abstraction = abstraction,
-                witness = witness}
-           else
-             Opened_Partial_Clause_Selection
-               {region = shape,
-                abstraction = abstraction,
-                witness = witness}
+           Opened_Clause_Selection
+             {covers_region =
+                structural_semantically_subsumes
+                  (shape, region),
+              region = shape,
+              abstraction = abstraction,
+              witness = witness}
          end)
 
   fun structural_bindings
@@ -2844,23 +2824,16 @@ struct
           (Decision_State {region, exclusions, ...}) row =
         (case structural_intersection
             (region, row_shape row) of
-           NONE => NONE
+           NONE => false
          | SOME matched =>
-             if excluded_region exclusions
-                 (row_position row) matched
-             then NONE
-             else SOME matched)
+             not (excluded_region exclusions
+               (row_position row) matched))
 
       fun first_applicable _ [] = NONE
         | first_applicable state (row :: rest) =
-            (case row_intersection state row of
-               SOME matched =>
-                 SOME
-                   (Applicable_Row
-                     {row = row,
-                      decision_state = state,
-                      remaining_rows = rest})
-             | NONE => first_applicable state rest)
+            if row_intersection state row
+            then SOME (row, rest)
+            else first_applicable state rest
 
       fun add_exclusion
           (Decision_State {region, subject, exclusions})
@@ -2872,17 +2845,6 @@ struct
              Decision_Exclusion
                {position = position, pattern = pattern} ::
              exclusions}
-
-      fun selected_states
-          (Decision_State {exclusions, ...})
-          region selection =
-        Selected_Row_State
-          {selection = selection,
-           failure_state =
-             Decision_State
-               {region = region,
-                subject = selection_subject selection,
-                exclusions = exclusions}}
 
       fun close_selected_clause
           (Case_Clause
@@ -2914,26 +2876,21 @@ struct
         (case first_applicable state remaining of
            NONE => terminal_fallback
          | SOME
-             (Applicable_Row
-               {row =
-                  (row as
-                    Decision_Row
-                      {clause =
-                         (clause as
-                           Case_Clause
-                             {structural_pattern, generated_test,
-                              scope, ...}),
-                       source_guard, body,
-                       position =
-                         (position as {arm_index, ...})}),
-                decision_state, remaining_rows = rest,
-                ...}) =>
+             (Decision_Row
+                {clause =
+                   (clause as
+                     Case_Clause
+                       {structural_pattern, generated_test,
+                        scope, ...}),
+                 source_guard, body,
+                 position =
+                   (position as {arm_index, ...})},
+              rest) =>
              let
                val shape =
                  erase_structural_bindings structural_pattern
 
-               fun compile_matched
-                   (Selected_Row_State {selection, failure_state}) =
+               fun compile_matched selection failure_state =
                  let
                    (* A generated-test miss tries the next alternative. A false
                       source guard skips the entire source arm. Choose the one
@@ -2964,50 +2921,30 @@ struct
                      selection source_guard body
                      alternative_failure arm_failure
                  end
-               val selection =
-                 select_structural_clause ctxt
-                   structural_pattern decision_state
+               val Decision_State {subject, exclusions, ...} = state
              in
-                (case selection of
-                  Reused_Clause_Selection
-                    {region, witness} =>
-                    compile_matched
-                      (selected_states
-                        decision_state region witness)
-                | Opened_Covering_Clause_Selection
-                    {region, abstraction, witness} =>
-                  let
-                    val success =
-                      compile_matched
-                        (selected_states
-                          decision_state region witness)
-                    val subject =
-                      (case decision_state of
-                         Decision_State {subject, ...} =>
-                           subject_value subject)
-                  in
-                    case_term_on subject [abstraction success]
-                  end
-                | Opened_Partial_Clause_Selection
-                    {region, abstraction, witness} =>
-                  let
-                   val selected_state =
-                     selected_states
-                       decision_state region witness
-                   val success =
-                     compile_matched selected_state
-                   val failure =
-                     compile_rows
-                       (add_exclusion
-                         decision_state position shape) rest
-                   val subject =
-                     (case decision_state of
-                        Decision_State {subject, ...} =>
-                          subject_value subject)
-                 in
-                   case_term_on subject
-                     [abstraction success, generated_wild failure]
-                  end)
+               (case select_structural_clause ctxt
+                   structural_pattern state of
+                  Reused_Clause_Selection witness =>
+                    compile_matched witness state
+                | Opened_Clause_Selection
+                    {covers_region, region, abstraction, witness} =>
+                    let
+                      val success =
+                        compile_matched witness
+                          (Decision_State
+                            {region = region,
+                             subject = selection_subject witness,
+                             exclusions = exclusions})
+                      val failure =
+                        if covers_region then []
+                        else
+                          [compile_rows
+                            (add_exclusion state position shape) rest]
+                    in
+                      case_term_on (subject_value subject)
+                        (abstraction success :: map generated_wild failure)
+                    end)
              end)
 
       and compile_outer_pattern planned_rows exclusions pattern =
