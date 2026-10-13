@@ -1458,13 +1458,9 @@ struct
       {selection: structural_selection_witness,
        failure_state: decision_state}
 
-  datatype failure_destination =
-      Next_Alternative
-    | Next_Source_Arm
-
   datatype root_plan_context =
-      Match_Root_Plan
-    | Failure_Root_Plan of failure_destination
+      Match_Root
+    | Failure_Root
 
   datatype applicable_row =
     Applicable_Row of
@@ -1527,9 +1523,10 @@ struct
     - root_suffix_plan contains only emission rows, groups, catchall and exclusions. Structural
       grouping and coverage still determine when a total group is opened directly. Root-suffix
       reconstruction preserves the established term shape for direct guards, nested/transformed
-      generated-test misses and outer catchalls. The invocation-local cache stores only plans,
-      keyed by failure destination and source positions, and starts empty for every compilation.
-      Each clause and selector constructs one term; planning never changes decision-state selection.
+      generated-test misses and outer catchalls. Planning is pure and runs afresh for every root
+      suffix; emitted terms are never reused, because binder reports and nested compiles fire once
+      per emission. Each clause and selector constructs one term; planning never changes
+      decision-state selection.
 
     One compiler below handles ordinary, guarded, overlapping, and recursive nested cases. It never
     packs compiler metadata into HOL terms, never decodes generated terms, and never has separate
@@ -2702,18 +2699,6 @@ struct
             fold add_root_group planned_rows
               (Outer_Group_Plan
                 {groups = [], catchall = NONE})
-          val structural_patterns =
-            map
-              (fn Structural_Group {pattern, ...} =>
-                pattern)
-              groups
-          val outer_catchall =
-            (case source_catchall of
-               NONE => NONE
-             | SOME group =>
-                 if patterns_cover_all structural_patterns
-                 then NONE
-                 else SOME group)
           fun group_is_coverage_complete
               (Structural_Group {pattern, members, ...}) =
             structural_is_total pattern andalso
@@ -2721,8 +2706,8 @@ struct
                 (structural_is_total o row_shape)
                 members
           val coverage_complete_group =
-            (case (groups, outer_catchall) of
-               ([group], NONE) =>
+            (case groups of
+               [group] =>
                  if group_is_coverage_complete group
                  then SOME group
                  else NONE
@@ -2739,10 +2724,10 @@ struct
                SOME _ => (planned_rows, false)
              | NONE =>
                  (case context of
-                    Match_Root_Plan =>
+                    Match_Root =>
                       emission_root_prefix
                         NONE [] planned_rows
-                  | Failure_Root_Plan _ =>
+                  | Failure_Root =>
                       ([], not (null planned_rows))))
           val emission_groups =
             remove_subsumed_emission_groups
@@ -2840,46 +2825,6 @@ struct
          | [] =>
              error
                "urust_expr: internal empty structural group")
-
-      datatype root_plan_cache_entry =
-        Root_Plan_Cache_Entry of
-          {context: root_plan_context,
-           positions: source_position list,
-           plan: root_suffix_plan}
-
-      val root_plan_cache =
-        Unsynchronized.ref
-          ([] : root_plan_cache_entry list)
-
-      fun same_position_list ([], []) = true
-        | same_position_list
-            (left :: left_rest, right :: right_rest) =
-            left = right andalso
-              same_position_list (left_rest, right_rest)
-        | same_position_list _ = false
-
-      fun same_root_plan_context
-          (Match_Root_Plan, Match_Root_Plan) = true
-        | same_root_plan_context
-            (Failure_Root_Plan left,
-             Failure_Root_Plan right) =
-            left = right
-        | same_root_plan_context _ = false
-
-      fun cached_root_plan _ _ [] = NONE
-        | cached_root_plan context positions
-            (Root_Plan_Cache_Entry
-              {context = cached_context,
-               positions = cached_positions,
-               plan} :: rest) =
-            if same_root_plan_context
-                 (context, cached_context) andalso
-               same_position_list
-                (positions, cached_positions)
-            then SOME plan
-            else
-              cached_root_plan
-                context positions rest
 
       fun exclusion_position
           (Decision_Exclusion {position, ...}) = position
@@ -2999,13 +2944,9 @@ struct
                        (fn _ =>
                          (case scope of
                             Nested_Clause_Scope _ =>
-                              compile_root_suffix
-                                (Failure_Root_Plan
-                                  Next_Alternative) rest
+                              compile_root_suffix Failure_Root rest
                           | Transformed_Clause_Scope _ =>
-                              compile_root_suffix
-                                (Failure_Root_Plan
-                                  Next_Alternative) rest
+                              compile_root_suffix Failure_Root rest
                           | _ => compile_rows failure_state rest))
                        generated_test
                    val arm_failure =
@@ -3014,9 +2955,7 @@ struct
                          let val following = drop_source_arm arm_index rest in
                            (case (scope, shape) of
                               (Direct_Clause_Scope, Structural_Node _) =>
-                                compile_root_suffix
-                                  (Failure_Root_Plan
-                                    Next_Source_Arm) following
+                                compile_root_suffix Failure_Root following
                             | _ => compile_rows failure_state following)
                          end)
                        source_guard
@@ -3117,10 +3056,7 @@ struct
             fresh_pattern_subject ctxt pattern
         in
           abstraction
-            (compile_root_suffix
-              (Failure_Root_Plan
-                Next_Alternative)
-              remaining)
+            (compile_root_suffix Failure_Root remaining)
         end
 
       and compile_emission_groups
@@ -3183,35 +3119,14 @@ struct
         in selector_of branches end
 
       and compile_root_suffix context remaining =
-        let
-          val positions = map row_position remaining
-          val plan =
-            (case cached_root_plan
-                context positions
-                (!root_plan_cache) of
-               SOME cached => cached
-             | NONE =>
-                 let
-                   val planned =
-                     plan_root_suffix context remaining
-                   val _ =
-                     root_plan_cache :=
-                       Root_Plan_Cache_Entry
-                         {context = context,
-                          positions = positions,
-                          plan = planned} ::
-                       !root_plan_cache
-                 in planned end)
-        in
-          emit_root_suffix plan
-        end
+        emit_root_suffix (plan_root_suffix context remaining)
 
       val selector =
         (case direct_structural_matrix () of
            SOME branches => selector_of branches
          | NONE =>
              emit_root_suffix
-               (plan_root_suffix Match_Root_Plan rows))
+               (plan_root_suffix Match_Root rows))
       val navigated_selector =
         (case match_root_decision of
            SOME Conditional_Match_Root =>
