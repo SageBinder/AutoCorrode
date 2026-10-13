@@ -135,10 +135,10 @@ ML\<open>
   control target without placing generated comparison predicates under the match-token range.
 
   The representations of prepared_binding and prepared_case_arm are intentionally abstract.
-  Pattern-position inspection, resolution policies, resolved/basic/case pattern datatypes, or-pattern
-  expansion, normalization, generated names, recursive compiler helpers, and the exact coverage
-  representation are implementation details. Callers may rely only on the signature and the scoping,
-  ordering, validation, fallback, and term-shape contracts above.
+  Pattern-position inspection, resolution policies, resolved/case/clause pattern datatypes,
+  or-pattern expansion, normalization, generated names, recursive compiler helpers, and the exact
+  coverage representation are implementation details. Callers may rely only on the signature and the
+  scoping, ordering, validation, fallback, and term-shape contracts above.
 *)
 structure URust_Patterns :> URUST_PATTERNS =
 struct
@@ -981,22 +981,17 @@ struct
                Position.here pos))
     in (switch_keys resolver ctxt pattern, body) end
 
-  datatype basic_case_pattern =
-      Basic_Wild
-    | Basic_Bind of binding_signature
-    | Basic_Generated of term
-    | Basic_Constructor of
-        R.constructor_info * basic_case_pattern list
-    | Basic_Resolved of term * basic_case_pattern list
-    | Basic_Tuple of basic_case_pattern list
-
+  (* A Case_Node head is used exactly as given: R.constructor_term of a resolved constructor (it
+     can be a type-instantiated Const shared with the typing witness) or a list constructor of a
+     slice. family_hint is the resolver's family, if any. Tuples stay Case_Tuple at this level. *)
   datatype case_pattern =
       Case_Wild
     | Case_Bind of binding_signature
     | Case_Value of term * Position.T
-    | Case_Constructor of
-        R.constructor_info * case_pattern list
-    | Case_Resolved of term * case_pattern list
+    | Case_Node of
+        {head: term,
+         family_hint: (string * term list) option,
+         arguments: case_pattern list}
     | Case_Tuple of case_pattern list
     | Case_Alias of binding_signature * (term -> term) * case_pattern * Position.T
     | Case_Constraint of typ * Position.T * case_pattern
@@ -1004,9 +999,19 @@ struct
     | Case_Slice_Suffix of case_pattern
     | Case_Navigated of Position.T list * case_pattern
 
+  (* The head of one case clause. Tuples are expanded into Pair/TNil chains, and Clause_Generated
+     names the temporary of a nested match or of an opened region leaf. *)
+  datatype clause_pattern =
+      Clause_Wild
+    | Clause_Binder of binding_signature
+    | Clause_Generated of term
+    | Clause_Node of
+        {head: term,
+         family_hint: (string * term list) option,
+         arguments: clause_pattern list}
+
   datatype case_pattern_tree =
-      Pattern_Constant of term
-    | Pattern_Slot of int
+      Pattern_Slot of int
     | Pattern_Application of term * case_pattern_tree list
 
   datatype prepared_case_arm =
@@ -1120,8 +1125,10 @@ struct
            (R.literal_path_value ctxt environment path,
             path_position path)
      | Resolved_Constructor (info, _, arguments) =>
-         Case_Constructor
-           (info, map (prepare_case_pattern ctxt environment) arguments)
+         Case_Node
+           {head = R.constructor_term info,
+            family_hint = R.constructor_family info,
+            arguments = map (prepare_case_pattern ctxt environment) arguments}
      | Resolved_Tuple (arguments, _) =>
          Case_Tuple
            (map (prepare_case_pattern ctxt environment) arguments)
@@ -1141,12 +1148,13 @@ struct
              split_resolved_slice_items items
            fun cons_chain patterns tail =
              fold_rev (fn nested => fn rest =>
-                 Case_Resolved
-                   (T.list_cons_constructor,
-                    [prepare_case_pattern ctxt environment nested, rest]))
+                 Case_Node
+                   {head = T.list_cons_constructor,
+                    family_hint = NONE,
+                    arguments = [prepare_case_pattern ctxt environment nested, rest]})
                patterns tail
            val nil_pattern =
-             Case_Resolved (T.list_nil_constructor, [])
+             Case_Node {head = T.list_nil_constructor, family_hint = NONE, arguments = []}
            (* Open slices count only explicit elements. Suffix matching reverses the remainder;
               reverse its residual middle back before exposing a named capture. *)
            fun rest_tail _ NONE = Case_Wild
@@ -1236,21 +1244,31 @@ struct
   fun prepared_is_total
       (Prepared_Case_Arm {total, ...}) = total
 
-  fun normalize_basic_pattern pattern =
+  fun tuple_clause [] =
+        Clause_Node {head = T.tuple_nil_constructor, family_hint = NONE, arguments = []}
+    | tuple_clause (argument :: rest) =
+        Clause_Node
+          {head = T.pair_constructor,
+           family_hint = NONE,
+           arguments = [argument, tuple_clause rest]}
+
+  (* The clause form of a case pattern: navigation is dropped and tuples become Pair/TNil chains.
+     Values, ranges, slice suffixes, aliases and type constraints have no clause form; normalization
+     replaces them by generated tests and scopes first. *)
+  fun clause_of_case_pattern pattern =
     (case pattern of
-       Case_Wild => Basic_Wild
-     | Case_Bind binder_sig => Basic_Bind binder_sig
+       Case_Wild => Clause_Wild
+     | Case_Bind binder_sig => Clause_Binder binder_sig
      | Case_Value (_, pos) =>
          error ("urust_expr: internal unnormalized value pattern" ^
            Position.here pos)
-     | Case_Constructor (info, arguments) =>
-         Basic_Constructor
-           (info, map normalize_basic_pattern arguments)
-     | Case_Resolved (constructor, arguments) =>
-         Basic_Resolved
-           (constructor, map normalize_basic_pattern arguments)
+     | Case_Node {head, family_hint, arguments} =>
+         Clause_Node
+           {head = head,
+            family_hint = family_hint,
+            arguments = map clause_of_case_pattern arguments}
      | Case_Tuple arguments =>
-         Basic_Tuple (map normalize_basic_pattern arguments)
+         tuple_clause (map clause_of_case_pattern arguments)
      | Case_Alias (binder_sig, _, _, _) =>
          error ("urust_expr: internal unnormalized alias pattern" ^
            Position.here (signature_position binder_sig))
@@ -1263,12 +1281,11 @@ struct
      | Case_Slice_Suffix _ =>
          error "urust_expr: internal unnormalized slice suffix pattern"
      | Case_Navigated (_, inner) =>
-         normalize_basic_pattern inner)
+         clause_of_case_pattern inner)
 
   fun instantiate_pattern arguments tree =
     (case tree of
-       Pattern_Constant term => term
-     | Pattern_Slot index => nth arguments index
+       Pattern_Slot index => nth arguments index
      | Pattern_Application (constructor, nested) =>
          Term.list_comb
            (constructor, map (instantiate_pattern arguments) nested))
@@ -1290,13 +1307,13 @@ struct
         slots (make_inner arguments)
     end
 
-  fun bind_basic_pattern ctxt environment pattern =
+  fun bind_clause_pattern ctxt environment pattern =
     let
       fun add_slot slot (slots_rev, count) =
         (Pattern_Slot count, (slot :: slots_rev, count + 1))
 
-      fun walk Basic_Wild state = add_slot NONE state
-        | walk (Basic_Bind binder_sig) state =
+      fun walk Clause_Wild state = add_slot NONE state
+        | walk (Clause_Binder binder_sig) state =
             let
               val name = signature_name binder_sig
               val pos = signature_position binder_sig
@@ -1307,35 +1324,11 @@ struct
                    error ("urust_expr: internal unregistered case binder " ^
                      quote name ^ Position.here pos))
             end
-        | walk (Basic_Generated free) state =
+        | walk (Clause_Generated free) state =
             add_slot (SOME free) state
-        | walk (Basic_Constructor (info, arguments)) state =
-            let
-              val (trees, state') = fold_map walk arguments state
-            in
-              (Pattern_Application
-                (R.constructor_term info, trees), state')
-            end
-        | walk (Basic_Resolved (constructor, arguments)) state =
+        | walk (Clause_Node {head, arguments, ...}) state =
             let val (trees, state') = fold_map walk arguments state
-            in (Pattern_Application (constructor, trees), state') end
-        | walk (Basic_Tuple arguments) state =
-            let
-              fun tuple_tree [] nested_state =
-                    (Pattern_Constant T.tuple_nil_constructor, nested_state)
-                | tuple_tree (argument :: rest) nested_state =
-                    let
-                      val (argument_tree, state') =
-                        walk argument nested_state
-                      val (rest_tree, state'') =
-                        tuple_tree rest state'
-                    in
-                      (Pattern_Application
-                        (T.pair_constructor,
-                         [argument_tree, rest_tree]),
-                       state'')
-                    end
-            in tuple_tree arguments state end
+            in (Pattern_Application (head, trees), state') end
 
       val (tree, (slots_rev, _)) = walk pattern ([], 0)
     in
@@ -1355,9 +1348,7 @@ struct
      | Case_Range _ => true
      | Case_Slice_Suffix _ => true
      | Case_Navigated (_, inner) => requires_nested_match inner
-     | Case_Constructor (_, arguments) =>
-         List.exists requires_nested_match arguments
-     | Case_Resolved (_, arguments) =>
+     | Case_Node {arguments, ...} =>
          List.exists requires_nested_match arguments
      | Case_Tuple arguments =>
          List.exists requires_nested_match arguments
@@ -1477,10 +1468,10 @@ struct
     - case_clause owns one structural pattern, its alternative-local generated test, one clause_scope,
       and an optional renderer for direct structural lowering. A clause_scope pairs its scope_kind
       with its closing operation, which binds aliases and recursively extracted nested binders around
-      the source guard and body together; a direct scope closes with the identity. The direct renderer
-      is derived from the normalized basic pattern and is only selected when every row in the matrix
-      has the same structural capability. Both direct and recursive case emission use the backend
-      constructors owned by Case_Term_Backend.
+      the source guard and body together; a direct scope closes with the identity. The direct
+      renderer is derived from the normalized clause pattern and is only selected when every row in
+      the matrix has the same structural capability. Both direct and recursive case emission use the
+      backend constructors owned by Case_Term_Backend.
     - source_position is stable source order. Each decision_row records its arm and alternative
       index, which preserves the distinction between alternative failure and source-guard failure: a
       generated-test miss advances to the next alternative, while a false source guard advances to
@@ -1573,7 +1564,7 @@ struct
         {head = head, family = family, arguments = arguments}
     end
 
-  fun structural_pattern_of_basic ctxt environment pattern =
+  fun structural_pattern_of_clause ctxt environment pattern =
     let
       fun local_free binder_sig =
         let
@@ -1587,27 +1578,14 @@ struct
                  quote name ^ Position.here pos))
         end
 
-      fun tuple_pattern [] =
-            make_structural_node ctxt T.tuple_nil_constructor NONE []
-        | tuple_pattern (argument :: rest) =
-            make_structural_node ctxt T.pair_constructor NONE
-              [convert argument, tuple_pattern rest]
-      and convert Basic_Wild = Structural_Any NONE
-        | convert (Basic_Bind binder_sig) =
+      fun convert Clause_Wild = Structural_Any NONE
+        | convert (Clause_Binder binder_sig) =
             Structural_Any (SOME (local_free binder_sig))
-        | convert (Basic_Generated free) =
+        | convert (Clause_Generated free) =
             Structural_Any (SOME free)
-        | convert
-            (Basic_Constructor (info, arguments)) =
-            make_structural_node ctxt
-              (R.constructor_term info)
-              (R.constructor_family info)
+        | convert (Clause_Node {head, family_hint, arguments}) =
+            make_structural_node ctxt head family_hint
               (map convert arguments)
-        | convert (Basic_Resolved (constructor, arguments)) =
-            make_structural_node ctxt constructor NONE
-              (map convert arguments)
-        | convert (Basic_Tuple arguments) =
-            tuple_pattern arguments
     in convert pattern end
 
   fun erase_structural_bindings (Structural_Any _) =
@@ -1696,42 +1674,24 @@ struct
          | _ => false)
     | structural_is_total _ = false
 
+  (* Structural totality ignores binders, aliases and type constraints. A value, range or slice
+     suffix has no clause form, so clause_of_case_pattern fails on it; try turns that failure, and
+     any failure to resolve a constructor head, into false. *)
   fun case_pattern_structurally_total ctxt pattern =
     let
+      fun spine (Case_Bind _) = Case_Wild
+        | spine (Case_Node {head, family_hint, arguments}) =
+            Case_Node
+              {head = head, family_hint = family_hint, arguments = map spine arguments}
+        | spine (Case_Tuple arguments) = Case_Tuple (map spine arguments)
+        | spine (Case_Alias (_, _, inner, _)) = spine inner
+        | spine (Case_Constraint (_, _, inner)) = spine inner
+        | spine (Case_Navigated (_, inner)) = spine inner
+        | spine other = other
       fun check candidate =
-        let
-          fun convert_all [] = SOME []
-            | convert_all (nested :: rest) =
-                (case (convert nested, convert_all rest) of
-                   (SOME converted, SOME converted_rest) =>
-                     SOME (converted :: converted_rest)
-                 | _ => NONE)
-          and convert Case_Wild = SOME Basic_Wild
-            | convert (Case_Bind _) = SOME Basic_Wild
-            | convert (Case_Value _) = NONE
-            | convert (Case_Constructor (info, arguments)) =
-                Option.map
-                  (fn nested => Basic_Constructor (info, nested))
-                  (convert_all arguments)
-            | convert (Case_Resolved (constructor, arguments)) =
-                Option.map
-                  (fn nested => Basic_Resolved (constructor, nested))
-                  (convert_all arguments)
-            | convert (Case_Tuple arguments) =
-                Option.map Basic_Tuple (convert_all arguments)
-            | convert (Case_Alias (_, _, inner, _)) = convert inner
-            | convert (Case_Constraint (_, _, inner)) = convert inner
-            | convert (Case_Range _) = NONE
-            | convert (Case_Slice_Suffix _) = NONE
-            | convert (Case_Navigated (_, inner)) = convert inner
-        in
-          (case convert candidate of
-             SOME basic =>
-               structural_is_total
-                 (structural_pattern_of_basic
-                   ctxt R.empty_environment basic)
-           | NONE => false)
-        end
+        structural_is_total
+          (structural_pattern_of_clause ctxt R.empty_environment
+            (clause_of_case_pattern (spine candidate)))
     in the_default false (try check pattern) end
 
   fun structural_root_region (Structural_Any _) =
@@ -1869,31 +1829,31 @@ struct
             let
               val free = fresh_leaf ()
             in
-              (Basic_Generated free,
+              (Clause_Generated free,
                Structural_Subject {value = free, children = []})
             end
         | open_pattern
             (Structural_Node {head, arguments, ...}) =
             let
               val opened = map open_pattern arguments
-              val basics = map fst opened
+              val clauses = map fst opened
               val subjects = map snd opened
               val value =
                 Term.list_comb
                   (constructor_term head,
                    map subject_value subjects)
             in
-              (Basic_Resolved
-                (constructor_term head, basics),
+              (Clause_Node
+                {head = constructor_term head, family_hint = NONE, arguments = clauses},
                Structural_Subject
                  {value = value, children = subjects})
             end
 
-      val (basic, subject) = open_pattern pattern
+      val (clause, subject) = open_pattern pattern
     in
       Opened_Pattern
         {abstraction =
-           bind_basic_pattern ctxt R.empty_environment basic,
+           bind_clause_pattern ctxt R.empty_environment clause,
          subject = subject}
     end
 
@@ -2094,7 +2054,7 @@ struct
                         matched_expression matched_pattern
                         rhs T.undefined_value
                   in
-                    (Basic_Generated temporary, guards,
+                    (Clause_Generated temporary, guards,
                      [{kind =
                          (case bare_argument of
                             Case_Slice_Suffix _ => Transformed_Scope
@@ -2116,22 +2076,15 @@ struct
             end
       val (navigation_positions, bare_pattern) =
         strip_case_navigation pattern
-      val (basic, guards, wrappers, navigation) =
+      val (clause, guards, wrappers, navigation) =
         (case bare_pattern of
-           Case_Constructor (info, arguments) =>
+           Case_Node {head, family_hint, arguments} =>
              let
                val (arguments', guards, wrappers, navigation) =
                  normalize_arguments arguments
              in
-               (Basic_Constructor (info, arguments'),
-                guards, wrappers, navigation)
-             end
-         | Case_Resolved (constructor, arguments) =>
-             let
-               val (arguments', guards, wrappers, navigation) =
-                 normalize_arguments arguments
-             in
-               (Basic_Resolved (constructor, arguments'),
+               (Clause_Node
+                 {head = head, family_hint = family_hint, arguments = arguments'},
                 guards, wrappers, navigation)
              end
          | Case_Tuple arguments =>
@@ -2139,13 +2092,13 @@ struct
                val (arguments', guards, wrappers, navigation) =
                  normalize_arguments arguments
              in
-               (Basic_Tuple arguments', guards,
+               (tuple_clause arguments', guards,
                 wrappers, navigation)
              end
          | _ =>
-             (normalize_basic_pattern bare_pattern, [], [], []))
+             (clause_of_case_pattern bare_pattern, [], [], []))
     in
-      (basic, guards, wrappers,
+      (clause, guards, wrappers,
        navigation @
          map slice_navigation_wrapper navigation_positions)
     end
@@ -2154,24 +2107,24 @@ struct
     let
       val (navigation_positions, bare_pattern) =
         strip_case_navigation pattern
-      val (basic, guards, wrappers, navigation) =
+      val (clause, guards, wrappers, navigation) =
         (case bare_pattern of
            Case_Alias (binder_sig, transform, inner, at_pos) =>
              let
-               val (basic, guards, wrappers, navigation) =
+               val (clause, guards, wrappers, navigation) =
                  normalize_extended_pattern
                    compiler ctxt environment expression inner
                 fun wrap rhs =
                   Navigation.with_source_position at_pos (fn () =>
                     alias_wrapper transform environment expression binder_sig rhs)
              in
-               (basic, guards,
+               (clause, guards,
                 wrappers @ [{kind = Alias_Scope, close = wrap}],
                 navigation)
              end
          | Case_Constraint (typ, pos, inner) =>
              let
-               val (basic, guards, wrappers, navigation) =
+               val (clause, guards, wrappers, navigation) =
                  normalize_extended_pattern
                    compiler ctxt environment expression inner
                fun wrap rhs =
@@ -2179,10 +2132,10 @@ struct
                    (constrain_pattern_abstraction typ pos
                      (R.anonymous_abstraction rhs))
              in
-               (basic, guards, wrappers @ [{kind = Nested_Scope, close = wrap}], navigation)
+               (clause, guards, wrappers @ [{kind = Nested_Scope, close = wrap}], navigation)
              end
          | Case_Value (literal, _) =>
-             (Basic_Wild,
+             (Clause_Wild,
               [T.binary Eq expression (T.literal literal)],
               [], [])
          | Case_Range (kind, lower, upper, _) =>
@@ -2194,7 +2147,7 @@ struct
                     | RK_Inclusive => Le)
                    expression upper
              in
-               (Basic_Wild,
+               (Clause_Wild,
                 [T.binary And
                   (T.binary Ge expression lower) upper_guard],
                 [], [])
@@ -2213,14 +2166,14 @@ struct
                    reversed_expression reversed_suffix
                    rhs T.undefined_value
              in
-               (Basic_Wild, [guard],
+               (Clause_Wild, [guard],
                 [{kind = Transformed_Scope, close = wrap}], [])
              end
          | _ =>
              normalize_pattern_for_nested
                compiler ctxt environment bare_pattern)
     in
-      (basic, guards, wrappers,
+      (clause, guards, wrappers,
        navigation @
          map slice_navigation_wrapper navigation_positions)
     end
@@ -2229,19 +2182,19 @@ struct
       (pattern, environment) =
     let
       val
-        (basic_pattern, generated_guards, wrappers, navigation) =
+        (clause_pattern, generated_guards, wrappers, navigation) =
         normalize_extended_pattern
           compiler ctxt environment (T.literal value) pattern
       val generated_test =
         fold extend_generated_test generated_guards NONE
       val scope = combine_scopes wrappers
       val direct_branch =
-        try (bind_basic_pattern ctxt environment) basic_pattern
+        try (bind_clause_pattern ctxt environment) clause_pattern
     in
       Case_Clause
         {structural_pattern =
-           structural_pattern_of_basic
-             ctxt environment basic_pattern,
+           structural_pattern_of_clause
+             ctxt environment clause_pattern,
          generated_test = generated_test,
          scope = scope,
          navigation = navigation,
@@ -2288,8 +2241,8 @@ struct
         end
 
       fun generated_wild rhs =
-        bind_basic_pattern ctxt R.empty_environment
-          Basic_Wild rhs
+        bind_clause_pattern ctxt R.empty_environment
+          Clause_Wild rhs
 
       val terminal_fallback =
         the_default T.undefined_value explicit_fallback
