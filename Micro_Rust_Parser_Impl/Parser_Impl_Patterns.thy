@@ -250,59 +250,35 @@ struct
   fun arm_pattern (UR_Arm (pattern, _, _, _)) = pattern
   fun arm_guard (UR_Arm (_, guard, _, _)) = guard
 
-  datatype match_capability =
-    Match_Capability of {case_ok: bool, switch_ok: bool}
-
   fun classify_match ctxt arms pos =
     let
       val resolver = R.make_constructor_resolver ctxt pos
 
-      fun registered_capability path =
+      fun registered_switch_capability path =
         (case R.classify_registered_literal ctxt resolver path of
-           R.Unregistered_Literal =>
-             Match_Capability {case_ok = true, switch_ok = false}
-         | R.Registered_Value_Literal =>
-             Match_Capability {case_ok = true, switch_ok = true}
-         | R.Registered_Constructor_Literal =>
-             Match_Capability {case_ok = true, switch_ok = false})
+           R.Unregistered_Literal => false
+         | R.Registered_Value_Literal => true
+         | R.Registered_Constructor_Literal => false)
 
-      fun capability pattern =
+      (* Every pattern admits case lowering; the capability records whether it also admits
+         numeral-switch lowering. *)
+      fun switch_capability pattern =
         (case strip_groups pattern of
-           P_Literal (LP_Integer _) =>
-             Match_Capability {case_ok = true, switch_ok = true}
+           P_Literal (LP_Integer _) => true
          | P_Ident identifier =>
-             registered_capability (make_single_path identifier)
-         | P_Path path => registered_capability path
-         | P_Wild _ =>
-             Match_Capability {case_ok = true, switch_ok = true}
+             registered_switch_capability (make_single_path identifier)
+         | P_Path path => registered_switch_capability path
+         | P_Wild _ => true
          | P_Or (alternatives, _) =>
-             let
-               val alternatives' = map capability alternatives
-             in
-               Match_Capability
-                 {case_ok =
-                    List.all
-                      (fn Match_Capability {case_ok, ...} => case_ok)
-                      alternatives',
-                  switch_ok =
-                    List.all
-                      (fn Match_Capability {switch_ok, ...} => switch_ok)
-                      alternatives'}
-             end
-         | _ =>
-             Match_Capability {case_ok = true, switch_ok = false})
-      val capabilities = map (capability o arm_pattern) arms
-      fun case_compatible
-          (Match_Capability {case_ok, ...}) = case_ok
-      fun switch_compatible
-          (Match_Capability {switch_ok, ...}) = switch_ok
+             List.all I (map switch_capability alternatives)
+         | _ => false)
+      (* Classify every arm and or-alternative before the guard test: constructor resolution and
+         literal classification can raise errors. *)
+      val capabilities = map (switch_capability o arm_pattern) arms
     in
       if List.exists (is_some o arm_guard) arms then MF_Case
-      else if List.all switch_compatible capabilities then MF_Switch
-      else if List.all case_compatible capabilities then MF_Case
-      else
-        error ("urust_expr: mixed numeral and constructor patterns in bare `match`" ^
-          Position.here pos)
+      else if List.all I capabilities then MF_Switch
+      else MF_Case
     end
 
   fun first_guard_position [] = NONE
@@ -396,7 +372,7 @@ struct
           {name = name, members = members, covered = covered'}
     end
 
-  fun same_family
+  fun same_coverage_family
       ({name = left_name, members = left_members, covered = _},
        {name = right_name, members = right_members, covered = _}) =
     left_name = right_name andalso
@@ -453,7 +429,7 @@ struct
                   val first = hd families
                 in
                   if List.all (fn family =>
-                        same_family (first, family)) (tl families)
+                        same_coverage_family (first, family)) (tl families)
                   then
                     family_coverage
                       (#name first) (#members first)
@@ -546,14 +522,10 @@ struct
              Resolved_Tuple
                (map resolve arguments, source_span layout)
          | P_Group (inner, _) => resolve inner
-         | P_Borrow (_, inner, layout) =>
-             (case policy of
-                Resolve_Constructor_Case => resolve inner
-              | _ =>
-                  error ("urust_expr: reference patterns are not implemented" ^
-                    Position.here
-                      (the_source_token_position
-                        layout Operator_Token)))
+         | P_Borrow (_, inner, _) =>
+             (* Binding sites reject every reference pattern before resolution, so only case
+                patterns reach this point; they treat the reference as a syntax-only wrapper. *)
+             resolve inner
          | P_Alias ("_", pos, _, _) =>
              error ("urust_expr: alias pattern binder cannot be `_`" ^
                Position.here pos)
@@ -929,21 +901,14 @@ struct
             Position.here (resolved_position resolved))
       val environment' =
         R.allocate_locals ctxt environment signatures
+      (* A directly irrefutable pattern always has a direct abstraction. Building it reports the
+         pattern's wildcards before the deferred semantic reports below. *)
       val abstraction =
         (case direct_abstraction ctxt true allow_extended environment' resolved of
            SOME abstraction => abstraction
          | NONE =>
-             let
-               val diagnostic_site =
-                 (case (site, rhs_mode) of
-                    (Mutable_Let_Binder _, Plain_Rhs) =>
-                      Let_Const_Binder
-                  | _ => site)
-             in
-               error ("urust_expr: unsupported or refutable pattern in " ^
-                 binder_site_description diagnostic_site ^
-                 Position.here (resolved_position resolved))
-             end)
+             error ("urust_expr: internal irrefutable pattern without a direct abstraction" ^
+               Position.here (resolved_position resolved)))
       val _ = emit_semantic_reports reports
     in
       Prepared_Binding
@@ -1017,20 +982,20 @@ struct
     in (switch_keys resolver ctxt pattern, body) end
 
   datatype basic_case_pattern =
-      Basic_Wild of Position.T option
+      Basic_Wild
     | Basic_Bind of binding_signature
     | Basic_Generated of term
     | Basic_Constructor of
-        R.constructor_info * Position.T * basic_case_pattern list
+        R.constructor_info * basic_case_pattern list
     | Basic_Resolved of term * basic_case_pattern list
     | Basic_Tuple of basic_case_pattern list
 
   datatype case_pattern =
-      Case_Wild of Position.T
+      Case_Wild
     | Case_Bind of binding_signature
     | Case_Value of term * Position.T
     | Case_Constructor of
-        R.constructor_info * Position.T * case_pattern list
+        R.constructor_info * case_pattern list
     | Case_Resolved of term * case_pattern list
     | Case_Tuple of case_pattern list
     | Case_Alias of binding_signature * (term -> term) * case_pattern * Position.T
@@ -1142,7 +1107,7 @@ struct
   fun prepare_case_pattern ctxt environment pattern =
     (case pattern of
        Resolved_Wild pos =>
-         (R.report_wildcard ctxt pos; Case_Wild pos)
+         (R.report_wildcard ctxt pos; Case_Wild)
      | Resolved_Bind binder_sig =>
          (report_case_binder ctxt environment binder_sig;
           Case_Bind binder_sig)
@@ -1154,9 +1119,9 @@ struct
          Case_Value
            (R.literal_path_value ctxt environment path,
             path_position path)
-     | Resolved_Constructor (info, pos, arguments) =>
+     | Resolved_Constructor (info, _, arguments) =>
          Case_Constructor
-           (info, pos, map (prepare_case_pattern ctxt environment) arguments)
+           (info, map (prepare_case_pattern ctxt environment) arguments)
      | Resolved_Tuple (arguments, _) =>
          Case_Tuple
            (map (prepare_case_pattern ctxt environment) arguments)
@@ -1184,13 +1149,13 @@ struct
              Case_Resolved (T.list_nil_constructor, [])
            (* Open slices count only explicit elements. Suffix matching reverses the remainder;
               reverse its residual middle back before exposing a named capture. *)
-           fun rest_tail _ NONE = Case_Wild Position.none
+           fun rest_tail _ NONE = Case_Wild
              | rest_tail true (SOME binder_sig) =
                  (* The alias captures the restored middle; its inner pattern stays a wildcard.
                     Report the source binder explicitly instead of preparing a discarded binding. *)
                  (report_case_binder ctxt environment binder_sig;
                    Case_Alias
-                     (binder_sig, T.reverse_list, Case_Wild Position.none,
+                     (binder_sig, T.reverse_list, Case_Wild,
                       Position.none))
              | rest_tail false (SOME binder_sig) =
                  prepare_case_pattern ctxt environment (Resolved_Bind binder_sig)
@@ -1273,14 +1238,14 @@ struct
 
   fun normalize_basic_pattern pattern =
     (case pattern of
-       Case_Wild pos => Basic_Wild (SOME pos)
+       Case_Wild => Basic_Wild
      | Case_Bind binder_sig => Basic_Bind binder_sig
      | Case_Value (_, pos) =>
          error ("urust_expr: internal unnormalized value pattern" ^
            Position.here pos)
-     | Case_Constructor (info, pos, arguments) =>
+     | Case_Constructor (info, arguments) =>
          Basic_Constructor
-           (info, pos, map normalize_basic_pattern arguments)
+           (info, map normalize_basic_pattern arguments)
      | Case_Resolved (constructor, arguments) =>
          Basic_Resolved
            (constructor, map normalize_basic_pattern arguments)
@@ -1330,11 +1295,7 @@ struct
       fun add_slot slot (slots_rev, count) =
         (Pattern_Slot count, (slot :: slots_rev, count + 1))
 
-      fun walk (Basic_Wild pos) state =
-            (case pos of
-               SOME source_pos => R.report_wildcard ctxt source_pos
-             | NONE => ();
-             add_slot NONE state)
+      fun walk Basic_Wild state = add_slot NONE state
         | walk (Basic_Bind binder_sig) state =
             let
               val name = signature_name binder_sig
@@ -1348,7 +1309,7 @@ struct
             end
         | walk (Basic_Generated free) state =
             add_slot (SOME free) state
-        | walk (Basic_Constructor (info, _, arguments)) state =
+        | walk (Basic_Constructor (info, arguments)) state =
             let
               val (trees, state') = fold_map walk arguments state
             in
@@ -1394,7 +1355,7 @@ struct
      | Case_Range _ => true
      | Case_Slice_Suffix _ => true
      | Case_Navigated (_, inner) => requires_nested_match inner
-     | Case_Constructor (_, _, arguments) =>
+     | Case_Constructor (_, arguments) =>
          List.exists requires_nested_match arguments
      | Case_Resolved (_, arguments) =>
          List.exists requires_nested_match arguments
@@ -1660,13 +1621,13 @@ struct
         | tuple_pattern (argument :: rest) =
             make_structural_node ctxt T.pair_constructor NONE
               [convert argument, tuple_pattern rest]
-      and convert (Basic_Wild _) = Structural_Any NONE
+      and convert Basic_Wild = Structural_Any NONE
         | convert (Basic_Bind binder_sig) =
             Structural_Any (SOME (local_free binder_sig))
         | convert (Basic_Generated free) =
             Structural_Any (SOME free)
         | convert
-            (Basic_Constructor (info, _, arguments)) =
+            (Basic_Constructor (info, arguments)) =
             make_structural_node ctxt
               (R.constructor_term info)
               (R.constructor_family info)
@@ -1774,12 +1735,12 @@ struct
                    (SOME converted, SOME converted_rest) =>
                      SOME (converted :: converted_rest)
                  | _ => NONE)
-          and convert (Case_Wild _) = SOME (Basic_Wild NONE)
-            | convert (Case_Bind _) = SOME (Basic_Wild NONE)
+          and convert Case_Wild = SOME Basic_Wild
+            | convert (Case_Bind _) = SOME Basic_Wild
             | convert (Case_Value _) = NONE
-            | convert (Case_Constructor (info, pos, arguments)) =
+            | convert (Case_Constructor (info, arguments)) =
                 Option.map
-                  (fn nested => Basic_Constructor (info, pos, nested))
+                  (fn nested => Basic_Constructor (info, nested))
                   (convert_all arguments)
             | convert (Case_Resolved (constructor, arguments)) =
                 Option.map
@@ -2113,7 +2074,7 @@ struct
        (if case_pattern_structurally_total ctxt pattern
         then []
         else
-          [(Case_Wild Position.none,
+          [(Case_Wild,
             environment, NONE, fallback)]))
 
   (*
@@ -2201,12 +2162,12 @@ struct
         strip_case_navigation pattern
       val (basic, guards, wrappers, navigation) =
         (case bare_pattern of
-           Case_Constructor (info, pos, arguments) =>
+           Case_Constructor (info, arguments) =>
              let
                val (arguments', guards, wrappers, navigation) =
                  normalize_arguments arguments
              in
-               (Basic_Constructor (info, pos, arguments'),
+               (Basic_Constructor (info, arguments'),
                 guards, wrappers, navigation)
              end
          | Case_Resolved (constructor, arguments) =>
@@ -2265,7 +2226,7 @@ struct
                (basic, guards, wrappers @ [Nested_Scope_Wrapper wrap], navigation)
              end
          | Case_Value (literal, _) =>
-             (Basic_Wild NONE,
+             (Basic_Wild,
               [T.binary Eq expression (T.literal literal)],
               [], [])
          | Case_Range (kind, lower, upper, _) =>
@@ -2277,7 +2238,7 @@ struct
                     | RK_Inclusive => Le)
                    expression upper
              in
-               (Basic_Wild NONE,
+               (Basic_Wild,
                 [T.binary And
                   (T.binary Ge expression lower) upper_guard],
                 [], [])
@@ -2296,7 +2257,7 @@ struct
                    reversed_expression reversed_suffix
                    rhs T.undefined_value
              in
-               (Basic_Wild NONE, [guard],
+               (Basic_Wild, [guard],
                 [Transformed_Scope_Wrapper wrap], [])
              end
          | _ =>
@@ -2337,24 +2298,8 @@ struct
             then Nested_Clause_Scope close_scope
             else Alias_Clause_Scope close_scope
           end
-      fun erase_wildcard_positions (Basic_Wild _) = Basic_Wild NONE
-        | erase_wildcard_positions (Basic_Bind binder_sig) =
-            Basic_Bind binder_sig
-        | erase_wildcard_positions (Basic_Generated free) =
-            Basic_Generated free
-        | erase_wildcard_positions
-            (Basic_Constructor (info, pos, arguments)) =
-            Basic_Constructor
-              (info, pos, map erase_wildcard_positions arguments)
-        | erase_wildcard_positions
-            (Basic_Resolved (constructor, arguments)) =
-            Basic_Resolved
-              (constructor, map erase_wildcard_positions arguments)
-        | erase_wildcard_positions (Basic_Tuple arguments) =
-            Basic_Tuple (map erase_wildcard_positions arguments)
       val direct_branch =
-        try (bind_basic_pattern ctxt environment)
-          (erase_wildcard_positions basic_pattern)
+        try (bind_basic_pattern ctxt environment) basic_pattern
     in
       Case_Clause
         {structural_pattern =
@@ -2407,7 +2352,7 @@ struct
 
       fun generated_wild rhs =
         bind_basic_pattern ctxt R.empty_environment
-          (Basic_Wild NONE) rhs
+          Basic_Wild rhs
 
       val terminal_fallback =
         the_default T.undefined_value explicit_fallback
@@ -2453,7 +2398,7 @@ struct
           (case explicit_fallback of
              NONE => []
            | SOME body =>
-               [{patterns = [Case_Wild Position.none],
+               [{patterns = [Case_Wild],
                  environment = R.empty_environment,
                  source_guard = NONE,
                  body = body}])
@@ -2601,14 +2546,6 @@ struct
 
       fun drop_source_arm arm_index rows =
         drop_prefix (fn row => row_arm row = arm_index) rows
-
-      fun same_source_position
-          ({arm_index = left_arm,
-            alternative_index = left_alternative} : source_position,
-           {arm_index = right_arm,
-            alternative_index = right_alternative} : source_position) =
-        left_arm = right_arm andalso
-          left_alternative = right_alternative
 
       fun row_exclusion row pattern =
         Decision_Exclusion
@@ -2886,8 +2823,7 @@ struct
             error
               "urust_expr: internal missing suffix row"
         | rows_after_position position (row :: rest) =
-            if same_source_position
-                (position, row_position row)
+            if position = row_position row
             then rest
             else rows_after_position position rest
 
@@ -2918,7 +2854,7 @@ struct
       fun same_position_list ([], []) = true
         | same_position_list
             (left :: left_rest, right :: right_rest) =
-            same_source_position (left, right) andalso
+            left = right andalso
               same_position_list (left_rest, right_rest)
         | same_position_list _ = false
 
@@ -2954,8 +2890,7 @@ struct
       fun excluded_region exclusions position region =
         List.exists
           (fn exclusion =>
-            same_source_position
-              (exclusion_position exclusion, position) andalso
+            exclusion_position exclusion = position andalso
               structural_semantically_subsumes
                 (exclusion_pattern exclusion, region))
           exclusions
@@ -3324,7 +3259,7 @@ struct
       T.bind scrutinee (Term.lambda value checked_selector)
     end
 
-  fun compile_case_internal compilation_mode ctxt source_positions
+  fun compile_case compilation_mode ctxt source_positions
       explicit_fallback scrutinee arms =
     let
       fun source_arm
@@ -3352,11 +3287,6 @@ struct
         bind_name = \<^const_name>\<open>Core_Expression.bind\<close> andalso
         not (Term.loose_bvar1 (body, 0))
     | is_typing_witness _ = false
-
-  fun compile_case compilation_mode ctxt source_positions
-      fallback scrutinee arms =
-    compile_case_internal compilation_mode ctxt
-      source_positions fallback scrutinee arms
 
   fun erase_typing_witnesses
       (term as Abs (name, typ, body) $ witness) =
