@@ -1443,8 +1443,9 @@ in
       (map (fn name => "../Micro_Rust_Parser_Impl/" ^ name ^ ".thy")
         ["Parser_Impl_AST", "Parser_Impl_Import_Scope", "Parser_Impl_Imports",
          "Parser_Impl_Item_Scope", "Parser_Impl_Type_Mappings", "Parser_Impl_Grammar",
-         "Parser_Impl_Resolution", "Parser_Impl_Patterns", "Parser_Impl_Translate",
-         "Parser_Impl_Command", "Parser_Impl_Printer", "Parser_Impl_Printer_Output"] @
+         "Parser_Impl_Resolution", "Parser_Impl_Case_Compiler", "Parser_Impl_Patterns",
+         "Parser_Impl_Translate", "Parser_Impl_Command", "Parser_Impl_Printer",
+         "Parser_Impl_Printer_Output"] @
        map (fn name => name ^ ".thy")
         ["Parser_Use_Fixtures", "Parser_Use_Tests"])
 end

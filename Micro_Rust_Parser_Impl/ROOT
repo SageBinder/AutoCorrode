@@ -19,6 +19,7 @@ session Micro_Rust_Parser_Impl = HOL +
     Parser_Impl_Item_Scope
     Parser_Impl_Imports
     Parser_Impl_Resolution
+    Parser_Impl_Case_Compiler
     Parser_Impl_Patterns
     Parser_Impl_Matching
     Parser_Impl_Macros
