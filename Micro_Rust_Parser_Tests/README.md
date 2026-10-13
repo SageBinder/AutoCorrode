@@ -233,10 +233,12 @@ token cannot continue the preceding expression. Top-level `&` and `[` patterns t
 explicit comma, while parenthesized forms remain accepted; this boundary is encoded without
 generated shift/reduce or reduce/reduce conflicts.
 
-Name and constructor metadata operations remain in `URust_Resolution`. `URust_Patterns` owns one
-typed recursive decision compiler for binding, structural selection, guards, source-order fallback,
-coverage, and compatibility term shape. The compiler does not maintain parser-private constructor
-families or separate guarded/unguarded pattern engines.
+Name and constructor metadata operations live in `URust_Resolution`. `URust_Patterns` resolves
+patterns, validates and allocates their binders, computes conservative coverage and prepares case
+arms. `URust_Case_Compiler` owns the one typed recursive decision compiler for structural
+selection, guards, source-order fallback and the frozen term shape; `URust_Patterns.compile_case`
+delegates to it. The compiler keeps no parser-private constructor families and has no separate
+guarded pattern engine.
 
 Array repeats evaluate the length first. Ordinary `[value; length]` evaluates the value once,
 including at length zero; `[const { value }; length]` uses
@@ -393,17 +395,18 @@ negative rows preserve these boundaries.
   basename ambiguity, binder fallback, deep registered nullary
   structural matching, guards, coverage, source order, single evaluation, term shape, markup, and
   recovery.
-- `Parser_Matcher_Stability_Tests.thy`: fully typed HOL expectations closed by kernel `refl`,
-  after unfolding the declaration's definition where it has one. Those frozen at `39c334c` cover
-  guarded overlaps, differing captures, aliases, nested constructors, generated value/range/slice
-  tests, root-suffix reconstruction and all five match consumers. Those frozen at `3245e94` pin
-  the root-suffix rules that no other parser test reached: shapes subsumed by an earlier test-led
-  shape, at an enumerated root and inside a tuple root group; a covering cut prefix with no
-  wildcard row; and a binding failure-suffix catchall after a false guard and after a nested
-  generated-test miss. Function, abbreviation and anonymous declarations retain coverage, and two
-  programmatic probes are each elaborated three times and compared with a raw typed term.
-  The compiler emits one term and constructs only the needed generated-test or source-guard
-  failure destination; structural coverage, typing witnesses and the direct matrix path remain.
+- `Parser_Matcher_Stability_Tests.thy`: fully typed HOL expectations closed by kernel `refl`, after
+  unfolding the declaration's definition where it has one. Those frozen at `39c334c` cover guarded
+  overlaps, differing captures, aliases, nested constructors, generated value/range/slice tests,
+  root-case planning and all five match consumers. Those frozen at `3245e94` reach the root rules
+  that no other parser test reached: shapes subsumed by an earlier test-led shape, at an enumerated
+  root and inside a tuple root group; a covering cut prefix with no wildcard row; and a binding
+  failure-suffix catchall after a false guard and after a nested generated-test miss. Their
+  equations pin the first two; they do not distinguish a binding failure-suffix catchall from a
+  wildcard one. Function, abbreviation and anonymous declarations retain coverage, and two
+  programmatic probes are each elaborated three times and compared with a raw typed term. The
+  compiler emits one term and constructs only the needed generated-test or source-guard failure
+  destination; structural coverage, typing witnesses and the direct matrix path remain.
 - `Parser_Primitive_Path_Heads_Tests.thy`: all seven primitive heads, exact literal/call roles,
   comments and token boundaries, expressions, patterns, repeats, cast aliases, positions,
   current notation navigation, fallback rejection, and recovery.

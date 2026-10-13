@@ -49,21 +49,180 @@ end
 
 ML\<open>
 (*
-  URust_Case_Compiler turns prepared case patterns into the established shallow case terms.
-  URust_Patterns resolves source patterns, validates and allocates their binders, and builds one
-  case_arm per source arm; everything after that point lives here: the case_pattern IR, clause
-  patterns, structural analysis, the ordered decision compiler, case-term emission, and the
-  stage-99 urust_pattern_typing check phase that erases the pattern typing witnesses.
+  URust_Case_Compiler compiles prepared case arms to shallow case terms. URust_Patterns runs
+  stages 1-5 of the pattern pipeline described in Parser_Impl_Patterns.thy: it resolves source
+  patterns, validates and allocates their binders, expands or-patterns, and prepares one case_arm
+  per source arm. This structure runs stages 6-10.
 
   A binding_signature is a source binder name with its position; URust_Patterns shares this type
-  and its two projections. A case_pattern is one prepared or-alternative. Its binders are already
-  allocated in the arm environment, and every Case_Node head is the exact term supplied by
-  preparation. constrain_pattern_abstraction constrains a pattern abstraction to a scrutinee type
-  at a source position; URust_Patterns also uses it for direct bindings.
+  and its two projections. A case_pattern is one prepared or-alternative: its binders are allocated
+  in the arm environment, and every Case_Node head is the exact term that preparation supplied.
+  constrain_pattern_abstraction constrains a pattern abstraction to a scrutinee type at a source
+  position; URust_Patterns also uses it for direct bindings. compile_case takes the compilation
+  mode, the source positions that scope navigation, an optional explicit fallback, the scrutinee
+  and the source-ordered arms; URust_Patterns.compile_case, which delegates here, documents the
+  contract.
 
-  compile_case takes the compilation mode, the source positions that scope the match navigation,
-  an optional explicit fallback, the scrutinee, and the source-ordered case arms. The contract is
-  the one URust_Patterns.compile_case documents, which delegates here.
+  Stages, all in compile_decision_case:
+
+  6. Clauses. normalize_case_alternative turns each alternative into a case_clause, exactly once
+     and in arm-major, alternative-minor, left-to-right order. At the top of an alternative, a
+     value or range becomes a comparison test, a slice suffix becomes a nested-case test with a
+     transformed scope, and an alias or type constraint adds a clause scope. Below a constructor
+     or tuple, a subpattern that needs a nested match becomes a generated temporary: its test,
+     unless the subpattern is structurally total, is a nested case compiled at once, and its scope
+     is a wrapper match compiled whenever the clause is closed. Slice punctuation becomes
+     navigation wrappers of the body. Building the clause's direct renderer reports each binder of
+     the clause pattern through R.use_pattern_binder.
+  7. Decision rows. Each clause becomes a decision_row with its source position, guard and body;
+     an explicit fallback adds a final _ row. validate_row_reachability rejects an unconditional
+     total row that another row follows.
+  8. Root plan. If every row is unguarded, test-free and directly scoped, the selector is the
+     direct matrix. Otherwise plan_root Match_Root lists the clauses of the root case by the rules
+     below. Planning is pure and runs afresh for every root case and failure suffix.
+  9. Emission. emit_root turns each root_clause into one branch. Inside a branch, compile_rows
+     takes the first applicable row, reuses or opens its shape, and closes its clause: navigation,
+     guard, scope and generated test wrap the body in that order, and the selected subjects
+     replace the binders. selector_of builds the case and scopes the navigation of the source
+     positions. Under Source_Match_Compilation, a match whose rows all have wild shapes also gets a
+     navigation target: two_armed_conditional if a row has a generated test or guard, and
+     Core_Expression.bind otherwise. The result evaluates the scrutinee once:
+     T.bind scrutinee (fn v => selector).
+  10. Typing witnesses. For each alternative of each source arm, a nested compile of the pattern
+     against v that returns the tuple of the arm's binders is constrained to an expression type
+     with one capture type per arm, and kept around the selector as an unused beta redex
+     (retain_witness). The stage-99 term-check phase urust_pattern_typing erases these redexes
+     after type inference. Nested compiles receive no typing arms.
+
+  Emitted terms are never reused: binder reports and wrapper compiles fire once per emission, and
+  reports are not deduplicated. Failure terms are built before close_selected_clause, outside the
+  guard's Navigation.with_source_position scope, so markers built in them never take the guard's
+  position. Apart from substitution, abstraction and bound-variable shifts (specialize_term,
+  Term.lambda, retain_witness), the compiler reads emitted terms back in two places:
+  constructor_clause inspects a branch's clause pattern to choose the navigation scope, and
+  urust_pattern_typing recognizes typing witnesses by their Abs-name prefixes
+  _urust_pattern_type_probe_ and _urust_case_value_.
+
+  Root rules. v is the bound scrutinee. A shape is a row's structural pattern with its binders
+  erased; a wild row is one whose shape is Structural_Any. "open P => B" is the branch
+  case_abs (fn leaves => case_elem P[leaves] B) that fresh_pattern_subject opens for P. decide(S)
+  is compile_rows over all rows of the current case in decision state S. R(rows) is the
+  failure-root case emit_root Failure_Root rows; the root case of a compile is
+  emit_root Match_Root rows. Pinning tests name the *_frozen equations of
+  Parser_Matcher_Stability_Tests without their matcher_stability_ prefix and _frozen suffix;
+  "probe" is the first repeated-elaboration probe at the end of that theory, and letters refer to
+  the notes after the table.
+
+  Rule            Term shape                                      Pinning tests
+  --------------  ----------------------------------------------  ----------------------------------
+  Outer case      case_guard True v [clauses], built by           every equation; scope: (a); empty
+                  case_term_on in selector_of. An empty clause    list: (b)
+                  list gives the terminal fallback: the explicit
+                  fallback, or undefined. The navigation scope
+                  of the source positions covers the case only
+                  if some clause pattern has a constant head.
+
+  Direct matrix   If every row is unguarded, test-free and        if_let, let_else, while_let,
+                  directly scoped: one case over v with each      matches
+                  row's own clause, in row order
+                  (direct_structural_matrix). No root plan is
+                  made.
+
+  Root groups     Each non-wild row joins the first group with    one tuple group: overlap; shapes:
+                  its shape, or starts one (add_root_group). A    alias, range; binder:
+                  row whose root region is a node is keyed by     guard_binder; upgrade: (c)
+                  that total region instead, so all such rows,
+                  for example tuples, share one group;
+                  structural_root_region keeps only the spine of
+                  single-constructor families. The source
+                  catchall pattern is the first wild row's or,
+                  if that binds nothing, the first later binding
+                  wild row's (install_source_catchall).
+
+  Complete group  If there is exactly one group, its key is       parser_root_suffix_guarded_left,
+                  total and one of its rows has a total shape:    parser_root_suffix_guarded_right:
+                  the single clause open key => decide(all        (d)
+                  rows), with no cut and no catchall, in both
+                  contexts (group_is_coverage_complete).
+
+  Prefix cut      Match_Root scans the rows in order and cuts     guarded arm: overlap, slice,
+                  before the first row in a transformed           function, covered_cut,
+                  (slice-suffix) scope and, once a guarded arm    guard_binder; no cut: alias,
+                  has begun, before the first row of a later      range; transformed: (e); guarded
+                  arm. A guarded arm begins at a guarded row      wild row: (f)
+                  with a non-wild shape, or at a guarded wild
+                  row while no earlier row has a non-wild shape.
+                  A scan that reaches the end does not cut
+                  (emission_root_prefix). Failure_Root cuts
+                  before the first row whenever there are rows
+                  (plan_root).
+
+  Clause shapes   Without a cut, the exact shapes within each     cut: overlap, covered_cut; no cut:
+                  root group, group by group; under a cut, those  alias, subsumed_tuple; dropped:
+                  of the cut prefix's non-wild rows; a complete   subsumed, subsumed_tuple
+                  group is its own shape. Each shape keeps its
+                  rows in order, and total shapes count as one
+                  (exact_shape_groups). A shape subsumed by an
+                  earlier retained shape whose first row has a
+                  generated test is dropped
+                  (remove_subsumed_emission_groups).
+
+  Catchall        None if the clause shapes cover the type        covered: covered_cut; source _:
+                  (patterns_cover_all). Otherwise, under a cut,   overlap; source binder:
+                  the source catchall or else a synthetic _;      guard_binder; synthetic _:
+                  without a cut, the source catchall if there is  covered_cut
+                  one.
+
+  Clause bodies   Shape k: open P_k => decide(region P_k,         exclusions: alias, overlap;
+                  excluding the first row of each earlier         binding catchall: guard_binder
+                  decided shape whose first row has no generated
+                  test). Wild catchall: _ => decide(region Any
+                  on v, excluding the first row and every later
+                  generated-test row of each shape). A binding
+                  catchall opens a fresh leaf instead and
+                  decides on it (plan_root, emit_root).
+
+  Redispatch      After the first decided shape whose first row   range, subsumed, subsumed_tuple,
+                  has a generated test in a nested scope, each    nested_binder; later shapes: (g)
+                  later shape and the catchall become open P =>
+                  R(rows after that row); that shape is itself
+                  decided (split_at_nested_failure).
+
+  Failure suffix  R(rows) is planned in Failure_Root. No rows     range, slice, function,
+                  give the terminal fallback and a complete       covered_cut; complete:
+                  group its single clause; otherwise the cut      parser_root_suffix_guarded_left
+                  leaves one catchall with no exclusions,         (d); binding: (h); empty: (b)
+                  binding exactly when the rows' source catchall
+                  binds.
+
+  Failure target  A generated-test miss in a nested or            nested miss: range, subsumed;
+                  transformed scope gives R(rows after this       other miss: range; direct node
+                  row); any other miss decides those rows in the  guard: overlap, slice, function;
+                  failure state. A false source guard in a        other guard: probe; transformed
+                  direct scope with a constructor-headed shape    miss: (e)
+                  gives R(rows after this arm); any other false
+                  guard decides those rows in the failure state
+                  (test_failure_target, guard_failure_target).
+
+  (a) Parser_Semantic_Navigation_Tests, audit case 18 ("constructor-match"), pins the navigation
+      targets of a constructor case.
+  (b) No frozen equation reaches an empty clause list, which is the plan of an empty failure
+      suffix.
+  (c) No frozen equation upgrades a wild source catchall to a later binding row.
+  (d) No frozen equation reaches a complete group. In Parser_Pattern_Matching_Tests,
+      parser_root_suffix_guarded_left and parser_root_suffix_guarded_right reach it in Match_Root
+      and again in Failure_Root, in the suffix that a false source guard redispatches to, as do the
+      parser_recursive_coverage_guarded_* variants; the _unguarded_* variants take the direct
+      matrix instead. Their lemmas check evaluation results. The "Resolution and term-shape audit"
+      section (audit_total_root_suffix) also checks part of their term shape: one scrutinee bind,
+      no undefined fallback and exactly one guard occurrence. No equation freezes their terms.
+  (e) parser_slice_bare_suffix in Parser_Slice_Pattern_Tests reaches the cut before a transformed
+      row and the transformed test miss; its lemmas check evaluation results only.
+  (f) rich_guard_wild_fallthrough in Parser_Expression_Tests reaches a guarded wild row before any
+      non-wild row; the theory only elaborates it.
+  (g) No frozen equation redispatches a later clause shape.
+  (h) guard_binder and nested_binder reach a binding failure-suffix catchall, but their equations
+      do not distinguish it from a wild one.
 *)
 structure URust_Case_Compiler :> URUST_CASE_COMPILER =
 struct
@@ -313,45 +472,38 @@ struct
      body: term}
 
   (*
-    The ordered decision IR deliberately stays in ML until final case emission.
+    The decision IR stays in ML until emission. One decision compiler handles ordinary, guarded,
+    overlapping and nested cases; only a matrix of unguarded, test-free, directly scoped rows
+    bypasses it, as the direct matrix.
 
-    - structural_pattern is a typed algebraic pattern. Structural_Any optionally records the exact
-      Free that the source alternative binds at that point; constructor identity, arity, and
-      complete native family order remain explicit in Structural_Node.
-    - case_clause owns one structural pattern, its alternative-local generated test, one
-      clause_scope, and an optional renderer for direct structural lowering. A clause_scope pairs
-      its scope_kind with its closing operation, which binds aliases and recursively extracted
-      nested binders around the source guard and body together; a direct scope closes with the
-      identity. The direct renderer is derived from the normalized clause pattern and is only
-      selected when every row in the matrix has the same structural capability. Both direct and
-      recursive case emission use the backend constructors owned by Case_Term_Backend.
-    - source_position is stable source order. Each decision_row records its arm and alternative
-      index, which preserves the distinction between alternative failure and source-guard failure: a
-      generated-test miss advances to the next alternative, while a false source guard advances to
-      the next arm.
-    - decision_state describes the structural region already selected by enclosing cases. exclusions
-      record preceding case clauses that failed in that region. A structural_selection_witness
-      certifies recursively that the selected region and subject decomposition conform before
-      binders are extracted. Semantic totality never creates this witness: a singleton constructor
-      or tuple over Structural_Any is opened to obtain its children. A selection that reuses the
-      enclosing region fails back into its input decision state; an opened selection fails into the
-      opened region over the witness's subject. When an opened selection does not cover the region,
-      a wildcard branch after it continues in the input state with the row's shape excluded.
-      Generated-test failure tries the next alternative; source-guard failure skips the source arm
-      without sharing the selected alternative's binders. A structural_exclusion suppresses only
-      its exact source position.
-    - plan_root lists the clauses of one root case as root_clause values: the decided groups, then
-      the redispatched groups and the outer catchall, each with its exclusions or suffix rows.
-      Structural grouping and coverage still determine when a total group is opened directly.
-      Root-suffix reconstruction preserves the established term shape for direct guards,
-      nested/transformed generated-test misses and outer catchalls. Planning is pure and runs
-      afresh for every root case; emitted terms are never reused, because binder reports and
-      nested compiles fire once per emission. Each clause and selector constructs one term;
-      planning never changes decision-state selection.
-
-    One compiler below handles ordinary, guarded, overlapping, and recursive nested cases. It never
-    packs compiler metadata into HOL terms, never decodes generated terms, and never has separate
-    guarded/unguarded compilation paths.
+    - structural_pattern is a typed algebraic pattern. Structural_Any optionally records the Free
+      that the source alternative binds at that point; Structural_Node records the constructor,
+      its arity and, when known, its complete family in native order.
+    - case_clause holds one alternative's structural pattern, the conjunction of its generated
+      tests, its combined clause_scope, the navigation wrappers of its body, and the renderer that
+      the direct matrix uses for it. A clause_scope pairs a scope_kind with the operation that
+      closes the guarded body: an alias binding, a type constraint, or the wrapper match of a
+      nested or transformed temporary; a direct scope closes with I. Direct and decided emission
+      both build cases with the Case_Term_Backend constructors.
+    - decision_row adds the source position (arm and alternative index), the source guard and the
+      body; rows are arm-major and alternative-minor. The position separates the two failures: a
+      generated-test miss moves on to the next alternative, while a false source guard skips the
+      rest of its arm without the selected alternative's binders.
+    - decision_state is the region that enclosing cases have selected, the subject decomposition
+      of that region, and the exclusions of rows that failed in it. A structural_exclusion skips
+      its exact source position, and only where its pattern subsumes the intersection of that
+      row's shape with the region (row_applicable).
+    - clause_selection: if the region already selects every constructor of the row's pattern, the
+      selection reuses the region, with a structural_selection_witness that pairs each binder with
+      its subject. Otherwise the row's shape is opened in a case over the current subject, and
+      covers_region records whether that shape subsumes the region; if it does not, a wildcard
+      branch after it decides the following rows in the input state with this row's shape
+      excluded. Semantic totality never creates a witness: a single-constructor node over
+      Structural_Any is opened to obtain its children. The failure state of a reused selection is
+      the input state; that of an opened selection is the opened region over the witness's
+      subject, with the input exclusions.
+    - root_clause is one clause of a root case, and failure_target says where a failed test or
+      guard continues; the module comment tabulates the rules for both.
   *)
 
   fun same_constructor (left : structural_constructor, right : structural_constructor) =
@@ -883,7 +1035,7 @@ struct
     let
       val raw = Case_Term_Backend.make_case T.true_value subject branches
       (* Keep clause heads raw for native case translation. The complete selector resolves to its
-         datatype case constant before navigation erasure; auxiliary case constructors remain
+         datatype case constant before navigation erasure; auxiliary case constructors are
          secondary targets. *)
     in
       fold_rev
@@ -897,6 +1049,9 @@ struct
     end
 
   fun generated_wild ctxt rhs = bind_clause_pattern ctxt R.empty_environment Clause_Wild rhs
+
+  (* Branch and row helpers: the constructor-clause test of selector_of, direct-matrix rendering,
+     row accessors and the reachability check. *)
 
   fun outer_clause_pattern (Const (name, _) $ Abs (_, _, body)) =
         if name = \<^const_name>\<open>case_abs\<close>
@@ -945,6 +1100,9 @@ struct
 
   fun row_shape row = erase_structural_bindings (row_pattern row)
 
+  (* The navigation target that Source_Match_Compilation adds to a match: none if a row has a
+     non-wild shape, two_armed_conditional if a row has a generated test or guard, and
+     Core_Expression.bind otherwise. *)
   datatype match_root_kind =
       Structural_Match_Root
     | Conditional_Match_Root
@@ -955,6 +1113,8 @@ struct
 
   fun row_exclusion (row : decision_row) pattern : structural_exclusion =
     {position = #position row, pattern = pattern}
+
+  (* Root grouping: root groups, keyed by root region or shape, and the source catchall. *)
 
   fun same_outer_group (left, right) =
     structural_same_shape (left, right) orelse
@@ -986,6 +1146,9 @@ struct
     in
       {groups = groups', catchall = catchall'}
     end
+
+  (* Root planning: the prefix cut, clause shapes, exclusions, subsumption, completeness,
+     redispatch and plan_root itself. All of it is pure. *)
 
   fun transformed_root_tail
       ({clause = {scope = {kind = Transformed_Scope, ...}, ...}, ...} : decision_row) = true
@@ -1047,10 +1210,9 @@ struct
             else group :: retain (prior @ [group]) rest
     in retain [] groups end
 
-  (* A single structurally total group containing a total source row is coverage-complete. Root
-     emission opens that group directly instead of reconstructing a redundant root tail. This rule
-     depends only on typed structural coverage, not on any particular constructor or tuple
-     shape. *)
+  (* A structurally total group containing a row with a total shape is coverage-complete. When it
+     is the only group, plan_root emits it as the only clause, with no cut and no catchall. The
+     test uses only typed structural coverage, not any particular constructor or tuple shape. *)
   fun group_is_coverage_complete ({pattern, members} : structural_group) =
     structural_is_total pattern andalso List.exists (structural_is_total o row_shape) members
 
@@ -1093,16 +1255,17 @@ struct
     in split [] groups end
 
   (*
-    The clauses of one root case over the rows, in emission order. A coverage-complete single
-    group gives its one clause. Otherwise Match_Root emits the exact shapes within each root
-    group, or those of the non-wild rows of a cut prefix. Failure_Root cuts before the first row,
-    which leaves only the catchall, and plans nothing for no rows. A shape covered by an earlier
-    shape whose first row has a generated test is dropped. The catchall is omitted when the
-    shapes cover the type; a cut without a source catchall uses a synthetic _. A decided group
-    excludes the first row of each earlier group whose first row has no generated test. The
-    catchall excludes the first row and the later generated-test rows of every emitted group.
-    After the first group whose first row has a nested generated test, the later groups and the
-    catchall redispatch into the failure-root case of the rows after that row.
+    The clauses of one root case over the rows, in emission order; the module comment tabulates
+    the rules. A coverage-complete single group gives its one clause. Otherwise Match_Root emits
+    the exact shapes within each root group, or those of the non-wild rows of a cut prefix.
+    Failure_Root cuts before the first row, which leaves only the catchall, and plans nothing for
+    no rows. A shape subsumed by an earlier retained shape whose first row has a generated test is
+    dropped. The catchall is omitted when the shapes cover the type; a cut without a source
+    catchall uses a synthetic _. A decided shape excludes the first row of each earlier decided
+    shape whose first row has no generated test. The catchall excludes the first row and the later
+    generated-test rows of every shape. After the first decided shape whose first row has a
+    generated test in a nested scope, the later shapes and the catchall redispatch into the
+    failure-root case of the rows after that row.
   *)
   fun plan_root context rows =
     let
@@ -1159,6 +1322,8 @@ struct
   fun guard_failure_target (Direct_Scope, Structural_Node _) = Redispatch_From_Root
     | guard_failure_target _ = Continue_In_Region
 
+  (* Row selection in a decision state. *)
+
   fun excluded_region (exclusions : structural_exclusion list) position region =
     List.exists
       (fn exclusion =>
@@ -1184,6 +1349,10 @@ struct
     {region = region, subject = subject,
      exclusions = {position = position, pattern = pattern} :: exclusions}
 
+  (* Clause closing: the body is wrapped in its navigation, the source guard, the clause scope and
+     the generated test, in that order, and the selected subjects replace the binders in the
+     scoped body and in the test. A failure term is used only when its guard or test exists. *)
+
   fun close_selected_clause ({generated_test, scope, navigation, ...} : case_clause) selection
       source_guard body alternative_failure arm_failure =
     let
@@ -1202,6 +1371,8 @@ struct
        | SOME test => T.conditional (specialize test) scoped_body (the alternative_failure))
     end
 
+  (* An unused beta redex that keeps a typing witness next to body until urust_pattern_typing
+     erases it; see typing_witnesses in compile_decision_case. *)
   fun retain_witness witness body =
     Abs ("_urust_pattern_type_probe_" ^ string_of_int (serial ()),
       dummyT, Term.incr_boundvars 1 body) $ witness
@@ -1263,9 +1434,9 @@ struct
           else NONE
         end
 
-      (* The explicit false branch used by matches! is a real final decision row. Keeping this
-         elementary usefulness check in the typed matrix preserves the legacy redundancy diagnostic
-         for `_` and binder patterns instead of optimizing the unreachable row away. *)
+      (* An unconditional total row followed by another row is rejected as redundant. The explicit
+         fallback row counts: matches! with a structurally total pattern such as `_` or a binder
+         is rejected, and its false row is not silently dropped. *)
       val _ = validate_row_reachability rows
 
       val root_subject = Structural_Subject {value = value, children = []}
@@ -1294,9 +1465,12 @@ struct
 
                fun compile_matched selection failure_state =
                  let
-                   (* A generated-test miss tries the next alternative. A false source guard skips
-                      the entire source arm. Choose the one emitted destination before closing the
-                      clause; an absent test or guard constructs no failure term. *)
+                   (* A generated-test miss continues with the rows after this row, and a false
+                      source guard with the rows after this arm; the failure target chooses between
+                      failure_state and a failure-root case. failure_term's row list is that
+                      suffix, not compile_rows' input. An absent test or guard builds no failure
+                      term. Both terms are built here, before close_selected_clause, so they stay
+                      outside the guard's with_source_position scope. *)
                    fun failure_term Redispatch_From_Root remaining =
                          emit_root Failure_Root remaining
                      | failure_term Continue_In_Region remaining =
@@ -1337,7 +1511,9 @@ struct
                     end)
              end)
 
-      (* Each clause opens its pattern before its body is compiled. *)
+      (* Decide clauses, binding catchalls and redispatch clauses open their pattern with
+         fresh_pattern_subject before their body is compiled. The wild catchall opens nothing: it
+         decides on the scrutinee itself and is wrapped by generated_wild afterwards. *)
       and emit_root context remaining =
         let
           fun decide_in exclusions pattern =

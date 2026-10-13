@@ -2,7 +2,7 @@ theory Parser_Impl_Patterns
   imports Parser_Impl_Case_Compiler
 begin
 
-section\<open> Resolved patterns and case compilation \<close>
+section\<open> Pattern resolution and case-arm preparation \<close>
 
 ML\<open>
 signature URUST_PATTERNS =
@@ -62,77 +62,103 @@ end
 \<close>
 
 text\<open>
-For C1-I1 through C1-I4, constructor identities are resolved before allocation, a complete
-pattern-local binder set is validated atomically, and all alternatives of one source or-pattern
-receive one shared environment. The compiler consumes only prepared arms; it does not inspect or
-classify source patterns again.
+Constructor identities are resolved before any binder is allocated, the complete binder set of a
+pattern is validated before allocation, and all alternatives of one source or-pattern share one
+environment. The case compiler consumes only prepared arms; it does not resolve or classify source
+patterns again.
 \<close>
 
 ML\<open>
 (*
-  URust_Patterns is the pattern-elaboration boundary between the unresolved URust_AST pattern
-  language and recursive expression translation.  It owns use-site validation, binder-versus-
-  constructor decisions, pattern-local environment allocation, bare-match classification, switch-key
-  preparation, and conservative coverage classification; it hands prepared case arms to
-  URust_Case_Compiler, which constructs the existing shallow case terms.  URust_AST owns the source
-  representation, URust_Resolution owns name and constructor metadata operations,
-  URust_Shallow_Terms owns the shallow-term vocabulary, and URust_Translate owns recursive lowering
-  of expressions, guards, and bodies.
+  URust_Patterns elaborates URust_AST patterns for recursive expression translation. It owns
+  use-site validation, binder-versus-constructor decisions, pattern-local environment allocation,
+  bare-match classification, switch-key preparation and conservative coverage; it hands prepared
+  case arms to URust_Case_Compiler, which compiles them to shallow case terms. URust_AST owns the
+  source representation, URust_Resolution the name and constructor metadata, URust_Shallow_Terms
+  the shallow-term vocabulary, and URust_Translate the recursive lowering of expressions, guards
+  and bodies.
+
+  Pipeline of a case match. Stages 1-5 run in prepare_case_arms, once per source arm and in arm
+  order; stages 6-10 run in URust_Case_Compiler.compile_case, whose module comment describes them
+  and tabulates the root rules.
+
+  1. Resolve. resolve_pattern maps each identifier to a constructor or a binder and each path to
+     a constructor or a value, under the site's resolution policy; it checks constructor arities,
+     rejects unknown constructors and unsupported forms, and defers the constructor, struct and
+     field reports. Case patterns treat a reference pattern as a wrapper around its inner pattern.
+     One constructor resolver serves every arm of a match.
+  2. Validate binders. collect_bindings rejects duplicate binders and or-alternatives that bind
+     different names, before any binder is allocated.
+  3. Allocate. R.allocate_locals allocates the arm's binders once; every alternative of the arm
+     shares that environment.
+  4. Expand. expand_resolved_pattern multiplies out nested or-patterns into the arm's
+     alternatives, in source order with the leftmost or-pattern varying slowest.
+  5. Case patterns. prepare_case_pattern turns each alternative into a case_pattern: it reports
+     wildcards and binders, lowers literal values, takes constructor heads from
+     R.constructor_term, and encodes slices as list constructor chains, slice suffixes and list
+     type constraints. The arm also records its binder Frees, its direct abstraction and its
+     conservative totality. The deferred reports of every arm are emitted once all arms are
+     prepared.
+  The caller then lowers each guard and body in its arm's environment, and compile_case passes the
+  arms on for 6. clauses, 7. decision rows, 8. the root plan, 9. emission and 10. typing
+  witnesses.
+
+  A binding site runs a shorter pipeline in prepare_binding: reference patterns are rejected; the
+  pattern is resolved and its binders validated; a mutable binding's head form and the pattern's
+  irrefutability are checked; the binders are allocated; and the direct abstraction is built,
+  reporting wildcards, before the deferred reports are emitted.
 
   The public binder_site constructors select the contract enforced by prepare_binding:
-  Let_Binder admits directly irrefutable patterns, including recursive aliases and rest-only slices;
-  Let_Const_Binder retains the narrower local-const pattern policy. Mutable_Let_Binder additionally
-  restricts the source head to an identifier, wildcard, or top-level tuple and carries the mutable
-  keyword position; and For_Binder resolves known constructors before enforcing irrefutability while
-  admitting the same aliases and rest-only slices as Let_Binder.
-  prepare_binding recursively rejects reference patterns, validates all binders before allocating
-  any of them, and returns an abstract prepared_binding. Case preparation instead treats reference
-  patterns as syntax-only wrappers, matching the current frontend. binding_environment is the exact
-  environment in which the caller must lower the binding body. binding_abstraction closes such a
-  lowered body over the matched RHS for consumers such as `for`. bind_prepared takes an
-  already-lowered outer-scope RHS and inner-scope body, performs any mutable scalar/wildcard
-  allocation selected during preparation, and constructs the shallow bind. The caller remains
-  responsible for lowering both expressions in those prescribed environments.
+  Let_Binder admits directly irrefutable patterns, including recursive aliases and rest-only
+  slices; Let_Const_Binder admits only identifiers, wildcards and non-empty tuples built from them;
+  Mutable_Let_Binder additionally restricts the source head to an identifier, wildcard or
+  top-level tuple and carries the mutable keyword position; and For_Binder resolves known
+  constructors before enforcing irrefutability while admitting the same aliases and rest-only
+  slices as Let_Binder. prepare_binding returns an abstract prepared_binding.
+  binding_environment is the exact environment in which the caller must lower the binding body.
+  binding_abstraction closes such a lowered body over the matched RHS for consumers such as
+  `for`. bind_prepared takes an already-lowered outer-scope RHS and inner-scope body, performs any
+  mutable scalar/wildcard allocation selected during preparation, and constructs the shallow bind.
+  The caller lowers both expressions in those environments.
 
-  select_match_flavour preserves an explicit MF_Case or MF_Switch (while rejecting switch guards)
-  and resolves MF_Auto according to the current case-versus-numeral-switch policy; it never returns
-  MF_Auto. The auto query is contextual only for exact literal registrations: authentic registered
-  constructors are case-only, registered nonconstructors support both lowerings, switch wins when
-  every arm is binder-free, guard-free, and value/wildcard compatible, and guards still force case.
-  This is not general type-directed matching.
-  prepare_switch_arm accepts an unguarded numeral/wildcard/registered-value pattern or an or-pattern
-  composed from those forms, preserves alternative order, and returns the encoded option keys (Some
-  value or None wildcard) with the unchanged source body for lowering in the outer environment.
+  select_match_flavour keeps an explicit MF_Case or MF_Switch (rejecting switch guards) and
+  resolves MF_Auto with classify_match; it never returns MF_Auto. The auto query is contextual only
+  for exact literal registrations: authentic registered constructors are case-only, registered
+  nonconstructors support both lowerings, switch wins when every arm is binder-free, guard-free
+  and value/wildcard compatible, and any guard forces case. Every arm and or-alternative is
+  classified before the guard test, because classification can raise errors. This is not general
+  type-directed matching. prepare_switch_arm accepts an unguarded numeral/wildcard/registered-value
+  pattern or an or-pattern composed from those forms, preserves alternative order, and returns the
+  encoded option keys (Some value or None wildcard) with the unchanged source body for lowering in
+  the outer environment.
 
-  prepare_case_arms creates one constructor resolver for the supplied source span, then resolves and
-  reports constructors, rejects unsupported patterns, validates duplicate and or-alternative binders
-  atomically, and allocates one environment shared by every expanded alternative of each source arm.
-  It returns source-ordered abstract prepared_case_arm values. prepared_environment is the
-  environment in which both prepared_guard and prepared_body must be lowered.
+  prepare_case_arms returns source-ordered abstract prepared_case_arm values. prepared_environment
+  is the environment in which both prepared_guard and prepared_body must be lowered.
   prepared_direct_abstraction is SOME only when the complete pattern can bind a scrutinee directly
   without case compilation. prepared_is_total is a conservative certificate that the supported
-  coverage analysis found the arm total; false means partial or unknown, not necessarily non-total.
+  coverage analysis found the arm total; false means partial or unknown, not necessarily
+  non-total.
 
-  compile_case consumes a compilation mode, an optional explicit fallback, the scrutinee, and
-  source-ordered triples of a prepared_case_arm, its already-lowered optional guard, and its
-  already-lowered body. Each lowered term must correspond to that prepared arm and its
-  prepared_environment. Compilation evaluates the scrutinee once, preserves source-arm and
-  or-alternative order, binds pattern variables before evaluating guards and bodies, and makes a
-  false guard fall through to the next alternative or arm. NONE uses the existing case encoding's
-  unmatched behavior; SOME term installs that term as the terminal unmatched result. Compilation
-  preserves the established shallow term shape. Ordinary_Case_Compilation retains the existing
-  constructor-selector navigation used by `if let`, `while let`, `let ... else`, and `matches!`.
-  Source_Match_Compilation additionally gives nonstructural source matches an explicit control
-  target without placing generated comparison predicates under the match-token range. compile_case
-  converts each triple into a URust_Case_Compiler.case_arm and delegates to
-  URust_Case_Compiler.compile_case.
+  compile_case takes a compilation mode, the source positions that scope navigation, an optional
+  explicit fallback, the scrutinee, and source-ordered triples of a prepared_case_arm, its lowered
+  optional guard and its lowered body, each lowered in that arm's prepared_environment. The result
+  evaluates the scrutinee once, tries arms and or-alternatives in source order, and binds pattern
+  variables before guards and bodies run. A failed generated test continues with the next
+  alternative and a false guard with the next arm. With NONE an unmatched value gives undefined;
+  SOME term appends a final wildcard row with that term and also uses it as the terminal result.
+  Parser_Matcher_Stability_Tests fixes the term shape. Ordinary_Case_Compilation, used by
+  `if let`, `while let`, `let ... else` and `matches!`, gives the source positions only to case
+  selectors that have a constructor clause. Source_Match_Compilation, used by `match`, also gives a
+  match whose rows all have wild shapes an explicit navigation target, without placing generated
+  comparison predicates under the match keyword. compile_case converts each triple into a
+  URust_Case_Compiler.case_arm and delegates to URust_Case_Compiler.compile_case.
 
-  The representations of prepared_binding and prepared_case_arm are intentionally abstract.
-  Pattern-position inspection, resolution policies, the resolved pattern datatypes, or-pattern
-  expansion, generated names, the exact coverage representation, and everything inside
-  URust_Case_Compiler (case and clause patterns, normalization, and the recursive compiler) are
-  implementation details. Callers may rely only on the signature and the scoping, ordering,
-  validation, fallback, and term-shape contracts above.
+  The representations of prepared_binding and prepared_case_arm are abstract. Pattern-position
+  inspection, resolution policies, the resolved pattern datatypes, or-pattern expansion,
+  generated names, the exact coverage representation, and everything inside URust_Case_Compiler
+  (case and clause patterns, normalization and the decision compiler) are implementation details.
+  Callers may rely only on the signature and the scoping, ordering, validation, fallback and
+  term-shape contracts above.
 *)
 structure URust_Patterns :> URUST_PATTERNS =
 struct
@@ -251,7 +277,8 @@ struct
          | P_Path path => registered_switch_capability path
          | P_Wild _ => true
          | P_Or (alternatives, _) =>
-             (* Map before List.all, so every alternative is classified. *)
+             (* Map before List.all: every alternative is classified, and can raise, even after
+                an earlier one is false. *)
              List.all I (map switch_capability alternatives)
          | _ => false)
       (* Classify every arm and every or-alternative (both maps run before any List.all) before the
@@ -518,7 +545,7 @@ struct
                       fun resolve_field
                           {selector, field_reference, source_position, pattern, shorthand} =
                         (* Generated Rust fields have their own source identity even at shorthand
-                           binders. Native HOL shorthand retains its binder-only navigation
+                           binders. Native HOL shorthand keeps its binder-only navigation
                            policy. *)
                         (case if shorthand andalso is_none field_reference
                               then NONE else source_position of

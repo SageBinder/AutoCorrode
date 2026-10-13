@@ -346,11 +346,12 @@ lemma matcher_stability_abbreviation_frozen:
 
 text\<open>
 The declarations below are frozen from 3245e9443b75b533a46cfbb2db0f7132b8c6726e in the same way.
-Each reaches a root-suffix rule that no parser test reached at that commit. A clause shape
-covered by an earlier shape whose first row has a generated test is not emitted, both between
-enumerated root groups and within one tuple root group. A cut prefix that covers the type
-leaves no catchall when no row is a wildcard. A failure suffix keeps a binding catchall, both
-after a false source guard and after a nested generated-test miss.
+Each reaches a root rule that no parser test reached at that commit. A clause shape covered by
+an earlier shape whose first row has a generated test is not emitted, both between enumerated
+root groups and within one tuple root group. In a match without wildcard rows, a cut prefix that
+covers the type leaves no catchall. A failure suffix keeps a binding catchall, both after a false
+source guard and after a nested generated-test miss; the frozen equations do not distinguish
+that catchall from a wildcard one, so the last two declarations reach it without pinning it.
 \<close>
 
 urust_expr matcher_stability_subsumed ::

@@ -46,8 +46,9 @@ end
 
 text\<open>
 This layer owns case-arm orchestration and the five consumers of prepared case patterns. Recursive
-expression lowering remains a callback supplied by \<open>URust_Translate\<close>; pattern
-resolution, normalization, coverage, and case-term compilation remain sealed behind
+expression lowering is a callback supplied by \<open>URust_Translate\<close>. Pattern resolution,
+binder validation and coverage belong to \<open>URust_Patterns\<close>, and case-term compilation
+to \<open>URust_Case_Compiler\<close>, which this layer reaches only through
 \<open>URust_Patterns\<close>.
 \<close>
 
@@ -57,8 +58,11 @@ ML\<open>
   pattern compilation. It owns the control-flow-specific sequencing for ordinary matches, `if let`,
   `let ... else`, `while let`, and boolean pattern matches, but does not resolve names directly,
   expose prepared-pattern representations, recursively traverse arbitrary expressions itself,
-  type-check terms, or install definitions. URust_Patterns remains responsible for pattern
-  resolution, validation, normalization, coverage, and exact case-term construction.
+  type-check terms, or install definitions. URust_Patterns resolves, validates and prepares
+  patterns and computes coverage; URust_Case_Compiler, reached through URust_Patterns.compile_case,
+  normalizes the prepared patterns and constructs the case terms. The module comment of
+  Parser_Impl_Patterns.thy describes the whole pipeline, and that of Parser_Impl_Case_Compiler.thy
+  the root rules that fix the term shape.
 
   All five public operations take the same lowering callback first. The callback must lower one
   URust_AST.ur_expr in the supplied URust_Resolution.environment and return an unchecked shallow HOL
@@ -74,9 +78,9 @@ ML\<open>
     lowers its body in the unchanged outer environment, preserving alternative and arm order. Case
     lowering prepares all source arms before lowering any guard or body; each guard and body is
     lowered once in that prepared arm's exact environment. The resulting term evaluates the lowered
-    scrutinee once. Fully structural normalized matrices lower directly through one native case
-    expression; guards, generated tests, aliases, and transformed patterns retain recursive decision
-    compilation and its root-suffix reconstruction of the established term shape.
+    scrutinee once. If every normalized row is unguarded, has no generated test and is directly
+    scoped, the match lowers to one native case expression over the scrutinee; otherwise the root
+    plan of URust_Case_Compiler builds the case.
 
   - lower_while_let lower ctxt environment (fuel, pattern, scrutinee, body, position) lowers fuel
     and scrutinee in the outer environment, in that order, before preparing the pattern. Only the
@@ -89,7 +93,7 @@ ML\<open>
     unguarded source pattern, lower success in the prepared environment, and lower fallback in the
     outer environment. One-armed `if let` supplies skip. Conservatively total case patterns omit the
     unreachable fallback from case compilation only after lowering it, so its diagnostics and markup
-    remain active. Partial or unknown patterns retain the explicit wildcard fallback. The frontend's
+    remain active. Partial or unknown patterns keep the explicit wildcard fallback. The frontend's
     syntactic top-level tuple exception instead uses its direct irrefutable abstraction and ignores
     fallback.
 
@@ -98,8 +102,8 @@ ML\<open>
     explicit literal-false fallback. It deliberately applies no macro-specific pattern restrictions;
     callers such as URust_Macros must enforce those before invoking this operation.
 
-  Pattern, flavour, and resolution errors retain their existing source positions and propagate to
-  the caller. lower_prepared_case, lower_case_arms, arm tags, preparation order plumbing, module
+  Pattern, flavour, and resolution errors carry their source positions and propagate to the
+  caller. lower_prepared_case, lower_case_arms, arm tags, preparation order plumbing, module
   aliases, and the choice of shallow-term builders are private implementation details.
   URUST_MATCHING exposes no prepared-pattern type, helper representation, or alternate compilation
   entry point.
