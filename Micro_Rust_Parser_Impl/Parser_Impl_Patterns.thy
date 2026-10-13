@@ -175,7 +175,10 @@ struct
                (lower ())))
     end
 
-  type binding_signature = string * Position.T
+  type binding_signature = URust_Case_Compiler.binding_signature
+
+  val signature_name = URust_Case_Compiler.signature_name
+  val signature_position = URust_Case_Compiler.signature_position
 
   datatype binder_site =
       Let_Binder
@@ -493,16 +496,15 @@ struct
                           Position.here name_pos)
                       else ();
                       Resolved_Slice_Bound_Rest (binding name name_pos, alias_pos, rest_pos) ::
-                      resolve_items true rest)
+                        resolve_items true rest)
                  | resolve_items seen_rest (SI_Pat nested :: rest) =
                      Resolved_Slice_Pattern (resolve nested) :: resolve_items seen_rest rest
+               val punctuation_positions =
+                 source_token_positions_for layout
+                   [Delimiter_Token "[", Operator_Token, Delimiter_Token "..", Delimiter_Token "]"]
              in
                Resolved_Navigated
-                 (source_token_positions_for layout
-                    [Delimiter_Token "[",
-                     Operator_Token,
-                     Delimiter_Token "..",
-                     Delimiter_Token "]"],
+                 (punctuation_positions,
                   Resolved_Slice (resolve_items false items, source_span layout))
              end
          | P_Struct (path, fields, _) =>
@@ -544,9 +546,6 @@ struct
     end
 
   fun emit_semantic_reports reports = List.app (fn report => report ()) reports
-
-  fun signature_name (name, _) = name
-  fun signature_position (_, pos) = pos
 
   fun duplicate_binder name pos original_pos =
     error ("urust_expr: duplicate pattern binder " ^ quote name ^ Position.here pos ^
@@ -1001,13 +1000,8 @@ struct
       val total = coverage_is_total (resolved_coverage resolved)
     in
       (Prepared_Case_Arm
-         {patterns = patterns,
-          environment = arm_environment,
-          binders = binders,
-          guard = guard,
-          body = body,
-          direct_abstraction = direct,
-          total = total},
+         {patterns = patterns, environment = arm_environment, binders = binders, guard = guard,
+          body = body, direct_abstraction = direct, total = total},
        reports)
     end
 
