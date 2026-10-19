@@ -252,8 +252,10 @@ fun bind_typed_var kind ctxt (env : var_info Symtab.table) ((x, def_pos), T) =
     val id   = serial ()
     val _    = report_def kind ctxt id (x, def_pos)
     (* Source spelling belongs in the environment and markup, not in Free identity. Distinct
-       identities prevent a later Term.lambda for a shadowing binder from capturing an outer
-       same-spelled local that has been placed in a shared continuation. *)
+       identities prevent a later abstraction for a shadowing binder from capturing an outer
+       same-spelled local that has been placed in a shared continuation. Abstract with
+       Term.lambda_name and the source spelling: the internal name must not reach Abs names,
+       which become printed binders and application_def left-hand sides. *)
     val free =
       Free ("_urust_local_" ^ string_of_int id ^ "_" ^ x, T)
   in (free, Symtab.update (x, {free = free, def_pos = def_pos, id = id}) env) end

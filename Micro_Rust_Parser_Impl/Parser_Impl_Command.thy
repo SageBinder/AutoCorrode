@@ -85,8 +85,11 @@ Ordinary named definitions preserve the complete curried term on the right-hand 
 \<open>NAME_def\<close> by default. The Boolean \<open>application_def\<close> option instead retains explicit source
 arguments on the theorem's left-hand side, producing
 \<open>NAME arg\<^sub>1 ... arg\<^sub>n \<equiv> body\<close>. Implicit definition parameters remain before those
-explicit arguments. Both forms install the same curried constant value, attributes, and code
-equation. The application form is useful when existing proofs fold a named
+explicit arguments. Each argument keeps its source spelling, made an Isabelle identifier by
+\<open>Name.desymbolize\<close> when necessary (\<open>_tmp\<close> becomes \<open>x_tmp\<close>) and renamed away from context
+fixes, the defined name, and free variables of the body. Wildcard slots become \<open>uu\<close>. Both forms
+install the same curried constant value, attributes, and code equation. The application form is
+useful when existing proofs fold a named
 sub-expression, while the default form remains suitable for rewriting a bare function constant.
 Pretty output is presentation-only: \<open>urust_fn\<close> displays source parameters on the left-hand side
 even for a default curried definition, while \<open>urust_expr\<close> retains source arguments as a uRust
@@ -1046,16 +1049,26 @@ fun install_urust_result abbreviation application_definition kind
       |> filter_out (Variable.is_fixed lthy o #1)
       |> rev
       |> map Free
+    (* Argument abstractions carry source spellings, which need not be identifiers and may clash
+       with context fixes or the defined name once they become left-hand-side Frees. *)
     val (definition_arguments, definition_rhs) =
-      if application_definition
-      then Term.strip_abs_eta (length arguments) term
-      else ([], term)
-    val display_arguments =
       if application_definition then
-        map2
-          (fn (source_name, _) => fn (_, T) => Free (source_name, T))
-          arguments definition_arguments
-      else []
+        let
+          val used =
+            Variable.names_of lthy
+            |> Name.declare name
+            |> Term.declare_free_names term
+          fun identifier x =
+            if Symbol_Pos.is_identifier x then x else Name.desymbolize NONE x
+          val definition_arguments =
+            #1 (Term.strip_abs_eta (length arguments) term)
+            |> map (apfst identifier)
+            |> Name.variant_names used
+        in
+          (definition_arguments,
+           Term.betapplys (term, map Free definition_arguments))
+        end
+      else ([], term)
     val definition_lhs =
       list_comb
         (Free
@@ -1093,10 +1106,9 @@ fun install_urust_result abbreviation application_definition kind
             ((Thm.def_binding binding, attributes),
               Logic.mk_equals (definition_lhs, definition_rhs)) silent_lthy
         val lhs = list_comb (defined_lhs, definition_parameters)
-        val display_lhs =
-          list_comb
-            (defined_lhs,
-             definition_parameters @ display_arguments)
+        (* The theorem's argument names: raw source spellings would be captured by context names
+           when the export morphism transfers this term. *)
+        val display_lhs = list_comb (lhs, map Free definition_arguments)
       in
         (Definition_Result
           {lhs = lhs, display_lhs = display_lhs,

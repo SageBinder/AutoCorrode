@@ -24,7 +24,7 @@ sig
     Proof.context ->
       environment ->
       (string * Position.T) list ->
-      term list * environment
+      (string * term) list * environment
   val allocate_expression_arguments:
     Proof.context ->
       environment ->
@@ -159,12 +159,13 @@ ML\<open>
     allocate_locals accepts source-name/definition-position pairs, rejects duplicate names within its
     input before allocating any of them, then extends the supplied scope with fresh dummy-typed locals
     while reporting their definitions. allocate_closure_formals instead permits repeated names,
-    allocates one distinct Free per source formal in source order, and returns those Frees together
-    with the final environment in which each later repeated name shadows its predecessors.
+    allocates one distinct Free per source formal in source order, and returns each Free paired with
+    its source spelling, for use as the abstraction name, together with the final environment in
+    which each later repeated name shadows its predecessors.
     allocate_expression_arguments and allocate_function_parameters reject duplicate named
     parameters through the same validation path. Named slots allocate the supplied type, enter the
-    lexical environment with direct-call precedence, and return a source-ordered Term.lambda
-    operation. A `_` slot enters no environment and returns a typed anonymous Abs operation instead;
+    lexical environment with direct-call precedence, and return a source-ordered Term.lambda_name
+    operation that names the abstraction by its source spelling. A `_` slot enters no environment and returns a typed anonymous Abs operation instead;
     repeated and mixed wildcards therefore retain their type slots and abstraction order without
     becoming resolvable names. Untyped expression clients supply dummy types for inference; typed
     clients supply argument or parameter types from the complete declaration type. A nested ordinary
@@ -357,11 +358,11 @@ struct
 
   fun allocate_closure_formals ctxt environment signatures =
     let
-      fun allocate [] env frees = (rev frees, env)
-        | allocate (formal :: rest) env frees =
+      fun allocate [] env formals = (rev formals, env)
+        | allocate ((formal as (name, _)) :: rest) env formals =
             let
               val (free, env') = bind_ordinary_local ctxt env formal
-            in allocate rest env' (free :: frees) end
+            in allocate rest env' ((name, free) :: formals) end
     in allocate signatures environment [] end
 
   fun allocate_parameters command role ctxt environment parameters =
@@ -390,7 +391,7 @@ struct
                   let
                     val (free, env') =
                       bind_declaration_argument ctxt env parameter
-                  in ((fn body => Term.lambda free body), env') end
+                  in ((fn body => Term.lambda_name (name, free) body), env') end
             in allocate rest env' (abstraction :: abstractions) end
     in allocate parameters environment [] end
 

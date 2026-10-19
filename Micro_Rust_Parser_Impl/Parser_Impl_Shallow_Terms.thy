@@ -16,7 +16,7 @@ sig
   val integer_value: Position.T -> string -> term
   val repeat_length_integer: bool -> Position.T -> string -> term
   val function_body: term -> term
-  val closure: term list -> term -> term
+  val closure: (string * term) list -> term -> term
   val pause: term
   val pause_expression: unit -> term
   val boolean_value: bool -> term
@@ -114,7 +114,8 @@ ML\<open>
      admits another supported width only beneath an explicit repeat-length `as usize` cast. The
      compatibility underscore before a suffix remains accepted.
    * closure wraps one FunctionBody around the already-lowered body, abstracts the ordered formal
-     Frees in source order, and then applies one outer literal. It imposes no call-arity limit.
+     Frees in source order under their paired source names, and then applies one outer literal. It
+     imposes no call-arity limit.
    * pause is the compatibility direct primitive value; pause_expression constructs the same term
      while recording the selected primitive. primitive_log applies the raw priority and data values
      directly to log. log_string_entry builds one singleton LogString list; generate_debug_entry
@@ -217,7 +218,7 @@ struct
     Navigation.annotate Navigation.Primary
       (Const (\<^const_name>\<open>FunctionBody\<close>, dummyT))
       (literal
-        (fold_rev Term.lambda formals
+        (fold_rev Term.lambda_name formals
           (function_body_term body)))
 
   fun apply_parameters function parameters =

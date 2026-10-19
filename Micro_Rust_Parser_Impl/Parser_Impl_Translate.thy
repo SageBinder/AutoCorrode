@@ -240,12 +240,12 @@ struct
         | formal_signature _ =
             error "urust_expr: internal non-identifier closure formal"
       val signatures = map formal_signature formals
-      val (formal_terms, body_environment) =
+      val (named_formals, body_environment) =
         R.allocate_closure_formals ctxt environment signatures
       val lowered_body = lower body_environment body
     in
       with_token layout Operator_Token (fn () =>
-        T.closure formal_terms lowered_body)
+        T.closure named_formals lowered_body)
     end
 
   fun lower_repeat_length ctxt environment allow_sized length =

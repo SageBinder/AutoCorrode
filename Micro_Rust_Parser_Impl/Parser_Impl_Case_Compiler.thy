@@ -322,16 +322,21 @@ struct
      | Pattern_Application (constructor, nested) =>
          Term.list_comb (constructor, map (instantiate_pattern arguments) nested))
 
+  (* A bound slot pairs its source abstraction name with its fresh Free identity.
+     An empty name preserves a generated Free's administrative name. *)
   fun abstract_slots wrap slots make_inner =
     let
       val count = length slots
       val arguments =
-        map_index (fn (_, SOME free) => free | (index, NONE) => Bound (count - 1 - index)) slots
+        map_index
+          (fn (_, SOME (_, free)) => free
+            | (index, NONE) => Bound (count - 1 - index))
+          slots
     in
       fold_rev (fn slot => fn term =>
           wrap
             (case slot of
-               SOME free => Term.lambda free term
+               SOME named_free => Term.lambda_name named_free term
              | NONE => R.anonymous_abstraction term))
         slots (make_inner arguments)
     end
@@ -347,12 +352,12 @@ struct
               val pos = signature_position binder_sig
             in
               (case R.use_pattern_binder ctxt environment (name, pos) of
-                 SOME free => add_slot (SOME free) state
+                 SOME free => add_slot (SOME (name, free)) state
                | NONE =>
                    error ("urust_expr: internal unregistered case binder " ^ quote name ^
                      Position.here pos))
             end
-        | walk (Clause_Generated free) state = add_slot (SOME free) state
+        | walk (Clause_Generated free) state = add_slot (SOME ("", free)) state
         | walk (Clause_Node {head, arguments, ...}) state =
             let val (trees, state') = fold_map walk arguments state
             in (Pattern_Application (head, trees), state') end
@@ -860,7 +865,8 @@ struct
       val pos = signature_position binder_sig
     in
       (case R.lookup_local environment name of
-         SOME free => T.bind (transform expression) (Term.lambda free rhs)
+         SOME free =>
+           T.bind (transform expression) (Term.lambda_name (name, free) rhs)
        | NONE =>
            error ("urust_expr: internal unregistered alias binder " ^ quote name ^
              Position.here pos))

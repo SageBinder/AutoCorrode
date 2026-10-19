@@ -659,6 +659,11 @@ struct
              Position.here pos))
     end
 
+  (* The Free is the binder's identity; the abstraction keeps its source spelling. *)
+  fun abstract_signature environment binder_sig =
+    Term.lambda_name
+      (signature_name binder_sig, lookup_signature environment binder_sig)
+
   fun directly_irrefutable allow_extended pattern =
     let
       fun direct (Resolved_Bind _) = true
@@ -685,8 +690,7 @@ struct
             constrain_pattern_abstraction (HOLogic.listT dummyT) pos (bind body))
           abstraction
       fun direct (Resolved_Bind binder_sig) =
-            let val free = lookup_signature environment binder_sig
-            in SOME (fn body => Term.lambda free body) end
+            SOME (abstract_signature environment binder_sig)
         | direct (Resolved_Wild pos) =
             (if report_wildcards then R.report_wildcard ctxt pos else ();
              SOME (fn body => R.anonymous_abstraction body))
@@ -730,13 +734,14 @@ struct
                  NONE => NONE
                | SOME inner_abstraction =>
                    let
-                     val alias_free = lookup_signature environment binder_sig
+                     val alias_abstraction =
+                       abstract_signature environment binder_sig
                      val matched = Free ("_urust_while_let_" ^ string_of_int (serial ()), dummyT)
                      fun abstraction body =
                        Term.lambda matched
                          (Navigation.with_source [at_pos] (fn () =>
                            T.bind (T.literal matched)
-                             (Term.lambda alias_free
+                             (alias_abstraction
                                (Term.betapply (inner_abstraction body, matched)))))
                    in SOME abstraction end)
             else NONE

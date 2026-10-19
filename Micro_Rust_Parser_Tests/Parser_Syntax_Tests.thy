@@ -3489,6 +3489,9 @@ ML_val\<open>
     val _ =
       audit_assert "closure abstraction order changed"
         (map #2 ordered_formals = [HOLogic.natT, HOLogic.boolT])
+    val _ =
+      audit_assert "closure abstractions lost their source spellings"
+        (map #1 ordered_formals = ["first", "second"])
 
     val duplicate =
       checked "|same, same, same| same"
@@ -3496,7 +3499,7 @@ ML_val\<open>
       Term.strip_abs (closure_payload duplicate)
     val _ =
       audit_assert "duplicate closure formals stopped producing abstractions"
-        (length duplicate_formals = 3)
+        (map #1 duplicate_formals = ["same", "same", "same"])
     val _ =
       (case duplicate_body of
          Const (function_body_name, _) $
@@ -3522,7 +3525,7 @@ ML_val\<open>
         (map2 pair ["first", "second", "first"] allocator_positions)
     val allocated_names =
       map
-        (fn Free (name, _) => name
+        (fn (_, Free (name, _)) => name
           | _ =>
               error
                 "closure regression audit: allocator returned a non-Free formal")
@@ -3531,13 +3534,13 @@ ML_val\<open>
       audit_assert "closure allocator reused a formal identity"
         (length (distinct (op =) allocated_names) = 3)
     val _ =
-      audit_assert "closure allocator did not preserve source order"
-        (length allocated = 3)
+      audit_assert "closure allocator did not preserve source order and spelling"
+        (map #1 allocated = ["first", "second", "first"])
     val _ =
       audit_assert "later duplicate did not win in the final environment"
         (case URust_Resolution.lookup_local
             allocated_environment "first" of
-           SOME selected => Term.aconv (selected, List.last allocated)
+           SOME selected => Term.aconv (selected, #2 (List.last allocated))
          | NONE => false)
 
     val resolved_dispatch =

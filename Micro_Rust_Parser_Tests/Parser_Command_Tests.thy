@@ -513,6 +513,137 @@ ML_val\<open>
 \<close>
 
 
+section\<open> Source-spelled binder names \<close>
+
+text\<open>
+Lexical locals keep distinct internal Free identities during elaboration, but direct abstractions
+carry their source spellings. Application definitions turn those spellings into left-hand-side
+arguments: a spelling that is not an Isabelle identifier is desymbolized, and one that clashes with
+a context fix or the defined constant is renamed. Generated case subjects keep administrative names.
+\<close>
+
+urust_expr [application_def] self_named_application ::
+  \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit, unit) expression\<close>
+  (self_named_application)
+  \<open> self_named_application \<close>
+
+context
+  fixes shadowed_fix :: nat
+begin
+
+urust_expr [application_def] fix_shadowing_application ::
+  \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit, unit) expression\<close>
+  (shadowed_fix)
+  \<open> \<llangle>shadowed_fix + 1\<rrangle> \<close>
+
+ML_val\<open>
+  (case
+      Proof_Context.get_thm \<^context> "fix_shadowing_application_def"
+      |> Thm.prop_of
+      |> Logic.dest_equals
+      |> #1
+      |> Term.strip_comb
+    of
+     (_, [Var (("shadowed_fixa", _), _)]) => ()
+   | _ => error "source binder name audit: argument was not renamed away from a context fix")
+\<close>
+
+end
+
+urust_expr source_named_binders
+  (input)
+  \<open> let doubled = \<llangle>Some (input :: nat)\<rrangle>; match doubled { Some(found) \<Rightarrow> \<llangle>found\<rrangle>, None \<Rightarrow> \<llangle>0 :: nat\<rrangle> } \<close>
+
+urust_expr source_named_closure
+  \<open> |first, second| \<llangle>(first :: nat, second :: bool)\<rrangle> \<close>
+
+urust_expr source_named_alias
+  \<open> match \<llangle>Some (7 :: nat)\<rrangle> { whole @ Some(_) \<Rightarrow> whole, _ \<Rightarrow> None } \<close>
+
+urust_expr source_named_shadowing
+  \<open> let x = 1_u64; let x = x + 1_u64; x \<close>
+
+ML_val\<open>
+  local
+    val ctxt = \<^context>
+
+    fun assert message condition =
+      if condition then ()
+      else error ("source binder name audit: " ^ message)
+
+    fun definition_equation name =
+      Proof_Context.get_thm ctxt (name ^ "_def")
+      |> Thm.prop_of
+      |> Logic.dest_equals
+
+    fun argument_names name =
+      definition_equation name
+      |> #1
+      |> Term.strip_comb
+      |> #2
+      |> map
+        (fn Free (x, _) => x
+          | Var ((x, _), _) => x
+          | _ => error ("source binder name audit: non-variable argument of " ^ name))
+
+    fun abstraction_names term =
+      let
+        fun collect (Abs (x, _, body)) = cons x #> collect body
+          | collect (function $ argument) = collect function #> collect argument
+          | collect _ = I
+      in rev (collect term []) end
+
+    (* Generated case subjects and region leaves are administrative; the printed-body check below
+       rejects internal local names among them. *)
+    fun source_abstraction_names name =
+      abstraction_names (#2 (definition_equation name))
+      |> filter_out (String.isPrefix "_urust_")
+
+    fun printed_body name =
+      Syntax.string_of_term ctxt (#2 (definition_equation name))
+      |> YXML.parse_body
+      |> XML.content_of
+
+    val _ =
+      List.app
+        (fn (name, expected) =>
+          let val actual = argument_names name
+          in
+            assert (name ^ " has left-hand-side arguments " ^ commas actual)
+              (actual = expected)
+          end)
+        [("typed_application_expression", ["number", "flag"]),
+         ("typed_application_implicit_parameter", ["ambient_adjustment", "item"]),
+         ("wildcard_expression_application", [Name.uu]),
+         ("wildcard_function_application", [Name.uu]),
+         ("underscore_function_application", ["x_unused", "kept"]),
+         ("self_named_application", ["self_named_applicationa"])]
+
+    val _ =
+      List.app
+        (fn (name, expected) =>
+          let val actual = source_abstraction_names name
+          in
+            assert (name ^ " has abstractions " ^ commas actual) (actual = expected)
+          end)
+        [("source_named_binders", ["input", "doubled", "found"]),
+         ("source_named_closure", ["first", "second"]),
+         ("source_named_alias", ["whole"]),
+         ("source_named_shadowing", ["x", "x"])]
+
+    val _ =
+      List.app
+        (fn name =>
+          assert (name ^ " printed an internal local name")
+            (not (String.isSubstring "_urust_local_" (printed_body name))))
+        ["source_named_binders", "source_named_closure", "source_named_alias",
+         "source_named_shadowing"]
+  in
+    val _ = ()
+  end
+\<close>
+
+
 section\<open> Anonymous declarations \<close>
 
 text\<open>

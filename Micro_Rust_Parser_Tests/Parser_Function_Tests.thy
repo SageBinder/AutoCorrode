@@ -800,6 +800,14 @@ urust_fn [abbrev] wildcard_function_abbreviation
     }
   \<close>
 
+text\<open>
+Application definitions put source-spelled parameters on the left-hand side. A Rust parameter that
+is not an Isabelle identifier is desymbolized; \<open>Parser_Command_Tests\<close> audits the resulting names.
+\<close>
+
+urust_fn [application_def] underscore_function_application
+  \<open> fn underscore_function_application(_unused: u64, kept: u64) -> u64 { kept } \<close>
+
 section\<open> Anonymous checks and abbreviations \<close>
 
 urust_fn [application_def] _

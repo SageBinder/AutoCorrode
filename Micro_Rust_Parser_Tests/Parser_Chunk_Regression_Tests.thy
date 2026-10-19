@@ -1522,21 +1522,13 @@ local
   fun in_locale body =
     "locale printed_loc =\n  fixes printed_param :: nat\nbegin\n" ^ body ^ "\nend\n"
   fun in_context body = "context\n  fixes printed_fixed :: nat\nbegin\n" ^ body ^ "\nend\n"
-  (* Bound names of lexical locals carry fresh serials. *)
-  fun normalize message =
-    let
-      fun strip (#"_" :: #"u" :: #"r" :: #"u" :: #"s" :: #"t" :: #"_" :: #"l" :: #"o" :: #"c" ::
-            #"a" :: #"l" :: #"_" :: rest) =
-            #"#" :: strip (drop_prefix Char.isDigit rest)
-        | strip (c :: rest) = c :: strip rest
-        | strip [] = []
-    in String.implode (strip (String.explode message)) end
+  (* Bound names of lexical locals print with their source spellings. *)
   fun definitions output =
-    map normalize (filter (String.isPrefix "definition ") (authored_output output))
+    filter (String.isPrefix "definition ") (authored_output output)
   val expected =
     ["definition printed_zero_def:\nprinted_zero \<equiv> FunctionBody (ascribeu32 1)",
-     "definition printed_argument_def:\nprinted_argument \<equiv> \<lambda>#_value. " ^
-       "FunctionBody (ascribeu32 #_value)"]
+     "definition printed_argument_def:\nprinted_argument \<equiv> \<lambda>value. " ^
+       "FunctionBody (ascribeu32 value)"]
   fun constant_definitions text reports name occurrence =
     filter
       (fn (markup, properties) =>
@@ -1603,6 +1595,50 @@ local
       (definitions output = ["definition printed_expression_def:\nprinted_expression \<equiv> literal 1"])
 in
   val _ = writeln "printed results and function definition entities match native definitions"
+end
+\<close>
+
+
+section\<open> Application definition argument names \<close>
+
+text\<open>
+Application definitions state source-spelled arguments without legacy name-binding warnings. A
+parameter that is not an Isabelle identifier is desymbolized, and one that shadows a locale or
+context fix is renamed away from it.
+\<close>
+
+ML\<open>
+local
+  open Chunk_Test
+  val prefix = "declare [[urust_pp_test = false, urust_pretty = false, urust_verbosity = 2]]\n"
+  val item = "  fn PrintedApplication(_unused: u32, shadowing: u32) -> u32 { shadowing }"
+  val chunk = "urust " ^ command_source ("  " ^ annotation "application_def" ^ "\n" ^ item)
+  val single = "urust_fn [application_def] " ^ command_source item
+  fun in_locale body =
+    "locale application_loc =\n  fixes shadowing :: nat\nbegin\n" ^ body ^ "\nend\n"
+  fun in_context body = "context\n  fixes shadowing :: nat\nbegin\n" ^ body ^ "\nend\n"
+  (* Definition theorems state their arguments schematically. *)
+  fun expected argument =
+    "definition printed_application_def:\nprinted_application ?x_unused ?" ^ argument ^
+      " \<equiv> FunctionBody (ascribeu32 ?" ^ argument ^ ")"
+  fun scenario label wrap argument body =
+    let
+      val {result, output, warnings, ...} = capture true label \<^theory> (prefix ^ wrap body)
+      val _ = result_context result
+      val printed = filter (String.isPrefix "definition ") (authored_output output)
+      val _ =
+        require (label ^ " emitted warnings:\n" ^ cat_lines warnings) (null warnings)
+      val _ =
+        require (label ^ " printed application definition changed:\n" ^ cat_lines printed)
+          (printed = [expected argument])
+    in () end
+in
+  val _ = scenario "application-theory-chunk" I "shadowing" chunk
+  val _ = scenario "application-theory-single" I "shadowing" single
+  val _ = scenario "application-locale-chunk" in_locale "shadowinga" chunk
+  val _ = scenario "application-locale-single" in_locale "shadowinga" single
+  val _ = scenario "application-context-chunk" in_context "shadowinga" chunk
+  val _ = scenario "application-context-single" in_context "shadowinga" single
 end
 \<close>
 
