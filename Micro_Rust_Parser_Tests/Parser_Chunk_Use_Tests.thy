@@ -12,7 +12,7 @@ declare [[urust_pp_test = true, urust_pretty = false, urust_verbosity = 0]]
 chapter\<open> Imports in source-ordered chunks \<close>
 
 text\<open>
-A \<open>urust\<close> chunk may contain complete \<open>use\<close> items with the grammar of \<open>urust_use\<close>. The
+A \<open>urust\<close> chunk may contain complete Rust \<open>use\<close> items. The
 imports of one chunk form one batch: it is validated before the first declaration, its aliases are
 visible to every declaration of the chunk, including declarations written before the \<open>use\<close>
 item, and no alias survives the command. Every declaration elaborates with the batch prepared for
@@ -61,15 +61,15 @@ urust_fn \<open>
 lemma \<open> chunk_import_caller = chunk_import_caller_control \<close>
   unfolding chunk_import_caller_def chunk_import_caller_control_def by (rule refl)
 
-section\<open> Shadowing among persistent, chunk and body imports \<close>
+section\<open> Shadowing among registrations, chunk and body imports \<close>
 
 text\<open>
-A chunk alias shadows a persistent \<open>urust_use\<close> alias inside the chunk; a body import shadows the
+A chunk alias shadows an existing call registration inside the chunk; a body import shadows the
 chunk alias throughout its block, including before the body import, and only there. After the
-command the persistent alias is visible again.
+command the call registration is visible again.
 \<close>
 
-urust_use \<open> use demo::value as chunk_import_pick; \<close>
+micro_rust_notation (call) use_demo_value_impl ("chunk_import_pick")
 
 urust \<open>
   fn ChunkImportShadowed(x: u32) -> u32 { chunk_import_pick(x) }
@@ -97,15 +97,15 @@ lemma \<open> chunk_import_shadowed = chunk_import_shadowed_control \<close>
 lemma \<open> chunk_import_body_shadow = chunk_import_body_shadow_control \<close>
   unfolding chunk_import_body_shadow_def chunk_import_body_shadow_control_def by (rule refl)
 
-urust_expr chunk_import_persistent_again \<open> chunk_import_pick() \<close>
-urust_expr chunk_import_persistent_again_control \<open> demo::value() \<close>
+urust_expr chunk_import_registered_again \<open> chunk_import_pick() \<close>
+urust_expr chunk_import_registered_again_control \<open> demo::value() \<close>
 
-lemma \<open> chunk_import_persistent_again = chunk_import_persistent_again_control \<close>
-  unfolding chunk_import_persistent_again_def chunk_import_persistent_again_control_def
+lemma \<open> chunk_import_registered_again = chunk_import_registered_again_control \<close>
+  unfolding chunk_import_registered_again_def chunk_import_registered_again_control_def
   by (rule refl)
 
 text\<open>
-As for Rust module-level imports, member parameters shadow chunk and persistent aliases, while a
+As for Rust module-level imports, member parameters shadow chunk aliases and outer call registrations, while a
 body import shadows the parameters of its member. The controls use unimported parameter names.
 \<close>
 
@@ -116,7 +116,7 @@ urust \<open>
     use use_increment as chunk_shadow_pick;
     chunk_shadow_pick(1)
   }
-  fn ChunkShadowPersistent(chunk_import_pick: u32) -> u32 { chunk_import_pick }
+  fn ChunkShadowRegistered(chunk_import_pick: u32) -> u32 { chunk_import_pick }
   // A parameter also wins against a chunk alias whose target is declared later.
   fn ChunkShadowUnavailable(chunk_shadow_later: u32) -> u32 { chunk_shadow_later }
   use ChunkShadowLater as chunk_shadow_later;
@@ -130,8 +130,8 @@ lemma \<open> chunk_shadow_parameter = chunk_shadow_parameter_control \<close>
   unfolding chunk_shadow_parameter_def chunk_shadow_parameter_control_def by (rule refl)
 lemma \<open> chunk_shadow_body = chunk_shadow_body_control \<close>
   unfolding chunk_shadow_body_def chunk_shadow_body_control_def by (rule refl)
-lemma \<open> chunk_shadow_persistent = chunk_shadow_parameter_control \<close>
-  unfolding chunk_shadow_persistent_def chunk_shadow_parameter_control_def by (rule refl)
+lemma \<open> chunk_shadow_registered = chunk_shadow_parameter_control \<close>
+  unfolding chunk_shadow_registered_def chunk_shadow_parameter_control_def by (rule refl)
 lemma \<open> chunk_shadow_unavailable = chunk_shadow_parameter_control \<close>
   unfolding chunk_shadow_unavailable_def chunk_shadow_parameter_control_def by (rule refl)
 
@@ -277,17 +277,13 @@ local
   val ctxt = \<^context>
   val aliases =
     ["step", "fetch", "Width_Value", "helper", "ChunkImportPair", "Choice", "Present",
-     "Absent", "Tuple1", "Word", "local_step", "only_value", "increment"]
+     "Absent", "Tuple1", "Word", "local_step", "only_value", "increment", "chunk_import_pick"]
 in
   val _ = require "no block frame survives a chunk" (S.frame_depth ctxt = 0)
   val _ = require "no chunk alias survives its chunk"
     (forall (fn alias =>
         is_none (S.lookup ctxt S.Type_Namespace alias) andalso
         is_none (S.lookup ctxt S.Value_Namespace alias)) aliases)
-  val _ = require "the persistent alias shadowed by a chunk alias is unchanged"
-    (lookup_key ctxt S.Value_Namespace "chunk_import_pick" = SOME "demo::value")
-  val _ = require "chunk aliases are not persistent bindings"
-    (forall (fn binding => not (member (op =) aliases (#alias binding))) (S.dump_persistent ctxt))
   (* A later command reads the former alias as an unresolved HOL name. *)
   val later =
     Parser_Test_Elaboration.expression ctxt (Parser_Lex_Util.text_source "step(fetch())")
@@ -301,10 +297,10 @@ section\<open> Audits \<close>
 
 text\<open>
 Command-level audits run synthetic theory text in a private toplevel state with the support of
-\<^ML_structure>\<open>Chunk_Test\<close>; their positions carry symbol offsets and a synthetic identity.
+\<^ML_structure>\<open>Chunk_Test\<close>; their positions carry symbol offsets and the current command ID.
 \<close>
 
-urust_use \<open> use demo::value as chunk_import_fallback; \<close>
+micro_rust_notation (call) use_demo_value_impl ("chunk_import_fallback")
 
 ML\<open>
 structure Chunk_Use_Audit =
@@ -354,7 +350,7 @@ local
   open Chunk_Use_Audit
 in
   (* The alias is unavailable before its target is declared and does not fall back to the
-     persistent alias of the same name. *)
+     call registration of the same name. *)
   val _ = rejects_at \<^theory> "later target"
     ["import target \"ChunkImportSecond\" of \"chunk_import_fallback\" is not yet available"]
     ("  fn ChunkImportFirst() -> u32 { chunk_import_fallback() }\n" ^
@@ -623,9 +619,9 @@ end
 \<close>
 
 urust_datatype \<open> enum ChunkImportFE { A } \<close>
-urust_use \<open> use demo::value as ChunkImportFBoth; \<close>
+micro_rust_notation (call) use_demo_value_impl ("ChunkImportFBoth")
 urust_type "ChunkImportFT" = \<open> nat \<close>
-urust_use \<open> use demo::value as ChunkImportFT2; \<close>
+micro_rust_notation (call) use_demo_value_impl ("ChunkImportFT2")
 urust_datatype \<open> enum ChunkImportFG { A } \<close>
 urust_fn \<open> fn ChunkImportFG2() -> u32 { 3 } \<close>
 urust_datatype \<open> enum ChunkImportFN { A } \<close>
@@ -644,11 +640,11 @@ local
   val broken = "  fn ChunkImportBroken() -> bool { 1u32 }\n"
 in
   (* The target's type entity exists; its value entity is declared later. The earlier value use
-     neither falls back to a persistent alias or an outer item of the alias spelling nor reads an
+     neither falls back to a call registration or an outer item of the alias spelling nor reads an
      unresolved name. *)
-  val _ = later_value "enum with a later function, persistent fallback"
+  val _ = later_value "enum with a later function, call-registration fallback"
     "ChunkImportFE" "ChunkImportFBoth"
-  val _ = later_value "type mapping with a later function, persistent fallback"
+  val _ = later_value "type mapping with a later function, call-registration fallback"
     "ChunkImportFT" "ChunkImportFT2"
   val _ = later_value "enum with a later function, outer item fallback"
     "ChunkImportFG" "ChunkImportFG2"
@@ -694,11 +690,11 @@ end
 text\<open>
 Entities that exist before the chunk keep resolving through an alias whose other namespace a later
 member declares, and a later value-only target leaves the type namespace of its spelling to the
-persistent alias.
+existing type mapping.
 \<close>
 
 urust_datatype \<open> enum ChunkImportBoth { Only } \<close>
-urust_use \<open> use demo::Width as ChunkImportSpell; \<close>
+urust_type "ChunkImportSpell" = \<open> 32 word \<close>
 
 urust \<open>
   fn ChunkImportBothType(choice: ChunkImportBothAlias) -> u32 {
@@ -1010,7 +1006,6 @@ struct
          ["ChunkImportAtomicRecord", "ChunkImportAtomicLater", "ChunkImportAtomicLaterStruct"],
      constants = filter (const_declared ctxt) ["chunk_import_atomic_first"],
      registries = registry_snapshot ctxt,
-     persistent = URust_Import_Scope.dump_persistent ctxt,
      frames = URust_Import_Scope.frame_depth ctxt}
 end
 \<close>
@@ -1051,7 +1046,7 @@ local
     (#functions final = functions andalso
       #types final = ["ChunkImportAtomicRecord"] andalso
       #constants final = ["chunk_import_atomic_first"] andalso
-      #persistent final = #persistent after_declare andalso #frames final = 0)
+      #frames final = 0)
 in
   val _ = writeln "failing chunks with imports leave no declarations, bindings, reports or output"
 end
@@ -1072,7 +1067,7 @@ subsection\<open> Navigation \<close>
 text\<open>
 Each alias of a chunk is reported once, at its use item, with its tooltip and target references.
 Every occurrence in any member keeps its backend navigation and ends at that import declaration,
-exactly as an occurrence of a persistent alias in a single-item declaration does.
+exactly as an occurrence of a block alias in a single-item declaration does.
 \<close>
 
 ML_val\<open>
@@ -1084,8 +1079,7 @@ local
       ("  fn ChunkImportNavEarly(x: u32) -> u32 { nav_step(x) }\n" ^
        "  use demo::increment as nav_step;\n" ^
        "  fn ChunkImportNavLate(x: u32) -> u32 { nav_step(nav_step(x)) }\n") ^
-    "\nurust_use " ^ cartouche " use demo::increment as nav_control; " ^
-    "\nurust_fn " ^ cartouche " fn ChunkImportNavControl(x: u32) -> u32 { nav_control(x) } "
+    "\nurust_fn " ^ cartouche " fn ChunkImportNavControl(x: u32) -> u32 { use demo::increment as nav_control; nav_control(x) } "
   val {reports, warnings, ...} = run_success \<^theory> "chunk-import-navigation" text
   val events = report_events reports
   fun at range = filter (fn event => report_range event = range) events
@@ -1166,8 +1160,8 @@ local
       exists (String.isSubstring "choice: PrettyChoice") (authored_output (#output pretty)))
   val _ = require "pretty replay is read-only"
     (registry_snapshot (#ctxt pretty) = registry_snapshot (#ctxt plain_run) andalso
-      URust_Import_Scope.dump_persistent (#ctxt pretty) =
-        URust_Import_Scope.dump_persistent (#ctxt plain_run))
+      URust_Import_Scope.frame_depth (#ctxt pretty) = 0 andalso
+      URust_Import_Scope.frame_depth (#ctxt plain_run) = 0)
 in
   val _ = ()
 end

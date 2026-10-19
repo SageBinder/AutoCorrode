@@ -480,16 +480,15 @@ urust_expr showoff_cast_alias_repeats
 subsection\<open> Rust use imports \<close>
 
 text\<open>
-\<open>urust_use\<close> imports one complete Rust use item under shorter names. Imports are ordinary
-declarations: later commands and importing theories see them. A grouped \<open>self\<close> imports the
+A \<open>urust\<close> chunk imports complete Rust use items under shorter names for its members.
+The aliases end with the chunk. A grouped \<open>self\<close> imports the
 enum type, while its variants are imported separately. Inside a body, a use statement is visible
 throughout its block, including before the statement, and it is erased from the checked term.
 \<close>
 
-urust_use \<open> use DatatypeEvent::{self as Event, Idle, Packet as Carried}; \<close>
-urust_use \<open> use types::BufferSize as Length; \<close>
-
-urust_fn \<open>
+urust \<open>
+  use DatatypeEvent::{self as Event, Idle, Packet as Carried};
+  use types::BufferSize as Length;
   fn EventLength(event: Event, fallback: Length) -> Length {
     match event {
       Idle => fallback,
@@ -506,7 +505,7 @@ urust_expr showoff_imported_events
   \<open>
     {
       let quiet = Quiet;
-      use Event::Idle as Quiet;
+      use DatatypeEvent::{self as Event, Idle as Quiet};
       (quiet, Event::Idle)
     }
   \<close>
@@ -527,6 +526,7 @@ visible again after the block.
 urust_expr showoff_block_shadowing
   \<open>
     {
+      use DatatypeEvent as Event;
       let marker = |event| event;
       let inner = { use Event::Idle as marker; marker };
       (inner, marker(Event::Idle))
@@ -552,11 +552,12 @@ subsection\<open> Imports in chunks \<close>
 text\<open>
 A chunk may contain use items. Their aliases are visible to every declaration of the chunk,
 including declarations written before the use item, and disappear when the command ends; the
-persistent aliases above remain visible. An item that the chunk declares can be imported by the
+generated declarations above remain available. An item that the chunk declares can be imported by the
 members after it.
 \<close>
 
 urust [verbosity = 1] \<open>
+  use types::BufferSize as Length;
   fn ShowcaseArrivalTag(arrival: Arrival) -> u32 {
     match arrival {
       Waiting => 0,

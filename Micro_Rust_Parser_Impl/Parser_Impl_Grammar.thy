@@ -1742,7 +1742,7 @@ fun reject_item_in_expression (Datatype_Item item) =
         "type alias" "urust_type_alias" (type_alias_item_position item)
   | reject_item_in_expression (Use_Item_Node item) =
       URust_Grammar.item_in_expression_error
-        "use" "a block statement or urust_use" (use_item_position item)
+        "use" "a block statement or urust chunk" (use_item_position item)
 \<close>
 yacc_definitions\<open>
 %name URust
@@ -3773,15 +3773,15 @@ struct
        SOME (URust_AST.Use_Item_Node item) => SOME item
      | SOME (URust_AST.Datatype_Item item) =>
          error
-           ("urust_use: expected one complete use item" ^
+           ("uRust import: expected one complete use item" ^
              Position.here (URust_AST.datatype_item_position item))
      | SOME (URust_AST.Function_Item_Node function) =>
          error
-           ("urust_use: expected one complete use item" ^
+           ("uRust import: expected one complete use item" ^
              Position.here (URust_AST.function_item_position function))
      | SOME (URust_AST.Type_Alias_Item_Node item) =>
          error
-           ("urust_use: expected one complete use item" ^
+           ("uRust import: expected one complete use item" ^
              Position.here (URust_AST.type_alias_item_position item))
      | NONE => NONE)
   fun parse_type_source ctxt source =

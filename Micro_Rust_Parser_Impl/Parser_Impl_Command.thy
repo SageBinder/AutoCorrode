@@ -9,7 +9,6 @@ theory Parser_Impl_Command
     and "urust_fn" :: thy_decl
     and "urust_datatype" :: thy_decl
     and "urust_type_alias" :: thy_decl
-    and "urust_use" :: thy_decl
     and "urust_notation" :: thy_decl
     and "\<rightarrow>"
 begin
@@ -186,17 +185,17 @@ single-item commands share. Preparation is pure; declaration runs native backend
 contexts inside the caller's report transaction and regenerates the authored definition entities
 afterwards.
 
-The command \<open>urust_use src\<close> accepts exactly one complete Rust use item, such as
+Rust use items in chunks and bodies accept complete declarations, such as
 \<open>use demo::{increment as inc, Width};\<close> or \<open>use Choice::{self as Selection, Empty};\<close>.
-Its aliases are ordinary local-theory declarations, inherited through theory imports and confined
-by locales and experiments. Each alias captures the canonical exact key of an existing generated
-item, Rust type mapping or literal/call notation when the command runs. Later value, call,
+Each alias captures the canonical exact key of a generated item, Rust type mapping or literal/call
+notation in its scope. Value, call,
 constructor, pattern, type and cast occurrences resolve an alias to that key and its owning
 registry; a binding that is unusable in the requested role is rejected without falling back.
-Like Rust module-level imports, these aliases are shadowed by lexical locals and parameters.
+Like Rust module-level imports, chunk aliases are shadowed by lexical locals and parameters.
 Use statements in bodies follow Rust block scope and are prepared by expression translation:
 they shadow same-named locals and parameters bound outside their block.
-The whole item validates before any binding is installed, and its reports wait until success.
+Aliases never survive their chunk or block. The whole batch validates before any binding is
+prepared, and its reports wait until success.
 
 The option parser is parameterized by a command-specific schema. Both commands accept Boolean
 \<open>pp_test\<close>, \<open>pretty\<close>, \<open>application_def\<close>, and \<open>abbrev\<close>, integer
@@ -1330,9 +1329,7 @@ fun reject_function_item_conflict lthy (rust_name, rust_pos) =
         " conflicts with an existing micro_rust_notation (call) declaration" ^
         Position.here rust_pos)
   else
-    URust_Import_Scope.check_item_collision lthy
-      {item = "generated Rust function", name = rust_name, pos = rust_pos}
-      URust_Import_Scope.Value_Namespace
+    ()
 
 fun register_function_result target (rust_name, rust_pos)
     declaration lthy =
@@ -2162,30 +2159,6 @@ val _ =
       (Parse.token Parse.cartouche >> Parser_Lex_Util.cartouche_source) >>
         define_urust_type_alias)
 
-(* The complete item validates and installs atomically; its declaration, target and dependency
-   reports are released only after installation succeeds. *)
-fun define_urust_use source lthy =
-  let
-    val ((((completed, import_reports), field_reports), function_reports),
-          navigation_reports) =
-      Navigation.capture (fn () =>
-        URust_Item_Scope.capture_function_reports (fn () =>
-          URust_Item_Scope.capture_field_reports (fn () =>
-            URust_Import_Scope.capture_reports (fn () =>
-              (case URust_Parser.parse_use_source lthy source of
-                 SOME item => URust_Imports.install item lthy
-               | NONE =>
-                   error ("urust_use: empty use item" ^ Position.here (Input.pos_of source)))))))
-    val _ = Navigation.replay completed navigation_reports
-    val _ = URust_Item_Scope.replay_field_reports completed field_reports
-    val _ = URust_Item_Scope.replay_function_reports completed function_reports
-    val _ = URust_Import_Scope.replay_use_reports completed import_reports
-  in completed end
-
-val _ =
-  Outer_Syntax.local_theory \<^command_keyword>\<open>urust_use\<close>
-    "Import Rust items under shorter source names"
-    (Parse.token Parse.cartouche >> Parser_Lex_Util.cartouche_source >> define_urust_use)
 end
 \<close>
 

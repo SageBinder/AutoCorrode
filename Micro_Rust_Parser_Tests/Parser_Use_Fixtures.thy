@@ -1,9 +1,11 @@
 theory Parser_Use_Fixtures
-  imports Parser_Test_Utils
+  imports
+    Parser_Test_Utils
+    Micro_Rust_Parser_Impl.Parser_Impl_Chunk
 begin
 
 text\<open>
-Declaration-only items shared by the Rust import tests and their imported-theory fixtures. Every
+Declaration-only items shared by the Rust block and chunk import tests. Every
 name is synthetic. The items cover each namespace and shape that an import can target: generated
 enums, variants and structs, a generated function, exact literal and call notations, an overloaded
 literal, Rust type mappings and a type alias.
@@ -47,6 +49,11 @@ urust_type "demo::Width" = \<open> 32 word \<close>
 urust_type "demo::Cell<'a>" = \<open> 'a list \<close>
 urust_type_alias "demo::Short" \<open> type Short = u16; \<close>
 urust_type_alias "demo::Pointer" \<open> type Pointer<T> = *const T; \<close>
+
+urust \<open>
+  use use_increment as fixture_step;
+  fn UseFixtureImported(x: u32) -> u32 { fixture_step(x) }
+\<close>
 
 ML\<open>
 structure Parser_Use_Test =

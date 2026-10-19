@@ -9,8 +9,8 @@ section\<open> Rust import preparation \<close>
 text\<open>
 This theory owns the higher import interface: it flattens positioned use trees into explicit leaf
 imports, resolves each leaf against the active import scope and the exact item, type and notation
-registries, validates the complete batch and either installs it persistently for
-\<open>urust_use\<close> or returns a context extended with one immutable block frame.
+registries, validates the complete batch and returns a context extended with one immutable
+chunk or block frame.
 \<close>
 
 ML\<open>
@@ -41,12 +41,11 @@ sig
   val validate_batch: URust_AST.use_item list -> batch
   val batch_leaves: batch -> leaf list
   val resolve_batch:
-    {persistent: bool, targets: target_policy} -> Proof.context -> batch ->
+    target_policy -> Proof.context -> batch ->
       URust_Import_Scope.binding list
   val prepare_batch: target_policy -> Proof.context -> batch -> Proof.context
   val prepare_batch_unreported: target_policy -> Proof.context -> batch -> Proof.context
   val conclude_batch: {initial: Proof.context} -> Proof.context -> batch -> unit
-  val install: URust_AST.use_item -> local_theory -> local_theory
   val same_scope_item:
     Proof.context -> URust_Import_Scope.namespace -> string ->
       {item: string, pos: Position.T} option
@@ -80,8 +79,8 @@ end
     namespace are rejected at the later alias. A grouped `self` imports only the type identity of a
     generated enum. Exact keys obtain their namespace memberships from item origin and shape,
     type mappings and literal/call notation registrations; field-only notations and keys without
-    any supported item are positioned rejections. Persistent batches additionally reject an alias
-    that collides with a same-scope generated item or registered type. Bindings carry the identity
+    any supported item are positioned rejections. Chunk batches reject an alias
+    that collides with an item declared in that chunk. Bindings carry the identity
     of their validated leaf. Semantic reports are deferred only after the complete batch validates.
     Require_Targets rejects a target that is absent from the context. Allow_Unavailable_Targets
     instead binds such a leaf, and every leaf depending on it, as an unavailable binding whose uses
@@ -98,7 +97,7 @@ end
     except the both-namespace placeholders of Allow_Unavailable_Targets.
   - prepare_batch is the batch preparation operation shared by real blocks, implicit command bodies
     and composition: it returns the supplied context extended with one immutable frame, or the
-    context itself for an empty batch. Blocks, bodies and persistent imports require targets; a
+    context itself for an empty batch. Blocks and bodies require targets; a
     composer that re-prepares one validated batch for each declaration passes the entities of the
     registrations still to be made as Declared_Later (or, without that knowledge, allows
     unavailable targets) and requires every target at the end. prepare_batch_unreported prepares
@@ -107,8 +106,7 @@ end
     resolves the batch with Require_Targets and reports it, and rejects an import whose alias
     shares a namespace with an item declared alongside the batch, that is, present in the final
     context but not in the initial one, as Rust rejects an import and an item of one name in one
-    scope. install validates and installs one use item as persistent local-theory declarations,
-    capturing the canonical keys at installation.
+    scope.
   - same_scope_item finds the generated function or unit/tuple constructor (value namespace) or the
     Rust type (type namespace) whose single-segment key is a given name.
   - registrations describes the entries one key has, or one declaration will make, in each source
@@ -444,9 +442,7 @@ struct
                (case S.lookup ctxt namespace name of
                   NONE => NONE
                 | SOME binding =>
-                    (if #available binding then
-                       S.check_merged_collision ctxt binding (same_scope_item ctxt namespace name)
-                     else if precise andalso precise_outer then ()
+                    (if #available binding orelse (precise andalso precise_outer) then ()
                      else unavailable_or_error pos binding;
                      SOME (binding_member ctxt binding)))
            | [(_, member)] => SOME member
@@ -711,7 +707,7 @@ struct
         (filter #available (map_filter I [#type_member resolved, #value_member resolved]))
     end
 
-  fun resolve report {persistent, targets} ctxt (batch: batch) =
+  fun resolve report targets ctxt (batch: batch) =
     let
       val leaves = batch_leaves batch
       val outcomes = resolve_leaves targets ctxt leaves
@@ -722,11 +718,6 @@ struct
           described
       val _ = S.check_batch (map_filter (fn (binding, _, known) =>
         if known then SOME (compared binding) else NONE) described)
-      val _ =
-        if persistent then
-          (S.check_persistent_duplicates ctxt bindings;
-           List.app (check_scope_items (same_scope_item ctxt)) bindings)
-        else ()
       val _ =
         if report then
           let
@@ -748,7 +739,7 @@ struct
     | gen_prepare_batch report targets ctxt batch =
         let
           val (bindings, pending) =
-            resolve report {persistent = false, targets = targets} ctxt batch
+            resolve report targets ctxt batch
         in ctxt |> S.push_frame bindings |> S.add_pending_roles pending end
 
   val prepare_batch = gen_prepare_batch true
@@ -756,7 +747,7 @@ struct
 
   fun conclude_batch {initial} ctxt batch =
     let
-      val bindings = resolve_batch {persistent = false, targets = Require_Targets} ctxt batch
+      val bindings = resolve_batch Require_Targets ctxt batch
       fun declared_alongside namespace name =
         (case same_scope_item ctxt namespace name of
            SOME found =>
@@ -764,10 +755,6 @@ struct
          | NONE => NONE)
     in List.app (check_scope_items declared_alongside) bindings end
 
-  fun install item lthy =
-    S.declare_persistent
-      (resolve_batch {persistent = true, targets = Require_Targets} lthy (validate_batch [item]))
-      lthy
 end
 \<close>
 

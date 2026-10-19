@@ -502,10 +502,6 @@ struct
 
   fun register_type {rust_name, rust_pos, hol_type_name} lthy =
     let
-      val _ =
-        URust_Import_Scope.check_item_collision lthy
-          {item = "generated Rust item", name = rust_name, pos = rust_pos}
-          URust_Import_Scope.Type_Namespace
       val serial = serial ()
       val entry: type_entry =
         {rust_name = rust_name,
@@ -544,14 +540,6 @@ struct
        constructor, origin, shape, fields}
       lthy =
     let
-      val _ =
-        (case (origin, shape) of
-           (Struct_Constructor, Named_Constructor) => ()
-         | (Struct_Constructor, _) =>
-             URust_Import_Scope.check_item_collision lthy
-               {item = "generated Rust constructor", name = rust_path, pos = rust_pos}
-               URust_Import_Scope.Value_Namespace
-         | (Enum_Variant, _) => ())
       val constructor_serial = serial ()
       val field_entries: field_entry list =
         map
@@ -627,10 +615,6 @@ struct
 
   fun register_function {rust_name, rust_pos, function} lthy =
     let
-      val _ =
-        URust_Import_Scope.check_item_collision lthy
-          {item = "generated Rust function", name = rust_name, pos = rust_pos}
-          URust_Import_Scope.Value_Namespace
       val entry: function_entry =
         {rust_name = rust_name,
          rust_pos = rust_pos,

@@ -12,7 +12,7 @@ section\<open> Test support \<close>
 
 text\<open>
 Command-level audits run synthetic theory text in a private toplevel state. Positions carry
-symbol offsets and a synthetic identity, so diagnostics and reports can be located exactly;
+symbol offsets and the current PIDE command identity, so diagnostics and reports can be located exactly;
 output, warnings and reports of that synthetic file are captured privately.
 \<close>
 
@@ -24,7 +24,9 @@ struct
   fun annotation text = omega ^ cartouche text
   fun command_source text = cartouche ("\n" ^ text ^ "\n")
 
-  fun start_position label = Position.make0 1 1 0 "" label ("chunk-test-" ^ label)
+  fun start_position label =
+    Position.make0 1 1 0 "" label ""
+    |> Position.copy_id (Position.thread_data ())
 
   fun source label text =
     Parser_Lex_Util.positioned_content_source text (start_position label)

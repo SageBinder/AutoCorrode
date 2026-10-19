@@ -27,7 +27,7 @@ earlier items are available to later ones and forward references are not resolve
 items are rejected as chunk members. With \<open>pp_test\<close>, each member's annotation and item
 roundtrip through the serialized chunk printer before any declaration.
 
-A use member is one complete use item with the grammar of \<open>urust_use\<close>; it takes no options, so
+A use member is one complete Rust use item; it takes no options, so
 an annotation before it is rejected. The chunk's imports form one batch, validated as a whole
 (duplicates and cycles) before the first declaration. Its aliases are visible to every declaration
 of the chunk, including those written before the use item, and to nothing else: each declaration
@@ -36,10 +36,10 @@ entity that the declaration itself or a later member declares is unavailable in 
 and its use is rejected without fallback, while entities that already exist keep resolving. A
 target that neither exists nor is declared, with a Rust registration, by a member is rejected as
 unknown before the first declaration. After the last declaration every target must resolve, and
-no chunk import may share a namespace and name with an item that the chunk declares. Chunk aliases
-shadow persistent \<open>urust_use\<close> aliases, body imports shadow chunk aliases, and no alias survives
+no chunk import may share a namespace and name with an item that the chunk declares. Body imports
+shadow chunk aliases, and no alias survives
 the command. As for Rust module-level imports, member parameters and other lexical locals shadow
-chunk and persistent aliases, while a body import shadows the parameters of its member.
+chunk aliases, while a body import shadows the parameters of its member.
 
 The command is one report transaction. uRust semantic reports, the markup of embedded HOL
 sources read during elaboration, regenerated declaration definition entities, warnings and

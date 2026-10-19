@@ -1,7 +1,7 @@
 theory Parser_Use_Tests
   imports
-    Parser_Use_Left_Fixtures
-    Parser_Use_Right_Fixtures
+    Parser_Use_Fixtures
+    Micro_Rust_Parser_Impl.Parser_Impl_Chunk
 begin
 
 section\<open> Scope foundation \<close>
@@ -9,7 +9,7 @@ section\<open> Scope foundation \<close>
 text\<open>
 Direct tests of \<^ML_structure>\<open>URust_Import_Scope\<close> and \<^ML_structure>\<open>URust_Imports\<close>.
 They construct use trees without parsing and check namespace membership, collisions, cycles,
-confinement, merging and stable identities.
+confinement and stable identities.
 \<close>
 
 ML_val\<open>
@@ -18,6 +18,8 @@ local
   val ctxt = \<^context>
   val type_ns = S.Type_Namespace
   val value_ns = S.Value_Namespace
+  val _ = require "theory imports retain no aliases from a fixture chunk"
+    (is_none (S.lookup ctxt value_ns "fixture_step") andalso S.frame_depth ctxt = 0)
 
   val choice =
     prepare ctxt
@@ -127,111 +129,6 @@ in
   val _ = ()
 end
 \<close>
-
-subsection\<open> Persistent bindings, merging and collisions \<close>
-
-ML_val\<open>
-local
-  open Parser_Use_Test
-  val ctxt = \<^context>
-  val value_ns = S.Value_Namespace
-  fun theory_context name =
-    Proof_Context.init_global
-      (Context.get_theory {long = true} \<^theory> ("Micro_Rust_Parser_Tests." ^ name))
-  fun identity context alias = #identity (the (S.lookup context value_ns alias))
-
-  val aliases = S.dump_persistent ctxt |> map #alias |> sort_strings
-  val _ = require "diamond inventory"
-    (aliases = ["MergedCollision", "left_value", "merged_width", "right_value", "shared_increment"])
-  val _ = require "diamond import retains its declaration identity"
-    (identity ctxt "shared_increment" =
-      identity (theory_context "Parser_Use_Base_Fixtures") "shared_increment")
-  val left = identity (theory_context "Parser_Use_Left_Fixtures") "merged_width"
-  val right = identity (theory_context "Parser_Use_Right_Fixtures") "merged_width"
-  val _ = require "independent identical imports merge to the lower identity"
-    (left <> right andalso identity ctxt "merged_width" = Int.min (left, right))
-
-  val left_binding = the (S.lookup ctxt value_ns "left_value")
-  val conflicting = {alias = "left_value", alias_pos = Position.none, namespace = value_ns,
-    key = "demo::increment", roles = [S.Call_Notation], available = true, identity = serial (),
-    declaration_pos = Position.none}: S.binding
-  val _ = require "merging the same binding is idempotent"
-    (map #identity (S.merge_persistent ([left_binding], [left_binding])) = [#identity left_binding])
-  val _ = rejects "conflicting merged imports" "conflicting value imports for \"left_value\""
-    (fn () => S.merge_persistent ([left_binding], [conflicting]))
-
-  val lthy = Named_Target.theory_init \<^theory>
-  fun install trees context = fold (URust_Imports.install o item) trees context
-  val _ = rejects "persistent duplicate in one scope" "duplicate value import \"left_value\""
-    (fn () => install [leaf ["demo", "increment"] (SOME "left_value")] lthy)
-  val _ = rejects "import after a same-scope function" "collides with the same-scope generated Rust function"
-    (fn () => install [leaf ["demo", "value"] (SOME "use_increment")] lthy)
-  val _ = rejects "import after a same-scope constructor" "collides with the same-scope generated Rust constructor"
-    (fn () => install [leaf ["demo", "value"] (SOME "UseUnit")] lthy)
-  val _ = rejects "import after a same-scope type" "collides with the same-scope generated Rust item"
-    (fn () => install [leaf ["demo", "Width"] (SOME "UsePacket")] lthy)
-  val _ = rejects "import after a same-scope type mapping" "collides with the same-scope Rust type"
-    (fn () => install [leaf ["UsePacket"] (SOME "u8")] lthy)
-  val later = install [leaf ["demo", "value"] (SOME "LaterItem"), leaf ["demo", "Width"] (SOME "LaterType")] lthy
-  val _ = rejects "function after a same-scope import" "collides with the value import"
-    (fn () =>
-      URust_Item_Scope.register_function
-        {rust_name = "LaterItem", rust_pos = Position.none, function = \<^term>\<open>use_increment\<close>} later)
-  val _ = rejects "type after a same-scope import" "collides with the type import"
-    (fn () =>
-      URust_Type_Mappings.register_generated
-        {rust_name = "LaterType", rust_pos = Position.none, hol_type_name = \<^type_name>\<open>bool\<close>} later)
-in
-  val _ = ()
-end
-\<close>
-
-experiment
-begin
-
-local_setup \<open>
-  URust_Imports.install (Parser_Use_Test.item (Parser_Use_Test.leaf ["demo", "value"] (SOME "experiment_value")))
-\<close>
-
-ML_val\<open>
-  Parser_Use_Test.require "experiment import is active"
-    (Parser_Use_Test.lookup_key \<^context> URust_Import_Scope.Value_Namespace "experiment_value" =
-      SOME "demo::value")
-\<close>
-
-end
-
-ML_val\<open>
-  Parser_Use_Test.require "experiment import is confined"
-    (is_none (URust_Import_Scope.lookup \<^context> URust_Import_Scope.Value_Namespace "experiment_value"))
-\<close>
-
-locale use_scope_locale =
-  fixes use_scope_parameter :: nat
-begin
-
-local_setup \<open>
-  URust_Imports.install (Parser_Use_Test.item (Parser_Use_Test.leaf ["demo", "WIDTH"] (SOME "locale_width")))
-\<close>
-
-end
-
-ML_val\<open>
-  Parser_Use_Test.require "locale import is confined to its context"
-    (is_none (URust_Import_Scope.lookup \<^context> URust_Import_Scope.Value_Namespace "locale_width"))
-\<close>
-
-context use_scope_locale
-begin
-
-ML_val\<open>
-  Parser_Use_Test.require "locale import is available when the locale is reopened"
-    (Parser_Use_Test.lookup_key \<^context> URust_Import_Scope.Value_Namespace "locale_width" =
-      SOME "demo::WIDTH")
-\<close>
-
-end
-
 
 section\<open> Syntax and printing \<close>
 
@@ -443,99 +340,87 @@ end
 \<close>
 
 
-section\<open> Persistent imports \<close>
+section\<open> Scoped imports \<close>
 
 text\<open>
-\<open>urust_use\<close> installs one complete use item as ordinary local-theory declarations. Every
-generated definition below is compared by kernel reflexivity with its explicitly qualified
-counterpart, so the import changes only name resolution.
+Imports belong to their chunk or block. Every generated definition below is compared by kernel
+reflexivity with its explicitly qualified counterpart, so the import changes only name resolution.
 \<close>
-
-urust_use \<open> use demo::increment as inc; \<close>
-urust_use \<open> use demo::{WIDTH as Width_Value, ZERO, COUNT, value as fetch}; \<close>
-urust_use \<open> use UseChoice::{self as Selection, Empty, Value as Present, Named as NamedVariant}; \<close>
-urust_use \<open> use use_increment as bump; \<close>
-urust_use \<open> use use_identity as ident; \<close>
-urust_use \<open> use demo::{Width as Word32, Short, Cell, Pointer}; \<close>
-urust_use \<open> use {UsePacket as Packet, UseTuple as Tuple1, UseUnit as Unit1, UseWrapper as Wrapper}; \<close>
-urust_use \<open> use Selection::Value as SelectedValue; \<close>
 
 subsection\<open> Values, calls and constructors \<close>
 
-urust_expr use_call \<open> inc(3) \<close>
+urust_fn \<open> fn UseFixtureImportedQualified(x: u32) -> u32 { use_increment(x) } \<close>
+lemma \<open> use_fixture_imported = use_fixture_imported_qualified \<close>
+  unfolding use_fixture_imported_def use_fixture_imported_qualified_def by (rule refl)
+
+urust_expr use_call \<open> use demo::increment as inc; inc(3) \<close>
 urust_expr use_call_qualified \<open> demo::increment(3) \<close>
 lemma \<open> use_call = use_call_qualified \<close>
   unfolding use_call_def use_call_qualified_def by (rule refl)
 
-urust_expr use_literal \<open> Width_Value \<close>
+urust_expr use_literal \<open> use demo::{WIDTH as Width_Value, ZERO, COUNT, value as fetch}; Width_Value \<close>
 urust_expr use_literal_qualified \<open> demo::WIDTH \<close>
 lemma \<open> use_literal = use_literal_qualified \<close>
   unfolding use_literal_def use_literal_qualified_def by (rule refl)
 
-urust_expr use_overloaded_narrow \<open> ZERO + 1u32 \<close>
+urust_expr use_overloaded_narrow \<open> use demo::{WIDTH as Width_Value, ZERO, COUNT, value as fetch}; ZERO + 1u32 \<close>
 urust_expr use_overloaded_narrow_qualified \<open> demo::ZERO + 1u32 \<close>
 lemma \<open> use_overloaded_narrow = use_overloaded_narrow_qualified \<close>
   unfolding use_overloaded_narrow_def use_overloaded_narrow_qualified_def by (rule refl)
 
-urust_expr use_overloaded_wide \<open> ZERO + 1u64 \<close>
+urust_expr use_overloaded_wide \<open> use demo::{WIDTH as Width_Value, ZERO, COUNT, value as fetch}; ZERO + 1u64 \<close>
 urust_expr use_overloaded_wide_qualified \<open> demo::ZERO + 1u64 \<close>
 lemma \<open> use_overloaded_wide = use_overloaded_wide_qualified \<close>
   unfolding use_overloaded_wide_def use_overloaded_wide_qualified_def by (rule refl)
 
-urust_expr use_nullary_call \<open> fetch() \<close>
+urust_expr use_nullary_call \<open> use demo::{WIDTH as Width_Value, ZERO, COUNT, value as fetch}; fetch() \<close>
 urust_expr use_nullary_call_qualified \<open> demo::value() \<close>
 lemma \<open> use_nullary_call = use_nullary_call_qualified \<close>
   unfolding use_nullary_call_def use_nullary_call_qualified_def by (rule refl)
 
-urust_expr use_generated_call \<open> bump(2) \<close>
+urust_expr use_generated_call \<open> use use_increment as bump; bump(2) \<close>
 urust_expr use_generated_call_qualified \<open> use_increment(2) \<close>
 lemma \<open> use_generated_call = use_generated_call_qualified \<close>
   unfolding use_generated_call_def use_generated_call_qualified_def by (rule refl)
 
-urust_expr use_heterogeneous \<open> (ident(1u32), ident(true)) \<close>
+urust_expr use_heterogeneous \<open> use use_identity as ident; (ident(1u32), ident(true)) \<close>
 urust_expr use_heterogeneous_qualified \<open> (use_identity(1u32), use_identity(true)) \<close>
 lemma \<open> use_heterogeneous = use_heterogeneous_qualified \<close>
   unfolding use_heterogeneous_def use_heterogeneous_qualified_def by (rule refl)
 
-urust_expr use_constructors \<open> (Present(3), Empty, Selection::Value(4), SelectedValue(5)) \<close>
+urust_expr use_constructors \<open> use UseChoice::{self as Selection, Empty, Value as Present, Named as NamedVariant}; use Selection::Value as SelectedValue; (Present(3), Empty, Selection::Value(4), SelectedValue(5)) \<close>
 urust_expr use_constructors_qualified
   \<open> (UseChoice::Value(3), UseChoice::Empty, UseChoice::Value(4), UseChoice::Value(5)) \<close>
 lemma \<open> use_constructors = use_constructors_qualified \<close>
   unfolding use_constructors_def use_constructors_qualified_def by (rule refl)
 
 urust_expr use_named_construction
-  \<open> (NamedVariant { sample: 5 }, Selection::Named { sample: 6 }, Packet { sample: 7 }) \<close>
+  \<open> use UseChoice::{self as Selection, Empty, Value as Present, Named as NamedVariant}; use {UsePacket as Packet, UseTuple as Tuple1, UseUnit as Unit1, UseWrapper as Wrapper}; (NamedVariant { sample: 5 }, Selection::Named { sample: 6 }, Packet { sample: 7 }) \<close>
 urust_expr use_named_construction_qualified
   \<open> (UseChoice::Named { sample: 5 }, UseChoice::Named { sample: 6 }, UsePacket { sample: 7 }) \<close>
 lemma \<open> use_named_construction = use_named_construction_qualified \<close>
   unfolding use_named_construction_def use_named_construction_qualified_def by (rule refl)
 
-urust_expr use_struct_constructors \<open> (Tuple1(7), Unit1) \<close>
+urust_expr use_struct_constructors \<open> use {UsePacket as Packet, UseTuple as Tuple1, UseUnit as Unit1, UseWrapper as Wrapper}; (Tuple1(7), Unit1) \<close>
 urust_expr use_struct_constructors_qualified \<open> (UseTuple(7), UseUnit) \<close>
 lemma \<open> use_struct_constructors = use_struct_constructors_qualified \<close>
   unfolding use_struct_constructors_def use_struct_constructors_qualified_def by (rule refl)
 
-urust_expr use_repeat \<open> [0u8; COUNT] \<close>
+urust_expr use_repeat \<open> use demo::{WIDTH as Width_Value, ZERO, COUNT, value as fetch}; [0u8; COUNT] \<close>
 urust_expr use_repeat_qualified \<open> [0u8; demo::COUNT] \<close>
 lemma \<open> use_repeat = use_repeat_qualified \<close>
   unfolding use_repeat_def use_repeat_qualified_def by (rule refl)
 
-urust_expr use_cast (x) \<open> x as Short \<close>
+urust_expr use_cast (x) \<open> use demo::{Width as Word32, Short, Cell, Pointer}; x as Short \<close>
 urust_expr use_cast_qualified (x) \<open> x as demo::Short \<close>
 lemma \<open> use_cast = use_cast_qualified \<close>
   unfolding use_cast_def use_cast_qualified_def by (rule refl)
-
-urust_expr use_imported_theory \<open> (shared_increment(1), merged_width, left_value(), right_value()) \<close>
-urust_expr use_imported_theory_qualified
-  \<open> (demo::increment(1), demo::WIDTH, demo::value(), demo::value()) \<close>
-lemma \<open> use_imported_theory = use_imported_theory_qualified \<close>
-  unfolding use_imported_theory_def use_imported_theory_qualified_def by (rule refl)
 
 subsection\<open> Patterns \<close>
 
 urust_expr use_match (c)
   \<open>
-    match c {
+    use UseChoice::{self as Selection, Empty, Value as Present, Named as NamedVariant}; match c {
       Present(n) => n,
       Empty => 0,
       NamedVariant { sample } => sample,
@@ -554,7 +439,7 @@ lemma \<open> use_match = use_match_qualified \<close>
 
 urust_expr use_match_enum_paths (c)
   \<open>
-    match c {
+    use UseChoice::{self as Selection, Empty, Value as Present, Named as NamedVariant}; match c {
       Selection::Value(n) => n,
       Selection::Named { sample } => sample,
       _ => 0,
@@ -571,20 +456,23 @@ urust_expr use_match_enum_paths_qualified (c)
 lemma \<open> use_match_enum_paths = use_match_enum_paths_qualified \<close>
   unfolding use_match_enum_paths_def use_match_enum_paths_qualified_def by (rule refl)
 
-urust_expr use_literal_pattern (x) \<open> match x { Width_Value => 1u32, _ => 0 } \<close>
+urust_expr use_literal_pattern (x) \<open> use demo::{WIDTH as Width_Value, ZERO, COUNT, value as fetch}; match x { Width_Value => 1u32, _ => 0 } \<close>
 urust_expr use_literal_pattern_qualified (x) \<open> match x { demo::WIDTH => 1u32, _ => 0 } \<close>
 lemma \<open> use_literal_pattern = use_literal_pattern_qualified \<close>
   unfolding use_literal_pattern_def use_literal_pattern_qualified_def by (rule refl)
 
-urust_expr use_struct_pattern (p) \<open> match p { Packet { sample } => sample } \<close>
+urust_expr use_struct_pattern (p) \<open> use {UsePacket as Packet, UseTuple as Tuple1, UseUnit as Unit1, UseWrapper as Wrapper}; match p { Packet { sample } => sample } \<close>
 urust_expr use_struct_pattern_qualified (p) \<open> match p { UsePacket { sample } => sample } \<close>
 lemma \<open> use_struct_pattern = use_struct_pattern_qualified \<close>
   unfolding use_struct_pattern_def use_struct_pattern_qualified_def by (rule refl)
 
 subsection\<open> Types \<close>
 
-urust_fn use_signature
-  \<open> fn use_signature(x: Word32, y: Short, z: Cell<u8>, w: Wrapper<u8>, p: Pointer<u8>) -> Short { y } \<close>
+urust \<open>
+  use demo::{Width as Word32, Short, Cell, Pointer};
+  use UseWrapper as Wrapper;
+  fn use_signature(x: Word32, y: Short, z: Cell<u8>, w: Wrapper<u8>, p: Pointer<u8>) -> Short { y }
+\<close>
 urust_fn use_signature_qualified
   \<open>
     fn use_signature_qualified(
@@ -594,9 +482,11 @@ urust_fn use_signature_qualified
 lemma \<open> use_signature = use_signature_qualified \<close>
   unfolding use_signature_def use_signature_qualified_def by (rule refl)
 
-urust_datatype \<open> struct UseImportedFields { width: Word32, short: Short, cell: Cell<u8> } \<close>
+urust \<open>
+  use demo::{Width as Word32, Short, Cell};
+  struct UseImportedFields { width: Word32, short: Short, cell: Cell<u8> }
+\<close>
 urust_datatype \<open> struct UseQualifiedFields { width: demo::Width, short: demo::Short, cell: demo::Cell<u8> } \<close>
-urust_type_alias \<open> type UseAliasOfImport = Short; \<close>
 
 ML_val\<open>
 local
@@ -608,9 +498,6 @@ local
        ["use_imported_fields_width", "use_imported_fields_short", "use_imported_fields_cell"] =
      map selector_type
        ["use_qualified_fields_width", "use_qualified_fields_short", "use_qualified_fields_cell"])
-  fun resolve text = URust_Type_Mappings.resolve ctxt (URust_Parser.parse_type_source ctxt
-    (Parser_Lex_Util.text_source text))
-  val _ = require "type alias depending on an import" (resolve "UseAliasOfImport" = resolve "u16")
 in
   val _ = ()
 end
@@ -618,20 +505,17 @@ end
 
 subsection\<open> Rejections without fallback \<close>
 
-urust_expr_rejects \<open> MergedCollision() \<close>
-  \<open> generated Rust function "MergedCollision" collides with the value import of "demo::value" \<close>
-
-urust_expr_rejects \<open> Width_Value(3) \<close> \<open> resolves to "demo::WIDTH", which cannot be used as a call \<close>
-urust_expr_rejects \<open> inc \<close> \<open> resolves to "demo::increment", which cannot be used as a value \<close>
-urust_expr_rejects \<open> [0u8; inc] \<close> \<open> which cannot be used as an array repeat length \<close>
-urust_expr_rejects \<open> Present \<close> \<open> requires positional call syntax \<close>
-urust_expr_rejects \<open> Empty() \<close> \<open> is a bare value, not a call \<close>
-urust_expr_rejects \<open> Present(1, 2) \<close> \<open> expects 1 argument(s), but got 2 \<close>
-urust_expr_rejects \<open> Selection::Missing(1) \<close> \<open> resolves to "UseChoice::Missing", which cannot be used as a call \<close>
-urust_expr_rejects \<open> Word32::Value(1) \<close> \<open> is not a generated enum and cannot qualify a path \<close>
-urust_expr_rejects \<open> bump::<u8>(1) \<close> \<open> generic arguments are not supported on generated Rust function paths \<close>
-urust_expr_rejects \<open> 1u8 as NamedVariant \<close> \<open> names the enum variant "UseChoice::Named", not a type \<close>
-urust_expr_rejects \<open> 1u8 as Word32 \<close> \<open> no supported cast operation \<close>
+urust_expr_rejects \<open> use demo::{WIDTH as Width_Value, ZERO, COUNT, value as fetch}; Width_Value(3) \<close> \<open> resolves to "demo::WIDTH", which cannot be used as a call \<close>
+urust_expr_rejects \<open> use demo::increment as inc; inc \<close> \<open> resolves to "demo::increment", which cannot be used as a value \<close>
+urust_expr_rejects \<open> use demo::increment as inc; [0u8; inc] \<close> \<open> which cannot be used as an array repeat length \<close>
+urust_expr_rejects \<open> use UseChoice::{self as Selection, Empty, Value as Present, Named as NamedVariant}; Present \<close> \<open> requires positional call syntax \<close>
+urust_expr_rejects \<open> use UseChoice::{self as Selection, Empty, Value as Present, Named as NamedVariant}; Empty() \<close> \<open> is a bare value, not a call \<close>
+urust_expr_rejects \<open> use UseChoice::{self as Selection, Empty, Value as Present, Named as NamedVariant}; Present(1, 2) \<close> \<open> expects 1 argument(s), but got 2 \<close>
+urust_expr_rejects \<open> use UseChoice::{self as Selection, Empty, Value as Present, Named as NamedVariant}; Selection::Missing(1) \<close> \<open> resolves to "UseChoice::Missing", which cannot be used as a call \<close>
+urust_expr_rejects \<open> use demo::{Width as Word32, Short, Cell, Pointer}; Word32::Value(1) \<close> \<open> is not a generated enum and cannot qualify a path \<close>
+urust_expr_rejects \<open> use use_increment as bump; bump::<u8>(1) \<close> \<open> generic arguments are not supported on generated Rust function paths \<close>
+urust_expr_rejects \<open> use UseChoice::{self as Selection, Empty, Value as Present, Named as NamedVariant}; 1u8 as NamedVariant \<close> \<open> names the enum variant "UseChoice::Named", not a type \<close>
+urust_expr_rejects \<open> use demo::{Width as Word32, Short, Cell, Pointer}; 1u8 as Word32 \<close> \<open> no supported cast operation \<close>
 
 ML_val\<open>
 local
@@ -639,29 +523,27 @@ local
   val thy = \<^theory>
 in
   val _ = command_rejects thy "variant as a parameter type" "names the enum variant \"UseChoice::Named\""
-    ("urust_fn _ " ^ cartouche " fn bad(x: NamedVariant) {} ")
+    ("urust " ^ cartouche " use UseChoice::Named as NamedVariant; fn bad(x: NamedVariant) {} ")
   val _ = command_rejects thy "generic arity through an import" "has generic arities [0, 2]"
-    ("urust_fn _ " ^ cartouche " fn bad(x: Cell<u8, u8>) {} ")
+    ("urust " ^ cartouche " use demo::Cell as Cell; fn bad(x: Cell<u8, u8>) {} ")
   val _ = command_rejects thy "unknown target" "unknown import target \"demo::Missing\""
-    ("urust_use " ^ cartouche " use demo::{value as atomic_value, Missing}; ")
-  val _ = command_rejects thy "persistent duplicate" "duplicate value import \"inc\""
-    ("urust_use " ^ cartouche " use demo::value as inc; ")
-  val _ = command_rejects thy "import after a generated function" "collides with the same-scope generated Rust function"
-    ("urust_use " ^ cartouche " use demo::value as use_pair; ")
-  val _ = command_rejects thy "generated function after an import" "collides with the value import"
-    ("urust_use " ^ cartouche " use demo::value as LaterFunction; " ^
-      "\nurust_fn " ^ cartouche " fn LaterFunction() {} ")
-  val _ = command_rejects thy "datatype after an import" "collides with the type import"
-    ("urust_use " ^ cartouche " use demo::Width as LaterType; " ^
-      "\nurust_datatype " ^ cartouche " struct LaterType; ")
-  val _ = command_rejects thy "use command parse failure" "glob imports"
-    ("urust_use " ^ cartouche " use demo::*; ")
-  val recovered = run_from (initial thy) "recovered use" ("urust_use " ^ cartouche " use demo::value as recovered_value; ")
-  val _ = require "recovery after a failed use command"
-    (lookup_key (Toplevel.context_of recovered) S.Value_Namespace "recovered_value" = SOME "demo::value")
-  val _ = require "failed declarations install nothing"
-    (is_none (S.lookup \<^context> S.Value_Namespace "atomic_value") andalso
-      is_none (S.lookup \<^context> S.Value_Namespace "recovered_value"))
+    ("urust " ^ cartouche " use demo::{value as atomic_value, Missing}; ")
+  val _ = command_rejects thy "use parse failure" "glob imports"
+    ("urust " ^ cartouche " use demo::*; ")
+  val _ = require "the persistent command keyword has been removed"
+    (not (Keyword.is_command (Thy_Header.get_keywords thy) "urust_use"))
+  val _ = rejects "the removed command cannot install imports" "Outer syntax error"
+    (fn () => run_from (initial thy) "removed command"
+      ("urust_use " ^ cartouche " use demo::value as removed_value; "))
+  val recovered = run_from (initial thy) "recovered use"
+    ("urust " ^ cartouche
+      " use demo::value as recovered_value; fn UseRecovered() -> u32 { recovered_value() } ")
+  val _ = require "recovery after a failed use declaration"
+    (is_some (URust_Item_Scope.lookup_function (Toplevel.context_of recovered) "UseRecovered"))
+  val _ = require "successful and failed declarations retain no aliases"
+    (forall (is_none o S.lookup (Toplevel.context_of recovered) S.Value_Namespace)
+      ["atomic_value", "recovered_value", "removed_value"] andalso
+      S.frame_depth (Toplevel.context_of recovered) = 0)
 end
 \<close>
 
@@ -671,9 +553,7 @@ locale use_command_locale =
   fixes use_command_parameter :: nat
 begin
 
-urust_use \<open> use demo::WIDTH as LocaleWidth; \<close>
-
-urust_expr use_locale_literal \<open> LocaleWidth \<close>
+urust_expr use_locale_literal \<open> use demo::WIDTH as LocaleWidth; LocaleWidth \<close>
 urust_expr use_locale_literal_qualified \<open> demo::WIDTH \<close>
 lemma \<open> use_locale_literal = use_locale_literal_qualified \<close>
   unfolding use_locale_literal_def use_locale_literal_qualified_def by (rule refl)
@@ -688,15 +568,14 @@ ML_val\<open>
 context use_command_locale
 begin
 
-urust_expr use_locale_reopened \<open> LocaleWidth \<close>
+urust_expr use_locale_reopened \<open> use demo::WIDTH as LocaleWidth; LocaleWidth \<close>
 
 end
 
 experiment
 begin
 
-urust_use \<open> use demo::value as experiment_fetch; \<close>
-urust_expr use_experiment_call \<open> experiment_fetch() \<close>
+urust_expr use_experiment_call \<open> use demo::value as experiment_fetch; experiment_fetch() \<close>
 
 end
 
@@ -708,15 +587,8 @@ ML_val\<open>
 interpretation use_command_interpretation: use_command_locale 0 .
 
 ML_val\<open>
-local
-  open Parser_Use_Test
-  fun locale_identity ctxt =
-    #identity (the (S.lookup ctxt S.Value_Namespace "LocaleWidth"))
-  val locale_ctxt = Named_Target.init [] \<^locale>\<open>use_command_locale\<close> \<^theory>
-in
-  val _ = require "interpretation replays the import with its declaration identity"
-    (locale_identity \<^context> = locale_identity locale_ctxt)
-end
+  Parser_Use_Test.require "interpretation retains no import aliases"
+    (is_none (URust_Import_Scope.lookup \<^context> URust_Import_Scope.Value_Namespace "LocaleWidth"))
 \<close>
 
 
@@ -940,7 +812,7 @@ in
   val _ = rejects "declaration arguments are not import targets" "unknown import target \"argument\""
     (fn () => Parser_Test_Elaboration.expression_with_arguments ctxt [("argument", Position.none)]
       (Parser_Lex_Util.text_source "{ use argument as captured; 1 }"))
-  val _ = require "block imports leave no persistent binding"
+  val _ = require "block imports leave no binding in the enclosing context"
     (is_none (S.lookup ctxt S.Value_Namespace "local_inc") andalso
       is_none (S.lookup ctxt S.Value_Namespace "body_inc"))
 end
@@ -954,7 +826,7 @@ As in Rust, the use items of a block take effect at its entry. A block import th
 same-named local bound outside the block (an enclosing let, a function, closure or declaration
 parameter, or a match, if-let, while-let, for or let-else binder) within that block, while a local
 bound inside the block, even before the use item, shadows the import. Every local shadows chunk and
-persistent aliases. Each definition is kernel-equal to its import-free or qualified counterpart.
+chunk aliases. Each definition is kernel-equal to its import-free or qualified counterpart.
 \<close>
 
 urust_expr use_shadow_outer_let
@@ -1088,12 +960,11 @@ urust_expr use_shadow_rebound_argument_plain (pick) \<open> { let pick = |x| x; 
 lemma \<open> use_shadow_rebound_argument = use_shadow_rebound_argument_plain \<close>
   unfolding use_shadow_rebound_argument_def use_shadow_rebound_argument_plain_def by (rule refl)
 
-urust_use \<open> use demo::increment as use_shadow_persistent; \<close>
-urust_expr use_shadow_persistent_argument (use_shadow_persistent)
-  \<open> (use_shadow_persistent, { use demo::WIDTH as use_shadow_persistent; use_shadow_persistent }) \<close>
-urust_expr use_shadow_persistent_argument_plain (other) \<open> (other, { demo::WIDTH }) \<close>
-lemma \<open> use_shadow_persistent_argument = use_shadow_persistent_argument_plain \<close>
-  unfolding use_shadow_persistent_argument_def use_shadow_persistent_argument_plain_def by (rule refl)
+urust_expr use_shadow_parameter_argument (use_shadow_parameter)
+  \<open> (use_shadow_parameter, { use demo::WIDTH as use_shadow_parameter; use_shadow_parameter }) \<close>
+urust_expr use_shadow_parameter_argument_plain (other) \<open> (other, { demo::WIDTH }) \<close>
+lemma \<open> use_shadow_parameter_argument = use_shadow_parameter_argument_plain \<close>
+  unfolding use_shadow_parameter_argument_def use_shadow_parameter_argument_plain_def by (rule refl)
 
 locale use_shadow_locale =
   fixes use_shadow_fixed :: \<open> 32 word \<close>
@@ -1173,8 +1044,7 @@ local
     |> map (property "def_offset")
 
   val call_text =
-    "urust_use " ^ cartouche " use demo::increment as nav_inc; " ^ "\n" ^
-    "urust_expr nav_call " ^ cartouche " nav_inc(3) "
+    "urust_expr nav_call " ^ cartouche " use demo::increment as nav_inc; nav_inc(3) "
   val (call_result, call_markups) = markup_reports call_text
   val _ = require "navigation fixture succeeded" (is_some (Exn.get_res call_result))
   val alias = occurrence call_text "nav_inc" 0
@@ -1238,21 +1108,19 @@ local
   val _ = winner "call import over an argument"
     ("urust_expr nav_argument (nav_s) " ^ cartouche " use demo::increment as nav_s; nav_s(1) ")
     "nav_s" 2 true
-  val _ = winner "argument over a persistent alias"
-    ("urust_use " ^ cartouche " use demo::WIDTH as nav_p; " ^ "\n" ^
-      "urust_expr nav_alias_argument (nav_p) " ^ cartouche " nav_p ")
+  val _ = winner "argument over a chunk alias"
+    ("urust " ^ cartouche " use demo::WIDTH as nav_p; fn nav_alias_argument(nav_p: u32) -> u32 { nav_p } ")
     "nav_p" 2 false
 
   val type_text =
-    "urust_use " ^ cartouche " use demo::Width as NavWord; " ^ "\n" ^
-    "urust_fn _ " ^ cartouche " fn nav_sig(x: NavWord) {} "
+    "urust " ^ cartouche " use demo::Width as NavWord; fn nav_sig(x: NavWord) {} "
   val (_, type_markups) = markup_reports type_text
   val type_site = occurrence type_text "NavWord" 1
   val _ = require "type alias occurrence keeps its mapping and ends at the import"
     (member (op =) (kinds type_markups type_site) "micro_rust_type_mapping" andalso
       last_kind type_markups type_site = SOME "urust_import")
 
-  val self_text = "urust_use " ^ cartouche " use UseChoice::{self as NavSelection}; "
+  val self_text = "urust " ^ cartouche " use UseChoice::{self as NavSelection}; "
   val (_, self_markups) = markup_reports self_text
   val self_pos = occurrence self_text "self" 0
   val _ = require "grouped self keyword and enum reference"
@@ -1260,8 +1128,7 @@ local
       member (op =) (kinds self_markups self_pos) "urust_item")
 
   val overload_text =
-    "urust_use " ^ cartouche " use demo::ZERO as NavZero; " ^ "\n" ^
-    "urust_expr nav_zero " ^ cartouche " NavZero + 1u64 "
+    "urust_expr nav_zero " ^ cartouche " use demo::ZERO as NavZero; NavZero + 1u64 "
   val (overload_result, overload_markups) = markup_reports overload_text
   val overload_ctxt = Toplevel.context_of (Exn.release overload_result)
   val wide_serial =
@@ -1281,7 +1148,7 @@ local
     (try List.last selected = SOME (Option.map Value.print_int (try hd wide_serial)) andalso
       last_kind overload_markups overload_site = SOME "urust_import")
 
-  val rejected_text = "urust_use " ^ cartouche " use demo::{value as nav_rejected, Missing}; "
+  val rejected_text = "urust " ^ cartouche " use demo::{value as nav_rejected, Missing}; "
   val (rejected_result, rejected_markups) = markup_reports rejected_text
   val _ = require "rejected declaration fails" (is_none (Exn.get_res rejected_result))
   val _ = require "rejected declaration replays no semantic reports"
@@ -1316,22 +1183,21 @@ local
             (Unsynchronized.setmp Private_Output.writeln_urgent_fn capture action) ())
     in (result, Synchronized.value captured |> map (XML.content_of o YXML.parse_body) |> cat_lines) end
   val start_state = initial thy
-  val imported = run_from start_state "use-inventory" ("urust_use " ^ cartouche " use demo::value as inventory_value; ")
+  val imported = run_from start_state "use-inventory" ("urust " ^ cartouche " use demo::value as inventory_value; ")
   val _ = require "imports leave item, type and notation registries unchanged"
     (inventory (Toplevel.context_of start_state) = inventory (Toplevel.context_of imported) andalso
-      length (S.dump_persistent (Toplevel.context_of imported)) =
-        length (S.dump_persistent (Toplevel.context_of start_state)) + 1)
+      S.frame_depth (Toplevel.context_of imported) = 0 andalso
+      is_none (S.lookup (Toplevel.context_of imported) S.Value_Namespace "inventory_value"))
   val (replayed, output) =
     output_of (fn () =>
       run_from imported "use-pretty"
         ("urust_fn [pretty, verbosity = 2] _ " ^
-          cartouche " fn pretty_imports(x: u32) -> u32 { use demo::increment as step; step(inventory_value()) } "))
+          cartouche " fn pretty_imports(x: u32) -> u32 { use demo::{increment as step, value as inventory_value}; step(inventory_value()) } "))
   val _ = require "pretty replay prints the body import"
-    (String.isSubstring "use demo::increment as step;" output)
+    (String.isSubstring "increment as step" output)
   val _ = require "pretty replay leaves every inventory unchanged"
     (inventory (Toplevel.context_of replayed) = inventory (Toplevel.context_of imported) andalso
-      length (S.dump_persistent (Toplevel.context_of replayed)) =
-        length (S.dump_persistent (Toplevel.context_of imported)))
+      S.frame_depth (Toplevel.context_of replayed) = 0)
 in
   val _ = ()
 end
@@ -1342,7 +1208,7 @@ section\<open> Review regressions \<close>
 
 text\<open>
 Regressions for the first independent review: struct heads, report transactions, the two-phase
-batch operation, merged collisions through use paths, body visibility, early collision checks,
+batch operation, body visibility,
 reserved keywords, scope collection and source conventions.
 \<close>
 
@@ -1365,33 +1231,10 @@ Exact call-notation keys remain usable as struct-call heads when imported, as th
 syntax accepts them, provided no Rust type resolves the head.
 \<close>
 
-urust_expr use_struct_call_notation \<open> ({ use demo::increment as IncrementHead; IncrementHead { x: 1 } }, inc { y: 2 }) \<close>
+urust_expr use_struct_call_notation \<open> ({ use demo::increment as IncrementHead; IncrementHead { x: 1 } }, { use demo::increment as inc; inc { y: 2 } }) \<close>
 urust_expr use_struct_call_notation_plain \<open> (demo::increment { x: 1 }, demo::increment { y: 2 }) \<close>
 lemma \<open> use_struct_call_notation = use_struct_call_notation_plain \<close>
   unfolding use_struct_call_notation_def use_struct_call_notation_plain_def by (rule refl)
-
-experiment
-begin
-
-urust_expr use_persistent_struct_head_plain \<open> UsePacket { sample: 3 } \<close>
-urust_expr use_persistent_struct_pattern_plain (p) \<open> match p { UsePacket { sample } => sample } \<close>
-
-urust_use \<open> use demo::increment as UsePacket; \<close>
-
-urust_expr use_persistent_struct_head \<open> UsePacket { sample: 3 } \<close>
-urust_expr use_persistent_struct_pattern (p) \<open> match p { UsePacket { sample } => sample } \<close>
-urust_expr use_persistent_value_beside_struct \<open> UsePacket(4) \<close>
-urust_expr use_persistent_value_beside_struct_plain \<open> demo::increment(4) \<close>
-
-lemma \<open> use_persistent_struct_head = use_persistent_struct_head_plain \<close>
-  unfolding use_persistent_struct_head_def use_persistent_struct_head_plain_def by (rule refl)
-lemma \<open> use_persistent_struct_pattern = use_persistent_struct_pattern_plain \<close>
-  unfolding use_persistent_struct_pattern_def use_persistent_struct_pattern_plain_def by (rule refl)
-lemma \<open> use_persistent_value_beside_struct = use_persistent_value_beside_struct_plain \<close>
-  unfolding use_persistent_value_beside_struct_def use_persistent_value_beside_struct_plain_def
-  by (rule refl)
-
-end
 
 subsection\<open> Import reports join the declaration transaction \<close>
 
@@ -1440,9 +1283,9 @@ local
         (not (exists (fn markup => entity_kind markup = SOME "urust_import") markups))
     end
 in
-  val _ = final_import "function body with a persistent alias"
-    ("urust_fn nav_fn_persistent " ^ cartouche " fn nav_fn_persistent() -> u32 { inc(fetch()) } ")
-    "inc" 0
+  val _ = final_import "function body with chunk aliases"
+    ("urust " ^ cartouche " use demo::{increment as inc, value as fetch}; fn nav_fn_chunk() -> u32 { inc(fetch()) } ")
+    "inc" 2
   val _ = final_import "function body with a block alias"
     ("urust_fn nav_fn_block " ^
       cartouche " fn nav_fn_block() -> u32 { use demo::increment as fn_step; fn_step(1) } ")
@@ -1456,8 +1299,8 @@ in
       cartouche " fn LateFunctionFailure() -> u32 { use demo::increment as late_step; late_step(1) } ")
   val _ = no_import_reports "expression failing at its HOL definition"
     ("urust_expr use_call " ^ cartouche " { use demo::increment as late_expr; late_expr(1) } ")
-  val _ = no_import_reports "expression failing at its persistent alias definition"
-    ("urust_expr use_literal " ^ cartouche " inc(1) ")
+  val _ = no_import_reports "expression failing with a scoped alias"
+    ("urust_expr use_literal " ^ cartouche " use demo::increment as inc; inc(1) ")
 end
 \<close>
 
@@ -1524,17 +1367,6 @@ in
 end
 \<close>
 
-subsection\<open> Merged collisions through use paths \<close>
-
-urust_expr_rejects \<open> { use MergedCollision as merged_alias; merged_alias() } \<close>
-  \<open> generated Rust function "MergedCollision" collides with the value import of "demo::value" \<close>
-
-ML_val\<open>
-  Parser_Use_Test.command_rejects \<^theory> "persistent import of a merged collision"
-    "generated Rust function \"MergedCollision\" collides with the value import of \"demo::value\""
-    ("urust_use " ^ Parser_Use_Test.cartouche " use MergedCollision as merged_persistent; ")
-\<close>
-
 subsection\<open> Body visibility and reserved keywords \<close>
 
 urust_expr_rejects \<open> { pub(crate) use demo::value; 1 } \<close> \<open> visibility qualifiers (`pub use`) are not supported \<close>
@@ -1566,46 +1398,6 @@ in
            (fn () => parse ("use demo::" ^ keyword ^ ";"))))
       ["abstract", "become", "box", "do", "final", "gen", "macro", "override", "priv", "try",
        "typeof", "unsized", "virtual", "yield"]
-end
-\<close>
-
-subsection\<open> Item collisions before elaboration and generation \<close>
-
-ML_val\<open>
-local
-  open Parser_Use_Test
-  val thy = \<^theory>
-  fun failing_reports setup text =
-    let val state = run_from (initial thy) "use-review-preflight-setup" setup in
-      Parser_Test_Reports.chunks (fn () =>
-        Exn.result (fn () => run_from state "use-review-preflight" text) ())
-    end
-  fun no_entities label (result, chunks) =
-    let
-      val entities =
-        maps YXML.parse_body chunks
-        |> map_filter (fn XML.Elem ((name, _), _) => SOME name | XML.Text _ => NONE)
-        |> filter (fn name => name = Markup.entityN)
-    in
-      require (label ^ " fails") (is_none (Exn.get_res result));
-      require (label ^ " reports no entity") (null entities)
-    end
-in
-  val _ = command_rejects thy "function collision before its body" "collides with the value import"
-    ("urust_use " ^ cartouche " use demo::value as EarlyFunction; " ^
-      "\nurust_fn " ^ cartouche " fn EarlyFunction() -> u32 { 1u64 } ")
-  val _ = no_entities "function collision"
-    (failing_reports ("urust_use " ^ cartouche " use demo::value as EarlyFunction; ")
-      ("urust_fn " ^ cartouche " fn EarlyFunction() -> u32 { 1u32 } "))
-  val _ = command_rejects thy "type collision before generation" "collides with the type import"
-    ("urust_use " ^ cartouche " use demo::Width as EarlyType; " ^
-      "\nurust_datatype " ^ cartouche " struct EarlyType { sample: u32 } ")
-  val _ = command_rejects thy "constructor collision before generation" "collides with the value import"
-    ("urust_use " ^ cartouche " use demo::value as EarlyUnit; " ^
-      "\nurust_datatype " ^ cartouche " struct EarlyUnit; ")
-  val _ = no_entities "constructor collision"
-    (failing_reports ("urust_use " ^ cartouche " use demo::value as EarlyUnit; ")
-      ("urust_datatype " ^ cartouche " struct EarlyUnit; "))
 end
 \<close>
 
@@ -1654,8 +1446,7 @@ in
          "Parser_Impl_Resolution", "Parser_Impl_Patterns", "Parser_Impl_Translate",
          "Parser_Impl_Command", "Parser_Impl_Printer", "Parser_Impl_Printer_Output"] @
        map (fn name => name ^ ".thy")
-        ["Parser_Use_Fixtures", "Parser_Use_Base_Fixtures", "Parser_Use_Left_Fixtures",
-         "Parser_Use_Right_Fixtures", "Parser_Use_Tests"])
+        ["Parser_Use_Fixtures", "Parser_Use_Tests"])
 end
 \<close>
 

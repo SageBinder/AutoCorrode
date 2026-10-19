@@ -304,9 +304,15 @@ ML_val\<open>
          [id] => id
        | _ => error "slice pattern markup audit: binder entity identity changed")
     fun capture text start =
-      #2 (Parser_Test_Reports.markup (fn () =>
-        Parser_Test_Elaboration.expression ctxt
-          (Parser_Lex_Util.positioned_content_source text start)))
+      let
+        val (_, reports) = Parser_Test_Reports.markup (fn () =>
+          Parser_Test_Elaboration.expression ctxt
+            (Parser_Lex_Util.positioned_content_source text start))
+        (* Capture is process-wide: concurrent theories may report at the same offsets. *)
+      in
+        filter (fn (_, properties) =>
+          Properties.get properties Markup.idN = Position.id_of start) reports
+      end
       handle ERROR message => error ("markup audit source " ^ quote text ^ ": " ^ message)
     fun entity_properties reports position =
       map_filter (fn (name, properties) =>

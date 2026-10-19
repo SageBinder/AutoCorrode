@@ -270,14 +270,13 @@ ML\<open>
     For value and call occurrences, Rust block scoping decides between an import and a lexical
     local or declaration argument of the same name: a block's use items take effect at its entry,
     so the import wins exactly when its frame is deeper than the frames enclosing the local's
-    binding. Locals bound inside the importing block, and every local against chunk and persistent
+    binding. Locals bound inside the importing block, and every local against chunk
     aliases, win instead.
     Struct heads use the type namespace, extended to single-segment value bindings of the notation
     role the existing struct syntax uses. report_struct_constructor is report_constructor for
     struct-pattern heads. Method names, fields, macros and log-data identifiers are not imported.
     After the canonical reports, each alias occurrence queues a reference to its import
-    declaration. A persistent binding that a theory merge or interpretation placed beside a
-    same-named item is rejected when found.
+    declaration.
 
   Callers may rely on those results and diagnostics, but not on the environment table or binder
   record, generated local names/entity IDs, identifier-leaf inspection, catalog and metadata merge
@@ -939,9 +938,7 @@ struct
             NONE => NONE
           | SOME binding =>
               if (S.require_available pos binding; S.has_role binding S.Generated_Enum) then
-                (S.check_merged_collision ctxt binding
-                   (same_scope_item ctxt S.Type_Namespace name);
-                 SOME (import_route binding path))
+                SOME (import_route binding path)
               else
                 error
                   ("urust_expr: imported " ^ quote name ^ " (" ^ quote (#key binding) ^
@@ -956,7 +953,6 @@ struct
            Option.map
              (fn binding =>
                (S.require_available pos binding;
-                S.check_merged_collision ctxt binding (same_scope_item ctxt namespace name);
                 import_route binding path))
              (S.lookup ctxt namespace name)
        | _ => head_import_route ctxt path)
@@ -964,7 +960,7 @@ struct
   (* Rust block scoping for value and call occurrences: the use items of a block take effect at its
      entry. An import therefore shadows a lexical local, including a declaration argument, exactly
      when its frame is deeper than the frames enclosing the local's binding; locals bound inside the
-     importing block, and every local against chunk and persistent aliases, win. The comparison
+     importing block, and every local against chunk aliases, win. The comparison
      precedes availability checks, so a shadowed unavailable binding never rejects. *)
   fun import_shadows_local ctxt ({local_frames, ...} : environment) namespace name =
     (case Symtab.lookup local_frames name of

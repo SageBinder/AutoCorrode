@@ -10,9 +10,8 @@ text\<open>
 This theory owns the scope model of Rust \<open>use\<close> imports below the item and type registries.
 A binding maps one alias in one Rust namespace to a canonical exact source key. It records the
 namespace memberships of that key, but no terms, types or backends: those remain owned by their
-registries and are reached by delegation through the canonical key. Persistent bindings are native
-context data installed by local-theory declarations; block bindings live only in derived proof
-contexts.
+registries and are reached by delegation through the canonical key. Bindings live only in derived
+proof contexts for chunks and blocks.
 \<close>
 
 ML\<open>
@@ -49,8 +48,6 @@ sig
 
   val lookup: Proof.context -> namespace -> string -> binding option
   val lookup_scoped: Proof.context -> namespace -> string -> (binding * int) option
-  val lookup_persistent: Proof.context -> namespace -> string -> binding option
-  val dump_persistent: Proof.context -> binding list
   val frame_depth: Proof.context -> int
   val transfer_frames: Proof.context -> Proof.context -> Proof.context
 
@@ -58,13 +55,6 @@ sig
   val push_frame: binding list -> Proof.context -> Proof.context
   val add_pending_roles: (binding * role list) list -> Proof.context -> Proof.context
   val pending_roles: Proof.context -> binding -> role list
-  val check_persistent_duplicates: Proof.context -> binding list -> unit
-  val declare_persistent: binding list -> local_theory -> local_theory
-  val merge_persistent: binding list * binding list -> binding list
-  val check_item_collision:
-    Proof.context -> {item: string, name: string, pos: Position.T} -> namespace -> unit
-  val check_merged_collision:
-    Proof.context -> binding -> {item: string, pos: Position.T} option -> unit
 
   type reports
   val defer_declaration_report:
@@ -95,9 +85,8 @@ end
     namespaces with its written path as key; one whose later declaration is known occupies exactly
     the namespaces of that declaration, with its canonical key.
   - lookup returns the nearest binding in the requested namespace: block frames from innermost to
-    outermost, then the persistent bindings of the context. lookup_scoped also returns the depth of
-    the frame that holds the binding: the outermost frame has depth 1, the innermost frame_depth,
-    and persistent bindings 0. lookup_persistent consults only the latter. frame_depth counts the
+    outermost. lookup_scoped also returns the depth of the frame that holds the binding: the
+    outermost frame has depth 1, the innermost frame_depth. frame_depth counts the
     active frames, including a chunk frame below the block frames of its members. transfer_frames
     source target gives target the block frames of source: a read-only replay that runs in a
     context produced by a declaration backend resolves source names with the import scope of the
@@ -108,19 +97,9 @@ end
     derived context with one immutable block frame, in which an available binding takes its
     namespace from an unavailable one; frames are proof data and never enter theory data.
     add_pending_roles records, beside a frame, the roles that a declaration still to be made adds
-    to the target of an available binding in its namespace; pending_roles returns them (none for
-    persistent bindings). unavailable_use_error rejects a use that needs such a role, naming the
+    to the target of an available binding in its namespace; pending_roles returns them.
+    unavailable_use_error rejects a use that needs such a role, naming the
     use, without fallback.
-  - check_persistent_duplicates applies the same rule against the active persistent bindings.
-    declare_persistent installs bindings through a non-pervasive local-theory declaration, so theory
-    imports inherit them and locales, experiments and interpretations use native confinement and
-    morphism replay. Replaying one declaration is idempotent. merge_persistent is the theory-merge
-    rule: the same identity or the same canonical target keeps the lower identity, and different
-    targets for one alias and namespace are a positioned conflict.
-  - check_item_collision rejects a same-scope Rust item whose single-segment name equals an active
-    persistent alias in the given namespace. Registries call it so that both declaration orders
-    are diagnosed. check_merged_collision lets a resolver reject a persistent binding that a
-    theory merge or interpretation placed beside a same-named item it has found.
   - Declaration reports (alias definitions and use-item tooltips) are deferred semantic navigation
     events, so they join the enclosing navigation transaction in emission order and are dropped
     with it. Use references at alias occurrences are queued while capture_reports is active, because
@@ -207,42 +186,6 @@ struct
 
   fun table_key namespace alias = namespace_name namespace ^ "\000" ^ alias
 
-  fun same_target (left: binding, right: binding) =
-    #namespace left = #namespace right andalso #alias left = #alias right andalso
-      #key left = #key right andalso #roles left = #roles right andalso
-      #available left = #available right
-
-  fun conflict_error (left: binding, right: binding) =
-    let
-      val (first, second) =
-        if #identity left <= #identity right then (left, right) else (right, left)
-    in
-      error
-        ("uRust import: conflicting " ^ namespace_name (#namespace first) ^
-          " imports for " ^ quote (#alias first) ^ ": " ^ quote (#key first) ^
-          Position.here (#alias_pos first) ^ " versus " ^ quote (#key second) ^
-          Position.here (#alias_pos second))
-    end
-
-  fun join_binding (left: binding, right: binding) =
-    if #identity left = #identity right orelse same_target (left, right)
-    then if #identity left <= #identity right then left else right
-    else conflict_error (left, right)
-
-  fun insert_binding (binding: binding) table =
-    let val key = table_key (#namespace binding) (#alias binding) in
-      (case Symtab.lookup table key of
-         NONE => Symtab.update (key, binding) table
-       | SOME existing => Symtab.update (key, join_binding (existing, binding)) table)
-    end
-
-  structure Persistent = Generic_Data
-  (
-    type T = binding Symtab.table
-    val empty = Symtab.empty
-    fun merge (left, right) = Symtab.join (K join_binding) (left, right)
-  )
-
   (* Innermost frame first. Proof data keeps derived block scopes out of every theory. *)
   structure Frames = Proof_Data
   (
@@ -250,14 +193,10 @@ struct
     fun init _ = []
   )
 
-  fun lookup_persistent ctxt namespace alias =
-    Symtab.lookup (Persistent.get (Context.Proof ctxt)) (table_key namespace alias)
-
   fun lookup_scoped ctxt namespace alias =
     let
       val frames = Frames.get ctxt
-      fun find _ [] =
-            Option.map (rpair 0) (lookup_persistent ctxt namespace alias)
+      fun find _ [] = NONE
         | find depth (frame :: outer) =
             (case Symtab.lookup frame (table_key namespace alias) of
                SOME binding => SOME (binding, depth)
@@ -265,9 +204,6 @@ struct
     in find (length frames) frames end
 
   fun lookup ctxt namespace alias = Option.map #1 (lookup_scoped ctxt namespace alias)
-
-  fun dump_persistent ctxt =
-    Persistent.get (Context.Proof ctxt) |> Symtab.dest |> map snd
 
   fun frame_depth ctxt = length (Frames.get ctxt)
 
@@ -318,58 +254,6 @@ struct
            | NONE => Symtab.update (key, binding) frame)
         end
     in Frames.map (cons (fold add bindings Symtab.empty)) ctxt end
-
-  fun check_persistent_duplicates ctxt bindings =
-    List.app
-      (fn binding =>
-        (case lookup_persistent ctxt (#namespace binding) (#alias binding) of
-           SOME earlier => duplicate_error earlier binding
-         | NONE => ()))
-      bindings
-
-  fun declare_persistent bindings lthy =
-    let
-      val _ =
-        if forall #available bindings then ()
-        else error "uRust import: internal unavailable persistent import"
-      val _ = check_batch bindings
-      val _ = check_persistent_duplicates lthy bindings
-      val pos =
-        (case bindings of
-           binding :: _ => #declaration_pos binding
-         | [] => Position.none)
-    in
-      Local_Theory.declaration {pervasive = false, syntax = false, pos = pos}
-        (fn _ => Persistent.map (fold insert_binding bindings)) lthy
-    end
-
-  fun merge_persistent (left, right) =
-    Symtab.join (K join_binding)
-      (fold insert_binding left Symtab.empty, fold insert_binding right Symtab.empty)
-    |> Symtab.dest |> map snd
-
-  fun collision_error {item, name, pos} (binding: binding) =
-    error
-      ("uRust import: " ^ item ^ " " ^ quote name ^ " collides with the " ^
-        namespace_name (#namespace binding) ^ " import of " ^ quote (#key binding) ^
-        " in the same scope" ^ Position.here pos ^
-        "\nThe import is here" ^ Position.here (#alias_pos binding))
-
-  fun check_item_collision ctxt {item, name, pos} namespace =
-    (case lookup_persistent ctxt namespace name of
-       NONE => ()
-     | SOME binding => collision_error {item = item, name = name, pos = pos} binding)
-
-  (* Declaration commands reject same-scope collisions in both orders, but independent theories
-     or a locale interpretation may still merge a persistent alias with a same-named item. The
-     resolver reports such a pair instead of letting the import shadow the item. *)
-  fun check_merged_collision ctxt (binding: binding) item =
-    (case (item, lookup_persistent ctxt (#namespace binding) (#alias binding)) of
-       (SOME {item, pos}, SOME persistent) =>
-         if #identity persistent = #identity binding
-         then collision_error {item = item, name = #alias binding, pos = pos} binding
-         else ()
-     | _ => ())
 
   datatype report = Use_Report of Position.T * Markup.T
 

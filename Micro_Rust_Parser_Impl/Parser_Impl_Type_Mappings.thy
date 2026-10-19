@@ -552,10 +552,7 @@ struct
     | Fresh of entry
 
   fun preflight ctxt base (candidate: entry) =
-    (URust_Import_Scope.check_item_collision ctxt
-       {item = "Rust type", name = base, pos = #declaration_pos candidate}
-       URust_Import_Scope.Type_Namespace;
-     case lookup ctxt base of
+    (case lookup ctxt base of
        NONE => Fresh candidate
      | SOME active =>
          if same_entry (active, candidate)
@@ -573,10 +570,6 @@ struct
 
   fun install_new base (entry: entry) lthy =
     let
-      val _ =
-        URust_Import_Scope.check_item_collision lthy
-          {item = "Rust type", name = base, pos = #declaration_pos entry}
-          URust_Import_Scope.Type_Namespace
       val _ =
         report_declaration lthy base
           (#declaration_pos entry) (#identity entry)
@@ -751,11 +744,6 @@ struct
           | SOME binding =>
               let
                 val _ = URust_Import_Scope.require_available pos binding
-                val _ =
-                  URust_Import_Scope.check_merged_collision ctxt binding
-                    (Option.map
-                      (fn entry => {item = "Rust type", pos = #declaration_pos entry})
-                      (lookup ctxt name))
                 val _ =
                   if null rest then ()
                   else
