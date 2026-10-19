@@ -282,7 +282,7 @@ ML_val\<open>
        ("receiver-borrowed-pattern", "unsupported function parameter pattern",
         "fn BadReceiver(&self: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { self }"),
        ("receiver-implicit-Self", "unknown Rust type", "fn BadReceiver(self: Self) -> Self { self }"),
-       ("receiver-rust-reference", "Rust reference types", "fn BadReceiver(self: &u8) -> u8 { 0 }"),
+       ("receiver-rust-reference", "shared Rust references", "fn BadReceiver(self: &u8) -> u8 { 0 }"),
        ("receiver-duplicate", "duplicate parameter \"self\"",
         "fn BadReceiver(self: u8, self: bool) -> u8 { self }"),
        ("receiver-body-type", "Type unification failed", "fn BadReceiver(self: bool) -> u8 { self }")]

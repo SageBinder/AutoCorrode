@@ -94,6 +94,7 @@ datatype lexical_role =
   | Numeral_Role
   | String_Role
   | Identifier_Role
+  | Lifetime_Role
   | Embedded_Role
 
 datatype token =
@@ -183,6 +184,15 @@ fun require_identifier what name =
 fun require_datatype_identifier what name =
   if name = "_" then malformed (what ^ " cannot be `_`")
   else require_identifier what name
+
+fun lifetime_document what (Rust_Lifetime (name, _)) =
+  (case Symbol.explode name of
+     "'" :: first :: rest =>
+       if (Symbol.is_ascii_letter first orelse first = "_") andalso
+          forall (fn s => Symbol.is_ascii_letdig s orelse s = "_") rest
+       then lexeme Lifetime_Role name
+       else malformed (what ^ " has malformed lifetime " ^ quote name)
+   | _ => malformed (what ^ " has malformed lifetime " ^ quote name))
 
 fun reject_duplicate_names what names =
   let
@@ -505,8 +515,11 @@ fun rust_type_document rust_type =
                   (require_nonempty "Rust tuple type" types)))
    | Group_Type (typ, _) =>
        parenthesized (rust_type_document typ)
-   | Reference_Type (mode, typ, _) =>
+   | Reference_Type (mode, lifetime, typ, _) =>
        operator "&" @
+       (case lifetime of
+          NONE => []
+        | SOME lifetime => lifetime_document "Rust reference type" lifetime) @
        (case mode of
           BM_Imm => []
         | BM_Mut => space @ keyword "mut") @
@@ -837,7 +850,7 @@ fun rust_type_ambiguous_cast_tail
       (case rev segments of
          Rust_Type_Path_Segment (_, _, NONE, _) :: _ => true
        | _ => false)
-  | rust_type_ambiguous_cast_tail (Reference_Type (_, typ, _)) =
+  | rust_type_ambiguous_cast_tail (Reference_Type (_, _, typ, _)) =
       rust_type_ambiguous_cast_tail typ
   | rust_type_ambiguous_cast_tail (Raw_Pointer_Type (_, typ, _)) =
       rust_type_ambiguous_cast_tail typ
@@ -1553,9 +1566,15 @@ fun events_of_datatype options item =
 
 fun function_document options
     (Function_Item
-      (name, _, parameters, return_type, body, _)) =
+      (name, _, lifetimes, parameters, return_type, body, _)) =
   let
     val name = require_identifier "function item" name
+    val generics =
+      if null lifetimes then []
+      else
+        delimiter "<" @
+        block 2 false (comma_documents (map (lifetime_document "function item") lifetimes)) @
+        delimiter ">"
     fun parameter_document
         (Function_Parameter (mutable_pos, pattern, typ, _)) =
       (case mutable_pos of
@@ -1564,7 +1583,7 @@ fun function_document options
       pattern_document options pattern_or_precedence pattern @
       delimiter ":" @ space @ rust_type_document typ
     val header =
-      keyword "fn" @ space @ identifier name @
+      keyword "fn" @ space @ identifier name @ generics @
       parenthesized
         (comma_documents (map parameter_document parameters)) @
       (case return_type of
@@ -1653,6 +1672,8 @@ fun lexical_pretty Keyword_Role text =
       Pretty.mark_str (Markup.inner_string, text)
   | lexical_pretty Identifier_Role text =
       Pretty.str text
+  | lexical_pretty Lifetime_Role text =
+      Pretty.mark_str (Markup.tfree, text)
   | lexical_pretty Embedded_Role text =
       Pretty.mark_str (Markup.literal, text)
 

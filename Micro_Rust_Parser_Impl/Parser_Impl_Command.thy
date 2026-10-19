@@ -24,14 +24,19 @@ It infers an untyped expression or accepts a complete declaration type. A termin
 
 The function surface is
 \<open>urust_fn [OPTIONS] [HOL_NAME|_] src\<close>, where the cartouche contains one complete
-\<open>fn RustName(parameter: RustType, ...) [-> RustType] { body }\<close> item.
+\<open>fn RustName[<'lifetime, ...>](parameter: RustType, ...) [-> RustType] { body }\<close> item.
 Its Rust signature is authoritative: parameter and explicit result types resolve through
 \<open>urust_type\<close>, including qualified and generic mappings and structural tuples.
 The shared type grammar permits \<open>\<tau>\<open>HOL type\<close>\<close> anywhere a type occurs.
 Function escapes support polymorphic variables, shared sort constraints, higher-order types and
-independent inference holes. Raw pointers share implicit address/global backend parameters across
-the complete signature, constrained by its body and expected types. Datatype fields introduce those
-backend parameters while continuing to reject unrelated free type variables. An omitted return
+independent inference holes. Raw pointers and mutable references \<open>&mut T\<close> resolve to the same
+\<open>Global_Store.ref\<close> model and share implicit address/global backend parameters across the
+complete signature, constrained by its body and expected types. Datatype fields introduce those
+backend parameters for raw pointers while continuing to reject unrelated free type variables.
+The optional generic list declares only lifetimes. Reference lifetimes, such as \<open>&'a mut T\<close>,
+must be declared there unless they are \<open>'static\<close> or \<open>'_\<close>; lifetimes are then erased and
+never change the definition. Shared references \<open>&T\<close>, type generics, lifetime bounds and
+lifetime generic arguments are rejected. An omitted return
 means Rust unit, just like explicit \<open>-> ()\<close>. Non-unit results require a return annotation.
 The independently optional inline \<open>state\<close>, \<open>abort\<close>, \<open>input\<close> and
 \<open>output\<close> options take positioned HOL types and constrain the actual constant's channels.
@@ -1259,6 +1264,7 @@ fun prepare_function_signature lthy channels function =
         (URust_AST.function_return_type function)
     val complete_type =
       URust_Type_Mappings.resolve_function_signature lthy channels
+        (URust_AST.function_lifetime_parameters function)
         parameter_types return_type
     (* An inherited default belongs to an earlier command; only authored channels position the
        declaration type. *)

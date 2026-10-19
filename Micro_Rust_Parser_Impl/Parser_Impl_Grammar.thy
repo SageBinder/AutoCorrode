@@ -39,6 +39,7 @@ sig
   val annotation_unterminated_error: Position.T -> 'a
   val annotation_layout_error: string -> Position.T -> 'a
   val use_error: string -> Position.T -> 'a
+  val lifetime_error: string -> Position.T -> 'a
 end
 
 (*
@@ -80,6 +81,8 @@ end
       offending source span; detail completes the sentence that names the annotation.
     * use_error message pos rejects use syntax outside the supported import surface at the
       offending token.
+    * lifetime_error message pos rejects Rust lifetime syntax outside the supported surface, such
+      as lifetime bounds and lifetime generic arguments, at the offending token.
 
   All exported failure functions have result type 'a because they always raise via error. Their
   exact string assembly and use of quote are implementation details, subject to the message and
@@ -167,6 +170,9 @@ struct
 
   fun use_error message pos =
     error ("uRust import: " ^ message ^ Position.here pos)
+
+  fun lifetime_error message pos =
+    error ("uRust lifetime: " ^ message ^ Position.here pos)
 end
 \<close>
 SML_import \<open> structure URust_Grammar = URust_Grammar \<close>
@@ -199,7 +205,9 @@ and no-struct expression families. Only token shims remain lexer-local; position
       lexer return TANNOTATION, whose value is the positioned omega payload with the marker and
       cartouche delimiter layout; elsewhere an omega annotation is a positioned lexer rejection.
       The keywords `use` and `pub` lex as the valueless TUSE and TPUB in the initial lexer state;
-      `pub` is parsed only to reject visibility at its token.
+      `pub` is parsed only to reject visibility at its token. Rust lifetimes such as `'a`, `'_`
+      and `'static` lex as the value-bearing TLIFETIME only in item signatures, with type-variable
+      markup; elsewhere a leading apostrophe remains a positioned lexer rejection.
     * URustLrValsFun supplies the generated semantic value/result types, actions, LR table, tokens, and
       recovery data. URust_Parser instantiates it once and rejoins that exact data with the
       generated lexer while replacing only terminal rendering.
@@ -601,6 +609,13 @@ fun tok_ident (yypos, yytext) =
     val _ = cast_type_token "IDENT"
     val p = Parser_Lex_Util.ident_pos (!source_layout) (yypos, yytext)
   in Tokens.IDENT (yytext, p, p) end
+
+fun tok_lifetime (yypos, yytext) =
+  let
+    val _ = cast_type_token "TLIFETIME"
+    val _ = report_text (yypos, yytext, Markup.tfree, "TLIFETIME")
+    val p = Parser_Lex_Util.ident_pos (!source_layout) (yypos, yytext)
+  in Tokens.TLIFETIME (yytext, p, p) end
 
 fun tok_rust_type primitive (yypos, yytext) =
   tok_valF
@@ -1324,6 +1339,7 @@ lex_rules\<open>
      else ();
      tokF (yypos, yytext, Markup.delimiter, "TRBRACE", Tokens.TRBRACE));
 <FNSIG>{idstart}{identchar}* => (tok_ident (yypos, yytext));
+<FNSIG>"'"{idstart}{idchar}* => (tok_lifetime (yypos, yytext));
 <FNSIG>.        => (URust_Grammar.lex_error yytext (fixed_pos yypos));
 <LOGDATA>\n       => (lex());
 <LOGDATA>{ws}+    => (lex());
@@ -1669,21 +1685,21 @@ fun rust_type_parameter mutable_pos pattern typ colon_pos =
         [(Delimiter_Token ":", colon_pos)]))
 
 fun rust_function_item
-    (name, name_pos, parameters, return_type, body,
+    (name, name_pos, (lifetimes, generic_tokens), parameters, return_type, body,
      fn_pos, left_paren, right_paren, arrow_pos) =
   let
     val body_layout = expression_source_layout body
     val signature_tokens =
       [(Keyword_Token "fn", fn_pos),
-       (Name_Token, name_pos),
-       (Delimiter_Token "(", left_paren),
+       (Name_Token, name_pos)] @ generic_tokens @
+      [(Delimiter_Token "(", left_paren),
        (Delimiter_Token ")", right_paren)] @
       (case arrow_pos of
          SOME pos => [(Delimiter_Token "->", pos)]
        | NONE => [])
   in
     Function_Item
-      (name, name_pos, parameters, return_type, body,
+      (name, name_pos, lifetimes, parameters, return_type, body,
        syntax_layout fn_pos (source_span body_layout)
          (signature_tokens @ source_tokens body_layout))
   end
@@ -1805,6 +1821,7 @@ yacc_definitions\<open>
     | TANNOTATION of URust_AST.item_annotation
     | TUSE
     | TPUB
+    | TLIFETIME of string
 %nonterm ustart of URust_AST.parse_result option
        | uitem of URust_AST.urust_item
        | uchunk_items of
@@ -1818,6 +1835,10 @@ yacc_definitions\<open>
            URust_AST.generic_parameter list *
            (URust_AST.source_token * Position.T) list
        | ualias_parameter_names of URust_AST.generic_parameter list
+       | ufn_generics of
+           URust_AST.rust_lifetime list * (URust_AST.source_token * Position.T) list
+       | ufn_lifetime_parameters of URust_AST.rust_lifetime list
+       | ufn_lifetime_parameter of URust_AST.rust_lifetime
        | ufn_parameters of URust_AST.function_parameter list
        | ufn_parameter of URust_AST.function_parameter
        | ufn_return of URust_AST.rust_type option * Position.T option
@@ -2073,11 +2094,25 @@ yacc_rules\<open>
           (Enum_Item (IDENT, IDENTleft, #1 uvariants,
             Position.range_position (TENUMleft, TRBRACEright))))
   ufunction :
-      TFN IDENT LPAR ufn_parameters RPAR ufn_return ublock
+      TFN IDENT ufn_generics LPAR ufn_parameters RPAR ufn_return ublock
         (rust_function_item
-          (IDENT, IDENTleft, ufn_parameters,
+          (IDENT, IDENTleft, ufn_generics, ufn_parameters,
            #1 ufn_return, ublock, TFNleft,
            LPARleft, RPARleft, #2 ufn_return))
+  ufn_generics :
+      ([], [])
+    | TLT ufn_lifetime_parameters TGT
+        (ufn_lifetime_parameters,
+         [(Delimiter_Token "<", TLTleft), (Delimiter_Token ">", TGTleft)])
+  ufn_lifetime_parameters :
+      ufn_lifetime_parameter ([ufn_lifetime_parameter])
+    | ufn_lifetime_parameter COMMA ([ufn_lifetime_parameter])
+    | ufn_lifetime_parameter COMMA ufn_lifetime_parameters
+        (ufn_lifetime_parameter :: ufn_lifetime_parameters)
+  ufn_lifetime_parameter :
+      TLIFETIME (Rust_Lifetime (TLIFETIME, TLIFETIMEleft))
+    | TLIFETIME TCOLON TLIFETIME
+        (URust_Grammar.lifetime_error "lifetime bounds are not supported" TCOLONleft)
   ufn_return :
       (NONE, NONE)
     | TTHINARROW urust_type
@@ -2124,12 +2159,23 @@ yacc_rules\<open>
               (Delimiter_Token ")", RPARleft)]))
     | TAMP urust_type
         (Reference_Type
-          (BM_Imm, urust_type,
+          (BM_Imm, NONE, urust_type,
            syntax_layout TAMPleft (rust_type_position urust_type)
              [(Operator_Token, TAMPleft)]))
     | TAMP TMUT urust_type
         (Reference_Type
-          (BM_Mut, urust_type,
+          (BM_Mut, NONE, urust_type,
+           syntax_layout TAMPleft (rust_type_position urust_type)
+             [(Operator_Token, TAMPleft),
+              (Keyword_Token "mut", TMUTleft)]))
+    | TAMP TLIFETIME urust_type
+        (Reference_Type
+          (BM_Imm, SOME (Rust_Lifetime (TLIFETIME, TLIFETIMEleft)), urust_type,
+           syntax_layout TAMPleft (rust_type_position urust_type)
+             [(Operator_Token, TAMPleft)]))
+    | TAMP TLIFETIME TMUT urust_type
+        (Reference_Type
+          (BM_Mut, SOME (Rust_Lifetime (TLIFETIME, TLIFETIMEleft)), urust_type,
            syntax_layout TAMPleft (rust_type_position urust_type)
              [(Operator_Token, TAMPleft),
               (Keyword_Token "mut", TMUTleft)]))
@@ -2191,6 +2237,9 @@ yacc_rules\<open>
       urust_type (Rust_Type_Argument urust_type)
     | NUM (Rust_Numeric_Argument NUM)
     | NUMSFX (Rust_Numeric_Argument NUMSFX)
+    | TLIFETIME
+        (URust_Grammar.lifetime_error "lifetime generic arguments are not supported"
+          TLIFETIMEleft)
   urust_generic_arguments :
       urust_generic_argument ([urust_generic_argument])
     | urust_generic_argument COMMA ([urust_generic_argument])
@@ -3429,7 +3478,8 @@ struct
      (99, "TCHUNKSTART", "<chunk input>"),
      (100, "TANNOTATION", "<\<omega> annotation>"),
      (101, "TUSE", "use"),
-     (102, "TPUB", "pub")]
+     (102, "TPUB", "pub"),
+     (103, "TLIFETIME", "<lifetime>")]
 
   val terminal_count = length terminal_specs
 
@@ -3512,7 +3562,8 @@ struct
        T.TLOGDATAOPEN ((pos, pos), pos, pos), T.LOGSTRING ("", pos, pos), T.LOGIDENT ("", pos, pos),
        T.TRUSTTYPE (URust_AST.DPT_U8, pos, pos), T.HOLTYPE (source, pos, pos), T.GLT (0, pos, pos),
        T.GGT (0, pos, pos), T.GHOLTYPE (("", lexer_layout, 0, 0), pos, pos),
-       T.TANNOTATION (URust_AST.Item_Annotation (source, layout), pos, pos)]
+       T.TANNOTATION (URust_AST.Item_Annotation (source, layout), pos, pos),
+       T.TLIFETIME ("", pos, pos)]
     val valueless_tokens =
       [T.LPAR (pos, pos), T.RPAR (pos, pos), T.TGOPEN (pos, pos), T.TTRUE (pos, pos),
        T.TFALSE (pos, pos), T.TLET (pos, pos), T.TCONST (pos, pos), T.TRETURN (pos, pos),

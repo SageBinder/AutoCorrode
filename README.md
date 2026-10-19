@@ -133,7 +133,7 @@ The implementation session provides the production `urust_expr`, `urust_fn`, `ur
 
 ```isabelle
 urust_expr [OPTIONS] NAME [:: TYPE] [(ARG|_, ...)] ‹ body ›
-urust_fn [OPTIONS] [HOL_NAME|_] ‹ fn RustName(PARAMETER: RUST_TYPE, ...) [-> RUST_TYPE] { body } ›
+urust_fn [OPTIONS] [HOL_NAME|_] ‹ fn RustName[<'LIFETIME, ...>](PARAMETER: RUST_TYPE, ...) [-> RUST_TYPE] { body } ›
 urust_type "RUST_TYPE['PARAMETER, ...]" = ‹HOL_TYPE›
 urust_type_alias ["QUALIFIED_PATH"] ‹ type RustName<T, ...> = RUST_TYPE; ›
 urust_datatype [OPTIONS] [HOL_NAME] ‹ struct-or-enum ›
@@ -178,11 +178,16 @@ higher-order types or independent `_` inference holes. Parameters lower identifi
 `mut identifier`, including explicitly typed `self: T` and `mut self: T`. The signature supplies
 the receiver type; body references, fields, methods and HOL escapes use the ordinary lexical
 parameter binding. This free-function command does not provide `impl` blocks, implicit `Self`
-resolution or shorthand receivers such as `&self`. Raw pointers use the existing
-`('address, 'global, T) Global_Store.ref` model.
+resolution or shorthand receivers such as `&self`. Raw pointers and mutable references `&mut T`
+use the existing `('address, 'global, T) Global_Store.ref` model, so `self: &mut T` is an ordinary
+typed receiver and a caller passes a mutable local with `&mut local`.
 One address/global pair is shared across a complete signature; the body and expected types constrain
 it, and unconstrained parameters generalize. Fixed arrays and declared const arguments use the shared
-type registry; references and slices still require an explicit HOL escape to supply semantics.
+type registry. Lifetimes are accepted in function signatures and erased: `fn F<'a>(x: &'a mut u8)`
+declares `'a`, `'static` and `'_` need no declaration, and undeclared or duplicate lifetimes are
+rejected. Lifetime bounds, lifetime generic arguments and type generics are not supported. Shared
+references `&T` and slices still require an explicit HOL escape to supply semantics, and references
+are not supported in datatype fields, aliases or casts.
 
 Named functions register their Rust name by default. The Boolean `register_notation` option uses
 the shared `urust_register_notation` scoped setting, with inline values taking precedence.

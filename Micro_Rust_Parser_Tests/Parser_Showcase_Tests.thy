@@ -1051,6 +1051,25 @@ urust_fn showoff_iterator_zip
   \<close>
 
 text\<open>
+Features: a mutable reference parameter with an erased lifetime, a write through it, and a
+caller that passes a mutable local with \<open>&mut\<close>.
+\<close>
+
+urust_fn
+  \<open>
+  fn ShowoffIncrement<'a>(counter: &'a mut u32) {
+    *counter += 1_u32;
+  }
+  \<close>
+
+urust_expr showoff_borrowed_increment
+  \<open>
+    let mut counter = 0_u32;
+    ShowoffIncrement(&mut counter);
+    *counter
+  \<close>
+
+text\<open>
 Features: a match expression in the while condition, a direct function call on
 dereferenced state, conditional loop-body control flow, a nested unconditional
 loop, assignment from call results, and capture of two independent fuel binders.

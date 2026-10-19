@@ -109,8 +109,16 @@ Explicitly typed `self: T` and `mut self: T` use ordinary signature typing and p
 with `self_value` versions for primitive/mapped types, a HOL reference escape, fields,
 direct/method calls, HOL value/expression escapes, closures and name collisions. Boundary
 and recovery probes retain rejection of shorthand/untyped receivers, borrowed patterns,
-implicit `Self`, unsupported Rust reference types, duplicate names and incompatible bodies.
+implicit `Self`, unsupported shared references, duplicate names and incompatible bodies.
 No `impl` support or receiver-specific lowering is introduced.
+
+`Parser_Reference_Type_Tests` covers mutable references `&mut T` and erased lifetimes in function
+signatures: complete schemes shared with raw pointers, kernel equality with `τ‹… Global_Store.ref›`
+controls and lifetime-free versions, typed `self: &mut T`, nested and escaped targets, locale
+backends, exact lifetime ranges, markup and printing, bodies that read and write through a
+reference, `&mut local` call sites and chunk members. Its rejections cover shared references,
+undeclared, duplicate and reserved lifetime parameters, bounds, lifetime arguments, reborrows and
+references outside function signatures, each with rollback and recovery.
 
 Named functions register their Rust declaration name by default. Bare, explicit and scoped
 `register_notation` controls use `urust_register_notation`, shared with datatypes. Examples

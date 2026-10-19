@@ -235,7 +235,7 @@ fun recursive_type_position rust_name datatype_type =
           get_first typ_position types
       | typ_position (URust_AST.Group_Type (typ, _)) =
           typ_position typ
-      | typ_position (URust_AST.Reference_Type (_, typ, _)) =
+      | typ_position (URust_AST.Reference_Type (_, _, typ, _)) =
           typ_position typ
       | typ_position (URust_AST.Raw_Pointer_Type (_, typ, _)) =
           typ_position typ

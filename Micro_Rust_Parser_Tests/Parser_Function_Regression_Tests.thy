@@ -276,9 +276,9 @@ local
         Primitive_Type (DPT_Bool, _),
         Primitive_Type (DPT_Char, _),
         Reference_Type
-          (BM_Imm, Primitive_Type (DPT_Str, _), _),
+          (BM_Imm, NONE, Primitive_Type (DPT_Str, _), _),
         Reference_Type
-          (BM_Mut,
+          (BM_Mut, NONE,
            Slice_Type (Primitive_Type (DPT_U64, _), _), _),
         Raw_Pointer_Type
           (RPM_Const, Path_Type (_, _), _),
@@ -332,9 +332,9 @@ local
           ([Primitive_Type (DPT_U32, _),
             Primitive_Type (DPT_Bool, _)], _),
         Reference_Type
-          (BM_Imm,
+          (BM_Imm, NONE,
            Reference_Type
-             (BM_Mut,
+             (BM_Mut, NONE,
               Slice_Type
                 (Raw_Pointer_Type
                   (RPM_Const, Path_Type (_, _), _), _), _), _),
@@ -541,9 +541,9 @@ local
       "expected a complete function item"
       "struct NotAFunction;"
   val _ =
-    reject "rust-function-parser-lifetime"
+    reject "rust-function-parser-body-apostrophe"
       "unexpected input"
-      "fn Lifetime(value: &'a u64) -> u64 { value }"
+      "fn BodyApostrophe(value: u64) -> u64 { 'a }"
   val _ =
     reject "rust-function-parser-unterminated-string"
       "malformed or unterminated string literal"
@@ -764,8 +764,8 @@ local
          "fn Bodyless(x: u64) -> u64;"),
        ("rust-function-malformed-type", "syntax error",
          "fn Malformed(x: &mut) -> u64 { x }"),
-       ("rust-function-lifetime", "unexpected input",
-         "fn Lifetime(x: &'a u64) -> u64 { x }"),
+       ("rust-function-lifetime", "undeclared lifetime \"'a\"",
+         "fn Lifetime(x: &'a mut u64) -> u64 { 0 }"),
        ("rust-function-function-pointer", "syntax error",
          "fn Pointer(x: fn(u64) -> u64) -> u64 { x }"),
        ("rust-function-associated-binding", "syntax error",
@@ -2043,10 +2043,8 @@ ML_val \<open>
           "fn SignatureFailure(value: SignatureOrdered<SignatureFunction>) { () }"),
          ("signature-unknown-hol-sort", "Undeclared class",
           "fn SignatureFailure(value: \<tau>\<open>'a::missing_signature_sort\<close>) { () }"),
-         ("signature-reference", "Rust reference types",
+         ("signature-reference", "shared Rust references",
           "fn SignatureFailure(value: &u8) { () }"),
-         ("signature-mutable-reference", "Rust reference types",
-          "fn SignatureFailure(value: &mut u8) { () }"),
          ("signature-raw-const-pointer-unknown-pointee", "unknown Rust type \"MissingPointee\"",
           "fn SignatureFailure(value: *const MissingPointee) { () }"),
          ("signature-raw-mut-pointer-unknown-pointee", "unknown Rust type \"MissingPointee\"",
@@ -2061,7 +2059,7 @@ ML_val \<open>
           "fn SignatureFailure(value: (u8,)) { () }"),
          ("signature-numeric-generic", "numeric generic arguments",
           "fn SignatureFailure(value: SignatureOption<4>) { () }"),
-         ("signature-result-reference", "Rust reference types",
+         ("signature-result-reference", "shared Rust references",
           "fn SignatureFailure(value: u8) -> &u8 { value }"),
          ("signature-destructuring", "unsupported function parameter pattern",
           "fn SignatureFailure((left, right): (u8, bool)) -> u8 { left }"),
@@ -2243,7 +2241,7 @@ ML_val \<open>
           "active urust_type mapping expects"),
          ("signature-position-sort", "SignatureOrdered<SignatureFunction>", "SignatureFunction",
           "does not satisfy sort"),
-         ("signature-position-reference", "&u8", "&u8", "Rust reference types"),
+         ("signature-position-reference", "&u8", "&u8", "shared Rust references"),
          ("signature-position-zero-array", "[u8; 0]", "[u8; 0]", "does not satisfy sort"),
          ("signature-position-singleton", "(u8,)", "(u8,)", "singleton tuple types"),
          ("signature-position-numeric", "SignatureOption<4>", "4", "numeric generic arguments")]

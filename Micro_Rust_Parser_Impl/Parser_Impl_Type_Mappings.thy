@@ -17,6 +17,12 @@ Named Rust types, including lexical primitive spellings, acquire HOL meanings on
 context-local registry. A mapping key may be qualified and may contain ordered generic
 placeholders. The placeholders are mapping parameters rather than Rust lifetimes, and must be
 exactly the free type variables of the checked HOL template.
+
+Function signatures additionally resolve mutable references \<open>&mut T\<close>, optionally with a Rust
+lifetime, to the same \<open>Global_Store.ref\<close> model as raw pointers, sharing the signature's
+address/global backend parameters. Lifetimes are checked against the function's declared lifetime
+parameters and then erased; they never change the resolved type. Shared references \<open>&T\<close>, and
+references in datatype fields, aliases and cast targets, remain rejected.
 \<close>
 
 ML\<open>
@@ -34,7 +40,7 @@ sig
     {state: channel_source option, abort: channel_source option,
      input: channel_source option, output: channel_source option}
   val resolve_function_signature:
-    Proof.context -> function_channels ->
+    Proof.context -> function_channels -> URust_AST.rust_lifetime list ->
       URust_AST.rust_type list -> URust_AST.rust_type -> typ
   val resolve_fields:
     Proof.context -> URust_AST.rust_type list ->
@@ -111,7 +117,8 @@ struct
     | Alias
 
   (* Rust identity is independent of HOL equality: i32/u32, pointer
-     mutability, and an arbitrary mapping to a word remain distinct. Alias
+     mutability, references versus raw pointers, and an arbitrary mapping to
+     a word remain distinct. Alias
      dependencies are expanded once, when declared. Mapped nodes retain
      the dependency scheme so locale morphisms also reach captured meaning. *)
   datatype meaning =
@@ -121,6 +128,7 @@ struct
     | Meaning_Mapped of typ * sort list * sort list * meaning list
     | Meaning_Tuple of meaning list
     | Meaning_Pointer of raw_pointer_mutability * meaning
+    | Meaning_Reference of borrow_mode * meaning
     | Meaning_HOL of typ
 
   type key =
@@ -450,6 +458,8 @@ struct
         | morph (Meaning_Tuple types) = Meaning_Tuple (map morph types)
         | morph (Meaning_Pointer (mutability, typ)) =
             Meaning_Pointer (mutability, morph typ)
+        | morph (Meaning_Reference (mode, typ)) =
+            Meaning_Reference (mode, morph typ)
         | morph (Meaning_HOL typ) = Meaning_HOL (Morphism.typ phi typ)
     in morph end
 
@@ -466,6 +476,8 @@ struct
             Meaning_Tuple (map instantiate types)
         | instantiate (Meaning_Pointer (mutability, typ)) =
             Meaning_Pointer (mutability, instantiate typ)
+        | instantiate (Meaning_Reference (mode, typ)) =
+            Meaning_Reference (mode, instantiate typ)
         | instantiate (Meaning_HOL typ) = Meaning_HOL typ
     in instantiate end
 
@@ -929,6 +941,20 @@ struct
   fun resolve_values kind ctxt read_escape check_sort normalize backend
       parameter dependency rust_types =
     let
+      (* Raw pointers and mutable references share one reference model and one backend pair. *)
+      fun reference_typ target =
+        let
+          val [address, global] =
+            backend [\<^sort>\<open>type\<close>, \<^sort>\<open>type\<close>]
+        in
+          Term.typ_subst_atomic
+            [(\<^typ>\<open>'urust_address\<close>, address),
+             (\<^typ>\<open>'urust_global\<close>, global),
+             (\<^typ>\<open>'urust_value\<close>, target)]
+            \<^typ>\<open>('urust_address, 'urust_global, 'urust_value) Global_Store.ref\<close>
+          |> Proof_Context.cert_typ ctxt
+        end
+
       fun resolve_nominal base positions arities arguments pos primitive =
         (case parameter base arities pos of
            SOME value => value
@@ -1052,22 +1078,24 @@ struct
               end
         | resolve_type (Group_Type (typ, _)) =
             resolve_type typ
-        | resolve_type (Reference_Type (_, _, layout)) =
-            unsupported kind "Rust reference types" (source_span layout)
+        (* Function_Signature also resolves constructor turbofish arguments, but the generic lexer
+           has no reference syntax, so only function signatures reach the mutable case. *)
+        | resolve_type (Reference_Type (BM_Mut, _, target, layout)) =
+            if kind = Function_Signature then
+              let val target_type = resolve_type target in
+                {typ = reference_typ (#typ target_type),
+                 meaning = Meaning_Reference (BM_Mut, #meaning target_type)}
+              end
+            else unsupported kind "Rust reference types" (source_span layout)
+        | resolve_type (Reference_Type (BM_Imm, _, _, layout)) =
+            if kind = Function_Signature then
+              error
+                ("urust_fn: shared Rust references (&T) are not supported in function signatures; " ^
+                  "use &mut T or \<tau>\<open>...\<close>" ^ Position.here (source_span layout))
+            else unsupported kind "Rust reference types" (source_span layout)
         | resolve_type (Raw_Pointer_Type (mutability, target, _)) =
-            let
-              val target_type = resolve_type target
-              val [address, global] =
-                backend [\<^sort>\<open>type\<close>, \<^sort>\<open>type\<close>]
-              val typ =
-                Term.typ_subst_atomic
-                  [(\<^typ>\<open>'urust_address\<close>, address),
-                   (\<^typ>\<open>'urust_global\<close>, global),
-                   (\<^typ>\<open>'urust_value\<close>, #typ target_type)]
-                  \<^typ>\<open>('urust_address, 'urust_global, 'urust_value) Global_Store.ref\<close>
-                |> Proof_Context.cert_typ ctxt
-            in
-              {typ = typ,
+            let val target_type = resolve_type target in
+              {typ = reference_typ (#typ target_type),
                meaning = Meaning_Pointer (mutability, #meaning target_type)}
             end
         | resolve_type (Slice_Type (_, layout)) =
@@ -1207,22 +1235,53 @@ struct
   fun resolve ctxt rust_type =
     the_single (#types (resolve_fields ctxt [rust_type]))
 
-  fun hol_sources (HOL_Type_Source source) = [source]
-    | hol_sources (Path_Type (segments, _)) =
+  (* Immediate type operands in source order, for the source-ordered signature walks below. *)
+  fun rust_type_operands (Path_Type (segments, _)) =
         let
-          fun argument (Rust_Type_Argument typ) = hol_sources typ
-            | argument (Rust_Numeric_Argument _) = []
+          fun argument (Rust_Type_Argument typ) = SOME typ
+            | argument (Rust_Numeric_Argument _) = NONE
           fun segment (Rust_Type_Path_Segment (_, _, arguments, _)) =
-            maps argument (the_default [] arguments)
+            map_filter argument (the_default [] arguments)
         in maps segment segments end
-    | hol_sources (Tuple_Type (types, _)) = maps hol_sources types
-    | hol_sources (Group_Type (typ, _)) = hol_sources typ
-    | hol_sources (Reference_Type (_, typ, _)) = hol_sources typ
-    | hol_sources (Raw_Pointer_Type (_, typ, _)) = hol_sources typ
-    | hol_sources (Slice_Type (typ, _)) = hol_sources typ
-    | hol_sources (Array_Type (typ, _, _)) = hol_sources typ
-    | hol_sources (Const_Array_Type (typ, length, _)) = hol_sources typ @ hol_sources length
-    | hol_sources (Primitive_Type _) = []
+    | rust_type_operands (Tuple_Type (types, _)) = types
+    | rust_type_operands (Group_Type (typ, _)) = [typ]
+    | rust_type_operands (Reference_Type (_, _, typ, _)) = [typ]
+    | rust_type_operands (Raw_Pointer_Type (_, typ, _)) = [typ]
+    | rust_type_operands (Slice_Type (typ, _)) = [typ]
+    | rust_type_operands (Array_Type (typ, _, _)) = [typ]
+    | rust_type_operands (Const_Array_Type (typ, length, _)) = [typ, length]
+    | rust_type_operands (Primitive_Type _) = []
+    | rust_type_operands (HOL_Type_Source _) = []
+
+  fun hol_sources (HOL_Type_Source source) = [source]
+    | hol_sources typ = maps hol_sources (rust_type_operands typ)
+
+  fun lifetime_uses (Reference_Type (_, SOME lifetime, typ, _)) = lifetime :: lifetime_uses typ
+    | lifetime_uses typ = maps lifetime_uses (rust_type_operands typ)
+
+  fun reserved_lifetime name = name = "'static" orelse name = "'_"
+
+  (* Rust scope rules for lifetime parameters, checked before the erased types are resolved:
+     reserved names cannot be declared, declarations are distinct and every named use is declared. *)
+  fun check_lifetimes declared rust_types =
+    let
+      fun declare (Rust_Lifetime (name, pos)) scope =
+        if reserved_lifetime name then
+          error
+            ("urust_fn: " ^ quote name ^ " cannot be declared as a lifetime parameter" ^
+              Position.here pos)
+        else
+          (case Symtab.lookup scope name of
+             SOME first =>
+               error
+                 ("urust_fn: duplicate lifetime parameter " ^ quote name ^
+                   Position.here_list [first, pos])
+           | NONE => Symtab.update (name, pos) scope)
+      val scope = fold declare declared Symtab.empty
+      fun check (Rust_Lifetime (name, pos)) =
+        if reserved_lifetime name orelse Symtab.defined scope name then ()
+        else error ("urust_fn: undeclared lifetime " ^ quote name ^ Position.here pos)
+    in List.app check (maps lifetime_uses rust_types) end
 
   datatype channel_source =
       Authored_Channel of Input.source
@@ -1248,8 +1307,9 @@ struct
   fun labelled NONE message = message
     | labelled (SOME label) message = label ^ ": " ^ message
 
-  fun resolve_signature_with ctxt leading rust_types assemble =
+  fun resolve_signature_with ctxt leading lifetimes rust_types assemble =
     let
+      val _ = check_lifetimes lifetimes rust_types
       val reads = leading @ map authored_read (maps hol_sources rust_types)
       fun parse read_ctxt ({source, cited, label}: signature_read) =
         positioned_result Function_Signature cited
@@ -1335,13 +1395,13 @@ struct
     in finish (assemble leading_types (map #typ resolved)) end
 
   fun resolve_signature ctxt rust_types =
-    resolve_signature_with ctxt [] rust_types (K I)
+    resolve_signature_with ctxt [] [] rust_types (K I)
 
   (* Supplied channels, authored or inherited from a scoped default, and Rust escapes share native
      type/sort checking and import. Rust alone supplies parameter/result types, including the
      default unit result. *)
   fun resolve_function_signature ctxt
-      ({state, abort, input, output}: function_channels) parameters result =
+      ({state, abort, input, output}: function_channels) lifetimes parameters result =
     let
       val channels = [state, abort, input, output]
       val leading = map channel_read (map_filter I channels)
@@ -1362,7 +1422,10 @@ struct
             Type (\<^type_name>\<open>function_body\<close>,
               [state_type, the_single result_types, abort_type, input_type, output_type])]
         end
-    in the_single (resolve_signature_with ctxt leading (parameters @ [result]) assemble) end
+    in
+      the_single
+        (resolve_signature_with ctxt leading lifetimes (parameters @ [result]) assemble)
+    end
 
   fun instantiate_constructor ctxt rust_name arguments constructor =
     let

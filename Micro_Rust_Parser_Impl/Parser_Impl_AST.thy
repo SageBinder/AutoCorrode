@@ -99,12 +99,14 @@ sig
     | DPT_Never
     | DPT_Unit
   val rust_primitive_name: rust_primitive_type -> string
+  datatype rust_lifetime = Rust_Lifetime of string * Position.T
   datatype rust_type =
       Primitive_Type of rust_primitive_type * Position.T
     | Path_Type of rust_type_path_segment list * source_layout
     | Tuple_Type of rust_type list * source_layout
     | Group_Type of rust_type * source_layout
-    | Reference_Type of borrow_mode * rust_type * source_layout
+    | Reference_Type of
+        borrow_mode * rust_lifetime option * rust_type * source_layout
     | Raw_Pointer_Type of
         raw_pointer_mutability * rust_type * source_layout
     | Slice_Type of rust_type * source_layout
@@ -323,7 +325,7 @@ sig
       Position.T option * ur_pat * rust_type * source_layout
   datatype urust_function =
     Function_Item of
-      string * Position.T * function_parameter list *
+      string * Position.T * rust_lifetime list * function_parameter list *
       rust_type option * ur_expr * source_layout
   datatype urust_type_alias =
     Type_Alias_Item of
@@ -346,6 +348,7 @@ sig
   val function_source_layout: urust_function -> source_layout
   val function_body: urust_function -> ur_expr
   val function_name: urust_function -> string * Position.T
+  val function_lifetime_parameters: urust_function -> rust_lifetime list
   val function_parameters: urust_function -> function_parameter list
   val function_return_type: urust_function -> rust_type option
   val function_parameter_position: function_parameter -> Position.T
@@ -485,6 +488,11 @@ end
       UE_TupleProjection retains its canonical numeric index and numeric-token position; it is a
       value postfix and deliberately has no ur_place counterpart. ur_place contains only validated
       assignment-target shapes.
+    * rust_type is the positioned, unresolved Rust type tree shared by signatures, datatype fields,
+      aliases and cast targets. rust_lifetime (Rust_Lifetime) retains one lifetime spelling,
+      including its leading apostrophe, and the position of its token. Reference_Type retains its
+      optional source lifetime and Function_Item its ordered lifetime parameters, both only for
+      printing, positions and lifetime scope checks; type resolution erases them.
     * urust_type_alias and Type_Alias_Item retain the declared item name, ordered positioned type
       parameters, positioned Rust RHS and complete layout. Type_Alias_Item_Node joins datatype and
       function items in the complete-item parser, before registry validation or installation.
@@ -683,12 +691,14 @@ struct
     | rust_primitive_name DPT_Never = "!"
     | rust_primitive_name DPT_Unit = "()"
 
+  datatype rust_lifetime = Rust_Lifetime of string * Position.T
   datatype rust_type =
       Primitive_Type of rust_primitive_type * Position.T
     | Path_Type of rust_type_path_segment list * source_layout
     | Tuple_Type of rust_type list * source_layout
     | Group_Type of rust_type * source_layout
-    | Reference_Type of borrow_mode * rust_type * source_layout
+    | Reference_Type of
+        borrow_mode * rust_lifetime option * rust_type * source_layout
     | Raw_Pointer_Type of
         raw_pointer_mutability * rust_type * source_layout
     | Slice_Type of rust_type * source_layout
@@ -806,7 +816,7 @@ struct
     | rust_type_position (Path_Type (_, layout)) = source_span layout
     | rust_type_position (Tuple_Type (_, layout)) = source_span layout
     | rust_type_position (Group_Type (_, layout)) = source_span layout
-    | rust_type_position (Reference_Type (_, _, layout)) = source_span layout
+    | rust_type_position (Reference_Type (_, _, _, layout)) = source_span layout
     | rust_type_position (Raw_Pointer_Type (_, _, layout)) = source_span layout
     | rust_type_position (Slice_Type (_, layout)) = source_span layout
     | rust_type_position (Array_Type (_, _, layout)) = source_span layout
@@ -1165,7 +1175,7 @@ struct
       Position.T option * ur_pat * rust_type * source_layout
   datatype urust_function =
     Function_Item of
-      string * Position.T * function_parameter list *
+      string * Position.T * rust_lifetime list * function_parameter list *
       rust_type option * ur_expr * source_layout
   datatype urust_type_alias =
     Type_Alias_Item of
@@ -1198,22 +1208,25 @@ struct
     | type_alias_rhs (Generic_Type_Alias (_, item)) = type_alias_rhs item
 
   fun function_item_position
-      (Function_Item (_, _, _, _, _, layout)) = source_span layout
+      (Function_Item (_, _, _, _, _, _, layout)) = source_span layout
 
   fun function_source_layout
-      (Function_Item (_, _, _, _, _, layout)) = layout
+      (Function_Item (_, _, _, _, _, _, layout)) = layout
 
   fun function_body
-      (Function_Item (_, _, _, _, body, _)) = body
+      (Function_Item (_, _, _, _, _, body, _)) = body
 
   fun function_name
-      (Function_Item (name, pos, _, _, _, _)) = (name, pos)
+      (Function_Item (name, pos, _, _, _, _, _)) = (name, pos)
+
+  fun function_lifetime_parameters
+      (Function_Item (_, _, lifetimes, _, _, _, _)) = lifetimes
 
   fun function_parameters
-      (Function_Item (_, _, parameters, _, _, _)) = parameters
+      (Function_Item (_, _, _, parameters, _, _, _)) = parameters
 
   fun function_return_type
-      (Function_Item (_, _, _, return_type, _, _)) = return_type
+      (Function_Item (_, _, _, _, return_type, _, _)) = return_type
 
   fun function_parameter_position
       (Function_Parameter (_, _, _, layout)) = source_span layout
