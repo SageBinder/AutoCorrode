@@ -423,6 +423,39 @@ ML_val\<open>
   in val _ = () end
 \<close>
 
+ML_val\<open>
+  local
+    open Parser_Channel_Default_Test
+    val base = initial \<^theory>
+    val label = "default-markup-keyword-option"
+
+    (* The output option is spelled like the Pure minor keyword. Inline and in an annotation it is
+       reported as unhighlighted after any keyword report, so it renders as an option name. *)
+    val text =
+      command (inline_options [("output", "unit")]) "default_keyword_inline"
+        "fn DefaultKeywordInline() {}" ^ "\n" ^
+      "urust " ^
+        cartouche
+          ("\n  \<omega>" ^ cartouche ("output = " ^ cartouche "unit") ^
+            "\n  fn DefaultKeywordAnnotated() {}\n")
+    val (_, markup) = Parser_Test_Reports.markup (fn () => run_from base label text)
+    (* Colour reports at one range in report order; the last one determines the rendering. *)
+    fun colours position =
+      markup
+      |> filter (fn (name, properties) =>
+          member (op =) [Markup.keyword2N, Markup.delimiterN] name andalso
+            has_position properties position)
+      |> map #1
+    val inline = token_position text (start label) "output" 0
+    val annotated =
+      token_position text (start label) "output" (find_from text "output" 0 + 1)
+    val _ = require "inline keyword option name was not reported as unhighlighted"
+      (colours inline = [Markup.delimiterN])
+    val _ = require "annotation keyword option name kept the keyword colour"
+      (colours annotated = [Markup.keyword2N, Markup.delimiterN])
+  in val _ = () end
+\<close>
+
 section\<open> Commands that read no channels \<close>
 
 ML_val\<open>

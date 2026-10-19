@@ -1944,10 +1944,19 @@ fun parse_option_value config =
 fun unknown_option (name, pos) =
   error ("unknown uRust command option " ^ quote name ^ Position.here pos)
 
+(* A minor keyword such as output can name an option. Its later report replaces the keyword colour
+   with that of Isabelle's unhighlighted keywords, so it renders like every other option name. *)
+val parse_option_name =
+  Scan.ahead Parse.not_eof -- Parse.position Parse.liberal_name >>
+    (fn (token, name) =>
+      (if Token.is_kind Token.Keyword token then Position.report (#2 name) Markup.delimiter
+       else ();
+       name))
+
 (* One entry parser and schema check serve both clients: bracketed command lists and omega
    annotation payloads. A client-specific rejection explains names outside its schema. *)
 fun parse_inline_option_with reject option_configs =
-  Parse.position Parse.liberal_name :|-- (fn name =>
+  parse_option_name :|-- (fn name =>
     (case Symtab.lookup option_configs (fst name) of
        NONE => reject name
      | SOME config =>
