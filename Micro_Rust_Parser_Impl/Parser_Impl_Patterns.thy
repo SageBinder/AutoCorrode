@@ -79,8 +79,9 @@ ML\<open>
   and bodies.
 
   Pipeline of a case match. Stages 1-5 run in prepare_case_arms, once per source arm and in arm
-  order; stages 6-10 run in URust_Case_Compiler.compile_case, whose module comment describes them
-  and tabulates the root rules.
+  order; stages 6-10 run in URust_Case_Compiler.compile_case, except the typing-witness erasure of
+  stage 10, which runs in its stage-99 term-check phase urust_pattern_typing. The module comment of
+  URust_Case_Compiler describes these stages and tabulates the root rules.
 
   1. Resolve. resolve_pattern maps each identifier to a constructor or a binder and each path to
      a constructor or a value, under the site's resolution policy; it checks constructor arities,
@@ -281,8 +282,9 @@ struct
                 an earlier one is false. *)
              List.all I (map switch_capability alternatives)
          | _ => false)
-      (* Classify every arm and every or-alternative (both maps run before any List.all) before the
-         guard test: constructor resolution and literal classification can raise errors. *)
+      (* Classify every arm and every or-alternative before the guard test: constructor resolution
+         and literal classification can raise errors. Each List.all only combines results that its
+         map has already computed, so no classification is skipped. *)
       val capabilities = map (switch_capability o arm_pattern) arms
     in
       if List.exists (is_some o arm_guard) arms then MF_Case

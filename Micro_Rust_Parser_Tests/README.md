@@ -401,12 +401,13 @@ negative rows preserve these boundaries.
   root-case planning and all five match consumers. Those frozen at `3245e94` reach the root rules
   that no other parser test reached: shapes subsumed by an earlier test-led shape, at an enumerated
   root and inside a tuple root group; a covering cut prefix with no wildcard row; and a binding
-  failure-suffix catchall after a false guard and after a nested generated-test miss. Their
-  equations pin the first two; they do not distinguish a binding failure-suffix catchall from a
+  failure-suffix catchall after a false guard and after a nested generated-test miss. The
+  equations of the subsumption and covering-cut declarations pin those rules; the `guard_binder`
+  and `nested_binder` equations do not distinguish a binding failure-suffix catchall from a
   wildcard one. Function, abbreviation and anonymous declarations retain coverage, and two
   programmatic probes are each elaborated three times and compared with a raw typed term. The
   compiler emits one term and constructs only the needed generated-test or source-guard failure
-  destination; structural coverage, typing witnesses and the direct matrix path remain.
+  destination; it also has structural coverage, typing witnesses and a direct matrix path.
 - `Parser_Primitive_Path_Heads_Tests.thy`: all seven primitive heads, exact literal/call roles,
   comments and token boundaries, expressions, patterns, repeats, cast aliases, positions,
   current notation navigation, fallback rejection, and recovery.

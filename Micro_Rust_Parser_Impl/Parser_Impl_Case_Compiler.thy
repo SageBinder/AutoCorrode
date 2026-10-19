@@ -63,7 +63,8 @@ ML\<open>
   and the source-ordered arms; URust_Patterns.compile_case, which delegates here, documents the
   contract.
 
-  Stages, all in compile_decision_case:
+  Stages 6 to 10 run during compile_decision_case, except the witness erasure of stage 10, which
+  runs later, in the stage-99 term-check phase urust_pattern_typing:
 
   6. Clauses. normalize_case_alternative turns each alternative into a case_clause, exactly once
      and in arm-major, alternative-minor, left-to-right order. At the top of an alternative, a
@@ -108,10 +109,11 @@ ML\<open>
   case_abs (fn leaves => case_elem P[leaves] B) that fresh_pattern_subject opens for P. decide(S)
   is compile_rows over all rows of the current case in decision state S. R(rows) is the
   failure-root case emit_root Failure_Root rows; the root case of a compile is
-  emit_root Match_Root rows. Pinning tests name the *_frozen equations of
-  Parser_Matcher_Stability_Tests without their matcher_stability_ prefix and _frozen suffix;
-  "probe" is the first repeated-elaboration probe at the end of that theory, and letters refer to
-  the notes after the table.
+  emit_root Match_Root rows. Pinning tests name only frozen tests: the *_frozen equations of
+  Parser_Matcher_Stability_Tests without their matcher_stability_ prefix and _frozen suffix, and
+  "probe", the first repeated-elaboration probe at the end of that theory, which compares its
+  output with a frozen term. "none" marks a rule that no frozen test pins. Letters refer to the
+  notes after the table.
 
   Rule            Term shape                                      Pinning tests
   --------------  ----------------------------------------------  ----------------------------------
@@ -139,9 +141,9 @@ ML\<open>
                   if that binds nothing, the first later binding
                   wild row's (install_source_catchall).
 
-  Complete group  If there is exactly one group, its key is       parser_root_suffix_guarded_left,
-                  total and one of its rows has a total shape:    parser_root_suffix_guarded_right:
-                  the single clause open key => decide(all        (d)
+  Complete group  If there is exactly one group, its key is       none; reaching fixtures and the
+                  total and one of its rows has a total shape:    audit harness: (d)
+                  the single clause open key => decide(all
                   rows), with no cut and no catchall, in both
                   contexts (group_is_coverage_complete).
 
@@ -189,9 +191,9 @@ ML\<open>
                   decided (split_at_nested_failure).
 
   Failure suffix  R(rows) is planned in Failure_Root. No rows     range, slice, function,
-                  give the terminal fallback and a complete       covered_cut; complete:
-                  group its single clause; otherwise the cut      parser_root_suffix_guarded_left
-                  leaves one catchall with no exclusions,         (d); binding: (h); empty: (b)
+                  give the terminal fallback and a complete       covered_cut; complete: none, see
+                  group its single clause; otherwise the cut      (d); binding: (h); empty: (b)
+                  leaves one catchall with no exclusions,
                   binding exactly when the rows' source catchall
                   binds.
 
@@ -209,13 +211,14 @@ ML\<open>
   (b) No frozen equation reaches an empty clause list, which is the plan of an empty failure
       suffix.
   (c) No frozen equation upgrades a wild source catchall to a later binding row.
-  (d) No frozen equation reaches a complete group. In Parser_Pattern_Matching_Tests,
-      parser_root_suffix_guarded_left and parser_root_suffix_guarded_right reach it in Match_Root
-      and again in Failure_Root, in the suffix that a false source guard redispatches to, as do the
-      parser_recursive_coverage_guarded_* variants; the _unguarded_* variants take the direct
-      matrix instead. Their lemmas check evaluation results. The "Resolution and term-shape audit"
-      section (audit_total_root_suffix) also checks part of their term shape: one scrutinee bind,
-      no undefined fallback and exactly one guard occurrence. No equation freezes their terms.
+  (d) No frozen test reaches a complete group, in either context. In Parser_Pattern_Matching_Tests,
+      the fixtures parser_root_suffix_guarded_left and parser_root_suffix_guarded_right reach it in
+      Match_Root and again in Failure_Root, in the suffix that a false source guard redispatches
+      to, as do the parser_recursive_coverage_guarded_* variants; the _unguarded_* variants take
+      the direct matrix instead. Their lemmas check evaluation results. The audit_total_root_suffix
+      harness of the "Resolution and term-shape audit" section also checks part of their term
+      shape: one scrutinee bind, no undefined fallback and exactly one guard occurrence. No
+      equation freezes their terms.
   (e) parser_slice_bare_suffix in Parser_Slice_Pattern_Tests reaches the cut before a transformed
       row and the transformed test miss; its lemmas check evaluation results only.
   (f) rich_guard_wild_fallthrough in Parser_Expression_Tests reaches a guarded wild row before any
@@ -398,8 +401,9 @@ struct
 
   type clause_scope = {kind: scope_kind, close: term -> term}
 
-  (* A normalized alternative: its clause pattern, its generated tests and scopes in evaluation
-     order, and the navigation wrappers of its body. *)
+  (* A normalized alternative: its clause pattern, its generated tests in evaluation order, its
+     scopes in creation order (combine_scopes closes the first one outermost), and the navigation
+     wrappers of its body. *)
   type normalized_pattern =
     {pattern: clause_pattern,
      tests: term list,
@@ -482,9 +486,11 @@ struct
     - case_clause holds one alternative's structural pattern, the conjunction of its generated
       tests, its combined clause_scope, the navigation wrappers of its body, and the renderer that
       the direct matrix uses for it. A clause_scope pairs a scope_kind with the operation that
-      closes the guarded body: an alias binding, a type constraint, or the wrapper match of a
-      nested or transformed temporary; a direct scope closes with I. Direct and decided emission
-      both build cases with the Case_Term_Backend constructors.
+      closes the guarded body: an alias binding (Alias_Scope); a type constraint or the wrapper
+      match of a nested temporary (Nested_Scope); or the wrapper match of a slice suffix
+      (Transformed_Scope), over the reversed temporary below a constructor or tuple and over the
+      reversed scrutinee at the top of an alternative. A direct scope closes with I. Direct and
+      decided emission both build cases with the Case_Term_Backend constructors.
     - decision_row adds the source position (arm and alternative index), the source guard and the
       body; rows are arm-major and alternative-minor. The position separates the two failures: a
       generated-test miss moves on to the next alternative, while a false source guard skips the
@@ -887,8 +893,10 @@ struct
         in (positions :: nested, core) end
     | strip_case_navigation pattern = ([], pattern)
 
-  fun clause_only pattern : normalized_pattern =
-    {pattern = pattern, tests = [], scopes = [], navigation = []}
+  fun tested_clause pattern tests : normalized_pattern =
+    {pattern = pattern, tests = tests, scopes = [], navigation = []}
+
+  fun clause_only pattern = tested_clause pattern []
 
   fun add_scope scope ({pattern, tests, scopes, navigation} : normalized_pattern)
       : normalized_pattern =
@@ -933,8 +941,8 @@ struct
                  | _ => Nested_Scope)
             in
               add_slice_navigation navigation_positions
-                {pattern = Clause_Generated temporary, tests = tests,
-                 scopes = [{kind = kind, close = wrapper}], navigation = []}
+                (add_scope {kind = kind, close = wrapper}
+                  (tested_clause (Clause_Generated temporary) tests))
             end
           else normalize_pattern_for_nested compiler ctxt environment argument
         end
@@ -988,8 +996,7 @@ struct
                add_scope {kind = Nested_Scope, close = wrap} normalized
              end
          | Case_Value (literal, _) =>
-             {pattern = Clause_Wild, tests = [T.binary Eq expression (T.literal literal)],
-              scopes = [], navigation = []}
+             tested_clause Clause_Wild [T.binary Eq expression (T.literal literal)]
          | Case_Range (kind, lower, upper, _) =>
              let
                val upper_guard =
@@ -1000,7 +1007,7 @@ struct
                    expression upper
                val test = T.binary And (T.binary Ge expression lower) upper_guard
              in
-               {pattern = Clause_Wild, tests = [test], scopes = [], navigation = []}
+               tested_clause Clause_Wild [test]
              end
          | Case_Slice_Suffix reversed_suffix =>
              let
@@ -1012,8 +1019,7 @@ struct
                  compile_nested_case compiler ctxt environment reversed_expression reversed_suffix
                    rhs T.undefined_value
              in
-               {pattern = Clause_Wild, tests = [test],
-                scopes = [{kind = Transformed_Scope, close = wrap}], navigation = []}
+               add_scope {kind = Transformed_Scope, close = wrap} (tested_clause Clause_Wild [test])
              end
          | _ => normalize_pattern_for_nested compiler ctxt environment bare_pattern)
     end
