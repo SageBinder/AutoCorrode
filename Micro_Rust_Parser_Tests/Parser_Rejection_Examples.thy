@@ -1,29 +1,23 @@
-(* Rejection tests for the production uRust parser. Each row requires the
-   consolidated `URust_Command.elaborate` API to reject with a stable substring. *)
+(* Rejected parser input. Each row requires the consolidated URust_Command.elaborate API
+   to reject with a stable substring. *)
 
-theory Parser_Rejection_Tests
+theory Parser_Rejection_Examples
   imports
-    Parser_Struct_Ambiguity_Left_Fixtures
-    Parser_Struct_Ambiguity_Right_Fixtures
-    Parser_Constructor_Ambiguity_Left_Fixtures
-    Parser_Constructor_Ambiguity_Right_Fixtures
-    Parser_Registered_Constructor_Fixtures
-    Parser_Logging_Fixtures
+    Parser_Test_Fixtures_Left
+    Parser_Test_Fixtures_Right
+    Micro_Rust_Std_Lib.StdLib_Logging
 begin
 
-declare [[urust_pp_test = true]]
-declare [[urust_pretty = true]]
-declare [[urust_verbosity = 2]]
-declare [[urust_abbrev = false]]
-
 chapter\<open>Negative parser tests\<close>
+
+declare [[urust_pp_test = true, urust_pretty = true, urust_verbosity = 2, urust_abbrev = false,
+  urust_application_def = false, urust_register_notation = true]]
 
 text\<open>
 The custom rejection command calls the common elaboration API directly, so declaration-level
 roundtrip and output settings do not obscure the parser or lowering diagnostic under test.
 Successful recovery declarations inherit the enabled test settings above.
 \<close>
-
 
 section\<open> Non-associative operators \<close>
 
@@ -41,8 +35,8 @@ section\<open> Prefix and with-block expression boundaries \<close>
 
 text\<open>
 Mixed prefixes and direct with-block operands are now positive Rust-aligned coverage in
-\<open>Parser_Syntax_Tests\<close>. Negative rows here retain only separator and deferred-feature
-boundaries.
+\<open>Parser_Syntax_Examples\<close> and \<open>Parser_Syntax_ML_Tests\<close>. Negative rows here
+retain only separator and deferred-feature boundaries.
 \<close>
 
 section\<open> Integer literals \<close>
@@ -165,15 +159,19 @@ definition qualified_wrong_role_call ::
 micro_rust_notation (call)
   qualified_wrong_role_call
   ("WrongRole::Value")
+
 micro_rust_notation (literal)
   qualified_wrong_role_literal
   ("WrongRole::Call")
+
 micro_rust_notation (call)
   qualified_wrong_role_call
   ("WrongRole::Pattern")
+
 micro_rust_notation (literal)
   qualified_wrong_role_literal
   ("WrongRole::StructExpression")
+
 micro_rust_notation (literal)
   qualified_wrong_role_literal
   ("WrongRole::Macro!")
@@ -184,6 +182,9 @@ urust_expr_rejects
 
 urust_expr_rejects
   \<open> WrongRole::Value \<close>
+  \<open> qualified path "WrongRole::Value" requires an exact micro_rust_notation (literal) declaration \<close>
+
+urust_expr_rejects \<open> [1; WrongRole::Value] \<close>
   \<open> qualified path "WrongRole::Value" requires an exact micro_rust_notation (literal) declaration \<close>
 
 urust_expr_rejects
@@ -241,47 +242,6 @@ urust_expr_rejects
   \<open> qualified path "WrongRole::StructExpression" requires an exact micro_rust_notation (call) declaration \<close>
 
 urust_expr qualified_path_policy_recovery \<open> () \<close>
-
-ML_val\<open>
-  local
-    val text = "RecoveryAudit::Missing"
-    val start =
-      Position.make0 37 900 0 "" ""
-        "qualified-path-recovery-audit"
-    val position =
-      Position.range_position
-        (start, Position.symbol_explode text start)
-    val source =
-      Parser_Lex_Util.positioned_content_source text start
-    val expected =
-      "urust_expr: qualified path \"RecoveryAudit::Missing\" " ^
-      "requires an exact micro_rust_notation (literal) declaration" ^
-      Position.here position
-    val _ =
-      (case Exn.result
-          (fn () =>
-            Parser_Test_Elaboration.expression
-              \<^context> source) () of
-         Exn.Res _ =>
-           error
-             "qualified path diagnostic audit: missing registration was accepted"
-       | Exn.Exn exn =>
-           if Exn.is_interrupt exn then Exn.reraise exn
-           else
-             \<^assert> (Runtime.exn_message exn = expected))
-    val recovered =
-      Parser_Test_Elaboration.expression
-        \<^context> (Parser_Lex_Util.text_source "()")
-    val _ =
-      \<^assert>
-        (Term.exists_subterm
-          (fn Const (name, _) =>
-                name = \<^const_name>\<open>Product_Type.Unity\<close>
-            | _ => false)
-          recovered)
-  in
-  end
-\<close>
 
 subsection\<open> Cycle 1 atomic binder validation (C1-I1--C1-I3) \<close>
 
@@ -876,193 +836,13 @@ urust_expr_rejects
   \<comment> \<open> [DIVERGENT] typedef-backed case constructors participate in the same deterministic
        unqualified-basename ambiguity diagnostic as ordinary datatype constructors. \<close>
 
-ML\<open>
-local
-  val left_struct =
-    "Parser_Struct_Ambiguity_Left_Fixtures.struct_ambiguity_left.AmbiguousStruct"
-  val right_struct =
-    "Parser_Struct_Ambiguity_Right_Fixtures.struct_ambiguity_right.AmbiguousStruct"
-  val left_nullary =
-    "Parser_Struct_Ambiguity_Left_Fixtures.nullary_ambiguity_left.AmbiguousNullary"
-  val right_nullary =
-    "Parser_Struct_Ambiguity_Right_Fixtures.nullary_ambiguity_right.AmbiguousNullary"
-  val left_word =
-    "Parser_Constructor_Ambiguity_Left_Fixtures.word_constructor_ambiguity_left.SharedWordState"
-  val left_word_only =
-    "Parser_Constructor_Ambiguity_Left_Fixtures.word_constructor_ambiguity_left.LeftWordState"
-  val right_word =
-    "Parser_Constructor_Ambiguity_Right_Fixtures.word_constructor_ambiguity_right.SharedWordState"
-
-  fun assert message condition =
-    if condition then () else error message
-
-  fun expect_ambiguity label source identities =
-    (case Exn.result
-        (fn () =>
-          Parser_Test_Elaboration.expression \<^context>
-            (Parser_Lex_Util.text_source source)) () of
-       Exn.Res _ =>
-         error (label ^ " unexpectedly resolved an ambiguous constructor")
-     | Exn.Exn exn =>
-         if Exn.is_interrupt exn then Exn.reraise exn
-         else
-           let val message = Runtime.exn_message exn in
-             assert (label ^ " did not report ambiguity")
-               (String.isSubstring "is ambiguous; candidates:" message);
-             assert (label ^ " did not identify the missing notation declaration")
-               (String.isSubstring
-                 "Missing exact micro_rust_notation (literal) declaration"
-                 message);
-             List.app
-               (fn identity =>
-                 assert
-                   (label ^ " omitted candidate " ^ quote identity)
-                   (String.isSubstring identity message))
-               identities
-           end)
-
-  val resolver =
-    URust_Resolution.make_constructor_resolver
-      \<^context> Position.none
-
-  fun qualified identity =
-    (case URust_Resolution.resolve_constructor \<^context> resolver
-        (URust_AST.make_single_path (identity, Position.none)) of
-       SOME info => info
-     | NONE =>
-         error
-           ("qualified constructor did not resolve: " ^
-             quote identity))
-
-  val struct_info = qualified left_struct
-  val nullary_info = qualified left_nullary
-  val word_info = qualified left_word
-
-  val _ =
-    assert "qualified positional constructor arity changed"
-      (URust_Resolution.constructor_arity struct_info = 1)
-  val _ =
-    assert "qualified nullary constructor arity changed"
-      (URust_Resolution.constructor_arity nullary_info = 0)
-  val _ =
-    assert "qualified word constructor arity changed"
-      (URust_Resolution.constructor_arity word_info = 0)
-  val _ =
-    (case URust_Resolution.constructor_family struct_info of
-       SOME (family, members) =>
-         (assert "qualified constructor family changed"
-            (family =
-              "Parser_Struct_Ambiguity_Left_Fixtures.struct_ambiguity_left");
-          assert "qualified constructor family members changed"
-            (map_filter
-              (fn Const (name, _) => SOME name | _ => NONE)
-              members = [left_struct]))
-     | NONE =>
-         error "qualified constructor lost family metadata")
-  val _ =
-    (case URust_Resolution.constructor_family word_info of
-       SOME (family, members) =>
-         (assert "qualified word constructor family changed"
-            (family =
-              "Parser_Constructor_Ambiguity_Left_Fixtures.word_constructor_ambiguity_left");
-          assert "qualified word constructor family members changed"
-            (map_filter
-              (fn Const (name, _) => SOME name | _ => NONE)
-              members = [left_word, left_word_only]))
-     | NONE =>
-         error "qualified word constructor lost family metadata")
-
-  val _ =
-    expect_ambiguity "positional constructor ambiguity"
-      "match_case \<llangle>undefined\<rrangle> { AmbiguousStruct(x) \<Rightarrow> x }"
-      [left_struct, right_struct]
-  val _ =
-    expect_ambiguity "nullary constructor ambiguity"
-      "match_case \<llangle>undefined\<rrangle> { AmbiguousNullary \<Rightarrow> \<llangle>True\<rrangle> }"
-      [left_nullary, right_nullary]
-  val _ =
-    expect_ambiguity "word constructor ambiguity"
-      "match_case \<llangle>undefined\<rrangle> { SharedWordState \<Rightarrow> \<llangle>True\<rrangle> }"
-      [left_word, right_word]
-in
-end
-\<close>
-
-subsection\<open> Cycle 1 source-diagnostic isolation (C1-I7/C1-I8) \<close>
-
-text\<open>
-Representative source failures must be raised before generated HOL reaches type checking. In
-particular, diagnostics may not expose administrative names, generated case clauses, old internal
-numeric-pattern wording, or synthetic positionless fallbacks.
-\<close>
-
-ML\<open>
-local
-  val forbidden =
-    ["_urust_local_", "_urust_case_", "case_elem", "case_abs",
-     "clauses are redundant", "numeric pattern in match_case", "Position.none"]
-
-  fun expect_clean_rejection source required =
-    (case Exn.result
-        (fn () =>
-          Parser_Test_Elaboration.expression \<^context>
-            (Parser_Lex_Util.text_source source)) () of
-       Exn.Res term =>
-         error ("Cycle 1 diagnostic audit expected rejection, but got " ^
-           Syntax.string_of_term \<^context> term)
-     | Exn.Exn exn =>
-         if Exn.is_interrupt exn then Exn.reraise exn
-         else
-           let
-             val message = Runtime.exn_message exn
-             val _ =
-               List.app
-                 (fn expected =>
-                   if String.isSubstring expected message then ()
-                   else
-                     error ("Cycle 1 diagnostic audit expected " ^
-                       quote expected ^ ", but got " ^ quote message))
-                 required
-             val _ =
-               List.app
-                 (fn leaked =>
-                   if String.isSubstring leaked message
-                   then
-                     error ("Cycle 1 diagnostic audit leaked " ^
-                       quote leaked ^ " in " ^ quote message)
-                   else ())
-                 forbidden
-           in () end)
-
-  val _ =
-    expect_clean_rejection
-      "let (x, x) = \<llangle>(1 :: nat, (2 :: nat, TNil))\<rrangle>; x"
-      ["duplicate pattern binder \"x\"", "The original binder is here"]
-  val _ =
-    expect_clean_rejection
-      "match_case \<llangle>Some (1 :: nat)\<rrangle> { Some(x) | None \<Rightarrow> x }"
-      ["or-pattern alternative is missing binder \"x\""]
-  val _ =
-    expect_clean_rejection
-      "for whole @ Some(value) in \<llangle>[Some (0 :: nat)]\<rrangle> { () }"
-      ["unsupported or refutable pattern in a `for` binder position"]
-  val _ =
-    expect_clean_rejection
-      "const whole @ value = \<llangle>0 :: nat\<rrangle>; value"
-      ["unsupported or refutable pattern in an irrefutable (let/const) binder position"]
-  val _ =
-    expect_clean_rejection
-      "for None in \<llangle>[None :: nat option]\<rrangle> { () }"
-      ["unsupported or refutable pattern in a `for` binder position"]
-in end
-\<close>
-
 section\<open> Calls \<close>
 
 definition ncf1 :: \<open> 64 word \<Rightarrow> (unit, 64 word, unit, unit, unit) function_body \<close>
   where \<open> ncf1 \<equiv> lift_fun1 (\<lambda>x. x) \<close>
 
 micro_rust_notation (call) ncf1 ("NegativeArity::Registered")
+
 micro_rust_notation (call) ncf1 ("negative_arity_registered_method")
 
 urust_expr_rejects
@@ -1487,9 +1267,10 @@ urust_expr_rejects \<open> matches!(Some(1_u32), Some(_)) = rhs \<close>
 section\<open> Assignment right-hand control-flow precedence \<close>
 
 text\<open>
-Assignment remains right-associative and its right-hand side is now a complete expression.
-Direct conditionals and matches on assignment and compound-assignment right-hand sides are positive
-Rust-aligned coverage in \<open>Parser_Syntax_Tests.thy\<close>.
+Assignment remains right-associative and its right-hand side is now a complete expression. Direct
+conditionals and matches on assignment and compound-assignment right-hand sides are positive
+Rust-aligned coverage in \<open>Parser_Syntax_Examples.thy\<close> and
+\<open>Parser_Syntax_ML_Tests.thy\<close>.
 \<close>
 
 urust_expr_rejects \<open> r /= rhs \<close> \<open> = \<close>
@@ -1877,8 +1658,9 @@ urust_expr_rejects
        mixfix parser accepts this spelling despite displaying parentheses on pretty-print. \<close>
 
 text\<open>
-Direct fueled loops, \<open>for\<close>, and \<open>while let\<close> are primary expressions. Their binary-operand
-coverage is in \<open>Parser_Syntax_Tests.thy\<close>.
+Direct fueled loops, \<open>for\<close>, and \<open>while let\<close> are primary expressions. Their
+binary-operand coverage is in \<open>Parser_Syntax_Examples.thy\<close> and
+\<open>Parser_Syntax_ML_Tests.thy\<close>.
 \<close>
 
 urust_expr_rejects
@@ -2097,25 +1879,26 @@ urust_expr_rejects
 text\<open>
 Conditional bindings, mixed conditional chains, and fueled loops are complete expressions and are
 therefore valid direct closure bodies; focused positive coverage lives in
-\<open>Parser_Syntax_Tests.thy\<close>.
+\<open>Parser_Syntax_Examples.thy\<close> and \<open>Parser_Syntax_ML_Tests.thy\<close>.
 \<close>
 
 text\<open>
 A semicolon after a closure terminates the closure expression and starts the surrounding body; it
 does not become part of the closure body. The resulting sequence has focused AST coverage in
-\<open>Parser_Syntax_Tests.thy\<close>.
+\<open>Parser_Syntax_Examples.thy\<close> and \<open>Parser_Syntax_ML_Tests.thy\<close>.
 \<close>
 
 text\<open>
 Semicolon-free return expressions and nested closures are valid complete closure bodies; focused
-positive coverage lives in \<open>Parser_Syntax_Tests.thy\<close>.
+positive coverage lives in \<open>Parser_Syntax_Examples.thy\<close> and
+\<open>Parser_Syntax_ML_Tests.thy\<close>.
 \<close>
 
 subsection\<open> Bare placement and invocation \<close>
 
 text\<open>
 Bare closures are valid binding initializers and assignment right-hand sides. Positive coverage is
-in \<open>Parser_Syntax_Tests.thy\<close>.
+in \<open>Parser_Syntax_Examples.thy\<close> and \<open>Parser_Syntax_ML_Tests.thy\<close>.
 \<close>
 
 urust_expr_rejects
@@ -2134,8 +1917,9 @@ urust_expr_rejects
   \<comment> \<open> [DIVERGENT] the closure parses as the iterable, then iterator typing rejects it. \<close>
 
 text\<open>
-Closures are valid match scrutinees, match-arm bodies, and expression statements before a
-semicolon. Focused positive and AST coverage is in \<open>Parser_Syntax_Tests.thy\<close>.
+Closures are valid match scrutinees, match-arm bodies, and expression statements before a semicolon.
+Focused positive and AST coverage is in \<open>Parser_Syntax_Examples.thy\<close> and
+\<open>Parser_Syntax_ML_Tests.thy\<close>.
 \<close>
 
 urust_expr_rejects
@@ -2153,7 +1937,6 @@ urust_expr_rejects
   \<open> bool \<close>
   \<comment> \<open> [FIDELITY] a closure is a complete guard body syntactically, then ordinary checking
        rejects the non-boolean guard result. \<close>
-
 
 section\<open> Cast targets, placement, and recovery boundaries \<close>
 
@@ -2389,14 +2172,17 @@ definition negative_d21_pair ::
   where \<open> negative_d21_pair \<equiv> lift_fun2 (+) \<close>
 
 micro_rust_notation (call) negative_d21_identity ("NegativeD21One")
+
 micro_rust_notation (call) negative_d21_any ("NegativeD21Any")
+
 micro_rust_notation (call) negative_d21_pair ("NegativeD21Pair")
 
 subsection\<open> Field-list grammar \<close>
 
 text\<open>
 Empty struct expressions and one trailing field comma are accepted Rust-aligned forms. Their
-positive, lowering, and field-order coverage is in \<open>Parser_Syntax_Tests.thy\<close>.
+positive, lowering, and field-order coverage is in \<open>Parser_Syntax_Examples.thy\<close> and
+\<open>Parser_Syntax_ML_Tests.thy\<close>.
 \<close>
 
 urust_expr_rejects
@@ -2709,58 +2495,100 @@ for generated constructors; comparison and shift expressions remain unsupported.
 \<close>
 
 urust_expr_rejects \<open> f::<Suc 4>() \<close> \<open> syntax error \<close>
+
 urust_expr_rejects \<open> f::<(1, 2)>() \<close> \<open> syntax error \<close>
+
 urust_expr_rejects \<open> f::<[1, 2]>() \<close> \<open> unexpected input "[" \<close>
+
 urust_expr_rejects \<open> f::<"text">() \<close> \<open> unexpected input \<close>
+
 urust_expr_rejects \<open> f::<STR ''text''>() \<close> \<open> unexpected input \<close>
+
 urust_expr_rejects \<open> f::<1 :: nat>() \<close> \<open> syntax error \<close>
+
 urust_expr_rejects \<open> f::<a < b>() \<close> \<open> unterminated turbofish \<close>
+
 urust_expr_rejects \<open> f::<a << b>() \<close> \<open> syntax error \<close>
+
 urust_expr_rejects \<open> f::<a & b>() \<close> \<open> unexpected input "&" \<close>
+
 urust_expr_rejects \<open> f::<a && b>() \<close> \<open> unexpected input "&" \<close>
+
 urust_expr_rejects \<open> f::<a % b>() \<close> \<open> unexpected input "%" \<close>
+
 urust_expr_rejects \<open> f::<a ^ b>() \<close> \<open> unexpected input "^" \<close>
+
 urust_expr_rejects \<open> f::<-a>() \<close> \<open> unexpected input "-" \<close>
+
 urust_expr_rejects \<open> f::<a - b>() \<close> \<open> unexpected input "-" \<close>
+
 urust_expr_rejects \<open> f::<a * b>() \<close> \<open> unexpected input "*" \<close>
+
 urust_expr_rejects \<open> f::<a / b>() \<close> \<open> unexpected input "/" \<close>
+
 urust_expr_rejects \<open> f::<a div b>() \<close> \<open> syntax error \<close>
+
 urust_expr_rejects \<open> f::<a mod b>() \<close> \<open> syntax error \<close>
+
 urust_expr_rejects \<open> f::<\<clubsuit>>() \<close> \<open> unexpected input \<close>
+
 urust_expr_rejects
   \<open> f::<\<open>opaque\<close>>() \<close>
   \<open> unexpected input \<close>
+
 urust_expr_rejects
   \<open> f::<\<epsilon>\<open>1\<close>>() \<close>
   \<open> unexpected input \<close>
+
 urust_expr_rejects
   \<open> f::<1 // comments are not generic trivia
        + 2>() \<close>
   \<open> unexpected input "/" \<close>
 
 urust_expr_rejects \<open> f::<,1>() \<close> \<open> syntax error \<close>
+
 urust_expr_rejects \<open> f::<1,,2>() \<close> \<open> syntax error \<close>
+
 urust_expr_rejects \<open> f::<1,>() \<close> \<open> syntax error \<close>
+
 urust_expr_rejects \<open> f::<1 a>() \<close> \<open> syntax error \<close>
+
 urust_expr_rejects \<open> f::<1 +>() \<close> \<open> syntax error \<close>
+
 urust_expr_rejects \<open> f::<* 1>() \<close> \<open> unexpected input "*" \<close>
+
 urust_expr_rejects \<open> f::<->() \<close> \<open> unexpected input "-" \<close>
+
 urust_expr_rejects \<open> f::<((1)>() \<close> \<open> syntax error \<close>
+
 urust_expr_rejects \<open> f::<1)>() \<close> \<open> syntax error \<close>
+
 urust_expr_rejects
   \<open> f::<1>>() \<close>
   \<open> generic arguments on a bare value require an exact literal registration \<close>
+
 urust_expr_rejects \<open> f::<1u8>() \<close> \<open> syntax error \<close>
+
 urust_expr_rejects \<open> f::<0xff_u8>() \<close> \<open> syntax error \<close>
+
 urust_expr_rejects \<open> f::<1foo>() \<close> \<open> complete unsuffixed integer literals \<close>
+
 urust_expr_rejects \<open> f::<0b102>() \<close> \<open> complete unsuffixed integer literals \<close>
+
 urust_expr_rejects \<open> f::<0o8>() \<close> \<open> complete unsuffixed integer literals \<close>
+
 urust_expr_rejects \<open> f::<0x0x10>() \<close> \<open> complete unsuffixed integer literals \<close>
+
 urust_expr_rejects \<open> f::<0x_>() \<close> \<open> complete unsuffixed integer literals \<close>
+
 urust_expr_rejects \<open> receiver.f::<0b102>() \<close> \<open> complete unsuffixed integer literals \<close>
+
 urust_expr_rejects \<open> f::<(1u8)>() \<close> \<open> complete unsuffixed integer literals \<close>
+
 urust_expr_rejects \<open> f::<1 + 2u8>() \<close> \<open> complete unsuffixed integer literals \<close>
+
 urust_expr_rejects \<open> f::<Nested<1u8>>() \<close> \<open> complete unsuffixed integer literals \<close>
+
 urust_expr_rejects
   \<open> \<llangle>\<lambda>x. x\<rrangle>\<^sub>1::<1u8>() \<close>
   \<open> complete unsuffixed integer literals \<close>
@@ -2773,33 +2601,6 @@ urust_expr_rejects \<open> "unterminated \<close> \<open> malformed or untermina
 
 urust_expr_rejects \<open> \<llangle>1 :: nat \<close> \<open> unterminated value antiquotation \<close>
   \<comment> \<open> [FIDELITY] EOF in a value antiquotation is diagnosed at its opening delimiter. \<close>
-
-ML\<open>
-local
-  fun expect_rejection text expected =
-    (case Exn.result
-        (fn () =>
-          Parser_Test_Elaboration.expression \<^context>
-            (Parser_Lex_Util.text_source text)) () of
-       Exn.Res _ => error ("expected direct parser rejection containing " ^ quote expected)
-     | Exn.Exn exn =>
-         if Exn.is_interrupt exn then Exn.reraise exn
-         else
-           let val message = Runtime.exn_message exn
-           in
-             if String.isSubstring expected message then ()
-             else error ("expected direct parser rejection containing " ^ quote expected ^
-               ", but got " ^ quote message)
-           end)
-  val _ =
-    expect_rejection ("\<epsilon>" ^ Symbol.open_ ^ "True")
-      "unterminated expression antiquotation"
-  val _ =
-    ignore
-      (Parser_Test_Elaboration.expression \<^context>
-        (Parser_Lex_Util.text_source "()"))
-in end
-\<close>
 
 urust_expr_rejects
   \<open> match_case true { \<epsilon>\<open>Bool_Type.true\<close> \<Rightarrow> () } \<close>
@@ -2823,7 +2624,6 @@ urust_expr_rejects \<open> { ; } \<close> \<open> syntax error found at ; \<clos
 urust_expr_rejects \<open> \<close> \<open> empty expression \<close>
   \<comment> \<open> [FIDELITY] \<open>parse_source\<close> returns NONE on blank input; the frontend's empty bracket is an
        inner-syntax error. \<close>
-
 
 chapter\<open>Negative logging\<close>
 

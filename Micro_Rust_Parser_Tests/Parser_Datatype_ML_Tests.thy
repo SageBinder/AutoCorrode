@@ -1,77 +1,43 @@
-theory Parser_Datatype_Tests
-  imports Parser_Test_Utils
+(* ML audits for Rust datatypes and types, followed by the generic datatype and type mapping
+   suites, whose examples interleave with audits of the state before later declarations. The
+   readable examples are in Parser_Datatype_Examples. *)
+
+theory Parser_Datatype_ML_Tests
+  imports
+    Parser_Datatype_Examples
 begin
 
-declare [[urust_pp_test = true]]
-declare [[urust_pretty = true]]
-declare [[urust_verbosity = 2]]
+chapter\<open> Simple word enum clauses \<close>
+
+section\<open> Clause registrations without the chunk command \<close>
+
+declare [[urust_pp_test = false, urust_pretty = false, urust_verbosity = 0, urust_abbrev = false,
+  urust_application_def = false, urust_register_notation = true]]
+
+ML_val\<open>
+  local
+    val keywords = Thy_Header.get_keywords' \<^context>
+    fun backend name =
+      (case Micro_Rust_Names.lookups \<^context> Micro_Rust_Names.NLiteral ("ClauseKind::" ^ name) of
+         [{hol_term, ...}] => hol_term
+       | entries =>
+           error ("clause registration audit: " ^ name ^ " has " ^
+             string_of_int (length entries) ^ " backends"))
+  in
+    val _ =
+      if Keyword.is_command keywords "urust"
+      then error "clause registration audit: urust is a command keyword without the chunk theory"
+      else ()
+    val _ = @{assert} (backend "CLK_First" aconv @{term CLK_First})
+    val _ = @{assert} (backend "CLK_Second" aconv @{term CLK_Second})
+  end
+\<close>
+
+chapter\<open> Rust datatypes \<close>
 
 section\<open> Rust datatype declarations \<close>
 
-urust_datatype [renames = ["renameSampleValue" \<rightarrow> "sample"]] \<open>
-  struct RenamedPacket { renameSampleValue: u32, valid: bool }
-\<close>
-
-urust_datatype [backend = hol, renames = [
-  "Ready" \<rightarrow> "ModelReady",
-  "Data" \<rightarrow> "ModelData",
-  "Empty" \<rightarrow> "ModelEmpty"
-]] renamed_choice_hol \<open>
-  enum RenamedChoice { Empty, Data(u32, bool), Ready { value: u32, active: bool } }
-\<close>
-
-urust_datatype [renames = ["fooBar" \<rightarrow> "distinct_field"]] \<open>
-  struct RenameCollision { fooBar: u32, foo_bar: bool }
-\<close>
-
-lemma renamed_record_selector:
-  \<open>sample (make_renamed_packet n b) = n\<close>
-  by simp
-
-lemma renamed_record_update:
-  \<open>update_sample h (make_renamed_packet n b) = make_renamed_packet (h n) b\<close>
-  by (rule renamed_packet_sample_update_explicit)
-
-lemma renamed_record_lens:
-  \<open>lens_view renamed_packet_sample_lens (make_renamed_packet n b) = n\<close>
-  by (simp add: renamed_packet_sample_lens_view_update_modify)
-
-urust_expr renamed_packet_construction \<open>
-  RenamedPacket { renameSampleValue: 7u32, valid: true }
-\<close>
-
-lemma renamed_packet_construction_eq:
-  \<open>renamed_packet_construction =
-    funcall2 (lift_fun2 make_renamed_packet) (ascribeu32 7) true\<close>
-  unfolding renamed_packet_construction_def by (rule refl)
-
-urust_expr renamed_packet_pattern \<open>
-  match (RenamedPacket { renameSampleValue: 7u32, valid: true }) {
-    RenamedPacket { renameSampleValue, valid: _ } \<Rightarrow> renameSampleValue,
-  }
-\<close>
-
-urust_expr renamed_packet_field \<open>
-  (RenamedPacket { renameSampleValue: 7u32, valid: true }).renameSampleValue
-\<close>
-
-urust_expr renamed_unit_variant \<open> RenamedChoice::Empty \<close>
-urust_expr renamed_tuple_variant \<open> RenamedChoice::Data(7u32, true) \<close>
-urust_expr renamed_named_variant \<open> \<llangle>ModelReady 7 True\<rrangle> \<close>
-urust_expr renamed_variant_pattern \<open>
-  match RenamedChoice::Data(7u32, true) {
-    RenamedChoice::Empty \<Rightarrow> 0u32,
-    RenamedChoice::Data(n, _) \<Rightarrow> n,
-    RenamedChoice::Ready { value, active: _ } \<Rightarrow> value,
-  }
-\<close>
-
-lemma renamed_variants_eq:
-  \<open>renamed_unit_variant = literal ModelEmpty\<close>
-  \<open>renamed_tuple_variant = funcall2 (lift_fun2 ModelData) (ascribeu32 7) true\<close>
-  \<open>renamed_named_variant = literal (ModelReady 7 True)\<close>
-  unfolding renamed_unit_variant_def renamed_tuple_variant_def renamed_named_variant_def
-  by (rule refl)+
+declare [[urust_pp_test = true, urust_pretty = true, urust_verbosity = 2]]
 
 ML_val \<open>
   val SOME packet = URust_Item_Scope.lookup_constructor \<^context> "RenamedPacket"
@@ -111,33 +77,6 @@ ML_val \<open>
 \<close>
 
 end
-
-locale renamed_locale
-begin
-
-urust_datatype [renames = ["value" \<rightarrow> "LocaleSample"],
-  register_notation = false] \<open> struct LocaleRename { value: u32 } \<close>
-thm locale_rename_LocaleSample_lens_valid locale_rename_LocaleSample_update_explicit
-
-end
-
-urust_datatype [register_notation = false] notation_packet \<open>
-  struct NotationPacket { sampleValue: u32, HTTP2Code: bool }
-\<close>
-
-urust_datatype [register_notation = false] \<open>
-  struct NotationEnvelope(NotationPacket);
-\<close>
-
-urust_expr notation_packet_construction \<open>
-  NotationPacket { sampleValue: 7u32, HTTP2Code: true }
-\<close>
-
-urust_expr notation_packet_pattern \<open>
-  match (NotationPacket { sampleValue: 7u32, HTTP2Code: true }) {
-    NotationPacket { sampleValue, HTTP2Code: _ } \<Rightarrow> sampleValue,
-  }
-\<close>
 
 ML_val \<open>
   val _ =
@@ -231,8 +170,6 @@ ML_val \<open>
 
 end
 
-urust_datatype \<open> struct NotationRestoredOn { restoredAlias: u32 } \<close>
-
 ML_val \<open>
   val [] = Micro_Rust_Names.lookups \<^context> Micro_Rust_Names.NField "localeAlias"
   val [entry] = Micro_Rust_Names.lookups \<^context> Micro_Rust_Names.NField "restoredAlias"
@@ -241,277 +178,6 @@ ML_val \<open>
       \<^const_name>\<open>notation_restored_on_notation_restored_on_restored_alias_lens\<close>
     then () else error "registration configuration escaped its context"
 \<close>
-
-urust_datatype parser_point \<open>
-  struct ParserPoint {
-    x: u32,
-    history: \<tau>\<open>32 word list\<close>,
-  }
-\<close>
-
-urust_datatype \<open>
-  struct ParserTuple(u32, bool, \<tau>\<open>nat option\<close>,);
-\<close>
-
-urust_datatype \<open>
-  struct ParserMarker;
-\<close>
-
-urust_datatype \<open>
-  struct HTTPServerStatus;
-\<close>
-
-urust_datatype \<open>
-  struct ParserPrimitives(
-    u8, u16, u32, u64, usize, i32, i64, bool, (),
-  );
-\<close>
-
-urust_datatype [backend = hol] \<open>
-  enum ParserMessage {
-    Empty,
-    Data(u32, \<tau>\<open>nat option\<close>,),
-    Named {
-      code: u32,
-      payload: \<tau>\<open>8 word list\<close>,
-    },
-  }
-\<close>
-
-urust_datatype wire_packet_hol \<open>
-  struct WirePacket {
-    sequence: u64,
-    valid: bool,
-  }
-\<close>
-
-urust_datatype \<open>
-  struct ParserNumberBox {
-    value: u32,
-  }
-\<close>
-
-urust_datatype \<open>
-  struct ParserFlagBox {
-    value: bool,
-  }
-\<close>
-
-urust_datatype [backend = hol] \<open>
-  enum FirstSharedChoice {
-    SharedIdle,
-    SharedPayload(u32),
-    SharedNamed {
-      value: u32,
-    },
-  }
-\<close>
-
-urust_datatype [backend = hol] \<open>
-  enum SecondSharedChoice {
-    SharedIdle,
-    SharedPayload(bool),
-    SharedNamed {
-      value: bool,
-    },
-  }
-\<close>
-
-urust_datatype \<open>
-  struct ParserComposite(
-    \<tau>\<open>parser_point\<close>,
-    \<tau>\<open>parser_message list\<close>,
-    \<tau>\<open>nat \<times> bool option\<close>,
-  );
-\<close>
-
-urust_datatype \<open>
-  struct ParserArity14(
-    u32, u32, u32, u32, u32, u32, u32,
-    u32, u32, u32, u32, u32, u32, u32,
-  );
-\<close>
-
-urust_datatype \<open>
-  /* leading /* nested */ block comment */
-  struct ParserCommented(
-    u32, // first field
-    bool, /* second field */
-  );
-\<close>
-
-urust_datatype \<open>
-  struct HTTP2ServerState;
-\<close>
-
-urust_datatype \<open>
-  struct XMLHttpRequest;
-\<close>
-
-urust_expr parser_point_value \<open>
-  ParserPoint {
-    x: 7u32,
-    history: \<llangle>[] :: 32 word list\<rrangle>,
-  }
-\<close>
-
-urust_expr parser_tuple_value \<open>
-  ParserTuple(8u32, true, None)
-\<close>
-
-urust_expr parser_marker_value \<open>
-  ParserMarker
-\<close>
-
-urust_expr parser_empty_value \<open>
-  ParserMessage::Empty
-\<close>
-
-urust_expr parser_data_value \<open>
-  ParserMessage::Data(9u32, None)
-\<close>
-
-urust_expr parser_tuple_pattern \<open>
-  match ParserTuple(10u32, false, None) {
-    ParserTuple(value, _, _) \<Rightarrow> value,
-  }
-\<close>
-
-urust_expr parser_named_variant_pattern \<open>
-  match \<llangle>parser_message.Named 11 []\<rrangle> {
-    ParserMessage::Named { code, payload: _ } \<Rightarrow> code,
-    _ \<Rightarrow> 0u32,
-  }
-\<close>
-
-urust_expr parser_named_struct_pattern \<open>
-  match (ParserPoint {
-    x: 12u32,
-    history: \<llangle>[] :: 32 word list\<rrangle>,
-  }) {
-    ParserPoint { x, history: _ } \<Rightarrow> x,
-  }
-\<close>
-
-urust_expr parser_named_struct_rest_pattern \<open>
-  match (ParserPoint {
-    x: 24u32,
-    history: \<llangle>[] :: 32 word list\<rrangle>,
-  }) {
-    ParserPoint { x, .. } \<Rightarrow> x,
-  }
-\<close>
-
-urust_expr parser_named_variant_rest_pattern \<open>
-  match \<llangle>undefined :: parser_message\<rrangle> {
-    ParserMessage::Named { code, .. } \<Rightarrow> code,
-    _ \<Rightarrow> 0u32,
-  }
-\<close>
-
-urust_expr parser_named_struct_field (point) \<open>
-  point.x + 0u32
-\<close>
-
-urust_expr parser_named_struct_assignment (point) \<open>
-  point.x = 13u32
-\<close>
-
-urust_expr wire_packet_value \<open>
-  WirePacket {
-    sequence: 14u64,
-    valid: true,
-  }
-\<close>
-
-urust_expr wire_packet_field \<open>
-  (WirePacket {
-    sequence: 15u64,
-    valid: false,
-  }).sequence
-\<close>
-
-urust_expr parser_number_box_field \<open>
-  (ParserNumberBox { value: 16u32 }).value
-\<close>
-
-urust_expr parser_flag_box_field \<open>
-  (ParserFlagBox { value: true }).value
-\<close>
-
-urust_expr first_shared_unit \<open>
-  FirstSharedChoice::SharedIdle
-\<close>
-
-urust_expr second_shared_unit \<open>
-  SecondSharedChoice::SharedIdle
-\<close>
-
-urust_expr first_shared_payload \<open>
-  FirstSharedChoice::SharedPayload(17u32)
-\<close>
-
-urust_expr second_shared_payload \<open>
-  SecondSharedChoice::SharedPayload(false)
-\<close>
-
-urust_expr first_shared_pattern \<open>
-  match FirstSharedChoice::SharedPayload(18u32) {
-    FirstSharedChoice::SharedPayload(value) \<Rightarrow> value,
-    _ \<Rightarrow> 0u32,
-  }
-\<close>
-
-urust_expr second_shared_pattern \<open>
-  match \<llangle>undefined :: second_shared_choice\<rrangle> {
-    SecondSharedChoice::SharedNamed { value } \<Rightarrow> value,
-    _ \<Rightarrow> false,
-  }
-\<close>
-
-urust_expr parser_composite_value \<open>
-  ParserComposite(
-    ParserPoint {
-      x: 19u32,
-      history: \<llangle>[] :: 32 word list\<rrangle>,
-    },
-    \<llangle>[] :: parser_message list\<rrangle>,
-    \<llangle>(20, None) :: nat \<times> bool option\<rrangle>
-  )
-\<close>
-
-urust_expr parser_arity14_pattern \<open>
-  match ParserArity14(
-    1u32, 2u32, 3u32, 4u32, 5u32, 6u32, 7u32,
-    8u32, 9u32, 10u32, 11u32, 12u32, 13u32, 14u32
-  ) {
-    ParserArity14(first, _, _, _, _, _, _, _, _, _, _, _, _, _) \<Rightarrow> first,
-  }
-\<close>
-
-urust_expr parser_commented_value \<open>
-  ParserCommented(21u32, true)
-\<close>
-
-urust_expr parser_marker_pattern \<open>
-  match ParserMarker {
-    ParserMarker \<Rightarrow> (),
-  }
-\<close>
-
-urust_expr parser_empty_pattern \<open>
-  match ParserMessage::Empty {
-    ParserMessage::Empty \<Rightarrow> 22u32,
-    _ \<Rightarrow> 0u32,
-  }
-\<close>
-
-urust_expr_rejects \<open>
-  ParserPoint {
-    ignored_first: 7u32,
-    ignored_second: \<llangle>[] :: 32 word list\<rrangle>,
-  }
-\<close> \<open>unknown field "ignored_first"\<close>
 
 locale datatype_scope_left =
   fixes marker_left :: nat
@@ -3613,6 +3279,2548 @@ ML_val \<open>
     val NONE =
       URust_Item_Scope.lookup_constructor
         \<^context> "DetachedScope"
+  in
+    val _ = ()
+  end
+\<close>
+
+chapter\<open> Type alias registry \<close>
+
+declare [[urust_pp_test = false, urust_pretty = false, urust_verbosity = 0]]
+
+urust_type "RegistryOrdered<'value>" = \<open> 'value::linorder list \<close>
+
+urust_type "RegistryMappedWord" = \<open> 16 word \<close>
+
+ML\<open>
+structure Registry_Alias_Probe =
+struct
+  open URust_AST
+  val pos = Position.line_file 1 "registry-alias-probes"
+  val layout = make_source_layout pos []
+  fun primitive typ = Primitive_Type (typ, pos)
+  fun path name types =
+    Path_Type
+      ([Rust_Type_Path_Segment
+        (name, pos,
+         if null types then NONE else SOME (map Rust_Type_Argument types),
+         layout)], layout)
+  fun pointer mutability typ = Raw_Pointer_Type (mutability, typ, layout)
+  fun alias name parameters rhs lthy =
+    #1 (Micro_Rust_Semantic_Navigation.capture (fn () =>
+      URust_Type_Mappings.declare_alias
+        {registration = NONE, item_name = (name, pos),
+         parameters = map (fn name => (name, pos)) parameters, rhs = rhs} lthy))
+  fun require description condition =
+    if condition then () else error ("registry alias probe: " ^ description)
+  fun captured action =
+    #1 (Micro_Rust_Semantic_Navigation.capture action)
+  fun rejected needle action =
+    (case Exn.result (fn () => captured action) () of
+       Exn.Res _ => error ("registry alias probe unexpectedly accepted: " ^ needle)
+     | Exn.Exn exn =>
+         if Exn.is_interrupt exn then Exn.reraise exn
+         else require ("missing diagnostic " ^ needle)
+           (String.isSubstring needle (Runtime.exn_message exn)))
+end
+\<close>
+
+local_setup\<open>
+  Registry_Alias_Probe.alias "RegistryWidth" [] (Registry_Alias_Probe.primitive URust_AST.DPT_U16) #>
+  Registry_Alias_Probe.alias "RegistryChain" [] (Registry_Alias_Probe.path "RegistryWidth" []) #>
+  Registry_Alias_Probe.alias "RegistryIdentity" ["T"] (Registry_Alias_Probe.path "T" []) #>
+  Registry_Alias_Probe.alias "RegistryPair" ["T", "U"]
+    (URust_AST.Tuple_Type
+      ([Registry_Alias_Probe.path "T" [], Registry_Alias_Probe.path "U" []],
+       Registry_Alias_Probe.layout)) #>
+  Registry_Alias_Probe.alias "RegistrySorted" ["T"]
+    (Registry_Alias_Probe.path "RegistryOrdered" [Registry_Alias_Probe.path "T" []]) #>
+  Registry_Alias_Probe.alias "RegistryPtr" ["T"]
+    (Registry_Alias_Probe.pointer URust_AST.RPM_Const (Registry_Alias_Probe.path "T" [])) #>
+  Registry_Alias_Probe.alias "RegistryMutPtr" ["T"]
+    (Registry_Alias_Probe.pointer URust_AST.RPM_Mut (Registry_Alias_Probe.path "T" [])) #>
+  Registry_Alias_Probe.alias "RegistrySigned" [] (Registry_Alias_Probe.primitive URust_AST.DPT_I32) #>
+  Registry_Alias_Probe.alias "RegistryUnsigned" [] (Registry_Alias_Probe.primitive URust_AST.DPT_U32) #>
+  Registry_Alias_Probe.alias "RegistryMappedAlias" [] (Registry_Alias_Probe.path "RegistryMappedWord" [])
+\<close>
+
+ML_val\<open>
+  local
+    open Registry_Alias_Probe
+    val ctxt = \<^context>
+    fun resolve typ = captured (fn () => URust_Type_Mappings.resolve ctxt typ)
+    fun signature_types types = captured (fn () => URust_Type_Mappings.resolve_signature ctxt types)
+    fun cast typ = captured (fn () =>
+      URust_Type_Mappings.resolve_cast ctxt (SCT_Type typ))
+    val _ = require "alias chain changed HOL meaning"
+      (resolve (path "RegistryChain" []) = \<^typ>\<open>16 word\<close>)
+    val _ = require "generic identity instantiations collapsed"
+      (signature_types
+        [path "RegistryIdentity" [primitive DPT_U8],
+         path "RegistryIdentity" [primitive DPT_U16]] =
+        [\<^typ>\<open>8 word\<close>, \<^typ>\<open>16 word\<close>])
+    val _ = require "positional generic tuple parameters collapsed"
+      (resolve (path "RegistryPair" [primitive DPT_U8, primitive DPT_U16]) =
+        \<^typ>\<open>8 word \<times> 16 word \<times> tnil\<close>)
+    val SOME sorted = URust_Type_Mappings.lookup ctxt "RegistrySorted"
+    val _ = require "generic sort requirement was not captured"
+      (URust_Type_Mappings.entry_parameter_sorts sorted = [\<^sort>\<open>linorder\<close>])
+    val _ = require "signed alias selected unsigned cast"
+      (cast (path "RegistrySigned" []) = CT_Signed ST_I32)
+    val _ = require "unsigned alias selected signed cast"
+      (cast (path "RegistryUnsigned" []) = CT_Unsigned UT_U32)
+    val _ = require "generic identity cast lost primitive metadata"
+      (cast (path "RegistryIdentity" [primitive DPT_U16]) = CT_Unsigned UT_U16)
+    val _ = require "const pointer alias lost mutability"
+      (cast (path "RegistryPtr" [primitive DPT_U16]) =
+        CT_RawPointer (RPM_Const, UT_U16))
+    val _ = require "mut pointer alias lost mutability"
+      (cast (path "RegistryMutPtr" [primitive DPT_U16]) =
+        CT_RawPointer (RPM_Mut, UT_U16))
+    val _ = rejected "no supported cast operation" (fn () =>
+      cast (path "RegistryMappedAlias" []))
+    val [pointer_left, pointer_right, nested] =
+      signature_types
+        [path "RegistryPtr" [primitive DPT_U8],
+         pointer RPM_Mut (primitive DPT_U16),
+         pointer RPM_Const (path "RegistryPtr" [primitive DPT_U8])]
+    val expected_right =
+      \<^typ>\<open>('address, 'global, 16 word) Global_Store.ref\<close>
+    val expected_nested =
+      \<^typ>\<open>('address, 'global, ('address, 'global, 8 word) Global_Store.ref) Global_Store.ref\<close>
+    val [address, global] = Term.add_tvarsT pointer_left [] |> map TVar
+    val _ = require "backend address/global slots collapsed" (address <> global)
+    (* Match structurally because Term.add_tvarsT does not promise address/global order. *)
+    val _ = require "signature pointers did not share their backend"
+      (Type.raw_instance (pointer_right, Logic.varifyT_global expected_right) andalso
+       eq_set (op =) (Term.add_tvarsT pointer_left [], Term.add_tvarsT pointer_right []) andalso
+       Type.raw_instance (nested, Logic.varifyT_global expected_nested) andalso
+       eq_set (op =) (Term.add_tvarsT pointer_left [], Term.add_tvarsT nested []))
+    val [fresh_pointer] = signature_types [path "RegistryPtr" [primitive DPT_U8]]
+    val _ = require "separate signatures reused flexible backend slots"
+      (null (inter (op =) (Term.add_tvarsT pointer_left []) (Term.add_tvarsT fresh_pointer [])))
+    val fields =
+      captured (fn () => URust_Type_Mappings.resolve_fields ctxt
+        [path "RegistryPtr" [primitive DPT_U8], pointer RPM_Mut (primitive DPT_U16)])
+    val _ = require "field batch did not expose exactly one backend pair"
+      (length (#backend_parameters fields) = 2 andalso
+        forall (fn typ => eq_set (op =)
+          (Term.add_tfreesT typ [], #backend_parameters fields)) (#types fields))
+    val lthy = Named_Target.theory_init \<^theory>
+    val SOME identity = URust_Type_Mappings.lookup lthy "RegistryIdentity"
+    val replay = alias "RegistryIdentity" ["Value"] (path "Value" []) lthy
+    val SOME identical = URust_Type_Mappings.lookup replay "RegistryIdentity"
+    val _ = require "alpha-identical aliases lost navigation identity"
+      (URust_Type_Mappings.entry_identity identity =
+        URust_Type_Mappings.entry_identity identical)
+    val _ = rejected "alias and direct/generated mapping collide" (fn () =>
+      alias "RegistryMappedWord" [] (primitive DPT_U16) lthy)
+    val _ = rejected "conflicting active mappings" (fn () =>
+      alias "RegistryWidth" [] (primitive DPT_U8) lthy)
+    val _ = rejected "duplicate type parameter" (fn () =>
+      alias "RegistryDuplicate" ["T", "T"] (path "T" []) lthy)
+    val _ = rejected "unused type parameters" (fn () =>
+      alias "RegistryUnused" ["T"] (primitive DPT_U16) lthy)
+    val _ = rejected "recursive alias dependency" (fn () =>
+      alias "RegistryRecursive" [] (path "RegistryRecursive" []) lthy)
+    val recursive_chain =
+      lthy
+      |> alias "RegistryCycleLeft" [] (primitive DPT_U16)
+      |> alias "RegistryCycleRight" [] (path "RegistryCycleLeft" [])
+    val _ = rejected "recursive alias dependency" (fn () =>
+      alias "RegistryCycleLeft" [] (path "RegistryCycleRight" []) recursive_chain)
+    val _ = rejected "unknown Rust type" (fn () =>
+      alias "RegistryUnknown" [] (path "RegistryMissing" []) lthy)
+    val _ = rejected "generic arities" (fn () =>
+      alias "RegistryArity" [] (path "RegistryIdentity" []) lthy)
+    val _ = rejected "does not satisfy sort" (fn () =>
+      resolve (path "RegistrySorted"
+        [HOL_Type_Source (Input.string "nat \<Rightarrow> nat")]))
+    val _ = rejected "type variables are not supported" (fn () =>
+      resolve (HOL_Type_Source (Input.string "'unrelated")))
+    val _ = rejected "unrelated HOL type variables" (fn () =>
+      alias "RegistryFreeEscape" [] (HOL_Type_Source (Input.string "'unrelated")) lthy)
+    val fixed = TFree ("'fixed", \<^sort>\<open>type\<close>)
+    val fixed_ctxt = Variable.declare_typ fixed ctxt
+    val [fixed_alias] = captured (fn () =>
+      URust_Type_Mappings.resolve_signature fixed_ctxt
+        [path "RegistryIdentity" [HOL_Type_Source (Input.string "'fixed")]])
+    val _ = require "ambient signature type was made flexible" (fixed_alias = fixed)
+    val _ = rejected "does not satisfy sort" (fn () =>
+      URust_Type_Mappings.resolve_signature fixed_ctxt
+        [path "RegistrySorted" [HOL_Type_Source (Input.string "'fixed")]])
+    val generated_parameters =
+      [("'generated_address", \<^sort>\<open>type\<close>),
+       ("'generated_global", \<^sort>\<open>type\<close>)]
+    val generated_template =
+      Type (\<^type_name>\<open>prod\<close>, map TFree generated_parameters)
+    val generated = captured (fn () =>
+      URust_Type_Mappings.register_generated_scheme
+        {rust_name = "RegistryGeneratedPair", rust_pos = pos,
+         hol_type_name = \<^type_name>\<open>prod\<close>,
+         hol_type = generated_template, backend_parameters = generated_parameters}
+        lthy)
+    val generated_alias = alias "RegistryGeneratedAlias" []
+      (path "RegistryGeneratedPair" []) generated
+    val generated_fields = captured (fn () =>
+      URust_Type_Mappings.resolve_fields generated_alias
+        [path "RegistryGeneratedPair" [], path "RegistryGeneratedAlias" [],
+         pointer RPM_Const (primitive DPT_U8)])
+    val SOME generated_entry =
+      URust_Type_Mappings.lookup generated_alias "RegistryGeneratedPair"
+    val _ = require "generated scheme exposed Rust generic arguments"
+      (URust_Type_Mappings.entry_arities generated_entry = [0] andalso
+        null (URust_Type_Mappings.entry_parameter_sorts generated_entry))
+    val [generated_direct, generated_synonym, generated_pointer] = #types generated_fields
+    val _ = require "generated alias did not share the field batch backend pair"
+      (generated_direct = generated_synonym andalso
+       eq_set (op =)
+         (Term.add_tfreesT generated_direct [], Term.add_tfreesT generated_pointer []))
+    val _ = rejected "alias and direct/generated mapping collide" (fn () =>
+      alias "RegistryGeneratedPair" [] (primitive DPT_U16) generated)
+    val registration_pos =
+      Position.make0 7 101 118 "" "registry-quoted-path" "registry-path-probe"
+    val item_pos =
+      Position.make0 9 205 216 "" "registry-quoted-path" "registry-path-probe"
+    val malformed_path_message =
+      (case Exn.result (fn () => captured (fn () =>
+          URust_Type_Mappings.declare_alias
+            {registration = SOME ("wire::::InvalidPath", registration_pos),
+             item_name = ("InvalidPath", item_pos), parameters = [],
+             rhs = primitive DPT_U16} lthy)) () of
+         Exn.Res _ => error "malformed registration path unexpectedly accepted"
+       | Exn.Exn exn =>
+           if Exn.is_interrupt exn then Exn.reraise exn
+           else Runtime.exn_message exn)
+    fun diagnostic_range (XML.Text _) ranges = ranges
+      | diagnostic_range (XML.Elem ((_, properties), children)) ranges =
+          let
+            val ranges' =
+              (case
+                (Properties.get properties Markup.offsetN,
+                 Properties.get properties Markup.end_offsetN) of
+                 (SOME offset, SOME end_offset) => (offset, end_offset) :: ranges
+               | _ => ranges)
+          in fold diagnostic_range children ranges' end
+    val _ = require "malformed quoted path reported a duplicate or item-name range"
+      (fold diagnostic_range (YXML.parse_body malformed_path_message) [] =
+        [("101", "118")])
+  in val _ = writeln "registry alias probes passed" end
+\<close>
+
+chapter\<open> Type alias syntax \<close>
+
+declare [[urust_pp_test = true, urust_pretty = true, urust_verbosity = 2]]
+
+ML\<open>
+local
+  open URust_AST
+  val ctxt = \<^context>
+  fun require label condition =
+    if condition then () else error ("alias syntax probe: " ^ label)
+  fun source text = Parser_Lex_Util.text_source text
+  fun alias text =
+    (case URust_Parser.parse_type_alias_source ctxt (source text) of
+       SOME item => item
+     | NONE => error "alias syntax probe: missing item")
+  fun expression text =
+    (case URust_Parser.parse_source ctxt (source text) of
+       SOME ast => ast
+     | NONE => error "alias syntax probe: missing expression")
+  fun reject label parse text =
+    (case Exn.result (fn () => parse text) () of
+       Exn.Exn _ => ()
+     | Exn.Res _ => error ("alias syntax probe: accepted " ^ label))
+  fun alias_roundtrip text =
+    let
+      val original = alias text
+      val options = URust_Printer.serialized_options
+      val rendered = URust_Printer.string_of_type_alias options original
+      val reparsed = alias rendered
+    in
+      require ("alias tokens changed for " ^ text)
+        (URust_Printer.tokens_of_type_alias options original =
+         URust_Printer.tokens_of_type_alias options reparsed);
+      require ("alias printer is unstable for " ^ text)
+        (rendered = URust_Printer.string_of_type_alias options reparsed)
+    end
+  fun expression_roundtrip text =
+    let
+      val original = expression text
+      val options = URust_Printer.serialized_options
+      val rendered = URust_Printer.string_of_expr options original
+      val reparsed = expression rendered
+      val human = URust_Printer.string_of_expr URust_Printer.human_options original
+      val human_reparsed = expression human
+    in
+      require ("cast tokens changed for " ^ text)
+        (URust_Printer.tokens_of_expr options original =
+         URust_Printer.tokens_of_expr options reparsed);
+      require ("human printer is unstable for " ^ text)
+        (human = URust_Printer.string_of_expr URust_Printer.human_options human_reparsed)
+    end
+  val _ =
+    List.app alias_roundtrip
+      ["type Width = u16;",
+       "type OtherWidth = Width;",
+       "type Pair<T> = (T, T);",
+       "type Pair<T, U,> = (T, U);",
+       "type Ptr<T> = *const T;",
+       "type MutPtr<T> = *mut T;",
+       "type Nested<T> = Option<*const Pair<T, T>>;",
+       "type Deep<T> = Option<Option<Option<T>>>;",
+       "type Qualified = types::Width;",
+       "type Mapped<T> = containers::Array<T, 32>;",
+       "type Group<T> = (T);",
+       "type OneTuple<T> = (T,);",
+       "type Array = [u8; 32];",
+       "type NestedArray<T> = Option<Option<[T; 32]>>;",
+       "type Escaped = \<tau>\<open>nat\<close>;",
+       "/* outer /* nested */ comment */ type Comments<T> = /* rhs */ T;"]
+  val _ =
+    List.app (reject "malformed alias" alias)
+      ["", "type Width = u16", "type = u16;", "type Width u16;",
+       "type Width = ;", "type Pair<> = u16;", "type Pair<T: Bound> = T;",
+       "type Pair<T = u8> = T;", "type Pair<const N> = u8;",
+       "type Pair<T> = Option<T>;;", "type Width = u16; type Extra = u8;",
+       "struct Width;", "fn width() {}"]
+  val _ =
+    List.app expression_roundtrip
+      ["value as u8", "value as i32", "value as *const u16",
+       "value as *mut u32", "value as Width", "value as types::Width",
+       "value as Identity<u16>", "value as Pair<u8, u16>",
+       "value as Identity<Identity<u16>>",
+       "value as Identity<Identity<Identity<u16>>>",
+       "value as Ptr<Option<u16>>",
+       "value as *const Identity<u16>",
+       "value as &&u8",
+       "value as Identity<&&u8>",
+       "value as (u16)", "value as (u8, u16)", "value as [u8; 4]",
+       "value as bool", "value as i16", "value as u128",
+       "value as Identity<u16> as Identity<u32>",
+       "(value as u16) < limit",
+       "(value as Width) << shift",
+       "(value + other as u16) < limit",
+       "value as (u16) < limit",
+       "value as Identity<u16> < limit",
+       "value as Identity<u16> << shift",
+       "value as Identity<Identity<u16>> >> shift",
+       "value as Identity<u16>> limit",
+       "value as Identity<u16>>= limit",
+       "value as Identity<Identity<u16>>>= limit",
+       "left >> right", "left << right",
+       "left >>= right", "left <<= right",
+       "if value as Identity<u16> < limit { left } else { right }",
+       "if (value as u16) < limit { left } else { right }",
+       "[value as Identity<u16>; 2 as usize]"]
+  val _ =
+    List.app (reject "ambiguous or malformed cast" expression)
+      ["value as u16 < limit", "value as u16 << shift",
+       "value as Width < limit", "value as Width << shift",
+       "if value as u16 < limit { left } else { right }",
+       "value as Identity<>", "value as Identity<u16",
+       "[value; 2 as Width]", "[value; 2 as Identity<usize>]",
+       "[value; 2 as (usize)]", "type Width = u16;"]
+  val recovered = alias "type Recovered<T> = Option<Option<T>>;"
+  val _ = require "parser state did not recover" (#1 (type_alias_name recovered) = "Recovered")
+  val recovered_expression = expression "left >> right"
+  val _ =
+    (case recovered_expression of
+       UE_Bin (Shr, _, _, _) => ()
+     | _ => error "alias syntax probe: expression shift changed after recovery")
+  val positions_source =
+    Parser_Lex_Util.positioned_content_source
+      "type Positioned<T, U> = Pair<T, U>;"
+      (Position.make0 23 5000 0 "" "" "type-alias-syntax-positions")
+  val positions_item = the (URust_Parser.parse_type_alias_source ctxt positions_source)
+  fun offsets pos = (Position.offset_of pos, Position.end_offset_of pos)
+  val _ =
+    require "alias parameter source ranges changed"
+      (map (offsets o #2) (type_alias_parameters positions_item) =
+        [(SOME 5016, SOME 5017), (SOME 5019, SOME 5020)])
+  val _ =
+    require "alias complete span changed"
+      (offsets (type_alias_item_position positions_item) =
+        (SOME 5000, SOME 5035))
+  val _ =
+    (case expression "value as Identity<u16>" of
+       UE_Cast (_, SCT_Type (Path_Type
+         ([Rust_Type_Path_Segment
+           ("Identity", _, SOME [Rust_Type_Argument (Primitive_Type (DPT_U16, _))], _)],
+           _)), _) => ()
+     | _ => error "alias syntax probe: cast did not use shared type AST")
+  val _ =
+    (case expression "value as *const u16" of
+       UE_Cast (_, target as SCT_Primitive
+         (CT_RawPointer (RPM_Const, UT_U16), _), _) =>
+           require "legacy primitive position API disappeared"
+             (is_some (source_cast_target_type_position target))
+     | _ => error "alias syntax probe: primitive compatibility AST changed")
+  val _ =
+    URust_Printer_Output.pretty_human_type_alias_with_reparse
+      (fn input => ignore (URust_Parser.parse_type_alias_source ctxt input))
+      (alias "type Printable<T> = (T, T);")
+    |> ignore
+in
+  val _ = writeln "W2 alias syntax, shared casts, positions, recovery and printer probes passed"
+end
+\<close>
+
+chapter\<open> Rust type aliases in cast targets \<close>
+
+section\<open> Imported aliases are available \<close>
+
+declare [[urust_verbosity = 0]]
+
+ML_val\<open>
+  local
+    val ctxt = \<^context>
+    val alias =
+      Parser_Test_Elaboration.expression ctxt
+        (Parser_Lex_Util.text_source "0_u64 as U8Alias")
+    val primitive =
+      Parser_Test_Elaboration.expression ctxt
+        (Parser_Lex_Util.text_source "0_u64 as u8")
+  in
+    val _ =
+      if Term.aconv (alias, primitive) then ()
+      else error "imported Rust alias did not retain its declared meaning"
+  end
+\<close>
+
+section\<open> Primitive equivalence and grammar composition \<close>
+
+ML_val\<open>
+  local
+    open URust_AST
+
+    val ctxt = \<^context>
+
+    fun parse text =
+      (case
+          URust_Parser.parse_source ctxt
+            (Parser_Lex_Util.text_source text) of
+         SOME expression => expression
+       | NONE => error "cast-target alias audit: empty parse")
+
+    fun unchecked text =
+      URust_Translate.mk_expression ctxt [] (parse text)
+
+    fun assert message condition =
+      if condition then ()
+      else error ("cast-target alias audit: " ^ message)
+  in
+    val _ =
+      (case parse "value as types::U16Alias" of
+         UE_Cast
+           (UE_Path _,
+            SCT_Named path, _) =>
+           assert "named cast target lost its exact qualified path"
+             (render_path path = "types::U16Alias")
+       | _ =>
+           error
+             "cast-target alias audit: named cast AST shape changed")
+    val _ =
+      assert "unchecked integral alias changed the generated term"
+        (Term.aconv
+          (unchecked "value as U8Alias",
+           unchecked "value as u8"))
+    val _ =
+      assert "unchecked qualified alias changed the generated term"
+        (Term.aconv
+          (unchecked "value as types::U16Alias",
+           unchecked "value as u16"))
+    val _ =
+      assert "unchecked pointer alias changed the generated term"
+        (Term.aconv
+          (unchecked "value as MutUsizePointer",
+           unchecked "value as *mut usize"))
+    val _ =
+      assert "unchecked alias chain changed the generated term"
+        (Term.aconv
+          (unchecked "value as U64Alias as U8Alias as I32Alias",
+           unchecked "value as u64 as u8 as i32"))
+  end
+\<close>
+
+ML_val\<open>
+  local
+    fun plain_message exn =
+      XML.content_of (YXML.parse_body (Runtime.exn_message exn))
+        handle Fail _ => Runtime.exn_message exn
+
+    fun expect_failure label action expected =
+      (case Exn.result action () of
+         Exn.Res _ =>
+           error
+             ("cast-target alias " ^ label ^
+               " unexpectedly succeeded")
+       | Exn.Exn exn =>
+           if Exn.is_interrupt exn then Exn.reraise exn
+           else
+             let val message = plain_message exn in
+               if String.isSubstring expected message then ()
+               else
+                 error
+                   ("cast-target alias " ^ label ^
+                     " produced the wrong diagnostic:\n" ^ message)
+             end)
+
+    val _ =
+      expect_failure "generic use"
+        (fn () =>
+          Parser_Test_Elaboration.expression \<^context>
+            (Parser_Lex_Util.text_source
+              "0_u64 as U8Alias::<Width>"))
+        "syntax error"
+
+    val _ =
+      expect_failure "inexact qualified use"
+        (fn () =>
+          Parser_Test_Elaboration.expression \<^context>
+            (Parser_Lex_Util.text_source "0u64 as U16Alias"))
+        "unknown Rust type"
+
+    val _ =
+      expect_failure "wrong qualifier"
+        (fn () =>
+          Parser_Test_Elaboration.expression \<^context>
+            (Parser_Lex_Util.text_source "0u64 as other::U16Alias"))
+        "unknown Rust type"
+
+  in
+    val _ = ()
+  end
+\<close>
+
+section\<open> Direct declarations and locale scope \<close>
+
+context cast_alias_scope
+begin
+
+ML_val\<open>
+  local
+    val ctxt = \<^context>
+    val alias =
+      Parser_Test_Elaboration.expression ctxt
+        (Parser_Lex_Util.text_source "scope_word as LocaleWidth")
+    val primitive =
+      Parser_Test_Elaboration.expression ctxt
+        (Parser_Lex_Util.text_source "scope_word as u16")
+  in
+    val _ =
+      if Term.aconv (alias, primitive) then ()
+      else error "locale alias did not persist in its declaration context"
+  end
+\<close>
+
+end
+
+ML_val\<open>
+  local
+    val ctxt = \<^context>
+
+    fun assert message condition =
+      if condition then () else error ("cast-target alias diagnostics: " ^ message)
+
+    fun reject_then_recover (text, prefix, expected) =
+      let
+        val start = Position.make0 23 7 0 "" "" "cast-alias-positioned-use"
+        val expected_pos = Position.symbol_explode prefix start
+        val source = Parser_Lex_Util.positioned_content_source text start
+        val _ =
+          (case Exn.result (Parser_Test_Elaboration.expression ctxt) source of
+             Exn.Res _ => error ("invalid cast-target alias accepted: " ^ quote text)
+           | Exn.Exn exn =>
+               if Exn.is_interrupt exn then Exn.reraise exn
+               else
+                 let
+                   val raw_message = Runtime.exn_message exn
+                   val message = XML.content_of (YXML.parse_body raw_message)
+                   val markup =
+                     fold Parser_Test_Reports.collect_markup
+                       (YXML.parse_body raw_message) []
+                   val positions =
+                     map_filter
+                       (fn (name, props) =>
+                         if name = Markup.positionN
+                         then SOME (Position.of_properties props)
+                         else NONE)
+                       markup
+                 in
+                   assert "wrong rejection reason" (String.isSubstring expected message);
+                   assert "error lost its smallest source position"
+                     (exists
+                       (fn pos =>
+                         Position.file_of pos = Position.file_of expected_pos andalso
+                         Position.offset_of pos = Position.offset_of expected_pos)
+                       positions)
+                 end)
+        val alias =
+          Parser_Test_Elaboration.expression ctxt
+            (Parser_Lex_Util.text_source "0u64 as types::U16Alias")
+        val primitive =
+          Parser_Test_Elaboration.expression ctxt
+            (Parser_Lex_Util.text_source "0u64 as u16")
+      in
+        assert "failed declaration/use poisoned subsequent elaboration"
+          (Term.aconv (alias, primitive))
+      end
+  in
+    val _ = List.app reject_then_recover
+      [("0u64 as UnknownWidth", "0u64 as ", "unknown Rust type"),
+       ("0u64 as types::UnknownWidth", "0u64 as ", "unknown Rust type"),
+       ("0u64 as U8Alias::<Width>", "0u64 as U8Alias",
+        "syntax error")]
+  end
+\<close>
+
+ML_val\<open>
+  local
+    fun rejected text =
+      (case
+          Exn.result
+            (Parser_Test_Elaboration.expression \<^context>)
+            (Parser_Lex_Util.text_source text) of
+         Exn.Res _ => false
+       | Exn.Exn exn =>
+           if Exn.is_interrupt exn then Exn.reraise exn
+           else
+             String.isSubstring "unknown Rust type"
+               (Runtime.exn_message exn))
+    val imported_alias =
+      Parser_Test_Elaboration.expression \<^context>
+        (Parser_Lex_Util.text_source "0_u64 as U8Alias")
+    val primitive =
+      Parser_Test_Elaboration.expression \<^context>
+        (Parser_Lex_Util.text_source "0_u64 as u8")
+  in
+    val _ =
+      if rejected "0_u64 as ExperimentWidth" andalso
+         rejected "0_u64 as LocaleWidth" andalso
+         Term.aconv (imported_alias, primitive)
+      then ()
+      else
+        error
+          "cast-target alias remained active after its confined context"
+  end
+\<close>
+
+section\<open> Conflicts and idempotence \<close>
+
+ML_val\<open>
+  local
+    fun declare source_name text lthy =
+      #1 (Micro_Rust_Semantic_Navigation.capture (fn () =>
+        let
+          val source =
+            Parser_Lex_Util.positioned_content_source text
+              (Position.line_file 1 source_name)
+          val item =
+            (case URust_Parser.parse_type_alias_source lthy source of
+               SOME item => item
+             | NONE => error "direct alias audit: empty declaration")
+        in
+          URust_Type_Mappings.declare_alias
+            {registration = NONE,
+             item_name = URust_AST.type_alias_name item,
+             parameters = URust_AST.type_alias_parameters item,
+             rhs = URust_AST.type_alias_rhs item}
+            lthy
+        end))
+
+    fun collect_markup (XML.Text _) result = result
+      | collect_markup
+          (XML.Elem (markup, body)) result =
+          fold collect_markup body (markup :: result)
+
+    val base_lthy = Named_Target.theory_init \<^theory>
+    val left_context =
+      declare "cast-alias-conflict-left" "type SharedWidth = u8;" base_lthy
+    val conflict =
+      Exn.result
+        (fn () =>
+          declare "cast-alias-conflict-right" "type SharedWidth = u16;"
+            left_context)
+        ()
+
+    val _ =
+      (case conflict of
+         Exn.Res _ =>
+           error "conflicting direct Rust alias declarations were accepted"
+       | Exn.Exn exn =>
+           if Exn.is_interrupt exn then Exn.reraise exn
+           else
+             let
+               val raw_message = Runtime.exn_message exn
+               val message =
+                 XML.content_of (YXML.parse_body raw_message)
+                   handle Fail _ => raw_message
+               val positions =
+                 maps YXML.parse_body [raw_message]
+                 |> (fn trees => fold collect_markup trees [])
+                 |> map_filter
+                     (fn (name, properties) =>
+                       if name = Markup.positionN
+                       then SOME properties
+                       else NONE)
+                 |> distinct (op =)
+             in
+               if String.isSubstring
+                    "conflicting active mappings for \"SharedWidth\""
+                    message andalso
+                  String.isSubstring "different Rust meanings" message andalso
+                  String.isSubstring "urust_type_alias declaration" message andalso
+                  length positions = 2 andalso
+                  member (op =)
+                    (map (Position.file_of o Position.of_properties) positions)
+                    (SOME "cast-alias-conflict-left") andalso
+                  member (op =)
+                    (map (Position.file_of o Position.of_properties) positions)
+                    (SOME "cast-alias-conflict-right")
+               then ()
+               else
+                 error
+                   ("conflicting direct Rust alias diagnostic did not " ^
+                     "report both declarations:\n" ^ message)
+             end)
+
+    val SOME original = URust_Type_Mappings.lookup base_lthy "StableWidth"
+    val repeated_context =
+      base_lthy
+      |> declare "cast-alias-idempotent-first" "type StableWidth = u16;"
+      |> declare "cast-alias-idempotent-second" "type StableWidth = u16;"
+    val SOME repeated = URust_Type_Mappings.lookup repeated_context "StableWidth"
+    val _ =
+      if URust_Type_Mappings.entry_identity original =
+          URust_Type_Mappings.entry_identity repeated
+      then ()
+      else error "idempotent direct alias registration changed navigation identity"
+    val _ =
+      ignore
+        (Parser_Test_Elaboration.expression repeated_context
+          (Parser_Lex_Util.text_source
+            "0_u64 as StableWidth"))
+  in
+    val _ = ()
+  end
+\<close>
+
+section\<open> Declaration and use diagnostics \<close>
+
+ML_val\<open>
+  local
+    fun run_command source_name command_text () =
+      let
+        val thy = \<^theory>
+        val transitions =
+          Outer_Syntax.parse_text thy (K thy)
+            (Position.line_file 1 source_name) command_text
+      in
+        fold (Toplevel.command_exception false) transitions
+          (Toplevel.make_state (SOME thy))
+      end
+
+    fun assert_rejected source_name command_text expected =
+      (case
+          Exn.result
+            (run_command source_name command_text) () of
+         Exn.Res _ =>
+           error
+             ("invalid cast-target alias declaration was accepted" ^
+               Position.here (Position.file source_name))
+       | Exn.Exn exn =>
+           if Exn.is_interrupt exn then Exn.reraise exn
+           else
+             let val message = Runtime.exn_message exn in
+               if String.isSubstring expected message andalso
+                  String.isSubstring source_name message
+               then ()
+               else
+                 error
+                   ("wrong cast-target alias declaration diagnostic:\n" ^
+                     message)
+             end)
+
+    val _ =
+      assert_rejected "cast-alias-unknown-dependency"
+        ("urust_type_alias " ^ Symbol.open_ ^ " type AliasChain = MissingAliasDependency; " ^ Symbol.close)
+        "unknown Rust type"
+    val _ =
+      assert_rejected "cast-alias-malformed-target"
+        ("urust_type_alias " ^ Symbol.open_ ^ " type BrokenPointer = *const; " ^ Symbol.close)
+        "syntax error"
+    val _ =
+      assert_rejected "cast-alias-generic-name"
+        ("urust_type_alias \"Types::Alias::<Width>\" " ^ Symbol.open_ ^ " type Alias = u16; " ^ Symbol.close)
+        "invalid alias path"
+    val _ =
+      assert_rejected "cast-alias-empty-segment"
+        ("urust_type_alias \"Types::\" " ^ Symbol.open_ ^ " type Alias = u16; " ^ Symbol.close)
+        "invalid alias path"
+    val _ =
+      assert_rejected "cast-alias-reserved-segment"
+        ("urust_type_alias \"Types::u16\" " ^ Symbol.open_ ^ " type Alias = u16; " ^ Symbol.close)
+        "reserved segment"
+  in
+    val _ = ()
+  end
+\<close>
+
+ML_val\<open>
+  local
+    val ctxt = \<^context>
+    val text =
+      "value as U8Alias; value as U8Alias; " ^
+      "value as types::U16Alias"
+    val start =
+      Position.make0 17 4 0 "" ""
+        "cast-target-alias-markup"
+    val reports =
+      Synchronized.var "cast_target_alias_reports" ([]: string list)
+
+    fun capture chunks =
+      Synchronized.change reports (append chunks)
+
+    val _ =
+      Parser_Test_Report_Lock.run (fn () =>
+        Unsynchronized.setmp Private_Output.report_fn capture
+          (fn () =>
+            Print_Mode.with_modes [Print_Mode.PIDE]
+              (fn () =>
+                let
+                  val source =
+                    Parser_Lex_Util.positioned_content_source
+                      text start
+                  val expression =
+                    (case URust_Parser.parse_source ctxt source of
+                       SOME parsed => parsed
+                     | NONE =>
+                         error
+                           "cast-target alias markup audit: empty parse")
+                in
+                  ignore
+                    (URust_Translate.mk_expression ctxt [] expression)
+                end)
+              ())
+          ())
+
+    fun collect (XML.Text _) result = result
+      | collect (XML.Elem (markup, body)) result =
+          fold collect body (markup :: result)
+
+    val markup =
+      fold collect
+        (maps YXML.parse_body (Synchronized.value reports)) []
+
+    fun alias_references alias =
+      map_filter
+        (fn (name, properties) =>
+          if name = Markup.entityN andalso
+             Properties.get properties Markup.kindN =
+               SOME "micro_rust_type_mapping" andalso
+             Properties.get properties Markup.nameN = SOME alias
+          then Properties.get properties Markup.refN
+          else NONE)
+        markup
+
+    fun count_markup name =
+      length (filter (fn (actual, _) => actual = name) markup)
+
+    val u8_references = alias_references "U8Alias"
+    val qualified_references =
+      alias_references "types::U16Alias"
+    val _ =
+      if length u8_references = 2 andalso
+         length (distinct (op =) u8_references) = 1
+      then ()
+      else
+        error
+          "cast-target alias uses did not retain one stable declaration identity"
+    val _ =
+      if length qualified_references = 1 then ()
+      else
+        error
+          "qualified cast-target alias lost its declaration reference"
+    val _ =
+      if count_markup Markup.keyword3N >= 4 andalso
+         count_markup Markup.typingN >= 4
+      then ()
+      else
+        error
+          "cast-target alias segments lost semantic or typing markup"
+  in
+    val _ =
+      writeln
+        "Direct Rust alias term, scope, diagnostic, and markup regressions passed"
+  end
+\<close>
+
+chapter\<open> Rust type aliases \<close>
+
+declare [[urust_verbosity = 2]]
+
+ML_val\<open>
+local
+  val thy = \<^theory>
+  val _ =
+    if Keyword.is_command (Thy_Header.get_keywords thy) "urust_cast_alias"
+    then error "retired urust_cast_alias keyword remains installed"
+    else ()
+  val retired = Exn.result (fn () =>
+    Outer_Syntax.parse_text thy (K thy)
+      (Position.line_file 1 "retired-type-alias-command")
+      "urust_cast_alias \"RetiredWidth\" = \"u16\""
+    |> (fn transitions => fold (Toplevel.command_exception false)
+      transitions (Toplevel.make_state (SOME thy)))) ()
+  val _ =
+    (case retired of
+       Exn.Exn exn =>
+         if Exn.is_interrupt exn then Exn.reraise exn else ()
+     | Exn.Res _ => error "retired urust_cast_alias command accepted")
+  val pointer_type =
+    Consts.the_constraint (Proof_Context.consts_of \<^context>)
+      \<^const_name>\<open>command_pointer_identity\<close>
+  val _ =
+    if length (Term.add_tvarsT (hd (binder_types pointer_type)) []) = 2 then ()
+    else error "pointer alias signature did not generalize both backend parameters"
+in
+  val _ = writeln "alias command and existing primitive cast equivalences passed"
+end
+\<close>
+
+section\<open> Command failures, dependency capture and recovery \<close>
+
+ML_val\<open>
+local
+  val thy = \<^theory>
+  val ctxt = \<^context>
+  fun require message condition =
+    if condition then () else error ("alias command audit: " ^ message)
+  fun cartouche text = Symbol.open_ ^ " " ^ text ^ " " ^ Symbol.close
+  fun command file text =
+    Outer_Syntax.parse_text thy (K thy)
+      (Position.make0 1 1 0 "" file ""
+        |> Position.copy_id (Position.thread_data ())) text
+    |> (fn transitions => fold (Toplevel.command_exception false)
+         transitions (Toplevel.make_state (SOME thy)))
+  fun declaration text = "urust_type_alias " ^ cartouche text
+  fun reject (label, text, expected) =
+    (case Exn.result (fn () => command label text) () of
+       Exn.Res _ => error ("invalid alias command accepted: " ^ label)
+     | Exn.Exn exn =>
+         if Exn.is_interrupt exn then Exn.reraise exn
+         else require ("wrong diagnostic: " ^ label)
+           (String.isSubstring expected (Runtime.exn_message exn)))
+  val _ = List.app reject
+    [("alias-duplicate", declaration "type Duplicate<T, T> = T;",
+       "duplicate type parameter"),
+     ("alias-unused", declaration "type Unused<T> = u16;",
+       "unused type parameters"),
+     ("alias-recursive", declaration "type Recursive = Recursive;",
+       "recursive alias dependency"),
+     ("alias-unknown", declaration "type Unknown = UnknownDependency;",
+       "unknown Rust type"),
+     ("alias-arity", declaration "type WrongArity = CommandIdentity<u8, u16>;",
+       "generic arities"),
+     ("alias-sort", declaration ("type WrongSort = CommandSorted<" ^
+        "\<tau>" ^ cartouche "nat \<Rightarrow> nat" ^ ">;"),
+       "does not satisfy sort"),
+     ("alias-variable", declaration ("type FreeEscape = \<tau>" ^
+        cartouche "'unrelated" ^ ";"), "unrelated HOL type variables"),
+     ("alias-terminal", "urust_type_alias \"types::Different\" " ^
+        cartouche "type Declared = u16;", "must match item name"),
+     ("alias-manual-collision", declaration "type CommandMapped = u16;",
+       "alias and direct/generated mapping collide"),
+     ("manual-alias-collision", "urust_type \"CommandWidth\" = " ^
+        cartouche "16 word", "alias and direct/generated mapping collide"),
+     ("generated-alias-collision", "urust_datatype " ^
+        cartouche "struct CommandWidth(u16);",
+       "alias and direct/generated mapping collide"),
+     ("alias-mutability-conflict", declaration "type CommandPtr<T> = *mut T;",
+       "different Rust meanings")]
+  val alias = the (URust_Type_Mappings.lookup ctxt "CommandChain")
+  val _ = require "dependency was not captured as a checked HOL template"
+    (URust_Type_Mappings.entry_template alias = \<^typ>\<open>16 word\<close>)
+  val _ = reject
+    ("captured-dependency-conflict", declaration "type CommandWidth = u8;",
+     "conflicting active mappings")
+  val recovered =
+    command "alias-command-recovery" (declaration "type RecoveredAlias = CommandChain;")
+    |> Toplevel.context_of
+  val _ = require "recovery changed captured meaning"
+    (Parser_Test_Elaboration.expression recovered
+       (Parser_Lex_Util.text_source "5u32 as RecoveredAlias")
+     aconv
+     Parser_Test_Elaboration.expression ctxt
+       (Parser_Lex_Util.text_source "5u32 as u16"))
+  val _ = require "failed declarations installed a registry entry"
+    (forall (is_none o URust_Type_Mappings.lookup ctxt)
+      ["Duplicate", "Unused", "Recursive", "Unknown", "WrongArity",
+       "WrongSort", "FreeEscape", "Declared"])
+  val (navigation_state, markup) =
+    Parser_Test_Reports.markup (fn () =>
+      command "alias-dependency-navigation"
+        (declaration "type NavigationAlias<T> = CommandIdentity<T>;"))
+  fun entities property alias reports =
+    map_filter
+      (fn (name, props) =>
+        if name = Markup.entityN andalso
+           Properties.get props Markup.kindN = SOME "micro_rust_type_mapping" andalso
+           Properties.get props Markup.nameN = SOME alias
+        then Properties.get props property else NONE)
+      reports
+  val identity = the (URust_Type_Mappings.lookup ctxt "CommandIdentity")
+  val installed =
+    the (URust_Type_Mappings.lookup (Toplevel.context_of navigation_state) "NavigationAlias")
+  val _ = require "alias declaration lost its entity identity"
+    (entities Markup.defN "NavigationAlias" markup =
+      [string_of_int (URust_Type_Mappings.entry_identity installed)])
+  val _ = require "alias dependency did not navigate to its captured declaration"
+    (entities Markup.refN "CommandIdentity" markup =
+      [string_of_int (URust_Type_Mappings.entry_identity identity)])
+  val _ = require "alias parameters lost their declaration and use markup"
+    (length (filter (fn (name, _) => name = Markup.tfreeN) markup) >= 2)
+  val (_, failed_markup) =
+    Parser_Test_Reports.markup (fn () =>
+      Exn.result (fn () =>
+        command "alias-failed-navigation"
+          (declaration "type FailedNavigation<T> = (CommandIdentity<T>, MissingType);")) ())
+  val _ = require "failed declaration replayed successful semantic reports"
+    (null (entities Markup.defN "FailedNavigation" failed_markup) andalso
+     null (entities Markup.refN "CommandIdentity" failed_markup))
+in
+  val _ = writeln "alias command failures, capture and recovery passed"
+end
+\<close>
+
+section\<open> Definition-time capture across dependency scopes \<close>
+
+context includes capture_dependency_right
+begin
+
+ML_val\<open>
+  val captured = the (URust_Type_Mappings.lookup \<^context> "CapturedDependency")
+  val dependency = the (URust_Type_Mappings.lookup \<^context> "CaptureDependency")
+  val _ =
+    if URust_Type_Mappings.entry_template captured = \<^typ>\<open>16 word\<close> andalso
+       URust_Type_Mappings.entry_template dependency = \<^typ>\<open>8 word\<close>
+    then ()
+    else error "alias meaning changed with its dependency's active scope"
+\<close>
+
+urust_fn \<open>
+  fn CapturedWidths(left: CapturedDependency, right: CaptureDependency) -> (u16, u8) {
+    (left, right)
+  }
+\<close>
+
+end
+
+chapter\<open> Raw pointer types \<close>
+
+ML\<open>
+structure Datatype_Pointer_Probe =
+struct
+  fun require message condition =
+    if condition then () else error ("datatype pointer probe: " ^ message)
+end
+\<close>
+
+ML_val\<open>
+  local
+    open Datatype_Pointer_Probe
+    val ctxt = \<^context>
+    fun mapping name = the (URust_Type_Mappings.lookup ctxt name)
+    fun sugar name = the (Ctr_Sugar.ctr_sugar_of ctxt name)
+    fun require_pointer name hol_name =
+      let
+        val entry = mapping name
+        val native = sugar hol_name
+        val (_, parameters) = dest_Type (#T native)
+        val _ = require (name ^ " lost its address/global parameters")
+          (length parameters = 2 andalso hd parameters <> hd (tl parameters) andalso
+           forall Term.is_TVar parameters)
+        val _ = require (name ^ " exposed extra Rust generic arguments")
+          (URust_Type_Mappings.entry_arities entry = [0] andalso
+           null (URust_Type_Mappings.entry_parameter_sorts entry))
+        val _ = require (name ^ " registry lost implicit backend parameters")
+          (length (URust_Type_Mappings.entry_backend_parameter_sorts entry) = 2)
+        val _ = require (name ^ " fields use different backend parameters")
+          (forall (fn constructor =>
+             eq_set (op =)
+               (Term.add_tvars constructor [], Term.add_tvarsT (#T native) []))
+            (#ctrs native))
+      in () end
+    val _ = List.app (fn (name, hol_name) => require_pointer name hol_name)
+      [("PointerPacket", \<^type_name>\<open>pointer_packet\<close>),
+       ("PointerFields", \<^type_name>\<open>pointer_fields\<close>),
+       ("PointerTuple", \<^type_name>\<open>pointer_tuple\<close>),
+       ("PointerChoice", \<^type_name>\<open>pointer_choice\<close>),
+       ("PointerOuter", \<^type_name>\<open>pointer_outer\<close>),
+       ("PointerWrapped", \<^type_name>\<open>pointer_wrapped\<close>)]
+    val SOME packet = URust_Item_Scope.lookup_constructor ctxt "PointerPacket"
+    val _ = require "stored constructor lost its native scheme"
+      (fastype_of (URust_Item_Scope.constructor_scheme packet) =
+        fastype_of (hd (#ctrs (sugar \<^type_name>\<open>pointer_packet\<close>))))
+    val _ = require "expression constructor no longer infers fresh type instances"
+      (URust_Item_Scope.constructor_term packet =
+        Const (\<^const_name>\<open>make_pointer_packet\<close>, dummyT))
+    val pointer_field = hd (URust_Item_Scope.constructor_field_entries packet)
+    val _ = require "stored selector lost its native scheme"
+      (fastype_of (URust_Item_Scope.field_scheme pointer_field) =
+        fastype_of (hd (hd (#selss (sugar \<^type_name>\<open>pointer_packet\<close>)))))
+    val _ = require "expression selector no longer infers fresh type instances"
+      (URust_Item_Scope.field_selector pointer_field =
+        Const (\<^const_name>\<open>pointer_packet_pointer\<close>, dummyT))
+    val descriptor =
+      prepare_record_descriptor "pointer_packet" (Named_Target.theory_init \<^theory>)
+    val _ = require "lens descriptor uses a different record scheme"
+      (#record_type descriptor = #T (sugar \<^type_name>\<open>pointer_packet\<close>))
+    val _ = require "pointer selector scheme diverged from its record parameter pair"
+      (eq_set (op =)
+        (Term.add_tvarsT (#field_type (hd (#fields descriptor))) [],
+         Term.add_tvarsT (#record_type descriptor) []))
+    val _ = List.app
+      (fn name =>
+        require (name ^ " gained implicit parameters")
+          (null (URust_Type_Mappings.entry_backend_parameter_sorts (mapping name))))
+      ["PlainPacket", "PlainTuple", "PlainChoice"]
+    val _ = require "nonpointer record became polymorphic"
+      (null (snd (dest_Type (#T (sugar \<^type_name>\<open>plain_packet\<close>)))))
+    fun function_type name =
+      Consts.the_constraint (Proof_Context.consts_of ctxt) name
+    val build_type = function_type \<^const_name>\<open>build_pointer_packet\<close>
+    val read_type = function_type \<^const_name>\<open>read_pointer_packet\<close>
+    val _ = require "constructor function did not generalize pointer backends"
+      (length (Term.add_tvarsT (hd (binder_types build_type)) []) = 2)
+    val _ = require "selector function did not generalize pointer backends"
+      (length (Term.add_tvarsT (hd (binder_types read_type)) []) = 2)
+    val lthy = Named_Target.theory_init \<^theory>
+    val rejected =
+      Exn.result (fn () =>
+        URust_Datatype.define
+          {source = Input.string "struct PointerBad { pointer: *const u8, unrelated: \<tau>\<open>'unrelated\<close> }",
+           explicit_binding = NONE, interactive = false, verbosity = 0,
+           pp_test = true, pretty = false, register_notation = true, renames = [],
+           backend = "hol", word_width = NONE, parameters = [], plugins = K Plugin_Name.default_filter}
+          lthy) ()
+    val _ =
+      (case rejected of
+         Exn.Res _ => error "unrelated HOL field variable was accepted"
+       | Exn.Exn exn =>
+           if Exn.is_interrupt exn then Exn.reraise exn
+           else require "wrong unrelated-variable diagnostic"
+             (String.isSubstring "unrelated HOL variable"
+               (Runtime.exn_message exn)))
+    val _ = require "failed datatype installed its mapping"
+      (is_none (URust_Type_Mappings.lookup lthy "PointerBad"))
+  in val _ = writeln "datatype pointer probes passed" end
+\<close>
+
+section\<open> Signature constraints and independent instantiation \<close>
+
+ML_val\<open>
+local
+  val ctxt = \<^context>
+  fun require message condition =
+    if condition then () else error ("pointer signature audit: " ^ message)
+  fun argument_type name =
+    Consts.the_constraint (Proof_Context.consts_of ctxt) name
+    |> binder_types |> hd
+  val _ = require "body did not constrain the pointer backend"
+    (argument_type \<^const_name>\<open>pointer_body_constraint\<close> =
+      \<^typ>\<open>(nat, bool, 8 word) Global_Store.ref\<close>)
+  val _ = require "explicit result did not constrain the pointer backend"
+    (argument_type \<^const_name>\<open>pointer_result_constraint\<close> =
+      \<^typ>\<open>(int, nat, 8 word) Global_Store.ref\<close>)
+  val independent_type =
+    Consts.the_constraint (Proof_Context.consts_of ctxt)
+      \<^const_name>\<open>pointer_independent_calls\<close>
+  val _ = require "independent calls lost one concrete backend"
+    (Term.exists_subtype
+       (fn T => T = \<^typ>\<open>(nat, bool, 8 word) Global_Store.ref\<close>)
+       independent_type andalso
+     Term.exists_subtype
+       (fn T => T = \<^typ>\<open>(int, nat, 8 word) Global_Store.ref\<close>)
+       independent_type)
+in
+  val _ = ()
+end
+\<close>
+
+locale pointer_alias_context =
+  fixes pointer :: "('address, 'global, 8 word) Global_Store.ref"
+begin
+
+urust_type_alias \<open> type LocalePointer<T> = *const T; \<close>
+urust_datatype \<open> struct LocalePointerPacket { pointer: LocalePointer<u8> } \<close>
+
+urust_fn \<open>
+  fn LocalePointerIdentity(value: LocalePointer<u8>) -> LocalePointer<u8> {
+    if true { value } else { pointer }
+  }
+\<close>
+
+ML_val\<open>
+local
+  val typ =
+    fastype_of (Syntax.read_term \<^context> "locale_pointer_identity")
+  val pointer_type = fastype_of (Syntax.read_term \<^context> "pointer")
+in
+  val _ =
+    if member (op =) (binder_types typ) pointer_type then ()
+    else error "locale signature lost its rigid pointer backend"
+end
+\<close>
+
+end
+
+context pointer_alias_context
+begin
+
+urust_fn \<open>
+  fn ReopenLocalePointer(packet: LocalePointerPacket) -> LocalePointer<u8> {
+    packet.pointer
+  }
+\<close>
+
+ML_val\<open>
+  val _ =
+    if is_some (URust_Item_Scope.lookup_constructor \<^context> "LocalePointerPacket") andalso
+       is_some (URust_Type_Mappings.lookup \<^context> "LocalePointer")
+    then ()
+    else error "locale reopening lost pointer type schemes"
+\<close>
+
+end
+
+locale pointer_alias_left = pointer_alias_context pointer for pointer
+
+locale pointer_alias_right = pointer_alias_context pointer for pointer
+
+locale pointer_alias_join =
+  pointer_alias_left pointer + pointer_alias_right pointer for pointer
+begin
+
+urust_fn \<open>
+  fn MergedLocalePointer(packet: LocalePointerPacket) -> LocalePointer<u8> {
+    packet.pointer
+  }
+\<close>
+
+ML_val\<open>
+local
+  val ctxt = \<^context>
+  val entry = the (URust_Type_Mappings.lookup ctxt "LocalePointerPacket")
+  val constructor = the (URust_Item_Scope.lookup_constructor ctxt "LocalePointerPacket")
+in
+  val _ =
+    if length (URust_Type_Mappings.entry_backend_parameter_sorts entry) = 2 andalso
+       length (Term.add_tvars (URust_Item_Scope.constructor_scheme constructor) []) = 2
+    then ()
+    else error "merged locale lost its native pointer constructor scheme"
+end
+\<close>
+
+end
+
+ML_val\<open>
+  val _ =
+    if is_none (URust_Type_Mappings.lookup \<^context> "LocalePointer") andalso
+       is_none (URust_Type_Mappings.lookup \<^context> "LocalePointerPacket")
+    then ()
+    else error "locale pointer registrations escaped their target"
+\<close>
+
+chapter\<open> Generic datatypes and backend selection \<close>
+
+section\<open> Generic declarations and backend selection \<close>
+
+declare [[urust_pretty = false, urust_verbosity = 0]]
+
+urust_datatype \<open> struct Buffer<T, const N: usize> { values: [T; N] } \<close>
+
+urust_datatype \<open> struct Envelope<T, const N: usize, P> { buffer: Buffer<T, N> } \<close>
+
+urust_datatype \<open> struct GenericUnit<T, U, const N: usize>; \<close>
+
+urust_datatype \<open> struct GenericTuple<T, U, const N: usize>(u32); \<close>
+
+urust_datatype \<open> struct EmptyNamed<T> {} \<close>
+
+urust_datatype \<open> struct EmptyTuple<T>(); \<close>
+
+urust_datatype [parameters = ["T" \<rightarrow> "'element::ord"]] \<open>
+  struct SortedHint<T>;
+\<close>
+
+\<comment>\<open>RUST-CHANGE: this proof-source mirror omits a PhantomData field and its pure
+initializer/pattern slot. The original type parameter is retained. Automatic field handling is
+not requested; effectful initializers would need explicit effect-preserving source adaptation.\<close>
+
+urust_datatype \<open> struct TaggedAddress<T> { address: u64 } \<close>
+
+urust_type "Sized<'a, const 'n>" = \<open>('a, 'n::len) array\<close>
+
+urust_datatype \<open> struct MappedBuffer<T, const N: usize> { values: Sized<T, N> } \<close>
+
+urust_type_alias \<open> type ConcreteBuffer = Buffer<u8, 0x10>; \<close>
+
+urust_type_alias \<open> type ForwardBuffer<T, const N: usize> = Buffer<T, N>; \<close>
+
+urust_type_alias \<open> type UnusedWidth<const N: usize> = u8; \<close>
+
+urust_datatype [parameters = ["N" \<rightarrow> "'length::len"]] \<open>
+  struct IndirectBuffer<T, const N: usize> { inner: ForwardBuffer<T, N> }
+\<close>
+
+urust_datatype [parameters = ["T" \<rightarrow> "'element", "P" \<rightarrow> "'tag"]] \<open>
+  enum Choice<T, P> { Empty, Data(T), Named { value: T, active: bool } }
+\<close>
+
+urust_datatype \<open> enum Ordinary<T, P, const N: usize> { One, Two, Three } \<close>
+
+urust_datatype [backend = hol] \<open> enum NativeChoice<T, P> { NativeEmpty, NativeData(T) } \<close>
+
+urust_datatype [backend = "enum"] \<open> enum Single<T, P> { Only(T) } \<close>
+
+urust_datatype \<open> #[repr(u8)] enum Status<T, P> { Idle, Ready = 7, Busy } \<close>
+
+urust_datatype [backend = "simple_word_enum", word_width = 16,
+  plugins = (plugins only: word_conversion)] \<open>
+  enum ExplicitWord { Zero, Gap = 0xff, Next }
+\<close>
+
+urust_datatype [word_width = 8] \<open> enum Boundary { Min = 0, Max = 255 } \<close>
+
+urust_datatype [word_width = 8, renames = ["On" \<rightarrow> "ModelOn"]] \<open>
+  enum RenamedWord<T, const N: usize> { Off, On = 3 }
+\<close>
+
+urust_datatype [word_width = 8] model_flags \<open>
+  enum SourceFlags<T, P> { FlagOff, FlagOn = 5 }
+\<close>
+
+urust_datatype [renames = ["Wrapped" \<rightarrow> "ModelWrapped"]] \<open>
+  enum RenamedPayload<T, P> { Wrapped { value: T } }
+\<close>
+
+urust_datatype [parameters = ["T" \<rightarrow> "'a", "P" \<rightarrow> "'b"]] \<open>
+  enum ParameterNames<T, P> { ParameterValue(T), ParameterEmpty }
+\<close>
+
+urust_datatype \<open>
+  enum EmptyShapes<T, const N: usize> { EmptyUnit, EmptyPositional(), EmptyFields {} }
+\<close>
+
+urust_datatype [backend = hol] \<open>
+  enum NativeShapes<T, const N: usize> { NativeUnit, NativePositional(T), NativeFields { item: T } }
+\<close>
+
+urust_datatype [word_width = 8] \<open>
+  enum WordShapes<T, const N: usize> { WordUnit, WordPositional(), WordFields {} }
+\<close>
+
+lemma buffer_selector: \<open>buffer_values (make_buffer xs) = xs\<close> by simp
+
+lemma tagged_selector: \<open>tagged_address_address (make_tagged_address n) = n\<close> by simp
+
+lemma word_gaps: \<open>explicit_word_to_u16_pure Gap = 255\<close>
+  \<open>explicit_word_to_u16_pure Next = 256\<close>
+  by (simp_all add: explicit_word_to_u16_pure_alt explicit_word_rep_defs)
+
+urust_expr constructed_tag \<open> TaggedAddress::<u8> { address: 5u64 } \<close>
+
+urust_expr constructed_fixed_array \<open>
+  Buffer::<u8, 4> { values: \<llangle>array_constant (0 :: 8 word)\<rrangle> }
+\<close>
+
+urust_expr constructed_tuple \<open> GenericTuple::<u8, u16, 0>(3u32) \<close>
+
+urust_expr unused_unit \<open> GenericUnit::<u8, u16, 0> \<close>
+
+urust_expr empty_named_value \<open> EmptyNamed::<u8> {} \<close>
+
+urust_expr empty_tuple_value \<open> EmptyTuple::<u8>() \<close>
+
+urust_expr word_value \<open> Status::<u8, u16>::Ready \<close>
+
+urust_expr word_conversion \<open> Status::to_u8(Status::<u8, u16>::Busy) \<close>
+
+urust_expr renamed_word_value \<open> RenamedWord::<u8, 0>::On \<close>
+
+urust_expr renamed_word_conversion \<open> RenamedWord::to_u8(RenamedWord::<u8, 0>::On) \<close>
+
+urust_expr explicit_binding_conversion \<open> SourceFlags::to_u8(SourceFlags::<u8, u16>::FlagOn) \<close>
+
+urust_expr renamed_payload_value \<open> RenamedPayload::<u32, u8>::Wrapped { value: 7u32 } \<close>
+
+urust_expr named_choice \<open> Choice::<u32, u8>::Named { active: true, value: 3u32 } \<close>
+
+urust_expr mixed_match \<open>
+  match Choice::<u32, u8>::Data(3u32) {
+    Choice::Empty => 0u32,
+    Choice::Data(n) => n,
+    Choice::Named { value, active: _ } => value,
+  }
+\<close>
+
+urust_expr typed_pattern \<open>
+  match Choice::<u32, u8>::Data(3u32) { Choice::<u32, u8>::Data(value) => value, _ => 0u32 }
+\<close>
+
+urust_expr parameter_names_match \<open>
+  match ParameterNames::<u8, u16>::ParameterValue(1u8) {
+    ParameterNames::ParameterValue(value) => value,
+    ParameterNames::ParameterEmpty => 0u8,
+  }
+\<close>
+
+urust_expr word_match \<open>
+  match Status::<u8, u16>::Ready { Status::Idle => 0u8, Status::Ready => 7u8, Status::Busy => 8u8 }
+\<close>
+
+urust_expr empty_shape_match \<open>
+  match (EmptyShapes::<u8, 0>::EmptyFields {}) {
+    EmptyShapes::EmptyUnit => 0u8,
+    EmptyShapes::EmptyPositional() => 1u8,
+    EmptyShapes::EmptyFields {} => 2u8,
+  }
+\<close>
+
+urust_expr native_shape_match \<open>
+  match (NativeShapes::<u8, 0>::NativeFields { item: 3u8 }) {
+    NativeShapes::NativeUnit => 0u8,
+    NativeShapes::NativePositional(item) => item,
+    NativeShapes::NativeFields { item } => item,
+  }
+\<close>
+
+urust_expr word_shape_match \<open>
+  match WordShapes::<u8, 0>::WordPositional() {
+    WordShapes::WordUnit => 0u8,
+    WordShapes::WordPositional() => 1u8,
+    WordShapes::WordFields {} => 2u8,
+  }
+\<close>
+
+urust_fn tagged_field \<open> fn tagged_field(x: TaggedAddress<u8>) -> u64 { x.address } \<close>
+
+urust_fn buffer_identity \<open> fn buffer_identity(x: Buffer<u8, 4>) -> Buffer<u8, 4> { x } \<close>
+
+urust_fn buffer_field \<open> fn buffer_field(x: Buffer<u8, 4>) -> [u8; 4] { x.values } \<close>
+
+urust_fn forwarded_signature \<open>
+  fn forwarded_signature(x: ForwardBuffer<u8, 0x10>) -> Buffer<u8, 16> { x }
+\<close>
+
+urust_fn unused_const_alias \<open>
+  fn unused_const_alias(x: UnusedWidth<0>) -> UnusedWidth<16> { x }
+\<close>
+
+urust_type "Maybe<'a>" = \<open>'a option\<close>
+
+urust_type "LooseConst<const 'n>" = \<open>'n option\<close>
+
+urust_expr nested_type_constructor \<open> Choice::<Maybe<u8>, u16>::Data(Some(2u8)) \<close>
+
+urust_expr escaped_type_constructor \<open>
+  Choice::<\<tau>\<open>nat\<close>, u8>::Data(\<llangle>3 :: nat\<rrangle>)
+\<close>
+
+urust_expr escaped_length_constructor (xs) \<open> Buffer::<u8, \<tau>\<open>4\<close>> { values: xs } \<close>
+
+urust_expr underscore_length (xs) \<open> Buffer::<u8, 1_6> { values: xs } \<close>
+
+urust_expr_rejects \<open> Choice::<u8, u16>::Data(5u16) \<close> \<open>Type unification failed\<close>
+
+urust_datatype \<open>
+  struct GenericPointer<T, P, const N: usize> { pointer: *const T, values: Buffer<T, N> }
+\<close>
+
+urust_datatype \<open> enum PointerPayload<T, P> { Raw(*const T), PointerEmpty } \<close>
+
+urust_fn generic_pointer_identity \<open>
+  fn generic_pointer_identity(x: GenericPointer<u8, u16, 4>) -> GenericPointer<u8, u16, 4> { x }
+\<close>
+
+urust_fn pointer_payload \<open>
+  fn pointer_payload(pointer: *const u8) -> PointerPayload<u8, u16> { PointerPayload::<u8, u16>::Raw(pointer) }
+\<close>
+
+ML_val \<open>
+local
+  val thy = \<^theory>
+  val ctxt = \<^context>
+  fun require message condition = if condition then () else error message
+  fun mapping name = the (URust_Type_Mappings.lookup ctxt name)
+  fun cartouche text = Symbol.open_ ^ " " ^ text ^ " " ^ Symbol.close
+  fun command label text =
+    Outer_Syntax.parse_text thy (K thy)
+      (Position.make0 1 1 0 "" label "" |> Position.copy_id (Position.thread_data ())) text
+    |> (fn transitions => fold (Toplevel.command_exception false)
+      transitions (Toplevel.make_state (SOME thy)))
+  fun rejection (label, options, source, expected) =
+    (case Exn.result (fn () => command label
+      ("urust_datatype " ^ options ^ " " ^ cartouche source)) () of
+      Exn.Res _ => error ("invalid datatype accepted: " ^ label)
+    | Exn.Exn exn => if Exn.is_interrupt exn then Exn.reraise exn
+      else require ("wrong diagnostic for " ^ label ^ ": " ^ Runtime.exn_message exn)
+        (String.isSubstring expected (Runtime.exn_message exn)))
+  val _ = List.app rejection
+    [("word-no-width", "[backend = \"simple_word_enum\"]", "enum Invalid { First, Second }", "explicit width"),
+     ("word-payload", "[backend = \"simple_word_enum\", word_width = 8]", "enum Invalid { Stored(u8) }", "no payload"),
+     ("struct-enum", "[backend = \"enum\"]", "struct Invalid;", "require an enum"),
+     ("width-conflict", "[word_width = 16]", "#[repr(u8)] enum Invalid { First }", "conflicts"),
+     ("width-hol", "[backend = hol, word_width = 8]", "enum Invalid { First }", "requires"),
+     ("unsupported-repr", "", "#[repr(i8)] enum Invalid { First }", "unsupported repr"),
+     ("usize-repr", "", "#[repr(usize)] enum Invalid { First }", "unsupported repr"),
+     ("explicit-overflow", "[word_width = 8]", "enum Invalid { First = 256 }", "out of range"),
+     ("implicit-overflow", "[word_width = 8]", "enum Invalid { First = 255, Second }", "out of range"),
+     ("duplicate-discriminant", "[word_width = 8]", "enum Invalid { First = 7, Second = 7 }", "duplicate discriminant"),
+     ("recursive-generic", "", "struct Invalid<T>(Invalid<T>);", "recursive"),
+     ("const-kind", "", "struct Invalid<T> { value: Buffer<u8, T> }", "type parameters used as const"),
+     ("type-kind", "", "struct Invalid<const N: usize> { value: Maybe<N> }", "const parameters used as type"),
+     ("const-minimum-sort", "", "struct Invalid { value: LooseConst<\<tau>\<open>nat\<close>> }", "does not satisfy sort"),
+     ("const-field", "", "struct Invalid<const N: usize> { value: N }", "const parameters used as field"),
+     ("zero-array", "", "struct Invalid { value: [u8; 0] }", "does not satisfy sort"),
+     ("override-sort", "[parameters = [\"N\" \<rightarrow> \"'n::len0\"]]",
+       "struct Invalid<const N: usize> { value: [u8; N] }", "does not satisfy inferred sort"),
+     ("override-unknown", "[parameters = [\"X\" \<rightarrow> \"'x\"]]", "struct Invalid<T>;", "unknown parameter override"),
+     ("override-duplicate-name", "[parameters = [\"T\" \<rightarrow> \"'x\", \"U\" \<rightarrow> \"'x\"]]",
+       "struct Invalid<T, U>;", "HOL parameter names must be distinct"),
+     ("automatic-marker", "", "struct Invalid<T> { value: PhantomData<T> }", "automatic PhantomData field handling is deferred"),
+     ("qualified-marker", "", "struct Invalid<T> { value: core::marker::PhantomData<T> }", "automatic PhantomData field handling is deferred"),
+     ("word-marker-payload", "[word_width = 8]", "enum Invalid<T> { Value(PhantomData<T>) }", "automatic PhantomData field handling is deferred")]
+  val _ = List.app (fn (name, count) => require ("declared parameters were dropped: " ^ name)
+    (length (URust_Type_Mappings.entry_parameter_sorts (mapping name)) = count))
+    [("GenericUnit", 3), ("GenericTuple", 3), ("EmptyNamed", 1), ("EmptyTuple", 1),
+     ("Ordinary", 3), ("NativeChoice", 2), ("Single", 2), ("Status", 2), ("RenamedWord", 2)]
+  val _ = List.app (fn name => require ("unused shape parameter was dropped: " ^ name)
+    (URust_Type_Mappings.entry_parameter_sorts (mapping name) = [\<^sort>\<open>type\<close>, \<^sort>\<open>len0\<close>]))
+    ["EmptyShapes", "NativeShapes", "WordShapes"]
+  val _ = require "const length sort was not inferred"
+    (nth (URust_Type_Mappings.entry_parameter_sorts (mapping "Buffer")) 1 = \<^sort>\<open>len\<close>)
+  val _ = require "unused word const parameter lost len0"
+    (URust_Type_Mappings.entry_parameter_sorts (mapping "RenamedWord") = [\<^sort>\<open>type\<close>, \<^sort>\<open>len0\<close>])
+  val _ = require "unused alias const parameter was dropped"
+    (URust_Type_Mappings.entry_parameter_sorts (mapping "UnusedWidth") = [\<^sort>\<open>len0\<close>])
+  val _ = require "explicit unused sorted parameter introduced an implicit memory parameter"
+    (URust_Type_Mappings.entry_parameter_sorts (mapping "SortedHint") = [\<^sort>\<open>ord\<close>] andalso
+     null (URust_Type_Mappings.entry_backend_parameter_sorts (mapping "SortedHint")))
+  val _ = require "unused parameters acquired equality constraints"
+    (Sign.of_sort thy (\<^typ>\<open>(nat \<Rightarrow> nat, nat \<Rightarrow> nat, 0) ordinary\<close>, \<^sort>\<open>equal\<close>))
+  val _ = require "ordinary enum used a HOL datatype"
+    (is_none (Ctr_Sugar.ctr_sugar_of ctxt \<^type_name>\<open>ordinary\<close>))
+  val _ = require "HOL backend lost native constructor metadata"
+    (is_some (Ctr_Sugar.ctr_sugar_of ctxt \<^type_name>\<open>native_choice\<close>))
+  val _ = require "repr enum did not use a word typedef"
+    (not (null (Typedef.get_info ctxt \<^type_name>\<open>status\<close>)))
+  val _ = require "source and memory parameters were conflated"
+    (length (URust_Type_Mappings.entry_parameter_sorts (mapping "GenericPointer")) = 3 andalso
+     length (URust_Type_Mappings.entry_backend_parameter_sorts (mapping "GenericPointer")) = 2)
+  val _ = require "temporary overloaded setting escaped"
+    (not (Config.get ctxt Typedef.overloaded) andalso not (Config.get_global thy Typedef.overloaded))
+  val _ = require "duplicate word notation registration"
+    (null (Micro_Rust_Names.lookups ctxt Micro_Rust_Names.NLiteral "Status::Ready"))
+  val recovered = command "backend-recovery"
+    ("urust_datatype [word_width = 8] " ^ cartouche "enum Invalid { Recovered = 255 }") |> Toplevel.context_of
+  val _ = require "failed declarations left registry state"
+    (is_some (URust_Type_Mappings.lookup recovered "Invalid") andalso is_none (URust_Type_Mappings.lookup ctxt "Invalid"))
+in val _ = writeln "unified generic datatype probes passed" end
+\<close>
+
+section\<open> Ordinary explicit singleton modelling \<close>
+
+text\<open>No builtin mapping or field policy is installed for PhantomData. An ordinary HOL datatype,
+manual type mapping and literal notation can model it as a stored singleton field.\<close>
+
+datatype 'a explicit_token = ExplicitToken
+
+urust_type "PhantomData<'a>" = \<open>'a explicit_token\<close>
+
+urust_notation (literal) ExplicitToken ("PhantomData")
+
+urust_datatype \<open> struct ManualCarrier<T> { value: u8, token: PhantomData<T> } \<close>
+
+urust_expr manual_carrier \<open> ManualCarrier::<u8> { token: PhantomData, value: 5u8 } \<close>
+
+urust_expr stored_token_abort \<open>
+  ManualCarrier::<u8> { token: { assert!(false); PhantomData }, value: 5u8 }
+\<close>
+
+urust_expr stored_token_order \<open>
+  ManualCarrier::<u8> {
+    token: { \<epsilon>\<open>put (\<lambda>_::nat. 1)\<close>; PhantomData },
+    value: { \<epsilon>\<open>put (\<lambda>_::nat. 2)\<close>; 5u8 },
+  }
+\<close>
+
+lemma stored_token_abort_preserved: \<open>stored_token_abort = abort AssertionFailed\<close>
+  by (simp add: stored_token_abort_def micro_rust_simps assert_def assert_val_def
+    sequence_def false_def literal_def abort_def Core_Expression.bind.simps evaluate_def)
+
+lemma stored_token_source_order:
+  \<open>evaluate stored_token_order 0 = Success (make_manual_carrier 5 ExplicitToken) 2\<close>
+  by (simp add: stored_token_order_def micro_rust_simps sequence_def evaluate_def
+    literal_def put_def Core_Expression.bind.simps)
+
+urust_expr_rejects \<open> ManualCarrier::<u8> { value: 5u8 } \<close> \<open>missing field "token"\<close>
+
+urust_expr_rejects \<open>
+  ManualCarrier::<u8> { value: 5u8, token: PhantomData, extra: { assert!(false); 0u8 } }
+\<close> \<open>unknown field "extra"\<close>
+
+urust_expr_rejects \<open>
+  ManualCarrier::<u8> { value: 5u8, token: PhantomData, token: PhantomData }
+\<close> \<open>duplicate struct initializer\<close>
+
+urust_fn manual_token \<open> fn manual_token(x: ManualCarrier<u8>) -> PhantomData<u8> { x.token } \<close>
+
+urust_fn manual_pattern \<open>
+  fn manual_pattern(x: ManualCarrier<u8>) -> PhantomData<u8> { match x { ManualCarrier { value: _, token } => token } }
+\<close>
+
+urust_datatype \<open> #[repr(u8)] enum MappedStatus<T> { MappedReady(PhantomData<T>) = 7, MappedBusy } \<close>
+
+ML_val \<open>
+  val ctxt = \<^context>
+  val carrier = the (URust_Item_Scope.lookup_constructor ctxt "ManualCarrier")
+  val _ = if length (binder_types (fastype_of (URust_Item_Scope.constructor_scheme carrier))) = 2
+    andalso length (URust_Item_Scope.constructor_fields carrier) = 2 then ()
+    else error "manually mapped singleton field was discarded"
+  val _ = if is_none (Ctr_Sugar.ctr_sugar_of ctxt \<^type_name>\<open>mapped_status\<close>) andalso
+    length (binder_types (fastype_of (URust_Item_Scope.constructor_scheme
+      (the (URust_Item_Scope.lookup_constructor ctxt "MappedStatus::MappedReady"))))) = 1
+    then () else error "a stored singleton payload made an enum eligible for word representation"
+  val source = Parser_Lex_Util.text_source "enum StoredPayload<T> { Stored(PhantomData<T>) }"
+  val result = Exn.result (URust_Datatype.define
+    {source = source, explicit_binding = NONE, interactive = false, verbosity = 0,
+     pp_test = true, pretty = false, register_notation = true, renames = [],
+     backend = "simple_word_enum", word_width = SOME 8, parameters = [], plugins = K Plugin_Name.default_filter})
+      (Named_Target.theory_init \<^theory>)
+  val _ = case result of Exn.Res _ => error "explicit word backend discarded a stored singleton payload"
+    | Exn.Exn exn => if String.isSubstring "no payload" (Runtime.exn_message exn) then ()
+      else Exn.reraise exn
+\<close>
+
+section\<open> Generic manifests and read-only pretty replay \<close>
+
+ML_val \<open>
+local
+  val thy = \<^theory>
+  fun require message condition = if condition then () else error message
+  fun cartouche text = Symbol.open_ ^ " " ^ text ^ " " ^ Symbol.close
+  fun probe (rust_name, backend_options, declaration, backend, count) =
+    let
+      val label = "unified-replay-" ^ rust_name
+      val output = Synchronized.var label ([]: string list)
+      fun collect chunks =
+        if Position.file_of (Position.thread_data ()) = SOME label
+        then Synchronized.change output (append chunks) else ()
+      fun run () =
+        Outer_Syntax.parse_text thy (K thy) (Position.line_file 1 label)
+          ("urust_datatype [pretty, pp_test, verbosity = 2" ^ backend_options ^ "] " ^
+            cartouche declaration)
+        |> (fn transitions => fold (Toplevel.command_exception true)
+          transitions (Toplevel.make_state (SOME thy)))
+      val state = Parser_Test_Report_Lock.run (fn () =>
+        Unsynchronized.setmp Private_Output.writeln_fn collect run ())
+      val ctxt = Toplevel.context_of state
+      val plain = XML.content_of (YXML.parse_body (implode (Synchronized.value output)))
+        |> Symbol.explode |> filter_out Symbol.is_control |> implode
+      val _ = List.app (fn text => require ("generic manifest omitted " ^ quote text)
+        (String.isSubstring text plain))
+        ["backend: " ^ backend, "T ->", "P ->", "const N ->", "len0",
+         "normalized uRust declaration", "normalized generated declaration"]
+      val mapping = the (URust_Type_Mappings.lookup ctxt rust_name)
+      val _ = require "pretty replay changed the complete parameter scheme"
+        (length (URust_Type_Mappings.entry_parameter_sorts mapping) = 3 andalso
+         length (URust_Type_Mappings.entry_backend_parameter_sorts mapping) = count)
+      val _ = require "pretty replay registered the item twice"
+        (length (URust_Item_Scope.dump_types ctxt) = length (URust_Item_Scope.dump_types \<^context>) + 1)
+      val _ = require "pretty replay registered constructors twice"
+        (length (URust_Item_Scope.dump_constructors ctxt) =
+          length (URust_Item_Scope.dump_constructors \<^context>) + (if backend = "hol" then 1 else 2))
+      val generated = String.fields (fn c => c = #"\n") plain
+        |> drop_prefix (not o String.isPrefix "normalized generated declaration")
+        |> space_implode "\n"
+      val _ = require "verbose output lost unused HOL parameters"
+        (String.isSubstring "'p" generated andalso String.isSubstring "'n" generated)
+    in () end
+  val _ = List.app probe
+    [("ReplayRecord", "", "struct ReplayRecord<T, P, const N: usize> { value: T, pointer: *const T }", "hol", 2),
+     ("ReplayCustom", "", "enum ReplayCustom<T, P, const N: usize> { ReplayValue(T), ReplayEmpty }", "enum", 0),
+     ("ReplayHol", ", backend = hol", "struct ReplayHol<T, P, const N: usize>(T);", "hol", 0),
+     ("ReplayWord", ", word_width = 8", "enum ReplayWord<T, P, const N: usize> { ReplayOff, ReplayOn = 9 }", "simple_word_enum", 0)]
+in val _ = writeln "generic manifests and read-only pretty replay passed" end
+\<close>
+
+locale unified_declaration_scope = fixes scope_marker :: nat
+begin
+urust_datatype \<open> enum LocalChoice<T, P> { LocalValue(T), LocalEmpty } \<close>
+urust_datatype [word_width = 8] \<open> enum LocalWord<T> { LocalOff, LocalOn = 9 } \<close>
+urust_datatype \<open> struct LocalTagged<T> { value: u8 } \<close>
+urust_expr local_choice \<open> LocalChoice::<u8, u16>::LocalValue(4u8) \<close>
+urust_expr local_word \<open> LocalWord::<u16>::LocalOn \<close>
+urust_fn local_field \<open> fn local_field(x: LocalTagged<u8>) -> u8 { x.value } \<close>
+end
+
+chapter\<open> Rust type mappings \<close>
+
+section\<open> Extensible Rust-to-HOL type mappings \<close>
+
+urust_type "PacketId" = \<open>64 word\<close>
+
+urust_type "transport::PacketFlag" = \<open>bool\<close>
+
+urust_type "ResultMap<'ok, 'err>" = \<open>('ok, 'err) result\<close>
+
+urust_type "Wrap<'value>" = \<open>'value option\<close>
+
+urust_type "Ordered<'value>" = \<open>'value::linorder list\<close>
+
+urust_type "wire::Envelope<'header>::Body<'payload>" =
+  \<open>('header, 'payload) result\<close>
+
+urust_type "FunctionType" = \<open>nat \<Rightarrow> nat\<close>
+
+urust_type "u128" = \<open>128 word\<close>
+
+urust_type "AlphaMap<'left, 'right>" =
+  \<open>('left, 'right) result\<close>
+
+urust_type "AlphaMap<'x, 'y>" =
+  \<open>('x, 'y) result\<close>
+
+urust_datatype \<open>
+  struct MappedTypes {
+    identifier: PacketId,
+    flag: transport::PacketFlag,
+    outcome: ResultMap<PacketId, bool>,
+    nested: Wrap<Wrap<Wrap<u8>>>,
+    commented: ResultMap<
+      /* first */ Wrap<u16>,
+      // second
+      Wrap<bool>,
+    >,
+    segmented: wire::Envelope<u8>::Body<PacketId>,
+    wide: u128,
+    unit: (),
+    grouped: (PacketId),
+    pair: (u8, bool),
+  }
+\<close>
+
+urust_datatype \<open>
+  struct MappedTupleTypes {
+    flat: (u8, bool, PacketId),
+    flat_four: (u8, bool, PacketId, Wrap<u16>),
+    nested_tuple: (u8, (bool, PacketId)),
+    generic_tuple: (Wrap<u8>, PacketId),
+    escaped_tuple: (PacketId, \<tau>\<open>nat\<close>),
+    escaped: \<tau>\<open>nat option\<close>,
+  }
+\<close>
+
+urust_datatype \<open>
+  struct TupleArity16((
+    u8, u8, u8, u8, u8, u8, u8, u8,
+    u8, u8, u8, u8, u8, u8, u8, u8,
+  ));
+\<close>
+
+urust_datatype \<open>
+  struct TupleArity17((
+    u8, u8, u8, u8, u8, u8, u8, u8,
+    u8, u8, u8, u8, u8, u8, u8, u8, u8,
+  ));
+\<close>
+
+urust_datatype explicit_mapped_hol \<open>
+  enum MappedChoice {
+    Empty,
+    Payload(PacketId),
+  }
+\<close>
+
+urust_datatype \<open>
+  struct UsesGenerated(MappedTypes, MappedTupleTypes, MappedChoice);
+\<close>
+
+datatype ordinary_type_registry_control =
+  Ordinary_Type_Registry_Control
+
+bundle scoped_type_mapping
+begin
+
+urust_type "ScopedType" = \<open>nat\<close>
+
+end
+
+bundle conflicting_type_mapping_left
+begin
+
+urust_type "BundleConflict" = \<open>nat\<close>
+
+end
+
+bundle conflicting_type_mapping_right
+begin
+
+urust_type "BundleConflict" = \<open>bool\<close>
+
+end
+
+context includes scoped_type_mapping
+begin
+
+urust_datatype \<open>
+  struct ScopedTypeHolder(ScopedType);
+\<close>
+
+end
+
+locale type_mapping_left
+begin
+
+urust_type "LocaleType" = \<open>nat\<close>
+
+urust_datatype \<open>
+  struct LocaleTypeHolder(LocaleType);
+\<close>
+
+end
+
+locale type_mapping_right
+begin
+
+urust_type "LocaleType" = \<open>bool\<close>
+
+urust_datatype \<open>
+  struct LocaleTypeHolder(LocaleType);
+\<close>
+
+end
+
+section\<open> Registry and generated-type audits \<close>
+
+ML_val \<open>
+  local
+    val expected =
+      [("u8", \<^typ>\<open>8 word\<close>),
+       ("u16", \<^typ>\<open>16 word\<close>),
+       ("u32", \<^typ>\<open>32 word\<close>),
+       ("u64", \<^typ>\<open>64 word\<close>),
+       ("usize", \<^typ>\<open>64 word\<close>),
+       ("i32", \<^typ>\<open>32 word\<close>),
+       ("i64", \<^typ>\<open>64 word\<close>),
+       ("bool", \<^typ>\<open>bool\<close>),
+       ("()", \<^typ>\<open>unit\<close>)]
+
+    fun check (name, typ) =
+      (case URust_Type_Mappings.lookup \<^context> name of
+         SOME entry =>
+           if URust_Type_Mappings.entry_template entry = typ andalso
+               URust_Type_Mappings.entry_arities entry = [0] andalso
+               null
+                 (URust_Type_Mappings.entry_parameter_sorts entry) andalso
+               URust_Type_Mappings.entry_origin entry =
+                 "urust_type declaration"
+           then ()
+           else
+             error
+               ("unexpected built-in uRust type mapping for " ^
+                 quote name)
+       | NONE =>
+           error
+             ("missing built-in uRust type mapping for " ^
+               quote name))
+
+    val _ = List.app check expected
+  in
+    val _ = ()
+  end
+\<close>
+
+ML_val \<open>
+  local
+    fun cartouche body =
+      Symbol.open_ ^ body ^ Symbol.close
+
+    fun run source_name command_text () =
+      let
+        val thy = \<^theory>\<open>Parser_Test_Utils\<close>
+        val transitions =
+          Outer_Syntax.parse_text thy (K thy)
+            (Position.line_file 1 source_name) command_text
+      in
+        fold (Toplevel.command_exception false) transitions
+          (Toplevel.make_state (SOME thy))
+      end
+
+    val command_text =
+      "urust_datatype before_u128 " ^
+        cartouche " struct BeforeU128(u128); "
+    val _ =
+      (case Exn.result (run "before-u128" command_text) () of
+         Exn.Res _ =>
+           error "u128 unexpectedly resolved before registration"
+       | Exn.Exn exn =>
+           if Exn.is_interrupt exn then Exn.reraise exn
+           else if String.isSubstring
+               "unknown Rust type \"u128\"" (Runtime.exn_message exn)
+           then ()
+           else
+             error
+               ("unexpected pre-registration u128 diagnostic: " ^
+                 Runtime.exn_message exn))
+  in
+    val _ = ()
+  end
+\<close>
+
+ML_val \<open>
+  val SOME alpha =
+    URust_Type_Mappings.lookup \<^context> "AlphaMap"
+  val _ =
+    if URust_Type_Mappings.entry_arities alpha = [2] andalso
+        length
+          (URust_Type_Mappings.entry_parameter_sorts alpha) = 2
+    then ()
+    else error "alpha-normalized mapping metadata changed"
+\<close>
+
+ML_val \<open>
+  local
+    fun require_sugar name =
+      (case Ctr_Sugar.ctr_sugar_of \<^context> name of
+         SOME sugar => sugar
+       | NONE => error ("missing generated datatype " ^ quote name))
+
+    fun argument_types name =
+      let
+        val sugar = require_sugar name
+      in
+        (case #ctrs sugar of
+           [Const (constructor, _)] =>
+             binder_types
+               (Consts.the_constraint
+                 (Proof_Context.consts_of \<^context>) constructor)
+         | _ => error "expected one generated constructor")
+      end
+
+    fun tuple_elements typ =
+      if typ = \<^typ>\<open>tnil\<close> then []
+      else
+        (case try HOLogic.dest_prodT typ of
+           SOME (head, tail) => head :: tuple_elements tail
+         | NONE => error "expected a tnil-terminated tuple type")
+
+    val mapped = argument_types \<^type_name>\<open>mapped_types\<close>
+    val _ =
+      if mapped =
+          [\<^typ>\<open>64 word\<close>,
+           \<^typ>\<open>bool\<close>,
+           \<^typ>\<open>(64 word, bool) result\<close>,
+           \<^typ>\<open>8 word option option option\<close>,
+           \<^typ>\<open>(16 word option, bool option) result\<close>,
+           \<^typ>\<open>(8 word, 64 word) result\<close>,
+           \<^typ>\<open>128 word\<close>,
+           \<^typ>\<open>unit\<close>,
+           \<^typ>\<open>64 word\<close>,
+           \<^typ>\<open>8 word \<times> bool \<times> tnil\<close>]
+      then ()
+      else error "registry-backed datatype field resolution changed"
+
+    val mapped_tuples =
+      argument_types \<^type_name>\<open>mapped_tuple_types\<close>
+    val _ =
+      if mapped_tuples =
+          [\<^typ>\<open>8 word \<times> bool \<times> 64 word \<times> tnil\<close>,
+           \<^typ>\<open>8 word \<times> bool \<times> 64 word \<times> 16 word option \<times> tnil\<close>,
+           \<^typ>\<open>8 word \<times> (bool \<times> 64 word \<times> tnil) \<times> tnil\<close>,
+           \<^typ>\<open>8 word option \<times> 64 word \<times> tnil\<close>,
+           \<^typ>\<open>64 word \<times> nat \<times> tnil\<close>,
+           \<^typ>\<open>nat option\<close>]
+      then ()
+      else error "registry-backed tuple field resolution changed"
+
+    val [tuple16] =
+      argument_types \<^type_name>\<open>tuple_arity16\<close>
+    val [tuple17] =
+      argument_types \<^type_name>\<open>tuple_arity17\<close>
+    val _ =
+      if length (tuple_elements tuple16) = 16 andalso
+          length (tuple_elements tuple17) = 17
+      then ()
+      else error "large Rust tuple encoding changed"
+    val _ =
+      if tuple16 = tuple17
+      then error "tuple arities 16 and 17 collapsed"
+      else ()
+
+    val _ =
+      (case URust_Type_Mappings.lookup \<^context> "MappedTypes" of
+         SOME entry =>
+           if URust_Type_Mappings.entry_template entry =
+               \<^typ>\<open>mapped_types\<close>
+           then ()
+           else error "generated struct mapping has the wrong HOL type"
+       | NONE => error "generated struct did not register a type mapping")
+    val _ =
+      (case URust_Type_Mappings.lookup \<^context> "MappedChoice" of
+         SOME entry =>
+           if URust_Type_Mappings.entry_template entry =
+               \<^typ>\<open>explicit_mapped_hol\<close>
+           then ()
+           else error "generated enum mapping has the wrong HOL type"
+       | NONE => error "generated enum did not register a type mapping")
+    val _ =
+      if argument_types \<^type_name>\<open>uses_generated\<close> =
+          [\<^typ>\<open>mapped_types\<close>,
+           \<^typ>\<open>mapped_tuple_types\<close>,
+           \<^typ>\<open>explicit_mapped_hol\<close>]
+      then ()
+      else error "later generated-type references changed"
+  in
+    val _ = ()
+  end
+\<close>
+
+ML_val \<open>
+  val NONE =
+    URust_Type_Mappings.lookup
+      \<^context> "ordinary_type_registry_control"
+\<close>
+
+ML_val \<open>
+  val NONE =
+    URust_Type_Mappings.lookup \<^context> "ScopedType"
+  val SOME _ =
+    URust_Type_Mappings.lookup \<^context> "ScopedTypeHolder"
+\<close>
+
+ML_val \<open>
+  val NONE =
+    URust_Type_Mappings.lookup \<^context> "LocaleType"
+  val NONE =
+    URust_Type_Mappings.lookup \<^context> "LocaleTypeHolder"
+\<close>
+
+section\<open> Source positions and registry markup \<close>
+
+ML_val \<open>
+  local
+    structure Navigation = Micro_Rust_Semantic_Navigation
+    val mapping_kind = "micro_rust_type_mapping"
+
+    fun audit message condition =
+      if condition then ()
+      else error ("uRust type mapping markup audit: " ^ message)
+
+    fun cartouche body =
+      Symbol.open_ ^ body ^ Symbol.close
+
+    fun command_start source_name =
+      Position.make0 1 1 0 "" source_name source_name
+
+    fun run source_name command_text () =
+      let
+        val thy = \<^theory>
+        val transitions =
+          Outer_Syntax.parse_text thy (K thy)
+            (command_start source_name)
+            command_text
+      in
+        fold (Toplevel.command_exception true) transitions
+          (Toplevel.make_state (SOME thy))
+      end
+
+    fun has_position properties position =
+      Properties.get properties Markup.offsetN =
+        Option.map Value.print_int (Position.offset_of position) andalso
+      Properties.get properties Markup.end_offsetN =
+        Option.map Value.print_int (Position.end_offset_of position) andalso
+      Properties.get properties Markup.idN =
+        Position.id_of position
+
+    fun count_markup markup_name position markup =
+      length
+        (filter
+          (fn (name, properties) =>
+            name = markup_name andalso
+              has_position properties position)
+          markup)
+
+    fun mapping_ids property rust_name position markup =
+      markup
+      |> map_filter
+          (fn (name, properties) =>
+            if name = Markup.entityN andalso
+                Properties.get properties Markup.kindN =
+                  SOME mapping_kind andalso
+                Properties.get properties Markup.nameN =
+                  SOME rust_name andalso
+                has_position properties position
+            then Properties.get properties property
+            else NONE)
+      |> distinct (op =)
+
+    fun mapping_entities markup =
+      filter
+        (fn (name, properties) =>
+          name = Markup.entityN andalso
+            Properties.get properties Markup.kindN =
+              SOME mapping_kind)
+        markup
+
+    fun find_from text needle offset =
+      if offset + size needle > size text then
+        error ("missing source token " ^ quote needle)
+      else if
+        String.substring (text, offset, size needle) = needle
+      then offset
+      else find_from text needle (offset + 1)
+
+    fun token_position text start needle offset =
+      let
+        val raw = find_from text needle offset
+        val token_start =
+          Position.symbol_explode
+            (String.substring (text, 0, raw)) start
+      in
+        Position.range_position
+          (Position.range
+            (token_start,
+             Position.symbol_explode needle token_start))
+      end
+
+    fun diagnostic_ranges body =
+      let
+        fun collect (XML.Text _) ranges = ranges
+          | collect
+              (XML.Elem ((_, properties), children)) ranges =
+              let
+                val ranges' =
+                  (case
+                    (Properties.get properties Markup.offsetN,
+                     Properties.get properties Markup.end_offsetN) of
+                     (SOME offset, SOME end_offset) =>
+                       (offset, end_offset) :: ranges
+                   | _ => ranges)
+              in fold collect children ranges' end
+      in distinct (op =) (fold collect body []) end
+
+    fun range_of position =
+      (Value.print_int (the (Position.offset_of position)),
+       Value.print_int (the (Position.end_offset_of position)))
+
+    val declaration_file = "urust-type-mapping-definition"
+    val declaration_text =
+      "urust_type \"MarkupId\" = " ^ cartouche "nat"
+    val (declaration_state, declaration_markup) =
+      Parser_Test_Reports.markup
+        (run declaration_file declaration_text)
+    val declaration_ctxt =
+      Toplevel.context_of declaration_state
+      |> Context_Position.set_visible true
+    val SOME mapping =
+      URust_Type_Mappings.lookup declaration_ctxt "MarkupId"
+    val identity =
+      Value.print_int
+        (URust_Type_Mappings.entry_identity mapping)
+    val declaration_position =
+      URust_Type_Mappings.entry_declaration_position mapping
+    val _ =
+      audit "declaration position lost its source file"
+        (Position.file_of declaration_position =
+          SOME declaration_file)
+    val declaration_ids =
+      mapping_ids Markup.defN "MarkupId"
+        declaration_position declaration_markup
+    val _ =
+      audit
+        ("declaration entity identity or exact range changed: " ^
+          commas_quote declaration_ids ^ " from " ^
+          commas_quote
+            (map
+              (fn (_, properties) =>
+                commas
+                  (map
+                    (fn (name, value) => name ^ "=" ^ value)
+                    properties))
+              (mapping_entities declaration_markup)))
+        (declaration_ids = [identity])
+
+    val parameter_file = "urust-type-mapping-parameters"
+    val parameter_text =
+      "urust_type \"MarkupPair<'left, 'right>\" = " ^
+        cartouche "('left, 'right) result"
+    val (_, parameter_markup) =
+      Parser_Test_Reports.markup
+        (run parameter_file parameter_text)
+    val parameter_start = command_start parameter_file
+    val left_position =
+      token_position parameter_text parameter_start "'left" 0
+    val right_position =
+      token_position parameter_text parameter_start "'right" 0
+    val _ =
+      audit "first mapping placeholder lost native type-variable markup"
+        (count_markup Markup.tfreeN
+          left_position parameter_markup = 1)
+    val _ =
+      audit "second mapping placeholder lost native type-variable markup"
+        (count_markup Markup.tfreeN
+          right_position parameter_markup = 1)
+
+    val use_text = " struct MarkupHolder(MarkupId); "
+    val use_start =
+      Position.make0 41 5000 0 "" ""
+        "urust-type-mapping-reference"
+    val use_source =
+      Parser_Lex_Util.positioned_content_source
+        use_text use_start
+    val SOME parsed_use =
+      URust_Parser.parse_datatype_source
+        declaration_ctxt use_source
+    val mapped_type =
+      (case parsed_use of
+         URust_AST.Struct_Item
+           (_, _, URust_AST.Tuple_Shape [typ], _) => typ
+       | _ => error "unexpected mapping markup test AST")
+    val use_position =
+      URust_AST.rust_type_position mapped_type
+    val expected_use_position =
+      token_position use_text use_start "MarkupId" 0
+    val _ =
+      audit "parsed mapping-use source range changed"
+        (Position.offset_of use_position =
+          Position.offset_of expected_use_position andalso
+         Position.end_offset_of use_position =
+          Position.end_offset_of expected_use_position)
+    val (resolved_type, deferred_reports) =
+      Navigation.capture
+        (fn () =>
+          URust_Type_Mappings.resolve
+            declaration_ctxt mapped_type)
+    val _ =
+      audit "mapped HOL type changed"
+        (resolved_type = \<^typ>\<open>nat\<close>)
+    val ((), use_markup) =
+      Parser_Test_Reports.markup
+        (fn () =>
+          Navigation.replay declaration_ctxt deferred_reports)
+    val _ =
+      audit "mapping reference identity or exact range changed"
+        (mapping_ids Markup.refN "MarkupId"
+          expected_use_position use_markup = [identity])
+    val _ =
+      audit "mapping reference typing markup changed"
+        (count_markup Markup.typingN
+          expected_use_position use_markup = 1)
+    val _ =
+      audit "mapping reference keyword styling changed"
+        (count_markup Markup.keyword3N
+          expected_use_position use_markup = 1)
+
+    val unknown_text =
+      " struct PositionedUnknown(missing::Type); "
+    val unknown_start =
+      Position.make0 52 8000 0 "" ""
+        "urust-type-mapping-diagnostic"
+    val SOME parsed_unknown =
+      URust_Parser.parse_datatype_source
+        \<^context>
+        (Parser_Lex_Util.positioned_content_source
+          unknown_text unknown_start)
+    val unknown_type =
+      (case parsed_unknown of
+         URust_AST.Struct_Item
+           (_, _, URust_AST.Tuple_Shape [typ], _) => typ
+       | _ => error "unexpected positioned diagnostic AST")
+    val unknown_position =
+      URust_AST.rust_type_position unknown_type
+    val unknown_message =
+      (case Exn.result
+          (fn () =>
+            Navigation.capture
+              (fn () =>
+                URust_Type_Mappings.resolve
+                  \<^context> unknown_type)) () of
+         Exn.Res _ =>
+           error "unknown positioned type unexpectedly resolved"
+       | Exn.Exn exn =>
+           if Exn.is_interrupt exn then Exn.reraise exn
+           else Runtime.exn_message exn)
+    val _ =
+      audit "unknown-type guidance changed"
+        (String.isSubstring
+          ("unknown Rust type \"missing::Type\"; " ^
+           "declare it with urust_type or use")
+          unknown_message)
+    val _ =
+      audit "unknown-type diagnostic range changed"
+        (diagnostic_ranges
+          (YXML.parse_body unknown_message) =
+            [range_of unknown_position])
+
+    val failure_text =
+      "urust_datatype " ^
+        cartouche
+          (" struct MarkupFailure { " ^
+           "accepted: PacketId, rejected: MissingMarkupType, } ")
+    val (failure_result, failure_markup) =
+      Parser_Test_Reports.markup
+        (fn () =>
+          Exn.result
+            (run "urust-type-mapping-failure" failure_text) ())
+    val _ =
+      (case failure_result of
+         Exn.Res _ =>
+           error "failing datatype unexpectedly succeeded"
+       | Exn.Exn exn =>
+           if Exn.is_interrupt exn then Exn.reraise exn
+           else
+             audit "failing datatype diagnostic changed"
+               (String.isSubstring
+                 "unknown Rust type \"MissingMarkupType\""
+                 (Runtime.exn_message exn)))
+    val _ =
+      audit "failed datatype emitted registry success markup"
+        (null (mapping_entities failure_markup))
+  in
+    val _ = ()
+  end
+\<close>
+
+section\<open> Diagnostics, rollback, and recovery \<close>
+
+ML_val \<open>
+  local
+    fun cartouche body =
+      Symbol.open_ ^ body ^ Symbol.close
+
+    fun run source_name command_text () =
+      let
+        val thy = \<^theory>
+        val transitions =
+          Outer_Syntax.parse_text thy (K thy)
+            (Position.line_file 1 source_name) command_text
+      in
+        fold (Toplevel.command_exception false) transitions
+          (Toplevel.make_state (SOME thy))
+      end
+
+    fun rejected label expected command_text =
+      (case Exn.result (run label command_text) () of
+         Exn.Res _ =>
+           error
+             ("expected command rejection for " ^ quote label)
+       | Exn.Exn exn =>
+           if Exn.is_interrupt exn then Exn.reraise exn
+           else if String.isSubstring expected
+               (Runtime.exn_message exn)
+           then ()
+           else
+             error
+               ("unexpected diagnostic for " ^ quote label ^
+                 "\nexpected: " ^ quote expected ^
+                 "\nactual: " ^
+                 Runtime.exn_message exn))
+
+    fun accepted label command_text =
+      (case Exn.result (run label command_text) () of
+         Exn.Res state => state
+       | Exn.Exn exn =>
+           if Exn.is_interrupt exn then Exn.reraise exn
+           else
+             error
+               ("unexpected rejection for " ^ quote label ^ ": " ^
+                 Runtime.exn_message exn))
+
+    fun datatype_command name field_type =
+      "urust_datatype " ^ name ^ " " ^
+        cartouche
+          (" struct " ^ name ^ "(" ^ field_type ^ "); ")
+
+    fun mapping key typ =
+      "urust_type " ^ quote key ^ " = " ^ cartouche typ
+
+    val SOME alpha_before =
+      URust_Type_Mappings.lookup \<^context> "AlphaMap"
+    val alpha_state =
+      accepted "mapping-idempotent-alpha-renaming"
+        (mapping "AlphaMap<'first, 'second>"
+          "('first, 'second) result")
+    val SOME alpha_after =
+      URust_Type_Mappings.lookup
+        (Toplevel.context_of alpha_state) "AlphaMap"
+    val _ =
+      if URust_Type_Mappings.entry_identity alpha_before =
+          URust_Type_Mappings.entry_identity alpha_after
+      then ()
+      else error "idempotent mapping registration changed identity"
+
+    val _ =
+      rejected "mapping-template-conflict"
+        "conflicting active mappings for \"PacketId\""
+        (mapping "PacketId" "32 word")
+    val _ =
+      rejected "mapping-arity-conflict"
+        "different generic arity"
+        (mapping "PacketId<'a>" "'a")
+    val _ =
+      rejected "mapping-missing-placeholder"
+        "missing \"'b\""
+        (mapping "Missing<'a, 'b>" "'a option")
+    val _ =
+      rejected "mapping-extra-placeholder"
+        "undeclared \"'b\""
+        (mapping "Extra<'a>" "('a, 'b) result")
+    val _ =
+      rejected "mapping-duplicate-placeholder"
+        "mapping placeholders must be distinct"
+        (mapping "Duplicate<'a, 'a>" "'a option")
+    val _ =
+      rejected "mapping-malformed-parameters"
+        "malformed Rust type key"
+        (mapping "Malformed<'a,,>" "'a")
+    val _ =
+      rejected "builtin-override"
+        "conflicting active mappings for \"u8\""
+        (mapping "u8" "nat")
+    val _ =
+      rejected "bundle-conflict"
+        "conflicting active mappings for \"BundleConflict\""
+        ("context includes conflicting_type_mapping_left\n" ^
+          "begin\n" ^
+          "context includes conflicting_type_mapping_right\n" ^
+          "begin\n" ^
+          "end\n" ^
+          "end")
+
+    val _ =
+      rejected "unknown-path"
+        "unknown Rust type \"missing::Type\""
+        (datatype_command "UnknownPath" "missing::Type")
+    val _ =
+      rejected "unknown-str"
+        "unknown Rust type \"str\""
+        (datatype_command "UnknownStr" "str")
+    val _ =
+      rejected "unknown-never"
+        "unknown Rust type \"!\""
+        (datatype_command "UnknownNever" "!")
+    val _ =
+      rejected "wrong-generic-arity"
+        "active urust_type mapping expects [2]"
+        (datatype_command "WrongArity" "ResultMap<u8>")
+    val _ =
+      rejected "numeric-generic"
+        "numeric generic arguments for type parameters is not supported"
+        (datatype_command "NumericGeneric" "Wrap<4>")
+    val _ =
+      rejected "wrong-sort"
+        "does not satisfy sort"
+        (datatype_command "WrongSort" "Ordered<FunctionType>")
+    val _ =
+      rejected "singleton-tuple"
+        "singleton tuple types is not supported"
+        (datatype_command "SingletonTuple" "(u8,)")
+    val _ =
+      rejected "reference"
+        "Rust reference types is not supported"
+        (datatype_command "ReferenceField" "&u32")
+    val _ =
+      rejected "mutable-reference"
+        "Rust reference types is not supported"
+        (datatype_command "MutableReferenceField" "&mut u32")
+    val _ =
+      rejected "raw-pointer-unknown-pointee"
+        "unknown Rust type \"missing::Pointee\""
+        (datatype_command "RawPointerField" "*const missing::Pointee")
+    val _ =
+      rejected "slice"
+        "Rust slice types is not supported"
+        (datatype_command "SliceField" "[u8]")
+    val _ =
+      rejected "zero-array"
+        "does not satisfy sort"
+        (datatype_command "ArrayField" "[u8; 0]")
+    val _ =
+      rejected "recursive"
+        "recursive Rust datatype reference \"RecursiveMapped\""
+        (datatype_command "RecursiveMapped" "RecursiveMapped")
+    val _ =
+      rejected "nested-recursive"
+        "recursive Rust datatype reference \"NestedRecursiveMapped\""
+        (datatype_command "NestedRecursiveMapped"
+          "Wrap<NestedRecursiveMapped>")
+    val _ =
+      rejected "enum-recursive"
+        "recursive Rust datatype reference \"EnumRecursiveMapped\""
+        ("urust_datatype " ^
+          cartouche
+            (" enum EnumRecursiveMapped { " ^
+             "Again(EnumRecursiveMapped), } "))
+    val _ =
+      rejected "malformed-hol-escape"
+        "Inner syntax error"
+        (datatype_command "MalformedEscape"
+          ("\<tau>" ^ cartouche "nat \<Rightarrow>"))
+    val _ =
+      rejected "polymorphic-hol-escape"
+        "unrelated HOL variable in datatype field"
+        (datatype_command "PolymorphicEscape"
+          ("\<tau>" ^ cartouche "'a"))
+    val _ =
+      rejected "generated-mapping-conflict"
+        "conflicting active mappings for \"PacketId\""
+        ("urust_datatype rollback_conflict " ^
+          cartouche " struct PacketId; ")
+    val _ =
+      rejected "generation-failure"
+        "Duplicate type name declaration"
+        ("urust_datatype ordinary_type_registry_control " ^
+          cartouche " struct GenerationFailure; ")
+
+    val NONE =
+      URust_Type_Mappings.lookup \<^context> "UnknownPath"
+    val NONE =
+      URust_Item_Scope.lookup_type \<^context> "UnknownPath"
+    val NONE =
+      URust_Type_Mappings.lookup \<^context> "RecursiveMapped"
+    val NONE =
+      URust_Item_Scope.lookup_type \<^context> "RecursiveMapped"
+    val NONE =
+      URust_Type_Mappings.lookup \<^context> "EnumRecursiveMapped"
+    val NONE =
+      URust_Item_Scope.lookup_type \<^context> "EnumRecursiveMapped"
+    val NONE =
+      URust_Type_Mappings.lookup \<^context> "GenerationFailure"
+    val NONE =
+      URust_Item_Scope.lookup_type \<^context> "GenerationFailure"
+
+    val malformed =
+      Parser_Lex_Util.text_source
+        " struct Broken(ResultMap<Wrap<u8>,); "
+    val _ =
+      (case Exn.result
+          (fn () =>
+            URust_Parser.parse_datatype_source
+              \<^context> malformed) () of
+         Exn.Res _ => error "malformed generic unexpectedly parsed"
+       | Exn.Exn exn =>
+           if Exn.is_interrupt exn then Exn.reraise exn else ())
+    val SOME _ =
+      URust_Parser.parse_datatype_source \<^context>
+        (Parser_Lex_Util.text_source
+          " struct Recovered(ResultMap<Wrap<u8>, bool>); ")
+    val SOME _ =
+      URust_Parser.parse_source \<^context>
+        (Parser_Lex_Util.text_source "8u32 >> 1u32")
   in
     val _ = ()
   end

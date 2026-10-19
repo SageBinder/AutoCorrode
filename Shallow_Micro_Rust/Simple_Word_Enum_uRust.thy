@@ -298,7 +298,7 @@ ML \<open>
 text\<open>Parser-level checks that these registrations resolve the source paths
 \<^verbatim>\<open>MessageKind::MK_Ping\<close>, \<^verbatim>\<open>MessageKind::MK_Pong\<close>, and
 \<^verbatim>\<open>MessageKind::MK_Data\<close> live in
-\<^file>\<open>../Micro_Rust_Parser_Tests/Parser_Simple_Word_Enum_Tests.thy\<close>.\<close>
+\<^file>\<open>../Micro_Rust_Parser_Tests/Parser_Datatype_Examples.thy\<close>.\<close>
 
 text\<open>The \<^verbatim>\<open>urust_name:\<close> prefix may itself be a path. The plugins append the variant and
 conversion names to the whole prefix.\<close>
@@ -325,7 +325,7 @@ Nested pattern leaves retain their existing behaviour and do not resolve a regis
 \<^verbatim>\<open>Path::Variant\<close> through the notation table. Bare HOL variant constants are recognized
 through Isabelle's case-translation registry. Parser-level checks for the path-qualified
 variant and functions, together with a nested bare-variant match, live in
-\<^file>\<open>../Micro_Rust_Parser_Tests/Parser_Simple_Word_Enum_Tests.thy\<close>.\<close>
+\<^file>\<open>../Micro_Rust_Parser_Tests/Parser_Datatype_Examples.thy\<close>.\<close>
 
 text\<open>The lifted conversion functions exist and are \<^const>\<open>lift_fun1\<close> of the pure ones.\<close>
 
@@ -353,7 +353,7 @@ value \<open>message_kind_try_from_u32_pure 2\<close>
 value \<open>message_kind_try_from_u32_pure 7\<close>
 
 text\<open>The parser-level function-path and unreduced-call checks also live in
-\<^file>\<open>../Micro_Rust_Parser_Tests/Parser_Simple_Word_Enum_Tests.thy\<close>. The lemmas below
+\<^file>\<open>../Micro_Rust_Parser_Tests/Parser_Datatype_Examples.thy\<close>. The lemmas below
 test the generated conversion functions independently of source parsing.\<close>
 
 text\<open>Naming the \<^verbatim>\<open>_def\<close> fact unfolds a call to its pure function --- which is what makes the

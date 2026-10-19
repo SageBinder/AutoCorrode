@@ -1,14 +1,19 @@
-(* Positive expression tests for the dedicated uRust parser. *)
+(* Readable expression examples: literals, operators, blocks, control flow, calls, closures,
+   macros, casts, struct expressions, precedence, comments, array repeats and human-readable
+   printing. The ML audits are in Parser_Expression_ML_Tests. *)
 
-theory Parser_Expression_Tests
-  imports Parser_Iterator_Fixtures "HOL.Real"
+theory Parser_Expression_Examples
+  imports
+    Parser_Test_Fixtures
+    HOL.Real
 begin
 
-declare [[urust_pp_test = true]]
-declare [[urust_pretty = true]]
-declare [[urust_verbosity = 2]]
+chapter\<open> Expressions \<close>
 
 section\<open>Iterator call syntax\<close>
+
+declare [[urust_pp_test = true, urust_pretty = true, urust_verbosity = 2, urust_abbrev = false,
+  urust_application_def = false, urust_register_notation = true]]
 
 text\<open>
 Expression-mode declarations cover the direct, method, and chained iterator spellings independently
@@ -32,15 +37,16 @@ urust_expr iterator_zip_expr_chained ::
    (nat list, zip_pair_iterator, unit, unit, unit) function_body\<close>
   (left, right)
   \<open> left.into_iter().zip(right.into_iter()) \<close>
+
 section\<open>Numeric literals (Corpus PART I, "Numeric Literals")\<close>
 
 urust_expr lit_0  \<open> 0 \<close>
+
 urust_expr lit_1  \<open> 1 \<close>
 
 urust_expr lit_42 \<open> 42 \<close>
 
 urust_expr lit_hex \<open> 0xff \<close>
-
 
 section\<open>Suffixed integer literals (Corpus PART I, "Numeric Ascriptions")\<close>
 
@@ -74,11 +80,9 @@ urust_expr lit_1_usize \<open> 1_usize \<close>
 
 urust_expr lit_0xf_usize \<open> 0xffffffff0_usize \<close>
 
-
 section\<open>Unit (Corpus PART I, "Unit Literal")\<close>
 
 urust_expr lit_unit \<open> () \<close>
-
 
 section\<open>Boolean and string literals\<close>
 
@@ -98,10 +102,9 @@ urust_expr lit_string_line_comment_text \<open> "https://example.invalid//path" 
 
 urust_expr lit_string_block_comment_text \<open> "literal /* string */ text" \<close>
 
-
 section\<open>Value antiquotation \<open>\<llangle>_\<rrangle>\<close> (Corpus PART I, "HOL Value Injection")\<close>
 
-text\<open> A HOL value lifted to a µRust literal; word widths 8 / 32 / 64, a boolean, and a compound value. \<close>
+text\<open> A HOL value lifted to a \<mu>Rust literal; word widths 8 / 32 / 64, a boolean, and a compound value. \<close>
 
 urust_expr lit_aq_word \<open> \<llangle>0 :: 32 word\<rrangle> \<close>
 
@@ -119,7 +122,6 @@ urust_expr lit_aq_line_comment_text \<open> \<llangle>''// value''\<rrangle> \<c
 
 urust_expr lit_aq_block_comment_text \<open> \<llangle>''/* value */''\<rrangle> \<close>
 
-
 section\<open>Expression antiquotation \<open>\<epsilon>\<open>_\<close>\<close> (Corpus PART I, "Boolean Literals")\<close>
 
 text\<open> Passthrough (no \<open>literal\<close> wrapper): the body already denotes an \<open>expression\<close>. \<close>
@@ -128,7 +130,6 @@ urust_expr lit_eaq_true \<open> \<epsilon>\<open>Bool_Type.true\<close> \<close>
 
 urust_expr lit_eaq_block_comment_text
   \<open> \<epsilon>\<open>literal (''/* expression */'')\<close> \<close>
-
 
 section\<open>Bare identifiers at value position (dispatch reuse)\<close>
 
@@ -145,6 +146,7 @@ urust_expr lit_none  \<open> None \<close>
 
 text\<open> A context-fixed free variable (unregistered, non-constant): stays a \<open>Free\<close>, with ctrl-click nav to
 its \<open>fixes\<close> (D14). \<close>
+
 context fixes foo :: nat
 begin
 urust_expr lit_ctx \<open> foo \<close>
@@ -158,14 +160,16 @@ an explicit parameter list or abbreviation mode.
 urust_expr lit_open \<open> x + y \<close>
 
 thm lit_open_def
+
 text\<open>
 Registered names use the existing \<open>urust_dispatch\<close> term-check phase.
 \<close>
+
 definition my_backend :: nat where \<open> my_backend \<equiv> 7 \<close>
+
 micro_rust_notation (literal) my_backend ("myReg")
 
 urust_expr lit_reg \<open> myReg \<close>
-
 
 section\<open>Sequencing, `let` and `const` bindings\<close>
 
@@ -182,6 +186,7 @@ text\<open> Parentheses admit the complete body grammar, including semicolon seq
 
 urust_expr seq_parenthesized_body
   \<open> (\<llangle>1 :: nat\<rrangle>; \<llangle>2 :: nat\<rrangle>) \<close>
+
 text\<open>
 \<open>let x = e; k\<close> lowers to HOAS \<open>bind e (\<lambda>x. k)\<close>.
 Unused binders need a type pin (R1).
@@ -212,6 +217,7 @@ not a variable named \<open>_\<close>.
 urust_expr let_wild \<open> let _ = \<llangle>5 :: nat\<rrangle>; () \<close>
 
 text\<open> Its \<open>Abs\<close>/\<open>Bound\<close> representation cannot capture an outer binder. \<close>
+
 urust_expr let_wild_hyg \<open> let uu = \<llangle>5 :: nat\<rrangle>; let _ = \<llangle>7 :: nat\<rrangle>; uu \<close>
 
 subsection\<open>Apostrophised identifiers\<close>
@@ -235,7 +241,7 @@ urust_expr tuple_prime_identifiers
 
 text\<open>
 Refutable binding patterns and forms excluded by a consumer-specific pattern policy have positioned
-rows in \<open>Parser_Pattern_Matching_Tests.thy\<close>.
+rows in \<open>Parser_Pattern_ML_Tests.thy\<close>.
 \<close>
 
 section\<open>Tuple values and irrefutable tuple binders\<close>
@@ -278,7 +284,6 @@ urust_expr tuple_let_shadow
 urust_expr tuple_let_antiquotation
   \<open> let (x, y) = (\<llangle>1 :: nat\<rrangle>, \<llangle>2 :: nat\<rrangle>); \<llangle>x + y\<rrangle> \<close>
 
-
 section\<open>References and mutable bindings\<close>
 
 definition parser_reference_fixture ::
@@ -297,10 +302,10 @@ definition parser_reference_array_index_fixture ::
   \<close>
   where \<open> parser_reference_array_index_fixture \<equiv> undefined \<close>
 
-adhoc_overloading store_reference_const \<rightleftharpoons> parser_reference_fixture
-adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
-
 subsection\<open>Mutable allocation and binders\<close>
+
+adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
+adhoc_overloading store_reference_const \<rightleftharpoons> parser_reference_fixture
 
 urust_expr mut_scalar
   \<open> let mut x = \<llangle>0 :: 32 word\<rrangle>; x \<close>
@@ -372,11 +377,10 @@ urust_expr ref_match_scrutinee
 
 end
 
-no_adhoc_overloading store_reference_const \<rightleftharpoons> parser_reference_fixture
-no_adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
-
-
 section\<open>Pure-value operators (Corpus PART I: Arithmetic / Bitwise / Comparison / Boolean)\<close>
+
+no_adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
+no_adhoc_overloading store_reference_const \<rightleftharpoons> parser_reference_fixture
 
 text\<open>
 Binary operators lower to the frontend constants; value antiquotations pin word types.
@@ -397,6 +401,7 @@ urust_expr op_div \<open> \<llangle>6 :: 32 word\<rrangle> / \<llangle>2 :: 32 w
 urust_expr op_mod \<open> \<llangle>7 :: 32 word\<rrangle> % \<llangle>3 :: 32 word\<rrangle> \<close>
 
 text\<open> Precedence: \<open>*\<close> binds tighter than \<open>+\<close>, so this parses as \<open>a + (b * c)\<close>. \<close>
+
 urust_expr op_precmul \<open> \<llangle>1 :: 32 word\<rrangle> + \<llangle>2 :: 32 word\<rrangle> * \<llangle>3 :: 32 word\<rrangle> \<close>
 
 subsection\<open>Bitwise and shifts (shift RHS is a \<open>64 word\<close>)\<close>
@@ -450,6 +455,7 @@ urust_expr ext_notfalse \<open> !False \<close>
 urust_expr op_notnot \<open> !!True \<close>
 
 text\<open> Precedence: \<open>&&\<close> binds tighter than \<open>||\<close>; unary \<open>!\<close> over a parenthesized comparison. \<close>
+
 urust_expr op_prec \<open> \<llangle>True\<rrangle> || \<llangle>True\<rrangle> && \<llangle>False\<rrangle> \<close>
 
 urust_expr op_mixed \<open> !(\<llangle>1 :: 32 word\<rrangle> == \<llangle>2 :: 32 word\<rrangle>) \<close>
@@ -481,6 +487,7 @@ urust_expr ext_let_not \<open> let a = \<llangle>0x00 :: 8 word\<rrangle>; !a \<
 urust_expr ext_let_cmp \<open> let a = \<llangle>1 :: 32 word\<rrangle>; let b = \<llangle>2 :: 32 word\<rrangle>; a < b \<close>
 
 subsection\<open>Context-fixed variables as operator operands\<close>
+
 context fixes m n :: \<open>nat\<close> and x y :: \<open>64 word\<close> and w :: \<open>32 word\<close>
 begin
 
@@ -548,7 +555,6 @@ urust_expr prec_not_and \<open> !\<llangle>True\<rrangle> && \<llangle>False\<rr
 urust_expr prec_not_cmp \<open> !\<llangle>True\<rrangle> == \<llangle>False\<rrangle> \<close>
   \<comment>\<open> (!a) == b : prefix ! tighter than == \<close>
 
-
 section\<open>Block expressions (Corpus "Scoping and Block Expressions")\<close>
 
 text\<open>
@@ -577,7 +583,6 @@ urust_expr ext_blk_operand_r \<open> \<llangle>1 :: 32 word\<rrangle> + { \<llan
 
 urust_expr ext_not_blk \<open> !{ \<llangle>True\<rrangle> } \<close>
 
-
 section\<open>Unsafe blocks\<close>
 
 text\<open>
@@ -602,7 +607,6 @@ urust_expr unsafe_branch_body
 
 urust_expr unsafe_statement
   \<open> unsafe { () } () \<close>
-
 
 section\<open>\<open>if\<close> / \<open>else\<close> (Corpus "Control Flow - Conditionals")\<close>
 
@@ -644,7 +648,6 @@ urust_expr ext_let_if \<open> let x = if \<llangle>True\<rrangle> { \<llangle>1 
 
 urust_expr ext_seq_if \<open> { if \<llangle>True\<rrangle> { () } else { () }; () } \<close>
 
-
 section\<open>Function calls (Corpus "Functions", "Option and Result")\<close>
 
 text\<open>
@@ -655,14 +658,19 @@ concrete \<open>64 word\<close> types and \<open>lift_funN\<close> to satisfy R1
 
 definition cf0 :: \<open>(unit, 64 word, unit, unit, unit) function_body\<close>
   where \<open> cf0 \<equiv> lift_fun0 0 \<close>
+
 definition cf1 :: \<open>64 word \<Rightarrow> (unit, 64 word, unit, unit, unit) function_body\<close>
   where \<open> cf1 \<equiv> lift_fun1 (\<lambda>x. x) \<close>
+
 definition cf2 :: \<open>64 word \<Rightarrow> 64 word \<Rightarrow> (unit, 64 word, unit, unit, unit) function_body\<close>
   where \<open> cf2 \<equiv> lift_fun2 (+) \<close>
+
 definition cf3 :: \<open>64 word \<Rightarrow> 64 word \<Rightarrow> 64 word \<Rightarrow> (unit, 64 word, unit, unit, unit) function_body\<close>
   where \<open> cf3 \<equiv> lift_fun3 (\<lambda>a b c. a + b + c) \<close>
+
 definition cf4 :: \<open>64 word \<Rightarrow> 64 word \<Rightarrow> 64 word \<Rightarrow> 64 word \<Rightarrow> (unit, 64 word, unit, unit, unit) function_body\<close>
   where \<open> cf4 \<equiv> lift_fun4 (\<lambda>a b c d. a + b + c + d) \<close>
+
 definition cf5 :: \<open>64 word \<Rightarrow> 64 word \<Rightarrow> 64 word \<Rightarrow> 64 word \<Rightarrow> 64 word \<Rightarrow> (unit, 64 word, unit, unit, unit) function_body\<close>
   where \<open> cf5 \<equiv> lift_fun5 (\<lambda>a b c d e. a + b + c + d + e) \<close>
 
@@ -670,6 +678,7 @@ text\<open>
 For unregistered global callees, parser and frontend fallbacks resolve the same
 \<open>Const\<close>. Rows cover arities 0 through 5 and 14.
 \<close>
+
 urust_expr call0 \<open> cf0() \<close>
 
 urust_expr call1 \<open> cf1(\<llangle>1 :: 64 word\<rrangle>) \<close>
@@ -692,16 +701,20 @@ urust_expr call14 \<open> cf14(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13) \<c
 end
 
 text\<open> Nested call \<open>f(g(c), b)\<close>: the inner call is an ordinary argument expression. \<close>
+
 urust_expr call_nested \<open> cf2(cf1(\<llangle>1 :: 64 word\<rrangle>), \<llangle>2 :: 64 word\<rrangle>) \<close>
 
 text\<open>
 Registered callees use NFunction dispatch. Rows cover a local notation and the
 \<open>Some\<close>, \<open>Ok\<close>, and \<open>Err\<close> call notations.
 \<close>
+
 micro_rust_notation (call) cf1 ("regCall")
+
 urust_expr call_reg \<open> regCall(\<llangle>3 :: 64 word\<rrangle>) \<close>
 
 micro_rust_notation (call) cf1 ("regCall'")
+
 urust_expr call_prime_identifier \<open> regCall'(\<llangle>4 :: 64 word\<rrangle>) \<close>
 
 subsection\<open>Registered paths\<close>
@@ -714,6 +727,7 @@ definition registered_seven :: nat where
 
 datatype_record path_record_fixture =
   path_record_field :: nat
+
 micro_rust_record path_record_fixture
 
 definition path_record_value :: path_record_fixture where
@@ -729,11 +743,17 @@ definition path_seed :: \<open>64 word\<close> where
   \<open> path_seed \<equiv> 5 \<close>
 
 micro_rust_notation (literal) path_literal_42 ("Color::Red")
+
 micro_rust_notation (literal) registered_seven ("registered_seven")
+
 micro_rust_notation (literal) path_record_value ("Path::Record")
+
 micro_rust_notation (literal) path_values ("Path::Values")
+
 micro_rust_notation (literal) path_optional_value ("Path::Optional")
+
 micro_rust_notation (literal) path_seed ("Path::Seed")
+
 micro_rust_notation (call) cf1 ("plus2::lifted")
 
 urust_expr path_registered_literal
@@ -775,10 +795,11 @@ datatype native_qualified_constructor_left =
 
 micro_rust_notation (literal)
   native_qualified_constructor_left.NativeQualifiedShared
-  ("Parser_Expression_Tests::native_qualified_constructor_left::NativeQualifiedShared")
+  ("Parser_Expression_Examples::native_qualified_constructor_left::NativeQualifiedShared")
+
 micro_rust_notation (literal)
   native_qualified_constructor_left.NativeQualifiedLeftOnly
-  ("Parser_Expression_Tests::native_qualified_constructor_left::NativeQualifiedLeftOnly")
+  ("Parser_Expression_Examples::native_qualified_constructor_left::NativeQualifiedLeftOnly")
 
 definition path_some_call ::
   \<open>nat \<Rightarrow>
@@ -791,9 +812,13 @@ definition path_other_call ::
   where \<open> path_other_call \<equiv> lift_fun1 PathOther \<close>
 
 micro_rust_notation (literal) path_pattern_fixture.PathSome ("Path::Some")
+
 micro_rust_notation (call) path_some_call ("Path::Some")
+
 micro_rust_notation (literal) path_pattern_fixture.PathOther ("Path::Other")
+
 micro_rust_notation (call) path_other_call ("Path::Other")
+
 micro_rust_notation (literal) path_pattern_fixture.PathNone ("Path::None")
 
 datatype registered_constructor_fixture =
@@ -804,9 +829,11 @@ datatype registered_constructor_fixture =
 micro_rust_notation (literal)
   registered_constructor_fixture.RegisteredNullary
   ("Registered::Nullary")
+
 micro_rust_notation (literal)
   registered_constructor_fixture.RegisteredUnary
   ("Registered::Unary")
+
 micro_rust_notation (literal)
   registered_constructor_fixture.RegisteredOther
   ("Registered::Other")
@@ -818,6 +845,7 @@ datatype 'a registered_phantom =
 micro_rust_notation (literal)
   registered_phantom.RegisteredPhantomA
   ("RegisteredPhantom::A")
+
 micro_rust_notation (literal)
   registered_phantom.RegisteredPhantomB
   ("RegisteredPhantom::B")
@@ -841,8 +869,8 @@ urust_expr path_grouped_constructor_pattern
 urust_expr native_qualified_constructor_pattern
   \<open>
     match_case \<llangle>native_qualified_constructor_left.NativeQualifiedShared\<rrangle> {
-      Parser_Expression_Tests::native_qualified_constructor_left::NativeQualifiedShared \<Rightarrow> 1,
-      Parser_Expression_Tests::native_qualified_constructor_left::NativeQualifiedLeftOnly \<Rightarrow> 0
+      Parser_Expression_Examples::native_qualified_constructor_left::NativeQualifiedShared \<Rightarrow> 1,
+      Parser_Expression_Examples::native_qualified_constructor_left::NativeQualifiedLeftOnly \<Rightarrow> 0
     }
   \<close>
 
@@ -1160,11 +1188,14 @@ definition generic_cf1 ::
   \<open>nat \<Rightarrow> 64 word \<Rightarrow>
     (unit, 64 word, unit, unit, unit) function_body\<close>
   where \<open> generic_cf1 _ \<equiv> cf1 \<close>
+
 micro_rust_notation (call) generic_cf1 ("Module::lifted")
+
 urust_expr turbofish_qualified_base
   \<open> Module::lifted::<64>(\<llangle>3 :: 64 word\<rrangle>) \<close>
 
 micro_rust_notation (call) generic_cf1 ("Exact::lifted")
+
 urust_notation (call) cf1 ("Exact::<N>::lifted")
 
 urust_expr turbofish_exact_registration_wins
@@ -1185,12 +1216,14 @@ urust_expr call_err \<open> Err(\<llangle>42 :: nat\<rrangle>) \<close>
 text\<open>
 A let-bound callee uses lexical scope without dispatch or a \<open>literal\<close> wrapper.
 \<close>
+
 urust_expr call_letbound \<open> let h = \<llangle>cf1\<rrangle>; h(\<llangle>4 :: 64 word\<rrangle>) \<close>
 
 text\<open>
 Context-fixed, function-typed callees remain \<open>Free\<close>. Rows cover word, unit,
 and boolean arguments.
 \<close>
+
 context fixes g :: \<open>64 word \<Rightarrow> (unit, 64 word, unit, unit, unit) function_body\<close>
 begin
 urust_expr call_ctx \<open> g(\<llangle>5 :: 64 word\<rrangle>) \<close>
@@ -1204,7 +1237,6 @@ urust_expr call_funit \<open> uf(()) \<close>
 
 urust_expr call_gunitbool \<open> ug((), True) \<close>
 end
-
 
 section\<open>Method calls (Corpus "Method-Style Calls")\<close>
 
@@ -1222,6 +1254,7 @@ text\<open>
 The inclusive \<open>funcall14\<close> limit permits 13 explicit method arguments because
 the receiver is prepended as the first lowered argument.
 \<close>
+
 context
   fixes receiver :: nat
   fixes m14 :: \<open>
@@ -1233,6 +1266,7 @@ urust_expr mcall13 \<open> receiver.m14(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 1
 end
 
 text\<open> Rows cover call-result receivers, method chains, and operator precedence. \<close>
+
 urust_expr mcall_on_call \<open> cf1(\<llangle>1 :: 64 word\<rrangle>).cf1() \<close>
 
 urust_expr mcall_chain \<open> \<llangle>5 :: 64 word\<rrangle>.cf1().cf1() \<close>
@@ -1240,13 +1274,13 @@ urust_expr mcall_chain \<open> \<llangle>5 :: 64 word\<rrangle>.cf1().cf1() \<cl
 urust_expr mcall_operand \<open> \<llangle>1 :: 64 word\<rrangle>.cf1() + \<llangle>2 :: 64 word\<rrangle> \<close>
 
 text\<open> Context-fixed methods are tested alone and in an equality condition. \<close>
+
 context fixes m n :: \<open>nat\<close> and h :: \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
 begin
 urust_expr mcall_ctx \<open> m.h() \<close>
 
 urust_expr mcall_if \<open> if m.h() == n { m } else { n } \<close>
 end
-
 
 section\<open>Second-class closures\<close>
 
@@ -1447,6 +1481,7 @@ definition closure_role_call ::
 
 datatype_record closure_role_record =
   closure_role_value :: nat
+
 micro_rust_record closure_role_record
   (closure_role_value = "closureRole")
 
@@ -1465,6 +1500,7 @@ definition closure_invoke_lens ::
   where \<open> closure_invoke_lens value closure \<equiv> closure value \<close>
 
 micro_rust_notation (literal) closure_role_literal ("closureRole")
+
 micro_rust_notation (call) closure_role_call ("closureRole")
 
 urust_expr closure_registered_literal_shadow
@@ -1627,7 +1663,6 @@ urust_expr closure_bar_newline_boundaries
 
 end
 
-
 section\<open>Postfix propagation and field access\<close>
 
 subsection\<open>Error propagation\<close>
@@ -1668,11 +1703,13 @@ subsection\<open>Field registrations and composition\<close>
 
 datatype_record postfix_default =
   postfix_default_value :: \<open>64 word\<close>
+
 micro_rust_record postfix_default
 
 datatype_record postfix_inner =
   postfix_inner_value :: \<open>64 word\<close>
   postfix_inner_secondary :: \<open>64 word\<close>
+
 micro_rust_record postfix_inner
   (postfix_inner_value = "value",
    postfix_inner_secondary = "secondary")
@@ -1680,22 +1717,26 @@ micro_rust_record postfix_inner
 datatype_record postfix_outer =
   postfix_outer_inner :: postfix_inner
   postfix_outer_optional :: \<open>postfix_inner option\<close>
+
 micro_rust_record postfix_outer
   (postfix_outer_inner = "inner",
    postfix_outer_optional = "optional")
 
 datatype_record postfix_dual =
   postfix_dual_pick :: \<open>64 word\<close>
+
 micro_rust_record postfix_dual (postfix_dual_pick = "pick")
 
 definition postfix_pick_method ::
   \<open>postfix_dual \<Rightarrow> (unit, 64 word, unit, unit, unit) function_body\<close>
   where \<open> postfix_pick_method \<equiv> lift_fun1 postfix_dual_pick \<close>
+
 micro_rust_notation (call) postfix_pick_method ("pick")
 
 definition postfix_to_value ::
   \<open>postfix_inner \<Rightarrow> (unit, 64 word, unit, unit, unit) function_body\<close>
   where \<open> postfix_to_value \<equiv> lift_fun1 postfix_inner_value \<close>
+
 micro_rust_notation (call) postfix_to_value ("to_value")
 
 context
@@ -1726,10 +1767,9 @@ begin
 urust_expr ref_deref_field_postfix \<open> *rp.value \<close>
 end
 
-no_adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
-
-
 section\<open>Bounded ranges\<close>
+
+no_adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
 
 text\<open>
 Exclusive and inclusive ranges sit between logical disjunction and assignment.
@@ -1758,7 +1798,6 @@ urust_expr range_for
   \<open> for value in lower..=upper { () } \<close>
 
 end
-
 
 section\<open>Array literals and indexing\<close>
 
@@ -1849,8 +1888,8 @@ following method call or propagation requires grouping at the shared mixfix
 priorities, so the corresponding rows retain those parentheses.
 \<close>
 
-adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
 adhoc_overloading index_const \<rightleftharpoons> parser_reference_array_index_fixture
+adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
 
 context
   fixes reference_array ::
@@ -1866,11 +1905,12 @@ urust_expr grouped_index_before_deref
 
 end
 
-no_adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
 no_adhoc_overloading index_const \<rightleftharpoons> parser_reference_array_index_fixture
+no_adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
 
 datatype_record parser_index_packet =
   parser_index_packet_values :: \<open>32 word list\<close>
+
 micro_rust_record parser_index_packet
   (parser_index_packet_values = "values")
 
@@ -2042,7 +2082,6 @@ urust_expr tuple_projection_control_head
     }
   \<close>
 
-
 section\<open>Assignment places and test fixtures\<close>
 
 text\<open>
@@ -2071,12 +2110,12 @@ definition assignment_shadow_backend ::
 
 micro_rust_notation (literal) assignment_shadow_backend ("assignmentPlace")
 
-adhoc_overloading store_reference_const \<rightleftharpoons> parser_reference_fixture
-adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
-adhoc_overloading store_update_const \<rightleftharpoons> parser_update_fixture
-adhoc_overloading assign_add_const \<rightleftharpoons> parser_assign_add_fixture
-
 subsection\<open>Identifier, grouping, and dereference places\<close>
+
+adhoc_overloading assign_add_const \<rightleftharpoons> parser_assign_add_fixture
+adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
+adhoc_overloading store_reference_const \<rightleftharpoons> parser_reference_fixture
+adhoc_overloading store_update_const \<rightleftharpoons> parser_update_fixture
 
 context
   fixes r :: \<open>(unit, unit, 32 word) Global_Store.ref\<close>
@@ -2312,13 +2351,12 @@ urust_expr compound_grouped_control_rhs
 
 end
 
-no_adhoc_overloading store_reference_const \<rightleftharpoons> parser_reference_fixture
-no_adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
-no_adhoc_overloading store_update_const \<rightleftharpoons> parser_update_fixture
-no_adhoc_overloading assign_add_const \<rightleftharpoons> parser_assign_add_fixture
-
-
 section\<open>Cross-feature robustness (calls / methods x operators / control-flow / binders)\<close>
+
+no_adhoc_overloading assign_add_const \<rightleftharpoons> parser_assign_add_fixture
+no_adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
+no_adhoc_overloading store_reference_const \<rightleftharpoons> parser_reference_fixture
+no_adhoc_overloading store_update_const \<rightleftharpoons> parser_update_fixture
 
 text\<open>
 Cross-feature rows stress call/method precedence, binder capture in arguments and
@@ -2367,7 +2405,6 @@ urust_expr rc_m_call_arg \<open> \<llangle>1 :: 64 word\<rrangle>.cf2(cf1(\<llan
 
 urust_expr rc_m_prec \<open> \<llangle>1 :: 64 word\<rrangle>.cf1() + \<llangle>2 :: 64 word\<rrangle> * \<llangle>3 :: 64 word\<rrangle> \<close>
 
-
 section\<open>Match \<open>match_switch\<close> (Corpus "Match Expressions" -- first-order keys)\<close>
 
 text\<open>
@@ -2400,7 +2437,6 @@ urust_expr msw_let \<open> let r = match_switch n { 0 \<Rightarrow> \<llangle>Tr
 
 urust_expr msw_stmt \<open> match_switch n { 0 \<Rightarrow> () , _ \<Rightarrow> () } ; () \<close>
 end
-
 
 section\<open>Match \<open>match_case\<close> (Corpus "Match Expressions" -- binding patterns, D27)\<close>
 
@@ -2445,7 +2481,7 @@ urust_expr mc_let \<open> let r = match_case x { Some(y) \<Rightarrow> y, None \
 
 text\<open>
 As a \<open>;\<close>-terminated statement shared with the frontend. The dedicated parser also admits
-semicolon-free explicit matches, with equivalence witnesses in \<open>Parser_Improvements_Tests.thy\<close>.
+semicolon-free explicit matches, with equivalence witnesses in \<open>Parser_Syntax_Examples.thy\<close>.
 \<close>
 urust_expr mc_stmt \<open> match_case x { Some(_) \<Rightarrow> () , None \<Rightarrow> () } ; () \<close>
 
@@ -2471,7 +2507,6 @@ text\<open> Named and anonymous sibling slots. \<close>
 urust_expr mc_hyg_sibling \<open> match_case p { P2(uu, _) \<Rightarrow> \<llangle>0 :: nat\<rrangle> } \<close>
 
 end
-
 
 section\<open>Rich case-pattern lowering\<close>
 
@@ -2732,7 +2767,9 @@ urust_expr guard_body_return_unit_legacy
 subsection\<open>Disjunction expansion\<close>
 
 datatype rich_case = RMA "32 word" | RMB "32 word" | RMD "32 word" | RMC
+
 datatype rich_leaf = RLA | RLB | RLC
+
 datatype rich_pair = RP rich_leaf rich_leaf
 
 context fixes r :: rich_case and ro :: \<open>rich_case option\<close> and rp :: rich_pair
@@ -2864,7 +2901,6 @@ urust_expr tuple_match_constructor_inside
 
 urust_expr tuple_match_or_inside
   \<open> match_case \<llangle>(Some (1 :: nat), (True, TNil))\<rrangle> { (Some(_) | None, y) \<Rightarrow> y } \<close>
-
 
 section\<open>Advanced pattern parity\<close>
 
@@ -3343,7 +3379,6 @@ urust_expr ma_nested
 
 end
 
-
 section\<open>Binder scope and shadowing robustness\<close>
 
 text\<open>
@@ -3414,11 +3449,10 @@ urust_expr bind_tuple_successive_shadow
     \<llangle>x + y\<rrangle>
   \<close>
 
-
 subsection\<open>Mutable and immutable transitions\<close>
 
-adhoc_overloading store_reference_const \<rightleftharpoons> parser_reference_fixture
 adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
+adhoc_overloading store_reference_const \<rightleftharpoons> parser_reference_fixture
 
 urust_expr bind_immutable_to_mutable
   \<open> let x = \<llangle>1 :: 32 word\<rrangle>; let mut x = x; \<llangle>x\<rrangle> \<close>
@@ -3463,7 +3497,6 @@ begin
 urust_expr bind_hol_mutable_shadow
   \<open> let mut x = x; \<llangle>x\<rrangle> \<close>
 end
-
 
 subsection\<open>Match arms, guards, and recursive patterns\<close>
 
@@ -3588,7 +3621,6 @@ urust_expr bind_match_switch_hygiene
     match_switch \<llangle>0 :: nat\<rrangle> { 0 \<Rightarrow> anon_case, _ \<Rightarrow> anon_case }
   \<close>
 
-
 subsection\<open>HOL context binders shadowed by micro-Rust binders\<close>
 
 text\<open>
@@ -3624,7 +3656,6 @@ urust_expr bind_hol_branch_scope
   \<open> let result = if True { let x = x; x } else { x }; \<llangle>(x, y)\<rrangle> \<close>
 
 end
-
 
 subsection\<open>Binders named after HOL constants and registered notation\<close>
 
@@ -3680,7 +3711,6 @@ begin
 urust_expr bind_hol_constant_triple_shadow
   \<open> let id = id; \<llangle>id\<rrangle> \<close>
 end
-
 
 section\<open>For, fueled while, loop, and while-let expressions\<close>
 
@@ -3929,13 +3959,11 @@ urust_expr while_let_scrutinee_shadowing
     }
   \<close>
 
-no_adhoc_overloading assign_add_const \<rightleftharpoons> parser_assign_add_fixture
-
-no_adhoc_overloading store_reference_const \<rightleftharpoons> parser_reference_fixture
-no_adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
-
-
 section\<open>Return expressions\<close>
+
+no_adhoc_overloading assign_add_const \<rightleftharpoons> parser_assign_add_fixture
+no_adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
+no_adhoc_overloading store_reference_const \<rightleftharpoons> parser_reference_fixture
 
 text\<open>
 Return stores no semicolon in the parser AST. The legacy spellings remain alpha-equal:
@@ -3971,7 +3999,6 @@ urust_expr return_in_match_arms
     }
   \<close>
 
-
 section\<open>Legacy macros\<close>
 
 text\<open>
@@ -3995,8 +4022,11 @@ definition macro_expr_is_none ::
 consts macro_registered_body_marker :: bool
 
 micro_rust_notation (call) macro_shout ("shout!")
+
 micro_rust_notation (call) macro_shout ("Log::shout!")
+
 urust_notation (call) macro_shout ("Log::<N>::shout!")
+
 micro_rust_notation (call) macro_expr_is_none ("expr_is_none")
 
 subsection\<open>Assertions, aliases, delimiters, and precedence\<close>
@@ -4305,7 +4335,6 @@ urust_expr macro_registered_full_body
     )
   \<close>
 
-
 subsection\<open>Vectors, postfixes, and address macros\<close>
 
 urust_expr macro_vec_empty_brackets
@@ -4350,8 +4379,8 @@ urust_expr macro_vec_mut_borrowed_element_index
 
 end
 
-adhoc_overloading store_reference_const \<rightleftharpoons> parser_reference_fixture
 adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
+adhoc_overloading store_reference_const \<rightleftharpoons> parser_reference_fixture
 adhoc_overloading store_update_const \<rightleftharpoons> parser_update_fixture
 
 urust_expr macro_assignment_rhs
@@ -4361,11 +4390,11 @@ urust_expr macro_assignment_rhs
     *slot
   \<close>
 
-no_adhoc_overloading store_reference_const \<rightleftharpoons> parser_reference_fixture
-no_adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
-no_adhoc_overloading store_update_const \<rightleftharpoons> parser_update_fixture
-
 subsection\<open>Matches macro\<close>
+
+no_adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
+no_adhoc_overloading store_reference_const \<rightleftharpoons> parser_reference_fixture
+no_adhoc_overloading store_update_const \<rightleftharpoons> parser_update_fixture
 
 context
   fixes macro_option :: \<open>nat option\<close>
@@ -4478,15 +4507,18 @@ subsection\<open>Postfix operands, placement, and lexical capture\<close>
 
 datatype_record cast_record =
   cast_record_value :: \<open>32 word\<close>
+
 micro_rust_record cast_record (cast_record_value = "cast_value")
 
 definition cast_method_fixture ::
   \<open>32 word \<Rightarrow> (unit, 32 word, unit, unit, unit) function_body\<close>
   where \<open> cast_method_fixture \<equiv> lift_fun1 id \<close>
+
 micro_rust_notation (call) cast_method_fixture ("cast_method")
 
 definition cast_identity_lens :: \<open>(32 word, 32 word) lens\<close>
   where \<open> cast_identity_lens \<equiv> id\<^sub>L \<close>
+
 micro_rust_notation (field) cast_identity_lens ("cast_identity")
 
 definition cast_index_fixture ::
@@ -4613,10 +4645,10 @@ urust_expr cast_complete_postfix_operand_chain
 
 end
 
+subsection\<open>Precedence, association, and conversion pipelines\<close>
+
 no_adhoc_overloading index_const \<rightleftharpoons> cast_index_fixture
 no_adhoc_overloading propagate_const \<rightleftharpoons> cast_propagate_fixture
-
-subsection\<open>Precedence, association, and conversion pipelines\<close>
 
 adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
 
@@ -4706,28 +4738,31 @@ urust_expr cast_signed_unsigned_pipeline
 
 end
 
-no_adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
-
 section\<open>Resolved parser regressions\<close>
 
+no_adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
+
 text\<open>
-This theory keeps representative positive rows for resolved parser regressions.
-Intentional rejections live in \<open>Parser_Rejection_Tests.thy\<close>;
-accepted-surface extensions live in \<open>Parser_Improvements_Tests.thy\<close>.
+These sections keep representative positive rows for resolved parser regressions. Intentional
+rejections live in \<open>Parser_Rejection_Examples.thy\<close>; accepted-surface extensions live in
+\<open>Parser_Syntax_Examples.thy\<close>.
 \<close>
 
 subsection\<open>Resolved 2026-09-11: direct \<open>if\<close> binary operands\<close>
 
 text\<open>
 The parser admits direct block-like operands. This parenthesized control remains alongside the
-direct rows in \<open>Parser_Syntax_Tests.thy\<close>.
+direct rows in \<open>Parser_Syntax_Examples.thy\<close> and
+\<open>Parser_Syntax_ML_Tests.thy\<close>.
 \<close>
+
 urust_expr d1_paren_operand
   \<open> (if \<llangle>True\<rrangle> { \<llangle>1 :: 32 word\<rrangle> } else { \<llangle>2 :: 32 word\<rrangle> }) + \<llangle>3 :: 32 word\<rrangle> \<close>
 
 subsection\<open>Resolved 2026-08-25: no-\<open>;\<close> sequencing of block-like expressions -- now accepted\<close>
 
 text\<open> Block-like statements sequence without a trailing \<open>;\<close>. \<close>
+
 urust_expr d2_blk_seq \<open> { () } { () } \<close>
 
 urust_expr d2_if_seq \<open> if \<llangle>True\<rrangle> { () } () \<close>
@@ -4737,6 +4772,7 @@ urust_expr d2_ifelse_seq \<open> if \<llangle>True\<rrangle> { () } else { () } 
 subsection\<open>Resolved 2026-08-24: HOL-constant-named binders are captured in antiquotations\<close>
 
 text\<open> Enclosing binders shadow same-named HOL constants and registered notation names in antiquotations. \<close>
+
 urust_expr div_binder_const \<open> let id = \<llangle>5 :: nat\<rrangle>; \<llangle>id\<rrangle> \<close>
 
 urust_expr cap_const_fst \<open> let fst = \<llangle>5 :: nat\<rrangle>; \<llangle>fst\<rrangle> \<close>  \<comment>\<open> binder name = HOL \<open>Product_Type.fst\<close> \<close>
@@ -5119,9 +5155,13 @@ definition d21_record_lift ::
   where \<open> d21_record_lift \<equiv> lift_fun1 make_d21_record \<close>
 
 micro_rust_notation (call) d21_identity1 ("D21One")
+
 micro_rust_notation (call) d21_first2 ("D21Pair")
+
 micro_rust_notation (call) d21_first14 ("D21::Fourteen")
+
 micro_rust_notation (call) d21_collision_registered ("d21Collision")
+
 micro_rust_notation (call) d21_record_lift ("D21Record")
 
 subsection\<open>Labels, heads, and arity boundary\<close>
@@ -5818,6 +5858,962 @@ and have executable negative or fixture coverage.
 Struct expressions, yield, primitive log, and logging-data expressions are resolved. General postfix
 invocation, Rust closure/reference semantics, real Rust format interpolation, and declaration
 commands remain outside the current surface.
+\<close>
+
+chapter\<open> Dereference and postfix precedence \<close>
+
+section\<open>Rust dereference and postfix precedence\<close>
+
+declare [[urust_verbosity = 0]]
+
+text\<open>
+Postfix operators bind before dereference. Grouping the complete operand makes that boundary
+explicit; grouping the dereference instead selects dereference-before-index. These checked
+equations cover the index and grouped/call field shapes whose migration compatibility previously
+changed their meaning.
+\<close>
+
+datatype_record deref_postfix_fixture =
+  deref_postfix_fixture_field :: \<open>(unit, unit, 64 word) Global_Store.ref\<close>
+
+micro_rust_record deref_postfix_fixture (deref_postfix_fixture_field = "field")
+
+definition deref_postfix_identity ::
+    \<open>deref_postfix_fixture \<Rightarrow>
+      (unit, deref_postfix_fixture, unit, unit, unit) function_body\<close>
+  where \<open> deref_postfix_identity \<equiv> lift_fun1 (\<lambda>value. value) \<close>
+
+adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
+
+context
+  fixes references :: \<open>(unit, unit, 64 word) Global_Store.ref list\<close>
+    and base :: deref_postfix_fixture
+    and array_ref :: \<open>(unit, unit, (64 word, 4) array) Global_Store.ref\<close>
+begin
+
+urust_expr precedence_index_operand \<open> *references[0_usize] \<close>
+urust_expr precedence_grouped_index_operand \<open> *(references[0_usize]) \<close>
+
+lemma precedence_index_grouping:
+  \<open>precedence_index_operand = precedence_grouped_index_operand\<close>
+  unfolding precedence_index_operand_def precedence_grouped_index_operand_def by (rule refl)
+
+urust_expr precedence_grouped_field_operand \<open> *(base).field \<close>
+urust_expr precedence_explicit_grouped_field_operand \<open> *((base).field) \<close>
+
+lemma precedence_grouped_field_grouping:
+  \<open>precedence_grouped_field_operand = precedence_explicit_grouped_field_operand\<close>
+  unfolding precedence_grouped_field_operand_def
+    precedence_explicit_grouped_field_operand_def by (rule refl)
+
+urust_expr precedence_call_field_operand \<open> *deref_postfix_identity(base).field \<close>
+urust_expr precedence_grouped_call_field_operand \<open> *(deref_postfix_identity(base).field) \<close>
+
+lemma precedence_call_field_grouping:
+  \<open>precedence_call_field_operand = precedence_grouped_call_field_operand\<close>
+  unfolding precedence_call_field_operand_def precedence_grouped_call_field_operand_def by (rule refl)
+
+urust_expr precedence_simple_field_operand \<open> *base.field \<close>
+urust_expr precedence_grouped_simple_field_operand \<open> *(base.field) \<close>
+
+lemma precedence_simple_field_grouping:
+  \<open>precedence_simple_field_operand = precedence_grouped_simple_field_operand\<close>
+  unfolding precedence_simple_field_operand_def precedence_grouped_simple_field_operand_def by (rule refl)
+
+urust_expr precedence_group_deref_before_index \<open> (*array_ref)[0_usize] \<close>
+
+end
+
+context
+  fixes flags :: \<open>(unit, unit, bool) Global_Store.ref list\<close>
+begin
+
+urust_expr precedence_control_head \<open> if *flags[0_usize] { true } else { false } \<close>
+urust_expr precedence_grouped_control_head
+  \<open> if *(flags[0_usize]) { true } else { false } \<close>
+
+lemma precedence_control_head_grouping:
+  \<open>precedence_control_head = precedence_grouped_control_head\<close>
+  unfolding precedence_control_head_def precedence_grouped_control_head_def by (rule refl)
+
+end
+
+chapter\<open> Array repeats \<close>
+
+section\<open>Array repeats\<close>
+
+no_adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
+
+definition repeat_global_length :: \<open>64 word\<close>
+  where \<open>repeat_global_length = 4\<close>
+
+definition repeat_small_length :: \<open>8 word\<close>
+  where \<open>repeat_small_length = 3\<close>
+
+definition repeat_wrong_length :: bool
+  where \<open>repeat_wrong_length = True\<close>
+
+definition repeat_registered_length :: \<open>64 word\<close>
+  where \<open>repeat_registered_length = 3\<close>
+
+micro_rust_notation (literal)
+  repeat_registered_length ("RepeatFixture::Length")
+
+micro_rust_notation (literal)
+  repeat_small_length ("RepeatFixture::SmallLength")
+
+micro_rust_notation (literal)
+  repeat_wrong_length ("RepeatFixture::WrongLength")
+
+locale repeat_contextual_lengths =
+  fixes direct_context_length :: \<open>64 word\<close>
+    and registered_context_length :: \<open>64 word\<close>
+    and small_context_length :: \<open>8 word\<close>
+    and wrong_context_length :: bool
+begin
+
+micro_rust_notation (literal)
+  registered_context_length ("RepeatFixture::ContextLength")
+
+urust_expr repeat_direct_context_length
+  \<open> [1; direct_context_length] \<close>
+
+urust_expr repeat_registered_context_length
+  \<open> [1; RepeatFixture::ContextLength] \<close>
+
+urust_expr repeat_inline_context_length
+  \<open> [const { 1 }; direct_context_length + 1usize] \<close>
+
+urust_expr repeat_cast_context_length
+  \<open> [1; small_context_length as usize] \<close>
+
+urust_expr_rejects \<open> [1; small_context_length] \<close>
+  \<open> Type unification failed \<close>
+urust_expr_rejects \<open> [1; wrong_context_length] \<close>
+  \<open> Type unification failed \<close>
+urust_expr_rejects
+  \<open> let direct_context_length = 2; [1; direct_context_length] \<close>
+  \<open> cannot use lexical local \<close>
+urust_expr_rejects
+  \<open> const direct_context_length = 2; [1; direct_context_length] \<close>
+  \<open> cannot use lexical local \<close>
+
+lemma repeat_context_length_symbolic:
+  \<open>
+    repeat_direct_context_length =
+      bind (literal direct_context_length) (\<lambda>count.
+        bind (literal 1) (\<lambda>value. literal (replicate (unat count) value))) \<and>
+    repeat_registered_context_length =
+      bind (literal registered_context_length) (\<lambda>count.
+        bind (literal 1) (\<lambda>value. literal (replicate (unat count) value)))
+  \<close>
+  by (simp only: repeat_direct_context_length_def repeat_registered_context_length_def)
+
+end
+
+context
+  fixes count :: \<open>64 word\<close>
+begin
+
+urust_expr repeat_fixed_count_operand \<open> [count; 2] \<close>
+urust_expr repeat_fixed_count_inline_operand \<open> [const { count }; 2] \<close>
+urust_expr repeat_fixed_count_antiquotation \<open> [\<llangle>count\<rrangle>; 2] \<close>
+urust_expr repeat_fixed_count_inline_antiquotation
+  \<open> [const { \<llangle>count\<rrangle> }; 2] \<close>
+
+lemma repeat_fixed_count_not_captured:
+  \<open>
+    repeat_fixed_count_operand = literal (replicate 2 count) \<and>
+    repeat_fixed_count_inline_operand = literal (replicate 2 count) \<and>
+    repeat_fixed_count_antiquotation = literal (replicate 2 count) \<and>
+    repeat_fixed_count_inline_antiquotation = literal (replicate 2 count)
+  \<close>
+  by (simp add: repeat_fixed_count_operand_def repeat_fixed_count_inline_operand_def
+      repeat_fixed_count_antiquotation_def repeat_fixed_count_inline_antiquotation_def
+      micro_rust_simps list_sequence.simps)
+
+end
+
+subsection\<open>Accepted syntax and length arithmetic\<close>
+
+urust_expr repeat_zero \<open> [1; 0] \<close>
+
+urust_expr repeat_one \<open> [1; 1usize] \<close>
+
+urust_expr repeat_many \<open> [1; 4] \<close>
+
+urust_expr repeat_binary \<open> [1; 0b10] \<close>
+
+urust_expr repeat_octal \<open> [1; 0o10] \<close>
+
+urust_expr repeat_hex \<open> [1; 0x10] \<close>
+
+urust_expr repeat_separators \<open> [1; 1_0usize] \<close>
+
+urust_expr repeat_trailing_separator \<open> [1; 10_] \<close>
+
+urust_expr repeat_compatibility_suffix_separator \<open> [1; 2_usize] \<close>
+
+urust_expr repeat_cast_u8 \<open> [1; 3u8 as usize] \<close>
+
+urust_expr repeat_cast_u16 \<open> [1; 3u16 as usize] \<close>
+
+urust_expr repeat_cast_u32 \<open> [1; 3u32 as usize] \<close>
+
+urust_expr repeat_cast_u64 \<open> [1; 3u64 as usize] \<close>
+
+urust_expr repeat_cast_small_global
+  \<open> [1; repeat_small_length as usize] \<close>
+
+urust_expr repeat_cast_small_registered
+  \<open> [1; RepeatFixture::SmallLength as usize] \<close>
+
+urust_expr repeat_global \<open> [1; repeat_global_length] \<close>
+
+urust_expr repeat_registered \<open> [1; RepeatFixture::Length] \<close>
+
+urust_expr repeat_add \<open> [1; 1 + 2] \<close>
+
+urust_expr repeat_sub \<open> [1; 4 - 1] \<close>
+
+urust_expr repeat_mul \<open> [1; 2 * 3] \<close>
+
+urust_expr repeat_div \<open> [1; 8 / 2] \<close>
+
+urust_expr repeat_mod \<open> [1; 7 % 4] \<close>
+
+urust_expr repeat_precedence \<open> [1; 1 + 2 * 3] \<close>
+
+urust_expr repeat_grouping \<open> [1; (1 + 2) * 3] \<close>
+
+urust_expr repeat_nested \<open> [[1; 2]; 3] \<close>
+
+urust_expr repeat_block_operand \<open> [{ 1 }; 2] \<close>
+
+urust_expr repeat_call_operand \<open> [Some(1); 2] \<close>
+
+urust_expr repeat_control_operand
+  \<open> [if true { 1 } else { 2 }; 2] \<close>
+
+urust_expr repeat_match_operand
+  \<open>
+    [match Some(1) {
+       Some(value) \<Rightarrow> value,
+       None \<Rightarrow> 0
+     }; 2]
+  \<close>
+
+urust_expr repeat_macro_operand \<open> [vec![1, 2]; 2] \<close>
+
+urust_expr repeat_inline_zero \<open> [const { 1 }; 0] \<close>
+
+urust_expr repeat_inline_many \<open> [const { Some(1) }; 3] \<close>
+
+urust_expr repeat_inline_empty_block \<open> [const {}; 2] \<close>
+
+urust_expr repeat_inline_nested
+  \<open> [const { [const { 1 }; 2] }; 3] \<close>
+
+urust_expr repeat_inline_multistatement
+  \<open> [const { let value = Some(1); value }; 2] \<close>
+
+subsection\<open>Dereference precedence in repeat operands\<close>
+
+adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
+
+context
+  fixes references :: \<open>(unit, unit, 64 word) Global_Store.ref list\<close>
+    and direct_length :: \<open>64 word\<close>
+begin
+
+urust_expr repeat_deref_index_operand \<open> [*references[0usize]; direct_length] \<close>
+urust_expr repeat_grouped_deref_index_operand \<open> [*(references[0usize]); direct_length] \<close>
+
+lemma repeat_deref_index_grouping:
+  \<open>repeat_deref_index_operand = repeat_grouped_deref_index_operand\<close>
+  unfolding repeat_deref_index_operand_def repeat_grouped_deref_index_operand_def by (rule refl)
+
+text\<open>
+  The following inline-const dereferences are \<mu>Rust semantic regression fixtures.
+  Their runtime reference reads would not be allowed in Rust const blocks.
+\<close>
+
+urust_expr repeat_inline_deref_index_operand
+  \<open> [const { *references[0usize] }; direct_length] \<close>
+urust_expr repeat_inline_grouped_deref_index_operand
+  \<open> [const { *(references[0usize]) }; direct_length] \<close>
+
+lemma repeat_inline_deref_index_grouping:
+  \<open>repeat_inline_deref_index_operand = repeat_inline_grouped_deref_index_operand\<close>
+  unfolding repeat_inline_deref_index_operand_def
+    repeat_inline_grouped_deref_index_operand_def by (rule refl)
+
+urust_expr_rejects \<open> [1; *references[0usize]] \<close>
+  \<open> array repeat length supports only \<close>
+
+end
+
+subsection\<open>Type behavior\<close>
+
+no_adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
+
+urust_expr repeat_polymorphic_element ::
+  \<open>(unit, nat option list, unit, unit, unit, unit) expression\<close>
+  \<open> [None; 2] \<close>
+
+urust_expr repeat_nested_inference ::
+  \<open>(unit, nat list list, unit, unit, unit, unit) expression\<close>
+  \<open> [[1; 2]; 3] \<close>
+
+urust_expr repeat_inline_nested_inference ::
+  \<open>(unit, nat option list list, unit, unit, unit, unit) expression\<close>
+  \<open> [const { [None; 2] }; 3] \<close>
+
+urust_expr_rejects
+  \<open> [if true { 1 } else { false }; 2] \<close>
+  \<open> Type unification failed \<close>
+
+urust_expr_rejects \<open> [1; repeat_small_length] \<close>
+  \<open> Type unification failed \<close>
+
+subsection\<open>Rejected repeat lengths and malformed syntax\<close>
+
+urust_expr_rejects \<open> [; 2] \<close> \<open> syntax error \<close>
+
+urust_expr_rejects \<open> [1;] \<close> \<open> syntax error \<close>
+
+urust_expr_rejects \<open> [1; 2 \<close> \<open> syntax error \<close>
+
+urust_expr_rejects \<open> [1;; 2] \<close> \<open> syntax error \<close>
+
+urust_expr_rejects \<open> [1; 2; 3] \<close> \<open> syntax error \<close>
+
+urust_expr_rejects \<open> [1; 2,] \<close> \<open> syntax error \<close>
+
+urust_expr_rejects \<open> [const 1; 2] \<close> \<open> syntax error \<close>
+
+urust_expr_rejects \<open> [const { 1; 2] \<close> \<open> syntax error \<close>
+
+urust_expr_rejects \<open> [const { 1 }, 2] \<close> \<open> syntax error \<close>
+
+urust_expr_rejects \<open> [const { 1 };] \<close> \<open> syntax error \<close>
+
+urust_expr_rejects \<open> [const { 1 }; 2,] \<close> \<open> syntax error \<close>
+
+urust_expr_rejects \<open> [const { 1 }; 2; 3] \<close> \<open> syntax error \<close>
+
+urust_expr_rejects \<open> [1; 2u8] \<close>
+  \<open> requires an explicit `as usize` cast \<close>
+
+urust_expr_rejects \<open> [1; 2u16] \<close>
+  \<open> requires an explicit `as usize` cast \<close>
+
+urust_expr_rejects \<open> [1; 2u32] \<close>
+  \<open> requires an explicit `as usize` cast \<close>
+
+urust_expr_rejects \<open> [1; 2u64] \<close>
+  \<open> requires an explicit `as usize` cast \<close>
+
+urust_expr_rejects \<open> [1; 2u128] \<close>
+  \<open> unsupported integer-literal suffix "u128" \<close>
+
+urust_expr_rejects \<open> [1; 2i32] \<close>
+  \<open> unsupported integer-literal suffix "i32" \<close>
+
+urust_expr_rejects \<open> [1; unresolved_repeat_length] \<close>
+  \<open> does not resolve to a global constant \<close>
+
+urust_expr_rejects
+  \<open> [1; Parser_Expression_Examples::repeat_global_length] \<close>
+  \<open> qualified path "Parser_Expression_Examples::repeat_global_length" requires an exact micro_rust_notation (literal) declaration \<close>
+
+urust_expr_rejects \<open> [1; RepeatFixture::MissingLength] \<close>
+  \<open> requires an exact micro_rust_notation (literal) declaration \<close>
+
+urust_expr_rejects \<open> [1; RepeatFixture::Length::<2>] \<close>
+  \<open> generic arguments are not allowed \<close>
+
+urust_expr_rejects \<open> [1; RepeatFixture::SmallLength] \<close>
+  \<open> no backend matches the use-site type \<close>
+
+urust_expr_rejects \<open> [1; RepeatFixture::WrongLength] \<close>
+  \<open> no backend matches the use-site type \<close>
+
+urust_expr_rejects \<open> [1; repeat_wrong_length] \<close>
+  \<open> Type unification failed \<close>
+
+urust_expr_rejects
+  \<open> let repeat_global_length = 2; [1; repeat_global_length] \<close>
+  \<open> cannot use lexical local \<close>
+
+urust_expr_rejects \<open> let count = 2; [1; count] \<close>
+  \<open> cannot use lexical local \<close>
+
+urust_expr_rejects \<open> [1; Some(2)] \<close>
+  \<open> array repeat length supports only \<close>
+
+urust_expr_rejects \<open> [1; value.method()] \<close>
+  \<open> array repeat length supports only \<close>
+
+urust_expr_rejects \<open> [1; value.field] \<close>
+  \<open> array repeat length supports only \<close>
+
+urust_expr_rejects \<open> [1; values[0]] \<close>
+  \<open> array repeat length supports only \<close>
+
+urust_expr_rejects \<open> [1; vec![2]] \<close>
+  \<open> array repeat length supports only \<close>
+
+urust_expr_rejects \<open> [1; \<llangle>2 :: 64 word\<rrangle>] \<close>
+  \<open> array repeat length supports only \<close>
+
+urust_expr_rejects \<open> [1; 1..2] \<close>
+  \<open> array repeat length supports only \<close>
+
+urust_expr_rejects \<open> [1; slot = 2] \<close>
+  \<open> array repeat length supports only \<close>
+
+urust_expr_rejects \<open> [1; |x| x] \<close>
+  \<open> array repeat length supports only \<close>
+
+urust_expr_rejects \<open> [1; return 2] \<close>
+  \<open> array repeat length supports only \<close>
+
+urust_expr_rejects \<open> [1; if true { 2 } else { 3 }] \<close>
+  \<open> array repeat length supports only \<close>
+
+urust_expr_rejects \<open> [1; { 2 }] \<close>
+  \<open> array repeat length supports only \<close>
+
+urust_expr_rejects \<open> [1; true] \<close>
+  \<open> array repeat length supports only \<close>
+
+urust_expr_rejects \<open> [1; "two"] \<close>
+  \<open> array repeat length supports only \<close>
+
+urust_expr_rejects \<open> [1; (1, 2)] \<close>
+  \<open> array repeat length supports only \<close>
+
+urust_expr_rejects \<open> [1; 2 as u32] \<close>
+  \<open> array repeat length supports only \<close>
+
+urust_expr repeat_recovery_after_rejections \<open> [7; 2] \<close>
+
+subsection\<open>Evaluation count, order, and control propagation\<close>
+
+text\<open>
+  The effectful inline-const examples in this subsection are \<mu>Rust semantic regression
+  fixtures. Their runtime state changes, nonlocal returns, aborts, and yields would not be
+  allowed in Rust const blocks. These checks preserve the \<mu>Rust runtime denotation.
+\<close>
+
+definition repeat_tick ::
+    \<open>(nat, nat, nat, unit, unit, unit) expression\<close>
+  where
+    \<open>
+      repeat_tick =
+        bind (get id) (\<lambda>current.
+        bind (put Suc) (\<lambda>_.
+          literal current))
+    \<close>
+
+lemma repeat_unat_word64_2:
+  \<open>unat (2 :: 64 word) = 2\<close>
+  by eval
+
+lemma repeat_unat_word64_3:
+  \<open>unat (3 :: 64 word) = 3\<close>
+  by eval
+
+lemma repeat_take_bit_word64_2:
+  \<open>take_bit LENGTH(64) (2 :: nat) = 2\<close>
+  by (rule take_bit_nat_eq_self; simp)
+
+lemma repeat_take_bit_word64_3:
+  \<open>take_bit LENGTH(64) (3 :: nat) = 3\<close>
+  by (rule take_bit_nat_eq_self; simp)
+
+lemma repeat_tick_evaluate:
+  \<open>evaluate repeat_tick state = Success state (Suc state)\<close>
+  by
+    (simp add:
+      repeat_tick_def bind_evaluate
+      get_def put_def literal_def evaluate_def
+      Core_Expression.bind.simps Let_def)
+
+lemma repeat_tick_sequence_two:
+  \<open>
+    evaluate (list_sequence (replicate 2 repeat_tick)) state =
+      Success [state, Suc state] (Suc (Suc state))
+  \<close>
+  by
+    (simp add:
+      list_sequence.simps repeat_tick_def bind_evaluate
+      get_def put_def literal_def evaluate_def
+      Core_Expression.bind.simps Let_def eval_nat_numeral)
+
+lemma repeat_tick_sequence_three:
+  \<open>
+    evaluate (list_sequence (replicate 3 repeat_tick)) state =
+      Success
+        [state, Suc state, Suc (Suc state)]
+        (Suc (Suc (Suc state)))
+  \<close>
+  by
+    (simp add:
+      list_sequence.simps repeat_tick_def bind_evaluate
+      get_def put_def literal_def evaluate_def
+      Core_Expression.bind.simps Let_def eval_nat_numeral)
+
+lemma repeat_nested_tick_sequence:
+  \<open>
+    evaluate
+      (list_sequence
+        (replicate 3
+          (list_sequence (replicate 2 repeat_tick)))) 0 =
+      Success [[0, 1], [2, 3], [4, 5]] 6
+  \<close>
+  by
+    (simp add:
+      list_sequence.simps repeat_tick_def bind_evaluate
+      get_def put_def literal_def evaluate_def
+      Core_Expression.bind.simps Let_def eval_nat_numeral)
+
+urust_expr repeat_ordinary_effect_zero ::
+  \<open>(nat, nat list, nat, unit, unit, unit) expression\<close>
+  \<open> [\<epsilon>\<open> repeat_tick \<close>; 0] \<close>
+
+urust_expr repeat_ordinary_effect_one ::
+  \<open>(nat, nat list, nat, unit, unit, unit) expression\<close>
+  \<open> [\<epsilon>\<open> repeat_tick \<close>; 1] \<close>
+
+urust_expr repeat_ordinary_effect_many ::
+  \<open>(nat, nat list, nat, unit, unit, unit) expression\<close>
+  \<open> [\<epsilon>\<open> repeat_tick \<close>; 3] \<close>
+
+urust_expr repeat_inline_effect_zero ::
+  \<open>(nat, nat list, nat, unit, unit, unit) expression\<close>
+  \<open> [const { \<epsilon>\<open> repeat_tick \<close> }; 0] \<close>
+
+urust_expr repeat_inline_effect_one ::
+  \<open>(nat, nat list, nat, unit, unit, unit) expression\<close>
+  \<open> [const { \<epsilon>\<open> repeat_tick \<close> }; 1] \<close>
+
+urust_expr repeat_inline_effect_many ::
+  \<open>(nat, nat list, nat, unit, unit, unit) expression\<close>
+  \<open> [const { \<epsilon>\<open> repeat_tick \<close> }; 3] \<close>
+
+urust_expr repeat_nested_inline_effects ::
+  \<open>(nat, nat list list, nat, unit, unit, unit) expression\<close>
+  \<open>
+    [const {
+      [const { \<epsilon>\<open> repeat_tick \<close> }; 2]
+    }; 3]
+  \<close>
+
+lemma repeat_ordinary_effect_counts:
+  \<open>
+    evaluate repeat_ordinary_effect_zero 0 = Success [] 1 \<and>
+    evaluate repeat_ordinary_effect_one 0 = Success [0] 1 \<and>
+    evaluate repeat_ordinary_effect_many 0 = Success [0, 0, 0] 1
+  \<close>
+  by
+    (simp add:
+      repeat_ordinary_effect_zero_def
+      repeat_ordinary_effect_one_def
+      repeat_ordinary_effect_many_def
+      repeat_unat_word64_3
+      repeat_tick_def
+      evaluate_def get_def put_def literal_def
+      Core_Expression.bind.simps;
+      simp add: eval_nat_numeral)
+
+lemma repeat_inline_effect_counts_and_order:
+  \<open>
+    evaluate repeat_inline_effect_zero 0 = Success [] 0 \<and>
+    evaluate repeat_inline_effect_one 0 = Success [0] 1 \<and>
+    evaluate repeat_inline_effect_many 0 = Success [0, 1, 2] 3 \<and>
+    evaluate repeat_nested_inline_effects 0 =
+      Success [[0, 1], [2, 3], [4, 5]] 6
+  \<close>
+  apply
+    (simp add:
+      repeat_inline_effect_zero_def
+      repeat_inline_effect_one_def
+      repeat_inline_effect_many_def
+      repeat_nested_inline_effects_def
+      repeat_unat_word64_2 repeat_unat_word64_3
+      repeat_take_bit_word64_2 repeat_take_bit_word64_3)
+  apply (simp add: eval_nat_numeral)
+  apply (simp add: bind_evaluate literal_def)
+  apply (simp add: evaluate_def Core_Expression.bind.simps)
+  apply
+    (simp add:
+      list_sequence.simps repeat_tick_def bind_evaluate
+      get_def put_def literal_def evaluate_def
+      Core_Expression.bind.simps Let_def eval_nat_numeral)
+  done
+
+urust_expr repeat_length_failure_before_operand ::
+  \<open>(nat, nat list, nat, unit, unit, unit) expression\<close>
+  \<open> [\<epsilon>\<open> repeat_tick \<close>; 1 / 0] \<close>
+
+lemma repeat_length_failure_precedes_operand:
+  \<open>
+    evaluate repeat_length_failure_before_operand 0 =
+      Abort (Panic (String.implode ''division by zero'')) 0
+  \<close>
+  by
+    (simp add:
+      repeat_length_failure_before_operand_def
+      repeat_tick_def
+      evaluate_def get_def put_def literal_def
+      bind2_def word_udiv_def word_udiv_core_def abort_def
+      Core_Expression.bind.simps)
+
+urust_expr repeat_ordinary_return_zero ::
+  \<open>(unit, nat list, nat, unit, unit, unit) expression\<close>
+  \<open> [return 7; 0] \<close>
+
+urust_expr repeat_inline_return_zero ::
+  \<open>(unit, nat list, nat, unit, unit, unit) expression\<close>
+  \<open> [const { return 7 }; 0] \<close>
+
+urust_expr repeat_inline_return_one ::
+  \<open>(unit, nat list, nat, unit, unit, unit) expression\<close>
+  \<open> [const { return 7 }; 1] \<close>
+
+lemma repeat_return_propagation:
+  \<open>
+    evaluate repeat_ordinary_return_zero () = Return 7 () \<and>
+    evaluate repeat_inline_return_zero () = Success [] () \<and>
+    evaluate repeat_inline_return_one () = Return 7 ()
+  \<close>
+  by
+    (simp add:
+      repeat_ordinary_return_zero_def
+      repeat_inline_return_zero_def
+      repeat_inline_return_one_def
+      evaluate_def return_func_def return_val_def literal_def
+      Core_Expression.bind.simps)
+
+urust_expr repeat_ordinary_abort_zero ::
+  \<open>(unit, nat list, nat, unit, unit, unit) expression\<close>
+  \<open> [panic!("repeat abort"); 0] \<close>
+
+urust_expr repeat_inline_abort_zero ::
+  \<open>(unit, nat list, nat, unit, unit, unit) expression\<close>
+  \<open> [const { panic!("repeat abort") }; 0] \<close>
+
+urust_expr repeat_inline_abort_one ::
+  \<open>(unit, nat list, nat, unit, unit, unit) expression\<close>
+  \<open> [const { panic!("repeat abort") }; 1] \<close>
+
+lemma repeat_abort_propagation:
+  \<open>
+    evaluate repeat_ordinary_abort_zero () =
+      Abort (Panic (String.implode ''repeat abort'')) () \<and>
+    evaluate repeat_inline_abort_zero () = Success [] () \<and>
+    evaluate repeat_inline_abort_one () =
+      Abort (Panic (String.implode ''repeat abort'')) ()
+  \<close>
+  by
+    (simp add:
+      repeat_ordinary_abort_zero_def
+      repeat_inline_abort_zero_def
+      repeat_inline_abort_one_def
+      evaluate_def abort_def literal_def
+      Core_Expression.bind.simps)
+
+urust_expr repeat_ordinary_yield_zero ::
+  \<open>
+    (unit, unit list, unit, unit,
+     unit prompt, unit prompt_output) expression
+  \<close>
+  \<open> [\<y>\<i>\<e>\<l>\<d>; 0] \<close>
+
+urust_expr repeat_inline_yield_zero ::
+  \<open>
+    (unit, unit list, unit, unit,
+     unit prompt, unit prompt_output) expression
+  \<close>
+  \<open> [const { \<y>\<i>\<e>\<l>\<d> }; 0] \<close>
+
+urust_expr repeat_inline_yield_one ::
+  \<open>
+    (unit, unit list, unit, unit,
+     unit prompt, unit prompt_output) expression
+  \<close>
+  \<open> [const { \<y>\<i>\<e>\<l>\<d> }; 1] \<close>
+
+lemma repeat_yield_propagation:
+  \<open>
+    (case evaluate repeat_ordinary_yield_zero () of
+       Yield Pause () _ \<Rightarrow> True
+     | _ \<Rightarrow> False) \<and>
+    evaluate repeat_inline_yield_zero () = Success [] () \<and>
+    (case evaluate repeat_inline_yield_one () of
+       Yield Pause () _ \<Rightarrow> True
+     | _ \<Rightarrow> False)
+  \<close>
+  by
+    (simp add:
+      repeat_ordinary_yield_zero_def
+      repeat_inline_yield_zero_def
+      repeat_inline_yield_one_def
+      evaluate_def pause_def literal_def
+      Core_Expression.bind.simps
+      split: unit.splits)
+
+chapter\<open> Block comments \<close>
+
+section\<open> Nested Rust block-comment layout \<close>
+
+text\<open>
+Block comments are layout only in the ordinary lexer state. These checked equations compare
+commented expressions with their comment-free spelling, including current repeat and precedence
+behavior. Documentation-shaped comments are layout in expressions.
+\<close>
+
+urust_expr block_comment_empty \<open> /**/ /* */ () \<close>
+
+urust_expr block_comment_unit \<open> () \<close>
+
+lemma block_comment_empty_layout:
+  \<open>block_comment_empty = block_comment_unit\<close>
+  unfolding block_comment_empty_def block_comment_unit_def by (rule refl)
+
+urust_expr block_comment_adjacent
+  \<open>
+    /** documentation-shaped */1u64/* outer /* inner /* deep */ */*//**/+
+    /*! inner-documentation-shaped */2u64/* trailing */
+  \<close>
+
+urust_expr block_comment_sum \<open> 1u64 + 2u64 \<close>
+
+lemma block_comment_adjacent_layout:
+  \<open>block_comment_adjacent = block_comment_sum\<close>
+  unfolding block_comment_adjacent_def block_comment_sum_def by (rule refl)
+
+urust_expr block_comment_operators
+  \<open> 8u64/**//2u64 + 2u64*/* multiplication boundary */3u64 \<close>
+
+urust_expr block_comment_operators_plain \<open> 8u64 / 2u64 + 2u64 * 3u64 \<close>
+
+lemma block_comment_operator_layout:
+  \<open>block_comment_operators = block_comment_operators_plain\<close>
+  unfolding block_comment_operators_def block_comment_operators_plain_def by (rule refl)
+
+urust_expr block_comment_bindings
+  \<open>
+    /* leading */ let/* keyword boundary */value/* binder boundary */=/* assignment */3u64;
+    if/* head */true/* before block */{/* block */value}/* else boundary */else{4u64/* tail */}
+  \<close>
+
+urust_expr block_comment_bindings_plain
+  \<open> let value = 3u64; if true { value } else { 4u64 } \<close>
+
+lemma block_comment_binding_layout:
+  \<open>block_comment_bindings = block_comment_bindings_plain\<close>
+  unfolding block_comment_bindings_def block_comment_bindings_plain_def by (rule refl)
+
+context
+  fixes count :: \<open>64 word\<close>
+    and references :: \<open>(unit, unit, 64 word) Global_Store.ref list\<close>
+begin
+
+urust_expr block_comment_repeats
+  \<open>
+    [/* operand */const/* const boundary */{/* body */Some(0u64)/* tail */}
+     /* separator */;/* length */count/* arithmetic */+1usize/* close */]
+  \<close>
+urust_expr block_comment_repeats_plain \<open> [const { Some(0u64) }; count + 1usize] \<close>
+lemma block_comment_inline_repeat_layout:
+  \<open>block_comment_repeats = block_comment_repeats_plain\<close>
+  unfolding block_comment_repeats_def block_comment_repeats_plain_def by (rule refl)
+
+urust_expr block_comment_registered_repeat
+  \<open>
+    [1u64/* separator */;/* qualified length */RepeatFixture/* path boundary */::
+     /* segment */Length/* primitive cast */as/* target */usize]
+  \<close>
+urust_expr block_comment_registered_repeat_plain \<open> [1u64; RepeatFixture::Length as usize] \<close>
+lemma block_comment_registered_repeat_layout:
+  \<open>block_comment_registered_repeat = block_comment_registered_repeat_plain\<close>
+  unfolding block_comment_registered_repeat_def block_comment_registered_repeat_plain_def by (rule refl)
+
+adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
+urust_expr block_comment_precedence
+  \<open>
+    [*/* dereference */references/* postfix */[0usize]/* cast */as/* primitive */u64;
+     /* repeat */count]
+  \<close>
+urust_expr block_comment_precedence_plain \<open> [*(references[0usize]) as u64; count] \<close>
+lemma block_comment_precedence_layout:
+  \<open>block_comment_precedence = block_comment_precedence_plain\<close>
+  unfolding block_comment_precedence_def block_comment_precedence_plain_def by (rule refl)
+no_adhoc_overloading store_dereference_const \<rightleftharpoons> parser_dereference_fixture
+
+end
+
+section\<open> Positioned rejection and state boundaries \<close>
+
+urust_expr_rejects \<open> /* comment-only input */ \<close> \<open> empty expression \<close>
+
+urust_expr_rejects \<open> /* unterminated outer comment \<close> \<open> unterminated block comment \<close>
+
+urust_expr_rejects \<open> /* outer /* nested comment */ still open \<close> \<open> unterminated block comment \<close>
+
+urust_expr_rejects \<open> /*/ \<close> \<open> unterminated block comment \<close>
+
+urust_expr_rejects \<open> 1u64 */ 2u64 \<close> \<open> syntax error found at / \<close>
+
+urust_expr_rejects \<open> 1u64 /* closed */ */ 2u64 \<close> \<open> syntax error found at / \<close>
+
+urust_expr_rejects \<open> f::<1 /* layout */ + 2>() \<close> \<open> unexpected input "/" \<close>
+
+urust_expr_rejects \<open> l\<llangle>"value", /* layout */ True\<rrangle> \<close> \<open> unexpected input "/" \<close>
+
+urust_expr_rejects \<open> va/* gap */lue \<close> \<open> syntax error \<close>
+
+urust_expr_rejects \<open> 1/* gap */u64 \<close> \<open> syntax error \<close>
+
+urust_expr_rejects \<open> 1u64 </* gap */= 2u64 \<close> \<open> syntax error \<close>
+
+urust_expr_rejects \<open> [1; count/* repeat validation */()] \<close> \<open> array repeat length \<close>
+
+urust_expr block_comment_after_rejection \<open> /* reset /* nested */ */ () \<close>
+
+chapter\<open> Human-readable printing \<close>
+
+section\<open> Canonical AST printer \<close>
+
+subsection\<open> Human-readable printer examples \<close>
+
+declare [[urust_verbosity = 2]]
+
+text\<open>
+The declaration corpus enables \<open>urust_pp_test\<close>, so every ordinary
+\<open>urust_expr\<close> and \<open>urust_fn\<close> instance exercises serialized roundtripping.
+The common \<open>pretty\<close> option changes verbosity-controlled declaration output to the
+position-independent human mode inside a symbolic \<open>\<mu>\<open>...\<close>\<close> wrapper. This visual
+wrapper is unrelated to source quotation syntax. Printed functions place \<open>FunctionBody\<close> before
+the wrapper, distinguishing them from expressions. Human mode removes redundant groups while
+retaining groups required by precedence and grammar.
+\<close>
+
+urust_expr [pretty, verbosity = 1]
+  printer_human_expression
+  \<open>
+    (((let value = 1 + 2 * 3; value)))
+  \<close>
+
+urust_fn [pretty, verbosity = 1]
+  printer_human_function
+  \<open>
+  fn printer_human_function(item: u64) -> u64 {
+    let value = (((item)));
+    (value + 1u64) * 2u64
+  }
+  \<close>
+
+subsection\<open> Complex human-readable printer examples \<close>
+
+text\<open>
+These declarations are deliberately large enough for the human-mode output to demonstrate
+multiline blocks, indentation, nested control flow, pattern guards, precedence-sensitive grouping,
+and binder markup. With this theory open in Isabelle/jEdit, the rendered right-hand sides appear in
+the output panel as ordinary readable uRust, visibly enclosed by \<open>\<mu>\<open>...\<close>\<close>, rather than
+elaborated HOL.
+\<close>
+
+text\<open>
+The first example is a typed function with mutable state, array iteration, compound assignment, and
+a final conditional. Its two command parameters appear as applications on the rendered left-hand
+side. The printer keeps the source-level function body while laying out each block and statement
+independently.
+\<close>
+
+urust_fn [pretty, verbosity = 1]
+  printer_human_accumulate
+  \<open>
+  fn printer_human_accumulate(seed: u32, limit: u32) -> u32 {
+    let mut total = seed;
+    for value in [1_u32, 2_u32, 3_u32] {
+      *total += value;
+    }
+    if *total > limit {
+      *total
+    } else {
+      *total * 2_u32
+    }
+  }
+  \<close>
+
+text\<open>
+This function is a focused line-layout demonstration. Each branch contains a statement before its
+result, so the InfoView output must put code after an opening brace on a new line, indent nested
+blocks by two spaces, and retain \<open>} else {\<close> on one line.
+\<close>
+
+urust_fn [pretty, verbosity = 1]
+  printer_human_line_breaks
+  \<open>
+  fn printer_human_line_breaks(number: u32) -> u32 {
+    if number > 10_u32 {
+      let reduced = number / 2_u32;
+      if reduced > 3_u32 {
+        let adjusted = reduced + 1_u32;
+        adjusted
+      } else {
+        let unchanged = reduced;
+        unchanged
+      }
+    } else {
+      let raised = number + 10_u32;
+      raised * 2_u32
+    }
+  }
+  \<close>
+
+text\<open>
+The second example combines nested bindings with an option match, guarded arms, and a block-valued
+arm. It makes the printer's match-arm alignment and nested indentation visible.
+\<close>
+
+urust_expr [pretty, verbosity = 1]
+  printer_human_decision_tree
+  \<open>
+    let floor = \<llangle>0 :: 32 word\<rrangle>;
+    let candidate = \<llangle>Some (12 :: 32 word)\<rrangle>;
+    match candidate {
+      Some(value) if value > 10_u32 => {
+        let reduced = value / 2_u32;
+        reduced + 1_u32
+      },
+      Some(value) if value > floor => value,
+      None => floor
+    }
+  \<close>
+
+text\<open>
+The final example returns a closure that captures an outer value. Its body contains another binding
+and conditional, showing that closure bars, captured binders, and nested blocks retain their
+source-level presentation.
+\<close>
+
+urust_expr [pretty, verbosity = 1]
+  printer_human_closure_pipeline
+  \<open>
+    let offset = \<llangle>1 :: 32 word\<rrangle>;
+    |value| {
+      let adjusted = value + offset;
+      if adjusted > 10_u32 {
+        adjusted
+      } else {
+        adjusted * 2_u32
+      }
+    }
 \<close>
 
 end

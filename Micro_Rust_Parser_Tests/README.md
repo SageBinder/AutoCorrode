@@ -4,6 +4,56 @@ This session is the executable specification for the production µRust parser. I
 negative syntax coverage, accepted-language improvements, term-shape audits, markup/recovery checks,
 and combined showcase examples in one registered session.
 
+## Test organization
+
+The session separates human-readable tests from ML tests. Most topics have two theories:
+
+- `Parser_<Topic>_Examples.thy` contains only Isar: µRust declarations, kernel `refl` equations
+  and other lemmas, and `urust_expr_rejects` rows. These theories are the readable specification
+  of the accepted language and contain no ML.
+- `Parser_<Topic>_ML_Tests.thy` contains the ML audits of ASTs, generated artifacts, markup and
+  navigation, diagnostics, recovery and printing, together with the declarations that only those
+  audits use. It imports the examples of its topic, and its audits check example declarations
+  directly.
+
+| Topic | Examples | ML tests |
+|---|---|---|
+| `urust_fn` syntax, signatures, semantic types, channel defaults, typed receivers, mutable references and lifetimes, datatype composition | `Parser_Function_Examples` | `Parser_Function_ML_Tests` |
+| Expressions, dereference precedence, block comments, array repeats, human-readable printing | `Parser_Expression_Examples` | `Parser_Expression_ML_Tests` |
+| Accepted-surface improvements, primitive-type path heads, expression declarations, grammar boundaries | `Parser_Syntax_Examples` | `Parser_Syntax_ML_Tests` |
+| Rejected input | `Parser_Rejection_Examples` | `Parser_Syntax_ML_Tests` |
+| Pattern matching, slice patterns, frozen matcher expectations, name resolution, semantic navigation | `Parser_Pattern_Examples` | `Parser_Pattern_ML_Tests` |
+| `urust_datatype`, simple word enums, cast-target and type aliases, raw pointers, generic datatypes, Rust type mappings | `Parser_Datatype_Examples` | `Parser_Datatype_ML_Tests` |
+| Source-ordered `urust` chunks and Rust `use` imports in chunks and blocks | `Parser_Chunk_Use_Examples` | `Parser_Chunk_Use_ML_Tests` |
+| Combined showcase | `Parser_Showcase_Examples` | |
+
+Four theories provide shared support. `Parser_Test_Utils.thy` holds the shared ML support
+and the test-only `urust_expr_rejects` command. `Parser_Test_Fixtures.thy` holds declaration-only
+fixtures for iterators, registered constructors and cast-target aliases.
+`Parser_Test_Fixtures_Left.thy` and `Parser_Test_Fixtures_Right.thy` are the two branches of a
+merge diamond: their constructor and struct basenames become ambiguous only in a theory that
+imports both, so they remain separate theories. The use-import targets, which need the chunk
+command, open `Parser_Chunk_Use_Examples.thy`.
+
+The theory boundaries follow the contexts that the tests need:
+
+- `Parser_Expression_Examples` does not import `Micro_Rust_Std_Lib.StdLib_Logging`, whose `fatal!`
+  registration would replace the built-in legacy macro. `Parser_Syntax_Examples` and the theories
+  that import it do.
+- `Parser_Datatype_Examples` and `Parser_Datatype_ML_Tests` do not import the chunk command, so the
+  `simple_word_enum … urust_name:` clause is checked next to the single-item commands only.
+
+A few suites stay entirely in an ML theory although they contain readable declarations, because
+their audits observe the theory before later declarations of the same suite: the generic datatype
+and Rust type mapping suites in `Parser_Datatype_ML_Tests`, the chunk import audits in
+`Parser_Chunk_Use_ML_Tests`, and the typed-receiver name-collision examples in
+`Parser_Function_ML_Tests`, whose theory-level `self` literal would change later `self`
+parameters.
+
+Add a readable test to the examples theory of its topic and its ML audit to the matching ML theory.
+Declarations that only an audit uses belong next to the audit. Every tracked `.thy` file in this
+directory is registered in `ROOT`.
+
 ## Command surface
 
 Expression declarations retain an optional HOL type and parenthesized declaration arguments.
@@ -18,8 +68,8 @@ urust [OPTIONS] ‹ [ω‹OPTIONS›] ITEM ... ›
 The plain `urust` command declares a nonempty source-ordered chunk of complete `fn`, `struct`,
 `enum` and `use` items. It is registered by the opt-in theory `Micro_Rust_Parser_Impl.Parser_Impl_Chunk`.
 The `simple_word_enum … urust_name: "Name"` clause does not collide with the `urust` command
-keyword, with or without the chunk theory (`Parser_Simple_Word_Enum_Clause_Tests.thy` and the chunk
-regression tests).
+keyword, with or without the chunk theory (`Parser_Datatype_Examples.thy` with
+`Parser_Datatype_ML_Tests.thy`, and `Parser_Chunk_Use_ML_Tests.thy`).
 An optional `ω‹OPTION, OPTION = VALUE, …›` annotation occupies its own line or lines immediately
 before the line on which its item starts; a leading `#[repr(…)]` line belongs to its enum, and an
 annotation may not share the opening `urust ‹` line. Its payload uses the bracketed-list entry
@@ -75,9 +125,10 @@ Every multi-segment path instead requires an exact role-appropriate registration
 values, places, and constructor/struct patterns; `(call)` for calls, struct
 expressions, and registered macros, whose key includes the trailing `!`. A registration in another
 role does not satisfy the check. Method names remain single-segment and retain registration-first
-resolution. `Parser_Command_Tests.thy`
-contains the exact `zip` collision: a parameter named `zip` shadows HOL `List.zip`, and the generated
-definition is structurally checked not to contain `List.zip`.
+resolution. `Parser_Function_Examples.thy`
+contains the exact `zip` collision: a parameter named `zip` shadows HOL `List.zip`, and
+`Parser_Syntax_ML_Tests.thy` structurally checks that the generated definition does not contain
+`List.zip`.
 
 Named definition-mode declarations accept standard Isabelle attributes through `attrs = [...]`;
 the attributes apply only to the generated `_def` theorem. Rust function parameter and explicit
@@ -93,32 +144,40 @@ input = ‹HOL type›, output = ‹HOL type›]`. These constrain the actual cu
 computation channels; input and output include any prompt wrappers. Named variables and sorts
 are shared with all Rust signature escapes, locale variables remain rigid, and `_` holes
 remain independent. Rust signatures alone supply parameter and returned-value types.
-`Parser_Function_Semantic_Type_Tests` checks every channel combination, full declared schemes,
+The semantic type tests in `Parser_Function_Examples` and `Parser_Function_ML_Tests` check every
+channel combination, full declared schemes,
 default unit equivalence, callback sharing, contracts, local folding, holes, synonyms,
 pointers, locales, positioned rejection and recovery. The former overall `type` option is rejected.
 
 The scoped attributes `urust_state`, `urust_abort`, `urust_input` and `urust_output` supply the
 channel types of later functions that omit them; inline options and `ω‹…›` annotations override
-each channel. `Parser_Function_Channel_Default_Tests` checks that every inherited channel subset
+each channel. The scoped channel default tests in `Parser_Function_Examples` and
+`Parser_Function_ML_Tests` check that every inherited channel subset
 equals the inline options, every override subset, removal by `‹_›`, sharing with escapes and inline
 options, chunk members, nested contexts, bundles, locale capture, interpretation replay, report
 isolation from the declaring command, commands that ignore defaults, and positioned failures.
 
 Explicitly typed `self: T` and `mut self: T` use ordinary signature typing and parameter binding.
-`Parser_Function_Receiver_Tests` checks complete declaration schemes and kernel equivalence
+The typed receiver tests in `Parser_Function_Examples` and `Parser_Function_ML_Tests` check
+complete declaration schemes and kernel equivalence
 with `self_value` versions for primitive/mapped types, a HOL reference escape, fields,
 direct/method calls, HOL value/expression escapes, closures and name collisions. Boundary
 and recovery probes retain rejection of shorthand/untyped receivers, borrowed patterns,
 implicit `Self`, unsupported shared references, duplicate names and incompatible bodies.
 No `impl` support or receiver-specific lowering is introduced.
 
-`Parser_Reference_Type_Tests` covers mutable references `&mut T` and erased lifetimes in function
-signatures: complete schemes shared with raw pointers, kernel equality with `τ‹… Global_Store.ref›`
-controls and lifetime-free versions, typed `self: &mut T`, nested and escaped targets, locale
-backends, exact lifetime ranges, markup and printing, bodies that read and write through a
-reference, `&mut local` call sites and chunk members. Its rejections cover shared references,
+`Parser_Function_Examples` and `Parser_Function_ML_Tests` cover mutable references `&mut T` and
+erased lifetimes in function signatures: complete schemes shared with raw pointers, kernel equality
+with `τ‹… Global_Store.ref›` controls and lifetime-free versions, typed `self: &mut T`, nested and
+escaped targets, locale backends, exact lifetime ranges, markup and printing, reads and writes
+through references, `&mut local` call sites and chunk members. Rejections cover shared references,
 undeclared, duplicate and reserved lifetime parameters, bounds, lifetime arguments, reborrows and
-references outside function signatures, each with rollback and recovery.
+references outside function signatures, with rollback and recovery.
+
+`Parser_Syntax_Examples` and `Parser_Syntax_ML_Tests` check source-spelled direct abstractions and
+valid, collision-free `application_def` argument names. Their audits cover shadowing, closures,
+wildcards, aliases and context fixes; chunk output checks live in `Parser_Chunk_Use_ML_Tests`.
+Generated decision subjects retain their administrative names.
 
 Named functions register their Rust declaration name by default. Bare, explicit and scoped
 `register_notation` controls use `urust_register_notation`, shared with datatypes. Examples
@@ -127,17 +186,16 @@ an actual name or registration conflict, such as different locale interpretation
 one Rust path. Tests of disabled registration and option precedence deliberately exercise
 the opt-out.
 
-Start with `Parser_Function_Tests.thy` to learn `urust_fn`: it opens with explicit, inferred and
+Start with `Parser_Function_Examples.thy` to learn `urust_fn`: it opens with explicit, inferred and
 anonymous names, then demonstrates parameter forms, calls, options, HOL escapes, mapped signatures,
-inferred effects and locales through ordinary checked declarations. The former Rust-function and
-function-type-mapping suites are consolidated here.
+inferred effects and locales through ordinary checked declarations.
 
-`Parser_Function_Regression_Tests.thy` imports those examples and checks their equations, types,
+`Parser_Function_ML_Tests.thy` imports those examples and checks their equations, types,
 registration, ASTs, diagnostics, parser/printer recovery, locale conflicts and editor navigation.
-Its ML harnesses stay in this separate regression theory. `Parser_Command_Tests.thy` retains
-shared command/API and expression tests, including comparisons with the imported function artifacts.
+The shared command/API and expression declaration tests are in `Parser_Syntax_Examples.thy` and
+`Parser_Syntax_ML_Tests.thy`, including comparisons with the imported function artifacts.
 
-`Parser_Function_Semantic_Type_Tests.thy` checks complete annotated type schemes, unused callback
+The semantic type tests check complete annotated type schemes, unused callback
 relationships through direct and registered method calls, fixed-channel contracts and local proof
 expressions, independent holes and call instances, type synonyms, pointer backends, locales,
 declaration artifacts and positioned transactional failures.
@@ -171,17 +229,18 @@ re-prepares its batch for each declaration with `prepare_batch_unreported` and f
 `conclude_batch`. Chunk imports cannot share a namespace and name with an item declared in that chunk.
 `pub` is a keyword, so visibility before `use` rejects at `pub`; globs, `as _`, module roots,
 empty groups, generic arguments, misplaced `self` and Rust 2024 strict or reserved keywords as
-segments or aliases are positioned rejections. `Parser_Use_Tests.thy` covers
-the scope model directly, syntax and printing, chunk and block imports through kernel `refl`
-comparisons with qualified or import-free source, effect order, rejections, editor navigation and
-replay; `Parser_Use_Fixtures.thy` supplies the registered items. The standalone persistent `urust_use`
+segments or aliases are positioned rejections. `Parser_Chunk_Use_Examples.thy` covers chunk and
+block imports through kernel `refl` comparisons with qualified or import-free source, effect order
+and rejections; `Parser_Chunk_Use_ML_Tests.thy` covers the scope model directly, syntax and
+printing, editor navigation and replay. The use-import fixtures at the start of
+`Parser_Chunk_Use_Examples.thy` supply the registered items. The standalone persistent `urust_use`
 command has been removed; its rejection and scoped recovery are tested explicitly.
 
 ## Markup correction
 
 Struct-expression labels used by the source-order call syntax are erased during lowering and do not
 denote HOL terms. `URust_Resolution.report_struct_label` therefore retains their syntax typing
-tooltip without reporting them as `Markup.free`. `Parser_Syntax_Tests.thy` checks ordinary registered
+tooltip without reporting them as `Markup.free`. `Parser_Syntax_ML_Tests.thy` checks ordinary registered
 struct calls, nested expressions, and grouped control heads.
 
 Every qualifier of an exact registered path has one role-specific tooltip without pretending to be
@@ -214,7 +273,7 @@ retain notation navigation and `keyword3` styling while linking to their HOL con
 `lift_fun1`. Their constructor-pattern occurrences remain ordinary neutral constructor references.
 A lifted lambda keeps notation navigation and styling but emits no false wrapper-constant target.
 Ordinary registrations, multi-backend multiplicity, qualifier reports, ASTs, and checked terms retain
-their previous behavior. `Parser_Name_Resolution_Tests.thy` audits each boundary directly.
+their previous behavior. `Parser_Pattern_ML_Tests.thy` audits each boundary directly.
 
 ## Parser and lowering architecture
 
@@ -235,10 +294,9 @@ generated shift/reduce or reduce/reduce conflicts.
 
 Name and constructor metadata operations live in `URust_Resolution`. `URust_Patterns` resolves
 patterns, validates and allocates their binders, computes conservative coverage and prepares case
-arms. `URust_Case_Compiler` owns the one typed recursive decision compiler for structural
-selection, guards, source-order fallback and the frozen term shape; `URust_Patterns.compile_case`
-delegates to it. The compiler keeps no parser-private constructor families and has no separate
-guarded pattern engine.
+arms. `URust_Case_Compiler` owns the typed recursive decision compiler for structural selection,
+guards, source-order fallback and the frozen term shape; `URust_Patterns.compile_case` delegates
+to it. The compiler keeps no parser-private constructor families or separate guarded engine.
 
 Array repeats evaluate the length first. Ordinary `[value; length]` evaluates the value once,
 including at length zero; `[const { value }; length]` uses
@@ -304,7 +362,8 @@ Exact registered associated items may use the existing integer primitive tokens 
 values, patterns, and repeat lengths; call-role registration is mandatory for calls. The primitive
 head does not participate in lexical, HOL-name, unresolved-free, or native-constructor fallback.
 
-`Parser_Unified_Datatype_Tests.thy` covers generic type/const schemes, fixed arrays, const forwarding,
+The generic datatype suite in `Parser_Datatype_ML_Tests.thy` covers generic type/const schemes,
+fixed arrays, const forwarding,
 explicit parameter sorts, unused parameters, and source construction/patterns.
 `urust_datatype` selects the custom enum by default and the word backend only with an explicit width
 and no payload. Explicit word/custom backend names are quoted Isabelle command keywords.
@@ -338,11 +397,13 @@ accepted. During production migration the parser additionally accepts apostrophi
 Direct return match arms use commas between arms and an optional final comma. Direct
 `return value;,` and `return;` arms are rejected; `{ return value; }` and `{ return; }` retain
 ordinary statement semicolons. Complete guard bodies retain return statements.
-`Parser_Syntax_Tests.thy` checks all three match forms, guarded and restricted post-block arms,
+`Parser_Syntax_Examples.thy` and `Parser_Syntax_ML_Tests.thy` check all three match forms, guarded
+and restricted post-block arms,
 AST shapes, positioned rejection and recovery, and typed kernel equalities with braced spellings.
 Dereference follows Rust's uniform postfix-before-prefix precedence:
 `*base[index]` dereferences the indexed value, while `(*base)[index]` explicitly selects
-dereference-before-index. `Parser_Precedence_Tests.thy` covers indexed, grouped, call, and field
+dereference-before-index. `Parser_Expression_Examples.thy` and `Parser_Expression_ML_Tests.thy`
+cover indexed, grouped, call, and field
 operands, explicit grouping, and the restricted control-head grammar.
 The parser supports binary, octal, decimal, and hexadecimal integers with internal or
 trailing underscores and `u8`, `u16`, `u32`, `u64`, and `usize` suffixes. Ordinary source accepts
@@ -355,111 +416,86 @@ ranges, unary numeric negation, `/=`, leading `::`, full Rust generics, universa
 trailing commas, signed integers, `u128`, and floating/character/scientific literals. Focused
 negative rows preserve these boundaries.
 
-## Focused regression theories
+## Theory contents
 
-- `Parser_Expression_Tests.thy`: positive expression syntax, including direct, method and chained
-  iterator calls.
-- `Parser_Function_Tests.thy`: the declaration-first `urust_fn` reading entry point, consolidating
-  complete-item syntax, signatures, mappings, options, lexical binding and locale examples.
-- `Parser_Function_Regression_Tests.thy`: the internal audits and negative probes for those
-  function examples, including inference, registration, generated artifacts, navigation and recovery.
-- `Parser_Improvements_Tests.thy`: accepted language improvements and intentional semantic
-  corrections.
-- `Parser_Command_Tests.thy`: declaration behavior, named and wildcard parameter slots, options,
-  artifacts, markup, and facade audits.
-- `Parser_Syntax_Tests.thy`: precedence adjacency, unary/cast/postfix behavior, direct and
-  wrapped block-like operands, statement/arm separators, recursive no-struct heads, closures,
-  structs, integer lexing, generated grammar, markup, and recovery.
-- `Parser_Cast_Target_Aliases_Tests.thy`: import and locale scoping, every integral and raw-pointer
-  target, exact qualified paths, primitive term equality, repeat integration, conflicts, idempotence,
-  positioned diagnostics, navigation markup, and recovery. Its declaration-only fixture is
-  `Parser_Cast_Alias_Fixtures.thy`.
-- `Parser_Type_Alias_Registry_Tests.thy`: captured templates, normalized generic sorts,
-  independent instantiations, pointer backends, collisions and exact registration ranges.
-- `Parser_Type_Alias_Syntax_Tests.thy`: shared type/cast grammar, generic closers, source ranges,
-  malformed items, recovery and serialized/human printer roundtrips.
-- `Parser_Type_Alias_Tests.thy`: ordinary commands, qualified and chained aliases, generic casts,
-  signature consumers, namespace conflicts, declaration/dependency navigation and atomic reports.
-- `Parser_Pointer_Type_Tests.thy`: record/tuple/enum pointer fields, nested generated types,
-  constructors/selectors/lenses, type-changing native updates, signature constraints,
-  independent calls and rigid/merged locale contexts.
-- `Parser_Block_Comments_Tests.thy`: nested and adjacent layout, token boundaries, full symbol-aware
-  markup, positioned diagnostics, literal and lexer-state boundaries, recovery, repeats, and
-  dereference/postfix precedence.
-- `Parser_Array_Repeats_Tests.thy`: ordinary and inline-const syntax, restricted length validation,
-  evaluation count/order and control propagation, term compactness, markup/navigation, positioned
-  diagnostics, recovery, and array/index/borrow/macro regressions.
-- `Parser_Pattern_Matching_Tests.thy`: `Ctr_Sugar`, custom enum and simple-word-enum native case
-  metadata, bare and qualified exhaustive/partial/guarded/or/nested and singleton simple-word-enum
-  matches, metadata-free value/literal equality and switch controls, ordinary and typedef-backed
-  basename ambiguity, binder fallback, deep registered nullary
-  structural matching, guards, coverage, source order, single evaluation, term shape, markup, and
-  recovery.
-- `Parser_Matcher_Stability_Tests.thy`: fully typed HOL expectations closed by kernel `refl`, after
-  unfolding the declaration's definition where it has one. Those frozen at `39c334c` cover guarded
-  overlaps, differing captures, aliases, nested constructors, generated value/range/slice tests,
-  root-case planning and all five match consumers. Those frozen at `3245e94` reach the root rules
-  that no other parser test reached: shapes subsumed by an earlier test-led shape, at an enumerated
-  root and inside a tuple root group; a covering cut prefix with no wildcard row; and a binding
-  failure-suffix catchall after a false guard and after a nested generated-test miss. The
-  equations of the subsumption and covering-cut declarations pin those rules; the `guard_binder`
-  and `nested_binder` equations do not distinguish a binding failure-suffix catchall from a
-  wildcard one. Function, abbreviation and anonymous declarations retain coverage, and two
-  programmatic probes are each elaborated three times and compared with a raw typed term. The
-  compiler emits one term and constructs only the needed generated-test or source-guard failure
-  destination; it also has structural coverage, typing witnesses and a direct matrix path.
-- `Parser_Primitive_Path_Heads_Tests.thy`: all seven primitive heads, exact literal/call roles,
-  comments and token boundaries, expressions, patterns, repeats, cast aliases, positions,
-  current notation navigation, fallback rejection, and recovery.
-- `Parser_Use_Tests.thy`: Rust use imports: scope foundation, grammar and printer, chunk and
-  block imports, rejections, locale/experiment/interpretation confinement, removed-command rejection, editor
-  navigation and pretty replay.
-- `Parser_Name_Resolution_Tests.thy`: notation dispatch, navigation, qualifier markup, turbofish,
-  and the shared iterator `zip` registration audit.
-- `Parser_Slice_Pattern_Syntax_Tests.thy`: positioned bound-rest ASTs, binder markup, malformed
-  syntax, binding-site restrictions, and recovery.
-- `Parser_Slice_Pattern_Tests.thy`: ordered extraction and fallback equations, bare suffix
-  regressions, structural integer matching, irrefutable aliases, scoping, and evaluation effects.
-- `Parser_Rejection_Tests.thy`: parser diagnostics and iterator arity failures.
-- `Parser_Datatype_Tests.thy`: datatype declarations, generated registrations and navigation,
-  scoped/inline field-lens registration control, registry integrity, manual aliases, transactional
-  diagnostics, and command output. Declaration-local `renames` coverage checks selector and
-  constructor identities, short-name binder hygiene, source aliases and metadata, effective-name
-  collisions, quoted-list syntax, positioned recovery, and read-only pretty replay.
-- `Parser_Chunk_Tests.thy`: the declaration-first `urust` reading entry point: mixed and
-  one-item chunks, every item shape and layout transition, outer defaults and annotation overrides,
-  every option kind, earlier declarations in later items, locale interpretation and experiment
-  confinement, with single-item controls and kernel equalities.
-- `Parser_Chunk_Regression_Tests.thy`: chunk ASTs, envelope slices and serialized roundtrips,
-  annotation placement (including attribute and command lines, CR LF) and lexer-state recovery,
-  outer/annotation option diagnostics, validation before the first declaration, three-level
-  precedence and source-order output, equivalence with single-item artifacts and markup (including
-  embedded HOL sources and attributes), atomic last-item failures whose earlier members leave only
-  parse-only markup, backend/plugin/`simple_word_enum` annotation effects, calls to anonymous and
-  unregistered members, the `urust_name:` clause next to the chunk command, escaped-symbol positions,
-  independent type environments, read-only pretty replay and a moderately sized chunk.
-- `Parser_Simple_Word_Enum_Clause_Tests.thy`: `simple_word_enum … urust_name:` declarations next
-  to the single-item parser commands without the chunk theory.
-- `Parser_Chunk_Use_Tests.thy`: `use` members of chunks: aliases used before and after their use
-  item, imports of earlier members, later and never-declared targets without fallback,
-  namespace-precise forward entities (backend predictions against every registry entry the
-  declaration adds, including `#[repr]` and `simple_word_enum` enums with and without plugin
-  filters; conversion-call imports; existing entities beside later ones; body imports; predicted
-  duplicates; unregistered and anonymous targets), validation
-  before the first declaration, import/item collisions, shadowing among registrations, chunk and body imports, signatures, fields, calls, construction and patterns with kernel equalities against
-  qualified single-item controls, a locale target, atomic failures in theory, locale and context
-  targets, navigation, roundtrips, read-only pretty replay and complete input.
-- `Parser_Datatype_Composition_Tests.thy`: complete generic and const mappings through aliases,
-  typed receivers and function channels, default direct/method calls, constructor and field
-  renames, native backend artifacts and plugins, locale confinement, and read-only combined replay.
-  Complete radix literals and discriminants, additive/suffixed const rejection, malformed numeric
-  ASTs, and generated-function turbofish boundaries prevent silent argument truncation.
-- `Parser_Printer_Tests.thy`: serialized and human-readable expression and datatype printing,
-  canonicalization, layout, positions, and malformed-AST diagnostics.
-- `Parser_Showcase_Tests.thy`: combined command, chunk, grammar, matching, array-repeat, import,
+- `Parser_Function_Examples.thy`: the declaration-first `urust_fn` reading entry point:
+  complete-item syntax, signatures, mappings, options, lexical binding and locale examples,
+  iterator semantic regressions, full declaration types and kernel equalities, holes and
+  independent call instances, locale fixes, inherited and overridden channel defaults, explicitly
+  typed receivers, HOL escapes and method dispatch, and complete generic and const mappings
+  through aliases, receivers and function channels.
+- `Parser_Function_ML_Tests.thy`: the internal audits and negative probes for those examples,
+  including inference, registration, generated artifacts, ASTs, signature printer roundtrips,
+  navigation and recovery; every channel combination, artifacts and positioned failures; channel
+  defaults for chunk members, equivalence, precedence, removal and sharing, context scoping,
+  locales, interpretation, reports and rollback; receiver name collisions and boundaries; and
+  radix discriminants, scoped registration and read-only replay of composed declarations.
+- `Parser_Expression_Examples.thy`: positive expression syntax, including direct, method and
+  chained iterator calls; Rust dereference and postfix precedence; nested and adjacent block-comment
+  layout and positioned rejection; ordinary and inline-const array repeats, restricted length
+  validation and evaluation count, order and control propagation; and human-readable printer
+  examples.
+- `Parser_Expression_ML_Tests.thy`: both expression families and assignment places; array-repeat
+  grammar and AST boundaries, lowering shape, compactness, markup, positions and recovery;
+  block-comment ASTs, checked terms, symbol ranges, markup and recovery; and serialized and
+  human-readable expression and datatype printing, canonicalization, layout, positions and
+  malformed-AST diagnostics.
+- `Parser_Syntax_Examples.thy`: accepted language improvements and intentional semantic
+  corrections; all seven primitive-type path heads with exact literal and call roles; the parser
+  facade, typed expression declarations, anonymous declarations, definitions, abbreviations,
+  flags and locales; and precedence adjacency, match-arm separators, closures, integer literal
+  bases, struct expressions, logging-data expressions and Isabelle formal comments.
+- `Parser_Syntax_ML_Tests.thy`: primitive path heads in ASTs, positions, markup and recovery; the
+  common elaboration API, invalid flags, declaration verbosity output, contextual binder markup and
+  standard code equations; the rejection audits that need ML; and AST source layouts, grammar
+  shape, guard bodies, ranges, tuple projections, legacy macros, closures, casts, struct
+  expressions, call-arity preflight, yield and logging, and comment structure, lowering, markup,
+  diagnostics and recovery.
+- `Parser_Rejection_Examples.thy`: parser diagnostics and iterator arity failures.
+- `Parser_Pattern_Examples.thy`: `Ctr_Sugar`, custom enum and simple-word-enum native case
+  metadata; metadata-free registered values; deep registered nullary constructors; direct
+  structural matrices and nested structural totality; ordered rest extraction, structural integer
+  patterns, irrefutable bindings, scoping and evaluation order of slice patterns; retained
+  binding-site restrictions and rest-only type constraints; fully typed HOL expectations frozen at
+  `39c334c` and `3245e944`, including root subsumption, covering cuts and binding failure suffixes;
+  and turbofish payloads and canonical exact keys.
+- `Parser_Pattern_ML_Tests.thy`: matcher mechanism, resolution and term shape, frontend shape,
+  while-let coverage, conditional binding structure and markup, positions and pattern grammar,
+  concealed native-constructor lookup, registered constructor identity, contextual bare-match
+  classification and or-pattern binder sets; lowering controls of slice patterns; notation
+  dispatch, navigation, qualifier markup, turbofish and the shared iterator `zip` registration;
+  checked resolved denotations; and positioned bound-rest ASTs, binder markup, malformed rest
+  syntax and recovery.
+- `Parser_Datatype_Examples.thy`: simple word enum path resolution and the `urust_name:` clause
+  without the chunk command; datatype declarations, renames and notation registration control;
+  cast-target aliases with import and locale scoping and primitive equivalence; type alias commands
+  and dependency scopes; and record, tuple and enum pointer fields.
+- `Parser_Datatype_ML_Tests.thy`: generated registrations and navigation, registry integrity,
+  transactional diagnostics and command output; the type alias registry (captured templates,
+  normalized generic sorts, independent instantiations, collisions) and syntax (shared type and
+  cast grammar, generic closers, printer roundtrips); cast-alias conflicts and diagnostics; type
+  alias failures and dependency capture; pointer signature constraints and locale contexts; the
+  generic datatype suite with backend selection, explicit singleton modelling and pretty replay;
+  and the Rust type mapping suite.
+- `Parser_Chunk_Use_Examples.thy`: the use-import fixtures; the declaration-first `urust` reading
+  entry point: mixed and one-item chunks, every item shape and layout transition, outer defaults
+  and annotation overrides, every option kind, earlier declarations in later items and locale
+  contexts; scoped imports of values, calls, constructors, patterns and types, rejections without
+  fallback, locales, experiments and interpretation, block imports and their rejections, Rust block
+  shadowing of lexical locals and struct heads that stay in the type namespace; and `use` members of
+  chunks: aliases used before and after their use item, imports of earlier members, shadowing among
+  registrations, chunk and body imports, same-spelling type and value aliases, signatures, fields,
+  calls, construction, patterns and a locale target, with kernel equalities against qualified
+  single-item controls.
+- `Parser_Chunk_Use_ML_Tests.thy`: chunk ASTs, envelope slices and serialized roundtrips,
+  annotation placement and lexer-state recovery, option diagnostics, validation before the first
+  declaration, precedence and source-order output, equivalence with single-item artifacts and
+  markup, atomic failures, backend and plugin annotations, escaped-symbol positions, independent
+  type environments, read-only pretty replay and a moderately sized chunk; the import scope
+  foundation, syntax and printing, editor integration and replay, import reports, two-phase batch
+  preparation, body visibility, scopes outside the continuation spine and source conventions; and
+  the chunk import audits: alias absence after the command, later and never-declared targets,
+  namespace-precise forward targets, import/item collisions, atomicity, navigation, roundtrips and
+  complete input.
+- `Parser_Showcase_Examples.thy`: combined command, chunk, grammar, matching, array-repeat, import,
   and iterator examples.
-
-Shared declaration-only setup lives in `Parser_Iterator_Fixtures.thy`,
-`Parser_Registered_Constructor_Fixtures.thy`, `Parser_Cast_Alias_Fixtures.thy`, the four
-ambiguity fixture theories, and the import fixture `Parser_Use_Fixtures.thy`. Shared ML support and test-only rejection commands live in
-`Parser_Test_Utils.thy`. Every tracked `.thy` file in this directory is registered in `ROOT`.

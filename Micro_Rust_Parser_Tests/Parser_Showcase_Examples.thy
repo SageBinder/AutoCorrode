@@ -1,16 +1,20 @@
-theory Parser_Showcase_Tests
+(* Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+   SPDX-License-Identifier: MIT *)
+
+(* Combined showcase of the uRust parser commands, grammar and semantics. *)
+
+theory Parser_Showcase_Examples
   imports
-    Parser_Logging_Fixtures
+    Micro_Rust_Std_Lib.StdLib_Logging
     Micro_Rust_Parser_Impl.Parser_Impl_Chunk
     Misc.Simple_Word_Enums
     Shallow_Separation_Logic.Separation_Algebra
 begin
 
-declare [[urust_pp_test = true]]
-declare [[urust_pretty = true]]
-declare [[urust_verbosity = 2]]
-
 section\<open> Showcase \<close>
+
+declare [[urust_pp_test = true, urust_pretty = true, urust_verbosity = 2, urust_abbrev = false,
+  urust_application_def = false, urust_register_notation = true]]
 
 text\<open>
 These examples intentionally combine parser, lowering, matching, iterator, and
@@ -25,6 +29,7 @@ and generated datatypes register their Rust names automatically for later declar
 \<close>
 
 urust_type "PacketId" = \<open>64 word\<close>
+
 urust_type "Maybe<'value>" = \<open>'value option\<close>
 
 urust_datatype [pretty, verbosity = 1] datatype_packet \<open>
@@ -101,6 +106,7 @@ urust_datatype \<open>
 \<comment>\<open>RUST-CHANGE: this proof-source mirror explicitly omits a PhantomData field and its
 pure initializer and pattern slot, while retaining the original generic parameter. Automatic
 marker handling is deferred; nontrivial initializer effects need explicit source adaptation.\<close>
+
 urust_datatype \<open>
   struct TypedAddress<T> { address: u64 }
 \<close>
@@ -267,7 +273,9 @@ urust [verbosity = 1] \<open>
 \<close>
 
 thm showcase_level_def showcase_doubled_level_def
+
 term \<open>showcase_reading.sample_count\<close>
+
 term \<open>showcase_double\<close>
 
 subsection\<open> Pretty declaration output \<close>
@@ -404,7 +412,6 @@ lemma showoff_list_captures_result:
   \<close>
   by (simp add: showoff_list_captures_def micro_rust_simps)
 
-
 subsection\<open> Array repeats \<close>
 
 text\<open>
@@ -436,8 +443,11 @@ Using an alias as a cast target produces the same checked term as the expanded p
 \<close>
 
 urust_type_alias \<open> type SmallId = u16; \<close>
+
 urust_type_alias \<open> type IdPair<T> = (T, T); \<close>
+
 urust_type_alias \<open> type BytePointer<T> = *const T; \<close>
+
 urust_type_alias "types::BufferSize" \<open> type BufferSize = SmallId; \<close>
 
 urust_datatype \<open>
@@ -607,9 +617,13 @@ definition showoff_primitive_from ::
   where \<open> showoff_primitive_from = lift_fun1 id \<close>
 
 micro_rust_notation (literal) showoff_primitive_u8_max ("u8::MAX")
+
 micro_rust_notation (literal) showoff_primitive_u64_max ("u64::MAX")
+
 micro_rust_notation (literal) showoff_primitive_count ("usize::COUNT")
+
 micro_rust_notation (literal) showoff_primitive_values ("u64::VALUES")
+
 micro_rust_notation (call) showoff_primitive_from ("u64::from")
 
 text\<open>
@@ -643,7 +657,6 @@ urust_expr showoff_logging_yield
     \<l>\<o>\<g> \<llangle>Trace\<rrangle> \<llangle>[LogNat request']\<rrangle>;
     debug!(l\<llangle>"request ", request', " resumed"\<rrangle>)
   \<close>
-
 
 subsection\<open> Calls, methods, and propagation \<close>
 
@@ -786,7 +799,6 @@ urust_expr showoff_struct_expression
     }
   \<close>
 
-
 subsection\<open> Nested and guarded matches \<close>
 
 datatype showoff_event =
@@ -810,9 +822,11 @@ simple_word_enum (plugins del: word_conversion) (8)
 micro_rust_notation (literal)
   showoff_registered_event.ShowoffRegisteredData
   ("Showoff::Event::Data")
+
 micro_rust_notation (literal)
   showoff_registered_event.ShowoffRegisteredStop
   ("Showoff::Event::Stop")
+
 micro_rust_notation (literal)
   showoff_singleton_event.ShowoffSingletonEvent
   ("Showoff::Singleton::Event")
@@ -928,7 +942,6 @@ urust_expr  showoff_matches
     }
   \<close>
 
-
 subsection\<open> Advanced patterns \<close>
 
 datatype showoff_packet =
@@ -965,7 +978,6 @@ urust_expr  showoff_patterns
     }
   \<close>
 
-
 subsection\<open> Fueled loops and mutable state \<close>
 
 definition showoff_reference ::
@@ -981,8 +993,8 @@ definition showoff_update ::
       (unit, unit, unit, unit, unit) function_body\<close>
   where \<open> showoff_update \<equiv> undefined \<close>
 
-adhoc_overloading store_reference_const \<rightleftharpoons> showoff_reference
 adhoc_overloading store_dereference_const \<rightleftharpoons> showoff_dereference
+adhoc_overloading store_reference_const \<rightleftharpoons> showoff_reference
 adhoc_overloading store_update_const \<rightleftharpoons> showoff_update
 
 text\<open>
@@ -1140,7 +1152,6 @@ urust_expr showoff_macro_pipeline
     }
   \<close>
 
-
 subsection\<open> Closure capture and higher-order invocation \<close>
 
 definition showoff_invoke_closure ::
@@ -1172,7 +1183,6 @@ urust_expr showoff_closure_pipeline
       }
     )
   \<close>
-
 
 subsection\<open> Accepted-surface improvements \<close>
 
@@ -1212,8 +1222,8 @@ urust_expr  showoff_improvements
     }
   \<close>
 
-no_adhoc_overloading store_reference_const \<rightleftharpoons> showoff_reference
 no_adhoc_overloading store_dereference_const \<rightleftharpoons> showoff_dereference
+no_adhoc_overloading store_reference_const \<rightleftharpoons> showoff_reference
 no_adhoc_overloading store_update_const \<rightleftharpoons> showoff_update
 
 end

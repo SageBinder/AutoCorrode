@@ -1,12 +1,977 @@
-theory Parser_Printer_Tests
-  imports Parser_Test_Utils
+(* ML audits for expressions: ASTs, lowering, markup, diagnostics, recovery and printing.
+   The readable examples are in Parser_Expression_Examples. *)
+
+theory Parser_Expression_ML_Tests
+  imports
+    Parser_Expression_Examples
 begin
 
-declare [[urust_pp_test = true]]
-declare [[urust_pretty = true]]
-declare [[urust_verbosity = 2]]
+chapter\<open> Dereference and postfix precedence \<close>
+
+section\<open>Both expression families and assignment places\<close>
+
+declare [[urust_pp_test = true, urust_pretty = true, urust_verbosity = 0, urust_abbrev = false,
+  urust_application_def = false, urust_register_notation = true]]
+
+ML_val\<open>
+  let
+    open URust_AST
+    val ctxt = \<^context>
+    fun parse text =
+      (case URust_Parser.parse_source ctxt (Parser_Lex_Util.text_source text) of
+         SOME expression => expression
+       | NONE => error "precedence audit: empty parse")
+    fun indexed_operand (UE_Unary (U_Deref, UE_Index (UE_Path _, UE_Path _, _), _)) = true
+      | indexed_operand _ = false
+    fun assert label condition =
+      if condition then () else error ("precedence audit: " ^ label)
+    val _ = assert "ordinary expression" (indexed_operand (parse "*base[index]"))
+    val _ =
+      (case parse "if *base[index] { () }" of
+         UE_If (condition, _, _, _) => assert "if head" (indexed_operand condition)
+       | _ => error "precedence audit: if shape")
+    val _ =
+      (case parse "if let Some(item) = *base[index] { item }" of
+         UE_IfLet (_, value, _, _, _) => assert "if-let head" (indexed_operand value)
+       | _ => error "precedence audit: if-let shape")
+    val _ =
+      (case parse "match *base[index] { _ => () }" of
+         UE_Match (_, value, _, _) => assert "match head" (indexed_operand value)
+       | _ => error "precedence audit: match shape")
+    val _ =
+      (case parse "for item in *base[index] { () }" of
+         UE_For (_, value, _, _) => assert "for head" (indexed_operand value)
+       | _ => error "precedence audit: for shape")
+    val _ =
+      (case parse "if *(base).field { () }" of
+         UE_If (UE_Unary (U_Deref, UE_Field (UE_Group _, "field", _), _), _, _, _) => ()
+       | _ => error "precedence audit: grouped field in control head")
+    val _ =
+      (case parse "if *make().field { () }" of
+         UE_If (UE_Unary (U_Deref, UE_Field (UE_Call _, "field", _), _), _, _, _) => ()
+       | _ => error "precedence audit: call field in control head")
+    val _ =
+      (case parse "**base[index]" of
+         UE_Unary (U_Deref, operand, _) => assert "repeated dereference" (indexed_operand operand)
+       | _ => error "precedence audit: repeated dereference shape")
+    val _ =
+      (case parse "*base[index] as u64 + tail" of
+         UE_Bin (Add, UE_Cast (operand, SCT_Primitive (CT_Unsigned UT_U64, _), _), UE_Path _, _) =>
+           assert "cast and binary boundary" (indexed_operand operand)
+       | _ => error "precedence audit: cast and binary shape")
+    val _ =
+      (case parse "&*base[index]" of
+         UE_Unary (U_Borrow BM_Imm, operand, _) =>
+           assert "borrow boundary" (indexed_operand operand)
+       | _ => error "precedence audit: borrow shape")
+    val _ =
+      (case parse "*base[index] = value" of
+         UE_Assign (Assign, UP_Deref (UE_Index (UE_Path _, UE_Path _, _), _), UE_Path _, _) => ()
+       | _ => error "precedence audit: indexed dereference assignment place")
+    val _ =
+      (case parse "(*base)[index] = value" of
+         UE_Assign (Assign, UP_Index (UP_Deref (UE_Path _, _), UE_Path _, _), UE_Path _, _) => ()
+       | _ => error "precedence audit: explicitly grouped assignment place")
+    val _ =
+      (case parse "*base[index].field.0.method()?" of
+         UE_Unary
+           (U_Deref,
+            UE_Unary
+              (U_Propagate,
+               UE_Call
+                 (UC_Method
+                   (UE_TupleProjection
+                     (UE_Field (UE_Index _, "field", _), 0, _),
+                    Path_Segment ("method", _, _)),
+                  [], _),
+               _),
+            _) => ()
+       | _ => error "precedence audit: complete postfix chain")
+  in () end
+\<close>
+
+chapter\<open> Array repeats \<close>
+
+section\<open>Array repeats\<close>
+
+subsection\<open>Grammar and AST boundaries\<close>
+
+ML_val\<open>
+  local
+    open URust_AST
+    val ctxt = \<^context>
+
+    fun parse text =
+      (case URust_Parser.parse_source ctxt
+          (Parser_Lex_Util.text_source text) of
+         SOME expression => expression
+       | NONE => error "array repeat AST audit: empty parse")
+
+    fun assert message condition =
+      if condition then ()
+      else error ("array repeat AST audit: " ^ message)
+
+    fun integer expected (RL_Integer (Integer_Literal (actual, Source_Layout ( _, _), _))) =
+          expected = actual
+      | integer _ _ = false
+
+    val _ =
+      (case parse "[1; 2 + 3 * 4]" of
+         UE_ArrayRepeat
+           (AR_Ordinary, UE_Literal (LP_Integer (Integer_Literal ("1", Source_Layout ( _, _), _))),
+            RL_Bin
+              (Add, left,
+               RL_Bin (Mul, middle, right, _), _), _) =>
+             assert "operator precedence changed"
+               (integer "2" left andalso
+                integer "3" middle andalso
+                integer "4" right)
+       | _ => error "array repeat AST audit: ordinary repeat shape changed")
+
+    val _ =
+      (case parse "[const { 1 }; (2 + 3) as usize]" of
+         UE_ArrayRepeat
+           (AR_InlineConst, UE_Block _, RL_CastUsize (RL_Group _, _), _) => ()
+       | _ => error "array repeat AST audit: inline-const repeat shape changed")
+
+    val _ =
+      (case parse "[]" of UE_Array ([], _) => ()
+       | _ => error "array repeat AST audit: empty array shape changed")
+    val _ =
+      (case parse "[1, 2,]" of UE_Array ([_, _], _) => ()
+       | _ => error "array repeat AST audit: list array shape changed")
+    val _ =
+      (case parse "(1, 2)" of UE_Tuple ([_, _], _) => ()
+       | _ => error "array repeat AST audit: tuple shape changed")
+    val _ =
+      (case parse "&[1, 2]" of
+         UE_Unary (U_Borrow BM_Imm, UE_Array ([_, _], _), _) => ()
+       | _ => error "array repeat AST audit: direct array borrow shape changed")
+    val _ =
+      (case parse "items[0]" of UE_Index _ => ()
+       | _ => error "array repeat AST audit: indexing shape changed")
+    val _ =
+      (case parse "items[1..2]" of
+         UE_Index (_, UE_Range (RK_Exclusive, _, _, _), _) => ()
+       | _ => error "array repeat AST audit: slice/index shape changed")
+    val _ =
+      (case parse "[1; 2][0]" of
+         UE_Index (UE_ArrayRepeat _, _, _) => ()
+       | _ => error "array repeat AST audit: repeat/index boundary changed")
+    val _ =
+      (case parse "[*base[index]; 2]" of
+         UE_ArrayRepeat
+           (AR_Ordinary, UE_Unary (U_Deref, UE_Index _, _), _, _) => ()
+       | _ => error "array repeat AST audit: ordinary dereference operand grouping changed")
+    val _ =
+      (case parse "[const { *base[index] }; 2]" of
+         UE_ArrayRepeat
+           (AR_InlineConst,
+            UE_Block (UE_Unary (U_Deref, UE_Index _, _), _), _, _) => ()
+       | _ => error "array repeat AST audit: inline-const dereference operand grouping changed")
+    val _ =
+      (case parse "*[reference; 2][index]" of
+         UE_Unary (U_Deref, UE_Index (UE_ArrayRepeat _, _, _), _) => ()
+       | _ => error "array repeat AST audit: dereference of indexed repeat changed")
+  in
+    val _ = writeln "Array repeat grammar and AST boundaries passed"
+  end
+\<close>
+
+subsection\<open>Lowering shape, compactness, and regressions\<close>
+
+ML_val\<open>
+  local
+    open URust_AST
+
+    val ctxt = \<^context>
+
+    fun audit_assert message condition =
+      if condition then ()
+      else error ("array repeat lowering audit: " ^ message)
+
+    fun checked text =
+      Parser_Test_Elaboration.expression ctxt
+        (Parser_Lex_Util.text_source text)
+
+    fun parse text =
+      (case URust_Parser.parse_source ctxt
+          (Parser_Lex_Util.text_source text) of
+         SOME expression => expression
+       | NONE => error "array repeat lowering audit: empty parse")
+
+    fun count_constant name term =
+      Term.fold_aterms
+        (fn Const (candidate, _) =>
+              if candidate = name then Integer.add 1 else I
+          | _ => I)
+        term 0
+
+    fun atom_count term =
+      Term.fold_aterms (fn _ => Integer.add 1) term 0
+
+    val ordinary = checked "[1; 1_000_000]"
+    val inline = checked "[const { 1 }; 1_000_000]"
+    val symbolic = checked "[1; repeat_global_length]"
+    val array = checked "[1, 2]"
+    val borrowed_array = checked "&[1, 2]"
+    val indexed_array =
+      URust_Translate.mk_expression ctxt [] (parse "[1, 2][0]")
+    val vector_macro = checked "vec![1, 2]"
+    val _ =
+      (case Exn.result
+          (fn () => Parser_Test_Elaboration.expression_with_arguments ctxt
+            [("count", Position.none)]
+            (Parser_Lex_Util.text_source "[1; count]")) () of
+         Exn.Exn exn =>
+           audit_assert "declaration argument bypassed lexical-local rejection"
+             (String.isSubstring "cannot use lexical local" (Runtime.exn_message exn))
+       | Exn.Res _ =>
+           error "array repeat lowering audit: declaration argument accepted as a length")
+
+    val _ =
+      audit_assert "ordinary repeat lost its single List.replicate"
+        (count_constant \<^const_name>\<open>List.replicate\<close>
+          ordinary = 1)
+    val _ =
+      audit_assert "ordinary repeat no longer evaluates length and value through two binds"
+        (count_constant \<^const_name>\<open>Core_Expression.bind\<close>
+          ordinary = 2)
+    val _ =
+      audit_assert "ordinary large length expanded into list constructors"
+        (count_constant \<^const_name>\<open>List.Cons\<close>
+          ordinary = 0)
+    val _ =
+      audit_assert "ordinary large repeat term stopped being compact"
+        (atom_count ordinary < 200)
+
+    val _ =
+      audit_assert "inline repeat lost its single List.replicate"
+        (count_constant \<^const_name>\<open>List.replicate\<close>
+          inline = 1)
+    val _ =
+      audit_assert "inline repeat lost list_sequence"
+        (count_constant \<^const_name>\<open>list_sequence\<close>
+          inline = 1)
+    val _ =
+      audit_assert "inline repeat should bind only its length"
+        (count_constant \<^const_name>\<open>Core_Expression.bind\<close>
+          inline = 1)
+    val _ =
+      audit_assert "inline large length expanded into list constructors"
+        (count_constant \<^const_name>\<open>List.Cons\<close>
+          inline = 0)
+    val _ =
+      audit_assert "inline large repeat term stopped being compact"
+        (atom_count inline < 200)
+
+    val _ =
+      audit_assert "symbolic length lost the global constant"
+        (count_constant
+          \<^const_name>\<open>repeat_global_length\<close> symbolic = 1)
+    val _ =
+      audit_assert "symbolic length expanded during elaboration"
+        (count_constant \<^const_name>\<open>List.replicate\<close>
+          symbolic = 1 andalso
+         count_constant \<^const_name>\<open>List.Cons\<close>
+          symbolic = 0)
+
+    val _ =
+      audit_assert "ordinary array lowering acquired repeat machinery"
+        (count_constant \<^const_name>\<open>List.replicate\<close>
+          array = 0)
+    val _ =
+      audit_assert "ordinary array List.Cons shape changed"
+        (count_constant \<^const_name>\<open>List.Cons\<close>
+          array = 2)
+    val _ =
+      audit_assert "direct ordinary-array borrow erasure changed"
+        (Term.aconv
+          (Term_Position.strip_positions array,
+           Term_Position.strip_positions borrowed_array))
+    val _ =
+      audit_assert "ordinary indexing lost index_const"
+        (count_constant \<^const_name>\<open>index_const\<close>
+          indexed_array = 1)
+    val _ =
+      audit_assert "vec! lowering acquired repeat machinery"
+        (count_constant \<^const_name>\<open>List.replicate\<close>
+          vector_macro = 0)
+
+    val _ =
+      (case parse "[1; 2]" of UE_ArrayRepeat _ => ()
+       | _ => error "array repeat lowering audit: parser recovery shape changed")
+
+  in
+    val _ =
+      writeln
+        "Array repeat lowering, compactness, and regression audits passed"
+  end
+\<close>
+
+subsection\<open>Markup, positions, and recovery\<close>
+
+ML_val\<open>
+  local
+    val ctxt = \<^context>
+
+    fun audit_assert message condition =
+      if condition then ()
+      else error ("array repeat PIDE audit: " ^ message)
+
+    fun find_from text needle offset =
+      if offset + size needle > size text then
+        error ("array repeat PIDE audit: missing " ^ quote needle)
+      else if String.substring (text, offset, size needle) = needle
+      then offset
+      else find_from text needle (offset + 1)
+
+    fun token_position text start needle offset =
+      let
+        val raw = find_from text needle offset
+        val token_start =
+          Position.symbol_explode
+            (String.substring (text, 0, raw)) start
+      in
+        (raw,
+         Position.range_position
+           (token_start, Position.symbol_explode needle token_start))
+      end
+
+    fun all_token_positions text start needle =
+      let
+        fun collect offset positions =
+          if offset + size needle > size text then rev positions
+          else
+            (case try (find_from text needle) offset of
+               SOME raw =>
+                 let
+                   val (_, position) =
+                     token_position text start needle raw
+                 in collect (raw + size needle) (position :: positions) end
+             | NONE => rev positions)
+      in collect 0 [] end
+
+    fun collect_markup (XML.Text _) result = result
+      | collect_markup (XML.Elem (markup, body)) result =
+          fold collect_markup body (markup :: result)
+
+    fun has_position properties position =
+      Properties.get properties Markup.offsetN =
+        Option.map Value.print_int (Position.offset_of position) andalso
+      Properties.get properties Markup.end_offsetN =
+        Option.map Value.print_int (Position.end_offset_of position)
+
+    fun has_markup markup_name position markup =
+      exists
+        (fn (name, properties) =>
+          name = markup_name andalso has_position properties position)
+        markup
+
+    fun has_entity kind identity position markup =
+      exists
+        (fn (name, properties) =>
+          name = Markup.entityN andalso
+            Properties.get properties Markup.kindN = SOME kind andalso
+            Properties.get properties Markup.nameN = SOME identity andalso
+            has_position properties position)
+        markup
+
+    val markup_text =
+      "[const { 1 }; " ^
+      "(RepeatFixture::Length + repeat_global_length + " ^
+      "(2u8 as usize))]"
+    val markup_start =
+      Position.make0 41 400 0 "" "" "array-repeat-markup-audit"
+    val markup_source =
+      Parser_Lex_Util.positioned_content_source
+        markup_text markup_start
+    val captured =
+      Synchronized.var "array_repeat_markup_reports" ([]: string list)
+    fun capture chunks =
+      Synchronized.change captured (append chunks)
+    val _ =
+      Parser_Test_Report_Lock.run (fn () =>
+        Unsynchronized.setmp Private_Output.report_fn capture
+          (fn () =>
+            Print_Mode.with_modes [Print_Mode.PIDE]
+              (fn () =>
+                ignore
+                  (Parser_Test_Elaboration.expression
+                    ctxt markup_source)) ())
+          ())
+    val markup =
+      fold collect_markup
+        (maps YXML.parse_body (Synchronized.value captured)) []
+
+    val _ =
+      List.app
+        (fn spelling =>
+          List.app
+            (fn position =>
+              audit_assert
+                ("delimiter " ^ quote spelling ^ " lost markup")
+                (has_markup Markup.delimiterN position markup))
+            (all_token_positions markup_text markup_start spelling))
+        ["[", "]", "{", "}", ";", "(", ")", "::"]
+    val _ =
+      List.app
+        (fn position =>
+          audit_assert "length addition lost operator markup"
+            (has_markup Markup.operatorN position markup))
+        (all_token_positions markup_text markup_start "+")
+    val _ =
+      List.app
+        (fn spelling =>
+          List.app
+            (fn position =>
+              audit_assert
+                ("numeral " ^ quote spelling ^ " lost markup")
+                (has_markup Markup.numeralN position markup))
+            (all_token_positions markup_text markup_start spelling))
+        ["1", "2u8"]
+    val _ =
+      List.app
+        (fn spelling =>
+          List.app
+            (fn position =>
+              audit_assert
+                ("keyword " ^ quote spelling ^ " lost markup")
+                (has_markup Markup.keyword1N position markup))
+            (all_token_positions markup_text markup_start spelling))
+        ["const", "as", "usize"]
+
+    val repeat_terminal =
+      #2 (token_position markup_text markup_start "Length" 0)
+    val global_terminal =
+      #2 (token_position markup_text markup_start
+        "repeat_global_length" 0)
+    val _ =
+      audit_assert "registered length lost notation navigation"
+        (has_entity Micro_Rust_Names.notationN
+          "RepeatFixture::Length" repeat_terminal markup)
+    val _ =
+      audit_assert "HOL global length lost constant navigation"
+        (has_entity Markup.constantN
+          \<^const_name>\<open>repeat_global_length\<close>
+          global_terminal markup)
+
+    fun diagnostic_ranges body =
+      let
+        fun collect (XML.Text _) ranges = ranges
+          | collect (XML.Elem ((_, properties), children)) ranges =
+              let
+                val ranges' =
+                  (case
+                    (Properties.get properties Markup.offsetN,
+                     Properties.get properties Markup.end_offsetN) of
+                     (SOME offset, SOME end_offset) =>
+                       (offset, end_offset) :: ranges
+                   | _ => ranges)
+              in fold collect children ranges' end
+      in distinct (op =) (fold collect body []) end
+
+    fun range_of position =
+      (Value.print_int (the (Position.offset_of position)),
+       Value.print_int (the (Position.end_offset_of position)))
+
+    fun checked text =
+      Parser_Test_Elaboration.expression ctxt
+        (Parser_Lex_Util.text_source text)
+
+    fun expect_positioned_failure serial label text needle expected =
+      let
+        val start =
+          Position.make0 (70 + serial) (1000 + serial * 300) 0 "" ""
+            ("array-repeat-" ^ label ^ "-audit")
+        val source =
+          Parser_Lex_Util.positioned_content_source text start
+        val position = #2 (token_position text start needle 0)
+        val result =
+          Exn.result
+            (fn () =>
+              Parser_Test_Elaboration.expression ctxt source) ()
+        val message =
+          (case result of
+             Exn.Res term =>
+               error
+                 ("array repeat PIDE audit: " ^ label ^
+                  " unexpectedly elaborated to " ^
+                  Syntax.string_of_term ctxt term)
+           | Exn.Exn exn =>
+               if Exn.is_interrupt exn then Exn.reraise exn
+               else Runtime.exn_message exn)
+        val _ =
+          audit_assert (label ^ " diagnostic changed")
+            (String.isSubstring expected message)
+        val _ =
+          audit_assert (label ^ " diagnostic range changed")
+            (diagnostic_ranges (YXML.parse_body message) =
+              [range_of position])
+        val recovered = checked "[7; 2]"
+        val _ =
+          audit_assert (label ^ " did not recover")
+            (Term.exists_subterm
+              (fn Const (name, _) =>
+                    name = \<^const_name>\<open>List.replicate\<close>
+                | _ => false)
+              recovered)
+      in () end
+
+    val _ =
+      expect_positioned_failure 0 "suffix"
+        "[1; 2u8]" "2u8"
+        "requires an explicit `as usize` cast"
+    val _ =
+      expect_positioned_failure 1 "runtime-call"
+        "[1; Some(2)]" "Some(2)"
+        "array repeat length supports only"
+    val _ =
+      expect_positioned_failure 2 "symbol-offset"
+        "[\<y>\<i>\<e>\<l>\<d>; missing_length]"
+        "missing_length"
+        "does not resolve to a global constant"
+    val _ =
+      expect_positioned_failure 3 "qualified-length"
+        "[1; RepeatFixture::MissingLength]" "MissingLength"
+        "requires an exact micro_rust_notation (literal) declaration"
+    val _ =
+      expect_positioned_failure 3 "qualified-global"
+        "[1; Parser_Expression_Examples::repeat_global_length]"
+        "repeat_global_length"
+        "requires an exact micro_rust_notation (literal) declaration"
+    val _ =
+      expect_positioned_failure 4 "length-before-operand"
+        "[missing_operand; missing_length]" "missing_length"
+        "does not resolve to a global constant"
+  in
+    val _ =
+      writeln
+        "Array repeat markup, navigation, positioned diagnostics, symbol offsets, and recovery passed"
+  end
+\<close>
+
+chapter\<open> Block comments \<close>
+
+section\<open> AST, checked terms, symbol ranges, markup, and recovery \<close>
+
+text\<open>
+The regression audit reuses the original D128 checks with current test APIs. Positioned source
+contains both escaped Isabelle symbols and physical Unicode, plus a newline. Comment spans must
+be reported once through the shared symbol-aware range path, without token markup inside the body.
+\<close>
+
+ML_val\<open>
+  local
+    open URust_AST
+
+    val ctxt = \<^context>
+
+    fun audit_assert message condition =
+      if condition then ()
+      else error ("block-comment regression audit: " ^ message)
+
+    fun parse_option source =
+      URust_Parser.parse_source ctxt source
+
+    fun parse_source source =
+      (case parse_option source of
+         SOME expression => expression
+       | NONE => error "block-comment regression audit: empty parse")
+
+    fun parse_text text =
+      parse_source (Parser_Lex_Util.text_source text)
+
+    fun checked_source source =
+      Parser_Test_Elaboration.expression ctxt source
+
+    fun checked text =
+      checked_source (Parser_Lex_Util.text_source text)
+
+    fun same_range left right =
+      Position.offset_of left = Position.offset_of right andalso
+      Position.end_offset_of left = Position.end_offset_of right andalso
+      Position.line_of left = Position.line_of right
+
+    fun find_from text needle offset =
+      if offset + size needle > size text then
+        error ("block-comment regression audit: missing " ^ quote needle)
+      else if String.substring (text, offset, size needle) = needle
+      then offset
+      else find_from text needle (offset + 1)
+
+    fun token_position text start needle offset =
+      let
+        val raw = find_from text needle offset
+        val token_start =
+          Position.symbol_explode
+            (String.substring (text, 0, raw)) start
+      in
+        (raw,
+         Position.range_position
+           (token_start, Position.symbol_explode needle token_start))
+      end
+
+    fun collect_markup (XML.Text _) result = result
+      | collect_markup (XML.Elem (markup, body)) result =
+          fold collect_markup body
+            ((markup, XML.content_of body) :: result)
+
+    fun capture_reports action =
+      let
+        val captured =
+          Synchronized.var
+            "block_comment_parser_test_reports" ([] : string list)
+        fun capture chunks =
+          Synchronized.change captured (append chunks)
+        val result =
+          Parser_Test_Report_Lock.run (fn () =>
+            Unsynchronized.setmp Private_Output.report_fn capture
+              (fn () =>
+                Print_Mode.with_modes [Print_Mode.PIDE] action ()) ())
+        val markup =
+          fold collect_markup
+            (maps YXML.parse_body (Synchronized.value captured)) []
+      in (result, markup) end
+
+    fun has_position properties pos =
+      Properties.get properties Markup.offsetN =
+        Option.map Value.print_int (Position.offset_of pos) andalso
+      Properties.get properties Markup.end_offsetN =
+        Option.map Value.print_int (Position.end_offset_of pos)
+
+    fun has_markup markup markup_name pos =
+      exists
+        (fn ((name, properties), _) =>
+          name = markup_name andalso has_position properties pos)
+        markup
+
+    fun count_markup markup markup_name pos =
+      length
+        (filter
+          (fn ((name, properties), _) =>
+            name = markup_name andalso has_position properties pos)
+          markup)
+
+    fun has_typing markup label pos =
+      exists
+        (fn ((name, properties), body) =>
+          name = Markup.typingN andalso
+            has_position properties pos andalso body = label)
+        markup
+
+    val physical_lambda =
+      Byte.bytesToString
+        (Word8Vector.fromList [0wxCE, 0wxBB])
+    val block_comment =
+      "/* outer physical " ^ physical_lambda ^
+      ";\n escaped \<alpha> \<Rightarrow>; operators + - * / //; " ^
+      "keyword let; numeral 7; delimiters { [ ( , ; ; " ^
+      "quote \"paired /* marker */ text\"; " ^
+      Symbol.comment ^ " " ^ Symbol.open_ ^
+      "formal-shaped /* marker */ text" ^ Symbol.close ^
+      "; /* nested /* deeply nested */ + */ end */"
+    val structural_text =
+      "1_u64" ^ block_comment ^ "+2_u64"
+    val structural_start =
+      Position.make0 41 400 0 "" "" "block-comment-structure"
+    val structural_source =
+      Parser_Lex_Util.positioned_content_source
+        structural_text structural_start
+
+    val (left_raw, left_pos) =
+      token_position structural_text structural_start "1_u64" 0
+    val (comment_raw, comment_pos) =
+      token_position structural_text structural_start block_comment left_raw
+    val (_, inner_plus_pos) =
+      token_position structural_text structural_start "+" comment_raw
+    val (_, inner_keyword_pos) =
+      token_position structural_text structural_start "let" comment_raw
+    val (_, inner_numeral_pos) =
+      token_position structural_text structural_start "7" comment_raw
+    val (_, inner_delimiter_pos) =
+      token_position structural_text structural_start "{" comment_raw
+    val (outer_plus_raw, outer_plus_pos) =
+      token_position structural_text structural_start "+"
+        (comment_raw + size block_comment)
+    val (_, right_pos) =
+      token_position structural_text structural_start "2_u64"
+        outer_plus_raw
+
+    val _ =
+      (case parse_source structural_source of
+         UE_Bin
+           (Add,
+            UE_Literal (LP_Integer (Integer_Literal ("1_u64", Source_Layout ( actual_left, _), _))),
+            UE_Literal (LP_Integer (Integer_Literal ("2_u64", Source_Layout ( actual_right, _), _))),
+            actual_operator) =>
+           (audit_assert "comment changed a neighboring literal range"
+              (same_range actual_left left_pos andalso
+               same_range actual_right right_pos);
+            audit_assert "operator range moved across the comment"
+              (same_range
+                (the_source_token_position actual_operator Operator_Token)
+                outer_plus_pos))
+       | _ =>
+           error "block-comment regression audit: expression AST changed")
+
+    val comment_free_term = checked "1_u64 + 2_u64"
+    val commented_term = checked_source structural_source
+    val _ =
+      audit_assert "comment changed the checked term"
+        (Term.aconv
+          (Term_Position.strip_positions comment_free_term,
+           Term_Position.strip_positions commented_term))
+
+    val (_, parser_markup) =
+      capture_reports
+        (fn () => ignore (checked_source structural_source))
+    val _ =
+      (audit_assert "outer comment lost full-span comment markup"
+         (count_markup parser_markup Markup.comment1N comment_pos = 1);
+       audit_assert "outer comment lost its typing label"
+         (has_typing parser_markup "block comment" comment_pos);
+       audit_assert "left numeral lost markup"
+         (has_markup parser_markup Markup.numeralN left_pos);
+       audit_assert "operator after comment lost markup"
+         (has_markup parser_markup Markup.operatorN outer_plus_pos);
+       audit_assert "right numeral lost markup"
+         (has_markup parser_markup Markup.numeralN right_pos);
+       audit_assert "comment body received operator markup"
+         (not (has_markup parser_markup Markup.operatorN inner_plus_pos));
+       audit_assert "comment body received keyword markup"
+         (not (has_markup parser_markup Markup.keyword1N inner_keyword_pos));
+       audit_assert "comment body received numeral markup"
+         (not (has_markup parser_markup Markup.numeralN inner_numeral_pos));
+       audit_assert "comment body received delimiter markup"
+         (not (has_markup parser_markup Markup.delimiterN inner_delimiter_pos)))
+
+    val string_text = "\"literal /* string */ text\""
+    val value_aq_text = "\<llangle>''/* value */''\<rrangle>"
+    val expression_aq_text =
+      "\<epsilon>\<open>literal (''/* expression */'')\<close>"
+    val _ =
+      (case parse_text string_text of
+         UE_Literal (LP_String (raw, _)) =>
+           audit_assert "block-comment-shaped string text was consumed"
+             (raw = string_text)
+       | _ => error "block-comment regression audit: string AST changed")
+    val _ =
+      (case parse_text value_aq_text of
+         UE_Literal (LP_ValAntiq (Value_Antiquotation (source, _))) =>
+           audit_assert "value antiquotation block markers were consumed"
+             (Input.string_of source = "''/* value */''")
+       | _ =>
+           error "block-comment regression audit: value antiquotation AST changed")
+    val _ =
+      (case parse_text expression_aq_text of
+         UE_ExprAntiq source =>
+           audit_assert "expression antiquotation block markers were consumed"
+             (Input.string_of source =
+               "literal (''/* expression */'')")
+       | _ =>
+           error
+             "block-comment regression audit: expression antiquotation AST changed")
+
+    val _ =
+      (case parse_option
+          (Parser_Lex_Util.text_source block_comment) of
+         NONE => ()
+       | SOME _ =>
+           error "block-comment regression audit: comment-only input was not empty")
+
+    val _ =
+      (case parse_text ("()" ^ block_comment) of
+         UE_Unit _ => ()
+       | _ =>
+           error "block-comment regression audit: comment ending at EOF changed the AST")
+
+    fun failure_details text start =
+      (case Exn.result
+          (fn () =>
+            parse_source
+              (Parser_Lex_Util.positioned_content_source text start)) () of
+         Exn.Res _ =>
+           error
+             ("block-comment regression audit: malformed source parsed: " ^
+               quote text)
+       | Exn.Exn exn =>
+           if Exn.is_interrupt exn then Exn.reraise exn
+           else
+             let val body = YXML.parse_body (Runtime.exn_message exn)
+             in (XML.content_of body, fold collect_markup body []) end)
+
+    fun failure_message text start = #1 (failure_details text start)
+
+    fun diagnostic_at markup pos =
+      exists
+        (fn ((name, properties), _) =>
+          name = Markup.positionN andalso
+          Properties.get properties Markup.offsetN =
+            Option.map Value.print_int (Position.offset_of pos) andalso
+          Properties.get properties Markup.lineN =
+            Option.map Value.print_int (Position.line_of pos))
+        markup
+
+    fun recover () =
+      (case parse_text "/* fresh /* nested */ */ ()" of
+         UE_Unit _ => ()
+       | _ =>
+           error "block-comment regression audit: lexer state did not recover")
+
+    fun expect_unterminated
+        label text start expected_line =
+      let
+        val (message, markup) = failure_details text start
+        val raw = find_from text "/*" 0
+        val opener = Position.symbol_explode (String.substring (text, 0, raw)) start
+        val _ =
+          audit_assert (label ^ " diagnostic lost its symbol offset")
+            (diagnostic_at markup opener)
+        val _ =
+          audit_assert (label ^ " diagnostic changed")
+            (String.isSubstring "unterminated block comment" message)
+        val _ =
+          audit_assert (label ^ " diagnostic moved from the outer opener")
+            (String.isSubstring
+              ("line " ^ string_of_int expected_line) message)
+        val _ = recover ()
+      in () end
+
+    val _ =
+      expect_unterminated
+        "outer"
+        "\n/* outer"
+        (Position.make0 100 1000 0 "" "" "block-comment-outer")
+        101
+    val _ =
+      expect_unterminated
+        "nested"
+        "/* outer\n  /* nested */"
+        (Position.make0 200 2000 0 "" "" "block-comment-nested")
+        200
+    val _ =
+      expect_unterminated
+        "short malformed"
+        "/*/"
+        (Position.make0 300 3000 0 "" "" "block-comment-short")
+        300
+
+    val _ =
+      expect_unterminated
+        "still-nested"
+        "/* outer\n /* nested"
+        (Position.make0 350 3500 0 "" "" "block-comment-still-nested")
+        350
+    val _ =
+      expect_unterminated
+        "after-symbols"
+        ("// escaped \<alpha>\n  /* outer\n /* nested */")
+        (Position.make0 360 3600 0 "" "" "block-comment-symbol-opener")
+        361
+
+    val unmatched_text = "1_u64 /* closed */ */ 2_u64"
+    val unmatched_start = Position.make0 400 4000 0 "" "" "block-comment-unmatched"
+    val (_, unmatched_slash) = token_position unmatched_text unmatched_start "/" (size "1_u64 /* closed */ *")
+    val (unmatched_message, unmatched_markup) =
+      failure_details unmatched_text unmatched_start
+    val _ =
+      (audit_assert "unmatched closer became a lexer error"
+         (String.isSubstring "syntax error found at /" unmatched_message andalso
+          not (String.isSubstring "unexpected input" unmatched_message));
+       audit_assert "unmatched closer diagnostic moved from slash"
+         (diagnostic_at unmatched_markup unmatched_slash);
+       recover ())
+
+
+    fun expect_state_rejection (label, text) =
+      let
+        val start = Position.make0 500 5000 0 "" "" label
+        val (_, slash) = token_position text start "/" 0
+        val (message, markup) = failure_details text start
+        val _ =
+          audit_assert (label ^ " admitted block layout")
+            (String.isSubstring "unexpected input \"/\"" message)
+        val _ =
+          audit_assert (label ^ " rejection lost its slash position")
+            (diagnostic_at markup slash)
+      in recover () end
+    val _ = List.app expect_state_rejection
+      [("block-comment-generic", "f::<1 /* layout */ + 2>()"),
+       ("block-comment-logdata", "l\<llangle>\"value\", /* layout */ True\<rrangle>")]
+
+    fun expect_enclosing_comment (label, text) =
+      let
+        val (expression, markup) = capture_reports (fn () => parse_text text)
+        val _ = (case expression of UE_Unit _ => ()
+          | _ => error ("block-comment regression audit: " ^ label ^ " changed AST"))
+        val _ =
+          audit_assert (label ^ " leaked into block-comment state")
+            (not (exists (fn ((name, _), body) =>
+              name = Markup.typingN andalso body = "block comment") markup))
+      in recover () end
+    val _ = List.app expect_enclosing_comment
+      [("Rust line comment", "// /* unclosed opener and extra closer */ */ /*\n()"),
+       ("Isabelle formal comment",
+        Symbol.comment ^ " " ^ Symbol.open_ ^ "/* unclosed */ */ /*" ^ Symbol.close ^ " ()")]
+
+    val _ =
+      (case parse_text "\"*/ /* unclosed\"" of
+         UE_Literal (LP_String (text, _)) =>
+           audit_assert "unbalanced markers in string were consumed"
+             (text = "\"*/ /* unclosed\"")
+       | _ => error "block-comment regression audit: opaque string AST")
+    val _ =
+      (case parse_text "\<llangle>''*/ /* unclosed''\<rrangle>" of
+         UE_Literal (LP_ValAntiq (Value_Antiquotation (source, _))) =>
+           audit_assert "unbalanced value-antiquotation markers were consumed"
+             (Input.string_of source = "''*/ /* unclosed''")
+       | _ => error "block-comment regression audit: opaque value antiquotation AST")
+    val _ =
+      (case parse_text "\<epsilon>\<open>literal (''*/ /* unclosed'')\<close>" of
+         UE_ExprAntiq source =>
+           audit_assert "unbalanced expression-antiquotation markers were consumed"
+             (Input.string_of source = "literal (''*/ /* unclosed'')")
+       | _ => error "block-comment regression audit: opaque expression antiquotation AST")
+
+    val adjacent_left = "/* first \<alpha> */"
+    val adjacent_right = "/*! second\n /* inner */ */"
+    val adjacent_text = adjacent_left ^ adjacent_right ^ "()"
+    val adjacent_start = Position.make0 600 6000 0 "" "" "block-comment-adjacent"
+    val (_, adjacent_left_pos) = token_position adjacent_text adjacent_start adjacent_left 0
+    val (_, adjacent_right_pos) = token_position adjacent_text adjacent_start adjacent_right 0
+    val (_, adjacent_markup) = capture_reports (fn () =>
+      parse_source (Parser_Lex_Util.positioned_content_source adjacent_text adjacent_start))
+    val _ =
+      List.app (fn pos =>
+        audit_assert "adjacent comment lost its separate full range"
+          (count_markup adjacent_markup Markup.comment1N pos = 1 andalso
+           has_typing adjacent_markup "block comment" pos))
+        [adjacent_left_pos, adjacent_right_pos]
+
+    val _ =
+      (case parse_text "if * /* prefix */base/* postfix */[index] as/* cast */u64 { () }" of
+         UE_If
+           (UE_Cast (UE_Unary (U_Deref, UE_Index (UE_Path _, UE_Path _, _), _),
+             SCT_Primitive (CT_Unsigned UT_U64, _), _), _, _, _) => ()
+       | _ => error "block-comment regression audit: control-head precedence or primitive cast")
+    val _ =
+      List.app (fn text =>
+        (ignore (failure_message text (Position.make0 700 7000 0 "" "" "block-comment-split"));
+         recover ()))
+        ["va/* gap */lue", "1/* gap */u64", "1u64 </* gap */= 2u64"]
+  in
+    val _ =
+      writeln
+        "Block-comment AST, term-shape, markup, diagnostics, and recovery regressions passed"
+  end
+\<close>
+
+chapter\<open> Printer \<close>
 
 section\<open> Canonical AST printer \<close>
+
+declare [[urust_verbosity = 2]]
 
 ML\<open>
 structure Parser_Printer_Test =
@@ -252,132 +1217,6 @@ ML_val\<open>
   in
     ()
   end
-\<close>
-
-subsection\<open> Human-readable printer examples \<close>
-
-text\<open>
-The declaration corpus enables \<open>urust_pp_test\<close>, so every ordinary
-\<open>urust_expr\<close> and \<open>urust_fn\<close> instance exercises serialized roundtripping.
-The common \<open>pretty\<close> option changes verbosity-controlled declaration output to the
-position-independent human mode inside a symbolic \<open>\<mu>\<open>...\<close>\<close> wrapper. This visual
-wrapper is unrelated to source quotation syntax. Printed functions place \<open>FunctionBody\<close> before
-the wrapper, distinguishing them from expressions. Human mode removes redundant groups while
-retaining groups required by precedence and grammar.
-\<close>
-
-urust_expr [pretty, verbosity = 1]
-  printer_human_expression
-  \<open>
-    (((let value = 1 + 2 * 3; value)))
-  \<close>
-
-urust_fn [pretty, verbosity = 1]
-  printer_human_function
-  \<open>
-  fn printer_human_function(item: u64) -> u64 {
-    let value = (((item)));
-    (value + 1u64) * 2u64
-  }
-  \<close>
-
-subsection\<open> Complex human-readable printer examples \<close>
-
-text\<open>
-These declarations are deliberately large enough for the human-mode output to demonstrate
-multiline blocks, indentation, nested control flow, pattern guards, precedence-sensitive grouping,
-and binder markup. With this theory open in Isabelle/jEdit, the rendered right-hand sides appear in
-the output panel as ordinary readable uRust, visibly enclosed by \<open>\<mu>\<open>...\<close>\<close>, rather than
-elaborated HOL.
-\<close>
-
-text\<open>
-The first example is a typed function with mutable state, array iteration, compound assignment, and
-a final conditional. Its two command parameters appear as applications on the rendered left-hand
-side. The printer keeps the source-level function body while laying out each block and statement
-independently.
-\<close>
-
-urust_fn [pretty, verbosity = 1]
-  printer_human_accumulate
-  \<open>
-  fn printer_human_accumulate(seed: u32, limit: u32) -> u32 {
-    let mut total = seed;
-    for value in [1_u32, 2_u32, 3_u32] {
-      *total += value;
-    }
-    if *total > limit {
-      *total
-    } else {
-      *total * 2_u32
-    }
-  }
-  \<close>
-
-text\<open>
-This function is a focused line-layout demonstration. Each branch contains a statement before its
-result, so the InfoView output must put code after an opening brace on a new line, indent nested
-blocks by two spaces, and retain \<open>} else {\<close> on one line.
-\<close>
-
-urust_fn [pretty, verbosity = 1]
-  printer_human_line_breaks
-  \<open>
-  fn printer_human_line_breaks(number: u32) -> u32 {
-    if number > 10_u32 {
-      let reduced = number / 2_u32;
-      if reduced > 3_u32 {
-        let adjusted = reduced + 1_u32;
-        adjusted
-      } else {
-        let unchanged = reduced;
-        unchanged
-      }
-    } else {
-      let raised = number + 10_u32;
-      raised * 2_u32
-    }
-  }
-  \<close>
-
-text\<open>
-The second example combines nested bindings with an option match, guarded arms, and a block-valued
-arm. It makes the printer's match-arm alignment and nested indentation visible.
-\<close>
-
-urust_expr [pretty, verbosity = 1]
-  printer_human_decision_tree
-  \<open>
-    let floor = \<llangle>0 :: 32 word\<rrangle>;
-    let candidate = \<llangle>Some (12 :: 32 word)\<rrangle>;
-    match candidate {
-      Some(value) if value > 10_u32 => {
-        let reduced = value / 2_u32;
-        reduced + 1_u32
-      },
-      Some(value) if value > floor => value,
-      None => floor
-    }
-  \<close>
-
-text\<open>
-The final example returns a closure that captures an outer value. Its body contains another binding
-and conditional, showing that closure bars, captured binders, and nested blocks retain their
-source-level presentation.
-\<close>
-
-urust_expr [pretty, verbosity = 1]
-  printer_human_closure_pipeline
-  \<open>
-    let offset = \<llangle>1 :: 32 word\<rrangle>;
-    |value| {
-      let adjusted = value + offset;
-      if adjusted > 10_u32 {
-        adjusted
-      } else {
-        adjusted * 2_u32
-      }
-    }
 \<close>
 
 subsection\<open> Datatype token, pretty, and string operations \<close>

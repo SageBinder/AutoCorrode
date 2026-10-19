@@ -1,11 +1,13 @@
+(* Shared ML support and test-only commands for the parser tests. *)
+
 theory Parser_Test_Utils
-  imports Micro_Rust_Parser_Impl.Parser_Impl_Command
+  imports
+    Micro_Rust_Parser_Impl.Parser_Impl_Command
   keywords "urust_expr_rejects" :: thy_decl
 begin
 
-declare [[urust_pp_test = true]]
-declare [[urust_pretty = true]]
-declare [[urust_verbosity = 2]]
+declare [[urust_pp_test = true, urust_pretty = true, urust_verbosity = 2, urust_abbrev = false,
+  urust_application_def = false, urust_register_notation = true]]
 
 ML\<open>
 structure Parser_Test_Report_Lock =

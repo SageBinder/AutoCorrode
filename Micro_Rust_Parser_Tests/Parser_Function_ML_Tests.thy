@@ -1,24 +1,21 @@
-(* Internal urust_fn regression audits. Read Parser_Function_Tests for command syntax. *)
+(* ML audits for urust_fn declarations; the readable examples are in Parser_Function_Examples. *)
 
-theory Parser_Function_Regression_Tests
-  imports Parser_Function_Tests
+theory Parser_Function_ML_Tests
+  imports
+    Parser_Function_Examples
+    Micro_Rust_Parser_Impl.Parser_Impl_Chunk
 begin
 
-declare [[urust_pp_test = true]]
-declare [[urust_pretty = false]]
-declare [[urust_verbosity = 0]]
-declare [[urust_abbrev = false]]
-declare [[urust_application_def = false]]
-declare [[urust_register_notation = true]]
+declare [[urust_pp_test = true, urust_pretty = false, urust_verbosity = 0, urust_abbrev = false,
+  urust_application_def = false, urust_register_notation = true]]
+
 text\<open>
-This theory checks the declarations in Parser_Function_Tests and runs isolated negative
-commands. Its ML fixtures are test infrastructure; the imported function theory presents
-the public syntax through ordinary declarations.
+This theory checks the declarations in Parser_Function_Examples and runs isolated negative commands.
+Its ML fixtures are test infrastructure; the imported function theory presents the public syntax
+through ordinary declarations.
 \<close>
 
-
 chapter\<open> Function items, artifacts and parser recovery \<close>
-
 
 section\<open> Name conversion and registration scope \<close>
 
@@ -105,29 +102,6 @@ ML_val\<open>
 
 section\<open> Generated equations and declaration artifacts \<close>
 
-lemma explicit_hol_name_shape:
-  \<open>explicit_hol_name =
-    (\<lambda>x _. FunctionBody (literal x))\<close>
-  by (simp add: explicit_hol_name_def)
-
-lemma inferred_hol_name_shape:
-  \<open>http_server = FunctionBody (literal ())\<close>
-  by (simp add: http_server_def)
-
-lemma mixed_parameter_slots_shape:
-  \<open>mixed_parameter_slots =
-    (\<lambda>_ _ retained _. FunctionBody (literal retained))\<close>
-  by (simp add: mixed_parameter_slots_def)
-
-lemma empty_block_shape:
-  \<open>empty_block = FunctionBody (literal ())\<close>
-  by (simp add: empty_block_def)
-
-lemma commented_signature_shape:
-  \<open>commented_signature =
-    (\<lambda>value. FunctionBody (literal value))\<close>
-  by (simp add: commented_signature_def)
-
 ML_val\<open>
   let
     val ctxt = \<^context>
@@ -195,25 +169,7 @@ ML_val\<open>
   end
 \<close>
 
-thm authoritative_signature_def
-thm attributed_application_function_def
-thm configured_function_def
-thm http2_xml_parser_def
-thm already_snake_def
-
 section\<open> AST structure and signature printer roundtrips \<close>
-
-urust_datatype shared_item \<open> struct SharedItem; \<close>
-
-definition notation_function_target ::
-    \<open>64 word \<Rightarrow>
-      (unit, 64 word, unit, unit, unit) function_body\<close>
-  where
-    \<open>notation_function_target =
-      (\<lambda>x. FunctionBody (literal x))\<close>
-
-urust_notation (call)
-  notation_function_target ("NotationClash")
 
 ML\<open>
 local
@@ -791,7 +747,7 @@ local
     reject "rust-function-forward-reference"
       "unresolved body name \"LaterFunction\""
       (command "forward_reference"
-        "fn ForwardReference(x: u64) -> u64 { LaterFunction(x) }")
+        "fn RejectedForwardReference(x: u64) -> u64 { LaterFunction(x) }")
   val _ =
     reject "rust-function-item-as-value"
       "unresolved body name \"RustMaximumCallArity\""
@@ -1077,56 +1033,7 @@ in
 end
 \<close>
 
-chapter\<open> Iterator semantic regressions \<close>
-
-lemma iterator_zip_empty:
-  shows \<open>iterator_zip zip_left_empty zip_right_two =
-    fun_literal (make_iterator [])\<close>
-  by (simp add: iterator_zip_def zip_left_empty_def zip_right_two_def)
-
-lemma iterator_zip_empty_right:
-  shows \<open>iterator_zip zip_left_two
-    (make_iterator [] :: zip_right_iterator) =
-    fun_literal (make_iterator [])\<close>
-  by (simp add: iterator_zip_def zip_left_two_def)
-
-lemma iterator_zip_equal_length:
-  shows \<open>iterator_zip zip_left_two zip_right_two =
-    fun_literal (make_iterator
-      [iterator_zip_thunk (fun_literal 1) (fun_literal True),
-       iterator_zip_thunk (fun_literal 2) (fun_literal False)])\<close>
-  by (simp add: iterator_zip_def zip_left_two_def zip_right_two_def)
-
-lemma iterator_zip_truncates_to_shorter:
-  shows \<open>iterator_zip zip_left_two zip_right_one =
-    fun_literal (make_iterator
-      [iterator_zip_thunk (fun_literal 1) (fun_literal True)])\<close>
-  by (simp add: iterator_zip_def zip_left_two_def zip_right_one_def)
-
-lemma iterator_zip_truncates_when_left_is_shorter:
-  shows \<open>iterator_zip zip_left_one zip_right_two =
-    fun_literal (make_iterator
-      [iterator_zip_thunk (fun_literal 1) (fun_literal True)])\<close>
-  by (simp add: iterator_zip_def zip_left_one_def zip_right_two_def)
-
-lemma iterator_zip_effect_order_and_single_evaluation:
-  shows \<open>evaluate
-    (call (iterator_zip_thunk
-      (zip_effect_thunk 1 (10 :: nat))
-      (zip_effect_thunk 2 True))) [] =
-    Success (10, True, TNil) [1, 2]\<close>
-  by (simp add: iterator_zip_thunk_def zip_effect_thunk_def call_def
-      evaluate_call_function_body bind_evaluate put_def literal_def
-      Core_Expression.bind.simps Core_Expression.call_function_body.simps
-      evaluate_def)
-
-lemma hol_list_zip_is_unchanged:
-  shows \<open>List.zip [1 :: nat, 2] [True] = [(1, True)]\<close>
-  by simp
-
-
 chapter\<open> Signature inference and registration regressions \<close>
-
 
 section\<open> Audit helpers \<close>
 
@@ -1353,16 +1260,7 @@ struct
 end
 \<close>
 
-
 section\<open> Types, effect channels and wrapper shape \<close>
-
-lemma signature_custom_shape:
-  \<open> signature_custom = (\<lambda>value. FunctionBody (literal value)) \<close>
-  by (simp only: signature_custom_def)
-
-lemma signature_mixed_slots_shape:
-  \<open> signature_mixed_slots = (\<lambda>_ _ retained _. FunctionBody (literal retained)) \<close>
-  by (simp only: signature_mixed_slots_def)
 
 ML_val \<open>
   local
@@ -1926,12 +1824,6 @@ ML_val \<open>
 \<close>
 
 section\<open> Occupied paths, atomic rejection, and recovery \<close>
-
-definition signature_existing_call ::
-  \<open> 8 word \<Rightarrow> ('s, 8 word, 'abort, 'i, 'o) function_body \<close>
-  where \<open> signature_existing_call value = FunctionBody (literal value) \<close>
-
-urust_notation (call) signature_existing_call ("SignatureExistingCall")
 
 ML_val \<open>
   local
@@ -3053,6 +2945,1464 @@ ML_val \<open>
   in
     val _ = ()
   end
+\<close>
+
+chapter\<open> Semantic function types \<close>
+
+section\<open> Full declaration types and kernel equalities \<close>
+
+declare [[urust_pretty = true, urust_verbosity = 2]]
+
+ML_val\<open>
+  local
+    open Parser_Function_Regression_Test
+    val ctxt = \<^context>
+    fun same_type name expected =
+      require (name ^ ": full declaration type changed")
+        (Sign.typ_equiv (Proof_Context.theory_of ctxt)
+          (declared_type ctxt name, Logic.varifyT_global expected))
+    val _ =
+      same_type "semantic_identity"
+        \<^typ>\<open>nat \<Rightarrow>
+          ('s::cancellative_sepalg, nat, bool, nat prompt, unit prompt_output) function_body\<close>
+    val _ =
+      same_type "semantic_unused_callback"
+        \<^typ>\<open>nat \<Rightarrow> (nat \<Rightarrow> ('s::cancellative_sepalg, unit, 'abort, 'i, 'o) function_body) \<Rightarrow>
+          ('s, nat, 'abort, 'i, 'o) function_body\<close>
+    val _ =
+      same_type "semantic_fixed_caller"
+        \<^typ>\<open>nat \<Rightarrow> (unit, nat, bool, nat prompt, unit prompt_output) function_body\<close>
+    val (state, _, abort, input, output) =
+      channels (declared_type ctxt "semantic_polymorphic_identity")
+    val _ = independent "unannotated channels no longer generalize" [state, abort, input, output]
+  in val _ = () end
+\<close>
+
+section\<open> Holes, shared names and independent call instances \<close>
+
+ML_val\<open>
+  local
+    open Parser_Function_Regression_Test
+    val ctxt = \<^context>
+    val typ = declared_type ctxt "semantic_channel_sharing"
+    val (state, result, abort, input, output) = channels typ
+    val _ = require "channel and signature names did not share" (result = abort andalso
+      binder_types typ = [result] andalso input = output)
+    val _ = require "shared channel sort was lost"
+      (Sign.subsort (Proof_Context.theory_of ctxt) (sort_of result, \<^sort>\<open>linorder\<close>))
+    val _ = independent "unrelated shared names were captured" [state, result, input]
+    val holes = declared_type ctxt "semantic_sorted_holes"
+    val (s, r, a, i, o') = channels holes
+    val _ = require "omitted result is not unit" (r = \<^typ>\<open>unit\<close>)
+    val _ = independent "sorted holes became identified" (binder_types holes @ [s, a, i, o'])
+    val _ =
+      List.app (fn (typ, expected) =>
+        require "channel hole lost its sort"
+          (Sign.subsort (Proof_Context.theory_of ctxt) (sort_of typ, expected)))
+        [(s, \<^sort>\<open>cancellative_sepalg\<close>), (a, \<^sort>\<open>linorder\<close>),
+         (i, \<^sort>\<open>finite\<close>), (o', \<^sort>\<open>order\<close>)]
+  in val _ = () end
+\<close>
+
+ML_val\<open>
+  local
+    open Parser_Function_Regression_Test
+    val ctxt = \<^context>
+    val typ = declared_type ctxt "semantic_independent_holes"
+    val [left, right] = binder_types typ
+    val (state, result, abort, input, output) = channels typ
+    val _ = require "result is not connected to the used parameter" (left = result)
+    val _ = require "concrete abort was lost" (abort = \<^typ>\<open>bool\<close>)
+    val _ = independent "independent annotation holes became identified" [left, right, state, input, output]
+    val _ = require "signature variable names failed to share"
+      (hd (binder_types (declared_type ctxt "semantic_shared_names")) =
+        #2 (channels (declared_type ctxt "semantic_shared_names")))
+    val _ = require "semantic type synonym changed the full declaration scheme"
+      (Sign.typ_equiv (Proof_Context.theory_of ctxt)
+        (declared_type ctxt "semantic_synonym_identity", declared_type ctxt "semantic_identity"))
+    val pointer_type = declared_type ctxt "semantic_pointer_identity"
+    val _ = require "annotation lost a pointer backend parameter"
+      (Sign.typ_equiv (Proof_Context.theory_of ctxt)
+        (pointer_type, Logic.varifyT_global
+          \<^typ>\<open>('addr, 'global, 8 word) Global_Store.ref \<Rightarrow>
+            ('s::cancellative_sepalg, ('addr, 'global, 8 word) Global_Store.ref,
+              bool, nat prompt, unit prompt_output) function_body\<close>))
+  in val _ = () end
+\<close>
+
+section\<open> Locale fixes and interpreted contexts \<close>
+
+context semantic_type_locale
+begin
+
+ML_val\<open>
+  local
+    open Parser_Function_Regression_Test
+    val typ =
+      Syntax.read_term \<^context>
+        ("semantic_locale_unused :: " ^
+          "('s \<Rightarrow> ('s, unit, bool, 'i, 'o) function_body) \<Rightarrow> " ^
+          "('s, unit, bool, 'i, 'o) function_body")
+      |> fastype_of
+    val callback = hd (binder_types typ)
+    val (state, _, _, _, _) = channels typ
+    val _ = require "locale state became flexible" (state = \<^typ>\<open>'s\<close>)
+    val _ = require "locale callback state link was lost" (hd (binder_types callback) = state)
+  in val _ = () end
+\<close>
+
+end
+
+section\<open> Every channel combination and default unit results \<close>
+
+ML_val\<open>
+  local
+    open Parser_Function_Regression_Test
+    val base = initial \<^theory>
+    val ctxt = Toplevel.context_of base
+    val entries =
+      [("state", "'s::cancellative_sepalg"),
+       ("abort", "bool"), ("input", "nat prompt"), ("output", "unit prompt_output")]
+    fun subsets [] = [[]]
+      | subsets (entry :: rest) =
+          let val smaller = subsets rest in smaller @ map (cons entry) smaller end
+    fun check selected =
+      let
+        val options =
+          if null selected then ""
+          else "[" ^ commas (map (fn (name, typ) => name ^ " = " ^ cartouche typ) selected) ^ "]"
+        fun channel name fallback =
+          the_default fallback (AList.lookup (op =) selected name)
+        val expected =
+          "nat \<Rightarrow> (" ^ commas
+            [channel "state" "'s", "unit", channel "abort" "'abort",
+             channel "input" "'input", channel "output" "'output"] ^ ") function_body"
+        fun run annotation =
+          run_from base ("semantic-combination-" ^ space_implode "-" (map fst selected))
+            (command options "semantic_combination"
+              ("fn SemanticCombination(value: \<tau>" ^ cartouche "nat" ^ ")" ^
+                annotation ^ " { () }"))
+          |> Toplevel.context_of
+        val omitted = run ""
+        val explicit = run " -> ()"
+        val _ =
+          List.app (fn context =>
+            require ("channel combination changed its complete type: " ^ options)
+              (Sign.typ_equiv (Proof_Context.theory_of context)
+                (declared_type context "semantic_combination",
+                 Logic.varifyT_global (Syntax.read_typ ctxt expected))))
+            [omitted, explicit]
+        val _ = require "default unit changed the definition"
+          (Term.aconv (rhs omitted "semantic_combination", rhs explicit "semantic_combination"))
+      in () end
+    val _ = List.app check (subsets entries)
+  in val _ = () end
+\<close>
+
+section\<open> Artifacts, options, positioned failures and rollback \<close>
+
+ML_val\<open>
+  local
+    open Parser_Function_Regression_Test
+    val base = initial \<^theory>
+    val ctxt = Toplevel.context_of base
+    val semantic_type =
+      "nat \<Rightarrow> (unit, nat, bool, nat prompt, unit prompt_output) function_body"
+    val channel_options =
+      "state = " ^ cartouche "unit" ^ ", abort = " ^ cartouche "bool" ^
+      ", input = " ^ cartouche "nat prompt" ^ ", output = " ^ cartouche "unit prompt_output"
+    val option = "[" ^ channel_options ^ "]"
+    val item = "fn SemanticArtifact(value: \<tau>" ^ cartouche "nat" ^
+      ") -> \<tau>" ^ cartouche "nat" ^ " { value }"
+    fun run options target = run_from base "semantic-artifact" (command options target item)
+    val normal = run option "semantic_artifact" |> Toplevel.context_of
+    val application =
+      run ("[" ^ channel_options ^ ", application_def]") "semantic_application"
+      |> Toplevel.context_of
+    val abbreviated =
+      run ("[" ^ channel_options ^ ", abbrev]") "semantic_abbreviated"
+      |> Toplevel.context_of
+    val suppressed =
+      run ("[register_notation = false, " ^ channel_options ^ "]") "semantic_suppressed"
+      |> Toplevel.context_of
+    val _ = require "application definition lost source argument"
+      (is_Const (fst (Logic.dest_equals (Thm.prop_of (theorem normal "semantic_artifact")))) andalso
+        not (is_Const (fst (Logic.dest_equals (Thm.prop_of (theorem application "semantic_application"))))))
+    val _ = require "abbreviation installed a definition theorem"
+      (is_none (try (fn () => theorem abbreviated "semantic_abbreviated") ()))
+    val _ = require "registration suppression lost the constant"
+      (Sign.typ_equiv (Proof_Context.theory_of suppressed)
+        (declared_type suppressed "semantic_suppressed", Syntax.read_typ ctxt semantic_type))
+    val _ = registry_unchanged "suppressed semantic function" ctxt suppressed
+    val anonymous = run option "_" |> Toplevel.context_of
+    val _ = require "anonymous semantic declaration installed a constant"
+      (constant_snapshot ctxt = constant_snapshot anonymous)
+    val _ = registry_unchanged "anonymous semantic function" ctxt anonymous
+
+    fun reject_text label expected text =
+      let
+        val (result, reports) =
+          Parser_Test_Reports.markup (fn () =>
+            Exn.capture (run_from base label) text)
+        val diagnostic = message result
+        val _ = require (label ^ ": wrong diagnostic")
+          (String.isSubstring expected diagnostic)
+        val _ = require (label ^ ": no source position")
+          (String.isSubstring label diagnostic andalso not (null (diagnostic_ranges diagnostic)))
+        val _ = require (label ^ ": installed declaration markup")
+          (null (declaration_definitions reports))
+        val _ = require (label ^ ": mutated constant table")
+          (constant_snapshot ctxt = constant_snapshot (Toplevel.context_of base))
+        val _ = registry_unchanged label ctxt (Toplevel.context_of base)
+        val _ = ignore (run_from base (label ^ "-recovery") (command option "semantic_failure" item))
+      in () end
+    fun reject label expected options body =
+      reject_text label expected (command options "semantic_failure" body)
+    fun typed name typ = "[" ^ name ^ " = " ^ cartouche typ ^ "]"
+    val _ = reject "semantic-removed-type" "unknown uRust command option \"type\""
+      (typed "type" semantic_type) item
+    val _ = reject "semantic-removed-type-malformed" "unknown uRust command option \"type\""
+      "[type = [broken]]" item
+    val _ = reject "semantic-omitted-nonunit" "Type unification failed"
+      "" "fn SemanticMismatch(value: u64) { value }"
+    val _ = reject "semantic-omitted-nonunit-channels" "Type unification failed"
+      option "fn SemanticMismatch(value: \<tau>\<open>nat\<close>) { value }"
+    val _ = reject "semantic-explicit-unit-mismatch" "Type unification failed"
+      "" "fn SemanticMismatch(value: u64) -> () { value }"
+    val _ = reject "semantic-return-mismatch" "Type unification failed"
+      option "fn SemanticMismatch(value: \<tau>\<open>nat\<close>) -> bool { value }"
+    val _ = reject "semantic-parameter-mismatch" "Type unification failed"
+      option "fn SemanticMismatch(value: bool) -> \<tau>\<open>nat\<close> { value }"
+    val _ = reject "semantic-incompatible-sort" "Type unification failed"
+      (typed "state" "'a::cancellative_sepalg")
+      "fn SemanticMismatch(value: \<tau>\<open>'a\<close>) -> \<tau>\<open>nat\<close> { value }"
+    val _ = reject "semantic-body-mismatch" "Type unification failed"
+      option "fn SemanticMismatch(value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { true }"
+    val _ = reject "semantic-state-mismatch" "Type unification failed"
+      (typed "state" "bool")
+      "fn SemanticMismatch() -> \<tau>\<open>nat\<close> { \<epsilon>\<open>get (\<lambda>s::nat. s)\<close> }"
+    val _ = reject "semantic-abort-mismatch" "Type unification failed"
+      (typed "abort" "unit")
+      "fn SemanticMismatch() { \<epsilon>\<open>abort (CustomAbort True)\<close> }"
+    val fixed_body =
+      "fn SemanticMismatch() { \<epsilon>\<open>literal () :: " ^
+      "(unit, unit, unit, bool, nat prompt, unit prompt_output) expression\<close> }"
+    val _ = reject "semantic-input-mismatch" "Type unification failed"
+      (typed "input" "bool") fixed_body
+    val _ = reject "semantic-output-mismatch" "Type unification failed"
+      (typed "output" "bool") fixed_body
+    val _ = reject "semantic-shared-sort-concrete" "Type unification failed"
+      (typed "abort" "'a::cancellative_sepalg")
+      "fn SemanticMismatch(value: \<tau>\<open>'a\<close>) -> \<tau>\<open>'a\<close> { \<llangle>0::nat\<rrangle> }"
+    val _ =
+      List.app (fn name =>
+        (reject ("semantic-duplicate-" ^ name) "duplicate uRust command option"
+          ("[" ^ name ^ " = " ^ cartouche "unit" ^ ", " ^ name ^ " = " ^ cartouche "unit" ^ "]") item;
+         reject ("semantic-missing-" ^ name) "expects a HOL type" ("[" ^ name ^ "]") item;
+         reject ("semantic-wrong-" ^ name) "expects a HOL type" ("[" ^ name ^ " = true]") item;
+         reject ("semantic-integer-" ^ name) "expects a HOL type" ("[" ^ name ^ " = 1]") item;
+         reject ("semantic-malformed-" ^ name) "Failed to parse type"
+           (typed name "unit \<Rightarrow>") item))
+        ["state", "abort", "input", "output"]
+    val _ = reject_text "semantic-rigid-locale" "Type unification failed"
+      ("context semantic_type_locale begin\n" ^
+        command (typed "state" "'s")
+          "semantic_failure"
+          "fn SemanticMismatch() { \<epsilon>\<open>put (\<lambda>_::unit. ())\<close> }")
+  in val _ = () end
+\<close>
+
+chapter\<open> Scoped channel defaults \<close>
+
+section\<open> Inherited and overridden channels \<close>
+
+declare [[urust_pretty = false, urust_verbosity = 0]]
+
+ML_val\<open>
+  local
+    open Parser_Function_Regression_Test
+    val ctxt = \<^context>
+    fun same_type label (name, expected) =
+      require (label ^ ": " ^ name)
+        (Sign.typ_equiv (Proof_Context.theory_of ctxt)
+          (declared_type ctxt name, Logic.varifyT_global expected))
+    val _ =
+      same_type "default differs from the inline channels"
+        ("default_identity", Logic.unvarifyT_global (declared_type ctxt "semantic_identity"))
+    val _ =
+      same_type "override replaced more than its channel"
+        ("default_abort_override",
+         \<^typ>\<open>nat \<Rightarrow>
+           ('s::cancellative_sepalg, nat, unit, nat prompt, unit prompt_output) function_body\<close>)
+    val (state, _, abort, input, output) = channels (declared_type ctxt "default_outside_scope")
+    val _ = independent "default escaped its context block" [state, abort, input, output]
+
+    (* The readable examples in Parser_Function_Tests. *)
+    val _ =
+      same_type "scoped example differs from the inline channels"
+        ("scoped_identity", Logic.unvarifyT_global (declared_type ctxt "semantic_identity"))
+    val _ =
+      same_type "scoped example override replaced more than its channel"
+        ("scoped_unit_abort_identity", Logic.unvarifyT_global (declared_type ctxt "default_abort_override"))
+    val (state, _, _, _, _) = channels (declared_type ctxt "scoped_any_state_identity")
+    val _ = require "scoped example hole kept the state default"
+      (generic state andalso
+        not (Sign.subsort (Proof_Context.theory_of ctxt)
+          (sort_of state, \<^sort>\<open>cancellative_sepalg\<close>)))
+  in val _ = () end
+\<close>
+
+section\<open> Members of an item list \<close>
+
+context
+  notes [[urust_state = \<open>'s::cancellative_sepalg\<close>, urust_abort = \<open>bool\<close>]]
+begin
+
+urust \<open>
+  fn DefaultChunkInherited(value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { value }
+
+  \<omega>\<open>abort = \<open>unit\<close>\<close>
+  fn DefaultChunkOverride(value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { value }
+\<close>
+
+end
+
+ML_val\<open>
+  local
+    open Parser_Function_Regression_Test
+    val ctxt = \<^context>
+    fun check name expected_abort =
+      let
+        val (state, _, abort, input, output) = channels (declared_type ctxt name)
+      in
+        require (name ^ ": inherited state was lost")
+          (generic state andalso
+            Sign.subsort (Proof_Context.theory_of ctxt)
+              (sort_of state, \<^sort>\<open>cancellative_sepalg\<close>));
+        require (name ^ ": wrong abort channel") (abort = expected_abort);
+        independent (name ^ ": unset channels became constrained") [state, input, output]
+      end
+    val _ = check "default_chunk_inherited" \<^typ>\<open>bool\<close>
+    val _ = check "default_chunk_override" \<^typ>\<open>unit\<close>
+  in val _ = () end
+\<close>
+
+section\<open> Equivalence, precedence, removal and sharing \<close>
+
+ML\<open>
+structure Parser_Channel_Default_Test =
+struct
+  open Parser_Function_Regression_Test
+
+  val channel_names = ["state", "abort", "input", "output"]
+
+  fun subsets [] = [[]]
+    | subsets (entry :: rest) =
+        let val smaller = subsets rest in smaller @ map (cons entry) smaller end
+
+  fun inline_options [] = ""
+    | inline_options entries =
+        "[" ^ commas (map (fn (name, typ) => name ^ " = " ^ cartouche typ) entries) ^ "]"
+
+  fun declare_defaults [] = ""
+    | declare_defaults entries =
+        "declare [[" ^
+          commas (map (fn (name, typ) => "urust_" ^ name ^ " = " ^ cartouche typ) entries) ^
+          "]]\n"
+
+  fun context_after base label text = run_from base label text |> Toplevel.context_of
+
+  fun same_scheme label (context, name) expected =
+    require label
+      (Sign.typ_equiv (Proof_Context.theory_of context)
+        (declared_type context name, Logic.varifyT_global expected))
+
+  fun file_markup label =
+    exists (fn (_, properties) => Properties.get properties Markup.fileN = SOME label)
+end
+\<close>
+
+ML_val\<open>
+  local
+    open Parser_Channel_Default_Test
+    val base = initial \<^theory>
+    val ctxt = Toplevel.context_of base
+    val defaults =
+      [("state", "'s::cancellative_sepalg"), ("abort", "bool"),
+       ("input", "nat prompt"), ("output", "unit prompt_output")]
+    val overrides =
+      [("state", "unit"), ("abort", "nat"), ("input", "bool prompt"), ("output", "nat prompt_output")]
+    val item = "fn DefaultCombination(value: \<tau>" ^ cartouche "nat" ^ ") { () }"
+    fun expected selected fallback =
+      let
+        fun channel name = the_default (fallback name) (AList.lookup (op =) selected name)
+      in
+        Syntax.read_typ ctxt
+          ("nat \<Rightarrow> (" ^
+            commas [channel "state", "unit", channel "abort", channel "input", channel "output"] ^
+            ") function_body")
+      end
+    fun label prefix selected = space_implode "-" (prefix :: map fst selected)
+
+    (* Scoped defaults agree exactly with the same inline options. *)
+    fun inherit selected =
+      let
+        val inherited =
+          context_after base (label "default-inherit" selected)
+            (declare_defaults selected ^ command "" "default_combination" item)
+        val inline =
+          context_after base (label "default-inline" selected)
+            (command (inline_options selected) "default_combination" item)
+        val _ =
+          same_scheme ("inherited channels changed the complete type: " ^ inline_options selected)
+            (inherited, "default_combination")
+            (expected selected (fn name => "'" ^ name))
+      in
+        require "inherited channels changed the definition"
+          (Term.aconv (rhs inherited "default_combination", rhs inline "default_combination"))
+      end
+    val _ = List.app inherit (subsets defaults)
+
+    (* Each inline option replaces exactly its own channel. *)
+    fun override selected =
+      same_scheme ("override changed another channel: " ^ inline_options selected)
+        (context_after base (label "default-override" selected)
+          (declare_defaults defaults ^
+            command (inline_options selected) "default_combination" item),
+         "default_combination")
+        (expected selected (the o AList.lookup (op =) defaults))
+    val _ = List.app override (subsets overrides)
+
+    (* A hole option, a removed default and a nested removal all mean an omitted channel. *)
+    fun removal name =
+      let
+        val remaining = filter_out (fn (channel, _) => channel = name) defaults
+        val reference =
+          context_after base ("default-reference-" ^ name)
+            (declare_defaults remaining ^ command "" "default_combination" item)
+        fun agrees how context =
+          same_scheme (how ^ " " ^ name ^ " differs from an omitted channel")
+            (context, "default_combination")
+            (Logic.unvarifyT_global (declared_type reference "default_combination"))
+        val _ =
+          agrees "inline hole"
+            (context_after base ("default-hole-" ^ name)
+              (declare_defaults defaults ^
+                command (inline_options [(name, "_")]) "default_combination" item))
+        val _ =
+          agrees "removed default"
+            (context_after base ("default-removed-" ^ name)
+              (declare_defaults defaults ^ declare_defaults [(name, "_")] ^
+                command "" "default_combination" item))
+        val nested =
+          context_after base ("default-nested-" ^ name)
+            (declare_defaults defaults ^
+              "context notes [[urust_" ^ name ^ " = " ^ cartouche "_" ^ "]] begin\n" ^
+              command "" "default_combination" item ^ "\nend\n" ^
+              command "" "default_restored"
+                ("fn DefaultRestored(value: \<tau>" ^ cartouche "nat" ^ ") { () }"))
+        val _ = agrees "nested removal" nested
+      in
+        same_scheme ("nested removal did not restore the outer " ^ name ^ " default")
+          (nested, "default_restored") (expected [] (the o AList.lookup (op =) defaults))
+      end
+    val _ = List.app removal channel_names
+
+    val sorted_holes =
+      context_after base "default-sorted-holes"
+        (declare_defaults [("input", "_::finite"), ("output", "_::finite")] ^
+          command "" "default_sorted_holes" item)
+    val (_, _, _, input, output) = channels (declared_type sorted_holes "default_sorted_holes")
+    val _ = independent "sorted hole defaults became identified" [input, output]
+    val _ =
+      List.app (fn typ =>
+        require "sorted hole default lost its sort"
+          (Sign.subsort (Proof_Context.theory_of sorted_holes) (sort_of typ, \<^sort>\<open>finite\<close>)))
+        [input, output]
+
+    val later = context_after base "default-later-duplicate"
+      ("declare [[urust_abort = " ^ cartouche "bool" ^ ", urust_abort = " ^ cartouche "unit" ^
+        "]]\n" ^ command "" "default_combination" item)
+    val (_, _, abort, _, _) = channels (declared_type later "default_combination")
+    val _ = require "the later duplicate default did not win" (abort = \<^typ>\<open>unit\<close>)
+  in val _ = () end
+\<close>
+
+ML_val\<open>
+  local
+    open Parser_Channel_Default_Test
+    val base = initial \<^theory>
+
+    (* Named variables of defaults, inline options and HOL escapes share one environment. *)
+    val escape_sharing =
+      context_after base "default-escape-sharing"
+        (declare_defaults [("abort", "'value::linorder")] ^
+          command "" "default_sharing"
+            ("fn DefaultSharing(value: \<tau>" ^ cartouche "'value" ^ ") -> \<tau>" ^
+              cartouche "'value" ^ " { value }"))
+    val typ = declared_type escape_sharing "default_sharing"
+    val (state, result, abort, input, output) = channels typ
+    val _ = require "default and escape names did not share"
+      (abort = result andalso binder_types typ = [result])
+    val _ = require "default sort was lost"
+      (Sign.subsort (Proof_Context.theory_of escape_sharing) (sort_of abort, \<^sort>\<open>linorder\<close>))
+    val _ = independent "unrelated channels were captured" [state, result, input, output]
+
+    val option_sharing =
+      context_after base "default-option-sharing"
+        (declare_defaults [("input", "'channel")] ^
+          command (inline_options [("output", "'channel")]) "default_sharing"
+            "fn DefaultSharing() {}")
+    val (_, _, _, input, output) = channels (declared_type option_sharing "default_sharing")
+    val _ = require "default and inline option names did not share" (input = output)
+
+    (* Every inheriting function reads its own fresh variables. *)
+    val fresh =
+      context_after base "default-fresh-names"
+        (declare_defaults [("state", "'s"), ("abort", "'s")] ^
+          command "" "default_first" "fn DefaultFirst() {}" ^ "\n" ^
+          command "" "default_second"
+            ("fn DefaultSecond(callback: \<tau>" ^
+              cartouche "('s, unit, 's, unit, unit) function_body" ^ ") {}"))
+    val (first_state, _, first_abort, _, _) = channels (declared_type fresh "default_first")
+    val _ = require "one default name did not share across channels" (first_state = first_abort)
+    val second = declared_type fresh "default_second"
+    val (second_state, _, _, _, _) = channels second
+    val (callback_state, _, _, _, _) = channels (hd (binder_types second))
+    val _ = require "default name did not share with a later escape" (second_state = callback_state)
+  in val _ = () end
+\<close>
+
+section\<open> Context scoping, locales and interpretation \<close>
+
+ML_val\<open>
+  local
+    open Parser_Channel_Default_Test
+    val base = initial \<^theory>
+    fun abort_of context name =
+      let val (_, _, abort, _, _) = channels (declared_type context name) in abort end
+
+    (* Theory declarations persist; nested blocks shadow and then restore. *)
+    val scoped =
+      context_after base "default-scoping"
+        (declare_defaults [("abort", "bool")] ^
+          command "" "default_first" "fn DefaultFirst() {}" ^ "\n" ^
+          "context notes [[urust_abort = " ^ cartouche "nat" ^ "]] begin\n" ^
+          "context notes [[urust_abort = " ^ cartouche "unit" ^ "]] begin\n" ^
+          command "" "default_inner" "fn DefaultInner() {}" ^ "\nend\n" ^
+          command "" "default_middle" "fn DefaultMiddle() {}" ^ "\nend\n" ^
+          command "" "default_second" "fn DefaultSecond() {}")
+    val _ =
+      List.app (fn (name, expected) =>
+        require ("wrong scoped abort for " ^ name) (abort_of scoped name = expected))
+        [("default_first", \<^typ>\<open>bool\<close>), ("default_inner", \<^typ>\<open>unit\<close>),
+         ("default_middle", \<^typ>\<open>nat\<close>), ("default_second", \<^typ>\<open>bool\<close>)]
+
+    val locale_text =
+      "locale default_scope_locale =\n  fixes seed :: " ^ cartouche "'s::cancellative_sepalg" ^
+      "\nbegin\n" ^ declare_defaults [("state", "'s")]
+    fun locale_function name =
+      command "[register_notation = false]" name
+        ("fn " ^ name ^ "() -> () { \<llangle>let _ = seed in ()\<rrangle> }")
+    fun local_state context name =
+      let val (state, _, _, _, _) = channels (fastype_of (rhs context name)) in state end
+    val rigid = \<^typ>\<open>'s::cancellative_sepalg\<close>
+
+    (* A locale default reads the locale's fixed variable, stays in the locale and returns with
+       it. A theory bundle opened in the locale is captured by the same rigid variable. *)
+    val inside =
+      context_after base "default-locale-inside" (locale_text ^ locale_function "default_inside")
+    val _ = require "locale default state became flexible" (local_state inside "default_inside" = rigid)
+    val reentered =
+      context_after base "default-locale-reentered"
+        (locale_text ^ locale_function "default_inside" ^ "\nend\n" ^
+          command "" "default_outside" "fn DefaultOutside() {}" ^ "\n" ^
+          "context default_scope_locale begin\n" ^ locale_function "default_reentered")
+    val _ = require "re-entered locale lost its default"
+      (local_state reentered "default_reentered" = rigid)
+    val (outside, _, _, _, _) =
+      channels (declared_type (Proof_Context.init_global (Proof_Context.theory_of reentered))
+        "default_outside")
+    val _ = independent "locale default escaped to the theory" [outside]
+    val bundled =
+      context_after base "default-locale-bundle"
+        ("bundle default_scope_bundle = [[urust_state = " ^ cartouche "'s" ^ "]]\n" ^
+          "locale default_scope_locale =\n  fixes seed :: " ^ cartouche "'s::cancellative_sepalg" ^
+          "\ncontext default_scope_locale opening default_scope_bundle begin\n" ^
+          locale_function "default_bundled")
+    val _ = require "bundled default was not captured by the locale variable"
+      (local_state bundled "default_bundled" = rigid)
+
+    (* Native locale notes replay a locale declaration into every global interpretation, both
+       later and existing ones; each replay rereads the source in the interpreting theory. *)
+    val interpreted =
+      context_after base "default-interpretation"
+        ("locale default_interpreted_locale =\n  fixes seed :: " ^ cartouche "'s::cancellative_sepalg" ^
+          "\nbegin\n" ^ declare_defaults [("state", "'s"), ("abort", "bool")] ^
+          locale_function "default_inside" ^ "\nend\n" ^
+          "interpretation default_unit: default_interpreted_locale " ^ cartouche "()" ^ " .\n" ^
+          command "" "default_after_interpretation" "fn DefaultAfterInterpretation() {}")
+    val (state, _, abort, _, _) = channels (declared_type interpreted "default_after_interpretation")
+    val _ = require "interpretation did not replay the locale default"
+      (abort = \<^typ>\<open>bool\<close> andalso generic state)
+    val (instantiated, _, _, _, _) =
+      channels (declared_type interpreted "default_unit.default_inside")
+    val _ = require "interpreted function lost its instantiated state"
+      (instantiated = \<^typ>\<open>unit\<close>)
+    val existing =
+      context_after base "default-existing-interpretation"
+        ("locale default_interpreted_locale =\n  fixes seed :: " ^ cartouche "'s::cancellative_sepalg" ^
+          "\ninterpretation default_unit: default_interpreted_locale " ^ cartouche "()" ^ " .\n" ^
+          "context default_interpreted_locale begin\n" ^ declare_defaults [("abort", "bool")] ^
+          "end\n" ^
+          command "" "default_after_declaration" "fn DefaultAfterDeclaration() {}")
+    val _ = require "existing interpretation did not receive the locale default"
+      (abort_of existing "default_after_declaration" = \<^typ>\<open>bool\<close>)
+  in val _ = () end
+\<close>
+
+section\<open> Reports \<close>
+
+ML_val\<open>
+  local
+    open Parser_Channel_Default_Test
+    val base = initial \<^theory>
+    val declaration = "default-markup-declaration"
+
+    (* The declaration reports once in its own command. Inheriting functions, item-list members
+       and interpretation replays report only in their own sources. *)
+    val (declared, declaration_reports) =
+      Parser_Test_Reports.markup (fn () =>
+        run_from base declaration
+          ("locale default_markup_locale =\n  fixes seed :: " ^ cartouche "'s::cancellative_sepalg" ^
+            "\nbegin\n" ^ declare_defaults [("abort", "bool"), ("output", "_::finite")] ^ "end\n" ^
+            declare_defaults [("abort", "bool"), ("output", "_::finite")]))
+    val _ = require "the default declaration reported no markup"
+      (file_markup declaration
+        (filter (fn (name, _) => name = Markup.entityN) declaration_reports))
+    fun quiet label text =
+      let
+        val (_, reports) = Parser_Test_Reports.markup (fn () => run_from declared label text)
+        val _ = require (label ^ ": captured no markup of its own") (file_markup label reports)
+      in
+        require (label ^ ": reported into the default declaration")
+          (not (file_markup declaration reports))
+      end
+    val _ =
+      quiet "default-markup-function"
+        (command "" "default_markup" "fn DefaultMarkup(value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { value }")
+    val _ =
+      quiet "default-markup-chunk"
+        ("urust " ^ cartouche "fn DefaultMarkupChunk(value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { value }")
+    val _ =
+      quiet "default-markup-interpretation"
+        ("interpretation default_markup_unit: default_markup_locale " ^ cartouche "()" ^ " .\n" ^
+          command "" "default_markup" "fn DefaultMarkup() {}")
+  in val _ = () end
+\<close>
+
+ML_val\<open>
+  local
+    open Parser_Channel_Default_Test
+    val base = initial \<^theory>
+    val label = "default-markup-keyword-option"
+
+    (* The output option is spelled like the Pure minor keyword. Inline and in an annotation it is
+       reported as unhighlighted after any keyword report, so it renders as an option name. *)
+    val text =
+      command (inline_options [("output", "unit")]) "default_keyword_inline"
+        "fn DefaultKeywordInline() {}" ^ "\n" ^
+      "urust " ^
+        cartouche
+          ("\n  \<omega>" ^ cartouche ("output = " ^ cartouche "unit") ^
+            "\n  fn DefaultKeywordAnnotated() {}\n")
+    val (_, markup) = Parser_Test_Reports.markup (fn () => run_from base label text)
+    (* Colour reports at one range in report order; the last one determines the rendering. *)
+    fun colours position =
+      markup
+      |> filter (fn (name, properties) =>
+          member (op =) [Markup.keyword2N, Markup.delimiterN] name andalso
+            has_position properties position)
+      |> map #1
+    val inline = token_position text (start label) "output" 0
+    val annotated =
+      token_position text (start label) "output" (find_from text "output" 0 + 1)
+    val _ = require "inline keyword option name was not reported as unhighlighted"
+      (colours inline = [Markup.delimiterN])
+    val _ = require "annotation keyword option name kept the keyword colour"
+      (colours annotated = [Markup.keyword2N, Markup.delimiterN])
+  in val _ = () end
+\<close>
+
+section\<open> Commands that read no channels \<close>
+
+ML_val\<open>
+  local
+    open Parser_Channel_Default_Test
+    val base = initial \<^theory>
+    val defaults =
+      declare_defaults
+        [("state", "unit"), ("abort", "bool"), ("input", "unit"), ("output", "unit")]
+    val expression = "urust_expr default_expression " ^ cartouche "()"
+    val plain = context_after base "default-expression-plain" expression
+    val inherited = context_after base "default-expression-inherited" (defaults ^ expression)
+    val _ = same_scheme "urust_expr inherited a function channel default"
+      (inherited, "default_expression") (Logic.unvarifyT_global (declared_type plain "default_expression"))
+
+    fun elaborate context =
+      Parser_Test_Elaboration.function context
+        {raw_type = ("nat \<Rightarrow> _", start "default-api-type"),
+         parameters = [("value", start "default-api-parameter")],
+         parameters_pos = start "default-api-parameter",
+         body = source "default-api-body" "value"}
+    val _ = require "the typed-body API inherited function channel defaults"
+      (Term.aconv (elaborate (Toplevel.context_of base), elaborate inherited) andalso
+        fastype_of (elaborate (Toplevel.context_of base)) = fastype_of (elaborate inherited))
+  in val _ = () end
+\<close>
+
+section\<open> Positioned failures and rollback \<close>
+
+ML_val\<open>
+  local
+    open Parser_Channel_Default_Test
+    val base = initial \<^theory>
+    val item = "fn DefaultFailure(value: \<tau>" ^ cartouche "nat" ^ ") -> \<tau>" ^ cartouche "nat" ^
+      " { value }"
+
+    (* An inline option overrides a broken default, so recovery bypasses all four. *)
+    val recovery =
+      command (inline_options (map (rpair "_") channel_names)) "default_recovery" item
+
+    fun rejected_from state label expected text =
+      let
+        val (result, reports) =
+          Parser_Test_Reports.markup (fn () => Exn.capture (run_from state label) text)
+        val diagnostic = message result
+        val _ = require (label ^ ": wrong diagnostic " ^ quote diagnostic)
+          (String.isSubstring expected diagnostic)
+        val _ = require (label ^ ": no source position")
+          (String.isSubstring label diagnostic andalso not (null (diagnostic_ranges diagnostic)))
+        val _ = require (label ^ ": installed declaration markup")
+          (null (declaration_definitions reports))
+        val _ = ignore (run_from state (label ^ "-recovery") recovery)
+      in diagnostic end
+    fun reject_declaration label expected text = ignore (rejected_from base label expected text)
+
+    (* Declaration-time failures. *)
+    val _ = reject_declaration "default-malformed" "Failed to parse type"
+      (declare_defaults [("state", "unit \<Rightarrow>")])
+    val _ = reject_declaration "default-undefined" "Undefined type name"
+      (declare_defaults [("abort", "default_missing_type")])
+    val _ = reject_declaration "default-missing-value" "Bad arguments"
+      "declare [[urust_input]]"
+    val _ = reject_declaration "default-inline-spelling"
+      "unknown uRust command option \"urust_output\""
+      (command (inline_options [("urust_output", "unit")]) "default_failure" item)
+
+    (* Signature failures cite the inheriting function and the default declaration. Body
+       mismatches against the resolved type are positioned in the body, as for inline options. *)
+    fun reject_use_with cites label expected defaults text =
+      let
+        val declaration = label ^ "-declaration"
+        val declared = run_from base declaration defaults
+        val diagnostic = rejected_from declared label expected text
+      in
+        require (label ^ ": wrong default declaration citation")
+          (String.isSubstring declaration diagnostic = cites)
+      end
+    val reject_use = reject_use_with true
+    val _ = reject_use "default-sort-clash" "Inconsistent sort constraints"
+      (declare_defaults [("abort", "'value::linorder")])
+      (command "" "default_failure"
+        ("fn DefaultFailure(value: \<tau>" ^ cartouche "'value::cancellative_sepalg" ^ ") {}"))
+    val _ = reject_use "default-hidden-type" "scoped default urust_abort"
+      ("typedecl default_hidden_type\n" ^ declare_defaults [("abort", "default_hidden_type")] ^
+        "hide_type default_hidden_type\n")
+      (command "" "default_failure" item)
+    val _ = reject_use "default-locale-capture" "Sort constraint"
+      ("bundle default_capture_bundle = [[urust_state = " ^ cartouche "'s::linorder" ^ "]]\n" ^
+        "locale default_capture_locale =\n  fixes seed :: " ^ cartouche "'s::cancellative_sepalg" ^
+        "\n")
+      ("context default_capture_locale opening default_capture_bundle begin\n" ^
+        command "[register_notation = false]" "default_failure" "fn DefaultFailure() {}")
+    val fixed_body =
+      "fn DefaultFailure() { \<epsilon>\<open>literal () :: " ^
+      "(unit, unit, unit, bool, nat prompt, unit prompt_output) expression\<close> }"
+    val _ =
+      List.app (fn (channel, body) =>
+        reject_use_with false ("default-" ^ channel ^ "-mismatch") "Type unification failed"
+          (declare_defaults [(channel, "bool")]) (command "" "default_failure" body))
+        [("state", "fn DefaultFailure() -> \<tau>\<open>nat\<close> { \<epsilon>\<open>get (\<lambda>s::nat. s)\<close> }"),
+         ("abort", "fn DefaultFailure() { \<epsilon>\<open>abort (CustomAbort (0::nat))\<close> }"),
+         ("input", fixed_body), ("output", fixed_body)]
+  in val _ = () end
+\<close>
+
+chapter\<open> Typed receivers \<close>
+
+section\<open> Name collisions and nested lexical scope \<close>
+
+declare [[urust_pretty = true, urust_verbosity = 2]]
+
+micro_rust_notation (literal) \<open>True\<close> ("self")
+
+urust_fn typed_self_literal_shadow
+  \<open> fn TypedSelfLiteralShadow(self: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { self } \<close>
+
+urust_fn typed_self_value_literal_shadow
+  \<open> fn TypedSelfValueLiteralShadow(self_value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { self_value } \<close>
+
+urust_fn typed_self_name_collision
+  \<open>
+    fn TypedSelfNameCollision(self: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
+      let self_value = true;
+      self
+    }
+  \<close>
+
+urust_fn typed_self_value_name_collision
+  \<open>
+    fn TypedSelfValueNameCollision(self_value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> {
+      let other_value = true;
+      self_value
+    }
+  \<close>
+
+urust_fn typed_self_closure
+  \<open>
+    fn TypedSelfClosure(self: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close> {
+      |self_value| \<llangle>self + self_value\<rrangle>
+    }
+  \<close>
+
+urust_fn typed_self_value_closure
+  \<open>
+    fn TypedSelfValueClosure(self_value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close> {
+      |other_value| \<llangle>self_value + other_value\<rrangle>
+    }
+  \<close>
+
+context
+  fixes self :: bool
+begin
+
+urust_fn typed_self_context_shadow
+  \<open> fn TypedSelfContextShadow(self: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { \<llangle>self + 1\<rrangle> } \<close>
+
+urust_fn typed_self_value_context_shadow
+  \<open> fn TypedSelfValueContextShadow(self_value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { \<llangle>self_value + 1\<rrangle> } \<close>
+
+end
+
+lemma typed_self_literal_shadow_equivalent:
+  \<open>typed_self_literal_shadow = typed_self_value_literal_shadow\<close>
+  unfolding typed_self_literal_shadow_def typed_self_value_literal_shadow_def by (rule refl)
+
+lemma typed_self_name_collision_equivalent:
+  \<open>typed_self_name_collision = typed_self_value_name_collision\<close>
+  unfolding typed_self_name_collision_def typed_self_value_name_collision_def by (rule refl)
+
+lemma typed_self_closure_equivalent:
+  \<open>typed_self_closure = typed_self_value_closure\<close>
+  unfolding typed_self_closure_def typed_self_value_closure_def by (rule refl)
+
+lemma typed_self_context_shadow_equivalent:
+  \<open>typed_self_context_shadow = typed_self_value_context_shadow\<close>
+  unfolding typed_self_context_shadow_def typed_self_value_context_shadow_def by (rule refl)
+
+section\<open> Complete declared schemes and receiver boundaries \<close>
+
+ML_val\<open>
+  local
+    open Parser_Function_Regression_Test
+    val ctxt = \<^context>
+    fun check expected names =
+      List.app (fn name =>
+        require (name ^ ": receiver declaration scheme changed")
+          (Sign.typ_equiv (Proof_Context.theory_of ctxt)
+            (declared_type ctxt name, Logic.varifyT_global expected))) names
+    val _ = check
+      \<^typ>\<open>64 word \<Rightarrow> ('s, 64 word, 'abort, 'i, 'o) function_body\<close>
+      ["typed_self_primitive", "typed_self_value_primitive", "typed_mut_self"]
+    val _ = check
+      \<^typ>\<open>widget_ref \<Rightarrow> ('s, widget_ref, 'abort, 'i, 'o) function_body\<close>
+      ["typed_self_hol_ref", "typed_self_value_hol_ref"]
+    val _ = check
+      \<^typ>\<open>fun_field_record \<Rightarrow> ('s, nat, 'abort, 'i, 'o) function_body\<close>
+      ["typed_self_field", "typed_self_value_field"]
+    val _ = check
+      \<^typ>\<open>nat \<Rightarrow> ('s, nat, 'abort, 'i, 'o) function_body\<close>
+      ["typed_self_hol_value", "typed_self_value_hol_value",
+       "typed_self_hol_expression", "typed_self_value_hol_expression",
+       "typed_self_literal_shadow", "typed_self_value_literal_shadow",
+       "typed_self_name_collision", "typed_self_value_name_collision",
+       "typed_self_context_shadow", "typed_self_value_context_shadow"]
+    val _ = check
+      \<^typ>\<open>nat \<Rightarrow> nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
+      ["typed_self_add", "typed_self_value_add", "typed_self_method",
+       "typed_self_value_method", "typed_self_direct"]
+    val _ = check
+      \<^typ>\<open>fun_field_record \<Rightarrow> nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
+      ["typed_self_field_method", "typed_self_value_field_method"]
+    val _ = check
+      \<^typ>\<open>nat \<Rightarrow>
+        ('s, nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body, 'abort, 'i, 'o) function_body\<close>
+      ["typed_self_closure", "typed_self_value_closure"]
+    val _ = require "method dispatch lost the registered typed receiver declaration"
+      (Term.exists_subterm
+        (fn Const (name, _) => name = \<^const_name>\<open>typed_self_add\<close> | _ => false)
+        (rhs ctxt "typed_self_method"))
+
+    val base = initial \<^theory>
+    val recovered_item = "fn ReceiverRecovery(self: u8) -> u8 { self }"
+    fun reject (label, expected, item) =
+      let
+        val (result, reports) = Parser_Test_Reports.markup (fn () =>
+          Exn.capture (run_from base label) (command "" "receiver_failure" item))
+        val diagnostic = message result
+        val _ = require (label ^ ": wrong diagnostic") (String.isSubstring expected diagnostic)
+        val _ = require (label ^ ": no source position")
+          (String.isSubstring label diagnostic andalso not (null (diagnostic_ranges diagnostic)))
+        val _ = require (label ^ ": installed declaration markup")
+          (null (declaration_definitions reports))
+        val _ = require (label ^ ": mutated constant table")
+          (constant_snapshot ctxt = constant_snapshot (Toplevel.context_of base))
+        val _ = registry_unchanged label ctxt (Toplevel.context_of base)
+        val recovered =
+          run_from base (label ^ "-recovery") (command "" "receiver_failure" recovered_item)
+          |> Toplevel.context_of
+        val _ = require (label ^ ": failed to recover the typed receiver")
+          (binder_types (declared_type recovered "receiver_failure") = [\<^typ>\<open>8 word\<close>])
+      in () end
+    val _ = List.app reject
+      [("receiver-untyped-self", "syntax error", "fn BadReceiver(self) -> u8 { self }"),
+       ("receiver-borrowed-shorthand", "syntax error", "fn BadReceiver(&self) -> u8 { self }"),
+       ("receiver-mut-borrowed-shorthand", "syntax error", "fn BadReceiver(&mut self) -> u8 { self }"),
+       ("receiver-borrowed-pattern", "unsupported function parameter pattern",
+        "fn BadReceiver(&self: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { self }"),
+       ("receiver-implicit-Self", "unknown Rust type", "fn BadReceiver(self: Self) -> Self { self }"),
+       ("receiver-rust-reference", "shared Rust references", "fn BadReceiver(self: &u8) -> u8 { 0 }"),
+       ("receiver-duplicate", "duplicate parameter \"self\"",
+        "fn BadReceiver(self: u8, self: bool) -> u8 { self }"),
+       ("receiver-body-type", "Type unification failed", "fn BadReceiver(self: bool) -> u8 { self }")]
+  in val _ = () end
+\<close>
+
+chapter\<open> Mutable references and erased lifetimes \<close>
+
+section\<open> Mutable references and lifetimes in function signatures \<close>
+
+locale reference_signature_context =
+  fixes fixed_reference :: "('address, 'global, 8 word) Global_Store.ref"
+begin
+
+urust_fn \<open>
+  fn LocaleReferenceChoice(value: &mut u8) -> &mut u8 {
+    if true { value } else { fixed_reference }
+  }
+\<close>
+
+ML_val\<open>
+  val _ =
+    if member (op =)
+        (binder_types (fastype_of (Syntax.read_term \<^context> "locale_reference_choice")))
+        (fastype_of (Syntax.read_term \<^context> "fixed_reference"))
+    then ()
+    else error "locale reference signature lost its rigid backend"
+\<close>
+
+end
+
+ML_val\<open>
+  local
+    open Parser_Function_Regression_Test
+    val ctxt = \<^context>
+    fun check expected names =
+      List.app (fn name =>
+        require (name ^ ": reference declaration scheme changed")
+          (Sign.typ_equiv (Proof_Context.theory_of ctxt)
+            (declared_type ctxt name, Logic.varifyT_global expected))) names
+    val _ = check
+      \<^typ>\<open>('a, 'b, 8 word) Global_Store.ref \<Rightarrow>
+        ('s, ('a, 'b, 8 word) Global_Store.ref, 'abort, 'i, 'o) function_body\<close>
+      ["mut_ref_identity", "mut_ref_escape_control", "lifetime_ref_identity",
+       "reserved_lifetime_identity", "typed_self_mut_ref", "typed_mut_self_mut_ref"]
+    val _ = check
+      \<^typ>\<open>('a, 'g, 8 word) Global_Store.ref option \<Rightarrow>
+        ('a, 'g, ('a, 'g, 16 word) Global_Store.ref) Global_Store.ref \<Rightarrow>
+        ('a, 'g, 8 word \<times> bool \<times> tnil) Global_Store.ref \<Rightarrow>
+        ('a, 'g, 32 word) Global_Store.ref \<Rightarrow>
+        ('a, 'g, 'x list) Global_Store.ref \<Rightarrow> 'x \<Rightarrow>
+        ('s, ('a, 'g, 8 word) Global_Store.ref, 'abort, 'i, 'o) function_body\<close>
+      ["mixed_reference_shapes"]
+    val _ = check
+      \<^typ>\<open>(nat, bool, 8 word) Global_Store.ref \<Rightarrow>
+        ('s, (nat, bool, 8 word) Global_Store.ref, 'abort, 'i, 'o) function_body\<close>
+      ["reference_body_constraint"]
+  in val _ = () end
+\<close>
+
+section\<open> Lifetime syntax, positions, markup and printing \<close>
+
+ML\<open>
+structure Parser_Reference_Type_Test =
+struct
+  open Parser_Function_Regression_Test
+
+  fun nth_position text label needle occurrence =
+    let
+      fun skip 0 offset = token_position text (start label) needle offset
+        | skip n offset = skip (n - 1) (find_from text needle offset + 1)
+    in skip occurrence 0 end
+
+  fun lifetime_name (URust_AST.Rust_Lifetime (name, _)) = name
+  fun lifetime_position (URust_AST.Rust_Lifetime (_, pos)) = pos
+
+  fun reference_lifetimes (URust_AST.Reference_Type (_, lifetime, typ, _)) =
+        the_list lifetime @ reference_lifetimes typ
+    | reference_lifetimes (URust_AST.Path_Type (segments, _)) =
+        let
+          fun argument (URust_AST.Rust_Type_Argument typ) = reference_lifetimes typ
+            | argument _ = []
+          fun segment (URust_AST.Rust_Type_Path_Segment (_, _, arguments, _)) =
+            maps argument (the_default [] arguments)
+        in maps segment segments end
+    | reference_lifetimes _ = []
+
+  val no_channels: URust_Type_Mappings.function_channels =
+    {state = NONE, abort = NONE, input = NONE, output = NONE}
+
+  fun resolve_function ctxt function =
+    URust_Type_Mappings.resolve_function_signature ctxt no_channels
+      (URust_AST.function_lifetime_parameters function)
+      (map parameter_type (URust_AST.function_parameters function))
+      (the_default
+        (URust_AST.Primitive_Type (URust_AST.DPT_Unit, Position.none))
+        (URust_AST.function_return_type function))
+end
+\<close>
+
+ML_val\<open>
+  local
+    open Parser_Reference_Type_Test
+    val ctxt = Context_Position.set_visible true \<^context>
+    val label = "reference-lifetime-positions"
+    (* An Isabelle symbol before the lifetimes makes byte-counted ranges fail. *)
+    val text =
+      "fn LifetimePositions<'a, 'b,>(/* \<alpha> */ left: &'a mut u8, \
+      \right: &'b mut &'static mut u16, anonymous: &'_ mut u8) -> &'a mut u8 { left }"
+    val (function, markup) = Parser_Test_Reports.markup (fn () => parse ctxt label text)
+    val declared = URust_AST.function_lifetime_parameters function
+    val used = maps reference_lifetimes (signature_types function)
+    val _ = require "declared lifetime names changed"
+      (map lifetime_name declared = ["'a", "'b"])
+    val _ = require "reference lifetime names changed"
+      (map lifetime_name used = ["'a", "'b", "'static", "'_", "'a"])
+    val expected =
+      [nth_position text label "'a" 0, nth_position text label "'b" 0,
+       nth_position text label "'a" 1, nth_position text label "'b" 1,
+       nth_position text label "'static" 0, nth_position text label "'_" 0,
+       nth_position text label "'a" 2]
+    val actual = map lifetime_position (declared @ used)
+    val _ = require "lifetime positions are not exact symbol-counted token ranges"
+      (map range_of actual = map range_of expected)
+    val _ =
+      List.app (fn position =>
+        (require "lifetime lost its type-variable markup"
+           (has_markup Markup.tfreeN position markup);
+         require "lifetime lost its typing tooltip"
+           (has_markup Markup.typingN position markup))) expected
+
+    val printed = URust_Printer.string_of_function URust_Printer.serialized_options function
+    (* The printer may break long signatures; compare with layout collapsed to single spaces. *)
+    val compact = space_implode " " (String.tokens Char.isSpace printed)
+    val _ = require ("printer dropped the lifetime parameter list: " ^ quote compact)
+      (String.isSubstring "LifetimePositions<'a, 'b>(" compact)
+    val _ = require ("printer dropped reference lifetimes: " ^ quote compact)
+      (String.isSubstring "&'a mut u8" compact andalso
+       String.isSubstring "&'b mut &'static mut u16" compact andalso
+       String.isSubstring "&'_ mut u8" compact)
+    val reparsed = parse ctxt (label ^ "-reparsed") printed
+    val _ = require "lifetime parse-print-parse tokens changed"
+      (URust_Printer.tokens_of_function URust_Printer.serialized_options function =
+        URust_Printer.tokens_of_function URust_Printer.serialized_options reparsed)
+    val _ = require "lifetimes changed the resolved signature"
+      (Sign.typ_equiv (Proof_Context.theory_of ctxt)
+        (resolve_function ctxt function,
+         resolve_function ctxt
+          (parse ctxt (label ^ "-erased")
+            "fn LifetimePositions(left: &mut u8, right: &mut &mut u16, anonymous: &mut u8) \
+            \-> &mut u8 { left }")))
+
+    val shared = parse ctxt "reference-shared-parse" "fn Shared<'a>(value: &'a u8) -> u8 { 0 }"
+    val _ = require "shared lifetime reference parsed with the wrong shape"
+      (case signature_types shared of
+         [URust_AST.Reference_Type (URust_AST.BM_Imm, SOME lifetime, _, _), _] =>
+           lifetime_name lifetime = "'a"
+       | _ => false)
+
+    fun positioned_failure (label, text, needle, occurrence, expected) =
+      let
+        val result =
+          Exn.result (fn () =>
+            Navigation.capture (fn () => resolve_function ctxt (parse ctxt label text))) ()
+        val diagnostic = message result
+      in
+        require (label ^ ": reason changed") (String.isSubstring expected diagnostic);
+        require (label ^ ": diagnostic lost the exact lifetime range")
+          (member (op =) (diagnostic_ranges diagnostic)
+            (range_of (nth_position text label needle occurrence)))
+      end
+    val _ =
+      List.app positioned_failure
+        [("lifetime-position-undeclared",
+          "fn Undeclared<'a>(/* \<alpha> */ value: &'b mut u8) { () }", "'b", 0,
+          "undeclared lifetime \"'b\""),
+         ("lifetime-position-duplicate-first",
+          "fn Duplicate<'a, /* \<alpha> */ 'a>(value: &'a mut u8) { () }", "'a", 0,
+          "duplicate lifetime parameter \"'a\""),
+         ("lifetime-position-duplicate-second",
+          "fn Duplicate<'a, /* \<alpha> */ 'a>(value: &'a mut u8) { () }", "'a", 1,
+          "duplicate lifetime parameter \"'a\""),
+         ("lifetime-position-static",
+          "fn Reserved</* \<alpha> */ 'static>(value: u8) { () }", "'static", 0,
+          "cannot be declared as a lifetime parameter"),
+         ("lifetime-position-anonymous",
+          "fn Reserved</* \<alpha> */ '_>(value: u8) { () }", "'_", 0,
+          "cannot be declared as a lifetime parameter"),
+         ("lifetime-position-shared",
+          "fn Shared(/* \<alpha> */ value: &'static u8) { () }", "&'static u8", 0,
+          "shared Rust references")]
+
+    fun parser_failure (label, text, needle, expected) =
+      let
+        val diagnostic = message (Exn.result (fn () => parse ctxt label text) ())
+      in
+        require (label ^ ": reason changed") (String.isSubstring expected diagnostic);
+        require (label ^ ": diagnostic lost the exact token range")
+          (member (op =) (diagnostic_ranges diagnostic)
+            (range_of (nth_position text label needle 0)))
+      end
+    val _ =
+      List.app parser_failure
+        [("lifetime-position-bound",
+          "fn Bound<'a, /* \<alpha> */ 'b: 'a>(value: &'b mut u8) { () }", ":",
+          "lifetime bounds are not supported"),
+         ("lifetime-position-argument",
+          "fn Argument(/* \<alpha> */ value: RefOption<'a>) { () }", "'a",
+          "lifetime generic arguments are not supported")]
+  in val _ = () end
+\<close>
+
+section\<open> Body and call-site semantics \<close>
+
+adhoc_overloading store_dereference_const \<rightleftharpoons> reference_test_read
+adhoc_overloading store_reference_const \<rightleftharpoons> reference_test_allocate
+adhoc_overloading store_update_const \<rightleftharpoons> reference_test_write
+
+ML_val\<open>
+  local
+    open Parser_Function_Regression_Test
+    val ctxt = \<^context>
+    fun check expected names =
+      List.app (fn name =>
+        require (name ^ ": reference body scheme changed")
+          (Sign.typ_equiv (Proof_Context.theory_of ctxt)
+            (declared_type ctxt name, Logic.varifyT_global expected))) names
+    val _ = check
+      \<^typ>\<open>(unit, unit, 32 word) Global_Store.ref \<Rightarrow>
+        (unit, 32 word, unit, unit, unit) function_body\<close>
+      ["read_through", "read_through_control"]
+    val _ = check
+      \<^typ>\<open>(unit, unit, ref_counter) Global_Store.ref \<Rightarrow>
+        (unit, 32 word, unit, unit, unit) function_body\<close>
+      ["read_counter", "touch_counter", "touch_via_method"]
+    val _ = check
+      \<^typ>\<open>(unit, 32 word, unit, unit, unit) function_body\<close>
+      ["bump_local", "chunk_caller", "bump_without_borrow"]
+    val _ = require "method dispatch lost the typed reference receiver"
+      (Term.exists_subterm
+        (fn Const (name, _) => name = \<^const_name>\<open>touch_counter\<close> | _ => false)
+        (rhs ctxt "touch_via_method"))
+    val _ = require "borrowed local call lost its callee"
+      (Term.exists_subterm
+        (fn Const (name, _) => name = \<^const_name>\<open>increment_through\<close> | _ => false)
+        (rhs ctxt "bump_local"))
+  in val _ = () end
+\<close>
+
+section\<open> Rejections, rollback and recovery \<close>
+
+ML_val\<open>
+  local
+    open Parser_Function_Regression_Test
+    val ctxt = \<^context>
+    val base = initial \<^theory>
+    val recovery =
+      command "" "reference_failure" "fn ReferenceRecovery(value: &mut u32) -> u32 { *value }"
+    fun reject (label, expected, text) =
+      let
+        val (result, reports) = Parser_Test_Reports.markup (fn () =>
+          Exn.capture (run_from base label) text)
+        val diagnostic = message result
+        val _ = require (label ^ ": wrong diagnostic " ^ quote diagnostic)
+          (String.isSubstring expected diagnostic)
+        val _ = require (label ^ ": no source position")
+          (String.isSubstring label diagnostic andalso not (null (diagnostic_ranges diagnostic)))
+        val _ = require (label ^ ": installed declaration markup")
+          (null (declaration_definitions reports))
+        val _ = require (label ^ ": mutated constant table")
+          (constant_snapshot ctxt = constant_snapshot (Toplevel.context_of base))
+        val _ = registry_unchanged label ctxt (Toplevel.context_of base)
+        val recovered = run_from base (label ^ "-recovery") recovery |> Toplevel.context_of
+        val _ = require (label ^ ": failed to recover a reference function")
+          (binder_types (declared_type recovered "reference_failure") =
+            [\<^typ>\<open>(unit, unit, 32 word) Global_Store.ref\<close>])
+      in () end
+    fun function label item = (label, command "" "reference_failure" item)
+    fun reject_function (label, expected, item) = reject (label, expected, snd (function label item))
+    val _ = List.app reject_function
+      [("reference-shared-parameter", "shared Rust references",
+        "fn BadReference(value: &u8) -> u8 { 0 }"),
+       ("reference-shared-lifetime", "shared Rust references",
+        "fn BadReference<'a>(value: &'a u8) -> u8 { 0 }"),
+       ("reference-shared-result", "shared Rust references",
+        "fn BadReference(value: u8) -> &u8 { \<llangle>undefined\<rrangle> }"),
+       ("reference-shared-nested", "shared Rust references",
+        "fn BadReference(value: &mut &u8) -> u8 { 0 }"),
+       ("reference-shared-argument", "shared Rust references",
+        "fn BadReference(value: RefOption<&u8>) -> u8 { 0 }"),
+       ("reference-undeclared-lifetime", "undeclared lifetime \"'a\"",
+        "fn BadReference(value: &'a mut u8) -> u8 { 0 }"),
+       ("reference-undeclared-result-lifetime", "undeclared lifetime \"'b\"",
+        "fn BadReference<'a>(value: &'a mut u8) -> &'b mut u8 { value }"),
+       ("reference-duplicate-lifetime", "duplicate lifetime parameter \"'a\"",
+        "fn BadReference<'a, 'a>(value: &'a mut u8) -> u8 { 0 }"),
+       ("reference-declared-static", "cannot be declared as a lifetime parameter",
+        "fn BadReference<'static>(value: u8) -> u8 { 0 }"),
+       ("reference-declared-anonymous", "cannot be declared as a lifetime parameter",
+        "fn BadReference<'_>(value: u8) -> u8 { 0 }"),
+       ("reference-lifetime-bound", "lifetime bounds are not supported",
+        "fn BadReference<'a, 'b: 'a>(value: &'b mut u8) -> u8 { 0 }"),
+       ("reference-lifetime-argument", "lifetime generic arguments are not supported",
+        "fn BadReference(value: RefOption<'a>) -> u8 { 0 }"),
+       ("reference-mixed-generics", "syntax error",
+        "fn BadReference<'a, T>(value: &'a mut u8) -> u8 { 0 }"),
+       ("reference-empty-generics", "syntax error",
+        "fn BadReference<>(value: u8) -> u8 { 0 }"),
+       ("reference-lifetime-without-reference", "syntax error",
+        "fn BadReference<'a>(value: 'a) -> u8 { 0 }"),
+       ("reference-missing-target", "syntax error",
+        "fn BadReference(value: &'a mut) -> u8 { 0 }"),
+       ("reference-shorthand-receiver", "syntax error",
+        "fn BadReference(&'a mut self) -> u8 { 0 }"),
+       ("reference-body-apostrophe", "unexpected input",
+        "fn BadReference(value: &mut u8) -> u8 { 'a }"),
+       ("reference-reborrow", "Unresolved adhoc overloading of constant",
+        "fn BadReference(value: &mut u32) { IncrementThrough(&mut *value) }"),
+       ("reference-borrowed-literal", "Type unification failed",
+        "fn BadReference() { IncrementThrough(&mut 5_u32) }")]
+    val _ = List.app reject
+      [("reference-datatype-field", "Rust reference types is not supported in datatype fields",
+        "urust_datatype " ^ cartouche "struct BadReferenceField { value: &mut u8 }"),
+       ("reference-datatype-lifetime-field",
+        "Rust reference types is not supported in datatype fields",
+        "urust_datatype " ^ cartouche "struct BadReferenceField { value: &'a mut u8 }"),
+       ("reference-datatype-lifetime-parameter", "syntax error",
+        "urust_datatype " ^ cartouche "struct BadReferenceField<'a> { value: u8 }"),
+       ("reference-type-alias", "Rust reference types is not supported in type aliases",
+        "urust_type_alias " ^ cartouche "type BadReferenceAlias = &'static mut u8;"),
+       ("reference-cast-target", "Rust reference types is not supported in cast targets",
+        "urust_expr bad_reference_cast " ^ cartouche "0_u8 as &mut u8"),
+       ("reference-cast-lifetime", "unexpected input",
+        "urust_expr bad_reference_cast " ^ cartouche "0_u8 as &'a mut u8"),
+       ("reference-turbofish-lifetime", "unexpected input",
+        "urust_expr bad_reference_turbofish " ^ cartouche "IncrementThrough::<'a>()")]
+  in val _ = () end
+\<close>
+
+chapter\<open> Datatype composition \<close>
+
+section\<open> Complete const arguments and radix discriminants \<close>
+
+declare [[urust_pretty = false, urust_verbosity = 0]]
+
+no_adhoc_overloading store_dereference_const \<rightleftharpoons> reference_test_read
+no_adhoc_overloading store_reference_const \<rightleftharpoons> reference_test_allocate
+no_adhoc_overloading store_update_const \<rightleftharpoons> reference_test_write
+
+ML_val \<open>
+  val ctxt = \<^context>
+  val value_type = fastype_of (Syntax.read_term ctxt "composition_numeric_hex")
+    |> dest_Type |> snd |> (fn parameters => nth parameters 1)
+  val _ = if value_type = \<^typ>\<open>(8 word, 16 word, 16) composition_numeric\<close>
+    then () else error "constructor length literal lost its complete radix value"
+  val _ = List.app (fn text =>
+    if is_none (Parser_Utils.read_unsigned_integer text) then ()
+    else error ("partial or malformed numeric spelling accepted: " ^ text))
+    ["4+4", "0x10+1", "0x0x10", "0b102", "0o8", "4usize", "-4", "", "_4", "0x_"]
+  val _ = List.app (fn (text, expected) =>
+    if Parser_Utils.read_unsigned_integer text = SOME expected then ()
+    else error ("complete numeric spelling changed: " ^ text))
+    [("4", 4), ("1_6", 16), ("0x10", 16), ("0b10000", 16), ("0o20", 16),
+     ("0x_10", 16), ("0b_10000", 16), ("0o_20", 16)]
+  val malformed = URust_AST.Integer_Literal
+    ("4+4", URust_AST.make_source_layout Position.none [], NONE)
+  val argument = URust_AST.Rust_Numeric_Argument malformed
+  val _ =
+    (case Exn.capture (fn () =>
+      URust_Type_Mappings.instantiate_constructor ctxt "CompositionNumeric"
+        [URust_AST.Rust_Type_Argument
+           (URust_AST.Primitive_Type (URust_AST.DPT_U8, Position.none)),
+         URust_AST.Rust_Type_Argument
+           (URust_AST.Primitive_Type (URust_AST.DPT_U16, Position.none)),
+         argument]
+        (URust_Item_Scope.constructor_scheme
+          (the (URust_Item_Scope.lookup_constructor ctxt "CompositionNumeric")))) () of
+       Exn.Exn (ERROR message) =>
+         if String.isSubstring "invalid complete unsuffixed length literal" message then ()
+         else error ("wrong malformed numeric AST diagnostic: " ^ message)
+     | Exn.Exn exn => Exn.reraise exn
+     | Exn.Res _ => error "malformed programmatic numeric AST consumed a prefix")
+\<close>
+
+section\<open> Generic datatypes, aliases, typed receivers and effect channels \<close>
+
+ML_val \<open>
+local
+  open Parser_Function_Regression_Test
+  val ctxt = \<^context>
+  fun scheme name expected =
+    require (name ^ ": composed declaration scheme changed")
+      (Sign.typ_equiv (Proof_Context.theory_of ctxt)
+        (declared_type ctxt name, Logic.varifyT_global expected))
+  val _ = List.app (fn name => scheme name
+    \<^typ>\<open>(8 word, 4) composition_buffer \<Rightarrow>
+      (unit, (8 word, 4) array, bool, nat prompt, unit prompt_output) function_body\<close>)
+    ["composition_read", "composition_read_control", "composition_call", "composition_method"]
+  val _ = scheme "composition_custom_wrap"
+    \<^typ>\<open>(8 word, 4) composition_buffer \<Rightarrow>
+      (unit, (8 word, 16 word, 4) composition_custom, bool, nat prompt, unit prompt_output) function_body\<close>
+  val _ = scheme "composition_native_wrap"
+    \<^typ>\<open>(8 word, 4) composition_buffer \<Rightarrow>
+      (unit, (8 word, 16 word, 4) composition_native, bool, nat prompt, unit prompt_output) function_body\<close>
+  val _ = scheme "composition_word_read"
+    \<^typ>\<open>(16 word, 0) composition_word \<Rightarrow>
+      (unit, 8 word, bool, nat prompt, unit prompt_output) function_body\<close>
+  val _ = require "custom enum unexpectedly acquired native BNF metadata"
+    (is_none (Ctr_Sugar.ctr_sugar_of ctxt \<^type_name>\<open>composition_custom\<close>))
+  val _ = require "explicit HOL backend lost native BNF metadata"
+    (is_some (Ctr_Sugar.ctr_sugar_of ctxt \<^type_name>\<open>composition_native\<close>))
+  val _ = require "word backend lost its native typedef"
+    (not (null (Typedef.get_info ctxt \<^type_name>\<open>composition_word\<close>)))
+  val mapping = the (URust_Type_Mappings.lookup ctxt "CompositionCustom")
+  val _ = require "payload alias failed to propagate the const sort"
+    (URust_Type_Mappings.entry_parameter_sorts mapping =
+      [\<^sort>\<open>type\<close>, \<^sort>\<open>type\<close>, \<^sort>\<open>len\<close>])
+  val word_mapping = the (URust_Type_Mappings.lookup ctxt "CompositionWord")
+  val _ = require "word plugin discarded an unused parameter or strengthened const sort"
+    (URust_Type_Mappings.entry_parameter_sorts word_mapping =
+      [\<^sort>\<open>type\<close>, \<^sort>\<open>len0\<close>])
+  val buffer = the (URust_Item_Scope.lookup_constructor ctxt "CompositionBuffer")
+  val _ = require "selector rename changed the original Rust field identity"
+    (map (apsnd dest_Const_name) (URust_Item_Scope.constructor_fields buffer) =
+      [("compositionValues", \<^const_name>\<open>composition_values_model\<close>)])
+  val native = the (URust_Item_Scope.lookup_constructor ctxt "CompositionNative::NativeStored")
+  val _ = require "constructor rename changed the original Rust path identity"
+    (dest_Const_name (URust_Item_Scope.constructor_term native) =
+      \<^const_name>\<open>CompositionModelStored\<close>)
+  val function = the (URust_Item_Scope.lookup_function ctxt "CompositionRead")
+  val _ = require "typed receiver function lost default callable registration"
+    (dest_Const_name (URust_Item_Scope.function_term function) =
+      \<^const_name>\<open>composition_read\<close>)
+in val _ = () end
+\<close>
+
+section\<open> Scoped registration with complete generic type mappings \<close>
+
+locale composition_declaration_scope
+begin
+
+declare [[urust_register_notation = false]]
+urust_datatype \<open> struct CompositionLocal<T, P, const N: usize>(T); \<close>
+urust_type_alias \<open> type CompositionLocalAlias<T, P, const N: usize> = CompositionLocal<T, P, N>; \<close>
+urust_fn \<open>
+  fn CompositionScopedOff(self: CompositionLocalAlias<u8, u16, 0>) -> CompositionLocal<u8, u16, 0> { self }
+\<close>
+urust_fn [register_notation, state = \<open>unit\<close>, abort = \<open>bool\<close>,
+  input = \<open>nat prompt\<close>, output = \<open>unit prompt_output\<close>] \<open>
+  fn CompositionScopedOn(self: CompositionLocalAlias<u8, u16, 0>) -> CompositionLocal<u8, u16, 0> { self }
+\<close>
+urust_fn [register_notation] \<open>
+  fn CompositionScopedClient(self: CompositionLocalAlias<u8, u16, 0>) -> CompositionLocal<u8, u16, 0> {
+    CompositionScopedOn(self)
+  }
+\<close>
+
+ML_val \<open>
+  val ctxt = \<^context>
+  val _ = if is_none (URust_Item_Scope.lookup_function ctxt "CompositionScopedOff") andalso
+    is_some (URust_Item_Scope.lookup_function ctxt "CompositionScopedOn") andalso
+    is_some (URust_Item_Scope.lookup_type ctxt "CompositionLocal") andalso
+    is_some (URust_Type_Mappings.lookup ctxt "CompositionLocalAlias")
+    then () else error "scoped registration suppressed complete mappings or ignored inline precedence"
+\<close>
+
+end
+
+ML_val \<open>
+  val ctxt = \<^context>
+  val _ = if is_none (URust_Item_Scope.lookup_type ctxt "CompositionLocal") andalso
+    is_none (URust_Item_Scope.lookup_constructor ctxt "CompositionLocal") andalso
+    is_none (URust_Type_Mappings.lookup ctxt "CompositionLocalAlias") andalso
+    forall (is_none o URust_Item_Scope.lookup_function ctxt)
+      ["CompositionScopedOff", "CompositionScopedOn", "CompositionScopedClient"]
+    then () else error "generic declaration or typed receiver registration escaped its locale"
+\<close>
+
+section\<open> Read-only replay of composed declarations \<close>
+
+ML_val \<open>
+local
+  open Parser_Function_Regression_Test
+  val thy = \<^theory>
+  val base = initial thy
+  fun commands rendering =
+    "urust_datatype [" ^ rendering ^
+      ", backend = hol, renames = [\"Stored\" \<rightarrow> \"CompositionReplayStored\"]] " ^
+      cartouche "enum CompositionReplay<T, P, const N: usize> { Stored(T), Absent }" ^ "\n" ^
+    "urust_type_alias " ^
+      cartouche "type CompositionReplayAlias<T, P, const N: usize> = CompositionReplay<T, P, N>;" ^ "\n" ^
+    "urust_fn [" ^ rendering ^ ", state = " ^ cartouche "unit" ^
+      ", abort = " ^ cartouche "bool" ^ ", input = " ^ cartouche "nat prompt" ^
+      ", output = " ^ cartouche "unit prompt_output" ^ "] composition_replay_identity " ^
+      cartouche "fn CompositionReplayIdentity(self: CompositionReplayAlias<u8, u16, 0>) -> CompositionReplay<u8, u16, 0> { self }" ^ "\n" ^
+    "urust_fn [" ^ rendering ^ "] composition_replay_client " ^
+      cartouche "fn CompositionReplayClient(self: CompositionReplay<u8, u16, 0>) -> CompositionReplayAlias<u8, u16, 0> { CompositionReplayIdentity(self) }"
+  fun run rendering =
+    Parser_Test_Report_Lock.run (fn () =>
+      run_from base "composition-replay" (commands rendering)) |> Toplevel.context_of
+  val plain = run "pretty = false, pp_test = false, verbosity = 0"
+  val replayed = run "pretty, pp_test, verbosity = 2"
+  fun mappings ctxt = URust_Type_Mappings.dump ctxt
+    |> map (fn (name, entry) =>
+      (name, URust_Type_Mappings.entry_template entry, URust_Type_Mappings.entry_arities entry,
+       URust_Type_Mappings.entry_parameter_sorts entry,
+       URust_Type_Mappings.entry_backend_parameter_sorts entry))
+  val _ = require "composed pretty replay changed generated type schemes" (mappings plain = mappings replayed)
+  val _ = require "composed pretty replay changed the registered type count"
+    (length (URust_Item_Scope.dump_types plain) = length (URust_Item_Scope.dump_types replayed))
+  val _ = require "composed pretty replay changed the constructor count"
+    (length (URust_Item_Scope.dump_constructors plain) = length (URust_Item_Scope.dump_constructors replayed))
+  val _ = require "composed pretty replay changed the function count"
+    (length (URust_Item_Scope.dump_functions plain) = length (URust_Item_Scope.dump_functions replayed))
+  val _ = List.app (fn name =>
+    require (name ^ ": composed replay changed the complete HOL type or body")
+      (Sign.typ_equiv thy (declared_type plain name, declared_type replayed name) andalso
+       Term.aconv (rhs plain name, rhs replayed name)))
+    ["composition_replay_identity", "composition_replay_client"]
+in val _ = () end
 \<close>
 
 end

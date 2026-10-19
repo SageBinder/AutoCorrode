@@ -363,8 +363,8 @@ the synthetic declaration against the already generated item-scope identities an
 HOL entities before final links to the original uRust type, constructor, and field declarations. It
 does not regenerate declarations, mutate item scope, or forward probe reports to the live document.
 The parser test session enables the
-scoped roundtrip check across its command-bearing theories; `Parser_Printer_Tests.thy` separately
-demonstrates and audits human-readable formatting.
+scoped roundtrip check across its command-bearing theories; `Parser_Expression_Examples.thy` and
+`Parser_Expression_ML_Tests.thy` separately demonstrate and audit human-readable formatting.
 
 `urust_type_alias` declares Rust-to-Rust synonyms in the shared type registry:
 
@@ -417,9 +417,10 @@ are the supported HOL helper mechanism. At HOL use sites, write `(helper args)` 
 syntax would otherwise group the helper application incorrectly.
 
 Production theories use these commands for complete definitions and named abbreviations. The parser
-test session contains regression tests, parser experiments, and focused negative tests. Its
-[README](Micro_Rust_Parser_Tests/README.md) records the integrated parser architecture,
-Rust-fidelity boundaries, focused regression layout, and migration-report dispositions.
+test session pairs human-readable example theories, which contain only Isar declarations, equations
+and rejection rows, with ML test theories for ASTs, markup, diagnostics, recovery and printing. Its
+[README](Micro_Rust_Parser_Tests/README.md) records the test organization, the integrated parser
+architecture and the Rust-fidelity boundaries.
 
 The production expression parser uses explicit Rust-aligned precedence tiers. Prefix operators bind
 before casts, supported postfix operations bind before prefixes, and block-like expressions remain
