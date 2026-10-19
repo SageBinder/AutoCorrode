@@ -27,9 +27,12 @@ sig
   val resolve: Proof.context -> URust_AST.rust_type -> typ
   val resolve_signature:
     Proof.context -> URust_AST.rust_type list -> typ list
+  datatype channel_source =
+      Authored_Channel of Input.source
+    | Inherited_Channel of {label: string, source: Input.source, use_pos: Position.T}
   type function_channels =
-    {state: Input.source option, abort: Input.source option,
-     input: Input.source option, output: Input.source option}
+    {state: channel_source option, abort: channel_source option,
+     input: channel_source option, output: channel_source option}
   val resolve_function_signature:
     Proof.context -> function_channels ->
       URust_AST.rust_type list -> URust_AST.rust_type -> typ
@@ -1233,19 +1236,44 @@ struct
     | hol_sources (Const_Array_Type (typ, length, _)) = hol_sources typ @ hol_sources length
     | hol_sources (Primitive_Type _) = []
 
-  fun resolve_signature_with ctxt rust_types assemble =
+  datatype channel_source =
+      Authored_Channel of Input.source
+    | Inherited_Channel of {label: string, source: Input.source, use_pos: Position.T}
+
+  type function_channels =
+    {state: channel_source option, abort: channel_source option,
+     input: channel_source option, output: channel_source option}
+
+  type signature_read = {source: Input.source, cited: Position.T list, label: string option}
+
+  fun authored_read source : signature_read =
+    {source = source, cited = [Input.pos_of source], label = NONE}
+
+  (* An inherited source belongs to the earlier command that declared the scoped default. It is
+     read without positions, so neither its parse nor the repeated read reports into that command;
+     failures cite the declaration and the inheriting function instead. *)
+  fun channel_read (Authored_Channel source) = authored_read source
+    | channel_read (Inherited_Channel {label, source, use_pos}) =
+        {source = Input.reset_pos source, cited = [Input.pos_of source, use_pos],
+         label = SOME label}
+
+  fun labelled NONE message = message
+    | labelled (SOME label) message = label ^ ": " ^ message
+
+  fun resolve_signature_with ctxt leading rust_types assemble =
     let
-      val sources = maps hol_sources rust_types
-      fun parse read_ctxt source =
-        positioned_result Function_Signature [Input.pos_of source]
+      val reads = leading @ map authored_read (maps hol_sources rust_types)
+      fun parse read_ctxt ({source, cited, label}: signature_read) =
+        positioned_result Function_Signature cited
           (fn () =>
-            Syntax.parse_typ read_ctxt (Syntax.implode_input source))
-      (* One deterministic parse-and-check of every signature escape keeps sort inference shared
-         and lets the report transaction repeat the read for its markup. *)
+            Syntax.parse_typ read_ctxt (Syntax.implode_input source)
+              handle ERROR message => error (labelled label message))
+      (* One deterministic parse-and-check of every channel and signature escape keeps sort
+         inference shared and lets the report transaction repeat the read for its markup. *)
       val checked =
         URust_Report_Transaction.native ctxt (fn read_ctxt =>
-          let val parsed = map (parse read_ctxt) sources in
-            positioned_result Function_Signature (map Input.pos_of sources)
+          let val parsed = map (parse read_ctxt) reads in
+            positioned_result Function_Signature (maps #cited reads)
               (fn () => Syntax.check_typs read_ctxt parsed)
           end)
 
@@ -1274,7 +1302,8 @@ struct
                    in parameter end)
         | import_typ (typ as TVar _) = typ
 
-      val pending = Unsynchronized.ref (map import_typ checked)
+      val (leading_types, escapes) = chop (length leading) (map import_typ checked)
+      val pending = Unsynchronized.ref escapes
 
       fun read_escape _ =
         (case !pending of
@@ -1315,26 +1344,21 @@ struct
         else
           raise Fail
             "uRust type registry: unconsumed signature HOL escape"
-    in finish (assemble (map #typ resolved)) end
+    in finish (assemble leading_types (map #typ resolved)) end
 
   fun resolve_signature ctxt rust_types =
-    resolve_signature_with ctxt rust_types I
+    resolve_signature_with ctxt [] rust_types (K I)
 
-  type function_channels =
-    {state: Input.source option, abort: Input.source option,
-     input: Input.source option, output: Input.source option}
-
-  (* Channel options and Rust escapes share native type/sort checking and import.
-     Rust alone supplies parameter/result types, including the default unit result. *)
+  (* Supplied channels, authored or inherited from a scoped default, and Rust escapes share native
+     type/sort checking and import. Rust alone supplies parameter/result types, including the
+     default unit result. *)
   fun resolve_function_signature ctxt
       ({state, abort, input, output}: function_channels) parameters result =
     let
       val channels = [state, abort, input, output]
-      val types =
-        map HOL_Type_Source (map_filter I channels) @ parameters @ [result]
-      fun assemble resolved =
+      val leading = map channel_read (map_filter I channels)
+      fun assemble supplied rust_signature =
         let
-          val (supplied, rust_signature) = chop (length (map_filter I channels)) resolved
           val (parameter_types, result_types) = chop (length parameters) rust_signature
           fun channel NONE types = (dummyT, types)
             | channel (SOME _) (typ :: types) = (typ, types)
@@ -1350,7 +1374,7 @@ struct
             Type (\<^type_name>\<open>function_body\<close>,
               [state_type, the_single result_types, abort_type, input_type, output_type])]
         end
-    in the_single (resolve_signature_with ctxt types assemble) end
+    in the_single (resolve_signature_with ctxt leading (parameters @ [result]) assemble) end
 
   fun instantiate_constructor ctxt rust_name arguments constructor =
     let

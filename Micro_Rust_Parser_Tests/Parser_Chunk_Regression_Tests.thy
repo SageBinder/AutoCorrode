@@ -528,6 +528,14 @@ local
         rejects ("outer-" ^ option) ["option " ^ quote option, "is declaration-specific"]
           (chunk ("[" ^ option ^ " = true] ") item) option 0)
       ["abbrev", "application_def", "name", "renames", "state", "backend", "attrs"]
+  (* An outer channel option names the scoped default that shares a type across the chunk. *)
+  val _ =
+    List.app
+      (fn option =>
+        rejects ("outer-channel-" ^ option)
+          ["option " ^ quote option, "or set the scoped urust_" ^ option ^ " default"]
+          (chunk ("[" ^ option ^ " = " ^ cartouche "unit" ^ "] ") item) option 0)
+      ["state", "abort", "input", "output"]
   val _ =
     rejects "outer-unknown" ["unknown uRust command option \"colour\""]
       (chunk "[colour] " item) "colour" 0

@@ -151,6 +151,27 @@ unconstrained channels generalize. Named variables and sorts are shared across t
 and all signature `τ‹…›` escapes; locale type variables remain rigid and `_` holes independent.
 For example, `[state = ‹'s::cancellative_sepalg›, abort = ‹bool›]` retains a state sort and abort
 type while the Rust signature supplies all parameter and returned-value types.
+
+The scoped attributes `urust_state`, `urust_abort`, `urust_input` and `urust_output` set those
+channel types once for a context:
+
+```isabelle
+context notes [[urust_state = ‹'s::cancellative_sepalg›, urust_abort = ‹bool›]]
+begin
+urust_fn ‹ fn Identity(value: τ‹nat›) -> τ‹nat› { value } ›
+urust_fn [abort = ‹unit›] ‹ fn UnitAbortIdentity(value: τ‹nat›) -> τ‹nat› { value } ›
+end
+```
+
+A function that omits a channel option, including a `urust` chunk member without that annotation
+entry, inherits the default. An inline option or `ω‹…›` annotation overrides its own channel;
+`‹_›` there leaves the channel unconstrained, and an exact `‹_›` default removes it. The default is
+checked once where it is declared and reread by each inheriting function as if written inline, so
+its named variables are fresh per function, shared with that signature's escapes, and captured by
+a locale's fixed variables of the same name. `urust_expr` and the outer list of a chunk do not take
+channel types. Like other attributes, a default declared with `declare` inside a locale is stored
+with the locale and replayed into its interpretations, where its source is reread in the
+interpreting theory; use `context notes`, `opening` or a bundle to keep it local to a block.
 Qualified and generic mappings, unit and structural tuples are
 supported. Use `τ‹HOL type›` wherever a type is expected for polymorphism, shared sort constraints,
 higher-order types or independent `_` inference holes. Parameters lower identifiers, `_`, and

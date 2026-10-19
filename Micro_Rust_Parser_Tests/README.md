@@ -99,6 +99,13 @@ remain independent. Rust signatures alone supply parameter and returned-value ty
 default unit equivalence, callback sharing, contracts, local folding, holes, synonyms,
 pointers, locales, positioned rejection and recovery. The former overall `type` option is rejected.
 
+The scoped attributes `urust_state`, `urust_abort`, `urust_input` and `urust_output` supply the
+channel types of later functions that omit them; inline options and `ω‹…›` annotations override
+each channel. `Parser_Function_Channel_Default_Tests` checks that every inherited channel subset
+equals the inline options, every override subset, removal by `‹_›`, sharing with escapes and inline
+options, chunk members, nested contexts, bundles, locale capture, interpretation replay, report
+isolation from the declaring command, commands that ignore defaults, and positioned failures.
+
 Explicitly typed `self: T` and `mut self: T` use ordinary signature typing and parameter binding.
 `Parser_Function_Receiver_Tests` checks complete declaration schemes and kernel equivalence
 with `self_value` versions for primitive/mapped types, a HOL reference escape, fields,

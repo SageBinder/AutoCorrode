@@ -40,6 +40,13 @@ Input and output are the actual types, including any \<open>prompt\<close> or \<
 wrappers. Omitted channels infer from the body/signature and generalize when unconstrained.
 Named variables and sorts are shared across all channel options and Rust type escapes.
 Ambient locale variables remain rigid, and separate \<open>_\<close> holes infer independently.
+The scoped attributes \<open>urust_state\<close>, \<open>urust_abort\<close>, \<open>urust_input\<close> and
+\<open>urust_output\<close> set a default HOL type for each channel, for example
+\<open>context notes [[urust_abort = \<open>bool\<close>]] begin \<dots> end\<close>. A function that omits a
+channel option inherits that default, an inline option or \<omega> annotation overrides its own
+channel, and an exact \<open>_\<close> default removes it. The attribute checks its source once where it is
+declared; every inheriting function rereads that source with its own signature, as if written
+inline, so named variables are fresh per function and may be captured by a locale.
 Parameters lower identifiers, \<open>_\<close>, and \<open>mut identifier\<close>.
 Explicitly typed \<open>self: T\<close> and \<open>mut self: T\<close> use the same signature typing
 and lexical binding as other identifiers, including field/method receivers and HOL escapes.
@@ -199,8 +206,9 @@ Boolean options, omitting \<open>= true\<close> enables the option, so both comm
 \<open>[pp_test]\<close>, \<open>[pretty]\<close>, \<open>[application_def]\<close>, and \<open>[abbrev]\<close>. Explicit
 \<open>= true\<close> and \<open>= false\<close> remain available; integer and attribute-list options always require a
 value. Function declarations additionally accept Boolean \<open>register_notation\<close>,
-including its bare enabling spelling, and the inline-only HOL type options \<open>state\<close>,
-\<open>abort\<close>, \<open>input\<close> and \<open>output\<close>.
+including its bare enabling spelling, and the HOL type options \<open>state\<close>, \<open>abort\<close>,
+\<open>input\<close> and \<open>output\<close>, which override the scoped defaults \<open>urust_state\<close>,
+\<open>urust_abort\<close>, \<open>urust_input\<close> and \<open>urust_output\<close>.
 
 An argument-taking abbreviation declaration exposes a parser expression or function body as a HOL
 helper. At HOL use sites, write \<open>(helper args)\<close> when surrounding syntax would otherwise group the
@@ -292,6 +300,50 @@ val urust_application_def =
 val urust_register_notation =
   Attrib.setup_config_bool \<^binding>\<open>urust_register_notation\<close> (K true)
 
+(* Scoped channel defaults keep the positioned source of their declaration. The attribute checks
+   it once in the declaring context; the stored declaration value is reused when the attribute is
+   applied again, so a replay neither rechecks nor reports. Each inheriting function rereads the
+   source together with its own signature. An exact _ removes the default. *)
+structure Channel_Defaults = Generic_Data
+(
+  type T = Input.source Symtab.table
+  val empty = Symtab.empty
+  val merge = Symtab.merge (K true)
+)
+
+fun channel_default_declaration ctxt name source =
+  let
+    val typ =
+      (case Exn.result (fn () => Syntax.read_typ ctxt (Syntax.implode_input source)) () of
+         Exn.Res typ => typ
+       | Exn.Exn exn =>
+           if Exn.is_interrupt exn then Exn.reraise exn
+           else error (name ^ ": " ^ Runtime.exn_message exn ^ Position.here (Input.pos_of source)))
+    val update =
+      if typ = dummyT then Symtab.delete_safe name else Symtab.update (name, source)
+  in Morphism.entity (K (Channel_Defaults.map update)) end
+
+fun setup_channel_default binding =
+  let
+    val name = Binding.name_of binding
+    val parser =
+      Scan.state :|-- (fn context =>
+        Scan.lift
+          (Parse.$$$ "=" |--
+            Args.embedded_declaration
+              (channel_default_declaration (Context.proof_of context) name))) >>
+      (fn declaration => Thm.declaration_attribute (K (Morphism.form declaration)))
+    val _ =
+      Theory.setup
+        (Attrib.setup binding parser
+          "scoped default HOL type for an omitted uRust function channel")
+  in name end
+
+val urust_state = setup_channel_default \<^binding>\<open>urust_state\<close>
+val urust_abort = setup_channel_default \<^binding>\<open>urust_abort\<close>
+val urust_input = setup_channel_default \<^binding>\<open>urust_input\<close>
+val urust_output = setup_channel_default \<^binding>\<open>urust_output\<close>
+
 val pp_test_option = "pp_test"
 val pretty_option = "pretty"
 val verbosity_option = "verbosity"
@@ -323,7 +375,9 @@ val name_option = "name"
    - urust_register_notation controls function callable entries and datatype field-lens aliases;
      its inline alias is register_notation.
    - renames is inline-only and carries positioned source-to-HOL pairs for datatype generation.
-   - state, abort, input and output are inline-only positioned HOL channel types for functions.
+   - state, abort, input and output are positioned HOL channel types for functions. Each falls
+     back to the source of its scoped default attribute urust_state, urust_abort, urust_input or
+     urust_output, and otherwise remains unconstrained.
    - name is annotation-only and carries a positioned HOL binding for one chunk declaration; the
      function schema also admits _ for a checked declaration without artifacts.
    Verbosity values outside 0..2 are rejected. *)
@@ -342,7 +396,7 @@ datatype command_option_config =
   | Integer_Config of int Config.T
   | Attributes_Config
   | Renames_Config
-  | Type_Config
+  | Type_Config of string
   | Backend_Config
   | Width_Config
   | Plugins_Config
@@ -364,8 +418,8 @@ val expression_option_configs = declaration_option_configs
 val function_option_configs =
   fold Symtab.update
     [(register_notation_option, Boolean_Config urust_register_notation),
-     (state_option, Type_Config), (abort_option, Type_Config),
-     (input_option, Type_Config), (output_option, Type_Config)]
+     (state_option, Type_Config urust_state), (abort_option, Type_Config urust_abort),
+     (input_option, Type_Config urust_input), (output_option, Type_Config urust_output)]
     declaration_option_configs
 
 val datatype_option_configs =
@@ -441,7 +495,7 @@ fun add_inline_option option_configs
                   option_type_error name "an Isabelle attribute list" name_pos
               | (Renames_Config, NONE) =>
                   option_type_error name "a quoted rename list" name_pos
-              | (Type_Config, NONE) =>
+              | (Type_Config _, NONE) =>
                   option_type_error name "a HOL type" name_pos
               | (Name_Config {anonymous}, NONE) =>
                   option_type_error name (name_expectation anonymous) name_pos
@@ -469,7 +523,7 @@ fun add_inline_option option_configs
                   Attributes_Value attributes
               | (Renames_Config, SOME (Renames_Value renames, _)) =>
                   Renames_Value renames
-              | (Type_Config, SOME (Type_Value source, _)) =>
+              | (Type_Config _, SOME (Type_Value source, _)) =>
                   Type_Value source
               | (Boolean_Config _, SOME (_, value_pos)) =>
                   option_type_error name "true or false" value_pos
@@ -479,7 +533,7 @@ fun add_inline_option option_configs
                   option_type_error name "an Isabelle attribute list" value_pos
               | (Renames_Config, SOME (_, value_pos)) =>
                   option_type_error name "a quoted rename list" value_pos
-              | (Type_Config, SOME (_, value_pos)) =>
+              | (Type_Config _, SOME (_, value_pos)) =>
                   option_type_error name "a HOL type" value_pos)
          in Symtab.update (name, (checked_value, name_pos)) options end)
 
@@ -497,6 +551,19 @@ fun configured_integer lthy options name config =
        error
          ("internal non-integer uRust command option " ^ quote name)
    | NONE => validate_verbosity name Position.none (Config.get lthy config))
+
+(* An authored channel option wins over the scoped default; the function name is the use site
+   that an inherited default's failures cite. *)
+fun configured_channel lthy function options name scoped =
+  (case Symtab.lookup options name of
+     SOME (Type_Value source, _) => SOME (URust_Type_Mappings.Authored_Channel source)
+   | SOME (_, pos) => option_type_error name "a HOL type" pos
+   | NONE =>
+       Symtab.lookup (Channel_Defaults.get (Context.Proof lthy)) scoped
+       |> Option.map (fn source =>
+            URust_Type_Mappings.Inherited_Channel
+              {label = "scoped default " ^ scoped, source = source,
+               use_pos = #2 (URust_AST.function_name function)}))
 
 fun configured_verbosity lthy options =
   configured_integer lthy options verbosity_option urust_verbosity
@@ -1194,9 +1261,14 @@ fun prepare_function_signature lthy channels function =
     val complete_type =
       URust_Type_Mappings.resolve_function_signature lthy channels
         parameter_types return_type
+    (* An inherited default belongs to an earlier command; only authored channels position the
+       declaration type. *)
+    fun authored (SOME (URust_Type_Mappings.Authored_Channel source)) = SOME (Input.pos_of source)
+      | authored _ = NONE
     val type_pos =
-      (case map_filter I [#state channels, #abort channels, #input channels, #output channels] of
-         source :: _ => Input.pos_of source
+      (case map_filter authored
+          [#state channels, #abort channels, #input channels, #output channels] of
+         pos :: _ => pos
        | [] => URust_AST.rust_type_position return_type)
   in
     (SOME (complete_type, type_pos),
@@ -1618,9 +1690,7 @@ datatype prepared_function =
     {interactive: bool, pp_test: bool, verbosity: int, pretty: bool, render_pretty: bool,
      abbreviation: bool, application_definition: bool, attributes: Token.src list,
      binding: binding, target: declaration_target, register_notation: bool,
-     channels:
-       {state: Input.source option, abort: Input.source option,
-        input: Input.source option, output: Input.source option},
+     channels: URust_Type_Mappings.function_channels,
      source: Input.source, function: URust_AST.urust_function, warnings: unit -> unit}
 
 fun prepare_function lthy {interactive, roundtrip, options, target, source, function} =
@@ -1646,11 +1716,7 @@ fun prepare_function lthy {interactive, roundtrip, options, target, source, func
         "urust_fn" abbreviation application_definition
     val attributes =
       declaration_attributes lthy "urust_fn" target abbreviation options
-    fun channel name =
-      (case Symtab.lookup options name of
-         SOME (Type_Value source, _) => SOME source
-       | NONE => NONE
-       | SOME (_, pos) => option_type_error name "a HOL type" pos)
+    fun channel name scoped = configured_channel lthy function options name scoped
   in
     Prepared_Function
       {interactive = interactive, pp_test = pp_test, verbosity = verbosity, pretty = pretty,
@@ -1659,8 +1725,8 @@ fun prepare_function lthy {interactive, roundtrip, options, target, source, func
        binding = target_binding Function target, target = target,
        register_notation = register_notation,
        channels =
-         {state = channel state_option, abort = channel abort_option,
-          input = channel input_option, output = channel output_option},
+         {state = channel state_option urust_state, abort = channel abort_option urust_abort,
+          input = channel input_option urust_input, output = channel output_option urust_output},
        source = source, function = function, warnings = warnings}
   end
 
@@ -1849,7 +1915,7 @@ fun parse_option_value config =
   Parse.position Parse.int >>
     (fn (level, pos) => (Integer_Value level, pos)) ||
   (case config of
-     SOME Type_Config =>
+     SOME (Type_Config _) =>
        Parse.embedded_input >>
          (fn source => (Type_Value source, Input.pos_of source))
    | SOME Renames_Config =>
@@ -1905,10 +1971,17 @@ fun reject_chunk_option (name, pos) =
   if Symtab.defined function_annotation_configs name orelse
       Symtab.defined datatype_annotation_configs name
   then
-    error
-      ("urust: option " ^ quote name ^
-        " is declaration-specific; supply it in an \<omega> annotation" ^
-        Position.here pos)
+    let
+      val scoped =
+        (case Symtab.lookup function_annotation_configs name of
+           SOME (Type_Config scoped) => " or set the scoped " ^ scoped ^ " default"
+         | _ => "")
+    in
+      error
+        ("urust: option " ^ quote name ^
+          " is declaration-specific; supply it in an \<omega> annotation" ^ scoped ^
+          Position.here pos)
+    end
   else unknown_option (name, pos)
 
 fun reject_annotation_option kind other_configs (name, pos) =

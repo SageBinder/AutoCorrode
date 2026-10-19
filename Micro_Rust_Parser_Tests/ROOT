@@ -31,6 +31,7 @@ session Micro_Rust_Parser_Tests = HOL +
     Parser_Function_Tests
     Parser_Function_Regression_Tests
     Parser_Function_Semantic_Type_Tests
+    Parser_Function_Channel_Default_Tests
     Parser_Function_Receiver_Tests
     Parser_Datatype_Composition_Tests
     Parser_Chunk_Tests

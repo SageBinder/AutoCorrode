@@ -179,6 +179,28 @@ urust_fn
 thm packet_length_def
 
 text\<open>
+Scoped channel defaults state the computation types once for a block. A function that omits a
+channel inherits its default, and an inline option overrides one channel.
+\<close>
+
+context
+  notes [[urust_state = \<open>'s::cancellative_sepalg\<close>, urust_abort = \<open>bool\<close>,
+          urust_input = \<open>nat prompt\<close>, urust_output = \<open>unit prompt_output\<close>]]
+begin
+
+urust_fn [application_def]
+  \<open> fn ScopedPacketLength(packet: u64) -> u64 { PacketLength(packet) } \<close>
+
+urust_fn [abort = \<open>unit\<close>, application_def]
+  \<open> fn ScopedUnitAbortPacketLength(packet: u64) -> u64 { PacketLength(packet) } \<close>
+
+end
+
+lemma scoped_packet_length_equivalent:
+  \<open>scoped_packet_length packet = stable_packet_length packet\<close>
+  unfolding scoped_packet_length_def stable_packet_length_def by (rule refl)
+
+text\<open>
 An explicitly typed \<open>self\<close> uses the signature's receiver type and the ordinary
 parameter binding, including inside HOL escapes.
 \<close>

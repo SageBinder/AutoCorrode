@@ -187,6 +187,28 @@ urust_fn
 urust_fn semantic_polymorphic_identity
   \<open> fn SemanticPolymorphicIdentity(value: \<tau>\<open>'a\<close>) -> \<tau>\<open>'a\<close> { value } \<close>
 
+text\<open>
+The scoped attributes \<open>urust_state\<close>, \<open>urust_abort\<close>, \<open>urust_input\<close> and \<open>urust_output\<close>
+set the default of each channel for later functions in the same context. An inline option
+overrides its channel, and an exact \<open>_\<close> leaves it unconstrained.
+\<close>
+
+context
+  notes [[urust_state = \<open>'s::cancellative_sepalg\<close>, urust_abort = \<open>bool\<close>,
+          urust_input = \<open>nat prompt\<close>, urust_output = \<open>unit prompt_output\<close>]]
+begin
+
+urust_fn scoped_identity
+  \<open> fn ScopedIdentity(value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { value } \<close>
+
+urust_fn [abort = \<open>unit\<close>] scoped_unit_abort_identity
+  \<open> fn ScopedUnitAbortIdentity(value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { value } \<close>
+
+urust_fn [state = \<open>_\<close>] scoped_any_state_identity
+  \<open> fn ScopedAnyStateIdentity(value: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { value } \<close>
+
+end
+
 section\<open> Abbreviations and application definitions \<close>
 
 urust_fn [abbrev] abbreviated_hol_name

@@ -14,7 +14,9 @@ the entry syntax of the bracketed lists with the function or datatype schema of 
 commands, plus the positioned HOL binding \<open>name\<close>; functions also accept \<open>name = _\<close> to check
 without installing anything. The outer list accepts only \<open>pp_test\<close>, \<open>pretty\<close>,
 \<open>verbosity\<close> and \<open>register_notation\<close>. Annotation entries replace outer defaults, which
-replace scoped configurations; configurations are never changed.
+replace scoped configurations; configurations are never changed. Function channel types come from
+annotations or the scoped \<open>urust_state\<close>, \<open>urust_abort\<close>, \<open>urust_input\<close> and
+\<open>urust_output\<close> defaults of the chunk's context.
 
 The whole chunk parses, and every annotation payload, schema and option combination of every
 member is validated, before the first declaration. Checks that depend on earlier members
