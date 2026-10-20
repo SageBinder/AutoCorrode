@@ -32,6 +32,7 @@ sig
      pretty: bool,
      register_notation: bool,
      renames: rename list,
+     unprefixed_selectors: Position.T option,
      backend: string,
      word_width: int option,
      parameters: rename list,
@@ -61,6 +62,7 @@ type declaration =
    pretty: bool,
    register_notation: bool,
    renames: rename list,
+   unprefixed_selectors: Position.T option,
    backend: string,
    word_width: int option,
    parameters: rename list,
@@ -253,6 +255,31 @@ fun renamed_binding renames key default =
 
 fun chosen_binding renames source default pos =
   renamed_binding renames source (Binding.make (default, pos))
+
+(* Under unprefixed_selectors, a named struct field or named enum payload field without its own
+   key takes its snake-case source name, positioned at the field like every automatic struct
+   selector. *)
+fun add_unprefixed_selectors lthy item renames =
+  let
+    fun add key (URust_AST.Datatype_Field (name, pos, _)) table =
+      if Symtab.defined table (key name) then table
+      else
+        Symtab.update
+          (key name,
+           checked_binding lthy (" for the unprefixed selector of field " ^ quote name)
+             (snake_case name, pos))
+          table
+  in
+    (case item of
+       URust_AST.Struct_Item (_, _, URust_AST.Named_Shape fields, _) => fold (add I) fields renames
+     | URust_AST.Struct_Item _ => renames
+     | URust_AST.Enum_Item (_, _, variants, _) =>
+         fold
+           (fn URust_AST.Datatype_Variant (variant, _, URust_AST.Named_Shape fields) =>
+                 fold (add (payload_key variant)) fields
+             | _ => I)
+           variants renames)
+  end
 
 fun check_effective_names what bindings =
   duplicate_names what (map (fn b => (Binding.name_of b, Binding.pos_of b)) bindings)
@@ -1469,8 +1496,8 @@ type prepared =
    discriminants: (string * URust_AST.integer_literal) list}
 
 fun prepare
-    (declaration as {source, explicit_binding, pp_test, renames, ...}
-      : declaration) source_item lthy : prepared =
+    (declaration as {source, explicit_binding, pp_test, renames, unprefixed_selectors, backend,
+      word_width, ...} : declaration) source_item lthy : prepared =
   let
     val (descriptors, repr, discriminants, item) = case source_item of
       URust_AST.Datatype_Header (descriptors, repr, values, item) => (descriptors, repr, values, item)
@@ -1489,7 +1516,18 @@ fun prepare
     val type_binding =
       the_default (infer_datatype_binding rust_name rust_pos)
         explicit_binding
-    val resolved_renames = resolve_renames lthy item renames
+    val explicit_renames = resolve_renames lthy item renames
+    val resolved_renames =
+      (case unprefixed_selectors of
+         NONE => explicit_renames
+       | SOME pos =>
+           (case try (select_backend backend word_width repr discriminants) item of
+              SOME ("simple_word_enum", _, _) =>
+                positioned_datatype_error
+                  ("unprefixed_selectors does not apply to the simple_word_enum backend, " ^
+                    "which generates no selectors")
+                  pos
+            | _ => add_unprefixed_selectors lthy item explicit_renames))
   in
     {declaration = declaration, source_item = source_item, descriptors = descriptors,
      item = item, rust_name = rust_name, rust_pos = rust_pos, type_binding = type_binding,

@@ -325,6 +325,28 @@ An explicit selector override can resolve a snake-case field collision. The oute
 remains independent, and struct constructors retain automatic naming.
 Renames are inline-only and compose with the other datatype options.
 
+Automatic named-struct selectors are `<HOL type>_<snake field>`, and automatic named enum payload
+selectors are `<HOL type>_<snake variant>_<snake field>`. The prefix keeps generated selectors
+distinct: custom-enum payload selectors are unqualified constants, and a later HOL datatype selector
+shadows an earlier short name. The inline-only Boolean option `[unprefixed_selectors]` instead names
+both kinds `<snake field>`:
+
+```isabelle
+urust_datatype [unprefixed_selectors, renames = ["sampleCount" → "total"]] ‹
+  struct Sample { sampleValue: u32, sampleCount: u64 }
+›
+```
+
+This generates selectors `sample_value` and `total` and lenses `sample_sample_value_lens` and
+`sample_total_lens`; Rust still uses `sampleValue` and `sampleCount`. Explicit and payload keys
+override the option, and unprefixed names take part in every binding and duplicate check,
+positioned at their fields. The bare spelling is canonical; `[unprefixed_selectors = false]` keeps
+the prefix, and there is no attribute or scoped setting. The `simple_word_enum` backend generates
+no selectors and rejects the option. Unprefixed selectors of different declarations may coincide:
+a later HOL datatype selector shadows the earlier short name, which stays available qualified by
+its type, while a second custom-enum payload selector of the same name is a duplicate-constant
+error.
+
 Automatic field-lens aliases are controlled by Boolean `register_notation`, defaulting to `true`.
 `[register_notation]` enables it; `[register_notation = true]` and
 `[register_notation = false]` override the scoped `urust_register_notation` setting for one

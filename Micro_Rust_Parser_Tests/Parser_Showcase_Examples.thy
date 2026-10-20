@@ -1305,4 +1305,23 @@ lemma
   \<open>selector_name_bounce_code (Bounced c) = c\<close>
   by simp_all
 
+text\<open>
+The inline-only \<open>[unprefixed_selectors]\<close> drops the type prefix from automatic selectors,
+while explicit keys still choose their own names. Rust field access is unchanged.
+\<close>
+
+urust_datatype [unprefixed_selectors, renames = ["selectorNameAttempts" \<rightarrow> "selector_name_tries"]]
+\<open>
+  struct SelectorNameReceipt { selectorNameId: u32, selectorNameAttempts: u32 }
+\<close>
+
+urust_expr showoff_selector_name_receipt \<open>
+  (SelectorNameReceipt { selectorNameId: 3u32, selectorNameAttempts: 1u32 }).selectorNameAttempts
+\<close>
+
+lemma
+  \<open>selector_name_id (make_selector_name_receipt i a) = i\<close>
+  \<open>selector_name_tries (make_selector_name_receipt i a) = a\<close>
+  by simp_all
+
 end

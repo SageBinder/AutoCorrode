@@ -406,7 +406,11 @@ variants, fields and tuple indices, malformed indices, duplicate keys, duplicate
 selectors and collisions with untouched defaults on both payload backends, payload keys on
 `simple_word_enum`, and keys on tuple structs. It also compares a positional `hol` selector with
 the native `datatype` declaration that names the same field: selector constants, definitions,
-`sel`, collapse and split facts, and simplification.
+`sel`, collapse and split facts, and simplification. The unprefixed-selector rows cover option
+values, the absent attribute and scoped setting, rejection on `simple_word_enum`, unprefixed
+collisions and invalid defaults, and two declarations sharing an unprefixed name: record
+selectors shadow by short name and keep their own field positions, while custom-enum payload
+selectors raise the native duplicate-constant error at the later field.
 
 ## Rust-fidelity boundaries
 
@@ -501,10 +505,10 @@ negative rows preserve these boundaries.
   syntax and recovery.
 - `Parser_Datatype_Examples.thy`: simple word enum path resolution and the `urust_name:` clause
   without the chunk command; datatype declarations, renames and notation registration control;
-  datatype selector naming with payload rename keys on both payload backends and native
-  positional-selector parity; cast-target aliases with import and locale scoping and primitive
-  equivalence; type alias commands and dependency scopes; and record, tuple and enum pointer
-  fields.
+  datatype selector naming with payload rename keys on both payload backends, native
+  positional-selector parity and unprefixed selectors; cast-target aliases with import and locale
+  scoping and primitive equivalence; type alias commands and dependency scopes; and record, tuple
+  and enum pointer fields.
 - `Parser_Datatype_ML_Tests.thy`: generated registrations and navigation, registry integrity,
   transactional diagnostics and command output; the type alias registry (captured templates,
   normalized generic sorts, independent instantiations, collisions) and syntax (shared type and
