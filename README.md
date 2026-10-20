@@ -227,8 +227,13 @@ Pointer-containing fields introduce implicit address/global HOL parameters share
 item, including nested generated types and all enum variants. These implicit parameters are separate
 from declared Rust arguments. Unrelated free type variables in field HOL escapes remain unsupported.
 
-Type parameters retain declaration order, including unused parameters. `const N: usize` maps to a
-HOL length type with sort `len0`, strengthened to `len` by fixed arrays or registered mappings.
+Type parameters retain declaration order, including unused parameters. HOL datatypes and records
+declare every source and implicit pointer parameter live, exactly as `datatype` and
+`datatype_record` do: BNF makes a parameter dead when it occurs in a dead position, such as a
+fixed-array element or a function domain, and generates map, set, relator and predicator constants
+over the live ones. Unused parameters are live phantoms. There is no explicit `dead` option.
+`const N: usize` maps to a HOL length type with sort `len0`, strengthened to `len` by fixed arrays
+or registered mappings.
 Arguments accept decimal/hexadecimal literals, forwarded const parameters, and `τ‹LENGTH_TYPE›`.
 Type aliases support const forwarding and retain unused const parameters; unused type parameters in
 aliases remain rejected, as in Rust.

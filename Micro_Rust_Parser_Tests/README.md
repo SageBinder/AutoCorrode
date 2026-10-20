@@ -397,6 +397,13 @@ constructor substitutions, conversion registration, and failure recovery. Automa
 handling is deferred: unmapped fields receive a diagnostic, and explicit singleton mappings retain
 ordinary stored fields and constructor/pattern slots. Tests relying on BNF
 artifacts select `backend = hol`.
+Its native parameter parity section declares each `hol` struct or enum shape, and the equivalent
+`datatype_record` or `datatype`, in independent toplevel states from the same theory. Both must
+add identical constants with types, type constructors and theorem names, with the same live
+parameters: records, payload enums, all-dead fixed arrays, unused (phantom) parameters, function
+domains and implicit pointer parameters. The custom and word enum backends keep fixed artifact
+inventories without BNF structure, and a persistent generic struct and enum exercise their map,
+set, relator and predicator facts.
 Identifier-headed paths retain their previous behavior, including unsupported widths such as
 `u128`.
 

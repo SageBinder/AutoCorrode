@@ -4975,6 +4975,263 @@ urust_expr local_word \<open> LocalWord::<u16>::LocalOn \<close>
 urust_fn local_field \<open> fn local_field(x: LocalTagged<u8>) -> u8 { x.value } \<close>
 end
 
+section\<open> Native parameter parity \<close>
+
+text\<open>
+Source and implicit backend parameters of \<open>hol\<close> structs and enums are live, as the native
+\<open>datatype_record\<close> and \<open>datatype\<close> commands declare them by default. BNF makes a parameter dead
+when it occurs in a dead position, such as an argument of a non-BNF type or a function domain.
+Each source declaration below runs in its own toplevel state from the same theory as its native
+counterpart, so both share their HOL names. The new constants with their types, the new type
+constructors and the new theorem names must be identical, and both must have the stated live
+parameters. The custom \<open>enum\<close> and \<open>simple_word_enum\<close> backends never generate BNF structure;
+their complete artifact inventories are fixed below.
+\<close>
+
+ML\<open>
+structure Live_Parameter_Parity =
+struct
+  fun require message condition =
+    if condition then () else error ("native parameter parity: " ^ message)
+  fun cartouche text = Symbol.open_ ^ " " ^ text ^ " " ^ Symbol.close
+  fun run thy label text =
+    Outer_Syntax.parse_text thy (K thy) (Position.line_file 1 label) text
+    |> (fn transitions => fold (Toplevel.command_exception false) transitions
+         (Toplevel.make_state (SOME thy)))
+    |> Toplevel.theory_of
+  (* Every constant with its type, type constructor and theorem name that thy adds to base. *)
+  fun artifacts base thy =
+    let
+      fun constants thy = #constants (Consts.dest (Sign.consts_of thy))
+      fun types thy = map #1 (Name_Space.dest_table (#types (Type.rep_tsig (Sign.tsig_of thy))))
+      val old_constants = Symtab.make_set (map #1 (constants base))
+      val old_types = Symtab.make_set (types base)
+    in
+      {constants = constants thy |> filter_out (Symtab.defined old_constants o #1)
+         |> map (fn (name, (typ, _)) => (name, typ)) |> sort (string_ord o apply2 #1),
+       types = types thy |> filter_out (Symtab.defined old_types) |> sort_strings,
+       facts = Global_Theory.dest_thms false [base] thy |> map (Thm_Name.short o #1 o #1)
+         |> sort_strings}
+    end
+  (* A datatype without live parameters registers no BNF. *)
+  fun live_parameters thy type_name =
+    (case BNF_Def.bnf_of (Proof_Context.init_global thy) type_name of
+       SOME bnf => map (fn TFree (name, _) => name | TVar ((name, _), _) => name
+         | T => raise TYPE ("live_parameters", [T], [])) (BNF_Def.lives_of_bnf bnf)
+     | NONE => [])
+end
+\<close>
+
+ML_val\<open>
+local
+  open Live_Parameter_Parity
+  val thy = \<^theory>
+  fun difference left right =
+    commas (subtract (op =) right left @ subtract (op =) left right)
+  fun parity (label, type_name, native, source, lives) =
+    let
+      val native_thy = run thy (label ^ "-native") native
+      val source_thy = run thy (label ^ "-source") source
+      val {constants = native_constants, types = native_types, facts = native_facts} =
+        artifacts thy native_thy
+      val {constants = source_constants, types = source_types, facts = source_facts} =
+        artifacts thy source_thy
+      val _ = require (label ^ " constants differ: " ^
+          difference (map #1 native_constants) (map #1 source_constants))
+        (map #1 native_constants = map #1 source_constants)
+      val _ = require (label ^ " constant types differ")
+        (native_constants = source_constants)
+      val _ = require (label ^ " type constructors differ: " ^ difference native_types source_types)
+        (native_types = source_types)
+      val _ = require (label ^ " theorems differ: " ^ difference native_facts source_facts)
+        (native_facts = source_facts)
+      val full_name = Sign.full_bname thy type_name
+      val _ = require (label ^ " native live parameters changed")
+        (live_parameters native_thy full_name = lives)
+      val _ = require (label ^ " source live parameters differ")
+        (live_parameters source_thy full_name = lives)
+    in () end
+  val _ = List.app parity
+    [("live-parameter-record", "live_parameter_record",
+      "datatype_record ('a, 'l) live_parameter_record =\n" ^
+      "  live_parameter_record_len :: \<open>64 word\<close>\n" ^
+      "  live_parameter_record_values :: \<open>('a \<times> 'l) list\<close>\n" ^
+      "micro_rust_record live_parameter_record\n" ^
+      "  (live_parameter_record_len = \"len\", live_parameter_record_values = \"values\")",
+      "urust_datatype [parameters = [\"A\" \<rightarrow> \"'a\", \"L\" \<rightarrow> \"'l\"],\n" ^
+      "  renames = [\"len\" \<rightarrow> \"live_parameter_record_len\",\n" ^
+      "    \"values\" \<rightarrow> \"live_parameter_record_values\"]] live_parameter_record " ^
+      cartouche "struct LiveParameterRecord<A, L> { len: u64, values: \<tau>\<open>('a \<times> 'l) list\<close> }",
+      ["'a", "'l"]),
+     ("live-parameter-choice", "live_parameter_choice",
+      "datatype 't live_parameter_choice = LiveParameterEmpty | LiveParameterValue 't\n" ^
+      "  | LiveParameterPair \<open>'t list\<close> bool\n" ^
+      "  | LiveParameterNamed (live_parameter_choice_live_parameter_named_item: \<open>'t option\<close>)",
+      "urust_datatype [backend = hol] " ^
+      cartouche ("enum LiveParameterChoice<T> { LiveParameterEmpty, LiveParameterValue(T), " ^
+        "LiveParameterPair(\<tau>\<open>'t list\<close>, bool), LiveParameterNamed { item: Maybe<T> } }"),
+      ["'t"]),
+     (* The native record of a len-sorted parameter needs overloaded typedefs, which the
+        generator enables only during its own generation. *)
+     ("live-parameter-buffer", "live_parameter_buffer",
+      "declare [[typedef_overloaded]]\n" ^
+      "datatype_record ('t, 'n::len) live_parameter_buffer =\n" ^
+      "  live_parameter_buffer_values :: \<open>('t, 'n) array\<close>\n" ^
+      "micro_rust_record live_parameter_buffer (live_parameter_buffer_values = \"values\")",
+      "urust_datatype " ^
+      cartouche "struct LiveParameterBuffer<T, const N: usize> { values: [T; N] }",
+      []),
+     ("live-parameter-tagged", "live_parameter_tagged",
+      "datatype_record 't live_parameter_tagged =\n" ^
+      "  live_parameter_tagged_address :: \<open>64 word\<close>\n" ^
+      "micro_rust_record live_parameter_tagged (live_parameter_tagged_address = \"address\")",
+      "urust_datatype " ^ cartouche "struct LiveParameterTagged<T> { address: u64 }",
+      ["'t"]),
+     ("live-parameter-marker", "live_parameter_marker",
+      "datatype ('t::ord, 'n::len0) live_parameter_marker = make_live_parameter_marker",
+      "urust_datatype [parameters = [\"T\" \<rightarrow> \"'t::ord\"]] " ^
+      cartouche "struct LiveParameterMarker<T, const N: usize>;",
+      ["'t", "'n"]),
+     ("live-parameter-pair", "live_parameter_pair",
+      "datatype 't live_parameter_pair = make_live_parameter_pair 't \<open>8 word\<close>",
+      "urust_datatype " ^ cartouche "struct LiveParameterPair<T>(T, u8);",
+      ["'t"]),
+     ("live-parameter-handler", "live_parameter_handler",
+      "datatype_record ('t, 'r) live_parameter_handler =\n" ^
+      "  live_parameter_handler_handler :: \<open>'t \<Rightarrow> bool\<close>\n" ^
+      "  live_parameter_handler_result :: \<open>nat \<Rightarrow> 'r\<close>\n" ^
+      "micro_rust_record live_parameter_handler\n" ^
+      "  (live_parameter_handler_handler = \"handler\", live_parameter_handler_result = \"result\")",
+      "urust_datatype " ^
+      cartouche ("struct LiveParameterHandler<T, R> { handler: \<tau>\<open>'t \<Rightarrow> bool\<close>, " ^
+        "result: \<tau>\<open>nat \<Rightarrow> 'r\<close> }"),
+      ["'r"]),
+     ("live-parameter-pointer", "live_parameter_pointer",
+      "datatype_record ('t, 'urust_address, 'urust_global) live_parameter_pointer =\n" ^
+      "  live_parameter_pointer_target :: \<open>('urust_address, 'urust_global, 't) ref\<close>\n" ^
+      "micro_rust_record live_parameter_pointer (live_parameter_pointer_target = \"target\")",
+      "urust_datatype " ^ cartouche "struct LiveParameterPointer<T> { target: *const T }",
+      ["'urust_address"])]
+in val _ = writeln "native parameter parity passed" end
+\<close>
+
+ML_val\<open>
+local
+  open Live_Parameter_Parity
+  val thy = \<^theory>
+  val qualifier = Context.theory_name {long = false} thy ^ "."
+  fun inventory (label, type_name, source, constants, facts) =
+    let
+      val declared = run thy label source
+      val {constants = generated_constants, types, facts = generated_facts} =
+        artifacts thy declared
+      val unqualified = map (unprefix qualifier)
+      val _ = require (label ^ " changed its constants")
+        (unqualified (map #1 generated_constants) = constants)
+      val _ = require (label ^ " changed its type constructors")
+        (unqualified types = [type_name])
+      val _ = require (label ^ " changed its theorems") (unqualified generated_facts = facts)
+      val _ = require (label ^ " generated BNF structure")
+        (is_none (BNF_Def.bnf_of (Proof_Context.init_global declared) (qualifier ^ type_name)))
+    in () end
+  val _ = List.app inventory
+    [("live-parameter-custom-enum", "live_parameter_signal",
+      "urust_datatype " ^
+      cartouche ("enum LiveParameterSignal<T, P> { LiveParameterQuiet, LiveParameterCarry(T), " ^
+        "LiveParameterLabelled { value: T } }"),
+      ["equal_live_parameter_signal_inst.equal_live_parameter_signal", "live_parameter_signal.Abs",
+       "live_parameter_signal.LiveParameterCarry", "live_parameter_signal.LiveParameterLabelled",
+       "live_parameter_signal.LiveParameterQuiet", "live_parameter_signal.Rep",
+       "live_parameter_signal.case", "live_parameter_signal_live_parameter_labelled_value",
+       "partial_term_of_live_parameter_signal_inst.partial_term_of_live_parameter_signal",
+       "term_of_live_parameter_signal_inst.term_of_live_parameter_signal",
+       "typerep_live_parameter_signal_inst.typerep_live_parameter_signal"],
+      ["equal_live_parameter_signal_def", "live_parameter_signal.Abs_cases",
+       "live_parameter_signal.Abs_induct", "live_parameter_signal.Abs_inject",
+       "live_parameter_signal.Abs_inverse", "live_parameter_signal.LiveParameterCarry_def",
+       "live_parameter_signal.LiveParameterLabelled_def",
+       "live_parameter_signal.LiveParameterQuiet_def", "live_parameter_signal.Rep",
+       "live_parameter_signal.Rep_cases", "live_parameter_signal.Rep_induct",
+       "live_parameter_signal.Rep_inject", "live_parameter_signal.Rep_inverse",
+       "live_parameter_signal.case_def", "live_parameter_signal.cases_1",
+       "live_parameter_signal.cases_2", "live_parameter_signal.cases_3",
+       "live_parameter_signal.exhaust", "live_parameter_signal.induct",
+       "live_parameter_signal.is_enum", "live_parameter_signal.split",
+       "live_parameter_signal.split_asm", "live_parameter_signal.splits_1",
+       "live_parameter_signal.splits_2", "live_parameter_signal.type_definition",
+       "live_parameter_signal_live_parameter_labelled_value_def",
+       "live_parameter_signal_live_parameter_labelled_value_simps",
+       "partial_term_of_live_parameter_signal_triv", "term_of_live_parameter_signal_triv",
+       "typerep_live_parameter_signal_def"]),
+     ("live-parameter-word-enum", "live_parameter_word",
+      "urust_datatype [word_width = 8] " ^
+      cartouche "enum LiveParameterWord<T, const N: usize> { LiveParameterOff, LiveParameterOn = 3 }",
+      ["case_live_parameter_word", "cr_live_parameter_word",
+       "equal_live_parameter_word_inst.equal_live_parameter_word",
+       "generate_debug_live_parameter_word_inst.generate_debug_live_parameter_word",
+       "live_parameter_word.Abs_live_parameter_word", "live_parameter_word.LiveParameterOff",
+       "live_parameter_word.LiveParameterOn", "live_parameter_word.Rep_live_parameter_word",
+       "live_parameter_word_all", "live_parameter_word_index", "live_parameter_word_to_u8",
+       "live_parameter_word_to_u8_pure", "live_parameter_word_try_from_u8",
+       "live_parameter_word_try_from_u8_pure", "live_parameter_word_variants",
+       "match_live_parameter_word", "pcr_live_parameter_word",
+       "term_of_live_parameter_word_inst.term_of_live_parameter_word",
+       "typerep_live_parameter_word_inst.typerep_live_parameter_word"],
+      ["Quotient_live_parameter_word", "case_live_parameter_word_def", "cr_live_parameter_word_def",
+       "equal_live_parameter_word_def", "generate_debug_live_parameter_word_def",
+       "live_parameter_word.Abs_live_parameter_word_cases",
+       "live_parameter_word.Abs_live_parameter_word_induct",
+       "live_parameter_word.Abs_live_parameter_word_inject",
+       "live_parameter_word.Abs_live_parameter_word_inverse",
+       "live_parameter_word.LiveParameterOff.abs_eq", "live_parameter_word.LiveParameterOff.rep_eq",
+       "live_parameter_word.LiveParameterOff.rsp", "live_parameter_word.LiveParameterOff.transfer",
+       "live_parameter_word.LiveParameterOff_def", "live_parameter_word.LiveParameterOn.abs_eq",
+       "live_parameter_word.LiveParameterOn.rep_eq", "live_parameter_word.LiveParameterOn.rsp",
+       "live_parameter_word.LiveParameterOn.transfer", "live_parameter_word.LiveParameterOn_def",
+       "live_parameter_word.Rep_live_parameter_word",
+       "live_parameter_word.Rep_live_parameter_word_cases",
+       "live_parameter_word.Rep_live_parameter_word_induct",
+       "live_parameter_word.Rep_live_parameter_word_inject",
+       "live_parameter_word.Rep_live_parameter_word_inverse", "live_parameter_word.bi_unique",
+       "live_parameter_word.domain", "live_parameter_word.domain_eq",
+       "live_parameter_word.domain_par", "live_parameter_word.domain_par_left_total",
+       "live_parameter_word.left_unique", "live_parameter_word.pcr_cr_eq",
+       "live_parameter_word.rep_transfer", "live_parameter_word.right_total",
+       "live_parameter_word.right_unique", "live_parameter_word.type_definition_live_parameter_word",
+       "live_parameter_word_all_concrete", "live_parameter_word_all_def",
+       "live_parameter_word_all_distinct", "live_parameter_word_all_total",
+       "live_parameter_word_index_def", "live_parameter_word_indices_concrete_1",
+       "live_parameter_word_indices_concrete_2", "live_parameter_word_to_u8_def",
+       "live_parameter_word_to_u8_pure_alt", "live_parameter_word_to_u8_pure_def",
+       "live_parameter_word_to_u8_pure_then_try_from", "live_parameter_word_try_from_u8_def",
+       "live_parameter_word_try_from_u8_pure_alt", "live_parameter_word_try_from_u8_pure_def",
+       "live_parameter_word_variants_alt", "live_parameter_word_variants_def",
+       "live_parameter_word_variants_distinct", "match_live_parameter_word_def",
+       "pcr_live_parameter_word_def", "term_of_live_parameter_word_triv",
+       "typerep_live_parameter_word_def"])]
+in val _ = writeln "enum backend inventories passed" end
+\<close>
+
+urust_datatype \<open> struct LiveParameterCell<T> { value: T, count: u32 } \<close>
+
+urust_datatype [backend = hol] \<open>
+  enum LiveParameterSlot<T> { LiveParameterVacant, LiveParameterHeld(T) }
+\<close>
+
+lemma live_parameter_cell_functor:
+  \<open>map_live_parameter_cell f (make_live_parameter_cell v n) = make_live_parameter_cell (f v) n\<close>
+  \<open>set_live_parameter_cell (make_live_parameter_cell v n) = {v}\<close>
+  \<open>rel_live_parameter_cell R (make_live_parameter_cell v n) (make_live_parameter_cell w m) \<longleftrightarrow>
+    R v w \<and> n = m\<close>
+  \<open>pred_live_parameter_cell P (make_live_parameter_cell v n) \<longleftrightarrow> P v\<close>
+  by simp_all
+
+lemma live_parameter_slot_functor:
+  \<open>map_live_parameter_slot f (LiveParameterHeld v) = LiveParameterHeld (f v)\<close>
+  \<open>map_live_parameter_slot f LiveParameterVacant = LiveParameterVacant\<close>
+  \<open>set_live_parameter_slot (LiveParameterHeld v) = {v}\<close>
+  by simp_all
+
 chapter\<open> Rust type mappings \<close>
 
 section\<open> Extensible Rust-to-HOL type mappings \<close>
