@@ -119,16 +119,26 @@ exception: they are printed through `show_results` of the background theory, whi
 faithful non-persistent control.
 
 The expression argument list is optional, may be empty, and accepts one trailing comma. Arguments are
-allocated as typed lexical locals before body elaboration. They therefore shadow existing
+allocated as typed lexical locals before body elaboration. Every lexical binding therefore shadows existing
 unqualified HOL constants and direct-call registrations in value and direct-call positions.
 Every multi-segment path instead requires an exact role-appropriate registration: `(literal)` for
 values, places, and constructor/struct patterns; `(call)` for calls, struct
 expressions, and registered macros, whose key includes the trailing `!`. A registration in another
-role does not satisfy the check. Method names remain single-segment and retain registration-first
-resolution. `Parser_Function_Examples.thy`
+role does not satisfy the check. A direct call follows block-import shadowing, then selects its
+lexical local even if that local is not callable; type checking then reports the error. Method names
+remain single-segment and never select lexical locals. Fields likewise never select lexical locals:
+they require a field registration, a context-fixed HOL lens, or a HOL lens constant. Unknown fields
+report an error at their field token. `Parser_Function_Examples.thy`
 contains the exact `zip` collision: a parameter named `zip` shadows HOL `List.zip`, and
 `Parser_Syntax_ML_Tests.thy` structurally checks that the generated definition does not contain
 `List.zip`.
+
+`Parser_Syntax_Examples.thy` compares local direct calls with neutral renamed controls for let,
+match, conditional, closure and parameter bindings, and checks scope restoration, qualified calls,
+member names, fixed and constant lenses, and assignment targets. The closure role rows in
+`Parser_Expression_Examples.thy` explicitly reject the former local-method/local-field fallback
+and non-callable direct-call parity witnesses. `Parser_Syntax_ML_Tests.thy` audits both direct-call
+entry points, binder navigation and positioned field/method errors.
 
 Named definition-mode declarations accept standard Isabelle attributes through `attrs = [...]`;
 the attributes apply only to the generated `_def` theorem. Rust function parameter and explicit

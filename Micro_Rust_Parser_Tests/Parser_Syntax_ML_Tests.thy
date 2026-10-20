@@ -4631,12 +4631,15 @@ ML_val\<open>
          | NONE => false)
 
     val resolved_dispatch =
-      checked "|closureRole| closureRole(closureRole)"
+      checked "|closureRole| closureRole(\<llangle>1 :: nat\<rrangle>)"
     val _ =
       audit_assert "checked closure retained an unresolved dispatch marker"
         (count_constant
           \<^const_name>\<open>urust_dispatch\<close>
           resolved_dispatch = 0)
+    val _ =
+      audit_assert "direct closure call selected the registered backend instead of its formal"
+        (count_constant \<^const_name>\<open>closure_role_call\<close> resolved_dispatch = 0)
 
     fun find_from text needle offset =
       if offset + size needle > size text
@@ -7628,6 +7631,125 @@ ML_val\<open>
     val _ =
       writeln
         "Isabelle-comment AST, positions, markup, diagnostics, and recovery regressions passed"
+  end
+\<close>
+
+section\<open> Lexical call selection, navigation and member diagnostics \<close>
+
+ML_val\<open>
+  local
+    open URust_AST
+    val ctxt = \<^context>
+
+    fun require message condition =
+      if condition then () else error ("lexical resolution audit: " ^ message)
+
+    fun leaf (Const (\<^syntax_const>\<open>_type_constraint_\<close>, _) $ inner) = leaf inner
+      | leaf term = Term_Position.strip_positions term
+
+    val start = Position.make0 41 600 0 "" "" "lexical-call-navigation"
+    val binder = Position.range_position
+      (start, Position.symbol_explode "lexicalDispatch" start)
+    val occurrence_start = Position.symbol_explode "lexicalDispatch " start
+    val occurrence = Position.range_position
+      (occurrence_start, Position.symbol_explode "lexicalDispatch" occurrence_start)
+    val (_, environment) =
+      URust_Resolution.allocate_closure_formals ctxt
+        URust_Resolution.empty_environment [("lexicalDispatch", binder)]
+    val selected = the (URust_Resolution.lookup_local environment "lexicalDispatch")
+    val _ =
+      require "identifier entry did not select an ordinary lexical local"
+        (leaf (URust_Resolution.function_identifier ctxt environment
+          ("lexicalDispatch", occurrence)) aconv selected)
+    val _ =
+      require "path entry did not select an ordinary lexical local"
+        (leaf (URust_Resolution.function_path ctxt environment
+          (make_single_path ("lexicalDispatch", occurrence)) 1) aconv selected)
+
+    val source_text =
+      "let lexicalDispatch = \<llangle>lexical_local_call\<rrangle>; lexicalDispatch(1)"
+    val source_start = Position.make0 51 700 0 "" "" "lexical-let-call-navigation"
+    val source = Parser_Lex_Util.positioned_content_source source_text source_start
+    val ast = the (URust_Parser.parse_source ctxt source)
+    val (definition, reference) =
+      (case ast of
+         UE_Let (P_Ident (_, definition), _, UE_Call (UC_Path path, _, _), _) =>
+           (definition, #2 (segment_identifier (final_segment path)))
+       | _ => error "lexical resolution audit: let-call AST changed")
+    val (checked, markup) =
+      Parser_Test_Reports.markup
+        (fn () => Parser_Test_Elaboration.expression ctxt source)
+    fun at properties pos =
+      Properties.get properties Markup.offsetN =
+        Option.map Value.print_int (Position.offset_of pos) andalso
+      Properties.get properties Markup.end_offsetN =
+        Option.map Value.print_int (Position.end_offset_of pos)
+    fun variable_id property pos =
+      markup
+      |> map_filter (fn (name, properties) =>
+           if name = Markup.entityN andalso at properties pos andalso
+              Properties.get properties Markup.kindN = SOME "urust_var"
+           then Properties.get properties property else NONE)
+      |> distinct (op =)
+    val _ =
+      require "direct call did not navigate to its local binder"
+        (length (variable_id Markup.defN definition) = 1 andalso
+         variable_id Markup.defN definition = variable_id Markup.refN reference)
+    val _ =
+      require "local call acquired notation navigation"
+        (not (exists (fn (name, properties) =>
+           name = Markup.entityN andalso at properties reference andalso
+           Properties.get properties Markup.kindN = SOME Micro_Rust_Names.notationN)
+          markup))
+    val _ =
+      require "local direct call contains its registered backend"
+        (not (Term.exists_subterm (fn Const (name, _) =>
+          name = \<^const_name>\<open>closure_role_call\<close> | _ => false) checked))
+
+    fun positioned_member_error label text expected =
+      let
+        val source = Parser_Lex_Util.positioned_content_source text
+          (Position.make0 61 800 0 "" "" label)
+        val ast = the (URust_Parser.parse_source ctxt source)
+        val position =
+          (case ast of
+             UE_Let (_, _, UE_Call (UC_Method (_, segment), _, _), _) =>
+               #2 (segment_identifier segment)
+           | UE_Let (_, _, UE_Field (_, _, layout), _) =>
+               the_source_token_position layout Name_Token
+           | UE_Let (_, _, UE_Assign (_, UP_Field (_, _, layout), _, _), _) =>
+               the_source_token_position layout Name_Token
+           | _ => error "lexical resolution audit: member-error AST changed")
+        val result = Exn.result
+          (fn () => Parser_Test_Elaboration.expression ctxt source) ()
+      in
+        (case result of
+           Exn.Res _ => error ("lexical resolution audit: " ^ label ^ " accepted")
+         | Exn.Exn exn =>
+             if Exn.is_interrupt exn then Exn.reraise exn
+             else
+               let
+                 val body = YXML.parse_body (Runtime.exn_message exn)
+                 val diagnostic =
+                   fold Parser_Test_Reports.collect_markup body []
+               in
+                 require (label ^ " diagnostic changed")
+                   (String.isSubstring expected (XML.content_of body));
+                 require (label ^ " diagnostic lost the member token range")
+                   (exists (fn (_, properties) => at properties position) diagnostic)
+               end)
+      end
+    val _ = positioned_member_error "lexical-only-method"
+      "let lexicalOnlyMethod = \<llangle>lexical_local_call\<rrangle>; 1.lexicalOnlyMethod()"
+      "unregistered method call head"
+    val _ = positioned_member_error "lexical-only-field"
+      "let lexicalOnlyField = \<llangle>lexical_constant_lens\<rrangle>; unknown_receiver.lexicalOnlyField"
+      "unregistered field"
+    val _ = positioned_member_error "lexical-only-field-place"
+      "let lexicalOnlyField = \<llangle>lexical_constant_lens\<rrangle>; unknown_receiver.lexicalOnlyField = 1"
+      "unregistered field"
+  in
+    val _ = writeln "Lexical call entry points, binder navigation and positioned member errors passed"
   end
 \<close>
 

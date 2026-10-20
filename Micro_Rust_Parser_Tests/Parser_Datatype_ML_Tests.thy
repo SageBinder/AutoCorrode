@@ -2130,16 +2130,24 @@ ML_val \<open>
         ("urust_datatype [register_notation = false] fallback_packet " ^
           datatype_source "FallbackPacket" "fallbackAlias: u32,")
     val fallback_ctxt = result_context fallback_result
-    val fallback_term =
-      Parser_Test_Elaboration.expression fallback_ctxt
-        (Parser_Lex_Util.text_source
-          "(FallbackPacket { fallbackAlias: 1u32 }).fallbackAlias")
+    (* An opted-out generated lens is neither registered nor a same-named constant, so the field
+       name has no lens resolution rather than becoming a free variable. *)
     val _ =
-      if exists (fn (name, _) => name = "fallbackAlias") (Term.add_frees fallback_term []) andalso
-          not (Term.exists_subterm
-            (fn Const (name, _) => String.isSuffix "_fallback_alias_lens" name | _ => false)
-            fallback_term)
-      then () else error "unregistered-name fallback was mistaken for an installed lens"
+      (case Exn.result (Parser_Test_Elaboration.expression fallback_ctxt)
+          (Parser_Lex_Util.text_source
+            "(FallbackPacket { fallbackAlias: 1u32 }).fallbackAlias") of
+         Exn.Res term =>
+           if Term.exists_subterm
+               (fn Const (name, _) => String.isSuffix "_fallback_alias_lens" name | _ => false) term
+           then error "opted-out generated lens was mistaken for an installed lens"
+           else error "unregistered field name elaborated without a lens resolution"
+       | Exn.Exn exn =>
+           if Exn.is_interrupt exn then Exn.reraise exn
+           else if String.isSubstring
+               "unregistered field \"fallbackAlias\" has no fixed or HOL constant lens resolution"
+               (XML.content_of (YXML.parse_body (Runtime.exn_message exn)))
+           then ()
+           else Exn.reraise exn)
     val (manual_result, _, _) =
       capture_result true "manual-registration"
         ("urust_datatype [register_notation = false] manual_packet " ^

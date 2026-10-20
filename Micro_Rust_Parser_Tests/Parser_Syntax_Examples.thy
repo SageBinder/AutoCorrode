@@ -2237,7 +2237,7 @@ command-span parsing happens before the declaration parser.
 
 The function counterparts live in \<open>Parser_Function_Examples\<close>. The artifact checks in
 \<open>Parser_Syntax_ML_Tests\<close> also inspect those imported declarations: lexical parameters
-shadow registered values and direct call heads, methods retain registration-first resolution, and
+shadow registered values and direct call heads, methods never select lexical locals, and
 independent signature holes infer through typed lexical fixes. In particular, the parameter named
 \<open>zip\<close> shadows HOL \<open>List.zip\<close>.
 \<close>
@@ -3344,5 +3344,227 @@ text\<open>
 The structural audit below feeds complete comment-shaped text directly to the lexer and verifies that
 quoted strings and both uRust antiquotation states retain it byte-for-byte.
 \<close>
+
+section\<open> Lexical direct calls and nonlexical member names \<close>
+
+text\<open>
+Every lexical binding shadows an unqualified direct call registration. A non-callable local fails
+at type checking rather than falling back to the registered function. Method names and field names
+instead use registrations, context-fixed backends or HOL constants, independently of lexical
+locals. The controls below use distinct binder spellings and pin the change with kernel equality.
+The block-import and chunk-import scope matrix remains in \<open>Parser_Chunk_Use_Examples\<close>.
+\<close>
+
+definition lexical_local_call ::
+  \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
+  where \<open>lexical_local_call \<equiv> lift_fun1 (\<lambda>item. item + 100)\<close>
+
+micro_rust_notation (call) closure_role_call ("lexicalDispatch")
+micro_rust_notation (call) closure_role_call ("Lexical::dispatch")
+
+urust_fn lexical_auto_backend
+  \<open> fn LexicalAuto(item: \<tau>\<open>nat\<close>) -> \<tau>\<open>nat\<close> { item } \<close>
+
+urust_expr lexical_let_call
+  \<open> let lexicalDispatch = \<llangle>lexical_local_call\<rrangle>; lexicalDispatch(1) \<close>
+
+urust_expr lexical_let_call_control
+  \<open> let localOnly = \<llangle>lexical_local_call\<rrangle>; localOnly(1) \<close>
+
+lemma \<open>lexical_let_call = lexical_let_call_control\<close>
+  unfolding lexical_let_call_def lexical_let_call_control_def by (rule refl)
+
+urust_expr lexical_automatic_call
+  \<open> let LexicalAuto = \<llangle>lexical_local_call\<rrangle>; LexicalAuto(1) \<close>
+
+lemma \<open>lexical_automatic_call = lexical_let_call_control\<close>
+  unfolding lexical_automatic_call_def lexical_let_call_control_def by (rule refl)
+
+urust_expr lexical_match_call
+  \<open>
+    match \<llangle>Some lexical_local_call\<rrangle> {
+      Some(lexicalDispatch) => lexicalDispatch(1), None => 0
+    }
+  \<close>
+
+urust_expr lexical_match_call_control
+  \<open>
+    match \<llangle>Some lexical_local_call\<rrangle> {
+      Some(localOnly) => localOnly(1), None => 0
+    }
+  \<close>
+
+lemma \<open>lexical_match_call = lexical_match_call_control\<close>
+  unfolding lexical_match_call_def lexical_match_call_control_def by (rule refl)
+
+urust_expr lexical_if_let_call
+  \<open>
+    if let Some(lexicalDispatch) = \<llangle>Some lexical_local_call\<rrangle> {
+      lexicalDispatch(1)
+    } else { 0 }
+  \<close>
+
+urust_expr lexical_if_let_call_control
+  \<open>
+    if let Some(localOnly) = \<llangle>Some lexical_local_call\<rrangle> {
+      localOnly(1)
+    } else { 0 }
+  \<close>
+
+lemma \<open>lexical_if_let_call = lexical_if_let_call_control\<close>
+  unfolding lexical_if_let_call_def lexical_if_let_call_control_def by (rule refl)
+
+urust_expr lexical_let_else_call
+  \<open>
+    let Some(lexicalDispatch) = \<llangle>Some lexical_local_call\<rrangle> else { 0 };
+    lexicalDispatch(1)
+  \<close>
+
+urust_expr lexical_let_else_call_control
+  \<open>
+    let Some(localOnly) = \<llangle>Some lexical_local_call\<rrangle> else { 0 };
+    localOnly(1)
+  \<close>
+
+lemma \<open>lexical_let_else_call = lexical_let_else_call_control\<close>
+  unfolding lexical_let_else_call_def lexical_let_else_call_control_def by (rule refl)
+
+urust_expr lexical_closure_formal_call
+  \<open> |lexicalDispatch| lexicalDispatch(\<llangle>1 :: nat\<rrangle>) \<close>
+
+urust_expr lexical_closure_formal_call_control
+  \<open> |localOnly| localOnly(\<llangle>1 :: nat\<rrangle>) \<close>
+
+lemma \<open>lexical_closure_formal_call = lexical_closure_formal_call_control\<close>
+  unfolding lexical_closure_formal_call_def lexical_closure_formal_call_control_def by (rule refl)
+
+urust_expr lexical_closure_bound_call
+  \<open> let lexicalDispatch = |item| \<llangle>item :: nat\<rrangle>; lexicalDispatch(1) \<close>
+
+urust_expr lexical_closure_bound_call_control
+  \<open> let localOnly = |item| \<llangle>item :: nat\<rrangle>; localOnly(1) \<close>
+
+lemma \<open>lexical_closure_bound_call = lexical_closure_bound_call_control\<close>
+  unfolding lexical_closure_bound_call_def lexical_closure_bound_call_control_def by (rule refl)
+
+urust_expr lexical_parameter_call
+  (lexicalDispatch) \<open> lexicalDispatch(\<llangle>1 :: nat\<rrangle>) \<close>
+
+urust_expr lexical_parameter_call_control
+  (localOnly) \<open> localOnly(\<llangle>1 :: nat\<rrangle>) \<close>
+
+lemma \<open>lexical_parameter_call = lexical_parameter_call_control\<close>
+  unfolding lexical_parameter_call_def lexical_parameter_call_control_def by (rule refl)
+
+urust_expr lexical_scope_restored
+  \<open>
+    let inside = { let lexicalDispatch = \<llangle>lexical_local_call\<rrangle>; lexicalDispatch(1) };
+    (inside, lexicalDispatch(2))
+  \<close>
+
+urust_expr lexical_scope_restored_control
+  \<open>
+    let inside = { let localOnly = \<llangle>lexical_local_call\<rrangle>; localOnly(1) };
+    (inside, \<llangle>2 :: nat\<rrangle>.closure_role_call())
+  \<close>
+
+lemma \<open>lexical_scope_restored = lexical_scope_restored_control\<close>
+  unfolding lexical_scope_restored_def lexical_scope_restored_control_def by (rule refl)
+
+urust_expr lexical_qualified_call
+  \<open> let dispatch = false; Lexical::dispatch(1) \<close>
+
+urust_expr lexical_qualified_call_control
+  \<open> let dispatch = false; \<llangle>1 :: nat\<rrangle>.closure_role_call() \<close>
+
+lemma \<open>lexical_qualified_call = lexical_qualified_call_control\<close>
+  unfolding lexical_qualified_call_def lexical_qualified_call_control_def by (rule refl)
+
+urust_expr lexical_registered_method
+  \<open> let lexicalDispatch = false; \<llangle>1 :: nat\<rrangle>.lexicalDispatch() \<close>
+
+urust_expr lexical_registered_method_control
+  \<open> let lexicalDispatch = false; \<llangle>1 :: nat\<rrangle>.closure_role_call() \<close>
+
+lemma \<open>lexical_registered_method = lexical_registered_method_control\<close>
+  unfolding lexical_registered_method_def lexical_registered_method_control_def by (rule refl)
+
+urust_expr lexical_constant_method
+  \<open> let closure_role_call = false; \<llangle>1 :: nat\<rrangle>.closure_role_call() \<close>
+
+lemma \<open>lexical_constant_method = lexical_registered_method_control\<close>
+  unfolding lexical_constant_method_def lexical_registered_method_control_def by (rule refl)
+
+urust_expr_rejects
+  \<open> let lexicalDispatch = \<llangle>0 :: nat\<rrangle>; lexicalDispatch(1) \<close>
+  \<open> Type unification failed \<close>
+
+urust_expr_rejects
+  \<open> let LexicalAuto = \<llangle>0 :: nat\<rrangle>; LexicalAuto(1) \<close>
+  \<open> Type unification failed \<close>
+
+urust_expr_rejects
+  \<open> let localMethod = \<llangle>lexical_local_call\<rrangle>; \<llangle>1 :: nat\<rrangle>.localMethod() \<close>
+  \<open> unregistered method call head "localMethod" \<close>
+
+definition lexical_constant_lens :: \<open>(closure_role_record, nat) lens\<close>
+  where \<open>lexical_constant_lens \<equiv> undefined\<close>
+
+adhoc_overloading store_update_const \<rightleftharpoons> parser_update_fixture
+
+context
+  fixes receiver :: closure_role_record
+    and receiver_ref :: \<open>(unit, unit, closure_role_record) Global_Store.ref\<close>
+    and lexical_fixed_lens :: \<open>(closure_role_record, nat) lens\<close>
+    and lexical_fixed_call :: \<open>nat \<Rightarrow> (unit, nat, unit, unit, unit) function_body\<close>
+begin
+
+urust_expr lexical_constant_field
+  \<open> let lexical_constant_lens = false; receiver.lexical_constant_lens \<close>
+
+urust_expr lexical_constant_field_control
+  \<open> let localOnly = false; receiver.lexical_constant_lens \<close>
+
+lemma \<open>lexical_constant_field = lexical_constant_field_control\<close>
+  unfolding lexical_constant_field_def lexical_constant_field_control_def by (rule refl)
+
+urust_expr lexical_fixed_field
+  \<open> let lexical_fixed_lens = false; receiver.lexical_fixed_lens \<close>
+
+urust_expr lexical_fixed_field_control
+  \<open> let localOnly = false; receiver.lexical_fixed_lens \<close>
+
+lemma \<open>lexical_fixed_field = lexical_fixed_field_control\<close>
+  unfolding lexical_fixed_field_def lexical_fixed_field_control_def by (rule refl)
+
+urust_expr lexical_constant_field_assignment
+  \<open> let lexical_constant_lens = false; receiver_ref.lexical_constant_lens = \<llangle>1 :: nat\<rrangle> \<close>
+
+urust_expr lexical_constant_field_assignment_control
+  \<open> let localOnly = false; receiver_ref.lexical_constant_lens = \<llangle>1 :: nat\<rrangle> \<close>
+
+lemma \<open>lexical_constant_field_assignment = lexical_constant_field_assignment_control\<close>
+  unfolding lexical_constant_field_assignment_def lexical_constant_field_assignment_control_def by (rule refl)
+
+urust_expr lexical_fixed_method
+  \<open> let lexical_fixed_call = false; \<llangle>1 :: nat\<rrangle>.lexical_fixed_call() \<close>
+
+urust_expr lexical_fixed_method_control
+  \<open> let localOnly = false; \<llangle>1 :: nat\<rrangle>.lexical_fixed_call() \<close>
+
+lemma \<open>lexical_fixed_method = lexical_fixed_method_control\<close>
+  unfolding lexical_fixed_method_def lexical_fixed_method_control_def by (rule refl)
+
+urust_expr_rejects
+  \<open> let unknownField = \<llangle>lexical_constant_lens\<rrangle>; receiver.unknownField \<close>
+  \<open> unregistered field "unknownField" \<close>
+
+urust_expr_rejects
+  \<open> let unknownField = \<llangle>lexical_constant_lens\<rrangle>; receiver_ref.unknownField = 1 \<close>
+  \<open> unregistered field "unknownField" \<close>
+
+end
+
+no_adhoc_overloading store_update_const \<rightleftharpoons> parser_update_fixture
 
 end

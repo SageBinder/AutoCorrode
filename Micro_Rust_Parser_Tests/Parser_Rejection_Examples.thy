@@ -849,8 +849,8 @@ urust_expr_rejects
   \<open> assert!(!o.is_none()) \<close>
   \<open> Type unification failed \<close>
   \<comment> \<open> [INTENTIONAL] The parser rejects an unresolved method spelling.
-       An explicit call registration, lexical method binder, fixed shallow
-       function, or shallow HOL constant must provide the backend. \<close>
+       A call registration (explicit or automatic), context-fixed
+       shallow function, or shallow HOL constant must provide the backend. \<close>
 
 urust_expr_rejects \<open> ncf1(\<llangle>1 :: 64 word\<rrangle>,,) \<close>
   \<open> syntax error found at , \<close>

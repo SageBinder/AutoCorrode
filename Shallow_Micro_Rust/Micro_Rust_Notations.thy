@@ -822,14 +822,16 @@ fun shadow_check ctxt kind name T pos have_backend is_registered_backend =
   \<^verbatim>\<open>Bound\<close> --- i.e. a \<open>let\<close>/lambda-bound local, which correctly wins, mirroring
   Rust's lexical scoping (\<open>let x = \<dots>; x\<close>).
 
-  In \<^bold>\<open>field\<close> (\<open>x.f\<close>) and \<^bold>\<open>function\<close> (\<open>f(\<dots>)\<close> / \<open>x.f(\<dots>)\<close>) positions the name
-  is a selector/callee that can never be a local binder, so a registered
-  notation \<^emph>\<open>always\<close> wins: e.g. the field selector \<open>.f\<close> in \<open>x.f\<close> must not be
-  shadowed by a same-named closure parameter \<open>|f| \<dots>\<close>, and a method call
-  \<open>x.f(f)\<close> must invoke the \<open>.f\<close> method even when the argument \<open>f\<close> is a
-  same-named local binder. (Trade-off: a locally-bound callable
-  \<open>let f = \<dots>; f(\<dots>)\<close> can no longer shadow a registered function notation;
-  uRust does not rely on that.)
+  In \<^bold>\<open>field\<close> (\<open>x.f\<close>) and \<^bold>\<open>function\<close> (\<open>f(\<dots>)\<close> / \<open>x.f(\<dots>)\<close>) positions a
+  marker's registered notation \<^emph>\<open>always\<close> wins over its witness: e.g. the field
+  selector \<open>.f\<close> in \<open>x.f\<close> must not be shadowed by a same-named closure parameter
+  \<open>|f| \<dots>\<close>, and a method call \<open>x.f(f)\<close> must invoke the \<open>.f\<close> method even when the
+  argument \<open>f\<close> is a same-named local binder. This is the marker's own policy, inherited from
+  the removed legacy frontend, where a locally bound callable \<open>let f = \<dots>; f(\<dots>)\<close> could not
+  shadow a registered function notation. The dedicated parser resolves lexical names itself:
+  after block-import shadowing it selects a local in literal and direct single-segment call
+  positions before constructing any marker, and never consults locals for method heads or
+  fields. Its binders are fresh internal Frees, so they never capture a source-spelled witness.
 
   \<^verbatim>\<open>Const\<close> witnesses never win either, since a backend is often registered
   precisely to override a same-named HOL constant (e.g. \<^verbatim>\<open>("Some")\<close> for

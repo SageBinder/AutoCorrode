@@ -410,9 +410,11 @@ creates a typed anonymous abstraction without entering lexical name resolution; 
 or mixed with named arguments. Duplicate named arguments remain errors. Every multi-segment path
 requires an exact role-appropriate `micro_rust_notation`: values and places use `(literal)`, while
 calls, struct expressions, and registered macros use `(call)` (with `!` included in a macro key).
-Method names remain single-segment and retain their normal registration lookup. Function signature
-types constrain a curried HOL type ending in `function_body`; the body is wrapped exactly once.
-Lexical parameters shadow callable entries. Anonymous items do not register a name. The
+Method names remain single-segment; like field names, they use registered, context-fixed or HOL
+constant resolution and never select lexical locals. Function signature types constrain a curried
+HOL type ending in `function_body`; the body is wrapped exactly once. After any shadowing block
+import, every lexical local, not only a parameter, shadows callable entries at an unqualified
+direct call. Anonymous items do not register a name. The
 programmatic `URust_Command.elaborate` interface retains its explicit HOL declaration type and
 parameter slots.
 

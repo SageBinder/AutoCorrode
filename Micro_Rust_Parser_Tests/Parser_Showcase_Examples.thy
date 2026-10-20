@@ -1222,6 +1222,40 @@ urust_expr  showoff_improvements
     }
   \<close>
 
+subsection\<open> Lexical callbacks and member names \<close>
+
+text\<open>
+A local callback shadows the automatically registered direct call. A method name still selects the
+registered function, and the callback stops shadowing after its block. The explicit qualified
+notation also remains available within that block.
+\<close>
+
+urust_fn lexical_showcase_global
+  \<open> fn ShowcaseStep(item: u64) -> u64 { item + 1u64 } \<close>
+
+micro_rust_notation (call) lexical_showcase_global ("Showcase::step")
+
+urust_expr lexical_showcase_scope
+  \<open>
+    let local_result = {
+      let ShowcaseStep = |item| item + 2u64;
+      (ShowcaseStep(3u64), 3u64.ShowcaseStep(), Showcase::step(3u64))
+    };
+    (local_result, ShowcaseStep(3u64))
+  \<close>
+
+urust_expr lexical_showcase_scope_control
+  \<open>
+    let local_result = {
+      let local_callback = |item| item + 2u64;
+      (local_callback(3u64), 3u64.ShowcaseStep(), Showcase::step(3u64))
+    };
+    (local_result, ShowcaseStep(3u64))
+  \<close>
+
+lemma \<open>lexical_showcase_scope = lexical_showcase_scope_control\<close>
+  unfolding lexical_showcase_scope_def lexical_showcase_scope_control_def by (rule refl)
+
 section\<open> Type-directed automatic call notation \<close>
 
 text\<open>

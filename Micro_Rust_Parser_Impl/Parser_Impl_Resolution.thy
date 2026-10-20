@@ -192,9 +192,10 @@ ML\<open>
     otherwise lifts literal_value. literal_identifier_value resolves a shadowing import, then
     locals, before NLiteral notation/HOL fallback without lifting, and literal_identifier lifts
     that result. A single-segment
-    direct NFunction call head resolves a declaration argument before an exact registration or HOL
-    fallback; qualified call paths and method names retain registration-first resolution. In the
-    NField role an exact registered notation wins, otherwise a lexical local wins before HOL fallback.
+    direct NFunction call head resolves a shadowing block import, then every lexical local, before an
+    exact registration or HOL fallback. Qualified call paths and method names never select lexical
+    locals. In the NField role an exact registered notation wins, otherwise a context-fixed or
+    constant HOL lens is required.
     ordinary_identifier_value resolves a lexical local before ordinary HOL parsing and deliberately
     performs no micro_rust_notation lookup; log-data identifiers use this path. function_identifier
     returns the selected unlifted direct callee. apply_generic_arguments parses the retained
@@ -209,9 +210,8 @@ ML\<open>
     naming policy. registered_macro_path performs the same lookup for the complete spelling including
     `!`, but rejects an unregistered qualified source path through the common call-role diagnostic.
     is_nullary_function_path is a report-free ambiguity query used by control-head
-    validation: after any import that the shadowing rule selects, declaration arguments retain
-    direct-call precedence, ordinary lexical values and
-    fixed variables remain value paths, and otherwise an exact registered backend or proper HOL
+    validation: after any import that the shadowing rule selects, lexical locals retain
+    direct-call precedence, fixed variables remain value paths, and otherwise an exact registered backend or proper HOL
     constant counts only when its declared type takes zero arguments before function_body.
     field_expression applies the same role policy and focuses the supplied receiver.
     Registered notation is represented by the existing dispatch marker; unregistered names retain
@@ -298,7 +298,6 @@ struct
      bound in a prefix of the current frame list. *)
   type environment =
     {locals: local_table,
-     declaration_arguments: unit Symtab.table,
      local_frames: int Symtab.table}
 
   val variable_entity_kind = "urust_var"
@@ -308,7 +307,6 @@ struct
 
   val empty_environment =
     {locals = Symtab.empty,
-     declaration_arguments = Symtab.empty,
      local_frames = Symtab.empty}
   val anonymous_abstraction = Parser_Utils.anon_abs
 
@@ -317,28 +315,24 @@ struct
     Parser_Utils.parse_antiq variable_entity_kind ctxt locals source
 
   fun bind_ordinary_local ctxt
-      ({locals, declaration_arguments, local_frames} : environment)
+      ({locals, local_frames} : environment)
       (binding as (name, _)) =
     let
       val (free, locals') = bind_local ctxt locals binding
     in
       (free,
        {locals = locals',
-        declaration_arguments =
-          Symtab.delete_safe name declaration_arguments,
         local_frames = Symtab.update (name, S.frame_depth ctxt) local_frames})
     end
 
   fun bind_declaration_argument ctxt
-      ({locals, declaration_arguments, local_frames} : environment)
+      ({locals, local_frames} : environment)
       (parameter as ((name, _), _)) =
     let
       val (free, locals') = bind_typed_local ctxt locals parameter
     in
       (free,
        {locals = locals',
-        declaration_arguments =
-          Symtab.update (name, ()) declaration_arguments,
         local_frames = Symtab.update (name, S.frame_depth ctxt) local_frames})
     end
 
@@ -416,13 +410,6 @@ struct
   fun lookup_local environment name =
     Option.map #free (Symtab.lookup (#locals environment) name)
 
-  fun use_declaration_argument ctxt
-      (environment as {declaration_arguments, ...} : environment)
-      (identifier as (name, _)) =
-    if Symtab.defined declaration_arguments name
-    then use_local ctxt environment identifier
-    else NONE
-
   (* Syntax.parse_term wraps resolved constants in an internal type constraint. Resolution and
      call-role validation inspect through that wrapper while retaining it for the final check_term. *)
   fun identifier_leaf term =
@@ -493,8 +480,8 @@ struct
          end
      | _ => term)
 
-  (* Registered notation witnesses must remain bare Frees until the enclosing Term.lambda can capture
-     them. This is the witness-precedence rule that lets a lexical binder shadow a notation. *)
+  (* Registered notation witnesses stay source-spelled Frees for the marker's own witness policy.
+     Lexical shadowing is decided before this point, and parser binders never capture them. *)
   fun resolve_identifier_at_positions ctxt kind name pos qualifier_positions =
     (case Micro_Rust_Names.lookups ctxt kind name of
        [] => resolve_hol_identifier ctxt name pos
@@ -1267,18 +1254,6 @@ struct
   fun literal_identifier ctxt environment identifier =
     T.literal (literal_identifier_value ctxt environment identifier)
 
-  fun function_identifier ctxt environment (identifier as (name, pos)) =
-    (case use_declaration_argument ctxt environment identifier of
-       SOME local_term => local_term
-     | NONE =>
-         (case registered_identifier ctxt Micro_Rust_Names.NFunction identifier of
-            SOME registered => registered
-          | NONE =>
-              (case use_local ctxt environment identifier of
-                 SOME local_term => local_term
-               | NONE =>
-                   resolve_identifier ctxt Micro_Rust_Names.NFunction name pos)))
-
   datatype item_call_role =
       Ordinary_Item_Call
     | Struct_Item_Call
@@ -1385,7 +1360,7 @@ struct
                  (fn local_term =>
                    apply_generic_arguments ctxt environment
                      local_term generic_arguments)
-                 (use_declaration_argument ctxt environment (name, pos))
+                 (use_local ctxt environment (name, pos))
            | _ => NONE)
         else NONE
       val function =
@@ -1423,8 +1398,14 @@ struct
                          val _ = reject_generated_function_generics ctxt path
                          val base = remove_final_generic_args path
                          val function =
-                           resolve_generic_free_path ctxt environment
-                             Micro_Rust_Names.NFunction false base
+                           if item_role = No_Item_Call andalso
+                              not (is_qualified_path base)
+                           then
+                             let val (name, pos) = path_terminal base
+                             in resolve_identifier ctxt Micro_Rust_Names.NFunction name pos end
+                           else
+                             resolve_generic_free_path ctxt environment
+                               Micro_Rust_Names.NFunction false base
                        in
                          apply_generic_arguments ctxt environment
                            function
@@ -1449,6 +1430,9 @@ struct
   fun function_path ctxt environment path actual_arity =
     resolve_function_path Ordinary_Item_Call true actual_arity
       ctxt environment (value_import_route ctxt environment path) path
+
+  fun function_identifier ctxt environment identifier =
+    function_path ctxt environment (make_single_path identifier) 0
 
   fun generated_struct_function ctxt source_path fields =
     let
@@ -1509,11 +1493,6 @@ struct
         resolve_function_path No_Item_Call false 0
           ctxt environment NONE path
       val (name, pos) = path_terminal path
-      val lexical =
-        (case path_segments path of
-           [Path_Segment _] =>
-             is_some (lookup_local environment name)
-         | _ => false)
       fun strip_internal_positions
           (Const (\<^syntax_const>\<open>_type_constraint_\<close>, _) $ inner) =
             strip_internal_positions inner
@@ -1522,7 +1501,6 @@ struct
       val unresolved =
         (case head of
            Free (free_name, _) =>
-             not lexical andalso
              not (Variable.is_fixed ctxt free_name)
          | _ => false)
     in
@@ -1535,7 +1513,7 @@ struct
           error
             ("Type unification failed: unregistered method call head " ^
               quote (render_path path) ^
-              " has no lexical, fixed, or HOL constant resolution" ^
+              " has no registered, fixed, or HOL constant resolution" ^
               Position.here pos)
         end
       else function
@@ -1583,7 +1561,7 @@ struct
     function_body_arity T = SOME 0
 
   fun is_nullary_function_path ctxt
-      (environment as {locals, declaration_arguments, ...} : environment) source_path =
+      (environment as {locals, ...} : environment) source_path =
     (case value_import_route ctxt environment source_path of
        SOME {canonical, ...} =>
          exists
@@ -1613,8 +1591,7 @@ struct
          [Path_Segment (name, _, NONE)] =>
            (case Symtab.lookup locals name of
               SOME {free, ...} =>
-                Symtab.defined declaration_arguments name andalso
-                  is_nullary_function_type (fastype_of free)
+                is_nullary_function_type (fastype_of free)
             | NONE =>
                 if Variable.is_fixed ctxt name
                 then false
@@ -1623,16 +1600,28 @@ struct
            registered ())
     end)
 
-  fun field_expression ctxt environment receiver name pos =
-    T.focus_field
-      (case registered_identifier ctxt Micro_Rust_Names.NField (name, pos) of
-         SOME registered => registered
-       | NONE =>
-           (case use_local ctxt environment (name, pos) of
-              SOME local_term => local_term
-            | NONE =>
-                resolve_identifier ctxt Micro_Rust_Names.NField name pos))
-      receiver
+  fun field_expression ctxt _ receiver name pos =
+    let
+      val lens =
+        (case registered_identifier ctxt Micro_Rust_Names.NField (name, pos) of
+           SOME registered => registered
+         | NONE =>
+             let
+               val resolved = resolve_hol_identifier ctxt name pos
+               val known =
+                 (case identifier_leaf resolved of
+                    Const _ => true
+                  | Free (fixed_name, _) => Variable.is_fixed ctxt fixed_name
+                  | _ => false)
+             in
+               if known then resolved
+               else
+                 error
+                   ("urust_expr: unregistered field " ^ quote name ^
+                     " has no fixed or HOL constant lens resolution" ^
+                     Position.here pos)
+             end)
+    in T.focus_field lens receiver end
 
   fun term_name_of (Const (name, _)) = SOME name
     | term_name_of (Free (name, _)) = SOME name

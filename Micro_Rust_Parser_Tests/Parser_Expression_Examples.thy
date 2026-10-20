@@ -1506,8 +1506,14 @@ micro_rust_notation (call) closure_role_call ("closureRole")
 urust_expr closure_registered_literal_shadow
   \<open> |closureRole| \<llangle>closureRole :: nat\<rrangle> \<close>
 
-urust_expr closure_registered_direct_call
+text\<open>
+A direct call captures the closure formal even when its spelling has a call registration.
+Self-application is therefore a type error rather than a call to the registered backend.
+\<close>
+
+urust_expr_rejects
   \<open> |closureRole| closureRole(closureRole) \<close>
+  \<open> Type unification failed \<close>
 
 urust_expr closure_registered_method_call
   \<open> |closureRole| closureRole.closureRole() \<close>
@@ -1523,28 +1529,31 @@ urust_expr closure_registered_field
 urust_expr closure_unregistered_direct_call
   \<open> |localCall| localCall(\<llangle>1 :: nat\<rrangle>) \<close>
 
-urust_expr closure_unregistered_method_call
+urust_expr_rejects
   \<open> |localMethod| \<llangle>1 :: nat\<rrangle>.localMethod() \<close>
+  \<open> unregistered method call head "localMethod" \<close>
 
 context
   fixes local_field_receiver :: closure_role_record
 begin
 
-urust_expr closure_unregistered_field
+urust_expr_rejects
   \<open>
     closure_invoke_lens(
       \<llangle>undefined :: (closure_role_record, nat) lens\<rrangle>,
       |localField| local_field_receiver.localField
     )
   \<close>
+  \<open> unregistered field "localField" \<close>
 
 end
 
-urust_expr closure_existing_let_registered_call
+urust_expr_rejects
   \<open>
     let closureRole = \<llangle>0 :: nat\<rrangle>;
     closureRole(closureRole)
   \<close>
+  \<open> Type unification failed \<close>
 
 urust_expr closure_existing_let_registered_method
   \<open>
@@ -1562,12 +1571,13 @@ urust_expr closure_existing_let_registered_field
     \<llangle>result :: nat\<rrangle>
   \<close>
 
-urust_expr closure_existing_let_unregistered_field
+urust_expr_rejects
   \<open>
     let localField = \<llangle>undefined :: (closure_role_record, nat) lens\<rrangle>;
     let result = closure_role_receiver.localField;
     \<llangle>result :: nat\<rrangle>
   \<close>
+  \<open> unregistered field "localField" \<close>
 
 end
 
@@ -1582,11 +1592,12 @@ urust_expr closure_existing_let_unregistered_call
     localCall(\<llangle>1 :: nat\<rrangle>)
   \<close>
 
-urust_expr closure_existing_let_unregistered_method
+urust_expr_rejects
   \<open>
     let localMethod = \<llangle>local_call_backend\<rrangle>;
     \<llangle>1 :: nat\<rrangle>.localMethod()
   \<close>
+  \<open> unregistered method call head "localMethod" \<close>
 
 end
 
