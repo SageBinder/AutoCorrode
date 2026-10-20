@@ -54,6 +54,12 @@ Add a readable test to the examples theory of its topic and its ML audit to the 
 Declarations that only an audit uses belong next to the audit. Every tracked `.thy` file in this
 directory is registered in `ROOT`.
 
+`Parser_Syntax_ML_Tests` compares the closed-definition fast path with application equations for
+both declaration commands. It checks public theorem propositions, code attributes and their order,
+specification rules, native internal-name rejection, and the auxiliary `_def_raw` axiom boundary.
+Zero-argument application equations and unfixed definition parameters retain the slow path;
+closed abstractions for ordinary function signature parameters use the fast path.
+
 ## Command surface
 
 Expression declarations retain an optional HOL type and parenthesized declaration arguments.

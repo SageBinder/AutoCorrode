@@ -7753,4 +7753,98 @@ ML_val\<open>
   end
 \<close>
 
+section\<open> Closed definition installation \<close>
+
+text\<open>
+Closed expression bodies and closed function abstractions use the direct definition path.
+Application equations, including zero-argument ones, and unfixed definition parameters use
+Specification.definition. The public definition theorem, code attributes and specification rule
+are preserved; only the auxiliary raw definition axiom distinguishes the paths.
+\<close>
+
+ML_val\<open>
+  let
+    val thy = \<^theory>
+    fun require message condition =
+      if condition then () else error ("definition installation: " ^ message)
+    fun cartouche text = Symbol.open_ ^ text ^ Symbol.close
+    fun run text =
+      Parser_Test_Report_Lock.run (fn () =>
+        Outer_Syntax.parse_text thy (K thy)
+          (Position.line_file 1 "definition-installation-probe")
+          ("declare [[urust_pp_test = false, urust_pretty = false, urust_verbosity = 0]]\n" ^
+            text)
+        |> (fn transitions =>
+          fold (Toplevel.command_exception false) transitions
+            (Toplevel.make_state (SOME thy))))
+      |> Toplevel.context_of
+    fun expression options =
+      "urust_expr [" ^ options ^ "] installation_probe " ^
+        cartouche "\<llangle>7 :: nat\<rrangle>"
+    fun function options parameters body =
+      "urust_fn [register_notation = false, " ^ options ^ "] installation_probe " ^
+        cartouche ("fn InstallationProbe(" ^ parameters ^
+          ") -> " ^ "\<tau>" ^ cartouche "nat" ^ " { " ^ body ^ " }")
+    fun theorem ctxt = Proof_Context.get_thm ctxt "installation_probe_def"
+    fun raw ctxt =
+      can (Thm.axiom (Proof_Context.theory_of ctxt))
+        (Proof_Context.intern_const ctxt "installation_probe" ^ "_def_raw")
+    fun equations ctxt =
+      let
+        val constant = Proof_Context.intern_const ctxt "installation_probe"
+        val certificate = Code.get_cert ctxt [] constant
+        val (_, result) =
+          Code.equations_of_cert (Proof_Context.theory_of ctxt) certificate
+      in these result end
+    fun has_specification ctxt =
+      exists (fn {rough_classification, rules, ...} =>
+        Spec_Rules.is_equational rough_classification andalso
+        exists (fn rule =>
+          Term.aconv (Thm.prop_of rule, Thm.prop_of (theorem ctxt))) rules)
+        (Spec_Rules.get ctxt)
+    val fast_expression = run (expression "application_def = false")
+    val slow_expression = run (expression "application_def")
+    val fast_function =
+      run (function "application_def = false" "" "\<llangle>7 :: nat\<rrangle>")
+    val slow_function =
+      run (function "application_def" "" "\<llangle>7 :: nat\<rrangle>")
+    val _ = List.app (fn (fast, slow) =>
+      (require "fast and slow public theorem propositions differ"
+         (Term.aconv (Thm.prop_of (theorem fast), Thm.prop_of (theorem slow)));
+       require "fast path created an auxiliary raw definition" (not (raw fast));
+       require "zero-argument application_def bypassed the slow path" (raw slow);
+       require "fast path omitted its specification rule" (has_specification fast);
+       require "slow path omitted its specification rule" (has_specification slow);
+       require "fast path omitted its default code equation" (not (null (equations fast)))))
+      [(fast_expression, slow_expression), (fast_function, slow_function)]
+    val closed_signature =
+      run (function "application_def = false" ("x: \<tau>" ^ cartouche "nat") "x")
+    val _ = require "ordinary function signature abstraction missed the fast path"
+      (not (raw closed_signature))
+    val unfixed =
+      run ("urust_expr installation_probe " ^ cartouche "\<llangle>unfixed :: nat\<rrangle>")
+    val _ = require "unfixed definition parameter bypassed Specification.definition" (raw unfixed)
+    val explicit_lhs =
+      run ("urust_expr [application_def] installation_probe (x) " ^
+        cartouche "\<llangle>x :: nat\<rrangle>")
+    val _ = require "explicit definition lhs argument bypassed the slow path" (raw explicit_lhs)
+    val deleted_code = run (expression "attrs = [code del]")
+    val _ = require "user code attribute ran before the default code equation"
+      (null (equations deleted_code))
+    val decorated = run (expression "attrs = [micro_rust_simps]")
+    val _ = require "user theorem attribute was lost"
+      (exists (Thm.equiv_thm (Proof_Context.theory_of decorated) o
+        pair (theorem decorated))
+        (Named_Theorems.get decorated \<^named_theorems>\<open>micro_rust_simps\<close>))
+    val _ =
+      (case Exn.result run
+          ("urust_expr installation_internal_ " ^ cartouche "\<llangle>7 :: nat\<rrangle>") of
+         Exn.Res _ => error "definition installation: internal binding was accepted"
+       | Exn.Exn exn =>
+           if Exn.is_interrupt exn then Exn.reraise exn
+           else require "internal binding lost its native diagnostic"
+             (String.isSubstring "Bad name" (Runtime.exn_message exn)))
+  in () end
+\<close>
+
 end

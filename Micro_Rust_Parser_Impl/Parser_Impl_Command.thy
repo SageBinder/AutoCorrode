@@ -1097,6 +1097,33 @@ fun install_urust_result abbreviation application_definition kind
            pretty_body = pretty_body},
          Config.put Proof_Display.show_results show_results lthy')
       end
+    else if not application_definition andalso
+        null definition_parameters andalso null definition_arguments then
+      (* The body is already checked and the defining equation has no arguments, so the
+         theorem from Local_Theory.define is exactly the stated equation. This replays the
+         remaining steps of Specification.definition -- the internal-name check, the default
+         code equation and the Spec_Rules entry -- without re-checking the body and re-proving
+         the equation by rewriting over it, which dominates the cost for large bodies. *)
+      let
+        val _ = Name.reject_internal (name, [])
+        val def_binding = Thm.def_binding binding
+        val ((defined_lhs, (fact_name, theorem)), lthy') =
+          Local_Theory.define
+            ((binding, NoSyn),
+              ((def_binding, Code.singleton_default_equation_attrib :: attributes), term))
+            silent_lthy
+        val lthy'' =
+          Spec_Rules.add def_binding Spec_Rules.equational [defined_lhs] [theorem] lthy'
+      in
+        (* Without parameters or arguments, the display and stored left-hand sides coincide. *)
+        (Definition_Result
+          {lhs = defined_lhs, display_lhs = defined_lhs,
+           fact_name = fact_name, theorem = theorem, kind = kind,
+           pretty_lhs_arguments = pretty_lhs_arguments,
+           pretty_arguments = pretty_arguments,
+           pretty_body = pretty_body},
+         Config.put Proof_Display.show_results show_results lthy'')
+      end
     else
       let
         val ((defined_lhs, (fact_name, theorem)), lthy') =

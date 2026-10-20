@@ -354,6 +354,12 @@ unrelated to source quotation syntax, and comes from a pure source-mapped docume
 token projection remains position-free.
 Command arguments appear as uRust closure formals on the pretty right-hand side by default;
 `application_def` instead displays them as applications on the left-hand side.
+Closed named declarations with `application_def` disabled install their already checked body through
+`Local_Theory.define`. Ordinary function signature parameters are closed abstractions and remain
+eligible. Unfixed definition parameters and application equations use `Specification.definition`,
+including zero-argument `application_def` declarations. Both paths preserve the public `NAME_def`
+theorem, its attributes and default code equation, and the `Spec_Rules` entry. The direct path
+does not create the auxiliary `NAME_def_raw` definition axiom.
 The symbolic opening follows the equation marker on the same line; right-hand closure formals and
 the body occupy successively indented lines.
 In human mode, nonempty code blocks for control flow, matches, closures, bindings, and assignments
