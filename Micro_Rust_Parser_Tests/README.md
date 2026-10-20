@@ -528,7 +528,7 @@ negative rows preserve these boundaries.
   chunks: aliases used before and after their use item, imports of earlier members, shadowing among
   registrations, chunk and body imports, same-spelling type and value aliases, signatures, fields,
   calls, construction, patterns and a locale target, with kernel equalities against qualified
-  single-item controls.
+  single-item controls; and datatype selector naming through member annotations.
 - `Parser_Chunk_Use_ML_Tests.thy`: chunk ASTs, envelope slices and serialized roundtrips,
   annotation placement and lexer-state recovery, option diagnostics, validation before the first
   declaration, precedence and source-order output, equivalence with single-item artifacts and
