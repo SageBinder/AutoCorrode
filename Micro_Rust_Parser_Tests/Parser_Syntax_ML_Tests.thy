@@ -2482,6 +2482,13 @@ ML_val\<open>
           ("match subject { First => " ^ body))
       ["{ () }", "unsafe { () }", "if value { 1 } else { 2 }", "match value { A => 1 }",
        "for item in items { () }"]
+    (* A semicolon followed by a terminal comma and the closing brace receives the same hint. *)
+    val _ =
+      expect_separator_hint "match subject { First => 1;, }" "match subject { First => 1"
+    val _ =
+      expect_separator_hint
+        "match subject { Zero => { () } First => 1;, }"
+        "match subject { Zero => { () } First => 1"
     (* The hint names the first offending semicolon, including inside nested matches and after a
        guard whose complete body contains statements. *)
     val _ =
