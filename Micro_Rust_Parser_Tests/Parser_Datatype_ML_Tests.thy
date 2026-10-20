@@ -4828,8 +4828,6 @@ local
   val _ = require "source and memory parameters were conflated"
     (length (URust_Type_Mappings.entry_parameter_sorts (mapping "GenericPointer")) = 3 andalso
      length (URust_Type_Mappings.entry_backend_parameter_sorts (mapping "GenericPointer")) = 2)
-  val _ = require "temporary overloaded setting escaped"
-    (not (Config.get ctxt Typedef.overloaded) andalso not (Config.get_global thy Typedef.overloaded))
   val _ = require "duplicate word notation registration"
     (null (Micro_Rust_Names.lookups ctxt Micro_Rust_Names.NLiteral "Status::Ready"))
   val recovered = command "backend-recovery"
@@ -4837,6 +4835,224 @@ local
   val _ = require "failed declarations left registry state"
     (is_some (URust_Type_Mappings.lookup recovered "Invalid") andalso is_none (URust_Type_Mappings.lookup ctxt "Invalid"))
 in val _ = writeln "unified generic datatype probes passed" end
+\<close>
+
+section\<open> Configuration isolation \<close>
+
+text\<open>
+A datatype declaration leaves every configuration option of its theory and contexts as it found
+it, including the absence of an entry. Theory configuration merges keep the entry of the first
+parent, so a theory entry left by a declaration would override the option of a later import. The
+audits therefore observe theory options through merges in both import orders.
+\<close>
+
+ML \<open>
+structure Config_Isolation_Test =
+struct
+  fun require label condition =
+    if condition then () else error ("configuration isolation: " ^ label)
+
+  fun cartouche text = Symbol.open_ ^ " " ^ text ^ " " ^ Symbol.close
+
+  fun datatype_command options source = "urust_datatype " ^ options ^ " " ^ cartouche source
+
+  fun start label =
+    Position.make0 1 1 0 "" ("config-isolation-" ^ label) ""
+    |> Position.copy_id (Position.thread_data ())
+
+  fun begin_theory label parents =
+    Theory.begin_theory
+      ("Config_Isolation_" ^ String.translate (fn #"-" => "_" | c => String.str c) label,
+       start label)
+      parents
+
+  fun run label text thy =
+    fold (Toplevel.command_exception false)
+      (Outer_Syntax.parse_text thy (K thy) (start label) text)
+      (Toplevel.make_state (SOME thy))
+    |> Toplevel.theory_of
+
+  (* A finished child of the parent, extended by the given commands. *)
+  fun branch parent label text =
+    begin_theory label [parent] |> run label text |> Theory.end_theory
+
+  fun overloaded thy = Config.get_global thy Typedef.overloaded
+
+  (* The option of a theory that imports the given theories in this order. *)
+  fun merged label parents = overloaded (begin_theory label parents)
+
+  (* A typedef whose representing set depends on LENGTH('a). *)
+  fun length_typedef label parents =
+    begin_theory label parents
+    |> run label
+      ("typedef 'a::len config_isolation_bounded = " ^
+        cartouche "{n :: nat. n < LENGTH('a)}" ^ " by (rule exI [of _ 0]) simp")
+
+  fun failure f =
+    (case Exn.result f () of
+      Exn.Res _ => NONE
+    | Exn.Exn exn =>
+        if Exn.is_interrupt exn then Exn.reraise exn
+        else SOME (XML.content_of (YXML.parse_body (Runtime.exn_message exn))))
+
+  (* A theory without an entry reads the default, and a child that imports a sibling of it before
+     an enabling sibling reads the enabled value. *)
+  fun require_no_entry label parent =
+    let
+      val control = branch parent (label ^ "-control") ""
+      val enable = branch parent (label ^ "-enable") "declare [[typedef_overloaded]]"
+    in
+      require (label ^ ": the theory holds a typedef_overloaded entry")
+        (not (overloaded parent) andalso
+          merged (label ^ "-control-first") [control, enable])
+    end
+end
+\<close>
+
+ML_val \<open>
+local
+  open Config_Isolation_Test
+  val parent = \<^theory>
+  val _ = require_no_entry "parent" parent
+  val enable = branch parent "enable" "declare [[typedef_overloaded]]"
+  val disable = branch parent "disable" "declare [[typedef_overloaded = false]]"
+  fun orders label declared =
+    [(label ^ "-declaration-first", [declared, enable]),
+     (label ^ "-enable-first", [enable, declared])]
+  fun diamond label declared =
+    let
+      val _ =
+        require (label ^ ": the declaring theory changed its option") (not (overloaded declared))
+    in
+      List.app
+        (fn (child, parents) =>
+          require (child ^ ": the inherited option was lost") (merged child parents))
+        (orders label declared)
+    end
+
+  val plain =
+    branch parent "plain" (datatype_command "" "struct ConfigIsolationPlain { value: u8 }")
+  val _ = diamond "plain" plain
+  val _ =
+    List.app (fn (child, parents) => ignore (length_typedef (child ^ "-typedef") parents))
+      (orders "plain" plain)
+  val _ = require "the length typedef did not fail on its open dependency"
+    (case failure (fn () => length_typedef "plain-typedef-default" [plain]) of
+      SOME message => String.isSubstring "open dependencies" message
+    | NONE => false)
+
+  val explicit = branch parent "explicit"
+    (cat_lines
+      ["declare [[typedef_overloaded]]",
+       datatype_command "" "struct ConfigIsolationExplicit { value: u8 }"])
+  val _ = require "explicit: the explicit entry was lost"
+    (overloaded explicit andalso merged "explicit-disable-second" [explicit, disable])
+
+  val _ = List.app (fn (label, options, source) =>
+      diamond label (branch parent label (datatype_command options source)))
+    [("hol-struct", "", "struct ConfigIsolationRecord<T, const N: usize> { values: [T; N] }"),
+     ("hol-tuple", "", "struct ConfigIsolationTuple<T, const N: usize>([T; N], u8);"),
+     ("hol-enum", "[backend = hol]",
+      "enum ConfigIsolationNative<T, const N: usize> " ^
+        "{ ConfigIsolationNativeEmpty, ConfigIsolationNativeStored([T; N]) }"),
+     ("custom-enum", "[backend = " ^ quote "enum" ^ "]",
+      "enum ConfigIsolationCustom<T, const N: usize> " ^
+        "{ ConfigIsolationCustomEmpty, ConfigIsolationCustomStored([T; N]) }"),
+     ("word-enum", "[backend = " ^ quote "simple_word_enum" ^ ", word_width = 8]",
+      "enum ConfigIsolationWord { ConfigIsolationWordLow, ConfigIsolationWordHigh }")]
+in val _ = writeln "configuration isolation merge diamonds passed" end
+\<close>
+
+text\<open>
+Open-dependency fields need \<^verbatim>\<open>typedef_overloaded\<close> during generation. Generation in a
+locale target and in nested unnamed contexts enables it in every target context and restores each
+setting afterwards.
+\<close>
+
+locale config_isolation_frame =
+  fixes config_isolation_limit :: nat
+begin
+
+urust_datatype \<open> struct ConfigIsolationFrameRecord<T, const N: usize> { values: [T; N] } \<close>
+
+urust_datatype \<open> struct ConfigIsolationFrameTuple<T, const N: usize>([T; N]); \<close>
+
+urust_datatype [backend = hol] \<open>
+  enum ConfigIsolationFrameNative<T, const N: usize> {
+    ConfigIsolationFrameNativeEmpty, ConfigIsolationFrameNativeStored([T; N])
+  }
+\<close>
+
+urust_datatype [backend = "enum"] \<open>
+  enum ConfigIsolationFrameCustom<T, const N: usize> {
+    ConfigIsolationFrameCustomEmpty, ConfigIsolationFrameCustomStored([T; N])
+  }
+\<close>
+
+urust_datatype [backend = "simple_word_enum", word_width = 8] \<open>
+  enum ConfigIsolationFrameWord { ConfigIsolationFrameLow, ConfigIsolationFrameHigh }
+\<close>
+
+ML_val \<open>
+  Config_Isolation_Test.require "locale: the target option changed"
+    (not (Config.get \<^context> Typedef.overloaded))
+\<close>
+
+context
+begin
+
+urust_datatype \<open> struct ConfigIsolationFrameNested<T, const N: usize> { values: [T; N] } \<close>
+
+ML_val \<open>
+  Config_Isolation_Test.require "locale nested context: the context option changed"
+    (not (Config.get \<^context> Typedef.overloaded))
+\<close>
+
+end
+
+end
+
+context
+begin
+
+urust_datatype \<open> struct ConfigIsolationNestedRecord<T, const N: usize> { values: [T; N] } \<close>
+
+urust_datatype [backend = hol] \<open>
+  enum ConfigIsolationNestedNative<T, const N: usize> {
+    ConfigIsolationNestedNativeEmpty, ConfigIsolationNestedNativeStored([T; N])
+  }
+\<close>
+
+urust_datatype [backend = "enum"] \<open>
+  enum ConfigIsolationNestedCustom<T, const N: usize> {
+    ConfigIsolationNestedCustomEmpty, ConfigIsolationNestedCustomStored([T; N])
+  }
+\<close>
+
+ML_val \<open>
+  Config_Isolation_Test.require "nested context: the context option changed"
+    (not (Config.get \<^context> Typedef.overloaded))
+\<close>
+
+end
+
+context
+  notes [[typedef_overloaded]]
+begin
+
+urust_datatype \<open> struct ConfigIsolationEnabledRecord<T, const N: usize> { values: [T; N] } \<close>
+
+ML_val \<open>
+  Config_Isolation_Test.require "enabled context: the context option was reset"
+    (Config.get \<^context> Typedef.overloaded)
+\<close>
+
+end
+
+ML_val \<open>
+  val _ = Config_Isolation_Test.require "theory: the context option changed"
+    (not (Config.get \<^context> Typedef.overloaded))
+  val _ = Config_Isolation_Test.require_no_entry "targets" \<^theory>
 \<close>
 
 section\<open> Ordinary explicit singleton modelling \<close>

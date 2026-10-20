@@ -501,7 +501,8 @@ negative rows preserve these boundaries.
   cast grammar, generic closers, printer roundtrips); cast-alias conflicts and diagnostics; type
   alias failures and dependency capture; pointer signature constraints and locale contexts; the
   generic datatype suite with backend selection, explicit singleton modelling and pretty replay;
-  and the Rust type mapping suite.
+  configuration isolation of datatype declarations across theory merges, locale and nested
+  targets and every backend; and the Rust type mapping suite.
 - `Parser_Chunk_Use_Examples.thy`: the use-import fixtures; the declaration-first `urust` reading
   entry point: mixed and one-item chunks, every item shape and layout transition, outer defaults
   and annotation overrides, every option kind, earlier declarations in later items and locale

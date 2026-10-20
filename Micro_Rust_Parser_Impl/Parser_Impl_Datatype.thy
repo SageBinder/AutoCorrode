@@ -1511,15 +1511,17 @@ fun declare_prepared
               lthy
           fun generate backend_lthy =
             let
-              (* Datatype generation opens nested targets from the enclosing target contexts.
-                 Configure every existing target and restore its own setting after generation. *)
+              (* Open-dependency typedefs need typedef_overloaded. Nested targets reset to their
+                 stored target contexts, so the option is set in every target context and each
+                 setting is restored afterwards. It is never set in the theory: a theory entry
+                 persists after the declaration and, because configuration merges keep the first
+                 parent's entry, would override the option of a later import. *)
               val overloaded_settings = Unsynchronized.ref ([]: (int * bool) list)
               val generation_lthy = backend_lthy
                 |> Local_Theory.map_contexts (fn depth => fn ctxt =>
                     (overloaded_settings := (depth, Config.get ctxt Typedef.overloaded) ::
                         !overloaded_settings;
                      Config.put Typedef.overloaded true ctxt))
-                |> Local_Theory.background_theory (Config.put_global Typedef.overloaded true)
                 |> Config.put Proof_Display.show_results false
               val (generated, generated_lthy) =
                 generate_urust_datatype selected plugins width values register_notation
@@ -1543,8 +1545,6 @@ fun declare_prepared
                 registered_lthy
                 |> Config.put Proof_Display.show_results
                     (Config.get backend_lthy Proof_Display.show_results)
-                |> Local_Theory.background_theory (Config.put_global Typedef.overloaded
-                    (Config.get_global (Proof_Context.theory_of backend_lthy) Typedef.overloaded))
                 |> Local_Theory.map_contexts (fn depth =>
                     Config.put Typedef.overloaded
                       (the (AList.lookup (op =) (!overloaded_settings) depth)))
