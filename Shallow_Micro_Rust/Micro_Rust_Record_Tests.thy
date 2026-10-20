@@ -17,6 +17,11 @@ datatype_record testrec2 =
   field4 :: \<open>bool option\<close>
 micro_rust_record testrec2
 
+datatype_record record_autogen_optional =
+  record_autogen_optional_value :: integer
+  record_autogen_optional_payload :: \<open>integer option\<close>
+micro_rust_record record_autogen_optional
+
 datatype_record ('a, 'b) record_autogen_poly =
   record_autogen_poly_value :: 'a
   record_autogen_poly_flag :: bool
@@ -117,6 +122,16 @@ ML_val\<open>
           update_field1 f (make_testrec field1 field2) =
             make_testrec (f field1) field2\<close>
     val _ =
+      assert_prop
+        "record_autogen_optional_record_autogen_optional_value_update_explicit"
+        \<^prop>\<open>\<And>f record_autogen_optional_value
+            record_autogen_optional_payload.
+          update_record_autogen_optional_value f
+            (make_record_autogen_optional record_autogen_optional_value
+              record_autogen_optional_payload) =
+            make_record_autogen_optional (f record_autogen_optional_value)
+              record_autogen_optional_payload\<close>
+    val _ =
       assert_prop "testrec_field1_update_localI"
         \<^prop>\<open>\<And>f g r.
           f (field1 r) = g (field1 r) \<Longrightarrow>
@@ -169,6 +184,9 @@ ML_val\<open>
 
     val _ =
       assert_localizable "ordinary record" \<^typ>\<open>testrec\<close>
+    val _ =
+      assert_localizable "optional-field record"
+        \<^typ>\<open>record_autogen_optional\<close>
     val _ =
       assert_localizable "polymorphic record"
         \<^typ>\<open>('a, 'b) record_autogen_poly\<close>
