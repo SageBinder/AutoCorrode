@@ -863,16 +863,17 @@ struct
   fun generic_sources (Generic_Args (arguments, _)) =
     map generic_argument_source arguments
 
-  fun apply_generic_arguments ctxt environment function arguments =
-    T.apply_parameters function
-      (case arguments of
-         NONE => []
-       | SOME generic_arguments =>
-           map (parse_antiquotation ctxt environment)
-             (generic_sources generic_arguments))
+  (* A turbofish payload becomes leading arguments, which only explicit call notations accept, so
+     a registered head with generic arguments never dispatches to a generated function. *)
+  fun apply_generic_arguments _ _ function NONE = function
+    | apply_generic_arguments ctxt environment function (SOME generic_arguments) =
+        T.apply_parameters (Micro_Rust_Dispatch.exclude_generated_backends function)
+          (map (parse_antiquotation ctxt environment)
+            (generic_sources generic_arguments))
 
   (* An automatic urust_fn registration stands for a Rust function item, which takes no generic
-     arguments at a call. Explicit call notations keep their turbofish payload. *)
+     arguments at a call. A name with only such registrations reports that directly; otherwise
+     apply_generic_arguments restricts dispatch to the explicit call notations. *)
   fun reject_generated_function_generics ctxt path =
     (case segment_generic_args (final_segment path) of
        NONE => ()

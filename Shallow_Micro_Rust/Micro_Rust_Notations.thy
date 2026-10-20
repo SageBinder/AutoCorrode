@@ -452,6 +452,12 @@ fun is_backend_identity_wrapper ctxt name =
 val payload_prefix = "_urust_dispatch_payload___";
 val payload_sep = String.str (Char.chr 0);
 
+\<comment>\<open>Which registered backends a marker may dispatch to. A turbofish payload is applied
+  as leading arguments, which only explicit notations accept: a generated \<open>urust_fn\<close> has no
+  generic parameters, so such a call considers \<open>Explicit_Backends\<close> only.\<close>
+datatype marker_scope = All_Backends | Explicit_Backends;
+val explicit_scope_field = "explicit";
+
 type marker_positions =
   {terminal_pos: Position.T,
    qualifier_positions: Position.T list,
@@ -474,20 +480,22 @@ fun strip_file pos =
   in Position.make {line = line, offset = offset, end_offset = end_offset,
        props = {label = label, file = "", id = id}} end;
 
-fun encode_payload_positions kind name
+fun encode_payload_positions scope kind name
     ({terminal_pos, qualifier_positions,
       backend_only_positions} : marker_positions) =
   let
     val tag = Micro_Rust_Names.kind_to_string kind ^ payload_sep ^ name
     val positions =
       terminal_pos :: qualifier_positions @ backend_only_positions
-  in
-    if exists Position.is_reported positions
-    then
+    val with_positions =
       tag ^ payload_sep ^
         string_of_int (length qualifier_positions) ^ payload_sep ^
         Term_Position.encode_no_syntax (map strip_file positions)
-    else tag
+  in
+    (case scope of
+       Explicit_Backends => with_positions ^ payload_sep ^ explicit_scope_field
+     | All_Backends =>
+         if exists Position.is_reported positions then with_positions else tag)
   end;
 
 fun decode_payload s =
@@ -541,8 +549,16 @@ fun decode_payload s =
            (k, n,
             decoded_positions
               (Value.parse_int qualifier_count) enc)
+       | [k, n, qualifier_count, enc, scope] =>
+           if scope = explicit_scope_field then
+             (k, n,
+              decoded_positions
+                (Value.parse_int qualifier_count) enc)
+           else error "malformed urust_dispatch payload"
        | _ => error "malformed urust_dispatch payload")
-  in (Micro_Rust_Names.string_to_kind kind_str, name, positions) end;
+    val scope =
+      if length parts = 5 then Explicit_Backends else All_Backends
+  in (Micro_Rust_Names.string_to_kind kind_str, name, positions, scope) end;
 
 \<comment>\<open>Build the payload \<^verbatim>\<open>Free\<close> with the encoded data in its name.
 
@@ -552,10 +568,13 @@ fun decode_payload s =
   that lookup; the decoder accepts the free variable verbatim. The
   sentinel prefix is reserved enough that no user identifier could
   collide with it.\<close>
-fun mk_payload_positions kind name positions =
+fun mk_scoped_payload_positions scope kind name positions =
   Free
-    (payload_prefix ^ encode_payload_positions kind name positions,
+    (payload_prefix ^ encode_payload_positions scope kind name positions,
      dummyT);
+
+fun mk_payload_positions kind name positions =
+  mk_scoped_payload_positions All_Backends kind name positions;
 
 \<comment>\<open>Retain the original single-position payload API for the legacy
   frontend and direct clients. Dedicated-parser qualified paths use
@@ -567,7 +586,7 @@ fun mk_payload kind name pos =
      backend_only_positions = []};
 
 \<comment>\<open>Recognise the payload \<^verbatim>\<open>Free\<close> and recover
-  \<open>(kind, name, marker_positions)\<close>.\<close>
+  \<open>(kind, name, marker_positions, marker_scope)\<close>.\<close>
 fun dest_payload (Free (s, _)) =
       if String.isPrefix payload_prefix s
       then SOME (decode_payload (String.extract (s, size payload_prefix, NONE)))
@@ -680,6 +699,23 @@ fun dest_marker_untyped (Const (\<^const_name>\<open>urust_dispatch\<close>, _) 
        handle Match => NONE)
   | dest_marker_untyped _ = NONE;
 
+\<comment>\<open>Restrict every marker in a call head to explicit backends, before a turbofish
+  payload is applied to it.\<close>
+fun exclude_generated_backends
+      (Const (\<^const_name>\<open>urust_dispatch\<close>, T) $ payload $ opt) =
+      (case dest_payload payload of
+         SOME (kind, name, positions, _) =>
+           Const (\<^const_name>\<open>urust_dispatch\<close>, T) $
+             mk_scoped_payload_positions Explicit_Backends kind name positions $ opt
+       | NONE =>
+           Const (\<^const_name>\<open>urust_dispatch\<close>, T) $ payload $
+             exclude_generated_backends opt)
+  | exclude_generated_backends (t $ u) =
+      exclude_generated_backends t $ exclude_generated_backends u
+  | exclude_generated_backends (Abs (x, T, body)) =
+      Abs (x, T, exclude_generated_backends body)
+  | exclude_generated_backends t = t;
+
 \<comment>\<open>Can backend type \<open>T'\<close> serve an occurrence of type \<open>T\<close>?
   (Mirrors \<open>adhoc_overloading.ML\<close>: rename the backend's tvars away
   from the occurrence and try \<open>typ_unify\<close>.)\<close>
@@ -727,9 +763,14 @@ fun fresh_backend ctxt term =
   |> Term_Subst.zero_var_indexes
   |> Term.map_types (Logic.incr_tvar (serial ()) #> Type_Infer.paramify_vars);
 
-fun candidates ctxt kind name T =
+fun eligible_entries ctxt scope entries =
+  (case scope of
+     All_Backends => entries
+   | Explicit_Backends => filter_out (Micro_Rust_Names.is_automatic ctxt) entries);
+
+fun scoped_candidates ctxt scope kind name T =
   let
-    val entries = Micro_Rust_Names.lookups ctxt kind name;
+    val entries = eligible_entries ctxt scope (Micro_Rust_Names.lookups ctxt kind name);
     (* Theory union may bring together a generic backend and its specialization. Prefer the
        covering scheme before instantiation, including when effect channels remain unconstrained. *)
     val maximal = filter (fn entry => not (exists (fn other =>
@@ -743,6 +784,8 @@ fun candidates ctxt kind name T =
     |> distinct (fn (left: dispatch_candidate, right: dispatch_candidate) =>
          Term.aconv (apply2 Micro_Rust_Names.normalized_backend (#term left, #term right)))
   end;
+
+fun candidates ctxt kind name T = scoped_candidates ctxt All_Backends kind name T;
 
 \<comment>\<open>Look up a HOL constant by user-visible name. Returns
   \<open>SOME (full_name, declared_type)\<close> if the name resolves to a constant in \<open>ctxt\<close>,
@@ -878,7 +921,7 @@ fun resolve_bound ctxt =
   let
     fun go t =
       (case dest_marker_untyped t of
-         SOME ((kind, _, positions), SOME w) =>
+         SOME ((kind, _, positions, _), SOME w) =>
            if witness_takes_precedence kind w then
              let
                val _ =
@@ -1075,25 +1118,30 @@ fun emit_selected_use_markup_at_positions ctxt kind name selected
   not a reason to silently demote the name to a free variable. We report
   it loudly, showing the occurrence type and every registered backend
   with its type, so the arity/type mismatch is obvious.\<close>
-fun no_match_error ctxt kind name pos T =
+fun scope_note Explicit_Backends =
+      [Pretty.str "Generic arguments exclude generated functions, which take none."]
+  | scope_note All_Backends = [];
+
+fun no_match_error ctxt scope kind name pos T =
   error (Pretty.string_of (Pretty.chunks
-    [Pretty.block [Pretty.str ("uRust notation \<open>" ^ name ^
+    ([Pretty.block [Pretty.str ("uRust notation \<open>" ^ name ^
        "\<close> is registered, but no backend matches the use-site type "),
        Syntax.pretty_typ ctxt T, Pretty.str (Position.here pos)],
-     Pretty.big_list "registered backends (none type-compatible here):"
+      Pretty.big_list "registered backends (none type-compatible here):"
        (map (fn { hol_term, ... } : Micro_Rust_Names.entry =>
                Pretty.block [Syntax.pretty_term ctxt hol_term, Pretty.str " :: ",
                              Syntax.pretty_typ ctxt (fastype_of hol_term)])
-          (Micro_Rust_Names.lookups ctxt kind name))]));
+          (eligible_entries ctxt scope (Micro_Rust_Names.lookups ctxt kind name)))] @
+     scope_note scope)));
 
 fun resolve ctxt =
   let
     fun go t =
       (case dest_marker t of
-         SOME ((kind, name, positions), opt_witness, T) =>
+         SOME ((kind, name, positions, scope), opt_witness, T) =>
            let
              val pos = #terminal_pos positions
-             val cands = candidates ctxt kind name T
+             val cands = scoped_candidates ctxt scope kind name T
              val _ =
                shadow_check ctxt kind name T pos (not (null cands))
                  (denotes_registered_backend (Micro_Rust_Names.lookups ctxt kind name) ctxt)
@@ -1108,10 +1156,10 @@ fun resolve ctxt =
                   else
                     (case cands of
                        [single] => select single
-                     | [] => no_match_error ctxt kind name pos T
+                     | [] => no_match_error ctxt scope kind name pos T
                      | _ => t \<comment>\<open>ambiguous: leave for \<open>reject_unresolved\<close>\<close>)
               | (NONE, [single]) => select single
-              | (NONE, []) => no_match_error ctxt kind name pos T
+              | (NONE, []) => no_match_error ctxt scope kind name pos T
               | (NONE, _) => t)
            end
        | NONE =>
@@ -1127,7 +1175,7 @@ fun reject_unresolved ctxt =
   let
     fun check t =
       (case dest_marker t of
-         SOME ((kind, name, positions), _, T) =>
+         SOME ((kind, name, positions, scope), _, T) =>
            let val pos = #terminal_pos positions
            in
            error (Pretty.string_of (Pretty.chunks
@@ -1136,7 +1184,7 @@ fun reject_unresolved ctxt =
                 Pretty.str (Position.here pos)],
               Pretty.big_list "candidate backends:"
                 (map (Syntax.pretty_term ctxt o #hol_term)
-                   (Micro_Rust_Names.lookups ctxt kind name))]))
+                   (eligible_entries ctxt scope (Micro_Rust_Names.lookups ctxt kind name)))]))
            end
        | NONE =>
            (case t of u $ v => (check u; check v) | Abs (_, _, b) => check b | _ => ()));

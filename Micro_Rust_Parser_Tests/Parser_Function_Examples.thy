@@ -1889,17 +1889,33 @@ urust_fn turbofish_pair \<open> fn TurbofishPair(first: u8, second: u8) -> u8 { 
 urust_expr_rejects \<open> TurbofishPair::<1>(2u8) \<close> \<open>generic arguments are not supported on generated Rust function paths\<close>
 
 text\<open>
-Known limitation, recorded in the improvement tracker: once an explicit call notation shares the
-name, the payload is passed on as for explicit notations, and dispatch may still select the
-generated function.
+When an explicit call notation shares the name, a turbofish call dispatches among the explicit
+backends only, while a call without generic arguments still reaches the generated function.
 \<close>
 
 urust_fn [register_notation = false] turbofish_pair_wide
   \<open> fn TurbofishPairWide(first: u64, second: u64) -> u64 { second } \<close>
 
 micro_rust_notation (call) turbofish_pair_wide ("TurbofishPair")
+micro_rust_notation (call) turbofish_pair_wide ("TurbofishPairWideOnly")
 
-urust_expr turbofish_mixed_payload \<open> TurbofishPair::<1>(2u8) \<close>
+urust_expr_rejects \<open> TurbofishPair::<1>(2u8) \<close> \<open>no backend matches the use-site type\<close>
+
+urust_expr turbofish_mixed_explicit \<open> TurbofishPair::<1>(2u64) \<close>
+
+urust_expr turbofish_mixed_explicit_control \<open> TurbofishPairWideOnly::<1>(2u64) \<close>
+
+lemma \<open>turbofish_mixed_explicit = turbofish_mixed_explicit_control\<close>
+  unfolding turbofish_mixed_explicit_def turbofish_mixed_explicit_control_def by (rule refl)
+
+urust_expr turbofish_mixed_plain \<open> TurbofishPair(1, 2u8) \<close>
+
+micro_rust_notation (call) turbofish_pair ("TurbofishPairGeneratedOnly")
+
+urust_expr turbofish_generated_control \<open> TurbofishPairGeneratedOnly(1, 2u8) \<close>
+
+lemma \<open>turbofish_mixed_plain = turbofish_generated_control\<close>
+  unfolding turbofish_mixed_plain_def turbofish_generated_control_def by (rule refl)
 
 urust_fn [state = \<open>unit\<close>, abort = \<open>bool\<close>,
   input = \<open>nat prompt\<close>, output = \<open>unit prompt_output\<close>]
