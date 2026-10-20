@@ -40,6 +40,7 @@ sig
   val annotation_layout_error: string -> Position.T -> 'a
   val use_error: string -> Position.T -> 'a
   val lifetime_error: string -> Position.T -> 'a
+  val match_arm_separator_error: Position.T -> 'a
 end
 
 (*
@@ -83,6 +84,10 @@ end
       offending token.
     * lifetime_error message pos rejects Rust lifetime syntax outside the supported surface, such
       as lifetime bounds and lifetime generic arguments, at the offending token.
+    * match_arm_separator_error pos rejects a `;` directly after a match-arm body. The grammar's
+      match-arm error productions call it with the span of that `;`. Like generic_integer_error, the
+      message keeps the syntax-error category and states Rust's rule that non-block match arms are
+      separated by `,`.
 
   All exported failure functions have result type 'a because they always raise via error. Their
   exact string assembly and use of quote are implementation details, subject to the message and
@@ -173,6 +178,12 @@ struct
 
   fun lifetime_error message pos =
     error ("uRust lifetime: " ^ message ^ Position.here pos)
+
+  fun match_arm_separator_error pos =
+    error
+      ("uRust match: syntax error: " ^ quote ";" ^
+        " cannot follow a match arm; non-block match arms are separated by " ^ quote "," ^
+        Position.here pos)
 end
 \<close>
 SML_import \<open> structure URust_Grammar = URust_Grammar \<close>
@@ -1546,6 +1557,10 @@ fun finish_arm (AH_Arm (pattern, guard, tokens), body) =
      syntax_layout
        (pattern_position pattern) (expression_position body) tokens)
 
+fun reject_arm_semicolon semicolon_left semicolon_right =
+  URust_Grammar.match_arm_separator_error
+    (spanning_position semicolon_left semicolon_right)
+
 datatype fuel_head =
   Fuel_Head of
     Input.source * Position.T * (source_token * Position.T) list
@@ -1919,6 +1934,9 @@ yacc_definitions\<open>
        | uarm_with_block_after_block of URust_AST.ur_arm
        | uarms of URust_AST.ur_arm list
        | uarms_after_block of URust_AST.ur_arm list
+       | uarm_semicolon of URust_AST.ur_arm list
+       | uarm_after_block_semicolon of URust_AST.ur_arm list
+       | uarms_after_semicolon
        | upat of URust_AST.ur_pat
        | upat_after_block of URust_AST.ur_pat
        | upat_range of URust_AST.ur_pat
@@ -3060,9 +3078,16 @@ yacc_rules\<open>
       uarm_head_after_block uwith_block_expr
         (finish_arm
           (uarm_head_after_block, uwith_block_expr))
+  (* A `;` directly after an arm body is parsed only to reject it at that `;` with Rust's separator
+     rule, so the diagnostic does not depend on ML-Yacc recovery. A with-block body followed by a
+     separator token is an ordinary `uarm`, so it receives the same rejection. The remaining arms
+     are accepted in every separator form. The arm-and-semicolon nonterminal raises the rejection
+     and precedes the tail: delayed ML-Yacc actions force right-hand values from left to right, so
+     the first such `;` in source order is reported. *)
   uarms : uarm                  ([uarm])
         | uarm COMMA            ([uarm])
         | uarm COMMA uarms      (uarm :: uarms)
+        | uarm_semicolon uarms_after_semicolon (uarm_semicolon)
         | uarm_with_block uarms_after_block
             (uarm_with_block :: uarms_after_block)
   uarms_after_block :
@@ -3072,8 +3097,18 @@ yacc_rules\<open>
         ([uarm_after_block])
     | uarm_after_block COMMA uarms
         (uarm_after_block :: uarms)
+    | uarm_after_block_semicolon uarms_after_semicolon
+        (uarm_after_block_semicolon)
     | uarm_with_block_after_block uarms_after_block
         (uarm_with_block_after_block :: uarms_after_block)
+  uarm_semicolon : uarm TSEMI (reject_arm_semicolon TSEMIleft TSEMIright)
+  uarm_after_block_semicolon :
+      uarm_after_block TSEMI
+        (reject_arm_semicolon TSEMIleft TSEMIright)
+  uarms_after_semicolon : (())
+                        | COMMA (())
+                        | COMMA uarms (())
+                        | uarms (())
   (* The single pattern grammar, shared by every binding site above (D28). Its own nonterminals, disjoint
      from `uexpr`, so the constructor pattern cannot clash with the call production nor or-`|` with bitwise
      or. It deliberately ACCEPTS more than any one site can lower (a numeral in `let`, a constructor under
