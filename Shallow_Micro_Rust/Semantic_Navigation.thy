@@ -147,15 +147,47 @@ struct
   val payload_prefix = "_urust_semantic_navigation_payload___"
   val payload_sep = String.str (Char.chr 0)
 
-  fun strip_file pos =
+  (* Payload positions keep every property and decode to exactly themselves. PIDE assigns a report
+     to the chunk named by its file, so a target of a source other than the command's node must
+     keep that source's file; without it, the report lands in the node at the source's offsets. *)
+  fun encode_positions positions =
+    YXML.string_of_body
+      (XML.Encode.list XML.Encode.properties
+        (map Position.properties_of positions))
+
+  fun decode_positions encoded =
+    map Position.of_properties
+      (XML.Decode.list XML.Decode.properties (YXML.parse_body encoded))
+
+  (* Files and labels contain dots, and the term decoder reads a qualified Free name as a
+     constant. The payload name therefore escapes the separator, and the escape character itself,
+     bijectively. *)
+  val name_escape = Char.chr 1
+  val name_separator = String.sub (Long_Name.separator, 0)
+
+  fun escape_name name =
+    String.translate
+      (fn character =>
+        if character = name_separator
+        then String.implode [name_escape, #"s"]
+        else if character = name_escape
+        then String.implode [name_escape, #"e"]
+        else String.str character)
+      name
+
+  fun unescape_name name =
     let
-      val {line, offset, end_offset, props = {label, id, ...}} =
-        Position.dest pos
-    in
-      Position.make
-        {line = line, offset = offset, end_offset = end_offset,
-         props = {label = label, file = "", id = id}}
-    end
+      fun unescape (character :: rest) =
+            if character <> name_escape then character :: unescape rest
+            else
+              (case rest of
+                 #"s" :: rest' => name_separator :: unescape rest'
+               | #"e" :: rest' => name_escape :: unescape rest'
+               | _ =>
+                   error
+                     "Micro_Rust_Semantic_Navigation: malformed target payload")
+        | unescape [] = []
+    in String.implode (unescape (String.explode name)) end
 
   fun kind_tag Primary = "primary"
     | kind_tag Secondary = "secondary"
@@ -169,8 +201,8 @@ struct
 
   fun mk_payload kind positions =
     Free
-      (payload_prefix ^ kind_tag kind ^ payload_sep ^
-        Term_Position.encode_no_syntax (map strip_file positions),
+      (payload_prefix ^
+        escape_name (kind_tag kind ^ payload_sep ^ encode_positions positions),
        dummyT)
 
   fun dest_payload (Free (name, _)) =
@@ -178,13 +210,13 @@ struct
         then
           (case
               String.fields (fn character => character = Char.chr 0)
-                (String.extract
-                  (name, size payload_prefix, NONE)) of
+                (unescape_name
+                  (String.extract
+                    (name, size payload_prefix, NONE))) of
              [kind, encoded_positions] =>
                SOME
                  (tag_kind kind,
-                  map #pos
-                    (Term_Position.decode encoded_positions))
+                  decode_positions encoded_positions)
            | _ =>
                error
                  "Micro_Rust_Semantic_Navigation: malformed target payload")

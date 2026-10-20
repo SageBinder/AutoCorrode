@@ -4137,4 +4137,210 @@ local
 in val _ = () end
 \<close>
 
+section\<open> Dispatch marker source positions \<close>
+
+text\<open>
+Dispatch and semantic-navigation markers carry their use-site positions in the name of a payload
+\<^verbatim>\<open>Free\<close>. The payload keeps every position property, including a file whose path would make
+the name qualified, so each use-site report stays in the source that contains the use.
+\<close>
+
+ML_val \<open>
+local
+  open Parser_Function_Regression_Test
+  structure Dispatch = Micro_Rust_Dispatch
+  val ctxt = Context_Position.set_visible true \<^context>
+
+  fun positioned line offset end_offset label file =
+    Position.make0 line offset end_offset label file ""
+    |> Position.copy_id (Position.thread_data ())
+
+  (* Control characters that YXML and the payload fields leave free, each repeated and followed
+     by letters and a dot, and every printable ASCII character. *)
+  val controls =
+    [1, 2, 3, 4, 7, 9, 10, 31]
+    |> map (fn code =>
+        let val c = String.str (Char.chr code)
+        in c ^ c ^ "s" ^ c ^ "e" ^ c ^ "." end)
+    |> implode
+  val printable = implode (map (String.str o Char.chr) (32 upto 126))
+  val dotted = positioned 3 17 29 "" "~/marker-position.d/../Marker_Position.thy"
+  val labelled = positioned 4 31 37 "marker-position.label" "marker-position.Qualified.name"
+  val unfiled = positioned 0 41 47 "" ""
+  val hostile =
+    positioned 5 53 54 ""
+      ("./marker-position" ^ controls ^ printable ^ "\<alpha>/.thy.")
+  val positions =
+    {terminal_pos = dotted,
+     qualifier_positions = [labelled, Position.none, unfiled],
+     backend_only_positions = [hostile]}
+
+  fun same_positions left right =
+    map Position.properties_of left = map Position.properties_of right
+
+  fun same_marker_positions
+      ({terminal_pos, qualifier_positions, backend_only_positions} :
+        Dispatch.marker_positions)
+      (decoded : Dispatch.marker_positions) =
+    same_positions [terminal_pos] [#terminal_pos decoded] andalso
+    same_positions qualifier_positions (#qualifier_positions decoded) andalso
+    same_positions backend_only_positions (#backend_only_positions decoded)
+
+  (* The term decoder reads a qualified Free name as a constant. *)
+  fun decodes_as_free (payload as Free (name, _)) =
+        not (Long_Name.is_qualified name) andalso
+        (case Syntax_Phases.decode_term ctxt ([], Exn.Res payload) of
+           (_, Exn.Res (Free (decoded, _))) => decoded = name
+         | _ => false)
+    | decodes_as_free _ = false
+
+  fun round_trip scope =
+    let
+      val name = "MarkerPosition::callee"
+      val payload =
+        Dispatch.mk_scoped_payload_positions scope
+          Micro_Rust_Names.NFunction name positions
+    in
+      require "dispatch payload is not a free variable for the term decoder"
+        (decodes_as_free payload);
+      (case Dispatch.dest_payload payload of
+         SOME (decoded_kind, decoded_name, decoded, decoded_scope) =>
+           require "dispatch payload did not round-trip its tag and positions"
+             (decoded_kind = Micro_Rust_Names.NFunction andalso
+               decoded_name = name andalso decoded_scope = scope andalso
+               same_marker_positions positions decoded)
+       | NONE => error "dispatch payload was not recognised")
+    end
+  val _ = List.app round_trip [Dispatch.All_Backends, Dispatch.Explicit_Backends]
+
+  val _ =
+    (case Dispatch.dest_payload
+        (Dispatch.mk_payload Micro_Rust_Names.NFunction "MarkerPositionCallee" hostile) of
+       SOME (_, _, decoded, Dispatch.All_Backends) =>
+         require "single-position payload did not round-trip its position"
+           (same_marker_positions
+             {terminal_pos = hostile, qualifier_positions = [],
+              backend_only_positions = []}
+             decoded)
+     | _ => error "single-position payload was not recognised")
+
+  (* A turbofish call head re-encodes the decoded positions of its marker. *)
+  val restricted =
+    Dispatch.mk_marker_positions_with_backend_targets Micro_Rust_Names.NFunction
+      "MarkerPosition::callee" dotted [labelled, Position.none, unfiled] [hostile]
+      (Free ("callee", dummyT))
+    |> Dispatch.exclude_generated_backends
+  val _ =
+    (case Dispatch.dest_marker_untyped restricted of
+       SOME ((_, _, decoded, Dispatch.Explicit_Backends), SOME (Free ("callee", _))) =>
+         require "restricted marker did not keep its positions"
+           (same_marker_positions positions decoded)
+     | _ => error "restricted marker lost its explicit scope or witness")
+
+  val navigation_positions = [dotted, labelled, hostile]
+  val (marked, _) =
+    Navigation.capture (fn () =>
+      Navigation.with_source navigation_positions (fn () =>
+        Navigation.mark Navigation.Primary \<^term>\<open>Suc\<close>))
+  val _ =
+    (case marked of
+       Const (\<^const_name>\<open>semantic_navigation_target\<close>, _) $ payload $ _ =>
+         require "navigation payload is not a free variable for the term decoder"
+           (decodes_as_free payload)
+     | _ => error "navigation target was not marked")
+  val (_, deferred) = Navigation.capture (fn () => Syntax.check_term ctxt marked)
+  val ((), replayed) =
+    Parser_Test_Reports.markup (fn () => Navigation.replay ctxt deferred)
+  val _ =
+    List.app
+      (fn position =>
+        require "navigation target was not reported at its exact position"
+          (exists
+            (fn (markup_name, properties) =>
+              markup_name = Markup.entityN andalso
+              Properties.get properties Markup.kindN = SOME Markup.constantN andalso
+              Properties.get properties Markup.nameN = SOME \<^const_name>\<open>Suc\<close> andalso
+              same_positions [Position.of_properties properties] [position])
+            replayed))
+      navigation_positions
+in val _ = () end
+\<close>
+
+ML_val \<open>
+local
+  open Parser_Function_Regression_Test
+  val declared =
+    run_from (initial \<^theory>) "marker-position-declaration"
+      (command "" "marker_position_callee"
+        "fn MarkerPositionCallee(value: u8) -> u8 { value }" ^
+       "\nmicro_rust_notation (call) marker_position_callee (\"MarkerPosition::callee\")" ^
+       "\nmicro_rust_notation (call) marker_position_callee (\"MarkerPosition::callee!\")")
+  val callee =
+    Proof_Context.intern_const (Toplevel.context_of declared) "marker_position_callee"
+
+  val label = "marker-position-client"
+  val text =
+    command "[register_notation = false]" "marker_position_client"
+      "fn MarkerPositionClient(value: u8) -> u8 { \
+      \let first = MarkerPositionCallee(value); \
+      \let second = MarkerPosition::callee(first); \
+      \MarkerPosition::callee!(second) }"
+  val (_, markup) =
+    Parser_Test_Reports.markup (fn () => run_from declared label text)
+
+  fun site context offset needle =
+    token_position text (start label) needle (find_from text context 0 + offset)
+  val plain = site "MarkerPositionCallee(" 0 "MarkerPositionCallee"
+  val path_qualifier = site "MarkerPosition::callee(" 0 "MarkerPosition"
+  val path_terminal = site "MarkerPosition::callee(" 16 "callee"
+  val macro_qualifier = site "MarkerPosition::callee!(" 0 "MarkerPosition"
+  val macro_terminal = site "MarkerPosition::callee!(" 16 "callee"
+  val macro_bang = site "MarkerPosition::callee!(" 22 "!"
+
+  fun at position =
+    filter (fn (_, properties) => has_position properties position) markup
+  fun entity_at kind name position =
+    exists
+      (fn (markup_name, properties) =>
+        markup_name = Markup.entityN andalso
+        Properties.get properties Markup.kindN = SOME kind andalso
+        Properties.get properties Markup.nameN = SOME name)
+      (at position)
+  fun styled_at position =
+    exists (fn (markup_name, _) => markup_name = Markup.keyword3N) (at position)
+
+  val _ =
+    List.app
+      (fn (notation, position) =>
+        (require (notation ^ ": use site lost its constant reference")
+           (entity_at Markup.constantN callee position);
+         require (notation ^ ": use site lost its keyword3 styling") (styled_at position);
+         require (notation ^ ": use site lost its notation reference")
+           (entity_at Micro_Rust_Names.notationN notation position)))
+      [("MarkerPositionCallee", plain),
+       ("MarkerPosition::callee", path_terminal),
+       ("MarkerPosition::callee!", macro_terminal)]
+  val _ =
+    List.app
+      (fn (notation, position) =>
+        require (notation ^ ": qualifier lost its notation reference")
+          (entity_at Micro_Rust_Names.notationN notation position))
+      [("MarkerPosition::callee", path_qualifier),
+       ("MarkerPosition::callee!", macro_qualifier)]
+  val _ =
+    require "macro bang lost its selected backend target"
+      (entity_at Markup.constantN callee macro_bang)
+
+  (* PIDE assigns a report with a foreign file to that file, never to the node at its offsets. *)
+  val _ =
+    List.app
+      (fn position =>
+        require "a use-site report lost the file of its source"
+          (forall
+            (fn (_, properties) => Properties.get properties Markup.fileN = SOME label)
+            (at position)))
+      [plain, path_qualifier, path_terminal, macro_qualifier, macro_terminal, macro_bang]
+in val _ = () end
+\<close>
+
 end

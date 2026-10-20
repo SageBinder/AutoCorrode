@@ -463,22 +463,49 @@ type marker_positions =
    qualifier_positions: Position.T list,
    backend_only_positions: Position.T list};
 
-\<comment>\<open>Drop the \<^verbatim>\<open>file\<close> property of a position. CRITICAL: the encoded
-  position is spliced into the payload \<^verbatim>\<open>Free\<close>'s \<^emph>\<open>name\<close> (see
-  \<open>mk_payload\<close>), and a file path contains \<open>.\<close> characters. A \<open>.\<close> in a
-  name makes \<^ML>\<open>Long_Name.is_qualified\<close> true, which makes
+\<comment>\<open>Payload positions keep every property. PIDE assigns a report to the chunk
+  named by its \<^verbatim>\<open>file\<close> property (\<^verbatim>\<open>Command.reported_position\<close>), so a
+  use-site report of a source other than the command's node must keep that
+  source's file: without it, the report lands in the node at the source's
+  offsets. Encoded positions, reported or not, decode to exactly themselves; an
+  unrestricted payload without any reported position carries only its tag.\<close>
+fun encode_positions positions =
+  YXML.string_of_body
+    (XML.Encode.list XML.Encode.properties
+      (map Position.properties_of positions));
+
+fun decode_positions encoded =
+  map Position.of_properties
+    (XML.Decode.list XML.Decode.properties (YXML.parse_body encoded));
+
+\<comment>\<open>File paths and labels contain \<open>.\<close> characters. A \<open>.\<close> in a name makes
+  \<^ML>\<open>Long_Name.is_qualified\<close> true, which makes
   \<^ML>\<open>Proof_Context.lookup_free\<close> return \<^verbatim>\<open>NONE\<close>, which makes
-  \<^ML>\<open>Syntax_Phases.decode_term\<close> promote the \<^verbatim>\<open>Free\<close> to a constant
-  lookup --- raising "Undefined constant" at parse time. This bites
-  \<^emph>\<open>only\<close> in batch builds: interactive PIDE term evaluation yields
-  positions without a \<open>file\<close> property, so the bug stays latent in jEdit
-  and surfaces under \<^verbatim>\<open>isabelle build\<close>. Markup keys on \<open>offset\<close>+\<open>id\<close>
-  (see \<^ML>\<open>Position.is_reported\<close>), which survive, so dropping the file
-  is invisible to the use-site report.\<close>
-fun strip_file pos =
-  let val {line, offset, end_offset, props = {label, id, ...}} = Position.dest pos
-  in Position.make {line = line, offset = offset, end_offset = end_offset,
-       props = {label = label, file = "", id = id}} end;
+  \<^ML>\<open>Syntax_Phases.decode_term\<close> read the payload \<^verbatim>\<open>Free\<close> as a constant
+  and raise "Undefined constant". The payload name therefore escapes the
+  separator, and the escape character itself, bijectively.\<close>
+val name_escape = Char.chr 1;
+val name_separator = String.sub (Long_Name.separator, 0);
+
+fun escape_name name =
+  String.translate
+    (fn c =>
+      if c = name_separator then String.implode [name_escape, #"s"]
+      else if c = name_escape then String.implode [name_escape, #"e"]
+      else String.str c)
+    name;
+
+fun unescape_name name =
+  let
+    fun unescape (c :: rest) =
+          if c <> name_escape then c :: unescape rest
+          else
+            (case rest of
+               #"s" :: rest' => name_separator :: unescape rest'
+             | #"e" :: rest' => name_escape :: unescape rest'
+             | _ => error "malformed urust_dispatch payload")
+      | unescape [] = []
+  in String.implode (unescape (String.explode name)) end;
 
 fun encode_payload_positions scope kind name
     ({terminal_pos, qualifier_positions,
@@ -490,20 +517,21 @@ fun encode_payload_positions scope kind name
     val with_positions =
       tag ^ payload_sep ^
         string_of_int (length qualifier_positions) ^ payload_sep ^
-        Term_Position.encode_no_syntax (map strip_file positions)
+        encode_positions positions
   in
-    (case scope of
-       Explicit_Backends => with_positions ^ payload_sep ^ explicit_scope_field
-     | All_Backends =>
-         if exists Position.is_reported positions then with_positions else tag)
+    escape_name
+      (case scope of
+         Explicit_Backends => with_positions ^ payload_sep ^ explicit_scope_field
+       | All_Backends =>
+           if exists Position.is_reported positions then with_positions else tag)
   end;
 
 fun decode_payload s =
   let
-    val parts = String.fields (fn ch => ch = Char.chr 0) s
+    val parts = String.fields (fn ch => ch = Char.chr 0) (unescape_name s)
     fun decoded_positions qualifier_count enc =
       let
-        val decoded = map #pos (Term_Position.decode enc)
+        val decoded = decode_positions enc
       in
         (case decoded of
            terminal_pos :: rest =>
@@ -531,7 +559,7 @@ fun decode_payload s =
              backend_only_positions = []})
        | [k, n, enc] =>
            let
-             val decoded = map #pos (Term_Position.decode enc)
+             val decoded = decode_positions enc
            in
              (case decoded of
                 terminal_pos :: qualifier_positions =>
