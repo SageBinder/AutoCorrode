@@ -1937,6 +1937,7 @@ yacc_definitions\<open>
        | uarm_semicolon of URust_AST.ur_arm list
        | uarm_after_block_semicolon of URust_AST.ur_arm list
        | uarms_after_semicolon
+       | uarms_after_semicolon_token
        | upat of URust_AST.ur_pat
        | upat_after_block of URust_AST.ur_pat
        | upat_range of URust_AST.ur_pat
@@ -3079,11 +3080,10 @@ yacc_rules\<open>
         (finish_arm
           (uarm_head_after_block, uwith_block_expr))
   (* A `;` directly after an arm body is parsed only to reject it at that `;` with Rust's separator
-     rule, so the diagnostic does not depend on ML-Yacc recovery. A with-block body followed by a
-     separator token is an ordinary `uarm`, so it receives the same rejection. The remaining arms
-     are accepted in every separator form. The arm-and-semicolon nonterminal raises the rejection
-     and precedes the tail: delayed ML-Yacc actions force right-hand values from left to right, so
-     the first such `;` in source order is reported. *)
+     rule, so the diagnostic does not depend on ML-Yacc recovery. A with-block body directly followed
+     by `;` is an ordinary `uarm` here, so it receives the same rejection. The arm-and-semicolon
+     nonterminal raises the rejection and precedes the tail: delayed ML-Yacc actions force right-hand
+     values from left to right, so the first such `;` in source order is reported. *)
   uarms : uarm                  ([uarm])
         | uarm COMMA            ([uarm])
         | uarm COMMA uarms      (uarm :: uarms)
@@ -3105,10 +3105,31 @@ yacc_rules\<open>
   uarm_after_block_semicolon :
       uarm_after_block TSEMI
         (reject_arm_semicolon TSEMIleft TSEMIright)
+  (* The tail after a rejected `;` is any bracket-balanced token sequence up to the match's closing
+     brace, so statements, malformed arms and further semicolons cannot displace the hint to a
+     later token. The token list is every terminal except the three bracket pairs, EOF and the
+     start-mode tokens; a terminal missing from it only falls back to the ordinary syntax error. *)
   uarms_after_semicolon : (())
-                        | COMMA (())
-                        | COMMA uarms (())
-                        | uarms (())
+                        | uarms_after_semicolon uarms_after_semicolon_token (())
+                        | uarms_after_semicolon LPAR uarms_after_semicolon RPAR (())
+                        | uarms_after_semicolon TLBRACE uarms_after_semicolon TRBRACE (())
+                        | uarms_after_semicolon TLBRACK uarms_after_semicolon TRBRACK (())
+  uarms_after_semicolon_token :
+      NUM (()) | NUMSFX (()) | STRING (()) | IDENT (()) | VALAQ (()) | EXPRAQ (()) | TGOPEN (())
+    | GNUM (()) | GIDENT (()) | GLPAR (()) | GRPAR (()) | TTRUE (()) | TFALSE (()) | TLET (())
+    | TCONST (()) | TRETURN (()) | TEQ (()) | TSEMI (()) | TIF (()) | TELSE (()) | COMMA (())
+    | TDOT (()) | TCOLON (()) | TCOLONCOLON (()) | TAT (()) | TPLUS (()) | TMINUS (()) | TSTAR (())
+    | TSLASH (()) | TPERCENT (()) | TSHL (()) | TSHR (()) | TAMP (()) | TBAR (()) | TCARET (())
+    | TPLUSEQ (()) | TMINUSEQ (()) | TSTAREQ (()) | TPERCENTEQ (()) | TAMPEQ (()) | TBAREQ (())
+    | TCARETEQ (()) | TSHLEQ (()) | TSHREQ (()) | TEQEQ (()) | TNE (()) | TLT (()) | TLE (())
+    | TGT (()) | TGE (()) | TAMPAMP (()) | TBARBAR (()) | TBANG (()) | TQUESTION (()) | TUNSAFE (())
+    | TFUEL (()) | TWHILE (()) | TLOOP (()) | TFOR (()) | TIN (()) | THASH (()) | TMATCH (())
+    | TMATCHSWITCH (()) | TMATCHCASE (()) | TARROW (()) | TDOTDOT (()) | TDOTDOTEQ (()) | TMUT (())
+    | TPATCONTEXT (()) | TMATCHESBANG (()) | TAS (()) | TUINT (()) | TSINT (()) | FUNARITY (())
+    | TYIELD (()) | TLOG (()) | TLOGDATAOPEN (()) | LOGSTRING (()) | LOGIDENT (())
+    | TLOGDATACLOSE (()) | TSTRUCT (()) | TENUM (()) | TFN (()) | TTHINARROW (()) | TRUSTTYPE (())
+    | HOLTYPE (()) | TTYPE (()) | GLT (()) | GGT (()) | GHOLTYPE (()) | TANNOTATION (()) | TUSE (())
+    | TPUB (()) | TLIFETIME (())
   (* The single pattern grammar, shared by every binding site above (D28). Its own nonterminals, disjoint
      from `uexpr`, so the constructor pattern cannot clash with the call production nor or-`|` with bitwise
      or. It deliberately ACCEPTS more than any one site can lower (a numeral in `let`, a constructor under

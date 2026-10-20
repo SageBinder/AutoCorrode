@@ -2473,8 +2473,8 @@ ML_val\<open>
        "value = 1", "value?", "value.field", "value.method(1)", "!value", "&value", "*value",
        "value as u8", "|| value", "()", "(value, 1)", "[value; 2]", "(value; ())",
        "{ () } + 1"]
-    (* A with-block body followed by a separator token is an ordinary arm, so `;` after it receives
-       the same hint rather than the generic error. *)
+    (* A with-block body directly followed by `;` is an ordinary arm here, so it receives the same
+       hint rather than the generic error. Rust rejects these too. *)
     val _ = List.app
       (fn body =>
         expect_separator_hint
@@ -2503,8 +2503,75 @@ ML_val\<open>
       expect_separator_hint
         "match subject { First if call(value); true => 1; Second => 2 }"
         "match subject { First if call(value); true => 1"
-    (* Statement semicolons inside block arms, nested delimiters, guards, a final arm without a
-       comma, and a semicolon after the whole match remain accepted. *)
+    (* The input after the semicolon need not be a well-formed arm list: statements, malformed or
+       unseparated arms, further semicolons, nested items and arbitrary balanced tokens keep the
+       hint at the first semicolon. *)
+    val _ = List.app
+      (fn (text, prefix) => expect_separator_hint text prefix)
+      [("match subject { First => call(value); other(value) }",
+        "match subject { First => call(value)"),
+       ("match subject { First => call(); other(); }", "match subject { First => call()"),
+       ("match subject { First => call(); other(); third(); }",
+        "match subject { First => call()"),
+       ("match subject { First => value = 1; other = 2, Second => 3 }",
+        "match subject { First => value = 1"),
+       ("match subject { First => 1;; }", "match subject { First => 1"),
+       ("match subject { First => 1;; Second => 2 }", "match subject { First => 1"),
+       ("match subject { First => 1; value + 1 }", "match subject { First => 1"),
+       ("match subject { First => 1; Second => }", "match subject { First => 1"),
+       ("match subject { First => 1; Second => 2 Third => 3 }", "match subject { First => 1"),
+       ("match subject { First => 1; Second => { fn inner() {} 1 } }",
+        "match subject { First => 1"),
+       ("match subject { First => return Err(error); _ => { report(error); return Ok(()) } }",
+        "match subject { First => return Err(error)"),
+       ("match subject { Zero => { () } First => call(); other(); }",
+        "match subject { Zero => { () } First => call()"),
+       ("{ match subject { First => call(); other() }; () }",
+        "{ match subject { First => call()"),
+       ("match subject { First => 1; fn inner() {} struct Inner; enum Kind { A } type Alias = u8; }",
+        "match subject { First => 1"),
+       ("match subject { First => 1; let const return = ; if else , . : :: @ + - * / % << >> & | " ^
+          "^ += -= *= %= &= |= ^= <<= >>= == != < <= > >= && || ! ? unsafe fuel while loop for in " ^
+          "# match match_switch match_case => .. ..= mut yield true false 1u8 \"text\" name " ^
+          "\<llangle>1 :: nat\<rrangle> call::<u8, 1>(x) matches!(x, y) value as u8, ( [ { } ] ) }",
+        "match subject { First => 1")]
+    (* Only failures independent of the arm list remain ordinary syntax errors after the semicolon:
+       an unbalanced delimiter, malformed input after the match, and a missing closing brace. *)
+    val _ =
+      expect_rejection "match subject { First => 1; ) }" (SOME "match subject { First => 1; ")
+    val _ =
+      expect_rejection
+        "{ match subject { First => 1; Second => 2 }; call( }"
+        (SOME "{ match subject { First => 1; Second => 2 }; call( ")
+    val _ =
+      audit_assert "missing closing brace diagnostic changed"
+        (String.isSubstring "syntax error found at end of input"
+          (#1 (rejection "match subject { First => 1; Second => 2")))
+    (* A semicolon that ends a non-expression `let` inside an arm is not an arm separator. Its
+       recovery diagnostic stays at the `let`. *)
+    val _ =
+      expect_rejection
+        "match subject { First => let x = 1; x, Second => 2 }"
+        (SOME "match subject { First => ")
+    (* Statement semicolons inside block arms, nested delimiters, guards, macros, closures, struct
+       fields and scrutinees, a final arm without a comma, and a semicolon after the whole match
+       remain accepted. *)
+    val _ = List.app
+      (fn text =>
+        (case Exn.result parse_text text of
+           Exn.Res _ => ()
+         | Exn.Exn exn =>
+             if Exn.is_interrupt exn then Exn.reraise exn
+             else error ("return-arm audit: rejected accepted neighbour " ^ quote text)))
+      ["match subject { First => { call(value); } Second => { other(); } }",
+       "match subject { First if call(); other() => { third(); } Second => 1 }",
+       "match subject { First => call!(other(); 1), Second => 2 }",
+       "match subject { First => call![other(); 1], Second => 2 }",
+       "match subject { First => |x| { x; 1 }, Second => 2 }",
+       "match subject { First => Record { field: call(); 1 }, Second => 2 }",
+       "match subject { First => { match value { A => 1 }; 2 } Second => 3 }",
+       "match (value; subject) { First => 1 }",
+       "{ let x = match subject { First => 1, Second => 2 }; x }"]
     fun arm_bodies text =
       (case parse_text text of
          UE_Match (_, _, arms, _) => map (fn UR_Arm (_, _, body, _) => body) arms

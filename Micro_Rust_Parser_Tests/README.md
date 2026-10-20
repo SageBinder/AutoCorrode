@@ -420,10 +420,13 @@ Retained compatibility extensions include complete µRust bodies in guards and s
 groups, macros, and struct fields. The underscore-before-integer-suffix spelling also remains
 accepted. During production migration the parser additionally accepts apostrophised identifiers.
 Direct return match arms use commas between arms and an optional final comma. A `;` directly
-after any match-arm body, as in `return value;,` or `return;`, is rejected at that `;` with the
-hint that non-block match arms are separated by `,`. A with-block body followed by a separator
-token is an ordinary arm and receives the same hint. `{ return value; }` and `{ return; }` retain
-ordinary statement semicolons. Complete guard bodies retain return statements.
+after a match-arm body, as in `return value;,` or `return;`, is rejected at that `;` with the hint
+that non-block match arms are separated by `,`, whatever follows it inside the match braces. A
+with-block body directly followed by `;`, such as `{ () };`, receives the same hint; Rust rejects
+it too, while `{ () },` remains accepted. Unbalanced delimiters, malformed input after the match, a
+missing closing brace and lexical errors are still reported as ordinary errors. `{ return value; }`
+and `{ return; }` retain ordinary statement semicolons. Complete guard bodies retain return
+statements.
 `Parser_Syntax_Examples.thy` and `Parser_Syntax_ML_Tests.thy` check all three match forms, guarded
 and restricted post-block arms,
 AST shapes, positioned rejection and recovery, and typed kernel equalities with braced spellings.
