@@ -155,9 +155,8 @@ struct
   (* Position payloads of term markers, shared with the uRust dispatch markers. Positions keep
      every property and decode to exactly themselves. PIDE assigns a report to the chunk named by
      its file, so a use-site report of a source other than the command's node must keep that
-     source's file; without it, the report lands in the node at the source's offsets. Decoding
-     input that no encoding produced yields NONE, so each payload owner reports its own
-     malformed-payload error. *)
+     source's file; without it, the report lands in the node at the source's offsets. Undecodable
+     input yields NONE, so each payload owner reports its own malformed-payload error. *)
   fun encode_positions positions =
     YXML.string_of_body
       (XML.Encode.list XML.Encode.properties

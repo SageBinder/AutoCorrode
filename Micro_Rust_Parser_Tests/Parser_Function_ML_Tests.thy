@@ -4143,7 +4143,8 @@ text\<open>
 Dispatch and semantic-navigation markers carry their use-site positions in the name of a payload
 \<^verbatim>\<open>Free\<close>. The payload keeps every position property, including a file whose path would make
 the name qualified, so each use-site report stays in the source that contains the use. A payload
-name that no encoder produced is rejected with the diagnostic of its owner.
+name with a malformed escape, position field or qualifier count is rejected with the diagnostic of
+its owner.
 \<close>
 
 ML \<open>

@@ -488,8 +488,8 @@ fun encode_payload_positions scope kind name
            if exists Position.is_reported positions then with_positions else tag)
   end;
 
-\<comment>\<open>A payload body that no encoding produced, with a malformed escape, position
-  field or qualifier count, is rejected with the dispatch marker's diagnostic.\<close>
+\<comment>\<open>A payload body with a malformed escape, position field or qualifier count is
+  rejected with the dispatch marker's diagnostic.\<close>
 fun decode_payload s =
   let
     fun malformed () = error "malformed urust_dispatch payload"
