@@ -279,6 +279,13 @@ Validated constructor patterns use the same ordering; if several entries authent
 constructor, the lowest serial is the deterministic target. Native fallback syntax still links only
 to its HOL entity.
 
+Dispatch markers and semantic-navigation targets carry the complete position of their use site,
+including its file, through their payloads. A source whose file is not the command's node, such as
+a synthetic test source, therefore reports only into its own source and never into the node at its
+offsets. A payload name with a malformed escape, position field or qualifier count is rejected
+with its owner's diagnostic. `Parser_Function_ML_Tests.thy` checks the exact payload round trip,
+the rejection of malformed payloads and every positioned report of a labelled synthetic source.
+
 Single-segment names, unresolved identifiers, diagnostics, ASTs, and checked terms are unchanged.
 The consolidated markup audits cover both selections of overloaded literals and calls, fields,
 values and patterns, struct heads, both turbofish lookup routes, complete macro keys including `!`,
@@ -453,8 +460,9 @@ negative rows preserve these boundaries.
   including inference, registration, generated artifacts, ASTs, signature printer roundtrips,
   navigation and recovery; every channel combination, artifacts and positioned failures; channel
   defaults for chunk members, equivalence, precedence, removal and sharing, context scoping,
-  locales, interpretation, reports and rollback; receiver name collisions and boundaries; and
-  radix discriminants, scoped registration and read-only replay of composed declarations.
+  locales, interpretation, reports and rollback; receiver name collisions and boundaries;
+  radix discriminants, scoped registration and read-only replay of composed declarations; and
+  the source positions of dispatch-marker and navigation payloads.
 - `Parser_Expression_Examples.thy`: positive expression syntax, including direct, method and
   chained iterator calls; Rust dereference and postfix precedence; nested and adjacent block-comment
   layout and positioned rejection; ordinary and inline-const array repeats, restricted length

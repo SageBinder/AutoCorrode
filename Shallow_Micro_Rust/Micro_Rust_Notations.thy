@@ -463,23 +463,12 @@ type marker_positions =
    qualifier_positions: Position.T list,
    backend_only_positions: Position.T list};
 
-\<comment>\<open>Drop the \<^verbatim>\<open>file\<close> property of a position. CRITICAL: the encoded
-  position is spliced into the payload \<^verbatim>\<open>Free\<close>'s \<^emph>\<open>name\<close> (see
-  \<open>mk_payload\<close>), and a file path contains \<open>.\<close> characters. A \<open>.\<close> in a
-  name makes \<^ML>\<open>Long_Name.is_qualified\<close> true, which makes
-  \<^ML>\<open>Proof_Context.lookup_free\<close> return \<^verbatim>\<open>NONE\<close>, which makes
-  \<^ML>\<open>Syntax_Phases.decode_term\<close> promote the \<^verbatim>\<open>Free\<close> to a constant
-  lookup --- raising "Undefined constant" at parse time. This bites
-  \<^emph>\<open>only\<close> in batch builds: interactive PIDE term evaluation yields
-  positions without a \<open>file\<close> property, so the bug stays latent in jEdit
-  and surfaces under \<^verbatim>\<open>isabelle build\<close>. Markup keys on \<open>offset\<close>+\<open>id\<close>
-  (see \<^ML>\<open>Position.is_reported\<close>), which survive, so dropping the file
-  is invisible to the use-site report.\<close>
-fun strip_file pos =
-  let val {line, offset, end_offset, props = {label, id, ...}} = Position.dest pos
-  in Position.make {line = line, offset = offset, end_offset = end_offset,
-       props = {label = label, file = "", id = id}} end;
-
+\<comment>\<open>Payload positions use the shared codec of
+  \<^ML_structure>\<open>Micro_Rust_Semantic_Navigation\<close>: encoded positions keep every
+  property, including the source file that PIDE needs to place a use-site report,
+  and decode to exactly themselves, while the escaped payload name stays
+  unqualified for \<^ML>\<open>Syntax_Phases.decode_term\<close>. An unrestricted payload
+  without any reported position carries only its tag.\<close>
 fun encode_payload_positions scope kind name
     ({terminal_pos, qualifier_positions,
       backend_only_positions} : marker_positions) =
@@ -490,38 +479,41 @@ fun encode_payload_positions scope kind name
     val with_positions =
       tag ^ payload_sep ^
         string_of_int (length qualifier_positions) ^ payload_sep ^
-        Term_Position.encode_no_syntax (map strip_file positions)
+        Micro_Rust_Semantic_Navigation.encode_positions positions
   in
-    (case scope of
-       Explicit_Backends => with_positions ^ payload_sep ^ explicit_scope_field
-     | All_Backends =>
-         if exists Position.is_reported positions then with_positions else tag)
+    Micro_Rust_Semantic_Navigation.escape_payload_name
+      (case scope of
+         Explicit_Backends => with_positions ^ payload_sep ^ explicit_scope_field
+       | All_Backends =>
+           if exists Position.is_reported positions then with_positions else tag)
   end;
 
+\<comment>\<open>A payload body with a malformed escape, position field or qualifier count is
+  rejected with the dispatch marker's diagnostic.\<close>
 fun decode_payload s =
   let
-    val parts = String.fields (fn ch => ch = Char.chr 0) s
+    fun malformed () = error "malformed urust_dispatch payload"
+    val parts =
+      (case Micro_Rust_Semantic_Navigation.unescape_payload_name s of
+         SOME body => String.fields (fn ch => ch = Char.chr 0) body
+       | NONE => malformed ())
+    fun decode_positions enc =
+      (case Micro_Rust_Semantic_Navigation.decode_positions enc of
+         SOME decoded => decoded
+       | NONE => malformed ())
     fun decoded_positions qualifier_count enc =
-      let
-        val decoded = map #pos (Term_Position.decode enc)
-      in
-        (case decoded of
-           terminal_pos :: rest =>
-             let
-               val qualifier_positions =
-                 take qualifier_count rest
-               val backend_only_positions =
-                 drop qualifier_count rest
-             in
-               {terminal_pos = terminal_pos,
-                qualifier_positions = qualifier_positions,
-                backend_only_positions = backend_only_positions}
-             end
-         | [] =>
-             {terminal_pos = Position.none,
-              qualifier_positions = [],
-              backend_only_positions = []})
-      end
+      (case (try Value.parse_nat qualifier_count, decode_positions enc) of
+         (SOME count, terminal_pos :: rest) =>
+           if count > length rest then malformed ()
+           else
+             {terminal_pos = terminal_pos,
+              qualifier_positions = take count rest,
+              backend_only_positions = drop count rest}
+       | (SOME _, []) =>
+           {terminal_pos = Position.none,
+            qualifier_positions = [],
+            backend_only_positions = []}
+       | (NONE, _) => malformed ())
     val (kind_str, name, positions) =
       (case parts of
          [k, n] =>
@@ -530,32 +522,24 @@ fun decode_payload s =
              qualifier_positions = [],
              backend_only_positions = []})
        | [k, n, enc] =>
-           let
-             val decoded = map #pos (Term_Position.decode enc)
-           in
-             (case decoded of
-                terminal_pos :: qualifier_positions =>
-                  (k, n,
-                   {terminal_pos = terminal_pos,
-                    qualifier_positions = qualifier_positions,
-                    backend_only_positions = []})
-              | [] =>
-                  (k, n,
-                   {terminal_pos = Position.none,
-                    qualifier_positions = [],
-                    backend_only_positions = []}))
-           end
+           (case decode_positions enc of
+              terminal_pos :: qualifier_positions =>
+                (k, n,
+                 {terminal_pos = terminal_pos,
+                  qualifier_positions = qualifier_positions,
+                  backend_only_positions = []})
+            | [] =>
+                (k, n,
+                 {terminal_pos = Position.none,
+                  qualifier_positions = [],
+                  backend_only_positions = []}))
        | [k, n, qualifier_count, enc] =>
-           (k, n,
-            decoded_positions
-              (Value.parse_int qualifier_count) enc)
+           (k, n, decoded_positions qualifier_count enc)
        | [k, n, qualifier_count, enc, scope] =>
            if scope = explicit_scope_field then
-             (k, n,
-              decoded_positions
-                (Value.parse_int qualifier_count) enc)
-           else error "malformed urust_dispatch payload"
-       | _ => error "malformed urust_dispatch payload")
+             (k, n, decoded_positions qualifier_count enc)
+           else malformed ()
+       | _ => malformed ())
     val scope =
       if length parts = 5 then Explicit_Backends else All_Backends
   in (Micro_Rust_Names.string_to_kind kind_str, name, positions, scope) end;

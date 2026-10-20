@@ -46,6 +46,11 @@ sig
     target_kind -> term -> term -> term
   val probe:
     term -> term -> term
+
+  val encode_positions: Position.T list -> string
+  val decode_positions: string -> Position.T list option
+  val escape_payload_name: string -> string
+  val unescape_payload_name: string -> string option
 end
 
 structure Micro_Rust_Semantic_Navigation
@@ -147,15 +152,51 @@ struct
   val payload_prefix = "_urust_semantic_navigation_payload___"
   val payload_sep = String.str (Char.chr 0)
 
-  fun strip_file pos =
+  (* Position payloads of term markers, shared with the uRust dispatch markers. Positions keep
+     every property and decode to exactly themselves. PIDE assigns a report to the chunk named by
+     its file, so a use-site report of a source other than the command's node must keep that
+     source's file; without it, the report lands in the node at the source's offsets. Undecodable
+     input yields NONE, so each payload owner reports its own malformed-payload error. *)
+  fun encode_positions positions =
+    YXML.string_of_body
+      (XML.Encode.list XML.Encode.properties
+        (map Position.properties_of positions))
+
+  val decode_positions =
+    try
+      (map Position.of_properties o
+        XML.Decode.list XML.Decode.properties o YXML.parse_body)
+
+  (* Files and labels contain dots. A qualified Free name is not a free variable for
+     Proof_Context.lookup_free, so Syntax_Phases.decode_term would read the payload as a constant
+     and raise "Undefined constant". Payload names therefore escape the separator, and the escape
+     character itself, bijectively; unescaping accepts exactly the escaped names. *)
+  val name_escape = Char.chr 1
+  val name_separator = String.sub (Long_Name.separator, 0)
+
+  fun escape_payload_name name =
+    String.translate
+      (fn character =>
+        if character = name_separator
+        then String.implode [name_escape, #"s"]
+        else if character = name_escape
+        then String.implode [name_escape, #"e"]
+        else String.str character)
+      name
+
+  fun unescape_payload_name name =
     let
-      val {line, offset, end_offset, props = {label, id, ...}} =
-        Position.dest pos
-    in
-      Position.make
-        {line = line, offset = offset, end_offset = end_offset,
-         props = {label = label, file = "", id = id}}
-    end
+      fun unescape (character :: rest) =
+            if character = name_separator then NONE
+            else if character <> name_escape
+            then Option.map (cons character) (unescape rest)
+            else
+              (case rest of
+                 #"s" :: rest' => Option.map (cons name_separator) (unescape rest')
+               | #"e" :: rest' => Option.map (cons name_escape) (unescape rest')
+               | _ => NONE)
+        | unescape [] = SOME []
+    in Option.map String.implode (unescape (String.explode name)) end
 
   fun kind_tag Primary = "primary"
     | kind_tag Secondary = "secondary"
@@ -169,22 +210,26 @@ struct
 
   fun mk_payload kind positions =
     Free
-      (payload_prefix ^ kind_tag kind ^ payload_sep ^
-        Term_Position.encode_no_syntax (map strip_file positions),
+      (payload_prefix ^
+        escape_payload_name
+          (kind_tag kind ^ payload_sep ^ encode_positions positions),
        dummyT)
 
   fun dest_payload (Free (name, _)) =
         if String.isPrefix payload_prefix name
         then
           (case
-              String.fields (fn character => character = Char.chr 0)
-                (String.extract
-                  (name, size payload_prefix, NONE)) of
-             [kind, encoded_positions] =>
-               SOME
-                 (tag_kind kind,
-                  map #pos
-                    (Term_Position.decode encoded_positions))
+              Option.map
+                (String.fields (fn character => character = Char.chr 0))
+                (unescape_payload_name
+                  (String.extract
+                    (name, size payload_prefix, NONE))) of
+             SOME [kind, encoded_positions] =>
+               (case decode_positions encoded_positions of
+                  SOME positions => SOME (tag_kind kind, positions)
+                | NONE =>
+                    error
+                      "Micro_Rust_Semantic_Navigation: malformed target payload")
            | _ =>
                error
                  "Micro_Rust_Semantic_Navigation: malformed target payload")
