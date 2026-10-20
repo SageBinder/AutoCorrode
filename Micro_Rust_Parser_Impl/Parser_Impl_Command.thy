@@ -148,13 +148,17 @@ installed; the setting affects subsequent declarations only. Unit/tuple structs 
 the option but do not generate field-lens aliases. A generated lens can be registered later with,
 for example, \<open>urust_notation (field) packet_packet_sample_value_lens ("sampleValue")\<close>.
 The inline-only structured option \<open>renames = ["source" \<rightarrow> "HOL"]\<close> chooses
-named-struct selector basenames or enum constructor basenames. Both strings must be quoted;
-keys are unqualified source field or variant names. Targets are used as written, subject to
-native binding rules. Missing entries and an empty list retain the defaults. Duplicate keys,
-unknown keys, invalid bindings, and duplicate effective names (including untouched defaults)
-are positioned errors. Field lenses follow the actual selector names; Rust aliases and paths
-always retain their source spellings. The outer HOL type binding is independent, and struct
-constructors and enum payload selectors remain automatic.
+named-struct selector basenames, enum constructor basenames, or enum payload selector basenames.
+Both strings must be quoted. Struct keys are unqualified source field names. Enum keys are source
+variant names, which rename only constructors, or payload keys \<open>"Variant.field"\<close> and
+\<open>"Variant.N"\<close> with the source variant name and a named field or 0-based decimal tuple
+index. A positional key adds a selector for that field on the HOL and custom enum backends; tuple
+structs have no keys. Targets are used as written, subject to native binding rules. Missing
+entries and an empty list retain the defaults. Duplicate keys, unknown variants, fields or
+indices, invalid bindings, and duplicate effective names (including untouched defaults) are
+positioned errors. Field lenses follow the actual selector names; Rust aliases and paths always
+retain their source spellings. The outer HOL type binding is independent, and struct constructors
+remain automatic.
 Type/const parameters retain source order, including unused parameters. Const parameters use
 HOL length types, initially \<open>len0\<close> and strengthened where fields require \<open>len\<close>.
 The option \<open>parameters = ["T" \<rightarrow> "'a::address_type"]\<close> supplies local HOL names/sorts.

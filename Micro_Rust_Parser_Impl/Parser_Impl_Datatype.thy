@@ -165,30 +165,94 @@ fun duplicate_names what entries =
           else check (Symtab.update (name, ()) seen) rest
   in check Symtab.empty entries end
 
+fun payload_key variant member = variant ^ "." ^ member
+
+(* Rust tuple indices are decimal literals without leading zeros. *)
+fun tuple_index text =
+  if text = "0" orelse
+      (text <> "" andalso String.sub (text, 0) <> #"0" andalso
+        forall_string Symbol.is_ascii_digit text)
+  then SOME (Value.parse_int text)
+  else NONE
+
+(* The reason a rename key names nothing in this source item. A struct key is a named field. An
+   enum key is a variant, which renames its constructor, or a payload key "Variant.field" or
+   "Variant.N" with the source variant name and a named field or 0-based tuple index. *)
+fun rename_key_error item key =
+  let
+    fun unknown reason = SOME ("unknown rename key " ^ quote key ^ ": " ^ reason)
+    fun field_names fields = map (fn URust_AST.Datatype_Field (name, _, _) => name) fields
+    fun variant_key enum_name variants =
+      let
+        val (variant, rest) = Substring.position "." (Substring.full key) |> apply2 Substring.string
+        val member_name = if rest = "" then NONE else SOME (unprefix "." rest)
+        val shape =
+          get_first
+            (fn URust_AST.Datatype_Variant (name, _, shape) =>
+              if name = variant then SOME shape else NONE)
+            variants
+      in
+        (case (shape, member_name) of
+           (NONE, _) => unknown ("enum " ^ quote enum_name ^ " has no variant " ^ quote variant)
+         | (SOME _, NONE) => NONE
+         | (SOME (URust_AST.Named_Shape (fields as _ :: _)), SOME field) =>
+             if member (op =) (field_names fields) field then NONE
+             else unknown ("variant " ^ quote variant ^ " has no field " ^ quote field)
+         | (SOME (URust_AST.Tuple_Shape (types as _ :: _)), SOME index) =>
+             (case tuple_index index of
+                NONE =>
+                  SOME
+                    ("invalid rename key " ^ quote key ^ ": tuple variant fields are named by " ^
+                      "0-based decimal indices without leading zeros")
+              | SOME n =>
+                  if n < length types then NONE
+                  else
+                    unknown
+                      ("variant " ^ quote variant ^ " has " ^ string_of_int (length types) ^
+                        " positional " ^ (if length types = 1 then "field" else "fields")))
+         | (SOME _, SOME _) => unknown ("variant " ^ quote variant ^ " has no payload fields"))
+      end
+  in
+    (case item of
+       URust_AST.Struct_Item (name, _, URust_AST.Named_Shape (fields as _ :: _), _) =>
+         if member (op =) (field_names fields) key then NONE
+         else unknown ("struct " ^ quote name ^ " has no field " ^ quote key)
+     | URust_AST.Struct_Item (name, _, URust_AST.Tuple_Shape (_ :: _), _) =>
+         unknown
+           ("struct " ^ quote name ^ " has only positional fields, " ^
+             "and tuple struct fields have no rename keys")
+     | URust_AST.Struct_Item (name, _, _, _) =>
+         unknown ("struct " ^ quote name ^ " has no fields")
+     | URust_AST.Enum_Item (name, _, variants, _) => variant_key name variants)
+  end
+
+fun checked_binding lthy what (name, pos) =
+  let
+    val binding = Binding.make (name, pos)
+    val _ =
+      if name <> "" andalso Symbol_Pos.is_identifier name then ()
+      else positioned_datatype_error ("invalid HOL name binding " ^ quote name ^ what) pos
+    val _ =
+      Local_Theory.full_name lthy binding
+      handle ERROR message =>
+        positioned_datatype_error message pos
+  in binding end
+
 (* Keys belong to this source declaration; targets are native HOL basenames. *)
-fun resolve_renames lthy source_names (renames: rename list) =
+fun resolve_renames lthy item (renames: rename list) =
   let
     val _ = duplicate_names "rename key" (map fst renames)
-    fun resolve ((source, source_pos), (target, target_pos)) =
-      let
-        val _ =
-          if member (op =) source_names source then ()
-          else positioned_datatype_error
-            ("unknown rename key " ^ quote source) source_pos
-        val binding = Binding.make (target, target_pos)
-        val _ =
-          if target <> "" andalso Symbol_Pos.is_identifier target then ()
-          else positioned_datatype_error
-            ("invalid HOL name binding " ^ quote target) target_pos
-        val _ =
-          Local_Theory.full_name lthy binding
-          handle ERROR message =>
-            positioned_datatype_error message target_pos
-      in (source, binding) end
+    fun resolve ((source, source_pos), target) =
+      (case rename_key_error item source of
+         SOME message => positioned_datatype_error message source_pos
+       | NONE => (source, checked_binding lthy "" target))
   in Symtab.make (map resolve renames) end
 
+fun renamed_binding renames key default =
+  the_default default (Symtab.lookup renames key)
+
 fun chosen_binding renames source default pos =
-  the_default (Binding.make (default, pos)) (Symtab.lookup renames source)
+  renamed_binding renames source (Binding.make (default, pos))
 
 fun check_effective_names what bindings =
   duplicate_names what (map (fn b => (Binding.name_of b, Binding.pos_of b)) bindings)
@@ -545,20 +609,45 @@ fun enum_variant_spec renames hol_base
   let
     val _ = validate_rust_item_name "variant" (name, pos)
     val _ = validate_shape name pos shape
+    (* Payload keys use the source variant name, independently of a constructor rename. An
+       unrenamed positional field keeps the empty binding and therefore no custom selector. *)
     val fields =
       (case shape of
          URust_AST.Named_Shape named_fields =>
            map
              (fn field =>
-               (Binding.name
-                  (hol_base ^ "_" ^ snake_case name ^ "_" ^
-                    snake_case (datatype_field_name field)),
+               (renamed_binding renames (payload_key name (datatype_field_name field))
+                  (Binding.name
+                    (hol_base ^ "_" ^ snake_case name ^ "_" ^
+                      snake_case (datatype_field_name field))),
                 datatype_field_type field))
              named_fields
-       | _ => shape_fields shape)
+       | _ =>
+           map_index
+             (fn (index, (_, typ)) =>
+               (renamed_binding renames (payload_key name (string_of_int index)) Binding.empty,
+                typ))
+             (shape_fields shape))
   in
     bnf_constructor (chosen_binding renames name name pos)
       (map fst fields ~~ resolved_types)
+  end
+
+(* The custom selectors of a variant specification, each at the position that explains it: a
+   rename target, or the source field of an automatic name. *)
+fun payload_selector_names
+    (URust_AST.Datatype_Variant (_, _, shape), (((_, _), fields), _)) =
+  let
+    val source_positions =
+      (case shape of
+         URust_AST.Named_Shape named_fields => map datatype_field_position named_fields
+       | _ => map (K Position.none) fields)
+    fun explained (binding, _) source_pos =
+      (Binding.name_of binding,
+       if Binding.pos_of binding = Position.none then source_pos else Binding.pos_of binding)
+  in
+    map2 explained fields source_positions
+    |> filter_out (fn (name, _) => name = "")
   end
 
 fun make_enum plugins renames backend_parameters resolved_types
@@ -582,21 +671,6 @@ fun make_enum plugins renames backend_parameters resolved_types
       check_effective_names "generated HOL constructor"
         (map (fn URust_AST.Datatype_Variant (name, pos, _) =>
           chosen_binding renames name name pos) variants)
-    val _ =
-      duplicate_names "generated HOL selector"
-        (maps
-          (fn URust_AST.Datatype_Variant
-              (variant_name, _, shape) =>
-            (case shape of
-               URust_AST.Named_Shape fields =>
-                 map
-                   (fn field =>
-                     (snake_case variant_name ^ "_" ^
-                        snake_case (datatype_field_name field),
-                      datatype_field_position field))
-                   fields
-             | _ => []))
-          variants)
     fun variant_types (variant as URust_AST.Datatype_Variant (_, _, shape))
         remaining =
       let
@@ -605,6 +679,9 @@ fun make_enum plugins renames backend_parameters resolved_types
       in (enum_variant_spec renames hol_base variant types, rest) end
     val (constructors, remaining_types) =
       fold_map variant_types variants resolved_types
+    val _ =
+      duplicate_names "generated HOL selector"
+        (maps payload_selector_names (variants ~~ constructors))
     val _ =
       if null remaining_types then ()
       else error "urust_datatype: field batch does not match the enum variants"
@@ -690,9 +767,8 @@ fun make_native_enum backend plugins width values renames backend_parameters res
     val (specifications, _) = fold_map specification variants resolved_types
     val _ = check_effective_names "generated HOL constructor"
       (map (fn (((_, binding), _), _) => binding) specifications)
-    val _ = check_effective_names "generated HOL selector"
-      (maps (fn (((_, _), fields), _) => map fst fields) specifications
-        |> filter_out Binding.is_empty)
+    val _ = duplicate_names "generated HOL selector"
+      (maps payload_selector_names (variants ~~ specifications))
   in
     if backend = "enum" then
       let
@@ -1413,14 +1489,7 @@ fun prepare
     val type_binding =
       the_default (infer_datatype_binding rust_name rust_pos)
         explicit_binding
-    val source_names =
-      (case item of
-         URust_AST.Struct_Item (_, _, URust_AST.Named_Shape fields, _) =>
-           map datatype_field_name fields
-       | URust_AST.Struct_Item _ => []
-       | URust_AST.Enum_Item (_, _, variants, _) =>
-           map (fn URust_AST.Datatype_Variant (name, _, _) => name) variants)
-    val resolved_renames = resolve_renames lthy source_names renames
+    val resolved_renames = resolve_renames lthy item renames
   in
     {declaration = declaration, source_item = source_item, descriptors = descriptors,
      item = item, rust_name = rust_name, rust_pos = rust_pos, type_binding = type_binding,

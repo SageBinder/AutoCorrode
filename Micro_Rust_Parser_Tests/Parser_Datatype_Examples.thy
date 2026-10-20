@@ -494,6 +494,88 @@ urust_expr_rejects \<open>
   }
 \<close> \<open>unknown field "ignored_first"\<close>
 
+section\<open> Datatype selector naming \<close>
+
+text\<open>
+Enum payload rename keys use the source variant name. \<open>"Variant.field"\<close> chooses a named
+payload selector, and \<open>"Variant.N"\<close> adds a selector for the 0-based tuple field \<open>N\<close>. A
+plain variant key still renames only the constructor, so a payload key keeps the source variant
+name after a constructor rename.
+\<close>
+
+urust_datatype [backend = hol, renames = [
+  "Flagged" \<rightarrow> "SelectorNameFlagged",
+  "Flagged.value" \<rightarrow> "selector_name_flag_value",
+  "Paired.1" \<rightarrow> "selector_name_pair_flag"
+]] \<open>
+  enum SelectorNameHolChoice { Vacant, Paired(u32, bool), Flagged { value: u32, active: bool } }
+\<close>
+
+lemma selector_name_hol_payloads:
+  \<open>selector_name_flag_value (SelectorNameFlagged n b) = n\<close>
+  \<open>selector_name_hol_choice_flagged_active (SelectorNameFlagged n b) = b\<close>
+  \<open>selector_name_pair_flag (Paired n b) = b\<close>
+  \<open>un_Paired1 (Paired n b) = n\<close>
+  by simp_all
+
+urust_expr selector_name_hol_pattern \<open>
+  match SelectorNameHolChoice::Paired(7u32, true) {
+    SelectorNameHolChoice::Vacant \<Rightarrow> 0u32,
+    SelectorNameHolChoice::Paired(n, _) \<Rightarrow> n,
+    SelectorNameHolChoice::Flagged { value, active: _ } \<Rightarrow> value,
+  }
+\<close>
+
+urust_datatype [renames = [
+  "Marked.value" \<rightarrow> "selector_name_mark_value",
+  "Packed.1" \<rightarrow> "selector_name_pack_flag"
+]] \<open>
+  enum SelectorNameCustomChoice { Unset, Packed(u32, bool), Marked { value: u32, active: bool } }
+\<close>
+
+lemma selector_name_custom_payloads:
+  \<open>selector_name_mark_value (Marked n b) = n\<close>
+  \<open>selector_name_custom_choice_marked_active (Marked n b) = b\<close>
+  \<open>selector_name_pack_flag (Packed n b) = b\<close>
+  by (simp_all only: selector_name_mark_value_simps selector_name_pack_flag_simps
+    selector_name_custom_choice_marked_active_simps)
+
+lemma selector_name_custom_payload_simp:
+  \<open>selector_name_pack_flag (Packed n b) \<longleftrightarrow> b\<close>
+  by simp
+
+text\<open>
+A positional key on the \<open>hol\<close> backend generates exactly the selector of the native datatype
+declaration that names that field: the same constant type, definition and \<open>sel\<close> facts, which
+are simplification rules. The other positional field keeps Ctr_Sugar's default selector.
+\<close>
+
+datatype selector_name_native_parity =
+  NativeBoxed (selector_name_native_boxed: "32 word") | NativeSpared "64 word"
+
+urust_datatype [backend = hol, renames = ["Boxed.0" \<rightarrow> "selector_name_parity_boxed"]] \<open>
+  enum SelectorNameParity { Boxed(u32), Spared(u64) }
+\<close>
+
+lemma selector_name_positional_parity:
+  \<open>selector_name_parity_boxed (Boxed n) = n\<close>
+  \<open>un_Spared (Spared m) = m\<close>
+  \<open>selector_name_native_boxed (NativeBoxed n) = n\<close>
+  \<open>un_NativeSpared (NativeSpared m) = m\<close>
+  by (simp_all only: selector_name_parity.sel selector_name_native_parity.sel)
+
+lemma selector_name_positional_parity_simp:
+  \<open>selector_name_parity_boxed (Boxed n) = n\<close>
+  \<open>selector_name_native_boxed (NativeBoxed n) = n\<close>
+  by simp_all
+
+lemma selector_name_positional_parity_definition:
+  \<open>selector_name_parity_boxed x = (case x of Boxed n \<Rightarrow> n | Spared _ \<Rightarrow> undefined)\<close>
+  \<open>selector_name_native_boxed y =
+    (case y of NativeBoxed n \<Rightarrow> n | NativeSpared _ \<Rightarrow> undefined)\<close>
+  by (simp_all add: selector_name_parity.selector_name_parity_boxed_def
+    selector_name_native_parity.selector_name_native_boxed_def)
+
 chapter\<open> Rust type aliases in cast targets \<close>
 
 section\<open> Primitive equivalence and grammar composition \<close>

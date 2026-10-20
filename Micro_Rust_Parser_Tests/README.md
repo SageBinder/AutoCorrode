@@ -400,6 +400,14 @@ artifacts select `backend = hol`.
 Identifier-headed paths retain their previous behavior, including unsupported widths such as
 `u128`.
 
+The datatype selector naming suite at the end of `Parser_Datatype_ML_Tests.thy` runs each command
+from a fresh state of its theory and asserts the exact source range of every rejection: unknown
+variants, fields and tuple indices, malformed indices, duplicate keys, duplicate effective
+selectors and collisions with untouched defaults on both payload backends, payload keys on
+`simple_word_enum`, and keys on tuple structs. It also compares a positional `hol` selector with
+the native `datatype` declaration that names the same field: selector constants, definitions,
+`sel`, collapse and split facts, and simplification.
+
 ## Rust-fidelity boundaries
 
 List matching supports closed lists and a single bare or bound rest at any position:
@@ -493,15 +501,17 @@ negative rows preserve these boundaries.
   syntax and recovery.
 - `Parser_Datatype_Examples.thy`: simple word enum path resolution and the `urust_name:` clause
   without the chunk command; datatype declarations, renames and notation registration control;
-  cast-target aliases with import and locale scoping and primitive equivalence; type alias commands
-  and dependency scopes; and record, tuple and enum pointer fields.
+  datatype selector naming with payload rename keys on both payload backends and native
+  positional-selector parity; cast-target aliases with import and locale scoping and primitive
+  equivalence; type alias commands and dependency scopes; and record, tuple and enum pointer
+  fields.
 - `Parser_Datatype_ML_Tests.thy`: generated registrations and navigation, registry integrity,
   transactional diagnostics and command output; the type alias registry (captured templates,
   normalized generic sorts, independent instantiations, collisions) and syntax (shared type and
   cast grammar, generic closers, printer roundtrips); cast-alias conflicts and diagnostics; type
   alias failures and dependency capture; pointer signature constraints and locale contexts; the
   generic datatype suite with backend selection, explicit singleton modelling and pretty replay;
-  and the Rust type mapping suite.
+  the Rust type mapping suite; and the datatype selector naming suite.
 - `Parser_Chunk_Use_Examples.thy`: the use-import fixtures; the declaration-first `urust` reading
   entry point: mixed and one-item chunks, every item shape and layout transition, outer defaults
   and annotation overrides, every option kind, earlier declarations in later items and locale

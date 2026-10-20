@@ -287,7 +287,8 @@ representations with source adapters belongs to a separate increment.
 Recursive and mutually recursive declarations, general const evaluation, zero-length fixed arrays,
 lifetimes, and Rust trait-bound/default translation remain unsupported.
 
-Declaration-local `renames` chooses named-struct HOL selectors or enum HOL constructors:
+Declaration-local `renames` chooses named-struct HOL selectors, enum HOL constructors, and enum
+payload selectors:
 
 ```isabelle
 urust_datatype [renames = ["sampleValue" → "sample"]] ‹
@@ -297,17 +298,31 @@ urust_datatype [renames = ["sampleValue" → "sample"]] ‹
 urust_datatype [renames = ["Ready" → "ModelReady"]] ‹
   enum Choice { Ready { value: u32 }, Empty }
 ›
+
+urust_datatype [backend = hol, renames = ["Ready.value" → "ready_value", "Stored.0" → "stored"]] ‹
+  enum Event { Ready { value: u32 }, Stored(u64, bool) }
+›
 ```
 
 Both sides require quoted strings; theory files use Isabelle's ASCII escape for →.
-Keys are unqualified source field names for structs and variant names for enums. Targets are
-HOL basenames used as written, with normal binding validation. The first example generates
-selector `sample` and lens `packet_sample_lens`; Rust still uses `sampleValue`. The second generates
-constructor `ModelReady`; Rust still uses `Choice::Ready`. Missing entries retain automatic names,
-and `renames = []` preserves all defaults. Duplicate or unknown keys and duplicate effective
-targets, including collisions with untouched defaults, are positioned errors.
+Struct keys are unqualified source field names. Enum keys are source variant names, which rename
+constructors, or payload keys written with the source variant name: `"Variant.field"` for a named
+payload field and `"Variant.N"` for a positional field, where `N` is the 0-based decimal Rust tuple
+index. A plain variant key renames only the constructor, and payload keys keep the source variant
+name after a constructor rename. Targets are HOL basenames used as written, with normal binding
+validation. The first example generates selector `sample` and lens `packet_sample_lens`; Rust still
+uses `sampleValue`. The second generates constructor `ModelReady`; Rust still uses `Choice::Ready`.
+The third generates selectors `ready_value` and `stored`, as `datatype event = Ready (ready_value:
+"32 word") | Stored (stored: "64 word") bool` would. A positional key adds a selector for that field
+on both payload backends: through Ctr_Sugar for `backend = hol`, and as a case-defined constant with
+a `_simps` fact for the custom enum. Unkeyed positional fields keep the backend default: Ctr_Sugar's
+`un_` selectors once a HOL datatype has any selector, and none on the custom enum. Tuple-struct
+fields have no keys.
+Missing entries retain automatic names, and `renames = []` preserves all defaults. Unknown variants,
+fields and tuple indices, malformed indices, duplicate keys, and duplicate effective targets,
+including collisions with untouched defaults, are positioned errors.
 An explicit selector override can resolve a snake-case field collision. The outer HOL type binding
-remains independent; struct constructors and enum payload selectors retain automatic naming.
+remains independent, and struct constructors retain automatic naming.
 Renames are inline-only and compose with the other datatype options.
 
 Automatic field-lens aliases are controlled by Boolean `register_notation`, defaulting to `true`.

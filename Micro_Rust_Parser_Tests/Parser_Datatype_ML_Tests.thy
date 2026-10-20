@@ -5834,4 +5834,344 @@ ML_val \<open>
   end
 \<close>
 
+chapter\<open> Datatype selector naming \<close>
+
+text\<open>
+Selector-naming audits run each command from a fresh state of this theory, so failures leave no
+declaration behind. Every rejection asserts the exact source range of its first position, which
+is the key, target, field or option that explains it.
+\<close>
+
+ML\<open>
+structure Selector_Name_Test =
+struct
+  val quiet = "declare [[urust_pp_test = false, urust_pretty = false, urust_verbosity = 0]]\n"
+
+  fun cartouche text = Symbol.open_ ^ text ^ Symbol.close
+
+  fun rename_list entries =
+    "[" ^ commas (map (fn (source, target) =>
+      quote source ^ " \<rightarrow> " ^ quote target) entries) ^ "]"
+
+  fun run thy label text =
+    let
+      val transitions =
+        Outer_Syntax.parse_text thy (K thy) (Position.line_file 1 label) (quiet ^ text)
+    in
+      Print_Mode.with_modes [Print_Mode.PIDE] (fn () =>
+        Exn.result (fn () =>
+          fold (Toplevel.command_exception true) transitions
+            (Toplevel.make_state (SOME thy))) ()) ()
+    end
+
+  fun plain_message exn =
+    XML.content_of (YXML.parse_body (Runtime.exn_message exn))
+
+  fun message_positions exn =
+    let
+      fun collect (XML.Text _) = []
+        | collect (XML.Elem ((name, properties), body)) =
+            (if name = Markup.positionN then [Position.of_properties properties] else []) @
+              maps collect body
+    in maps collect (YXML.parse_body (Runtime.exn_message exn)) end
+
+  (* The symbol range of needle in the occurrence-th occurrence of prefix ^ needle within the
+     complete command text, which starts at offset 1. *)
+  fun source_range text occurrence (prefix, needle) =
+    let
+      val whole = quiet ^ text
+      val pattern = prefix ^ needle
+      fun find from count =
+        let
+          val (preceding, rest) =
+            Substring.position pattern (Substring.extract (whole, from, NONE))
+          val _ =
+            if Substring.isEmpty rest
+            then error ("selector naming audit: missing " ^ quote pattern) else ()
+          val index = from + Substring.size preceding
+        in if count <= 1 then index else find (index + size pattern) (count - 1) end
+      val index = find 0 occurrence + size prefix
+      val start = length (Symbol.explode (String.substring (whole, 0, index))) + 1
+    in (start, start + length (Symbol.explode needle)) end
+
+  fun key_range text occurrence key = source_range text occurrence ("\"", key)
+
+  fun succeeded thy label text =
+    (case run thy label text of
+       Exn.Res state => Toplevel.context_of state
+     | Exn.Exn exn =>
+         if Exn.is_interrupt exn then Exn.reraise exn
+         else error (label ^ " unexpectedly failed:\n" ^ plain_message exn))
+
+  fun rejected_at thy label fragment (start, stop) text =
+    (case run thy label text of
+       Exn.Res _ => error (label ^ " unexpectedly succeeded")
+     | Exn.Exn exn =>
+         if Exn.is_interrupt exn then Exn.reraise exn
+         else
+           let
+             val message = plain_message exn
+             val actual =
+               (case message_positions exn of
+                  pos :: _ =>
+                    (Position.offset_of pos, Position.end_offset_of pos, Position.file_of pos)
+                | [] => (NONE, NONE, NONE))
+             val expected = (SOME start, SOME stop, SOME label)
+             fun show (offset, end_offset, file) =
+               @{make_string} (offset, end_offset, file)
+           in
+             if not (String.isSubstring fragment message)
+             then error (label ^ " produced the wrong diagnostic:\n" ^ message)
+             else if actual <> expected
+             then
+               error (label ^ " is positioned at " ^ show actual ^ " instead of " ^
+                 show expected ^ ":\n" ^ message)
+             else ()
+           end)
+end
+\<close>
+
+section\<open> Payload rename keys \<close>
+
+ML_val\<open>
+  local
+    structure T = Selector_Name_Test
+    val thy = \<^theory>
+    val item =
+      T.cartouche " enum SelectorNameKeys { Named { value: u32 }, Pair(u32, bool), Unit } "
+    fun rejected_key backend (label, key, fragment) =
+      let
+        val text =
+          "urust_datatype [" ^ backend ^ "renames = " ^
+            T.rename_list [(key, "selector_name_chosen")] ^ "] " ^ item
+      in T.rejected_at thy label fragment (T.key_range text 1 key) text end
+  in
+    val _ =
+      List.app (fn (suffix, backend) =>
+        List.app (fn (label, key, fragment) =>
+          rejected_key backend ("selector-name-" ^ label ^ suffix, key, fragment))
+          [("unknown-variant", "Missing.value",
+            "unknown rename key \"Missing.value\": enum \"SelectorNameKeys\" has no variant " ^
+              "\"Missing\""),
+           ("unknown-constructor", "Missing",
+            "enum \"SelectorNameKeys\" has no variant \"Missing\""),
+           ("path-variant", "SelectorNameKeys::Named.value",
+            "has no variant \"SelectorNameKeys::Named\""),
+           ("unknown-field", "Named.missing",
+            "unknown rename key \"Named.missing\": variant \"Named\" has no field \"missing\""),
+           ("nested-field", "Named.value.inner", "variant \"Named\" has no field \"value.inner\""),
+           ("named-index", "Named.0", "variant \"Named\" has no field \"0\""),
+           ("unit-payload", "Unit.0", "variant \"Unit\" has no payload fields"),
+           ("unit-field", "Unit.value", "variant \"Unit\" has no payload fields"),
+           ("out-of-range", "Pair.2",
+            "unknown rename key \"Pair.2\": variant \"Pair\" has 2 positional fields"),
+           ("large-index", "Pair.18446744073709551616", "variant \"Pair\" has 2 positional fields"),
+           ("non-decimal", "Pair.first",
+            "invalid rename key \"Pair.first\": tuple variant fields are named by 0-based " ^
+              "decimal indices"),
+           ("negative", "Pair.-1", "invalid rename key \"Pair.-1\""),
+           ("leading-zero", "Pair.01", "invalid rename key \"Pair.01\""),
+           ("hexadecimal", "Pair.0x1", "invalid rename key \"Pair.0x1\""),
+           ("separated", "Pair.0_1", "invalid rename key \"Pair.0_1\""),
+           ("empty-index", "Pair.", "invalid rename key \"Pair.\""),
+           ("empty-variant", ".0", "has no variant \"\"")])
+        [("-enum", ""), ("-hol", "backend = hol, ")]
+  end
+\<close>
+
+ML_val\<open>
+  local
+    structure T = Selector_Name_Test
+    val thy = \<^theory>
+    fun declaration backend entries item =
+      "urust_datatype [" ^ backend ^ "renames = " ^ T.rename_list entries ^ "] " ^
+        T.cartouche item
+    val keys_item = " enum SelectorNameKeys { Named { value: u32 }, Pair(u32, bool), Unit } "
+    val order_item = " enum SelectorNameOrder { Pair(u32), Named { value: u32 } } "
+  in
+    val _ =
+      List.app (fn (suffix, backend) =>
+        let
+          val duplicate_key =
+            declaration backend
+              [("Pair.0", "selector_name_first"), ("Pair.0", "selector_name_second")] keys_item
+          val _ =
+            T.rejected_at thy ("selector-name-duplicate-key" ^ suffix)
+              "duplicate rename key \"Pair.0\"" (T.key_range duplicate_key 2 "Pair.0")
+              duplicate_key
+          val duplicate_target =
+            declaration backend
+              [("Pair.0", "selector_name_same"), ("Named.value", "selector_name_same")] keys_item
+          (* Effective selectors are checked in source variant order: Named, then Pair. *)
+          val _ =
+            T.rejected_at thy ("selector-name-duplicate-target" ^ suffix)
+              "duplicate generated HOL selector \"selector_name_same\""
+              (T.key_range duplicate_target 1 "selector_name_same") duplicate_target
+          val default_after =
+            declaration backend [("Pair.1", "selector_name_keys_named_value")] keys_item
+          val _ =
+            T.rejected_at thy ("selector-name-default-after" ^ suffix)
+              "duplicate generated HOL selector \"selector_name_keys_named_value\""
+              (T.key_range default_after 1 "selector_name_keys_named_value") default_after
+          val default_before =
+            declaration backend [("Pair.0", "selector_name_order_named_value")] order_item
+          val _ =
+            T.rejected_at thy ("selector-name-default-before" ^ suffix)
+              "duplicate generated HOL selector \"selector_name_order_named_value\""
+              (T.source_range default_before 1 ("{ ", "value")) default_before
+          val collision =
+            "urust_datatype [" ^ backend ^ "renames = [] ] " ^
+              T.cartouche
+                " enum SelectorNameSnake { FooBar { value: u32 }, Foo_Bar { value: bool } } "
+          val _ =
+            T.rejected_at thy ("selector-name-default-collision" ^ suffix)
+              "duplicate generated HOL selector \"selector_name_snake_foo_bar_value\""
+              (T.source_range collision 2 ("{ ", "value")) collision
+          val resolved =
+            declaration backend [("Foo_Bar.value", "selector_name_resolved")]
+              " enum SelectorNameResolved { FooBar { value: u32 }, Foo_Bar { value: bool } } "
+          val ctxt = T.succeeded thy ("selector-name-resolved" ^ suffix) resolved
+          val entry =
+            the (URust_Item_Scope.lookup_constructor ctxt "SelectorNameResolved::Foo_Bar")
+          val _ =
+            if map (apsnd (Long_Name.base_name o dest_Const_name))
+                (URust_Item_Scope.constructor_fields entry) = [("value", "selector_name_resolved")]
+            then () else error "a payload key did not resolve a snake-case selector collision"
+        in () end)
+        [("-enum", ""), ("-hol", "backend = hol, ")]
+  end
+\<close>
+
+ML_val\<open>
+  local
+    structure T = Selector_Name_Test
+    val thy = \<^theory>
+  in
+    (* Keys use the source variant name; a constructor rename neither hides nor renames them. *)
+    val _ =
+      List.app (fn (suffix, backend) =>
+        let
+          val text =
+            "urust_datatype [" ^ backend ^ "renames = " ^
+              T.rename_list
+                [("Named", "SelectorNameModelNamed"), ("Named.value", "selector_name_value"),
+                 ("Pair", "SelectorNameModelPair"), ("Pair.1", "selector_name_flag")] ^ "] " ^
+              T.cartouche
+                " enum SelectorNameSource { Named { value: u32, other: bool }, Pair(u32, bool) } "
+          val ctxt = T.succeeded thy ("selector-name-source-variant" ^ suffix) text
+          fun entry path = the (URust_Item_Scope.lookup_constructor ctxt path)
+          val named = entry "SelectorNameSource::Named"
+          val pair = entry "SelectorNameSource::Pair"
+          val _ =
+            if map (apsnd (Long_Name.base_name o dest_Const_name))
+                (URust_Item_Scope.constructor_fields named) =
+                [("value", "selector_name_value"), ("other", "selector_name_source_named_other")]
+            then () else error ("named payload keys changed field metadata" ^ suffix)
+          val _ =
+            if map (Long_Name.base_name o dest_Const_name o URust_Item_Scope.constructor_term)
+                [named, pair] = ["SelectorNameModelNamed", "SelectorNameModelPair"] andalso
+              null (URust_Item_Scope.constructor_fields pair)
+            then () else error ("constructor keys changed with payload keys" ^ suffix)
+          val flag_type =
+            fastype_of (Proof_Context.read_const {proper = true, strict = false} ctxt
+              "selector_name_flag")
+          val _ =
+            if Long_Name.base_name (dest_Type_name (domain_type flag_type)) =
+                "selector_name_source" andalso range_type flag_type = \<^typ>\<open>bool\<close>
+            then () else error ("positional key generated the wrong selector type" ^ suffix)
+        in () end)
+        [("-enum", ""), ("-hol", "backend = hol, ")]
+
+    (* simple_word_enum variants have no payload; tuple structs have no keys. *)
+    val word =
+      "urust_datatype [word_width = 8, renames = " ^
+        T.rename_list [("On.0", "selector_name_on")] ^ "] " ^
+        T.cartouche " enum SelectorNameWord { On, Off } "
+    val _ =
+      T.rejected_at thy "selector-name-word-key" "variant \"On\" has no payload fields"
+        (T.key_range word 1 "On.0") word
+    val word_field =
+      "urust_datatype [renames = " ^ T.rename_list [("On.value", "selector_name_on")] ^ "] " ^
+        T.cartouche " #[repr(u8)] enum SelectorNameWord { On = 1, Off = 2 } "
+    val _ =
+      T.rejected_at thy "selector-name-word-field" "variant \"On\" has no payload fields"
+        (T.key_range word_field 1 "On.value") word_field
+    val _ =
+      List.app (fn (label, key) =>
+        let
+          val text =
+            "urust_datatype [renames = " ^ T.rename_list [(key, "selector_name_first")] ^ "] " ^
+              T.cartouche " struct SelectorNameTuple(u32, bool); "
+        in
+          T.rejected_at thy label
+            ("unknown rename key " ^ quote key ^ ": struct \"SelectorNameTuple\" has only " ^
+              "positional fields, and tuple struct fields have no rename keys")
+            (T.key_range text 1 key) text
+        end)
+        [("selector-name-tuple-struct-index", "0"),
+         ("selector-name-tuple-struct-qualified", "SelectorNameTuple.0")]
+  end
+\<close>
+
+section\<open> Native parity of positional selectors \<close>
+
+ML_val\<open>
+  local
+    val ctxt = \<^context>
+    fun sugar name = the (Ctr_Sugar.ctr_sugar_of ctxt name)
+    val generated = sugar \<^type_name>\<open>selector_name_parity\<close>
+    val native = sugar \<^type_name>\<open>selector_name_native_parity\<close>
+    fun const_names (sugar: Ctr_Sugar.ctr_sugar) =
+      map_filter (try dest_Const_name)
+        (#ctrs sugar @ flat (#selss sugar) @ #discs sugar @ [#casex sugar])
+    val _ =
+      if length (const_names generated) = length (const_names native) then ()
+      else error "positional selector parity: different constructor-sugar shapes"
+    val constants = const_names native ~~ const_names generated
+    val native_type = dest_Type_name (#T native)
+    val generated_type = dest_Type_name (#T generated)
+    fun rename_type (Type (name, Ts)) =
+          Type (if name = native_type then generated_type else name, map rename_type Ts)
+      | rename_type T = T
+    (* Ctr_Sugar names variables after the type. *)
+    val native_base = Long_Name.base_name native_type
+    val generated_base = Long_Name.base_name generated_type
+    fun rename_variable name =
+      if String.isPrefix native_base name
+      then generated_base ^ unprefix native_base name else name
+    fun rename (Const (name, T)) =
+          Const (the_default name (AList.lookup (op =) constants name), rename_type T)
+      | rename (Free (name, T)) = Free (rename_variable name, rename_type T)
+      | rename (Var ((name, index), T)) = Var ((rename_variable name, index), rename_type T)
+      | rename (Abs (name, T, body)) = Abs (name, rename_type T, rename body)
+      | rename (t $ u) = rename t $ rename u
+      | rename t = t
+    fun same label native_thms generated_thms =
+      if length native_thms = length generated_thms andalso
+          forall (fn (n, g) => rename (Thm.prop_of n) aconv Thm.prop_of g)
+            (native_thms ~~ generated_thms)
+      then () else error ("positional selector parity: different " ^ label)
+    val _ = same "sel facts" (flat (#sel_thmss native)) (flat (#sel_thmss generated))
+    val _ = same "selector definitions" (#sel_defs native) (#sel_defs generated)
+    val _ = same "collapse facts" (#collapses native) (#collapses generated)
+    val _ = same "split facts" (#split_sels native) (#split_sels generated)
+    val _ =
+      if map rename (flat (#selss native)) = flat (#selss generated)
+      then () else error "positional selector parity: different selector constants"
+    val _ =
+      if Long_Name.base_name (dest_Const_name (hd (hd (#selss generated)))) =
+          "selector_name_parity_boxed"
+      then () else error "positional selector parity: wrong selector name"
+    (* The default simpset alone proves each generated sel equation. *)
+    val _ =
+      List.app (fn thm =>
+        let val (goals, goal_ctxt) = Variable.import_terms true [Thm.prop_of thm] ctxt
+        in
+          ignore (Goal.prove goal_ctxt [] [] (the_single goals)
+            (fn {context, ...} => simp_tac context 1))
+        end)
+        (flat (#sel_thmss generated))
+  in end
+\<close>
+
 end
